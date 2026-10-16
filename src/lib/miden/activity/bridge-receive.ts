@@ -5,6 +5,7 @@ import { fetchDeposits, isAgglayerDepositReady } from 'lib/agglayer/status';
 import { MIDEN_DESTINATION_CHAIN_ID } from 'lib/epoch/config';
 import { readEpochIntentStatus } from 'lib/epoch/intent-status';
 import * as Repo from 'lib/miden/repo';
+import { initBridgeConfig } from 'lib/remote-config/runtime';
 import {
   fetchXReserveAttestations,
   matchUsdcxDepositAttestation,
@@ -19,9 +20,10 @@ import {
   stalledExecuteLeg,
   USDCX_EXECUTE_STALL_SEC
 } from 'lib/usdcx/cctp';
-import { USDCX_SOURCE_CHAINS, UsdcxExecutorSource } from 'lib/usdcx/constant';
+import { usdcxSourceChains, UsdcxExecutorSource } from 'lib/usdcx/constant';
 import { usdcxExpectedRemoteTokenFor, usdcxRemoteRecipientFor } from 'lib/usdcx/deposit-target';
-import { readEvmReceiptOutcome, waitForSepoliaReceipt } from 'lib/walletconnect/receipt';
+import { DEFAULT_CHAIN_ID, EVM_CHAIN_DEFINITIONS } from 'lib/walletconnect/config';
+import { readEvmReceiptOutcome, waitForEvmReceipt } from 'lib/walletconnect/receipt';
 
 import {
   BRIDGE_DELIVERY_TIMED_OUT,
@@ -75,7 +77,11 @@ async function reconcileAgglayerRow(row: ITransaction, inputs: IBridgedReceiveEx
 
   if (inputs.phase === 'submitting') {
     try {
-      await waitForSepoliaReceipt(inputs.evmTxHash as `0x${string}`);
+      // A row saved before its route was is from DEFAULT_CHAIN_ID.
+      const chainId = inputs.agglayerRoute?.chainId ?? inputs.sourceChainId ?? DEFAULT_CHAIN_ID;
+      const chain = EVM_CHAIN_DEFINITIONS.find(candidate => candidate.id === chainId);
+      if (!chain) throw new Error(`EVM chain ${chainId} is not configured`);
+      await waitForEvmReceipt(inputs.evmTxHash as `0x${string}`, chain);
       await updateBridgedReceivePhase(row.id, 'delivering');
     } catch (error) {
       await updateBridgedReceivePhase(row.id, 'failed', {
@@ -86,7 +92,7 @@ async function reconcileAgglayerRow(row: ITransaction, inputs: IBridgedReceiveEx
   }
 
   try {
-    const deposits = await fetchDeposits(midenAddrToEvmAddr(row.accountId));
+    const deposits = await fetchDeposits(midenAddrToEvmAddr(row.accountId), undefined, inputs.agglayerRoute);
     const deposit = deposits.find(candidate => sameHash(candidate.tx_hash, inputs.evmTxHash!));
     if (deposit && isAgglayerDepositReady(deposit)) {
       await updateBridgedReceivePhase(row.id, 'ready');
@@ -114,12 +120,13 @@ async function reconcileEpochRow(row: ITransaction, inputs: IBridgedReceiveExtra
     sourceSymbol: inputs.sourceSymbol,
     intentNonce: inputs.intentNonce,
     evmTxHash: inputs.evmTxHash,
-    bridgeReceiveTxId: row.id
+    bridgeReceiveTxId: row.id,
+    epochAllocatorUrl: inputs.epochAllocatorUrl
   });
 
   try {
     const { getEpochReadOnlySdk } = await import('lib/epoch/sdk');
-    const sdk = await getEpochReadOnlySdk(inputs.sourceAddress as `0x${string}`);
+    const sdk = await getEpochReadOnlySdk(inputs.sourceAddress as `0x${string}`, inputs.epochAllocatorUrl);
     const results = await readEpochIntentStatus(sdk, inputs.sourceAddress, inputs.intentNonce);
     const noteId = results.map(result => firstString(result, 'midenNoteId')).find(Boolean);
     if (noteId) await resolveBridgeInNoteId(inputs.sourceAddress, inputs.intentNonce, noteId);
@@ -182,7 +189,10 @@ async function matchUsdcxDeposit(
   if (txHash === undefined || !isHash(txHash)) return undefined;
   const expected = usdcxExpectationOf(row, inputs);
   if (expected === undefined) return undefined;
-  return matchUsdcxDepositAttestation(await fetchXReserveAttestations(txHash, { baseUrl: attestationApi }), expected);
+  return matchUsdcxDepositAttestation(await fetchXReserveAttestations(txHash, { baseUrl: attestationApi }), {
+    ...expected,
+    remoteDomain: inputs.usdcxMidenDomain
+  });
 }
 
 /**
@@ -197,7 +207,9 @@ async function reconcileUsdcxRow(row: ITransaction, inputs: IBridgedReceiveExtra
     await updateBridgedReceivePhase(row.id, 'failed', { error: INTERRUPTED_BEFORE_HASH });
     return;
   }
-  const source = inputs.sourceChainId === undefined ? undefined : USDCX_SOURCE_CHAINS.get(inputs.sourceChainId);
+  const source =
+    inputs.usdcxSource ??
+    (inputs.sourceChainId === undefined ? undefined : usdcxSourceChains().get(inputs.sourceChainId));
   try {
     if (source?.route === 'cctp-executor') {
       await reconcileUsdcxExecutorRow(row, inputs, source);
@@ -233,9 +245,9 @@ function executeStalled(row: ITransaction, leg: IUsdcxCctpLeg): boolean {
 
 /**
  * An executor-route deposit has two Circle attestations. First Iris attests the CCTP burn. A forwarded burn
- * is then executed on Arc by Circle, and the reconciler waits for the forward transaction hash; a manual
- * burn, or a forward Circle gave up on, keeps the attested message on the row, where the status screen and
- * Activity offer the execute. Once an Arc transaction hash is on the row, from either side, the reconciler
+ * is then executed on Arc by Circle, and the reconciler waits for the forward transaction hash; a forward
+ * Circle gave up on, or a burn made before every burn was forwarded, keeps the attested message on the row,
+ * where the status screen and Activity offer the execute. Once an Arc transaction hash is on the row, from either side, the reconciler
  * asks xReserve's attestation service for it, which is the deposit, and the row becomes `ready` as a direct
  * deposit would. An Arc execute that reverted, seen here or by the foreground hook, or that stayed unmined past
  * the stall window, reopens the leg for the wallet to execute, and its hash is never adopted again.
@@ -454,6 +466,9 @@ export function createBridgeReceiveReconciler({
    * index.
    */
   async function reconcile(): Promise<void> {
+    // The watcher's first pass can run before this realm read its stored copy, and a row with no saved route is
+    // classified (and timed out) by the document; from storage, never the network.
+    await initBridgeConfig();
     const { rows, resumeOrphans } = await readRows();
     const cutoffSec = Math.floor((Date.now() - BRIDGE_RECEIVE_MAX_AGE_MS) / 1000);
 

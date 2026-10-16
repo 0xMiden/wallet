@@ -152,7 +152,8 @@ export interface WalletActions {
     password: string | undefined,
     mnemonic: string,
     ownMnemonic: boolean,
-    guardianEndpoint?: string
+    guardianEndpoint?: string,
+    accessCode?: string
   ) => Promise<void>;
   registerWalletFromHotKey: (
     password: string | undefined,
@@ -238,6 +239,7 @@ export interface WalletActions {
   confirmDAppAssets: (id: string, confirmed: boolean) => Promise<void>;
   confirmDAppImportPrivateNote: (id: string, confirmed: boolean) => Promise<void>;
   confirmDAppConsumableNotes: (id: string, confirmed: boolean) => Promise<void>;
+  confirmDAppUnlock: (id: string) => Promise<void>;
   confirmDAppTransaction: (
     id: string,
     confirmed: boolean,
@@ -259,6 +261,8 @@ export interface WalletActions {
 export interface BalanceActions {
   fetchBalances: (accountAddress: string, tokenMetadatas: Record<string, AssetMetadata>) => Promise<void>;
   setBalancesLoading: (accountAddress: string, isLoading: boolean) => void;
+  /** Drops every address's balances, loading flag and last fetch, so each reader waits for a new read. */
+  clearBalances: () => void;
 }
 
 export interface AssetActions {

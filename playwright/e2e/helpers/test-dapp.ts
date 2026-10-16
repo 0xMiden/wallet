@@ -342,7 +342,7 @@ const confirmPagesOpen = (context: BrowserContext): Page[] =>
   context.pages().filter(page => !page.isClosed() && page.url().includes('confirm.html'));
 
 /**
- * The wallet answers the dApp before its popup window is gone (`close()` is not awaited, dapp.ts:2463-2466), so a
+ * The wallet answers the dApp before its popup window is gone (`close()` is not awaited, dapp.ts:2512-2515), so a
  * page from the previous answer can still be closing when the next request starts; wait it out rather than count it.
  */
 export async function waitForNoConfirmPages(context: BrowserContext, timeoutMs = 10_000): Promise<void> {
@@ -462,7 +462,7 @@ export async function popupBlock(dapp: DappHandle, ctx: CellContext): Promise<vo
   await callDapp(dapp, 'waitForHeight', { target: height + 1, timeoutMs: heightWaitMs(ctx.deadline) }, ctx.deadline);
 }
 
-/** Closing a confirm page is the wallet's decline (dapp.ts:2512-2516). */
+/** Closing a confirm page is the wallet's decline (dapp.ts:2564-2568). */
 export async function closeOpenConfirmPages(context: BrowserContext): Promise<number> {
   const open = context.pages().filter(page => page.url().includes('confirm.html'));
   for (const page of open) await page.close();
@@ -517,7 +517,7 @@ export async function revokeDappSession(wallet: GuardianAwareWalletPage, origin:
   }, origin);
 }
 
-/** The account ids the wallet holds a session for under one origin (`dapp_sessions`, dapp.ts:2367-2372). */
+/** The account ids the wallet holds a session for under one origin (`dapp_sessions`, dapp.ts:2416-2426). */
 export async function dappSessionsFor(wallet: GuardianAwareWalletPage, origin: string): Promise<string[]> {
   return wallet.page.evaluate(async target => {
     const got = await chrome.storage.local.get('dapp_sessions');

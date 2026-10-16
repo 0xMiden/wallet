@@ -75,7 +75,7 @@ import {
   type RunEvidence,
   type StepContext
 } from './usdcx-run';
-import { USDCX_DECIMALS } from '../../../src/lib/usdcx/constant';
+import { USDCX_DECIMALS } from '../../../src/lib/usdcx/protocol';
 import type { GuardianAwareWalletPage } from '../fixtures/two-wallets';
 
 /**

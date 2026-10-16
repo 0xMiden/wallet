@@ -80,11 +80,6 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
     Note: {
       deserialize: (...a: any[]) => g.__off.deserializeNote(...a)
     },
-    // #784: the guardianPipeline DISPATCH decodes the crossed wire-form anchor
-    // back into a ChainAnchor before pinning executeRequest to it.
-    ChainAnchor: {
-      deserialize: (...a: any[]) => g.__off.deserializeChainAnchor(...a)
-    },
     TransactionProver: {
       deserialize: (...a: any[]) => g.__off.deserializeProver(...a),
       newLocalProver: (...a: any[]) => g.__off.newLocalProver(...a)
@@ -251,14 +246,16 @@ jest.mock('lib/miden/sdk/miden-client', () => {
 // worker-prove helper sees this file's holds (#945).
 jest.mock('../lib/miden/sdk/miden-client', () => jest.requireMock('lib/miden/sdk/miden-client'));
 
-// The endpoint-override cache is module-scoped, i.e. PER REALM, so the offscreen
-// doc hydrates it itself at init and re-hydrates it on the SW's
-// OFFSCREEN_RELOAD_ENDPOINTS nudge. Delegate to a control fn so a test can observe
-// the call count and — where the ORDERING against client creation is what's under
-// test — hold the load open with a deferred promise.
-jest.mock('lib/miden-chain/effective-endpoints', () => {
+// An offscreen document has no chrome.storage, so every storage call rejects here as it does
+// in the real realm. The REAL effective-endpoints module runs on top of it: a stub of it hid
+// #1482, where this realm silently ran on the build's network.
+jest.mock('lib/platform/storage-adapter', () => {
   const g = globalThis as any;
-  return { loadEndpointOverrides: (...a: any[]) => g.__off.loadEndpointOverrides(...a) };
+  const refuse = async () => {
+    g.__off.storageCalls++;
+    throw new TypeError("Cannot read properties of undefined (reading 'local')");
+  };
+  return { getStorageProvider: () => ({ get: refuse, set: refuse, remove: refuse }) };
 });
 
 // Slice 5: the offscreen doc creates its client via `MidenClientInterface.create`
@@ -281,7 +278,15 @@ jest.mock('lib/miden/sdk/miden-client-interface', () => {
     MidenClientInterface: {
       create: (opts: any) => {
         g.__off.createOptions.push(opts);
-        g.__off.order.push('create');
+        // What `create` bakes into the client, read from this realm's effective-endpoints.
+        const endpoints = jest.requireActual('lib/miden-chain/effective-endpoints');
+        g.__off.createEndpoints.push({
+          network: endpoints.getEffectiveNetworkName(),
+          rpcUrl: endpoints.getEffectiveRpcUrl(),
+          proverUrl: endpoints.getEffectiveProverUrl(),
+          noteTransportUrl: endpoints.getEffectiveNoteTransportUrl(),
+          feeFaucetId: endpoints.getEffectiveFeeFaucetId()
+        });
         return g.__off.getMidenClient(opts);
       }
     },
@@ -324,6 +329,9 @@ jest.mock('./prove-worker-client', () => ({
   }
 }));
 
+// What a service worker on the build's own network sends with every call (#1482).
+const SW_ENDPOINTS = { override: null, feeFaucetId: undefined };
+
 let capturedListener: Listener | undefined;
 let logSpy: jest.SpyInstance;
 let warnSpy: jest.SpyInstance;
@@ -331,16 +339,10 @@ let errorSpy: jest.SpyInstance;
 
 function resetControl() {
   G.__off = {
-    // Ordered log of the realm-startup steps whose SEQUENCE is load-bearing: the
-    // endpoint-override load must precede both the WASM init and any client create,
-    // because the client BAKES the effective endpoints in at creation time.
-    order: [] as string[],
-    loadEndpointOverrides: jest.fn(async () => {
-      (globalThis as any).__off.order.push('loadEndpointOverrides');
-    }),
-    getWasmOrThrow: jest.fn(async () => {
-      (globalThis as any).__off.order.push('getWasmOrThrow');
-    }),
+    storageCalls: 0,
+    // One entry per client build: the effective endpoints at the moment `create` ran.
+    createEndpoints: [] as any[],
+    getWasmOrThrow: jest.fn(async () => {}),
     hasInitThreadPool: true,
     initThreadPool: jest.fn(async () => {}),
     webClientCtorCount: 0,
@@ -353,9 +355,6 @@ function resetControl() {
     // DISPATCH hands to the client. Echo the bytes so the test can assert the note
     // crossed intact.
     deserializeNote: jest.fn((b: Uint8Array) => ({ __noteFromBytes: Array.from(b) })),
-    // #784: ChainAnchor.deserialize(anchorBytes) → the anchor the guardianPipeline
-    // DISPATCH pins executeRequest to. Echoes the bytes; free() is a per-test spy.
-    deserializeChainAnchor: jest.fn((b: Uint8Array) => ({ __anchorFromBytes: Array.from(b), free: jest.fn() })),
     deserializeProver: jest.fn(async (d: string) => ({ __fromDescriptor: d })),
     newLocalProver: jest.fn(() => ({ __local: true })),
     // The explicit REMOTE prover the guardian pipeline hands a delegated prove, so
@@ -689,19 +688,11 @@ describe('offscreen/main — startup / init()', () => {
     expect(mockProveTransport.prove).toHaveBeenCalledWith(request, undefined);
   });
 
-  // The endpoint-override cache lives in module scope, so it is PER REALM: the SW's
-  // own load never reaches this document, and without one every getEffective*Url() /
-  // getEffectiveNetworkName() here would answer the build default — wrong node for
-  // every write/sync, and a bech32 prefix that disagrees with the SW's.
-  it('hydrates the endpoint override FIRST, before the WASM/thread-pool init', async () => {
+  // This realm has no extension storage: the network arrives with each call (#1482).
+  it('boots without a storage read', async () => {
     await loadModule();
-
-    expect(G.__off.loadEndpointOverrides).toHaveBeenCalledTimes(1);
-    // Ordering, not just presence: the load has to complete before anything in this
-    // realm can read an endpoint or encode an id.
-    expect(G.__off.order[0]).toBe('loadEndpointOverrides');
-    expect(G.__off.order).toContain('getWasmOrThrow');
-    expect(G.__off.order.indexOf('loadEndpointOverrides')).toBeLessThan(G.__off.order.indexOf('getWasmOrThrow'));
+    expect(G.__off.getWasmOrThrow).toHaveBeenCalledTimes(1);
+    expect(G.__off.storageCalls).toBe(0);
   });
 
   it('warns when crossOriginIsolated is false (SAB unavailable)', async () => {
@@ -960,6 +951,7 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     op_id: 'op-abc',
     deadline_ms: 1000,
     argsB64: [],
+    endpoints: SW_ENDPOINTS,
     ...extra
   });
 
@@ -3632,7 +3624,6 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
 
     expect(response.mock.calls[0][0].ok).toBe(true);
     expect(G.__off.guardianExecuteRequest).toHaveBeenCalledWith('acc', request);
-    expect(G.__off.deserializeChainAnchor).not.toHaveBeenCalled();
     const syncOrder = G.__off.clientSyncChain.mock.invocationCallOrder[0];
     const heightOrder = G.__off.clientGetSyncHeight.mock.invocationCallOrder[0];
     const executeOrder = G.__off.guardianExecuteRequest.mock.invocationCallOrder[0];
@@ -4416,102 +4407,182 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
   });
 });
 
-// --- OFFSCREEN_RELOAD_ENDPOINTS: developer endpoint overrides in this realm ---
+// --- The network this realm runs on comes from the service worker (#1482) ---
 //
-// The SW nudges this realm when the saved override changes, because BOTH the
-// override cache and the client singleton are module-scoped — the SW's own
-// loadEndpointOverrides() + resetMidenClient() reach only the SW realm, while
-// flag-on it is the client HERE that talks to the node.
-describe('offscreen/main — OFFSCREEN_RELOAD_ENDPOINTS (endpoint overrides)', () => {
+// An offscreen document has no chrome.storage, so it cannot load the endpoint override
+// the way the SW and the page do. The SW sends its endpoint state with every call and
+// with OFFSCREEN_RELOAD_ENDPOINTS; these run on the REAL effective-endpoints module, with
+// every storage call rejecting as it does in the real document.
+describe('offscreen/main - the network comes from the service worker (#1482)', () => {
+  // The realm's own effective-endpoints, which everything here but the client reads too
+  // (bech32 prefixes, the native-asset scope). Required lazily: loading it pulls the SDK mock,
+  // which reads the per-test control object.
+  const realm = () => jest.requireActual('lib/miden-chain/effective-endpoints');
+  const mainnet = () => ({ override: realm().buildNetworkChoiceOverride('mainnet'), feeFaucetId: '0xmainfee' });
+  const custom = () => ({
+    override: { ...realm().buildDefaultOverrideFor('devnet'), rpcUrl: 'https://custom.example/rpc' },
+    feeFaucetId: '0xcustomfee'
+  });
+  const MAINNET_BUILD = {
+    network: 'mainnet',
+    rpcUrl: 'https://rpc.cedar.miden.io',
+    proverUrl: 'https://tx-prover.cedar.miden.io',
+    noteTransportUrl: 'https://transport.cedar.miden.io',
+    feeFaucetId: '0xmainfee'
+  };
+
+  const callReq = (endpoints: unknown, op_id = 'op-network') => ({
+    target: 'offscreen',
+    type: 'OFFSCREEN_CALL',
+    op_id,
+    method: 'getAccount',
+    deadline_ms: 1000,
+    argsB64: [encodeArg('acc')],
+    endpoints
+  });
+  const call = async (endpoints: unknown, op_id?: string) => {
+    const reply = jest.fn();
+    capturedListener!(callReq(endpoints, op_id), {}, reply);
+    await flush();
+    return reply.mock.calls[0]?.[0];
+  };
+  const reload = async (endpoints?: unknown) => {
+    const ack = jest.fn();
+    const ret = capturedListener!(
+      { target: 'offscreen', type: 'OFFSCREEN_RELOAD_ENDPOINTS', ...(endpoints ? { endpoints } : {}) },
+      {},
+      ack
+    );
+    expect(ret).toBe(true);
+    await flush();
+    return ack.mock.calls[0]?.[0];
+  };
+
+  it('builds the client on the network the call carries, though this realm cannot read storage', async () => {
+    await loadModule();
+    expect((await call(mainnet())).ok).toBe(true);
+
+    expect(G.__off.createEndpoints).toEqual([MAINNET_BUILD]);
+    expect(realm().getEffectiveNetworkName()).toBe('mainnet');
+    expect(G.__off.storageCalls).toBe(0);
+  });
+
+  it('refuses a call that carries no network state, and builds no client', async () => {
+    await loadModule();
+    const { endpoints: _none, ...bare } = callReq(undefined);
+    const reply = jest.fn();
+    capturedListener!(bare, {}, reply);
+    await flush();
+
+    expect(reply).toHaveBeenCalledTimes(1);
+    expect(reply.mock.calls[0][0]).toMatchObject({ ok: false, op_id: 'op-network', errorBeforeSubmit: true });
+    expect(reply.mock.calls[0][0].error).toContain("call 'getAccount' carries no network state");
+    expect(G.__off.createOptions).toHaveLength(0);
+    expect(G.__off.clientGetAccount).not.toHaveBeenCalled();
+  });
+
+  it('rebuilds the client when a call carries another state, and reuses it for the same one', async () => {
+    await loadModule();
+    expect((await call(mainnet(), 'op-1')).ok).toBe(true);
+    // An equal state in a fresh object, as every message delivers it.
+    expect((await call(mainnet(), 'op-2')).ok).toBe(true);
+    expect(G.__off.createEndpoints).toEqual([MAINNET_BUILD]);
+
+    expect((await call(custom(), 'op-3')).ok).toBe(true);
+    expect(G.__off.createEndpoints).toHaveLength(2);
+    expect(G.__off.createEndpoints[1]).toMatchObject({
+      network: 'devnet',
+      rpcUrl: 'https://custom.example/rpc',
+      feeFaucetId: '0xcustomfee'
+    });
+  });
+
+  // Adopted on receipt, so the service worker's latest message wins in send order even on a cold document.
+  it('a reload sent after a call wins when the call arrived while init was still pending', async () => {
+    let finishInit!: () => void;
+    G.__off.getWasmOrThrow = jest.fn(
+      () =>
+        new Promise<void>(resolve => {
+          finishInit = resolve;
+        })
+    );
+    await loadModule();
+    const reply = jest.fn();
+    capturedListener!(callReq(mainnet()), {}, reply);
+    await flush();
+    expect(await reload(custom())).toEqual({ ok: true });
+
+    finishInit();
+    await flush();
+    expect(reply.mock.calls[0]?.[0]?.ok).toBe(true);
+    expect(G.__off.createEndpoints).toEqual([
+      expect.objectContaining({ rpcUrl: 'https://custom.example/rpc', feeFaucetId: '0xcustomfee' })
+    ]);
+  });
+
+  it('a reload with state adopts it and drops the client', async () => {
+    await loadModule();
+    expect((await call(mainnet())).ok).toBe(true);
+
+    expect(await reload(custom())).toEqual({ ok: true });
+    expect(realm().getEffectiveRpcUrl()).toBe('https://custom.example/rpc');
+    expect(realm().getEffectiveFeeFaucetId()).toBe('0xcustomfee');
+    expect(G.__off.createEndpoints).toHaveLength(1);
+    expect((await call(custom())).ok).toBe(true);
+    expect(G.__off.createEndpoints).toHaveLength(2);
+    expect(G.__off.createEndpoints[1].rpcUrl).toBe('https://custom.example/rpc');
+
+    // The same state again still drops the client it was just rebuilt on: seed removal discards it this way.
+    expect(await reload(custom())).toEqual({ ok: true });
+    expect((await call(custom())).ok).toBe(true);
+    expect(G.__off.createEndpoints).toHaveLength(3);
+    expect(G.__off.createEndpoints[2].rpcUrl).toBe('https://custom.example/rpc');
+  });
+
+  it('refuses a reload without state, keeping the adopted state and the client', async () => {
+    await loadModule();
+    expect((await call(custom())).ok).toBe(true);
+
+    const ack = await reload();
+    expect(ack).toMatchObject({ ok: false });
+    expect(ack.error).toContain('carries no network state');
+    expect(realm().getEffectiveRpcUrl()).toBe('https://custom.example/rpc');
+    expect((await call(custom())).ok).toBe(true);
+    expect(G.__off.createEndpoints).toHaveLength(1);
+  });
+
+  it('a reload is answered ok:false, never dropped, when adopting its state throws', async () => {
+    await loadModule();
+    expect((await call(custom())).ok).toBe(true);
+    const unreadable = {
+      override: Object.defineProperty({ ...custom().override }, 'rpcUrl', {
+        enumerable: true,
+        get() {
+          throw new Error('unreadable state');
+        }
+      }),
+      feeFaucetId: '0xcustomfee'
+    };
+
+    expect(await reload(unreadable)).toEqual({ ok: false, error: 'unreadable state' });
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('endpoint reload failed'), expect.any(Error));
+  });
+});
+
+// The SW sends OFFSCREEN_RELOAD_ENDPOINTS, carrying its endpoint state, when the saved override
+// changes and when seed removal discards the client: its own resetMidenClient() reaches only the
+// SW realm, while flag-on it is the client HERE that talks to the node.
+describe('offscreen/main - OFFSCREEN_RELOAD_ENDPOINTS (endpoint overrides)', () => {
   const callReq = (extra: Record<string, unknown>) => ({
     target: 'offscreen',
     type: 'OFFSCREEN_CALL',
     op_id: 'op-endpoints',
     deadline_ms: 1000,
     argsB64: [],
+    endpoints: SW_ENDPOINTS,
     ...extra
   });
-  const reloadReq = { target: 'offscreen', type: 'OFFSCREEN_RELOAD_ENDPOINTS' };
-
-  it('holds client creation until the override load resolves (the client bakes the endpoints in)', async () => {
-    // A load that never settles until we release it: if the client were created
-    // without awaiting it, it would bind to the build-default endpoints.
-    let releaseLoad!: () => void;
-    G.__off.loadEndpointOverrides = jest.fn(
-      () =>
-        new Promise<void>(resolve => {
-          releaseLoad = () => {
-            G.__off.order.push('loadEndpointOverrides');
-            resolve();
-          };
-        })
-    );
-
-    await loadModule();
-    // init() itself is parked on the load — the WASM init hasn't even started.
-    expect(G.__off.getWasmOrThrow).not.toHaveBeenCalled();
-
-    const sendResponse = jest.fn();
-    capturedListener!(callReq({ method: 'getAccount', argsB64: [encodeArg('mtst1qqaccount')] }), {}, sendResponse);
-    await flush();
-    expect(G.__off.createOptions).toHaveLength(0);
-
-    releaseLoad();
-    await flush();
-
-    expect(G.__off.createOptions).toHaveLength(1);
-    expect(G.__off.order.indexOf('loadEndpointOverrides')).toBeLessThan(G.__off.order.indexOf('create'));
-    expect(sendResponse.mock.calls[0][0].ok).toBe(true);
-    // Memoized: init() and getOrCreateClient() awaited the SAME storage read.
-    expect(G.__off.loadEndpointOverrides).toHaveBeenCalledTimes(1);
-  });
-
-  it('re-reads the override and drops the client, so the NEXT call rebuilds against it', async () => {
-    await loadModule();
-
-    const r1 = jest.fn();
-    capturedListener!(callReq({ method: 'getAccount', argsB64: [encodeArg('a')] }), {}, r1);
-    await flush();
-    expect(r1.mock.calls[0][0].ok).toBe(true);
-    expect(G.__off.createOptions).toHaveLength(1);
-    expect(G.__off.loadEndpointOverrides).toHaveBeenCalledTimes(1);
-
-    // Hold the RELOAD's read open so the rebuild ordering is observable. init() is
-    // long settled by now, so nothing but getOrCreateClient's own await can gate the
-    // second create.
-    let releaseReload!: () => void;
-    G.__off.loadEndpointOverrides.mockImplementationOnce(
-      () =>
-        new Promise<void>(resolve => {
-          releaseReload = () => resolve();
-        })
-    );
-
-    const ack = jest.fn();
-    const ret = capturedListener!(reloadReq, {}, ack);
-    // Async response promised, like the other two message families.
-    expect(ret).toBe(true);
-    await flush();
-    expect(G.__off.loadEndpointOverrides).toHaveBeenCalledTimes(2);
-    expect(ack).not.toHaveBeenCalled();
-
-    // A call racing the in-flight reload must NOT get a client built on the
-    // pre-reload endpoints.
-    const r2 = jest.fn();
-    capturedListener!(callReq({ method: 'getAccount', argsB64: [encodeArg('b')] }), {}, r2);
-    await flush();
-    expect(G.__off.createOptions).toHaveLength(1);
-
-    releaseReload();
-    await flush();
-
-    expect(ack).toHaveBeenCalledWith({ ok: true });
-    // The dropped singleton was rebuilt — with the same slice-5 create options.
-    expect(G.__off.createOptions).toHaveLength(2);
-    expect(G.__off.createOptions[1].useWorker).toBe(false);
-    expect(typeof G.__off.createOptions[1].signCallback).toBe('function');
-    expect(r2.mock.calls[0][0].ok).toBe(true);
-  });
+  const reloadReq = { target: 'offscreen', type: 'OFFSCREEN_RELOAD_ENDPOINTS', endpoints: SW_ENDPOINTS };
 
   it('leaves an in-flight write untouched — it finishes on the client it already captured', async () => {
     await loadModule();
@@ -4553,28 +4624,6 @@ describe('offscreen/main — OFFSCREEN_RELOAD_ENDPOINTS (endpoint overrides)', (
     expect(resp.ok).toBe(true);
     expect(Array.from(Buffer.from(resp.resultB64, 'base64'))).toEqual([77, 88, 99]);
   });
-
-  it('answers ok:false (never drops the response) when the reload throws, and stays usable', async () => {
-    await loadModule();
-    G.__off.loadEndpointOverrides.mockImplementationOnce(() => Promise.reject(new Error('storage exploded')));
-
-    const ack = jest.fn();
-    capturedListener!(reloadReq, {}, ack);
-    await flush();
-
-    expect(ack).toHaveBeenCalledWith({ ok: false, error: 'storage exploded' });
-    expect(errorSpy).toHaveBeenCalledWith(
-      expect.stringContaining('endpoint-override reload failed'),
-      expect.any(Error)
-    );
-
-    // The failed read must not poison the memo — the next call still gets a client.
-    const r = jest.fn();
-    capturedListener!(callReq({ method: 'getAccount', argsB64: [encodeArg('a')] }), {}, r);
-    await flush();
-    expect(r.mock.calls[0][0].ok).toBe(true);
-    expect(G.__off.createOptions).toHaveLength(1);
-  });
 });
 
 // --- Lock recovery in THIS realm (issue #775) -------------------------------
@@ -4594,6 +4643,7 @@ describe('offscreen/main — WASM lock recovery hook', () => {
     op_id: 'op-1',
     method: 'getAccount',
     argsB64: [encodeArg('acc')],
+    endpoints: SW_ENDPOINTS,
     ...extra
   });
 
@@ -5085,6 +5135,7 @@ describe('offscreen/main — E2E prove markers (#718)', () => {
     op_id: 'op-markers',
     deadline_ms: 1000,
     argsB64: [],
+    endpoints: SW_ENDPOINTS,
     ...extra
   });
 
@@ -5160,7 +5211,7 @@ describe('offscreen/main — E2E prove markers (#718)', () => {
     });
   });
 
-  it('records tip execution without decoding a historical anchor', async () => {
+  it('records tip execution after preparing the current tip', async () => {
     await withE2EFlag('true', async () => {
       await loadModule();
       const posted = capturePosts();
@@ -5174,7 +5225,9 @@ describe('offscreen/main — E2E prove markers (#718)', () => {
       );
       await flush();
 
-      expect(G.__off.deserializeChainAnchor).not.toHaveBeenCalled();
+      expect(G.__off.clientSyncChain.mock.invocationCallOrder[0]).toBeLessThan(
+        G.__off.guardianExecuteRequest.mock.invocationCallOrder[0]
+      );
       expect(markerLines(posted).some(l => l.includes('guardianPipeline calling executeRequest at current tip'))).toBe(
         true
       );
@@ -5188,10 +5241,8 @@ describe('offscreen/main — E2E prove markers (#718)', () => {
       capturedListener!(
         callReq({
           method: 'guardianPipeline',
-          // ANCHORED, so this covers the #784 markers too. With a 3-slot
-          // envelope the anchor-conditional decode marker is never reached, and
-          // an anchor breadcrumb that skipped the flag gate would ship its
-          // trail to production with every assertion here still green.
+          // Four slots, the shape the SW packer always sends; the leaf reads
+          // nothing from the 4th.
           argsB64: [encodeArg('acc'), encodeArg(new Uint8Array([9])), encodeArg(false), encodeArg('BwcH')]
         }),
         {},
@@ -5281,7 +5332,8 @@ describe('offscreen fee identity transport', () => {
         op_id,
         method: 'getSyncHeight',
         argsB64: [encodeArg(true)],
-        deadlineMs: null
+        deadlineMs: null,
+        endpoints: SW_ENDPOINTS
       });
       capturedListener!(request('parked-fee-ipc'), {}, first);
       await jest.advanceTimersByTimeAsync(14_999);
@@ -5325,7 +5377,8 @@ describe('offscreen fee identity transport', () => {
           op_id: 'fee-identity-transport',
           method,
           argsB64,
-          deadlineMs: null
+          deadlineMs: null,
+          endpoints: SW_ENDPOINTS
         },
         {},
         reply

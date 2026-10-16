@@ -1,38 +1,39 @@
+/* eslint jest/expect-expect: ["warn", { "assertFunctionNames": ["expect", "expectOnly"] }] */
+import { TEST_BRIDGE_CONFIG_SNAPSHOT } from 'lib/epoch/testing/bridge-config';
+
 import {
   type AvailabilityInput,
-  BRIDGE_FEATURES,
   type BridgeFeature,
   featureAvailability,
-  type FeatureAvailability,
-  type UnavailableReason
+  type FeatureAvailability
 } from './availability';
-import type { DerivedBridgeConfig, Probe } from './derive';
+import type { DerivedBridgeConfig, DerivedChainConfig, Probe } from './derive';
+import { failedDerivation } from './derived-snapshot';
 import { _resetE2eOverridesForTest, type E2eOverrides, setEarnCollateralFaucetOverride } from './e2e-overrides';
-import type { BridgeConfig } from './schema';
+import type { BridgeConfigSnapshot } from './runtime';
 
-const CONFIG: BridgeConfig = {
-  network: 'testnet',
-  version: 1,
-  evm: { chainId: 11155111 },
-  agglayer: {
-    l1Bridge: '0x1348947e282138d8f377b467f7d9c2eb0f335d1f',
-    midenBridge: '0x3b66e20b5088f25133b69216484652',
-    indexerUrl: 'https://miden-testnet-bridge.dev.eu-north-3.gateway.fm/api'
-  },
-  epoch: {
-    allocatorUrl: 'https://testnet-dev.epochprotocol.xyz',
-    positionsUrl: 'https://positions-testnet-dev.epochprotocol.xyz',
-    midenUsdcFaucet: '0x537c15a622074e91188aa894456c52',
-    evmUsdc: '0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69',
-    earnProtocol: 'dummy-lending'
-  },
-  features: { earn: true, fastBridge: true, bridgeIn: true, bridgeOut: true }
-};
-const DERIVED: DerivedBridgeConfig = {
-  network: 'testnet',
-  version: 1,
-  derivedAt: 1_800_000_000_000,
-  agglayer: {
+const FEATURES: BridgeFeature[] = ['earnDeposit', 'fastBridgeOut', 'fastBridgeIn', 'bridgeIn', 'bridgeOut'];
+const NO_OVERRIDES: E2eOverrides = { earnCollateralFaucet: null };
+const AVAILABLE: FeatureAvailability = { state: 'available' };
+const ABSENT: Probe<never> = { state: 'absent' };
+const SKIPPED: Probe<never> = { state: 'skipped' };
+const ERROR: Probe<never> = { state: 'error', message: 'down' };
+
+function ready(): BridgeConfigSnapshot {
+  const snapshot: BridgeConfigSnapshot = JSON.parse(JSON.stringify(TEST_BRIDGE_CONFIG_SNAPSHOT));
+  const config = snapshot.config;
+  const derived = snapshot.derived;
+  const chain = config?.supportedEvmChains.sepolia;
+  const reads = derived?.chains[11155111];
+  if (!config || !chain || !derived || !reads) throw new Error('The test snapshot is missing');
+  config['bridge-providers'].agglayer.indexerUrl = 'https://indexer.test/api';
+  chain.bridges.agglayer = {
+    depositEnabled: true,
+    withdrawalEnabled: true,
+    contractAddress: '0x1348947e282138d8f377b467f7d9c2eb0f335d1f',
+    midenBridgeId: '0x3b66e20b5088f25133b69216484652'
+  };
+  reads.agglayer = {
     rollupId: { state: 'ok', value: 86 },
     tokens: {
       state: 'ok',
@@ -46,187 +47,195 @@ const DERIVED: DerivedBridgeConfig = {
       ]
     },
     evmNetworkId: { state: 'ok', value: 0 },
-    l1BridgeCode: { state: 'ok', value: true },
-    indexer: { state: 'ok', value: true }
-  },
-  epoch: {
-    allocator: { state: 'ok', value: true },
-    midenUsdcFaucet: { state: 'ok', value: { symbol: 'USDC', decimals: 6 } },
-    evmUsdc: { state: 'ok', value: { symbol: 'USDC', decimals: 18 } }
+    l1BridgeCode: { state: 'ok', value: true }
+  };
+  derived.agglayer = { indexer: { state: 'ok', value: true } };
+  return snapshot;
+}
+function states(snapshot: AvailabilityInput, overrides: E2eOverrides = NO_OVERRIDES) {
+  return Object.fromEntries(
+    FEATURES.map(feature => [feature, featureAvailability(feature, snapshot, overrides, 11155111)])
+  );
+}
+function expectOnly(snapshot: AvailabilityInput, affected: BridgeFeature[], expected: Partial<FeatureAvailability>) {
+  for (const feature of FEATURES) {
+    expect(featureAvailability(feature, snapshot, NO_OVERRIDES, 11155111)).toMatchObject(
+      affected.includes(feature) ? expected : AVAILABLE
+    );
   }
-};
-const NO_OVERRIDES: E2eOverrides = { earnCollateralFaucet: null };
-const AVAILABLE: FeatureAvailability = { state: 'available' };
-
-interface Patch {
-  evm?: Partial<BridgeConfig['evm']>;
-  agglayer?: Partial<BridgeConfig['agglayer']>;
-  epoch?: Partial<BridgeConfig['epoch']>;
-  features?: Partial<BridgeConfig['features']>;
 }
+// Provider probes patch the derivation, chain probes the Sepolia reads.
 interface DerivedPatch {
-  agglayer?: Partial<DerivedBridgeConfig['agglayer']>;
-  epoch?: Partial<DerivedBridgeConfig['epoch']>;
+  agglayer?: Partial<DerivedBridgeConfig['agglayer'] & DerivedChainConfig['agglayer']>;
+  epoch?: Partial<DerivedBridgeConfig['epoch'] & DerivedChainConfig['epoch']>;
 }
-const config = (patch: Patch = {}): BridgeConfig => ({
-  ...CONFIG,
-  evm: { ...CONFIG.evm, ...patch.evm },
-  agglayer: { ...CONFIG.agglayer, ...patch.agglayer },
-  epoch: { ...CONFIG.epoch, ...patch.epoch },
-  features: { ...CONFIG.features, ...patch.features }
-});
-const derived = (patch: DerivedPatch = {}): DerivedBridgeConfig => ({
-  ...DERIVED,
-  agglayer: { ...DERIVED.agglayer, ...patch.agglayer },
-  epoch: { ...DERIVED.epoch, ...patch.epoch }
-});
-const ready = (c: BridgeConfig | null = config(), d: DerivedBridgeConfig | null = derived()): AvailabilityInput => ({
-  status: 'ready',
-  config: c,
-  derived: d
-});
-const states = (snapshot: AvailabilityInput, overrides: E2eOverrides = NO_OVERRIDES) =>
-  Object.fromEntries(BRIDGE_FEATURES.map(feature => [feature, featureAvailability(feature, snapshot, overrides)]));
-/** Every feature available except `affected`, which read `expected`. */
-const only = (affected: readonly BridgeFeature[], expected: FeatureAvailability) =>
-  Object.fromEntries(BRIDGE_FEATURES.map(feature => [feature, affected.includes(feature) ? expected : AVAILABLE]));
-const unavailable = (reason: UnavailableReason, detail: string): FeatureAvailability => ({
-  state: 'unavailable',
-  reason,
-  detail
+function withProbes({ agglayer = {}, epoch = {} }: DerivedPatch): BridgeConfigSnapshot {
+  const snapshot = ready();
+  if (!snapshot.derived) throw new Error('The test derivation is missing');
+  const chain = snapshot.derived.chains[11155111];
+  if (!chain) throw new Error('The test chain is missing');
+  const { indexer, ...chainAgglayer } = agglayer;
+  const { evmUsdc, ...providerEpoch } = epoch;
+  if (indexer) snapshot.derived.agglayer.indexer = indexer;
+  snapshot.derived.epoch = { ...snapshot.derived.epoch, ...providerEpoch };
+  chain.agglayer = { ...chain.agglayer, ...chainAgglayer };
+  if (evmUsdc) chain.epoch.evmUsdc = evmUsdc;
+  return snapshot;
+}
+
+it('makes every configured feature available on a healthy snapshot', () => {
+  expectOnly(ready(), [], AVAILABLE);
 });
 
-const ERROR = (message: string) => ({ state: 'error' as const, message });
-const ABSENT = { state: 'absent' as const };
-const SKIPPED = { state: 'skipped' as const };
-
-it('makes every feature available on the healthy testnet snapshot', () => {
-  expect(states(ready())).toEqual(only([], AVAILABLE));
-});
-
-it('is loading while the snapshot is', () => {
-  for (const feature of BRIDGE_FEATURES) {
-    expect(featureAvailability(feature, { status: 'loading', config: null, derived: null }, NO_OVERRIDES)).toEqual({
+it('is loading while the document is loading', () => {
+  for (const feature of FEATURES) {
+    expect(featureAvailability(feature, { status: 'loading', config: null, derived: null })).toEqual({
       state: 'loading'
     });
   }
 });
 
 it('reads no accepted document as not configured', () => {
-  expect(states(ready(null, null))).toEqual(
-    only(BRIDGE_FEATURES, unavailable('not-configured', 'no accepted document'))
-  );
+  const snapshot = { ...ready(), config: null, derived: null };
+  for (const value of Object.values(states(snapshot))) expect(value).toMatchObject({ reason: 'not-configured' });
 });
 
-it.each([
+it.each<[string, BridgeFeature[]]>([
   ['earn', ['earnDeposit']],
-  ['fastBridge', ['fastBridgeOut', 'fastBridgeIn']],
-  ['bridgeIn', ['bridgeIn']],
-  ['bridgeOut', ['bridgeOut']]
-] as const)('turns off only the features behind the %s switch', (toggle, affected) => {
-  expect(states(ready(config({ features: { [toggle]: false } })))).toEqual(
-    only(affected, unavailable('off', `features.${toggle} is off`))
-  );
+  ['epoch deposit', ['fastBridgeIn']],
+  ['epoch withdrawal', ['fastBridgeOut']],
+  ['agglayer deposit', ['bridgeIn']],
+  ['agglayer withdrawal', ['bridgeOut']]
+])('turns off only the feature behind the %s control', (control, affected) => {
+  const snapshot = ready();
+  const config = snapshot.config;
+  const chain = config?.supportedEvmChains.sepolia;
+  if (!config || !chain?.bridges.epoch || !chain.bridges.agglayer) throw new Error('The test route is missing');
+  switch (control) {
+    case 'earn':
+      config.features.earn = false;
+      break;
+    case 'epoch deposit':
+      chain.bridges.epoch.depositEnabled = false;
+      break;
+    case 'epoch withdrawal':
+      chain.bridges.epoch.withdrawalEnabled = false;
+      break;
+    case 'agglayer deposit':
+      chain.bridges.agglayer.depositEnabled = false;
+      break;
+    case 'agglayer withdrawal':
+      chain.bridges.agglayer.withdrawalEnabled = false;
+      break;
+  }
+  expectOnly(snapshot, affected, { state: 'unavailable', reason: 'off' });
 });
 
-it.each<[string, Patch, BridgeFeature[]]>([
-  ['epoch.allocatorUrl', { epoch: { allocatorUrl: undefined } }, ['earnDeposit', 'fastBridgeOut', 'fastBridgeIn']],
-  ['epoch.midenUsdcFaucet', { epoch: { midenUsdcFaucet: undefined } }, ['earnDeposit', 'fastBridgeIn']],
-  ['epoch.evmUsdc', { epoch: { evmUsdc: undefined } }, ['earnDeposit', 'fastBridgeOut', 'fastBridgeIn']],
-  ['epoch.earnProtocol', { epoch: { earnProtocol: undefined } }, ['earnDeposit']],
-  [
-    'evm.chainId',
-    { evm: { chainId: undefined } },
-    ['earnDeposit', 'fastBridgeOut', 'fastBridgeIn', 'bridgeIn', 'bridgeOut']
-  ],
-  ['agglayer.l1Bridge', { agglayer: { l1Bridge: undefined } }, ['bridgeIn', 'bridgeOut']],
-  ['agglayer.midenBridge', { agglayer: { midenBridge: undefined } }, ['bridgeIn', 'bridgeOut']],
-  ['agglayer.indexerUrl', { agglayer: { indexerUrl: undefined } }, ['bridgeIn']]
-])('reads a missing %s as not configured for the features that need it', (path, patch, affected) => {
-  expect(states(ready(config(patch)))).toEqual(
-    only(affected, unavailable('not-configured', `${path} is not configured`))
-  );
-});
-
-it.each<[string, DerivedPatch, BridgeFeature[]]>([
-  ['epoch.midenUsdcFaucet account', { epoch: { midenUsdcFaucet: ABSENT } }, ['earnDeposit', 'fastBridgeIn']],
-  ['epoch.evmUsdc contract', { epoch: { evmUsdc: ABSENT } }, ['earnDeposit', 'fastBridgeOut', 'fastBridgeIn']],
-  ['agglayer.l1Bridge contract', { agglayer: { l1BridgeCode: ABSENT } }, ['bridgeIn']],
-  ['agglayer.midenBridge account', { agglayer: { rollupId: ABSENT, tokens: ABSENT } }, ['bridgeIn', 'bridgeOut']],
-  ['agglayer.midenBridge registry', { agglayer: { tokens: ABSENT } }, ['bridgeIn', 'bridgeOut']],
-  ['agglayer.midenBridge registry', { agglayer: { tokens: { state: 'ok', value: [] } } }, ['bridgeIn', 'bridgeOut']]
-])('reads a confirmed absence of the %s as not deployed', (name, patch, affected) => {
-  expect(states(ready(config(), derived(patch)))).toEqual(
-    only(affected, unavailable('not-deployed', `${name}: not deployed`))
-  );
+it('requires the shared allocator only for Epoch operations', () => {
+  const snapshot = ready();
+  if (!snapshot.config) throw new Error('The test document is missing');
+  snapshot.config['bridge-providers'].epoch.allocatorUrl = undefined;
+  expectOnly(snapshot, ['earnDeposit', 'fastBridgeOut', 'fastBridgeIn'], { reason: 'not-configured' });
 });
 
 it.each<[string, DerivedPatch, BridgeFeature[]]>([
-  ['allocator /health', { epoch: { allocator: ERROR('down') } }, ['earnDeposit', 'fastBridgeOut', 'fastBridgeIn']],
-  ['indexer /healthz', { agglayer: { indexer: ERROR('down') } }, ['bridgeIn']],
-  ['epoch.midenUsdcFaucet account', { epoch: { midenUsdcFaucet: ERROR('down') } }, ['earnDeposit', 'fastBridgeIn']],
-  ['epoch.evmUsdc contract', { epoch: { evmUsdc: ERROR('down') } }, ['earnDeposit', 'fastBridgeOut', 'fastBridgeIn']],
-  ['agglayer.l1Bridge contract', { agglayer: { l1BridgeCode: ERROR('down') } }, ['bridgeIn']],
-  [
-    'agglayer.midenBridge account',
-    { agglayer: { rollupId: ERROR('down'), tokens: ERROR('down') } },
-    ['bridgeIn', 'bridgeOut']
-  ]
-])('reads a failed %s call as service down', (name, patch, affected) => {
-  expect(states(ready(config(), derived(patch)))).toEqual(only(affected, unavailable('service-down', `${name}: down`)));
+  ['the testnet output faucet', { epoch: { midenUsdcFaucet: ABSENT } }, ['earnDeposit', 'fastBridgeIn']],
+  ['the Epoch EVM token', { epoch: { evmUsdc: ABSENT } }, ['fastBridgeOut', 'fastBridgeIn']],
+  ['the service market', { epoch: { market: ABSENT } }, ['earnDeposit']],
+  ['the L1 contract', { agglayer: { l1BridgeCode: ABSENT } }, ['bridgeIn']],
+  ['the Miden bridge account', { agglayer: { rollupId: ABSENT, tokens: ABSENT } }, ['bridgeIn', 'bridgeOut']],
+  ['the token registry', { agglayer: { tokens: ABSENT } }, ['bridgeIn', 'bridgeOut']]
+])('reports a confirmed absence of %s as not deployed', (_name, patch, affected) => {
+  expectOnly(withProbes(patch), affected, { state: 'unavailable', reason: 'not-deployed' });
 });
 
-it.each<[Probe<number>, FeatureAvailability]>([
-  [ABSENT, unavailable('not-deployed', 'agglayer.l1Bridge networkID(): not deployed')],
-  [ERROR('down'), unavailable('service-down', 'agglayer.l1Bridge networkID(): down')],
-  [SKIPPED, unavailable('not-configured', 'agglayer.l1Bridge networkID(): not configured')]
-])('holds only Bridge out on the L1 bridge networkID() read (%p)', (evmNetworkId, expected) => {
-  expect(states(ready(config(), derived({ agglayer: { evmNetworkId } })))).toEqual(only(['bridgeOut'], expected));
+it('refuses an empty registry even when the account exists', () => {
+  expectOnly(withProbes({ agglayer: { tokens: { state: 'ok', value: [] } } }), ['bridgeIn', 'bridgeOut'], {
+    state: 'unavailable',
+    reason: 'not-deployed'
+  });
 });
 
-it('resolves reasons in order: off, not configured, not deployed, service down', () => {
-  const offAndUnset = config({ features: { earn: false }, epoch: { allocatorUrl: undefined } });
-  expect(featureAvailability('earnDeposit', ready(offAndUnset), NO_OVERRIDES)).toMatchObject({ reason: 'off' });
-  const unsetAndAbsent = ready(
-    config({ epoch: { evmUsdc: undefined } }),
-    derived({ epoch: { midenUsdcFaucet: ABSENT } })
-  );
-  expect(featureAvailability('earnDeposit', unsetAndAbsent, NO_OVERRIDES)).toMatchObject({ reason: 'not-configured' });
-  // The allocator comes first in the list, the absent token later: the reason order wins.
-  const downAndAbsent = ready(config(), derived({ epoch: { allocator: ERROR('down'), evmUsdc: ABSENT } }));
-  expect(featureAvailability('earnDeposit', downAndAbsent, NO_OVERRIDES)).toEqual(
-    unavailable('not-deployed', 'epoch.evmUsdc contract: not deployed')
-  );
+it.each<[string, DerivedPatch, BridgeFeature[]]>([
+  ['allocator health', { epoch: { allocator: ERROR } }, ['earnDeposit', 'fastBridgeOut', 'fastBridgeIn']],
+  ['indexer health', { agglayer: { indexer: ERROR } }, ['bridgeIn']],
+  ['the output faucet', { epoch: { midenUsdcFaucet: ERROR } }, ['earnDeposit', 'fastBridgeIn']],
+  ['the EVM token', { epoch: { evmUsdc: ERROR } }, ['fastBridgeOut', 'fastBridgeIn']],
+  ['the service market', { epoch: { market: ERROR } }, ['earnDeposit']],
+  ['the L1 contract', { agglayer: { l1BridgeCode: ERROR } }, ['bridgeIn']],
+  ['the bridge account', { agglayer: { rollupId: ERROR, tokens: ERROR } }, ['bridgeIn', 'bridgeOut']]
+])('keeps unrelated operations available when %s fails', (_name, patch, affected) => {
+  expectOnly(withProbes(patch), affected, { state: 'unavailable', reason: 'service-down' });
 });
 
-it('is loading while a valid document has no derivation yet', () => {
-  expect(featureAvailability('earnDeposit', ready(config(), null), NO_OVERRIDES)).toEqual({ state: 'loading' });
+it.each<[Probe<number>, string]>([
+  [ABSENT, 'not-deployed'],
+  [ERROR, 'service-down'],
+  [SKIPPED, 'not-configured']
+])('requires the L1 network id for new bridge operations (%p)', (evmNetworkId, reason) => {
+  expectOnly(withProbes({ agglayer: { evmNetworkId } }), ['bridgeIn', 'bridgeOut'], { state: 'unavailable' });
   expect(
-    featureAvailability('earnDeposit', ready(config({ features: { earn: false } }), null), NO_OVERRIDES)
-  ).toMatchObject({ reason: 'off' });
+    featureAvailability('bridgeOut', withProbes({ agglayer: { evmNetworkId } }), NO_OVERRIDES, 11155111)
+  ).toMatchObject({ state: 'unavailable', reason });
+});
+
+it.each<BridgeFeature>(['bridgeIn', 'fastBridgeIn', 'earnDeposit'])(
+  'reads a derivation that threw as service down for %s, so the five-minute poll retries it',
+  feature => {
+    const snapshot = ready();
+    if (!snapshot.config) throw new Error('The test document is missing');
+    const failed = { ...snapshot, derived: failedDerivation(snapshot.config, 'wasm init failed', 0) };
+    expect(featureAvailability(feature, failed, NO_OVERRIDES, 11155111)).toMatchObject({
+      state: 'unavailable',
+      reason: 'service-down'
+    });
+  }
+);
+
+it('reports an absent dependency before a failed call', () => {
+  const snapshot = withProbes({ epoch: { allocator: ERROR, midenUsdcFaucet: ABSENT } });
+  expect(featureAvailability('fastBridgeIn', snapshot, NO_OVERRIDES, 11155111)).toMatchObject({
+    reason: 'not-deployed'
+  });
+});
+
+it('checks an off switch before incomplete configuration or probes', () => {
+  const snapshot = withProbes({ epoch: { allocator: ERROR } });
+  if (!snapshot.config) throw new Error('The test document is missing');
+  snapshot.config.features.earn = false;
+  snapshot.config['bridge-providers'].epoch.allocatorUrl = undefined;
+  expect(featureAvailability('earnDeposit', snapshot)).toMatchObject({ reason: 'off' });
+});
+
+it('waits for the first derivation while a disabled feature stays off', () => {
+  const snapshot = { ...ready(), derived: null };
+  expect(featureAvailability('earnDeposit', snapshot)).toEqual({ state: 'loading' });
+  if (!snapshot.config) throw new Error('The test document is missing');
+  snapshot.config.features.earn = false;
+  expect(featureAvailability('earnDeposit', snapshot)).toMatchObject({ reason: 'off' });
 });
 
 describe('the E2E collateral faucet', () => {
   const collateral: E2eOverrides = {
     earnCollateralFaucet: { faucetId: '0xab000000000000ab00000000000001', symbol: 'USDC', decimals: 6 }
   };
-  const noFaucet = ready(
-    config({ epoch: { midenUsdcFaucet: undefined } }),
-    derived({ epoch: { midenUsdcFaucet: SKIPPED } })
-  );
-
-  it('stands in for the document faucet and its read', () => {
-    expect(featureAvailability('earnDeposit', noFaucet, collateral)).toEqual(AVAILABLE);
-    expect(featureAvailability('fastBridgeIn', noFaucet, collateral)).toEqual(AVAILABLE);
-    expect(featureAvailability('earnDeposit', noFaucet, NO_OVERRIDES)).toMatchObject({ reason: 'not-configured' });
+  function noFaucet() {
+    const snapshot = withProbes({ epoch: { midenUsdcFaucet: SKIPPED } });
+    if (!snapshot.config) throw new Error('The test document is missing');
+    snapshot.config['bridge-providers'].epoch.outputs = undefined;
+    return snapshot;
+  }
+  it('replaces the document output and its probe', () => {
+    expect(featureAvailability('earnDeposit', noFaucet(), collateral)).toEqual(AVAILABLE);
+    expect(featureAvailability('fastBridgeIn', noFaucet(), collateral)).toEqual(AVAILABLE);
+    expect(featureAvailability('earnDeposit', noFaucet(), NO_OVERRIDES)).toMatchObject({ reason: 'not-configured' });
   });
-
-  it('is read from the installed overrides when none are passed', () => {
+  it('reads the installed override only for E2E', () => {
     const saved = process.env.MIDEN_E2E_TEST;
     process.env.MIDEN_E2E_TEST = 'true';
     try {
       setEarnCollateralFaucetOverride({ faucetId: '0xab000000000000ab00000000000001' });
-      expect(featureAvailability('earnDeposit', noFaucet)).toEqual(AVAILABLE);
+      expect(featureAvailability('earnDeposit', noFaucet())).toEqual(AVAILABLE);
     } finally {
       _resetE2eOverridesForTest();
       if (saved === undefined) delete process.env.MIDEN_E2E_TEST;

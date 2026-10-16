@@ -3,6 +3,7 @@ import React, { FC, useCallback, useEffect, useMemo, useRef, useState } from 're
 import { useTranslation } from 'react-i18next';
 
 import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
+import { useTapUnlock } from 'app/hooks/useTapUnlock';
 import { ReactComponent as GroupAboutIcon } from 'app/icons/settings/group-about.svg';
 import { ReactComponent as GroupDeveloperIcon } from 'app/icons/settings/group-developer.svg';
 import { ReactComponent as GroupPreferencesIcon } from 'app/icons/settings/group-preferences.svg';
@@ -508,6 +509,9 @@ const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTo
     };
   }, [showSettingsRoot]);
 
+  // The existing-wallet way into Developer Settings, the Welcome logo's hidden gesture on the version line.
+  const openDeveloperSettings = useTapUnlock(() => navigate('/developer-settings'));
+
   if (invalidTab) return null;
 
   const subPageTitle = activeTab ? t(activeTab.pageTitleI18nKey ?? activeTab.titleI18nKey) : undefined;
@@ -556,7 +560,7 @@ const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTo
           // pb-22 reserves space at the bottom so the last row can scroll above
           // the React BottomNav. No top padding: the 8px under the rule is
           // TabRootHeader's, the same 8px the other tab roots' filter rows get.
-          <div className="flex w-full flex-col gap-5 px-4 pb-22">
+          <div className="flex w-full flex-col gap-5 px-4 pb-[calc(5.5rem+var(--wallet-control-safe-bottom,0px))]">
             {tabGroups.map(group => (
               <section key={group.titleI18nKey}>
                 {/* h2: the only heading above these is the page title the header
@@ -600,7 +604,9 @@ const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTo
               </section>
             ))}
 
-            <p className="px-1 text-caption text-muted">{t('settingsVersion', { version: pkg.version })}</p>
+            <p className="px-1 text-caption text-muted" onClick={openDeveloperSettings}>
+              {t('settingsVersion', { version: pkg.version })}
+            </p>
           </div>
         }
       </div>

@@ -9,17 +9,23 @@ import {
   TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET
 } from 'lib/epoch/testing/bridge-config';
 import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
-import { normalizedFaucetId, TOKEN_IETH, TOKEN_IMIDEN } from 'lib/miden/swap/tokens';
+import { TEST_SWAP_TOKENS, TEST_TOKEN_IETH, TEST_TOKEN_IMIDEN } from 'lib/miden/swap/testing/registry';
+import { _setSwapTokensForTest, normalizedFaucetId } from 'lib/miden/swap/tokens';
 import {
   getNativeAssetIdSync,
   getNativeAssetMetadataSync,
   getSdkSyncedNativeAssetIdSync
 } from 'lib/miden-chain/native-asset';
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { hasUnquotedDefaultPrice } from 'lib/prices/unquoted-default';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 
 import TokenDetail from './TokenDetail';
 import enMessages from '../../../public/_locales/en/en.json';
+
+// The testnet document's swap registry (IETH priced at ETH), in place of the one the wallet used to compile in.
+beforeAll(() => _setSwapTokensForTest(TEST_SWAP_TOKENS));
+afterAll(() => _setSwapTokensForTest(undefined));
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -49,15 +55,21 @@ jest.mock('lib/remote-config/runtime', () =>
 );
 // The build's network unless a case names another.
 let mockTestNetworkKey: 'testnet' | 'devnet' | undefined;
+let mockWalletNetwork: MIDEN_NETWORK_NAME | undefined;
 jest.mock('lib/miden-chain/effective-endpoints', () => {
   const actual = jest.requireActual<typeof import('lib/miden-chain/effective-endpoints')>(
     'lib/miden-chain/effective-endpoints'
   );
-  return { ...actual, getTestNetworkNameKey: () => mockTestNetworkKey ?? actual.getTestNetworkNameKey() };
+  return {
+    ...actual,
+    getTestNetworkNameKey: () => mockTestNetworkKey ?? actual.getTestNetworkNameKey(),
+    getEffectiveNetworkName: () => mockWalletNetwork ?? actual.getEffectiveNetworkName()
+  };
 });
 afterEach(() => {
   mockBridgeSnapshot = undefined;
   mockTestNetworkKey = undefined;
+  mockWalletNetwork = undefined;
 });
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -84,12 +96,10 @@ jest.mock('lib/platform', () => ({
 const mockUseAccount = jest.fn();
 const mockUseAllBalances = jest.fn();
 const mockUseAllTokensBaseMetadata = jest.fn();
-const mockUseNetwork = jest.fn();
 jest.mock('lib/miden/front', () => ({
   useAccount: () => mockUseAccount(),
   useAllBalances: (...args: unknown[]) => mockUseAllBalances(...args),
-  useAllTokensBaseMetadata: () => mockUseAllTokensBaseMetadata(),
-  useNetwork: () => mockUseNetwork()
+  useAllTokensBaseMetadata: () => mockUseAllTokensBaseMetadata()
 }));
 
 // `useWalletStore(s => s.tokenPrices)` — apply the selector to a controllable
@@ -320,9 +330,9 @@ jest.mock('framer-motion', () => {
 
 // A faucet the wallet prices (IETH, at ETH), and a realistic bech32 faucet id, long enough to
 // exercise HashShortView's middle truncation (default trimAfter 20) the way a real Miden faucet id does.
-const TOKEN_ID = TOKEN_IETH.faucetId;
+const TOKEN_ID = TEST_TOKEN_IETH.faucetId;
 // A token the wallet gives no name of its own, for the tests that read the symbol the metadata carries.
-const PLAIN_ID = TOKEN_IMIDEN.faucetId;
+const PLAIN_ID = TEST_TOKEN_IMIDEN.faucetId;
 
 const mockClipboardWrite = jest.fn();
 jest.mock('@capacitor/clipboard', () => ({
@@ -369,7 +379,7 @@ type Overrides = {
   isMobile?: boolean;
   balances?: unknown;
   metadata?: Record<string, unknown>;
-  network?: { name: string };
+  network?: MIDEN_NETWORK_NAME;
   priceInfo?: { price: number; change24h: number; percentageChange24h?: number };
   tokenPrices?: Record<string, unknown>;
   klineData?: unknown;
@@ -387,7 +397,7 @@ function configure(o: Overrides = {}) {
     data: o.balances === undefined ? [{ tokenId: TOKEN_ID, balance: 12.5, metadata: { symbol: 'ETH' } }] : o.balances
   });
   mockUseAllTokensBaseMetadata.mockReturnValue(o.metadata ?? {});
-  mockUseNetwork.mockReturnValue(o.network ?? { name: 'Testnet' });
+  mockWalletNetwork = o.network;
   // The default token is ETH, so `priceInfo` is ETH's quote; `tokenPrices` replaces the whole feed.
   mockTokenPrices = o.tokenPrices ?? {
     ETH: { percentageChange24h: 0, ...(o.priceInfo ?? { price: 2000, change24h: 3.2, percentageChange24h: 0.1 }) }
@@ -451,10 +461,10 @@ describe('TokenDetail', () => {
 
   it('values IETH and charts it at ETH, the symbol the feed quotes it under', () => {
     configure({
-      balances: [{ tokenId: TOKEN_IETH.faucetId, balance: 0.38, metadata: { symbol: 'IETH' } }],
+      balances: [{ tokenId: TEST_TOKEN_IETH.faucetId, balance: 0.38, metadata: { symbol: 'IETH' } }],
       tokenPrices: { ETH: { price: 3000, change24h: 1.5, percentageChange24h: 0.05 } }
     });
-    render(<TokenDetail tokenId={TOKEN_IETH.faucetId} />);
+    render(<TokenDetail tokenId={TEST_TOKEN_IETH.faucetId} />);
 
     // 0.38 * 3000, never 0.38 * $1.
     expect(within(screen.getByTestId('token-detail-hero')).getByText('$1140.00')).toBeInTheDocument();
@@ -509,7 +519,7 @@ describe('TokenDetail', () => {
     mockedHasUnquotedDefaultPrice.mockReturnValue(true);
     try {
       renderPage({
-        balances: [{ tokenId: TOKEN_IETH.faucetId, balance: 0.38, metadata: { symbol: 'IETH' } }],
+        balances: [{ tokenId: TEST_TOKEN_IETH.faucetId, balance: 0.38, metadata: { symbol: 'IETH' } }],
         tokenPrices: {}
       });
 
@@ -967,7 +977,7 @@ describe('TokenDetail', () => {
 
   describe('token info card', () => {
     it('renders the faucet id under the name the transaction page uses, trimmed and copyable', () => {
-      renderPage({ network: { name: 'Devnet' } });
+      renderPage({ network: MIDEN_NETWORK_NAME.DEVNET });
 
       const info = screen.getByTestId('token-detail-info');
       const contract = within(info).getByTestId('token-detail-contract');
@@ -991,7 +1001,15 @@ describe('TokenDetail', () => {
       expect(copy).not.toHaveTextContent(TOKEN_ID);
 
       expect(within(info).getByText('fungible')).toBeInTheDocument();
-      expect(within(info).getByText('Devnet')).toBeInTheDocument();
+      expect(within(info).getByText('devnet')).toBeInTheDocument();
+    });
+
+    // The legacy network list and its stored id never name mainnet, so they read Testnet on a mainnet wallet.
+    it("names the wallet's own network, Mainnet on a mainnet wallet", () => {
+      renderPage({ network: MIDEN_NETWORK_NAME.MAINNET });
+
+      expect(within(screen.getByTestId('token-detail-info')).getByText('mainnet')).toBeInTheDocument();
+      expect(enMessages.mainnet).toBe('Mainnet');
     });
 
     it('copies the full faucet id, not the truncated display value', async () => {
@@ -1078,6 +1096,8 @@ describe('TokenDetail', () => {
       "describes testnet iETH in the wallet's words when the faucet carries %s description (#477)",
       (_case, description) => {
         mockTestNetworkKey = 'testnet';
+        // The document lists IETH at this faucet.
+        mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
         renderPage({ balances: [{ tokenId: TOKEN_ID, balance: 1, metadata: { symbol: 'IETH', description } }] });
 
         const row = screen.getByTestId('token-detail-description');
@@ -1576,6 +1596,7 @@ describe('TokenDetail', () => {
     });
 
     it('offers no edit for testnet iETH, which the wallet names itself, and no Edited pill for an override stored before (#477)', () => {
+      mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
       mockTokenMetadataOverrides = { [TOKEN_ID]: { name: 'Mine', symbol: 'MINE' } };
       renderPage({
         balances: [{ tokenId: TOKEN_ID, balance: 1, metadata: { name: 'iETH', symbol: 'IETH', decimals: 8 } }]

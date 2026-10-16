@@ -48,13 +48,13 @@ export interface FailureEvidence {
   adapterAddress?: string | null;
   previousAddress?: string | null;
   staleConsumeExecuted?: boolean;
-  /** A request made as a session's account while another account was current opened a popup (Q10, K9). */
+  /** A request made as a session's account while another account was current opened a popup (Q10). */
   nonCurrentPrompted?: boolean;
-  /** Such a request left a row that ran, for any account: whatever the answer said, it was not refused (K9). */
+  /** Such a request left a row that ran, for any account: whatever the answer said, it was not refused. */
   nonCurrentRowRan?: boolean;
   /**
    * Every such read was refused before any popup with NOT_GRANTED or, after one, served its session account's own
-   * vault (`nonCurrentReadEvidence`); a leak, a failed approval or a read served with no popup is new, never K9.
+   * vault (`nonCurrentReadEvidence`); a leak, a failed approval or a read served with no popup is new.
    */
   nonCurrentReadsOwnOrRefused?: boolean;
   crossOriginWaitServed?: boolean;
@@ -62,7 +62,7 @@ export interface FailureEvidence {
   returnedIdUnlisted?: boolean;
 }
 
-/** A check that failed without stopping the cell, so one run can record a soft and a hard known bug (K4 and K3). */
+/** A check that failed without stopping the cell, so one run can record a soft and a hard known bug. */
 export interface SoftFailure {
   check: string;
   detail: string;

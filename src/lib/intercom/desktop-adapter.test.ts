@@ -144,6 +144,8 @@ describe('DesktopIntercomAdapter', () => {
         'test123',
         'word1 word2 word3',
         false,
+        undefined,
+        // No mainnet access code in this request.
         undefined
       );
       expect(response).toEqual({ type: WalletMessageType.NewWalletResponse });
@@ -164,7 +166,8 @@ describe('DesktopIntercomAdapter', () => {
         'pw',
         'a b c',
         true,
-        'https://guardian.example'
+        'https://guardian.example',
+        undefined
       );
     });
 

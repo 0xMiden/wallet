@@ -2,7 +2,16 @@ import React from 'react';
 
 import { act, fireEvent, render, screen } from '@testing-library/react';
 
+import { NativeSessionChainNotApprovedError } from 'lib/walletconnect/native';
+
 import { UsdcxExecuteAction } from './UsdcxExecuteAction';
+
+jest.mock('lib/remote-config/runtime', () => ({
+  getBridgeConfigSnapshot: () =>
+    jest
+      .requireActual<typeof import('lib/remote-config/testing/fixture')>('lib/remote-config/testing/fixture')
+      .testBridgeSnapshot()
+}));
 
 const execute = jest.fn();
 
@@ -84,6 +93,17 @@ describe('UsdcxExecuteAction', () => {
 
     expect(screen.getByRole('alert')).toHaveTextContent('User rejected');
     expect(screen.getByTestId('usdcx-execute-button')).not.toBeDisabled();
+  });
+
+  it('shows the localized reconnect message when the session did not approve the chain', async () => {
+    execute.mockRejectedValueOnce(new NativeSessionChainNotApprovedError(5042002, 'Arc Testnet'));
+    render(<UsdcxExecuteAction txId="row" sourceChainId={BASE_SEPOLIA} phase="delivering" cctp={LEG} />);
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('usdcx-execute-button'));
+    });
+
+    expect(screen.getByRole('alert')).toHaveTextContent('evmChainNotApproved:Arc Testnet');
   });
 
   it('reports the executed transfer while Circle attests the deposit', () => {

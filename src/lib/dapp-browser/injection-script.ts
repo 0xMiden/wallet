@@ -14,10 +14,11 @@ export const INJECTION_SCRIPT = `
   // rerun the style block on every executeScript call.
   try {
     const STYLE_ID = 'miden-wallet-bottom-pad';
-    var existing = document.getElementById(STYLE_ID);
-    if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
     const installPadding = function() {
       if (!document || !document.head) return;
+      var existing = document.getElementById(STYLE_ID);
+      if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+      if (window.__breadPresentationState && window.__breadPresentationState.display === 'fullscreen') return;
       const style = document.createElement('style');
       style.id = STYLE_ID;
       style.textContent =
@@ -25,6 +26,11 @@ export const INJECTION_SCRIPT = `
         'body { padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px)) !important; }';
       document.head.appendChild(style);
     };
+    if (window.__midenWalletPaddingListener) {
+      document.removeEventListener('breadpresentationchange', window.__midenWalletPaddingListener);
+    }
+    window.__midenWalletPaddingListener = installPadding;
+    document.addEventListener('breadpresentationchange', installPadding);
     if (document.readyState === 'loading') {
       document.addEventListener('DOMContentLoaded', installPadding, { once: true });
     } else {
@@ -65,6 +71,10 @@ export const INJECTION_SCRIPT = `
 
   // Pending requests map
   const pendingRequests = new Map();
+  // Random per document: the wallet can answer after a same-origin reload, and the next document's requests must not
+  // match an answer meant for the one before it (#1416).
+  const requestPrefix =
+    'req_' + Array.from(crypto.getRandomValues(new Uint8Array(8)), b => b.toString(16).padStart(2, '0')).join('') + '_';
   let requestId = 0;
 
   // Send message to native app via Capacitor InAppBrowser
@@ -87,7 +97,7 @@ export const INJECTION_SCRIPT = `
   // Make request to wallet
   function request(payload) {
     return new Promise((resolve, reject) => {
-      const reqId = 'req_' + (++requestId);
+      const reqId = requestPrefix + (++requestId);
       pendingRequests.set(reqId, { resolve, reject });
       sendToNative('MIDEN_PAGE_REQUEST', payload, reqId);
 

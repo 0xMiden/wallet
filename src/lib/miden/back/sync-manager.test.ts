@@ -173,6 +173,9 @@ jest.mock('lib/miden-chain/block-timestamps', () => ({
 let mockRpcUrl: string | undefined;
 jest.mock('lib/miden-chain/effective-endpoints', () => {
   const actual = jest.requireActual('lib/miden-chain/effective-endpoints');
+  // runSync waits for the realm's first override load, which start() runs in production (#1482). Isolated
+  // registries inherit this mock instance, so settling it here covers them too.
+  void actual.loadEndpointOverrides();
   return { ...actual, getEffectiveRpcUrl: () => mockRpcUrl ?? actual.getEffectiveRpcUrl() };
 });
 
@@ -1727,6 +1730,39 @@ describe('doSync — native-note auto-consume', () => {
 
     await expect(doSync()).resolves.toBeUndefined();
     expect(mockInitiateConsumeBatch).toHaveBeenCalled(); // the rejecting path WAS exercised
+  });
+});
+
+// The `miden-sync` alarm can call doSync before start() has loaded the override (#1482).
+describe('doSync waits for the first override load', () => {
+  it('dispatches no sync and reads no endpoint until the load settles, then runs the same lap', async () => {
+    // The suite settles the real load at start, so the pending load is held at the module boundary.
+    let settleLoad!: () => void;
+    const pendingLoad = new Promise<void>(resolve => {
+      settleLoad = resolve;
+    });
+    const endpoints = jest.requireMock('lib/miden-chain/effective-endpoints');
+    const loadWait = jest.spyOn(endpoints, 'whenEndpointOverridesLoaded').mockReturnValue(pendingLoad);
+    const rpcReads = jest.spyOn(endpoints, 'getEffectiveRpcUrl');
+    try {
+      // Isolated for a sync manager with no breaker or in-flight state from earlier tests; it shares the spied mock.
+      await jest.isolateModulesAsync(async () => {
+        const { doSync: isolated } = await import('./sync-manager');
+
+        const lap = isolated();
+        for (let i = 0; i < 5; i++) await new Promise(resolve => setTimeout(resolve, 0));
+        expect(mockClient.syncState).not.toHaveBeenCalled();
+        expect(rpcReads).not.toHaveBeenCalled();
+
+        settleLoad();
+        await lap;
+        expect(mockClient.syncState).toHaveBeenCalledTimes(1);
+        expect(rpcReads).toHaveBeenCalled();
+      });
+    } finally {
+      loadWait.mockRestore();
+      rpcReads.mockRestore();
+    }
   });
 });
 

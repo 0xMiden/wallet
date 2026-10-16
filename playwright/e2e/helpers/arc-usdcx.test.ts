@@ -86,7 +86,7 @@ import {
 import l2Vectors from './usdcx-l2.vectors.json';
 import { burnTarget, harnessPayoutLeg, payoutLeg, waitForWalletPayoutConfirmation } from './usdcx-legs';
 import { newRunEvidence, withStepBudget, type NamedStep } from './usdcx-run';
-import type { XReserveAttestation } from '../../../src/lib/usdcx/attestation';
+import type { XReserveAttestation } from '../../../src/lib/usdcx/attestation-protocol';
 import attestationVectors from '../../../src/lib/usdcx/attestation.vectors.json';
 import { midenAccountHexToXReserveRecipient } from '../../../src/lib/usdcx/recipient';
 import { ARC_TESTNET, WC_PROJECT_ID } from '../../../src/lib/walletconnect/config';

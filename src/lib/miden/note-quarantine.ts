@@ -3,7 +3,7 @@
  *
  * The custom-tx confirm popup dry-runs the transaction BEFORE the user
  * approves it (`simulate-custom-tx.ts`), which imports the request's carried
- * notes into the real client DB so `executeForSummary` can resolve them.
+ * notes into the real client DB so `executeForSummaryAtTip` can resolve them.
  * That import has a side effect the user never asked for: the notes
  * immediately become visible in the claimable-notes UI (pending-notes list,
  * unclaimed badge, "Claim All") — even if the user goes on to CANCEL the
@@ -58,7 +58,7 @@ import { b64ToU8 } from 'lib/shared/helpers';
  * leak into the claimable UI). Tries NoteFile first (as the import does), then a
  * bare Note. Returns null if neither parses.
  */
-function noteIdFromBytes(bytes: Uint8Array): string | null {
+export function noteIdFromBytes(bytes: Uint8Array): string | null {
   try {
     const noteFile = NoteFile.deserialize(bytes);
     const id = noteFile.noteId() ?? noteFile.note()?.id();

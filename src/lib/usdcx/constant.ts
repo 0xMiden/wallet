@@ -1,7 +1,15 @@
-import { Address, Chain, formatUnits, Hex } from 'viem';
-import { arbitrum, arbitrumSepolia, arc, base, baseSepolia, mainnet, sepolia } from 'viem/chains';
+import { Address, Chain, formatUnits, getAddress } from 'viem';
+import { arc, mainnet, sepolia } from 'viem/chains';
 
-import { ARC_TESTNET } from 'lib/walletconnect/config';
+import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
+import { getBridgeConfigSnapshot } from 'lib/remote-config/runtime';
+import type { SupportedEvmChainConfig } from 'lib/remote-config/schema';
+import { ARC_TESTNET, copyPlainData, EVM_CHAIN_DEFINITIONS, getChain } from 'lib/walletconnect/config';
+
+import { USDCX_DECIMALS } from './protocol';
+
+export * from './protocol';
 
 // E2E-only: the bridge-in harness runs the deposit on a local Anvil fork of Sepolia. Arc's USDC calls
 // chain precompiles that Anvil does not have, so an Arc fork reverts every transfer; Sepolia's USDC
@@ -9,88 +17,9 @@ import { ARC_TESTNET } from 'lib/walletconnect/config';
 // the flag is baked in only by the e2e build, and only when `MIDEN_E2E_TEST` is also on.
 const E2E_USDCX_CHAIN = process.env.MIDEN_E2E_TEST === 'true' ? (process.env.MIDEN_E2E_USDCX_CHAIN ?? '').trim() : '';
 
-/** Circle's direct-deposit contracts, keyed by EVM chain id (not Circle domain). */
-export const XRESERVE_ADDRESS = new Map<number, Address>([
-  [ARC_TESTNET.id, '0x008888878f94C0d87defdf0B07f46B93C1934442'],
-  [sepolia.id, '0x008888878f94C0d87defdf0B07f46B93C1934442'],
-  [mainnet.id, '0x8888888199b2Df864bf678259607d6D5EBb4e3Ce'],
-  [arc.id, '0x8888888199b2Df864bf678259607d6D5EBb4e3Ce']
-]);
-
-/** Native Circle USDC via its 6-decimal ERC-20 interface, including on Arc. */
-export const CIRCLE_USDC_ADDRESS = new Map<number, Address>([
-  [ARC_TESTNET.id, '0x3600000000000000000000000000000000000000'],
-  [sepolia.id, '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238'],
-  [mainnet.id, '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48'],
-  [arc.id, '0x3600000000000000000000000000000000000000'],
-  [arbitrum.id, '0xaf88d065e77c8cC2239327C5EDb3A432268e5831'],
-  [arbitrumSepolia.id, '0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d'],
-  [base.id, '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913'],
-  [baseSepolia.id, '0x036CbD53842c5426634e7929541eC2318f3dCF7e']
-]);
-
-/** Public CCTP fee-collecting entry points. Arc mainnet deployment is not confirmed. */
-export const TOKEN_MESSENGER_WITH_FEES_ADDRESS = new Map<number, Address>([
-  [mainnet.id, '0x71f54F818671cD0D7ea140Da213e5C8b5C92a408'],
-  [arbitrum.id, '0x71f54F818671cD0D7ea140Da213e5C8b5C92a408'],
-  [base.id, '0x71f54F818671cD0D7ea140Da213e5C8b5C92a408'],
-  [sepolia.id, '0x8745D906D67C346E5eb1aEEED38Eb87F34DF0C0A'],
-  [arbitrumSepolia.id, '0x8745D906D67C346E5eb1aEEED38Eb87F34DF0C0A'],
-  [baseSepolia.id, '0x8745D906D67C346E5eb1aEEED38Eb87F34DF0C0A'],
-  [ARC_TESTNET.id, '0x8745D906D67C346E5eb1aEEED38Eb87F34DF0C0A']
-]);
-
-/** EVM chain id → Circle domain; these are separate namespaces. */
-export const CIRCLE_DOMAIN = new Map<number, number>([
-  [mainnet.id, 0],
-  [sepolia.id, 0],
-  [arbitrum.id, 3],
-  [arbitrumSepolia.id, 3],
-  [base.id, 6],
-  [baseSepolia.id, 6],
-  [arc.id, 26],
-  [ARC_TESTNET.id, 26]
-]);
-
-export const XRESERVE_ATTESTATION_API_TESTNET = 'https://xreserve-api-testnet.circle.com';
-export const XRESERVE_ATTESTATION_API_MAINNET = 'https://xreserve-api.circle.com';
-
-/** Circle's Iris API: CCTP V2 messages, attestations and fee quotes. */
-export const IRIS_API_TESTNET = 'https://iris-api-sandbox.circle.com';
-export const IRIS_API_MAINNET = 'https://iris-api.circle.com';
-
-/** CCTP V2 `TokenMessengerV2`, the same address on every V2 EVM chain, testnet and mainnet. */
-export const TOKEN_MESSENGER_V2_ADDRESS: Address = '0x8FE6B999Dc680CcFDD5Bf7EB0974218be2542DAA';
-
-/**
- * Circle's Generic Executor and its DepositFor handler on Arc, keyed by Arc chain id. The testnet pair is
- * verified on the Arc Testnet explorer (`GenericExecutor` and `DepositForHandler` behind ERC1967 proxies,
- * the handler bound to the executor); the mainnet pair comes from Circle's partner document only.
- */
-export const CCTP_EXECUTOR_ADDRESS = new Map<number, { executor: Address; handler: Address }>([
-  [
-    ARC_TESTNET.id,
-    { executor: '0xEdC81040756AcCfF070c21D37b265b9D0b5Ba45e', handler: '0xD05E7D2E7d30b92c5F17d7d0fC575fce231F1A48' }
-  ],
-  [
-    arc.id,
-    { executor: '0xFa7be2f04F3Ad4ca969260729c6d45B5625984A7', handler: '0x16529813203f77e036576666336554a1210dce4d' }
-  ]
-]);
-
-/** The 24-byte hook name the Generic Executor looks for in composable hook data (`circle-generic-executor`). */
-export const CCTP_EXECUTOR_HOOK_NAME = 'circle-generic-executor';
-/** The hook name Circle's forwarding service looks for; its frame carries no payload for an EVM destination. */
-export const CCTP_FORWARD_HOOK_NAME = 'cctp-forward';
-/** The one composable hook-data version the executor accepts. */
-export const CCTP_HOOK_VERSION = 1;
-/** The executor payload version `GenericExecutor._decodeAndValidatePayload` accepts. */
-export const CCTP_EXECUTOR_PAYLOAD_VERSION = 1;
-/** A standard CCTP V2 transfer, which Circle prices at no protocol fee on the routes the wallet uses. */
-export const CCTP_STANDARD_FINALITY_THRESHOLD = 2000;
-
 /** What every source chain shares: the USDC burned or deposited there, and Circle's domain of the chain. */
 interface UsdcxSourceChainBase {
+  midenDomain?: number;
   chain: Chain;
   usdc: Address;
   /** Circle's domain of the source chain. */
@@ -111,6 +40,7 @@ export interface UsdcxXReserveSource extends UsdcxSourceChainBase {
  * keyed by the Arc transaction that executed the message.
  */
 export interface UsdcxExecutorTarget {
+  midenDomain?: number;
   chain: Chain;
   domain: number;
   executor: Address;
@@ -123,14 +53,12 @@ export interface UsdcxExecutorTarget {
 
 /**
  * A source with CCTP only (Base, Arbitrum): the deposit is a CCTP burn to the executor on Arc carrying the
- * xReserve deposit as hook data. With a signed fee quote the burn goes through the fee entry point and
- * Circle's forwarder executes it on Arc; without one it goes through the plain token messenger and the
- * wallet asks the connected EVM wallet to execute the attested message on Arc itself.
+ * xReserve deposit as hook data. The burn goes through the fee entry point with a signed fee quote and
+ * Circle's forwarder executes it on Arc; without a quote the deposit is refused, since a burn through the
+ * plain token messenger is not forwarded and would stop at the executor.
  */
 export interface UsdcxExecutorSource extends UsdcxSourceChainBase {
   route: 'cctp-executor';
-  /** The plain `TokenMessengerV2`, for a burn the wallet executes itself. */
-  tokenMessenger: Address;
   /** `TokenMessengerWithFees`, for a burn with a signed quote that Circle forwards and executes. */
   tokenMessengerWithFees: Address;
   /** Circle's Iris API for this network family, which attests the CCTP leg. */
@@ -160,75 +88,104 @@ export interface UsdcxDestination {
 const USDCX_PAYOUT_FEE_ALLOWANCE = 100_000n;
 const USDCX_ETHEREUM_PAYOUT_FEE_ALLOWANCE = 1_500_000n;
 
-function sourceChain(chain: Chain): [number, UsdcxSourceChain] {
-  const xReserve = XRESERVE_ADDRESS.get(chain.id);
-  const usdc = CIRCLE_USDC_ADDRESS.get(chain.id);
-  const domain = CIRCLE_DOMAIN.get(chain.id);
-  if (!xReserve || !usdc || domain === undefined) {
-    throw new Error(`USDCx source chain ${chain.id} is missing a contract or a domain`);
-  }
-  const attestationApi = chain.testnet ? XRESERVE_ATTESTATION_API_TESTNET : XRESERVE_ATTESTATION_API_MAINNET;
-  return [chain.id, { route: 'xreserve', chain, xReserve, usdc, domain, attestationApi }];
-}
-
-function executorTarget(chain: Chain): UsdcxExecutorTarget {
-  const addresses = CCTP_EXECUTOR_ADDRESS.get(chain.id);
-  const xReserve = XRESERVE_ADDRESS.get(chain.id);
-  const usdc = CIRCLE_USDC_ADDRESS.get(chain.id);
-  const domain = CIRCLE_DOMAIN.get(chain.id);
-  if (!addresses || !xReserve || !usdc || domain === undefined) {
-    throw new Error(`USDCx executor target ${chain.id} is missing a contract or a domain`);
-  }
-  const testnet = chain.testnet ?? false;
+function configuredChain(chainId: number): Chain | undefined {
+  const chain = EVM_CHAIN_DEFINITIONS.find(chain => chain.id === chainId);
+  const rpcUrl = getChain(chainId)?.rpcUrl;
+  if (!chain || !rpcUrl) return undefined;
+  // A route is stored on its bridge row, so it shares no object with the chain definition other code holds.
   return {
-    chain,
-    domain,
-    executor: addresses.executor,
-    handler: addresses.handler,
-    xReserve,
-    usdc,
-    attestationApi: testnet ? XRESERVE_ATTESTATION_API_TESTNET : XRESERVE_ATTESTATION_API_MAINNET,
-    irisApi: testnet ? IRIS_API_TESTNET : IRIS_API_MAINNET
+    id: chain.id,
+    name: chain.name,
+    nativeCurrency: copyPlainData(chain.nativeCurrency),
+    rpcUrls: { default: { http: [rpcUrl] } },
+    blockExplorers: copyPlainData(chain.blockExplorers),
+    testnet: chain.testnet
   };
 }
 
-function executorSource(chain: Chain, target: UsdcxExecutorTarget): [number, UsdcxSourceChain] {
-  const usdc = CIRCLE_USDC_ADDRESS.get(chain.id);
-  const domain = CIRCLE_DOMAIN.get(chain.id);
-  const tokenMessengerWithFees = TOKEN_MESSENGER_WITH_FEES_ADDRESS.get(chain.id);
-  if (!usdc || domain === undefined || !tokenMessengerWithFees) {
-    throw new Error(`USDCx source chain ${chain.id} is missing a USDC address, a domain or a fee entry point`);
-  }
-  if ((chain.testnet ?? false) !== (target.chain.testnet ?? false)) {
-    throw new Error(`USDCx source chain ${chain.id} and its executor target are on different network families`);
-  }
-  return [
-    chain.id,
-    {
-      route: 'cctp-executor',
-      chain,
-      usdc,
-      domain,
-      tokenMessenger: TOKEN_MESSENGER_V2_ADDRESS,
-      tokenMessengerWithFees,
-      irisApi: chain.testnet ? IRIS_API_TESTNET : IRIS_API_MAINNET,
-      target
-    }
-  ];
+/** A chain is usable only inside the effective network's family: testnet chains on testnet, mainnet chains otherwise. */
+function inEffectiveFamily(chain: Chain): boolean {
+  return (chain.testnet ?? false) === (getEffectiveNetworkName() !== 'mainnet');
 }
 
-const ARC_TESTNET_EXECUTOR = executorTarget(ARC_TESTNET);
-const ARC_EXECUTOR = executorTarget(arc);
-
-function destination(chain: Chain): [number, UsdcxDestination] {
-  const domain = CIRCLE_DOMAIN.get(chain.id);
-  const usdc = CIRCLE_USDC_ADDRESS.get(chain.id);
-  if (domain === undefined || !usdc) {
-    throw new Error(`USDCx destination ${chain.id} is missing a domain or a USDC address`);
+function sourceChain(entry: SupportedEvmChainConfig): UsdcxSourceChain | undefined {
+  const config = getBridgeConfigSnapshot().config;
+  const provider = config?.['bridge-providers'].usdcx;
+  const route = entry.bridges.usdcx;
+  const chain = configuredChain(entry.chainId);
+  const tokenAddress = route?.tokens.USDC?.contractAddress;
+  const usdc = tokenAddress ? getAddress(tokenAddress) : undefined;
+  if (!config || !provider?.attestationUrl || !provider.irisUrl || !route || !chain || !usdc || !route.deposit)
+    return undefined;
+  if (!inEffectiveFamily(chain)) return undefined;
+  const base = { chain, usdc, domain: route.domain, midenDomain: provider.midenDomain };
+  switch (route.deposit.route) {
+    case 'xreserve':
+      return {
+        ...base,
+        route: 'xreserve',
+        xReserve: getAddress(route.deposit.xReserve),
+        attestationApi: provider.attestationUrl
+      };
+    case 'executor': {
+      const targetConfig = config.supportedEvmChains[route.deposit.executorChain];
+      const targetRoute = targetConfig?.bridges.usdcx;
+      const targetChain = targetConfig ? configuredChain(targetConfig.chainId) : undefined;
+      const targetUsdc = targetRoute?.tokens.USDC?.contractAddress;
+      if (!targetChain || !targetRoute?.executor || targetRoute.deposit?.route !== 'xreserve' || !targetUsdc)
+        return undefined;
+      if (!inEffectiveFamily(targetChain)) return undefined;
+      return {
+        ...base,
+        route: 'cctp-executor',
+        tokenMessengerWithFees: getAddress(route.deposit.tokenMessengerWithFees),
+        irisApi: provider.irisUrl,
+        target: {
+          midenDomain: provider.midenDomain,
+          chain: targetChain,
+          domain: targetRoute.domain,
+          executor: getAddress(targetRoute.executor.address),
+          handler: getAddress(targetRoute.executor.handler),
+          xReserve: getAddress(targetRoute.deposit.xReserve),
+          usdc: getAddress(targetUsdc),
+          attestationApi: provider.attestationUrl,
+          irisApi: provider.irisUrl
+        }
+      };
+    }
   }
-  // Ethereum is Circle domain 0 on both network families.
-  const payoutFeeAllowance = domain === 0 ? USDCX_ETHEREUM_PAYOUT_FEE_ALLOWANCE : USDCX_PAYOUT_FEE_ALLOWANCE;
-  return [chain.id, { chain, domain, usdc, payoutFeeAllowance }];
+}
+
+function destination(entry: SupportedEvmChainConfig): UsdcxDestination | undefined {
+  const route = entry.bridges.usdcx;
+  const chain = configuredChain(entry.chainId);
+  const tokenAddress = route?.tokens.USDC?.contractAddress;
+  const usdc = tokenAddress ? getAddress(tokenAddress) : undefined;
+  if (!route || !chain || !usdc || !inEffectiveFamily(chain)) return undefined;
+  return {
+    chain,
+    domain: route.domain,
+    usdc,
+    payoutFeeAllowance: route.domain === 0 ? USDCX_ETHEREUM_PAYOUT_FEE_ALLOWANCE : USDCX_PAYOUT_FEE_ALLOWANCE
+  };
+}
+
+export function usdcxSourceChains(snapshot = getBridgeConfigSnapshot()): ReadonlyMap<number, UsdcxSourceChain> {
+  const sources = new Map<number, UsdcxSourceChain>();
+  for (const entry of Object.values(snapshot.config?.supportedEvmChains ?? {})) {
+    const source = sourceChain(entry);
+    if (source) sources.set(entry.chainId, source);
+  }
+  return sources;
+}
+
+export function usdcxDestinations(): ReadonlyMap<number, UsdcxDestination> {
+  const destinations = new Map<number, UsdcxDestination>();
+  for (const entry of Object.values(getBridgeConfigSnapshot().config?.supportedEvmChains ?? {})) {
+    const target = destination(entry);
+    if (target) destinations.set(entry.chainId, target);
+  }
+  return destinations;
 }
 
 /**
@@ -237,7 +194,7 @@ function destination(chain: Chain): [number, UsdcxDestination] {
  * refuses that burn (`usdcxPayoutFeeShortfall`) and never confirms an older one by balance.
  */
 export function minimumUsdcxPayout(chainId: number, amount: bigint): bigint {
-  return amount - (USDCX_DESTINATIONS.get(chainId)?.payoutFeeAllowance ?? 0n);
+  return amount - (usdcxDestinations().get(chainId)?.payoutFeeAllowance ?? 0n);
 }
 
 /**
@@ -248,62 +205,42 @@ export function usdcxPayoutFeeShortfall(
   chainId: number,
   amount: bigint
 ): { amount: string; network: string } | undefined {
-  const destination = USDCX_DESTINATIONS.get(chainId);
+  const destination = usdcxDestinations().get(chainId);
   if (!destination || amount <= 0n || minimumUsdcxPayout(chainId, amount) > 0n) return undefined;
   return { amount: formatUnits(destination.payoutFeeAllowance, USDCX_DECIMALS), network: destination.chain.name };
 }
 
-// Circle has not registered Miden on Sepolia's xReserve (a deposit there reverts), so a Sepolia deposit goes through
-// the executor on Arc. The e2e build's Sepolia fork registers Miden itself and keeps the xReserve route.
-const SEPOLIA_SOURCE =
-  E2E_USDCX_CHAIN === 'sepolia' ? sourceChain(sepolia) : executorSource(sepolia, ARC_TESTNET_EXECUTOR);
-
 /**
- * Every chain a bridge-in can start from, keyed by EVM chain id. Testnet entries first. Arc and Ethereum deposit
- * into their own xReserve; Sepolia, Base and Arbitrum reach Arc's xReserve through Circle's executor.
- */
-export const USDCX_SOURCE_CHAINS: ReadonlyMap<number, UsdcxSourceChain> = new Map([
-  sourceChain(ARC_TESTNET),
-  SEPOLIA_SOURCE,
-  executorSource(baseSepolia, ARC_TESTNET_EXECUTOR),
-  executorSource(arbitrumSepolia, ARC_TESTNET_EXECUTOR),
-  sourceChain(arc),
-  sourceChain(mainnet),
-  executorSource(base, ARC_EXECUTOR),
-  executorSource(arbitrum, ARC_EXECUTOR)
-]);
-
-/**
- * Every chain a burn can pay out to, keyed by EVM chain id. All are direct-payout domains, so the
- * attester needs no forwarding. Testnet entries first; the wallet offers the ones whose
- * `chain.testnet` matches the effective network.
- */
-export const USDCX_DESTINATIONS: ReadonlyMap<number, UsdcxDestination> = new Map([
-  destination(ARC_TESTNET),
-  destination(sepolia),
-  destination(arbitrumSepolia),
-  destination(baseSepolia),
-  destination(arc),
-  destination(mainnet),
-  destination(arbitrum),
-  destination(base)
-]);
-
-/**
- * The i18n key of a USDCx deposit's arrival time for its source chain: Arc Testnet reads ~1 min, every other source
- * ~20 min. On Arc, Circle attests the deposit in seconds and the relayer mints within a minute.
+ * The i18n key of a USDCx deposit's arrival time for its source chain: Arc (testnet or mainnet) reads ~1 min, every
+ * other source ~20 min. On Arc, Circle attests the deposit in seconds and the relayer mints within a minute.
  */
 export function usdcxArrivalKey(sourceChainId: number): 'usdcxArrivalArc' | 'usdcxArrival' {
-  return sourceChainId === ARC_TESTNET.id ? 'usdcxArrivalArc' : 'usdcxArrival';
+  return sourceChainId === ARC_TESTNET.id || sourceChainId === arc.id ? 'usdcxArrivalArc' : 'usdcxArrival';
 }
 
-/** The source chain a bridge-in starts from until the screen offers a picker. */
-export const DEFAULT_USDCX_SOURCE_CHAIN_ID: number = E2E_USDCX_CHAIN === 'sepolia' ? sepolia.id : ARC_TESTNET.id;
-/** The destination pre-selected for a USDCx withdrawal. */
-export const DEFAULT_USDCX_DESTINATION_CHAIN_ID: number = ARC_TESTNET.id;
+/**
+ * The EVM chain the USDCx surfaces open on, per Miden network, keyed as `MIDEN_NETWORK_ENDPOINTS` keys the RPCs:
+ * Ethereum on mainnet, Arc Testnet on the test networks.
+ */
+export const DEFAULT_USDCX_CHAIN_IDS = new Map<string, number>([
+  [MIDEN_NETWORK_NAME.MAINNET, mainnet.id],
+  [MIDEN_NETWORK_NAME.TESTNET, ARC_TESTNET.id],
+  [MIDEN_NETWORK_NAME.DEVNET, ARC_TESTNET.id],
+  [MIDEN_NETWORK_NAME.LOCALNET, ARC_TESTNET.id]
+]);
+
+/**
+ * The chain a USDCx bridge-in opens on and a withdrawal pre-selects, for the effective network: the E2E harness's
+ * Sepolia fork when it asks for it, else the network's entry above. A caller falls through to the document's first
+ * chain when the document does not list this one.
+ */
+export function defaultUsdcxChainId(): number {
+  if (E2E_USDCX_CHAIN === 'sepolia') return sepolia.id;
+  return DEFAULT_USDCX_CHAIN_IDS.get(getEffectiveNetworkName()) ?? ARC_TESTNET.id;
+}
 
 export function getUsdcxSourceChain(chainId: number): UsdcxSourceChain {
-  const source = USDCX_SOURCE_CHAINS.get(chainId);
+  const source = usdcxSourceChains().get(chainId);
   if (!source) throw new Error(`USDCx bridge-in is not configured for chain ${chainId}`);
   return source;
 }
@@ -324,197 +261,49 @@ export function getUsdcxExecutorSource(chainId: number): UsdcxExecutorSource {
 
 /** Whether `chainId` deposits through Circle's executor on Arc. Unknown chains read as false. */
 export function isUsdcxExecutorSource(chainId: number | undefined): boolean {
-  return chainId !== undefined && USDCX_SOURCE_CHAINS.get(chainId)?.route === 'cctp-executor';
+  return chainId !== undefined && usdcxSourceChains().get(chainId)?.route === 'cctp-executor';
 }
 
 export function getUsdcxDestination(chainId: number): UsdcxDestination {
-  const entry = USDCX_DESTINATIONS.get(chainId);
+  const entry = usdcxDestinations().get(chainId);
   if (!entry) throw new Error(`USDCx withdrawal is not configured for chain ${chainId}`);
   return entry;
 }
 
-/** The source chains offered on one network family: testnet chains on testnet, mainnet chains otherwise. */
-export function listUsdcxSourceChains(testnet: boolean): UsdcxSourceChain[] {
-  return [...USDCX_SOURCE_CHAINS.values()].filter(entry => (entry.chain.testnet ?? false) === testnet);
+/** The source chains offered on the effective network's family: testnet chains on testnet, mainnet chains otherwise. */
+export function listUsdcxSourceChains(): UsdcxSourceChain[] {
+  return [...usdcxSourceChains().values()].filter(entry => isUsdcxRouteEnabled(entry.chain.id, 'deposit'));
 }
 
-/** The destinations offered on one network family: testnet chains on testnet, mainnet chains otherwise. */
-export function listUsdcxDestinations(testnet: boolean): UsdcxDestination[] {
-  return [...USDCX_DESTINATIONS.values()].filter(entry => (entry.chain.testnet ?? false) === testnet);
+/** The destinations offered on the effective network's family: testnet chains on testnet, mainnet chains otherwise. */
+export function listUsdcxDestinations(): UsdcxDestination[] {
+  return [...usdcxDestinations().values()].filter(entry => isUsdcxRouteEnabled(entry.chain.id, 'withdrawal'));
 }
-
-export const CIRCLE_USDC_DECIMALS = 6;
-export const CIRCLE_USDC_SYMBOL = 'USDC';
 
 /**
  * Circle's remote-domain id for Miden. Circle assigned 10007 for testnet and
  * mainnet. A deposit to an unregistered domain reverts with `RemoteDomainNotRegistered`.
  */
-export const USDCX_REMOTE_DOMAIN = 10007;
+export function getUsdcxRemoteDomain(): number {
+  const domain = getBridgeConfigSnapshot().config?.['bridge-providers'].usdcx.midenDomain;
+  if (domain === undefined) throw new Error('USDCx Miden domain is not configured');
+  return domain;
+}
 
-// The USDCx faucet is the chain's native asset: read its id through `requireUsdcxFaucetId` (`./withdrawal`).
-export const USDCX_SYMBOL = 'USDCx';
-export const USDCX_DECIMALS = 6;
+export function getUsdcxAttestationUrl(): string {
+  const url = getBridgeConfigSnapshot().config?.['bridge-providers'].usdcx.attestationUrl;
+  if (!url) throw new Error('USDCx attestation service is not configured');
+  return url;
+}
 
-export const USDCX_BURN_TAG = 0x4255524e;
-/** The withdrawal attachment's scheme: `StandardNoteAttachment::UsdcxBurn` in the 0.17.1 standards. */
-export const USDCX_BURN_WITHDRAWAL_ATTACHMENT_SCHEME = 5;
-export const USDCX_MIN_BURN_SLOT = 'miden::standards::faucets::policies::burn::min_burn_amount::min_burn_amount';
-export const USDCX_ALLOWED_NOTE_SCRIPTS_SLOT = 'miden::standards::auth::network_account::allowed_note_scripts';
-
-/** The fee ceiling passed to `depositToRemote`. Circle's fee for Miden is not confirmed yet. */
-export const USDCX_DEPOSIT_MAX_FEE = 0n;
-/** Circle confirmed that empty hook data is accepted for Miden. */
-export const USDCX_DEPOSIT_HOOK_DATA: Hex = '0x';
-
-/**
- * The parts of the xReserve ABI the wallet calls. Source: Circle's
- * `evm-xreserve-contracts` at a571cbe, `src/modules/x-reserve/*.sol`.
- */
-export const XRESERVE_ABI = [
-  {
-    type: 'function',
-    name: 'depositToRemote',
-    stateMutability: 'nonpayable',
-    inputs: [
-      { name: 'value', type: 'uint256' },
-      { name: 'remoteDomain', type: 'uint32' },
-      { name: 'remoteRecipient', type: 'bytes32' },
-      { name: 'localToken', type: 'address' },
-      { name: 'maxFee', type: 'uint256' },
-      { name: 'hookData', type: 'bytes' }
-    ],
-    outputs: []
-  },
-  {
-    type: 'function',
-    name: 'isRemoteDomainRegistered',
-    stateMutability: 'view',
-    inputs: [{ name: 'remoteDomain', type: 'uint32' }],
-    outputs: [{ name: '', type: 'bool' }]
-  },
-  {
-    type: 'error',
-    name: 'RemoteDomainNotRegistered',
-    inputs: [{ name: 'remoteDomain', type: 'uint32' }]
+export function isUsdcxRouteEnabled(chainId: number, direction: 'deposit' | 'withdrawal'): boolean {
+  const entry = Object.values(getBridgeConfigSnapshot().config?.supportedEvmChains ?? {}).find(
+    chain => chain.chainId === chainId
+  );
+  switch (direction) {
+    case 'deposit':
+      return entry?.bridges.usdcx?.depositEnabled === true;
+    case 'withdrawal':
+      return entry?.bridges.usdcx?.withdrawalEnabled === true;
   }
-] as const;
-
-export const ERC20_APPROVE_ABI = [
-  {
-    type: 'function',
-    name: 'approve',
-    stateMutability: 'nonpayable',
-    inputs: [
-      { name: 'spender', type: 'address' },
-      { name: 'amount', type: 'uint256' }
-    ],
-    outputs: [{ name: '', type: 'bool' }]
-  }
-] as const;
-
-export const ERC20_ALLOWANCE_ABI = [
-  {
-    type: 'function',
-    name: 'allowance',
-    stateMutability: 'view',
-    inputs: [
-      { name: 'owner', type: 'address' },
-      { name: 'spender', type: 'address' }
-    ],
-    outputs: [{ name: '', type: 'uint256' }]
-  }
-] as const;
-
-export const ERC20_BALANCE_OF_ABI = [
-  {
-    type: 'function',
-    name: 'balanceOf',
-    stateMutability: 'view',
-    inputs: [{ name: 'account', type: 'address' }],
-    outputs: [{ name: '', type: 'uint256' }]
-  }
-] as const;
-
-/**
- * The CCTP V2 `TokenMessengerV2` entry point the executor route burns through: a standard transfer whose
- * mint recipient and destination caller are both the executor, with the xReserve deposit as hook data.
- */
-export const TOKEN_MESSENGER_V2_ABI = [
-  {
-    type: 'function',
-    name: 'depositForBurnWithHook',
-    stateMutability: 'nonpayable',
-    inputs: [
-      { name: 'amount', type: 'uint256' },
-      { name: 'destinationDomain', type: 'uint32' },
-      { name: 'mintRecipient', type: 'bytes32' },
-      { name: 'burnToken', type: 'address' },
-      { name: 'destinationCaller', type: 'bytes32' },
-      { name: 'maxFee', type: 'uint256' },
-      { name: 'minFinalityThreshold', type: 'uint32' },
-      { name: 'hookData', type: 'bytes' }
-    ],
-    outputs: []
-  }
-] as const;
-
-/**
- * Circle's Generic Executor on Arc (`GenericExecutor.execute`): receives the attested CCTP message, which
- * mints to the executor, then hands the minted USDC to the handler named in the executor hook. Anyone may
- * call it, so the wallet does when Circle's forwarder does not.
- */
-export const GENERIC_EXECUTOR_ABI = [
-  {
-    type: 'function',
-    name: 'execute',
-    stateMutability: 'nonpayable',
-    inputs: [
-      { name: 'payload', type: 'bytes' },
-      { name: 'proof', type: 'bytes' }
-    ],
-    outputs: []
-  },
-  {
-    type: 'event',
-    name: 'Executed',
-    inputs: [
-      { name: 'transport', type: 'bytes4', indexed: true },
-      { name: 'version', type: 'uint8', indexed: false },
-      { name: 'handler', type: 'address', indexed: true },
-      { name: 'token', type: 'address', indexed: true },
-      { name: 'amount', type: 'uint256', indexed: false },
-      { name: 'nonce', type: 'bytes32', indexed: false }
-    ]
-  }
-] as const;
-
-/**
- * Circle's `TokenMessengerWithFees` entry point for a burn with a signed quote: the quote is bound to the
- * amount, destination, token, destination caller and hook data, and its forward fee pays Circle to execute
- * the message on Arc. The fee is taken in source USDC on top of the amount, so the burn amount arrives whole.
- */
-export const TOKEN_MESSENGER_WITH_FEES_ABI = [
-  {
-    type: 'function',
-    name: 'depositForBurnWithHookAndFees',
-    stateMutability: 'payable',
-    inputs: [
-      { name: 'amount', type: 'uint256' },
-      { name: 'destinationDomain', type: 'uint32' },
-      { name: 'mintRecipient', type: 'bytes32' },
-      { name: 'burnToken', type: 'address' },
-      { name: 'destinationCaller', type: 'bytes32' },
-      { name: 'hookData', type: 'bytes' },
-      {
-        name: 'claim',
-        type: 'tuple',
-        components: [
-          { name: 'signedQuote', type: 'bytes' },
-          { name: 'refundAddress', type: 'address' }
-        ]
-      }
-    ],
-    outputs: []
-  }
-] as const;
+}

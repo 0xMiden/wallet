@@ -17,6 +17,7 @@ type Wallet = {
   permission?: unknown;
   connect: (...args: unknown[]) => Promise<unknown>;
   disconnect: () => Promise<unknown>;
+  requestAssets: () => Promise<unknown>;
   on: (event: string, cb: (data: unknown) => void) => () => void;
   off: (event: string, cb: (data: unknown) => void) => void;
   emit: (event: string, data: unknown) => void;
@@ -102,6 +103,28 @@ afterEach(() => {
 
 it('loads the real script and installs the wallet', () => {
   expect(load().win.midenWallet.connect).toBeInstanceOf(Function);
+});
+
+// #1416: the wallet can answer after a same-origin reload, into a document whose own first request is pending.
+it("numbers each document's requests under its own prefix, so a late answer for the previous one resolves nothing", async () => {
+  const previous = load();
+  void previous.win.midenWallet.requestAssets();
+  const current = load();
+  const settled = jest.fn();
+  const pending = current.win.midenWallet.requestAssets();
+  pending.then(settled, settled);
+  const previousId = previous.last().reqId;
+  const currentId = current.last().reqId;
+  expect(previousId).toMatch(/^req_[0-9a-f]{16}_1$/);
+  expect(currentId).toMatch(/^req_[0-9a-f]{16}_1$/);
+  expect(currentId).not.toBe(previousId);
+
+  expect(() => current.answer(previousId, { assets: ['previous'] })).not.toThrow();
+  await flush();
+  expect(settled).not.toHaveBeenCalled();
+
+  current.answer(currentId, { assets: ['current'] });
+  await expect(pending).resolves.toEqual({ assets: ['current'] });
 });
 
 describe('account switch (#174)', () => {

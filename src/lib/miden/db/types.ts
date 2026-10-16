@@ -1,6 +1,10 @@
 import type { PreparedExecution } from '@epoch-protocol/epoch-intents-sdk';
 import { v4 as uuid } from 'uuid';
 
+import type { AgglayerRecoveryConfig } from 'lib/remote-config/schema';
+import type { TransactionFailureDiagnostics } from 'lib/telemetry/transaction-failure';
+import type { UsdcxSourceChain } from 'lib/usdcx/constant';
+
 import type { GuardianHistoryRecovery } from '../guardian/history';
 import { ConsumableNote, NoteType } from '../types';
 
@@ -178,9 +182,13 @@ export interface IUsdcxCctpLeg {
 
 /** Metadata persisted on a tracking-only EVM → Miden bridge row. */
 export interface IBridgedReceiveExtraInputs {
+  agglayerRoute?: AgglayerRecoveryConfig;
+  epochAllocatorUrl?: string;
   provider: IBridgeProvider;
   /** EVM source chain; absent on legacy Sepolia rows. */
   sourceChainId?: number;
+  usdcxSource?: UsdcxSourceChain;
+  usdcxMidenDomain?: number;
   /** Connected EVM account that funded the bridge. */
   sourceAddress: string;
   /** Human-readable source-chain input, retained even if the Miden output differs. */
@@ -303,6 +311,8 @@ export type IBridgeClaimStatus = 'not-applicable' | 'pending' | 'ready' | 'claim
 export interface IUsdcxBurn {
   noteId: string;
   destinationDomain: number;
+  destinationUsdc?: `0x${string}`;
+  payoutFeeAllowance?: string;
   phase: 'pending' | 'consuming' | 'confirmed' | 'discarded';
   /** USDC balance saved before the burn is queued, in six-decimal base units. */
   destinationBalanceBefore?: { balance: string; blockNumber: string };
@@ -315,6 +325,8 @@ export interface IUsdcxBurn {
 
 /** `extraInputs` shape for a `BridgedSendTransaction`. */
 export interface IBridgedSendExtraInputs {
+  agglayerRoute?: AgglayerRecoveryConfig;
+  epochAllocatorUrl?: string;
   provider: IBridgeProvider;
   usdcxBurn?: IUsdcxBurn;
   /** 0x EVM recipient. */
@@ -397,6 +409,7 @@ export interface IBridgedSendExtraInputs {
  * address is the position owner / intent sponsor.
  */
 export interface IEarnDepositExtraInputs {
+  epochAllocatorUrl?: string;
   /** 0x EVM address that owns the resulting lending position (intent sponsor). */
   evmRecipient: string;
   /** Epoch market identifier (`PROTOCOL:chainId:token`) the deposit targets. */
@@ -447,6 +460,8 @@ export interface IEarnWithdrawPreparedExecution extends PreparedExecution {
  * prove/submit — the row is a tracking-only record whose lifecycle lives in `phase`.
  */
 export interface IEarnWithdrawExtraInputs {
+  epochAllocatorUrl?: string;
+  underlyingAddress?: string;
   /** 0x EVM address that owned the redeemed lending position (intent sponsor). */
   evmOwner: string;
   /** Epoch market identifier (`PROTOCOL:chainId:token`) the withdrawal redeemed. */
@@ -496,6 +511,8 @@ export interface IBridgeInInfo {
   intentNonce?: string;
   intentOwner?: string;
   earnWithdrawAttemptId?: string;
+  /** epoch: the allocator the intent's row saved, which its note-id poll asks; absent on an older registration. */
+  epochAllocatorUrl?: string;
   /** EVM-side deposit/fill tx hash, when known. */
   evmTxHash?: string;
   /** Miden-side note id the bridge-in resolved to, copied on by `applyBridgeInInfoForNotes`. */
@@ -730,6 +747,14 @@ export interface ITransaction {
    * which hold nothing.
    */
   heldNoteIds?: string[];
+  /**
+   * The dApp origins this wallet answered with this row's id, exactly as `processDApp` received them: the origin that
+   * created it, and any origin whose consume request the dedup answered with it. Only these may wait on the row's
+   * result, and only while they hold a session on its account (`waitForTransaction`, #1416). Absent on every row the
+   * wallet made itself and on rows written before it existed, which no dApp may wait on. Not indexed; backups neither
+   * carry nor restore it.
+   */
+  dappOrigins?: string[];
   outputNoteIds?: string[];
   /** The private output notes a custom row owes the relay, all of which its `noteDelivery` covers; see `relayNoteIdsOf`. */
   relayNoteIds?: string[];
@@ -773,6 +798,8 @@ export interface ITransaction {
    * `status`, and is stale once `status` reaches `Completed`/`Failed`.
    */
   stage?: ITransactionStage;
+  /** Closed authentication categories only; request values never enter a report. */
+  failureDiagnostics?: TransactionFailureDiagnostics;
   /**
    * Wall-clock (ms since epoch) of the first time each processing stage was
    * entered, recorded by `setTransactionStage` (plus a synthetic `complete`
@@ -993,6 +1020,8 @@ export class Transaction implements ITransaction {
   inputNoteIds?: string[];
   /** See `ITransaction.heldNoteIds`. */
   heldNoteIds?: string[];
+  /** See `ITransaction.dappOrigins`. */
+  dappOrigins?: string[];
   outputNoteIds?: string[];
   /** Per-faucet value leaving the account. See `ITransaction.spentAssetTotals`. */
   spentAssetTotals?: IConsumedAssetTotal[];
@@ -1049,6 +1078,8 @@ export class SendTransaction implements ITransaction {
   displayMessage?: string;
   displayIcon: ITransactionIcon;
   delegateTransaction?: boolean;
+  /** See `ITransaction.dappOrigins`. */
+  dappOrigins?: string[];
   extraInputs: { recallBlocks?: number } = {
     recallBlocks: undefined
   };
@@ -1113,6 +1144,8 @@ export class ConsumeTransaction implements ITransaction {
   consumedNotes?: IConsumedNote[];
   /** See `ITransaction.rotationFunding`. */
   rotationFunding?: true;
+  /** See `ITransaction.dappOrigins`. */
+  dappOrigins?: string[];
   transactionId?: string;
   status: ITransactionStatus;
   initiatedAt: number;

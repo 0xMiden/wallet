@@ -5,8 +5,12 @@ import { Buffer } from 'buffer';
 
 import { syncAndRecordFeeFaucet } from 'lib/miden/sdk/sync-and-record-fee-faucet';
 import { monotonicNowMs } from 'lib/miden/sync-backoff';
-import { GUARDIAN_OPTIONS } from 'lib/miden-chain/constants';
-import { getEffectiveDefaultGuardianEndpoint, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
+import {
+  getEffectiveDefaultGuardianEndpoint,
+  getEffectiveNetworkName,
+  getEffectiveRpcUrl
+} from 'lib/miden-chain/effective-endpoints';
+import { getNetworkGuardians } from 'lib/miden-chain/guardian-registry';
 import { isExtension } from 'lib/platform';
 import * as secureHotKey from 'lib/secure-hot-key';
 import { sameGuardianEndpoint } from 'lib/settings/helpers';
@@ -262,18 +266,23 @@ const PROVIDER_ID_MAP: Record<string, GuardianProvider> = {
 };
 
 /**
- * Reverse-map an endpoint URL to its built-in GUARDIAN_OPTIONS provider id;
- * 'custom' if the endpoint doesn't match any known provider; null if the
- * endpoint itself is null (account has no guardian).
+ * Reverse-map an endpoint URL to the provider id of the operator the wallet's
+ * configuration names for it on the effective network (`getNetworkGuardians`);
+ * 'custom' if the endpoint doesn't match any known provider, or matches one
+ * whose id is not a `GuardianProvider`; null if the endpoint itself is null
+ * (account has no guardian).
  */
 export function guardianProviderFromEndpoint(endpoint: string | null): GuardianProvider | null {
   if (!endpoint) return null;
-  for (const option of GUARDIAN_OPTIONS) {
-    for (const url of option.endpoint.values()) {
-      if (sameGuardianEndpoint(url, endpoint)) return PROVIDER_ID_MAP[option.id] ?? 'custom';
-    }
-  }
-  return 'custom';
+  // Only the effective network's endpoint identifies a built-in, as in guardianOptionForEndpoint.
+  const option = getNetworkGuardians(getEffectiveNetworkName()).find(known =>
+    sameGuardianEndpoint(known.endpoint, endpoint)
+  );
+  return (
+    (option && Object.prototype.hasOwnProperty.call(PROVIDER_ID_MAP, option.id)
+      ? PROVIDER_ID_MAP[option.id]
+      : undefined) ?? 'custom'
+  );
 }
 
 /**
@@ -462,7 +471,7 @@ export async function createGuardianAccount(
 
     // Cold goes through the standard SDK keystore so the WASM client can sign
     // with it on demand; the existing insertKeyCallback wraps it under the
-    // vault key and stores it at accAuthSecretKeyStrgKey(coldPublicKey).
+    // vault key and stores it at accAuthSecretKeyStrgKey(<cold commitment>).
     // Hot is intentionally NOT inserted here — vault.ts persists the
     // returned hot ciphertext separately under its own envelope.
     assertLive('before the cold key insert');

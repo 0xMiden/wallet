@@ -28,10 +28,6 @@
     *;
 }
 -keep class uniffi.** { *; }
--keepclassmembers class ** {
-    public *;
-    protected *;
-}
 -dontwarn uniffi.**
 -dontwarn com.sun.jna.**
 
@@ -40,9 +36,9 @@
     static ** CREATOR;
 }
 
-# Keep R8 from stripping interface methods
--keep interface * {
-    <methods>;
+# Preserve names used by the browser's reflective missing-icon diagnostics.
+-keepclassmembers class ee.forgr.capacitor_inappbrowser.R$drawable {
+    public static int *;
 }
 
 # Preserve the line number information for debugging stack traces.

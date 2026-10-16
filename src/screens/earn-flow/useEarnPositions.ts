@@ -92,6 +92,13 @@ export function useEarnPositions(): {
    */
   loadError?: string;
   /**
+   * The network configures no Earn at all: its document (mainnet's) names no positions host or no Epoch route.
+   * `error` still names what is missing, but no read or retry can succeed, so the page says Earn is not on this
+   * network. A market read that failed is a configured Earn that is down, and is not this; nor is a snapshot with no
+   * accepted document, which says nothing about the network and keeps its load error and Retry.
+   */
+  notOnNetwork: boolean;
+  /**
    * Re-fetch now (backs the error-state Retry), unless a read is already out: that read brings the result, and a
    * second would spend the service's 10-per-minute limit.
    */
@@ -101,10 +108,14 @@ export function useEarnPositions(): {
   const onScreen = usePageActive();
   const { cache } = useSWRConfig();
   const config = useBridgeConfigSnapshot();
-  const positionsUrl = config.config?.epoch.positionsUrl;
+  const positionsUrl = config.config?.['bridge-providers'].epoch.positionsUrl;
   const marketUid = selectEarnMarket(config)?.marketUid;
   // Only a loading snapshot is a wait: a loaded one that names neither settles at once, as the read would have failed.
   const unconfigured = config.status === 'ready' ? unconfiguredError(positionsUrl, marketUid) : undefined;
+  const notOnNetwork =
+    config.status === 'ready' &&
+    config.config !== null &&
+    (!positionsUrl || config.derived?.epoch.market.state === 'skipped');
 
   // A covered page holds a null key, never `isPaused`: SWR sends a shared key's Retry and timed read to its first
   // subscriber, and a paused one swallows them. SWR reads `revalidateIfStale` only when the key comes back or the hook
@@ -205,10 +216,11 @@ export function useEarnPositions(): {
       // lookup failed) so no failure mode reads as "you have nothing".
       error: data?.errors[0]?.error ?? loadError,
       loadError,
+      notOnNetwork,
       refetch: () => {
         // Every positions request is bounded, so a read out always settles and frees Retry.
         if (!isValidating) void mutate();
       }
     };
-  }, [data, isLoading, readError, isValidating, mutate]);
+  }, [data, isLoading, readError, notOnNetwork, isValidating, mutate]);
 }

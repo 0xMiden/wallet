@@ -7,8 +7,10 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { expectDomainNeverClipped } from 'components/ui/dapp-origin-test-utils';
 import { useMidenContext, useAccount } from 'lib/miden/front';
 import { getNetworkId } from 'lib/miden-chain/constants';
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useRetryableSWR } from 'lib/swr';
+import { snapshotCrashDiagnostics } from 'lib/telemetry/crash-diagnostics';
 import { useLocation } from 'lib/woozie';
 
 import { declaredRequestToView, summaryBytesToView } from './confirm/decode';
@@ -67,6 +69,15 @@ jest.mock('lib/miden-chain/constants', () => ({
 jest.mock('lib/settings/helpers', () => ({
   isDelegateProofEnabled: jest.fn(() => false)
 }));
+
+// The build's network unless a case puts the wallet on another.
+let mockWalletNetwork: MIDEN_NETWORK_NAME | undefined;
+jest.mock('lib/miden-chain/effective-endpoints', () => {
+  const actual = jest.requireActual<typeof import('lib/miden-chain/effective-endpoints')>(
+    'lib/miden-chain/effective-endpoints'
+  );
+  return { ...actual, getEffectiveNetworkName: () => mockWalletNetwork ?? actual.getEffectiveNetworkName() };
+});
 
 jest.mock('lib/store', () => ({
   useWalletStore: { getState: jest.fn(() => ({ openTransactionModal: jest.fn() })) }
@@ -143,6 +154,20 @@ jest.mock('components/Button', () => ({
     </button>
   )
 }));
+
+// A recorder in front of the real telemetry: the real `useApprovalPrompt` runs, so the test sees whether the page
+// begins an approval flow, not which arguments it passed to a stand-in.
+const mockBeginFlow = jest.fn();
+jest.mock('lib/telemetry', () => {
+  const actual = jest.requireActual('lib/telemetry');
+  return {
+    ...actual,
+    beginFlow: (...args: unknown[]) => {
+      mockBeginFlow(...args);
+      return actual.beginFlow(...args);
+    }
+  };
+});
 
 // `TransactionAssetView` owns its own pixel-level rendering (asset rows, note
 // counts, storage warning) and is unit-tested in TransactionAssetView.test.tsx.
@@ -262,6 +287,7 @@ const ctx = {
   confirmDAppAssets: jest.fn(),
   confirmDAppImportPrivateNote: jest.fn(),
   confirmDAppConsumableNotes: jest.fn(),
+  confirmDAppUnlock: jest.fn(),
   simulateCustomTransaction: jest.fn()
 };
 
@@ -368,6 +394,23 @@ describe('ConfirmPage gate', () => {
 // ---------------------------------------------------------------------------
 
 describe('ConfirmDAppForm id derivation', () => {
+  it.each([
+    ['?foo=bar', 'missing'],
+    ['?id=', 'empty']
+  ])('annotates %s without retaining the route or id', (search, confirmationId) => {
+    mockUseLocation.mockReturnValue({ search });
+    setPayload({ type: 'assets', ...baseFields() });
+    const spy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    let failure: unknown;
+    try {
+      render(<ConfirmPage />);
+    } catch (error) {
+      failure = error;
+    }
+    expect(snapshotCrashDiagnostics(failure)).toEqual({ operation: 'confirm_payload', confirmationId });
+    spy.mockRestore();
+  });
+
   it('throws when the location has no id query param', () => {
     mockUseLocation.mockReturnValue({ search: '?foo=bar' });
     setPayload({ type: 'assets', ...baseFields() });
@@ -409,6 +452,36 @@ describe('connect payload', () => {
     // or transition fighting the Secondary variant's own anatomy.
     expect(declineButton).toHaveClass('w-full');
     expect(declineButton.className).not.toMatch(/text-ink|font-medium|transition/);
+  });
+
+  describe('network the dApp claims', () => {
+    beforeEach(() => {
+      mockWalletNetwork = MIDEN_NETWORK_NAME.MAINNET;
+      t.mockImplementation((key: string, values?: Record<string, string>) =>
+        values ? `${key}:${Object.values(values).join(',')}` : key
+      );
+    });
+    afterEach(() => {
+      mockWalletNetwork = undefined;
+    });
+
+    it("warns when it is not the wallet's network, naming both", () => {
+      setPayload(connectPayload({ network: MIDEN_NETWORK_NAME.TESTNET }));
+      render(<ConfirmPage />);
+
+      expect(screen.getByTestId('dapp-network-mismatch')).toHaveTextContent('dappNetworkMismatch:testnet,mainnet');
+    });
+
+    it.each<[string, string | undefined]>([
+      ['claims the network the wallet is on', MIDEN_NETWORK_NAME.MAINNET],
+      ['claims no network', undefined]
+    ])('does not warn when the dApp %s', (_label, network) => {
+      setPayload(connectPayload({ network }));
+      render(<ConfirmPage />);
+
+      expect(screen.getByTestId('account-banner')).toBeInTheDocument();
+      expect(screen.queryByTestId('dapp-network-mismatch')).not.toBeInTheDocument();
+    });
   });
 
   it('auto-confirms an existing permission during render', () => {
@@ -1060,6 +1133,30 @@ describe('consumableNotes payload', () => {
     });
 
     await waitFor(() => expect(ctx.confirmDAppConsumableNotes).toHaveBeenCalledWith('req-1', true));
+  });
+});
+
+describe('unlock payload', () => {
+  const unlockPayload = () => ({ type: 'unlock', ...baseFields() });
+
+  it('answers once on its own after the unlock, with nothing to approve', async () => {
+    ctx.confirmDAppUnlock.mockResolvedValue(undefined);
+    setPayload(unlockPayload());
+    render(<ConfirmPage />);
+
+    await waitFor(() => expect(ctx.confirmDAppUnlock).toHaveBeenCalledWith('req-1'));
+    expect(ctx.confirmDAppUnlock).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
+    expect(screen.getByTestId('spinner')).toBeInTheDocument();
+  });
+
+  it('begins no approval telemetry, since the user is asked nothing', async () => {
+    ctx.confirmDAppUnlock.mockResolvedValue(undefined);
+    setPayload(unlockPayload());
+    render(<ConfirmPage />);
+
+    await waitFor(() => expect(ctx.confirmDAppUnlock).toHaveBeenCalled());
+    expect(mockBeginFlow).not.toHaveBeenCalled();
   });
 });
 

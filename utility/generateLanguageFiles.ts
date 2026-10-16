@@ -60,7 +60,8 @@ const DEEPL_CONTEXT =
   'co-signing service with another one: translate it as a change or replacement of the ' +
   'Guardian, never as a network or hardware switch, a toggle, a device or a key. "Burn" ' +
   '(and "burned") means destroying tokens so they leave circulation, never imprinting, ' +
-  'recording or setting on fire.';
+  'recording or setting on fire. "Fill" (and "filled", "unfilled") means a swap order being ' +
+  'matched by a counterparty, never filling in a form or field.';
 
 const root = path.resolve(__dirname, '..');
 // Use en.json as source of truth (flat format), not messages.json (Chrome extension format)

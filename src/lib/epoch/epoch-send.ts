@@ -3,7 +3,7 @@ import { formatUnits } from 'viem';
 
 import { markBridgedSendFailed, updateBridgeClaimStatus } from 'lib/miden/activity';
 import type { SpendingLimitAuthorization } from 'lib/miden/spending-limits/types';
-import { type EvmUsdc, getEvmChainId, getEvmUsdc } from 'lib/remote-config/values';
+import { type EvmUsdc, getEpochAllocatorUrl, getEvmChainId, getEvmUsdc } from 'lib/remote-config/values';
 
 import { buildCrossChainIntent, getCrossChainQuote } from './bridge';
 import { getCurrentMidenBlock, MIDEN_MIN_RECLAIM_BLOCKS, MIDEN_RECLAIM_BUFFER_BLOCKS } from './chain';
@@ -72,10 +72,12 @@ export async function quoteEpochSendOutput(args: {
   faucetId: string;
   destinationAddress: `0x${string}`;
   senderPublicKey: string;
+  destinationChainId?: number;
 }): Promise<EpochQuoteOutput> {
   // Rejects while the config names no usable output token, before any SDK work.
-  const usdc = getEvmUsdc();
-  const sdk = await getEpochReadOnlySdk(args.destinationAddress);
+  const usdc = getEvmUsdc(args.destinationChainId);
+  const allocatorUrl = getEpochAllocatorUrl();
+  const sdk = await getEpochReadOnlySdk(args.destinationAddress, allocatorUrl);
   const currentBlock = await getCurrentMidenBlock();
   const params = buildEpochSendParams(
     usdc,
@@ -103,6 +105,7 @@ export interface EpochSendArgs {
   destinationAddress: `0x${string}`;
   /** Sender's Miden account (bech32). */
   senderPublicKey: string;
+  destinationChainId?: number;
   deps: BridgeNoteDeps;
   /**
    * Fired once the `bridged-send` row is created (mid-solve, before it proves +
@@ -129,8 +132,9 @@ export interface EpochSendArgs {
  */
 export async function bridgeEpochSend(args: EpochSendArgs): Promise<{ txId?: string }> {
   // Rejects while the config names no usable output token, before any SDK or note work.
-  const usdc = getEvmUsdc();
-  const sdk = await getEpochReadOnlySdk(args.destinationAddress);
+  const usdc = getEvmUsdc(args.destinationChainId);
+  const allocatorUrl = getEpochAllocatorUrl();
+  const sdk = await getEpochReadOnlySdk(args.destinationAddress, allocatorUrl);
   const currentBlock = await getCurrentMidenBlock();
   const params = buildEpochSendParams(
     usdc,
@@ -164,6 +168,7 @@ export async function bridgeEpochSend(args: EpochSendArgs): Promise<{ txId?: str
           bindingAttachmentFelts,
           destinationAddress: args.destinationAddress,
           destinationNetwork: usdc.chainId,
+          allocatorUrl,
           deps: args.deps,
           onRowCreated: args.onRowCreated,
           spendingLimitAuthorization: args.spendingLimitAuthorization
@@ -244,11 +249,13 @@ function isEvmAddress(value: string): value is `0x${string}` {
 export async function pollEpochIntentFill(args: {
   destinationAddress: string;
   intentNonce: string;
+  destinationChainId?: number;
+  allocatorUrl?: string;
 }): Promise<EpochIntentFill | null> {
   if (!args.intentNonce || !isEvmAddress(args.destinationAddress)) return null;
   try {
-    const sdk = await getEpochReadOnlySdk(args.destinationAddress);
-    const destinationChainId = getEvmChainId();
+    const sdk = await getEpochReadOnlySdk(args.destinationAddress, args.allocatorUrl);
+    const destinationChainId = args.destinationChainId ?? getEvmChainId();
     const results = await readEpochIntentStatus(sdk, args.destinationAddress, args.intentNonce);
     if (!results || results.length === 0) return { status: 'pending' };
 

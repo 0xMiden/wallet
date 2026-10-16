@@ -21,6 +21,7 @@ import { hasNoFeeAsset } from 'lib/miden/fees/spendable';
 import type { TokenBalanceData } from 'lib/miden/front';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { isGuardianDrifted } from 'lib/miden/guardian/sync-guard';
+import { isFaucetConfigured } from 'lib/miden-chain/effective-endpoints';
 import {
   FaucetAmountOverCapError,
   FaucetOutcomeUnknownError,
@@ -28,6 +29,7 @@ import {
 } from 'lib/miden-chain/faucet-api';
 import { isExtension } from 'lib/platform';
 import type { TokenPrices } from 'lib/prices';
+import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { WalletAccount } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
@@ -49,6 +51,7 @@ import {
   FaucetRequestUnresolvedError,
   getInFlightFaucetRequest,
   getPendingNotesUsdTotal,
+  guardianNoteScanText,
   isFaucetFundingMarkerLive,
   type PendingNoteValue,
   setFaucetFundingMarker,
@@ -241,6 +244,7 @@ export const HomePrompts: FC<HomePromptsProps> = ({
   tokenPrices
 }) => {
   const { t } = useTranslation();
+  const bridgeConfig = useBridgeConfigSnapshot({ load: false });
   const confirm = useConfirm();
   const seedStatus = useWalletStore(s => s.seedPhraseStatus);
   const { storage, isLoaded, setFaucetStatus, dismissPrompt, completePrompt, isPromptPending } =
@@ -357,15 +361,17 @@ export const HomePrompts: FC<HomePromptsProps> = ({
   const fundingNoteIds = useMemo(() => fundingNotes?.map(note => note.id) ?? [], [fundingNotes]);
   // No figure when any note has no price: the funded line falls back to its generic copy and the
   // pending card shows its count alone. Nothing minted is no figure either, never $0.00.
-  const formattedFundedMintUsdTotal = useMemo(
-    () =>
-      fundedMintNotes.length > 0 ? formatUsdTotal(getPendingNotesUsdTotal(fundedMintNotes, tokenPrices)) : undefined,
-    [fundedMintNotes, tokenPrices]
-  );
-  const formattedPendingNotesUsdTotal = useMemo(
-    () => formatUsdTotal(getPendingNotesUsdTotal(waitingNotes, tokenPrices)),
-    [waitingNotes, tokenPrices]
-  );
+  // Pricing helpers read the runtime singleton; its snapshot invalidates cached values.
+  const formattedFundedMintUsdTotal = useMemo(() => {
+    void bridgeConfig;
+    return fundedMintNotes.length > 0
+      ? formatUsdTotal(getPendingNotesUsdTotal(fundedMintNotes, tokenPrices))
+      : undefined;
+  }, [fundedMintNotes, tokenPrices, bridgeConfig]);
+  const formattedPendingNotesUsdTotal = useMemo(() => {
+    void bridgeConfig;
+    return formatUsdTotal(getPendingNotesUsdTotal(waitingNotes, tokenPrices));
+  }, [waitingNotes, tokenPrices, bridgeConfig]);
 
   // One localized line per recovery step; the public-backfill step carries the
   // live block progress the SW reports after each scanned chunk.
@@ -382,19 +388,9 @@ export const HomePrompts: FC<HomePromptsProps> = ({
       case 'history-partial':
         return t('guardianHistoryPartial', { count: noteRecoveryProgress.restored ?? 0 });
       case 'transport':
-        return t('guardianNoteRecoveryTransportStep');
       case 'proposals':
-        return t('guardianNoteRecoveryProposalsStep');
-      case 'public': {
-        const { syncedToBlock, latestBlock } = noteRecoveryProgress;
-        if (syncedToBlock === undefined || latestBlock === undefined) {
-          return t('guardianNoteRecoveryPublicPreparingStep');
-        }
-        return t('guardianNoteRecoveryPublicStep', {
-          current: syncedToBlock.toLocaleString(),
-          latest: latestBlock.toLocaleString()
-        });
-      }
+      case 'public':
+        return guardianNoteScanText(noteRecoveryProgress, t) ?? undefined;
     }
   }, [noteRecoveryProgress, t]);
 
@@ -416,8 +412,10 @@ export const HomePrompts: FC<HomePromptsProps> = ({
   const cannotPayFee = hasNoFeeAsset(balances, feeFaucetId, verificationBaseFee);
   const faucetIsTerminal =
     !cannotPayFee && (faucetStatus === WalletPromptStatus.Dismissed || faucetStatus === WalletPromptStatus.Completed);
+  // Read on every render: a Developer Settings save swaps the network without a reload. Mainnet has no faucet.
   const showFaucetPrompt =
-    awaitingFaucetFunds || faucetFundsArrived || (isLoaded && !balancesLoading && !hasBalance && !faucetIsTerminal);
+    isFaucetConfigured() &&
+    (awaitingFaucetFunds || faucetFundsArrived || (isLoaded && !balancesLoading && !hasBalance && !faucetIsTerminal));
 
   useEffect(() => {
     if (!hotKeyPromptPending) return;

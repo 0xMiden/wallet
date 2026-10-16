@@ -463,7 +463,7 @@ async function unlessAThirdPartyMovedIt(
 /**
  * M4-reads: a read served after its popup a vault other than its account's own, captured at `since`. A move by a third
  * party's note on that account explains it (`thirdPartyMoveFault`, the read making no row), unless the vault served is
- * the other account's: a leak stays the wallet's. Anything else is left to K9's per-read rule.
+ * the other account's: a leak stays the wallet's. Anything else is left to the per-read rule.
  */
 export async function unlessAThirdPartyMovedARead(
   owner: VaultOwner,
@@ -567,8 +567,8 @@ export async function expectFailedAfterEnqueue(
 }
 
 /**
- * Spec section 5, "Previews". Soft: a declared view is recorded (K4 on Guardian) and the cell goes on to approve, so
- * one run reports both K4 and K3.
+ * Spec section 5, "Previews". Soft: a declared view is recorded and the cell goes on to approve, so one run can report
+ * a preview bug and the failure that follows it.
  */
 export async function expectVerifiedPreview(
   popup: Page,

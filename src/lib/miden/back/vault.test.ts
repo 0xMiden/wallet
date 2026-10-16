@@ -10,6 +10,7 @@ import { importedAccountBackupFailure } from 'lib/miden/backup-file';
 import { ITransaction, ITransactionStatus, ITransactionType, Transaction } from 'lib/miden/db/types';
 import * as Passworder from 'lib/miden/passworder';
 import * as Repo from 'lib/miden/repo';
+import { PENDING_ADMISSION_STORAGE_KEY } from 'lib/miden/reset';
 import { cancelStaleQueuedTransactions, MAX_QUEUED_AGE } from 'lib/miden/transaction/cancel';
 import { getEffectiveDefaultGuardianEndpoint } from 'lib/miden-chain/effective-endpoints';
 import { ImportedAccountBackup, WalletAccount } from 'lib/shared/types';
@@ -284,6 +285,8 @@ jest.mock('lib/miden/reset', () => {
   const actual = jest.requireActual<typeof import('lib/miden/reset')>('lib/miden/reset');
   return {
     PRESERVED_STORAGE_KEYS: actual.PRESERVED_STORAGE_KEYS,
+    PENDING_ADMISSION_STORAGE_KEY: actual.PENDING_ADMISSION_STORAGE_KEY,
+    SETUP_WIPE_KEPT_KEYS: actual.SETUP_WIPE_KEPT_KEYS,
     // Mirrors the real reset: every key but the kept list goes.
     clearStorage: jest.fn(async (_clearDb: boolean = true, keep: readonly string[] = actual.PRESERVED_STORAGE_KEYS) => {
       for (const k of Object.keys(memoryStore)) if (!keep.includes(k)) delete memoryStore[k];
@@ -4861,5 +4864,42 @@ describe('Vault.spawnFromHotKey', () => {
     const [, endpoint] = mockRecoverGuardianAccountByHotKey.mock.calls[0]!;
     expect(typeof endpoint).toBe('string');
     expect(endpoint.length).toBeGreaterThan(0);
+  });
+});
+
+describe('a setup spawn and the pending-admission marker', () => {
+  const HD_ACCOUNT: WalletAccount = {
+    publicKey: 'pk-1',
+    name: 'HD 1',
+    isPublic: true,
+    type: WalletType.OnChain,
+    hdIndex: 0,
+    authScheme: 'ecdsa'
+  };
+
+  it.each([
+    ['Vault.spawn', () => Vault.spawn(WalletType.OnChain, 'pw')],
+    ['Vault.spawnFromHotKey', () => Vault.spawnFromHotKey('pw', `${'beef'.repeat(16)}:${'cd'.repeat(32)}`)],
+    ['Vault.spawnFromMidenClient', () => Vault.spawnFromMidenClient('pw', VALID_MNEMONIC, [HD_ACCOUNT], [])]
+  ])('%s keeps the marker its setup wrote through its wipe, which removes everything else', async (_name, spawn) => {
+    const sdkAccount = { id: () => 'pk-1', isFaucet: () => false };
+    mockMidenClient.getAccounts.mockResolvedValue([sdkAccount]);
+    mockMidenClient.getAccount.mockResolvedValue(sdkAccount);
+    memoryStore[PENDING_ADMISSION_STORAGE_KEY] = [];
+    memoryStore['stale_setting'] = 'from the previous profile';
+
+    await spawn();
+
+    expect(memoryStore[PENDING_ADMISSION_STORAGE_KEY]).toEqual([]);
+    expect(memoryStore['stale_setting']).toBeUndefined();
+  });
+
+  it('removes the marker in the undo of a spawn rejected after its wipe, as every other wipe does', async () => {
+    memoryStore[PENDING_ADMISSION_STORAGE_KEY] = [];
+    mockMidenClient.createMidenWallet.mockRejectedValueOnce(new Error('wasm exploded'));
+
+    await expect(Vault.spawn(WalletType.OnChain, 'pw')).rejects.toThrow('Failed to create wallet');
+
+    expect(memoryStore[PENDING_ADMISSION_STORAGE_KEY]).toBeUndefined();
   });
 });

@@ -220,8 +220,10 @@ describe('guardian e2e suite split', () => {
 });
 
 describe('PR workflows skip the heavy swap and earn jobs', () => {
-  it('swap-e2e is skipped on pull_request', () => {
-    expect(jobIf('.github/workflows/pr-e2e-swap.yml', 'swap-e2e')).toBe("github.event_name != 'pull_request'");
+  it('swap-e2e is skipped on pull_request and uses free ARM64', () => {
+    const src = configSource('.github/workflows/pr-e2e-swap.yml');
+    expect(jobIf('.github/workflows/pr-e2e-swap.yml', 'swap-e2e', src)).toBe("github.event_name != 'pull_request'");
+    expect(src).toMatch(/runs-on: ubuntu-24.04-arm/);
   });
 
   it('earn-e2e is skipped on pull_request', () => {
@@ -1932,6 +1934,18 @@ describe('PR workflows run the heavy E2E jobs only on a pull request based on ma
         rmSync(dir, { recursive: true, force: true });
       }
     }
+  });
+
+  it('the bridge-guardian runs-on picks WarpBuild on a dispatch or a wallet-body marker only, not the markers the linked web-sdk PR carries', () => {
+    const source = readFileSync(resolve(repoRoot, '.github/workflows/pr-e2e-bridge-guardian.yml'), 'utf8');
+    const runsOn = /^ {4}runs-on: >-\n((?: {6}.*\n)+)/m.exec(source)?.[1];
+    expect(runsOn).toBeDefined();
+    const checked = [
+      ...(runsOn ?? '').matchAll(
+        /github\.event_name == '([^']+)'|contains\(github\.event\.pull_request\.body, '([^']+)'\)/g
+      )
+    ].map(m => m[1] ?? m[2]);
+    expect(checked).toEqual(['workflow_dispatch', 'Web SDK PR:', 'Guardian PR:']);
   });
 
   it('the E2E workflows trigger on exactly their intended events, so no label re-runs a gate', () => {

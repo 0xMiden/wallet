@@ -96,6 +96,8 @@ export interface MidenDAppPayloadBase {
 
 export interface MidenDAppConnectPayload extends MidenDAppPayloadBase {
   type: 'connect';
+  // The network the dApp claimed; the request runs on the wallet's own whatever it says.
+  network?: string;
   privateDataPermission: PrivateDataPermission;
   existingPermission: boolean;
   allowedPrivateData: AllowedPrivateData;
@@ -160,6 +162,11 @@ export interface MidenDAppConsumableNotesPayload extends MidenDAppPayloadBase {
   preview: any;
 }
 
+// A request that never prompts while unlocked met a locked wallet: the popup only unlocks (#1414).
+export interface MidenDAppUnlockPayload extends MidenDAppPayloadBase {
+  type: 'unlock';
+}
+
 export type MidenDAppPayload =
   | MidenDAppConnectPayload
   | MidenDAppTransactionPayload
@@ -168,7 +175,8 @@ export type MidenDAppPayload =
   | MidenDAppSignPayload
   | MidenDAppAssetsPayload
   | MidenDAppImportPrivateNotePayload
-  | MidenDAppConsumableNotesPayload;
+  | MidenDAppConsumableNotesPayload
+  | MidenDAppUnlockPayload;
 
 /**
  * Messages
@@ -199,7 +207,9 @@ export enum MidenMessageType {
   DAppConsumableNotesConfirmationRequest = 'MIDEN_DAPP_CONSUMABLE_NOTES_CONFIRMATION_REQUEST',
   DAppConsumableNotesConfirmationResponse = 'MIDEN_DAPP_CONSUMABLE_NOTES_CONFIRMATION_RESPONSE',
   DAppSimulateTransactionRequest = 'MIDEN_DAPP_SIMULATE_TRANSACTION_REQUEST',
-  DAppSimulateTransactionResponse = 'MIDEN_DAPP_SIMULATE_TRANSACTION_RESPONSE'
+  DAppSimulateTransactionResponse = 'MIDEN_DAPP_SIMULATE_TRANSACTION_RESPONSE',
+  DAppUnlockConfirmationRequest = 'MIDEN_DAPP_UNLOCK_CONFIRMATION_REQUEST',
+  DAppUnlockConfirmationResponse = 'MIDEN_DAPP_UNLOCK_CONFIRMATION_RESPONSE'
 }
 
 export type MidenRequest =
@@ -215,7 +225,8 @@ export type MidenRequest =
   | MidenDAppAssetsConfirmationRequest
   | MidenDAppImportPrivateNoteConfirmationRequest
   | MidenDAppConsumableNotesConfirmationRequest
-  | MidenDAppSimulateTransactionRequest;
+  | MidenDAppSimulateTransactionRequest
+  | MidenDAppUnlockConfirmationRequest;
 
 export type MidenResponse =
   | MidenPageResponse
@@ -230,7 +241,8 @@ export type MidenResponse =
   | MidenDAppAssetsConfirmationResponse
   | MidenDAppImportPrivateNoteConfirmationResponse
   | MidenDAppConsumableNotesConfirmationResponse
-  | MidenDAppSimulateTransactionResponse;
+  | MidenDAppSimulateTransactionResponse
+  | MidenDAppUnlockConfirmationResponse;
 
 export interface MidenPageRequest extends WalletMessageBase {
   type: MidenMessageType.PageRequest;
@@ -372,4 +384,13 @@ export interface MidenDAppConsumableNotesConfirmationRequest extends WalletMessa
 
 export interface MidenDAppConsumableNotesConfirmationResponse extends WalletMessageBase {
   type: MidenMessageType.DAppConsumableNotesConfirmationResponse;
+}
+
+export interface MidenDAppUnlockConfirmationRequest extends WalletMessageBase {
+  type: MidenMessageType.DAppUnlockConfirmationRequest;
+  id: string;
+}
+
+export interface MidenDAppUnlockConfirmationResponse extends WalletMessageBase {
+  type: MidenMessageType.DAppUnlockConfirmationResponse;
 }

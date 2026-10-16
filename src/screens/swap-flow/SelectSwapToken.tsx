@@ -8,7 +8,8 @@ import { AssetListItem } from 'components/ui/AssetListItem';
 import { adaptiveFormatterFor } from 'lib/i18n/numbers';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
-import { getSwapTokens, normalizedFaucetId, SwapToken } from 'lib/miden/swap/tokens';
+import { normalizedFaucetId, SwapToken } from 'lib/miden/swap/tokens';
+import { useSwapPickerTokens } from 'lib/miden/swap/use-swap-tokens';
 import { listedFiatValue } from 'lib/prices';
 import { midenTokenLabel } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
@@ -20,6 +21,11 @@ export interface SelectSwapTokenDrawerProps {
   onOpenChange: (open: boolean) => void;
   /** Faucet id currently chosen for this side, rendered as selected. */
   currentFaucetId?: string;
+  /**
+   * The faucet on the other side, for the "To" side: the sheet then lists only the tokens that share
+   * a solver pair with it. The "From" side passes none and lists every token that has a pair.
+   */
+  partnersOf?: string;
   onSelect: (token: SwapToken) => void;
 }
 
@@ -29,9 +35,9 @@ export interface SelectSwapTokenDrawerProps {
  *
  * Drawn the way the home tab's Assets section draws a token: the shared `AssetListItem` on the
  * sheet's own surface (no grey card), 72px rows divided by a hairline, a 36px logo, the symbol over
- * the held balance and the value on the right. The DEX exposes a fixed set of test tokens
- * (`SWAP_TOKENS`), and a token the account holds nothing of is still listed with a zero balance —
- * the list is the pair chooser, not an inventory.
+ * the held balance and the value on the right. The tokens are the solver's, filtered by its pairs
+ * (`useSwapPickerTokens`), and a token the account holds nothing of is still listed with a zero
+ * balance — the list is the pair chooser, not an inventory.
  *
  * Balances come from the same path home and the send picker use, `useAllBalances`, keyed by the
  * SDK's bech32 form of the faucet id, so a registry id is normalized before the match (with the raw
@@ -46,6 +52,7 @@ export const SelectSwapTokenDrawer: React.FC<SelectSwapTokenDrawerProps> = ({
   open,
   onOpenChange,
   currentFaucetId,
+  partnersOf,
   onSelect
 }) => {
   const { t } = useTranslation();
@@ -53,6 +60,7 @@ export const SelectSwapTokenDrawer: React.FC<SelectSwapTokenDrawerProps> = ({
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
   const { data: balanceData = [] } = useAllBalances(publicKey, allTokensBaseMetadata);
   const bridgeConfig = useBridgeConfigSnapshot({ load: false });
+  const swapTokens = useSwapPickerTokens(partnersOf);
   const tokenPrices = useWalletStore(s => s.tokenPrices);
 
   const onSelectToken = (token: SwapToken) => {
@@ -70,7 +78,7 @@ export const SelectSwapTokenDrawer: React.FC<SelectSwapTokenDrawerProps> = ({
         <div className="flex h-120 min-h-0 flex-col px-4 pb-4">
           <div className="no-scrollbar min-h-0 overflow-y-auto">
             <div className="flex flex-col divide-y divide-rule-default">
-              {getSwapTokens().map(token => {
+              {swapTokens.map(token => {
                 const balanceKey = normalizedFaucetId(token.faucetId);
                 const held = balanceData.find(b => b.tokenId === balanceKey || b.tokenId === token.faucetId);
                 // An unheld token is a zero of a registry token, whose decimals we know; a held one

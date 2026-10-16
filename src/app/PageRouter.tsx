@@ -127,10 +127,12 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
   // `*` catch-all below - an onlyReady-wrapped route would never resolve while ctx.ready is
   // false. Deliberately NOT wrapped in onlyReady (see that helper below). Still defers to Unlock
   // when locked: an existing, locked wallet always takes priority over this hidden debug screen.
+  // It also waits for the backend state: until then the status reads Idle even for an existing
+  // wallet, and the screen would open its no-wallet edit mode.
   [
     '/developer-settings',
     (_p, ctx) =>
-      ctx.locked ? (
+      ctx.locked || !ctx.hydrated ? (
         Woozie.Router.SKIP
       ) : (
         <FullScreenPage>

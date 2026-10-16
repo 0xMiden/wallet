@@ -10,13 +10,20 @@ import { BrowserScreen } from './BrowserScreen';
 
 let mockMode: 'active' | 'launcher' = 'active';
 let mockExtension = false;
+let mockPolicyPending = false;
+const mockLauncherCommit = jest.fn();
 
 jest.mock('app/env', () => ({ openUrlInNewTab: jest.fn() }));
 jest.mock('app/providers/DappBrowserProvider', () => ({
   useDappBrowser: () => {
     // As the real hook does outside its provider, which only mobile mounts.
     if (mockExtension) throw new Error('useDappBrowser must be used inside <DappBrowserProvider>');
-    return { mode: mockMode, open: jest.fn() };
+    return {
+      mode: mockMode,
+      open: jest.fn(),
+      policyPending: mockPolicyPending,
+      reportLauncherCommit: mockLauncherCommit
+    };
   }
 }));
 jest.mock('lib/dapp-browser', () => ({
@@ -61,6 +68,8 @@ const view = (onScreen: boolean) => (
 
 beforeEach(() => {
   mockMode = 'active';
+  mockPolicyPending = false;
+  mockLauncherCommit.mockClear();
   mockExtension = false;
   (recordRecentDapp as jest.Mock).mockReset();
   (openUrlInNewTab as jest.Mock).mockReset();
@@ -158,4 +167,18 @@ describe('on the extension', () => {
     expect(openUrlInNewTab).toHaveBeenCalledWith('https://duckduckgo.com/?q=nft%20games');
     expect(recordRecentDapp).not.toHaveBeenCalled();
   });
+});
+
+it('retains the launcher during policy discovery without reporting a close destination', () => {
+  mockPolicyPending = true;
+  const { rerender } = render(view(true));
+  const launcher = screen.getByTestId('dapp-launcher');
+  const active = screen.getByTestId('dapp-active');
+  expect(launcher).toBeVisible();
+  expect(mockLauncherCommit).toHaveBeenLastCalledWith(false);
+  mockPolicyPending = false;
+  rerender(view(true));
+  expect(screen.getByTestId('dapp-active')).toBe(active);
+  expect(screen.getByTestId('dapp-launcher')).toBe(launcher);
+  expect(launcher).not.toBeVisible();
 });

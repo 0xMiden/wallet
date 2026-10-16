@@ -1,9 +1,12 @@
 import React from 'react';
 
-import { act, render } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 
 import { isOnboardingFinishing } from 'app/onboarding-finish';
 import { deserializeInternalError, serializeInternalError } from 'lib/intercom/helpers';
+import type { EndpointOverride } from 'lib/miden-chain/effective-endpoints';
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { OnboardingStep, OnboardingType, WalletType } from 'screens/onboarding/types';
 
 import ForgotPassword from './ForgotPassword';
@@ -52,10 +55,16 @@ const captured: {
 // the page renders in jsdom without pulling in wasm, bip39, woozie or the real
 // onboarding navigator.
 // ---------------------------------------------------------------------------
+// The real flow for the cases that read what the Welcome step shows.
+let mockRealFlow = false;
 jest.mock('screens/onboarding/navigator', () => ({
   OnboardingFlow: (props: Record<string, unknown>) => {
     captured.onAction = props.onAction as typeof captured.onAction;
     captured.props = props;
+    if (mockRealFlow) {
+      const { OnboardingFlow: RealFlow } = jest.requireActual('screens/onboarding/navigator');
+      return <RealFlow {...props} />;
+    }
     const seedPhrase = props.seedPhrase as string[] | null;
     return (
       <div
@@ -70,10 +79,18 @@ jest.mock('screens/onboarding/navigator', () => ({
   }
 }));
 
+// The mainnet switch's realm refresh: on the extension, which these cases model, the service worker request.
+const mockRequest = jest.fn<Promise<void>, []>();
+const mockFollow = jest.fn();
 jest.mock('lib/miden/front', () => ({
   useMidenContext: () => ({
     registerWallet: mockRegisterWallet
-  })
+  }),
+  request: () => mockRequest()
+}));
+jest.mock('lib/remote-config/runtime', () => ({
+  ...jest.requireActual('lib/remote-config/runtime'),
+  followEffectiveNetwork: () => mockFollow()
 }));
 
 jest.mock('lib/miden/reset', () => ({
@@ -92,7 +109,38 @@ jest.mock('lib/extension/side-panel-handoff', () => ({
 // False (the extension and desktop path) unless a case sets it.
 const mockIsMobile = jest.fn(() => false);
 jest.mock('lib/platform', () => ({
-  isMobile: () => mockIsMobile()
+  ...jest.requireActual('lib/platform'),
+  isMobile: () => mockIsMobile(),
+  isExtension: () => true
+}));
+
+const readySnapshot = (onboarding?: { inviteOnly: boolean }): BridgeConfigSnapshot => ({
+  network: 'testnet',
+  status: 'ready',
+  config: {
+    network: 'testnet',
+    version: 1,
+    'bridge-providers': { epoch: {}, agglayer: {}, usdcx: {} },
+    supportedEvmChains: {},
+    features: { earn: false, fastBridge: false, bridgeIn: false, bridgeOut: false },
+    ...(onboarding ? { onboarding } : {})
+  },
+  derived: null,
+  lastFetch: null
+});
+let mockSnapshot = readySnapshot();
+jest.mock('lib/remote-config/use-feature-availability', () => ({
+  ...jest.requireActual('lib/remote-config/use-feature-availability'),
+  useBridgeConfigSnapshot: () => mockSnapshot
+}));
+
+let mockNetwork = MIDEN_NETWORK_NAME.TESTNET;
+// A stored network choice takes effect at once, as the real override cache does.
+const mockApply = jest.fn<Promise<void>, [EndpointOverride]>();
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  ...jest.requireActual('lib/miden-chain/effective-endpoints'),
+  getEffectiveNetworkName: () => mockNetwork,
+  applyEndpointOverride: (override: EndpointOverride) => mockApply(override)
 }));
 
 // Store the latest handler closure so tests can invoke the mobile back handler
@@ -119,14 +167,21 @@ jest.mock('@miden/hd-key', () => ({
 // Stub it with a controllable start() so tests can steer what the probe found.
 const mockProbeStart = jest.fn<Promise<unknown>, unknown[]>();
 const mockProbeReset = jest.fn();
+// Records the network each render asks the probe for.
+const mockUseGuardianProbe = jest.fn((_network?: MIDEN_NETWORK_NAME) => ({
+  state: { status: 'idle' },
+  start: mockProbeStart,
+  reset: mockProbeReset
+}));
 jest.mock('lib/miden/guardian/use-guardian-probe', () => ({
   GUARDIAN_PROBE_WAIT_DEADLINE_MS: 50,
-  useGuardianProbe: () => ({ state: { status: 'idle' }, start: mockProbeStart, reset: mockProbeReset })
+  useGuardianProbe: (network?: MIDEN_NETWORK_NAME) => mockUseGuardianProbe(network)
 }));
 
 const mockPutToStorage = jest.fn<Promise<void>, unknown[]>();
 const mockFetchFromStorage = jest.fn<Promise<unknown>, unknown[]>(async () => null);
 jest.mock('lib/miden/front/storage', () => ({
+  ...jest.requireActual('lib/miden/front/storage'),
   putToStorage: (...args: unknown[]) => mockPutToStorage(...args),
   fetchFromStorage: (...args: unknown[]) => mockFetchFromStorage(...args)
 }));
@@ -211,6 +266,13 @@ beforeEach(() => {
   captured.onAction = undefined;
   captured.backHandler = undefined;
   captured.props = undefined;
+  mockRealFlow = false;
+  mockSnapshot = readySnapshot();
+  mockNetwork = MIDEN_NETWORK_NAME.TESTNET;
+  mockApply.mockReset().mockImplementation(async override => {
+    mockNetwork = override.networkName;
+  });
+  mockRequest.mockReset().mockResolvedValue(undefined);
 });
 
 describe('ForgotPassword', () => {
@@ -961,5 +1023,193 @@ describe('ForgotPassword', () => {
     const seen = telemetryCallArgs();
     expect(seen).not.toContain('abandon');
     expect(seen).not.toContain('correct-horse-battery');
+  });
+});
+
+describe('ForgotPassword on an invite-only network', () => {
+  beforeEach(() => {
+    mockRealFlow = true;
+  });
+
+  it('offers only recovery when the document sets inviteOnly: no code step and no new wallet', () => {
+    mockSnapshot = readySnapshot({ inviteOnly: true });
+    renderPage();
+    expect(screen.getByTestId('onboarding-recover-account')).toBeInTheDocument();
+    expect(screen.queryByTestId('onboarding-have-code')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('onboarding-get-started')).not.toBeInTheDocument();
+  });
+
+  it('offers only recovery on mainnet, where a new wallet needs a code', () => {
+    mockNetwork = MIDEN_NETWORK_NAME.MAINNET;
+    renderPage();
+    expect(screen.getByTestId('onboarding-recover-account')).toBeInTheDocument();
+    expect(screen.queryByTestId('onboarding-have-code')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('onboarding-get-started')).not.toBeInTheDocument();
+  });
+
+  it('keeps Get started and Recover on a network that is not invite-only', () => {
+    renderPage();
+    expect(screen.getByTestId('onboarding-get-started')).toBeInTheDocument();
+    expect(screen.getByTestId('onboarding-recover-account')).toBeInTheDocument();
+  });
+});
+
+describe('ForgotPassword recovery on an invite-only config', () => {
+  const recover = async () => {
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'seed words here' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await dispatch({ id: 'import-select-recovery-method', payload: { walletType: WalletType.Guardian } });
+    await dispatch({ id: 'confirmation' });
+  };
+
+  beforeEach(() => {
+    mockSnapshot = readySnapshot({ inviteOnly: true });
+  });
+
+  it('switches to mainnet and refreshes the realm before the recovery wipes and registers', async () => {
+    renderPage();
+    await recover();
+
+    expect(mockApply).toHaveBeenCalledWith(
+      expect.objectContaining({ networkName: MIDEN_NETWORK_NAME.MAINNET, rpcUrl: '' })
+    );
+    const [applied] = mockApply.mock.invocationCallOrder;
+    const [refreshed] = mockRequest.mock.invocationCallOrder;
+    expect(applied).toBeLessThan(refreshed!);
+    expect(refreshed).toBeLessThan(mockClearClientStorage.mock.invocationCallOrder[0]!);
+    expect(mockRegisterWallet).toHaveBeenCalledTimes(1);
+    expect(applied).toBeLessThan(mockRegisterWallet.mock.invocationCallOrder[0]!);
+  });
+
+  it('shows a failed switch with nothing wiped, and a retry finishes the switch before recovering', async () => {
+    mockRequest.mockRejectedValueOnce(new Error('Worker unavailable'));
+    const { container } = renderPage();
+    await recover();
+
+    expect(captured.props?.recoveryError).toBe('Worker unavailable');
+    expect(flow(container).getAttribute('data-step')).toBe(OnboardingStep.Confirmation);
+    expect(mockClearClientStorage).not.toHaveBeenCalled();
+    expect(mockRegisterWallet).not.toHaveBeenCalled();
+
+    await dispatch({ id: 'confirmation' });
+    expect(mockApply).toHaveBeenCalledTimes(1);
+    expect(mockRequest).toHaveBeenCalledTimes(2);
+    expect(mockRegisterWallet).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves the network alone when the config is not invite-only', async () => {
+    mockSnapshot = readySnapshot();
+    renderPage();
+    await recover();
+
+    expect(mockApply).not.toHaveBeenCalled();
+    expect(mockRequest).not.toHaveBeenCalled();
+    expect(mockRegisterWallet).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * A recover-only reset restores into mainnet, but switches there only when Confirm registers (so a back-out leaves
+ * the old wallet's network alone). Until then the wallet is still on its own network, so the probe and the
+ * recovery-method step are told which network the recovery restores into.
+ */
+describe('ForgotPassword probes the network it recovers into', () => {
+  const cases: Array<
+    [string, { inviteOnly: boolean } | undefined, MIDEN_NETWORK_NAME, MIDEN_NETWORK_NAME | undefined]
+  > = [
+    [
+      'an invite-only config on a testnet wallet',
+      { inviteOnly: true },
+      MIDEN_NETWORK_NAME.TESTNET,
+      MIDEN_NETWORK_NAME.MAINNET
+    ],
+    ['a mainnet wallet', undefined, MIDEN_NETWORK_NAME.MAINNET, MIDEN_NETWORK_NAME.MAINNET],
+    ['a testnet wallet that is not invite-only', undefined, MIDEN_NETWORK_NAME.TESTNET, undefined]
+  ];
+
+  it.each(cases)('names the recovery network for %s', (_case, onboarding, effective, expected) => {
+    mockSnapshot = readySnapshot(onboarding);
+    mockNetwork = effective;
+    renderPage();
+
+    expect(mockUseGuardianProbe).toHaveBeenLastCalledWith(expected);
+    expect(captured.props?.guardianNetwork).toBe(expected);
+  });
+
+  it('starts the probe before the switch, which still waits for Confirm', async () => {
+    mockSnapshot = readySnapshot({ inviteOnly: true });
+    renderPage();
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'seed words here' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+
+    expect(mockProbeStart).toHaveBeenCalledWith(['seed', 'words', 'here']);
+    expect(mockUseGuardianProbe).toHaveBeenLastCalledWith(MIDEN_NETWORK_NAME.MAINNET);
+    expect(mockApply).not.toHaveBeenCalled();
+    expect(mockClearClientStorage).not.toHaveBeenCalled();
+  });
+
+  it('starts the recovery-method step of an invite-only reset on the mainnet operator, with no testnet one', async () => {
+    mockSnapshot = readySnapshot({ inviteOnly: true });
+    const { rerender } = renderPage();
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'seed words here' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    // The real flow only for the step under test: the seed step validates against a word list the stub lacks.
+    mockRealFlow = true;
+    rerender(<ForgotPassword />);
+
+    expect(screen.getByTestId('import-recovery-method')).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: 'importViaGuardian' })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('radio', { name: /LambdaClass/ })).toHaveAttribute('aria-checked', 'true');
+    expect(document.body.textContent).toContain('https://guardian.cedar.internal.lambdaclass.com');
+    expect(screen.queryByRole('radio', { name: /OpenZeppelin/ })).not.toBeInTheDocument();
+    expect(document.body.textContent).not.toContain('guardian-testnet.openzeppelin.com');
+    expect(document.body.textContent).not.toContain('miden-guardian.lambdaclass.com');
+  });
+});
+
+// The document can change while a reset is under way; each dispatch re-renders the page with the snapshot it then reads.
+describe('ForgotPassword keeps the network a reset started on', () => {
+  it('registers a recovery on its own network when the document turns invite-only after the seed', async () => {
+    renderPage();
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'seed words here' });
+    mockSnapshot = readySnapshot({ inviteOnly: true });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await dispatch({ id: 'import-select-recovery-method', payload: { walletType: WalletType.Guardian } });
+    await dispatch({ id: 'confirmation' });
+
+    expect(mockApply).not.toHaveBeenCalled();
+    expect(mockUseGuardianProbe).toHaveBeenLastCalledWith(undefined);
+    expect(mockRegisterWallet).toHaveBeenCalledTimes(1);
+  });
+
+  it('creates no mainnet wallet when the document turns invite-only during the backup', async () => {
+    renderPage();
+    await dispatch({ id: 'choose-protection' });
+    mockSnapshot = readySnapshot({ inviteOnly: true });
+    await dispatch({ id: 'verify-seed-phrase' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await dispatch({ id: 'confirmation' });
+
+    expect(mockApply).not.toHaveBeenCalled();
+    expect(mockRegisterWallet).toHaveBeenCalledTimes(1);
+  });
+
+  it('follows the new document once the reset is back on Welcome', async () => {
+    const { rerender } = renderPage();
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'seed words here' });
+    mockSnapshot = readySnapshot({ inviteOnly: true });
+    await dispatch({ id: 'back' });
+    await dispatch({ id: 'back' });
+    mockRealFlow = true;
+    rerender(<ForgotPassword />);
+
+    expect(mockUseGuardianProbe).toHaveBeenLastCalledWith(MIDEN_NETWORK_NAME.MAINNET);
+    expect(screen.getByTestId('onboarding-recover-account')).toBeInTheDocument();
+    expect(screen.queryByTestId('onboarding-get-started')).not.toBeInTheDocument();
   });
 });

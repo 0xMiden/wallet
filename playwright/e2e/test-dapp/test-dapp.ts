@@ -119,6 +119,10 @@ const toAccountId = (id: string): AccountId =>
   id.startsWith('0x') ? AccountId.fromHex(id) : AccountId.fromBech32(canonical(id));
 const noteTypeOf = (name: NoteTypeName): NoteType => (name === 'public' ? NoteType.Public : NoteType.Private);
 const noteTypeName = (type: NoteType): NoteTypeName => (type === NoteType.Public ? 'public' : 'private');
+const cryptoWord = (): Word => {
+  const values = crypto.getRandomValues(new BigUint64Array(4));
+  return Word.newFromFelts(Array.from(values, value => new Felt(value & 0x7fff_ffff_ffff_ffffn)));
+};
 // By script root, as the wallet's own guardian-history.ts reads a payment note.
 function scriptOf(note: Note): OutputNoteView['script'] {
   const root = note.script().root().toHex();
@@ -460,7 +464,7 @@ const handlers: Partial<DappHandlers> = {
     }),
 
   // The declared faucet and amount go to the wallet as given and may differ from the note's on purpose (W4, W5): the
-  // wallet resolves the note itself and shows what it really holds (dapp.ts:2655-2668).
+  // wallet resolves the note itself and shows what it really holds (dapp.ts:2707-2720).
   consume: input =>
     outcome(async () => {
       const bytes = input.noteBytesB64 === undefined ? undefined : b64ToU8(input.noteBytesB64);
@@ -510,7 +514,7 @@ const handlers: Partial<DappHandlers> = {
   },
 
   // Returns the id the wallet reports: the note id for a file with an inclusion proof, the details commitment for a
-  // details-only file or a bare note (dapp.ts:1485-1490). The spike found the wallet then refuses a consume by that
+  // details-only file or a bare note (dapp.ts:1502-1507). The spike found the wallet then refuses a consume by that
   // commitment before any popup, while the same note consumes by its own id: a cell that consumes by the returned id
   // (W5b, W5c) meets that refusal.
   importNote: ({ noteBytesB64 }) =>
@@ -519,6 +523,9 @@ const handlers: Partial<DappHandlers> = {
   // Syncs first, so the bound block N is the dApp's own height at build time. A Guardian request takes its auth args
   // from the shape twin (spec section 4); `authArgs: 'none'` and single-sig accounts use a plain builder.
   buildCustom: async input => {
+    if (input.feeSalt === true && input.authArgs !== 'none') {
+      throw new HarnessCheckError('feeSalt requires authArgs: none');
+    }
     const me = requireConnected();
     const ownClient = client();
     await fromNode('syncChain', () => ownClient.syncChain());
@@ -560,7 +567,9 @@ const handlers: Partial<DappHandlers> = {
     const inputNoteIds = inputs.map(note => note.id().toString());
 
     const twin = input.authArgs !== 'none' && me.builder === 'guardian-twin';
-    const builder = twin ? await guardianRequestBuilder(client(), height) : new TransactionRequestBuilder();
+    let builder = twin ? await guardianRequestBuilder(client(), height) : new TransactionRequestBuilder();
+    const feeSalt = input.feeSalt === true ? cryptoWord() : undefined;
+    if (feeSalt !== undefined) builder = builder.withFeeConversionSalt(feeSalt);
     const withOutputs = builder.withOwnOutputNotes(new NoteArray(outputs));
     const request = (
       inputs.length > 0
@@ -585,7 +594,12 @@ const handlers: Partial<DappHandlers> = {
             declaresBoundBlock: request.blockNumbers().includes(height)
           }
         : {}),
-      ...(input.authArgs === 'none' ? { noAuthArg: request.authArg() === undefined } : {})
+      ...(input.authArgs === 'none'
+        ? {
+            noAuthArg: request.authArg() === undefined,
+            feeSaltMatches: request.feeConversionSalt()?.toHex() === feeSalt?.toHex()
+          }
+        : {})
     };
     const failed = Object.entries(checks)
       .filter(([, ok]) => !ok)

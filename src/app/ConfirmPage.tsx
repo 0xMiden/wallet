@@ -12,6 +12,7 @@ import { useApprovalPrompt } from 'app/hooks/useDappApprovalTelemetry';
 import ContentContainer from 'app/layouts/ContentContainer';
 import Unlock, { useRetireLockoutOnReady } from 'app/pages/Unlock';
 import { Button, ButtonVariant } from 'components/Button';
+import { DappNetworkMismatchNotice } from 'components/DappNetworkMismatchNotice';
 import { NetworkModeBanner } from 'components/NetworkModeBanner';
 import { SpendingLimitChallenge } from 'components/SpendingLimitChallenge';
 import { DappOrigin } from 'components/ui/DappOrigin';
@@ -25,6 +26,7 @@ import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { b64ToU8 } from 'lib/shared/helpers';
 import { WalletAccount } from 'lib/shared/types';
 import { useRetryableSWR } from 'lib/swr';
+import { annotateCrash } from 'lib/telemetry/crash-diagnostics';
 import useSafeState from 'lib/ui/useSafeState';
 import { navigate, useLocation } from 'lib/woozie';
 import { truncateAddress, truncateHash } from 'utils/string';
@@ -466,7 +468,8 @@ const ConfirmDAppForm: FC = () => {
     confirmDAppSign,
     confirmDAppAssets,
     confirmDAppImportPrivateNote,
-    confirmDAppConsumableNotes
+    confirmDAppConsumableNotes,
+    confirmDAppUnlock
   } = useMidenContext();
   const account = useAccount();
   const isPublicAccount = account.isPublic;
@@ -476,7 +479,9 @@ const ConfirmDAppForm: FC = () => {
     const usp = new URLSearchParams(loc.search);
     const pageId = usp.get('id');
     if (!pageId) {
-      throw new Error(t('notIdentified'));
+      const error = new Error(t('notIdentified'));
+      annotateCrash(error, { operation: 'confirm_payload', confirmationId: pageId === null ? 'missing' : 'empty' });
+      throw error;
     }
     return pageId;
   }, [loc.search, t]);
@@ -547,6 +552,8 @@ const ConfirmDAppForm: FC = () => {
           return confirmDAppImportPrivateNote(id, confirmed);
         case 'consumableNotes':
           return confirmDAppConsumableNotes(id, confirmed);
+        case 'unlock':
+          return confirmDAppUnlock(id);
       }
     },
     [
@@ -561,6 +568,7 @@ const ConfirmDAppForm: FC = () => {
       confirmDAppAssets,
       confirmDAppImportPrivateNote,
       confirmDAppConsumableNotes,
+      confirmDAppUnlock,
       delegate
     ]
   );
@@ -575,7 +583,8 @@ const ConfirmDAppForm: FC = () => {
   // Suppressed for the auto-approved reconnect handled above, where the user is
   // shown nothing and asked nothing: that path never reaches `confirm`, so a
   // flow begun for it would never be settled.
-  const autoApproved = payload.type === 'connect' && Boolean(payload.existingPermission);
+  // An unlock-only request (#1414) asks nothing either.
+  const autoApproved = payload.type === 'unlock' || (payload.type === 'connect' && Boolean(payload.existingPermission));
   const settleApproval = useApprovalPrompt(payload.type, !autoApproved);
 
   const confirm = useCallback(
@@ -600,6 +609,14 @@ const ConfirmDAppForm: FC = () => {
     },
     [onConfirm, setError, requirePrivateDataCheckbox, isPrivateDataChecked, settleApproval, t]
   );
+
+  // An unlock-only request has nothing to approve: once the user has unlocked, answer it.
+  const unlockAnsweredRef = useRef(false);
+  useEffect(() => {
+    if (payload.type !== 'unlock' || unlockAnsweredRef.current) return;
+    unlockAnsweredRef.current = true;
+    void confirm(true);
+  }, [payload.type, confirm]);
 
   const handleConfirmClick = useCallback(async () => {
     if (confirming || declining || confirmationInFlightRef.current) return;
@@ -735,8 +752,18 @@ const ConfirmDAppForm: FC = () => {
             </RequestOriginBanner>
           )
         };
+      case 'unlock':
+        return null;
     }
   }, [error, payload, privateDataPermission, isPublicAccount, t]);
+
+  if (content === null) {
+    return (
+      <div className="flex flex-1 items-center justify-center bg-app-bg">
+        <Spinner />
+      </div>
+    );
+  }
 
   return (
     <div
@@ -768,14 +795,17 @@ const ConfirmDAppForm: FC = () => {
         ) : (
           <>
             {payload.type === 'connect' ? (
-              account && (
-                <AccountBanner
-                  account={account}
-                  networkRpc={payload.networkRpc}
-                  labelIndent="sm"
-                  className="w-full my-2"
-                />
-              )
+              <>
+                {account && (
+                  <AccountBanner
+                    account={account}
+                    networkRpc={payload.networkRpc}
+                    labelIndent="sm"
+                    className="w-full my-2"
+                  />
+                )}
+                <DappNetworkMismatchNotice claimedNetwork={payload.network} className="my-2" />
+              </>
             ) : (
               <PayloadContent payload={payload} error={payloadError} account={account} viewKey={id} />
             )}

@@ -682,6 +682,7 @@ const HistoryView = memo<HistoryViewProps>(
                       leading={
                         <UnreadDot
                           unread={unread}
+                          placement="corner"
                           label={t('activityUnread')}
                           data-testid={unread ? 'activity-row-unread' : undefined}
                         />

@@ -48,7 +48,7 @@ import {
   type ArcClock,
   type PayoutChain
 } from './usdcx-constants';
-import { fetchXReserveAttestations, type XReserveAttestation } from '../../../src/lib/usdcx/attestation';
+import { fetchXReserveAttestations, type XReserveAttestation } from '../../../src/lib/usdcx/attestation-protocol';
 import { midenAccountHexToXReserveRecipient } from '../../../src/lib/usdcx/recipient';
 
 export { realArcClock, type ArcClock } from './usdcx-constants';

@@ -11,6 +11,7 @@ import { NetworkModeBanner } from 'components/NetworkModeBanner';
 import { PageHeader } from 'components/PageHeader';
 import { Button } from 'components/ui/Button';
 import { Notice } from 'components/ui/Notice';
+import { getTestNetworkNameKey } from 'lib/miden-chain/effective-endpoints';
 import { hapticMedium } from 'lib/mobile/haptics';
 import { useWalletStore } from 'lib/store';
 import { useBridgeInAvailability } from 'lib/usdcx/use-bridge-in-availability';
@@ -27,6 +28,8 @@ export const BridgeDeposit: React.FC<BridgeDepositProps> = ({ onClose }) => {
   const { open: connect } = useAppKit();
   const { disconnect } = useDisconnect();
   const { address, connected, status, nativeReown, useNativeReownWallet } = useEvmWalletConnection();
+  // The test-wallet warning belongs to the test networks; on mainnet the funds are real and it is not shown.
+  const testNetwork = getTestNetworkNameKey() !== null;
   // This surface owns the `fund` flow, which starts here rather than at the
   // deposit form: the connect step is part of funding, and dropping out of it is
   // exactly the abandonment worth seeing.
@@ -50,6 +53,8 @@ export const BridgeDeposit: React.FC<BridgeDepositProps> = ({ onClose }) => {
         await nativeReown.present();
         return;
       }
+      const appkit = await import('lib/walletconnect/appkit');
+      await appkit.prepareAppKitConnection();
       await connect({ view: 'Connect', namespace: 'eip155' });
     } catch (err) {
       console.error('[BridgeDeposit] connect failed', err);
@@ -67,6 +72,8 @@ export const BridgeDeposit: React.FC<BridgeDepositProps> = ({ onClose }) => {
         return;
       }
       await disconnect();
+      const appkit = await import('lib/walletconnect/appkit');
+      await appkit.prepareAppKitConnection();
       await connect({ view: 'Connect', namespace: 'eip155' });
     } catch (err) {
       console.error('[BridgeDeposit] switch wallet failed', err);
@@ -96,16 +103,18 @@ export const BridgeDeposit: React.FC<BridgeDepositProps> = ({ onClose }) => {
         <h2 className="text-2xl font-semibold text-ink">{t('connectEvmWallet')}</h2>
         <p className="max-w-80 text-sm text-text-tertiary-token">{t('connectEvmWalletDescription')}</p>
 
-        {/* Same warning as the Receive-side connect drawer (#875). */}
-        <Notice
-          tone="warning"
-          icon={<Icon name={IconName.WarningFill} size="xs" fill="currentColor" />}
-          title={t('evmConnectTestWalletTitle')}
-          className="max-w-80"
-          data-testid="evm-connect-test-wallet-warning"
-        >
-          {t('evmConnectTestWalletBody')}
-        </Notice>
+        {/* Same warning as the Receive-side connect drawer (#875), on a test network only. */}
+        {testNetwork && (
+          <Notice
+            tone="warning"
+            icon={<Icon name={IconName.WarningFill} size="xs" fill="currentColor" />}
+            title={t('evmConnectTestWalletTitle')}
+            className="max-w-80"
+            data-testid="evm-connect-test-wallet-warning"
+          >
+            {t('evmConnectTestWalletBody')}
+          </Notice>
+        )}
 
         {status === 'connecting' && <p className="text-sm text-grey-500">{t('preparing')}</p>}
 

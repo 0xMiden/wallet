@@ -5,12 +5,6 @@
   "summarySigningInputs": "twin-preview",
   "accountNotFound": "0x0000000000000000000000000000000000000000000000000000000000000000",
   "texts": {
-    "X7": {
-      "guardian": {
-        "stage": "creating-proposal",
-        "error": "component reuses the fee conversion salt as a replay guard"
-      }
-    },
     "R5": {
       "offchain": {
         "stage": "sending",
@@ -29,11 +23,6 @@
       "guardian": {
         "stage": "creating-proposal",
         "error": "assertion failed with error code: 9127845879078954504"
-      }
-    },
-    "G2": {
-      "guardian": {
-        "error": "Some storage item not found"
       }
     }
   }

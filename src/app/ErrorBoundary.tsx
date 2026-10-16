@@ -34,7 +34,7 @@ export default class ErrorBoundary extends Component<ErrorBoundaryProps> {
     // Consent-gated and scrubbed downstream; guarded so a reporting failure
     // cannot replace the error screen with a second crash.
     try {
-      captureCrash(error);
+      captureCrash(error, 'react');
     } catch {
       /* best-effort */
     }

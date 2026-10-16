@@ -68,10 +68,11 @@ describe('invoke-based commands', () => {
     expect(mockInvoke).toHaveBeenCalledWith('dapp_get_url');
   });
 
-  it('sendDappWalletResponse JSON-stringifies the response payload', async () => {
-    await sendDappWalletResponse({ ok: true, value: 42 });
+  it('sendDappWalletResponse JSON-stringifies the response and names the origin it answers', async () => {
+    await sendDappWalletResponse({ ok: true, value: 42 }, 'https://dapp.example');
     expect(mockInvoke).toHaveBeenCalledWith('dapp_wallet_response', {
-      response: JSON.stringify({ ok: true, value: 42 })
+      response: JSON.stringify({ ok: true, value: 42 }),
+      origin: 'https://dapp.example'
     });
   });
 
@@ -105,7 +106,7 @@ describe('no approval path through the dApp document', () => {
     await closeDappWindow();
     await dappNavigate('back');
     await dappGetUrl();
-    await sendDappWalletResponse({ ok: true });
+    await sendDappWalletResponse({ ok: true }, 'https://dapp.example');
     await focusMainWindow();
 
     const commands = mockInvoke.mock.calls.map(([command]) => command);

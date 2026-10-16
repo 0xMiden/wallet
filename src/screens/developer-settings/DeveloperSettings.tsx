@@ -7,6 +7,7 @@ import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
 // this suite's `lib/miden-chain` mock factories and leaves them reading an unevaluated constant.
 import { ReactComponent as OptionsIcon } from 'app/icons/v2/settings-2.svg';
 import { Button, ButtonVariant } from 'components/Button';
+import { MainnetSwitchSheet } from 'components/MainnetSwitchSheet';
 import { CheckboxIndicator } from 'components/ui/Checkbox';
 import { ErrorLine } from 'components/ui/ErrorLine';
 import { ListGroup } from 'components/ui/ListGroup';
@@ -17,6 +18,7 @@ import { TextField } from 'components/ui/TextField';
 import { retireGuardianSyncPasses } from 'lib/miden/front/guardian-sync';
 import { clearSyncFuseForEndpointChange } from 'lib/miden/front/sync-fuse';
 import { resetStorageDestructive } from 'lib/miden/reset';
+import { resetMidenClient } from 'lib/miden/sdk/miden-client';
 import { retireGuardianWritesForEndpointChange } from 'lib/miden/sync-backoff';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
 import {
@@ -24,7 +26,8 @@ import {
   buildDefaultOverrideFor,
   EndpointOverride,
   getActiveOverride,
-  getEffectiveNetworkName
+  getEffectiveNetworkName,
+  getTestNetworkNameKey
 } from 'lib/miden-chain/effective-endpoints';
 import { EndpointHealthKind, useEndpointHealth } from 'lib/miden-chain/endpoint-health';
 import { hapticMedium } from 'lib/mobile/haptics';
@@ -96,14 +99,15 @@ const HealthNote: React.FC<HealthNoteProps> = ({ url, kind }) => {
 };
 
 export interface DeveloperSettingsProps {
-  /** Read-only mode (Settings, post-onboarding): inputs disabled, no preset picker, single reset action. */
+  /** Read-only mode (Settings, post-onboarding): inputs disabled, no preset picker, the reset action. */
   readOnly?: boolean;
 }
 
 /**
  * Advanced endpoint override editor. Reused in two modes: edit (reachable during onboarding via
  * the 7-tap logo unlock on Welcome) and read-only (post-onboarding, from Settings, only shown
- * when an override is active).
+ * when an override is active). Once a wallet exists the standalone route is read-only too, and a
+ * wallet on a test network is offered the code-first switch to mainnet, which goes through the reset.
  */
 const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false }) => {
   // Both routes for this page are full-screen pages outside the Settings host, so neither inherits
@@ -121,8 +125,14 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // No wallet registered yet, i.e. this screen is reachable but we're still pre-onboarding.
-  // `handleSave`'s SW nudge is only safe to send in this state — see its comment.
   const noWalletYet = useWalletStore(selectIsIdle);
+  const clearBalances = useWalletStore(s => s.clearBalances);
+  // The standalone route is gated on `!locked`, not `!ready` (PageRouter), so an unlocked wallet can open
+  // it. A save there would move this page while the service worker and offscreen keep the old network,
+  // so a wallet's network changes only through the reset in the switch below.
+  const editable = !readOnly && noWalletYet;
+  const offerMainnetSwitch = !noWalletYet && getTestNetworkNameKey() !== null;
+  const [mainnetSwitchOpen, setMainnetSwitchOpen] = useState(false);
 
   const presetItems = useMemo<SegmentedControlItem[]>(
     () => [
@@ -141,10 +151,10 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
       NETWORK_ID_OPTIONS.map(network => ({
         id: network,
         label: capitalize(network),
-        disabled: readOnly,
+        disabled: !editable,
         'data-testid': `dev-endpoint-network-${network}`
       })),
-    [readOnly]
+    [editable]
   );
 
   // The endpoints the user typed, kept while a preset is selected so choosing Custom again brings
@@ -205,6 +215,16 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
       // desktop share one realm, so this is where their backend hears about the repoint. The
       // extension hears it from the service worker's endpoint-override handler instead.
       retireGuardianWritesForEndpointChange();
+      // This realm's client baked in the old endpoints when it was built and never re-reads them. Started,
+      // not awaited: the reset queues on the WASM lock ahead of every read after this save, so each builds
+      // against the new node, while awaiting it would keep the save waiting behind whatever hold is running.
+      if (!isExtension()) {
+        void resetMidenClient().catch(err => console.warn('client reset after endpoint change failed', err));
+      }
+      // Every cached balance was read from the old node and names no network, so a reader would show it
+      // as this one's; dropped, each reader waits for a read on the new node, and a read already out on the
+      // old client is discarded by the store's network guard.
+      clearBalances();
       // The native asset and its base fee belong to the node too. The caches drop
       // themselves on the next read (`invalidateOnEndpointChange`), but dropping them
       // notifies nobody - and `useVerificationBaseFee` only re-reads when discovery
@@ -225,14 +245,9 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
       // module-level override cache and a create-once Miden client singleton, so
       // applyEndpointOverride's write doesn't reach it - nudge it to re-hydrate
       // and rebuild before navigating away. Mobile/desktop share this realm, so
-      // the override above already took effect and this is a no-op.
-      // Only nudge pre-wallet (onboarding): this screen is also reachable read-write
-      // from a live, unlocked wallet (it's gated on `!locked`, not `!ready` - see
-      // PageRouter), and disposing the SW's Miden client mid-session would tear down
-      // an in-progress sync/tx. Once a wallet exists, an override change here still
-      // applies to this realm but requires an explicit reload to reach the SW,
-      // unchanged from before this nudge existed.
-      if (isExtension() && noWalletYet) await reloadEndpointOverridesInSW();
+      // the client reset above is their rebuild. Only a save before any wallet
+      // exists gets here (`editable`), so no live sync or transaction is torn down.
+      if (isExtension()) await reloadEndpointOverridesInSW();
       navigate('/');
     } catch (err) {
       console.warn('[developer-settings] Could not save the endpoint override', err);
@@ -337,7 +352,17 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
       footer={
         <>
           <ErrorLine data-testid="dev-endpoints-error">{error}</ErrorLine>
-          {readOnly ? (
+          {offerMainnetSwitch && (
+            <Button
+              className={actionButton}
+              variant={ButtonVariant.Primary}
+              title={t('switchToMainnet')}
+              disabled={pending}
+              data-testid="dev-switch-to-mainnet"
+              onClick={() => setMainnetSwitchOpen(true)}
+            />
+          )}
+          {readOnly && (
             // Destructive: it wipes the wallet and starts onboarding over.
             <Button
               className={actionButton}
@@ -347,7 +372,8 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
               data-testid="dev-endpoints-reset"
               onClick={handleReset}
             />
-          ) : (
+          )}
+          {editable && (
             <>
               <Button
                 className={actionButton}
@@ -371,7 +397,7 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
     >
       <SubPageSection title={t('developerSettingsWarningTitle')} description={t('developerSettingsWarning')} />
 
-      {!readOnly && (
+      {editable && (
         <SubPageSection title={t('devEndpointPreset')}>
           <SegmentedControl
             items={presetItems}
@@ -395,7 +421,7 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
               autoCapitalize="none"
               autoCorrect="off"
               spellCheck={false}
-              disabled={readOnly}
+              disabled={!editable}
               className="font-mono select-text"
               onChange={e => setField(field.key, e.target.value)}
             />
@@ -412,7 +438,7 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
           autoCapitalize="none"
           autoCorrect="off"
           spellCheck={false}
-          disabled={readOnly}
+          disabled={!editable}
           className="font-mono select-text"
           onChange={e => setForm(prev => ({ ...prev, feeFaucetId: e.target.value, presetName: CUSTOM_PRESET }))}
         />
@@ -433,7 +459,7 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
         <ListGroup surface="plain">
           <ListRow
             title={t('devAllowNoGuardian')}
-            disabled={readOnly}
+            disabled={!editable}
             data-testid="dev-allow-no-guardian"
             onClick={() =>
               setForm(prev => ({
@@ -447,6 +473,7 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
           />
         </ListGroup>
       </SubPageSection>
+      <MainnetSwitchSheet open={mainnetSwitchOpen} onOpenChange={setMainnetSwitchOpen} />
     </SubPageLayout>
   );
 };

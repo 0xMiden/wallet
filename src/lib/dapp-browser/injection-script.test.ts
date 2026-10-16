@@ -314,7 +314,7 @@ describe('native transport', () => {
     void win.midenWallet.requestAssets();
     expect(win.mobileApp!.postMessage).toHaveBeenCalledTimes(1);
     const msg = win.mobileApp!.postMessage.mock.calls[0][0];
-    expect(msg).toMatchObject({ type: 'MIDEN_PAGE_REQUEST', reqId: expect.stringMatching(/^req_\d+$/) });
+    expect(msg).toMatchObject({ type: 'MIDEN_PAGE_REQUEST', reqId: expect.stringMatching(/^req_[0-9a-f]{16}_\d+$/) });
     // The plain-window fallback must NOT be used.
     expect(win.postMessage).not.toHaveBeenCalled();
   });
@@ -329,13 +329,41 @@ describe('native transport', () => {
     expect(targetOrigin).toBe('*');
   });
 
-  it('increments the request id per request', () => {
+  it('increments the request id per request under one prefix', () => {
     const win = makeWindow();
     inject(win);
     void win.midenWallet.requestAssets();
     void win.midenWallet.requestConsumableNotes();
     const ids = sentMessages(win).map(m => m.reqId);
-    expect(ids).toEqual(['req_1', 'req_2']);
+    const prefix = /^(req_[0-9a-f]{16}_)1$/.exec(ids[0]!)?.[1];
+    expect(prefix).toBeDefined();
+    expect(ids).toEqual([`${prefix}1`, `${prefix}2`]);
+  });
+
+  // #1416: the wallet can answer after a same-origin reload, into a document whose own first request is pending.
+  it("numbers each document's requests under its own prefix, so a late answer for the previous one resolves nothing", async () => {
+    const previous = makeWindow();
+    inject(previous);
+    void previous.midenWallet.requestAssets();
+    const current = makeWindow();
+    inject(current);
+    const settled = jest.fn();
+    const pending = current.midenWallet.requestAssets();
+    pending.then(settled, settled);
+    const previousId = lastMessage(previous).reqId;
+    const currentId = lastMessage(current).reqId;
+    expect(previousId).toMatch(/^req_[0-9a-f]{16}_1$/);
+    expect(currentId).toMatch(/^req_[0-9a-f]{16}_1$/);
+    expect(currentId).not.toBe(previousId);
+
+    expect(() =>
+      respond(current, previousId, { type: 'MIDEN_PAGE_RESPONSE', payload: { assets: ['previous'] } })
+    ).not.toThrow();
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+    expect(settled).not.toHaveBeenCalled();
+
+    respond(current, currentId, { type: 'MIDEN_PAGE_RESPONSE', payload: { assets: ['current'] } });
+    await expect(pending).resolves.toEqual({ assets: ['current'] });
   });
 });
 
@@ -1207,5 +1235,21 @@ describe('account switch (#174)', () => {
       jest.advanceTimersByTime(60000);
       expect(polls(win)).toHaveLength(1);
     });
+  });
+});
+
+describe('native presentation padding policy', () => {
+  it('removes browser padding for native fullscreen, including warm reinjection', () => {
+    const win = makeWindow();
+    inject(win, document);
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    expect(document.getElementById('miden-wallet-bottom-pad')?.textContent).toContain('96px');
+    win.__breadPresentationState = Object.freeze({ display: 'fullscreen' });
+    inject(win, document);
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    expect(document.getElementById('miden-wallet-bottom-pad')).toBeNull();
+    win.__breadPresentationState = Object.freeze({ display: 'browser' });
+    document.dispatchEvent(new Event('breadpresentationchange'));
+    expect(document.getElementById('miden-wallet-bottom-pad')?.textContent).toContain('96px');
   });
 });

@@ -28,12 +28,13 @@ import { SegmentedControl, SegmentedControlItem } from 'components/ui/SegmentedC
 import { Skeleton } from 'components/ui/Skeleton';
 import { UnverifiedTokenSheet } from 'components/UnverifiedTokenSheet';
 import { adaptiveFormatterFor, toAdaptiveFixed } from 'lib/i18n/numbers';
-import { useAccount, useAllBalances, useAllTokensBaseMetadata, useNetwork } from 'lib/miden/front';
+import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { canOverrideMetadata } from 'lib/miden/metadata/overrides';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import type { AssetMetadata } from 'lib/miden/metadata/types';
 import { normalizedFaucetId, priceSymbolFor } from 'lib/miden/swap/tokens';
 import { getExplorerAccountUrl } from 'lib/miden-chain/constants';
+import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { openExternalUrl } from 'lib/mobile/external-browser';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
@@ -405,9 +406,9 @@ function tokenDetailsValues(metadata: AssetMetadata | undefined): TokenDetailsVa
 
 const TokenInfo: FC<TokenInfoProps> = ({ tokenId, address, metadata }) => {
   const { t } = useTranslation();
-  const network = useNetwork();
+  const bridgeConfig = useBridgeConfigSnapshot({ load: false });
   // Testnet iETH is a test asset, not ETH: the wallet says so itself instead of trusting its faucet's words.
-  const info = testnetTokenInfo(tokenId);
+  const info = testnetTokenInfo(bridgeConfig, tokenId);
   const description = info ? t(info.descriptionKey) : metadata?.description;
   const nativeFaucetId = useMidenFaucetId();
   // The native token's chain metadata is authoritative. Until its id is known, no token can be edited.
@@ -495,7 +496,8 @@ const TokenInfo: FC<TokenInfoProps> = ({ tokenId, address, metadata }) => {
         <DetailRow label={t('type')}>{t('fungible')}</DetailRow>
         {/* Centred on the chip, which is taller than the label's line. */}
         <DetailRow label={t('network')} className="items-center">
-          <NetworkChip kind="miden" label={network.name} />
+          {/* The effective network, not the legacy selection, which never names mainnet. */}
+          <NetworkChip kind="miden" label={t(getEffectiveNetworkName())} />
         </DetailRow>
         {explorerUrl && (
           // An `accent-tint-ink` text action, not a nested `ListRow`: a `ListRow` draws its own

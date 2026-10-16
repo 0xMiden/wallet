@@ -286,8 +286,9 @@ beforeEach(() => {
 });
 
 describe('app/PageRouter — no network banner', () => {
-  // The wallet names its test network on the screens that commit value (NetworkModeBanner); only the
-  // dApp confirm window keeps the full-width banner.
+  // The wallet names its test network in a banner above Home's action bar, which TabLayout draws
+  // (mocked here), and on the screens that commit value (NetworkModeBanner). The router itself draws
+  // no network banner.
   it('renders no banner above a routed page', () => {
     renderAt('/', { ready: true, hydrated: true });
     expect(screen.getByTestId('explore')).toBeInTheDocument();
@@ -472,6 +473,14 @@ describe('app/PageRouter — pre-ready / special routes', () => {
   it('/developer-settings SKIPs to the locked catch-all (Unlock) when locked', () => {
     renderAt('/developer-settings', { locked: true, ready: true, hydrated: true });
     expect(screen.getByTestId('unlock')).toBeInTheDocument();
+    expect(screen.queryByTestId('developer-settings')).not.toBeInTheDocument();
+  });
+
+  // Before the backend answers, the status is the initial Idle even when a wallet exists, and the
+  // screen would open its no-wallet edit mode for that wallet.
+  it('/developer-settings waits on the loading spinner until the backend state has arrived', () => {
+    renderAt('/developer-settings', { locked: false, ready: false, hydrated: false });
+    expect(screen.getByTestId('root-suspense-fallback')).toBeInTheDocument();
     expect(screen.queryByTestId('developer-settings')).not.toBeInTheDocument();
   });
 });

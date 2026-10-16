@@ -37,3 +37,5 @@ export class PublicError extends Error {}
 export const HOT_KEY_NOT_STORED = 'HOT_KEY_NOT_STORED';
 /** The code on `swapHotKey`'s refusal when the account's hot key is no longer the one its caller expected. */
 export const HOT_KEY_CHANGED = 'HOT_KEY_CHANGED';
+/** The code on a wallet setup whose access code the mainnet node refused; the setup is already undone. */
+export const MAINNET_ACCESS_CODE_REJECTED = 'MAINNET_ACCESS_CODE_REJECTED';

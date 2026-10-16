@@ -7,7 +7,7 @@
  */
 
 import { Chain, defineChain } from 'viem';
-import { arbitrumSepolia, baseSepolia } from 'viem/chains';
+import { arbitrum, arbitrumSepolia, arc, base, baseSepolia, mainnet, optimism, sepolia } from 'viem/chains';
 
 export const ARC_TESTNET = defineChain({
   id: 5042002,
@@ -33,6 +33,11 @@ export type EvmChain = {
   id: number;
   name: string;
   rpcUrl: string;
+  /**
+   * The chain's public RPC endpoint. `wallet_addEthereumChain` sends this one to the external
+   * wallet: `rpcUrl` can be the WalletConnect proxy, which carries our project id.
+   */
+  publicRpcUrl: string;
   explorer: string;
   nativeCurrency: { name: string; symbol: string; decimals: number };
 };
@@ -52,33 +57,52 @@ function walletConnectChain(chain: Chain): EvmChain {
     id: chain.id,
     name: chain.name,
     rpcUrl: RPC(chain.id),
+    publicRpcUrl: chain.rpcUrls.default.http[0] ?? '',
     explorer: chain.blockExplorers?.default.url ?? '',
     nativeCurrency: chain.nativeCurrency
   };
 }
 
-// Sepolia stays first: it is the default chain, and the WalletConnect RPC URL is read off it.
-// Every chain here is proposed to a native WalletConnect session (`configureNativeReown`), so a
-// request on it can be sent; the AppKit networks in `./appkit` must list the same chains.
-export const SUPPORTED_CHAINS: EvmChain[] = [
-  {
-    id: 11155111,
-    name: 'Sepolia',
-    rpcUrl: RPC(11155111),
-    explorer: 'https://sepolia.etherscan.io',
-    nativeCurrency: { name: 'Sepolia Ether', symbol: 'SepoliaETH', decimals: 18 }
-  },
-  {
-    id: ARC_TESTNET.id,
-    name: ARC_TESTNET.name,
-    rpcUrl: ARC_TESTNET.rpcUrls.default.http[0],
-    explorer: ARC_TESTNET.blockExplorers.default.url,
-    nativeCurrency: ARC_TESTNET.nativeCurrency
-  },
-  // USDCx withdrawal destinations: a burn's balance confirmation reads USDC on them.
-  walletConnectChain(baseSepolia),
-  walletConnectChain(arbitrumSepolia)
+/** Chain definitions available to the parser, RPC reads, and connection adapters. */
+export const EVM_CHAIN_DEFINITIONS: [Chain, ...Chain[]] = [
+  sepolia,
+  ARC_TESTNET,
+  baseSepolia,
+  arbitrumSepolia,
+  mainnet,
+  base,
+  arbitrum,
+  arc,
+  optimism
 ];
+
+/**
+ * `value` with every plain object and array copied, at any depth; functions and other values stay shared. Take one
+ * before handing a shared chain above to code that keeps it: AppKit's valtio state proxies nested objects in place,
+ * and IndexedDB cannot store a Proxy.
+ */
+export function copyPlainData<T>(value: T): T;
+export function copyPlainData(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map((entry: unknown) => copyPlainData(entry));
+  if (typeof value !== 'object' || value === null) return value;
+  const prototype: unknown = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) return value;
+  return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, copyPlainData(entry)]));
+}
+
+/** This registry does not enable connections. The remote document selects those chains. */
+export const SUPPORTED_CHAINS: EvmChain[] = EVM_CHAIN_DEFINITIONS.map(chain => {
+  switch (chain.id) {
+    case ARC_TESTNET.id:
+    case arc.id:
+      return {
+        ...walletConnectChain(chain),
+        rpcUrl: chain.rpcUrls.default.http[0] ?? RPC(chain.id)
+      };
+    default:
+      return walletConnectChain(chain);
+  }
+});
 
 export const DEFAULT_CHAIN_ID = 11155111;
 

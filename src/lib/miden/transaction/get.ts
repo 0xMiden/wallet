@@ -2,6 +2,7 @@ import { PswapLineageState } from '@miden-sdk/miden-sdk/lazy';
 
 import * as Repo from 'lib/miden/repo';
 
+import { findAdoptableShortfallRow } from './rotation-funding';
 import { isNoteHoldingRow } from './verdict-rules';
 import { compareAccountIds } from '../activity/utils';
 import { midenClientProxy } from '../back/miden-client-proxy';
@@ -67,6 +68,13 @@ export const getAllUncompletedTransactions = async () => {
   txs.sort((tx1, tx2) => tx1.initiatedAt - tx2.initiatedAt);
   return txs;
 };
+
+/**
+ * True when the account's everyday-key rotation waits for funds (#805), so the rotation gate shows its funding panel:
+ * `findAdoptableShortfallRow` finds the row the gate adopts.
+ */
+export const isRotationAwaitingFunding = async (accountPublicKey: string): Promise<boolean> =>
+  (await findAdoptableShortfallRow(accountPublicKey)) !== undefined;
 
 export const getFailedTransactions = async () => {
   const transactions = await Repo.transactions.filter(tx => tx.status === ITransactionStatus.Failed).toArray();

@@ -13,18 +13,29 @@
 
 import { NoteFilterTypes } from '@miden-sdk/miden-sdk/lazy';
 import { WalletAdapterNetwork } from '@miden-sdk/miden-wallet-adapter-base';
+import PQueue from 'p-queue';
 
 import { MidenDAppMessageType, MidenDAppErrorType } from 'lib/adapter/types';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { DEFAULT_DELEGATE_PROOF } from 'lib/settings/constants';
+import { WalletStatus } from 'lib/shared/types';
 
 // ── Shared mocks ───────────────────────────────────────────────────
 
 const mockWithUnlocked = jest.fn(async (fn: (ctx: unknown) => unknown) => fn({ vault: {} }));
 
+let mockWalletStatus: unknown = 'Ready';
+const mockStoreListeners = new Set<(state: unknown) => void>();
 jest.mock('lib/miden/back/store', () => ({
   store: {
-    getState: () => ({ currentAccount: { publicKey: 'miden-account-1' }, status: 'Ready' })
+    getState: () => ({ currentAccount: { publicKey: 'miden-account-1' }, status: mockWalletStatus }),
+    // Drives `waitForUnlock`: `unlockWallet()` notifies these the way the real store's updates do.
+    updates: {
+      watch: (listener: (state: unknown) => void) => {
+        mockStoreListeners.add(listener);
+        return () => mockStoreListeners.delete(listener);
+      }
+    }
   },
   withUnlocked: (fn: (ctx: unknown) => unknown) => mockWithUnlocked(fn)
 }));
@@ -51,10 +62,18 @@ jest.mock('lib/miden/back/transaction-processor', () => ({
   startTransactionProcessing: () => mockStartTransactionProcessing()
 }));
 
+// A hoisted `var`: `transaction/cancel.ts` calls `isMobile()` while `./dapp` loads, before a `let` here exists.
+// eslint-disable-next-line no-var
+var mockIsDesktop = false;
 jest.mock('lib/platform', () => ({
   isExtension: () => false,
-  isDesktop: () => false,
-  isMobile: () => true
+  isDesktop: () => mockIsDesktop,
+  isMobile: () => !mockIsDesktop
+}));
+
+const mockFocusMainWindow = jest.fn(async () => undefined);
+jest.mock('lib/desktop/dapp-browser', () => ({
+  focusMainWindow: () => mockFocusMainWindow()
 }));
 
 const storageState: Record<string, unknown> = {};
@@ -212,6 +231,22 @@ jest.mock('@miden-sdk/miden-wallet-adapter-base', () => ({
 // ── Imports under test ─────────────────────────────────────────────
 
 import * as dapp from './dapp';
+import { _resetLockedPromptCooldownsForTest, WALLET_LOCKED_REFUSAL } from './dapp-locked';
+
+const UNLOCKED_CONTEXT = { vault: { signData: jest.fn(async () => 'fake-sig-base64') } };
+
+const lockWallet = () => {
+  mockWalletStatus = WalletStatus.Locked;
+  mockWithUnlocked.mockImplementation(async () => {
+    throw Object.assign(new Error('Wallet is locked'), { reason: 'locked' });
+  });
+};
+
+const unlockWallet = () => {
+  mockWalletStatus = WalletStatus.Ready;
+  mockWithUnlocked.mockImplementation(async (fn: (ctx: unknown) => unknown) => fn(UNLOCKED_CONTEXT));
+  for (const listener of [...mockStoreListeners]) listener({ status: WalletStatus.Ready });
+};
 
 const STORAGE_KEY = 'dapp_sessions';
 
@@ -225,7 +260,11 @@ const SESSION = {
 };
 
 beforeEach(() => {
+  _resetLockedPromptCooldownsForTest();
   jest.clearAllMocks();
+  mockWalletStatus = 'Ready';
+  mockStoreListeners.clear();
+  mockIsDesktop = false;
   // The consume approval preview is derived from the note the wallet resolves, not
   // from the dApp's declared faucet/amount/type, so every consume test needs the
   // note to exist in the store. Matches `validTx` below (note-1 / faucet-1 / 50).
@@ -301,51 +340,357 @@ describe('requestSign', () => {
 // ── Locking the wallet cuts off dApp private-data reads ────────────
 
 describe('a locked wallet serves no private data to a connected dApp', () => {
-  // `assertUnlocked` (back/store.ts) now throws once the vault is cleared; these
-  // pin that every private-data reader actually goes THROUGH `withUnlocked`, so a
-  // dApp holding `PrivateDataPermission.Auto` cannot keep polling notes and
-  // balances out of a locked wallet. (The gate itself is tested in store.test.ts.)
-  const LOCKED = 'Wallet is locked';
-
+  // `assertUnlocked` (back/store.ts) throws once the vault is cleared; these pin that every private-data reader goes
+  // THROUGH `withUnlocked`, so an Auto dApp reads nothing from a locked wallet. Mobile and desktop wait for the app's
+  // own unlock instead of refusing at once (#1414); a wait that runs out reads nothing either.
   beforeEach(() => {
-    mockWithUnlocked.mockImplementation(async () => {
-      throw Object.assign(new Error(LOCKED), { reason: 'locked' });
+    lockWallet();
+    // One account stub for every read here: connect's key read and the assets read.
+    mockGetAccount.mockResolvedValue({
+      getPublicKeyCommitments: () => [{ serialize: () => new Uint8Array([1, 2, 3]) }],
+      vault: () => ({ fungibleAssets: () => [] })
     });
-    // Auto-disclosure: the branch that resolves with no prompt at all.
     storageState[STORAGE_KEY] = {
       'https://miden.xyz': [{ ...SESSION, privateDataPermission: 'AUTO', allowedPrivateData: 65535 }]
     };
   });
 
-  it('requestAssets rejects and never reads the account', async () => {
-    await expect(
-      dapp.requestAssets('https://miden.xyz', {
-        type: MidenDAppMessageType.AssetsRequest,
-        sourcePublicKey: 'miden-account-1'
-      } as never)
-    ).rejects.toThrow(LOCKED);
+  afterEach(() => jest.useRealTimers());
+
+  const reads: Record<string, { call: () => Promise<unknown>; read: () => jest.Mock; answer: string }> = {
+    requestAssets: {
+      call: () =>
+        dapp.requestAssets('https://miden.xyz', {
+          type: MidenDAppMessageType.AssetsRequest,
+          sourcePublicKey: 'miden-account-1'
+        } as never),
+      read: () => mockGetAccount,
+      answer: MidenDAppMessageType.AssetsResponse
+    },
+    requestPrivateNotes: {
+      call: () =>
+        dapp.requestPrivateNotes('https://miden.xyz', {
+          type: MidenDAppMessageType.PrivateNotesRequest,
+          sourcePublicKey: 'miden-account-1',
+          notefilterType: 'All'
+        } as never),
+      read: () => mockGetInputNoteDetails,
+      answer: MidenDAppMessageType.PrivateNotesResponse
+    },
+    requestConsumableNotes: {
+      call: () =>
+        dapp.requestConsumableNotes('https://miden.xyz', {
+          type: MidenDAppMessageType.ConsumableNotesRequest,
+          sourcePublicKey: 'miden-account-1'
+        } as never),
+      read: () => mockGetConsumableNotes,
+      answer: MidenDAppMessageType.ConsumableNotesResponse
+    }
+  };
+
+  it.each(Object.keys(reads))('%s waits for the unlock, then refuses as locked and reads nothing', async name => {
+    jest.useFakeTimers();
+    const outcome = reads[name]!.call().then(
+      () => 'resolved',
+      (err: Error) => err.message
+    );
+    await jest.advanceTimersByTimeAsync(120_000);
+    await expect(outcome).resolves.toBe(WALLET_LOCKED_REFUSAL);
+    expect(reads[name]!.read()).not.toHaveBeenCalled();
+  });
+
+  it.each(Object.keys(reads))('%s answers once the app is unlocked, reading only then', async name => {
+    const call = reads[name]!.call();
+    await new Promise(r => setTimeout(r, 0));
+    expect(reads[name]!.read()).not.toHaveBeenCalled();
+    unlockWallet();
+    await expect(call).resolves.toEqual(expect.objectContaining({ type: reads[name]!.answer }));
+    expect(reads[name]!.read()).toHaveBeenCalled();
+  });
+
+  it('refuses NOT_GRANTED and reads nothing when the dApp was disconnected during the wait', async () => {
+    const call = reads.requestAssets!.call();
+    await new Promise(r => setTimeout(r, 0));
+    storageState[STORAGE_KEY] = { 'https://miden.xyz': [] };
+    unlockWallet();
+    await expect(call).rejects.toThrow(new Error(MidenDAppErrorType.NotGranted));
     expect(mockGetAccount).not.toHaveBeenCalled();
   });
 
-  it('requestPrivateNotes rejects and never reads the note store', async () => {
-    await expect(
-      dapp.requestPrivateNotes('https://miden.xyz', {
-        type: MidenDAppMessageType.PrivateNotesRequest,
-        sourcePublicKey: 'miden-account-1',
-        notefilterType: 'All'
-      } as never)
-    ).rejects.toThrow(LOCKED);
-    expect(mockGetInputNoteDetails).not.toHaveBeenCalled();
+  it('raises the wallet window when a desktop request starts waiting for the unlock', async () => {
+    mockIsDesktop = true;
+    const call = reads.requestAssets!.call();
+    await new Promise(r => setTimeout(r, 0));
+    expect(mockFocusMainWindow).toHaveBeenCalledTimes(1);
+    unlockWallet();
+    await call;
   });
 
-  it('requestConsumableNotes rejects and never reads the note store', async () => {
-    await expect(
-      dapp.requestConsumableNotes('https://miden.xyz', {
-        type: MidenDAppMessageType.ConsumableNotesRequest,
-        sourcePublicKey: 'miden-account-1'
+  it('refuses at once, with no wait, for 30 s after a wait for this origin ran out', async () => {
+    jest.useFakeTimers();
+    const track = (call: Promise<unknown>) => {
+      const state = { settled: false, message: '' };
+      call.then(
+        () => {
+          state.settled = true;
+        },
+        (err: Error) => {
+          state.settled = true;
+          state.message = err.message;
+        }
+      );
+      return state;
+    };
+    const first = track(reads.requestAssets!.call());
+    await jest.advanceTimersByTimeAsync(120_000);
+    expect(first).toEqual({ settled: true, message: WALLET_LOCKED_REFUSAL });
+
+    const second = track(reads.requestAssets!.call());
+    await jest.advanceTimersByTimeAsync(0);
+    expect(second).toEqual({ settled: true, message: WALLET_LOCKED_REFUSAL });
+
+    await jest.advanceTimersByTimeAsync(30_000);
+    const third = track(reads.requestAssets!.call());
+    await jest.advanceTimersByTimeAsync(0);
+    // Waiting again: the cooldown is over.
+    expect(third.settled).toBe(false);
+    unlockWallet();
+    await jest.advanceTimersByTimeAsync(0);
+    expect(third.settled).toBe(true);
+  });
+
+  it('starts no cooldown when the app unlocked during the wait', async () => {
+    const first = reads.requestAssets!.call();
+    await new Promise(r => setTimeout(r, 0));
+    unlockWallet();
+    await first;
+
+    lockWallet();
+    const second = reads.requestAssets!.call();
+    await new Promise(r => setTimeout(r, 0));
+    unlockWallet();
+    await expect(second).resolves.toEqual(expect.objectContaining({ type: MidenDAppMessageType.AssetsResponse }));
+  });
+});
+
+describe('mobile and desktop sheets wait for the app to unlock (#1414)', () => {
+  beforeEach(() => {
+    lockWallet();
+    // One account stub for every read here: connect's key read and the assets read.
+    mockGetAccount.mockResolvedValue({
+      getPublicKeyCommitments: () => [{ serialize: () => new Uint8Array([1, 2, 3]) }],
+      vault: () => ({ fungibleAssets: () => [] })
+    });
+  });
+  afterEach(() => jest.useRealTimers());
+
+  it('posts the sheet of an UponRequest read only after the unlock', async () => {
+    const call = dapp.requestAssets('https://miden.xyz', {
+      type: MidenDAppMessageType.AssetsRequest,
+      sourcePublicKey: 'miden-account-1'
+    } as never);
+    await new Promise(r => setTimeout(r, 0));
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+    unlockWallet();
+    await expect(call).resolves.toEqual(expect.objectContaining({ type: MidenDAppMessageType.AssetsResponse }));
+    expect(mockRequestConfirmation).toHaveBeenCalledTimes(1);
+  });
+
+  const prompts: Record<string, () => Promise<unknown>> = {
+    sign: () =>
+      dapp.requestSign('https://miden.xyz', {
+        type: MidenDAppMessageType.SignRequest,
+        sourcePublicKey: 'miden-account-1',
+        sourceAccountId: 'miden-account-1',
+        payload: 'deadbeef',
+        kind: 'word'
+      } as never),
+    importPrivateNote: () =>
+      dapp.requestImportPrivateNote('https://miden.xyz', {
+        type: MidenDAppMessageType.ImportPrivateNoteRequest,
+        sourcePublicKey: 'miden-account-1',
+        note: 'aGVsbG8='
+      } as never),
+    connect: () =>
+      dapp.requestPermission('https://newdapp.xyz', {
+        type: MidenDAppMessageType.PermissionRequest,
+        appMeta: { name: 'New Dapp', url: 'https://newdapp.xyz' },
+        network: 'testnet',
+        privateDataPermission: 'UponRequest',
+        allowedPrivateData: {},
+        force: false
       } as never)
-    ).rejects.toThrow(LOCKED);
-    expect(mockGetConsumableNotes).not.toHaveBeenCalled();
+  };
+
+  it.each(Object.keys(prompts))('%s posts its sheet only after the unlock', async name => {
+    const call = prompts[name]!();
+    await new Promise(r => setTimeout(r, 0));
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+    unlockWallet();
+    await call;
+    expect(mockRequestConfirmation).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(Object.keys(prompts))(
+    '%s refuses NOT_GRANTED: Wallet is locked when the wait runs out, with no sheet',
+    async name => {
+      jest.useFakeTimers();
+      const outcome = prompts[name]!().then(
+        () => 'resolved',
+        (err: Error) => err.message
+      );
+      await jest.advanceTimersByTimeAsync(120_000);
+      await expect(outcome).resolves.toBe(WALLET_LOCKED_REFUSAL);
+      expect(mockRequestConfirmation).not.toHaveBeenCalled();
+    }
+  );
+
+  it('answers a reconnect of an existing permission with no sheet once the app is unlocked', async () => {
+    const call = dapp.requestPermission('https://miden.xyz', {
+      type: MidenDAppMessageType.PermissionRequest,
+      appMeta: { name: 'Miden Test', url: 'https://miden.xyz' },
+      network: 'testnet'
+    } as never);
+    await new Promise(r => setTimeout(r, 0));
+    unlockWallet();
+    await expect(call).resolves.toEqual(
+      expect.objectContaining({ type: MidenDAppMessageType.PermissionResponse, accountId: 'miden-account-1' })
+    );
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+  });
+});
+
+describe("one mobile request's unlock waits and sheet share one 240 s bound (#1414)", () => {
+  const ORIGIN = 'https://miden.xyz';
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    lockWallet();
+    mockGetAccount.mockResolvedValue({
+      getPublicKeyCommitments: () => [{ serialize: () => new Uint8Array([1, 2, 3]) }],
+      vault: () => ({ fungibleAssets: () => [] })
+    });
+    mockInitiateSendTransaction.mockResolvedValue('tx-send-1');
+  });
+  afterEach(() => jest.useRealTimers());
+
+  type Outcome = { settled: boolean; message: string };
+  const track = (call: Promise<unknown>): Outcome => {
+    const outcome: Outcome = { settled: false, message: '' };
+    call.then(
+      () => {
+        outcome.settled = true;
+      },
+      (err: Error) => {
+        outcome.settled = true;
+        outcome.message = err.message;
+      }
+    );
+    return outcome;
+  };
+
+  // The rebuild after the unlock meets the lock once more, as when the wallet locks again straight after unlocking.
+  const unlockThenRelock = () => {
+    unlockWallet();
+    lockWallet();
+  };
+
+  // An unlocked send reads its spending-limit policy from Dexie, which settles on real macrotasks the fake clock does
+  // not drive: yield until the sheet is posted, without moving the clock.
+  const untilSheetPosted = async () => {
+    for (let i = 0; i < 50 && mockRequestConfirmation.mock.calls.length === 0; i++) {
+      await jest.advanceTimersByTimeAsync(0);
+    }
+    expect(mockRequestConfirmation).toHaveBeenCalledTimes(1);
+  };
+
+  const read = (): Promise<unknown> =>
+    dapp.requestAssets(ORIGIN, {
+      type: MidenDAppMessageType.AssetsRequest,
+      sourcePublicKey: 'miden-account-1'
+    } as never);
+  const send = (): Promise<unknown> =>
+    dapp.requestSendTransaction(ORIGIN, {
+      type: MidenDAppMessageType.SendTransactionRequest,
+      sourcePublicKey: 'miden-account-1',
+      transaction: {
+        senderAddress: 'miden-account-1',
+        recipientAddress: 'bob',
+        faucetId: 'faucet-1',
+        noteType: 'Private',
+        amount: '100'
+      }
+    } as never);
+  const reconnect = (): Promise<unknown> =>
+    dapp.requestPermission(ORIGIN, {
+      type: MidenDAppMessageType.PermissionRequest,
+      appMeta: { name: 'Miden Test', url: ORIGIN },
+      network: 'testnet'
+    } as never);
+  const sign = (): Promise<unknown> =>
+    dapp.requestSign(ORIGIN, {
+      type: MidenDAppMessageType.SignRequest,
+      sourcePublicKey: 'miden-account-1',
+      sourceAccountId: 'miden-account-1',
+      payload: 'deadbeef',
+      kind: 'word'
+    } as never);
+
+  it.each<[string, () => Promise<unknown>]>([
+    ['an UponRequest read', read],
+    ['a send', send],
+    ['a reconnect', reconnect]
+  ])(
+    'refuses %s that meets the lock after each unlock by 240 s from its first wait, and the queue moves on',
+    async (_name, start) => {
+      const queue = new PQueue({ concurrency: 1 });
+      const outcome = track(queue.add(start));
+      const next = jest.fn(async () => 'next');
+      void queue.add(next);
+
+      await jest.advanceTimersByTimeAsync(100_000);
+      unlockThenRelock();
+      await jest.advanceTimersByTimeAsync(100_000);
+      unlockThenRelock();
+      await jest.advanceTimersByTimeAsync(40_000);
+
+      expect(outcome).toEqual({ settled: true, message: WALLET_LOCKED_REFUSAL });
+      expect(next).toHaveBeenCalledTimes(1);
+      expect(mockRequestConfirmation).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each<[string, () => Promise<unknown>]>([
+    ['an UponRequest read', read],
+    ['a send', send]
+  ])('auto-declines the sheet of %s that waited 200 s for the unlock at 240 s', async (_name, start) => {
+    mockRequestConfirmation.mockImplementation(() => new Promise(() => {}));
+    const outcome = track(start());
+
+    await jest.advanceTimersByTimeAsync(100_000);
+    unlockThenRelock();
+    await jest.advanceTimersByTimeAsync(100_000);
+    unlockWallet();
+    await untilSheetPosted();
+
+    await jest.advanceTimersByTimeAsync(40_000);
+    expect(outcome).toEqual({ settled: true, message: MidenDAppErrorType.NotGranted });
+  });
+
+  it.each<[string, () => Promise<unknown>]>([
+    ['an UponRequest read', read],
+    ['a send', send],
+    ['a sign', sign]
+  ])('keeps a 120 s sheet for %s that never waited', async (_name, start) => {
+    unlockWallet();
+    mockRequestConfirmation.mockImplementation(() => new Promise(() => {}));
+    const outcome = track(start());
+
+    await untilSheetPosted();
+    await jest.advanceTimersByTimeAsync(119_999);
+    expect(outcome.settled).toBe(false);
+    await jest.advanceTimersByTimeAsync(1);
+    expect(outcome).toEqual({ settled: true, message: MidenDAppErrorType.NotGranted });
   });
 });
 
@@ -940,7 +1285,8 @@ describe('requestSendTransaction', () => {
       BigInt(validTx.amount),
       validTx.recallBlocks,
       true,
-      undefined
+      undefined,
+      'https://miden.xyz'
     );
   });
 
@@ -1292,6 +1638,8 @@ describe("a non-extension write carries the resolver's delegate flag", () => {
     // auto-consume's exponential backoff must not swallow it and answer the dApp
     // with a previous attempt's Failed row id.
     expect(mockInitiateConsumeTransactionFromId.mock.calls[0]![3]).toBe(true);
+    // 5th is the requesting origin: it refuses a note another transaction holds and lets this origin wait on the row.
+    expect(mockInitiateConsumeTransactionFromId.mock.calls[0]![4]).toBe('https://miden.xyz');
   });
 
   it('executes a custom transaction without delegating the proof', async () => {
@@ -1312,6 +1660,8 @@ describe("a non-extension write carries the resolver's delegate flag", () => {
 
     // 5th positional arg of requestCustomTransaction is `delegateTransaction`.
     expect(mockRequestCustomTransaction.mock.calls[0]![4]).toBe(false);
+    // 9th is the requesting origin, the only one that may wait on the row.
+    expect(mockRequestCustomTransaction.mock.calls[0]![8]).toBe('https://miden.xyz');
   });
 
   it('falls back to the DEFAULT_DELEGATE_PROOF setting when a resolver supplies no flag', async () => {

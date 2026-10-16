@@ -151,7 +151,7 @@ export const SetupBiometricScreen: React.FC<SetupBiometricScreenProps> = ({ onSw
 
   return (
     <div className="bg-app-bg h-full overflow-y-auto" data-testid="onboarding-setup-biometric">
-      <div className="min-h-full flex flex-col items-center px-6 pb-6">
+      <div className="min-h-full flex flex-col items-center px-6 pb-[calc(1.5rem+var(--wallet-control-safe-bottom,0px))]">
         <div className="flex-1 flex flex-col items-center justify-center w-full">
           {phase === 'prompt' ? (
             <>

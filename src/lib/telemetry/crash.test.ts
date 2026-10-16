@@ -1,3 +1,5 @@
+import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { isTelemetryEnabledAsync } from 'lib/settings/helpers';
 
 import {
@@ -8,9 +10,17 @@ import {
   selectIntegrations,
   stopCrashReporting
 } from './crash';
+import { annotateCrash } from './crash-diagnostics';
 import { REDACTED } from './redact';
+import packageJson from '../../../package.json';
 
 jest.mock('lib/settings/helpers', () => ({ isTelemetryEnabledAsync: jest.fn() }));
+jest.mock('lib/miden-chain/effective-endpoints', () => {
+  const actual = jest.requireActual<typeof import('lib/miden-chain/effective-endpoints')>(
+    'lib/miden-chain/effective-endpoints'
+  );
+  return { ...actual, getEffectiveNetworkName: jest.fn(actual.getEffectiveNetworkName) };
+});
 
 interface ClientOptions {
   dsn?: string;
@@ -24,6 +34,7 @@ interface ClientOptions {
 
 const clientOptions: ClientOptions[] = [];
 const captured: unknown[] = [];
+const capturedHints: unknown[] = [];
 const close = jest.fn();
 const setClient = jest.fn();
 let constructorThrows = false;
@@ -34,7 +45,13 @@ jest.mock('@sentry/browser', () => ({
     clientOptions.push(options);
     return { init: jest.fn(), close };
   }),
-  Scope: jest.fn(() => ({ setClient, captureException: (error: unknown) => captured.push(error) })),
+  Scope: jest.fn(() => ({
+    setClient,
+    captureException: (error: unknown, hint: unknown) => {
+      captured.push(error);
+      capturedHints.push(hint);
+    }
+  })),
   makeFetchTransport: jest.fn(),
   defaultStackParser: jest.fn(),
   inboundFiltersIntegration: jest.fn(() => ({ name: 'InboundFilters' })),
@@ -79,6 +96,7 @@ beforeEach(() => {
   process.env.SENTRY_DSN = 'https://publickey@o0.ingest.de.sentry.io/1';
   clientOptions.length = 0;
   captured.length = 0;
+  capturedHints.length = 0;
   constructorThrows = false;
 });
 
@@ -88,6 +106,48 @@ afterEach(() => {
 });
 
 describe('integration selection', () => {
+  it('does not resurrect a pending lazy report after reporting is stopped', async () => {
+    let allow: (value: boolean) => void = () => {};
+    jest.mocked(isTelemetryEnabledAsync).mockImplementationOnce(
+      () =>
+        new Promise(resolve => {
+          allow = resolve;
+        })
+    );
+    captureCrash(new Error('handled transaction failed'), 'manual', { initializeIfNeeded: true });
+    stopCrashReporting();
+    allow(true);
+    await flushMicrotasks();
+    expect(clientOptions).toHaveLength(0);
+    expect(captured).toHaveLength(0);
+  });
+
+  it('initializes handled-only reporting without new global error listeners', async () => {
+    consentOn();
+    const listener = jest.spyOn(globalThis, 'addEventListener');
+    captureCrash(new Error('handled transaction failed'), 'manual', { initializeIfNeeded: true });
+    await flushMicrotasks();
+    expect(captured).toHaveLength(1);
+    expect(listener).not.toHaveBeenCalled();
+    listener.mockRestore();
+  });
+  it('initializes once when a handled failure arrives without any frontend scope', async () => {
+    consentOn();
+    captureCrash(new Error('handled transaction failed'), 'manual', { initializeIfNeeded: true });
+    await flushMicrotasks();
+    captureCrash(new Error('another transaction failed'), 'manual', { initializeIfNeeded: true });
+    await flushMicrotasks();
+    expect(clientOptions).toHaveLength(1);
+    expect(captured).toHaveLength(2);
+  });
+
+  it('does not initialize a lazy crash client when consent is disabled', async () => {
+    consentOff();
+    captureCrash(new Error('handled transaction failed'), 'manual', { initializeIfNeeded: true });
+    await flushMicrotasks();
+    expect(clientOptions).toHaveLength(0);
+    expect(captured).toHaveLength(0);
+  });
   it('pins the allowlist contents, so nothing can be added without a test change', () => {
     expect(CRASH_INTEGRATION_ALLOWLIST).toEqual(['InboundFilters', 'LinkedErrors', 'Dedupe']);
   });
@@ -184,12 +244,16 @@ describe('client construction', () => {
 
   it('stops reporting global errors once crash reporting stops', async () => {
     consentOn();
+    const add = jest.spyOn(globalThis, 'addEventListener');
     initCrashReporting();
+    const handler = add.mock.calls.find(([type]) => type === 'error')?.[1] as EventListener;
+    expect(typeof handler).toBe('function');
     stopCrashReporting();
-    globalThis.dispatchEvent(new ErrorEvent('error', { error: new Error('boom') }));
+    handler(new ErrorEvent('error', { error: new Error('boom') }));
     await flushMicrotasks();
 
     expect(captured).toHaveLength(0);
+    add.mockRestore();
   });
 
   it('does not throw when closing the client fails', () => {
@@ -252,6 +316,22 @@ describe('consent', () => {
     await flushMicrotasks();
 
     expect(captured).toHaveLength(0);
+  });
+
+  it('does not resume an old pending report when reporting is enabled again', async () => {
+    let allowConsent = (_value: boolean) => {};
+    jest.mocked(isTelemetryEnabledAsync).mockReturnValue(
+      new Promise<boolean>(resolve => {
+        allowConsent = resolve;
+      })
+    );
+    initCrashReporting();
+    captureCrash(new Error('old pending failure'));
+    stopCrashReporting();
+    initCrashReporting();
+    allowConsent(true);
+    await flushMicrotasks();
+    expect(captured).toEqual([]);
   });
 
   it('closes the client so anything buffered is discarded on withdrawal', () => {
@@ -504,5 +584,146 @@ describe('scrubEvent — the beforeSend hook', () => {
   it('never returns the marker in place of a whole clean event', () => {
     const event = { extra: { note: 'sync finished' } };
     expect(JSON.stringify(scrubEvent(event))).not.toContain(REDACTED);
+  });
+});
+
+describe('diagnostic snapshots', () => {
+  it('captures scrubbed bounded cause chains synchronously before consent resolves', async () => {
+    let allowConsent = (_value: boolean) => {};
+    jest.mocked(isTelemetryEnabledAsync).mockReturnValue(
+      new Promise<boolean>(resolve => {
+        allowConsent = resolve;
+      })
+    );
+    initCrashReporting();
+    const cause = new Error(`network failed for ${ADDRESS}`);
+    const error = new Error('initialize failed', { cause });
+    annotateCrash(error, { operation: 'sdk_initialize', stage: 'client_create', workerMode: 'disabled' });
+    captureCrash(error);
+    error.message = 'changed after capture';
+    cause.message = 'changed cause';
+    annotateCrash(error, { stage: 'mock_create' });
+    allowConsent(true);
+    await flushMicrotasks();
+    const reportable = captured[0];
+    expect(reportable).toBeInstanceOf(Error);
+    if (!(reportable instanceof Error)) throw new Error('missing error');
+    expect(reportable.message).toBe('initialize failed');
+    expect(reportable.cause).toBeInstanceOf(Error);
+    if (!(reportable.cause instanceof Error)) throw new Error('missing cause');
+    expect(reportable.cause.message).toContain('network failed');
+    expect(reportable.cause.message).not.toContain(ADDRESS);
+    const event = { extra: { arbitrary: ADDRESS }, exception: { values: [{ type: 'Error' }] } };
+    scrubEvent(event, { originalException: reportable });
+    expect(event.extra).toEqual({
+      walletDiagnostics: expect.objectContaining({
+        operation: 'sdk_initialize',
+        stage: 'client_create',
+        workerMode: 'disabled',
+        appVersion: packageJson.version
+      })
+    });
+  });
+
+  it('names the network the crash happened on, in the diagnostics and as a tag beside any other', async () => {
+    consentOn();
+    initCrashReporting();
+    // Only the capture sees mainnet: the report is sent after a switch back, and still says where it happened.
+    jest.mocked(getEffectiveNetworkName).mockReturnValueOnce(MIDEN_NETWORK_NAME.MAINNET);
+    captureCrash(new Error('sync failed'));
+    await flushMicrotasks();
+    const event: Record<string, unknown> = { tags: { kept: 'yes' }, exception: { values: [{ type: 'Error' }] } };
+    scrubEvent(event, { originalException: captured[0] });
+    expect(event.extra).toEqual({ walletDiagnostics: expect.objectContaining({ network: 'mainnet' }) });
+    expect(event.tags).toEqual({ kept: 'yes', network: 'mainnet' });
+  });
+
+  it('reads each raw error field only once before asynchronous consent', async () => {
+    consentOn();
+    initCrashReporting();
+    const error = new Error('body');
+    const reads = { name: 0, message: 0, stack: 0 };
+    Object.defineProperties(error, {
+      name: {
+        get() {
+          reads.name++;
+          return 'Error';
+        }
+      },
+      message: {
+        get() {
+          reads.message++;
+          return 'body';
+        }
+      },
+      stack: {
+        get() {
+          reads.stack++;
+          return 'Error: body\n    at source (capacitor://localhost/mobile.js:1:5000)';
+        }
+      }
+    });
+    captureCrash(error);
+    await flushMicrotasks();
+    expect(reads).toEqual({ name: 1, message: 1, stack: 1 });
+  });
+
+  it('replaces SDK-created frames with the trusted empty frame snapshot', async () => {
+    consentOn();
+    initCrashReporting();
+    jest.requireMock<{ defaultStackParser: jest.Mock }>('@sentry/browser').defaultStackParser.mockReturnValueOnce([]);
+    const failure = new Error('message\n    at injected (https://unknown.example/path:7:777)');
+    failure.stack = undefined;
+    captureCrash(failure);
+    await flushMicrotasks();
+    const event = {
+      exception: {
+        values: [{ stacktrace: { frames: [{ filename: 'https://unknown.example/path', lineno: 7, colno: 777 }] } }]
+      }
+    };
+    scrubEvent(event, { originalException: captured[0] });
+    expect(event.exception.values[0]?.stacktrace.frames).toEqual([]);
+  });
+
+  it('bounds causes to three links and terminates cyclic chains', async () => {
+    consentOn();
+    initCrashReporting();
+    const fifth = new Error('fifth');
+    const fourth = new Error('fourth', { cause: fifth });
+    const third = new Error('third', { cause: fourth });
+    const second = new Error('second', { cause: third });
+    const first = new Error('first', { cause: second });
+    captureCrash(first);
+    Object.defineProperty(second, 'cause', { value: first });
+    captureCrash(second);
+    await flushMicrotasks();
+    let next: unknown = captured[0];
+    const names: string[] = [];
+    while (next instanceof Error) {
+      names.push(next.message);
+      next = next.cause;
+    }
+    expect(names).toEqual(['first', 'second', 'third', 'fourth']);
+    next = captured[1];
+    const cyclic: string[] = [];
+    while (next instanceof Error) {
+      cyclic.push(next.message);
+      next = next.cause;
+    }
+    expect(cyclic).toEqual(['second', 'first']);
+  });
+
+  it('classifies uncaught errors and rejections accurately without global metadata', async () => {
+    consentOn();
+    initCrashReporting();
+    globalThis.dispatchEvent(new ErrorEvent('error', { error: new Error('uncaught') }));
+    globalThis.dispatchEvent(Object.assign(new Event('unhandledrejection'), { reason: new Error('rejected') }));
+    captureCrash(new Error('manual'));
+    await flushMicrotasks();
+    expect(capturedHints).toEqual([
+      expect.objectContaining({ mechanism: { type: 'onerror', handled: false } }),
+      expect.objectContaining({ mechanism: { type: 'onunhandledrejection', handled: false } }),
+      expect.objectContaining({ mechanism: { type: 'generic', handled: true } })
+    ]);
   });
 });

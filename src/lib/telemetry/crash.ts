@@ -12,6 +12,9 @@ import { englishWordlist } from '@miden/hd-key';
 import { isTelemetryEnabledAsync } from 'lib/settings/helpers';
 
 import { resolveTelemetryContext } from './context';
+import { getCrashBuildIdentity, type CrashBuildIdentity } from './crash-build';
+import { snapshotCrashDiagnostics, type CrashDiagnostics } from './crash-diagnostics';
+import { sanitizeWalletFrame } from './crash-frames';
 import { REDACTED, containsSeedMaterialDeep, redactInPlace, redactMessage, redactText } from './redact';
 
 /**
@@ -106,7 +109,14 @@ export function selectIntegrations<T extends NamedIntegration>(integrations: T[]
  * result, so the allowlist stays an enforced invariant and not a comment.
  */
 function buildIntegrations() {
-  return selectIntegrations([inboundFiltersIntegration(), linkedErrorsIntegration(), dedupeIntegration()]);
+  const dedupe = dedupeIntegration();
+  const processEvent = dedupe.processEvent;
+  dedupe.processEvent = (event, hint, activeClient) => {
+    // Guarded terminal writes already deduplicate no-ops; separate failed attempts must each be counted.
+    if (event.exception?.values?.some(value => value.type === 'WalletTransactionFailure')) return event;
+    return processEvent ? processEvent(event, hint, activeClient) : event;
+  };
+  return selectIntegrations([inboundFiltersIntegration(), linkedErrorsIntegration(), dedupe]);
 }
 
 const WORDLIST: readonly string[] = englishWordlist;
@@ -116,7 +126,18 @@ const WORDLIST: readonly string[] = englishWordlist;
  * (`fn@file:1:2`). Everything above the first frame is the header, which
  * carries the raw message and is rebuilt rather than scrubbed.
  */
-const STACK_FRAME_PATTERN = /^\s*at\s|.+@.+:\d+:\d+$/;
+const STACK_FRAME_PATTERN = /^\s*at\s|^[^@\n]*@(?:.+:\d+:\d+|\[wasm code\]|\[native code\])$/;
+
+function framesAfterHeader(name: string, message: string, stack: string | undefined): string | undefined {
+  if (stack === undefined) return undefined;
+  const header = message.length > 0 ? `${name}: ${message}` : name;
+  if (stack === header) return '';
+  if (stack.startsWith(`${header}\n`)) return stack.slice(header.length + 1);
+  const first = stack.split('\n', 1)[0] ?? '';
+  // A mismatched header may contain frame-looking user input, not compiled positions.
+  if (/^[^@\n]+:\s/.test(first) || !STACK_FRAME_PATTERN.test(first)) return undefined;
+  return stack;
+}
 
 /**
  * Rebuild a stack from redacted parts. The header is discarded outright: it
@@ -134,6 +155,39 @@ function reportableStack(name: string, safeMessage: string, stack: string | unde
   return [header, ...lines.slice(firstFrame).map(line => redactText(line, WORDLIST))].join('\n');
 }
 
+type CrashSource = 'manual' | 'react' | 'onerror' | 'onunhandledrejection';
+type DiagnosticSnapshot = CrashDiagnostics & ReturnType<typeof resolveTelemetryContext> & CrashBuildIdentity;
+const capturedDiagnostics = new WeakMap<Error, DiagnosticSnapshot>();
+type ReportableFrame = {
+  filename?: string;
+  function?: string;
+  lineno?: number;
+  colno?: number;
+};
+const capturedFrames = new WeakMap<Error, ReportableFrame[]>();
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function restoreDiagnostics(event: Record<string, unknown>, reportable: Error, diagnostics: DiagnosticSnapshot): void {
+  event.extra = { walletDiagnostics: { ...diagnostics } };
+  // Also a tag, because Sentry can search and filter by tags but not by extra data.
+  event.tags = { ...(isRecord(event.tags) ? event.tags : {}), network: diagnostics.network };
+  const exception = event.exception;
+  if (!isRecord(exception) || !Array.isArray(exception.values)) return;
+  let link: unknown = reportable;
+  for (let index = exception.values.length - 1; index >= 0 && link instanceof Error; index--) {
+    const value: unknown = exception.values[index];
+    const frames = capturedFrames.get(link);
+    // An empty snapshot overrides frames parsed from a multiline error message.
+    if (isRecord(value) && frames !== undefined) {
+      value.stacktrace = { frames: frames.map(frame => ({ ...frame })) };
+    }
+    link = link.cause;
+  }
+}
+
 /**
  * `beforeSend`. Returns `null` to discard the event entirely.
  *
@@ -141,23 +195,46 @@ function reportableStack(name: string, safeMessage: string, stack: string | unde
  * than just that field: if a phrase reached one field, the payload has to be
  * treated as contaminated, and a crash report is worth far less than the risk.
  */
-export function scrubEvent<T>(event: T): T | null {
+export function scrubEvent<T>(event: T, hint?: { originalException?: unknown }): T | null {
   if (containsSeedMaterialDeep(event, WORDLIST)) return null;
   redactInPlace(event, WORDLIST);
+  const original = hint?.originalException;
+  const diagnostics = original instanceof Error ? capturedDiagnostics.get(original) : undefined;
+  if (diagnostics !== undefined && original instanceof Error && isRecord(event))
+    restoreDiagnostics(event, original, diagnostics);
   return event;
 }
 
 let scope: Scope | null = null;
 let client: BrowserClient | null = null;
+let reportingGeneration = 0;
+let listenersInstalled = false;
 
-const onGlobalError = (event: ErrorEvent) => captureCrash(event.error);
-const onUnhandledRejection = (event: PromiseRejectionEvent) => captureCrash(event.reason);
+const onGlobalError = (event: ErrorEvent) => captureCrash(event.error, 'onerror');
+const onUnhandledRejection = (event: PromiseRejectionEvent) => captureCrash(event.reason, 'onunhandledrejection');
 
-export function initCrashReporting(): void {
+function installCrashListeners(): void {
+  if (listenersInstalled || typeof globalThis.addEventListener !== 'function') return;
+  globalThis.addEventListener('error', onGlobalError);
+  globalThis.addEventListener('unhandledrejection', onUnhandledRejection);
+  listenersInstalled = true;
+}
+
+export function initCrashReporting(options: { listenToGlobals?: boolean } = {}): void {
+  if (client !== null) {
+    if (options.listenToGlobals !== false) installCrashListeners();
+    return;
+  }
   try {
+    const generation = reportingGeneration;
     const created = new BrowserClient({
       dsn: process.env.SENTRY_DSN ?? '',
-      transport: makeFetchTransport,
+      transport: options =>
+        makeFetchTransport(options, async (...args) => {
+          if (!(await isTelemetryEnabledAsync()) || generation !== reportingGeneration)
+            return new Response('', { status: 200 });
+          return globalThis.fetch(...args);
+        }),
       stackParser: defaultStackParser,
       integrations: buildIntegrations(),
       sendDefaultPii: false,
@@ -173,8 +250,7 @@ export function initCrashReporting(): void {
     scope = createdScope;
 
     // `GlobalHandlers` is excluded, so these are ours to register.
-    globalThis.addEventListener('error', onGlobalError);
-    globalThis.addEventListener('unhandledrejection', onUnhandledRejection);
+    if (options.listenToGlobals !== false) installCrashListeners();
   } catch {
     // Crash reporting must never keep the wallet from starting.
   }
@@ -189,38 +265,96 @@ export function stopCrashReporting(): void {
   const closing = client;
   scope = null;
   client = null;
+  reportingGeneration++;
   try {
-    globalThis.removeEventListener('error', onGlobalError);
-    globalThis.removeEventListener('unhandledrejection', onUnhandledRejection);
-    if (closing !== null) void closing.close(0);
+    if (listenersInstalled) {
+      globalThis.removeEventListener('error', onGlobalError);
+      globalThis.removeEventListener('unhandledrejection', onUnhandledRejection);
+    }
   } catch {
     // Best-effort.
+  } finally {
+    listenersInstalled = false;
+    try {
+      if (closing !== null) void Promise.resolve(closing.close(0)).catch(() => {});
+    } catch {
+      // Closing a telemetry client must not affect the wallet.
+    }
   }
 }
 
-export function captureCrash(error: unknown): void {
-  void (async () => {
-    try {
-      if (!(await isTelemetryEnabledAsync())) return;
+function rebuildError(error: Error, seen: Set<Error>, depth: number): Error {
+  seen.add(error);
+  const { name, message, stack } = error;
+  const safeName = redactText(name, WORDLIST);
+  const safeMessage = redactMessage(message, WORDLIST) ?? REDACTED;
+  const frames = framesAfterHeader(name, message, stack);
+  const reportable = new Error(safeMessage);
+  reportable.name = safeName;
+  reportable.stack = reportableStack(safeName, safeMessage, frames);
+  const parsed = defaultStackParser(frames ?? '');
+  if (Array.isArray(parsed)) {
+    capturedFrames.set(
+      reportable,
+      parsed.map(frame => {
+        const safe: ReportableFrame = sanitizeWalletFrame(frame.filename, frame.lineno, frame.colno) ?? {};
+        if (safe.filename === undefined && typeof frame.filename === 'string') {
+          safe.filename = '[unvalidated]';
+        }
+        if (typeof frame.function === 'string') safe.function = redactText(frame.function, WORDLIST);
+        return safe;
+      })
+    );
+  }
+  let cause: unknown;
+  try {
+    cause = error.cause;
+  } catch {
+    /* Ignore hostile cause accessors. */
+  }
+  if (cause instanceof Error && depth < 3 && !seen.has(cause)) {
+    reportable.cause = rebuildError(cause, seen, depth + 1);
+  }
+  return reportable;
+}
 
-      // Read the scope *after* the consent check: withdrawal during the await
-      // must discard this crash, not race it.
-      const target = scope;
-      if (target === null) return;
-      if (!(error instanceof Error)) return;
-
-      const safeName = redactText(error.name, WORDLIST);
-      const safeMessage = redactMessage(error.message, WORDLIST) ?? REDACTED;
-
-      // Rebuilt rather than mutated, so the message the user is shown and the
-      // error the app is still handling are left untouched.
-      const reportable = new Error(safeMessage);
-      reportable.name = safeName;
-      reportable.stack = reportableStack(safeName, safeMessage, error.stack);
-
-      target.captureException(reportable);
-    } catch {
-      // Best-effort: telemetry must not be able to fail a wallet operation.
-    }
-  })();
+export function captureCrash(
+  error: unknown,
+  source: CrashSource = 'manual',
+  options: { initializeIfNeeded?: boolean } = {}
+): void {
+  try {
+    if (!(error instanceof Error)) return;
+    // Snapshot before consent's await: later handling may mutate the original failure.
+    const reportable = rebuildError(error, new Set(), 0);
+    capturedDiagnostics.set(reportable, {
+      ...snapshotCrashDiagnostics(error),
+      ...resolveTelemetryContext(),
+      ...getCrashBuildIdentity()
+    });
+    const mechanism =
+      source === 'onerror' || source === 'onunhandledrejection'
+        ? { type: source, handled: false }
+        : { type: source === 'react' ? 'react' : 'generic', handled: true };
+    const reportingClient = client;
+    const generation = reportingGeneration;
+    void (async () => {
+      try {
+        if (!(await isTelemetryEnabledAsync())) return;
+        if (generation !== reportingGeneration) return;
+        if (options.initializeIfNeeded && client === null) initCrashReporting({ listenToGlobals: false });
+        const target = scope;
+        if (
+          target === null ||
+          ((!options.initializeIfNeeded || reportingClient !== null) && client !== reportingClient)
+        )
+          return;
+        target.captureException(reportable, { mechanism });
+      } catch {
+        // Best-effort: telemetry must not be able to fail a wallet operation.
+      }
+    })();
+  } catch {
+    // A malformed error must not prevent the wallet from handling its failure.
+  }
 }

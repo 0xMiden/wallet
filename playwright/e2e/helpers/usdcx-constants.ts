@@ -7,18 +7,19 @@ import os from 'os';
 import path from 'path';
 import type { Address, Chain, Hex } from 'viem';
 
-import { getUsdcxDestination, getUsdcxXReserveSource } from '../../../src/lib/usdcx/constant';
+import { getUsdcxXReserveSource, USDCX_DESTINATIONS } from './usdcx-config';
+import { evmChainSlug } from '../../../src/lib/remote-config/chains';
 import { ARC_TESTNET, getChain } from '../../../src/lib/walletconnect/config';
-import { getBridgeNetworkByChainId } from '../../../src/screens/send-flow/bridge-networks';
+export { USDCX_DESTINATIONS, USDCX_REMOTE_DOMAIN } from './usdcx-config';
+
+export { minimumUsdcxPayout } from './usdcx-config';
 
 export {
-  minimumUsdcxPayout,
   USDCX_BURN_TAG,
   USDCX_BURN_WITHDRAWAL_ATTACHMENT_SCHEME,
-  USDCX_DECIMALS,
-  USDCX_DESTINATIONS,
-  USDCX_REMOTE_DOMAIN
-} from '../../../src/lib/usdcx/constant';
+  USDCX_DECIMALS
+} from '../../../src/lib/usdcx/protocol';
+
 export { CLAIM_COST_FEE_MULTIPLE, FEE_RESERVE_MULTIPLE, isWorthClaiming } from '../../../src/lib/miden/fees/spendable';
 
 /** The UI burn: 1 USDCx, the USDCx faucet's on-chain min_burn_amount; the review refuses anything less. */
@@ -138,8 +139,8 @@ function arcLogChunk(endpoint: string): number {
 }
 
 /**
- * The payout chain of `chainId`, its values read from the wallet's own tables; `reads` is the harness's side. Refuses
- * Ethereum Sepolia by name, and any chain the Send flow does not offer.
+ * The payout chain of `chainId`, its values read from the config fixture (usdcx-config.ts) and the wallet's chain
+ * table; `reads` is the harness's side. Refuses Ethereum Sepolia by name, and any chain the Send flow does not offer.
  */
 export function payoutChainFor(
   chainId: number,
@@ -151,22 +152,24 @@ export function payoutChainFor(
         '(0xMiden/miden-usdcx#308)'
     );
   }
-  const network = getBridgeNetworkByChainId(chainId);
+  const id = evmChainSlug(chainId);
   const evm = getChain(chainId);
-  if (network === undefined || evm === undefined) throw new Error(`chain ${chainId} is not a Send destination`);
-  const destination = getUsdcxDestination(chainId);
+  const destination = USDCX_DESTINATIONS.get(chainId);
+  if (id === undefined || evm === undefined || destination === undefined) {
+    throw new Error(`chain ${chainId} is not a Send destination`);
+  }
   return {
     chainId,
     chain: destination.chain,
-    label: reads.label ?? network.name,
+    label: reads.label ?? evm.name,
     rpcUrls: reads.rpcUrls,
     usdc: destination.usdc,
     burnDomain: destination.domain,
     attestationSourceDomain: ARC_CIRCLE_DOMAIN,
     logChunk: reads.logChunk,
-    chip: `send-network-${network.id}`,
-    reviewNetwork: network.id,
-    networkName: network.name,
+    chip: `send-network-${id}`,
+    reviewNetwork: id,
+    networkName: evm.name,
     explorer: evm.explorer,
     walletRpcUrl: evm.rpcUrl,
     walletRpcName: reads.walletRpcName ?? hostnameOf(evm.rpcUrl)

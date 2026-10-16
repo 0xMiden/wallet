@@ -6,17 +6,21 @@ import { useAppLifecycleTelemetry } from 'app/hooks/useAppLifecycleTelemetry';
 import { useFundTelemetry } from 'app/hooks/useFundTelemetry';
 import { request } from 'lib/miden/front';
 import { reportNoteClaim } from 'lib/miden/front/claim-telemetry';
+import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { isTelemetryEnabledAsync } from 'lib/settings/helpers';
 import { WalletMessageType } from 'lib/shared/types';
 import { enterSendFlow, settleSendFlow } from 'screens/send-flow/send-telemetry';
 
 import { resolveTelemetryContext } from './context';
 import { captureCrash, initCrashReporting, stopCrashReporting } from './crash';
+import { annotateCrash } from './crash-diagnostics';
 import { encodingVariantsOf } from './egress-guard';
 import { beginFlow, classifyError } from './report-flow';
 import { __resetRunForTest } from './run';
 import { WIRE_KEYS } from './serialize';
 import { sendEvent } from './sink';
+import { reportTransactionFailure } from './transaction-failure';
 import {
   TelemetryErrorKind,
   TelemetryEvent,
@@ -26,6 +30,11 @@ import {
   TelemetryStep
 } from './types';
 import packageJson from '../../../package.json';
+
+jest.mock('./crash-artifacts', () => ({
+  crashAssetBase: 'capacitor://localhost/',
+  crashArtifactLines: { 'mobile.js': [90000] }
+}));
 
 /**
  * The adversarial anti-leak guard, asserted at the two egress boundaries rather
@@ -67,6 +76,28 @@ jest.mock('lib/platform', () => ({
   ...jest.requireActual('lib/platform'),
   isMobile: () => true
 }));
+
+// Real unless a test moves it: the network is read from here on every event, and a test that moves it has to see the
+// wire follow.
+jest.mock('lib/miden-chain/effective-endpoints', () => {
+  const actual = jest.requireActual<typeof import('lib/miden-chain/effective-endpoints')>(
+    'lib/miden-chain/effective-endpoints'
+  );
+  return { ...actual, getEffectiveNetworkName: jest.fn(actual.getEffectiveNetworkName) };
+});
+const { getEffectiveNetworkName: buildNetwork } = jest.requireActual<
+  typeof import('lib/miden-chain/effective-endpoints')
+>('lib/miden-chain/effective-endpoints');
+
+/** Every event sent while `run` is out reads `network` as the effective one. */
+async function onNetwork(network: MIDEN_NETWORK_NAME, run: () => Promise<void>): Promise<void> {
+  jest.mocked(getEffectiveNetworkName).mockReturnValue(network);
+  try {
+    await run();
+  } finally {
+    jest.mocked(getEffectiveNetworkName).mockImplementation(buildNetwork);
+  }
+}
 
 jest.mock('@capacitor/app', () => ({
   App: { addListener: jest.fn(() => Promise.resolve({ remove: jest.fn() })) }
@@ -733,7 +764,47 @@ describe('product-event egress', () => {
     const sent = envelopes();
     expect(sent.length).toBeGreaterThan(0);
     const observed = new Set(sent.flatMap(envelope => Object.keys(objectAt(envelope, 'props'))));
-    expect([...observed].sort()).toEqual(['durationMs', 'errorKind', 'flowId', 'result']);
+    expect([...observed].sort()).toEqual(['durationMs', 'errorKind', 'flowId', 'network', 'result']);
+  });
+
+  it('names the effective network on every event, flows and settled operations alike', async () => {
+    consentOn();
+    await onNetwork(MIDEN_NETWORK_NAME.MAINNET, async () => {
+      await driveEveryInstrumentedFlow();
+      await sendEveryDeclaredOperation();
+    });
+
+    const sent = envelopes();
+    expect(sent.some(envelope => stringAt(envelope, 'eventName') === 'tx_send_settled')).toBe(true);
+    expect(sent.filter(envelope => objectAt(envelope, 'props').network !== 'mainnet')).toEqual([]);
+  });
+
+  it('includes a finite nonnegative duration on every completed product flow', async () => {
+    consentOn();
+    await driveEveryInstrumentedFlow();
+    const ended = envelopes().filter(envelope => stringAt(envelope, 'eventName').endsWith('_ended'));
+    expect(ended.length).toBeGreaterThan(0);
+    for (const envelope of ended) {
+      const duration = objectAt(envelope, 'props').durationMs;
+      expect(typeof duration).toBe('number');
+      expect(Number.isFinite(duration)).toBe(true);
+      expect(duration).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  it('retains provided settled-operation durations and leaves absent intervals absent', async () => {
+    consentOn();
+    const context = resolveTelemetryContext();
+    await sendEvent(
+      { phase: 'settled', operation: 'service_node', runId: 'duration-probe', result: 'completed', durationMs: 8.4 },
+      context
+    );
+    await sendEvent(
+      { phase: 'settled', operation: 'service_node', runId: 'duration-probe', result: 'completed' },
+      context
+    );
+    await flushEgress();
+    expect(envelopes().map(envelope => objectAt(envelope, 'props').durationMs)).toEqual([8, undefined]);
   });
 
   it('carries no nested structure beyond the two objects Aptabase defines', async () => {
@@ -776,6 +847,8 @@ describe('product-event egress', () => {
     ]);
     const propValues = new Set<string>([...RESULTS, ...ERROR_KINDS, ...STEPS]);
     const platforms = new Set<string>(['extension', 'ios', 'android']);
+    // Restated rather than read from the network enum: the closed set is the claim this checks.
+    const networks = new Set<string>(['mainnet', 'testnet', 'devnet', 'localnet']);
 
     const sent = envelopes();
     expect(sent.length).toBeGreaterThan(0);
@@ -808,6 +881,10 @@ describe('product-event egress', () => {
           if (typeof value !== 'string' || !/^[A-Za-z0-9_-]{1,32}$/.test(value)) {
             problems.push(`props.flowId=${String(value)}`);
           }
+          continue;
+        }
+        if (key === 'network') {
+          if (typeof value !== 'string' || !networks.has(value)) problems.push(`props.network=${String(value)}`);
           continue;
         }
         if (typeof value === 'string' && propValues.has(value)) continue;
@@ -929,6 +1006,35 @@ describe('product-event egress', () => {
 });
 
 describe('crash-report egress', () => {
+  it('reports a handled offscreen assertion without raw transaction data or a frontend scope', async () => {
+    consentOn();
+    reportTransactionFailure({
+      type: 'execute',
+      stage: 'executing',
+      delegateTransaction: true,
+      error: poisonedError(
+        "Offscreen call 'newTransaction' failed: assertion failed with error code: 15404814807981965102"
+      ),
+      diagnostics: { authPreparation: 'provided', authLayout: 'guardian', commitmentMatch: 'guardian' }
+    });
+    await flushEgress();
+    expect(captured).toHaveLength(1);
+    expect(wireText()).toContain('ERR_FEE_CONVERSION_INFO_COMMITMENT_MISMATCH');
+    expect(wireText()).toContain('WalletTransactionFailure');
+    expect(wireText()).toContain('executing');
+    expect(wireText()).toContain('offscreen');
+    expect(leaksIn(wireText())).toEqual([]);
+  });
+
+  it('retains each separate terminal failure even when their diagnostic facts match', async () => {
+    consentOn();
+    for (let attempt = 0; attempt < 2; attempt++) {
+      reportTransactionFailure({ type: 'execute', stage: 'executing', error: 'advice stack read failed' });
+      await flushEgress();
+    }
+    expect(captured).toHaveLength(2);
+  });
+
   it('sends an envelope at all, so every absence assertion below can fail', async () => {
     consentOn();
     initCrashReporting();
@@ -1010,6 +1116,175 @@ describe('crash-report egress', () => {
     // Not just the whole URL: the userinfo has to go even though the host and
     // path deliberately stay, so this is where the credentials are checked.
     expect(leaksIn(wireText())).toEqual([]);
+  });
+
+  it('sends exact source-bound diagnostics and scrubbed causes on the real Sentry wire', async () => {
+    consentOn();
+    initCrashReporting();
+    const failure = new Error('approval failed', { cause: new Error(`network failed password=${POISON.password}`) });
+    annotateCrash(failure, {
+      operation: 'confirm_payload',
+      confirmationId: 'empty',
+      payload: POISON.mnemonic12,
+      stage: POISON.mnemonic12
+    });
+    captureCrash(failure, 'react');
+    captureCrash(new Error('unrelated failure'));
+    await flushEgress();
+    const text = wireText();
+    expect(captured.length).toBeGreaterThan(0);
+    expect(text).toContain('network failed');
+    expect(text).toContain('"type":"react","handled":true');
+    expect(text).toContain('"confirmationId":"empty"');
+    expect(text).toContain(`"appVersion":"${packageJson.version}"`);
+    expect(leaksIn(text)).toEqual([]);
+    expect(text.match(/"confirmationId":"empty"/g)).toHaveLength(1);
+    expect(text).not.toContain('"payload"');
+  });
+
+  it('retains exact validated local compiled positions and source build identity only', async () => {
+    process.env.WALLET_BUILD_TARGET = 'mobile';
+    process.env.WALLET_BUILD_REVISION = '0123456789abcdef0123456789abcdef01234567';
+    process.env.WALLET_BUILD_DIRTY = 'false';
+    try {
+      consentOn();
+      initCrashReporting();
+      const cause = new Error('wasm init failed');
+      cause.stack = 'Error: wasm init failed\n    at startup (capacitor://localhost/mobile.js:1:5000)';
+      const failure = new Error('sdk failed', { cause });
+      failure.stack = 'Error: sdk failed\n    at caller (capacitor://localhost/mobile.js:1:87000)';
+      captureCrash(failure);
+      await flushEgress();
+      const text = wireText();
+      expect(text).toContain('"filename":"app:///mobile.js","lineno":1,"colno":5000');
+      expect(text).toContain('"filename":"app:///mobile.js","lineno":1,"colno":87000');
+      expect(text).toContain('"revision":"0123456789abcdef0123456789abcdef01234567"');
+      expect(text).toContain('"target":"mobile","revision"');
+      expect(text).not.toContain('capacitor://localhost');
+      expect(leaksIn(text)).toEqual([]);
+    } finally {
+      delete process.env.WALLET_BUILD_TARGET;
+      delete process.env.WALLET_BUILD_REVISION;
+      delete process.env.WALLET_BUILD_DIRTY;
+    }
+  });
+
+  it('retains ordinary scrubbed WASM frames beside validated local frames without their raw offsets', async () => {
+    consentOn();
+    initCrashReporting();
+    const failure = new Error('initialization failed');
+    failure.stack =
+      'Error: initialization failed\n    at __wbindgen_malloc (wasm://wasm/app.wasm:777:888)\n    at startup (capacitor://localhost/mobile.js:1:5000)';
+    captureCrash(failure);
+    await flushEgress();
+    const text = wireText();
+    expect(text).toContain('__wbindgen_malloc');
+    expect(text).toContain('"filename":"app:///mobile.js","lineno":1,"colno":5000');
+    expect(text).not.toContain('"lineno":777');
+    expect(text).not.toContain('"colno":888');
+    expect(leaksIn(text)).toEqual([]);
+  });
+
+  it('replaces unknown URLs with a static filename while retaining scrubbed frame symbols', async () => {
+    consentOn();
+    initCrashReporting();
+    const failure = new Error('initialization failed');
+    failure.stack =
+      'Error: initialization failed\n    at __wbindgen_malloc (https://private-user:private-password@private-host.example/private-path?token=private-query:777:888)\n    at startup (capacitor://localhost/mobile.js:1:5000)';
+    captureCrash(failure);
+    await flushEgress();
+    const text = wireText();
+    expect(text).toContain('__wbindgen_malloc');
+    expect(text).toContain('"filename":"[unvalidated]"');
+    for (const value of ['private-user', 'private-password', 'private-host.example', 'private-path', 'private-query']) {
+      expect(text).not.toContain(value);
+    }
+    expect(text).not.toContain('"lineno":777');
+    expect(text).not.toContain('"colno":888');
+  });
+
+  it('never promotes frame-looking multiline message data into compiled positions', async () => {
+    consentOn();
+    initCrashReporting();
+    const message = 'request failed\n    at userData (capacitor://localhost/mobile.js:1:4242)';
+    const failure = new Error(message);
+    failure.stack = `Error: ${message}\n    at actual (capacitor://localhost/mobile.js:1:5000)`;
+    captureCrash(failure);
+    await flushEgress();
+    expect(wireText()).not.toContain('"colno":4242');
+    expect(wireText()).toContain('"colno":5000');
+  });
+
+  it('fails closed when a header-shaped stack disagrees with the captured error', async () => {
+    consentOn();
+    initCrashReporting();
+    const failure = new Error('actual message');
+    failure.stack = 'Error: unrelated header\n    at userData (capacitor://localhost/mobile.js:1:4242)';
+    captureCrash(failure);
+    await flushEgress();
+    expect(wireText()).not.toContain('"colno":4242');
+  });
+
+  it.each([
+    '    at initialize (capacitor://localhost/mobile.js:1:5000)',
+    'initialize@capacitor://localhost/mobile.js:1:5000',
+    '@capacitor://localhost/mobile.js:1:5000'
+  ])('accepts a legitimate headerless frame stack: %s', async stack => {
+    consentOn();
+    initCrashReporting();
+    const failure = new Error('initialization failed');
+    failure.stack = stack;
+    captureCrash(failure);
+    await flushEgress();
+    expect(wireText()).toContain('"filename":"app:///mobile.js","lineno":1,"colno":5000');
+  });
+
+  it.each([
+    { location: 'root', label: 'missing', stack: undefined },
+    { location: 'root', label: 'empty', stack: '' },
+    { location: 'root', label: 'rejected', stack: 'Error: unrelated header' },
+    { location: 'cause', label: 'missing', stack: undefined },
+    { location: 'cause', label: 'empty', stack: '' },
+    { location: 'cause', label: 'rejected', stack: 'Error: unrelated header' }
+  ])('enforces the authoritative empty frame snapshot for $location/$label stacks', async ({ location, stack }) => {
+    consentOn();
+    initCrashReporting();
+    const injected = new Error('zxywvu\n    at zzzqqq (https://qxzyw.example/qxzyw:7:777)');
+    injected.stack = stack;
+    const failure = location === 'root' ? injected : new Error('outer failure', { cause: injected });
+    if (location === 'cause') {
+      failure.stack = 'Error: outer failure\n    at actual (capacitor://localhost/mobile.js:1:5000)';
+    }
+    captureCrash(failure);
+    await flushEgress();
+    const text = wireText();
+    expect(captured.length).toBeGreaterThan(0);
+    expect(text).toContain('zxywvu');
+    expect(text).toContain('"stacktrace":{"frames":[]}');
+    expect(text).not.toContain('"filename":"https://qxzyw.example/qxzyw"');
+    expect(text).not.toContain('"lineno":7');
+    expect(text).not.toContain('"colno":777');
+    expect(text.includes('"colno":5000')).toBe(location === 'cause');
+  });
+
+  it('names the network the crash happened on, as a tag and in the diagnostics', async () => {
+    // Consent answers only once the network is back on the build's, so the report is sent from there.
+    let allow = (_granted: boolean) => {};
+    jest.mocked(isTelemetryEnabledAsync).mockReturnValue(
+      new Promise<boolean>(resolve => {
+        allow = resolve;
+      })
+    );
+    initCrashReporting();
+    await onNetwork(MIDEN_NETWORK_NAME.MAINNET, async () => captureCrash(poisonedError('send failed')));
+    allow(true);
+    await flushEgress();
+
+    const text = wireText();
+    expect(captured.length).toBeGreaterThan(0);
+    expect(text).toContain('"tags":{"network":"mainnet"}');
+    expect(text).toMatch(/"walletDiagnostics":\{[^}]*"network":"mainnet"/);
+    expect(leaksIn(text)).toEqual([]);
   });
 
   it('reaches only the configured Sentry host', async () => {

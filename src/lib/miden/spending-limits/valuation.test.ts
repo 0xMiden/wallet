@@ -2,7 +2,14 @@ import {
   TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET,
   TEST_NATIVE_ETH_FAUCET as MIDEN_AGGLAYER_FAUCET_ID
 } from 'lib/epoch/testing/bridge-config';
-import { _setSwapTokensForTest, TOKEN_IBTC, TOKEN_IETH, TOKEN_IMIDEN, TOKEN_IUSDT } from 'lib/miden/swap/tokens';
+import {
+  TEST_SWAP_TOKENS,
+  TEST_TOKEN_IBTC,
+  TEST_TOKEN_IETH,
+  TEST_TOKEN_IMIDEN,
+  TEST_TOKEN_IUSDT
+} from 'lib/miden/swap/testing/registry';
+import { _setSwapTokensForTest } from 'lib/miden/swap/tokens';
 import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
 import {
   getNativeAssetId,
@@ -47,7 +54,7 @@ jest.mock('../sdk/helpers', () => ({
   ...jest.requireActual('../sdk/helpers'),
   accountRefToSdk: (id: string) => id,
   getBech32AddressFromAccountId: (id: string) =>
-    id === IETH_HEX ? jest.requireActual('lib/miden/swap/tokens').TOKEN_IETH.faucetId : id
+    id === IETH_HEX ? jest.requireActual('lib/miden/swap/testing/registry').TEST_TOKEN_IETH.faucetId : id
 }));
 
 const mockedPrice = jest.mocked(getPriceMicro);
@@ -63,6 +70,8 @@ const base = (symbol: string, decimals: number, scaleIsUnknown?: boolean) => ({
 
 beforeEach(() => {
   jest.clearAllMocks();
+  // The testnet document's registry, without loading a bridge config (the runtime above is a stub).
+  _setSwapTokensForTest(TEST_SWAP_TOKENS);
   jest.mocked(getNativeAssetId).mockResolvedValue('native-fee');
   jest.mocked(getNativeAssetIdSync).mockReturnValue('native-fee');
   jest.mocked(getNativeAssetMetadata).mockResolvedValue({ symbol: 'MIDEN', decimals: 6 });
@@ -237,14 +246,14 @@ describe('resolveSpendsUsd', () => {
 
   it('values IETH and IBTC at the ETH and BTC price (#1133)', async () => {
     mockedMetadata.mockImplementation(async faucetId =>
-      faucetId === TOKEN_IETH.faucetId ? base('IETH', 8) : base('IBTC', 8)
+      faucetId === TEST_TOKEN_IETH.faucetId ? base('IETH', 8) : base('IBTC', 8)
     );
     mockedPrice.mockImplementation(async symbol => (symbol === 'ETH' ? 4_000_000_000n : 100_000_000_000n));
 
     const total = await resolveSpendsUsd(
       [
-        { faucetId: TOKEN_IETH.faucetId, amount: 50_000_000n },
-        { faucetId: TOKEN_IBTC.faucetId, amount: 1_000_000n }
+        { faucetId: TEST_TOKEN_IETH.faucetId, amount: 50_000_000n },
+        { faucetId: TEST_TOKEN_IBTC.faucetId, amount: 1_000_000n }
       ],
       10
     );
@@ -266,7 +275,7 @@ describe('resolveSpendsUsd', () => {
     mockedMetadata.mockResolvedValue(base('IETH', 8));
     mockedPrice.mockResolvedValue(undefined);
 
-    await expect(resolveSpendsUsd([{ faucetId: TOKEN_IETH.faucetId, amount: 1n }], 10)).rejects.toBeInstanceOf(
+    await expect(resolveSpendsUsd([{ faucetId: TEST_TOKEN_IETH.faucetId, amount: 1n }], 10)).rejects.toBeInstanceOf(
       SpendingLimitPriceUnavailableError
     );
     expect(mockedPrice).toHaveBeenCalledWith('ETH', 10);
@@ -295,20 +304,20 @@ describe('resolveSpendsUsd', () => {
       );
       expect(mockedPrice).toHaveBeenCalledWith('NOPE', 10);
     } finally {
-      _setSwapTokensForTest(undefined);
+      _setSwapTokensForTest(TEST_SWAP_TOKENS);
     }
   });
 
   it('still counts registry tokens without a price symbol as nothing (#1133)', async () => {
     mockedMetadata.mockImplementation(async faucetId =>
-      faucetId === TOKEN_IUSDT.faucetId ? base('IUSDT', 8) : base('IMIDEN', 8)
+      faucetId === TEST_TOKEN_IUSDT.faucetId ? base('IUSDT', 8) : base('IMIDEN', 8)
     );
 
     await expect(
       resolveSpendsUsd(
         [
-          { faucetId: TOKEN_IUSDT.faucetId, amount: 999_000_000n },
-          { faucetId: TOKEN_IMIDEN.faucetId, amount: 999_000_000n }
+          { faucetId: TEST_TOKEN_IUSDT.faucetId, amount: 999_000_000n },
+          { faucetId: TEST_TOKEN_IMIDEN.faucetId, amount: 999_000_000n }
         ],
         10
       )

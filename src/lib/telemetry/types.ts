@@ -143,6 +143,12 @@ export type TelemetryErrorKind =
 export type TelemetryPlatform = 'extension' | 'ios' | 'android';
 
 /**
+ * The network the wallet was on. One build reaches every network, so without it a mainnet failure reads the same as
+ * a testnet one.
+ */
+export type TelemetryNetwork = 'mainnet' | 'testnet' | 'devnet' | 'localnet';
+
+/**
  * The identifier shared by every flow in one run of the app.
  *
  * Minted in memory when the app starts and thrown away when it stops. It is
@@ -230,6 +236,7 @@ export type TelemetryEvent = FlowStartedEvent | FlowEndedEvent | OperationSettle
 export interface TelemetryContext {
   appVersion: string;
   platform: TelemetryPlatform;
+  network: TelemetryNetwork;
 }
 
 export interface TelemetryWirePayload {
@@ -247,4 +254,5 @@ export interface TelemetryWirePayload {
   step?: TelemetryStep;
   appVersion: string;
   platform: TelemetryPlatform;
+  network: TelemetryNetwork;
 }

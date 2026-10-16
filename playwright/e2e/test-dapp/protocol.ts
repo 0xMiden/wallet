@@ -76,6 +76,8 @@ export interface BuildCustomInput {
   carryNoteBytesB64?: string[];
   /** `none` builds with a plain builder on every kind, so a Guardian request carries no multisig auth args (X7). */
   authArgs?: 'sdk' | 'none';
+  /** A fresh fee-conversion salt on a plain missing-auth request (X7), never on the twin's authored auth. */
+  feeSalt?: boolean;
 }
 export interface BuildCustomOutput {
   /** The page keeps the built request; `submitCustom` sends it by this id. */
@@ -182,7 +184,7 @@ export interface DappCommands {
   importNote: { input: { noteBytesB64: string }; output: Outcome<{ noteId: string }> };
   buildCustom: { input: BuildCustomInput; output: BuildCustomOutput };
   submitCustom: {
-    /** `recipientAddress: ''` is no recipient: the wallet reads an empty string as none (dapp.ts:1951). */
+    /** `recipientAddress: ''` is no recipient: the wallet reads an empty string as none (dapp.ts:1985). */
     input: { requestId: string; recipientAddress: string; importNotes: boolean; inputNoteIds?: string[] };
     output: Outcome<{ txId: string }>;
   };

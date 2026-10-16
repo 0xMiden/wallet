@@ -139,6 +139,17 @@ describe('requeueFailedTransaction — double-send idempotency guard', () => {
     expect(row.status).toBe(ITransactionStatus.Queued); // requeued for a fresh attempt
   });
 
+  it('deletes the failed attempt auth diagnostics when explicit retry keeps its request bytes', async () => {
+    const bytes = new Uint8Array([1, 2, 3]);
+    const diagnostics = { authPreparation: 'provided', authLayout: 'fee', commitmentMatch: 'neither' } as const;
+    const row = failedRow({ type: 'execute', stage: 'proving', requestBytes: bytes, failureDiagnostics: diagnostics });
+    wireRow(row);
+    await requeueFailedTransaction(row.id);
+    expect(row.status).toBe(ITransactionStatus.Queued);
+    expect(row).not.toHaveProperty('failureDiagnostics');
+    expect(row.requestBytes).toBe(bytes);
+  });
+
   it('checks landed-state for swap/agglayer bridged-send/execute too', async () => {
     for (const type of ['swap', 'bridged-send', 'execute'] as const) {
       mockVerifySendLanded.mockClear();

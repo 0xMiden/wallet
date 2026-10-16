@@ -29,6 +29,7 @@ import {
 } from 'lib/miden/spending-limits/types';
 import { describeHookError, installSwapTestHooks } from 'lib/miden/swap/test-hooks';
 import { MidenMessageType, MidenState } from 'lib/miden/types';
+import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { isExtension } from 'lib/platform';
 import { setEarnCollateralFaucetOverride } from 'lib/remote-config/e2e-overrides';
 import { subscribeNominalUnquotedPrice } from 'lib/settings/nominal-price';
@@ -326,7 +327,7 @@ export const useWalletStore = create<WalletStore>()(
     },
 
     // Auth actions
-    registerWallet: async (walletType, password, mnemonic, ownMnemonic, guardianEndpoint) => {
+    registerWallet: async (walletType, password, mnemonic, ownMnemonic, guardianEndpoint, accessCode) => {
       console.log('[WalletStore] registerWallet called with walletType:', walletType);
       const res = await request({
         type: WalletMessageType.NewWalletRequest,
@@ -334,7 +335,8 @@ export const useWalletStore = create<WalletStore>()(
         password,
         mnemonic,
         ownMnemonic,
-        guardianEndpoint
+        guardianEndpoint,
+        accessCode
       });
       assertResponse(res.type === WalletMessageType.NewWalletResponse);
       // State will be synced via StateUpdated notification
@@ -816,6 +818,14 @@ export const useWalletStore = create<WalletStore>()(
       assertResponse(res.type === MidenMessageType.DAppConsumableNotesConfirmationResponse);
     },
 
+    confirmDAppUnlock: async id => {
+      const res = await request({
+        type: MidenMessageType.DAppUnlockConfirmationRequest,
+        id
+      });
+      assertResponse(res.type === MidenMessageType.DAppUnlockConfirmationResponse);
+    },
+
     confirmDAppTransaction: async (id, confirmed, delegate, spendingLimitAuthenticated) => {
       const res = await request({
         type: MidenMessageType.DAppTransactionConfirmationRequest,
@@ -865,6 +875,8 @@ export const useWalletStore = create<WalletStore>()(
       fetchingAddresses.add(accountAddress);
 
       try {
+        const effectiveNetwork = () => `${getEffectiveNetworkName()}:${getEffectiveRpcUrl()}`;
+        const network = effectiveNetwork();
         const overridden = new Set<string>();
         // The display faucet setting the read built its MIDEN row for. A reader that reports none leaves no row exempt.
         let midenFaucetId: string | null = null;
@@ -881,6 +893,9 @@ export const useWalletStore = create<WalletStore>()(
         // `null` = a refresh found the lock busy or the balance probe is fused; keep any
         // prior balances. Only a landed read ends loading.
         if (balances === null) return;
+        // A Developer Settings save repointed this realm while the read was out: these are the old
+        // node's balances. The metadata it wrote stays, each faucet's own record on any network.
+        if (effectiveNetwork() !== network) return;
         set(state => withLandedBalances(state, accountAddress, balances, midenFaucetId, overridden));
       } finally {
         fetchingAddresses.delete(accountAddress);
@@ -891,6 +906,10 @@ export const useWalletStore = create<WalletStore>()(
       set(state => ({
         balancesLoading: { ...state.balancesLoading, [accountAddress]: isLoading }
       }));
+    },
+
+    clearBalances: () => {
+      set({ balances: {}, balancesLoading: {}, balancesLastFetched: {} });
     },
 
     // Asset actions

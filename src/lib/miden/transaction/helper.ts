@@ -5,6 +5,7 @@ import * as Repo from 'lib/miden/repo';
 import { u8ToB64 } from 'lib/shared/helpers';
 import { classifyError } from 'lib/telemetry/classify';
 import { reportOperation } from 'lib/telemetry/report-operation';
+import { reportTransactionFailure } from 'lib/telemetry/transaction-failure';
 import { elapsedMsSince, operationOfType, stepOfStage } from 'lib/telemetry/transaction-operation';
 
 import { type SignCallbackReason } from './sign-callback';
@@ -72,12 +73,11 @@ export { isGuardianCanonicalizationError } from '../sdk/sdk-error-code';
  * round-trip: measured over a 300-send devnet run at ~4.5% with a sub-second
  * proposal→execute window, rising to ~35% past 1.7s under sustained load.
  *
- * That mechanism is closable, and closing it is in review as #786: the execute is
- * pinned to the proposal's own `ChainAnchor`, so a client whose sync height has
- * advanced still reproduces the summary. Once it lands, a match here stops
- * meaning "a block landed mid-flow" and starts meaning some other divergence
- * between the two computations of the summary — a proposal carrying no anchor
- * included. Widen the wording here, not the predicate, when that happens.
+ * That mechanism is closed: the summary binds the block its auth args name (the
+ * proposal's `boundBlockNum`), the request declares it, and both leaves execute
+ * at the tip after `prepareGuardianTipExecution`, so a client whose sync height
+ * has advanced still reproduces the summary. A match here means some other
+ * divergence between the two computations of the summary.
  *
  * BOTH halves are required, and the execution half is the load-bearing one: it
  * is what lets callers conclude the transaction never reached the chain, since
@@ -187,6 +187,7 @@ export const updateTransactionStatus = async <K extends keyof ITransaction>(
   // the success path clears either. The row then completes wearing a FAILED
   // icon and an expiry message, on a send that actually went through.
   let finalized = false;
+  let failed: ITransaction | undefined;
   await Repo.transactions.where({ id: id }).modify(t => {
     if (hasLeftQueue(t)) {
       finalized = true;
@@ -194,12 +195,16 @@ export const updateTransactionStatus = async <K extends keyof ITransaction>(
     }
     // Snapshot the stamps accumulated DURING the run, before the assign below
     // can overwrite them with a stale forwarded copy (see the Completed branch).
+    if (status === ITransactionStatus.Failed) failed = { ...t };
     const runStageTimestamps = t.stageTimestamps;
     // A completion hands over the whole pick-time row, which predates every crossing and verdict written during the
     // run; only their own writers change these (#1081).
     const storedEvidence = t.submitEvidence;
     const storedNeverCommittedAt = t.neverCommittedAt;
     Object.assign(t, otherValues);
+    if (Object.prototype.hasOwnProperty.call(otherValues, 'failureDiagnostics') && t.failureDiagnostics === undefined) {
+      delete t.failureDiagnostics;
+    }
     if (storedEvidence === undefined) delete t.submitEvidence;
     else t.submitEvidence = storedEvidence;
     if (storedNeverCommittedAt === undefined) delete t.neverCommittedAt;
@@ -240,6 +245,16 @@ export const updateTransactionStatus = async <K extends keyof ITransaction>(
     return undefined;
   });
   if (finalized) throw new Error('Transaction already in a finalized state');
+  if (failed !== undefined && !failed.restoredFromBackup) {
+    reportTransactionFailure({
+      point: 'pipeline',
+      type: failed.type,
+      stage: failed.stage,
+      delegateTransaction: failed.delegateTransaction,
+      diagnostics: failed.failureDiagnostics,
+      error: failureTextOf(otherValues) ?? failed.rawError ?? failed.error
+    });
+  }
 
   // Both terminal outcomes, from the one place a row can reach either through
   // this function.

@@ -579,6 +579,10 @@
     "message": "Impossible de charger vos positions. Vérifiez votre connexion et réessayez.",
     "englishSource": "Couldn't load your positions. Check your connection and try again."
   },
+  "earnUnavailableOnNetwork": {
+    "message": "La fonctionnalité « Earn » n’est pas disponible sur ce réseau",
+    "englishSource": "Earn is not available on this network"
+  },
   "earnVaultLoadError": {
     "message": "Impossible de charger ce coffre-fort. Vérifiez votre connexion et réessayez.",
     "englishSource": "Couldn't load this vault. Check your connection and try again."
@@ -1707,6 +1711,10 @@
     "message": "Coller",
     "englishSource": "Paste"
   },
+  "mainnetAccessPasteFailed": {
+    "message": "Impossible de lire le presse-papiers. Saisissez votre code ou réessayez.",
+    "englishSource": "Could not read the clipboard. Enter your code or try again."
+  },
   "nothingToPaste": {
     "message": "Rien à coller. Copiez d'abord une adresse.",
     "englishSource": "Nothing to paste. Copy an address first."
@@ -1850,6 +1858,10 @@
   "swapInvalidAmounts": {
     "message": "Saisissez un montant valide à échanger.",
     "englishSource": "Enter a valid amount to swap."
+  },
+  "swapPairNotListed": {
+    "message": "Cette paire ne peut plus être échangée. Revenez en arrière et choisissez un autre jeton.",
+    "englishSource": "This pair can no longer be swapped. Go back and choose another token."
   },
   "swapPriceUnavailable": {
     "message": "Prix indisponible. Veuillez réessayer dans quelques instants.",
@@ -2516,6 +2528,10 @@
     "message": "Korea Digital Asset, une société de conservation d’actifs numériques basée en Corée du Sud.",
     "englishSource": "Korea Digital Asset, a digital asset custody company based in South Korea."
   },
+  "guardianAboutPara": {
+    "message": "Para, un fournisseur d’infrastructure de portefeuilles intégrés.",
+    "englishSource": "Para, an embedded wallet infrastructure provider."
+  },
   "guardianKindOpenZeppelin": {
     "message": "Sécurité et audits des contrats intelligents",
     "englishSource": "Smart contract security and audits"
@@ -2531,6 +2547,10 @@
   "guardianKindKodax": {
     "message": "Dépositaire d’actifs numériques",
     "englishSource": "Digital asset custodian"
+  },
+  "guardianKindPara": {
+    "message": "Infrastructure de portefeuille intégrée",
+    "englishSource": "Embedded wallet infrastructure"
   },
   "guardianInfoDescription": {
     "message": "Un « Guardian » est un service indépendant qui <b>cosigne chaque transaction</b> depuis votre portefeuille, ajoutant ainsi un filet de sécurité sans que vous ayez à renoncer à la gestion autonome de vos actifs.",
@@ -3246,6 +3266,10 @@
     "message": "Ce fichier de portefeuille a été créé avec une version plus récente de Bread. Mettez Bread à jour et réessayez.",
     "englishSource": "This wallet file was created by a newer version of Bread. Update Bread and try again."
   },
+  "encryptedWalletFileWrongNetwork": {
+    "message": "Ce fichier de portefeuille appartient à un autre réseau et ne peut pas être restauré sur celui-ci.",
+    "englishSource": "This wallet file belongs to another network and cannot be restored on this one."
+  },
   "encryptedWalletFileRestoreFailed": {
     "message": "Impossible de restaurer le portefeuille. Vérifiez votre espace de stockage et réessayez.",
     "englishSource": "The wallet could not be restored. Check your storage and try again."
@@ -3573,6 +3597,10 @@
     "message": "Nous n’avons pas pu trouver votre compte à cette adresse guardian. Vérifiez l’URL ou importez-le plutôt en tant que compte public.",
     "englishSource": "We couldn't find your account on this guardian. Check the URL or import as a public account instead."
   },
+  "guardianOtherNetwork": {
+    "message": "Ce « guardian » fonctionne sur un autre réseau Miden ; il ne peut donc pas récupérer un compte ici.",
+    "englishSource": "This guardian runs on another Miden network, so it cannot recover an account here."
+  },
   "useCustomGuardianUrl": {
     "message": "Utilisez une URL personnalisée de type Guardian",
     "englishSource": "Use a custom Guardian URL"
@@ -3752,6 +3780,14 @@
   "bridgeFeatureUnavailableBody": {
     "message": "Ce service externe est actuellement indisponible. Veuillez réessayer plus tard.",
     "englishSource": "This external service is currently down. Please try again later."
+  },
+  "swapUnavailableTitle": {
+    "message": "Le swap n’est pas disponible sur ce réseau",
+    "englishSource": "Swap is not available on this network"
+  },
+  "swapUnavailableBody": {
+    "message": "Aucun jeton d’échange n’est encore configuré pour ce réseau.",
+    "englishSource": "No swap tokens are configured for this network yet."
   },
   "agglayerCheckingToken": {
     "message": "Vérification de la prise en charge de la « Slow route » par ce jeton…",
@@ -4142,6 +4178,18 @@
   "dappConnectionRequest": {
     "message": "Cette application souhaite se connecter à votre portefeuille",
     "englishSource": "This app wants to connect to your wallet"
+  },
+  "dappNetworkMismatch": {
+    "message": "Cette application a demandé Miden $dappNetwork$, mais votre portefeuille se trouve sur Miden $walletNetwork$.",
+    "englishSource": "This app asked for Miden $dappNetwork$, but your wallet is on Miden $walletNetwork$.",
+    "placeholders": {
+      "dappnetwork": {
+        "content": "$1"
+      },
+      "walletnetwork": {
+        "content": "$2"
+      }
+    }
   },
   "dappTransactionRequest": {
     "message": "Cette application demande une transaction",
@@ -4636,6 +4684,15 @@
     "message": "Portefeuille EVM connecté",
     "englishSource": "EVM wallet connected"
   },
+  "evmChainNotApproved": {
+    "message": "Le portefeuille connecté n’a pas approuvé $network$. Reconnectez le portefeuille pour l’approuver.",
+    "englishSource": "The connected wallet did not approve $network$. Reconnect the wallet to approve it.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
   "connectedWallet": {
     "message": "Portefeuille connecté",
     "englishSource": "Connected wallet"
@@ -4717,12 +4774,39 @@
     "englishSource": "Confirming bridge deposit"
   },
   "bridgeDepositProcessingDescription": {
-    "message": "Validez la demande dans votre portefeuille et laissez cet écran ouvert pendant que le réseau source la confirme.",
-    "englishSource": "Approve the request in your wallet and keep this screen open while the source network confirms it."
+    "message": "Validez les demandes dans votre portefeuille — il se peut qu’il vous le demande plusieurs fois — et laissez cet écran ouvert pendant que le réseau source les confirme.",
+    "englishSource": "Approve the requests in your wallet — it may ask more than once — and keep this screen open while the source network confirms them."
   },
   "bridgeDepositFailed": {
     "message": "Échec du dépôt via le pont",
     "englishSource": "Bridge deposit failed"
+  },
+  "bridgeDepositBalanceTooLow": {
+    "message": "Votre portefeuille connecté contient $balance$ $token$ sur $network$, ce qui est inférieur au montant requis pour ce dépôt. Rien n’a été envoyé.",
+    "englishSource": "Your connected wallet holds $balance$ $token$ on $network$, less than this deposit needs. Nothing was sent.",
+    "placeholders": {
+      "balance": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      }
+    }
+  },
+  "bridgeDepositBalanceReadFailed": {
+    "message": "Impossible de vérifier le solde de votre $token$ sur $network$. Rien n’a été envoyé.",
+    "englishSource": "Could not check your $token$ balance on $network$. Nothing was sent.",
+    "placeholders": {
+      "token": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
   },
   "bridgeDepositSubmitted": {
     "message": "Pont lancé !",
@@ -4743,6 +4827,21 @@
   "fastEthWrapNotice": {
     "message": "Le transfert d’ETH via la voie « Fast » consiste d’abord à le convertir en WETH, puis à transférer ce WETH. Cette voie n’est pas encore disponible.",
     "englishSource": "Bridging ETH on the Fast route wraps it to WETH first, then bridges the WETH. This route isn't available yet."
+  },
+  "fastQuoteAboveBalanceNotice": {
+    "message": "L’option « Fast » nécessite un dépôt de $deposit$ $token$, frais compris, mais votre portefeuille connecté contient $balance$ $token$. Réduisez le montant ou choisissez l’option « Slow ».",
+    "englishSource": "Fast needs a deposit of $deposit$ $token$, fee included, but your connected wallet holds $balance$ $token$. Lower the amount or choose Slow.",
+    "placeholders": {
+      "deposit": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$4"
+      },
+      "balance": {
+        "content": "$3"
+      }
+    }
   },
   "destinationNetwork": {
     "message": "Réseau de destination",
@@ -4833,16 +4932,20 @@
     "englishSource": "USDCx was minted on Miden and your wallet received it."
   },
   "usdcxExecutorRouteNotice": {
-    "message": "Les USDC sont « brûlés » sur $source$ et émis au profit de l’exécuteur de Circle sur $target$, qui les dépose dans xReserve pour Miden. Circle prélève ses frais en plus du montant, et Circle exécute le transfert sur $target$. Si Circle ne peut pas fixer le prix du transfert, vous l’exécutez sur $target$ avec une signature supplémentaire.",
-    "englishSource": "USDC is burned on $source$ and minted to Circle's executor on $target$, which deposits it into xReserve for Miden. Circle charges its fee in addition to the amount, and Circle executes the transfer on $target$. If Circle cannot price the transfer, you execute it on $target$ with one more signature.",
+    "message": "Les USDC sont brûlés sur $source$ et émis au profit de l’exécuteur de Circle sur $target$, qui les dépose dans xReserve pour Miden. Circle prélève ses frais en plus du montant, et Circle exécute le transfert sur $target$.",
+    "englishSource": "USDC is burned on $source$ and minted to Circle's executor on $target$, which deposits it into xReserve for Miden. Circle charges its fee in addition to the amount, and Circle executes the transfer on $target$.",
     "placeholders": {
       "source": {
         "content": "$1"
       },
       "target": {
-        "content": "$4"
+        "content": "$3"
       }
     }
+  },
+  "usdcxForwardQuoteUnavailable": {
+    "message": "Circle n’a pas pu évaluer le coût de ce transfert pour le moment. Aucun montant n’a été envoyé. Veuillez réessayer dans quelques instants.",
+    "englishSource": "Circle could not price this transfer right now. Nothing was sent. Try again in a moment."
   },
   "usdcxCctpAwaitingAttestation": {
     "message": "La destruction est confirmée. En attente de la validation du transfert par Circle avant qu’il ne puisse être exécuté sur $network$.",
@@ -5560,6 +5663,62 @@
       }
     }
   },
+  "mainnetAccessCodeLabel": {
+    "message": "Code d’accès",
+    "englishSource": "Access code"
+  },
+  "unlockMainnet": {
+    "message": "Déverrouiller le réseau principal",
+    "englishSource": "Unlock mainnet"
+  },
+  "mainnetAccessCodeRejected": {
+    "message": "Ce code n'a pas fonctionné. Vérifiez-le et réessayez.",
+    "englishSource": "This code did not work. Check it and try again."
+  },
+  "mainnetAccessCheckFailed": {
+    "message": "Nous n’avons pas pu vérifier ce code. Veuillez réessayer plus tard.",
+    "englishSource": "We could not check this code. Try again later."
+  },
+  "mainnetAccountNotAdmitted": {
+    "message": "Ce portefeuille n’est pas autorisé sur le réseau principal Miden. Un nouveau portefeuille nécessite un code d’accès.",
+    "englishSource": "This wallet is not admitted on Miden mainnet. A new wallet needs an access code."
+  },
+  "mainnetSecondAccountRefused": {
+    "message": "Le réseau principal Miden n’accepte que le compte et le code d’accès enregistrés.",
+    "englishSource": "Miden mainnet admits only the account an access code registered."
+  },
+  "mainnet": {
+    "message": "Mainnet",
+    "englishSource": "Mainnet"
+  },
+  "mainnetAccessTitle": {
+    "message": "Disposez-vous d’un code d’accès au réseau principal ?",
+    "englishSource": "Have a mainnet access code?"
+  },
+  "mainnetAccessOnboardingBody": {
+    "message": "Le Mainnet est pour l’instant accessible uniquement sur invitation. Saisissez le code à 12 caractères figurant sur votre invitation et votre portefeuille sera activé sur le Mainnet de Miden.",
+    "englishSource": "Mainnet is invite-only for now. Enter the 12-character code from your invite and your wallet starts on Miden Mainnet."
+  },
+  "mainnetAccessHint": {
+    "message": "Le code se trouve dans votre e-mail d'invitation.",
+    "englishSource": "The code is in your invite email."
+  },
+  "iHaveACode": {
+    "message": "J'ai un code",
+    "englishSource": "I have a code"
+  },
+  "iDontHaveACode": {
+    "message": "Je n’ai pas de code",
+    "englishSource": "I don't have a code"
+  },
+  "noCodeTitle": {
+    "message": "Bread est accessible uniquement sur invitation",
+    "englishSource": "Bread is invite-only"
+  },
+  "noCodeBody": {
+    "message": "Un nouveau portefeuille nécessite un code d’accès au réseau principal fourni dans votre invitation. Un compte existant peut toujours être récupéré.",
+    "englishSource": "A new wallet needs a mainnet access code from your invite. An account that already exists can still be recovered."
+  },
   "networkModePillNoValue": {
     "message": "Les jetons n’ont aucune valeur réelle",
     "englishSource": "Tokens have no real value"
@@ -5567,6 +5726,22 @@
   "mainnetCountdownLink": {
     "message": "Inscrivez-vous à la liste d’accès anticipé",
     "englishSource": "Join the early access list"
+  },
+  "switchToMainnet": {
+    "message": "Passer au réseau principal",
+    "englishSource": "Switch to mainnet"
+  },
+  "resetAndSwitchToMainnet": {
+    "message": "Réinitialisation et passage au mainnet",
+    "englishSource": "Reset and switch to mainnet"
+  },
+  "switchToMainnetConfirm": {
+    "message": "Votre code d’accès a été accepté. Le changement d’appareil efface ce portefeuille, ses soldes et son historique de cet appareil. Enregistrez d’abord vos informations de récupération. Les jetons de test ne sont pas transférés vers le réseau principal. Vous allez ensuite créer un portefeuille sur le réseau principal à l’aide de ce code ou récupérer un portefeuille existant sur le réseau principal.",
+    "englishSource": "Your access code was accepted. Switching clears this wallet, its balances and its history from this device. Save your recovery details first. Test tokens do not transfer to mainnet. You will then create a mainnet wallet with this code or recover an existing mainnet wallet."
+  },
+  "mainnetSwitchCodeBody": {
+    "message": "Saisissez le code figurant sur votre invitation. Rien n’est validé tant que le réseau principal ne l’a pas accepté.",
+    "englishSource": "Enter the code from your invite. Nothing is cleared until mainnet accepts it."
   },
   "mainnetCountdownLabel": {
     "message": "Temps restant avant le lancement du réseau principal de Bread : $time$",
@@ -5936,26 +6111,6 @@
     "message": "Vos gains",
     "englishSource": "Your Earnings"
   },
-  "durationUnitSeconds": {
-    "message": "Sec.",
-    "englishSource": "Sec"
-  },
-  "durationUnitMinutes": {
-    "message": "Min.",
-    "englishSource": "Min"
-  },
-  "durationUnitHours": {
-    "message": "Heure",
-    "englishSource": "Hour"
-  },
-  "durationUnitDays": {
-    "message": "Jour",
-    "englishSource": "Day"
-  },
-  "swapExpiryUnit": {
-    "message": "Unité d'expiration",
-    "englishSource": "Expiry unit"
-  },
   "moreInfoAbout": {
     "message": "Plus d'informations sur $label$",
     "englishSource": "More information about $label$",
@@ -5965,15 +6120,32 @@
       }
     }
   },
-  "swapExpiryRange": {
-    "message": "Saisissez un nombre entier compris entre $min$ et $max$.",
-    "englishSource": "Enter a whole number from $min$ to $max$.",
+  "swapExpiryLabel": {
+    "message": "Annuler si non exécuté dans un délai de",
+    "englishSource": "Cancel if not filled within"
+  },
+  "swapExpiryPreset2Min": {
+    "message": "2 min",
+    "englishSource": "2 min"
+  },
+  "swapExpiryPreset1Hour": {
+    "message": "1 heure",
+    "englishSource": "1 hour"
+  },
+  "swapExpiryPreset1Day": {
+    "message": "1 jour",
+    "englishSource": "1 day"
+  },
+  "swapExpiryPreset7Days": {
+    "message": "7 jours",
+    "englishSource": "7 days"
+  },
+  "swapExpiryNote": {
+    "message": "Pas exécuté à ce moment-là ? Le swap est annulé et la partie non exécutée de votre $amount$ vous est restituée.",
+    "englishSource": "Not filled by then? The swap is cancelled and whatever is unfilled of your $amount$ comes back.",
     "placeholders": {
-      "min": {
+      "amount": {
         "content": "$1"
-      },
-      "max": {
-        "content": "$2"
       }
     }
   },
@@ -6191,5 +6363,73 @@
   "externalPageLoadFailed": {
     "message": "Impossible d’ouvrir cette page. Vérifiez votre connexion et réessayez.",
     "englishSource": "Couldn't open this page. Check your connection and try again."
+  },
+  "bridgeDepositAwaitingNextConfirmation": {
+    "message": "En attente de la prochaine confirmation du portefeuille",
+    "englishSource": "Waiting for the next wallet confirmation"
+  },
+  "bridgeDepositAwaitingNextConfirmationDescription": {
+    "message": "La première confirmation est effectuée. Votre portefeuille vous demandera de confirmer à nouveau – laissez cet écran ouvert.",
+    "englishSource": "The first confirmation is done. Your wallet will ask you to confirm again - keep this screen open."
+  },
+  "advancedOptions": {
+    "message": "Options avancées",
+    "englishSource": "Advanced options"
+  },
+  "advancedOptionsSummary": {
+    "message": "$transferType$ · $expiration$",
+    "englishSource": "$transferType$ · $expiration$",
+    "placeholders": {
+      "transfertype": {
+        "content": "$1"
+      },
+      "expiration": {
+        "content": "$2"
+      }
+    }
+  },
+  "transferType": {
+    "message": "Type de transfert",
+    "englishSource": "Transfer type"
+  },
+  "publicTransfer": {
+    "message": "Transfert public",
+    "englishSource": "Public transfer"
+  },
+  "publicTransferNotice": {
+    "message": "Le jeton, le montant et l'adresse du destinataire seront visibles sur Miden.",
+    "englishSource": "The token, amount, and recipient address will be visible on Miden."
+  },
+  "publicTransferHelp": {
+    "message": "Tout le monde peut voir le jeton, le montant et l'adresse du destinataire de ce transfert sur Miden.",
+    "englishSource": "Anyone can see this transfer's token, amount, and recipient address on Miden."
+  },
+  "senderAddressPublicNote": {
+    "message": "Votre adresse d'expéditeur est publique dans les deux modes.",
+    "englishSource": "Your sender address is public in both modes."
+  },
+  "sendPublicly": {
+    "message": "Envoyer publiquement",
+    "englishSource": "Send publicly"
+  },
+  "breadCloseError": {
+    "message": "Impossible de revenir à Bread.",
+    "englishSource": "Could not return to Bread."
+  },
+  "breadExitNow": {
+    "message": "Quitter maintenant",
+    "englishSource": "Exit now"
+  },
+  "breadPresentationBack": {
+    "message": "Retour à Bread",
+    "englishSource": "Back to Bread"
+  },
+  "breadPresentationHint": {
+    "message": "Touchez Bread pour revenir",
+    "englishSource": "Tap Bread to return"
+  },
+  "breadPresentationError": {
+    "message": "Cette application ne s’est pas entièrement chargée. Réessayez ou revenez à Bread.",
+    "englishSource": "This app did not finish loading. Try again or return to Bread."
   }
 }

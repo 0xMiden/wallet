@@ -34,6 +34,10 @@ export const parseImportedAccountBackupFailure = (message: string): string | nul
 
 export type DecryptedWalletFile = {
   formatVersion: typeof CURRENT_BACKUP_FORMAT_VERSION;
+  // The network the file was written on. Absent from older files, which are
+  // placed by their genesis alone; a string, as a name this wallet does not
+  // know is another network, not a damaged file.
+  network?: string;
   seedPhrase: string;
   midenClientDbContent: string;
   walletDbContent: string;
@@ -53,6 +57,13 @@ export class UnsupportedBackupVersionError extends Error {
   constructor() {
     super('This encrypted wallet file was created by a newer wallet version.');
     this.name = 'UnsupportedBackupVersionError';
+  }
+}
+
+export class WrongNetworkBackupError extends Error {
+  constructor() {
+    super('This encrypted wallet file belongs to another network.');
+    this.name = 'WrongNetworkBackupError';
   }
 }
 
@@ -130,6 +141,7 @@ const requireCommonPayload = (value: Record<string, unknown>): WalletAccount[] =
     // wallet can still back up its imported secrets; the pairing rule below is
     // what keeps that case honest.
     (value.seedPhrase !== '' && !MNEMONIC_PATTERN.test(value.seedPhrase)) ||
+    (value.network !== undefined && typeof value.network !== 'string') ||
     typeof value.midenClientDbContent !== 'string' ||
     typeof value.walletDbContent !== 'string' ||
     !Array.isArray(value.accounts) ||
@@ -183,3 +195,48 @@ export function parseDecryptedWalletFile(value: unknown): DecryptedWalletFile {
 
   return value as DecryptedWalletFile;
 }
+
+/** Refuses a file recorded on another network. One written before the network was recorded passes. */
+export const assertBackupNetwork = (file: DecryptedWalletFile, effectiveNetwork: string): void => {
+  if (file.network !== undefined && file.network !== effectiveNetwork) throw new WrongNetworkBackupError();
+};
+
+/**
+ * The genesis block header in an SDK store dump (`exportStore` format: one list
+ * of rows per table, binary fields as tagged base64), as the bytes the import
+ * would write over the active store's own genesis.
+ *
+ * A dump without exactly one genesis row is malformed: every client build
+ * writes genesis into an empty store and the SDK never prunes block 0, so no
+ * backup this wallet wrote lacks one.
+ */
+export function backupGenesisHeader(midenClientDbContent: string): Uint8Array {
+  let dump: unknown;
+  try {
+    dump = JSON.parse(midenClientDbContent);
+    // The SDK's importer also accepts a dump encoded twice, so it is read the same way here.
+    if (typeof dump === 'string') dump = JSON.parse(dump);
+  } catch {
+    throw new MalformedBackupFileError();
+  }
+  const rows: unknown[] = isRecord(dump) && Array.isArray(dump.blockHeaders) ? dump.blockHeaders : [];
+  const genesisRows = rows.filter(row => isRecord(row) && row.blockNum === 0);
+  const genesisRow = genesisRows.length === 1 ? genesisRows[0] : undefined;
+  const header = isRecord(genesisRow) ? genesisRow.header : undefined;
+  if (!isRecord(header) || header.__type !== 'Uint8Array' || typeof header.data !== 'string') {
+    throw new MalformedBackupFileError();
+  }
+  try {
+    // Decoded with `atob`, as the SDK's importer decodes it.
+    return Uint8Array.from(atob(header.data), character => character.charCodeAt(0));
+  } catch {
+    throw new MalformedBackupFileError();
+  }
+}
+
+/** Refuses a backup whose genesis header is not the active store's: its dump is of another chain. */
+export const assertSameGenesis = (fileGenesis: Uint8Array, activeGenesis: Uint8Array): void => {
+  if (fileGenesis.length !== activeGenesis.length || fileGenesis.some((byte, index) => byte !== activeGenesis[index])) {
+    throw new WrongNetworkBackupError();
+  }
+};
