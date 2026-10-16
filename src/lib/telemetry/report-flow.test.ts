@@ -301,6 +301,7 @@ describe('classifyError', () => {
   // EVM deposit refusal labelled `proving` sends triage after a prover that never ran.
   it.each([
     ['The connected WalletConnect session did not approve Base Sepolia (eip155:84532).', 'unknown'],
+    ['Aprove a rede na carteira conectada.', 'unknown'],
     ['The connected EVM wallet provider is unavailable.', 'unknown'],
     ['Guardian account acc not found in provider', 'unknown'],
     ['Account not found. Please provide an account.', 'unknown'],
