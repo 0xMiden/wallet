@@ -43,6 +43,7 @@ import {
   getStepDurationsMs,
   getTransactionStepState,
   isDirectGuardianSwitch,
+  isPrivateSendRow,
   isUnconfirmedGuardianSwitch
 } from './helper';
 import { TransactionSuccess } from './TransactionSuccess';
@@ -312,7 +313,11 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
   // the careful receipt replaces it.
   const commitUnconfirmed =
     isUnconfirmedGuardianSwitch(activeTransaction) || isUnconfirmedGuardianSwitch(completedTransaction);
-  const steps = useMemo(() => stepsForFlow(isGuardian, signedLocally), [isGuardian, signedLocally]);
+  const privateSend = isPrivateSendRow(activeTransaction ?? completedTransaction);
+  const steps = useMemo(
+    () => stepsForFlow(isGuardian, signedLocally, privateSend),
+    [isGuardian, signedLocally, privateSend]
+  );
   // A row whose outcome is unknown reads as not confirmed here too, by the rule Activity reads (#1250, #1081): no
   // failed title, and no classifier copy that claims the send did not land.
   const failedRow = activeTransaction ?? completedTransaction;

@@ -1081,8 +1081,6 @@ export const completeSendTransaction = async (tx: SendTransaction, result: Trans
   let noteDelivery: INoteDeliveryState | undefined;
 
   if (isPrivateSend && note && noteId) {
-    await setTransactionStage(tx.id, 'delivering');
-
     // Record that a relay is OWED before attempting it, together with the landed
     // transaction id and the note it produced.
     //
@@ -1108,6 +1106,14 @@ export const completeSendTransaction = async (tx: SendTransaction, result: Trans
       await midenClientProxy.waitForTransactionCommit(executedTx.id().toHex());
     } catch (error) {
       console.warn('Commit wait failed during private send; the relay may find no proof', { txId: tx.id, error });
+    }
+
+    // After the wait, so 'confirming' covers the wait and 'delivering' only the relay, and the screen names the
+    // one the user is waiting on (#1492). Display state only: a failed stamp must not cost the recipient the note.
+    try {
+      await setTransactionStage(tx.id, 'delivering');
+    } catch (error) {
+      console.warn('Could not stamp the delivering stage', { txId: tx.id, error });
     }
 
     try {

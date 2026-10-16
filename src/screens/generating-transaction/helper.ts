@@ -1,5 +1,6 @@
 import type { ITransaction, ITransactionStage, ITransactionType } from 'lib/miden/db/types';
 import { rotationVerdict } from 'lib/miden/guardian/rotation-verdict';
+import { NoteTypeEnum } from 'lib/miden/types';
 
 import type { TransactionStepDef } from './constants';
 import type { TransactionStepState } from './types';
@@ -14,13 +15,18 @@ export const getActiveStepIndex = (
   stage: ITransactionStage | undefined,
   transactionComplete: boolean
 ): number => {
-  if (transactionComplete || stage === 'complete' || stage === 'guardian-synced') return steps.length;
+  if (transactionComplete || stage === 'complete') return steps.length;
   if (!stage) return 0;
   const idx = steps.findIndex(step => step.activeStages.includes(stage));
+  if (idx !== -1) return idx;
+  // In a set where no step owns 'guardian-synced', the Guardian sync is the last
+  // step, so its end is every step done. A private send's set owns it in the
+  // delivery step after the sync, hence the lookup first (#1492).
+  if (stage === 'guardian-synced') return steps.length;
   // A stage owned by no step runs before the first shown step (e.g. a
   // non-guardian send's early 'syncing', when the standard set starts at
   // proof-generation) — treat the first step as the active one.
-  return idx === -1 ? 0 : idx;
+  return 0;
 };
 
 /**
@@ -78,6 +84,15 @@ export const isDirectGuardianSwitch = (tx: ITransaction | undefined): boolean =>
   (tx.extraInputs?.switchedDirectly === true ||
     tx.stage === 'signing-locally' ||
     tx.stageTimestamps?.['signing-locally'] !== undefined);
+
+/**
+ * A send of a private note, whose completion waits for the commit and relays the
+ * note before the row completes, so the screen shows that delivery as a step of
+ * its own. Reads the persisted `noteType`, the row's answer that
+ * `completeSendTransaction` starts from.
+ */
+export const isPrivateSendRow = (tx: ITransaction | undefined): boolean =>
+  tx?.type === 'send' && tx.noteType === NoteTypeEnum.Private;
 
 /**
  * A `switch-guardian` row the pipeline SUBMITTED without ever establishing that

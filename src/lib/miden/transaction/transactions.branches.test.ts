@@ -403,6 +403,42 @@ describe('completeSendTransaction', () => {
     expect(txStore[0]!.noteDelivery).toBe('relayed');
   });
 
+  it('still relays the note when the delivering stamp cannot be written', async () => {
+    const tx = makeSendTx({ noteType: NoteTypeEnum.Private });
+    txStore.push({ ...tx });
+    const where = jest.requireMock('lib/miden/repo').transactions.where as jest.Mock;
+    const realWhere = where.getMockImplementation()!;
+    // The first row write after the commit wait is the delivering stamp.
+    let failNextWrite = false;
+    mockWaitForTransactionCommit.mockImplementationOnce(async () => {
+      failNextWrite = true;
+    });
+    where.mockImplementation((query: any) => {
+      const real = realWhere(query);
+      return {
+        ...real,
+        modify: async (fn: (row: any) => unknown) => {
+          if (failNextWrite) {
+            failNextWrite = false;
+            throw new Error('dexie write failed');
+          }
+          return real.modify(fn);
+        }
+      };
+    });
+    const fullNote = { id: () => ({ toString: () => 'note-out-1' }), serialize: () => new Uint8Array([1]) };
+
+    try {
+      await completeSendTransaction(tx, makeResult({ intoFullReturns: fullNote }));
+    } finally {
+      where.mockImplementation(realWhere);
+    }
+
+    expect(mockSendPrivateNote).toHaveBeenCalled();
+    expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
+    expect(txStore[0]!.noteDelivery).toBe('relayed');
+  });
+
   it('records undelivered when the WASM client lock cannot be acquired during a private send', async () => {
     // A lock failure on this path means the relay never ran, so the note was never
     // handed to anyone, and only the row's state lets the delivery sweep retry it.

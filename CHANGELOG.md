@@ -5,6 +5,7 @@
 ### Fixes
 
 - [FIX][all] Opening the wallet no longer builds and syncs a second SDK client on the wallet's store: the React SDK provider, unused since #911, ran a full sync on every page open beside the wallet's own sync and imports, and an import interleaved with it could leave the store's chain data inconsistent, failing every later sync and import. The wallet no longer depends on `@miden-sdk/react`. This stops new damage; a store that is already damaged is not repaired by this change (#1493).
+- [FIX][all] A private send no longer spends about 5 seconds on "Syncing with Guardian": the wait for its block and the delivery of the note to the recipient, which that step counted, are a "Delivering to recipient" step of their own, and every wait for a transaction's commit checks every second instead of every five, so it no longer idles for up to 5 seconds after the block (#1492).
 
 ## 1.17.4 (2026-10-15)
 
