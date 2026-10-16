@@ -679,11 +679,12 @@ describe('completeCustomTransaction private-note delivery', () => {
 
   const snapshot = () => ({ ...txStore[0]!, stageTimestamps: { ...txStore[0]!.stageTimestamps } });
 
-  // Fails the first row write `matches` picks, judged on a copy of the row with the write applied, once.
+  // Fails the first row write `matches` picks, judged on a copy of the row with the write applied, once, and records
+  // how many commit waits had run by then.
   const failWriteOnce = (matches: (before: any, after: any) => boolean) => {
     const where = jest.requireMock('lib/miden/repo').transactions.where as jest.Mock;
     const realWhere = where.getMockImplementation()!;
-    const outcome = { failed: false };
+    const outcome: { failed: boolean; waitsBefore?: number } = { failed: false };
     where.mockImplementation((arg: any) => {
       const real = realWhere(arg);
       if (typeof arg === 'string') return real;
@@ -696,6 +697,7 @@ describe('completeCustomTransaction private-note delivery', () => {
             fn(after);
             if (matches(row, after)) {
               outcome.failed = true;
+              outcome.waitsBefore = mockWaitForCommit.mock.calls.length;
               throw new Error('dexie write failed');
             }
           }
@@ -728,26 +730,29 @@ describe('completeCustomTransaction private-note delivery', () => {
     expect(txStore[0]!.noteDelivery).toBe('relayed');
   });
 
-  // Display state only: the relay needs the proof the commit wait produces, and the notes are owed either way.
-  it.each(['confirming', 'delivering'])(
-    'still waits for the commit and relays when the %s stamp cannot be written',
-    async stage => {
-      pushExecuteRow();
-      const failing = failWriteOnce((before, after) => after.stage === stage && before.stage !== stage);
+  // Display state only: the relay needs the proof the commit wait produces, and the notes are owed either way. The
+  // wait count at the failed write pins each stamp to its side of the wait.
+  it.each([
+    ['confirming', 0],
+    ['delivering', 1]
+  ])('still waits for the commit and relays when the %s stamp cannot be written', async (stage, waitsBefore) => {
+    pushExecuteRow();
+    const failing = failWriteOnce((before, after) => after.stage === stage && before.stage !== stage);
 
-      try {
-        await completeCustomTransaction(txStore[0]!, makeResultWith([privateNote('a'), privateNote('b')]));
-      } finally {
-        failing.restore();
-      }
-
-      expect(failing.outcome.failed).toBe(true);
-      expect(mockWaitForCommit).toHaveBeenCalledTimes(1);
-      expect(mockSendPrivateNote).toHaveBeenCalledTimes(2);
-      expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
-      expect(txStore[0]!.noteDelivery).toBe('relayed');
+    try {
+      await completeCustomTransaction(txStore[0]!, makeResultWith([privateNote('a'), privateNote('b')]));
+    } finally {
+      failing.restore();
     }
-  );
+
+    expect(failing.outcome.failed).toBe(true);
+    expect(failing.outcome.waitsBefore).toBe(waitsBefore);
+    expect(txStore[0]!.stageTimestamps?.[stage]).toBeUndefined();
+    expect(mockWaitForCommit).toHaveBeenCalledTimes(1);
+    expect(mockSendPrivateNote).toHaveBeenCalledTimes(2);
+    expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
+    expect(txStore[0]!.noteDelivery).toBe('relayed');
+  });
 
   // The screen reads the stamps when the best-effort delivery record is missing, so they cannot depend on it.
   it('stamps both stages when the pending delivery record cannot be written', async () => {

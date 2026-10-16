@@ -408,19 +408,23 @@ describe('completeSendTransaction', () => {
     txStore.push({ ...tx });
     const where = jest.requireMock('lib/miden/repo').transactions.where as jest.Mock;
     const realWhere = where.getMockImplementation()!;
-    // The first row write after the commit wait is the delivering stamp.
-    let failNextWrite = false;
-    mockWaitForTransactionCommit.mockImplementationOnce(async () => {
-      failNextWrite = true;
-    });
+    // Fails the write that would stamp 'delivering', judged on a copy of the row, and counts the commit waits run by
+    // then, so the case fails on an unguarded stamp and on one written before the wait.
+    let waitsBeforeFailure: number | undefined;
     where.mockImplementation((query: any) => {
       const real = realWhere(query);
+      if (typeof query === 'string') return real;
       return {
         ...real,
         modify: async (fn: (row: any) => unknown) => {
-          if (failNextWrite) {
-            failNextWrite = false;
-            throw new Error('dexie write failed');
+          const row = txStore.find(t => t.id === query.id);
+          if (waitsBeforeFailure === undefined && row) {
+            const after = { ...row, stageTimestamps: { ...row.stageTimestamps } };
+            fn(after);
+            if (after.stage === 'delivering' && row.stage !== 'delivering') {
+              waitsBeforeFailure = mockWaitForTransactionCommit.mock.calls.length;
+              throw new Error('dexie write failed');
+            }
           }
           return real.modify(fn);
         }
@@ -434,6 +438,8 @@ describe('completeSendTransaction', () => {
       where.mockImplementation(realWhere);
     }
 
+    expect(waitsBeforeFailure).toBe(1);
+    expect(txStore[0]!.stageTimestamps?.delivering).toBeUndefined();
     expect(mockSendPrivateNote).toHaveBeenCalled();
     expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
     expect(txStore[0]!.noteDelivery).toBe('relayed');

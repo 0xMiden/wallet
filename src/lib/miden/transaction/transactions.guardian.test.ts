@@ -11709,6 +11709,247 @@ describe('generateTransaction — Guardian routing', () => {
     const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
     expect(row.status).toBe(ITransactionStatus.Completed);
   });
+
+  // A stamp written after submit is display state: a failed write is logged and the work it labels still runs.
+  describe('a post-submit stage stamp that cannot be written', () => {
+    type Row = Record<string, unknown>;
+    // Fails the first row write `matches` picks, judged on a copy of the row with the write applied, once.
+    const failRowWriteOnce = (matches: (before: Row, after: Row) => boolean) => {
+      const where = jest.requireMock('lib/miden/repo').transactions.where as jest.Mock;
+      const realWhere = where.getMockImplementation()!;
+      const outcome = { failed: false };
+      where.mockImplementation((query: { id: string }) => {
+        const real = realWhere(query);
+        return {
+          ...real,
+          modify: async (fn: (row: Row) => unknown) => {
+            const row = txStore.find(r => r.id === query.id);
+            if (!outcome.failed && row) {
+              const after: Row = { ...row, stageTimestamps: { ...(row.stageTimestamps as object | undefined) } };
+              fn(after);
+              if (matches(row, after)) {
+                outcome.failed = true;
+                throw new Error('dexie write failed');
+              }
+            }
+            return real.modify(fn);
+          }
+        };
+      });
+      return { outcome, restore: () => where.mockImplementation(realWhere) };
+    };
+    const stamping = (stage: ITransactionStage) => (before: Row, after: Row) =>
+      after.stage === stage && before.stage !== stage;
+    // The 'complete' stamp follows the Completed write and is a no-op on that row, so it is picked by the row's state.
+    const onCompletedRow = (before: Row) => before.status === ITransactionStatus.Completed;
+    const stampsOf = (row: Row | undefined) =>
+      (row?.stageTimestamps ?? {}) as Partial<Record<ITransactionStage, number>>;
+    // A throw out of a Guardian write ends in cancelTransaction, which declines a Completed row with this warning.
+    const tookFailurePath = (warn: jest.SpyInstance) =>
+      warn.mock.calls.some(([message]) => String(message).startsWith('[cancelTransaction]'));
+
+    // The outgoing guardian is down at the service load, so the switch is signed locally and submitted on chain.
+    const arrangeDirectSwitch = (txId: string) => {
+      txStore.push({
+        id: txId,
+        type: 'switch-guardian',
+        accountId: 'guardian-acc',
+        status: ITransactionStatus.Queued,
+        extraInputs: { newGuardianEndpoint: 'https://new.guardian' }
+      });
+      mockGetOrCreateMultisigService.mockRejectedValue(new Error('Failed to fetch'));
+      mockCreateDirectSwitchRequest.mockResolvedValue({
+        serialize: () => new Uint8Array([2]),
+        authArg: () => undefined
+      });
+      mockFinalizeDirectSwitch.mockResolvedValue(undefined);
+      mockIsGuardianAccount.mockResolvedValue(true);
+      const waitForTransactionCommit = jest.fn(async (_id: string) => {});
+      mockGetMidenClient.mockResolvedValue({
+        syncState: jest.fn(async () => {}),
+        getAccount: jest.fn(async () => ({ id: () => ({ toString: () => 'guardian-acc' }) })),
+        waitForTransactionCommit,
+        client: makeClientApi(makeResult())
+      });
+      const setGuardianEndpoint = jest.fn(async (_accountId: string, _endpoint: string) => {});
+      const provider = {
+        getAccounts: async () => [{ publicKey: 'guardian-acc', coldPublicKey: 'cold-pub', hotPublicKey: 'hot-pub' }],
+        getPublicKeyForCommitment: async () => 'pk',
+        signWord: async () => 'sig',
+        setGuardianEndpoint
+      };
+      const run = () =>
+        generateTransaction(
+          {
+            id: txId,
+            type: 'switch-guardian',
+            accountId: 'guardian-acc',
+            extraInputs: { newGuardianEndpoint: 'https://new.guardian' },
+            delegateTransaction: false
+          } as never,
+          jest.fn(async () => new Uint8Array([1])),
+          false,
+          provider as never
+        );
+      return { run, waitForTransactionCommit, setGuardianEndpoint, row: () => txStore.find(r => r.id === txId) };
+    };
+
+    const arrangeSend = (txId: string) => {
+      txStore.push({
+        id: txId,
+        type: 'send',
+        accountId: 'guardian-acc',
+        status: ITransactionStatus.Queued,
+        secondaryAccountId: 'recipient',
+        faucetId: 'faucet',
+        amount: '1000',
+        delegateTransaction: false,
+        initiatedAt: Math.floor(Date.now() / 1000)
+      });
+      const service = {
+        createSendProposal: jest.fn(async () => ({ id: 'prop-1' })),
+        signAndCreateTransactionRequest: jest.fn(async () => ({
+          serialize: () => new Uint8Array([1]),
+          authArg: () => undefined
+        })),
+        sync: jest.fn(async () => {})
+      };
+      mockGetOrCreateMultisigService.mockResolvedValue(service);
+      mockGetMidenClient.mockResolvedValue({
+        getAccount: jest.fn(async () => undefined),
+        syncState: jest.fn(async () => {}),
+        client: makeClientApi(makeResult())
+      });
+      const run = () =>
+        generateTransaction(
+          {
+            id: txId,
+            type: 'send',
+            accountId: 'guardian-acc',
+            secondaryAccountId: 'recipient',
+            faucetId: 'faucet',
+            amount: '1000',
+            delegateTransaction: false
+          } as never,
+          jest.fn(async () => new Uint8Array([2])),
+          false,
+          makeGuardianProvider(true)
+        );
+      return { service, run, row: () => txStore.find(r => r.id === txId) };
+    };
+
+    it("a direct switch whose 'confirming' write fails still waits for its commit and stores the new endpoint", async () => {
+      const { run, waitForTransactionCommit, setGuardianEndpoint, row } =
+        arrangeDirectSwitch('switch-direct-confirming');
+      const failing = failRowWriteOnce(stamping('confirming'));
+
+      try {
+        await run();
+      } finally {
+        failing.restore();
+      }
+
+      expect(failing.outcome.failed).toBe(true);
+      expect(stampsOf(row()).confirming).toBeUndefined();
+      expect(waitForTransactionCommit).toHaveBeenCalledWith('exec-tx-hash');
+      expect(setGuardianEndpoint).toHaveBeenCalledWith('guardian-acc', 'https://new.guardian');
+      expect(row()?.status).toBe(ITransactionStatus.Completed);
+      expect(row()?.displayMessage).toBe('Guardian switched');
+    });
+
+    it("a direct switch whose 'complete' write fails resolves and takes no failure path on its Completed row", async () => {
+      const { run, row } = arrangeDirectSwitch('switch-direct-complete');
+      const failing = failRowWriteOnce(onCompletedRow);
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+      try {
+        await expect(run()).resolves.toBeUndefined();
+        expect(tookFailurePath(warn)).toBe(false);
+      } finally {
+        failing.restore();
+        warn.mockRestore();
+      }
+
+      expect(failing.outcome.failed).toBe(true);
+      expect(row()?.status).toBe(ITransactionStatus.Completed);
+      expect(row()?.displayMessage).toBe('Guardian switched');
+    });
+
+    it("a rotation whose 'confirming' write fails still waits for its commit and completes the rotation", async () => {
+      const waitForTransactionCommit = jest.fn(async (_id: string) => {});
+      const { tx, row, swapHotKey, provider } = arrangeRotation(proposalFor(), waitForTransactionCommit);
+      const failing = failRowWriteOnce(stamping('confirming'));
+
+      try {
+        await generateTransaction(
+          tx,
+          jest.fn(async () => new Uint8Array([1])),
+          false,
+          provider
+        );
+      } finally {
+        failing.restore();
+      }
+
+      expect(failing.outcome.failed).toBe(true);
+      expect(stampsOf(row()).confirming).toBeUndefined();
+      expect(waitForTransactionCommit).toHaveBeenCalledWith('exec-tx-hash');
+      expect(swapHotKey).toHaveBeenCalledWith('acc-1', 'new-hot-pub');
+      expect(row()?.status).toBe(ITransactionStatus.Completed);
+    });
+
+    it("a send whose 'guardian-syncing' write fails still syncs the Guardian once and stamps 'guardian-synced'", async () => {
+      const { service, run, row } = arrangeSend('send-syncing-stamp');
+      const failing = failRowWriteOnce(stamping('guardian-syncing'));
+
+      try {
+        await run();
+      } finally {
+        failing.restore();
+      }
+
+      expect(failing.outcome.failed).toBe(true);
+      expect(stampsOf(row())['guardian-syncing']).toBeUndefined();
+      expect(service.sync).toHaveBeenCalledTimes(1);
+      expect(stampsOf(row())['guardian-synced']).toBeDefined();
+      expect(row()?.status).toBe(ITransactionStatus.Completed);
+    });
+
+    it("a send whose Guardian sync fails stamps no 'guardian-synced' and still completes", async () => {
+      const { service, run, row } = arrangeSend('send-sync-fails');
+      service.sync.mockRejectedValueOnce(new Error('guardian sync failed'));
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+      try {
+        await run();
+      } finally {
+        warn.mockRestore();
+      }
+
+      expect(service.sync).toHaveBeenCalledTimes(1);
+      expect(stampsOf(row())['guardian-syncing']).toBeDefined();
+      expect(stampsOf(row())['guardian-synced']).toBeUndefined();
+      expect(row()?.status).toBe(ITransactionStatus.Completed);
+    });
+
+    it("a send whose 'complete' write fails resolves and takes no failure path on its Completed row", async () => {
+      const { run, row } = arrangeSend('send-complete-stamp');
+      const failing = failRowWriteOnce(onCompletedRow);
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+      try {
+        await expect(run()).resolves.toBeUndefined();
+        expect(tookFailurePath(warn)).toBe(false);
+      } finally {
+        failing.restore();
+        warn.mockRestore();
+      }
+
+      expect(failing.outcome.failed).toBe(true);
+      expect(row()?.status).toBe(ITransactionStatus.Completed);
+      expect(row()?.displayMessage).toBe('Sent');
+    });
+  });
 });
 
 describe('initiateReplaceHotKeyTransaction', () => {
