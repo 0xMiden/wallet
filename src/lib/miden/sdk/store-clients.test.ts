@@ -2,12 +2,14 @@ import fs from 'fs';
 import path from 'path';
 
 /**
- * Every client the wallet opens on the SDK's IndexedDB store is built by `MidenClientInterface` (#1493).
+ * Where the wallet builds clients on the SDK's IndexedDB store (#1493). `miden-client-interface.ts` builds each realm's
+ * client and its realm reader (`getRealmReaderClient`), which only reads, apart from the genesis header its first build
+ * may store; no other wallet source builds one, and the wallet does not depend on the React SDK, whose `MidenProvider`
+ * built a client of its own and synced it on every page open.
  *
- * The SDK serializes syncs across client instances but not note imports, so a second instance on the same store can
- * interleave its sync with an import of ours and leave a tracked block header whose MMR path is too short for the
- * checkpoint. Every later sync and import then fails, permanently. The React SDK's `MidenProvider` was such an
- * instance: it built its own client and ran a full sync on every page open, beside the one the wallet's own loop drives.
+ * A sync on one client interleaved with a note import on another can leave a tracked block header whose MMR path is
+ * too short for the checkpoint, and every later sync and import then fails. This scan sees constructors written in
+ * wallet source only, not a client that a dependency builds.
  */
 const ROOT = path.join(__dirname, '../../../..');
 const SRC = path.join(ROOT, 'src');
