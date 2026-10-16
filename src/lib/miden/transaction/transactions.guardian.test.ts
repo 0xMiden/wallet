@@ -7021,7 +7021,13 @@ describe('generateTransaction — Guardian routing', () => {
       });
 
       const pending = generateTransaction(
-        { id: txId, type: 'consume', accountId: 'guardian-acc', noteId: 'note-fee', delegateTransaction: false } as never,
+        {
+          id: txId,
+          type: 'consume',
+          accountId: 'guardian-acc',
+          noteId: 'note-fee',
+          delegateTransaction: false
+        } as never,
         jest.fn(async () => new Uint8Array([1])),
         false,
         makeGuardianProvider(true)

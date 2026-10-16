@@ -62,7 +62,7 @@ export const MAX_QUEUED_AGE = 30 * 60; // 30 minutes (seconds)
  * two ways (#1081).
  */
 const describeFailure = (
-  transaction: Pick<ITransaction, 'delegateTransaction'>,
+  transaction: Pick<ITransaction, 'delegateTransaction' | 'standardPaymentsOnly'>,
   error: unknown,
   existing: ITransaction | undefined
 ): { displayError: string; rawError: string } => {
@@ -84,7 +84,13 @@ const describeFailure = (
   const displayError =
     typeof error === 'string' && (isWalletFailureReason(error) || isUnconfirmedFailureReason(error))
       ? error
-      : resolveTransactionErrorMessage(error, failedStage, transaction.delegateTransaction, abandonedPreWrite);
+      : resolveTransactionErrorMessage(
+          error,
+          failedStage,
+          transaction.delegateTransaction,
+          abandonedPreWrite,
+          (existing ?? transaction).standardPaymentsOnly === true
+        );
   return { displayError, rawError };
 };
 

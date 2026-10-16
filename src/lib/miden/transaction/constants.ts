@@ -420,6 +420,15 @@ export const TRANSACTION_VAULT_SHORTFALL_ERROR =
   'amount sent, or the USDCX for the network fee. Check your balances once the wallet has synced, then try again.';
 
 /**
+ * The shortfall on a claim of standard P2ID or P2IDE payments only (`standardPaymentsOnly`), which credit the vault,
+ * so the network fee is the one withdrawal. Any other note script can take an asset from the vault (a SWAP note, or
+ * another account's PSWAP note, pays out the requested asset), so such a claim keeps the copy above.
+ */
+export const CLAIM_FEE_SHORTFALL_ERROR =
+  'This transfer could not be claimed because the account does not hold enough USDCX to pay the network fee. ' +
+  'Receive some USDCX, then claim it again once the wallet has synced.';
+
+/**
  * An everyday-key rotation that failed because the account could not pay its fee. A
  * rotation moves no asset, so on this row type the only withdrawal that can fall short
  * is the fee. A row a build without the code match failed keeps the raw kernel line as
@@ -520,7 +529,8 @@ function classifyTransactionError(
   raw: string,
   stage?: ITransactionStage,
   delegateTransaction?: boolean,
-  abandonedPreWrite?: boolean
+  abandonedPreWrite?: boolean,
+  feeIsOnlyWithdrawal?: boolean
 ): string {
   // A lock-recovery eviction is checked FIRST because every mapping below reads
   // the stage, and the stage is exactly what an eviction makes unreliable: it
@@ -579,7 +589,7 @@ function classifyTransactionError(
   // Checked AFTER the conversion-info code, since that one is the more specific
   // reading of an assertion this one deliberately declines to attribute.
   if (isVaultShortfallError(raw)) {
-    return TRANSACTION_VAULT_SHORTFALL_ERROR;
+    return feeIsOnlyWithdrawal ? CLAIM_FEE_SHORTFALL_ERROR : TRANSACTION_VAULT_SHORTFALL_ERROR;
   }
   // Proposal creation and co-signing are pre-submit, so nothing moved. A requeueable transfer never gets here (the
   // pipeline requeues it, #779); this names the failure for the operations that still end on it.
@@ -593,10 +603,18 @@ export function resolveTransactionErrorMessage(
   error: unknown,
   stage?: ITransactionStage,
   delegateTransaction?: boolean,
-  abandonedPreWrite?: boolean
+  abandonedPreWrite?: boolean,
+  feeIsOnlyWithdrawal?: boolean
 ): string {
   const raw = formatRawTransactionError(error);
-  const message = classifyTransactionError(error, raw, stage, delegateTransaction, abandonedPreWrite);
+  const message = classifyTransactionError(
+    error,
+    raw,
+    stage,
+    delegateTransaction,
+    abandonedPreWrite,
+    feeIsOnlyWithdrawal
+  );
   // Keep the raw failure reachable in logs whenever a mapping replaces it. The
   // friendly copy is deliberately non-technical, so a mapped error otherwise
   // erases the only detail that identifies it -- which procedure root a prover

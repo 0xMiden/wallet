@@ -682,6 +682,11 @@ export interface ITransaction {
    */
   rotationFunding?: true;
   /**
+   * Consume only: every note was a standard P2ID or P2IDE payment when queued (`ConsumableNote.standardPayment`),
+   * so the network fee is the one asset the consume can withdraw. Not indexed.
+   */
+  standardPaymentsOnly?: true;
+  /**
    * Execute (dApp custom) only: per-faucet value LEAVING the account, taken from the approval-time
    * dry run that the confirmation sheet already renders.
    *
@@ -1144,6 +1149,8 @@ export class ConsumeTransaction implements ITransaction {
   consumedNotes?: IConsumedNote[];
   /** See `ITransaction.rotationFunding`. */
   rotationFunding?: true;
+  /** See `ITransaction.standardPaymentsOnly`. */
+  standardPaymentsOnly?: true;
   /** See `ITransaction.dappOrigins`. */
   dappOrigins?: string[];
   transactionId?: string;
@@ -1202,6 +1209,7 @@ export class ConsumeTransaction implements ITransaction {
       faucetId: note.faucetId,
       ...(note.amount === '' ? {} : { amount: BigInt(note.amount) })
     }));
+    if (list.every(note => note.standardPayment === true)) this.standardPaymentsOnly = true;
     this.status = ITransactionStatus.Queued;
     this.initiatedAt = Math.floor(Date.now() / 1000); // seconds
     this.queuedSeq = nextQueuedSeq();

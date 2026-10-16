@@ -659,7 +659,8 @@ async function runSync(force: boolean): Promise<void> {
                   senderAddress: n.senderAddress,
                   isBeingClaimed: false,
                   type,
-                  swapOrder: undefined
+                  swapOrder: undefined,
+                  standardPayment: n.standardPayment
                 };
               });
             }
