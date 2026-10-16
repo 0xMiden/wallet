@@ -4,7 +4,7 @@ import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { goBack, HistoryAction, navigate, useLocation } from 'lib/woozie';
 
 // Tab pages that should go to home on back (when no history)
-const TAB_PAGES = ['/history', '/settings', '/browser'];
+const TAB_PAGES = ['/history', '/browser'];
 
 /**
  * Bridges hardware back button/gesture with Woozie navigation.
@@ -16,7 +16,8 @@ const TAB_PAGES = ['/history', '/settings', '/browser'];
  * - Settings subpage (/settings/xxx): pop one entry, or land on /settings when
  *   the page was opened cold — these are real routes now and can nest, so
  *   jumping straight to the list would skip the page the chevron goes back to
- * - Tab pages (history, settings, browser) with no history: go to home
+ * - Me's pushed pages: pop one entry, or land on Me when opened cold
+ * - Tab pages (history, Me, browser): go to home
  * - If historyPosition > 0: go back in history
  * - Other pages with no history: go to home
  * - Home with no history: return false (let system handle - minimize on Android)
@@ -25,8 +26,10 @@ export const MobileBackBridge: FC = () => {
   const { pathname, historyPosition } = useLocation();
 
   const inHome = pathname === '/';
-  const isSettingsSubpage = pathname.startsWith('/settings/');
-  const isTabPage = TAB_PAGES.some(tab => pathname === tab || pathname.startsWith(tab + '/'));
+  const isProfileSubpage =
+    pathname === '/settings' || pathname === '/me/badges' || pathname.startsWith('/settings/profile-');
+  const isSettingsSubpage = pathname.startsWith('/settings/') && !isProfileSubpage;
+  const isTabPage = pathname === '/me' || TAB_PAGES.some(tab => pathname === tab || pathname.startsWith(tab + '/'));
 
   useMobileBackHandler(() => {
     // Settings subpage -> pop one level, or land on the list on a cold open.
@@ -38,16 +41,16 @@ export const MobileBackBridge: FC = () => {
     // intermediate page the chevron goes back to, so the two affordances
     // disagreed about where "back" is. As drawers these screens never pushed an
     // entry, so there was nothing to skip.
-    if (isSettingsSubpage) {
+    if (isSettingsSubpage || isProfileSubpage) {
       if (historyPosition > 0) {
         goBack();
       } else {
-        navigate('/settings', HistoryAction.Replace);
+        navigate(isSettingsSubpage ? '/settings' : '/me', HistoryAction.Replace);
       }
       return true;
     }
 
-    // Tab pages (history, settings, browser) -> go to home
+    // Tab pages (history, Me, browser) -> go to home
     if (isTabPage) {
       navigate('/', HistoryAction.Replace);
       return true;
@@ -67,7 +70,7 @@ export const MobileBackBridge: FC = () => {
 
     // On home with no history - let system handle (minimize on Android)
     return false;
-  }, [pathname, historyPosition, inHome, isSettingsSubpage, isTabPage]);
+  }, [pathname, historyPosition, inHome, isSettingsSubpage, isTabPage, isProfileSubpage]);
 
   return null;
 };

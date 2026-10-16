@@ -35,23 +35,22 @@ import { PropsWithChildren } from 'lib/props-with-children';
 import { navigate, useLocation } from 'lib/woozie';
 
 /**
- * Layout for tab-based pages (Home, History, Settings, Browser).
+ * Layout for tab-based pages (Home, History, Me, Browser).
  * Provides a persistent footer and animated content area.
  *
  * The top action bar is mounted when the route is in the "home"
  * tab group (/, /send, /receive, /earn, /swap) so it stays visible across
  * Overview ↔ Send ↔ Receive ↔ Earn ↔ Swap transitions. Other tabs (Explore,
- * Activity, Settings) hide it.
+ * Activity, Me) hide it.
  *
- * Only the Settings ROOT (`/settings`) is a tab destination; `/settings/<slug>`
- * sub-pages keep their FullScreenPage drill-in so back behaviour and history
- * depth are unchanged (see PageRouter).
+ * Me is the personal tab destination. Settings lives behind its gear action and
+ * keeps the FullScreenPage drill-in used by every settings page (see PageRouter).
  */
 const TAB_ROUTES: Record<string, string> = {
   home: '/',
   explore: '/browser',
   activity: '/history',
-  settings: '/settings'
+  me: '/me'
 };
 
 const ACTION_ROUTES: Record<string, string> = {
@@ -99,13 +98,7 @@ function activeTabFromPath(pathname: string): string {
   const segment = pathname.split('/')[1] ?? '';
   if (segment === 'browser') return 'explore';
   if (segment === 'history' || segment === 'activity-details') return 'activity';
-  // Exact, unlike the segment matches above: `/history/:programId` renders
-  // inside this shell, so Activity has sub-paths to stay lit for, whereas the
-  // only Settings route that mounts TabLayout is the bare root — every
-  // `/settings/<slug>` sub-page renders in FullScreenPage (see PageRouter).
-  // Matching the segment here would only ever cover paths that cannot reach
-  // this function.
-  if (pathname === '/settings') return 'settings';
+  if (pathname === '/me') return 'me';
   return 'home';
 }
 
@@ -218,9 +211,9 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
       unread: hasUnreadActivity ? { label: t('activityUnread') } : undefined
     },
     {
-      id: 'settings',
-      label: t('settings'),
-      icon: <Icon name={IconName.Settings} className="w-6 h-6" fill="currentColor" />
+      id: 'me',
+      label: t('profile'),
+      icon: <Icon name={IconName.User} className="w-6 h-6" fill="currentColor" />
     }
   ];
 
