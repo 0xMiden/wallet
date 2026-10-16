@@ -168,6 +168,45 @@ it.each([...GUARDIAN_ERROR_CODES])('reports the published Guardian code %s', asy
   expect(await reportedMessage()).toContain(`; guardian_http_400; guardian code ${code}. `);
 });
 
+it.each([
+  ['a marked hot-key cause', () => hotKeyRejection('rejected', 'AUTH_FAILED'), '; hot_key; hot key code AUTH_FAILED. '],
+  [
+    'a Guardian cause',
+    async () => guardianRefusal(409, 'Conflict', 'conflict_pending_delta'),
+    '; guardian_http_409; guardian code conflict_pending_delta. '
+  ]
+] as const)('reports %s under a Guardian-shaped link whose status getter throws', async (_name, cause, identity) => {
+  const hostile = Object.defineProperty(new Error('GUARDIAN HTTP error', { cause: await cause() }), 'status', {
+    get: () => {
+      throw new Error('hostile accessor');
+    }
+  });
+  hostile.name = 'GuardianHttpError';
+  reportTransactionFailure({ type: 'consume', error: hostile });
+  await settle();
+  expect(captureCrash).toHaveBeenCalledTimes(1);
+  expect(await reportedMessage()).toContain(`; point pipeline${identity}`);
+});
+
+it.each([
+  ['99', { status: 99 }],
+  ['600', { status: 600 }],
+  ['409.5', { status: 409.5 }],
+  ["the string '409'", { status: '409' }],
+  ['a missing status', {}]
+])('reports a Guardian status of %s as other', async (_name, fields) => {
+  const refusal = Object.assign(
+    new Error('GUARDIAN HTTP error'),
+    { name: 'GuardianHttpError', code: 'conflict_pending_delta', rawCode: 'conflict_pending_delta' },
+    fields
+  );
+  reportTransactionFailure({ type: 'consume', error: refusal });
+  const message = await reportedMessage();
+  expect(message).toContain('; point pipeline; guardian_http_other; guardian code conflict_pending_delta. ');
+  expect(message).not.toContain(`guardian_http_${String(Reflect.get(fields, 'status'))}`);
+  expect(message).not.toContain('409.5');
+});
+
 it('reports a hot-key plugin rejection by its code and nothing it says', async () => {
   reportTransactionFailure({
     type: 'consume',
