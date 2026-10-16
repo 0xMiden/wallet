@@ -2,15 +2,17 @@ import { GUARDIAN_ERROR_CODES } from '@openzeppelin/guardian-client';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { isIOS } from 'lib/platform';
 import { signHotDigest } from 'lib/secure-hot-key';
+import { HotKey } from 'lib/secure-hot-key/hotKeyPlugin';
 import { signHotDigest as fallbackSignHotDigest } from 'lib/secure-hot-key/jsFallback';
-import { signHotDigest as nativeSignHotDigest } from 'lib/secure-hot-key/nativePlugin';
 
 import { captureCrash } from './crash';
 import { FAILURE_REASONS, HOT_KEY_CODES, reportTransactionFailure } from './transaction-failure';
 
 jest.mock('./crash', () => ({ captureCrash: jest.fn() }));
-jest.mock('lib/secure-hot-key/nativePlugin', () => ({ signHotDigest: jest.fn() }));
+jest.mock('lib/platform', () => ({ ...jest.requireActual('lib/platform'), isIOS: jest.fn(() => false) }));
+jest.mock('lib/secure-hot-key/hotKeyPlugin', () => ({ HotKey: { signWithHotKey: jest.fn() } }));
 jest.mock('lib/secure-hot-key/jsFallback', () => ({ signHotDigest: jest.fn() }));
 
 const settle = () => new Promise(resolve => setTimeout(resolve, 0));
@@ -34,8 +36,9 @@ const guardianRefusal = (status: number, statusText: string, code: string | null
   });
 
 const hotKeyRejection = async (message: string, code?: string): Promise<unknown> => {
+  jest.mocked(isIOS).mockReturnValueOnce(true);
   jest
-    .mocked(nativeSignHotDigest)
+    .mocked(HotKey.signWithHotKey)
     .mockRejectedValueOnce(Object.assign(new Error(message), code === undefined ? {} : { code }));
   return signHotDigest('tag:wrapped', '0x01').catch((error: unknown) => error);
 };

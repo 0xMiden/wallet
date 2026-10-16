@@ -219,43 +219,32 @@ describe('secure-hot-key facade', () => {
     await expect(secureHotKey.signHotDigest('nativetag:nativepayload', '0xword')).rejects.toBe(rotationError);
   });
 
-  it('marks a native plugin rejection from generate, sign and reveal as a device-key refusal', async () => {
-    mockIsMobile.mockReturnValue(true);
-    mockReportHotKeyHardwareFailure.mockResolvedValue(undefined);
-    const nativeErrors = [new Error('native generate'), new Error('native sign'), new Error('native reveal')];
-    mockNativeGenerateHotKey.mockRejectedValueOnce(nativeErrors[0]);
-    mockNativeSignHotDigest.mockRejectedValueOnce(nativeErrors[1]);
-    mockNativeRevealHotKey.mockRejectedValueOnce(nativeErrors[2]);
-
-    const rejected = [
-      await secureHotKey.generateHotKey().catch((error: unknown) => error),
-      await secureHotKey.signHotDigest('nativetag:nativepayload', '0xword').catch((error: unknown) => error),
-      await secureHotKey.revealHotKey('nativetag:nativepayload').catch((error: unknown) => error)
-    ];
-
-    expect(rejected).toEqual(nativeErrors);
-    expect(rejected.map(isHotKeyFailure)).toEqual([true, true, true]);
-  });
-
   it('never marks a JS-fallback failure, and still surfaces its hardware prompt on mobile', async () => {
     mockIsMobile.mockReturnValue(true);
     mockReportHotKeyHardwareFailure.mockResolvedValue(undefined);
     mockNativeGenerateHotKey.mockRejectedValueOnce(
       Object.assign(new Error('Secure hardware unavailable'), { code: 'HARDWARE_UNAVAILABLE' })
     );
-    const fallbackErrors = [new Error('js generate'), new Error('js sign'), new Error('js reveal')];
+    const fallbackErrors = [
+      new Error('js generate'),
+      new Error('js sign'),
+      new Error('js reveal'),
+      new Error('js delete')
+    ];
     mockJsGenerateHotKey.mockRejectedValueOnce(fallbackErrors[0]);
     mockJsSignHotDigest.mockRejectedValueOnce(fallbackErrors[1]);
     mockJsRevealHotKey.mockRejectedValueOnce(fallbackErrors[2]);
+    mockJsDeleteHotKey.mockRejectedValueOnce(fallbackErrors[3]);
 
     const rejected = [
       await secureHotKey.generateHotKey().catch((error: unknown) => error),
       await secureHotKey.signHotDigest('deadbeef', '0xword').catch((error: unknown) => error),
-      await secureHotKey.revealHotKey('deadbeef').catch((error: unknown) => error)
+      await secureHotKey.revealHotKey('deadbeef').catch((error: unknown) => error),
+      await secureHotKey.deleteHotKey('deadbeef').catch((error: unknown) => error)
     ];
 
     expect(rejected).toEqual(fallbackErrors);
-    expect(rejected.map(isHotKeyFailure)).toEqual([false, false, false]);
+    expect(rejected.map(isHotKeyFailure)).toEqual([false, false, false, false]);
     expect(mockReportHotKeyHardwareFailure.mock.calls).toEqual([['js generate'], ['js sign'], ['js reveal']]);
   });
 

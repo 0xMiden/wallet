@@ -1,13 +1,15 @@
 /** @jest-environment node */
+import { isIOS } from 'lib/platform';
 import { signHotDigest } from 'lib/secure-hot-key';
-import { signHotDigest as nativeSignHotDigest } from 'lib/secure-hot-key/nativePlugin';
+import { HotKey } from 'lib/secure-hot-key/hotKeyPlugin';
 import { isTelemetryEnabledAsync } from 'lib/settings/helpers';
 
 import { stopCrashReporting } from './crash';
 import { reportTransactionFailure } from './transaction-failure';
 
 jest.mock('lib/settings/helpers', () => ({ isTelemetryEnabledAsync: jest.fn() }));
-jest.mock('lib/secure-hot-key/nativePlugin', () => ({ signHotDigest: jest.fn() }));
+jest.mock('lib/platform', () => ({ ...jest.requireActual('lib/platform'), isIOS: jest.fn(() => false) }));
+jest.mock('lib/secure-hot-key/hotKeyPlugin', () => ({ HotKey: { signWithHotKey: jest.fn() } }));
 jest.mock('lib/secure-hot-key/jsFallback', () => ({}));
 
 const captured: string[] = [];
@@ -61,8 +63,9 @@ it('sends why a claim failed without the failure text, an account id or a URL', 
     stage: 'creating-proposal',
     error: new Error(`claim for ${account} failed`, { cause: refusal })
   });
+  jest.mocked(isIOS).mockReturnValueOnce(true);
   jest
-    .mocked(nativeSignHotDigest)
+    .mocked(HotKey.signWithHotKey)
     .mockRejectedValueOnce(
       Object.assign(new Error(`Authentication failed: ${account} ${url}`), { code: 'AUTH_FAILED' })
     );
