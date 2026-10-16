@@ -37,6 +37,9 @@ import {
   DEFAULT_ARC_RPCS,
   GATEWAY_MINTER,
   HARNESS_ARC_KEY_FILE,
+  IRIS_API_TESTNET,
+  L2_BRIDGE_IN_CHAINS,
+  L2_BRIDGE_IN_GAS,
   L2_PAYOUT_CHAINS,
   SUITES,
   USDCX_DECIMALS,
@@ -53,6 +56,8 @@ import {
   circleGet,
   composeGrep,
   harnessArcKey,
+  l2KeyGasProblem,
+  l2KeyUsdcProblem,
   pricedAmountFrom,
   probeAgglayerIndexer,
   probeConfigDocument,
@@ -60,7 +65,8 @@ import {
   run,
   suiteRetries,
   usdcxGrantProblem,
-  walletL2RpcUrl
+  walletL2RpcUrl,
+  writeHarnessArcKey
 } from './e2e-real.mjs';
 import * as harness from '../playwright/e2e/helpers/usdcx-constants';
 import * as wallet from '../src/lib/usdcx/constant';
@@ -1040,7 +1046,7 @@ describe('the usdcx suites refuse what would not apply, before any probe or buil
   const MALFORMED = `0x${'5a'.repeat(31)}zz`;
   const printed = (res: { stdout: string; stderr: string }) => `${res.stdout}${res.stderr}`;
 
-  it.each(['usdcx', 'usdcx-in', 'usdcx-burn', 'usdcx-burn-l2'])(
+  it.each(['usdcx', 'usdcx-in', 'usdcx-burn', 'usdcx-burn-l2', 'usdcx-in-l2'])(
     'refuses --network devnet for --suite %s',
     suite => {
       const res = runCli('--suite', suite, '--network', 'devnet', '--preflight-only');
@@ -1051,7 +1057,7 @@ describe('the usdcx suites refuse what would not apply, before any probe or buil
     35_000
   );
 
-  it.each(['usdcx', 'usdcx-in', 'usdcx-burn', 'usdcx-burn-l2'])(
+  it.each(['usdcx', 'usdcx-in', 'usdcx-burn', 'usdcx-burn-l2', 'usdcx-in-l2'])(
     'refuses --skip-build for --suite %s',
     suite => {
       const res = runCli({ E2E_ARC_PRIVATE_KEY: ARC_KEY }, '--suite', suite, '--skip-build', '--preflight-only');
@@ -1195,6 +1201,7 @@ describe('resolveOperatorInput on the usdcx suites', () => {
     ['usdcx', {}],
     ['usdcx-burn', {}],
     ['usdcx-burn-l2', {}],
+    ['usdcx-in-l2', {}],
     ['usdcx-in', {}],
     ['usdcx-in', { arcKey: ARC_KEY }],
     ['usdcx-in', { arcKey: 'ab'.repeat(32) }],
@@ -1279,7 +1286,8 @@ describe('the usdcx suites', () => {
     usdcx: 'USDCx round trip: burn to the harness Arc key, Circle payout, deposit back',
     'usdcx-in': 'USDCx bridge-in from a funded Arc key',
     'usdcx-burn': 'USDCx burn through the Send UI after a public faucet grant',
-    'usdcx-burn-l2': 'USDCx L2 burn through the Send UI after a public faucet grant'
+    'usdcx-burn-l2': 'USDCx L2 burn through the Send UI after a public faucet grant',
+    'usdcx-in-l2': 'USDCx L2 bridge-in from the harness key, forwarded by Circle to Arc'
   };
   let listed: ReturnType<typeof listUsdcxTests>;
 
@@ -1287,10 +1295,10 @@ describe('the usdcx suites', () => {
     listed = listUsdcxTests();
   }, 60_000);
 
-  it('find the four describes and six tests the contract names under playwright.usdcx.config.ts', () => {
+  it('find the five describes and eight tests the contract names under playwright.usdcx.config.ts', () => {
     expect(listed.errors).toEqual([]);
     expect([...new Set(listed.tests.map(test => test.split(' > ')[0]))].sort()).toEqual(Object.values(OWN).sort());
-    expect(listed.tests).toHaveLength(6);
+    expect(listed.tests).toHaveLength(8);
     expect(listed.tests.filter(test => test.startsWith(`${OWN['usdcx-burn']} > `))).toEqual([
       `${OWN['usdcx-burn']} > Guardian wallet publishes a burn, the faucet consumes it and Circle pays it out`,
       `${OWN['usdcx-burn']} > standard wallet publishes a burn, the faucet consumes it and Circle pays it out`
@@ -1298,6 +1306,10 @@ describe('the usdcx suites', () => {
     expect(listed.tests.filter(test => test.startsWith(`${OWN['usdcx-burn-l2']} > `))).toEqual([
       `${OWN['usdcx-burn-l2']} > Guardian wallet burns to Arbitrum Sepolia, the faucet consumes it, Circle pays it out and the wallet confirms it`,
       `${OWN['usdcx-burn-l2']} > Guardian wallet burns to Base Sepolia, the faucet consumes it, Circle pays it out and the wallet confirms it`
+    ]);
+    expect(listed.tests.filter(test => test.startsWith(`${OWN['usdcx-in-l2']} > `))).toEqual([
+      `${OWN['usdcx-in-l2']} > Guardian wallet receives a deposit from Arbitrum Sepolia that Circle forwards to Arc, then mints and claims it`,
+      `${OWN['usdcx-in-l2']} > Guardian wallet receives a deposit from Base Sepolia that Circle forwards to Arc, then mints and claims it`
     ]);
   });
 
@@ -1318,6 +1330,10 @@ describe('the usdcx suites', () => {
 
   it('takes an Arc key on usdcx-in alone', () => {
     expect(Object.keys(SUITES).filter(name => SUITES[name].arcKey)).toEqual(['usdcx-in']);
+  });
+
+  it('spends the harness key on the L2s in usdcx-in-l2 alone', () => {
+    expect(Object.keys(SUITES).filter(name => SUITES[name].spendsHarnessL2)).toEqual(['usdcx-in-l2']);
   });
 });
 
@@ -1545,6 +1561,47 @@ describe('the usdcx-burn-l2 copies are the ones the harness and the wallet use',
       expect(walletL2RpcUrl(chain.chainId, process.env)).toBe(chain.walletRpcUrl);
     }
   );
+});
+
+describe('the usdcx-in-l2 copies are the ones the harness and the wallet use', () => {
+  it("copies the harness's bridge-in chains in its order, each with the route the wallet takes", () => {
+    expect(L2_BRIDGE_IN_CHAINS).toEqual(
+      harness.L2_BRIDGE_IN_SOURCES.map(l2 => ({
+        name: l2.payout.networkName,
+        chainId: l2.payout.chainId,
+        domain: l2.source.domain,
+        usdc: l2.source.usdc,
+        tokenMessengerWithFees: l2.source.tokenMessengerWithFees,
+        rpcs: [...l2.payout.rpcUrls]
+      }))
+    );
+    for (const chain of L2_BRIDGE_IN_CHAINS) {
+      const route = wallet.getUsdcxExecutorSource(chain.chainId);
+      expect([route.domain, route.usdc, route.tokenMessengerWithFees, route.irisApi]).toEqual([
+        chain.domain,
+        chain.usdc,
+        chain.tokenMessengerWithFees,
+        IRIS_API_TESTNET
+      ]);
+    }
+    expect(L2_BRIDGE_IN_GAS).toBe(harness.L2_BRIDGE_IN_GAS);
+  });
+
+  it('names the chain, the address and the minimum in each top-up message', () => {
+    const [base] = L2_BRIDGE_IN_CHAINS;
+    const address = '0x4D4A180C637a71FCB9b5BD1186C8ce23C40EBa81';
+    expect(l2KeyGasProblem(base, address, 0n, 6_000_000n)).toBe(
+      `top up the key on Base Sepolia: ${address} holds 0 ETH, below the 0.000012 ETH one bridge-in needs ` +
+        `(1000000 gas at twice the 0.006 gwei gas price); send Base Sepolia ETH to ${address}`
+    );
+    expect(l2KeyGasProblem(base, address, 12_000_000_000_000n, 6_000_000n)).toBeUndefined();
+    expect(l2KeyUsdcProblem(base, address, 50_000n)).toBe(
+      `top up the key on Base Sepolia: ${address} holds 0.05 USDC, below the 0.101 USDC one bridge-in takes ` +
+        "(0.001 deposited and twice Circle's forward fee, up to 0.05 each); a green usdcx-burn-l2 run pays it about " +
+        '0.99 USDC there'
+    );
+    expect(l2KeyUsdcProblem(base, address, 101_000n)).toBeUndefined();
+  });
 });
 
 describe('the usdcx preflight', () => {
@@ -1854,6 +1911,82 @@ describe('the usdcx preflight', () => {
     const res = preflight('usdcx', DOCUMENT, { E2E_ARC_PRIVATE_KEY: '0x01' });
     expect(res.status).toBe(0);
   }, 35_000);
+
+  const keyedHome = async () => {
+    const home = freshHome();
+    await writeHarnessArcKey(path.join(home, '.miden-e2e', 'arc-keys', 'harness.json'), ARC_KEY);
+    return home;
+  };
+
+  it("asks usdcx-in-l2 the Arc deposit questions, then on each L2 the chain, a write endpoint, the fee entry point, the key's ETH and USDC, and Iris", async () => {
+    const { address } = privateKeyToAccount(ARC_KEY);
+    const res = preflight('usdcx-in-l2', DOCUMENT, { HOME: await keyedHome() });
+    expect(res.output).toContain('✓ preflight passed (19 checks)');
+    expect(res.status).toBe(0);
+    expect(
+      missing(
+        res.requests,
+        L2_BRIDGE_IN_CHAINS.flatMap(chain => [
+          `${chain.rpcs[0]} eth_chainId []`,
+          `${chain.rpcs[0]} eth_sendRawTransaction ["0x00"]`,
+          `${chain.rpcs[0]} eth_getCode ["${chain.tokenMessengerWithFees}","latest"]`,
+          `${chain.rpcs[0]} eth_getBalance ["${address}","latest"]`,
+          `${chain.rpcs[0]} eth_gasPrice []`,
+          `${IRIS_API_TESTNET}/v2/burn/USDC/fees/${chain.domain}/26`
+        ])
+      )
+    ).toEqual([]);
+    expect(res.requests).not.toContain(XRESERVE_CALLS.gatewayMinter);
+    expect(res.output).toContain(address);
+    expect(res.output).not.toContain(ARC_KEY.slice(2));
+  }, 35_000);
+
+  it('fails each L2 key check with a top-up message when the key holds no ETH there, before any build', async () => {
+    const { address } = privateKeyToAccount(ARC_KEY);
+    const res = preflight('usdcx-in-l2', DOCUMENT, { HOME: await keyedHome() }, { l2Wei: '0x0' });
+    expect(failedChecks(res.output)).toEqual(['Base Sepolia key', 'Arbitrum Sepolia key']);
+    expect(res.output).toContain(`top up the key on Base Sepolia: ${address} holds 0 ETH, below the 0.000012 ETH`);
+    expect(res.output).toContain(`top up the key on Arbitrum Sepolia: ${address} holds 0 ETH`);
+    expect(res.status).toBe(1);
+    expect(res.requests).not.toContain('SPAWN');
+  }, 35_000);
+
+  it('fails the L2 key checks when the key holds too little USDC there', async () => {
+    const res = preflight('usdcx-in-l2', DOCUMENT, { HOME: await keyedHome() }, { l2UsdcUnits: '50000' });
+    expect(failedChecks(res.output)).toEqual(['Base Sepolia key', 'Arbitrum Sepolia key']);
+    expect(res.output).toContain('holds 0.05 USDC, below the 0.101 USDC one bridge-in takes');
+  }, 35_000);
+
+  it('fails a chain whose fee entry point has no code', async () => {
+    const res = preflight(
+      'usdcx-in-l2',
+      DOCUMENT,
+      { HOME: await keyedHome() },
+      { l2NoCode: ['0x8745d906d67c346e5eb1aeeed38eb87f34df0c0a'] }
+    );
+    expect(failedChecks(res.output)).toEqual([
+      'Base Sepolia bridge-in contracts',
+      'Arbitrum Sepolia bridge-in contracts'
+    ]);
+  }, 35_000);
+
+  // A refusal would otherwise fail deposit_submit only after the build and the wallet's creation.
+  it('fails a chain none of whose endpoints takes raw transactions, naming each refusal', async () => {
+    const res = preflight(
+      'usdcx-in-l2',
+      DOCUMENT,
+      { HOME: await keyedHome() },
+      {
+        l2RawTransaction: { code: -32601, message: 'the method eth_sendRawTransaction does not exist/is not available' }
+      }
+    );
+    expect(failedChecks(res.output)).toEqual(['Base Sepolia write endpoint', 'Arbitrum Sepolia write endpoint']);
+    expect(res.output).toContain(
+      'no endpoint takes raw transactions: base-sepolia-rpc.publicnode.com refused eth_sendRawTransaction'
+    );
+    expect(res.status).toBe(1);
+    expect(res.requests).not.toContain('SPAWN');
+  }, 35_000);
 });
 
 describe('childEnvironments', () => {
@@ -2154,6 +2287,20 @@ describe('a usdcx run', () => {
     expect(res.output).toContain('Arc key  harness: none yet; the first real usdcx or usdcx-burn run creates');
     expect(existsSync(path.join(res.home, '.miden-e2e'))).toBe(false);
     expect(res.status).toBe(0);
+  }, 35_000);
+
+  // A full run (not --preflight-only, which never creates a key) under the stub, which answers every request and
+  // stands in for the build and the test: the refusal comes before either.
+  it('refuses usdcx-in-l2 with no harness key, naming how to make and fund one, and creates none', () => {
+    const home = freshHome();
+    const res = stubbed(['--suite', 'usdcx-in-l2'], DOCUMENT, { HOME: home });
+    expect(res.status).toBe(1);
+    expect(res.stderr).toContain(
+      '--suite usdcx-in-l2 deposits from the harness key on Base Sepolia and Arbitrum Sepolia, and there is none ' +
+        'yet: run --suite usdcx-burn-l2 first'
+    );
+    expect(existsSync(path.join(home, '.miden-e2e', 'arc-keys', 'harness.json'))).toBe(false);
+    expect(res.requests).not.toContain('SPAWN');
   }, 35_000);
 });
 
