@@ -69,6 +69,16 @@ const NON_TERMINAL_WITHDRAW_PHASES = new Set(['redeeming', 'delivering']);
 /** Shown when a restored row is refused: its EVM owner and amount are unverified. */
 const RESTORED_WITHDRAW_UNVERIFIABLE = 'Restored from a backup - this withdrawal could not be verified.';
 
+/** The review screen translates these refusal keys; a saved row error and an Activity retry show the sentence. */
+const REFUSAL_SENTENCES = new Map([
+  ['earnWithdrawRefresh', 'The balance or quote changed - start a new withdrawal to review it again.'],
+  ['earnWithdrawQuoteUnavailable', 'A withdrawal quote is unavailable for this amount - try again later.'],
+  ['earnWithdrawAboveAvailable', 'The withdrawal amount is above the available balance - start a new withdrawal.'],
+  ['earnWithdrawPositive', 'The withdrawal amount must be greater than zero.'],
+  ['earnWithdrawPrecision', 'The withdrawal amount has more decimal places than the token supports.'],
+  ['earnWithdrawInProgress', 'Another withdrawal from this position is still in progress - wait for it to finish.']
+]);
+
 export interface GaslessEarnWithdrawalArgs {
   midenAccountPublicKey: string;
   evmAddress: string;
@@ -407,9 +417,10 @@ async function submitEarnWithdrawal(
     } catch (error) {
       if (!executionPermitted && context.isCurrent()) {
         const markNotSent = deps.markNotSent ?? markEarnWithdrawNotSent;
+        const message = error instanceof Error ? error.message : String(error);
         await markNotSent(
           txId,
-          error instanceof Error ? error.message : String(error),
+          REFUSAL_SENTENCES.get(message) ?? message,
           expected,
           preparedExecution,
           () => context.isCurrent() && !executionPermitted
@@ -814,6 +825,15 @@ function retryDecimals(chainId: number, underlying: string, sourceDecimals: numb
 
 /** Retry with a new intent and attempt identity while keeping the existing history row. */
 export async function resubmitEarnWithdrawal(txId: string, deps: ResubmitDeps = {}): Promise<void> {
+  try {
+    await resubmitSource(txId, deps);
+  } catch (error) {
+    const sentence = error instanceof Error ? REFUSAL_SENTENCES.get(error.message) : undefined;
+    throw sentence === undefined ? error : new Error(sentence, { cause: error });
+  }
+}
+
+async function resubmitSource(txId: string, deps: ResubmitDeps): Promise<void> {
   const row = await Repo.transactions.where({ id: txId }).first();
   if (row?.type !== 'earn-withdraw') throw new Error(`Transaction ${txId} is not an earn-withdraw`);
   if (row.restoredFromBackup) throw new Error(RESTORED_WITHDRAW_UNVERIFIABLE);
