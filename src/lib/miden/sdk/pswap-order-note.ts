@@ -38,8 +38,29 @@ interface LineageTip {
   depth: number;
 }
 
-const read = <T>(label: string, run: (rpc: RpcClient) => Promise<T>): Promise<T> =>
-  withRpcTimeout(() => readWithOwnRpcClient(run), label, { timeoutMs: PSWAP_ORDER_NOTE_READ_TIMEOUT_MS, retries: 0 });
+/**
+ * Keys with a node read still unsettled in this realm. The timeout ends the caller's wait, not the read, and a read's
+ * client is freed only once it settles, so against a node that accepts and never answers every later poll parked one
+ * more client: a key with a read out refuses the next until it settles, at most one per note or order (#1487).
+ */
+const unsettledReads = new Set<string>();
+
+function read<T>(key: string, label: string, run: (rpc: RpcClient) => Promise<T>): Promise<T> {
+  if (unsettledReads.has(key)) return Promise.reject(new Error(`${label}: the previous node read has not settled`));
+  unsettledReads.add(key);
+  const settled = () => {
+    unsettledReads.delete(key);
+  };
+  let pending: Promise<T>;
+  try {
+    pending = readWithOwnRpcClient(run);
+  } catch (error) {
+    settled();
+    return Promise.reject(error);
+  }
+  void pending.then(settled, settled);
+  return withRpcTimeout(() => pending, label, { timeoutMs: PSWAP_ORDER_NOTE_READ_TIMEOUT_MS, retries: 0 });
+}
 
 /**
  * The PSWAP fields of `note` when it is a PSWAP note under `noteId` whose storage names `creatorAccountId` as its
@@ -74,8 +95,8 @@ const fetchedEntry = (fetched: FetchedNote[], noteId: string): FetchedNote | und
   fetched.find(candidate => candidate.noteId.toString() === noteId);
 
 /** The block that spent `note` at or after `fromBlock`; undefined while it is unspent. */
-const spendOf = (note: Note, fromBlock: number, label: string): Promise<number | undefined> =>
-  read(label, rpc => rpc.getNullifierCommitHeight(note.nullifier(), fromBlock));
+const spendOf = (key: string, note: Note, fromBlock: number, label: string): Promise<number | undefined> =>
+  read(key, label, rpc => rpc.getNullifierCommitHeight(note.nullifier(), fromBlock));
 
 /**
  * What the node says about a public PSWAP note this account created: `open`, with the full note a cancel by note
@@ -84,11 +105,12 @@ const spendOf = (note: Note, fromBlock: number, label: string): Promise<number |
  * order, such as one that recovered the account through Guardian, can still see and cancel it (#1487).
  */
 export async function readPswapOrderNote(noteId: string, creatorAccountId: string): Promise<PswapOrderNoteRead> {
-  const fetched = await read('PSWAP order note', rpc => rpc.getNotesById([NoteId.fromHex(noteId)]));
+  const key = `note:${noteId}`;
+  const fetched = await read(key, 'PSWAP order note', rpc => rpc.getNotesById([NoteId.fromHex(noteId)]));
   const entry = fetchedEntry(fetched, noteId);
   const note = entry?.note;
   if (!entry || !note || !ownPswapFields(note, noteId, creatorAccountId)) return { kind: 'absent' };
-  const spentAt = await spendOf(note, entry.inclusionProof.location().blockNum(), 'PSWAP order note nullifier');
+  const spentAt = await spendOf(key, note, entry.inclusionProof.location().blockNum(), 'PSWAP order note nullifier');
   return spentAt === undefined ? { kind: 'open', note } : { kind: 'spent' };
 }
 
@@ -109,11 +131,12 @@ const isNextRound = (parent: PswapFields, next: PswapFields): boolean =>
  * so it is in the spending block, under the tip's own tag (a PSWAP remainder carries its parent's tag over).
  */
 async function remainderOf(
+  key: string,
   tip: LineageTip,
   spentAt: number,
   creatorAccountId: string
 ): Promise<LineageTip | undefined> {
-  const committed = await read('PSWAP remainder search', rpc =>
+  const committed = await read(key, 'PSWAP remainder search', rpc =>
     rpc.syncNotes(spentAt - 1, spentAt, [tip.note.metadata().tag()])
   );
   const candidateIds = [
@@ -126,7 +149,7 @@ async function remainderOf(
   ].filter(noteId => noteId !== tip.noteId);
   if (candidateIds.length === 0) return undefined;
   if (candidateIds.length > MAX_SUCCESSOR_CANDIDATES) throw new Error('Too many notes to search for a PSWAP remainder');
-  const fetched = await read('PSWAP remainder candidates', rpc =>
+  const fetched = await read(key, 'PSWAP remainder candidates', rpc =>
     rpc.getNotesById(candidateIds.map(noteId => NoteId.fromHex(noteId)))
   );
   const remainders = new Map<string, LineageTip>();
@@ -152,7 +175,8 @@ export async function readPswapOrderLineage(
   orderId: string,
   creatorAccountId: string
 ): Promise<PswapOrderLineageRead> {
-  const fetched = await read('PSWAP order note', rpc => rpc.getNotesById([NoteId.fromHex(orderNoteId)]));
+  const key = `order:${orderNoteId}`;
+  const fetched = await read(key, 'PSWAP order note', rpc => rpc.getNotesById([NoteId.fromHex(orderNoteId)]));
   const entry = fetchedEntry(fetched, orderNoteId);
   const note = entry?.note;
   const fields = note && ownPswapFields(note, orderNoteId, creatorAccountId);
@@ -166,7 +190,7 @@ export async function readPswapOrderLineage(
     depth: 0
   };
   for (;;) {
-    const spentAt = await spendOf(tip.note, tip.block, 'PSWAP lineage nullifier');
+    const spentAt = await spendOf(key, tip.note, tip.block, 'PSWAP lineage nullifier');
     if (spentAt === undefined) {
       return {
         kind: 'open',
@@ -177,7 +201,7 @@ export async function readPswapOrderLineage(
       };
     }
     if (tip.depth >= MAX_LINEAGE_ROUNDS) throw new Error('PSWAP lineage is deeper than one read follows');
-    const remainder = await remainderOf(tip, spentAt, creatorAccountId);
+    const remainder = await remainderOf(key, tip, spentAt, creatorAccountId);
     if (!remainder) return { kind: 'finished' };
     tip = remainder;
   }
