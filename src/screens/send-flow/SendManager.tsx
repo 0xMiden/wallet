@@ -22,6 +22,8 @@ import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isMobile } from 'lib/platform';
 import { isScanAvailable, scanQRCode } from 'lib/qr';
+import { isNewTransferTokenBlocked } from 'lib/remote-config/token-availability';
+import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { useWalletStore } from 'lib/store';
 import { useRouteDwell } from 'lib/telemetry/use-route-dwell';
 import { usdcxPayoutFeeShortfall } from 'lib/usdcx/constant';
@@ -126,6 +128,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
   const { pathname } = useLocation();
   const allAccounts = useAllAccounts();
   const { publicKey } = useAccount();
+  const bridgeConfig = useBridgeConfigSnapshot();
 
   const { contacts: addressBookContacts } = useFilteredContacts();
 
@@ -480,7 +483,8 @@ export const SendManager: React.FC<SendManagerProps> = ({
     if (isLoading || balancesLoading || !hiddenTokensLoaded || !publicKey || !balanceData) return [];
     if (hasNoFeeAsset(balanceData, nativeFaucetId, verificationBaseFee)) return [];
     return balanceData.filter(row => {
-      if (isHidden(row.tokenId) || !hasKnownScale(row.metadata)) return false;
+      if (isHidden(row.tokenId) || !hasKnownScale(row.metadata) || isNewTransferTokenBlocked(bridgeConfig, row.tokenId))
+        return false;
       if (usdcxOnly && !isUsdcxWithdrawalAvailable(row.tokenId)) return false;
       const available =
         row.tokenId === nativeFaucetId
@@ -497,7 +501,8 @@ export const SendManager: React.FC<SendManagerProps> = ({
     nativeFaucetId,
     verificationBaseFee,
     isHidden,
-    usdcxOnly
+    usdcxOnly,
+    bridgeConfig
   ]);
   // Balances and prices refresh on timers, so the preselection is applied once per id and a
   // refresh only rebuilds whichever token is in the form; re-applying it undid the user's pick.
@@ -515,7 +520,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
     if (!balanceData) return;
     if (preselectedTokenId && appliedPreselectionRef.current !== preselectedTokenId) {
       const match = balanceData.find(t => t.tokenId === preselectedTokenId);
-      if (match) {
+      if (match && !isNewTransferTokenBlocked(bridgeConfig, match.tokenId)) {
         appliedPreselectionRef.current = preselectedTokenId;
         automaticTokenIdRef.current = null;
         setValue('token', uiTokenFromBalance(match, tokenPrices));
@@ -523,6 +528,12 @@ export const SendManager: React.FC<SendManagerProps> = ({
       }
     }
     let current = getValues('token');
+    if (current && isNewTransferTokenBlocked(bridgeConfig, current.id)) {
+      automaticTokenIdRef.current = null;
+      setValue('token', undefined);
+      setValue('amount', '');
+      current = undefined;
+    }
     if (
       current &&
       automaticTokenIdRef.current === current.id &&
@@ -576,7 +587,8 @@ export const SendManager: React.FC<SendManagerProps> = ({
     allTokensBaseMetadata,
     nativeFaucetId,
     setValue,
-    getValues
+    getValues,
+    bridgeConfig
   ]);
 
   // Clear a token that the selected destination cannot receive.
@@ -724,7 +736,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
   // A cross-chain send carries its network + route along, so the review page
   // can quote the Epoch output and pick the right submit path.
   const goToReview = useCallback(() => {
-    if (!token || !amount || !recipientAddress) return;
+    if (!token || !amount || !recipientAddress || isNewTransferTokenBlocked(bridgeConfig, token.id)) return;
     // The one way into review, so the burn's cap is checked here too: an amount accepted on the Amount step
     // before the measured reserve landed, or under a smaller one, goes back there with the reason shown.
     if (burnFeeTarget && (burnFeeUnmeasured || parseFloat(amount) > spendableBalance)) {
@@ -759,7 +771,8 @@ export const SendManager: React.FC<SendManagerProps> = ({
     spendableBalance,
     setError,
     currentStep,
-    goBack
+    goBack,
+    bridgeConfig
   ]);
 
   // From the Amount screen: a cross-chain send picks a route next; a same-chain

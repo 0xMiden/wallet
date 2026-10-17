@@ -362,15 +362,16 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     setSlowStatus('idle');
     setSlowError(null);
   }, [resetEpoch]);
-  const { token, selectToken } = useDepositToken(clearTokenState);
+  const bridgeConfig = useBridgeConfigSnapshot();
+  const epochUsdcSunset = bridgeConfig.network === 'testnet';
+  const { token, selectToken } = useDepositToken(clearTokenState, epochUsdcSunset ? 'CIRCLE_USDC' : 'USDC');
   const [tokenDrawerOpen, setTokenDrawerOpen] = useState(false);
   const [networkDrawerOpen, setNetworkDrawerOpen] = useState(false);
   const [switchDrawerOpen, setSwitchDrawerOpen] = useState(false);
-  const [route, setRoute] = useState<BridgeRoute>('epoch');
+  const [route, setRoute] = useState<BridgeRoute>(epochUsdcSunset ? 'usdcx' : 'epoch');
   // The one chain picked in the network drawer. Each route resolves its own chain from it: the picked chain when
   // that chain offers the route, else the first that does.
   const [pickedChainId, setPickedChainId] = useState<number>();
-  const bridgeConfig = useBridgeConfigSnapshot();
   const usdcxSourceNetworks: readonly BridgeNetwork[] = listUsdcxSourceChains().flatMap(entry => {
     const network = getBridgeNetworkByChainId(entry.chain.id);
     return network ? [network] : [];
@@ -454,11 +455,12 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   // The document decides the token the screen opens on. A document that names no Epoch USDC but names a USDCx
   // source (mainnet) opens on Circle USDC, not on a token it does not name. A token the user picked stands.
   useEffect(() => {
-    if (tokenChosen.current || token !== 'USDC' || usdcPending || usdcxPending) return;
-    if (evmUsdc !== null || !usdcxAvailable || !usdcxSource) return;
+    if (token !== 'USDC' || (!epochUsdcSunset && (tokenChosen.current || usdcPending || usdcxPending))) return;
+    if (!epochUsdcSunset && (evmUsdc !== null || !usdcxAvailable || !usdcxSource)) return;
+    if (confirming.current) return;
     selectToken('CIRCLE_USDC');
     setRoute('usdcx');
-  }, [token, usdcPending, usdcxPending, evmUsdc, usdcxAvailable, usdcxSource, selectToken]);
+  }, [token, usdcPending, usdcxPending, evmUsdc, usdcxAvailable, usdcxSource, selectToken, epochUsdcSunset]);
   // The status page is the one step that leads to no route card these grey out.
   const routesAhead = activeRoute?.name !== ReceiveStep.ShowBridgePageStatus;
   const fastAvailability = useFeatureAvailability('fastBridgeIn', { hold: routesAhead, chainId: evmUsdcChainId });
@@ -647,13 +649,13 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
 
   const handleTokenSelect = useCallback(
     (next: DepositToken) => {
-      if (confirming.current) return;
+      if (confirming.current || (epochUsdcSunset && next === 'USDC')) return;
       tokenChosen.current = true;
       setTokenDrawerOpen(false);
       selectToken(next);
       setRoute(current => routeAfterTokenChange(next, current));
     },
-    [selectToken]
+    [selectToken, epochUsdcSunset]
   );
 
   const handleOpenSwitchDrawer = useCallback(() => {
@@ -1214,7 +1216,8 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   // Null while the balance loads or after its read failed, which the form shows: either way Continue waits.
   const heldUnits = selectedBalance.value;
   const amountExceedsBalance = typedUnits !== null && heldUnits !== null && typedUnits > heldUnits;
-  const setupReady = typedUnits !== null && heldUnits !== null && !amountExceedsBalance;
+  const retiredTokenSelected = epochUsdcSunset && token === 'USDC';
+  const setupReady = !retiredTokenSelected && typedUnits !== null && heldUnits !== null && !amountExceedsBalance;
 
   // Fast (Epoch) only bridges USDC today: ETH-fast needs WETH wrapping, which is not built.
   // The quote must be for the amount on screen: it lags the input by the debounce, and
@@ -1288,6 +1291,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     !usdcxFeeShortfall &&
     slowStatus !== 'signing';
   const canConfirmRoute = (() => {
+    if (retiredTokenSelected) return false;
     switch (route) {
       case 'epoch':
         return fastReady;
@@ -1400,7 +1404,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   // error) so the Review isn't a dead-end — handleConfirm re-quotes to recover.
   const fastRetryable =
     route === 'epoch' && token === 'USDC' && epochFlow === 'evm-to-miden' && epochStatus === 'failed';
-  const reviewCanConfirm = (canConfirmRoute || fastRetryable) && !submitting && !submitted;
+  const reviewCanConfirm = !retiredTokenSelected && (canConfirmRoute || fastRetryable) && !submitting && !submitted;
   // Relabel Confirm → Retry after a failed Fast attempt (the tap re-quotes).
   const reviewConfirmLabel = fastRetryable ? t('retry') : undefined;
 
@@ -1428,7 +1432,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
 
   const handleConfirm = useCallback(async () => {
     // A tap that lands once a row exists (Review is still on screen while the Navigator leaves it) changes nothing.
-    if (confirming.current) return;
+    if (confirming.current || retiredTokenSelected) return;
     // Fast (Epoch): after a failed attempt the store is 'failed' and
     // executeEVMToMiden requires 'quoted', so re-quote to recover instead of
     // dead-ending until the amount changes. Once re-quoted, the next tap submits.
@@ -1535,6 +1539,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     navigateTo,
     outputAmount,
     reportDeposit,
+    retiredTokenSelected,
     requote,
     route,
     sourceChainId,
@@ -1705,7 +1710,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         // A token is offered only where the document names a route for it: ETH needs an AggLayer chain, the Epoch
         // test USDC needs `epoch.tokens.USDC`. A mainnet document names neither, so Circle's USDC is the one row.
         ethBalance={agglayerChain ? ethBalance.formatted : undefined}
-        usdcBalance={evmUsdc ? usdcBalance.formatted : undefined}
+        usdcBalance={!epochUsdcSunset && evmUsdc ? usdcBalance.formatted : undefined}
         usdcLabel={usdcLabel}
         ethLoading={ethBalance.loading}
         usdcLoading={usdcBalance.loading}

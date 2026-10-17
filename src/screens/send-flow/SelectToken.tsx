@@ -12,6 +12,7 @@ import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { priceSymbolFor } from 'lib/miden/swap/tokens';
 import { listedFiatValue } from 'lib/prices';
+import { isNewTransferTokenBlocked } from 'lib/remote-config/token-availability';
 import { midenTokenLabel } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { useWalletStore } from 'lib/store';
@@ -50,12 +51,14 @@ export const SelectTokenDrawer: React.FC<SelectTokenDrawerProps> = ({
   const { data: balanceData = [] } = useAllBalances(publicKey, allTokensBaseMetadata);
   const tokenPrices = useWalletStore(s => s.tokenPrices);
   const { isHidden } = useHiddenTokens(publicKey);
-  const bridgeConfig = useBridgeConfigSnapshot({ load: false });
+  const bridgeConfig = useBridgeConfigSnapshot();
   const [searchQuery, setSearchQuery] = useState('');
 
   const filteredBalances = useMemo(() => {
     // Hidden from Home, hidden here; the token's own page still sends it, preselected by id.
-    const visible = balanceData.filter(b => !isHidden(b.tokenId));
+    const visible = balanceData.filter(
+      b => !isHidden(b.tokenId) && !isNewTransferTokenBlocked(bridgeConfig, b.tokenId)
+    );
     if (!searchQuery.trim()) return visible;
     const query = searchQuery.toLowerCase();
     return visible.filter(

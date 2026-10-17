@@ -43,6 +43,7 @@ import { NoteTypeEnum } from 'lib/miden/types';
 import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { isExtension } from 'lib/platform';
 import type { BridgeFeature } from 'lib/remote-config/availability';
+import { isNewTransferTokenBlocked } from 'lib/remote-config/token-availability';
 import { evmUsdcLabel, midenTokenLabel } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot, useFeatureAvailability } from 'lib/remote-config/use-feature-availability';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
@@ -622,7 +623,9 @@ export const ReviewTransaction: React.FC = () => {
       !route ||
       (isUsdcxBurn ? !isUsdcxBridgeNetwork(network) : !isEpochBridgeNetwork(network)) ||
       (isUsdcxBurn && !!token && !isUsdcxWithdrawalAvailable(token.id)));
-  const tokenInvalid = !!balanceData && (!token || parseFloat(amount) > token.balance);
+  const tokenInvalid =
+    isNewTransferTokenBlocked(bridgeConfig, tokenId) ||
+    (!!balanceData && (!token || parseFloat(amount) > token.balance));
   if (paramsInvalid || bridgeParamsInvalid || tokenInvalid) {
     return <Redirect to="/send" />;
   }

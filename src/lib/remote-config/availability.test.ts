@@ -139,7 +139,7 @@ it('requires the shared allocator only for Epoch operations', () => {
 });
 
 it.each<[string, DerivedPatch, BridgeFeature[]]>([
-  ['the testnet output faucet', { epoch: { midenUsdcFaucet: ABSENT } }, ['earnDeposit', 'fastBridgeIn']],
+  ['the testnet output faucet', { epoch: { midenUsdcFaucet: ABSENT } }, ['fastBridgeIn']],
   ['the Epoch EVM token', { epoch: { evmUsdc: ABSENT } }, ['fastBridgeOut', 'fastBridgeIn']],
   ['the service market', { epoch: { market: ABSENT } }, ['earnDeposit']],
   ['the L1 contract', { agglayer: { l1BridgeCode: ABSENT } }, ['bridgeIn']],
@@ -159,7 +159,7 @@ it('refuses an empty registry even when the account exists', () => {
 it.each<[string, DerivedPatch, BridgeFeature[]]>([
   ['allocator health', { epoch: { allocator: ERROR } }, ['earnDeposit', 'fastBridgeOut', 'fastBridgeIn']],
   ['indexer health', { agglayer: { indexer: ERROR } }, ['bridgeIn']],
-  ['the output faucet', { epoch: { midenUsdcFaucet: ERROR } }, ['earnDeposit', 'fastBridgeIn']],
+  ['the output faucet', { epoch: { midenUsdcFaucet: ERROR } }, ['fastBridgeIn']],
   ['the EVM token', { epoch: { evmUsdc: ERROR } }, ['fastBridgeOut', 'fastBridgeIn']],
   ['the service market', { epoch: { market: ERROR } }, ['earnDeposit']],
   ['the L1 contract', { agglayer: { l1BridgeCode: ERROR } }, ['bridgeIn']],
@@ -228,7 +228,8 @@ describe('the E2E collateral faucet', () => {
   it('replaces the document output and its probe', () => {
     expect(featureAvailability('earnDeposit', noFaucet(), collateral)).toEqual(AVAILABLE);
     expect(featureAvailability('fastBridgeIn', noFaucet(), collateral)).toEqual(AVAILABLE);
-    expect(featureAvailability('earnDeposit', noFaucet(), NO_OVERRIDES)).toMatchObject({ reason: 'not-configured' });
+    expect(featureAvailability('earnDeposit', noFaucet(), NO_OVERRIDES)).toEqual(AVAILABLE);
+    expect(featureAvailability('fastBridgeIn', noFaucet(), NO_OVERRIDES)).toMatchObject({ reason: 'not-configured' });
   });
   it('reads the installed override only for E2E', () => {
     const saved = process.env.MIDEN_E2E_TEST;

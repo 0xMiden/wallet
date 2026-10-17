@@ -189,6 +189,7 @@ const search = () => screen.getByTestId('send-token-search') as HTMLInputElement
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
   mockUseAccount.mockReturnValue({ publicKey: 'pk-abc' });
   mockUseAllTokensBaseMetadata.mockReturnValue({});
   mockUseAllBalances.mockReturnValue({ data: [] });
@@ -450,52 +451,42 @@ describe('SelectTokenDrawer', () => {
   });
 });
 
-describe('SelectTokenDrawer testnet bridge USDC label', () => {
-  const BRIDGE_USDC: Balance = {
+describe('SelectTokenDrawer Testnet Epoch USDC sunset', () => {
+  const LEGACY = {
     tokenId: TEST_MIDEN_USDC_FAUCET,
     metadata: { symbol: 'USDC', name: 'USDC', decimals: 6 },
     balance: 3,
     fiatPrice: 1
   };
-
-  it('names the row by the testnet label, keeps its USDC logo and hands the amount step the chain symbol', () => {
+  it('removes the legacy faucet from new send choices while keeping other assets', () => {
     mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
-    setBalances([BRIDGE_USDC]);
-    const { onSelect } = renderDrawer();
-
-    const row = screen.getByTestId('send-token-USDC');
-    expect(within(row).getByText('Test Epoch USDC')).toBeInTheDocument();
-    expect(within(row).getByText('3.00 Test Epoch USDC')).toBeInTheDocument();
-    expect(within(row).getByTestId('token-logo')).toHaveAttribute('data-symbol', 'USDC');
-
-    fireEvent.click(row);
-    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: TEST_MIDEN_USDC_FAUCET, name: 'USDC' }));
-  });
-
-  it('finds the row by its label', () => {
-    mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
-    setBalances([BRIDGE_USDC, BTC]);
+    setBalances([LEGACY, BTC]);
     renderDrawer();
-
-    fireEvent.change(search(), { target: { value: 'epoch' } });
-
-    expect(screen.getByTestId('send-token-USDC')).toBeInTheDocument();
-    expect(screen.queryByTestId('send-token-BTC')).not.toBeInTheDocument();
-  });
-
-  it('finds the row by its label once the bridge config publishes under a search already typed', () => {
-    setBalances([BRIDGE_USDC, BTC]);
-    renderDrawer();
-    fireEvent.change(search(), { target: { value: 'test epoch' } });
     expect(screen.queryByTestId('send-token-USDC')).not.toBeInTheDocument();
-
+    expect(screen.getByTestId('send-token-BTC')).toBeInTheDocument();
+  });
+  it('cannot bring the retired faucet back through search', () => {
+    mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+    setBalances([LEGACY]);
+    renderDrawer();
+    fireEvent.change(search(), { target: { value: 'epoch' } });
+    expect(screen.queryByTestId('send-token-USDC')).not.toBeInTheDocument();
+  });
+  it('holds legacy choices while config loads and after it arrives', () => {
+    mockBridgeSnapshot = { ...TEST_BRIDGE_CONFIG_SNAPSHOT, config: null, derived: null, status: 'loading' };
+    setBalances([LEGACY]);
+    renderDrawer();
+    expect(screen.queryByTestId('send-token-USDC')).not.toBeInTheDocument();
     act(() => {
       mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
       publishMockBridgeSnapshot();
     });
-
-    const row = screen.getByTestId('send-token-USDC');
-    expect(within(row).getByText('Test Epoch USDC')).toBeInTheDocument();
-    expect(screen.queryByTestId('send-token-BTC')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('send-token-USDC')).not.toBeInTheDocument();
+  });
+  it('leaves the same asset available off Testnet', () => {
+    mockBridgeSnapshot = { ...TEST_BRIDGE_CONFIG_SNAPSHOT, network: 'devnet' };
+    setBalances([LEGACY]);
+    renderDrawer();
+    expect(screen.getByTestId('send-token-USDC')).toBeInTheDocument();
   });
 });

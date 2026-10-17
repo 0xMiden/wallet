@@ -285,7 +285,15 @@ jest.mock('./EvmBridgeDepositStatus', () => ({
 }));
 
 jest.mock('./EvmBridgeTokenDrawer', () => ({
-  EvmBridgeTokenDrawer: ({ open, onSelect }: { open: boolean; onSelect: (token: string) => void }) =>
+  EvmBridgeTokenDrawer: ({
+    open,
+    onSelect,
+    usdcBalance
+  }: {
+    open: boolean;
+    onSelect: (token: string) => void;
+    usdcBalance?: string;
+  }) =>
     open ? (
       <div>
         <button data-testid="pick-eth" onClick={() => onSelect('ETH')}>
@@ -294,7 +302,11 @@ jest.mock('./EvmBridgeTokenDrawer', () => ({
         <button data-testid="pick-circle-usdc" onClick={() => onSelect('CIRCLE_USDC')}>
           USDC
         </button>
-        <button data-testid="pick-usdc" onClick={() => onSelect('USDC')}>
+        <button
+          data-legacy-offered={String(usdcBalance !== undefined)}
+          data-testid="pick-usdc"
+          onClick={() => onSelect('USDC')}
+        >
           bridge USDC
         </button>
       </div>
@@ -481,14 +493,32 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
     expect(screen.getByTestId('usdcx-route-confirm')).toBeInTheDocument();
   });
 
-  it('keeps the token the user picked over the document opening token', async () => {
+  it('refuses the retired Epoch USDC even if an old picker tries to select it', async () => {
     mockBridgeSnapshot = withoutEpochUsdc();
     renderScreen();
     await settle();
 
+    fireEvent.click(screen.getByTestId('open-token-drawer'));
+    await settle();
+    expect(screen.getByTestId('pick-usdc')).toHaveAttribute('data-legacy-offered', 'false');
     await pickToken('pick-usdc');
 
-    expect(screen.getByTestId('form-error')).toHaveTextContent(/^The bridge config names no USDC token\.$/);
+    expect(screen.getByTestId('form-error')).toHaveTextContent(/^$/);
+    expect(screen.getByTestId('form-network')).toHaveTextContent('5042002');
+  });
+
+  it('discards an explicitly selected legacy token when switching into Testnet', async () => {
+    mockBridgeSnapshot = { ...TEST_BRIDGE_CONFIG_SNAPSHOT, network: 'devnet' };
+    const view = renderScreen();
+    await pickToken('pick-usdc');
+    expect(screen.getByTestId('form-network')).toHaveTextContent('11155111');
+    mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+    view.rerender(depositScreen());
+    await settle();
+    expect(screen.getByTestId('form-network')).toHaveTextContent('5042002');
+    await reachRouteStep();
+    expect(screen.getByTestId('usdcx-route-confirm')).toBeInTheDocument();
+    expect(epochState.executeEVMToMiden).not.toHaveBeenCalled();
   });
 
   it('asks for a network instead of naming Sepolia when no route has a chain', async () => {
@@ -1200,7 +1230,8 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
     });
 
     // Only a hold on Circle's USDC is cleared by adding it; the bridge's own USDC on the Fast route reads nothing.
-    it('sends no Circle USDC re-read while the Fast route holds the bridge USDC amount', async () => {
+    it('sends no Circle USDC re-read while the Fast route holds the bridge USDC amount off Testnet', async () => {
+      mockBridgeSnapshot = { ...TEST_BRIDGE_CONFIG_SNAPSHOT, network: 'devnet' };
       mockBalance = 1n;
       renderScreen();
       fireEvent.click(screen.getByTestId('set-amount'));
@@ -1325,6 +1356,7 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
 
   // One picked chain; each route resolves its own from it, so a USDCx-only chain does not strand the Fast route.
   it('keeps the Fast route on its own chain after a USDCx-only pick', async () => {
+    mockBridgeSnapshot = { ...TEST_BRIDGE_CONFIG_SNAPSHOT, network: 'devnet' };
     renderScreen();
     await pickToken('pick-circle-usdc');
     fireEvent.click(screen.getByTestId('open-network-drawer'));

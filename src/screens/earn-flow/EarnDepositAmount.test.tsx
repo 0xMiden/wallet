@@ -300,7 +300,9 @@ describe('EarnDepositAmount', () => {
     fireEvent.click(screen.getByTestId('confirm'));
     expect(mockNavigate).toHaveBeenCalledTimes(1);
     // amount is URL-encoded, so the comma becomes %2C.
-    expect(mockNavigate).toHaveBeenCalledWith(`/earn/vaults/${FOUND_VAULT.id}/deposit/review?amount=1%2C50`);
+    expect(mockNavigate).toHaveBeenCalledWith(
+      `/earn/vaults/${FOUND_VAULT.id}/deposit/review?amount=1%2C50&collateral=${TEST_MIDEN_USDC.faucetId}`
+    );
   });
 
   it('rejects an amount above the balance and does not navigate', () => {
@@ -449,4 +451,31 @@ beforeEach(() => {
 
 beforeEach(() => {
   mockBaseFee = 0;
+});
+
+it('reserves native fees when the only Earn collateral is USDCx, ignoring the legacy balance', () => {
+  mockCollateral = { faucetId: 'MIDEN-ID', symbol: 'USDCx', decimals: 6 };
+  mockBaseFee = 10000;
+  mockBalanceRows = [USDC_ROW, { tokenId: 'MIDEN-ID', balance: 2, metadata: { symbol: 'USDCX', decimals: 6 } }];
+  render(<EarnDepositAmount vaultId={FOUND_VAULT.id} />);
+  expect(screen.getByTestId('select-amount')).toHaveAttribute('data-token-name', 'USDCx');
+  expect(screen.getByTestId('select-amount')).toHaveAttribute('data-token-balance', '1.7');
+  setAmount('2');
+  expect(screen.getByTestId('select-amount')).toHaveAttribute('data-valid', 'false');
+  setAmount('1.7');
+  expect(screen.getByTestId('select-amount')).toHaveAttribute('data-valid', 'true');
+});
+
+jest.mock('./useEarnCollateral', () => ({ useEarnCollateral: () => mockCollateral }));
+
+it('cannot fund a USDCx Earn deposit from an account holding only legacy Epoch USDC', () => {
+  mockCollateral = { faucetId: 'MIDEN-ID', symbol: 'USDCx', decimals: 6 };
+  mockBalanceRows = [USDC_ROW];
+  render(<EarnDepositAmount vaultId={FOUND_VAULT.id} />);
+  setAmount('1');
+  expect(screen.getByTestId('select-amount')).toHaveAttribute('data-token-name', 'USDCx');
+  expect(screen.getByTestId('select-amount')).toHaveAttribute('data-token-balance', '0');
+  expect(screen.getByTestId('select-amount')).toHaveAttribute('data-valid', 'false');
+  fireEvent.click(screen.getByTestId('confirm'));
+  expect(mockNavigate).not.toHaveBeenCalled();
 });

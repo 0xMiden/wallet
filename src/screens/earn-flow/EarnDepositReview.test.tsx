@@ -434,7 +434,7 @@ describe('EarnDepositReview', () => {
 
       fireEvent.click(screen.getByTestId('open-position-btn'));
 
-      expect(await screen.findByText('earnFailedToOpenPosition')).toBeInTheDocument();
+      expect(screen.getByTestId('open-position-btn')).toBeDisabled();
       expect(mockOpenEarnPosition).not.toHaveBeenCalled();
     });
 
@@ -852,5 +852,38 @@ describe('EarnDepositReview after a failed load', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('earnVaultLoadError');
     expect(screen.getByRole('alert')).not.toHaveTextContent('earnPositionsLoadError');
     expect(screen.getByRole('button', { name: 'earnOpenPosition' })).toBeInTheDocument();
+  });
+});
+
+jest.mock('./useEarnCollateral', () => ({ useEarnCollateral: () => mockCollateral }));
+
+describe('native USDCx funding', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockAccount.evmAddress = '0xdeadbeef';
+    mockOpenEarnPosition.mockResolvedValue(undefined);
+    mockWalletStoreState.assessSpendingLimit.mockResolvedValue(undefined);
+    mockConfirmSensitive.mockResolvedValue(true);
+  });
+
+  it('shows USDCx and uses its exact faucet and atomic amount for a native deposit', async () => {
+    mockCollateral = { faucetId: '0x4cbdcaffe75f0a317482224dae6436', symbol: 'USDCx', decimals: 6 };
+    renderReview('aave-usdc-ethereum-1', '?amount=1.25&collateral=0x4cbdcaffe75f0a317482224dae6436');
+    expect(within(screen.getByTestId('earn-hero')).getByText('USDCx')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('open-position-btn'));
+    await waitFor(() =>
+      expect(mockOpenEarnPosition).toHaveBeenCalledWith(
+        expect.objectContaining({
+          amount: 1250000n,
+          collateral: { faucetId: '0x4cbdcaffe75f0a317482224dae6436', symbol: 'USDCx', decimals: 6 }
+        })
+      )
+    );
+  });
+
+  it('refuses review for an old collateral identity after the frontend switches to USDCx', () => {
+    mockCollateral = { faucetId: '0x4cbdcaffe75f0a317482224dae6436', symbol: 'USDCx', decimals: 6 };
+    renderReview('aave-usdc-ethereum-1', '?amount=1&collateral=0x5b043dcb48d5721106f7a1ceb2b804');
+    expect(screen.getByTestId('open-position-btn')).toBeDisabled();
   });
 });

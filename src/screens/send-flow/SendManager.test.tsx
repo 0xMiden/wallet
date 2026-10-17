@@ -82,15 +82,16 @@ const scanQRCodeMock = jest.fn();
 const isMobileMock = jest.fn(() => true);
 const clipboardReadMock = jest.fn();
 // The bridged price entries the testnet config names (the manual mock beside the module).
-jest.mock('lib/remote-config/runtime', () =>
-  jest
-    .requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
-    .remoteConfigRuntimeMock(
-      () =>
-        jest.requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
-          .TEST_BRIDGE_CONFIG_SNAPSHOT
-    )
-);
+let mockSendNetwork = 'devnet';
+jest.mock('lib/remote-config/runtime', () => {
+  const fixture = jest.requireActual<typeof import('lib/epoch/testing/bridge-config')>(
+    'lib/epoch/testing/bridge-config'
+  );
+  const devnet = { ...fixture.TEST_BRIDGE_CONFIG_SNAPSHOT, network: 'devnet' };
+  return fixture.remoteConfigRuntimeMock(() =>
+    mockSendNetwork === 'testnet' ? fixture.TEST_BRIDGE_CONFIG_SNAPSHOT : devnet
+  );
+});
 
 jest.mock('lib/miden/swap/bridge-price-allowlist');
 jest.mock('@capacitor/clipboard', () => ({ Clipboard: { read: () => clipboardReadMock() } }));
@@ -406,6 +407,7 @@ jest.mock('lib/telemetry', () => ({
 const renderFlow = (isLoading = false) => render(<SendFlow isLoading={isLoading} />);
 
 beforeEach(() => {
+  mockSendNetwork = 'devnet';
   jest.clearAllMocks();
   clearSendDraft();
   mockPathname = '/send';
@@ -2388,4 +2390,15 @@ describe('USDCx burn fee reserve', () => {
 
     expect(navigateMock).toHaveBeenCalledWith(expect.stringMatching(/^\/send\/review\?/));
   });
+});
+
+it('does not preselect the retired Epoch faucet from a Testnet token-page link', () => {
+  mockSendNetwork = 'testnet';
+  mockSearch = `?tokenId=${MIDEN_USDC_FAUCET}`;
+  useAllBalancesMock.mockReturnValue({
+    data: [{ tokenId: MIDEN_USDC_FAUCET, metadata: { symbol: 'USDC', decimals: 6 }, balance: 100 }]
+  });
+  mockRenderRouteName = SendFlowStep.SelectAmount;
+  renderFlow();
+  expect(screen.getByTestId('sa-token')).toHaveTextContent('no-token');
 });
