@@ -138,6 +138,20 @@ describe('MidenProvider when the wallet fails to start', () => {
     expect(screen.getByText('tryAgain')).toBeInTheDocument();
   });
 
+  it.each([
+    ['a string', 'wasm start trapped'],
+    ['undefined', undefined]
+  ])('shows the screen for a start rejecting with %s, and Try Again only reloads', async (_, value) => {
+    jest.mocked(ensureSdkWasmReady).mockRejectedValue(value);
+    renderWallet();
+    const tryAgain = await screen.findByText('tryAgain');
+    await act(async () => {
+      fireEvent.click(tryAgain);
+    });
+    expect(reloadPage).toHaveBeenCalledTimes(1);
+    expect(ensureSdkWasmReady).toHaveBeenCalledTimes(1);
+  });
+
   // Jest fails a test that leaves a rejection unhandled, so the catch is checked without a listener.
   it('leaves no unhandled rejection and no report when the start fails after the provider unmounted', async () => {
     let failStart!: (error: Error) => void;
