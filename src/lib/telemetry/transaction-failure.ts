@@ -156,6 +156,8 @@ export interface TransactionFailure {
   outcome?: 'failed' | 'unconfirmed';
   /** Whether the app was hidden while its submit was in flight; undefined when the platform cannot tell. */
   hiddenDuringSubmit?: boolean;
+  /** This transaction's failure was reported before, so this report is evidence for that one, not a second error. */
+  alreadyReported?: boolean;
   point?:
     | 'pipeline'
     | 'earn_settlement'
@@ -540,10 +542,11 @@ export function reportTransactionFailure(failure: TransactionFailure): void {
     // This stack would name the reporter, not the failed execution, and can include private file paths.
     report.stack = undefined;
     annotateCrash(report, snapshotCrashDiagnostics(failure.error));
-    // An unknown outcome waits for the node's verdict, which is reported again as an error if it never landed.
+    // An unknown outcome waits for the node's verdict, which is the error if it never landed; a failure already reported
+    // already has its error, so a later report on it is evidence for that one.
     captureCrash(report, 'manual', {
       initializeIfNeeded: true,
-      level: outcome === 'unconfirmed' ? 'warning' : 'error'
+      level: outcome === 'unconfirmed' || failure.alreadyReported === true ? 'warning' : 'error'
     });
   } catch {
     // Reporting must never change the transaction outcome.

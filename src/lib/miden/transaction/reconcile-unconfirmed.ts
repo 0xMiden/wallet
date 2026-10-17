@@ -233,9 +233,12 @@ async function writeNeverCommitted(rowId: string, judgement: RowJudgement, nowSe
   const baseline = evidenceKey(judgement.judgedEntries);
   let wrote = false;
   let failed: ITransaction | undefined;
+  // A row already Failed was reported when it failed; only an Unconfirmed row's verdict is a failure of its own.
+  let alreadyReported = false;
   await Repo.transactions.where({ id: rowId }).modify(fresh => {
     if (fresh.status !== ITransactionStatus.Unconfirmed && fresh.status !== ITransactionStatus.Failed) return false;
     if (fresh.neverCommittedAt !== undefined || evidenceKey(fresh.submitEvidence) !== baseline) return false;
+    alreadyReported = fresh.status === ITransactionStatus.Failed;
     fresh.submitEvidence = applyEntryWrites(fresh.submitEvidence ?? [], judgement);
     fresh.rawError = fresh.rawError ?? fresh.error;
     fresh.status = ITransactionStatus.Failed;
@@ -256,6 +259,7 @@ async function writeNeverCommitted(rowId: string, judgement: RowJudgement, nowSe
       diagnostics: failed.failureDiagnostics,
       reason: 'never_committed',
       neverCommittedRule: judgement.neverCommittedBy,
+      alreadyReported,
       error: TRANSACTION_NEVER_COMMITTED_ERROR
     });
   }
