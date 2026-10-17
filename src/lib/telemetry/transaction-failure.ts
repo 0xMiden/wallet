@@ -12,15 +12,23 @@ import { resolveTelemetryContext } from './context';
 import { captureCrash } from './crash';
 import { annotateCrash, errorChain, snapshotCrashDiagnostics } from './crash-diagnostics';
 import assertions from './protocol-assertions.json';
-import { operationOfType, stepOfStage } from './transaction-operation';
+import { operationOfType, stepOfStage, TRANSACTION_OPERATIONS, TRANSACTION_STEPS } from './transaction-operation';
 import { TELEMETRY_ERROR_KINDS } from './types';
 import packageJson from '../../../package.json';
 
+export const AUTH_PREPARATIONS = ['provided', 'wallet_enriched', 'unchanged', 'failed', 'unavailable'] as const;
+
+export const AUTH_LAYOUTS = ['absent', 'fee', 'guardian', 'other', 'missing_preimage', 'unavailable'] as const;
+
+export const COMMITMENT_MATCHES = ['fee', 'guardian', 'neither', 'unavailable'] as const;
+
+export const ACCOUNT_AUTH_CODES = ['current_guardian', 'unrecognized', 'unavailable'] as const;
+
 export interface TransactionFailureDiagnostics {
-  authPreparation: 'provided' | 'wallet_enriched' | 'unchanged' | 'failed' | 'unavailable';
-  authLayout: 'absent' | 'fee' | 'guardian' | 'other' | 'missing_preimage' | 'unavailable';
-  commitmentMatch: 'fee' | 'guardian' | 'neither' | 'unavailable';
-  accountAuthCode?: 'current_guardian' | 'unrecognized' | 'unavailable';
+  authPreparation: (typeof AUTH_PREPARATIONS)[number];
+  authLayout: (typeof AUTH_LAYOUTS)[number];
+  commitmentMatch: (typeof COMMITMENT_MATCHES)[number];
+  accountAuthCode?: (typeof ACCOUNT_AUTH_CODES)[number];
 }
 
 export const FAILURE_REASONS = [
@@ -190,6 +198,23 @@ export const CONSUME_ENTRY_POINTS = [
 /** What queued a consume row, stamped on the row when it is created. */
 export type ConsumeEntryPoint = (typeof CONSUME_ENTRY_POINTS)[number];
 
+export const FAILURE_POINTS = [
+  'pipeline',
+  'earn_settlement',
+  'bridge_receive_settlement',
+  'bridge_send_settlement',
+  'guardian_node_verdict',
+  'node_verdict'
+] as const;
+
+export const FAILURE_OUTCOMES = ['failed', 'unconfirmed'] as const;
+
+export const EXECUTION_REALMS = ['offscreen', 'unknown'] as const;
+
+export const PROVING_PREFERENCES = ['delegated', 'local', 'unknown'] as const;
+
+export const FAILURE_PLATFORMS = ['desktop', 'extension', 'ios', 'android'] as const;
+
 export interface TransactionFailure {
   type: ITransactionType;
   stage?: ITransactionStage;
@@ -198,19 +223,13 @@ export interface TransactionFailure {
   neverCommittedRule?: NeverCommittedRule;
   error?: unknown;
   delegateTransaction?: boolean;
-  outcome?: 'failed' | 'unconfirmed';
+  outcome?: (typeof FAILURE_OUTCOMES)[number];
   entryPoint?: ConsumeEntryPoint;
   /** Whether the app was hidden while its submit was in flight; undefined when the platform cannot tell. */
   hiddenDuringSubmit?: boolean;
   /** This transaction's failure was reported before, so this report is evidence for that one, not a second error. */
   alreadyReported?: boolean;
-  point?:
-    | 'pipeline'
-    | 'earn_settlement'
-    | 'bridge_receive_settlement'
-    | 'bridge_send_settlement'
-    | 'guardian_node_verdict'
-    | 'node_verdict';
+  point?: (typeof FAILURE_POINTS)[number];
   diagnostics?: TransactionFailureDiagnostics;
 }
 
@@ -516,8 +535,9 @@ function failureIdentity(failure: TransactionFailure): string {
   return classifyError(error);
 }
 
-// Every closed name the report's text is built from, which crash scrubbing skips where each stands whole: a published
-// name can read as a recovery phrase, as ERR_INPUT_NOTE_ASSET_INDEX_OUT_OF_BOUNDS holds four wordlist words in a row.
+// Every value the report's text interpolates, each of which crash scrubbing reads as one non-wordlist word where it
+// stands whole: a published name can read as a recovery phrase, as ERR_INPUT_NOTE_ASSET_INDEX_OUT_OF_BOUNDS holds four
+// wordlist words in a row, and a value outside the set joins the label words beside it, as `match fee; account code`.
 const CLOSED_NAMES: ReadonlySet<string> = new Set<string>([
   ...Object.values(assertions),
   ...REPORTED_IDENTITIES,
@@ -534,7 +554,18 @@ const CLOSED_NAMES: ReadonlySet<string> = new Set<string>([
   ...CONSUME_ENTRY_POINTS,
   ...HOT_KEY_CODES,
   ...GUARDIAN_ERROR_CODES,
-  ...TELEMETRY_ERROR_KINDS
+  ...TELEMETRY_ERROR_KINDS,
+  ...FAILURE_OUTCOMES,
+  ...TRANSACTION_OPERATIONS,
+  ...TRANSACTION_STEPS,
+  ...EXECUTION_REALMS,
+  ...PROVING_PREFERENCES,
+  ...FAILURE_PLATFORMS,
+  ...FAILURE_POINTS,
+  ...AUTH_PREPARATIONS,
+  ...AUTH_LAYOUTS,
+  ...COMMITMENT_MATCHES,
+  ...ACCOUNT_AUTH_CODES
 ]);
 
 function softwareVersion(value: string): string {
@@ -544,26 +575,10 @@ function softwareVersion(value: string): string {
 export function reportTransactionFailure(failure: TransactionFailure): void {
   try {
     const facts = failure.diagnostics;
-    const preparation = diagnostic(
-      facts?.authPreparation,
-      ['provided', 'wallet_enriched', 'unchanged', 'failed', 'unavailable'] as const,
-      'unavailable'
-    );
-    const layout = diagnostic(
-      facts?.authLayout,
-      ['absent', 'fee', 'guardian', 'other', 'missing_preimage', 'unavailable'] as const,
-      'unavailable'
-    );
-    const match = diagnostic(
-      facts?.commitmentMatch,
-      ['fee', 'guardian', 'neither', 'unavailable'] as const,
-      'unavailable'
-    );
-    const accountCode = diagnostic(
-      facts?.accountAuthCode,
-      ['current_guardian', 'unrecognized', 'unavailable'] as const,
-      'unavailable'
-    );
+    const preparation = diagnostic(facts?.authPreparation, AUTH_PREPARATIONS, 'unavailable');
+    const layout = diagnostic(facts?.authLayout, AUTH_LAYOUTS, 'unavailable');
+    const match = diagnostic(facts?.commitmentMatch, COMMITMENT_MATCHES, 'unavailable');
+    const accountCode = diagnostic(facts?.accountAuthCode, ACCOUNT_AUTH_CODES, 'unavailable');
     const type = diagnostic(
       failure.type,
       [
@@ -587,32 +602,21 @@ export function reportTransactionFailure(failure: TransactionFailure): void {
     const confirmingStep = CONFIRMING_STEP_BY_STAGE.get(failure.stage);
     const stage = confirmingStep === undefined ? stepName : `${stepName}; confirming step ${confirmingStep}`;
     const signingStep = SIGNING_STEP_BY_STAGE.get(failure.stage);
-    const outcome = failure.outcome === 'unconfirmed' ? 'unconfirmed' : 'failed';
-    const point = diagnostic(
-      failure.point,
-      [
-        'pipeline',
-        'earn_settlement',
-        'bridge_receive_settlement',
-        'bridge_send_settlement',
-        'guardian_node_verdict',
-        'node_verdict'
-      ] as const,
-      'pipeline'
-    );
+    const outcome: (typeof FAILURE_OUTCOMES)[number] = failure.outcome === 'unconfirmed' ? 'unconfirmed' : 'failed';
+    const point = diagnostic(failure.point, FAILURE_POINTS, 'pipeline');
     const message =
       typeof failure.error === 'string' ? failure.error : failure.error instanceof Error ? failure.error.message : '';
-    const realm =
+    const realm: (typeof EXECUTION_REALMS)[number] =
       /Offscreen call '(?:newTransaction|sendTransaction|consumeNoteId|swapTransaction|faucetTransaction|guardianPipeline)' failed:/.test(
         message
       )
         ? 'offscreen'
         : 'unknown';
-    const proving =
+    const proving: (typeof PROVING_PREFERENCES)[number] =
       failure.delegateTransaction === true ? 'delegated' : failure.delegateTransaction === false ? 'local' : 'unknown';
     const queuedBy =
       type === 'consume' ? `; queued by ${diagnostic<string>(failure.entryPoint, CONSUME_ENTRY_POINTS, 'other')}` : '';
-    const platform = isDesktop() ? 'desktop' : resolveTelemetryContext().platform;
+    const platform: (typeof FAILURE_PLATFORMS)[number] = isDesktop() ? 'desktop' : resolveTelemetryContext().platform;
     const reason =
       failure.reason === undefined ? undefined : diagnostic<string>(failure.reason, FAILURE_REASONS, 'other');
     const identity =

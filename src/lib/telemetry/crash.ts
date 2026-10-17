@@ -326,7 +326,7 @@ export function captureCrash(
   options: {
     initializeIfNeeded?: boolean;
     level?: 'error' | 'warning';
-    /** The reporter's own closed identifiers, which the recovery-phrase guard skips where each stands whole. */
+    /** The reporter's own closed identifiers, which the recovery-phrase guard reads as non-wordlist words if whole. */
     closedNames?: ReadonlySet<string>;
   } = {}
 ): void {

@@ -162,13 +162,20 @@ function decodedViews(text: string): string[] {
 const NO_CLOSED_NAMES: ReadonlySet<string> = new Set();
 
 /**
- * The view with each closed name removed where it stands as a whole `[A-Za-z0-9_]` token, case and all, so only the
- * caller's own fixed identifiers are skipped: a longer token holding one, a prefix or another casing is still read.
- * Removed rather than replaced by a word, so a phrase split around a name still reads as one run.
+ * The view cut at each closed name standing as a whole `[A-Za-z0-9_]` token, case and all, so only the caller's own
+ * fixed identifiers are cut out: a longer token holding one, a prefix or another casing is still read.
  */
-function withoutClosedNames(view: string, closedNames: ReadonlySet<string>): string {
-  if (closedNames.size === 0) return view;
-  return view.replace(/[A-Za-z0-9_]+/g, token => (closedNames.has(token) ? ' ' : token));
+function cutAtClosedNames(view: string, closedNames: ReadonlySet<string>): string[] {
+  if (closedNames.size === 0) return [view];
+  const pieces: string[] = [];
+  let from = 0;
+  for (const match of view.matchAll(/[A-Za-z0-9_]+/g)) {
+    if (!closedNames.has(match[0])) continue;
+    pieces.push(view.slice(from, match.index));
+    from = match.index + match[0].length;
+  }
+  pieces.push(view.slice(from));
+  return pieces;
 }
 
 function viewHasSeedMaterial(
@@ -176,25 +183,29 @@ function viewHasSeedMaterial(
   words: ReadonlySet<string>,
   closedNames: ReadonlySet<string> = NO_CLOSED_NAMES
 ): boolean {
-  const visible = withoutClosedNames(view, closedNames);
-  const tokens = tokenize(visible);
+  const pieces = cutAtClosedNames(view, closedNames);
+  // A closed name stands in as one word outside the list (`null`): blanking it would let the label words on either side
+  // of a report's value join into one run.
+  const tokens = pieces.flatMap(
+    (piece, index): Array<string | null> => (index === 0 ? tokenize(piece) : [null, ...tokenize(piece)])
+  );
 
   let run = 0;
   for (const token of tokens) {
-    run = words.has(token) ? run + 1 : 0;
+    run = token !== null && words.has(token) ? run + 1 : 0;
     if (run >= BIP39_RUN_THRESHOLD) return true;
   }
 
-  if (!MNEMONIC_CONTEXT_PATTERN.test(visible)) return false;
-  return tokens.some(token => words.has(token) && !MNEMONIC_CONTEXT_WORDS.has(token));
+  if (!MNEMONIC_CONTEXT_PATTERN.test(pieces.join(' '))) return false;
+  return tokens.some(token => token !== null && words.has(token) && !MNEMONIC_CONTEXT_WORDS.has(token));
 }
 
 /**
  * Whether the text reads as recovery-phrase material — either a run of
  * consecutive wordlist words, or a single one in a message that is explicitly
  * about mnemonics. Checked against every decoded view of the text. Each of
- * `closedNames`, the caller's own fixed identifiers, is skipped where it appears
- * exactly as a whole token.
+ * `closedNames`, the caller's own fixed identifiers, is read as one word outside
+ * the wordlist where it appears exactly as a whole token.
  */
 export function containsSeedMaterial(
   text: string,
