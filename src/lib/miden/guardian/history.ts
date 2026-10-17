@@ -18,7 +18,7 @@ import type { ConsumableNote, NoteType } from '../types';
 import { NoteTypeEnum } from '../types';
 import { GuardianHistoryDataError } from './history-errors';
 
-export const GUARDIAN_HISTORY_VERSION = 4;
+export const GUARDIAN_HISTORY_VERSION = 5;
 export { GuardianHistoryDataError };
 
 export interface GuardianHistoryRecovery {
