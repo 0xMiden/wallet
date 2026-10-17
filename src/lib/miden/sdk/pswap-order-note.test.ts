@@ -11,8 +11,29 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
       toString: () => `acct:${prefix.asInt()}:${suffix.asInt()}`
     })
   },
+  Note: {
+    withAttachments: (
+      _assets: unknown,
+      _metadata: unknown,
+      recipient: { idWith: (attachments: unknown[]) => string },
+      attachments: unknown[]
+    ) => ({ id: () => ({ toString: () => recipient.idWith(attachments) }) })
+  },
+  NoteAttachment: {
+    fromWord: (scheme: { value: number }, word: unknown) => ({ scheme: scheme.value, toWords: () => [word] })
+  },
+  NoteAttachmentScheme: class {
+    value: number;
+    constructor(value: number) {
+      this.value = value;
+    }
+  },
   NoteId: { fromHex: (id: string) => ({ id }) },
-  NoteScript: { pswap: () => ({ root: () => ({ toHex: () => 'pswap-root' }) }) },
+  NoteScript: {
+    pswap: () => ({ root: () => ({ toHex: () => 'pswap-root' }) }),
+    p2id: () => ({ root: () => ({ toHex: () => 'p2id-root' }) })
+  },
+  NoteTag: { withAccountTarget: (accountId: { toString: () => string }) => ({ accountTarget: accountId.toString() }) },
   RpcClient: jest.fn(() => ({
     getNotesById: mockGetNotesById,
     getNullifierCommitHeight: mockGetNullifierCommitHeight,
@@ -80,12 +101,57 @@ const remainder = (
     ...overrides
   });
 
-type NoteBody = ReturnType<typeof pswapNote>;
-// The node as the tests describe it: note bodies with their inclusion block, spends, and tag-matched commits.
-let chain: Map<string, { note: NoteBody | undefined; block: number }>;
+type MockAttachment = { scheme: number; toWords: () => Array<{ toU64s: () => BigUint64Array }> };
+
+const wordsOf = (attachment: MockAttachment) =>
+  attachment
+    .toWords()
+    .map(word => word.toU64s().join())
+    .join();
+const sameAttachment = (left: MockAttachment, right: MockAttachment | undefined) =>
+  right !== undefined && left.scheme === right.scheme && wordsOf(left) === wordsOf(right);
+
+interface PaybackShape {
+  id: string;
+  /** The PSWAP attachment's word is [fill, order id, depth, 0]. */
+  fill: bigint;
+  depth: bigint;
+  orderId?: bigint;
+  scheme?: number;
+  root?: string;
+}
+
+// A fill's P2ID payback to the creator with the PSWAP attachment (scheme 3) `create_p2id_note` gives it. Its id commits
+// to its attachments, so `Note.withAttachments` rebuilds it to its own id only with the ones it carries.
+const payback = ({ id, fill, depth, orderId = 42n, scheme = 3, root = 'p2id-root' }: PaybackShape) => {
+  const attachments = (): MockAttachment[] => [
+    { scheme, toWords: () => [{ toU64s: () => BigUint64Array.from([fill, orderId, depth, 0n]) }] }
+  ];
+  return {
+    id: () => ({ toString: () => id }),
+    script: () => ({ root: () => ({ toHex: () => root }) }),
+    assets: () => ({}),
+    metadata: () => ({}),
+    recipient: () => ({
+      idWith: (rebuilt: MockAttachment[]) => {
+        const own = attachments();
+        const same = rebuilt.length === own.length && rebuilt.every((item, index) => sameAttachment(item, own[index]));
+        return same ? id : `${id}:rebuilt`;
+      }
+    }),
+    attachments
+  };
+};
+
+type NoteBody = ReturnType<typeof pswapNote> | ReturnType<typeof payback>;
+// The node as the tests describe it: note bodies with their inclusion block, spends, and tag-matched commits. A note
+// under the creator's account-target tag is found only by a search for that tag, every other one by any other search.
+let chain: Map<string, { note: NoteBody | undefined; block: number; creatorTag?: boolean }>;
 let spentAt: Map<string, number>;
 
 const commit = (note: NoteBody, block: number) => chain.set(note.id().toString(), { note, block });
+const commitPayback = (note: ReturnType<typeof payback>) =>
+  chain.set(note.id().toString(), { note, block: 125, creatorTag: true });
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -109,10 +175,11 @@ beforeEach(() => {
   mockGetNullifierCommitHeight.mockImplementation(async (nullifier: { nullifierOf: string }) =>
     spentAt.get(nullifier.nullifierOf)
   );
-  mockSyncNotes.mockImplementation(async (from: number, to: number) => ({
+  mockSyncNotes.mockImplementation(async (from: number, to: number, tags: Array<{ accountTarget?: string }>) => ({
     notes: () =>
       [...chain]
         .filter(([, entry]) => entry.block >= from && entry.block <= to)
+        .filter(([, entry]) => Boolean(entry.creatorTag) === tags.some(tag => tag.accountTarget === 'acct:66:55'))
         .map(([id, entry]) => ({
           noteId: () => ({ toString: () => id }),
           inclusionProof: () => ({ location: () => ({ blockNum: () => entry.block }) })
@@ -244,11 +311,14 @@ describe('readPswapOrderLineage', () => {
   });
 
   // Two fills of one order in one batch erase the remainder between them, so the spending block holds only the later
-  // round; reading that as a finished order closed an open one for good (#1487).
+  // round; reading that as a finished order closed an open one for good (#1487). The fills' paybacks rebuild the jump:
+  // 20 of 30 leaves 24 or 25 for 10, and 5 of those 10 leaves 12 to 14 for 5.
   it('continues the walk at a later round when the spending block holds only it', async () => {
     commit(pswapNote({ id: 'order-note' }), 120);
     spentAt.set('order-note', 125);
     commit(remainder('remainder-2', 2n, 12n, 5n), 125);
+    commitPayback(payback({ id: 'payback-1', fill: 20n, depth: 1n }));
+    commitPayback(payback({ id: 'payback-2', fill: 5n, depth: 2n }));
 
     await expect(read()).resolves.toEqual({
       kind: 'open',
@@ -350,19 +420,138 @@ describe('readPswapOrderLineage', () => {
     await expect(read()).rejects.toThrow();
   });
 
-  // Two fills of 10 at a fill floor of 10: 70 for 30 pays 23 and leaves 47 for 20, which pays 23 and leaves 24 for 10.
-  it('follows two fills at the fill floor inside one block to the later round', async () => {
+  // Two fills of 10 at a fill floor of 10: 70 for 30 leaves 47 or 48 for 20, and either leaves 24 or 25 for 10. Only a
+  // fill split between the account and note legs, each leg's payout rounded down, leaves 25.
+  it.each([24n, 25n])(
+    'follows two fills at the fill floor inside one block to the later round offering %s',
+    async offered => {
+      commit(pswapNote({ id: 'order-note', storage: [11n, 12n, 30n, 10n, 1n, 55n, 66n] }), 120);
+      spentAt.set('order-note', 125);
+      commit(remainder('remainder-2', 2n, offered, 10n, { storage: [11n, 12n, 10n, 10n, 1n, 55n, 66n] }), 125);
+      commitPayback(payback({ id: 'payback-1', fill: 10n, depth: 1n }));
+      commitPayback(payback({ id: 'payback-2', fill: 10n, depth: 2n }));
+
+      await expect(read()).resolves.toEqual({
+        kind: 'open',
+        noteId: 'remainder-2',
+        depth: 2,
+        offeredAmount: offered,
+        requestedAmount: 10n
+      });
+    }
+  );
+
+  // A partial fill below the fill floor is refused, so paybacks of 5 and 15 at a floor of 10 rebuild no chain, though
+  // without the floor they would land on 24 for 10.
+  it('leaves a jump unresolved when a payback reports a fill below the fill floor', async () => {
     commit(pswapNote({ id: 'order-note', storage: [11n, 12n, 30n, 10n, 1n, 55n, 66n] }), 120);
     spentAt.set('order-note', 125);
     commit(remainder('remainder-2', 2n, 24n, 10n, { storage: [11n, 12n, 10n, 10n, 1n, 55n, 66n] }), 125);
+    commitPayback(payback({ id: 'payback-1', fill: 5n, depth: 1n }));
+    commitPayback(payback({ id: 'payback-2', fill: 15n, depth: 2n }));
 
-    await expect(read()).resolves.toEqual({
-      kind: 'open',
-      noteId: 'remainder-2',
-      depth: 2,
-      offeredAmount: 24n,
-      requestedAmount: 10n
+    await expect(read()).rejects.toThrow();
+  });
+
+  describe('a jump from 7 offered for 10 with no fill floor', () => {
+    // Two fills of 1 pay floor(7 / 10) = 0 and floor(7 / 9) = 0, so the one chain to asking 8 keeps all 7 on offer;
+    // the aggregate bound over two rounds also holds 6.
+    const placeOrder = (offered: bigint) => {
+      commit(pswapNote({ id: 'order-note', storage: [11n, 12n, 10n, 0n, 1n, 55n, 66n], amount: 7n }), 120);
+      spentAt.set('order-note', 125);
+      commit(remainder('remainder-2', 2n, offered, 8n), 125);
+    };
+    const fillsOfOne = () => {
+      commitPayback(payback({ id: 'payback-1', fill: 1n, depth: 1n }));
+      commitPayback(payback({ id: 'payback-2', fill: 1n, depth: 2n }));
+    };
+    const tip = { kind: 'open', noteId: 'remainder-2', depth: 2, offeredAmount: 7n, requestedAmount: 8n };
+
+    it('is taken at the offer its paybacks rebuild, read under the creator tag in the spending block', async () => {
+      placeOrder(7n);
+      fillsOfOne();
+
+      await expect(read()).resolves.toEqual(tip);
+      expect(mockSyncNotes).toHaveBeenCalledWith(124, 125, [{ accountTarget: 'acct:66:55' }]);
     });
+
+    it('is taken past a bodiless note and another order payback under the creator tag', async () => {
+      placeOrder(7n);
+      fillsOfOne();
+      chain.set('bodiless', { note: undefined, block: 125, creatorTag: true });
+      commitPayback(payback({ id: 'other-order-payback', fill: 1n, depth: 1n, orderId: 99n }));
+
+      await expect(read()).resolves.toEqual(tip);
+    });
+
+    it('is refused at an offer no chain of its paybacks reaches', async () => {
+      placeOrder(6n);
+      fillsOfOne();
+
+      await expect(read()).rejects.toThrow();
+    });
+
+    it.each([
+      ['a payback missing for one round', () => commitPayback(payback({ id: 'payback-1', fill: 1n, depth: 1n }))],
+      [
+        'two paybacks for one round',
+        () => {
+          fillsOfOne();
+          commitPayback(payback({ id: 'payback-1b', fill: 1n, depth: 1n }));
+        }
+      ],
+      [
+        "only another order's paybacks",
+        () => {
+          commitPayback(payback({ id: 'other-1', fill: 1n, depth: 1n, orderId: 99n }));
+          commitPayback(payback({ id: 'other-2', fill: 1n, depth: 2n, orderId: 99n }));
+        }
+      ],
+      [
+        'a private payback for one round',
+        () => {
+          chain.set('payback-1', { note: undefined, block: 125, creatorTag: true });
+          commitPayback(payback({ id: 'payback-2', fill: 1n, depth: 2n }));
+        }
+      ],
+      [
+        'a payback for one round that is not a P2ID note',
+        () => {
+          commitPayback(payback({ id: 'payback-1', fill: 1n, depth: 1n, root: 'other-root' }));
+          commitPayback(payback({ id: 'payback-2', fill: 1n, depth: 2n }));
+        }
+      ],
+      [
+        'a payback for one round under another attachment scheme',
+        () => {
+          commitPayback(payback({ id: 'payback-1', fill: 1n, depth: 1n, scheme: 2 }));
+          commitPayback(payback({ id: 'payback-2', fill: 1n, depth: 2n }));
+        }
+      ],
+      [
+        'paybacks whose fills do not add up to the drop in the request',
+        () => {
+          commitPayback(payback({ id: 'payback-1', fill: 1n, depth: 1n }));
+          commitPayback(payback({ id: 'payback-2', fill: 2n, depth: 2n }));
+        }
+      ]
+    ])('stays unresolved with %s', async (_label, arrange) => {
+      placeOrder(7n);
+      arrange();
+
+      await expect(read()).rejects.toThrow();
+    });
+  });
+
+  it('reads no paybacks for a one-round step', async () => {
+    commit(pswapNote({ id: 'order-note' }), 120);
+    spentAt.set('order-note', 125);
+    commit(remainder('remainder-1', 1n, 24n, 10n), 125);
+    commitPayback(payback({ id: 'payback-1', fill: 20n, depth: 1n }));
+
+    await expect(read()).resolves.toEqual(expect.objectContaining({ kind: 'open', noteId: 'remainder-1' }));
+    expect(mockSyncNotes).toHaveBeenCalledTimes(1);
+    expect(mockSyncNotes).toHaveBeenCalledWith(124, 125, [{ tagOf: 'order-note' }]);
   });
 
   // The depth is the serial round over the order note's, and one read follows at most 16 of them.
