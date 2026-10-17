@@ -1,4 +1,134 @@
 {
+  "me": {
+    "message": "我",
+    "englishSource": "Me"
+  },
+  "profile": {
+    "message": "个人资料",
+    "englishSource": "Profile"
+  },
+  "myBadges": {
+    "message": "我的徽章",
+    "englishSource": "My badges"
+  },
+  "openMyBadges": {
+    "message": "打开我的徽章",
+    "englishSource": "Open My badges"
+  },
+  "badgesEarnedCount": {
+    "message": "已获得 $earned$ / $total$",
+    "englishSource": "$earned$ of $total$ earned",
+    "placeholders": {
+      "earned": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      }
+    }
+  },
+  "badgesProfileDescription": {
+    "message": "你在 Mainnet 活动中达成的私人里程碑",
+    "englishSource": "Private milestones from your Mainnet activity"
+  },
+  "badgesCollectionDescription": {
+    "message": "你的私人钱包里程碑。",
+    "englishSource": "Your private wallet milestones."
+  },
+  "badgeCollection": {
+    "message": "徽章收藏",
+    "englishSource": "Badge collection"
+  },
+  "mainnetOnly": {
+    "message": "仅限 Mainnet",
+    "englishSource": "Mainnet only"
+  },
+  "badgesMainnetNoticeTitle": {
+    "message": "徽章可在 Mainnet 解锁",
+    "englishSource": "Badges unlock on Mainnet"
+  },
+  "badgesMainnetNoticeDescription": {
+    "message": "徽章可在 Mainnet 解锁。测试活动不计入。",
+    "englishSource": "Badges unlock on Mainnet. Test activity does not count."
+  },
+  "badgeEarnedLabel": {
+    "message": "$badge$，已获得",
+    "englishSource": "$badge$, earned",
+    "placeholders": {
+      "badge": {
+        "content": "$1"
+      }
+    }
+  },
+  "badgeLockedLabel": {
+    "message": "$badge$，未解锁",
+    "englishSource": "$badge$, locked",
+    "placeholders": {
+      "badge": {
+        "content": "$1"
+      }
+    }
+  },
+  "locked": {
+    "message": "未解锁",
+    "englishSource": "Locked"
+  },
+  "badgeEarned": {
+    "message": "已获得",
+    "englishSource": "Earned"
+  },
+  "badgeVerificationPending": {
+    "message": "暂未开放",
+    "englishSource": "Not available yet"
+  },
+  "badgeFirstDeposit": {
+    "message": "首次充值",
+    "englishSource": "First Deposit"
+  },
+  "badgeFirstDepositDescription": {
+    "message": "添加资金并等待资金变为可用。",
+    "englishSource": "Add funds and wait for them to become spendable."
+  },
+  "badgeFirstReceive": {
+    "message": "首次收款",
+    "englishSource": "First Receive"
+  },
+  "badgeFirstReceiveDescription": {
+    "message": "接受并领取发送到此账户的转账。",
+    "englishSource": "Accept and claim a transfer to this account."
+  },
+  "badgeFirstSend": {
+    "message": "首次转账",
+    "englishSource": "First Send"
+  },
+  "badgeFirstSendDescription": {
+    "message": "确认一笔 Miden 转出交易。",
+    "englishSource": "Confirm an outgoing Miden transfer."
+  },
+  "badgeFirstSwap": {
+    "message": "首次兑换",
+    "englishSource": "First Swap"
+  },
+  "badgeFirstSwapDescription": {
+    "message": "完成兑换并收到可用资金。",
+    "englishSource": "Complete a swap and receive spendable output."
+  },
+  "badgeRecoveryChecked": {
+    "message": "已验证恢复备份",
+    "englishSource": "Recovery Checked"
+  },
+  "badgeRecoveryCheckedDescription": {
+    "message": "验证此账户的恢复备份。",
+    "englishSource": "Verify this account's recovery backup."
+  },
+  "badgeMiniappExplorer": {
+    "message": "迷你应用探索者",
+    "englishSource": "Miniapp Explorer"
+  },
+  "badgeMiniappExplorerDescription": {
+    "message": "完成一次受支持的迷你应用体验。",
+    "englishSource": "Complete a supported mini app experience."
+  },
   "usdcxBurnTitle": {
     "message": "销毁 USDCx",
     "englishSource": "Burn USDCx"

@@ -15,6 +15,7 @@ jest.mock('lib/remote-config/runtime', () => ({
       .testBridgeSnapshot()
 }));
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  getActiveOverride: () => null,
   getEffectiveNetworkName: () => 'testnet',
   isNoteTransportConfigured: () => true
 }));

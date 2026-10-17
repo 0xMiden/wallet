@@ -1,5 +1,6 @@
 import '../../../../test/jest-mocks';
 
+import { isBalanceReflected } from 'lib/miden/balance-snapshot';
 import { TEST_SWAP_TOKENS, TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
 import { _setSwapTokensForTest } from 'lib/miden/swap/tokens';
 import { SerializedVaultAsset } from 'lib/shared/types';
@@ -43,6 +44,24 @@ jest.mock('lib/miden/metadata/overrides', () => ({
 }));
 
 describe('updateBalancesFromSyncData', () => {
+  it('tags only landed balances with the original worker nonce/network, never a fresh arrival time', async () => {
+    const assets = [
+      { faucetId: 'coin', amountBaseUnits: '100', metadata: { name: 'Coin', symbol: 'COIN', decimals: 0 } }
+    ];
+    const required = { accountId: 'account-1', faucetId: 'coin', minimumNonce: '5' };
+    const reflected = () => isBalanceReflected(required, useWalletStore.getState().balances);
+    await updateBalancesFromSyncData('account-1', assets, { network: 'mainnet', accountNonce: '4' });
+    expect(reflected()).toBe(false);
+    await updateBalancesFromSyncData('account-1', assets, { network: 'testnet', accountNonce: '5' });
+    expect(reflected()).toBe(false);
+    await updateBalancesFromSyncData('account-1', assets, { network: 'mainnet', accountNonce: '5' });
+    expect(reflected()).toBe(true);
+    // An older worker's cached payload replaces the actual display, so it must replace the proof too.
+    await updateBalancesFromSyncData('account-1', assets);
+    expect(reflected()).toBe(false);
+    useWalletStore.getState().clearBalances();
+    expect(reflected()).toBe(false);
+  });
   beforeEach(() => {
     useWalletStore.setState({
       balances: {},

@@ -2,6 +2,9 @@
 
 ## 1.17.5 (TBD)
 
+### Changes
+
+- [CHANGE][all] Replace the Settings tab with Profile: a centered account identity, My badges, and the original settings groups below it. Add private, wallet-wide local badges for confirmed Mainnet sends, claimed bridge deposits, and fully filled swaps with claimed output. Incoming badges wait until the notes are consumed and a matching account balance snapshot includes those consumes. Ignore Testnet, imported history, incomplete actions and duplicate events. First Receive, Recovery Checked and Miniapp Explorer remain unavailable until reliable completion signals are defined. Progress survives app restarts and account switching, but resetting app data clears it; restore/reinstall carryover is not promised.
 ### Features
 
 - [FEATURE][all] Bridge in offers Circle USDC and configured ETH, excluding the retired Test Epoch USDC even when an older config advertises it. It opens directly from Receive with Receive-green actions, a Send-style amount field, explicit source and Miden destination, and a pinned Continue action. Bridge routes show labelled fees and arrival estimates in both directions, and Send destination networks open in a full-name picker. The connection screen previews the source and destination with clear next steps and a compact test-wallet notice. Receive keeps its original centered QR, separate network tag and copy pill, and side-by-side Share/Cross-chain tiles; shared network tags and pickers use the correct chain logos, inset dividers and flow-tinted selected rows. Bridge-in progress checklists fill the content width like other transaction progress screens. Adds a reusable provider comparison selector with Best value, Cheapest and Fastest rankings for the design preview; live provider routing is unchanged. Send hides the top home action tabs from the amount step onward, restoring them when returning to the recipient or leaving the flow.
@@ -26,6 +29,10 @@
 - [FIX][all] Accepting an incoming transfer no longer queues a claim that is certain to fail on the network fee: when the account's USDCX, plus the USDCX the transfers being accepted carry and what claims already queued will add, is below one base fee, Accept (and a failed transfer's Retry) is disabled with a fee message on the card, and Accept All queues only the transactions that can pay, or is disabled when none can. A transfer of USDCX still pays for itself, so a new wallet accepts its first USDCX as before.
 - [FIX][all] A claim that fails because an asset it needed (most often the USDCX for the network fee) was not available now says so instead of naming an "amount sent" that a claim does not have; every other transaction keeps its copy.
 - [FIX][extension] Approving a dApp transaction or consume no longer flashes an "Oops" error screen (and reports a "Not identified" crash) in the approval window before it closes: the window no longer navigates away from its own request after the approval, which dropped the request id from its address.
+
+### Changes
+
+- [CHANGE][ci] The dApp E2E harness also checks transaction scripts the dApp compiles itself on single-sig and Guardian accounts: a payment through the basic wallet, one that first checks its script argument and an advice value, and a fee-only script.
 
 ## 1.17.4 (2026-10-15)
 
