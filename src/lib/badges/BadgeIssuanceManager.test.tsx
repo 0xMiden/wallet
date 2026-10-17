@@ -15,7 +15,7 @@ import {
 } from 'lib/miden/front/sync-fuse';
 import { DEFAULT_TOKEN_METADATA } from 'lib/miden/metadata/defaults';
 import * as Repo from 'lib/miden/repo';
-import { withWasmClientLock } from 'lib/miden/sdk/miden-client';
+import { withWasmClientLock, type WasmLockHold } from 'lib/miden/sdk/miden-client';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { MAX_CONSECUTIVE_WATCHDOG_EVICTIONS } from 'lib/miden/sync-backoff';
 
@@ -116,6 +116,7 @@ jest.mock('app/hooks/useBackWithFallback', () => ({ useBackWithFallback: () => j
 jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn() }));
 
 const hash = '0x' + '1'.repeat(64);
+const NO_HOLD: WasmLockHold = Object.create(null);
 const row = (patch: Partial<ITransaction> = {}): ITransaction => ({
   id: 'send',
   type: 'send',
@@ -165,6 +166,7 @@ beforeEach(async () => {
   mockApprovedPair = true;
   jest.clearAllMocks();
   __resetSyncFuseStateForTests();
+  jest.mocked(withWasmClientLock).mockImplementation(async operation => operation(NO_HOLD));
   jest.mocked(midenClientProxy.getTransactionCommitState).mockResolvedValue('committed');
   jest.mocked(midenClientProxy.getPswapLineages).mockResolvedValue([]);
 });
@@ -410,6 +412,94 @@ describe('the badge verdict fuse', () => {
       await waitFor(() => expect(isSyncFused('badge-verdict')).toBe(true));
       expect(midenClientProxy.getTransactionCommitState).toHaveBeenCalled();
     } finally {
+      view.unmount();
+      warn.mockRestore();
+    }
+  });
+
+  // The lock is held elsewhere until the returned release, so the verdict hold with this label queues behind it.
+  const holdBack = (label: string) => {
+    let release: () => void = () => {};
+    const held = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    jest.mocked(withWasmClientLock).mockImplementation(async (operation, options) => {
+      if (options?.label === label) await held;
+      return operation(NO_HOLD);
+    });
+    return () => release();
+  };
+  const queued = (label: string) =>
+    waitFor(() =>
+      expect(withWasmClientLock).toHaveBeenCalledWith(expect.any(Function), expect.objectContaining({ label }))
+    );
+
+  it('makes no commit-state call for a verdict that queued while idle-sync lit, and books no success', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    almostFused();
+    const release = holdBack('badge-commit-verdict');
+    await Repo.transactions.add(row({ status: ITransactionStatus.Completed }));
+    const view = render(<BadgeIssuanceManager />);
+    try {
+      await queued('badge-commit-verdict');
+      for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; i += 1) noteSyncWatchdogEviction('idle-sync');
+      await act(async () => {
+        release();
+        await new Promise(resolve => setTimeout(resolve, 25));
+      });
+      expect(midenClientProxy.getTransactionCommitState).not.toHaveBeenCalled();
+      expect(mockWrite).not.toHaveBeenCalled();
+      noteSyncWatchdogEviction('badge-verdict');
+      expect(isSyncFused('badge-verdict')).toBe(true);
+    } finally {
+      release();
+      view.unmount();
+      warn.mockRestore();
+    }
+  });
+
+  it('makes no lineage call for a swap verdict that queued while the issuer stopped, and books no success', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    // Pass one caches both commit verdicts and fails at the swap verdict, so that is the next pass's only hold.
+    jest.mocked(midenClientProxy.getPswapLineages).mockRejectedValue(new Error('offline'));
+    await Repo.transactions.bulkAdd(swapOrderRows());
+    landBalances('5');
+    const view = render(<BadgeIssuanceManager />);
+    let release = () => {};
+    try {
+      await waitFor(() =>
+        expect(warn).toHaveBeenCalledWith('[badges] completion evidence unavailable; will retry', expect.any(Error))
+      );
+      await act(async () => {
+        await new Promise(resolve => setTimeout(resolve, 25));
+      });
+      almostFused();
+      release = holdBack('badge-swap-verdict');
+      jest.mocked(withWasmClientLock).mockClear();
+      jest.mocked(midenClientProxy.getTransactionCommitState).mockClear();
+      jest.mocked(midenClientProxy.getPswapLineages).mockClear();
+      await act(async () => {
+        await Repo.transactions.add(
+          row({
+            id: 'wake',
+            type: 'consume',
+            status: ITransactionStatus.Completed,
+            transactionId: '0x' + '3'.repeat(64)
+          })
+        );
+      });
+      await queued('badge-swap-verdict');
+      view.unmount();
+      await act(async () => {
+        release();
+        await new Promise(resolve => setTimeout(resolve, 25));
+      });
+      expect(midenClientProxy.getPswapLineages).not.toHaveBeenCalled();
+      expect(midenClientProxy.getTransactionCommitState).not.toHaveBeenCalled();
+      noteSyncWatchdogEviction('badge-verdict');
+      expect(isSyncFused('badge-verdict')).toBe(true);
+    } finally {
+      release();
       view.unmount();
       warn.mockRestore();
     }

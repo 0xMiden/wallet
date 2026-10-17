@@ -1,8 +1,14 @@
+import { compareAccountIds } from 'lib/miden/activity/utils';
 import { ITransactionStatus, type ITransaction } from 'lib/miden/db/types';
 
 import { badgeCandidates } from './evidence';
 import { createBadgeIssuer, type BadgeIssuanceSource } from './issuance';
 import { readEarnedBadges, type BadgeId } from './types';
+
+jest.mock('lib/miden/activity/utils', () => {
+  const actual = jest.requireActual<typeof import('lib/miden/activity/utils')>('lib/miden/activity/utils');
+  return { ...actual, compareAccountIds: jest.fn(actual.compareAccountIds) };
+});
 
 const hash = (n: number) => `0x${n.toString(16).padStart(64, '0')}`;
 const base = (patch: Partial<ITransaction> = {}): ITransaction => ({
@@ -49,14 +55,18 @@ const fill = (n: number, amount = 50n) =>
     extraInputs: { swapOrderTxId: 'swap', swapSettleKind: 'settle' }
   });
 
-// The retry backoff reads the wall clock; `later()` moves it past any backoff.
+// The retry backoff reads the monotonic clock; `later()` moves it past any backoff. The wall clock
+// follows it unless a test sets the system time back.
 let clock = 1_000_000;
+let wallOffset = 0;
 const later = () => {
   clock += 60 * 60_000;
 };
 beforeEach(() => {
   clock = 1_000_000;
-  jest.spyOn(Date, 'now').mockImplementation(() => clock);
+  wallOffset = 0;
+  jest.spyOn(performance, 'now').mockImplementation(() => clock);
+  jest.spyOn(Date, 'now').mockImplementation(() => clock + wallOffset);
 });
 afterEach(() => jest.restoreAllMocks());
 
@@ -267,6 +277,16 @@ describe('verified wallet-wide badge issuance', () => {
     await h.issuer.refresh();
     expect(h.awards()).toEqual(['first-send']);
   });
+  it('checks a backed-off candidate again once its interval has run, even after the system time is set back', async () => {
+    const h = harness();
+    jest.mocked(h.source.isCommitted).mockResolvedValueOnce(false);
+    await h.issuer.refresh();
+    clock += 15_000;
+    wallOffset = -60 * 60_000;
+    await h.issuer.refresh();
+    expect(h.source.isCommitted).toHaveBeenCalledTimes(2);
+    expect(h.awards()).toEqual(['first-send']);
+  });
 });
 
 describe('the verdict fuse', () => {
@@ -306,6 +326,15 @@ describe('the verdict fuse', () => {
     expect(h.source.reportVerified).toHaveBeenCalledTimes(1);
     await h.issuer.refresh();
     expect(h.source.reportVerified).toHaveBeenCalledTimes(1);
+  });
+  it('leaves a candidate whose hold declined unchecked: no backoff, no award and no success', async () => {
+    const h = harness();
+    jest.mocked(h.source.isCommitted).mockResolvedValue(null);
+    await h.issuer.refresh();
+    await h.issuer.refresh();
+    expect(h.source.isCommitted).toHaveBeenCalledTimes(2);
+    expect(h.awards()).toEqual([]);
+    expect(h.source.reportVerified).not.toHaveBeenCalled();
   });
 });
 
@@ -389,6 +418,55 @@ describe('deposit completion evidence', () => {
     await legacy.issuer.refresh();
     expect(legacy.awards()).toEqual([]);
   });
+  it('matches a deposit to the first of its qualifying claims in history order', () => {
+    const claim = (initialNonce: string): ITransaction => ({
+      ...depositClaim(),
+      id: `claim-${initialNonce}`,
+      submitEvidence: [{ attemptId: 'claim', capturedAt: 1, source: 'stage', transactionId: hash(1), initialNonce }]
+    });
+    const nonces = (rows: ITransaction[]) =>
+      badgeCandidates(rows, ['account-a'], ['first-deposit']).map(candidate => candidate.balances?.[0]?.minimumNonce);
+    expect(nonces([deposit(), claim('4'), claim('7')])).toEqual(['5']);
+    expect(nonces([deposit(), claim('7'), claim('4')])).toEqual(['8']);
+    expect(nonces([claim('7'), deposit(), claim('4')])).toEqual(['8']);
+  });
+  it('builds every deposit claimed in one batch while reading each note a bounded number of times', () => {
+    let reads = 0;
+    const counted = <T extends object>(value: T): T =>
+      new Proxy(value, {
+        get: (target, key, receiver) => {
+          reads += 1;
+          return Reflect.get(target, key, receiver);
+        }
+      });
+    const count = 200;
+    const deposits = Array.from({ length: count }, (_, n) =>
+      base({
+        id: `deposit-${n}`,
+        type: 'bridged-receive',
+        faucetId: `coin-${n}`,
+        extraInputs: { phase: 'received', provider: 'epoch', midenNoteId: `note-${n}` }
+      })
+    );
+    const batch = base({
+      id: 'batch-claim',
+      type: 'consume',
+      consumedNotes: deposits.map((_, n) =>
+        counted({ id: `note-${n}`, senderAddress: 'bridge', faucetId: `coin-${n}`, amount: 10n })
+      ),
+      assetTotals: deposits.map((_, n) => counted({ faucetId: `coin-${n}`, amount: 10n }))
+    });
+    const rows = [...deposits, batch];
+    reads = 0;
+    expect(badgeCandidates(rows, ['account-a'], ['first-deposit'])).toEqual(
+      deposits.map((_, n) => ({
+        badge: 'first-deposit',
+        transactionIds: [hash(1)],
+        balances: [{ accountId: 'account-a_tag', faucetId: `coin-${n}`, minimumNonce: '5' }]
+      }))
+    );
+    expect(reads).toBeLessThanOrEqual(4 * (rows.length + count));
+  });
   it.each<Partial<ITransaction>>([
     { amount: 9n },
     { accountId: 'account-b' },
@@ -454,6 +532,20 @@ describe('fully settled swap evidence', () => {
     later();
     await h.issuer.refresh();
     expect(h.awards()).toEqual(['first-swap']);
+  });
+  it('compares accounts a bounded number of times per row when no order has a claim', () => {
+    const rows = Array.from({ length: 300 }, (_, n) => [
+      base({
+        id: `swap-${n}`,
+        type: 'swap',
+        transactionId: hash(1_000 + n),
+        extraInputs: { requestedAmount: 100n, requestedFaucetId: 'coin-b', orderId: String(n) }
+      }),
+      { ...fill(n), extraInputs: { swapOrderTxId: `other-${n}`, swapSettleKind: 'settle' } }
+    ]).flat();
+    jest.mocked(compareAccountIds).mockClear();
+    expect(badgeCandidates(rows, ['account-a', 'account-b'])).toEqual([]);
+    expect(jest.mocked(compareAccountIds).mock.calls.length).toBeLessThanOrEqual(4 * rows.length);
   });
   it('does not count overlapping notes or replayed consumes toward a full fill', () => {
     expect(badgeCandidates([swap(), fill(1), { ...fill(2), noteIds: ['payback-1'] }], ['account-a'])).toEqual([]);
