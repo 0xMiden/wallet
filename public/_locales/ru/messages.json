@@ -4766,6 +4766,41 @@
     "message": "Исполнения, включённые в этот своп",
     "englishSource": "Fills bundled into this swap"
   },
+  "swapActivityTitle": {
+    "message": "Операции по свопу",
+    "englishSource": "Swap activity"
+  },
+  "swapReclaiming": {
+    "message": "Возврат средств",
+    "englishSource": "Returning funds"
+  },
+  "swapReturnedAt": {
+    "message": "Вернуто · $time$",
+    "englishSource": "Returned · $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapPlacedAt": {
+    "message": "Размещено $time$",
+    "englishSource": "Placed $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapOfferedAmount": {
+    "message": "Предложено $amount$",
+    "englishSource": "Offered $amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
   "swapFillNote": {
     "message": "Исполнение $number$",
     "englishSource": "Fill $number$",

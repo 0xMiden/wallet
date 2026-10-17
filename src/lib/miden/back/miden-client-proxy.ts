@@ -1254,6 +1254,25 @@ export const midenClientProxy = {
   },
 
   /**
+   * Build the exact fee-aware request used to reclaim a creator-owned depth-0
+   * PSWAP tip. The output-note record and request builder must live in the realm
+   * that owns the synchronized client; only the serialized request crosses the
+   * offscreen boundary.
+   */
+  async buildPswapCancelRequest(accountId: string, noteId: string, assertLive?: AssertLive): Promise<Uint8Array> {
+    if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
+      return (await getMidenClient()).buildPswapCancelRequest(accountId, noteId, assertLive);
+    }
+    const resultB64 = await this.call('buildPswapCancelRequest', [accountId, noteId], {
+      deadlineMs: READ_DEADLINE_MS
+    });
+    if (resultB64 == null) {
+      throw new Error('buildPswapCancelRequest: offscreen document returned no request bytes');
+    }
+    return b64ToBytes(resultB64);
+  },
+
+  /**
    * Read the client's sync height (issue #260, slice 7a).
    *
    * The guardian recallable-send request build reads the reclaim baseline off the

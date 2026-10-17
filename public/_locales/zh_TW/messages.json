@@ -4766,6 +4766,41 @@
     "message": "此次兌換中打包的成交",
     "englishSource": "Fills bundled into this swap"
   },
+  "swapActivityTitle": {
+    "message": "交換活動",
+    "englishSource": "Swap activity"
+  },
+  "swapReclaiming": {
+    "message": "退還資金",
+    "englishSource": "Returning funds"
+  },
+  "swapReturnedAt": {
+    "message": "已退回 · $time$",
+    "englishSource": "Returned · $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapPlacedAt": {
+    "message": "下單時間：$time$",
+    "englishSource": "Placed $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapOfferedAmount": {
+    "message": "出價 $amount$",
+    "englishSource": "Offered $amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
   "swapFillNote": {
     "message": "成交 $number$",
     "englishSource": "Fill $number$",

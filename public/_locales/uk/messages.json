@@ -4766,6 +4766,41 @@
     "message": "Виконання, включені в цей своп",
     "englishSource": "Fills bundled into this swap"
   },
+  "swapActivityTitle": {
+    "message": "Операції зі свопами",
+    "englishSource": "Swap activity"
+  },
+  "swapReclaiming": {
+    "message": "Повернення коштів",
+    "englishSource": "Returning funds"
+  },
+  "swapReturnedAt": {
+    "message": "Повернено · $time$",
+    "englishSource": "Returned · $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapPlacedAt": {
+    "message": "Розміщено о $time$",
+    "englishSource": "Placed $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapOfferedAmount": {
+    "message": "Пропонована сума: $amount$",
+    "englishSource": "Offered $amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
   "swapFillNote": {
     "message": "Виконання $number$",
     "englishSource": "Fill $number$",

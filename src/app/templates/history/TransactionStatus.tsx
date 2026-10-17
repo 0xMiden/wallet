@@ -50,7 +50,7 @@ export const transactionStatusOf = ({
   status?: ITransactionStatus;
   isCancelled?: boolean;
   isUnconfirmed?: boolean;
-  swapSettlement?: 'pending' | 'reclaimed';
+  swapSettlement?: 'pending' | 'reclaimed' | 'reclaiming';
 }): Status => {
   if (isUnconfirmed) return 'unconfirmed';
   if (status === ITransactionStatus.Unconfirmed) return 'unconfirmed';
@@ -73,7 +73,7 @@ export const StatusPill: FC<{
   status?: ITransactionStatus;
   isCancelled?: boolean;
   isUnconfirmed?: boolean;
-  swapSettlement?: 'pending' | 'reclaimed';
+  swapSettlement?: 'pending' | 'reclaimed' | 'reclaiming';
   testId?: string;
 }> = memo(({ status, isCancelled, isUnconfirmed, swapSettlement, testId }) => (
   <StatusBadge

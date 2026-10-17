@@ -4766,6 +4766,41 @@
     "message": "이 스왑에 묶인 체결",
     "englishSource": "Fills bundled into this swap"
   },
+  "swapActivityTitle": {
+    "message": "스왑 활동",
+    "englishSource": "Swap activity"
+  },
+  "swapReclaiming": {
+    "message": "자금 반환",
+    "englishSource": "Returning funds"
+  },
+  "swapReturnedAt": {
+    "message": "반환됨 · $time$",
+    "englishSource": "Returned · $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapPlacedAt": {
+    "message": "주문 접수 $time$",
+    "englishSource": "Placed $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapOfferedAmount": {
+    "message": "매도 호가 $amount$",
+    "englishSource": "Offered $amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
   "swapFillNote": {
     "message": "체결 $number$",
     "englishSource": "Fill $number$",

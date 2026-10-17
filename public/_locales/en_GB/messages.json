@@ -4766,6 +4766,41 @@
     "message": "Fills bundled into this swap",
     "englishSource": "Fills bundled into this swap"
   },
+  "swapActivityTitle": {
+    "message": "Swap activity",
+    "englishSource": "Swap activity"
+  },
+  "swapReclaiming": {
+    "message": "Returning funds",
+    "englishSource": "Returning funds"
+  },
+  "swapReturnedAt": {
+    "message": "Returned · $time$",
+    "englishSource": "Returned · $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapPlacedAt": {
+    "message": "Placed $time$",
+    "englishSource": "Placed $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapOfferedAmount": {
+    "message": "Offered $amount$",
+    "englishSource": "Offered $amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
   "swapFillNote": {
     "message": "Fill $number$",
     "englishSource": "Fill $number$",

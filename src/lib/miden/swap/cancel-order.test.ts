@@ -45,10 +45,11 @@ const applyModify = (row: Row): unknown => {
 };
 
 describe('cancelSwapOrder', () => {
-  it('brings a live order’s expiry forward to now, which is all a reclaim needs', async () => {
+  it('brings a live order’s expiry forward to now and stamps the expiry intent with it', async () => {
     // There is no protocol cancel to call: the expiry is the wallet's own
     // bookkeeping, and moving it is what makes the next settlement tick reclaim
-    // the tip through the path every order already takes when it times out.
+    // the tip through the path every order already takes when it times out. The
+    // intent stamp is what the list and the receipt read as Returning funds.
     await cancelSwapOrder('tx-1', NOW);
 
     const row = swapRow();
@@ -57,7 +58,8 @@ describe('cancelSwapOrder', () => {
       orderId: 42n,
       requestedFaucetId: 'req',
       requestedAmount: 1000n,
-      expiresAt: NOW
+      expiresAt: NOW,
+      expiryTriggeredAt: NOW
     });
   });
 
@@ -68,7 +70,7 @@ describe('cancelSwapOrder', () => {
 
     const row = swapRow({ extraInputs: { orderId: 42n } });
     applyModify(row);
-    expect(row.extraInputs).toEqual({ orderId: 42n, expiresAt: NOW });
+    expect(row.extraInputs).toEqual({ orderId: 42n, expiresAt: NOW, expiryTriggeredAt: NOW });
   });
 
   it('leaves an order whose expiry has already lapsed exactly as it found it', async () => {
