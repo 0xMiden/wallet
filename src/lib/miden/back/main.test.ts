@@ -143,7 +143,9 @@ jest.mock('../sdk/miden-client', () => ({
 }));
 
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
-  loadEndpointOverrides: async () => (globalThis as any).__mainTest.loadEndpointOverrides()
+  loadEndpointOverrides: async () => (globalThis as any).__mainTest.loadEndpointOverrides(),
+  // The delivery sweep's pass reads it; without it every pass throws and leaves no idle finding to test.
+  isNoteTransportConfigured: () => true
 }));
 
 jest.mock('lib/remote-config/runtime', () => ({
@@ -214,11 +216,14 @@ jest.mock('lib/miden/back/actions', () => ({
 }));
 const Actions: any = jest.requireMock('lib/miden/back/actions');
 
+import { __resetSyncFuseStateForTests } from 'lib/miden/front/sync-fuse';
+import * as Repo from 'lib/miden/repo';
 import { WalletMessageType } from 'lib/shared/types';
 
 import { CONNECTIVITY_CATEGORIES } from '../activity/connectivity-state';
-import { TRANSACTION_STAGES } from '../db/types';
-import { MidenMessageType } from '../types';
+import { ICON_BY_TYPE, ITransaction, ITransactionStatus, TRANSACTION_STAGES } from '../db/types';
+import { __resetNoteDeliverySweepForTests, sweepNoteDeliveries } from '../transaction/note-delivery-sweep';
+import { MidenMessageType, NoteTypeEnum } from '../types';
 import { start } from './main';
 
 let dispatch: (req: any, port?: any) => Promise<any>;
@@ -979,6 +984,89 @@ describe('processRequest', () => {
       assets: [{ amount: '0', faucetId: '' }],
       nullifier: ''
     });
+  });
+});
+
+// On the extension the delivery sweep runs here and skips its query while nothing is due. A page's delivery write
+// moves only the page's count, so the page reports it and this realm counts it as a write of its own (#1473).
+describe('a delivery write a page reports', () => {
+  const nowSeconds = () => Math.floor(Date.now() / 1000);
+  const spies: { mockRestore: () => void }[] = [];
+
+  const owingRow = (overrides: Partial<ITransaction>): ITransaction => ({
+    id: 'tx-delivery',
+    accountId: 'acct-1',
+    type: 'send',
+    status: ITransactionStatus.Completed,
+    initiatedAt: nowSeconds() - 120,
+    completedAt: nowSeconds() - 120,
+    displayIcon: ICON_BY_TYPE.send,
+    transactionId: '0xland',
+    outputNoteIds: ['0xnote'],
+    secondaryAccountId: 'mtst1recipient',
+    noteType: NoteTypeEnum.Private,
+    noteDelivery: 'relayed',
+    relayAttempts: 1,
+    ...overrides
+  });
+
+  /** The sweep's candidate reads, counted from here on; a row write is `where({ id })`. */
+  const countQueries = () => {
+    const where = jest.spyOn(Repo.transactions, 'where');
+    spies.push(where);
+    return () => where.mock.calls.filter(([index]) => String(index) === 'noteDelivery').length;
+  };
+
+  beforeEach(() => {
+    __resetNoteDeliverySweepForTests();
+    __resetSyncFuseStateForTests();
+  });
+
+  afterEach(() => {
+    for (const spy of spies.splice(0)) spy.mockRestore();
+  });
+
+  it('counts the write here, so the next sweep queries inside its idle window', async () => {
+    await Repo.transactions.add(owingRow({ nextRelayAt: nowSeconds() + 600 }));
+    const queries = countQueries();
+    await sweepNoteDeliveries();
+    await sweepNoteDeliveries();
+    expect(queries()).toBe(1);
+
+    const response = await dispatch({ type: WalletMessageType.NoteDeliveryWrittenRequest });
+    await sweepNoteDeliveries();
+
+    expect(queries()).toBe(2);
+    expect(response).toEqual({ type: WalletMessageType.NoteDeliveryWrittenResponse });
+  });
+
+  it('reaches the sweep through a pass that was running when it arrived', async () => {
+    // Receipts only, so the pass makes no delivery write of its own to move the count past the one it took.
+    await Repo.transactions.add(owingRow({ nextRelayAt: nowSeconds() - 1, restoredFromBackup: true }));
+    const queries = countQueries();
+    let reached: () => void = () => {};
+    const readReached = new Promise<void>(resolve => {
+      reached = resolve;
+    });
+    let release: (consumed: boolean) => void = () => {};
+    spies.push(
+      jest.spyOn(proxyMock.midenClientProxy, 'isOutputNoteConsumed').mockImplementation(() => {
+        reached();
+        return new Promise<boolean>(resolve => {
+          release = resolve;
+        });
+      }),
+      jest.spyOn(console, 'warn').mockImplementation(() => undefined)
+    );
+
+    const pass = sweepNoteDeliveries();
+    await readReached;
+    await dispatch({ type: WalletMessageType.NoteDeliveryWrittenRequest });
+    release(false);
+    await pass;
+    await sweepNoteDeliveries();
+
+    expect(queries()).toBe(2);
   });
 });
 
