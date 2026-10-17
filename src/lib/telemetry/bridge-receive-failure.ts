@@ -40,6 +40,16 @@ export interface BridgeReceiveFailure extends Partial<BridgeReceiveFailureSource
   route?: string;
 }
 
+// A registered symbol rather than a module-local set: every copy of this module in a realm reads the same mark, and a
+// failure's write and its report run in one realm.
+const WALLET_RAISED = Symbol.for('miden.bridge-receive.wallet-raised');
+
+/** Marks an error raised in the wallet's own words, never an answer's: the report reads only the answer it wraps. */
+export function walletRaised<E extends Error>(error: E): E {
+  Object.defineProperty(error, WALLET_RAISED, { value: true });
+  return error;
+}
+
 /** The library errors the report can name; `http_` is followed by the HTTP status. */
 export const BRIDGE_RECEIVE_LIBRARY_ERRORS = [
   'user_rejected',
@@ -113,12 +123,13 @@ function readLink(source: object): Link {
   };
 }
 
-// The cause chain, objects included: an EIP-1193 rejection's code sits on the provider's plain error object.
+// The cause chain, objects included: an EIP-1193 rejection's code sits on the provider's plain error object. A link the
+// wallet raised is no answer, so only what it wraps is read.
 function linksOf(error: unknown): Link[] {
   const chain: Link[] = [];
   const seen = new Set<unknown>();
   let current = error;
-  while (chain.length < MAX_LINKS && !seen.has(current)) {
+  while (seen.size < MAX_LINKS && !seen.has(current)) {
     seen.add(current);
     if (typeof current === 'string') {
       if (current !== '') chain.push({ text: current.slice(0, TEXT_LIMIT) });
@@ -126,7 +137,7 @@ function linksOf(error: unknown): Link[] {
     }
     if (typeof current !== 'object' || current === null) break;
     try {
-      chain.push(readLink(current));
+      if (Reflect.get(current, WALLET_RAISED) !== true) chain.push(readLink(current));
       current = Reflect.get(current, 'cause');
     } catch {
       // A throwing accessor ends the chain, not the report.

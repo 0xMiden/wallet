@@ -6,6 +6,7 @@ import type { IBridgedReceiveExtraInputs } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 import { updateBridgedReceivePhase } from 'lib/miden/transaction/complete';
 import { getEpochAllocatorUrl } from 'lib/remote-config/values';
+import { walletRaised } from 'lib/telemetry/bridge-receive-failure';
 
 import {
   type CrossChainQuote,
@@ -227,16 +228,18 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
         connection = await getEvmConnection();
       }
       if (!connection.address) {
-        throw new Error('Connect an EVM wallet first');
+        throw walletRaised(new Error('Connect an EVM wallet first'));
       }
       if (!connection.isNative && connection.chainId !== sourceChainId) {
-        throw new Error(
-          `Wallet did not switch to the source chain (currently ${connection.chainId}). Please switch the network in your wallet and try again.`
+        throw walletRaised(
+          new Error(
+            `Wallet did not switch to the source chain (currently ${connection.chainId}). Please switch the network in your wallet and try again.`
+          )
         );
       }
       const allocatorUrl = inputs?.epochAllocatorUrl ?? getEpochAllocatorUrl();
       const sdk = await getEpochSdk({ chainId: sourceChainId, allocatorUrl });
-      if (!sdk) throw new Error('Connect an EVM wallet first');
+      if (!sdk) throw walletRaised(new Error('Connect an EVM wallet first'));
       const intent = await buildEVMToMidenIntent(sdk, {
         ...(quote as EVMToMidenQuote).params,
         preFetchedQuote: quote as EVMToMidenQuote
