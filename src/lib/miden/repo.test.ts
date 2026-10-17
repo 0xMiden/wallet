@@ -904,7 +904,13 @@ describe('writing a transaction row', () => {
       await upgraded.open();
       expect(upgraded.verno).toBe(3.1);
       expect(await upgraded.table(Table.Transactions).get(legacy.id)).toEqual(legacy);
-      expect(await upgraded.table(Table.Transactions).where('badgeNetwork').equals('mainnet').count()).toBe(0);
+      expect(
+        await upgraded
+          .table(Table.Transactions)
+          .where('[badgeNetwork+status+type]')
+          .equals(['mainnet', ITransactionStatus.Completed, 'send'])
+          .count()
+      ).toBe(0);
       expect(await upgraded.table(Table.SpendingLimits).get('account-a')).toMatchObject({
         limit: '20',
         revision: 'old'
@@ -929,7 +935,12 @@ describe('writing a transaction row', () => {
       { ...old, id: 'badge-testnet', badgeNetwork: 'testnet' },
       { ...old, id: 'badge-mainnet', badgeNetwork: 'mainnet' }
     ]);
-    expect(await transactions.where('badgeNetwork').equals('mainnet').primaryKeys()).toEqual(['badge-mainnet']);
+    expect(
+      await transactions
+        .where('[badgeNetwork+status+type]')
+        .equals(['mainnet', ITransactionStatus.Completed, 'send'])
+        .primaryKeys()
+    ).toEqual(['badge-mainnet']);
     expect(await transactions.get('badge-legacy')).toEqual(old);
   });
   it.each([

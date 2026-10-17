@@ -236,10 +236,11 @@ function defineSchema(target: Dexie): void {
         });
     });
 
-  // v3.1 - only newly queued Mainnet rows can supply badge evidence. An index avoids scanning
-  // old history (and its large result blobs) for private achievements; no legacy backfill.
+  // v3.1 - only newly queued Mainnet rows can supply badge evidence. The compound index lets the badge
+  // issuer read just the Completed rows of the types a badge is built from, without scanning old history
+  // (and its large result blobs) for private achievements; no legacy backfill.
   target.version(3.1).stores({
-    [Table.Transactions]: indexes(TRANSACTIONS_V2_STORE, 'badgeNetwork'),
+    [Table.Transactions]: indexes(TRANSACTIONS_V2_STORE, '[badgeNetwork+status+type]'),
     [Table.SpendingLimits]: SPENDING_LIMITS_V19_STORE
   });
 

@@ -1,8 +1,8 @@
 import { compareAccountIds } from 'lib/miden/activity/utils';
 import type { BalanceRequirement } from 'lib/miden/balance-snapshot';
-import { ITransactionStatus, type ITransaction } from 'lib/miden/db/types';
+import { ITransactionStatus, type ITransaction, type ITransactionType } from 'lib/miden/db/types';
 
-import type { BadgeId } from './types';
+import { BADGE_IDS, type BadgeId } from './types';
 
 export interface BadgeCandidate {
   badge: BadgeId;
@@ -10,6 +10,20 @@ export interface BadgeCandidate {
   balances?: BalanceRequirement[];
   swap?: { orderId: string; offeredFaucetId: string; requestedFaucetId: string };
 }
+
+/** The row types each badge's evidence is built from; a badge with none has no reliable signal yet and never issues. */
+export const BADGE_EVIDENCE_TYPES: Readonly<Record<BadgeId, readonly ITransactionType[]>> = {
+  'first-deposit': ['bridged-receive', 'consume'],
+  'first-receive': [],
+  'first-send': ['send'],
+  'first-swap': ['swap', 'consume'],
+  'recovery-checked': [],
+  'miniapp-explorer': []
+};
+export const ISSUABLE_BADGES: readonly BadgeId[] = BADGE_IDS.filter(badge => BADGE_EVIDENCE_TYPES[badge].length > 0);
+export const evidenceTypes = (badges: readonly BadgeId[]): ITransactionType[] => [
+  ...new Set(badges.flatMap(badge => BADGE_EVIDENCE_TYPES[badge]))
+];
 
 const positive = (value: unknown): value is bigint => typeof value === 'bigint' && value > 0n;
 const chainId = (value: unknown): value is string => typeof value === 'string' && /^(0x)?[0-9a-f]{64}$/i.test(value);
@@ -33,7 +47,11 @@ function consumedBalance(row: ITransaction, faucetId: string): BalanceRequiremen
  * Candidate selection is deliberately weaker than issuance: every named chain transaction must
  * still be confirmed by the synced SDK record. Missing provenance never means Mainnet.
  */
-export function badgeCandidates(rows: readonly ITransaction[], accounts: readonly string[]): BadgeCandidate[] {
+export function badgeCandidates(
+  rows: readonly ITransaction[],
+  accounts: readonly string[],
+  badges: readonly BadgeId[] = ISSUABLE_BADGES
+): BadgeCandidate[] {
   const eligible = rows.filter(
     row =>
       row.badgeNetwork === 'mainnet' &&
@@ -48,6 +66,7 @@ export function badgeCandidates(rows: readonly ITransaction[], accounts: readonl
     const transactionId = row.transactionId;
     if (!chainId(transactionId)) continue;
     if (
+      badges.includes('first-send') &&
       row.type === 'send' &&
       positive(row.amount) &&
       row.faucetId &&
@@ -57,7 +76,12 @@ export function badgeCandidates(rows: readonly ITransaction[], accounts: readonl
     ) {
       result.push({ badge: 'first-send', transactionIds: [transactionId] });
     }
-    if (row.type === 'bridged-receive' && row.extraInputs?.phase === 'received' && positive(row.amount)) {
+    if (
+      badges.includes('first-deposit') &&
+      row.type === 'bridged-receive' &&
+      row.extraInputs?.phase === 'received' &&
+      positive(row.amount)
+    ) {
       const deposited = row.amount;
       const noteId: unknown = row.extraInputs.midenNoteId;
       const provider: unknown = row.extraInputs.provider;
@@ -76,7 +100,7 @@ export function badgeCandidates(rows: readonly ITransaction[], accounts: readonl
       const balance = claim && row.faucetId ? consumedBalance(claim, row.faucetId) : undefined;
       if (balance) result.push({ badge: 'first-deposit', transactionIds: [transactionId], balances: [balance] });
     }
-    if (row.type !== 'swap' || !positive(row.amount) || !row.faucetId) continue;
+    if (!badges.includes('first-swap') || row.type !== 'swap' || !positive(row.amount) || !row.faucetId) continue;
     const requested: unknown = row.extraInputs?.requestedAmount;
     const faucet: unknown = row.extraInputs?.requestedFaucetId;
     const order: unknown = row.extraInputs?.orderId;
