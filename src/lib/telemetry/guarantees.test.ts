@@ -1122,6 +1122,8 @@ describe('the background service worker never imports the telemetry barrel', () 
       'src/lib/telemetry/crash.ts',
       'src/lib/telemetry/protocol-assertions.json',
       'src/lib/telemetry/redact.ts',
+      // Imports nothing: `crash.ts` classifies relay failures with it, and the pages feed it without the crash client.
+      'src/lib/telemetry/relay-diagnostics.ts',
       'src/lib/telemetry/report-operation.ts',
       'src/lib/telemetry/run.ts',
       'src/lib/telemetry/sdk-observer.ts',
@@ -1132,6 +1134,11 @@ describe('the background service worker never imports the telemetry barrel', () 
       'src/lib/telemetry/types.ts',
       'src/lib/telemetry/wasm-startup.ts'
     ]);
+  });
+
+  it('keeps the relay diagnostics import-free, so App and AppKit feed them without loading the crash client', () => {
+    const source = readFileSync(resolve(REPO_ROOT, 'src/lib/telemetry/relay-diagnostics.ts'), 'utf8');
+    expect(specifiersOf(source)).toEqual([]);
   });
 });
 
@@ -1148,7 +1155,8 @@ const EGRESS_APIS: readonly Api[] = [
   { label: 'fetch()', pattern: /\bfetch\s*\(/ },
   { label: 'navigator.sendBeacon()', pattern: /\bsendBeacon\s*\(/ },
   { label: 'XMLHttpRequest', pattern: /\bXMLHttpRequest\b/ },
-  { label: 'WebSocket', pattern: /\bWebSocket\b/ },
+  // The relay classifier matches WalletConnect's fixed text for a failed relay socket, which opens nothing.
+  { label: 'WebSocket', pattern: /\bWebSocket\b(?! connection failed for host: )/ },
   { label: 'EventSource', pattern: /\bEventSource\b/ },
   { label: 'new Image()', pattern: /\bnew Image\s*\(/ },
   { label: 'axios', pattern: /\baxios\b/ }
