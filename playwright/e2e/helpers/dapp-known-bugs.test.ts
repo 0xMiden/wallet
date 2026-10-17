@@ -113,6 +113,16 @@ describe('known-bug registry', () => {
     expect(bug('K11').signature(hard('R3-customUndecodable', {}, 'CellDeadlineExceeded: dApp one raw'))).toBe(false);
   });
 
+  it('K12 matches a WalletContext export that holds no state while useWallet() sees the connect', () => {
+    expect(bug('K12').tracking).toContain('0xMiden/web-sdk#484');
+    expect(bug('K12').cells).toEqual({ WP9: ['offchain', 'guardian'] });
+    expect(bug('K12').signature(hard('WP9', { reactConnected: true, reactExportedConnected: null }))).toBe(true);
+    expect(bug('K12').signature(hard('WP9', { reactConnected: true, reactExportedConnected: true }))).toBe(false);
+    expect(bug('K12').signature(hard('WP9', { reactConnected: true, reactExportedConnected: false }))).toBe(false);
+    expect(bug('K12').signature(hard('WP9', { reactConnected: false, reactExportedConnected: null }))).toBe(false);
+    expect(bug('K12').signature(soft('WP9', { reactConnected: true, reactExportedConnected: null }))).toBe(false);
+  });
+
   it('K13 matches the signer setup error MF3 settled on, and no other', () => {
     expect(bug('K13').tracking).toContain('0xMiden/web-sdk#400');
     expect([...(bug('K13').cells.MF3 ?? [])].sort()).toEqual(Object.keys(pinned.texts.MF3).sort());

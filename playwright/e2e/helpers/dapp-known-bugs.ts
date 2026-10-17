@@ -75,6 +75,16 @@ export const KNOWN_BUGS: readonly KnownBug[] = [
     signature: ({ source, evidence }) => source === 'hard' && evidence.popupOpened === true
   },
   {
+    id: 'K12',
+    title: "adapter-react exports MidenFi's own WalletContext, so it reads no state under WalletProvider",
+    tracking: '0xMiden/web-sdk#484 (open)',
+    cells: on(['WP9'], BOTH),
+    // index.ts:7-16 exports MidenFiSignerProvider's local context under the name useWallet.ts exports too, and only
+    // the latter is the one WalletProvider fills (WalletProvider.tsx:449): useWallet() sees the connect, the export {}.
+    signature: ({ source, evidence }) =>
+      source === 'hard' && evidence.reactConnected === true && evidence.reactExportedConnected === null
+  },
+  {
     id: 'K13',
     title:
       'MidenFiSignerProvider cannot set up its signer account for a private wallet account, so MidenProvider never readies',
