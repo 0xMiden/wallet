@@ -118,6 +118,34 @@ describe('the never-committed verdicts', () => {
     }
   );
 
+  it('reports the verdict on a claim the pipeline already failed and reported at warning, so it is one error', async () => {
+    const submitted: ITransaction = { ...claim(evidence()), status: ITransactionStatus.GeneratingTransaction };
+    await Repo.transactions.put(submitted);
+    await cancelTransactionAfterPipelineStopped(
+      submitted,
+      new Error(
+        'failed to submit proven transaction: RPC error: grpc request failed for submit_proven_transaction: invalid ' +
+          `request parameters (transaction conflicts with current state: ${INITIAL})`
+      )
+    );
+    expect((await Repo.transactions.get('tx-1'))?.status).toBe(ITransactionStatus.Failed);
+    const outcome = await judgeAndWrite('tx-1', {
+      node: reads({ blockNum: 150, commitment: OTHER, nonce: '6' }),
+      nowSec: NOW,
+      cadenceMs: 3_000
+    });
+    expect(outcome.kind).toBe('never-committed');
+    const [pipeline, verdict, ...rest] = captured();
+    expect(rest).toEqual([]);
+    expect(pipeline?.message).toContain('Transaction failed: tx_receive; stage submitting;');
+    expect(pipeline?.message).toContain('; point pipeline; ');
+    expect(pipeline?.level).toBe('error');
+    expect(verdict?.message).toContain('Transaction failed: tx_receive; stage submitting;');
+    expect(verdict?.message).toContain('; point node_verdict; never_committed; rule superseded. authentication');
+    expect(verdict?.level).toBe('warning');
+    expectNoTransactionData(`${pipeline?.message} ${verdict?.message}`);
+  });
+
   it('reports a Guardian switch the node discarded as never committed, not as its own copy', async () => {
     await Repo.transactions.put({
       id: 'tx-1',

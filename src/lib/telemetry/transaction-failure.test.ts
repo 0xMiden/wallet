@@ -19,8 +19,10 @@ import {
   REPORTED_IDENTITIES,
   reportTransactionFailure,
   SIGNING_STEPS,
+  SUBMIT_ENDPOINTS,
   SUBMIT_GRPC_STATUSES,
-  SUBMIT_HIDDEN_ANSWERS
+  SUBMIT_HIDDEN_ANSWERS,
+  SUBMIT_NODE_ERRORS
 } from './transaction-failure';
 // The shipped class, past the stub jest maps the package to, so the fields the report reads are the ones it sets.
 import { GuardianHttpError } from '../../../node_modules/@openzeppelin/guardian-client/dist/http.js';
@@ -94,6 +96,28 @@ it('reports the screenshot assertion as a fixed diagnostic instead of redacted n
   expect((error as Error).message).toContain('guardian');
   expect(options).toEqual({ initializeIfNeeded: true, level: 'error' });
   expect(source).toBe('manual');
+});
+
+it('reports a failure already reported at warning, still as a failure', async () => {
+  reportTransactionFailure({
+    type: 'consume',
+    stage: 'submitting',
+    point: 'node_verdict',
+    reason: 'never_committed',
+    neverCommittedRule: 'superseded',
+    alreadyReported: true
+  });
+  reportTransactionFailure({
+    type: 'consume',
+    point: 'node_verdict',
+    reason: 'never_committed',
+    alreadyReported: false
+  });
+  await settle();
+  const [already, first] = jest.mocked(captureCrash).mock.calls;
+  expect((already?.[0] as Error).message).toMatch(/^Transaction failed: tx_receive; stage submitting;/);
+  expect(already?.[2]?.level).toBe('warning');
+  expect(first?.[2]?.level).toBe('error');
 });
 
 it('reports an unknown submit outcome at warning and a final failure at error', async () => {
@@ -453,6 +477,118 @@ describe('an unknown submit outcome', () => {
     const message = await reportedMessage();
     expect(message).toContain(`; submit_outcome_unknown; grpc unavailable; app hidden during submit ${answer}. `);
     expectNoTransactionData(message);
+  });
+});
+
+describe('a submit the node refused', () => {
+  // miden-client 0.17.3: `RpcError::RequestError` under web-sdk 0.17.3's "failed to submit proven transaction" context.
+  const refused = (endpoint: string, kind: string) =>
+    new Error(
+      `failed to submit proven transaction: RPC error: grpc request failed for ${endpoint}: ${kind}: status: ` +
+        `'${kind}', self: "tx ${TX_ID} for ${ACCOUNT}"`
+    );
+
+  it('names the endpoint, the gRPC status and the node error, and nothing the node said', async () => {
+    reportTransactionFailure({
+      type: 'consume',
+      stage: 'submitting',
+      error: refused(
+        'submit_proven_transaction',
+        `invalid request parameters (transaction conflicts with current state: nonce of ${ACCOUNT_HEX} is ${AMOUNT}, expected ${NOTE_COMMITMENT})`
+      )
+    });
+    const message = await reportedMessage();
+    expect(message).toContain(
+      '; point pipeline; submit_rejected; endpoint submit_proven_transaction; grpc invalid_argument; node state_conflict. authentication'
+    );
+    expect(message).not.toContain('nonce of');
+    expectNoTransactionData(message);
+  });
+
+  it.each([
+    ['internal', 'internal server error'],
+    ['expired', 'transaction expired'],
+    ['state_conflict', `transaction conflicts with current state: ${NOTE_COMMITMENT}`],
+    ['capacity_exceeded', 'the mempool is at capacity'],
+    ['missing_fee', 'transaction does not contain a canonical fee output note'],
+    ['consumes_inflight_fee_notes', 'transaction consumes in-flight fee notes'],
+    ['invalid_fee_asset', 'transaction fee output note must use only the native asset'],
+    ['batch_id_mismatch', 'batch proof ID does not match the batch ID'],
+    ['authentication_failed', `failed to authenticate transaction: signature over ${TX_ID} rejected`],
+    ['unknown_code', `unknown error code 42: ${ACCOUNT}`],
+    ['other', `a later node's words about ${ACCOUNT_HEX}`]
+  ])('names node error %s from its fixed words', async (node, text) => {
+    reportTransactionFailure({
+      type: 'send',
+      stage: 'submitting',
+      error: refused('submit_proven_batch', `precondition failed (${text})`)
+    });
+    const message = await reportedMessage();
+    expect(message).toContain(
+      `; submit_rejected; endpoint submit_proven_batch; grpc failed_precondition; node ${node}. authentication`
+    );
+    expectNoTransactionData(message);
+  });
+
+  it.each([
+    ['not_found', 'resource not found'],
+    ['invalid_argument', 'invalid request parameters'],
+    ['permission_denied', 'permission denied'],
+    ['already_exists', 'resource already exists'],
+    ['resource_exhausted', "request was rate-limited or the node's resources are exhausted; retry after a delay"],
+    ['failed_precondition', 'precondition failed'],
+    ['out_of_range', 'operation was attempted past the valid range'],
+    ['unimplemented', 'the requested method is not implemented by this version of the Miden node'],
+    ['unauthenticated', 'request was rejected as unauthenticated; check your credentials and connection settings']
+  ])('names gRPC status %s with no node error as none', async (status, kind) => {
+    reportTransactionFailure({ type: 'send', stage: 'submitting', error: refused('submit_proven_transaction', kind) });
+    expect(await reportedMessage()).toContain(
+      `; submit_rejected; endpoint submit_proven_transaction; grpc ${status}; node none. authentication`
+    );
+  });
+
+  it('names the encryption-key read inside a submit, and an endpoint or status it does not know as other', async () => {
+    reportTransactionFailure({
+      type: 'send',
+      stage: 'submitting',
+      error: refused('get_transaction_encryption_key', 'resource not found')
+    });
+    reportTransactionFailure({
+      type: 'send',
+      stage: 'submitting',
+      error: refused('submit_signed_bundle', `the node said no to ${ACCOUNT_HEX} (${AMOUNT})`)
+    });
+    await settle();
+    const [key, unknown] = jest.mocked(captureCrash).mock.calls.map(([error]) => (error as Error).message);
+    expect(key).toContain('; submit_rejected; endpoint get_transaction_encryption_key; grpc not_found; node none. ');
+    expect(unknown).toContain('; submit_rejected; endpoint other; grpc other; node none. ');
+    expect(unknown).not.toContain('submit_signed_bundle');
+    expectNoTransactionData(`${key} ${unknown}`);
+  });
+
+  it('keeps the identity of an RPC failure outside a submit', async () => {
+    reportTransactionFailure({
+      type: 'consume',
+      stage: 'creating-proposal',
+      error: new Error(
+        'failed to execute transaction: RPC error: grpc request failed for get_account: invalid request parameters (unknown account)'
+      )
+    });
+    const message = await reportedMessage();
+    expect(message).toContain('; point pipeline; transaction_execution_failed; cause rpc. authentication');
+    expect(message).not.toContain('submit_rejected');
+  });
+
+  it('keeps an unknown submit outcome as one', async () => {
+    reportTransactionFailure({
+      type: 'consume',
+      stage: 'submitting',
+      outcome: 'unconfirmed',
+      error: submitOutcomeUnknown('operation was cancelled')
+    });
+    const message = await reportedMessage();
+    expect(message).toContain('; submit_outcome_unknown; grpc cancelled; app hidden during submit unavailable. ');
+    expect(message).not.toContain('submit_rejected');
   });
 });
 
@@ -841,6 +977,8 @@ it.each([...FAILURE_REASONS, ...GUARDIAN_ERROR_CODES, ...HOT_KEY_CODES, 'other',
 it.each([
   ['never-committed rule', () => NEVER_COMMITTED_RULES],
   ['submit gRPC status', () => SUBMIT_GRPC_STATUSES],
+  ['submit endpoint', () => SUBMIT_ENDPOINTS],
+  ['node submit error', () => SUBMIT_NODE_ERRORS],
   ['hidden-during-submit answer', () => SUBMIT_HIDDEN_ANSWERS],
   ['pipeline kill', () => PIPELINE_KILLS],
   ['execution cause', () => EXECUTION_CAUSES],

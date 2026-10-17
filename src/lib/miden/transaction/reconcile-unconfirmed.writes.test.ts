@@ -291,6 +291,9 @@ describe('the never-committed write (#1081)', () => {
       neverCommittedAt: NOW
     });
     expect(row?.submitEvidence?.[0]).toMatchObject({ verdict: 'never-committed', initialSeenAtBlock: 750 });
+    expect(jest.requireMock('lib/telemetry/transaction-failure').reportTransactionFailure).toHaveBeenCalledWith(
+      expect.objectContaining({ point: 'node_verdict', reason: 'never_committed', alreadyReported: true })
+    );
   });
 
   it('moves an Unconfirmed row to Failed and reports the definitive verdict once', async () => {
@@ -308,6 +311,7 @@ describe('the never-committed write (#1081)', () => {
       diagnostics: undefined,
       reason: 'never_committed',
       neverCommittedRule: 'expired',
+      alreadyReported: false,
       error: TRANSACTION_NEVER_COMMITTED_ERROR
     });
     await judgeAndWrite('tx-1', context(node({ blockNum: 750, commitment: INITIAL })));
