@@ -6502,6 +6502,10 @@
     "message": "The balance or quote changed. Refresh and review again.",
     "englishSource": "The balance or quote changed. Refresh and review again."
   },
+  "earnSelectedAmountGasless": {
+    "message": "Selected amount (gasless)",
+    "englishSource": "Selected amount (gasless)"
+  },
   "earnWithdrawFeesIncluded": {
     "message": "Route costs are reflected in the quoted receipt. Gas is sponsored.",
     "englishSource": "Route costs are reflected in the quoted receipt. Gas is sponsored."
@@ -6521,10 +6525,6 @@
   "earnWithdrawRefreshQuote": {
     "message": "Refresh quote",
     "englishSource": "Refresh quote"
-  },
-  "earnSelectedAmountGasless": {
-    "message": "Selected amount (gasless)",
-    "englishSource": "Selected amount (gasless)"
   },
   "earnWithdrawFullBalanceSelected": {
     "message": "Full balance selected",
