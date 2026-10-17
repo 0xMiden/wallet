@@ -2,8 +2,6 @@ import type { Mandate } from '@epoch-protocol/epoch-commons-sdk';
 import type { HealthCheckResponse } from '@epoch-protocol/epoch-intents-sdk';
 import { type IncomingMessage, type Server, type ServerResponse, createServer } from 'node:http';
 
-import { MOCK_USDC_ADDRESS } from '../ios/helpers/evm-doubles';
-
 /**
  * Headless stand-in for the Epoch allocator (the served config document's
  * `epoch.allocatorUrl`, testnet-dev.epochprotocol.xyz in production) for the EARN
@@ -170,6 +168,17 @@ function allocationIdentity(body: unknown): { owner: string; nonce: string; dest
   const destinationChainId = Number(destination);
   if (!Number.isSafeInteger(destinationChainId)) return undefined;
   return { owner, nonce, destinationChainId };
+}
+
+/** The base-unit amount a quote request's compact spends (`compact.mandate.tokenInAmount`). */
+function compactInputAmount(body: unknown): string | undefined {
+  if (!body || typeof body !== 'object') return undefined;
+  const compact: unknown = Reflect.get(body, 'compact');
+  if (!compact || typeof compact !== 'object') return undefined;
+  const mandate: unknown = Reflect.get(compact, 'mandate');
+  if (!mandate || typeof mandate !== 'object') return undefined;
+  const amount: unknown = Reflect.get(mandate, 'tokenInAmount');
+  return typeof amount === 'string' && /^[1-9]\d*$/.test(amount) ? amount : undefined;
 }
 
 const intentKey = (owner: string, nonce: string) => `${owner.toLowerCase()}:${nonce}`;
@@ -352,13 +361,20 @@ export class FakeEpochAllocator {
 
       // POST /checkIfDepositNeeded — resourceLockRequired:true routes the on-chain
       // deposit branch; tokenIn/tokenInDecimals present so no path-parsing runs.
+      // Every Chrome suite quotes forward, so tokenIn is the posted input amount in
+      // base units, as the live allocator answers and the withdrawal review checks.
       if (method === 'POST' && path === '/checkIfDepositNeeded') {
+        const tokenIn = compactInputAmount(body);
+        if (tokenIn === undefined) {
+          this.send(res, 400, { success: false, error: 'a forward quote needs a positive compact input amount' });
+          return;
+        }
         this.send(res, 200, {
           success: true,
           resourceLockRequired: true,
           transactions: [],
           path: [],
-          tokenIn: MOCK_USDC_ADDRESS,
+          tokenIn,
           tokenOut: '1000000',
           tokenInDecimals: 18,
           tokenInSymbol: 'USDC'
