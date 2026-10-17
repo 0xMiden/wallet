@@ -6,7 +6,6 @@ import { midenClientProxy } from '../back/miden-client-proxy';
 import type { ConsumableNoteDto } from '../sdk/consumable-notes';
 import { assertWasmHoldCurrent, type WasmLockHold } from '../sdk/miden-client';
 import type { SwapOrderNoteMetadata } from '../types';
-import { swapFillReached } from './fill-target';
 
 export const SWAP_ORDER_EXPIRY_SECONDS = 120;
 
@@ -26,23 +25,6 @@ const lineageState = (state: number): SwapOrderNoteMetadata['lineageState'] => {
   if (state === 1) return 'filled';
   if (state === 2) return 'reclaimed';
   return 'active';
-};
-
-/**
- * The lineage state, except that an open order which already received its fill target
- * (`requested × (1 − slippage)`, see `swapFillTarget`) reads as 'filled': settlement claims its
- * paybacks and leaves the small remainder on the note instead of reclaiming it at expiry.
- */
-const orderState = (
-  order: SwapOrder,
-  state: number,
-  remainingRequested: bigint
-): SwapOrderNoteMetadata['lineageState'] => {
-  const lineage = lineageState(state);
-  if (lineage !== 'active') return lineage;
-  const requested = BigInt(order.extraInputs.requestedAmount);
-  const filled = remainingRequested > requested ? 0n : requested - remainingRequested;
-  return swapFillReached(requested, filled, order.extraInputs.slippageBps) ? 'filled' : 'active';
 };
 
 export const isSwapTransaction = (tx: ITransaction): tx is SwapTransaction => tx.type === 'swap';
@@ -95,7 +77,7 @@ export async function classifySwapOrderNotes(
 
     const currentTipNoteId = lineage.currentTipNoteId;
     const currentDepth = lineage.currentDepth;
-    const state = orderState(order, lineage.state, BigInt(lineage.remainingRequested));
+    const state = lineageState(lineage.state);
     const expiresAt =
       order.extraInputs.expiresAt ??
       (order.completedAt ?? order.initiatedAt) + (order.extraInputs.expirySeconds ?? SWAP_ORDER_EXPIRY_SECONDS);

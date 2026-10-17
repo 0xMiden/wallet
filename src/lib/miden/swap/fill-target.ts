@@ -7,7 +7,8 @@ import { BPS_DENOMINATOR, isValidSlippageBps } from './slippage-bounds';
  * The slippage is the one the wallet built the ask with (`ISwapExtraInputs.slippageBps`). An order
  * without a valid one (a user-typed ask, an order placed before the slippage was stored, or a value
  * a restored backup made up) is filled only when the full requested amount arrives. The ceiling
- * keeps a one-unit order from counting as filled with nothing received.
+ * keeps a one-unit order from counting as filled with nothing received. The target labels the
+ * receipt only: settlement reclaims whatever is left at expiry, from the lineage alone.
  */
 export function swapFillTarget(requestedAmount: bigint, slippageBps?: number): bigint {
   if (slippageBps === undefined || !isValidSlippageBps(slippageBps)) return requestedAmount;

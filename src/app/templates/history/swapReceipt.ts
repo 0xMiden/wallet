@@ -96,6 +96,22 @@ export const filledRequestedAmount = (
   return fromLineage > local ? fromLineage : local;
 };
 
+/**
+ * A fill that arrived in part and short of the order's target (`swapFillReached`). An order that
+ * received `requested × (1 − slippage)` is filled, whatever remainder is still out or came back.
+ * The receipt and the status line under its progress bar both read this, so they cannot disagree.
+ */
+export const isPartialSwapFill = (
+  requestedAmount: bigint | undefined,
+  filledAmount: bigint | undefined,
+  slippageBps?: number
+): boolean =>
+  requestedAmount !== undefined &&
+  filledAmount !== undefined &&
+  filledAmount > 0n &&
+  filledAmount < requestedAmount &&
+  !swapFillReached(requestedAmount, filledAmount, slippageBps);
+
 export interface SwapReceiptInputs {
   /** Undefined for rows persisted without one — unknown, not zero. */
   requestedAmount?: bigint;
@@ -209,19 +225,14 @@ export const deriveSwapReceipt = ({
     locallySettledRequestedAmount(settledTransactions, requestedFaucetId),
     requestedAmount
   );
-  // An order that received `requested × (1 − slippage)` is filled, whatever small remainder is
-  // still on its note: settlement leaves that remainder there (see `classifySwapOrderNotes`).
+  // An order that received `requested × (1 − slippage)` reads as filled, whether its remainder is
+  // still on the tip or settlement has reclaimed it at expiry. Only the label follows the target.
   const fillReached =
     requestedAmount !== undefined &&
     filledAmount !== undefined &&
     swapFillReached(requestedAmount, filledAmount, slippageBps);
   const orderState: SwapOrderState | null = fillReached ? 'filled' : reportedState;
-  const isPartialFill =
-    !fillReached &&
-    requestedAmount !== undefined &&
-    filledAmount !== undefined &&
-    filledAmount > 0n &&
-    filledAmount < requestedAmount;
+  const isPartialFill = isPartialSwapFill(requestedAmount, filledAmount, slippageBps);
 
   // `reconcileSwapOrderNotes` declines an order in exactly two situations: the
   // user chose manual consume, or it is still 'active' and not yet expired. Only

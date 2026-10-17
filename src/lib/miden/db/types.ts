@@ -1230,9 +1230,10 @@ export interface ISwapExtraInputs {
   expiryTriggeredAt?: number;
   autoConsume?: boolean;
   /**
-   * The slippage, in basis points, the wallet built the ask with. The order counts as filled once
-   * `requestedAmount × (1 − slippage)` arrives (`swapFillTarget`), and its remainder is not
-   * reclaimed. Absent for a user-typed ask and for older orders: those count only a full fill.
+   * The slippage, in basis points, the wallet built the ask with. The receipt reads the order as
+   * filled once `requestedAmount × (1 − slippage)` arrives (`swapFillTarget`); settlement still
+   * reclaims what is left at expiry. Absent for a user-typed ask and for older orders: those count
+   * only a full fill.
    */
   slippageBps?: number;
   /** Stamped when a payback-claim settlement consume completes. */

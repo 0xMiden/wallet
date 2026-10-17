@@ -721,6 +721,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
             }
             requestedFaucetId={requestedToken.faucetId}
             filledAmount={receipt.filledAmount}
+            slippageBps={swapSlippageBps}
             orderState={receipt.orderState}
             trackingLoading={trackingLoading}
             settledTransactions={settledTransactions}
