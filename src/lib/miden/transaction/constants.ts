@@ -551,6 +551,30 @@ export function isGuardianOutage(error: unknown): boolean {
   return !isFeeConversionInfoMissingError(raw) && !isVaultShortfallError(raw);
 }
 
+/**
+ * The copy for a kernel failure this module reads by its code or text, or undefined for any other text. A Failed row
+ * and the dApp consent sheet's failed dry run both read it, so the sheet never shows a hashed code the row would
+ * have named.
+ */
+export function deterministicKernelFailureCopy(raw: string): string | undefined {
+  // Deterministic: the request itself is missing the conversion-info commitment,
+  // so the same bytes will fail identically no matter how the balance moves.
+  // Naming it stops the UI offering a Retry that cannot succeed, and stops it
+  // blaming a balance that is not involved.
+  if (isFeeConversionInfoMissingError(raw)) {
+    return TRANSACTION_FEE_CONVERSION_INFO_MISSING_ERROR;
+  }
+  if (isFeeConversionCommitmentMismatchError(raw)) {
+    return TRANSACTION_FEE_COMMITMENT_MISMATCH_ERROR;
+  }
+  // Checked AFTER the conversion-info code, since that one is the more specific
+  // reading of an assertion this one deliberately declines to attribute.
+  if (isVaultShortfallError(raw)) {
+    return TRANSACTION_VAULT_SHORTFALL_ERROR;
+  }
+  return undefined;
+}
+
 function classifyTransactionError(
   error: unknown,
   raw: string,
@@ -605,20 +629,9 @@ function classifyTransactionError(
   if (stage != null && PROVING_STAGES.includes(stage) && /timeout/i.test(raw)) {
     return delegateTransaction ? REMOTE_PROVER_TIMEOUT_ERROR : LOCAL_PROVER_FAILED_ERROR;
   }
-  // Deterministic: the request itself is missing the conversion-info commitment,
-  // so the same bytes will fail identically no matter how the balance moves.
-  // Naming it stops the UI offering a Retry that cannot succeed — and stops it
-  // blaming a balance that is not involved.
-  if (isFeeConversionInfoMissingError(raw)) {
-    return TRANSACTION_FEE_CONVERSION_INFO_MISSING_ERROR;
-  }
-  if (isFeeConversionCommitmentMismatchError(raw)) {
-    return TRANSACTION_FEE_COMMITMENT_MISMATCH_ERROR;
-  }
-  // Checked AFTER the conversion-info code, since that one is the more specific
-  // reading of an assertion this one deliberately declines to attribute.
-  if (isVaultShortfallError(raw)) {
-    return TRANSACTION_VAULT_SHORTFALL_ERROR;
+  const kernelFailureCopy = deterministicKernelFailureCopy(raw);
+  if (kernelFailureCopy !== undefined) {
+    return kernelFailureCopy;
   }
   // Proposal creation and co-signing are pre-submit, so nothing moved. A requeueable transfer never gets here (the
   // pipeline requeues it, #779); this names the failure for the operations that still end on it.
