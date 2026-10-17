@@ -566,23 +566,11 @@ const ConfirmDAppForm: FC = () => {
   const [confirming, setConfirming] = useSafeState(false);
   const [declining, setDeclining] = useSafeState(false);
 
-  // An existing permission is answered once, unasked; a failed answer shows the error with Retry (#1471).
-  const existingPermissionAnsweredRef = useRef(false);
-  useEffect(() => {
-    if (payload.type !== 'connect' || !payload.existingPermission || existingPermissionAnsweredRef.current) return;
-    existingPermissionAnsweredRef.current = true;
-    onConfirm(true).catch(err => {
-      console.error(err);
-      setError(err);
-    });
-  }, [payload, onConfirm, setError]);
-
   // The extension's approval telemetry. The confirmation store the other
   // platforms report from is unreachable here — see `useApprovalPrompt`.
   //
-  // Suppressed for the auto-approved reconnect handled above, where the user is
-  // shown nothing and asked nothing: that path never reaches `confirm`, so a
-  // flow begun for it would never be settled.
+  // Suppressed for the auto-approved reconnect answered below, where the user is
+  // shown nothing and asked nothing, so there is no approval to measure.
   // An unlock-only request (#1414) asks nothing either.
   const autoApproved = payload.type === 'unlock' || (payload.type === 'connect' && Boolean(payload.existingPermission));
   const settleApproval = useApprovalPrompt(payload.type, !autoApproved);
@@ -591,7 +579,8 @@ const ConfirmDAppForm: FC = () => {
     async (confirmed: boolean, spendingLimitAuthenticated?: true) => {
       setError(null);
       try {
-        if (confirmed && requirePrivateDataCheckbox && !isPrivateDataChecked) {
+        // An existing permission's consent was given when its session was saved, so its answer and Retry skip the box.
+        if (confirmed && requirePrivateDataCheckbox && !isPrivateDataChecked && !autoApproved) {
           throw new Error(t('confirmError'));
         }
         await onConfirm(confirmed, spendingLimitAuthenticated);
@@ -607,7 +596,7 @@ const ConfirmDAppForm: FC = () => {
         setError(err);
       }
     },
-    [onConfirm, setError, requirePrivateDataCheckbox, isPrivateDataChecked, settleApproval, t]
+    [onConfirm, setError, requirePrivateDataCheckbox, isPrivateDataChecked, autoApproved, settleApproval, t]
   );
 
   // An unlock-only request has nothing to approve: once the user has unlocked, answer it.
@@ -617,6 +606,14 @@ const ConfirmDAppForm: FC = () => {
     unlockAnsweredRef.current = true;
     void confirm(true);
   }, [payload.type, confirm]);
+
+  // An existing permission is answered once, unasked, through `confirm` like its Retry (#1471).
+  const existingPermissionAnsweredRef = useRef(false);
+  useEffect(() => {
+    if (payload.type !== 'connect' || !payload.existingPermission || existingPermissionAnsweredRef.current) return;
+    existingPermissionAnsweredRef.current = true;
+    void confirm(true);
+  }, [payload, confirm]);
 
   const handleConfirmClick = useCallback(async () => {
     if (confirming || declining || confirmationInFlightRef.current) return;
