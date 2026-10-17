@@ -19,6 +19,7 @@ import { resolveTelemetryContext } from './context';
 import { captureCrash, initCrashReporting, stopCrashReporting } from './crash';
 import { annotateCrash } from './crash-diagnostics';
 import { encodingVariantsOf } from './egress-guard';
+import { __resetRelayDiagnosticsForTest, recordRelaySurface } from './relay-diagnostics';
 import { beginFlow, classifyError } from './report-flow';
 import { __resetRunForTest } from './run';
 import { WIRE_KEYS } from './serialize';
@@ -1533,6 +1534,268 @@ describe('crash-report egress', () => {
 
     const hosts = new Set(captured.map(entry => new URL(entry.url).host));
     expect(hosts).toEqual(new Set(['o0.ingest.de.sentry.io']));
+  });
+});
+
+describe('WalletConnect relay failure reports', () => {
+  const PREFIX = 'WebSocket connection failed for host: ';
+  const PROJECT_ID = '3f8a2c1d9e7b6a5f4c3d2e1f0a9b8c7d';
+  // Shaped like the relay's JWT: header, claims and signature.
+  const RELAY_AUTH =
+    'eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJkaWQ6a2V5Ono2TWtvZFRQNTJ4Z3BZOHRGbXJhRmlqUTlCMXpjSGUxbXZxYlMifQ.bW9jay1zaWduYXR1cmUtbW9jay1zaWduYXR1cmU';
+  const TOPIC = `0x${'7c4a8d09ca3762af'.repeat(4)}`;
+
+  const relayFailure = (host = 'relay.walletconnect.org'): Error =>
+    new Error(`${PREFIX}wss://${host}?projectId=${PROJECT_ID}&auth=${RELAY_AUTH}`, {
+      cause: new Error(`Subscribing to ${TOPIC} failed, please try again`)
+    });
+
+  // Sentry's own report and trace ids are hex by design, so they are the one hex the wire may carry.
+  const withoutSentryIds = (text: string): string =>
+    text.replace(/"(?:event_id|trace_id|span_id|parent_span_id)":"[0-9a-f]+"/g, '');
+
+  /** The failure range of each report on the wire, in the order sent. */
+  const relayRanges = (): Array<string | undefined> =>
+    captured.map(entry => /"relayFailures":"([^"]+)"/.exec(entry.body)?.[1]);
+
+  /** The event item of a Sentry envelope: its header, the item's header, then the event. */
+  const sentryEvent = (entry: CapturedRequest | undefined): Record<string, unknown> =>
+    parsePayload(entry?.body.split('\n')[2] ?? '');
+
+  // Fields every crash report carries, whatever it is.
+  const EVERY_REPORT_KEYS = ['appVersion', 'platform', 'network', 'target', 'revision', 'dirty'];
+
+  const restores: Array<() => void> = [];
+  const replace = (target: object, key: string, value: unknown) => {
+    const own = Object.getOwnPropertyDescriptor(target, key);
+    Object.defineProperty(target, key, { value, configurable: true, writable: true });
+    restores.push(() => {
+      if (own === undefined) Reflect.deleteProperty(target, key);
+      else Object.defineProperty(target, key, own);
+    });
+  };
+
+  beforeEach(() => {
+    __resetRelayDiagnosticsForTest();
+    recordRelaySurface('confirm');
+  });
+
+  afterEach(() => {
+    for (const restore of restores.splice(0).reverse()) restore();
+  });
+
+  it('names the relay and only its closed context, at warning level, with none of the failure text', async () => {
+    consentOn();
+    initCrashReporting();
+    captureCrash(relayFailure(), 'onunhandledrejection');
+    await flushEgress();
+
+    expect(captured).toHaveLength(1);
+    const text = wireText();
+    expect(text).toContain('"service":"walletconnect_relay"');
+    expect(text).toContain('"level":"warning"');
+    expect(text).toContain('"surface":"confirm"');
+    expect(text).toContain('"relayFailures":"1"');
+    expect(text).toContain('"connectivity":"steady"');
+    expect(text).toContain('"type":"onunhandledrejection","handled":false');
+    expect(text).not.toMatch(/0x[0-9a-f]/i);
+    expect(withoutSentryIds(text)).not.toMatch(/[0-9a-f]{32,}/i);
+    expect(text).not.toContain('projectId');
+    expect(text).not.toContain(PROJECT_ID);
+    expect(text).not.toContain('eyJ');
+    expect(text).not.toContain('Subscribing');
+    expect(leaksIn(text)).toEqual([]);
+
+    const event = sentryEvent(captured[0]);
+    expect(objectAt(event, 'tags')).toEqual({
+      network: resolveTelemetryContext().network,
+      service: 'walletconnect_relay'
+    });
+    const diagnostics = objectAt(objectAt(event, 'extra'), 'walletDiagnostics');
+    expect(Object.fromEntries(Object.entries(diagnostics).filter(([key]) => !EVERY_REPORT_KEYS.includes(key)))).toEqual(
+      {
+        service: 'walletconnect_relay',
+        connectivity: 'steady',
+        visibility: 'visible',
+        surface: 'confirm',
+        relayTrigger: 'no_connect_modal',
+        relayEverConnected: false,
+        relayFailures: '1'
+      }
+    );
+    // The title the issue already has, and no cause.
+    expect(objectAt(event, 'exception').values).toEqual([
+      expect.objectContaining({ type: 'Error', value: `${PREFIX}wss://relay.walletconnect.org` })
+    ]);
+  });
+
+  it('names the report Error whatever the failure called itself, under the fixed text and its own frames', async () => {
+    consentOn();
+    initCrashReporting();
+    const failure = relayFailure();
+    failure.name = 'UpstreamRelayError';
+    failure.stack = `UpstreamRelayError: ${failure.message}\n    at openRelaySocket (capacitor://localhost/mobile.js:1:5000)`;
+    captureCrash(failure, 'onunhandledrejection');
+    await flushEgress();
+
+    expect(captured).toHaveLength(1);
+    const text = wireText();
+    expect(text).not.toContain('UpstreamRelayError');
+    expect(text).toContain('"filename":"app:///mobile.js","lineno":1,"colno":5000,"function":"openRelaySocket"');
+    expect(objectAt(sentryEvent(captured[0]), 'exception').values).toEqual([
+      expect.objectContaining({ type: 'Error', value: `${PREFIX}wss://relay.walletconnect.org` })
+    ]);
+  });
+
+  it('labels no host outside the relay allowlist, and leaves its level alone', async () => {
+    consentOn();
+    initCrashReporting();
+    captureCrash(new Error(`${PREFIX}wss://relay.example.invalid`), 'onunhandledrejection');
+    captureCrash(new Error(`${PREFIX}wss://relay.walletconnect.org.example.invalid`), 'onunhandledrejection');
+    await flushEgress();
+
+    expect(captured).toHaveLength(2);
+    const text = wireText();
+    expect(text.match(/"level":"error"/g)).toHaveLength(2);
+    expect(text).not.toContain('"level":"warning"');
+    expect(text).not.toContain('walletconnect_relay');
+    expect(text).not.toContain('relayFailures');
+  });
+
+  it('sends a stuck relay once per failure bucket: three reports for seven failures', async () => {
+    consentOn();
+    initCrashReporting();
+    for (let attempt = 0; attempt < 7; attempt++) captureCrash(relayFailure(), 'onunhandledrejection');
+    await flushEgress();
+
+    expect(captured).toHaveLength(3);
+    expect(captured.map(entry => /"relayFailures":"([^"]+)"/.exec(entry.body)?.[1]).sort()).toEqual(['1', '2-5', '6+']);
+  });
+
+  it('sends nothing while the device is offline, and still counts the failure', async () => {
+    consentOn();
+    initCrashReporting();
+    replace(navigator, 'onLine', false);
+    captureCrash(relayFailure(), 'onunhandledrejection');
+    await flushEgress();
+    expect(captured).toEqual([]);
+
+    restores.pop()?.();
+    captureCrash(relayFailure(), 'onunhandledrejection');
+    await flushEgress();
+    expect(captured).toHaveLength(1);
+    expect(wireText()).toContain('"relayFailures":"2-5"');
+  });
+
+  it('sends nothing for a failure whose device went offline before consent answered, and the range of the next one', async () => {
+    consentOn();
+    initCrashReporting();
+    captureCrash(relayFailure(), 'onunhandledrejection');
+    await flushEgress();
+    expect(relayRanges()).toEqual(['1']);
+
+    let allow = (_granted: boolean) => {};
+    jest.mocked(isTelemetryEnabledAsync).mockReturnValueOnce(
+      new Promise<boolean>(resolve => {
+        allow = resolve;
+      })
+    );
+    captureCrash(relayFailure(), 'onunhandledrejection');
+    replace(navigator, 'onLine', false);
+    allow(true);
+    await flushEgress();
+    expect(relayRanges()).toEqual(['1']);
+
+    restores.pop()?.();
+    captureCrash(relayFailure(), 'onunhandledrejection');
+    await flushEgress();
+    expect(relayRanges()).toEqual(['1', '2-5']);
+  });
+
+  it.each<[string, (capture: () => void) => void, () => void]>([
+    [
+      'reporting is off',
+      capture => {
+        consentOff();
+        capture();
+      },
+      consentOn
+    ],
+    [
+      'reporting stopped before its consent check answered',
+      capture => {
+        capture();
+        stopCrashReporting();
+      },
+      () => initCrashReporting()
+    ],
+    [
+      'there was no client to capture it',
+      capture => {
+        stopCrashReporting();
+        capture();
+      },
+      () => initCrashReporting()
+    ]
+  ])('sends nothing for a failure dropped because %s, and the range of the next one', async (_label, drop, restore) => {
+    consentOn();
+    initCrashReporting();
+    captureCrash(relayFailure(), 'onunhandledrejection');
+    await flushEgress();
+    drop(() => captureCrash(relayFailure(), 'onunhandledrejection'));
+    await flushEgress();
+    expect(relayRanges()).toEqual(['1']);
+
+    restore();
+    captureCrash(relayFailure(), 'onunhandledrejection');
+    await flushEgress();
+    expect(relayRanges()).toEqual(['1', '2-5']);
+  });
+
+  it('sends one report for two failures of one range captured before either is sent', async () => {
+    consentOn();
+    initCrashReporting();
+    captureCrash(relayFailure(), 'onunhandledrejection');
+    await flushEgress();
+    captureCrash(relayFailure(), 'onunhandledrejection');
+    captureCrash(relayFailure(), 'onunhandledrejection');
+    await flushEgress();
+    expect(relayRanges()).toEqual(['1', '2-5']);
+  });
+
+  it('counts an Error captured by every path as one failure, and a new Error with the same text as the next', async () => {
+    consentOn();
+    initCrashReporting();
+    const failure = relayFailure();
+    captureCrash(failure, 'onunhandledrejection');
+    captureCrash(failure, 'onerror');
+    captureCrash(failure, 'react');
+    captureCrash(failure);
+    await flushEgress();
+    expect(relayRanges()).toEqual(['1']);
+
+    captureCrash(relayFailure(), 'onunhandledrejection');
+    await flushEgress();
+    expect(relayRanges()).toEqual(['1', '2-5']);
+  });
+
+  it('names a network change the crash listeners saw in the 30 seconds before, and none once they stopped', async () => {
+    consentOn();
+    initCrashReporting();
+    globalThis.dispatchEvent(new Event('online'));
+    captureCrash(relayFailure(), 'onunhandledrejection');
+    await flushEgress();
+    expect(wireText()).toContain('"connectivity":"just_changed"');
+
+    stopCrashReporting();
+    __resetRelayDiagnosticsForTest();
+    globalThis.dispatchEvent(new Event('offline'));
+    initCrashReporting();
+    captured.length = 0;
+    captureCrash(relayFailure(), 'onunhandledrejection');
+    await flushEgress();
+    expect(captured).toHaveLength(1);
+    expect(wireText()).toContain('"connectivity":"steady"');
   });
 });
 
