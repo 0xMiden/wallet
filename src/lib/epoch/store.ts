@@ -245,7 +245,10 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
       if (intent.error) {
         set({ status: 'failed', intent, error: intent.error });
         if (bridgeReceiveTxId) {
-          await updateBridgedReceivePhase(bridgeReceiveTxId, 'failed', { error: intent.error });
+          await updateBridgedReceivePhase(bridgeReceiveTxId, 'failed', {
+            error: intent.error,
+            failure: { step: 'epoch_solve' }
+          });
         }
         return;
       }
@@ -287,7 +290,10 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
       const message = errorMessage(err);
       set({ status: 'failed', error: message });
       if (bridgeReceiveTxId) {
-        await updateBridgedReceivePhase(bridgeReceiveTxId, 'failed', { error: message }).catch(() => undefined);
+        await updateBridgedReceivePhase(bridgeReceiveTxId, 'failed', {
+          error: message,
+          failure: { step: 'epoch_execute', cause: err }
+        }).catch(() => undefined);
       }
     }
   },
