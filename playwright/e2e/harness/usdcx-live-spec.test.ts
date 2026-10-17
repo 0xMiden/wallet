@@ -79,3 +79,59 @@ describe('the burn half the live iOS specs share', () => {
     expect(between(burnHalf, 'burn_completed', 'burn_consumed')).toMatch(/before: snapshot\.balance\.toString\(\)/);
   });
 });
+
+describe('the live iOS USDCx deposits on the executor route', () => {
+  const executorSpec = read('../ios/tests/usdcx-live-executor-deposit.ios.spec.ts');
+
+  // Each job runs one source chain; a slug that names none fails the file instead of running nothing.
+  it('defines one test per executor source, only the one USDCX_LIVE_SOURCE names when it is set', () => {
+    expect(executorSpec).toMatch(
+      /if \(SELECTED_SOURCE !== '' && !SOURCE_SLUGS\.includes\(SELECTED_SOURCE\)\) \{[\s\S]{0,200}?throw new Error\(/
+    );
+    expect(executorSpec).toMatch(
+      /SELECTED_SOURCE === ''\s*\?\s*L2_BRIDGE_IN_SOURCES\s*:\s*L2_BRIDGE_IN_SOURCES\.filter\(l2 => l2\.payout\.reviewNetwork === SELECTED_SOURCE\)/
+    );
+    expect(executorSpec).toMatch(/for \(const l2 of SOURCES\) \{/);
+  });
+
+  // Circle's Sepolia forwarder cannot mint to an address with no USDC, so that key is refused before anything is spent.
+  it('refuses a key Circle cannot pay, then a key short of gas or USDC, before the simulators start', () => {
+    expect(executorSpec).toMatch(
+      /test\.beforeAll\(async \(\) => \{[\s\S]*?payoutKeyProblem\(chain, address, funds\.usdc\) \?\?\s*l2KeyShortfall\(/
+    );
+  });
+
+  // The session approves the source chain alone, so the key can never be asked to sign on Arc, where a stray spend
+  // would land in the Arc job's payout window, and every transaction goes through the pinned, tip-capped sender.
+  it('pairs a counterparty that approves its source chain alone and sends through the L2 sender', () => {
+    expect(executorSpec).toMatch(/sessionChainIds: \[chain\.chainId\]/);
+    expect(executorSpec).toMatch(/send: \(tx, signal\) => sender\.send\(tx, signal\)/);
+  });
+
+  // What the wallet asked the key to sign and the burn on chain are checked in seconds, before Circle's minutes.
+  it('gates the requests and the burn before it waits on Circle, and burns back only after the claim', () => {
+    expect(
+      outOfOrder(executorSpec, [
+        "'deposit_via_ui'",
+        "'deposit_requests'",
+        "'source_burn'",
+        "'iris'",
+        "'arc_forward'",
+        "'attest'",
+        "'mint'",
+        "'receive'",
+        'await burnBackToDepositKey('
+      ])
+    ).toEqual([]);
+  });
+
+  it('burns back to the deposit key on its source chain', () => {
+    expect(executorSpec).toMatch(/const reads = l2Reads\(l2\);/);
+    expect(executorSpec).toMatch(/burnBackToDepositKey\(\{[\s\S]*payoutReads: reads,[\s\S]*\bdepositKey,/);
+  });
+
+  it('names endpoints by host and writes the evidence only through its refusal of secrets', () => {
+    expect(executorSpec).not.toMatch(/\$\{[\w.]*\.endpoint\}/);
+    expect(executorSpec).toMatch(/fs\.writeFileSync\(evidencePath, evidenceBody\(evidence, secrets\)\)/);
+  });
+});
