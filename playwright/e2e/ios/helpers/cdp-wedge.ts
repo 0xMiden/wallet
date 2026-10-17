@@ -4,7 +4,7 @@ import os from 'os';
 import path from 'path';
 import { promisify } from 'util';
 
-import { isCdpSessionWedgedError } from './cdp-bridge';
+import { type CdpSessionWedgedError, isCdpSessionWedgedError } from './cdp-bridge';
 
 const execFileAsync = promisify(execFile);
 
@@ -15,22 +15,40 @@ const SCREENSHOT_TIMEOUT_MS = 20_000;
 const OS_LOG_TIMEOUT_MS = 45_000;
 const OS_LOG_MAX_BUFFER = 64 * 1024 * 1024;
 const WEBCONTENT_REPORT_PREFIX = 'com.apple.WebKit.WebContent';
-const APP_OS_LOG_QUERY = ['log', 'show', '--last', '5m', '--style', 'compact', '--predicate', 'process == "App"'];
+// WebContent and the other WebKit processes log here too; Capacitor's "WebView process terminated" goes to stdout.
+const OS_LOG_QUERY = [
+  'log',
+  'show',
+  '--last',
+  '5m',
+  '--style',
+  'compact',
+  '--predicate',
+  'process == "App" OR process BEGINSWITH "com.apple.WebKit"'
+];
 
 /**
- * Runs `launch` and, when its CDP attach wedged (`CdpSessionWedgedError`), runs `onWedged` and launches once more.
- * Any other error, and a wedge on the last attempt, is thrown unchanged.
+ * Runs `launch` and, when its CDP attach wedged (`CdpSessionWedgedError`), launches once more. `onWedged` runs on every
+ * wedge, the last one included, so each leaves its evidence; a wedge on the last attempt is thrown as an error that
+ * names `name` and its relaunch. Any other error is thrown unchanged.
  */
 export async function relaunchOnceIfWedged<T>(
+  name: string,
   launch: (attempt: number) => Promise<T>,
-  onWedged: (error: Error, attempt: number) => Promise<void>
+  onWedged: (error: CdpSessionWedgedError, attempt: number, relaunching: boolean) => Promise<void>
 ): Promise<T> {
   for (let attempt = 1; ; attempt++) {
     try {
       return await launch(attempt);
     } catch (error) {
-      if (!isCdpSessionWedgedError(error) || attempt >= WEDGED_LAUNCH_ATTEMPTS) throw error;
-      await onWedged(error, attempt);
+      if (!isCdpSessionWedgedError(error)) throw error;
+      const relaunching = attempt < WEDGED_LAUNCH_ATTEMPTS;
+      await onWedged(error, attempt, relaunching);
+      if (!relaunching) {
+        throw new Error(`${name} was relaunched once and its CDP attach wedged again: ${error.message}`, {
+          cause: error
+        });
+      }
     }
   }
 }
@@ -40,8 +58,8 @@ export interface WedgeEvidenceOptions {
   outDir: string;
   /** Epoch ms the wedged attempt started; a crash report older than this belongs to an earlier launch. */
   since: number;
-  /** A capture that needs no CDP, such as `simctl io screenshot`. */
-  screenshot: (outPath: string) => Promise<void>;
+  /** A capture that needs no CDP, such as `simctl io screenshot`; it must stop its own work by `timeoutMs`. */
+  screenshot: (outPath: string, timeoutMs: number) => Promise<void>;
   onLog: (message: string) => void;
   /** Where the host writes crash reports, including the simulator's. */
   reportsDir?: string;
@@ -49,8 +67,8 @@ export interface WedgeEvidenceOptions {
 
 /**
  * Saves what can tell why the page's main frame was replaced during the attach (the leading hypothesis is a WebContent
- * crash and Capacitor's reload of the WebView): a screenshot, the app's os_log for the last 5 minutes, and any
- * WebContent crash report from this attempt. Each capture is bounded and best-effort; this never throws.
+ * crash and Capacitor's reload of the WebView): a screenshot, the app's and WebKit's os_log for the last 5 minutes, and
+ * any WebContent crash report from this attempt. Each capture is bounded and best-effort; this never throws.
  */
 export async function captureWedgeEvidence(options: WedgeEvidenceOptions): Promise<void> {
   const { udid, outDir, since, onLog } = options;
@@ -69,19 +87,19 @@ export async function captureWedgeEvidence(options: WedgeEvidenceOptions): Promi
   });
   await capture('screenshot', async () => {
     const shot = path.join(outDir, 'screen.png');
-    await within(options.screenshot(shot), SCREENSHOT_TIMEOUT_MS, 'screenshot');
+    await within(options.screenshot(shot, SCREENSHOT_TIMEOUT_MS), SCREENSHOT_TIMEOUT_MS + 5_000, 'screenshot');
     return shot;
   });
-  await capture('app os_log', async () => {
+  await capture('app and WebKit os_log', async () => {
     const { stdout } = await within(
-      execFileAsync('xcrun', ['simctl', 'spawn', udid, ...APP_OS_LOG_QUERY], {
+      execFileAsync('xcrun', ['simctl', 'spawn', udid, ...OS_LOG_QUERY], {
         timeout: OS_LOG_TIMEOUT_MS,
         maxBuffer: OS_LOG_MAX_BUFFER
       }),
       OS_LOG_TIMEOUT_MS + 5_000,
       'log show'
     );
-    const file = path.join(outDir, 'app-os-log.txt');
+    const file = path.join(outDir, 'os-log.txt');
     fs.writeFileSync(file, stdout);
     return file;
   });

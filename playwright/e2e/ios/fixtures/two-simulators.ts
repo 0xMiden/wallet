@@ -68,7 +68,7 @@ function getRunOutputDir(testId: string): string {
 
 /**
  * Launch one wallet, relaunching it once when its CDP attach wedged. The relaunch's own terminate, uninstall and
- * install give it a fresh WebContent process, RemoteDebugger and storage; evidence of the wedge is saved first.
+ * install give it a fresh WebContent process, RemoteDebugger and storage; each wedge's evidence is saved first.
  */
 async function launchSimWalletInstance(
   sim: SimulatorControl,
@@ -79,24 +79,25 @@ async function launchSimWalletInstance(
 ): Promise<SimWalletInstance> {
   let attemptStart = Date.now();
   return relaunchOnceIfWedged(
+    `Wallet ${label}`,
     () => {
       attemptStart = Date.now();
       return launchSimWalletInstanceOnce(sim, udid, envConfig, timeline, label);
     },
-    async (error, attempt) => {
+    async (error, attempt, relaunching) => {
       timeline.emit({
         category: 'test_lifecycle',
         severity: 'warn',
         wallet: label,
         message:
           `[cdp-wedge] Wallet ${label} attempt ${attempt}/${WEDGED_LAUNCH_ATTEMPTS}: ${error.message}; ` +
-          `saving evidence, then relaunching wallet ${label}`
+          (relaunching ? `saving evidence, then relaunching wallet ${label}` : 'saving evidence, then giving up')
       });
       await captureWedgeEvidence({
         udid,
         outDir: path.join(timeline.getOutputDir(), 'cdp-wedge', `wallet-${label}-attempt-${attempt}`),
         since: attemptStart,
-        screenshot: outPath => sim.screenshot(udid, outPath),
+        screenshot: (outPath, timeoutMs) => sim.screenshot(udid, outPath, { timeoutMs }),
         onLog: message => timeline.emit({ category: 'test_lifecycle', severity: 'info', wallet: label, message })
       });
     }
@@ -265,7 +266,7 @@ async function setupBothWallets(
       // hung `simctl` call, or webinspectord exposing no WebViews (CDP blind).
       // recoverSimSubsystem fixes both (restart CoreSimulatorService + relaunch
       // Simulator.app so webinspectord re-exposes WebViews + re-boot devices).
-      // A CdpSessionWedgedError is not one of them: the subsystem is healthy and
+      // A wedged CDP attach is not one of them: the subsystem is healthy and
       // launchSimWalletInstance has already relaunched that wallet once.
       if ((isSimctlTimeoutError(err) || isCdpNoPagesError(err)) && attempt < MAX_ATTEMPTS) {
         timeline.emit({

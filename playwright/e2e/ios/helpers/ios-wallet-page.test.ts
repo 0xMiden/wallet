@@ -9,6 +9,7 @@ import type { CdpSession } from './cdp-bridge';
 import { IosWalletPage, routeOf } from './ios-wallet-page';
 import type { SimulatorControl } from './simulator-control';
 import { enText, type BridgedSendRow } from '../../helpers/bridge';
+import { fakeConfirmationApp, type CreateAttemptOutcome } from '../../helpers/confirmation-app-fake';
 import { readTransactionRowsInPage } from '../../helpers/history';
 
 describe('IosWalletPage.screenshot', () => {
@@ -797,57 +798,9 @@ describe('IosWalletPage poll attribution', () => {
 describe('IosWalletPage.waitForCreatedWalletReady', () => {
   afterEach(() => jest.useRealTimers());
 
-  const SCREEN = 'Something went wrong\n\nFailed to sync state: RPC deadline exceeded\n\nRetry';
-
-  /**
-   * Confirmation as the WebView runs it: each create attempt reads `creating` twice, then lands on Ready or on the
-   * failure screen; Retry starts the next attempt, and the screen keeps its failure for `lagReads` reads after it.
-   */
-  function confirmationApp(
-    outcomes: Array<'ready' | 'fails'>,
-    opts: { lagReads?: number; retryButton?: boolean } = {}
-  ) {
-    let attempt = 0;
-    let reads = 0;
-    let lag = 0;
-    let phase: 'creating' | 'failed' | 'ready' = 'creating';
-    const clicks: number[] = [];
-    const failed = { innerText: SCREEN };
-    const submit = {
-      click: () => {
-        clicks.push(attempt);
-        attempt++;
-        reads = 0;
-        lag = opts.lagReads ?? 0;
-        if (lag === 0) phase = 'creating';
-      }
-    };
-    const webView = {
-      window: {
-        __TEST_STORE__: {
-          getState: () => ({
-            status: phase === 'ready' ? 2 : 0,
-            currentAccount: phase === 'ready' ? { publicKey: 'mtst1qcreated' } : null
-          })
-        }
-      },
-      document: {
-        querySelector: (selector: string) => {
-          if (selector.includes('onboarding-confirmation-submit')) return opts.retryButton === false ? null : submit;
-          if (selector.includes('onboarding-confirmation-failed')) return phase === 'failed' ? {} : null;
-          if (selector.includes('onboarding-confirmation')) return failed;
-          return null;
-        }
-      }
-    };
-    const page = pageWith(async js => {
-      if (js.includes('__TEST_STORE__')) {
-        if (lag > 0 && --lag === 0) phase = 'creating';
-        else if (phase === 'creating' && ++reads >= 2) phase = outcomes[attempt] === 'ready' ? 'ready' : 'failed';
-      }
-      return vm.runInNewContext(`(function () { ${js} })()`, webView);
-    });
-    return { page, clicks };
+  function confirmationApp(outcomes: CreateAttemptOutcome[], opts: { lagReads?: number; retryButton?: boolean } = {}) {
+    const { evalJs, clicks } = fakeConfirmationApp(outcomes, opts);
+    return { page: pageWith(evalJs), clicks };
   }
 
   async function outcomeOf(page: IosWalletPage, timeoutMs = 120_000): Promise<{ settled: boolean; outcome: string }> {
@@ -863,6 +816,26 @@ describe('IosWalletPage.waitForCreatedWalletReady', () => {
     await jest.advanceTimersByTimeAsync(10_000);
     return { settled, outcome: settled ? await outcome : 'pending' };
   }
+
+  it("is the wait a create runs after pressing Confirmation's button", async () => {
+    // The address read answers the account; the consent dismissal sees the home surface already up.
+    const page = pageWith(async js => (js.includes('publicKey') ? 'mtst1qcreated' : js.includes('explore-page')));
+    const waitForCreatedWalletReady = jest.fn(async () => undefined);
+    const click = jest.fn(async () => undefined);
+    Object.assign(page as unknown as Record<string, unknown>, {
+      pollForSelector: jest.fn(async () => undefined),
+      click,
+      waitForCreatedWalletReady
+    });
+    jest.useFakeTimers();
+
+    const created = page.createGuardianWallet('Password123!');
+    await jest.advanceTimersByTimeAsync(3_000);
+
+    await expect(created).resolves.toEqual({ address: 'mtst1qcreated', seedPhrase: [] });
+    expect(click).toHaveBeenCalledWith('[data-testid="onboarding-confirmation-submit"]');
+    expect(waitForCreatedWalletReady).toHaveBeenCalledWith('IosWalletPage.createWalletViaBypass(guardian)', 180_000);
+  });
 
   it('waits for Ready without pressing anything when the create succeeds', async () => {
     const { page, clicks } = confirmationApp(['ready']);
@@ -894,6 +867,36 @@ describe('IosWalletPage.waitForCreatedWalletReady', () => {
     const { page, clicks } = confirmationApp(['fails', 'ready'], { lagReads: 2 });
 
     await expect(outcomeOf(page)).resolves.toEqual({ settled: true, outcome: 'ready' });
+    expect(clicks).toEqual([0]);
+  });
+
+  // walletSetupDidNotComplete: the store turns Ready while the Notice from the timed-out wait is still up.
+  it('takes a Ready wallet as created while the failure screen still shows', async () => {
+    const { page, clicks } = confirmationApp(['ready-under-failure']);
+
+    await expect(outcomeOf(page)).resolves.toEqual({ settled: true, outcome: 'ready' });
+    expect(clicks).toEqual([]);
+  });
+
+  // A Retry that failed before any read saw it start, or a press that did nothing, leaves the screen unchanged.
+  it('fails at the deadline with the screen text when the failure screen never clears after the Retry', async () => {
+    const { page, clicks } = confirmationApp(['fails', 'fails'], { lagReads: Infinity });
+
+    await expect(outcomeOf(page, 5_000)).resolves.toEqual({
+      settled: true,
+      outcome:
+        'create(private): wallet creation still shows its failure screen after one Retry: ' +
+        'Something went wrong Failed to sync state: RPC deadline exceeded Retry'
+    });
+    expect(clicks).toEqual([0]);
+  });
+
+  it('keeps the plain timeout when the screen cleared after the Retry and the wallet never turned Ready', async () => {
+    const { page, clicks } = confirmationApp(['fails', 'creating'], { lagReads: 2 });
+
+    const { outcome } = await outcomeOf(page, 5_000);
+
+    expect(outcome).toMatch(/^pollForCondition: condition not met within 5000ms /);
     expect(clicks).toEqual([0]);
   });
 

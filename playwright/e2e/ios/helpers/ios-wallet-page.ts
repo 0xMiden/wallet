@@ -22,6 +22,7 @@ import {
 } from '../../helpers/bridge';
 import { claimFromPendingList } from '../../helpers/claim-drain';
 import { SEPOLIA_NETWORK } from '../../helpers/contact-network';
+import { CONFIRMATION_SUBMIT, pollCreatedWalletReady } from '../../helpers/created-wallet-ready';
 import {
   readTransactionRowsInPage,
   TxStatus,
@@ -167,23 +168,6 @@ function noEvalReturned(poll: string, target: string, timeoutMs: number, tally: 
       : withoutUrlQueries(lastError instanceof Error ? lastError.message : String(lastError)).slice(0, 500);
   return new Error(`${poll}: could not check ${target}: no CDP eval returned in ${timeoutMs}ms (last error: ${last})`);
 }
-
-const CONFIRMATION_SUBMIT = '[data-testid="onboarding-confirmation-submit"]';
-
-interface CreatedWalletState {
-  ready: boolean;
-  /** The failure screen's text while Confirmation shows it, else null. */
-  failed: string | null;
-}
-
-// Ready as the create has always waited for it, else Confirmation's failure screen (Confirmation.tsx marks it).
-const CREATED_WALLET_STATE_JS =
-  `var s = window.__TEST_STORE__; var st = s && s.getState(); ` +
-  `if (st && (st.status === 2 || st.status === 'Ready') && st.currentAccount) return { ready: true, failed: null }; ` +
-  `var f = document.querySelector('[data-testid="onboarding-confirmation-failed"]'); ` +
-  `if (!f) return { ready: false, failed: null }; ` +
-  `var screen = document.querySelector('[data-testid="onboarding-confirmation"]') || f; ` +
-  `return { ready: false, failed: (screen.innerText || screen.textContent || '').trim() };`;
 
 const READ_ATTEMPTS = 3;
 const READ_RETRY_MS = 1_000;
@@ -1040,32 +1024,13 @@ export class IosWalletPage implements WalletPage {
     return { address, seedPhrase: seed ?? [] };
   }
 
-  /**
-   * Waits for a created wallet to read Ready. A create whose first sync fails leaves Confirmation's failure screen up,
-   * which no Ready budget outlasts: the first time it shows, this presses the app's own Retry and keeps waiting; a
-   * failure after that fails at once with what the screen says.
-   */
+  /** Waits for a created wallet to read Ready, pressing Confirmation's Retry once (see `pollCreatedWalletReady`). */
   private async waitForCreatedWalletReady(label: string, timeoutMs: number): Promise<void> {
-    let retried = false;
-    let cleared = false;
-    await this.pollForCondition<CreatedWalletState>(CREATED_WALLET_STATE_JS, timeoutMs, async state => {
-      if (state.ready) return true;
-      if (state.failed === null) {
-        cleared = retried;
-        return false;
-      }
-      const screen = state.failed.replace(/\s+/g, ' ').slice(0, 500);
-      if (!retried) {
-        retried = true;
-        await this.click(CONFIRMATION_SUBMIT).catch((error: unknown) => {
-          const reason = error instanceof Error ? error.message : String(error);
-          throw new Error(`${label}: wallet creation failed and its Retry could not be pressed (${reason}): ${screen}`);
-        });
-        return false;
-      }
-      // Until a read shows the screen without its failure, the Retry has not started and this is still the first one.
-      if (!cleared) return false;
-      throw new Error(`${label}: wallet creation failed again after one Retry: ${screen}`);
+    await pollCreatedWalletReady({
+      label,
+      timeoutMs,
+      poll: (js, ms, accept) => this.pollForCondition(js, ms, accept),
+      pressRetry: () => this.click(CONFIRMATION_SUBMIT)
     });
   }
 

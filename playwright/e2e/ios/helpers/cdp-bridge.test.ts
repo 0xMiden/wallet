@@ -89,17 +89,20 @@ describe('CdpBridge.connect', () => {
     expect(rd.disconnect).toHaveBeenCalledTimes(1);
   });
 
-  it('refuses a session whose liveness probe never returns within 10 s and disconnects', async () => {
+  // A cold first launch can keep the page's main thread busy past the select, so the probe waits as long as any eval.
+  it('refuses a session whose liveness probe never returns within 30 s and disconnects', async () => {
     const rd = fakeDebugger({ executeAtom: jest.fn(() => never<unknown>()) });
     jest.useFakeTimers();
 
     const outcome = connect();
-    await jest.advanceTimersByTimeAsync(10_000);
+    await jest.advanceTimersByTimeAsync(29_999);
+    expect(outcome.settled).toBe(false);
+    await jest.advanceTimersByTimeAsync(1);
     expect(outcome.settled).toBe(true);
     const error = await outcome;
 
     expect(isCdpSessionWedgedError(error)).toBe(true);
-    expect((error as Error).message).toContain('liveness probe: CDP call did not return within 10000ms');
+    expect((error as Error).message).toContain('liveness probe: CDP call did not return within 30000ms');
     expect(rd.disconnect).toHaveBeenCalledTimes(1);
   });
 

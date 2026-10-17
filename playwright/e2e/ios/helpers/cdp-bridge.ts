@@ -10,7 +10,6 @@ const PAGE_READY_TIMEOUT = 15_000;
 const SOCKET_DISCOVERY_TIMEOUT = 30_000;
 // Healthy selects took at most 51 s over 3,558 CI attaches; a wedged one returns at appium's fixed 180 s lock.
 const SELECT_PAGE_TIMEOUT_MS = 90_000;
-const LIVENESS_PROBE_TIMEOUT_MS = 10_000;
 const DISCONNECT_TIMEOUT_MS = 5_000;
 // The timeline keeps each console entry whole, so a dump of every argument is capped as network-capture caps a body.
 const CONSOLE_TEXT_MAX_CHARS = 2_000;
@@ -22,6 +21,9 @@ const CONSOLE_TEXT_MAX_CHARS = 2_000;
 // --retries restart on a fresh app + CDP, instead of the whole test hanging
 // until the global Playwright timeout. Mirrors evalAsync's async-callback guard.
 const EVAL_HARD_TIMEOUT_MS = 30_000;
+// The probe gets the bound every eval gets: a cold first launch's select can run 51 s, and its main thread may stay busy
+// after it, so a shorter bound would relaunch a slow but healthy wallet.
+const LIVENESS_PROBE_TIMEOUT_MS = EVAL_HARD_TIMEOUT_MS;
 
 /**
  * Race a CDP call against a hard wall-clock timeout. A WebKit RemoteDebugger
