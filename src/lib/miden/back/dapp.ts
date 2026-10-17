@@ -3260,7 +3260,7 @@ async function noteOfDetailsCommitment(
   if (notes.length > 0) {
     assertWasmHoldCurrent(hold, 'after the details-commitment read');
     const consumable = await midenClientProxy.getConsumableNotes(accountId, step =>
-      assertWasmHoldCurrent(hold, 'inside the consumable-notes read', step)
+      assertWasmHoldCurrent(hold, 'inside the details-commitment consumable-notes read', step)
     );
     const own = new Set(consumable.map(note => note.noteId));
     const [note, ...more] = notes.filter(candidate => own.has(candidate.noteId));
