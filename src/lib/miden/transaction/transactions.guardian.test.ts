@@ -8070,51 +8070,94 @@ describe('generateTransaction — Guardian routing', () => {
     expect(multisigService.createConsumeNotesProposal).toHaveBeenLastCalledWith(['note-a', 'note-b']);
   });
 
-  it('Guardian zero-fill PSWAP reclaim: proposes and signs the prepared fee-aware request bytes', async () => {
-    const txId = 'consume-guardian-zero-fill-reclaim';
-    const requestBytes = new Uint8Array([7, 4, 7, 6]);
-    const result = makeResult();
-    const multisigService = {
-      guardianEndpoint: 'https://old.guardian',
-      priorCandidateState: jest.fn(async (_nonce: number) => 'settled'),
-      createConsumeNotesProposal: jest.fn(),
-      createCustomProposal: jest.fn(async () => ({ id: 'prop-pswap-reclaim' })),
-      signAndCreateTransactionRequest: jest.fn(async () => ({
-        serialize: () => new Uint8Array([1]),
-        authArg: () => undefined
-      })),
-      sync: jest.fn(async () => {})
-    };
-    mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
-    mockGetMidenClient.mockResolvedValue({
-      getAccount: jest.fn(async () => undefined),
-      syncState: jest.fn(async () => {}),
-      client: makeClientApi(result)
-    });
-    const row = {
-      id: txId,
-      type: 'consume',
-      accountId: 'guardian-acc',
-      status: ITransactionStatus.Queued,
-      noteId: 'zero-fill-tip',
-      noteIds: ['zero-fill-tip'],
-      requestBytes,
-      extraInputs: { swapOrderTxId: 'swap-row', swapSettleKind: 'reclaim' },
-      delegateTransaction: false
-    };
-    txStore.push({ ...row });
+  it('Guardian zero-fill PSWAP reclaim: rebuilds the cancel in each proposal hold and signs the bytes it proposed', async () => {
+    // Cycle two starts from the STORED row, as the loop's next pickup does, after a sync moved the height the
+    // cancel binds: each attempt builds its own request, and signing uses the one its proposal was made from.
+    jest.useFakeTimers();
+    try {
+      const txId = 'consume-guardian-zero-fill-reclaim';
+      const settlementBytes = new Uint8Array([7, 4, 7, 6]);
+      const builtPerAttempt = [new Uint8Array([11, 1]), new Uint8Array([22, 2])];
+      let guardianConflicting = true;
+      const conflict = { status: 409, body: 'ConflictPendingDelta' };
+      const multisigService = {
+        guardianEndpoint: 'https://old.guardian',
+        priorCandidateState: jest.fn(async (_nonce: number) => 'settled'),
+        createConsumeNotesProposal: jest.fn(),
+        createCustomProposal: jest.fn(async () => ({ id: 'prop-settlement-bytes' })),
+        createRebasedCustomProposal: jest.fn(),
+        createPswapCancelProposal: jest.fn(
+          async (_noteId: string, persistRequest: (requestBytes: Uint8Array) => Promise<void>) => {
+            await persistRequest(builtPerAttempt.shift()!);
+            if (guardianConflicting) throw conflict;
+            return { id: 'prop-pswap-reclaim' };
+          }
+        ),
+        signAndCreateTransactionRequest: jest.fn(async () => ({
+          serialize: () => new Uint8Array([1]),
+          authArg: () => undefined
+        })),
+        sync: jest.fn(async () => {})
+      };
+      mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+      mockGetMidenClient.mockResolvedValue({
+        getAccount: jest.fn(async () => undefined),
+        syncState: jest.fn(async () => {}),
+        client: makeClientApi(makeResult())
+      });
+      const row = {
+        id: txId,
+        type: 'consume',
+        accountId: 'guardian-acc',
+        status: ITransactionStatus.Queued,
+        noteId: 'zero-fill-tip',
+        noteIds: ['zero-fill-tip'],
+        requestBytes: settlementBytes,
+        extraInputs: { swapOrderTxId: 'swap-row', swapSettleKind: 'reclaim' },
+        delegateTransaction: false
+      };
+      txStore.push({ ...row });
 
-    await generateTransaction(
-      row as never,
-      jest.fn(async () => new Uint8Array([1])),
-      false,
-      makeGuardianProvider(true)
-    );
+      const firstCycle = generateTransaction(
+        { ...row } as never,
+        jest.fn(async () => new Uint8Array([1])),
+        false,
+        makeGuardianProvider(true)
+      );
+      await jest.runAllTimersAsync();
+      await firstCycle;
 
-    expect(multisigService.createConsumeNotesProposal).not.toHaveBeenCalled();
-    expect(multisigService.createCustomProposal).toHaveBeenCalledWith(requestBytes);
-    expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledWith('prop-pswap-reclaim', requestBytes);
-    expect(mockBuildColdMultisigService).not.toHaveBeenCalled();
+      expect(multisigService.createCustomProposal).not.toHaveBeenCalled();
+      expect(multisigService.createPswapCancelProposal).toHaveBeenCalledWith('zero-fill-tip', expect.any(Function));
+      const requeued = txStore.find(r => r.id === txId)!;
+      expect(requeued.status).toBe(ITransactionStatus.Queued);
+      // Persisted before the proposal, so the row always holds the request any proposal of it was made from.
+      expect(requeued.requestBytes).toEqual(new Uint8Array([11, 1]));
+
+      guardianConflicting = false;
+      const secondCycle = generateTransaction(
+        { ...requeued } as never,
+        jest.fn(async () => new Uint8Array([1])),
+        false,
+        makeGuardianProvider(true)
+      );
+      await jest.runAllTimersAsync();
+      await secondCycle;
+
+      expect(multisigService.createPswapCancelProposal).toHaveBeenCalledTimes(2);
+      expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledWith(
+        'prop-pswap-reclaim',
+        new Uint8Array([22, 2])
+      );
+      expect(txStore.find(r => r.id === txId)?.requestBytes).toEqual(new Uint8Array([22, 2]));
+      // Its own-output rebuild would drop the tip this cancel consumes, and the settlement bytes are never proposed.
+      expect(multisigService.createRebasedCustomProposal).not.toHaveBeenCalled();
+      expect(multisigService.createCustomProposal).not.toHaveBeenCalled();
+      expect(multisigService.createConsumeNotesProposal).not.toHaveBeenCalled();
+      expect(mockBuildColdMultisigService).not.toHaveBeenCalled();
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('Guardian send: an eviction during executeRequest stops the pipeline before it proves (#777)', async () => {

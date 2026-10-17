@@ -108,6 +108,12 @@ jest.mock('../sdk/miden-client', () => ({
     }
   },
   getCurrentWasmLockHold: () => swLockHold,
+  // The swap classification re-checks its hold per lineage read, the way production does.
+  assertWasmHoldCurrent: (hold: object, where: string, step?: string): void => {
+    if (hold === swLockHold) return;
+    const { WasmClientPoisonedError: PoisonError } = jest.requireActual('../sdk/wasm-client-poison');
+    throw new PoisonError('watchdog', new Error(`operation abandoned ${where}${step ? `, ${step}` : ''}`));
+  },
   runWhenClientIdle: () => {}
 }));
 
@@ -189,8 +195,11 @@ jest.mock('../assets', () => ({
 
 const mockInitiateConsume = jest.fn((..._args: any[]) => Promise.resolve('consume-tx'));
 const mockInitiateConsumeBatch = jest.fn((..._args: any[]) => Promise.resolve('consume-batch-tx'));
+const mockInitiatePswapReclaim = jest.fn((..._args: any[]) => Promise.resolve('reclaim-tx'));
 jest.mock('../transaction/initiate', () => ({
   initiateConsumeNotesTransaction: (...a: any[]) => mockInitiateConsumeBatch(...a),
+  initiatePswapReclaimTransaction: (...a: any[]) => mockInitiatePswapReclaim(...a),
+  noteClaimCoverage: async () => ({ rows: [] }),
   // Lazy wrapper (not a direct ref): a direct `mockInitiateConsume` here hits a
   // temporal-dead-zone error because requireActual('../assets') transitively loads this
   // mocked module before the const is initialized. The native pass consumes per-note via
@@ -218,6 +227,28 @@ const mockTrimResultBytes = jest.fn(async () => 0);
 jest.mock('../transaction/trim-result-bytes', () => ({
   runTrimTick: () => mockTrimResultBytes()
 }));
+
+// The real settlement, recording what the lap hands it: the lap must pass the classification's own clock and
+// prepared reclaims on to the reconcile, or the zero-fill reclaim never reaches the queue.
+const mockSettlementSeen: { classify: Array<{ args: unknown[]; result: any }>; reconcile: unknown[][] } = {
+  classify: [],
+  reconcile: []
+};
+jest.mock('../swap/settlement', () => {
+  const actual = jest.requireActual('../swap/settlement');
+  return {
+    ...actual,
+    classifySwapSettlementSnapshot: async (...args: unknown[]) => {
+      const result = await actual.classifySwapSettlementSnapshot(...args);
+      mockSettlementSeen.classify.push({ args, result });
+      return result;
+    },
+    reconcileSwapOrderNotes: (...args: unknown[]) => {
+      mockSettlementSeen.reconcile.push(args);
+      return actual.reconcileSwapOrderNotes(...args);
+    }
+  };
+});
 
 // ── Imports under test ─────────────────────────────────────────────
 
@@ -1730,6 +1761,65 @@ describe('doSync — native-note auto-consume', () => {
 
     await expect(doSync()).resolves.toBeUndefined();
     expect(mockInitiateConsumeBatch).toHaveBeenCalled(); // the rejecting path WAS exercised
+  });
+});
+
+describe('doSync - zero-fill swap reclaim', () => {
+  const reclaimBytes = new Uint8Array([7, 4, 7, 6]);
+  const zeroFillLineage = {
+    orderId: () => '77',
+    currentTipNoteId: () => 'zero-fill-tip',
+    currentDepth: () => 0,
+    state: () => 0,
+    remainingOffered: () => 50n,
+    remainingRequested: () => 50n
+  };
+
+  it('queues the reclaim of an expired zero-fill order with the request and clock its classification used', async () => {
+    mockSettlementSeen.classify.length = 0;
+    mockSettlementSeen.reconcile.length = 0;
+    const buildPswapCancelRequest = jest.fn(async () => reclaimBytes);
+    const realmClient = {
+      ...mockClient,
+      client: { pswap: { lineages: async () => [zeroFillLineage] } },
+      buildPswapCancelRequest
+    };
+    mockGetMidenClient.mockImplementation(async () => realmClient);
+    await Repo.transactions.put({
+      id: 'swap-1',
+      accountId: 'pk-1',
+      type: 'swap',
+      status: ITransactionStatus.Completed,
+      initiatedAt: 1,
+      completedAt: 2,
+      displayIcon: 'SWAP',
+      faucetId: 'offer',
+      amount: 50n,
+      outputNoteIds: ['zero-fill-tip'],
+      extraInputs: { requestedFaucetId: 'requested', requestedAmount: 50n, orderId: '77', expiresAt: 220 }
+    });
+    try {
+      await doSync();
+
+      expect(buildPswapCancelRequest).toHaveBeenCalledWith('pk-1', 'zero-fill-tip', expect.any(Function));
+      expect(mockInitiatePswapReclaim).toHaveBeenCalledWith(
+        'pk-1',
+        expect.objectContaining({ id: 'zero-fill-tip' }),
+        reclaimBytes,
+        'swap-1',
+        undefined
+      );
+      const [classified] = mockSettlementSeen.classify;
+      const [reconciled] = mockSettlementSeen.reconcile;
+      const clock = classified!.args[4];
+      expect(clock).toEqual(expect.any(Number));
+      expect(reconciled![3]).toBe(clock);
+      expect(reconciled![5]).toBe(classified!.result.zeroFillReclaims);
+      expect((await Repo.transactions.get('swap-1'))?.extraInputs?.expiryTriggeredAt).toBe(clock);
+    } finally {
+      mockGetMidenClient.mockImplementation(async () => mockClient);
+      await Repo.transactions.clear();
+    }
   });
 });
 

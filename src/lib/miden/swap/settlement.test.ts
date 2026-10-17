@@ -4,7 +4,12 @@ import * as Repo from 'lib/miden/repo';
 import { initiateConsumeNotesTransaction, initiatePswapReclaimTransaction } from 'lib/miden/transaction/initiate';
 import { NoteTypeEnum } from 'lib/miden/types';
 
-import { classifySwapOrderNotes, reconcileSwapOrderNotes, settleSwapOrders } from './settlement';
+import {
+  classifySwapOrderNotes,
+  classifySwapSettlementSnapshot,
+  reconcileSwapOrderNotes,
+  settleSwapOrders
+} from './settlement';
 import { __resetSyncFuseStateForTests, isSyncFused, noteSyncWatchdogEviction } from '../front/sync-fuse';
 import { withWasmClientLock, type WasmLockHold } from '../sdk/miden-client';
 import { WasmClientPoisonedError } from '../sdk/wasm-client-poison';
@@ -56,9 +61,12 @@ jest.mock('../sdk/helpers', () => ({
   sameWalletAccountId: (a: string, b: string) => a.split('_')[0] === b.split('_')[0]
 }));
 
+// What queueConsumeRows' dedup and backoff say about a note; its rules are pinned with real rows in initiate's suite.
+const mockNoteClaimCoverage = jest.fn(async (..._args: unknown[]): Promise<Record<string, unknown>> => ({ rows: [] }));
 jest.mock('lib/miden/transaction/initiate', () => ({
   initiateConsumeNotesTransaction: jest.fn(async () => 'consume-1'),
-  initiatePswapReclaimTransaction: jest.fn(async () => 'consume-zero-fill')
+  initiatePswapReclaimTransaction: jest.fn(async () => 'consume-zero-fill'),
+  noteClaimCoverage: (...args: unknown[]) => mockNoteClaimCoverage(...args)
 }));
 
 // Keep realm transport at the boundary while the real classifier consumes the snapshot.
@@ -130,6 +138,7 @@ describe('swap order note settlement', () => {
     toArray.mockResolvedValue([tx()]);
     jest.mocked(midenClientProxy.getPswapLineages).mockResolvedValue([]);
     jest.mocked(midenClientProxy.buildPswapCancelRequest).mockResolvedValue(new Uint8Array([1, 4, 7, 6]));
+    mockNoteClaimCoverage.mockReset().mockResolvedValue({ rows: [] });
     (Repo.transactions.filter as jest.Mock).mockReturnValue({ toArray });
     (Repo.transactions.where as jest.Mock).mockReturnValue({ modify });
     mockStoreAccounts = [];
@@ -222,6 +231,7 @@ describe('swap order note settlement', () => {
   });
 
   it('reproduces and closes the zero-fill expiry gap by reclaiming the depth-0 output note', async () => {
+    toArray.mockResolvedValue([tx({ outputNoteIds: ['zero-fill-tip'] })]);
     jest.mocked(midenClientProxy.getConsumableNotes).mockResolvedValue([]);
     jest.mocked(midenClientProxy.getPswapLineages).mockResolvedValue([
       {
@@ -270,7 +280,7 @@ describe('swap order note settlement', () => {
     ['fully-filled', 1, 0, 1],
     ['already-reclaimed', 2, 0, 1]
   ])('does not build a depth-0 output reclaim for %s lineage state', async (_label, state, currentDepth, expiresAt) => {
-    toArray.mockResolvedValue([tx({ extraInputs: { ...tx().extraInputs, expiresAt } })]);
+    toArray.mockResolvedValue([tx({ outputNoteIds: ['tip'], extraInputs: { ...tx().extraInputs, expiresAt } })]);
     jest.mocked(midenClientProxy.getConsumableNotes).mockResolvedValue([]);
     jest.mocked(midenClientProxy.getPswapLineages).mockResolvedValue([
       {
@@ -291,6 +301,7 @@ describe('swap order note settlement', () => {
 
   it('skips a locally unavailable zero-fill output without blocking the settlement pass', async () => {
     jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    toArray.mockResolvedValue([tx({ outputNoteIds: ['missing-output'] })]);
     jest.mocked(midenClientProxy.getConsumableNotes).mockResolvedValue([]);
     jest.mocked(midenClientProxy.getPswapLineages).mockResolvedValue([
       {
@@ -314,6 +325,63 @@ describe('swap order note settlement', () => {
       '[Swap] Could not prepare zero-fill reclaim for order 77:',
       expect.any(Error)
     );
+  });
+
+  const zeroFillLineage = (currentTipNoteId: string) => ({
+    orderId: '77',
+    currentTipNoteId,
+    currentDepth: 0,
+    state: 0,
+    remainingOffered: '50',
+    remainingRequested: '50'
+  });
+
+  it("builds no reclaim for a tip that is not one of the order's own output notes", async () => {
+    // A lineage the store maps wrongly names another order's note; cancelling it would take back the wrong offer.
+    toArray.mockResolvedValue([tx({ outputNoteIds: ['own-pswap-note'] })]);
+    jest.mocked(midenClientProxy.getConsumableNotes).mockResolvedValue([]);
+    jest.mocked(midenClientProxy.getPswapLineages).mockResolvedValue([zeroFillLineage('another-orders-note')]);
+
+    await settleSwapOrders('account-1');
+
+    expect(midenClientProxy.buildPswapCancelRequest).not.toHaveBeenCalled();
+    expect(initiatePswapReclaimTransaction).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['queued', { liveOrCompleted: { id: 'reclaim-row', status: ITransactionStatus.Queued } }],
+    ['completed', { liveOrCompleted: { id: 'reclaim-row', status: ITransactionStatus.Completed } }],
+    ['backing off', { backingOff: { id: 'reclaim-row', status: ITransactionStatus.Failed } }]
+  ])('builds no second reclaim while the tip has a %s reclaim row', async (_label, coverage) => {
+    toArray.mockResolvedValue([tx({ outputNoteIds: ['zero-fill-tip'] })]);
+    jest.mocked(midenClientProxy.getConsumableNotes).mockResolvedValue([]);
+    jest.mocked(midenClientProxy.getPswapLineages).mockResolvedValue([zeroFillLineage('zero-fill-tip')]);
+    mockNoteClaimCoverage.mockResolvedValueOnce({ rows: Object.values(coverage), ...coverage });
+
+    await settleSwapOrders('account-1', false);
+
+    expect(midenClientProxy.buildPswapCancelRequest).not.toHaveBeenCalled();
+    expect(initiatePswapReclaimTransaction).not.toHaveBeenCalled();
+    expect(mockNoteClaimCoverage).toHaveBeenCalledWith('account-1', 'zero-fill-tip', expect.any(Number));
+  });
+
+  it('lets a trap from the cancel-request build reach the hold, so the lock retires the client', async () => {
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    jest
+      .mocked(midenClientProxy.getPswapLineages)
+      .mockResolvedValue([zeroFillLineage('zero-fill-tip'), { ...zeroFillLineage('second-tip'), orderId: '88' }]);
+    jest.mocked(midenClientProxy.buildPswapCancelRequest).mockRejectedValueOnce(trap);
+    const orders = [
+      tx({ outputNoteIds: ['zero-fill-tip'] }),
+      tx({ id: 'swap-2', outputNoteIds: ['second-tip'], extraInputs: { ...tx().extraInputs, orderId: 88n } })
+    ];
+
+    await expect(
+      withWasmClientLock(hold => classifySwapSettlementSnapshot([], 'account-1', orders as never, hold, 300))
+    ).rejects.toBe(trap);
+
+    // The trapped client is not asked for the next order's request.
+    expect(midenClientProxy.buildPswapCancelRequest).toHaveBeenCalledTimes(1);
   });
 
   it('never treats a pre-upgrade order without an explicit expiresAt as expired', async () => {

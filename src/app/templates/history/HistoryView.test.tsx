@@ -1,6 +1,7 @@
 import React from 'react';
 
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { format } from 'date-fns';
 
 import { PageActiveContext, TabActiveContext } from 'app/layouts/page-active';
 import { springs, tabBarSwap } from 'lib/animation';
@@ -1566,7 +1567,12 @@ describe('HistoryView swap settlement status', () => {
       expect(row).toHaveAttribute('data-amount-symbol', 'USDCX');
       expect(row).toHaveAttribute('data-amount-direction', 'neutral');
     }
-    expect(mockT).toHaveBeenCalledWith('swapPlacedAt', expect.objectContaining({ time: expect.any(String) }));
+    // The identity translator renders every subtitle as the bare key, so each row's own time is read off the call.
+    const expiryPlacedAt = format(new Date(1_792_130_261 * 1000), 'HH:mm');
+    const cancelPlacedAt = format(new Date(1_792_130_629 * 1000), 'HH:mm');
+    expect(expiryPlacedAt).not.toBe(cancelPlacedAt);
+    expect(mockT).toHaveBeenCalledWith('swapPlacedAt', { time: expiryPlacedAt });
+    expect(mockT).toHaveBeenCalledWith('swapPlacedAt', { time: cancelPlacedAt });
     expect(mockT).toHaveBeenCalledWith('swapOfferedAmount', { amount: '10' });
   });
 
