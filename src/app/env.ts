@@ -152,3 +152,9 @@ export async function openUrlInNewTab(url: string) {
   const browser = await getBrowser();
   await browser.tabs.create({ url });
 }
+
+/** Reloads this page. Its own function because jsdom's `location.reload` cannot be replaced, so tests replace this. */
+/* c8 ignore next 3 -- jsdom cannot observe a reload */
+export function reloadPage(): void {
+  window.location.reload();
+}
