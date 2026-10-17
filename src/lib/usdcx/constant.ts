@@ -11,10 +11,10 @@ import { USDCX_DECIMALS } from './protocol';
 
 export * from './protocol';
 
-// E2E-only: the bridge-in harness runs the deposit on a local Anvil fork of Sepolia. Arc's USDC calls
-// chain precompiles that Anvil does not have, so an Arc fork reverts every transfer; Sepolia's USDC
-// is a plain ERC-20 and its xReserve is the same contract at the same address. Inert in production:
-// the flag is baked in only by the e2e build, and only when `MIDEN_E2E_TEST` is also on.
+// E2E-only: an E2E build with MIDEN_E2E_USDCX_CHAIN=sepolia opens a USDCx bridge-in on Sepolia through its
+// xReserve, the route a local Anvil fork of Sepolia can run (Arc's USDC calls chain precompiles that Anvil does
+// not have). No CI suite sets it. Inert in production: the flag is baked in only by the e2e build, and only when
+// `MIDEN_E2E_TEST` is also on.
 const E2E_USDCX_CHAIN = process.env.MIDEN_E2E_TEST === 'true' ? (process.env.MIDEN_E2E_USDCX_CHAIN ?? '').trim() : '';
 
 /** What every source chain shares: the USDC burned or deposited there, and Circle's domain of the chain. */
@@ -230,8 +230,8 @@ export const DEFAULT_USDCX_CHAIN_IDS = new Map<string, number>([
 ]);
 
 /**
- * The chain a USDCx bridge-in opens on and a withdrawal pre-selects, for the effective network: the E2E harness's
- * Sepolia fork when it asks for it, else the network's entry above. A caller falls through to the document's first
+ * The chain a USDCx bridge-in opens on and a withdrawal pre-selects, for the effective network: Sepolia when an E2E
+ * build asks for it (MIDEN_E2E_USDCX_CHAIN), else the network's entry above. A caller falls through to the document's first
  * chain when the document does not list this one.
  */
 export function defaultUsdcxChainId(): number {

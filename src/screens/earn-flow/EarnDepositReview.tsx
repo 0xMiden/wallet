@@ -26,18 +26,19 @@ import {
   type SpendingLimitAuthorization,
   spendingLimitAssessmentFromError
 } from 'lib/miden/spending-limits/types';
-import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
-import { selectMidenUsdc } from 'lib/remote-config/values';
+import { normalizedFaucetId } from 'lib/miden/swap/faucet-ids';
 import { useWalletStore } from 'lib/store';
 import { classifyError } from 'lib/telemetry';
 import { enterRouteFlow, reportRouteFlowStep, settleRouteFlow } from 'lib/telemetry/route-flow';
 import { CHART_DOT_RING, CHART_POSITIVE, CHART_RULE, ChartContainer } from 'lib/ui/charts';
-import { goBack, navigate, useLocation } from 'lib/woozie';
+import { goBack, navigate, Redirect, useLocation } from 'lib/woozie';
 
 import { EarnAmountUnit, EarnAssetMark, EarnHero, EarnSubjectSubtitle, earnSubjectTitle } from './components';
 import { placeholderVault } from './earn-mapping';
+import { EarnCollateralNotice } from './EarnCollateralNotice';
 import { EarnLoadError } from './EarnLoadError';
 import { ChartDotProps, EarnVault } from './types';
+import { useEarnCollateralState } from './useEarnCollateral';
 import { earnItemLoadState, useEarnPositions } from './useEarnPositions';
 
 // Fractions of a year for the projection columns; rewards = amount × APY × fraction.
@@ -64,7 +65,6 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
 
   const { t } = useTranslation();
   const account = useAccount();
-  const depositSymbol = 'USDC';
   const { signTransaction } = useMidenContext();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -72,8 +72,18 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
     useState<Pick<SpendingLimitChallengeProps, 'assessment' | 'spends' | 'unpriced'>>();
   const assessSpendingLimit = useWalletStore(state => state.assessSpendingLimit);
   const readSpendingLimit = useWalletStore(state => state.readSpendingLimit);
-  // The collateral the config names (an E2E run's injected faucet first); none, and nothing can be deposited.
-  const collateral = selectMidenUsdc(useBridgeConfigSnapshot());
+  // Testnet uses discovered native USDCx (an E2E fixture override first); missing metadata blocks deposits.
+  const earnCollateral = useEarnCollateralState();
+  const { collateral } = earnCollateral;
+  const depositSymbol = collateral?.symbol ?? '';
+  // Bound to the faucet the amount step reviewed: a link that names none, or another, never deposits.
+  const reviewedFaucet = new URLSearchParams(search).get('collateral');
+  const collateralMatches =
+    collateral !== null &&
+    !!reviewedFaucet &&
+    normalizedFaucetId(reviewedFaucet) === normalizedFaucetId(collateral.faucetId);
+  const collateralReason =
+    earnCollateral.state !== 'resolved' ? earnCollateral.state : collateralMatches ? null : 'mismatch';
   const collateralDecimals = collateral?.decimals;
   const amountBaseUnits = useMemo(() => {
     if (collateralDecimals === undefined) return undefined;
@@ -113,7 +123,7 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
   };
 
   const runOpenPosition = async (authorization?: SpendingLimitAuthorization) => {
-    if (amountBaseUnits === undefined || !collateral) return;
+    if (amountBaseUnits === undefined || !collateral || !collateralMatches) return;
     if (authorization !== undefined && authorization.accountId !== account.publicKey) {
       setSpendingLimitChallenge(undefined);
       return;
@@ -180,7 +190,7 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
       setSubmitError(t('earnNoEvmAddress'));
       return;
     }
-    if (amountBaseUnits === undefined) {
+    if (amountBaseUnits === undefined || !collateralMatches) {
       setSubmitError(t('earnFailedToOpenPosition'));
       return;
     }
@@ -232,6 +242,8 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
     }
   }, [account.publicKey, spendingLimitChallenge]);
 
+  if (!reviewedFaucet) return <Redirect to={`/earn/vaults/${vaultId}/deposit`} />;
+
   return (
     <div className="flex h-full flex-col overflow-hidden bg-app-bg">
       <NetworkModeBanner />
@@ -243,11 +255,16 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
         title={found ? earnSubjectTitle(found) : t('earnDeposit')}
         subtitle={found && <EarnSubjectSubtitle subject={found} />}
         onBack={goBack}
-        headerActions={found && <EarnAssetMark asset={found.asset} network={found.network} decorative />}
+        headerActions={
+          found && (
+            <EarnAssetMark asset={found.asset} network={found.network} fundingAsset={found.fundingAsset} decorative />
+          )
+        }
         footerLayout="stack"
         footer={
           (loadFailed && !found) || pending ? undefined : (
             <>
+              <EarnCollateralNotice reason={collateralReason} />
               {submitError && (
                 <Notice tone="negative" role="alert" data-testid="earn-deposit-review-error">
                   {submitError}
@@ -259,7 +276,7 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
                 variant={ButtonVariant.Primary}
                 accent="earn"
                 onClick={handleOpenPosition}
-                disabled={isSubmitting || amountValue <= 0 || !vault.id}
+                disabled={isSubmitting || amountValue <= 0 || !vault.id || !collateralMatches}
                 className="w-full max-w-none"
               />
             </>

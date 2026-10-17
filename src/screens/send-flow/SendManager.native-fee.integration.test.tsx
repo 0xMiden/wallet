@@ -17,6 +17,13 @@ import type { TokenPrices } from 'lib/prices';
 import { SendManager } from './SendManager';
 import { SendFlowStep } from './types';
 
+jest.mock('lib/remote-config/runtime', () => {
+  const fixture = jest.requireActual<typeof import('lib/epoch/testing/bridge-config')>(
+    'lib/epoch/testing/bridge-config'
+  );
+  return fixture.remoteConfigRuntimeMock(() => fixture.TEST_BRIDGE_CONFIG_SNAPSHOT);
+});
+
 jest.unmock('components/Navigator');
 jest.unmock('lib/i18n/numbers');
 jest.unmock('app/hooks/useNativeFeeFaucetId');
