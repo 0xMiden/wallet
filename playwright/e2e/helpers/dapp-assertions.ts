@@ -27,7 +27,7 @@ import {
 } from './history';
 import { callDapp, ensureUnlocked, pendingNotes, selectAccountIfNeeded, unwrap, type DappHandle } from './test-dapp';
 import type { GuardianAwareWalletPage } from '../fixtures/two-wallets';
-import type { NoteTypeName, OutputNoteView } from '../test-dapp/protocol';
+import type { NoteTypeName, Outcome, OutputNoteView } from '../test-dapp/protocol';
 
 /**
  * The spec's assertion model (section 5): every write is asserted from the dApp's, the wallet's and the chain's side,
@@ -47,6 +47,15 @@ export interface WriteSide {
   nativeFaucetId: string;
   /** Who may send this account a note during the journey (`Journey.senders`); anyone else is a third party. */
   journeySenders(): readonly string[];
+  /**
+   * Asks for a write's result from the page that made it, when that is not `dapp` (the React page, spec section 4).
+   * The wallet answers waitForTransaction only to the origin that created the transaction, so `dapp` asking for
+   * another page's transaction would get NOT_GRANTED. Chain reads still go through `dapp`.
+   */
+  waitForTransaction?(
+    txId: string,
+    ctx: CellContext
+  ): Promise<Outcome<{ txHash: string; outputNotes: OutputNoteView[] }>>;
 }
 
 /** What a write is measured against, captured after the cell's quiesce and before the request. */
@@ -266,12 +275,13 @@ export async function expectWritesToTheEnd(
   for (const write of writes) {
     // 1. The dApp's view, right after approval, as a real dApp asks for it. A wait that outlives the cell still
     // records where the row stopped, so a known-bug signature can match it.
-    const waited = await callDapp(side.dapp, 'waitForTransaction', { txId: write.txId }, ctx.deadline).catch(
-      async (error: unknown) => {
-        await recordRow(side.wallet.page, write.txId, ctx);
-        throw error;
-      }
-    );
+    const waited = await (
+      side.waitForTransaction?.(write.txId, ctx) ??
+      callDapp(side.dapp, 'waitForTransaction', { txId: write.txId }, ctx.deadline)
+    ).catch(async (error: unknown) => {
+      await recordRow(side.wallet.page, write.txId, ctx);
+      throw error;
+    });
     const row = await recordRow(side.wallet.page, write.txId, ctx);
     const value = unwrap(waited, `waitForTransaction(${write.txId})`, ctx);
     expect(value.txHash, 'txHash').toMatch(/^0x[0-9a-f]{64}$/);
