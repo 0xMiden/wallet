@@ -12,6 +12,7 @@
 const _g = globalThis as any;
 _g.__mainTest = {
   onRequest: jest.fn(),
+  onNotFound: jest.fn(),
   broadcast: jest.fn(),
   storeWatch: jest.fn(),
   doSync: jest.fn(),
@@ -32,6 +33,7 @@ _g.__mainTest = {
 jest.mock('lib/miden/back/defaults', () => ({
   intercom: {
     onRequest: (cb: any) => (globalThis as any).__mainTest.onRequest(cb),
+    onNotFound: (cb: any) => (globalThis as any).__mainTest.onNotFound(cb),
     broadcast: (msg: any) => (globalThis as any).__mainTest.broadcast(msg)
   }
 }));
@@ -154,6 +156,7 @@ jest.mock('lib/remote-config/runtime', () => ({
 }));
 
 const mockOnRequest = _g.__mainTest.onRequest;
+const mockOnNotFound = _g.__mainTest.onNotFound;
 const mockBroadcast = _g.__mainTest.broadcast;
 const mockStoreWatch = _g.__mainTest.storeWatch;
 const mockDoSync = _g.__mainTest.doSync;
@@ -938,7 +941,7 @@ describe('processRequest', () => {
     expect(res).toBeUndefined();
   });
 
-  it.each([
+  const CONFIRMATION_REQUEST_TYPES = [
     MidenMessageType.DAppGetPayloadRequest,
     MidenMessageType.DAppSimulateTransactionRequest,
     MidenMessageType.DAppUnlockConfirmationRequest,
@@ -949,12 +952,41 @@ describe('processRequest', () => {
     MidenMessageType.DAppAssetsConfirmationRequest,
     MidenMessageType.DAppImportPrivateNoteConfirmationRequest,
     MidenMessageType.DAppConsumableNotesConfirmationRequest
-  ])("refuses a %s no confirmation handler answered with the background's state for it", async type => {
-    const refusal = Object.assign(new Error('Not Found'), { code: 'confirmation_expired' });
-    Actions.confirmationNotFound.mockReturnValueOnce(refusal);
-    const req = { type, id: 'confirmation-1' };
-    await expect(dispatch(req)).rejects.toBe(refusal);
-    expect(Actions.confirmationNotFound).toHaveBeenCalledWith(req);
+  ];
+
+  it.each(CONFIRMATION_REQUEST_TYPES)(
+    'leaves a %s to the live confirmation handlers, whatever their order',
+    async type => {
+      await expect(dispatch({ type, id: 'confirmation-1' })).resolves.toBeUndefined();
+      expect(Actions.confirmationNotFound).not.toHaveBeenCalled();
+    }
+  );
+
+  it("registers a fallback that codes a declined confirmation request with the background's state, and nothing else", () => {
+    expect(mockOnNotFound).toHaveBeenCalledTimes(1);
+    const fallback = mockOnNotFound.mock.calls[0]![0];
+    const unknown = Object.assign(new Error('Not Found'), { code: 'confirmation_unknown' });
+    Actions.confirmationNotFound.mockImplementation(() => unknown);
+    try {
+      for (const type of CONFIRMATION_REQUEST_TYPES) {
+        const req = { type, id: ['never-opened'] };
+        expect(fallback(req)).toBe(unknown);
+        expect(Actions.confirmationNotFound).toHaveBeenLastCalledWith(req);
+      }
+      Actions.confirmationNotFound.mockClear();
+      for (const req of [
+        { type: WalletMessageType.GetStateRequest },
+        { type: MidenMessageType.PageRequest, origin: 'o', payload: 'PING' },
+        { id: ['never-opened'] },
+        null,
+        MidenMessageType.DAppGetPayloadRequest
+      ]) {
+        expect(fallback(req)).toBeUndefined();
+      }
+      expect(Actions.confirmationNotFound).not.toHaveBeenCalled();
+    } finally {
+      Actions.confirmationNotFound.mockReset();
+    }
   });
 
   it('PageRequest returns null payload when processDApp returns undefined', async () => {

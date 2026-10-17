@@ -53,7 +53,7 @@ describe('wasmStartupEvidence', () => {
     expect(grow).toHaveBeenCalledWith(1);
   });
 
-  it('reports refused when the grow or the construction throws', () => {
+  it('reports refused when a fresh shared memory builds but cannot grow', () => {
     isolated(
       jest.fn(() => ({
         grow: () => {
@@ -63,14 +63,28 @@ describe('wasmStartupEvidence', () => {
     );
     views(1);
     expect(wasmStartupEvidence(trap()).sharedMemoryProbe).toBe('refused');
-    replace(
-      WebAssembly,
-      'Memory',
+  });
+
+  it('reports unavailable in an isolated realm without SharedArrayBuffer, never building a memory', () => {
+    const memory = growingMemory();
+    isolated(memory);
+    views(1);
+    replace(globalThis, 'SharedArrayBuffer', undefined);
+    expect(wasmStartupEvidence(trap()).sharedMemoryProbe).toBe('unavailable');
+    expect(memory).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    new TypeError('WebAssembly.Memory(): shared memory is not supported'),
+    new RangeError('WebAssembly.Memory(): could not allocate memory')
+  ])('reports unavailable when a shared memory cannot be built at all: %s', failure => {
+    isolated(
       jest.fn(() => {
-        throw new RangeError('WebAssembly.Memory(): could not allocate memory');
+        throw failure;
       })
     );
-    expect(wasmStartupEvidence(trap()).sharedMemoryProbe).toBe('refused');
+    views(1);
+    expect(wasmStartupEvidence(trap()).sharedMemoryProbe).toBe('unavailable');
   });
 
   it('does not probe outside a cross-origin isolated realm', () => {
