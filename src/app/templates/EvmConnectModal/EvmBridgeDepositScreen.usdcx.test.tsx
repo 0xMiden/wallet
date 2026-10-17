@@ -7,6 +7,8 @@ import { TEST_BRIDGE_CONFIG_SNAPSHOT } from 'lib/epoch/testing/bridge-config';
 import { initiateBridgedReceiveTransaction, updateBridgedReceivePhase } from 'lib/miden/activity';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import type { AgglayerChainConfig, UsdcxChainConfig } from 'lib/remote-config/schema';
+import { requestTimeoutError } from 'lib/remote-json';
+import { bridgeReceiveLibraryError } from 'lib/telemetry/bridge-receive-failure';
 import type { CctpBurnQuote } from 'lib/usdcx/cctp';
 import { runUsdcxDeposit } from 'lib/usdcx/deposit';
 import { usdcxRemoteRecipientFor } from 'lib/usdcx/deposit-target';
@@ -72,8 +74,10 @@ jest.mock('react-i18next', () => ({
   })
 }));
 
+// The web wallet's provider, connected unless a case takes it away.
+let mockWebProviderConnected = true;
 jest.mock('@reown/appkit/react', () => ({
-  useAppKitProvider: () => ({ walletProvider: { request: jest.fn() } })
+  useAppKitProvider: () => ({ walletProvider: mockWebProviderConnected ? { request: jest.fn() } : undefined })
 }));
 
 const mockWriteContract = jest.fn().mockResolvedValue(`0x${'2'.repeat(64)}`);
@@ -406,6 +410,17 @@ const depositScreen = (evmAddress = '0x1111111111111111111111111111111111111111'
 
 const renderScreen = () => render(depositScreen());
 
+// The failure write the screen makes: the row's text, and the step and error its crash report names.
+const failedAt = (step: string, error: string) => ({ error, failure: { step, cause: expect.any(Error) } });
+/** The library error the crash report names for the cause the last failure write handed it. */
+const reportedEvmError = (): string =>
+  bridgeReceiveLibraryError(
+    jest
+      .mocked(updateBridgedReceivePhase)
+      .mock.calls.filter(([, phase]) => phase === 'failed')
+      .at(-1)?.[2]?.failure?.cause
+  );
+
 /** USDC is the default token: amount, continue, and the route step is up. */
 const pickToken = async (testId: 'pick-eth' | 'pick-circle-usdc' | 'pick-usdc') => {
   fireEvent.click(screen.getByTestId('open-token-drawer'));
@@ -449,6 +464,7 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
 
   afterEach(() => {
     mockBridgeSnapshot = undefined;
+    mockWebProviderConnected = true;
   });
 
   it('opens on Circle USDC even while the config still advertises the retired Epoch token', async () => {
@@ -736,10 +752,13 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
 
     const failedWrites = jest.mocked(updateBridgedReceivePhase).mock.calls.filter(([, phase]) => phase === 'failed');
     expect(failedWrites).toHaveLength(failed ? 1 : 0);
+    // The stub throws once the screen recorded the deposit, or before any step but the route's own setup.
     expect(updateBridgedReceivePhase).toHaveBeenLastCalledWith(
       'bridge-tx',
       failed ? 'failed' : 'submitting',
-      failed ? { error: error.message } : { evmTxHash: `0x${'2'.repeat(64)}` }
+      failed
+        ? { error: error.message, failure: { step: broadcast ? 'deposit_receipt' : 'precheck_route', cause: error } }
+        : { evmTxHash: `0x${'2'.repeat(64)}` }
     );
   });
 
@@ -813,9 +832,11 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
 
     expect(mockNativeSend).not.toHaveBeenCalled();
     expect(prepareNativeSessionChain).toHaveBeenCalledWith(5042002);
-    expect(updateBridgedReceivePhase).toHaveBeenCalledWith('bridge-tx', 'failed', {
-      error: `evmChainNotApproved ${JSON.stringify({ network: 'Arc Testnet' })}`
-    });
+    expect(updateBridgedReceivePhase).toHaveBeenCalledWith(
+      'bridge-tx',
+      'failed',
+      failedAt('precheck_session_chain', `evmChainNotApproved ${JSON.stringify({ network: 'Arc Testnet' })}`)
+    );
   });
 
   it('offers the source-chain picker with the configured routes', async () => {
@@ -892,7 +913,7 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
   });
 
   // Circle has not registered Miden on Sepolia's xReserve, so a Sepolia deposit burns through CCTP to the executor on
-  // Arc, as Base and Arbitrum do; only the e2e build's Sepolia fork keeps the xReserve route.
+  // Arc, as Base and Arbitrum do; only an e2e build with MIDEN_E2E_USDCX_CHAIN=sepolia keeps the xReserve route.
   it.each([false, true])(
     'burns a Sepolia deposit through the executor on Arc, pinned to Sepolia (native=%s)',
     async native => {
@@ -981,9 +1002,11 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
 
     expect(mockWriteContract).not.toHaveBeenCalled();
     expect(mockNativeSend).not.toHaveBeenCalled();
-    expect(updateBridgedReceivePhase).toHaveBeenLastCalledWith('bridge-tx', 'failed', {
-      error: 'usdcxForwardQuoteUnavailable'
-    });
+    expect(updateBridgedReceivePhase).toHaveBeenLastCalledWith(
+      'bridge-tx',
+      'failed',
+      failedAt('precheck_quote', 'usdcxForwardQuoteUnavailable')
+    );
   });
 
   it('shows the fee Circle quoted for the amount on screen on the route and the review', async () => {
@@ -1066,9 +1089,11 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
 
     expect(mockWriteContract).not.toHaveBeenCalled();
     expect(mockNativeSend).not.toHaveBeenCalled();
-    expect(updateBridgedReceivePhase).toHaveBeenLastCalledWith('bridge-tx', 'failed', {
-      error: feeAboveBalance('1.52', 'Base Sepolia')
-    });
+    expect(updateBridgedReceivePhase).toHaveBeenLastCalledWith(
+      'bridge-tx',
+      'failed',
+      failedAt('precheck_balance', feeAboveBalance('1.52', 'Base Sepolia'))
+    );
   });
 
   it('hands the executor a read of the Circle USDC balance on the source chain, not the amount step value', async () => {
@@ -1141,9 +1166,11 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
     await settle();
 
     expect(mockWriteContract).not.toHaveBeenCalled();
-    expect(updateBridgedReceivePhase).toHaveBeenLastCalledWith('bridge-tx', 'failed', {
-      error: feeAboveBalance('1.531907', 'Base Sepolia')
-    });
+    expect(updateBridgedReceivePhase).toHaveBeenLastCalledWith(
+      'bridge-tx',
+      'failed',
+      failedAt('precheck_balance', feeAboveBalance('1.531907', 'Base Sepolia'))
+    );
   });
 
   it('fails the row with the balance-read message when the read after an approval fails', async () => {
@@ -1162,9 +1189,14 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
 
     // The approval only: the burn is never asked for.
     expect(mockWriteContract).toHaveBeenCalledTimes(1);
-    expect(updateBridgedReceivePhase).toHaveBeenLastCalledWith('bridge-tx', 'failed', {
-      error: `bridgeDepositBalanceReadFailed ${JSON.stringify({ token: 'USDC', network: 'Base Sepolia' })}`
-    });
+    expect(updateBridgedReceivePhase).toHaveBeenLastCalledWith(
+      'bridge-tx',
+      'failed',
+      failedAt(
+        'precheck_balance',
+        `bridgeDepositBalanceReadFailed ${JSON.stringify({ token: 'USDC', network: 'Base Sepolia' })}`
+      )
+    );
   });
 
   it('fails the row with the balance-read message when the read after the chain step fails', async () => {
@@ -1181,9 +1213,14 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
     await settle();
 
     expect(mockWriteContract).not.toHaveBeenCalled();
-    expect(updateBridgedReceivePhase).toHaveBeenLastCalledWith('bridge-tx', 'failed', {
-      error: `bridgeDepositBalanceReadFailed ${JSON.stringify({ token: 'USDC', network: 'Base Sepolia' })}`
-    });
+    expect(updateBridgedReceivePhase).toHaveBeenLastCalledWith(
+      'bridge-tx',
+      'failed',
+      failedAt(
+        'precheck_balance',
+        `bridgeDepositBalanceReadFailed ${JSON.stringify({ token: 'USDC', network: 'Base Sepolia' })}`
+      )
+    );
   });
 
   // The burn pulls Circle's fee on top of the amount, so once the fee is on screen Confirm holds on a balance that
@@ -1543,7 +1580,9 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
       );
       await waitFor(() => expect(status).toHaveAttribute('data-awaiting', 'false'));
       const failedWrites = jest.mocked(updateBridgedReceivePhase).mock.calls.filter(([, phase]) => phase === 'failed');
-      expect(failedWrites).toEqual(outcome === 'rejected' ? [['bridge-tx', 'failed', { error: 'User rejected' }]] : []);
+      expect(failedWrites).toEqual(
+        outcome === 'rejected' ? [['bridge-tx', 'failed', failedAt('wallet_deposit', 'User rejected')]] : []
+      );
     }
   );
 
@@ -1562,7 +1601,7 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
   it.each(
     (['xreserve', 'cctp-executor'] as const).flatMap(route => [false, true].map(native => [route, native] as const))
   )(
-    'raises no prompt and fails the row when the balance falls under a %s deposit before Confirm (native=%s)',
+    'raises no prompt and fails the row with no answer when the balance falls under a %s deposit before Confirm (native=%s)',
     async (route, native) => {
       mockNativeAvailable = native;
       renderScreen();
@@ -1583,9 +1622,41 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
       // Adding and switching the chain is a wallet prompt too, so the balance is checked first.
       expect(prepareNativeSessionChain).not.toHaveBeenCalled();
       const network = route === 'xreserve' ? 'Arc Testnet' : 'Base Sepolia';
-      expect(updateBridgedReceivePhase).toHaveBeenCalledWith('bridge-tx', 'failed', {
-        error: `bridgeDepositBalanceTooLow ${JSON.stringify({ balance: '1.4999', token: 'USDC', network })}`
-      });
+      expect(updateBridgedReceivePhase).toHaveBeenCalledWith(
+        'bridge-tx',
+        'failed',
+        failedAt(
+          'precheck_balance',
+          `bridgeDepositBalanceTooLow ${JSON.stringify({ balance: '1.4999', token: 'USDC', network })}`
+        )
+      );
+      expect(reportedEvmError()).toBe('none');
+    }
+  );
+
+  it.each(['xreserve', 'cctp-executor'])(
+    'fails the row at the balance check with the RPC timeout when the %s balance re-read at Confirm times out',
+    async route => {
+      renderScreen();
+      if (route === 'xreserve') await reachUsdcxRoute();
+      else await reachBaseSepoliaRoute();
+      fireEvent.click(screen.getByTestId('usdcx-route-confirm'));
+      await settle();
+      // What a read that never answered rejects with once its timer aborts it.
+      global.fetch = jest.fn().mockRejectedValue(requestTimeoutError(15_000));
+
+      fireEvent.click(screen.getByTestId('confirm-deposit'));
+      await settle();
+
+      expect(runUsdcxDeposit).not.toHaveBeenCalled();
+      expect(runUsdcxExecutorDeposit).not.toHaveBeenCalled();
+      const network = route === 'xreserve' ? 'Arc Testnet' : 'Base Sepolia';
+      expect(updateBridgedReceivePhase).toHaveBeenCalledWith(
+        'bridge-tx',
+        'failed',
+        failedAt('precheck_balance', `bridgeDepositBalanceReadFailed ${JSON.stringify({ token: 'USDC', network })}`)
+      );
+      expect(reportedEvmError()).toBe('timeout');
     }
   );
 
@@ -1649,5 +1720,119 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
 
     expect(screen.getByTestId('usdcx-route-notice').textContent).toBe(EXECUTOR_NOTICE);
     expect(screen.getByTestId('usdcx-route-confirm')).toBeEnabled();
+  });
+
+  const confirmDeposit = async (route: 'xreserve' | 'cctp-executor' = 'xreserve') => {
+    renderScreen();
+    await reachRoute(route);
+    fireEvent.click(screen.getByTestId('usdcx-route-confirm'));
+    await settle();
+    fireEvent.click(screen.getByTestId('confirm-deposit'));
+    await settle();
+  };
+  /** Every RPC read from here on fails; the balance the screen checks first has already been read. */
+  const failRpc = () => {
+    global.fetch = jest.fn().mockResolvedValue({ json: async () => ({ error: { message: 'rpc down' } }) });
+  };
+
+  // A registration read that throws, rather than answering false, still fails the row at the domain check.
+  it.each(['xreserve', 'cctp-executor'] as const)(
+    'fails the row at the domain check, before any prompt, when the %s registration read fails',
+    async route => {
+      const readDomain = async (deps: Pick<UsdcxExecutorDepositDeps, 'isRemoteDomainRegistered'>) => {
+        failRpc();
+        await deps.isRemoteDomainRegistered(10007);
+        return `0x${'2'.repeat(64)}` as const;
+      };
+      if (route === 'xreserve') {
+        jest.mocked(runUsdcxDeposit).mockImplementationOnce((_id, _amount, _recipient, deps) => readDomain(deps));
+      } else {
+        jest
+          .mocked(runUsdcxExecutorDeposit)
+          .mockImplementationOnce((_id, _amount, _recipient, deps) => readDomain(deps));
+      }
+
+      await confirmDeposit(route);
+
+      expect(mockWriteContract).not.toHaveBeenCalled();
+      expect(mockNativeSend).not.toHaveBeenCalled();
+      expect(updateBridgedReceivePhase).toHaveBeenLastCalledWith(
+        'bridge-tx',
+        'failed',
+        failedAt('precheck_domain', 'rpc down')
+      );
+    }
+  );
+
+  it('fails the row at the allowance check, before any prompt, when the allowance read fails', async () => {
+    jest.mocked(runUsdcxDeposit).mockImplementationOnce(async (_id, _amount, _recipient, deps) => {
+      await deps.isRemoteDomainRegistered(10007);
+      failRpc();
+      await deps.readAllowance('0x008888878f94C0d87defdf0B07f46B93C1934442');
+      return deps.signer.approve('0x008888878f94C0d87defdf0B07f46B93C1934442', 1_500_000n);
+    });
+
+    await confirmDeposit();
+
+    expect(mockWriteContract).not.toHaveBeenCalled();
+    expect(mockNativeSend).not.toHaveBeenCalled();
+    expect(updateBridgedReceivePhase).toHaveBeenLastCalledWith(
+      'bridge-tx',
+      'failed',
+      failedAt('precheck_allowance', 'rpc down')
+    );
+  });
+
+  it.each((['prompt', 'receipt'] as const).flatMap(stage => [false, true].map(native => [stage, native] as const)))(
+    'fails the row at the approval %s when it fails (native=%s)',
+    async (stage, native) => {
+      mockNativeAvailable = native;
+      const walletPrompt = native ? mockNativeSend : mockWriteContract;
+      const error = new Error(`approval ${stage} failed`);
+      if (stage === 'prompt') walletPrompt.mockRejectedValueOnce(error);
+      else jest.mocked(waitForEvmReceipt).mockRejectedValueOnce(error);
+      jest.mocked(runUsdcxDeposit).mockImplementationOnce(async (_id, _amount, recipient, deps) => {
+        await deps.isRemoteDomainRegistered(10007);
+        await deps.readAllowance('0x008888878f94C0d87defdf0B07f46B93C1934442');
+        await deps.waitForReceipt(await deps.signer.approve('0x008888878f94C0d87defdf0B07f46B93C1934442', 1_500_000n));
+        return deps.signer.depositToRemote([
+          1_500_000n,
+          10007,
+          recipient,
+          '0x3600000000000000000000000000000000000000',
+          0n,
+          '0x'
+        ]);
+      });
+
+      await confirmDeposit();
+
+      expect(walletPrompt).toHaveBeenCalledTimes(1);
+      expect(updateBridgedReceivePhase).toHaveBeenLastCalledWith(
+        'bridge-tx',
+        'failed',
+        failedAt(stage === 'prompt' ? 'wallet_approve' : 'approve_receipt', error.message)
+      );
+    }
+  );
+
+  it('fails the row at provider_unavailable, before any prompt, with no native or web provider', async () => {
+    mockNativeAvailable = false;
+    mockWebProviderConnected = false;
+
+    await confirmDeposit();
+
+    await waitFor(() =>
+      expect(updateBridgedReceivePhase).toHaveBeenCalledWith('bridge-tx', 'failed', {
+        error: 'The connected EVM wallet provider is unavailable.',
+        failure: { step: 'provider_unavailable' }
+      })
+    );
+    expect(runUsdcxDeposit).not.toHaveBeenCalled();
+    expect(runUsdcxExecutorDeposit).not.toHaveBeenCalled();
+    expect(mockWriteContract).not.toHaveBeenCalled();
+    expect(mockNativeSend).not.toHaveBeenCalled();
+    expect(mockSwitchChain).not.toHaveBeenCalled();
+    expect(prepareNativeSessionChain).not.toHaveBeenCalled();
   });
 });

@@ -150,6 +150,7 @@ jobs:
         timeout-minutes: 12
         run: npx playwright install --with-deps chromium
       - name: Run core specs
+        id: core
         # --retries=1 (spec §7 budget; base config is retries:0, shared with the live
         # E2E): a small margin for a rare balance->send-UI sync hiccup on a loaded
         # runner. Deliberately NOT 2 -- kept at 1 so a genuine regression still fails
@@ -162,6 +163,20 @@ jobs:
         # read off the log / tracked over time. Diagnostic only -- never fails.
         if: always()
         run: node scripts/report-flaky-e2e.mjs test-results/results.json
+      # The build above ignores stored endpoint overrides, as every E2E build but this one does, so a realm that
+      # ignores one passes all of them (#1482). This build reads them, and its spec stores one through Developer
+      # Settings. It runs once the core specs ran, passed or failed, so their failure cannot hide its result.
+      - name: Build extension (localnet, reads stored endpoint overrides)
+        id: stored_override_build
+        if: ${{ !cancelled() && (steps.core.outcome == 'success' || steps.core.outcome == 'failure') }}
+        run: yarn test:e2e:stored-override:build
+      - name: Run stored-override spec
+        id: stored_override
+        if: ${{ !cancelled() && steps.stored_override_build.outcome == 'success' }}
+        run: xvfb-run -a yarn test:e2e:stored-override:run --retries=1
+      - name: Report flaky (retried-then-passed) stored-override specs
+        if: ${{ !cancelled() && steps.stored_override.outcome != 'skipped' }}
+        run: node scripts/report-flaky-e2e.mjs test-results/stored-override/results.json
       # Guardian (`guardian-*.spec.ts`) coverage lives in its own workflow,
       # pr-e2e-guardian-lifecycle.yml, which brings up BOTH guardians (A :3000 +
       # B :3001, `guardian-switch` compose profile) and runs the full suite via

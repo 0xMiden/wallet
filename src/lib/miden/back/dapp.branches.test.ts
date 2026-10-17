@@ -179,21 +179,22 @@ jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-cli
 // never a vacuous no-op.
 let currentWasmHold: object | null = null;
 const mockImportNoteBytes = jest.fn();
+// The consume approval preview is derived from the note the wallet resolves,
+// not from the dApp's declared faucet/amount/type, so the note has to exist.
+const storedNote = {
+  noteId: 'note-1',
+  noteType: 0,
+  senderAccountId: 's1',
+  nullifier: 'nf1',
+  state: 0,
+  assets: [{ faucetId: 'faucet-1', amount: '1000000' }]
+};
+const mockGetInputNoteDetails = jest.fn(async (..._args: unknown[]): Promise<unknown[]> => [storedNote]);
+const mockRetireWasmClientForCaughtTrap = jest.fn();
 jest.mock('../sdk/miden-client', () => ({
   getMidenClient: async () => ({
     getAccount: (id: string) => (globalThis as any).__dappBranchMockGetAccount(id),
-    // The consume approval preview is derived from the note the wallet resolves,
-    // not from the dApp's declared faucet/amount/type — so the note has to exist.
-    getInputNoteDetails: jest.fn(async () => [
-      {
-        noteId: 'note-1',
-        noteType: 0,
-        senderAccountId: 's1',
-        nullifier: 'nf1',
-        state: 0,
-        assets: [{ faucetId: 'faucet-1', amount: '1000000' }]
-      }
-    ]),
+    getInputNoteDetails: (...args: unknown[]) => mockGetInputNoteDetails(...args),
     getConsumableNotes: jest.fn(async () => []),
     getConsumableNoteDtos: jest.fn(async () => []),
     syncState: jest.fn(async () => {}),
@@ -205,6 +206,10 @@ jest.mock('../sdk/miden-client', () => ({
     currentWasmHold = hold;
     try {
       return await fn(hold);
+    } catch (error) {
+      // The real lock's caught-trap path: a callback that rejects with a trap retires the client through its holder.
+      if (error instanceof WebAssembly.RuntimeError) mockRetireWasmClientForCaughtTrap(hold, error);
+      throw error;
     } finally {
       if (currentWasmHold === hold) currentWasmHold = null;
     }
@@ -586,7 +591,7 @@ describe('requestConsumeTransaction — mobile error branches', () => {
     const detailsCommitment = '0x5d1e7a11';
     const consumed = { type: MidenDAppMessageType.ConsumeResponse, transactionId: 'tx-c' };
     const sdk: Record<string, unknown> = require('@miden-sdk/miden-sdk/lazy');
-    const originalSdk = { Note: sdk.Note, NoteFile: sdk.NoteFile };
+    const originalSdk = { Note: sdk.Note, NoteFile: sdk.NoteFile, NoteScript: sdk.NoteScript, Address: sdk.Address };
     const sdkNote = (id: string) => ({
       id: () => ({ toString: () => id }),
       metadata: () => undefined,
@@ -666,6 +671,123 @@ describe('requestConsumeTransaction — mobile error branches', () => {
           fn({ vault: { signData: mockSignData } })
         );
       }
+    });
+
+    // A non-target enters P2IDE only through its reclaim branch, which a reclaim height of 0 closes at every block, and
+    // a sponsorship consumed without its feature note, as a consume request's single note is, takes the same branch.
+    describe('a note the requesting account can never consume', () => {
+      const felts = (values: bigint[]) => values.map(value => ({ asInt: () => value }));
+      const REQUESTER = { prefix: 0x00000000abcdef01n, suffix: 0x2f1a3b4c5d6e0000n };
+      const OTHER = { prefix: 0x00000000feedbeefn, suffix: 0x7c9d1e2f3a4b0000n };
+      const withRecipient = (root: string, items: bigint[]) => ({
+        ...sdkNote('note-1'),
+        recipient: () => ({
+          script: () => ({ root: () => ({ toHex: () => root }) }),
+          storage: () => ({ items: () => felts(items) })
+        })
+      });
+      const p2ide = (target: typeof OTHER, reclaimHeight: bigint) =>
+        withRecipient('0xp2ide', [REQUESTER.suffix, REQUESTER.prefix, target.suffix, target.prefix, reclaimHeight, 0n]);
+      const sponsorship = (reclaimHeight: bigint) =>
+        withRecipient('0xsponsorship', [1n, 2n, 3n, 4n, REQUESTER.suffix, REQUESTER.prefix, reclaimHeight]);
+      const consumeStored = () =>
+        dapp.requestConsumeTransaction('https://miden.xyz', {
+          type: MidenDAppMessageType.ConsumeRequest,
+          sourcePublicKey: 'miden-account-1',
+          transaction: validTx
+        } as never);
+
+      beforeEach(() => {
+        sdk.NoteScript = {
+          p2ide: () => ({ root: () => ({ toHex: () => '0xp2ide' }) }),
+          feeSponsorship: () => ({ root: () => ({ toHex: () => '0xsponsorship' }) })
+        };
+        const requester = {
+          prefix: () => ({ asInt: () => REQUESTER.prefix }),
+          suffix: () => ({ asInt: () => REQUESTER.suffix }),
+          toString: () => '0xrequester'
+        };
+        sdk.Address = { fromBech32: () => ({ accountId: () => requester }) };
+      });
+
+      it.each([
+        ['a carried P2IDE for another account with reclaim disabled', () => p2ide(OTHER, 0n)],
+        ['a carried fee sponsorship with reclaim disabled', () => sponsorship(0n)]
+      ])('refuses %s before the sheet, and imports and queues nothing', async (_name, note) => {
+        carryRawNote(note);
+
+        await expect(consumeWithBytes()).rejects.toThrow(MidenDAppErrorType.InvalidParams);
+        expect(mockRequestConfirmation).not.toHaveBeenCalled();
+        expect(mockImportNoteBytes).not.toHaveBeenCalled();
+        expect(mockInitiateConsumeTransactionFromId).not.toHaveBeenCalled();
+      });
+
+      it('consumes a carried reclaim-disabled P2IDE whose target is the requesting account', async () => {
+        carryRawNote(() => p2ide(REQUESTER, 0n));
+        mockInitiateConsumeTransactionFromId.mockResolvedValueOnce('tx-c');
+
+        await expect(consumeWithBytes()).resolves.toEqual(consumed);
+        expect(mockInitiateConsumeTransactionFromId).toHaveBeenCalledTimes(1);
+      });
+
+      it.each([
+        ['P2IDE for another account', { prefix: OTHER.prefix.toString(), suffix: OTHER.suffix.toString() }],
+        ['fee sponsorship', 'nobody']
+      ])('refuses a stored reclaim-disabled %s before the sheet, and queues nothing', async (_name, restriction) => {
+        mockGetInputNoteDetails.mockResolvedValueOnce([{ ...storedNote, restriction }]);
+
+        await expect(consumeStored()).rejects.toThrow(MidenDAppErrorType.InvalidParams);
+        expect(mockRequestConfirmation).not.toHaveBeenCalled();
+        expect(mockInitiateConsumeTransactionFromId).not.toHaveBeenCalled();
+      });
+    });
+
+    // A trap is no unreadable bytes: the module that ran the decode is aborted, so the lock has to see it and retire the
+    // client, and nothing may read the store, show the sheet, import or queue on it.
+    describe('a WebAssembly trap while decoding the carried note', () => {
+      const trap = new WebAssembly.RuntimeError('unreachable');
+      const throwTrap = () => {
+        throw trap;
+      };
+
+      it.each([
+        ['NoteFile.deserialize', () => (sdk.NoteFile = { deserialize: throwTrap })],
+        ['Note.deserialize', () => carryRawNote(throwTrap)],
+        [
+          'the read of the decoded note restriction',
+          () => carryRawNote(() => ({ ...sdkNote('note-1'), recipient: throwTrap }))
+        ]
+      ])('in %s refuses the request before the sheet and retires the client', async (_name, arrange) => {
+        arrange();
+
+        await expect(consumeWithBytes()).rejects.toThrow(`${MidenDAppErrorType.InvalidParams}: RuntimeError`);
+        expect(mockRetireWasmClientForCaughtTrap).toHaveBeenCalledWith(expect.anything(), trap);
+        expect(mockGetInputNoteDetails).not.toHaveBeenCalled();
+        expect(mockRequestConfirmation).not.toHaveBeenCalled();
+        expect(mockImportNoteBytes).not.toHaveBeenCalled();
+        expect(mockInitiateConsumeTransactionFromId).not.toHaveBeenCalled();
+      });
+
+      it('after the approval refuses the consume before the import and retires the client', async () => {
+        carryRawNote(jest.fn().mockReturnValueOnce(sdkNote('note-1')).mockImplementation(throwTrap));
+
+        await expect(consumeWithBytes()).rejects.toThrow(`${MidenDAppErrorType.InvalidParams}: RuntimeError`);
+        expect(mockRequestConfirmation).toHaveBeenCalledTimes(1);
+        expect(mockRetireWasmClientForCaughtTrap).toHaveBeenCalledWith(expect.anything(), trap);
+        expect(mockImportNoteBytes).not.toHaveBeenCalled();
+        expect(mockInitiateConsumeTransactionFromId).not.toHaveBeenCalled();
+      });
+
+      it('is not what an ordinary decode failure is: those bytes still fall back to the stored note', async () => {
+        carryRawNote(() => {
+          throw new Error('not a Note');
+        });
+        mockInitiateConsumeTransactionFromId.mockResolvedValueOnce('tx-c');
+
+        await expect(consumeWithBytes()).resolves.toEqual(consumed);
+        expect(mockGetInputNoteDetails).toHaveBeenCalledTimes(1);
+        expect(mockRetireWasmClientForCaughtTrap).not.toHaveBeenCalled();
+      });
     });
 
     const detailsOnlyFile = (id: string) => ({

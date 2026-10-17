@@ -4,8 +4,11 @@ import { join, relative, resolve, sep } from 'node:path';
 
 import { useAppLifecycleTelemetry } from 'app/hooks/useAppLifecycleTelemetry';
 import { useFundTelemetry } from 'app/hooks/useFundTelemetry';
+import { deserializeInternalError } from 'lib/intercom/helpers';
 import { request } from 'lib/miden/front';
 import { reportNoteClaim } from 'lib/miden/front/claim-telemetry';
+import { MidenMessageType } from 'lib/miden/types';
+import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { isTelemetryEnabledAsync } from 'lib/settings/helpers';
@@ -110,6 +113,13 @@ jest.mock('nanoid', () => {
   let issued = 0;
   return { nanoid: () => `flow-${++issued}` };
 });
+
+// The SDK's start, so a startup trap reaches the wire through `ensureSdkWasmReady`'s own catch.
+const mockSdkReady = jest.fn(async (): Promise<void> => undefined);
+jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
+  ...jest.requireActual<Record<string, unknown>>('@miden-sdk/miden-sdk/lazy'),
+  MidenClient: { ready: () => mockSdkReady() }
+}));
 
 // ---------------------------------------------------------------------------
 // The poison corpus.
@@ -1026,6 +1036,72 @@ describe('crash-report egress', () => {
     expect(leaksIn(wireText())).toEqual([]);
   });
 
+  // The text an Android Fast deposit stores when the wallet refuses: viem's flattened message, which names the RPC
+  // endpoint, the sender, the transaction and the amount, and hands over as its cause. Only the fixed values may cross
+  // the wire.
+  it('reports a failed inbound bridge by its route, step and library error, and nothing its text says', async () => {
+    consentOn();
+    const host = 'rpc.walletconnect.org';
+    const sender = `0x${'a1'.repeat(20)}`;
+    const amount = '1234.5678';
+    const stored = [
+      'An unknown RPC error occurred.',
+      '',
+      `URL: https://${host}/v1/?chainId=eip155:11155111&projectId=0123456789abcdef`,
+      'Request Arguments:',
+      `  from:   ${sender}`,
+      `  value:  ${amount} USDC`,
+      `  data:   ${POISON.privateKeyHex}`,
+      '',
+      'Details: User rejected the request.',
+      'Version: viem@2.55.4'
+    ].join('\n');
+
+    reportTransactionFailure({
+      type: 'bridged-receive',
+      point: 'bridge_receive_settlement',
+      error: stored,
+      bridgeReceive: { route: 'epoch', step: 'epoch_solve', cause: stored }
+    });
+    await flushEgress();
+
+    expect(captured).toHaveLength(1);
+    const values = captured
+      .flatMap(entry => entry.body.split('\n'))
+      .flatMap(line => {
+        try {
+          const item: unknown = JSON.parse(line);
+          const exception: unknown = typeof item === 'object' && item !== null ? Reflect.get(item, 'exception') : null;
+          const listed: unknown =
+            typeof exception === 'object' && exception !== null ? Reflect.get(exception, 'values') : null;
+          return Array.isArray(listed)
+            ? listed.map((value: unknown) => String(Reflect.get(Object(value), 'value')))
+            : [];
+        } catch {
+          return [];
+        }
+      });
+    expect(values).toEqual([
+      expect.stringMatching(
+        /^Transaction failed: tx_bridge; stage unknown; realm unknown; proving preference unknown; platform [a-z]+; point bridge_receive_settlement; rpc; via epoch; failed at epoch_solve; evm error user_rejected\. authentication preparation unavailable; layout unavailable; commitment match unavailable; account code unavailable\. SDK \d+\.\d+\.\d+; Guardian client \d+\.\d+\.\d+$/
+      )
+    ]);
+    for (const text of [
+      host,
+      'eip155',
+      '0123456789abcdef',
+      sender,
+      'a1a1',
+      amount,
+      'viem',
+      'User rejected',
+      'Request Arguments'
+    ]) {
+      expect(wireText()).not.toContain(text);
+    }
+    expect(leaksIn(wireText())).toEqual([]);
+  });
+
   it('retains each separate terminal failure even when their diagnostic facts match', async () => {
     consentOn();
     for (let attempt = 0; attempt < 2; attempt++) {
@@ -1183,6 +1259,168 @@ describe('crash-report egress', () => {
     expect(text).not.toContain('"lineno":777');
     expect(text).not.toContain('"colno":888');
     expect(leaksIn(text)).toEqual([]);
+  });
+
+  describe('closed values for a startup trap and an unanswered dApp approval', () => {
+    // Chrome's extension ids are 32 letters from a to p.
+    const EXTENSION_ORIGIN = 'chrome-extension://abcdefghijklmnopabcdefghijklmnop';
+    const CONFIRMATION_ID = 'V1StGXR8_Z5jdHi6B-myT';
+    const NOTE_ID = `0x${'a1b2c3d4e5f60718'.repeat(4)}`;
+    // The approval window's own address carries its confirmation id.
+    const CONFIRM_FRAME = `    at load (${EXTENSION_ORIGIN}/confirm.html#?id=${CONFIRMATION_ID}:1:2)`;
+
+    const restores: Array<() => void> = [];
+    const replace = (target: object, key: string, value: unknown) => {
+      const own = Object.getOwnPropertyDescriptor(target, key);
+      Object.defineProperty(target, key, { value, configurable: true, writable: true });
+      restores.push(() => {
+        if (own === undefined) Reflect.deleteProperty(target, key);
+        else Object.defineProperty(target, key, own);
+      });
+    };
+    afterEach(() => {
+      for (const restore of restores.splice(0).reverse()) restore();
+    });
+
+    const expectNothingIdentifying = (text: string) => {
+      expect(text).not.toMatch(/0x[0-9a-f]/i);
+      expect(text).not.toContain(CONFIRMATION_ID);
+      expect(text).not.toContain('chrome-extension://');
+      expect(leaksIn(text)).toEqual([]);
+    };
+
+    function startupTrap(): Error {
+      const trap = new WebAssembly.RuntimeError('unreachable');
+      const wasm = `${EXTENSION_ORIGIN}/static/wasm/miden_client_web.hMHvbzfs.wasm`;
+      trap.stack = [
+        'RuntimeError: unreachable',
+        `    at miden_client_web.wasm.__wbindgen_malloc (${wasm}:wasm-function[11015]:0x18e0a2c)`,
+        `    at miden_client_web.wasm.__wbindgen_start (${wasm}:wasm-function[10922]:0x18dc693)`,
+        `    at xl (${EXTENSION_ORIGIN}/chunks/Cargo-B2P22_Kp.CjbEv7yQ.js:9:24623)`,
+        CONFIRM_FRAME
+      ].join('\n');
+      trap.cause = new Error(`note ${NOTE_ID} could not be read`);
+      return trap;
+    }
+
+    async function captureStartupFailure(failure: Error): Promise<string> {
+      consentOn();
+      initCrashReporting();
+      mockSdkReady.mockRejectedValueOnce(failure);
+      const caught = await ensureSdkWasmReady().then(
+        () => undefined,
+        (error: unknown) => error
+      );
+      expect(caught).toBe(failure);
+      captureCrash(caught, 'onunhandledrejection');
+      await flushEgress();
+      expect(captured).toHaveLength(1);
+      return wireText();
+    }
+
+    it("names a startup trap's shared-memory probe and window count, and nothing that identifies it", async () => {
+      replace(globalThis, 'crossOriginIsolated', true);
+      replace(
+        WebAssembly,
+        'Memory',
+        jest.fn(() => ({
+          grow: () => {
+            throw new RangeError('WebAssembly.Memory.grow(): Maximum memory size exceeded');
+          }
+        }))
+      );
+      replace(chrome.extension, 'getViews', () => Array.from({ length: 5 }, () => globalThis));
+      const text = await captureStartupFailure(startupTrap());
+      expect(text).toContain('"sharedMemoryProbe":"refused"');
+      expect(text).toContain('"extensionViews":"4+"');
+      expect(text).toContain('"stage":"wasm_ready"');
+      expect(text).toContain('"type":"onunhandledrejection","handled":false');
+      expect(text).toContain('__wbindgen_malloc');
+      expect(text).not.toContain('wasm-function[');
+      expectNothingIdentifying(text);
+    });
+
+    it('names a shared memory that still grows beside a lone window', async () => {
+      replace(globalThis, 'crossOriginIsolated', true);
+      replace(
+        WebAssembly,
+        'Memory',
+        jest.fn(() => ({ grow: () => 1 }))
+      );
+      replace(chrome.extension, 'getViews', () => [globalThis]);
+      const text = await captureStartupFailure(startupTrap());
+      expect(text).toContain('"sharedMemoryProbe":"grew"');
+      expect(text).toContain('"extensionViews":"1"');
+      expectNothingIdentifying(text);
+    });
+
+    it('adds no memory evidence to a startup failure that is not a WebAssembly trap', async () => {
+      replace(globalThis, 'crossOriginIsolated', true);
+      replace(chrome.extension, 'getViews', () => [globalThis]);
+      const failure = new Error(`wasm fetch failed for note ${NOTE_ID}`);
+      failure.stack = [`Error: ${failure.message}`, CONFIRM_FRAME].join('\n');
+      const text = await captureStartupFailure(failure);
+      expect(text).toContain('"stage":"wasm_ready"');
+      expect(text).not.toContain('sharedMemoryProbe');
+      expect(text).not.toContain('extensionViews');
+      expectNothingIdentifying(text);
+    });
+
+    it("names the background's state for an unanswered dApp approval, and nothing that identifies it", async () => {
+      consentOn();
+      initCrashReporting();
+      // As the approval window's intercom client receives the background's Not Found.
+      const failure = deserializeInternalError([
+        'Not Found',
+        undefined,
+        'Error',
+        undefined,
+        { code: 'confirmation_unknown' }
+      ]);
+      failure.stack = [
+        'Error: Not Found',
+        `    at s (${EXTENSION_ORIGIN}/chunks/front.BXR4C5cr.js:1:41768)`,
+        CONFIRM_FRAME
+      ].join('\n');
+      failure.cause = new Error(`no handler for note ${NOTE_ID}`);
+      annotateCrash(failure, {
+        operation: 'intercom_request',
+        requestType: MidenMessageType.DAppGetPayloadRequest,
+        confirmationHandler: failure.code,
+        portReconnected: true,
+        confirmationId: CONFIRMATION_ID,
+        approval: NOTE_ID
+      });
+      captureCrash(failure, 'react');
+      // A code that is not exactly one of the background's names carries no state.
+      const hostileCodes = [
+        `0x${'ab'.repeat(32)}`,
+        `confirmation_unknown ${NOTE_ID}`,
+        `confirmation_${CONFIRMATION_ID}`
+      ];
+      hostileCodes.forEach((code, index) => {
+        const hostile = deserializeInternalError(['Not Found', undefined, 'Error', undefined, { code }]);
+        // Its own frame, so deduplication cannot drop it and pass this test for the wrong reason.
+        hostile.stack = `Error: Not Found\n    at attempt (capacitor://localhost/mobile.js:1:${index + 1})`;
+        annotateCrash(hostile, {
+          operation: 'intercom_request',
+          confirmationHandler: hostile.code,
+          portReconnected: 'true'
+        });
+        captureCrash(hostile, 'react');
+      });
+      await flushEgress();
+      const text = wireText();
+      expect(captured).toHaveLength(1 + hostileCodes.length);
+      expect(text).toContain('"confirmationHandler":"unknown"');
+      expect(text).toContain('"portReconnected":true');
+      expect(text).toContain(`"requestType":"${MidenMessageType.DAppGetPayloadRequest}"`);
+      expect(text.match(/"confirmationHandler"/g)).toHaveLength(1);
+      expect(text.match(/"portReconnected"/g)).toHaveLength(1);
+      expect(text).not.toContain('"confirmationId"');
+      expect(text).not.toContain('"approval"');
+      expectNothingIdentifying(text);
+    });
   });
 
   it('replaces unknown URLs with a static filename while retaining scrubbed frame symbols', async () => {

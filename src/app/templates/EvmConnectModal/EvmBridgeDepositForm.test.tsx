@@ -3,6 +3,7 @@ import React from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 
 import { EvmBridgeDepositForm } from './EvmBridgeDepositForm';
+import { BRIDGE_SOURCE_NETWORK_JS } from '../../../../playwright/e2e/helpers/send-flow-scripts';
 
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 jest.mock('lib/miden-chain/effective-endpoints', () => ({ getTestNetworkNameKey: () => 'testnet' }));
@@ -35,6 +36,18 @@ it('names the source network and Miden output before continuing', () => {
   expect(props.onSelectNetwork).toHaveBeenCalledTimes(1);
   fireEvent.click(screen.getByTestId('send-amount-confirm'));
   expect(props.onContinue).toHaveBeenCalledTimes(1);
+});
+
+// The iOS E2E reads the From row with this body to prove the source chain before the amount: "Sepolia" is part of
+// "Base Sepolia", so it must read the name alone, not the label or another row.
+it("gives the E2E From row read the network's name alone", () => {
+  render(
+    <div data-page-layer="/bridge/deposit">
+      <EvmBridgeDepositForm {...props} network={{ id: 'base-sepolia', name: 'Base Sepolia', chainId: 84532 }} />
+    </div>
+  );
+  // eslint-disable-next-line no-new-func -- runs the driver's script body in this document, as cdp.eval does
+  expect(new Function(BRIDGE_SOURCE_NETWORK_JS)()).toBe('Base Sepolia');
 });
 
 it('shows the available balance and retains the test-funds warning', () => {

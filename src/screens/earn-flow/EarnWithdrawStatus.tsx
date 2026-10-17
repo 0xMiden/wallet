@@ -149,8 +149,13 @@ export const EarnWithdrawStatus: React.FC<EarnWithdrawStatusProps> = ({ txId }) 
         />
         <TransactionSummaryBadge lhs={amountLabel} rhs="Miden" fillForArrow={EARN_ARROW_FILL} className="mt-4" />
         {/* The `Hero`'s own secondary line; an error takes the negative ink, as on every other
-            screen that reports one. */}
-        <p className={cn('mt-4 text-center text-body-sm', failed ? 'text-negative-ink' : 'text-muted')}>
+            screen that reports one, and wraps a raw error's unbreakable token inside the margin. */}
+        <p
+          className={cn(
+            'mt-4 w-full text-center text-body-sm wrap-anywhere select-text',
+            failed ? 'text-negative-ink' : 'text-muted'
+          )}
+        >
           {failed
             ? (inputs.error ?? t('transactionErrorDescription'))
             : t(prepared ? 'withdrawalCheckingDescription' : 'withdrawalProcessingDescription')}

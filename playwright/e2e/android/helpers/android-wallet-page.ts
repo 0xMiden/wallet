@@ -5,6 +5,11 @@ import type { TimelineRecorder } from '../../harness/timeline-recorder';
 import { buildBalanceTotalScript } from '../../helpers/balance-script';
 import { claimFromPendingList } from '../../helpers/claim-drain';
 import { SEPOLIA_NETWORK } from '../../helpers/contact-network';
+import {
+  CONFIRMATION_SUBMIT,
+  CREATED_WALLET_STATE_JS,
+  pollCreatedWalletReady
+} from '../../helpers/created-wallet-ready';
 import { selectSendNetworkByScript } from '../../helpers/send-flow-scripts';
 import { dismissTelemetryConsent } from '../../helpers/telemetry-consent';
 import type { GuardianAuthInfo, WalletPage, SendTokensParams } from '../../helpers/wallet-page';
@@ -178,15 +183,9 @@ export class AndroidWalletPage implements WalletPage {
     // The bypass applies the onboarding state and auto-advances to Confirmation.
     await this.pollForSelector('[data-testid="onboarding-confirmation"]', 120_000);
     // "Open wallet" — runs register(), which creates the vault.
-    await this.click('[data-testid="onboarding-confirmation-submit"]');
+    await this.click(CONFIRMATION_SUBMIT);
 
-    await this.pollForCondition(
-      `var s = window.__TEST_STORE__; ` +
-        `if (!s) return false; ` +
-        `var st = s.getState(); ` +
-        `return st && (st.status === 2 || st.status === 'Ready') && !!st.currentAccount;`,
-      readyTimeoutMs
-    );
+    await this.waitForCreatedWalletReady(`AndroidWalletPage.createWalletViaBypass(${recovery})`, readyTimeoutMs);
 
     // Onboarding now finishes on the one-time telemetry consent prompt rather
     // than on the wallet home, so decline it before handing the caller a wallet
@@ -207,6 +206,16 @@ export class AndroidWalletPage implements WalletPage {
     }
 
     return { address, seedPhrase: seed ?? [] };
+  }
+
+  /** Waits for a created wallet to read Ready, pressing Confirmation's Retry once (see `pollCreatedWalletReady`). */
+  private async waitForCreatedWalletReady(label: string, timeoutMs: number): Promise<void> {
+    await pollCreatedWalletReady({
+      label,
+      timeoutMs,
+      poll: (ms, accept) => this.pollForCondition(CREATED_WALLET_STATE_JS, ms, accept),
+      pressRetry: () => this.click(CONFIRMATION_SUBMIT)
+    });
   }
 
   async getAccountAddress(): Promise<string> {
@@ -432,14 +441,19 @@ export class AndroidWalletPage implements WalletPage {
     }
   }
 
-  private async pollForCondition(jsBody: string, timeoutMs: number): Promise<void> {
+  private async pollForCondition<T = boolean>(
+    jsBody: string,
+    timeoutMs: number,
+    accept: (value: T) => boolean | Promise<boolean> = Boolean
+  ): Promise<void> {
     const wallStart = Date.now();
     let iterations = 0;
     let totalSleepMs = 0;
     try {
       while (Date.now() - wallStart < timeoutMs) {
         iterations++;
-        const ok = await this.cdp.eval<boolean>(jsBody).catch(() => false);
+        // A failed eval reads as not yet; what `accept` throws ends the poll.
+        const ok = await this.cdp.eval<T>(jsBody).then(accept, () => false);
         if (ok) return;
         await sleep(POLL_INTERVAL_MS);
         totalSleepMs += POLL_INTERVAL_MS;

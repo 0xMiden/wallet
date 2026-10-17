@@ -2,7 +2,7 @@ import type { PreparedExecution } from '@epoch-protocol/epoch-intents-sdk';
 import { v4 as uuid } from 'uuid';
 
 import type { AgglayerRecoveryConfig } from 'lib/remote-config/schema';
-import type { TransactionFailureDiagnostics } from 'lib/telemetry/transaction-failure';
+import type { ConsumeEntryPoint, TransactionFailureDiagnostics } from 'lib/telemetry/transaction-failure';
 import type { UsdcxSourceChain } from 'lib/usdcx/constant';
 
 import type { GuardianHistoryRecovery } from '../guardian/history';
@@ -37,6 +37,9 @@ export const hasLeftQueue = (row: Pick<ITransaction, 'status'>): boolean =>
 
 export type SubmitEvidenceSource = 'stage' | 'pin' | 'kill' | 'out-of-band' | 'end' | 'error-text';
 
+/** Which never-committed row of the verdict table proved an attempt dead: row 4, row 5 or row 6. */
+export type NeverCommittedBy = 'expired' | 'superseded' | 'spent_elsewhere';
+
 /** One attempt that may have crossed its submit (#1081). Keyed by attemptId. */
 export interface ISubmitEvidence {
   attemptId: string;
@@ -58,6 +61,7 @@ export interface ISubmitEvidence {
   landingSeenAtBlock?: number; // the block a landing judgement rested on; set once by row 1 or 3, a row 2 record may be replaced
   landingSeenBy?: 1 | 2 | 3; // the verdict row whose judgement wrote landingSeenAtBlock
   verdict?: 'never-committed' | 'unresolvable'; // sticky
+  neverCommittedBy?: NeverCommittedBy; // written with a never-committed verdict; absent on one written before it existed
   endedBy?: 'kill' | 'out-of-band'; // how the attempt ended outside its pipeline; set once
   endedAt?: number; // unix seconds, with endedBy
   preSubmitEnd?: true; // the leaf's tag proved the attempt ended before its submit call
@@ -686,6 +690,11 @@ export interface ITransaction {
    */
   rotationFunding?: true;
   /**
+   * Consume only: the entry point that queued the row, stamped when it is created and named by a failed claim's crash
+   * report. Absent on rows queued before it and on rows no queue call made (recovered history). Not indexed.
+   */
+  consumeEntryPoint?: ConsumeEntryPoint;
+  /**
    * Execute (dApp custom) only: per-faucet value LEAVING the account, taken from the approval-time
    * dry run that the confirmation sheet already renders.
    *
@@ -1148,6 +1157,8 @@ export class ConsumeTransaction implements ITransaction {
   consumedNotes?: IConsumedNote[];
   /** See `ITransaction.rotationFunding`. */
   rotationFunding?: true;
+  /** See `ITransaction.consumeEntryPoint`. */
+  consumeEntryPoint?: ConsumeEntryPoint;
   /** See `ITransaction.dappOrigins`. */
   dappOrigins?: string[];
   transactionId?: string;

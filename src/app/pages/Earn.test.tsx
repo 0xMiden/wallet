@@ -425,3 +425,12 @@ describe('Earn page', () => {
     expect(within(vaultsSection()).getAllByRole('button')).toHaveLength(vaults.length);
   });
 });
+
+it('lists the Testnet native funding asset while keeping the vault underlying separate', () => {
+  const vault = { ...vaults[0]!, fundingAsset: 'USDCx' };
+  mockUseEarnPositions.mockReturnValue({ ...EARN_DATA, vaults: [vault] });
+  render(<Earn />);
+  const row = screen.getByTestId(`earn-vault-row-${vault.id}`);
+  expect(row).toHaveTextContent('earnVaultAssetOnNetwork:USDCx,Miden');
+  expect(row).not.toHaveTextContent(`earnVaultAssetOnNetwork:${vault.asset},${vault.network}`);
+});

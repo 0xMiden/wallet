@@ -546,6 +546,18 @@
     "message": "无法开仓",
     "englishSource": "Failed to open position"
   },
+  "earnCollateralLoading": {
+    "message": "正在加载存款代币的详细信息。信息加载完成后，您可以继续操作。",
+    "englishSource": "Loading the deposit token's details. You can continue once they arrive."
+  },
+  "earnCollateralUnavailable": {
+    "message": "目前无法使用该存款代币，因此存款功能已暂停。请稍后再试。",
+    "englishSource": "The deposit token isn't available right now, so deposits are paused. Try again later."
+  },
+  "earnCollateralMismatch": {
+    "message": "此审核是针对另一种存款代币准备的。请返回并重新输入金额。",
+    "englishSource": "This review was prepared for a different deposit token. Go back and enter the amount again."
+  },
   "earnTotalEarnedRewards": {
     "message": "总收益",
     "englishSource": "Total earned"
@@ -1021,6 +1033,10 @@
   "unknownTokenScale": {
     "message": "该代币的小数位数无法验证，因此无法显示或发送金额。",
     "englishSource": "This token's decimals could not be verified, so amounts can't be shown or sent."
+  },
+  "sendTokenAvailabilityChecking": {
+    "message": "正在检查该代币是否可在测试网（Testnet）上发送。检查完成后，即可发送。",
+    "englishSource": "Checking whether this token can be sent on Testnet. You can send it once the check finishes."
   },
   "oops": {
     "message": "哎呀！",

@@ -43,6 +43,7 @@ import { NoteTypeEnum } from 'lib/miden/types';
 import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { isExtension } from 'lib/platform';
 import type { BridgeFeature } from 'lib/remote-config/availability';
+import { isNewTransferTokenHeld, isRetiredTransferToken } from 'lib/remote-config/token-availability';
 import { evmUsdcLabel, midenTokenLabel } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot, useFeatureAvailability } from 'lib/remote-config/use-feature-availability';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
@@ -135,7 +136,8 @@ export const ReviewTransaction: React.FC = () => {
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
   const { data: balanceData } = useAllBalances(publicKey, allTokensBaseMetadata);
   const tokenPrices = useWalletStore(s => s.tokenPrices);
-  const bridgeConfig = useBridgeConfigSnapshot({ load: false });
+  // Loaded here too: a review held for want of the document resolves only once one arrives.
+  const bridgeConfig = useBridgeConfigSnapshot();
   const token = useMemo<UIToken | undefined>(() => {
     const match = balanceData?.find(b => b.tokenId === tokenId);
     return match && uiTokenFromBalance(match, tokenPrices);
@@ -143,6 +145,8 @@ export const ReviewTransaction: React.FC = () => {
   const tokenLabel = token ? midenTokenLabel(bridgeConfig, token.id, token.name) : '';
   // A burn's fee and the faucet's sponsorship are paid in the native asset, whatever it is on this network.
   const nativeFaucetId = useNativeFeeFaucetId();
+  // Held, not left: the review stays on screen, unconfirmable, until the document says whether it is retired.
+  const tokenHeld = isNewTransferTokenHeld(bridgeConfig, tokenId, nativeFaucetId);
   const assetsMetadata = useWalletStore(s => s.assetsMetadata);
   const nativeSymbol = resolveDisplayMetadata(nativeFaucetId ?? undefined, assetsMetadata, nativeFaucetId).symbol;
 
@@ -526,7 +530,7 @@ export const ReviewTransaction: React.FC = () => {
   );
 
   const onSubmit = useCallback(async () => {
-    if (bridgeBlocked) return;
+    if (bridgeBlocked || tokenHeld) return;
     if (isSubmitting || !token || !publicKey || amountBaseUnits === undefined) return;
     if (!token.scaleIsKnown) {
       setSubmitError(t('unknownTokenScale'));
@@ -570,6 +574,7 @@ export const ReviewTransaction: React.FC = () => {
     }
   }, [
     bridgeBlocked,
+    tokenHeld,
     amountBaseUnits,
     assessSpendingLimit,
     isBridge,
@@ -622,7 +627,9 @@ export const ReviewTransaction: React.FC = () => {
       !route ||
       (isUsdcxBurn ? !isUsdcxBridgeNetwork(network) : !isEpochBridgeNetwork(network)) ||
       (isUsdcxBurn && !!token && !isUsdcxWithdrawalAvailable(token.id)));
-  const tokenInvalid = !!balanceData && (!token || parseFloat(amount) > token.balance);
+  const tokenInvalid =
+    isRetiredTransferToken(bridgeConfig, tokenId, nativeFaucetId) ||
+    (!!balanceData && (!token || parseFloat(amount) > token.balance));
   if (paramsInvalid || bridgeParamsInvalid || tokenInvalid) {
     return <Redirect to="/send" />;
   }
@@ -711,6 +718,7 @@ export const ReviewTransaction: React.FC = () => {
               // deliberate refusal.
               disabled={
                 bridgeBlocked ||
+                tokenHeld ||
                 isSubmitting ||
                 scaleIsUnknown ||
                 (isUsdcxBurn && (burnPreflight.loading || !!burnValidationError))
@@ -722,6 +730,16 @@ export const ReviewTransaction: React.FC = () => {
         }
       >
         {isBridge && <FeatureUnavailableNotice availability={bridgeAvailability} />}
+        {/* A held token never reaches a rendered bridge review, so this never stacks on the notice above. */}
+        {tokenHeld && (
+          <Notice
+            tone="warning"
+            icon={<Icon name={IconName.Information} size="xs" fill="currentColor" />}
+            data-testid="review-held-notice"
+          >
+            {t('sendTokenAvailabilityChecking')}
+          </Notice>
+        )}
         {/* The amount is the page's hero, in the same place as on the amount step. */}
         <Hero
           data-testid="review-amount"

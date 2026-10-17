@@ -12,6 +12,7 @@
 const _g = globalThis as any;
 _g.__mainTest = {
   onRequest: jest.fn(),
+  onNotFound: jest.fn(),
   broadcast: jest.fn(),
   storeWatch: jest.fn(),
   doSync: jest.fn(),
@@ -32,6 +33,7 @@ _g.__mainTest = {
 jest.mock('lib/miden/back/defaults', () => ({
   intercom: {
     onRequest: (cb: any) => (globalThis as any).__mainTest.onRequest(cb),
+    onNotFound: (cb: any) => (globalThis as any).__mainTest.onNotFound(cb),
     broadcast: (msg: any) => (globalThis as any).__mainTest.broadcast(msg)
   }
 }));
@@ -143,7 +145,9 @@ jest.mock('../sdk/miden-client', () => ({
 }));
 
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
-  loadEndpointOverrides: async () => (globalThis as any).__mainTest.loadEndpointOverrides()
+  loadEndpointOverrides: async () => (globalThis as any).__mainTest.loadEndpointOverrides(),
+  // The delivery sweep's pass reads it; without it every pass throws and leaves no idle finding to test.
+  isNoteTransportConfigured: () => true
 }));
 
 jest.mock('lib/remote-config/runtime', () => ({
@@ -152,6 +156,7 @@ jest.mock('lib/remote-config/runtime', () => ({
 }));
 
 const mockOnRequest = _g.__mainTest.onRequest;
+const mockOnNotFound = _g.__mainTest.onNotFound;
 const mockBroadcast = _g.__mainTest.broadcast;
 const mockStoreWatch = _g.__mainTest.storeWatch;
 const mockDoSync = _g.__mainTest.doSync;
@@ -203,6 +208,7 @@ jest.mock('lib/miden/back/actions', () => ({
   removeDAppSession: jest.fn(),
   isDAppEnabled: jest.fn(),
   processDApp: jest.fn(),
+  confirmationNotFound: jest.fn(),
   setGuardianOperatorCommitment: jest.fn(),
   setGuardianSyncStatus: jest.fn(),
   swapHotKey: jest.fn(),
@@ -214,11 +220,14 @@ jest.mock('lib/miden/back/actions', () => ({
 }));
 const Actions: any = jest.requireMock('lib/miden/back/actions');
 
+import { __resetSyncFuseStateForTests } from 'lib/miden/front/sync-fuse';
+import * as Repo from 'lib/miden/repo';
 import { WalletMessageType } from 'lib/shared/types';
 
 import { CONNECTIVITY_CATEGORIES } from '../activity/connectivity-state';
-import { TRANSACTION_STAGES } from '../db/types';
-import { MidenMessageType } from '../types';
+import { ICON_BY_TYPE, ITransaction, ITransactionStatus, TRANSACTION_STAGES } from '../db/types';
+import { __resetNoteDeliverySweepForTests, sweepNoteDeliveries } from '../transaction/note-delivery-sweep';
+import { MidenMessageType, NoteTypeEnum } from '../types';
 import { start } from './main';
 
 let dispatch: (req: any, port?: any) => Promise<any>;
@@ -932,6 +941,54 @@ describe('processRequest', () => {
     expect(res).toBeUndefined();
   });
 
+  const CONFIRMATION_REQUEST_TYPES = [
+    MidenMessageType.DAppGetPayloadRequest,
+    MidenMessageType.DAppSimulateTransactionRequest,
+    MidenMessageType.DAppUnlockConfirmationRequest,
+    MidenMessageType.DAppPermConfirmationRequest,
+    MidenMessageType.DAppTransactionConfirmationRequest,
+    MidenMessageType.DAppPrivateNotesConfirmationRequest,
+    MidenMessageType.DAppSignConfirmationRequest,
+    MidenMessageType.DAppAssetsConfirmationRequest,
+    MidenMessageType.DAppImportPrivateNoteConfirmationRequest,
+    MidenMessageType.DAppConsumableNotesConfirmationRequest
+  ];
+
+  it.each(CONFIRMATION_REQUEST_TYPES)(
+    'leaves a %s to the live confirmation handlers, whatever their order',
+    async type => {
+      await expect(dispatch({ type, id: 'confirmation-1' })).resolves.toBeUndefined();
+      expect(Actions.confirmationNotFound).not.toHaveBeenCalled();
+    }
+  );
+
+  it("registers a fallback that codes a declined confirmation request with the background's state, and nothing else", () => {
+    expect(mockOnNotFound).toHaveBeenCalledTimes(1);
+    const fallback = mockOnNotFound.mock.calls[0]![0];
+    const unknown = Object.assign(new Error('Not Found'), { code: 'confirmation_unknown' });
+    Actions.confirmationNotFound.mockImplementation(() => unknown);
+    try {
+      for (const type of CONFIRMATION_REQUEST_TYPES) {
+        const req = { type, id: ['never-opened'] };
+        expect(fallback(req)).toBe(unknown);
+        expect(Actions.confirmationNotFound).toHaveBeenLastCalledWith(req);
+      }
+      Actions.confirmationNotFound.mockClear();
+      for (const req of [
+        { type: WalletMessageType.GetStateRequest },
+        { type: MidenMessageType.PageRequest, origin: 'o', payload: 'PING' },
+        { id: ['never-opened'] },
+        null,
+        MidenMessageType.DAppGetPayloadRequest
+      ]) {
+        expect(fallback(req)).toBeUndefined();
+      }
+      expect(Actions.confirmationNotFound).not.toHaveBeenCalled();
+    } finally {
+      Actions.confirmationNotFound.mockReset();
+    }
+  });
+
   it('PageRequest returns null payload when processDApp returns undefined', async () => {
     Actions.processDApp.mockResolvedValueOnce(undefined);
     const res = await dispatch({
@@ -979,6 +1036,89 @@ describe('processRequest', () => {
       assets: [{ amount: '0', faucetId: '' }],
       nullifier: ''
     });
+  });
+});
+
+// On the extension the delivery sweep runs here and skips its query while nothing is due. A page's delivery write
+// moves only the page's count, so the page reports it and this realm counts it as a write of its own (#1473).
+describe('a delivery write a page reports', () => {
+  const nowSeconds = () => Math.floor(Date.now() / 1000);
+  const spies: { mockRestore: () => void }[] = [];
+
+  const owingRow = (overrides: Partial<ITransaction>): ITransaction => ({
+    id: 'tx-delivery',
+    accountId: 'acct-1',
+    type: 'send',
+    status: ITransactionStatus.Completed,
+    initiatedAt: nowSeconds() - 120,
+    completedAt: nowSeconds() - 120,
+    displayIcon: ICON_BY_TYPE.send,
+    transactionId: '0xland',
+    outputNoteIds: ['0xnote'],
+    secondaryAccountId: 'mtst1recipient',
+    noteType: NoteTypeEnum.Private,
+    noteDelivery: 'relayed',
+    relayAttempts: 1,
+    ...overrides
+  });
+
+  /** The sweep's candidate reads, counted from here on; a row write is `where({ id })`. */
+  const countQueries = () => {
+    const where = jest.spyOn(Repo.transactions, 'where');
+    spies.push(where);
+    return () => where.mock.calls.filter(([index]) => String(index) === 'noteDelivery').length;
+  };
+
+  beforeEach(() => {
+    __resetNoteDeliverySweepForTests();
+    __resetSyncFuseStateForTests();
+  });
+
+  afterEach(() => {
+    for (const spy of spies.splice(0)) spy.mockRestore();
+  });
+
+  it('counts the write here, so the next sweep queries inside its idle window', async () => {
+    await Repo.transactions.add(owingRow({ nextRelayAt: nowSeconds() + 600 }));
+    const queries = countQueries();
+    await sweepNoteDeliveries();
+    await sweepNoteDeliveries();
+    expect(queries()).toBe(1);
+
+    const response = await dispatch({ type: WalletMessageType.NoteDeliveryWrittenRequest });
+    await sweepNoteDeliveries();
+
+    expect(queries()).toBe(2);
+    expect(response).toEqual({ type: WalletMessageType.NoteDeliveryWrittenResponse });
+  });
+
+  it('reaches the sweep through a pass that was running when it arrived', async () => {
+    // Receipts only, so the pass makes no delivery write of its own to move the count past the one it took.
+    await Repo.transactions.add(owingRow({ nextRelayAt: nowSeconds() - 1, restoredFromBackup: true }));
+    const queries = countQueries();
+    let reached: () => void = () => {};
+    const readReached = new Promise<void>(resolve => {
+      reached = resolve;
+    });
+    let release: (consumed: boolean) => void = () => {};
+    spies.push(
+      jest.spyOn(proxyMock.midenClientProxy, 'isOutputNoteConsumed').mockImplementation(() => {
+        reached();
+        return new Promise<boolean>(resolve => {
+          release = resolve;
+        });
+      }),
+      jest.spyOn(console, 'warn').mockImplementation(() => undefined)
+    );
+
+    const pass = sweepNoteDeliveries();
+    await readReached;
+    await dispatch({ type: WalletMessageType.NoteDeliveryWrittenRequest });
+    release(false);
+    await pass;
+    await sweepNoteDeliveries();
+
+    expect(queries()).toBe(2);
   });
 });
 

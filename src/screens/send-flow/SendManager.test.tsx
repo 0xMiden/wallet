@@ -2,7 +2,10 @@ import React from 'react';
 
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 
-import { TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET } from 'lib/epoch/testing/bridge-config';
+import {
+  TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET,
+  publishMockBridgeSnapshot
+} from 'lib/epoch/testing/bridge-config';
 import { TEST_SWAP_TOKENS, TEST_TOKEN_IBTC, TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
 import { _setSwapTokensForTest } from 'lib/miden/swap/tokens';
 import { hasUnquotedDefaultPrice } from 'lib/prices/unquoted-default';
@@ -82,15 +85,20 @@ const scanQRCodeMock = jest.fn();
 const isMobileMock = jest.fn(() => true);
 const clipboardReadMock = jest.fn();
 // The bridged price entries the testnet config names (the manual mock beside the module).
-jest.mock('lib/remote-config/runtime', () =>
-  jest
-    .requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
-    .remoteConfigRuntimeMock(
-      () =>
-        jest.requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
-          .TEST_BRIDGE_CONFIG_SNAPSHOT
-    )
-);
+let mockSendNetwork = 'devnet';
+// Testnet before any document has been accepted, as on a first start that cannot reach the config repo.
+let mockSendConfigLoaded = true;
+jest.mock('lib/remote-config/runtime', () => {
+  const fixture = jest.requireActual<typeof import('lib/epoch/testing/bridge-config')>(
+    'lib/epoch/testing/bridge-config'
+  );
+  const devnet = { ...fixture.TEST_BRIDGE_CONFIG_SNAPSHOT, network: 'devnet' };
+  const unloaded = { ...fixture.TEST_BRIDGE_CONFIG_SNAPSHOT, config: null, derived: null, status: 'loading' as const };
+  return fixture.remoteConfigRuntimeMock(() => {
+    if (mockSendNetwork !== 'testnet') return devnet;
+    return mockSendConfigLoaded ? fixture.TEST_BRIDGE_CONFIG_SNAPSHOT : unloaded;
+  });
+});
 
 jest.mock('lib/miden/swap/bridge-price-allowlist');
 jest.mock('@capacitor/clipboard', () => ({ Clipboard: { read: () => clipboardReadMock() } }));
@@ -202,6 +210,7 @@ jest.mock('./SendAmount', () => ({
       <span data-testid="sa-amount">{props.amount}</span>
       <span data-testid="sa-valid">{String(props.isValidAmount)}</span>
       <span data-testid="sa-max-disabled">{String(!!props.maxDisabled)}</span>
+      <span data-testid="sa-token-held">{String(!!props.tokenHeld)}</span>
       <span data-testid="sa-error">{props.error ?? ''}</span>
       <span data-testid="sa-error-values">{JSON.stringify(props.errorValues ?? null)}</span>
       <span data-testid="sa-recipient">{props.recipientName ?? props.recipientAddress}</span>
@@ -406,6 +415,8 @@ jest.mock('lib/telemetry', () => ({
 const renderFlow = (isLoading = false) => render(<SendFlow isLoading={isLoading} />);
 
 beforeEach(() => {
+  mockSendNetwork = 'devnet';
+  mockSendConfigLoaded = true;
   jest.clearAllMocks();
   clearSendDraft();
   mockPathname = '/send';
@@ -2399,5 +2410,121 @@ describe('USDCx burn fee reserve', () => {
     fireEvent.click(screen.getByTestId('route-confirm'));
 
     expect(navigateMock).toHaveBeenCalledWith(expect.stringMatching(/^\/send\/review\?/));
+  });
+});
+
+it('does not preselect the retired Epoch faucet from a Testnet token-page link', () => {
+  mockSendNetwork = 'testnet';
+  mockSearch = `?tokenId=${MIDEN_USDC_FAUCET}`;
+  useAllBalancesMock.mockReturnValue({
+    data: [{ tokenId: MIDEN_USDC_FAUCET, metadata: { symbol: 'USDC', decimals: 6 }, balance: 100 }]
+  });
+  mockRenderRouteName = SendFlowStep.SelectAmount;
+  renderFlow();
+  expect(screen.getByTestId('sa-token')).toHaveTextContent('no-token');
+  expect(screen.getByTestId('sa-token-held')).toHaveTextContent('false');
+});
+
+describe('Testnet send while no bridge config document has arrived', () => {
+  const T1_ROW = { tokenId: 'T1', metadata: { symbol: 'TKN', decimals: 2 }, balance: 42, fiatPrice: 3 };
+  const NATIVE_ROW = { tokenId: 'MIDEN-ID', metadata: { symbol: 'MIDEN', decimals: 6 }, balance: 10, fiatPrice: 0 };
+  const pickNative = () => {
+    mockSelectedToken = { id: 'MIDEN-ID', name: 'MIDEN', decimals: 6, balance: 10, fiatPrice: 0 };
+    act(() => {
+      fireEvent.click(screen.getByTestId('td-select'));
+    });
+  };
+  const acceptDocument = () =>
+    act(() => {
+      mockSendConfigLoaded = true;
+      publishMockBridgeSnapshot();
+    });
+
+  beforeEach(() => {
+    mockSendNetwork = 'testnet';
+    mockSendConfigLoaded = false;
+    mockCardStack = [{ name: SendFlowStep.SelectAmount }];
+  });
+
+  it('keeps a restored draft whole until the document names its token as the retired faucet', () => {
+    setSendDraft({ amount: '7', recipientAddress: '0xrecip', tokenId: MIDEN_USDC_FAUCET });
+    useAllBalancesMock.mockReturnValue({
+      data: [{ tokenId: MIDEN_USDC_FAUCET, metadata: { symbol: 'TKN', decimals: 2 }, balance: 42, fiatPrice: 3 }]
+    });
+    renderFlow();
+    expect(screen.getByTestId('sa-token')).toHaveTextContent('TKN');
+    expect(screen.getByTestId('sa-amount')).toHaveTextContent('7');
+    expect(screen.getByTestId('sa-token-held')).toHaveTextContent('true');
+
+    acceptDocument();
+
+    expect(screen.getByTestId('sa-token')).toHaveTextContent('no-token');
+    expect(screen.getByTestId('sa-amount')).toBeEmptyDOMElement();
+    expect(screen.getByTestId('sa-token-held')).toHaveTextContent('false');
+  });
+
+  it('says why a linked token is not applied, and applies it with no notice once the document arrives', () => {
+    mockSearch = '?tokenId=T1';
+    useAllBalancesMock.mockReturnValue({ data: [T1_ROW] });
+    renderFlow();
+    expect(screen.getByTestId('sa-token')).toHaveTextContent('no-token');
+    expect(screen.getByTestId('sa-token-held')).toHaveTextContent('true');
+
+    acceptDocument();
+
+    expect(screen.getByTestId('sa-token')).toHaveTextContent('TKN');
+    expect(screen.getByTestId('sa-token-held')).toHaveTextContent('false');
+  });
+
+  it('says why a restored draft cannot continue, keeping its token and amount, until the document arrives', () => {
+    isValidMidenAddressMock.mockImplementation((addr: string) => addr === 'mtst1recipient');
+    setSendDraft({ amount: '7', recipientAddress: 'mtst1recipient', tokenId: 'T1' });
+    useAllBalancesMock.mockReturnValue({ data: [T1_ROW] });
+    renderFlow();
+    expect(screen.getByTestId('sa-token')).toHaveTextContent('TKN');
+    expect(screen.getByTestId('sa-amount')).toHaveTextContent('7');
+    expect(screen.getByTestId('sa-token-held')).toHaveTextContent('true');
+    act(() => {
+      fireEvent.click(screen.getByTestId('sa-confirm'));
+    });
+    expect(navigateMock).not.toHaveBeenCalled();
+
+    acceptDocument();
+
+    expect(screen.getByTestId('sa-token')).toHaveTextContent('TKN');
+    expect(screen.getByTestId('sa-amount')).toHaveTextContent('7');
+    expect(screen.getByTestId('sa-token-held')).toHaveTextContent('false');
+    act(() => {
+      fireEvent.click(screen.getByTestId('sa-confirm'));
+    });
+    expect(navigateMock).toHaveBeenCalledWith(expect.stringMatching(/^\/send\/review\?/));
+  });
+
+  it("leaves a held row to the picker's notice while nothing is linked or chosen", () => {
+    useAllBalancesMock.mockReturnValue({ data: [T1_ROW] });
+    renderFlow();
+    expect(screen.getByTestId('sa-token')).toHaveTextContent('no-token');
+    expect(screen.getByTestId('sa-token-held')).toHaveTextContent('false');
+  });
+
+  it('shows no held notice for the native token chosen beside a held row', () => {
+    useAllBalancesMock.mockReturnValue({ data: [NATIVE_ROW, T1_ROW] });
+    renderFlow();
+    pickNative();
+    expect(screen.getByTestId('sa-token-id')).toHaveTextContent('MIDEN-ID');
+    expect(screen.getByTestId('sa-token-held')).toHaveTextContent('false');
+  });
+
+  it('drops a held link from the notice once the user picks the native token instead', () => {
+    mockSearch = '?tokenId=T1';
+    useAllBalancesMock.mockReturnValue({ data: [NATIVE_ROW, T1_ROW] });
+    renderFlow();
+    expect(screen.getByTestId('sa-token')).toHaveTextContent('no-token');
+    expect(screen.getByTestId('sa-token-held')).toHaveTextContent('true');
+
+    pickNative();
+
+    expect(screen.getByTestId('sa-token-id')).toHaveTextContent('MIDEN-ID');
+    expect(screen.getByTestId('sa-token-held')).toHaveTextContent('false');
   });
 });

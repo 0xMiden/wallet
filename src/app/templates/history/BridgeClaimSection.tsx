@@ -331,7 +331,9 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
         account.publicKey,
         reclaimNoteId,
         isDelegateProofEnabled(),
-        true
+        true,
+        undefined,
+        'bridge_reclaim'
       );
       if (isExtension()) requestSWTransactionProcessing();
       navigate(`/generating-transaction-full/${encodeURIComponent(txId)}`);
