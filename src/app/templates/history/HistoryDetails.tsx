@@ -41,7 +41,7 @@ import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { requestSwapOrderRefresh, useSwapOrderTrackingStore } from 'lib/miden/swap/order-tracking-store';
-import { isOpenRecoveredOrder } from 'lib/miden/swap/recovered-order';
+import { isOpenRecoveredOrder, isRecoveredSwapOrder } from 'lib/miden/swap/recovered-order';
 import { getSwapTokenByFaucetId, tokenQuote } from 'lib/miden/swap/tokens';
 import { RETRY_WINDOW_SECONDS } from 'lib/miden/transaction/note-delivery-window';
 import { getExplorerAccountUrl, getExplorerTxUrl } from 'lib/miden-chain/constants';
@@ -538,8 +538,10 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   // bounded interval and updates the receipt whenever a consume row changes.
   const settlementNotes = useSwapSettlementNotes(transaction?.type === 'swap' ? transaction.id : undefined);
 
-  // An untracked row reads no entry: a recovered order closed outside the poll keeps its last open one (#1487).
-  const swapTracking = tracksOrder ? (trackingEntry?.tracking ?? null) : null;
+  // A closed recovered order reads no entry: one closed outside the poll keeps its last open one (#1487). Every other
+  // row, a file-restored order included, reads its entry.
+  const recoveredOrderClosed = transaction !== undefined && isRecoveredSwapOrder(transaction) && !recoveredOrderOpen;
+  const swapTracking = recoveredOrderClosed ? null : (trackingEntry?.tracking ?? null);
   const trackingLoading = orderKey !== undefined && tracksOrder && (trackingEntry?.loading ?? true);
 
   const receipt = deriveSwapReceipt({
