@@ -5,7 +5,15 @@ import { act, render, screen, fireEvent, within } from '@testing-library/react';
 import { IconName } from 'app/icons/v2';
 import { goBack } from 'lib/woozie';
 
-import { EarnAmountUnit, EarnAssetMark, EarnFlowHeader, EarnHero, MetricCard, EarnSummaryPanel } from './components';
+import {
+  EarnAmountUnit,
+  EarnAssetMark,
+  EarnFlowHeader,
+  EarnHero,
+  EarnSubjectSubtitle,
+  MetricCard,
+  EarnSummaryPanel
+} from './components';
 import { EARN_PLACEHOLDER } from './earn-mapping';
 import { EarnSummary, EarnVault } from './types';
 
@@ -21,8 +29,9 @@ jest.mock('lib/woozie', () => ({
 
 // Stub react-i18next so `t(key)` echoes the key, letting us assert on
 // translation keys instead of English (matches the sibling earn-flow tests).
+const mockTranslate = jest.fn((key: string) => key);
 jest.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key: string) => key })
+  useTranslation: () => ({ t: mockTranslate })
 }));
 
 // Stub the two child widgets to probes that surface the props `components.tsx`
@@ -459,4 +468,16 @@ describe('EarnAmountUnit', () => {
     expect(screen.getByTestId('token-logo')).toHaveAttribute('data-symbol', 'USDC');
     expect(screen.getByText('USDC')).toHaveClass('text-entry-unit', 'text-ink');
   });
+});
+
+it('names Miden USDCx funding without labelling the EVM underlying as USDCx', () => {
+  mockTranslate.mockClear();
+  render(<EarnSubjectSubtitle subject={{ ...VAULT, fundingAsset: 'USDCx' }} />);
+  expect(mockTranslate).toHaveBeenCalledWith('earnAssetOnNetwork', { asset: 'USDCx', network: 'Miden' });
+});
+
+it('gives the native funding label its matching USDCx logo and Miden mark', () => {
+  render(<EarnFlowHeader subject={{ ...VAULT, fundingAsset: 'USDCx' }} />);
+  expect(screen.getByTestId('token-logo')).toHaveAttribute('data-symbol', 'USDCx');
+  expect(screen.getByTestId('network-logo')).toHaveAttribute('data-kind', 'miden');
 });

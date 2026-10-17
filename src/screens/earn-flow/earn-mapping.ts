@@ -50,8 +50,8 @@ export function usdFigureFormatter(
 /**
  * Display names per lender key. The only live lender today is Epoch's
  * "DUMMY_LENDING" stand-in — shown by its market-uid name ("Dummy Lending") on
- * USDC until real lenders exist (the whole earn flow is USDC-only, in the
- * collateral the bridge config names).
+ * the EVM USDC underlying. Miden funding is a separate display field; Testnet
+ * vault listings use native USDCx without relabelling the underlying or existing positions.
  */
 const VAULT_DISPLAY: Record<string, { protocol: string; asset: string }> = {
   DUMMY_LENDING: { protocol: 'Dummy Lending', asset: 'USDC' }
@@ -119,12 +119,13 @@ export function vaultSlug(vault: EarnVaultInfo): string {
   return lenderChainSlug(vault.lenderKey, vault.chainId);
 }
 
-export function mapEarnVault(vault: EarnVaultInfo): EarnVault {
+export function mapEarnVault(vault: EarnVaultInfo, fundingAsset?: string): EarnVault {
   const display = VAULT_DISPLAY[vault.lenderKey] ?? { protocol: vault.lenderName, asset: 'USDC' };
   return {
     id: vaultSlug(vault),
     protocol: display.protocol,
     asset: display.asset,
+    ...(fundingAsset ? { fundingAsset } : {}),
     network: networkName(vault.chainId),
     apy: `${vault.depositApr.toFixed(2)}%`,
     aprPercent: vault.depositApr,

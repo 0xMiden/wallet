@@ -21,6 +21,7 @@ export interface EarnSubject {
   protocol: string;
   asset: string;
   network: string;
+  fundingAsset?: string;
 }
 
 /** Earn's vaults are EVM-side, so anything that is not Miden itself takes the Ethereum mark. */
@@ -34,13 +35,16 @@ const networkKind = (network: string): NetworkChipKind => (network.toLowerCase()
  * for assistive tech; beside `EarnSubjectSubtitle`, which says it already, it is `decorative`:
  * hidden and unnamed, so the pair is announced once.
  */
-export const EarnAssetMark: FC<{ asset: string; network: string; decorative?: boolean; className?: string }> = ({
-  asset,
-  network,
-  decorative = false,
-  className
-}) => {
+export const EarnAssetMark: FC<{
+  asset: string;
+  network: string;
+  fundingAsset?: string;
+  decorative?: boolean;
+  className?: string;
+}> = ({ asset: underlyingAsset, network: underlyingNetwork, fundingAsset, decorative = false, className }) => {
   const { t } = useTranslation();
+  const asset = fundingAsset ?? underlyingAsset;
+  const network = fundingAsset ? 'Miden' : underlyingNetwork;
 
   return (
     <span aria-hidden={decorative || undefined} className={classNames('flex shrink-0 items-center', className)}>
@@ -58,7 +62,14 @@ export const earnSubjectTitle = (subject: EarnSubject): string => subject.protoc
 /** The line under `earnSubjectTitle`, in a header or a row: "USDC on Ethereum". */
 export const EarnSubjectSubtitle: FC<{ subject: EarnSubject }> = ({ subject }) => {
   const { t } = useTranslation();
-  return <>{t('earnAssetOnNetwork', { asset: subject.asset, network: subject.network })}</>;
+  return (
+    <>
+      {t('earnAssetOnNetwork', {
+        asset: subject.fundingAsset ?? subject.asset,
+        network: subject.fundingAsset ? 'Miden' : subject.network
+      })}
+    </>
+  );
 };
 
 /** Shared top bar for the earn flow's pages that are NOT on `SubPageLayout` (the amount step, which
@@ -76,7 +87,16 @@ export const EarnFlowHeader: FC<{ subject?: EarnSubject }> = ({ subject }) => {
       title={subject ? earnSubjectTitle(subject) : t('earnDeposit')}
       subtitle={subject && <EarnSubjectSubtitle subject={subject} />}
       onBack={goBack}
-      actions={subject && <EarnAssetMark asset={subject.asset} network={subject.network} decorative />}
+      actions={
+        subject && (
+          <EarnAssetMark
+            asset={subject.asset}
+            network={subject.network}
+            fundingAsset={subject.fundingAsset}
+            decorative
+          />
+        )
+      }
     />
   );
 };
