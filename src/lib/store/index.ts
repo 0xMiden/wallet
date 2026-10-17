@@ -6,6 +6,7 @@ import { subscribeWithSelector } from 'zustand/middleware';
 import { installFaucetAddressTestHook } from 'lib/e2e/faucet-address';
 import { createIntercomClient, IIntercomClient } from 'lib/intercom/client';
 import { clearPersistedSeenNoteIds, persistSeenNoteIds } from 'lib/miden/back/note-checker-storage';
+import { tagBalanceSnapshot, type BalanceSnapshot } from 'lib/miden/balance-snapshot';
 import type { IConsumeBridgeInExtraInputs, IEarnWithdrawExtraInputs, ITransaction } from 'lib/miden/db/types';
 import { setTestSyncPaused } from 'lib/miden/front/test-sync-pause';
 import { fetchTokenMetadata } from 'lib/miden/metadata';
@@ -164,7 +165,8 @@ export function withLandedBalances(
   accountAddress: string,
   rows: WalletStore['balances'][string],
   midenFaucetId: string | null,
-  overriddenFaucetIds: ReadonlySet<string>
+  overriddenFaucetIds: ReadonlySet<string>,
+  snapshot?: BalanceSnapshot
 ): Pick<
   WalletStore,
   | 'tokenMetadataOverrides'
@@ -186,12 +188,15 @@ export function withLandedBalances(
         state.tokenMetadataOverrides[id] !== undefined ||
         faucetMetadataFor(state, id) !== undefined
     );
-  return {
+  const result = {
     ...withOverrides(landed, state.tokenMetadataOverrides, faucetIds),
     balancesDisplayFaucetId,
     balancesLoading: { ...state.balancesLoading, [accountAddress]: false },
     balancesLastFetched: { ...state.balancesLastFetched, [accountAddress]: Date.now() }
   };
+  const finalRows = result.balances[accountAddress];
+  if (snapshot && finalRows) tagBalanceSnapshot(finalRows, snapshot);
+  return result;
 }
 
 function withTokenMetadataOverride(
@@ -761,6 +766,18 @@ export const useWalletStore = create<WalletStore>()(
       return { summaryBytes: res.summaryBytes, executedBytes: res.executedBytes, error: res.error };
     },
 
+    estimateUsdcxBurnFee: async (accountPublicKey, destinationChainId) => {
+      const res = await request({
+        type: WalletMessageType.EstimateUsdcxBurnFeeRequest,
+        accountPublicKey,
+        destinationChainId
+      });
+      assertResponse(res.type === WalletMessageType.EstimateUsdcxBurnFeeResponse);
+      return res.outcome === 'measured'
+        ? { outcome: 'measured', reserve: BigInt(res.feeReserve) }
+        : { outcome: res.outcome };
+    },
+
     confirmDAppPermission: async (id, confirmed, accountId, privateDataPermission, allowedPrivateData) => {
       const res = await request({
         type: MidenMessageType.DAppPermConfirmationRequest,
@@ -880,12 +897,16 @@ export const useWalletStore = create<WalletStore>()(
         const overridden = new Set<string>();
         // The display faucet setting the read built its MIDEN row for. A reader that reports none leaves no row exempt.
         let midenFaucetId: string | null = null;
+        let snapshot: BalanceSnapshot | undefined;
         const balances = await fetchBalances(accountAddress, tokenMetadatas, {
           setAssetsMetadata: get().setAssetsMetadata,
           faucetMetadataOf,
           onOverrideApplied: faucetId => overridden.add(faucetId),
           onDisplayFaucetId: faucetId => {
             midenFaucetId = faucetId;
+          },
+          onSnapshot: value => {
+            snapshot = value;
           },
           tokenPrices: get().tokenPrices,
           waitForLock: get().balances[accountAddress] === undefined
@@ -896,7 +917,7 @@ export const useWalletStore = create<WalletStore>()(
         // A Developer Settings save repointed this realm while the read was out: these are the old
         // node's balances. The metadata it wrote stays, each faucet's own record on any network.
         if (effectiveNetwork() !== network) return;
-        set(state => withLandedBalances(state, accountAddress, balances, midenFaucetId, overridden));
+        set(state => withLandedBalances(state, accountAddress, balances, midenFaucetId, overridden, snapshot));
       } finally {
         fetchingAddresses.delete(accountAddress);
       }

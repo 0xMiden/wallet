@@ -552,6 +552,26 @@ describe('useClaimableNotes (extension mode)', () => {
     expect(result.current.data?.[0]?.id).toBe('n1');
   });
 
+  it('keeps whether a synced note carries more assets than the one it shows', () => {
+    const synced = (id: string, carriesMoreAssets?: boolean) => ({
+      id,
+      faucetId: 'f1',
+      amountBaseUnits: '100',
+      senderAddress: 's1',
+      noteType: 'public',
+      metadata: { decimals: 6, symbol: 'TOK', name: 'Token' },
+      carriesMoreAssets
+    });
+    _g.__cnTest.walletState.extensionClaimableNotes = [synced('a', true), synced('b')];
+
+    const { result } = renderHook(() => useClaimableNotes('pk-1'));
+
+    expect(result.current.data?.map(note => [note.id, note.carriesMoreAssets])).toEqual([
+      ['a', true],
+      ['b', undefined]
+    ]);
+  });
+
   it('keeps whether a synced note is a standard payment, which the rotation gate claims by (#805)', () => {
     const synced = (id: string, standardPayment?: boolean) => ({
       id,
@@ -1371,6 +1391,26 @@ describe('useClaimableNotes (local mode — mobile/desktop)', () => {
       Object.fromEntries((notes ?? []).map(note => [note.id, note.standardPayment]));
     expect(flags(result.current.data)).toEqual({ standard: true, custom: false });
     await waitFor(() => expect(flags(_g.__cnTest.kv[CACHE_KEY])).toEqual({ standard: true, custom: false }));
+  });
+
+  it('flags a note that carries more fungible assets than the one it shows', async () => {
+    // The claim fee gate fails open on such a note: one of the hidden assets may pay the fee.
+    _g.__cnTest.consumableNotes = [
+      {
+        ...makeMockNote({ id: 'multi' }),
+        assets: [
+          { faucetId: 'miden-faucet', amount: '100' },
+          { faucetId: 'token-faucet', amount: '5' }
+        ]
+      },
+      makeMockNote({ id: 'single' })
+    ];
+    const { result, rerender } = renderHook(() => useClaimableNotes('pk-1'));
+    await _g.__cnTest.lastFetchPromise;
+    rerender();
+
+    const flags = Object.fromEntries((result.current.data ?? []).map(note => [note.id, note.carriesMoreAssets]));
+    expect(flags).toEqual({ multi: true, single: undefined });
   });
 
   it('replaces the cached list with the live result and rewrites the cache', async () => {

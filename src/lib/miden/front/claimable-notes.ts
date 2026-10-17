@@ -51,6 +51,7 @@ type ParsedNote = {
   swapOrder?: SwapOrderNoteMetadata;
   recallableAtMs?: number;
   standardPayment?: boolean;
+  carriesMoreAssets?: boolean;
   /** Block that includes the note; its timestamp becomes `receivedAt` once the note read is done. */
   blockNum?: number;
   /** Note inclusion time, in Unix seconds. */
@@ -92,7 +93,9 @@ function parseNotes(
       swapOrder: swapOrders.get(noteId),
       blockNum: note.blockNum,
       recallableAtMs: note.recallableAtMs,
-      standardPayment: note.standardPayment
+      standardPayment: note.standardPayment,
+      // The claim fee gate cannot see the other assets, one of which may pay the fee.
+      carriesMoreAssets: note.assets.length > 1 || undefined
     });
   }
 
@@ -148,7 +151,8 @@ function attachMetadataToNotes(
       swapOrder: n.swapOrder,
       receivedAt: n.receivedAt,
       recallableAtMs: n.recallableAtMs,
-      standardPayment: n.standardPayment
+      standardPayment: n.standardPayment,
+      carriesMoreAssets: n.carriesMoreAssets
     }));
 }
 
@@ -585,7 +589,8 @@ function useExtensionClaimableNotes(publicAddress: string, enabled: boolean) {
           swapOrder: n.swapOrder ? { ...n.swapOrder, autoConsume: n.swapOrder.autoConsume ?? true } : undefined,
           receivedAt: n.receivedAt,
           recallableAtMs: n.recallableAtMs,
-          standardPayment: n.standardPayment
+          standardPayment: n.standardPayment,
+          carriesMoreAssets: n.carriesMoreAssets
         }))
     );
   }, [enabled, extensionNotes, claimingRead, boundGeneration, assetsMetadata, tokenMetadataOverrides]);

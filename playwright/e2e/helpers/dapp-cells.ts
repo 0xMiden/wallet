@@ -10,7 +10,7 @@ import type { KnownBugRegistry } from './dapp-known-bugs';
  */
 
 export type AxisLabel = 'offchain' | 'guardian';
-export type JourneyId = 'S' | 'R' | 'W' | 'X' | 'XL' | 'M';
+export type JourneyId = 'S' | 'R' | 'W' | 'X' | 'XL' | 'M' | 'RA';
 /**
  * A cell's outcome (spec section 5). `fail-known` means every failure matched a signature registered for this cell
  * and axis; `known-now-passing` means such a cell ran clean, which fails the judge until the entry is removed. A
@@ -58,8 +58,17 @@ export interface FailureEvidence {
    */
   nonCurrentReadsOwnOrRefused?: boolean;
   crossOriginWaitServed?: boolean;
+  /** Why the React context `connectReact` returned holds a key that is not a Word, so its `publicKeyHex` is null. */
+  reactPublicKeyError?: string;
   /** N4 listed every imported note by its own note id, then missed one asked by the id its import returned (K10). */
   returnedIdUnlisted?: boolean;
+  /** WP7: the React context's account and connection once the provider moved (K1 at the React layer). */
+  reactAddress?: string | null;
+  reactConnected?: boolean;
+  /** WP9: what `useContext(WalletContext)` from the package entry read under WalletProvider; null for no state. */
+  reactExportedConnected?: boolean | null;
+  /** MF3: the error MidenProvider settled on while it set the MidenFi signer account up. */
+  signerInitError?: string;
 }
 
 /** A check that failed without stopping the cell, so one run can record a soft and a hard known bug. */

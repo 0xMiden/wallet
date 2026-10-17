@@ -656,9 +656,139 @@
     "message": "Hesap Oluştur",
     "englishSource": "Create Account"
   },
+  "me": {
+    "message": "Ben",
+    "englishSource": "Me"
+  },
+  "profile": {
+    "message": "Profil",
+    "englishSource": "Profile"
+  },
   "settings": {
     "message": "Ayarlar",
     "englishSource": "Settings"
+  },
+  "myBadges": {
+    "message": "Rozetlerim",
+    "englishSource": "My badges"
+  },
+  "openMyBadges": {
+    "message": "Rozetlerimi aç",
+    "englishSource": "Open My badges"
+  },
+  "badgesEarnedCount": {
+    "message": "$total$ rozetten $earned$ tanesi kazanıldı",
+    "englishSource": "$earned$ of $total$ earned",
+    "placeholders": {
+      "earned": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      }
+    }
+  },
+  "badgesProfileDescription": {
+    "message": "Mainnet etkinliklerinizden özel dönüm noktaları",
+    "englishSource": "Private milestones from your Mainnet activity"
+  },
+  "badgesCollectionDescription": {
+    "message": "Cüzdanınızın özel dönüm noktaları.",
+    "englishSource": "Your private wallet milestones."
+  },
+  "badgeCollection": {
+    "message": "Rozet koleksiyonu",
+    "englishSource": "Badge collection"
+  },
+  "mainnetOnly": {
+    "message": "Yalnızca Mainnet",
+    "englishSource": "Mainnet only"
+  },
+  "badgesMainnetNoticeTitle": {
+    "message": "Rozetler Mainnet üzerinde açılır",
+    "englishSource": "Badges unlock on Mainnet"
+  },
+  "badgesMainnetNoticeDescription": {
+    "message": "Rozetler Mainnet üzerinde açılır. Test etkinlikleri sayılmaz.",
+    "englishSource": "Badges unlock on Mainnet. Test activity does not count."
+  },
+  "badgeEarnedLabel": {
+    "message": "$badge$, kazanıldı",
+    "englishSource": "$badge$, earned",
+    "placeholders": {
+      "badge": {
+        "content": "$1"
+      }
+    }
+  },
+  "badgeLockedLabel": {
+    "message": "$badge$, kilitli",
+    "englishSource": "$badge$, locked",
+    "placeholders": {
+      "badge": {
+        "content": "$1"
+      }
+    }
+  },
+  "locked": {
+    "message": "Kilitli",
+    "englishSource": "Locked"
+  },
+  "badgeEarned": {
+    "message": "Kazanıldı",
+    "englishSource": "Earned"
+  },
+  "badgeVerificationPending": {
+    "message": "Henüz kullanılamıyor",
+    "englishSource": "Not available yet"
+  },
+  "badgeFirstDeposit": {
+    "message": "İlk Yatırma",
+    "englishSource": "First Deposit"
+  },
+  "badgeFirstDepositDescription": {
+    "message": "Para ekleyin ve harcanabilir hale gelmesini bekleyin.",
+    "englishSource": "Add funds and wait for them to become spendable."
+  },
+  "badgeFirstReceive": {
+    "message": "İlk Alma",
+    "englishSource": "First Receive"
+  },
+  "badgeFirstReceiveDescription": {
+    "message": "Bu hesaba gelen bir transferi kabul edip alın.",
+    "englishSource": "Accept and claim a transfer to this account."
+  },
+  "badgeFirstSend": {
+    "message": "İlk Gönderim",
+    "englishSource": "First Send"
+  },
+  "badgeFirstSendDescription": {
+    "message": "Giden bir Miden transferini onaylayın.",
+    "englishSource": "Confirm an outgoing Miden transfer."
+  },
+  "badgeFirstSwap": {
+    "message": "İlk Takas",
+    "englishSource": "First Swap"
+  },
+  "badgeFirstSwapDescription": {
+    "message": "Bir takası tamamlayın ve harcanabilir tutarı alın.",
+    "englishSource": "Complete a swap and receive spendable output."
+  },
+  "badgeRecoveryChecked": {
+    "message": "Kurtarma Kontrol Edildi",
+    "englishSource": "Recovery Checked"
+  },
+  "badgeRecoveryCheckedDescription": {
+    "message": "Bu hesabın kurtarma yedeğini doğrulayın.",
+    "englishSource": "Verify this account's recovery backup."
+  },
+  "badgeMiniappExplorer": {
+    "message": "Mini Uygulama Kaşifi",
+    "englishSource": "Miniapp Explorer"
+  },
+  "badgeMiniappExplorerDescription": {
+    "message": "Desteklenen bir mini uygulama deneyimini tamamlayın.",
+    "englishSource": "Complete a supported mini app experience."
   },
   "authorizedDApps": {
     "message": "Yetkili DApp'ler",
@@ -1812,14 +1942,97 @@
     "message": "Oran",
     "englishSource": "Rate"
   },
-  "swapSolverFeeNote": {
-    "message": "Alacağınız tutara, $percent$ çözümleme ücreti zaten dahildir.",
-    "englishSource": "Your receive amount already includes a $percent$ solver fee.",
+  "swapRateNote": {
+    "message": "Oran, çözücünün şu anda doldurabileceği en yüksek miktardır ve bu tutara $fee$ ücreti zaten dahildir. Alacağınız tutar, bu orandan $slippage$ kayma tutarının düşülmesiyle elde edilir.",
+    "englishSource": "The rate is the most the solver fills at right now, with its $fee$ fee already in it. Your receive amount is that rate less your $slippage$ slippage.",
     "placeholders": {
-      "percent": {
+      "fee": {
         "content": "$1"
+      },
+      "slippage": {
+        "content": "$2"
       }
     }
+  },
+  "swapFillStatus": {
+    "message": "Doldur",
+    "englishSource": "Fill"
+  },
+  "swapVerdictSettlementDelayed": {
+    "message": "Takas ertelendi. Emriniz beklemeye alınacaktır.",
+    "englishSource": "Settlement delayed. Your order will wait."
+  },
+  "swapVerdictNoMarket": {
+    "message": "Bu ikili işlem yapılmaz.",
+    "englishSource": "This pair isn't traded."
+  },
+  "swapVerdictNoPrice": {
+    "message": "Fiyatlar şu anda mevcut değil. Bir süre sonra tekrar deneyin.",
+    "englishSource": "Prices are unavailable right now. Try again shortly."
+  },
+  "swapVerdictOffMarket": {
+    "message": "Fiyat değişti. Fiyat bilgisini yenileyin.",
+    "englishSource": "The price moved. Refresh the quote."
+  },
+  "swapVerdictNoLiquidity": {
+    "message": "Şu anda mevcut fiyattan yeterli emir yok.",
+    "englishSource": "Not enough orders at the current price right now."
+  },
+  "swapVerdictTolerated": {
+    "message": "Daha uzun sürebilir: fiyat hafifçe hareket ettiğinde doldurulur.",
+    "englishSource": "May take longer: fills when the price moves slightly."
+  },
+  "swapVerdictPartial": {
+    "message": "Şu anda bu emrin sadece bir kısmı yerine getiriliyor; geri kalanı beklemede.",
+    "englishSource": "Only part of this order fills now; the rest waits."
+  },
+  "swapVerdictFull": {
+    "message": "Mevcut fiyattan doldurulur.",
+    "englishSource": "Fills at the current price."
+  },
+  "swapVerdictExpected": {
+    "message": "$amount$ tutarında $symbol$ alırsınız.",
+    "englishSource": "You receive about $amount$ $symbol$.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "swapSlippage": {
+    "message": "Kayma",
+    "englishSource": "Slippage"
+  },
+  "percentSign": {
+    "message": "%",
+    "englishSource": "%"
+  },
+  "swapSlippageNote": {
+    "message": "Emirinizin mevcut kurun ne kadar altında gerçekleşebileceği. Test ağında, yaklaşık %0,25'in üzerindeki emirler gerçekleşmez.",
+    "englishSource": "How far below the current rate your order may fill. On testnet an order above about 0.25% does not fill."
+  },
+  "swapSlippageEditedNote": {
+    "message": "Alım tutarını kendiniz belirlediğiniz için, bu emirde kayma söz konusu değildir.",
+    "englishSource": "You set the receive amount yourself, so slippage does not apply to this order."
+  },
+  "swapSlippageRange": {
+    "message": "$min$ ile $max$ arasında, en fazla iki ondalık basamaklı bir yüzde girin.",
+    "englishSource": "Enter a percent from $min$ to $max$ with up to two decimals.",
+    "placeholders": {
+      "min": {
+        "content": "$1"
+      },
+      "max": {
+        "content": "$2"
+      }
+    }
+  },
+  "swapPriceMoved": {
+    "message": "Fiyat değişti. Yeni tutarı kontrol edin ve tekrar deneyin.",
+    "englishSource": "The price moved. Check the new amount and try again."
   },
   "usuallyFillsIn": {
     "message": "Genellikle doldurulur",
@@ -3317,6 +3530,14 @@
   "feeReserveBlocksSend": {
     "message": "USDCX'iniz ağ ücreti için ayrılmıştır. Göndermek için daha fazla USDCX alın.",
     "englishSource": "Your USDCX is reserved for the network fee. Receive more USDCX to send."
+  },
+  "usdcxBurnFeeMeasuring": {
+    "message": "Tutar kontrol edilebilmeden önce bu yakma işleminin ağ ücretini hesaplayın.",
+    "englishSource": "Measuring this burn's network fee before the amount can be checked."
+  },
+  "usdcxBurnFeeUnavailable": {
+    "message": "Bu yakma işleminin ağ ücretini ölçemediğimiz için tutar kontrol edilemiyor. Tekrar denemek için başka bir hedef seçin.",
+    "englishSource": "Unable to measure this burn's network fee, so the amount cannot be checked. Choose another destination to try again."
   },
   "insufficientFeeAsset": {
     "message": "Ağ ücretini ödemek için USDCX'e ihtiyacınız var. Devam etmek için biraz USDCX alın.",

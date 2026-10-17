@@ -24,6 +24,16 @@
         "stage": "creating-proposal",
         "error": "assertion failed with error code: 9127845879078954504"
       }
+    },
+    "MF3": {
+      "offchain": {
+        "error": "Error: failed to import public account: account",
+        "reason": "is private and its details cannot be retrieved from the network"
+      },
+      "guardian": {
+        "error": "Error: failed to import public account: account",
+        "reason": "is private and its details cannot be retrieved from the network"
+      }
     }
   }
 }
