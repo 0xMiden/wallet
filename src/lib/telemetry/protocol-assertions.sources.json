@@ -1,0 +1,9 @@
+{
+  "sdk": "0.17.3",
+  "crates": {
+    "miden-agglayer": "0.17.1",
+    "miden-core-lib": "0.35.0",
+    "miden-protocol": "0.17.1",
+    "miden-standards": "0.17.1"
+  }
+}

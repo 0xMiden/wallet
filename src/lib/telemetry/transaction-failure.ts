@@ -49,8 +49,10 @@ export type NeverCommittedRule = (typeof NEVER_COMMITTED_RULES)[number];
 export const REPORTED_IDENTITIES = [
   'submit_outcome_unknown',
   'submit_rejected',
-  'kernel_assertion_unknown',
-  'kernel_u32_assertion_unknown',
+  'kernel_assertion_outside_shipped_sources',
+  'kernel_u32_assertion_outside_shipped_sources',
+  'kernel_assertion_without_message',
+  'kernel_u32_assertion_without_message',
   'advice_stack_read_failed',
   'client_terminated',
   'transaction_execution_failed',
@@ -269,9 +271,13 @@ function protocolIdentity(message: string): string | undefined {
   const assertion = ASSERTION_CODE.exec(text)?.[1];
   const code = assertion ?? U32_ASSERTION_CODE.exec(text)?.[1];
   if (code === undefined) return undefined;
-  // Only identities in the shipped public protocol sources survive. Arbitrary numbers can be user data.
+  // Only identities in the MASM sources of the crates the shipped SDK was built from survive
+  // (scripts/generate-protocol-assertions.mjs). Arbitrary numbers can be user data.
   if (Object.prototype.hasOwnProperty.call(assertions, code)) return assertions[code as keyof typeof assertions];
-  return coined(assertion === undefined ? 'kernel_u32_assertion_unknown' : 'kernel_assertion_unknown');
+  const u32 = assertion === undefined;
+  // An assertion written without a message is assembled with code 0.
+  if (code === '0') return coined(u32 ? 'kernel_u32_assertion_without_message' : 'kernel_assertion_without_message');
+  return coined(u32 ? 'kernel_u32_assertion_outside_shipped_sources' : 'kernel_assertion_outside_shipped_sources');
 }
 
 // The pinned SDK's own Display text (miden-client 0.17.3, miden-tx 0.17.1) under web-sdk 0.17.3's "failed to execute
