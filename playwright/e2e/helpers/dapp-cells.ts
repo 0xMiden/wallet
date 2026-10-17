@@ -58,6 +58,8 @@ export interface FailureEvidence {
    */
   nonCurrentReadsOwnOrRefused?: boolean;
   crossOriginWaitServed?: boolean;
+  /** Why the React context `connectReact` returned holds a key that is not a Word, so its `publicKeyHex` is null. */
+  reactPublicKeyError?: string;
   /** N4 listed every imported note by its own note id, then missed one asked by the id its import returned (K10). */
   returnedIdUnlisted?: boolean;
 }
