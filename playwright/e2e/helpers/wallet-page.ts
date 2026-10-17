@@ -1,5 +1,6 @@
 import { expect, test, type Page, type TestInfo } from '@playwright/test';
 
+import { SEPOLIA_NETWORK, selectSendNetwork } from './contact-network';
 import {
   drainFailureReason,
   extendTestTimeoutForDrain,
@@ -2873,7 +2874,7 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     // 2. SelectRecipient: fill the recipient address and confirm.
     await sendFlow.getByTestId('send-recipient-input').fill(params.recipientAddress);
     if (params.recipientAddress.trim().startsWith('0x')) {
-      await this.page.getByTestId('send-network-sepolia').click({ timeout: STEP_TIMEOUT_MS });
+      await selectSendNetwork(this.page, SEPOLIA_NETWORK, STEP_TIMEOUT_MS);
     }
     await sendFlow.getByTestId('send-recipient-confirm').click({ timeout: STEP_TIMEOUT_MS });
 

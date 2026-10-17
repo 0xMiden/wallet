@@ -480,6 +480,18 @@ describe('SendManager rendering', () => {
     expect(useHideNavbarWhileOpenMock).toHaveBeenCalledWith(true);
   });
 
+  it.each([SendFlowStep.SelectAmount, SendFlowStep.Route])(
+    'hides the top home actions on %s and restores them on back',
+    step => {
+      mockCardStack = [{ name: step }];
+      const view = renderFlow();
+      expect(document.body).toHaveAttribute('data-hide-home-actions');
+      mockCardStack = [{ name: SendFlowStep.SelectRecipient }];
+      view.rerender(<SendFlow isLoading={false} />);
+      expect(document.body).not.toHaveAttribute('data-hide-home-actions');
+    }
+  );
+
   it('links the amount step fee shortfall notice to Receive', () => {
     mockCardStack = [{ name: SendFlowStep.SelectAmount }];
     renderFlow();

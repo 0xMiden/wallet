@@ -270,11 +270,12 @@ function outputSymbolFor(route: IBridgeProvider, sourceSymbol: string): string {
 
 /**
  * The route after a token change. Circle's USDC bridges only through xReserve, and no other token
- * can use that route; between ETH and the bridge's own USDC the chosen route stays.
+ * can use that route; a token leaving it goes to AggLayer, since only the retired Epoch USDC confirms
+ * on Fast. Between ETH and the bridge's own USDC the chosen route stays.
  */
 function routeAfterTokenChange(next: DepositToken, current: BridgeRoute): BridgeRoute {
   if (next === 'CIRCLE_USDC') return 'usdcx';
-  if (current === 'usdcx') return 'epoch';
+  if (current === 'usdcx') return 'agglayer';
   return current;
 }
 
@@ -362,16 +363,15 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     setSlowStatus('idle');
     setSlowError(null);
   }, [resetEpoch]);
-  const bridgeConfig = useBridgeConfigSnapshot();
-  const epochUsdcSunset = bridgeConfig.network === 'testnet';
-  const { token, selectToken } = useDepositToken(clearTokenState, epochUsdcSunset ? 'CIRCLE_USDC' : 'USDC');
+  const { token, selectToken } = useDepositToken(clearTokenState, 'CIRCLE_USDC');
   const [tokenDrawerOpen, setTokenDrawerOpen] = useState(false);
   const [networkDrawerOpen, setNetworkDrawerOpen] = useState(false);
   const [switchDrawerOpen, setSwitchDrawerOpen] = useState(false);
-  const [route, setRoute] = useState<BridgeRoute>(epochUsdcSunset ? 'usdcx' : 'epoch');
+  const [route, setRoute] = useState<BridgeRoute>(token === 'CIRCLE_USDC' ? 'usdcx' : 'epoch');
   // The one chain picked in the network drawer. Each route resolves its own chain from it: the picked chain when
   // that chain offers the route, else the first that does.
   const [pickedChainId, setPickedChainId] = useState<number>();
+  const bridgeConfig = useBridgeConfigSnapshot();
   const usdcxSourceNetworks: readonly BridgeNetwork[] = listUsdcxSourceChains().flatMap(entry => {
     const network = getBridgeNetworkByChainId(entry.chain.id);
     return network ? [network] : [];
@@ -452,15 +452,27 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   // A token or chain not named yet while the snapshot loads is a wait, not a failure.
   const usdcPending = evmUsdc === null && bridgeConfig.status === 'loading';
   const agglayerPending = agglayerChainId === undefined && bridgeConfig.status === 'loading';
-  // The document decides the token the screen opens on. A document that names no Epoch USDC but names a USDCx
-  // source (mainnet) opens on Circle USDC, not on a token it does not name. A token the user picked stands.
+  // The config moves the token or route below only on the opening amount step and never under a confirm, so a publish
+  // cannot flip a deposit on its way to, or on, Review. A token the user picked stands.
+  const onAmountStep = activeRoute?.name === ReceiveStep.ShowBridgePageTakeAmount;
+  // A retained legacy engine state may move to Circle when its old source is no longer configured.
+  // New flows already start on Circle.
   useEffect(() => {
-    if (token !== 'USDC' || (!epochUsdcSunset && (tokenChosen.current || usdcPending || usdcxPending))) return;
-    if (!epochUsdcSunset && (evmUsdc !== null || !usdcxAvailable || !usdcxSource)) return;
-    if (confirming.current) return;
+    if (tokenChosen.current || confirming.current || !onAmountStep) return;
+    if (token !== 'USDC' || usdcPending || usdcxPending) return;
+    if (evmUsdc !== null || !usdcxAvailable || !usdcxSource) return;
     selectToken('CIRCLE_USDC');
     setRoute('usdcx');
-  }, [token, usdcPending, usdcxPending, evmUsdc, usdcxAvailable, usdcxSource, selectToken, epochUsdcSunset]);
+  }, [onAmountStep, token, usdcPending, usdcxPending, evmUsdc, usdcxAvailable, usdcxSource, selectToken]);
+  // Circle USDC is the opening token. Where Circle deposits are unavailable (no source, or switched off) the network
+  // may still offer native ETH; never fall back to the retired Epoch test token, even if an older config advertises it.
+  useEffect(() => {
+    if (tokenChosen.current || confirming.current || !onAmountStep) return;
+    if (token !== 'CIRCLE_USDC' || bridgeConfig.status === 'loading' || usdcxPending) return;
+    if ((usdcxSource && usdcxAvailable) || !agglayerChain) return;
+    selectToken('ETH');
+    setRoute('agglayer');
+  }, [onAmountStep, token, bridgeConfig.status, usdcxPending, usdcxSource, usdcxAvailable, agglayerChain, selectToken]);
   // The status page is the one step that leads to no route card these grey out.
   const routesAhead = activeRoute?.name !== ReceiveStep.ShowBridgePageStatus;
   const fastAvailability = useFeatureAvailability('fastBridgeIn', { hold: routesAhead, chainId: evmUsdcChainId });
@@ -517,7 +529,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
 
   useEffect(() => {
     setUsdcBalance(EMPTY_BALANCE);
-    if (usdcPending) return;
+    if (token !== 'USDC' || usdcPending) return;
     let cancelled = false;
 
     const usdcRead = evmUsdc
@@ -541,7 +553,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [evmAddress, evmUsdc, usdcPending]);
+  }, [evmAddress, evmUsdc, usdcPending, token]);
 
   // Circle's USDC on the source chain, the token xReserve takes; the config's Fast USDC pair is not it.
   useEffect(() => {
@@ -649,13 +661,13 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
 
   const handleTokenSelect = useCallback(
     (next: DepositToken) => {
-      if (confirming.current || (epochUsdcSunset && next === 'USDC')) return;
+      if (confirming.current || next === 'USDC') return;
       tokenChosen.current = true;
       setTokenDrawerOpen(false);
       selectToken(next);
       setRoute(current => routeAfterTokenChange(next, current));
     },
-    [selectToken, epochUsdcSunset]
+    [selectToken]
   );
 
   const handleOpenSwitchDrawer = useCallback(() => {
@@ -723,7 +735,6 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   const handleRouteChange = useCallback(
     (next: BridgeRoute) => {
       if (next === route || confirming.current) return;
-      hapticLight();
       setRoute(next);
       setSlowStatus('idle');
       setSlowError(null);
@@ -1216,8 +1227,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   // Null while the balance loads or after its read failed, which the form shows: either way Continue waits.
   const heldUnits = selectedBalance.value;
   const amountExceedsBalance = typedUnits !== null && heldUnits !== null && typedUnits > heldUnits;
-  const retiredTokenSelected = epochUsdcSunset && token === 'USDC';
-  const setupReady = !retiredTokenSelected && typedUnits !== null && heldUnits !== null && !amountExceedsBalance;
+  const setupReady = typedUnits !== null && heldUnits !== null && !amountExceedsBalance;
 
   // Fast (Epoch) only bridges USDC today: ETH-fast needs WETH wrapping, which is not built.
   // The quote must be for the amount on screen: it lags the input by the debounce, and
@@ -1291,7 +1301,6 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     !usdcxFeeShortfall &&
     slowStatus !== 'signing';
   const canConfirmRoute = (() => {
-    if (retiredTokenSelected) return false;
     switch (route) {
       case 'epoch':
         return fastReady;
@@ -1404,7 +1413,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   // error) so the Review isn't a dead-end — handleConfirm re-quotes to recover.
   const fastRetryable =
     route === 'epoch' && token === 'USDC' && epochFlow === 'evm-to-miden' && epochStatus === 'failed';
-  const reviewCanConfirm = !retiredTokenSelected && (canConfirmRoute || fastRetryable) && !submitting && !submitted;
+  const reviewCanConfirm = (canConfirmRoute || fastRetryable) && !submitting && !submitted;
   // Relabel Confirm → Retry after a failed Fast attempt (the tap re-quotes).
   const reviewConfirmLabel = fastRetryable ? t('retry') : undefined;
 
@@ -1432,7 +1441,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
 
   const handleConfirm = useCallback(async () => {
     // A tap that lands once a row exists (Review is still on screen while the Navigator leaves it) changes nothing.
-    if (confirming.current || retiredTokenSelected) return;
+    if (confirming.current) return;
     // Fast (Epoch): after a failed attempt the store is 'failed' and
     // executeEVMToMiden requires 'quoted', so re-quote to recover instead of
     // dead-ending until the amount changes. Once re-quoted, the next tap submits.
@@ -1539,7 +1548,6 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     navigateTo,
     outputAmount,
     reportDeposit,
-    retiredTokenSelected,
     requote,
     route,
     sourceChainId,
@@ -1570,6 +1578,8 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
               outputAmount={formatMoneyAmount(outputAmount, 'typed')}
               fee={usdcxQuotedFee}
               networkName={networkName}
+              networkId={bridgeNetwork?.id}
+              destinationName={midenAccount.name}
               sourceChainId={sourceChainId}
               youReceiveLoading={route === 'epoch' && epochStatus === 'quoting'}
               isSubmitting={submitting}
@@ -1604,6 +1614,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
           }
           return (
             <RouteStep
+              accent="receive"
               route={route}
               onRouteChange={handleRouteChange}
               fastFeeUsd={fastFeeUsd}
@@ -1623,6 +1634,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
               network={bridgeNetwork}
               tokenLabel={tokenLabel}
               arrivingName={arrivingName}
+              destinationName={midenAccount.name}
               amount={amount}
               isValidAmount={setupReady}
               error={
@@ -1647,6 +1659,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       reviewAmount,
       error,
       evmAddress,
+      midenAccount.name,
       epochStatus,
       fastAvailability,
       fastFeeUsd,
@@ -1697,7 +1710,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       <NetworkModeBanner />
       {activeRoute?.name !== ReceiveStep.ShowBridgePageStatus && (
         <div className="shrink-0 px-4">
-          <PageHeader title={t('midenBridge')} onBack={handleHeaderBack} />
+          <PageHeader title={t('bridgeInTitle')} onBack={handleHeaderBack} />
         </div>
       )}
       <NetworkNamedByShell>
@@ -1707,13 +1720,9 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         open={tokenDrawerOpen}
         onOpenChange={setTokenDrawerOpen}
         selected={token}
-        // A token is offered only where the document names a route for it: ETH needs an AggLayer chain, the Epoch
-        // test USDC needs `epoch.tokens.USDC`. A mainnet document names neither, so Circle's USDC is the one row.
+        // New deposits offer Circle USDC and configured native ETH, never the retired Epoch test token.
         ethBalance={agglayerChain ? ethBalance.formatted : undefined}
-        usdcBalance={!epochUsdcSunset && evmUsdc ? usdcBalance.formatted : undefined}
-        usdcLabel={usdcLabel}
         ethLoading={ethBalance.loading}
-        usdcLoading={usdcBalance.loading}
         circleUsdcBalance={usdcxAvailable ? circleUsdcBalance.formatted : undefined}
         circleUsdcLabel={CIRCLE_USDC_SYMBOL}
         circleUsdcLoading={circleUsdcBalance.loading}

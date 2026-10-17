@@ -25,6 +25,13 @@ import { EvmBridgeDepositScreen } from './EvmBridgeDepositScreen';
 // of the bridge itself.
 
 // The key, then any values it names, so a case can read which balance, token and network a message was given.
+// This suite exercises the retained legacy Epoch engine and its in-flight submission guards.
+// New deposit UI seeds Circle USDC instead and rejects selecting the retired test token.
+jest.mock('./useDepositToken', () => ({
+  useDepositToken: (onChange: () => void) =>
+    jest.requireActual<typeof import('./useDepositToken')>('./useDepositToken').useDepositToken(onChange, 'USDC')
+}));
+
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, values?: Record<string, unknown>) => (values ? `${key} ${JSON.stringify(values)}` : key)
@@ -383,31 +390,13 @@ jest.mock('lib/remote-config/runtime', () =>
 );
 
 jest.mock('./EvmBridgeTokenDrawer', () => ({
-  EvmBridgeTokenDrawer: ({
-    open,
-    onSelect,
-    usdcBalance,
-    usdcLabel,
-    usdcLoading
-  }: {
-    open: boolean;
-    onSelect: (token: string) => void;
-    usdcBalance: string;
-    usdcLabel: string;
-    usdcLoading: boolean;
-  }) => {
+  EvmBridgeTokenDrawer: ({ open, onSelect }: { open: boolean; onSelect: (token: string) => void }) => {
     mockLastTokenSelect = onSelect;
-    return (
-      <div>
-        <span data-testid="usdc-label">{usdcLabel}</span>
-        <span data-testid="usdc-balance">{usdcLoading ? 'loading' : usdcBalance}</span>
-        {open ? (
-          <button data-testid="pick-eth" onClick={() => onSelect('ETH')}>
-            ETH
-          </button>
-        ) : null}
-      </div>
-    );
+    return open ? (
+      <button data-testid="pick-eth" onClick={() => onSelect('ETH')}>
+        ETH
+      </button>
+    ) : null;
   }
 }));
 
@@ -641,19 +630,19 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
     expect(initiateBridgedReceiveTransaction).toHaveBeenCalledTimes(1);
   });
 
-  it('names the USDC row USDC while no bridge config is loaded', () => {
+  it('names the USDC token USDC while no bridge config is loaded', () => {
     mockSnapshot = { status: 'loading', config: null, lastFetch: null };
     renderScreen();
 
-    expect(screen.getByTestId('usdc-label')).toHaveTextContent(/^USDC$/);
+    expect(screen.getByTestId('form-token')).toHaveTextContent(/^USDC$/);
   });
 
-  it('names the USDC row by the testnet label once the config names the token', () => {
+  it('names the USDC token by the testnet label once the config names the token', () => {
     mockSnapshot = TESTNET_SNAPSHOT;
     mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
     renderScreen();
 
-    expect(screen.getByTestId('usdc-label')).toHaveTextContent('Test Epoch USDC');
+    expect(screen.getByTestId('form-token')).toHaveTextContent('Test Epoch USDC');
   });
 
   it('names the configured USDC by the testnet label on the Review', async () => {
@@ -666,16 +655,16 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
     expect(await screen.findByTestId('review-label')).toHaveTextContent('Test Epoch USDC');
   });
 
-  // Off testnet no label applies, so the drawer row must carry the symbol the token read gave, as the Review does.
-  it('names the USDC on the drawer row as the Review does, off testnet too', async () => {
+  // Off testnet no label applies, so the amount step must carry the symbol the token read gave, as the Review does.
+  it('names the USDC on the amount step as the Review does, off testnet too', async () => {
     mockTestNetwork = 'devnet';
     mockEvmUsdcSymbol = 'USDC.e';
     renderScreen();
+    expect(screen.getByTestId('form-token')).toHaveTextContent(/^USDC\.e$/);
 
     await reachSlowUsdcReview();
 
     expect(await screen.findByTestId('review-label')).toHaveTextContent(/^USDC\.e$/);
-    expect(screen.getByTestId('usdc-label')).toHaveTextContent(/^USDC\.e$/);
   });
 
   it('keeps ETH on its symbol on the Review on testnet', async () => {
@@ -820,7 +809,7 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
     const reads = jest.mocked(global.fetch).mock.calls.length;
 
     act(() => publishSnapshot({ ...mockSnapshot, lastFetch: { at: 1, ok: true } }));
-    expect(screen.getByTestId('usdc-balance')).not.toHaveTextContent('loading');
+    expect(screen.getByTestId('form-balance')).not.toHaveTextContent('loading');
     await settle();
 
     expect(quoteEVMToMiden).toHaveBeenCalledTimes(1);
@@ -1262,7 +1251,7 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
     renderScreen();
     await settle();
 
-    expect(screen.getByTestId('usdc-balance')).toHaveTextContent('loading');
+    expect(screen.getByTestId('form-balance')).toHaveTextContent('loading');
     expect(screen.getByTestId('form-error')).toBeEmptyDOMElement();
   });
 

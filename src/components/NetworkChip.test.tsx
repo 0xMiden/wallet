@@ -23,27 +23,15 @@ describe('NetworkChip', () => {
 
     expect(chip.tagName).toBe('BUTTON');
     expect(chip).toHaveAttribute('aria-pressed', 'true');
-    // Selected deepens the border to the network's own text color; the tint stays the network's.
-    expect(chip).toHaveClass('border-network-ethereum-text', 'bg-network-ethereum-tint');
-    // Pill's own `border-transparent` default must not survive alongside the network's border
-    // color — a Tailwind-merge regression let the compiled (alphabetical) order pick
-    // `border-transparent` over this class regardless of which one NetworkChip passed last.
-    expect(chip).not.toHaveClass('border-transparent');
-    expect(chip.querySelector('.bg-\\[\\#627EEA\\]')).not.toBeNull();
+    expect(chip).toHaveClass('rounded-xl', 'bg-fill-pressed', 'min-h-11');
+    expect(chip).not.toHaveClass('bg-network-ethereum-tint');
     expect(onClick).toHaveBeenCalledTimes(1);
   });
 });
 
-it('tints each network in its own colors', () => {
+it('uses one neutral network tag treatment for both network families', () => {
   const { rerender } = render(<NetworkChip kind="miden" label="Miden" data-testid="chip" />);
-  expect(screen.getByTestId('chip')).toHaveClass(
-    'bg-network-miden-tint',
-    'text-network-miden-text',
-    'border-network-miden-border'
-  );
-  expect(screen.getByTestId('chip')).not.toHaveClass('border-transparent');
-
+  expect(screen.getByTestId('chip')).toHaveClass('bg-fill', 'text-ink', 'rounded-xl', 'border-transparent');
   rerender(<NetworkChip kind="ethereum" label="Sepolia" data-testid="chip" />);
-  expect(screen.getByTestId('chip')).toHaveClass('bg-network-ethereum-tint', 'border-network-ethereum-border');
-  expect(screen.getByTestId('chip')).not.toHaveClass('border-transparent');
+  expect(screen.getByTestId('chip')).toHaveClass('bg-fill', 'text-ink', 'rounded-xl', 'border-transparent');
 });

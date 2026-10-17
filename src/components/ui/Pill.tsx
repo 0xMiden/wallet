@@ -71,6 +71,8 @@ export type PillProps = PillBehaviourProps & {
   trailingIcon?: React.ReactNode;
   size?: PillSize;
   tone?: PillTone;
+  /** Soft corners for network tags; other pills retain their capsule shape. */
+  shape?: 'capsule' | 'rounded';
   /**
    * Which haptic the tap fires: `'light'` (default) for an ordinary action, or `false` to fire
    * none and let the caller manage it. A single choice in a row is a `SegmentedControl`, which
@@ -89,8 +91,9 @@ export type PillProps = PillBehaviourProps & {
 };
 
 // Literal class strings, so Tailwind generates them.
-const pillVariants = cva('relative inline-flex max-w-full items-center rounded-full border', {
+const pillVariants = cva('relative inline-flex max-w-full items-center border', {
   variants: {
+    shape: { capsule: 'rounded-full', rounded: 'rounded-xl' },
     size: {
       // Semibold: at 20px the bold face reads heavier than the row title beside it.
       xs: 'h-5 gap-1 px-2 text-badge font-semibold',
@@ -118,7 +121,7 @@ const pillVariants = cva('relative inline-flex max-w-full items-center rounded-f
       inverse: 'border-transparent bg-surface-balance-pill text-surface-balance-fg'
     } satisfies Record<PillTone, string>
   },
-  defaultVariants: { size: 'md', tone: 'neutral' }
+  defaultVariants: { size: 'md', tone: 'neutral', shape: 'capsule' }
 });
 
 /**
@@ -170,6 +173,7 @@ export const Pill: React.FC<PillProps> = ({
   trailingIcon,
   size = 'md',
   tone = 'neutral',
+  shape = 'capsule',
   onClick,
   haptic = 'light',
   selected,
@@ -187,7 +191,7 @@ export const Pill: React.FC<PillProps> = ({
   // by utility name) can then pick the tone default over the caller's class regardless of
   // argument order, e.g. `border-network-miden-border` losing to `border-transparent`.
   const classes = cn(
-    pillVariants({ size, tone }),
+    pillVariants({ size, tone, shape }),
     onClick && !disabled && 'cursor-pointer',
     disabled && 'opacity-50',
     className

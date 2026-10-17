@@ -656,9 +656,139 @@
     "message": "Konto erstellen",
     "englishSource": "Create Account"
   },
+  "me": {
+    "message": "Ich",
+    "englishSource": "Me"
+  },
+  "profile": {
+    "message": "Profil",
+    "englishSource": "Profile"
+  },
   "settings": {
     "message": "Einstellungen",
     "englishSource": "Settings"
+  },
+  "myBadges": {
+    "message": "Meine Abzeichen",
+    "englishSource": "My badges"
+  },
+  "openMyBadges": {
+    "message": "Meine Abzeichen öffnen",
+    "englishSource": "Open My badges"
+  },
+  "badgesEarnedCount": {
+    "message": "$earned$ von $total$ erhalten",
+    "englishSource": "$earned$ of $total$ earned",
+    "placeholders": {
+      "earned": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      }
+    }
+  },
+  "badgesProfileDescription": {
+    "message": "Private Meilensteine deiner Mainnet-Aktivität",
+    "englishSource": "Private milestones from your Mainnet activity"
+  },
+  "badgesCollectionDescription": {
+    "message": "Die privaten Meilensteine deiner Wallet.",
+    "englishSource": "Your private wallet milestones."
+  },
+  "badgeCollection": {
+    "message": "Abzeichensammlung",
+    "englishSource": "Badge collection"
+  },
+  "mainnetOnly": {
+    "message": "Nur im Mainnet",
+    "englishSource": "Mainnet only"
+  },
+  "badgesMainnetNoticeTitle": {
+    "message": "Abzeichen werden im Mainnet freigeschaltet",
+    "englishSource": "Badges unlock on Mainnet"
+  },
+  "badgesMainnetNoticeDescription": {
+    "message": "Abzeichen werden im Mainnet freigeschaltet. Testaktivitäten zählen nicht.",
+    "englishSource": "Badges unlock on Mainnet. Test activity does not count."
+  },
+  "badgeEarnedLabel": {
+    "message": "$badge$, erhalten",
+    "englishSource": "$badge$, earned",
+    "placeholders": {
+      "badge": {
+        "content": "$1"
+      }
+    }
+  },
+  "badgeLockedLabel": {
+    "message": "$badge$, gesperrt",
+    "englishSource": "$badge$, locked",
+    "placeholders": {
+      "badge": {
+        "content": "$1"
+      }
+    }
+  },
+  "locked": {
+    "message": "Gesperrt",
+    "englishSource": "Locked"
+  },
+  "badgeEarned": {
+    "message": "Erhalten",
+    "englishSource": "Earned"
+  },
+  "badgeVerificationPending": {
+    "message": "Noch nicht verfügbar",
+    "englishSource": "Not available yet"
+  },
+  "badgeFirstDeposit": {
+    "message": "Erste Einzahlung",
+    "englishSource": "First Deposit"
+  },
+  "badgeFirstDepositDescription": {
+    "message": "Füge Guthaben hinzu und warte, bis es verfügbar ist.",
+    "englishSource": "Add funds and wait for them to become spendable."
+  },
+  "badgeFirstReceive": {
+    "message": "Erster Empfang",
+    "englishSource": "First Receive"
+  },
+  "badgeFirstReceiveDescription": {
+    "message": "Akzeptiere und beanspruche eine Überweisung an dieses Konto.",
+    "englishSource": "Accept and claim a transfer to this account."
+  },
+  "badgeFirstSend": {
+    "message": "Erster Versand",
+    "englishSource": "First Send"
+  },
+  "badgeFirstSendDescription": {
+    "message": "Bestätige eine ausgehende Miden-Überweisung.",
+    "englishSource": "Confirm an outgoing Miden transfer."
+  },
+  "badgeFirstSwap": {
+    "message": "Erster Tausch",
+    "englishSource": "First Swap"
+  },
+  "badgeFirstSwapDescription": {
+    "message": "Schließe einen Tausch ab und erhalte verfügbares Guthaben.",
+    "englishSource": "Complete a swap and receive spendable output."
+  },
+  "badgeRecoveryChecked": {
+    "message": "Wiederherstellung geprüft",
+    "englishSource": "Recovery Checked"
+  },
+  "badgeRecoveryCheckedDescription": {
+    "message": "Überprüfe das Wiederherstellungs-Backup dieses Kontos.",
+    "englishSource": "Verify this account's recovery backup."
+  },
+  "badgeMiniappExplorer": {
+    "message": "Mini-App-Entdecker",
+    "englishSource": "Miniapp Explorer"
+  },
+  "badgeMiniappExplorerDescription": {
+    "message": "Schließe eine unterstützte Mini-App-Aktivität ab.",
+    "englishSource": "Complete a supported mini app experience."
   },
   "authorizedDApps": {
     "message": "Zugelassene DApps",
@@ -1812,14 +1942,97 @@
     "message": "Bewertung",
     "englishSource": "Rate"
   },
-  "swapSolverFeeNote": {
-    "message": "In Ihrem Auszahlungsbetrag ist die Gebühr für den „$percent$“-Solver bereits enthalten.",
-    "englishSource": "Your receive amount already includes a $percent$ solver fee.",
+  "swapRateNote": {
+    "message": "Der Kurs ist der Höchstkurs, zu dem der Solver derzeit ausführt, wobei die Gebühr von $fee$ bereits darin enthalten ist. Ihr Erhaltbetrag entspricht diesem Kurs abzüglich Ihrer Slippage von $slippage$.",
+    "englishSource": "The rate is the most the solver fills at right now, with its $fee$ fee already in it. Your receive amount is that rate less your $slippage$ slippage.",
     "placeholders": {
-      "percent": {
+      "fee": {
         "content": "$1"
+      },
+      "slippage": {
+        "content": "$2"
       }
     }
+  },
+  "swapFillStatus": {
+    "message": "Ausführen",
+    "englishSource": "Fill"
+  },
+  "swapVerdictSettlementDelayed": {
+    "message": "Die Abwicklung verzögert sich. Ihre Order wird zurückgestellt.",
+    "englishSource": "Settlement delayed. Your order will wait."
+  },
+  "swapVerdictNoMarket": {
+    "message": "Dieses Paar wird nicht gehandelt.",
+    "englishSource": "This pair isn't traded."
+  },
+  "swapVerdictNoPrice": {
+    "message": "Preise sind derzeit nicht verfügbar. Bitte versuchen Sie es in Kürze erneut.",
+    "englishSource": "Prices are unavailable right now. Try again shortly."
+  },
+  "swapVerdictOffMarket": {
+    "message": "Der Kurs hat sich bewegt. Aktualisieren Sie die Kursnotierung.",
+    "englishSource": "The price moved. Refresh the quote."
+  },
+  "swapVerdictNoLiquidity": {
+    "message": "Derzeit gibt es nicht genügend Aufträge zum aktuellen Kurs.",
+    "englishSource": "Not enough orders at the current price right now."
+  },
+  "swapVerdictTolerated": {
+    "message": "Kann länger dauern: Die Ausführung erfolgt, wenn sich der Kurs leicht bewegt.",
+    "englishSource": "May take longer: fills when the price moves slightly."
+  },
+  "swapVerdictPartial": {
+    "message": "Derzeit wird nur ein Teil dieser Order ausgeführt; der Rest bleibt in der Warteschlange.",
+    "englishSource": "Only part of this order fills now; the rest waits."
+  },
+  "swapVerdictFull": {
+    "message": "Ausführung zum aktuellen Kurs.",
+    "englishSource": "Fills at the current price."
+  },
+  "swapVerdictExpected": {
+    "message": "Sie erhalten etwa $amount$ $symbol$.",
+    "englishSource": "You receive about $amount$ $symbol$.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "swapSlippage": {
+    "message": "Slippage",
+    "englishSource": "Slippage"
+  },
+  "percentSign": {
+    "message": "%",
+    "englishSource": "%"
+  },
+  "swapSlippageNote": {
+    "message": "Wie weit unter dem aktuellen Kurs Ihre Order ausgeführt werden kann. Im Testnetz wird eine Order, die etwa 0,25 % über dem Kurs liegt, nicht ausgeführt.",
+    "englishSource": "How far below the current rate your order may fill. On testnet an order above about 0.25% does not fill."
+  },
+  "swapSlippageEditedNote": {
+    "message": "Sie legen den Empfangsbetrag selbst fest, daher gilt für diesen Auftrag kein Slippage.",
+    "englishSource": "You set the receive amount yourself, so slippage does not apply to this order."
+  },
+  "swapSlippageRange": {
+    "message": "Geben Sie einen Prozentsatz zwischen $min$ und $max$ mit bis zu zwei Dezimalstellen ein.",
+    "englishSource": "Enter a percent from $min$ to $max$ with up to two decimals.",
+    "placeholders": {
+      "min": {
+        "content": "$1"
+      },
+      "max": {
+        "content": "$2"
+      }
+    }
+  },
+  "swapPriceMoved": {
+    "message": "Der Kurs hat sich verändert. Überprüfen Sie den neuen Betrag und versuchen Sie es erneut.",
+    "englishSource": "The price moved. Check the new amount and try again."
   },
   "usuallyFillsIn": {
     "message": "Wird normalerweise ausgefüllt",
@@ -4553,6 +4766,41 @@
     "message": "In diesen Swap gebündelte Ausführungen",
     "englishSource": "Fills bundled into this swap"
   },
+  "swapActivityTitle": {
+    "message": "Swap-Aktivitäten",
+    "englishSource": "Swap activity"
+  },
+  "swapReclaiming": {
+    "message": "Rückgabe von Geldern",
+    "englishSource": "Returning funds"
+  },
+  "swapReturnedAt": {
+    "message": "Zurückgegeben · $time$",
+    "englishSource": "Returned · $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapPlacedAt": {
+    "message": "Platziert um $time$",
+    "englishSource": "Placed $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapOfferedAmount": {
+    "message": "Angeboten: $amount$",
+    "englishSource": "Offered $amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
   "swapFillNote": {
     "message": "Ausführung $number$",
     "englishSource": "Fill $number$",
@@ -6464,5 +6712,113 @@
   "breadPresentationError": {
     "message": "Diese App wurde nicht vollständig geladen. Versuche es erneut oder kehre zu Bread zurück.",
     "englishSource": "This app did not finish loading. Try again or return to Bread."
+  },
+  "bridgeInTitle": {
+    "message": "Bridge in",
+    "englishSource": "Bridge in"
+  },
+  "bridgeConnectWalletTitle": {
+    "message": "Verbinden Sie Ihre Wallet",
+    "englishSource": "Connect your wallet"
+  },
+  "bridgeConnectWalletBody": {
+    "message": "Verbinden Sie die Wallet, in der sich die Token befinden, die Sie zu Miden übertragen möchten.",
+    "englishSource": "Connect the wallet holding the tokens you want to bring to Miden."
+  },
+  "bridgeConnectWalletAction": {
+    "message": "Wallet verbinden",
+    "englishSource": "Connect wallet"
+  },
+  "bridgeConnectSource": {
+    "message": "Externe Wallet",
+    "englishSource": "External wallet"
+  },
+  "bridgeConnectSourceHint": {
+    "message": "Noch nicht verbunden",
+    "englishSource": "Not connected yet"
+  },
+  "bridgeConnectNextTitle": {
+    "message": "Nach dem Verbinden",
+    "englishSource": "After connecting"
+  },
+  "bridgeConnectChooseTitle": {
+    "message": "Wählen Sie Ihre Überweisung",
+    "englishSource": "Choose your transfer"
+  },
+  "bridgeConnectChooseBody": {
+    "message": "Wählen Sie einen Token, ein Quellnetzwerk und einen Betrag aus.",
+    "englishSource": "Pick a token, source network and amount."
+  },
+  "bridgeConnectApproveTitle": {
+    "message": "Prüfen und genehmigen",
+    "englishSource": "Review and approve"
+  },
+  "bridgeConnectApproveBody": {
+    "message": "Überprüfen Sie die Route und die Gebühren und genehmigen Sie dann die Überweisung in Ihrer Wallet.",
+    "englishSource": "Check the route and fees, then approve the transfer in your wallet."
+  },
+  "bridgeConnectTestWalletBody": {
+    "message": "Verwenden Sie eine separate Wallet, die ausschließlich Test-Token enthält. Verbinden Sie niemals eine Wallet, die echtes Guthaben enthält.",
+    "englishSource": "Use a separate wallet with test tokens only. Never connect a wallet holding real funds."
+  },
+  "bridgeChooseRoute": {
+    "message": "Wählen Sie eine Route",
+    "englishSource": "Choose a route"
+  },
+  "bridgeRouteDescription": {
+    "message": "Überprüfen Sie die Gebühr und die voraussichtliche Ankunftszeit, bevor Sie fortfahren.",
+    "englishSource": "Review the fee and estimated arrival before you continue."
+  },
+  "bridgeArrivalEstimate": {
+    "message": "Voraussichtliche Ankunft",
+    "englishSource": "Estimated arrival"
+  },
+  "bridgePayoutTiming": {
+    "message": "Die Ankunft hängt vom Zielnetzwerk ab",
+    "englishSource": "Arrival depends on the destination network"
+  },
+  "bridgeSourceWallet": {
+    "message": "Wallet",
+    "englishSource": "Wallet"
+  },
+  "bridgeRouteFee": {
+    "message": "Brückengebühr",
+    "englishSource": "Bridge fee"
+  },
+  "bridgeRankBestValue": {
+    "message": "Best Value",
+    "englishSource": "Best value"
+  },
+  "bridgeRankCheapest": {
+    "message": "Günstigster",
+    "englishSource": "Cheapest"
+  },
+  "bridgeRankFastest": {
+    "message": "Am schnellsten",
+    "englishSource": "Fastest"
+  },
+  "bridgeRouteSort": {
+    "message": "Routen sortieren",
+    "englishSource": "Sort routes"
+  },
+  "bridgeRouteProviders": {
+    "message": "Bridge-Anbieter",
+    "englishSource": "Bridge providers"
+  },
+  "bridgeRankValueDescription": {
+    "message": "Der Großteil wird nach Abzug der Anbietergebühren ausgezahlt.",
+    "englishSource": "Most received after provider fees."
+  },
+  "bridgeRankCostDescription": {
+    "message": "Niedrigste Bridge- und Netzwerkkosten, einschließlich Gas.",
+    "englishSource": "Lowest bridge and network cost, including gas."
+  },
+  "bridgeRankTimeDescription": {
+    "message": "Kürzeste voraussichtliche Ankunftszeit.",
+    "englishSource": "Shortest estimated arrival time."
+  },
+  "bridgeEstimatedCost": {
+    "message": "Geschätzte Kosten",
+    "englishSource": "Est. cost"
   }
 }

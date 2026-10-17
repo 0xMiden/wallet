@@ -9,7 +9,7 @@ import type { DepositToken } from './EvmBridgeTokenDrawer';
  */
 export function useDepositToken(
   onChange: () => void,
-  initialToken: DepositToken = 'USDC'
+  initialToken: DepositToken = 'CIRCLE_USDC'
 ): {
   token: DepositToken;
   selectToken: (next: DepositToken) => void;

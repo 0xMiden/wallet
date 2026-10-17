@@ -92,6 +92,8 @@ let swLockHold: object | null = null;
 const evictSwLockHold = () => {
   swLockHold = null;
 };
+// Evicts the running hold as the watchdog does: the caller is rejected at once while the abandoned callback runs on.
+let watchdogEvictSwLockHold: (() => void) | null = null;
 // Overridable so a test can evict the hold from INSIDE the client build, which on the
 // inline path is the long await the read's liveness guard exists for.
 const mockGetMidenClient = jest.fn(async () => mockClient);
@@ -101,13 +103,29 @@ jest.mock('../sdk/miden-client', () => ({
     lockOptionsSeen.push(options);
     const hold = {};
     swLockHold = hold;
+    const evicted = new Promise<never>((_resolve, reject) => {
+      watchdogEvictSwLockHold = () => {
+        swLockHold = null;
+        const { WasmClientPoisonedError: PoisonError } = jest.requireActual('../sdk/wasm-client-poison');
+        reject(new PoisonError('watchdog'));
+      };
+    });
     try {
-      return await fn(hold);
+      const running = fn(hold);
+      running.catch(() => {});
+      return await Promise.race([running, evicted]);
     } finally {
+      watchdogEvictSwLockHold = null;
       if (swLockHold === hold) swLockHold = null;
     }
   },
   getCurrentWasmLockHold: () => swLockHold,
+  // The swap classification re-checks its hold per lineage read, the way production does.
+  assertWasmHoldCurrent: (hold: object, where: string, step?: string): void => {
+    if (hold === swLockHold) return;
+    const { WasmClientPoisonedError: PoisonError } = jest.requireActual('../sdk/wasm-client-poison');
+    throw new PoisonError('watchdog', new Error(`operation abandoned ${where}${step ? `, ${step}` : ''}`));
+  },
   runWhenClientIdle: () => {}
 }));
 
@@ -189,8 +207,11 @@ jest.mock('../assets', () => ({
 
 const mockInitiateConsume = jest.fn((..._args: any[]) => Promise.resolve('consume-tx'));
 const mockInitiateConsumeBatch = jest.fn((..._args: any[]) => Promise.resolve('consume-batch-tx'));
+const mockInitiatePswapReclaim = jest.fn((..._args: any[]) => Promise.resolve('reclaim-tx'));
 jest.mock('../transaction/initiate', () => ({
   initiateConsumeNotesTransaction: (...a: any[]) => mockInitiateConsumeBatch(...a),
+  initiatePswapReclaimTransaction: (...a: any[]) => mockInitiatePswapReclaim(...a),
+  noteClaimCoverage: async () => ({ rows: [] }),
   // Lazy wrapper (not a direct ref): a direct `mockInitiateConsume` here hits a
   // temporal-dead-zone error because requireActual('../assets') transitively loads this
   // mocked module before the const is initialized. The native pass consumes per-note via
@@ -219,6 +240,28 @@ jest.mock('../transaction/trim-result-bytes', () => ({
   runTrimTick: () => mockTrimResultBytes()
 }));
 
+// The real settlement, recording what the lap hands it: the lap must pass the classification's own clock and
+// prepared reclaims on to the reconcile, or the zero-fill reclaim never reaches the queue.
+const mockSettlementSeen: { classify: Array<{ args: unknown[]; result: any }>; reconcile: unknown[][] } = {
+  classify: [],
+  reconcile: []
+};
+jest.mock('../swap/settlement', () => {
+  const actual = jest.requireActual('../swap/settlement');
+  return {
+    ...actual,
+    classifySwapSettlementSnapshot: async (...args: unknown[]) => {
+      const result = await actual.classifySwapSettlementSnapshot(...args);
+      mockSettlementSeen.classify.push({ args, result });
+      return result;
+    },
+    reconcileSwapOrderNotes: (...args: unknown[]) => {
+      mockSettlementSeen.reconcile.push(args);
+      return actual.reconcileSwapOrderNotes(...args);
+    }
+  };
+});
+
 // ── Imports under test ─────────────────────────────────────────────
 
 import * as Repo from 'lib/miden/repo';
@@ -231,6 +274,7 @@ import { SyncData, WalletMessageType } from 'lib/shared/types';
 
 import { computeSyncBackoffMs, doSync, setupSyncManager } from './sync-manager';
 import { ITransaction, ITransactionStatus } from '../db/types';
+import { __resetSyncFuseStateForTests, isSyncFused, noteSyncWatchdogEviction } from '../front/sync-fuse';
 import { WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 // Helper: build a fake consumable note WASM record
@@ -339,6 +383,7 @@ describe('doSync', () => {
   it('reads notes and vault assets, enriches with metadata, and writes to chrome.storage', async () => {
     mockClient.getConsumableNoteDtos.mockResolvedValueOnce([fakeNote({ id: 'n1', faucetId: 'f1' })]);
     mockClient.getAccount.mockResolvedValueOnce({
+      nonce: () => ({ asInt: () => 5n }),
       vault: () => ({
         fungibleAssets: () => [
           {
@@ -361,7 +406,10 @@ describe('doSync', () => {
     expect(mockStorageSet).toHaveBeenCalledWith(
       expect.objectContaining({
         miden_cached_consumable_notes: expect.any(Array),
-        miden_sync_data: expect.objectContaining({ accountPublicKey: 'pk-1' })
+        miden_sync_data: expect.objectContaining({
+          accountPublicKey: 'pk-1',
+          balanceSnapshot: { network: 'testnet', accountNonce: '5' }
+        })
       })
     );
     // The faucet's name and description go to the frontend with the sync data.
@@ -1080,6 +1128,25 @@ describe('doSync — note metadata branches', () => {
     ]);
   });
 
+  it('carries whether each note holds more assets than the one it lists', async () => {
+    mockClient.getConsumableNoteDtos.mockResolvedValueOnce([
+      {
+        ...fakeNote({ id: 'multi' }),
+        assets: [
+          { faucetId: 'faucet-1', amount: '100' },
+          { faucetId: 'faucet-2', amount: '5' }
+        ]
+      },
+      fakeNote({ id: 'single' })
+    ]);
+    await doSync();
+    const written: SyncData = mockStorageSet.mock.calls.at(-1)?.[0]?.miden_sync_data;
+    expect(written.notes.map(note => [note.id, note.carriesMoreAssets])).toEqual([
+      ['multi', true],
+      ['single', undefined]
+    ]);
+  });
+
   it('stamps each sync it writes, so readers can tell a live result from an old snapshot', async () => {
     mockClient.getConsumableNoteDtos.mockResolvedValueOnce([]);
     const before = Date.now();
@@ -1730,6 +1797,214 @@ describe('doSync — native-note auto-consume', () => {
 
     await expect(doSync()).resolves.toBeUndefined();
     expect(mockInitiateConsumeBatch).toHaveBeenCalled(); // the rejecting path WAS exercised
+  });
+});
+
+describe('doSync - zero-fill swap reclaim', () => {
+  const reclaimBytes = new Uint8Array([7, 4, 7, 6]);
+  const zeroFillLineage = {
+    orderId: () => '77',
+    currentTipNoteId: () => 'zero-fill-tip',
+    currentDepth: () => 0,
+    state: () => 0,
+    remainingOffered: () => 50n,
+    remainingRequested: () => 50n
+  };
+  const zeroFillOrderRow: ITransaction = {
+    id: 'swap-1',
+    accountId: 'pk-1',
+    type: 'swap',
+    status: ITransactionStatus.Completed,
+    initiatedAt: 1,
+    completedAt: 2,
+    displayIcon: 'SWAP',
+    faucetId: 'offer',
+    amount: 50n,
+    outputNoteIds: ['zero-fill-tip'],
+    extraInputs: { requestedFaucetId: 'requested', requestedAmount: 50n, orderId: '77', expiresAt: 220 }
+  };
+
+  it('queues the reclaim of an expired zero-fill order with the request and clock its classification used', async () => {
+    mockSettlementSeen.classify.length = 0;
+    mockSettlementSeen.reconcile.length = 0;
+    const buildPswapCancelRequest = jest.fn(async () => reclaimBytes);
+    const realmClient = {
+      ...mockClient,
+      client: { pswap: { lineages: async () => [zeroFillLineage] } },
+      buildPswapCancelRequest
+    };
+    mockGetMidenClient.mockImplementation(async () => realmClient);
+    await Repo.transactions.put(zeroFillOrderRow);
+    try {
+      await doSync();
+
+      expect(buildPswapCancelRequest).toHaveBeenCalledWith('pk-1', 'zero-fill-tip', expect.any(Function));
+      expect(mockInitiatePswapReclaim).toHaveBeenCalledWith(
+        'pk-1',
+        expect.objectContaining({ id: 'zero-fill-tip' }),
+        reclaimBytes,
+        'swap-1',
+        undefined
+      );
+      const [classified] = mockSettlementSeen.classify;
+      const [reconciled] = mockSettlementSeen.reconcile;
+      const clock = classified!.args[4];
+      expect(clock).toEqual(expect.any(Number));
+      expect(reconciled![3]).toBe(clock);
+      expect(reconciled![5]).toBe(classified!.result.zeroFillReclaims);
+      expect((await Repo.transactions.get('swap-1'))?.extraInputs?.expiryTriggeredAt).toBe(clock);
+    } finally {
+      mockGetMidenClient.mockImplementation(async () => mockClient);
+      await Repo.transactions.clear();
+    }
+  });
+
+  // One lap whose note-read hold the watchdog evicts from inside `parkedCall`, a realm call that never answers.
+  const evictedLap = async (parkedCall: 'getConsumableNoteDtos' | 'buildPswapCancelRequest') => {
+    const parked = jest.fn(() => {
+      watchdogEvictSwLockHold!();
+      return new Promise<never>(() => undefined);
+    });
+    const realmClient = {
+      ...mockClient,
+      getConsumableNoteDtos: parkedCall === 'getConsumableNoteDtos' ? parked : mockClient.getConsumableNoteDtos,
+      client: { pswap: { lineages: async () => [zeroFillLineage] } },
+      buildPswapCancelRequest: parkedCall === 'buildPswapCancelRequest' ? parked : jest.fn(async () => reclaimBytes)
+    };
+    mockGetMidenClient.mockImplementation(async () => realmClient);
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    await Repo.transactions.put(zeroFillOrderRow);
+    try {
+      await doSync();
+    } finally {
+      mockGetMidenClient.mockImplementation(async () => mockClient);
+      await Repo.transactions.clear();
+      warn.mockRestore();
+    }
+    return { parked, build: realmClient.buildPswapCancelRequest };
+  };
+
+  describe('a lap whose note-read hold is evicted', () => {
+    beforeEach(() => __resetSyncFuseStateForTests());
+    afterEach(() => __resetSyncFuseStateForTests());
+
+    it('books a zero-fill build parked until the eviction once on its own key and none on claimable-notes', async () => {
+      for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS - 2; i++) noteSyncWatchdogEviction('swap-zero-fill-build');
+      for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS - 1; i++) noteSyncWatchdogEviction('claimable-notes');
+
+      const { parked } = await evictedLap('buildPswapCancelRequest');
+
+      expect(parked).toHaveBeenCalledTimes(1);
+      expect(mockInitiatePswapReclaim).not.toHaveBeenCalled();
+      // Exactly one: still one short of the threshold, which the next eviction reaches.
+      expect(isSyncFused('swap-zero-fill-build')).toBe(false);
+      noteSyncWatchdogEviction('swap-zero-fill-build');
+      expect(isSyncFused('swap-zero-fill-build')).toBe(true);
+      expect(isSyncFused('claimable-notes')).toBe(false);
+      noteSyncWatchdogEviction('claimable-notes');
+      expect(isSyncFused('claimable-notes')).toBe(true);
+    });
+
+    it('books an eviction during the consumable-note read on neither key', async () => {
+      for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS - 1; i++) {
+        noteSyncWatchdogEviction('swap-zero-fill-build');
+        noteSyncWatchdogEviction('claimable-notes');
+      }
+
+      const { parked, build } = await evictedLap('getConsumableNoteDtos');
+
+      expect(parked).toHaveBeenCalledTimes(1);
+      expect(build).not.toHaveBeenCalled();
+      // Untouched rather than withdrawn: one more eviction on either key still lights it.
+      expect(isSyncFused('swap-zero-fill-build')).toBe(false);
+      expect(isSyncFused('claimable-notes')).toBe(false);
+      noteSyncWatchdogEviction('swap-zero-fill-build');
+      noteSyncWatchdogEviction('claimable-notes');
+      expect(isSyncFused('swap-zero-fill-build')).toBe(true);
+      expect(isSyncFused('claimable-notes')).toBe(true);
+    });
+
+    // Laps over `orders`, whose realm answers each cancel-request build with `build`; `afterLap` lets a parked build go.
+    const zeroFillLaps = async (
+      laps: number,
+      build: jest.Mock,
+      orders: ITransaction[] = [zeroFillOrderRow],
+      lineages: unknown[] = [zeroFillLineage],
+      afterLap: () => void = () => undefined
+    ) => {
+      const realmClient = {
+        ...mockClient,
+        client: { pswap: { lineages: async () => lineages } },
+        buildPswapCancelRequest: build
+      };
+      mockGetMidenClient.mockImplementation(async () => realmClient);
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+      for (const order of orders) await Repo.transactions.put(order);
+      try {
+        for (let i = 0; i < laps; i++) {
+          await doSync();
+          afterLap();
+          await new Promise(resolve => setTimeout(resolve, 0));
+        }
+      } finally {
+        mockGetMidenClient.mockImplementation(async () => mockClient);
+        await Repo.transactions.clear();
+        warn.mockRestore();
+      }
+    };
+
+    it('books no success from the build before one refused on the data after its eviction, so laps light the key', async () => {
+      for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS - 1; i++) noteSyncWatchdogEviction('claimable-notes');
+      const secondOrderRow: ITransaction = {
+        ...zeroFillOrderRow,
+        id: 'swap-2',
+        outputNoteIds: ['second-tip'],
+        extraInputs: { ...zeroFillOrderRow.extraInputs, orderId: '88' }
+      };
+      const secondLineage = { ...zeroFillLineage, orderId: () => '88', currentTipNoteId: () => 'second-tip' };
+      let refuse = (): void => undefined;
+      const build = jest.fn((_accountId: string, noteId: string) => {
+        if (noteId === 'zero-fill-tip') return Promise.resolve(reclaimBytes);
+        watchdogEvictSwLockHold!();
+        return new Promise<Uint8Array>((_resolve, reject) => {
+          refuse = () => reject(new Error('note not found'));
+        });
+      });
+      const orders = [zeroFillOrderRow, secondOrderRow];
+      const lineages = [zeroFillLineage, secondLineage];
+
+      await zeroFillLaps(MAX_CONSECUTIVE_WATCHDOG_EVICTIONS - 1, build, orders, lineages, () => refuse());
+      expect(isSyncFused('swap-zero-fill-build')).toBe(false);
+      await zeroFillLaps(1, build, orders, lineages, () => refuse());
+
+      expect(build).toHaveBeenCalledTimes(2 * MAX_CONSECUTIVE_WATCHDOG_EVICTIONS);
+      expect(isSyncFused('swap-zero-fill-build')).toBe(true);
+      expect(mockInitiatePswapReclaim).not.toHaveBeenCalled();
+      expect(isSyncFused('claimable-notes')).toBe(false);
+      noteSyncWatchdogEviction('claimable-notes');
+      expect(isSyncFused('claimable-notes')).toBe(true);
+    });
+
+    it('books a build evicted in the tick it is refused on the data on its own key, not on claimable-notes', async () => {
+      for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS - 1; i++) {
+        noteSyncWatchdogEviction('swap-zero-fill-build');
+        noteSyncWatchdogEviction('claimable-notes');
+      }
+      // Queued, not run in the call: the proxy's hop delays the refusal, and an eviction run in the call would reach
+      // the hold's handler before the refusal reaches the build's catch.
+      const refused = jest.fn(() => {
+        queueMicrotask(() => watchdogEvictSwLockHold!());
+        return Promise.reject(new Error('note not found'));
+      });
+
+      await zeroFillLaps(1, refused);
+
+      expect(refused).toHaveBeenCalledTimes(1);
+      expect(isSyncFused('swap-zero-fill-build')).toBe(true);
+      expect(isSyncFused('claimable-notes')).toBe(false);
+      noteSyncWatchdogEviction('claimable-notes');
+      expect(isSyncFused('claimable-notes')).toBe(true);
+    });
   });
 });
 

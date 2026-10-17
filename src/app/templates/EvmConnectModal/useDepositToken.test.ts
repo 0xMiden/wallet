@@ -12,7 +12,7 @@ describe('useDepositToken', () => {
   it('switches to a different token and clears the old token state once', () => {
     const onChange = jest.fn();
     const { result } = renderHook(() => useDepositToken(onChange));
-    expect(result.current.token).toBe('USDC');
+    expect(result.current.token).toBe('CIRCLE_USDC');
 
     act(() => result.current.selectToken('ETH'));
 
@@ -24,9 +24,9 @@ describe('useDepositToken', () => {
     const onChange = jest.fn();
     const { result } = renderHook(() => useDepositToken(onChange));
 
-    act(() => result.current.selectToken('USDC'));
+    act(() => result.current.selectToken('CIRCLE_USDC'));
 
-    expect(result.current.token).toBe('USDC');
+    expect(result.current.token).toBe('CIRCLE_USDC');
     expect(onChange).not.toHaveBeenCalled();
   });
 });

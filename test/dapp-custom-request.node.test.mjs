@@ -71,32 +71,39 @@ before(async () => {
       `)
     ]
   ]);
-  const source = await readFile(new URL('../playwright/e2e/test-dapp/test-dapp.ts', import.meta.url), 'utf8');
-  const compiled = ts.transpileModule(source, {
-    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
-    transformers: {
-      before: [
-        context => root =>
-          ts.visitNode(root, function visit(node) {
-            const replacement = ts.isImportDeclaration(node) ? imports.get(node.moduleSpecifier.text) : undefined;
-            if (replacement !== undefined) {
-              return context.factory.updateImportDeclaration(
-                node,
-                node.modifiers,
-                node.importClause,
-                context.factory.createStringLiteral(replacement),
-                node.attributes
-              );
-            }
-            return ts.visitEachChild(node, visit, context);
-          })
-      ]
-    }
-  });
+  const pageModule = async name => {
+    const source = await readFile(new URL(`../playwright/e2e/test-dapp/${name}`, import.meta.url), 'utf8');
+    const compiled = ts.transpileModule(source, {
+      compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+      transformers: {
+        before: [
+          context => root =>
+            ts.visitNode(root, function visit(node) {
+              const replacement = ts.isImportDeclaration(node) ? imports.get(node.moduleSpecifier.text) : undefined;
+              if (replacement !== undefined) {
+                return context.factory.updateImportDeclaration(
+                  node,
+                  node.modifiers,
+                  node.importClause,
+                  context.factory.createStringLiteral(replacement),
+                  node.attributes
+                );
+              }
+              return ts.visitEachChild(node, visit, context);
+            })
+        ]
+      }
+    });
+    return dataModule(compiled.outputText);
+  };
+  // A data: module resolves no relative specifier, so the page's own modules load through the same map, leaves first.
+  imports.set('./page-common.js', await pageModule('page-common.ts'));
+  imports.set('./custom-scripts.js', await pageModule('custom-scripts.ts'));
+  imports.set('./script-request.js', await pageModule('script-request.ts'));
   globalThis.window = { midenWallet: { on: () => undefined }, location: { host: 'fixture-unit' } };
   globalThis.document = { getElementById: () => null, querySelectorAll: () => [] };
   globalThis.fetch = async () => ({ json: async () => ({ version: '0.17.3' }) });
-  await import(dataModule(compiled.outputText));
+  await import(await pageModule('test-dapp.ts'));
   api = window.testDapp;
   await api.call('init', { rpcUrl: 'https://rpc.testnet.miden.io', storeName: 'fixture-unit' });
   const connected = await api.call('connect', { permission: 'UponRequest', network: 'testnet' });

@@ -606,10 +606,22 @@ describe('transactions utilities', () => {
     });
 
     it('routes swap through the atomic outgoing queue with its authorization', async () => {
-      await initiateSwapTransaction('account-a', 'faucet-a', 10n, 'faucet-b', 5n, undefined, 120, true, authorization);
+      await initiateSwapTransaction(
+        'account-a',
+        'faucet-a',
+        10n,
+        'faucet-b',
+        5n,
+        undefined,
+        120,
+        true,
+        5,
+        authorization
+      );
 
       expect(mockQueueOutgoingTransaction).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'swap' }),
+        // The slippage the ask was built with rides on the row: it sets the order's fill target.
+        expect.objectContaining({ type: 'swap', extraInputs: expect.objectContaining({ slippageBps: 5 }) }),
         // The spend list is its own argument, never written onto a single-asset row: the policy
         // checks `spentAssetTotals` first and would then ignore the row's own faucet and amount.
         [{ faucetId: expect.any(String), amount: expect.any(BigInt) }],

@@ -33,9 +33,9 @@ jobs:
     name: dapp-e2e (${{ matrix.network }}, ${{ matrix.axis }}, ${{ matrix.part }})
     runs-on: warp-ubuntu-latest-x64-8x
     # At most about 33 min of setup (a cold CLI compile, the E2E build, apt, Chromium and the stagger), then the
-    # 140-minute run step and the steps after it.
+    # 170-minute run step and the steps after it.
     # A dispatch may first build a linked web-sdk PR from source (about 26 min on ubuntu-latest, pr-compile-surfaces.yml).
-    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 220 || 190 }}
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 250 || 220 }}
     strategy:
       fail-fast: false
       matrix:
@@ -104,7 +104,7 @@ jobs:
         id: specs
         run: |
           case "${{ matrix.part }}" in
-            core) files="session signing-and-refusals accounts-and-dapps" ;;
+            core) files="session signing-and-refusals accounts-and-dapps react-adapter" ;;
             writes) files="wallet-writes-and-notes custom-requests" ;;
           esac
           echo "files=$(for f in $files; do printf 'playwright/e2e/tests/dapp/%s.spec.ts ' "$f"; done)" >> "$GITHUB_OUTPUT"
@@ -117,7 +117,7 @@ jobs:
         # GUARDIAN_URL stays unset: config/environments.ts names the network's hosted operator.
         id: run
         continue-on-error: true
-        timeout-minutes: 140
+        timeout-minutes: 170
         run: xvfb-run -a yarn playwright test --config playwright.dapp.config.ts ${{ steps.specs.outputs.files }} --grep " - ${{ matrix.axis }} account" --retries=0
       - name: Render matrix
         if: always()

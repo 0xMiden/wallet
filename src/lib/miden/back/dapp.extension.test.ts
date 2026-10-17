@@ -258,6 +258,7 @@ jest.mock('webextension-polyfill', () => {
 
 import * as dapp from './dapp';
 import { _resetLockedPromptCooldownsForTest } from './dapp-locked';
+import { OperationAbortedError } from './offscreen-codec';
 
 const STORAGE_KEY = 'dapp_sessions';
 const SESSION = {
@@ -1929,7 +1930,7 @@ describe('Full confirmation cycles in extension mode', () => {
     expect((res as any).publicKey).toBeDefined();
   });
 
-  it('requestPermission in extension rejects (and saves no session) when getAccountPublicKeyB64 throws', async () => {
+  it('requestPermission in extension fails the confirmation and saves no session when getAccountPublicKeyB64 throws', async () => {
     delete (_g.__dappExtTest.storage[STORAGE_KEY] as any)['https://err-dapp.xyz'];
     _g.__dappExtTest.midenClient.getAccount = jest.fn().mockResolvedValue(null);
     await expect(
@@ -1950,7 +1951,9 @@ describe('Full confirmation cycles in extension mode', () => {
           privateDataPermission: 'UPON_REQUEST'
         }
       )
-    ).rejects.toThrow(MidenDAppErrorType.NotGranted);
+    ).rejects.toThrow('Account not found');
+    // The confirm page got the error instead of a response (#1471).
+    expect(_g.__dappExtTest.lastConfirmResponse).toBeUndefined();
     // A failed pubkey fetch must not persist a publicKey: null session.
     expect((_g.__dappExtTest.storage[STORAGE_KEY] as any)['https://err-dapp.xyz']).toBeUndefined();
   });
@@ -2054,7 +2057,7 @@ describe('a watchdog eviction mid-read abandons the extension flow instead of do
   // commitment reads on the returned Account never run: those are borrows of the
   // client's RefCell, so touching them after the eviction IS the double borrow.
 
-  it('requestPermission rejects with the poison error, not a false NotGranted, when evicted during the account read', async () => {
+  it('requestPermission fails the confirmation with the poison error when evicted during the account read', async () => {
     delete (_g.__dappExtTest.storage[STORAGE_KEY] as any)['https://evicted-dapp.xyz'];
     const getPublicKeyCommitments = jest.fn(() => [{ serialize: () => new Uint8Array([1, 2, 3]) }]);
     _g.__dappExtTest.midenClient.getAccount = jest.fn().mockImplementation(async () => {
@@ -2075,18 +2078,17 @@ describe('a watchdog eviction mid-read abandons the extension flow instead of do
         MidenMessageType.DAppPermConfirmationRequest,
         { confirmed: true, accountPublicKey: 'miden-account-1', privateDataPermission: 'UPON_REQUEST' }
       )
-      // NOT NotGranted: the user approved, and an eviction is a retryable
-      // internal failure rather than a permissions verdict (#775). Reporting the
-      // approval back as a denial tells the dApp to stop asking. Same contract
-      // the non-extension branch and the sign path below already keep.
+      // The confirm page gets the eviction, a retryable internal failure rather
+      // than a permissions verdict (#775), and the dApp waits for a Retry (#1471).
     ).rejects.toThrow(WasmClientPoisonedError);
+    expect(_g.__dappExtTest.lastConfirmResponse).toBeUndefined();
     // The abandoned flow must not have touched the borrowed account…
     expect(getPublicKeyCommitments).not.toHaveBeenCalled();
     // …nor persisted a session with a publicKey it never safely read.
     expect((_g.__dappExtTest.storage[STORAGE_KEY] as any)['https://evicted-dapp.xyz']).toBeUndefined();
   });
 
-  it('requestPermission rejects with the terminated-client refusal, not a false NotGranted, when the account read meets one', async () => {
+  it('requestPermission fails the confirmation with the terminated-client refusal when the account read meets one', async () => {
     // A terminated client is a kill like the eviction above: retryable, never a permissions verdict.
     const terminated = new Error('WebClient terminated');
     _g.__dappExtTest.midenClient.getAccount = jest.fn().mockRejectedValue(terminated);
@@ -2102,6 +2104,7 @@ describe('a watchdog eviction mid-read abandons the extension flow instead of do
         { confirmed: true, accountPublicKey: 'miden-account-1', privateDataPermission: 'UPON_REQUEST' }
       )
     ).rejects.toBe(terminated);
+    expect(_g.__dappExtTest.lastConfirmResponse).toBeUndefined();
   });
 
   it('requestSign rejects with the poison error, not a false NotGranted, when evicted during the authorization read', async () => {
@@ -2619,5 +2622,230 @@ describe('the lock prompt cooldown (#1414)', () => {
       ok: true,
       value: expect.objectContaining({ type: MidenDAppMessageType.AssetsResponse })
     });
+  });
+});
+
+describe('an approved connect whose account key read fails (#1471)', () => {
+  const ORIGIN = 'https://key-read-dapp.xyz';
+  const APPROVE = { confirmed: true, accountPublicKey: 'miden-account-1', privateDataPermission: 'UPON_REQUEST' };
+  const CANCEL = { confirmed: false, accountPublicKey: '' };
+  const ANSWERED = { type: MidenMessageType.DAppPermConfirmationResponse };
+  const remove = jest.mocked(extensionBrowser.windows.remove);
+  const connect = () =>
+    dapp.requestPermission(ORIGIN, {
+      type: MidenDAppMessageType.PermissionRequest,
+      appMeta: { name: 'Key Read Dapp', url: ORIGIN },
+      force: false,
+      network: 'testnet',
+      privateDataPermission: 'UPON_REQUEST',
+      allowedPrivateData: 0
+    } as never);
+  const failures: ReadonlyArray<readonly [string, () => Promise<unknown>, string]> = [
+    ['"Account not found"', async () => null, 'Account not found'],
+    [
+      'an offscreen read deadline',
+      async () => {
+        throw new OperationAbortedError('op-1471', 'deadline-no-kill');
+      },
+      'Offscreen operation op-1471 aborted (deadline-no-kill)'
+    ]
+  ];
+  const flush = () => new Promise(resolve => setTimeout(resolve, 0));
+  // False while the dApp's request is still pending once every queued callback has run.
+  const isAnswered = (outcome: Promise<Outcome>) => Promise.race([outcome.then(() => true), flush().then(() => false)]);
+  const savedSession = () => _g.__dappExtTest.storage[STORAGE_KEY][ORIGIN];
+
+  let failingRead: (() => Promise<unknown>) | null;
+  let originalGetAccount: unknown;
+  let consoleError: jest.SpyInstance;
+  beforeEach(() => {
+    failingRead = null;
+    originalGetAccount = _g.__dappExtTest.midenClient.getAccount;
+    _g.__dappExtTest.midenClient.getAccount = jest.fn(async () =>
+      failingRead ? failingRead() : { getPublicKeyCommitments: () => [{ serialize: () => new Uint8Array([7, 8, 9]) }] }
+    );
+    consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
+  });
+  afterEach(() => {
+    _g.__dappExtTest.midenClient.getAccount = originalGetAccount;
+    consoleError.mockRestore();
+  });
+
+  // Opens the connect, approves it while the key read fails, and lets later reads succeed.
+  async function approveWithFailingRead(read: () => Promise<unknown>) {
+    failingRead = read;
+    const popup = await openPopup(connect);
+    await popup.getPayload();
+    const failed = await settle(popup.decide(MidenMessageType.DAppPermConfirmationRequest, APPROVE));
+    failingRead = null;
+    return { popup, failed };
+  }
+
+  it.each(failures)(
+    'fails the confirmation on %s, keeps the window open and answers the dApp nothing',
+    async (_name, read, message) => {
+      const { popup, failed } = await approveWithFailingRead(read);
+
+      expect(failed).toEqual({ ok: false, message });
+      expect(await isAnswered(popup.outcome)).toBe(false);
+      expect(remove).not.toHaveBeenCalled();
+      expect(savedSession()).toBeUndefined();
+      expect(consoleError).toHaveBeenCalledWith(expect.stringContaining('account public key'), expect.any(Error));
+
+      await popup.decide(MidenMessageType.DAppPermConfirmationRequest, CANCEL);
+    }
+  );
+
+  it.each(failures)(
+    'resolves the dApp with its PermissionResponse when a Retry after %s reads the key',
+    async (_name, read) => {
+      const { popup, failed } = await approveWithFailingRead(read);
+      expect(failed.ok).toBe(false);
+
+      await expect(popup.decide(MidenMessageType.DAppPermConfirmationRequest, APPROVE)).resolves.toEqual(ANSWERED);
+
+      await expect(popup.outcome).resolves.toEqual({
+        ok: true,
+        value: {
+          type: MidenDAppMessageType.PermissionResponse,
+          accountId: 'miden-account-1',
+          network: 'testnet',
+          privateDataPermission: 'UPON_REQUEST',
+          allowedPrivateData: 0,
+          publicKey: 'BwgJ'
+        }
+      });
+      await flush();
+      expect(remove).toHaveBeenCalledWith(999);
+      expect(savedSession()).toEqual([expect.objectContaining({ accountId: 'miden-account-1', publicKey: 'BwgJ' })]);
+    }
+  );
+
+  it.each(failures)('still answers NOT_GRANTED when the user cancels after %s', async (_name, read) => {
+    const { popup, failed } = await approveWithFailingRead(read);
+    expect(failed.ok).toBe(false);
+
+    await expect(popup.decide(MidenMessageType.DAppPermConfirmationRequest, CANCEL)).resolves.toEqual(ANSWERED);
+
+    await expect(popup.outcome).resolves.toEqual({ ok: false, message: MidenDAppErrorType.NotGranted });
+    await flush();
+    expect(remove).toHaveBeenCalledWith(999);
+    expect(savedSession()).toBeUndefined();
+  });
+
+  it('saves no session when a Retry read ends after the auto-decline answered the dApp', async () => {
+    // Auto-advancing, so the popup helpers' zero-delay waits still run.
+    jest.useFakeTimers({ advanceTimers: true });
+    try {
+      const { popup, failed } = await approveWithFailingRead(failures[0]![1]);
+      expect(failed.ok).toBe(false);
+
+      let release: (account: unknown) => void = () => {};
+      failingRead = () => new Promise(resolve => (release = resolve));
+      const retry = settle(popup.decide(MidenMessageType.DAppPermConfirmationRequest, APPROVE));
+      await jest.advanceTimersByTimeAsync(120_000);
+      await expect(popup.outcome).resolves.toEqual({ ok: false, message: MidenDAppErrorType.NotGranted });
+      await flush();
+      expect(remove).toHaveBeenCalledWith(999);
+
+      release({ getPublicKeyCommitments: () => [{ serialize: () => new Uint8Array([7, 8, 9]) }] });
+      await retry;
+      expect(savedSession()).toBeUndefined();
+      await expect(popup.outcome).resolves.toEqual({ ok: false, message: MidenDAppErrorType.NotGranted });
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+});
+
+describe('a connect from an origin with a saved session that the session does not cover (#1471)', () => {
+  const ORIGIN = 'https://miden.xyz';
+  const ANSWERED = { type: MidenMessageType.DAppPermConfirmationResponse };
+  const APPROVE_AUTO = { confirmed: true, accountPublicKey: 'miden-account-1', privateDataPermission: 'AUTO' };
+  const savedSession = () => _g.__dappExtTest.storage[STORAGE_KEY][ORIGIN];
+  const connect = (name: string, force: boolean, privateDataPermission: string, allowedPrivateData: number) => () =>
+    dapp.requestPermission(ORIGIN, {
+      type: MidenDAppMessageType.PermissionRequest,
+      appMeta: { name, url: ORIGIN },
+      force,
+      network: 'testnet',
+      privateDataPermission,
+      allowedPrivateData
+    } as never);
+
+  let originalGetAccount: unknown;
+  beforeEach(() => {
+    originalGetAccount = _g.__dappExtTest.midenClient.getAccount;
+    _g.__dappExtTest.midenClient.getAccount = jest.fn(async () => ({
+      getPublicKeyCommitments: () => [{ serialize: () => new Uint8Array([7, 8, 9]) }]
+    }));
+  });
+  afterEach(() => {
+    _g.__dappExtTest.midenClient.getAccount = originalGetAccount;
+  });
+
+  it.each<[string, string, boolean]>([
+    ['a forced connect', SESSION.appMeta.name, true],
+    ['a connect under another app name', 'Miden Test v2', false]
+  ])(
+    'asks %s as a new permission with its requested scope, and saves that scope on approval',
+    async (_case, name, force) => {
+      const popup = await openPopup(connect(name, force, 'AUTO', 2));
+
+      await expect(popup.getPayload()).resolves.toEqual({
+        type: MidenMessageType.DAppGetPayloadResponse,
+        payload: expect.objectContaining({
+          type: 'connect',
+          existingPermission: false,
+          privateDataPermission: 'AUTO',
+          allowedPrivateData: 2
+        })
+      });
+
+      await expect(popup.decide(MidenMessageType.DAppPermConfirmationRequest, APPROVE_AUTO)).resolves.toEqual(ANSWERED);
+      await expect(popup.outcome).resolves.toEqual({
+        ok: true,
+        value: expect.objectContaining({
+          type: MidenDAppMessageType.PermissionResponse,
+          privateDataPermission: 'AUTO',
+          allowedPrivateData: 2
+        })
+      });
+      expect(savedSession()).toEqual([
+        expect.objectContaining({
+          accountId: 'miden-account-1',
+          appMeta: { name, url: ORIGIN },
+          privateDataPermission: 'AUTO',
+          allowedPrivateData: 2,
+          publicKey: 'BwgJ'
+        })
+      ]);
+    }
+  );
+
+  it('still answers the locked reconnect of the same app on its own, with the saved scope, and saves nothing', async () => {
+    const saved = { ...SESSION, privateDataPermission: 'AUTO', allowedPrivateData: 2 };
+    _g.__dappExtTest.storage[STORAGE_KEY] = { [ORIGIN]: [saved] };
+    lockWallet();
+    const popup = await openPopup(connect(SESSION.appMeta.name, false, 'UPON_REQUEST', 0));
+
+    await expect(popup.getPayload()).resolves.toEqual({
+      type: MidenMessageType.DAppGetPayloadResponse,
+      payload: expect.objectContaining({
+        type: 'connect',
+        appMeta: SESSION.appMeta,
+        existingPermission: true,
+        privateDataPermission: 'AUTO',
+        allowedPrivateData: 2
+      })
+    });
+
+    unlockWallet();
+    await expect(popup.decide(MidenMessageType.DAppPermConfirmationRequest, APPROVE_AUTO)).resolves.toEqual(ANSWERED);
+    await expect(popup.outcome).resolves.toEqual({
+      ok: true,
+      value: expect.objectContaining({ privateDataPermission: 'AUTO', allowedPrivateData: 2, publicKey: 'BwgJ' })
+    });
+    expect(savedSession()).toEqual([saved]);
   });
 });

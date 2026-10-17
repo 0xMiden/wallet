@@ -38,6 +38,7 @@ import {
   GuardianHistoryFeeLookupError,
   GuardianHistoryFeeUnavailableError
 } from '../guardian/history-errors';
+import type { GuardianHistoryNote } from '../sdk/guardian-history';
 import { WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 jest.mock('@openzeppelin/guardian-client', () => ({
@@ -1917,6 +1918,85 @@ it('upgrades existing decoded rows and links a payback imported before its swap'
   expect(consume?.extraInputs).toMatchObject({ swapOrderTxId: swap?.id, swapSettleKind: 'settle' });
   expect(rows).toHaveLength(3);
   expect(swap?.id).toBe(oldRows.find(row => row.recovery?.nonce === 2)?.id);
+});
+
+// The account's own order (nonce 2) and, when `reclaimNonce` is given, a custom transaction that takes it back.
+function serveOrderHistory(reclaimNonce?: number) {
+  const entries = reclaimNonce === undefined ? [entry(2)] : [entry(reclaimNonce), entry(2)];
+  jest.spyOn(source('https://one', [{ entries }]), 'getDelta').mockImplementation(async (_account, nonce) => ({
+    ...delta(nonce),
+    metadata: { proposal: { proposalType: nonce === reclaimNonce ? 'custom_transaction' : 'swap' } }
+  }));
+  source('https://two', []);
+  const orderNote: GuardianHistoryNote = {
+    id: 'order',
+    visibility: 'public',
+    sender: 'account',
+    assets: [{ faucetId: 'miden', amount: '70' }],
+    swap: { orderId: '42', requestedAsset: { faucetId: 'ieth', amount: '30' } }
+  };
+  jest.mocked(midenClientProxy.decodeGuardianHistory).mockImplementation(async encoded => ({
+    accountId: 'account',
+    inputNotes: encoded === String(reclaimNonce) ? [orderNote] : [],
+    outputNotes: encoded === '2' ? [orderNote] : []
+  }));
+}
+
+// Version 4 recorded a custom transaction that reclaims the account's own order as an execute.
+const PRE_RECLAIM_HISTORY_VERSION = 4;
+
+it('derives a version-4 custom transaction reclaiming an own order again, as the reclaim linked to its order', async () => {
+  serveOrderHistory(3);
+  await run();
+  const first = await transactions.toArray();
+  const reclaim = first.find(row => row.recovery?.nonce === 3);
+  const order = first.find(row => row.recovery?.nonce === 2);
+  if (!reclaim?.recovery || !order?.recovery) throw new Error('Missing recovered rows');
+  // The rows as version 4 stored them: the reclaim an unlinked execute, the order with no reclaim stamp.
+  await transactions.put({
+    ...reclaim,
+    type: 'execute',
+    extraInputs: undefined,
+    recovery: { ...reclaim.recovery, version: PRE_RECLAIM_HISTORY_VERSION }
+  });
+  await transactions.put({
+    ...order,
+    extraInputs: { ...order.extraInputs, reclaimedAt: undefined },
+    recovery: { ...order.recovery, version: PRE_RECLAIM_HISTORY_VERSION }
+  });
+  await clearGuardianHistoryCheckpoints();
+  serveOrderHistory(3);
+
+  await run();
+
+  const upgraded = await transactions.get(reclaim.id);
+  expect(upgraded).toMatchObject({
+    type: 'consume',
+    extraInputs: { swapOrderTxId: order.id, swapSettleKind: 'reclaim' },
+    recovery: { version: GUARDIAN_HISTORY_VERSION }
+  });
+  expect((await transactions.get(order.id))?.extraInputs.reclaimedAt).toBe(upgraded?.completedAt);
+  expect(await transactions.count()).toBe(2);
+});
+
+it('keeps the local settlement stamps of a recovered swap row it derives again', async () => {
+  serveOrderHistory();
+  await run();
+  const order = (await transactions.toArray()).find(row => row.recovery?.nonce === 2);
+  if (!order?.recovery) throw new Error('Missing recovered order');
+  await transactions.put({
+    ...order,
+    extraInputs: { ...order.extraInputs, expiryTriggeredAt: 150, settledAt: 160 },
+    recovery: { ...order.recovery, version: GUARDIAN_HISTORY_VERSION - 1 }
+  });
+  await clearGuardianHistoryCheckpoints();
+  serveOrderHistory();
+
+  await run();
+
+  const upgraded = await transactions.get(order.id);
+  expect(upgraded?.recovery?.version).toBe(GUARDIAN_HISTORY_VERSION);
+  expect(upgraded?.extraInputs).toMatchObject({ orderId: '42', expiryTriggeredAt: 150, settledAt: 160 });
 });
 
 it('stops recovery and retains the failure when fee metadata is unavailable', async () => {

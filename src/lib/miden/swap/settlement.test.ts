@@ -1,14 +1,26 @@
 import { midenClientProxy } from 'lib/miden/back/miden-client-proxy';
 import { ITransactionStatus } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
-import { initiateConsumeNotesTransaction } from 'lib/miden/transaction/initiate';
+import { initiateConsumeNotesTransaction, initiatePswapReclaimTransaction } from 'lib/miden/transaction/initiate';
 import { NoteTypeEnum } from 'lib/miden/types';
 
-import { classifySwapOrderNotes, reconcileSwapOrderNotes, settleSwapOrders } from './settlement';
-import { __resetSyncFuseStateForTests, isSyncFused, noteSyncWatchdogEviction } from '../front/sync-fuse';
+import {
+  classifySwapOrderNotes,
+  classifySwapSettlementSnapshot,
+  reconcileSwapOrderNotes,
+  settleSwapOrders
+} from './settlement';
+import { OperationAbortedError } from '../back/offscreen-codec';
+import {
+  __resetSyncFuseStateForTests,
+  isSyncFused,
+  noteSyncWatchdogEviction,
+  type SyncFuseKey,
+  syncFuseUntilMs
+} from '../front/sync-fuse';
 import { withWasmClientLock, type WasmLockHold } from '../sdk/miden-client';
 import { WasmClientPoisonedError } from '../sdk/wasm-client-poison';
-import { MAX_CONSECUTIVE_WATCHDOG_EVICTIONS } from '../sync-backoff';
+import { MAX_CONSECUTIVE_ABANDONED_PROBES, MAX_CONSECUTIVE_WATCHDOG_EVICTIONS } from '../sync-backoff';
 
 // Models hold ownership like production: the tick re-checks its hold before starting the
 // lineage reads, so the mock has to be able to take one away.
@@ -17,6 +29,9 @@ const lockOptionsSeen: unknown[] = [];
 // Fires at the instant the mutex is handed over, which is the only place a test
 // can act on the window between the pre-lock fuse gate and the in-hold one.
 let onLockAcquired: (() => void) | null = null;
+// Evicts the running hold as the watchdog does: the caller is rejected at once and the mutex moves to a new hold,
+// while the abandoned callback runs on unawaited until the test settles whatever it is parked on.
+let evictCurrentHold: (() => void) | null = null;
 
 jest.mock('../sdk/miden-client', () => ({
   getCurrentWasmLockHold: () => currentHold,
@@ -30,9 +45,19 @@ jest.mock('../sdk/miden-client', () => ({
     const hold = {};
     currentHold = hold;
     onLockAcquired?.();
+    const evicted = new Promise<never>((_resolve, reject) => {
+      evictCurrentHold = () => {
+        currentHold = {};
+        const { WasmClientPoisonedError } = require('../sdk/wasm-client-poison');
+        reject(new WasmClientPoisonedError('watchdog'));
+      };
+    });
     try {
-      return await operation(hold);
+      const running = operation(hold);
+      running.catch(() => {});
+      return await Promise.race([running, evicted]);
     } finally {
+      evictCurrentHold = null;
       if (currentHold === hold) currentHold = null;
     }
   }
@@ -56,15 +81,20 @@ jest.mock('../sdk/helpers', () => ({
   sameWalletAccountId: (a: string, b: string) => a.split('_')[0] === b.split('_')[0]
 }));
 
+// What queueConsumeRows' dedup and backoff say about a note; its rules are pinned with real rows in initiate's suite.
+const mockNoteClaimCoverage = jest.fn(async (..._args: unknown[]): Promise<Record<string, unknown>> => ({ rows: [] }));
 jest.mock('lib/miden/transaction/initiate', () => ({
-  initiateConsumeNotesTransaction: jest.fn(async () => 'consume-1')
+  initiateConsumeNotesTransaction: jest.fn(async () => 'consume-1'),
+  initiatePswapReclaimTransaction: jest.fn(async () => 'consume-zero-fill'),
+  noteClaimCoverage: (...args: unknown[]) => mockNoteClaimCoverage(...args)
 }));
 
 // Keep realm transport at the boundary while the real classifier consumes the snapshot.
 jest.mock('lib/miden/back/miden-client-proxy', () => ({
   midenClientProxy: {
     getPswapLineages: jest.fn(),
-    getConsumableNotes: jest.fn()
+    getConsumableNotes: jest.fn(),
+    buildPswapCancelRequest: jest.fn()
   }
 }));
 
@@ -73,6 +103,8 @@ const tx = (overrides: Record<string, unknown> = {}) => ({
   type: 'swap',
   status: ITransactionStatus.Completed,
   accountId: 'account-1',
+  faucetId: 'offer',
+  amount: 50n,
   initiatedAt: 10,
   completedAt: 100,
   extraInputs: {
@@ -123,8 +155,11 @@ describe('swap order note settlement', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    __resetSyncFuseStateForTests();
     toArray.mockResolvedValue([tx()]);
     jest.mocked(midenClientProxy.getPswapLineages).mockResolvedValue([]);
+    jest.mocked(midenClientProxy.buildPswapCancelRequest).mockResolvedValue(new Uint8Array([1, 4, 7, 6]));
+    mockNoteClaimCoverage.mockReset().mockResolvedValue({ rows: [] });
     (Repo.transactions.filter as jest.Mock).mockReturnValue({ toArray });
     (Repo.transactions.where as jest.Mock).mockReturnValue({ modify });
     mockStoreAccounts = [];
@@ -204,6 +239,55 @@ describe('swap order note settlement', () => {
     expect(result.has('absent')).toBe(false);
   });
 
+  // The fill target labels the receipt only; reclaim follows the lineage, or a solver that fills an
+  // order exactly to its target strands the remainder on a publicly fillable note.
+  it.each([
+    // 50 requested at 5 bps: the target is ceil(50 × 0.9995) = 50.
+    ['at its fill target', { slippageBps: 5 }, '0'],
+    // 5000 requested at 100 bps: the target is 4950.
+    ['inside the slippage of a larger order', { requestedAmount: 5000n, slippageBps: 100 }, '50']
+  ])('reads an open lineage %s as active', async (_case, extra, remainingRequested) => {
+    toArray.mockResolvedValue([tx({ extraInputs: { ...tx().extraInputs, ...extra } })]);
+    jest
+      .mocked(midenClientProxy.getPswapLineages)
+      .mockResolvedValue([
+        { orderId: '77', currentTipNoteId: 'tip', currentDepth: 1, state: 0, remainingOffered: '1', remainingRequested }
+      ]);
+    const result = await withWasmClientLock(hold =>
+      classifySwapOrderNotes([note('tip')], 'account-1', undefined, hold)
+    );
+    expect(result.get('tip')).toEqual(expect.objectContaining({ lineageState: 'active' }));
+  });
+
+  it('claims the payback of an expired order that reached its fill target, then reclaims its tip', async () => {
+    // 5000 requested at 100 bps: 4950 arrived, which is the target, and 50 is still on the tip.
+    toArray.mockResolvedValue([tx({ extraInputs: { ...tx().extraInputs, requestedAmount: 5000n, slippageBps: 100 } })]);
+    const lineage = { orderId: '77', currentTipNoteId: 'tip', currentDepth: 2, state: 0 };
+    jest
+      .mocked(midenClientProxy.getPswapLineages)
+      .mockResolvedValue([{ ...lineage, remainingOffered: '1', remainingRequested: '50' }]);
+    const classified = await withWasmClientLock(hold =>
+      classifySwapOrderNotes([note('tip'), note('payback', [0n, 77n, 1n, 0n])], 'account-1', undefined, hold)
+    );
+    const tip = { ...consumable('tip', 'tip'), swapOrder: classified.get('tip')! };
+    const payback = { ...consumable('payback', 'payback'), swapOrder: classified.get('payback')! };
+    (initiateConsumeNotesTransaction as jest.Mock)
+      .mockResolvedValueOnce('consume-payback')
+      .mockResolvedValueOnce('consume-tip');
+
+    await reconcileSwapOrderNotes('account-1', [tip, payback], false, 300);
+
+    expect((initiateConsumeNotesTransaction as jest.Mock).mock.calls).toEqual([
+      ['account-1', [payback], false],
+      ['account-1', [tip], false]
+    ]);
+    expect(Repo.transactions.where).toHaveBeenNthCalledWith(1, { id: 'swap-1' });
+    const expiryWriter = modify.mock.calls[0]![0] as unknown as (tx: Record<string, unknown>) => void;
+    const swapRow: Record<string, unknown> = tx();
+    expiryWriter(swapRow);
+    expect(swapRow.extraInputs).toEqual(expect.objectContaining({ expiryTriggeredAt: 300 }));
+  });
+
   it('leaves partial-fill paybacks untouched while active and unexpired', async () => {
     await reconcileSwapOrderNotes(
       'account-1',
@@ -214,6 +298,192 @@ describe('swap order note settlement', () => {
 
     expect(initiateConsumeNotesTransaction).not.toHaveBeenCalled();
     expect(modify).not.toHaveBeenCalled();
+  });
+
+  it('reproduces and closes the zero-fill expiry gap by reclaiming the depth-0 output note', async () => {
+    toArray.mockResolvedValue([tx({ outputNoteIds: ['zero-fill-tip'] })]);
+    jest.mocked(midenClientProxy.getConsumableNotes).mockResolvedValue([]);
+    jest.mocked(midenClientProxy.getPswapLineages).mockResolvedValue([
+      {
+        orderId: '77',
+        currentTipNoteId: 'zero-fill-tip',
+        currentDepth: 0,
+        state: 0,
+        remainingOffered: '50',
+        remainingRequested: '50'
+      }
+    ]);
+
+    const result = await settleSwapOrders('account-1', true);
+
+    expect(midenClientProxy.buildPswapCancelRequest).toHaveBeenCalledWith(
+      'account-1',
+      'zero-fill-tip',
+      expect.any(Function)
+    );
+    expect(initiatePswapReclaimTransaction).toHaveBeenCalledWith(
+      'account-1',
+      expect.objectContaining({
+        id: 'zero-fill-tip',
+        faucetId: 'offer',
+        amount: expect.any(String),
+        swapOrder: expect.objectContaining({ depth: 0, role: 'tip', lineageState: 'active' })
+      }),
+      new Uint8Array([1, 4, 7, 6]),
+      'swap-1',
+      true
+    );
+    expect(initiateConsumeNotesTransaction).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      queuedTransactionIds: ['consume-zero-fill'],
+      managedNoteIds: new Set(['zero-fill-tip'])
+    });
+    // The expiry intent is durable before the queue write.
+    expect(modify.mock.invocationCallOrder[0]).toBeLessThan(
+      (initiatePswapReclaimTransaction as jest.Mock).mock.invocationCallOrder[0]!
+    );
+  });
+
+  it.each([
+    ['unexpired', 0, 0, Number.MAX_SAFE_INTEGER],
+    ['partial-fill', 0, 1, 1],
+    ['fully-filled', 1, 0, 1],
+    ['already-reclaimed', 2, 0, 1]
+  ])('does not build a depth-0 output reclaim for %s lineage state', async (_label, state, currentDepth, expiresAt) => {
+    toArray.mockResolvedValue([tx({ outputNoteIds: ['tip'], extraInputs: { ...tx().extraInputs, expiresAt } })]);
+    jest.mocked(midenClientProxy.getConsumableNotes).mockResolvedValue([]);
+    jest.mocked(midenClientProxy.getPswapLineages).mockResolvedValue([
+      {
+        orderId: '77',
+        currentTipNoteId: 'tip',
+        currentDepth,
+        state,
+        remainingOffered: '50',
+        remainingRequested: '50'
+      }
+    ]);
+
+    await settleSwapOrders('account-1');
+
+    expect(midenClientProxy.buildPswapCancelRequest).not.toHaveBeenCalled();
+    expect(initiatePswapReclaimTransaction).not.toHaveBeenCalled();
+  });
+
+  it('skips a locally unavailable zero-fill output without blocking the settlement pass', async () => {
+    jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    toArray.mockResolvedValue([tx({ outputNoteIds: ['missing-output'] })]);
+    jest.mocked(midenClientProxy.getConsumableNotes).mockResolvedValue([]);
+    jest.mocked(midenClientProxy.getPswapLineages).mockResolvedValue([
+      {
+        orderId: '77',
+        currentTipNoteId: 'missing-output',
+        currentDepth: 0,
+        state: 0,
+        remainingOffered: '50',
+        remainingRequested: '50'
+      }
+    ]);
+    jest.mocked(midenClientProxy.buildPswapCancelRequest).mockRejectedValueOnce(new Error('not tracked'));
+
+    await expect(settleSwapOrders('account-1')).resolves.toEqual({
+      queuedTransactionIds: [],
+      managedNoteIds: new Set()
+    });
+
+    expect(initiatePswapReclaimTransaction).not.toHaveBeenCalled();
+    expect(console.warn).toHaveBeenCalledWith(
+      '[Swap] Could not prepare zero-fill reclaim for order 77:',
+      expect.any(Error)
+    );
+  });
+
+  const zeroFillLineage = (currentTipNoteId: string) => ({
+    orderId: '77',
+    currentTipNoteId,
+    currentDepth: 0,
+    state: 0,
+    remainingOffered: '50',
+    remainingRequested: '50'
+  });
+
+  it("builds no reclaim for a tip that is not one of the order's own output notes", async () => {
+    // A lineage the store maps wrongly names another order's note; cancelling it would take back the wrong offer.
+    toArray.mockResolvedValue([tx({ outputNoteIds: ['own-pswap-note'] })]);
+    jest.mocked(midenClientProxy.getConsumableNotes).mockResolvedValue([]);
+    jest.mocked(midenClientProxy.getPswapLineages).mockResolvedValue([zeroFillLineage('another-orders-note')]);
+
+    await settleSwapOrders('account-1');
+
+    expect(midenClientProxy.buildPswapCancelRequest).not.toHaveBeenCalled();
+    expect(initiatePswapReclaimTransaction).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['queued', { liveOrCompleted: { id: 'reclaim-row', status: ITransactionStatus.Queued } }],
+    ['completed', { liveOrCompleted: { id: 'reclaim-row', status: ITransactionStatus.Completed } }],
+    ['backing off', { backingOff: { id: 'reclaim-row', status: ITransactionStatus.Failed } }]
+  ])('builds no second reclaim while the tip has a %s reclaim row', async (_label, coverage) => {
+    toArray.mockResolvedValue([tx({ outputNoteIds: ['zero-fill-tip'] })]);
+    jest.mocked(midenClientProxy.getConsumableNotes).mockResolvedValue([]);
+    jest.mocked(midenClientProxy.getPswapLineages).mockResolvedValue([zeroFillLineage('zero-fill-tip')]);
+    mockNoteClaimCoverage.mockResolvedValueOnce({ rows: Object.values(coverage), ...coverage });
+
+    await settleSwapOrders('account-1', false);
+
+    expect(midenClientProxy.buildPswapCancelRequest).not.toHaveBeenCalled();
+    expect(initiatePswapReclaimTransaction).not.toHaveBeenCalled();
+    expect(mockNoteClaimCoverage).toHaveBeenCalledWith('account-1', 'zero-fill-tip', expect.any(Number));
+  });
+
+  it('lets a trap from the cancel-request build reach the hold, so the lock retires the client', async () => {
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    jest
+      .mocked(midenClientProxy.getPswapLineages)
+      .mockResolvedValue([zeroFillLineage('zero-fill-tip'), { ...zeroFillLineage('second-tip'), orderId: '88' }]);
+    jest.mocked(midenClientProxy.buildPswapCancelRequest).mockRejectedValueOnce(trap);
+    const orders = [
+      tx({ outputNoteIds: ['zero-fill-tip'] }),
+      tx({ id: 'swap-2', outputNoteIds: ['second-tip'], extraInputs: { ...tx().extraInputs, orderId: 88n } })
+    ];
+
+    await expect(
+      withWasmClientLock(hold => classifySwapSettlementSnapshot([], 'account-1', orders as never, hold, 300))
+    ).rejects.toBe(trap);
+
+    // The trapped client is not asked for the next order's request.
+    expect(midenClientProxy.buildPswapCancelRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['an offscreen abort', () => new OperationAbortedError('op-1', 'deadline')],
+    ['a terminated client', () => new Error('Client terminated')],
+    ['a terminated inner client', () => new Error('WebClient terminated')]
+  ])('ends the pass on %s from the cancel-request build, asking the dead client nothing more', async (_label, kill) => {
+    jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const error = kill();
+    jest
+      .mocked(midenClientProxy.getPswapLineages)
+      .mockResolvedValue([zeroFillLineage('zero-fill-tip'), { ...zeroFillLineage('second-tip'), orderId: '88' }]);
+    jest.mocked(midenClientProxy.buildPswapCancelRequest).mockImplementation(async (_accountId, noteId) => {
+      if (noteId === 'zero-fill-tip') throw error;
+      return new Uint8Array([8, 8]);
+    });
+    const orders = [
+      tx({ outputNoteIds: ['zero-fill-tip'] }),
+      tx({ id: 'swap-2', outputNoteIds: ['second-tip'], extraInputs: { ...tx().extraInputs, orderId: 88n } })
+    ];
+
+    await expect(
+      withWasmClientLock(hold => classifySwapSettlementSnapshot([], 'account-1', orders as never, hold, 300))
+    ).rejects.toBe(error);
+
+    expect(midenClientProxy.buildPswapCancelRequest).toHaveBeenCalledTimes(1);
+    expect(midenClientProxy.buildPswapCancelRequest).not.toHaveBeenCalledWith(
+      'account-1',
+      'second-tip',
+      expect.any(Function)
+    );
+    expect(console.warn).not.toHaveBeenCalled();
   });
 
   it('never treats a pre-upgrade order without an explicit expiresAt as expired', async () => {
@@ -584,6 +854,271 @@ describe('swap order note settlement', () => {
 
       await expect(settleSwapOrders('account-1')).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
       expect(midenClientProxy.getPswapLineages).not.toHaveBeenCalled();
+    });
+  });
+
+  // A node call the claimable-notes poll never makes, so it parks independently of the read the hold shares with it.
+  describe('the zero-fill cancel-request build as a probe of its own', () => {
+    const ZERO_FILL_BUILD: SyncFuseKey = 'swap-zero-fill-build';
+    let warn: jest.SpyInstance;
+
+    beforeEach(() => {
+      warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+      toArray.mockResolvedValue([tx({ outputNoteIds: ['zero-fill-tip'] })]);
+      jest.mocked(midenClientProxy.getConsumableNotes).mockResolvedValue([]);
+      jest.mocked(midenClientProxy.getPswapLineages).mockResolvedValue([zeroFillLineage('zero-fill-tip')]);
+    });
+
+    afterEach(() => {
+      warn.mockRestore();
+      __resetSyncFuseStateForTests();
+      currentHold = null;
+    });
+
+    // One settlement pass whose build fails with `error`; nothing books a success on either key between passes.
+    const failedPass = async (error: Error) => {
+      jest.mocked(midenClientProxy.buildPswapCancelRequest).mockRejectedValue(error);
+      await expect(settleSwapOrders('account-1')).rejects.toBe(error);
+    };
+    const evictedPass = () => failedPass(new WasmClientPoisonedError('watchdog'));
+    const flushAbandonedCallback = () => new Promise(resolve => setTimeout(resolve, 0));
+
+    it('lights its own key on evicted builds and leaves claimable-notes unfused, so the next pass still settles', async () => {
+      // Order 88 was filled: its payback is consumable and needs no build.
+      toArray.mockResolvedValue([
+        tx({ outputNoteIds: ['zero-fill-tip'] }),
+        tx({ id: 'swap-2', extraInputs: { ...tx().extraInputs, orderId: 88n } })
+      ]);
+      jest
+        .mocked(midenClientProxy.getPswapLineages)
+        .mockResolvedValue([
+          zeroFillLineage('zero-fill-tip'),
+          { ...zeroFillLineage('tip-88'), orderId: '88', currentDepth: 1, state: 1 }
+        ]);
+      jest.mocked(midenClientProxy.getConsumableNotes).mockResolvedValue([note('payback-88', [999n, 88n, 1n, 0n])]);
+      for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; i++) await evictedPass();
+
+      expect(isSyncFused(ZERO_FILL_BUILD)).toBe(true);
+      expect(isSyncFused('claimable-notes')).toBe(false);
+      jest.mocked(midenClientProxy.buildPswapCancelRequest).mockClear();
+      jest.mocked(midenClientProxy.getPswapLineages).mockClear();
+
+      await expect(settleSwapOrders('account-1')).resolves.toEqual({
+        queuedTransactionIds: ['consume-1'],
+        managedNoteIds: new Set(['payback-88'])
+      });
+      expect(midenClientProxy.buildPswapCancelRequest).not.toHaveBeenCalled();
+      // The pass still reads and classifies the orders; only the build waits.
+      expect(midenClientProxy.getPswapLineages).toHaveBeenCalledTimes(1);
+      expect(initiatePswapReclaimTransaction).not.toHaveBeenCalled();
+      expect(initiateConsumeNotesTransaction).toHaveBeenCalledWith(
+        'account-1',
+        [expect.objectContaining({ id: 'payback-88' })],
+        undefined
+      );
+    });
+
+    it('books a build parked until its hold is evicted on its own key, not on claimable-notes', async () => {
+      for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS - 1; i++) {
+        noteSyncWatchdogEviction(ZERO_FILL_BUILD);
+        noteSyncWatchdogEviction('claimable-notes');
+      }
+      // The node never answers, so the build's own catch is never reached.
+      jest.mocked(midenClientProxy.buildPswapCancelRequest).mockImplementation(() => {
+        evictCurrentHold!();
+        return new Promise<Uint8Array>(() => undefined);
+      });
+
+      await expect(settleSwapOrders('account-1')).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
+
+      expect(isSyncFused(ZERO_FILL_BUILD)).toBe(true);
+      expect(isSyncFused('claimable-notes')).toBe(false);
+      // Untouched rather than withdrawn: the poll's own next eviction still lights it.
+      noteSyncWatchdogEviction('claimable-notes');
+      expect(isSyncFused('claimable-notes')).toBe(true);
+    });
+
+    // How an abandoned build answers once the test lets it, handed the build's own hold re-check.
+    const lateAnswers: Array<[string, (assertLive: (step?: string) => void) => Uint8Array]> = [
+      ['resolves', () => new Uint8Array([1, 4, 7, 6])],
+      [
+        'rejects at its own hold re-check',
+        assertLive => {
+          assertLive('after the request round trip');
+          return new Uint8Array([1, 4, 7, 6]);
+        }
+      ],
+      [
+        'traps',
+        () => {
+          throw new WebAssembly.RuntimeError('unreachable');
+        }
+      ]
+    ];
+
+    it.each(lateAnswers)(
+      'books a build evicted mid-call once, whatever it does when it %s late',
+      async (_label, answer) => {
+        const evictedMidBuild = async () => {
+          let settleBuild!: () => void;
+          jest
+            .mocked(midenClientProxy.buildPswapCancelRequest)
+            .mockImplementation((_accountId, _noteId, assertLive) => {
+              const late = new Promise<Uint8Array>((resolve, reject) => {
+                settleBuild = () => {
+                  try {
+                    resolve(answer(step => assertLive?.(step)));
+                  } catch (e) {
+                    reject(e);
+                  }
+                };
+              });
+              evictCurrentHold!();
+              return late;
+            });
+          await expect(settleSwapOrders('account-1')).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
+          settleBuild();
+          await flushAbandonedCallback();
+        };
+
+        for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS - 1; i++) await evictedMidBuild();
+        expect(isSyncFused(ZERO_FILL_BUILD)).toBe(false);
+
+        await evictedMidBuild();
+        expect(isSyncFused(ZERO_FILL_BUILD)).toBe(true);
+        expect(isSyncFused('claimable-notes')).toBe(false);
+      }
+    );
+
+    it('keeps the eviction of a build refused on the data after it, with no success from the build before', async () => {
+      for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS - 1; i++) noteSyncWatchdogEviction('claimable-notes');
+      toArray.mockResolvedValue([
+        tx({ outputNoteIds: ['zero-fill-tip'] }),
+        tx({ id: 'swap-2', outputNoteIds: ['second-tip'], extraInputs: { ...tx().extraInputs, orderId: 88n } })
+      ]);
+      jest
+        .mocked(midenClientProxy.getPswapLineages)
+        .mockResolvedValue([zeroFillLineage('zero-fill-tip'), { ...zeroFillLineage('second-tip'), orderId: '88' }]);
+      const passRefusedAfterEviction = async () => {
+        let refuse = (): void => undefined;
+        jest.mocked(midenClientProxy.buildPswapCancelRequest).mockImplementation((_accountId, noteId) => {
+          if (noteId === 'zero-fill-tip') return Promise.resolve(new Uint8Array([1, 4, 7, 6]));
+          evictCurrentHold!();
+          return new Promise<Uint8Array>((_resolve, reject) => {
+            refuse = () => reject(new Error('note not found'));
+          });
+        });
+        await expect(settleSwapOrders('account-1')).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
+        refuse();
+        await flushAbandonedCallback();
+      };
+
+      for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS - 1; i++) await passRefusedAfterEviction();
+      expect(isSyncFused(ZERO_FILL_BUILD)).toBe(false);
+      await passRefusedAfterEviction();
+
+      expect(midenClientProxy.buildPswapCancelRequest).toHaveBeenCalledTimes(2 * MAX_CONSECUTIVE_WATCHDOG_EVICTIONS);
+      expect(isSyncFused(ZERO_FILL_BUILD)).toBe(true);
+      expect(warn).not.toHaveBeenCalledWith(
+        '[Swap] Could not prepare zero-fill reclaim for order 88:',
+        expect.any(Error)
+      );
+      expect(isSyncFused('claimable-notes')).toBe(false);
+      noteSyncWatchdogEviction('claimable-notes');
+      expect(isSyncFused('claimable-notes')).toBe(true);
+    });
+
+    it('books a build evicted in the tick it is refused on the data on its own key, not on claimable-notes', async () => {
+      for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS - 1; i++) {
+        noteSyncWatchdogEviction(ZERO_FILL_BUILD);
+        noteSyncWatchdogEviction('claimable-notes');
+      }
+      // The refusal reaches the build's catch before the eviction reaches the hold's handler.
+      jest.mocked(midenClientProxy.buildPswapCancelRequest).mockImplementation(() => {
+        evictCurrentHold!();
+        return Promise.reject(new Error('note not found'));
+      });
+
+      await expect(settleSwapOrders('account-1')).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
+      await flushAbandonedCallback();
+
+      expect(isSyncFused(ZERO_FILL_BUILD)).toBe(true);
+      expect(isSyncFused('claimable-notes')).toBe(false);
+      noteSyncWatchdogEviction('claimable-notes');
+      expect(isSyncFused('claimable-notes')).toBe(true);
+    });
+
+    it('books a hold evicted during the note read on claimable-notes only', async () => {
+      for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS - 1; i++) {
+        noteSyncWatchdogEviction(ZERO_FILL_BUILD);
+        noteSyncWatchdogEviction('claimable-notes');
+      }
+      jest.mocked(midenClientProxy.getConsumableNotes).mockImplementation(() => {
+        evictCurrentHold!();
+        return new Promise<never>(() => undefined);
+      });
+
+      await expect(settleSwapOrders('account-1')).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
+
+      expect(isSyncFused('claimable-notes')).toBe(true);
+      expect(isSyncFused(ZERO_FILL_BUILD)).toBe(false);
+      expect(midenClientProxy.buildPswapCancelRequest).not.toHaveBeenCalled();
+      noteSyncWatchdogEviction(ZERO_FILL_BUILD);
+      expect(isSyncFused(ZERO_FILL_BUILD)).toBe(true);
+    });
+
+    it('clears its key on a pass whose build returns the request', async () => {
+      for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; i++) await evictedPass();
+      expect(isSyncFused(ZERO_FILL_BUILD)).toBe(true);
+      // The window served out, the one probe it grants gets the request bytes back.
+      const now = jest.spyOn(performance, 'now').mockReturnValue(performance.now() + 40 * 60_000);
+      try {
+        jest.mocked(midenClientProxy.buildPswapCancelRequest).mockResolvedValue(new Uint8Array([1, 4, 7, 6]));
+
+        await settleSwapOrders('account-1');
+
+        expect(initiatePswapReclaimTransaction).toHaveBeenCalledTimes(1);
+        expect(syncFuseUntilMs(ZERO_FILL_BUILD)).toBeNull();
+      } finally {
+        now.mockRestore();
+      }
+    });
+
+    it('leaves its evidence as it was on a pass whose only build refuses on the data', async () => {
+      for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS - 1; i++) await evictedPass();
+      jest.mocked(midenClientProxy.buildPswapCancelRequest).mockRejectedValue(new Error('note already consumed'));
+
+      await expect(settleSwapOrders('account-1')).resolves.toEqual({
+        queuedTransactionIds: [],
+        managedNoteIds: new Set()
+      });
+      expect(isSyncFused(ZERO_FILL_BUILD)).toBe(false);
+
+      await evictedPass();
+      expect(isSyncFused(ZERO_FILL_BUILD)).toBe(true);
+    });
+
+    it('lights its key at the abandoned-probe threshold on offscreen deadline kills', async () => {
+      const deadlineKill = () => new OperationAbortedError('op-1', 'deadline');
+      for (let i = 0; i < MAX_CONSECUTIVE_ABANDONED_PROBES - 1; i++) await failedPass(deadlineKill());
+      expect(isSyncFused(ZERO_FILL_BUILD)).toBe(false);
+
+      await failedPass(deadlineKill());
+      expect(isSyncFused(ZERO_FILL_BUILD)).toBe(true);
+      jest.mocked(midenClientProxy.buildPswapCancelRequest).mockClear();
+
+      await settleSwapOrders('account-1');
+      expect(midenClientProxy.buildPswapCancelRequest).not.toHaveBeenCalled();
+    });
+
+    it('leaves its evidence unchanged on an abort that tore nothing down', async () => {
+      for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS - 1; i++) await evictedPass();
+
+      await failedPass(new OperationAbortedError('op-1', 'deadline-no-kill'));
+      expect(isSyncFused(ZERO_FILL_BUILD)).toBe(false);
+
+      await evictedPass();
+      expect(isSyncFused(ZERO_FILL_BUILD)).toBe(true);
     });
   });
 

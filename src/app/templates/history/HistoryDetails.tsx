@@ -301,6 +301,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const [orderId, setOrderId] = useState<string | bigint | null>(null);
   const [requestedToken, setRequestedToken] = useState<RequestedTokenInfo | null>(null);
   const [swapAutoConsume, setSwapAutoConsume] = useState(true);
+  const [swapSlippageBps, setSwapSlippageBps] = useState<number | undefined>(undefined);
   const [swapExpiresAt, setSwapExpiresAt] = useState<number | null>(null);
   // Smart Withdraw metadata (market, position owner, intent nonce, phase) for the details card.
   const [earnWithdraw, setEarnWithdraw] = useState<IEarnWithdrawExtraInputs | null>(null);
@@ -481,11 +482,13 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
             scaleIsKnown: swapToken !== undefined || hasKnownScale(requestedMeta)
           });
           setSwapAutoConsume(extra.autoConsume ?? true);
+          setSwapSlippageBps(extra.slippageBps);
           setSwapExpiresAt(extra.expiresAt ?? null);
           setOrderId(extra.orderId ?? null);
         } else {
           setRequestedToken(null);
           setSwapAutoConsume(true);
+          setSwapSlippageBps(undefined);
           setSwapExpiresAt(null);
           setOrderId(null);
         }
@@ -536,11 +539,13 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
     orderKey !== undefined && transaction?.restoredFromBackup !== true && (trackingEntry?.loading ?? true);
 
   const receipt = deriveSwapReceipt({
+    originalOutputNoteIds: transaction?.outputNoteIds,
     requestedAmount: requestedToken?.amount,
     requestedFaucetId: requestedToken?.faucetId,
     tracking: swapTracking,
     settlement: settlementNotes,
     autoConsume: swapAutoConsume,
+    slippageBps: swapSlippageBps,
     expiresAt: swapExpiresAt
   });
 
@@ -717,6 +722,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
             }
             requestedFaucetId={requestedToken.faucetId}
             filledAmount={receipt.filledAmount}
+            slippageBps={swapSlippageBps}
             orderState={receipt.orderState}
             trackingLoading={trackingLoading}
             settledTransactions={settledTransactions}
@@ -728,7 +734,6 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
               receipt.offerClaimRoute && !transaction?.recovered ? () => navigate(ACTIVITY_PENDING_PATH) : undefined
             }
             offerCancelOrder={receipt.offerCancel}
-            reclaimPending={receipt.reclaimPending}
             isCancellingOrder={actions.isCancellingOrder}
             cancelOrderError={actions.cancelOrderError}
             onCancelOrder={actions.onCancelOrder}
