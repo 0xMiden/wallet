@@ -68,6 +68,7 @@ const EarnWithdrawAmount: React.FC<{ positionId: string }> = ({ positionId }) =>
                 decimalsLimit={36}
                 maxLength={116}
                 allowNegativeValue
+                formatValueOnBlur={false}
                 error={amount && validation ? t(validation, { decimals: position.decimals }) : undefined}
                 tokenSelector={
                   <div className="flex flex-wrap items-center justify-between gap-2">

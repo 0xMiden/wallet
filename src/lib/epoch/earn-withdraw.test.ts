@@ -94,12 +94,17 @@ jest.mock('./earn', () => {
   };
 });
 jest.mock('./earn-withdraw-quote', () => ({
+  assertWithdrawalReviewContext: jest.fn(),
   assertWithdrawalReviewCurrent: jest.fn().mockResolvedValue(undefined),
   assertWithdrawalDelivery: jest.fn(),
   quoteEarnWithdrawal: jest.fn()
 }));
 jest.mock('./positions', () => ({ fetchEarnPositions: jest.fn() }));
-jest.mock('./evm-account', () => ({ buildVaultEvmWalletClient: jest.fn(() => ({})) }));
+jest.mock('./evm-account', () => ({
+  buildVaultEvmWalletClient: jest.fn(() => ({})),
+  assertVaultEvmAccountCurrent: (...args: unknown[]) => mockAssertActiveAccount(...args)
+}));
+const mockAssertActiveAccount = jest.fn();
 jest.mock('./sdk', () => ({ getEpochReadOnlySdk: jest.fn(), ensureEpochSmartAccount: jest.fn() }));
 jest.mock('lib/miden-chain/native-asset', () => ({
   getNativeAssetId: jest.fn().mockResolvedValue('0xabcdef1234567890abcdef12345678')
@@ -188,7 +193,10 @@ function baseDeps(overrides: Record<string, unknown> = {}) {
 }
 
 describe('gaslessEarnWithdrawalToMiden', () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockAssertActiveAccount.mockReset();
+  });
 
   it('creates a redeeming row, submits the intent, and returns its txId + nonce', async () => {
     const executeActions = jest.fn().mockResolvedValue({ nonce: 'NONCE1' });
@@ -397,7 +405,10 @@ describe('gaslessEarnWithdrawalToMiden', () => {
 });
 
 describe('resumeEarnWithdrawal', () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockAssertActiveAccount.mockReset();
+  });
 
   it('re-registers the bridge-in and restarts polling for a submitted redeeming row', async () => {
     jest.mocked(Repo.transactions.where).mockImplementation(
@@ -492,7 +503,10 @@ describe('resumeEarnWithdrawal', () => {
 });
 
 describe('reconcileEarnWithdrawals', () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockAssertActiveAccount.mockReset();
+  });
 
   it('fails rows older than the TTL without resuming them', async () => {
     const old = liveWithdrawal('OLD');
@@ -762,7 +776,10 @@ describe('pollEarnWithdrawDelivery', () => {
 });
 
 describe('resubmitEarnWithdrawal', () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockAssertActiveAccount.mockReset();
+  });
 
   const failedRow = (extraInputs: Partial<IEarnWithdrawExtraInputs> = {}) =>
     liveWithdrawal('TX1', {
@@ -864,6 +881,7 @@ describe('resubmitEarnWithdrawal', () => {
         amountAtomic: '1000000',
         availableAtomic: '20000000',
         scope: 'testnet',
+        nativeRevision: 1,
         allocatorUrl: getEpochAllocatorUrl(),
         destinationFaucetId: PREPARED_FAUCET,
         destinationSymbol: 'USDCX',
@@ -1687,6 +1705,7 @@ describe('reviewed withdrawals', () => {
     amountAtomic: '10000000',
     availableAtomic: '20000000',
     scope: 'testnet',
+    nativeRevision: 1,
     allocatorUrl: getEpochAllocatorUrl(),
     destinationFaucetId: PREPARED_FAUCET,
     destinationSymbol: 'USDCX',
@@ -1695,7 +1714,44 @@ describe('reviewed withdrawals', () => {
     minimumAtomic: '1',
     expiresAt: Date.now() + 60000
   });
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockAssertActiveAccount.mockReset();
+  });
+  it('refuses an account switch during the initial position check before creating a row', async () => {
+    jest.mocked(assertWithdrawalReviewCurrent).mockImplementationOnce(async () => {
+      mockAssertActiveAccount.mockImplementation(() => {
+        throw new Error('earnWithdrawRefresh');
+      });
+    });
+    const deps = baseDeps();
+    await expect(gaslessEarnWithdrawalToMiden({ ...validArgs(), review: reviewed() }, deps)).rejects.toThrow(
+      'earnWithdrawRefresh'
+    );
+    expect(deps.initiateRow).not.toHaveBeenCalled();
+    expect(deps.ensureSmartAccount).not.toHaveBeenCalled();
+  });
+  it('refuses an account switch while saving prepared execution before permitting the SDK', async () => {
+    const execute = jest.fn();
+    const deps = baseDeps({
+      sdk: fakeSdk(execute),
+      prepareExecution: jest.fn(
+        async (...args: Parameters<typeof import('lib/miden/transaction/complete').prepareEarnWithdrawExecution>) => {
+          const saved = await jest
+            .requireActual<typeof import('lib/miden/transaction/complete')>('lib/miden/transaction/complete')
+            .prepareEarnWithdrawExecution(...args);
+          mockAssertActiveAccount.mockImplementation(() => {
+            throw new Error('earnWithdrawRefresh');
+          });
+          return saved;
+        }
+      )
+    });
+    await expect(gaslessEarnWithdrawalToMiden({ ...validArgs(), review: reviewed() }, deps)).rejects.toThrow(
+      'earnWithdrawRefresh'
+    );
+    expect(execute).not.toHaveBeenCalled();
+  });
   it('rejects excess precision before creating a row or signing', async () => {
     const deps = baseDeps();
     await expect(gaslessEarnWithdrawalToMiden({ ...validArgs(), amount: '1.0000001' }, deps)).rejects.toThrow();

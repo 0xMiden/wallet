@@ -42,11 +42,12 @@ import {
 } from './earn-withdraw-policy';
 import {
   assertWithdrawalReviewCurrent,
+  assertWithdrawalReviewContext,
   assertWithdrawalDelivery,
   quoteEarnWithdrawal,
   type EarnWithdrawalQuote
 } from './earn-withdraw-quote';
-import { buildVaultEvmWalletClient } from './evm-account';
+import { buildVaultEvmWalletClient, assertVaultEvmAccountCurrent } from './evm-account';
 import { isEvmAddress } from './evm-address';
 import {
   earnWithdrawPollKey,
@@ -208,6 +209,12 @@ async function submitEarnWithdrawal(
   const startDeliveryPoll = deps.startDeliveryPoll ?? pollEarnWithdrawDelivery;
   const withSubmissionLock = deps.withSubmissionLock ?? withEarnSubmissionLock;
   const destinationFaucetId = await getNativeAssetId();
+  const assertReviewedContext = () => {
+    if (!args.review) return;
+    assertWithdrawalReviewContext(args.review);
+    // Persisted recovery remains bound to its saved owner, independently of the currently viewed account.
+    if (verifyMarket) assertVaultEvmAccountCurrent(args.midenAccountPublicKey, sponsorAddress);
+  };
   if (args.review) {
     const review = args.review;
     if (
@@ -224,6 +231,7 @@ async function submitEarnWithdrawal(
       throw new Error('earnWithdrawRefresh');
     }
     await assertWithdrawalReviewCurrent(review);
+    assertReviewedContext();
   }
   const attemptId = v4();
   const attemptStartedAt = Math.floor(Date.now() / 1000);
@@ -232,7 +240,11 @@ async function submitEarnWithdrawal(
     const assertCurrent = () => {
       if (!context.isCurrent()) throw new Error('Withdrawal submission was interrupted.');
     };
-    assertCurrent();
+    const assertBeforeSigning = () => {
+      assertCurrent();
+      assertReviewedContext();
+    };
+    assertBeforeSigning();
     const txId = await initiateRow(
       args.midenAccountPublicKey,
       amountAtomic,
@@ -280,17 +292,23 @@ async function submitEarnWithdrawal(
       });
     };
     try {
-      const ensureSmartAccount = deps.ensureSmartAccount ?? ensureEpochSmartAccount;
-      await ensureSmartAccount(args.midenAccountPublicKey, sponsorAddress);
-      assertCurrent();
-      const walletClient = buildVaultEvmWalletClient(args.midenAccountPublicKey, sponsorAddress);
+      assertBeforeSigning();
+      const walletClient = buildVaultEvmWalletClient(
+        args.midenAccountPublicKey,
+        sponsorAddress,
+        args.review ? assertBeforeSigning : undefined
+      );
       const sdk = deps.sdk ?? new EpochIntentSDK({ apiBaseUrl, walletClient, allowGaslessSmartAccount: true });
+      const ensureSmartAccount = deps.ensureSmartAccount ?? ensureEpochSmartAccount;
+      if (args.review) await ensureSmartAccount(args.midenAccountPublicKey, sponsorAddress, sdk);
+      else await ensureSmartAccount(args.midenAccountPublicKey, sponsorAddress);
+      assertBeforeSigning();
       const status = await sdk.getWalletGaslessStatus(chainId);
-      assertCurrent();
+      assertBeforeSigning();
       if (!status.is7702Capable) throw new Error('Wallet/chain is not 7702-capable for a gasless withdrawal.');
       if (status.needsSetup) {
         const setup = await sdk.convertToSmartAccount({ chainId });
-        assertCurrent();
+        assertBeforeSigning();
         if (!setup.ok) throw new Error('Smart-account conversion failed for the gasless withdrawal.');
       }
       await sdk.helpers.executeActions({
@@ -305,7 +323,7 @@ async function submitEarnWithdrawal(
         },
         gasless: true,
         onBeforeExecute: async execution => {
-          assertCurrent();
+          assertBeforeSigning();
           if (executionPermitted) throw new Error('Withdrawal execution was already permitted.');
           const identity = {
             owner: sponsorAddress,
@@ -319,7 +337,7 @@ async function submitEarnWithdrawal(
           if (!selected) throw new Error('The prepared withdrawal does not match its destination.');
           if (args.review) {
             await assertWithdrawalReviewCurrent(args.review);
-            assertCurrent();
+            assertBeforeSigning();
             const validated = validateEarnWithdrawPreparedExecution(selected, identity);
             const delivery = validated?.allocationRequests[selected.delivery.allocationIndex]?.compact.mandate;
             if (!delivery) throw new Error('earnWithdrawRefresh');
@@ -329,9 +347,9 @@ async function submitEarnWithdrawal(
           const prepareExecution = deps.prepareExecution ?? prepareEarnWithdrawExecution;
           if (!(await prepareExecution(txId, selected, expected, context.isCurrent)))
             throw new Error('The withdrawal preparation could not be saved.');
-          assertCurrent();
+          assertBeforeSigning();
           const fresh = await Repo.transactions.where({ id: txId }).first();
-          assertCurrent();
+          assertBeforeSigning();
           if (
             !fresh ||
             fresh.restoredFromBackup ||

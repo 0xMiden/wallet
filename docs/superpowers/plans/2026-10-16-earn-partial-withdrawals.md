@@ -6,7 +6,7 @@
 **Tech stack:** React, TypeScript, viem bigint conversion, Jest/RTL, Playwright.
 
 ## Constraints
-No contract migration, seed import, live transaction, deployment or merge. PR publication was explicitly authorized after the implementation and UX review. The original verified base was 5625b76f30b41bd861439950d797dd14cd3e0a3f; the branch is updated to current main before publication. Separate funding-choice work and existing native simulators are left untouched.
+No contract migration, seed import, live transaction, deployment or merge. PR publication was explicitly authorized after the implementation and UX review. The original verified base was 5625b76f30b41bd861439950d797dd14cd3e0a3f; the branch was rebased onto freshly fetched origin/main 99222f2eec702b5e5fd562f2d8b92fc9b00e0f74 before publication. Separate funding-choice work and existing native simulators are left untouched.
 
 ## Review focus
 - Token precision: 18-decimal EVM underlying versus 6-decimal native payout; no Number conversion in authorization.
@@ -25,7 +25,7 @@ No contract migration, seed import, live transaction, deployment or merge. PR pu
 
 ## UX follow-up
 
-Brian requested readable balance typography and a shorter review. Availability uses wallet display formatting. Max snapshots the exact full amount while presenting a short value and explicit full-balance label; edits replace that snapshot. Review leads with estimated native receipt, shows selected withdrawal, residual investment and minimum receipt, and places exact amounts/owner/route costs inside the shared DetailDisclosure. Use the existing Nunito type roles, semantic tokens and pinned footer; signing/quote validation remain unchanged. Focused tests cover Max display versus exact submission, edits, disclosure and residual amount. Revised browser screenshots use the production font loader and FullScreenPage; native/live acceptance stays separate.
+Brian requested readable balance typography and a shorter review. Availability uses wallet display formatting. Max snapshots the exact full amount while presenting a short value and explicit full-balance label; edits replace that snapshot. Review leads with estimated native receipt, shows selected withdrawal, residual investment and minimum receipt, and places exact amounts/owner/route costs inside the shared DetailDisclosure. Use the existing Nunito type roles, semantic tokens and pinned footer; signing/quote validation remain unchanged. Focused tests cover Max display versus exact submission, edits, disclosure and residual amount. Focus/blur leaves the exact Max snapshot intact. New reviewed withdrawals recheck the selected account and native-asset revision after asynchronous preparation and immediately before each vault signing request, including smart-account setup; persisted recovery retains its saved owner. Revised browser screenshots use the production font loader and FullScreenPage; native/live acceptance stays separate.
 
 ## Contract capability evidence
 
@@ -40,3 +40,7 @@ References: [Epoch Smart Withdraw SDK](https://docs.epochprotocol.xyz/integratio
 ## Visual and live acceptance limits
 
 The committed screenshots are browser views with mocked services, using production components, FullScreenPage and bundled Inter/Nunito fonts. The preview covers readable Max, partial review, Details and light/dark layouts; it cannot sign or submit. Native keyboard/safe-area behavior and live partial/Max settlement, actual credit and legacy redemption still require a separately authorized wallet transaction session. Non-English strings retain the existing pending-translation English fallback.
+
+## Publication verification
+
+The final full Jest run passed 1,059 suites; four local server-helper suites failed solely because the sandbox blocked loopback binding. All four passed with local-listener permission (40 tests), yielding 1,063 passing suites and one skipped suite, with 25,138 passing tests and four skipped tests across the full run and targeted rerun. TypeScript, changed-source ESLint, i18n lint and production Chrome/mobile/visual-fixture builds passed. A final 393×852 browser check preserved the exact Max route amount after focus/blur. Independent review and targeted follow-up found no remaining actionable issues. Live/native acceptance limits above still apply.

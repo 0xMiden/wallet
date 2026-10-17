@@ -1,11 +1,12 @@
 // Hermetic visual fixture: production controls, mocked positions/quotes and NO transaction capability.
-import React from 'react';
 import { useSyncExternalStore } from 'react';
+
 import BigNumber from 'bignumber.js';
-import type { EarnPosition } from '../../../src/screens/earn-flow/types';
-import { getAdaptiveDecimalPlaces } from '../../../src/lib/i18n/adaptive-precision';
-import { withdrawalAmount } from '../../../src/lib/epoch/withdraw-amount';
+
 import type { EarnWithdrawalQuote } from '../../../src/lib/epoch/earn-withdraw-quote';
+import { withdrawalAmount } from '../../../src/lib/epoch/withdraw-amount';
+import { getAdaptiveDecimalPlaces } from '../../../src/lib/i18n/adaptive-precision';
+import type { EarnPosition } from '../../../src/screens/earn-flow/types';
 export const account = { publicKey: 'fixture-miden-account', evmAddress: '0x1111111111111111111111111111111111111111' };
 export const position: EarnPosition = {
   id: 'position-1',
@@ -39,11 +40,11 @@ export const position: EarnPosition = {
   ]
 };
 export function navigate(url: string) {
-  history.pushState(null, '', url);
+  window.history.pushState(null, '', url);
   window.dispatchEvent(new Event('popstate'));
 }
 export const goBack = () => {
-  history.back();
+  window.history.back();
 };
 export const useAccount = () => account;
 export function useLocation() {
@@ -52,12 +53,12 @@ export function useLocation() {
       window.addEventListener('popstate', fn);
       return () => window.removeEventListener('popstate', fn);
     },
-    () => location.pathname + location.search
+    () => window.location.pathname + window.location.search
   );
-  return { search: new URL(query, location.origin).search };
+  return { search: new URL(query, window.location.origin).search };
 }
 export const useEarnPositions = () => {
-  const remaining = new URLSearchParams(location.search).has('remaining');
+  const remaining = new URLSearchParams(window.location.search).has('remaining');
   const current = remaining
     ? {
         ...position,
@@ -107,7 +108,7 @@ export const quoteEarnWithdrawal = async (args: {
   amount: string;
   accountId: string;
 }): Promise<EarnWithdrawalQuote> => {
-  if (new URLSearchParams(location.search).has('quoteError')) throw Error('fixture quote unavailable');
+  if (new URLSearchParams(window.location.search).has('quoteError')) throw Error('fixture quote unavailable');
   const amountAtomic = withdrawalAmount(args.amount, 18)!;
   const expectedAtomic = (amountAtomic * 991822n) / 1000000000000000000n;
   return {
@@ -117,6 +118,7 @@ export const quoteEarnWithdrawal = async (args: {
     amountAtomic: amountAtomic.toString(),
     availableAtomic: '10123456789012345678',
     scope: 'fixture',
+    nativeRevision: 1,
     allocatorUrl: 'fixture',
     destinationFaucetId: 'fixture',
     destinationSymbol: 'USDCX',
@@ -148,7 +150,7 @@ export const earnWithdrawAmountFields = (_inputs: unknown, amount: bigint) => ({
   token: 'USDCX'
 });
 export function useTransactionRow() {
-  const phase = new URLSearchParams(location.search).get('phase') ?? 'prepared';
+  const phase = new URLSearchParams(window.location.search).get('phase') ?? 'prepared';
   return {
     loaded: true,
     row: {

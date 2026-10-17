@@ -76,6 +76,20 @@ it('replaces the exact Max selection when the user edits the displayed amount', 
   fireEvent.click(screen.getByRole('button', { name: 'review' }));
   expect(navigate).toHaveBeenLastCalledWith('/earn/positions/p/withdraw/review?amount=2.25');
 });
+it.each(['10.123456789012345678', '0.000123456789012345'])(
+  'keeps exact Max %s after focusing and blurring without an edit',
+  exact => {
+    mockAvailable = exact;
+    render(<EarnWithdrawAmount positionId="p" />);
+    fireEvent.click(screen.getByRole('button', { name: 'max' }));
+    const amount = screen.getByRole('textbox', { name: 'earnWithdrawAmount' });
+    fireEvent.focus(amount);
+    fireEvent.blur(amount);
+    expect(screen.getByText('earnWithdrawFullBalanceSelected')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'review' }));
+    expect(navigate).toHaveBeenLastCalledWith(`/earn/positions/p/withdraw/review?amount=${exact}`);
+  }
+);
 it.each(['0', '-1', '11', '1.1234567890123456789'])('blocks invalid amount %p', value => {
   render(<EarnWithdrawAmount positionId="p" />);
   fireEvent.change(screen.getByRole('textbox', { name: 'earnWithdrawAmount' }), { target: { value } });

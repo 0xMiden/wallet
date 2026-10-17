@@ -1,6 +1,6 @@
 import type { IntentQuoteResult } from '@epoch-protocol/epoch-intents-sdk';
 
-import { getNativeAssetId, getNativeAssetMetadata } from 'lib/miden-chain/native-asset';
+import { getNativeAssetId, getNativeAssetMetadata, captureNativeAssetSnapshot } from 'lib/miden-chain/native-asset';
 
 import { quoteEarnWithdrawal, assertWithdrawalReviewCurrent, assertWithdrawalDelivery } from './earn-withdraw-quote';
 import { fetchEarnPositions } from './positions';
@@ -11,7 +11,8 @@ jest.mock('./positions', () => ({ fetchEarnPositions: jest.fn() }));
 jest.mock('lib/miden-chain/native-asset', () => ({
   getNativeAssetId: jest.fn().mockResolvedValue('0x4cbdcaffe75f0a317482224dae6436'),
   getNativeAssetMetadata: jest.fn().mockResolvedValue({ symbol: 'USDCX', decimals: 6 }),
-  cacheScope: () => 'testnet'
+  cacheScope: () => 'testnet',
+  captureNativeAssetSnapshot: jest.fn(() => ({ scope: 'testnet', revision: 1 }))
 }));
 jest.mock('lib/remote-config/values', () => ({
   getEpochAllocatorUrl: () => 'https://allocator.example',
@@ -32,6 +33,7 @@ const sdk = { getTaskData, getIntentQuote };
 
 beforeEach(() => {
   jest.clearAllMocks();
+  jest.mocked(captureNativeAssetSnapshot).mockReturnValue({ scope: 'testnet', revision: 1 });
   getTaskData.mockImplementation(async p => ({ taskTypeString: 'task', intentData: p.intentData }));
   getIntentQuote.mockResolvedValue({ success: true, tokenOut: '991822', transactions: [], resourceLockRequired: true });
   jest.mocked(fetchEarnPositions).mockResolvedValue({
@@ -125,6 +127,23 @@ it('refuses a quote for another input amount or scale', async () => {
     tokenOut: '100',
     transactions: [],
     resourceLockRequired: true
+  });
+  await expect(quoteEarnWithdrawal(args, sdk)).rejects.toThrow('earnWithdrawQuoteUnavailable');
+});
+
+it('rejects a native-asset identity change while the fresh position read is pending', async () => {
+  const q = await quoteEarnWithdrawal(args, sdk);
+  const fresh = await fetchEarnPositions({ accountId: args.accountId, owners: [token] });
+  jest.mocked(fetchEarnPositions).mockImplementationOnce(async () => {
+    jest.mocked(captureNativeAssetSnapshot).mockReturnValue({ scope: 'testnet', revision: 2 });
+    return fresh;
+  });
+  await expect(assertWithdrawalReviewCurrent(q)).rejects.toThrow('earnWithdrawRefresh');
+});
+it('rejects a native-asset identity change while the delivery quote is pending', async () => {
+  getIntentQuote.mockImplementationOnce(async () => {
+    jest.mocked(captureNativeAssetSnapshot).mockReturnValue({ scope: 'testnet', revision: 2 });
+    return { success: true, tokenOut: '991822', transactions: [], resourceLockRequired: true };
   });
   await expect(quoteEarnWithdrawal(args, sdk)).rejects.toThrow('earnWithdrawQuoteUnavailable');
 });

@@ -1,6 +1,11 @@
 import { EpochIntentSDK, TaskType, EVM_TO_MIDEN_EXTRA_TYPESTRING } from '@epoch-protocol/epoch-intents-sdk';
 
-import { cacheScope, getNativeAssetId, getNativeAssetMetadata } from 'lib/miden-chain/native-asset';
+import {
+  cacheScope,
+  captureNativeAssetSnapshot,
+  getNativeAssetId,
+  getNativeAssetMetadata
+} from 'lib/miden-chain/native-asset';
 import { getEarnMarket, getEpochAllocatorUrl } from 'lib/remote-config/values';
 
 import { normalizeMidenIdToHex } from './bridge';
@@ -26,6 +31,7 @@ export interface EarnWithdrawalQuote {
   amountAtomic: string;
   availableAtomic: string;
   scope: string;
+  nativeRevision: number;
   allocatorUrl: string;
   destinationFaucetId: string;
   destinationSymbol: string;
@@ -47,6 +53,7 @@ export async function quoteEarnWithdrawal(
   const scope = cacheScope();
   const allocatorUrl = getEpochAllocatorUrl();
   const destinationFaucetId = await getNativeAssetId();
+  const nativeSnapshot = captureNativeAssetSnapshot();
   const metadata = await getNativeAssetMetadata();
   if (
     !metadata ||
@@ -96,7 +103,14 @@ export async function quoteEarnWithdrawal(
     throw new Error('earnWithdrawQuoteUnavailable');
   // Same 1% floor as Epoch 1.0.39's withdraw helper. Tiny routes with a zero floor cannot be authorized.
   const minimum = (BigInt(quote.tokenOut) * 99n) / 100n;
-  if (minimum <= 0n || scope !== cacheScope()) throw new Error('earnWithdrawQuoteUnavailable');
+  const currentNative = captureNativeAssetSnapshot();
+  if (
+    minimum <= 0n ||
+    scope !== currentNative.scope ||
+    nativeSnapshot.revision !== currentNative.revision ||
+    allocatorUrl !== getEpochAllocatorUrl()
+  )
+    throw new Error('earnWithdrawQuoteUnavailable');
   return {
     position: { ...position },
     accountId,
@@ -104,6 +118,7 @@ export async function quoteEarnWithdrawal(
     amountAtomic: amountAtomic.toString(),
     availableAtomic: availableAtomic.toString(),
     scope,
+    nativeRevision: nativeSnapshot.revision,
     allocatorUrl,
     destinationFaucetId,
     destinationSymbol: metadata.symbol,
@@ -114,19 +129,24 @@ export async function quoteEarnWithdrawal(
   };
 }
 
-/** Fresh read before any signing; a changed balance requires another review even when still sufficient. */
-export async function assertWithdrawalReviewCurrent(quote: EarnWithdrawalQuote): Promise<void> {
-  const fail = () => {
-    throw new Error('earnWithdrawRefresh');
-  };
+/** Synchronous guard used immediately before every vault signing request. */
+export function assertWithdrawalReviewContext(quote: EarnWithdrawalQuote): void {
+  const currentNative = captureNativeAssetSnapshot();
   if (
     Date.now() >= quote.expiresAt ||
-    quote.scope !== cacheScope() ||
+    quote.scope !== currentNative.scope ||
+    quote.nativeRevision !== currentNative.revision ||
     quote.allocatorUrl !== getEpochAllocatorUrl() ||
     quote.position.marketUid.toLowerCase() !== getEarnMarket().marketUid.toLowerCase()
   )
-    fail();
-  if (normalizeMidenIdToHex(await getNativeAssetId()) !== normalizeMidenIdToHex(quote.destinationFaucetId)) fail();
+    throw new Error('earnWithdrawRefresh');
+}
+
+/** Fresh read before any signing; a changed balance requires another review even when still sufficient. */
+export async function assertWithdrawalReviewCurrent(quote: EarnWithdrawalQuote): Promise<void> {
+  assertWithdrawalReviewContext(quote);
+  if (normalizeMidenIdToHex(await getNativeAssetId()) !== normalizeMidenIdToHex(quote.destinationFaucetId))
+    throw new Error('earnWithdrawRefresh');
   const fresh = await fetchEarnPositions({ accountId: quote.accountId, owners: [quote.position.owner] });
   const position = fresh.positions.find(
     p =>
@@ -138,13 +158,10 @@ export async function assertWithdrawalReviewCurrent(quote: EarnWithdrawalQuote):
     !position ||
     position.decimals !== quote.position.decimals ||
     position.underlyingAddress.toLowerCase() !== quote.position.underlyingAddress.toLowerCase() ||
-    withdrawalAmount(position.withdrawable, position.decimals)?.toString() !== quote.availableAtomic ||
-    Date.now() >= quote.expiresAt ||
-    quote.scope !== cacheScope() ||
-    quote.allocatorUrl !== getEpochAllocatorUrl() ||
-    quote.position.marketUid.toLowerCase() !== getEarnMarket().marketUid.toLowerCase()
+    withdrawalAmount(position.withdrawable, position.decimals)?.toString() !== quote.availableAtomic
   )
-    fail();
+    throw new Error('earnWithdrawRefresh');
+  assertWithdrawalReviewContext(quote);
 }
 
 /** The execution helper requotes. Refuse any different input or worse floor instead of silently changing review. */

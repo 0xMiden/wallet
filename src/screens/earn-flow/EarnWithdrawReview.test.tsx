@@ -437,6 +437,7 @@ describe('selected withdrawal review', () => {
       accountId: mockAccount.publicKey,
       position,
       scope: 'testnet',
+      nativeRevision: 1,
       allocatorUrl: 'url',
       destinationFaucetId: 'faucet',
       destinationSymbol: 'USDCX',

@@ -69,6 +69,8 @@ export interface AmountInputProps {
   decimalsLimit?: number;
   maxLength?: number;
   allowNegativeValue?: boolean;
+  /** Disable blur callbacks when the displayed value is a compact view of an exact selection. */
+  formatValueOnBlur?: boolean;
   onValueChange?: (value: string | undefined, name?: string, values?: CurrencyInputOnChangeValues) => void;
   placeholder?: string;
   /** Small heading above the amount (e.g. "Select Amount"), optionally a node with a network pill. */
@@ -115,6 +117,7 @@ export const AmountInput: React.FC<AmountInputProps> = ({
   decimalsLimit = 6,
   maxLength = 16,
   allowNegativeValue = false,
+  formatValueOnBlur = true,
   onValueChange,
   placeholder = '0.00',
   label,
@@ -160,6 +163,7 @@ export const AmountInput: React.FC<AmountInputProps> = ({
       decimalSeparator="."
       decimalsLimit={decimalsLimit}
       allowNegativeValue={allowNegativeValue}
+      formatValueOnBlur={formatValueOnBlur}
       maxLength={maxLength}
       enterKeyHint="done"
       autoFocus={autoFocus}
