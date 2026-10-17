@@ -36,7 +36,9 @@ import { getBech32AddressFromAccountId } from '../sdk/helpers';
 import { getCurrentWasmLockHold, getMidenClient, withWasmClientLock, type WasmLockHold } from '../sdk/miden-client';
 import { isSyncWatchdogEviction, WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 import { localSwapOrders } from '../swap/classification';
+import type { RecoveredSwapOrderRef } from '../swap/recovered-order';
 import {
+  checkRefusedRecoveredOrders,
   classifySwapSettlementSnapshot,
   noteZeroFillBuildHoldFailure,
   type PreparedPswapReclaim,
@@ -445,6 +447,8 @@ async function runSync(force: boolean): Promise<void> {
       // realm to absorb it.
       const settlementNowSeconds = Math.floor(Date.now() / 1000);
       let notesReadHold: WasmLockHold | null = null;
+      // Set by the hold below; read only once it has resolved, so an evicted hold's late write never reaches the check.
+      let refusedRecoveredOrders: RecoveredSwapOrderRef[] = [];
       const { parsedNotes, vaultAssets, noteBlocks, balanceSnapshot, zeroFillReclaims } = await withWasmClientLock(
         async hold => {
           notesReadHold = hold;
@@ -502,7 +506,7 @@ async function runSync(force: boolean): Promise<void> {
           // classifier's own per-order guard — plus an accurate attribution when it fires.
           stillOurs('after the quarantine read');
           // A locked lap settles nothing (below), so it builds no zero-fill reclaim request it would throw away.
-          const { classified: swapOrders, zeroFillReclaims } = await classifySwapSettlementSnapshot(
+          const settlementSnapshot = await classifySwapSettlementSnapshot(
             rawNotes,
             accountPubKey,
             swapOrderRows,
@@ -510,6 +514,8 @@ async function runSync(force: boolean): Promise<void> {
             settlementNowSeconds,
             isUnlocked(store.getState())
           );
+          const { classified: swapOrders, zeroFillReclaims } = settlementSnapshot;
+          refusedRecoveredOrders = settlementSnapshot.refusedRecoveredOrders;
           stillOurs('after the swap-order lineage read');
           // Inclusion block of each note, dated once this hold has released the client (below).
           const noteBlocks = new Map<string, number>();
@@ -571,6 +577,11 @@ async function runSync(force: boolean): Promise<void> {
         noteZeroFillBuildHoldFailure(notesReadHold, err);
         throw err;
       });
+
+      // A recovered order whose cancel the hold refused is asked about on the node now that the hold is released, here
+      // as well as on a page: only an open page closed a spent one, so this realm rebuilt its cancel every lap (#1487).
+      // Fired and forgotten like the delivery sweep: bounded node reads the lap need not wait for.
+      void checkRefusedRecoveredOrders(refusedRecoveredOrders);
 
       // Receive dates from the notes' inclusion blocks, read alongside the metadata below (RPC, outside lock).
       const blockTimesRead = getBlockTimestamps([...noteBlocks.values()], notesScope);

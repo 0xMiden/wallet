@@ -40,6 +40,7 @@ import {
 } from '../guardian/history-errors';
 import type { GuardianHistoryNote } from '../sdk/guardian-history';
 import { WasmClientPoisonedError } from '../sdk/wasm-client-poison';
+import { recoveredSwapOrderRef } from '../swap/recovered-order';
 
 jest.mock('@openzeppelin/guardian-client', () => ({
   GuardianHttpClient: class {
@@ -2019,6 +2020,32 @@ it("keeps a recovered swap row's Cancel expiry and spent-note stamp when it deri
   const upgraded = await transactions.get(order.id);
   expect(upgraded?.recovery?.version).toBe(GUARDIAN_HISTORY_VERSION);
   expect(upgraded?.extraInputs).toMatchObject({ expiresAt: 150, expiryTriggeredAt: 150, orderNoteSpentAt: 170 });
+});
+
+// The remainder a partial fill left is what the order's Cancel returns: losing it on an upgrade sent settlement back
+// to the spent order note (#1487).
+it("keeps a recovered swap row's recorded remainder when it derives the row again, so it still names its tip", async () => {
+  serveOrderHistory();
+  await run();
+  const order = (await transactions.toArray()).find(row => row.recovery?.nonce === 2);
+  if (!order?.recovery) throw new Error('Missing recovered order');
+  const recoveredTip = { noteId: 'remainder-1', depth: 1, remainingOffered: 24n };
+  await transactions.put({
+    ...order,
+    extraInputs: { ...order.extraInputs, recoveredTip },
+    recovery: { ...order.recovery, version: GUARDIAN_HISTORY_VERSION - 1 }
+  });
+  await clearGuardianHistoryCheckpoints();
+  serveOrderHistory();
+
+  await run();
+
+  const upgraded = await transactions.get(order.id);
+  expect(upgraded?.recovery?.version).toBe(GUARDIAN_HISTORY_VERSION);
+  expect(upgraded?.extraInputs?.recoveredTip).toEqual(recoveredTip);
+  expect(upgraded && recoveredSwapOrderRef(upgraded)).toEqual(
+    expect.objectContaining({ tipNoteId: 'remainder-1', tipDepth: 1, tipOfferedAmount: 24n })
+  );
 });
 
 it('stops recovery and retains the failure when fee metadata is unavailable', async () => {

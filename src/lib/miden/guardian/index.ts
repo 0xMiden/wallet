@@ -43,6 +43,7 @@ import {
   type WasmClientLockOptions,
   type WasmLockHold
 } from '../sdk/miden-client';
+import type { PswapCancelRequestOptions } from '../sdk/miden-client-interface';
 import { isGuardianCanonicalizationError, isPipelineKillLink, someInCauseChain } from '../sdk/sdk-error-code';
 import { syncAndRecordFeeFaucet } from '../sdk/sync-and-record-fee-faucet';
 import {
@@ -521,19 +522,20 @@ export class MultisigService {
    * Never `createRebasedCustomProposal`: its rebuild keeps only own output notes, and this request's content is the
    * tip it consumes.
    *
-   * The note may come from the node: a recovered order's reclaim row names a note this client never tracked (#1487),
-   * and the row exists only because settlement already built the request from the same checked note.
+   * `allowNodeNote` is the order's own eligibility: only a recovered order's reclaim names a note this client never
+   * tracked, which the build then reads on the node (#1487).
    */
   async createPswapCancelProposal(
     noteId: string,
-    persistRequest: (requestBytes: Uint8Array) => Promise<void>
+    persistRequest: (requestBytes: Uint8Array) => Promise<void>,
+    { allowNodeNote = false }: PswapCancelRequestOptions = {}
   ): Promise<Proposal> {
     return await this.withChainSyncedHold('PSWAP cancel proposal', async hold => {
       const requestBytes = await midenClientProxy.buildPswapCancelRequest(
         this.accountId,
         noteId,
         step => assertWasmHoldCurrent(hold, 'PSWAP cancel proposal: inside the cancel-request build', step),
-        { allowNodeNote: true }
+        { allowNodeNote }
       );
       assertWasmHoldCurrent(hold, 'PSWAP cancel proposal: after the cancel-request build');
       await persistRequest(requestBytes);
