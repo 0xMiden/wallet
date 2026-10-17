@@ -1253,6 +1253,18 @@ export interface ISwapExtraInputs {
    * explains it: a fill, or a reclaim made elsewhere. It closes the order, which then reads Confirmed (#1487).
    */
   orderNoteSpentAt?: number;
+  /**
+   * The open remainder a partial fill left of a Guardian-recovered order, as the node's lineage showed it: the note
+   * its Cancel returns, since the order note is spent (#1487).
+   */
+  recoveredTip?: IRecoveredSwapTip;
+}
+
+export interface IRecoveredSwapTip {
+  noteId: string;
+  /** The fill round that created it, 1 for the first remainder. */
+  depth: number;
+  remainingOffered: bigint;
 }
 
 /**

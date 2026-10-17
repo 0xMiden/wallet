@@ -24,7 +24,7 @@ import {
 } from '../transaction/initiate';
 import { type ConsumableNote, NoteTypeEnum, type SwapOrderNoteMetadata } from '../types';
 import { swapOrderExpired } from './expiry';
-import { isRecoveredReturnOrder, recoveredOrderNoteId } from './recovered-order';
+import { isRecoveredReturnOrder, recoveredSwapOrderRef } from './recovered-order';
 
 export { classifySwapOrderNotes } from './classification';
 
@@ -94,6 +94,9 @@ export interface SwapSettlementResult {
 export interface PreparedPswapReclaim {
   noteId: string;
   requestBytes: Uint8Array;
+  /** Set for a recovered order's remainder: its round and what it still offers, where the tip is not the order note. */
+  depth?: number;
+  offeredAmount?: bigint;
 }
 
 export interface SwapSettlementSnapshot {
@@ -126,6 +129,7 @@ export async function classifySwapSettlementSnapshot(
   for (const order of orders) {
     // Recovery writes Auto accept off on every recovered order, so that setting is not the user's ask there.
     const recovered = isRecoveredReturnOrder(order);
+    const recoveredRef = recovered ? recoveredSwapOrderRef(order) : undefined;
     if (order.extraInputs.autoConsume === false && !recovered) continue;
     const expiresAt = order.extraInputs.expiresAt;
     if (!swapOrderExpired(expiresAt, nowSeconds)) continue;
@@ -134,11 +138,14 @@ export async function classifySwapSettlementSnapshot(
     // Active=0. A partial fill moves the tip to depth > 0 and imports it as an
     // input note; terminal lineages have nothing left to reclaim.
     if (lineage && (lineage.state !== 0 || lineage.currentDepth !== 0)) continue;
-    // A device that did not place a recovered order has no lineage for it: its tip is the order note its record names.
-    const tipNoteId = lineage ? lineage.currentTipNoteId : recovered ? recoveredOrderNoteId(order) : undefined;
+    // A device that did not place a recovered order has no lineage for it: its tip is the order note its record names,
+    // or the remainder of a partial fill its tracking found on the node (#1487).
+    const tipNoteId = lineage ? lineage.currentTipNoteId : recoveredRef?.tipNoteId;
     if (tipNoteId === undefined || snapshot.notes.has(tipNoteId)) continue;
-    // A lineage the store maps wrongly names another order's note; a cancel of it takes back the wrong offer.
-    if (!outputNoteIdsOf(order).includes(tipNoteId)) continue;
+    // A lineage the store maps wrongly names another order's note; a cancel of it takes back the wrong offer. A
+    // remainder is no output note of the row: the build reads it on the node and refuses one this account did not create.
+    const remainderTip = !lineage && recoveredRef !== undefined && recoveredRef.tipDepth > 0;
+    if (!remainderTip && !outputNoteIdsOf(order).includes(tipNoteId)) continue;
     if (recovered && recoveredBuildWaiting(order.id, nowSeconds)) continue;
     // The queue would refuse a second row for a tip whose reclaim is live, completed or backing off, so the
     // fee-aware build is not paid for every tick until then.
@@ -181,7 +188,13 @@ export async function classifySwapSettlementSnapshot(
     }
     zeroFillBuildMarks.delete(hold);
     recoveredBuildRetries.delete(order.id);
-    zeroFillReclaims.set(orderId, { noteId: tipNoteId, requestBytes });
+    zeroFillReclaims.set(orderId, {
+      noteId: tipNoteId,
+      requestBytes,
+      ...(remainderTip && recoveredRef
+        ? { depth: recoveredRef.tipDepth, offeredAmount: recoveredRef.tipOfferedAmount }
+        : {})
+    });
   }
 
   // Only a build that returned its request shows the node answered; a pass of data refusals, or of no build, is none.
@@ -278,13 +291,13 @@ export async function reconcileSwapOrderNotes(
         const reclaimNote: ConsumableNote = {
           id: prepared.noteId,
           faucetId: order.faucetId,
-          amount: order.amount.toString(),
+          amount: (prepared.offeredAmount ?? order.amount).toString(),
           senderAddress: accountId,
           isBeingClaimed: false,
           type: NoteTypeEnum.Public,
           swapOrder: {
             orderId,
-            depth: 0,
+            depth: prepared.depth ?? 0,
             role: 'tip',
             lineageState: 'active',
             expiresAt: zeroFillExpiresAt,

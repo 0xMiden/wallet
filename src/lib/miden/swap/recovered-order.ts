@@ -13,6 +13,10 @@ export interface RecoveredSwapOrderRef {
   noteId: string;
   offeredAmount: bigint;
   requestedAmount: bigint;
+  /** What a Cancel returns: the remainder the last partial fill left, else the order note itself at depth 0. */
+  tipNoteId: string;
+  tipDepth: number;
+  tipOfferedAmount: bigint;
 }
 
 const swapExtraOf = (tx: ITransaction): Partial<ISwapExtraInputs> => tx.extraInputs ?? {};
@@ -47,13 +51,26 @@ export function recoveredSwapOrderRef(tx: ITransaction): RecoveredSwapOrderRef |
     return undefined;
   const noteId = recoveredOrderNoteId(tx);
   if (noteId === undefined) return undefined;
+  // Stored data, so checked: a malformed record falls back to the order note, which a later read corrects.
+  const recorded = extra.recoveredTip;
+  const tip =
+    recorded != null &&
+    typeof recorded.noteId === 'string' &&
+    Number.isSafeInteger(recorded.depth) &&
+    recorded.depth > 0 &&
+    typeof recorded.remainingOffered === 'bigint'
+      ? recorded
+      : undefined;
   return {
     txId: tx.id,
     accountId: tx.accountId,
     orderId: String(extra.orderId),
     noteId,
     offeredAmount: tx.amount,
-    requestedAmount: extra.requestedAmount
+    requestedAmount: extra.requestedAmount,
+    tipNoteId: tip?.noteId ?? noteId,
+    tipDepth: tip?.depth ?? 0,
+    tipOfferedAmount: tip?.remainingOffered ?? tx.amount
   };
 }
 
