@@ -104,10 +104,10 @@ describe('NativeNoteAutoConsumeManager', () => {
     mockInitiateConsumeBatch.mockImplementation(async (...args: any[]) =>
       write(
         args[1].map((n: { id: string }) => n.id),
-        args[6]
+        args[7]
       )
     );
-    mockInitiateConsume.mockImplementation(async (...args: any[]) => write([args[1].id], args[4]));
+    mockInitiateConsume.mockImplementation(async (...args: any[]) => write([args[1].id], args[5]));
     return written;
   };
 

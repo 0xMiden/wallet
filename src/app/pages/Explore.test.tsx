@@ -1501,7 +1501,7 @@ describe('Explore', () => {
       // reads, and a guard that answers no at the write refuses it.
       mockInitiateConsumeNotesTransaction.mockImplementation(async (...args: any[]) => {
         mockWalletReady = false;
-        const canSign = args[6];
+        const canSign = args[7];
         if (typeof canSign === 'function' && !canSign()) throw new Error('Claim not queued');
         written.push(args[1].map((n: { id: string }) => n.id));
         return 'batch-tx';

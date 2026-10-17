@@ -98,8 +98,9 @@ jest.mock('lib/miden/back/miden-client-proxy', () => ({
   }
 }));
 
-// The queue arguments a settlement consume passes after its delegate flag: none but the entry point that queued it.
-const SETTLES = [undefined, undefined, undefined, 'swap_settlement'] as const;
+// The queue arguments a settlement consume passes after its delegate flag: none but the entry point that queued it,
+// and no claim guard.
+const SETTLES = [undefined, undefined, undefined, 'swap_settlement', undefined] as const;
 
 const tx = (overrides: Record<string, unknown> = {}) => ({
   id: 'swap-1',
@@ -1173,6 +1174,7 @@ describe('swap order note settlement', () => {
       undefined,
       undefined,
       undefined,
+      'swap_settlement',
       canSign
     );
   });
