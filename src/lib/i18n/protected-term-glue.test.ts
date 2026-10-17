@@ -176,4 +176,9 @@ describe('shipped locales', () => {
     );
     expect(glued).toEqual([]);
   });
+
+  it('names the Russian USDCx burn step with a real word (#1399)', () => {
+    // "Сжето" is an invented word, not glue, so only this pin keeps it out.
+    expect(loadMessages('ru').usdcxStepBurned?.message).toBe('Сожжено в $network$');
+  });
 });
