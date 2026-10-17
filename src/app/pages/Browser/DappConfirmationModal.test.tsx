@@ -771,6 +771,34 @@ describe('DappConfirmationModal - resolving through the store', () => {
   });
 });
 
+describe('DappConfirmationModal - a connect asked again after its key read failed (#1471)', () => {
+  const askedAgain = (previousAttemptError: string) => Object.assign(buildRequest(), { previousAttemptError });
+
+  it.each([
+    ["the read's error", 'Account not found', 'Account not found'],
+    ['a generic error for a read with no message', '', 'smthWentWrong']
+  ])('shows %s, and its Retry approves the request', (_label, previousAttemptError, shown) => {
+    const onResolve = jest.fn();
+    render(
+      <DappConfirmationModal
+        request={askedAgain(previousAttemptError)}
+        accountId={FULL_ACCOUNT_ID}
+        onResolve={onResolve}
+      />
+    );
+
+    expect(screen.getByTestId('dapp-approval-error')).toHaveTextContent(shown);
+    expect(screen.queryByRole('button', { name: 'approve' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'retry' }));
+
+    expect(onResolve).toHaveBeenCalledTimes(1);
+    expect(onResolve).toHaveBeenCalledWith(
+      expect.objectContaining({ confirmed: true, accountPublicKey: FULL_ACCOUNT_ID }),
+      'req-1'
+    );
+  });
+});
+
 describe('DappConfirmationModal origin', () => {
   const LONG_ORIGIN = 'https://login.secure.account-verify.wallet.example.co.uk';
 

@@ -476,11 +476,95 @@ describe('connect payload', () => {
     });
   });
 
-  it('auto-confirms an existing permission during render', () => {
+  it('auto-confirms an existing permission once, however often the form renders', () => {
     setPayload(connectPayload({ existingPermission: true }));
-    render(<ConfirmPage />);
+    const { rerender } = render(<ConfirmPage />);
+    rerender(<ConfirmPage />);
 
+    expect(ctx.confirmDAppPermission).toHaveBeenCalledTimes(1);
     expect(ctx.confirmDAppPermission).toHaveBeenCalledWith('req-1', true, ACCOUNT.publicKey, UPON_REQUEST, ['balance']);
+  });
+
+  it('shows the error with Retry when the automatic answer to an existing permission fails, and Retry answers again', async () => {
+    // The wallet could not read the account's key after the approval (#1471).
+    ctx.confirmDAppPermission.mockRejectedValue(new Error('Account not found'));
+    try {
+      setPayload(connectPayload({ existingPermission: true }));
+      render(<ConfirmPage />);
+
+      await waitFor(() => expect(screen.getByText('Account not found')).toBeInTheDocument());
+      const retry = screen.getByTestId(ConfirmPageSelectors.ConnectAction_RetryButton);
+      expect(retry).toHaveTextContent('retry');
+      expect(ctx.confirmDAppPermission).toHaveBeenCalledTimes(1);
+
+      ctx.confirmDAppPermission.mockResolvedValue(undefined);
+      await act(async () => {
+        fireEvent.click(retry);
+      });
+
+      await waitFor(() => expect(ctx.confirmDAppPermission).toHaveBeenCalledTimes(2));
+      expect(ctx.confirmDAppPermission).toHaveBeenLastCalledWith('req-1', true, ACCOUNT.publicKey, UPON_REQUEST, [
+        'balance'
+      ]);
+    } finally {
+      ctx.confirmDAppPermission.mockReset();
+    }
+  });
+
+  it('retries an existing permission with Auto private data on a private account without asking for the consent box', async () => {
+    // The consent was given when the session was saved; a new connect still asks for it (the unchecked-box case below).
+    mockUseAccount.mockReturnValue({ ...ACCOUNT, isPublic: false });
+    ctx.confirmDAppPermission.mockRejectedValue(new Error('Account not found'));
+    try {
+      setPayload(connectPayload({ existingPermission: true, privateDataPermission: AUTO }));
+      render(<ConfirmPage />);
+
+      await waitFor(() => expect(screen.getByText('Account not found')).toBeInTheDocument());
+      expect(ctx.confirmDAppPermission).toHaveBeenCalledTimes(1);
+
+      ctx.confirmDAppPermission.mockResolvedValue(undefined);
+      await act(async () => {
+        fireEvent.click(screen.getByTestId(ConfirmPageSelectors.ConnectAction_RetryButton));
+      });
+
+      await waitFor(() => expect(ctx.confirmDAppPermission).toHaveBeenCalledTimes(2));
+      expect(ctx.confirmDAppPermission).toHaveBeenLastCalledWith('req-1', true, ACCOUNT.publicKey, AUTO, ['balance']);
+      expect(screen.queryByText('confirmError')).not.toBeInTheDocument();
+    } finally {
+      ctx.confirmDAppPermission.mockReset();
+    }
+  });
+
+  it('asks a new permission with Auto private data on a private account for the consent box, on Connect and on Retry', async () => {
+    // A forced connect, or one under another app name, reaches the page as a new permission (#1471).
+    mockUseAccount.mockReturnValue({ ...ACCOUNT, isPublic: false });
+    ctx.confirmDAppPermission.mockResolvedValue(undefined);
+    try {
+      setPayload(connectPayload({ existingPermission: false, privateDataPermission: AUTO }));
+      render(<ConfirmPage />);
+      expect(ctx.confirmDAppPermission).not.toHaveBeenCalled();
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId(ConfirmPageSelectors.ConnectAction_ConnectButton));
+      });
+      await waitFor(() => expect(screen.getByText('confirmError')).toBeInTheDocument());
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId(ConfirmPageSelectors.ConnectAction_RetryButton));
+      });
+      expect(screen.queryByText('confirmError')).not.toBeInTheDocument();
+      await waitFor(() => expect(screen.getByText('confirmError')).toBeInTheDocument());
+      expect(ctx.confirmDAppPermission).not.toHaveBeenCalled();
+
+      fireEvent.click(screen.getByTestId('pdp-checkbox'));
+      await act(async () => {
+        fireEvent.click(screen.getByTestId(ConfirmPageSelectors.ConnectAction_RetryButton));
+      });
+      await waitFor(() => expect(ctx.confirmDAppPermission).toHaveBeenCalledTimes(1));
+      expect(ctx.confirmDAppPermission).toHaveBeenCalledWith('req-1', true, ACCOUNT.publicKey, AUTO, ['balance']);
+    } finally {
+      ctx.confirmDAppPermission.mockReset();
+    }
   });
 
   it('shows the private-data checkbox when permission is Auto and account is non-public', () => {

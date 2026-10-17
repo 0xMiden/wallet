@@ -68,6 +68,9 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
   // Kept with the request whose prompt failed and shown only while that request is on screen, so a
   // rejection that lands after a replacement never reads as the new request's failure.
   const [approvalError, setApprovalError] = useState<{ requestId: string; message: string } | null>(null);
+  const previousAttemptError =
+    request.previousAttemptError === undefined ? undefined : request.previousAttemptError || t('smthWentWrong');
+  const shownError = approvalError?.requestId === request.id ? approvalError.message : previousAttemptError;
   const resolvedRef = useRef(false);
   // A declined or failed prompt must leave Approve tappable again, so this is its own
   // latch rather than folded into `resolvedRef`, which marks a request as settled for good.
@@ -308,9 +311,9 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
                   <DappNetworkMismatchNotice claimedNetwork={request.network} className="mt-3" />
                 )}
 
-                {approvalError?.requestId === request.id && (
+                {shownError !== undefined && (
                   <ErrorLine data-testid="dapp-approval-error" className="mt-3">
-                    {approvalError.message}
+                    {shownError}
                   </ErrorLine>
                 )}
               </div>
@@ -331,7 +334,7 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
                   disabled={!canApprove}
                   className="flex-1 rounded-full bg-primary-500 px-6 py-3 text-sm font-semibold text-pure-white hover:bg-primary-600 disabled:cursor-not-allowed disabled:bg-primary-200"
                 >
-                  {isTransaction ? t('confirm') : t('approve')}
+                  {isTransaction ? t('confirm') : previousAttemptError === undefined ? t('approve') : t('retry')}
                 </button>
               </div>
             </motion.div>

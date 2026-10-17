@@ -371,7 +371,9 @@ export async function requestPermission(
     reqChainId,
     networkRpc,
     req.appMeta,
-    !!dApp,
+    // Not `!!dApp`: a forced or renamed connect asks a scope the saved session's consent never covered, so it is a new
+    // permission, prompted with its consent box and saved on approval, never answered on its own.
+    false,
     req.privateDataPermission,
     req.allowedPrivateData,
     sessionId,
@@ -397,74 +399,79 @@ export async function generatePromisifyRequestPermission(
     if (isStoreLocked() && !(await waitForUnlockOnNonExtension(origin, waits))) {
       throw lockedRefusal();
     }
-    const id = nanoid();
-    dappLog(`[DApp] Non-extension requesting confirmation for: ${origin} id: ${id} sessionId: ${sessionId}`);
-    dappLog(`[DApp] Calling dappConfirmationStore.requestConfirmation...`);
+    // One deadline bounds every sheet and key read of this connect, so a failed read never buys a fresh window.
+    const deadline = waits.deadline ?? Date.now() + AUTODECLINE_AFTER;
+    let previousAttemptError: string | undefined;
+    for (;;) {
+      const id = nanoid();
+      dappLog(`[DApp] Non-extension requesting confirmation for: ${origin} id: ${id} sessionId: ${sessionId}`);
+      dappLog(`[DApp] Calling dappConfirmationStore.requestConfirmation...`);
 
-    // Request confirmation from the user via the confirmation store
-    dappLog(`[DApp] About to call requestConfirmation, store instance: ${dappConfirmationStore.getInstanceId()}`);
-    const result = await requestConfirmationWithWatchdog(waits.deadline, {
-      id,
-      sessionId,
-      type: 'connect',
-      origin,
-      appMeta,
-      network,
-      networkRpc,
-      privateDataPermission: privateDataPermission || PrivateDataPermission.UponRequest,
-      allowedPrivateData: allowedPrivateData || AllowedPrivateData.None,
-      existingPermission
-    });
-    dappLog(`[DApp] requestConfirmation returned! confirmed: ${result.confirmed}`);
-
-    if (!result.confirmed || !result.accountPublicKey) {
-      throw new Error(MidenDAppErrorType.NotGranted);
-    }
-
-    const accountPublicKey = result.accountPublicKey;
-    let publicKey: string | null = null;
-
-    try {
-      publicKey = await withUnlocked(async () => {
-        return await withWasmClientLock(async hold => {
-          return await getAccountPublicKeyB64(accountPublicKey, hold);
-        });
-      });
-    } catch (e) {
-      console.error('[DApp] Error fetching account public key:', e);
-      // A kill (a lock-recovery eviction, an offscreen abort or a terminated
-      // client) is a retryable internal failure, not a permissions verdict
-      // (issue #775).
-      if (isPipelineKillLink(e)) throw e;
-      throw new Error(MidenDAppErrorType.NotGranted);
-    }
-
-    if (!existingPermission) {
-      await setDApp(origin, {
-        network,
+      // Request confirmation from the user via the confirmation store
+      dappLog(`[DApp] About to call requestConfirmation, store instance: ${dappConfirmationStore.getInstanceId()}`);
+      const result = await requestConfirmationWithWatchdog(deadline, {
+        id,
+        sessionId,
+        type: 'connect',
+        origin,
         appMeta,
+        network,
+        networkRpc,
+        privateDataPermission: privateDataPermission || PrivateDataPermission.UponRequest,
+        allowedPrivateData: allowedPrivateData || AllowedPrivateData.None,
+        existingPermission,
+        ...(previousAttemptError !== undefined && { previousAttemptError })
+      });
+      dappLog(`[DApp] requestConfirmation returned! confirmed: ${result.confirmed}`);
+
+      if (!result.confirmed || !result.accountPublicKey) {
+        throw new Error(MidenDAppErrorType.NotGranted);
+      }
+
+      const accountPublicKey = result.accountPublicKey;
+      let publicKey: string | typeof KEY_READ_PAST_DEADLINE;
+      try {
+        publicKey = await readApprovedKeyBefore(deadline, accountPublicKey);
+      } catch (e) {
+        console.error('[DApp] Error fetching account public key:', e);
+        // The user approved, so a failed read, a kill included (#775), is no answer to the dApp (#1471): the sheet is
+        // asked again with its error, until a read succeeds, the user denies or the deadline passes.
+        if (Date.now() >= deadline) throw new Error(MidenDAppErrorType.NotGranted);
+        previousAttemptError = e instanceof Error ? e.message : '';
+        continue;
+      }
+      if (publicKey === KEY_READ_PAST_DEADLINE) throw new Error(MidenDAppErrorType.NotGranted);
+
+      if (!existingPermission) {
+        await setDApp(origin, {
+          network,
+          appMeta,
+          accountId: accountPublicKey,
+          privateDataPermission: result.privateDataPermission || PrivateDataPermission.UponRequest,
+          allowedPrivateData: allowedPrivateData || AllowedPrivateData.None,
+          publicKey
+        });
+      }
+
+      dappDebug('[DApp] Non-extension approved connection for:', origin);
+      return {
+        type: MidenDAppMessageType.PermissionResponse,
         accountId: accountPublicKey,
+        network,
         privateDataPermission: result.privateDataPermission || PrivateDataPermission.UponRequest,
         allowedPrivateData: allowedPrivateData || AllowedPrivateData.None,
-        publicKey: publicKey!
-      });
+        publicKey
+      };
     }
-
-    dappDebug('[DApp] Non-extension approved connection for:', origin);
-    return {
-      type: MidenDAppMessageType.PermissionResponse,
-      accountId: accountPublicKey,
-      network,
-      privateDataPermission: result.privateDataPermission || PrivateDataPermission.UponRequest,
-      allowedPrivateData: allowedPrivateData || AllowedPrivateData.None,
-      publicKey: publicKey!
-    };
   }
 
   // `.catch(reject)`, as in every other handler: a popup that cannot be opened answers the dApp instead of becoming an
   // unhandled rejection in the worker.
   return new Promise((resolve, reject) => {
     const id = nanoid();
+    // Set once requestConfirm answers the dApp (auto-decline, window close, Cancel): a key read still running then
+    // saves no session and sends nothing (#1471).
+    let refused = false;
 
     requestConfirm({
       id,
@@ -479,14 +486,14 @@ export async function generatePromisifyRequestPermission(
         existingPermission
       },
       onDecline: () => {
+        refused = true;
         reject(new Error(MidenDAppErrorType.NotGranted));
       },
       handleIntercomRequest: async (confirmReq, decline) => {
         if (confirmReq?.type === MidenMessageType.DAppPermConfirmationRequest && confirmReq?.id === id) {
           const { confirmed, accountPublicKey, privateDataPermission } = confirmReq;
           if (confirmed && accountPublicKey) {
-            let publicKey: string | null = null;
-            let publicKeyError: unknown;
+            let publicKey: string;
             try {
               publicKey = await withUnlocked(async () => {
                 // Wrap WASM client operations in a lock to prevent concurrent access
@@ -496,43 +503,29 @@ export async function generatePromisifyRequestPermission(
               });
             } catch (e) {
               console.error('Error fetching account public key:', e);
-              publicKeyError = e;
+              // The user approved, so a failed read is no answer to the dApp (#1471): not NotGranted, and not the
+              // read's error either, a kill included (#775). The throw fails this confirmation, so the window stays
+              // open on its error with Retry, and the dApp waits for a Retry, a Cancel or the auto-decline.
+              throw e;
             }
-            if (publicKey == null) {
-              // A failed public-key fetch must fail the connect, not persist a
-              // session with publicKey: null. The direct-return path hands that
-              // null pubkey back verbatim on every later connect, wedging the
-              // dApp at "Connecting…" until the session is cleared. Mirrors the
-              // non-extension branch, which throws NotGranted on the same failure.
-              //
-              // …except for a kill (a lock-recovery eviction, an offscreen abort
-              // or a terminated client, #775), which that branch rethrows
-              // verbatim precisely because it is a retryable internal failure
-              // and NOT a permissions verdict. Reporting the user's own approval
-              // back as NotGranted tells the dApp to stop asking. The
-              // `decline()` below still closes the prompt; its own reject is a
-              // no-op once this one has settled the promise.
-              if (isPipelineKillLink(publicKeyError)) reject(publicKeyError);
-              decline();
-            } else {
-              if (!existingPermission)
-                await setDApp(origin, {
-                  network,
-                  appMeta,
-                  accountId: accountPublicKey,
-                  privateDataPermission: privateDataPermission || PrivateDataPermission.UponRequest,
-                  allowedPrivateData: allowedPrivateData || AllowedPrivateData.None,
-                  publicKey
-                });
-              resolve({
-                type: MidenDAppMessageType.PermissionResponse,
-                accountId: accountPublicKey,
+            if (refused) return { type: MidenMessageType.DAppPermConfirmationResponse };
+            if (!existingPermission)
+              await setDApp(origin, {
                 network,
+                appMeta,
+                accountId: accountPublicKey,
                 privateDataPermission: privateDataPermission || PrivateDataPermission.UponRequest,
                 allowedPrivateData: allowedPrivateData || AllowedPrivateData.None,
                 publicKey
               });
-            }
+            resolve({
+              type: MidenDAppMessageType.PermissionResponse,
+              accountId: accountPublicKey,
+              network,
+              privateDataPermission: privateDataPermission || PrivateDataPermission.UponRequest,
+              allowedPrivateData: allowedPrivateData || AllowedPrivateData.None,
+              publicKey
+            });
           } else {
             decline();
           }
@@ -545,6 +538,31 @@ export async function generatePromisifyRequestPermission(
       }
     }).catch(reject);
   });
+}
+
+const KEY_READ_PAST_DEADLINE = Symbol('key read past deadline');
+
+// The approved account's key, or KEY_READ_PAST_DEADLINE once `deadline` passes first. A read still running then is
+// abandoned, not cancelled: it keeps its WASM hold until it ends, and its key is never used.
+async function readApprovedKeyBefore(
+  deadline: number,
+  accountPublicKey: string
+): Promise<string | typeof KEY_READ_PAST_DEADLINE> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      withUnlocked(async () => {
+        return await withWasmClientLock(async hold => {
+          return await getAccountPublicKeyB64(accountPublicKey, hold);
+        });
+      }),
+      new Promise<typeof KEY_READ_PAST_DEADLINE>(resolve => {
+        timer = setTimeout(() => resolve(KEY_READ_PAST_DEADLINE), Math.max(0, deadline - Date.now()));
+      })
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
 }
 
 /**
