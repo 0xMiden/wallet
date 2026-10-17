@@ -49,15 +49,28 @@ const fill = (n: number, amount = 50n) =>
     extraInputs: { swapOrderTxId: 'swap', swapSettleKind: 'settle' }
   });
 
+// The retry backoff reads the wall clock; `later()` moves it past any backoff.
+let clock = 1_000_000;
+const later = () => {
+  clock += 60 * 60_000;
+};
+beforeEach(() => {
+  clock = 1_000_000;
+  jest.spyOn(Date, 'now').mockImplementation(() => clock);
+});
+afterEach(() => jest.restoreAllMocks());
+
 function harness(rows: ITransaction[] = [base()]) {
   let awards: BadgeId[] = [];
   const source: BadgeIssuanceSource = {
     accounts: () => ['account-a', 'account-b'],
     isMainnet: () => true,
+    canVerify: jest.fn(() => true),
     readTransactions: jest.fn(async () => rows),
     isCommitted: jest.fn(async () => true),
     isBalanceReflected: jest.fn(() => true),
     isFilledApprovedSwap: jest.fn(async () => true),
+    reportVerified: jest.fn(),
     readAwards: jest.fn(async () => awards),
     mergeAwards: jest.fn(async (newAwards, current) => {
       if (current()) awards = readEarnedBadges([...awards, ...newAwards]);
@@ -118,6 +131,7 @@ describe('verified wallet-wide badge issuance', () => {
     jest.mocked(h.source.isCommitted).mockResolvedValueOnce(false);
     await h.issuer.refresh();
     expect(h.awards()).toEqual([]);
+    later();
     await h.issuer.refresh();
     expect(h.awards()).toEqual(['first-send']);
   });
@@ -185,10 +199,10 @@ describe('verified wallet-wide badge issuance', () => {
     await h.issuer.refresh();
     expect(h.awards()).toEqual(['first-send']);
   });
-  it.each(['stop', 'invalidate'] as const)('does not commit an in-flight award after %s', async action => {
+  it('does not commit an in-flight award after stop', async () => {
     const h = harness();
     h.source.isCommitted = async () => {
-      h.issuer[action]();
+      h.issuer.stop();
       return true;
     };
     await h.issuer.refresh();
@@ -215,6 +229,83 @@ describe('verified wallet-wide badge issuance', () => {
     h.source.readAwards = async () => ['first-send', 'first-deposit', 'first-swap'];
     await h.issuer.refresh();
     expect(h.source.readTransactions).not.toHaveBeenCalled();
+  });
+  it('builds and verifies candidates only for the badges not yet earned', async () => {
+    const rows = [base(), swap(), fill(1, 100n), deposit(), depositClaim()];
+    expect(badgeCandidates(rows, ['account-a'], ['first-deposit']).map(candidate => candidate.badge)).toEqual([
+      'first-deposit'
+    ]);
+    const h = harness(rows);
+    h.source.readAwards = async () => ['first-send', 'first-swap'];
+    await h.issuer.refresh();
+    expect(h.source.readTransactions).toHaveBeenNthCalledWith(1, ['first-deposit']);
+    expect(h.source.isFilledApprovedSwap).not.toHaveBeenCalled();
+    expect(h.awards()).toEqual(['first-deposit']);
+  });
+  it('keeps a committed verdict across passes', async () => {
+    const h = harness();
+    jest.mocked(h.source.mergeAwards).mockRejectedValueOnce(new Error('storage unavailable'));
+    await h.issuer.refresh();
+    await h.issuer.refresh();
+    expect(h.awards()).toEqual(['first-send']);
+    expect(h.source.isCommitted).toHaveBeenCalledTimes(1);
+  });
+  it('backs off a candidate that failed verification instead of re-checking it on every wake', async () => {
+    const h = harness();
+    jest.mocked(h.source.isCommitted).mockResolvedValue(false);
+    await h.issuer.refresh();
+    await h.issuer.refresh();
+    expect(h.source.isCommitted).toHaveBeenCalledTimes(1);
+    clock += 15_000;
+    await h.issuer.refresh();
+    expect(h.source.isCommitted).toHaveBeenCalledTimes(2);
+    clock += 15_000;
+    await h.issuer.refresh();
+    expect(h.source.isCommitted).toHaveBeenCalledTimes(2);
+    jest.mocked(h.source.isCommitted).mockResolvedValue(true);
+    later();
+    await h.issuer.refresh();
+    expect(h.awards()).toEqual(['first-send']);
+  });
+});
+
+describe('the verdict fuse', () => {
+  it('leaves a candidate unchecked while the client is fused and verifies it on the first pass after', async () => {
+    const h = harness();
+    jest.mocked(h.source.canVerify).mockReturnValue(false);
+    await h.issuer.refresh();
+    expect(h.source.isCommitted).not.toHaveBeenCalled();
+    expect(h.source.readTransactions).not.toHaveBeenCalled();
+    jest.mocked(h.source.canVerify).mockReturnValue(true);
+    await h.issuer.refresh();
+    expect(h.awards()).toEqual(['first-send']);
+  });
+  it('takes no further hold once a fuse lights mid-pass, and does not back the candidate off', async () => {
+    const h = harness([swap(), fill(1, 100n)]);
+    let lit = false;
+    jest.mocked(h.source.canVerify).mockImplementation(() => !lit);
+    jest.mocked(h.source.isCommitted).mockImplementationOnce(async () => {
+      lit = true;
+      return true;
+    });
+    await h.issuer.refresh();
+    expect(h.source.isCommitted).toHaveBeenCalledTimes(1);
+    expect(h.source.isFilledApprovedSwap).not.toHaveBeenCalled();
+    expect(h.source.reportVerified).toHaveBeenCalledTimes(1);
+    lit = false;
+    await h.issuer.refresh();
+    expect(h.awards()).toEqual(['first-swap']);
+  });
+  it('reports success only after a pass whose holds all answered', async () => {
+    const h = harness();
+    jest.mocked(h.source.isCommitted).mockRejectedValueOnce(new Error('offline'));
+    await h.issuer.refresh();
+    expect(h.source.reportVerified).not.toHaveBeenCalled();
+    await h.issuer.refresh();
+    expect(h.awards()).toEqual(['first-send']);
+    expect(h.source.reportVerified).toHaveBeenCalledTimes(1);
+    await h.issuer.refresh();
+    expect(h.source.reportVerified).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -271,6 +362,33 @@ describe('deposit completion evidence', () => {
     await h.issuer.refresh();
     expect(h.awards()).toEqual(['first-deposit']);
   });
+  it('credits a deposit claimed in a batch whose first note is another asset', async () => {
+    const batch: ITransaction = {
+      ...depositClaim(),
+      faucetId: 'coin-x',
+      amount: 1n,
+      noteIds: ['note-other', 'note-deposit'],
+      consumedNotes: [
+        { id: 'note-other', senderAddress: 'someone', faucetId: 'coin-x', amount: 1n },
+        { id: 'note-deposit', senderAddress: 'bridge', faucetId: 'coin-a', amount: 10n }
+      ],
+      assetTotals: [
+        { faucetId: 'coin-x', amount: 1n },
+        { faucetId: 'coin-a', amount: 10n }
+      ]
+    };
+    const h = harness([deposit(), batch]);
+    await h.issuer.refresh();
+    expect(h.awards()).toEqual(['first-deposit']);
+    expect(h.source.isBalanceReflected).toHaveBeenCalledWith({
+      accountId: 'account-a_tag',
+      faucetId: 'coin-a',
+      minimumNonce: '5'
+    });
+    const legacy = harness([deposit(), { ...batch, assetTotals: undefined }]);
+    await legacy.issuer.refresh();
+    expect(legacy.awards()).toEqual([]);
+  });
   it.each<Partial<ITransaction>>([
     { amount: 9n },
     { accountId: 'account-b' },
@@ -325,13 +443,15 @@ describe('fully settled swap evidence', () => {
   });
   it('requires full claimed output, every claim committed, and an approved fully-filled lineage', async () => {
     const h = harness([swap(), fill(1), fill(2)]);
-    jest.mocked(h.source.isFilledApprovedSwap).mockResolvedValueOnce(false);
-    await h.issuer.refresh();
-    expect(h.awards()).toEqual([]);
     jest.mocked(h.source.isCommitted).mockImplementation(async id => id !== hash(3));
     await h.issuer.refresh();
     expect(h.awards()).toEqual([]);
+    later();
     jest.mocked(h.source.isCommitted).mockResolvedValue(true);
+    jest.mocked(h.source.isFilledApprovedSwap).mockResolvedValueOnce(false);
+    await h.issuer.refresh();
+    expect(h.awards()).toEqual([]);
+    later();
     await h.issuer.refresh();
     expect(h.awards()).toEqual(['first-swap']);
   });

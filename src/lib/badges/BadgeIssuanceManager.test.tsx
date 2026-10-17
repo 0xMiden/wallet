@@ -7,8 +7,17 @@ import { midenClientProxy } from 'lib/miden/back/miden-client-proxy';
 import { tagBalanceSnapshot } from 'lib/miden/balance-snapshot';
 import { ITransactionStatus, type ITransaction } from 'lib/miden/db/types';
 import type { TokenBalanceData } from 'lib/miden/front/balance';
+import {
+  __resetSyncFuseStateForTests,
+  isSyncFused,
+  noteSyncSuccess,
+  noteSyncWatchdogEviction
+} from 'lib/miden/front/sync-fuse';
 import { DEFAULT_TOKEN_METADATA } from 'lib/miden/metadata/defaults';
 import * as Repo from 'lib/miden/repo';
+import { withWasmClientLock } from 'lib/miden/sdk/miden-client';
+import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
+import { MAX_CONSECUTIVE_WATCHDOG_EVICTIONS } from 'lib/miden/sync-backoff';
 
 import { BadgeIssuanceManager } from './BadgeIssuanceManager';
 import { BADGE_STORAGE_KEY, type BadgeId } from './types';
@@ -88,7 +97,7 @@ jest.mock('lib/miden/back/miden-client-proxy', () => ({
   }
 }));
 jest.mock('lib/miden/sdk/miden-client', () => ({
-  withWasmClientLock: async (operation: (hold: object) => Promise<unknown>) => operation({}),
+  withWasmClientLock: jest.fn(async (operation: (hold: object) => Promise<unknown>) => operation({})),
   assertWasmHoldCurrent: jest.fn()
 }));
 jest.mock('lib/miden/swap/tokens', () => ({ isSwapPair: () => mockApprovedPair }));
@@ -121,6 +130,27 @@ const row = (patch: Partial<ITransaction> = {}): ITransaction => ({
   displayIcon: 'SEND',
   ...patch
 });
+const swapOrderRows = (): ITransaction[] => [
+  row({
+    id: 'order',
+    type: 'swap',
+    status: ITransactionStatus.Completed,
+    extraInputs: { orderId: '7', requestedAmount: 100n, requestedFaucetId: 'coin-b' }
+  }),
+  row({
+    id: 'claim',
+    type: 'consume',
+    status: ITransactionStatus.Completed,
+    faucetId: 'coin-b',
+    amount: 100n,
+    transactionId: '0x' + '2'.repeat(64),
+    submitEvidence: [
+      { attemptId: 'claim', capturedAt: 1, source: 'stage', transactionId: '0x' + '2'.repeat(64), initialNonce: '4' }
+    ],
+    noteIds: ['swap-note'],
+    extraInputs: { swapOrderTxId: 'order', swapSettleKind: 'settle' }
+  })
+];
 function ProfileCounter() {
   const badges = useWalletBadges();
   return <output data-testid="wallet-count">{badges.length}</output>;
@@ -134,6 +164,7 @@ beforeEach(async () => {
   mockOverride = null;
   mockApprovedPair = true;
   jest.clearAllMocks();
+  __resetSyncFuseStateForTests();
   jest.mocked(midenClientProxy.getTransactionCommitState).mockResolvedValue('committed');
   jest.mocked(midenClientProxy.getPswapLineages).mockResolvedValue([]);
 });
@@ -252,18 +283,172 @@ it('reports unavailable history and never converts a database error into a badge
   }
 });
 
-it('keeps a foreground retry while mounted and cleans it up on unmount', async () => {
-  jest.useFakeTimers();
-  mockMainnet = false;
+describe('the 15 s foreground retry', () => {
+  // Dexie and fake-indexeddb run on the real microtask and setImmediate queues; the fake clock drives the retry.
+  beforeEach(() => jest.useFakeTimers({ doNotFake: ['nextTick', 'queueMicrotask', 'setImmediate'] }));
+  afterEach(() => jest.useRealTimers());
+  const advance = (ms: number) =>
+    act(async () => {
+      await jest.advanceTimersByTimeAsync(ms);
+    });
+  // Small steps, each a real event-loop turn, so the IndexedDB work of every pass finishes.
+  const settle = async (ms = 5_000) => {
+    for (let elapsed = 0; elapsed < ms; elapsed += 100) await advance(100);
+  };
+
+  it('writes a send whose verdict turns committed on the retry, and not before it', async () => {
+    jest.mocked(midenClientProxy.getTransactionCommitState).mockResolvedValue('pending');
+    await Repo.transactions.add(row({ status: ITransactionStatus.Completed }));
+    const mountedAt = jest.now();
+    const view = render(<BadgeIssuanceManager />);
+    try {
+      await settle();
+      expect(midenClientProxy.getTransactionCommitState).toHaveBeenCalled();
+      jest.mocked(midenClientProxy.getTransactionCommitState).mockResolvedValue('committed');
+      await advance(15_000 - (jest.now() - mountedAt) - 1);
+      expect(mockWrite).not.toHaveBeenCalled();
+      await advance(1);
+      await settle();
+      expect(mockWrite).toHaveBeenCalledWith(BADGE_STORAGE_KEY, ['first-send']);
+    } finally {
+      view.unmount();
+    }
+  });
+
+  it('clears the retry on unmount, so no verdict call follows', async () => {
+    jest.mocked(midenClientProxy.getTransactionCommitState).mockResolvedValue('pending');
+    await Repo.transactions.add(row({ status: ITransactionStatus.Completed }));
+    const intervals = jest.spyOn(global, 'setInterval');
+    const cleared = jest.spyOn(global, 'clearInterval');
+    try {
+      const view = render(<BadgeIssuanceManager />);
+      await settle();
+      const retry = intervals.mock.calls.findIndex(([, delay]) => delay === 15_000);
+      expect(retry).toBeGreaterThanOrEqual(0);
+      view.unmount();
+      expect(cleared).toHaveBeenCalledWith(intervals.mock.results[retry]?.value);
+      jest.mocked(midenClientProxy.getTransactionCommitState).mockClear();
+      await advance(60_000);
+      expect(midenClientProxy.getTransactionCommitState).not.toHaveBeenCalled();
+    } finally {
+      intervals.mockRestore();
+      cleared.mockRestore();
+    }
+  });
+
+  it('runs no retry pass while the document is hidden', async () => {
+    jest.mocked(midenClientProxy.getTransactionCommitState).mockResolvedValue('pending');
+    await Repo.transactions.add(row({ status: ITransactionStatus.Completed }));
+    const hidden = jest.spyOn(document, 'hidden', 'get');
+    const view = render(<BadgeIssuanceManager />);
+    try {
+      await settle();
+      hidden.mockReturnValue(true);
+      jest.mocked(midenClientProxy.getTransactionCommitState).mockClear();
+      await advance(15_000);
+      await settle();
+      expect(midenClientProxy.getTransactionCommitState).not.toHaveBeenCalled();
+      hidden.mockReturnValue(false);
+      await advance(15_000);
+      await settle();
+      expect(midenClientProxy.getTransactionCommitState).toHaveBeenCalled();
+    } finally {
+      view.unmount();
+      hidden.mockRestore();
+    }
+  });
+
+  it.each(['badge-verdict', 'idle-sync'] as const)(
+    'takes no verdict hold on the retry while %s is fused',
+    async key => {
+      for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; i += 1) noteSyncWatchdogEviction(key);
+      await Repo.transactions.add(row({ status: ITransactionStatus.Completed }));
+      const view = render(<BadgeIssuanceManager />);
+      try {
+        await advance(15_000);
+        await settle();
+        expect(withWasmClientLock).not.toHaveBeenCalled();
+        expect(mockWrite).not.toHaveBeenCalled();
+        noteSyncSuccess(key);
+        await advance(15_000);
+        await settle();
+        expect(mockWrite).toHaveBeenCalledWith(BADGE_STORAGE_KEY, ['first-send']);
+      } finally {
+        view.unmount();
+      }
+    }
+  );
+});
+
+describe('the badge verdict fuse', () => {
+  const almostFused = () => {
+    for (let i = 1; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; i += 1) noteSyncWatchdogEviction('badge-verdict');
+  };
+
+  it('books an eviction of the commit-verdict hold against the badge key', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    almostFused();
+    jest.mocked(midenClientProxy.getTransactionCommitState).mockRejectedValue(new WasmClientPoisonedError('watchdog'));
+    await Repo.transactions.add(row({ status: ITransactionStatus.Completed }));
+    const view = render(<BadgeIssuanceManager />);
+    try {
+      await waitFor(() => expect(isSyncFused('badge-verdict')).toBe(true));
+    } finally {
+      view.unmount();
+      warn.mockRestore();
+    }
+  });
+
+  it('books an eviction of the swap-verdict hold against the badge key', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    almostFused();
+    jest.mocked(midenClientProxy.getPswapLineages).mockRejectedValue(new WasmClientPoisonedError('watchdog'));
+    await Repo.transactions.bulkAdd(swapOrderRows());
+    const view = render(<BadgeIssuanceManager />);
+    try {
+      await act(async () => landBalances('5'));
+      await waitFor(() => expect(isSyncFused('badge-verdict')).toBe(true));
+      expect(midenClientProxy.getTransactionCommitState).toHaveBeenCalled();
+    } finally {
+      view.unmount();
+      warn.mockRestore();
+    }
+  });
+
+  it('withdraws the evidence once every hold of a pass answered', async () => {
+    almostFused();
+    await Repo.transactions.add(row({ status: ITransactionStatus.Completed }));
+    const view = render(<BadgeIssuanceManager />);
+    try {
+      await waitFor(() => expect(mockWrite).toHaveBeenCalledWith(BADGE_STORAGE_KEY, ['first-send']));
+      noteSyncWatchdogEviction('badge-verdict');
+      expect(isSyncFused('badge-verdict')).toBe(false);
+    } finally {
+      view.unmount();
+    }
+  });
+});
+
+it('starts no pass on a balance landing while no candidate waits on a balance', async () => {
+  jest.mocked(midenClientProxy.getTransactionCommitState).mockResolvedValue('pending');
+  await Repo.transactions.add(row({ status: ITransactionStatus.Completed }));
+  const reads = jest.spyOn(Repo.transactions, 'where');
   const view = render(<BadgeIssuanceManager />);
   try {
+    await waitFor(() => expect(midenClientProxy.getTransactionCommitState).toHaveBeenCalled());
     await act(async () => {
-      jest.advanceTimersByTime(15_000);
+      await new Promise(resolve => setTimeout(resolve, 25));
     });
-    expect(mockWrite).not.toHaveBeenCalled();
+    reads.mockClear();
+    await act(async () => landBalances('5'));
+    await act(async () => landBalances('6'));
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 25));
+    });
+    expect(reads).not.toHaveBeenCalled();
   } finally {
     view.unmount();
-    jest.useRealTimers();
+    reads.mockRestore();
   }
 });
 
@@ -285,27 +470,7 @@ it.each([
       remainingRequested: remaining
     }
   ]);
-  await Repo.transactions.bulkAdd([
-    row({
-      id: 'order',
-      type: 'swap',
-      status: ITransactionStatus.Completed,
-      extraInputs: { orderId: '7', requestedAmount: 100n, requestedFaucetId: 'coin-b' }
-    }),
-    row({
-      id: 'claim',
-      type: 'consume',
-      status: ITransactionStatus.Completed,
-      faucetId: 'coin-b',
-      amount: 100n,
-      transactionId: '0x' + '2'.repeat(64),
-      submitEvidence: [
-        { attemptId: 'claim', capturedAt: 1, source: 'stage', transactionId: '0x' + '2'.repeat(64), initialNonce: '4' }
-      ],
-      noteIds: ['swap-note'],
-      extraInputs: { swapOrderTxId: 'order', swapSettleKind: 'settle' }
-    })
-  ]);
+  await Repo.transactions.bulkAdd(swapOrderRows());
   const view = render(
     <>
       <BadgeIssuanceManager />

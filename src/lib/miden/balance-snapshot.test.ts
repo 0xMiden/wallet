@@ -1,5 +1,17 @@
-import { isBalanceReflected, tagBalanceSnapshot, type BalanceSnapshot } from './balance-snapshot';
+import { beginBalanceSnapshot, isBalanceReflected, tagBalanceSnapshot, type BalanceSnapshot } from './balance-snapshot';
 import type { TokenBalanceData } from './front/balance';
+
+let mockOverride: { rpcUrl: string } | null = null;
+let mockRpc = 'https://rpc.mainnet.example';
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  getActiveOverride: () => mockOverride,
+  getEffectiveNetworkName: () => 'mainnet',
+  getEffectiveRpcUrl: () => mockRpc
+}));
+beforeEach(() => {
+  mockOverride = null;
+  mockRpc = 'https://rpc.mainnet.example';
+});
 
 const requirement = { accountId: 'account-a_tag', faucetId: 'coin', minimumNonce: '5' };
 const rows = (patch: Partial<TokenBalanceData> = {}): TokenBalanceData[] => [
@@ -60,4 +72,28 @@ it.each<Partial<TokenBalanceData>>([
   const displayed = rows(patch);
   tagBalanceSnapshot(displayed, { network: 'mainnet', accountNonce: '5' });
   expect(isBalanceReflected(requirement, { 'account-a': displayed })).toBe(false);
+});
+
+describe('beginBalanceSnapshot', () => {
+  const account = { nonce: () => ({ asInt: () => 7n }) };
+
+  it('labels a plain Mainnet read with its network and the account nonce', () => {
+    const finish = beginBalanceSnapshot();
+    expect(finish(account)).toEqual({ network: 'mainnet', accountNonce: '7' });
+    expect(beginBalanceSnapshot()(null)).toEqual({ network: 'mainnet', accountNonce: undefined });
+  });
+
+  it('labels a read under an active endpoint override', () => {
+    mockOverride = { rpcUrl: 'https://private.example' };
+    expect(beginBalanceSnapshot()(account)).toEqual({ network: 'override', accountNonce: '7' });
+  });
+
+  it('labels a read whose endpoint changed while it ran', () => {
+    const rpcChanged = beginBalanceSnapshot();
+    mockRpc = 'https://rpc.other.example';
+    expect(rpcChanged(account)).toEqual({ network: 'changed', accountNonce: '7' });
+    const overridden = beginBalanceSnapshot();
+    mockOverride = { rpcUrl: mockRpc };
+    expect(overridden(account)).toEqual({ network: 'changed', accountNonce: '7' });
+  });
 });
