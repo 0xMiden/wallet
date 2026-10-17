@@ -22,7 +22,7 @@ import {
   type Deadline,
   type JourneyRecord
 } from './dapp-cells';
-import type { KnownBug, KnownBugRegistry } from './dapp-known-bugs';
+import { registryOf, type KnownBug } from './dapp-known-bugs';
 import { ChainUnavailable } from './test-dapp';
 
 jest.mock('@playwright/test', () => ({ expect: jest.fn() }));
@@ -31,19 +31,17 @@ const KX: KnownBug = {
   id: 'KX',
   title: 'test bug',
   tracking: 'none',
-  cells: { C1: ['offchain'] },
+  cells: { C1: [{ axis: 'offchain', surface: 'extension' }] },
   signature: ({ source, evidence }) => source === 'hard' && evidence.stage === 'creating-proposal'
 };
 const KS: KnownBug = {
   id: 'KS',
   title: 'soft test bug',
   tracking: 'none',
-  cells: { C1: ['offchain'] },
+  cells: { C1: [{ axis: 'offchain', surface: 'extension' }] },
   signature: ({ source, evidence }) => source === 'soft' && evidence.previewSimulationFailed === true
 };
-const registry = (bugs: KnownBug[]): KnownBugRegistry => ({
-  bugsFor: (cellId, axis) => bugs.filter(bug => bug.cells[cellId]?.includes(axis))
-});
+const registry = (bugs: KnownBug[]) => registryOf(bugs);
 
 const outDir = () => fs.mkdtempSync(path.join(os.tmpdir(), 'dapp-cells-'));
 const nodeFailure = () =>
@@ -62,6 +60,7 @@ const cellOf = (id: string, run: CellSpec<string>['run'], extra: Partial<CellSpe
 
 function makeRunner(dir: string, bugs: KnownBug[] = [], declared = ['C1', 'C2', 'C3'], hooks = quietHooks()) {
   return new DappCellRunner<string>({
+    surface: 'extension',
     part: 'core',
     axis: 'offchain',
     journey: 'S',
@@ -83,7 +82,13 @@ function quietHooks() {
 }
 
 describe('judgeCell', () => {
-  const base = { cellId: 'C1', axis: 'offchain' as const, softFailures: [], evidence: {} };
+  const base = {
+    surface: 'extension' as const,
+    cellId: 'C1',
+    axis: 'offchain' as const,
+    softFailures: [],
+    evidence: {}
+  };
 
   it('passes a clean cell with no registered bug', () => {
     expect(judgeCell({ ...base, registry: registry([]) }).verdict).toBe('pass');
@@ -439,5 +444,68 @@ describe('DappCellRunner', () => {
   it('refuses a cell that was not declared', async () => {
     const runner = makeRunner(outDir(), [], ['C1']);
     await expect(runner.run(cellOf('C9', async () => undefined))).rejects.toThrow('cell C9 was not declared');
+  });
+});
+
+describe('surfaces', () => {
+  const mobileRunner = (dir: string) =>
+    new DappCellRunner<string>({
+      surface: 'ios',
+      part: 'slim',
+      axis: 'guardian',
+      journey: 'PL',
+      testTitle: 'dApp in the in-app browser on iOS - guardian account',
+      outDir: dir,
+      declared: ['S1'],
+      registry: registry([]),
+      hooks: quietHooks()
+    });
+
+  it('names the record file by surface, part, axis and journey, and records the surface', () => {
+    const runner = mobileRunner(outDir());
+    expect(path.basename(runner.file)).toBe('ios-slim-guardian-PL.json');
+    expect(read(runner.file)).toEqual(
+      expect.objectContaining({ surface: 'ios', part: 'slim', axis: 'guardian', journey: 'PL' })
+    );
+  });
+
+  it('stamps a leg coverage label on the record', () => {
+    const runner = mobileRunner(outDir());
+    runner.recordCoverage({
+      presentationPath: 'fallback',
+      detail: 'Native presentation is unsupported in this WebView'
+    });
+    expect(read(runner.file).coverage).toEqual({
+      presentationPath: 'fallback',
+      detail: 'Native presentation is unsupported in this WebView'
+    });
+  });
+
+  it('judges a cell by the bugs registered for its own surface', () => {
+    const failure = {
+      cellId: 'C1',
+      axis: 'offchain' as const,
+      softFailures: [],
+      evidence: { stage: 'creating-proposal' },
+      hardError: new Error('boom'),
+      registry: registry([KX])
+    };
+    expect(judgeCell({ ...failure, surface: 'extension' }).verdict).toBe('fail-known');
+    expect(judgeCell({ ...failure, surface: 'ios' }).verdict).toBe('fail-new');
+  });
+
+  it("keeps a cell's evidence in its record, so a run is read for a signature and for its step times", async () => {
+    const runner = mobileRunner(outDir());
+    await runner.run(
+      cellOf('S1', async ctx => {
+        ctx.evidence.stepDurationsMs = { recipient: 1_200 };
+        ctx.evidence.dappError = { name: 'Error', message: 'NOT_GRANTED' };
+        throw new Error('refused with a plain Error');
+      })
+    );
+    expect(read(runner.file).cells.find(cell => cell.id === 'S1')?.evidence).toEqual({
+      stepDurationsMs: { recipient: 1_200 },
+      dappError: { name: 'Error', message: 'NOT_GRANTED' }
+    });
   });
 });

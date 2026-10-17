@@ -2,7 +2,7 @@
  * @jest-environment node
  */
 import type { FailureEvidence } from './dapp-cells';
-import { KNOWN_BUGS, type KnownBug } from './dapp-known-bugs';
+import { KNOWN_BUGS, registryOf, type KnownBug } from './dapp-known-bugs';
 import pinned from './dapp-pinned.json';
 
 const bug = (id: string): KnownBug => {
@@ -22,6 +22,11 @@ const soft = (cellId: string, evidence: FailureEvidence, text = 'preview-verifie
   text,
   evidence
 });
+// Every phase-1 entry is red on the extension only, on both axes.
+const ON_EXTENSION = [
+  { axis: 'offchain', surface: 'extension' },
+  { axis: 'guardian', surface: 'extension' }
+];
 
 describe('known-bug registry', () => {
   it('has unique ids, a tracking issue or pull request and at least one cell each', () => {
@@ -43,7 +48,7 @@ describe('known-bug registry', () => {
 
   it('K1 matches a React context left on the old account after a switch or a revoke, and nothing else', () => {
     expect(bug('K1').cells).toEqual(
-      expect.objectContaining({ 'WP7-switch': ['offchain', 'guardian'], 'WP7-revoke': ['offchain', 'guardian'] })
+      expect.objectContaining({ 'WP7-switch': ON_EXTENSION, 'WP7-revoke': ON_EXTENSION })
     );
     const stayed = { previousAddress: 'a', reactAddress: 'a', reactConnected: true };
     expect(bug('K1').signature(hard('WP7-switch', { ...stayed, providerAddress: 'b' }))).toBe(true);
@@ -82,11 +87,7 @@ describe('known-bug registry', () => {
 
   it('K10 matches a consume by the returned id refused before any popup, and an N4 miss by that id', () => {
     expect(bug('K10').tracking).toContain('0xMiden/wallet#1389');
-    expect(bug('K10').cells).toEqual({
-      W5b: ['offchain', 'guardian'],
-      W5c: ['offchain', 'guardian'],
-      N4: ['offchain', 'guardian']
-    });
+    expect(bug('K10').cells).toEqual({ W5b: ON_EXTENSION, W5c: ON_EXTENSION, N4: ON_EXTENSION });
     const unresolved = {
       name: 'WalletTransactionError',
       message: 'INVALID_PARAMS: Error: Note 0x0e5a could not be resolved'
@@ -105,7 +106,7 @@ describe('known-bug registry', () => {
   });
 
   it('K11 matches an undecodable custom request that opened a popup, and not a refusal or a deadline', () => {
-    expect(bug('K11').cells).toEqual({ 'R3-customUndecodable': ['offchain', 'guardian'] });
+    expect(bug('K11').cells).toEqual({ 'R3-customUndecodable': ON_EXTENSION });
     expect(bug('K11').signature(hard('R3-customUndecodable', { popupOpened: true }))).toBe(true);
     expect(bug('K11').signature(soft('R3-customUndecodable', { popupOpened: true }))).toBe(false);
     const refused = { name: 'InvalidParamsMidenWalletError', message: 'INVALID_PARAMS: Error: unexpected end of file' };
@@ -115,7 +116,7 @@ describe('known-bug registry', () => {
 
   it('K12 matches a WalletContext export that holds no state while useWallet() sees the connect', () => {
     expect(bug('K12').tracking).toContain('0xMiden/web-sdk#484');
-    expect(bug('K12').cells).toEqual({ WP9: ['offchain', 'guardian'] });
+    expect(bug('K12').cells).toEqual({ WP9: ON_EXTENSION });
     expect(bug('K12').signature(hard('WP9', { reactConnected: true, reactExportedConnected: null }))).toBe(true);
     expect(bug('K12').signature(hard('WP9', { reactConnected: true, reactExportedConnected: true }))).toBe(false);
     expect(bug('K12').signature(hard('WP9', { reactConnected: true, reactExportedConnected: false }))).toBe(false);
@@ -125,7 +126,7 @@ describe('known-bug registry', () => {
 
   it('K13 matches the signer setup error MF3 settled on, and no other', () => {
     expect(bug('K13').tracking).toContain('0xMiden/web-sdk#400');
-    expect([...(bug('K13').cells.MF3 ?? [])].sort()).toEqual(Object.keys(pinned.texts.MF3).sort());
+    expect((bug('K13').cells.MF3 ?? []).map(at => at.axis).sort()).toEqual(Object.keys(pinned.texts.MF3).sort());
     const texts = Object.values(pinned.texts.MF3);
     expect(texts.length > 0 && texts.every(({ error, reason }) => error.length > 0 && reason.length > 0)).toBe(true);
     expect(
@@ -147,5 +148,41 @@ describe('known-bug registry', () => {
     ).toBe(false);
     expect(bug('K13').signature(hard('MF3', {}))).toBe(false);
     expect(bug('K13').signature(soft('MF3', { signerInitError: observed }))).toBe(false);
+  });
+
+  it('explains a cell only on the surface and axis an entry names', () => {
+    const entry: KnownBug = {
+      id: 'KT',
+      title: 'test',
+      tracking: 'none',
+      cells: { M1: [{ axis: 'guardian', surface: 'extension' }] },
+      signature: () => true
+    };
+    const registry = registryOf([entry]);
+    expect(registry.bugsFor('M1', 'extension', 'guardian').map(bug => bug.id)).toEqual(['KT']);
+    expect(registry.bugsFor('M1', 'ios', 'guardian')).toEqual([]);
+    expect(registry.bugsFor('M1', 'android', 'guardian')).toEqual([]);
+    expect(registry.bugsFor('M1', 'extension', 'offchain')).toEqual([]);
+  });
+
+  // Spec 3.8: an entry reaches iOS or Android only with the run that showed its signature there (Task 12's K14, K15
+  // and any K1 or K11 extension each name theirs).
+  const unproven = (bugs: readonly KnownBug[]): string[] =>
+    bugs
+      .filter(entry => Object.values(entry.cells).some(placements => placements.some(at => at.surface !== 'extension')))
+      .filter(entry => !/^\d+$/.test(entry.mobileEvidenceRun ?? ''))
+      .map(entry => entry.id);
+
+  it('places an entry on a mobile surface only with the run that showed its signature there', () => {
+    const mobile: KnownBug = {
+      id: 'KM',
+      title: 'test',
+      tracking: 'none',
+      cells: { S11: [{ axis: 'guardian', surface: 'ios' }] },
+      signature: () => true
+    };
+    expect(unproven([mobile])).toEqual(['KM']);
+    expect(unproven([{ ...mobile, mobileEvidenceRun: '18700000001' }])).toEqual([]);
+    expect(unproven(KNOWN_BUGS)).toEqual([]);
   });
 });
