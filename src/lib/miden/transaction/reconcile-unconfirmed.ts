@@ -12,7 +12,13 @@ import { getStorageProvider, type StorageProvider } from 'lib/platform/storage-a
 import { reportTransactionFailure } from 'lib/telemetry/transaction-failure';
 
 import { TRANSACTION_NEVER_COMMITTED_ERROR } from './constants';
-import { applyVerifiedLanding, reportVerifiedLanding, storedNoteIds, verifiedLandingRowFields } from './helper';
+import {
+  applyVerifiedLanding,
+  countNoteDeliveryWrite,
+  reportVerifiedLanding,
+  storedNoteIds,
+  verifiedLandingRowFields
+} from './helper';
 import { accountOthers, deferralHolds, judgeSubmitEvidence, RowJudgement } from './reconcile-judge';
 import { createNodeReads, NodeReads, observedCadenceMs } from './reconcile-reads';
 import { awaitingVerdict, evidenceKey, isCheckable, nowSeconds } from './verdict-rules';
@@ -131,13 +137,15 @@ const landedDeliveryTarget = (
 /**
  * The landed write: one rw transaction that re-reads every row of the account, the target's included. If any entry
  * differs from what the judgement read, or the deferral now holds the landing, it writes nothing and the next pass
- * judges again from the fresh rows.
+ * judges again from the fresh rows. One that records a delivery target is a delivery write, counted once it commits,
+ * so an idle sweep looks again.
  */
 async function writeLanding(rowId: string, judgement: RowJudgement, accountKey: string): Promise<boolean> {
   const landing = judgement.landed;
   const landedEntry = judgement.judgedEntries.find(entry => entry.attemptId === landing?.attemptId);
   if (landing === undefined || landedEntry === undefined) return false;
   let landed: ITransaction | undefined;
+  let addedTarget: string[] | undefined;
   await Repo.db.transaction('rw', Repo.transactions, async () => {
     const fresh = await Repo.transactions.where({ id: rowId }).first();
     if (
@@ -153,11 +161,14 @@ async function writeLanding(rowId: string, judgement: RowJudgement, accountKey: 
       ...(landing.boundTransactionId === undefined ? {} : { transactionId: landing.boundTransactionId }),
       completedAt: fresh.completedAt
     });
-    Object.assign(fresh, landedDeliveryTarget(fresh, landing, landedEntry));
+    const target = landedDeliveryTarget(fresh, landing, landedEntry);
+    Object.assign(fresh, target);
     await Repo.transactions.put(fresh);
     landed = fresh;
+    addedTarget = target.outputNoteIds;
   });
   if (landed === undefined) return false;
+  if (addedTarget !== undefined) countNoteDeliveryWrite();
   reportVerifiedLanding(landed);
   if (landed.type === 'consume') await adoptLandedConsume(landed.id);
   return true;
