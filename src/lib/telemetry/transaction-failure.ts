@@ -244,12 +244,22 @@ const EXECUTION_CAUSE_TEXT: ReadonlyArray<readonly [Exclude<ExecutionCause, 'oth
   ['executor_other', /(?:^|: )transaction execution failed(?=:|$)/g]
 ];
 
+// What follows these variants in their link is their payload, a node's or a store's own words, never an SDK cause.
+const OPAQUE_CAUSE_TEXT = EXECUTION_CAUSE_TEXT.filter(([cause]) => ['rpc', 'store', 'data_store'].includes(cause)).map(
+  ([, pattern]) => pattern
+);
+
 // The deepest match names the cause: each chain link is the reason for the one before it.
 function executionCause(error: unknown): ExecutionCause {
   let found: { cause: ExecutionCause; part: number; at: number } | undefined;
   for (const [index, part] of errorMessageParts(error).entries()) {
+    const opaqueAt = Math.min(
+      part.length,
+      ...OPAQUE_CAUSE_TEXT.map(pattern => part.search(pattern)).filter(at => at !== -1)
+    );
     for (const [cause, pattern] of EXECUTION_CAUSE_TEXT) {
       for (const match of part.matchAll(pattern)) {
+        if (match.index > opaqueAt) break;
         if (found === undefined || index > found.part || (index === found.part && match.index > found.at)) {
           found = { cause, part: index, at: match.index };
         }
