@@ -1075,7 +1075,7 @@ describe('requestConsumeTransaction by the id importPrivateNote returned (#1389)
       jest.requireMock('../sdk/miden-client');
     const check = jest.spyOn(lock, 'assertWasmHoldCurrent');
     const expectedWhere =
-      where === 'inside the consumable-notes read' ? /^inside the (details-commitment )?consumable-notes read$/ : where;
+      where === 'inside the consumable-notes read' ? /^inside the details-commitment consumable-notes read$/ : where;
     try {
       await expect(consumeByCommitment()).rejects.toThrow('WASM client poisoned');
       expect(check).toHaveBeenLastCalledWith(
