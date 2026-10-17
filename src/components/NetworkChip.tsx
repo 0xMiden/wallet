@@ -1,10 +1,9 @@
 import React from 'react';
 
-import clsx from 'clsx';
-
 import { ReactComponent as EthLogo } from 'app/icons/logos/eth.svg';
 import { ReactComponent as MidenLogo } from 'app/icons/logos/miden.svg';
 import { Pill } from 'components/ui';
+import { cn } from 'lib/ui/util';
 
 export type NetworkChipKind = 'miden' | 'ethereum';
 
@@ -25,30 +24,12 @@ export const NetworkLogo: React.FC<{ kind: NetworkChipKind }> = ({ kind }) =>
     // The brand mark from miden.xyz: the orange glyph, no circle behind it.
     <MidenLogo data-testid="miden-logo" aria-hidden="true" className="h-3.5 w-auto" />
   ) : (
-    <span className="flex h-4 w-4 items-center justify-center rounded-full bg-[#627EEA]" aria-hidden="true">
-      <EthLogo className="h-2.5 w-2.5" />
+    <span className="flex h-4 w-4 items-center justify-center rounded-xl bg-network-ethereum-tint" aria-hidden="true">
+      <EthLogo className="h-3 w-3 [&>path]:fill-network-ethereum-text" />
     </span>
   );
 
-// Literal class strings, so Tailwind generates them. A selected chip deepens its border to the
-// network's text color, so selection never changes its size.
-const NETWORK_CLASSES: Record<NetworkChipKind, { base: string; border: string; selectedBorder: string }> = {
-  miden: {
-    base: 'bg-network-miden-tint text-network-miden-text',
-    border: 'border-network-miden-border',
-    selectedBorder: 'border-network-miden-text'
-  },
-  ethereum: {
-    base: 'bg-network-ethereum-tint text-network-ethereum-text',
-    border: 'border-network-ethereum-border',
-    selectedBorder: 'border-network-ethereum-text'
-  }
-};
-
-/**
- * A network, as its logo and name on the app's shared Pill, tinted in that network's own soft
- * color from Bread's warm palette. The logo keeps its original colors.
- */
+/** A quiet network tag on the same neutral surface and soft corners as wallet fields. */
 export const NetworkChip: React.FC<NetworkChipProps> = ({
   kind,
   label,
@@ -57,15 +38,17 @@ export const NetworkChip: React.FC<NetworkChipProps> = ({
   className,
   'data-testid': dataTestId
 }) => {
-  const styles = NETWORK_CLASSES[kind];
-
   return (
     <Pill
       icon={<NetworkLogo kind={kind} />}
-      tone="plain"
+      tone={selected ? 'inactive' : 'neutral'}
+      shape="rounded"
       onClick={onClick}
       selected={onClick ? selected : undefined}
-      className={clsx(styles.base, selected ? styles.selectedBorder : styles.border, className)}
+      className={cn(
+        onClick && 'min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink',
+        className
+      )}
       data-testid={dataTestId}
     >
       {label}

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
+import { Icon, IconName } from 'app/icons/v2';
 import { NetworkLogo } from 'components/NetworkChip';
 import { ListGroup } from 'components/ui/ListGroup';
 import { ListRow } from 'components/ui/ListRow';
@@ -41,7 +42,8 @@ export const NetworkField: React.FC<NetworkFieldProps> = ({
       <ListGroup surface="outline">
         <ListRow
           title={chain === 'miden' ? t('miden') : (destination?.name ?? t('selectNetwork'))}
-          avatar={<NetworkLogo kind={chain === 'miden' ? 'miden' : 'ethereum'} />}
+          avatar={chain === 'miden' ? <NetworkLogo kind="miden" /> : undefined}
+          icon={chain !== 'miden' ? <Icon name={IconName.Globe} size="xs" /> : undefined}
           onClick={choosable ? () => setOpen(true) : undefined}
           chevron={choosable}
           accent="send"
@@ -63,12 +65,12 @@ export const NetworkField: React.FC<NetworkFieldProps> = ({
             <DrawerTitle>{t('selectNetwork')}</DrawerTitle>
           </DrawerHeader>
           <div className="min-h-0 overflow-y-auto">
-            <ListGroup className="mx-4 mb-6">
+            <ListGroup surface="outline" className="mx-4 mb-6">
               {networks.map(option => (
                 <ListRow
                   key={option.id}
                   title={option.name}
-                  avatar={<NetworkLogo kind="ethereum" />}
+                  icon={<Icon name={IconName.Globe} size="xs" />}
                   checked={network === option.id}
                   accent="send"
                   onClick={() => {

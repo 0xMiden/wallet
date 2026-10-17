@@ -2,7 +2,7 @@ import React from 'react';
 
 import { useTranslation } from 'react-i18next';
 
-import { NetworkLogo } from 'components/NetworkChip';
+import { Icon, IconName } from 'app/icons/v2';
 import { ListGroup } from 'components/ui/ListGroup';
 import { ListRow } from 'components/ui/ListRow';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
@@ -38,13 +38,13 @@ export const EvmBridgeNetworkDrawer: React.FC<EvmBridgeNetworkDrawerProps> = ({
           <DrawerTitle>{t('selectNetwork')}</DrawerTitle>
         </DrawerHeader>
 
-        <ListGroup className="mx-4">
+        <ListGroup surface="outline" className="mx-4">
           {networks.map(network => (
             <ListRow
               accent="receive"
               key={network.id}
               title={network.name}
-              avatar={<NetworkLogo kind="ethereum" />}
+              icon={<Icon name={IconName.Globe} size="xs" />}
               checked={network.id === selected?.id}
               onClick={() => onSelect(network)}
               data-testid={`bridge-network-${network.id}`}
