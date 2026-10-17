@@ -118,8 +118,8 @@ export class ChainUnavailable extends InfrastructureFault {
 // Commands a repeat cannot change the answer of, so callDapp asks again after the node failed one. Each makes its node
 // call before anything the wallet, the adapter or the dApp's store sees, or repeats harmlessly (see the handlers in
 // test-dapp/test-dapp.ts): the chain reads; syncHeight; init, which keeps its first client and listens on the provider
-// once; buildCustom, which syncs before it builds or holds anything; makeNoteFile, whose getNotesById comes before its
-// import. waitForHeight is not one: the page retries its own syncs until the timeout it is handed.
+// once; buildCustom and buildCustomScript, which sync before they compile, build or hold anything; makeNoteFile, whose
+// getNotesById comes before its import. waitForHeight is not one: the page retries its own syncs until its timeout.
 const REPEATABLE: ReadonlySet<DappCommandName> = new Set([
   'chainNote',
   'chainNullifier',
@@ -127,6 +127,7 @@ const REPEATABLE: ReadonlySet<DappCommandName> = new Set([
   'syncHeight',
   'init',
   'buildCustom',
+  'buildCustomScript',
   'makeNoteFile'
 ]);
 const NODE_RETRY_MS = 2_000;

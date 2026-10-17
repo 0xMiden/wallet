@@ -70,6 +70,7 @@ import type {
   SessionEvent,
   TestDappWindowApi
 } from './protocol';
+import { buildScriptRequest } from './script-request.js';
 
 /** A dApp-side failure: thrown through to the driver as a harness fault, never folded into an Outcome. */
 class HarnessCheckError extends Error {
@@ -620,6 +621,67 @@ const handlers: Partial<DappHandlers> = {
       outputNoteBytesB64,
       inputNoteIds,
       attachmentWordsHex,
+      checks
+    };
+  },
+
+  // A transaction script the dApp compiles (spec section 5.1). Like buildCustom it syncs first, so N is the dApp's own
+  // height, and a Guardian request takes the twin's auth args; the script, not an own output note, makes the payment.
+  buildCustomScript: async input => {
+    const me = requireConnected();
+    const ownClient = client();
+    const [output, ...extra] = input.outputs;
+    if (
+      extra.length > 0 ||
+      (input.kind === 'fee-only') !== (output === undefined) ||
+      output?.extraAssets !== undefined
+    ) {
+      throw new HarnessCheckError(
+        `a ${input.kind} script takes ${input.kind === 'fee-only' ? 'no output' : 'one single-asset output'}`
+      );
+    }
+    await fromNode('syncChain', () => ownClient.syncChain());
+    const height = await ownClient.getSyncHeight();
+    const twin = me.builder === 'guardian-twin';
+    const builder = twin ? await guardianRequestBuilder(ownClient, height) : new TransactionRequestBuilder();
+    const built = await buildScriptRequest(
+      ownClient,
+      builder,
+      input.kind,
+      output === undefined
+        ? undefined
+        : {
+            sender: AccountId.fromHex(me.accountIdHex),
+            target: toAccountId(output.recipientAddress),
+            faucet: toAccountId(output.faucetId),
+            amount: BigInt(output.amount),
+            noteType: noteTypeOf(output.noteType)
+          }
+    );
+    const checks: Record<string, boolean> = {
+      ...built.checks,
+      ...(twin
+        ? {
+            authArgCommitted: built.request.authArg() !== undefined,
+            declaresBoundBlock: built.request.blockNumbers().includes(height)
+          }
+        : {})
+    };
+    const failed = Object.entries(checks)
+      .filter(([, ok]) => !ok)
+      .map(([name]) => name);
+    if (failed.length > 0) throw new HarnessCheckError(`request self-check failed: ${failed.join(', ')}`);
+
+    const requestId = `r${(state.nextRequest += 1)}`;
+    state.requests.set(requestId, { request: built.request, importNotes: [] });
+    return {
+      requestId,
+      requestB64: u8ToB64(built.request.serialize()),
+      boundBlockNum: height,
+      outputNoteIds: built.predicted === undefined ? [] : [built.predicted.id().toString()],
+      attachmentWordsHex: [],
+      scriptRootHex: built.scriptRootHex,
+      ...(built.scriptArgHex === undefined ? {} : { scriptArgHex: built.scriptArgHex }),
       checks
     };
   },

@@ -25,6 +25,10 @@
 - [FIX][all] A claim that fails because an asset it needed (most often the USDCX for the network fee) was not available now says so instead of naming an "amount sent" that a claim does not have; every other transaction keeps its copy.
 - [FIX][extension] Approving a dApp transaction or consume no longer flashes an "Oops" error screen (and reports a "Not identified" crash) in the approval window before it closes: the window no longer navigates away from its own request after the approval, which dropped the request id from its address.
 
+### Changes
+
+- [CHANGE][ci] The dApp E2E harness also checks transaction scripts the dApp compiles itself on single-sig and Guardian accounts: a payment through the basic wallet, one that first checks its script argument and an advice value, and a fee-only script.
+
 ## 1.17.4 (2026-10-15)
 
 ### Features

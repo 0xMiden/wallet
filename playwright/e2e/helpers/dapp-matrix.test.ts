@@ -40,6 +40,12 @@ describe('dApp matrix data', () => {
       .filter(([, minutes]) => minutes >= 140);
     expect(overrun).toEqual([]);
   });
+
+  it('runs the X8 script cells on both axes, after X11', () => {
+    for (const axis of ['offchain', 'guardian'] as const) {
+      expect(cellIdsFor('X', axis).slice(-4)).toEqual(['X11', 'X8a', 'X8b', 'X8c']);
+    }
+  });
 });
 
 // Spec section 6: a timeout the spike recomputes replaces one of these only when it is higher.
