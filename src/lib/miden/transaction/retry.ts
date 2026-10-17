@@ -437,7 +437,13 @@ const planRequeue = async (
           verifiedId === undefined || storedNoteIds(fresh.outputNoteIds).length > 0
             ? undefined
             : landedDeliveryTarget({ ...fresh, ...fields }, { boundTransactionId: verifiedId });
-        return target === undefined ? fields : { ...fields, outputNoteIds: target };
+        if (target === undefined) return fields;
+        // `fresh` is the row this write stores. The attempts, next push and stopped mark it kept while it had nothing
+        // to push are not the note's: it starts on its first delay, as the reconciler's landing starts one.
+        delete fresh.relayAttempts;
+        delete fresh.nextRelayAt;
+        delete fresh.relayRetriesStopped;
+        return { ...fields, outputNoteIds: target };
       });
       if (target !== undefined) countNoteDeliveryWrite();
       return undefined;
