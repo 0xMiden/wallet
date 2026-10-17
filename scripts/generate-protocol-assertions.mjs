@@ -2,7 +2,8 @@
 /**
  * Writes the closed table a transaction failure report names a kernel assertion from
  * (src/lib/telemetry/protocol-assertions.json), and the SDK release and crates it was read from
- * (protocol-assertions.sources.json, which protocol-assertions.test.ts pins to the installed SDK).
+ * (protocol-assertions.sources.json, which protocol-assertions.test.ts pins to the installed SDK and,
+ * through the digest recorded there, to the table).
  *
  * An assertion fails with `error code: N`, where N is the first 8 bytes of blake3(message), little
  * endian (miden-core `error_code_from_msg`). The table maps N to the message's public name for every
@@ -15,6 +16,7 @@
  *   node scripts/generate-protocol-assertions.mjs [--registry <cargo registry src dir>] [--check]
  */
 import { blake3 } from '@noble/hashes/blake3';
+import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
@@ -169,6 +171,16 @@ const tableJson = table =>
     .map(([code, name]) => `  ${JSON.stringify(code)}: ${JSON.stringify(name)}`)
     .join(',\n')}\n}\n`;
 
+/**
+ * The sources record: the SDK release and crates read, and the SHA-256 of those two as JSON followed by the table, so a
+ * check without the crate sources (CI has none) can tell that the table is the one this run wrote from them.
+ */
+export function sourcesRecord(sdk, crates, table) {
+  const read = { sdk, crates };
+  const sha256 = createHash('sha256').update(JSON.stringify(read)).update(table).digest('hex');
+  return `${JSON.stringify({ ...read, sha256 }, null, 2)}\n`;
+}
+
 function registryRoots(explicit) {
   if (explicit !== undefined) return [explicit];
   const src = path.join(process.env.CARGO_HOME ?? path.join(homedir(), '.cargo'), 'registry', 'src');
@@ -195,7 +207,7 @@ function main(argv) {
     throw new Error(`not in the Cargo registry (fetch them, e.g. with cargo fetch): ${missing.join(', ')}`);
   }
   const table = tableJson(assertionTable(crates.map(([crate, , dir]) => [crate, dir])));
-  const sources = `${JSON.stringify({ sdk: sdkVersion, crates: Object.fromEntries(crates.map(([c, v]) => [c, v])) }, null, 2)}\n`;
+  const sources = sourcesRecord(sdkVersion, Object.fromEntries(crates.map(([c, v]) => [c, v])), table);
   if (argv.includes('--check')) {
     const stale = [
       [TABLE, table],

@@ -5,5 +5,6 @@
     "miden-core-lib": "0.35.0",
     "miden-protocol": "0.17.1",
     "miden-standards": "0.17.1"
-  }
+  },
+  "sha256": "46c0aa270a303a015c3790a79f2dc57174a99e774e639c595f9b6305623d2e1c"
 }
