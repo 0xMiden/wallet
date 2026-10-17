@@ -32,7 +32,10 @@ export interface UseSwapQuoteOpts {
   slippageBps: number;
   /** Gate: only quote when the pair is swappable (e.g. two different tokens). */
   enabled: boolean;
-  /** The page is on screen: a quote is refreshed every `SWAP_QUOTE_REFRESH_MS` only while it is. */
+  /**
+   * The page is on screen: a quote is refreshed every `SWAP_QUOTE_REFRESH_MS` only while it is and
+   * the document is visible.
+   */
   active: boolean;
 }
 
@@ -75,6 +78,18 @@ const toBigIntOrZero = (amount: string, decimals: number): bigint => {
   }
 };
 
+/** False while the tab or app is in the background, where a refresh would only load the solver. */
+function useDocumentVisible(): boolean {
+  const [visible, setVisible] = useState(() => !document.hidden);
+  useEffect(() => {
+    const onChange = () => setVisible(!document.hidden);
+    document.addEventListener('visibilitychange', onChange);
+    onChange();
+    return () => document.removeEventListener('visibilitychange', onChange);
+  }, []);
+  return visible;
+}
+
 const failed = (pair: string, error: unknown): PairedState => ({
   loading: false,
   pair,
@@ -97,9 +112,9 @@ const failed = (pair: string, error: unknown): PairedState => ({
  * reads as `{ loading: true }` until the new pair's own answer lands, so the old pair's rate can
  * never price (or its error block) the new order.
  *
- * A landed quote is refreshed every `SWAP_QUOTE_REFRESH_MS` while the page is active, so a review
- * left open shows a price the solver would still fill at; a page that comes back to the screen
- * with a stale quote refreshes at once.
+ * A landed quote is refreshed every `SWAP_QUOTE_REFRESH_MS` while the page is active and the
+ * document visible, so a review left open shows a price the solver would still fill at; a page or a
+ * document that comes back to the screen with a stale quote refreshes at once.
  */
 export function useSwapQuote({
   offerToken,
@@ -179,13 +194,14 @@ export function useSwapQuote({
   // The periodic refresh: once a quote lands and the page is on screen, re-quote after the window.
   // A failed one is retried on the same clock, so a service that comes back finds the review
   // whole again instead of a receive field it emptied for good.
+  const visible = useDocumentVisible();
   const settledAt = state.settledAt;
   useEffect(() => {
-    if (!active || settledAt === undefined || !debouncedKey) return;
+    if (!active || !visible || settledAt === undefined || !debouncedKey) return;
     const due = Math.max(0, settledAt + SWAP_QUOTE_REFRESH_MS - Date.now());
     const timer = setTimeout(() => setRefreshTick(tick => tick + 1), due);
     return () => clearTimeout(timer);
-  }, [active, settledAt, debouncedKey]);
+  }, [active, visible, settledAt, debouncedKey]);
 
   const quoteNow = useCallback(
     (requestedAmount?: bigint): Promise<SwapQuote> => {
