@@ -84,6 +84,14 @@ export const TRANSACTION_FEE_CONVERSION_INFO_MISSING_ERROR =
   'This transaction could not be set up to pay the network fee, so nothing was submitted. Your balance is not ' +
   'the problem — try again, and report this if it keeps happening.';
 
+/**
+ * The copy for `isFeeConversionCommitmentMismatchError`. Unlike the copy above it rules out a retry: the commitment
+ * that fails is in the dApp's request bytes, and a retry executes the same bytes.
+ */
+export const TRANSACTION_FEE_COMMITMENT_MISMATCH_ERROR =
+  'The dApp that requested this transaction did not set up its network fee correctly, so the transaction cannot ' +
+  'run and nothing was submitted. Trying again will fail the same way; the dApp has to fix its request.';
+
 export const TRANSACTION_STUCK_ERROR = 'Transaction took too long to process and was cancelled';
 
 export const TRANSACTION_EXPIRED_ERROR = 'Transaction expired after being queued too long';
@@ -380,6 +388,25 @@ export function isFeeConversionInfoMissingError(raw: string): boolean {
 }
 
 /**
+ * The kernel's report that the auth args commit to fee conversion info the advice map does not match:
+ * `ERR_FEE_CONVERSION_INFO_COMMITMENT_MISMATCH` in miden-standards 0.17 (`asm/standards/fee/mod.masm`, raised by
+ * `load_conversion_info`), derived like the code above.
+ *
+ * Only the single-sig auth procedure runs that check, and miden-client leaves an auth arg the request already carries
+ * alone while the one it commits itself always matches. The wallet never sets one on a single-sig request, so this is
+ * a dApp request that brought its own (#1475).
+ */
+export const ERR_FEE_CONVERSION_INFO_COMMITMENT_MISMATCH_CODE = '15404814807981965102';
+
+const FEE_CONVERSION_COMMITMENT_MISMATCH_PATTERN = new RegExp(
+  `(?:^|\\D)${ERR_FEE_CONVERSION_INFO_COMMITMENT_MISMATCH_CODE}(?!\\d)`
+);
+
+export function isFeeConversionCommitmentMismatchError(raw: string): boolean {
+  return FEE_CONVERSION_COMMITMENT_MISMATCH_PATTERN.test(raw);
+}
+
+/**
  * The remove-asset assertion below by its numeric code, which is all a failed local
  * execution reports (`assertion failed with error code: ...`): an unfunded account's
  * rotation failed in exactly that form and was never classified (#805).
@@ -584,6 +611,9 @@ function classifyTransactionError(
   // blaming a balance that is not involved.
   if (isFeeConversionInfoMissingError(raw)) {
     return TRANSACTION_FEE_CONVERSION_INFO_MISSING_ERROR;
+  }
+  if (isFeeConversionCommitmentMismatchError(raw)) {
+    return TRANSACTION_FEE_COMMITMENT_MISMATCH_ERROR;
   }
   // Checked AFTER the conversion-info code, since that one is the more specific
   // reading of an assertion this one deliberately declines to attribute.
