@@ -63,6 +63,14 @@ it.each([
   expect(inlineName(crate, message)).toBe(name);
 });
 
+it.each([
+  ['kernel witness length must fit in a u32', 'CORE_LIB_KERNEL_WITNESS_LEN_NOT_U32'],
+  ['invalid insert: already at maximum size of 8192', 'CORE_LIB_INVALID_INSERT_ALREADY_AT_MAXIMUM_SIZE'],
+  ['invalid leaf: larger than maximum size of 8192', 'CORE_LIB_INVALID_LEAF_LARGER_THAN_MAXIMUM_SIZE']
+])('names %j, whose words crash scrubbing would blank or redact, by its fixed override', (message, name) => {
+  expect(inlineName('miden-core-lib', message)).toBe(name);
+});
+
 it('keeps a named constant over an inline twin, and the first constant of a shared message', () => {
   const inline = crateWith({
     'asm/a.masm': 'proc a\n    assert.err="shared"\n    assert.err="only inline"\nend\n',

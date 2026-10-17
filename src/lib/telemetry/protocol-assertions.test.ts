@@ -1,7 +1,10 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { englishWordlist } from '@miden/hd-key';
+
 import assertions from './protocol-assertions.json';
+import { redactMessage } from './redact';
 import packageJson from '../../../package.json';
 
 const REPO_ROOT = join(__dirname, '..', '..', '..');
@@ -63,5 +66,16 @@ describe('the kernel assertion table', () => {
       expect(name).toMatch(/^[A-Z][A-Z0-9_]{2,127}$/);
     }
     expect(new Set(entries.map(([, name]) => name)).size).toBe(entries.length);
+  });
+
+  // Crash scrubbing blanks a report holding four wordlist words in a row, as a recovery phrase, and redacts four digits
+  // in a row: a name coined from a message's words has to survive both.
+  it('coins only names a report survives crash scrubbing with', () => {
+    const coined = Object.values(assertions).filter(name => /^(PROTOCOL|STANDARDS|CORE_LIB|AGGLAYER)_/.test(name));
+    const report = (name: string) =>
+      'Transaction failed: tx_dapp; stage signing; signing step creating_proposal; realm unknown; proving preference ' +
+      `delegated; platform ios; point pipeline; ${name}. authentication preparation provided; layout guardian`;
+    expect(coined.length).toBeGreaterThan(0);
+    expect(coined.filter(name => redactMessage(report(name), englishWordlist) !== report(name))).toEqual([]);
   });
 });
