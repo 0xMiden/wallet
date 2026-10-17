@@ -2,7 +2,7 @@ import {
   __resetRelayDiagnosticsForTest,
   classifyRelayFailure,
   followRelay,
-  noteConnectModalOpened,
+  noteConnectModalOpen,
   noteConnectivityChanged,
   recordRelaySurface,
   type RelayDiagnostics
@@ -64,7 +64,7 @@ describe('which failures are the relay', () => {
           service: 'walletconnect_relay',
           connectivity: 'steady',
           visibility: 'visible',
-          relayTrigger: 'session_restore',
+          relayTrigger: 'no_connect_modal',
           relayEverConnected: false,
           relayFailures: '1'
         }
@@ -84,6 +84,24 @@ describe('how often it is reported', () => {
     expect(classifyRelayFailure(RELAY_FAILURE)).toEqual({ report: false });
     restores.pop()?.();
     expect(reported()?.relayFailures).toBe('2-5');
+  });
+
+  it('reports the range a window reached offline at its first online failure: six offline, then one online', () => {
+    replace(navigator, 'onLine', false);
+    expect(Array.from({ length: 6 }, () => classifyRelayFailure(RELAY_FAILURE))).toEqual(
+      Array.from({ length: 6 }, () => ({ report: false }))
+    );
+    restores.pop()?.();
+    expect(reported()?.relayFailures).toBe('6+');
+  });
+
+  it('reports a range an offline failure entered at its next online failure: 1 online, 2 offline, 3 online', () => {
+    const verdicts = [reported()?.relayFailures];
+    replace(navigator, 'onLine', false);
+    verdicts.push(reported()?.relayFailures);
+    restores.pop()?.();
+    verdicts.push(reported()?.relayFailures);
+    expect(verdicts).toEqual(['1', undefined, '2-5']);
   });
 
   it('starts counting again after a reset, as a new page does', () => {
@@ -117,10 +135,14 @@ describe('the context it carries', () => {
     expect(reported()?.surface).toBe('sidepanel');
   });
 
-  it('says the connect modal was opened in this window once it was', () => {
-    expect(reported()?.relayTrigger).toBe('session_restore');
-    noteConnectModalOpened();
-    expect(reported()?.relayTrigger).toBe('connect_modal');
+  it.each([
+    ['it never opened', [], 'no_connect_modal'],
+    ['it is open', [true], 'connect_modal'],
+    ['it opened and closed', [true, false], 'no_connect_modal'],
+    ['it opened again', [true, false, true], 'connect_modal']
+  ])('says whether the connect modal is open when the relay fails: %s', (_label, states, trigger) => {
+    for (const open of states) noteConnectModalOpen(open);
+    expect(reported()?.relayTrigger).toBe(trigger);
   });
 
   it('says the relay connected once it was connected when followed, or connected later', () => {

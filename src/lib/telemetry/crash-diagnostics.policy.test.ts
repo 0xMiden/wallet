@@ -38,7 +38,7 @@ const FIELDS: ReadonlyArray<readonly [string, readonly string[]]> = [
   ['changed in the 30 seconds before', RELAY_CONNECTIVITY],
   ["whether the App's window was on screen", RELAY_VISIBILITY],
   ['which App window it was', RELAY_SURFACES],
-  ['restoring an earlier connection', RELAY_TRIGGERS],
+  ['whether the connect-wallet screen was open in that window', RELAY_TRIGGERS],
   ['whether the relay had connected in that window before', ['true', 'false']],
   ['how many relay failures that window had seen', RELAY_FAILURE_BUCKETS]
 ];

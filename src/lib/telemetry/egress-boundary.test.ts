@@ -1548,13 +1548,31 @@ describe('WalletConnect relay failure reports', () => {
         connectivity: 'steady',
         visibility: 'visible',
         surface: 'confirm',
-        relayTrigger: 'session_restore',
+        relayTrigger: 'no_connect_modal',
         relayEverConnected: false,
         relayFailures: '1'
       }
     );
     // The title the issue already has, and no cause.
     expect(objectAt(event, 'exception').values).toEqual([
+      expect.objectContaining({ type: 'Error', value: `${PREFIX}wss://relay.walletconnect.org` })
+    ]);
+  });
+
+  it('names the report Error whatever the failure called itself, under the fixed text and its own frames', async () => {
+    consentOn();
+    initCrashReporting();
+    const failure = relayFailure();
+    failure.name = 'UpstreamRelayError';
+    failure.stack = `UpstreamRelayError: ${failure.message}\n    at openRelaySocket (capacitor://localhost/mobile.js:1:5000)`;
+    captureCrash(failure, 'onunhandledrejection');
+    await flushEgress();
+
+    expect(captured).toHaveLength(1);
+    const text = wireText();
+    expect(text).not.toContain('UpstreamRelayError');
+    expect(text).toContain('"filename":"app:///mobile.js","lineno":1,"colno":5000,"function":"openRelaySocket"');
+    expect(objectAt(sentryEvent(captured[0]), 'exception').values).toEqual([
       expect.objectContaining({ type: 'Error', value: `${PREFIX}wss://relay.walletconnect.org` })
     ]);
   });
