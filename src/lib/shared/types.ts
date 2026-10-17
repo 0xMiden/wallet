@@ -161,7 +161,10 @@ export enum WalletMessageType {
   GetInputNoteDetailsRequest = 'GET_INPUT_NOTE_DETAILS_REQUEST',
   GetInputNoteDetailsResponse = 'GET_INPUT_NOTE_DETAILS_RESPONSE',
   ReportTelemetryEventRequest = 'REPORT_TELEMETRY_EVENT_REQUEST',
-  ReportTelemetryEventResponse = 'REPORT_TELEMETRY_EVENT_RESPONSE'
+  ReportTelemetryEventResponse = 'REPORT_TELEMETRY_EVENT_RESPONSE',
+  // USDCx burn fee dry run (popup → backend)
+  EstimateUsdcxBurnFeeRequest = 'ESTIMATE_USDCX_BURN_FEE_REQUEST',
+  EstimateUsdcxBurnFeeResponse = 'ESTIMATE_USDCX_BURN_FEE_RESPONSE'
 }
 
 export type WalletNotification = StateUpdated | SyncCompleted | NoteClaimStarted;
@@ -355,6 +358,26 @@ export interface GetInputNoteDetailsResponse extends WalletMessageBase {
   type: WalletMessageType.GetInputNoteDetailsResponse;
   notes: SerializedInputNoteDetail[];
 }
+
+export interface EstimateUsdcxBurnFeeRequest extends WalletMessageBase {
+  type: WalletMessageType.EstimateUsdcxBurnFeeRequest;
+  /** The account that burns. */
+  accountPublicKey: string;
+  /** The chain the burn pays out on. The recipient does not change the cost, so the request names none. */
+  destinationChainId: number;
+}
+
+/**
+ * What a USDCx burn fee estimate found: the native-asset base units to hold back for the burn's cost once `measured`
+ * (0n for a burn that costs nothing), `busy` when the WASM lock was not won in time so no dry run ran, or `failed`
+ * when the dry run ran and could not measure, or could not be built.
+ */
+export type UsdcxBurnFeeEstimate = { outcome: 'measured'; reserve: bigint } | { outcome: 'busy' | 'failed' };
+
+/** A {@link UsdcxBurnFeeEstimate} on the wire, its reserve as a decimal string. */
+export type EstimateUsdcxBurnFeeResponse = WalletMessageBase & {
+  type: WalletMessageType.EstimateUsdcxBurnFeeResponse;
+} & ({ outcome: 'measured'; feeReserve: string } | { outcome: 'busy' | 'failed' });
 
 export interface GetStateRequest extends WalletMessageBase {
   type: WalletMessageType.GetStateRequest;
@@ -1286,7 +1309,8 @@ export type WalletRequest =
   | RetryDeadletteredNotesRequest
   | ExportNoteRequest
   | GetInputNoteDetailsRequest
-  | ReportTelemetryEventRequest;
+  | ReportTelemetryEventRequest
+  | EstimateUsdcxBurnFeeRequest;
 
 export type WalletResponse =
   | MidenResponse
@@ -1359,4 +1383,5 @@ export type WalletResponse =
   | RetryDeadletteredNotesResponse
   | ExportNoteResponse
   | GetInputNoteDetailsResponse
-  | ReportTelemetryEventResponse;
+  | ReportTelemetryEventResponse
+  | EstimateUsdcxBurnFeeResponse;

@@ -25,6 +25,7 @@ import { isScanAvailable, scanQRCode } from 'lib/qr';
 import { useWalletStore } from 'lib/store';
 import { useRouteDwell } from 'lib/telemetry/use-route-dwell';
 import { usdcxPayoutFeeShortfall } from 'lib/usdcx/constant';
+import { useBurnFeeReserve } from 'lib/usdcx/use-burn-fee-reserve';
 import { isUsdcxWithdrawalAvailable, isUsdcxWithdrawalNetwork } from 'lib/usdcx/withdrawal';
 import { navigate, useLocation } from 'lib/woozie';
 import {
@@ -391,14 +392,22 @@ export const SendManager: React.FC<SendManagerProps> = ({
     if (!usdcxAvailable && bridgeRoute === 'usdcx') setValue('bridgeRoute', 'epoch');
   }, [usdcxAvailable, bridgeRoute, setValue]);
 
-  // A USDCx burn's destination and amount. Circle takes its fee from the payout there, so the amount must exceed it.
-  const usdcxPayout = useMemo(() => {
-    const chainId =
+  // The destination chain of a USDCx burn, or undefined when this send is not one.
+  const usdcxChainId = useMemo(
+    () =>
       usdcxAvailable && isBridge
         ? usdcxBridgeNetworks().find(network => network.id === bridgeNetwork)?.chainId
-        : undefined;
-    return chainId === undefined || amountBaseUnits === undefined ? undefined : { chainId, amount: amountBaseUnits };
-  }, [usdcxAvailable, isBridge, bridgeNetwork, amountBaseUnits]);
+        : undefined,
+    [usdcxAvailable, isBridge, bridgeNetwork]
+  );
+  // A USDCx burn's destination and amount. Circle takes its fee from the payout there, so the amount must exceed it.
+  const usdcxPayout = useMemo(
+    () =>
+      usdcxChainId === undefined || amountBaseUnits === undefined
+        ? undefined
+        : { chainId: usdcxChainId, amount: amountBaseUnits },
+    [usdcxChainId, amountBaseUnits]
+  );
   const payoutFeeShortfall = useMemo(
     () => usdcxPayout && usdcxPayoutFeeShortfall(usdcxPayout.chainId, usdcxPayout.amount),
     [usdcxPayout]
@@ -582,12 +591,31 @@ export const SendManager: React.FC<SendManagerProps> = ({
   // Non-native tokens are unaffected (their fee comes out of a different asset), and
   // `maxSendableNative` fails open on an unknown or zero fee, so a zero-fee chain and
   // the pre-discovery window both keep the full balance.
+  //
+  // A USDCx burn of the native token costs more than that static reserve (on mainnet its fee plus the
+  // faucet execution sponsorship came to 36 base fees against a reserve of 30, so "Max" failed with a
+  // vault shortfall). Its cost is measured by a dry run of the burn, and the cap holds back the larger
+  // of the two reserves. Until the measurement lands the burn has no cap at all: Max and Continue stay
+  // disabled, the amount field says why, and Available keeps the static figure.
+  // Keyed on the account and chain only, so editing the recipient never measures again.
+  const burnFeeTarget = useMemo(
+    () =>
+      publicKey && token && nativeFaucetId !== null && token.id === nativeFaucetId && usdcxChainId !== undefined
+        ? { accountPublicKey: publicKey, destinationChainId: usdcxChainId }
+        : undefined,
+    [publicKey, token, nativeFaucetId, usdcxChainId]
+  );
+  const burnFee = useBurnFeeReserve(burnFeeTarget);
+  const burnFeeUnmeasured = burnFeeTarget !== undefined && burnFee.status !== 'measured';
+  const burnFeeMessage = burnFee.status === 'failed' ? 'usdcxBurnFeeUnavailable' : 'usdcxBurnFeeMeasuring';
   const spendableBalance = useMemo(() => {
     if (!token) return 0;
-    return nativeFaucetId !== null && token.id === nativeFaucetId
-      ? maxSendableNative(token.balance, verificationBaseFee, token.decimals)
-      : token.balance;
-  }, [token, nativeFaucetId, verificationBaseFee]);
+    if (nativeFaucetId === null || token.id !== nativeFaucetId) return token.balance;
+    const staticCap = maxSendableNative(token.balance, verificationBaseFee, token.decimals);
+    if (burnFee.reserve === undefined) return staticCap;
+    const burnCap = Math.max(0, token.balance - Number(burnFee.reserve) / 10 ** token.decimals);
+    return Math.min(staticCap, burnCap);
+  }, [token, nativeFaucetId, verificationBaseFee, burnFee.reserve]);
 
   // Shown on the Amount step so the quoted "Available" is the number the validation
   // below actually enforces. The form's own `token` keeps the true balance, which is
@@ -607,6 +635,11 @@ export const SendManager: React.FC<SendManagerProps> = ({
     // initial zero is a loading placeholder, not evidence of missing MIDEN.
     if (!balancesLoading && hasNoFeeAsset(balanceData ?? [], nativeFaucetId, verificationBaseFee)) {
       setError('amount', { type: 'manual', message: 'insufficientFeeAsset' });
+      return;
+    }
+    // Ahead of every amount check, so a restored or earlier amount never passes against the static cap.
+    if (burnFeeUnmeasured) {
+      setError('amount', { type: 'manual', message: burnFeeMessage });
       return;
     }
     if (amount === undefined) {
@@ -635,7 +668,16 @@ export const SendManager: React.FC<SendManagerProps> = ({
     // asynchronously, so an amount typed before they landed was validated against an
     // empty balance list and an unknown fee and then never re-checked.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, spendableBalance, balanceData, balancesLoading, nativeFaucetId, verificationBaseFee]);
+  }, [
+    token,
+    spendableBalance,
+    balanceData,
+    balancesLoading,
+    nativeFaucetId,
+    verificationBaseFee,
+    burnFeeUnmeasured,
+    burnFeeMessage
+  ]);
 
   const onAction = useCallback(
     (action: SendFlowAction) => {
@@ -683,6 +725,15 @@ export const SendManager: React.FC<SendManagerProps> = ({
   // can quote the Epoch output and pick the right submit path.
   const goToReview = useCallback(() => {
     if (!token || !amount || !recipientAddress) return;
+    // The one way into review, so the burn's cap is checked here too: an amount accepted on the Amount step
+    // before the measured reserve landed, or under a smaller one, goes back there with the reason shown.
+    if (burnFeeTarget && (burnFeeUnmeasured || parseFloat(amount) > spendableBalance)) {
+      const reserveHoldsWholeBalance = spendableBalance <= 0 && token.balance > 0;
+      const overCapMessage = reserveHoldsWholeBalance ? 'feeReserveBlocksSend' : 'amountMustBeLessThanBalance';
+      setError('amount', { type: 'manual', message: burnFeeUnmeasured ? burnFeeMessage : overCapMessage });
+      if (currentStep === SendFlowStep.Route) goBack();
+      return;
+    }
     reviewHandoffRef.current = true;
     setSendDraft({
       amount,
@@ -695,7 +746,21 @@ export const SendManager: React.FC<SendManagerProps> = ({
     if (isBridge && bridgeNetwork) params.set('network', bridgeNetwork);
     if (isBridge && bridgeRoute) params.set('route', bridgeRoute);
     navigate(`/send/review?${params.toString()}`);
-  }, [amount, recipientAddress, token, isBridge, bridgeNetwork, bridgeRoute]);
+  }, [
+    amount,
+    recipientAddress,
+    token,
+    isBridge,
+    bridgeNetwork,
+    bridgeRoute,
+    burnFeeTarget,
+    burnFeeUnmeasured,
+    burnFeeMessage,
+    spendableBalance,
+    setError,
+    currentStep,
+    goBack
+  ]);
 
   // From the Amount screen: a cross-chain send picks a route next; a same-chain
   // Miden send goes straight to review.
@@ -899,6 +964,9 @@ export const SendManager: React.FC<SendManagerProps> = ({
         // The fee is taken from this account's own vault, so with no native
         // asset the transaction cannot succeed however small the amount.
         setError('amount', { type: 'manual', message: 'insufficientFeeAsset' });
+      } else if (burnFeeUnmeasured) {
+        // A burn has no cap until its reserve is measured, so no keystroke may clear this.
+        setError('amount', { type: 'manual', message: burnFeeMessage });
       } else if (token && amount > spendableBalance) {
         // Between one base fee and the 30x reserve the whole native balance is held back,
         // so `Available` reads 0 and "amount must be less than balance" is true but useless:
@@ -921,6 +989,8 @@ export const SendManager: React.FC<SendManagerProps> = ({
       clearErrors,
       // The fee-reserved cap, not the raw balance (see `spendableBalance`).
       spendableBalance,
+      burnFeeUnmeasured,
+      burnFeeMessage,
       // These feed the `insufficientFeeAsset` branch above. Omitted, the check
       // runs against first-render values -- an empty balance list and an unresolved
       // base fee -- so it either blocks a send that can pay its fee or admits one
@@ -975,6 +1045,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
               recipientAddress={recipientAddress || ''}
               recipientName={selectedContact?.name}
               network={displayedNetwork}
+              maxDisabled={burnFeeUnmeasured}
               onAmountChange={onAmountChange}
               onSelectToken={() => setShowTokenDrawer(true)}
               onReceive={onReceive}
@@ -1016,6 +1087,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
       errors.recipientAddress,
       errors.amount,
       payoutFeeShortfall,
+      burnFeeUnmeasured,
       onAddressChange,
       onScan,
       amount,

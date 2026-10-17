@@ -748,6 +748,8 @@
   "networkFeeMax": "最大ネットワーク手数料",
   "networkFeeEstimateNote": "実際の手数料は取引内容によって異なりますが、通常はこれより低くなります。お支払いいただいた金額は領収書に記載されています。",
   "feeReserveBlocksSend": "お客様のUSDCXはネットワーク手数料用に確保されています。送金するには、さらにUSDCXを受け取る必要があります。",
+  "usdcxBurnFeeMeasuring": "金額を確認する前に、このバーンにかかるネットワーク手数料を算出します。",
+  "usdcxBurnFeeUnavailable": "今回のバーンにかかるネットワーク手数料を測定できないため、金額を確認できません。別の宛先を選択して、再度お試しください。",
   "insufficientFeeAsset": "ネットワーク手数料の支払いにUSDCXが必要です。続行するには、USDCXを受け取ってください。",
   "insufficientFeeAssetShort": "You need USDCX for the network fee.",
   "amountMustBeLessThanBalance": "金額は残高より少なければなりません",

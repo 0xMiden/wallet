@@ -748,6 +748,8 @@
   "networkFeeMax": "最高网络手续费",
   "networkFeeEstimateNote": "具体手续费取决于交易情况，通常会更低。您将在收据上看到实际支付的金额。",
   "feeReserveBlocksSend": "您的 USDCX 将用于支付网络手续费。获得更多 USDCX 即可进行转账。",
+  "usdcxBurnFeeMeasuring": "在核对金额之前，需先计算此次销毁操作的网络手续费。",
+  "usdcxBurnFeeUnavailable": "无法测算此次销毁的网络手续费，因此无法核对金额。请选择其他目的地重试。",
   "insufficientFeeAsset": "您需要 USDCX 来支付网络费用。请获取一定数量的 USDCX 以继续操作。",
   "insufficientFeeAssetShort": "You need USDCX for the network fee.",
   "amountMustBeLessThanBalance": "金额必须小于余额",

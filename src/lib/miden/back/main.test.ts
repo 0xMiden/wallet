@@ -209,6 +209,7 @@ jest.mock('lib/miden/back/actions', () => ({
   checkGuardianDrift: jest.fn(),
   applyUserGuardianEndpoint: jest.fn(),
   handleReportTelemetryEvent: jest.fn(),
+  estimateUsdcxBurnFee: jest.fn(),
   retryDeadletteredNotes: jest.fn(async () => ({ requeued: 2 }))
 }));
 const Actions: any = jest.requireMock('lib/miden/back/actions');
@@ -384,6 +385,19 @@ describe('processRequest', () => {
     const res = await dispatch({ type: WalletMessageType.SyncRequest });
     expect(res.type).toBe(WalletMessageType.SyncResponse);
     expect(mockDoSync).toHaveBeenCalledWith(undefined);
+  });
+
+  it('EstimateUsdcxBurnFeeRequest reaches the estimate action and answers its response', async () => {
+    const response = { type: WalletMessageType.EstimateUsdcxBurnFeeResponse, outcome: 'measured', feeReserve: '315' };
+    Actions.estimateUsdcxBurnFee.mockResolvedValueOnce(response);
+    const req = {
+      type: WalletMessageType.EstimateUsdcxBurnFeeRequest,
+      accountPublicKey: 'mm1account',
+      destinationChainId: 1
+    };
+
+    await expect(dispatch(req)).resolves.toEqual(response);
+    expect(Actions.estimateUsdcxBurnFee).toHaveBeenCalledWith(req);
   });
 
   it('forwards a forced SyncRequest', async () => {

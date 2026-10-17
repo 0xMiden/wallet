@@ -1613,6 +1613,47 @@ describe('useWalletStore', () => {
     });
   });
 
+  describe('USDCx burn fee estimate', () => {
+    it('asks for the account and chain and decodes the reserve as a bigint', async () => {
+      mockRequest.mockResolvedValueOnce({
+        type: WalletMessageType.EstimateUsdcxBurnFeeResponse,
+        outcome: 'measured',
+        feeReserve: '9007199254740993'
+      });
+
+      await expect(useWalletStore.getState().estimateUsdcxBurnFee('mm1account', 5042002)).resolves.toEqual({
+        outcome: 'measured',
+        reserve: 9007199254740993n
+      });
+      expect(mockRequest).toHaveBeenCalledWith({
+        type: WalletMessageType.EstimateUsdcxBurnFeeRequest,
+        accountPublicKey: 'mm1account',
+        destinationChainId: 5042002
+      });
+    });
+
+    it('decodes a measured zero as a measurement', async () => {
+      mockRequest.mockResolvedValueOnce({
+        type: WalletMessageType.EstimateUsdcxBurnFeeResponse,
+        outcome: 'measured',
+        feeReserve: '0'
+      });
+
+      await expect(useWalletStore.getState().estimateUsdcxBurnFee('mm1account', 5042002)).resolves.toStrictEqual({
+        outcome: 'measured',
+        reserve: 0n
+      });
+    });
+
+    it.each<'busy' | 'failed'>(['busy', 'failed'])('decodes %s as itself, with no reserve', async outcome => {
+      mockRequest.mockResolvedValueOnce({ type: WalletMessageType.EstimateUsdcxBurnFeeResponse, outcome });
+
+      await expect(useWalletStore.getState().estimateUsdcxBurnFee('mm1account', 5042002)).resolves.toStrictEqual({
+        outcome
+      });
+    });
+  });
+
   describe('Fiat currency actions', () => {
     it('setSelectedFiatCurrency updates currency', () => {
       const { setSelectedFiatCurrency } = useWalletStore.getState();

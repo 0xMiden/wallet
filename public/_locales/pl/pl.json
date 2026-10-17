@@ -748,6 +748,8 @@
   "networkFeeMax": "Maksymalna opłata sieciowa",
   "networkFeeEstimateNote": "Dokładna opłata zależy od transakcji i zazwyczaj jest niższa. Kwotę, którą zapłaciłeś, zobaczysz na potwierdzeniu.",
   "feeReserveBlocksSend": "Twoje USDCX są zarezerwowane na opłatę sieciową. Otrzymaj więcej USDCX, aby móc je wysłać.",
+  "usdcxBurnFeeMeasuring": "Opłatę sieciową związaną z tym spaleniem można sprawdzić przed podaniem kwoty.",
+  "usdcxBurnFeeUnavailable": "Nie można zmierzyć opłaty sieciowej za to spalenie, więc kwota nie może zostać sprawdzona. Wybierz inne miejsce docelowe, aby spróbować ponownie.",
   "insufficientFeeAsset": "Aby uiścić opłatę sieciową, potrzebujesz USDCX. Odbierz trochę USDCX, aby kontynuować.",
   "insufficientFeeAssetShort": "You need USDCX for the network fee.",
   "amountMustBeLessThanBalance": "Kwota musi być mniejsza niż saldo",
