@@ -238,6 +238,8 @@ export interface SerializedConsumableNote {
   recallableAtMs?: number;
   /** The note is a standard P2ID or P2IDE payment; absent reads as not. */
   standardPayment?: boolean;
+  /** The note holds fungible assets beyond the one `faucetId` and `amountBaseUnits` describe; absent reads as not. */
+  carriesMoreAssets?: boolean;
   /** Note inclusion time, in Unix seconds. */
   receivedAt?: number;
   swapOrder?: {
