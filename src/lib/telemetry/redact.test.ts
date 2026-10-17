@@ -541,3 +541,56 @@ describe('containsSeedMaterialDeep', () => {
     expect(containsSeedMaterialDeep(PHRASE_12, english)).toBe(true);
   });
 });
+
+// BREAD-WALLET-T: source constants of the shipped assertion table whose words read as four wordlist words in a row, so
+// a transaction-failure report naming one lost its whole message.
+describe('a closed identity name', () => {
+  const BLANKED = [
+    'ERR_NETWORK_ACCOUNT_FEE_ASSET_NOT_NATIVE',
+    'ERR_ACCOUNT_UPGRADE_CODE_ALREADY_SET',
+    'ERR_NEW_MAX_SUPPLY_BELOW_TOKEN_SUPPLY',
+    'ERR_LINK_MAP_ENTRY_PTR_IS_OUTSIDE_VALID_MEMORY_REGION',
+    'ERR_TX_COMPUTE_FEE_EXCLUDE_NOTE_INDEX_OUT_OF_BOUNDS',
+    'ERR_AUTH_TX_FEE_COLLECTOR_NOTE_MUST_CARRY_ONE_ASSET',
+    'ERR_TX_COMPUTE_FEE_EXCLUDE_NOTE_INDEX_NOT_U32',
+    'ERR_INPUT_NOTE_ASSET_INDEX_OUT_OF_BOUNDS'
+  ];
+  const closed: ReadonlySet<string> = new Set(BLANKED);
+  const NAME = 'ERR_INPUT_NOTE_ASSET_INDEX_OUT_OF_BOUNDS';
+  const report = (identity: string) =>
+    'Transaction failed: tx_dapp; stage signing; signing step creating_proposal; realm unknown; proving preference ' +
+    `delegated; platform ios; point pipeline; ${identity}. authentication preparation provided; layout guardian`;
+
+  it.each(BLANKED)('does not read %s, named exactly, as wordlist words', name => {
+    expect(containsSeedMaterial(report(name), english, closed)).toBe(false);
+    expect(redactMessage(report(name), english, closed)).toBe(report(name));
+    expect(redactText(report(name), english, closed)).toBe(report(name));
+    expect(containsSeedMaterialDeep({ exception: { values: [{ value: report(name) }] } }, english, closed)).toBe(false);
+  });
+
+  it('reads the name as words where no closed names are given', () => {
+    expect(containsSeedMaterial(report(NAME), english)).toBe(true);
+    expect(redactMessage(report(NAME), english)).toBeNull();
+  });
+
+  it.each([
+    ['after it', `${report(NAME)} ${PHRASE_12}`],
+    ['before it', `${PHRASE_12} ${report(NAME)}`],
+    ['around it', `${PHRASE_12.split(' ').slice(0, 6).join(' ')} ${NAME} ${PHRASE_12.split(' ').slice(6).join(' ')}`]
+  ])('still drops a twelve-word phrase %s', (_where, text) => {
+    expect(containsSeedMaterial(text, english, closed)).toBe(true);
+    expect(redactMessage(text, english, closed)).toBeNull();
+    expect(containsSeedMaterialDeep({ exception: { values: [{ value: text }] } }, english, closed)).toBe(true);
+  });
+
+  it.each([
+    ['inside a longer token', `X${NAME}`],
+    ['with a suffix', `${NAME}_V2`],
+    ['joined to a word', `${NAME}abandon`],
+    ['lower-cased', NAME.toLowerCase()],
+    ['as its prefix only', 'ERR_INPUT_NOTE_ASSET_INDEX']
+  ])('still counts the words of a closed name %s', (_how, token) => {
+    expect(containsSeedMaterial(report(token), english, closed)).toBe(true);
+    expect(redactMessage(report(token), english, closed)).toBeNull();
+  });
+});

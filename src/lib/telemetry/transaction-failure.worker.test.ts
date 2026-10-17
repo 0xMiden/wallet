@@ -4,7 +4,7 @@ import { signHotDigest } from 'lib/secure-hot-key';
 import { HotKey } from 'lib/secure-hot-key/hotKeyPlugin';
 import { isTelemetryEnabledAsync } from 'lib/settings/helpers';
 
-import { stopCrashReporting } from './crash';
+import { captureCrash, stopCrashReporting } from './crash';
 import { reportTransactionFailure } from './transaction-failure';
 
 jest.mock('lib/settings/helpers', () => ({ isTelemetryEnabledAsync: jest.fn() }));
@@ -206,4 +206,41 @@ it('drops an envelope waiting on transport consent when its client is stopped', 
   reportTransactionFailure({ type: 'send', stage: 'submitting' });
   await settle();
   expect(captured).toHaveLength(1);
+});
+
+// BREAD-WALLET-T: published names the recovery-phrase guard read as four wordlist words in a row, which blanked the
+// whole report.
+it.each([
+  ['ERR_NETWORK_ACCOUNT_FEE_ASSET_NOT_NATIVE', '10934363112317927'],
+  ['ERR_ACCOUNT_UPGRADE_CODE_ALREADY_SET', '11920212034299147371'],
+  ['ERR_NEW_MAX_SUPPLY_BELOW_TOKEN_SUPPLY', '12945332764232818723'],
+  ['ERR_LINK_MAP_ENTRY_PTR_IS_OUTSIDE_VALID_MEMORY_REGION', '13712374589788902863'],
+  ['ERR_TX_COMPUTE_FEE_EXCLUDE_NOTE_INDEX_OUT_OF_BOUNDS', '16522169966048288548'],
+  ['ERR_AUTH_TX_FEE_COLLECTOR_NOTE_MUST_CARRY_ONE_ASSET', '3967837829084778662'],
+  ['ERR_TX_COMPUTE_FEE_EXCLUDE_NOTE_INDEX_NOT_U32', '4717112193625091296'],
+  ['ERR_INPUT_NOTE_ASSET_INDEX_OUT_OF_BOUNDS', '941128193447999117']
+])('sends a report naming %s intact', async (name, code) => {
+  reportTransactionFailure({
+    type: 'execute',
+    stage: 'creating-proposal',
+    error: new Error(`failed to execute transaction: assertion failed with error code: ${code}`)
+  });
+  await settle();
+  expect(captured).toHaveLength(1);
+  expect(captured[0]).toContain(`; point pipeline; ${name}. authentication preparation`);
+  expect(captured[0]).not.toContain('[redacted]');
+  expect(captured[0]).not.toContain(code);
+});
+
+it('sends none of a recovery phrase a report carries beside a closed name', async () => {
+  const phrase = 'avoid leave side crush call gasp confirm deal student link chunk interest';
+  const name = 'ERR_INPUT_NOTE_ASSET_INDEX_OUT_OF_BOUNDS';
+  captureCrash(new Error(`point pipeline; ${name}. ${phrase}`), 'manual', {
+    initializeIfNeeded: true,
+    closedNames: new Set([name])
+  });
+  await settle();
+  const wire = captured.join('\n');
+  for (const word of ['avoid leave side', 'crush', 'gasp', 'student', 'interest']) expect(wire).not.toContain(word);
+  expect(wire).not.toContain(name);
 });
