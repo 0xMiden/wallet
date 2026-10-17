@@ -7,6 +7,7 @@ import {
   EXPLORE_SECTION_KINDS,
   localizedText,
   parseExploreConfig,
+  parseStoredExploreConfig,
   RESERVED_SECTION_IDS
 } from './schema';
 
@@ -17,7 +18,7 @@ const item = (fields: Record<string, unknown> = {}) => ({
   name: { en: 'Faucet' },
   tagline: { en: 'Get testnet tokens' },
   url: 'https://faucet.testnet.miden.io/',
-  category: 'tools',
+  category: 'finance',
   icon: 'icons/faucet.png',
   brandColor: '#778C72',
   isExchange: false,
@@ -52,7 +53,7 @@ it('parses a document, resolving each icon against its base and keeping each url
         name: { en: 'Faucet' },
         tagline: { en: 'Get testnet tokens' },
         url: 'https://faucet.testnet.miden.io/',
-        category: 'tools',
+        category: 'finance',
         icon: `${BASE}/icons/faucet.png`,
         brandColor: '#778C72',
         isExchange: false
@@ -176,7 +177,7 @@ it('keeps an icon and a brand color optional, and a url with a query and fragmen
     name: { en: 'Faucet' },
     tagline: { en: 'Get testnet tokens' },
     url,
-    category: 'tools',
+    category: 'finance',
     isExchange: false
   });
 });
@@ -222,7 +223,26 @@ it('gives a text locale to every locale the wallet ships', () => {
 });
 
 it('knows the categories the chips draw and the two document layouts', () => {
-  expect(EXPLORE_CATEGORIES).toEqual(['tools', 'defi', 'games', 'nft', 'learn']);
+  expect(EXPLORE_CATEGORIES).toEqual(['finance', 'arcade', 'others']);
   expect(EXPLORE_SECTION_KINDS).toEqual(['featured', 'list']);
   expect(RESERVED_SECTION_IDS).toEqual(['recents', 'search-results']);
+});
+
+it('upgrades old categories only when reading a persisted body, without mutating it', () => {
+  const legacy = doc({
+    items: ['tools', 'defi', 'games', 'nft', 'learn'].map(category => item({ id: category, category })),
+    sections: []
+  });
+  const before = JSON.stringify(legacy);
+  expect(parseStoredExploreConfig(legacy, 'testnet', { baseUrl: BASE })?.items.map(value => value.category)).toEqual([
+    'finance',
+    'finance',
+    'arcade',
+    'others',
+    'others'
+  ]);
+  expect(parse(legacy)?.items).toEqual([]);
+  expect(JSON.stringify(legacy)).toBe(before);
+  expect(parseStoredExploreConfig(null, 'testnet', { baseUrl: BASE })).toBeNull();
+  expect(parseStoredExploreConfig(doc({ items: [null] }), 'testnet', { baseUrl: BASE })).toBeNull();
 });

@@ -23,7 +23,7 @@ import {
 import { isSwapEnabled } from 'lib/feature-flags';
 
 /** The wallet's visible groups; published catalog categories remain unchanged. */
-export type ExploreCategoryGroup = 'finance' | 'arcade' | 'others';
+export type ExploreCategoryGroup = ExploreCategory;
 
 /** All aggregates the three visible groups. */
 export type ExploreFilter = 'all' | ExploreCategoryGroup;
@@ -63,18 +63,9 @@ export interface ExploreFilterDescriptor {
   icon: IconName;
 }
 
-// Keep the published schema compatible with existing wallets and per-network catalogs.
-// Every serialized category has one visible group, shared by filtering and featured-card labels.
-const CATEGORY_GROUPS: Record<ExploreCategory, ExploreCategoryGroup> = {
-  tools: 'finance',
-  defi: 'finance',
-  games: 'arcade',
-  nft: 'others',
-  learn: 'others'
-};
-
+// Config categories are the native tabs directly. Legacy-cache upgrading belongs to the storage parser.
 export function getExploreCategoryGroup(category: ExploreCategory): ExploreCategoryGroup {
-  return CATEGORY_GROUPS[category];
+  return category;
 }
 
 /** The chips, in order. */

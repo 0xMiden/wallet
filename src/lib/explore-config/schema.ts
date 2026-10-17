@@ -1,7 +1,7 @@
 import { isRecord } from 'lib/update/guards';
 
-/** The categories a document item may name, one per category chip; an item in any other is left out. */
-export const EXPLORE_CATEGORIES = ['tools', 'defi', 'games', 'nft', 'learn'] as const;
+/** Published categories match the three Explore tabs; All is an aggregate, never an item category. */
+export const EXPLORE_CATEGORIES = ['finance', 'arcade', 'others'] as const;
 export type ExploreCategory = (typeof EXPLORE_CATEGORIES)[number];
 
 /** The layouts a document section may name; a section of any other kind is left out. */
@@ -244,6 +244,37 @@ export function parseExploreConfig(
   } catch {
     return null;
   }
+}
+
+/** Upgrade only persisted pre-migration bodies. Newly fetched documents use the strict current parser above. */
+export function parseStoredExploreConfig(
+  body: unknown,
+  network: string,
+  options: ExploreParseOptions
+): ExploreCatalog | null {
+  if (!isRecord(body) || !Array.isArray(body.items)) return null;
+  return parseExploreConfig(
+    {
+      ...body,
+      items: body.items.map(item => {
+        if (!isRecord(item)) return item;
+        switch (item.category) {
+          case 'tools':
+          case 'defi':
+            return { ...item, category: 'finance' };
+          case 'games':
+            return { ...item, category: 'arcade' };
+          case 'nft':
+          case 'learn':
+            return { ...item, category: 'others' };
+          default:
+            return item;
+        }
+      })
+    },
+    network,
+    options
+  );
 }
 
 function inLocale(text: LocalizedText, code: string): string | undefined {

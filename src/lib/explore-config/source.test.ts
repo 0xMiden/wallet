@@ -23,7 +23,7 @@ const faucet = (url = 'https://faucet.example/') => ({
   name: { en: 'Faucet' },
   tagline: { en: 'Get testnet tokens' },
   url,
-  category: 'tools',
+  category: 'finance',
   icon: 'icons/faucet.png',
   isExchange: false
 });
@@ -195,16 +195,16 @@ describe('readExploreConfigFloor', () => {
 
 describe('readStoredExploreConfig', () => {
   it('migrates a legacy raw cache without resetting its floor or changing same-version identity', async () => {
-    const legacyBody = doc(3);
+    const legacyBody = doc(3, [{ ...faucet(), category: 'tools' }]);
     setup({ [KEY]: { fetchedAt: NOW - 1, body: legacyBody }, [FLOOR]: { testnet: 3 } });
     // Only raw document data is stored: icons now resolve on wallet-config, not the old repository.
     await expect(readStoredExploreConfig('testnet')).resolves.toEqual({ catalog: parsed(3), fetchedAt: NOW - 1 });
-    fetchMock.mockResolvedValueOnce(response(legacyBody));
-    await expect(fetchAndStoreExploreConfig('testnet')).resolves.toEqual({ catalog: parsed(3), fetchedAt: NOW });
-    fetchMock.mockResolvedValueOnce(response(doc(3, [faucet('https://changed.example/')])));
+    fetchMock.mockResolvedValueOnce(response(doc(3)));
     await expect(fetchAndStoreExploreConfig('testnet')).rejects.toThrow('differs from the accepted document');
     await expect(readExploreConfigFloor('testnet')).resolves.toBe(3);
-    expect(storage.data[KEY]).toEqual({ fetchedAt: NOW, body: legacyBody });
+    expect(storage.data[KEY]).toEqual({ fetchedAt: NOW - 1, body: legacyBody });
+    fetchMock.mockResolvedValueOnce(response(doc(4)));
+    await expect(fetchAndStoreExploreConfig('testnet')).resolves.toEqual({ catalog: parsed(4), fetchedAt: NOW });
   });
 
   it('retains the accepted catalog when the new endpoint is unavailable, then accepts a higher-version URL', async () => {

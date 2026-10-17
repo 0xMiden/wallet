@@ -43,7 +43,7 @@ it('waits for the current catalog and narrows the existing feed without falling 
         name: { en: 'Game' },
         tagline: { en: 'Play' },
         url: 'https://game.example/',
-        category: 'games',
+        category: 'arcade',
         isExchange: false
       }
     ],
