@@ -54,9 +54,11 @@ export function createBadgeIssuer(source: BadgeIssuanceSource) {
   const backoff = new Map<string, { failures: number; until: number }>();
   const isCurrent = (fingerprint: string) =>
     !stopped && source.isMainnet() && JSON.stringify([...source.accounts()].sort()) === fingerprint;
+  // Monotonic, so a wall-clock change neither stalls nor shortens a backoff.
   const backOff = (key: string) => {
     const failures = (backoff.get(key)?.failures ?? 0) + 1;
-    backoff.set(key, { failures, until: Date.now() + Math.min(RETRY_BASE_MS * 2 ** (failures - 1), RETRY_MAX_MS) });
+    const interval = Math.min(RETRY_BASE_MS * 2 ** (failures - 1), RETRY_MAX_MS);
+    backoff.set(key, { failures, until: performance.now() + interval });
   };
 
   async function refresh(): Promise<void> {
@@ -118,7 +120,7 @@ export function createBadgeIssuer(source: BadgeIssuanceSource) {
         for (const candidate of candidates) {
           if (!current()) break;
           const key = candidateKey(candidate);
-          if (additions.includes(candidate.badge) || (backoff.get(key)?.until ?? 0) > Date.now()) continue;
+          if (additions.includes(candidate.badge) || (backoff.get(key)?.until ?? 0) > performance.now()) continue;
           if (!reflected(candidate)) {
             awaitingBalance = true;
             continue;
