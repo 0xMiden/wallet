@@ -11,6 +11,7 @@ import { reportTransactionFailure, type TransactionFailureReason } from 'lib/tel
 import { elapsedMsSince, operationOfType, stepOfStage } from 'lib/telemetry/transaction-operation';
 
 import {
+  CLAIM_VAULT_SHORTFALL_ERROR,
   formatRawTransactionError,
   INVALID_NOTE_ERROR,
   isUnconfirmedFailure,
@@ -26,6 +27,7 @@ import {
   TRANSACTION_INTERRUPTED_ERROR,
   TRANSACTION_INTERRUPTED_ON_STARTUP,
   TRANSACTION_STUCK_ERROR,
+  TRANSACTION_VAULT_SHORTFALL_ERROR,
   USER_CANCELLED_TRANSACTION_REASON
 } from './constants';
 import { getTransactionsInProgress } from './get';
@@ -87,7 +89,7 @@ const reportedWalletReason = (error: unknown): TransactionFailureReason | undefi
  * two ways (#1081).
  */
 const describeFailure = (
-  transaction: Pick<ITransaction, 'delegateTransaction'>,
+  transaction: Pick<ITransaction, 'type' | 'delegateTransaction'>,
   error: unknown,
   existing: ITransaction | undefined
 ): { displayError: string; rawError: string } => {
@@ -110,6 +112,10 @@ const describeFailure = (
     typeof error === 'string' && (isWalletFailureReason(error) || isUnconfirmedFailureReason(error))
       ? error
       : resolveTransactionErrorMessage(error, failedStage, transaction.delegateTransaction, abandonedPreWrite);
+  // A claim has no amount sent for the shortfall copy to name.
+  if (displayError === TRANSACTION_VAULT_SHORTFALL_ERROR && (existing ?? transaction).type === 'consume') {
+    return { displayError: CLAIM_VAULT_SHORTFALL_ERROR, rawError };
+  }
   return { displayError, rawError };
 };
 
