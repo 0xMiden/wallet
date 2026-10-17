@@ -312,6 +312,61 @@ describe('a send landed from its submit evidence owes the sweep its note (#1473)
     });
   });
 
+  // A cancelled pipeline runs on and relays (#1233): on an empty root what it recorded is the relay's own.
+  it('a landing that records its note on an empty root keeps the recorded outcome, label and acknowledgements', async () => {
+    await Repo.transactions.put(
+      keptSend({
+        noteDelivery: 'relayed',
+        displayMessage: 'Sent',
+        relayAckedNoteIds: [NOTE],
+        relayVerifyPushes: 1,
+        relayOutageDeferred: true,
+        relayAttempts: MAX_RELAY_ATTEMPTS,
+        nextRelayAt: NOW + 30 * 60,
+        relayRetriesStopped: true
+      })
+    );
+
+    expect((await land(noteOnChain)).kind).toBe('landed');
+    const row = await read();
+    expect(row).toMatchObject({
+      status: ITransactionStatus.Completed,
+      outputNoteIds: [NOTE],
+      noteDelivery: 'relayed',
+      displayMessage: 'Sent',
+      relayAckedNoteIds: [NOTE],
+      relayVerifyPushes: 1,
+      relayOutageDeferred: true
+    });
+    expect(row?.relayAttempts).toBeUndefined();
+    expect(row?.nextRelayAt).toBeUndefined();
+    expect(row?.relayRetriesStopped).toBeUndefined();
+  });
+
+  // A custom transaction read as a send keeps its relay's own target in relayNoteIds, which the sweep reads first.
+  it('a row whose relay recorded the notes it owes keeps them, and its delivery state, when another note lands', async () => {
+    await Repo.transactions.put(
+      keptSend({
+        noteDelivery: 'relayed',
+        displayMessage: 'Sent',
+        outputNoteIds: [OTHER_NOTE],
+        relayNoteIds: [OTHER_NOTE],
+        relayRecipientId: RECIPIENT,
+        relayAckedNoteIds: [OTHER_NOTE]
+      })
+    );
+
+    expect((await land(noteOnChain)).kind).toBe('landed');
+    expect(await read()).toMatchObject({
+      status: ITransactionStatus.Completed,
+      outputNoteIds: [OTHER_NOTE],
+      noteDelivery: 'relayed',
+      displayMessage: 'Sent',
+      relayAckedNoteIds: [OTHER_NOTE]
+    });
+    expect(await pushesAfterTheFirstWait()).toEqual([[OTHER_NOTE, RECIPIENT]]);
+  });
+
   // The sweep ages its 72 h retry window from completedAt, which the Unconfirmed write stamped.
   it('a send that lands three days after it left the queue gets its delivery window from the landing', async () => {
     const leftQueue = NOW - 73 * 60 * 60;
