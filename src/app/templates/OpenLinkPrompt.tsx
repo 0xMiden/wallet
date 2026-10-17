@@ -16,6 +16,7 @@ import {
 } from 'lib/dapp-browser/open-link';
 import type { ExploreCatalog } from 'lib/explore-config/schema';
 import { useExploreCatalog } from 'lib/explore-config/use-explore-catalog';
+import { OUTSIDE_WALLET_SHELL_ROUTES } from 'lib/extension/side-panel-handoff';
 import { useMidenContext } from 'lib/miden/front';
 import { useWalletStore } from 'lib/store';
 import { navigate, useLocation } from 'lib/woozie';
@@ -27,9 +28,9 @@ function isListed(catalog: ExploreCatalog | null, page: string): boolean {
 
 /**
  * Opens the page an open link (`https://bread.miden.xyz/open?url=…`) names in the dApp browser. It
- * waits for the wallet to be open, so a link that arrives on the lock screen, during onboarding or
- * behind the hot-key rotation gate opens after it. A page on the origin of an app Explore lists opens
- * straight away; any other page asks first, because anyone can publish a link.
+ * waits for the wallet to be open, so a link that arrives on the lock screen, during onboarding, behind
+ * the hot-key rotation gate or on a recovery screen opens after it. A page on the origin of an app
+ * Explore lists opens straight away; any other page asks first, because anyone can publish a link.
  */
 export const OpenLinkPrompt: FC = () => {
   const { t } = useTranslation();
@@ -42,7 +43,10 @@ export const OpenLinkPrompt: FC = () => {
 
   useEffect(() => startOpenLinkCapture(), []);
 
-  const walletOpen = resolveRootView({ locked, ready, hydrated, finishingOnboarding }) === 'app' && !rotationGated;
+  const walletOpen =
+    resolveRootView({ locked, ready, hydrated, finishingOnboarding }) === 'app' &&
+    !rotationGated &&
+    !OUTSIDE_WALLET_SHELL_ROUTES.has(pathname);
   // Loaded only for a link: Explore's refresh otherwise starts with the Browser tab. Undefined until the network's
   // floor is read, and a listed page cannot be told apart before then.
   const catalog = useExploreCatalog(page !== null && walletOpen);
