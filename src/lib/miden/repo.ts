@@ -567,13 +567,20 @@ export async function exportDb(): Promise<string> {
  * A dump's swap Cancel stamp (`expiryTriggeredAt`) is dropped. On a Guardian-recovered order it is the permission
  * settlement acts on to return the order, which only this wallet's own Cancel may give (#1487); on any other restored
  * row nothing reads it. A recovered order also drops what else this wallet's own tracking and Cancel wrote on it (the
- * expiry, which recovery never writes, the remainder the tracking found, and `lineageClosedAt`, the record that its
- * lineage closed it): with only the stamp gone, the lapsed expiry left the order showing its return as pending with no
- * Cancel, and nothing would ever act on it, and a kept record closed the order with no read of the node. It imports
- * open, a settledAt or reclaimedAt on it provisional until its next lineage read, and its Cancel is offered again.
+ * expiry, which recovery never writes, the remainder the tracking found, and `lineageClosedAt` and `orderNoteSpentAt`,
+ * the records that its lineage closed it): with only the stamp gone, the lapsed expiry left the order showing its
+ * return as pending with no Cancel, and nothing would ever act on it, and a kept record closed the order with no read
+ * of the node. It imports open, a settledAt or reclaimedAt on it provisional until its next lineage read, and its
+ * Cancel is offered again.
  */
 const CANCEL_STAMP = new Set(['expiryTriggeredAt']);
-const RECOVERED_ORDER_LOCAL_STATE = new Set(['expiryTriggeredAt', 'expiresAt', 'recoveredTip', 'lineageClosedAt']);
+const RECOVERED_ORDER_LOCAL_STATE = new Set([
+  'expiryTriggeredAt',
+  'expiresAt',
+  'recoveredTip',
+  'lineageClosedAt',
+  'orderNoteSpentAt'
+]);
 
 const importedExtraInputs = (extraInputs: unknown, recovered: boolean): unknown => {
   if (typeof extraInputs !== 'object' || extraInputs === null || Array.isArray(extraInputs)) return extraInputs;
