@@ -52,6 +52,8 @@ export interface TextFieldProps extends SharedFieldAttrs {
   errorTestId?: string;
   /** 16px-radius auto-height box on `fill`, instead of the 52px pill. */
   multiline?: boolean;
+  /** Single-line only: `sm` is the compact 40px pill for a value that sits inside a detail row. */
+  size?: 'md' | 'sm';
   /** Pills (Paste, Scan, a unit, …) inside the field, on `page`. */
   trailing?: ReactNode;
   /** Single-line only: a short `muted` prefix inside the field before the text, such as a seed word's number. */
@@ -108,7 +110,12 @@ const fieldVariants = cva('relative flex w-full bg-fill text-ink transition-shad
   variants: {
     multiline: {
       true: 'flex-col items-stretch gap-2 rounded-lg-token px-4 py-3',
-      false: 'h-[52px] items-center rounded-full px-4'
+      false: 'items-center rounded-full'
+    },
+    // Single-line only: the 52px pill, or the compact 40px one a detail row's value slot can hold.
+    size: {
+      md: '',
+      sm: ''
     },
     invalid: {
       // The error ring always shows; the quiet ring only shows once the field has focus. Both are
@@ -118,7 +125,11 @@ const fieldVariants = cva('relative flex w-full bg-fill text-ink transition-shad
       false: 'focus-within:ring-2 focus-within:ring-inset focus-within:ring-accent-primary'
     }
   },
-  defaultVariants: { multiline: false, invalid: false }
+  compoundVariants: [
+    { multiline: false, size: 'md', class: 'h-[52px] px-4' },
+    { multiline: false, size: 'sm', class: 'h-10 px-3' }
+  ],
+  defaultVariants: { multiline: false, invalid: false, size: 'md' }
 });
 
 /**
@@ -139,6 +150,7 @@ export const TextField = forwardRef<TextFieldElement, TextFieldProps>(
       error,
       errorTestId,
       multiline,
+      size = 'md',
       trailing,
       leading,
       secret,
@@ -277,7 +289,7 @@ export const TextField = forwardRef<TextFieldElement, TextFieldProps>(
           </label>
         )}
 
-        <div className={fieldVariants({ multiline: Boolean(multiline), invalid })}>
+        <div className={fieldVariants({ multiline: Boolean(multiline), invalid, size })}>
           {multiline ? (
             <textarea
               ref={setRef}

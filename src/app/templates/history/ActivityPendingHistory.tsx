@@ -30,6 +30,7 @@ export const ActivityPendingHistory = ({ search, filter, programId, onInitialLoa
     listItems,
     renderPendingItem,
     acceptMany,
+    cannotPayFee,
     account,
     isLoadingNotes,
     hidden,
@@ -53,6 +54,8 @@ export const ActivityPendingHistory = ({ search, filter, programId, onInitialLoa
   // Every acceptable transfer is already in flight: the action stays, in its loading state, so it
   // does not vanish from under the tap that started it.
   const acceptingAll = claimingCount > 0 && claimableNotes.length === 0;
+  // Every transaction Accept All would queue is certain to fail on the fee; each card says why.
+  const acceptAllBlocked = claimableNotes.length > 0 && cannotPayFee(claimableNotes);
   const showAcceptAll = filter === 'pending' && (claimableNotes.length > 0 || acceptingAll);
   // Restore is offered only while a declined transfer could still be accepted.
   const showRestore = filter === 'pending' && hiddenCount > 0;
@@ -143,7 +146,7 @@ export const ActivityPendingHistory = ({ search, filter, programId, onInitialLoa
                 className="w-auto shrink-0"
                 data-testid="pending-row-accept-all"
                 title={acceptingAll ? t('claiming') : t('acceptAll')}
-                disabled={claimableNotes.length === 0 && !acceptingAll}
+                disabled={(claimableNotes.length === 0 && !acceptingAll) || acceptAllBlocked}
                 isLoading={acceptingAll}
                 onClick={() => acceptAll()}
               />

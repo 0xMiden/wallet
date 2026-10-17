@@ -1812,14 +1812,97 @@
     "message": "Tarifa",
     "englishSource": "Rate"
   },
-  "swapSolverFeeNote": {
-    "message": "El importe que recibirás ya incluye una comisión de $percent$ por la gestión de la liquidación.",
-    "englishSource": "Your receive amount already includes a $percent$ solver fee.",
+  "swapRateNote": {
+    "message": "La tasa es el máximo que el solucionador puede cubrir en este momento, con su comisión de $fee$ ya incluida. Tu importe recibido es esa tasa menos tu deslizamiento de $slippage$.",
+    "englishSource": "The rate is the most the solver fills at right now, with its $fee$ fee already in it. Your receive amount is that rate less your $slippage$ slippage.",
     "placeholders": {
-      "percent": {
+      "fee": {
         "content": "$1"
+      },
+      "slippage": {
+        "content": "$2"
       }
     }
+  },
+  "swapFillStatus": {
+    "message": "Cumplir",
+    "englishSource": "Fill"
+  },
+  "swapVerdictSettlementDelayed": {
+    "message": "La liquidación se ha retrasado. Tu orden quedará en espera.",
+    "englishSource": "Settlement delayed. Your order will wait."
+  },
+  "swapVerdictNoMarket": {
+    "message": "Este par no se negocia.",
+    "englishSource": "This pair isn't traded."
+  },
+  "swapVerdictNoPrice": {
+    "message": "Los precios no están disponibles en este momento. Inténtalo de nuevo dentro de un rato.",
+    "englishSource": "Prices are unavailable right now. Try again shortly."
+  },
+  "swapVerdictOffMarket": {
+    "message": "El precio ha variado. Actualiza la cotización.",
+    "englishSource": "The price moved. Refresh the quote."
+  },
+  "swapVerdictNoLiquidity": {
+    "message": "En este momento no hay suficientes órdenes al precio actual.",
+    "englishSource": "Not enough orders at the current price right now."
+  },
+  "swapVerdictTolerated": {
+    "message": "Puede tardar más: se ejecuta cuando el precio varía ligeramente.",
+    "englishSource": "May take longer: fills when the price moves slightly."
+  },
+  "swapVerdictPartial": {
+    "message": "Ahora solo se ejecuta una parte de esta orden; el resto queda en espera.",
+    "englishSource": "Only part of this order fills now; the rest waits."
+  },
+  "swapVerdictFull": {
+    "message": "Se ejecuta al precio actual.",
+    "englishSource": "Fills at the current price."
+  },
+  "swapVerdictExpected": {
+    "message": "Recibes aproximadamente $amount$ en $symbol$.",
+    "englishSource": "You receive about $amount$ $symbol$.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "swapSlippage": {
+    "message": "Deslizamiento",
+    "englishSource": "Slippage"
+  },
+  "percentSign": {
+    "message": "%",
+    "englishSource": "%"
+  },
+  "swapSlippageNote": {
+    "message": "Hasta qué punto por debajo del precio actual puede ejecutarse tu orden. En la red de pruebas, una orden por encima de aproximadamente el 0,25 % no se ejecuta.",
+    "englishSource": "How far below the current rate your order may fill. On testnet an order above about 0.25% does not fill."
+  },
+  "swapSlippageEditedNote": {
+    "message": "Tú mismo fijas el importe de recepción, por lo que el deslizamiento no se aplica a esta orden.",
+    "englishSource": "You set the receive amount yourself, so slippage does not apply to this order."
+  },
+  "swapSlippageRange": {
+    "message": "Introduce un porcentaje comprendido entre $min$ y $max$ con un máximo de dos decimales.",
+    "englishSource": "Enter a percent from $min$ to $max$ with up to two decimals.",
+    "placeholders": {
+      "min": {
+        "content": "$1"
+      },
+      "max": {
+        "content": "$2"
+      }
+    }
+  },
+  "swapPriceMoved": {
+    "message": "El precio ha variado. Comprueba el nuevo importe e inténtalo de nuevo.",
+    "englishSource": "The price moved. Check the new amount and try again."
   },
   "usuallyFillsIn": {
     "message": "Normalmente se rellena",

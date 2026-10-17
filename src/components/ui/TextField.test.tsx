@@ -73,6 +73,14 @@ describe('TextField — sizes and anatomy', () => {
     expect(box.className).toContain('bg-fill');
   });
 
+  it('draws the compact 40px pill for a single-line field sized sm', () => {
+    render(<TextField size="sm" value="" onChange={jest.fn()} />);
+    const box = screen.getByRole('textbox').parentElement as HTMLElement;
+    expect(box.className).toContain('h-10');
+    expect(box.className).not.toContain('h-[52px]');
+    expect(box.className).toContain('rounded-full');
+  });
+
   it('draws a 16px-radius auto-height box for a multiline field', () => {
     render(<TextField multiline value="" onChange={jest.fn()} />);
     const box = screen.getByRole('textbox').parentElement as HTMLElement;

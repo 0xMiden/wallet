@@ -204,6 +204,55 @@ describe('swap order note settlement', () => {
     expect(result.has('absent')).toBe(false);
   });
 
+  // The fill target labels the receipt only; reclaim follows the lineage, or a solver that fills an
+  // order exactly to its target strands the remainder on a publicly fillable note.
+  it.each([
+    // 50 requested at 5 bps: the target is ceil(50 × 0.9995) = 50.
+    ['at its fill target', { slippageBps: 5 }, '0'],
+    // 5000 requested at 100 bps: the target is 4950.
+    ['inside the slippage of a larger order', { requestedAmount: 5000n, slippageBps: 100 }, '50']
+  ])('reads an open lineage %s as active', async (_case, extra, remainingRequested) => {
+    toArray.mockResolvedValue([tx({ extraInputs: { ...tx().extraInputs, ...extra } })]);
+    jest
+      .mocked(midenClientProxy.getPswapLineages)
+      .mockResolvedValue([
+        { orderId: '77', currentTipNoteId: 'tip', currentDepth: 1, state: 0, remainingOffered: '1', remainingRequested }
+      ]);
+    const result = await withWasmClientLock(hold =>
+      classifySwapOrderNotes([note('tip')], 'account-1', undefined, hold)
+    );
+    expect(result.get('tip')).toEqual(expect.objectContaining({ lineageState: 'active' }));
+  });
+
+  it('claims the payback of an expired order that reached its fill target, then reclaims its tip', async () => {
+    // 5000 requested at 100 bps: 4950 arrived, which is the target, and 50 is still on the tip.
+    toArray.mockResolvedValue([tx({ extraInputs: { ...tx().extraInputs, requestedAmount: 5000n, slippageBps: 100 } })]);
+    const lineage = { orderId: '77', currentTipNoteId: 'tip', currentDepth: 2, state: 0 };
+    jest
+      .mocked(midenClientProxy.getPswapLineages)
+      .mockResolvedValue([{ ...lineage, remainingOffered: '1', remainingRequested: '50' }]);
+    const classified = await withWasmClientLock(hold =>
+      classifySwapOrderNotes([note('tip'), note('payback', [0n, 77n, 1n, 0n])], 'account-1', undefined, hold)
+    );
+    const tip = { ...consumable('tip', 'tip'), swapOrder: classified.get('tip')! };
+    const payback = { ...consumable('payback', 'payback'), swapOrder: classified.get('payback')! };
+    (initiateConsumeNotesTransaction as jest.Mock)
+      .mockResolvedValueOnce('consume-payback')
+      .mockResolvedValueOnce('consume-tip');
+
+    await reconcileSwapOrderNotes('account-1', [tip, payback], false, 300);
+
+    expect((initiateConsumeNotesTransaction as jest.Mock).mock.calls).toEqual([
+      ['account-1', [payback], false],
+      ['account-1', [tip], false]
+    ]);
+    expect(Repo.transactions.where).toHaveBeenNthCalledWith(1, { id: 'swap-1' });
+    const expiryWriter = modify.mock.calls[0]![0] as unknown as (tx: Record<string, unknown>) => void;
+    const swapRow: Record<string, unknown> = tx();
+    expiryWriter(swapRow);
+    expect(swapRow.extraInputs).toEqual(expect.objectContaining({ expiryTriggeredAt: 300 }));
+  });
+
   it('leaves partial-fill paybacks untouched while active and unexpired', async () => {
     await reconcileSwapOrderNotes(
       'account-1',

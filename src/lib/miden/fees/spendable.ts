@@ -39,15 +39,25 @@ export function hasNoFeeAsset(
   if (verificationBaseFee === null || verificationBaseFee <= 0) {
     return false;
   }
+  const held = feeAssetHeld(balances, nativeAssetId);
+  return held !== null && held < verificationBaseFee;
+}
+
+/**
+ * The fee asset the vault holds, in the asset's smallest unit, or `null` when that cannot be
+ * stated: an unknown native asset, a native row that has not arrived, or an unknown scale. A row at
+ * or below zero is 0 whatever its scale.
+ */
+function feeAssetHeld(balances: readonly TokenBalanceData[], nativeAssetId: string | undefined | null): number | null {
   if (!nativeAssetId) {
-    return false;
+    return null;
   }
   const native = balances.find(balance => balance.tokenId === nativeAssetId);
   if (native === undefined) {
-    return false;
+    return null;
   }
   if (native.balance <= 0) {
-    return true;
+    return 0;
   }
   // `balance` is decimal-scaled for display, `verificationBaseFee` is in the
   // asset's smallest unit -- the same mismatch `maxSendableNative` converts for.
@@ -57,14 +67,79 @@ export function hasNoFeeAsset(
   // `hasKnownScale` is the load-bearing half of that test, not a duplicate of it:
   // `DEFAULT_TOKEN_METADATA` carries `decimals: 6` with `scaleIsUnknown: true`,
   // so a placeholder record passes the `typeof` test with an INVENTED scale and
-  // would block the form on arithmetic nobody stated. Both balance builders
+  // would block on arithmetic nobody stated. Both balance builders
   // hard-wire `MIDEN_METADATA` for the native row today, so this is a latent
   // shape rather than a live one -- which is exactly when it is cheap to close.
   const decimals = native.metadata?.decimals;
   if (typeof decimals !== 'number' || !Number.isFinite(decimals) || !hasKnownScale(native.metadata)) {
-    return false;
+    return null;
   }
-  return native.balance * 10 ** decimals < verificationBaseFee;
+  return native.balance * 10 ** decimals;
+}
+
+/** What the claim fee check reads from a note. */
+export interface ClaimFeeNote {
+  faucetId: string;
+  /** The listed asset's amount, in its smallest unit. */
+  amount: string;
+  /** The note holds fungible assets beyond the listed one. */
+  carriesMoreAssets?: boolean;
+}
+
+/**
+ * For each consume transaction of a claim, whether it is certain to fail because the account cannot pay its network
+ * fee. `ahead` holds every note that may be consumed before these transactions, in any order: the claims already
+ * queued, and in Accept All the groups it queued before.
+ *
+ * Unlike a send, a claim can pay for itself. The kernel runs every input note's script before the epilogue's auth
+ * procedure withdraws the fee from the vault, so the fee asset a consumed note carries is already there to pay it: a
+ * new wallet pays for claiming its first USDCX out of that very note. So a transaction is refused only when the
+ * vault's fee asset plus what its own notes carry is below one base fee, `hasNoFeeAsset`'s LOWER bound, because this
+ * asks the same question, whether failure is certain, and no note ahead carries the fee asset.
+ *
+ * Nothing ahead is simulated. Which row the queue runs first turns on state the list cannot see (cooldowns, recovery
+ * holds, deduplication), so any fee asset ahead may land first and admits every transaction, and the fees paid ahead
+ * are not charged: a claim they leave unable to pay fails at signing, as it would without this check. Each transaction
+ * is judged alone, so none of them funds another; a caller queueing them one by one adds each queued one to `ahead`.
+ *
+ * Fails OPEN, refusing nothing, wherever `hasNoFeeAsset` does or a note ahead holds assets the list does not show (any
+ * of them may be the fee asset), and admits a transaction whose own notes hold such assets or whose fee-asset amount
+ * does not parse.
+ */
+export function claimFeeShortfalls(
+  transactions: ReadonlyArray<readonly ClaimFeeNote[]>,
+  ahead: readonly ClaimFeeNote[],
+  balances: readonly TokenBalanceData[],
+  nativeAssetId: string | undefined | null,
+  verificationBaseFee: number | null
+): boolean[] {
+  const refuseNone = transactions.map(() => false);
+  if (verificationBaseFee === null || !Number.isFinite(verificationBaseFee) || verificationBaseFee <= 0) {
+    return refuseNone;
+  }
+  const held = feeAssetHeld(balances, nativeAssetId);
+  if (held === null || !Number.isFinite(held)) {
+    return refuseNone;
+  }
+  if (ahead.some(note => note.carriesMoreAssets || note.faucetId === nativeAssetId)) {
+    return refuseNone;
+  }
+  // A whole-unit budget is below a fractional fee exactly when it is below its ceiling.
+  const fee = BigInt(Math.ceil(verificationBaseFee));
+  const vault = BigInt(Math.round(held));
+  return transactions.map(notes => {
+    let available = vault;
+    for (const note of notes) {
+      if (note.carriesMoreAssets) return false;
+      if (note.faucetId !== nativeAssetId) continue;
+      try {
+        available += BigInt(note.amount);
+      } catch {
+        return false;
+      }
+    }
+    return available < fee;
+  });
 }
 
 /**

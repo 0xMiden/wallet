@@ -513,6 +513,7 @@ async function runSync(force: boolean): Promise<void> {
                 noteType: note.noteType !== undefined ? toNoteTypeString(note.noteType) : 'unknown',
                 recallableAtMs: note.recallableAtMs,
                 standardPayment: note.standardPayment,
+                carriesMoreAssets: note.assets.length > 1 || undefined,
                 swapOrder: swapOrders.get(noteId)
               };
             })
