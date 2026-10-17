@@ -1,25 +1,16 @@
-import { assertWalletRunsOnStoredOverride, sdkStoreName, type StoredOverrideProbe } from './extension-network';
+import { assertWalletRunsOnStoredOverride, LOCALNET_SDK_STORES, type StoredOverrideProbe } from './extension-network';
 
 const LOCALNET_HARNESS = { name: 'localhost', rpcUrl: 'http://localhost:57291' };
 const OVERRIDE_RPC_URL = 'http://127.0.0.1:57291';
 
-describe('sdkStoreName', () => {
-  // The cases miden-client's own `Endpoint::to_network_id` tests pin, plus the two URLs of the localnet node.
-  it.each([
-    ['https://rpc.mainnet.miden.io', 'MidenClientDB_mm'],
-    ['https://rpc.testnet.miden.io', 'MidenClientDB_mtst'],
-    ['https://rpc.devnet.miden.io', 'MidenClientDB_mdev'],
-    ['http://localhost:57291', 'MidenClientDB_mlcl'],
-    ['http://localhost:57291/', 'MidenClientDB_mlcl'],
-    ['http://127.0.0.1:57291', 'MidenClientDB_mcst'],
-    ['https://rpc.mainnet.miden.io:8080', 'MidenClientDB_mcst'],
-    ['https://rpc.cedar.miden.io', 'MidenClientDB_mcst']
-  ])('%s opens %s', (rpcUrl, store) => {
-    expect(sdkStoreName(rpcUrl)).toBe(store);
-  });
-
-  it('refuses a URL without a protocol rather than guess the store', () => {
-    expect(() => sdkStoreName('localhost')).toThrow('"localhost" is not a protocol://host[:port] URL');
+describe('LOCALNET_SDK_STORES', () => {
+  it("names the store the SDK opens for each of the localnet node's two URLs, and no other URL", () => {
+    expect(LOCALNET_SDK_STORES).toEqual(
+      new Map([
+        ['http://localhost:57291', 'MidenClientDB_mlcl'],
+        ['http://127.0.0.1:57291', 'MidenClientDB_mcst']
+      ])
+    );
   });
 });
 
@@ -48,33 +39,56 @@ const override = (rpcUrl: string, networkName = 'localnet') => ({ rpcUrl, networ
 describe('assertWalletRunsOnStoredOverride', () => {
   it('passes when the service worker created the account in the override store', async () => {
     const probe = wallet(override(OVERRIDE_RPC_URL), { MidenClientDB_mlcl: 0, MidenClientDB_mcst: 1 });
-    await expect(assertWalletRunsOnStoredOverride(probe, LOCALNET_HARNESS)).resolves.toBeUndefined();
+    await expect(assertWalletRunsOnStoredOverride(probe, LOCALNET_HARNESS, OVERRIDE_RPC_URL)).resolves.toBeUndefined();
   });
 
   it('fails a build that ignored the override and created the account in the build default store', async () => {
     const probe = wallet(override(OVERRIDE_RPC_URL), { MidenClientDB_mlcl: 1 });
-    await expect(assertWalletRunsOnStoredOverride(probe, LOCALNET_HARNESS)).rejects.toThrow(
-      /no account in MidenClientDB_mcst.*1 in MidenClientDB_mlcl.*MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES=true/
+    await expect(assertWalletRunsOnStoredOverride(probe, LOCALNET_HARNESS, OVERRIDE_RPC_URL)).rejects.toThrow(
+      /no account in MidenClientDB_mcst.*1 in MidenClientDB_mlcl.*"yarn test:e2e:stored-override:build"/
+    );
+  });
+
+  it('fails a stored override that is not the one the spec stored', async () => {
+    // Every URL miden-client does not name opens MidenClientDB_mcst, so the account's store cannot tell them apart.
+    const probe = wallet(override('http://127.0.0.1:57292'), { MidenClientDB_mcst: 1 });
+    await expect(assertWalletRunsOnStoredOverride(probe, LOCALNET_HARNESS, OVERRIDE_RPC_URL)).rejects.toThrow(
+      "The stored endpoint override's RPC URL is http://127.0.0.1:57292, but this spec stored http://127.0.0.1:57291"
+    );
+  });
+
+  it('fails an override URL the store map does not name, rather than guess its store', async () => {
+    const probe = wallet(override('http://localhost:57292'), { MidenClientDB_mcst: 1 });
+    await expect(assertWalletRunsOnStoredOverride(probe, LOCALNET_HARNESS, 'http://localhost:57292')).rejects.toThrow(
+      'No SDK store is known for http://localhost:57292'
+    );
+  });
+
+  it('fails a harness URL the store map does not name, rather than guess its store', async () => {
+    const harness = { name: 'testnet', rpcUrl: 'https://rpc.testnet.miden.io' };
+    const probe = wallet(override(OVERRIDE_RPC_URL, 'testnet'), { MidenClientDB_mcst: 1 });
+    await expect(assertWalletRunsOnStoredOverride(probe, harness, OVERRIDE_RPC_URL)).rejects.toThrow(
+      'No SDK store is known for https://rpc.testnet.miden.io'
     );
   });
 
   it('fails an override that opens the build default store, where no realm could be told apart', async () => {
     const probe = wallet(override('http://localhost:57291'), { MidenClientDB_mlcl: 1 });
-    await expect(assertWalletRunsOnStoredOverride(probe, LOCALNET_HARNESS)).rejects.toThrow(
+    await expect(assertWalletRunsOnStoredOverride(probe, LOCALNET_HARNESS, 'http://localhost:57291')).rejects.toThrow(
       /opens MidenClientDB_mlcl, the same store as the build default/
     );
   });
 
   it('fails an override that names another network than the harness drives', async () => {
     const probe = wallet(override(OVERRIDE_RPC_URL, 'testnet'), { MidenClientDB_mcst: 1 });
-    await expect(assertWalletRunsOnStoredOverride(probe, LOCALNET_HARNESS)).rejects.toThrow(
+    await expect(assertWalletRunsOnStoredOverride(probe, LOCALNET_HARNESS, OVERRIDE_RPC_URL)).rejects.toThrow(
       /names network "testnet".*"localhost" harness \(wallet network "localnet"\)/
     );
   });
 
   it('fails when no override is stored', async () => {
     const probe = wallet(undefined, { MidenClientDB_mcst: 1 });
-    await expect(assertWalletRunsOnStoredOverride(probe, LOCALNET_HARNESS)).rejects.toThrow(
+    await expect(assertWalletRunsOnStoredOverride(probe, LOCALNET_HARNESS, OVERRIDE_RPC_URL)).rejects.toThrow(
       'No endpoint override is stored'
     );
   });
