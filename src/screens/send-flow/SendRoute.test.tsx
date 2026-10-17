@@ -145,7 +145,7 @@ describe('SendRoute', () => {
   it('shows the route title and forwards the back action', () => {
     const props = renderRoute();
 
-    expect(screen.getByText('route')).toBeInTheDocument();
+    expect(screen.getByText('bridgeChooseRoute')).toBeInTheDocument();
     fireEvent.click(screen.getByTestId('send-route-back'));
     expect(props.onBack).toHaveBeenCalledTimes(1);
   });

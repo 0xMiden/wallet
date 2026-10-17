@@ -353,6 +353,16 @@ describe('Receive - Address', () => {
     expect(container.querySelector('[data-testid="receive-actions"]')!.nextElementSibling).toBe(warning);
   });
 
+  it('opens the bridge page directly when Cross-chain is tapped without an EVM connection', async () => {
+    const container = await renderReceive();
+    const { navigate } = jest.requireMock<typeof import('lib/woozie')>('lib/woozie');
+    jest.mocked(navigate).mockClear();
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[data-testid="receive-cross-chain"]')!.click();
+    });
+    expect(navigate).toHaveBeenCalledWith('/bridge/deposit');
+  });
+
   it('renders Share and Cross-chain as two outlined tiles side by side, with one haptic per tap', async () => {
     const container = await renderReceive();
 
@@ -570,11 +580,11 @@ describe('Receive - Address', () => {
       );
     });
 
-    it('names the network with the shared NetworkChip, in the same tint as send and contacts', async () => {
+    it('names the network with the shared NetworkChip, in the same neutral style as send and contacts', async () => {
       const container = await renderReceive();
 
       const chip = container.querySelector('[data-testid="receive-network"]')!;
-      expect(chip).toHaveClass('bg-network-miden-tint', 'text-network-miden-text');
+      expect(chip).toHaveClass('bg-fill', 'text-ink', 'rounded-xl');
       expect(chip.querySelector('[data-testid="miden-logo"]')).not.toBeNull();
     });
   });

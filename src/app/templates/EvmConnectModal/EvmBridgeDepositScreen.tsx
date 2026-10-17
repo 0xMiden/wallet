@@ -270,11 +270,12 @@ function outputSymbolFor(route: IBridgeProvider, sourceSymbol: string): string {
 
 /**
  * The route after a token change. Circle's USDC bridges only through xReserve, and no other token
- * can use that route; between ETH and the bridge's own USDC the chosen route stays.
+ * can use that route; a token leaving it goes to AggLayer, since only the retired Epoch USDC confirms
+ * on Fast. Between ETH and the bridge's own USDC the chosen route stays.
  */
 function routeAfterTokenChange(next: DepositToken, current: BridgeRoute): BridgeRoute {
   if (next === 'CIRCLE_USDC') return 'usdcx';
-  if (current === 'usdcx') return 'epoch';
+  if (current === 'usdcx') return 'agglayer';
   return current;
 }
 
@@ -362,11 +363,11 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     setSlowStatus('idle');
     setSlowError(null);
   }, [resetEpoch]);
-  const { token, selectToken } = useDepositToken(clearTokenState);
+  const { token, selectToken } = useDepositToken(clearTokenState, 'CIRCLE_USDC');
   const [tokenDrawerOpen, setTokenDrawerOpen] = useState(false);
   const [networkDrawerOpen, setNetworkDrawerOpen] = useState(false);
   const [switchDrawerOpen, setSwitchDrawerOpen] = useState(false);
-  const [route, setRoute] = useState<BridgeRoute>('epoch');
+  const [route, setRoute] = useState<BridgeRoute>(token === 'CIRCLE_USDC' ? 'usdcx' : 'epoch');
   // The one chain picked in the network drawer. Each route resolves its own chain from it: the picked chain when
   // that chain offers the route, else the first that does.
   const [pickedChainId, setPickedChainId] = useState<number>();
@@ -451,14 +452,27 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   // A token or chain not named yet while the snapshot loads is a wait, not a failure.
   const usdcPending = evmUsdc === null && bridgeConfig.status === 'loading';
   const agglayerPending = agglayerChainId === undefined && bridgeConfig.status === 'loading';
-  // The document decides the token the screen opens on. A document that names no Epoch USDC but names a USDCx
-  // source (mainnet) opens on Circle USDC, not on a token it does not name. A token the user picked stands.
+  // The config moves the token or route below only on the opening amount step and never under a confirm, so a publish
+  // cannot flip a deposit on its way to, or on, Review. A token the user picked stands.
+  const onAmountStep = activeRoute?.name === ReceiveStep.ShowBridgePageTakeAmount;
+  // A retained legacy engine state may move to Circle when its old source is no longer configured.
+  // New flows already start on Circle.
   useEffect(() => {
-    if (tokenChosen.current || token !== 'USDC' || usdcPending || usdcxPending) return;
+    if (tokenChosen.current || confirming.current || !onAmountStep) return;
+    if (token !== 'USDC' || usdcPending || usdcxPending) return;
     if (evmUsdc !== null || !usdcxAvailable || !usdcxSource) return;
     selectToken('CIRCLE_USDC');
     setRoute('usdcx');
-  }, [token, usdcPending, usdcxPending, evmUsdc, usdcxAvailable, usdcxSource, selectToken]);
+  }, [onAmountStep, token, usdcPending, usdcxPending, evmUsdc, usdcxAvailable, usdcxSource, selectToken]);
+  // Circle USDC is the opening token. Where Circle deposits are unavailable (no source, or switched off) the network
+  // may still offer native ETH; never fall back to the retired Epoch test token, even if an older config advertises it.
+  useEffect(() => {
+    if (tokenChosen.current || confirming.current || !onAmountStep) return;
+    if (token !== 'CIRCLE_USDC' || bridgeConfig.status === 'loading' || usdcxPending) return;
+    if ((usdcxSource && usdcxAvailable) || !agglayerChain) return;
+    selectToken('ETH');
+    setRoute('agglayer');
+  }, [onAmountStep, token, bridgeConfig.status, usdcxPending, usdcxSource, usdcxAvailable, agglayerChain, selectToken]);
   // The status page is the one step that leads to no route card these grey out.
   const routesAhead = activeRoute?.name !== ReceiveStep.ShowBridgePageStatus;
   const fastAvailability = useFeatureAvailability('fastBridgeIn', { hold: routesAhead, chainId: evmUsdcChainId });
@@ -515,7 +529,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
 
   useEffect(() => {
     setUsdcBalance(EMPTY_BALANCE);
-    if (usdcPending) return;
+    if (token !== 'USDC' || usdcPending) return;
     let cancelled = false;
 
     const usdcRead = evmUsdc
@@ -539,7 +553,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [evmAddress, evmUsdc, usdcPending]);
+  }, [evmAddress, evmUsdc, usdcPending, token]);
 
   // Circle's USDC on the source chain, the token xReserve takes; the config's Fast USDC pair is not it.
   useEffect(() => {
@@ -647,7 +661,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
 
   const handleTokenSelect = useCallback(
     (next: DepositToken) => {
-      if (confirming.current) return;
+      if (confirming.current || next === 'USDC') return;
       tokenChosen.current = true;
       setTokenDrawerOpen(false);
       selectToken(next);
@@ -721,7 +735,6 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   const handleRouteChange = useCallback(
     (next: BridgeRoute) => {
       if (next === route || confirming.current) return;
-      hapticLight();
       setRoute(next);
       setSlowStatus('idle');
       setSlowError(null);
@@ -1565,6 +1578,8 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
               outputAmount={formatMoneyAmount(outputAmount, 'typed')}
               fee={usdcxQuotedFee}
               networkName={networkName}
+              networkId={bridgeNetwork?.id}
+              destinationName={midenAccount.name}
               sourceChainId={sourceChainId}
               youReceiveLoading={route === 'epoch' && epochStatus === 'quoting'}
               isSubmitting={submitting}
@@ -1599,6 +1614,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
           }
           return (
             <RouteStep
+              accent="receive"
               route={route}
               onRouteChange={handleRouteChange}
               fastFeeUsd={fastFeeUsd}
@@ -1618,6 +1634,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
               network={bridgeNetwork}
               tokenLabel={tokenLabel}
               arrivingName={arrivingName}
+              destinationName={midenAccount.name}
               amount={amount}
               isValidAmount={setupReady}
               error={
@@ -1642,6 +1659,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       reviewAmount,
       error,
       evmAddress,
+      midenAccount.name,
       epochStatus,
       fastAvailability,
       fastFeeUsd,
@@ -1692,7 +1710,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       <NetworkModeBanner />
       {activeRoute?.name !== ReceiveStep.ShowBridgePageStatus && (
         <div className="shrink-0 px-4">
-          <PageHeader title={t('midenBridge')} onBack={handleHeaderBack} />
+          <PageHeader title={t('bridgeInTitle')} onBack={handleHeaderBack} />
         </div>
       )}
       <NetworkNamedByShell>
@@ -1702,13 +1720,9 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         open={tokenDrawerOpen}
         onOpenChange={setTokenDrawerOpen}
         selected={token}
-        // A token is offered only where the document names a route for it: ETH needs an AggLayer chain, the Epoch
-        // test USDC needs `epoch.tokens.USDC`. A mainnet document names neither, so Circle's USDC is the one row.
+        // New deposits offer Circle USDC and configured native ETH, never the retired Epoch test token.
         ethBalance={agglayerChain ? ethBalance.formatted : undefined}
-        usdcBalance={evmUsdc ? usdcBalance.formatted : undefined}
-        usdcLabel={usdcLabel}
         ethLoading={ethBalance.loading}
-        usdcLoading={usdcBalance.loading}
         circleUsdcBalance={usdcxAvailable ? circleUsdcBalance.formatted : undefined}
         circleUsdcLabel={CIRCLE_USDC_SYMBOL}
         circleUsdcLoading={circleUsdcBalance.loading}

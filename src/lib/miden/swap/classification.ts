@@ -5,6 +5,7 @@ import * as Repo from 'lib/miden/repo';
 import { midenClientProxy } from '../back/miden-client-proxy';
 import type { ConsumableNoteDto } from '../sdk/consumable-notes';
 import { assertWasmHoldCurrent, type WasmLockHold } from '../sdk/miden-client';
+import type { PswapLineageDto } from '../sdk/pswap-lineage';
 import type { SwapOrderNoteMetadata } from '../types';
 
 export const SWAP_ORDER_EXPIRY_SECONDS = 120;
@@ -61,10 +62,30 @@ export async function classifySwapOrderNotes(
   preloadedOrders: SwapOrder[] | undefined,
   hold: WasmLockHold
 ): Promise<Map<string, SwapOrderNoteMetadata>> {
+  return (await classifySwapOrderSnapshot(notes, accountId, preloadedOrders, hold)).notes;
+}
+
+export interface SwapOrderSnapshot {
+  notes: Map<string, SwapOrderNoteMetadata>;
+  lineages: Map<string, PswapLineageDto>;
+}
+
+/**
+ * Classify consumable notes and retain the same bulk lineage snapshot. Settlement
+ * also needs the lineage entry when a zero-fill order has no input note at all:
+ * its depth-0 tip still lives in output-notes, so it cannot be represented in the
+ * note map above.
+ */
+export async function classifySwapOrderSnapshot(
+  notes: ConsumableNoteDto[],
+  accountId: string,
+  preloadedOrders: SwapOrder[] | undefined,
+  hold: WasmLockHold
+): Promise<SwapOrderSnapshot> {
   const orders = preloadedOrders ?? (await localSwapOrders(accountId));
   const result = new Map<string, SwapOrderNoteMetadata>();
 
-  if (orders.length === 0) return result;
+  if (orders.length === 0) return { notes: result, lineages: new Map() };
   const assertLive = () => assertWasmHoldCurrent(hold, 'during swap lineage classification');
   assertLive();
   const snapshot = await midenClientProxy.getPswapLineages(assertLive);
@@ -107,5 +128,5 @@ export async function classifySwapOrderNotes(
       });
     }
   }
-  return result;
+  return { notes: result, lineages };
 }

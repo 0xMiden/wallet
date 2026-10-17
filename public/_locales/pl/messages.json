@@ -4766,6 +4766,41 @@
     "message": "Realizacje powiązane z tą wymianą",
     "englishSource": "Fills bundled into this swap"
   },
+  "swapActivityTitle": {
+    "message": "Aktywność swapowa",
+    "englishSource": "Swap activity"
+  },
+  "swapReclaiming": {
+    "message": "Zwrot środków",
+    "englishSource": "Returning funds"
+  },
+  "swapReturnedAt": {
+    "message": "Zwrócone · $time$",
+    "englishSource": "Returned · $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapPlacedAt": {
+    "message": "Złożono o godz. $time$",
+    "englishSource": "Placed $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapOfferedAmount": {
+    "message": "Oferowana kwota: $amount$",
+    "englishSource": "Offered $amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
   "swapFillNote": {
     "message": "Realizacja $number$",
     "englishSource": "Fill $number$",
@@ -6677,5 +6712,113 @@
   "breadPresentationError": {
     "message": "Ta aplikacja nie została w pełni załadowana. Spróbuj ponownie lub wróć do Bread.",
     "englishSource": "This app did not finish loading. Try again or return to Bread."
+  },
+  "bridgeInTitle": {
+    "message": "Bridge in",
+    "englishSource": "Bridge in"
+  },
+  "bridgeConnectWalletTitle": {
+    "message": "Podłącz swój portfel",
+    "englishSource": "Connect your wallet"
+  },
+  "bridgeConnectWalletBody": {
+    "message": "Podłącz portfel zawierający tokeny, które chcesz przenieść do Miden.",
+    "englishSource": "Connect the wallet holding the tokens you want to bring to Miden."
+  },
+  "bridgeConnectWalletAction": {
+    "message": "Połącz portfel",
+    "englishSource": "Connect wallet"
+  },
+  "bridgeConnectSource": {
+    "message": "Portfel zewnętrzny",
+    "englishSource": "External wallet"
+  },
+  "bridgeConnectSourceHint": {
+    "message": "Jeszcze nie połączono",
+    "englishSource": "Not connected yet"
+  },
+  "bridgeConnectNextTitle": {
+    "message": "Po nawiązaniu połączenia",
+    "englishSource": "After connecting"
+  },
+  "bridgeConnectChooseTitle": {
+    "message": "Wybierz rodzaj przelewu",
+    "englishSource": "Choose your transfer"
+  },
+  "bridgeConnectChooseBody": {
+    "message": "Wybierz token, sieć źródłową i kwotę.",
+    "englishSource": "Pick a token, source network and amount."
+  },
+  "bridgeConnectApproveTitle": {
+    "message": "Sprawdź i zatwierdź",
+    "englishSource": "Review and approve"
+  },
+  "bridgeConnectApproveBody": {
+    "message": "Sprawdź trasę i opłaty, a następnie zatwierdź przelew w swoim portfelu.",
+    "englishSource": "Check the route and fees, then approve the transfer in your wallet."
+  },
+  "bridgeConnectTestWalletBody": {
+    "message": "Należy używać oddzielnego portfela przeznaczonego wyłącznie na tokeny testowe. Nigdy nie należy podłączać portfela zawierającego prawdziwe środki.",
+    "englishSource": "Use a separate wallet with test tokens only. Never connect a wallet holding real funds."
+  },
+  "bridgeChooseRoute": {
+    "message": "Wybierz trasę",
+    "englishSource": "Choose a route"
+  },
+  "bridgeRouteDescription": {
+    "message": "Przed kontynuowaniem sprawdź opłatę i przewidywany czas realizacji.",
+    "englishSource": "Review the fee and estimated arrival before you continue."
+  },
+  "bridgeArrivalEstimate": {
+    "message": "Przewidywany czas dostawy",
+    "englishSource": "Estimated arrival"
+  },
+  "bridgePayoutTiming": {
+    "message": "Czas dotarcia zależy od sieci docelowej",
+    "englishSource": "Arrival depends on the destination network"
+  },
+  "bridgeSourceWallet": {
+    "message": "Portfel",
+    "englishSource": "Wallet"
+  },
+  "bridgeRouteFee": {
+    "message": "Opłata za most",
+    "englishSource": "Bridge fee"
+  },
+  "bridgeRankBestValue": {
+    "message": "Najlepsza wartość",
+    "englishSource": "Best value"
+  },
+  "bridgeRankCheapest": {
+    "message": "Najtańszy",
+    "englishSource": "Cheapest"
+  },
+  "bridgeRankFastest": {
+    "message": "Najszybszy",
+    "englishSource": "Fastest"
+  },
+  "bridgeRouteSort": {
+    "message": "Sortowanie tras",
+    "englishSource": "Sort routes"
+  },
+  "bridgeRouteProviders": {
+    "message": "Dostawcy mostów",
+    "englishSource": "Bridge providers"
+  },
+  "bridgeRankValueDescription": {
+    "message": "Większość kwot otrzymuje się po potrąceniu opłat dostawcy.",
+    "englishSource": "Most received after provider fees."
+  },
+  "bridgeRankCostDescription": {
+    "message": "Najniższe koszty mostu i sieci, w tym opłaty za gaz.",
+    "englishSource": "Lowest bridge and network cost, including gas."
+  },
+  "bridgeRankTimeDescription": {
+    "message": "Najkrótszy szacowany czas przybycia.",
+    "englishSource": "Shortest estimated arrival time."
+  },
+  "bridgeEstimatedCost": {
+    "message": "Szacunkowy koszt",
+    "englishSource": "Est. cost"
   }
 }

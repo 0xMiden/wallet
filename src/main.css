@@ -707,6 +707,15 @@ html:not([data-ios-wallet-canvas]) body[data-hide-navbar]::after {
   pointer-events: none;
 }
 
+/* A nested home flow replaces the entry tabs with its own Back header. This is separate from
+ * data-hide-navbar: opening the keyboard on the recipient page must not remove its top tabs. */
+body[data-hide-home-actions] [data-home-actions='true'] {
+  display: none;
+}
+body[data-home-band][data-hide-home-actions]::before {
+  background-color: var(--color-app-bg);
+}
+
 /* Home's top action bar band continues up through the status-bar safe area,
  * which body paints above #root. TabLayout sets the attribute while Home is
  * the active tab on mobile and its layer is fully on screen. */

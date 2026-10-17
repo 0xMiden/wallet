@@ -126,9 +126,9 @@ export interface PayoutChain {
   /** `AttestationUsed.sourceDomain`, the Gateway source: Arc's 26 for every destination, never `burnDomain`. */
   attestationSourceDomain: number;
   logChunk(endpoint: string): number;
-  /** The Send flow's chip test id, the review's `network=` and its Network row (bridge-networks.ts). */
-  chip: string;
+  /** The Send flow's network id (its row is `send-network-<id>`), also the review's `network=` (bridge-networks.ts). */
   reviewNetwork: string;
+  /** What the Send flow's network field and the review's Network row name the chain. */
   networkName: string;
   /** The explorer the details page links (walletconnect/config.ts). */
   explorer: string;
@@ -193,7 +193,6 @@ export function payoutChainFor(
     burnDomain: destination.domain,
     attestationSourceDomain: ARC_CIRCLE_DOMAIN,
     logChunk: reads.logChunk,
-    chip: `send-network-${id}`,
     reviewNetwork: id,
     networkName: evm.name,
     explorer: evm.explorer,

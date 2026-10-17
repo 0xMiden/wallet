@@ -4766,6 +4766,41 @@
     "message": "このスワップにまとめられた約定",
     "englishSource": "Fills bundled into this swap"
   },
+  "swapActivityTitle": {
+    "message": "スワップ取引",
+    "englishSource": "Swap activity"
+  },
+  "swapReclaiming": {
+    "message": "資金の返還",
+    "englishSource": "Returning funds"
+  },
+  "swapReturnedAt": {
+    "message": "返却済み · $time$",
+    "englishSource": "Returned · $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapPlacedAt": {
+    "message": "発注時刻：$time$",
+    "englishSource": "Placed $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapOfferedAmount": {
+    "message": "提示価格：$amount$",
+    "englishSource": "Offered $amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
   "swapFillNote": {
     "message": "約定 $number$",
     "englishSource": "Fill $number$",
@@ -6677,5 +6712,113 @@
   "breadPresentationError": {
     "message": "このアプリの読み込みが完了しませんでした。もう一度試すか、Breadに戻ってください。",
     "englishSource": "This app did not finish loading. Try again or return to Bread."
+  },
+  "bridgeInTitle": {
+    "message": "ブリッジイン",
+    "englishSource": "Bridge in"
+  },
+  "bridgeConnectWalletTitle": {
+    "message": "ウォレットを接続してください",
+    "englishSource": "Connect your wallet"
+  },
+  "bridgeConnectWalletBody": {
+    "message": "Midenに持ち込みたいトークンを保有しているウォレットを接続してください。",
+    "englishSource": "Connect the wallet holding the tokens you want to bring to Miden."
+  },
+  "bridgeConnectWalletAction": {
+    "message": "ウォレットを接続する",
+    "englishSource": "Connect wallet"
+  },
+  "bridgeConnectSource": {
+    "message": "外部ウォレット",
+    "englishSource": "External wallet"
+  },
+  "bridgeConnectSourceHint": {
+    "message": "まだ接続されていません",
+    "englishSource": "Not connected yet"
+  },
+  "bridgeConnectNextTitle": {
+    "message": "接続後",
+    "englishSource": "After connecting"
+  },
+  "bridgeConnectChooseTitle": {
+    "message": "送金方法を選択してください",
+    "englishSource": "Choose your transfer"
+  },
+  "bridgeConnectChooseBody": {
+    "message": "トークン、ソースネットワーク、および数量を選択してください。",
+    "englishSource": "Pick a token, source network and amount."
+  },
+  "bridgeConnectApproveTitle": {
+    "message": "確認および承認",
+    "englishSource": "Review and approve"
+  },
+  "bridgeConnectApproveBody": {
+    "message": "ルートと手数料を確認し、ウォレットで送金を承認してください。",
+    "englishSource": "Check the route and fees, then approve the transfer in your wallet."
+  },
+  "bridgeConnectTestWalletBody": {
+    "message": "テスト用トークンのみの専用ウォレットを使用してください。実際の資金を保有しているウォレットを絶対に接続しないでください。",
+    "englishSource": "Use a separate wallet with test tokens only. Never connect a wallet holding real funds."
+  },
+  "bridgeChooseRoute": {
+    "message": "ルートを選択してください",
+    "englishSource": "Choose a route"
+  },
+  "bridgeRouteDescription": {
+    "message": "続行する前に、手数料と到着予定時刻を確認してください。",
+    "englishSource": "Review the fee and estimated arrival before you continue."
+  },
+  "bridgeArrivalEstimate": {
+    "message": "到着予定時刻",
+    "englishSource": "Estimated arrival"
+  },
+  "bridgePayoutTiming": {
+    "message": "到着は宛先ネットワークによって異なります",
+    "englishSource": "Arrival depends on the destination network"
+  },
+  "bridgeSourceWallet": {
+    "message": "ウォレット",
+    "englishSource": "Wallet"
+  },
+  "bridgeRouteFee": {
+    "message": "ブリッジ手数料",
+    "englishSource": "Bridge fee"
+  },
+  "bridgeRankBestValue": {
+    "message": "ベストバリュー",
+    "englishSource": "Best value"
+  },
+  "bridgeRankCheapest": {
+    "message": "最も安い",
+    "englishSource": "Cheapest"
+  },
+  "bridgeRankFastest": {
+    "message": "最速",
+    "englishSource": "Fastest"
+  },
+  "bridgeRouteSort": {
+    "message": "ルートのソート",
+    "englishSource": "Sort routes"
+  },
+  "bridgeRouteProviders": {
+    "message": "ブリッジプロバイダー",
+    "englishSource": "Bridge providers"
+  },
+  "bridgeRankValueDescription": {
+    "message": "そのほとんどは、プロバイダーの手数料を差し引いた後の金額です。",
+    "englishSource": "Most received after provider fees."
+  },
+  "bridgeRankCostDescription": {
+    "message": "ガス代を含む、最低限のブリッジおよびネットワークコスト。",
+    "englishSource": "Lowest bridge and network cost, including gas."
+  },
+  "bridgeRankTimeDescription": {
+    "message": "最短到着予定時刻。",
+    "englishSource": "Shortest estimated arrival time."
+  },
+  "bridgeEstimatedCost": {
+    "message": "推定費用",
+    "englishSource": "Est. cost"
   }
 }
