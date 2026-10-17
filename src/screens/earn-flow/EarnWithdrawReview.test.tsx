@@ -604,7 +604,20 @@ describe('selected withdrawal review', () => {
     expect(gaslessEarnWithdrawalToMiden).toHaveBeenCalledTimes(1);
     expect(screen.getByRole('button', { name: 'withdrawing' })).toBeDisabled();
   });
-  it('invalidates the quote when availability changes without switching to Max', async () => {
+  it('drops the reviewed quote when availability changes but still covers the amount', async () => {
+    const view = render(<EarnWithdrawReview positionId="position-1" />);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'withdraw' })).toBeEnabled());
+    // 40 still covers 1.000001, so the amount check passes and only the dropped quote can disable Withdraw.
+    jest.mocked(quotes.quoteEarnWithdrawal).mockImplementation(() => new Promise(() => undefined));
+    const moved = { ...position, withdrawable: '40' };
+    mockPositions = [moved];
+    view.rerender(<EarnWithdrawReview positionId="position-1" />);
+    expect(screen.getByRole('button', { name: 'withdraw' })).toBeDisabled();
+    expect(quotes.quoteEarnWithdrawal).toHaveBeenLastCalledWith(
+      expect.objectContaining({ position: moved, amount: '1.000001' })
+    );
+  });
+  it('disables Withdraw when availability falls below the reviewed amount', async () => {
     const view = render(<EarnWithdrawReview positionId="position-1" />);
     await waitFor(() => expect(screen.getByRole('button', { name: 'withdraw' })).toBeEnabled());
     mockPositions = [{ ...position, withdrawable: '0.5' }];
