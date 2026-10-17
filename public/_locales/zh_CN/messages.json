@@ -6771,5 +6771,9 @@
   "earnWithdrawExactAmount": {
     "message": "Exact withdrawal amount",
     "englishSource": "Exact withdrawal amount"
+  },
+  "earnWithdrawInProgress": {
+    "message": "该仓位的另一笔提现仍在进行中。请等待其完成。",
+    "englishSource": "Another withdrawal from this position is still in progress. Wait for it to finish."
   }
 }

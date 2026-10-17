@@ -1501,5 +1501,6 @@
   "earnWithdrawYouWithdraw": "You withdraw",
   "earnWithdrawStaysInvested": "Stays invested",
   "earnWithdrawAll": "Full balance",
-  "earnWithdrawExactAmount": "Exact withdrawal amount"
+  "earnWithdrawExactAmount": "Exact withdrawal amount",
+  "earnWithdrawInProgress": "Bu pozisyondan bir başka çekilme işlemi halen devam etmektedir. İşlemin tamamlanmasını bekleyin."
 }

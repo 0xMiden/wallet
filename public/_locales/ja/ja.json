@@ -1501,5 +1501,6 @@
   "earnWithdrawYouWithdraw": "You withdraw",
   "earnWithdrawStaysInvested": "Stays invested",
   "earnWithdrawAll": "Full balance",
-  "earnWithdrawExactAmount": "Exact withdrawal amount"
+  "earnWithdrawExactAmount": "Exact withdrawal amount",
+  "earnWithdrawInProgress": "このポジションからの別の引き出しが現在進行中です。完了するまでお待ちください。"
 }

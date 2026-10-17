@@ -1501,5 +1501,6 @@
   "earnWithdrawYouWithdraw": "You withdraw",
   "earnWithdrawStaysInvested": "Stays invested",
   "earnWithdrawAll": "Full balance",
-  "earnWithdrawExactAmount": "Exact withdrawal amount"
+  "earnWithdrawExactAmount": "Exact withdrawal amount",
+  "earnWithdrawInProgress": "此倉位的另一筆提領仍在進行中。請等待其完成。"
 }

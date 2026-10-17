@@ -6771,5 +6771,9 @@
   "earnWithdrawExactAmount": {
     "message": "Exact withdrawal amount",
     "englishSource": "Exact withdrawal amount"
+  },
+  "earnWithdrawInProgress": {
+    "message": "Todavía se está llevando a cabo otra retirada de esta posición. Espera a que finalice.",
+    "englishSource": "Another withdrawal from this position is still in progress. Wait for it to finish."
   }
 }

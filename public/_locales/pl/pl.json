@@ -1501,5 +1501,6 @@
   "earnWithdrawYouWithdraw": "You withdraw",
   "earnWithdrawStaysInvested": "Stays invested",
   "earnWithdrawAll": "Full balance",
-  "earnWithdrawExactAmount": "Exact withdrawal amount"
+  "earnWithdrawExactAmount": "Exact withdrawal amount",
+  "earnWithdrawInProgress": "Trwa kolejna operacja wycofania z tej pozycji. Należy poczekać na jej zakończenie."
 }
