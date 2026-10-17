@@ -1,5 +1,5 @@
-const deepl = require('deepl-node');
 const fs = require('fs');
+const deepl = require('deepl-node');
 const path = require('path');
 
 // Translation engine: DeepL, via the official deepl-node SDK.
@@ -31,7 +31,7 @@ const LOCALE_TO_DEEPL: Record<string, string> = {
   tr: 'tr',
   uk: 'uk',
   zh_CN: 'zh-HANS',
-  zh_TW: 'zh-HANT'
+  zh_TW: 'zh-HANT',
 };
 
 // DeepL allows up to 50 texts per translate request; batching cuts a full rebuild
@@ -92,7 +92,7 @@ const TECHNICAL_TERM_VARIANTS = [
   // blocks", e.g. pl "łańcuch bloków", es "cadena de bloques").
   'Blockchain',
   'blockchain',
-  'BLOCKCHAIN'
+  'BLOCKCHAIN',
 ];
 
 // A single regex that matches anything DeepL must NOT translate: "Miden $network$" as one
@@ -105,7 +105,7 @@ const PROTECT_REGEX = new RegExp(
     TECHNICAL_TERM_VARIANTS.map(t => `\\b${t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).join('|') +
     '|\\$[a-zA-Z_][a-zA-Z0-9_]*\\$' +
     ')',
-  'g'
+  'g',
 );
 
 function xmlEscape(s: string): string {
@@ -150,7 +150,7 @@ async function translateBatch(sources: string[], targetCode: string): Promise<st
       tagHandling: 'xml',
       ignoreTags: ['x'],
       outlineDetection: false,
-      context: DEEPL_CONTEXT
+      context: DEEPL_CONTEXT,
     });
     for (const r of results) out.push(fromDeepLXml(r.text));
   }
@@ -189,7 +189,7 @@ async function translateFile(code: string) {
   const keys = Object.keys(englishFile);
   const translations = await translateBatch(
     keys.map(k => englishFile[k]),
-    code
+    code,
   );
 
   const newFile: any = {};
@@ -243,7 +243,7 @@ async function translateWithDiff(fileName: string, code: string, replaceFile: bo
     console.log(`Translating ${toTranslate.length} key(s) to ${code}...`);
     const translations = await translateBatch(
       toTranslate.map(t => t.english),
-      code
+      code,
     );
     toTranslate.forEach((t, i) => {
       newFile[t.key] = buildEntry(translations[i], t.english);
@@ -354,7 +354,7 @@ if (require.main === module) {
   // API. Without a key, skip gracefully instead of failing: this keeps fork PRs green
   // (forks don't receive the DEEPL_API_KEY secret — they check out and generate but
   // never push the diff back anyway) and gives local runs a clear, actionable message.
-  const needsDeepLKey = !argv['e'] && !argv['english'];
+  const needsDeepLKey = !argv['e'];
   if (needsDeepLKey && !process.env.DEEPL_API_KEY) {
     console.warn('⚠️  DEEPL_API_KEY not set — skipping translation generation (locale files unchanged).');
     console.warn('    CI:     set the repo secret DEEPL_API_KEY (consumed by the "translations" job).');
@@ -362,10 +362,7 @@ if (require.main === module) {
     process.exit(0);
   }
 
-  if (argv['english']) {
-    // English is local derivation, not translation; fork PRs can keep bundle parity without a secret.
-    generateEnglishMessages();
-  } else if (argv['c'] && argv['f']) {
+  if (argv['c'] && argv['f']) {
     // yarn createTranslationFile -f public/_locales/ru/messages.json -c ru
     translateWithDiff(argv['f'], argv['c'], false);
   } else if (argv['c']) {
