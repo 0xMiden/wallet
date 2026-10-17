@@ -135,7 +135,7 @@ const notesOfTransaction = (row: Pick<ITransaction, 'submitEvidence'>, transacti
  * the root, gets none. Undefined when the landing records no target. Retry's landing on the transaction the node
  * verified binds that id and has no proof.
  */
-export const landedDeliveryTarget = (
+const landedDeliveryTarget = (
   row: ITransaction,
   landing: { boundTransactionId?: string; proof?: LandingProof }
 ): string[] | undefined => {
@@ -150,6 +150,38 @@ export const landedDeliveryTarget = (
   const own = new Set(proven.map(normalizeHex));
   const root = storedNoteIds(row.outputNoteIds);
   return root.length > 0 && root.every(noteId => own.has(normalizeHex(noteId))) ? undefined : proven;
+};
+
+/**
+ * Record on `row`, which already carries the landing's completed fields, the delivery target the landing owes
+ * ({@link landedDeliveryTarget}), and return it; undefined, with the row left as it is, when there is none. Both
+ * landings record theirs here: the reconciler's and Retry's on the transaction the node verified.
+ */
+export const recordLandedDeliveryTarget = (
+  row: ITransaction,
+  landing: { boundTransactionId?: string; proof?: LandingProof }
+): string[] | undefined => {
+  const target = landedDeliveryTarget(row, landing);
+  if (target === undefined) return undefined;
+  const replacesNotes = storedNoteIds(row.outputNoteIds).length > 0;
+  row.outputNoteIds = target;
+  // Its completion records a note at the root before relaying it, so this one was never pushed: its delivery window
+  // opens now, and the attempts, the next push and the stopped mark of the target it replaces are not its own.
+  row.completedAt = nowSeconds();
+  delete row.relayAttempts;
+  delete row.nextRelayAt;
+  delete row.relayRetriesStopped;
+  // Nor is the outcome the sweep recorded for another attempt's notes. On an empty root a recorded outcome is the
+  // relay's own (#1233) and stays.
+  if (replacesNotes) {
+    row.noteDelivery = 'undelivered';
+    row.displayMessage = landedValueRowFields(row).displayMessage;
+    delete row.relayVerifyPushes;
+    delete row.relayOutageDeferred;
+    delete row.relayAckedNoteIds;
+    delete row.relayDeadNoteIds;
+  }
+  return target;
 };
 
 /**
@@ -179,28 +211,7 @@ async function writeLanding(rowId: string, judgement: RowJudgement, accountKey: 
       ...(landing.boundTransactionId === undefined ? {} : { transactionId: landing.boundTransactionId }),
       completedAt: fresh.completedAt
     });
-    const target = landedDeliveryTarget(fresh, landing);
-    if (target !== undefined) {
-      const replacesNotes = storedNoteIds(fresh.outputNoteIds).length > 0;
-      fresh.outputNoteIds = target;
-      // Its completion records a note at the root before relaying it, so this one was never pushed: its delivery
-      // window opens now, as Retry's landing opens it, and the attempts, the next push and the stopped mark of the
-      // target it replaces are not its own.
-      fresh.completedAt = nowSeconds();
-      delete fresh.relayAttempts;
-      delete fresh.nextRelayAt;
-      delete fresh.relayRetriesStopped;
-      // Nor is the outcome the sweep recorded for another attempt's notes. On an empty root a recorded outcome is
-      // the relay's own (#1233) and stays.
-      if (replacesNotes) {
-        fresh.noteDelivery = 'undelivered';
-        fresh.displayMessage = landedValueRowFields(fresh).displayMessage;
-        delete fresh.relayVerifyPushes;
-        delete fresh.relayOutageDeferred;
-        delete fresh.relayAckedNoteIds;
-        delete fresh.relayDeadNoteIds;
-      }
-    }
+    const target = recordLandedDeliveryTarget(fresh, landing);
     await Repo.transactions.put(fresh);
     landed = fresh;
     addedTarget = target;
