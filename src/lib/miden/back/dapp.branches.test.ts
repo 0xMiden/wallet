@@ -190,13 +190,17 @@ const storedNote = {
   assets: [{ faucetId: 'faucet-1', amount: '1000000' }]
 };
 const mockGetInputNoteDetails = jest.fn(async (..._args: unknown[]): Promise<unknown[]> => [storedNote]);
+const NO_COMMITMENT_MATCH = { notes: [], uncommitted: 0 };
+const mockGetDetailsCommitmentMatches = jest.fn(async (..._args: unknown[]): Promise<unknown> => NO_COMMITMENT_MATCH);
+const mockGetConsumableNoteDtos = jest.fn(async (..._args: unknown[]): Promise<unknown[]> => []);
 const mockRetireWasmClientForCaughtTrap = jest.fn();
 jest.mock('../sdk/miden-client', () => ({
   getMidenClient: async () => ({
     getAccount: (id: string) => (globalThis as any).__dappBranchMockGetAccount(id),
     getInputNoteDetails: (...args: unknown[]) => mockGetInputNoteDetails(...args),
+    getDetailsCommitmentMatches: (...args: unknown[]) => mockGetDetailsCommitmentMatches(...args),
     getConsumableNotes: jest.fn(async () => []),
-    getConsumableNoteDtos: jest.fn(async () => []),
+    getConsumableNoteDtos: (...args: unknown[]) => mockGetConsumableNoteDtos(...args),
     syncState: jest.fn(async () => {}),
     importNoteBytes: (...args: unknown[]) => mockImportNoteBytes(...args),
     on: jest.fn()
@@ -921,6 +925,101 @@ describe('requestConsumeTransaction — mobile error branches', () => {
         transaction: validTx
       } as never)
     ).rejects.toThrow(MidenDAppErrorType.InvalidParams);
+  });
+});
+
+// A details-only note file or a bare Note imports as its details commitment, which no record has as its note id.
+describe('requestConsumeTransaction by the id importPrivateNote returned (#1389)', () => {
+  const COMMITMENT = '0xd37a115c0ffee';
+  const importedNote = { ...storedNote, noteId: '0xreal-note', assets: [{ faucetId: 'faucet-1', amount: '4500000' }] };
+  const consumable = (...noteIds: string[]) => noteIds.map(noteId => ({ noteId, nullifier: `nf-${noteId}` }));
+  const consumeByCommitment = () =>
+    dapp.requestConsumeTransaction('https://miden.xyz', {
+      type: MidenDAppMessageType.ConsumeRequest,
+      sourcePublicKey: 'miden-account-1',
+      transaction: { noteId: COMMITMENT, faucetId: 'faucet-1', noteType: 'private', amount: 1 }
+    });
+
+  beforeEach(() => {
+    mockGetInputNoteDetails.mockResolvedValueOnce([]);
+    mockInitiateConsumeTransactionFromId.mockReset();
+    mockInitiateConsumeTransactionFromId.mockResolvedValue('tx-imported');
+  });
+
+  afterEach(() => {
+    mockGetDetailsCommitmentMatches.mockReset();
+    mockGetDetailsCommitmentMatches.mockResolvedValue(NO_COMMITMENT_MATCH);
+    mockGetConsumableNoteDtos.mockReset();
+    mockGetConsumableNoteDtos.mockResolvedValue([]);
+  });
+
+  it('shows the note the commitment names and consumes it by its own note id', async () => {
+    mockGetDetailsCommitmentMatches.mockResolvedValueOnce({ notes: [importedNote], uncommitted: 0 });
+    mockGetConsumableNoteDtos.mockResolvedValueOnce(consumable('0xother-note', '0xreal-note'));
+
+    await expect(consumeByCommitment()).resolves.toEqual({
+      type: MidenDAppMessageType.ConsumeResponse,
+      transactionId: 'tx-imported'
+    });
+
+    expect(mockGetDetailsCommitmentMatches).toHaveBeenCalledWith(COMMITMENT, expect.any(Function));
+    expect(mockGetConsumableNoteDtos).toHaveBeenCalledWith('miden-account-1', expect.any(Function));
+    const sheet = mockRequestConfirmation.mock.calls[0]![0] as { transactionMessages: string[] };
+    expect(sheet.transactionMessages).toContain('Amount, +4500000');
+    expect(mockInitiateConsumeTransactionFromId).toHaveBeenCalledWith(
+      'miden-account-1',
+      '0xreal-note',
+      true,
+      true,
+      'https://miden.xyz',
+      'dapp'
+    );
+  });
+
+  it('refuses a note no sync has committed yet before any sheet, saying so', async () => {
+    mockGetDetailsCommitmentMatches.mockResolvedValueOnce({ notes: [], uncommitted: 1 });
+
+    await expect(consumeByCommitment()).rejects.toThrow(
+      `${MidenDAppErrorType.InvalidParams}: Error: Note ${COMMITMENT} was imported but is not committed yet - retry once the wallet has synced it`
+    );
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+    expect(mockInitiateConsumeTransactionFromId).not.toHaveBeenCalled();
+  });
+
+  it('refuses a commitment that names only a note of another account, as one it cannot resolve', async () => {
+    mockGetDetailsCommitmentMatches.mockResolvedValueOnce({ notes: [importedNote], uncommitted: 0 });
+    mockGetConsumableNoteDtos.mockResolvedValueOnce(consumable('0xother-note'));
+
+    await expect(consumeByCommitment()).rejects.toThrow(`Note ${COMMITMENT} could not be resolved`);
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+    expect(mockInitiateConsumeTransactionFromId).not.toHaveBeenCalled();
+  });
+
+  it('refuses a commitment that names two notes this account can consume', async () => {
+    const twin = { ...importedNote, noteId: '0xtwin-note' };
+    mockGetDetailsCommitmentMatches.mockResolvedValueOnce({ notes: [importedNote, twin], uncommitted: 0 });
+    mockGetConsumableNoteDtos.mockResolvedValueOnce(consumable('0xreal-note', '0xtwin-note'));
+
+    await expect(consumeByCommitment()).rejects.toThrow(
+      `Note ${COMMITMENT} names more than one note this account can consume - refusing to preview it`
+    );
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+  });
+
+  it('never reads by commitment for a note it finds by its note id', async () => {
+    mockGetInputNoteDetails.mockReset();
+    mockGetInputNoteDetails.mockImplementation(async () => [storedNote]);
+
+    await expect(
+      dapp.requestConsumeTransaction('https://miden.xyz', {
+        type: MidenDAppMessageType.ConsumeRequest,
+        sourcePublicKey: 'miden-account-1',
+        transaction: { noteId: 'note-1', faucetId: 'faucet-1', noteType: 'private', amount: 1 }
+      })
+    ).resolves.toEqual({ type: MidenDAppMessageType.ConsumeResponse, transactionId: 'tx-imported' });
+
+    expect(mockGetDetailsCommitmentMatches).not.toHaveBeenCalled();
+    expect(mockInitiateConsumeTransactionFromId.mock.calls[0]?.[1]).toBe('note-1');
   });
 });
 
