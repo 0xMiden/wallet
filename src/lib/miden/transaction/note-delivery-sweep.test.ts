@@ -21,9 +21,11 @@ import {
   MAX_CONSECUTIVE_ABANDONED_PROBES,
   MAX_CONSECUTIVE_WATCHDOG_EVICTIONS
 } from 'lib/miden/sync-backoff';
+import { WalletMessageType } from 'lib/shared/types';
 
 import { INoteDeliveryState, ITransaction, ITransactionStatus, ITransactionType } from '../db/types';
 import { NoteTypeEnum } from '../types';
+import { noteDeliveryWriteCount } from './helper';
 import { __resetNoteDeliverySweepForTests, MAX_RELAY_ATTEMPTS, sweepNoteDeliveries } from './note-delivery-sweep';
 
 const NOW = 1_800_000_000;
@@ -81,13 +83,19 @@ jest.mock('lib/miden-chain/effective-endpoints', () => ({
   isNoteTransportConfigured: () => mockTransportConfigured()
 }));
 
-type DeliveryEvidence = Parameters<typeof import('./helper').recordNoteDelivery>[2];
+type RecordArgs = Parameters<typeof import('./helper').recordNoteDelivery>;
 
-const mockRecord = jest.fn<Promise<void>, [string, INoteDeliveryState, DeliveryEvidence?]>();
+const mockRecord = jest.fn<Promise<void>, RecordArgs>();
 
 jest.mock('./helper', () => ({
   ...jest.requireActual<typeof import('./helper')>('./helper'),
-  recordNoteDelivery: (...args: [string, INoteDeliveryState, DeliveryEvidence?]) => mockRecord(...args)
+  recordNoteDelivery: (...args: RecordArgs) => mockRecord(...args)
+}));
+
+const mockWakeWorker = jest.fn<Promise<unknown>, [unknown]>();
+
+jest.mock('lib/intercom/client', () => ({
+  createIntercomClient: () => ({ request: (payload: unknown) => mockWakeWorker(payload), subscribe: () => () => {} })
 }));
 
 /** A landed private send that owes a delivery, overridable per case. */
@@ -120,6 +128,7 @@ beforeEach(() => {
   mockRelayById.mockResolvedValue(undefined);
   mockRecord.mockResolvedValue(undefined);
   mockTransportConfigured.mockReturnValue(true);
+  mockWakeWorker.mockResolvedValue(undefined);
   jest.spyOn(console, 'info').mockImplementation(() => undefined);
   // What the last pass learned about when work is next due is module state, like the sweep's realm.
   __resetNoteDeliverySweepForTests();
@@ -139,7 +148,7 @@ describe('sweepNoteDeliveries', () => {
 
     // Consumption is the only proof of delivery available to a sender, so it ends
     // the sweep for this row rather than merely pausing it.
-    expect(mockRecord).toHaveBeenCalledWith('tx-1', 'confirmed');
+    expect(mockRecord).toHaveBeenCalledWith('tx-1', 'confirmed', undefined, ['0xnote']);
     expect(mockRelayById).not.toHaveBeenCalled();
   });
 
@@ -149,7 +158,7 @@ describe('sweepNoteDeliveries', () => {
 
     await sweepNoteDeliveries();
 
-    expect(mockRecord).toHaveBeenCalledWith('tx-1', 'confirmed');
+    expect(mockRecord).toHaveBeenCalledWith('tx-1', 'confirmed', undefined, ['0xnote']);
   });
 
   it('pushes an unconsumed note and schedules the next attempt', async () => {
@@ -158,7 +167,7 @@ describe('sweepNoteDeliveries', () => {
     await sweepNoteDeliveries();
 
     expect(mockRelayById).toHaveBeenCalledWith('0xnote', 'mtst1recipient');
-    expect(mockRecord).toHaveBeenCalledWith('tx-1', 'relayed', { ackedNoteIds: ['0xnote'] });
+    expect(mockRecord).toHaveBeenCalledWith('tx-1', 'relayed', { ackedNoteIds: ['0xnote'] }, ['0xnote']);
     expect(rows[0]!.relayAttempts).toBe(2);
     expect(rows[0]!.nextRelayAt).toBeGreaterThan(NOW);
   });
@@ -334,7 +343,7 @@ describe('sweepNoteDeliveries', () => {
 
     // A failed re-push is no evidence against the original ACK. Downgrading here
     // would warn the user about a note that may well be in flight.
-    expect(mockRecord).toHaveBeenCalledWith('tx-1', 'relayed', { ackedNoteIds: ['0xnote'] });
+    expect(mockRecord).toHaveBeenCalledWith('tx-1', 'relayed', { ackedNoteIds: ['0xnote'] }, ['0xnote']);
     expect(rows[0]!.relayAttempts).toBe(2);
   });
 
@@ -346,7 +355,7 @@ describe('sweepNoteDeliveries', () => {
 
     await sweepNoteDeliveries();
 
-    expect(mockRecord).toHaveBeenCalledWith('tx-1', 'undelivered', { ackedNoteIds: [] });
+    expect(mockRecord).toHaveBeenCalledWith('tx-1', 'undelivered', { ackedNoteIds: [] }, ['0xnote']);
     expect(rows[0]!.relayAttempts).toBe(2);
     expect(rows[0]!.relayOutageDeferred).toBe(true);
   });
@@ -361,9 +370,9 @@ describe('sweepNoteDeliveries', () => {
 
       await sweepNoteDeliveries();
 
-      expect(mockRecord).toHaveBeenCalledWith('tx-1', 'relayed', { ackedNoteIds: ['0xnote'] });
-      expect(mockRecord).not.toHaveBeenCalledWith('tx-1', 'undelivered');
-      expect(mockRecord).not.toHaveBeenCalledWith('tx-1', 'confirmed');
+      expect(mockRecord).toHaveBeenCalledWith('tx-1', 'relayed', { ackedNoteIds: ['0xnote'] }, ['0xnote']);
+      expect(mockRecord).not.toHaveBeenCalledWith('tx-1', 'undelivered', expect.anything(), ['0xnote']);
+      expect(mockRecord).not.toHaveBeenCalledWith('tx-1', 'confirmed', undefined, ['0xnote']);
       expect(rows[0]!.relayAttempts).toBe(2);
     }
   );
@@ -377,8 +386,8 @@ describe('sweepNoteDeliveries', () => {
     await sweepNoteDeliveries();
 
     expect(mockRelayById).toHaveBeenCalledTimes(2);
-    expect(mockRecord).toHaveBeenCalledWith('acked', 'relayed', { ackedNoteIds: ['0xnote'] });
-    expect(mockRecord).toHaveBeenCalledWith('never-acked', 'relayed', { ackedNoteIds: ['0xnote'] });
+    expect(mockRecord).toHaveBeenCalledWith('acked', 'relayed', { ackedNoteIds: ['0xnote'] }, ['0xnote']);
+    expect(mockRecord).toHaveBeenCalledWith('never-acked', 'relayed', { ackedNoteIds: ['0xnote'] }, ['0xnote']);
     expect(error).not.toHaveBeenCalled();
     expect(warn).not.toHaveBeenCalled();
   });
@@ -407,7 +416,7 @@ describe('sweepNoteDeliveries', () => {
 
     await sweepNoteDeliveries();
 
-    expect(mockRecord).toHaveBeenCalledWith('tx-1', 'confirmed');
+    expect(mockRecord).toHaveBeenCalledWith('tx-1', 'confirmed', undefined, ['0xnote']);
     expect(warn.mock.calls.map(call => String(call[0]))).not.toContainEqual(expect.stringContaining('pushes stopped'));
   });
 
@@ -429,7 +438,7 @@ describe('sweepNoteDeliveries', () => {
 
     await sweepNoteDeliveries();
 
-    expect(mockRecord).toHaveBeenCalledWith('tx-1', 'undelivered', { ackedNoteIds: [] });
+    expect(mockRecord).toHaveBeenCalledWith('tx-1', 'undelivered', { ackedNoteIds: [] }, ['0xnote']);
   });
 
   it('re-pushes anyway when the delivery receipt cannot be read', async () => {
@@ -817,7 +826,7 @@ describe('the undelivered label', () => {
 
     await sweepNoteDeliveries();
 
-    expect(mockRecord).toHaveBeenCalledWith('tx-1', 'undelivered', { ackedNoteIds: [] });
+    expect(mockRecord).toHaveBeenCalledWith('tx-1', 'undelivered', { ackedNoteIds: [] }, ['0xnote']);
     expect(rows[0]!.displayMessage).toBe(UNDELIVERED_SEND);
   });
 
@@ -1202,6 +1211,30 @@ describe('the delivery schedule', () => {
     clock = rows[0]!.nextRelayAt!;
     await sweepNoteDeliveries();
     expect(mockRelayById.mock.calls.map(([noteId]) => noteId)).toEqual(['0xkept']);
+  });
+
+  // The row still owes what the sweep read, though it pushed only part of it: its writes are made as ever.
+  it('writes the outcome of a push that covered only the note an acknowledged sibling left owed', async () => {
+    rows.push(
+      due('pair', NOW - 1000, {
+        type: 'execute',
+        relayNoteIds: ['0xacked', '0xowed'],
+        relayRecipientId: 'mtst1recipient',
+        relayAckedNoteIds: ['0xacked'],
+        relayAttempts: 2,
+        noteDelivery: 'undelivered'
+      })
+    );
+
+    await sweepNoteDeliveries();
+
+    expect(mockRelayById.mock.calls.map(([noteId]) => noteId)).toEqual(['0xowed']);
+    expect(rows[0]).toMatchObject({
+      relayAttempts: 3,
+      relayAckedNoteIds: ['0xacked', '0xowed'],
+      noteDelivery: 'relayed',
+      nextRelayAt: NOW + 5 * MINUTE
+    });
   });
 
   it('still confirms a row whose only owed note is dead once that note is consumed', async () => {
@@ -1879,5 +1912,60 @@ describe('when a pass runs', () => {
 
     await expect(sweepNoteDeliveries()).resolves.toBeUndefined();
     expect(warn).toHaveBeenCalled();
+  });
+});
+
+// On the extension the sweep runs in the background (the service worker on Chrome, a page on Firefox), so a delivery
+// write an extension page makes (Retry's landing, the in-app reconciler's) moves a count the sweep never reads unless
+// the page tells the worker (#1473). The build names the bundle a realm runs.
+describe('a delivery write made in an extension page', () => {
+  const { recordNoteDelivery } = jest.requireActual<typeof import('./helper')>('./helper');
+  const builtFor = process.env.WALLET_BUILD_TARGET;
+
+  afterEach(() => {
+    if (builtFor === undefined) delete process.env.WALLET_BUILD_TARGET;
+    else process.env.WALLET_BUILD_TARGET = builtFor;
+  });
+
+  it('tells the service worker, where the sweep runs, once', async () => {
+    rows.push(row({ noteDelivery: 'pending' }));
+    process.env.WALLET_BUILD_TARGET = 'extension';
+    const writes = noteDeliveryWriteCount();
+
+    await recordNoteDelivery('tx-1', 'relayed', { ackedNoteIds: ['0xnote'] });
+
+    expect(noteDeliveryWriteCount()).toBe(writes + 1);
+    expect(mockWakeWorker).toHaveBeenCalledTimes(1);
+    expect(mockWakeWorker).toHaveBeenCalledWith({ type: WalletMessageType.NoteDeliveryWrittenRequest });
+  });
+
+  it.each(['background', 'mobile', 'desktop'])(
+    'sends nothing from the %s bundle, where the sweep reads the count the write moved',
+    async target => {
+      rows.push(row({ nextRelayAt: NOW + 600 }));
+      process.env.WALLET_BUILD_TARGET = target;
+
+      await sweepNoteDeliveries();
+      await recordNoteDelivery('tx-1', 'pending');
+      await sweepNoteDeliveries();
+
+      expect(queries()).toBe(2);
+      expect(mockWakeWorker).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each<[string, () => Promise<unknown>]>([
+    ['cannot be reached', () => Promise.reject(new Error('Could not establish connection'))],
+    ['never answers', () => new Promise<unknown>(() => {})]
+  ])('neither fails nor waits on the write when the worker %s', async (_case, answer) => {
+    rows.push(row({ noteDelivery: 'pending' }));
+    process.env.WALLET_BUILD_TARGET = 'extension';
+    mockWakeWorker.mockImplementation(answer);
+    const writes = noteDeliveryWriteCount();
+
+    await expect(recordNoteDelivery('tx-1', 'relayed')).resolves.toBeUndefined();
+
+    expect(rows[0]!.noteDelivery).toBe('relayed');
+    expect(noteDeliveryWriteCount()).toBe(writes + 1);
   });
 });
