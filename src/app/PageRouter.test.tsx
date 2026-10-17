@@ -130,6 +130,8 @@ jest.mock('components/MainnetCountdownBanner', () => ({
   MainnetCountdownBanner: () => <div data-testid="mainnet-countdown-banner" />
 }));
 jest.mock('app/pages/Explore', () => ({ __esModule: true, default: () => <div data-testid="explore" /> }));
+jest.mock('app/pages/Me', () => ({ __esModule: true, default: () => <div data-testid="me" /> }));
+jest.mock('app/pages/MyBadges', () => ({ __esModule: true, default: () => <div data-testid="my-badges" /> }));
 jest.mock('app/pages/OpenSidePanel', () => ({
   __esModule: true,
   default: () => <div data-testid="open-side-panel" />
@@ -561,7 +563,7 @@ describe('app/PageRouter — ready tab & full-screen routes', () => {
     expect(tabs).not.toBeNull();
 
     // A tab change swaps panes inside the one tabs layer, never the layer itself.
-    mockLocation.pathname = '/settings';
+    mockLocation.pathname = '/me';
     rerender(<PageRouter />);
     expect(container.querySelectorAll('[data-page-layer]')).toHaveLength(1);
     expect(container.querySelector('[data-page-layer]')).toBe(tabs);
@@ -585,13 +587,24 @@ describe('app/PageRouter — ready tab & full-screen routes', () => {
     expect(el).toHaveAttribute('data-tab-slug', 'general');
   });
 
-  // The Settings root is a primary tab destination, so it gets the persistent
-  // footer; its sub-pages keep the FullScreenPage drill-in asserted above.
-  it('/settings renders Settings with no tab slug inside TabLayout', () => {
+  it('/me renders the profile inside TabLayout', () => {
+    renderAt('/me', ready);
+    expect(screen.getByTestId('tab-layout')).toContainElement(screen.getByTestId('me'));
+    expect(screen.queryByTestId('full-screen-page')).not.toBeInTheDocument();
+  });
+
+  it('/me/badges pushes the badge collection over the profile', () => {
+    renderAt('/me/badges', ready);
+    expect(screen.getByTestId('full-screen-page')).toContainElement(screen.getByTestId('my-badges'));
+    expect(screen.getByTestId('full-screen-page')).toHaveAttribute('data-entrance', 'slide');
+  });
+
+  it('/settings renders Settings with no tab slug inside FullScreenPage', () => {
     renderAt('/settings', ready);
     const el = screen.getByTestId('settings');
-    expect(screen.getByTestId('tab-layout')).toContainElement(el);
-    expect(screen.queryByTestId('full-screen-page')).not.toBeInTheDocument();
+    expect(screen.getByTestId('full-screen-page')).toContainElement(el);
+    expect(screen.getByTestId('full-screen-page')).toHaveAttribute('data-entrance', 'slide');
+    expect(screen.queryByTestId('tab-layout')).not.toBeInTheDocument();
     expect(el).toHaveAttribute('data-tab-slug', '');
   });
 

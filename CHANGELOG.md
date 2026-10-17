@@ -2,6 +2,9 @@
 
 ## 1.17.5 (TBD)
 
+### Changes
+
+- [CHANGE][all] Replace the Settings tab with Profile: a centered account identity, My badges, and the original settings groups below it. Add private, wallet-wide local badges for confirmed Mainnet sends, claimed bridge deposits, and fully filled swaps with claimed output. Incoming badges wait until the notes are consumed and a matching account balance snapshot includes those consumes. Ignore Testnet, imported history, incomplete actions and duplicate events. First Receive, Recovery Checked and Miniapp Explorer remain unavailable until reliable completion signals are defined. Progress survives app restarts and account switching, but resetting app data clears it; restore/reinstall carryover is not promised.
 ### Features
 
 - [FEATURE][all] Swap quotes come from the solver's Swap Quote API v2: the receive amount is built in integer arithmetic from the pair's fill price less an editable slippage (0.05% by default, up to 1%, on the review screen), the review shows the solver's verdict on the exact order (fills now, part fills, waits for the price, no orders yet, pair not traded) and the amount a full fill is expected to pay, the quote refreshes every 30 seconds while the swap screen is on screen, and a press on Swap re-checks the order with the solver first and refuses one the price has moved past instead of leaving it unfilled in the book. Activity shows a swap as filled once it has received its requested amount less the slippage it was placed with, and the wallet still reclaims the remainder of such an order at expiry.
