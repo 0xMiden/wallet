@@ -67,7 +67,7 @@ const POLL_INTERVAL_MS = 500;
  * `pollForCondition` body that is true only once the wallet is genuinely
  * unlocked: no Unlock surface mounted (`Unlock.tsx` renders `unlock-passcode`
  * for the mobile numpad and `unlock-password` for the text form) AND the store
- * reports Ready - the same readiness signal `createWalletViaBypass` waits on
+ * reports Ready — the same readiness signal `createWalletViaBypass` waits on
  * (`WalletStatus.Ready === 2`; Locked is 1).
  *
  * The Unlock-surface clause is what makes this a real assertion: the store keeps
@@ -234,7 +234,7 @@ interface IosWalletPageOpts {
  *
  * The Chrome POM and this one share the spec contract via the `WalletPage`
  * interface. Surface-only differences:
- *   - No `.page` (Playwright Page) - multi-account-style DOM probes use the
+ *   - No `.page` (Playwright Page) — multi-account-style DOM probes use the
  *     iOS-only helpers below (`locatorText`, `click`, `waitFor`, `delay`).
  *   - `evaluate` and `screenshot` mirror Playwright's Page shape so the same
  *     `ScreenshotCapable` / `StateCaptureCapable` typing accepts both.
@@ -317,7 +317,7 @@ export class IosWalletPage implements WalletPage {
 
   /**
    * Convert a CLI faucet hex id to the wallet's bech32 form via the installed
-   * `__TEST_HEX_TO_BECH32_FAUCET__` hook - the AggLayer sender-match compares
+   * `__TEST_HEX_TO_BECH32_FAUCET__` hook — the AggLayer sender-match compares
    * bech32 prefixes, and a minted note's on-chain sender is the faucet. Polls
    * for the hook (it's installed after an async SDK import at wallet init).
    */
@@ -896,14 +896,14 @@ export class IosWalletPage implements WalletPage {
         `location.href = u.toString(); ` +
         `return null;`
     );
-    // Page is reloading - give the WebView time to settle before next eval.
+    // Page is reloading — give the WebView time to settle before next eval.
     await sleep(2_500);
 
     // The bypass auto-navigates to the Confirmation screen once it has applied
     // the onboarding state. Wait for the confirmation container to mount.
     await this.pollForSelector('[data-testid="onboarding-confirmation"]', 120_000);
 
-    // Click "Open wallet" - this triggers register() which creates the vault.
+    // Click "Open wallet" — this triggers register() which creates the vault.
     // The old "Get started" text is gone; the button is now keyed by testid.
     await this.click(CONFIRMATION_SUBMIT);
 
@@ -911,7 +911,7 @@ export class IosWalletPage implements WalletPage {
     await this.waitForCreatedWalletReady(`IosWalletPage.createWalletViaBypass(${recovery})`, readyTimeoutMs);
 
     // Onboarding's last screen is now the one-time telemetry consent prompt, not
-    // the wallet home - decline it so the caller gets a wallet it can navigate.
+    // the wallet home — decline it so the caller gets a wallet it can navigate.
     // After the Ready poll deliberately (Ready is what proves `register()`
     // finished), and raced against the home surface so the gap between Ready
     // being published and `Welcome.tsx` navigating is waited out rather than
@@ -946,7 +946,7 @@ export class IosWalletPage implements WalletPage {
   /**
    * Import an existing wallet via the v0-UI `__test_skip_onboarding` bypass,
    * passing the seed words through the `seed` query param. Mirrors the Chrome
-   * POM's `importWallet` (which routes through the same bypass) - no spec
+   * POM's `importWallet` (which routes through the same bypass) — no spec
    * currently drives this, so keep it simple and robust rather than scripting
    * the multi-step import UI.
    */
@@ -962,7 +962,7 @@ export class IosWalletPage implements WalletPage {
    * (`mdev1…` on devnet, `mtst1…` on testnet, etc.).
    *
    * DOM fallback: navigate to /receive (lands on the Address tab) and read the
-   * untruncated address from the `receive-address-full` sr-only span - the
+   * untruncated address from the `receive-address-full` sr-only span — the
    * visible address is now truncated, so scraping it would yield an ellipsis.
    */
   async getAccountAddress(): Promise<string> {
@@ -1003,7 +1003,7 @@ export class IosWalletPage implements WalletPage {
 
   /**
    * Read balances from the Zustand store. Unlike Chrome, mobile has no
-   * `chrome.storage.local` fallback - sync data lives only in the store.
+   * `chrome.storage.local` fallback — sync data lives only in the store.
    */
   async getBalance(tokenSymbol?: string): Promise<number> {
     await this.navigateHome();
@@ -1027,7 +1027,7 @@ export class IosWalletPage implements WalletPage {
   async triggerSync(): Promise<void> {
     // On mobile, the wallet auto-syncs every 3s in main thread via
     // useSyncTrigger as soon as status === Ready (no SW indirection like
-    // Chrome). We don't need to send SYNC_REQUEST - we just need to wait
+    // Chrome). We don't need to send SYNC_REQUEST — we just need to wait
     // long enough for at least one auto-sync tick to land.
     await sleep(SYNC_WAIT_MS);
   }
@@ -1040,7 +1040,7 @@ export class IosWalletPage implements WalletPage {
    */
   async claimAllNotes(timeoutMs: number = 120_000, knownFaucetIds: string[] = []): Promise<void> {
     // Chrome's claimAllNotes reloads the page to get a fresh Dexie handle
-    // - that's safe on Chrome because the SW holds the vault unlock in a
+    // — that's safe on Chrome because the SW holds the vault unlock in a
     // separate context. On mobile there's no SW; a reload would drop the
     // in-memory decryption key and kick the UI back to the password
     // screen, where no Claim button exists. Stay in-session instead.
@@ -1058,7 +1058,7 @@ export class IosWalletPage implements WalletPage {
     // silently drops consumable notes whose faucet metadata couldn't be
     // fetched from the RPC. The test deploys a custom `basic-fungible-faucet`
     // whose on-chain procedures don't match what the SDK's
-    // `BasicFungibleFaucetComponent.fromAccount` expects - so the wallet
+    // `BasicFungibleFaucetComponent.fromAccount` expects — so the wallet
     // hides the note, "Claim All" never renders, and the claim button
     // poll times out. Mirrors Chrome's claimAllNotes
     // workaround (`playwright/e2e/helpers/wallet-page.ts:762-792`): inject
@@ -1067,7 +1067,7 @@ export class IosWalletPage implements WalletPage {
     // hits and the note survives the filter. The keys we inject for are
     // every bech32 faucet id we can discover from the wallet's own
     // SDK-fetched notes (read via the existing `__TEST_STORE__`-driven
-    // path) - no test-side `faucetId` plumbing needed.
+    // path) — no test-side `faucetId` plumbing needed.
     if (knownFaucetIds.length > 0) {
       await this.injectTestMetadataForFaucets(knownFaucetIds);
     }
@@ -1099,11 +1099,11 @@ export class IosWalletPage implements WalletPage {
     // The CLI hands us a hex account id (e.g. `0xba55e5...`), so we need to
     // do the conversion in the same way the wallet does, by calling into
     // the loaded SDK's `Address.fromAccountId(id, 'BasicWallet').toBech32(networkId)`.
-    // We use `evaluateAsync` with the wallet's already-loaded SDK module -
+    // We use `evaluateAsync` with the wallet's already-loaded SDK module —
     // the dynamic `import('@miden-sdk/miden-sdk/lazy')` hits the module
     // cache instantly because the wallet already imported it at boot.
     const hexJson = JSON.stringify(hexFaucetIds);
-    // Poll for the hex→bech32 hook to be exposed - it's set asynchronously
+    // Poll for the hex→bech32 hook to be exposed — it's set asynchronously
     // when the wallet boots (the SDK eager-import in store/index.ts under
     // MIDEN_E2E_TEST). On a freshly-installed app the SDK chunk takes a few
     // seconds to resolve, so the hook may not be ready when we navigate.
@@ -1191,7 +1191,7 @@ export class IosWalletPage implements WalletPage {
     // (which typically sits at 0 balance above the real fundable token).
     const tokenSymbol = params.tokenSymbol;
     if (tokenSymbol) {
-      // Wait for the FUNDED token row specifically - balance sync can lag, and
+      // Wait for the FUNDED token row specifically — balance sync can lag, and
       // if only the 0-balance USDCX row has rendered, the fallback would grab it
       // and the amount Confirm would never enable.
       await this.pollForSelector(`[data-testid="send-token-${tokenSymbol}"]`, 30_000);
@@ -1231,7 +1231,7 @@ export class IosWalletPage implements WalletPage {
 
     // 4. ReviewTransaction: submit. The Review screen recomputes the fee/summary
     // on entry (a balance read behind the WASM lock), which can lag well past 15s
-    // when a sync tick holds the lock - so poll generously.
+    // when a sync tick holds the lock — so poll generously.
     await this.pollForSelector('[data-testid="send-review-submit"]', 45_000);
   }
 
@@ -1240,7 +1240,7 @@ export class IosWalletPage implements WalletPage {
     await this.prepareSendReview(params);
     await this.click('[data-testid="send-review-submit"]');
 
-    // 5. Treat the submit button detaching as the "submit accepted" signal - the
+    // 5. Treat the submit button detaching as the "submit accepted" signal — the
     // send flow navigates away once the request is dispatched. If it never
     // detaches the send was never dispatched, so fail here rather than letting
     // the spec blame the recipient's balance minutes later: the old code only
@@ -1302,7 +1302,7 @@ export class IosWalletPage implements WalletPage {
   // ── Lock / Unlock ─────────────────────────────────────────────────────────
 
   async lockWallet(): Promise<void> {
-    // Fire-and-forget the lock request - we reload immediately after, so we
+    // Fire-and-forget the lock request — we reload immediately after, so we
     // don't need to await the intercom roundtrip (which can hang on mobile
     // when the SW-style port resolves on the same thread).
     await this.cdp.eval(
@@ -1312,7 +1312,7 @@ export class IosWalletPage implements WalletPage {
     );
     await sleep(2_000);
     await this.cdp.eval(`location.reload(); return null;`);
-    // Page is reloading - wait for the WebView to settle and re-acquire the
+    // Page is reloading — wait for the WebView to settle and re-acquire the
     // page reference for subsequent eval calls.
     await sleep(3_000);
   }
@@ -1328,20 +1328,20 @@ export class IosWalletPage implements WalletPage {
    * and any non-numpad unlock surface). The numpad path is the primary one and
    * mirrors the Chrome POM.
    *
-   * NOTE: the numpad-vs-biometric branching on iOS is unverified here - it will
+   * NOTE: the numpad-vs-biometric branching on iOS is unverified here — it will
    * be validated by a later simulator run. The fallback keeps the method robust
    * either way.
    *
    * Post-condition (both branches): `UNLOCKED_CONDITION_JS`. The fallback branch
    * used to be two tolerant `.catch(() => {})`s and a fixed 3s sleep, so a run
    * where neither the numpad nor the text form was ever found returned "unlocked"
-   * with the wallet still on the lock screen - and the spec failed later, on a
+   * with the wallet still on the lock screen — and the spec failed later, on a
    * missing home surface or an empty balance, pointing anywhere but here.
    */
   async unlockWallet(password: string = DEFAULT_PASSWORD): Promise<void> {
     await this.navigateHome();
 
-    // Primary path: 6-digit numpad. Poll briefly - if biometric auto-unlock
+    // Primary path: 6-digit numpad. Poll briefly — if biometric auto-unlock
     // took over there may be no numpad to drive.
     const numpadReady = await this.pollForSelector('[data-testid="unlock-passcode"]', 10_000)
       .then(() => true)
@@ -1359,7 +1359,7 @@ export class IosWalletPage implements WalletPage {
 
     // Fallback: legacy text-input unlock (or biometric already unlocked us, in
     // which case there's nothing to do and the fill/click no-op safely). The
-    // tolerant catches stay - they cannot distinguish "already unlocked" from
+    // tolerant catches stay — they cannot distinguish "already unlocked" from
     // "no unlock form found", which is exactly why the assertion below is the
     // thing that decides whether this method succeeded.
     await this.fillInputAny(['input[type="password"]', 'input'], password).catch(() => {});
@@ -1394,7 +1394,7 @@ export class IosWalletPage implements WalletPage {
    * iOS reads this from the `__TEST_GUARDIAN_AUTH_STRUCTURE__` stash that the
    * wallet's own balance poll populates (`fetchBalances` →
    * `captureGuardianAuthStructureForTest`, a pure `AccountInspector.fromAccount`
-   * parse) - NOT through the async `__TEST_GUARDIAN_AUTH__` hook. Two reasons,
+   * parse) — NOT through the async `__TEST_GUARDIAN_AUTH__` hook. Two reasons,
    * both proven against the CI timeline:
    *
    *   1. The stash is a plain JSON-serializable object, so it reads over the
@@ -1406,7 +1406,7 @@ export class IosWalletPage implements WalletPage {
    *      rejects unhandled, the callback never fires, and EVERY `evalAsync`
    *      hangs to its timeout. (Observed: `Unhandled Promise Rejection:
    *      TypeError: d is not a function ... 'd' is true` fired the instant the
-   *      auth read ran, then a 60s timeout - even though the stash was already
+   *      auth read ran, then a 60s timeout — even though the stash was already
    *      populated.) The sync atom returns its value directly, no callback.
    *   2. A direct WASM read in the eval path gets starved on the single-threaded
    *      iOS WASM. The stash read touches no WASM at all.
@@ -1414,7 +1414,7 @@ export class IosWalletPage implements WalletPage {
    * The auth structure is immutable (fixed at account creation), so a
    * slightly-old captured copy is exactly correct for these assertions. The
    * stash is keyed by the address the balance poll fetched, which can be a
-   * different encoding than the publicKey the test passes - but a wallet
+   * different encoding than the publicKey the test passes — but a wallet
    * instance only ever has one Guardian account, so the single stashed
    * structure is unambiguous. Polls because the capture runs on the balance-poll
    * cadence; by the auth step the consume has already driven several polls, so
@@ -1495,7 +1495,7 @@ export class IosWalletPage implements WalletPage {
         totalSleepMs += POLL_INTERVAL_MS;
       }
       if (tally.returned === 0) throw noEvalReturned('pollForCondition', jsBody.slice(0, 80), timeoutMs, tally);
-      throw new Error(`pollForCondition: condition not met within ${timeoutMs}ms - ${jsBody.slice(0, 80)}`);
+      throw new Error(`pollForCondition: condition not met within ${timeoutMs}ms — ${jsBody.slice(0, 80)}`);
     } finally {
       this.pollStats.pollCount++;
       this.pollStats.pollIterations += iterations;
