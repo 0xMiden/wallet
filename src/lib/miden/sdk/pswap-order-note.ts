@@ -136,9 +136,6 @@ const keepsFixedFields = (parent: PswapFields, next: PswapFields): boolean =>
   [0, 1, 3, 4, 5, 6].every(index => next.storage[index] === parent.storage[index]) &&
   next.offeredFaucet === parent.offeredFaucet;
 
-const atMost = (a: bigint, b: bigint): bigint => (a < b ? a : b);
-const atLeast = (a: bigint, b: bigint): bigint => (a > b ? a : b);
-
 /**
  * Whether `rounds` partial fills can take a PSWAP note from `parent` to `next`, by the arithmetic of the PSWAP script
  * the pinned SDK runs (miden-standards 0.17.1, `asm/standards/notes/pswap.masm`, `execute_pswap` and
@@ -146,12 +143,14 @@ const atLeast = (a: bigint, b: bigint): bigint => (a > b ? a : b);
  * this is the whole tie between a remainder and its parent. One fill of F of the R a note asks for, the note offering
  * O with fill floor S (storage item 3):
  *  - F >= min(S, R) (`ERR_PSWAP_FILL_BELOW_MINIMUM`), and F >= 1, since `main` runs a zero fill as a full one;
- *  - a remainder only for F < R, asking R - F (`execute_pswap`'s partial-fill branch);
+ *  - a remainder only for F < R, asking R - F (`execute_pswap`'s partial-fill branch), so a note asking no more than
+ *    S is only ever filled whole, and every fill that leaves a remainder takes at least max(1, S);
  *  - the payout is `calculate_output_amount` over the account and the note legs, a + b = F, with fill_reference R:
  *    floor(O a / R) + floor(O b / R), which is floor(O F / R) or one less, and the remainder offers O less it.
- * Over k fills ending at R_k, every round after the first starts above R_k, so its floor is at least min(S, R_k + 1);
- * and each round leaves O_i in [O_{i-1} R_i / R_{i-1}, that + 2), so O R_k <= O_k R < O R_k + 2 k R. For one round
- * these bounds are exactly ceil(O R' / R) and one more.
+ * So k fills lower the request by at least k max(1, S), and any such drop is k - 1 fills of max(1, S) and one of the
+ * rest. Each fill leaves O_i in [O_{i-1} R_i / R_{i-1}, that + 2), exactly ceil(O R' / R) and one more for one
+ * round; over k rounds every chain keeps O R_k <= O_k R < O R_k + 2 k R, though for k > 1 that bound also holds
+ * some offers no chain of fills reaches.
  */
 function fillsAllow(parent: PswapFields, next: PswapFields, rounds: bigint): boolean {
   const offered = parent.offeredAmount;
@@ -159,10 +158,8 @@ function fillsAllow(parent: PswapFields, next: PswapFields, rounds: bigint): boo
   const fillStep = parent.storage[3] ?? 0n;
   const nextOffered = next.offeredAmount;
   const nextRequested = next.storage[2] ?? 0n;
-  if (rounds < 1n || nextRequested < 1n || nextRequested >= requested) return false;
-  if (nextOffered < 1n || nextOffered > offered) return false;
-  const floorFrom = (asked: bigint): bigint => atLeast(atMost(fillStep, asked), 1n);
-  if (requested - nextRequested < floorFrom(requested) + (rounds - 1n) * floorFrom(nextRequested + 1n)) return false;
+  if (rounds < 1n || nextRequested < 1n || nextOffered < 1n || nextOffered > offered) return false;
+  if (requested - nextRequested < rounds * (fillStep > 1n ? fillStep : 1n)) return false;
   return (
     nextOffered * requested >= offered * nextRequested &&
     nextOffered * requested < offered * nextRequested + 2n * rounds * requested
