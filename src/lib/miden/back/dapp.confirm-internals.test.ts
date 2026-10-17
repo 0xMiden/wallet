@@ -43,6 +43,10 @@ _g.__dappConfInternals = {
   }
 };
 
+// The repo-wide stub's constant `id`, unless a test needs confirmation ids of its own.
+const mockNanoid = jest.fn(() => 'id');
+jest.mock('nanoid', () => ({ nanoid: () => mockNanoid() }));
+
 jest.mock('lib/miden/back/store', () => ({
   store: {
     getState: () => ({
@@ -698,5 +702,121 @@ describe('requestConfirm stops its auto-decline on the first payload request and
     expect(popup.state.settled).toBe(false);
     await jest.advanceTimersByTimeAsync(1);
     expect(popup.state).toEqual({ settled: true, message: 'NOT_GRANTED: Wallet is locked' });
+  });
+});
+
+describe('the state a request no confirmation handler answered is refused with (BREAD-WALLET-2)', () => {
+  const ID = 'V1StGXR8_Z5jdHi6B-myT';
+  const payloadRequest = { type: MidenMessageType.DAppGetPayloadRequest, id: [ID] };
+  // The popup asks for its payload with the SWR key, an array holding the id.
+  const refusal = (id: unknown = ID) =>
+    dapp.confirmationNotFound({ type: MidenMessageType.DAppGetPayloadRequest, id: [id] });
+
+  beforeEach(() => mockNanoid.mockImplementation(() => ID));
+  afterEach(() => mockNanoid.mockImplementation(() => 'id'));
+
+  const openSign = async () => {
+    const answer = dapp.requestSign('https://test.xyz', {
+      type: MidenDAppMessageType.SignRequest,
+      sourcePublicKey: 'a1',
+      sourceAccountId: 'a1',
+      payload: 'aA==',
+      kind: 'word'
+    } as never);
+    answer.catch(() => undefined);
+    await jest.advanceTimersByTimeAsync(0);
+    const browser = (require('webextension-polyfill').default || require('webextension-polyfill')) as any;
+    const id: string = browser.windows.create.mock.calls.at(-1)?.[0]?.url.match(/id=([^&]+)/)?.[1];
+    return { answer, id, listener: _g.__dappConfInternals.intercomListeners.at(-1) };
+  };
+
+  it('names a handler that is still open, keeps the message, and carries no id', async () => {
+    const { listener } = await openSign();
+    await listener(payloadRequest, { id: 'p' });
+    const error = refusal();
+    expect(error.message).toBe('Not Found');
+    expect(error.code).toBe('confirmation_open');
+    expect(Object.keys(error)).toEqual(['code']);
+    jest.advanceTimersByTime(121_000);
+  });
+
+  it('names an answered confirmation, and the first close wins over a later window removal', async () => {
+    const { answer, listener } = await openSign();
+    const port = { id: 'p' };
+    await listener(payloadRequest, port);
+    await listener({ type: MidenMessageType.DAppSignConfirmationRequest, id: ID, confirmed: false }, port);
+    await expect(answer).rejects.toThrow(MidenDAppErrorType.NotGranted);
+    for (const removed of _g.__dappConfInternals.onRemovedListeners) removed(888);
+
+    expect(refusal().code).toBe('confirmation_answered');
+    // A second answer from the same window sends the id as a string.
+    expect(dapp.confirmationNotFound({ type: MidenMessageType.DAppSignConfirmationRequest, id: ID }).code).toBe(
+      'confirmation_answered'
+    );
+  });
+
+  it('names a confirmation its timer expired', async () => {
+    const { answer } = await openSign();
+    jest.advanceTimersByTime(121_000);
+    await expect(answer).rejects.toThrow(MidenDAppErrorType.NotGranted);
+    expect(refusal().code).toBe('confirmation_expired');
+  });
+
+  it('names a confirmation whose window was closed', async () => {
+    const { answer } = await openSign();
+    _g.__dappConfInternals.onRemovedListeners.at(-1)(888);
+    await expect(answer).rejects.toThrow(MidenDAppErrorType.NotGranted);
+    expect(refusal().code).toBe('confirmation_window_closed');
+  });
+
+  it('names a confirmation whose payload failed to build', async () => {
+    const { withUnlocked } = jest.requireMock('lib/miden/back/store');
+    // Locked when the request arrives, so the popup builds the payload after the unlock, and that build fails.
+    withUnlocked.mockImplementationOnce(async () => {
+      throw Object.assign(new Error('Wallet is locked'), { reason: 'locked' });
+    });
+    mockHasSpendingLimits.mockImplementation(() => Promise.resolve(true));
+    mockAssessOutgoingSpendingLimitDetails.mockImplementation(() => Promise.reject(new Error('limit read failed')));
+    try {
+      const answer = dapp.requestTransaction('https://test.xyz', {
+        type: MidenDAppMessageType.TransactionRequest,
+        sourcePublicKey: 'a1',
+        transaction: { payload: { address: 'a1', recipientAddress: 'bob', transactionRequest: 'b64req' } }
+      } as never);
+      answer.catch(() => undefined);
+      await jest.advanceTimersByTimeAsync(0);
+      const listener = _g.__dappConfInternals.intercomListeners.at(-1);
+
+      await expect(listener(payloadRequest, { id: 'p' })).rejects.toThrow();
+      await expect(answer).rejects.toThrow();
+      expect(refusal().code).toBe('confirmation_payload_failed');
+    } finally {
+      mockHasSpendingLimits.mockImplementation(() => Promise.resolve(false));
+      mockAssessOutgoingSpendingLimitDetails.mockImplementation(() => Promise.resolve(undefined));
+    }
+  });
+
+  it('names an id this worker never saw as unknown', () => {
+    expect(refusal('never-opened').code).toBe('confirmation_unknown');
+    expect(dapp.confirmationNotFound({ type: MidenMessageType.DAppSignConfirmationRequest, id: 7 }).code).toBe(
+      'confirmation_unknown'
+    );
+    expect(dapp.confirmationNotFound({}).code).toBe('confirmation_unknown');
+  });
+
+  it('keeps the states of the newest 64 confirmations only', async () => {
+    let opened = 0;
+    mockNanoid.mockImplementation(() => `confirmation-${opened++}`);
+    const ids: string[] = [];
+    for (let i = 0; i < 65; i++) {
+      const { answer, id } = await openSign();
+      ids.push(id);
+      jest.advanceTimersByTime(121_000);
+      await expect(answer).rejects.toThrow(MidenDAppErrorType.NotGranted);
+    }
+    expect(new Set(ids).size).toBe(65);
+    expect(refusal(ids[0]).code).toBe('confirmation_unknown');
+    expect(refusal(ids[1]).code).toBe('confirmation_expired');
+    expect(refusal(ids[64]).code).toBe('confirmation_expired');
   });
 });

@@ -205,6 +205,7 @@ jest.mock('lib/miden/back/actions', () => ({
   removeDAppSession: jest.fn(),
   isDAppEnabled: jest.fn(),
   processDApp: jest.fn(),
+  confirmationNotFound: jest.fn(),
   setGuardianOperatorCommitment: jest.fn(),
   setGuardianSyncStatus: jest.fn(),
   swapHotKey: jest.fn(),
@@ -935,6 +936,25 @@ describe('processRequest', () => {
   it('returns undefined for an unknown request type', async () => {
     const res = await dispatch({ type: 'UnknownTypeForCoverage' as any });
     expect(res).toBeUndefined();
+  });
+
+  it.each([
+    MidenMessageType.DAppGetPayloadRequest,
+    MidenMessageType.DAppSimulateTransactionRequest,
+    MidenMessageType.DAppUnlockConfirmationRequest,
+    MidenMessageType.DAppPermConfirmationRequest,
+    MidenMessageType.DAppTransactionConfirmationRequest,
+    MidenMessageType.DAppPrivateNotesConfirmationRequest,
+    MidenMessageType.DAppSignConfirmationRequest,
+    MidenMessageType.DAppAssetsConfirmationRequest,
+    MidenMessageType.DAppImportPrivateNoteConfirmationRequest,
+    MidenMessageType.DAppConsumableNotesConfirmationRequest
+  ])("refuses a %s no confirmation handler answered with the background's state for it", async type => {
+    const refusal = Object.assign(new Error('Not Found'), { code: 'confirmation_expired' });
+    Actions.confirmationNotFound.mockReturnValueOnce(refusal);
+    const req = { type, id: 'confirmation-1' };
+    await expect(dispatch(req)).rejects.toBe(refusal);
+    expect(Actions.confirmationNotFound).toHaveBeenCalledWith(req);
   });
 
   it('PageRequest returns null payload when processDApp returns undefined', async () => {
