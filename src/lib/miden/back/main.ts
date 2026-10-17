@@ -74,6 +74,7 @@ export async function start() {
   });
   // Registered first so no message is missed; it dispatches only once startupHydration settles.
   intercom.onRequest(dispatchWhenHydrated);
+  intercom.onNotFound(confirmationRequestNotFound);
   registerOffscreenSignHandler();
 
   // The connectivity snapshot is in-memory and therefore empty on every MV3 wake,
@@ -374,6 +375,25 @@ function registerOffscreenSignHandler(): void {
     // Returning true tells Chrome we'll call sendResponse asynchronously.
     return true;
   });
+}
+
+// What an approval window asks for; one that no live handler answered is an approval this worker no longer holds.
+const CONFIRMATION_REQUEST_TYPES: ReadonlySet<unknown> = new Set([
+  MidenMessageType.DAppGetPayloadRequest,
+  MidenMessageType.DAppSimulateTransactionRequest,
+  MidenMessageType.DAppUnlockConfirmationRequest,
+  MidenMessageType.DAppPermConfirmationRequest,
+  MidenMessageType.DAppTransactionConfirmationRequest,
+  MidenMessageType.DAppPrivateNotesConfirmationRequest,
+  MidenMessageType.DAppSignConfirmationRequest,
+  MidenMessageType.DAppAssetsConfirmationRequest,
+  MidenMessageType.DAppImportPrivateNoteConfirmationRequest,
+  MidenMessageType.DAppConsumableNotesConfirmationRequest
+]);
+
+function confirmationRequestNotFound(req: unknown): Error | undefined {
+  const type: unknown = typeof req === 'object' && req !== null && 'type' in req ? req.type : undefined;
+  return CONFIRMATION_REQUEST_TYPES.has(type) ? Actions.confirmationNotFound(req) : undefined;
 }
 
 async function dispatchWhenHydrated(req: WalletRequest, port: Runtime.Port): Promise<WalletResponse | void> {
@@ -798,18 +818,6 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
         };
       }
       break;
-    // Only once every live confirmation handler declined: registered after this one, they run first.
-    case MidenMessageType.DAppGetPayloadRequest:
-    case MidenMessageType.DAppSimulateTransactionRequest:
-    case MidenMessageType.DAppUnlockConfirmationRequest:
-    case MidenMessageType.DAppPermConfirmationRequest:
-    case MidenMessageType.DAppTransactionConfirmationRequest:
-    case MidenMessageType.DAppPrivateNotesConfirmationRequest:
-    case MidenMessageType.DAppSignConfirmationRequest:
-    case MidenMessageType.DAppAssetsConfirmationRequest:
-    case MidenMessageType.DAppImportPrivateNoteConfirmationRequest:
-    case MidenMessageType.DAppConsumableNotesConfirmationRequest:
-      throw Actions.confirmationNotFound(req);
     // case WalletMessageType.GetOwnedRecordsRequest:
     // const records = await Actions.getOwnedRecords(req.accPublicKey);
     // return {
