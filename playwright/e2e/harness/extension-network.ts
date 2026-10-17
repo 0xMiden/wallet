@@ -1,6 +1,9 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
+import type { EnvironmentConfig } from './types';
+import type { IdbDumpSource } from '../helpers/idb-dump';
+
 /**
  * Build/harness network agreement guard.
  *
@@ -29,6 +32,11 @@ import * as path from 'path';
  * `DEFAULT_NETWORK = resolveNetworkName("localhost");`. Scanning the emitted JS
  * for that assignment costs ~25ms over the bundle text and needs no cooperation
  * from the running extension.
+ *
+ * The baked network is the one the wallet runs on only while no endpoint override
+ * is stored. A run that stores one (Developer Settings, on a build that reads
+ * stored overrides) runs where the override points, which no bundle can show, so
+ * such a run checks it at runtime with `assertWalletRunsOnStoredOverride`.
  */
 
 /** Wallet network tokens -- mirrors `MIDEN_NETWORK_NAME` in src/lib/miden-chain/networks-config.ts. */
@@ -116,7 +124,7 @@ export function readBakedNetworks(extensionPath: string): BakedNetworkReading[] 
 const verified = new Set<string>();
 
 /**
- * Fail fast unless the built extension targets the same network as the harness.
+ * Fail fast unless the built extension's default network is the harness's.
  *
  * @param extensionPath unpacked extension directory about to be loaded
  * @param harnessNetwork the harness environment name (`E2E_NETWORK`)
@@ -154,4 +162,97 @@ export function assertExtensionNetworkMatches(extensionPath: string, harnessNetw
 
   verified.add(memoKey);
   console.log(`[e2e] extension network "${expected}" matches harness "${harnessNetwork}" (read from ${first.source})`);
+}
+
+/** The endpoints miden-client's `Endpoint::to_network_id` names. An explicit port is part of the match. */
+const KNOWN_SDK_ENDPOINTS: ReadonlyArray<{ protocol: string; host: string; port?: number; networkId: string }> = [
+  { protocol: 'https', host: 'rpc.mainnet.miden.io', networkId: 'mm' },
+  { protocol: 'https', host: 'rpc.testnet.miden.io', networkId: 'mtst' },
+  { protocol: 'https', host: 'rpc.devnet.miden.io', networkId: 'mdev' },
+  { protocol: 'http', host: 'localhost', port: 57291, networkId: 'mlcl' }
+];
+
+/**
+ * The IndexedDB store the SDK opens for a node URL: `MidenClientDB_<network id>`, where every endpoint miden-client
+ * does not name is `mcst`. Two URLs of one node can open two stores: `http://localhost:57291` is `MidenClientDB_mlcl`
+ * and `http://127.0.0.1:57291` is `MidenClientDB_mcst`.
+ */
+export function sdkStoreName(rpcUrl: string): string {
+  const match = /^([a-z][a-z0-9+.-]*):\/\/([^/:]+)(?::(\d+))?\/*$/.exec(rpcUrl);
+  if (!match) throw new Error(`sdkStoreName: "${rpcUrl}" is not a protocol://host[:port] URL`);
+  const [, protocol, host, port] = match;
+  const known = KNOWN_SDK_ENDPOINTS.find(
+    endpoint =>
+      endpoint.protocol === protocol &&
+      endpoint.host === host &&
+      endpoint.port === (port === undefined ? undefined : Number(port))
+  );
+  return `MidenClientDB_${known?.networkId ?? 'mcst'}`;
+}
+
+/** `ENDPOINT_OVERRIDE_STORAGE_KEY` in src/lib/miden-chain/effective-endpoints.ts. */
+const ENDPOINT_OVERRIDE_STORAGE_KEY = 'endpoint_overrides';
+/** The SDK's table of the accounts a store holds, one row each. */
+const SDK_ACCOUNT_TABLE = 'latestAccountHeaders';
+
+/** What the runtime check reads from a wallet: its extension storage and its IndexedDB. */
+export type StoredOverrideProbe = IdbDumpSource & { dumpChromeStorage(): Promise<Record<string, unknown>> };
+
+function readStoredOverride(value: unknown): { rpcUrl: string; networkName: string } | undefined {
+  if (typeof value !== 'object' || value === null) return undefined;
+  const rpcUrl: unknown = Reflect.get(value, 'rpcUrl');
+  const networkName: unknown = Reflect.get(value, 'networkName');
+  return typeof rpcUrl === 'string' && typeof networkName === 'string' ? { rpcUrl, networkName } : undefined;
+}
+
+/**
+ * Fail unless the wallet runs on the endpoint override stored in its extension storage, once its first account exists.
+ *
+ * A build made with `MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES=true` (every E2E build but
+ * `test:e2e:stored-override:build`) ignores a stored override, so a spec that stores one would pass on the build
+ * default and prove nothing. So: the override names the harness's network; its RPC URL opens another store than the
+ * harness's own URL, the build default's (else a realm left on the build default reads the same data and nothing can
+ * tell them apart); and the account the service worker created is in the override's store.
+ */
+export async function assertWalletRunsOnStoredOverride(
+  wallet: StoredOverrideProbe,
+  harness: Pick<EnvironmentConfig, 'name' | 'rpcUrl'>
+): Promise<void> {
+  const override = readStoredOverride((await wallet.dumpChromeStorage())[ENDPOINT_OVERRIDE_STORAGE_KEY]);
+  if (!override) {
+    throw new Error(`No endpoint override is stored under "${ENDPOINT_OVERRIDE_STORAGE_KEY}"`);
+  }
+
+  const expected = resolveWalletNetwork(harness.name);
+  if (override.networkName !== expected) {
+    throw new Error(
+      `The stored endpoint override names network "${override.networkName}", but this run drives the ` +
+        `"${harness.name}" harness (wallet network "${expected}").`
+    );
+  }
+
+  const overrideStore = sdkStoreName(override.rpcUrl);
+  const defaultStore = sdkStoreName(harness.rpcUrl);
+  if (overrideStore === defaultStore) {
+    throw new Error(
+      `The stored override's RPC URL ${override.rpcUrl} opens ${overrideStore}, the same store as the build default ` +
+        `${harness.rpcUrl}, so a realm left on the build default could not be told apart. Reach the node through ` +
+        `another host name.`
+    );
+  }
+
+  const withAccounts = new Set(
+    (await wallet.listIndexedDBStores()).filter(entry => entry.store === SDK_ACCOUNT_TABLE).map(entry => entry.db)
+  );
+  const accountsIn = async (db: string) =>
+    withAccounts.has(db) ? (await wallet.dumpIndexedDBStore(db, SDK_ACCOUNT_TABLE, 10)).count : 0;
+  if ((await accountsIn(overrideStore)) > 0) return;
+
+  const onDefault = await accountsIn(defaultStore);
+  throw new Error(
+    `The service worker created no account in ${overrideStore}, the store of the stored override ` +
+      `(${override.rpcUrl})${onDefault > 0 ? `, and ${onDefault} in ${defaultStore}, the build default's` : ''}. ` +
+      `A build made with MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES=true ignores a stored override: rebuild with ` +
+      `"yarn test:e2e:stored-override:build".`
+  );
 }
