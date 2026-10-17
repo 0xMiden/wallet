@@ -1248,6 +1248,11 @@ export interface ISwapExtraInputs {
   settledAt?: number;
   /** Stamped when an expiry-reclaim settlement consume completes. */
   reclaimedAt?: number;
+  /**
+   * Stamped on a Guardian-recovered order when the node shows its order note spent and no consume of this wallet
+   * explains it: a fill, or a reclaim made elsewhere. It closes the order, which then reads Confirmed (#1487).
+   */
+  orderNoteSpentAt?: number;
 }
 
 /**
