@@ -14,6 +14,7 @@ import {
   UpdateProcedureThresholdTransaction
 } from '../db/types';
 import type { GuardianHistoryNote, GuardianSummary } from '../sdk/guardian-history';
+import { isRecoveredSwapOrder } from '../swap/recovered-order';
 import type { ConsumableNote, NoteType } from '../types';
 import { NoteTypeEnum } from '../types';
 import { GuardianHistoryDataError } from './history-errors';
@@ -447,6 +448,7 @@ export function reconcileRecoveredSwaps(rows: ITransaction[]): ITransaction[] {
       swapOrderTxId: order.id,
       swapSettleKind: reclaim ? 'reclaim' : 'settle'
     };
+    if (isRecoveredSwapOrder(order)) continue;
     const completedAt = consume.completedAt ?? consume.initiatedAt;
     order.extraInputs = {
       ...order.extraInputs,

@@ -73,6 +73,7 @@ import { isPrivateNoteType, toNoteTypeString } from '../helpers';
 import { getBech32AddressFromAccountId, sameWalletAccountId } from '../sdk/helpers';
 import { assertWasmHoldCurrent, withWasmClientLock } from '../sdk/miden-client';
 import { isPoisonedPipeline } from '../sdk/sdk-error-code';
+import { isRecoveredSwapOrder } from '../swap/recovered-order';
 import { NoteTypeEnum } from '../types';
 
 export const completeCustomTransaction = async (transaction: ITransaction, result: TransactionResult) => {
@@ -353,7 +354,7 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
       const stampedAt = Math.floor(Date.now() / 1000);
       await Repo.transactions.where({ id: settle.swapOrderTxId }).modify(tx => {
         // `false`, not a bare return - dexie re-puts the deep clone for any other value.
-        if (tx.type !== 'swap') return false;
+        if (tx.type !== 'swap' || isRecoveredSwapOrder(tx)) return false;
         tx.extraInputs = {
           ...(tx.extraInputs ?? {}),
           ...(settle.swapSettleKind === 'reclaim' ? { reclaimedAt: stampedAt } : { settledAt: stampedAt })
