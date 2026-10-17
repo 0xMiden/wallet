@@ -140,6 +140,18 @@ const ON_ERROR: Record<ReactTree, (error: WalletError) => void> = {
     })
 };
 
+// The adapter copies the wallet's key as given (adapter-miden adapter.js:312), so one that is not a Word is the
+// wallet's verdict: it is recorded in the snapshot, never thrown out of the probe.
+function keyHex(publicKey: Uint8Array | null): Pick<ReactSnapshot, 'publicKeyHex' | 'publicKeyError'> {
+  if (publicKey === null) return { publicKeyHex: null };
+  try {
+    return { publicKeyHex: Word.deserialize(publicKey).toHex() };
+  } catch (error) {
+    const { name, message } = describeError(error);
+    return { publicKeyHex: null, publicKeyError: `${name}: ${message}` };
+  }
+}
+
 function snapshotOf(tree: ReactTree, ctx: WalletState | MidenFiWalletContextState): ReactSnapshot {
   return {
     at: Date.now(),
@@ -149,29 +161,42 @@ function snapshotOf(tree: ReactTree, ctx: WalletState | MidenFiWalletContextStat
     connecting: ctx.connecting,
     disconnecting: ctx.disconnecting,
     address: ctx.address,
-    publicKeyHex: ctx.publicKey === null ? null : Word.deserialize(ctx.publicKey).toHex(),
+    ...keyHex(ctx.publicKey),
     selected: ctx.wallet?.adapter.name ?? null,
     readyStates: ctx.wallets.map(wallet => String(wallet.readyState)),
     requestFunctions: REQUEST_FUNCTIONS.filter(name => typeof Reflect.get(ctx, name) === 'function')
   };
 }
 
+// An effect that throws unmounts the whole root, and both providers' cleanup `disconnect()` then removes the wallet
+// session (WalletProvider.tsx:203-207): a probe's own fault becomes a page error and the trees stay up.
+function commitProbe(tree: ReactTree, commit: () => void): void {
+  try {
+    commit();
+  } catch (error) {
+    const { name, message } = describeError(error);
+    pageErrors.push(`probe ${tree}: ${name}: ${message}`);
+  }
+}
+
 function WalletProbe(): null {
   const ctx = useWallet();
   // The package entry exports MidenFi's own context under this name (index.ts:7-16), not the one WalletProvider fills.
   const exported = useContext(WalletContext);
-  useEffect(() => {
-    latest.wallet = ctx;
-    const connected: unknown = Reflect.get(exported, 'connected');
-    const address: unknown = Reflect.get(exported, 'address');
-    snapshots.push({
-      ...snapshotOf('wallet', ctx),
-      exported: {
-        connected: typeof connected === 'boolean' ? connected : null,
-        address: typeof address === 'string' ? address : null
-      }
-    });
-  });
+  useEffect(() =>
+    commitProbe('wallet', () => {
+      latest.wallet = ctx;
+      const connected: unknown = Reflect.get(exported, 'connected');
+      const address: unknown = Reflect.get(exported, 'address');
+      snapshots.push({
+        ...snapshotOf('wallet', ctx),
+        exported: {
+          connected: typeof connected === 'boolean' ? connected : null,
+          address: typeof address === 'string' ? address : null
+        }
+      });
+    })
+  );
   return null;
 }
 
@@ -179,29 +204,31 @@ function MidenFiProbe(): null {
   const ctx = useMidenFiWallet();
   const signer = useSigner();
   const miden = useMiden();
-  useEffect(() => {
-    latest.midenfi = ctx;
-    latest.signer = signer;
-    latest.miden = miden;
-    snapshots.push({
-      ...snapshotOf('midenfi', ctx),
-      ...(signer === null
-        ? {}
-        : {
-            signer: {
-              isConnected: signer.isConnected,
-              storeName: signer.storeName,
-              importAccountId: signer.isConnected ? (signer.accountConfig.importAccountId ?? null) : null
-            }
-          }),
-      miden: {
-        isReady: miden.isReady,
-        isInitializing: miden.isInitializing,
-        error: miden.error === null ? null : `${miden.error.name}: ${miden.error.message}`,
-        signerAccountId: miden.signerAccountId
-      }
-    });
-  });
+  useEffect(() =>
+    commitProbe('midenfi', () => {
+      latest.midenfi = ctx;
+      latest.signer = signer;
+      latest.miden = miden;
+      snapshots.push({
+        ...snapshotOf('midenfi', ctx),
+        ...(signer === null
+          ? {}
+          : {
+              signer: {
+                isConnected: signer.isConnected,
+                storeName: signer.storeName,
+                importAccountId: signer.isConnected ? (signer.accountConfig.importAccountId ?? null) : null
+              }
+            }),
+        miden: {
+          isReady: miden.isReady,
+          isInitializing: miden.isInitializing,
+          error: miden.error === null ? null : `${miden.error.name}: ${miden.error.message}`,
+          signerAccountId: miden.signerAccountId
+        }
+      });
+    })
+  );
   return null;
 }
 

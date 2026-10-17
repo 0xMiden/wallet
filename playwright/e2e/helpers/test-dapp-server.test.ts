@@ -1,12 +1,16 @@
 /**
  * @jest-environment node
  */
+import type React from 'react';
+
 import type { BrowserContext } from '@playwright/test';
+import { JSDOM } from 'jsdom';
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
+import type { act as Act } from 'react-dom/test-utils';
 import ts from 'typescript';
 
 import { exportedNames, importedSpecifiers, linkProblems } from './module-graph';
@@ -23,6 +27,7 @@ import {
   resolveReactPackageRoots,
   serveTestDappOnLoopback
 } from './test-dapp-server';
+import type { ReactDappWindowApi, ReactTree } from '../test-dapp/react-protocol';
 
 const roots = resolvePackageRoots();
 const PAGE_DIR = path.resolve(__dirname, '../test-dapp');
@@ -385,6 +390,121 @@ describe('React page module', () => {
       });
     } finally {
       await stop();
+    }
+  });
+
+  it('records a key that is not a Word as data and a probe fault as a page error, and both trees stay up', async () => {
+    const dom = new JSDOM('<!doctype html><div id="root"></div><pre id="log"></pre>', {
+      url: 'http://localhost:4811/?network=testnet'
+    });
+    const globals = {
+      window: dom.window,
+      document: dom.window.document,
+      localStorage: dom.window.localStorage,
+      IS_REACT_ACT_ENVIRONMENT: true
+    };
+    const setters: Partial<Record<ReactTree, (value: object) => void>> = {};
+    const cleanups: ReactTree[] = [];
+    const context = (publicKey: unknown, wallets: unknown = []): object => ({
+      autoConnect: false,
+      connected: true,
+      connecting: false,
+      disconnecting: false,
+      address: 'mtst1fake',
+      publicKey,
+      wallet: null,
+      wallets
+    });
+    // Each fake provider's effect cleanup stands for the real one's `disconnect()`: it runs only if the root unmounts.
+    const fakes: Record<string, () => unknown> = {
+      '@miden-sdk/miden-sdk': () => ({
+        Word: {
+          deserialize: (bytes: unknown) => {
+            if (!(bytes instanceof Uint8Array) || bytes.length !== 32) throw new Error(`not a word: ${String(bytes)}`);
+            return { toHex: () => `0x${'ab'.repeat(32)}` };
+          }
+        }
+      }),
+      '@miden-sdk/miden-wallet-adapter-base': () => ({
+        WalletAdapterNetwork: { Testnet: 'testnet', Devnet: 'devnet' }
+      }),
+      '@miden-sdk/miden-wallet-adapter-miden': () => ({
+        MidenWalletAdapter: class {
+          name = 'Bread Wallet';
+          on = (): void => undefined;
+        }
+      }),
+      '@miden-sdk/miden-wallet-adapter-react': () => {
+        const react: typeof React = require('react');
+        const provider = (tree: ReactTree, initial: object) => {
+          const Context = react.createContext<object>({});
+          const Provider = ({ children }: { children: React.ReactNode }): React.ReactNode => {
+            const [value, setValue] = react.useState(initial);
+            setters[tree] = setValue;
+            react.useEffect(
+              () => () => {
+                cleanups.push(tree);
+              },
+              []
+            );
+            return react.createElement(Context.Provider, { value }, children);
+          };
+          return { Provider, use: () => react.useContext(Context) };
+        };
+        const wallet = provider('wallet', context(new Uint8Array([1, 2, 3])));
+        const midenfi = provider('midenfi', context(undefined));
+        return {
+          WalletProvider: wallet.Provider,
+          useWallet: wallet.use,
+          MidenFiSignerProvider: midenfi.Provider,
+          useMidenFiWallet: midenfi.use,
+          WalletContext: react.createContext({})
+        };
+      },
+      '@miden-sdk/react': () => ({
+        MidenProvider: ({ children }: { children: React.ReactNode }) => children,
+        useMiden: () => ({ isReady: false, isInitializing: false, error: null, signerAccountId: null }),
+        useSigner: () => null
+      }),
+      '../test-dapp/page-common.js': () => jest.requireActual('../test-dapp/page-common')
+    };
+    for (const [name, value] of Object.entries(globals)) {
+      Object.defineProperty(globalThis, name, { value, configurable: true, writable: true });
+    }
+    for (const [name, factory] of Object.entries(fakes)) jest.doMock(name, factory, { virtual: true });
+    try {
+      await jest.isolateModulesAsync(async () => {
+        const act: typeof Act = require('react-dom/test-utils').act;
+        await act(async () => {
+          require('../test-dapp/react-dapp');
+        });
+        await act(async () => setters.wallet?.(context(new Uint8Array(32))));
+        await act(async () => setters.wallet?.(context(new Uint8Array(32), null)));
+        const api: ReactDappWindowApi = Reflect.get(dom.window, 'testDapp');
+        const view = await api.call('view', {});
+        const keys = (tree: ReactTree): unknown[] =>
+          view.snapshots.filter(entry => entry.tree === tree).map(entry => [entry.publicKeyHex, entry.publicKeyError]);
+        expect({
+          root: dom.window.document.getElementById('root')?.innerHTML,
+          cleanups,
+          wallet: keys('wallet'),
+          midenfi: keys('midenfi'),
+          pageErrors: view.pageErrors
+        }).toEqual({
+          root: '<div></div>',
+          cleanups: [],
+          wallet: [
+            [null, 'Error: not a word: 1,2,3'],
+            [`0x${'ab'.repeat(32)}`, undefined]
+          ],
+          midenfi: [[null, 'Error: not a word: undefined']],
+          pageErrors: [expect.stringMatching(/^probe wallet: TypeError: /)]
+        });
+      });
+    } finally {
+      for (const name of Object.keys(fakes)) jest.dontMock(name);
+      for (const name of Object.keys(globals)) Reflect.deleteProperty(globalThis, name);
+      dom.window.close();
     }
   });
 });

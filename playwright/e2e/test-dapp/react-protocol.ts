@@ -19,6 +19,8 @@ export interface ReactSnapshot {
   disconnecting: boolean;
   address: string | null;
   publicKeyHex: string | null;
+  /** Why the context's key is not a Word, which leaves `publicKeyHex` null: the wallet's verdict, kept as data. */
+  publicKeyError?: string;
   /** The selected wallet's adapter name; null while none is selected. */
   selected: string | null;
   readyStates: string[];
@@ -53,7 +55,7 @@ export interface ReactPageView {
   /** What `window.midenWallet` holds: K1 compares it with the React context. */
   providerAddress: string | null;
   storedNames: Record<ReactTree, string | null>;
-  /** Uncaught errors and unhandled rejections since the page loaded. */
+  /** Uncaught errors, unhandled rejections and a probe's own throws since the page loaded. */
   pageErrors: string[];
 }
 
