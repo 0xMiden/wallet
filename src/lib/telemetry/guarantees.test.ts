@@ -1108,8 +1108,11 @@ describe('the background service worker never imports the telemetry barrel', () 
     //
     // `wasm-startup.ts` imports nothing: the SDK's startup catches read it in
     // every realm that starts the SDK, the worker among them.
+    // `bridge-receive-failure.ts` imports nothing either: the transaction-failure
+    // reporter reads it to name a failed inbound bridge's route, step and error.
     expect([...backgroundGraph().modules].filter(module => module.startsWith('src/lib/telemetry/')).sort()).toEqual([
       'src/lib/telemetry/aptabase.ts',
+      'src/lib/telemetry/bridge-receive-failure.ts',
       'src/lib/telemetry/classify.ts',
       'src/lib/telemetry/context.ts',
       'src/lib/telemetry/crash-artifacts.ts',

@@ -6,6 +6,7 @@ import type { IBridgedReceiveExtraInputs } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 import { updateBridgedReceivePhase } from 'lib/miden/transaction/complete';
 import { getEpochAllocatorUrl } from 'lib/remote-config/values';
+import { walletRaised } from 'lib/telemetry/bridge-receive-failure';
 
 import {
   type CrossChainQuote,
@@ -227,16 +228,18 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
         connection = await getEvmConnection();
       }
       if (!connection.address) {
-        throw new Error('Connect an EVM wallet first');
+        throw walletRaised(new Error('Connect an EVM wallet first'));
       }
       if (!connection.isNative && connection.chainId !== sourceChainId) {
-        throw new Error(
-          `Wallet did not switch to the source chain (currently ${connection.chainId}). Please switch the network in your wallet and try again.`
+        throw walletRaised(
+          new Error(
+            `Wallet did not switch to the source chain (currently ${connection.chainId}). Please switch the network in your wallet and try again.`
+          )
         );
       }
       const allocatorUrl = inputs?.epochAllocatorUrl ?? getEpochAllocatorUrl();
       const sdk = await getEpochSdk({ chainId: sourceChainId, allocatorUrl });
-      if (!sdk) throw new Error('Connect an EVM wallet first');
+      if (!sdk) throw walletRaised(new Error('Connect an EVM wallet first'));
       const intent = await buildEVMToMidenIntent(sdk, {
         ...(quote as EVMToMidenQuote).params,
         preFetchedQuote: quote as EVMToMidenQuote
@@ -245,7 +248,11 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
       if (intent.error) {
         set({ status: 'failed', intent, error: intent.error });
         if (bridgeReceiveTxId) {
-          await updateBridgedReceivePhase(bridgeReceiveTxId, 'failed', { error: intent.error });
+          // The Epoch SDK's own text, viem's flattened answer, so its report reads it as the cause.
+          await updateBridgedReceivePhase(bridgeReceiveTxId, 'failed', {
+            error: intent.error,
+            failure: { step: 'epoch_solve', cause: intent.error }
+          });
         }
         return;
       }
@@ -287,7 +294,10 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
       const message = errorMessage(err);
       set({ status: 'failed', error: message });
       if (bridgeReceiveTxId) {
-        await updateBridgedReceivePhase(bridgeReceiveTxId, 'failed', { error: message }).catch(() => undefined);
+        await updateBridgedReceivePhase(bridgeReceiveTxId, 'failed', {
+          error: message,
+          failure: { step: 'epoch_execute', cause: err }
+        }).catch(() => undefined);
       }
     }
   },

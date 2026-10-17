@@ -13,6 +13,7 @@ import {
 } from 'viem';
 
 import type { updateBridgedReceivePhase } from 'lib/miden/activity';
+import { walletRaised } from 'lib/telemetry/bridge-receive-failure';
 
 import { CctpBurnQuote, fetchCctpBurnQuote } from './cctp';
 import type { UsdcxExecutorSource, UsdcxExecutorTarget } from './constant';
@@ -33,7 +34,7 @@ import {
 
 /** The route's Miden domain. Every route usdcxSourceChains builds has one: schema.ts drops a usdcx route without it. */
 function midenDomainOf(route: { midenDomain?: number }): number {
-  if (route.midenDomain === undefined) throw new Error('USDCx Miden domain is not configured');
+  if (route.midenDomain === undefined) throw walletRaised(new Error('USDCx Miden domain is not configured'));
   return route.midenDomain;
 }
 
@@ -46,7 +47,7 @@ const DEPOSIT_AMOUNT_CALLDATA_INDEX = 4n;
  */
 export function encodeHookFrame(name: string, payload: Hex): Hex {
   const nameHex = stringToHex(name);
-  if (nameHex.length > 2 + 48) throw new Error(`Hook name ${name} is longer than 24 bytes`);
+  if (nameHex.length > 2 + 48) throw walletRaised(new Error(`Hook name ${name} is longer than 24 bytes`));
   const payloadLength = (payload.length - 2) / 2;
   return concatHex([
     padHex(nameHex, { size: 24, dir: 'right' }),
@@ -137,6 +138,7 @@ export class UsdcxForwardQuoteUnavailableError extends Error {
   constructor(reason: string, options?: ErrorOptions) {
     super(`Circle did not quote the forwarded burn: ${reason}`, options);
     this.name = 'UsdcxForwardQuoteUnavailableError';
+    walletRaised(this);
   }
 }
 
@@ -160,6 +162,7 @@ export class UsdcxExecutorBalanceTooLowError extends Error {
     this.needed = needed;
     this.fee = fee;
     this.balance = balance;
+    walletRaised(this);
   }
 }
 
@@ -209,7 +212,7 @@ export function buildExecutorBurnIntent(
   remoteRecipient: Hex,
   recoveryAddress: Address
 ): ExecutorBurnIntent {
-  if (!isAddress(recoveryAddress)) throw new Error(`Invalid EVM address: ${recoveryAddress}`);
+  if (!isAddress(recoveryAddress)) throw walletRaised(new Error(`Invalid EVM address: ${recoveryAddress}`));
   return {
     value: parseUnits(amount.trim(), CIRCLE_USDC_DECIMALS),
     destinationCaller: addressToBytes32(source.target.executor),
