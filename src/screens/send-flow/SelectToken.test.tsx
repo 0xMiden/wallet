@@ -43,6 +43,10 @@ afterEach(() => {
   mockBridgeSnapshot = undefined;
 });
 
+// The discovered native asset; none until a case discovers one.
+let mockNativeFaucetId: string | null = null;
+jest.mock('app/hooks/useNativeFeeFaucetId', () => ({ __esModule: true, default: () => mockNativeFaucetId }));
+
 // `lib/miden/front` is the WASM-backed data barrel. Stub the three hooks the
 // component consumes so we can drive account / balances / metadata by hand.
 const mockUseAccount = jest.fn(() => ({ publicKey: 'pk-abc' }) as { publicKey: string });
@@ -190,6 +194,7 @@ const search = () => screen.getByTestId('send-token-search') as HTMLInputElement
 beforeEach(() => {
   jest.clearAllMocks();
   mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+  mockNativeFaucetId = null;
   mockUseAccount.mockReturnValue({ publicKey: 'pk-abc' });
   mockUseAllTokensBaseMetadata.mockReturnValue({});
   mockUseAllBalances.mockReturnValue({ data: [] });
@@ -481,6 +486,20 @@ describe('SelectTokenDrawer Testnet Epoch USDC sunset', () => {
       mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
       publishMockBridgeSnapshot();
     });
+    expect(screen.queryByTestId('send-token-USDC')).not.toBeInTheDocument();
+  });
+  it('lists the native USDCx and holds the legacy row while no document has arrived', () => {
+    const native = {
+      tokenId: '0x4cbdcaffe75f0a317482224dae6436',
+      metadata: { symbol: 'USDCX', name: 'USDCx', decimals: 6 },
+      balance: 7,
+      fiatPrice: 1
+    };
+    mockBridgeSnapshot = { ...TEST_BRIDGE_CONFIG_SNAPSHOT, config: null, derived: null, status: 'loading' };
+    mockNativeFaucetId = native.tokenId;
+    setBalances([LEGACY, native]);
+    renderDrawer();
+    expect(screen.getByTestId('send-token-USDCX')).toBeInTheDocument();
     expect(screen.queryByTestId('send-token-USDC')).not.toBeInTheDocument();
   });
   it('leaves the same asset available off Testnet', () => {

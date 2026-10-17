@@ -3,10 +3,11 @@ import { act, renderHook } from '@testing-library/react';
 import { useDepositToken } from './useDepositToken';
 
 describe('useDepositToken', () => {
-  it('can open directly on Circle USDC without clearing an in-flight attempt', () => {
+  // ETH, not the default, so a hook that ignored its initial token would fail here.
+  it('can open directly on another token without clearing an in-flight attempt', () => {
     const onChange = jest.fn();
-    const { result } = renderHook(() => useDepositToken(onChange, 'CIRCLE_USDC'));
-    expect(result.current.token).toBe('CIRCLE_USDC');
+    const { result } = renderHook(() => useDepositToken(onChange, 'ETH'));
+    expect(result.current.token).toBe('ETH');
     expect(onChange).not.toHaveBeenCalled();
   });
   it('switches to a different token and clears the old token state once', () => {

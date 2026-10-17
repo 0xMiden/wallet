@@ -2,7 +2,10 @@ import React from 'react';
 
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 
-import { TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET } from 'lib/epoch/testing/bridge-config';
+import {
+  TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET,
+  publishMockBridgeSnapshot
+} from 'lib/epoch/testing/bridge-config';
 import { TEST_SWAP_TOKENS, TEST_TOKEN_IBTC, TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
 import { _setSwapTokensForTest } from 'lib/miden/swap/tokens';
 import { hasUnquotedDefaultPrice } from 'lib/prices/unquoted-default';
@@ -83,14 +86,18 @@ const isMobileMock = jest.fn(() => true);
 const clipboardReadMock = jest.fn();
 // The bridged price entries the testnet config names (the manual mock beside the module).
 let mockSendNetwork = 'devnet';
+// Testnet before any document has been accepted, as on a first start that cannot reach the config repo.
+let mockSendConfigLoaded = true;
 jest.mock('lib/remote-config/runtime', () => {
   const fixture = jest.requireActual<typeof import('lib/epoch/testing/bridge-config')>(
     'lib/epoch/testing/bridge-config'
   );
   const devnet = { ...fixture.TEST_BRIDGE_CONFIG_SNAPSHOT, network: 'devnet' };
-  return fixture.remoteConfigRuntimeMock(() =>
-    mockSendNetwork === 'testnet' ? fixture.TEST_BRIDGE_CONFIG_SNAPSHOT : devnet
-  );
+  const unloaded = { ...fixture.TEST_BRIDGE_CONFIG_SNAPSHOT, config: null, derived: null, status: 'loading' as const };
+  return fixture.remoteConfigRuntimeMock(() => {
+    if (mockSendNetwork !== 'testnet') return devnet;
+    return mockSendConfigLoaded ? fixture.TEST_BRIDGE_CONFIG_SNAPSHOT : unloaded;
+  });
 });
 
 jest.mock('lib/miden/swap/bridge-price-allowlist');
@@ -408,6 +415,7 @@ const renderFlow = (isLoading = false) => render(<SendFlow isLoading={isLoading}
 
 beforeEach(() => {
   mockSendNetwork = 'devnet';
+  mockSendConfigLoaded = true;
   jest.clearAllMocks();
   clearSendDraft();
   mockPathname = '/send';
@@ -2413,4 +2421,30 @@ it('does not preselect the retired Epoch faucet from a Testnet token-page link',
   mockRenderRouteName = SendFlowStep.SelectAmount;
   renderFlow();
   expect(screen.getByTestId('sa-token')).toHaveTextContent('no-token');
+});
+
+describe('Testnet send while no bridge config document has arrived', () => {
+  beforeEach(() => {
+    mockSendNetwork = 'testnet';
+    mockSendConfigLoaded = false;
+    mockCardStack = [{ name: SendFlowStep.SelectAmount }];
+  });
+
+  it('keeps a restored draft whole until the document names its token as the retired faucet', () => {
+    setSendDraft({ amount: '7', recipientAddress: '0xrecip', tokenId: MIDEN_USDC_FAUCET });
+    useAllBalancesMock.mockReturnValue({
+      data: [{ tokenId: MIDEN_USDC_FAUCET, metadata: { symbol: 'TKN', decimals: 2 }, balance: 42, fiatPrice: 3 }]
+    });
+    renderFlow();
+    expect(screen.getByTestId('sa-token')).toHaveTextContent('TKN');
+    expect(screen.getByTestId('sa-amount')).toHaveTextContent('7');
+
+    act(() => {
+      mockSendConfigLoaded = true;
+      publishMockBridgeSnapshot();
+    });
+
+    expect(screen.getByTestId('sa-token')).toHaveTextContent('no-token');
+    expect(screen.getByTestId('sa-amount')).toBeEmptyDOMElement();
+  });
 });

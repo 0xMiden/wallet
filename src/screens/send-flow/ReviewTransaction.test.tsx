@@ -1005,15 +1005,43 @@ describe('ReviewTransaction — rendering', () => {
       expect(screen.getByText('≈ 10.65 Test Epoch USDC')).toBeInTheDocument();
     });
 
-    it('blocks a cached legacy deep link while Testnet config is unavailable', async () => {
+    it('holds a review of another token while Testnet config is unavailable, without leaving it', async () => {
       mockBridgeSnapshot = { ...TEST_BRIDGE_CONFIG_SNAPSHOT, config: null, derived: null, status: 'loading' };
       setValidRoute(MIDEN_USDC_FAUCET);
       mockBalanceData = [{ ...VALID_TOKEN, tokenId: MIDEN_USDC_FAUCET, metadata: { symbol: 'USDC', decimals: 6 } }];
       render(<ReviewTransaction />);
       await flush();
-      expect(screen.getByTestId('redirect')).toHaveTextContent('/send');
-      expect(screen.queryByTestId('send-review-submit')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('redirect')).not.toBeInTheDocument();
+      expect(screen.getByTestId('send-review-submit')).toBeDisabled();
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('send-review-submit'));
+      });
+      await flush();
+      expect(confirmMock).not.toHaveBeenCalled();
       expect(initiateSendTransaction).not.toHaveBeenCalled();
+    });
+
+    it('lets a native-asset review confirm while Testnet config is unavailable', async () => {
+      mockBridgeSnapshot = { ...TEST_BRIDGE_CONFIG_SNAPSHOT, config: null, derived: null, status: 'loading' };
+      setValidRoute(USDCX_FAUCET_ID_BECH32);
+      render(<ReviewTransaction />);
+      await flush();
+      await waitFor(() => expect(screen.getByTestId('review-recall-note')).toBeInTheDocument());
+      expect(screen.queryByTestId('redirect')).not.toBeInTheDocument();
+      expect(screen.getByTestId('send-review-submit')).toBeEnabled();
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('send-review-submit'));
+      });
+      await flush();
+      expect(initiateSendTransaction).toHaveBeenCalledWith(
+        'pubkey-1',
+        '0xrecipient',
+        USDCX_FAUCET_ID_BECH32,
+        'private',
+        12345n,
+        999,
+        false
+      );
     });
 
     it('redirects a retired Epoch USDC deep link to the new send flow', async () => {
