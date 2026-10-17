@@ -724,3 +724,70 @@ describe('IosWalletPage transaction details', () => {
     expect(bodies[0]).toContain(JSON.stringify('https://explorer.testnet.arc.io/tx/'));
   });
 });
+
+describe('IosWalletPage poll attribution', () => {
+  afterEach(() => jest.useRealTimers());
+
+  const WELCOME = '[data-testid="onboarding-welcome"]';
+  const WEDGED = `eval: CDP call did not return within 30000ms (WebView/RWI wedged) at ${HREF}`;
+
+  interface Polls {
+    pollForSelector(selector: string, timeoutMs: number): Promise<void>;
+    pollForCondition(jsBody: string, timeoutMs: number): Promise<void>;
+  }
+
+  async function outcomeOf(poll: (polls: Polls) => Promise<void>, reads: Array<() => unknown>): Promise<string> {
+    let call = 0;
+    const page = pageWith(async () => reads[Math.min(call++, reads.length - 1)]!());
+    jest.useFakeTimers();
+    const outcome = poll(page as unknown as Polls).then(
+      () => 'resolved',
+      (error: unknown) => (error instanceof Error ? error.message : String(error))
+    );
+    await jest.advanceTimersByTimeAsync(1_100);
+    return outcome;
+  }
+
+  const wedged = (): never => {
+    throw new Error(WEDGED);
+  };
+
+  // A session that died at attach failed its first poll as "onboarding-welcome did not appear" (run 39034367703).
+  it('names a dead session when no selector eval returned, with no URL query in it', async () => {
+    const message = await outcomeOf(polls => polls.pollForSelector(WELCOME, 1_000), [wedged]);
+
+    expect(message).toBe(
+      `pollForSelector: could not check ${WELCOME}: no CDP eval returned in 1000ms ` +
+        '(last error: eval: CDP call did not return within 30000ms (WebView/RWI wedged) at capacitor://localhost/#/send/review)'
+    );
+  });
+
+  it('keeps the old message once an eval returned and the selector was absent', async () => {
+    const message = await outcomeOf(polls => polls.pollForSelector(WELCOME, 1_000), [wedged, () => false]);
+
+    expect(message).toBe(`pollForSelector: ${WELCOME} did not appear within 1000ms`);
+  });
+
+  it('names a dead session when no condition eval returned', async () => {
+    const message = await outcomeOf(polls => polls.pollForCondition('return window.ready === true;', 1_000), [wedged]);
+
+    expect(message).toMatch(
+      /^pollForCondition: could not check return window\.ready === true;: no CDP eval returned in 1000ms \(last error: eval: CDP call did not return/
+    );
+  });
+
+  it('keeps the old message once a condition eval returned false', async () => {
+    const message = await outcomeOf(polls => polls.pollForCondition('return false;', 1_000), [() => false]);
+
+    expect(message).toMatch(/^pollForCondition: condition not met within 1000ms \S return false;$/);
+  });
+
+  it('still passes when a check holds after failed evals', async () => {
+    await expect(outcomeOf(polls => polls.pollForSelector(WELCOME, 1_000), [wedged, () => true])).resolves.toBe(
+      'resolved'
+    );
+    await expect(outcomeOf(polls => polls.pollForCondition('return true;', 1_000), [wedged, () => true])).resolves.toBe(
+      'resolved'
+    );
+  });
+});

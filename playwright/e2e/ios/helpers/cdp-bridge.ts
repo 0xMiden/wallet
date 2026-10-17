@@ -12,6 +12,8 @@ const SOCKET_DISCOVERY_TIMEOUT = 30_000;
 const SELECT_PAGE_TIMEOUT_MS = 90_000;
 const LIVENESS_PROBE_TIMEOUT_MS = 10_000;
 const DISCONNECT_TIMEOUT_MS = 5_000;
+// The timeline keeps each console entry whole, so a dump of every argument is capped as network-capture caps a body.
+const CONSOLE_TEXT_MAX_CHARS = 2_000;
 
 // A synchronous `execute_script` (reading window.__TEST_* globals) returns in
 // milliseconds. If `executeAtom` hasn't resolved within this window, the
@@ -338,11 +340,20 @@ function sleep(ms: number): Promise<void> {
 
 function extractConsoleText(m: WebKitConsoleMessage | undefined): string {
   if (!m) return '';
-  if (m.text) return m.text;
+  // WebKit's `text` is the first argument only, so `console.error('Error in syncState:', err)` lost its error.
+  if (m.text && (m.parameters?.length ?? 0) <= 1) return m.text;
   if (m.parameters) {
-    return m.parameters
+    const format = m.parameters[0]?.value;
+    // A %c directive's argument is CSS, which Capacitor's bridge passes with every native call it logs.
+    const directives = typeof format === 'string' ? (format.match(/%[sdifoOc]/g) ?? []) : [];
+    const text = m.parameters
+      .filter((_, index) => index === 0 || directives[index - 1] !== '%c')
       .map(p => (typeof p.value === 'string' ? p.value : (p.description ?? JSON.stringify(p.value))))
-      .join(' ');
+      .join(' ')
+      .replace(/\s*\n\s*/g, ' ');
+    return text.length > CONSOLE_TEXT_MAX_CHARS
+      ? `${text.slice(0, CONSOLE_TEXT_MAX_CHARS)}... (truncated, ${text.length} total)`
+      : text;
   }
   return '';
 }

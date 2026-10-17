@@ -137,3 +137,73 @@ describe('CdpBridge.connect', () => {
     expect(rd.selectPage).not.toHaveBeenCalled();
   });
 });
+
+describe('CdpSession console capture', () => {
+  function consoleText(message: Record<string, unknown>): string {
+    let listener: ((error: Error | undefined, m: unknown) => void) | undefined;
+    const rd = { startConsole: jest.fn(l => (listener = l)), stopConsole: jest.fn() };
+    const session = new CdpSession(rd as unknown as ConstructorParameters<typeof CdpSession>[0]);
+    const texts: string[] = [];
+    session.onConsoleLog(entry => texts.push(entry.text));
+    listener?.(undefined, message);
+    return texts[0] ?? '';
+  }
+
+  // WebKit's `text` is the first argument only: the timeline read "Error in syncState:" with no reason (run 39025104169).
+  it("keeps every argument, so console.error('Error in syncState:', err) keeps the error, on one line", () => {
+    const text = consoleText({
+      level: 'error',
+      text: 'Error in syncState:',
+      parameters: [
+        { type: 'string', value: 'Error in syncState:' },
+        { type: 'object', subtype: 'error', description: 'Error: RPC deadline exceeded\n    at syncState' }
+      ]
+    });
+
+    expect(text).toBe('Error in syncState: Error: RPC deadline exceeded at syncState');
+  });
+
+  it('keeps a primitive argument', () => {
+    const text = consoleText({
+      text: 'Vault exists:',
+      parameters: [
+        { type: 'string', value: 'Vault exists:' },
+        { type: 'boolean', value: true }
+      ]
+    });
+
+    expect(text).toBe('Vault exists: true');
+  });
+
+  it('drops the CSS argument of each %c directive, which Capacitor adds to every bridge call', () => {
+    const format = '%cnative %cLocalNotifications.requestPermissions (#12)';
+    const text = consoleText({
+      text: format,
+      parameters: [
+        { type: 'string', value: format },
+        { type: 'string', value: 'font-weight: lighter; color: gray' },
+        { type: 'string', value: 'font-weight: bold; color: #000' }
+      ]
+    });
+
+    expect(text).toBe(format);
+  });
+
+  it('keeps the one argument as WebKit reports it', () => {
+    expect(
+      consoleText({ text: 'line one\nline two', parameters: [{ type: 'string', value: 'line one\nline two' }] })
+    ).toBe('line one\nline two');
+  });
+
+  it('caps a long dump of several arguments', () => {
+    const text = consoleText({
+      text: 'big:',
+      parameters: [
+        { type: 'string', value: 'big:' },
+        { type: 'string', value: 'x'.repeat(5_000) }
+      ]
+    });
+
+    expect(text).toBe(`big: ${'x'.repeat(1_995)}... (truncated, 5005 total)`);
+  });
+});
