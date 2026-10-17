@@ -81,13 +81,13 @@ jest.mock('lib/miden-chain/effective-endpoints', () => ({
   isNoteTransportConfigured: () => mockTransportConfigured()
 }));
 
-type DeliveryEvidence = Parameters<typeof import('./helper').recordNoteDelivery>[2];
+type RecordArgs = Parameters<typeof import('./helper').recordNoteDelivery>;
 
-const mockRecord = jest.fn<Promise<void>, [string, INoteDeliveryState, DeliveryEvidence?]>();
+const mockRecord = jest.fn<Promise<void>, RecordArgs>();
 
 jest.mock('./helper', () => ({
   ...jest.requireActual<typeof import('./helper')>('./helper'),
-  recordNoteDelivery: (...args: [string, INoteDeliveryState, DeliveryEvidence?]) => mockRecord(...args)
+  recordNoteDelivery: (...args: RecordArgs) => mockRecord(...args)
 }));
 
 /** A landed private send that owes a delivery, overridable per case. */
@@ -139,7 +139,7 @@ describe('sweepNoteDeliveries', () => {
 
     // Consumption is the only proof of delivery available to a sender, so it ends
     // the sweep for this row rather than merely pausing it.
-    expect(mockRecord).toHaveBeenCalledWith('tx-1', 'confirmed');
+    expect(mockRecord).toHaveBeenCalledWith('tx-1', 'confirmed', undefined, ['0xnote']);
     expect(mockRelayById).not.toHaveBeenCalled();
   });
 
@@ -149,7 +149,7 @@ describe('sweepNoteDeliveries', () => {
 
     await sweepNoteDeliveries();
 
-    expect(mockRecord).toHaveBeenCalledWith('tx-1', 'confirmed');
+    expect(mockRecord).toHaveBeenCalledWith('tx-1', 'confirmed', undefined, ['0xnote']);
   });
 
   it('pushes an unconsumed note and schedules the next attempt', async () => {
@@ -158,7 +158,7 @@ describe('sweepNoteDeliveries', () => {
     await sweepNoteDeliveries();
 
     expect(mockRelayById).toHaveBeenCalledWith('0xnote', 'mtst1recipient');
-    expect(mockRecord).toHaveBeenCalledWith('tx-1', 'relayed', { ackedNoteIds: ['0xnote'] });
+    expect(mockRecord).toHaveBeenCalledWith('tx-1', 'relayed', { ackedNoteIds: ['0xnote'] }, ['0xnote']);
     expect(rows[0]!.relayAttempts).toBe(2);
     expect(rows[0]!.nextRelayAt).toBeGreaterThan(NOW);
   });
@@ -334,7 +334,7 @@ describe('sweepNoteDeliveries', () => {
 
     // A failed re-push is no evidence against the original ACK. Downgrading here
     // would warn the user about a note that may well be in flight.
-    expect(mockRecord).toHaveBeenCalledWith('tx-1', 'relayed', { ackedNoteIds: ['0xnote'] });
+    expect(mockRecord).toHaveBeenCalledWith('tx-1', 'relayed', { ackedNoteIds: ['0xnote'] }, ['0xnote']);
     expect(rows[0]!.relayAttempts).toBe(2);
   });
 
@@ -346,7 +346,7 @@ describe('sweepNoteDeliveries', () => {
 
     await sweepNoteDeliveries();
 
-    expect(mockRecord).toHaveBeenCalledWith('tx-1', 'undelivered', { ackedNoteIds: [] });
+    expect(mockRecord).toHaveBeenCalledWith('tx-1', 'undelivered', { ackedNoteIds: [] }, ['0xnote']);
     expect(rows[0]!.relayAttempts).toBe(2);
     expect(rows[0]!.relayOutageDeferred).toBe(true);
   });
@@ -361,9 +361,9 @@ describe('sweepNoteDeliveries', () => {
 
       await sweepNoteDeliveries();
 
-      expect(mockRecord).toHaveBeenCalledWith('tx-1', 'relayed', { ackedNoteIds: ['0xnote'] });
-      expect(mockRecord).not.toHaveBeenCalledWith('tx-1', 'undelivered');
-      expect(mockRecord).not.toHaveBeenCalledWith('tx-1', 'confirmed');
+      expect(mockRecord).toHaveBeenCalledWith('tx-1', 'relayed', { ackedNoteIds: ['0xnote'] }, ['0xnote']);
+      expect(mockRecord).not.toHaveBeenCalledWith('tx-1', 'undelivered', expect.anything(), ['0xnote']);
+      expect(mockRecord).not.toHaveBeenCalledWith('tx-1', 'confirmed', undefined, ['0xnote']);
       expect(rows[0]!.relayAttempts).toBe(2);
     }
   );
@@ -377,8 +377,8 @@ describe('sweepNoteDeliveries', () => {
     await sweepNoteDeliveries();
 
     expect(mockRelayById).toHaveBeenCalledTimes(2);
-    expect(mockRecord).toHaveBeenCalledWith('acked', 'relayed', { ackedNoteIds: ['0xnote'] });
-    expect(mockRecord).toHaveBeenCalledWith('never-acked', 'relayed', { ackedNoteIds: ['0xnote'] });
+    expect(mockRecord).toHaveBeenCalledWith('acked', 'relayed', { ackedNoteIds: ['0xnote'] }, ['0xnote']);
+    expect(mockRecord).toHaveBeenCalledWith('never-acked', 'relayed', { ackedNoteIds: ['0xnote'] }, ['0xnote']);
     expect(error).not.toHaveBeenCalled();
     expect(warn).not.toHaveBeenCalled();
   });
@@ -407,7 +407,7 @@ describe('sweepNoteDeliveries', () => {
 
     await sweepNoteDeliveries();
 
-    expect(mockRecord).toHaveBeenCalledWith('tx-1', 'confirmed');
+    expect(mockRecord).toHaveBeenCalledWith('tx-1', 'confirmed', undefined, ['0xnote']);
     expect(warn.mock.calls.map(call => String(call[0]))).not.toContainEqual(expect.stringContaining('pushes stopped'));
   });
 
@@ -429,7 +429,7 @@ describe('sweepNoteDeliveries', () => {
 
     await sweepNoteDeliveries();
 
-    expect(mockRecord).toHaveBeenCalledWith('tx-1', 'undelivered', { ackedNoteIds: [] });
+    expect(mockRecord).toHaveBeenCalledWith('tx-1', 'undelivered', { ackedNoteIds: [] }, ['0xnote']);
   });
 
   it('re-pushes anyway when the delivery receipt cannot be read', async () => {
@@ -817,7 +817,7 @@ describe('the undelivered label', () => {
 
     await sweepNoteDeliveries();
 
-    expect(mockRecord).toHaveBeenCalledWith('tx-1', 'undelivered', { ackedNoteIds: [] });
+    expect(mockRecord).toHaveBeenCalledWith('tx-1', 'undelivered', { ackedNoteIds: [] }, ['0xnote']);
     expect(rows[0]!.displayMessage).toBe(UNDELIVERED_SEND);
   });
 

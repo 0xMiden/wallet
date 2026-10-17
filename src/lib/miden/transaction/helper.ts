@@ -27,6 +27,7 @@ import {
 } from '../db/types';
 import { isPrivateNoteType } from '../helpers';
 import { errorMessageParts, isPoisonedPipeline, type LandedTransaction } from '../sdk/sdk-error-code';
+import { normalizeHex } from '../sdk/submit-evidence';
 
 // Re-export the sign-callback classification from its leaf home (issue #260,
 // slice 5). It moved to `./sign-callback` to break a `helper ↔ proxy` import
@@ -420,6 +421,19 @@ export const relayNoteIdsOf = (row: Pick<ITransaction, 'relayNoteIds' | 'outputN
   storedNoteIds(row.relayNoteIds ?? row.outputNoteIds);
 
 /**
+ * Whether `row` owes exactly the notes `owed`, compared as sets of normalized ids. A writer that read the row before
+ * an await checks this inside its write: a landing may have replaced the delivery target meanwhile (#1473).
+ */
+export const owesNoteIds = (
+  row: Pick<ITransaction, 'relayNoteIds' | 'outputNoteIds'>,
+  owed: readonly string[]
+): boolean => {
+  const held = new Set(relayNoteIdsOf(row).map(normalizeHex));
+  const expected = new Set(owed.map(normalizeHex));
+  return held.size === expected.size && [...expected].every(noteId => held.has(noteId));
+};
+
+/**
  * The account a row's private notes were relayed to. A send's recipient is its `secondaryAccountId`; a custom
  * row records it apart with its `relayNoteIds`, because reading its result as a consume puts the input note's
  * sender there instead. So a custom row whose dApp named no recipient has none, never that sender.
@@ -530,6 +544,10 @@ const withIds = (held: string[] | undefined, added: string[]): string[] => {
  * `ackedNoteIds` and `deadNoteIds` are added to what the row already holds, never
  * replace it: each relay of a custom row persists its own acknowledgement as it
  * lands, for the same reason.
+ *
+ * With `expectedOwed` it writes only while the row still owes exactly those notes
+ * ({@link owesNoteIds}), and counts as a delivery write only when it wrote: the
+ * delivery sweep passes the notes it read before its awaits.
  */
 export const recordNoteDelivery = async (
   id: string,
@@ -541,9 +559,13 @@ export const recordNoteDelivery = async (
     relayRecipientId?: string;
     ackedNoteIds?: string[];
     deadNoteIds?: string[];
-  }
+  },
+  expectedOwed?: readonly string[]
 ) => {
+  let wrote = expectedOwed === undefined;
   await Repo.transactions.where({ id }).modify(tx => {
+    if (expectedOwed !== undefined && !owesNoteIds(tx, expectedOwed)) return false;
+    wrote = true;
     tx.noteDelivery = noteDelivery;
     if (evidence?.transactionId) tx.transactionId = evidence.transactionId;
     if (evidence?.outputNoteIds?.length) tx.outputNoteIds = evidence.outputNoteIds;
@@ -554,8 +576,9 @@ export const recordNoteDelivery = async (
     // History renders the label, not `noteDelivery`, so a note the transport took retires its share of the warning
     // there too.
     if (tx.displayMessage) tx.displayMessage = relabelForDelivery(tx, tx.displayMessage);
+    return undefined;
   });
-  countNoteDeliveryWrite();
+  if (wrote) countNoteDeliveryWrite();
 };
 
 /**
