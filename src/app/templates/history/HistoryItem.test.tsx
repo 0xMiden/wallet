@@ -456,8 +456,8 @@ describe('HistoryItem', () => {
         expect(line).not.toHaveClass('leading-none');
       }
       const column = lines[0]?.parentElement;
-      expect(column).toHaveClass('min-w-0', 'max-w-1/2');
-      expect(column).not.toHaveClass('shrink-0');
+      expect(column).toHaveClass('shrink-0', 'max-w-1/2');
+      expect(column).not.toHaveClass('min-w-0');
     };
 
     it('keeps a send row amount and token inside the row, beside its title', () => {

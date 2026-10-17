@@ -474,8 +474,8 @@ describe('ActivityRow', () => {
     expect(line).not.toContainElement(status);
     const column = line.parentElement;
     expect(column).toContainElement(status);
-    expect(column).toHaveClass('min-w-0', 'max-w-1/2');
-    expect(column).not.toHaveClass('shrink-0');
+    expect(column).toHaveClass('shrink-0', 'max-w-1/2');
+    expect(column).not.toHaveClass('min-w-0');
   });
 });
 
