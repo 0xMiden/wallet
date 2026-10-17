@@ -1919,6 +1919,88 @@ describe('doSync - zero-fill swap reclaim', () => {
       expect(isSyncFused('swap-zero-fill-build')).toBe(true);
       expect(isSyncFused('claimable-notes')).toBe(true);
     });
+
+    // Laps over `orders`, whose realm answers each cancel-request build with `build`; `afterLap` lets a parked build go.
+    const zeroFillLaps = async (
+      laps: number,
+      build: jest.Mock,
+      orders: ITransaction[] = [zeroFillOrderRow],
+      lineages: unknown[] = [zeroFillLineage],
+      afterLap: () => void = () => undefined
+    ) => {
+      const realmClient = {
+        ...mockClient,
+        client: { pswap: { lineages: async () => lineages } },
+        buildPswapCancelRequest: build
+      };
+      mockGetMidenClient.mockImplementation(async () => realmClient);
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+      for (const order of orders) await Repo.transactions.put(order);
+      try {
+        for (let i = 0; i < laps; i++) {
+          await doSync();
+          afterLap();
+          await new Promise(resolve => setTimeout(resolve, 0));
+        }
+      } finally {
+        mockGetMidenClient.mockImplementation(async () => mockClient);
+        await Repo.transactions.clear();
+        warn.mockRestore();
+      }
+    };
+
+    it('books no success from the build before one refused on the data after its eviction, so laps light the key', async () => {
+      for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS - 1; i++) noteSyncWatchdogEviction('claimable-notes');
+      const secondOrderRow: ITransaction = {
+        ...zeroFillOrderRow,
+        id: 'swap-2',
+        outputNoteIds: ['second-tip'],
+        extraInputs: { ...zeroFillOrderRow.extraInputs, orderId: '88' }
+      };
+      const secondLineage = { ...zeroFillLineage, orderId: () => '88', currentTipNoteId: () => 'second-tip' };
+      let refuse = (): void => undefined;
+      const build = jest.fn((_accountId: string, noteId: string) => {
+        if (noteId === 'zero-fill-tip') return Promise.resolve(reclaimBytes);
+        watchdogEvictSwLockHold!();
+        return new Promise<Uint8Array>((_resolve, reject) => {
+          refuse = () => reject(new Error('note not found'));
+        });
+      });
+      const orders = [zeroFillOrderRow, secondOrderRow];
+      const lineages = [zeroFillLineage, secondLineage];
+
+      await zeroFillLaps(MAX_CONSECUTIVE_WATCHDOG_EVICTIONS - 1, build, orders, lineages, () => refuse());
+      expect(isSyncFused('swap-zero-fill-build')).toBe(false);
+      await zeroFillLaps(1, build, orders, lineages, () => refuse());
+
+      expect(build).toHaveBeenCalledTimes(2 * MAX_CONSECUTIVE_WATCHDOG_EVICTIONS);
+      expect(isSyncFused('swap-zero-fill-build')).toBe(true);
+      expect(mockInitiatePswapReclaim).not.toHaveBeenCalled();
+      expect(isSyncFused('claimable-notes')).toBe(false);
+      noteSyncWatchdogEviction('claimable-notes');
+      expect(isSyncFused('claimable-notes')).toBe(true);
+    });
+
+    it('books a build evicted in the tick it is refused on the data on its own key, not on claimable-notes', async () => {
+      for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS - 1; i++) {
+        noteSyncWatchdogEviction('swap-zero-fill-build');
+        noteSyncWatchdogEviction('claimable-notes');
+      }
+      // Queued, not run in the call: the proxy's hop delays the refusal, and an eviction run in the call would reach
+      // the hold's handler before the refusal reaches the build's catch.
+      const refused = jest.fn(() => {
+        queueMicrotask(() => watchdogEvictSwLockHold!());
+        return Promise.reject(new Error('note not found'));
+      });
+
+      await zeroFillLaps(1, refused);
+
+      expect(refused).toHaveBeenCalledTimes(1);
+      expect(isSyncFused('swap-zero-fill-build')).toBe(true);
+      expect(isSyncFused('claimable-notes')).toBe(false);
+      noteSyncWatchdogEviction('claimable-notes');
+      expect(isSyncFused('claimable-notes')).toBe(true);
+    });
   });
 });
 

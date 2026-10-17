@@ -990,6 +990,64 @@ describe('swap order note settlement', () => {
       }
     );
 
+    it('keeps the eviction of a build refused on the data after it, with no success from the build before', async () => {
+      for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS - 1; i++) noteSyncWatchdogEviction('claimable-notes');
+      toArray.mockResolvedValue([
+        tx({ outputNoteIds: ['zero-fill-tip'] }),
+        tx({ id: 'swap-2', outputNoteIds: ['second-tip'], extraInputs: { ...tx().extraInputs, orderId: 88n } })
+      ]);
+      jest
+        .mocked(midenClientProxy.getPswapLineages)
+        .mockResolvedValue([zeroFillLineage('zero-fill-tip'), { ...zeroFillLineage('second-tip'), orderId: '88' }]);
+      const passRefusedAfterEviction = async () => {
+        let refuse = (): void => undefined;
+        jest.mocked(midenClientProxy.buildPswapCancelRequest).mockImplementation((_accountId, noteId) => {
+          if (noteId === 'zero-fill-tip') return Promise.resolve(new Uint8Array([1, 4, 7, 6]));
+          evictCurrentHold!();
+          return new Promise<Uint8Array>((_resolve, reject) => {
+            refuse = () => reject(new Error('note not found'));
+          });
+        });
+        await expect(settleSwapOrders('account-1')).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
+        refuse();
+        await flushAbandonedCallback();
+      };
+
+      for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS - 1; i++) await passRefusedAfterEviction();
+      expect(isSyncFused(ZERO_FILL_BUILD)).toBe(false);
+      await passRefusedAfterEviction();
+
+      expect(midenClientProxy.buildPswapCancelRequest).toHaveBeenCalledTimes(2 * MAX_CONSECUTIVE_WATCHDOG_EVICTIONS);
+      expect(isSyncFused(ZERO_FILL_BUILD)).toBe(true);
+      expect(warn).not.toHaveBeenCalledWith(
+        '[Swap] Could not prepare zero-fill reclaim for order 88:',
+        expect.any(Error)
+      );
+      expect(isSyncFused('claimable-notes')).toBe(false);
+      noteSyncWatchdogEviction('claimable-notes');
+      expect(isSyncFused('claimable-notes')).toBe(true);
+    });
+
+    it('books a build evicted in the tick it is refused on the data on its own key, not on claimable-notes', async () => {
+      for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS - 1; i++) {
+        noteSyncWatchdogEviction(ZERO_FILL_BUILD);
+        noteSyncWatchdogEviction('claimable-notes');
+      }
+      // The refusal reaches the build's catch before the eviction reaches the hold's handler.
+      jest.mocked(midenClientProxy.buildPswapCancelRequest).mockImplementation(() => {
+        evictCurrentHold!();
+        return Promise.reject(new Error('note not found'));
+      });
+
+      await expect(settleSwapOrders('account-1')).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
+      await flushAbandonedCallback();
+
+      expect(isSyncFused(ZERO_FILL_BUILD)).toBe(true);
+      expect(isSyncFused('claimable-notes')).toBe(false);
+      noteSyncWatchdogEviction('claimable-notes');
+      expect(isSyncFused('claimable-notes')).toBe(true);
+    });
+
     it('books a hold evicted during the note read on claimable-notes only', async () => {
       for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS - 1; i++) {
         noteSyncWatchdogEviction(ZERO_FILL_BUILD);
