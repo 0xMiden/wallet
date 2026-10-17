@@ -31,6 +31,7 @@
 ### Changes
 
 - [CHANGE][ci] The dApp E2E harness also checks transaction scripts the dApp compiles itself on single-sig and Guardian accounts: a payment through the basic wallet, one that first checks its script argument and an advice value, and a fee-only script.
+- [CHANGE][ci] The dApp E2E harness also drives the wallet through the published React adapter on single-sig and Guardian accounts: a React page on its own origin, on React 18.2 loaded without a bundler, wraps the dApp in WalletProvider and MidenFiSignerProvider and checks select, connect, auto-connect, disconnect, the React layer's own refusals, account switches and revokes, a send to the end, the MidenFi signer client and signature, and the createAccount refusal.
 
 ## 1.17.4 (2026-10-15)
 
