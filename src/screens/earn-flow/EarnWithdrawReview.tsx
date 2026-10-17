@@ -19,17 +19,34 @@ import { truncateAddress } from 'utils/string';
 import { EarnAmountUnit, EarnAssetMark, EarnHero, EarnSubjectSubtitle, earnSubjectTitle } from './components';
 import { EARN_PLACEHOLDER, placeholderPosition } from './earn-mapping';
 import { EarnLoadError } from './EarnLoadError';
+import { EarnPosition } from './types';
 import { earnItemLoadState, useEarnPositions } from './useEarnPositions';
 
 interface EarnWithdrawReviewProps {
   positionId: string;
 }
 
+/** Whether two reads of a position agree on every value its withdrawal quote reviews. */
+const sameReviewedPosition = (a: EarnPosition | undefined, b: EarnPosition | undefined) =>
+  a === b ||
+  (a !== undefined &&
+    b !== undefined &&
+    a.id === b.id &&
+    a.owner === b.owner &&
+    a.marketUid === b.marketUid &&
+    a.underlyingAddress === b.underlyingAddress &&
+    a.decimals === b.decimals &&
+    a.withdrawable === b.withdrawable &&
+    a.stale === b.stale);
+
 /** Review the selected amount against its quote. A URL without an amount goes back to the amount step. */
 const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
   const { t } = useTranslation();
   const { positions, isLoading, error, refetch } = useEarnPositions();
   const found = useMemo(() => positions.find(item => item.id === positionId), [positions, positionId]);
+  // Every positions refresh rebuilds the object, so the quote keeps the reviewed read until a reviewed value changes.
+  const [reviewed, setReviewed] = useState(found);
+  if (!sameReviewedPosition(reviewed, found)) setReviewed(found);
   const position = useMemo(() => found ?? placeholderPosition(), [found]);
   const { loadFailed, pending } = earnItemLoadState(found, { isLoading, error });
   const account = useAccount();
@@ -47,8 +64,8 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
     let timer: ReturnType<typeof setTimeout> | undefined;
     setQuote(undefined);
     setQuoteError(undefined);
-    if (found && !found.stale && !validation) {
-      void quoteEarnWithdrawal({ position: found, amount, accountId: account.publicKey })
+    if (reviewed && !reviewed.stale && !validation) {
+      void quoteEarnWithdrawal({ position: reviewed, amount, accountId: account.publicKey })
         .then(next => {
           if (!active) return;
           setQuote(next);
@@ -71,7 +88,7 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
       active = false;
       clearTimeout(timer);
     };
-  }, [amount, found, account.publicKey, account.evmAddress, validation, refresh]);
+  }, [amount, reviewed, account.publicKey, account.evmAddress, validation, refresh]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
