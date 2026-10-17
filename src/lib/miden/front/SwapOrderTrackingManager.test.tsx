@@ -531,6 +531,52 @@ describe('SwapOrderTrackingManager', () => {
       expect(mockTrackRecoveredSwapOrders).not.toHaveBeenCalled();
     });
 
+    // The live poll waits on the WASM lock, which a recovered check never takes (#1487).
+    it('publishes a recovered order while the live poll is still out, and starts no second live poll', async () => {
+      mockRows = [recoveredRow('7'), swapRow(9n)];
+      const pending = deferred<Map<string, SwapOrderTracking> | null>();
+      mockTrackSwapOrders.mockReturnValue(pending.promise);
+      mockTrackRecoveredSwapOrders.mockResolvedValue(openOnNode('7'));
+      render(<SwapOrderTrackingManager />);
+      await settleMount();
+
+      expect(useSwapOrderTrackingStore.getState().entries['7']).toEqual({
+        tracking: recoveredTracking('7'),
+        loading: false
+      });
+      await step(6000);
+      expect(mockTrackSwapOrders).toHaveBeenCalledTimes(1);
+
+      pending.resolve(snapshot(activeTracking('9')));
+      await settleMount();
+      expect(useSwapOrderTrackingStore.getState().entries['9']).toEqual({
+        tracking: activeTracking('9'),
+        loading: false
+      });
+      await step(2000);
+      expect(mockTrackSwapOrders).toHaveBeenCalledTimes(2);
+    });
+
+    it('keeps the live poll on its 2s watch while a recovered check is out, and starts no second check', async () => {
+      mockRows = [recoveredRow('7'), swapRow(9n)];
+      const pending = deferred<Map<string, unknown>>();
+      mockTrackRecoveredSwapOrders.mockReturnValue(pending.promise);
+      mockTrackSwapOrders.mockResolvedValue(snapshot(activeTracking('9')));
+      render(<SwapOrderTrackingManager />);
+      await settleMount();
+      await step(6000);
+
+      expect(mockTrackSwapOrders).toHaveBeenCalledTimes(4);
+      expect(mockTrackRecoveredSwapOrders).toHaveBeenCalledTimes(1);
+
+      pending.resolve(openOnNode('7'));
+      await settleMount();
+      expect(useSwapOrderTrackingStore.getState().entries['7']).toEqual({
+        tracking: recoveredTracking('7'),
+        loading: false
+      });
+    });
+
     it('keeps tracking recovered orders from the node while the lineage probe is fused', async () => {
       for (let i = 0; i < 4; i += 1) noteSyncWatchdogEviction('swap-order-tracking');
       mockRows = [recoveredRow('7'), swapRow(9n)];

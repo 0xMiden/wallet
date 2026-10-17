@@ -6,7 +6,11 @@ import { closeRecoveredSwapOrder, trackRecoveredSwapOrders } from './recovered-o
 const mockEnsureSdkWasmReady = jest.fn(async () => undefined);
 const mockReadPswapOrderLineage = jest.fn();
 const mockWhere = jest.fn();
+const RPC_A = 'https://rpc-a.example';
+const RPC_B = 'https://rpc-b.example';
+let mockRpcUrl = RPC_A;
 jest.mock('lib/miden-chain/constants', () => ({ ensureSdkWasmReady: () => mockEnsureSdkWasmReady() }));
+jest.mock('lib/miden-chain/effective-endpoints', () => ({ getEffectiveRpcUrl: () => mockRpcUrl }));
 jest.mock('lib/miden/sdk/pswap-order-note', () => ({
   readPswapOrderLineage: (...args: unknown[]) => mockReadPswapOrderLineage(...args)
 }));
@@ -81,6 +85,7 @@ const openLineage = (noteId: string, depth: number, offeredAmount: bigint, reque
 beforeEach(() => {
   jest.clearAllMocks();
   jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+  mockRpcUrl = RPC_A;
   linkedConsumes = [];
   modifyRecipes.length = 0;
   swapRow = { id: 'swap-42', type: 'swap', extraInputs: { orderId: '42', expiryTriggeredAt: 150 } };
@@ -108,6 +113,7 @@ afterEach(() => {
 
 describe('trackRecoveredSwapOrders', () => {
   it('reads an unspent order note as an open order at depth 0 with nothing filled', async () => {
+    swapRow = openRecoveredRow();
     mockReadPswapOrderLineage.mockResolvedValue(openLineage('note-42', 0, 70n, 30n));
 
     const results = await trackRecoveredSwapOrders([ref()]);
@@ -117,7 +123,20 @@ describe('trackRecoveredSwapOrders', () => {
       kind: 'open',
       tracking: { orderId: '42', state: 'active', currentDepth: 0, remainingOffered: 70n, remainingRequested: 30n }
     });
-    expect(modifyRecipes).toHaveLength(0);
+    expect(swapRow.extraInputs).toEqual(openRecoveredRow().extraInputs);
+  });
+
+  it('reports no open order at depth 0 over a row a finished read closed while it was in flight', async () => {
+    swapRow = openRecoveredRow();
+    mockReadPswapOrderLineage.mockImplementation(async () => {
+      swapRow = openRecoveredRow({ orderNoteSpentAt: 160, lineageClosedAt: 160 });
+      return openLineage('note-42', 0, 70n, 30n);
+    });
+
+    const results = await trackRecoveredSwapOrders([ref()]);
+
+    expect(results.has('42')).toBe(false);
+    expect(swapRow.extraInputs).toEqual(openRecoveredRow({ orderNoteSpentAt: 160, lineageClosedAt: 160 }).extraInputs);
   });
 
   // A partial fill spends the order note and leaves the unfilled offer in a remainder, which only this account can
@@ -138,21 +157,27 @@ describe('trackRecoveredSwapOrders', () => {
   });
 
   it('writes nothing when the row already records that remainder', async () => {
+    const recorded = { recoveredTip: { noteId: 'remainder-1', depth: 1, remainingOffered: 40n } };
+    swapRow = openRecoveredRow(recorded);
     mockReadPswapOrderLineage.mockResolvedValue(openLineage('remainder-1', 1, 40n, 10n));
 
-    await trackRecoveredSwapOrders([ref('42', { tipNoteId: 'remainder-1', tipDepth: 1, tipOfferedAmount: 40n })]);
+    const results = await trackRecoveredSwapOrders([
+      ref('42', { tipNoteId: 'remainder-1', tipDepth: 1, tipOfferedAmount: 40n })
+    ]);
 
-    expect(modifyRecipes).toHaveLength(0);
+    expect(results.get('42')).toEqual(expect.objectContaining({ kind: 'open' }));
+    expect(swapRow.extraInputs).toEqual(openRecoveredRow(recorded).extraInputs);
   });
 
-  it('records no remainder over a row its lineage has closed since it was read', async () => {
+  it('records no remainder, and reports no open order, over a row its lineage has closed since it was read', async () => {
     swapRow = openRecoveredRow({ settledAt: 160, lineageClosedAt: 160 });
     mockReadPswapOrderLineage.mockResolvedValue(openLineage('remainder-1', 1, 40n, 10n));
 
-    await trackRecoveredSwapOrders([ref()]);
+    const results = await trackRecoveredSwapOrders([ref()]);
 
     expect(modifyRecipes[0]?.(openRecoveredRow({ settledAt: 160, lineageClosedAt: 160 }))).toBe(false);
     expect(swapRow.extraInputs?.recoveredTip).toBeUndefined();
+    expect(results.has('42')).toBe(false);
   });
 
   it('closes an order the node shows finished, with no remainder left, recording it as spent', async () => {
@@ -179,6 +204,7 @@ describe('trackRecoveredSwapOrders', () => {
   });
 
   it('reads the next order when one read fails, leaving the failed one unresolved', async () => {
+    swapRow = openRecoveredRow();
     mockReadPswapOrderLineage
       .mockRejectedValueOnce(new Error('node unreachable'))
       .mockResolvedValueOnce(openLineage('note-43', 0, 70n, 30n));
@@ -198,6 +224,46 @@ describe('trackRecoveredSwapOrders', () => {
 
     await trackRecoveredSwapOrders([ref('42'), ref('43')]);
     expect(mockEnsureSdkWasmReady).toHaveBeenCalledTimes(1);
+  });
+
+  describe('a read whose node the wallet left while it was in flight', () => {
+    const answerThenSwitch = (answer: unknown) =>
+      mockReadPswapOrderLineage.mockImplementation(async () => {
+        mockRpcUrl = RPC_B;
+        return answer;
+      });
+
+    it('closes nothing on a finished answer, leaving the order tracked', async () => {
+      swapRow = openRecoveredRow();
+      answerThenSwitch({ kind: 'finished' });
+
+      const results = await trackRecoveredSwapOrders([ref()]);
+
+      expect(results.has('42')).toBe(false);
+      expect(swapRow.extraInputs).toEqual(openRecoveredRow().extraInputs);
+    });
+
+    it('closes the order on the same answer from a node that is still the effective one', async () => {
+      swapRow = openRecoveredRow();
+      mockReadPswapOrderLineage.mockResolvedValue({ kind: 'finished' });
+
+      const results = await trackRecoveredSwapOrders([ref()]);
+
+      expect(results.get('42')).toEqual({ kind: 'closed' });
+      expect(swapRow.extraInputs).toEqual(
+        expect.objectContaining({ orderNoteSpentAt: expect.any(Number), lineageClosedAt: expect.any(Number) })
+      );
+    });
+
+    it('clears no closure stamp and records no remainder on an open answer', async () => {
+      swapRow = openRecoveredRow({ settledAt: 160 });
+      answerThenSwitch(openLineage('remainder-1', 1, 40n, 10n));
+
+      const results = await trackRecoveredSwapOrders([ref('42', { provisionalClosure: true })]);
+
+      expect(results.has('42')).toBe(false);
+      expect(swapRow.extraInputs).toEqual(openRecoveredRow({ settledAt: 160 }).extraInputs);
+    });
   });
 
   // The pre-fix recovery reconcile stamped settledAt or reclaimedAt from a linked payout or reclaim with no lineage
@@ -300,14 +366,14 @@ describe('closeRecoveredSwapOrder', () => {
   ])('records nothing while a %s consume of this wallet may be what spent the note', async (_label, status) => {
     linkedConsumes = [consume(status, 'reclaim')];
 
-    await expect(closeRecoveredSwapOrder('swap-42', NOW)).resolves.toBe(false);
+    await expect(closeRecoveredSwapOrder('swap-42', NOW, RPC_A)).resolves.toBe(false);
     expect(modifyRecipes).toHaveLength(0);
   });
 
   it("records this wallet's completed reclaim as the reclaim, at its completion", async () => {
     linkedConsumes = [consume(ITransactionStatus.Completed, 'reclaim', NOW - 30)];
 
-    await expect(closeRecoveredSwapOrder('swap-42', NOW)).resolves.toBe(true);
+    await expect(closeRecoveredSwapOrder('swap-42', NOW, RPC_A)).resolves.toBe(true);
     expect(swapRow.extraInputs).toEqual({
       orderId: '42',
       expiryTriggeredAt: 150,
@@ -322,7 +388,7 @@ describe('closeRecoveredSwapOrder', () => {
       consume(ITransactionStatus.Completed, 'settle', NOW - 20)
     ];
 
-    await closeRecoveredSwapOrder('swap-42', NOW);
+    await closeRecoveredSwapOrder('swap-42', NOW, RPC_A);
     expect(swapRow.extraInputs).toEqual({
       orderId: '42',
       expiryTriggeredAt: 150,
@@ -334,7 +400,7 @@ describe('closeRecoveredSwapOrder', () => {
   it('records the note spent elsewhere when only failed consumes of this wallet exist', async () => {
     linkedConsumes = [consume(ITransactionStatus.Failed, 'reclaim', NOW - 30)];
 
-    await closeRecoveredSwapOrder('swap-42', NOW);
+    await closeRecoveredSwapOrder('swap-42', NOW, RPC_A);
     expect(swapRow.extraInputs).toEqual({
       orderId: '42',
       expiryTriggeredAt: 150,
@@ -346,7 +412,7 @@ describe('closeRecoveredSwapOrder', () => {
   it('counts only consume rows linked to the order', async () => {
     linkedConsumes = [{ ...consume(ITransactionStatus.Queued, 'reclaim'), type: 'send' }];
 
-    await expect(closeRecoveredSwapOrder('swap-42', NOW)).resolves.toBe(true);
+    await expect(closeRecoveredSwapOrder('swap-42', NOW, RPC_A)).resolves.toBe(true);
     expect(swapRow.extraInputs).toEqual({
       orderId: '42',
       expiryTriggeredAt: 150,
@@ -355,10 +421,17 @@ describe('closeRecoveredSwapOrder', () => {
     });
   });
 
+  it('records nothing once the node the walk read is no longer the effective one', async () => {
+    mockRpcUrl = RPC_B;
+
+    await expect(closeRecoveredSwapOrder('swap-42', NOW, RPC_A)).resolves.toBe(false);
+    expect(swapRow.extraInputs).toEqual({ orderId: '42', expiryTriggeredAt: 150 });
+  });
+
   it('writes nothing over a row that is not a swap', async () => {
     swapRow = { id: 'swap-42', type: 'send', extraInputs: {} };
 
-    await closeRecoveredSwapOrder('swap-42', NOW);
+    await closeRecoveredSwapOrder('swap-42', NOW, RPC_A);
     expect(modifyRecipes[0]?.({ id: 'swap-42', type: 'send', extraInputs: {} })).toBe(false);
     expect(swapRow.extraInputs).toEqual({});
   });

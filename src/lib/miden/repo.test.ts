@@ -2,7 +2,7 @@ import Dexie, { DBCore, Middleware } from 'dexie';
 
 import { deriveSwapReceipt } from 'app/templates/history/swapReceipt';
 
-import { ITransaction, ITransactionStatus } from './db/types';
+import { ISwapExtraInputs, ITransaction, ITransactionStatus } from './db/types';
 import {
   createSchemaFor,
   db,
@@ -16,7 +16,7 @@ import {
   SPENDING_LIMITS_V17_STORE,
   SPENDING_LIMITS_V19_STORE
 } from './repo';
-import { isOpenRecoveredOrder, isRecoveredReturnOrder } from './swap/recovered-order';
+import { isOpenRecoveredOrder, isRecoveredReturnOrder, recoveredSwapOrderRef } from './swap/recovered-order';
 import { isRequeueableTransaction } from './transaction/retry';
 import { NoteTypeEnum } from './types';
 
@@ -495,49 +495,53 @@ describe('miden repo export/import', () => {
     expect(restored!.extraInputs).toEqual({ orderId: '42', autoConsume: true, expiresAt: 150 });
   });
 
+  const recoveredOrderRow = (extraInputs: Partial<ISwapExtraInputs>): ITransaction => ({
+    id: 'recovered-order',
+    type: 'swap',
+    status: ITransactionStatus.Completed,
+    accountId: 'acc1',
+    initiatedAt: 1,
+    completedAt: 2,
+    displayIcon: 'DEFAULT',
+    amount: 70n,
+    outputNoteIds: ['order-note'],
+    restoredFromBackup: true,
+    recovered: true,
+    recovery: {
+      version: 5,
+      network: 'testnet',
+      operators: [],
+      nonce: 2,
+      inputNotes: [],
+      outputNotes: [
+        {
+          id: 'order-note',
+          assets: [],
+          visibility: 'public',
+          swap: { orderId: '42', requestedAsset: { faucetId: 'requested', amount: '30' } }
+        }
+      ],
+      completeness: 'decoded',
+      reclaimed: false
+    },
+    extraInputs: {
+      orderId: '42',
+      requestedFaucetId: 'requested',
+      requestedAmount: 30n,
+      autoConsume: false,
+      ...extraInputs
+    }
+  });
+
   // A backup cut between a recovered order's Cancel and its reclaim carries the stamp and the expiry that Cancel
   // moved to the press (recovery writes none). Dropping only the stamp left the expiry lapsed, so the importing device
   // showed the return as pending, offered no Cancel and never acted on it. The import returns the order to open.
   it('imports a cancelled recovered order open again, with Cancel on offer', async () => {
-    const recoveredOrder: ITransaction = {
-      id: 'recovered-order',
-      type: 'swap',
-      status: ITransactionStatus.Completed,
-      accountId: 'acc1',
-      initiatedAt: 1,
-      completedAt: 2,
-      displayIcon: 'DEFAULT',
-      amount: 70n,
-      outputNoteIds: ['order-note'],
-      restoredFromBackup: true,
-      recovered: true,
-      recovery: {
-        version: 5,
-        network: 'testnet',
-        operators: [],
-        nonce: 2,
-        inputNotes: [],
-        outputNotes: [
-          {
-            id: 'order-note',
-            assets: [],
-            visibility: 'public',
-            swap: { orderId: '42', requestedAsset: { faucetId: 'requested', amount: '30' } }
-          }
-        ],
-        completeness: 'decoded',
-        reclaimed: false
-      },
-      extraInputs: {
-        orderId: '42',
-        requestedFaucetId: 'requested',
-        requestedAmount: 30n,
-        autoConsume: false,
-        expiresAt: 150,
-        expiryTriggeredAt: 150,
-        recoveredTip: { noteId: 'remainder-note', depth: 1, remainingOffered: 20n }
-      }
-    };
+    const recoveredOrder = recoveredOrderRow({
+      expiresAt: 150,
+      expiryTriggeredAt: 150,
+      recoveredTip: { noteId: 'remainder-note', depth: 1, remainingOffered: 20n }
+    });
     await transactions.bulkAdd([recoveredOrder]);
     const backup = await exportDb();
     await transactions.clear();
@@ -564,6 +568,28 @@ describe('miden repo export/import', () => {
     expect(receipt.offerCancel).toBe(true);
   });
 
+  // `lineageClosedAt` is what makes a recovered order's closure final, so a backup carrying it closed an order its node
+  // may still hold open, with no read of the node (#1487).
+  it('imports a recovered order without its lineage close record, tracked until its next read', async () => {
+    await transactions.bulkAdd([recoveredOrderRow({ settledAt: 160, lineageClosedAt: 160 })]);
+    const backup = await exportDb();
+    await transactions.clear();
+
+    await importDb(backup);
+
+    const [restored] = await transactions.toArray();
+    expect(restored!.extraInputs).toEqual({
+      orderId: '42',
+      requestedFaucetId: 'requested',
+      requestedAmount: 30n,
+      autoConsume: false,
+      settledAt: 160
+    });
+    expect(recoveredSwapOrderRef(restored!)).toEqual(
+      expect.objectContaining({ txId: 'recovered-order', provisionalClosure: true })
+    );
+  });
+
   it('keeps the expiry of a restored swap that recovery did not rebuild', async () => {
     const dump = JSON.stringify({
       [Table.Transactions]: [
@@ -575,7 +601,13 @@ describe('miden repo export/import', () => {
           initiatedAt: 1,
           completedAt: 2,
           displayIcon: 'DEFAULT',
-          extraInputs: { orderId: '42', expiresAt: 150, recoveredTip: { noteId: 'kept', depth: 1 } }
+          extraInputs: {
+            orderId: '42',
+            expiresAt: 150,
+            settledAt: 160,
+            lineageClosedAt: 160,
+            recoveredTip: { noteId: 'kept', depth: 1 }
+          }
         }
       ]
     });
@@ -586,6 +618,8 @@ describe('miden repo export/import', () => {
     expect(restored!.extraInputs).toEqual({
       orderId: '42',
       expiresAt: 150,
+      settledAt: 160,
+      lineageClosedAt: 160,
       recoveredTip: { noteId: 'kept', depth: 1 }
     });
   });
