@@ -56,13 +56,14 @@ const accountEvidenceKey = (rows: readonly ITransaction[]): string =>
       .map(other => [other.id, evidenceKey(other.submitEvidence)])
   );
 
-/** `entries` with the verdicts and the network marks this judgement decided; never the seen fields. */
+/** `entries` with the verdicts, their rules and the network marks this judgement decided; never the seen fields. */
 export const applyEntryWrites = (entries: readonly ISubmitEvidence[], judgement: RowJudgement): ISubmitEvidence[] =>
   entries.map(entry => {
     const judged = judgement.entries.find(candidate => candidate.attemptId === entry.attemptId);
     if (judged === undefined) return entry;
     const next: ISubmitEvidence = { ...entry };
     if (judged.result === 'never-committed' || judged.result === 'unresolvable') next.verdict = judged.result;
+    if (judged.neverCommittedBy !== undefined) next.neverCommittedBy = judged.neverCommittedBy;
     if (typeof judged.otherNetworkSince === 'number') next.otherNetworkSince = judged.otherNetworkSince;
     if (judged.otherNetworkSince === null) delete next.otherNetworkSince;
     return next;

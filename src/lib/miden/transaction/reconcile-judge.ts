@@ -5,14 +5,11 @@
 import { pipelineMayStillBeRunning } from './cancel';
 import { AccountRead, AccountState, NodeReads, RPC_READ_TIMEOUT_MS } from './reconcile-reads';
 import { isCheckable, isProvable, latestEntry, ProvableEvidence } from './verdict-rules';
-import { ISubmitEvidence, ITransaction, isLiveTransaction } from '../db/types';
+import { ISubmitEvidence, ITransaction, isLiveTransaction, type NeverCommittedBy } from '../db/types';
 import { sameWalletAccountId } from '../sdk/helpers';
 
 /** The node keeps ~50 blocks of account history; a read pinned to a block stops 10 short of losing it. */
 export const BINDING_HISTORY_BLOCKS = 40;
-
-/** Which never-committed row proved an entry dead: row 4, row 5 or row 6. */
-export type NeverCommittedBy = 'expired' | 'superseded' | 'spent_elsewhere';
 
 export type EntryResult =
   | 'landed'
@@ -59,7 +56,7 @@ export interface RowJudgement {
   entries: EntryJudgement[];
   landed?: { attemptId: string; proof: LandingProof; boundTransactionId?: string };
   allDead: boolean;
-  /** On an all-dead row: the rule every entry this pass proved dead shares, or `mixed`. */
+  /** On an all-dead row: the rule its dead attempts share, in this pass or stored by an earlier one, or `mixed`. */
   neverCommittedBy?: NeverCommittedBy | 'mixed';
   /**
    * A landing or candidate note the deferral holds, one found before a header re-read that failed, or a recorded
@@ -420,12 +417,18 @@ export async function judgeSubmitEvidence(row: ITransaction, reads: VerdictReads
     judgedEntries.every(
       entry => entry.preSubmitEnd === true || (isProvable(entry) && verdictOf(entry) === 'never-committed')
     );
-  const rules = [...new Set(entries.flatMap(judgement => judgement.neverCommittedBy ?? []))];
-  const neverCommittedBy: RowJudgement['neverCommittedBy'] = !allDead
-    ? undefined
-    : rules.length > 1
-      ? 'mixed'
-      : rules[0];
+  // An attempt stored dead before the rule was recorded has none, and the row's rule is then not guessed.
+  const rules = new Set(
+    judgedEntries
+      .filter(entry => entry.preSubmitEnd !== true && verdictOf(entry) === 'never-committed')
+      .map(
+        entry =>
+          entries.find(judgement => judgement.attemptId === entry.attemptId)?.neverCommittedBy ?? entry.neverCommittedBy
+      )
+  );
+  const [rule] = rules;
+  const neverCommittedBy: RowJudgement['neverCommittedBy'] =
+    !allDead || rules.has(undefined) ? undefined : rules.size > 1 ? 'mixed' : rule;
   const landingHeld =
     entries.some(judgement => judgement.result === 'deferred' || judgement.landingSuspected === true) ||
     entries.some(
