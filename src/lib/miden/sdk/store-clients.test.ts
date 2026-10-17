@@ -5,8 +5,9 @@ import ts from 'typescript';
 /**
  * Where the wallet builds clients on the SDK's IndexedDB store (#1493). `miden-client-interface.ts` builds each realm's
  * client and its realm reader (`getRealmReaderClient`), which only reads, apart from the genesis header its first build
- * may store; no other wallet source builds one, and the wallet does not depend on the React SDK, whose `MidenProvider`
- * built a client of its own and synced it on every page open.
+ * may store; no other wallet source builds one, and no wallet source depends on the React SDK, whose `MidenProvider`
+ * built a client of its own and synced it on every page open. Only the test dApp's React page loads it, on its own
+ * origin.
  *
  * A sync on one client interleaved with a note import on another can leave a tracked block header whose MMR path is
  * too short for the checkpoint, and every later sync and import then fails. This scan sees constructors written in
@@ -84,6 +85,34 @@ function openersIn(source: string, fileName = 'inline.ts'): string[] {
   };
   visit(file);
   return found.sort();
+}
+
+const REACT_SDK = '@miden-sdk/react';
+const isReactSdk = (specifier: string) => specifier === REACT_SDK || specifier.startsWith(`${REACT_SDK}/`);
+
+/** Whether `source` imports the React SDK by a static import, a re-export, a dynamic `import()` or a `require`. */
+function reactSdkImportsIn(source: string, fileName = 'inline.ts'): boolean {
+  const file = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true, scriptKindFor(fileName));
+  let found = false;
+  const visit = (node: ts.Node) => {
+    if (
+      (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) &&
+      node.moduleSpecifier !== undefined &&
+      ts.isStringLiteral(node.moduleSpecifier) &&
+      isReactSdk(node.moduleSpecifier.text)
+    ) {
+      found = true;
+    } else if (ts.isCallExpression(node)) {
+      const callee = node.expression;
+      const loads =
+        callee.kind === ts.SyntaxKind.ImportKeyword || (ts.isIdentifier(callee) && callee.text === 'require');
+      const [argument] = node.arguments;
+      if (loads && argument !== undefined && ts.isStringLiteral(argument) && isReactSdk(argument.text)) found = true;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(file);
+  return found;
 }
 
 const SOURCES = fs
@@ -179,9 +208,25 @@ describe('clients on the SDK store', () => {
     });
   });
 
-  it('does not depend on the React SDK, whose provider builds and syncs a client of its own', () => {
+  it.each([
+    ['a static import', "import { MidenProvider } from '@miden-sdk/react';", true],
+    ['a side-effect import', "import '@miden-sdk/react';", true],
+    ['a subpath import', "import x from '@miden-sdk/react/dist/x';", true],
+    ['a re-export', "export { MidenProvider } from '@miden-sdk/react';", true],
+    ['a star re-export', "export * from '@miden-sdk/react';", true],
+    ['a dynamic import', "const m = await import('@miden-sdk/react');", true],
+    ['a require', "const m = require('@miden-sdk/react');", true],
+    ['another package of the scope', "import { MidenClient } from '@miden-sdk/miden-sdk';", false],
+    ['a package that only shares the prefix', "import x from '@miden-sdk/react-native';", false],
+    ['a comment and a string', "// import '@miden-sdk/react';\nconst s = \"from '@miden-sdk/react'\";", false]
+  ])('reads %s of the React SDK', (_name, source, imports) => {
+    expect(reactSdkImportsIn(source)).toBe(imports);
+  });
+
+  it('has no wallet source depend on the React SDK, whose provider builds and syncs a client of its own', () => {
     const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
     expect(manifest.dependencies).not.toHaveProperty(['@miden-sdk/react']);
-    expect(manifest.devDependencies ?? {}).not.toHaveProperty(['@miden-sdk/react']);
+    const importers = SOURCES.filter(file => reactSdkImportsIn(fs.readFileSync(path.join(SRC, file), 'utf8'), file));
+    expect(importers).toEqual([]);
   });
 });
