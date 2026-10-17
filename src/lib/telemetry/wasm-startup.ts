@@ -18,10 +18,17 @@ export type WasmStartupEvidence = {
 const probed = new WeakSet<object>();
 
 function probeSharedMemory(): (typeof SHARED_MEMORY_PROBES)[number] {
-  if (globalThis.crossOriginIsolated !== true) return 'unavailable';
+  if (globalThis.crossOriginIsolated !== true || typeof SharedArrayBuffer !== 'function') return 'unavailable';
+  let memory: WebAssembly.Memory;
   try {
     // The shape the SDK's glue builds, at its maximum.
-    new WebAssembly.Memory({ initial: 1, maximum: 65536, shared: true }).grow(1);
+    memory = new WebAssembly.Memory({ initial: 1, maximum: 65536, shared: true });
+  } catch {
+    // Not one this realm can build at all, so it says nothing about a grow.
+    return 'unavailable';
+  }
+  try {
+    memory.grow(1);
     return 'grew';
   } catch {
     return 'refused';
