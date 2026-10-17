@@ -84,18 +84,21 @@ const outputNoteIdsOf = (row: ITransaction): string[] => row.outputNoteIds ?? []
  * Read one lineage snapshot and prepare the one class of settlement request
  * that cannot be built from consumable input notes: an expired, still-active,
  * zero-fill order whose depth-0 tip remains in the creator's output-note store.
+ * `prepareReclaims` false skips that request for a caller that queues no reclaim
+ * this pass (the service worker while the vault is locked).
  */
 export async function classifySwapSettlementSnapshot(
   notes: ConsumableNoteDto[],
   accountId: string,
   orders: SwapOrder[],
   hold: WasmLockHold,
-  nowSeconds: number = Math.floor(Date.now() / 1000)
+  nowSeconds: number = Math.floor(Date.now() / 1000),
+  prepareReclaims = true
 ): Promise<SwapSettlementSnapshot> {
   const snapshot = await classifySwapOrderSnapshot(notes, accountId, orders, hold);
   const zeroFillReclaims = new Map<string, PreparedPswapReclaim>();
   // A fused build leaves the orders to a later pass; the notes are classified all the same.
-  if (isRotationPendingAccount(accountId) || isSyncFused(ZERO_FILL_BUILD_FUSE_KEY)) {
+  if (!prepareReclaims || isRotationPendingAccount(accountId) || isSyncFused(ZERO_FILL_BUILD_FUSE_KEY)) {
     return { classified: snapshot.notes, zeroFillReclaims };
   }
 
@@ -214,6 +217,9 @@ async function stampExpiryIntent(order: SwapOrder, nowSeconds: number): Promise<
  * The single guard site for both callers (the service worker's inline call and
  * `settleSwapOrders` below): a rotation-pending account's orders are left untouched
  * until the flag clears, whichever caller reached here.
+ *
+ * `canSign` is the service worker's: the queue asks it right before each claim row
+ * it writes, and a refusal ends the pass with `ClaimInsertRefusedError`.
  */
 export async function reconcileSwapOrderNotes(
   accountId: string,
@@ -221,7 +227,8 @@ export async function reconcileSwapOrderNotes(
   delegateTransaction?: boolean,
   nowSeconds: number = Math.floor(Date.now() / 1000),
   preloadedOrders?: SwapOrder[],
-  zeroFillReclaims: Map<string, PreparedPswapReclaim> = new Map()
+  zeroFillReclaims: Map<string, PreparedPswapReclaim> = new Map(),
+  canSign?: () => boolean
 ): Promise<SwapSettlementResult> {
   if (isRotationPendingAccount(accountId)) {
     return { queuedTransactionIds: [], managedNoteIds: new Set() };
@@ -263,7 +270,8 @@ export async function reconcileSwapOrderNotes(
           reclaimNote,
           prepared.requestBytes,
           order.id,
-          delegate
+          delegate,
+          canSign
         );
         managedNoteIds.add(prepared.noteId);
         queuedTransactionIds.push(txId);
@@ -340,7 +348,15 @@ export async function reconcileSwapOrderNotes(
       // a trickle of fills costs one fee per lap rather than one per note. What
       // remains is that one lap's fee can exceed a very small fill, which is the
       // price of settling promptly on funds the user is owed.
-      const txId = await initiateConsumeNotesTransaction(accountId, batch, delegate);
+      const txId = await initiateConsumeNotesTransaction(
+        accountId,
+        batch,
+        delegate,
+        undefined,
+        undefined,
+        undefined,
+        canSign
+      );
       // A batch of payback notes delivered funds — it settles (Confirmed), it
       // doesn't reclaim. A tip-only batch is the unfilled remainder coming back.
       // Partial fills stay lineage-'active' until expiry, so this same-tick pair
@@ -369,10 +385,11 @@ export async function reconcileSwapOrderNotes(
   return { queuedTransactionIds, managedNoteIds };
 }
 
-/** Read the SDK records, attach lineage metadata, and run one settlement tick. */
+/** Read the SDK records, attach lineage metadata, and run one settlement tick. `canSign` is handed to every claim. */
 export async function settleSwapOrders(
   accountId: string,
-  delegateTransaction?: boolean
+  delegateTransaction?: boolean,
+  canSign?: () => boolean
 ): Promise<SwapSettlementResult> {
   // Cheap Dexie-only gate: this runs on a 3s frontend interval, so don't
   // touch the WASM client (lock acquisition + full consumable-notes read)
@@ -463,6 +480,7 @@ export async function settleSwapOrders(
     delegateTransaction,
     nowSeconds,
     orders,
-    settlementSnapshot.zeroFillReclaims
+    settlementSnapshot.zeroFillReclaims,
+    canSign
   );
 }

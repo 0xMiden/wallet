@@ -107,6 +107,7 @@ import { commitmentToHex } from 'lib/secure-hot-key/commitment';
 import { DEFAULT_DELEGATE_PROOF } from 'lib/settings/constants';
 import { b64ToU8, bytesToHex, u8ToB64 } from 'lib/shared/helpers';
 import { GuardianInfo, WalletStatus } from 'lib/shared/types';
+import type { ConfirmationHandlerState } from 'lib/telemetry/crash-diagnostics';
 import { WalletType } from 'screens/onboarding/types';
 import { capitalizeFirstLetter, truncateAddress } from 'utils/string';
 
@@ -2808,6 +2809,30 @@ type RequestConfirmParams = {
   handleSimulate?: (req: MidenRequest) => Promise<any>;
 };
 
+// The last state of each recent approval, so a request no handler answered can say which state it met. The ids stay
+// in this worker's memory; only the state crosses the port, as the Not Found error's code.
+type ConfirmationState = Exclude<ConfirmationHandlerState, 'unknown'>;
+const CONFIRMATION_STATES_KEPT = 64;
+const confirmationStates = new Map<string, ConfirmationState>();
+
+function recordConfirmationState(id: string, state: ConfirmationState): void {
+  confirmationStates.delete(id);
+  confirmationStates.set(id, state);
+  for (const oldest of confirmationStates.keys()) {
+    if (confirmationStates.size <= CONFIRMATION_STATES_KEPT) return;
+    confirmationStates.delete(oldest);
+  }
+}
+
+/** The "Not Found" for a confirmation request no handler answered, coded with the state its approval reached. */
+export function confirmationNotFound(req: unknown): Error & { code: string } {
+  const sent: unknown = typeof req === 'object' && req !== null && 'id' in req ? req.id : undefined;
+  // The payload request sends the popup's SWR key, an array holding the id.
+  const id: unknown = Array.isArray(sent) ? sent[0] : sent;
+  const state = typeof id === 'string' ? confirmationStates.get(id) : undefined;
+  return Object.assign(new Error('Not Found'), { code: `confirmation_${state ?? 'unknown'}` });
+}
+
 async function requestConfirm({
   id,
   payload,
@@ -2829,12 +2854,13 @@ async function requestConfirm({
   const stopTimeout = () => clearTimeout(timeout);
   const restartTimeout = (ms: number) => {
     stopTimeout();
-    timeout = setTimeout(declineAndClose, ms);
+    timeout = setTimeout(() => declineAndClose('expired'), ms);
   };
   const capLeft = () => LOCKED_PROMPT_CAP_MS - (Date.now() - openedAt);
-  const close = async () => {
+  const close = async (reason: Exclude<ConfirmationState, 'open'>) => {
     /* c8 ignore start */ if (closing) return; /* c8 ignore stop */
     closing = true;
+    recordConfirmationState(id, reason);
     // However the popup closes, a payload build still waiting for the unlock stops here (#1414).
     onClose?.();
 
@@ -2847,12 +2873,13 @@ async function requestConfirm({
     } catch (_err) {}
   };
 
-  const declineAndClose = () => {
+  const declineAndClose = (reason: 'expired' | 'window_closed') => {
     onDecline();
-    close();
+    close(reason);
   };
 
   let knownPort: Runtime.Port | undefined;
+  recordConfirmationState(id, 'open');
   const stopRequestListening = intercom.onRequest(async (req: MidenRequest, port) => {
     if (req?.type === MidenMessageType.DAppGetPayloadRequest && req.id[0] === id) {
       knownPort = port;
@@ -2865,7 +2892,7 @@ async function requestConfirm({
       } catch (error) {
         if (onPayloadError) onPayloadError(error);
         else onDecline();
-        close();
+        close('payload_failed');
         throw error;
       }
       if (!payloadServed && !closing) {
@@ -2890,7 +2917,7 @@ async function requestConfirm({
 
     const result = await handleIntercomRequest(req, onDecline);
     if (result) {
-      close();
+      close('answered');
       return result;
     }
   });
@@ -2920,7 +2947,7 @@ async function requestConfirm({
 
   const handleWinRemoved = (winId: number) => {
     if (winId === confirmWin?.id) {
-      declineAndClose();
+      declineAndClose('window_closed');
     }
   };
   browser.windows.onRemoved.addListener(handleWinRemoved);

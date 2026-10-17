@@ -185,7 +185,10 @@ jest.mock('lib/settings/helpers', () => ({
   isAutoConsumeEnabled: () => false
 }));
 
+// The wallet store's lock state, as the claim guard reads it.
+let mockWalletReady = true;
 jest.mock('lib/store', () => ({
+  isWalletReadyNow: () => mockWalletReady,
   useWalletStore: (selector: (s: unknown) => unknown) => selector(storeState)
 }));
 
@@ -307,6 +310,7 @@ describe('HotKeyRotationGate', () => {
     heldLocks.clear();
     mockClaimable = { data: [], isFallback: false };
     mockEnqueue.mockResolvedValue('claim-tx');
+    mockWalletReady = true;
     mockPlatform.isExtension = false;
     mockInitiate.mockResolvedValue('tx-new');
     mockLoop.mockResolvedValue(undefined);
@@ -752,8 +756,35 @@ describe('HotKeyRotationGate', () => {
       await waitFor(() => expect(mockEnqueue).toHaveBeenCalledTimes(1));
       expect(mockEnqueue).toHaveBeenCalledWith('account-1', [nativeNote('n1')], {
         delegate: false,
-        verificationBaseFee: 10000
+        verificationBaseFee: 10000,
+        canSign: expect.any(Function)
       });
+    });
+
+    it('writes no claim and asks nothing of the service worker when the lock lands before the claim is written', async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+      mockPlatform.isExtension = true;
+      trackShortfall();
+      mockClaimable = { data: [nativeNote('n1')], isFallback: false };
+      const written: string[][] = [];
+      // The claim queue's contract, pinned on real rows in initiate.batch-isolation.test.ts: the lock lands while the
+      // enqueue looks for a live rotation, and a guard that answers no at the write refuses it.
+      mockEnqueue.mockImplementation(async (...args: unknown[]) => {
+        mockWalletReady = false;
+        const { canSign } = args[2] as { canSign?: unknown };
+        if (typeof canSign === 'function' && !canSign()) throw new Error('Claim not queued');
+        written.push((args[1] as ConsumableNote[]).map(n => n.id));
+        return 'claim-tx';
+      });
+
+      render(<HotKeyRotationGate />);
+
+      // The tick's failure arm, which is the one that asks nothing of the service worker.
+      await waitFor(() =>
+        expect(warn).toHaveBeenCalledWith('[HotKeyRotationGate] funding claim enqueue failed:', expect.any(Error))
+      );
+      expect(written).toEqual([]);
+      warn.mockRestore();
     });
 
     it('kicks the service worker after queueing the claim on the extension', async () => {

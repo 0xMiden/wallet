@@ -58,10 +58,22 @@ jest.mock('../sdk/helpers', () => ({
   sameWalletAccountId: (a: string, b: string) => a.split('_')[0] === b.split('_')[0]
 }));
 
-// The worker store's account list, which the native pass reads for a rotation-pending account (#805).
+// The worker store: its account list, which the native pass reads for a rotation-pending account (#805), and its
+// lock state, judged by the store's real predicate. Locked is the state `locked()` builds: no vault and no accounts.
+// Uninitialized keeps Ready and a vault, which no store event builds but a check that skips initialization passes.
 let mockStoreAccounts: Array<{ publicKey: string; requiresHotKeyRotation?: boolean }> = [];
+let mockStoreLocked = false;
+let mockStoreUninitialized = false;
 jest.mock('./store', () => ({
-  store: { getState: () => ({ accounts: mockStoreAccounts }) }
+  isUnlocked: jest.requireActual('./store').isUnlocked,
+  store: {
+    getState: () => {
+      const { WalletStatus } = jest.requireActual('lib/shared/types');
+      return mockStoreLocked
+        ? { inited: true, status: WalletStatus.Locked, vault: null, accounts: [] }
+        : { inited: !mockStoreUninitialized, status: WalletStatus.Ready, vault: {}, accounts: mockStoreAccounts };
+    }
+  }
 }));
 
 const mockMarkConnectivityIssue = jest.fn();
@@ -273,6 +285,7 @@ import {
 import { SyncData, WalletMessageType } from 'lib/shared/types';
 
 import { computeSyncBackoffMs, doSync, setupSyncManager } from './sync-manager';
+import { startTransactionProcessing } from './transaction-processor';
 import { ITransaction, ITransactionStatus } from '../db/types';
 import { __resetSyncFuseStateForTests, isSyncFused, noteSyncWatchdogEviction } from '../front/sync-fuse';
 import { WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
@@ -306,6 +319,23 @@ function fakeNote({
   };
 }
 
+// The real claim queue behind the consume mocks, for a lap whose outcome is the rows the queue writes; returns the undo.
+function useRealClaimQueue(): () => void {
+  const queue = jest.requireActual('../transaction/initiate');
+  mockInitiateConsumeBatch.mockImplementation(queue.initiateConsumeNotesTransaction);
+  mockInitiateConsume.mockImplementation(queue.initiateConsumeTransaction);
+  return () => {
+    mockInitiateConsumeBatch.mockImplementation(() => Promise.resolve('consume-batch-tx'));
+    mockInitiateConsume.mockImplementation(() => Promise.resolve('consume-tx'));
+  };
+}
+
+const queuedClaimNoteIds = async (): Promise<string[]> =>
+  (await Repo.transactions.toArray())
+    .filter(row => row.type === 'consume')
+    .map(row => (row.noteIds ?? []).join())
+    .sort();
+
 beforeEach(() => {
   mockInitiateConsumeBatch.mockClear();
   mockBaseFee = 0;
@@ -334,6 +364,8 @@ beforeEach(() => {
   mockGetFaucetIdSetting.mockResolvedValue(null);
   mockInitiateConsume.mockResolvedValue('consume-tx');
   mockStoreAccounts = [];
+  mockStoreLocked = false;
+  mockStoreUninitialized = false;
 });
 
 describe('computeSyncBackoffMs (gap 14 — exponential backoff + jitter)', () => {
@@ -1774,6 +1806,61 @@ describe('doSync — native-note auto-consume', () => {
     expect(mockInitiateConsumeBatch).not.toHaveBeenCalled();
   });
 
+  it('queues no claim while the vault is locked, and the first lap after unlock queues it', async () => {
+    mockIsAutoConsumeAsync.mockResolvedValue(true);
+    mockGetFaucetIdSetting.mockResolvedValue('native-faucet');
+    mockHasClients.mockReturnValue(false);
+    mockMergeAndPersistSeenNoteIds.mockResolvedValueOnce(['native-note']);
+    const create = jest.fn();
+    Reflect.set(Reflect.get(globalThis, 'chrome'), 'notifications', { create });
+    mockClient.getConsumableNoteDtos.mockResolvedValue([fakeNote({ id: 'native-note', faucetId: 'native-faucet' })]);
+
+    // Locked, the claim's first signing step fails and the row is deferred until it expires as a failure.
+    mockStoreLocked = true;
+    await doSync();
+
+    expect(mockInitiateConsumeBatch).not.toHaveBeenCalled();
+    expect(mockInitiateConsume).not.toHaveBeenCalled();
+    expect(startTransactionProcessing).not.toHaveBeenCalled();
+    // Still auto-consume's note, so it raises no "click to claim" prompt either.
+    expect(create).not.toHaveBeenCalled();
+    expect(mockStorageSet).toHaveBeenCalled();
+
+    mockStoreLocked = false;
+    await doSync();
+
+    expect(mockInitiateConsumeBatch).toHaveBeenCalledTimes(1);
+    expect(mockInitiateConsumeBatch.mock.calls[0]?.[1]).toEqual([expect.objectContaining({ id: 'native-note' })]);
+    expect(startTransactionProcessing).toHaveBeenCalledTimes(1);
+  });
+
+  it('queues no claim when the vault locks while the lap reads the proving setting, and does on a lap unlocked throughout', async () => {
+    const undoRealQueue = useRealClaimQueue();
+    mockIsAutoConsumeAsync.mockResolvedValue(true);
+    mockGetFaucetIdSetting.mockResolvedValue('native-faucet');
+    mockClient.getConsumableNoteDtos.mockResolvedValue([fakeNote({ id: 'native-note', faucetId: 'native-faucet' })]);
+    // After the gate in front of the enqueue let the lap through.
+    mockIsDelegateProofAsync.mockImplementationOnce(async () => {
+      mockStoreLocked = true;
+      return true;
+    });
+    try {
+      await doSync();
+
+      expect(await queuedClaimNoteIds()).toEqual([]);
+      expect(startTransactionProcessing).not.toHaveBeenCalled();
+
+      mockStoreLocked = false;
+      await doSync();
+
+      expect(await queuedClaimNoteIds()).toEqual(['native-note']);
+      expect(startTransactionProcessing).toHaveBeenCalledTimes(1);
+    } finally {
+      undoRealQueue();
+      await Repo.transactions.clear();
+    }
+  });
+
   it('resolves cleanly when the eligibility resolve (getFaucetIdSetting) rejects', async () => {
     mockIsAutoConsumeAsync.mockResolvedValue(true);
     mockGetFaucetIdSetting.mockRejectedValue(new Error('storage boom'));
@@ -1844,7 +1931,8 @@ describe('doSync - zero-fill swap reclaim', () => {
         expect.objectContaining({ id: 'zero-fill-tip' }),
         reclaimBytes,
         'swap-1',
-        undefined
+        undefined,
+        expect.any(Function)
       );
       const [classified] = mockSettlementSeen.classify;
       const [reconciled] = mockSettlementSeen.reconcile;
@@ -1853,6 +1941,42 @@ describe('doSync - zero-fill swap reclaim', () => {
       expect(reconciled![3]).toBe(clock);
       expect(reconciled![5]).toBe(classified!.result.zeroFillReclaims);
       expect((await Repo.transactions.get('swap-1'))?.extraInputs?.expiryTriggeredAt).toBe(clock);
+    } finally {
+      mockGetMidenClient.mockImplementation(async () => mockClient);
+      await Repo.transactions.clear();
+    }
+  });
+
+  it('builds and queues no reclaim while the vault is locked, and the first lap after unlock does', async () => {
+    const buildPswapCancelRequest = jest.fn(async () => reclaimBytes);
+    mockGetMidenClient.mockImplementation(async () => ({
+      ...mockClient,
+      client: { pswap: { lineages: async () => [zeroFillLineage] } },
+      buildPswapCancelRequest
+    }));
+    await Repo.transactions.put(zeroFillOrderRow);
+    try {
+      // The build is a node call: made while locked, it would be thrown away and made again every lap.
+      mockStoreLocked = true;
+      await doSync();
+
+      expect(buildPswapCancelRequest).not.toHaveBeenCalled();
+      expect(mockInitiatePswapReclaim).not.toHaveBeenCalled();
+      expect(startTransactionProcessing).not.toHaveBeenCalled();
+
+      mockStoreLocked = false;
+      await doSync();
+
+      expect(buildPswapCancelRequest).toHaveBeenCalledTimes(1);
+      expect(mockInitiatePswapReclaim).toHaveBeenCalledWith(
+        'pk-1',
+        expect.objectContaining({ id: 'zero-fill-tip' }),
+        reclaimBytes,
+        'swap-1',
+        undefined,
+        expect.any(Function)
+      );
+      expect(startTransactionProcessing).toHaveBeenCalledTimes(1);
     } finally {
       mockGetMidenClient.mockImplementation(async () => mockClient);
       await Repo.transactions.clear();
@@ -2005,6 +2129,130 @@ describe('doSync - zero-fill swap reclaim', () => {
       noteSyncWatchdogEviction('claimable-notes');
       expect(isSyncFused('claimable-notes')).toBe(true);
     });
+  });
+});
+
+describe('doSync - expired swap order settlement', () => {
+  // An expired order a solver part-filled: its payback and its remainder tip are both consumable.
+  const partFilledOrderRow: ITransaction = {
+    id: 'swap-1',
+    accountId: 'pk-1',
+    type: 'swap',
+    status: ITransactionStatus.Completed,
+    initiatedAt: 1,
+    completedAt: 2,
+    displayIcon: 'SWAP',
+    faucetId: 'offer',
+    amount: 50n,
+    outputNoteIds: ['first-tip'],
+    extraInputs: { requestedFaucetId: 'requested', requestedAmount: 50n, orderId: '77', expiresAt: 220 }
+  };
+  const partFilledLineage = {
+    orderId: () => '77',
+    currentTipNoteId: () => 'remainder-tip',
+    currentDepth: () => 1,
+    state: () => 0,
+    remainingOffered: () => 25n,
+    remainingRequested: () => 25n
+  };
+
+  it('queues no settlement consume while the vault is locked, and the first lap after unlock queues it', async () => {
+    mockGetMidenClient.mockImplementation(async () => ({
+      ...mockClient,
+      client: { pswap: { lineages: async () => [partFilledLineage] } }
+    }));
+    mockClient.getConsumableNoteDtos.mockResolvedValue([
+      { ...fakeNote({ id: 'payback', faucetId: 'requested' }), swapAttachment: { orderId: '77', depth: 1 } },
+      fakeNote({ id: 'remainder-tip', faucetId: 'offer' })
+    ]);
+    await Repo.transactions.put(partFilledOrderRow);
+    try {
+      mockStoreLocked = true;
+      await doSync();
+
+      expect(mockInitiateConsumeBatch).not.toHaveBeenCalled();
+      expect(startTransactionProcessing).not.toHaveBeenCalled();
+
+      mockStoreLocked = false;
+      await doSync();
+
+      // The payback first, then the remainder, each in a consume of its own.
+      const queuedNoteIds = mockInitiateConsumeBatch.mock.calls.map(call =>
+        (call[1] as { id: string }[]).map(n => n.id)
+      );
+      expect(queuedNoteIds).toEqual([['payback'], ['remainder-tip']]);
+      expect(startTransactionProcessing).toHaveBeenCalledTimes(1);
+    } finally {
+      mockGetMidenClient.mockImplementation(async () => mockClient);
+      await Repo.transactions.clear();
+    }
+  });
+
+  const seedPartFilledOrder = async (otherNotes: unknown[] = []): Promise<void> => {
+    mockGetMidenClient.mockImplementation(async () => ({
+      ...mockClient,
+      client: { pswap: { lineages: async () => [partFilledLineage] } }
+    }));
+    mockClient.getConsumableNoteDtos.mockResolvedValue([
+      { ...fakeNote({ id: 'payback', faucetId: 'requested' }), swapAttachment: { orderId: '77', depth: 1 } },
+      fakeNote({ id: 'remainder-tip', faucetId: 'offer' }),
+      ...otherNotes
+    ]);
+    await Repo.transactions.put(partFilledOrderRow);
+  };
+
+  it('queues no native claim and no settlement consume while the store is not initialized', async () => {
+    mockIsAutoConsumeAsync.mockResolvedValue(true);
+    mockGetFaucetIdSetting.mockResolvedValue('native-faucet');
+    await seedPartFilledOrder([fakeNote({ id: 'native-note', faucetId: 'native-faucet' })]);
+    try {
+      mockStoreUninitialized = true;
+      await doSync();
+
+      expect(mockInitiateConsumeBatch).not.toHaveBeenCalled();
+      expect(mockInitiateConsume).not.toHaveBeenCalled();
+      expect(startTransactionProcessing).not.toHaveBeenCalled();
+
+      mockStoreUninitialized = false;
+      await doSync();
+
+      // The payback, the remainder and the native batch.
+      expect(mockInitiateConsumeBatch).toHaveBeenCalledTimes(3);
+    } finally {
+      mockGetMidenClient.mockImplementation(async () => mockClient);
+      await Repo.transactions.clear();
+    }
+  });
+
+  it('queues no settlement consume when the vault locks while the lap stamps the expiry, and does on a lap unlocked throughout', async () => {
+    const undoRealQueue = useRealClaimQueue();
+    // The stamp is the last await before the first claim, after the gate in front of the settlement let the lap through.
+    let lockArmed = true;
+    const lockOnStamp = (_mods: unknown, primKey: string) => {
+      if (!lockArmed || primKey !== partFilledOrderRow.id) return;
+      lockArmed = false;
+      mockStoreLocked = true;
+    };
+    Repo.transactions.hook('updating', lockOnStamp);
+    await seedPartFilledOrder();
+    try {
+      await doSync();
+
+      expect(lockArmed).toBe(false);
+      expect(await queuedClaimNoteIds()).toEqual([]);
+      expect(startTransactionProcessing).not.toHaveBeenCalled();
+
+      mockStoreLocked = false;
+      await doSync();
+
+      expect(await queuedClaimNoteIds()).toEqual(['payback', 'remainder-tip']);
+      expect(startTransactionProcessing).toHaveBeenCalledTimes(1);
+    } finally {
+      Repo.transactions.hook('updating').unsubscribe(lockOnStamp);
+      undoRealQueue();
+      mockGetMidenClient.mockImplementation(async () => mockClient);
+      await Repo.transactions.clear();
+    }
   });
 });
 
