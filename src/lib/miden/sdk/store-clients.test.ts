@@ -90,9 +90,15 @@ function openersIn(source: string, fileName = 'inline.ts'): string[] {
 const REACT_SDK = '@miden-sdk/react';
 const isReactSdk = (specifier: string) => specifier === REACT_SDK || specifier.startsWith(`${REACT_SDK}/`);
 
-/** Whether `source` imports the React SDK by a static import, a re-export, a dynamic `import()` or a `require`. */
+const reactScriptKindFor = (fileName: string) =>
+  /\.[cm]?js$/.test(fileName) ? ts.ScriptKind.JS : fileName.endsWith('x') ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
+
+/**
+ * Whether `source` imports the React SDK by a static import, an `import x = require()`, a re-export, a dynamic
+ * `import()` or a `require`. A `jest.mock` string is not an import and does not count.
+ */
 function reactSdkImportsIn(source: string, fileName = 'inline.ts'): boolean {
-  const file = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true, scriptKindFor(fileName));
+  const file = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true, reactScriptKindFor(fileName));
   let found = false;
   const visit = (node: ts.Node) => {
     if (
@@ -102,18 +108,28 @@ function reactSdkImportsIn(source: string, fileName = 'inline.ts'): boolean {
       isReactSdk(node.moduleSpecifier.text)
     ) {
       found = true;
+    } else if (
+      ts.isImportEqualsDeclaration(node) &&
+      ts.isExternalModuleReference(node.moduleReference) &&
+      ts.isStringLiteralLike(node.moduleReference.expression) &&
+      isReactSdk(node.moduleReference.expression.text)
+    ) {
+      found = true;
     } else if (ts.isCallExpression(node)) {
       const callee = node.expression;
       const loads =
         callee.kind === ts.SyntaxKind.ImportKeyword || (ts.isIdentifier(callee) && callee.text === 'require');
       const [argument] = node.arguments;
-      if (loads && argument !== undefined && ts.isStringLiteral(argument) && isReactSdk(argument.text)) found = true;
+      if (loads && argument !== undefined && ts.isStringLiteralLike(argument) && isReactSdk(argument.text))
+        found = true;
     }
     ts.forEachChild(node, visit);
   };
   visit(file);
   return found;
 }
+
+const REACT_SCANNED = fs.readdirSync(SRC, { recursive: true, encoding: 'utf8' }).filter(f => /\.[cm]?[jt]sx?$/.test(f));
 
 const SOURCES = fs
   .readdirSync(SRC, { recursive: true, encoding: 'utf8' })
@@ -216,6 +232,9 @@ describe('clients on the SDK store', () => {
     ['a star re-export', "export * from '@miden-sdk/react';", true],
     ['a dynamic import', "const m = await import('@miden-sdk/react');", true],
     ['a require', "const m = require('@miden-sdk/react');", true],
+    ['an import-equals require', "import x = require('@miden-sdk/react');", true],
+    ['a template-literal dynamic import', 'export const m = () => import(`@miden-sdk/react`);', true],
+    ['a jest.mock string', "jest.mock('@miden-sdk/react', () => ({}));", false],
     ['another package of the scope', "import { MidenClient } from '@miden-sdk/miden-sdk';", false],
     ['a package that only shares the prefix', "import x from '@miden-sdk/react-native';", false],
     ['a comment and a string', "// import '@miden-sdk/react';\nconst s = \"from '@miden-sdk/react'\";", false]
@@ -226,7 +245,9 @@ describe('clients on the SDK store', () => {
   it('has no wallet source depend on the React SDK, whose provider builds and syncs a client of its own', () => {
     const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
     expect(manifest.dependencies).not.toHaveProperty(['@miden-sdk/react']);
-    const importers = SOURCES.filter(file => reactSdkImportsIn(fs.readFileSync(path.join(SRC, file), 'utf8'), file));
+    const importers = REACT_SCANNED.filter(file =>
+      reactSdkImportsIn(fs.readFileSync(path.join(SRC, file), 'utf8'), file)
+    );
     expect(importers).toEqual([]);
   });
 });
