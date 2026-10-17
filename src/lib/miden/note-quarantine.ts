@@ -56,19 +56,23 @@ import { b64ToU8 } from 'lib/shared/helpers';
  * and the dApp controls which it sends. Deriving the id from only one format
  * would let notes in the other format be imported but never quarantined (they'd
  * leak into the claimable UI). Tries NoteFile first (as the import does), then a
- * bare Note. Returns null if neither parses.
+ * bare Note. Returns null if neither parses. A WebAssembly trap is rethrown, not
+ * read as bytes that do not parse: the caller's lock must see it to retire the
+ * client the aborted module belongs to.
  */
 export function noteIdFromBytes(bytes: Uint8Array): string | null {
   try {
     const noteFile = NoteFile.deserialize(bytes);
     const id = noteFile.noteId() ?? noteFile.note()?.id();
     if (id) return id.toString();
-  } catch {
+  } catch (error) {
+    if (error instanceof WebAssembly.RuntimeError) throw error;
     // Not a NoteFile — fall through to a bare Note.
   }
   try {
     return Note.deserialize(bytes).id().toString();
-  } catch {
+  } catch (error) {
+    if (error instanceof WebAssembly.RuntimeError) throw error;
     return null;
   }
 }
@@ -93,6 +97,15 @@ interface QuarantineEntry {
   at: number;
 }
 
+/** How {@link importedNoteIds} and `importedNoteAssets` treat an entry whose decode traps. */
+export interface NoteDecodeOptions {
+  /**
+   * Rethrow a WebAssembly trap instead of skipping the entry. A caller inside a WASM lock hold sets it, so the lock
+   * sees the trap and retires the client; every other caller keeps the skip.
+   */
+  rethrowTraps?: boolean;
+}
+
 /**
  * Derives the note ids for a custom-tx's `importNotes` (base64 note bytes),
  * deterministically — the SAME way `getConsumableNotes` derives ids for the
@@ -102,12 +115,13 @@ interface QuarantineEntry {
  * deserialize is skipped rather than throwing, so one malformed entry can't
  * blow up quarantine/release for the rest of the batch.
  */
-export function importedNoteIds(importNotes: string[] | undefined): string[] {
+export function importedNoteIds(importNotes: string[] | undefined, options: NoteDecodeOptions = {}): string[] {
   return (importNotes ?? [])
     .map(b64 => {
       try {
         return noteIdFromBytes(b64ToU8(b64));
-      } catch {
+      } catch (error) {
+        if (options.rethrowTraps && error instanceof WebAssembly.RuntimeError) throw error;
         return null;
       }
     })

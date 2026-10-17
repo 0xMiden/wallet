@@ -372,11 +372,11 @@ describe('a worker claim its caller can no longer sign', () => {
     [
       'initiateConsumeNotesTransaction',
       (canSign: CanSign) =>
-        initiateConsumeNotesTransaction(ACCOUNT, [note('a'), note('b')], false, false, true, null, canSign)
+        initiateConsumeNotesTransaction(ACCOUNT, [note('a'), note('b')], false, false, true, null, undefined, canSign)
     ],
     [
       'initiateConsumeTransaction',
-      (canSign: CanSign) => initiateConsumeTransaction(ACCOUNT, note('a'), false, undefined, canSign)
+      (canSign: CanSign) => initiateConsumeTransaction(ACCOUNT, note('a'), false, undefined, undefined, canSign)
     ],
     [
       'initiatePswapReclaimTransaction',
@@ -422,6 +422,7 @@ describe('a worker claim its caller can no longer sign', () => {
           false,
           true,
           null,
+          undefined,
           canSign
         );
 
