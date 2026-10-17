@@ -31,7 +31,7 @@ import { useWalletStore } from 'lib/store';
 import { classifyError } from 'lib/telemetry';
 import { enterRouteFlow, reportRouteFlowStep, settleRouteFlow } from 'lib/telemetry/route-flow';
 import { CHART_DOT_RING, CHART_POSITIVE, CHART_RULE, ChartContainer } from 'lib/ui/charts';
-import { goBack, navigate, useLocation } from 'lib/woozie';
+import { goBack, navigate, Redirect, useLocation } from 'lib/woozie';
 
 import { EarnAmountUnit, EarnAssetMark, EarnHero, EarnSubjectSubtitle, earnSubjectTitle } from './components';
 import { placeholderVault } from './earn-mapping';
@@ -74,10 +74,12 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
   // Testnet uses discovered native USDCx (an E2E fixture override first); missing metadata blocks deposits.
   const collateral = useEarnCollateral();
   const depositSymbol = collateral?.symbol ?? '';
+  // Bound to the faucet the amount step reviewed: a link that names none, or another, never deposits.
   const reviewedFaucet = new URLSearchParams(search).get('collateral');
   const collateralMatches =
     collateral !== null &&
-    (!reviewedFaucet || normalizedFaucetId(reviewedFaucet) === normalizedFaucetId(collateral.faucetId));
+    !!reviewedFaucet &&
+    normalizedFaucetId(reviewedFaucet) === normalizedFaucetId(collateral.faucetId);
   const collateralDecimals = collateral?.decimals;
   const amountBaseUnits = useMemo(() => {
     if (collateralDecimals === undefined) return undefined;
@@ -235,6 +237,8 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
       setSpendingLimitChallenge(undefined);
     }
   }, [account.publicKey, spendingLimitChallenge]);
+
+  if (!reviewedFaucet) return <Redirect to={`/earn/vaults/${vaultId}/deposit`} />;
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-app-bg">
