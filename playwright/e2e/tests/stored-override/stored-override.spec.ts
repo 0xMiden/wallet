@@ -43,7 +43,7 @@ test.describe('Stored endpoint override', () => {
     });
 
     await steps.step('wallet_on_override_store', async () => {
-      await assertWalletRunsOnStoredOverride(walletA, envConfig);
+      await assertWalletRunsOnStoredOverride(walletA, envConfig, OVERRIDE_RPC_URL);
     });
 
     await steps.step('mint', async () => {

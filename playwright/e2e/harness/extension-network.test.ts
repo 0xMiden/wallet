@@ -45,7 +45,7 @@ describe('assertWalletRunsOnStoredOverride', () => {
   it('fails a build that ignored the override and created the account in the build default store', async () => {
     const probe = wallet(override(OVERRIDE_RPC_URL), { MidenClientDB_mlcl: 1 });
     await expect(assertWalletRunsOnStoredOverride(probe, LOCALNET_HARNESS, OVERRIDE_RPC_URL)).rejects.toThrow(
-      /no account in MidenClientDB_mcst.*1 in MidenClientDB_mlcl.*"yarn test:e2e:stored-override:build"/
+      /no account in MidenClientDB_mcst.*1 in MidenClientDB_mlcl.*MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES=true.*"yarn test:e2e:stored-override:build"/
     );
   });
 

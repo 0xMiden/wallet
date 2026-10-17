@@ -164,30 +164,25 @@ export function assertExtensionNetworkMatches(extensionPath: string, harnessNetw
   console.log(`[e2e] extension network "${expected}" matches harness "${harnessNetwork}" (read from ${first.source})`);
 }
 
-/** The endpoints miden-client's `Endpoint::to_network_id` names. An explicit port is part of the match. */
-const KNOWN_SDK_ENDPOINTS: ReadonlyArray<{ protocol: string; host: string; port?: number; networkId: string }> = [
-  { protocol: 'https', host: 'rpc.mainnet.miden.io', networkId: 'mm' },
-  { protocol: 'https', host: 'rpc.testnet.miden.io', networkId: 'mtst' },
-  { protocol: 'https', host: 'rpc.devnet.miden.io', networkId: 'mdev' },
-  { protocol: 'http', host: 'localhost', port: 57291, networkId: 'mlcl' }
-];
-
 /**
- * The IndexedDB store the SDK opens for a node URL: `MidenClientDB_<network id>`, where every endpoint miden-client
- * does not name is `mcst`. Two URLs of one node can open two stores: `http://localhost:57291` is `MidenClientDB_mlcl`
- * and `http://127.0.0.1:57291` is `MidenClientDB_mcst`.
+ * The IndexedDB store the SDK opens for each URL of the localnet node, `MidenClientDB_<network id>`: miden-client's
+ * `Endpoint::to_network_id` names `http://localhost:57291` `mlcl` and every endpoint it does not name `mcst`. These are
+ * the only URLs the stored-override guard reads, so it refuses any other rather than guess its store.
  */
-export function sdkStoreName(rpcUrl: string): string {
-  const match = /^([a-z][a-z0-9+.-]*):\/\/([^/:]+)(?::(\d+))?\/*$/.exec(rpcUrl);
-  if (!match) throw new Error(`sdkStoreName: "${rpcUrl}" is not a protocol://host[:port] URL`);
-  const [, protocol, host, port] = match;
-  const known = KNOWN_SDK_ENDPOINTS.find(
-    endpoint =>
-      endpoint.protocol === protocol &&
-      endpoint.host === host &&
-      endpoint.port === (port === undefined ? undefined : Number(port))
-  );
-  return `MidenClientDB_${known?.networkId ?? 'mcst'}`;
+export const LOCALNET_SDK_STORES: ReadonlyMap<string, string> = new Map([
+  ['http://localhost:57291', 'MidenClientDB_mlcl'],
+  ['http://127.0.0.1:57291', 'MidenClientDB_mcst']
+]);
+
+function localnetSdkStore(rpcUrl: string): string {
+  const store = LOCALNET_SDK_STORES.get(rpcUrl);
+  if (store === undefined) {
+    throw new Error(
+      `No SDK store is known for ${rpcUrl}: LOCALNET_SDK_STORES names only ` +
+        `${[...LOCALNET_SDK_STORES.keys()].join(' and ')}.`
+    );
+  }
+  return store;
 }
 
 /** `ENDPOINT_OVERRIDE_STORAGE_KEY` in src/lib/miden-chain/effective-endpoints.ts. */
@@ -210,17 +205,24 @@ function readStoredOverride(value: unknown): { rpcUrl: string; networkName: stri
  *
  * A build made with `MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES=true` (every E2E build but
  * `test:e2e:stored-override:build`) ignores a stored override, so a spec that stores one would pass on the build
- * default and prove nothing. So: the override names the harness's network; its RPC URL opens another store than the
- * harness's own URL, the build default's (else a realm left on the build default reads the same data and nothing can
- * tell them apart); and the account the service worker created is in the override's store.
+ * default and prove nothing. So: the override is the one the spec stored (`expectedRpcUrl`) and names the harness's
+ * network; its RPC URL opens another store than the harness's own URL, the build default's (else a realm left on the
+ * build default reads the same data and nothing can tell them apart); and the account the service worker created is in
+ * the override's store.
  */
 export async function assertWalletRunsOnStoredOverride(
   wallet: StoredOverrideProbe,
-  harness: Pick<EnvironmentConfig, 'name' | 'rpcUrl'>
+  harness: Pick<EnvironmentConfig, 'name' | 'rpcUrl'>,
+  expectedRpcUrl: string
 ): Promise<void> {
   const override = readStoredOverride((await wallet.dumpChromeStorage())[ENDPOINT_OVERRIDE_STORAGE_KEY]);
   if (!override) {
     throw new Error(`No endpoint override is stored under "${ENDPOINT_OVERRIDE_STORAGE_KEY}"`);
+  }
+  if (override.rpcUrl !== expectedRpcUrl) {
+    throw new Error(
+      `The stored endpoint override's RPC URL is ${override.rpcUrl}, but this spec stored ${expectedRpcUrl}.`
+    );
   }
 
   const expected = resolveWalletNetwork(harness.name);
@@ -231,8 +233,8 @@ export async function assertWalletRunsOnStoredOverride(
     );
   }
 
-  const overrideStore = sdkStoreName(override.rpcUrl);
-  const defaultStore = sdkStoreName(harness.rpcUrl);
+  const overrideStore = localnetSdkStore(override.rpcUrl);
+  const defaultStore = localnetSdkStore(harness.rpcUrl);
   if (overrideStore === defaultStore) {
     throw new Error(
       `The stored override's RPC URL ${override.rpcUrl} opens ${overrideStore}, the same store as the build default ` +
