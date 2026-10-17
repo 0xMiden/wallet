@@ -77,7 +77,7 @@ export function NativeNoteAutoConsumeManager(): null {
         // backoff gate counts that shared row once per note id it carries -- so without
         // isolation one poison note drags its healthy mates into the same doubling
         // backoff, the regression the previous per-note-always design existed to avoid.
-        // The LAST argument is what isolates it, on the next enqueue after the batch row
+        // The `true` isolation flag is what isolates it, on the next enqueue after the batch row
         // fails. NOT this catch: the call is a queue write, and an un-consumable note
         // fails much later at generation time, so the catch only sees a DB error.
         try {

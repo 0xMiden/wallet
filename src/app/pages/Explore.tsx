@@ -140,7 +140,7 @@ const Explore: FC = () => {
     // against the others -- leaving it per-note meant the batching those two do was
     // defeated in the common case.
     //
-    // Poison-note isolation is the LAST argument, not this catch: an un-consumable note
+    // Poison-note isolation is the `true` flag, not this catch: an un-consumable note
     // fails at generation time, long after this queue write returned, so the catch here
     // only ever sees a DB error. See `initiateConsumeNotesTransaction`.
     try {
