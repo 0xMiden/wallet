@@ -40,7 +40,7 @@ export const FAILURE_REASONS = [
 export type TransactionFailureReason = (typeof FAILURE_REASONS)[number];
 
 /** Identities the reporter names itself, beside the reasons, refusals and protocol identities. */
-export const REPORTED_IDENTITIES = ['submit_outcome_unknown'] as const;
+export const REPORTED_IDENTITIES = ['submit_outcome_unknown', 'kernel_u32_assertion_unknown'] as const;
 
 export const SUBMIT_GRPC_STATUSES = [
   'unavailable',
@@ -67,6 +67,41 @@ export const PIPELINE_KILLS = [
 ] as const;
 
 type PipelineKill = (typeof PIPELINE_KILLS)[number];
+
+export const EXECUTION_CAUSES = [
+  'request_note_consumed',
+  'request_note_processing',
+  'request_note_unauthenticated',
+  'request_duplicate_note',
+  'request_empty',
+  'request_fee_conversion',
+  'request_other',
+  'recency_check',
+  'account_locked',
+  'account_data_not_found',
+  'output_mismatch',
+  'data_store',
+  'store',
+  'rpc',
+  'fetch_inputs',
+  'block_after_reference',
+  'account_not_in_store',
+  'block_not_in_store',
+  'fetch_asset_witness',
+  'foreign_account_not_anchored',
+  'note_past_reference_block',
+  'kernel_program',
+  'summary_block_unknown',
+  'summary_expiration_mismatch',
+  'summary_commitment_mismatch',
+  'signature_failed',
+  'executor_other',
+  'other'
+] as const;
+
+type ExecutionCause = (typeof EXECUTION_CAUSES)[number];
+
+export const SIGNING_STEPS = ['creating_proposal', 'signing_proposal', 'signing_locally'] as const;
 
 export interface TransactionFailure {
   type: ITransactionType;
@@ -138,14 +173,82 @@ function rejectionIdentity(error: unknown, outer: string | undefined): string | 
   return undefined;
 }
 
+const ASSERTION_CODE = /assertion failed with error code:\s*(\d{1,20})(?!\d)/;
+// VM 0.35 `U32AssertionFailed` puts its code after the check's own text, beside the stack values it refused.
+const U32_ASSERTION_CODE = /u32 assertion failed:[^;\n]*; error code:\s*(\d{1,20})(?!\d)/;
+
 function protocolIdentity(message: string): string | undefined {
-  const code = /assertion failed with error code:\s*(\d{1,20})(?!\d)/.exec(message)?.[1];
+  const assertion = ASSERTION_CODE.exec(message)?.[1];
+  const code = assertion ?? U32_ASSERTION_CODE.exec(message)?.[1];
   if (code === undefined) return undefined;
   // Only identities in the shipped public protocol sources survive. Arbitrary numbers can be user data.
-  return Object.prototype.hasOwnProperty.call(assertions, code)
-    ? assertions[code as keyof typeof assertions]
-    : 'kernel_assertion_unknown';
+  if (Object.prototype.hasOwnProperty.call(assertions, code)) return assertions[code as keyof typeof assertions];
+  return assertion === undefined ? 'kernel_u32_assertion_unknown' : 'kernel_assertion_unknown';
 }
+
+// The pinned SDK's own Display text (miden-client 0.17.3, miden-tx 0.17.1) under web-sdk 0.17.3's "failed to execute
+// transaction" chain, matching only its fixed words. A generic wrapper's name must start a chain link.
+const EXECUTION_CAUSE_TEXT: ReadonlyArray<readonly [Exclude<ExecutionCause, 'other'>, RegExp]> = [
+  ['request_note_consumed', /note with details commitment \S+ has already been consumed/g],
+  ['request_note_processing', /note with details commitment \S+ is being consumed by pending transaction/g],
+  ['request_note_unauthenticated', /note \S+ cannot be used as an authenticated input/g],
+  ['request_duplicate_note', /duplicate input note: note \S+ was added more than once/g],
+  ['request_empty', /empty transaction: the request has no input notes and no account state changes/g],
+  [
+    'request_fee_conversion',
+    /the request declares a fee conversion salt but the account's auth component|component reuses the fee conversion salt as a replay guard/g
+  ],
+  ['request_other', /(?:^|: )invalid transaction request(?=:|$)/g],
+  ['recency_check', /(?:^|: )transaction failed a recency check:/g],
+  ['account_locked', /account \S+ is locked because the local state may be out of date with the network/g],
+  ['account_data_not_found', /account data wasn't found for account id/g],
+  ['output_mismatch', /(?:^|: )transaction output mismatch: expected output notes with recipient digests/g],
+  ['data_store', /(?:^|: )data store error(?=:|$)/g],
+  ['store', /(?:^|: )storage error(?=:|$)/g],
+  ['rpc', /(?:^|: )RPC error(?=:|$)/g],
+  ['fetch_inputs', /failed to fetch transaction inputs from the data store/g],
+  ['block_after_reference', /requested block \d+ is after transaction reference block \d+/g],
+  ['account_not_in_store', /account with id \S+ not found in data store/g],
+  ['block_not_in_store', /block with number \d+ not found in data store/g],
+  [
+    'fetch_asset_witness',
+    /failed to fetch asset witnesses from the data store|failed to get vault asset witness from data store/g
+  ],
+  ['foreign_account_not_anchored', /foreign account inputs for ID \S+ are not anchored on reference block/g],
+  ['note_past_reference_block', /input note \S+ was created in a block past the transaction reference block number/g],
+  ['kernel_program', /failed to execute transaction kernel program/g],
+  ['summary_block_unknown', /transaction summary binds block \d+, which the transaction does not authenticate/g],
+  [
+    'summary_expiration_mismatch',
+    /transaction summary binds expiration delta \d+ but the transaction's expiration delta is/g
+  ],
+  ['summary_commitment_mismatch', /transaction returned unauthorized event but a commitment did not match/g],
+  ['signature_failed', /failed to generate signature/g],
+  ['executor_other', /(?:^|: )transaction execution failed(?=:|$)/g]
+];
+
+// The deepest match names the cause: each chain link is the reason for the one before it.
+function executionCause(error: unknown): ExecutionCause {
+  let found: { cause: ExecutionCause; part: number; at: number } | undefined;
+  for (const [index, part] of errorMessageParts(error).entries()) {
+    for (const [cause, pattern] of EXECUTION_CAUSE_TEXT) {
+      for (const match of part.matchAll(pattern)) {
+        if (found === undefined || index > found.part || (index === found.part && match.index > found.at)) {
+          found = { cause, part: index, at: match.index };
+        }
+      }
+    }
+  }
+  return found?.cause ?? 'other';
+}
+
+// The three stages `stepOfStage` folds into `signing`: a proposal that cannot be built and a co-sign that fails on
+// re-execution are different faults.
+const SIGNING_STEP_BY_STAGE = new Map<unknown, (typeof SIGNING_STEPS)[number]>([
+  ['creating-proposal', 'creating_proposal'],
+  ['signing-proposal', 'signing_proposal'],
+  ['signing-locally', 'signing_locally']
+]);
 
 // The reasons miden-client-proxy.ts aborts an offscreen operation with, and wasm-client-poison.ts's eviction mechanisms.
 // Maps, not objects: a reason is read off a thrown value, and an object lookup would answer for `constructor`.
@@ -221,7 +324,8 @@ function failureIdentity(failure: TransactionFailure): string {
   if (protocol !== undefined) return protocol;
   if (/advice stack read failed/i.test(message)) return 'advice_stack_read_failed';
   if (/WebClient terminated/.test(message)) return 'client_terminated';
-  if (/failed to execute transaction/i.test(message)) return 'transaction_execution_failed';
+  if (/failed to execute transaction/i.test(message))
+    return `transaction_execution_failed; cause ${executionCause(error)}`;
   return classifyError(error);
 }
 
@@ -272,6 +376,7 @@ export function reportTransactionFailure(failure: TransactionFailure): void {
     const operation = type === failure.type ? operationOfType(type) : 'tx_other';
     const step = stepOfStage(failure.stage);
     const stage = typeof step === 'string' ? step : 'unknown';
+    const signingStep = SIGNING_STEP_BY_STAGE.get(failure.stage);
     const outcome = failure.outcome === 'unconfirmed' ? 'unconfirmed' : 'failed';
     const point = diagnostic(
       failure.point,
@@ -302,7 +407,7 @@ export function reportTransactionFailure(failure: TransactionFailure): void {
         : diagnostic<string>(failure.reason, FAILURE_REASONS, 'other');
     const report = new Error(
       [
-        `Transaction ${outcome}: ${operation}; stage ${stage}; realm ${realm}; proving preference ${proving}; platform ${platform}; point ${point}; ${identity}`,
+        `Transaction ${outcome}: ${operation}; stage ${stage}${signingStep === undefined ? '' : `; signing step ${signingStep}`}; realm ${realm}; proving preference ${proving}; platform ${platform}; point ${point}; ${identity}`,
         `authentication preparation ${preparation}; layout ${layout}; commitment match ${match}; account code ${accountCode}`,
         `SDK ${softwareVersion(packageJson.dependencies['@miden-sdk/miden-sdk'])}; Guardian client ${softwareVersion(packageJson.dependencies['@openzeppelin/miden-multisig-client'])}`
       ].join('. ')

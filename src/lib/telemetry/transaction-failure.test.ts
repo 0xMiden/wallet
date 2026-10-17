@@ -653,11 +653,14 @@ describe('an SDK execution failure with no assertion code', () => {
     reportTransactionFailure({
       type: 'consume',
       stage: 'signing-proposal',
-      error: new Error(`Offscreen call 'guardianPipeline' failed: failed to execute transaction`, {
-        cause: new Error(
-          `failed to execute transaction: invalid transaction request: note with details commitment ${NOTE_COMMITMENT} has already been consumed`
-        )
-      })
+      error: new Error(
+        `Offscreen call 'guardianPipeline' failed: failed to execute transaction: invalid transaction request`,
+        {
+          cause: new Error(
+            `failed to execute transaction: invalid transaction request: note with details commitment ${NOTE_COMMITMENT} has already been consumed`
+          )
+        }
+      )
     });
     const message = await reportedMessage();
     expect(message).toContain('; transaction_execution_failed; cause request_note_consumed. ');
