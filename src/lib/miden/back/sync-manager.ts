@@ -21,7 +21,13 @@ import {
   isAutoConsumeEnabledAsync,
   isDelegateProofEnabledAsync
 } from 'lib/settings/helpers';
-import { SerializedConsumableNote, SerializedVaultAsset, SyncData, WalletMessageType } from 'lib/shared/types';
+import {
+  SerializedConsumableNote,
+  SerializedVaultAsset,
+  SyncData,
+  WalletMessageType,
+  WalletStatus
+} from 'lib/shared/types';
 
 import { toNoteTypeString } from '../helpers';
 import { fetchTokenMetadata } from '../metadata';
@@ -30,6 +36,7 @@ import { getIntercom } from './defaults';
 import { midenClientProxy, runsWasmInThisRealm } from './miden-client-proxy';
 import { mergeAndPersistSeenNoteIds } from './note-checker-storage';
 import { isRotationPendingAccount } from './rotation-pending';
+import { store } from './store';
 import { Vault } from './vault';
 import { getBech32AddressFromAccountId } from '../sdk/helpers';
 import { getCurrentWasmLockHold, getMidenClient, withWasmClientLock, type WasmLockHold } from '../sdk/miden-client';
@@ -167,6 +174,12 @@ async function getVault() {
     _vault = Vault;
   }
   return _vault;
+}
+
+/** Whether this worker can sign right now: the store state `assertUnlocked` lets a sign through. */
+function isVaultUnlocked(): boolean {
+  const { status, vault } = store.getState();
+  return status === WalletStatus.Ready && vault !== null;
 }
 
 export function doSync(force = false): Promise<void> {
@@ -803,7 +816,11 @@ async function runSync(force: boolean): Promise<void> {
       // inside the initiate helpers, so a repeated ~30s tick never spawns duplicate rows.
       // Proving follows the user's delegated/local setting via the SW-readable mirror —
       // like every other proving path in the wallet.
-      if (nativeAutoConsumeNotes.length > 0) {
+      //
+      // Only while the vault is unlocked: a locked worker cannot sign the claim, so its row would only be deferred
+      // until it expired as a failure, reported and notified for a claim the user never started. The note stays
+      // auto-consume's (the prompt above still leaves it out) and the first lap after unlock queues it.
+      if (nativeAutoConsumeNotes.length > 0 && isVaultUnlocked()) {
         try {
           const delegate = await isDelegateProofEnabledAsync();
           // ONE transaction for the batch: each consume pays its own fee, so a backlog
