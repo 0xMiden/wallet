@@ -1876,14 +1876,12 @@ describe('requestPermission (mobile)', () => {
     expectAskedAgainWith('Account has no public key commitments');
   });
 
-  it('skips setDApp when existingPermission is true', async () => {
+  it('asks a forced connect with a saved session as a new permission and saves the approved scope', async () => {
     _g.__dappTestMockGetAccount.mockResolvedValue({
       getPublicKeyCommitments: () => [{ serialize: () => new Uint8Array([1, 2, 3]) }]
     });
-    // The session already exists for 'https://miden.xyz' under 'miden-account-1'.
-    // requestPermission with `force: true` and matching appMeta will reach the
-    // confirmation flow with existingPermission = true.
-    mockRequestConfirmation.mockResolvedValueOnce({
+    // The session already exists for 'https://miden.xyz' under 'miden-account-1', with UponRequest and no data.
+    mockRequestConfirmation.mockResolvedValue({
       confirmed: true,
       accountPublicKey: 'miden-account-1',
       privateDataPermission: 'AUTO'
@@ -1892,11 +1890,17 @@ describe('requestPermission (mobile)', () => {
       type: MidenDAppMessageType.PermissionRequest,
       appMeta: { name: 'Miden Test', url: 'https://miden.xyz' },
       network: 'testnet',
-      privateDataPermission: 'UPON_REQUEST',
-      allowedPrivateData: 0,
+      privateDataPermission: 'AUTO',
+      allowedPrivateData: 2,
       force: true
     } as never);
     expect(res.type).toBe(MidenDAppMessageType.PermissionResponse);
+    expect(mockRequestConfirmation).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'connect', existingPermission: false, privateDataPermission: 'AUTO' })
+    );
+    expect((storageState[STORAGE_KEY] as any)['https://miden.xyz']).toEqual([
+      expect.objectContaining({ accountId: 'miden-account-1', privateDataPermission: 'AUTO', allowedPrivateData: 2 })
+    ]);
   });
 
   it('answers NotGranted only on the Deny of the sheet asked again when getMidenClient returns null account', async () => {
