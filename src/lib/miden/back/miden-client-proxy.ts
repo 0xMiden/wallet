@@ -1267,17 +1267,14 @@ export const midenClientProxy = {
     accountId: string,
     noteId: string,
     assertLive?: AssertLive,
-    ...options: [] | [PswapCancelRequestOptions]
+    { allowNodeNote = false }: PswapCancelRequestOptions = {}
   ): Promise<Uint8Array> {
     if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
-      return (await getMidenClient()).buildPswapCancelRequest(accountId, noteId, assertLive, ...options);
+      return (await getMidenClient()).buildPswapCancelRequest(accountId, noteId, assertLive, { allowNodeNote });
     }
-    const allowNodeNote = options[0]?.allowNodeNote === true;
-    const resultB64 = await this.call(
-      'buildPswapCancelRequest',
-      allowNodeNote ? [accountId, noteId, true] : [accountId, noteId],
-      { deadlineMs: allowNodeNote ? NODE_NOTE_CANCEL_DEADLINE_MS : READ_DEADLINE_MS }
-    );
+    const resultB64 = await this.call('buildPswapCancelRequest', [accountId, noteId, allowNodeNote], {
+      deadlineMs: allowNodeNote ? NODE_NOTE_CANCEL_DEADLINE_MS : READ_DEADLINE_MS
+    });
     if (resultB64 == null) {
       throw new Error('buildPswapCancelRequest: offscreen document returned no request bytes');
     }

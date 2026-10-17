@@ -148,13 +148,14 @@ export async function classifySwapSettlementSnapshot(
     assertWasmHoldCurrent(hold, 'before the zero-fill PSWAP cancel-request build');
     zeroFillBuildMarks.set(hold, 'building');
     let requestBytes: Uint8Array;
-    const assertBuildLive = (step?: string) =>
-      assertWasmHoldCurrent(hold, 'inside the zero-fill PSWAP cancel-request build', step);
     try {
-      // Only a recovered order's note may come from the node; a live order's build is the one #1489 shipped.
-      requestBytes = await (recovered
-        ? midenClientProxy.buildPswapCancelRequest(accountId, tipNoteId, assertBuildLive, { allowNodeNote: true })
-        : midenClientProxy.buildPswapCancelRequest(accountId, tipNoteId, assertBuildLive));
+      // Only a recovered order's note may come from the node.
+      requestBytes = await midenClientProxy.buildPswapCancelRequest(
+        accountId,
+        tipNoteId,
+        step => assertWasmHoldCurrent(hold, 'inside the zero-fill PSWAP cancel-request build', step),
+        { allowNodeNote: recovered }
+      );
       assertWasmHoldCurrent(hold, 'after the zero-fill PSWAP cancel-request build');
     } catch (error) {
       // A trap rejects into the hold's lock, which retires the client, and a kill (an eviction, an offscreen abort,
