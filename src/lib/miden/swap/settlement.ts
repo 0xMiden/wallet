@@ -15,11 +15,8 @@ import { toNoteTypeString } from '../helpers';
 import type { ConsumableNoteDto } from '../sdk/consumable-notes';
 import { assertWasmHoldCurrent, getCurrentWasmLockHold, withWasmClientLock } from '../sdk/miden-client';
 import type { WasmLockHold } from '../sdk/miden-client';
-import {
-  isWasmClientPoisonedError,
-  WASM_LOCK_SYNC_WATCHDOG_MS,
-  WasmClientPoisonedError
-} from '../sdk/wasm-client-poison';
+import { isPipelineKillLink } from '../sdk/sdk-error-code';
+import { WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 import {
   initiateConsumeNotesTransaction,
   initiatePswapReclaimTransaction,
@@ -97,9 +94,9 @@ export async function classifySwapSettlementSnapshot(
         assertWasmHoldCurrent(hold, 'inside the zero-fill PSWAP cancel-request build', step)
       );
     } catch (error) {
-      // A trap rejects into the hold's lock, which retires the client; swallowed, the next order's build would run
-      // on the trapped client.
-      if (isWasmClientPoisonedError(error) || error instanceof WebAssembly.RuntimeError) throw error;
+      // A trap rejects into the hold's lock, which retires the client, and a kill (an eviction, an offscreen abort,
+      // a terminated client) ends this pass's client; swallowed, either sends the next order's build to a dead client.
+      if (isPipelineKillLink(error) || error instanceof WebAssembly.RuntimeError) throw error;
       // A sync can observe the lineage just before another actor consumes the
       // tip, or a legacy/local-store gap can leave the creator output absent.
       // Skip only this reclaim; aborting the whole note sync would also block
