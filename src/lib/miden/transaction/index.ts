@@ -262,6 +262,18 @@ const OFFSCREEN_ROUTABLE_GUARDIAN_TYPES: ReadonlySet<ITransactionType> = new Set
 ]);
 
 /**
+ * A zero-fill PSWAP reclaim is represented as a consume row for history,
+ * deduplication, retry/backoff, and completion, but its note is creator-owned
+ * output rather than an input note. Its fee-aware request is therefore built
+ * during settlement and persisted on the row; a Guardian row rebuilds it in
+ * each proposal's hold.
+ */
+const preparedPswapReclaimBytes = (transaction: ITransaction): Uint8Array | undefined =>
+  transaction.type === 'consume' && transaction.extraInputs?.swapSettleKind === 'reclaim'
+    ? transaction.requestBytes
+    : undefined;
+
+/**
  * Whether a row's caller BLOCKS on `waitForTransactionCompletion(txId)` and then
  * reads `resultBytes` / `outputNoteIds` back off the finished row:
  *
@@ -1806,12 +1818,21 @@ const generateTransactionWithProvider = async (
       // Only an eligible claim is stamped: a rotation-funding claim shares this leaf, and an entry on it would decide
       // nothing while its crossing relabelled it Not confirmed with no verdict ever coming (#1081).
       const attempt = canAwaitVerdict(transaction) ? attemptContextOf(transaction) : undefined;
+      const reclaimBytes = preparedPswapReclaimBytes(transaction);
       result = await runWriteLeaf(transaction.id, attempt, writeLeafRunsOffscreen(), () =>
-        midenClientProxy.consumeNoteId(
-          transaction as ConsumeTransaction,
-          signCallback,
-          attempt && stageStampFor(transaction.id, attempt)
-        )
+        reclaimBytes
+          ? midenClientProxy.newTransaction(
+              transaction.accountId,
+              reclaimBytes,
+              transaction.delegateTransaction,
+              signCallback,
+              attempt && stageStampFor(transaction.id, attempt)
+            )
+          : midenClientProxy.consumeNoteId(
+              transaction as ConsumeTransaction,
+              signCallback,
+              attempt && stageStampFor(transaction.id, attempt)
+            )
       );
       break;
     }
@@ -3239,11 +3260,27 @@ const generateGuardianTransaction = async (
     }
     case 'consume': {
       const consumeTx = transaction as ConsumeTransaction;
-      const consumeNoteIds = consumeTx.noteIds?.length > 0 ? consumeTx.noteIds : [consumeTx.noteId];
-      service = await consumeServiceFor(transaction, consumeNoteIds, guardianProvider);
-      await releaseUnabandonedCandidate(transaction, service);
-      await assertPriorCandidateSettled(transaction, service);
-      proposalResult = await service.createConsumeNotesProposal(consumeNoteIds);
+      if (preparedPswapReclaimBytes(transaction)) {
+        service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
+        await releaseUnabandonedCandidate(transaction, service);
+        await assertPriorCandidateSettled(transaction, service);
+        // Settlement's bytes are bound to the block it built them at, so the cancel is rebuilt in the proposal's hold,
+        // never rebased (that rebuild drops the tip it consumes). It gets no GUARDIAN_EXPIRATION_DELTA_BLOCKS bound:
+        // the SDK's PSWAP cancel builder takes no builder options. A late approval is harmless, since it only takes
+        // back the creator's own note, and once that tip is consumed the cancel fails execution.
+        proposalResult = await service.createPswapCancelProposal(consumeTx.noteId, async requestBytes => {
+          transaction.requestBytes = requestBytes;
+          await Repo.transactions.where({ id: transaction.id }).modify(t => {
+            t.requestBytes = requestBytes;
+          });
+        });
+      } else {
+        const consumeNoteIds = consumeTx.noteIds?.length > 0 ? consumeTx.noteIds : [consumeTx.noteId];
+        service = await consumeServiceFor(transaction, consumeNoteIds, guardianProvider);
+        await releaseUnabandonedCandidate(transaction, service);
+        await assertPriorCandidateSettled(transaction, service);
+        proposalResult = await service.createConsumeNotesProposal(consumeNoteIds);
+      }
       break;
     }
     case 'switch-guardian': {

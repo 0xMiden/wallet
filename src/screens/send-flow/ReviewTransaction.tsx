@@ -740,7 +740,7 @@ export const ReviewTransaction: React.FC = () => {
           {/* A plain value with the network's mark, like every other row: a chip here read as a button. */}
           <DetailRow label={t('network')}>
             <span className="flex items-center gap-1.5">
-              <NetworkLogo kind={isBridge ? 'ethereum' : 'miden'} />
+              <NetworkLogo kind={isBridge ? 'ethereum' : 'miden'} network={bridgeNetworkObj?.id} />
               {isBridge ? (bridgeNetworkObj?.name ?? t('ethereum')) : t('miden')}
             </span>
           </DetailRow>

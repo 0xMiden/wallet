@@ -1,4 +1,5 @@
 import type { DeltaObject, HistoryEntry, ProposalMetadata } from '@openzeppelin/guardian-client';
+import { deserialize, serialize } from 'v8';
 
 import {
   historyCheckpointId,
@@ -9,7 +10,7 @@ import {
   sameNonemptyNotes
 } from './history';
 import { GuardianHistoryDataError } from './history-errors';
-import type { ITransactionType } from '../db/types';
+import type { ITransaction, ITransactionType } from '../db/types';
 import {
   ConsumeTransaction,
   ITransactionStatus,
@@ -18,7 +19,7 @@ import {
   SwitchGuardianTransaction,
   UpdateProcedureThresholdTransaction
 } from '../db/types';
-import type { GuardianSummary } from '../sdk/guardian-history';
+import type { GuardianHistoryNote, GuardianSummary } from '../sdk/guardian-history';
 
 const timestamp = '2026-08-01T00:00:00Z';
 const entry: HistoryEntry = {
@@ -500,6 +501,92 @@ it('links a reclaimed PSWAP remainder without treating it as a fill', () => {
   expect(consume.extraInputs.swapSettleKind).toBe('reclaim');
   expect(swap.extraInputs.reclaimedAt).toBeDefined();
   expect(swap.extraInputs.settledAt).toBeUndefined();
+});
+
+function recoveredReclaim(proposalType: string, inputNotes: GuardianHistoryNote[]) {
+  const row = recoveredHistoryRecord('account', '0x123', 'testnet', 'one', entry, delta({ proposalType }), {
+    ...summary,
+    outputNotes: [],
+    inputNotes
+  });
+  row.id = 'reclaim';
+  return row;
+}
+
+function orderNote(swap: ITransaction): GuardianHistoryNote {
+  const note = swap.recovery?.outputNotes[0];
+  if (!note) throw new Error('Missing order note');
+  return note;
+}
+
+it.each(['custom_transaction', 'consume_notes'])(
+  'stores a recovered %s reclaim of an own PSWAP order as its reclaim consume, linked across a reload',
+  proposalType => {
+    const { swap } = recoveredSwapPair();
+    const reclaim = recoveredReclaim(proposalType, [{ ...orderNote(swap), sender: 'account' }]);
+    const stored = new Map<string, ITransaction>();
+    const put = (row: ITransaction) => stored.set(row.id, deserialize(serialize(row)));
+    const load = () => [...stored.values()].map((row): ITransaction => deserialize(serialize(row)));
+    put(swap);
+    put(reclaim);
+    for (const row of reconcileRecoveredSwaps(load())) put(row);
+
+    const reloaded = load();
+    expect(reloaded.find(row => row.id === 'reclaim')).toMatchObject({
+      type: 'consume',
+      amount: 70n,
+      faucetId: 'miden',
+      noteId: 'order',
+      noteIds: ['order'],
+      inputNoteIds: ['order'],
+      extraInputs: { swapOrderTxId: swap.id, swapSettleKind: 'reclaim' },
+      recovery: { reclaimed: true }
+    });
+    const order = reloaded.find(row => row.id === swap.id);
+    expect(order?.extraInputs.reclaimedAt).toBe(reclaim.completedAt);
+    expect(order?.extraInputs.settledAt).toBeUndefined();
+    expect(reconcileRecoveredSwaps(reloaded)).toEqual([]);
+  }
+);
+
+it.each([
+  [
+    'an own order note beside an unrelated note',
+    (note: GuardianHistoryNote) => [
+      { ...note, sender: 'account' },
+      { ...note, id: 'unrelated', sender: 'account', swap: undefined }
+    ]
+  ],
+  ["another account's order note", (note: GuardianHistoryNote) => [{ ...note, sender: 'maker' }]]
+])('keeps a recovered custom transaction an execute when it consumes %s', (_label, inputNotes) => {
+  const { swap } = recoveredSwapPair();
+  const row = recoveredReclaim('custom_transaction', inputNotes(orderNote(swap)));
+  expect(row.type).toBe('execute');
+  expect(reconcileRecoveredSwaps([row, swap])).toEqual([]);
+  expect(swap.extraInputs.reclaimedAt).toBeUndefined();
+});
+
+it('keeps a recovered custom transaction an execute with its output when it also creates a note', () => {
+  const { swap } = recoveredSwapPair();
+  // `summary` carries one user output note: this transaction did more than take the order back.
+  const row = recoveredHistoryRecord(
+    'account',
+    '0x123',
+    'testnet',
+    'one',
+    entry,
+    delta({ proposalType: 'custom_transaction' }),
+    { ...summary, inputNotes: [{ ...orderNote(swap), sender: 'account' }] }
+  );
+  expect(row).toMatchObject({
+    type: 'execute',
+    amount: 9007199254740993n,
+    faucetId: 'asset',
+    noteId: 'out',
+    noteIds: ['out']
+  });
+  expect(reconcileRecoveredSwaps([row, swap])).toEqual([]);
+  expect(swap.extraInputs.reclaimedAt).toBeUndefined();
 });
 
 it.each([

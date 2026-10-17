@@ -100,9 +100,11 @@ const mockSyncChain = jest.fn(async () => {
   callOrder.push('syncChain');
 });
 const mockRawWebClient = { kind: 'raw-web-client', syncChain: () => mockSyncChain() };
+const mockBuildPswapCancelRequest = jest.fn();
 const mockMidenClient = {
   getAccount: (...args: unknown[]) => mockGetAccount(...args),
   syncState: () => mockSyncState(),
+  buildPswapCancelRequest: (...args: unknown[]) => mockBuildPswapCancelRequest(...args),
   client: mockRawWebClient
 };
 // The slice-2 offscreen client proxy reads getAccount through the `lib/...` alias
@@ -606,6 +608,93 @@ describe('MultisigService', () => {
         expect(mockFeeAwareRequestBuilder).not.toHaveBeenCalled();
         expect(createCustomFn).not.toHaveBeenCalled();
       });
+    });
+  });
+
+  describe('createPswapCancelProposal', () => {
+    const cancelBytes = new Uint8Array([4, 4, 7]);
+
+    // Each step records the hold it ran under: the cancel has to be built at the height the proposal is made at.
+    let holdsSeen: Record<string, object | null>;
+    const arrange = () => {
+      holdsSeen = {};
+      mockBuildPswapCancelRequest.mockImplementation(
+        async (_accountId: string, _noteId: string, assertLive: (step: string) => void) => {
+          callOrder.push('buildPswapCancelRequest');
+          holdsSeen.build = currentWasmHold;
+          assertLive('after the output-note listing');
+          return cancelBytes;
+        }
+      );
+      const persistRequest = jest.fn(async (_requestBytes: Uint8Array) => {
+        callOrder.push('persistRequest');
+        holdsSeen.persist = currentWasmHold;
+      });
+      const createCustomFn = jest.fn(async () => {
+        callOrder.push('createCustomProposal');
+        holdsSeen.propose = currentWasmHold;
+        return { kind: 'custom', id: 'cancel-proposal' };
+      });
+      const service = new MultisigService(
+        makeMultisig({ createCustomProposal: createCustomFn }) as never,
+        {} as never,
+        'https://x'
+      );
+      return { service, persistRequest, createCustomFn };
+    };
+
+    it('builds the cancel after the chain sync, persists it, then proposes exactly those bytes in one hold', async () => {
+      const { service, persistRequest, createCustomFn } = arrange();
+      wasmLockOptionsSeen.length = 0;
+
+      const proposal = await service.createPswapCancelProposal('zero-fill-tip', persistRequest);
+
+      expect(mockBuildPswapCancelRequest).toHaveBeenCalledWith('acc-id', 'zero-fill-tip', expect.any(Function));
+      expect(persistRequest).toHaveBeenCalledWith(cancelBytes);
+      expect(createCustomFn).toHaveBeenCalledWith(cancelBytes, 'custom_transaction');
+      expect(callOrder).toEqual(['syncChain', 'buildPswapCancelRequest', 'persistRequest', 'createCustomProposal']);
+      expect(wasmLockOptionsSeen).toHaveLength(1);
+      expect(holdsSeen.build).toBe(syncHoldsSeen[0]);
+      expect(holdsSeen.persist).toBe(syncHoldsSeen[0]);
+      expect(holdsSeen.propose).toBe(syncHoldsSeen[0]);
+      expect(proposal).toEqual({ kind: 'custom', id: 'cancel-proposal' });
+    });
+
+    it('builds and proposes nothing when the chain sync fails', async () => {
+      const { service, persistRequest, createCustomFn } = arrange();
+      mockSyncChain.mockRejectedValueOnce(new Error('node unreachable'));
+
+      await expect(service.createPswapCancelProposal('zero-fill-tip', persistRequest)).rejects.toThrow(
+        'node unreachable'
+      );
+      expect(mockBuildPswapCancelRequest).not.toHaveBeenCalled();
+      expect(persistRequest).not.toHaveBeenCalled();
+      expect(createCustomFn).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['inside the build', 'build'],
+      ['while the request is persisted', 'persist']
+    ])('proposes nothing when the hold is evicted %s', async (_label, step) => {
+      const { service, persistRequest, createCustomFn } = arrange();
+      if (step === 'build') {
+        mockBuildPswapCancelRequest.mockImplementationOnce(
+          async (_accountId: string, _noteId: string, assertLive: (at: string) => void) => {
+            currentWasmHold = null;
+            assertLive('after the output-note listing');
+            return cancelBytes;
+          }
+        );
+      } else {
+        persistRequest.mockImplementationOnce(async () => {
+          currentWasmHold = null;
+        });
+      }
+
+      await expect(service.createPswapCancelProposal('zero-fill-tip', persistRequest)).rejects.toMatchObject({
+        name: 'WasmClientPoisonedError'
+      });
+      expect(createCustomFn).not.toHaveBeenCalled();
     });
   });
 

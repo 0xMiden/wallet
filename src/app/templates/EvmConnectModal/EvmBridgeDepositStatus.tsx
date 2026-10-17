@@ -165,6 +165,7 @@ export const EvmBridgeDepositStatus: React.FC<EvmBridgeDepositStatusProps> = ({
     const { statusValue, footerDescription } = submittedCopyOf(inputs, t);
     return (
       <TransactionSuccessLayout
+        accent="receive"
         headerTitle={t('success')}
         title={t('bridgeDepositSubmitted')}
         footerDescription={footerDescription}
@@ -224,7 +225,7 @@ export const EvmBridgeDepositStatus: React.FC<EvmBridgeDepositStatusProps> = ({
       <main className="flex flex-1 flex-col">
         <section className="flex flex-1 flex-col items-center pt-5">
           <Hero
-            visual={<TransactionHeroIcon state={failed ? 'failed' : 'processing'} />}
+            visual={<TransactionHeroIcon accent="receive" state={failed ? 'failed' : 'processing'} />}
             name={
               failed
                 ? t('bridgeDepositFailed')
@@ -254,7 +255,7 @@ export const EvmBridgeDepositStatus: React.FC<EvmBridgeDepositStatusProps> = ({
           </p>
         </section>
         <div className="w-full shrink-0 pt-10">
-          <Button type="button" variant={ButtonVariant.Primary} onClick={onDone} className="w-full">
+          <Button type="button" accent="receive" variant={ButtonVariant.Primary} onClick={onDone} className="w-full">
             {failed ? t('done') : t('hide')}
           </Button>
         </div>

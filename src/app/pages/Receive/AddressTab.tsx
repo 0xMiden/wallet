@@ -8,7 +8,6 @@ import { useTranslation } from 'react-i18next';
 import { Icon, IconName } from 'app/icons/v2';
 import { HomeGroupPaneBody } from 'app/layouts/HomeGroupPane';
 import { usePageActive } from 'app/layouts/page-active';
-import EvmConnectModal from 'app/templates/EvmConnectModal';
 import { FeatureUnavailableNotice, isFeatureBlocked } from 'components/FeatureUnavailable';
 import { ACCENT_CLASSES } from 'components/flow/accent';
 import { NetworkChip } from 'components/NetworkChip';
@@ -26,7 +25,6 @@ import { useClipboardCopy } from 'lib/ui/useClipboardCopy';
 import { usePrimaryPress } from 'lib/ui/usePrimaryPress';
 import { cn } from 'lib/ui/util';
 import { useBridgeInAvailability } from 'lib/usdcx/use-bridge-in-availability';
-import { useEvmWalletConnection } from 'lib/walletconnect/useEvmWalletConnection';
 import { truncateAddress } from 'utils/string';
 
 interface AddressTabProps {
@@ -124,8 +122,6 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
   // The share fallback copies through the same hook as the page's copy control: one clipboard
   // path, and it catches a rejected write.
   const { copy: copyAddress } = useClipboardCopy(address);
-  const [evmOpen, setEvmOpen] = useState(false);
-  const { address: evmAddress, connected: evmConnected } = useEvmWalletConnection();
   const qrRef = useRef<QRCodeHandle>(null);
 
   // The logo easter egg. Receive stays mounted when it is left for another Home page or another tab,
@@ -162,25 +158,6 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
     const index = QR_PALETTE_CYCLE.indexOf(committedPalette);
     if (index !== -1) committedPaletteStepRef.current = index;
   }, []);
-
-  const openBridgeDeposit = useCallback(() => {
-    onBridgeDeposit();
-  }, [onBridgeDeposit]);
-
-  // The action tile fires the tap haptic for both actions.
-  const handleOpenEvm = useCallback(() => {
-    if (evmConnected && evmAddress) {
-      openBridgeDeposit();
-      return;
-    }
-    setEvmOpen(true);
-  }, [evmAddress, evmConnected, openBridgeDeposit]);
-
-  useEffect(() => {
-    if (!evmOpen || !evmConnected || !evmAddress) return;
-    setEvmOpen(false);
-    openBridgeDeposit();
-  }, [evmAddress, evmConnected, evmOpen, openBridgeDeposit]);
 
   // The shared text names the network (#875) so a pasted address never loses
   // its context. The QR image carries the same caption (see `caption` below).
@@ -341,7 +318,7 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
                 icon={IconName.CrossChain}
                 title={t('crossChain')}
                 // No source named here: the bridge screen lists the chains the remote config offers.
-                onClick={handleOpenEvm}
+                onClick={onBridgeDeposit}
                 disabled={isFeatureBlocked(crossChain)}
                 data-testid="receive-cross-chain"
               />
@@ -362,7 +339,6 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
             </Notice>
           )}
         </div>
-        <EvmConnectModal open={evmOpen} onOpenChange={setEvmOpen} />
       </div>
     </HomeGroupPaneBody>
   );

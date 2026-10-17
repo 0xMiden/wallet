@@ -4,6 +4,7 @@ import { cva } from 'class-variance-authority';
 import { motion, useReducedMotion } from 'framer-motion';
 
 import { useTabShownAgain } from 'app/layouts/page-active';
+import { ACCENT_CLASSES, FlowAccent } from 'components/flow/accent';
 import { Highlight, HighlightItem } from 'components/ui/animate/highlight';
 import { raisedBubbleClassName } from 'components/ui/animate/raised-bubble';
 import { tabBarSwap, useTabBarMotion, useTabIconPop } from 'lib/animation';
@@ -34,6 +35,8 @@ export interface SegmentedControlProps<T extends string = string> {
   value: T;
   /** Called once per real change: never for a tap on the item that is already selected. */
   onChange: (id: T) => void;
+  /** Optional flow tint; omitted controls keep the standard brand tint. */
+  accent?: FlowAccent;
   size?: SegmentedControlSize;
   layout?: SegmentedControlLayout;
   'aria-label'?: string;
@@ -77,7 +80,7 @@ const segment = cva(
       },
       layout: {
         scroll: 'shrink-0',
-        fill: 'min-w-0'
+        fill: 'min-w-0 px-2'
       },
       // Every item is an outlined pill on the page; the selected one hands its outline over to
       // the raised bubble that covers it, keeping the border transparent so the item's width,
@@ -106,6 +109,7 @@ const content = cva('flex min-w-0 items-center', {
 interface SegmentProps<T extends string> {
   item: SegmentedControlItem<T>;
   active: boolean;
+  accent?: FlowAccent;
   focusable: boolean;
   size: SegmentedControlSize;
   layout: SegmentedControlLayout;
@@ -118,7 +122,7 @@ interface SegmentProps<T extends string> {
  * the button, adds the sliding bubble and wraps the content, so the whole item, bubble included,
  * dips when pressed.
  */
-function Segment<T extends string>({ item, active, focusable, size, layout, onSelect, swap }: SegmentProps<T>) {
+function Segment<T extends string>({ item, active, accent, focusable, size, layout, onSelect, swap }: SegmentProps<T>) {
   const motionTokens = useTabBarMotion();
   const pop = useTabIconPop(active, swap);
 
@@ -134,7 +138,11 @@ function Segment<T extends string>({ item, active, focusable, size, layout, onSe
         onClick={() => onSelect(item.id)}
         {...(item.disabled ? {} : motionTokens.press)}
         // Shown again, the new selection's colours land at once instead of cross-fading.
-        className={cn(segment({ size, layout, active }), swap && 'transition-none')}
+        className={cn(
+          segment({ size, layout, active }),
+          active && accent && ACCENT_CLASSES[accent].ink,
+          swap && 'transition-none'
+        )}
       >
         <motion.span
           data-pop={pop.phase}
@@ -167,6 +175,7 @@ export function SegmentedControl<T extends string>({
   items,
   value,
   onChange,
+  accent,
   size = 'md',
   layout = 'scroll',
   'aria-label': ariaLabel,
@@ -268,13 +277,14 @@ export function SegmentedControl<T extends string>({
         // Unselected pills paint an opaque `page` fill, so the sliding bubble is lifted above them;
         // each item's label wrapper is also z-index 1 and later in the DOM, so labels stay on top.
         style={{ zIndex: 1 }}
-        className={cn('-inset-px', raisedBubbleClassName, 'bg-accent-tint')}
+        className={cn('-inset-px', raisedBubbleClassName, accent ? ACCENT_CLASSES[accent].tint : 'bg-accent-tint')}
       >
         {items.map((item, index) => (
           <Segment
             key={item.id}
             item={item}
             active={index === selectedIndex}
+            accent={accent}
             focusable={index === focusIndex}
             size={size}
             layout={layout}

@@ -134,6 +134,7 @@ function resetControl() {
     inlineExportNote: jest.fn(async () => new Uint8Array([1, 2, 3])),
     inlineGetInputNoteDetails: jest.fn(async () => [{ __inlineDetail: true }]),
     inlineGetConsumableNoteDtos: jest.fn(async () => [{ __inlineConsumable: true }]),
+    inlineBuildPswapCancelRequest: jest.fn(async () => new Uint8Array([20, 14, 7, 6])),
     inlineConsumeNoteId: jest.fn(async () => ({ __inlineTxResult: true })),
     // Slice 5b: the flag-off passthrough of each remaining non-guardian write.
     inlineSendTransaction: jest.fn(async () => ({ __inlineSendResult: true })),
@@ -195,6 +196,7 @@ function resetControl() {
       getInputNoteDetails: (...a: any[]) => G.__px.inlineGetInputNoteDetails(...a),
       getTransactionCommitState: (...a: any[]) => G.__px.inlineGetTransactionCommitState(...a),
       getConsumableNoteDtos: (...a: any[]) => G.__px.inlineGetConsumableNoteDtos(...a),
+      buildPswapCancelRequest: (...a: any[]) => G.__px.inlineBuildPswapCancelRequest(...a),
       consumeNoteId: (...a: any[]) => G.__px.inlineConsumeNoteId(...a),
       sendTransaction: (...a: any[]) => G.__px.inlineSendTransaction(...a),
       swapTransaction: (...a: any[]) => G.__px.inlineSwapTransaction(...a),
@@ -1069,6 +1071,57 @@ describe('MidenClientProxy — slice-4 consumable notes (DTO round-trip)', () =>
     await flush();
     fireReady();
     expect(await p).toEqual([]);
+  });
+});
+
+describe('MidenClientProxy — zero-fill PSWAP cancel request', () => {
+  it('flag OFF builds in the inline canonical client and forwards the hold check', async () => {
+    const { midenClientProxy } = await loadProxy(false);
+    const assertLive = jest.fn();
+
+    await expect(midenClientProxy.buildPswapCancelRequest('acc-1', 'tip-1', assertLive)).resolves.toEqual(
+      new Uint8Array([20, 14, 7, 6])
+    );
+
+    expect(G.__px.inlineBuildPswapCancelRequest).toHaveBeenCalledWith('acc-1', 'tip-1', assertLive);
+    expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('flag ON returns the offscreen-built request bytes verbatim', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    const bytes = new Uint8Array([20, 14, 7, 6]);
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: Buffer.from(bytes).toString('base64'),
+      durationMs: 4
+    }));
+
+    const pending = midenClientProxy.buildPswapCancelRequest('acc-2', 'tip-2');
+    await flush();
+    fireReady();
+
+    await expect(pending).resolves.toEqual(bytes);
+    const env = fakeChrome.runtime.sendMessage.mock.calls[0][0];
+    expect(env.method).toBe('buildPswapCancelRequest');
+    expect(env.argsB64).toEqual(['s:"acc-2"', 's:"tip-2"']);
+    expect(G.__px.inlineBuildPswapCancelRequest).not.toHaveBeenCalled();
+  });
+
+  it('flag ON refuses a missing request payload', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: null,
+      durationMs: 1
+    }));
+
+    const pending = midenClientProxy.buildPswapCancelRequest('acc-3', 'tip-3');
+    await flush();
+    fireReady();
+
+    await expect(pending).rejects.toThrow('returned no request bytes');
   });
 });
 
