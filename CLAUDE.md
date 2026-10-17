@@ -287,6 +287,7 @@ iOS-specific product notes:
 **Keep it a hook flag, not a behaviour switch.** Suppressing real product behaviour under `MIDEN_E2E_TEST` makes that behaviour permanently untestable — it can't be reached from any E2E run. The two existing opt-outs have their own flags, set by the `test:e2e:*:build` scripts (and defined in each `vite.*.config.ts` — an env read with no matching `define` is rewritten to `{}.X`, i.e. silently `undefined`, so a flag missing from one config is off in that bundle with no error at all):
 - `MIDEN_E2E_DISABLE_SIDEPANEL` — keeps onboarding in-tab (`lib/extension/side-panel-handoff.ts`); a suite that wants to drive the real side panel builds without it.
 - `MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES` — makes `loadEndpointOverrides()` a no-op so the build-baked network wins (`lib/miden-chain/effective-endpoints.ts`).
+  `test:e2e:blockchain:build` sets it unless the variable says otherwise; only `test:e2e:stored-override:build` turns it off, for the specs in `playwright/e2e/tests/stored-override/`, which Local E2E runs after its core specs. They store an override through Developer Settings with an RPC URL that opens another SDK store than the build default's, and `assertWalletRunsOnStoredOverride` (`harness/extension-network.ts`) refuses a run whose wallet ignored it (#1485).
 
 ## Testing
 

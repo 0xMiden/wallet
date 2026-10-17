@@ -2,6 +2,7 @@ import type { PluginListenerHandle } from '@capacitor/core';
 import { registerPlugin } from '@capacitor/core';
 
 import { isAndroid, isIOS } from 'lib/platform';
+import { walletRaised } from 'lib/telemetry/bridge-receive-failure';
 
 import { getChain, type EvmChain } from './config';
 import { readNativeFeeFields } from './fees';
@@ -127,6 +128,7 @@ export class NativeSessionChainNotApprovedError extends Error {
     this.name = 'NativeSessionChainNotApprovedError';
     this.chainId = chainId;
     this.networkName = networkName;
+    walletRaised(this);
   }
 }
 
