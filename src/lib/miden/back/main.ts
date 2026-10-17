@@ -798,6 +798,18 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
         };
       }
       break;
+    // Only once every live confirmation handler declined: registered after this one, they run first.
+    case MidenMessageType.DAppGetPayloadRequest:
+    case MidenMessageType.DAppSimulateTransactionRequest:
+    case MidenMessageType.DAppUnlockConfirmationRequest:
+    case MidenMessageType.DAppPermConfirmationRequest:
+    case MidenMessageType.DAppTransactionConfirmationRequest:
+    case MidenMessageType.DAppPrivateNotesConfirmationRequest:
+    case MidenMessageType.DAppSignConfirmationRequest:
+    case MidenMessageType.DAppAssetsConfirmationRequest:
+    case MidenMessageType.DAppImportPrivateNoteConfirmationRequest:
+    case MidenMessageType.DAppConsumableNotesConfirmationRequest:
+      throw Actions.confirmationNotFound(req);
     // case WalletMessageType.GetOwnedRecordsRequest:
     // const records = await Actions.getOwnedRecords(req.accPublicKey);
     // return {
