@@ -7,7 +7,12 @@ import {
   type NativeAssetChainMetadata
 } from 'lib/miden-chain/native-asset';
 
-import { quoteEarnWithdrawal, assertWithdrawalReviewCurrent, assertWithdrawalDelivery } from './earn-withdraw-quote';
+import {
+  quoteEarnWithdrawal,
+  assertWithdrawalReviewCurrent,
+  assertWithdrawalDelivery,
+  assertWithdrawalAllocations
+} from './earn-withdraw-quote';
 import { fetchEarnPositions } from './positions';
 
 jest.mock('./client', () => ({ buildEpochReadOnlyWalletClient: jest.fn() }));
@@ -121,6 +126,23 @@ it('binds the prepared delivery to the reviewed source amount, underlying and mi
     { ...mandate, minTokenOut: '0' }
   ]) {
     expect(() => assertWithdrawalDelivery(q, bad)).toThrow('earnWithdrawRefresh');
+  }
+});
+it('binds every allocation: one withdraw leg for the reviewed input and the delivery', async () => {
+  const q = await quoteEarnWithdrawal(args, sdk);
+  const leg = { tokenIn: token, tokenInAmount: q.amountAtomic, minTokenOut: '0' };
+  const delivery = { ...leg, minTokenOut: q.minimumAtomic };
+  expect(() => assertWithdrawalAllocations(q, [leg, delivery], 1)).not.toThrow();
+  const refused: Array<[Array<typeof leg | undefined>, number]> = [
+    [[leg, delivery], 2],
+    [[undefined, delivery], 1],
+    [[delivery], 0],
+    [[leg, leg, delivery], 2],
+    [[{ ...leg, tokenInAmount: '2' }, delivery], 1],
+    [[leg, { ...delivery, minTokenOut: '0' }], 1]
+  ];
+  for (const [mandates, deliveryIndex] of refused) {
+    expect(() => assertWithdrawalAllocations(q, mandates, deliveryIndex)).toThrow(new Error('earnWithdrawRefresh'));
   }
 });
 

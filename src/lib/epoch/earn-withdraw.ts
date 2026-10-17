@@ -43,7 +43,7 @@ import {
 import {
   assertWithdrawalReviewCurrent,
   assertWithdrawalReviewContext,
-  assertWithdrawalDelivery,
+  assertWithdrawalAllocations,
   quoteEarnWithdrawal,
   type EarnWithdrawalQuote
 } from './earn-withdraw-quote';
@@ -342,9 +342,12 @@ async function submitEarnWithdrawal(
             await assertWithdrawalReviewCurrent(args.review);
             assertBeforeSigning();
             const validated = validateEarnWithdrawPreparedExecution(selected, identity);
-            const delivery = validated?.allocationRequests[selected.delivery.allocationIndex]?.compact.mandate;
-            if (!delivery) throw new Error('earnWithdrawRefresh');
-            assertWithdrawalDelivery(args.review, delivery);
+            if (!validated) throw new Error('earnWithdrawRefresh');
+            assertWithdrawalAllocations(
+              args.review,
+              validated.allocationRequests.map(request => request.compact.mandate),
+              selected.delivery.allocationIndex
+            );
           }
           preparedExecution = selected;
           const prepareExecution = deps.prepareExecution ?? prepareEarnWithdrawExecution;

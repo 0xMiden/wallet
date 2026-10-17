@@ -164,16 +164,32 @@ export async function assertWithdrawalReviewCurrent(quote: EarnWithdrawalQuote):
   assertWithdrawalReviewContext(quote);
 }
 
+type AllocationMandate = { tokenIn: string; tokenInAmount: string; minTokenOut: string };
+
+const spendsReviewedInput = (quote: EarnWithdrawalQuote, mandate: AllocationMandate): boolean =>
+  mandate.tokenIn.toLowerCase() === quote.position.underlyingAddress.toLowerCase() &&
+  mandate.tokenInAmount === quote.amountAtomic;
+
 /** The execution helper requotes. Refuse any different input or worse floor instead of silently changing review. */
-export function assertWithdrawalDelivery(
-  quote: EarnWithdrawalQuote,
-  mandate: { tokenIn: string; tokenInAmount: string; minTokenOut: string }
-): void {
+export function assertWithdrawalDelivery(quote: EarnWithdrawalQuote, mandate: AllocationMandate): void {
   if (
-    mandate.tokenIn.toLowerCase() !== quote.position.underlyingAddress.toLowerCase() ||
-    mandate.tokenInAmount !== quote.amountAtomic ||
+    !spendsReviewedInput(quote, mandate) ||
     !/^\d+$/.test(mandate.minTokenOut) ||
     BigInt(mandate.minTokenOut) < BigInt(quote.minimumAtomic)
   )
     throw new Error('earnWithdrawRefresh');
+}
+
+/** The allocator returns every leg, so each is bound to the review: exactly one withdraw leg and the delivery. */
+export function assertWithdrawalAllocations(
+  quote: EarnWithdrawalQuote,
+  mandates: ReadonlyArray<AllocationMandate | undefined>,
+  deliveryIndex: number
+): void {
+  const delivery = mandates[deliveryIndex];
+  const withdraws = mandates.filter((_, index) => index !== deliveryIndex);
+  const [withdraw] = withdraws;
+  if (!delivery || withdraws.length !== 1 || !withdraw || !spendsReviewedInput(quote, withdraw))
+    throw new Error('earnWithdrawRefresh');
+  assertWithdrawalDelivery(quote, delivery);
 }
