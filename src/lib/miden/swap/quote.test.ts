@@ -295,13 +295,30 @@ describe('a 2xx body the flow cannot read', () => {
     ['a swap eta with an unknown price band', swapEta, { ...etaWith(), priceBand: 'near_market' }],
     ['a swap eta with an unknown fill status', swapEta, { ...etaWith(), fillStatus: 'most' }],
     ['a swap eta with an unknown reason', swapEta, { ...etaWith(), reason: 'weather' }],
-    ['a swap eta with a fractional amount', swapEta, { ...etaWith(), requestedAmount: '124160211179.5' }],
+    ['a swap eta with a fractional amount', swapEta, { ...etaWith(), expectedRequestedAmount: '124409028237.5' }],
     ['a swap eta with a numeric amount', swapEta, { ...etaWith(), expectedRequestedAmount: 124409028237 }]
   ])('rejects %s as an unknown quote error', async (_case, request, body) => {
     installFetch([() => ({ status: 200, body })]);
     const failure = request();
     await expect(failure).rejects.toBeInstanceOf(SwapQuoteError);
     await expect(failure).rejects.toMatchObject({ code: 'unknown' });
+  });
+
+  it('passes a body through as it came, with fields the flow does not read missing or added', async () => {
+    const price = { fillPrice: '2488.18058475', feePpm: 50, offeredDecimals: 8, requestedDecimals: 8, note: 'new' };
+    const eta = {
+      settlementsRunning: true,
+      priceBand: 'at_market',
+      fillStatus: 'full',
+      reason: null,
+      expectedRequestedAmount: null,
+      estimatedSeconds: 16,
+      median24hSeconds: null,
+      note: 'new'
+    };
+    installFetch([() => ({ status: 200, body: price }), () => ({ status: 200, body: eta })]);
+    await expect(pairPrice()).resolves.toBe(price);
+    await expect(swapEta()).resolves.toBe(eta);
   });
 });
 

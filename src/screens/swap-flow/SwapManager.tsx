@@ -23,13 +23,7 @@ import {
   SpendingLimitAuthorization,
   spendingLimitAssessmentFromError
 } from 'lib/miden/spending-limits/types';
-import {
-  DEFAULT_SWAP_SLIPPAGE_BPS,
-  SwapQuote,
-  SwapQuoteErrorCode,
-  swapVerdict,
-  swapVerdictBlocksSubmit
-} from 'lib/miden/swap/quote';
+import { DEFAULT_SWAP_SLIPPAGE_BPS, swapEtaBlocksSubmit, SwapQuote, SwapQuoteErrorCode } from 'lib/miden/swap/quote';
 import { getDefaultSwapPair, getSwapPartners, isSwapPair, SwapPair, SwapToken } from 'lib/miden/swap/tokens';
 import { swapAvailability, useSwapTokens } from 'lib/miden/swap/use-swap-tokens';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
@@ -575,7 +569,7 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
         return;
       }
       setReviewQuote(fresh);
-      if (swapVerdictBlocksSubmit(swapVerdict(fresh.eta))) {
+      if (swapEtaBlocksSubmit(fresh.eta)) {
         setSubmitError(t('swapPriceMoved'));
         // A wallet-built ask is rebuilt from the new price at once; the field follows once the
         // press has settled. A user-edited one is theirs to change.

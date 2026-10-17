@@ -1,6 +1,7 @@
 import { accountIdStringToSdk } from 'lib/miden/sdk/helpers';
 import { getBridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { withRequestTimeout } from 'lib/remote-json';
+import { isRecord } from 'lib/update/guards';
 
 import { BPS_DENOMINATOR, isValidSlippageBps } from './slippage-bounds';
 import type { SwapToken } from './tokens';
@@ -196,17 +197,13 @@ export const SWAP_VERDICT_LABEL_KEYS: Record<SwapVerdict, string> = {
   full: 'swapVerdictFull'
 };
 
-/** A verdict the flow refuses to sign on. The rest are advisory: on testnet `no-liquidity` is the usual pre-sign answer. */
-export const swapVerdictBlocksSubmit = (verdict: SwapVerdict): boolean => {
-  switch (verdict) {
-    case 'no-market':
-    case 'no-price':
-    case 'off-market':
-      return true;
-    default:
-      return false;
-  }
-};
+/**
+ * An answer the flow refuses to sign on: a pair not traded, no price, or an ask off market. Read from
+ * the fields, not from `swapVerdict`, whose first row (paused settlements) would hide all three. The
+ * rest are advisory: on testnet `no-liquidity` is the usual pre-sign answer.
+ */
+export const swapEtaBlocksSubmit = (eta: SwapEta): boolean =>
+  eta.reason === 'no_market' || eta.reason === 'no_price' || eta.priceBand === 'off_market';
 
 /** `"2489.52051775"` → `2489520517750000000000n`: the decimal scaled by 10^18, extra digits dropped. */
 export function scale18(decimal: string): bigint {
@@ -241,17 +238,72 @@ function quoteBaseUrl(): string {
   return etaUrl;
 }
 
+const PRICE_BANDS: readonly SwapPriceBand[] = ['at_market', 'tolerated', 'off_market'];
+const FILL_STATUSES: readonly SwapFillStatus[] = ['full', 'partial', 'none'];
+const FILL_REASONS: readonly SwapFillReason[] = ['price', 'liquidity', 'no_market', 'no_price'];
+
+const isOneOf =
+  <T extends string>(known: readonly T[]) =>
+  (value: unknown): value is T =>
+    typeof value === 'string' && known.some(entry => entry === value);
+const orNull =
+  <T>(isValue: (value: unknown) => value is T) =>
+  (value: unknown): value is T | null =>
+    value === null || isValue(value);
+// Shaped as `scale18` parses a price and the review parses an amount.
+const isDecimalString = (value: unknown): value is string =>
+  typeof value === 'string' && /^\s*\d+(?:\.\d*)?\s*$/.test(value);
+const isIntegerString = (value: unknown): value is string => typeof value === 'string' && /^\d+$/.test(value);
+const isDecimals = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+const isFiniteNumber = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
+
+/** Checks the fields the flow reads; the rest of the body passes through unread. */
+function isSwapPairPrice(body: unknown): body is SwapPairPrice {
+  return (
+    isRecord(body) &&
+    isDecimalString(body.fillPrice) &&
+    isDecimals(body.offeredDecimals) &&
+    isDecimals(body.requestedDecimals) &&
+    isFiniteNumber(body.feePpm)
+  );
+}
+
+/** Checks the fields the flow reads; the rest of the body passes through unread. */
+function isSwapEta(body: unknown): body is SwapEta {
+  return (
+    isRecord(body) &&
+    typeof body.settlementsRunning === 'boolean' &&
+    orNull(isOneOf(PRICE_BANDS))(body.priceBand) &&
+    isOneOf(FILL_STATUSES)(body.fillStatus) &&
+    orNull(isOneOf(FILL_REASONS))(body.reason) &&
+    orNull(isIntegerString)(body.expectedRequestedAmount) &&
+    orNull(isFiniteNumber)(body.estimatedSeconds) &&
+    orNull(isFiniteNumber)(body.median24hSeconds)
+  );
+}
+
 /**
  * One bounded request to the service. A refused request becomes a `SwapQuoteError` carrying the
- * body's `error` code; a 408 has no body and reads as `timeout`.
+ * body's `error` code; a 408 has no body and reads as `timeout`. A 2xx body the flow cannot read
+ * is one too, with code `unknown`, so the flow refuses it as a price it could not get.
  */
-async function getQuoteJson<T>(path: string, params: URLSearchParams): Promise<T> {
+async function getQuoteJson<T>(
+  path: string,
+  params: URLSearchParams,
+  isBody: (body: unknown) => body is T
+): Promise<T> {
   const url = `${quoteBaseUrl()}${path}?${params.toString()}`;
   return withRequestTimeout(SWAP_QUOTE_FETCH_TIMEOUT_MS, async signal => {
     const res = await fetch(url, { signal });
     if (res.ok) {
-      const json: T = await res.json();
-      return json;
+      const json: unknown = await res.json();
+      if (isBody(json)) return json;
+      throw new SwapQuoteError(
+        'unknown',
+        `The swap quote service sent an answer the wallet cannot read (${path})`,
+        res.status
+      );
     }
     const body: { error?: unknown; message?: unknown } = await res.json().catch(() => ({}));
     const code: SwapQuoteErrorCode = isKnownCode(body.error) ? body.error : res.status === 408 ? 'timeout' : 'unknown';
@@ -268,7 +320,7 @@ export async function getSwapPairPrice(offerToken: SwapToken, requestToken: Swap
     offered_faucet: faucetParam(offerToken),
     requested_faucet: faucetParam(requestToken)
   });
-  return getQuoteJson<SwapPairPrice>('/v2/pair-price', params);
+  return getQuoteJson('/v2/pair-price', params, isSwapPairPrice);
 }
 
 /** `GET /v2/swap-eta` for the exact order the wallet is about to sign. Answers 200 even without a price. */
@@ -284,7 +336,7 @@ export async function getSwapEta(
     requested_faucet: faucetParam(requestToken),
     requested_amount: requestAmountRaw.toString()
   });
-  return getQuoteJson<SwapEta>('/v2/swap-eta', params);
+  return getQuoteJson('/v2/swap-eta', params, isSwapEta);
 }
 
 /** A price whose decimals disagree with the registry would scale the ask by 10^(diff), so it is refused. */

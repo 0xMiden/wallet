@@ -16,7 +16,7 @@ import { Pill } from 'components/ui/Pill';
 import { SegmentedControl } from 'components/ui/SegmentedControl';
 import { TextField } from 'components/ui/TextField';
 import { formatBigInt } from 'lib/i18n/numbers';
-import { SWAP_VERDICT_LABEL_KEYS, SwapQuote, swapVerdict, swapVerdictBlocksSubmit } from 'lib/miden/swap/quote';
+import { SWAP_VERDICT_LABEL_KEYS, swapEtaBlocksSubmit, SwapQuote, swapVerdict } from 'lib/miden/swap/quote';
 import { SwapToken } from 'lib/miden/swap/tokens';
 import { midenTokenLabel } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
@@ -162,6 +162,7 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
   const rate = parseRate(quote?.price.fillPrice);
   const formatRateValue = rateFormatterFor(rate ?? 0);
   const verdict = quote === undefined ? undefined : swapVerdict(quote.eta);
+  const blocksSubmit = quote !== undefined && swapEtaBlocksSubmit(quote.eta);
   const expected =
     quote !== undefined && verdict === 'full' ? expectedOverAsk(quote, requestToken.decimals) : undefined;
 
@@ -297,7 +298,7 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
             sub={
               expected !== undefined ? t('swapVerdictExpected', { amount: expected, symbol: requestLabel }) : undefined
             }
-            className={swapVerdictBlocksSubmit(verdict) ? 'text-negative-ink' : undefined}
+            className={blocksSubmit ? 'text-negative-ink' : undefined}
             data-testid="swap-verdict-row"
           >
             <span data-verdict={verdict}>{t(SWAP_VERDICT_LABEL_KEYS[verdict])}</span>
