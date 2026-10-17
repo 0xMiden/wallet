@@ -30,8 +30,8 @@ name: E2E USDCx Bridge-IN (live)
 # other relayer values below); the Arc job then installs that relayer and the spec
 # starts it as a local process.
 #
-# E2E Bridge-IN (e2e-bridge-in.yml) covers the AggLayer and Epoch deposit UI
-# hermetically on every push to main. These jobs cover what that suite cannot:
+# E2E Bridge-IN (e2e-bridge-in.yml) covers the AggLayer deposit UI and the Reown
+# pairing hermetically on every push to main. These jobs cover what that suite cannot:
 # Circle's real contracts, its attestation and forward, and the mint.
 #
 # It spends real Arc Testnet USDC, USDC and ETH on the three source chains, and

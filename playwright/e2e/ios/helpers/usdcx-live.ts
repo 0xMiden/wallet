@@ -327,7 +327,7 @@ export async function burnBackToDepositKey(ctx: BurnHalf): Promise<void> {
   evidence.notes.push(
     `review ${submission.reviewRoute}`,
     `generating ${submission.generatingRoute}`,
-    `chips pressed before the ${chain.networkName} click: ${submission.defaultPressed.join(', ') || 'none'}`
+    `network rows pressed before the ${chain.networkName} pick: ${submission.defaultPressed.join(', ') || 'none'}`
   );
 
   const burned = await step(

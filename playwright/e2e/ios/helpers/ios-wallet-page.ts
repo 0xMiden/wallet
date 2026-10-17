@@ -446,13 +446,8 @@ export class IosWalletPage implements WalletPage {
     await this.navigateTo('/receive');
     await this.waitFor('[data-testid="receive-page"]', { timeoutMs: 15_000 });
     await this.click('[data-testid="receive-cross-chain"]');
-    // The cross-chain tap reads the EVM `connected` state at click time. The
-    // native WC session is established (getState() reports connected), but that
-    // propagates to React via useNativeReown's async on-mount refresh — so a tap
-    // fired before it lands opens the (un-tappable native) connect modal instead
-    // of navigating. Fall back to the real /bridge/deposit route, which renders
-    // the deposit screen reactively once `connected` propagates: same
-    // destination, no tap-timing race.
+    // Cross Chain navigates to /bridge/deposit. Should the tap not land, navigating there directly reaches the same
+    // screen.
     try {
       await this.waitFor(`${IosWalletPage.BRIDGE_PAGE} [data-testid="send-token-selector"]`, { timeoutMs: 8_000 });
       return;
@@ -500,7 +495,8 @@ export class IosWalletPage implements WalletPage {
 
   /**
    * Confirm the Circle USDC route and continue to review. The route step shows one card, already selected, so the step
-   * only confirms; on the executor route Continue also waits for the balance read and Circle's quoted fee.
+   * only confirms; Continue waits for the balance read and stays disabled while the amount, with any fee Circle has
+   * quoted, exceeds the balance.
    */
   async confirmBridgeRouteUsdcx(timeoutMs = 15_000): Promise<void> {
     await this.waitFor('[data-testid="bridge-route-usdcx"]', { timeoutMs: 15_000 });
