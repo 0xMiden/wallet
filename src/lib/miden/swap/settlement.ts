@@ -9,7 +9,7 @@ import {
 } from './classification';
 import { midenClientProxy } from '../back/miden-client-proxy';
 import { isRotationPendingAccount } from '../back/rotation-pending';
-import { ITransactionStatus } from '../db/types';
+import { type ITransaction, ITransactionStatus } from '../db/types';
 import { isSyncFused, noteProbeFailure, noteSyncSuccess } from '../front/sync-fuse';
 import { toNoteTypeString } from '../helpers';
 import type { ConsumableNoteDto } from '../sdk/consumable-notes';
@@ -20,7 +20,11 @@ import {
   WASM_LOCK_SYNC_WATCHDOG_MS,
   WasmClientPoisonedError
 } from '../sdk/wasm-client-poison';
-import { initiateConsumeNotesTransaction, initiatePswapReclaimTransaction } from '../transaction/initiate';
+import {
+  initiateConsumeNotesTransaction,
+  initiatePswapReclaimTransaction,
+  noteClaimCoverage
+} from '../transaction/initiate';
 import { type ConsumableNote, NoteTypeEnum, type SwapOrderNoteMetadata } from '../types';
 import { swapOrderExpired } from './expiry';
 
@@ -47,6 +51,8 @@ export interface SwapSettlementSnapshot {
   classified: Map<string, SwapOrderNoteMetadata>;
   zeroFillReclaims: Map<string, PreparedPswapReclaim>;
 }
+
+const outputNoteIdsOf = (row: ITransaction): string[] => row.outputNoteIds ?? [];
 
 /**
  * Read one lineage snapshot and prepare the one class of settlement request
@@ -75,16 +81,25 @@ export async function classifySwapSettlementSnapshot(
     // Active=0. A partial fill moves the tip to depth > 0 and imports it as an
     // input note; terminal lineages have nothing left to reclaim.
     if (!lineage || lineage.state !== 0 || lineage.currentDepth !== 0) continue;
-    if (snapshot.notes.has(lineage.currentTipNoteId)) continue;
+    const tipNoteId = lineage.currentTipNoteId;
+    if (snapshot.notes.has(tipNoteId)) continue;
+    // A lineage the store maps wrongly names another order's note; a cancel of it takes back the wrong offer.
+    if (!outputNoteIdsOf(order).includes(tipNoteId)) continue;
+    // The queue would refuse a second row for a tip whose reclaim is live, completed or backing off, so the
+    // fee-aware build is not paid for every tick until then.
+    const coverage = await noteClaimCoverage(accountId, tipNoteId, nowSeconds);
+    if (coverage.liveOrCompleted || coverage.backingOff) continue;
 
     assertWasmHoldCurrent(hold, 'before the zero-fill PSWAP cancel-request build');
     let requestBytes: Uint8Array;
     try {
-      requestBytes = await midenClientProxy.buildPswapCancelRequest(accountId, lineage.currentTipNoteId, step =>
+      requestBytes = await midenClientProxy.buildPswapCancelRequest(accountId, tipNoteId, step =>
         assertWasmHoldCurrent(hold, 'inside the zero-fill PSWAP cancel-request build', step)
       );
     } catch (error) {
-      if (isWasmClientPoisonedError(error)) throw error;
+      // A trap rejects into the hold's lock, which retires the client; swallowed, the next order's build would run
+      // on the trapped client.
+      if (isWasmClientPoisonedError(error) || error instanceof WebAssembly.RuntimeError) throw error;
       // A sync can observe the lineage just before another actor consumes the
       // tip, or a legacy/local-store gap can leave the creator output absent.
       // Skip only this reclaim; aborting the whole note sync would also block
@@ -93,7 +108,7 @@ export async function classifySwapSettlementSnapshot(
       continue;
     }
     assertWasmHoldCurrent(hold, 'after the zero-fill PSWAP cancel-request build');
-    zeroFillReclaims.set(orderId, { noteId: lineage.currentTipNoteId, requestBytes });
+    zeroFillReclaims.set(orderId, { noteId: tipNoteId, requestBytes });
   }
 
   return { classified: snapshot.notes, zeroFillReclaims };

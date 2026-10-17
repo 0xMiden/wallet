@@ -332,6 +332,66 @@ export async function enqueueRotationFundingClaim(
   return txId;
 }
 
+/** What this account's consume rows say about a new claim of one note. */
+export interface NoteClaimCoverage {
+  /** This account's consume rows covering the note, rows restored from a backup excluded. */
+  rows: ITransaction[];
+  /** A claim that keeps any other out: live, completed, or holding its notes while the reconciler judges it. */
+  liveOrCompleted?: ITransaction;
+  /** The note's most recent failed claim, while the backoff since it still runs. */
+  backingOff?: ITransaction;
+}
+
+/**
+ * The dedup and backoff reads `queueConsumeRows` makes for one note. Shared with swap settlement, so a reclaim the
+ * queue would refuse is never built; the queue runs it inside its rw transaction, so its check and add stay atomic.
+ */
+export const noteClaimCoverage = async (
+  accountId: string,
+  noteId: string,
+  nowSec: number,
+  // The rotation gate's claim (#805) counts only earlier rotation-funding failures in its backoff.
+  rotationFunding?: boolean
+): Promise<NoteClaimCoverage> => {
+  // Read every consume row covering this noteId once (scalar `noteId` index for legacy/single rows, multi-entry
+  // `noteIds` for batch rows), then partition: the blocking rows (dedup) and every lifetime Failed (backoff).
+  const byScalar = await Repo.transactions.where('noteId').equals(noteId).toArray();
+  const byBatch = await Repo.transactions.where('noteIds').equals(noteId).toArray();
+  const dedupedRows = new Map([...byScalar, ...byBatch].map(tx => [tx.id, tx]));
+  const rows = [...dedupedRows.values()].filter(
+    // `restoredFromBackup` rows are excluded: dedup asks "did THIS wallet
+    // already claim this note", and a restored row is not evidence of that -
+    // it is whatever the backup's author wrote. Counting one would let a
+    // dump naming a note id block that note from ever being claimed, for
+    // auto-consume and for an explicit Claim alike.
+    tx => tx.type === 'consume' && !tx.restoredFromBackup && compareAccountIds(tx.accountId, accountId)
+  );
+
+  // A live or completed claim wins, and so does one that holds its notes while the reconciler still judges it
+  // (#1081): a second consume would compete for the nullifier the reconciler reads. One that holds nothing does
+  // not block, since only a verdict would ever release it.
+  const liveOrCompleted = rows.find(
+    tx => isLiveTransaction(tx) || tx.status === ITransactionStatus.Completed || holdsNotes(tx, nowSec)
+  );
+
+  const failures = rows
+    .filter(tx => tx.status === ITransactionStatus.Failed && (!rotationFunding || tx.rotationFunding === true))
+    .sort((a, b) => (b.completedAt ?? b.initiatedAt) - (a.completedAt ?? a.initiatedAt));
+  const mostRecentFailed = failures[0];
+  // Exponential backoff keyed on the note+account's LIFETIME failure count:
+  // the required idle gap doubles with every failure (RETRY_COOLDOWN_SEC ·
+  // 2^(n-1)), capped at MAX_RETRY_BACKOFF_SEC. Counting lifetime failures -
+  // not a sliding window - is what terminates the storm; see the policy note
+  // on the constants below (#215, #313).
+  const backoffSec = Math.min(RETRY_COOLDOWN_SEC * 2 ** (failures.length - 1), MAX_RETRY_BACKOFF_SEC);
+  const backingOff =
+    mostRecentFailed && nowSec - (mostRecentFailed.completedAt ?? mostRecentFailed.initiatedAt) < backoffSec
+      ? mostRecentFailed
+      : undefined;
+
+  return { rows, liveOrCompleted, backingOff };
+};
+
 const queueConsumeRows = async (
   accountId: string,
   notes: ConsumableNote[],
@@ -414,29 +474,11 @@ const queueConsumeRows = async (
     }
 
     for (const note of notes) {
-      // Read every consume row covering this noteId once (scalar `noteId`
-      // index for legacy/single rows, multi-entry `noteIds` for batch rows),
-      // then partition. We need both the blocking rows (dedup) and every lifetime Failed
-      // (exponential-backoff gate) inside the same rw transaction so the
-      // check-and-add stays atomic.
-      const byScalar = await Repo.transactions.where('noteId').equals(note.id).toArray();
-      const byBatch = await Repo.transactions.where('noteIds').equals(note.id).toArray();
-      const dedupedRows = new Map([...byScalar, ...byBatch].map(tx => [tx.id, tx]));
-      const sameAccount = [...dedupedRows.values()].filter(
-        // `restoredFromBackup` rows are excluded: dedup asks "did THIS wallet
-        // already claim this note", and a restored row is not evidence of that —
-        // it is whatever the backup's author wrote. Counting one would let a
-        // dump naming a note id block that note from ever being claimed, for
-        // auto-consume and for an explicit Claim alike.
-        tx => tx.type === 'consume' && !tx.restoredFromBackup && compareAccountIds(tx.accountId, accountId)
-      );
-
-      // A live or completed claim wins, and so does one that holds its notes while the reconciler still judges it
-      // (#1081): a second consume would compete for the nullifier the reconciler reads. One that holds nothing does
-      // not block, since only a verdict would ever release it.
-      const liveOrCompleted = sameAccount.find(
-        tx => isLiveTransaction(tx) || tx.status === ITransactionStatus.Completed || holdsNotes(tx, nowSec)
-      );
+      const {
+        rows: sameAccount,
+        liveOrCompleted,
+        backingOff
+      } = await noteClaimCoverage(accountId, note.id, nowSec, rotationFunding);
       if (liveOrCompleted) {
         blockingId = blockingId ?? liveOrCompleted.id;
         coveringTxIdByNoteId.set(note.id, liveOrCompleted.id);
@@ -473,26 +515,10 @@ const queueConsumeRows = async (
       // Skipped entirely for explicit user retries (`manualRetry`) — a deliberate
       // tap must always queue a fresh attempt rather than be throttled by the
       // auto-consume backoff.
-      if (!manualRetry) {
-        const failures = sameAccount
-          .filter(tx => tx.status === ITransactionStatus.Failed && (!rotationFunding || tx.rotationFunding === true))
-          .sort((a, b) => (b.completedAt ?? b.initiatedAt) - (a.completedAt ?? a.initiatedAt));
-        if (failures.length > 0) {
-          const mostRecentFailed = failures[0]!;
-          const mostRecentCompletedAt = mostRecentFailed.completedAt ?? mostRecentFailed.initiatedAt;
-          const secsSinceLastFailure = nowSec - mostRecentCompletedAt;
-          // Exponential backoff keyed on the note+account's LIFETIME failure count:
-          // the required idle gap doubles with every failure (RETRY_COOLDOWN_SEC ·
-          // 2^(n-1)), capped at MAX_RETRY_BACKOFF_SEC. Counting lifetime failures —
-          // not a sliding window — is what terminates the storm; see the policy note
-          // on the constants below (#215, #313).
-          const backoffSec = Math.min(RETRY_COOLDOWN_SEC * 2 ** (failures.length - 1), MAX_RETRY_BACKOFF_SEC);
-          if (secsSinceLastFailure < backoffSec) {
-            blockingId = blockingId ?? mostRecentFailed.id;
-            coveringTxIdByNoteId.set(note.id, mostRecentFailed.id);
-            continue;
-          }
-        }
+      if (!manualRetry && backingOff) {
+        blockingId = blockingId ?? backingOff.id;
+        coveringTxIdByNoteId.set(note.id, backingOff.id);
+        continue;
       }
 
       // A shared row that failed is not evidence about THIS note — it names every note
