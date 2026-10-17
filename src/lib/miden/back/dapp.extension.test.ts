@@ -11,6 +11,7 @@
  * trigger the resolve / reject branches inside generatePromisify*.
  */
 
+import { Poseidon2, Word } from '@miden-sdk/miden-sdk/lazy';
 import { WalletAdapterNetwork } from '@miden-sdk/miden-wallet-adapter-base';
 import extensionBrowser, { type Windows } from 'webextension-polyfill';
 
@@ -2496,6 +2497,107 @@ describe('requestConsumeTransaction by the id importPrivateNote returned, in ext
     _g.__dappExtTest.midenClient.getConsumableNoteDtos = jest.fn(async () => []);
   });
 
+  it.each([false, true])(
+    'consumes bare Note bytes by commitment when decoding after unlock is %s',
+    async decodeAfterUnlock => {
+      const sdk: Record<string, unknown> = require('@miden-sdk/miden-sdk/lazy');
+      const original = { Note: sdk.Note, NoteFile: sdk.NoteFile };
+      const hash = jest.mocked(Poseidon2.hashElements);
+      const originalHash = hash.getMockImplementation();
+      hash.mockReturnValue(Word.fromHex(COMMITMENT));
+      const note = {
+        id: () => ({ toString: () => importedNote.noteId }),
+        metadata: () => undefined,
+        recipient: () => ({ digest: () => Word.fromHex(COMMITMENT) }),
+        assets: () => ({ assets: () => [], fungibleAssets: () => [] })
+      };
+      const deserialize = jest.fn(() => note);
+      if (decodeAfterUnlock)
+        deserialize.mockImplementationOnce(() => {
+          throw new Error('SDK not ready');
+        });
+      sdk.NoteFile = {
+        deserialize: () => {
+          throw new Error('not a NoteFile');
+        }
+      };
+      sdk.Note = { deserialize };
+      _g.__dappExtTest.midenClient.importNoteBytes = jest.fn().mockResolvedValue(COMMITMENT);
+      const outcome = dapp.requestConsumeTransaction('https://miden.xyz', {
+        ...request,
+        transaction: { ...request.transaction, noteBytes: 'c29tZWJ5dGVz' }
+      });
+      outcome.catch(() => undefined);
+      try {
+        await expect(
+          driveConfirmation(() => outcome, MidenMessageType.DAppTransactionConfirmationRequest, {
+            confirmed: true,
+            delegate: true
+          })
+        ).resolves.toEqual({ type: MidenDAppMessageType.ConsumeResponse, transactionId: 'tx-consume-1' });
+        expect(_g.__dappExtTest.lastPayloadResponse.payload).toMatchObject({
+          type: 'consume',
+          noteId: importedNote.noteId
+        });
+        expect(_g.__dappExtTest.midenClient.importNoteBytes).toHaveBeenCalledTimes(1);
+        expect(require('lib/miden/transaction').initiateConsumeTransactionFromId).toHaveBeenCalledWith(
+          'miden-account-1',
+          importedNote.noteId,
+          true,
+          true,
+          'https://miden.xyz',
+          'dapp'
+        );
+      } finally {
+        Object.assign(sdk, original);
+        hash.mockReset();
+        if (originalHash) hash.mockImplementation(originalHash);
+      }
+    }
+  );
+
+  it('consumes a details-only file by its requested commitment after approval', async () => {
+    const sdk: Record<string, unknown> = require('@miden-sdk/miden-sdk/lazy');
+    const original = { Note: sdk.Note, NoteFile: sdk.NoteFile };
+    sdk.NoteFile = { deserialize: () => ({ note: () => undefined, noteId: () => ({ toString: () => COMMITMENT }) }) };
+    sdk.Note = {
+      deserialize: () => {
+        throw new Error('not a Note');
+      }
+    };
+    _g.__dappExtTest.midenClient.getDetailsCommitmentMatches = jest
+      .fn()
+      .mockResolvedValue({ notes: [importedNote], uncommitted: 0 });
+    _g.__dappExtTest.midenClient.importNoteBytes = jest.fn().mockResolvedValue(COMMITMENT);
+    try {
+      await expect(
+        driveConfirmation(
+          () =>
+            dapp.requestConsumeTransaction('https://miden.xyz', {
+              ...request,
+              transaction: { ...request.transaction, noteBytes: 'c29tZWJ5dGVz' }
+            }),
+          MidenMessageType.DAppTransactionConfirmationRequest,
+          { confirmed: true, delegate: true }
+        )
+      ).resolves.toEqual({ type: MidenDAppMessageType.ConsumeResponse, transactionId: 'tx-consume-1' });
+      expect(_g.__dappExtTest.lastPayloadResponse.payload).toMatchObject({
+        type: 'consume',
+        noteId: importedNote.noteId
+      });
+      expect(require('lib/miden/transaction').initiateConsumeTransactionFromId).toHaveBeenCalledWith(
+        'miden-account-1',
+        importedNote.noteId,
+        true,
+        true,
+        'https://miden.xyz',
+        'dapp'
+      );
+    } finally {
+      Object.assign(sdk, original);
+    }
+  });
+
   it('opens on the note the commitment names and consumes it by its own note id', async () => {
     _g.__dappExtTest.midenClient.getDetailsCommitmentMatches = jest
       .fn()
@@ -2520,15 +2622,21 @@ describe('requestConsumeTransaction by the id importPrivateNote returned, in ext
     );
   });
 
-  it('refuses a note no sync has committed yet before any popup, saying so', async () => {
-    _g.__dappExtTest.midenClient.getDetailsCommitmentMatches = jest
-      .fn()
-      .mockResolvedValue({ notes: [], uncommitted: 1 });
-
-    await expect(dapp.requestConsumeTransaction('https://miden.xyz', request)).rejects.toThrow(
-      `Note ${COMMITMENT} was imported but is not committed yet - retry once the wallet has synced it`
+  it('gives unknown, uncommitted and other-account ids exactly the same sync guidance', async () => {
+    const refusal = new Error(
+      `${MidenDAppErrorType.InvalidParams}: Error: Note ${COMMITMENT} could not be resolved - an imported note resolves once the wallet has synced it`
     );
+    _g.__dappExtTest.midenClient.getConsumableNoteDtos = jest.fn().mockResolvedValue([]);
+    for (const match of [
+      { notes: [], uncommitted: 0 },
+      { notes: [], uncommitted: 1 },
+      { notes: [importedNote], uncommitted: 0 }
+    ]) {
+      _g.__dappExtTest.midenClient.getDetailsCommitmentMatches = jest.fn().mockResolvedValue(match);
+      await expect(dapp.requestConsumeTransaction('https://miden.xyz', request)).rejects.toEqual(refusal);
+    }
     expect(extensionBrowser.windows.create).not.toHaveBeenCalled();
+    expect(require('lib/miden/transaction').initiateConsumeTransactionFromId).not.toHaveBeenCalled();
   });
 });
 

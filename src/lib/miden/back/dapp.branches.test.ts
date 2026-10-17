@@ -8,6 +8,8 @@
  * and the startDappBackgroundProcessing error-swallowing.
  */
 
+import { Poseidon2, Word } from '@miden-sdk/miden-sdk/lazy';
+
 import { MidenDAppConsumeRequest, MidenDAppMessageType, MidenDAppErrorType } from 'lib/adapter/types';
 import { ITransactionStatus, type ITransaction, type TransactionOutput } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
@@ -933,24 +935,159 @@ describe('requestConsumeTransaction by the id importPrivateNote returned (#1389)
   const COMMITMENT = '0xd37a115c0ffee';
   const importedNote = { ...storedNote, noteId: '0xreal-note', assets: [{ faucetId: 'faucet-1', amount: '4500000' }] };
   const consumable = (...noteIds: string[]) => noteIds.map(noteId => ({ noteId, nullifier: `nf-${noteId}` }));
-  const consumeByCommitment = () =>
+  const consumeByCommitment = (noteBytes?: string) =>
     dapp.requestConsumeTransaction('https://miden.xyz', {
       type: MidenDAppMessageType.ConsumeRequest,
       sourcePublicKey: 'miden-account-1',
-      transaction: { noteId: COMMITMENT, faucetId: 'faucet-1', noteType: 'private', amount: 1 }
+      transaction: { noteId: COMMITMENT, noteBytes, faucetId: 'faucet-1', noteType: 'private', amount: 1 }
     });
 
   beforeEach(() => {
-    mockGetInputNoteDetails.mockResolvedValueOnce([]);
+    mockGetInputNoteDetails.mockReset();
+    mockGetInputNoteDetails.mockResolvedValue([]);
     mockInitiateConsumeTransactionFromId.mockReset();
     mockInitiateConsumeTransactionFromId.mockResolvedValue('tx-imported');
   });
 
   afterEach(() => {
+    mockGetInputNoteDetails.mockReset();
+    mockGetInputNoteDetails.mockResolvedValue([storedNote]);
     mockGetDetailsCommitmentMatches.mockReset();
     mockGetDetailsCommitmentMatches.mockResolvedValue(NO_COMMITMENT_MATCH);
     mockGetConsumableNoteDtos.mockReset();
     mockGetConsumableNoteDtos.mockResolvedValue([]);
+  });
+
+  it.each([false, true])(
+    'consumes bare Note bytes by commitment when decoding after unlock is %s',
+    async decodeAfterUnlock => {
+      const sdk: Record<string, unknown> = require('@miden-sdk/miden-sdk/lazy');
+      const original = { Note: sdk.Note, NoteFile: sdk.NoteFile };
+      const hash = jest.mocked(Poseidon2.hashElements);
+      const originalHash = hash.getMockImplementation();
+      hash.mockReturnValue(Word.fromHex(COMMITMENT));
+      const note = {
+        id: () => ({ toString: () => importedNote.noteId }),
+        metadata: () => undefined,
+        recipient: () => ({ digest: () => Word.fromHex(COMMITMENT) }),
+        assets: () => ({ assets: () => [], fungibleAssets: () => [] })
+      };
+      const deserialize = jest.fn(() => note);
+      if (decodeAfterUnlock)
+        deserialize.mockImplementationOnce(() => {
+          throw new Error('SDK not ready');
+        });
+      sdk.NoteFile = {
+        deserialize: () => {
+          throw new Error('not a NoteFile');
+        }
+      };
+      sdk.Note = { deserialize };
+      mockImportNoteBytes.mockResolvedValue(COMMITMENT);
+      try {
+        await expect(consumeByCommitment('c29tZWJ5dGVz')).resolves.toEqual({
+          type: MidenDAppMessageType.ConsumeResponse,
+          transactionId: 'tx-imported'
+        });
+        expect(mockRequestConfirmation).toHaveBeenCalledTimes(1);
+        expect(mockImportNoteBytes).toHaveBeenCalledTimes(1);
+        expect(mockInitiateConsumeTransactionFromId).toHaveBeenCalledWith(
+          'miden-account-1',
+          importedNote.noteId,
+          true,
+          true,
+          'https://miden.xyz',
+          'dapp'
+        );
+      } finally {
+        Object.assign(sdk, original);
+        hash.mockReset();
+        if (originalHash) hash.mockImplementation(originalHash);
+      }
+    }
+  );
+
+  it('consumes a details-only file by its requested commitment after approval', async () => {
+    const sdk: Record<string, unknown> = require('@miden-sdk/miden-sdk/lazy');
+    const original = { Note: sdk.Note, NoteFile: sdk.NoteFile };
+    sdk.NoteFile = { deserialize: () => ({ note: () => undefined, noteId: () => ({ toString: () => COMMITMENT }) }) };
+    sdk.Note = {
+      deserialize: () => {
+        throw new Error('not a Note');
+      }
+    };
+    mockGetDetailsCommitmentMatches.mockResolvedValue({ notes: [importedNote], uncommitted: 0 });
+    mockGetConsumableNoteDtos.mockResolvedValue(consumable(importedNote.noteId));
+    mockImportNoteBytes.mockResolvedValue(COMMITMENT);
+    try {
+      await expect(consumeByCommitment('c29tZWJ5dGVz')).resolves.toEqual({
+        type: MidenDAppMessageType.ConsumeResponse,
+        transactionId: 'tx-imported'
+      });
+      expect(mockRequestConfirmation).toHaveBeenCalledTimes(1);
+      expect(mockInitiateConsumeTransactionFromId).toHaveBeenCalledWith(
+        'miden-account-1',
+        importedNote.noteId,
+        true,
+        true,
+        'https://miden.xyz',
+        'dapp'
+      );
+    } finally {
+      Object.assign(sdk, original);
+    }
+  });
+
+  it.each([
+    'after the note-preview read',
+    'inside the details-commitment read, before the record reach-through',
+    'after the details-commitment read',
+    'inside the consumable-notes read'
+  ])('refuses a stale hold %s before any sheet or consume', async where => {
+    mockGetDetailsCommitmentMatches.mockResolvedValue({ notes: [importedNote], uncommitted: 0 });
+    mockGetConsumableNoteDtos.mockResolvedValue(consumable(importedNote.noteId));
+    if (where === 'after the note-preview read') {
+      mockGetInputNoteDetails.mockImplementationOnce(async () => {
+        currentWasmHold = null;
+        return [];
+      });
+    } else if (where === 'after the details-commitment read') {
+      mockGetDetailsCommitmentMatches.mockImplementationOnce(async () => {
+        currentWasmHold = null;
+        return { notes: [importedNote], uncommitted: 0 };
+      });
+    } else if (where.startsWith('inside the details-commitment')) {
+      mockGetDetailsCommitmentMatches.mockImplementationOnce(async (...args: unknown[]) => {
+        currentWasmHold = null;
+        const assertLive = args[1];
+        if (typeof assertLive === 'function') assertLive();
+        return { notes: [importedNote], uncommitted: 0 };
+      });
+    } else {
+      mockGetConsumableNoteDtos.mockImplementationOnce(async (...args: unknown[]) => {
+        currentWasmHold = null;
+        const assertLive = args[1];
+        if (typeof assertLive === 'function') assertLive('before the record reach-through');
+        return consumable(importedNote.noteId);
+      });
+    }
+    const lock: { assertWasmHoldCurrent(hold: object | null, label: string): void } =
+      jest.requireMock('../sdk/miden-client');
+    const check = jest.spyOn(lock, 'assertWasmHoldCurrent');
+    const expectedWhere =
+      where === 'inside the consumable-notes read' ? /^inside the (details-commitment )?consumable-notes read$/ : where;
+    try {
+      await expect(consumeByCommitment()).rejects.toThrow('WASM client poisoned');
+      expect(check).toHaveBeenLastCalledWith(
+        expect.anything(),
+        expect.stringMatching(expectedWhere),
+        ...(where === 'inside the consumable-notes read' ? ['before the record reach-through'] : [])
+      );
+      expect(mockRequestConfirmation).not.toHaveBeenCalled();
+      expect(mockInitiateConsumeTransactionFromId).not.toHaveBeenCalled();
+    } finally {
+      check.mockRestore();
+    }
   });
 
   it('shows the note the commitment names and consumes it by its own note id', async () => {
@@ -976,12 +1113,18 @@ describe('requestConsumeTransaction by the id importPrivateNote returned (#1389)
     );
   });
 
-  it('refuses a note no sync has committed yet before any sheet, saying so', async () => {
-    mockGetDetailsCommitmentMatches.mockResolvedValueOnce({ notes: [], uncommitted: 1 });
-
-    await expect(consumeByCommitment()).rejects.toThrow(
-      `${MidenDAppErrorType.InvalidParams}: Error: Note ${COMMITMENT} was imported but is not committed yet - retry once the wallet has synced it`
+  it('gives unknown, uncommitted and other-account ids exactly the same sync guidance', async () => {
+    const refusal = new Error(
+      `${MidenDAppErrorType.InvalidParams}: Error: Note ${COMMITMENT} could not be resolved - an imported note resolves once the wallet has synced it`
     );
+    for (const match of [
+      { notes: [], uncommitted: 0 },
+      { notes: [], uncommitted: 1 },
+      { notes: [importedNote], uncommitted: 0 }
+    ]) {
+      mockGetDetailsCommitmentMatches.mockResolvedValueOnce(match);
+      await expect(consumeByCommitment()).rejects.toEqual(refusal);
+    }
     expect(mockRequestConfirmation).not.toHaveBeenCalled();
     expect(mockInitiateConsumeTransactionFromId).not.toHaveBeenCalled();
   });
