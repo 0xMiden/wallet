@@ -9,6 +9,7 @@ import { useHiddenTokens } from 'app/hooks/useHiddenTokens';
 import useNativeFeeFaucetId from 'app/hooks/useNativeFeeFaucetId';
 import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
 import { HomeGroupPaneRoot } from 'app/layouts/HomeGroupPane';
+import { useHideHomeActionsWhileOpen } from 'app/layouts/useHideHomeActionsWhileOpen';
 import { Navigator, NavigatorProvider, Route, useNavigator } from 'components/Navigator';
 import { stringToBigInt } from 'lib/i18n/numbers';
 import { hasNoFeeAsset, maxSendableNative } from 'lib/miden/fees/spendable';
@@ -149,6 +150,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
   const currentStep = cardStack[cardStack.length - 1]?.name;
   const pastRecipientStep = currentStep !== SendFlowStep.SelectRecipient;
   useHideNavbarWhileOpen(pastRecipientStep);
+  useHideHomeActionsWhileOpen(pastRecipientStep);
 
   const allContactsList: Contact[] = useMemo(() => {
     const walletContacts: Contact[] = allAccounts
