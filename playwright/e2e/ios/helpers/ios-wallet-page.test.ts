@@ -6,10 +6,11 @@ import path from 'path';
 import vm from 'vm';
 
 import type { CdpSession } from './cdp-bridge';
-import { IosWalletPage, routeOf } from './ios-wallet-page';
+import { IosWalletPage, networkRowNames, routeOf } from './ios-wallet-page';
 import type { SimulatorControl } from './simulator-control';
-import { enText, type BridgedSendRow } from '../../helpers/bridge';
+import { enText, usdcxPayoutRowsText, type BridgedSendRow } from '../../helpers/bridge';
 import { readTransactionRowsInPage } from '../../helpers/history';
+import { BASE_SEPOLIA_PAYOUT } from '../../helpers/usdcx-constants';
 
 describe('IosWalletPage.screenshot', () => {
   it('runs the before-capture hook before it shoots', async () => {
@@ -126,6 +127,45 @@ describe('IosWalletPage bridge deposit helpers', () => {
         selector => /send-(token-selector|amount-input|amount-confirm)/.test(selector) && !selector.startsWith(bridge)
       );
     expect(unscoped).toEqual([]);
+  });
+});
+
+describe('IosWalletPage.selectBridgeNetwork', () => {
+  it('opens the network drawer from the bridge layer, picks the chain and waits until the row names it', async () => {
+    const bridge = '[data-page-layer="/bridge/deposit"]';
+    const bodies: string[] = [];
+    // The row's spans: the label, the network, and the line under them.
+    const page = pageWith(async js => {
+      bodies.push(js);
+      return ['NetworkSepolia', 'Network', 'Sepolia', 'Receive on Sepolia, arrives as USDCX'];
+    });
+    const click = jest.fn(async (_selector: string) => undefined);
+    const waitFor = jest.fn(async (_selector: string, _opts: { timeoutMs?: number }) => undefined);
+    Object.assign(page as unknown as Record<string, unknown>, { click, waitFor });
+
+    await page.selectBridgeNetwork('sepolia', 'Sepolia');
+
+    expect(click.mock.calls.map(([selector]) => selector)).toEqual([
+      `${bridge} [data-testid="bridge-network-selector"]`,
+      '[data-testid="bridge-network-sepolia"]'
+    ]);
+    // The drawer portals to <body>, outside the layer, as the token drawer does.
+    expect(waitFor).toHaveBeenCalledWith('[data-testid="bridge-network-sepolia"]', { timeoutMs: 10_000 });
+    expect(bodies.some(js => js.includes(JSON.stringify(`${bridge} [data-testid="bridge-network-selector"]`)))).toBe(
+      true
+    );
+  });
+});
+
+describe('networkRowNames', () => {
+  // "Sepolia" is part of "Base Sepolia", "Arbitrum Sepolia" and the row's whole text, so only a span equal to it counts.
+  it.each([
+    [['NetworkSepolia', 'Network', 'Sepolia'], 'Sepolia', true],
+    [['NetworkBase Sepolia', 'Network', 'Base Sepolia', 'Receive on Base Sepolia, arrives as USDCX'], 'Sepolia', false],
+    [['NetworkArc Testnet', 'Network', 'Arc Testnet'], 'Base Sepolia', false],
+    [null, 'Sepolia', false]
+  ] satisfies Array<[readonly string[] | null, string, boolean]>)('reads %j as naming %s: %s', (spans, name, names) => {
+    expect(networkRowNames(spans, name)).toBe(names);
   });
 });
 
@@ -386,9 +426,10 @@ const BURN = {
   screenshotDir: path.join(os.tmpdir(), 'ios-wallet-page-burn-test')
 } as const;
 
-function spikeAnswer(js: string, overrides: { ready?: unknown; outcome?: unknown } = {}): unknown {
+function spikeAnswer(js: string, overrides: { ready?: unknown; outcome?: unknown; pressed?: string } = {}): unknown {
   if (js.includes('aria-pressed')) {
-    return CHIPS.map(testId => ({ testId, pressed: testId === CHIPS[0] ? 'true' : 'false' }));
+    const pressed = overrides.pressed ?? CHIPS[0];
+    return CHIPS.map(testId => ({ testId, pressed: testId === pressed ? 'true' : 'false' }));
   }
   if (js.includes('bridge-route-usdcx')) {
     return {
@@ -522,8 +563,44 @@ describe('IosWalletPage.burnUsdcxViaSendFlow', () => {
     stubDom(page);
 
     await expect(page.burnUsdcxViaSendFlow(BURN)).rejects.toThrow(
-      `Arc RPC unavailable for the wallet's balance snapshot (burn.ts), infra: review-error "HTTP request failed."`
+      `Arc RPC unavailable for the wallet's balance snapshot (burn.ts:103), infra: review-error "HTTP request failed."`
     );
+  }, 15_000);
+
+  it('presses the payout chain it is given and holds the route and the review to that chain', async () => {
+    const baseChip = BASE_SEPOLIA_PAYOUT.chip;
+    const href = HREF.replace('network=arc-testnet', `network=${BASE_SEPOLIA_PAYOUT.reviewNetwork}`);
+    const rows = usdcxPayoutRowsText(BASE_SEPOLIA_PAYOUT.chainId, BURN.amount);
+    const page = pageWith(async js => {
+      if (js.includes('location.href')) return { href, hash: href.slice(href.indexOf('#')), submit: true };
+      if (js.includes('function row(')) {
+        return {
+          network: BASE_SEPOLIA_PAYOUT.networkName,
+          networkFee: enText('usdcxSponsorshipFee', { symbol: 'USDCX' }),
+          fee: rows.fee,
+          net: rows.net,
+          notice: enText('usdcxWithdrawalNotice')
+        };
+      }
+      if (js.includes('bridge-route-usdcx')) {
+        return {
+          checked: 'true',
+          cardText: 'USDCx (Circle xReserve)USDCX fees',
+          fee: rows.fee,
+          net: rows.net,
+          notice: enText('usdcxWithdrawalNotice')
+        };
+      }
+      return spikeAnswer(js, { pressed: baseChip });
+    });
+    const selectors = stubDom(page);
+
+    const result = await page.burnUsdcxViaSendFlow({ ...BURN, payout: BASE_SEPOLIA_PAYOUT });
+
+    expect(result.reviewRoute).toBe(href.slice(href.indexOf('#')));
+    expect(selectors.filter(selector => selector.includes('send-network-'))).toEqual([
+      `${SEND} [data-testid="${baseChip}"]`
+    ]);
   }, 15_000);
 
   // The carousel keeps Send mounted with its step and its chip across hash navigations.
@@ -680,7 +757,7 @@ describe('IosWalletPage transaction details', () => {
 
   it('reads the pill and the Arc explorer links from the details layer only', async () => {
     const bodies: string[] = [];
-    const view = { pill: 'Confirmed', arcTxLinks: ['https://explorer.testnet.arc.io/tx/0xde87'] };
+    const view = { pill: 'Confirmed', txLinks: ['https://explorer.testnet.arc.io/tx/0xde87'] };
     const page = pageWith(async js => {
       bodies.push(js);
       return view;
@@ -689,5 +766,19 @@ describe('IosWalletPage transaction details', () => {
     await expect(page.transactionDetailsView('row-1')).resolves.toEqual(view);
     expect(bodies[0]).toContain(`document.querySelector(${JSON.stringify(LAYER)})`);
     expect(bodies[0]).toContain(JSON.stringify('https://explorer.testnet.arc.io/tx/'));
+  });
+
+  it("reads the links to the payout chain's explorer it is given", async () => {
+    const bodies: string[] = [];
+    const page = pageWith(async js => {
+      bodies.push(js);
+      return null;
+    });
+
+    await expect(page.transactionDetailsView('row-1', BASE_SEPOLIA_PAYOUT.explorer)).resolves.toEqual({
+      pill: null,
+      txLinks: []
+    });
+    expect(bodies[0]).toContain(JSON.stringify(`${BASE_SEPOLIA_PAYOUT.explorer}/tx/`));
   });
 });

@@ -6,14 +6,13 @@ import type { SimulatorControl } from './simulator-control';
 import type { PromptSettlement } from './system-alerts';
 import { ACTIVITY_PENDING_PATH } from '../../../../src/app/pages/activity-paths';
 import { NATIVE_ASSET_FEE_CACHE, NATIVE_ASSET_ID_CACHE } from '../../../../src/lib/miden-chain/native-asset-cache-keys';
-import { ARC_TESTNET } from '../../../../src/lib/walletconnect/config';
 import type { TimelineRecorder } from '../../harness/timeline-recorder';
 import { buildBalanceTotalScript } from '../../helpers/balance-script';
 import { toBaseUnits } from '../../helpers/balance-truth';
 import {
   bridgedSendRowOf,
+  burnSubmitFailure,
   enText,
-  isArcSnapshotFailure,
   reviewQueryParam,
   USDCX_DESTINATION_CHIPS,
   usdcxChipsProblem,
@@ -29,7 +28,7 @@ import {
   type TransactionRowsQuery
 } from '../../helpers/history';
 import { dismissTelemetryConsent } from '../../helpers/telemetry-consent';
-import { ARC_CHAIN_ID } from '../../helpers/usdcx-constants';
+import { ARC_PAYOUT, type PayoutChain } from '../../helpers/usdcx-constants';
 import { burnFailureMessage } from '../../helpers/usdcx-guardian';
 import type { GuardianAuthInfo, WalletPage, SendTokensParams } from '../../helpers/wallet-page';
 
@@ -135,6 +134,11 @@ export function routeOf(href: string): string {
   return new URL(href).hash;
 }
 
+/** Whether the bridge network row's spans name `name` exactly: "Sepolia" is part of "Base Sepolia". */
+export function networkRowNames(spans: readonly string[] | null, name: string): boolean {
+  return spans !== null && spans.includes(name);
+}
+
 /** `text` with every `?query` cut out: a serialized URL's query holds no `#`, `"` or whitespace, so the cut ends there. */
 function withoutUrlQueries(text: string): string {
   return text.replace(/\?[^\s#"]+/g, '');
@@ -162,7 +166,6 @@ async function ridingOut<T>(read: () => Promise<T>): Promise<T> {
 const SEND_FLOW = '[data-testid="send-flow"]';
 // The review slides over the retained Send layer, whose route step holds the same payout rows and burn notice.
 const SEND_REVIEW = '[data-page-layer="/send/review"]';
-const ARC_CHIP = 'send-network-arc-testnet';
 // Mobile mounts the app as a full page, so the in-progress route is the -full variant.
 const GENERATING_ROUTE = /#\/generating-transaction(?:-full)?\/([^/?#]+)/;
 
@@ -256,12 +259,14 @@ function detailsLayer(rowId: string): string {
 }
 
 export interface UsdcxBurnViaSendOptions {
-  /** The Arc address Circle pays. Never a private key: appium-remote-debugger logs every eval body. */
+  /** The address Circle pays on the payout chain. Never a private key: appium-remote-debugger logs every eval body. */
   destAddress: `0x${string}`;
   /** As typed: a whole number, since the amount field follows the simulator's locale for decimals. */
   amount: string;
   nativeTokenId: string;
   nativeSymbol: string;
+  /** The chain Circle pays on; Arc Testnet when absent. */
+  payout?: PayoutChain;
   /** Where usdcx-route.png and the two review screenshots go. */
   screenshotDir: string;
   /** The step's abort signal (`namedSteps`): once it has fired, the driver never clicks submit. */
@@ -440,6 +445,7 @@ export class IosWalletPage implements WalletPage {
     faucetId: string;
     phase?: string;
     displayMessage?: string;
+    error?: string;
   } | null> {
     const arg = provider ? JSON.stringify(provider) : '';
     return this.stashAndPoll('__bi_latest', `window.__TEST_LATEST_BRIDGE_RECEIVE__(${arg})`);
@@ -488,6 +494,24 @@ export class IosWalletPage implements WalletPage {
     await this.click(`[data-testid="bridge-token-${symbol}"]`);
   }
 
+  /**
+   * Open the network drawer from the amount step and pick the source chain `slug` (bridge-networks.ts), then wait until
+   * the row names it: a Reown session that approves that chain alone refuses any other chain's prompt.
+   */
+  async selectBridgeNetwork(slug: string, name: string): Promise<void> {
+    const row = `${IosWalletPage.BRIDGE_PAGE} [data-testid="bridge-network-selector"]`;
+    await this.click(row);
+    await this.waitFor(`[data-testid="bridge-network-${slug}"]`, { timeoutMs: 10_000 });
+    await this.click(`[data-testid="bridge-network-${slug}"]`);
+    await this.pollEval<string[] | null>(
+      `the bridge network row naming ${name}`,
+      `var e = document.querySelector(${JSON.stringify(row)}); if (!e) return null; ` +
+        `return Array.from(e.querySelectorAll('span')).map(function (s) { return (s.textContent || '').trim(); });`,
+      spans => networkRowNames(spans, name),
+      10_000
+    );
+  }
+
   /** Type the deposit amount and confirm to advance to the route step. */
   async enterBridgeAmount(amount: string): Promise<void> {
     await this.pollForSelector(`${IosWalletPage.BRIDGE_PAGE} [data-testid="send-amount-input"]`, 15_000);
@@ -512,12 +536,12 @@ export class IosWalletPage implements WalletPage {
   }
 
   /**
-   * Confirm the Circle xReserve route (USDC) and continue to review. The route
-   * step shows one card, already selected, so the step only confirms.
+   * Confirm the Circle USDC route and continue to review. The route step shows one card, already selected, so the step
+   * only confirms; on the executor route Confirm also waits for the balance read and Circle's quoted fee.
    */
-  async confirmBridgeRouteUsdcx(): Promise<void> {
+  async confirmBridgeRouteUsdcx(timeoutMs = 15_000): Promise<void> {
     await this.waitFor('[data-testid="bridge-route-usdcx"]', { timeoutMs: 15_000 });
-    await this.clickWhenEnabled('[data-testid="bridge-route-confirm"]', 15_000);
+    await this.clickWhenEnabled('[data-testid="bridge-route-confirm"]', timeoutMs);
   }
 
   /** Confirm the deposit on the review step (runs handleConfirm → handleSlowBridge). */
@@ -637,19 +661,20 @@ export class IosWalletPage implements WalletPage {
   // ── USDCx burn through the Send UI (the live USDCx spec) ────────────────
 
   /**
-   * Burns the native USDCx to an Arc Testnet address through the real Send UI and returns once the wallet is on the
-   * generating page. Every read is scoped (SEND_FLOW, SEND_REVIEW). Checks on the way: exactly the four USDCx chips
-   * with Arc alone pressed, the route card, the payout rows and the notice on the route and the review, and the
-   * review's network and fee rows; a refusal is named from `review-error`, never left to a timeout. Nothing is
-   * submitted once `signal` has aborted (R26).
+   * Burns the native USDCx to an address on `opts.payout` (Arc Testnet by default) through the real Send UI and returns
+   * once the wallet is on the generating page. Every read is scoped (SEND_FLOW, SEND_REVIEW). Checks on the way: exactly
+   * the four USDCx chips with that chain's alone pressed, the route card, the payout rows and the notice on the route
+   * and the review, and the review's network and fee rows; a refusal is named from `review-error`, never left to a
+   * timeout. Nothing is submitted once `signal` has aborted (R26).
    */
   async burnUsdcxViaSendFlow(opts: UsdcxBurnViaSendOptions): Promise<UsdcxBurnSubmission> {
+    const chain = opts.payout ?? ARC_PAYOUT;
     const symbol = opts.nativeSymbol.trim();
     if (symbol === '' || symbol.toUpperCase() === 'MIDEN') {
       throw new Error(`burnUsdcxViaSendFlow: "${opts.nativeSymbol}" cannot name USDCx, the asset a USDCx burn spends`);
     }
-    // Throws before any UI when the amount does not exceed Arc's payout fee allowance (R14a).
-    const payout = usdcxPayoutRowsText(ARC_CHAIN_ID, opts.amount);
+    // Throws before any UI when the amount does not exceed the payout chain's fee allowance (R14a).
+    const payout = usdcxPayoutRowsText(chain.chainId, opts.amount);
     const routeFees = enText('usdcxMidenFees', { symbol });
     const sponsorshipFee = enText('usdcxSponsorshipFee', { symbol });
     const notice = enText('usdcxWithdrawalNotice');
@@ -672,12 +697,12 @@ export class IosWalletPage implements WalletPage {
       15_000
     );
     const defaultPressed = (offered ?? []).filter(chip => chip.pressed === 'true').map(chip => chip.testId);
-    // A chip kept from an earlier attempt overrides the default, so Arc is pressed explicitly every time.
-    await this.click(`${SEND_FLOW} [data-testid="${ARC_CHIP}"]`);
+    // A chip kept from an earlier attempt overrides the default, so the payout chain's chip is pressed every time.
+    await this.click(`${SEND_FLOW} [data-testid="${chain.chip}"]`);
     await this.pollEval<NetworkChipState[] | null>(
-      'Arc Testnet alone pressed among the four USDCx chips',
+      `${chain.networkName} alone pressed among the four USDCx chips`,
       SEND_CHIPS_JS,
-      chips => chips !== null && usdcxChipsProblem(chips, ARC_CHIP) === undefined,
+      chips => chips !== null && usdcxChipsProblem(chips, chain.chip) === undefined,
       15_000
     );
     await this.clickWhenEnabled(`${SEND_FLOW} [data-testid="send-recipient-confirm"]`, 30_000);
@@ -708,7 +733,11 @@ export class IosWalletPage implements WalletPage {
       view => view.hash.startsWith('#/send/review?') && view.submit,
       30_000
     );
-    const wanted: Record<string, string> = { network: 'arc-testnet', route: 'usdcx', tokenId: opts.nativeTokenId };
+    const wanted: Record<string, string> = {
+      network: chain.reviewNetwork,
+      route: 'usdcx',
+      tokenId: opts.nativeTokenId
+    };
     for (const [name, value] of Object.entries(wanted)) {
       const actual = reviewQueryParam(landing.href, name);
       if (actual !== value) {
@@ -720,7 +749,7 @@ export class IosWalletPage implements WalletPage {
       usdcxReviewJs(enText('network'), enText('networkFee')),
       view =>
         view !== null &&
-        view.network === ARC_TESTNET.name &&
+        view.network === chain.networkName &&
         view.networkFee === sponsorshipFee &&
         view.fee === payout.fee &&
         view.net === payout.net &&
@@ -762,12 +791,7 @@ export class IosWalletPage implements WalletPage {
       const fresh = (await this.readBridgedSendRows()).filter(
         row => row.extraInputs?.provider === 'usdcx' && !rowsBefore.has(row.id)
       );
-      const error = outcome.error ?? '';
-      throw new Error(
-        isArcSnapshotFailure(error, fresh.length)
-          ? `Arc RPC unavailable for the wallet's balance snapshot (burn.ts), infra: review-error "${error}"`
-          : `the review refused the burn: review-error "${error}", ${fresh.length} new usdcx rows`
-      );
+      throw new Error(burnSubmitFailure(chain, outcome.error ?? '', fresh.length));
     }
     return {
       rowId: decodeURIComponent(rowId),
@@ -821,19 +845,22 @@ export class IosWalletPage implements WalletPage {
     await this.waitFor(`${detailsLayer(rowId)} [data-testid="history-status-pill"]`, { timeoutMs: 30_000 });
   }
 
-  /** The open details page's status pill and every Arc explorer transaction link it renders. */
-  async transactionDetailsView(rowId: string): Promise<{ pill: string | null; arcTxLinks: string[] }> {
-    const prefix = `${ARC_TESTNET.blockExplorers.default.url}/tx/`;
+  /** The open details page's status pill and every transaction link it renders to `explorer`, Arc Testnet's by default. */
+  async transactionDetailsView(
+    rowId: string,
+    explorer: string = ARC_PAYOUT.explorer
+  ): Promise<{ pill: string | null; txLinks: string[] }> {
+    const prefix = `${explorer}/tx/`;
     const view = await ridingOut(() =>
-      this.cdp.eval<{ pill: string | null; arcTxLinks: string[] } | null>(
+      this.cdp.eval<{ pill: string | null; txLinks: string[] } | null>(
         `var root = document.querySelector(${JSON.stringify(detailsLayer(rowId))}); if (!root) return null; ` +
           `var pill = root.querySelector('[data-testid="history-status-pill"]'); ` +
           `return { pill: pill ? (pill.textContent || '').trim() : null, ` +
-          `arcTxLinks: Array.from(root.querySelectorAll('a[href]')).map(function (a) { return a.getAttribute('href') || ''; })` +
+          `txLinks: Array.from(root.querySelectorAll('a[href]')).map(function (a) { return a.getAttribute('href') || ''; })` +
           `.filter(function (h) { return h.indexOf(${JSON.stringify(prefix)}) === 0; }) };`
       )
     );
-    return view ?? { pill: null, arcTxLinks: [] };
+    return view ?? { pill: null, txLinks: [] };
   }
 
   /**

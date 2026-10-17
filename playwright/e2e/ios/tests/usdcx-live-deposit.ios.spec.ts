@@ -745,10 +745,10 @@ test.describe('Bridge-IN deposit (Circle xReserve/USDC, live testnets)', () => {
         evidence.notes.push(`history pill ${pills.join(' then ')}`);
         // The receiving-tx link is a best-effort RPC match (CLAUDE.md), so only a link to another transaction fails.
         const linkDeadline = Date.now() + RECEIVING_TX_LINK_MS;
-        let links = (await walletA.transactionDetailsView(burned.row.id)).arcTxLinks;
+        let links = (await walletA.transactionDetailsView(burned.row.id)).txLinks;
         while (links.length === 0 && Date.now() < linkDeadline) {
           await walletA.delay(1_000);
-          links = (await walletA.transactionDetailsView(burned.row.id)).arcTxLinks;
+          links = (await walletA.transactionDetailsView(burned.row.id)).txLinks;
         }
         expect(
           links.filter(href => !href.toLowerCase().endsWith(`/tx/${payout.transactionHash.toLowerCase()}`)),
