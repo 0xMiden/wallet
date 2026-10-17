@@ -3,7 +3,7 @@ import BigNumber from 'bignumber.js';
 
 import { getFaucetIdSetting } from 'lib/miden/assets';
 import { midenClientProxy } from 'lib/miden/back/miden-client-proxy';
-import type { BalanceSnapshot } from 'lib/miden/balance-snapshot';
+import { beginBalanceSnapshot, type BalanceSnapshot } from 'lib/miden/balance-snapshot';
 import { fetchFromStorage, putToStorage } from 'lib/miden/front';
 import { TokenBalanceData } from 'lib/miden/front/balance';
 import { isSyncFused, noteProbeFailure, noteSyncSuccess } from 'lib/miden/front/sync-fuse';
@@ -27,7 +27,6 @@ import {
   type WasmLockHold
 } from 'lib/miden/sdk/miden-client';
 import { WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
-import { getActiveOverride, getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
 import type { TokenPrices } from 'lib/prices';
@@ -224,8 +223,7 @@ export async function fetchBalances(
   if (isSyncFused('balances')) return null;
 
   const readAccount = async (hold: WasmLockHold) => {
-    const network = getActiveOverride() === null ? getEffectiveNetworkName() : 'override';
-    const rpc = getEffectiveRpcUrl();
+    const finishSnapshot = beginBalanceSnapshot();
     const acc = await midenClientProxy.getAccount(address);
 
     // E2E-only: capture a Guardian account's on-chain auth structure while we
@@ -258,12 +256,7 @@ export async function fetchBalances(
     // `fungibleAssets()` is on the Account object (not the shared WebClient
     // RefCell); extract it here so the rest of the fn works off plain values.
     const acctAssets = acc ? (acc.vault().fungibleAssets() as FungibleAsset[]) : [];
-    const accountNonce = acc && typeof acc.nonce === 'function' ? acc.nonce().asInt().toString() : undefined;
-    const snapshot: BalanceSnapshot = {
-      network: rpc === getEffectiveRpcUrl() && !getActiveOverride() ? network : 'changed',
-      accountNonce
-    };
-    return { account: (acc ?? null) as typeof acc | null, assets: acctAssets, snapshot };
+    return { account: (acc ?? null) as typeof acc | null, assets: acctAssets, snapshot: finishSnapshot(acc) };
   };
   const lockOptions = { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'balances' };
   const reportFailure = (e: unknown): never => {

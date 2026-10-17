@@ -1,9 +1,28 @@
+import { getActiveOverride, getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
+
 import type { TokenBalanceData } from './front/balance';
 
 /** Captured under the WASM lock from the SAME account object as its vault assets. */
 export interface BalanceSnapshot {
   network: string;
   accountNonce?: string;
+}
+
+/**
+ * Call immediately before the account read. The returned function builds the snapshot once the read
+ * has returned and the hold is still the caller's (the nonce is a WASM call on the account); an
+ * endpoint that changed in between labels the read `changed`.
+ */
+export function beginBalanceSnapshot(): (
+  account: { nonce(): { asInt(): bigint } } | null | undefined
+) => BalanceSnapshot {
+  const overridden = getActiveOverride() !== null;
+  const network = overridden ? 'override' : getEffectiveNetworkName();
+  const rpc = getEffectiveRpcUrl();
+  return account => ({
+    network: getEffectiveRpcUrl() === rpc && (getActiveOverride() !== null) === overridden ? network : 'changed',
+    accountNonce: account ? account.nonce().asInt().toString() : undefined
+  });
 }
 
 export interface BalanceRequirement {

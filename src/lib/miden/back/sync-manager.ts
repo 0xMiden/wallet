@@ -3,6 +3,7 @@ import browser from 'webextension-polyfill';
 import { getMessage } from 'lib/i18n';
 import { classifySyncError, isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
 import { clearReachabilityIssues, markConnectivityIssue } from 'lib/miden/activity/connectivity-state';
+import { beginBalanceSnapshot } from 'lib/miden/balance-snapshot';
 import { isWorthClaiming, totalClaimableAmount } from 'lib/miden/fees/spendable';
 import { getQuarantinedNoteIds } from 'lib/miden/note-quarantine';
 import {
@@ -13,12 +14,7 @@ import {
   monotonicNowMs
 } from 'lib/miden/sync-backoff';
 import { getBlockTimestamps } from 'lib/miden-chain/block-timestamps';
-import {
-  getActiveOverride,
-  getEffectiveNetworkName,
-  getEffectiveRpcUrl,
-  whenEndpointOverridesLoaded
-} from 'lib/miden-chain/effective-endpoints';
+import { getEffectiveRpcUrl, whenEndpointOverridesLoaded } from 'lib/miden-chain/effective-endpoints';
 import { getNativeAssetId, getVerificationBaseFee } from 'lib/miden-chain/native-asset';
 import {
   areBackgroundSettingsMirrored,
@@ -525,8 +521,7 @@ async function runSync(force: boolean): Promise<void> {
             .filter((note): note is SerializedConsumableNote => note !== null);
 
           // Read vault assets
-          const balanceNetwork = getActiveOverride() === null ? getEffectiveNetworkName() : 'override';
-          const balanceRpc = getEffectiveRpcUrl();
+          const finishSnapshot = beginBalanceSnapshot();
           const account = await midenClientProxy.getAccount(accountPubKey);
           // Before touching the returned Account: `vault().fungibleAssets()` is a WASM
           // call on an object borrowed from the client's RefCell, so reading it after an
@@ -547,11 +542,7 @@ async function runSync(force: boolean): Promise<void> {
             parsedNotes: notes,
             vaultAssets: assets,
             noteBlocks,
-            balanceSnapshot: {
-              network: balanceRpc === getEffectiveRpcUrl() && !getActiveOverride() ? balanceNetwork : 'changed',
-              accountNonce:
-                account && typeof account.nonce === 'function' ? account.nonce().asInt().toString() : undefined
-            }
+            balanceSnapshot: finishSnapshot(account)
           };
         },
         inlineWasm ? { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'sw-notes-read' } : undefined
