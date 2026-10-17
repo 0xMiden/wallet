@@ -11,6 +11,9 @@ import { sameWalletAccountId } from '../sdk/helpers';
 /** The node keeps ~50 blocks of account history; a read pinned to a block stops 10 short of losing it. */
 export const BINDING_HISTORY_BLOCKS = 40;
 
+/** Which never-committed row proved an entry dead: row 4, row 5 or row 6. */
+export type NeverCommittedBy = 'expired' | 'superseded' | 'spent_elsewhere';
+
 export type EntryResult =
   | 'landed'
   | 'deferred'
@@ -38,6 +41,7 @@ export interface EntryJudgement {
   readsFailed: boolean;
   /** The reads found a landing or a candidate note and the header re-read then failed: held, with nothing written. */
   landingSuspected?: boolean;
+  neverCommittedBy?: NeverCommittedBy;
 }
 
 export interface VerdictReads {
@@ -55,6 +59,8 @@ export interface RowJudgement {
   entries: EntryJudgement[];
   landed?: { attemptId: string; proof: LandingProof; boundTransactionId?: string };
   allDead: boolean;
+  /** On an all-dead row: the rule every entry this pass proved dead shares, or `mixed`. */
+  neverCommittedBy?: NeverCommittedBy | 'mixed';
   /**
    * A landing or candidate note the deferral holds, one found before a header re-read that failed, or a recorded
    * landing whose reads failed this time.
@@ -320,7 +326,7 @@ async function judgeEntry(entry: ProvableEvidence, context: EntryContext): Promi
       state =>
         state.blockNum >= expiration && (state.commitment === undefined || state.commitment === entry.initialCommitment)
     );
-    if (expired) return { ...withRecord, result: 'never-committed' };
+    if (expired) return { ...withRecord, result: 'never-committed', neverCommittedBy: 'expired' };
   }
   if (moved) {
     const superseded = accountReads.some(
@@ -330,13 +336,13 @@ async function judgeEntry(entry: ProvableEvidence, context: EntryContext): Promi
         state.commitment !== undefined &&
         state.commitment !== entry.finalCommitment
     );
-    if (superseded) return { ...withRecord, result: 'never-committed' };
+    if (superseded) return { ...withRecord, result: 'never-committed', neverCommittedBy: 'superseded' };
   }
   if (moved && spend !== undefined) {
     const spentElsewhere =
       (atSpend !== undefined && atSpend.blockNum >= spend.height && atSpend.commitment === entry.initialCommitment) ||
       (spend.height <= tip.blockNum && tip.commitment === entry.initialCommitment);
-    if (spentElsewhere) return { ...withRecord, result: 'never-committed' };
+    if (spentElsewhere) return { ...withRecord, result: 'never-committed', neverCommittedBy: 'spent_elsewhere' };
     if (bindingLost) return { ...withRecord, result: 'unresolvable' };
   }
   return { ...withRecord, result: pastInitial ? 'unresolvable' : 'pending' };
@@ -414,6 +420,12 @@ export async function judgeSubmitEvidence(row: ITransaction, reads: VerdictReads
     judgedEntries.every(
       entry => entry.preSubmitEnd === true || (isProvable(entry) && verdictOf(entry) === 'never-committed')
     );
+  const rules = [...new Set(entries.flatMap(judgement => judgement.neverCommittedBy ?? []))];
+  const neverCommittedBy: RowJudgement['neverCommittedBy'] = !allDead
+    ? undefined
+    : rules.length > 1
+      ? 'mixed'
+      : rules[0];
   const landingHeld =
     entries.some(judgement => judgement.result === 'deferred' || judgement.landingSuspected === true) ||
     entries.some(
@@ -436,6 +448,7 @@ export async function judgeSubmitEvidence(row: ITransaction, reads: VerdictReads
           }
         }),
     allDead,
+    ...(neverCommittedBy === undefined ? {} : { neverCommittedBy }),
     landingHeld,
     ...(tipBlock === undefined ? {} : { tipBlock })
   };

@@ -33,11 +33,17 @@ export const FAILURE_REASONS = [
   'rotation_gate_refusal',
   'consume_not_landed',
   'consume_landed_external',
-  'note_invalid'
+  'note_invalid',
+  'never_committed'
 ] as const;
 
 /** A failure the wallet itself decided, named by the caller because its stored text is never sent. */
 export type TransactionFailureReason = (typeof FAILURE_REASONS)[number];
+
+/** Which check proved a `never_committed` row dead; `mixed` when its attempts were proved dead by different ones. */
+export const NEVER_COMMITTED_RULES = ['expired', 'superseded', 'spent_elsewhere', 'mixed'] as const;
+
+export type NeverCommittedRule = (typeof NEVER_COMMITTED_RULES)[number];
 
 /** Identities the reporter names itself, beside the reasons, refusals and protocol identities. */
 export const REPORTED_IDENTITIES = ['submit_outcome_unknown', 'kernel_u32_assertion_unknown'] as const;
@@ -107,6 +113,8 @@ export interface TransactionFailure {
   type: ITransactionType;
   stage?: ITransactionStage;
   reason?: TransactionFailureReason;
+  /** Read only with the `never_committed` reason. */
+  neverCommittedRule?: NeverCommittedRule;
   error?: unknown;
   delegateTransaction?: boolean;
   outcome?: 'failed' | 'unconfirmed';
@@ -401,10 +409,14 @@ export function reportTransactionFailure(failure: TransactionFailure): void {
     const proving =
       failure.delegateTransaction === true ? 'delegated' : failure.delegateTransaction === false ? 'local' : 'unknown';
     const platform = isDesktop() ? 'desktop' : resolveTelemetryContext().platform;
+    const reason =
+      failure.reason === undefined ? undefined : diagnostic<string>(failure.reason, FAILURE_REASONS, 'other');
     const identity =
-      failure.reason === undefined
+      reason === undefined
         ? failureIdentity(failure)
-        : diagnostic<string>(failure.reason, FAILURE_REASONS, 'other');
+        : reason === 'never_committed' && failure.neverCommittedRule !== undefined
+          ? `${reason}; rule ${diagnostic<string>(failure.neverCommittedRule, NEVER_COMMITTED_RULES, 'other')}`
+          : reason;
     const report = new Error(
       [
         `Transaction ${outcome}: ${operation}; stage ${stage}${signingStep === undefined ? '' : `; signing step ${signingStep}`}; realm ${realm}; proving preference ${proving}; platform ${platform}; point ${point}; ${identity}`,
