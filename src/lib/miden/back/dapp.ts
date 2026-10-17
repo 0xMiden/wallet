@@ -467,6 +467,9 @@ export async function generatePromisifyRequestPermission(
   // unhandled rejection in the worker.
   return new Promise((resolve, reject) => {
     const id = nanoid();
+    // Set once requestConfirm answers the dApp (auto-decline, window close, Cancel): a key read still running then
+    // saves no session and sends nothing (#1471).
+    let refused = false;
 
     requestConfirm({
       id,
@@ -481,6 +484,7 @@ export async function generatePromisifyRequestPermission(
         existingPermission
       },
       onDecline: () => {
+        refused = true;
         reject(new Error(MidenDAppErrorType.NotGranted));
       },
       handleIntercomRequest: async (confirmReq, decline) => {
@@ -502,6 +506,7 @@ export async function generatePromisifyRequestPermission(
               // open on its error with Retry, and the dApp waits for a Retry, a Cancel or the auto-decline.
               throw e;
             }
+            if (refused) return { type: MidenMessageType.DAppPermConfirmationResponse };
             if (!existingPermission)
               await setDApp(origin, {
                 network,
