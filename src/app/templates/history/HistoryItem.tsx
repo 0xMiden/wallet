@@ -113,7 +113,7 @@ const HistoryContent: FC<HistoryItemProps> = ({ fullHistory, entry, lastEntry })
           push the title out of the row. A truncated line clips to its box, so `leading-tight`, not
           `leading-none`, which would cut off descenders. */}
       {entry.amount !== undefined && (
-        <div className="flex min-w-0 max-w-1/2 flex-col items-end">
+        <div className="flex shrink-0 max-w-1/2 flex-col items-end">
           <span
             className={classNames(
               'max-w-full truncate font-heading text-sm font-medium leading-tight',
@@ -195,7 +195,7 @@ const BridgeRowContent: FC<Pick<HistoryItemProps, 'entry' | 'fullHistory' | 'las
         </span>
       </div>
 
-      <div className="flex min-w-0 max-w-1/2 flex-col items-end gap-1">
+      <div className="flex shrink-0 max-w-1/2 flex-col items-end gap-1">
         {outAmount !== undefined && (
           <span className="max-w-full truncate text-sm font-medium leading-tight text-ink">
             {outAmount} {outLabel}
@@ -241,7 +241,7 @@ const EarnWithdrawRowContent: FC<Pick<HistoryItemProps, 'entry' | 'fullHistory' 
         <span className="text-xs text-text-muted truncate mt-1">{t('earnWithdrawRowVia')}</span>
       </div>
 
-      <div className="flex min-w-0 max-w-1/2 flex-col items-end gap-1">
+      <div className="flex shrink-0 max-w-1/2 flex-col items-end gap-1">
         {/* eslint-disable i18next/no-literal-string -- numeric amount sign prefix, not translatable copy */}
         {showAmount && (
           <span className="max-w-full truncate text-sm font-medium leading-tight text-positive-tint-ink">

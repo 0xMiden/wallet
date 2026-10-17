@@ -450,8 +450,9 @@ describe('ActivityRow', () => {
   });
 
   // jsdom does not lay out, so these pin the classes that keep a long amount line inside the row (#1490):
-  // the amount column shrinks but never past half the row, and the line clips to one line with an ellipsis
-  // drawn in ink (a button's default text colour is near-black on the dark card).
+  // the amount column never shrinks and is capped at half the row, so a short amount or badge keeps its
+  // width, and a long line clips to one line inside the cap with an ellipsis drawn in ink (a button's
+  // default text colour is near-black on the dark card).
   it.each<[string, NonNullable<React.ComponentProps<typeof ActivityRow>['amount']>]>([
     ['a 30-digit amount', { value: '+123456789012345678901234567890', symbol: 'MIDEN', direction: 'positive' }],
     ['a 40-character token symbol', { value: '+5', symbol: 'T'.repeat(40), direction: 'positive' }],

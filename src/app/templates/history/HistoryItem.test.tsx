@@ -445,8 +445,9 @@ describe('HistoryItem', () => {
   });
 
   // jsdom does not lay out, so these pin the classes that keep a long line inside the row (#1490): each
-  // amount column shrinks but never past half the row, and every line in it clips with an ellipsis, in a
-  // line box tall enough for descenders (`leading-none` cut them off once the line clipped).
+  // amount column never shrinks and is capped at half the row, so a short amount or badge keeps its width,
+  // and a long line clips with an ellipsis inside the cap, in a line box tall enough for descenders
+  // (`leading-none` cut them off once the line clipped).
   describe('long amounts and token names', () => {
     const longAmount = 123456789012345678901234567890n;
     const longToken = 'T'.repeat(40);
