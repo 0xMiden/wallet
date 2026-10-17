@@ -240,6 +240,24 @@ it.each([
   expect(mockOpen).toHaveBeenCalledWith({ id: `session:${LISTED_PAGE}`, url: LISTED_PAGE });
 });
 
+it.each(['/help-improve-wallet', '/reset-wallet'])(
+  'holds the link on %s, which is outside the wallet shell, then opens it on /',
+  pathname => {
+    mockPathname = pathname;
+    const { rerender } = render(<OpenLinkPrompt />);
+    deliver(LISTED_PAGE);
+
+    expect(mockOpen).not.toHaveBeenCalled();
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(getPendingOpenLink()).toBe(LISTED_PAGE);
+
+    mockPathname = '/';
+    rerender(<OpenLinkPrompt />);
+
+    expect(mockOpen).toHaveBeenCalledWith({ id: `session:${LISTED_PAGE}`, url: LISTED_PAGE });
+  }
+);
+
 it('opens a link that arrived before the prompt mounted, once even when its effects run twice', () => {
   acceptOpenLink(`https://${OPEN_LINK_HOST}/open?url=${encodeURIComponent(LISTED_PAGE)}`);
 

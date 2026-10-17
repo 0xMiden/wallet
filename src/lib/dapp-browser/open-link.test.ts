@@ -21,12 +21,15 @@ import {
 
 const PAGE = 'https://app.example.com/swap?pair=MIDEN-USDC';
 const LINK = `https://${OPEN_LINK_HOST}/open?url=${encodeURIComponent(PAGE)}`;
+const LIVE = 'https://live.example/';
+const LIVE_LINK = `com.miden.wallet://open?url=${encodeURIComponent(LIVE)}`;
 
 function flushPromises(): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, 0));
 }
 
 beforeEach(() => {
+  sessionStorage.clear();
   __resetOpenLinksForTest();
   mockAddListener.mockReset().mockResolvedValue({ remove: jest.fn() });
   mockGetLaunchUrl.mockReset().mockResolvedValue(undefined);
@@ -164,6 +167,49 @@ describe('startOpenLinkCapture', () => {
 
     expect(getPendingOpenLink()).toBe(PAGE);
     expect(listener).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps a live link over a launch link that settles later', async () => {
+    let settleLaunch: (launch: { url: string }) => void = () => {};
+    mockGetLaunchUrl.mockReturnValue(
+      new Promise(resolve => {
+        settleLaunch = resolve;
+      })
+    );
+
+    startOpenLinkCapture();
+    const onUrlOpen = mockAddListener.mock.calls[0][1] as (event: { url: string }) => void;
+    onUrlOpen({ url: LIVE_LINK });
+    settleLaunch({ url: LINK });
+    await flushPromises();
+
+    expect(getPendingOpenLink()).toBe(LIVE);
+  });
+
+  // A reload re-runs the module with fresh state; sessionStorage and the platform's launch URL outlive it.
+  it('does not offer a taken launch link again after a reload', async () => {
+    mockGetLaunchUrl.mockResolvedValue({ url: LINK });
+    startOpenLinkCapture();
+    await flushPromises();
+    expect(takePendingOpenLink()).toBe(PAGE);
+
+    __resetOpenLinksForTest();
+    startOpenLinkCapture();
+    await flushPromises();
+
+    expect(getPendingOpenLink()).toBeNull();
+  });
+
+  it('keeps a held live link across a reload', async () => {
+    startOpenLinkCapture();
+    const onUrlOpen = mockAddListener.mock.calls[0][1] as (event: { url: string }) => void;
+    onUrlOpen({ url: LIVE_LINK });
+
+    __resetOpenLinksForTest();
+    startOpenLinkCapture();
+    await flushPromises();
+
+    expect(getPendingOpenLink()).toBe(LIVE);
   });
 
   it('starts once', async () => {
