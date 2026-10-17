@@ -313,10 +313,16 @@ function defineEarnWithdrawSuite(axis: AccountAxis): void {
         expect(compactRequests(), 'SDK cannot allocate until the parked relay answers').toHaveLength(0);
         expect(nonceRequests(), 'three quote nonces and two final allocation nonces').toHaveLength(5);
 
-        const submissionLocks = (await heldEarnLocks(walletA)).filter(lock => lock.name.startsWith('earn-submit:'));
+        // The position lock admits one withdrawal per position; the attempt lock is what recovery defers to.
+        const heldSubmitLocks = (await heldEarnLocks(walletA)).filter(lock => lock.name.startsWith('earn-submit:'));
+        const positionLocks = heldSubmitLocks.filter(lock => lock.name.startsWith('earn-submit:position:'));
+        const submissionLocks = heldSubmitLocks.filter(lock => !lock.name.startsWith('earn-submit:position:'));
         expect(submissionLocks, 'one native submission owner').toHaveLength(1);
         const submissionLock = submissionLocks[0];
         if (!submissionLock) throw new Error('Submission lock is missing');
+        expect(positionLocks, 'the submitting document holds its position').toHaveLength(1);
+        expect(positionLocks[0]?.clientId).toBe(submissionLock.clientId);
+        expect(positionLocks[0]?.name).toMatch(new RegExp(`^earn-submit:position:${evmOwner.toLowerCase()}:`));
         proof.submissionLock = submissionLock;
 
         const survivorPage = await walletA.page.context().newPage();

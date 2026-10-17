@@ -16,6 +16,7 @@ import {
 import {
   ITransactionStatus,
   type IBridgeInInfo,
+  type IEarnWithdrawExtraInputs,
   type IEarnWithdrawPreparedExecution,
   type ITransaction
 } from 'lib/miden/db/types';
@@ -32,7 +33,7 @@ import {
 import { normalizeMidenIdToHex } from './bridge';
 import { MIDEN_DESTINATION_CHAIN_ID } from './config';
 import { resolveEarnIntentOutcome } from './earn';
-import { tryWithEarnSubmissionLock, withEarnSubmissionLock } from './earn-submission-lock';
+import { type EarnSubmissionContext, tryWithEarnSubmissionLock, withEarnSubmissionLock } from './earn-submission-lock';
 import {
   earnWithdrawalRetryKind,
   earnWithdrawExecutionIdentity,
@@ -165,6 +166,27 @@ export function buildEarnWithdrawTaskDataParams(args: {
 
 const UNSUPPORTED_MARKET = 'Gasless withdrawal only supports the configured USDC Earn market.';
 
+const positionLockKey = (owner: string, marketUid: string): string =>
+  `position:${owner.toLowerCase()}:${marketUid.toLowerCase()}`;
+
+/** Read under the position lock: a withdrawal waits until every earlier one from its position is terminal. */
+async function withdrawalInFlight(owner: string, marketUid: string): Promise<boolean> {
+  const rows = await Repo.transactions
+    .filter(tx => {
+      const inputs: IEarnWithdrawExtraInputs | undefined = tx.extraInputs;
+      return (
+        tx.type === 'earn-withdraw' &&
+        NON_TERMINAL_WITHDRAW_PHASES.has(inputs?.phase ?? '') &&
+        typeof inputs?.evmOwner === 'string' &&
+        inputs.evmOwner.toLowerCase() === owner.toLowerCase() &&
+        typeof inputs.marketUid === 'string' &&
+        inputs.marketUid.toLowerCase() === marketUid.toLowerCase()
+      );
+    })
+    .toArray();
+  return rows.length > 0;
+}
+
 /**
  * Submit one withdrawal attempt while recovery can observe its active ownership. A new withdrawal proceeds only
  * for the Epoch USDC market the document configures on the market's own chain.
@@ -239,7 +261,7 @@ async function submitEarnWithdrawal(
   const attemptId = v4();
   const attemptStartedAt = Math.floor(Date.now() / 1000);
 
-  return withSubmissionLock(attemptId, async context => {
+  const submit = async (context: EarnSubmissionContext): Promise<GaslessEarnWithdrawalResult> => {
     const assertCurrent = () => {
       if (!context.isCurrent()) throw new Error('Withdrawal submission was interrupted.');
     };
@@ -247,6 +269,7 @@ async function submitEarnWithdrawal(
       assertCurrent();
       assertReviewedContext();
     };
+    if (await withdrawalInFlight(sponsorAddress, args.marketUid)) throw new Error('earnWithdrawInProgress');
     assertBeforeSigning();
     const txId = await initiateRow(
       args.midenAccountPublicKey,
@@ -401,7 +424,11 @@ async function submitEarnWithdrawal(
     // The poll owns metadata repair independently from status checking.
     startRecovery();
     return { txId, nonce: nonceString, gaslessUsed: true };
-  });
+  };
+  // Held until the durability writes end, so a second submission for the position sees this row; the poll runs outside.
+  return withSubmissionLock(positionLockKey(sponsorAddress, args.marketUid), () =>
+    withSubmissionLock(attemptId, submit)
+  );
 }
 
 interface DeliveryPollDeps {
