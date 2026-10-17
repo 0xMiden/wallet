@@ -1037,8 +1037,9 @@ describe('crash-report egress', () => {
   });
 
   // The text an Android Fast deposit stores when the wallet refuses: viem's flattened message, which names the RPC
-  // endpoint, the sender, the transaction and the amount. Only the fixed values may cross the wire.
-  it('reports a failed inbound bridge by its route, step and library error, and nothing its stored text says', async () => {
+  // endpoint, the sender, the transaction and the amount, and hands over as its cause. Only the fixed values may cross
+  // the wire.
+  it('reports a failed inbound bridge by its route, step and library error, and nothing its text says', async () => {
     consentOn();
     const host = 'rpc.walletconnect.org';
     const sender = `0x${'a1'.repeat(20)}`;
@@ -1060,7 +1061,7 @@ describe('crash-report egress', () => {
       type: 'bridged-receive',
       point: 'bridge_receive_settlement',
       error: stored,
-      bridgeReceive: { route: 'epoch', step: 'epoch_solve' }
+      bridgeReceive: { route: 'epoch', step: 'epoch_solve', cause: stored }
     });
     await flushEgress();
 

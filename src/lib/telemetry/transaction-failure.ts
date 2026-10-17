@@ -564,8 +564,7 @@ export function reportTransactionFailure(failure: TransactionFailure): void {
         : 'unknown';
     const proving =
       failure.delegateTransaction === true ? 'delegated' : failure.delegateTransaction === false ? 'local' : 'unknown';
-    const bridge =
-      failure.bridgeReceive === undefined ? '' : `; ${bridgeReceiveIdentity(failure.bridgeReceive, failure.error)}`;
+    const bridge = failure.bridgeReceive === undefined ? '' : `; ${bridgeReceiveIdentity(failure.bridgeReceive)}`;
     const queuedBy =
       type === 'consume' ? `; queued by ${diagnostic<string>(failure.entryPoint, CONSUME_ENTRY_POINTS, 'other')}` : '';
     const platform = isDesktop() ? 'desktop' : resolveTelemetryContext().platform;
