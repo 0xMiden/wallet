@@ -3,6 +3,7 @@ import React, { useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useHiddenTokens } from 'app/hooks/useHiddenTokens';
+import useNativeFeeFaucetId from 'app/hooks/useNativeFeeFaucetId';
 import { TokenLogo } from 'components/TokenLogo';
 import { AnimatedNumber } from 'components/ui/AnimatedNumber';
 import { AssetListItem } from 'components/ui/AssetListItem';
@@ -12,7 +13,7 @@ import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { priceSymbolFor } from 'lib/miden/swap/tokens';
 import { listedFiatValue } from 'lib/prices';
-import { isNewTransferTokenBlocked } from 'lib/remote-config/token-availability';
+import { isNewTransferTokenHeld } from 'lib/remote-config/token-availability';
 import { midenTokenLabel } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { useWalletStore } from 'lib/store';
@@ -52,12 +53,13 @@ export const SelectTokenDrawer: React.FC<SelectTokenDrawerProps> = ({
   const tokenPrices = useWalletStore(s => s.tokenPrices);
   const { isHidden } = useHiddenTokens(publicKey);
   const bridgeConfig = useBridgeConfigSnapshot();
+  const nativeFaucetId = useNativeFeeFaucetId();
   const [searchQuery, setSearchQuery] = useState('');
 
   const filteredBalances = useMemo(() => {
     // Hidden from Home, hidden here; the token's own page still sends it, preselected by id.
     const visible = balanceData.filter(
-      b => !isHidden(b.tokenId) && !isNewTransferTokenBlocked(bridgeConfig, b.tokenId)
+      b => !isHidden(b.tokenId) && !isNewTransferTokenHeld(bridgeConfig, b.tokenId, nativeFaucetId)
     );
     if (!searchQuery.trim()) return visible;
     const query = searchQuery.toLowerCase();
@@ -67,7 +69,7 @@ export const SelectTokenDrawer: React.FC<SelectTokenDrawerProps> = ({
         b.metadata.name?.toLowerCase().includes(query) ||
         midenTokenLabel(bridgeConfig, b.tokenId, b.metadata.symbol).toLowerCase().includes(query)
     );
-  }, [balanceData, bridgeConfig, isHidden, searchQuery]);
+  }, [balanceData, bridgeConfig, nativeFaucetId, isHidden, searchQuery]);
 
   const onSelectToken = useCallback(
     (token: UIToken) => {
