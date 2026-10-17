@@ -791,3 +791,121 @@ describe('IosWalletPage poll attribution', () => {
     );
   });
 });
+
+// A create whose first sync failed sat on Confirmation's failure screen until the 120 s Ready wait ran out
+// (run 39025104169, attempt 2).
+describe('IosWalletPage.waitForCreatedWalletReady', () => {
+  afterEach(() => jest.useRealTimers());
+
+  const SCREEN = 'Something went wrong\n\nFailed to sync state: RPC deadline exceeded\n\nRetry';
+
+  /**
+   * Confirmation as the WebView runs it: each create attempt reads `creating` twice, then lands on Ready or on the
+   * failure screen; Retry starts the next attempt, and the screen keeps its failure for `lagReads` reads after it.
+   */
+  function confirmationApp(
+    outcomes: Array<'ready' | 'fails'>,
+    opts: { lagReads?: number; retryButton?: boolean } = {}
+  ) {
+    let attempt = 0;
+    let reads = 0;
+    let lag = 0;
+    let phase: 'creating' | 'failed' | 'ready' = 'creating';
+    const clicks: number[] = [];
+    const failed = { innerText: SCREEN };
+    const submit = {
+      click: () => {
+        clicks.push(attempt);
+        attempt++;
+        reads = 0;
+        lag = opts.lagReads ?? 0;
+        if (lag === 0) phase = 'creating';
+      }
+    };
+    const webView = {
+      window: {
+        __TEST_STORE__: {
+          getState: () => ({
+            status: phase === 'ready' ? 2 : 0,
+            currentAccount: phase === 'ready' ? { publicKey: 'mtst1qcreated' } : null
+          })
+        }
+      },
+      document: {
+        querySelector: (selector: string) => {
+          if (selector.includes('onboarding-confirmation-submit')) return opts.retryButton === false ? null : submit;
+          if (selector.includes('onboarding-confirmation-failed')) return phase === 'failed' ? {} : null;
+          if (selector.includes('onboarding-confirmation')) return failed;
+          return null;
+        }
+      }
+    };
+    const page = pageWith(async js => {
+      if (js.includes('__TEST_STORE__')) {
+        if (lag > 0 && --lag === 0) phase = 'creating';
+        else if (phase === 'creating' && ++reads >= 2) phase = outcomes[attempt] === 'ready' ? 'ready' : 'failed';
+      }
+      return vm.runInNewContext(`(function () { ${js} })()`, webView);
+    });
+    return { page, clicks };
+  }
+
+  async function outcomeOf(page: IosWalletPage, timeoutMs = 120_000): Promise<{ settled: boolean; outcome: string }> {
+    jest.useFakeTimers();
+    let settled = false;
+    const outcome = (page as unknown as { waitForCreatedWalletReady(label: string, timeoutMs: number): Promise<void> })
+      .waitForCreatedWalletReady('create(private)', timeoutMs)
+      .then(
+        () => 'ready',
+        (error: unknown) => (error instanceof Error ? error.message : String(error))
+      )
+      .finally(() => (settled = true));
+    await jest.advanceTimersByTimeAsync(10_000);
+    return { settled, outcome: settled ? await outcome : 'pending' };
+  }
+
+  it('waits for Ready without pressing anything when the create succeeds', async () => {
+    const { page, clicks } = confirmationApp(['ready']);
+
+    await expect(outcomeOf(page)).resolves.toEqual({ settled: true, outcome: 'ready' });
+    expect(clicks).toEqual([]);
+  });
+
+  it("presses the app's Retry once on the first failure screen and keeps waiting for Ready", async () => {
+    const { page, clicks } = confirmationApp(['fails', 'ready']);
+
+    await expect(outcomeOf(page)).resolves.toEqual({ settled: true, outcome: 'ready' });
+    expect(clicks).toEqual([0]);
+  });
+
+  it('fails at once, with the screen text, when the Retry fails too', async () => {
+    const { page, clicks } = confirmationApp(['fails', 'fails', 'ready']);
+
+    await expect(outcomeOf(page)).resolves.toEqual({
+      settled: true,
+      outcome:
+        'create(private): wallet creation failed again after one Retry: ' +
+        'Something went wrong Failed to sync state: RPC deadline exceeded Retry'
+    });
+    expect(clicks).toEqual([0]);
+  });
+
+  it('does not count the first failure twice while the screen still shows it after the Retry', async () => {
+    const { page, clicks } = confirmationApp(['fails', 'ready'], { lagReads: 2 });
+
+    await expect(outcomeOf(page)).resolves.toEqual({ settled: true, outcome: 'ready' });
+    expect(clicks).toEqual([0]);
+  });
+
+  it('fails at once with the screen text when the failure screen has no Retry to press', async () => {
+    const { page } = confirmationApp(['fails'], { retryButton: false });
+
+    const { outcome } = await outcomeOf(page);
+
+    expect(outcome).toBe(
+      'create(private): wallet creation failed and its Retry could not be pressed ' +
+        '(IosWalletPage.click: no element matched [data-testid="onboarding-confirmation-submit"]): ' +
+        'Something went wrong Failed to sync state: RPC deadline exceeded Retry'
+    );
+  });
+});

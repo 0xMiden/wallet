@@ -168,6 +168,23 @@ function noEvalReturned(poll: string, target: string, timeoutMs: number, tally: 
   return new Error(`${poll}: could not check ${target}: no CDP eval returned in ${timeoutMs}ms (last error: ${last})`);
 }
 
+const CONFIRMATION_SUBMIT = '[data-testid="onboarding-confirmation-submit"]';
+
+interface CreatedWalletState {
+  ready: boolean;
+  /** The failure screen's text while Confirmation shows it, else null. */
+  failed: string | null;
+}
+
+// Ready as the create has always waited for it, else Confirmation's failure screen (Confirmation.tsx marks it).
+const CREATED_WALLET_STATE_JS =
+  `var s = window.__TEST_STORE__; var st = s && s.getState(); ` +
+  `if (st && (st.status === 2 || st.status === 'Ready') && st.currentAccount) return { ready: true, failed: null }; ` +
+  `var f = document.querySelector('[data-testid="onboarding-confirmation-failed"]'); ` +
+  `if (!f) return { ready: false, failed: null }; ` +
+  `var screen = document.querySelector('[data-testid="onboarding-confirmation"]') || f; ` +
+  `return { ready: false, failed: (screen.innerText || screen.textContent || '').trim() };`;
+
 const READ_ATTEMPTS = 3;
 const READ_RETRY_MS = 1_000;
 
@@ -995,16 +1012,10 @@ export class IosWalletPage implements WalletPage {
 
     // Click "Open wallet" — this triggers register() which creates the vault.
     // The old "Get started" text is gone; the button is now keyed by testid.
-    await this.click('[data-testid="onboarding-confirmation-submit"]');
+    await this.click(CONFIRMATION_SUBMIT);
 
     // Wait for store status === Ready (numeric 2 in the Zustand enum).
-    await this.pollForCondition(
-      `var s = window.__TEST_STORE__; ` +
-        `if (!s) return false; ` +
-        `var st = s.getState(); ` +
-        `return st && (st.status === 2 || st.status === 'Ready') && !!st.currentAccount;`,
-      readyTimeoutMs
-    );
+    await this.waitForCreatedWalletReady(`IosWalletPage.createWalletViaBypass(${recovery})`, readyTimeoutMs);
 
     // Onboarding's last screen is now the one-time telemetry consent prompt, not
     // the wallet home — decline it so the caller gets a wallet it can navigate.
@@ -1027,6 +1038,35 @@ export class IosWalletPage implements WalletPage {
     // For created wallets the bypass synthesizes the seed phrase internally
     // (we don't read it back); for imported wallets the caller already has it.
     return { address, seedPhrase: seed ?? [] };
+  }
+
+  /**
+   * Waits for a created wallet to read Ready. A create whose first sync fails leaves Confirmation's failure screen up,
+   * which no Ready budget outlasts: the first time it shows, this presses the app's own Retry and keeps waiting; a
+   * failure after that fails at once with what the screen says.
+   */
+  private async waitForCreatedWalletReady(label: string, timeoutMs: number): Promise<void> {
+    let retried = false;
+    let cleared = false;
+    await this.pollForCondition<CreatedWalletState>(CREATED_WALLET_STATE_JS, timeoutMs, async state => {
+      if (state.ready) return true;
+      if (state.failed === null) {
+        cleared = retried;
+        return false;
+      }
+      const screen = state.failed.replace(/\s+/g, ' ').slice(0, 500);
+      if (!retried) {
+        retried = true;
+        await this.click(CONFIRMATION_SUBMIT).catch((error: unknown) => {
+          const reason = error instanceof Error ? error.message : String(error);
+          throw new Error(`${label}: wallet creation failed and its Retry could not be pressed (${reason}): ${screen}`);
+        });
+        return false;
+      }
+      // Until a read shows the screen without its failure, the Retry has not started and this is still the first one.
+      if (!cleared) return false;
+      throw new Error(`${label}: wallet creation failed again after one Retry: ${screen}`);
+    });
   }
 
   /**
@@ -1563,7 +1603,11 @@ export class IosWalletPage implements WalletPage {
     }
   }
 
-  private async pollForCondition(jsBody: string, timeoutMs: number): Promise<void> {
+  private async pollForCondition<T = boolean>(
+    jsBody: string,
+    timeoutMs: number,
+    accept: (value: T) => boolean | Promise<boolean> = Boolean
+  ): Promise<void> {
     const wallStart = Date.now();
     let iterations = 0;
     let totalSleepMs = 0;
@@ -1571,8 +1615,8 @@ export class IosWalletPage implements WalletPage {
     try {
       while (Date.now() - wallStart < timeoutMs) {
         iterations++;
-        const ok = await this.tallied<boolean>(jsBody, tally);
-        if (ok?.value) return;
+        const read = await this.tallied<T>(jsBody, tally);
+        if (read && (await accept(read.value))) return;
         await sleep(POLL_INTERVAL_MS);
         totalSleepMs += POLL_INTERVAL_MS;
       }
