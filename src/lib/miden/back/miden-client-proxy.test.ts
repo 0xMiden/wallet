@@ -1108,6 +1108,38 @@ describe('MidenClientProxy — zero-fill PSWAP cancel request', () => {
     expect(G.__px.inlineBuildPswapCancelRequest).not.toHaveBeenCalled();
   });
 
+  // A recovered order's note exists only on the node (#1487).
+  it('flag OFF forwards the node-note option to the inline client', async () => {
+    const { midenClientProxy } = await loadProxy(false);
+    const assertLive = jest.fn();
+
+    await midenClientProxy.buildPswapCancelRequest('acc-1', 'tip-1', assertLive, { allowNodeNote: true });
+
+    expect(G.__px.inlineBuildPswapCancelRequest).toHaveBeenCalledWith('acc-1', 'tip-1', assertLive, {
+      allowNodeNote: true
+    });
+  });
+
+  it('flag ON sends the node-note option, with room in the deadline for its two node reads', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    const bytes = new Uint8Array([9, 9]);
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: Buffer.from(bytes).toString('base64'),
+      durationMs: 4
+    }));
+
+    const pending = midenClientProxy.buildPswapCancelRequest('acc-2', 'tip-2', undefined, { allowNodeNote: true });
+    await flush();
+    fireReady();
+
+    await expect(pending).resolves.toEqual(bytes);
+    const env = fakeChrome.runtime.sendMessage.mock.calls[0][0];
+    expect(env.argsB64).toEqual(['s:"acc-2"', 's:"tip-2"', 's:true']);
+    expect(env.deadline_ms).toBe(25_000);
+  });
+
   it('flag ON refuses a missing request payload', async () => {
     const { midenClientProxy } = await loadProxy(true);
     fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({

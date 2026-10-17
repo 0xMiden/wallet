@@ -649,7 +649,10 @@ describe('MultisigService', () => {
 
       const proposal = await service.createPswapCancelProposal('zero-fill-tip', persistRequest);
 
-      expect(mockBuildPswapCancelRequest).toHaveBeenCalledWith('acc-id', 'zero-fill-tip', expect.any(Function));
+      // A recovered order's reclaim row names a note only the node holds, so the rebuild may read it there (#1487).
+      expect(mockBuildPswapCancelRequest).toHaveBeenCalledWith('acc-id', 'zero-fill-tip', expect.any(Function), {
+        allowNodeNote: true
+      });
       expect(persistRequest).toHaveBeenCalledWith(cancelBytes);
       expect(createCustomFn).toHaveBeenCalledWith(cancelBytes, 'custom_transaction');
       expect(callOrder).toEqual(['syncChain', 'buildPswapCancelRequest', 'persistRequest', 'createCustomProposal']);

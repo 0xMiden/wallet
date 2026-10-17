@@ -2293,6 +2293,30 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(Buffer.from(resp.resultB64, 'base64')).toEqual(Buffer.from([20, 14, 7, 6]));
   });
 
+  it('dispatches a node-note buildPswapCancelRequest with its option', async () => {
+    await loadModule();
+    const sendResponse = jest.fn();
+    capturedListener!(
+      callReq({
+        method: 'buildPswapCancelRequest',
+        argsB64: [encodeArg('mtst1qqaccount'), encodeArg('0xtip'), encodeArg(true)]
+      }),
+      {},
+      sendResponse
+    );
+    await flush();
+
+    expect(G.__off.clientBuildPswapCancelRequest).toHaveBeenCalledWith(
+      'mtst1qqaccount',
+      '0xtip',
+      expect.any(Function),
+      {
+        allowNodeNote: true
+      }
+    );
+    expect(sendResponse.mock.calls[0][0].ok).toBe(true);
+  });
+
   // ─── Slice 7a: deferred reach-through reads ─────────────────────────────────
   it('dispatches getSyncHeight(fresh:false) → reads the last-synced height, JSON-encoded', async () => {
     await loadModule();

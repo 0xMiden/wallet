@@ -1999,6 +1999,28 @@ it('keeps the local settlement stamps of a recovered swap row it derives again',
   expect(upgraded?.extraInputs).toMatchObject({ orderId: '42', expiryTriggeredAt: 150, settledAt: 160 });
 });
 
+// A Cancel moves the order's expiry forward and the order tracking records a spent order note; both are this wallet's
+// own record of the order (#1487).
+it("keeps a recovered swap row's Cancel expiry and spent-note stamp when it derives the row again", async () => {
+  serveOrderHistory();
+  await run();
+  const order = (await transactions.toArray()).find(row => row.recovery?.nonce === 2);
+  if (!order?.recovery) throw new Error('Missing recovered order');
+  await transactions.put({
+    ...order,
+    extraInputs: { ...order.extraInputs, expiresAt: 150, expiryTriggeredAt: 150, orderNoteSpentAt: 170 },
+    recovery: { ...order.recovery, version: GUARDIAN_HISTORY_VERSION - 1 }
+  });
+  await clearGuardianHistoryCheckpoints();
+  serveOrderHistory();
+
+  await run();
+
+  const upgraded = await transactions.get(order.id);
+  expect(upgraded?.recovery?.version).toBe(GUARDIAN_HISTORY_VERSION);
+  expect(upgraded?.extraInputs).toMatchObject({ expiresAt: 150, expiryTriggeredAt: 150, orderNoteSpentAt: 170 });
+});
+
 it('stops recovery and retains the failure when fee metadata is unavailable', async () => {
   jest.mocked(midenClientProxy.decodeGuardianHistory).mockRejectedValueOnce(new GuardianHistoryFeeUnavailableError());
   expect((await run()).sourceFailures).toBe(1);

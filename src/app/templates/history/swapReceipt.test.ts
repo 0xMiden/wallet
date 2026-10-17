@@ -480,4 +480,26 @@ describe('deriveSwapReceipt', () => {
       expect(view.reclaimPending).toBe(false);
     });
   });
+  describe('cancelling a recovered order', () => {
+    // Recovery records Auto accept off, and the one thing the wallet does for such an order is return it on this
+    // wallet's Cancel (#1487). Its lineage is the node's answer about the order note.
+    it('is offered while the node says the order note is open', () => {
+      const view = derive({ recovered: true, autoConsume: false, expiresAt: null, tracking: tracking() });
+
+      expect(view.offerCancel).toBe(true);
+      expect(view.reclaimPending).toBe(false);
+      expect(view.filledAmount).toBe(0n);
+    });
+
+    it('becomes the reclaim notice once the Cancel brought its expiry forward', () => {
+      const view = derive({ recovered: true, autoConsume: false, expiresAt: 1_700_000_000, tracking: tracking() });
+
+      expect(view.offerCancel).toBe(false);
+      expect(view.reclaimPending).toBe(true);
+    });
+
+    it('is withheld while the node has not answered', () => {
+      expect(derive({ recovered: true, autoConsume: false, expiresAt: null, tracking: null }).offerCancel).toBe(false);
+    });
+  });
 });

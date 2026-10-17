@@ -1246,6 +1246,67 @@ describe('swap settlement state', () => {
     expect(swapSettlementOf(swap({ orderId: 42n, expiresAt: 1_700_000_120 }, 0))).toBeUndefined();
     expect(swapSettlementOf({ type: 'send', status: 2, extraInputs: { orderId: 42n } } as any)).toBeUndefined();
   });
+
+  describe('a Guardian-recovered order', () => {
+    // Recovery records every order with Auto accept off and no expiry, so the rule above read each one Confirmed
+    // while the placing device read it Pending (#1487).
+    const recovered = (
+      extraInputs: Record<string, unknown> = {},
+      overrides: Partial<ITransaction> = {}
+    ): ITransaction => ({
+      id: 'guardian-history:testnet:account:0xcommitment',
+      type: 'swap',
+      accountId: 'account',
+      status: ITransactionStatus.Completed,
+      initiatedAt: 100,
+      displayIcon: 'DEFAULT',
+      amount: 70n,
+      outputNoteIds: ['order-note'],
+      restoredFromBackup: true,
+      recovered: true,
+      recovery: {
+        version: 5,
+        network: 'testnet',
+        operators: [],
+        nonce: 2,
+        inputNotes: [],
+        outputNotes: [
+          {
+            id: 'order-note',
+            assets: [],
+            visibility: 'public',
+            swap: { orderId: '42', requestedAsset: { faucetId: 'requested', amount: '30' } }
+          }
+        ],
+        completeness: 'decoded',
+        reclaimed: false
+      },
+      extraInputs: { orderId: '42', requestedAmount: 30n, autoConsume: false, ...extraInputs },
+      ...overrides
+    });
+
+    it('reads open while no fill or reclaim was found', () => {
+      expect(swapSettlementOf(recovered())).toBe('pending');
+    });
+
+    it('reads Returning funds once this wallet asked for its return', () => {
+      expect(swapSettlementOf(recovered({ expiresAt: 150, expiryTriggeredAt: 150 }))).toBe('reclaiming');
+    });
+
+    it('reads the settlement and reclaim recovery found, as any order does', () => {
+      expect(swapSettlementOf(recovered({ settledAt: 160 }))).toBeUndefined();
+      expect(swapSettlementOf(recovered({ reclaimedAt: 160 }))).toBe('reclaimed');
+      expect(swapSettlementOf(recovered({ expiryTriggeredAt: 150, reclaimedAt: 160 }))).toBe('reclaimed');
+    });
+
+    it('reads Confirmed once the node showed its order note spent with nothing of this wallet behind it', () => {
+      expect(swapSettlementOf(recovered({ orderNoteSpentAt: 170 }))).toBeUndefined();
+    });
+
+    it('reads Confirmed for a recovered order whose order note it cannot name, which it cannot track', () => {
+      expect(swapSettlementOf(recovered({}, { outputNoteIds: [] }))).toBeUndefined();
+    });
+  });
 });
 
 describe('earn withdraw helpers', () => {

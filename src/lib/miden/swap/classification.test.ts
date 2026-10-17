@@ -54,6 +54,45 @@ describe('localSwapOrders', () => {
     expect((await localSwapOrders(ACCOUNT)).map(o => o.id)).toEqual(['mine']);
   });
 
+  // A Guardian-recovered order joins only once this wallet's Cancel stamped it: its order note is then reclaimed from
+  // the node (#1487). Without that stamp it is as inert as any restored row.
+  const recovered = (extraInputs: Record<string, unknown> = {}, id = 'recovered') =>
+    order({
+      id,
+      restoredFromBackup: true,
+      recovered: true,
+      amount: 50n,
+      outputNoteIds: ['order-note'],
+      recovery: {
+        outputNotes: [
+          { id: 'order-note', swap: { orderId: '77', requestedAsset: { faucetId: 'requested', amount: '50' } } }
+        ]
+      },
+      extraInputs: {
+        requestedFaucetId: 'requested',
+        requestedAmount: 50n,
+        orderId: '77',
+        autoConsume: false,
+        ...extraInputs
+      }
+    });
+
+  it("admits a recovered order this wallet's Cancel stamped", async () => {
+    withRows([recovered({ expiresAt: 150, expiryTriggeredAt: 150 }), recovered({}, 'recovered-unstamped')]);
+
+    expect((await localSwapOrders(ACCOUNT)).map(o => o.id)).toEqual(['recovered']);
+  });
+
+  it.each([
+    ['carries no Cancel', {}],
+    ['has been reclaimed since', { expiryTriggeredAt: 150, reclaimedAt: 160 }],
+    ['the node showed spent', { expiryTriggeredAt: 150, orderNoteSpentAt: 160 }]
+  ])('keeps out a recovered order that %s', async (_label, extraInputs) => {
+    withRows([recovered(extraInputs)]);
+
+    expect(await localSwapOrders(ACCOUNT)).toEqual([]);
+  });
+
   it.each([
     ['another account', { accountId: 'someone-else' }],
     ['a row that is not complete', { status: ITransactionStatus.Failed }],

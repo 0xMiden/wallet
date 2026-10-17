@@ -468,6 +468,32 @@ describe('miden repo export/import', () => {
     expect(restored).not.toHaveProperty('dappOrigins');
   });
 
+  // On a Guardian-recovered order the Cancel stamp is the permission settlement acts on to return the order, and only
+  // this wallet's own Cancel may give it (#1487). A restored row's stamp is read nowhere else.
+  it("drops a dump's swap Cancel stamp and keeps the rest of the order", async () => {
+    const dump = JSON.stringify({
+      [Table.Transactions]: [
+        {
+          id: 'recovered-order',
+          type: 'swap',
+          status: ITransactionStatus.Completed,
+          accountId: 'acc1',
+          initiatedAt: 1,
+          completedAt: 2,
+          displayIcon: 'DEFAULT',
+          recovered: true,
+          extraInputs: { orderId: '42', autoConsume: false, expiresAt: 150, expiryTriggeredAt: 150 }
+        }
+      ]
+    });
+
+    await importDb(dump);
+
+    const [restored] = await transactions.toArray();
+    expect(restored!.recovered).toBe(true);
+    expect(restored!.extraInputs).toEqual({ orderId: '42', autoConsume: false, expiresAt: 150 });
+  });
+
   // The status test is an allow-list of the terminal values, so a dump is free
   // to carry a status no consumer recognises. Such a row is invisible in every
   // history view (all of them compare with `===`) while still holding its id.

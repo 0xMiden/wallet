@@ -5,6 +5,7 @@ import { initiateConsumeNotesTransaction, initiatePswapReclaimTransaction } from
 import { NoteTypeEnum } from 'lib/miden/types';
 
 import {
+  __resetRecoveredBuildRetriesForTests,
   classifySwapOrderNotes,
   classifySwapSettlementSnapshot,
   reconcileSwapOrderNotes,
@@ -1134,5 +1135,104 @@ describe('swap order note settlement', () => {
     const consumeRow = { type: 'consume', extraInputs: undefined as Record<string, unknown> | undefined };
     tagWriter(consumeRow);
     expect(consumeRow.extraInputs).toEqual({ swapOrderTxId: 'swap-1', swapSettleKind: 'settle' });
+  });
+  describe('a Guardian-recovered order returned on its Cancel (#1487)', () => {
+    // This device's SDK never tracked the order, so there is no lineage and no output-note record: the order note is
+    // the one the recovered record names, and only the node holds it.
+    const recoveredOrder = (extraInputs: Record<string, unknown> = {}) =>
+      tx({
+        id: 'recovered-swap',
+        restoredFromBackup: true,
+        recovered: true,
+        outputNoteIds: ['order-note'],
+        recovery: {
+          outputNotes: [
+            { id: 'order-note', swap: { orderId: '77', requestedAsset: { faucetId: 'requested', amount: '50' } } }
+          ]
+        },
+        extraInputs: {
+          requestedFaucetId: 'requested',
+          requestedAmount: 50n,
+          orderId: '77',
+          autoConsume: false,
+          expiresAt: 220,
+          expiryTriggeredAt: 220,
+          ...extraInputs
+        }
+      });
+
+    beforeEach(() => {
+      __resetRecoveredBuildRetriesForTests();
+      jest.mocked(midenClientProxy.getConsumableNotes).mockResolvedValue([]);
+    });
+
+    it('reclaims the order note from the node, past the Auto accept setting recovery wrote', async () => {
+      toArray.mockResolvedValue([recoveredOrder()]);
+
+      const result = await settleSwapOrders('account-1', true);
+
+      expect(midenClientProxy.buildPswapCancelRequest).toHaveBeenCalledWith(
+        'account-1',
+        'order-note',
+        expect.any(Function),
+        { allowNodeNote: true }
+      );
+      expect(initiatePswapReclaimTransaction).toHaveBeenCalledWith(
+        'account-1',
+        expect.objectContaining({
+          id: 'order-note',
+          faucetId: 'offer',
+          swapOrder: expect.objectContaining({ orderId: '77', depth: 0, role: 'tip' })
+        }),
+        new Uint8Array([1, 4, 7, 6]),
+        'recovered-swap',
+        true
+      );
+      expect(result.queuedTransactionIds).toEqual(['consume-zero-fill']);
+    });
+
+    it('builds nothing for a recovered order this wallet was not asked to return', async () => {
+      toArray.mockResolvedValue([recoveredOrder({ expiresAt: undefined, expiryTriggeredAt: undefined })]);
+
+      await settleSwapOrders('account-1');
+
+      expect(midenClientProxy.buildPswapCancelRequest).not.toHaveBeenCalled();
+      expect(initiatePswapReclaimTransaction).not.toHaveBeenCalled();
+    });
+
+    it('builds nothing while the order note already has a reclaim of this wallet', async () => {
+      toArray.mockResolvedValue([recoveredOrder()]);
+      mockNoteClaimCoverage.mockResolvedValueOnce({ rows: [], liveOrCompleted: { id: 'reclaim-row' } });
+
+      await settleSwapOrders('account-1');
+
+      expect(mockNoteClaimCoverage).toHaveBeenCalledWith('account-1', 'order-note', expect.any(Number));
+      expect(midenClientProxy.buildPswapCancelRequest).not.toHaveBeenCalled();
+    });
+
+    it('waits 30, then 60 seconds after refused builds instead of reading the node on every lap', async () => {
+      jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+      toArray.mockResolvedValue([recoveredOrder()]);
+      jest.mocked(midenClientProxy.buildPswapCancelRequest).mockRejectedValue(new Error('already consumed on chain'));
+      const nowSpy = jest.spyOn(Date, 'now');
+      const lapAt = async (seconds: number) => {
+        nowSpy.mockReturnValue(seconds * 1000);
+        await settleSwapOrders('account-1');
+      };
+
+      try {
+        await lapAt(300);
+        await lapAt(329);
+        expect(midenClientProxy.buildPswapCancelRequest).toHaveBeenCalledTimes(1);
+        await lapAt(330);
+        await lapAt(389);
+        expect(midenClientProxy.buildPswapCancelRequest).toHaveBeenCalledTimes(2);
+        await lapAt(390);
+        expect(midenClientProxy.buildPswapCancelRequest).toHaveBeenCalledTimes(3);
+        expect(initiatePswapReclaimTransaction).not.toHaveBeenCalled();
+      } finally {
+        nowSpy.mockRestore();
+      }
+    });
   });
 });
