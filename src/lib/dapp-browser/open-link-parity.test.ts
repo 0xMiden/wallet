@@ -16,7 +16,7 @@ const read = (relative: string) => fs.readFileSync(path.join(__dirname, '../../.
 const captures = (text: string, pattern: RegExp) => [...text.matchAll(pattern)].flatMap(match => match[1] ?? []);
 
 const PAGE = 'https://app.example.com/';
-const QUERY = `?url=${encodeURIComponent(PAGE)}`;
+const PARAMS = `url=${encodeURIComponent(PAGE)}`;
 
 const manifest = read('android/app/src/main/AndroidManifest.xml');
 const verifiedFilters = captures(manifest, /<intent-filter android:autoVerify="true">([\s\S]*?)<\/intent-filter>/g);
@@ -45,8 +45,8 @@ describe('open link declarations', () => {
     const schemes = [...new Set([...plistSchemes, ...manifestSchemes])];
 
     expect(schemes).not.toHaveLength(0);
-    expect(parseOpenLink(`https://${OPEN_LINK_HOST}/open${QUERY}`)).toBe(PAGE);
-    for (const scheme of schemes) expect(parseOpenLink(`${scheme}://open${QUERY}`)).toBe(PAGE);
+    expect(parseOpenLink(`https://${OPEN_LINK_HOST}/open#${PARAMS}`)).toBe(PAGE);
+    for (const scheme of schemes) expect(parseOpenLink(`${scheme}://open?${PARAMS}`)).toBe(PAGE);
   });
 
   // 0xMiden/wallet-link's association files name this app ID and package: changing either here needs a change there.

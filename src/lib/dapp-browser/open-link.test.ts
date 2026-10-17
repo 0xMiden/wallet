@@ -20,7 +20,8 @@ import {
 } from './open-link';
 
 const PAGE = 'https://app.example.com/swap?pair=MIDEN-USDC';
-const LINK = `https://${OPEN_LINK_HOST}/open?url=${encodeURIComponent(PAGE)}`;
+const LINK = `https://${OPEN_LINK_HOST}/open#url=${encodeURIComponent(PAGE)}`;
+const SCHEME_LINK = `com.miden.wallet://open?url=${encodeURIComponent(PAGE)}`;
 const LIVE = 'https://live.example/';
 const LIVE_LINK = `com.miden.wallet://open?url=${encodeURIComponent(LIVE)}`;
 
@@ -38,7 +39,7 @@ beforeEach(() => {
 describe('parseOpenLink', () => {
   it('reads the page out of a universal link or an app link', () => {
     expect(parseOpenLink(LINK)).toBe(PAGE);
-    expect(parseOpenLink(`https://BREAD.miden.xyz/open?url=${encodeURIComponent(PAGE)}`)).toBe(PAGE);
+    expect(parseOpenLink(`https://BREAD.miden.xyz/open#url=${encodeURIComponent(PAGE)}`)).toBe(PAGE);
   });
 
   it('reads the page out of the custom scheme link', () => {
@@ -48,19 +49,20 @@ describe('parseOpenLink', () => {
   });
 
   it('normalizes the page', () => {
-    expect(parseOpenLink(`${LINK.split('?')[0]}?url=${encodeURIComponent('https://App.Example.com')}`)).toBe(
+    expect(parseOpenLink(`${LINK.split('#')[0]}#url=${encodeURIComponent('https://App.Example.com')}`)).toBe(
       'https://app.example.com/'
     );
   });
 
   it.each([
-    ['another host', `https://evil.example/open?url=${encodeURIComponent(PAGE)}`],
+    ['another host', `https://evil.example/open#url=${encodeURIComponent(PAGE)}`],
     [
       'a host that only starts like ours',
-      `https://${OPEN_LINK_HOST}.evil.example/open?url=${encodeURIComponent(PAGE)}`
+      `https://${OPEN_LINK_HOST}.evil.example/open#url=${encodeURIComponent(PAGE)}`
     ],
-    ['another path', `https://${OPEN_LINK_HOST}/other?url=${encodeURIComponent(PAGE)}`],
-    ['plain http', `http://${OPEN_LINK_HOST}/open?url=${encodeURIComponent(PAGE)}`],
+    ['another path', `https://${OPEN_LINK_HOST}/other#url=${encodeURIComponent(PAGE)}`],
+    ['plain http', `http://${OPEN_LINK_HOST}/open#url=${encodeURIComponent(PAGE)}`],
+    ['the page in the query of an https link', `https://${OPEN_LINK_HOST}/open?url=${encodeURIComponent(PAGE)}`],
     ['another scheme action', `com.miden.wallet://other?url=${encodeURIComponent(PAGE)}`],
     ['no page', `https://${OPEN_LINK_HOST}/open`],
     ['no query', 'com.miden.wallet://open'],
@@ -79,7 +81,7 @@ describe('parseOpenLink', () => {
     ['a password', 'https://user:secret@app.example.com/'],
     ['a page that is not a URL', 'app.example.com']
   ])('refuses %s', (_case, page) => {
-    expect(parseOpenLink(`https://${OPEN_LINK_HOST}/open?url=${encodeURIComponent(page)}`)).toBeNull();
+    expect(parseOpenLink(`https://${OPEN_LINK_HOST}/open#url=${encodeURIComponent(page)}`)).toBeNull();
   });
 });
 
@@ -101,7 +103,7 @@ describe('pending open link', () => {
     const listener = jest.fn();
     subscribePendingOpenLink(listener);
 
-    acceptOpenLink(`https://${OPEN_LINK_HOST}/open?url=${encodeURIComponent('http://app.example.com/')}`);
+    acceptOpenLink(`https://${OPEN_LINK_HOST}/open#url=${encodeURIComponent('http://app.example.com/')}`);
 
     expect(getPendingOpenLink()).toBeNull();
     expect(listener).not.toHaveBeenCalled();
@@ -200,6 +202,43 @@ describe('startOpenLinkCapture', () => {
     expect(getPendingOpenLink()).toBeNull();
   });
 
+  it('does not offer a replaced launch link again after a reload', async () => {
+    mockGetLaunchUrl.mockResolvedValue({ url: SCHEME_LINK });
+    startOpenLinkCapture();
+    await flushPromises();
+    const onUrlOpen = mockAddListener.mock.calls[0][1] as (event: { url: string }) => void;
+    onUrlOpen({ url: LIVE_LINK });
+    expect(takePendingOpenLink()).toBe(LIVE);
+
+    __resetOpenLinksForTest();
+    startOpenLinkCapture();
+    await flushPromises();
+
+    expect(getPendingOpenLink()).toBeNull();
+  });
+
+  it('does not offer a launch link skipped for a newer link again after a reload', async () => {
+    let settleLaunch: (launch: { url: string }) => void = () => {};
+    mockGetLaunchUrl.mockReturnValue(
+      new Promise(resolve => {
+        settleLaunch = resolve;
+      })
+    );
+    startOpenLinkCapture();
+    const onUrlOpen = mockAddListener.mock.calls[0][1] as (event: { url: string }) => void;
+    onUrlOpen({ url: LIVE_LINK });
+    settleLaunch({ url: SCHEME_LINK });
+    await flushPromises();
+    expect(takePendingOpenLink()).toBe(LIVE);
+
+    __resetOpenLinksForTest();
+    mockGetLaunchUrl.mockResolvedValue({ url: SCHEME_LINK });
+    startOpenLinkCapture();
+    await flushPromises();
+
+    expect(getPendingOpenLink()).toBeNull();
+  });
+
   it('keeps a held live link across a reload', async () => {
     startOpenLinkCapture();
     const onUrlOpen = mockAddListener.mock.calls[0][1] as (event: { url: string }) => void;
@@ -243,7 +282,7 @@ describe('startOpenLinkCapture', () => {
   });
 
   it('does not restore a stored link that is not an open link', async () => {
-    sessionStorage.setItem('open-link:pending', `https://evil.example/open?url=${encodeURIComponent(LIVE)}`);
+    sessionStorage.setItem('open-link:pending', `https://evil.example/open#url=${encodeURIComponent(LIVE)}`);
     mockGetLaunchUrl.mockResolvedValue({ url: LINK });
 
     startOpenLinkCapture();

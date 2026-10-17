@@ -112,7 +112,7 @@ const catalog: ExploreCatalog = {
 };
 
 function deliver(page: string): void {
-  act(() => acceptOpenLink(`https://${OPEN_LINK_HOST}/open?url=${encodeURIComponent(page)}`));
+  act(() => acceptOpenLink(`https://${OPEN_LINK_HOST}/open#url=${encodeURIComponent(page)}`));
 }
 
 beforeEach(() => {
@@ -260,7 +260,7 @@ it.each(['/help-improve-wallet', '/reset-wallet'])(
 );
 
 it('opens a link that arrived before the prompt mounted, once even when its effects run twice', () => {
-  acceptOpenLink(`https://${OPEN_LINK_HOST}/open?url=${encodeURIComponent(LISTED_PAGE)}`);
+  acceptOpenLink(`https://${OPEN_LINK_HOST}/open#url=${encodeURIComponent(LISTED_PAGE)}`);
 
   render(
     <React.StrictMode>
