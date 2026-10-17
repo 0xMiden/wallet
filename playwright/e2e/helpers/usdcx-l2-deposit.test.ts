@@ -87,7 +87,8 @@ function fakeClock() {
  * lists each head read as `eth_blockNumber` and each simulation and estimate of an approve or a burn as
  * `<method> <function> <block>`, the block `none` when the call names none; `faults`, keyed `<method> <function>`, are
  * thrown in order before such a call answers normally. Every receipt is in RECEIPT_BLOCK. The head is `heads` in turn,
- * the last one repeating; a burn run past `quoteDeadline`, or at latest, reverts as an expired quote.
+ * the last one repeating; a burn run past `quoteDeadline`, or at latest, reverts as an expired quote. The tip oracle
+ * answers `priorityFee`, 0.1 gwei by default, over a 0.006 gwei base fee.
  */
 function l2Chain(
   l2: L2BridgeInSource,
@@ -98,6 +99,7 @@ function l2Chain(
     faults?: Record<string, Error[]>;
     heads?: bigint[];
     quoteDeadline?: bigint;
+    priorityFee?: bigint;
   }
 ) {
   const sent: Hex[] = [];
@@ -131,7 +133,7 @@ function l2Chain(
       case 'eth_estimateGas':
         return '0xaae60';
       case 'eth_maxPriorityFeePerGas':
-        return '0x5f5e100';
+        return toHex(opts.priorityFee ?? 100_000_000n);
       case 'eth_getBlockByNumber':
         return {
           number: '0x10',
@@ -359,6 +361,28 @@ describe('submitL2Deposit', () => {
     ]);
   });
 
+  // Sepolia's tip oracle follows signers who bid up to 1.5 gwei, while the key holds about 0.002 ETH there.
+  it.each([
+    ['on Ethereum Sepolia with the cap when the oracle tips above it', 11155111, 1_500_000_000n, 10_000_000n],
+    ['on Ethereum Sepolia with the oracle tip when it is below the cap', 11155111, 900_000n, 900_000n],
+    ['on Base Sepolia, which has no cap, with the oracle tip', 84532, 1_500_000_000n, 1_500_000_000n]
+  ])('signs the approve and the burn %s', async (_on, chainId, oracleTip, tip) => {
+    const l2 = l2On(chainId);
+    const chain = l2Chain(l2, { allowance: 0n, priorityFee: oracleTip });
+
+    await depositOn(l2, chain);
+
+    // viem's max fee: the 0.006 gwei base fee at 1.2x, plus the tip bid.
+    const fees = chain.sent.map(raw => {
+      const { maxPriorityFeePerGas, maxFeePerGas } = parseTransaction(raw);
+      return { maxPriorityFeePerGas, maxFeePerGas };
+    });
+    expect(fees).toEqual([
+      { maxPriorityFeePerGas: tip, maxFeePerGas: 7_200_000n + tip },
+      { maxPriorityFeePerGas: tip, maxFeePerGas: 7_200_000n + tip }
+    ]);
+  });
+
   it('fails a burn whose node stays behind its pinned block, naming the block and the endpoint', async () => {
     const l2 = baseSepolia();
     const behind = () => nodeAnswer(-32001, `block not found: ${AT_HEAD}`);
@@ -492,6 +516,15 @@ describe('readL2KeyFunds', () => {
 
     expect({ wei: funds.wei, usdc: funds.usdc }).toEqual({ wei: 10_000_000_000_000_000n, usdc: 1_977_802n });
     expect(funds.maxFeePerGas).toBeGreaterThanOrEqual(100_000_000n);
+  });
+
+  it("reads Ethereum Sepolia's bid with the tip its sends cap", async () => {
+    const l2 = l2On(11155111);
+    const chain = l2Chain(l2, { allowance: 0n, priorityFee: 1_500_000_000n });
+
+    const funds = await readL2KeyFunds(DEPOSITOR, l2Reads(l2, { publicClient: chain.publicClient }));
+
+    expect(funds.maxFeePerGas).toBe(7_200_000n + 10_000_000n);
   });
 });
 

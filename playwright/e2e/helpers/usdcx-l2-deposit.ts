@@ -8,6 +8,7 @@ import { encodeFunctionData, formatEther, formatGwei, formatUnits, type Address,
 import { privateKeyToAccount } from 'viem/accounts';
 
 import {
+  capPriorityFee,
   chainRead,
   ERC20_ABI,
   onFirstEndpoint,
@@ -45,7 +46,7 @@ export function l2Reads(
 export interface L2KeyFunds {
   wei: bigint;
   usdc: bigint;
-  /** What a send bids per gas now; the node refuses a transaction the balance cannot cover at this price. */
+  /** What a send bids per gas now, its tip capped as sendSigned caps it; a node refuses a send the key cannot cover. */
   maxFeePerGas: bigint;
 }
 
@@ -60,7 +61,7 @@ export async function readL2KeyFunds(address: Address, reads: ArcReadDeps): Prom
       functionName: 'balanceOf',
       args: [address]
     }),
-    maxFeePerGas: (await client.estimateFeesPerGas()).maxFeePerGas
+    maxFeePerGas: capPriorityFee(await client.estimateFeesPerGas(), chain.maxPriorityFeeCap).maxFeePerGas
   }));
 }
 

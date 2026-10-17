@@ -60,12 +60,15 @@ const ANSWERS = {
   l2GasPrice: '0x5b8d80',
   l2UsdcUnits: '1977802',
   // Ethereum Sepolia (2026-10-16): the harness key's USDC, past both the 9,999 units that let Circle's forwarder mint
-  // there and usdcx-in-l2's 0.101 USDC floor, and the 0.001 gwei gas price. publicnode's Sepolia is also the bridge
-  // suites' default Sepolia RPC, so every address there holds the 1 ETH their funded key reads.
+  // there and usdcx-in-l2's 0.101 USDC floor, and the 0.001 gwei gas price, a 26 wei base fee and a 0.001 gwei tip.
+  // publicnode's Sepolia is also the bridge suites' default Sepolia RPC, so every address there holds the 1 ETH their
+  // funded key reads.
   sepoliaUsdcUnits: '3000523',
   sepoliaGasPrice: '0xf425a',
+  sepoliaPriorityFee: '0xf4240',
   sepoliaWei: '0xde0b6b3a7640000',
-  // Every L2 endpoint's answer to the empty raw transaction: a decode failure, so it takes writes.
+  // Every Base, Arbitrum and Ethereum Sepolia endpoint's answer to the empty raw transaction: a decode failure, so it
+  // takes writes.
   l2RawTransaction: { code: -32602, message: 'failed to decode signed transaction' },
   irisFees: [
     { finalityThreshold: 1000, minimumFee: 1.3 },
@@ -175,6 +178,7 @@ function l2Answer(chainId, call) {
       }
       if (method === 'eth_getBalance') return { result: answers.sepoliaWei };
       if (method === 'eth_gasPrice') return { result: answers.sepoliaGasPrice };
+      if (method === 'eth_maxPriorityFeePerGas') return { result: answers.sepoliaPriorityFee };
       return Object.hasOwn(RPC_RESULTS, method) ? { result: RPC_RESULTS[method] } : unavailable(method);
   }
 }

@@ -226,8 +226,8 @@ describe('E2E USDCx workflow', () => {
     expect(jobKey(job, 'timeout-minutes')).toBe(ceiling);
   });
 
-  // GitHub ends a job on its own runner at 360 minutes, whatever its timeout-minutes says.
-  it.each([ARC_JOB, L2_JOB])("keeps both of the ceilings of %s within GitHub's 360-minute job limit", job => {
+  // A ceiling the repository sets itself: no E2E USDCx job gets more than 6 hours.
+  it.each([ARC_JOB, L2_JOB])('keeps both of the ceilings of %s within the 360 minutes any E2E USDCx job gets', job => {
     const minutes = /&& (\d+) \|\| (\d+) \}\}$/
       .exec(jobKey(job, 'timeout-minutes') ?? '')
       ?.slice(1)

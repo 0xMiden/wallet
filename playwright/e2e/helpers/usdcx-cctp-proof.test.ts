@@ -223,6 +223,14 @@ describe('confirmL2Burn', () => {
     ).rejects.toThrow(/\n {2}sourceDomain: 6, expected 0\n/);
   });
 
+  // The reverse: a message's domain 0 must not read as unset and fall back to the route's.
+  it("names Ethereum Sepolia's source domain 0 when its burn is checked against Base Sepolia's 6", async () => {
+    const { units, depositor } = SEPOLIA;
+    await expect(
+      confirmL2Burn(submission({}, SEPOLIA), { l2: BASE.l2, units, depositor }, burnReads(SEPOLIA))
+    ).rejects.toThrow(/\n {2}sourceDomain: 0, expected 6(\n|$)/);
+  });
+
   it('names hookData when one signed byte differs', async () => {
     const { signed } = submission();
     const flipped = hex(`${signed.hookData.slice(0, -2)}${signed.hookData.endsWith('00') ? '01' : '00'}`);
@@ -411,6 +419,23 @@ describe('confirmArcForward', () => {
     await expect(confirmArcForward(FORWARD_HASH, { ...expected, l2: SEPOLIA.l2 }, arcReads())).rejects.toThrow(
       'MessageReceived sourceDomain: 6, expected 0'
     );
+  });
+
+  it("refuses the forward of an Ethereum Sepolia burn, domain 0, against Base Sepolia's 6", async () => {
+    const { vectors: capture } = SEPOLIA;
+    await expect(
+      confirmArcForward(
+        SEPOLIA.forwardHash,
+        {
+          l2: BASE.l2,
+          nonce: SEPOLIA.nonce,
+          units: SEPOLIA.units,
+          remoteRecipient: hex(capture.expected.remoteRecipient),
+          remoteToken: hex(capture.expected.remoteToken)
+        },
+        arcReads(capture.forward.receipt)
+      )
+    ).rejects.toThrow('MessageReceived sourceDomain: 0, expected 6');
   });
 
   it("refuses an execution of another burn's nonce", async () => {

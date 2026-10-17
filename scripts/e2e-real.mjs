@@ -128,8 +128,8 @@ export const L2_PAYOUT_CHAINS = [
 ];
 /**
  * The chains usdcx-in-l2 deposits from, Ethereum Sepolia among them despite the name: each chain's Circle domain, USDC,
- * fee entry point and the endpoints the harness reads it through (L2_BRIDGE_IN_SOURCES in usdcx-constants.ts);
- * e2e-real.test.ts pins each copy to the harness and the wallet.
+ * fee entry point, the endpoints the harness reads it through and the cap on a send's tip where it has one
+ * (L2_BRIDGE_IN_SOURCES in usdcx-constants.ts); e2e-real.test.ts pins each copy to the harness and the wallet.
  */
 export const L2_BRIDGE_IN_CHAINS = [
   {
@@ -162,7 +162,8 @@ export const L2_BRIDGE_IN_CHAINS = [
     domain: 0,
     usdc: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238',
     tokenMessengerWithFees: '0x8745D906D67C346E5eb1aEEED38Eb87F34DF0C0A',
-    rpcs: ['https://ethereum-sepolia-rpc.publicnode.com', 'https://sepolia.gateway.tenderly.co']
+    rpcs: ['https://ethereum-sepolia-rpc.publicnode.com', 'https://sepolia.gateway.tenderly.co'],
+    maxPriorityFeeCap: 10_000_000n
   }
 ];
 /** Circle's sandbox Iris, which prices and attests every testnet executor deposit (the fixture's irisUrl). */
@@ -1525,6 +1526,16 @@ function exactUnits(value, decimals) {
 }
 
 /**
+ * The gas price one bridge-in on `chain` pays: eth_gasPrice, its tip (`priorityFee`, eth_maxPriorityFeePerGas) held to
+ * the chain's maxPriorityFeeCap as sendSigned (arc-usdcx.ts) holds it. Exported for test.
+ */
+export function l2BridgeInGasPrice(chain, gasPrice, priorityFee) {
+  const cap = chain.maxPriorityFeeCap;
+  if (cap === undefined || priorityFee === undefined || priorityFee <= cap) return gasPrice;
+  return (gasPrice > priorityFee ? gasPrice - priorityFee : 0n) + cap;
+}
+
+/**
  * Why the key lacks ETH for one bridge-in on `chain`, or undefined. Twice the gas price: a send bids its max fee, and
  * the node refuses one the balance cannot cover at that bid. Exported for test.
  */
@@ -1604,6 +1615,9 @@ async function probeL2BridgeIn(chain, arcKey) {
   try {
     const wei = BigInt(await arcRpc(healthy, 'eth_getBalance', [arcKey.address, 'latest']));
     const gasPrice = BigInt(await arcRpc(healthy, 'eth_gasPrice', []));
+    // Only a chain with a tip cap is asked its tip; the others' floor stays eth_gasPrice.
+    const priorityFee =
+      chain.maxPriorityFeeCap === undefined ? undefined : BigInt(await arcRpc(healthy, 'eth_maxPriorityFeePerGas', []));
     const units = BigInt(
       await arcRpc(healthy, 'eth_call', [
         { to: chain.usdc, data: calldata(ARC_SELECTORS.balanceOf, arcKey.address) },
@@ -1611,7 +1625,8 @@ async function probeL2BridgeIn(chain, arcKey) {
       ])
     );
     const problem =
-      l2KeyGasProblem(chain, arcKey.address, wei, gasPrice) ?? l2KeyUsdcProblem(chain, arcKey.address, units);
+      l2KeyGasProblem(chain, arcKey.address, wei, l2BridgeInGasPrice(chain, gasPrice, priorityFee)) ??
+      l2KeyUsdcProblem(chain, arcKey.address, units);
     record(
       problem === undefined,
       `${chain.name} key`,

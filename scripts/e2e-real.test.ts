@@ -56,6 +56,7 @@ import {
   circleGet,
   composeGrep,
   harnessArcKey,
+  l2BridgeInGasPrice,
   l2KeyGasProblem,
   l2KeyUsdcProblem,
   pricedAmountFrom,
@@ -1334,7 +1335,7 @@ describe('the usdcx suites', () => {
     expect(Object.keys(SUITES).filter(name => SUITES[name].arcKey)).toEqual(['usdcx-in']);
   });
 
-  it('spends the harness key on the L2s in usdcx-in-l2 alone', () => {
+  it('spends the harness key on its source chains in usdcx-in-l2 alone', () => {
     expect(Object.keys(SUITES).filter(name => SUITES[name].spendsHarnessL2)).toEqual(['usdcx-in-l2']);
   });
 });
@@ -1575,7 +1576,8 @@ describe('the usdcx-in-l2 copies are the ones the harness and the wallet use', (
         domain: l2.source.domain,
         usdc: l2.source.usdc,
         tokenMessengerWithFees: l2.source.tokenMessengerWithFees,
-        rpcs: [...l2.payout.rpcUrls]
+        rpcs: [...l2.payout.rpcUrls],
+        maxPriorityFeeCap: l2.payout.maxPriorityFeeCap
       }))
     );
     for (const chain of L2_BRIDGE_IN_CHAINS) {
@@ -1604,6 +1606,14 @@ describe('the usdcx-in-l2 copies are the ones the harness and the wallet use', (
         '0.99 USDC there'
     );
     expect(l2KeyUsdcProblem(base, address, 101_000n)).toBeUndefined();
+  });
+
+  it("prices Ethereum Sepolia's floor with the tip its sends cap, and the other chains at eth_gasPrice", () => {
+    const [base, , sepolia] = L2_BRIDGE_IN_CHAINS;
+    // A 26 wei base fee under a 1.5 gwei tip, then under the 0.001 gwei tip the oracle answered on 2026-10-16.
+    expect(l2BridgeInGasPrice(sepolia, 1_500_000_026n, 1_500_000_000n)).toBe(10_000_026n);
+    expect(l2BridgeInGasPrice(sepolia, 1_000_026n, 1_000_000n)).toBe(1_000_026n);
+    expect(l2BridgeInGasPrice(base, 1_500_000_026n, undefined)).toBe(1_500_000_026n);
   });
 });
 
@@ -1841,7 +1851,7 @@ describe('the usdcx preflight', () => {
     );
   }, 35_000);
 
-  it('asks usdcx-burn no L2 question: the Arc suites preflight as they did', () => {
+  it('asks usdcx-burn nothing on Base, Arbitrum or Ethereum Sepolia: the Arc suites preflight as they did', () => {
     const res = preflight('usdcx-burn');
     expect(res.requests).not.toContain('rpc.walletconnect.org');
     expect(res.requests).not.toContain('base-sepolia');
@@ -2021,6 +2031,22 @@ describe('the usdcx preflight', () => {
     );
     expect(res.status).toBe(1);
     expect(res.requests).not.toContain('SPAWN');
+  }, 35_000);
+
+  // Uncapped, a 1.5 gwei tip would set the floor at 0.0033 ETH, above the about 0.002 ETH the CI key holds there.
+  it('passes Ethereum Sepolia key holding 0.002 ETH when its oracle tips 1.5 gwei, asking that chain alone its tip', async () => {
+    const { address } = privateKeyToAccount(ARC_KEY);
+    const res = preflight(
+      'usdcx-in-l2',
+      DOCUMENT,
+      { HOME: await keyedHome() },
+      { sepoliaWei: '0x71afd498d0000', sepoliaGasPrice: '0x59682f1a', sepoliaPriorityFee: '0x59682f00' }
+    );
+    expect(res.output).toMatch(new RegExp(`✓ Ethereum Sepolia key +${address} holds 0\\.002 ETH and 3\\.0005 USDC\n`));
+    expect(res.status).toBe(0);
+    expect(res.requests.match(/^.* eth_maxPriorityFeePerGas \[\]$/gm)).toEqual([
+      'https://ethereum-sepolia-rpc.publicnode.com eth_maxPriorityFeePerGas []'
+    ]);
   }, 35_000);
 
   it('fails the source chain key checks when the key holds too little USDC there', async () => {

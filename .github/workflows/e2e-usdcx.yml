@@ -169,7 +169,8 @@ jobs:
     runs-on: warp-ubuntu-latest-x64-8x
     # usdcx-in-l2 three tests of 55 (25 of each wait on Circle's attestation, which can fall back to source finality)
     # and usdcx-burn-l2 three of 38 come to 279; with two preflights and builds (10) and a cold setup (30), 319, rounded
-    # up to 325. A dispatch's from-source builds add 30, to 355, under GitHub's 360-minute job limit.
+    # up to 325. A dispatch's from-source builds add 30, to 355, inside the 360 minutes this repository allows any E2E
+    # USDCx job.
     timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 355 || 325 }}
     steps:
       - uses: actions/checkout@v4
