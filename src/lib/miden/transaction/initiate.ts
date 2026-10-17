@@ -291,6 +291,7 @@ export interface RotationFundingClaimOptions {
   delegate?: boolean;
   manualRetry?: boolean;
   verificationBaseFee?: number | null;
+  canSign?: () => boolean;
 }
 
 /**
@@ -339,7 +340,10 @@ export const initiateRotationFundingClaim = async (
     opts.manualRetry,
     true,
     opts.verificationBaseFee,
-    true
+    true,
+    undefined,
+    undefined,
+    opts.canSign
   );
   return committedId;
 };

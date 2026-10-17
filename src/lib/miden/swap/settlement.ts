@@ -385,10 +385,11 @@ export async function reconcileSwapOrderNotes(
   return { queuedTransactionIds, managedNoteIds };
 }
 
-/** Read the SDK records, attach lineage metadata, and run one settlement tick. */
+/** Read the SDK records, attach lineage metadata, and run one settlement tick. `canSign` is handed to every claim. */
 export async function settleSwapOrders(
   accountId: string,
-  delegateTransaction?: boolean
+  delegateTransaction?: boolean,
+  canSign?: () => boolean
 ): Promise<SwapSettlementResult> {
   // Cheap Dexie-only gate: this runs on a 3s frontend interval, so don't
   // touch the WASM client (lock acquisition + full consumable-notes read)
@@ -479,6 +480,7 @@ export async function settleSwapOrders(
     delegateTransaction,
     nowSeconds,
     orders,
-    settlementSnapshot.zeroFillReclaims
+    settlementSnapshot.zeroFillReclaims,
+    canSign
   );
 }
