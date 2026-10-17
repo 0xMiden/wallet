@@ -775,6 +775,56 @@ describe('the row`s verdict', () => {
   });
 });
 
+describe('the check that proved the row never committed', () => {
+  it('names row 4 expired, row 5 superseded and row 6 spent elsewhere', async () => {
+    const expired = await judge(row('t'), { tip: { blockNum: 750, commitment: INITIAL } });
+    const superseded = await judge(row('t', { submitEvidence: [entry({ expirationBlock: undefined })] }), {
+      tip: { blockNum: 150, commitment: OTHER, nonce: '6' }
+    });
+    const spent = await judge(
+      row('t', { type: 'consume', submitEvidence: [consumeEntry({ expirationBlock: undefined })] }),
+      { tip: { blockNum: 160, commitment: INITIAL }, spent: { [NULLIFIER]: 150 } }
+    );
+    expect(
+      [expired, superseded, spent].map(judged => [
+        judged.allDead,
+        judged.entries[0]?.neverCommittedBy,
+        judged.neverCommittedBy
+      ])
+    ).toEqual([
+      [true, 'expired', 'expired'],
+      [true, 'superseded', 'superseded'],
+      [true, 'spent_elsewhere', 'spent_elsewhere']
+    ]);
+  });
+
+  it('names attempts proven dead by different checks mixed', async () => {
+    // The one-off read at X proves the first expired; the second has no X, so only the nonce + 1 read speaks for it.
+    const target = row('t', { submitEvidence: [entry(), entry({ attemptId: 'b', expirationBlock: undefined })] });
+    const judged = await judge(target, {
+      tip: { blockNum: 720, commitment: OTHER, nonce: '6' },
+      history: { 700: { blockNum: 700, commitment: INITIAL } }
+    });
+    expect(judged.entries.map(judgement => [judgement.result, judgement.neverCommittedBy])).toEqual([
+      ['never-committed', 'expired'],
+      ['never-committed', 'superseded']
+    ]);
+    expect(judged.allDead).toBe(true);
+    expect(judged.neverCommittedBy).toBe('mixed');
+  });
+
+  it('names nothing for a row that is not all dead', async () => {
+    const target = row('t', { submitEvidence: [entry(), entry({ attemptId: 'b', expirationBlock: undefined })] });
+    const judged = await judge(target, { tip: { blockNum: 750, commitment: INITIAL } });
+    expect(judged.entries.map(judgement => [judgement.result, judgement.neverCommittedBy])).toEqual([
+      ['never-committed', 'expired'],
+      ['pending', undefined]
+    ]);
+    expect(judged.allDead).toBe(false);
+    expect(judged.neverCommittedBy).toBeUndefined();
+  });
+});
+
 describe('E`s nullifier window', () => {
   it('a spend before E.refBlock is never E`s landing', async () => {
     const consume = row('t', { type: 'consume', submitEvidence: [consumeEntry({ expirationBlock: undefined })] });

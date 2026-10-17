@@ -305,6 +305,8 @@ describe('the never-committed write (#1081)', () => {
       stage: undefined,
       delegateTransaction: undefined,
       diagnostics: undefined,
+      reason: 'never_committed',
+      neverCommittedRule: 'expired',
       error: TRANSACTION_NEVER_COMMITTED_ERROR
     });
     await judgeAndWrite('tx-1', context(node({ blockNum: 750, commitment: INITIAL })));
