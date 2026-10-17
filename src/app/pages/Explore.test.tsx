@@ -83,6 +83,9 @@ const mockSignTransaction = jest.fn();
 const mockMutateBalances = jest.fn();
 const mockMutateClaimableNotes = jest.fn();
 const mockInitiateConsumeTransaction = jest.fn();
+// The suite's batch enqueue fails, so the page falls back to one claim per note, which the per-note assertions follow;
+// a test that sets its own implementation gets the batch path.
+const mockInitiateConsumeNotesTransaction = jest.fn();
 const mockRequestSWTransactionProcessing = jest.fn();
 const mockStartBackgroundTransactionProcessing = jest.fn();
 const mockNavigate = jest.fn();
@@ -238,6 +241,7 @@ jest.mock('lib/i18n/numbers', () => ({
 }));
 
 jest.mock('lib/miden/activity', () => ({
+  initiateConsumeNotesTransaction: (...args: any[]) => mockInitiateConsumeNotesTransaction(...args),
   initiateConsumeTransaction: (...args: any[]) => mockInitiateConsumeTransaction(...args),
   requestSWTransactionProcessing: (...args: any[]) => mockRequestSWTransactionProcessing(...args),
   startBackgroundTransactionProcessing: (...args: any[]) => mockStartBackgroundTransactionProcessing(...args)
@@ -299,7 +303,10 @@ jest.mock('lib/settings/helpers', () => ({
   isDelegateProofEnabled: () => mockDelegateProof
 }));
 
+// The wallet store's lock state, as the claim guard reads it.
+let mockWalletReady = true;
 jest.mock('lib/store', () => ({
+  isWalletReadyNow: () => mockWalletReady,
   useWalletStore: (selector: (s: any) => unknown) => selector({ tokenPrices: mockTokenPrices })
 }));
 
@@ -369,6 +376,8 @@ describe('Explore', () => {
       return Promise.resolve();
     });
     mockInitiateConsumeTransaction.mockResolvedValue(undefined);
+    mockInitiateConsumeNotesTransaction.mockRejectedValue(new Error('batch enqueue failed'));
+    mockWalletReady = true;
     mockMutateBalances.mockResolvedValue(undefined);
     mockMutateClaimableNotes.mockResolvedValue(undefined);
     consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
@@ -1382,7 +1391,9 @@ describe('Explore', () => {
       expect(mockInitiateConsumeTransaction).toHaveBeenCalledWith(
         'mtst1account',
         expect.objectContaining({ id: 'actual-note' }),
-        expect.any(Boolean)
+        expect.any(Boolean),
+        undefined,
+        expect.any(Function)
       );
       expect(mockInitiateConsumeTransaction).toHaveBeenCalledTimes(1);
       expect(screen.getByTestId('home-prompts')).toHaveAttribute('data-note-count', '1');
@@ -1405,7 +1416,9 @@ describe('Explore', () => {
       expect(mockInitiateConsumeTransaction).toHaveBeenCalledWith(
         'mtst1account',
         expect.objectContaining({ id: 'n1' }),
-        true // isDelegatedProvingEnabled
+        true, // isDelegatedProvingEnabled
+        undefined,
+        expect.any(Function)
       );
       expect(mockMutateClaimableNotes).toHaveBeenCalled();
       expect(mockRequestSWTransactionProcessing).toHaveBeenCalledTimes(1);
@@ -1448,7 +1461,9 @@ describe('Explore', () => {
       expect(mockInitiateConsumeTransaction).toHaveBeenCalledWith(
         'mtst1account',
         expect.objectContaining({ id: 'n1' }),
-        false
+        false,
+        undefined,
+        expect.any(Function)
       );
       expect(mockRequestSWTransactionProcessing).not.toHaveBeenCalled();
       expect(mockStartBackgroundTransactionProcessing).toHaveBeenCalledTimes(1);
@@ -1471,6 +1486,32 @@ describe('Explore', () => {
       expect(mockMutateClaimableNotes).not.toHaveBeenCalled();
       expect(mockRequestSWTransactionProcessing).not.toHaveBeenCalled();
       expect(mockStartBackgroundTransactionProcessing).not.toHaveBeenCalled();
+    });
+
+    it('writes no row and runs no fallback when the lock lands during the batch enqueue', async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+      mockAutoConsume = true;
+      mockPlatform.isExtension = true;
+      mockClaimableNotes = [makeNote('n1', 'faucet-native', false), makeNote('n2', 'faucet-native', false)];
+      const written: string[][] = [];
+      // The claim queue's contract, pinned on real rows in initiate.batch-isolation.test.ts: the lock lands while it
+      // reads, and a guard that answers no at the write refuses it.
+      mockInitiateConsumeNotesTransaction.mockImplementation(async (...args: any[]) => {
+        mockWalletReady = false;
+        const canSign = args[6];
+        if (typeof canSign === 'function' && !canSign()) throw new Error('Claim not queued');
+        written.push(args[1].map((n: { id: string }) => n.id));
+        return 'batch-tx';
+      });
+
+      await renderExplore();
+
+      expect(mockInitiateConsumeNotesTransaction).toHaveBeenCalledTimes(1);
+      expect(written).toEqual([]);
+      expect(mockInitiateConsumeTransaction).not.toHaveBeenCalled();
+      expect(mockRequestSWTransactionProcessing).not.toHaveBeenCalled();
+      expect(mockStartBackgroundTransactionProcessing).not.toHaveBeenCalled();
+      warn.mockRestore();
     });
 
     it('consumes multiple matching notes in one pass', async () => {
