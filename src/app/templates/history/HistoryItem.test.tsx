@@ -451,7 +451,7 @@ describe('HistoryItem', () => {
     const longToken = 'T'.repeat(40);
     const expectCappedColumn = (lines: HTMLElement[]) => {
       for (const line of lines) expect(line).toHaveClass('truncate', 'max-w-full');
-      const column = lines[0].parentElement;
+      const column = lines[0]?.parentElement;
       expect(column).toHaveClass('min-w-0', 'max-w-1/2');
       expect(column).not.toHaveClass('shrink-0');
     };
