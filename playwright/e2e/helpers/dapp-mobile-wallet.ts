@@ -11,6 +11,7 @@ import {
   CURRENT_ACCOUNT_ROWS_JS,
   NATIVE_ASSET_CACHE_EXPR,
   nativeAssetOf,
+  ridingOut,
   stashAndPoll,
   TX_DB,
   TX_STORE,
@@ -89,15 +90,27 @@ export async function removeDappSession(wallet: MobileWallet, origin: string): P
   );
 }
 
-/** The current account's balance rows once the store re-read them (`fetchBalances` reads IndexedDB and never syncs). */
+const BALANCE_LANDING_MS = 60_000;
+
+/**
+ * The current account's balance rows once a store read of them landed (`fetchBalances` reads IndexedDB and never
+ * syncs). The store skips a read while one is in flight, the lock is busy or the balance fuse is lit, so this asks
+ * again each second until `balancesLastFetched` moves.
+ */
 export async function accountRows(wallet: MobileWallet): Promise<CurrentAccountRows> {
   await stashAndPoll<boolean>(
     evalOf(wallet),
     '__dapp_balances',
     `(async function () { ${STORE} var pk = st.currentAccount && st.currentAccount.publicKey; ` +
-      `if (!pk) throw new Error('the store has no current account'); await st.fetchBalances(pk, st.assetsMetadata); ` +
-      `return true; })()`,
-    60_000
+      `if (!pk) throw new Error('the store has no current account'); ` +
+      `var stamp = function () { return (s.getState().balancesLastFetched || {})[pk] || 0; }; ` +
+      `var before = stamp(); var until = Date.now() + ${BALANCE_LANDING_MS}; ` +
+      `for (;;) { var now = s.getState(); await now.fetchBalances(pk, now.assetsMetadata); ` +
+      `if (stamp() > before) return true; ` +
+      `if (Date.now() >= until) throw new Error('no balance read of ' + pk + ' landed within ${BALANCE_LANDING_MS} ms'); ` +
+      `await new Promise(function (resolve) { setTimeout(resolve, 1000); }); } })()`,
+    // Past the page's own deadline, so its error names the account rather than the poll timing out.
+    BALANCE_LANDING_MS + 5_000
   );
   const view = await wallet.evalJs<CurrentAccountRows | null>(CURRENT_ACCOUNT_ROWS_JS);
   if (view === null) throw new Error('the store has no current account');
@@ -147,11 +160,13 @@ export async function nativeAsset(wallet: MobileWallet, timeoutMs: number): Prom
 /** Every transaction row, read from IndexedDB with history.ts's own projection, as the iOS page object reads them. */
 export async function readRows(wallet: MobileWallet): Promise<TransactionRowSnapshot[]> {
   const query: TransactionRowsQuery = { dbName: TX_DB, storeName: TX_STORE };
-  const rows = await stashAndPoll<TransactionRowSnapshot[] | null>(
-    evalOf(wallet),
-    '__dapp_rows',
-    `(${readTransactionRowsInPage.toString()})(${JSON.stringify(query)})`,
-    60_000
+  const rows = await ridingOut(() =>
+    stashAndPoll<TransactionRowSnapshot[] | null>(
+      evalOf(wallet),
+      '__dapp_rows',
+      `(${readTransactionRowsInPage.toString()})(${JSON.stringify(query)})`,
+      60_000
+    )
   );
   return rows ?? [];
 }
@@ -171,13 +186,22 @@ export async function waitForQueueDrained(
 ): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   let stable = 0;
+  let inFlight: TransactionRowSnapshot[] = [];
+  let failure: string | null = null;
   for (;;) {
-    const inFlight = (await read()).filter(row => row.status !== undefined && IN_FLIGHT.has(row.status));
-    stable = inFlight.length === 0 ? stable + 1 : 0;
+    try {
+      inFlight = (await read()).filter(row => row.status !== undefined && IN_FLIGHT.has(row.status));
+      stable = inFlight.length === 0 ? stable + 1 : 0;
+    } catch (error) {
+      // A failed read proves nothing about the queue, so the clean reads start again.
+      failure = error instanceof Error ? error.message : String(error);
+      stable = 0;
+    }
     if (stable >= DRAIN_STABLE_READS) return;
     if (Date.now() >= deadline) {
       const left = inFlight.map(describeTransactionRow).join('; ') || 'nothing, but not three reads in a row';
-      throw new Error(`the queue did not drain within ${timeoutMs} ms: ${left}`);
+      const failed = failure === null ? '' : `; the last failed read: ${failure}`;
+      throw new Error(`the queue did not drain within ${timeoutMs} ms: ${left}${failed}`);
     }
     await sleep(DRAIN_POLL_MS);
   }

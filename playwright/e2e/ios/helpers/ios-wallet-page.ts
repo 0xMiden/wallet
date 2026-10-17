@@ -31,6 +31,7 @@ import {
   CURRENT_ACCOUNT_ROWS_JS,
   NATIVE_ASSET_CACHE_EXPR,
   nativeAssetOf,
+  ridingOut,
   stashAndPoll,
   TX_DB,
   TX_STORE,
@@ -87,25 +88,6 @@ export function routeOf(href: string): string {
 /** `text` with every `?query` cut out: a serialized URL's query holds no `#`, `"` or whitespace, so the cut ends there. */
 function withoutUrlQueries(text: string): string {
   return text.replace(/\?[^\s#"]+/g, '');
-}
-
-const READ_ATTEMPTS = 3;
-const READ_RETRY_MS = 1_000;
-
-/**
- * `read`, asked again after a failed CDP eval: an inspector reattach, or the bridge's 30 s eval cap while a local
- * prove holds the WebView's JS thread. The live spec's polls run for minutes and `pollUntil` fails on one failed read,
- * so only the third failure in a row counts.
- */
-async function ridingOut<T>(read: () => Promise<T>): Promise<T> {
-  for (let attempt = 1; ; attempt++) {
-    try {
-      return await read();
-    } catch (error) {
-      if (attempt >= READ_ATTEMPTS) throw error;
-      await sleep(READ_RETRY_MS);
-    }
-  }
 }
 
 // The review slides over the retained Send layer, whose route step holds the same payout rows and burn notice.

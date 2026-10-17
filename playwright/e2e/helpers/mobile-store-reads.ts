@@ -83,6 +83,25 @@ export function nativeAssetOf(
 
 export type EvalJs = (js: string) => Promise<unknown>;
 
+const READ_ATTEMPTS = 3;
+const READ_RETRY_MS = 1_000;
+
+/**
+ * `read`, asked again after a failed bridge eval: an inspector reattach, or the iOS bridge's 30 s eval cap while a
+ * local prove holds the WebView's JS thread. The live polls run for minutes and fail on one failed read, so only the
+ * third failure in a row counts.
+ */
+export async function ridingOut<T>(read: () => Promise<T>): Promise<T> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await read();
+    } catch (error) {
+      if (attempt >= READ_ATTEMPTS) throw error;
+      await new Promise(resolve => setTimeout(resolve, READ_RETRY_MS));
+    }
+  }
+}
+
 let stashSeq = 0;
 const STASH_POLL_MS = 500;
 
