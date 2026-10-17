@@ -22,6 +22,11 @@ import {
 import { claimFromPendingList } from '../../helpers/claim-drain';
 import { SEPOLIA_NETWORK } from '../../helpers/contact-network';
 import {
+  CONFIRMATION_SUBMIT,
+  CREATED_WALLET_STATE_JS,
+  pollCreatedWalletReady
+} from '../../helpers/created-wallet-ready';
+import {
   readTransactionRowsInPage,
   TxStatus,
   type TransactionRowSnapshot,
@@ -154,6 +159,24 @@ export function networkRowNames(value: string | null, name: string): boolean {
 /** `text` with every `?query` cut out: a serialized URL's query holds no `#`, `"` or whitespace, so the cut ends there. */
 function withoutUrlQueries(text: string): string {
   return text.replace(/\?[^\s#"]+/g, '');
+}
+
+interface EvalTally {
+  returned: number;
+  lastError?: unknown;
+}
+
+/**
+ * A poll none of whose evals returned never checked anything: a CDP session that died at attach failed this way as
+ * "did not appear", which sent the diagnosis to the app.
+ */
+function noEvalReturned(poll: string, target: string, timeoutMs: number, tally: EvalTally): Error {
+  const { lastError } = tally;
+  const last =
+    lastError === undefined
+      ? 'none'
+      : withoutUrlQueries(lastError instanceof Error ? lastError.message : String(lastError)).slice(0, 500);
+  return new Error(`${poll}: could not check ${target}: no CDP eval returned in ${timeoutMs}ms (last error: ${last})`);
 }
 
 const READ_ATTEMPTS = 3;
@@ -984,16 +1007,10 @@ export class IosWalletPage implements WalletPage {
 
     // Click "Open wallet" — this triggers register() which creates the vault.
     // The old "Get started" text is gone; the button is now keyed by testid.
-    await this.click('[data-testid="onboarding-confirmation-submit"]');
+    await this.click(CONFIRMATION_SUBMIT);
 
     // Wait for store status === Ready (numeric 2 in the Zustand enum).
-    await this.pollForCondition(
-      `var s = window.__TEST_STORE__; ` +
-        `if (!s) return false; ` +
-        `var st = s.getState(); ` +
-        `return st && (st.status === 2 || st.status === 'Ready') && !!st.currentAccount;`,
-      readyTimeoutMs
-    );
+    await this.waitForCreatedWalletReady(`IosWalletPage.createWalletViaBypass(${recovery})`, readyTimeoutMs);
 
     // Onboarding's last screen is now the one-time telemetry consent prompt, not
     // the wallet home — decline it so the caller gets a wallet it can navigate.
@@ -1016,6 +1033,16 @@ export class IosWalletPage implements WalletPage {
     // For created wallets the bypass synthesizes the seed phrase internally
     // (we don't read it back); for imported wallets the caller already has it.
     return { address, seedPhrase: seed ?? [] };
+  }
+
+  /** Waits for a created wallet to read Ready, pressing Confirmation's Retry once (see `pollCreatedWalletReady`). */
+  private async waitForCreatedWalletReady(label: string, timeoutMs: number): Promise<void> {
+    await pollCreatedWalletReady({
+      label,
+      timeoutMs,
+      poll: (ms, accept) => this.pollForCondition(CREATED_WALLET_STATE_JS, ms, accept),
+      pressRetry: () => this.click(CONFIRMATION_SUBMIT)
+    });
   }
 
   /**
@@ -1529,17 +1556,20 @@ export class IosWalletPage implements WalletPage {
     const wallStart = Date.now();
     let iterations = 0;
     let totalSleepMs = 0;
+    const tally: EvalTally = { returned: 0 };
     try {
       while (Date.now() - wallStart < timeoutMs) {
         iterations++;
         // Catch eval errors (page reload mid-poll, inspector reattach race).
-        const found = await this.cdp
-          .eval<boolean>(`return !!document.querySelector(${JSON.stringify(selector)});`)
-          .catch(() => false);
-        if (found) return;
+        const found = await this.tallied<boolean>(
+          `return !!document.querySelector(${JSON.stringify(selector)});`,
+          tally
+        );
+        if (found?.value) return;
         await sleep(POLL_INTERVAL_MS);
         totalSleepMs += POLL_INTERVAL_MS;
       }
+      if (tally.returned === 0) throw noEvalReturned('pollForSelector', selector, timeoutMs, tally);
       throw new Error(`pollForSelector: ${selector} did not appear within ${timeoutMs}ms`);
     } finally {
       this.pollStats.pollCount++;
@@ -1549,24 +1579,42 @@ export class IosWalletPage implements WalletPage {
     }
   }
 
-  private async pollForCondition(jsBody: string, timeoutMs: number): Promise<void> {
+  private async pollForCondition<T = boolean>(
+    jsBody: string,
+    timeoutMs: number,
+    accept: (value: T) => boolean | Promise<boolean> = Boolean
+  ): Promise<void> {
     const wallStart = Date.now();
     let iterations = 0;
     let totalSleepMs = 0;
+    const tally: EvalTally = { returned: 0 };
     try {
       while (Date.now() - wallStart < timeoutMs) {
         iterations++;
-        const ok = await this.cdp.eval<boolean>(jsBody).catch(() => false);
-        if (ok) return;
+        const read = await this.tallied<T>(jsBody, tally);
+        if (read && (await accept(read.value))) return;
         await sleep(POLL_INTERVAL_MS);
         totalSleepMs += POLL_INTERVAL_MS;
       }
+      if (tally.returned === 0) throw noEvalReturned('pollForCondition', jsBody.slice(0, 80), timeoutMs, tally);
       throw new Error(`pollForCondition: condition not met within ${timeoutMs}ms — ${jsBody.slice(0, 80)}`);
     } finally {
       this.pollStats.pollCount++;
       this.pollStats.pollIterations += iterations;
       this.pollStats.pollMs += Date.now() - wallStart;
       this.pollStats.pollSleepMs += totalSleepMs;
+    }
+  }
+
+  /** One poll read: a failed eval counts as not yet, and the tally keeps what a timeout must say about the session. */
+  private async tallied<T>(js: string, tally: EvalTally): Promise<{ value: T } | undefined> {
+    try {
+      const value = await this.cdp.eval<T>(js);
+      tally.returned++;
+      return { value };
+    } catch (error) {
+      tally.lastError = error;
+      return undefined;
     }
   }
 
