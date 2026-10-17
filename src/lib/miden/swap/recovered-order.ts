@@ -22,6 +22,13 @@ export interface RecoveredSwapOrderRef {
 const swapExtraOf = (tx: ITransaction): Partial<ISwapExtraInputs> => tx.extraInputs ?? {};
 
 /**
+ * A swap order Guardian history recovery rebuilt. Whether it is closed is its lineage's to say on the node, so only
+ * `closeRecoveredSwapOrder` stamps its settlement or reclaim, once the walk reads finished, from the consumes linked
+ * to it: one of them may be a partial fill's payout while the remainder is still open (#1487).
+ */
+export const isRecoveredSwapOrder = (tx: ITransaction): boolean => tx.type === 'swap' && tx.recovered === true;
+
+/**
  * The order note of a recovered swap: the one output note whose recovered summary carries the row's order id and a
  * requested asset (a payback carries the order id only). None when two notes claim it or the row does not list it.
  */

@@ -24,7 +24,12 @@ import {
 } from '../transaction/initiate';
 import { type ConsumableNote, NoteTypeEnum, type SwapOrderNoteMetadata } from '../types';
 import { swapOrderExpired } from './expiry';
-import { isRecoveredReturnOrder, type RecoveredSwapOrderRef, recoveredSwapOrderRef } from './recovered-order';
+import {
+  isRecoveredReturnOrder,
+  isRecoveredSwapOrder,
+  type RecoveredSwapOrderRef,
+  recoveredSwapOrderRef
+} from './recovered-order';
 import { trackRecoveredSwapOrders } from './recovered-order-tracking';
 
 export { classifySwapOrderNotes } from './classification';
@@ -240,6 +245,7 @@ export async function classifySwapSettlementSnapshot(
  * funds were received.
  */
 async function repairSettlementStamp(order: SwapOrder): Promise<void> {
+  if (isRecoveredSwapOrder(order)) return;
   const consumes = await Repo.transactions
     .filter(
       tx =>
