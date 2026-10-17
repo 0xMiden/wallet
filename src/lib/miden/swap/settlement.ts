@@ -136,6 +136,8 @@ export async function classifySwapSettlementSnapshot(
         }
         throw error;
       }
+      // A refusal after the hold's eviction is that eviction, which the hold's handler books from the mark.
+      assertWasmHoldCurrent(hold, 'after the zero-fill PSWAP cancel-request build refused');
       zeroFillBuildMarks.delete(hold);
       // A sync can observe the lineage just before another actor consumes the
       // tip, or a legacy/local-store gap can leave the creator output absent.
@@ -149,7 +151,11 @@ export async function classifySwapSettlementSnapshot(
   }
 
   // Only a build that returned its request shows the node answered; a pass of data refusals, or of no build, is none.
-  if (zeroFillReclaims.size > 0) noteSyncSuccess(ZERO_FILL_BUILD_FUSE_KEY);
+  if (zeroFillReclaims.size > 0) {
+    // Not once the hold is evicted (an order's coverage read is an await): an abandoned pass withdraws no evidence.
+    assertWasmHoldCurrent(hold, 'before booking the zero-fill PSWAP cancel-request build');
+    noteSyncSuccess(ZERO_FILL_BUILD_FUSE_KEY);
+  }
   return { classified: snapshot.notes, zeroFillReclaims };
 }
 
