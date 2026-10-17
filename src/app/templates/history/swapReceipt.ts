@@ -125,7 +125,8 @@ export interface SwapReceiptInputs {
   autoConsume: boolean;
   /**
    * An open Guardian-recovered order. Recovery writes `autoConsume` false on it, and the one thing the wallet does for
-   * it is return it on Cancel, from the order note its lineage (the node's answer) is read from (#1487).
+   * it is return it on Cancel, from the order note its lineage (the node's answer) is read from (#1487). Its state is
+   * that lineage's alone.
    */
   recovered?: boolean;
   /** The slippage the ask was built with; absent means only a full fill counts as filled. */
@@ -220,8 +221,13 @@ export const deriveSwapReceipt = ({
   // backwards mislabels the protocol's most common partial-fill path: an expiry
   // batch carrying any payback is tagged 'settle' (see `reconcileSwapOrderNotes`),
   // so a 40%-filled order that expired — lineage 'reclaimed' — read as "Filled".
-  const reportedState: SwapOrderState | null =
-    tracking && tracking.state !== 'active' ? tracking.state : (settledOrderState ?? tracking?.state ?? null);
+  // A recovered order's linked payout may be a partial fill's while its remainder is still on offer, so there is no
+  // lag to cover: only its lineage says whether it is open (#1487).
+  const reportedState: SwapOrderState | null = recovered
+    ? (tracking?.state ?? null)
+    : tracking && tracking.state !== 'active'
+      ? tracking.state
+      : (settledOrderState ?? tracking?.state ?? null);
 
   // A reclaimed tip can have both remaining amounts cleared by the SDK. That
   // means the offer is gone, not that the counter-asset arrived. Depth zero is
@@ -254,7 +260,7 @@ export const deriveSwapReceipt = ({
     requestedAmount !== undefined &&
     filledAmount !== undefined &&
     swapFillReached(requestedAmount, filledAmount, slippageBps);
-  const orderState: SwapOrderState | null = fillReached ? 'filled' : reportedState;
+  const orderState: SwapOrderState | null = fillReached && !recovered ? 'filled' : reportedState;
   const isPartialFill = isPartialSwapFill(requestedAmount, filledAmount, slippageBps);
 
   // `reconcileSwapOrderNotes` declines an order in exactly two situations: the
