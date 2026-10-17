@@ -46,7 +46,11 @@ export const NEVER_COMMITTED_RULES = ['expired', 'superseded', 'spent_elsewhere'
 export type NeverCommittedRule = (typeof NEVER_COMMITTED_RULES)[number];
 
 /** Identities the reporter names itself, beside the reasons, refusals and protocol identities. */
-export const REPORTED_IDENTITIES = ['submit_outcome_unknown', 'kernel_u32_assertion_unknown'] as const;
+export const REPORTED_IDENTITIES = [
+  'submit_outcome_unknown',
+  'kernel_assertion_unknown',
+  'kernel_u32_assertion_unknown'
+] as const;
 
 export const SUBMIT_GRPC_STATUSES = [
   'unavailable',
