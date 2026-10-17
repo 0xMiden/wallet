@@ -170,8 +170,10 @@ async function writeLanding(rowId: string, judgement: RowJudgement, accountKey: 
     const target = landedDeliveryTarget(fresh, landing, landedEntry);
     if (target !== undefined) {
       fresh.outputNoteIds = target;
-      // Its completion records a note at the root before relaying it, so this one was never pushed: the attempts,
-      // the next push and the stopped mark of the target it replaces are not its own.
+      // Its completion records a note at the root before relaying it, so this one was never pushed: its delivery
+      // window opens now, as Retry's landing opens it, and the attempts, the next push and the stopped mark of the
+      // target it replaces are not its own.
+      fresh.completedAt = nowSeconds();
       delete fresh.relayAttempts;
       delete fresh.nextRelayAt;
       delete fresh.relayRetriesStopped;
