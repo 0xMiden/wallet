@@ -205,7 +205,7 @@ describe('fetchBalances', () => {
     const vault = jest.fn(() => ({ fungibleAssets: () => [] }));
     mockGetAccount.mockImplementationOnce(async () => {
       currentHold = null; // what the watchdog does to the hold this callback still holds
-      return { vault };
+      return { vault, nonce: accountNonce };
     });
 
     await expect(fetchBalances('my-address', {})).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
@@ -213,7 +213,7 @@ describe('fetchBalances', () => {
 
     // Falsifier: with the hold intact the same read completes and DOES touch the vault,
     // so the assertion above is about the eviction and not about the fixture.
-    mockGetAccount.mockImplementationOnce(async () => ({ vault }));
+    mockGetAccount.mockImplementationOnce(async () => ({ vault, nonce: accountNonce }));
     await expect(fetchBalances('my-address', {})).resolves.not.toBeNull();
     expect(vault).toHaveBeenCalledTimes(1);
     __resetSyncFuseStateForTests();
