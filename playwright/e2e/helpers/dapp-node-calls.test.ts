@@ -1,11 +1,17 @@
 /**
  * @jest-environment node
  */
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
+import { ChainUnavailable } from './dapp-channel';
 import {
   nodeCallProblems,
   preflightHeaderNames,
   summarizeNodeCalls,
   toFetchLog,
+  waitForNodeHeight,
   type FetchLogEntry
 } from './dapp-node-calls';
 
@@ -58,5 +64,41 @@ describe('the page node-call guard', () => {
   it('reads the page log as it crossed the channel and drops what is not an entry', () => {
     expect(toFetchLog([call(GRPC), 'noise', null])).toEqual([call(GRPC)]);
     expect(toFetchLog('not a log')).toEqual([]);
+  });
+});
+
+// A repo root whose SDK is a stand-in: its block header read runs `body`.
+function stubSdk(body: string): string {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dapp-node-sdk-'));
+  const sdk = path.join(root, 'node_modules/@miden-sdk/miden-sdk');
+  fs.mkdirSync(sdk, { recursive: true });
+  fs.writeFileSync(
+    path.join(sdk, 'package.json'),
+    JSON.stringify({ name: '@miden-sdk/miden-sdk', type: 'module', exports: './index.js' })
+  );
+  fs.writeFileSync(
+    path.join(sdk, 'index.js'),
+    [
+      'export class Endpoint { constructor(url) { this.url = url; } }',
+      `export class RpcClient { async getBlockHeaderByNumber() { ${body} } }`
+    ].join('\n')
+  );
+  return root;
+}
+
+describe('the harness node height read', () => {
+  it('names the error the node call failed with, on one line', async () => {
+    const read = waitForNodeHeight('http://stub', 5, 5_000, stubSdk("throw new Error('stub node refused:\\n503');"));
+    await expect(read).rejects.toBeInstanceOf(ChainUnavailable);
+    await expect(read).rejects.toMatchObject({ message: 'node http://stub height 5: stub node refused: 503' });
+  });
+
+  it('tells a stalled chain apart from a failed call', async () => {
+    const read = waitForNodeHeight('http://stub', 5, 0, stubSdk('return { blockNum: () => 3 };'));
+    await expect(read).rejects.toMatchObject({ message: 'node http://stub height 5: chain stuck at 3, wanted 5' });
+  });
+
+  it('answers the height once the chain reaches the target', async () => {
+    await expect(waitForNodeHeight('http://stub', 5, 5_000, stubSdk('return { blockNum: () => 7 };'))).resolves.toBe(7);
   });
 });

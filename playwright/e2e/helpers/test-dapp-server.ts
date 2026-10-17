@@ -388,8 +388,11 @@ export async function serveTestDappOnLoopback(
   const listen = (host: string): Promise<http.Server | null> =>
     new Promise((resolve, reject) => {
       const listener = http.createServer(handler);
+      // A host with IPv6 disabled refuses ::1 either way.
       listener.once('error', (error: NodeJS.ErrnoException) =>
-        host === '::1' && error.code === 'EADDRNOTAVAIL' ? resolve(null) : reject(error)
+        host === '::1' && (error.code === 'EADDRNOTAVAIL' || error.code === 'EAFNOSUPPORT')
+          ? resolve(null)
+          : reject(error)
       );
       listener.listen(port, host, () => resolve(listener));
     });

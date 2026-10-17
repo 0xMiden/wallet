@@ -14,7 +14,7 @@ export interface DappChannel {
    * Asks once. `timeoutMs` is what the cell deadline leaves, less `CHANNEL_MARGIN_MS`, or undefined with no deadline; a
    * channel whose transport has no bound of its own ignores it. Rejects with `ChainUnavailable` when the node failed
    * the page, `HarnessFault` when the page itself threw, and on mobile `CellDeadlineExceeded` when the page took the
-   * command and never answered.
+   * command and never answered or the time left was shorter than the page's gap between polls.
    */
   send(command: string, input: unknown, timeoutMs?: number): Promise<unknown>;
 }

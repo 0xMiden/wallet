@@ -22,6 +22,8 @@ export const PAGE_HOSTS: Readonly<Record<DappLabel, string>> = { one: 'localhost
  */
 export const MOBILE_COMMAND_CEILING_MS = 280_000;
 const DEFAULT_HOLD_MS = 25_000;
+// The longest a polling page goes between polls: command-loop.ts sleeps 1 s after a failed poll, then the round trip.
+const PAGE_POLL_GAP_MS = 2_000;
 const ROUTES = new Set(['/command', '/result', '/event']);
 const CHARSET_TAG = '<meta charset="utf-8" />';
 const TEST_DAPP_TAG = '<script type="module" src="/test-dapp.js"></script>';
@@ -375,9 +377,9 @@ export async function startCommandServer(options: CommandServerOptions): Promise
 }
 
 /**
- * The mobile `DappChannel`. A command no page took is the channel's fault (the page stopped polling); one the page took
- * and never answered is the cell running out of time, as an evaluate that never returns is on the extension (spike plan
- * change 8). Each names the command.
+ * The mobile `DappChannel`. A command no page took within the page's poll gap is the channel's fault (the page stopped
+ * polling); one the page took and never answered, or one held for less than that gap, is the cell running out of time,
+ * as an evaluate that never returns is on the extension (spike plan change 8). Each names the command.
  */
 export function commandChannel(server: CommandServer, device: DeviceKey, dapp: DappLabel): DappChannel {
   const label = `${device}/${dapp}`;
@@ -394,6 +396,12 @@ export function commandChannel(server: CommandServer, device: DeviceKey, dapp: D
         throw new HarnessFault(`dApp ${label} ${command} threw: ${what}`);
       }
       if (result.deliveredAt === null) {
+        if (ms < PAGE_POLL_GAP_MS) {
+          throw new CellDeadlineExceeded(
+            `dApp ${label} ${command} was not delivered in the ${ms} ms the cell had left, under the page's ` +
+              `${PAGE_POLL_GAP_MS} ms poll gap`
+          );
+        }
         throw new HarnessFault(
           `dApp ${label} ${command} was never delivered within ${ms} ms: the page stopped polling`
         );

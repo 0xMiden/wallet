@@ -298,9 +298,9 @@ describe('the command channel', () => {
 
   it('reads a command no page took as a harness fault naming it', async () => {
     const { fake } = serverAnswering({ status: 'timeout', enqueuedAt: 1, deliveredAt: null });
-    const sent = commandChannel(fake, 'B', 'one').send('session', {}, 900);
+    const sent = commandChannel(fake, 'B', 'one').send('session', {}, 5_000);
     await expect(sent).rejects.toBeInstanceOf(HarnessFault);
-    await expect(sent).rejects.toThrow('dApp B/one session was never delivered within 900 ms');
+    await expect(sent).rejects.toThrow('dApp B/one session was never delivered within 5000 ms');
   });
 
   it('reads a command the page took and never answered as the cell running out of time', async () => {
@@ -323,5 +323,12 @@ describe('the command channel', () => {
     const { fake, given } = serverAnswering({ status: 'ok', value: null, ...answered });
     await callOn(commandChannel(fake, 'A', 'one'), 'session', {}, deadlineIn(500, 'cell'));
     expect(given).toEqual([1]);
+  });
+
+  it('reads a command no page took while the cell had less than the page poll gap left as the cell running out of time', async () => {
+    const { fake } = serverAnswering({ status: 'timeout', enqueuedAt: 1, deliveredAt: null });
+    const asked = callOn(commandChannel(fake, 'A', 'one'), 'session', {}, deadlineIn(500, 'cell'));
+    await expect(asked).rejects.toBeInstanceOf(CellDeadlineExceeded);
+    await expect(asked).rejects.toThrow('dApp A/one session was not delivered in the 1 ms the cell had left');
   });
 });

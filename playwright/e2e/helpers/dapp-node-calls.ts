@@ -106,20 +106,28 @@ const sdk = {
   blockNum: 'blockNum' satisfies keyof BlockHeader
 };
 
+// Node ends an uncaught error's stderr with its own version line, so the child reports every failure, the SDK's load
+// included, on one line of its own that the parent looks for.
+const FAILED = 'height query failed: ';
 // A Node child, as public-note-commitment.ts runs its node query: the SDK's Node entry is ESM.
 const HEIGHT_QUERY = `
-import { RpcClient, Endpoint } from '@miden-sdk/miden-sdk';
-const rpc = new RpcClient(new Endpoint(process.argv[1]));
-const target = Number(process.argv[2]);
-const deadline = Date.now() + Number(process.argv[3]);
-for (;;) {
-  const height = (await rpc.${sdk.header}()).${sdk.blockNum}();
-  if (height >= target) {
-    console.log(String(height));
-    break;
+try {
+  const { RpcClient, Endpoint } = await import('@miden-sdk/miden-sdk');
+  const rpc = new RpcClient(new Endpoint(process.argv[1]));
+  const target = Number(process.argv[2]);
+  const deadline = Date.now() + Number(process.argv[3]);
+  for (;;) {
+    const height = (await rpc.${sdk.header}()).${sdk.blockNum}();
+    if (height >= target) {
+      console.log(String(height));
+      break;
+    }
+    if (Date.now() >= deadline) throw new Error('chain stuck at ' + height + ', wanted ' + target);
+    await new Promise(resolve => setTimeout(resolve, 1000));
   }
-  if (Date.now() >= deadline) throw new Error('chain stuck at ' + height + ', wanted ' + target);
-  await new Promise(resolve => setTimeout(resolve, 1000));
+} catch (error) {
+  const reason = String(error?.message ?? error).replace(/\\s+/g, ' ');
+  process.stderr.write(${JSON.stringify(FAILED)} + reason + '\\n', () => process.exit(1));
 }
 `;
 
@@ -133,15 +141,24 @@ export function waitForNodeHeight(
   timeoutMs: number,
   repoRoot: string = path.resolve(__dirname, '../../..')
 ): Promise<number> {
+  const killAfterMs = timeoutMs + 30_000;
   return new Promise((resolve, reject) => {
     execFile(
       process.execPath,
       ['--input-type=module', '--eval', HEIGHT_QUERY, rpcUrl, String(target), String(timeoutMs)],
-      { cwd: repoRoot, timeout: timeoutMs + 30_000, encoding: 'utf8' },
+      { cwd: repoRoot, timeout: killAfterMs, encoding: 'utf8' },
       (error, stdout, stderr) => {
         if (error) {
-          const last = stderr.trim().split('\n').at(-1);
-          reject(new ChainUnavailable(`node ${rpcUrl} height ${target}: ${last || error.message}`));
+          // error.message would quote the whole script.
+          const reported = stderr
+            .split('\n')
+            .find(line => line.startsWith(FAILED))
+            ?.slice(FAILED.length);
+          const reason =
+            error.killed === true
+              ? `timed out after ${killAfterMs} ms`
+              : (reported ?? `exited with code ${String(error.code)}`);
+          reject(new ChainUnavailable(`node ${rpcUrl} height ${target}: ${reason}`));
           return;
         }
         const height = Number(stdout.trim());
