@@ -21,13 +21,7 @@ import {
   isAutoConsumeEnabledAsync,
   isDelegateProofEnabledAsync
 } from 'lib/settings/helpers';
-import {
-  SerializedConsumableNote,
-  SerializedVaultAsset,
-  SyncData,
-  WalletMessageType,
-  WalletStatus
-} from 'lib/shared/types';
+import { SerializedConsumableNote, SerializedVaultAsset, SyncData, WalletMessageType } from 'lib/shared/types';
 
 import { toNoteTypeString } from '../helpers';
 import { fetchTokenMetadata } from '../metadata';
@@ -36,7 +30,7 @@ import { getIntercom } from './defaults';
 import { midenClientProxy, runsWasmInThisRealm } from './miden-client-proxy';
 import { mergeAndPersistSeenNoteIds } from './note-checker-storage';
 import { isRotationPendingAccount } from './rotation-pending';
-import { store } from './store';
+import { isUnlocked, store } from './store';
 import { Vault } from './vault';
 import { getBech32AddressFromAccountId } from '../sdk/helpers';
 import { getCurrentWasmLockHold, getMidenClient, withWasmClientLock, type WasmLockHold } from '../sdk/miden-client';
@@ -174,12 +168,6 @@ async function getVault() {
     _vault = Vault;
   }
   return _vault;
-}
-
-/** Whether this worker can sign right now: the store state `assertUnlocked` lets a sign through. */
-function isVaultUnlocked(): boolean {
-  const { status, vault } = store.getState();
-  return status === WalletStatus.Ready && vault !== null;
 }
 
 export function doSync(force = false): Promise<void> {
@@ -520,7 +508,7 @@ async function runSync(force: boolean): Promise<void> {
             swapOrderRows,
             hold,
             settlementNowSeconds,
-            isVaultUnlocked()
+            isUnlocked(store.getState())
           );
           stillOurs('after the swap-order lineage read');
           // Inclusion block of each note, dated once this hold has released the client (below).
@@ -796,7 +784,7 @@ async function runSync(force: boolean): Promise<void> {
       // And only while the vault is unlocked, for the reason the native enqueue below gives: a locked worker cannot
       // sign a settlement claim either. The notes stay swap-managed, and the first lap after unlock settles them; the
       // stamps reconcile writes, which only label the order, wait for that lap too.
-      if (swapOrderRows.length > 0 && isVaultUnlocked()) {
+      if (swapOrderRows.length > 0 && isUnlocked(store.getState())) {
         try {
           const settlement = await reconcileSwapOrderNotes(
             accountPubKey,
@@ -826,7 +814,7 @@ async function runSync(force: boolean): Promise<void> {
       // Only while the vault is unlocked: a locked worker cannot sign the claim, so its row would only be deferred
       // until it expired as a failure, reported and notified for a claim the user never started. The note stays
       // auto-consume's (the prompt above still leaves it out) and the first lap after unlock queues it.
-      if (nativeAutoConsumeNotes.length > 0 && isVaultUnlocked()) {
+      if (nativeAutoConsumeNotes.length > 0 && isUnlocked(store.getState())) {
         try {
           const delegate = await isDelegateProofEnabledAsync();
           // ONE transaction for the batch: each consume pays its own fee, so a backlog
