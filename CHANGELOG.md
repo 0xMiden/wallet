@@ -4,7 +4,7 @@
 
 ### Features
 
-- [FEATURE][all] Bridge in opens directly from Receive with a Send-style amount field, explicit source and Miden destination, and a pinned Continue action. Bridge routes show labelled fees and arrival estimates in both directions, and Send destination networks open in a full-name picker.
+- [FEATURE][all] Bridge in opens directly from Receive with Receive-green actions, a Send-style amount field, explicit source and Miden destination, and a pinned Continue action. Bridge routes show labelled fees and arrival estimates in both directions, and Send destination networks open in a full-name picker.
 
 - [FEATURE][all] A transaction-failure crash report says why the transaction failed, in fixed values only: the wallet's own reason (a cancel, the startup sweep, the stuck reaper, a queue expiry, the rotation gate, or the node check of a claim), a Guardian refusal's HTTP status and published error code, or the device key's refusal code. A code outside those lists is sent as `other`, no failure text is sent, and the privacy policy lists every value. These failures move from their earlier crash-report titles, which named only a broad error category, to new titles that carry these values, so they start new crash-report issues.
 

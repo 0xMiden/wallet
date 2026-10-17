@@ -32,6 +32,7 @@ export const EvmBridgeUsdcxRoute: React.FC<EvmBridgeUsdcxRouteProps> = ({
       footer={
         <Button
           title={t('continue')}
+          accent="receive"
           onClick={onConfirm}
           disabled={confirmDisabled}
           data-testid="bridge-route-confirm"
@@ -49,7 +50,7 @@ export const EvmBridgeUsdcxRoute: React.FC<EvmBridgeUsdcxRouteProps> = ({
         fee={fee ?? t('noFee')}
         eta={t(usdcxArrivalKey(sourceChainId))}
         testId="bridge-route-usdcx"
-        accent="brand"
+        accent="receive"
       />
       <Notice variant="inline" className="mt-4">
         {notice ?? t('usdcxRouteNotice')}

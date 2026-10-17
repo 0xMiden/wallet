@@ -7,13 +7,13 @@ import { AmountInput } from 'components/AmountInput';
 import { Button } from 'components/Button';
 import { TokenLogo } from 'components/TokenLogo';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
-import { ListGroup } from 'components/ui/ListGroup';
 import { ListRow } from 'components/ui/ListRow';
 import { Notice } from 'components/ui/Notice';
+import { Pill } from 'components/ui/Pill';
 import { SectionHeader } from 'components/ui/SectionHeader';
 import { Skeleton } from 'components/ui/Skeleton';
 import { getTestNetworkNameKey } from 'lib/miden-chain/effective-endpoints';
-import { balanceFormatterFor } from 'screens/send-flow/amount-format';
+import { approxFiatAmount, balanceFormatterFor } from 'screens/send-flow/amount-format';
 import { BridgeNetwork } from 'screens/send-flow/bridge-networks';
 import { UITokenWithPendingBalance } from 'screens/send-flow/types';
 import { truncateAddress } from 'utils/string';
@@ -64,6 +64,7 @@ export const EvmBridgeDepositForm: React.FC<EvmBridgeDepositFormProps> = ({
       footer={
         <Button
           title={t('continue')}
+          accent="receive"
           onClick={onContinue}
           disabled={!canProceed}
           className="w-full max-w-none"
@@ -71,17 +72,38 @@ export const EvmBridgeDepositForm: React.FC<EvmBridgeDepositFormProps> = ({
         />
       }
     >
-      <SectionHeader size="lg">{t('enterAmount')}</SectionHeader>
+      <SectionHeader
+        size="lg"
+        action={
+          <Pill
+            onClick={onSwitch}
+            aria-label={t('switchWallet')}
+            aria-haspopup="dialog"
+            className="text-accent-receive-ink"
+            data-testid="bridge-source-wallet"
+          >
+            {truncateAddress(evmAddress, false, 6, 4)}
+          </Pill>
+        }
+      >
+        {t('enterAmount')}
+      </SectionHeader>
       <AmountInput
         value={amount}
         onValueChange={value => onAmountChange(value || '')}
         invalid={!!amountError}
         error={amountError}
+        accent="receive"
+        helper={
+          token.scaleIsKnown && token.fiatPrice > 0 && amount
+            ? t('approxFiatValue', { value: approxFiatAmount(Number(amount) * token.fiatPrice) })
+            : undefined
+        }
         showDivider={false}
         data-testid="send-amount-input"
       />
 
-      <ListGroup surface="outline" className="mt-6">
+      <DetailCard surface="outline" face="heading" className="mt-8">
         <ListRow
           title={tokenLabel}
           avatar={<TokenLogo symbol={token.name} faucetId={token.id} size="md" />}
@@ -96,31 +118,21 @@ export const EvmBridgeDepositForm: React.FC<EvmBridgeDepositFormProps> = ({
               t('unknownTokenScale')
             )
           }
+          accent="receive"
           onClick={onSelectToken}
           chevron
           className="min-w-0 flex-1"
           data-testid="send-token-selector"
         />
-      </ListGroup>
-
-      <SectionHeader className="mt-6">{t('from')}</SectionHeader>
-      <DetailCard surface="outline" face="heading">
-        <DetailRow label={t('bridgeSourceWallet')} onClick={onSwitch} data-testid="bridge-source-wallet">
-          {truncateAddress(evmAddress, false, 6, 4)}
-        </DetailRow>
         <DetailRow
-          label={t('network')}
+          label={t('from')}
           onClick={onSelectNetwork}
           aria-haspopup={onSelectNetwork ? 'dialog' : undefined}
           data-testid="bridge-source-network"
         >
           {network?.name ?? t('selectNetwork')}
         </DetailRow>
-      </DetailCard>
-
-      <SectionHeader className="mt-6">{t('to')}</SectionHeader>
-      <DetailCard face="heading">
-        <DetailRow label={t('network')} sub={destinationName} data-testid="bridge-destination">
+        <DetailRow label={t('to')} sub={destinationName} data-testid="bridge-destination">
           {`${t('miden')} · ${arrivingName}`}
         </DetailRow>
       </DetailCard>

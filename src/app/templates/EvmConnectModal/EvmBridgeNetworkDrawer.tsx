@@ -41,6 +41,7 @@ export const EvmBridgeNetworkDrawer: React.FC<EvmBridgeNetworkDrawerProps> = ({
         <ListGroup className="mx-4">
           {networks.map(network => (
             <ListRow
+              accent="receive"
               key={network.id}
               title={network.name}
               avatar={<NetworkLogo kind="ethereum" />}

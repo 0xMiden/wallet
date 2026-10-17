@@ -103,6 +103,7 @@ export const EvmBridgeTokenDrawer: React.FC<EvmBridgeTokenDrawerProps> = ({
         <ListGroup className="mx-4">
           {rows.map(({ token, name, logoSymbol, balance, loading }) => (
             <ListRow
+              accent="receive"
               key={token}
               title={name}
               subtitle={loading ? t('loading') : `${balance} ${name}`}

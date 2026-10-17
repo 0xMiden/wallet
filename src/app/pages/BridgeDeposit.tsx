@@ -102,6 +102,7 @@ export const BridgeDeposit: React.FC<BridgeDepositProps> = ({ onClose }) => {
         onBack={handleClose}
         footer={
           <Button
+            accent="receive"
             onClick={handleConnect}
             disabled={isFeatureBlocked(bridgeIn) || status === 'connecting'}
             className="w-full max-w-none"

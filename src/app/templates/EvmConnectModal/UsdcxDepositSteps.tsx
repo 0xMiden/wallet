@@ -31,7 +31,7 @@ export const UsdcxDepositSteps: React.FC<UsdcxDepositStepsProps> = ({ className,
           state={step.state}
           label={t(step.labelKey, step.network === undefined ? undefined : { network: step.network })}
           isLast={index === steps.length - 1}
-          accent="brand"
+          accent="receive"
         />
       ))}
     </div>

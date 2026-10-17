@@ -1599,6 +1599,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
           }
           return (
             <RouteStep
+              accent="receive"
               route={route}
               onRouteChange={handleRouteChange}
               fastFeeUsd={fastFeeUsd}

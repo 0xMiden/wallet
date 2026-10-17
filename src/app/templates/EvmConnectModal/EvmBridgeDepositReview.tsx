@@ -111,6 +111,7 @@ export const EvmBridgeDepositReview: React.FC<EvmBridgeDepositReviewProps> = ({
 
   return (
     <ReviewLayout
+      accent="receive"
       hero={
         // The caption identifies what the hero amount is for — same shape as ReviewSwap's
         // You Send / You Receive pills, since Hero itself has no slot above its value.

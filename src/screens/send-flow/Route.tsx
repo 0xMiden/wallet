@@ -22,6 +22,7 @@ import { UsdcxPayoutRows, UsdcxPayoutTarget } from './UsdcxPayoutRows';
 import { AgglayerEligibility } from './useAgglayerEligibility';
 
 export interface RouteStepProps {
+  accent?: FlowAccent;
   usdcxAvailable?: boolean;
   route: BridgeRoute;
   onRouteChange: (route: BridgeRoute) => void;
@@ -274,6 +275,7 @@ export const RouteOptions: React.FC<RouteOptionsProps> = ({
  * gates Slow on the bridge registry; an EVM deposit has no Miden faucet to check.
  */
 export const Route: React.FC<RouteStepProps> = ({
+  accent = 'brand',
   usdcxAvailable,
   route,
   onRouteChange,
@@ -294,6 +296,7 @@ export const Route: React.FC<RouteStepProps> = ({
         <Button
           title={t('continue')}
           variant={ButtonVariant.Primary}
+          accent={accent}
           onClick={onConfirm}
           disabled={confirmDisabled}
           data-testid="bridge-route-confirm"
@@ -304,6 +307,7 @@ export const Route: React.FC<RouteStepProps> = ({
       <SectionHeader size="lg">{t('bridgeChooseRoute')}</SectionHeader>
       <p className="text-body-sm text-muted">{t('bridgeRouteDescription')}</p>
       <RouteOptions
+        accent={accent}
         usdcxAvailable={usdcxAvailable}
         route={route}
         onRouteChange={onRouteChange}
