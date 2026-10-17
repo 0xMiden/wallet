@@ -39,7 +39,8 @@ export function annotateCrash(error: unknown, diagnostics: Record<string, unknow
   }
 }
 
-export function snapshotCrashDiagnostics(error: unknown): CrashDiagnostics {
+/** `error` and up to three of its causes, outermost first. */
+export function errorChain(error: unknown): Error[] {
   const chain: Error[] = [];
   const seen = new Set<Error>();
   try {
@@ -51,5 +52,14 @@ export function snapshotCrashDiagnostics(error: unknown): CrashDiagnostics {
   } catch {
     // A hostile cause accessor cannot prevent the outer diagnostic snapshot.
   }
-  return Object.assign({}, ...chain.reverse().map(link => diagnosticsByError.get(link)));
+  return chain;
+}
+
+export function snapshotCrashDiagnostics(error: unknown): CrashDiagnostics {
+  return Object.assign(
+    {},
+    ...errorChain(error)
+      .reverse()
+      .map(link => diagnosticsByError.get(link))
+  );
 }

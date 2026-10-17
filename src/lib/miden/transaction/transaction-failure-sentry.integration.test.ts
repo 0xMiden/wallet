@@ -1,13 +1,27 @@
 import * as Repo from 'lib/miden/repo';
 
-import { cancelTransaction, markTransactionUnconfirmed } from './cancel';
+import { cancelTransaction, markTransactionUnconfirmed, verifyStuckTransactionsFromNode } from './cancel';
 import {
   markBridgedSendFailed,
   resolveUnconfirmedSwitch,
   updateBridgedReceivePhase,
   updateEarnWithdrawPhase
 } from './complete';
-import { TRANSACTION_INTERRUPTED_ON_STARTUP, USER_CANCELLED_TRANSACTION_REASON } from './constants';
+import {
+  INVALID_NOTE_ERROR,
+  ROTATION_FUNDING_NON_NATIVE_ERROR,
+  ROTATION_FUNDING_NOTE_UNAVAILABLE_ERROR,
+  ROTATION_PENDING_CONSUME_ERROR,
+  RotationGateConsumeRefusal,
+  TRANSACTION_EXPIRED_ERROR,
+  TRANSACTION_FORCE_CANCELLED_ERROR,
+  TRANSACTION_INTERRUPTED_ERROR,
+  TRANSACTION_INTERRUPTED_ON_STARTUP,
+  TRANSACTION_STUCK_ERROR,
+  UNCONFIRMED_FAILURE_REASONS,
+  USER_CANCELLED_TRANSACTION_REASON,
+  WALLET_FAILURE_REASONS
+} from './constants';
 import { updateTransactionStatus } from './helper';
 import { ITransaction, ITransactionStatus } from '../db/types';
 
@@ -17,7 +31,15 @@ jest.mock('../back/background-notification', () => ({
   notifyBackgroundTransactionFailed: jest.fn(),
   notifyBackgroundTransactionNotConfirmed: jest.fn()
 }));
-jest.mock('../back/miden-client-proxy', () => ({ midenClientProxy: {} }));
+const mockNoteDetails = jest.fn(async (): Promise<unknown[]> => []);
+jest.mock('../back/miden-client-proxy', () => ({
+  midenClientProxy: { getInputNoteDetails: () => mockNoteDetails() }
+}));
+jest.mock('../sdk/miden-client', () => ({
+  ...jest.requireActual('../sdk/miden-client'),
+  withWasmClientLock: async (fn: (hold: object) => unknown) => fn({}),
+  assertWasmHoldCurrent: () => {}
+}));
 jest.mock('lib/platform', () => ({ ...jest.requireActual('lib/platform'), isMobile: () => false }));
 
 const report = jest.requireMock('lib/telemetry/transaction-failure').reportTransactionFailure as jest.Mock;
@@ -82,6 +104,81 @@ describe('committed terminal transaction failure reports', () => {
       expect(report).toHaveBeenCalledWith(expect.objectContaining({ error }));
     }
   );
+
+  it.each([
+    ['a user cancel', USER_CANCELLED_TRANSACTION_REASON, 'user_cancelled'],
+    ['the startup sweep', TRANSACTION_INTERRUPTED_ON_STARTUP, 'interrupted_on_startup'],
+    ['the stuck reaper', TRANSACTION_STUCK_ERROR, 'stuck_reaped'],
+    ['the queue expiry', TRANSACTION_EXPIRED_ERROR, 'queued_expired'],
+    ['the node check of an unconsumed note', TRANSACTION_INTERRUPTED_ERROR, 'consume_not_landed'],
+    ['the node check of an invalid note', INVALID_NOTE_ERROR, 'note_invalid'],
+    ['the rotation gate', new RotationGateConsumeRefusal(ROTATION_PENDING_CONSUME_ERROR), 'rotation_key_pending'],
+    [
+      'the rotation claim of a vanished note',
+      new RotationGateConsumeRefusal(ROTATION_FUNDING_NOTE_UNAVAILABLE_ERROR),
+      'rotation_funding_note_unavailable'
+    ],
+    [
+      'the rotation claim of a note it cannot prove native',
+      new RotationGateConsumeRefusal(ROTATION_FUNDING_NON_NATIVE_ERROR),
+      'rotation_funding_not_native'
+    ],
+    ['any other rotation gate refusal', new RotationGateConsumeRefusal('refused'), 'rotation_gate_refusal']
+  ] as const)('names %s as the reason a claim failed at its signing proposal', async (_name, error, reason) => {
+    const claim = row({ type: 'consume', stage: 'signing-proposal' });
+    await Repo.transactions.put(claim);
+    await cancelTransaction(claim, error);
+    expect(report).toHaveBeenCalledTimes(1);
+    expect(report).toHaveBeenCalledWith(
+      expect.objectContaining({ point: 'pipeline', type: 'consume', stage: 'signing-proposal', reason, error })
+    );
+  });
+
+  it.each([
+    ['an unconsumed note', 'Committed', 'consume_not_landed'],
+    ['a note consumed by a transaction not provably ours', 'ConsumedExternal', 'consume_landed_external']
+  ] as const)(
+    'names the node check of %s by its own reason and keeps the stored text',
+    async (_name, state, reason) => {
+      mockNoteDetails.mockResolvedValueOnce([{ state }]);
+      const claim = row({
+        type: 'consume',
+        stage: 'sending',
+        noteId: 'n1',
+        noteIds: ['n1'],
+        processingStartedAt: Math.floor(Date.now() / 1000) - 120
+      });
+      await Repo.transactions.put(claim);
+      await verifyStuckTransactionsFromNode();
+      expect(report).toHaveBeenCalledTimes(1);
+      expect(report).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'consume', reason, error: TRANSACTION_INTERRUPTED_ERROR })
+      );
+      expect(await Repo.transactions.get('tx')).toMatchObject({
+        status: ITransactionStatus.Failed,
+        error: TRANSACTION_INTERRUPTED_ERROR
+      });
+    }
+  );
+
+  // The debug force-cancel is excluded: no production code calls it.
+  it.each(
+    [...WALLET_FAILURE_REASONS, ...UNCONFIRMED_FAILURE_REASONS].filter(
+      text => text !== TRANSACTION_FORCE_CANCELLED_ERROR
+    )
+  )('gives the wallet reason "%s" a reported name', async text => {
+    await Repo.transactions.put(row());
+    await cancelTransaction(row(), text);
+    expect(report).toHaveBeenCalledTimes(1);
+    expect(report.mock.calls[0]![0].reason).toEqual(expect.any(String));
+  });
+
+  it('gives a failure the wallet did not decide no reason', async () => {
+    await Repo.transactions.put(row());
+    await cancelTransaction(row(), new Error('GUARDIAN HTTP error 409: Conflict'));
+    expect(report).toHaveBeenCalledTimes(1);
+    expect(report.mock.calls[0]![0].reason).toBeUndefined();
+  });
 
   it('ignores duplicate cancellation, a status-guard decline and missing rows', async () => {
     await Repo.transactions.put(row());
