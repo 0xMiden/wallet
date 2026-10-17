@@ -335,10 +335,11 @@ jobs:
         # names one runs it alone.
         source: ${{ fromJSON(inputs.legs == 'base-sepolia' && '["base-sepolia"]' || inputs.legs == 'arbitrum-sepolia' && '["arbitrum-sepolia"]' || inputs.legs == 'sepolia' && '["sepolia"]' || '["base-sepolia","arbitrum-sepolia","sepolia"]') }}
     runs-on: macos-26-xlarge
-    # Per source chain: the iOS build and setup (~21 min) + the test (140 min worst case, the spec's own timeout).
+    # Per source chain: the iOS build and setup (~21 min) + a cold miden-client-cli compile (~15 min; its cache is
+    # keyed on package.json) + the test (140 min worst case, the spec's own timeout) = 176, rounded up to 200.
     # A dispatch may first build a linked web-sdk PR from source (73 min on macos-26, pr-compile-surfaces.yml).
-    # A `Client PR:` or `Protocol PR:` marker on that PR also rebuilds the CLI cold (up to 10 min on this runner).
-    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 255 || 170 }}
+    # A `Client PR:` or `Protocol PR:` marker on that PR also rebuilds the CLI cold; the extra 85 minutes cover both.
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 285 || 200 }}
     env:
       E2E_NETWORK: testnet
       # NO E2E_EVM_RPC_URL: the wallet reads the source chain and Arc through their real RPCs.
