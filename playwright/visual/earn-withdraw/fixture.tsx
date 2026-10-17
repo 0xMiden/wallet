@@ -1,5 +1,5 @@
 // Hermetic visual fixture: production controls, mocked positions/quotes and NO transaction capability.
-import { useSyncExternalStore } from 'react';
+import { useEffect, useSyncExternalStore } from 'react';
 
 import BigNumber from 'bignumber.js';
 
@@ -46,6 +46,14 @@ export function navigate(url: string) {
 export const goBack = () => {
   window.history.back();
 };
+// Replaces the entry, as lib/woozie's Redirect does by default, so Back never lands on the redirect again.
+export function Redirect({ to }: { to: string }) {
+  useEffect(() => {
+    window.history.replaceState(null, '', to);
+    window.dispatchEvent(new Event('popstate'));
+  }, [to]);
+  return null;
+}
 export const useAccount = () => account;
 export function useLocation() {
   const query = useSyncExternalStore(
