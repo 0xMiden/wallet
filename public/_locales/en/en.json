@@ -1454,5 +1454,14 @@
   "bridgeArrivalEstimate": "Estimated arrival",
   "bridgePayoutTiming": "Arrival depends on the destination network",
   "bridgeSourceWallet": "Wallet",
-  "bridgeRouteFee": "Bridge fee"
+  "bridgeRouteFee": "Bridge fee",
+  "bridgeRankBestValue": "Best value",
+  "bridgeRankCheapest": "Cheapest",
+  "bridgeRankFastest": "Fastest",
+  "bridgeRouteSort": "Sort routes",
+  "bridgeRouteProviders": "Bridge providers",
+  "bridgeRankValueDescription": "Most received after provider fees.",
+  "bridgeRankCostDescription": "Lowest bridge and network cost, including gas.",
+  "bridgeRankTimeDescription": "Shortest estimated arrival time.",
+  "bridgeEstimatedCost": "Est. cost"
 }

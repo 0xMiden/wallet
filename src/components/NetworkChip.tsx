@@ -3,7 +3,7 @@ import React from 'react';
 import { ReactComponent as EthLogo } from 'app/icons/logos/eth.svg';
 import { ReactComponent as MidenLogo } from 'app/icons/logos/miden.svg';
 import { Icon, IconName } from 'app/icons/v2';
-import { Pill } from 'components/ui';
+import { Pill } from 'components/ui/Pill';
 import { cn } from 'lib/ui/util';
 
 import { networkLogo } from './network-logo';
