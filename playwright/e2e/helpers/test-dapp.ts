@@ -2,14 +2,8 @@ import { expect, type BrowserContext, type Page } from '@playwright/test';
 
 import { CONFIRM_ACTIONS, type ConfirmKind } from './confirm-actions';
 import { waitForMirroredSetting } from './contacts-receive-settings';
-import {
-  CellDeadlineExceeded,
-  deadlineIn,
-  HarnessFault,
-  InfrastructureFault,
-  type CellContext,
-  type Deadline
-} from './dapp-cells';
+import { deadlineIn, HarnessFault, type CellContext, type Deadline } from './dapp-cells';
+import { callOn, ChainUnavailable, type DappChannel } from './dapp-channel';
 import { waitForConfirmPopup } from './dapp-confirm';
 import { waitForFreshSyncs, type ConfirmPageEvent } from './dapp-gates';
 import pinned from './dapp-pinned.json';
@@ -103,38 +97,11 @@ export async function reloadDapp(dapp: DappHandle, init: DappInit, deadline: Dea
   await callDapp(dapp, 'init', init, deadline);
 }
 
-/**
- * The node behind the dApp's own client failed a call, or the chain did not advance: the environment's failure, so a
- * cell that meets it is `blocked (infrastructure)`, never a harness fault or a wallet verdict. It is that cell's alone
- * (`abortsLeg: false`): no INFRA_ABORT, and the next cell runs its own quiesce.
- */
-export class ChainUnavailable extends InfrastructureFault {
-  constructor(message: string) {
-    super(message, { abortsLeg: false });
-    this.name = 'ChainUnavailable';
-  }
-}
-
-// Commands a repeat cannot change the answer of, so callDapp asks again after the node failed one. Each makes its node
-// call before anything the wallet, the adapter or the dApp's store sees, or repeats harmlessly (see the handlers in
-// test-dapp/test-dapp.ts): the chain reads; syncHeight; init, which keeps its first client and listens on the provider
-// once; buildCustom and buildCustomScript, which sync before they compile, build or hold anything; makeNoteFile, whose
-// getNotesById comes before its import. waitForHeight is not one: the page retries its own syncs until its timeout.
-const REPEATABLE: ReadonlySet<DappCommandName> = new Set([
-  'chainNote',
-  'chainNullifier',
-  'chainAccount',
-  'syncHeight',
-  'init',
-  'buildCustom',
-  'buildCustomScript',
-  'makeNoteFile'
-]);
-const NODE_RETRY_MS = 2_000;
+export { ChainUnavailable } from './dapp-channel';
 
 // What crosses into the page. Playwright maps an evaluate argument's type recursively, and a generic command and input
-// pair is too deep for it (TS2589), so the pair is pinned by the typed callers (evaluateOnce, callReact) and crosses as
-// this.
+// pair is too deep for it (TS2589), so the pair is pinned by the typed callers (callOn in dapp-channel.ts, callReact in
+// react-dapp.ts) and crosses as this.
 interface PageCall {
   command: string;
   input: unknown;
@@ -161,46 +128,25 @@ export function evaluateCommand(dapp: DappHandle, command: string, input: unknow
   });
 }
 
-function evaluateOnce<K extends DappCommandName>(
-  dapp: DappHandle,
-  command: K,
-  input: DappInput<K>
-): Promise<DappOutput<K>> {
-  return evaluateCommand(dapp, command, input) as Promise<DappOutput<K>>;
-}
+/** The extension's channel: `window.testDapp.call` through `page.evaluate`, bounded by the cell deadline's race alone. */
+export const pageChannel = (dapp: DappHandle): DappChannel => ({
+  label: dapp.label,
+  send: (command, input) => evaluateCommand(dapp, command, input)
+});
 
 /**
- * One `window.testDapp` command, raced against `deadline` when one is given. With a deadline, a `REPEATABLE` command
- * the node failed is asked again every 2 s while the time left covers that interval and another attempt as long as the
- * last (spec section 2.4); `once` asks a single time, for a read compared with an earlier one. The last node failure is
- * what it then throws, with the attempt count, also when the deadline cuts the attempt after it.
+ * One `window.testDapp` command on the extension page, with `callOn`'s semantics (dapp-channel.ts): raced against
+ * `deadline` when one is given, a repeatable command the node failed asked again, `once` for a read compared with an
+ * earlier one.
  */
-export async function callDapp<K extends DappCommandName>(
+export function callDapp<K extends DappCommandName>(
   dapp: DappHandle,
   command: K,
   input: DappInput<K>,
   deadline?: Deadline,
   options: { once?: boolean } = {}
 ): Promise<DappOutput<K>> {
-  if (deadline === undefined) return evaluateOnce(dapp, command, input);
-  const repeat = REPEATABLE.has(command) && options.once !== true;
-  let failed: ChainUnavailable | undefined;
-  for (let attempt = 1; ; attempt += 1) {
-    const startedAt = Date.now();
-    try {
-      return await deadline.race(evaluateOnce(dapp, command, input), `dApp ${dapp.label} ${command}`);
-    } catch (error) {
-      if (error instanceof CellDeadlineExceeded && failed !== undefined) {
-        throw new ChainUnavailable(`${failed.message} (after ${attempt} attempts, the deadline cut the last)`);
-      }
-      if (!(error instanceof ChainUnavailable) || !repeat) throw error;
-      failed = error;
-      if (deadline.remainingMs() < NODE_RETRY_MS + (Date.now() - startedAt)) {
-        throw attempt === 1 ? error : new ChainUnavailable(`${error.message} (after ${attempt} attempts)`);
-      }
-      await new Promise(resolve => setTimeout(resolve, NODE_RETRY_MS));
-    }
-  }
+  return callOn(pageChannel(dapp), command, input, deadline, options);
 }
 
 const failedOutcome = (value: unknown): value is { ok: false; error: DappError } =>

@@ -264,6 +264,7 @@ describe('the height wait the driver hands the page', () => {
       throw pageError('ChainUnavailableError', 'chain stuck at 10, wanted 12; last sync failed: syncChain: Failed');
     });
     const runner = new DappCellRunner<string>({
+      surface: 'extension',
       part: 'core',
       axis: 'offchain',
       journey: 'W',
