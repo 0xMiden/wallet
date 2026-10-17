@@ -270,11 +270,12 @@ function outputSymbolFor(route: IBridgeProvider, sourceSymbol: string): string {
 
 /**
  * The route after a token change. Circle's USDC bridges only through xReserve, and no other token
- * can use that route; between ETH and the bridge's own USDC the chosen route stays.
+ * can use that route; a token leaving it goes to AggLayer, since only the retired Epoch USDC confirms
+ * on Fast. Between ETH and the bridge's own USDC the chosen route stays.
  */
 function routeAfterTokenChange(next: DepositToken, current: BridgeRoute): BridgeRoute {
   if (next === 'CIRCLE_USDC') return 'usdcx';
-  if (current === 'usdcx') return 'epoch';
+  if (current === 'usdcx') return 'agglayer';
   return current;
 }
 
@@ -451,22 +452,27 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   // A token or chain not named yet while the snapshot loads is a wait, not a failure.
   const usdcPending = evmUsdc === null && bridgeConfig.status === 'loading';
   const agglayerPending = agglayerChainId === undefined && bridgeConfig.status === 'loading';
+  // The config moves the token or route below only on the opening amount step and never under a confirm, so a publish
+  // cannot flip a deposit on its way to, or on, Review. A token the user picked stands.
+  const onAmountStep = activeRoute?.name === ReceiveStep.ShowBridgePageTakeAmount;
   // A retained legacy engine state may move to Circle when its old source is no longer configured.
-  // New flows already start on Circle; a token the user picked stands.
+  // New flows already start on Circle.
   useEffect(() => {
-    if (tokenChosen.current || token !== 'USDC' || usdcPending || usdcxPending) return;
+    if (tokenChosen.current || confirming.current || !onAmountStep) return;
+    if (token !== 'USDC' || usdcPending || usdcxPending) return;
     if (evmUsdc !== null || !usdcxAvailable || !usdcxSource) return;
     selectToken('CIRCLE_USDC');
     setRoute('usdcx');
-  }, [token, usdcPending, usdcxPending, evmUsdc, usdcxAvailable, usdcxSource, selectToken]);
-  // Circle USDC is the opening token. A network with no Circle source may still offer native ETH;
-  // never fall back to the retired Epoch test token, even if an older config advertises it.
+  }, [onAmountStep, token, usdcPending, usdcxPending, evmUsdc, usdcxAvailable, usdcxSource, selectToken]);
+  // Circle USDC is the opening token. Where Circle deposits are unavailable (no source, or switched off) the network
+  // may still offer native ETH; never fall back to the retired Epoch test token, even if an older config advertises it.
   useEffect(() => {
-    if (tokenChosen.current || token !== 'CIRCLE_USDC' || bridgeConfig.status === 'loading') return;
-    if (usdcxSource || !agglayerChain) return;
+    if (tokenChosen.current || confirming.current || !onAmountStep) return;
+    if (token !== 'CIRCLE_USDC' || bridgeConfig.status === 'loading' || usdcxPending) return;
+    if ((usdcxSource && usdcxAvailable) || !agglayerChain) return;
     selectToken('ETH');
     setRoute('agglayer');
-  }, [token, bridgeConfig.status, usdcxSource, agglayerChain, selectToken]);
+  }, [onAmountStep, token, bridgeConfig.status, usdcxPending, usdcxSource, usdcxAvailable, agglayerChain, selectToken]);
   // The status page is the one step that leads to no route card these grey out.
   const routesAhead = activeRoute?.name !== ReceiveStep.ShowBridgePageStatus;
   const fastAvailability = useFeatureAvailability('fastBridgeIn', { hold: routesAhead, chainId: evmUsdcChainId });
