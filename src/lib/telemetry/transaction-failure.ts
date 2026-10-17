@@ -315,7 +315,8 @@ function submitOutcomeIdentity(error: unknown, hiddenDuringSubmit: boolean | und
     status = SUBMIT_GRPC_TEXT.find(([, text]) => kind.startsWith(text))?.[0] ?? 'other';
     break;
   }
-  const hidden = hiddenDuringSubmit === undefined ? 'unavailable' : hiddenDuringSubmit ? 'yes' : 'no';
+  const hidden: (typeof SUBMIT_HIDDEN_ANSWERS)[number] =
+    hiddenDuringSubmit === undefined ? 'unavailable' : hiddenDuringSubmit ? 'yes' : 'no';
   return `submit_outcome_unknown; grpc ${status}; app hidden during submit ${hidden}`;
 }
 
