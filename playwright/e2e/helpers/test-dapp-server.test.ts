@@ -7,6 +7,7 @@ import { createRequire } from 'node:module';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
+import ts from 'typescript';
 
 import { exportedNames, importedSpecifiers, linkProblems } from './module-graph';
 import {
@@ -271,5 +272,29 @@ describe('React page server', () => {
   it('links every module the import map reaches: served, mapped, and every named import exported', () => {
     const server = createReactDappServer({ roots: reactRoots });
     expect(linkProblems(server, Object.values(server.importMap.imports))).toEqual([]);
+  });
+});
+
+describe('page modules', () => {
+  const served = (server: ReturnType<typeof createDappServer>, url: string): string =>
+    server.serve(url).body.toString('utf8');
+
+  it('links the plain page: every module it reaches is served and every named import exported', () => {
+    expect(linkProblems(createDappServer({ roots }), ['/test-dapp.js'])).toEqual([]);
+  });
+
+  it('takes the error, outcome and output-note helpers from page-common, as the React page does', () => {
+    const shared = ['describeError', 'outcome', 'outputNoteView', 'HarnessCheckError', 'ChainUnavailableError'];
+    const source = fs.readFileSync(path.join(PAGE_DIR, 'test-dapp.ts'), 'utf8');
+    const file = ts.createSourceFile('test-dapp.ts', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+    const declared = file.statements.flatMap(statement =>
+      (ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement)) && statement.name
+        ? [statement.name.text]
+        : ts.isVariableStatement(statement)
+          ? statement.declarationList.declarations.map(declaration => declaration.name.getText(file))
+          : []
+    );
+    expect(importedSpecifiers(served(createDappServer({ roots }), '/test-dapp.js'))).toContain('./page-common.js');
+    expect(declared.filter(name => shared.includes(name))).toEqual([]);
   });
 });
