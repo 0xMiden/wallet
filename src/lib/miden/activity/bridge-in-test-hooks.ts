@@ -48,6 +48,10 @@ interface BridgeReceiveDepositFields {
   readyAt?: number;
   /** The Arc transaction the row took as its execute: Circle's forward, or the wallet's own execute. */
   usdcxExecuteTxHash?: string;
+  /** Whether the burn paid Circle's forward fee: what an executor-route deposit writes on its `submitting` step. */
+  cctpForwarded?: boolean;
+  /** The quoted fee that burn paid on top of the amount, in source USDC base units. */
+  cctpForwardFee?: string;
 }
 
 interface BridgeReceiveState extends BridgeReceiveDepositFields {
@@ -90,7 +94,9 @@ function depositFields(inputs: IBridgedReceiveExtraInputs | undefined): BridgeRe
     sourceChainId: inputs?.sourceChainId,
     usdcxRemoteRecipient: inputs?.usdcxRemoteRecipient,
     readyAt: inputs?.readyAt,
-    usdcxExecuteTxHash: inputs?.cctp?.executeTxHash
+    usdcxExecuteTxHash: inputs?.cctp?.executeTxHash,
+    cctpForwarded: inputs?.cctp?.forwarded,
+    cctpForwardFee: inputs?.cctp?.forwardFee
   };
 }
 

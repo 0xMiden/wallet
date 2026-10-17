@@ -589,6 +589,10 @@ export type BridgeReceiveStateSnapshot = {
   usdcxExecuteTxHash?: string;
   /** Unix seconds the row first reached `ready`. */
   readyAt?: number;
+  /** Whether the burn paid Circle's forward fee: an executor-route deposit's forwarded CCTP leg. */
+  cctpForwarded?: boolean;
+  /** The quoted fee that burn paid on top of the amount, source USDC base units. */
+  cctpForwardFee?: string;
 };
 
 function isBridgeReceivePhase(value: unknown): value is BridgeReceivePhase {
@@ -611,6 +615,10 @@ export function parseBridgeReceiveState(value: unknown): BridgeReceiveStateSnaps
     const item = field(key);
     return typeof item === 'number' ? item : undefined;
   };
+  const flag = (key: string): boolean | undefined => {
+    const item = field(key);
+    return typeof item === 'boolean' ? item : undefined;
+  };
   const found = field('found');
   if (typeof found !== 'boolean') throw new Error('__TEST_BRIDGE_RECEIVE_STATE__ has no boolean found');
   const phase = field('phase');
@@ -630,7 +638,9 @@ export function parseBridgeReceiveState(value: unknown): BridgeReceiveStateSnaps
     sourceChainId: count('sourceChainId'),
     usdcxRemoteRecipient: text('usdcxRemoteRecipient'),
     usdcxExecuteTxHash: text('usdcxExecuteTxHash'),
-    readyAt: count('readyAt')
+    readyAt: count('readyAt'),
+    cctpForwarded: flag('cctpForwarded'),
+    cctpForwardFee: text('cctpForwardFee')
   };
 }
 

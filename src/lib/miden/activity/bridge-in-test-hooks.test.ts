@@ -217,3 +217,19 @@ it('hands the row to the reconciler, which asks Circle about the burn and takes 
     usdcxExecuteTxHash: FORWARD_HASH
   });
 });
+
+it("reports an executor deposit's forwarded leg and the fee it paid", async () => {
+  installBridgeInTestHooks();
+
+  const id = await createExecutorReceive();
+
+  expect(await globalThis.__TEST_BRIDGE_RECEIVE_STATE__(id)).toMatchObject({
+    cctpForwarded: true,
+    cctpForwardFee: SUBMITTED.cctp.forwardFee
+  });
+  expect(await globalThis.__TEST_LATEST_BRIDGE_RECEIVE__('usdcx')).toMatchObject({
+    id,
+    cctpForwarded: true,
+    cctpForwardFee: SUBMITTED.cctp.forwardFee
+  });
+});
