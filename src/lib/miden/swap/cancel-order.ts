@@ -17,10 +17,13 @@ import { ITransactionStatus } from '../db/types';
  * original output note after zero fills. Both retain the same solver-race guard,
  * consume-row deduplication and retry/backoff.
  *
- * The write is all this does. The settlement tick queues the consume on its next
- * lap (3s on mobile/desktop via `SwapSettlementManager`, the SW sync cycle on the
- * extension), which is why there is no processing nudge to fire here: the reclaim
- * transaction does not exist yet.
+ * The write is all this does. It stamps the expiry intent (`expiryTriggeredAt`)
+ * with the new expiry, so the list and the receipt read Returning funds at the
+ * press rather than once a lap has prepared the reclaim. The settlement tick
+ * queues the consume on its next lap (3s on mobile/desktop via
+ * `SwapSettlementManager`, the SW sync cycle on the extension), which is why
+ * there is no processing nudge to fire here: the reclaim transaction does not
+ * exist yet.
  *
  * Refused rather than silently no-oped in three cases, because each is a button
  * that could not have worked:
@@ -60,7 +63,7 @@ export const cancelSwapOrder = async (
     if (!isSwapTransaction(dbTx)) return false;
     const expiresAt = dbTx.extraInputs?.expiresAt;
     if (swapOrderExpired(expiresAt, nowSeconds)) return false;
-    dbTx.extraInputs = { ...dbTx.extraInputs, expiresAt: nowSeconds };
+    dbTx.extraInputs = { ...dbTx.extraInputs, expiresAt: nowSeconds, expiryTriggeredAt: nowSeconds };
     return undefined;
   });
 };
