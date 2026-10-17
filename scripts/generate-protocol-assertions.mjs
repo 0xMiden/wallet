@@ -117,8 +117,8 @@ const OPERATOR_WORDS = [
   [/'/g, '']
 ];
 
-// Crash scrubbing (src/lib/telemetry/redact.ts) blanks a report holding four wordlist words in a row, as a recovery
-// phrase, and redacts four digits in a row, so these messages' own words would cost the report its name.
+// Crash scrubbing (src/lib/telemetry/redact.ts) redacts four digits in a row even in a closed name, and reads four
+// wordlist words in a row as a recovery phrase wherever it is given no closed names, so these coined names avoid both.
 // protocol-assertions.test.ts finds the next one.
 const NAME_OVERRIDES = new Map([
   ['kernel witness length must fit in a u32', 'CORE_LIB_KERNEL_WITNESS_LEN_NOT_U32'],

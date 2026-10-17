@@ -109,8 +109,33 @@ it('reports the screenshot assertion as a fixed diagnostic instead of redacted n
   expect((error as Error).message).toContain('executing');
   expect((error as Error).message).toContain('offscreen');
   expect((error as Error).message).toContain('guardian');
-  expect(options).toEqual({ initializeIfNeeded: true, level: 'error' });
+  expect(options).toEqual({ initializeIfNeeded: true, level: 'error', closedNames: expect.any(Set) });
   expect(source).toBe('manual');
+});
+
+it('hands crash scrubbing every closed name a report can carry, and nothing else', async () => {
+  reportTransactionFailure({ type: 'send' });
+  await settle();
+  const closedNames = jest.mocked(captureCrash).mock.calls[0]?.[2]?.closedNames;
+  const closedLists: ReadonlyArray<readonly string[]> = [
+    Object.values(assertions),
+    REPORTED_IDENTITIES,
+    FAILURE_REASONS,
+    NEVER_COMMITTED_RULES,
+    SUBMIT_GRPC_STATUSES,
+    SUBMIT_ENDPOINTS,
+    SUBMIT_NODE_ERRORS,
+    SUBMIT_HIDDEN_ANSWERS,
+    PIPELINE_KILLS,
+    EXECUTION_CAUSES,
+    SIGNING_STEPS,
+    CONFIRMING_STEPS,
+    CONSUME_ENTRY_POINTS,
+    HOT_KEY_CODES,
+    GUARDIAN_ERROR_CODES,
+    TELEMETRY_ERROR_KINDS
+  ];
+  expect([...(closedNames ?? [])].sort()).toEqual([...new Set(closedLists.flat())].sort());
 });
 
 it('reports a failure already reported at warning, still as a failure', async () => {

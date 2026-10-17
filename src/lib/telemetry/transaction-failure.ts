@@ -13,6 +13,7 @@ import { captureCrash } from './crash';
 import { annotateCrash, errorChain, snapshotCrashDiagnostics } from './crash-diagnostics';
 import assertions from './protocol-assertions.json';
 import { operationOfType, stepOfStage } from './transaction-operation';
+import { TELEMETRY_ERROR_KINDS } from './types';
 import packageJson from '../../../package.json';
 
 export interface TransactionFailureDiagnostics {
@@ -515,6 +516,27 @@ function failureIdentity(failure: TransactionFailure): string {
   return classifyError(error);
 }
 
+// Every closed name the report's text is built from, which crash scrubbing skips where each stands whole: a published
+// name can read as a recovery phrase, as ERR_INPUT_NOTE_ASSET_INDEX_OUT_OF_BOUNDS holds four wordlist words in a row.
+const CLOSED_NAMES: ReadonlySet<string> = new Set<string>([
+  ...Object.values(assertions),
+  ...REPORTED_IDENTITIES,
+  ...FAILURE_REASONS,
+  ...NEVER_COMMITTED_RULES,
+  ...SUBMIT_GRPC_STATUSES,
+  ...SUBMIT_ENDPOINTS,
+  ...SUBMIT_NODE_ERRORS,
+  ...SUBMIT_HIDDEN_ANSWERS,
+  ...PIPELINE_KILLS,
+  ...EXECUTION_CAUSES,
+  ...SIGNING_STEPS,
+  ...CONFIRMING_STEPS,
+  ...CONSUME_ENTRY_POINTS,
+  ...HOT_KEY_CODES,
+  ...GUARDIAN_ERROR_CODES,
+  ...TELEMETRY_ERROR_KINDS
+]);
+
 function softwareVersion(value: string): string {
   return /^\d{1,3}\.\d{1,3}\.\d{1,3}(?:-rc\.\d{1,3})?$/.test(value) ? value : 'unavailable';
 }
@@ -617,7 +639,8 @@ export function reportTransactionFailure(failure: TransactionFailure): void {
     // already has its error, so a later report on it is evidence for that one.
     captureCrash(report, 'manual', {
       initializeIfNeeded: true,
-      level: outcome === 'unconfirmed' || failure.alreadyReported === true || neverStarted ? 'warning' : 'error'
+      level: outcome === 'unconfirmed' || failure.alreadyReported === true || neverStarted ? 'warning' : 'error',
+      closedNames: CLOSED_NAMES
     });
   } catch {
     // Reporting must never change the transaction outcome.

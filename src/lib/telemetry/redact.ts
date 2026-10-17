@@ -159,8 +159,25 @@ function decodedViews(text: string): string[] {
   return views;
 }
 
-function viewHasSeedMaterial(view: string, words: ReadonlySet<string>): boolean {
-  const tokens = tokenize(view);
+const NO_CLOSED_NAMES: ReadonlySet<string> = new Set();
+
+/**
+ * The view with each closed name removed where it stands as a whole `[A-Za-z0-9_]` token, case and all, so only the
+ * caller's own fixed identifiers are skipped: a longer token holding one, a prefix or another casing is still read.
+ * Removed rather than replaced by a word, so a phrase split around a name still reads as one run.
+ */
+function withoutClosedNames(view: string, closedNames: ReadonlySet<string>): string {
+  if (closedNames.size === 0) return view;
+  return view.replace(/[A-Za-z0-9_]+/g, token => (closedNames.has(token) ? ' ' : token));
+}
+
+function viewHasSeedMaterial(
+  view: string,
+  words: ReadonlySet<string>,
+  closedNames: ReadonlySet<string> = NO_CLOSED_NAMES
+): boolean {
+  const visible = withoutClosedNames(view, closedNames);
+  const tokens = tokenize(visible);
 
   let run = 0;
   for (const token of tokens) {
@@ -168,18 +185,24 @@ function viewHasSeedMaterial(view: string, words: ReadonlySet<string>): boolean 
     if (run >= BIP39_RUN_THRESHOLD) return true;
   }
 
-  if (!MNEMONIC_CONTEXT_PATTERN.test(view)) return false;
+  if (!MNEMONIC_CONTEXT_PATTERN.test(visible)) return false;
   return tokens.some(token => words.has(token) && !MNEMONIC_CONTEXT_WORDS.has(token));
 }
 
 /**
  * Whether the text reads as recovery-phrase material — either a run of
  * consecutive wordlist words, or a single one in a message that is explicitly
- * about mnemonics. Checked against every decoded view of the text.
+ * about mnemonics. Checked against every decoded view of the text. Each of
+ * `closedNames`, the caller's own fixed identifiers, is skipped where it appears
+ * exactly as a whole token.
  */
-export function containsSeedMaterial(text: string, wordlist: readonly string[]): boolean {
+export function containsSeedMaterial(
+  text: string,
+  wordlist: readonly string[],
+  closedNames: ReadonlySet<string> = NO_CLOSED_NAMES
+): boolean {
   const words = new Set(wordlist.map(word => word.toLowerCase()));
-  return decodedViews(text).some(view => viewHasSeedMaterial(view, words));
+  return decodedViews(text).some(view => viewHasSeedMaterial(view, words, closedNames));
 }
 
 function applyPatterns(text: string): string {
@@ -215,9 +238,13 @@ function redactEncodedTokens(text: string, words: ReadonlySet<string>): string {
  * is for places like stack frames where there is no "drop it" option, only
  * "send it scrubbed".
  */
-export function redactText(text: string, wordlist: readonly string[]): string {
+export function redactText(
+  text: string,
+  wordlist: readonly string[],
+  closedNames: ReadonlySet<string> = NO_CLOSED_NAMES
+): string {
   const words = new Set(wordlist.map(word => word.toLowerCase()));
-  if (decodedViews(text).some(view => viewHasSeedMaterial(view, words))) return REDACTED;
+  if (decodedViews(text).some(view => viewHasSeedMaterial(view, words, closedNames))) return REDACTED;
   return redactEncodedTokens(applyPatterns(text), words);
 }
 
@@ -226,9 +253,13 @@ export function redactText(text: string, wordlist: readonly string[]): string {
  * recovery-phrase material, or scrubbing left nothing but markers, at which
  * point the error class and the stack carry more signal than the remains.
  */
-export function redactMessage(message: string, wordlist: readonly string[]): string | null {
+export function redactMessage(
+  message: string,
+  wordlist: readonly string[],
+  closedNames: ReadonlySet<string> = NO_CLOSED_NAMES
+): string | null {
   const words = new Set(wordlist.map(word => word.toLowerCase()));
-  if (decodedViews(message).some(view => viewHasSeedMaterial(view, words))) return null;
+  if (decodedViews(message).some(view => viewHasSeedMaterial(view, words, closedNames))) return null;
 
   const redacted = redactEncodedTokens(applyPatterns(message), words);
   const withoutMarkers = redacted.split(REDACTED).join('').trim();
@@ -332,14 +363,14 @@ function isUnknownArray(value: unknown): value is unknown[] {
   return Array.isArray(value);
 }
 
-function walk(value: unknown, words: readonly string[], seen: WeakSet<object>): void {
+function walk(value: unknown, words: readonly string[], seen: WeakSet<object>, closedNames: ReadonlySet<string>): void {
   if (isUnknownArray(value)) {
     if (seen.has(value)) return;
     seen.add(value);
     for (let index = 0; index < value.length; index++) {
       const item = value[index];
-      if (typeof item === 'string') value[index] = redactText(item, words);
-      else walk(item, words, seen);
+      if (typeof item === 'string') value[index] = redactText(item, words, closedNames);
+      else walk(item, words, seen, closedNames);
     }
     return;
   }
@@ -354,8 +385,8 @@ function walk(value: unknown, words: readonly string[], seen: WeakSet<object>): 
       continue;
     }
     const child = value[key];
-    if (typeof child === 'string') value[key] = redactText(child, words);
-    else walk(child, words, seen);
+    if (typeof child === 'string') value[key] = redactText(child, words, closedNames);
+    else walk(child, words, seen, closedNames);
   }
 }
 
@@ -367,8 +398,12 @@ function walk(value: unknown, words: readonly string[], seen: WeakSet<object>): 
  * reconstructing it would need a cast. Cycles are tracked, since a captured
  * error can hold a reference back to an object that holds it.
  */
-export function redactInPlace(value: unknown, wordlist: readonly string[]): void {
-  walk(value, wordlist, new WeakSet());
+export function redactInPlace(
+  value: unknown,
+  wordlist: readonly string[],
+  closedNames: ReadonlySet<string> = NO_CLOSED_NAMES
+): void {
+  walk(value, wordlist, new WeakSet(), closedNames);
 }
 
 /**
@@ -376,21 +411,32 @@ export function redactInPlace(value: unknown, wordlist: readonly string[]): void
  * material. A seed phrase in a crash report means the payload is contaminated
  * and the whole report is worth less than the risk of sending it.
  */
-export function containsSeedMaterialDeep(value: unknown, wordlist: readonly string[]): boolean {
-  return anySeedMaterial(value, wordlist, new WeakSet());
+export function containsSeedMaterialDeep(
+  value: unknown,
+  wordlist: readonly string[],
+  closedNames: ReadonlySet<string> = NO_CLOSED_NAMES
+): boolean {
+  return anySeedMaterial(value, wordlist, new WeakSet(), closedNames);
 }
 
-function anySeedMaterial(value: unknown, wordlist: readonly string[], seen: WeakSet<object>): boolean {
-  if (typeof value === 'string') return containsSeedMaterial(value, wordlist);
+function anySeedMaterial(
+  value: unknown,
+  wordlist: readonly string[],
+  seen: WeakSet<object>,
+  closedNames: ReadonlySet<string>
+): boolean {
+  if (typeof value === 'string') return containsSeedMaterial(value, wordlist, closedNames);
 
   if (isUnknownArray(value)) {
     if (seen.has(value)) return false;
     seen.add(value);
-    return value.some(item => anySeedMaterial(item, wordlist, seen));
+    return value.some(item => anySeedMaterial(item, wordlist, seen, closedNames));
   }
 
   if (!isPlainRecord(value) || seen.has(value)) return false;
   seen.add(value);
 
-  return Object.keys(value).some(key => !STRUCTURAL_KEYS.has(key) && anySeedMaterial(value[key], wordlist, seen));
+  return Object.keys(value).some(
+    key => !STRUCTURAL_KEYS.has(key) && anySeedMaterial(value[key], wordlist, seen, closedNames)
+  );
 }
