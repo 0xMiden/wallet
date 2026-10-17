@@ -2,6 +2,7 @@ import React from 'react';
 
 import { useTranslation } from 'react-i18next';
 
+import { NetworkLogo } from 'components/NetworkChip';
 import { ReviewLayout } from 'components/review';
 import { TokenLogo } from 'components/TokenLogo';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
@@ -29,6 +30,7 @@ export interface EvmBridgeDepositReviewProps {
   fee?: string;
   /** Source network name (e.g. Sepolia). */
   networkName: string;
+  networkId?: string;
   destinationName?: string;
   /** Source chain id; on the USDCx route it picks the arrival estimate (`usdcxArrivalKey`). */
   sourceChainId?: number;
@@ -79,6 +81,7 @@ export const EvmBridgeDepositReview: React.FC<EvmBridgeDepositReviewProps> = ({
   outputAmount,
   fee,
   networkName,
+  networkId,
   destinationName,
   sourceChainId,
   youReceiveLoading = false,
@@ -143,7 +146,7 @@ export const EvmBridgeDepositReview: React.FC<EvmBridgeDepositReviewProps> = ({
 
         <DetailRow label={t('from')}>
           <span className="inline-flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-primary-500" />
+            <NetworkLogo kind="ethereum" network={networkId} />
             {networkName}
           </span>
         </DetailRow>

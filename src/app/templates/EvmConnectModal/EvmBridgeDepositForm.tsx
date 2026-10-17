@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { HomeGroupPaneBody } from 'app/layouts/HomeGroupPane';
 import { AmountInput } from 'components/AmountInput';
 import { Button } from 'components/Button';
+import { NetworkLogo } from 'components/NetworkChip';
 import { TokenLogo } from 'components/TokenLogo';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { ListRow } from 'components/ui/ListRow';
@@ -130,6 +131,7 @@ export const EvmBridgeDepositForm: React.FC<EvmBridgeDepositFormProps> = ({
           aria-haspopup={onSelectNetwork ? 'dialog' : undefined}
           data-testid="bridge-source-network"
         >
+          {network && <NetworkLogo kind="ethereum" network={network.id} />}
           {network?.name ?? t('selectNetwork')}
         </DetailRow>
         <DetailRow label={t('to')} sub={destinationName} data-testid="bridge-destination">

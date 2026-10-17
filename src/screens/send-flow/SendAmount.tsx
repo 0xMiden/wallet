@@ -186,7 +186,7 @@ export const SendAmount: React.FC<SendAmountProps> = ({
             {recipientName ?? truncateAddress(recipientAddress)}
           </span>
           {bridgeNetwork ? (
-            <NetworkChip kind="ethereum" label={bridgeNetwork.name} />
+            <NetworkChip kind="ethereum" network={bridgeNetwork.id} label={bridgeNetwork.name} />
           ) : (
             <NetworkChip kind="miden" label={t('miden')} />
           )}
