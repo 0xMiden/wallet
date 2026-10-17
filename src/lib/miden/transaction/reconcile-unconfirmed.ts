@@ -253,6 +253,8 @@ async function writeNeverCommitted(rowId: string, judgement: RowJudgement, nowSe
       stage: failed.stage,
       delegateTransaction: failed.delegateTransaction,
       diagnostics: failed.failureDiagnostics,
+      reason: 'never_committed',
+      neverCommittedRule: judgement.neverCommittedBy,
       error: TRANSACTION_NEVER_COMMITTED_ERROR
     });
   }
