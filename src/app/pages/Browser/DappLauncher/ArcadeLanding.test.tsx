@@ -100,6 +100,20 @@ it('uses the shared paging carousel when the catalog publishes multiple featured
   fireEvent.click(dots[1]!);
 });
 
+it('launches the current configured URL, including after a catalog refresh with details open', () => {
+  const onOpen = jest.fn();
+  const { rerender } = render(<ArcadeLanding catalog={catalog} pending={false} onOpen={onOpen} />);
+  fireEvent.click(screen.getByRole('button', { name: 'arcadeDetails' }));
+  const updatedUrl = 'https://updated-game.example/play?source=bread#start';
+  const refreshed = { ...catalog, items: catalog.items.map(item => ({ ...item, url: updatedUrl })) };
+  rerender(<ArcadeLanding catalog={refreshed} pending={false} onOpen={onOpen} />);
+  const details = screen.getByRole('dialog');
+  expect(details).toHaveTextContent('updated-game.example');
+  fireEvent.click(within(details).getByRole('button', { name: 'arcadeOpenGame' }));
+  expect(onOpen).toHaveBeenCalledWith(updatedUrl);
+  expect(onOpen).not.toHaveBeenCalledWith(catalog.items[0]?.url);
+});
+
 it('removes details when the catalog changes and shows loading before an empty state', () => {
   const onOpen = jest.fn();
   const { rerender } = render(<ArcadeLanding catalog={catalog} pending={false} onOpen={onOpen} />);

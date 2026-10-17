@@ -1,5 +1,11 @@
 # Explore catalog from a config repo (#1361)
 
+Migration update (2026-10-17): this document records the original implementation.
+The follow-up in wallet-config #10 and wallet #1512 moves catalogs and icons to
+`0xMiden/wallet-config/main/explore/`, preserving the schema, cache keys, version
+floors and bundled fallback. Publish the new catalogs before shipping that reader;
+older wallets continue to use wallet-explore. The original rationale below is historical.
+
 Approved by the issue body and its comments (author and org member WiktorStarczewski), and by the user's answers on 2026-10-07: a new repo `0xMiden/wallet-explore` (kept over folding into wallet-config), no review on merge, created from this session with wallet-config's settings.
 
 ## Goal

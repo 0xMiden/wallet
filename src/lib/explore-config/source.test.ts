@@ -15,7 +15,7 @@ import {
 const NOW = 1_800_000_000_000;
 const KEY = 'explore_config_v1:testnet';
 const FLOOR = 'explore_config_floor_v1';
-const PUBLISHED = 'https://raw.githubusercontent.com/0xMiden/wallet-explore/main';
+const PUBLISHED = 'https://raw.githubusercontent.com/0xMiden/wallet-config/main/explore';
 const SERVED_BASE = 'http://127.0.0.1:8551/explore';
 
 const faucet = (url = 'https://faucet.example/') => ({
@@ -194,6 +194,37 @@ describe('readExploreConfigFloor', () => {
 });
 
 describe('readStoredExploreConfig', () => {
+  it('migrates a legacy raw cache without resetting its floor or changing same-version identity', async () => {
+    const legacyBody = doc(3);
+    setup({ [KEY]: { fetchedAt: NOW - 1, body: legacyBody }, [FLOOR]: { testnet: 3 } });
+    // Only raw document data is stored: icons now resolve on wallet-config, not the old repository.
+    await expect(readStoredExploreConfig('testnet')).resolves.toEqual({ catalog: parsed(3), fetchedAt: NOW - 1 });
+    fetchMock.mockResolvedValueOnce(response(legacyBody));
+    await expect(fetchAndStoreExploreConfig('testnet')).resolves.toEqual({ catalog: parsed(3), fetchedAt: NOW });
+    fetchMock.mockResolvedValueOnce(response(doc(3, [faucet('https://changed.example/')])));
+    await expect(fetchAndStoreExploreConfig('testnet')).rejects.toThrow('differs from the accepted document');
+    await expect(readExploreConfigFloor('testnet')).resolves.toBe(3);
+    expect(storage.data[KEY]).toEqual({ fetchedAt: NOW, body: legacyBody });
+  });
+
+  it('retains the accepted catalog when the new endpoint is unavailable, then accepts a higher-version URL', async () => {
+    setup({ [KEY]: { fetchedAt: NOW - 1, body: doc(3) }, [FLOOR]: { testnet: 3 } });
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 404 });
+    await expect(fetchAndStoreExploreConfig('testnet')).rejects.toThrow();
+    await expect(readStoredExploreConfig('testnet')).resolves.toEqual({ catalog: parsed(3), fetchedAt: NOW - 1 });
+    expect(storage.set).not.toHaveBeenCalled();
+    fetchMock.mockResolvedValueOnce(response(doc(4, [faucet('https://new-game.example/play?source=bread')])));
+    await expect(fetchAndStoreExploreConfig('testnet')).resolves.toEqual({
+      catalog: parsed(4, PUBLISHED, 'https://new-game.example/play?source=bread'),
+      fetchedAt: NOW
+    });
+    expect(fetchMock.mock.calls.map(call => call[0])).toEqual([
+      `${PUBLISHED}/testnet.json`,
+      `${PUBLISHED}/testnet.json`
+    ]);
+    await expect(readExploreConfigFloor('testnet')).resolves.toBe(4);
+  });
+
   it('reads back what a fetch stored', async () => {
     setup();
     fetchMock.mockResolvedValue(response(doc(2)));

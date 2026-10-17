@@ -9,6 +9,7 @@ it('lets the desktop app load the published Explore icons, and no other reposito
   const imgSrc = /img-src ([^;"]*)/.exec(conf)?.[1]?.split(' ') ?? [];
   const icon = `${PUBLISHED_EXPLORE_BASE_URL}/icons/faucet.png`;
   expect(imgSrc.filter(source => source.startsWith('https://') && icon.startsWith(source))).toEqual([
-    'https://raw.githubusercontent.com/0xMiden/wallet-explore/'
+    'https://raw.githubusercontent.com/0xMiden/wallet-config/main/explore/'
   ]);
+  expect(imgSrc).not.toContain('https://raw.githubusercontent.com/0xMiden/wallet-explore/');
 });

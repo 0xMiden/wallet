@@ -228,7 +228,7 @@ function readCatalog(body: unknown, network: string, options: Required<ExplorePa
 /**
  * The Explore catalog for `network`, or null when the document is malformed or names another network. Strict on known
  * fields, blind to unknown ones; an item in an unknown category or a section of an unknown kind is left out. Mirrored
- * rule for rule by 0xMiden/wallet-explore's scripts/validate.mjs.
+ * rule for rule by 0xMiden/wallet-config's scripts/validate-explore.mjs.
  */
 export function parseExploreConfig(
   body: unknown,

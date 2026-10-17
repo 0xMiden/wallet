@@ -5,14 +5,17 @@ import { EXPLORE_CONFIG_FLOOR_KEY } from './floor-key';
 import { type ExploreCatalog, parseExploreConfig } from './schema';
 import { BUNDLED_EXPLORE_ICONS, bundledExploreConfig } from './snapshot';
 
-export const PUBLISHED_EXPLORE_BASE_URL = 'https://raw.githubusercontent.com/0xMiden/wallet-explore/main';
+export const PUBLISHED_EXPLORE_BASE_URL = 'https://raw.githubusercontent.com/0xMiden/wallet-config/main/explore';
 
 export interface StoredExploreConfig {
   catalog: ExploreCatalog;
   fetchedAt: number;
 }
 
-/** `explore_config_v1:<network>`, holding `{ fetchedAt, body }` with the body as fetched. */
+/**
+ * `explore_config_v1:<network>`, holding `{ fetchedAt, body }` with the body as fetched.
+ * Keep the legacy cache and floor: migrated catalogs retain their bodies and version history.
+ */
 export function exploreConfigCacheKey(network: string): string {
   return `explore_config_v1:${network}`;
 }
