@@ -476,11 +476,39 @@ describe('connect payload', () => {
     });
   });
 
-  it('auto-confirms an existing permission during render', () => {
+  it('auto-confirms an existing permission once, however often the form renders', () => {
     setPayload(connectPayload({ existingPermission: true }));
-    render(<ConfirmPage />);
+    const { rerender } = render(<ConfirmPage />);
+    rerender(<ConfirmPage />);
 
+    expect(ctx.confirmDAppPermission).toHaveBeenCalledTimes(1);
     expect(ctx.confirmDAppPermission).toHaveBeenCalledWith('req-1', true, ACCOUNT.publicKey, UPON_REQUEST, ['balance']);
+  });
+
+  it('shows the error with Retry when the automatic answer to an existing permission fails, and Retry answers again', async () => {
+    // The wallet could not read the account's key after the approval (#1471).
+    ctx.confirmDAppPermission.mockRejectedValue(new Error('Account not found'));
+    try {
+      setPayload(connectPayload({ existingPermission: true }));
+      render(<ConfirmPage />);
+
+      await waitFor(() => expect(screen.getByText('Account not found')).toBeInTheDocument());
+      const retry = screen.getByTestId(ConfirmPageSelectors.ConnectAction_RetryButton);
+      expect(retry).toHaveTextContent('retry');
+      expect(ctx.confirmDAppPermission).toHaveBeenCalledTimes(1);
+
+      ctx.confirmDAppPermission.mockResolvedValue(undefined);
+      await act(async () => {
+        fireEvent.click(retry);
+      });
+
+      await waitFor(() => expect(ctx.confirmDAppPermission).toHaveBeenCalledTimes(2));
+      expect(ctx.confirmDAppPermission).toHaveBeenLastCalledWith('req-1', true, ACCOUNT.publicKey, UPON_REQUEST, [
+        'balance'
+      ]);
+    } finally {
+      ctx.confirmDAppPermission.mockReset();
+    }
   });
 
   it('shows the private-data checkbox when permission is Auto and account is non-public', () => {

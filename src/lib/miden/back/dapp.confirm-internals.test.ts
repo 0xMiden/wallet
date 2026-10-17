@@ -352,12 +352,13 @@ describe('requestConfirm — closeWindow error handling', () => {
 });
 
 describe('requestPermission (extension) — public-key fetch failure', () => {
-  it('rejects with NotGranted and does not persist a session when the pubkey fetch fails', async () => {
+  it('fails the confirmation, persists no session and leaves the dApp to the auto-decline when the pubkey fetch fails', async () => {
     const origin = 'https://new-dapp.xyz';
     const mc = _g.__dappConfInternals.midenClient;
     // Pubkey fetch fails: getAccount → null makes getAccountPublicKeyB64 throw
-    // "Account not found". The connect must reject rather than persist a
-    // session with publicKey: null (which would wedge every later reconnect).
+    // "Account not found". The approval must not persist a session with
+    // publicKey: null (which would wedge every later reconnect), and must not
+    // be answered as a refusal either (#1471).
     mc.getAccount.mockResolvedValue(null);
     try {
       const p = dapp.requestPermission(
@@ -383,20 +384,33 @@ describe('requestPermission (extension) — public-key fetch failure', () => {
       const port = { id: 'p1' };
       // Register the confirm window's port, then approve the connection.
       await listener({ type: MidenMessageType.DAppGetPayloadRequest, id: [id] }, port);
-      await listener(
-        {
-          type: MidenMessageType.DAppPermConfirmationRequest,
-          id,
-          confirmed: true,
-          accountPublicKey: 'a1',
-          privateDataPermission: 'UPON_REQUEST'
-        },
-        port
+      let answer: string | undefined;
+      p.then(
+        () => (answer = 'granted'),
+        (error: Error) => (answer = error.message)
       );
+      await expect(
+        listener(
+          {
+            type: MidenMessageType.DAppPermConfirmationRequest,
+            id,
+            confirmed: true,
+            accountPublicKey: 'a1',
+            privateDataPermission: 'UPON_REQUEST'
+          },
+          port
+        )
+      ).rejects.toThrow('Account not found');
 
-      await expect(p).rejects.toThrow(MidenDAppErrorType.NotGranted);
       // The broken (publicKey: null) session must NOT be persisted.
       expect(_g.__dappConfInternals.storage[STORAGE_KEY][origin]).toBeUndefined();
+      // The window stays open on the error, and the dApp waits until the window's auto-decline.
+      await jest.advanceTimersByTimeAsync(119_000);
+      expect(answer).toBeUndefined();
+      expect(browser.windows.remove).not.toHaveBeenCalled();
+      await jest.advanceTimersByTimeAsync(1_000);
+      expect(answer).toBe(MidenDAppErrorType.NotGranted);
+      expect(browser.windows.remove).toHaveBeenCalledWith(888);
     } finally {
       mc.getAccount.mockResolvedValue({
         getPublicKeyCommitments: () => [{ serialize: () => new Uint8Array([1]) }]
