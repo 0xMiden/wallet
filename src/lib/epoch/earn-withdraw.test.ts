@@ -946,8 +946,19 @@ describe('resubmitEarnWithdrawal', () => {
         minimumAtomic: worse ? '4' : '6',
         expiresAt: Date.now() + 60000
       });
+      // The legs the allocator returns for this review: both spend the reviewed 1 USDC at the reviewed floor of 6.
+      const fixture = preparedExecution();
+      const reviewedLegs = {
+        ...fixture,
+        allocations: fixture.allocations.map(allocation => ({
+          ...allocation,
+          requestJson: allocation.requestJson
+            .replaceAll('"10000000"', '"1000000"')
+            .replaceAll('"minTokenOut":"1"', '"minTokenOut":"6"')
+        }))
+      };
       const execute = jest.fn();
-      const deps = baseDeps({ sdk: fakeSdk(execute) });
+      const deps = baseDeps({ sdk: fakeSdk(execute, reviewedLegs) });
       const result = await resubmitEarnWithdrawal('TX1', deps).then(
         () => 'submitted',
         (error: Error) => error.message
@@ -974,7 +985,7 @@ describe('resubmitEarnWithdrawal', () => {
     const execute = jest.fn();
     const deps = baseDeps({ sdk: fakeSdk(execute) });
 
-    await expect(resubmitEarnWithdrawal('TX1', deps)).rejects.toThrow(new Error(sentence));
+    await expect(resubmitEarnWithdrawal('TX1', deps)).rejects.toThrow(new Error(sentence, { cause: new Error(key) }));
     expect(execute).not.toHaveBeenCalled();
     expect(deps.ensureSmartAccount).not.toHaveBeenCalled();
     expect(row.extraInputs.phase).toBe('failed');
@@ -1608,7 +1619,9 @@ describe('withdrawal ownership across independent document factories', () => {
 
     parked.resolve({ nonce: 'FRESH' });
     await expect(submission).resolves.toMatchObject({ txId: 'TX2' });
-    await expect(retry).rejects.toThrow(new Error(WITHDRAWAL_IN_PROGRESS));
+    await expect(retry).rejects.toThrow(
+      new Error(WITHDRAWAL_IN_PROGRESS, { cause: new Error('earnWithdrawInProgress') })
+    );
     expect(retried).not.toHaveBeenCalled();
     expect(h.rows.get('TX1')?.extraInputs).toMatchObject({ phase: 'failed', error: 'failed' });
   });

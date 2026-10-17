@@ -168,6 +168,21 @@ it('refuses a quote for another input amount or scale', async () => {
   });
   await expect(quoteEarnWithdrawal(args, sdk)).rejects.toThrow('earnWithdrawQuoteUnavailable');
 });
+it('accepts a quote for the reviewed input amount at the position scale', async () => {
+  getIntentQuote.mockResolvedValue({
+    success: true,
+    tokenIn: '1000000000000000001',
+    tokenInDecimals: 18,
+    tokenOut: '991822',
+    transactions: [],
+    resourceLockRequired: true
+  });
+  await expect(quoteEarnWithdrawal(args, sdk)).resolves.toMatchObject({
+    amountAtomic: '1000000000000000001',
+    expectedAtomic: '991822',
+    minimumAtomic: '981903'
+  });
+});
 
 it('rejects a native-asset identity change while the fresh position read is pending', async () => {
   const q = await quoteEarnWithdrawal(args, sdk);
