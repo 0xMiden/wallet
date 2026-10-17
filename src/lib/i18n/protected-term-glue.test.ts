@@ -108,6 +108,13 @@ const ACCEPTED_FORMS: [string, string, string, string][] = [
   ],
   ['a native word the English does not protect', 'fr', 'Write down your recovery phrase.', 'Notez votre phrase.'],
   ['a native German word', 'de', 'Cannot reach the Miden node', 'Der Knoten „Miden“ ist nicht erreichbar'],
+  [
+    'a native German word beside a protected term',
+    'de',
+    'The node returned the note',
+    'Der Knoten hat die note zurückgegeben'
+  ],
+  ['a native French word beside a protected term', 'fr', 'Write down the note ID', "Notez l'ID de la note"],
   ['Japanese around a term', 'ja', 'What is a Guardian?', 'Guardianとは何ですか？'],
   ['Chinese before a term', 'zh_CN', 'Choose your Guardian', '选择您的Guardian'],
   ['a Korean particle', 'ko', 'Choose your Guardian', 'Guardian를 선택하세요']
