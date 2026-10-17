@@ -58,10 +58,19 @@ jest.mock('../sdk/helpers', () => ({
   sameWalletAccountId: (a: string, b: string) => a.split('_')[0] === b.split('_')[0]
 }));
 
-// The worker store's account list, which the native pass reads for a rotation-pending account (#805).
+// The worker store: its account list, which the native pass reads for a rotation-pending account (#805), and its
+// lock state. Locked is the state `locked()` builds: no vault and no accounts.
 let mockStoreAccounts: Array<{ publicKey: string; requiresHotKeyRotation?: boolean }> = [];
+let mockStoreLocked = false;
 jest.mock('./store', () => ({
-  store: { getState: () => ({ accounts: mockStoreAccounts }) }
+  store: {
+    getState: () => {
+      const { WalletStatus } = jest.requireActual('lib/shared/types');
+      return mockStoreLocked
+        ? { inited: true, status: WalletStatus.Locked, vault: null, accounts: [] }
+        : { inited: true, status: WalletStatus.Ready, vault: {}, accounts: mockStoreAccounts };
+    }
+  }
 }));
 
 const mockMarkConnectivityIssue = jest.fn();
@@ -273,6 +282,7 @@ import {
 import { SyncData, WalletMessageType } from 'lib/shared/types';
 
 import { computeSyncBackoffMs, doSync, setupSyncManager } from './sync-manager';
+import { startTransactionProcessing } from './transaction-processor';
 import { ITransaction, ITransactionStatus } from '../db/types';
 import { __resetSyncFuseStateForTests, isSyncFused, noteSyncWatchdogEviction } from '../front/sync-fuse';
 import { WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
@@ -334,6 +344,7 @@ beforeEach(() => {
   mockGetFaucetIdSetting.mockResolvedValue(null);
   mockInitiateConsume.mockResolvedValue('consume-tx');
   mockStoreAccounts = [];
+  mockStoreLocked = false;
 });
 
 describe('computeSyncBackoffMs (gap 14 — exponential backoff + jitter)', () => {
@@ -1772,6 +1783,34 @@ describe('doSync — native-note auto-consume', () => {
 
     // Never act on read-miss defaults for a user who may have opted out.
     expect(mockInitiateConsumeBatch).not.toHaveBeenCalled();
+  });
+
+  it('queues no claim while the vault is locked, and the first lap after unlock queues it', async () => {
+    mockIsAutoConsumeAsync.mockResolvedValue(true);
+    mockGetFaucetIdSetting.mockResolvedValue('native-faucet');
+    mockHasClients.mockReturnValue(false);
+    mockMergeAndPersistSeenNoteIds.mockResolvedValueOnce(['native-note']);
+    const create = jest.fn();
+    Reflect.set(Reflect.get(globalThis, 'chrome'), 'notifications', { create });
+    mockClient.getConsumableNoteDtos.mockResolvedValue([fakeNote({ id: 'native-note', faucetId: 'native-faucet' })]);
+
+    // Locked, the claim's first signing step fails and the row is deferred until it expires as a failure.
+    mockStoreLocked = true;
+    await doSync();
+
+    expect(mockInitiateConsumeBatch).not.toHaveBeenCalled();
+    expect(mockInitiateConsume).not.toHaveBeenCalled();
+    expect(startTransactionProcessing).not.toHaveBeenCalled();
+    // Still auto-consume's note, so it raises no "click to claim" prompt either.
+    expect(create).not.toHaveBeenCalled();
+    expect(mockStorageSet).toHaveBeenCalled();
+
+    mockStoreLocked = false;
+    await doSync();
+
+    expect(mockInitiateConsumeBatch).toHaveBeenCalledTimes(1);
+    expect(mockInitiateConsumeBatch.mock.calls[0]?.[1]).toEqual([expect.objectContaining({ id: 'native-note' })]);
+    expect(startTransactionProcessing).toHaveBeenCalledTimes(1);
   });
 
   it('resolves cleanly when the eligibility resolve (getFaucetIdSetting) rejects', async () => {
