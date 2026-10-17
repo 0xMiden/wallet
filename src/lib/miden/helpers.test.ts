@@ -1,4 +1,4 @@
-import { AccountId, InputNoteRecord, NoteRecipient, NoteType } from '@miden-sdk/miden-sdk/lazy';
+import { AccountId, InputNoteRecord, NoteType } from '@miden-sdk/miden-sdk/lazy';
 
 import {
   ESTIMATED_MS_PER_BLOCK,
@@ -200,8 +200,6 @@ describe('miden helpers', () => {
 // A non-target enters p2ide.masm only through its reclaim branch, and a reclaim height of 0 closes that branch at every
 // block; a sponsorship consumed without its feature note takes the same branch (miden-standards 0.17.1).
 describe('which account can ever consume a note', () => {
-  const recipient = (scriptRoot: string, storageItems: bigint[]) =>
-    makeNote(scriptRoot, storageItems).details().recipient();
   const target = { prefix: 0x00000000feedbeefn.toString(), suffix: 0x7c9d1e2f3a4b0000n.toString() };
   const account = (prefix: bigint, suffix: bigint) => () =>
     ({ prefix: () => ({ asInt: () => prefix }), suffix: () => ({ asInt: () => suffix }) }) as unknown as AccountId;
@@ -216,23 +214,23 @@ describe('which account can ever consume a note', () => {
   ];
 
   it('names the target as the one account that can consume a P2IDE whose reclaim is disabled', () => {
-    expect(reclaimDisabledP2ideTarget(recipient(P2IDE_ROOT, p2ideStorage(0n, 1100n)))).toEqual(target);
-    expect(noteConsumeRestriction(recipient(P2IDE_ROOT, p2ideStorage(0n)))).toEqual(target);
+    expect(reclaimDisabledP2ideTarget(makeNote(P2IDE_ROOT, p2ideStorage(0n, 1100n)))).toEqual(target);
+    expect(noteConsumeRestriction(makeNote(P2IDE_ROOT, p2ideStorage(0n)))).toEqual(target);
   });
 
   it('restricts no P2IDE with a reclaim height, no other script and no other storage layout', () => {
-    expect(reclaimDisabledP2ideTarget(recipient(P2IDE_ROOT, p2ideStorage(1200n)))).toBeUndefined();
-    expect(reclaimDisabledP2ideTarget(recipient(P2ID_ROOT, p2ideStorage(0n)))).toBeUndefined();
-    expect(reclaimDisabledP2ideTarget(recipient(P2IDE_ROOT, [0n, ...p2ideStorage(0n)]))).toBeUndefined();
-    expect(noteConsumeRestriction(recipient(P2ID_ROOT, p2ideStorage(0n)))).toBeUndefined();
+    expect(reclaimDisabledP2ideTarget(makeNote(P2IDE_ROOT, p2ideStorage(1200n)))).toBeUndefined();
+    expect(reclaimDisabledP2ideTarget(makeNote(P2ID_ROOT, p2ideStorage(0n)))).toBeUndefined();
+    expect(reclaimDisabledP2ideTarget(makeNote(P2IDE_ROOT, [0n, ...p2ideStorage(0n)]))).toBeUndefined();
+    expect(noteConsumeRestriction(makeNote(P2ID_ROOT, p2ideStorage(0n)))).toBeUndefined();
   });
 
   it('lets nobody consume a fee sponsorship whose reclaim is disabled, and restricts one that has a reclaim height', () => {
-    expect(noteConsumeRestriction(recipient(SPONSORSHIP_ROOT, sponsorship(0n)))).toBe('nobody');
-    expect(noteConsumeRestriction(recipient(SPONSORSHIP_ROOT, sponsorship(1200n)))).toBeUndefined();
-    expect(noteConsumeRestriction(recipient(SPONSORSHIP_ROOT, sponsorship(0n).slice(1)))).toBeUndefined();
+    expect(noteConsumeRestriction(makeNote(SPONSORSHIP_ROOT, sponsorship(0n)))).toBe('nobody');
+    expect(noteConsumeRestriction(makeNote(SPONSORSHIP_ROOT, sponsorship(1200n)))).toBeUndefined();
+    expect(noteConsumeRestriction(makeNote(SPONSORSHIP_ROOT, sponsorship(0n).slice(1)))).toBeUndefined();
     // The listing reads only the P2IDE rule.
-    expect(reclaimDisabledP2ideTarget(recipient(SPONSORSHIP_ROOT, sponsorship(0n)))).toBeUndefined();
+    expect(reclaimDisabledP2ideTarget(makeNote(SPONSORSHIP_ROOT, sponsorship(0n)))).toBeUndefined();
   });
 
   it('admits the restriction target alone, compared by its prefix and suffix', () => {
@@ -251,10 +249,14 @@ describe('which account can ever consume a note', () => {
   it('restricts nothing when the note cannot be read, but lets a WebAssembly trap through', () => {
     const throwing = (error: Error) =>
       ({
-        script: () => {
-          throw error;
-        }
-      }) as unknown as NoteRecipient;
+        details: () => ({
+          recipient: () => ({
+            script: () => {
+              throw error;
+            }
+          })
+        })
+      }) as unknown as InputNoteRecord;
     expect(noteConsumeRestriction(throwing(new Error('boom')))).toBeUndefined();
     expect(reclaimDisabledP2ideTarget(throwing(new Error('boom')))).toBeUndefined();
     const trap = new WebAssembly.RuntimeError('unreachable');

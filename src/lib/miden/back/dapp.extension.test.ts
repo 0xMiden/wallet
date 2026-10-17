@@ -172,6 +172,7 @@ let currentWasmHold: object | null = null;
 const revokeWasmHold = (): void => {
   currentWasmHold = null;
 };
+const mockRetireWasmClientForCaughtTrap = jest.fn();
 jest.mock('../sdk/miden-client', () => ({
   getMidenClient: async () => (globalThis as any).__dappExtTest.midenClient,
   withWasmClientLock: async <T>(fn: (hold: object) => Promise<T>) => {
@@ -179,6 +180,10 @@ jest.mock('../sdk/miden-client', () => ({
     currentWasmHold = hold;
     try {
       return await fn(hold);
+    } catch (error) {
+      // The real lock's caught-trap path: a callback that rejects with a trap retires the client through its holder.
+      if (error instanceof WebAssembly.RuntimeError) mockRetireWasmClientForCaughtTrap(hold, error);
+      throw error;
     } finally {
       if (currentWasmHold === hold) currentWasmHold = null;
     }
@@ -1766,6 +1771,23 @@ describe('Full confirmation cycles in extension mode', () => {
       await expect(consumeWithBytes()).rejects.toThrow(
         `${MidenDAppErrorType.InvalidParams}: Error: noteBytes describe a different note than noteId`
       );
+      expect(_g.__dappExtTest.midenClient.importNoteBytes).not.toHaveBeenCalled();
+      expect(transaction().initiateConsumeTransactionFromId).not.toHaveBeenCalled();
+    });
+
+    it('refuses the consume before the import and retires the client when the approval-time decode traps', async () => {
+      const trap = new WebAssembly.RuntimeError('unreachable');
+      carryRawNote(
+        jest
+          .fn()
+          .mockReturnValueOnce(sdkNote('note-1'))
+          .mockImplementation(() => {
+            throw trap;
+          })
+      );
+
+      await expect(consumeWithBytes()).rejects.toThrow(`${MidenDAppErrorType.InvalidParams}: RuntimeError`);
+      expect(mockRetireWasmClientForCaughtTrap).toHaveBeenCalledWith(expect.anything(), trap);
       expect(_g.__dappExtTest.midenClient.importNoteBytes).not.toHaveBeenCalled();
       expect(transaction().initiateConsumeTransactionFromId).not.toHaveBeenCalled();
     });

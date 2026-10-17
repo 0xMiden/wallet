@@ -190,6 +190,7 @@ const storedNote = {
   assets: [{ faucetId: 'faucet-1', amount: '1000000' }]
 };
 const mockGetInputNoteDetails = jest.fn(async (..._args: unknown[]): Promise<unknown[]> => [storedNote]);
+const mockRetireWasmClientForCaughtTrap = jest.fn();
 jest.mock('../sdk/miden-client', () => ({
   getMidenClient: async () => ({
     getAccount: (id: string) => (globalThis as any).__dappBranchMockGetAccount(id),
@@ -205,6 +206,10 @@ jest.mock('../sdk/miden-client', () => ({
     currentWasmHold = hold;
     try {
       return await fn(hold);
+    } catch (error) {
+      // The real lock's caught-trap path: a callback that rejects with a trap retires the client through its holder.
+      if (error instanceof WebAssembly.RuntimeError) mockRetireWasmClientForCaughtTrap(hold, error);
+      throw error;
     } finally {
       if (currentWasmHold === hold) currentWasmHold = null;
     }
@@ -734,6 +739,54 @@ describe('requestConsumeTransaction — mobile error branches', () => {
         await expect(consumeStored()).rejects.toThrow(MidenDAppErrorType.InvalidParams);
         expect(mockRequestConfirmation).not.toHaveBeenCalled();
         expect(mockInitiateConsumeTransactionFromId).not.toHaveBeenCalled();
+      });
+    });
+
+    // A trap is no unreadable bytes: the module that ran the decode is aborted, so the lock has to see it and retire the
+    // client, and nothing may read the store, show the sheet, import or queue on it.
+    describe('a WebAssembly trap while decoding the carried note', () => {
+      const trap = new WebAssembly.RuntimeError('unreachable');
+      const throwTrap = () => {
+        throw trap;
+      };
+
+      it.each([
+        ['NoteFile.deserialize', () => (sdk.NoteFile = { deserialize: throwTrap })],
+        ['Note.deserialize', () => carryRawNote(throwTrap)],
+        [
+          'the read of the decoded note restriction',
+          () => carryRawNote(() => ({ ...sdkNote('note-1'), recipient: throwTrap }))
+        ]
+      ])('in %s refuses the request before the sheet and retires the client', async (_name, arrange) => {
+        arrange();
+
+        await expect(consumeWithBytes()).rejects.toThrow(`${MidenDAppErrorType.InvalidParams}: RuntimeError`);
+        expect(mockRetireWasmClientForCaughtTrap).toHaveBeenCalledWith(expect.anything(), trap);
+        expect(mockGetInputNoteDetails).not.toHaveBeenCalled();
+        expect(mockRequestConfirmation).not.toHaveBeenCalled();
+        expect(mockImportNoteBytes).not.toHaveBeenCalled();
+        expect(mockInitiateConsumeTransactionFromId).not.toHaveBeenCalled();
+      });
+
+      it('after the approval refuses the consume before the import and retires the client', async () => {
+        carryRawNote(jest.fn().mockReturnValueOnce(sdkNote('note-1')).mockImplementation(throwTrap));
+
+        await expect(consumeWithBytes()).rejects.toThrow(`${MidenDAppErrorType.InvalidParams}: RuntimeError`);
+        expect(mockRequestConfirmation).toHaveBeenCalledTimes(1);
+        expect(mockRetireWasmClientForCaughtTrap).toHaveBeenCalledWith(expect.anything(), trap);
+        expect(mockImportNoteBytes).not.toHaveBeenCalled();
+        expect(mockInitiateConsumeTransactionFromId).not.toHaveBeenCalled();
+      });
+
+      it('is not what an ordinary decode failure is: those bytes still fall back to the stored note', async () => {
+        carryRawNote(() => {
+          throw new Error('not a Note');
+        });
+        mockInitiateConsumeTransactionFromId.mockResolvedValueOnce('tx-c');
+
+        await expect(consumeWithBytes()).resolves.toEqual(consumed);
+        expect(mockGetInputNoteDetails).toHaveBeenCalledTimes(1);
+        expect(mockRetireWasmClientForCaughtTrap).not.toHaveBeenCalled();
       });
     });
 
