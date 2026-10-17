@@ -1931,7 +1931,8 @@ describe('doSync - zero-fill swap reclaim', () => {
         expect.objectContaining({ id: 'zero-fill-tip' }),
         reclaimBytes,
         'swap-1',
-        undefined
+        undefined,
+        expect.any(Function)
       );
       const [classified] = mockSettlementSeen.classify;
       const [reconciled] = mockSettlementSeen.reconcile;
@@ -1972,7 +1973,8 @@ describe('doSync - zero-fill swap reclaim', () => {
         expect.objectContaining({ id: 'zero-fill-tip' }),
         reclaimBytes,
         'swap-1',
-        undefined
+        undefined,
+        expect.any(Function)
       );
       expect(startTransactionProcessing).toHaveBeenCalledTimes(1);
     } finally {

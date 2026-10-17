@@ -331,7 +331,8 @@ describe('swap order note settlement', () => {
       }),
       new Uint8Array([1, 4, 7, 6]),
       'swap-1',
-      true
+      true,
+      undefined
     );
     expect(initiateConsumeNotesTransaction).not.toHaveBeenCalled();
     expect(result).toEqual({
@@ -540,7 +541,15 @@ describe('swap order note settlement', () => {
     await reconcileSwapOrderNotes('account-1', [consumable('tip', 'tip', 'filled'), payback0, payback1], false, 150);
 
     expect(initiateConsumeNotesTransaction).toHaveBeenCalledTimes(1);
-    expect(initiateConsumeNotesTransaction).toHaveBeenCalledWith('account-1', [payback0, payback1], false);
+    expect(initiateConsumeNotesTransaction).toHaveBeenCalledWith(
+      'account-1',
+      [payback0, payback1],
+      false,
+      undefined,
+      undefined,
+      undefined,
+      undefined
+    );
   });
 
   it('falls back to the swap row delegate preference when no delegate flag is passed', async () => {
@@ -549,7 +558,15 @@ describe('swap order note settlement', () => {
 
     await reconcileSwapOrderNotes('account-1', [payback], undefined, 150);
 
-    expect(initiateConsumeNotesTransaction).toHaveBeenCalledWith('account-1', [payback], true);
+    expect(initiateConsumeNotesTransaction).toHaveBeenCalledWith(
+      'account-1',
+      [payback],
+      true,
+      undefined,
+      undefined,
+      undefined,
+      undefined
+    );
   });
 
   it('persists expiry intent before queueing, and never batches the still-fillable tip with the paybacks', async () => {
@@ -679,7 +696,15 @@ describe('swap order note settlement', () => {
 
       await reconcileSwapOrderNotes('account-1', [payback], false, 150);
 
-      expect(initiateConsumeNotesTransaction).toHaveBeenCalledWith('account-1', [payback], false);
+      expect(initiateConsumeNotesTransaction).toHaveBeenCalledWith(
+        'account-1',
+        [payback],
+        false,
+        undefined,
+        undefined,
+        undefined,
+        undefined
+      );
     });
   });
 
@@ -914,6 +939,10 @@ describe('swap order note settlement', () => {
       expect(initiateConsumeNotesTransaction).toHaveBeenCalledWith(
         'account-1',
         [expect.objectContaining({ id: 'payback-88' })],
+        undefined,
+        undefined,
+        undefined,
+        undefined,
         undefined
       );
     });
