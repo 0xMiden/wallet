@@ -298,3 +298,93 @@ describe('page modules', () => {
     expect(declared.filter(name => shared.includes(name))).toEqual([]);
   });
 });
+
+describe('React page module', () => {
+  const reactRoots = resolveReactPackageRoots();
+  // Read in each test, so a missing page fails these tests and not the whole file.
+  const pageSource = (): ts.SourceFile =>
+    ts.createSourceFile(
+      'react-dapp.ts',
+      fs.readFileSync(path.join(PAGE_DIR, 'react-dapp.ts'), 'utf8'),
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.TS
+    );
+
+  it('links: the page and everything it reaches are served, mapped and exported', () => {
+    const server = createReactDappServer({ roots: reactRoots });
+    expect(linkProblems(server, ['/react-dapp.js', ...Object.values(server.importMap.imports)])).toEqual([]);
+  });
+
+  it('builds its two adapters once, at module scope, and never renders under StrictMode', () => {
+    const file = pageSource();
+    const adapters: string[] = [];
+    let strictMode = false;
+    const visit = (node: ts.Node, inFunction: boolean): void => {
+      if (ts.isNewExpression(node) && node.expression.getText(file) === 'MidenWalletAdapter') {
+        adapters.push(inFunction ? 'in a function' : 'module scope');
+      }
+      if (ts.isIdentifier(node) && node.text === 'StrictMode') strictMode = true;
+      ts.forEachChild(node, child => visit(child, inFunction || ts.isFunctionLike(node)));
+    };
+    visit(file, false);
+    expect({ adapters, strictMode }).toEqual({ adapters: ['module scope', 'module scope'], strictMode: false });
+  });
+
+  it("gives each provider a storage key of its own, neither the providers' default", () => {
+    const file = pageSource();
+    const keys: string[] = [];
+    const props: string[] = [];
+    const visit = (node: ts.Node): void => {
+      if (ts.isVariableDeclaration(node) && node.name.getText(file) === 'STORAGE_KEYS' && node.initializer) {
+        if (ts.isObjectLiteralExpression(node.initializer)) {
+          for (const property of node.initializer.properties) {
+            if (ts.isPropertyAssignment(property) && ts.isStringLiteral(property.initializer)) {
+              keys.push(property.initializer.text);
+            }
+          }
+        }
+      }
+      if (ts.isPropertyAssignment(node) && node.name.getText(file) === 'localStorageKey') {
+        props.push(node.initializer.getText(file));
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(file);
+    expect({
+      props,
+      distinct: new Set(keys).size,
+      keys: keys.length,
+      takesDefault: keys.includes('walletName')
+    }).toEqual({
+      props: ['STORAGE_KEYS.wallet', 'STORAGE_KEYS.midenfi'],
+      distinct: 2,
+      keys: 2,
+      takesDefault: false
+    });
+  });
+
+  it('serves the React shell with its import map on its own loopback listener', async () => {
+    const server = createReactDappServer({ roots: reactRoots });
+    // Served once before any listener: a missing shell throws here and fails this test alone, not inside the
+    // listener's handler, where it would leave the request and the listener open and keep Jest running.
+    expect(server.serve('/').status).toBe(200);
+    const port = await freePort();
+    const stop = await serveTestDappOnLoopback(server, port);
+    try {
+      const response = await fetch(`http://127.0.0.1:${port}/`);
+      const html = await response.text();
+      expect({
+        status: response.status,
+        module: html.includes('src="/react-dapp.js"'),
+        map: html.includes('"react":"/shims/react.js"')
+      }).toEqual({
+        status: 200,
+        module: true,
+        map: true
+      });
+    } finally {
+      await stop();
+    }
+  });
+});
