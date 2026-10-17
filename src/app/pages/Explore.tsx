@@ -150,13 +150,14 @@ const Explore: FC = () => {
         isDelegatedProvingEnabled,
         false,
         true,
-        verificationBaseFee
+        verificationBaseFee,
+        'auto_consume'
       );
     } catch (batchErr) {
       console.warn('[native-auto-consume] batch enqueue failed, falling back to per-note enqueue', batchErr);
       for (const note of notesToClaim) {
         try {
-          await initiateConsumeTransaction(account.publicKey, note, isDelegatedProvingEnabled);
+          await initiateConsumeTransaction(account.publicKey, note, isDelegatedProvingEnabled, false, 'auto_consume');
         } catch (noteErr) {
           console.warn('[native-auto-consume] enqueue failed for note', note.id, noteErr);
         }

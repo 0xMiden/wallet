@@ -173,6 +173,7 @@ async function writeNeverCommitted(rowId: string, judgement: RowJudgement, nowSe
       stage: failed.stage,
       delegateTransaction: failed.delegateTransaction,
       diagnostics: failed.failureDiagnostics,
+      entryPoint: failed.consumeEntryPoint,
       error: TRANSACTION_NEVER_COMMITTED_ERROR
     });
   }

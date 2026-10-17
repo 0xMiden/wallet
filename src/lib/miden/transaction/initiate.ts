@@ -13,6 +13,7 @@ import { getNativeAssetId } from 'lib/miden-chain/native-asset';
 import type { AgglayerRecoveryConfig } from 'lib/remote-config/schema';
 import { sameGuardianEndpoint } from 'lib/settings/helpers';
 import { WalletAccount } from 'lib/shared/types';
+import type { ConsumeEntryPoint } from 'lib/telemetry/transaction-failure';
 import { getUsdcxRemoteDomain, usdcxSourceChains } from 'lib/usdcx/constant';
 import type { UsdcxSourceChain } from 'lib/usdcx/constant';
 import { WalletType } from 'screens/onboarding/types';
@@ -111,7 +112,8 @@ export const initiateConsumeTransactionFromId = async (
   // that id would let this dApp read another transaction's outcome and output notes, private ones included
   // (`waitForTransaction`), so only a claim may answer it, and the claim then lists the origin so the dApp may wait on
   // it. The wallet's own callers pass none and link the user to the holder instead.
-  dappOrigin?: string
+  dappOrigin?: string,
+  entryPoint?: ConsumeEntryPoint
 ): Promise<string> => {
   // Routed through `midenClientProxy.getInputNoteSummary` (issue #260, slice 7a):
   // flag-ON it reads the OFFSCREEN client that owns the note (the SW client is
@@ -138,7 +140,9 @@ export const initiateConsumeTransactionFromId = async (
     undefined,
     undefined,
     undefined,
-    dappOrigin
+    dappOrigin,
+    undefined,
+    entryPoint
   );
   if (dappOrigin !== undefined) await grantDappOrigin(committedId, dappOrigin);
   return committedId;
@@ -172,9 +176,18 @@ export const initiateConsumeTransaction = async (
   accountId: string,
   note: ConsumableNote,
   delegateTransaction?: boolean,
-  manualRetry?: boolean
+  manualRetry?: boolean,
+  entryPoint?: ConsumeEntryPoint
 ): Promise<string> => {
-  return initiateConsumeNotesTransaction(accountId, [note], delegateTransaction, manualRetry);
+  return initiateConsumeNotesTransaction(
+    accountId,
+    [note],
+    delegateTransaction,
+    manualRetry,
+    undefined,
+    undefined,
+    entryPoint
+  );
 };
 
 /** What {@link queueConsumeNotes} committed: the row id callers link to, and the row covering each note. */
@@ -220,7 +233,8 @@ export const queueConsumeNotes = async (
   delegateTransaction?: boolean,
   manualRetry?: boolean,
   isolateNotesWithFailedBatch?: boolean,
-  verificationBaseFee?: number | null
+  verificationBaseFee?: number | null,
+  entryPoint?: ConsumeEntryPoint
 ): Promise<ConsumeNotesQueueResult> =>
   queueConsumeRows(
     accountId,
@@ -228,7 +242,11 @@ export const queueConsumeNotes = async (
     delegateTransaction,
     manualRetry,
     isolateNotesWithFailedBatch,
-    verificationBaseFee
+    verificationBaseFee,
+    undefined,
+    undefined,
+    undefined,
+    entryPoint
   );
 
 /**
@@ -258,7 +276,8 @@ export const initiatePswapReclaimTransaction = async (
       row => {
         row.requestBytes = requestBytes;
         row.extraInputs = { swapOrderTxId, swapSettleKind: 'reclaim' };
-      }
+      },
+      'swap_settlement'
     )
   ).committedId;
 
@@ -315,7 +334,10 @@ export const initiateRotationFundingClaim = async (
     opts.manualRetry,
     true,
     opts.verificationBaseFee,
-    true
+    true,
+    undefined,
+    undefined,
+    'rotation_funding'
   );
   return committedId;
 };
@@ -456,7 +478,9 @@ const queueConsumeRows = async (
   dappOrigin?: string,
   // Applied before insertion. Used by prepared request rows whose bytes and
   // routing metadata must become visible atomically with the queued row.
-  initializeRow?: (row: ConsumeTransaction) => void
+  initializeRow?: (row: ConsumeTransaction) => void,
+  // Stamped on every row this creates, in the same insert, so a failed claim's report can name it from the row.
+  entryPoint?: ConsumeEntryPoint
 ): Promise<ConsumeNotesQueueResult> => {
   if (notes.length === 0) {
     throw new Error('initiateConsumeNotesTransaction requires at least one note');
@@ -588,6 +612,7 @@ const queueConsumeRows = async (
       });
       if (rotationFunding) row.rotationFunding = true;
       if (dappOrigin !== undefined) row.dappOrigins = [dappOrigin];
+      if (entryPoint !== undefined) row.consumeEntryPoint = entryPoint;
       initializeRow?.(row);
       return row;
     };

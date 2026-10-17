@@ -2,7 +2,7 @@ import type { PreparedExecution } from '@epoch-protocol/epoch-intents-sdk';
 import { v4 as uuid } from 'uuid';
 
 import type { AgglayerRecoveryConfig } from 'lib/remote-config/schema';
-import type { TransactionFailureDiagnostics } from 'lib/telemetry/transaction-failure';
+import type { ConsumeEntryPoint, TransactionFailureDiagnostics } from 'lib/telemetry/transaction-failure';
 import type { UsdcxSourceChain } from 'lib/usdcx/constant';
 
 import type { GuardianHistoryRecovery } from '../guardian/history';
@@ -686,6 +686,11 @@ export interface ITransaction {
    */
   rotationFunding?: true;
   /**
+   * Consume only: the entry point that queued the row, stamped when it is created and named by a failed claim's crash
+   * report. Absent on rows queued before it and on rows no queue call made (recovered history). Not indexed.
+   */
+  consumeEntryPoint?: ConsumeEntryPoint;
+  /**
    * Execute (dApp custom) only: per-faucet value LEAVING the account, taken from the approval-time
    * dry run that the confirmation sheet already renders.
    *
@@ -1148,6 +1153,8 @@ export class ConsumeTransaction implements ITransaction {
   consumedNotes?: IConsumedNote[];
   /** See `ITransaction.rotationFunding`. */
   rotationFunding?: true;
+  /** See `ITransaction.consumeEntryPoint`. */
+  consumeEntryPoint?: ConsumeEntryPoint;
   /** See `ITransaction.dappOrigins`. */
   dappOrigins?: string[];
   transactionId?: string;

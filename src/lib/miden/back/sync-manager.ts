@@ -819,13 +819,14 @@ async function runSync(force: boolean): Promise<void> {
               delegate,
               false,
               true,
-              nativeAutoConsumeBaseFee
+              nativeAutoConsumeBaseFee,
+              'auto_consume'
             );
           } catch (batchErr) {
             console.warn('[native-auto-consume] batch enqueue failed, falling back to per-note enqueue', batchErr);
             for (const note of nativeAutoConsumeNotes) {
               try {
-                await initiateConsumeTransaction(accountPubKey, note, delegate);
+                await initiateConsumeTransaction(accountPubKey, note, delegate, false, 'auto_consume');
               } catch (noteErr) {
                 console.warn('[native-auto-consume] enqueue failed for note', note.id, noteErr);
               }

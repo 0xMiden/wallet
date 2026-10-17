@@ -36,6 +36,19 @@ export const FAILURE_REASONS = [
 /** A failure the wallet itself decided, named by the caller because its stored text is never sent. */
 export type TransactionFailureReason = (typeof FAILURE_REASONS)[number];
 
+export const CONSUME_ENTRY_POINTS = [
+  'auto_consume',
+  'claim',
+  'claim_all',
+  'dapp',
+  'bridge_reclaim',
+  'swap_settlement',
+  'rotation_funding'
+] as const;
+
+/** What queued a consume row, stamped on the row when it is created. */
+export type ConsumeEntryPoint = (typeof CONSUME_ENTRY_POINTS)[number];
+
 export interface TransactionFailure {
   type: ITransactionType;
   stage?: ITransactionStage;
@@ -43,6 +56,7 @@ export interface TransactionFailure {
   error?: unknown;
   delegateTransaction?: boolean;
   outcome?: 'failed' | 'unconfirmed';
+  entryPoint?: ConsumeEntryPoint;
   point?:
     | 'pipeline'
     | 'earn_settlement'
@@ -196,6 +210,8 @@ export function reportTransactionFailure(failure: TransactionFailure): void {
         : 'unknown';
     const proving =
       failure.delegateTransaction === true ? 'delegated' : failure.delegateTransaction === false ? 'local' : 'unknown';
+    const queuedBy =
+      type === 'consume' ? `; queued by ${diagnostic<string>(failure.entryPoint, CONSUME_ENTRY_POINTS, 'other')}` : '';
     const platform = isDesktop() ? 'desktop' : resolveTelemetryContext().platform;
     const identity =
       failure.reason === undefined
@@ -203,7 +219,7 @@ export function reportTransactionFailure(failure: TransactionFailure): void {
         : diagnostic<string>(failure.reason, FAILURE_REASONS, 'other');
     const report = new Error(
       [
-        `Transaction ${outcome}: ${operation}; stage ${stage}; realm ${realm}; proving preference ${proving}; platform ${platform}; point ${point}; ${identity}`,
+        `Transaction ${outcome}: ${operation}; stage ${stage}; realm ${realm}; proving preference ${proving}; platform ${platform}${queuedBy}; point ${point}; ${identity}`,
         `authentication preparation ${preparation}; layout ${layout}; commitment match ${match}; account code ${accountCode}`,
         `SDK ${softwareVersion(packageJson.dependencies['@miden-sdk/miden-sdk'])}; Guardian client ${softwareVersion(packageJson.dependencies['@openzeppelin/miden-multisig-client'])}`
       ].join('. ')

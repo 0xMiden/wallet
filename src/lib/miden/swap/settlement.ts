@@ -340,7 +340,15 @@ export async function reconcileSwapOrderNotes(
       // a trickle of fills costs one fee per lap rather than one per note. What
       // remains is that one lap's fee can exceed a very small fill, which is the
       // price of settling promptly on funds the user is owed.
-      const txId = await initiateConsumeNotesTransaction(accountId, batch, delegate);
+      const txId = await initiateConsumeNotesTransaction(
+        accountId,
+        batch,
+        delegate,
+        undefined,
+        undefined,
+        undefined,
+        'swap_settlement'
+      );
       // A batch of payback notes delivered funds — it settles (Confirmed), it
       // doesn't reclaim. A tip-only batch is the unfilled remainder coming back.
       // Partial fills stay lineage-'active' until expiry, so this same-tick pair

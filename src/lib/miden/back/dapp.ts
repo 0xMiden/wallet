@@ -2643,7 +2643,8 @@ const generatePromisifyConsumeTransaction = async (
           noteId,
           delegateFromConfirmation(result),
           true,
-          origin
+          origin,
+          'dapp'
         );
       });
       startDappBackgroundProcessing();
@@ -2691,7 +2692,8 @@ const generatePromisifyConsumeTransaction = async (
                 noteId,
                 confirmReq.delegate,
                 true,
-                origin
+                origin,
+                'dapp'
               );
             });
             startDappBackgroundProcessing();
