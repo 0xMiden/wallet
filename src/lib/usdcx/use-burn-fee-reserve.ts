@@ -2,9 +2,9 @@ import { useEffect, useState } from 'react';
 
 import { useMidenContext } from 'lib/miden/front/client';
 
+/** What a burn's cost depends on: the account that burns and the chain it pays out on, never the recipient. */
 interface BurnFeeReserveTarget {
   accountPublicKey: string;
-  destinationAddress: string;
   destinationChainId: number;
 }
 
@@ -19,13 +19,12 @@ export function useBurnFeeReserve(target: BurnFeeReserveTarget | undefined): big
   const { estimateUsdcxBurnFee } = useMidenContext();
   const [reserve, setReserve] = useState<bigint>();
   const accountPublicKey = target?.accountPublicKey;
-  const destinationAddress = target?.destinationAddress;
   const destinationChainId = target?.destinationChainId;
   useEffect(() => {
     setReserve(undefined);
-    if (accountPublicKey === undefined || destinationAddress === undefined || destinationChainId === undefined) return;
+    if (accountPublicKey === undefined || destinationChainId === undefined) return;
     let disposed = false;
-    estimateUsdcxBurnFee(accountPublicKey, destinationAddress, destinationChainId).then(
+    estimateUsdcxBurnFee(accountPublicKey, destinationChainId).then(
       value => {
         if (!disposed && value !== null) setReserve(value);
       },
@@ -34,6 +33,6 @@ export function useBurnFeeReserve(target: BurnFeeReserveTarget | undefined): big
     return () => {
       disposed = true;
     };
-  }, [estimateUsdcxBurnFee, accountPublicKey, destinationAddress, destinationChainId]);
+  }, [estimateUsdcxBurnFee, accountPublicKey, destinationChainId]);
   return reserve;
 }

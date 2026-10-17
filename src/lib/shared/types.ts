@@ -363,8 +363,7 @@ export interface EstimateUsdcxBurnFeeRequest extends WalletMessageBase {
   type: WalletMessageType.EstimateUsdcxBurnFeeRequest;
   /** The account that burns. */
   accountPublicKey: string;
-  /** The 0x recipient on the destination chain. */
-  destinationAddress: string;
+  /** The chain the burn pays out on. The recipient does not change the cost, so the request names none. */
   destinationChainId: number;
 }
 

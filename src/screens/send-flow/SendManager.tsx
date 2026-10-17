@@ -596,18 +596,13 @@ export const SendManager: React.FC<SendManagerProps> = ({
   // base fees against a reserve of 30, so "Max" failed with a vault shortfall). Its cost is measured
   // by a dry run of the burn, and the cap holds back the larger of the two reserves. While the dry
   // run runs, or when it failed, the static reserve applies.
+  // Keyed on the account and chain only, so editing the recipient never measures again.
   const burnFeeTarget = useMemo(
     () =>
-      publicKey &&
-      token &&
-      nativeFaucetId !== null &&
-      token.id === nativeFaucetId &&
-      isValidRecipient &&
-      recipientAddress &&
-      usdcxChainId !== undefined
-        ? { accountPublicKey: publicKey, destinationAddress: recipientAddress, destinationChainId: usdcxChainId }
+      publicKey && token && nativeFaucetId !== null && token.id === nativeFaucetId && usdcxChainId !== undefined
+        ? { accountPublicKey: publicKey, destinationChainId: usdcxChainId }
         : undefined,
-    [publicKey, token, nativeFaucetId, isValidRecipient, recipientAddress, usdcxChainId]
+    [publicKey, token, nativeFaucetId, usdcxChainId]
   );
   const burnFeeReserve = useBurnFeeReserve(burnFeeTarget);
   const spendableBalance = useMemo(() => {

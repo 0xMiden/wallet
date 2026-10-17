@@ -1078,11 +1078,7 @@ export async function handleReportTelemetryEvent(
 /** Dry-run a USDCx burn and answer how much of the native asset its cost needs. Signs and submits nothing. */
 export function estimateUsdcxBurnFee(req: EstimateUsdcxBurnFeeRequest): Promise<EstimateUsdcxBurnFeeResponse> {
   return withInited(async (): Promise<EstimateUsdcxBurnFeeResponse> => {
-    const feeReserve = await estimateUsdcxBurnFeeReserve(
-      req.accountPublicKey,
-      req.destinationAddress,
-      req.destinationChainId
-    );
+    const feeReserve = await estimateUsdcxBurnFeeReserve(req.accountPublicKey, req.destinationChainId);
     return {
       type: WalletMessageType.EstimateUsdcxBurnFeeResponse,
       feeReserve: feeReserve === null ? null : feeReserve.toString()
