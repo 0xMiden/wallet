@@ -1,10 +1,13 @@
+import { GUARDIAN_ERROR_CODES } from '@openzeppelin/guardian-client';
+
 import type { ITransactionStage, ITransactionType } from 'lib/miden/db/types';
 import { isDesktop } from 'lib/platform';
+import { isHotKeyFailure } from 'lib/secure-hot-key/failure';
 
 import { classifyError } from './classify';
 import { resolveTelemetryContext } from './context';
 import { captureCrash } from './crash';
-import { annotateCrash, snapshotCrashDiagnostics } from './crash-diagnostics';
+import { annotateCrash, errorChain, snapshotCrashDiagnostics } from './crash-diagnostics';
 import assertions from './protocol-assertions.json';
 import { operationOfType, stepOfStage } from './transaction-operation';
 import packageJson from '../../../package.json';
@@ -16,9 +19,27 @@ export interface TransactionFailureDiagnostics {
   accountAuthCode?: 'current_guardian' | 'unrecognized' | 'unavailable';
 }
 
+export const FAILURE_REASONS = [
+  'user_cancelled',
+  'interrupted_on_startup',
+  'stuck_reaped',
+  'queued_expired',
+  'rotation_key_pending',
+  'rotation_funding_note_unavailable',
+  'rotation_funding_not_native',
+  'rotation_gate_refusal',
+  'consume_not_landed',
+  'consume_landed_external',
+  'note_invalid'
+] as const;
+
+/** A failure the wallet itself decided, named by the caller because its stored text is never sent. */
+export type TransactionFailureReason = (typeof FAILURE_REASONS)[number];
+
 export interface TransactionFailure {
   type: ITransactionType;
   stage?: ITransactionStage;
+  reason?: TransactionFailureReason;
   error?: unknown;
   delegateTransaction?: boolean;
   outcome?: 'failed' | 'unconfirmed';
@@ -36,15 +57,69 @@ function diagnostic<T extends string>(value: unknown, allowed: readonly T[], fal
   return allowed.includes(value as T) ? (value as T) : fallback;
 }
 
+// Every code HotKeyPlugin.kt and HotKeyPlugin.swift reject with.
+export const HOT_KEY_CODES = [
+  'AUTH_FAILED',
+  'AUTH_UNAVAILABLE',
+  'BAD_CIPHERTEXT',
+  'BIOMETRIC_BUSY',
+  'DEVICE_LOCKED',
+  'HARDWARE_UNAVAILABLE',
+  'INVALID_INPUT',
+  'KEY_INVALIDATED',
+  'KEY_NOT_FOUND',
+  'LEGACY_CIPHER_INIT_FAILED',
+  'UNWRAP_FAILED',
+  'USER_CANCELLED'
+];
+
+const listedCode = (code: unknown, allowed: readonly string[]): string =>
+  typeof code === 'string' ? diagnostic(code, allowed, 'other') : 'none';
+
+// Read structurally, never from the text: a rejection's message, body and status text can carry account ids, URLs
+// and server internals.
+function rejectionIdentity(error: unknown, outer: string | undefined): string | undefined {
+  for (const link of errorChain(error)) {
+    try {
+      if (isHotKeyFailure(link)) return `hot_key; hot key code ${listedCode(Reflect.get(link, 'code'), HOT_KEY_CODES)}`;
+      if (link.name === 'GuardianHttpError') {
+        const status: unknown = Reflect.get(link, 'status');
+        const http =
+          typeof status === 'number' && Number.isInteger(status) && status >= 100 && status <= 599
+            ? String(status)
+            : 'other';
+        const code = Reflect.get(link, 'code') ?? Reflect.get(link, 'rawCode');
+        const refusal = `guardian_http_${http}; guardian code ${listedCode(code, GUARDIAN_ERROR_CODES)}`;
+        // A Guardian 5xx can carry a deterministic kernel failure (isGuardianOutage in lib/miden/transaction/constants);
+        // only its closed-table identity is added, never the text. It is read from the refusal itself: a wrapper's
+        // text may not repeat it, or may carry another failure's code.
+        const own: unknown = Reflect.get(link, 'message');
+        const protocol = (typeof own === 'string' ? protocolIdentity(own) : undefined) ?? outer;
+        return protocol === undefined ? refusal : `${refusal}; ${protocol}`;
+      }
+    } catch {
+      // A throwing accessor costs this link, not the report.
+    }
+  }
+  return undefined;
+}
+
+function protocolIdentity(message: string): string | undefined {
+  const code = /assertion failed with error code:\s*(\d{1,20})(?!\d)/.exec(message)?.[1];
+  if (code === undefined) return undefined;
+  // Only identities in the shipped public protocol sources survive. Arbitrary numbers can be user data.
+  return Object.prototype.hasOwnProperty.call(assertions, code)
+    ? assertions[code as keyof typeof assertions]
+    : 'kernel_assertion_unknown';
+}
+
 function failureIdentity(error: unknown): string {
   const message = typeof error === 'string' ? error : error instanceof Error ? error.message : '';
-  const code = /assertion failed with error code:\s*(\d{1,20})(?!\d)/.exec(message)?.[1];
-  if (code !== undefined) {
-    // Only identities in the shipped public protocol sources survive. Arbitrary numbers can be user data.
-    return Object.prototype.hasOwnProperty.call(assertions, code)
-      ? assertions[code as keyof typeof assertions]
-      : 'kernel_assertion_unknown';
-  }
+  const protocol = protocolIdentity(message);
+  // Ahead of the text arms: a Guardian refusal's message carries the server's own text, which can read as any of them.
+  const rejection = rejectionIdentity(error, protocol);
+  if (rejection !== undefined) return rejection;
+  if (protocol !== undefined) return protocol;
   if (/advice stack read failed/i.test(message)) return 'advice_stack_read_failed';
   if (/WebClient terminated/.test(message)) return 'client_terminated';
   if (/failed to execute transaction/i.test(message)) return 'transaction_execution_failed';
@@ -122,9 +197,13 @@ export function reportTransactionFailure(failure: TransactionFailure): void {
     const proving =
       failure.delegateTransaction === true ? 'delegated' : failure.delegateTransaction === false ? 'local' : 'unknown';
     const platform = isDesktop() ? 'desktop' : resolveTelemetryContext().platform;
+    const identity =
+      failure.reason === undefined
+        ? failureIdentity(failure.error)
+        : diagnostic<string>(failure.reason, FAILURE_REASONS, 'other');
     const report = new Error(
       [
-        `Transaction ${outcome}: ${operation}; stage ${stage}; realm ${realm}; proving preference ${proving}; platform ${platform}; point ${point}; ${failureIdentity(failure.error)}`,
+        `Transaction ${outcome}: ${operation}; stage ${stage}; realm ${realm}; proving preference ${proving}; platform ${platform}; point ${point}; ${identity}`,
         `authentication preparation ${preparation}; layout ${layout}; commitment match ${match}; account code ${accountCode}`,
         `SDK ${softwareVersion(packageJson.dependencies['@miden-sdk/miden-sdk'])}; Guardian client ${softwareVersion(packageJson.dependencies['@openzeppelin/miden-multisig-client'])}`
       ].join('. ')

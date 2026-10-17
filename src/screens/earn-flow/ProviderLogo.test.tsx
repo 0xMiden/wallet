@@ -13,7 +13,7 @@ describe('ProviderLogo', () => {
 
     const img = container.querySelector('img') as HTMLImageElement;
     expect(img).toBeInTheDocument();
-    expect(img).toHaveAttribute('src', 'test-file-stub');
+    expect(img).toHaveAttribute('src', 'svg-url-stub');
     expect(img).toHaveAttribute('alt', '');
 
     const wrapper = container.firstChild as HTMLElement;

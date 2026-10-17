@@ -42,6 +42,7 @@ import {
   ARC_XRESERVE,
   ATTESTATION_USED_TOPIC,
   DEFAULT_ARC_RPCS,
+  ETHEREUM_SEPOLIA_PAYOUT,
   GATEWAY_MINTER,
   realArcClock,
   USDCX_REMOTE_DOMAIN,
@@ -103,6 +104,13 @@ export const LATE_PAYOUT_NOTE =
 /** LATE_PAYOUT_NOTE's place on Base Sepolia and Arbitrum Sepolia, which have no history of late payouts yet. */
 export const L2_LATE_PAYOUT_NOTE =
   'Base Sepolia and Arbitrum Sepolia payouts landed 6-8 s after the consume when probed on 2026-10-11; red means a user was not paid in time';
+/**
+ * LATE_PAYOUT_NOTE's place on Ethereum Sepolia, where the one unpaid burn since Circle's fix was not late: its forwarder
+ * sends gatewayMint with a fixed 250,000 gas limit, a mint to an address that never held Sepolia USDC needs about
+ * 346,000, and it retried with the same limit until the key held USDC (2026-10-16).
+ */
+export const SEPOLIA_LATE_PAYOUT_NOTE =
+  "Circle's forwarder mint runs out of gas at its fixed 250,000 limit when the recipient holds no Sepolia USDC: check the forwarder's reverted gatewayMint transactions to GatewayMinter for the recipient. Ethereum Sepolia paid no burn until Circle fixed a Gateway configuration error on 2026-10-14 (0xMiden/miden-usdcx#308), so no payout time there is known yet; red means a user was not paid in time";
 /** Ends a key-moved failure in place of LATE_PAYOUT_NOTE: a spend from the key says nothing about Circle's payout. */
 export const KEY_MOVED_NOTE =
   'something spent from the payout key while the gate watched it (a manual sweep, a deposit a killed run left pending, a run that skipped the lock), so this red does not say whether Circle paid';
@@ -446,7 +454,8 @@ function correlationReason(reason: string, balanceBefore: bigint): string {
 }
 
 function lateNote(chain: PayoutChain): string {
-  return chain.chainId === ARC_CHAIN_ID ? LATE_PAYOUT_NOTE : L2_LATE_PAYOUT_NOTE;
+  if (chain.chainId === ARC_CHAIN_ID) return LATE_PAYOUT_NOTE;
+  return chain.chainId === ETHEREUM_SEPOLIA_PAYOUT.chainId ? SEPOLIA_LATE_PAYOUT_NOTE : L2_LATE_PAYOUT_NOTE;
 }
 
 function describeRanges(ranges: readonly ScannedRange[]): string {
@@ -827,11 +836,25 @@ function refuseSendIfAborted(signal: AbortSignal | undefined, what: string): voi
 }
 
 /**
+ * `fees` with the tip held to `cap` (PayoutChain.maxPriorityFeeCap). The max fee drops by the tip given up, keeping
+ * viem's base fee headroom, so the balance a node asks of the send is what the capped send can pay. Shared with
+ * usdcx-l2-deposit.ts.
+ */
+export function capPriorityFee(
+  fees: { maxFeePerGas: bigint; maxPriorityFeePerGas: bigint },
+  cap: bigint | undefined
+): { maxFeePerGas: bigint; maxPriorityFeePerGas: bigint } {
+  if (cap === undefined || fees.maxPriorityFeePerGas <= cap) return fees;
+  const headroom = fees.maxFeePerGas > fees.maxPriorityFeePerGas ? fees.maxFeePerGas - fees.maxPriorityFeePerGas : 0n;
+  return { maxFeePerGas: headroom + cap, maxPriorityFeePerGas: cap };
+}
+
+/**
  * Signs `tx` and sends it to `endpoints.write`, which takes writes and estimates its gas. The estimate executes the
  * call, so one that depends on an approve runs at `tx.atBlock`, the block its simulation ran at; the signed transaction
- * names no block. Its fees are reads that fail over across `endpoints.reads`. A send that fails transiently is sent
- * again as the same signed bytes, so the hash cannot change. Nothing is sent, first time or again, once `signal` is
- * aborted.
+ * names no block. Its fees are reads that fail over across `endpoints.reads`, the tip held to the chain's cap. A send
+ * that fails transiently is sent again as the same signed bytes, so the hash cannot change. Nothing is sent, first time
+ * or again, once `signal` is aborted.
  */
 export async function sendSigned(
   deps: ArcWriteDeps,
@@ -840,7 +863,7 @@ export async function sendSigned(
   tx: { what: string; to: Address; data: Hex; nonce: number; atBlock?: bigint },
   signal: AbortSignal | undefined
 ): Promise<Hash> {
-  const { chainId, label } = chainOf(deps);
+  const { chainId, label, maxPriorityFeeCap } = chainOf(deps);
   const gas = await chainRead(
     `${label} gas estimate`,
     [endpoints.write],
@@ -848,7 +871,10 @@ export async function sendSigned(
     (client, blockNumber) => client.estimateGas({ account: account.address, to: tx.to, data: tx.data, blockNumber }),
     tx.atBlock
   );
-  const fees = await chainRead(`${label} fee estimate`, endpoints.reads, deps, client => client.estimateFeesPerGas());
+  const fees = capPriorityFee(
+    await chainRead(`${label} fee estimate`, endpoints.reads, deps, client => client.estimateFeesPerGas()),
+    maxPriorityFeeCap
+  );
   const serializedTransaction = await account.signTransaction({
     chainId,
     type: 'eip1559',
