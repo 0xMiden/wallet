@@ -546,6 +546,18 @@
     "message": "Falha ao abrir a posição",
     "englishSource": "Failed to open position"
   },
+  "earnCollateralLoading": {
+    "message": "Carregando os detalhes do token de depósito. Você poderá continuar assim que eles forem exibidos.",
+    "englishSource": "Loading the deposit token's details. You can continue once they arrive."
+  },
+  "earnCollateralUnavailable": {
+    "message": "O token de depósito não está disponível no momento, portanto, os depósitos estão suspensos. Tente novamente mais tarde.",
+    "englishSource": "The deposit token isn't available right now, so deposits are paused. Try again later."
+  },
+  "earnCollateralMismatch": {
+    "message": "Esta revisão foi preparada para um token de depósito diferente. Volte e insira o valor novamente.",
+    "englishSource": "This review was prepared for a different deposit token. Go back and enter the amount again."
+  },
   "earnTotalEarnedRewards": {
     "message": "Total ganho",
     "englishSource": "Total earned"
@@ -1021,6 +1033,10 @@
   "unknownTokenScale": {
     "message": "Não foi possível verificar as casas decimais deste token, portanto os valores não podem ser exibidos nem enviados.",
     "englishSource": "This token's decimals could not be verified, so amounts can't be shown or sent."
+  },
+  "sendTokenAvailabilityChecking": {
+    "message": "Verificando se este token pode ser enviado na Testnet. Você poderá enviá-lo assim que a verificação for concluída.",
+    "englishSource": "Checking whether this token can be sent on Testnet. You can send it once the check finishes."
   },
   "oops": {
     "message": "Opa!",

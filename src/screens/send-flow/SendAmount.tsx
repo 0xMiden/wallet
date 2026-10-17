@@ -10,6 +10,7 @@ import { NetworkChip } from 'components/NetworkChip';
 import { TokenLogo } from 'components/TokenLogo';
 import { AnimatedNumber, Pill } from 'components/ui';
 import { Card } from 'components/ui/Card';
+import { Notice } from 'components/ui/Notice';
 import { useMotion } from 'lib/animation';
 import { durations } from 'lib/animation/durations';
 import { easings } from 'lib/animation/easings';
@@ -35,6 +36,8 @@ export interface SendAmountProps {
   recipientAddress: string;
   /** Keeps Max on screen but inert, while the token has no cap to fill it with. */
   maxDisabled?: boolean;
+  /** Says Send is still checking a token it holds back from new sends until the Testnet document arrives. */
+  tokenHeld?: boolean;
   /** Saved contact name for the recipient, shown instead of the address. */
   recipientName?: string;
   network?: SendNetworkId;
@@ -59,6 +62,7 @@ export const SendAmount: React.FC<SendAmountProps> = ({
   errorValues,
   recipientAddress,
   maxDisabled,
+  tokenHeld,
   recipientName,
   network,
   onAmountChange,
@@ -196,6 +200,17 @@ export const SendAmount: React.FC<SendAmountProps> = ({
           )}
         </div>
       </Card>
+
+      {tokenHeld && (
+        <Notice
+          tone="warning"
+          icon={<Icon name={IconName.Information} size="xs" fill="currentColor" />}
+          className="mt-4"
+          data-testid="send-amount-held-notice"
+        >
+          {t('sendTokenAvailabilityChecking')}
+        </Notice>
+      )}
 
       <AnimatePresence initial={false}>
         {feeShortfall && (

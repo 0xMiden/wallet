@@ -6,12 +6,11 @@ import useNativeFeeFaucetId from 'app/hooks/useNativeFeeFaucetId';
 import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
 import { FeatureUnavailableNotice } from 'components/FeatureUnavailable';
 import { normalizeMidenIdToHex } from 'lib/epoch';
-import { hasNoFeeAsset } from 'lib/miden/fees/spendable';
+import { hasNoFeeAsset, maxSendableNative } from 'lib/miden/fees/spendable';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { tokenQuote } from 'lib/miden/swap/tokens';
-import { useBridgeConfigSnapshot, useFeatureAvailability } from 'lib/remote-config/use-feature-availability';
-import { selectMidenUsdc } from 'lib/remote-config/values';
+import { useFeatureAvailability } from 'lib/remote-config/use-feature-availability';
 import { useWalletStore } from 'lib/store';
 import { enterRouteFlow, reportRouteFlowStep, settleRouteFlow } from 'lib/telemetry/route-flow';
 import { navigate } from 'lib/woozie';
@@ -20,7 +19,9 @@ import { UIToken } from 'screens/send-flow/types';
 
 import { EarnFlowHeader } from './components';
 import { placeholderVault } from './earn-mapping';
+import { EarnCollateralNotice } from './EarnCollateralNotice';
 import { EarnLoadError } from './EarnLoadError';
+import { useEarnCollateralState } from './useEarnCollateral';
 import { earnItemLoadState, useEarnPositions } from './useEarnPositions';
 
 interface EarnDepositAmountProps {
@@ -57,11 +58,11 @@ const EarnDepositAmount: FC<EarnDepositAmountProps> = ({ vaultId }) => {
   const tokenPrices = useWalletStore(s => s.tokenPrices);
   const nativeFaucetId = useNativeFeeFaucetId();
   const verificationBaseFee = useVerificationBaseFee();
-  const collateral = selectMidenUsdc(useBridgeConfigSnapshot());
+  const earnCollateral = useEarnCollateralState();
+  const { collateral } = earnCollateral;
   // Neither the pending nor the vault-less failed branch draws the amount step or its notice.
   const earnDeposit = useFeatureAvailability('earnDeposit', { hold: !((loadFailed && !found) || pending) });
-  // Epoch Earn is USDC-only, in the collateral the config names (an E2E run's injected faucet first). Balance rows
-  // use bech32 faucet ids while the config uses hex, so compare their normalized account ids.
+  // Testnet spends native USDCx. Match by faucet identity, never by another token's USDC symbol.
   const depositBalance = useMemo(
     () =>
       collateral
@@ -71,19 +72,25 @@ const EarnDepositAmount: FC<EarnDepositAmountProps> = ({ vaultId }) => {
   );
   const token = useMemo<UIToken>(() => {
     const id = depositBalance?.tokenId ?? collateral?.faucetId ?? '';
-    const symbol = depositBalance?.metadata.symbol ?? collateral?.symbol ?? '';
+    const symbol = collateral?.symbol ?? '';
+    const decimals = collateral?.decimals ?? 0;
+    const native = !!id && !!nativeFaucetId && normalizeMidenIdToHex(id) === normalizeMidenIdToHex(nativeFaucetId);
     return {
       id,
       name: symbol,
-      decimals: depositBalance?.metadata.decimals ?? collateral?.decimals ?? 0,
-      balance: depositBalance?.balance ?? 0,
+      decimals,
+      balance: native
+        ? maxSendableNative(depositBalance?.balance ?? 0, verificationBaseFee, decimals)
+        : (depositBalance?.balance ?? 0),
       // The live quote, held row or not: the row's stored price is a capture from when balances
       // were read. No quote is no price (0), never a stated $1.
       fiatPrice: tokenQuote(tokenPrices, id || undefined, symbol)?.price ?? 0,
       // Either the faucet answered, or the config states the collateral's decimals; with neither the scale is unknown.
-      scaleIsKnown: depositBalance ? hasKnownScale(depositBalance.metadata) : collateral !== null
+      scaleIsKnown:
+        collateral !== null &&
+        (!depositBalance || (hasKnownScale(depositBalance.metadata) && depositBalance.metadata.decimals === decimals))
     };
-  }, [collateral, depositBalance, tokenPrices]);
+  }, [collateral, depositBalance, tokenPrices, nativeFaucetId, verificationBaseFee]);
 
   const amountValue = parseAmount(amount);
   const hasAmount = amountValue > 0;
@@ -93,6 +100,8 @@ const EarnDepositAmount: FC<EarnDepositAmountProps> = ({ vaultId }) => {
   // Continue also needs the vault itself (the placeholder has no id to deposit into) and Earn deposits to be up.
   const isValidAmount =
     earnDeposit.state === 'available' &&
+    collateral !== null &&
+    token.scaleIsKnown &&
     hasAmount &&
     amountValue <= token.balance &&
     !feeAssetMissing &&
@@ -110,6 +119,13 @@ const EarnDepositAmount: FC<EarnDepositAmountProps> = ({ vaultId }) => {
             <EarnLoadError onRetry={refetch} message={t('earnVaultLoadError')} className="shrink-0 px-4 pt-4" />
           )}
           <FeatureUnavailableNotice availability={earnDeposit} className="mx-4 mt-4 shrink-0" />
+          {/* One reason at a time: a deposit that is down already says why Continue is dead. */}
+          {earnDeposit.state !== 'unavailable' && (
+            <EarnCollateralNotice
+              reason={earnCollateral.state === 'resolved' ? null : earnCollateral.state}
+              className="mx-4 mt-4 shrink-0"
+            />
+          )}
           <div className="min-h-0 flex-1">
             <SelectAmount
               accent="earn"
@@ -131,7 +147,9 @@ const EarnDepositAmount: FC<EarnDepositAmountProps> = ({ vaultId }) => {
               onConfirm={() => {
                 if (isValidAmount) {
                   handedOff.current = true;
-                  navigate(`/earn/vaults/${vaultId}/deposit/review?amount=${encodeURIComponent(amount)}`);
+                  navigate(
+                    `/earn/vaults/${vaultId}/deposit/review?amount=${encodeURIComponent(amount)}&collateral=${encodeURIComponent(token.id)}`
+                  );
                 }
               }}
             />
