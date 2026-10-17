@@ -966,28 +966,93 @@ const crashReportPolicy = (): string => {
   return section.slice(0, section.indexOf('\n#', 1));
 };
 
-it.each([...FAILURE_REASONS, ...GUARDIAN_ERROR_CODES, ...HOT_KEY_CODES, 'other', 'none'])(
-  'the privacy policy lists the reportable value %s',
-  value => {
-    expect(crashReportPolicy()).toContain(`\`${value}\``);
-  }
-);
+// The seven statuses miden-client 0.17.3's `is_indeterminate_submission` reads as an unknown outcome, and the fallback.
+const UNKNOWN_OUTCOME_STATUSES = [
+  'unavailable',
+  'internal',
+  'cancelled',
+  'aborted',
+  'data_loss',
+  'deadline_exceeded',
+  'unknown',
+  'other'
+];
+
+/**
+ * The Crash reports bullet that opens with `heading`, cut from `from` up to `to` when given, so each list is checked
+ * against the text that documents it and not against a word another list shares. Empty when an anchor is missing.
+ */
+const policyText = (heading: string, from?: string, to?: string): string => {
+  const bullet = crashReportPolicy()
+    .split('\n')
+    .find(line => line.startsWith(`- **${heading}**`));
+  if (bullet === undefined) return '';
+  const start = from === undefined ? 0 : bullet.indexOf(from);
+  const end = start === -1 || to === undefined ? bullet.length : bullet.indexOf(to, start);
+  return start === -1 || end === -1 ? '' : bullet.slice(start, end);
+};
+
+const OWN_REASON = "The App's own reason";
+const NEVER_COMMITTED_RULE = 'With `never_committed`';
+const UNKNOWN_OUTCOME = 'A submit with no definite answer';
+const REFUSED = 'A submit the network refused';
+const EXECUTION = 'What the transaction software said went wrong';
+const COINED_ASSERTIONS = "A check in the transaction's program";
+
+// Each identity the reporter coins, with the text that documents it.
+const IDENTITY_TEXT: Record<string, () => string> = {
+  submit_outcome_unknown: () => policyText(UNKNOWN_OUTCOME, undefined, 'It carries'),
+  submit_rejected: () => policyText(REFUSED, undefined, 'It names'),
+  kernel_assertion_unknown: () => policyText(EXECUTION, COINED_ASSERTIONS),
+  kernel_u32_assertion_unknown: () => policyText(EXECUTION, COINED_ASSERTIONS)
+};
 
 // Read inside the test, so a list the reporter does not export yet fails here rather than at collection.
 it.each([
-  ['never-committed rule', () => NEVER_COMMITTED_RULES],
-  ['submit gRPC status', () => SUBMIT_GRPC_STATUSES],
-  ['submit endpoint', () => SUBMIT_ENDPOINTS],
-  ['node submit error', () => SUBMIT_NODE_ERRORS],
-  ['hidden-during-submit answer', () => SUBMIT_HIDDEN_ANSWERS],
-  ['pipeline kill', () => PIPELINE_KILLS],
-  ['execution cause', () => EXECUTION_CAUSES],
-  ['signing step', () => SIGNING_STEPS],
-  ['reported identity', () => REPORTED_IDENTITIES]
-])('the privacy policy lists every reportable %s', (_name, values) => {
+  ['wallet reason', () => [...FAILURE_REASONS, 'other'], () => policyText(OWN_REASON, undefined, NEVER_COMMITTED_RULE)],
+  [
+    'never-committed rule',
+    () => [...NEVER_COMMITTED_RULES, 'other'],
+    () => policyText(OWN_REASON, NEVER_COMMITTED_RULE)
+  ],
+  ['Guardian refusal code', () => [...GUARDIAN_ERROR_CODES, 'other', 'none'], () => policyText('A guardian refusal')],
+  ['device key code', () => [...HOT_KEY_CODES, 'other', 'none'], () => policyText('A device key refusal')],
+  [
+    'unknown-outcome gRPC status',
+    () => UNKNOWN_OUTCOME_STATUSES,
+    () => policyText(UNKNOWN_OUTCOME, 'It carries', 'and whether the App')
+  ],
+  [
+    'hidden-during-submit answer',
+    () => SUBMIT_HIDDEN_ANSWERS,
+    () => policyText(UNKNOWN_OUTCOME, 'and whether the App')
+  ],
+  ['refused endpoint', () => SUBMIT_ENDPOINTS, () => policyText(REFUSED, 'It names', '; the kind of answer')],
+  [
+    'refused gRPC status',
+    () => SUBMIT_GRPC_STATUSES.filter(status => !UNKNOWN_OUTCOME_STATUSES.includes(status)),
+    () => policyText(REFUSED, '; the kind of answer', "; and the network's own reason")
+  ],
+  ['refusal node error', () => SUBMIT_NODE_ERRORS, () => policyText(REFUSED, "; and the network's own reason")],
+  ['pipeline kill', () => PIPELINE_KILLS, () => policyText('Work the App stopped')],
+  ['execution cause', () => EXECUTION_CAUSES, () => policyText(EXECUTION, undefined, COINED_ASSERTIONS)],
+  ['signing step', () => SIGNING_STEPS, () => policyText('The signing step')],
+  ...Object.entries(IDENTITY_TEXT).map(
+    ([identity, text]) => [`reported identity ${identity}`, () => [identity], text] as const
+  )
+])('the privacy policy lists every reportable %s where it documents them', (_name, values, documenting) => {
   const listed: readonly string[] | undefined = values();
+  const text = documenting();
   expect(listed).toEqual(expect.arrayContaining([expect.any(String)]));
-  expect((listed ?? []).filter(value => !crashReportPolicy().includes(`\`${value}\``))).toEqual([]);
+  expect(text).not.toBe('');
+  expect((listed ?? []).filter(value => !text.includes(`\`${value}\``))).toEqual([]);
+});
+
+it('checks every reported identity and every unknown-outcome status against its own text', () => {
+  expect([...REPORTED_IDENTITIES].sort()).toEqual(Object.keys(IDENTITY_TEXT).sort());
+  expect(UNKNOWN_OUTCOME_STATUSES.filter(status => !SUBMIT_GRPC_STATUSES.some(listed => listed === status))).toEqual(
+    []
+  );
 });
 
 it.each([
