@@ -50,8 +50,17 @@ export const REPORTED_IDENTITIES = [
   'submit_outcome_unknown',
   'submit_rejected',
   'kernel_assertion_unknown',
-  'kernel_u32_assertion_unknown'
+  'kernel_u32_assertion_unknown',
+  'advice_stack_read_failed',
+  'client_terminated',
+  'transaction_execution_failed',
+  'hot_key',
+  // Followed by the Guardian's HTTP status: a whole number from 100 to 599, or `other`.
+  'guardian_http_'
 ] as const;
+
+/** Every identity the reporter coins passes through here, so it cannot send one the list, and the policy, lacks. */
+const coined = (identity: (typeof REPORTED_IDENTITIES)[number]): string => identity;
 
 export const SUBMIT_GRPC_STATUSES = [
   'unavailable',
@@ -196,7 +205,9 @@ const listedCode = (code: unknown, allowed: readonly string[]): string =>
 function rejectionIdentity(error: unknown, outer: string | undefined): string | undefined {
   for (const link of errorChain(error)) {
     try {
-      if (isHotKeyFailure(link)) return `hot_key; hot key code ${listedCode(Reflect.get(link, 'code'), HOT_KEY_CODES)}`;
+      if (isHotKeyFailure(link)) {
+        return `${coined('hot_key')}; hot key code ${listedCode(Reflect.get(link, 'code'), HOT_KEY_CODES)}`;
+      }
       if (link.name === 'GuardianHttpError') {
         const status: unknown = Reflect.get(link, 'status');
         const http =
@@ -204,7 +215,7 @@ function rejectionIdentity(error: unknown, outer: string | undefined): string | 
             ? String(status)
             : 'other';
         const code = Reflect.get(link, 'code') ?? Reflect.get(link, 'rawCode');
-        const refusal = `guardian_http_${http}; guardian code ${listedCode(code, GUARDIAN_ERROR_CODES)}`;
+        const refusal = `${coined('guardian_http_')}${http}; guardian code ${listedCode(code, GUARDIAN_ERROR_CODES)}`;
         // A Guardian 5xx can carry a deterministic kernel failure (isGuardianOutage in lib/miden/transaction/constants);
         // only its closed-table identity is added, never the text. It is read from the refusal itself: a wrapper's
         // text may not repeat it, or may carry another failure's code.
@@ -234,7 +245,7 @@ function protocolIdentity(message: string): string | undefined {
   if (code === undefined) return undefined;
   // Only identities in the shipped public protocol sources survive. Arbitrary numbers can be user data.
   if (Object.prototype.hasOwnProperty.call(assertions, code)) return assertions[code as keyof typeof assertions];
-  return assertion === undefined ? 'kernel_u32_assertion_unknown' : 'kernel_assertion_unknown';
+  return coined(assertion === undefined ? 'kernel_u32_assertion_unknown' : 'kernel_assertion_unknown');
 }
 
 // The pinned SDK's own Display text (miden-client 0.17.3, miden-tx 0.17.1) under web-sdk 0.17.3's "failed to execute
@@ -413,7 +424,7 @@ function submitOutcomeIdentity(error: unknown, hiddenDuringSubmit: boolean | und
   const status = grpcStatusOf(submitRequestFailure(error)?.kind)?.[0] ?? 'other';
   const hidden: (typeof SUBMIT_HIDDEN_ANSWERS)[number] =
     hiddenDuringSubmit === undefined ? 'unavailable' : hiddenDuringSubmit ? 'yes' : 'no';
-  return `submit_outcome_unknown; grpc ${status}; app hidden during submit ${hidden}`;
+  return `${coined('submit_outcome_unknown')}; grpc ${status}; app hidden during submit ${hidden}`;
 }
 
 function submitRefusalIdentity(refusal: { endpoint: string; kind: string }): string {
@@ -425,7 +436,7 @@ function submitRefusalIdentity(refusal: { endpoint: string; kind: string }): str
     const after = refusal.kind.slice(status[1].length);
     if (after.startsWith(' (')) node = SUBMIT_NODE_TEXT.find(([, text]) => after.startsWith(text, 2))?.[0] ?? 'other';
   }
-  return `submit_rejected; endpoint ${endpoint}; grpc ${status?.[0] ?? 'other'}; node ${node}`;
+  return `${coined('submit_rejected')}; endpoint ${endpoint}; grpc ${status?.[0] ?? 'other'}; node ${node}`;
 }
 
 function failureIdentity(failure: TransactionFailure): string {
@@ -444,10 +455,11 @@ function failureIdentity(failure: TransactionFailure): string {
   const refusal = submitRequestFailure(error);
   if (refusal !== undefined) return submitRefusalIdentity(refusal);
   if (protocol !== undefined) return protocol;
-  if (/advice stack read failed/i.test(message)) return 'advice_stack_read_failed';
-  if (/WebClient terminated/.test(message)) return 'client_terminated';
-  if (/failed to execute transaction/i.test(message))
-    return `transaction_execution_failed; cause ${executionCause(error)}`;
+  if (/advice stack read failed/i.test(message)) return coined('advice_stack_read_failed');
+  if (/WebClient terminated/.test(message)) return coined('client_terminated');
+  if (/failed to execute transaction/i.test(message)) {
+    return `${coined('transaction_execution_failed')}; cause ${executionCause(error)}`;
+  }
   return classifyError(error);
 }
 
