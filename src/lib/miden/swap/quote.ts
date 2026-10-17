@@ -257,6 +257,8 @@ const isIntegerString = (value: unknown): value is string => typeof value === 's
 const isDecimals = (value: unknown): value is number =>
   typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
 const isFiniteNumber = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
+// Parts per million of the amount, so a fee the review can show runs from 0 to 100 %.
+const isFeePpm = (value: unknown): value is number => isFiniteNumber(value) && value >= 0 && value <= 1_000_000;
 
 /** Checks the fields the flow reads; the rest of the body passes through unread. */
 function isSwapPairPrice(body: unknown): body is SwapPairPrice {
@@ -265,7 +267,7 @@ function isSwapPairPrice(body: unknown): body is SwapPairPrice {
     isDecimalString(body.fillPrice) &&
     isDecimals(body.offeredDecimals) &&
     isDecimals(body.requestedDecimals) &&
-    isFiniteNumber(body.feePpm)
+    isFeePpm(body.feePpm)
   );
 }
 
