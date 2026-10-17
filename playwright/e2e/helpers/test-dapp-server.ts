@@ -21,6 +21,9 @@ export const DAPP_ORIGINS = {
   two: `http://127.0.0.1:${DAPP_PORT}`
 } as const;
 export type DappLabel = keyof typeof DAPP_ORIGINS;
+/** The React page's own origin (spec section 4.1), so its sessions and storage never mix with dApps one and two. */
+export const REACT_DAPP_PORT = DAPP_PORT + 1;
+export const REACT_DAPP_ORIGIN = `http://localhost:${REACT_DAPP_PORT}`;
 
 const REPO_ROOT = path.resolve(__dirname, '../../..');
 const PAGE_DIR = path.join(REPO_ROOT, 'playwright/e2e/test-dapp');
@@ -103,15 +106,28 @@ export function buildImportMap(roots: PackageRoots): ImportMap {
 
 const isServedPackage = (name: string, roots: PackageRoots): name is ServedPackage => Object.hasOwn(roots, name);
 
+export interface DappServerOptions {
+  pageDir?: string;
+  roots?: PackageRoots;
+  /** The page shell `/` serves from `pageDir`. */
+  shell?: string;
+  importMap?: ImportMap;
+  /** Generated modules, served at `/shims/<name>`. */
+  shims?: ReadonlyMap<string, string>;
+}
+
 /**
  * Serves `/` (the page shell, with the import map injected at its marker so the map cannot drift from the resolver),
- * `/<name>.js` (the page's `<name>.ts`, transpiled) and `/npm/<package>/<path>` (files under the four package
- * roots). A traversal attempt answers 400 and an unknown path 404.
+ * `/<name>.js` (the page's `<name>.ts`, transpiled), `/npm/<package>/<path>` (files under the package roots) and
+ * `/shims/<name>` (generated modules). A traversal attempt answers 400, a page module that does not parse 500 and an
+ * unknown path 404.
  */
-export function createDappServer(options: { pageDir?: string; roots?: PackageRoots } = {}): DappServer {
+export function createDappServer(options: DappServerOptions = {}): DappServer {
   const pageDir = options.pageDir ?? PAGE_DIR;
   const roots = options.roots ?? resolvePackageRoots();
-  const importMap = buildImportMap(roots);
+  const importMap = options.importMap ?? buildImportMap(roots);
+  const shell = options.shell ?? 'index.html';
+  const shims = options.shims ?? new Map<string, string>();
   const cache = new Map<string, ServedFile>();
   const text = (status: number, why: string): ServedFile => ({
     status,
@@ -139,8 +155,8 @@ export function createDappServer(options: { pageDir?: string; roots?: PackageRoo
   };
 
   const servePage = (): ServedFile => {
-    const html = fs.readFileSync(path.join(pageDir, 'index.html'), 'utf8');
-    if (!html.includes(IMPORT_MAP_MARKER)) return text(500, `index.html lacks ${IMPORT_MAP_MARKER}`);
+    const html = fs.readFileSync(path.join(pageDir, shell), 'utf8');
+    if (!html.includes(IMPORT_MAP_MARKER)) return text(500, `${shell} lacks ${IMPORT_MAP_MARKER}`);
     const tag = `<script type="importmap">${JSON.stringify(importMap)}</script>`;
     return {
       status: 200,
@@ -152,16 +168,28 @@ export function createDappServer(options: { pageDir?: string; roots?: PackageRoo
   const servePageModule = (name: string): ServedFile => {
     const source = path.join(pageDir, `${name}.ts`);
     if (!fs.existsSync(source)) return text(404, `no page module ${name}.ts`);
-    const { outputText } = ts.transpileModule(fs.readFileSync(source, 'utf8'), {
+    const { outputText, diagnostics = [] } = ts.transpileModule(fs.readFileSync(source, 'utf8'), {
       fileName: source,
+      reportDiagnostics: true,
       compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext, isolatedModules: true }
     });
+    // A module that does not parse, JSX in a `.ts` file among them, transpiles to broken code without a word unless
+    // diagnostics are asked for (spec section 4.1): refusing it names the error instead of leaving a dead page.
+    if (diagnostics.length > 0) {
+      const why = diagnostics.map(diagnostic => ts.flattenDiagnosticMessageText(diagnostic.messageText, ' '));
+      return text(500, `${name}.ts does not parse: ${why.join('; ')}`);
+    }
     return { status: 200, contentType: JS, body: Buffer.from(outputText) };
   };
 
   const route = (segments: string[]): ServedFile => {
-    if (segments.length === 0 || (segments.length === 1 && segments[0] === 'index.html')) return servePage();
+    if (segments.length === 0 || (segments.length === 1 && segments[0] === shell)) return servePage();
     if (segments[0] === 'npm') return servePackage(segments.slice(1));
+    if (segments[0] === 'shims' && segments.length === 2) {
+      const shim = shims.get(segments[1] ?? '');
+      if (shim === undefined) return text(404, `no shim ${segments[1] ?? ''}`);
+      return { status: 200, contentType: JS, body: Buffer.from(shim) };
+    }
     const page = segments.length === 1 ? /^([a-z][a-z0-9-]*)\.js$/.exec(segments[0] ?? '') : null;
     if (page?.[1] !== undefined) return servePageModule(page[1]);
     return text(404, `no route for /${segments.join('/')}`);
@@ -192,11 +220,16 @@ export function createDappServer(options: { pageDir?: string; roots?: PackageRoo
 }
 
 /**
- * Route-served mode. Playwright tries the last-registered route first, so these win over the fixture's
- * catch-all fault router (`harness/network-faults.ts:339`); they always fulfil and never continue.
+ * Route-served mode, for dApps one and two unless `origins` names others (the React page's). Playwright tries the
+ * last-registered route first, so these win over the fixture's catch-all fault router
+ * (`harness/network-faults.ts:339`); they always fulfil and never continue.
  */
-export async function installTestDapp(context: BrowserContext, server: DappServer = createDappServer()): Promise<void> {
-  for (const origin of Object.values(DAPP_ORIGINS)) {
+export async function installTestDapp(
+  context: BrowserContext,
+  server: DappServer = createDappServer(),
+  origins: readonly string[] = Object.values(DAPP_ORIGINS)
+): Promise<void> {
+  for (const origin of origins) {
     await context.route(`${origin}/**`, async route => {
       const served = server.serve(new URL(route.request().url()).pathname);
       await route.fulfill({ status: served.status, contentType: served.contentType, body: served.body });

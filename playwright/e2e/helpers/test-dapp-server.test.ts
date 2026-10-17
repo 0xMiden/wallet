@@ -1,14 +1,25 @@
 /**
  * @jest-environment node
  */
+import type { BrowserContext } from '@playwright/test';
 import fs from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 
-import { buildImportMap, createDappServer, resolvePackageRoots, serveTestDappOnLoopback } from './test-dapp-server';
+import {
+  buildImportMap,
+  createDappServer,
+  DAPP_ORIGINS,
+  DAPP_PORT,
+  installTestDapp,
+  REACT_DAPP_ORIGIN,
+  resolvePackageRoots,
+  serveTestDappOnLoopback
+} from './test-dapp-server';
 
 const roots = resolvePackageRoots();
+const PAGE_DIR = path.resolve(__dirname, '../test-dapp');
 
 // A throwaway page directory, so the server is tested before the real page exists.
 function pageFixture(): string {
@@ -134,6 +145,63 @@ describe('test dApp server', () => {
     } finally {
       await stop();
     }
+  });
+
+  it('refuses a page module that does not parse, such as JSX in a .ts file, and names why', () => {
+    const dir = pageFixture();
+    fs.writeFileSync(path.join(dir, 'jsx.ts'), 'export const element = <div id="a">{1}</div>;\n');
+    const served = createDappServer({ pageDir: dir, roots }).serve('/jsx.js');
+    expect({ status: served.status, why: served.body.toString('utf8') }).toEqual({
+      status: 500,
+      why: expect.stringMatching(/^jsx\.ts does not parse: /)
+    });
+  });
+
+  it('serves every page module the test dApps have, so none holds JSX or anything else that does not parse', () => {
+    const server = createDappServer({ roots });
+    const modules = fs.readdirSync(PAGE_DIR).filter(name => name.endsWith('.ts') && !name.endsWith('.test.ts'));
+    expect(modules).toEqual(expect.arrayContaining(['protocol.ts', 'test-dapp.ts']));
+    expect(modules.map(name => [name, server.serve(`/${name.replace(/\.ts$/, '.js')}`).status])).toEqual(
+      modules.map(name => [name, 200])
+    );
+  });
+
+  it('serves another shell, the import map it is given and generated modules', () => {
+    const dir = pageFixture();
+    fs.writeFileSync(path.join(dir, 'other.html'), '<html><head><!-- test-dapp:import-map --></head></html>');
+    const server = createDappServer({
+      pageDir: dir,
+      roots,
+      shell: 'other.html',
+      importMap: { imports: { thing: '/shims/thing.js' } },
+      shims: new Map([['thing.js', 'export const thing = 1;']])
+    });
+    expect(server.serve('/').body.toString('utf8')).toContain(
+      '<script type="importmap">{"imports":{"thing":"/shims/thing.js"}}</script>'
+    );
+    expect([server.serve('/other.html').status, server.serve('/index.html').status]).toEqual([200, 404]);
+    const shim = server.serve('/shims/thing.js');
+    expect({ status: shim.status, type: shim.contentType, body: shim.body.toString('utf8') }).toEqual({
+      status: 200,
+      type: 'text/javascript; charset=utf-8',
+      body: 'export const thing = 1;'
+    });
+    expect(server.serve('/shims/none.js').status).toBe(404);
+  });
+
+  it('routes the origins it is given, dApps one and two by default', async () => {
+    const patterns = async (origins?: readonly string[]): Promise<unknown[]> => {
+      const route = jest.fn(async (_pattern: string, _handler: unknown) => undefined);
+      await installTestDapp(
+        { route } as unknown as BrowserContext,
+        createDappServer({ pageDir: pageFixture(), roots }),
+        origins
+      );
+      return route.mock.calls.map(call => call[0]);
+    };
+    expect(REACT_DAPP_ORIGIN).toBe(`http://localhost:${DAPP_PORT + 1}`);
+    expect(await patterns()).toEqual([`${DAPP_ORIGINS.one}/**`, `${DAPP_ORIGINS.two}/**`]);
+    expect(await patterns([REACT_DAPP_ORIGIN])).toEqual([`${REACT_DAPP_ORIGIN}/**`]);
   });
 
   it.each(['::1', '127.0.0.1'])('closes the address it bound when %s is taken, so a retry binds', async taken => {
