@@ -94,11 +94,11 @@ const rank = (bucket: RelayDiagnostics['relayFailures']): number => RELAY_FAILUR
 const isOffline = (): boolean => typeof navigator !== 'undefined' && navigator.onLine === false;
 
 /**
- * `undefined` unless `error` is WalletConnect's failed relay socket on one of WalletConnect's own relay hosts. Each
- * Error counts once, and its range is only named here: {@link claimRelayRange} uses it up when the report is sent.
+ * `undefined` unless `message`, the text its capture read from `error`, is WalletConnect's failed relay socket on one
+ * of WalletConnect's own relay hosts. Each Error counts once, and its range is only named here: {@link claimRelayRange}
+ * uses it up when the report is sent.
  */
-export function classifyRelayFailure(error: Error): RelayFailure | undefined {
-  const message: unknown = error.message;
+export function classifyRelayFailure(error: Error, message: unknown): RelayFailure | undefined {
   if (typeof message !== 'string') return undefined;
   const host = relayHost(message);
   if (host === undefined) return undefined;

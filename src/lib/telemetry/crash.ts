@@ -304,9 +304,12 @@ export function stopCrashReporting(): void {
   }
 }
 
-function rebuildError(error: Error, seen: Set<Error>, depth: number): Error {
+/** A failure's own name, message and stack, read once so that every reader of one capture sees the same text. */
+type ErrorFields = Pick<Error, 'name' | 'message' | 'stack'>;
+
+function rebuildError(error: Error, seen: Set<Error>, depth: number, fields: ErrorFields = error): Error {
   seen.add(error);
-  const { name, message, stack } = error;
+  const { name, message, stack } = fields;
   const safeName = redactText(name, WORDLIST);
   const safeMessage = redactMessage(message, WORDLIST) ?? REDACTED;
   const frames = framesAfterHeader(name, message, stack);
@@ -343,10 +346,10 @@ function rebuildError(error: Error, seen: Set<Error>, depth: number): Error {
  * A relay report keeps the failure's own frames under WalletConnect's fixed name and text, and neither the failure's
  * name nor any of its causes, which are free text.
  */
-function rebuildRelayError(error: Error, message: string): Error {
+function rebuildRelayError(failure: ErrorFields, message: string): Error {
   const relay = new Error(message);
   relay.name = 'Error';
-  const frames = framesAfterHeader(error.name, error.message, error.stack);
+  const frames = framesAfterHeader(failure.name, failure.message, failure.stack);
   relay.stack = frames && `${relay.name}: ${message}\n${frames}`;
   return rebuildError(relay, new Set(), 0);
 }
@@ -358,10 +361,14 @@ export function captureCrash(
 ): void {
   try {
     if (!(error instanceof Error)) return;
-    const relay = classifyRelayFailure(error);
+    // Snapshot before consent's await: later handling may mutate the original failure, and the relay verdict and the
+    // report have to describe the same text.
+    const fields: ErrorFields = { name: error.name, message: error.message, stack: error.stack };
+    const relay = classifyRelayFailure(error, fields.message);
     if (relay?.report === false) return;
-    // Snapshot before consent's await: later handling may mutate the original failure.
-    const reportable = relay?.report ? rebuildRelayError(error, relay.message) : rebuildError(error, new Set(), 0);
+    const reportable = relay?.report
+      ? rebuildRelayError(fields, relay.message)
+      : rebuildError(error, new Set(), 0, fields);
     capturedDiagnostics.set(reportable, {
       ...snapshotCrashDiagnostics(error),
       ...resolveTelemetryContext(),

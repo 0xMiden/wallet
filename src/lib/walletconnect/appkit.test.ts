@@ -58,7 +58,8 @@ describe('what a relay failure report says about AppKit', () => {
     ...state
   });
   const reportedBy = (classify: typeof classifyRelayFailure) => (): RelayDiagnostics | undefined => {
-    const failure = classify(new Error('WebSocket connection failed for host: wss://relay.walletconnect.org'));
+    const error = new Error('WebSocket connection failed for host: wss://relay.walletconnect.org');
+    const failure = classify(error, error.message);
     return failure?.report ? failure.diagnostics : undefined;
   };
   const reported = reportedBy(classifyRelayFailure);
