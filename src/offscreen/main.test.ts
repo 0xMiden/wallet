@@ -2822,6 +2822,28 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     });
 
     it.each([
+      ['no signer for the account', 'storage error: Failed to get secret key from IndexedDB'],
+      ['no fee faucet for the network', 'no fee faucet is known for network `mlcl`']
+    ])('executes locally when the summary fails with %s, still submitting nothing', async (_kind, message) => {
+      await loadModule();
+      const { executeForSummaryAtTip } = await import('@openzeppelin/miden-multisig-client');
+      jest.mocked(executeForSummaryAtTip).mockRejectedValueOnce(new Error(message));
+      const sendResponse = jest.fn();
+
+      capturedListener!(dryRunReq(), {}, sendResponse);
+      await flush();
+
+      const resp = sendResponse.mock.calls[0][0];
+      expect(resp.ok).toBe(true);
+      expect(decoded(resp)).toEqual({ executedBytes: Buffer.from([55, 66, 77]).toString('base64') });
+      expect(G.__off.guardianExecuteRequest).toHaveBeenCalledWith('0xaccount', {
+        __trFromBytes: [1, 2, 3],
+        authArg: expect.any(Function)
+      });
+      expect(G.__off.guardianSubmitted).toBe(false);
+    });
+
+    it.each([
       ['an execution failure', () => new Error('the kernel assertion failed')],
       ['a trap', () => new WebAssembly.RuntimeError('unreachable')]
     ])('reports %s as it stands, with no local retry', async (_kind, failure) => {

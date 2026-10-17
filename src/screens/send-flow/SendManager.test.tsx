@@ -6,6 +6,7 @@ import { TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET } from 'lib/epoch/testing/b
 import { TEST_SWAP_TOKENS, TEST_TOKEN_IBTC, TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
 import { _setSwapTokensForTest } from 'lib/miden/swap/tokens';
 import { hasUnquotedDefaultPrice } from 'lib/prices/unquoted-default';
+import type { UsdcxBurnFeeEstimate } from 'lib/shared/types';
 import { ROUTE_DWELL_MS } from 'lib/telemetry/use-route-dwell';
 
 import { clearSendDraft, consumeSendDraft, setSendDraft } from './send-draft';
@@ -316,7 +317,7 @@ jest.mock('./SendRoute', () => ({
 }));
 
 // The burn fee dry run behind `useBurnFeeReserve`; it never answers unless a case says otherwise.
-const mockEstimateUsdcxBurnFee = jest.fn<Promise<bigint | null>, [string, number]>(() => new Promise(() => {}));
+const mockEstimateUsdcxBurnFee = jest.fn<Promise<UsdcxBurnFeeEstimate>, [string, number]>(() => new Promise(() => {}));
 jest.mock('lib/miden/front/client', () => ({
   useMidenContext: () => ({ estimateUsdcxBurnFee: mockEstimateUsdcxBurnFee })
 }));
@@ -2242,7 +2243,8 @@ describe('USDCx burn fee reserve', () => {
   // 9.909734 USDCx at base fee 7: the static reserve holds back 210 base units (cap 9.909524) and the measured one
   // 315 (cap 9.909419), so 9.9095 fits only the static cap.
   const NATIVE = 'MIDEN-ID';
-  const never = () => new Promise<bigint | null>(() => {});
+  const never = () => new Promise<UsdcxBurnFeeEstimate>(() => {});
+  const measured = (reserve: bigint): UsdcxBurnFeeEstimate => ({ outcome: 'measured', reserve });
 
   const openBurn = (step: SendFlowStep, amount = '') => {
     setSendDraft({
@@ -2291,7 +2293,7 @@ describe('USDCx burn fee reserve', () => {
   });
 
   it('keeps Max and Continue disabled with the failure message once the estimate and its retry fail', async () => {
-    mockEstimateUsdcxBurnFee.mockResolvedValue(null);
+    mockEstimateUsdcxBurnFee.mockResolvedValue({ outcome: 'failed' });
     openBurn(SendFlowStep.SelectAmount);
 
     await waitFor(() => expect(mockEstimateUsdcxBurnFee).toHaveBeenCalledTimes(2));
@@ -2305,7 +2307,7 @@ describe('USDCx burn fee reserve', () => {
   });
 
   it('caps the amount at the measured reserve once it lands', async () => {
-    mockEstimateUsdcxBurnFee.mockResolvedValue(315n);
+    mockEstimateUsdcxBurnFee.mockResolvedValue(measured(315n));
     openBurn(SendFlowStep.SelectAmount);
     await act(async () => {});
 
@@ -2316,7 +2318,7 @@ describe('USDCx burn fee reserve', () => {
   });
 
   it('measures once per account and chain, not again for another recipient', async () => {
-    mockEstimateUsdcxBurnFee.mockResolvedValue(315n);
+    mockEstimateUsdcxBurnFee.mockResolvedValue(measured(315n));
     openBurn(SendFlowStep.SelectAmount);
     await act(async () => {});
 
@@ -2332,7 +2334,7 @@ describe('USDCx burn fee reserve', () => {
   });
 
   it('refuses review from the Route step while the fee is measured and for an amount the measured reserve exceeds', async () => {
-    let land: (reserve: bigint | null) => void = () => {};
+    let land: (estimate: UsdcxBurnFeeEstimate) => void = () => {};
     mockEstimateUsdcxBurnFee.mockImplementation(
       () =>
         new Promise(resolve => {
@@ -2345,7 +2347,7 @@ describe('USDCx burn fee reserve', () => {
     fireEvent.click(screen.getByTestId('route-confirm'));
     expect(navigateMock).not.toHaveBeenCalled();
 
-    await act(async () => land(315n));
+    await act(async () => land(measured(315n)));
     fireEvent.click(screen.getByTestId('route-confirm'));
 
     expect(navigateMock).not.toHaveBeenCalled();
@@ -2353,8 +2355,33 @@ describe('USDCx burn fee reserve', () => {
   });
 
   it('hands an amount the measured reserve covers to review', async () => {
-    mockEstimateUsdcxBurnFee.mockResolvedValue(315n);
+    mockEstimateUsdcxBurnFee.mockResolvedValue(measured(315n));
     openBurn(SendFlowStep.Route, '9.9094');
+    await act(async () => {});
+
+    fireEvent.click(screen.getByTestId('route-confirm'));
+
+    expect(navigateMock).toHaveBeenCalledWith(expect.stringMatching(/^\/send\/review\?/));
+  });
+
+  // A burn that costs nothing is a measurement, so the static cap applies, and it keeps the full balance on a zero fee.
+  it('enables Max for the full balance under a measured zero reserve at a zero base fee', async () => {
+    mockBaseFee = 0;
+    mockEstimateUsdcxBurnFee.mockResolvedValue(measured(0n));
+    openBurn(SendFlowStep.SelectAmount);
+    await act(async () => {});
+
+    expect(screen.getByTestId('sa-max-disabled')).toHaveTextContent(/^false$/);
+    expect(screen.getByTestId('sa-balance')).toHaveTextContent(/^9\.909734$/);
+    typeAmount('9.909734');
+    expect(screen.getByTestId('sa-error')).toBeEmptyDOMElement();
+    expect(screen.getByTestId('sa-valid')).toHaveTextContent(/^true$/);
+  });
+
+  it('hands the full balance to review under a measured zero reserve at a zero base fee', async () => {
+    mockBaseFee = 0;
+    mockEstimateUsdcxBurnFee.mockResolvedValue(measured(0n));
+    openBurn(SendFlowStep.Route, '9.909734');
     await act(async () => {});
 
     fireEvent.click(screen.getByTestId('route-confirm'));

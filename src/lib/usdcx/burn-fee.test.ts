@@ -82,6 +82,9 @@ function view(fee: TxAssetView['fee'], outgoing: TxAssetView['outgoing']): TxAss
 }
 
 const measuredView = () => view({ faucetId: NATIVE, amount: 252n }, [{ faucetId: NATIVE, amount: 1n }]);
+const measured = (reserve: bigint) => ({ outcome: 'measured', reserve });
+const BUSY = { outcome: 'busy' };
+const FAILED = { outcome: 'failed' };
 const flush = () => new Promise(resolve => setTimeout(resolve, 0));
 
 describe('estimateUsdcxBurnFeeReserve', () => {
@@ -114,7 +117,7 @@ describe('estimateUsdcxBurnFeeReserve', () => {
     async (_realm, inline) => {
       mockInlineRealm = inline;
 
-      await expect(estimateUsdcxBurnFeeReserve('mm1sender', 1)).resolves.toBe(315n);
+      await expect(estimateUsdcxBurnFeeReserve('mm1sender', 1)).resolves.toEqual(measured(315n));
 
       expect(mockSimulate).not.toHaveBeenCalled();
       expect(mockDryRun).toHaveBeenCalledTimes(1);
@@ -144,25 +147,25 @@ describe('estimateUsdcxBurnFeeReserve', () => {
     await flush();
     finish?.({ executedBytes: 'executed' });
 
-    await expect(Promise.all([first, second])).resolves.toEqual([315n, 315n]);
+    await expect(Promise.all([first, second])).resolves.toEqual([measured(315n), measured(315n)]);
     expect(mockSimulate).not.toHaveBeenCalled();
     expect(mockDryRun).toHaveBeenCalledTimes(1);
     expect(mockLock.options).toHaveLength(1);
 
     // Only the in-flight estimate is shared: a later one, or one for another chain, measures again.
-    await expect(estimateUsdcxBurnFeeReserve('mm1sender', 1)).resolves.toBe(315n);
-    await expect(estimateUsdcxBurnFeeReserve('mm1sender', 2)).resolves.toBe(315n);
+    await expect(estimateUsdcxBurnFeeReserve('mm1sender', 1)).resolves.toEqual(measured(315n));
+    await expect(estimateUsdcxBurnFeeReserve('mm1sender', 2)).resolves.toEqual(measured(315n));
     expect(mockDryRun).toHaveBeenCalledTimes(3);
   });
 
-  it('gives up without a dry run when the WASM lock stays busy past its wait deadline', async () => {
+  it('answers busy, not failed, without a dry run when the WASM lock stays busy past its wait deadline', async () => {
     jest.useFakeTimers();
     const release = mockOccupyLock();
 
     const estimate = estimateUsdcxBurnFeeReserve('mm1sender', 1);
     await jest.advanceTimersByTimeAsync(USDCX_BURN_FEE_LOCK_WAIT_MS);
 
-    await expect(estimate).resolves.toBeNull();
+    await expect(estimate).resolves.toEqual(BUSY);
     // The hold it queued for runs once the lock frees, and does nothing.
     release();
     await jest.advanceTimersByTimeAsync(0);
@@ -188,25 +191,38 @@ describe('estimateUsdcxBurnFeeReserve', () => {
     );
 
     // 100 + 60 = 160, plus 40 headroom.
-    await expect(estimateUsdcxBurnFeeReserve('mm1sender', 1)).resolves.toBe(200n);
+    await expect(estimateUsdcxBurnFeeReserve('mm1sender', 1)).resolves.toEqual(measured(200n));
   });
 
   it('rounds the headroom up', async () => {
     mockView.mockReturnValue(view({ faucetId: NATIVE, amount: 7n }, [{ faucetId: NATIVE, amount: 1n }]));
 
-    await expect(estimateUsdcxBurnFeeReserve('mm1sender', 1)).resolves.toBe(9n);
+    await expect(estimateUsdcxBurnFeeReserve('mm1sender', 1)).resolves.toEqual(measured(9n));
   });
 
-  it('answers null when the burn costs nothing in the native asset', async () => {
+  it('answers a measured zero when the dry run succeeds and the burn costs nothing in the native asset', async () => {
     mockView.mockReturnValue(view({ faucetId: OTHER, amount: 50n }, [{ faucetId: NATIVE, amount: 1n }]));
 
-    await expect(estimateUsdcxBurnFeeReserve('mm1sender', 1)).resolves.toBeNull();
+    await expect(estimateUsdcxBurnFeeReserve('mm1sender', 1)).resolves.toEqual(measured(0n));
   });
 
-  it('answers null when the dry run fails', async () => {
+  // The probe's own unit always leaves as a native output, so a dry run that shows less matched the wrong faucet.
+  it.each([
+    [
+      'neither the fee nor any output is native',
+      view({ faucetId: OTHER, amount: 50n }, [{ faucetId: OTHER, amount: 1n }])
+    ],
+    ['the fee is native but the burned unit is not', view({ faucetId: NATIVE, amount: 252n }, [])]
+  ])('answers failed, not a measured cost, when %s', async (_case, dryRunView) => {
+    mockView.mockReturnValue(dryRunView);
+
+    await expect(estimateUsdcxBurnFeeReserve('mm1sender', 1)).resolves.toEqual(FAILED);
+  });
+
+  it('answers failed when the dry run fails', async () => {
     mockDryRun.mockRejectedValue(new Error('the execution failed'));
 
-    await expect(estimateUsdcxBurnFeeReserve('mm1sender', 1)).resolves.toBeNull();
+    await expect(estimateUsdcxBurnFeeReserve('mm1sender', 1)).resolves.toEqual(FAILED);
     expect(mockView).not.toHaveBeenCalled();
   });
 
@@ -217,11 +233,11 @@ describe('estimateUsdcxBurnFeeReserve', () => {
     await expect(estimateUsdcxBurnFeeReserve('mm1sender', 1)).rejects.toBe(trap);
   });
 
-  it('answers null, through its guard, when the dry run gives nothing to decode', async () => {
+  it('answers failed, through its guard, when the dry run gives nothing to decode', async () => {
     mockView.mockReturnValue(undefined);
 
-    await expect(estimateUsdcxBurnFeeReserve('mm1sender', 1)).resolves.toBeNull();
-    // Without the guard the read of the missing view throws and the catch-all answers null with a warning.
+    await expect(estimateUsdcxBurnFeeReserve('mm1sender', 1)).resolves.toEqual(FAILED);
+    // Without the guard the read of the missing view throws and the catch-all answers failed with a warning.
     expect(warnSpy).not.toHaveBeenCalled();
   });
 
@@ -235,15 +251,15 @@ describe('estimateUsdcxBurnFeeReserve', () => {
       return { domain: 0 };
     });
 
-    await expect(estimateUsdcxBurnFeeReserve('mm1sender', 1)).resolves.toBe(315n);
+    await expect(estimateUsdcxBurnFeeReserve('mm1sender', 1)).resolves.toEqual(measured(315n));
   });
 
-  it('answers null when the destination is not configured', async () => {
+  it('answers failed when the destination is not configured', async () => {
     mockDestination.mockImplementation(() => {
       throw new Error('USDCx withdrawal is not configured for chain 5');
     });
 
-    await expect(estimateUsdcxBurnFeeReserve('mm1sender', 5)).resolves.toBeNull();
+    await expect(estimateUsdcxBurnFeeReserve('mm1sender', 5)).resolves.toEqual(FAILED);
     expect(mockDryRun).not.toHaveBeenCalled();
     expect(mockSimulate).not.toHaveBeenCalled();
   });

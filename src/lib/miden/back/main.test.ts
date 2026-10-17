@@ -388,7 +388,7 @@ describe('processRequest', () => {
   });
 
   it('EstimateUsdcxBurnFeeRequest reaches the estimate action and answers its response', async () => {
-    const response = { type: WalletMessageType.EstimateUsdcxBurnFeeResponse, feeReserve: '315' };
+    const response = { type: WalletMessageType.EstimateUsdcxBurnFeeResponse, outcome: 'measured', feeReserve: '315' };
     Actions.estimateUsdcxBurnFee.mockResolvedValueOnce(response);
     const req = {
       type: WalletMessageType.EstimateUsdcxBurnFeeRequest,

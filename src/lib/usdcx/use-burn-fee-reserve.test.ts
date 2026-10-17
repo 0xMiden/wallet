@@ -1,12 +1,24 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 
+import type { UsdcxBurnFeeEstimate } from 'lib/shared/types';
+
 import { useBurnFeeReserve } from './use-burn-fee-reserve';
 
-const mockEstimate = jest.fn<Promise<bigint | null>, [string, number]>();
+const mockEstimate = jest.fn<Promise<UsdcxBurnFeeEstimate>, [string, number]>();
 jest.mock('lib/miden/front/client', () => ({ useMidenContext: () => ({ estimateUsdcxBurnFee: mockEstimate }) }));
 
 const TARGET = { accountPublicKey: 'mm1account', destinationChainId: 5042002 };
-const never = () => new Promise<bigint | null>(() => {});
+const never = () => new Promise<UsdcxBurnFeeEstimate>(() => {});
+const measured = (reserve: bigint): UsdcxBurnFeeEstimate => ({ outcome: 'measured', reserve });
+const BUSY: UsdcxBurnFeeEstimate = { outcome: 'busy' };
+const FAILED: UsdcxBurnFeeEstimate = { outcome: 'failed' };
+/** Longer than every busy backoff the hook waits, so each ask it schedules runs. */
+const PAST_EVERY_BACKOFF_MS = 120_000;
+/** Settles every answer that has landed and runs the timers due within `ms`. */
+const elapse = (ms: number) =>
+  act(async () => {
+    await jest.advanceTimersByTimeAsync(ms);
+  });
 
 beforeEach(() => {
   mockEstimate.mockReset();
@@ -14,6 +26,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  jest.useRealTimers();
   jest.restoreAllMocks();
 });
 
@@ -28,7 +41,7 @@ it('is pending while the estimate runs, and asks for the account and chain only'
 });
 
 it('reports the measured reserve', async () => {
-  mockEstimate.mockResolvedValue(315n);
+  mockEstimate.mockResolvedValue(measured(315n));
 
   const { result } = renderHook(() => useBurnFeeReserve(TARGET));
 
@@ -36,8 +49,17 @@ it('reports the measured reserve', async () => {
   expect(mockEstimate).toHaveBeenCalledTimes(1);
 });
 
+it('reports a measured zero as measured, not failed', async () => {
+  mockEstimate.mockResolvedValue(measured(0n));
+
+  const { result } = renderHook(() => useBurnFeeReserve(TARGET));
+
+  await waitFor(() => expect(result.current).toEqual({ status: 'measured', reserve: 0n }));
+  expect(mockEstimate).toHaveBeenCalledTimes(1);
+});
+
 it('retries a failed estimate once and reports what the retry measured', async () => {
-  mockEstimate.mockResolvedValueOnce(null).mockResolvedValueOnce(400n);
+  mockEstimate.mockResolvedValueOnce(FAILED).mockResolvedValueOnce(measured(400n));
 
   const { result } = renderHook(() => useBurnFeeReserve(TARGET));
 
@@ -47,13 +69,76 @@ it('retries a failed estimate once and reports what the retry measured', async (
 });
 
 it('reports failed once the retry fails too, and stops asking', async () => {
-  mockEstimate.mockResolvedValueOnce(null).mockRejectedValueOnce(new Error('the request failed'));
+  mockEstimate.mockResolvedValueOnce(FAILED).mockRejectedValueOnce(new Error('the request failed'));
 
   const { result } = renderHook(() => useBurnFeeReserve(TARGET));
 
   await waitFor(() => expect(result.current).toEqual({ status: 'failed', reserve: undefined }));
   await act(async () => {});
   expect(mockEstimate).toHaveBeenCalledTimes(2);
+});
+
+it('stays pending while the lock is busy and asks again after a backoff, reporting what a later ask measured', async () => {
+  jest.useFakeTimers();
+  mockEstimate.mockResolvedValueOnce(BUSY).mockResolvedValueOnce(BUSY).mockResolvedValueOnce(measured(315n));
+
+  const { result } = renderHook(() => useBurnFeeReserve(TARGET));
+  await elapse(0);
+
+  expect(result.current).toEqual({ status: 'pending', reserve: undefined });
+  expect(mockEstimate).toHaveBeenCalledTimes(1);
+
+  await elapse(PAST_EVERY_BACKOFF_MS);
+
+  expect(result.current).toEqual({ status: 'measured', reserve: 315n });
+  expect(mockEstimate).toHaveBeenCalledTimes(3);
+});
+
+it('reports failed after three busy answers and stops asking', async () => {
+  jest.useFakeTimers();
+  mockEstimate.mockResolvedValue(BUSY);
+
+  const { result } = renderHook(() => useBurnFeeReserve(TARGET));
+  await elapse(PAST_EVERY_BACKOFF_MS);
+
+  expect(result.current).toEqual({ status: 'failed', reserve: undefined });
+  expect(mockEstimate).toHaveBeenCalledTimes(3);
+  await elapse(PAST_EVERY_BACKOFF_MS);
+  expect(mockEstimate).toHaveBeenCalledTimes(3);
+});
+
+it('makes no further estimate once it unmounts during the busy backoff', async () => {
+  jest.useFakeTimers();
+  mockEstimate.mockResolvedValue(BUSY);
+
+  const { result, unmount } = renderHook(() => useBurnFeeReserve(TARGET));
+  await elapse(0);
+  expect(result.current).toEqual({ status: 'pending', reserve: undefined });
+  unmount();
+  await elapse(PAST_EVERY_BACKOFF_MS);
+
+  expect(mockEstimate).toHaveBeenCalledTimes(1);
+});
+
+it("makes no call for the old chain once the chain changes during that chain's busy backoff", async () => {
+  jest.useFakeTimers();
+  mockEstimate.mockImplementation(async (_account, chainId) =>
+    chainId === TARGET.destinationChainId ? BUSY : measured(500n)
+  );
+
+  const { result, rerender } = renderHook(({ target }) => useBurnFeeReserve(target), {
+    initialProps: { target: TARGET }
+  });
+  await elapse(0);
+  expect(result.current).toEqual({ status: 'pending', reserve: undefined });
+  rerender({ target: { ...TARGET, destinationChainId: 84532 } });
+  await elapse(PAST_EVERY_BACKOFF_MS);
+
+  expect(result.current).toEqual({ status: 'measured', reserve: 500n });
+  expect(mockEstimate.mock.calls).toEqual([
+    ['mm1account', 5042002],
+    ['mm1account', 84532]
+  ]);
 });
 
 it('measures nothing without a target', () => {
@@ -63,7 +148,7 @@ it('measures nothing without a target', () => {
 });
 
 it('starts pending for a new chain and drops the answer for the previous one', async () => {
-  let answerFirst: (reserve: bigint | null) => void = () => {};
+  let answerFirst: (estimate: UsdcxBurnFeeEstimate) => void = () => {};
   mockEstimate
     .mockImplementationOnce(
       () =>
@@ -71,7 +156,7 @@ it('starts pending for a new chain and drops the answer for the previous one', a
           answerFirst = resolve;
         })
     )
-    .mockResolvedValueOnce(500n);
+    .mockResolvedValueOnce(measured(500n));
 
   const { result, rerender } = renderHook(({ target }) => useBurnFeeReserve(target), {
     initialProps: { target: TARGET }
@@ -79,13 +164,13 @@ it('starts pending for a new chain and drops the answer for the previous one', a
   rerender({ target: { ...TARGET, destinationChainId: 84532 } });
   expect(result.current).toEqual({ status: 'pending', reserve: undefined });
 
-  await act(async () => answerFirst(315n));
+  await act(async () => answerFirst(measured(315n)));
   await waitFor(() => expect(result.current).toEqual({ status: 'measured', reserve: 500n }));
   expect(mockEstimate).toHaveBeenLastCalledWith('mm1account', 84532);
 });
 
 it('asks again for the same target only once it changes', async () => {
-  mockEstimate.mockResolvedValue(315n);
+  mockEstimate.mockResolvedValue(measured(315n));
 
   const { result, rerender } = renderHook(({ target }) => useBurnFeeReserve(target), {
     initialProps: { target: TARGET }

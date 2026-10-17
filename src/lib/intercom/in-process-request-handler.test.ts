@@ -14,6 +14,7 @@ const mockExportAccountFile = jest.fn(async (_accountPublicKey: string, _passwor
 const mockUnlock = jest.fn(async (_password: string) => undefined);
 const mockEstimateUsdcxBurnFee = jest.fn(async (_req: unknown) => ({
   type: WalletMessageType.EstimateUsdcxBurnFeeResponse,
+  outcome: 'measured',
   feeReserve: '315'
 }));
 jest.mock('lib/miden/back/actions', () => ({
@@ -67,7 +68,11 @@ describe('processInProcessRequest', () => {
 
     const res = await processInProcessRequest(req, 'test-adapter');
 
-    expect(res).toEqual({ type: WalletMessageType.EstimateUsdcxBurnFeeResponse, feeReserve: '315' });
+    expect(res).toEqual({
+      type: WalletMessageType.EstimateUsdcxBurnFeeResponse,
+      outcome: 'measured',
+      feeReserve: '315'
+    });
     expect(mockEstimateUsdcxBurnFee).toHaveBeenCalledWith(req);
   });
 

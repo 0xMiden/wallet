@@ -10,7 +10,12 @@ import { resolveSpendsUsd } from 'lib/miden/spending-limits/valuation';
 import { NoteTypeEnum } from 'lib/miden/types';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
-import { EstimateUsdcxBurnFeeRequest, WalletMessageType, WalletStatus } from 'lib/shared/types';
+import {
+  EstimateUsdcxBurnFeeRequest,
+  type UsdcxBurnFeeEstimate,
+  WalletMessageType,
+  WalletStatus
+} from 'lib/shared/types';
 import { sendEvent } from 'lib/telemetry/sink';
 import { WalletType } from 'screens/onboarding/types';
 
@@ -66,7 +71,7 @@ import packageJson from '../../../../package.json';
 
 jest.mock('lib/miden/spending-limits/valuation', () => ({ resolveSpendsUsd: jest.fn() }));
 
-const mockEstimateUsdcxBurnFeeReserve = jest.fn<Promise<bigint | null>, [string, number]>();
+const mockEstimateUsdcxBurnFeeReserve = jest.fn<Promise<UsdcxBurnFeeEstimate>, [string, number]>();
 jest.mock('lib/usdcx/burn-fee', () => ({
   estimateUsdcxBurnFeeReserve: (accountPublicKey: string, destinationChainId: number) =>
     mockEstimateUsdcxBurnFeeReserve(accountPublicKey, destinationChainId)
@@ -2437,21 +2442,32 @@ describe('actions', () => {
     beforeEach(() => mockEstimateUsdcxBurnFeeReserve.mockReset());
 
     it('measures for the account and chain and answers the reserve as a decimal string', async () => {
-      mockEstimateUsdcxBurnFeeReserve.mockResolvedValueOnce(9007199254740993n);
+      mockEstimateUsdcxBurnFeeReserve.mockResolvedValueOnce({ outcome: 'measured', reserve: 9007199254740993n });
 
       await expect(estimateUsdcxBurnFee(request)).resolves.toEqual({
         type: WalletMessageType.EstimateUsdcxBurnFeeResponse,
+        outcome: 'measured',
         feeReserve: '9007199254740993'
       });
       expect(mockEstimateUsdcxBurnFeeReserve).toHaveBeenCalledWith('mm1account', 5042002);
     });
 
-    it('answers null when nothing was measured', async () => {
-      mockEstimateUsdcxBurnFeeReserve.mockResolvedValueOnce(null);
+    it('answers a measured zero as a measurement', async () => {
+      mockEstimateUsdcxBurnFeeReserve.mockResolvedValueOnce({ outcome: 'measured', reserve: 0n });
 
-      await expect(estimateUsdcxBurnFee(request)).resolves.toEqual({
+      await expect(estimateUsdcxBurnFee(request)).resolves.toStrictEqual({
         type: WalletMessageType.EstimateUsdcxBurnFeeResponse,
-        feeReserve: null
+        outcome: 'measured',
+        feeReserve: '0'
+      });
+    });
+
+    it.each<'busy' | 'failed'>(['busy', 'failed'])('answers %s as itself, with no reserve', async outcome => {
+      mockEstimateUsdcxBurnFeeReserve.mockResolvedValueOnce({ outcome });
+
+      await expect(estimateUsdcxBurnFee(request)).resolves.toStrictEqual({
+        type: WalletMessageType.EstimateUsdcxBurnFeeResponse,
+        outcome
       });
     });
   });
