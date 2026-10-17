@@ -1,134 +1,4 @@
 {
-  "me": {
-    "message": "Eu",
-    "englishSource": "Me"
-  },
-  "profile": {
-    "message": "Perfil",
-    "englishSource": "Profile"
-  },
-  "myBadges": {
-    "message": "Meus emblemas",
-    "englishSource": "My badges"
-  },
-  "openMyBadges": {
-    "message": "Abrir Meus emblemas",
-    "englishSource": "Open My badges"
-  },
-  "badgesEarnedCount": {
-    "message": "$earned$ de $total$ conquistados",
-    "englishSource": "$earned$ of $total$ earned",
-    "placeholders": {
-      "earned": {
-        "content": "$1"
-      },
-      "total": {
-        "content": "$2"
-      }
-    }
-  },
-  "badgesProfileDescription": {
-    "message": "Marcos privados da sua atividade na Mainnet",
-    "englishSource": "Private milestones from your Mainnet activity"
-  },
-  "badgesCollectionDescription": {
-    "message": "Os marcos privados da sua carteira.",
-    "englishSource": "Your private wallet milestones."
-  },
-  "badgeCollection": {
-    "message": "Coleção de emblemas",
-    "englishSource": "Badge collection"
-  },
-  "mainnetOnly": {
-    "message": "Somente Mainnet",
-    "englishSource": "Mainnet only"
-  },
-  "badgesMainnetNoticeTitle": {
-    "message": "Os emblemas são desbloqueados na Mainnet",
-    "englishSource": "Badges unlock on Mainnet"
-  },
-  "badgesMainnetNoticeDescription": {
-    "message": "Os emblemas são desbloqueados na Mainnet. Atividades de teste não contam.",
-    "englishSource": "Badges unlock on Mainnet. Test activity does not count."
-  },
-  "badgeEarnedLabel": {
-    "message": "$badge$, conquistado",
-    "englishSource": "$badge$, earned",
-    "placeholders": {
-      "badge": {
-        "content": "$1"
-      }
-    }
-  },
-  "badgeLockedLabel": {
-    "message": "$badge$, bloqueado",
-    "englishSource": "$badge$, locked",
-    "placeholders": {
-      "badge": {
-        "content": "$1"
-      }
-    }
-  },
-  "locked": {
-    "message": "Bloqueado",
-    "englishSource": "Locked"
-  },
-  "badgeEarned": {
-    "message": "Conquistado",
-    "englishSource": "Earned"
-  },
-  "badgeVerificationPending": {
-    "message": "Ainda não disponível",
-    "englishSource": "Not available yet"
-  },
-  "badgeFirstDeposit": {
-    "message": "Primeiro depósito",
-    "englishSource": "First Deposit"
-  },
-  "badgeFirstDepositDescription": {
-    "message": "Adicione fundos e aguarde até que estejam disponíveis para uso.",
-    "englishSource": "Add funds and wait for them to become spendable."
-  },
-  "badgeFirstReceive": {
-    "message": "Primeiro recebimento",
-    "englishSource": "First Receive"
-  },
-  "badgeFirstReceiveDescription": {
-    "message": "Aceite e resgate uma transferência para esta conta.",
-    "englishSource": "Accept and claim a transfer to this account."
-  },
-  "badgeFirstSend": {
-    "message": "Primeiro envio",
-    "englishSource": "First Send"
-  },
-  "badgeFirstSendDescription": {
-    "message": "Confirme uma transferência de saída da Miden.",
-    "englishSource": "Confirm an outgoing Miden transfer."
-  },
-  "badgeFirstSwap": {
-    "message": "Primeira troca",
-    "englishSource": "First Swap"
-  },
-  "badgeFirstSwapDescription": {
-    "message": "Conclua uma troca e receba fundos disponíveis para uso.",
-    "englishSource": "Complete a swap and receive spendable output."
-  },
-  "badgeRecoveryChecked": {
-    "message": "Recuperação verificada",
-    "englishSource": "Recovery Checked"
-  },
-  "badgeRecoveryCheckedDescription": {
-    "message": "Verifique o backup de recuperação desta conta.",
-    "englishSource": "Verify this account's recovery backup."
-  },
-  "badgeMiniappExplorer": {
-    "message": "Explorador de miniapps",
-    "englishSource": "Miniapp Explorer"
-  },
-  "badgeMiniappExplorerDescription": {
-    "message": "Conclua uma experiência de miniapp compatível.",
-    "englishSource": "Complete a supported mini app experience."
-  },
   "usdcxBurnTitle": {
     "message": "Queimar USDCx",
     "englishSource": "Burn USDCx"
@@ -786,9 +656,139 @@
     "message": "Criar conta",
     "englishSource": "Create Account"
   },
+  "me": {
+    "message": "Eu",
+    "englishSource": "Me"
+  },
+  "profile": {
+    "message": "Perfil",
+    "englishSource": "Profile"
+  },
   "settings": {
     "message": "Configurações",
     "englishSource": "Settings"
+  },
+  "myBadges": {
+    "message": "Meus emblemas",
+    "englishSource": "My badges"
+  },
+  "openMyBadges": {
+    "message": "Abrir Meus emblemas",
+    "englishSource": "Open My badges"
+  },
+  "badgesEarnedCount": {
+    "message": "$earned$ de $total$ conquistados",
+    "englishSource": "$earned$ of $total$ earned",
+    "placeholders": {
+      "earned": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      }
+    }
+  },
+  "badgesProfileDescription": {
+    "message": "Marcos privados da sua atividade na Mainnet",
+    "englishSource": "Private milestones from your Mainnet activity"
+  },
+  "badgesCollectionDescription": {
+    "message": "Os marcos privados da sua carteira.",
+    "englishSource": "Your private wallet milestones."
+  },
+  "badgeCollection": {
+    "message": "Coleção de emblemas",
+    "englishSource": "Badge collection"
+  },
+  "mainnetOnly": {
+    "message": "Somente Mainnet",
+    "englishSource": "Mainnet only"
+  },
+  "badgesMainnetNoticeTitle": {
+    "message": "Os emblemas são desbloqueados na Mainnet",
+    "englishSource": "Badges unlock on Mainnet"
+  },
+  "badgesMainnetNoticeDescription": {
+    "message": "Os emblemas são desbloqueados na Mainnet. Atividades de teste não contam.",
+    "englishSource": "Badges unlock on Mainnet. Test activity does not count."
+  },
+  "badgeEarnedLabel": {
+    "message": "$badge$, conquistado",
+    "englishSource": "$badge$, earned",
+    "placeholders": {
+      "badge": {
+        "content": "$1"
+      }
+    }
+  },
+  "badgeLockedLabel": {
+    "message": "$badge$, bloqueado",
+    "englishSource": "$badge$, locked",
+    "placeholders": {
+      "badge": {
+        "content": "$1"
+      }
+    }
+  },
+  "locked": {
+    "message": "Bloqueado",
+    "englishSource": "Locked"
+  },
+  "badgeEarned": {
+    "message": "Conquistado",
+    "englishSource": "Earned"
+  },
+  "badgeVerificationPending": {
+    "message": "Ainda não disponível",
+    "englishSource": "Not available yet"
+  },
+  "badgeFirstDeposit": {
+    "message": "Primeiro depósito",
+    "englishSource": "First Deposit"
+  },
+  "badgeFirstDepositDescription": {
+    "message": "Adicione fundos e aguarde até que estejam disponíveis para uso.",
+    "englishSource": "Add funds and wait for them to become spendable."
+  },
+  "badgeFirstReceive": {
+    "message": "Primeiro recebimento",
+    "englishSource": "First Receive"
+  },
+  "badgeFirstReceiveDescription": {
+    "message": "Aceite e resgate uma transferência para esta conta.",
+    "englishSource": "Accept and claim a transfer to this account."
+  },
+  "badgeFirstSend": {
+    "message": "Primeiro envio",
+    "englishSource": "First Send"
+  },
+  "badgeFirstSendDescription": {
+    "message": "Confirme uma transferência de saída da Miden.",
+    "englishSource": "Confirm an outgoing Miden transfer."
+  },
+  "badgeFirstSwap": {
+    "message": "Primeira troca",
+    "englishSource": "First Swap"
+  },
+  "badgeFirstSwapDescription": {
+    "message": "Conclua uma troca e receba fundos disponíveis para uso.",
+    "englishSource": "Complete a swap and receive spendable output."
+  },
+  "badgeRecoveryChecked": {
+    "message": "Recuperação verificada",
+    "englishSource": "Recovery Checked"
+  },
+  "badgeRecoveryCheckedDescription": {
+    "message": "Verifique o backup de recuperação desta conta.",
+    "englishSource": "Verify this account's recovery backup."
+  },
+  "badgeMiniappExplorer": {
+    "message": "Explorador de miniapps",
+    "englishSource": "Miniapp Explorer"
+  },
+  "badgeMiniappExplorerDescription": {
+    "message": "Conclua uma experiência de miniapp compatível.",
+    "englishSource": "Complete a supported mini app experience."
   },
   "authorizedDApps": {
     "message": "DApps autorizadas",

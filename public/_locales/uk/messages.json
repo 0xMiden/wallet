@@ -1,134 +1,4 @@
 {
-  "me": {
-    "message": "Я",
-    "englishSource": "Me"
-  },
-  "profile": {
-    "message": "Профіль",
-    "englishSource": "Profile"
-  },
-  "myBadges": {
-    "message": "Мої значки",
-    "englishSource": "My badges"
-  },
-  "openMyBadges": {
-    "message": "Відкрити Мої значки",
-    "englishSource": "Open My badges"
-  },
-  "badgesEarnedCount": {
-    "message": "Отримано $earned$ із $total$",
-    "englishSource": "$earned$ of $total$ earned",
-    "placeholders": {
-      "earned": {
-        "content": "$1"
-      },
-      "total": {
-        "content": "$2"
-      }
-    }
-  },
-  "badgesProfileDescription": {
-    "message": "Особисті досягнення за активність у Mainnet",
-    "englishSource": "Private milestones from your Mainnet activity"
-  },
-  "badgesCollectionDescription": {
-    "message": "Особисті досягнення вашого гаманця.",
-    "englishSource": "Your private wallet milestones."
-  },
-  "badgeCollection": {
-    "message": "Колекція значків",
-    "englishSource": "Badge collection"
-  },
-  "mainnetOnly": {
-    "message": "Лише Mainnet",
-    "englishSource": "Mainnet only"
-  },
-  "badgesMainnetNoticeTitle": {
-    "message": "Значки відкриваються в Mainnet",
-    "englishSource": "Badges unlock on Mainnet"
-  },
-  "badgesMainnetNoticeDescription": {
-    "message": "Значки відкриваються в Mainnet. Тестова активність не враховується.",
-    "englishSource": "Badges unlock on Mainnet. Test activity does not count."
-  },
-  "badgeEarnedLabel": {
-    "message": "$badge$, отримано",
-    "englishSource": "$badge$, earned",
-    "placeholders": {
-      "badge": {
-        "content": "$1"
-      }
-    }
-  },
-  "badgeLockedLabel": {
-    "message": "$badge$, заблоковано",
-    "englishSource": "$badge$, locked",
-    "placeholders": {
-      "badge": {
-        "content": "$1"
-      }
-    }
-  },
-  "locked": {
-    "message": "Заблоковано",
-    "englishSource": "Locked"
-  },
-  "badgeEarned": {
-    "message": "Отримано",
-    "englishSource": "Earned"
-  },
-  "badgeVerificationPending": {
-    "message": "Поки недоступно",
-    "englishSource": "Not available yet"
-  },
-  "badgeFirstDeposit": {
-    "message": "Перше поповнення",
-    "englishSource": "First Deposit"
-  },
-  "badgeFirstDepositDescription": {
-    "message": "Додайте кошти й дочекайтеся, коли їх можна буде витратити.",
-    "englishSource": "Add funds and wait for them to become spendable."
-  },
-  "badgeFirstReceive": {
-    "message": "Перше отримання",
-    "englishSource": "First Receive"
-  },
-  "badgeFirstReceiveDescription": {
-    "message": "Прийміть і заберіть переказ на цей обліковий запис.",
-    "englishSource": "Accept and claim a transfer to this account."
-  },
-  "badgeFirstSend": {
-    "message": "Перше надсилання",
-    "englishSource": "First Send"
-  },
-  "badgeFirstSendDescription": {
-    "message": "Підтвердьте вихідний переказ Miden.",
-    "englishSource": "Confirm an outgoing Miden transfer."
-  },
-  "badgeFirstSwap": {
-    "message": "Перший обмін",
-    "englishSource": "First Swap"
-  },
-  "badgeFirstSwapDescription": {
-    "message": "Завершіть обмін і отримайте доступні для витрачання кошти.",
-    "englishSource": "Complete a swap and receive spendable output."
-  },
-  "badgeRecoveryChecked": {
-    "message": "Відновлення перевірено",
-    "englishSource": "Recovery Checked"
-  },
-  "badgeRecoveryCheckedDescription": {
-    "message": "Перевірте резервну копію для відновлення цього облікового запису.",
-    "englishSource": "Verify this account's recovery backup."
-  },
-  "badgeMiniappExplorer": {
-    "message": "Дослідник мінізастосунків",
-    "englishSource": "Miniapp Explorer"
-  },
-  "badgeMiniappExplorerDescription": {
-    "message": "Завершіть дію в підтримуваному мінізастосунку.",
-    "englishSource": "Complete a supported mini app experience."
-  },
   "usdcxBurnTitle": {
     "message": "Спалення USDCx",
     "englishSource": "Burn USDCx"
@@ -786,9 +656,139 @@
     "message": "Створити обліковий запис",
     "englishSource": "Create Account"
   },
+  "me": {
+    "message": "Я",
+    "englishSource": "Me"
+  },
+  "profile": {
+    "message": "Профіль",
+    "englishSource": "Profile"
+  },
   "settings": {
     "message": "Налаштування",
     "englishSource": "Settings"
+  },
+  "myBadges": {
+    "message": "Мої значки",
+    "englishSource": "My badges"
+  },
+  "openMyBadges": {
+    "message": "Відкрити Мої значки",
+    "englishSource": "Open My badges"
+  },
+  "badgesEarnedCount": {
+    "message": "Отримано $earned$ із $total$",
+    "englishSource": "$earned$ of $total$ earned",
+    "placeholders": {
+      "earned": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      }
+    }
+  },
+  "badgesProfileDescription": {
+    "message": "Особисті досягнення за активність у Mainnet",
+    "englishSource": "Private milestones from your Mainnet activity"
+  },
+  "badgesCollectionDescription": {
+    "message": "Особисті досягнення вашого гаманця.",
+    "englishSource": "Your private wallet milestones."
+  },
+  "badgeCollection": {
+    "message": "Колекція значків",
+    "englishSource": "Badge collection"
+  },
+  "mainnetOnly": {
+    "message": "Лише Mainnet",
+    "englishSource": "Mainnet only"
+  },
+  "badgesMainnetNoticeTitle": {
+    "message": "Значки відкриваються в Mainnet",
+    "englishSource": "Badges unlock on Mainnet"
+  },
+  "badgesMainnetNoticeDescription": {
+    "message": "Значки відкриваються в Mainnet. Тестова активність не враховується.",
+    "englishSource": "Badges unlock on Mainnet. Test activity does not count."
+  },
+  "badgeEarnedLabel": {
+    "message": "$badge$, отримано",
+    "englishSource": "$badge$, earned",
+    "placeholders": {
+      "badge": {
+        "content": "$1"
+      }
+    }
+  },
+  "badgeLockedLabel": {
+    "message": "$badge$, заблоковано",
+    "englishSource": "$badge$, locked",
+    "placeholders": {
+      "badge": {
+        "content": "$1"
+      }
+    }
+  },
+  "locked": {
+    "message": "Заблоковано",
+    "englishSource": "Locked"
+  },
+  "badgeEarned": {
+    "message": "Отримано",
+    "englishSource": "Earned"
+  },
+  "badgeVerificationPending": {
+    "message": "Поки недоступно",
+    "englishSource": "Not available yet"
+  },
+  "badgeFirstDeposit": {
+    "message": "Перше поповнення",
+    "englishSource": "First Deposit"
+  },
+  "badgeFirstDepositDescription": {
+    "message": "Додайте кошти й дочекайтеся, коли їх можна буде витратити.",
+    "englishSource": "Add funds and wait for them to become spendable."
+  },
+  "badgeFirstReceive": {
+    "message": "Перше отримання",
+    "englishSource": "First Receive"
+  },
+  "badgeFirstReceiveDescription": {
+    "message": "Прийміть і заберіть переказ на цей обліковий запис.",
+    "englishSource": "Accept and claim a transfer to this account."
+  },
+  "badgeFirstSend": {
+    "message": "Перше надсилання",
+    "englishSource": "First Send"
+  },
+  "badgeFirstSendDescription": {
+    "message": "Підтвердьте вихідний переказ Miden.",
+    "englishSource": "Confirm an outgoing Miden transfer."
+  },
+  "badgeFirstSwap": {
+    "message": "Перший обмін",
+    "englishSource": "First Swap"
+  },
+  "badgeFirstSwapDescription": {
+    "message": "Завершіть обмін і отримайте доступні для витрачання кошти.",
+    "englishSource": "Complete a swap and receive spendable output."
+  },
+  "badgeRecoveryChecked": {
+    "message": "Відновлення перевірено",
+    "englishSource": "Recovery Checked"
+  },
+  "badgeRecoveryCheckedDescription": {
+    "message": "Перевірте резервну копію для відновлення цього облікового запису.",
+    "englishSource": "Verify this account's recovery backup."
+  },
+  "badgeMiniappExplorer": {
+    "message": "Дослідник мінізастосунків",
+    "englishSource": "Miniapp Explorer"
+  },
+  "badgeMiniappExplorerDescription": {
+    "message": "Завершіть дію в підтримуваному мінізастосунку.",
+    "englishSource": "Complete a supported mini app experience."
   },
   "authorizedDApps": {
     "message": "Авторизовані DApps",

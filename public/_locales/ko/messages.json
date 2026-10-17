@@ -1,134 +1,4 @@
 {
-  "me": {
-    "message": "나",
-    "englishSource": "Me"
-  },
-  "profile": {
-    "message": "프로필",
-    "englishSource": "Profile"
-  },
-  "myBadges": {
-    "message": "내 배지",
-    "englishSource": "My badges"
-  },
-  "openMyBadges": {
-    "message": "내 배지 열기",
-    "englishSource": "Open My badges"
-  },
-  "badgesEarnedCount": {
-    "message": "$total$개 중 $earned$개 획득",
-    "englishSource": "$earned$ of $total$ earned",
-    "placeholders": {
-      "earned": {
-        "content": "$1"
-      },
-      "total": {
-        "content": "$2"
-      }
-    }
-  },
-  "badgesProfileDescription": {
-    "message": "Mainnet 활동으로 달성한 비공개 이정표",
-    "englishSource": "Private milestones from your Mainnet activity"
-  },
-  "badgesCollectionDescription": {
-    "message": "나만의 비공개 지갑 이정표입니다.",
-    "englishSource": "Your private wallet milestones."
-  },
-  "badgeCollection": {
-    "message": "배지 컬렉션",
-    "englishSource": "Badge collection"
-  },
-  "mainnetOnly": {
-    "message": "Mainnet 전용",
-    "englishSource": "Mainnet only"
-  },
-  "badgesMainnetNoticeTitle": {
-    "message": "배지는 Mainnet에서 획득할 수 있습니다",
-    "englishSource": "Badges unlock on Mainnet"
-  },
-  "badgesMainnetNoticeDescription": {
-    "message": "배지는 Mainnet에서 획득할 수 있습니다. 테스트 활동은 포함되지 않습니다.",
-    "englishSource": "Badges unlock on Mainnet. Test activity does not count."
-  },
-  "badgeEarnedLabel": {
-    "message": "$badge$, 획득함",
-    "englishSource": "$badge$, earned",
-    "placeholders": {
-      "badge": {
-        "content": "$1"
-      }
-    }
-  },
-  "badgeLockedLabel": {
-    "message": "$badge$, 잠김",
-    "englishSource": "$badge$, locked",
-    "placeholders": {
-      "badge": {
-        "content": "$1"
-      }
-    }
-  },
-  "locked": {
-    "message": "잠김",
-    "englishSource": "Locked"
-  },
-  "badgeEarned": {
-    "message": "획득함",
-    "englishSource": "Earned"
-  },
-  "badgeVerificationPending": {
-    "message": "아직 사용할 수 없음",
-    "englishSource": "Not available yet"
-  },
-  "badgeFirstDeposit": {
-    "message": "첫 입금",
-    "englishSource": "First Deposit"
-  },
-  "badgeFirstDepositDescription": {
-    "message": "자금을 추가하고 사용 가능해질 때까지 기다리세요.",
-    "englishSource": "Add funds and wait for them to become spendable."
-  },
-  "badgeFirstReceive": {
-    "message": "첫 수령",
-    "englishSource": "First Receive"
-  },
-  "badgeFirstReceiveDescription": {
-    "message": "이 계정으로 온 송금을 수락하고 수령하세요.",
-    "englishSource": "Accept and claim a transfer to this account."
-  },
-  "badgeFirstSend": {
-    "message": "첫 송금",
-    "englishSource": "First Send"
-  },
-  "badgeFirstSendDescription": {
-    "message": "Miden 송금을 확정하세요.",
-    "englishSource": "Confirm an outgoing Miden transfer."
-  },
-  "badgeFirstSwap": {
-    "message": "첫 스왑",
-    "englishSource": "First Swap"
-  },
-  "badgeFirstSwapDescription": {
-    "message": "스왑을 완료하고 사용 가능한 자금을 받으세요.",
-    "englishSource": "Complete a swap and receive spendable output."
-  },
-  "badgeRecoveryChecked": {
-    "message": "복구 확인 완료",
-    "englishSource": "Recovery Checked"
-  },
-  "badgeRecoveryCheckedDescription": {
-    "message": "이 계정의 복구 백업을 확인하세요.",
-    "englishSource": "Verify this account's recovery backup."
-  },
-  "badgeMiniappExplorer": {
-    "message": "미니 앱 탐험가",
-    "englishSource": "Miniapp Explorer"
-  },
-  "badgeMiniappExplorerDescription": {
-    "message": "지원되는 미니 앱 경험을 완료하세요.",
-    "englishSource": "Complete a supported mini app experience."
-  },
   "usdcxBurnTitle": {
     "message": "USDCx 소각",
     "englishSource": "Burn USDCx"
@@ -786,9 +656,139 @@
     "message": "계정 만들기",
     "englishSource": "Create Account"
   },
+  "me": {
+    "message": "나",
+    "englishSource": "Me"
+  },
+  "profile": {
+    "message": "프로필",
+    "englishSource": "Profile"
+  },
   "settings": {
     "message": "설정",
     "englishSource": "Settings"
+  },
+  "myBadges": {
+    "message": "내 배지",
+    "englishSource": "My badges"
+  },
+  "openMyBadges": {
+    "message": "내 배지 열기",
+    "englishSource": "Open My badges"
+  },
+  "badgesEarnedCount": {
+    "message": "$total$개 중 $earned$개 획득",
+    "englishSource": "$earned$ of $total$ earned",
+    "placeholders": {
+      "earned": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      }
+    }
+  },
+  "badgesProfileDescription": {
+    "message": "Mainnet 활동으로 달성한 비공개 이정표",
+    "englishSource": "Private milestones from your Mainnet activity"
+  },
+  "badgesCollectionDescription": {
+    "message": "나만의 비공개 지갑 이정표입니다.",
+    "englishSource": "Your private wallet milestones."
+  },
+  "badgeCollection": {
+    "message": "배지 컬렉션",
+    "englishSource": "Badge collection"
+  },
+  "mainnetOnly": {
+    "message": "Mainnet 전용",
+    "englishSource": "Mainnet only"
+  },
+  "badgesMainnetNoticeTitle": {
+    "message": "배지는 Mainnet에서 획득할 수 있습니다",
+    "englishSource": "Badges unlock on Mainnet"
+  },
+  "badgesMainnetNoticeDescription": {
+    "message": "배지는 Mainnet에서 획득할 수 있습니다. 테스트 활동은 포함되지 않습니다.",
+    "englishSource": "Badges unlock on Mainnet. Test activity does not count."
+  },
+  "badgeEarnedLabel": {
+    "message": "$badge$, 획득함",
+    "englishSource": "$badge$, earned",
+    "placeholders": {
+      "badge": {
+        "content": "$1"
+      }
+    }
+  },
+  "badgeLockedLabel": {
+    "message": "$badge$, 잠김",
+    "englishSource": "$badge$, locked",
+    "placeholders": {
+      "badge": {
+        "content": "$1"
+      }
+    }
+  },
+  "locked": {
+    "message": "잠김",
+    "englishSource": "Locked"
+  },
+  "badgeEarned": {
+    "message": "획득함",
+    "englishSource": "Earned"
+  },
+  "badgeVerificationPending": {
+    "message": "아직 사용할 수 없음",
+    "englishSource": "Not available yet"
+  },
+  "badgeFirstDeposit": {
+    "message": "첫 입금",
+    "englishSource": "First Deposit"
+  },
+  "badgeFirstDepositDescription": {
+    "message": "자금을 추가하고 사용 가능해질 때까지 기다리세요.",
+    "englishSource": "Add funds and wait for them to become spendable."
+  },
+  "badgeFirstReceive": {
+    "message": "첫 수령",
+    "englishSource": "First Receive"
+  },
+  "badgeFirstReceiveDescription": {
+    "message": "이 계정으로 온 송금을 수락하고 수령하세요.",
+    "englishSource": "Accept and claim a transfer to this account."
+  },
+  "badgeFirstSend": {
+    "message": "첫 송금",
+    "englishSource": "First Send"
+  },
+  "badgeFirstSendDescription": {
+    "message": "Miden 송금을 확정하세요.",
+    "englishSource": "Confirm an outgoing Miden transfer."
+  },
+  "badgeFirstSwap": {
+    "message": "첫 스왑",
+    "englishSource": "First Swap"
+  },
+  "badgeFirstSwapDescription": {
+    "message": "스왑을 완료하고 사용 가능한 자금을 받으세요.",
+    "englishSource": "Complete a swap and receive spendable output."
+  },
+  "badgeRecoveryChecked": {
+    "message": "복구 확인 완료",
+    "englishSource": "Recovery Checked"
+  },
+  "badgeRecoveryCheckedDescription": {
+    "message": "이 계정의 복구 백업을 확인하세요.",
+    "englishSource": "Verify this account's recovery backup."
+  },
+  "badgeMiniappExplorer": {
+    "message": "미니 앱 탐험가",
+    "englishSource": "Miniapp Explorer"
+  },
+  "badgeMiniappExplorerDescription": {
+    "message": "지원되는 미니 앱 경험을 완료하세요.",
+    "englishSource": "Complete a supported mini app experience."
   },
   "authorizedDApps": {
     "message": "승인된 DApp",
