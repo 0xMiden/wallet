@@ -131,7 +131,7 @@ export function buildImportMap(roots: PackageRoots): ImportMap {
 export function buildReactImportMap(roots: ReactPackageRoots): ImportMap {
   // The `./*` subpaths point at `.mjs` files, which the server's `.js` retry cannot reach from a bare subpath.
   const zustand = (subpath: string): string =>
-    `/npm/zustand/${manifestField(roots.zustand, ['exports', './*', 'import', 'default']).replace('*', subpath)}`;
+    `/npm/zustand/${manifestField(roots.zustand, ['exports', './*', 'import', 'default']).replaceAll('*', subpath)}`;
   return {
     imports: {
       ...buildImportMap(roots).imports,

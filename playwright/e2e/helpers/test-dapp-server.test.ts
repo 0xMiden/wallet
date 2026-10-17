@@ -16,6 +16,7 @@ import ts from 'typescript';
 import { exportedNames, importedSpecifiers, linkProblems } from './module-graph';
 import {
   buildImportMap,
+  buildReactImportMap,
   buildReactShims,
   createDappServer,
   createReactDappServer,
@@ -253,6 +254,20 @@ describe('React page server', () => {
         createRequire(path.join(reactRoots['@miden-sdk/react'], 'package.json')).resolve('zustand/package.json')
       )
     );
+  });
+
+  it('replaces every * of the zustand subpath pattern, as Node resolves package exports', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'zustand-fixture-'));
+    try {
+      const target = { import: { default: './esm/*/*.mjs' } };
+      const exports = { '.': { import: { default: './esm/index.mjs' } }, './*': target };
+      fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'zustand', exports }));
+      const { imports } = buildReactImportMap({ ...reactRoots, zustand: dir });
+      expect(imports['zustand/vanilla']).toBe('/npm/zustand/esm/vanilla/vanilla.mjs');
+      expect(imports['zustand/react']).toBe('/npm/zustand/esm/react/react.mjs');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('shims export exactly the names require gives in Node, and a default', () => {
