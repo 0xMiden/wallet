@@ -611,11 +611,14 @@ export function reportTransactionFailure(failure: TransactionFailure): void {
     // This stack would name the reporter, not the failed execution, and can include private file paths.
     report.stack = undefined;
     annotateCrash(report, snapshotCrashDiagnostics(failure.error));
+    // A queued row with no stage expired untried (the loop's requeues stamp one, and every requeue clears `attemptId`):
+    // whatever held the queue has its own report, and each row behind it would otherwise add another error.
+    const neverStarted = reason === 'queued_expired' && failure.stage === undefined;
     // An unknown outcome waits for the node's verdict, which is the error if it never landed; a failure already reported
     // already has its error, so a later report on it is evidence for that one.
     captureCrash(report, 'manual', {
       initializeIfNeeded: true,
-      level: outcome === 'unconfirmed' || failure.alreadyReported === true ? 'warning' : 'error'
+      level: outcome === 'unconfirmed' || failure.alreadyReported === true || neverStarted ? 'warning' : 'error'
     });
   } catch {
     // Reporting must never change the transaction outcome.
