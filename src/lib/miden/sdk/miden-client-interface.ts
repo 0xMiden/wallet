@@ -402,9 +402,8 @@ function hostOf(url: string): string {
 type RealmReader = {
   generation: number;
   rpcUrl: string;
-  feeFaucetId: string | undefined;
   client: Promise<WasmWebClient>;
-  /** Consecutive failed builds for this generation, URL and fee faucet. */
+  /** Consecutive failed builds for this generation and URL. */
   failures: number;
   /** When a failed entry's window ends and the next build may start; unset while pending or built. */
   retryAtMs?: number;
@@ -433,9 +432,7 @@ let realmReader: RealmReader | undefined;
  * - the effective RPC URL, the ONLY rebuild trigger after an endpoint change in
  *   the offscreen document and on mobile and desktop, none of which bump the
  *   generation (the SW sees a new URL only at start-up or through a reset
- *   that bumps it). It is not redundant;
- * - the fee faucet it is built with, which an E2E injection or a developer
- *   override can change while the URL stays (#1482).
+ *   that bumps it). It is not redundant.
  * Each successful rebuild strands the previous reader: one per client
  * replacement or endpoint change, not one per read. A build that fails is
  * terminated by the SDK's `createClient` (since 0.17.3), so it strands
@@ -465,13 +462,8 @@ let realmReader: RealmReader | undefined;
 export function getRealmReaderClient(): Promise<WasmWebClient> {
   const generation = wasmClientGeneration();
   const rpcUrl = getEffectiveRpcUrl();
-  const feeFaucetId = getEffectiveFeeFaucetId();
   const cached = realmReader;
-  const sameKey =
-    cached !== undefined &&
-    cached.generation === generation &&
-    cached.rpcUrl === rpcUrl &&
-    cached.feeFaucetId === feeFaucetId;
+  const sameKey = cached !== undefined && cached.generation === generation && cached.rpcUrl === rpcUrl;
   // A pending or built reader is shared; a failed one answers with its own error until its window ends.
   if (cached && sameKey && (cached.retryAtMs === undefined || monotonicNowMs() < cached.retryAtMs)) {
     return cached.client;
@@ -485,11 +477,7 @@ export function getRealmReaderClient(): Promise<WasmWebClient> {
     ? 'first build'
     : sameKey
       ? 'backoff window ended'
-      : [
-          cached.generation !== generation ? 'client replaced' : '',
-          cached.rpcUrl !== rpcUrl ? 'endpoint changed' : '',
-          cached.feeFaucetId !== feeFaucetId ? 'fee faucet changed' : ''
-        ]
+      : [cached.generation !== generation ? 'client replaced' : '', cached.rpcUrl !== rpcUrl ? 'endpoint changed' : '']
           .filter(part => part !== '')
           .join(' and ');
   console.log(
@@ -502,7 +490,6 @@ export function getRealmReaderClient(): Promise<WasmWebClient> {
   const entry: RealmReader = {
     generation,
     rpcUrl,
-    feeFaucetId,
     client: WasmWebClient.createClient(
       rpcUrl,
       undefined,
@@ -511,7 +498,7 @@ export function getRealmReaderClient(): Promise<WasmWebClient> {
       undefined,
       false,
       undefined,
-      feeFaucetId
+      getEffectiveFeeFaucetId()
     ),
     failures: cached && sameKey ? cached.failures : 0
   };
@@ -533,11 +520,7 @@ export function getRealmReaderClient(): Promise<WasmWebClient> {
       // The stamp is unconditional on purpose: the lookup reads an unstamped entry as pending or built, and a build
       // whose URL moved away and back before any read is its key's entry again. The window is named only while the
       // build still governs its key; a replaced build, or one whose generation moved, is rebuilt on the next read.
-      const governs =
-        realmReader === entry &&
-        wasmClientGeneration() === generation &&
-        getEffectiveRpcUrl() === rpcUrl &&
-        getEffectiveFeeFaucetId() === feeFaucetId;
+      const governs = realmReader === entry && wasmClientGeneration() === generation && getEffectiveRpcUrl() === rpcUrl;
       const outcome = governs
         ? `failed (${entry.failures} in a row) - next build in ${Math.round(windowMs / 1000)}s`
         : 'failed after the reader moved on to another client or endpoint';

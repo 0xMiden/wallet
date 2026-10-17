@@ -170,35 +170,6 @@ async function loadFeeFaucetId(): Promise<void> {
 }
 
 /**
- * What a realm without extension storage (the offscreen document) needs from the realm that read it: the
- * override object itself, never a re-derived URL or scope, and the fee faucet as that realm resolves it, so
- * the stored id and the E2E injector reach it too (#1482).
- */
-export interface EndpointState {
-  override: EndpointOverride | null;
-  feeFaucetId: string | undefined;
-}
-
-export function getEndpointState(): EndpointState {
-  return { override: overrideCache, feeFaucetId: getEffectiveFeeFaucetId() };
-}
-
-// Only a realm that cannot read extension storage calls this; every other realm loads its own.
-export function adoptEndpointState(state: EndpointState): void {
-  overrideCache = state.override;
-  feeFaucetCache = state.feeFaucetId;
-}
-
-const sameOverride = (a: EndpointOverride, b: EndpointOverride) =>
-  [...new Set([...Object.keys(a), ...Object.keys(b)])].every(key => Reflect.get(a, key) === Reflect.get(b, key));
-
-export function sameEndpointState(a: EndpointState, b: EndpointState): boolean {
-  if (a.feeFaucetId !== b.feeFaucetId) return false;
-  if (a.override === null || b.override === null) return a.override === b.override;
-  return sameOverride(a.override, b.override);
-}
-
-/**
  * Effective-network default guardian endpoint (custom override first), or '' if
  * none. Non-throwing: a last-resort fallback, keyed off the effective network
  * rather than the build's `DEFAULT_NETWORK`, so an endpoint override with no
@@ -267,20 +238,6 @@ function isEndpointOverride(value: unknown): value is EndpointOverride {
   );
 }
 
-let markOverridesLoaded: () => void = () => undefined;
-const overridesLoaded = new Promise<void>(resolve => {
-  markOverridesLoaded = resolve;
-});
-
-/**
- * Settled by this realm's first {@link loadEndpointOverrides}, whatever its outcome (a failed read and the E2E
- * opt-out settle it too), so a caller never waits forever. Until then every getter answers the build's network:
- * the service worker waits on it before it sends its state to the offscreen document (#1482).
- */
-export function whenEndpointOverridesLoaded(): Promise<void> {
-  return overridesLoaded;
-}
-
 /**
  * Load the persisted override into the sync cache.
  *
@@ -294,22 +251,18 @@ export function whenEndpointOverridesLoaded(): Promise<void> {
  * (every production build) it has no effect.
  */
 export async function loadEndpointOverrides(): Promise<void> {
+  await loadFeeFaucetId();
+  if (process.env.MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES === 'true') {
+    overrideCache = null;
+    return;
+  }
   try {
-    await loadFeeFaucetId();
-    if (process.env.MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES === 'true') {
-      overrideCache = null;
-      return;
-    }
-    try {
-      const storage = getStorageProvider();
-      const items = await storage.get([ENDPOINT_OVERRIDE_STORAGE_KEY]);
-      const raw = items[ENDPOINT_OVERRIDE_STORAGE_KEY];
-      overrideCache = isEndpointOverride(raw) ? raw : null;
-    } catch {
-      // Deliberate: see the comment above applyEndpointOverride.
-    }
-  } finally {
-    markOverridesLoaded();
+    const storage = getStorageProvider();
+    const items = await storage.get([ENDPOINT_OVERRIDE_STORAGE_KEY]);
+    const raw = items[ENDPOINT_OVERRIDE_STORAGE_KEY];
+    overrideCache = isEndpointOverride(raw) ? raw : null;
+  } catch {
+    // Deliberate: see the comment above applyEndpointOverride.
   }
 }
 
