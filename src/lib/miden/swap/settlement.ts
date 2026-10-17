@@ -84,18 +84,21 @@ const outputNoteIdsOf = (row: ITransaction): string[] => row.outputNoteIds ?? []
  * Read one lineage snapshot and prepare the one class of settlement request
  * that cannot be built from consumable input notes: an expired, still-active,
  * zero-fill order whose depth-0 tip remains in the creator's output-note store.
+ * `prepareReclaims` false skips that request for a caller that queues no reclaim
+ * this pass (the service worker while the vault is locked).
  */
 export async function classifySwapSettlementSnapshot(
   notes: ConsumableNoteDto[],
   accountId: string,
   orders: SwapOrder[],
   hold: WasmLockHold,
-  nowSeconds: number = Math.floor(Date.now() / 1000)
+  nowSeconds: number = Math.floor(Date.now() / 1000),
+  prepareReclaims = true
 ): Promise<SwapSettlementSnapshot> {
   const snapshot = await classifySwapOrderSnapshot(notes, accountId, orders, hold);
   const zeroFillReclaims = new Map<string, PreparedPswapReclaim>();
   // A fused build leaves the orders to a later pass; the notes are classified all the same.
-  if (isRotationPendingAccount(accountId) || isSyncFused(ZERO_FILL_BUILD_FUSE_KEY)) {
+  if (!prepareReclaims || isRotationPendingAccount(accountId) || isSyncFused(ZERO_FILL_BUILD_FUSE_KEY)) {
     return { classified: snapshot.notes, zeroFillReclaims };
   }
 

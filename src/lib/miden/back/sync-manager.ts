@@ -513,12 +513,14 @@ async function runSync(force: boolean): Promise<void> {
           // buys is the window where the user DOES have open orders — covered by the
           // classifier's own per-order guard — plus an accurate attribution when it fires.
           stillOurs('after the quarantine read');
+          // A locked lap settles nothing (below), so it builds no zero-fill reclaim request it would throw away.
           const { classified: swapOrders, zeroFillReclaims } = await classifySwapSettlementSnapshot(
             rawNotes,
             accountPubKey,
             swapOrderRows,
             hold,
-            settlementNowSeconds
+            settlementNowSeconds,
+            isVaultUnlocked()
           );
           stillOurs('after the swap-order lineage read');
           // Inclusion block of each note, dated once this hold has released the client (below).
@@ -790,7 +792,11 @@ async function runSync(force: boolean): Promise<void> {
       });
       // Gate on orders, not notes: an order with no consumable notes left may
       // still need its settlement stamp repaired inside reconcile.
-      if (swapOrderRows.length > 0) {
+      //
+      // And only while the vault is unlocked, for the reason the native enqueue below gives: a locked worker cannot
+      // sign a settlement claim either. The notes stay swap-managed, and the first lap after unlock settles them; the
+      // stamps reconcile writes, which only label the order, wait for that lap too.
+      if (swapOrderRows.length > 0 && isVaultUnlocked()) {
         try {
           const settlement = await reconcileSwapOrderNotes(
             accountPubKey,
