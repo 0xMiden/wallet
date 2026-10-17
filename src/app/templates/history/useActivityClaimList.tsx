@@ -42,7 +42,10 @@ export function useActivityClaimList(search: string, filter: ActivityFilter) {
   // Unsearched: History hides the consume row of each of these, and a search that drops a card
   // must not bring that row back.
   const representedItems = useMemo(
-    () => items.filter(item => isShown(item, hidden.ids) && filter !== 'sent' && filter !== 'faucet'),
+    () =>
+      items.filter(
+        item => isShown(item, hidden.ids) && filter !== 'sent' && filter !== 'faucet' && filter !== 'arcade'
+      ),
     [items, hidden.ids, filter]
   );
   // The cards drawn.

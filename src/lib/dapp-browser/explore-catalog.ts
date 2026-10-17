@@ -14,7 +14,6 @@
 
 import { IconName } from 'app/icons/v2';
 import {
-  EXPLORE_CATEGORIES,
   type ExploreCatalog,
   type ExploreCatalogItem,
   type ExploreCatalogSectionKind,
@@ -23,8 +22,11 @@ import {
 } from 'lib/explore-config/schema';
 import { isSwapEnabled } from 'lib/feature-flags';
 
-/** A chip: every category, or one of them. */
-export type ExploreFilter = 'all' | ExploreCategory;
+/** The wallet's visible groups; published catalog categories remain unchanged. */
+export type ExploreCategoryGroup = ExploreCategory;
+
+/** All aggregates the three visible groups. */
+export type ExploreFilter = 'all' | ExploreCategoryGroup;
 
 /** A catalog item with its name and tagline in the reader's language. */
 export type ExploreItem = Omit<ExploreCatalogItem, 'name' | 'tagline'> & { name: string; tagline: string };
@@ -61,19 +63,17 @@ export interface ExploreFilterDescriptor {
   icon: IconName;
 }
 
-// Keyed by category, so every category a document may name has its chip.
-const CATEGORY_CHIPS: Record<ExploreCategory, Omit<ExploreFilterDescriptor, 'id'>> = {
-  tools: { labelKey: 'categoryTools', icon: IconName.Hammer },
-  defi: { labelKey: 'categoryDefi', icon: IconName.Coins },
-  games: { labelKey: 'categoryGames', icon: IconName.Rocket },
-  nft: { labelKey: 'categoryNfts', icon: IconName.Image },
-  learn: { labelKey: 'categoryLearn', icon: IconName.File }
-};
+// Config categories are the native tabs directly. Legacy-cache upgrading belongs to the storage parser.
+export function getExploreCategoryGroup(category: ExploreCategory): ExploreCategoryGroup {
+  return category;
+}
 
 /** The chips, in order. */
 export const EXPLORE_FILTERS: ExploreFilterDescriptor[] = [
   { id: 'all', labelKey: 'all', icon: IconName.Apps },
-  ...EXPLORE_CATEGORIES.map(id => ({ id, ...CATEGORY_CHIPS[id] }))
+  { id: 'finance', labelKey: 'categoryFinance', icon: IconName.Coins },
+  { id: 'arcade', labelKey: 'categoryArcade', icon: IconName.Rocket },
+  { id: 'others', labelKey: 'categoryOthers', icon: IconName.Apps }
 ];
 
 /**
@@ -121,7 +121,7 @@ export type ResolvedExploreSection =
 
 /**
  * The sections to show under a chip, in order. Items are looked up by id and filtered to the
- * chip's category; a section left with no items is dropped. Recents belong to no category, so
+ * chip's group; a section left with no items is dropped. Recents belong to no category, so
  * they show under "All" only.
  */
 export function resolveExploreSections(view: ExploreView, filter: ExploreFilter): ResolvedExploreSection[] {
@@ -138,7 +138,7 @@ export function resolveExploreSections(view: ExploreView, filter: ExploreFilter)
         const item = byId.get(id);
         return item ? [item] : [];
       })
-      .filter(item => filter === 'all' || item.category === filter);
+      .filter(item => filter === 'all' || getExploreCategoryGroup(item.category) === filter);
     if (items.length > 0) resolved.push({ section, items });
   }
 

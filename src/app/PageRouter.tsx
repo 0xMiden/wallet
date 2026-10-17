@@ -40,6 +40,7 @@ import { armHeldOnboardingMark, useOnboardingFinishing } from './onboarding-fini
 import { ACTIVITY_PENDING_PATH } from './pages/activity-paths';
 import { ActivityGroupPage } from './pages/ActivityGroup';
 import AllHistory from './pages/AllHistory';
+import { ArcadePage } from './pages/ArcadePage';
 import BridgeDeposit from './pages/BridgeDeposit';
 import Browser from './pages/Browser';
 import ForgotPassword from './pages/ForgotPassword/ForgotPassword';
@@ -190,6 +191,23 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
       <TabLayout>
         <AllHistory programId={programId} />
       </TabLayout>
+    ))
+  ],
+  // Arcade destinations are native Explore subpages, with the same wallet-ready guard.
+  [
+    '/arcade/rankings',
+    onlyReady(() => (
+      <FullScreenPage entrance="slide">
+        <ArcadePage page="rankings" />
+      </FullScreenPage>
+    ))
+  ],
+  [
+    '/arcade/coins',
+    onlyReady(() => (
+      <FullScreenPage entrance="slide">
+        <ArcadePage page="coins" />
+      </FullScreenPage>
     ))
   ],
   // One activity group's own page: the feed narrowed to that counterparty or category. `:id` is

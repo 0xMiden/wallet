@@ -13,17 +13,27 @@ import { getPendingNotesUsdTotal, useGuardianNoteRecoveryProgress } from 'lib/wa
 import { ClaimsLoadingBar } from './ActivityClaimsStatus';
 import { pendingNoteUnreadKey } from './activityUnread';
 import History, { ActivityFilter } from './History';
+import type { IHistoryEntry } from './IHistoryEntry';
 import { useActivityClaimList } from './useActivityClaimList';
 
 interface ActivityPendingHistoryProps {
   search: string;
   filter: ActivityFilter;
+  predicate?: (entry: IHistoryEntry) => boolean;
+  catalogPending?: boolean;
   programId?: string | null;
   /** Forwarded to the list below, which owns the loading state the caller reports on. */
   onInitialLoad?: () => void;
 }
 
-export const ActivityPendingHistory = ({ search, filter, programId, onInitialLoad }: ActivityPendingHistoryProps) => {
+export const ActivityPendingHistory = ({
+  search,
+  filter,
+  programId,
+  onInitialLoad,
+  predicate,
+  catalogPending
+}: ActivityPendingHistoryProps) => {
   const { t } = useTranslation();
   const {
     representedItems,
@@ -159,12 +169,13 @@ export const ActivityPendingHistory = ({ search, filter, programId, onInitialLoa
             scrollParentRef={scrollRef}
             searchQuery={search}
             filter={filter}
+            predicate={predicate}
             pendingItems={representedItems}
             drawnPendingItems={listItems}
             renderPendingItem={renderPendingItem}
             onInitialLoad={onInitialLoad}
             onLoadingChange={setIsLoadingHistory}
-            externalLoading={isLoadingNotes || isRecovering}
+            externalLoading={isLoadingNotes || isRecovering || catalogPending}
             hideLoadingSpinner
           />
         </div>

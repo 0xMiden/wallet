@@ -8,6 +8,7 @@ import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import useNativeFeeFaucetId from 'app/hooks/useNativeFeeFaucetId';
 import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
 import { Icon, IconName } from 'app/icons/v2';
+import { ArcadeBanner } from 'app/templates/ArcadeBanner';
 import Balance from 'app/templates/Balance';
 import HomePrompts from 'app/templates/HomePrompts';
 import { AssetRow } from 'components/AssetRow';
@@ -439,6 +440,8 @@ const HomeOverview: FC<HomeOverviewProps> = ({
         fundingNotes={fundingNotes}
         tokenPrices={tokenPrices}
       />
+
+      <ArcadeBanner />
 
       <div className="-mb-1.5 flex items-center justify-between pt-2">
         <span id={assetsHeadingId} className="font-heading text-2xl font-extrabold text-text-primary-token">

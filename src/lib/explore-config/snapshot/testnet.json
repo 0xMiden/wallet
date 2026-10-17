@@ -1,6 +1,6 @@
 {
   "network": "testnet",
-  "version": 2,
+  "version": 3,
   "items": [
     {
       "id": "faucet",
@@ -11,7 +11,7 @@
         "en": "Get testnet tokens"
       },
       "url": "https://faucet.testnet.miden.io/",
-      "category": "tools",
+      "category": "finance",
       "icon": "icons/faucet.png",
       "brandColor": "#778C72",
       "isExchange": false
@@ -38,7 +38,7 @@
         "zh_TW": "取得用於兌換的測試網代幣"
       },
       "url": "https://faucets.forkchoice.xyz/",
-      "category": "tools",
+      "category": "finance",
       "icon": "icons/forkchoice-faucet.png",
       "brandColor": "#2563EB",
       "isExchange": false
@@ -65,7 +65,7 @@
         "zh_TW": "組建足球俱樂部，訓練球隊並參加比賽"
       },
       "url": "https://wherelegendsgrow.com/",
-      "category": "games",
+      "category": "arcade",
       "icon": "icons/where-legends-grow.png",
       "brandColor": "#07101F",
       "isExchange": false

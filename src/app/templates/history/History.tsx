@@ -125,7 +125,7 @@ export function historyEntryMatchesSearch(entry: IHistoryEntry, query: string): 
 // The chips above the activity list. `pending` shows the notes that wait for a
 // claim and the wallet's own transactions still in flight, so it removes every
 // settled history row.
-export type ActivityFilter = 'all' | 'pending' | 'sent' | 'received' | 'faucet';
+export type ActivityFilter = 'all' | 'pending' | 'sent' | 'received' | 'faucet' | 'arcade';
 
 type ScopedEntries = { key: string; entries: IHistoryEntry[] };
 
@@ -413,6 +413,7 @@ const History = memo<HistoryProps>(
           );
         }
         if (filter === 'faucet') return isFaucetEntry(e);
+        if (filter === 'arcade') return predicate?.(e) ?? false;
         return true;
       });
     }
@@ -515,6 +516,7 @@ async function fetchTransactionsAsHistoryEntries(
     const entry = {
       address: address,
       key: `completed-${tx.id}`,
+      dappOrigins: tx.dappOrigins,
       guardianRecovered: tx.recovered === true,
       guardianReclaimed: tx.recovery?.reclaimed,
       // Same fallback the query sorts by (`getCompletedTransactions`) and the
@@ -619,6 +621,7 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
     const extraAmounts = await resolveConsumeExtraAmounts(tx);
     return {
       key: `pending-${tx.id}`,
+      dappOrigins: tx.dappOrigins,
       address: address,
       secondaryMessage: formatTransactionStatus(tx.status),
       timestamp: tx.initiatedAt,

@@ -43,8 +43,8 @@ it('pairs every bundled JSON snapshot with its published URL', () => {
 it('checks the token list and Explore snapshots the wallet bundles', () => {
   expect(snapshotPairs().map(pair => pair.url)).toEqual([
     'https://raw.githubusercontent.com/0xMiden/token-list/main/testnet.json',
-    'https://raw.githubusercontent.com/0xMiden/wallet-explore/main/devnet.json',
-    'https://raw.githubusercontent.com/0xMiden/wallet-explore/main/testnet.json'
+    'https://raw.githubusercontent.com/0xMiden/wallet-config/main/explore/devnet.json',
+    'https://raw.githubusercontent.com/0xMiden/wallet-config/main/explore/testnet.json'
   ]);
 });
 
