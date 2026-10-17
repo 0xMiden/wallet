@@ -10,6 +10,7 @@ import { HotKey } from 'lib/secure-hot-key/hotKeyPlugin';
 import { signHotDigest as fallbackSignHotDigest } from 'lib/secure-hot-key/jsFallback';
 
 import { captureCrash } from './crash';
+import assertions from './protocol-assertions.json';
 import {
   EXECUTION_CAUSES,
   FAILURE_REASONS,
@@ -22,8 +23,10 @@ import {
   SUBMIT_ENDPOINTS,
   SUBMIT_GRPC_STATUSES,
   SUBMIT_HIDDEN_ANSWERS,
-  SUBMIT_NODE_ERRORS
+  SUBMIT_NODE_ERRORS,
+  SUBMIT_UNKNOWN_OUTCOME_STATUSES
 } from './transaction-failure';
+import { TELEMETRY_ERROR_KINDS } from './types';
 // The shipped class, past the stub jest maps the package to, so the fields the report reads are the ones it sets.
 import { GuardianHttpError } from '../../../node_modules/@openzeppelin/guardian-client/dist/http.js';
 
@@ -433,6 +436,19 @@ const submitOutcomeUnknown = (kind: string) =>
   );
 
 describe('an unknown submit outcome', () => {
+  it('sends a status outside the unknown-outcome list as other', async () => {
+    reportTransactionFailure({
+      type: 'consume',
+      stage: 'submitting',
+      outcome: 'unconfirmed',
+      hiddenDuringSubmit: false,
+      error: submitOutcomeUnknown(`resource not found: ${ACCOUNT_HEX}`)
+    });
+    const message = await reportedMessage();
+    expect(message).toContain('; submit_outcome_unknown; grpc other; app hidden during submit no. ');
+    expect(message).not.toContain('not_found');
+  });
+
   it.each([
     [
       'unavailable',
@@ -966,18 +982,6 @@ const crashReportPolicy = (): string => {
   return section.slice(0, section.indexOf('\n#', 1));
 };
 
-// The seven statuses miden-client 0.17.3's `is_indeterminate_submission` reads as an unknown outcome, and the fallback.
-const UNKNOWN_OUTCOME_STATUSES = [
-  'unavailable',
-  'internal',
-  'cancelled',
-  'aborted',
-  'data_loss',
-  'deadline_exceeded',
-  'unknown',
-  'other'
-];
-
 /**
  * The Crash reports bullet that opens with `heading`, cut from `from` up to `to` when given, so each list is checked
  * against the text that documents it and not against a word another list shares. Empty when an anchor is missing.
@@ -994,17 +998,29 @@ const policyText = (heading: string, from?: string, to?: string): string => {
 
 const OWN_REASON = "The App's own reason";
 const NEVER_COMMITTED_RULE = 'With `never_committed`';
+const GUARDIAN = 'A guardian refusal';
+const GUARDIAN_CODES = 'It also carries';
+const DEVICE_KEY = 'A device key refusal';
+const DEVICE_KEY_CODES = 'when it is one of';
 const UNKNOWN_OUTCOME = 'A submit with no definite answer';
 const REFUSED = 'A submit the network refused';
 const EXECUTION = 'What the transaction software said went wrong';
+const EXECUTION_CAUSE_LIST = 'its own fixed wording names';
 const COINED_ASSERTIONS = "A check in the transaction's program";
+const ENGINE = 'Two failures the transaction engine names itself';
+const BROAD = 'A broad category';
 
 // Each identity the reporter coins, with the text that documents it.
 const IDENTITY_TEXT: Record<string, () => string> = {
   submit_outcome_unknown: () => policyText(UNKNOWN_OUTCOME, undefined, 'It carries'),
   submit_rejected: () => policyText(REFUSED, undefined, 'It names'),
   kernel_assertion_unknown: () => policyText(EXECUTION, COINED_ASSERTIONS),
-  kernel_u32_assertion_unknown: () => policyText(EXECUTION, COINED_ASSERTIONS)
+  kernel_u32_assertion_unknown: () => policyText(EXECUTION, COINED_ASSERTIONS),
+  advice_stack_read_failed: () => policyText(ENGINE),
+  client_terminated: () => policyText(ENGINE),
+  transaction_execution_failed: () => policyText(EXECUTION, undefined, EXECUTION_CAUSE_LIST),
+  hot_key: () => policyText(DEVICE_KEY, undefined, DEVICE_KEY_CODES),
+  guardian_http_: () => policyText(GUARDIAN, undefined, GUARDIAN_CODES)
 };
 
 // Read inside the test, so a list the reporter does not export yet fails here rather than at collection.
@@ -1015,11 +1031,15 @@ it.each([
     () => [...NEVER_COMMITTED_RULES, 'other'],
     () => policyText(OWN_REASON, NEVER_COMMITTED_RULE)
   ],
-  ['Guardian refusal code', () => [...GUARDIAN_ERROR_CODES, 'other', 'none'], () => policyText('A guardian refusal')],
-  ['device key code', () => [...HOT_KEY_CODES, 'other', 'none'], () => policyText('A device key refusal')],
+  [
+    'Guardian refusal code',
+    () => [...GUARDIAN_ERROR_CODES, 'other', 'none'],
+    () => policyText(GUARDIAN, GUARDIAN_CODES)
+  ],
+  ['device key code', () => [...HOT_KEY_CODES, 'other', 'none'], () => policyText(DEVICE_KEY, DEVICE_KEY_CODES)],
   [
     'unknown-outcome gRPC status',
-    () => UNKNOWN_OUTCOME_STATUSES,
+    () => SUBMIT_UNKNOWN_OUTCOME_STATUSES,
     () => policyText(UNKNOWN_OUTCOME, 'It carries', 'and whether the App')
   ],
   [
@@ -1030,13 +1050,14 @@ it.each([
   ['refused endpoint', () => SUBMIT_ENDPOINTS, () => policyText(REFUSED, 'It names', '; the kind of answer')],
   [
     'refused gRPC status',
-    () => SUBMIT_GRPC_STATUSES.filter(status => !UNKNOWN_OUTCOME_STATUSES.includes(status)),
+    () => SUBMIT_GRPC_STATUSES,
     () => policyText(REFUSED, '; the kind of answer', "; and the network's own reason")
   ],
   ['refusal node error', () => SUBMIT_NODE_ERRORS, () => policyText(REFUSED, "; and the network's own reason")],
   ['pipeline kill', () => PIPELINE_KILLS, () => policyText('Work the App stopped')],
-  ['execution cause', () => EXECUTION_CAUSES, () => policyText(EXECUTION, undefined, COINED_ASSERTIONS)],
+  ['execution cause', () => EXECUTION_CAUSES, () => policyText(EXECUTION, EXECUTION_CAUSE_LIST, COINED_ASSERTIONS)],
   ['signing step', () => SIGNING_STEPS, () => policyText('The signing step')],
+  ['broad category', () => TELEMETRY_ERROR_KINDS, () => policyText(BROAD)],
   ...Object.entries(IDENTITY_TEXT).map(
     ([identity, text]) => [`reported identity ${identity}`, () => [identity], text] as const
   )
@@ -1050,9 +1071,104 @@ it.each([
 
 it('checks every reported identity and every unknown-outcome status against its own text', () => {
   expect([...REPORTED_IDENTITIES].sort()).toEqual(Object.keys(IDENTITY_TEXT).sort());
-  expect(UNKNOWN_OUTCOME_STATUSES.filter(status => !SUBMIT_GRPC_STATUSES.some(listed => listed === status))).toEqual(
-    []
-  );
+  expect(
+    SUBMIT_UNKNOWN_OUTCOME_STATUSES.filter(status => !SUBMIT_GRPC_STATUSES.some(listed => listed === status))
+  ).toEqual([]);
+});
+
+it('names the published protocol identities as the policy section does', () => {
+  expect(crashReportPolicy()).toContain('known public protocol error identities');
+});
+
+// The identity at the head of a report, the text after its point.
+const reportedIdentity = (message: string): string => /; point [a-z_]+; ([^;.]+)/.exec(message)?.[1] ?? '';
+
+// Whether `identity` is a value of a list the policy documents: a coined name or prefix, a broad category, or a
+// published protocol identity.
+const documentedIdentity = (identity: string): boolean =>
+  REPORTED_IDENTITIES.some(listed =>
+    listed.endsWith('_')
+      ? /^\d{3}$|^other$/.test(identity.slice(listed.length)) && identity.startsWith(listed)
+      : listed === identity
+  ) ||
+  (TELEMETRY_ERROR_KINDS ?? []).some(kind => kind === identity) ||
+  Object.values(assertions).some(name => name === identity);
+
+describe('every identity the reporter coins sits in a documented list', () => {
+  it.each([
+    ['advice_stack_read_failed', () => new Error('advice stack read failed at clock 812')],
+    ['client_terminated', () => new Error('WebClient terminated')],
+    ['transaction_execution_failed', () => new Error(`failed to execute transaction: wasm-bindgen: ${ACCOUNT_HEX}`)],
+    ['guardian_http_409', () => guardianRefusal(409, 'Conflict', 'conflict_pending_delta')],
+    ['guardian_http_other', () => guardianRefusal(700, 'Odd', null)],
+    ['kernel_assertion_unknown', () => new Error('assertion failed with error code: 9')],
+    [
+      'kernel_u32_assertion_unknown',
+      () =>
+        new Error(
+          'u32 assertion failed: u32assert2 requires both stack values to be valid 32-bit unsigned integers; error code: 7; invalid values: [1, 2]'
+        )
+    ],
+    ['submit_outcome_unknown', () => submitOutcomeUnknown('operation was aborted')],
+    [
+      'submit_rejected',
+      () =>
+        new Error(
+          'failed to submit proven transaction: RPC error: grpc request failed for submit_proven_transaction: resource not found'
+        )
+    ]
+  ])('%s', async (identity, error) => {
+    reportTransactionFailure({ type: 'send', stage: 'sending', error: error() });
+    const reported = reportedIdentity(await reportedMessage());
+    expect(reported).toBe(identity);
+    expect(documentedIdentity(reported)).toBe(true);
+  });
+
+  it('hot_key', async () => {
+    reportTransactionFailure({ type: 'consume', error: await hotKeyRejection('rejected', 'AUTH_FAILED') });
+    const reported = reportedIdentity(await reportedMessage());
+    expect(reported).toBe('hot_key');
+    expect(documentedIdentity(reported)).toBe(true);
+  });
+
+  const BROAD_CATEGORY_ERRORS: ReadonlyArray<readonly [string, string]> = [
+    ['timeout', 'the request timed out'],
+    ['network', 'network unreachable'],
+    ['rpc', 'rpc endpoint refused the call'],
+    ['proving', 'prover crashed'],
+    ['storage', 'quota exceeded'],
+    ['auth', 'wrong password'],
+    ['validation', 'invalid amount'],
+    ['unknown', 'something odd happened']
+  ];
+
+  it.each(BROAD_CATEGORY_ERRORS)('the broad category %s', async (kind, text) => {
+    reportTransactionFailure({ type: 'send', stage: 'sending', error: new Error(text) });
+    const reported = reportedIdentity(await reportedMessage());
+    expect(reported).toBe(kind);
+    expect(documentedIdentity(reported)).toBe(true);
+  });
+
+  it('drives every broad category', () => {
+    expect(BROAD_CATEGORY_ERRORS.map(([kind]) => kind).sort()).toEqual([...(TELEMETRY_ERROR_KINDS ?? [])].sort());
+  });
+
+  it.each([
+    ['alone', () => new Error('assertion failed with error code: 15404814807981965102')],
+    [
+      'inside a Guardian 5xx',
+      () =>
+        Object.assign(guardianRefusal(500, 'Internal Server Error', null), {
+          message:
+            'GUARDIAN HTTP error 500: Internal Server Error - assertion failed with error code: 15404814807981965102'
+        })
+    ]
+  ])('a published-code assertion %s reports an identity from the published table', async (_name, error) => {
+    reportTransactionFailure({ type: 'send', stage: 'sending', error: error() });
+    const message = await reportedMessage();
+    const published = /(?:^|; )(ERR_[A-Z0-9_]+)\. authentication/.exec(message)?.[1];
+    expect(Object.values(assertions)).toContain(published);
+  });
 });
 
 it.each([
