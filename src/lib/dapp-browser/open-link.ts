@@ -42,7 +42,38 @@ export function parseOpenLink(link: string): string | null {
   }
 }
 
-let pending: string | null = null;
+// A reload starts this module afresh; sessionStorage keeps the held link and the links already taken.
+const PENDING_KEY = 'open-link:pending';
+const TAKEN_KEY = 'open-link:taken';
+const TAKEN_LIMIT = 20;
+
+function stored(key: string): string | null {
+  try {
+    return sessionStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function store(key: string, value: string | null): void {
+  try {
+    if (value === null) sessionStorage.removeItem(key);
+    else sessionStorage.setItem(key, value);
+  } catch {
+    // Without storage a reload forgets the held link and can offer a taken launch link again.
+  }
+}
+
+function takenLinks(): unknown[] {
+  try {
+    const taken: unknown = JSON.parse(stored(TAKEN_KEY) ?? '[]');
+    return Array.isArray(taken) ? taken : [];
+  } catch {
+    return [];
+  }
+}
+
+let pending: { link: string; page: string } | null = null;
 let lastAccepted: { link: string; at: number } | null = null;
 const listeners = new Set<() => void>();
 
@@ -56,12 +87,13 @@ export function acceptOpenLink(link: string, now = Date.now()): void {
   if (!page) return;
   if (lastAccepted?.link === link && now - lastAccepted.at < DUPLICATE_WINDOW_MS) return;
   lastAccepted = { link, at: now };
-  pending = page;
+  pending = { link, page };
+  store(PENDING_KEY, link);
   notify();
 }
 
 export function getPendingOpenLink(): string | null {
-  return pending;
+  return pending?.page ?? null;
 }
 
 export function subscribePendingOpenLink(listener: () => void): () => void {
@@ -73,24 +105,38 @@ export function subscribePendingOpenLink(listener: () => void): () => void {
 
 /** Clear and return the held page: the caller now opens it or has dropped it. */
 export function takePendingOpenLink(): string | null {
-  const page = pending;
+  if (!pending) return null;
+  const { link, page } = pending;
   pending = null;
-  if (page) notify();
+  store(PENDING_KEY, null);
+  store(TAKEN_KEY, JSON.stringify([...takenLinks().filter(taken => taken !== link), link].slice(-TAKEN_LIMIT)));
+  notify();
   return page;
 }
 
 let capturing = false;
+// The launch URL outlives its link (iOS reports the last link the app was opened with, even after a reload), so
+// it counts only while no newer link is held.
+let launchSuperseded = false;
 
 /** Start listening for open links, including the one that launched the app. Idempotent. */
 export function startOpenLinkCapture(): void {
   if (capturing) return;
   capturing = true;
-  App.addListener('appUrlOpen', ({ url }) => acceptOpenLink(url)).catch(error => {
+  const held = stored(PENDING_KEY);
+  if (held && parseOpenLink(held)) {
+    launchSuperseded = true;
+    acceptOpenLink(held);
+  }
+  App.addListener('appUrlOpen', ({ url }) => {
+    if (parseOpenLink(url)) launchSuperseded = true;
+    acceptOpenLink(url);
+  }).catch(error => {
     console.warn('[open-link] appUrlOpen listener failed:', error);
   });
   App.getLaunchUrl()
     .then(launch => {
-      if (launch?.url) acceptOpenLink(launch.url);
+      if (launch?.url && !launchSuperseded && !takenLinks().includes(launch.url)) acceptOpenLink(launch.url);
     })
     .catch(error => {
       console.warn('[open-link] getLaunchUrl failed:', error);
@@ -101,5 +147,6 @@ export function __resetOpenLinksForTest(): void {
   pending = null;
   lastAccepted = null;
   capturing = false;
+  launchSuperseded = false;
   listeners.clear();
 }

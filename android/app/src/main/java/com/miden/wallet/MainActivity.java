@@ -1,5 +1,6 @@
 package com.miden.wallet;
 
+import android.content.Intent;
 import android.os.Bundle;
 import android.view.Window;
 
@@ -17,6 +18,14 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(ScreenshotGuardPlugin.class);
         registerPlugin(SystemChromePlugin.class);
         registerPlugin(UpdateAvailabilityPlugin.class);
+
+        // An activity restored after its process died, or reopened from Recents, gets back the launch intent
+        // whose link an earlier instance already received; dropped here, before the bridge reads the launch
+        // URL, it cannot open its page again.
+        Intent intent = getIntent();
+        if (savedInstanceState != null || (intent.getFlags() & Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY) != 0) {
+            intent.setData(null);
+        }
 
         super.onCreate(savedInstanceState);
         setupStatusBar();

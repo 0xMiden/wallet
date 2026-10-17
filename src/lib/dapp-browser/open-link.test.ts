@@ -212,6 +212,65 @@ describe('startOpenLinkCapture', () => {
     expect(getPendingOpenLink()).toBe(LIVE);
   });
 
+  it('still takes the launch link after a live link that is not an open link', async () => {
+    let settleLaunch: (launch: { url: string }) => void = () => {};
+    mockGetLaunchUrl.mockReturnValue(
+      new Promise(resolve => {
+        settleLaunch = resolve;
+      })
+    );
+
+    startOpenLinkCapture();
+    const onUrlOpen = mockAddListener.mock.calls[0][1] as (event: { url: string }) => void;
+    onUrlOpen({ url: 'com.miden.wallet://' });
+    settleLaunch({ url: LINK });
+    await flushPromises();
+
+    expect(getPendingOpenLink()).toBe(PAGE);
+  });
+
+  it.each([
+    ['unreadable', '['],
+    ['not a list', '"taken"']
+  ])('offers the launch link when the taken record is %s', async (_case, record) => {
+    sessionStorage.setItem('open-link:taken', record);
+    mockGetLaunchUrl.mockResolvedValue({ url: LINK });
+
+    startOpenLinkCapture();
+    await flushPromises();
+
+    expect(getPendingOpenLink()).toBe(PAGE);
+  });
+
+  it('does not restore a stored link that is not an open link', async () => {
+    sessionStorage.setItem('open-link:pending', `https://evil.example/open?url=${encodeURIComponent(LIVE)}`);
+    mockGetLaunchUrl.mockResolvedValue({ url: LINK });
+
+    startOpenLinkCapture();
+    await flushPromises();
+
+    expect(getPendingOpenLink()).toBe(PAGE);
+  });
+
+  it('holds and hands over a link without storage', async () => {
+    const denied = () => {
+      throw new Error('denied');
+    };
+    const spies = [
+      jest.spyOn(Storage.prototype, 'getItem').mockImplementation(denied),
+      jest.spyOn(Storage.prototype, 'setItem').mockImplementation(denied),
+      jest.spyOn(Storage.prototype, 'removeItem').mockImplementation(denied)
+    ];
+    mockGetLaunchUrl.mockResolvedValue({ url: LINK });
+
+    startOpenLinkCapture();
+    await flushPromises();
+
+    expect(takePendingOpenLink()).toBe(PAGE);
+    expect(getPendingOpenLink()).toBeNull();
+    for (const spy of spies) spy.mockRestore();
+  });
+
   it('starts once', async () => {
     startOpenLinkCapture();
     startOpenLinkCapture();

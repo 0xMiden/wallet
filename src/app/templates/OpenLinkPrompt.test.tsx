@@ -116,6 +116,7 @@ function deliver(page: string): void {
 }
 
 beforeEach(() => {
+  sessionStorage.clear();
   __resetOpenLinksForTest();
   jest.clearAllMocks();
   mockAddListener.mockResolvedValue({ remove: jest.fn() });
