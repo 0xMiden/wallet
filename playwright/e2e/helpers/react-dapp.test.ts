@@ -1,8 +1,8 @@
 import type { BrowserContext, Page } from '@playwright/test';
 
-import { deadlineIn, HarnessFault } from './dapp-cells';
+import { CellDeadlineExceeded, deadlineIn, HarnessFault } from './dapp-cells';
 import { latestSnapshot } from './dapp-gates';
-import { callReact, connectReact, resetReact, selectReact, waitForReact } from './react-dapp';
+import { callReact, connectReact, loadReact, resetReact, selectReact, waitForReact } from './react-dapp';
 import { ChainUnavailable, type DappHandle } from './test-dapp';
 import { REACT_DAPP_ORIGIN } from './test-dapp-server';
 import type { GuardianAwareWalletPage } from '../fixtures/two-wallets';
@@ -67,6 +67,37 @@ function reactAnswering(views: ReactPageView[], answers: Record<string, unknown>
   return { react, commands };
 }
 const ctx = () => ({ deadline: deadlineIn(60_000, 'WP1'), evidence: {}, softFail: jest.fn() });
+
+describe('loadReact', () => {
+  it('leaves a budget overrun to the cell runner and names a page that never started as the harness fault', async () => {
+    const query = { network: 'testnet', rpcUrl: 'testnet', feeFaucetId: 'mtst1qfee', autoConnect: true };
+    const stalled = reactAnswering([viewOf()]).react;
+    jest.mocked(stalled.page.goto).mockReturnValue(new Promise(() => undefined));
+    const refused = reactAnswering([viewOf()]).react;
+    jest.mocked(refused.page.goto).mockRejectedValue(new Error('page.goto: net::ERR_CONNECTION_REFUSED'));
+    const failures = await Promise.all(
+      [
+        { react: stalled, budgetMs: 0 },
+        { react: refused, budgetMs: 60_000 }
+      ].map(async ({ react, budgetMs }) => {
+        const failure = await loadReact(react, query, deadlineIn(budgetMs, 'WP3')).catch((error: unknown) => error);
+        return {
+          overrun: failure instanceof CellDeadlineExceeded,
+          harness: failure instanceof HarnessFault,
+          message: failure instanceof Error ? failure.message : 'no error'
+        };
+      })
+    );
+    expect(failures).toEqual([
+      { overrun: true, harness: false, message: 'WP3: React dApp load outlived the cell budget' },
+      {
+        overrun: false,
+        harness: true,
+        message: 'the React dApp did not start: page.goto: net::ERR_CONNECTION_REFUSED'
+      }
+    ]);
+  });
+});
 
 describe('resetReact', () => {
   it('waits past a page at rest whose MidenFi tree has not committed its own selection yet', async () => {

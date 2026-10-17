@@ -1,6 +1,6 @@
 import type { BrowserContext } from '@playwright/test';
 
-import { HarnessFault, type CellContext, type Deadline } from './dapp-cells';
+import { CellDeadlineExceeded, HarnessFault, InfrastructureFault, type CellContext, type Deadline } from './dapp-cells';
 import { canonicalAddress, latestSnapshot, reactAtRest } from './dapp-gates';
 import {
   answerIfPrompted,
@@ -82,7 +82,9 @@ export function callReact<K extends ReactCommandName>(
 
 /**
  * Loads the page with `query`, keeping its localStorage. A page that never publishes `testDapp` (a module graph that
- * did not link, a shim gap) is the harness's failure, never the wallet's, and names the page errors it saw.
+ * did not link, a shim gap) is the harness's failure, never the wallet's, and names the page errors it saw. A failure
+ * the cell runner judges by its class, the cell's budget running out among them, passes through as the plain page's
+ * `reloadDapp` lets it.
  */
 export async function loadReact(react: DappHandle, query: ReactDappQuery, deadline: Deadline): Promise<void> {
   const errors: string[] = [];
@@ -92,6 +94,13 @@ export async function loadReact(react: DappHandle, query: ReactDappQuery, deadli
     await deadline.race(react.page.goto(urlOf(query), { waitUntil: 'domcontentloaded' }), 'React dApp load');
     await deadline.race(waitReady(react.page, deadline.remainingMs()), 'React dApp ready');
   } catch (error) {
+    if (
+      error instanceof CellDeadlineExceeded ||
+      error instanceof HarnessFault ||
+      error instanceof InfrastructureFault
+    ) {
+      throw error;
+    }
     const why = error instanceof Error ? error.message : String(error);
     throw new HarnessFault(
       `the React dApp did not start: ${why}${errors.length > 0 ? `; page errors: ${errors.join(' | ')}` : ''}`
