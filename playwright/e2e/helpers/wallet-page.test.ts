@@ -1,5 +1,6 @@
 import type { Page } from '@playwright/test';
 
+import { fakeConfirmationApp, type CreateAttemptOutcome } from './confirmation-app-fake';
 import { ChromeWalletPage } from './wallet-page';
 
 jest.mock('@playwright/test', () => ({ expect: jest.fn() }));
@@ -290,4 +291,232 @@ describe('ChromeWalletPage exact token selection', () => {
     ).rejects.toThrow('missing-faucet');
     expect(clickedTokenIds).toEqual([]);
   });
+});
+
+// A create whose first sync failed sat on Confirmation's failure screen until the 120 s Ready wait ran out, as on iOS.
+describe('ChromeWalletPage.waitForCreatedWalletReady', () => {
+  afterEach(() => jest.useRealTimers());
+
+  /** A Playwright page over the shared Confirmation fake: `evaluate` runs the page function in its WebView. */
+  function confirmationPage(
+    outcomes: CreateAttemptOutcome[],
+    failRead: () => string | undefined = () => undefined
+  ): { page: Page; clicks: number[] } {
+    const { evalJs, clicks } = fakeConfirmationApp(outcomes);
+    const page = {
+      evaluate: jest.fn(async (fn: (arg?: unknown) => unknown, arg?: unknown) => {
+        const failure = failRead();
+        if (failure !== undefined) throw new Error(failure);
+        return evalJs(`return (${fn.toString()})(${JSON.stringify(arg) ?? ''});`);
+      }),
+      locator: jest.fn((selector: string) => ({
+        click: jest.fn(async () => {
+          await evalJs(`document.querySelector(${JSON.stringify(selector)}).click();`);
+        })
+      })),
+      waitForTimeout: jest.fn((ms: number) => new Promise(resolve => setTimeout(resolve, ms)))
+    } as unknown as Page;
+    return { page, clicks };
+  }
+
+  async function outcomeOf(page: Page, timeoutMs = 120_000): Promise<{ settled: boolean; outcome: string }> {
+    const wallet = new ChromeWalletPage(page, 'test');
+    jest.useFakeTimers();
+    let settled = false;
+    const outcome = (
+      wallet as unknown as { waitForCreatedWalletReady(label: string, timeoutMs: number): Promise<void> }
+    )
+      .waitForCreatedWalletReady('create(offchain)', timeoutMs)
+      .then(
+        () => 'ready',
+        (error: unknown) => (error instanceof Error ? error.message : String(error))
+      )
+      .finally(() => (settled = true));
+    await jest.advanceTimersByTimeAsync(10_000);
+    return { settled, outcome: settled ? await outcome : 'pending' };
+  }
+
+  it('waits for the home surface without pressing anything when the create succeeds', async () => {
+    const { page, clicks } = confirmationPage(['ready']);
+
+    await expect(outcomeOf(page)).resolves.toEqual({ settled: true, outcome: 'ready' });
+    expect(clicks).toEqual([]);
+  });
+
+  it("presses the app's Retry once on the first failure screen and keeps waiting for the home surface", async () => {
+    const { page, clicks } = confirmationPage(['fails', 'ready']);
+
+    await expect(outcomeOf(page)).resolves.toEqual({ settled: true, outcome: 'ready' });
+    expect(clicks).toEqual([0]);
+  });
+
+  it('fails at once, with the screen text, when the Retry fails too', async () => {
+    const { page, clicks } = confirmationPage(['fails', 'fails', 'ready']);
+
+    await expect(outcomeOf(page)).resolves.toEqual({
+      settled: true,
+      outcome:
+        'create(offchain): wallet creation failed again after one Retry: ' +
+        'Something went wrong Failed to sync state: RPC deadline exceeded Retry'
+    });
+    expect(clicks).toEqual([0]);
+  });
+
+  it('counts a read that failed as not yet', async () => {
+    let failures = 2;
+    const { page, clicks } = confirmationPage(['ready'], () =>
+      failures-- > 0 ? 'Execution context was destroyed' : undefined
+    );
+
+    await expect(outcomeOf(page)).resolves.toEqual({ settled: true, outcome: 'ready' });
+    expect(clicks).toEqual([]);
+  });
+
+  it('names the last read when it failed and the wait runs out', async () => {
+    const { page } = confirmationPage(['ready'], () => 'Target page, context or browser has been closed');
+
+    await expect(outcomeOf(page, 5_000)).resolves.toEqual({
+      settled: true,
+      outcome:
+        'create(offchain): the created wallet was not ready within 5000ms ' +
+        '(last read failed: Target page, context or browser has been closed)'
+    });
+  });
+
+  it('keeps the plain timeout when only an earlier read failed', async () => {
+    let failures = 2;
+    const { page } = confirmationPage(['creating'], () =>
+      failures-- > 0 ? 'Execution context was destroyed' : undefined
+    );
+
+    await expect(outcomeOf(page, 5_000)).resolves.toEqual({
+      settled: true,
+      outcome: 'create(offchain): the created wallet was not ready within 5000ms'
+    });
+  });
+});
+
+describe('ChromeWalletPage create paths', () => {
+  const SUBMIT_CLICK = 'click [data-testid="onboarding-confirmation-submit"]';
+  const ACCOUNT = { publicKey: 'mtst1qcreated' };
+  const KEY_PAIR = `${'1'.padStart(64, '0')}:${'2'.padStart(64, '0')}`;
+
+  /** What a Ready check reads: the store's state, and whether the home page is in the document. */
+  type ReadyFixture = { store?: Record<string, unknown>; home?: boolean };
+
+  afterEach(() => {
+    Reflect.deleteProperty(window, '__TEST_STORE__');
+    document.body.innerHTML = '';
+  });
+
+  /** Every step before Confirmation passes; the log keeps each click and the poll, in order. */
+  function createPathPage(log: string[]): Page {
+    const locator = (selector: string): Record<string, unknown> => {
+      const self: Record<string, unknown> = {
+        waitFor: jest.fn(async () => undefined),
+        fill: jest.fn(async () => undefined),
+        setInputFiles: jest.fn(async () => undefined),
+        textContent: jest.fn(async () => ''),
+        click: jest.fn(async () => {
+          log.push(`click ${selector}`);
+        }),
+        isVisible: jest.fn(async () => document.querySelector(selector) !== null),
+        or: () => self,
+        first: () => self
+      };
+      return self;
+    };
+    return {
+      url: () => 'chrome-extension://test/fullpage.html#/',
+      isClosed: () => false,
+      goto: jest.fn(async () => undefined),
+      evaluate: jest.fn(async <T>(callback: (arg: T) => unknown, arg: T) => callback(arg)),
+      getByTestId: jest.fn((id: string) => locator(`[data-testid="${id}"]`)),
+      getByRole: jest.fn((role: string) => locator(role)),
+      locator: jest.fn((selector: string) => locator(selector))
+    } as unknown as Page;
+  }
+
+  async function readsReady(isReady: () => Promise<boolean>, fixture: ReadyFixture): Promise<boolean> {
+    if (fixture.store) {
+      const state = fixture.store;
+      Object.defineProperty(window, '__TEST_STORE__', { configurable: true, value: { getState: () => state } });
+    }
+    document.body.innerHTML = fixture.home ? '<div data-testid="explore-page"></div>' : '';
+    try {
+      return await isReady();
+    } finally {
+      Reflect.deleteProperty(window, '__TEST_STORE__');
+      document.body.innerHTML = '';
+    }
+  }
+
+  it.each([
+    {
+      path: 'createWalletViaBypass',
+      run: (wallet: ChromeWalletPage) => wallet.createNewWallet('Test1234!'),
+      label: 'ChromeWalletPage.createWalletViaBypass(offchain)',
+      ready: [{ store: { currentAccount: ACCOUNT } }, { home: true }],
+      notReady: [{}, { store: { currentAccount: null } }]
+    },
+    {
+      path: 'recoverGuardianFromHotKey',
+      run: (wallet: ChromeWalletPage) => wallet.recoverGuardianFromHotKey(KEY_PAIR),
+      label: 'ChromeWalletPage.recoverGuardianFromHotKey',
+      ready: [{ store: { currentAccount: ACCOUNT } }, { home: true }],
+      notReady: [{}, { store: { currentAccount: null } }]
+    },
+    {
+      path: 'createGuardianWalletViaUi',
+      run: (wallet: ChromeWalletPage) => wallet.createGuardianWalletViaUi('Test1234!', 'http://guardian.test'),
+      label: 'ChromeWalletPage.createGuardianWalletViaUi',
+      ready: [{ home: true }],
+      notReady: [{}, { store: { currentAccount: ACCOUNT, accounts: [ACCOUNT] } }]
+    },
+    {
+      path: 'restoreEncryptedWalletFile',
+      run: (wallet: ChromeWalletPage) =>
+        wallet.restoreEncryptedWalletFile({
+          backupPath: 'backup.json',
+          filePassword: 'file',
+          newWalletPassword: 'new'
+        }),
+      label: 'ChromeWalletPage.restoreEncryptedWalletFile',
+      ready: [{ store: { currentAccount: ACCOUNT, accounts: [ACCOUNT] } }],
+      notReady: [{}, { store: { currentAccount: ACCOUNT, accounts: [] } }, { home: true }]
+    }
+  ])(
+    "$path runs the Retry-aware wait after Confirmation's button, with its own Ready check",
+    async ({ run, label, ready, notReady }) => {
+      const log: string[] = [];
+      const wallet = new ChromeWalletPage(createPathPage(log), 'test');
+      const waitForCreatedWalletReady = jest.spyOn(
+        wallet as unknown as { waitForCreatedWalletReady(label: string, timeoutMs: number): Promise<void> },
+        'waitForCreatedWalletReady'
+      );
+      const pollCreatedWalletState = jest.fn(async (..._args: unknown[]) => {
+        log.push('poll');
+        throw new Error('stopped at the poll');
+      });
+      Object.assign(wallet as unknown as Record<string, unknown>, { pollCreatedWalletState });
+
+      await expect(run(wallet)).rejects.toThrow('stopped at the poll');
+
+      expect(log.slice(-2)).toEqual([SUBMIT_CLICK, 'poll']);
+      expect(waitForCreatedWalletReady).toHaveBeenCalledTimes(1);
+      expect(waitForCreatedWalletReady.mock.calls[0]?.slice(0, 2)).toEqual([label, 120_000]);
+      const [polledLabel, isReady, timeoutMs] = pollCreatedWalletState.mock.calls[0] as [
+        string,
+        () => Promise<boolean>,
+        number
+      ];
+      expect([polledLabel, timeoutMs]).toEqual([label, 120_000]);
+      for (const fixture of ready as ReadyFixture[]) {
+        await expect(readsReady(isReady, fixture)).resolves.toBe(true);
+      }
+      for (const fixture of notReady as ReadyFixture[]) {
+        await expect(readsReady(isReady, fixture)).resolves.toBe(false);
+      }
+    }
+  );
 });

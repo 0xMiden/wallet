@@ -22,7 +22,11 @@ import {
 } from '../../helpers/bridge';
 import { claimFromPendingList } from '../../helpers/claim-drain';
 import { SEPOLIA_NETWORK } from '../../helpers/contact-network';
-import { CONFIRMATION_SUBMIT, pollCreatedWalletReady } from '../../helpers/created-wallet-ready';
+import {
+  CONFIRMATION_SUBMIT,
+  CREATED_WALLET_STATE_JS,
+  pollCreatedWalletReady
+} from '../../helpers/created-wallet-ready';
 import {
   readTransactionRowsInPage,
   TxStatus,
@@ -1029,7 +1033,7 @@ export class IosWalletPage implements WalletPage {
     await pollCreatedWalletReady({
       label,
       timeoutMs,
-      poll: (js, ms, accept) => this.pollForCondition(js, ms, accept),
+      poll: (ms, accept) => this.pollForCondition(CREATED_WALLET_STATE_JS, ms, accept),
       pressRetry: () => this.click(CONFIRMATION_SUBMIT)
     });
   }

@@ -5,7 +5,11 @@ import type { TimelineRecorder } from '../../harness/timeline-recorder';
 import { buildBalanceTotalScript } from '../../helpers/balance-script';
 import { claimFromPendingList } from '../../helpers/claim-drain';
 import { SEPOLIA_NETWORK } from '../../helpers/contact-network';
-import { CONFIRMATION_SUBMIT, pollCreatedWalletReady } from '../../helpers/created-wallet-ready';
+import {
+  CONFIRMATION_SUBMIT,
+  CREATED_WALLET_STATE_JS,
+  pollCreatedWalletReady
+} from '../../helpers/created-wallet-ready';
 import { selectSendNetworkByScript } from '../../helpers/send-flow-scripts';
 import { dismissTelemetryConsent } from '../../helpers/telemetry-consent';
 import type { GuardianAuthInfo, WalletPage, SendTokensParams } from '../../helpers/wallet-page';
@@ -209,7 +213,7 @@ export class AndroidWalletPage implements WalletPage {
     await pollCreatedWalletReady({
       label,
       timeoutMs,
-      poll: (js, ms, accept) => this.pollForCondition(js, ms, accept),
+      poll: (ms, accept) => this.pollForCondition(CREATED_WALLET_STATE_JS, ms, accept),
       pressRetry: () => this.click(CONFIRMATION_SUBMIT)
     });
   }

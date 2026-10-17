@@ -7,26 +7,34 @@ export interface CreatedWalletState {
   failed: string | null;
 }
 
-// Ready as the create has always waited for it, else Confirmation's failure screen (Confirmation.tsx marks it).
+/** In the page: the failure screen's text while Confirmation shows it (Confirmation.tsx marks it), else null. */
+export function readConfirmationFailureInPage(): string | null {
+  const failed = document.querySelector<HTMLElement>('[data-testid="onboarding-confirmation-failed"]');
+  if (!failed) return null;
+  const screen = document.querySelector<HTMLElement>('[data-testid="onboarding-confirmation"]') || failed;
+  return (screen.innerText || screen.textContent || '').trim();
+}
+
+// The mobile pages' read: Ready as their create has always waited for it, else Confirmation's failure screen.
 export const CREATED_WALLET_STATE_JS =
   `var s = window.__TEST_STORE__; var st = s && s.getState(); ` +
   `if (st && (st.status === 2 || st.status === 'Ready') && st.currentAccount) return { ready: true, failed: null }; ` +
-  `var f = document.querySelector('[data-testid="onboarding-confirmation-failed"]'); ` +
-  `if (!f) return { ready: false, failed: null }; ` +
-  `var screen = document.querySelector('[data-testid="onboarding-confirmation"]') || f; ` +
-  `return { ready: false, failed: (screen.innerText || screen.textContent || '').trim() };`;
+  `return { ready: false, failed: (${readConfirmationFailureInPage.toString()})() };`;
 
 export interface CreatedWalletReadyWait {
   /** Names the create in every error. */
   label: string;
   timeoutMs: number;
-  /** The page's poll: resolves once `accept` takes a read, rejects at the deadline or with what `accept` throws. */
-  poll: (js: string, timeoutMs: number, accept: (state: CreatedWalletState) => Promise<boolean>) => Promise<void>;
+  /**
+   * The page's poll of the create's state: resolves once `accept` takes a read, rejects at the deadline or with what
+   * `accept` throws. A read that fails counts as not yet.
+   */
+  poll: (timeoutMs: number, accept: (state: CreatedWalletState) => Promise<boolean>) => Promise<void>;
   pressRetry: () => Promise<void>;
 }
 
 /**
- * Waits for a created wallet to read Ready, for every mobile page that clicks Confirmation's "Open wallet". A create
+ * Waits for a created wallet to read Ready, for every page that clicks Confirmation's "Open wallet". A create
  * whose first sync fails leaves Confirmation's failure screen up, which no Ready budget outlasts: the first time it
  * shows, this presses the app's own Retry and keeps waiting; a failure after that fails at once with what the screen
  * says, and a screen that never clears after the Retry fails at the deadline with it.
@@ -44,7 +52,7 @@ export async function pollCreatedWalletReady({
     stillFailed: null
   };
   try {
-    await poll(CREATED_WALLET_STATE_JS, timeoutMs, async state => {
+    await poll(timeoutMs, async state => {
       seen.stillFailed = null;
       if (state.ready) return true;
       if (state.failed === null) {
