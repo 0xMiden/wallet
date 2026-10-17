@@ -119,7 +119,11 @@ function chainAvailability(
       if (!derived) return { state: 'loading' };
       checks.push(checkProbe(derived.epoch.allocator, 'Epoch allocator'));
       if (feature !== 'earnDeposit') checks.push(checkProbe(reads?.epoch.evmUsdc, 'Epoch USDC'));
-      if (feature !== 'fastBridgeOut' && !overrides.earnCollateralFaucet) {
+      if (
+        feature !== 'fastBridgeOut' &&
+        !(feature === 'earnDeposit' && config.network === 'testnet') &&
+        !overrides.earnCollateralFaucet
+      ) {
         checks.push(checkProbe(derived.epoch.midenUsdcFaucet, 'Epoch output faucet'));
       }
       break;

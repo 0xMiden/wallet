@@ -260,6 +260,17 @@ describe('MidenClientInterface', () => {
         workerMode: useWorker ? 'enabled' : 'disabled'
       });
     }
+    // A trap adds its memory evidence; outside an isolated extension page both read as unavailable.
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    createMock.mockRejectedValueOnce(trap);
+    await expect(MidenClientInterface.create({ useWorker: true })).rejects.toBe(trap);
+    expect(snapshotCrashDiagnostics(trap)).toEqual({
+      operation: 'sdk_initialize',
+      stage: 'client_create',
+      workerMode: 'enabled',
+      sharedMemoryProbe: 'unavailable',
+      extensionViews: 'unavailable'
+    });
     createMock.mockClear();
     const insertKeyCallback = jest.fn();
     const client = await MidenClientInterface.create({

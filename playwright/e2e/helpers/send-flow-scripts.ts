@@ -48,6 +48,12 @@ export interface UsdcxRouteView {
   notice: string | null;
 }
 
+// The bridge-in deposit screen's own layer: the Home tabs beneath it reuse its send-* test ids.
+export const BRIDGE_DEPOSIT_LAYER = '[data-page-layer="/bridge/deposit"]';
+
+/** The deposit amount step's From row value (a DetailRow): the source network's logo, which has no text, and name. */
+export const BRIDGE_SOURCE_NETWORK_JS = scopedJs(BRIDGE_DEPOSIT_LAYER, `return val('bridge-source-network');`);
+
 export const USDCX_ROUTE_JS = scopedJs(
   SEND_FLOW,
   `var card = root.querySelector('[data-testid="bridge-route-usdcx"]'); if (!card) return null; ` +

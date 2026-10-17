@@ -58,6 +58,7 @@ import { reportProve } from 'lib/telemetry/report-operation';
 // `report-flow`, which imports `lib/miden/front` and drags React into the
 // service-worker bundle. `guarantees.test.ts` asserts this.
 import { createWalletSdkObserver } from 'lib/telemetry/sdk-observer';
+import { wasmStartupEvidence } from 'lib/telemetry/wasm-startup';
 import { WalletType } from 'screens/onboarding/types';
 
 import { applyAfterSubmit } from './apply-after-submit';
@@ -648,7 +649,12 @@ export class MidenClientInterface {
 
       return new MidenClientInterface(midenClient, network, liveness, scope);
     } catch (error) {
-      annotateCrash(error, { operation: 'sdk_initialize', stage, workerMode: useWorker ? 'enabled' : 'disabled' });
+      annotateCrash(error, {
+        operation: 'sdk_initialize',
+        stage,
+        workerMode: useWorker ? 'enabled' : 'disabled',
+        ...wasmStartupEvidence(error)
+      });
       throw error;
     }
   }

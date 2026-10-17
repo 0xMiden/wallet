@@ -1105,6 +1105,9 @@ describe('the background service worker never imports the telemetry barrel', () 
     // why `classify.ts` and `run.ts` exist apart from `report-flow.ts` rather
     // than inside it. If `lib/miden/front` or React ever appears in this graph,
     // the assertion above about the barrel is what will say so.
+    //
+    // `wasm-startup.ts` imports nothing: the SDK's startup catches read it in
+    // every realm that starts the SDK, the worker among them.
     expect([...backgroundGraph().modules].filter(module => module.startsWith('src/lib/telemetry/')).sort()).toEqual([
       'src/lib/telemetry/aptabase.ts',
       'src/lib/telemetry/classify.ts',
@@ -1123,7 +1126,8 @@ describe('the background service worker never imports the telemetry barrel', () 
       'src/lib/telemetry/sink.ts',
       'src/lib/telemetry/transaction-failure.ts',
       'src/lib/telemetry/transaction-operation.ts',
-      'src/lib/telemetry/types.ts'
+      'src/lib/telemetry/types.ts',
+      'src/lib/telemetry/wasm-startup.ts'
     ]);
   });
 });

@@ -546,6 +546,18 @@
     "message": "無法建立倉位",
     "englishSource": "Failed to open position"
   },
+  "earnCollateralLoading": {
+    "message": "正在載入存款代幣的詳細資料。資料載入完成後即可繼續。",
+    "englishSource": "Loading the deposit token's details. You can continue once they arrive."
+  },
+  "earnCollateralUnavailable": {
+    "message": "目前無法存入代幣，因此存款功能已暫停。請稍後再試。",
+    "englishSource": "The deposit token isn't available right now, so deposits are paused. Try again later."
+  },
+  "earnCollateralMismatch": {
+    "message": "此審核是針對另一種存款代幣所準備的。請返回並重新輸入金額。",
+    "englishSource": "This review was prepared for a different deposit token. Go back and enter the amount again."
+  },
   "earnTotalEarnedRewards": {
     "message": "總收益",
     "englishSource": "Total earned"
@@ -1021,6 +1033,10 @@
   "unknownTokenScale": {
     "message": "此代幣的小數位數無法驗證，因此無法顯示或傳送相關金額。",
     "englishSource": "This token's decimals could not be verified, so amounts can't be shown or sent."
+  },
+  "sendTokenAvailabilityChecking": {
+    "message": "正在檢查此代幣是否可在測試網（Testnet）上傳輸。檢查完成後，您即可進行傳輸。",
+    "englishSource": "Checking whether this token can be sent on Testnet. You can send it once the check finishes."
   },
   "oops": {
     "message": "哎呀！",

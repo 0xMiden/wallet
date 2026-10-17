@@ -334,7 +334,8 @@ describe('swap order note settlement', () => {
       }),
       new Uint8Array([1, 4, 7, 6]),
       'swap-1',
-      true
+      true,
+      undefined
     );
     expect(initiateConsumeNotesTransaction).not.toHaveBeenCalled();
     expect(result).toEqual({
@@ -1138,5 +1139,41 @@ describe('swap order note settlement', () => {
     const consumeRow = { type: 'consume', extraInputs: undefined as Record<string, unknown> | undefined };
     tagWriter(consumeRow);
     expect(consumeRow.extraInputs).toEqual({ swapOrderTxId: 'swap-1', swapSettleKind: 'settle' });
+  });
+
+  it('settleSwapOrders hands its claim guard to every claim its pass queues', async () => {
+    // Order 77 expired with no fill, so it reclaims its tip; order 88 was filled, so it settles its payback.
+    toArray.mockResolvedValue([
+      tx({ outputNoteIds: ['zero-fill-tip'] }),
+      tx({ id: 'swap-2', extraInputs: { ...tx().extraInputs, orderId: 88n } })
+    ]);
+    jest
+      .mocked(midenClientProxy.getPswapLineages)
+      .mockResolvedValue([
+        zeroFillLineage('zero-fill-tip'),
+        { ...zeroFillLineage('tip-88'), orderId: '88', currentDepth: 1, state: 1 }
+      ]);
+    jest.mocked(midenClientProxy.getConsumableNotes).mockResolvedValue([note('payback-88', [999n, 88n, 1n, 0n])]);
+    const canSign = () => true;
+
+    await settleSwapOrders('account-1', false, canSign);
+
+    expect(initiatePswapReclaimTransaction).toHaveBeenCalledWith(
+      'account-1',
+      expect.objectContaining({ id: 'zero-fill-tip' }),
+      new Uint8Array([1, 4, 7, 6]),
+      'swap-1',
+      false,
+      canSign
+    );
+    expect(initiateConsumeNotesTransaction).toHaveBeenCalledWith(
+      'account-1',
+      [expect.objectContaining({ id: 'payback-88' })],
+      false,
+      undefined,
+      undefined,
+      undefined,
+      canSign
+    );
   });
 });

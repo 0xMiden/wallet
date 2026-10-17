@@ -95,6 +95,70 @@ it('sends why a claim failed without the failure text, an account id or a URL', 
   }
 });
 
+it('sends an unknown submit outcome as a warning and only a final failure as an error', async () => {
+  const transactionId = `0x${'5c'.repeat(32)}`;
+  reportTransactionFailure({
+    type: 'consume',
+    stage: 'submitting',
+    outcome: 'unconfirmed',
+    hiddenDuringSubmit: true,
+    error: new Error(
+      `failed to submit proven transaction: submission of transaction ${transactionId} came back without a definite ` +
+        'outcome, so the node may or may not have accepted it; nothing was recorded locally: grpc request failed for ' +
+        'submit_proven_transaction: unknown error: JS API error: TypeError: Load failed'
+    )
+  });
+  await settle();
+  reportTransactionFailure({
+    type: 'consume',
+    stage: 'submitting',
+    point: 'node_verdict',
+    reason: 'never_committed',
+    neverCommittedRule: 'superseded',
+    error: 'The network confirmed this transaction never went through, so nothing moved. It is safe to retry.'
+  });
+  await settle();
+  expect(captured).toHaveLength(2);
+  const [unconfirmed, failed] = captured;
+  expect(unconfirmed).toContain('submit_outcome_unknown; grpc unknown; app hidden during submit yes');
+  expect(unconfirmed).toContain('"level":"warning"');
+  expect(unconfirmed).not.toContain('"level":"error"');
+  expect(failed).toContain('point node_verdict; never_committed; rule superseded');
+  expect(failed).toContain('"level":"error"');
+  expect(failed).not.toContain('"level":"warning"');
+  for (const leak of [transactionId, 'Load failed', 'never went through'])
+    expect(captured.join('\n')).not.toContain(leak);
+});
+
+it('sends why an execution or a sync was stopped without an id, a note commitment or the operation id', async () => {
+  const commitment = `0x${'9a'.repeat(32)}`;
+  const opId = '3f2c8a9e-1b4d-4c6e-9a7b-2d5e8f0c1a3b';
+  reportTransactionFailure({
+    type: 'consume',
+    stage: 'creating-proposal',
+    error: new Error(
+      `failed to execute transaction: invalid transaction request: note with details commitment ${commitment} has already been consumed`
+    )
+  });
+  reportTransactionFailure({
+    type: 'consume',
+    stage: 'syncing',
+    error: Object.assign(new Error(`Offscreen operation ${opId} aborted (deadline)`), {
+      name: 'OperationAbortedError',
+      reason: 'deadline'
+    })
+  });
+  await settle();
+  expect(captured).toHaveLength(2);
+  const wire = captured.join('\n');
+  expect(wire).toContain('stage signing; signing step creating_proposal');
+  expect(wire).toContain('transaction_execution_failed; cause request_note_consumed');
+  expect(wire).toContain('point pipeline; offscreen_aborted_deadline');
+  for (const leak of [commitment, opId, 'has already been consumed', 'aborted (deadline)']) {
+    expect(wire).not.toContain(leak);
+  }
+});
+
 it('drops a report if consent is withdrawn while the event is being prepared', async () => {
   jest.mocked(isTelemetryEnabledAsync).mockResolvedValueOnce(true).mockResolvedValue(false);
   reportTransactionFailure({ type: 'send', stage: 'submitting', error: 'RPC rejected submission' });

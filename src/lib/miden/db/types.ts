@@ -37,6 +37,9 @@ export const hasLeftQueue = (row: Pick<ITransaction, 'status'>): boolean =>
 
 export type SubmitEvidenceSource = 'stage' | 'pin' | 'kill' | 'out-of-band' | 'end' | 'error-text';
 
+/** Which never-committed row of the verdict table proved an attempt dead: row 4, row 5 or row 6. */
+export type NeverCommittedBy = 'expired' | 'superseded' | 'spent_elsewhere';
+
 /** One attempt that may have crossed its submit (#1081). Keyed by attemptId. */
 export interface ISubmitEvidence {
   attemptId: string;
@@ -58,6 +61,7 @@ export interface ISubmitEvidence {
   landingSeenAtBlock?: number; // the block a landing judgement rested on; set once by row 1 or 3, a row 2 record may be replaced
   landingSeenBy?: 1 | 2 | 3; // the verdict row whose judgement wrote landingSeenAtBlock
   verdict?: 'never-committed' | 'unresolvable'; // sticky
+  neverCommittedBy?: NeverCommittedBy; // written with a never-committed verdict; absent on one written before it existed
   endedBy?: 'kill' | 'out-of-band'; // how the attempt ended outside its pipeline; set once
   endedAt?: number; // unix seconds, with endedBy
   preSubmitEnd?: true; // the leaf's tag proved the attempt ended before its submit call

@@ -165,7 +165,10 @@ const VaultRow: FC<{ vault: EarnVault }> = ({ vault }) => {
         <div className="min-w-0 flex-1">
           <div className="truncate text-row-title text-ink">{vault.protocol}</div>
           <div className="truncate text-caption text-muted">
-            {t('earnVaultAssetOnNetwork', { asset: vault.asset, network: vault.network })}
+            {t('earnVaultAssetOnNetwork', {
+              asset: vault.fundingAsset ?? vault.asset,
+              network: vault.fundingAsset ? 'Miden' : vault.network
+            })}
           </div>
         </div>
 

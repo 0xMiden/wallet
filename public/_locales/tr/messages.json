@@ -546,6 +546,18 @@
     "message": "Pozisyon açılamadı",
     "englishSource": "Failed to open position"
   },
+  "earnCollateralLoading": {
+    "message": "Para yatırma jetonunun ayrıntılarını yüklüyoruz. Ayrıntılar geldiğinde devam edebilirsiniz.",
+    "englishSource": "Loading the deposit token's details. You can continue once they arrive."
+  },
+  "earnCollateralUnavailable": {
+    "message": "Para yatırma jetonu şu anda kullanılamıyor, bu nedenle para yatırma işlemleri askıya alınmıştır. Daha sonra tekrar deneyin.",
+    "englishSource": "The deposit token isn't available right now, so deposits are paused. Try again later."
+  },
+  "earnCollateralMismatch": {
+    "message": "Bu inceleme, farklı bir mevduat token'ı için hazırlanmıştır. Geri dönün ve tutarı tekrar girin.",
+    "englishSource": "This review was prepared for a different deposit token. Go back and enter the amount again."
+  },
   "earnTotalEarnedRewards": {
     "message": "Toplam kazanç",
     "englishSource": "Total earned"
@@ -1021,6 +1033,10 @@
   "unknownTokenScale": {
     "message": "Bu token'ın ondalık basamakları doğrulanamadığı için tutarlar gösterilemez veya gönderilemez.",
     "englishSource": "This token's decimals could not be verified, so amounts can't be shown or sent."
+  },
+  "sendTokenAvailabilityChecking": {
+    "message": "Bu token'ın Testnet'te gönderilip gönderilemeyeceğini kontrol ediliyor. Kontrol tamamlandığında token'ı gönderebilirsiniz.",
+    "englishSource": "Checking whether this token can be sent on Testnet. You can send it once the check finishes."
   },
   "oops": {
     "message": "Oops!",

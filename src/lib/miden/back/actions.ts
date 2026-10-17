@@ -970,6 +970,8 @@ export function getAuthSecretKey(key: string) {
   });
 }
 
+export { confirmationNotFound } from './dapp';
+
 export function getAllDAppSessions() {
   return getAllDApps();
 }

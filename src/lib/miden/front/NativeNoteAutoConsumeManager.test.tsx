@@ -25,10 +25,19 @@ jest.mock('lib/miden/assets', () => ({
     mockLegacyFeeIdentity === undefined ? mockGetFaucetIdSetting() : Promise.resolve(mockLegacyFeeIdentity)
 }));
 let mockBaseFee: number | null = 0;
+// Runs as the tick reads the fee; a test lands the lock here, after the tick decided to claim.
+let mockOnFeeRead: () => void = () => undefined;
 jest.mock('lib/miden-chain/native-asset', () => ({
   getNativeAssetId: () => mockGetFaucetIdSetting(),
-  getVerificationBaseFee: () => Promise.resolve(mockBaseFee)
+  getVerificationBaseFee: () => {
+    mockOnFeeRead();
+    return Promise.resolve(mockBaseFee);
+  }
 }));
+
+// The wallet store's lock state, as the claim guard reads it.
+let mockWalletReady = true;
+jest.mock('lib/store', () => ({ isWalletReadyNow: () => mockWalletReady }));
 
 let mockExtension = false;
 jest.mock('lib/platform', () => ({ isExtension: () => mockExtension }));
@@ -77,6 +86,61 @@ describe('NativeNoteAutoConsumeManager', () => {
     mockCurrentAccount = { publicKey: 'pk-1' };
     mockGetFaucetIdSetting.mockResolvedValue('native-faucet');
     mockGetUncompleted.mockResolvedValue([{ id: 'tx' }]);
+    mockInitiateConsumeBatch.mockImplementation(async () => 'batch-tx');
+    mockInitiateConsume.mockImplementation(async () => 'consume-tx');
+    mockOnFeeRead = () => undefined;
+    mockWalletReady = true;
+  });
+
+  // The claim queue's contract, pinned on real rows in initiate.batch-isolation.test.ts: a guard that answers no at
+  // the write refuses it. Returns the note ids of every row written.
+  const guardCheckingQueue = (): string[][] => {
+    const written: string[][] = [];
+    const write = (noteIds: string[], canSign: unknown): string => {
+      if (typeof canSign === 'function' && !canSign()) throw new Error('Claim not queued');
+      written.push(noteIds);
+      return 'tx';
+    };
+    mockInitiateConsumeBatch.mockImplementation(async (...args: any[]) =>
+      write(
+        args[1].map((n: { id: string }) => n.id),
+        args[6]
+      )
+    );
+    mockInitiateConsume.mockImplementation(async (...args: any[]) => write([args[1].id], args[4]));
+    return written;
+  };
+
+  it('queues no claim, runs no per-note fallback and starts nothing when the lock lands after the fee read', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const written = guardCheckingQueue();
+    mockOnFeeRead = () => {
+      mockWalletReady = false;
+    };
+    mockClaimable = [note('a'), note('b')];
+
+    render(<NativeNoteAutoConsumeManager />);
+    await waitFor(() => expect(mockInitiateConsumeBatch).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 20));
+    });
+
+    expect(written).toEqual([]);
+    expect(mockInitiateConsume).not.toHaveBeenCalled();
+    expect(mockGetUncompleted).not.toHaveBeenCalled();
+    expect(mockStartBg).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it('queues the batch and starts processing on a tick the wallet stays unlocked through', async () => {
+    const written = guardCheckingQueue();
+    mockClaimable = [note('a'), note('b')];
+
+    render(<NativeNoteAutoConsumeManager />);
+
+    await waitFor(() => expect(mockStartBg).toHaveBeenCalledTimes(1));
+    expect(written).toEqual([['a', 'b']]);
+    expect(mockInitiateConsume).not.toHaveBeenCalled();
   });
 
   it('fee identity: auto-consumes actual native notes and leaves the legacy display faucet manual', async () => {
