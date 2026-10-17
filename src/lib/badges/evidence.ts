@@ -1,6 +1,6 @@
 import { compareAccountIds } from 'lib/miden/activity/utils';
 import type { BalanceRequirement } from 'lib/miden/balance-snapshot';
-import { ITransactionStatus, type ITransaction, type ITransactionType } from 'lib/miden/db/types';
+import { ITransactionStatus, type IConsumedNote, type ITransaction, type ITransactionType } from 'lib/miden/db/types';
 
 import { BADGE_IDS, type BadgeId } from './types';
 
@@ -29,11 +29,39 @@ const positive = (value: unknown): value is bigint => typeof value === 'bigint' 
 const chainId = (value: unknown): value is string => typeof value === 'string' && /^(0x)?[0-9a-f]{64}$/i.test(value);
 const noteKey = (id: string) => id.toLowerCase().replace(/^0x/, '');
 
-// A batch claim's scalar amount totals only its first note's faucet, so read this faucet's own total.
-function consumedTotal(claim: ITransaction, faucetId: string): bigint | undefined {
-  if (claim.assetTotals) return claim.assetTotals.find(total => total.faucetId === faucetId)?.amount;
+const addTo = <K, V>(index: Map<K, V[]>, key: K, value: V) => {
+  const bucket = index.get(key);
+  if (bucket) bucket.push(value);
+  else index.set(key, [value]);
+};
+
+// A batch claim's scalar amount totals only its first note's faucet, so read each faucet's own total.
+function consumedTotals(claim: ITransaction): (faucetId: string) => bigint | undefined {
+  if (claim.assetTotals) {
+    const totals = new Map<string, bigint>();
+    for (const { faucetId, amount } of claim.assetTotals) if (!totals.has(faucetId)) totals.set(faucetId, amount);
+    return faucetId => totals.get(faucetId);
+  }
   const faucets = new Set(claim.consumedNotes?.map(note => note.faucetId));
-  return faucets.size === 1 && faucets.has(faucetId) ? claim.amount : undefined;
+  return faucetId => (faucets.size === 1 && faucets.has(faucetId) ? claim.amount : undefined);
+}
+
+function claimedNotes(claim: ITransaction): Map<string, IConsumedNote[]> {
+  const notes = new Map<string, IConsumedNote[]>();
+  for (const note of claim.consumedNotes ?? []) addTo(notes, noteKey(note.id), note);
+  return notes;
+}
+
+// A consume is read once per call, however many deposits it claims.
+function readOnce<T>(read: (claim: ITransaction) => T): (claim: ITransaction) => T {
+  const cache = new Map<ITransaction, T>();
+  return claim => {
+    const cached = cache.get(claim);
+    if (cached !== undefined) return cached;
+    const value = read(claim);
+    cache.set(claim, value);
+    return value;
+  };
 }
 
 function consumedBalance(row: ITransaction, faucetId: string): BalanceRequirement | undefined {
@@ -68,6 +96,17 @@ export function badgeCandidates(
       chainId(row.transactionId) &&
       accounts.some(account => compareAccountIds(account, row.accountId))
   );
+  // Each row reads only its own claims; buckets keep history order, so the first qualifying claim still wins.
+  const claimsByTransaction = new Map<string, ITransaction[]>();
+  const claimsByOrder = new Map<string, ITransaction[]>();
+  for (const other of eligible) {
+    if (other.type !== 'consume' || !chainId(other.transactionId)) continue;
+    addTo(claimsByTransaction, other.transactionId, other);
+    const order: unknown = other.extraInputs?.swapOrderTxId;
+    if (typeof order === 'string') addTo(claimsByOrder, order, other);
+  }
+  const totalsOf = readOnce(consumedTotals);
+  const notesOf = readOnce(claimedNotes);
   const result: BadgeCandidate[] = [];
   for (const row of eligible) {
     const transactionId = row.transactionId;
@@ -95,15 +134,14 @@ export function badgeCandidates(
       const faucetId = row.faucetId;
       if (typeof noteId !== 'string' || !faucetId || !['epoch', 'agglayer', 'usdcx'].includes(String(provider)))
         continue;
-      const claim = eligible.find(
+      const depositNote = noteKey(noteId);
+      const claim = claimsByTransaction.get(transactionId)?.find(
         other =>
-          other.type === 'consume' &&
-          other.transactionId === transactionId &&
-          (consumedTotal(other, faucetId) ?? 0n) >= deposited &&
+          (totalsOf(other)(faucetId) ?? 0n) >= deposited &&
           compareAccountIds(row.accountId, other.accountId) &&
-          other.consumedNotes?.some(
-            note => noteKey(note.id) === noteKey(noteId) && note.faucetId === faucetId && note.amount === row.amount
-          )
+          notesOf(other)
+            .get(depositNote)
+            ?.some(note => note.faucetId === faucetId && note.amount === row.amount)
       );
       const balance = claim ? consumedBalance(claim, faucetId) : undefined;
       if (balance) result.push({ badge: 'first-deposit', transactionIds: [transactionId], balances: [balance] });
@@ -115,12 +153,7 @@ export function badgeCandidates(
     if (!positive(requested) || typeof faucet !== 'string' || (typeof order !== 'string' && typeof order !== 'bigint'))
       continue;
     if (row.extraInputs?.reclaimedAt != null) continue;
-    const claims = eligible.filter(
-      other =>
-        other.type === 'consume' &&
-        compareAccountIds(row.accountId, other.accountId) &&
-        other.extraInputs?.swapOrderTxId === row.id
-    );
+    const claims = (claimsByOrder.get(row.id) ?? []).filter(other => compareAccountIds(row.accountId, other.accountId));
     if (claims.some(claim => claim.extraInputs?.swapSettleKind === 'reclaim')) continue;
     const seenNotes = new Set<string>();
     const seenTransactions = new Set<string>();
