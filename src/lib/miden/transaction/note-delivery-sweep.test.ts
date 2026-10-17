@@ -1204,6 +1204,30 @@ describe('the delivery schedule', () => {
     expect(mockRelayById.mock.calls.map(([noteId]) => noteId)).toEqual(['0xkept']);
   });
 
+  // The row still owes what the sweep read, though it pushed only part of it: its writes are made as ever.
+  it('writes the outcome of a push that covered only the note an acknowledged sibling left owed', async () => {
+    rows.push(
+      due('pair', NOW - 1000, {
+        type: 'execute',
+        relayNoteIds: ['0xacked', '0xowed'],
+        relayRecipientId: 'mtst1recipient',
+        relayAckedNoteIds: ['0xacked'],
+        relayAttempts: 2,
+        noteDelivery: 'undelivered'
+      })
+    );
+
+    await sweepNoteDeliveries();
+
+    expect(mockRelayById.mock.calls.map(([noteId]) => noteId)).toEqual(['0xowed']);
+    expect(rows[0]).toMatchObject({
+      relayAttempts: 3,
+      relayAckedNoteIds: ['0xacked', '0xowed'],
+      noteDelivery: 'relayed',
+      nextRelayAt: NOW + 5 * MINUTE
+    });
+  });
+
   it('still confirms a row whose only owed note is dead once that note is consumed', async () => {
     rows.push(
       due('dead', NOW - 1000, {

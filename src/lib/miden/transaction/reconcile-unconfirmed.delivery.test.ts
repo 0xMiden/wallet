@@ -1,6 +1,7 @@
 // Real Dexie and the real sweep: the landed write and the sweep's selection meet only in the stored row (#1473).
 import { __resetSyncFuseStateForTests } from 'lib/miden/front/sync-fuse';
 import * as Repo from 'lib/miden/repo';
+import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { NoteTypeEnum } from 'lib/miden/types';
 
 import { __resetNoteDeliverySweepForTests, MAX_RELAY_ATTEMPTS, sweepNoteDeliveries } from './note-delivery-sweep';
@@ -41,6 +42,9 @@ const NOTE = hex(0xabc20);
 const OTHER_NOTE = hex(0xabc21);
 const RECIPIENT = 'mtst1recipient';
 const UNDELIVERED_SEND = 'Sent - the private note could not be delivered';
+const TRANSPORT_DISABLED =
+  'failed sending private output note: note transport error: note transport is disabled; ' +
+  'enable it in the client configuration to send or receive notes via P2P';
 
 const entry = (overrides: Partial<ISubmitEvidence> = {}): ISubmitEvidence => ({
   attemptId: 'a1',
@@ -121,6 +125,36 @@ const pushesAfterTheFirstWait = async () => {
   jest.spyOn(Date, 'now').mockReturnValue((NOW + 10 * 60) * 1000);
   await sweepNoteDeliveries();
   return mockRelayById.mock.calls;
+};
+
+interface Held<T> {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+  reject: (error: unknown) => void;
+}
+
+/** A promise the test settles. Marked handled, so one rejected on a path that never awaited it stays quiet. */
+const held = <T>(): Held<T> => {
+  let resolve: (value: T) => void = () => undefined;
+  let reject: (error: unknown) => void = () => undefined;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  promise.catch(() => undefined);
+  return { promise, resolve, reject };
+};
+
+/** Land the row while a sweep pass waits at `reached`, then let the pass go on with `release` and finish. */
+const landWhileTheSweepWaits = async (reached: Promise<void>, release: () => void) => {
+  const sweeping = sweepNoteDeliveries();
+  try {
+    await Promise.race([reached, sweeping]);
+    expect((await land(noteOnChain)).kind).toBe('landed');
+  } finally {
+    release();
+    await sweeping;
+  }
 };
 
 beforeEach(async () => {
@@ -285,5 +319,55 @@ describe('a send landed from its submit evidence owes the sweep its note (#1473)
       completedAt: NOW - 100
     });
     expect(await pushesAfterTheFirstWait()).toEqual([[recorded, RECIPIENT]]);
+  });
+
+  // The sweep reads the row before its push: the push's outcome is the replaced note's, not the landed one's.
+  it.each<[string, (push: Held<void>) => void]>([
+    ['is acknowledged', push => push.resolve()],
+    ['is interrupted', push => push.reject(new WasmClientPoisonedError('watchdog', new Error('push parked')))],
+    ['finds the transport disabled', push => push.reject(new Error(TRANSPORT_DISABLED))]
+  ])(
+    'a push of the replaced note that %s while the send lands writes nothing onto the landed note',
+    async (_outcome, end) => {
+      jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+      await Repo.transactions.put(retriedSend({ relayAttempts: MAX_RELAY_ATTEMPTS - 1, nextRelayAt: NOW - 1 }));
+      const reached = held<void>();
+      const push = held<void>();
+      mockRelayById.mockImplementation(async noteId => {
+        if (noteId !== OTHER_NOTE) return;
+        reached.resolve();
+        await push.promise;
+      });
+
+      await landWhileTheSweepWaits(reached.promise, () => end(push));
+
+      expect(mockRelayById.mock.calls).toEqual([[OTHER_NOTE, RECIPIENT]]);
+      const row = await read();
+      expect(row).toMatchObject({ outputNoteIds: [NOTE], noteDelivery: 'undelivered' });
+      expect(row?.relayAttempts).toBeUndefined();
+      expect(row?.nextRelayAt).toBeUndefined();
+      expect(row?.relayRetriesStopped).toBeUndefined();
+      expect(row?.relayAckedNoteIds).toBeUndefined();
+
+      mockRelayById.mockClear();
+      expect(await pushesAfterTheFirstWait()).toEqual([[NOTE, RECIPIENT]]);
+    }
+  );
+
+  it('a receipt of the replaced note that reads consumed while the send lands does not confirm the landed note', async () => {
+    await Repo.transactions.put(retriedSend({ nextRelayAt: NOW - 1 }));
+    const reached = held<void>();
+    const receipt = held<boolean>();
+    mockIsConsumed.mockImplementation(async noteId => {
+      if (noteId !== OTHER_NOTE) return false;
+      reached.resolve();
+      return receipt.promise;
+    });
+
+    await landWhileTheSweepWaits(reached.promise, () => receipt.resolve(true));
+
+    expect(mockIsConsumed).toHaveBeenCalledWith(OTHER_NOTE);
+    expect((await read())?.noteDelivery).toBe('undelivered');
+    expect(await pushesAfterTheFirstWait()).toEqual([[NOTE, RECIPIENT]]);
   });
 });
