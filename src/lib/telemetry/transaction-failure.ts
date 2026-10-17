@@ -563,7 +563,6 @@ export function reportTransactionFailure(failure: TransactionFailure): void {
     const step = stepOfStage(failure.stage);
     const stepName = typeof step === 'string' ? step : 'unknown';
     const confirmingStep = CONFIRMING_STEP_BY_STAGE.get(failure.stage);
-    // Follows the stage it names, as the signing step does.
     const stage = confirmingStep === undefined ? stepName : `${stepName}; confirming step ${confirmingStep}`;
     const signingStep = SIGNING_STEP_BY_STAGE.get(failure.stage);
     const outcome = failure.outcome === 'unconfirmed' ? 'unconfirmed' : 'failed';

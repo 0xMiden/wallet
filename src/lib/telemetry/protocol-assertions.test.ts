@@ -25,7 +25,6 @@ const sources = (): AssertionSources =>
 // A crate's source path in a built wasm, as `miden-protocol-0.17.1/`.
 const CRATE_PATH = /\b(miden(?:-[a-z][a-z0-9]*)+)-(\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?)\//g;
 
-// Each crate a built wasm names, with every version it names.
 const builtFrom = (wasm: string): Map<string, string[]> => {
   const crates = new Map<string, string[]>();
   const text = readFileSync(join(REPO_ROOT, 'node_modules/@miden-sdk/miden-sdk/dist', wasm)).toString('latin1');
