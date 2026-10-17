@@ -10,7 +10,7 @@ import {
 import { midenClientProxy } from '../back/miden-client-proxy';
 import { isRotationPendingAccount } from '../back/rotation-pending';
 import { type ITransaction, ITransactionStatus } from '../db/types';
-import { isSyncFused, noteProbeFailure, noteSyncSuccess } from '../front/sync-fuse';
+import { isSyncFused, noteProbeFailure, noteSyncSuccess, type SyncFuseKey } from '../front/sync-fuse';
 import { toNoteTypeString } from '../helpers';
 import type { ConsumableNoteDto } from '../sdk/consumable-notes';
 import { assertWasmHoldCurrent, getCurrentWasmLockHold, withWasmClientLock } from '../sdk/miden-client';
@@ -33,6 +33,12 @@ export { classifySwapOrderNotes } from './classification';
  * and every second it spends parked is a second the realm's only WASM mutex is unusable.
  */
 const WASM_SETTLEMENT_LOCK_OPTIONS = { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'swap-settlement' };
+
+/**
+ * The zero-fill cancel-request build is a node call the claimable-notes poll never makes, so it parks independently of
+ * the note read and keeps evidence of its own: the poll's successes must not withdraw it.
+ */
+const ZERO_FILL_BUILD_FUSE_KEY: SyncFuseKey = 'swap-zero-fill-build';
 
 export interface SwapSettlementResult {
   queuedTransactionIds: string[];
@@ -65,7 +71,8 @@ export async function classifySwapSettlementSnapshot(
 ): Promise<SwapSettlementSnapshot> {
   const snapshot = await classifySwapOrderSnapshot(notes, accountId, orders, hold);
   const zeroFillReclaims = new Map<string, PreparedPswapReclaim>();
-  if (isRotationPendingAccount(accountId)) {
+  // A fused build leaves the orders to a later pass; the notes are classified all the same.
+  if (isRotationPendingAccount(accountId) || isSyncFused(ZERO_FILL_BUILD_FUSE_KEY)) {
     return { classified: snapshot.notes, zeroFillReclaims };
   }
 
@@ -93,10 +100,14 @@ export async function classifySwapSettlementSnapshot(
       requestBytes = await midenClientProxy.buildPswapCancelRequest(accountId, tipNoteId, step =>
         assertWasmHoldCurrent(hold, 'inside the zero-fill PSWAP cancel-request build', step)
       );
+      assertWasmHoldCurrent(hold, 'after the zero-fill PSWAP cancel-request build');
     } catch (error) {
       // A trap rejects into the hold's lock, which retires the client, and a kill (an eviction, an offscreen abort,
       // a terminated client) ends this pass's client; swallowed, either sends the next order's build to a dead client.
-      if (isPipelineKillLink(error) || error instanceof WebAssembly.RuntimeError) throw error;
+      if (isPipelineKillLink(error) || error instanceof WebAssembly.RuntimeError) {
+        noteProbeFailure(ZERO_FILL_BUILD_FUSE_KEY, error);
+        throw error;
+      }
       // A sync can observe the lineage just before another actor consumes the
       // tip, or a legacy/local-store gap can leave the creator output absent.
       // Skip only this reclaim; aborting the whole note sync would also block
@@ -104,10 +115,11 @@ export async function classifySwapSettlementSnapshot(
       console.warn(`[Swap] Could not prepare zero-fill reclaim for order ${orderId}:`, error);
       continue;
     }
-    assertWasmHoldCurrent(hold, 'after the zero-fill PSWAP cancel-request build');
     zeroFillReclaims.set(orderId, { noteId: tipNoteId, requestBytes });
   }
 
+  // Only a build that returned its request shows the node answered; a pass of data refusals, or of no build, is none.
+  if (zeroFillReclaims.size > 0) noteSyncSuccess(ZERO_FILL_BUILD_FUSE_KEY);
   return { classified: snapshot.notes, zeroFillReclaims };
 }
 
