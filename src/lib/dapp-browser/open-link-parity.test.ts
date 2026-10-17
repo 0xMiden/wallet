@@ -9,7 +9,8 @@ import { OPEN_LINK_HOST, parseOpenLink } from './open-link';
 /**
  * An open link reaches Bread only while the app's native declarations, the parser and the files
  * 0xMiden/wallet-link serves at the link host agree. A mismatch fails silently on a device: the link just
- * opens the web page instead.
+ * opens the web page instead. These cases pin this repository's half; the app ID and package the last case
+ * names stand for what 0xMiden/wallet-link's files declare.
  */
 
 const read = (relative: string) => fs.readFileSync(path.join(__dirname, '../../..', relative), 'utf8');
@@ -20,6 +21,9 @@ const PARAMS = `url=${encodeURIComponent(PAGE)}`;
 
 const manifest = read('android/app/src/main/AndroidManifest.xml');
 const verifiedFilters = captures(manifest, /<intent-filter android:autoVerify="true">([\s\S]*?)<\/intent-filter>/g);
+const schemeFilters = captures(manifest, /<intent-filter>([\s\S]*?)<\/intent-filter>/g).filter(filter =>
+  filter.includes('android:scheme=')
+);
 
 describe('open link declarations', () => {
   it('has iOS claim exactly the link host', () => {
@@ -34,6 +38,18 @@ describe('open link declarations', () => {
     expect(captures(filter, /android:scheme="([^"]+)"/g)).toEqual(['https']);
     expect(captures(filter, /android:host="([^"]+)"/g)).toEqual([OPEN_LINK_HOST]);
     expect(captures(filter, /android:path="([^"]+)"/g)).toEqual(['/open']);
+  });
+
+  it('has both Android link filters take the link a browser hands over', () => {
+    expect(verifiedFilters).toHaveLength(1);
+    expect(schemeFilters).toHaveLength(1);
+    for (const filter of [...verifiedFilters, ...schemeFilters]) {
+      expect(captures(filter, /<action android:name="([^"]+)"/g)).toEqual(['android.intent.action.VIEW']);
+      expect(captures(filter, /<category android:name="([^"]+)"/g).sort()).toEqual([
+        'android.intent.category.BROWSABLE',
+        'android.intent.category.DEFAULT'
+      ]);
+    }
   });
 
   it('parses links at the link host and at every custom scheme the apps declare', () => {
