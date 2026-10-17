@@ -23,6 +23,9 @@ export const intercom = {
   onRequest: (...args: Parameters<import('lib/intercom/server').IntercomServer['onRequest']>) => {
     return getIntercom()!.onRequest(...args);
   },
+  onNotFound: (...args: Parameters<import('lib/intercom/server').IntercomServer['onNotFound']>) => {
+    return getIntercom()!.onNotFound(...args);
+  },
   broadcast: (...args: Parameters<import('lib/intercom/server').IntercomServer['broadcast']>) => {
     return getIntercom()!.broadcast(...args);
   },
