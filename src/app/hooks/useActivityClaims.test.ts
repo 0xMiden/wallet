@@ -1,6 +1,7 @@
 import { act, renderHook } from '@testing-library/react';
 
 import { TEST_NATIVE_ETH_FAUCET } from 'lib/epoch/testing/bridge-config';
+import { claimFeeShortfalls } from 'lib/miden/fees/spendable';
 import type { TokenBalanceData } from 'lib/miden/front/balance';
 import type { ClaimableNoteWithMetadata } from 'lib/miden/front/claimable-notes';
 
@@ -107,6 +108,11 @@ jest.mock('lib/miden/front', () => ({
   useAllBalances: () => mockBalances
 }));
 jest.mock('app/hooks/useVerificationBaseFee', () => ({ __esModule: true, default: () => mockBaseFee }));
+// The real rule runs; the spy counts how often the hook asks it.
+jest.mock('lib/miden/fees/spendable', () => {
+  const actual = jest.requireActual<typeof import('lib/miden/fees/spendable')>('lib/miden/fees/spendable');
+  return { ...actual, claimFeeShortfalls: jest.fn(actual.claimFeeShortfalls) };
+});
 jest.mock('lib/miden/front/guardian-sync', () => ({ zustandProvider: {} }));
 jest.mock('lib/platform', () => ({ isExtension: () => mockFlags.extension }));
 // The bridge registry names its native-ETH faucet, which sends every Agglayer delivery; the SDK reads an id as itself.
@@ -965,6 +971,38 @@ describe('the network fee', () => {
     expect(mockQueue).toHaveBeenCalledWith('account', note, false, true);
   });
 
+  it('admits a card when a queued USDCX claim is listed after it', () => {
+    // 150 covers little more than that claim's own fee, which is not charged against the card: the queue may run
+    // either first.
+    const queued = { ...nativeNote('queued-usdcx', '150'), isBeingClaimed: true, claimingTxId: 'tx-auto' };
+    mockClaim.safeClaimableNotes = [note, queued];
+    const { result } = renderHook(() => useActivityClaims());
+    expect(result.current.items.find(item => item.note.id === note.id)).toMatchObject({
+      status: 'pending',
+      cannotPayFee: false
+    });
+  });
+
+  it('reads the queued claims once per change, not once per card', () => {
+    const cards = Array.from({ length: 50 }, (_, index) => ({ ...note, id: `card-${index}` }));
+    const queued = Array.from({ length: 50 }, (_, index) => ({
+      ...note,
+      id: `queued-${index}`,
+      isBeingClaimed: true,
+      claimingTxId: `tx-${index}`
+    }));
+    mockClaim.safeClaimableNotes = [...cards, ...queued];
+    jest.mocked(claimFeeShortfalls).mockClear();
+    let renders = 0;
+    const { result } = renderHook(() => {
+      renders += 1;
+      return useActivityClaims();
+    });
+    expect(jest.mocked(claimFeeShortfalls).mock.calls.length).toBeLessThanOrEqual(renders);
+    // No fee asset anywhere, so every card is refused.
+    expect(result.current.items.filter(item => item.cannotPayFee === true)).toHaveLength(50);
+  });
+
   it('fails open until balances first land', async () => {
     // Until then the rows are a zero placeholder, which would refuse every claim.
     mockBalances.isLoading = true;
@@ -976,8 +1014,8 @@ describe('the network fee', () => {
     expect(mockQueue).toHaveBeenCalledTimes(1);
   });
 
-  it('Accept All queues only the transactions the claim can pay for and leaves the rest as they were', async () => {
-    // 150 pays the USDCX transaction's own fee of at least 100 and leaves too little for another.
+  it('Accept All queues the groups after a USDCX group it queued, whatever that group leaves after its fee', async () => {
+    // 150 pays the USDCX transaction's own fee of at least 100 and leaves less than another, which is not simulated.
     const dust = nativeNote('dust-usdcx', '150');
     const other = { ...note, id: 'note-other', faucetId: 'faucet-other' };
     mockClaim.safeClaimableNotes = [note, dust, other];
@@ -987,13 +1025,33 @@ describe('the network fee', () => {
     await act(async () => {
       await result.current.acceptMany([note, dust, other]);
     });
-    expect(mockQueueMany).toHaveBeenCalledTimes(1);
-    expect(mockQueueMany).toHaveBeenCalledWith('account', [dust], false, true);
-    expect(result.current.items.map(item => [item.note.id, item.status, item.cannotPayFee])).toEqual([
-      ['note-one', 'pending', true],
-      ['dust-usdcx', 'claiming', undefined],
-      ['note-other', 'pending', true]
+    expect(mockQueueMany.mock.calls.map(call => call[1])).toEqual([[dust], [note], [other]]);
+    expect(result.current.items.map(item => [item.note.id, item.status])).toEqual([
+      ['note-one', 'claiming'],
+      ['dust-usdcx', 'claiming'],
+      ['note-other', 'claiming']
     ]);
+  });
+
+  it('Accept All refuses the groups after a USDCX group whose queue write failed', async () => {
+    const log = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const usdcx = nativeNote('usdcx', '1000000');
+    mockClaim.safeClaimableNotes = [note, usdcx];
+    mockQueueMany.mockRejectedValueOnce(new Error('Queue failed'));
+    const { result } = renderHook(() => useActivityClaims());
+
+    await act(async () => {
+      await result.current.acceptMany([note, usdcx]);
+    });
+    // The failed write delivers no USDCX, so the token claim after it is certain to fail on the fee.
+    expect(mockQueueMany).toHaveBeenCalledTimes(1);
+    expect(mockQueueMany).toHaveBeenCalledWith('account', [usdcx], false, true);
+    expect(mockStart).not.toHaveBeenCalled();
+    expect(result.current.items.map(item => [item.note.id, item.status])).toEqual([
+      ['note-one', 'pending'],
+      ['usdcx', 'failed']
+    ]);
+    log.mockRestore();
   });
 
   it('Accept All with no fee asset anywhere queues nothing and starts no processing', async () => {
