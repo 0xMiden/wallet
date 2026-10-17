@@ -4,6 +4,7 @@ import type { ITransactionStage, ITransactionType } from 'lib/miden/db/types';
 import { isDesktop } from 'lib/platform';
 import { isHotKeyFailure } from 'lib/secure-hot-key/failure';
 
+import { type BridgeReceiveFailure, bridgeReceiveIdentity } from './bridge-receive-failure';
 import { classifyError } from './classify';
 import { resolveTelemetryContext } from './context';
 import { captureCrash } from './crash';
@@ -51,6 +52,8 @@ export interface TransactionFailure {
     | 'guardian_node_verdict'
     | 'node_verdict';
   diagnostics?: TransactionFailureDiagnostics;
+  /** A failed inbound bridge's route and what failed it, each read against its closed list. */
+  bridgeReceive?: BridgeReceiveFailure;
 }
 
 function diagnostic<T extends string>(value: unknown, allowed: readonly T[], fallback: T): T {
@@ -196,6 +199,8 @@ export function reportTransactionFailure(failure: TransactionFailure): void {
         : 'unknown';
     const proving =
       failure.delegateTransaction === true ? 'delegated' : failure.delegateTransaction === false ? 'local' : 'unknown';
+    const bridge =
+      failure.bridgeReceive === undefined ? '' : `; ${bridgeReceiveIdentity(failure.bridgeReceive, failure.error)}`;
     const platform = isDesktop() ? 'desktop' : resolveTelemetryContext().platform;
     const identity =
       failure.reason === undefined
@@ -203,7 +208,7 @@ export function reportTransactionFailure(failure: TransactionFailure): void {
         : diagnostic<string>(failure.reason, FAILURE_REASONS, 'other');
     const report = new Error(
       [
-        `Transaction ${outcome}: ${operation}; stage ${stage}; realm ${realm}; proving preference ${proving}; platform ${platform}; point ${point}; ${identity}`,
+        `Transaction ${outcome}: ${operation}; stage ${stage}; realm ${realm}; proving preference ${proving}; platform ${platform}; point ${point}; ${identity}${bridge}`,
         `authentication preparation ${preparation}; layout ${layout}; commitment match ${match}; account code ${accountCode}`,
         `SDK ${softwareVersion(packageJson.dependencies['@miden-sdk/miden-sdk'])}; Guardian client ${softwareVersion(packageJson.dependencies['@openzeppelin/miden-multisig-client'])}`
       ].join('. ')
