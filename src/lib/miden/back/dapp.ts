@@ -139,6 +139,7 @@ import { IConsumedAssetTotal, type ITransaction } from '../db/types';
 import { accountRefToSdk, getBech32AddressFromAccountId, sameWalletAccountId } from '../sdk/helpers';
 import { assertWasmHoldCurrent, withWasmClientLock, type WasmLockHold } from '../sdk/miden-client';
 import type { DetailsCommitmentMatches } from '../sdk/miden-client-interface';
+import { normalizedCommitment, noteDetailsCommitment, type NoteDetailsParts } from '../sdk/note-details-commitment';
 import { resolvePublicKeyCommitments } from '../sdk/resolve-public-key-commitments';
 import { isPipelineKillLink } from '../sdk/sdk-error-code';
 import {
@@ -1320,38 +1321,26 @@ async function importDAppPrivateNote(note: string): Promise<string> {
 const importPrivateNoteFailure = (e: unknown): unknown => (isPipelineKillLink(e) ? e : dappRequestFailure(e));
 
 /**
- * Imports the note that an approved consume request carries, before the consume reads it
- * from the store (issue #1459).
- *
- * `initiateConsumeTransactionFromId` refuses a note that is not in the store, and it does
- * that before it writes a row. Thus a queued import is too late: the transaction loop
- * imports queued notes only for rows that already exist. A dApp-supplied private note is
- * not in the store until this import, so the dApp had to get a separate import approval
- * first. The consume sheet already showed this note, decoded from these bytes and checked
- * against `noteId`, so that second approval showed the user nothing new.
- *
- * `importDAppPrivateNote` queues the bytes when the import fails transiently or is killed,
- * so a failed consume does not lose the note.
- *
- * The bytes are checked by the id quarantine derives from them (a NoteFile's note id, else
- * a bare Note's id), never by the import's answer: for raw `Note` bytes that answer is a
- * details commitment, not a note id. Bytes that are neither a NoteFile nor a Note are not
- * imported; the consume then finds the note in the store or refuses it itself. A decode that
- * traps refuses the consume: it runs under the WASM lock, which retires the client.
+ * Imports carried bytes checked against the request's id, which may be their note id or details commitment.
+ * The resolved store id is used to consume the note, never to validate the bytes. Unreadable bytes are not imported;
+ * the consume reads the note from the store or refuses it. A decode that traps rejects its WASM hold.
  */
-async function importConsumeNoteBytes(noteId: string, noteBytes: string): Promise<void> {
-  let carriedId: string | null = null;
-  try {
-    carriedId = await withWasmClientLock(async () => noteIdFromBytes(b64ToU8(noteBytes)));
-  } catch (e) {
-    if (e instanceof WebAssembly.RuntimeError) throw e;
-    // Invalid base64 reads as unreadable bytes.
-  }
-  // Nothing readable to import: the consume reads the note from the store, as it did before bytes
-  // were carried, and refuses a note the store lacks.
-  if (carriedId === null) return;
-  if (carriedId !== noteId) {
-    throw new Error('noteBytes describe a different note than noteId - refusing to consume it');
+async function importConsumeNoteBytes(transaction: MidenConsumeTransaction): Promise<void> {
+  const { noteId, noteBytes } = transaction;
+  if (!noteBytes) return;
+  const carried = await decodeCarriedConsumeNoteLocked(transaction);
+  if (!carried) {
+    let carriedId: string | null = null;
+    try {
+      carriedId = await withWasmClientLock(async () => noteIdFromBytes(b64ToU8(noteBytes)));
+    } catch (e) {
+      if (e instanceof WebAssembly.RuntimeError) throw e;
+      // Invalid base64 reads as unreadable bytes.
+    }
+    if (carriedId === null) return;
+    if (carriedId !== noteId) {
+      throw new Error('noteBytes describe a different note than noteId - refusing to consume it');
+    }
   }
   await importDAppPrivateNote(noteBytes);
 }
@@ -2638,7 +2627,7 @@ const generatePromisifyConsumeTransaction = async (
         await assertDappSendStillAuthorized(origin, req.sourcePublicKey, dApp.accountId);
         const { noteBytes } = req.transaction;
         if (noteBytes) {
-          await importConsumeNoteBytes(noteId, noteBytes);
+          await importConsumeNoteBytes(req.transaction);
           // The import can run long; the account or session may have changed under it.
           await assertDappSendStillAuthorized(origin, req.sourcePublicKey, dApp.accountId);
         }
@@ -2695,7 +2684,7 @@ const generatePromisifyConsumeTransaction = async (
               const { noteId } = await sheet.data();
               const { noteBytes } = req.transaction;
               if (noteBytes) {
-                await importConsumeNoteBytes(noteId, noteBytes);
+                await importConsumeNoteBytes(req.transaction);
                 // See the mobile/desktop arm: the import can outlast the approval's check.
                 await assertDappSendStillAuthorized(origin, req.sourcePublicKey, dApp.accountId);
               }
@@ -3119,6 +3108,7 @@ async function formatSendTransactionPreview(transaction: SendTransaction): Promi
 
 /** The note a consume request will actually consume, as resolved by the wallet. */
 interface ResolvedConsumeNote {
+  noteId: string;
   assets: Asset[];
   noteType: string;
   restriction?: ConsumeRestriction;
@@ -3136,7 +3126,7 @@ interface ConsumePreview {
  * (see `noteIdFromBytes` in note-quarantine.ts). Returns the note's id alongside
  * its real assets and type, or null when neither format parses.
  */
-function decodeConsumeNoteBytes(noteBytesB64: string): (ResolvedConsumeNote & { noteId: string }) | null {
+function decodeConsumeNoteBytes(noteBytesB64: string): (ResolvedConsumeNote & { details: NoteDetailsParts }) | null {
   // Never throws for bytes it cannot read: any unreadable byte string just means
   // "the wallet could not decode this", and the caller falls back to reading the
   // note from the store. Refusing the whole request here would break a legitimate
@@ -3158,6 +3148,7 @@ function decodeConsumeNoteBytes(noteBytesB64: string): (ResolvedConsumeNote & { 
     const metadata = note.metadata();
     return {
       noteId: note.id().toString(),
+      details: note,
       noteType: metadata ? toNoteTypeString(metadata.noteType()) : 'unknown',
       restriction: noteConsumeRestriction(note),
       assets: note
@@ -3175,17 +3166,30 @@ function decodeConsumeNoteBytes(noteBytesB64: string): (ResolvedConsumeNote & { 
 }
 
 /**
- * The note that carried bytes describe, or null when there are none or they do not decode yet. Bytes that decode to
- * another note than `noteId` are refused: that note is not the one the consume reads.
+ * The note that carried bytes describe, or null when they do not decode. The request may name the note by its id or
+ * its details commitment; bytes matching neither are refused. The returned id is the note's own id for consumption.
  */
 function decodeCarriedConsumeNote(transaction: MidenConsumeTransaction): ResolvedConsumeNote | null {
   if (transaction.noteBytes) {
     const decoded = decodeConsumeNoteBytes(transaction.noteBytes);
     if (decoded) {
       if (decoded.noteId !== transaction.noteId) {
-        throw new Error('noteBytes describe a different note than noteId - refusing to preview it');
+        let commitment: string | undefined;
+        try {
+          commitment = noteDetailsCommitment(decoded.details);
+        } catch (error) {
+          if (error instanceof WebAssembly.RuntimeError) throw error;
+        }
+        if (commitment !== normalizedCommitment(transaction.noteId)) {
+          throw new Error('noteBytes describe a different note than noteId - refusing to preview it');
+        }
       }
-      return { assets: decoded.assets, noteType: decoded.noteType, restriction: decoded.restriction };
+      return {
+        noteId: decoded.noteId,
+        assets: decoded.assets,
+        noteType: decoded.noteType,
+        restriction: decoded.restriction
+      };
     }
   }
   return null;
@@ -3203,26 +3207,17 @@ async function decodeCarriedConsumeNoteLocked(
 }
 
 /**
- * Ground truth for a consume request: what the note the wallet will consume
- * actually holds.
- *
- * Execution uses ONLY `transaction.noteId` — `initiateConsumeTransactionFromId`
- * loads the note from the store and explicitly blanks the request's declared
- * `faucetId`/`amount`/`senderAddress` (transaction/initiate.ts). So the
- * dApp-declared faucet, amount and note type provably cannot influence the
- * transaction, and rendering them on the approval screen shows the user numbers
- * with no causal relationship to what they are authorizing (e.g. "+500 USDC" over
- * an attacker's asset-less note). Resolve the note instead — from the carried
- * bytes when they are supplied (rejecting bytes whose id is not the id that will
- * be consumed), else from the local store — and refuse the request when it cannot
- * be resolved at all, rather than prompting with unverifiable numbers.
+ * Ground truth for a consume sheet and its approved spend. Carried bytes are checked against the request's id,
+ * which may be their note id or details commitment. A note-id match keeps the request's id; a commitment match
+ * spends the resolved note's own id. Without decodable bytes, resolve from the store, scoped to this account for
+ * commitment matches. Refuse an unresolved note rather than show dApp-declared assets unrelated to the spend.
  */
 async function resolveConsumeNote(
   transaction: MidenConsumeTransaction,
   accountId: string
-): Promise<ResolvedConsumeNote & { noteId: string }> {
+): Promise<ResolvedConsumeNote> {
   const carried = await decodeCarriedConsumeNoteLocked(transaction);
-  if (carried) return { ...carried, noteId: transaction.noteId };
+  if (carried) return carried;
 
   const resolved = await withWasmClientLock(async hold => {
     const [byNoteId] = await midenClientProxy.getInputNoteDetails({ ids: [transaction.noteId] }, () =>
@@ -3285,9 +3280,7 @@ async function formatConsumeTransactionPreview(
   carried: ResolvedConsumeNote | null,
   accountId: string
 ): Promise<ConsumePreview> {
-  const { noteId, assets, noteType, restriction } = carried
-    ? { ...carried, noteId: transaction.noteId }
-    : await resolveConsumeNote(transaction, accountId);
+  const { noteId, assets, noteType, restriction } = carried ?? (await resolveConsumeNote(transaction, accountId));
   // Refused here, before the sheet: once approved, the consume would fail at execution with ERR_RECLAIM_DISABLED, and
   // nothing before execution asks whether the account can consume the note.
   if (!mayConsume(restriction, () => accountRefToSdk(accountId))) {
