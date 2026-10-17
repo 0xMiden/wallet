@@ -748,6 +748,8 @@
   "networkFeeMax": "최대 네트워크 수수료",
   "networkFeeEstimateNote": "정확한 수수료는 거래에 따라 다르며, 일반적으로 이보다 낮습니다. 지불한 금액은 영수증에서 확인하실 수 있습니다.",
   "feeReserveBlocksSend": "사용자의 USDCX은 네트워크 수수료로 예약되어 있습니다. 더 많은 USDCX을 수령하여 송금하십시오.",
+  "usdcxBurnFeeMeasuring": "금액을 확인하기 전에 이번 소각에 소요된 네트워크 수수료를 측정할 수 있습니다.",
+  "usdcxBurnFeeUnavailable": "이번 소각에 대한 네트워크 수수료를 측정할 수 없으므로 금액을 확인할 수 없습니다. 다른 목적지를 선택하여 다시 시도하십시오.",
   "insufficientFeeAsset": "네트워크 수수료를 지불하려면 USDCX이 필요합니다. 계속 진행하려면 USDCX을 일부 받으세요.",
   "insufficientFeeAssetShort": "You need USDCX for the network fee.",
   "amountMustBeLessThanBalance": "금액은 잔액보다 적어야 합니다.",

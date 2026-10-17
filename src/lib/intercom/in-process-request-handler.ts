@@ -346,6 +346,9 @@ export async function processInProcessRequest(req: WalletRequest, label: string)
     case WalletMessageType.ReportTelemetryEventRequest:
       return Actions.handleReportTelemetryEvent(req);
 
+    case WalletMessageType.EstimateUsdcxBurnFeeRequest:
+      return Actions.estimateUsdcxBurnFee(req);
+
     default:
       console.warn(`${label}: Unknown request type`, req?.type);
   }
