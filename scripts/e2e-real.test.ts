@@ -56,6 +56,7 @@ import {
   circleGet,
   composeGrep,
   harnessArcKey,
+  l2BridgeInGasPrice,
   l2KeyGasProblem,
   l2KeyUsdcProblem,
   pricedAmountFrom,
@@ -1295,10 +1296,10 @@ describe('the usdcx suites', () => {
     listed = listUsdcxTests();
   }, 60_000);
 
-  it('find the five describes and nine tests the contract names under playwright.usdcx.config.ts', () => {
+  it('find the five describes and ten tests the contract names under playwright.usdcx.config.ts', () => {
     expect(listed.errors).toEqual([]);
     expect([...new Set(listed.tests.map(test => test.split(' > ')[0]))].sort()).toEqual(Object.values(OWN).sort());
-    expect(listed.tests).toHaveLength(9);
+    expect(listed.tests).toHaveLength(10);
     expect(listed.tests.filter(test => test.startsWith(`${OWN['usdcx-burn']} > `))).toEqual([
       `${OWN['usdcx-burn']} > Guardian wallet publishes a burn, the faucet consumes it and Circle pays it out`,
       `${OWN['usdcx-burn']} > standard wallet publishes a burn, the faucet consumes it and Circle pays it out`
@@ -1310,7 +1311,8 @@ describe('the usdcx suites', () => {
     ]);
     expect(listed.tests.filter(test => test.startsWith(`${OWN['usdcx-in-l2']} > `))).toEqual([
       `${OWN['usdcx-in-l2']} > Guardian wallet receives a deposit from Arbitrum Sepolia that Circle forwards to Arc, then mints and claims it`,
-      `${OWN['usdcx-in-l2']} > Guardian wallet receives a deposit from Base Sepolia that Circle forwards to Arc, then mints and claims it`
+      `${OWN['usdcx-in-l2']} > Guardian wallet receives a deposit from Base Sepolia that Circle forwards to Arc, then mints and claims it`,
+      `${OWN['usdcx-in-l2']} > Guardian wallet receives a deposit from Sepolia that Circle forwards to Arc, then mints and claims it`
     ]);
   });
 
@@ -1333,7 +1335,7 @@ describe('the usdcx suites', () => {
     expect(Object.keys(SUITES).filter(name => SUITES[name].arcKey)).toEqual(['usdcx-in']);
   });
 
-  it('spends the harness key on the L2s in usdcx-in-l2 alone', () => {
+  it('spends the harness key on its source chains in usdcx-in-l2 alone', () => {
     expect(Object.keys(SUITES).filter(name => SUITES[name].spendsHarnessL2)).toEqual(['usdcx-in-l2']);
   });
 });
@@ -1569,12 +1571,13 @@ describe('the usdcx-in-l2 copies are the ones the harness and the wallet use', (
   it("copies the harness's bridge-in chains in its order, each with the route the wallet takes", () => {
     expect(L2_BRIDGE_IN_CHAINS).toEqual(
       harness.L2_BRIDGE_IN_SOURCES.map(l2 => ({
-        name: l2.payout.networkName,
+        name: l2.payout.label,
         chainId: l2.payout.chainId,
         domain: l2.source.domain,
         usdc: l2.source.usdc,
         tokenMessengerWithFees: l2.source.tokenMessengerWithFees,
-        rpcs: [...l2.payout.rpcUrls]
+        rpcs: [...l2.payout.rpcUrls],
+        maxPriorityFeeCap: l2.payout.maxPriorityFeeCap
       }))
     );
     for (const chain of L2_BRIDGE_IN_CHAINS) {
@@ -1593,16 +1596,24 @@ describe('the usdcx-in-l2 copies are the ones the harness and the wallet use', (
     const [base] = L2_BRIDGE_IN_CHAINS;
     const address = '0x4D4A180C637a71FCB9b5BD1186C8ce23C40EBa81';
     expect(l2KeyGasProblem(base, address, 0n, 6_000_000n)).toBe(
-      `top up the key on Base Sepolia: ${address} holds 0 ETH, below the 0.000012 ETH one bridge-in needs ` +
-        `(1000000 gas at twice the 0.006 gwei gas price); send Base Sepolia ETH to ${address}`
+      `top up the key on Base Sepolia: ${address} holds 0 ETH, below the 0.0000132 ETH one bridge-in needs ` +
+        `(1100000 gas at twice the 0.006 gwei gas price); send Base Sepolia ETH to ${address}`
     );
-    expect(l2KeyGasProblem(base, address, 12_000_000_000_000n, 6_000_000n)).toBeUndefined();
+    expect(l2KeyGasProblem(base, address, 13_200_000_000_000n, 6_000_000n)).toBeUndefined();
     expect(l2KeyUsdcProblem(base, address, 50_000n)).toBe(
       `top up the key on Base Sepolia: ${address} holds 0.05 USDC, below the 0.101 USDC one bridge-in takes ` +
         "(0.001 deposited and twice Circle's forward fee, up to 0.05 each); a green usdcx-burn-l2 run pays it about " +
         '0.99 USDC there'
     );
     expect(l2KeyUsdcProblem(base, address, 101_000n)).toBeUndefined();
+  });
+
+  it("prices Ethereum Sepolia's floor with the tip its sends cap, and the other chains at eth_gasPrice", () => {
+    const [base, , sepolia] = L2_BRIDGE_IN_CHAINS;
+    // A 26 wei base fee under a 1.5 gwei tip, then under the 0.001 gwei tip the oracle answered on 2026-10-16.
+    expect(l2BridgeInGasPrice(sepolia, 1_500_000_026n, 1_500_000_000n)).toBe(10_000_026n);
+    expect(l2BridgeInGasPrice(sepolia, 1_000_026n, 1_000_000n)).toBe(1_000_026n);
+    expect(l2BridgeInGasPrice(base, 1_500_000_026n, undefined)).toBe(1_500_000_026n);
   });
 });
 
@@ -1749,7 +1760,7 @@ describe('the usdcx preflight', () => {
       )},"latest"]`
     );
     expect(res.requests.match(new RegExp(BALANCE_OF, 'g'))).toHaveLength(1);
-    expect(res.output).toMatch(new RegExp(`✓ Ethereum Sepolia key +${address} holds 0\\.009999 USDC\n`));
+    expect(res.output).toMatch(new RegExp(`✓ Ethereum Sepolia key +${address} holds 3\\.000523 USDC\n`));
   }, 35_000);
 
   it("fails Ethereum Sepolia key alone when the harness key holds no USDC there, naming Circle's fixed gas limit", async () => {
@@ -1840,7 +1851,7 @@ describe('the usdcx preflight', () => {
     );
   }, 35_000);
 
-  it('asks usdcx-burn no L2 question: the Arc suites preflight as they did', () => {
+  it('asks usdcx-burn nothing on Base, Arbitrum or Ethereum Sepolia: the Arc suites preflight as they did', () => {
     const res = preflight('usdcx-burn');
     expect(res.requests).not.toContain('rpc.walletconnect.org');
     expect(res.requests).not.toContain('base-sepolia');
@@ -1981,10 +1992,10 @@ describe('the usdcx preflight', () => {
     expect(res.status).toBe(0);
   }, 35_000);
 
-  it("asks usdcx-in-l2 the Arc deposit questions, then on each L2 the chain, a write endpoint, the fee entry point, the key's ETH and USDC, and Iris", async () => {
+  it("asks usdcx-in-l2 the Arc deposit questions, then on each source chain the chain, a write endpoint, the fee entry point, the key's ETH and USDC, and Iris", async () => {
     const { address } = privateKeyToAccount(ARC_KEY);
     const res = preflight('usdcx-in-l2', DOCUMENT, { HOME: await keyedHome() });
-    expect(res.output).toContain('✓ preflight passed (19 checks)');
+    expect(res.output).toContain('✓ preflight passed (24 checks)');
     expect(res.status).toBe(0);
     expect(
       missing(
@@ -2000,23 +2011,52 @@ describe('the usdcx preflight', () => {
       )
     ).toEqual([]);
     expect(res.requests).not.toContain(XRESERVE_CALLS.gatewayMinter);
+    // Ethereum Sepolia is CCTP's domain 0.
+    expect(res.requests).toContain(`${IRIS_API_TESTNET}/v2/burn/USDC/fees/0/26\n`);
+    expect(res.output).toMatch(new RegExp(`✓ Ethereum Sepolia key +${address} holds 1 ETH and 3\\.0005 USDC\n`));
     expect(res.output).toContain(address);
     expect(res.output).not.toContain(ARC_KEY.slice(2));
   }, 35_000);
 
-  it('fails each L2 key check with a top-up message when the key holds no ETH there, before any build', async () => {
+  it('fails each source chain key check with a top-up message when the key holds no ETH there, before any build', async () => {
     const { address } = privateKeyToAccount(ARC_KEY);
-    const res = preflight('usdcx-in-l2', DOCUMENT, { HOME: await keyedHome() }, { l2Wei: '0x0' });
-    expect(failedChecks(res.output)).toEqual(['Base Sepolia key', 'Arbitrum Sepolia key']);
-    expect(res.output).toContain(`top up the key on Base Sepolia: ${address} holds 0 ETH, below the 0.000012 ETH`);
+    const res = preflight('usdcx-in-l2', DOCUMENT, { HOME: await keyedHome() }, { l2Wei: '0x0', sepoliaWei: '0x0' });
+    expect(failedChecks(res.output)).toEqual(['Base Sepolia key', 'Arbitrum Sepolia key', 'Ethereum Sepolia key']);
+    expect(res.output).toContain(`top up the key on Base Sepolia: ${address} holds 0 ETH, below the 0.0000132 ETH`);
     expect(res.output).toContain(`top up the key on Arbitrum Sepolia: ${address} holds 0 ETH`);
+    // Ethereum Sepolia's own gas price, 0.001000026 gwei, not the L2s'.
+    expect(res.output).toContain(
+      `top up the key on Ethereum Sepolia: ${address} holds 0 ETH, below the 0.0000022000572 ETH one bridge-in needs ` +
+        `(1100000 gas at twice the 0.001000026 gwei gas price); send Ethereum Sepolia ETH to ${address}`
+    );
     expect(res.status).toBe(1);
     expect(res.requests).not.toContain('SPAWN');
   }, 35_000);
 
-  it('fails the L2 key checks when the key holds too little USDC there', async () => {
-    const res = preflight('usdcx-in-l2', DOCUMENT, { HOME: await keyedHome() }, { l2UsdcUnits: '50000' });
-    expect(failedChecks(res.output)).toEqual(['Base Sepolia key', 'Arbitrum Sepolia key']);
+  // Uncapped, a 1.5 gwei tip would set the floor at 0.0033 ETH, above the about 0.002 ETH the CI key holds there.
+  it('passes Ethereum Sepolia key holding 0.002 ETH when its oracle tips 1.5 gwei, asking that chain alone its tip', async () => {
+    const { address } = privateKeyToAccount(ARC_KEY);
+    const res = preflight(
+      'usdcx-in-l2',
+      DOCUMENT,
+      { HOME: await keyedHome() },
+      { sepoliaWei: '0x71afd498d0000', sepoliaGasPrice: '0x59682f1a', sepoliaPriorityFee: '0x59682f00' }
+    );
+    expect(res.output).toMatch(new RegExp(`✓ Ethereum Sepolia key +${address} holds 0\\.002 ETH and 3\\.0005 USDC\n`));
+    expect(res.status).toBe(0);
+    expect(res.requests.match(/^.* eth_maxPriorityFeePerGas \[\]$/gm)).toEqual([
+      'https://ethereum-sepolia-rpc.publicnode.com eth_maxPriorityFeePerGas []'
+    ]);
+  }, 35_000);
+
+  it('fails the source chain key checks when the key holds too little USDC there', async () => {
+    const res = preflight(
+      'usdcx-in-l2',
+      DOCUMENT,
+      { HOME: await keyedHome() },
+      { l2UsdcUnits: '50000', sepoliaUsdcUnits: '50000' }
+    );
+    expect(failedChecks(res.output)).toEqual(['Base Sepolia key', 'Arbitrum Sepolia key', 'Ethereum Sepolia key']);
     expect(res.output).toContain('holds 0.05 USDC, below the 0.101 USDC one bridge-in takes');
   }, 35_000);
 
@@ -2029,7 +2069,8 @@ describe('the usdcx preflight', () => {
     );
     expect(failedChecks(res.output)).toEqual([
       'Base Sepolia bridge-in contracts',
-      'Arbitrum Sepolia bridge-in contracts'
+      'Arbitrum Sepolia bridge-in contracts',
+      'Ethereum Sepolia bridge-in contracts'
     ]);
   }, 35_000);
 
@@ -2043,7 +2084,11 @@ describe('the usdcx preflight', () => {
         l2RawTransaction: { code: -32601, message: 'the method eth_sendRawTransaction does not exist/is not available' }
       }
     );
-    expect(failedChecks(res.output)).toEqual(['Base Sepolia write endpoint', 'Arbitrum Sepolia write endpoint']);
+    expect(failedChecks(res.output)).toEqual([
+      'Base Sepolia write endpoint',
+      'Arbitrum Sepolia write endpoint',
+      'Ethereum Sepolia write endpoint'
+    ]);
     expect(res.output).toContain(
       'no endpoint takes raw transactions: base-sepolia-rpc.publicnode.com refused eth_sendRawTransaction'
     );
@@ -2253,7 +2298,7 @@ describe('a usdcx run', () => {
   };
 
   it.each(['usdcx-in-l2', 'usdcx-burn-l2'])(
-    'lifts the failure limit for %s, whose two tests are on separate chains',
+    'lifts the failure limit for %s, whose tests are each on a chain of their own',
     async suite => {
       expect(await maxFailuresOf(suite)).toEqual(['--max-failures=0']);
     },
@@ -2393,8 +2438,8 @@ describe('a usdcx run', () => {
     const res = stubbed(['--suite', 'usdcx-in-l2'], DOCUMENT, { HOME: home });
     expect(res.status).toBe(1);
     expect(res.stderr).toContain(
-      '--suite usdcx-in-l2 deposits from the harness key on Base Sepolia and Arbitrum Sepolia, and there is none ' +
-        'yet: run --suite usdcx-burn-l2 first'
+      '--suite usdcx-in-l2 deposits from the harness key on Base Sepolia, Arbitrum Sepolia and Ethereum Sepolia, ' +
+        'and there is none yet: run --suite usdcx-burn-l2 first'
     );
     expect(existsSync(path.join(home, '.miden-e2e', 'arc-keys', 'harness.json'))).toBe(false);
     expect(res.requests).not.toContain('SPAWN');
@@ -2567,7 +2612,8 @@ describe('the usage', () => {
     expect(res.stdout).toContain('A lock, ~/.miden-e2e/usdcx-run.lock, lets one usdcx run go');
     expect(res.stdout).toContain('usdcx and usdcx-burn burn to one harness Arc');
     expect(res.stdout).toContain(
-      "usdcx-burn-l2 burns to that key's address on Base Sepolia, Arbitrum Sepolia\nand Ethereum Sepolia"
+      "usdcx-burn-l2 burns to that key's address on Base Sepolia, Arbitrum Sepolia\nand Ethereum Sepolia, and " +
+        'usdcx-in-l2 deposits back from it on all three'
     );
   }, 35_000);
 });

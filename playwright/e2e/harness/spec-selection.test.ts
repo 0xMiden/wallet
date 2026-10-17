@@ -80,7 +80,7 @@ const L2_BURN_TESTS = ['Base Sepolia', 'Arbitrum Sepolia', 'Sepolia'].map(
     'usdcx-burn-l2.spec.ts › USDCx L2 burn through the Send UI after a public faucet grant › ' +
     `Guardian wallet burns to ${chain}, the faucet consumes it, Circle pays it out and the wallet confirms it`
 );
-const L2_BRIDGE_IN_TESTS = ['Base Sepolia', 'Arbitrum Sepolia'].map(
+const L2_BRIDGE_IN_TESTS = ['Base Sepolia', 'Arbitrum Sepolia', 'Sepolia'].map(
   chain =>
     'usdcx-in-l2.spec.ts › USDCx L2 bridge-in from the harness key, forwarded by Circle to Arc › ' +
     `Guardian wallet receives a deposit from ${chain} that Circle forwards to Arc, then mints and claims it`
