@@ -7,6 +7,8 @@ import { TEST_BRIDGE_CONFIG_SNAPSHOT } from 'lib/epoch/testing/bridge-config';
 import { initiateBridgedReceiveTransaction, updateBridgedReceivePhase } from 'lib/miden/activity';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import type { AgglayerChainConfig, UsdcxChainConfig } from 'lib/remote-config/schema';
+import { requestTimeoutError } from 'lib/remote-json';
+import { bridgeReceiveLibraryError } from 'lib/telemetry/bridge-receive-failure';
 import type { CctpBurnQuote } from 'lib/usdcx/cctp';
 import { runUsdcxDeposit } from 'lib/usdcx/deposit';
 import { usdcxRemoteRecipientFor } from 'lib/usdcx/deposit-target';
@@ -410,6 +412,14 @@ const renderScreen = () => render(depositScreen());
 
 // The failure write the screen makes: the row's text, and the step and error its crash report names.
 const failedAt = (step: string, error: string) => ({ error, failure: { step, cause: expect.any(Error) } });
+/** The library error the crash report names for the cause the last failure write handed it. */
+const reportedEvmError = (): string =>
+  bridgeReceiveLibraryError(
+    jest
+      .mocked(updateBridgedReceivePhase)
+      .mock.calls.filter(([, phase]) => phase === 'failed')
+      .at(-1)?.[2]?.failure?.cause
+  );
 
 /** USDC is the default token: amount, continue, and the route step is up. */
 const pickToken = async (testId: 'pick-eth' | 'pick-circle-usdc' | 'pick-usdc') => {
@@ -1591,7 +1601,7 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
   it.each(
     (['xreserve', 'cctp-executor'] as const).flatMap(route => [false, true].map(native => [route, native] as const))
   )(
-    'raises no prompt and fails the row when the balance falls under a %s deposit before Confirm (native=%s)',
+    'raises no prompt and fails the row with no answer when the balance falls under a %s deposit before Confirm (native=%s)',
     async (route, native) => {
       mockNativeAvailable = native;
       renderScreen();
@@ -1620,6 +1630,33 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
           `bridgeDepositBalanceTooLow ${JSON.stringify({ balance: '1.4999', token: 'USDC', network })}`
         )
       );
+      expect(reportedEvmError()).toBe('none');
+    }
+  );
+
+  it.each(['xreserve', 'cctp-executor'] as const)(
+    'fails the row at the balance check with the RPC timeout when the %s balance re-read at Confirm times out',
+    async route => {
+      renderScreen();
+      if (route === 'xreserve') await reachUsdcxRoute();
+      else await reachBaseSepoliaRoute();
+      fireEvent.click(screen.getByTestId('usdcx-route-confirm'));
+      await settle();
+      // What a read that never answered rejects with once its timer aborts it.
+      global.fetch = jest.fn().mockRejectedValue(requestTimeoutError(15_000));
+
+      fireEvent.click(screen.getByTestId('confirm-deposit'));
+      await settle();
+
+      expect(runUsdcxDeposit).not.toHaveBeenCalled();
+      expect(runUsdcxExecutorDeposit).not.toHaveBeenCalled();
+      const network = route === 'xreserve' ? 'Arc Testnet' : 'Base Sepolia';
+      expect(updateBridgedReceivePhase).toHaveBeenCalledWith(
+        'bridge-tx',
+        'failed',
+        failedAt('precheck_balance', `bridgeDepositBalanceReadFailed ${JSON.stringify({ token: 'USDC', network })}`)
+      );
+      expect(reportedEvmError()).toBe('timeout');
     }
   );
 
