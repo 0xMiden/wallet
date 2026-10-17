@@ -230,6 +230,13 @@ jest.mock('@miden-sdk/miden-wallet-adapter-base', () => ({
   AllowedPrivateData: { None: 0, Assets: 1, Notes: 2, Storage: 4, All: 65535 }
 }));
 
+// The repo-wide `__mocks__/nanoid.ts` answers the constant `id`, which would give a connect sheet asked again the
+// first sheet's id whatever dapp.ts drew; a counter gives each call its own.
+jest.mock('nanoid', () => {
+  let issued = 0;
+  return { nanoid: () => `id-${++issued}` };
+});
+
 // ─── Import under test ───────────────────────────────────────────────
 
 import * as dapp from './dapp';
