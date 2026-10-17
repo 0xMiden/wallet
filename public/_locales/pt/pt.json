@@ -748,6 +748,8 @@
   "networkFeeMax": "Taxa máxima da rede",
   "networkFeeEstimateNote": "A taxa exata depende da transação e geralmente é menor. Você verá o valor pago no recibo.",
   "feeReserveBlocksSend": "Seu USDCX é reservado para a taxa de rede. Receba mais USDCX para enviar.",
+  "usdcxBurnFeeMeasuring": "É possível verificar a taxa de rede dessa queima antes que o valor seja confirmado.",
+  "usdcxBurnFeeUnavailable": "Não foi possível calcular a taxa de rede dessa queima, portanto, o valor não pode ser verificado. Escolha outro destino para tentar novamente.",
   "insufficientFeeAsset": "Você precisa de USDCX para pagar a taxa de rede. Receba alguns USDCX para continuar.",
   "insufficientFeeAssetShort": "You need USDCX for the network fee.",
   "amountMustBeLessThanBalance": "O valor deve ser inferior ao saldo",

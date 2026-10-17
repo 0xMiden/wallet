@@ -3318,6 +3318,14 @@
     "message": "USDCX'iniz ağ ücreti için ayrılmıştır. Göndermek için daha fazla USDCX alın.",
     "englishSource": "Your USDCX is reserved for the network fee. Receive more USDCX to send."
   },
+  "usdcxBurnFeeMeasuring": {
+    "message": "Tutar kontrol edilebilmeden önce bu yakma işleminin ağ ücretini hesaplayın.",
+    "englishSource": "Measuring this burn's network fee before the amount can be checked."
+  },
+  "usdcxBurnFeeUnavailable": {
+    "message": "Bu yakma işleminin ağ ücretini ölçemediğimiz için tutar kontrol edilemiyor. Tekrar denemek için başka bir hedef seçin.",
+    "englishSource": "Unable to measure this burn's network fee, so the amount cannot be checked. Choose another destination to try again."
+  },
   "insufficientFeeAsset": {
     "message": "Ağ ücretini ödemek için USDCX'e ihtiyacınız var. Devam etmek için biraz USDCX alın.",
     "englishSource": "You need USDCX to pay the network fee. Receive some USDCX to continue."
