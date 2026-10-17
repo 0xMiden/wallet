@@ -1,134 +1,4 @@
 {
-  "me": {
-    "message": "Ja",
-    "englishSource": "Me"
-  },
-  "profile": {
-    "message": "Profil",
-    "englishSource": "Profile"
-  },
-  "myBadges": {
-    "message": "Moje odznaki",
-    "englishSource": "My badges"
-  },
-  "openMyBadges": {
-    "message": "Otwórz Moje odznaki",
-    "englishSource": "Open My badges"
-  },
-  "badgesEarnedCount": {
-    "message": "Zdobyto $earned$ z $total$",
-    "englishSource": "$earned$ of $total$ earned",
-    "placeholders": {
-      "earned": {
-        "content": "$1"
-      },
-      "total": {
-        "content": "$2"
-      }
-    }
-  },
-  "badgesProfileDescription": {
-    "message": "Prywatne osiągnięcia z aktywności w Mainnet",
-    "englishSource": "Private milestones from your Mainnet activity"
-  },
-  "badgesCollectionDescription": {
-    "message": "Prywatne osiągnięcia Twojego portfela.",
-    "englishSource": "Your private wallet milestones."
-  },
-  "badgeCollection": {
-    "message": "Kolekcja odznak",
-    "englishSource": "Badge collection"
-  },
-  "mainnetOnly": {
-    "message": "Tylko Mainnet",
-    "englishSource": "Mainnet only"
-  },
-  "badgesMainnetNoticeTitle": {
-    "message": "Odznaki odblokowują się w Mainnet",
-    "englishSource": "Badges unlock on Mainnet"
-  },
-  "badgesMainnetNoticeDescription": {
-    "message": "Odznaki odblokowują się w Mainnet. Aktywność testowa się nie liczy.",
-    "englishSource": "Badges unlock on Mainnet. Test activity does not count."
-  },
-  "badgeEarnedLabel": {
-    "message": "$badge$, zdobyta",
-    "englishSource": "$badge$, earned",
-    "placeholders": {
-      "badge": {
-        "content": "$1"
-      }
-    }
-  },
-  "badgeLockedLabel": {
-    "message": "$badge$, zablokowana",
-    "englishSource": "$badge$, locked",
-    "placeholders": {
-      "badge": {
-        "content": "$1"
-      }
-    }
-  },
-  "locked": {
-    "message": "Zablokowana",
-    "englishSource": "Locked"
-  },
-  "badgeEarned": {
-    "message": "Zdobyta",
-    "englishSource": "Earned"
-  },
-  "badgeVerificationPending": {
-    "message": "Jeszcze niedostępne",
-    "englishSource": "Not available yet"
-  },
-  "badgeFirstDeposit": {
-    "message": "Pierwsza wpłata",
-    "englishSource": "First Deposit"
-  },
-  "badgeFirstDepositDescription": {
-    "message": "Dodaj środki i poczekaj, aż będzie można je wydać.",
-    "englishSource": "Add funds and wait for them to become spendable."
-  },
-  "badgeFirstReceive": {
-    "message": "Pierwszy odbiór",
-    "englishSource": "First Receive"
-  },
-  "badgeFirstReceiveDescription": {
-    "message": "Zaakceptuj i odbierz przelew na to konto.",
-    "englishSource": "Accept and claim a transfer to this account."
-  },
-  "badgeFirstSend": {
-    "message": "Pierwsza wysyłka",
-    "englishSource": "First Send"
-  },
-  "badgeFirstSendDescription": {
-    "message": "Potwierdź wychodzący przelew Miden.",
-    "englishSource": "Confirm an outgoing Miden transfer."
-  },
-  "badgeFirstSwap": {
-    "message": "Pierwsza wymiana",
-    "englishSource": "First Swap"
-  },
-  "badgeFirstSwapDescription": {
-    "message": "Zakończ wymianę i otrzymaj środki dostępne do wydania.",
-    "englishSource": "Complete a swap and receive spendable output."
-  },
-  "badgeRecoveryChecked": {
-    "message": "Odzyskiwanie sprawdzone",
-    "englishSource": "Recovery Checked"
-  },
-  "badgeRecoveryCheckedDescription": {
-    "message": "Zweryfikuj kopię zapasową odzyskiwania tego konta.",
-    "englishSource": "Verify this account's recovery backup."
-  },
-  "badgeMiniappExplorer": {
-    "message": "Odkrywca miniaplikacji",
-    "englishSource": "Miniapp Explorer"
-  },
-  "badgeMiniappExplorerDescription": {
-    "message": "Ukończ aktywność w obsługiwanej miniaplikacji.",
-    "englishSource": "Complete a supported mini app experience."
-  },
   "usdcxBurnTitle": {
     "message": "Spalenie USDCx",
     "englishSource": "Burn USDCx"
@@ -786,9 +656,139 @@
     "message": "Załóż konto",
     "englishSource": "Create Account"
   },
+  "me": {
+    "message": "Ja",
+    "englishSource": "Me"
+  },
+  "profile": {
+    "message": "Profil",
+    "englishSource": "Profile"
+  },
   "settings": {
     "message": "Ustawienia",
     "englishSource": "Settings"
+  },
+  "myBadges": {
+    "message": "Moje odznaki",
+    "englishSource": "My badges"
+  },
+  "openMyBadges": {
+    "message": "Otwórz Moje odznaki",
+    "englishSource": "Open My badges"
+  },
+  "badgesEarnedCount": {
+    "message": "Zdobyto $earned$ z $total$",
+    "englishSource": "$earned$ of $total$ earned",
+    "placeholders": {
+      "earned": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      }
+    }
+  },
+  "badgesProfileDescription": {
+    "message": "Prywatne osiągnięcia z aktywności w Mainnet",
+    "englishSource": "Private milestones from your Mainnet activity"
+  },
+  "badgesCollectionDescription": {
+    "message": "Prywatne osiągnięcia Twojego portfela.",
+    "englishSource": "Your private wallet milestones."
+  },
+  "badgeCollection": {
+    "message": "Kolekcja odznak",
+    "englishSource": "Badge collection"
+  },
+  "mainnetOnly": {
+    "message": "Tylko Mainnet",
+    "englishSource": "Mainnet only"
+  },
+  "badgesMainnetNoticeTitle": {
+    "message": "Odznaki odblokowują się w Mainnet",
+    "englishSource": "Badges unlock on Mainnet"
+  },
+  "badgesMainnetNoticeDescription": {
+    "message": "Odznaki odblokowują się w Mainnet. Aktywność testowa się nie liczy.",
+    "englishSource": "Badges unlock on Mainnet. Test activity does not count."
+  },
+  "badgeEarnedLabel": {
+    "message": "$badge$, zdobyta",
+    "englishSource": "$badge$, earned",
+    "placeholders": {
+      "badge": {
+        "content": "$1"
+      }
+    }
+  },
+  "badgeLockedLabel": {
+    "message": "$badge$, zablokowana",
+    "englishSource": "$badge$, locked",
+    "placeholders": {
+      "badge": {
+        "content": "$1"
+      }
+    }
+  },
+  "locked": {
+    "message": "Zablokowana",
+    "englishSource": "Locked"
+  },
+  "badgeEarned": {
+    "message": "Zdobyta",
+    "englishSource": "Earned"
+  },
+  "badgeVerificationPending": {
+    "message": "Jeszcze niedostępne",
+    "englishSource": "Not available yet"
+  },
+  "badgeFirstDeposit": {
+    "message": "Pierwsza wpłata",
+    "englishSource": "First Deposit"
+  },
+  "badgeFirstDepositDescription": {
+    "message": "Dodaj środki i poczekaj, aż będzie można je wydać.",
+    "englishSource": "Add funds and wait for them to become spendable."
+  },
+  "badgeFirstReceive": {
+    "message": "Pierwszy odbiór",
+    "englishSource": "First Receive"
+  },
+  "badgeFirstReceiveDescription": {
+    "message": "Zaakceptuj i odbierz przelew na to konto.",
+    "englishSource": "Accept and claim a transfer to this account."
+  },
+  "badgeFirstSend": {
+    "message": "Pierwsza wysyłka",
+    "englishSource": "First Send"
+  },
+  "badgeFirstSendDescription": {
+    "message": "Potwierdź wychodzący przelew Miden.",
+    "englishSource": "Confirm an outgoing Miden transfer."
+  },
+  "badgeFirstSwap": {
+    "message": "Pierwsza wymiana",
+    "englishSource": "First Swap"
+  },
+  "badgeFirstSwapDescription": {
+    "message": "Zakończ wymianę i otrzymaj środki dostępne do wydania.",
+    "englishSource": "Complete a swap and receive spendable output."
+  },
+  "badgeRecoveryChecked": {
+    "message": "Odzyskiwanie sprawdzone",
+    "englishSource": "Recovery Checked"
+  },
+  "badgeRecoveryCheckedDescription": {
+    "message": "Zweryfikuj kopię zapasową odzyskiwania tego konta.",
+    "englishSource": "Verify this account's recovery backup."
+  },
+  "badgeMiniappExplorer": {
+    "message": "Odkrywca miniaplikacji",
+    "englishSource": "Miniapp Explorer"
+  },
+  "badgeMiniappExplorerDescription": {
+    "message": "Ukończ aktywność w obsługiwanej miniaplikacji.",
+    "englishSource": "Complete a supported mini app experience."
   },
   "authorizedDApps": {
     "message": "Autoryzowane aplikacje DApp",

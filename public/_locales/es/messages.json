@@ -1,134 +1,4 @@
 {
-  "me": {
-    "message": "Yo",
-    "englishSource": "Me"
-  },
-  "profile": {
-    "message": "Perfil",
-    "englishSource": "Profile"
-  },
-  "myBadges": {
-    "message": "Mis insignias",
-    "englishSource": "My badges"
-  },
-  "openMyBadges": {
-    "message": "Abrir Mis insignias",
-    "englishSource": "Open My badges"
-  },
-  "badgesEarnedCount": {
-    "message": "$earned$ de $total$ obtenidas",
-    "englishSource": "$earned$ of $total$ earned",
-    "placeholders": {
-      "earned": {
-        "content": "$1"
-      },
-      "total": {
-        "content": "$2"
-      }
-    }
-  },
-  "badgesProfileDescription": {
-    "message": "Logros privados de tu actividad en Mainnet",
-    "englishSource": "Private milestones from your Mainnet activity"
-  },
-  "badgesCollectionDescription": {
-    "message": "Los logros privados de tu billetera.",
-    "englishSource": "Your private wallet milestones."
-  },
-  "badgeCollection": {
-    "message": "Colección de insignias",
-    "englishSource": "Badge collection"
-  },
-  "mainnetOnly": {
-    "message": "Solo en Mainnet",
-    "englishSource": "Mainnet only"
-  },
-  "badgesMainnetNoticeTitle": {
-    "message": "Las insignias se desbloquean en Mainnet",
-    "englishSource": "Badges unlock on Mainnet"
-  },
-  "badgesMainnetNoticeDescription": {
-    "message": "Las insignias se desbloquean en Mainnet. La actividad de prueba no cuenta.",
-    "englishSource": "Badges unlock on Mainnet. Test activity does not count."
-  },
-  "badgeEarnedLabel": {
-    "message": "$badge$, obtenida",
-    "englishSource": "$badge$, earned",
-    "placeholders": {
-      "badge": {
-        "content": "$1"
-      }
-    }
-  },
-  "badgeLockedLabel": {
-    "message": "$badge$, bloqueada",
-    "englishSource": "$badge$, locked",
-    "placeholders": {
-      "badge": {
-        "content": "$1"
-      }
-    }
-  },
-  "locked": {
-    "message": "Bloqueada",
-    "englishSource": "Locked"
-  },
-  "badgeEarned": {
-    "message": "Obtenida",
-    "englishSource": "Earned"
-  },
-  "badgeVerificationPending": {
-    "message": "Aún no disponible",
-    "englishSource": "Not available yet"
-  },
-  "badgeFirstDeposit": {
-    "message": "Primer depósito",
-    "englishSource": "First Deposit"
-  },
-  "badgeFirstDepositDescription": {
-    "message": "Añade fondos y espera a que estén disponibles para gastar.",
-    "englishSource": "Add funds and wait for them to become spendable."
-  },
-  "badgeFirstReceive": {
-    "message": "Primera recepción",
-    "englishSource": "First Receive"
-  },
-  "badgeFirstReceiveDescription": {
-    "message": "Acepta y reclama una transferencia a esta cuenta.",
-    "englishSource": "Accept and claim a transfer to this account."
-  },
-  "badgeFirstSend": {
-    "message": "Primer envío",
-    "englishSource": "First Send"
-  },
-  "badgeFirstSendDescription": {
-    "message": "Confirma una transferencia saliente de Miden.",
-    "englishSource": "Confirm an outgoing Miden transfer."
-  },
-  "badgeFirstSwap": {
-    "message": "Primer intercambio",
-    "englishSource": "First Swap"
-  },
-  "badgeFirstSwapDescription": {
-    "message": "Completa un intercambio y recibe fondos disponibles para gastar.",
-    "englishSource": "Complete a swap and receive spendable output."
-  },
-  "badgeRecoveryChecked": {
-    "message": "Recuperación verificada",
-    "englishSource": "Recovery Checked"
-  },
-  "badgeRecoveryCheckedDescription": {
-    "message": "Verifica la copia de seguridad de recuperación de esta cuenta.",
-    "englishSource": "Verify this account's recovery backup."
-  },
-  "badgeMiniappExplorer": {
-    "message": "Explorador de miniaplicaciones",
-    "englishSource": "Miniapp Explorer"
-  },
-  "badgeMiniappExplorerDescription": {
-    "message": "Completa una experiencia de miniaplicación compatible.",
-    "englishSource": "Complete a supported mini app experience."
-  },
   "usdcxBurnTitle": {
     "message": "Quemar USDCx",
     "englishSource": "Burn USDCx"
@@ -786,9 +656,139 @@
     "message": "Crear cuenta",
     "englishSource": "Create Account"
   },
+  "me": {
+    "message": "Yo",
+    "englishSource": "Me"
+  },
+  "profile": {
+    "message": "Perfil",
+    "englishSource": "Profile"
+  },
   "settings": {
     "message": "Configuración",
     "englishSource": "Settings"
+  },
+  "myBadges": {
+    "message": "Mis insignias",
+    "englishSource": "My badges"
+  },
+  "openMyBadges": {
+    "message": "Abrir Mis insignias",
+    "englishSource": "Open My badges"
+  },
+  "badgesEarnedCount": {
+    "message": "$earned$ de $total$ obtenidas",
+    "englishSource": "$earned$ of $total$ earned",
+    "placeholders": {
+      "earned": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      }
+    }
+  },
+  "badgesProfileDescription": {
+    "message": "Logros privados de tu actividad en Mainnet",
+    "englishSource": "Private milestones from your Mainnet activity"
+  },
+  "badgesCollectionDescription": {
+    "message": "Los logros privados de tu billetera.",
+    "englishSource": "Your private wallet milestones."
+  },
+  "badgeCollection": {
+    "message": "Colección de insignias",
+    "englishSource": "Badge collection"
+  },
+  "mainnetOnly": {
+    "message": "Solo en Mainnet",
+    "englishSource": "Mainnet only"
+  },
+  "badgesMainnetNoticeTitle": {
+    "message": "Las insignias se desbloquean en Mainnet",
+    "englishSource": "Badges unlock on Mainnet"
+  },
+  "badgesMainnetNoticeDescription": {
+    "message": "Las insignias se desbloquean en Mainnet. La actividad de prueba no cuenta.",
+    "englishSource": "Badges unlock on Mainnet. Test activity does not count."
+  },
+  "badgeEarnedLabel": {
+    "message": "$badge$, obtenida",
+    "englishSource": "$badge$, earned",
+    "placeholders": {
+      "badge": {
+        "content": "$1"
+      }
+    }
+  },
+  "badgeLockedLabel": {
+    "message": "$badge$, bloqueada",
+    "englishSource": "$badge$, locked",
+    "placeholders": {
+      "badge": {
+        "content": "$1"
+      }
+    }
+  },
+  "locked": {
+    "message": "Bloqueada",
+    "englishSource": "Locked"
+  },
+  "badgeEarned": {
+    "message": "Obtenida",
+    "englishSource": "Earned"
+  },
+  "badgeVerificationPending": {
+    "message": "Aún no disponible",
+    "englishSource": "Not available yet"
+  },
+  "badgeFirstDeposit": {
+    "message": "Primer depósito",
+    "englishSource": "First Deposit"
+  },
+  "badgeFirstDepositDescription": {
+    "message": "Añade fondos y espera a que estén disponibles para gastar.",
+    "englishSource": "Add funds and wait for them to become spendable."
+  },
+  "badgeFirstReceive": {
+    "message": "Primera recepción",
+    "englishSource": "First Receive"
+  },
+  "badgeFirstReceiveDescription": {
+    "message": "Acepta y reclama una transferencia a esta cuenta.",
+    "englishSource": "Accept and claim a transfer to this account."
+  },
+  "badgeFirstSend": {
+    "message": "Primer envío",
+    "englishSource": "First Send"
+  },
+  "badgeFirstSendDescription": {
+    "message": "Confirma una transferencia saliente de Miden.",
+    "englishSource": "Confirm an outgoing Miden transfer."
+  },
+  "badgeFirstSwap": {
+    "message": "Primer intercambio",
+    "englishSource": "First Swap"
+  },
+  "badgeFirstSwapDescription": {
+    "message": "Completa un intercambio y recibe fondos disponibles para gastar.",
+    "englishSource": "Complete a swap and receive spendable output."
+  },
+  "badgeRecoveryChecked": {
+    "message": "Recuperación verificada",
+    "englishSource": "Recovery Checked"
+  },
+  "badgeRecoveryCheckedDescription": {
+    "message": "Verifica la copia de seguridad de recuperación de esta cuenta.",
+    "englishSource": "Verify this account's recovery backup."
+  },
+  "badgeMiniappExplorer": {
+    "message": "Explorador de miniaplicaciones",
+    "englishSource": "Miniapp Explorer"
+  },
+  "badgeMiniappExplorerDescription": {
+    "message": "Completa una experiencia de miniaplicación compatible.",
+    "englishSource": "Complete a supported mini app experience."
   },
   "authorizedDApps": {
     "message": "DApps autorizadas",
