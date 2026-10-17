@@ -192,6 +192,19 @@ it.each<BridgeFeature>(['bridgeIn', 'fastBridgeIn', 'earnDeposit'])(
   }
 );
 
+it.each<[Probe<never>, string]>([
+  [ABSENT, 'not-deployed'],
+  [ERROR, 'service-down']
+])('still needs the output faucet for Earn off Testnet (%p)', (midenUsdcFaucet, reason) => {
+  const snapshot = withProbes({ epoch: { midenUsdcFaucet } });
+  if (!snapshot.config) throw new Error('The test document is missing');
+  snapshot.config.network = 'devnet';
+  expect(featureAvailability('earnDeposit', snapshot, NO_OVERRIDES, 11155111)).toMatchObject({
+    state: 'unavailable',
+    reason
+  });
+});
+
 it('reports an absent dependency before a failed call', () => {
   const snapshot = withProbes({ epoch: { allocator: ERROR, midenUsdcFaucet: ABSENT } });
   expect(featureAvailability('fastBridgeIn', snapshot, NO_OVERRIDES, 11155111)).toMatchObject({
@@ -236,7 +249,8 @@ describe('the E2E collateral faucet', () => {
     process.env.MIDEN_E2E_TEST = 'true';
     try {
       setEarnCollateralFaucetOverride({ faucetId: '0xab000000000000ab00000000000001' });
-      expect(featureAvailability('earnDeposit', noFaucet())).toEqual(AVAILABLE);
+      // Testnet Earn skips the output faucet anyway, so only Fast bridge-in shows the override was read.
+      expect(featureAvailability('fastBridgeIn', noFaucet())).toEqual(AVAILABLE);
     } finally {
       _resetE2eOverridesForTest();
       if (saved === undefined) delete process.env.MIDEN_E2E_TEST;

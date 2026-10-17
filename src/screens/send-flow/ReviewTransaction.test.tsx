@@ -1013,6 +1013,7 @@ describe('ReviewTransaction — rendering', () => {
       await flush();
       expect(screen.queryByTestId('redirect')).not.toBeInTheDocument();
       expect(screen.getByTestId('send-review-submit')).toBeDisabled();
+      expect(screen.getByTestId('review-held-notice')).toHaveTextContent('sendTokenAvailabilityChecking');
       await act(async () => {
         fireEvent.click(screen.getByTestId('send-review-submit'));
       });
@@ -1029,6 +1030,7 @@ describe('ReviewTransaction — rendering', () => {
       await waitFor(() => expect(screen.getByTestId('review-recall-note')).toBeInTheDocument());
       expect(screen.queryByTestId('redirect')).not.toBeInTheDocument();
       expect(screen.getByTestId('send-review-submit')).toBeEnabled();
+      expect(screen.queryByTestId('review-held-notice')).not.toBeInTheDocument();
       await act(async () => {
         fireEvent.click(screen.getByTestId('send-review-submit'));
       });

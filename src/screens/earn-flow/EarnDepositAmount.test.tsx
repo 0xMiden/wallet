@@ -139,6 +139,8 @@ jest.mock('lib/epoch', () => ({
 
 // The deposit collateral comes from the bridge config (an E2E run's injected faucet first).
 let mockCollateral: { faucetId: string; symbol: string; decimals: number } | null = null;
+// What the collateral hook says while `mockCollateral` is null.
+let mockCollateralWait: 'loading' | 'unavailable' = 'loading';
 let mockEarnDeposit: FeatureAvailability = { state: 'available' };
 const mockFeatureAvailability = jest.fn(
   (feature: string, _options?: { hold?: boolean }): FeatureAvailability =>
@@ -165,6 +167,7 @@ beforeEach(() => {
   mockBalanceRows = [USDC_ROW];
   mockTokenPrices = USDC_QUOTE;
   mockCollateral = TEST_MIDEN_USDC;
+  mockCollateralWait = 'loading';
   mockEarnDeposit = { state: 'available' };
 });
 
@@ -445,6 +448,39 @@ describe('EarnDepositAmount with no vault', () => {
   });
 });
 
+describe('EarnDepositAmount collateral reason', () => {
+  it.each<['loading' | 'unavailable', string]>([
+    ['loading', 'earnCollateralLoading'],
+    ['unavailable', 'earnCollateralUnavailable']
+  ])('says why Continue waits while the collateral is %s', (wait, key) => {
+    mockCollateral = null;
+    mockCollateralWait = wait;
+    render(<EarnDepositAmount vaultId={FOUND_VAULT.id} />);
+    setAmount('1');
+
+    expect(screen.getByTestId('select-amount')).toHaveAttribute('data-valid', 'false');
+    expect(screen.getByTestId('earn-collateral-notice')).toHaveTextContent(key);
+  });
+
+  it('says nothing about a resolved collateral', () => {
+    render(<EarnDepositAmount vaultId={FOUND_VAULT.id} />);
+    setAmount('1');
+
+    expect(screen.getByTestId('select-amount')).toHaveAttribute('data-valid', 'true');
+    expect(screen.queryByTestId('earn-collateral-notice')).toBeNull();
+  });
+
+  it('leaves the reason to the unavailable notice while Earn deposits are down', () => {
+    mockCollateral = null;
+    mockCollateralWait = 'unavailable';
+    mockEarnDeposit = { state: 'unavailable', reason: 'service-down', detail: 'Epoch allocator: down' };
+    render(<EarnDepositAmount vaultId={FOUND_VAULT.id} />);
+
+    expect(screen.getByTestId('feature-unavailable-notice')).toBeInTheDocument();
+    expect(screen.queryByTestId('earn-collateral-notice')).toBeNull();
+  });
+});
+
 beforeEach(() => {
   mockLegacyFeeIdentity = undefined;
 });
@@ -466,7 +502,11 @@ it('reserves native fees when the only Earn collateral is USDCx, ignoring the le
   expect(screen.getByTestId('select-amount')).toHaveAttribute('data-valid', 'true');
 });
 
-jest.mock('./useEarnCollateral', () => ({ useEarnCollateral: () => mockCollateral }));
+jest.mock('./useEarnCollateral', () => ({
+  useEarnCollateral: () => mockCollateral,
+  useEarnCollateralState: () =>
+    mockCollateral ? { state: 'resolved', collateral: mockCollateral } : { state: mockCollateralWait, collateral: null }
+}));
 
 it('cannot fund a USDCx Earn deposit from an account holding only legacy Epoch USDC', () => {
   mockCollateral = { faucetId: 'MIDEN-ID', symbol: 'USDCx', decimals: 6 };
