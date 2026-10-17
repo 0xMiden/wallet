@@ -20,7 +20,7 @@ import { WalletMessageType } from 'lib/shared/types';
 import { getAccountsWriteQueue } from './accounts-write-queue';
 import { getIntercom } from './defaults';
 import { clearRecoveryAuthorization } from './recovery-authorization';
-import { accountsUpdated, withUnlocked } from './store';
+import { accountsUpdated, isUnlocked, store, withUnlocked } from './store';
 
 // NOTE: `webextension-polyfill` throws at module load time when
 // `globalThis.chrome?.runtime?.id` is undefined (the desktop Tauri host has
@@ -279,22 +279,13 @@ export async function startTransactionProcessing(): Promise<void> {
 }
 
 /**
- * True while the vault is unlocked. Gates both arming and firing the queued-row wake (#1223): a locked vault fails
- * every row at its first step and unlocking restarts processing itself (#924), and a wake would only reap claims
- * while locked, doubling each expired auto-claim's retry backoff (#215).
+ * Arm the one-shot wake for the soonest Queued row, if any. Never rejects: its caller must still reset `isProcessing`.
+ * Both arming and firing need an unlocked vault (#1223): a locked vault fails every row at its first step and unlocking
+ * restarts processing itself (#924), and a wake would only reap claims while locked, doubling each expired auto-claim's
+ * retry backoff (#215).
  */
-function isVaultUnlocked(): boolean {
-  try {
-    withUnlocked(() => undefined);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/** Arm the one-shot wake for the soonest Queued row, if any. Never rejects: its caller must still reset `isProcessing`. */
 async function armQueuedRowWake(browser: BrowserPolyfill): Promise<void> {
-  if (!isVaultUnlocked()) return;
+  if (!isUnlocked(store.getState())) return;
   try {
     const delayMs = nextQueuedWakeDelayMs(await getAllUncompletedTransactions());
     if (delayMs !== undefined) browser.alarms.create(QUEUED_ROW_WAKE_ALARM, { when: Date.now() + delayMs });
@@ -421,7 +412,7 @@ export function setupTransactionProcessor(): void {
           void healStuckTransactions();
         } else if (alarm.name === QUEUED_ROW_WAKE_ALARM) {
           // The vault may have locked between arming and firing; re-probe rather than trust the arm-time check.
-          if (isVaultUnlocked()) void startTransactionProcessing();
+          if (isUnlocked(store.getState())) void startTransactionProcessing();
         }
       });
       // Long-period self-heal alarm. Chrome MV3 clamps periodInMinutes to
