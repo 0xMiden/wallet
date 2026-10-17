@@ -563,15 +563,26 @@ export async function exportDb(): Promise<string> {
   return JSON.stringify(dump);
 }
 
+/**
+ * A dump's swap Cancel stamp (`expiryTriggeredAt`) is dropped. On a Guardian-recovered order it is the permission
+ * settlement acts on to return the order, which only this wallet's own Cancel may give (#1487); on any other restored
+ * row nothing reads it.
+ */
+const withoutCancelStamp = (extraInputs: unknown): unknown =>
+  typeof extraInputs === 'object' && extraInputs !== null && !Array.isArray(extraInputs)
+    ? Object.fromEntries(Object.entries(extraInputs).filter(([key]) => key !== 'expiryTriggeredAt'))
+    : extraInputs;
+
 export async function importDb(dump: string): Promise<void> {
   const data = JSON.parse(dump);
 
   if (data[Table.Transactions]) {
     const transactionsToImport = data[Table.Transactions].map((tx: object) => {
       // A dump's `dappOrigins` is dropped too: no restored row is ever waitable by a dApp.
-      const { amount, dappOrigins: _dappOrigins, ...rest } = mapValues(tx, fromSerializable);
+      const { amount, dappOrigins: _dappOrigins, extraInputs, ...rest } = mapValues(tx, fromSerializable);
       const imported = {
         ...rest,
+        ...(extraInputs !== undefined && { extraInputs: withoutCancelStamp(extraInputs) }),
         ...(isBigIntSource(amount) && { amount: BigInt(amount) })
       };
       return neutralizeUnfinishedTransaction(imported);

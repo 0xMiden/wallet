@@ -520,14 +520,20 @@ export class MultisigService {
    *
    * Never `createRebasedCustomProposal`: its rebuild keeps only own output notes, and this request's content is the
    * tip it consumes.
+   *
+   * The note may come from the node: a recovered order's reclaim row names a note this client never tracked (#1487),
+   * and the row exists only because settlement already built the request from the same checked note.
    */
   async createPswapCancelProposal(
     noteId: string,
     persistRequest: (requestBytes: Uint8Array) => Promise<void>
   ): Promise<Proposal> {
     return await this.withChainSyncedHold('PSWAP cancel proposal', async hold => {
-      const requestBytes = await midenClientProxy.buildPswapCancelRequest(this.accountId, noteId, step =>
-        assertWasmHoldCurrent(hold, 'PSWAP cancel proposal: inside the cancel-request build', step)
+      const requestBytes = await midenClientProxy.buildPswapCancelRequest(
+        this.accountId,
+        noteId,
+        step => assertWasmHoldCurrent(hold, 'PSWAP cancel proposal: inside the cancel-request build', step),
+        { allowNodeNote: true }
       );
       assertWasmHoldCurrent(hold, 'PSWAP cancel proposal: after the cancel-request build');
       await persistRequest(requestBytes);

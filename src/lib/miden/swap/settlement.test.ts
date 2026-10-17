@@ -90,6 +90,12 @@ jest.mock('lib/miden/transaction/initiate', () => ({
   noteClaimCoverage: (...args: unknown[]) => mockNoteClaimCoverage(...args)
 }));
 
+// The node check of a recovered order whose cancel was refused; its node reads are pinned in its own suite.
+const mockTrackRecoveredSwapOrders = jest.fn(async (..._args: unknown[]) => new Map());
+jest.mock('./recovered-order-tracking', () => ({
+  trackRecoveredSwapOrders: (...args: unknown[]) => mockTrackRecoveredSwapOrders(...args)
+}));
+
 // Keep realm transport at the boundary while the real classifier consumes the snapshot.
 jest.mock('lib/miden/back/miden-client-proxy', () => ({
   midenClientProxy: {
@@ -321,10 +327,12 @@ describe('swap order note settlement', () => {
 
     const result = await settleSwapOrders('account-1', true);
 
+    // A live order's note is never read from the node: the flag goes down false (#1487).
     expect(midenClientProxy.buildPswapCancelRequest).toHaveBeenCalledWith(
       'account-1',
       'zero-fill-tip',
-      expect.any(Function)
+      expect.any(Function),
+      { allowNodeNote: false }
     );
     expect(initiatePswapReclaimTransaction).toHaveBeenCalledWith(
       'account-1',
@@ -487,7 +495,8 @@ describe('swap order note settlement', () => {
     expect(midenClientProxy.buildPswapCancelRequest).not.toHaveBeenCalledWith(
       'account-1',
       'second-tip',
-      expect.any(Function)
+      expect.any(Function),
+      expect.anything()
     );
     expect(console.warn).not.toHaveBeenCalled();
   });
@@ -1215,6 +1224,83 @@ describe('swap order note settlement', () => {
 
       expect(mockNoteClaimCoverage).toHaveBeenCalledWith('account-1', 'order-note', expect.any(Number));
       expect(midenClientProxy.buildPswapCancelRequest).not.toHaveBeenCalled();
+    });
+
+    // The service worker restarts often and forgets the wait, and only an open page closed a spent order, so a
+    // refused cancel was rebuilt for good. The realm that saw the refusal asks the node once its hold is released.
+    it("checks a refused recovered build's order on the node once the hold is released, and builds no more once closed", async () => {
+      jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+      toArray.mockResolvedValue([recoveredOrder()]);
+      jest.mocked(midenClientProxy.buildPswapCancelRequest).mockRejectedValue(new Error('already consumed on chain'));
+      let holdAtCheck: object | null | 'unchecked' = 'unchecked';
+      mockTrackRecoveredSwapOrders.mockImplementationOnce(async () => {
+        holdAtCheck = currentHold;
+        // The close it writes, as the next pass reads the row.
+        toArray.mockResolvedValue([recoveredOrder({ orderNoteSpentAt: 400 })]);
+        return new Map([['77', { kind: 'closed' }]]);
+      });
+
+      await settleSwapOrders('account-1');
+
+      expect(mockTrackRecoveredSwapOrders).toHaveBeenCalledWith([
+        expect.objectContaining({ txId: 'recovered-swap', noteId: 'order-note', tipNoteId: 'order-note' })
+      ]);
+      expect(holdAtCheck).toBeNull();
+      // Not the backoff: the closed order is out of settlement altogether.
+      __resetRecoveredBuildRetriesForTests();
+      await settleSwapOrders('account-1');
+      expect(midenClientProxy.buildPswapCancelRequest).toHaveBeenCalledTimes(1);
+      expect(mockTrackRecoveredSwapOrders).toHaveBeenCalledTimes(1);
+    });
+
+    it("leaves a live order's refused build to its next lap, asking the node nothing", async () => {
+      jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+      toArray.mockResolvedValue([tx({ outputNoteIds: ['zero-fill-tip'] })]);
+      jest.mocked(midenClientProxy.getPswapLineages).mockResolvedValue([
+        {
+          orderId: '77',
+          currentTipNoteId: 'zero-fill-tip',
+          currentDepth: 0,
+          state: 0,
+          remainingOffered: '50',
+          remainingRequested: '50'
+        }
+      ]);
+      jest.mocked(midenClientProxy.buildPswapCancelRequest).mockRejectedValueOnce(new Error('not tracked'));
+
+      await settleSwapOrders('account-1');
+
+      expect(midenClientProxy.buildPswapCancelRequest).toHaveBeenCalledTimes(1);
+      expect(mockTrackRecoveredSwapOrders).not.toHaveBeenCalled();
+    });
+
+    // A partial fill spent the order note; what is left on offer is the remainder the tracking recorded (#1487).
+    it('cancels the remainder a fill left, not the spent order note', async () => {
+      toArray.mockResolvedValue([
+        recoveredOrder({ recoveredTip: { noteId: 'remainder-1', depth: 1, remainingOffered: 20n } })
+      ]);
+
+      await settleSwapOrders('account-1', true);
+
+      expect(mockNoteClaimCoverage).toHaveBeenCalledWith('account-1', 'remainder-1', expect.any(Number));
+      expect(midenClientProxy.buildPswapCancelRequest).toHaveBeenCalledWith(
+        'account-1',
+        'remainder-1',
+        expect.any(Function),
+        { allowNodeNote: true }
+      );
+      expect(initiatePswapReclaimTransaction).toHaveBeenCalledWith(
+        'account-1',
+        expect.objectContaining({
+          id: 'remainder-1',
+          amount: '20',
+          swapOrder: expect.objectContaining({ orderId: '77', depth: 1, role: 'tip' })
+        }),
+        new Uint8Array([1, 4, 7, 6]),
+        'recovered-swap',
+        true,
+        undefined
+      );
     });
 
     it('waits 30, then 60 seconds after refused builds instead of reading the node on every lap', async () => {

@@ -7,6 +7,7 @@ import type { ConsumableNoteDto } from '../sdk/consumable-notes';
 import { assertWasmHoldCurrent, type WasmLockHold } from '../sdk/miden-client';
 import type { PswapLineageDto } from '../sdk/pswap-lineage';
 import type { SwapOrderNoteMetadata } from '../types';
+import { isRecoveredReturnOrder } from './recovered-order';
 
 export const SWAP_ORDER_EXPIRY_SECONDS = 120;
 
@@ -44,7 +45,9 @@ export async function localSwapOrders(accountId: string): Promise<SwapOrder[]> {
         // restored row is not evidence of that — it says whatever the backup's
         // author wrote. Downstream this drives reclaim, which initiates a real
         // consume against the order's own `expiresAt` and asset data.
-        !tx.restoredFromBackup &&
+        // A Guardian-recovered order joins once this wallet's Cancel stamped it,
+        // and only to have its order note, as the node holds it, taken back (#1487).
+        (!tx.restoredFromBackup || isRecoveredReturnOrder(tx)) &&
         compareAccountIds(tx.accountId, accountId) &&
         isSwapTransaction(tx)
     )

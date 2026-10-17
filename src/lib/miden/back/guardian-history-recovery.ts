@@ -41,17 +41,19 @@ const isOwnOperator = (ownOperators: string[], operator: string) =>
   ownOperators.some(own => sameGuardianEndpoint(own, operator));
 
 // An upgrade replaces the stored row with what recovery derives, and recovery derives no settlement stamp, so a
-// recovered swap row keeps the ones already written on it.
+// recovered swap row keeps the ones already written on it, its Cancel's expiry and spent-note stamp included (#1487).
 function withStoredSettlementStamps(record: ITransaction, stored: ITransaction): ITransaction {
   if (record.type !== 'swap' || stored.type !== 'swap') return record;
-  const { settledAt, reclaimedAt, expiryTriggeredAt } = stored.extraInputs ?? {};
+  const { settledAt, reclaimedAt, expiryTriggeredAt, expiresAt, orderNoteSpentAt } = stored.extraInputs ?? {};
   return {
     ...record,
     extraInputs: {
       ...record.extraInputs,
       ...(settledAt != null ? { settledAt } : {}),
       ...(reclaimedAt != null ? { reclaimedAt } : {}),
-      ...(expiryTriggeredAt != null ? { expiryTriggeredAt } : {})
+      ...(expiryTriggeredAt != null ? { expiryTriggeredAt } : {}),
+      ...(expiresAt != null ? { expiresAt } : {}),
+      ...(orderNoteSpentAt != null ? { orderNoteSpentAt } : {})
     }
   };
 }

@@ -123,6 +123,11 @@ export interface SwapReceiptInputs {
   /** This wallet's own settlement consumes; null before the first read. */
   settlement: SwapSettlementNotes | null;
   autoConsume: boolean;
+  /**
+   * An open Guardian-recovered order. Recovery writes `autoConsume` false on it, and the one thing the wallet does for
+   * it is return it on Cancel, from the order note its lineage (the node's answer) is read from (#1487).
+   */
+  recovered?: boolean;
   /** The slippage the ask was built with; absent means only a full fill counts as filled. */
   slippageBps?: number;
   /** Absent on orders placed before expiry stamping; those never auto-settle. */
@@ -181,6 +186,7 @@ export const deriveSwapReceipt = ({
   tracking,
   settlement,
   autoConsume,
+  recovered = false,
   slippageBps,
   expiresAt,
   nowSeconds = Math.floor(Date.now() / 1000)
@@ -277,7 +283,7 @@ export const deriveSwapReceipt = ({
   // An order carrying NO expiry (persisted before the stamp existed) is the one
   // most in need of this, not the least: nothing will ever deem it expired, so it
   // waits forever, and the stamp this writes is the only thing that can end it.
-  const cancellableState = orderState === 'active' && autoConsume;
+  const cancellableState = orderState === 'active' && (autoConsume || recovered);
   const expiryLapsed = swapOrderExpired(expiresAt, nowSeconds);
 
   return {

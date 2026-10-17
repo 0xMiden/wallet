@@ -34,6 +34,7 @@ import {
 import type {
   AssertLive,
   InputNoteDetails,
+  PswapCancelRequestOptions,
   RecoveryRangeResult,
   TransactionCommitState
 } from 'lib/miden/sdk/miden-client-interface';
@@ -131,6 +132,9 @@ export function runsWasmInThisRealm(): boolean {
  * this long is a wedge candidate; the deadline kill reclaims the realm.
  */
 const READ_DEADLINE_MS = 15_000;
+
+/** A cancel-request build that may read its order note on the node: the read deadline plus its two 5 s node reads. */
+const NODE_NOTE_CANCEL_DEADLINE_MS = READ_DEADLINE_MS + 10_000;
 
 /**
  * Per-op deadline (ms) for a `syncState`. Sync is legitimately slow on testnet
@@ -1259,13 +1263,21 @@ export const midenClientProxy = {
    * that owns the synchronized client; only the serialized request crosses the
    * offscreen boundary.
    */
-  async buildPswapCancelRequest(accountId: string, noteId: string, assertLive?: AssertLive): Promise<Uint8Array> {
+  async buildPswapCancelRequest(
+    accountId: string,
+    noteId: string,
+    assertLive?: AssertLive,
+    ...options: [] | [PswapCancelRequestOptions]
+  ): Promise<Uint8Array> {
     if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
-      return (await getMidenClient()).buildPswapCancelRequest(accountId, noteId, assertLive);
+      return (await getMidenClient()).buildPswapCancelRequest(accountId, noteId, assertLive, ...options);
     }
-    const resultB64 = await this.call('buildPswapCancelRequest', [accountId, noteId], {
-      deadlineMs: READ_DEADLINE_MS
-    });
+    const allowNodeNote = options[0]?.allowNodeNote === true;
+    const resultB64 = await this.call(
+      'buildPswapCancelRequest',
+      allowNodeNote ? [accountId, noteId, true] : [accountId, noteId],
+      { deadlineMs: allowNodeNote ? NODE_NOTE_CANCEL_DEADLINE_MS : READ_DEADLINE_MS }
+    );
     if (resultB64 == null) {
       throw new Error('buildPswapCancelRequest: offscreen document returned no request bytes');
     }

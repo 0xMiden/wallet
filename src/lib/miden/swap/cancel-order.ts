@@ -2,6 +2,7 @@ import * as Repo from 'lib/miden/repo';
 
 import { isSwapTransaction } from './classification';
 import { swapOrderExpired } from './expiry';
+import { isOpenRecoveredOrder } from './recovered-order';
 import { ITransactionStatus } from '../db/types';
 
 /**
@@ -29,9 +30,12 @@ import { ITransactionStatus } from '../db/types';
  * that could not have worked:
  *
  *  - a row restored from a backup, which `localSwapOrders` excludes from
- *    settlement outright, so no tick would ever act on the stamp;
+ *    settlement outright, so no tick would ever act on the stamp. The one
+ *    exception is an open Guardian-recovered order (#1487): the stamp is what
+ *    lets settlement admit it, and its order note is read from the node;
  *  - `autoConsume === false`, which `reconcileSwapOrderNotes` skips before it
- *    looks at expiry at all - the user asked to settle that order by hand;
+ *    looks at expiry at all - the user asked to settle that order by hand.
+ *    Recovery writes it on every recovered order, so there it is no such ask;
  *  - a row with no `orderId`, i.e. one whose place-order transaction has not
  *    completed, so there is no on-chain order to reclaim from.
  */
@@ -41,16 +45,17 @@ export const cancelSwapOrder = async (
 ): Promise<void> => {
   const tx = await Repo.transactions.where({ id: txId }).first();
   // Read before the narrowing: `SwapTransaction` is the constructor's shape and
-  // does not declare the import flag, which only `ITransaction` carries.
+  // does not declare the import flags, which only `ITransaction` carries.
   const restoredFromBackup = tx?.restoredFromBackup === true;
+  const recoveredOrder = tx !== undefined && isOpenRecoveredOrder(tx);
   if (!tx || !isSwapTransaction(tx)) throw new Error(`Transaction ${txId} is not a swap`);
-  if (restoredFromBackup) {
+  if (restoredFromBackup && !recoveredOrder) {
     throw new Error(`Swap ${txId} was restored from a backup, so this wallet cannot reclaim it`);
   }
   if (tx.status !== ITransactionStatus.Completed || tx.extraInputs?.orderId == null) {
     throw new Error(`Swap ${txId} has no open order to cancel`);
   }
-  if (tx.extraInputs.autoConsume === false) {
+  if (tx.extraInputs.autoConsume === false && !recoveredOrder) {
     throw new Error(`Swap ${txId} settles manually, so the wallet will not reclaim it`);
   }
 

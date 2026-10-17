@@ -252,6 +252,12 @@ jest.mock('../transaction/trim-result-bytes', () => ({
   runTrimTick: () => mockTrimResultBytes()
 }));
 
+// The node check of a recovered order whose cancel was refused; its node reads are pinned in its own suite.
+const mockTrackRecoveredSwapOrders = jest.fn(async (..._args: unknown[]) => new Map());
+jest.mock('../swap/recovered-order-tracking', () => ({
+  trackRecoveredSwapOrders: (...args: unknown[]) => mockTrackRecoveredSwapOrders(...args)
+}));
+
 // The real settlement, recording what the lap hands it: the lap must pass the classification's own clock and
 // prepared reclaims on to the reconcile, or the zero-fill reclaim never reaches the queue.
 const mockSettlementSeen: { classify: Array<{ args: unknown[]; result: any }>; reconcile: unknown[][] } = {
@@ -1943,7 +1949,9 @@ describe('doSync - zero-fill swap reclaim', () => {
     try {
       await doSync();
 
-      expect(buildPswapCancelRequest).toHaveBeenCalledWith('pk-1', 'zero-fill-tip', expect.any(Function));
+      expect(buildPswapCancelRequest).toHaveBeenCalledWith('pk-1', 'zero-fill-tip', expect.any(Function), {
+        allowNodeNote: false
+      });
       expect(mockInitiatePswapReclaim).toHaveBeenCalledWith(
         'pk-1',
         expect.objectContaining({ id: 'zero-fill-tip' }),
@@ -1998,6 +2006,81 @@ describe('doSync - zero-fill swap reclaim', () => {
     } finally {
       mockGetMidenClient.mockImplementation(async () => mockClient);
       await Repo.transactions.clear();
+    }
+  });
+
+  // Only a page closed a spent recovered order, so the service worker kept rebuilding its refused cancel inside its
+  // WASM hold, with a wait every restart forgot (#1487). It now asks the node itself, once that hold is released.
+  it("checks a refused recovered order's note on the node after the note-read hold, from the service worker", async () => {
+    const recoveredOrderRow: ITransaction = {
+      id: 'recovered-swap',
+      accountId: 'pk-1',
+      type: 'swap',
+      status: ITransactionStatus.Completed,
+      initiatedAt: 1,
+      completedAt: 2,
+      displayIcon: 'SWAP',
+      faucetId: 'offer',
+      amount: 50n,
+      outputNoteIds: ['order-note'],
+      restoredFromBackup: true,
+      recovered: true,
+      recovery: {
+        version: 5,
+        network: 'testnet',
+        operators: [],
+        nonce: 2,
+        inputNotes: [],
+        outputNotes: [
+          {
+            id: 'order-note',
+            assets: [],
+            visibility: 'public',
+            swap: { orderId: '77', requestedAsset: { faucetId: 'requested', amount: '50' } }
+          }
+        ],
+        completeness: 'decoded',
+        reclaimed: false
+      },
+      extraInputs: {
+        requestedFaucetId: 'requested',
+        requestedAmount: 50n,
+        orderId: '77',
+        autoConsume: false,
+        expiresAt: 220,
+        expiryTriggeredAt: 220
+      }
+    };
+    const buildPswapCancelRequest = jest.fn(async () => {
+      throw new Error('already consumed on chain');
+    });
+    mockGetMidenClient.mockImplementation(async () => ({
+      ...mockClient,
+      client: { pswap: { lineages: async () => [] } },
+      buildPswapCancelRequest
+    }));
+    let holdAtCheck: object | null | 'unchecked' = 'unchecked';
+    mockTrackRecoveredSwapOrders.mockImplementationOnce(async () => {
+      holdAtCheck = swLockHold;
+      return new Map();
+    });
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    await Repo.transactions.put(recoveredOrderRow);
+    try {
+      await doSync();
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      expect(buildPswapCancelRequest).toHaveBeenCalledWith('pk-1', 'order-note', expect.any(Function), {
+        allowNodeNote: true
+      });
+      expect(mockTrackRecoveredSwapOrders).toHaveBeenCalledWith([
+        expect.objectContaining({ txId: 'recovered-swap', noteId: 'order-note', tipNoteId: 'order-note' })
+      ]);
+      expect(holdAtCheck).toBeNull();
+    } finally {
+      mockGetMidenClient.mockImplementation(async () => mockClient);
+      await Repo.transactions.clear();
+      warn.mockRestore();
     }
   });
 
