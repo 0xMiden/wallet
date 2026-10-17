@@ -22,8 +22,10 @@ export const PAGE_HOSTS: Readonly<Record<DappLabel, string>> = { one: 'localhost
  */
 export const MOBILE_COMMAND_CEILING_MS = 280_000;
 const DEFAULT_HOLD_MS = 25_000;
-// The longest a polling page goes between polls: command-loop.ts sleeps 1 s after a failed poll, then the round trip.
-const PAGE_POLL_GAP_MS = 2_000;
+/** How long the page's loop waits after a failed poll: command-loop.ts imports nothing, so its test pins it to this. */
+export const PAGE_RETRY_MS = 1_000;
+// The longest a polling page goes between polls: that wait, then a second for the round trip.
+const PAGE_POLL_GAP_MS = PAGE_RETRY_MS + 1_000;
 const ROUTES = new Set(['/command', '/result', '/event']);
 const CHARSET_TAG = '<meta charset="utf-8" />';
 const TEST_DAPP_TAG = '<script type="module" src="/test-dapp.js"></script>';

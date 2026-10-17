@@ -205,6 +205,10 @@ describe('command server', () => {
     expect(() => commandShell('<html></html>')).toThrow('the page shell lacks <meta charset="utf-8" />');
   });
 
+  it('serves the command loop as a page module that parses', () => {
+    expect(createDappServer({ roots: resolvePackageRoots() }).serve('/command-loop.js').status).toBe(200);
+  });
+
   it('logs a cross-origin request without consuming the body the SDK sends', async () => {
     const sent: Request[] = [];
     const page: FakePage = {
