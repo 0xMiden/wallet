@@ -124,6 +124,8 @@ jest.mock('lib/miden/back/vault', () => ({
 jest.mock('../sdk/miden-client', () => ({
   getMidenClient: async () => _g.__dappConfInternals.midenClient,
   withWasmClientLock: async <T>(fn: () => Promise<T>) => fn(),
+  // This lock never evicts, so its hold is always current.
+  assertWasmHoldCurrent: () => {},
   runWhenClientIdle: () => {}
 }));
 
