@@ -172,4 +172,17 @@ describe('on a fake clock', () => {
     await advance(60_000);
     expect(getNativeAssetMetadata).toHaveBeenCalledTimes(2);
   });
+
+  it('keeps a failed read unavailable while the retry 30 s later is still in flight', async () => {
+    jest.mocked(getNativeAssetMetadataSync).mockReturnValue(null);
+    jest.mocked(getNativeAssetMetadata).mockRejectedValue(new Error('offline'));
+    const { result } = renderHook(() => useEarnCollateralState());
+    await advance(0);
+    expect(result.current).toEqual(UNAVAILABLE);
+
+    jest.mocked(getNativeAssetMetadata).mockImplementation(() => new Promise(() => {}));
+    await advance(30_000);
+    expect(getNativeAssetMetadata).toHaveBeenCalledTimes(2);
+    expect(result.current).toEqual(UNAVAILABLE);
+  });
 });

@@ -502,6 +502,22 @@ describe('SelectTokenDrawer Testnet Epoch USDC sunset', () => {
     expect(screen.getByTestId('send-token-USDCX')).toBeInTheDocument();
     expect(screen.queryByTestId('send-token-USDC')).not.toBeInTheDocument();
   });
+  it('says why it holds a token back until the document arrives, and drops a retired one silently', () => {
+    mockBridgeSnapshot = { ...TEST_BRIDGE_CONFIG_SNAPSHOT, config: null, derived: null, status: 'loading' };
+    mockNativeFaucetId = MIDEN.tokenId;
+    setBalances([LEGACY]);
+    renderDrawer();
+    expect(screen.getByTestId('send-picker-held-notice')).toHaveTextContent('sendTokenAvailabilityChecking');
+    expect(screen.queryByTestId('send-token-USDC')).not.toBeInTheDocument();
+
+    act(() => {
+      mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+      publishMockBridgeSnapshot();
+    });
+
+    expect(screen.queryByTestId('send-picker-held-notice')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('send-token-USDC')).not.toBeInTheDocument();
+  });
   it('leaves the same asset available off Testnet', () => {
     mockBridgeSnapshot = { ...TEST_BRIDGE_CONFIG_SNAPSHOT, network: 'devnet' };
     setBalances([LEGACY]);

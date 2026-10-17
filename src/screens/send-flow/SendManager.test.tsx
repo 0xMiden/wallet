@@ -210,6 +210,7 @@ jest.mock('./SendAmount', () => ({
       <span data-testid="sa-amount">{props.amount}</span>
       <span data-testid="sa-valid">{String(props.isValidAmount)}</span>
       <span data-testid="sa-max-disabled">{String(!!props.maxDisabled)}</span>
+      <span data-testid="sa-token-held">{String(!!props.tokenHeld)}</span>
       <span data-testid="sa-error">{props.error ?? ''}</span>
       <span data-testid="sa-error-values">{JSON.stringify(props.errorValues ?? null)}</span>
       <span data-testid="sa-recipient">{props.recipientName ?? props.recipientAddress}</span>
@@ -2421,9 +2422,17 @@ it('does not preselect the retired Epoch faucet from a Testnet token-page link',
   mockRenderRouteName = SendFlowStep.SelectAmount;
   renderFlow();
   expect(screen.getByTestId('sa-token')).toHaveTextContent('no-token');
+  expect(screen.getByTestId('sa-token-held')).toHaveTextContent('false');
 });
 
 describe('Testnet send while no bridge config document has arrived', () => {
+  const T1_ROW = { tokenId: 'T1', metadata: { symbol: 'TKN', decimals: 2 }, balance: 42, fiatPrice: 3 };
+  const acceptDocument = () =>
+    act(() => {
+      mockSendConfigLoaded = true;
+      publishMockBridgeSnapshot();
+    });
+
   beforeEach(() => {
     mockSendNetwork = 'testnet';
     mockSendConfigLoaded = false;
@@ -2438,13 +2447,59 @@ describe('Testnet send while no bridge config document has arrived', () => {
     renderFlow();
     expect(screen.getByTestId('sa-token')).toHaveTextContent('TKN');
     expect(screen.getByTestId('sa-amount')).toHaveTextContent('7');
+    expect(screen.getByTestId('sa-token-held')).toHaveTextContent('true');
 
-    act(() => {
-      mockSendConfigLoaded = true;
-      publishMockBridgeSnapshot();
-    });
+    acceptDocument();
 
     expect(screen.getByTestId('sa-token')).toHaveTextContent('no-token');
     expect(screen.getByTestId('sa-amount')).toBeEmptyDOMElement();
+    expect(screen.getByTestId('sa-token-held')).toHaveTextContent('false');
+  });
+
+  it('says why a linked token is not applied, and applies it with no notice once the document arrives', () => {
+    // Hidden, so no row the picker offers names it: only the link does.
+    mockHiddenTokenIds = new Set(['T1']);
+    mockSearch = '?tokenId=T1';
+    useAllBalancesMock.mockReturnValue({ data: [T1_ROW] });
+    renderFlow();
+    expect(screen.getByTestId('sa-token')).toHaveTextContent('no-token');
+    expect(screen.getByTestId('sa-token-held')).toHaveTextContent('true');
+
+    acceptDocument();
+
+    expect(screen.getByTestId('sa-token')).toHaveTextContent('TKN');
+    expect(screen.getByTestId('sa-token-held')).toHaveTextContent('false');
+  });
+
+  it('says why a restored draft cannot continue, keeping its token and amount, until the document arrives', () => {
+    mockHiddenTokenIds = new Set(['T1']);
+    isValidMidenAddressMock.mockImplementation((addr: string) => addr === 'mtst1recipient');
+    setSendDraft({ amount: '7', recipientAddress: 'mtst1recipient', tokenId: 'T1' });
+    useAllBalancesMock.mockReturnValue({ data: [T1_ROW] });
+    renderFlow();
+    expect(screen.getByTestId('sa-token')).toHaveTextContent('TKN');
+    expect(screen.getByTestId('sa-amount')).toHaveTextContent('7');
+    expect(screen.getByTestId('sa-token-held')).toHaveTextContent('true');
+    act(() => {
+      fireEvent.click(screen.getByTestId('sa-confirm'));
+    });
+    expect(navigateMock).not.toHaveBeenCalled();
+
+    acceptDocument();
+
+    expect(screen.getByTestId('sa-token')).toHaveTextContent('TKN');
+    expect(screen.getByTestId('sa-amount')).toHaveTextContent('7');
+    expect(screen.getByTestId('sa-token-held')).toHaveTextContent('false');
+    act(() => {
+      fireEvent.click(screen.getByTestId('sa-confirm'));
+    });
+    expect(navigateMock).toHaveBeenCalledWith(expect.stringMatching(/^\/send\/review\?/));
+  });
+
+  it('says why the picker holds a token back while nothing is linked or chosen', () => {
+    useAllBalancesMock.mockReturnValue({ data: [T1_ROW] });
+    renderFlow();
+    expect(screen.getByTestId('sa-token')).toHaveTextContent('no-token');
+    expect(screen.getByTestId('sa-token-held')).toHaveTextContent('true');
   });
 });
