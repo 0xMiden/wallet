@@ -9,8 +9,9 @@ export type BridgeSwitch = 'earn';
 
 export interface SwapConfig {
   /**
-   * The DEX solver's base URL. The swap registry is its `/v2/pairs` (see `swap-pairs.ts`) and `getSwapEta` appends
-   * `/v1/swap-eta` to it; absent means no swap tokens and no quotes.
+   * The DEX solver's base URL. The swap registry is its `/v2/pairs` (see `swap-pairs.ts`), and
+   * `lib/miden/swap/quote` appends `/v2/pair-price` and `/v2/swap-eta` to it; absent means no swap
+   * tokens and no quotes.
    */
   etaUrl?: string;
 }
