@@ -651,6 +651,8 @@ export interface IRequeueStreak {
 }
 
 export interface ITransaction {
+  /** Origin network stamped at queue time for private badge evidence. Legacy/imported rows cannot earn credit. */
+  badgeNetwork?: string;
   /**
    * Set on a row rebuilt from a Guardian operator's retained history, and the
    * only field that means so; `recovery` is the data such a row, or a local row
@@ -1231,6 +1233,13 @@ export interface ISwapExtraInputs {
   expiresAt?: number;
   expiryTriggeredAt?: number;
   autoConsume?: boolean;
+  /**
+   * The slippage, in basis points, the wallet built the ask with. The receipt reads the order as
+   * filled once `requestedAmount × (1 − slippage)` arrives (`swapFillTarget`); settlement still
+   * reclaims what is left at expiry. Absent for a user-typed ask and for older orders: those count
+   * only a full fill.
+   */
+  slippageBps?: number;
   /** Stamped when a payback-claim settlement consume completes. */
   settledAt?: number;
   /** Stamped when an expiry-reclaim settlement consume completes. */
@@ -1279,14 +1288,21 @@ export class SwapTransaction implements ITransaction {
     requestedAmount: bigint,
     delegateTransaction?: boolean,
     expirySeconds: number = 120,
-    autoConsume: boolean = true
+    autoConsume: boolean = true,
+    slippageBps?: number
   ) {
     this.id = uuid();
     this.type = 'swap';
     this.accountId = accountId;
     this.faucetId = offeredFaucetId;
     this.amount = offeredAmount;
-    this.extraInputs = { requestedFaucetId, requestedAmount, expirySeconds, autoConsume };
+    this.extraInputs = {
+      requestedFaucetId,
+      requestedAmount,
+      expirySeconds,
+      autoConsume,
+      ...(slippageBps === undefined ? {} : { slippageBps })
+    };
     this.status = ITransactionStatus.Queued;
     this.initiatedAt = Math.floor(Date.now() / 1000); // seconds
     this.queuedSeq = nextQueuedSeq();

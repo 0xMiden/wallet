@@ -35,6 +35,8 @@ export type SyncFuseKey =
   | 'note-delivery'
   | 'note-delivery-receipt'
   | 'swap-order-tracking'
+  // Shared by the badge issuer's commit and swap verdict holds: one client asking one node.
+  | 'badge-verdict'
   | `pending-rotation-recheck:${string}`
   | `guardian-sync:${string}`
   | `guardian-drift:${string}`

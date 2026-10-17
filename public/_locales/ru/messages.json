@@ -1,4 +1,134 @@
 {
+  "me": {
+    "message": "Я",
+    "englishSource": "Me"
+  },
+  "profile": {
+    "message": "Профиль",
+    "englishSource": "Profile"
+  },
+  "myBadges": {
+    "message": "Мои значки",
+    "englishSource": "My badges"
+  },
+  "openMyBadges": {
+    "message": "Открыть Мои значки",
+    "englishSource": "Open My badges"
+  },
+  "badgesEarnedCount": {
+    "message": "Получено $earned$ из $total$",
+    "englishSource": "$earned$ of $total$ earned",
+    "placeholders": {
+      "earned": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      }
+    }
+  },
+  "badgesProfileDescription": {
+    "message": "Личные достижения за активность в Mainnet",
+    "englishSource": "Private milestones from your Mainnet activity"
+  },
+  "badgesCollectionDescription": {
+    "message": "Личные достижения вашего кошелька.",
+    "englishSource": "Your private wallet milestones."
+  },
+  "badgeCollection": {
+    "message": "Коллекция значков",
+    "englishSource": "Badge collection"
+  },
+  "mainnetOnly": {
+    "message": "Только Mainnet",
+    "englishSource": "Mainnet only"
+  },
+  "badgesMainnetNoticeTitle": {
+    "message": "Значки открываются в Mainnet",
+    "englishSource": "Badges unlock on Mainnet"
+  },
+  "badgesMainnetNoticeDescription": {
+    "message": "Значки открываются в Mainnet. Тестовая активность не учитывается.",
+    "englishSource": "Badges unlock on Mainnet. Test activity does not count."
+  },
+  "badgeEarnedLabel": {
+    "message": "$badge$, получен",
+    "englishSource": "$badge$, earned",
+    "placeholders": {
+      "badge": {
+        "content": "$1"
+      }
+    }
+  },
+  "badgeLockedLabel": {
+    "message": "$badge$, заблокирован",
+    "englishSource": "$badge$, locked",
+    "placeholders": {
+      "badge": {
+        "content": "$1"
+      }
+    }
+  },
+  "locked": {
+    "message": "Заблокирован",
+    "englishSource": "Locked"
+  },
+  "badgeEarned": {
+    "message": "Получен",
+    "englishSource": "Earned"
+  },
+  "badgeVerificationPending": {
+    "message": "Пока недоступно",
+    "englishSource": "Not available yet"
+  },
+  "badgeFirstDeposit": {
+    "message": "Первое пополнение",
+    "englishSource": "First Deposit"
+  },
+  "badgeFirstDepositDescription": {
+    "message": "Добавьте средства и дождитесь, когда их можно будет потратить.",
+    "englishSource": "Add funds and wait for them to become spendable."
+  },
+  "badgeFirstReceive": {
+    "message": "Первое получение",
+    "englishSource": "First Receive"
+  },
+  "badgeFirstReceiveDescription": {
+    "message": "Примите и заберите перевод на этот аккаунт.",
+    "englishSource": "Accept and claim a transfer to this account."
+  },
+  "badgeFirstSend": {
+    "message": "Первая отправка",
+    "englishSource": "First Send"
+  },
+  "badgeFirstSendDescription": {
+    "message": "Подтвердите исходящий перевод Miden.",
+    "englishSource": "Confirm an outgoing Miden transfer."
+  },
+  "badgeFirstSwap": {
+    "message": "Первый обмен",
+    "englishSource": "First Swap"
+  },
+  "badgeFirstSwapDescription": {
+    "message": "Завершите обмен и получите доступные для траты средства.",
+    "englishSource": "Complete a swap and receive spendable output."
+  },
+  "badgeRecoveryChecked": {
+    "message": "Восстановление проверено",
+    "englishSource": "Recovery Checked"
+  },
+  "badgeRecoveryCheckedDescription": {
+    "message": "Проверьте резервную копию для восстановления этого аккаунта.",
+    "englishSource": "Verify this account's recovery backup."
+  },
+  "badgeMiniappExplorer": {
+    "message": "Исследователь мини-приложений",
+    "englishSource": "Miniapp Explorer"
+  },
+  "badgeMiniappExplorerDescription": {
+    "message": "Завершите действие в поддерживаемом мини-приложении.",
+    "englishSource": "Complete a supported mini app experience."
+  },
   "usdcxBurnTitle": {
     "message": "Сжигание USDCx",
     "englishSource": "Burn USDCx"
@@ -1812,14 +1942,97 @@
     "message": "Оценить",
     "englishSource": "Rate"
   },
-  "swapSolverFeeNote": {
-    "message": "В сумму вашего вознаграждения уже включена комиссия за решение задачи на сайте $percent$.",
-    "englishSource": "Your receive amount already includes a $percent$ solver fee.",
+  "swapRateNote": {
+    "message": "Ставка — это максимальная сумма, которую система выполнения ордеров может выполнить на данный момент, с уже включенной в неё комиссией $fee$. Ваша сумма получения равна этой ставке за вычетом проскальзывания $slippage$.",
+    "englishSource": "The rate is the most the solver fills at right now, with its $fee$ fee already in it. Your receive amount is that rate less your $slippage$ slippage.",
     "placeholders": {
-      "percent": {
+      "fee": {
         "content": "$1"
+      },
+      "slippage": {
+        "content": "$2"
       }
     }
+  },
+  "swapFillStatus": {
+    "message": "Fill",
+    "englishSource": "Fill"
+  },
+  "swapVerdictSettlementDelayed": {
+    "message": "Расчет отложен. Ваш ордер будет находиться в режиме ожидания.",
+    "englishSource": "Settlement delayed. Your order will wait."
+  },
+  "swapVerdictNoMarket": {
+    "message": "Эта пара не торгуется.",
+    "englishSource": "This pair isn't traded."
+  },
+  "swapVerdictNoPrice": {
+    "message": "Цены в данный момент недоступны. Попробуйте снова через некоторое время.",
+    "englishSource": "Prices are unavailable right now. Try again shortly."
+  },
+  "swapVerdictOffMarket": {
+    "message": "Цена изменилась. Обновите котировку.",
+    "englishSource": "The price moved. Refresh the quote."
+  },
+  "swapVerdictNoLiquidity": {
+    "message": "В данный момент недостаточно ордеров по текущей цене.",
+    "englishSource": "Not enough orders at the current price right now."
+  },
+  "swapVerdictTolerated": {
+    "message": "Может занять больше времени: исполняется, когда цена незначительно изменяется.",
+    "englishSource": "May take longer: fills when the price moves slightly."
+  },
+  "swapVerdictPartial": {
+    "message": "Сейчас выполняется только часть этого ордера; остальная часть находится в ожидании.",
+    "englishSource": "Only part of this order fills now; the rest waits."
+  },
+  "swapVerdictFull": {
+    "message": "Исполнение по текущей цене.",
+    "englishSource": "Fills at the current price."
+  },
+  "swapVerdictExpected": {
+    "message": "Вы получаете примерно $amount$ $symbol$.",
+    "englishSource": "You receive about $amount$ $symbol$.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "swapSlippage": {
+    "message": "Проскальзывание",
+    "englishSource": "Slippage"
+  },
+  "percentSign": {
+    "message": "%",
+    "englishSource": "%"
+  },
+  "swapSlippageNote": {
+    "message": "Насколько ниже текущего курса может быть исполнен ваш ордер. В тестовой сети ордер, превышающий примерно 0,25 %, не исполняется.",
+    "englishSource": "How far below the current rate your order may fill. On testnet an order above about 0.25% does not fill."
+  },
+  "swapSlippageEditedNote": {
+    "message": "Вы сами устанавливаете сумму получения, поэтому к этому ордеру не применяется проскальзывание.",
+    "englishSource": "You set the receive amount yourself, so slippage does not apply to this order."
+  },
+  "swapSlippageRange": {
+    "message": "Введите значение в процентах в диапазоне от $min$ до $max$ с точностью до двух знаков после запятой.",
+    "englishSource": "Enter a percent from $min$ to $max$ with up to two decimals.",
+    "placeholders": {
+      "min": {
+        "content": "$1"
+      },
+      "max": {
+        "content": "$2"
+      }
+    }
+  },
+  "swapPriceMoved": {
+    "message": "Цена изменилась. Проверьте новую сумму и попробуйте ещё раз.",
+    "englishSource": "The price moved. Check the new amount and try again."
   },
   "usuallyFillsIn": {
     "message": "Обычно заполняется",

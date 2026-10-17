@@ -97,7 +97,7 @@ export const DAPP_JOURNEY_CELLS: Record<JourneyId, CellList> = {
     ...both('X1', 'X2', 'X3', 'X4', 'X5'),
     { id: 'X5f', axes: OFFCHAIN },
     { id: 'X7', axes: GUARDIAN },
-    ...both('X11')
+    ...both('X11', 'X8a', 'X8b', 'X8c')
   ],
   XL: both('X6'),
   M: [

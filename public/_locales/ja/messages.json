@@ -1,4 +1,134 @@
 {
+  "me": {
+    "message": "自分",
+    "englishSource": "Me"
+  },
+  "profile": {
+    "message": "プロフィール",
+    "englishSource": "Profile"
+  },
+  "myBadges": {
+    "message": "マイバッジ",
+    "englishSource": "My badges"
+  },
+  "openMyBadges": {
+    "message": "マイバッジを開く",
+    "englishSource": "Open My badges"
+  },
+  "badgesEarnedCount": {
+    "message": "$total$個中$earned$個を獲得",
+    "englishSource": "$earned$ of $total$ earned",
+    "placeholders": {
+      "earned": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      }
+    }
+  },
+  "badgesProfileDescription": {
+    "message": "Mainnetでの活動による非公開のマイルストーン",
+    "englishSource": "Private milestones from your Mainnet activity"
+  },
+  "badgesCollectionDescription": {
+    "message": "ウォレットの非公開のマイルストーン。",
+    "englishSource": "Your private wallet milestones."
+  },
+  "badgeCollection": {
+    "message": "バッジコレクション",
+    "englishSource": "Badge collection"
+  },
+  "mainnetOnly": {
+    "message": "Mainnetのみ",
+    "englishSource": "Mainnet only"
+  },
+  "badgesMainnetNoticeTitle": {
+    "message": "バッジはMainnetで獲得できます",
+    "englishSource": "Badges unlock on Mainnet"
+  },
+  "badgesMainnetNoticeDescription": {
+    "message": "バッジはMainnetで獲得できます。テストでの活動は対象外です。",
+    "englishSource": "Badges unlock on Mainnet. Test activity does not count."
+  },
+  "badgeEarnedLabel": {
+    "message": "$badge$、獲得済み",
+    "englishSource": "$badge$, earned",
+    "placeholders": {
+      "badge": {
+        "content": "$1"
+      }
+    }
+  },
+  "badgeLockedLabel": {
+    "message": "$badge$、未獲得",
+    "englishSource": "$badge$, locked",
+    "placeholders": {
+      "badge": {
+        "content": "$1"
+      }
+    }
+  },
+  "locked": {
+    "message": "未獲得",
+    "englishSource": "Locked"
+  },
+  "badgeEarned": {
+    "message": "獲得済み",
+    "englishSource": "Earned"
+  },
+  "badgeVerificationPending": {
+    "message": "まだ利用できません",
+    "englishSource": "Not available yet"
+  },
+  "badgeFirstDeposit": {
+    "message": "初めての入金",
+    "englishSource": "First Deposit"
+  },
+  "badgeFirstDepositDescription": {
+    "message": "資金を追加し、使用可能になるまで待ちましょう。",
+    "englishSource": "Add funds and wait for them to become spendable."
+  },
+  "badgeFirstReceive": {
+    "message": "初めての受け取り",
+    "englishSource": "First Receive"
+  },
+  "badgeFirstReceiveDescription": {
+    "message": "このアカウントへの送金を承認し、受け取りましょう。",
+    "englishSource": "Accept and claim a transfer to this account."
+  },
+  "badgeFirstSend": {
+    "message": "初めての送金",
+    "englishSource": "First Send"
+  },
+  "badgeFirstSendDescription": {
+    "message": "Midenの送金を確定しましょう。",
+    "englishSource": "Confirm an outgoing Miden transfer."
+  },
+  "badgeFirstSwap": {
+    "message": "初めてのスワップ",
+    "englishSource": "First Swap"
+  },
+  "badgeFirstSwapDescription": {
+    "message": "スワップを完了し、使用可能な資金を受け取りましょう。",
+    "englishSource": "Complete a swap and receive spendable output."
+  },
+  "badgeRecoveryChecked": {
+    "message": "復元を確認済み",
+    "englishSource": "Recovery Checked"
+  },
+  "badgeRecoveryCheckedDescription": {
+    "message": "このアカウントの復元用バックアップを確認しましょう。",
+    "englishSource": "Verify this account's recovery backup."
+  },
+  "badgeMiniappExplorer": {
+    "message": "ミニアプリ探検家",
+    "englishSource": "Miniapp Explorer"
+  },
+  "badgeMiniappExplorerDescription": {
+    "message": "対応するミニアプリの体験を完了しましょう。",
+    "englishSource": "Complete a supported mini app experience."
+  },
   "usdcxBurnTitle": {
     "message": "USDCxのバーン",
     "englishSource": "Burn USDCx"
@@ -1812,14 +1942,97 @@
     "message": "レート",
     "englishSource": "Rate"
   },
-  "swapSolverFeeNote": {
-    "message": "お受け取り金額には、すでに$percent$のソルバー手数料が含まれています。",
-    "englishSource": "Your receive amount already includes a $percent$ solver fee.",
+  "swapRateNote": {
+    "message": "レートとは、$fee$の手数料がすでに含まれた状態で、ソルバーが現時点で約定できる最大値を指します。受取額は、そのレートから$slippage$のスリッページを差し引いた金額となります。",
+    "englishSource": "The rate is the most the solver fills at right now, with its $fee$ fee already in it. Your receive amount is that rate less your $slippage$ slippage.",
     "placeholders": {
-      "percent": {
+      "fee": {
         "content": "$1"
+      },
+      "slippage": {
+        "content": "$2"
       }
     }
+  },
+  "swapFillStatus": {
+    "message": "フィル",
+    "englishSource": "Fill"
+  },
+  "swapVerdictSettlementDelayed": {
+    "message": "決済が遅延しています。お客様の注文は保留となります。",
+    "englishSource": "Settlement delayed. Your order will wait."
+  },
+  "swapVerdictNoMarket": {
+    "message": "このペアは取引対象ではありません。",
+    "englishSource": "This pair isn't traded."
+  },
+  "swapVerdictNoPrice": {
+    "message": "現在、価格情報は利用できません。しばらくしてから再度お試しください。",
+    "englishSource": "Prices are unavailable right now. Try again shortly."
+  },
+  "swapVerdictOffMarket": {
+    "message": "価格が変動しました。相場情報を更新してください。",
+    "englishSource": "The price moved. Refresh the quote."
+  },
+  "swapVerdictNoLiquidity": {
+    "message": "現時点では、現在の価格での注文が不足しています。",
+    "englishSource": "Not enough orders at the current price right now."
+  },
+  "swapVerdictTolerated": {
+    "message": "時間がかかる場合があります：価格がわずかに動いた時点で約定します。",
+    "englishSource": "May take longer: fills when the price moves slightly."
+  },
+  "swapVerdictPartial": {
+    "message": "現在、この注文の一部のみが約定し、残りは待機中です。",
+    "englishSource": "Only part of this order fills now; the rest waits."
+  },
+  "swapVerdictFull": {
+    "message": "現在の価格で約定する。",
+    "englishSource": "Fills at the current price."
+  },
+  "swapVerdictExpected": {
+    "message": "$amount$相当の$symbol$を受け取ります。",
+    "englishSource": "You receive about $amount$ $symbol$.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "swapSlippage": {
+    "message": "スリッページ",
+    "englishSource": "Slippage"
+  },
+  "percentSign": {
+    "message": "%",
+    "englishSource": "%"
+  },
+  "swapSlippageNote": {
+    "message": "注文が現在のレートよりどの程度下回った場合に約定するかを示します。テストネットでは、約0.25%を上回る注文は約定しません。",
+    "englishSource": "How far below the current rate your order may fill. On testnet an order above about 0.25% does not fill."
+  },
+  "swapSlippageEditedNote": {
+    "message": "受取金額はご自身で設定するため、この注文にはスリッページは適用されません。",
+    "englishSource": "You set the receive amount yourself, so slippage does not apply to this order."
+  },
+  "swapSlippageRange": {
+    "message": "$min$から$max$までの範囲で、小数点以下2桁までのパーセンテージを入力してください。",
+    "englishSource": "Enter a percent from $min$ to $max$ with up to two decimals.",
+    "placeholders": {
+      "min": {
+        "content": "$1"
+      },
+      "max": {
+        "content": "$2"
+      }
+    }
+  },
+  "swapPriceMoved": {
+    "message": "価格が変動しました。新しい金額を確認して、もう一度お試しください。",
+    "englishSource": "The price moved. Check the new amount and try again."
   },
   "usuallyFillsIn": {
     "message": "通常は埋める",

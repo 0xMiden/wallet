@@ -190,12 +190,14 @@ export const TransactionAssetView: React.FC<TransactionAssetViewProps> = ({ view
           <div className="flex flex-row w-full items-center justify-between">
             <span className="text-text-muted">{t('storageChanged')}</span>
             {view.storageChanged ? (
-              <div className="flex flex-row items-center gap-x-2">
+              <div className="flex flex-row items-center gap-x-2" data-testid="tx-storage-changed" data-changed="true">
                 <Icon name={IconName.WarningFill} fill="orange" size="md" />
                 <span>{t('yes')}</span>
               </div>
             ) : (
-              <span>{t('no')}</span>
+              <span data-testid="tx-storage-changed" data-changed="false">
+                {t('no')}
+              </span>
             )}
           </div>
         )}

@@ -339,6 +339,7 @@ describe('doSync', () => {
   it('reads notes and vault assets, enriches with metadata, and writes to chrome.storage', async () => {
     mockClient.getConsumableNoteDtos.mockResolvedValueOnce([fakeNote({ id: 'n1', faucetId: 'f1' })]);
     mockClient.getAccount.mockResolvedValueOnce({
+      nonce: () => ({ asInt: () => 5n }),
       vault: () => ({
         fungibleAssets: () => [
           {
@@ -361,7 +362,10 @@ describe('doSync', () => {
     expect(mockStorageSet).toHaveBeenCalledWith(
       expect.objectContaining({
         miden_cached_consumable_notes: expect.any(Array),
-        miden_sync_data: expect.objectContaining({ accountPublicKey: 'pk-1' })
+        miden_sync_data: expect.objectContaining({
+          accountPublicKey: 'pk-1',
+          balanceSnapshot: { network: 'testnet', accountNonce: '5' }
+        })
       })
     );
     // The faucet's name and description go to the frontend with the sync data.
@@ -1077,6 +1081,25 @@ describe('doSync — note metadata branches', () => {
     expect(written.notes.map(note => [note.id, note.standardPayment])).toEqual([
       ['standard', true],
       ['custom', false]
+    ]);
+  });
+
+  it('carries whether each note holds more assets than the one it lists', async () => {
+    mockClient.getConsumableNoteDtos.mockResolvedValueOnce([
+      {
+        ...fakeNote({ id: 'multi' }),
+        assets: [
+          { faucetId: 'faucet-1', amount: '100' },
+          { faucetId: 'faucet-2', amount: '5' }
+        ]
+      },
+      fakeNote({ id: 'single' })
+    ]);
+    await doSync();
+    const written: SyncData = mockStorageSet.mock.calls.at(-1)?.[0]?.miden_sync_data;
+    expect(written.notes.map(note => [note.id, note.carriesMoreAssets])).toEqual([
+      ['multi', true],
+      ['single', undefined]
     ]);
   });
 

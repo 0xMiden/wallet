@@ -18,7 +18,7 @@ import { formatAmount } from 'lib/shared/format';
 import HashChip from '../HashChip';
 import { DetailSection } from './DetailSection';
 import { IHistoryEntry } from './IHistoryEntry';
-import { deliveredRequestedToken } from './swapReceipt';
+import { deliveredRequestedToken, isPartialSwapFill } from './swapReceipt';
 import { TransactionFailureCard } from './TransactionFailureCard';
 import TransactionIcon from './TransactionIcon';
 import { ExternalLinkValue, StatusPill } from './TransactionStatus';
@@ -44,6 +44,8 @@ interface SwapDetailProps {
   requestedFaucetId?: string;
   /** Undefined = unknown, which is not the same statement as zero. */
   filledAmount?: bigint;
+  /** The slippage the ask was built with: a fill that reached its target is not partial. */
+  slippageBps?: number;
   orderState: SwapOrderState | null;
   trackingLoading: boolean;
   /**
@@ -256,6 +258,7 @@ export const SwapDetail: FC<SwapDetailProps> = ({
   requestedSymbol,
   requestedFaucetId,
   filledAmount,
+  slippageBps,
   orderState,
   trackingLoading,
   settledTransactions,
@@ -286,9 +289,9 @@ export const SwapDetail: FC<SwapDetailProps> = ({
   const progressKnown = percentage !== undefined;
   // Derived here rather than passed in: it is a statement about these two props,
   // and as a third prop a caller could contradict them - asserting a partial
-  // fill on a receipt whose progress line reads "- of 1000".
-  const isPartialFill =
-    filledAmount !== undefined && requestedAmount !== undefined && filledAmount > 0n && filledAmount < requestedAmount;
+  // fill on a receipt whose progress line reads "- of 1000". It is the receipt's
+  // rule, so an order that reached its slippage target reads Filled here too.
+  const isPartialFill = isPartialSwapFill(requestedAmount, filledAmount, slippageBps);
   const formattedOffered = entry.amount === undefined ? '-' : entry.amount.toString();
   const formattedRequested =
     requestedAmount === undefined || !requestedScaleIsKnown ? '-' : formatAmount(requestedAmount, requestedDecimals);
