@@ -1,7 +1,8 @@
 import path from 'node:path';
 
-import { describeFailure, markInfraAbort } from './dapp-cells';
+import { describeFailure, infraAborted, markInfraAbort } from './dapp-cells';
 import { loadMidenSdk } from './dapp-confirm';
+import { nodeHeight } from './dapp-node-calls';
 import { mintFromPublicFaucet, publicFaucetApiUrl } from './public-faucet';
 import { getEnvironmentConfig } from '../config/environments';
 
@@ -31,6 +32,25 @@ export async function probePublicFaucet(outDir: string): Promise<void> {
   } catch (error) {
     markInfraAbort(outDir, `Public faucet probe failed on ${env.name}: ${describeFailure(error)}`);
   }
+}
+
+/**
+ * One real gRPC-web call to the node before any device minutes (spike plan change 13): a GET answering 200 shows only
+ * the HTTP front end. A node that does not answer writes INFRA_ABORT, as a refused grant does.
+ */
+export async function probeNode(outDir: string): Promise<void> {
+  const env = getEnvironmentConfig();
+  try {
+    await nodeHeight(env.rpcUrl, 60_000);
+  } catch (error) {
+    markInfraAbort(outDir, `Node probe failed on ${env.name}: ${describeFailure(error)}`);
+  }
+}
+
+/** The mobile legs' setup: the grant probe, then the node's own answer unless the faucet already stopped the run. */
+export async function probeMobileLegs(outDir: string = OUT_DIR): Promise<void> {
+  await probePublicFaucet(outDir);
+  if (infraAborted(outDir) === null) await probeNode(outDir);
 }
 
 // Playwright calls a global setup with its config; the probe takes the records directory instead.
