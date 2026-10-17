@@ -371,7 +371,9 @@ export async function requestPermission(
     reqChainId,
     networkRpc,
     req.appMeta,
-    !!dApp,
+    // Not `!!dApp`: a forced or renamed connect asks a scope the saved session's consent never covered, so it is a new
+    // permission, prompted with its consent box and saved on approval, never answered on its own.
+    false,
     req.privateDataPermission,
     req.allowedPrivateData,
     sessionId,
