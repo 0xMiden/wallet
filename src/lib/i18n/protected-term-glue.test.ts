@@ -139,8 +139,8 @@ describe('translatedEntry', () => {
     });
   });
 
-  it('keeps the English, queued for the next run, instead of a glued translation and names the key', () => {
-    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+  it('keeps the English, queued for the next run, instead of a glued translation and flags the key on the checks', () => {
+    const log = jest.spyOn(console, 'log').mockImplementation(() => undefined);
     try {
       const entry = translatedEntry(
         'gluedKey',
@@ -154,11 +154,13 @@ describe('translatedEntry', () => {
         englishSource: '(untranslated)',
         placeholders: { amount: { content: '$1' } }
       });
-      expect(warn).toHaveBeenCalledTimes(1);
-      expect(warn.mock.calls[0]?.[0]).toEqual(expect.stringContaining('gluedKey'));
-      expect(warn.mock.calls[0]?.[0]).toEqual(expect.stringContaining('notnote'));
+      // A GitHub Actions annotation, so the rejection shows on the pull request rather than only in the job log.
+      expect(log).toHaveBeenCalledTimes(1);
+      expect(log.mock.calls[0]?.[0]).toEqual(
+        expect.stringMatching(/^::warning title=Rejected translation::pl gluedKey .*notnote/)
+      );
     } finally {
-      warn.mockRestore();
+      log.mockRestore();
     }
   });
 });

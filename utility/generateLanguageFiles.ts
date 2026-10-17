@@ -131,8 +131,8 @@ const TERM_ENDINGS: Record<string, string[]> = {
 const termFamily = (term: string): string => term.toLowerCase().replace(/s$/, '');
 
 // The words of `translation` that fuse a term `english` protects with a neighbouring word. Only the terms
-// the English protects count, so a native word such as "Notez" or "Knoten" is not one. `language` is a
-// locale directory or a DeepL code ("pt", "pt-BR").
+// the English protects count, so a native word such as "Notez" or "Knoten" is skipped unless its English
+// also protects that term. `language` is a locale directory or a DeepL code ("pt", "pt-BR").
 function findGluedTerms(translation: string, english: string, language: string): string[] {
   const families = new Set(
     [...english.matchAll(PROTECT_REGEX)]
@@ -248,7 +248,10 @@ const UNTRANSLATED = '(untranslated)';
 function translatedEntry(key: string, translation: string, english: string, language: string) {
   const glued = findGluedTerms(translation, english, language);
   if (glued.length === 0) return buildEntry(translation, english);
-  console.warn(`Rejected the ${language} translation of ${key}, which glues ${glued.join(', ')}: keeping the English.`);
+  // A GitHub Actions annotation, so the rejection shows on the pull request, not only in the job log.
+  console.log(
+    `::warning title=Rejected translation::${language} ${key} glues ${glued.join(', ')}; keeping the English.`
+  );
   return { ...buildEntry(english, english), englishSource: UNTRANSLATED };
 }
 
@@ -410,7 +413,7 @@ async function fixAllPotentialErrors() {
   }
 }
 
-// Export the pure, side-effect-free helpers for unit testing (no API calls).
+// Export the helpers for unit testing (no API calls; translatedEntry logs a rejection).
 module.exports = {
   toDeepLXml,
   fromDeepLXml,
