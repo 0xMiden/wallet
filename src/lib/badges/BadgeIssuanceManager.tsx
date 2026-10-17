@@ -26,9 +26,17 @@ const badgeEvidence = (badges: readonly BadgeId[]) =>
     .where('[badgeNetwork+status+type]')
     .anyOf(evidenceTypes(badges).map(type => ['mainnet', ITransactionStatus.Completed, type]));
 
-// A timer-driven hold (#777): bounded, labelled, and booked against the issuer's fuse key.
-function verdictHold<T>(label: string, operation: (hold: WasmLockHold) => Promise<T>): Promise<T> {
-  return withWasmClientLock(operation, { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label }).catch((error: unknown) => {
+// A timer-driven hold (#777): bounded, labelled, and booked against the issuer's fuse key. A fuse can light
+// or the issuer stop while it queues, so once it holds the lock it asks again and declines (null) without a call.
+function verdictHold<T>(
+  label: string,
+  checkable: () => boolean,
+  operation: (hold: WasmLockHold) => Promise<T>
+): Promise<T | null> {
+  return withWasmClientLock<T | null>(async hold => (checkable() ? operation(hold) : null), {
+    watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS,
+    label
+  }).catch((error: unknown) => {
     noteProbeFailure('badge-verdict', error);
     throw error;
   });
@@ -50,14 +58,15 @@ export function BadgeIssuanceManager(): null {
       // A lit idle-sync fuse means the realm's client is parked too, which a verdict hold would rebuild against.
       canVerify: () => !isSyncFused('badge-verdict') && !isSyncFused('idle-sync'),
       readTransactions: badges => badgeEvidence(badges).toArray(),
-      isCommitted: id =>
+      isCommitted: (id, checkable) =>
         verdictHold(
           'badge-commit-verdict',
+          checkable,
           async () => (await midenClientProxy.getTransactionCommitState(id)) === 'committed'
         ),
       isBalanceReflected: requirement => isBalanceReflected(requirement, useWalletStore.getState().balances),
-      isFilledApprovedSwap: swap =>
-        verdictHold('badge-swap-verdict', async hold => {
+      isFilledApprovedSwap: (swap, checkable) =>
+        verdictHold('badge-swap-verdict', checkable, async hold => {
           if (!isSwapPair(swap.offeredFaucetId, swap.requestedFaucetId)) return false;
           const lineages = await midenClientProxy.getPswapLineages(() =>
             assertWasmHoldCurrent(hold, 'badge swap lineage')
