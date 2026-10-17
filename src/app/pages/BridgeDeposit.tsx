@@ -4,15 +4,17 @@ import { useAppKit, useDisconnect } from '@reown/appkit/react';
 import { useTranslation } from 'react-i18next';
 
 import { useFundTelemetry } from 'app/hooks/useFundTelemetry';
-import { IconName } from 'app/icons/v2';
+import { Icon, IconName } from 'app/icons/v2';
 import { EvmBridgeDepositScreen } from 'app/templates/EvmConnectModal/EvmBridgeDepositScreen';
 import { FeatureUnavailableNotice, isFeatureBlocked } from 'components/FeatureUnavailable';
 import { FlowLayout } from 'components/flow/FlowLayout';
 import { NetworkModeBanner } from 'components/NetworkModeBanner';
 import { Button } from 'components/ui/Button';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
-import { EmptyState } from 'components/ui/EmptyState';
+import { FactRow, IconCircle } from 'components/ui/FactRow';
+import { ListGroup } from 'components/ui/ListGroup';
 import { Notice } from 'components/ui/Notice';
+import { SectionHeader } from 'components/ui/SectionHeader';
 import { getTestNetworkNameKey } from 'lib/miden-chain/effective-endpoints';
 import { hapticMedium } from 'lib/mobile/haptics';
 import { useWalletStore } from 'lib/store';
@@ -31,7 +33,8 @@ export const BridgeDeposit: React.FC<BridgeDepositProps> = ({ onClose }) => {
   const { disconnect } = useDisconnect();
   const { address, connected, status, nativeReown, useNativeReownWallet } = useEvmWalletConnection();
   // The test-wallet warning belongs to the test networks; on mainnet the funds are real and it is not shown.
-  const testNetwork = getTestNetworkNameKey() !== null;
+  const testNetworkKey = getTestNetworkNameKey();
+  const testNetwork = testNetworkKey !== null;
   // This surface owns the `fund` flow, which starts here rather than at the
   // deposit form: the connect step is part of funding, and dropping out of it is
   // exactly the abandonment worth seeing.
@@ -108,31 +111,69 @@ export const BridgeDeposit: React.FC<BridgeDepositProps> = ({ onClose }) => {
             className="w-full max-w-none"
             data-testid="bridge-connect-wallet"
           >
-            {t('openWallet')}
+            {t(status === 'connecting' ? 'preparing' : 'bridgeConnectWalletAction')}
           </Button>
         }
       >
-        <EmptyState
-          title={t('connectEvmWallet')}
-          description={t('connectEvmWalletDescription')}
-          icon={IconName.CrossChain}
-        />
-        <DetailCard face="heading" className="mt-6">
-          <DetailRow label={t('to')} sub={currentMidenAccount?.name}>
-            {t('miden')}
-          </DetailRow>
-        </DetailCard>
-        {testNetwork && (
-          <Notice
-            tone="warning"
-            title={t('evmConnectTestWalletTitle')}
-            className="mt-4"
-            data-testid="evm-connect-test-wallet-warning"
-          >
-            {t('evmConnectTestWalletBody')}
-          </Notice>
+        <div className="flex flex-col gap-5">
+          <div>
+            <SectionHeader size="2xl">{t('bridgeConnectWalletTitle')}</SectionHeader>
+            <p className="text-explainer text-muted">{t('bridgeConnectWalletBody')}</p>
+          </div>
+
+          <DetailCard surface="outline" face="heading">
+            <DetailRow label={t('from')} sub={t('bridgeConnectSourceHint')}>
+              {t('bridgeConnectSource')}
+            </DetailRow>
+            <DetailRow
+              label={t('to')}
+              sub={testNetworkKey ? t('qrNetworkCaption', { network: t(testNetworkKey) }) : t('miden')}
+            >
+              {currentMidenAccount?.name ?? t('miden')}
+            </DetailRow>
+          </DetailCard>
+
+          <div>
+            <SectionHeader>{t('bridgeConnectNextTitle')}</SectionHeader>
+            <ListGroup surface="plain" insetHairlines>
+              <FactRow
+                leading={
+                  <IconCircle className="bg-accent-receive-tint text-accent-receive">
+                    <Icon name={IconName.CrossChain} size="xs" />
+                  </IconCircle>
+                }
+                title={t('bridgeConnectChooseTitle')}
+                description={t('bridgeConnectChooseBody')}
+              />
+              <FactRow
+                leading={
+                  <IconCircle className="bg-accent-receive-tint text-accent-receive">
+                    <Icon name={IconName.ShieldCheck} size="xs" fill="currentColor" />
+                  </IconCircle>
+                }
+                title={t('bridgeConnectApproveTitle')}
+                description={t('bridgeConnectApproveBody')}
+              />
+            </ListGroup>
+          </div>
+
+          {testNetwork && (
+            <Notice
+              tone="warning"
+              variant="inline"
+              icon={<Icon name={IconName.WarningFill} size="xs" fill="currentColor" />}
+              title={t('evmConnectTestWalletTitle')}
+              data-testid="evm-connect-test-wallet-warning"
+            >
+              {t('bridgeConnectTestWalletBody')}
+            </Notice>
+          )}
+        </div>
+        {status === 'connecting' && (
+          <p role="status" className="mt-4 text-body-sm text-muted">
+            {t('preparing')}
+          </p>
         )}
-        {status === 'connecting' && <p className="mt-4 text-body-sm text-muted">{t('preparing')}</p>}
         {nativeReown.error && (
           <Notice tone="negative" role="alert" className="mt-4">
             {nativeReown.error}

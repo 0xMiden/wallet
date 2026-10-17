@@ -132,21 +132,21 @@ describe('BridgeDeposit (#875)', () => {
     expect(warning).toHaveAttribute('role', 'note');
     expect(warning).toHaveAttribute('data-tone', 'warning');
     expect(warning.querySelector('[data-slot="title"]')?.textContent).toBe('evmConnectTestWalletTitle');
-    expect(warning.querySelector('[data-slot="body"]')?.textContent).toBe('evmConnectTestWalletBody');
+    expect(warning.querySelector('[data-slot="body"]')?.textContent).toBe('bridgeConnectTestWalletBody');
   });
 
   it('shows no test-wallet warning on mainnet, where the funds are real', () => {
     mockEffectiveNetwork = 'mainnet';
     render(<BridgeDeposit />);
 
-    expect(screen.getByText('connectEvmWallet')).toBeInTheDocument();
+    expect(screen.getByText('bridgeConnectWalletTitle')).toBeInTheDocument();
     expect(screen.queryByTestId('evm-connect-test-wallet-warning')).not.toBeInTheDocument();
   });
 
   it('opens a wallet while a bridge-in route can start', () => {
     render(<BridgeDeposit />);
 
-    expect(screen.getByRole('button', { name: 'openWallet' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'bridgeConnectWalletAction' })).toBeEnabled();
     expect(screen.queryByTestId('feature-unavailable-notice')).not.toBeInTheDocument();
   });
 
@@ -156,7 +156,7 @@ describe('BridgeDeposit (#875)', () => {
     mockBridgeIn = { state: 'unavailable', reason: 'not-deployed', detail: 'l1Bridge has no code' };
     render(<BridgeDeposit />);
 
-    expect(screen.getByRole('button', { name: 'openWallet' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'bridgeConnectWalletAction' })).toBeDisabled();
     expect(screen.getByTestId('feature-unavailable-notice')).toHaveTextContent('bridgeFeatureUnavailableTitle');
   });
 
@@ -166,7 +166,7 @@ describe('BridgeDeposit (#875)', () => {
     mockBridgeIn = { state: 'unavailable', reason: 'not-deployed', detail: 'l1Bridge has no code' };
     render(<BridgeDeposit />);
 
-    expect(screen.getByRole('button', { name: 'openWallet' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'bridgeConnectWalletAction' })).toBeEnabled();
     expect(screen.queryByTestId('feature-unavailable-notice')).not.toBeInTheDocument();
     expect(mockAnyFeatureAvailability).toHaveBeenLastCalledWith(['fastBridgeIn', 'bridgeIn', 'usdcxDeposit'], {
       hold: true
