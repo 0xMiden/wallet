@@ -3470,6 +3470,14 @@
     "message": "Ваши USDCX зарезервированы для оплаты сетевой комиссии. Получите больше USDCX, чтобы отправить.",
     "englishSource": "Your USDCX is reserved for the network fee. Receive more USDCX to send."
   },
+  "usdcxBurnFeeMeasuring": {
+    "message": "Перед тем как проверить сумму, необходимо рассчитать сетевую комиссию за данное сжигание.",
+    "englishSource": "Measuring this burn's network fee before the amount can be checked."
+  },
+  "usdcxBurnFeeUnavailable": {
+    "message": "Не удалось определить сетевую комиссию за эту сжигание, поэтому сумму проверить невозможно. Выберите другой адрес и попробуйте ещё раз.",
+    "englishSource": "Unable to measure this burn's network fee, so the amount cannot be checked. Choose another destination to try again."
+  },
   "insufficientFeeAsset": {
     "message": "Для оплаты сетевой комиссии вам понадобится USDCX. Получите некоторое количество USDCX, чтобы продолжить.",
     "englishSource": "You need USDCX to pay the network fee. Receive some USDCX to continue."

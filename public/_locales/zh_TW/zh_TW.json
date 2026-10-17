@@ -786,6 +786,8 @@
   "networkFeeMax": "最高網路手續費",
   "networkFeeEstimateNote": "實際手續費取決於交易內容，通常會比上述金額更低。您將在收據上看到實際支付的金額。",
   "feeReserveBlocksSend": "您的 USDCX 已預留作為網路手續費。欲進行轉帳，請先取得更多 USDCX。",
+  "usdcxBurnFeeMeasuring": "在確認金額之前，需先計算此次銷毀的網路手續費。",
+  "usdcxBurnFeeUnavailable": "無法測量此次銷毀的網路手續費，因此無法核對金額。請選擇其他目的地並重新嘗試。",
   "insufficientFeeAsset": "您需要 USDCX 來支付網路手續費。請領取一些 USDCX 以繼續操作。",
   "insufficientFeeAssetShort": "You need USDCX for the network fee.",
   "amountMustBeLessThanBalance": "金額必須小於餘額",

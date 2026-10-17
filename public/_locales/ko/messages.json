@@ -3470,6 +3470,14 @@
     "message": "사용자의 USDCX은 네트워크 수수료로 예약되어 있습니다. 더 많은 USDCX을 수령하여 송금하십시오.",
     "englishSource": "Your USDCX is reserved for the network fee. Receive more USDCX to send."
   },
+  "usdcxBurnFeeMeasuring": {
+    "message": "금액을 확인하기 전에 이번 소각에 소요된 네트워크 수수료를 측정할 수 있습니다.",
+    "englishSource": "Measuring this burn's network fee before the amount can be checked."
+  },
+  "usdcxBurnFeeUnavailable": {
+    "message": "이번 소각에 대한 네트워크 수수료를 측정할 수 없으므로 금액을 확인할 수 없습니다. 다른 목적지를 선택하여 다시 시도하십시오.",
+    "englishSource": "Unable to measure this burn's network fee, so the amount cannot be checked. Choose another destination to try again."
+  },
   "insufficientFeeAsset": {
     "message": "네트워크 수수료를 지불하려면 USDCX이 필요합니다. 계속 진행하려면 USDCX을 일부 받으세요.",
     "englishSource": "You need USDCX to pay the network fee. Receive some USDCX to continue."
