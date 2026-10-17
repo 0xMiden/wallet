@@ -1,11 +1,16 @@
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { englishWordlist } from '@miden/hd-key';
 
+import { captureCrash } from './crash';
 import assertions from './protocol-assertions.json';
 import { redactMessage } from './redact';
+import { reportTransactionFailure } from './transaction-failure';
 import packageJson from '../../../package.json';
+
+jest.mock('./crash', () => ({ captureCrash: jest.fn() }));
 
 const REPO_ROOT = join(__dirname, '..', '..', '..');
 const FIELD_MODULUS = 2n ** 64n - 2n ** 32n + 1n;
@@ -16,6 +21,7 @@ const describePinned = /^(file:|link:|portal:|git\+|https?:|github:)/.test(SDK_S
 interface AssertionSources {
   sdk: string;
   crates: Record<string, string>;
+  sha256: string;
 }
 
 // Read inside each test, so a missing record fails the test rather than the collection.
@@ -65,6 +71,31 @@ describe('the kernel assertion table', () => {
       expect(name).toMatch(/^[A-Z][A-Z0-9_]{2,127}$/);
     }
     expect(new Set(entries.map(([, name]) => name)).size).toBe(entries.length);
+  });
+
+  // CI has no crate sources to regenerate the table from, so the digest the generator recorded is what ties the table to
+  // the release and crates beside it: an edit of either without rerunning the generator fails here.
+  it('is the table the generator wrote from the recorded sources', () => {
+    const { sha256, ...read } = sources();
+    const table = readFileSync(join(__dirname, 'protocol-assertions.json'), 'utf8');
+    expect(createHash('sha256').update(JSON.stringify(read)).update(table).digest('hex')).toBe(sha256);
+  });
+
+  // The digit and encoded-token rules read a closed name too, so every name, published or coined, is checked the way it
+  // reaches the wire: inside a report, with the report's closed set.
+  it('sends every name inside a report unchanged through crash scrubbing', () => {
+    const changed = Object.entries(assertions).filter(([code, name]) => {
+      jest.mocked(captureCrash).mockClear();
+      reportTransactionFailure({ type: 'execute', error: new Error(`assertion failed with error code: ${code}`) });
+      const call = jest.mocked(captureCrash).mock.calls[0];
+      const error = call?.[0];
+      const message = error instanceof Error ? error.message : '';
+      return (
+        !message.includes(`; ${name}. `) || redactMessage(message, englishWordlist, call?.[2]?.closedNames) !== message
+      );
+    });
+    expect(Object.keys(assertions).length).toBeGreaterThan(0);
+    expect(changed).toEqual([]);
   });
 
   // Crash scrubbing blanks a report holding four wordlist words in a row, as a recovery phrase, and redacts four digits

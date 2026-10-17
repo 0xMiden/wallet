@@ -1,6 +1,7 @@
 /**
  * @jest-environment node
  */
+import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -10,7 +11,8 @@ import {
   cratesBuiltInto,
   errorCode,
   inlineName,
-  moduleMessages
+  moduleMessages,
+  sourcesRecord
 } from './generate-protocol-assertions.mjs';
 
 const crateWith = (files: Record<string, string>) => {
@@ -58,16 +60,16 @@ it.each([
   ['miden-core-lib', 'u256 divmod: q*b + r != a', 'CORE_LIB_U256_DIVMOD_Q_TIMES_B_PLUS_R_NE_A'],
   ['miden-core-lib', 'maybe_key_ptr-8 is not u32', 'CORE_LIB_MAYBE_KEY_PTR_MINUS_8_IS_NOT_U32'],
   ['miden-core-lib', "the relation's fixed height", 'CORE_LIB_THE_RELATIONS_FIXED_HEIGHT'],
-  ['miden-protocol', 'proof-of-work check failed', 'PROTOCOL_PROOF_OF_WORK_CHECK_FAILED']
+  ['miden-protocol', 'proof-of-work check failed', 'PROTOCOL_PROOF_OF_WORK_CHECK_FAILED'],
+  ['miden-core-lib', 'kernel witness length must fit in a u32', 'CORE_LIB_KERNEL_WITNESS_LENGTH_MUST_FIT_IN_A_U32']
 ])('names an inline %s message %j by its crate and words', (crate, message, name) => {
   expect(inlineName(crate, message)).toBe(name);
 });
 
 it.each([
-  ['kernel witness length must fit in a u32', 'CORE_LIB_KERNEL_WITNESS_LEN_NOT_U32'],
   ['invalid insert: already at maximum size of 8192', 'CORE_LIB_INVALID_INSERT_ALREADY_AT_MAXIMUM_SIZE'],
   ['invalid leaf: larger than maximum size of 8192', 'CORE_LIB_INVALID_LEAF_LARGER_THAN_MAXIMUM_SIZE']
-])('names %j, whose words crash scrubbing would blank or redact, by its fixed override', (message, name) => {
+])('names %j, whose digits crash scrubbing would redact, by its fixed override', (message, name) => {
   expect(inlineName('miden-core-lib', message)).toBe(name);
 });
 
@@ -113,4 +115,19 @@ it('reads the crate versions a wasm names in its source paths', () => {
       ['miden-tx', new Set(['0.17.0-rc.5'])]
     ])
   );
+});
+
+it('records beside the release and crates it read the digest of those and the table it wrote', () => {
+  const crates = { 'miden-core-lib': '0.35.0', 'miden-protocol': '0.17.1' };
+  const table = '{\n  "1": "ERR_ONE"\n}\n';
+  const sha256 = createHash('sha256')
+    .update(JSON.stringify({ sdk: '0.17.3', crates }))
+    .update(table)
+    .digest('hex');
+  expect(sourcesRecord('0.17.3', crates, table)).toBe(
+    `${JSON.stringify({ sdk: '0.17.3', crates, sha256 }, null, 2)}\n`
+  );
+  expect(sourcesRecord('0.17.3', crates, `${table} `)).not.toContain(sha256);
+  expect(sourcesRecord('0.17.4', crates, table)).not.toContain(sha256);
+  expect(sourcesRecord('0.17.3', { ...crates, 'miden-protocol': '0.17.2' }, table)).not.toContain(sha256);
 });

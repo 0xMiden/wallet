@@ -13,13 +13,22 @@ import { signHotDigest as fallbackSignHotDigest } from 'lib/secure-hot-key/jsFal
 import { captureCrash } from './crash';
 import assertions from './protocol-assertions.json';
 import {
+  ACCOUNT_AUTH_CODES,
+  AUTH_LAYOUTS,
+  AUTH_PREPARATIONS,
+  COMMITMENT_MATCHES,
   CONFIRMING_STEPS,
   CONSUME_ENTRY_POINTS,
   EXECUTION_CAUSES,
+  EXECUTION_REALMS,
+  FAILURE_OUTCOMES,
+  FAILURE_PLATFORMS,
+  FAILURE_POINTS,
   FAILURE_REASONS,
   HOT_KEY_CODES,
   NEVER_COMMITTED_RULES,
   PIPELINE_KILLS,
+  PROVING_PREFERENCES,
   REPORTED_IDENTITIES,
   reportTransactionFailure,
   SIGNING_STEPS,
@@ -30,7 +39,7 @@ import {
   SUBMIT_UNKNOWN_OUTCOME_STATUSES,
   type TransactionFailure
 } from './transaction-failure';
-import { stepOfStage } from './transaction-operation';
+import { stepOfStage, TRANSACTION_OPERATIONS, TRANSACTION_STEPS } from './transaction-operation';
 import { TELEMETRY_ERROR_KINDS } from './types';
 // The shipped class, past the stub jest maps the package to, so the fields the report reads are the ones it sets.
 import { GuardianHttpError } from '../../../node_modules/@openzeppelin/guardian-client/dist/http.js';
@@ -133,7 +142,18 @@ it('hands crash scrubbing every closed name a report can carry, and nothing else
     CONSUME_ENTRY_POINTS,
     HOT_KEY_CODES,
     GUARDIAN_ERROR_CODES,
-    TELEMETRY_ERROR_KINDS
+    TELEMETRY_ERROR_KINDS,
+    FAILURE_OUTCOMES,
+    TRANSACTION_OPERATIONS,
+    TRANSACTION_STEPS,
+    EXECUTION_REALMS,
+    PROVING_PREFERENCES,
+    FAILURE_PLATFORMS,
+    FAILURE_POINTS,
+    AUTH_PREPARATIONS,
+    AUTH_LAYOUTS,
+    COMMITMENT_MATCHES,
+    ACCOUNT_AUTH_CODES
   ];
   expect([...(closedNames ?? [])].sort()).toEqual([...new Set(closedLists.flat())].sort());
 });
