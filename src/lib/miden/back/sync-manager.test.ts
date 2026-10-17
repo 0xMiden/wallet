@@ -1683,6 +1683,24 @@ describe('doSync — native-note auto-consume', () => {
     expect((call[1] as { id: string }[]).map(n => n.id).sort()).toEqual(['native-a', 'native-b']);
     expect(call[0]).toBe('pk-1');
     expect(call[2]).toBe(false); // delegate follows the user setting
+    expect(call[6]).toBe('auto_consume');
+  });
+
+  it('queues each note of a failed batch enqueue as auto-consume too', async () => {
+    mockIsAutoConsumeAsync.mockResolvedValue(true);
+    mockGetFaucetIdSetting.mockResolvedValue('native-faucet');
+    mockInitiateConsumeBatch.mockRejectedValueOnce(new Error('batch enqueue failed'));
+    mockClient.getConsumableNoteDtos.mockResolvedValueOnce([
+      fakeNote({ id: 'native-a', faucetId: 'native-faucet' }),
+      fakeNote({ id: 'native-b', faucetId: 'native-faucet' })
+    ]);
+
+    await doSync();
+
+    expect(mockInitiateConsume.mock.calls.map(call => [call[1].id, call[4]])).toEqual([
+      ['native-a', 'auto_consume'],
+      ['native-b', 'auto_consume']
+    ]);
   });
 
   it('leaves the native notes of a rotation-pending account to its rotation gate (#805)', async () => {

@@ -1275,6 +1275,7 @@ describe('Full confirmation cycles in extension mode', () => {
     const sdk = require('lib/miden/transaction');
     expect(sdk.initiateConsumeTransactionFromId.mock.calls[0][3]).toBe(true);
     expect(sdk.initiateConsumeTransactionFromId.mock.calls[0][4]).toBe('https://miden.xyz');
+    expect(sdk.initiateConsumeTransactionFromId.mock.calls[0][5]).toBe('dapp');
   });
 
   it('requestConsumeTransaction refuses a note another transaction holds rather than answer with it', async () => {

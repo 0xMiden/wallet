@@ -109,6 +109,7 @@ describe('initiateRotationFundingClaim', () => {
     expect(rows[0]!.id).toBe(id);
     expect(rows[0]!.noteIds).toEqual(['a', 'b']);
     expect(rows[0]!.rotationFunding).toBe(true);
+    expect(rows[0]!.consumeEntryPoint).toBe('rotation_funding');
   });
 
   it('stamps every row when a failed flagged batch splits the notes into rows of their own', async () => {

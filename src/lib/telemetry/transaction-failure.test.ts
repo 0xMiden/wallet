@@ -8,7 +8,7 @@ import { HotKey } from 'lib/secure-hot-key/hotKeyPlugin';
 import { signHotDigest as fallbackSignHotDigest } from 'lib/secure-hot-key/jsFallback';
 
 import { captureCrash } from './crash';
-import { FAILURE_REASONS, HOT_KEY_CODES, reportTransactionFailure } from './transaction-failure';
+import { CONSUME_ENTRY_POINTS, FAILURE_REASONS, HOT_KEY_CODES, reportTransactionFailure } from './transaction-failure';
 // The shipped class, past the stub jest maps the package to, so the fields the report reads are the ones it sets.
 import { GuardianHttpError } from '../../../node_modules/@openzeppelin/guardian-client/dist/http.js';
 
@@ -131,6 +131,49 @@ it('names the wallet reason a claim failed at its signing proposal', async () =>
   expect(message).toContain('tx_receive; stage signing;');
   expect(message).toContain('; point pipeline; user_cancelled. authentication preparation');
   expect(message).not.toContain('cancelled by user');
+});
+
+// BREAD-WALLET-G: a consume failed with ERR_RECLAIM_DISABLED, and nothing said which entry point had queued it.
+it('names what queued a failed claim by a fixed value, and no id, address or note content', async () => {
+  const noteId = '0x8c3a1f0e2b7d4c6a9e5f1b3d7a2c4e6f8b0d2f4a6c8e0b2d4f6a8c0e2b4d6f8a';
+  const accountId = '0xa1b2c3d4e5f60718293a4b5c6d7e8f';
+  reportTransactionFailure({
+    point: 'pipeline',
+    type: 'consume',
+    stage: 'creating-proposal',
+    delegateTransaction: true,
+    entryPoint: 'claim_all',
+    error: new Error(
+      `failed to create consume proposal for account ${accountId}: failed to execute transaction: note ${noteId} ` +
+        'failed: assertion failed with error code: 6980628190221363142'
+    )
+  });
+  const message = await reportedMessage();
+  expect(message).toContain('tx_receive; stage signing;');
+  expect(message).toContain('; queued by claim_all; point pipeline; ERR_RECLAIM_DISABLED. ');
+  for (const leak of [
+    noteId,
+    noteId.slice(2),
+    accountId,
+    accountId.slice(2),
+    '6980628190221363142',
+    'consume proposal'
+  ]) {
+    expect(message).not.toContain(leak);
+  }
+});
+
+it('sends what queued a claim as other when it is outside the list or unknown, and names it for no other type', async () => {
+  const poison = 'wallet-owner-password@example.org';
+  reportTransactionFailure({ type: 'consume', entryPoint: poison, error: 'failed' } as never);
+  reportTransactionFailure({ type: 'consume', error: 'failed' });
+  reportTransactionFailure({ type: 'send', entryPoint: 'claim', error: 'failed' } as never);
+  await settle();
+  const [unlisted, absent, send] = jest.mocked(captureCrash).mock.calls.map(([error]) => (error as Error).message);
+  expect(unlisted).toContain('; queued by other; point pipeline;');
+  expect(unlisted).not.toContain(poison);
+  expect(absent).toContain('; queued by other; point pipeline;');
+  expect(send).not.toContain('queued by');
 });
 
 it('sends a reason outside the wallet list as other', async () => {
@@ -375,6 +418,21 @@ it.each([...FAILURE_REASONS, ...GUARDIAN_ERROR_CODES, ...HOT_KEY_CODES, 'other',
     expect(crashReportPolicy()).toContain(`\`${value}\``);
   }
 );
+
+it('the privacy policy lists every value a claim report can name as what queued it', () => {
+  expect([...CONSUME_ENTRY_POINTS]).toEqual(
+    expect.arrayContaining([
+      'auto_consume',
+      'claim',
+      'claim_all',
+      'dapp',
+      'bridge_reclaim',
+      'swap_settlement',
+      'rotation_funding'
+    ])
+  );
+  for (const value of CONSUME_ENTRY_POINTS) expect(crashReportPolicy()).toContain(`\`${value}\``);
+});
 
 it('the privacy policy states the Guardian HTTP status range and its fallback', () => {
   const sentence = /[^.]*\bHTTP status\b[^.]*\./.exec(crashReportPolicy())?.[0] ?? '';

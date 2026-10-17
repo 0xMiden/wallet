@@ -31,6 +31,8 @@ jest.mock('lib/epoch', () => ({
 }));
 
 const mockInitiateConsumeFromId = jest.fn(async (..._a: unknown[]) => 'reclaim-tx-1');
+// What the Reclaim button passes after the note id: delegate, manualRetry, no dApp origin, and what queued the row.
+const RECLAIMS = [false, true, undefined, 'bridge_reclaim'] as const;
 const mockRequestSWProcessing = jest.fn();
 const mockUpdateBridgeClaimStatus = jest.fn(async (..._a: unknown[]) => undefined);
 const mockPinAgglayerDeposit = jest.fn(async (..._a: unknown[]) => undefined);
@@ -213,7 +215,7 @@ describe('BridgeClaimSection', () => {
       // 4th arg = manualRetry. The button only exists behind an explicit tap, so
       // auto-consume's exponential backoff must not swallow it and answer with a
       // previously-failed reclaim's row id.
-      await waitFor(() => expect(mockInitiateConsumeFromId).toHaveBeenCalledWith('acct-1', 'note-1', false, true));
+      await waitFor(() => expect(mockInitiateConsumeFromId).toHaveBeenCalledWith('acct-1', 'note-1', ...RECLAIMS));
       expect(mockRequestSWProcessing).not.toHaveBeenCalled(); // isExtension() mocked false
       expect(mockNavigate).toHaveBeenCalledWith('/generating-transaction-full/reclaim-tx-1');
     });
@@ -246,7 +248,7 @@ describe('BridgeClaimSection', () => {
       });
       fireEvent.click(await screen.findByText('t:reclaimFunds'));
       await waitFor(() =>
-        expect(mockInitiateConsumeFromId).toHaveBeenCalledWith('acct-1', 'note-stamped', false, true)
+        expect(mockInitiateConsumeFromId).toHaveBeenCalledWith('acct-1', 'note-stamped', ...RECLAIMS)
       );
     });
 
@@ -305,7 +307,7 @@ describe('BridgeClaimSection', () => {
       });
       fireEvent.click(await screen.findByText('t:reclaimFunds'));
       await waitFor(() =>
-        expect(mockInitiateConsumeFromId).toHaveBeenCalledWith('acct-1', 'note-stamped', false, true)
+        expect(mockInitiateConsumeFromId).toHaveBeenCalledWith('acct-1', 'note-stamped', ...RECLAIMS)
       );
     });
 
@@ -329,7 +331,7 @@ describe('BridgeClaimSection', () => {
       mockGetCurrentMidenBlock.mockResolvedValueOnce(1200); // >= 1000
       renderSection({ entry: entry({ bridgeReclaimNoteId: 'note-stamped' }) });
       fireEvent.click(await screen.findByText('t:reclaimFunds'));
-      await waitFor(() => expect(mockInitiateConsumeFromId).toHaveBeenCalledWith('acct-1', 'note-1', false, true));
+      await waitFor(() => expect(mockInitiateConsumeFromId).toHaveBeenCalledWith('acct-1', 'note-1', ...RECLAIMS));
     });
 
     describe('a completed bridge-out', () => {
@@ -342,7 +344,7 @@ describe('BridgeClaimSection', () => {
         mockGetCurrentMidenBlock.mockResolvedValueOnce(1200); // >= 1000
         renderSection({ entry: completed() });
         fireEvent.click(await screen.findByText('t:reclaimFunds'));
-        await waitFor(() => expect(mockInitiateConsumeFromId).toHaveBeenCalledWith('acct-1', 'note-1', false, true));
+        await waitFor(() => expect(mockInitiateConsumeFromId).toHaveBeenCalledWith('acct-1', 'note-1', ...RECLAIMS));
       });
 
       it('shows no countdown for a completed bridge-out whose intent is not recorded yet (#1250)', async () => {
@@ -364,7 +366,7 @@ describe('BridgeClaimSection', () => {
         mockGetCurrentMidenBlock.mockResolvedValueOnce(1200); // >= 1000
         renderSection({ entry: completed({ bridgeIntentNonce: 'user:1', bridgeEpochStatus: 'failed' }) });
         fireEvent.click(await screen.findByText('t:reclaimFunds'));
-        await waitFor(() => expect(mockInitiateConsumeFromId).toHaveBeenCalledWith('acct-1', 'note-1', false, true));
+        await waitFor(() => expect(mockInitiateConsumeFromId).toHaveBeenCalledWith('acct-1', 'note-1', ...RECLAIMS));
       });
 
       it('shows the countdown for a completed bridge-out whose fill failed (#1250)', async () => {

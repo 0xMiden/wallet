@@ -1,4 +1,4 @@
-import { InputNoteRecord, NoteType } from '@miden-sdk/miden-sdk/lazy';
+import { AccountId, InputNoteRecord, NoteRecipient, NoteType } from '@miden-sdk/miden-sdk/lazy';
 
 import {
   ESTIMATED_MS_PER_BLOCK,
@@ -10,6 +10,9 @@ import {
   getNoteRecallableAtMs,
   isAddressValid,
   isPrivateNoteType,
+  mayConsume,
+  noteConsumeRestriction,
+  reclaimDisabledP2ideTarget,
   standardPaymentScriptRoots,
   toNoteTypeString
 } from './helpers';
@@ -17,6 +20,7 @@ import { NoteTypeEnum } from './types';
 
 const P2ID_ROOT = '0xp2id';
 const P2IDE_ROOT = '0xp2ide';
+const SPONSORSHIP_ROOT = '0xsponsorship';
 
 jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   // The REAL numeric values, not string stand-ins: `Private` is 0, so a stub
@@ -25,7 +29,8 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   NoteType: { Private: 0, Public: 1 },
   NoteScript: {
     p2id: () => ({ root: () => ({ toHex: () => '0xp2id' }) }),
-    p2ide: () => ({ root: () => ({ toHex: () => '0xp2ide' }) })
+    p2ide: () => ({ root: () => ({ toHex: () => '0xp2ide' }) }),
+    feeSponsorship: () => ({ root: () => ({ toHex: () => '0xsponsorship' }) })
   },
   Address: {
     fromBech32: jest.fn((addr: string) => {
@@ -189,6 +194,72 @@ describe('miden helpers', () => {
       } as unknown as InputNoteRecord;
       expect(getNoteRecallableAtMs(exploding, 1000)).toBeUndefined();
     });
+  });
+});
+
+// A non-target enters p2ide.masm only through its reclaim branch, and a reclaim height of 0 closes that branch at every
+// block; a sponsorship consumed without its feature note takes the same branch (miden-standards 0.17.1).
+describe('which account can ever consume a note', () => {
+  const recipient = (scriptRoot: string, storageItems: bigint[]) =>
+    makeNote(scriptRoot, storageItems).details().recipient();
+  const target = { prefix: 0x00000000feedbeefn.toString(), suffix: 0x7c9d1e2f3a4b0000n.toString() };
+  const account = (prefix: bigint, suffix: bigint) => () =>
+    ({ prefix: () => ({ asInt: () => prefix }), suffix: () => ({ asInt: () => suffix }) }) as unknown as AccountId;
+  const sponsorship = (reclaimHeight: bigint) => [
+    1n,
+    2n,
+    3n,
+    4n,
+    0x2f1a3b4c5d6e0000n,
+    0x00000000abcdef01n,
+    reclaimHeight
+  ];
+
+  it('names the target as the one account that can consume a P2IDE whose reclaim is disabled', () => {
+    expect(reclaimDisabledP2ideTarget(recipient(P2IDE_ROOT, p2ideStorage(0n, 1100n)))).toEqual(target);
+    expect(noteConsumeRestriction(recipient(P2IDE_ROOT, p2ideStorage(0n)))).toEqual(target);
+  });
+
+  it('restricts no P2IDE with a reclaim height, no other script and no other storage layout', () => {
+    expect(reclaimDisabledP2ideTarget(recipient(P2IDE_ROOT, p2ideStorage(1200n)))).toBeUndefined();
+    expect(reclaimDisabledP2ideTarget(recipient(P2ID_ROOT, p2ideStorage(0n)))).toBeUndefined();
+    expect(reclaimDisabledP2ideTarget(recipient(P2IDE_ROOT, [0n, ...p2ideStorage(0n)]))).toBeUndefined();
+    expect(noteConsumeRestriction(recipient(P2ID_ROOT, p2ideStorage(0n)))).toBeUndefined();
+  });
+
+  it('lets nobody consume a fee sponsorship whose reclaim is disabled, and restricts one that has a reclaim height', () => {
+    expect(noteConsumeRestriction(recipient(SPONSORSHIP_ROOT, sponsorship(0n)))).toBe('nobody');
+    expect(noteConsumeRestriction(recipient(SPONSORSHIP_ROOT, sponsorship(1200n)))).toBeUndefined();
+    expect(noteConsumeRestriction(recipient(SPONSORSHIP_ROOT, sponsorship(0n).slice(1)))).toBeUndefined();
+    // The listing reads only the P2IDE rule.
+    expect(reclaimDisabledP2ideTarget(recipient(SPONSORSHIP_ROOT, sponsorship(0n)))).toBeUndefined();
+  });
+
+  it('admits the restriction target alone, compared by its prefix and suffix', () => {
+    expect(mayConsume(target, account(0x00000000feedbeefn, 0x7c9d1e2f3a4b0000n))).toBe(true);
+    expect(mayConsume(target, account(0x00000000abcdef01n, 0x2f1a3b4c5d6e0000n))).toBe(false);
+    expect(mayConsume(target, account(0x00000000feedbeefn, 0x2f1a3b4c5d6e0000n))).toBe(false);
+    expect(mayConsume('nobody', account(0x00000000feedbeefn, 0x7c9d1e2f3a4b0000n))).toBe(false);
+  });
+
+  it('does not resolve the account for a note with no restriction', () => {
+    const resolve = jest.fn();
+    expect(mayConsume(undefined, resolve)).toBe(true);
+    expect(resolve).not.toHaveBeenCalled();
+  });
+
+  it('restricts nothing when the note cannot be read, but lets a WebAssembly trap through', () => {
+    const throwing = (error: Error) =>
+      ({
+        script: () => {
+          throw error;
+        }
+      }) as unknown as NoteRecipient;
+    expect(noteConsumeRestriction(throwing(new Error('boom')))).toBeUndefined();
+    expect(reclaimDisabledP2ideTarget(throwing(new Error('boom')))).toBeUndefined();
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    expect(() => noteConsumeRestriction(throwing(trap))).toThrow(trap);
+    expect(() => reclaimDisabledP2ideTarget(throwing(trap))).toThrow(trap);
   });
 });
 

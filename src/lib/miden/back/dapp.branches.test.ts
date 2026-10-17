@@ -179,21 +179,21 @@ jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-cli
 // never a vacuous no-op.
 let currentWasmHold: object | null = null;
 const mockImportNoteBytes = jest.fn();
+// The consume approval preview is derived from the note the wallet resolves,
+// not from the dApp's declared faucet/amount/type, so the note has to exist.
+const storedNote = {
+  noteId: 'note-1',
+  noteType: 0,
+  senderAccountId: 's1',
+  nullifier: 'nf1',
+  state: 0,
+  assets: [{ faucetId: 'faucet-1', amount: '1000000' }]
+};
+const mockGetInputNoteDetails = jest.fn(async (..._args: unknown[]): Promise<unknown[]> => [storedNote]);
 jest.mock('../sdk/miden-client', () => ({
   getMidenClient: async () => ({
     getAccount: (id: string) => (globalThis as any).__dappBranchMockGetAccount(id),
-    // The consume approval preview is derived from the note the wallet resolves,
-    // not from the dApp's declared faucet/amount/type — so the note has to exist.
-    getInputNoteDetails: jest.fn(async () => [
-      {
-        noteId: 'note-1',
-        noteType: 0,
-        senderAccountId: 's1',
-        nullifier: 'nf1',
-        state: 0,
-        assets: [{ faucetId: 'faucet-1', amount: '1000000' }]
-      }
-    ]),
+    getInputNoteDetails: (...args: unknown[]) => mockGetInputNoteDetails(...args),
     getConsumableNotes: jest.fn(async () => []),
     getConsumableNoteDtos: jest.fn(async () => []),
     syncState: jest.fn(async () => {}),
@@ -586,7 +586,7 @@ describe('requestConsumeTransaction — mobile error branches', () => {
     const detailsCommitment = '0x5d1e7a11';
     const consumed = { type: MidenDAppMessageType.ConsumeResponse, transactionId: 'tx-c' };
     const sdk: Record<string, unknown> = require('@miden-sdk/miden-sdk/lazy');
-    const originalSdk = { Note: sdk.Note, NoteFile: sdk.NoteFile };
+    const originalSdk = { Note: sdk.Note, NoteFile: sdk.NoteFile, NoteScript: sdk.NoteScript, Address: sdk.Address };
     const sdkNote = (id: string) => ({
       id: () => ({ toString: () => id }),
       metadata: () => undefined,
@@ -666,6 +666,67 @@ describe('requestConsumeTransaction — mobile error branches', () => {
           fn({ vault: { signData: mockSignData } })
         );
       }
+    });
+
+    // A non-target enters P2IDE only through its reclaim branch, which a reclaim height of 0 closes at every block, and
+    // a sponsorship consumed without its feature note, as a consume request's single note is, takes the same branch.
+    describe('a note the requesting account can never consume', () => {
+      const felts = (values: bigint[]) => values.map(value => ({ asInt: () => value }));
+      const REQUESTER = { prefix: 0x00000000abcdef01n, suffix: 0x2f1a3b4c5d6e0000n };
+      const OTHER = { prefix: 0x00000000feedbeefn, suffix: 0x7c9d1e2f3a4b0000n };
+      const withRecipient = (root: string, items: bigint[]) => ({
+        ...sdkNote('note-1'),
+        recipient: () => ({
+          script: () => ({ root: () => ({ toHex: () => root }) }),
+          storage: () => ({ items: () => felts(items) })
+        })
+      });
+      const p2ide = (target: typeof OTHER, reclaimHeight: bigint) =>
+        withRecipient('0xp2ide', [REQUESTER.suffix, REQUESTER.prefix, target.suffix, target.prefix, reclaimHeight, 0n]);
+      const sponsorship = (reclaimHeight: bigint) =>
+        withRecipient('0xsponsorship', [1n, 2n, 3n, 4n, REQUESTER.suffix, REQUESTER.prefix, reclaimHeight]);
+      const consumeStored = () =>
+        dapp.requestConsumeTransaction('https://miden.xyz', {
+          type: MidenDAppMessageType.ConsumeRequest,
+          sourcePublicKey: 'miden-account-1',
+          transaction: validTx
+        } as never);
+
+      beforeEach(() => {
+        sdk.NoteScript = {
+          p2ide: () => ({ root: () => ({ toHex: () => '0xp2ide' }) }),
+          feeSponsorship: () => ({ root: () => ({ toHex: () => '0xsponsorship' }) })
+        };
+        const requester = {
+          prefix: () => ({ asInt: () => REQUESTER.prefix }),
+          suffix: () => ({ asInt: () => REQUESTER.suffix }),
+          toString: () => '0xrequester'
+        };
+        sdk.Address = { fromBech32: () => ({ accountId: () => requester }) };
+      });
+
+      it.each([
+        ['a carried P2IDE for another account with reclaim disabled', () => p2ide(OTHER, 0n)],
+        ['a carried fee sponsorship with reclaim disabled', () => sponsorship(0n)]
+      ])('refuses %s before the sheet, and imports and queues nothing', async (_name, note) => {
+        carryRawNote(note);
+
+        await expect(consumeWithBytes()).rejects.toThrow(MidenDAppErrorType.InvalidParams);
+        expect(mockRequestConfirmation).not.toHaveBeenCalled();
+        expect(mockImportNoteBytes).not.toHaveBeenCalled();
+        expect(mockInitiateConsumeTransactionFromId).not.toHaveBeenCalled();
+      });
+
+      it.each([
+        ['P2IDE for another account', { prefix: OTHER.prefix.toString(), suffix: OTHER.suffix.toString() }],
+        ['fee sponsorship', 'nobody']
+      ])('refuses a stored reclaim-disabled %s before the sheet, and queues nothing', async (_name, restriction) => {
+        mockGetInputNoteDetails.mockResolvedValueOnce([{ ...storedNote, restriction }]);
+
+        await expect(consumeStored()).rejects.toThrow(MidenDAppErrorType.InvalidParams);
+        expect(mockRequestConfirmation).not.toHaveBeenCalled();
+        expect(mockInitiateConsumeTransactionFromId).not.toHaveBeenCalled();
+      });
     });
 
     const detailsOnlyFile = (id: string) => ({
