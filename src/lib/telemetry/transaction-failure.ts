@@ -168,6 +168,14 @@ type ExecutionCause = (typeof EXECUTION_CAUSES)[number];
 
 export const SIGNING_STEPS = ['creating_proposal', 'signing_proposal', 'signing_locally'] as const;
 
+export const CONFIRMING_STEPS = [
+  'confirming',
+  'delivering',
+  'registering_guardian',
+  'guardian_syncing',
+  'guardian_synced'
+] as const;
+
 export const CONSUME_ENTRY_POINTS = [
   'auto_consume',
   'claim',
@@ -352,6 +360,17 @@ const SIGNING_STEP_BY_STAGE = new Map<unknown, (typeof SIGNING_STEPS)[number]>([
   ['creating-proposal', 'creating_proposal'],
   ['signing-proposal', 'signing_proposal'],
   ['signing-locally', 'signing_locally']
+]);
+
+// The post-submit stages `stepOfStage` folds into `confirming`. `guardian_syncing` is not only a failed sync: a sync
+// that throws is caught and leaves this stage on the row while the completion runs, so a completion failure after a
+// failed sync reads `guardian_syncing` too. `guardian_synced` is stamped only after a sync that succeeded.
+const CONFIRMING_STEP_BY_STAGE = new Map<unknown, (typeof CONFIRMING_STEPS)[number]>([
+  ['confirming', 'confirming'],
+  ['delivering', 'delivering'],
+  ['registering-guardian', 'registering_guardian'],
+  ['guardian-syncing', 'guardian_syncing'],
+  ['guardian-synced', 'guardian_synced']
 ]);
 
 // The reasons miden-client-proxy.ts aborts an offscreen operation with, and wasm-client-poison.ts's eviction mechanisms.
@@ -542,7 +561,10 @@ export function reportTransactionFailure(failure: TransactionFailure): void {
     );
     const operation = type === failure.type ? operationOfType(type) : 'tx_other';
     const step = stepOfStage(failure.stage);
-    const stage = typeof step === 'string' ? step : 'unknown';
+    const stepName = typeof step === 'string' ? step : 'unknown';
+    const confirmingStep = CONFIRMING_STEP_BY_STAGE.get(failure.stage);
+    // Follows the stage it names, as the signing step does.
+    const stage = confirmingStep === undefined ? stepName : `${stepName}; confirming step ${confirmingStep}`;
     const signingStep = SIGNING_STEP_BY_STAGE.get(failure.stage);
     const outcome = failure.outcome === 'unconfirmed' ? 'unconfirmed' : 'failed';
     const point = diagnostic(
