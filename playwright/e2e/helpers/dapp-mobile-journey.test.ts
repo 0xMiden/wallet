@@ -6,7 +6,15 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { DappCellRunner, deadlineIn, HarnessFault, type CellContext } from './dapp-cells';
+import {
+  CellDeadlineExceeded,
+  DappCellRunner,
+  deadlineIn,
+  HarnessFault,
+  type CellContext,
+  type Deadline
+} from './dapp-cells';
+import { ChainUnavailable } from './dapp-channel';
 import {
   MOBILE_COMMAND_CEILING_MS,
   startCommandServer,
@@ -15,7 +23,7 @@ import {
   type DeviceKey
 } from './dapp-command-server';
 import { mobileOffchainAxis } from './dapp-mobile-axis';
-import { iosDevice } from './dapp-mobile-device';
+import { androidDevice, iosDevice, type MobileDevice } from './dapp-mobile-device';
 import {
   AUTO_DECLINE_MS,
   coverageOf,
@@ -26,11 +34,20 @@ import {
   MOBILE_QUIESCE_BUDGET_MS,
   sheetBlock,
   startMobileJourney,
-  type MobileSession
+  type MobileSession,
+  type MobileSlot
 } from './dapp-mobile-journey';
-import { answerSheet } from './dapp-mobile-sheet';
-import { accountRows, foregroundOrigin, nativeAsset, type MobileWallet } from './dapp-mobile-wallet';
-import { nodeHeight, waitForNodeHeight } from './dapp-node-calls';
+import { answerSheet, denyOpenSheet } from './dapp-mobile-sheet';
+import {
+  accountRows,
+  createAccount,
+  foregroundOrigin,
+  nativeAsset,
+  removeDappSession,
+  selectAccountIfNeeded,
+  type MobileWallet
+} from './dapp-mobile-wallet';
+import { nodeHeight, waitForNodeHeight, type FetchLogEntry } from './dapp-node-calls';
 import { MidenCli } from './miden-cli';
 import { publicFaucetAccountId } from './public-faucet';
 import type { DappLabel } from './test-dapp-server';
@@ -56,19 +73,20 @@ jest.mock('./dapp-command-server', () => ({
 jest.mock('./dapp-mobile-wallet', () => ({
   ...jest.requireActual<typeof import('./dapp-mobile-wallet')>('./dapp-mobile-wallet'),
   accountRows: jest.fn(),
+  createAccount: jest.fn(),
   foregroundOrigin: jest.fn(),
   nativeAsset: jest.fn(),
   openDappUrl: jest.fn(),
   pendingTransfers: jest.fn(async () => 0),
   readRows: jest.fn(async () => []),
-  removeDappSession: jest.fn(),
-  selectAccountIfNeeded: jest.fn(),
+  removeDappSession: jest.fn(async () => undefined),
+  selectAccountIfNeeded: jest.fn(async () => undefined),
   waitForQueueDrained: jest.fn(async () => undefined)
 }));
 jest.mock('./dapp-mobile-sheet', () => ({
   ...jest.requireActual<typeof import('./dapp-mobile-sheet')>('./dapp-mobile-sheet'),
   answerSheet: jest.fn(),
-  denyOpenSheet: jest.fn()
+  denyOpenSheet: jest.fn(async () => undefined)
 }));
 jest.mock('./public-faucet', () => ({
   ...jest.requireActual<typeof import('./public-faucet')>('./public-faucet'),
@@ -151,7 +169,7 @@ describe('the held sheet block', () => {
     jest.mocked(nodeHeight).mockReset().mockResolvedValue(100);
     const next = jest.mocked(waitForNodeHeight).mockReset().mockResolvedValue(101);
     await sheetBlock(RPC, sentAgo(30_000), context());
-    expect(jest.mocked(nodeHeight)).toHaveBeenCalledWith(RPC);
+    expect(jest.mocked(nodeHeight)).toHaveBeenCalledWith(RPC, expect.any(Number));
     const [url, target, budget] = next.mock.calls[0] ?? [];
     expect([url, target]).toEqual([RPC, 101]);
     // 120 s less the 10 s margin less the 30 s since the request: about 80 s, where a count from the sight gives 110.
@@ -167,7 +185,90 @@ describe('the held sheet block', () => {
   });
 });
 
-describe('the quiesce connect permission', () => {
+function deferred<T>() {
+  let release: ((value: T) => void) | undefined;
+  const promise = new Promise<T>(resolve => {
+    release = resolve;
+  });
+  return {
+    promise,
+    resolve: (value: T) => {
+      if (release === undefined) throw new Error('deferred promise has no resolver');
+      release(value);
+    }
+  };
+}
+
+describe('the sheet block cutoff', () => {
+  const rpc = 'https://rpc.testnet.miden.io';
+  const sheet = () => ({
+    origin: null,
+    messages: [],
+    approveEnabled: true,
+    sentAt: Date.now() - AUTO_DECLINE_MS + HOLD_MARGIN_MS + 20,
+    seenAt: Date.now()
+  });
+  const context = (ms = 200_000): CellContext => ({
+    deadline: deadlineIn(ms, 'cell'),
+    evidence: {},
+    softFail: () => undefined
+  });
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.mocked(nodeHeight).mockReset().mockResolvedValue(100);
+    jest.mocked(waitForNodeHeight).mockReset().mockResolvedValue(101);
+  });
+  afterEach(() => {
+    jest.clearAllTimers();
+    jest.useRealTimers();
+  });
+
+  it('rejects a stalled initial tip query at the shared cutoff', async () => {
+    jest.mocked(nodeHeight).mockReturnValue(new Promise(() => undefined));
+    const outcome = jest.fn();
+    void sheetBlock(rpc, sheet(), context()).then(outcome, outcome);
+    await jest.advanceTimersByTimeAsync(20);
+    expect(outcome).toHaveBeenCalledWith(expect.any(CellDeadlineExceeded));
+    expect(waitForNodeHeight).not.toHaveBeenCalled();
+  });
+
+  it('rejects a stalled target query at the shared cutoff', async () => {
+    jest.mocked(nodeHeight).mockImplementation(() => new Promise(resolve => setTimeout(() => resolve(100), 10)));
+    jest.mocked(waitForNodeHeight).mockReturnValue(new Promise(() => undefined));
+    const outcome = jest.fn();
+    void sheetBlock(rpc, sheet(), context()).then(outcome, outcome);
+    await jest.advanceTimersByTimeAsync(20);
+    expect(waitForNodeHeight).toHaveBeenCalledWith(rpc, 101, 10);
+    expect(outcome).toHaveBeenCalledWith(expect.any(CellDeadlineExceeded));
+  });
+
+  it('rejects a target returned after the cutoff even before its timer can fire', async () => {
+    const target = deferred<number>();
+    jest.mocked(waitForNodeHeight).mockReturnValue(target.promise);
+    const held = sheet();
+    const pending = sheetBlock(rpc, held, context());
+    const outcome = pending.then(
+      () => null,
+      error => error
+    );
+    await jest.advanceTimersByTimeAsync(0);
+    jest.setSystemTime(held.sentAt + AUTO_DECLINE_MS - HOLD_MARGIN_MS + 1);
+    target.resolve(101);
+    await expect(outcome).resolves.toBeInstanceOf(CellDeadlineExceeded);
+  });
+
+  it('uses the cell deadline when it precedes the sheet hold cutoff', async () => {
+    jest.mocked(waitForNodeHeight).mockReturnValue(new Promise(() => undefined));
+    const outcome = jest.fn();
+    void sheetBlock(rpc, sheet(), context(5)).then(outcome, outcome);
+    await jest.advanceTimersByTimeAsync(5);
+    expect(waitForNodeHeight).toHaveBeenCalledWith(rpc, 101, 5);
+    expect(outcome).toHaveBeenCalledWith(expect.any(CellDeadlineExceeded));
+  });
+});
+
+describe('mobile journey hooks and setup', () => {
   const origin = 'http://localhost:4545';
   const connected = (permission: string, address = 'mtst1a'): ConnectedView => ({
     address,
@@ -194,9 +295,23 @@ describe('the quiesce connect permission', () => {
   });
   let directory: string;
   let timeline: TimelineRecorder;
+  let fetchLog: FetchLogEntry[];
+  let device: MobileDevice;
+  const nodeCall = (status: number, options: Partial<FetchLogEntry> = {}): FetchLogEntry => ({
+    url: 'https://rpc.testnet.miden.io/tip',
+    method: 'POST',
+    headers: [],
+    at: 1,
+    status,
+    error: null,
+    ms: 1,
+    ...options
+  });
 
   beforeEach(() => {
     jest.clearAllMocks();
+    device = iosDevice([]);
+    fetchLog = [nodeCall(200)];
     directory = fs.mkdtempSync(path.join(os.tmpdir(), 'mobile-journey-'));
     timeline = new TimelineRecorder(directory);
     jest.spyOn(console, 'log').mockImplementation(() => undefined);
@@ -220,12 +335,14 @@ describe('the quiesce connect permission', () => {
   });
 
   afterEach(async () => {
+    jest.clearAllTimers();
+    jest.useRealTimers();
     await timeline.close();
     fs.rmSync(directory, { recursive: true, force: true });
     jest.restoreAllMocks();
   });
 
-  async function prepare(wanted: MobileSession, returned: string) {
+  async function prepare(wanted: MobileSession = 'upon-request', returned = 'UPON_REQUEST') {
     const server: CommandServer = {
       port: 4545,
       urlFor: device => `${origin}/?device=${device}`,
@@ -247,7 +364,7 @@ describe('the quiesce connect permission', () => {
         let value: unknown;
         switch (command) {
           case '__fetchLog':
-            value = [{ url: 'https://rpc.testnet.miden.io/tip', headers: [], status: 200 }];
+            value = fetchLog;
             break;
           case 'connect':
             value = {
@@ -294,7 +411,7 @@ describe('the quiesce connect permission', () => {
     jest.mocked(startCommandServer).mockResolvedValue(server);
     const env = getEnvironmentConfig();
     const journey = await startMobileJourney({
-      surface: 'ios',
+      surface: device.surface,
       axis: mobileOffchainAxis,
       walletA: wallet('mtst1a'),
       walletB: wallet('mtst1b'),
@@ -302,17 +419,18 @@ describe('the quiesce connect permission', () => {
       envConfig: env,
       steps: new TestStepRunner(timeline, directory),
       testInfo: test.info(),
-      device: iosDevice([])
+      device
     });
     const options = jest.mocked(DappCellRunner).mock.calls[0]?.[0];
     if (options === undefined) throw new Error('no runner hooks registered');
     return {
       journey,
-      quiesce: () =>
+      quiesce: (deadline: Deadline = deadlineIn(20_000, 'quiesce'), account: MobileSlot = 'primary') =>
         options.hooks.quiesce(
-          { id: 'S1', budget: 'read', state: { session: wanted }, run: async () => undefined },
-          deadlineIn(20_000, 'quiesce')
-        )
+          { id: 'S1', budget: 'read', state: { session: wanted, account }, run: async () => undefined },
+          deadline
+        ),
+      restore: () => options.hooks.restore({ id: 'R7-send', budget: 'long', run: async () => undefined })
     };
   }
 
@@ -341,5 +459,120 @@ describe('the quiesce connect permission', () => {
       })
     );
     expect(journey.memo.size).toBe(0);
+  });
+
+  it('does not select an account after creation outlives the quiesce deadline', async () => {
+    const { quiesce, restore } = await prepare();
+    const created = deferred<string>();
+    jest.mocked(createAccount).mockReturnValue(created.promise);
+    jest.useFakeTimers();
+    const pending = quiesce(deadlineIn(20, 'quiesce'), 'second');
+    const outcome = pending.then(
+      () => null,
+      error => error
+    );
+    await jest.advanceTimersByTimeAsync(0);
+    expect(createAccount).toHaveBeenCalledTimes(1);
+    await jest.advanceTimersByTimeAsync(20);
+    await expect(outcome).resolves.toBeInstanceOf(CellDeadlineExceeded);
+    await restore();
+    jest.mocked(selectAccountIfNeeded).mockClear();
+    created.resolve('mtst1second');
+    await jest.advanceTimersByTimeAsync(0);
+    expect(selectAccountIfNeeded).not.toHaveBeenCalled();
+  });
+
+  it('attempts disconnect, revocation and primary selection after denial rejects', async () => {
+    const { journey, restore } = await prepare();
+    const disconnect = jest.spyOn(journey, 'call');
+    jest.mocked(denyOpenSheet).mockRejectedValueOnce(new Error('denial failed'));
+    await expect(restore()).rejects.toThrow('denial failed');
+    expect(disconnect).toHaveBeenCalledWith('disconnect', {}, expect.anything());
+    expect(removeDappSession).toHaveBeenCalledWith(journey.walletA, origin);
+    expect(selectAccountIfNeeded).toHaveBeenCalledWith(journey.walletA, 'mtst1a');
+  });
+
+  it('attempts revocation and primary selection after disconnect rejects and preserves every error', async () => {
+    const { journey, restore } = await prepare();
+    jest.spyOn(journey, 'call').mockRejectedValueOnce(new Error('disconnect failed'));
+    jest.mocked(removeDappSession).mockRejectedValueOnce(new Error('revocation failed'));
+    await expect(restore()).rejects.toMatchObject({
+      message: expect.stringContaining('disconnect failed'),
+      errors: [
+        expect.objectContaining({ message: expect.stringContaining('disconnect failed') }),
+        expect.objectContaining({ message: expect.stringContaining('revocation failed') })
+      ]
+    });
+    expect(removeDappSession).toHaveBeenCalledWith(journey.walletA, origin);
+    expect(selectAccountIfNeeded).toHaveBeenCalledWith(journey.walletA, 'mtst1a');
+  });
+
+  it('attempts revocation and primary selection after disconnect times out', async () => {
+    const { journey, restore } = await prepare();
+    jest.spyOn(journey, 'call').mockReturnValueOnce(new Promise(() => undefined));
+    jest.useFakeTimers();
+    const outcome = restore().then(
+      () => null,
+      error => error
+    );
+    await jest.advanceTimersByTimeAsync(30_000);
+    await expect(outcome).resolves.toMatchObject({ message: expect.stringContaining('disconnect') });
+    expect(removeDappSession).toHaveBeenCalledWith(journey.walletA, origin);
+    expect(selectAccountIfNeeded).toHaveBeenCalledWith(journey.walletA, 'mtst1a');
+  });
+
+  it('accepts a node 503 followed by a successful retry of the same call', async () => {
+    fetchLog = [nodeCall(503), nodeCall(200, { at: 2 })];
+    await expect(prepare()).resolves.toHaveProperty('journey');
+  });
+
+  it('accepts a failed node fetch followed by a successful retry', async () => {
+    fetchLog = [nodeCall(0, { status: null, error: 'connection reset' }), nodeCall(200)];
+    await expect(prepare()).resolves.toHaveProperty('journey');
+  });
+
+  it('classifies an unrecovered failed node fetch as infrastructure', async () => {
+    fetchLog = [nodeCall(0, { status: null, error: 'Failed to fetch' })];
+    await expect(prepare()).rejects.toBeInstanceOf(ChainUnavailable);
+  });
+
+  it('classifies an unrecovered node failure as infrastructure', async () => {
+    fetchLog = [nodeCall(503)];
+    await expect(prepare()).rejects.toBeInstanceOf(ChainUnavailable);
+  });
+
+  it('does not let a different successful call recover a node failure', async () => {
+    fetchLog = [nodeCall(503), nodeCall(200, { url: 'https://rpc.testnet.miden.io/other' })];
+    await expect(prepare()).rejects.toBeInstanceOf(ChainUnavailable);
+  });
+
+  it('keeps a disallowed header as a harness fault even after a successful retry', async () => {
+    fetchLog = [nodeCall(503, { headers: [['x-bad-header', 'value']] }), nodeCall(200)];
+    await expect(prepare()).rejects.toBeInstanceOf(HarnessFault);
+  });
+
+  it.each([nodeCall(400), nodeCall(0, { status: null, error: 'CORS preflight rejected' })])(
+    'keeps malformed requests and CORS failures as harness faults: %j',
+    async call => {
+      fetchLog = [call];
+      await expect(prepare()).rejects.toBeInstanceOf(HarnessFault);
+    }
+  );
+
+  it('classifies rejected forwarding as infrastructure and keeps its reason', async () => {
+    const reason = new Error('adb connection lost');
+    device = androidDevice(['device'], async () => {
+      throw reason;
+    });
+    await expect(prepare()).rejects.toMatchObject({
+      name: 'InfrastructureFault',
+      message: expect.stringContaining('adb connection lost'),
+      cause: reason
+    });
+  });
+
+  it('keeps a verified but missing forwarding mapping as a harness fault', async () => {
+    device = androidDevice(['device'], async () => '');
+    await expect(prepare()).rejects.toBeInstanceOf(HarnessFault);
   });
 });

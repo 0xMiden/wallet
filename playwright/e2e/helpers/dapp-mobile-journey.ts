@@ -3,7 +3,9 @@ import path from 'node:path';
 
 import { pollUntil } from './dapp-assertions';
 import {
+  CellDeadlineExceeded,
   DappCellRunner,
+  describeFailure,
   deadlineIn,
   HarnessFault,
   infraAborted,
@@ -15,7 +17,7 @@ import {
   type Deadline,
   type LegCoverage
 } from './dapp-cells';
-import { callOn, type DappChannel } from './dapp-channel';
+import { callOn, ChainUnavailable, type DappChannel } from './dapp-channel';
 import {
   commandChannel,
   startCommandServer,
@@ -44,7 +46,14 @@ import {
   waitForQueueDrained,
   type MobileWallet
 } from './dapp-mobile-wallet';
-import { nodeCallProblems, nodeHeight, summarizeNodeCalls, toFetchLog, waitForNodeHeight } from './dapp-node-calls';
+import {
+  nodeCallProblems,
+  nodeHeight,
+  summarizeNodeCalls,
+  toFetchLog,
+  waitForNodeHeight,
+  type FetchLogEntry
+} from './dapp-node-calls';
 import pinned from './dapp-pinned.json';
 import type { MidenCli } from './miden-cli';
 import type { MobileNativeAsset } from './mobile-store-reads';
@@ -87,6 +96,7 @@ const PRESENTATION_MS = 35_000;
 const FUND_CLAIM_MS = 240_000;
 const FUND_SETTLE_MS = 120_000;
 const RECIPIENT_SETTLE_MS = 60_000;
+const RESTORE_STEP_MS = 30_000;
 /** Cells that pay B: after one that ran clean, a transfer still pending at B is a payment no write accounted for. */
 const PAYS_B = new Set(['W1', 'X1']);
 /** Cells after which A's Guardian account may still be settling with its operator. */
@@ -143,7 +153,7 @@ export interface MobileJourney {
   readonly memo: Map<string, string>;
   /** Everyone the journey may receive a note from: A's accounts, B, the CLI faucet, the public faucet. */
   senders(): readonly string[];
-  account(slot: MobileSlot): Promise<string>;
+  account(slot: MobileSlot, deadline?: Deadline): Promise<string>;
   /** `callOn` over dApp one's channel. */
   call<K extends DappCommandName>(
     command: K,
@@ -170,6 +180,17 @@ const contextFor = (deadline: Deadline): CellContext => ({ deadline, evidence: {
 const sameAs = (address: string | null, account: string): boolean =>
   address !== null && canonicalAddress(address) === canonicalAddress(account);
 
+async function beforeDeadline<T>(deadline: Deadline, what: string, start: () => Promise<T>): Promise<T> {
+  const check = (): void => {
+    if (deadline.remainingMs() <= 0) throw new CellDeadlineExceeded(`${deadline.label}: ${what} outlived the budget`);
+  };
+  check();
+  const value = await deadline.race(start(), what);
+  // A result can win the promise race while an overdue timer is still waiting for the event loop.
+  check();
+  return value;
+}
+
 function callerOf(channel: DappChannel): MobileJourney['call'] {
   return <K extends DappCommandName>(
     command: K,
@@ -184,14 +205,31 @@ export const holdLeftMs = (sentAt: number, now: number): number => sentAt + AUTO
 
 /** One block passes with the sheet open (the extension's popupBlock), read from the node by the driver (spec 3.3). */
 export async function sheetBlock(rpcUrl: string, sheet: SeenSheet, ctx: CellContext): Promise<void> {
-  const tip = await ctx.deadline.race(nodeHeight(rpcUrl), 'the node tip with the sheet open');
-  const budget = Math.min(ctx.deadline.remainingMs(), holdLeftMs(sheet.sentAt, Date.now()));
-  if (budget <= 0) {
+  const cutoff = Math.min(Date.now() + ctx.deadline.remainingMs(), sheet.sentAt + AUTO_DECLINE_MS - HOLD_MARGIN_MS);
+  if (holdLeftMs(sheet.sentAt, Date.now()) <= 0) {
     throw new HarnessFault(
       `the sheet's hold margin ran out before its block: it was sent ${Date.now() - sheet.sentAt} ms ago`
     );
   }
-  await waitForNodeHeight(rpcUrl, tip + 1, budget);
+  const query = async (read: (ms: number) => Promise<number>, what: string): Promise<number> => {
+    const expired = (): CellDeadlineExceeded =>
+      new CellDeadlineExceeded(`${ctx.deadline.label}: ${what} exceeded the sheet block cutoff`);
+    const remaining = cutoff - Date.now();
+    if (remaining <= 0) throw expired();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const timeout = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(expired()), remaining);
+      });
+      const height = await ctx.deadline.race(Promise.race([read(remaining), timeout]), what);
+      if (Date.now() >= cutoff) throw expired();
+      return height;
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+  const tip = await query(ms => nodeHeight(rpcUrl, ms), 'the node tip with the sheet open');
+  await query(ms => waitForNodeHeight(rpcUrl, tip + 1, ms), 'the next block with the sheet open');
 }
 
 /** The leg's coverage label from dApp one's presentation event (C-R16). */
@@ -232,6 +270,43 @@ async function fundOne(
       );
     }
     await sleep(3_000);
+  }
+}
+
+function guardNodeCalls(value: unknown, rpcUrl: string): void {
+  const log = toFetchLog(value);
+  const origin = new URL(rpcUrl).origin;
+  const calls = log.filter(call => call.url.startsWith(`${origin}/`));
+  const failed = (call: FetchLogEntry): boolean => call.error !== null || (call.status !== null && call.status >= 400);
+  const nodeFailed = (call: FetchLogEntry): boolean =>
+    !(call.error !== null && /cors|cross[- ]origin|preflight|malformed|invalid (?:request|url)/i.test(call.error)) &&
+    (call.error !== null ||
+      (call.status !== null && (call.status >= 500 || call.status === 408 || call.status === 429)));
+  const problems = nodeCallProblems({
+    ...summarizeNodeCalls(log, rpcUrl),
+    failed: calls.filter(call => failed(call) && !nodeFailed(call))
+  });
+  if (problems.length > 0)
+    throw new HarnessFault(`the page's node calls would fail every cell: ${problems.join('; ')}`);
+  const unrecovered = calls.filter(
+    (call, index) =>
+      nodeFailed(call) &&
+      !calls
+        .slice(index + 1)
+        .some(
+          next =>
+            next.url === call.url &&
+            next.method === call.method &&
+            next.error === null &&
+            next.status !== null &&
+            next.status >= 200 &&
+            next.status < 400
+        )
+  );
+  if (unrecovered.length > 0) {
+    throw new ChainUnavailable(
+      `the page's node calls failed: ${unrecovered.map(call => `${call.url} answered ${String(call.status)}`).join('; ')}`
+    );
   }
 }
 
@@ -403,7 +478,13 @@ export async function startMobileJourney(input: MobileJourneyInput): Promise<Mob
     let opened: { dapp: MobileDapp; providerAtBoot: boolean } | undefined;
     let dappB: MobileDapp | undefined;
     await steps.step('open_dapps', async () => {
-      const forwarded = await device.forwardPagePort(started.port);
+      let forwarded: string;
+      try {
+        forwarded = await device.forwardPagePort(started.port);
+      } catch (error) {
+        if (error instanceof HarnessFault || error instanceof InfrastructureFault) throw error;
+        throw new InfrastructureFault(`dApp page forwarding failed: ${describeFailure(error)}`, { cause: error });
+      }
       // eslint-disable-next-line no-console
       console.log(`[dapp ${surface}] page port: ${forwarded}`);
       const one = await openMobileDapp(started, walletA, 'A', 'one', init('A-one'));
@@ -419,11 +500,7 @@ export async function startMobileJourney(input: MobileJourneyInput): Promise<Mob
             .catch(() => null)
         )
       );
-      const problems = nodeCallProblems(
-        summarizeNodeCalls(toFetchLog(await one.dapp.channel.send('__fetchLog', {}, 30_000)), envConfig.rpcUrl)
-      );
-      if (problems.length > 0)
-        throw new HarnessFault(`the page's node calls would fail every cell: ${problems.join('; ')}`);
+      guardNodeCalls(await one.dapp.channel.send('__fetchLog', {}, 30_000), envConfig.rpcUrl);
       const b = (await openMobileDapp(started, walletB, 'B', 'one', init('B-one'))).dapp;
       const ctx = setupContext(180_000, "B's dApp connect");
       const { result } = await answerSheet(
@@ -470,12 +547,16 @@ export async function startMobileJourney(input: MobileJourneyInput): Promise<Mob
       providerAtBoot: opened.providerAtBoot,
       memo: new Map(),
       senders: () => [...accounts.values(), addressB, cliFaucetId, tokenFaucetId, publicFaucetId],
-      account: async slot => {
+      account: async (slot, deadline) => {
         const known = accounts.get(slot);
         if (known !== undefined) return known;
-        const created = await createAccount(walletA, axis.walletType);
+        const create = (): Promise<string> => createAccount(walletA, axis.walletType);
+        const created =
+          deadline === undefined ? await create() : await beforeDeadline(deadline, 'account creation', create);
         accounts.set(slot, created);
-        await selectAccountIfNeeded(walletA, primary);
+        const select = (): Promise<void> => selectAccountIfNeeded(walletA, primary);
+        if (deadline === undefined) await select();
+        else await beforeDeadline(deadline, 'primary account selection after creation', select);
         return created;
       },
       call: callerOf(opened.dapp.channel)
@@ -499,18 +580,22 @@ async function quiesce(
   previous?: CellRecord
 ): Promise<void> {
   const state: MobileCellState = { account: 'primary', session: 'upon-request', ...cell.state };
-  await denyOpenSheet(j.walletA);
-  const front = await foregroundOrigin(j.walletA);
+  await beforeDeadline(deadline, 'sheet denial', () => denyOpenSheet(j.walletA));
+  const front = await beforeDeadline(deadline, 'foreground origin', () => foregroundOrigin(j.walletA));
   if (front !== j.dapp.origin)
     throw new Error(`the dApp browser shows ${front ?? 'no page'} in front, not ${j.dapp.origin}`);
-  const account = await j.account(state.account);
-  await selectAccountIfNeeded(j.walletA, account);
+  const account = await beforeDeadline(deadline, 'journey account', () => j.account(state.account, deadline));
+  await beforeDeadline(deadline, 'account selection', () => selectAccountIfNeeded(j.walletA, account));
   // One queue serves every origin (`getDappQueue`, actions.ts:109-113); a round trip through it proves no sheet waits.
-  await j.call('raw', { call: 'requestGuardianInfo', args: [] }, deadline);
+  await beforeDeadline(deadline, 'request queue round trip', () =>
+    j.call('raw', { call: 'requestGuardianInfo', args: [] }, deadline)
+  );
   // A write that outlived its cell (a W1 at its ceiling, an R5 row still generating) ends before the next baseline.
-  await deadline.race(
-    waitForQueueDrained(() => readRows(j.walletA), deadline.remainingMs()),
-    "wallet A's queue drained"
+  await beforeDeadline(deadline, "wallet A's queue drained", () =>
+    waitForQueueDrained(
+      () => beforeDeadline(deadline, "wallet A's transaction rows", () => readRows(j.walletA)),
+      deadline.remainingMs()
+    )
   );
   if (previous !== undefined && WRITES_A.has(previous.id)) await settlePrimary(j, deadline);
   if (previous !== undefined) await quiesceRecipient(j, previous, deadline);
@@ -518,11 +603,15 @@ async function quiesce(
 }
 
 async function settlePrimary(j: MobileJourney, deadline: Deadline): Promise<void> {
-  const primary = await j.account('primary');
+  const primary = await beforeDeadline(deadline, 'primary account', () => j.account('primary', deadline));
   const accountIdHex = j.memo.get(`accountIdHex:${canonicalAddress(primary)}`);
   if (accountIdHex === undefined) return;
-  const chain = await j.call('chainAccount', { accountId: accountIdHex }, deadline);
-  await j.axis.settle(j.walletA, primary, chain.found ? (chain.commitmentHex ?? null) : null, deadline);
+  const chain = await beforeDeadline(deadline, 'primary account on chain', () =>
+    j.call('chainAccount', { accountId: accountIdHex }, deadline)
+  );
+  await beforeDeadline(deadline, 'primary account settlement', () =>
+    j.axis.settle(j.walletA, primary, chain.found ? (chain.commitmentHex ?? null) : null, deadline)
+  );
 }
 
 /**
@@ -531,13 +620,19 @@ async function settlePrimary(j: MobileJourney, deadline: Deadline): Promise<void
  * no sender, so after any other cell a pending transfer is claimed. One still pending after that claim fails the quiesce.
  */
 async function quiesceRecipient(j: MobileJourney, previous: CellRecord, deadline: Deadline): Promise<void> {
-  const pending = await deadline.race(pendingTransfers(j.walletB, RECIPIENT_SETTLE_MS), "wallet B's Pending list");
+  const pending = await beforeDeadline(deadline, "wallet B's Pending list", () =>
+    pendingTransfers(j.walletB, Math.min(RECIPIENT_SETTLE_MS, deadline.remainingMs()))
+  );
   if (pending === 0) return;
   if (PAYS_B.has(previous.id) && ranClean(previous)) {
     throw new Error(`wallet B lists ${pending} pending transfer(s) no write accounted for after ${previous.id} passed`);
   }
-  await deadline.race(j.walletB.claimAllNotes(deadline.remainingMs(), [j.cliFaucetId]), "wallet B's claim");
-  const left = await deadline.race(pendingTransfers(j.walletB, RECIPIENT_SETTLE_MS), "wallet B's list after its claim");
+  await beforeDeadline(deadline, "wallet B's claim", () =>
+    j.walletB.claimAllNotes(deadline.remainingMs(), [j.cliFaucetId])
+  );
+  const left = await beforeDeadline(deadline, "wallet B's list after its claim", () =>
+    pendingTransfers(j.walletB, Math.min(RECIPIENT_SETTLE_MS, deadline.remainingMs()))
+  );
   if (left > 0) throw new Error(`wallet B still lists ${left} pending transfer(s) after its claim`);
 }
 
@@ -547,7 +642,7 @@ async function establishSession(
   wanted: MobileSession,
   deadline: Deadline
 ): Promise<void> {
-  const view = await j.call('session', {}, deadline);
+  const view = await beforeDeadline(deadline, 'session view', () => j.call('session', {}, deadline));
   const permission = wanted === 'auto' ? 'AUTO' : 'UPON_REQUEST';
   const held =
     view.connected !== null &&
@@ -557,24 +652,28 @@ async function establishSession(
     view.connected.privateDataPermission === permission;
   if (wanted !== 'none' && held) return;
   // From nothing: the adapter disconnects and the wallet forgets the origin, so the connect below must prompt.
-  await j.call('disconnect', {}, deadline);
-  await removeDappSession(j.walletA, j.dapp.origin);
+  await beforeDeadline(deadline, 'session disconnect', () => j.call('disconnect', {}, deadline));
+  await beforeDeadline(deadline, 'session revocation', () => removeDappSession(j.walletA, j.dapp.origin));
   if (wanted === 'none') return;
   const ctx = contextFor(deadline);
-  const { result } = await answerSheet(
-    j.dapp,
-    () =>
-      j.call(
-        'connect',
-        {
-          permission: wanted === 'auto' ? 'Auto' : 'UponRequest',
-          network: j.network,
-          ...(wanted === 'auto' ? { allowedPrivateData: ASSETS_AND_NOTES } : {})
-        },
-        deadline
-      ),
-    { decision: 'approve', tickStandingAccess: wanted === 'auto' },
-    ctx
+  const { result } = await beforeDeadline(deadline, 'session connect sheet', () =>
+    answerSheet(
+      j.dapp,
+      () =>
+        beforeDeadline(deadline, 'session connect request', () =>
+          j.call(
+            'connect',
+            {
+              permission: wanted === 'auto' ? 'Auto' : 'UponRequest',
+              network: j.network,
+              ...(wanted === 'auto' ? { allowedPrivateData: ASSETS_AND_NOTES } : {})
+            },
+            deadline
+          )
+        ),
+      { decision: 'approve', tickStandingAccess: wanted === 'auto' },
+      ctx
+    )
   );
   const connected = unwrap(result, 'quiesce connect', ctx);
   if (!sameAs(connected.address, account))
@@ -589,13 +688,26 @@ async function establishSession(
 
 /** Always runs after a cell (spec section 5, "Restore"). */
 async function restore(j: MobileJourney, cell: CellSpec<Partial<MobileCellState>>): Promise<void> {
-  await denyOpenSheet(j.walletA);
+  const errors: Error[] = [];
+  const attempt = async (what: string, start: (deadline: Deadline) => Promise<unknown>): Promise<void> => {
+    const deadline = deadlineIn(RESTORE_STEP_MS, `${cell.id} restore ${what}`);
+    try {
+      await beforeDeadline(deadline, what, () => start(deadline));
+    } catch (error) {
+      errors.push(new Error(`${what}: ${describeFailure(error)}`, { cause: error }));
+    }
+  };
+  await attempt('sheet denial', () => denyOpenSheet(j.walletA));
   if (cell.id.startsWith('R7-')) {
-    // An unanswered sheet blocks the one request queue for every origin, so R7 always ends with the session closed.
-    await j.call('disconnect', {});
-    await removeDappSession(j.walletA, j.dapp.origin);
+    await attempt('disconnect', deadline => j.call('disconnect', {}, deadline));
+    await attempt('revocation', () => removeDappSession(j.walletA, j.dapp.origin));
   }
-  await selectAccountIfNeeded(j.walletA, await j.account('primary'));
+  await attempt('primary account selection', async deadline => {
+    const primary = await beforeDeadline(deadline, 'primary account', () => j.account('primary', deadline));
+    await beforeDeadline(deadline, 'account selection', () => selectAccountIfNeeded(j.walletA, primary));
+  });
+  if (errors.length > 0)
+    throw new AggregateError(errors, `${cell.id} restore failed: ${errors.map(error => error.message).join('; ')}`);
 }
 
 /** Runs the journey's declared cells in order, then fails the test with every cell that did not pass. */
