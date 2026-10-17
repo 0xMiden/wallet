@@ -1146,9 +1146,11 @@ export const completeSendTransaction = async (tx: SendTransaction, result: Trans
     // this row was failed from outside its pipeline — Cancel, or the stuck-row
     // reaper — that terminal write throws on the finalized row and the relay's
     // outcome would be lost with it. This is the same reason `recordNoteDelivery`
-    // carries no terminal guard.
+    // carries no terminal guard. It is guarded on the note relayed instead, as every sweep write after an await is: a
+    // landing can replace the delivery target while the relay runs (#1473), and this outcome is not the new note's.
     try {
-      await recordNoteDelivery(tx.id, noteDelivery, { ackedNoteIds: noteDelivery === 'relayed' ? [noteId] : [] });
+      const ackedNoteIds = noteDelivery === 'relayed' ? [noteId] : [];
+      await recordNoteDelivery(tx.id, noteDelivery, { ackedNoteIds }, [noteId]);
     } catch (error) {
       console.warn('Could not record the note delivery outcome', { txId: tx.id, noteId, noteDelivery, error });
     }
