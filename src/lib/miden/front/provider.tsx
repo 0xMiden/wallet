@@ -1,6 +1,8 @@
 import React, { FC, useEffect, useMemo, useState } from 'react';
 
 import { NoteToastProvider } from 'components/NoteToastProvider';
+import { BadgeIssuanceManager } from 'lib/badges/BadgeIssuanceManager';
+import { BADGE_STORAGE_KEY } from 'lib/badges/types';
 import { EarnIntentWatcher } from 'lib/epoch/EarnIntentWatcher';
 import { FIAT_CURRENCY_STORAGE_KEY, FiatCurrencyProvider } from 'lib/fiat-currency';
 import { BridgeIntentWatcher } from 'lib/miden/activity/BridgeIntentWatcher';
@@ -44,7 +46,8 @@ const preloadedStorageKeys = () => [
   ALL_TOKENS_BASE_METADATA_STORAGE_KEY,
   FIAT_CURRENCY_STORAGE_KEY,
   MidenSharedStorageKey.LastShownChangelogVersion,
-  NETWORK_STORAGE_ID
+  NETWORK_STORAGE_ID,
+  BADGE_STORAGE_KEY
 ];
 
 /**
@@ -186,6 +189,7 @@ const ConditionalProviders: FC<PropsWithChildren> = ({ children }) => {
             <NativeNoteAutoConsumeManager />
             <EarnIntentWatcher />
             <BridgeIntentWatcher />
+            <BadgeIssuanceManager />
             {/* Startup recovery for transactions orphaned by an app kill. No-op on
                 the extension, where the service worker's `setupTransactionProcessor`
                 already does this. */}

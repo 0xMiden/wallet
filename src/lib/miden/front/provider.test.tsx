@@ -63,6 +63,7 @@ jest.mock('./useSyncTrigger', () => ({
 jest.mock('./NativeNoteAutoConsumeManager', () => ({
   NativeNoteAutoConsumeManager: () => null
 }));
+jest.mock('lib/badges/BadgeIssuanceManager', () => ({ BadgeIssuanceManager: () => null }));
 
 jest.mock('lib/miden-chain/native-asset', () => ({
   primeNativeAssetId: jest.fn()
@@ -143,7 +144,13 @@ describe('MidenProvider', () => {
     );
     expect(mockPreloadStorage).toHaveBeenCalledTimes(1);
     expect(mockPreloadStorage).toHaveBeenCalledWith(
-      ['tokens_base_metadata', 'fiat_currency', 'last_shown_changelog_version', 'network_id'],
+      [
+        'tokens_base_metadata',
+        'fiat_currency',
+        'last_shown_changelog_version',
+        'network_id',
+        'wallet_badges:v1:mainnet'
+      ],
       expect.objectContaining({ onSettled: expect.any(Function) })
     );
   });

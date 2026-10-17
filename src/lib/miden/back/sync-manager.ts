@@ -3,6 +3,7 @@ import browser from 'webextension-polyfill';
 import { getMessage } from 'lib/i18n';
 import { classifySyncError, isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
 import { clearReachabilityIssues, markConnectivityIssue } from 'lib/miden/activity/connectivity-state';
+import { beginBalanceSnapshot } from 'lib/miden/balance-snapshot';
 import { isWorthClaiming, totalClaimableAmount } from 'lib/miden/fees/spendable';
 import { getQuarantinedNoteIds } from 'lib/miden/note-quarantine';
 import {
@@ -436,14 +437,15 @@ async function runSync(force: boolean): Promise<void> {
       // instead of the ~30s the old JS timeout bounded it to — strictly worse than
       // before the ceiling was added, on the one path (#777) that has no offscreen
       // realm to absorb it.
-      const { parsedNotes, vaultAssets, noteBlocks } = await withWasmClientLock(
+      const { parsedNotes, vaultAssets, noteBlocks, balanceSnapshot } = await withWasmClientLock(
         async hold => {
           const client = await getMidenClient();
           if (!client)
             return {
               parsedNotes: [] as SerializedConsumableNote[],
               vaultAssets: [] as SerializedVaultAsset[],
-              noteBlocks: new Map<string, number>()
+              noteBlocks: new Map<string, number>(),
+              balanceSnapshot: undefined
             };
           // The client build is an await, and on the inline path it can be the long one
           // (a genesis fetch against a parked node). If this hold was evicted while it
@@ -520,6 +522,7 @@ async function runSync(force: boolean): Promise<void> {
             .filter((note): note is SerializedConsumableNote => note !== null);
 
           // Read vault assets
+          const finishSnapshot = beginBalanceSnapshot();
           const account = await midenClientProxy.getAccount(accountPubKey);
           // Before touching the returned Account: `vault().fungibleAssets()` is a WASM
           // call on an object borrowed from the client's RefCell, so reading it after an
@@ -536,7 +539,12 @@ async function runSync(force: boolean): Promise<void> {
             }
           }
 
-          return { parsedNotes: notes, vaultAssets: assets, noteBlocks };
+          return {
+            parsedNotes: notes,
+            vaultAssets: assets,
+            noteBlocks,
+            balanceSnapshot: finishSnapshot(account)
+          };
         },
         inlineWasm ? { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'sw-notes-read' } : undefined
       );
@@ -686,6 +694,7 @@ async function runSync(force: boolean): Promise<void> {
         notes: parsedNotes,
         vaultAssets,
         accountPublicKey: accountPubKey,
+        balanceSnapshot,
         syncedAt: syncSucceededAt ?? lastPublishedSyncAt
       };
       try {

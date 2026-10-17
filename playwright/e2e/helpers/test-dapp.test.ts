@@ -76,6 +76,8 @@ const REPEATABLE: Record<string, (dapp: DappHandle, deadline: Deadline) => Promi
   init: (dapp, deadline) =>
     callDapp(dapp, 'init', { rpcUrl: 'https://rpc.testnet.miden.io', storeName: 'test-dapp-unit' }, deadline),
   buildCustom: (dapp, deadline) => callDapp(dapp, 'buildCustom', { shape: 'p2id', outputs: [] }, deadline),
+  buildCustomScript: (dapp, deadline) =>
+    callDapp(dapp, 'buildCustomScript', { kind: 'fee-only', outputs: [] }, deadline),
   makeNoteFile: (dapp, deadline) =>
     callDapp(dapp, 'makeNoteFile', { noteBytesB64: 'AA==', format: 'withProof' }, deadline)
 };
