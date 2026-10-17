@@ -578,11 +578,12 @@ export async function expectFailedAfterEnqueue(
 
 /**
  * Spec section 5, "Previews". Soft: a declared view is recorded and the cell goes on to approve, so one run can report
- * a preview bug and the failure that follows it.
+ * a preview bug and the failure that follows it. `amount: null` is a request that moves nothing but the fee (X8c);
+ * `storageChanged`, when set, is the value the "Storage changed" row must show, and any verified view must show the row.
  */
 export async function expectVerifiedPreview(
   popup: Page,
-  expected: { amount: RegExp; outputNotes: number; timeoutMs?: number },
+  expected: { amount: RegExp | null; outputNotes: number; storageChanged?: boolean; timeoutMs?: number },
   ctx: CellContext
 ): Promise<void> {
   const verified = popup.locator('[data-testid="tx-asset-view"][data-mode="verified"]');
@@ -595,7 +596,15 @@ export async function expectVerifiedPreview(
     });
     return;
   }
-  await expect(verified.locator('[data-verified="true"]').filter({ hasText: expected.amount })).toHaveCount(1);
+  // The heading renders with the view, before any row's token metadata resolves, so its absence is not a race.
+  const moves = expected.amount === null ? 0 : 1;
+  await expect(verified.getByText('Asset changes', { exact: true })).toHaveCount(moves);
+  const rows = verified.locator('[data-verified="true"]');
+  await expect(expected.amount === null ? rows : rows.filter({ hasText: expected.amount })).toHaveCount(moves);
   await expect(popup.getByTestId('tx-output-notes-created')).toHaveText(String(expected.outputNotes));
+  const storage = popup.getByTestId('tx-storage-changed');
+  const changed = expected.storageChanged;
+  await expect(storage).toHaveAttribute('data-changed', changed === undefined ? /^(true|false)$/ : String(changed));
+  await expect(storage).toHaveText(changed === undefined ? /^(Yes|No)$/ : changed ? 'Yes' : 'No');
   await expect(failed).toHaveCount(0);
 }

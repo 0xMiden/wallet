@@ -1,4 +1,134 @@
 {
+  "me": {
+    "message": "Moi",
+    "englishSource": "Me"
+  },
+  "profile": {
+    "message": "Profil",
+    "englishSource": "Profile"
+  },
+  "myBadges": {
+    "message": "Mes badges",
+    "englishSource": "My badges"
+  },
+  "openMyBadges": {
+    "message": "Ouvrir Mes badges",
+    "englishSource": "Open My badges"
+  },
+  "badgesEarnedCount": {
+    "message": "$earned$ sur $total$ obtenus",
+    "englishSource": "$earned$ of $total$ earned",
+    "placeholders": {
+      "earned": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      }
+    }
+  },
+  "badgesProfileDescription": {
+    "message": "Les étapes privées de votre activité sur Mainnet",
+    "englishSource": "Private milestones from your Mainnet activity"
+  },
+  "badgesCollectionDescription": {
+    "message": "Les étapes privées de votre portefeuille.",
+    "englishSource": "Your private wallet milestones."
+  },
+  "badgeCollection": {
+    "message": "Collection de badges",
+    "englishSource": "Badge collection"
+  },
+  "mainnetOnly": {
+    "message": "Mainnet uniquement",
+    "englishSource": "Mainnet only"
+  },
+  "badgesMainnetNoticeTitle": {
+    "message": "Les badges se débloquent sur Mainnet",
+    "englishSource": "Badges unlock on Mainnet"
+  },
+  "badgesMainnetNoticeDescription": {
+    "message": "Les badges se débloquent sur Mainnet. Les activités de test ne comptent pas.",
+    "englishSource": "Badges unlock on Mainnet. Test activity does not count."
+  },
+  "badgeEarnedLabel": {
+    "message": "$badge$, obtenu",
+    "englishSource": "$badge$, earned",
+    "placeholders": {
+      "badge": {
+        "content": "$1"
+      }
+    }
+  },
+  "badgeLockedLabel": {
+    "message": "$badge$, verrouillé",
+    "englishSource": "$badge$, locked",
+    "placeholders": {
+      "badge": {
+        "content": "$1"
+      }
+    }
+  },
+  "locked": {
+    "message": "Verrouillé",
+    "englishSource": "Locked"
+  },
+  "badgeEarned": {
+    "message": "Obtenu",
+    "englishSource": "Earned"
+  },
+  "badgeVerificationPending": {
+    "message": "Pas encore disponible",
+    "englishSource": "Not available yet"
+  },
+  "badgeFirstDeposit": {
+    "message": "Premier dépôt",
+    "englishSource": "First Deposit"
+  },
+  "badgeFirstDepositDescription": {
+    "message": "Ajoutez des fonds et attendez de pouvoir les dépenser.",
+    "englishSource": "Add funds and wait for them to become spendable."
+  },
+  "badgeFirstReceive": {
+    "message": "Première réception",
+    "englishSource": "First Receive"
+  },
+  "badgeFirstReceiveDescription": {
+    "message": "Acceptez et réclamez un transfert vers ce compte.",
+    "englishSource": "Accept and claim a transfer to this account."
+  },
+  "badgeFirstSend": {
+    "message": "Premier envoi",
+    "englishSource": "First Send"
+  },
+  "badgeFirstSendDescription": {
+    "message": "Confirmez un transfert Miden sortant.",
+    "englishSource": "Confirm an outgoing Miden transfer."
+  },
+  "badgeFirstSwap": {
+    "message": "Premier échange",
+    "englishSource": "First Swap"
+  },
+  "badgeFirstSwapDescription": {
+    "message": "Effectuez un échange et recevez des fonds disponibles.",
+    "englishSource": "Complete a swap and receive spendable output."
+  },
+  "badgeRecoveryChecked": {
+    "message": "Récupération vérifiée",
+    "englishSource": "Recovery Checked"
+  },
+  "badgeRecoveryCheckedDescription": {
+    "message": "Vérifiez la sauvegarde de récupération de ce compte.",
+    "englishSource": "Verify this account's recovery backup."
+  },
+  "badgeMiniappExplorer": {
+    "message": "Explorateur de mini-apps",
+    "englishSource": "Miniapp Explorer"
+  },
+  "badgeMiniappExplorerDescription": {
+    "message": "Terminez une activité dans une mini-app prise en charge.",
+    "englishSource": "Complete a supported mini app experience."
+  },
   "usdcxBurnTitle": {
     "message": "Brûler des USDCx",
     "englishSource": "Burn USDCx"
@@ -1812,14 +1942,97 @@
     "message": "Taux",
     "englishSource": "Rate"
   },
-  "swapSolverFeeNote": {
-    "message": "Le montant que vous recevrez comprend déjà les frais de traitement de la demande de «$percent$».",
-    "englishSource": "Your receive amount already includes a $percent$ solver fee.",
+  "swapRateNote": {
+    "message": "Le « taux » correspond au montant maximal que le solveur exécute à l’instant présent, les frais $fee$ étant déjà inclus. Le montant que vous recevez correspond à ce taux moins votre slippage $slippage$.",
+    "englishSource": "The rate is the most the solver fills at right now, with its $fee$ fee already in it. Your receive amount is that rate less your $slippage$ slippage.",
     "placeholders": {
-      "percent": {
+      "fee": {
         "content": "$1"
+      },
+      "slippage": {
+        "content": "$2"
       }
     }
+  },
+  "swapFillStatus": {
+    "message": "Exécuter",
+    "englishSource": "Fill"
+  },
+  "swapVerdictSettlementDelayed": {
+    "message": "Règlement retardé. Votre ordre sera mis en attente.",
+    "englishSource": "Settlement delayed. Your order will wait."
+  },
+  "swapVerdictNoMarket": {
+    "message": "Cette paire n’est pas négociée.",
+    "englishSource": "This pair isn't traded."
+  },
+  "swapVerdictNoPrice": {
+    "message": "Les prix ne sont pas disponibles pour le moment. Veuillez réessayer dans quelques instants.",
+    "englishSource": "Prices are unavailable right now. Try again shortly."
+  },
+  "swapVerdictOffMarket": {
+    "message": "Le cours a évolué. Actualisez la cotation.",
+    "englishSource": "The price moved. Refresh the quote."
+  },
+  "swapVerdictNoLiquidity": {
+    "message": "Il n’y a pas suffisamment d’ordres au prix actuel pour le moment.",
+    "englishSource": "Not enough orders at the current price right now."
+  },
+  "swapVerdictTolerated": {
+    "message": "Cela peut prendre plus de temps : l’exécution a lieu lorsque le cours évolue légèrement.",
+    "englishSource": "May take longer: fills when the price moves slightly."
+  },
+  "swapVerdictPartial": {
+    "message": "Seule une partie de cet ordre est exécutée pour l’instant ; le reste est en attente.",
+    "englishSource": "Only part of this order fills now; the rest waits."
+  },
+  "swapVerdictFull": {
+    "message": "Exécution au prix actuel.",
+    "englishSource": "Fills at the current price."
+  },
+  "swapVerdictExpected": {
+    "message": "Vous recevez environ $amount$ en $symbol$.",
+    "englishSource": "You receive about $amount$ $symbol$.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "swapSlippage": {
+    "message": "Slippage",
+    "englishSource": "Slippage"
+  },
+  "percentSign": {
+    "message": "%",
+    "englishSource": "%"
+  },
+  "swapSlippageNote": {
+    "message": "Dans quelle mesure votre ordre peut être exécuté en dessous du cours actuel. Sur le testnet, un ordre situé au-dessus d’environ 0,25 % n’est pas exécuté.",
+    "englishSource": "How far below the current rate your order may fill. On testnet an order above about 0.25% does not fill."
+  },
+  "swapSlippageEditedNote": {
+    "message": "C’est vous qui fixez le montant à recevoir ; le slippage ne s’applique donc pas à cet ordre.",
+    "englishSource": "You set the receive amount yourself, so slippage does not apply to this order."
+  },
+  "swapSlippageRange": {
+    "message": "Saisissez un pourcentage compris entre $min$ et $max$, avec au maximum deux décimales.",
+    "englishSource": "Enter a percent from $min$ to $max$ with up to two decimals.",
+    "placeholders": {
+      "min": {
+        "content": "$1"
+      },
+      "max": {
+        "content": "$2"
+      }
+    }
+  },
+  "swapPriceMoved": {
+    "message": "Le cours a évolué. Vérifiez le nouveau montant et réessayez.",
+    "englishSource": "The price moved. Check the new amount and try again."
   },
   "usuallyFillsIn": {
     "message": "Remplit généralement",
@@ -3317,6 +3530,14 @@
   "feeReserveBlocksSend": {
     "message": "Votre USDCX est réservé aux frais de réseau. Recevez davantage de USDCX pour effectuer des envois.",
     "englishSource": "Your USDCX is reserved for the network fee. Receive more USDCX to send."
+  },
+  "usdcxBurnFeeMeasuring": {
+    "message": "Il est possible de vérifier les frais de réseau liés à cette destruction avant de pouvoir vérifier le montant.",
+    "englishSource": "Measuring this burn's network fee before the amount can be checked."
+  },
+  "usdcxBurnFeeUnavailable": {
+    "message": "Impossible de mesurer les frais de réseau liés à cette destruction ; le montant ne peut donc pas être vérifié. Choisissez une autre destination pour réessayer.",
+    "englishSource": "Unable to measure this burn's network fee, so the amount cannot be checked. Choose another destination to try again."
   },
   "insufficientFeeAsset": {
     "message": "Vous avez besoin de USDCX pour payer les frais de réseau. Recevez des USDCX pour continuer.",

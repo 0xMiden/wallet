@@ -137,6 +137,8 @@ export interface PayoutChain {
   walletRpcName: string;
   /** What the harness burns to this chain: BURN_UNITS unless the chain's payout fee allowance takes it whole. */
   burnUnits: bigint;
+  /** The most a send from the harness key tips per gas here (sendSigned in arc-usdcx.ts); none caps the estimate. */
+  maxPriorityFeeCap?: bigint;
 }
 
 const hostnameOf = (endpoint: string): string => {
@@ -165,6 +167,7 @@ export function payoutChainFor(
     label?: string;
     walletRpcName?: string;
     burnUnits?: bigint;
+    maxPriorityFeeCap?: bigint;
   }
 ): PayoutChain {
   const id = evmChainSlug(chainId);
@@ -196,7 +199,8 @@ export function payoutChainFor(
     explorer: evm.explorer,
     walletRpcUrl: evm.rpcUrl,
     walletRpcName: reads.walletRpcName ?? hostnameOf(evm.rpcUrl),
-    burnUnits
+    burnUnits,
+    ...(reads.maxPriorityFeeCap === undefined ? {} : { maxPriorityFeeCap: reads.maxPriorityFeeCap })
   };
 }
 
@@ -215,17 +219,23 @@ export const ARBITRUM_SEPOLIA_PAYOUT: PayoutChain = payoutChainFor(421614, {
   rpcUrls: DEFAULT_ARBITRUM_SEPOLIA_RPCS,
   logChunk: () => L2_LOG_CHUNK
 });
-/** Ethereum's 1.5 USDC payout fee allowance takes the faucet's 1 USDCx minimum whole, so this burns 2 USDCx. */
+/**
+ * Ethereum's 1.5 USDC payout fee allowance takes the faucet's 1 USDCx minimum whole, so this burns 2 USDCx. Sepolia's
+ * signers tipped from 22 wei to 1.5 gwei (2026-10-16) and its tip oracle follows them, while the key holds about 0.002
+ * ETH there: an uncapped 1.5 gwei tip would cost about 0.0013 ETH a run. 0.01 gwei is above every oracle answer read
+ * (1 wei to about 0.001 gwei, 2026-10-16 and 17).
+ */
 export const ETHEREUM_SEPOLIA_PAYOUT: PayoutChain = payoutChainFor(11155111, {
   rpcUrls: DEFAULT_ETHEREUM_SEPOLIA_RPCS,
   logChunk: () => L2_LOG_CHUNK,
   label: 'Ethereum Sepolia',
-  burnUnits: 2_000_000n
+  burnUnits: 2_000_000n,
+  maxPriorityFeeCap: 10_000_000n
 });
 
 /**
- * A chain usdcx-in-l2 deposits from: where it is read (the PayoutChain usdcx-burn-l2 pays on, so both suites read the
- * same endpoints) and the executor route the fixture names for it.
+ * A chain usdcx-in-l2 deposits from, Ethereum Sepolia among them despite the name: where it is read (the PayoutChain
+ * usdcx-burn-l2 pays on, so both suites read the same endpoints) and the executor route the fixture names for it.
  */
 export interface L2BridgeInSource {
   payout: PayoutChain;
@@ -238,14 +248,17 @@ export function bridgeInSourceFor(payout: PayoutChain): L2BridgeInSource {
 
 export const L2_BRIDGE_IN_SOURCES: readonly L2BridgeInSource[] = [
   bridgeInSourceFor(BASE_SEPOLIA_PAYOUT),
-  bridgeInSourceFor(ARBITRUM_SEPOLIA_PAYOUT)
+  bridgeInSourceFor(ARBITRUM_SEPOLIA_PAYOUT),
+  bridgeInSourceFor(ETHEREUM_SEPOLIA_PAYOUT)
 ];
 
 /**
- * One bridge-in's gas on an L2: an approve (about 55k) and the forwarded burn (693-699k on Base Sepolia, 698,683 with no
- * L1 gas on Arbitrum Sepolia, read 2026-10-16), each sent at 1.2x its estimate.
+ * One bridge-in's gas on its source chain, each write sent at 1.2x its estimate: an approve (about 55k on the L2s, and
+ * on Ethereum Sepolia 140,005 estimated over an empty allowance, 40,195 over a left-over one) and the forwarded burn
+ * (693-699k on Base Sepolia, 698,683 with no L1 gas on Arbitrum Sepolia, 726,617 on Ethereum Sepolia, read 2026-10-16),
+ * so at most 1.04M.
  */
-export const L2_BRIDGE_IN_GAS = 1_000_000n;
+export const L2_BRIDGE_IN_GAS = 1_100_000n;
 
 /** viem's error text quotes the request URL, whose WalletConnect project id an operator's build may set. */
 export function redactProjectId(text: string): string {

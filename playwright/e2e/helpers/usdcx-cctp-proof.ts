@@ -143,7 +143,7 @@ export async function confirmL2Burn(
   reads: ArcReadDeps
 ): Promise<L2BurnProof> {
   const { source, payout } = expected.l2;
-  const where = `burn ${submission.burnHash} on ${payout.networkName}`;
+  const where = `burn ${submission.burnHash} on ${payout.label}`;
   const receipt = await waitForReceipt(startingAt(reads.endpoints, submission.endpoint), reads, submission.burnHash);
   const sent = parseEventLogs({ abi: CCTP_EVENTS, eventName: 'MessageSent', logs: receipt.logs });
   const [only] = sent;
@@ -198,7 +198,7 @@ export async function waitForIrisForward(
   const clock = opts.clock ?? realArcClock;
   const fetchMessages = opts.fetchMessages ?? fetchCctpMessages;
   const { source } = args.l2;
-  const where = `burn ${args.burnHash} on ${args.l2.payout.networkName}`;
+  const where = `burn ${args.burnHash} on ${args.l2.payout.label}`;
   const deadline = clock.now() + opts.timeoutMs;
   let last = 'Iris listed no message (it answers 404 until it has indexed the burn)';
   for (;;) {

@@ -217,6 +217,28 @@ describe('PendingActivityCard', () => {
       expect(screen.queryByRole('button', { name: 'activityRejectTransfer' })).toBeNull();
     });
 
+    it('withholds Accept for a transfer that cannot pay its fee and says why with the card closed', () => {
+      const onAccept = jest.fn();
+      renderCard('pending', { cannotPayFee: true }, onAccept);
+
+      const accept = screen.getByRole('button', { name: 'activityAcceptTransfer' });
+      expect(accept).toBeDisabled();
+      fireEvent.click(accept);
+      expect(onAccept).not.toHaveBeenCalled();
+      const notice = screen.getByTestId('pending-activity-fee-notice');
+      expect(notice).toHaveTextContent('insufficientFeeAssetShort');
+      expect(accept).toHaveAttribute('aria-describedby', notice.id);
+      // Declining costs nothing, so it stays available.
+      expect(screen.getByRole('button', { name: 'activityRejectTransfer' })).toBeEnabled();
+    });
+
+    it("withholds a failed claim's Retry when it cannot pay its fee", () => {
+      renderCard('failed', { cannotPayFee: true });
+
+      expect(screen.getByRole('button', { name: 'retry' })).toBeDisabled();
+      expect(screen.getByTestId('pending-activity-fee-notice')).toBeInTheDocument();
+    });
+
     it('a held claim offers Retry, enabled and not loading, and hands the item back (#1081)', () => {
       const onRetryHeld = jest.fn();
       const item: PendingActivityItem = { note, status: 'claiming', txId: 'tx-held', held: true };

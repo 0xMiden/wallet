@@ -32,6 +32,8 @@ export interface PendingActivityItem {
   held?: boolean;
   /** The refusal its last Retry met, shown in place of the hint. */
   retryError?: string;
+  /** Accepting it is certain to fail on the network fee, so Accept is withheld and the card says why. */
+  cannotPayFee?: boolean;
 }
 
 interface PendingActivityCardProps {
@@ -76,6 +78,7 @@ export const PendingActivityCard = ({ item, onAccept, onReject, onRetryHeld }: P
   const unreadKey = pendingNoteUnreadKey(note.id);
   const unread = !isActivityRead(readState, unreadKey, note.receivedAt ?? Number.NaN);
   const detailsId = useId();
+  const feeNoticeId = useId();
   const [expanded, setExpanded] = useState(false);
   const sender = note.senderAddress ? truncateAddress(note.senderAddress, false, 8, 4) : t('unknown');
   const amount = hasKnownScale(note.metadata) ? formatBigInt(BigInt(note.amount), note.metadata.decimals) : undefined;
@@ -83,6 +86,8 @@ export const PendingActivityCard = ({ item, onAccept, onReject, onRetryHeld }: P
   const amountLabel = amount === undefined ? tokenLabel : `${amount} ${tokenLabel}`;
   // A note served from the cache waits for the live read before it can be accepted.
   const canAccept = (status === 'pending' || status === 'failed') && note.fromCache !== true;
+  // Separate from `canAccept`: Decline costs no fee, so it stays.
+  const feeBlocked = canAccept && item.cannotPayFee === true;
   const held = status === 'claiming' && item.held === true;
   const busy = (status === 'claiming' && !held) || status === 'checking';
   // The section renders only after a tap, so it always moves on the preset except while a claim is
@@ -238,6 +243,15 @@ export const PendingActivityCard = ({ item, onAccept, onReject, onRetryHeld }: P
             )}
           </AnimatePresence>
 
+          {/* Outside the fold, so a withheld Accept is never left without its reason. */}
+          {feeBlocked && (
+            <div className="px-4 pb-3">
+              <Notice id={feeNoticeId} variant="inline" tone="warning" data-testid="pending-activity-fee-notice">
+                {t('insufficientFeeAssetShort')}
+              </Notice>
+            </div>
+          )}
+
           {/* The actions are ordinary design-system buttons: the app's pill, with the card's own
             padding around them. `className` here sets width only; nothing restyles a Button from
             the call site.
@@ -272,9 +286,10 @@ export const PendingActivityCard = ({ item, onAccept, onReject, onRetryHeld }: P
               size="sm"
               className="h-12 min-w-0 flex-1 rounded-none"
               title={actionLabel}
-              disabled={!canAccept && !held && status !== 'claiming'}
+              disabled={(!canAccept && !held && status !== 'claiming') || feeBlocked}
               isLoading={status === 'claiming' && !held}
               aria-busy={busy}
+              aria-describedby={feeBlocked ? feeNoticeId : undefined}
               onClick={() => {
                 // Accepting IS the decision, so the transfer is read from here on even though no
                 // detail page was opened.

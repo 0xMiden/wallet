@@ -836,11 +836,25 @@ function refuseSendIfAborted(signal: AbortSignal | undefined, what: string): voi
 }
 
 /**
+ * `fees` with the tip held to `cap` (PayoutChain.maxPriorityFeeCap). The max fee drops by the tip given up, keeping
+ * viem's base fee headroom, so the balance a node asks of the send is what the capped send can pay. Shared with
+ * usdcx-l2-deposit.ts.
+ */
+export function capPriorityFee(
+  fees: { maxFeePerGas: bigint; maxPriorityFeePerGas: bigint },
+  cap: bigint | undefined
+): { maxFeePerGas: bigint; maxPriorityFeePerGas: bigint } {
+  if (cap === undefined || fees.maxPriorityFeePerGas <= cap) return fees;
+  const headroom = fees.maxFeePerGas > fees.maxPriorityFeePerGas ? fees.maxFeePerGas - fees.maxPriorityFeePerGas : 0n;
+  return { maxFeePerGas: headroom + cap, maxPriorityFeePerGas: cap };
+}
+
+/**
  * Signs `tx` and sends it to `endpoints.write`, which takes writes and estimates its gas. The estimate executes the
  * call, so one that depends on an approve runs at `tx.atBlock`, the block its simulation ran at; the signed transaction
- * names no block. Its fees are reads that fail over across `endpoints.reads`. A send that fails transiently is sent
- * again as the same signed bytes, so the hash cannot change. Nothing is sent, first time or again, once `signal` is
- * aborted.
+ * names no block. Its fees are reads that fail over across `endpoints.reads`, the tip held to the chain's cap. A send
+ * that fails transiently is sent again as the same signed bytes, so the hash cannot change. Nothing is sent, first time
+ * or again, once `signal` is aborted.
  */
 export async function sendSigned(
   deps: ArcWriteDeps,
@@ -849,7 +863,7 @@ export async function sendSigned(
   tx: { what: string; to: Address; data: Hex; nonce: number; atBlock?: bigint },
   signal: AbortSignal | undefined
 ): Promise<Hash> {
-  const { chainId, label } = chainOf(deps);
+  const { chainId, label, maxPriorityFeeCap } = chainOf(deps);
   const gas = await chainRead(
     `${label} gas estimate`,
     [endpoints.write],
@@ -857,7 +871,10 @@ export async function sendSigned(
     (client, blockNumber) => client.estimateGas({ account: account.address, to: tx.to, data: tx.data, blockNumber }),
     tx.atBlock
   );
-  const fees = await chainRead(`${label} fee estimate`, endpoints.reads, deps, client => client.estimateFeesPerGas());
+  const fees = capPriorityFee(
+    await chainRead(`${label} fee estimate`, endpoints.reads, deps, client => client.estimateFeesPerGas()),
+    maxPriorityFeeCap
+  );
   const serializedTransaction = await account.signTransaction({
     chainId,
     type: 'eip1559',
