@@ -4766,6 +4766,41 @@
     "message": "Execuções agrupadas nesta troca",
     "englishSource": "Fills bundled into this swap"
   },
+  "swapActivityTitle": {
+    "message": "Atividade de swap",
+    "englishSource": "Swap activity"
+  },
+  "swapReclaiming": {
+    "message": "Devolução de fundos",
+    "englishSource": "Returning funds"
+  },
+  "swapReturnedAt": {
+    "message": "Devolvido · $time$",
+    "englishSource": "Returned · $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapPlacedAt": {
+    "message": "Colocado há $time$",
+    "englishSource": "Placed $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapOfferedAmount": {
+    "message": "Oferecido $amount$",
+    "englishSource": "Offered $amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
   "swapFillNote": {
     "message": "Execução $number$",
     "englishSource": "Fill $number$",
@@ -6677,6 +6712,114 @@
   "breadPresentationError": {
     "message": "Este aplicativo não terminou de carregar. Tente novamente ou volte ao Bread.",
     "englishSource": "This app did not finish loading. Try again or return to Bread."
+  },
+  "bridgeInTitle": {
+    "message": "Bridge in",
+    "englishSource": "Bridge in"
+  },
+  "bridgeConnectWalletTitle": {
+    "message": "Conecte sua carteira",
+    "englishSource": "Connect your wallet"
+  },
+  "bridgeConnectWalletBody": {
+    "message": "Conecte a carteira que contém os tokens que você deseja transferir para a Miden.",
+    "englishSource": "Connect the wallet holding the tokens you want to bring to Miden."
+  },
+  "bridgeConnectWalletAction": {
+    "message": "Conectar carteira",
+    "englishSource": "Connect wallet"
+  },
+  "bridgeConnectSource": {
+    "message": "Carteira externa",
+    "englishSource": "External wallet"
+  },
+  "bridgeConnectSourceHint": {
+    "message": "Ainda não conectado",
+    "englishSource": "Not connected yet"
+  },
+  "bridgeConnectNextTitle": {
+    "message": "Após conectar-se",
+    "englishSource": "After connecting"
+  },
+  "bridgeConnectChooseTitle": {
+    "message": "Escolha sua transferência",
+    "englishSource": "Choose your transfer"
+  },
+  "bridgeConnectChooseBody": {
+    "message": "Escolha um token, uma rede de origem e um valor.",
+    "englishSource": "Pick a token, source network and amount."
+  },
+  "bridgeConnectApproveTitle": {
+    "message": "Revisar e aprovar",
+    "englishSource": "Review and approve"
+  },
+  "bridgeConnectApproveBody": {
+    "message": "Verifique a rota e as taxas e, em seguida, aprove a transferência na sua carteira.",
+    "englishSource": "Check the route and fees, then approve the transfer in your wallet."
+  },
+  "bridgeConnectTestWalletBody": {
+    "message": "Use uma carteira separada apenas com tokens de teste. Nunca conecte uma carteira que contenha fundos reais.",
+    "englishSource": "Use a separate wallet with test tokens only. Never connect a wallet holding real funds."
+  },
+  "bridgeChooseRoute": {
+    "message": "Escolha uma rota",
+    "englishSource": "Choose a route"
+  },
+  "bridgeRouteDescription": {
+    "message": "Verifique a taxa e o prazo estimado de chegada antes de continuar.",
+    "englishSource": "Review the fee and estimated arrival before you continue."
+  },
+  "bridgeArrivalEstimate": {
+    "message": "Chegada estimada",
+    "englishSource": "Estimated arrival"
+  },
+  "bridgePayoutTiming": {
+    "message": "A chegada depende da rede de destino",
+    "englishSource": "Arrival depends on the destination network"
+  },
+  "bridgeSourceWallet": {
+    "message": "Carteira",
+    "englishSource": "Wallet"
+  },
+  "bridgeRouteFee": {
+    "message": "Taxa de ponte",
+    "englishSource": "Bridge fee"
+  },
+  "bridgeRankBestValue": {
+    "message": "Melhor valor",
+    "englishSource": "Best value"
+  },
+  "bridgeRankCheapest": {
+    "message": "Mais barato",
+    "englishSource": "Cheapest"
+  },
+  "bridgeRankFastest": {
+    "message": "Mais rápido",
+    "englishSource": "Fastest"
+  },
+  "bridgeRouteSort": {
+    "message": "Classificar rotas",
+    "englishSource": "Sort routes"
+  },
+  "bridgeRouteProviders": {
+    "message": "Provedores de ponte",
+    "englishSource": "Bridge providers"
+  },
+  "bridgeRankValueDescription": {
+    "message": "A maior parte é recebida após a dedução das taxas do provedor.",
+    "englishSource": "Most received after provider fees."
+  },
+  "bridgeRankCostDescription": {
+    "message": "Menor custo de ponte e de rede, incluindo gas.",
+    "englishSource": "Lowest bridge and network cost, including gas."
+  },
+  "bridgeRankTimeDescription": {
+    "message": "Tempo estimado de chegada mais curto.",
+    "englishSource": "Shortest estimated arrival time."
+  },
+  "bridgeEstimatedCost": {
+    "message": "Custo estimado",
+    "englishSource": "Est. cost"
   },
   "earnWithdrawPositive": {
     "message": "Enter an amount greater than zero.",

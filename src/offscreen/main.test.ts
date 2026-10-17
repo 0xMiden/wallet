@@ -408,6 +408,9 @@ function resetControl() {
         swapAttachment: null
       }
     ]),
+    clientBuildPswapCancelRequest: jest.fn(
+      async (_accountId: string, _noteId: string) => new Uint8Array([20, 14, 7, 6])
+    ),
     // Slice-5 consume: the offscreen-owned client's consumeNoteId returns a
     // TransactionResult-like object exposing serialize() (the offscreen DISPATCH
     // ships the serialized bytes back).
@@ -544,6 +547,7 @@ function resetControl() {
         getInputNoteDetails: (...a: any[]) => (globalThis as any).__off.clientGetInputNoteDetails(...a),
         getTransactionCommitState: (...a: any[]) => (globalThis as any).__off.clientGetTransactionCommitState(...a),
         getConsumableNoteDtos: (...a: any[]) => (globalThis as any).__off.clientGetConsumableNoteDtos(...a),
+        buildPswapCancelRequest: (...a: any[]) => (globalThis as any).__off.clientBuildPswapCancelRequest(...a),
         consumeNoteId: (...a: any[]) => (globalThis as any).__off.clientConsumeNoteId(...a),
         sendTransaction: (...a: any[]) => (globalThis as any).__off.clientSendTransaction(...a),
         swapTransaction: (...a: any[]) => (globalThis as any).__off.clientSwapTransaction(...a),
@@ -2267,6 +2271,26 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
         swapAttachment: null
       }
     ]);
+  });
+
+  it('dispatches buildPswapCancelRequest and returns the fee-aware request bytes verbatim', async () => {
+    await loadModule();
+    const sendResponse = jest.fn();
+    const ret = capturedListener!(
+      callReq({
+        method: 'buildPswapCancelRequest',
+        argsB64: [encodeArg('mtst1qqaccount'), encodeArg('0xtip')]
+      }),
+      {},
+      sendResponse
+    );
+    expect(ret).toBe(true);
+    await flush();
+
+    expect(G.__off.clientBuildPswapCancelRequest).toHaveBeenCalledWith('mtst1qqaccount', '0xtip', expect.any(Function));
+    const resp = sendResponse.mock.calls[0][0];
+    expect(resp.ok).toBe(true);
+    expect(Buffer.from(resp.resultB64, 'base64')).toEqual(Buffer.from([20, 14, 7, 6]));
   });
 
   // ─── Slice 7a: deferred reach-through reads ─────────────────────────────────

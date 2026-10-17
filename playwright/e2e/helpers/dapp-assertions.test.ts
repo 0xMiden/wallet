@@ -135,6 +135,23 @@ describe('expectWritesToTheEnd', () => {
     expect(syncs()).toBe(2);
   });
 
+  it('asks the page that made the write for its result when the side names one', async () => {
+    walletShows(after, [row('funding'), written]);
+    jest.mocked(callDapp).mockClear();
+    const waitForTransaction = jest.fn(async () => ({
+      ok: true as const,
+      value: {
+        txHash: TX_HASH,
+        outputNotes: [
+          { noteId: NOTE, noteType: 'public' as const, bytesB64: '', isSameSdkNote: true, script: 'p2id' as const }
+        ]
+      }
+    }));
+    await expect(assertSend({ ...sideOf().side, waitForTransaction })).resolves.toHaveLength(1);
+    expect(waitForTransaction).toHaveBeenCalledWith(TX, expect.anything());
+    expect(jest.mocked(callDapp).mock.calls.map(call => call[1])).toEqual(['chainNote', 'chainAccount']);
+  });
+
   it('fails a write the wallet ran twice as two rows', async () => {
     walletShows(after, [row('funding'), written, row('tx-again', { transactionId: `0x${'ef'.repeat(32)}` })]);
     await expect(assertSend(sideOf().side)).rejects.toThrow(/tx-again/);

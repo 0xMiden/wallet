@@ -32,10 +32,15 @@ import { mergeAndPersistSeenNoteIds } from './note-checker-storage';
 import { isRotationPendingAccount } from './rotation-pending';
 import { Vault } from './vault';
 import { getBech32AddressFromAccountId } from '../sdk/helpers';
-import { getCurrentWasmLockHold, getMidenClient, withWasmClientLock } from '../sdk/miden-client';
+import { getCurrentWasmLockHold, getMidenClient, withWasmClientLock, type WasmLockHold } from '../sdk/miden-client';
 import { isSyncWatchdogEviction, WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
-import { classifySwapOrderNotes, localSwapOrders } from '../swap/classification';
-import { reconcileSwapOrderNotes } from '../swap/settlement';
+import { localSwapOrders } from '../swap/classification';
+import {
+  classifySwapSettlementSnapshot,
+  noteZeroFillBuildHoldFailure,
+  type PreparedPswapReclaim,
+  reconcileSwapOrderNotes
+} from '../swap/settlement';
 import { getNoteHoldingTransactions } from '../transaction/get';
 import { initiateConsumeNotesTransaction, initiateConsumeTransaction } from '../transaction/initiate';
 import { sweepNoteDeliveries } from '../transaction/note-delivery-sweep';
@@ -437,15 +442,19 @@ async function runSync(force: boolean): Promise<void> {
       // instead of the ~30s the old JS timeout bounded it to — strictly worse than
       // before the ceiling was added, on the one path (#777) that has no offscreen
       // realm to absorb it.
-      const { parsedNotes, vaultAssets, noteBlocks, balanceSnapshot } = await withWasmClientLock(
+      const settlementNowSeconds = Math.floor(Date.now() / 1000);
+      let notesReadHold: WasmLockHold | null = null;
+      const { parsedNotes, vaultAssets, noteBlocks, balanceSnapshot, zeroFillReclaims } = await withWasmClientLock(
         async hold => {
+          notesReadHold = hold;
           const client = await getMidenClient();
           if (!client)
             return {
               parsedNotes: [] as SerializedConsumableNote[],
               vaultAssets: [] as SerializedVaultAsset[],
               noteBlocks: new Map<string, number>(),
-              balanceSnapshot: undefined
+              balanceSnapshot: undefined,
+              zeroFillReclaims: new Map<string, PreparedPswapReclaim>()
             };
           // The client build is an await, and on the inline path it can be the long one
           // (a genesis fetch against a parked node). If this hold was evicted while it
@@ -491,7 +500,13 @@ async function runSync(force: boolean): Promise<void> {
           // buys is the window where the user DOES have open orders — covered by the
           // classifier's own per-order guard — plus an accurate attribution when it fires.
           stillOurs('after the quarantine read');
-          const swapOrders = await classifySwapOrderNotes(rawNotes, accountPubKey, swapOrderRows, hold);
+          const { classified: swapOrders, zeroFillReclaims } = await classifySwapSettlementSnapshot(
+            rawNotes,
+            accountPubKey,
+            swapOrderRows,
+            hold,
+            settlementNowSeconds
+          );
           stillOurs('after the swap-order lineage read');
           // Inclusion block of each note, dated once this hold has released the client (below).
           const noteBlocks = new Map<string, number>();
@@ -543,11 +558,16 @@ async function runSync(force: boolean): Promise<void> {
             parsedNotes: notes,
             vaultAssets: assets,
             noteBlocks,
-            balanceSnapshot: finishSnapshot(account)
+            balanceSnapshot: finishSnapshot(account),
+            zeroFillReclaims
           };
         },
         inlineWasm ? { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'sw-notes-read' } : undefined
-      );
+      ).catch((err: unknown) => {
+        // A zero-fill build this hold's eviction abandoned books its own key; no other failure of the read is booked.
+        noteZeroFillBuildHoldFailure(notesReadHold, err);
+        throw err;
+      });
 
       // Receive dates from the notes' inclusion blocks, read alongside the metadata below (RPC, outside lock).
       const blockTimesRead = getBlockTimestamps([...noteBlocks.values()], notesScope);
@@ -763,8 +783,9 @@ async function runSync(force: boolean): Promise<void> {
             accountPubKey,
             managedNotes,
             undefined,
-            undefined,
-            swapOrderRows
+            settlementNowSeconds,
+            swapOrderRows,
+            zeroFillReclaims
           );
           if (settlement.queuedTransactionIds.length > 0) {
             const { startTransactionProcessing } = await import('./transaction-processor');

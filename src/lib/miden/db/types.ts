@@ -547,6 +547,8 @@ export interface IConsumeSwapSettleExtraInputs {
   swapSettleKind: 'settle' | 'reclaim';
 }
 
+export type IConsumeExtraInputs = Partial<IConsumeBridgeInExtraInputs> & Partial<IConsumeSwapSettleExtraInputs>;
+
 /**
  * Sub-phase of a transaction while `status === GeneratingTransaction` (or
  * still `Queued` during the initial sync). Drives the modal's per-stage
@@ -1160,6 +1162,10 @@ export class ConsumeTransaction implements ITransaction {
   displayMessage?: string;
   displayIcon: ITransactionIcon;
   delegateTransaction?: boolean;
+  /** Pre-built request for a creator-owned PSWAP output-note reclaim. */
+  requestBytes?: Uint8Array;
+  /** Present for swap settlement rows; other consume rows leave it absent. */
+  extraInputs?: IConsumeExtraInputs;
 
   // There is deliberately no background/user-initiated distinction here anymore:
   // it only existed so Guardian auto-consume could be cold-signed while the iOS

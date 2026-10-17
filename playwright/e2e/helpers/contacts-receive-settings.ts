@@ -45,8 +45,9 @@
  *     `address-book-account-*` and are not links, so they are never mistaken for
  *     a contact here.
  */
-import { expect, type Locator, type Page } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 
+import { selectContactNetwork } from './contact-network';
 import type { ChromeWalletPageApi } from './wallet-page';
 
 // ── Settings sub-pages ──────────────────────────────────────────────────────
@@ -340,7 +341,7 @@ export async function openSendContactPicker(wallet: ChromeWalletPageApi, timeout
 }
 
 export interface SendContactInput extends ContactInput {
-  /** The network the sheet must show: `id` names its chip, `name` its label ("Miden", "Sepolia"). */
+  /** The network the sheet must show: `id` names its network choice, `name` its label ("Miden", "Sepolia"). */
   network: { id: string; name: string };
 }
 
@@ -409,26 +410,11 @@ export async function addContactFromSend(
     throw new Error(`${step}: the sheet names ${JSON.stringify(shownAddress)}, not the typed ${contact.address}.`);
   }
 
-  const chip = wallet.page.getByTestId(`add-contact-network-${contact.network.id}`);
   try {
-    await chip.waitFor({ state: 'visible', timeout: timeoutMs });
-  } catch {
-    throw new Error(
-      `${step}: the sheet shows no ${contact.network.name} network ` +
-        `([data-testid="add-contact-network-${contact.network.id}"]). Networks shown: ` +
-        `${await safeText(wallet.page.getByTestId('add-contact-network-options'))}`
-    );
+    await selectContactNetwork(wallet.page, contact.network, timeoutMs);
+  } catch (error) {
+    throw new Error(`${step}: ${error instanceof Error ? error.message : String(error)}`);
   }
-  const chipText = (await chip.textContent())?.trim() ?? '';
-  if (chipText !== contact.network.name) {
-    throw new Error(`${step}: the ${contact.network.id} chip reads ${JSON.stringify(chipText)}.`);
-  }
-  let expectedPressed: string | null = null;
-  if (contact.network.id !== 'miden') {
-    await chip.click({ timeout: timeoutMs });
-    expectedPressed = 'true';
-  }
-  await expect.poll(() => chip.getAttribute('aria-pressed'), { timeout: timeoutMs }).toBe(expectedPressed);
 
   try {
     await sheet.getByTestId('address-book-name-input').fill(contact.name, { timeout: timeoutMs });

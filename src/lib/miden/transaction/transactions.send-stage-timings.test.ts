@@ -400,6 +400,20 @@ describe('which dispatches carry a stamp (#1081)', () => {
   it.each<[string, Record<string, unknown>, 'consumeNoteId' | 'swapTransaction' | 'newTransaction', number, boolean]>([
     ['a claim', { id: 'c', type: 'consume', noteId: 'n', noteIds: ['n'] }, 'consumeNoteId', 2, true],
     [
+      'a prepared zero-fill PSWAP reclaim',
+      {
+        id: 'cr',
+        type: 'consume',
+        noteId: 'zero-fill-tip',
+        noteIds: ['zero-fill-tip'],
+        requestBytes: new Uint8Array([1]),
+        extraInputs: { swapOrderTxId: 'swap-row', swapSettleKind: 'reclaim' }
+      },
+      'newTransaction',
+      4,
+      true
+    ],
+    [
       'a rotation-funding claim',
       { id: 'cf', type: 'consume', noteId: 'n', noteIds: ['n'], rotationFunding: true },
       'consumeNoteId',

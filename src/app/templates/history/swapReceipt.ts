@@ -113,6 +113,8 @@ export const isPartialSwapFill = (
   !swapFillReached(requestedAmount, filledAmount, slippageBps);
 
 export interface SwapReceiptInputs {
+  /** Original PSWAP output; reclaiming that same note proves no fill advanced it. */
+  originalOutputNoteIds?: string[];
   /** Undefined for rows persisted without one — unknown, not zero. */
   requestedAmount?: bigint;
   requestedFaucetId?: string;
@@ -151,8 +153,8 @@ export interface SwapReceiptView {
    * The expiry has passed and the tip has not come back yet - so a reclaim is
    * owed, whether the user asked for it or the order simply timed out. This is
    * the state a successful Cancel lands in, which is why the two are derived
-   * together: the button's disappearance and the notice replacing it are one
-   * fact about the row, not two.
+   * together. The receipt's status and reclaim notice do not read it: they
+   * follow the settlement stamp, as the Activity list does.
    */
   reclaimPending: boolean;
 }
@@ -173,6 +175,7 @@ export interface SwapReceiptView {
  * order. The receipt keeps them converged by re-reading the row.
  */
 export const deriveSwapReceipt = ({
+  originalOutputNoteIds,
   requestedAmount,
   requestedFaucetId,
   tracking,
@@ -214,17 +217,31 @@ export const deriveSwapReceipt = ({
   const reportedState: SwapOrderState | null =
     tracking && tracking.state !== 'active' ? tracking.state : (settledOrderState ?? tracking?.state ?? null);
 
+  // A reclaimed tip can have both remaining amounts cleared by the SDK. That
+  // means the offer is gone, not that the counter-asset arrived. Depth zero is
+  // positive evidence of no fills; a cleared partial lineage needs payback
+  // evidence instead of manufacturing 100% from the terminal zero.
   const fromLineage =
     requestedAmount !== undefined && tracking
-      ? tracking.remainingRequested > requestedAmount
-        ? 0n
-        : requestedAmount - tracking.remainingRequested
+      ? tracking.state === 'reclaimed' && tracking.remainingRequested === 0n
+        ? tracking.currentDepth === 0
+          ? 0n
+          : undefined
+        : tracking.remainingRequested > requestedAmount
+          ? 0n
+          : requestedAmount - tracking.remainingRequested
       : undefined;
-  const filledAmount = filledRequestedAmount(
-    fromLineage,
-    locallySettledRequestedAmount(settledTransactions, requestedFaucetId),
-    requestedAmount
-  );
+  // A full or partial fill consumes the original PSWAP and creates a different
+  // remainder. A completed reclaim of the original output is durable zero-fill
+  // evidence even after the SDK's tracking cache is unavailable on restart.
+  const reclaimedOriginal = originalOutputNoteIds?.some(noteId => settlement?.reclaimed.includes(noteId)) === true;
+  const filledAmount = reclaimedOriginal
+    ? 0n
+    : filledRequestedAmount(
+        fromLineage,
+        locallySettledRequestedAmount(settledTransactions, requestedFaucetId),
+        requestedAmount
+      );
   // An order that received `requested × (1 − slippage)` reads as filled, whether its remainder is
   // still on the tip or settlement has reclaimed it at expiry. Only the label follows the target.
   const fillReached =

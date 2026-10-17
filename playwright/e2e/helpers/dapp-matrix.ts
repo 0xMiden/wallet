@@ -8,13 +8,15 @@ export const JOURNEY_TITLES: Record<JourneyId, string> = {
   R: 'dApp signing and refusals',
   X: 'dApp custom requests',
   XL: 'dApp custom request across the account history window',
-  M: 'dApp accounts and multiple dApps'
+  M: 'dApp accounts and multiple dApps',
+  RA: 'dApp React adapter'
 };
 
 /**
  * Each is the higher of the spec's initial testnet value (about 2x its estimate, section 6) and the spike's value
  * recomputed from measured unit costs. None recomputed higher, and reads and refusals went unmeasured, so these are
- * the initial values. A part's journeys stay under the workflow's 140-min run step: core 125 min, writes 130 min.
+ * the initial values; RA (phase 2) is about twice its 15-minute estimate. A part's journeys stay under the workflow's
+ * 170-min run step: core 155 min, writes 130 min.
  */
 export const JOURNEY_TIMEOUT_MS: Record<JourneyId, number> = {
   S: 20 * 60_000,
@@ -22,7 +24,8 @@ export const JOURNEY_TIMEOUT_MS: Record<JourneyId, number> = {
   W: 60 * 60_000,
   X: 45 * 60_000,
   XL: 25 * 60_000,
-  M: 60 * 60_000
+  M: 60 * 60_000,
+  RA: 30 * 60_000
 };
 
 /** The axis suffix is what the workflow's `--grep " - <axis> account"` selects a leg by. */
@@ -115,7 +118,24 @@ export const DAPP_JOURNEY_CELLS: Record<JourneyId, CellList> = {
     { id: 'M8-single', axes: GUARDIAN },
     { id: 'M8-guardian', axes: GUARDIAN },
     ...both('M10', 'N5')
-  ]
+  ],
+  // Phase 2, Q5 (spec section 4): WP7 splits into a switch and a revoke row, as S7 and M1 do on the adapter.
+  RA: both(
+    'WP1',
+    'WP2',
+    'WP3',
+    'WP4',
+    'WP5',
+    'WP6',
+    'WP7-switch',
+    'WP7-revoke',
+    'WP8',
+    'WP9',
+    'MF1',
+    'MF2',
+    'MF3',
+    'MF4'
+  )
 };
 
 export const cellIdsFor = (journey: JourneyId, axis: AxisLabel): string[] =>

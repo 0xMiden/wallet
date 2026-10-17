@@ -124,16 +124,17 @@ describe('SelectRecipient', () => {
     renderRecipient({ address: ETH_ADDRESS, isValidAddress: true, chain: 'ethereum', network: 'sepolia' });
 
     const chip = screen.getByTestId('send-network-sepolia');
-    expect(chip.tagName).toBe('SPAN');
+    expect(chip.tagName).not.toBe('BUTTON');
     expect(chip).toHaveTextContent('Sepolia');
   });
 
-  it('offers the bridge networks as chips once there is more than one', () => {
+  it('offers bridge networks in a picker once there is more than one', () => {
     mockBridgeNetworks.push({ id: 'base', name: 'Base', chainId: 8453 });
     try {
       const props = renderRecipient({ address: ETH_ADDRESS, isValidAddress: true, chain: 'ethereum' });
 
       expect(screen.getByTestId('send-recipient-confirm')).toBeDisabled();
+      fireEvent.click(screen.getByTestId('send-network-picker'));
       expect(screen.getByTestId('send-network-sepolia')).toHaveAttribute('aria-pressed', 'false');
       fireEvent.click(screen.getByTestId('send-network-base'));
       expect(props.onSelectNetwork).toHaveBeenCalledWith('base');

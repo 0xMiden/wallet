@@ -633,6 +633,14 @@ const DISPATCH: Record<string, DispatchFn> = {
     return new TextEncoder().encode(JSON.stringify(dtos));
   },
 
+  // Fee-aware depth-0 PSWAP reclaim request. The full output-note record exists
+  // only in the creator's canonical realm; return the serialized request, never
+  // a live note or request object.
+  buildPswapCancelRequest: async (context, client, accountId: string, noteId: string) =>
+    client.buildPswapCancelRequest(accountId, noteId, step =>
+      assertWasmHoldCurrent(context.hold, 'in offscreen buildPswapCancelRequest', step)
+    ),
+
   // Deferred reach-through READS moved offscreen (issue #260, slice 7a). Each reads
   // the OFFSCREEN client's canonical synced state — the whole point, since flag-on
   // the SW client is dormant and these formerly read stale data off it. The results

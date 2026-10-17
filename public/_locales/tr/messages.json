@@ -4766,6 +4766,41 @@
     "message": "Bu takasta toplanan gerçekleşmeler",
     "englishSource": "Fills bundled into this swap"
   },
+  "swapActivityTitle": {
+    "message": "Takas faaliyeti",
+    "englishSource": "Swap activity"
+  },
+  "swapReclaiming": {
+    "message": "Fonların iadesi",
+    "englishSource": "Returning funds"
+  },
+  "swapReturnedAt": {
+    "message": "Geri döndü · $time$",
+    "englishSource": "Returned · $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapPlacedAt": {
+    "message": "$time$ tarihinde verilmiştir",
+    "englishSource": "Placed $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapOfferedAmount": {
+    "message": "Teklif Edilen $amount$",
+    "englishSource": "Offered $amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
   "swapFillNote": {
     "message": "Gerçekleşme $number$",
     "englishSource": "Fill $number$",
@@ -6677,6 +6712,114 @@
   "breadPresentationError": {
     "message": "Bu uygulamanın yüklenmesi tamamlanmadı. Tekrar deneyin veya Bread’e dönün.",
     "englishSource": "This app did not finish loading. Try again or return to Bread."
+  },
+  "bridgeInTitle": {
+    "message": "Köprü",
+    "englishSource": "Bridge in"
+  },
+  "bridgeConnectWalletTitle": {
+    "message": "Cüzdanınızı bağlayın",
+    "englishSource": "Connect your wallet"
+  },
+  "bridgeConnectWalletBody": {
+    "message": "Miden’e aktarmak istediğiniz token’ları barındıran cüzdanı bağlayın.",
+    "englishSource": "Connect the wallet holding the tokens you want to bring to Miden."
+  },
+  "bridgeConnectWalletAction": {
+    "message": "Cüzdanı bağla",
+    "englishSource": "Connect wallet"
+  },
+  "bridgeConnectSource": {
+    "message": "Harici cüzdan",
+    "englishSource": "External wallet"
+  },
+  "bridgeConnectSourceHint": {
+    "message": "Henüz bağlanmadı",
+    "englishSource": "Not connected yet"
+  },
+  "bridgeConnectNextTitle": {
+    "message": "Bağlandıktan sonra",
+    "englishSource": "After connecting"
+  },
+  "bridgeConnectChooseTitle": {
+    "message": "Transferinizi seçin",
+    "englishSource": "Choose your transfer"
+  },
+  "bridgeConnectChooseBody": {
+    "message": "Bir token, kaynak ağ ve tutar seçin.",
+    "englishSource": "Pick a token, source network and amount."
+  },
+  "bridgeConnectApproveTitle": {
+    "message": "İnceleme ve onaylama",
+    "englishSource": "Review and approve"
+  },
+  "bridgeConnectApproveBody": {
+    "message": "Güzergâhı ve ücretleri kontrol edin, ardından cüzdanınızdan transferi onaylayın.",
+    "englishSource": "Check the route and fees, then approve the transfer in your wallet."
+  },
+  "bridgeConnectTestWalletBody": {
+    "message": "Yalnızca test token'ları içeren ayrı bir cüzdan kullanın. Asla gerçek fonların bulunduğu bir cüzdanı bağlamayın.",
+    "englishSource": "Use a separate wallet with test tokens only. Never connect a wallet holding real funds."
+  },
+  "bridgeChooseRoute": {
+    "message": "Bir yol seçin",
+    "englishSource": "Choose a route"
+  },
+  "bridgeRouteDescription": {
+    "message": "Devam etmeden önce ücreti ve tahmini varış süresini gözden geçirin.",
+    "englishSource": "Review the fee and estimated arrival before you continue."
+  },
+  "bridgeArrivalEstimate": {
+    "message": "Tahmini varış",
+    "englishSource": "Estimated arrival"
+  },
+  "bridgePayoutTiming": {
+    "message": "Varış, hedef ağa bağlıdır",
+    "englishSource": "Arrival depends on the destination network"
+  },
+  "bridgeSourceWallet": {
+    "message": "Cüzdan",
+    "englishSource": "Wallet"
+  },
+  "bridgeRouteFee": {
+    "message": "Köprü ücreti",
+    "englishSource": "Bridge fee"
+  },
+  "bridgeRankBestValue": {
+    "message": "En iyi değer",
+    "englishSource": "Best value"
+  },
+  "bridgeRankCheapest": {
+    "message": "En ucuz",
+    "englishSource": "Cheapest"
+  },
+  "bridgeRankFastest": {
+    "message": "En hızlı",
+    "englishSource": "Fastest"
+  },
+  "bridgeRouteSort": {
+    "message": "Yolları sıralama",
+    "englishSource": "Sort routes"
+  },
+  "bridgeRouteProviders": {
+    "message": "Köprü sağlayıcıları",
+    "englishSource": "Bridge providers"
+  },
+  "bridgeRankValueDescription": {
+    "message": "Çoğu, sağlayıcı ücretleri düşüldükten sonra alınır.",
+    "englishSource": "Most received after provider fees."
+  },
+  "bridgeRankCostDescription": {
+    "message": "Gaz dahil en düşük köprü ve ağ maliyeti.",
+    "englishSource": "Lowest bridge and network cost, including gas."
+  },
+  "bridgeRankTimeDescription": {
+    "message": "Tahmini en kısa varış süresi.",
+    "englishSource": "Shortest estimated arrival time."
+  },
+  "bridgeEstimatedCost": {
+    "message": "Tahmini maliyet",
+    "englishSource": "Est. cost"
   },
   "earnWithdrawPositive": {
     "message": "Enter an amount greater than zero.",

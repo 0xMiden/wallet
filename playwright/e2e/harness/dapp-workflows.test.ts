@@ -31,8 +31,8 @@ describe('dApp E2E workflow', () => {
   });
 
   it('bounds the run step and still renders, uploads and judges after it', () => {
-    expect(workflow).toMatch(/id: run\n\s+continue-on-error: true\n\s+timeout-minutes: 140/);
-    expect(workflow).toMatch(/timeout-minutes: \$\{\{ github\.event_name == 'workflow_dispatch' && 220 \|\| 190 \}\}/);
+    expect(workflow).toMatch(/id: run\n\s+continue-on-error: true\n\s+timeout-minutes: 170/);
+    expect(workflow).toMatch(/timeout-minutes: \$\{\{ github\.event_name == 'workflow_dispatch' && 250 \|\| 220 \}\}/);
     for (const step of ['Render matrix', 'Upload records', 'Judge']) {
       expect(workflow).toMatch(new RegExp(`- name: ${step}\\n\\s+if: always\\(\\)`));
     }
@@ -44,7 +44,7 @@ describe('dApp E2E workflow', () => {
   });
 
   it('splits the journeys into the two parts of spec section 6 and selects every dApp spec file in one of them', () => {
-    expect(partFiles('core')).toEqual(['session', 'signing-and-refusals', 'accounts-and-dapps']);
+    expect(partFiles('core')).toEqual(['session', 'signing-and-refusals', 'accounts-and-dapps', 'react-adapter']);
     expect(partFiles('writes')).toEqual(['wallet-writes-and-notes', 'custom-requests']);
     // A spec file no part names would never run, and the judge sees only the tests a run selected.
     const selected = [...partFiles('core'), ...partFiles('writes')];

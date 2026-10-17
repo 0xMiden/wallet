@@ -113,7 +113,7 @@ export interface IHistoryEntry {
    * status chip. Absent (rendered Confirmed) once settled, and for legacy /
    * manual-claim orders.
    */
-  swapSettlement?: 'pending' | 'reclaimed';
+  swapSettlement?: 'pending' | 'reclaimed' | 'reclaiming';
   secondaryAddress?: string;
   cancel?: () => Promise<void>;
   explorerLink?: string;

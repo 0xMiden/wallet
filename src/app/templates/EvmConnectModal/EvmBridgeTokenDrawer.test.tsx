@@ -15,31 +15,40 @@ jest.mock('components/TokenLogo', () => ({
   TokenLogo: ({ symbol }: { symbol: string }) => <span data-testid="token-logo" data-symbol={symbol} />
 }));
 
-const renderDrawer = (usdcLabel: string) =>
+const renderDrawer = () =>
   render(
     <EvmBridgeTokenDrawer
       open
       onOpenChange={jest.fn()}
-      selected="USDC"
+      selected="CIRCLE_USDC"
       ethBalance="0.5"
-      usdcBalance="12"
-      usdcLabel={usdcLabel}
+      circleUsdcBalance="12"
       onSelect={jest.fn()}
     />
   );
 
 describe('EvmBridgeTokenDrawer', () => {
-  it('names the USDC row by the label it is given, keeping its test id and logo on USDC', () => {
-    renderDrawer('Test Epoch USDC');
+  it('offers Circle USDC and ETH, and no retired Epoch USDC row', () => {
+    renderDrawer();
 
-    const row = screen.getByTestId('bridge-token-USDC');
-    expect(within(row).getByText('Test Epoch USDC')).toBeInTheDocument();
-    expect(within(row).getByText('12 Test Epoch USDC')).toBeInTheDocument();
+    expect(screen.getAllByRole('button').map(row => row.getAttribute('data-testid'))).toEqual([
+      'bridge-token-ETH',
+      'bridge-token-CIRCLE_USDC'
+    ]);
+    expect(screen.queryByTestId('bridge-token-USDC')).not.toBeInTheDocument();
+  });
+
+  it('offers Circle USDC under its symbol with the USDC logo', () => {
+    renderDrawer();
+
+    const row = screen.getByTestId('bridge-token-CIRCLE_USDC');
+    expect(within(row).getByText('USDC')).toBeInTheDocument();
+    expect(within(row).getByText('12 USDC')).toBeInTheDocument();
     expect(within(row).getByTestId('token-logo')).toHaveAttribute('data-symbol', 'USDC');
   });
 
   it('leaves the ETH row on its symbol', () => {
-    renderDrawer('Test Epoch USDC');
+    renderDrawer();
 
     const row = screen.getByTestId('bridge-token-ETH');
     expect(within(row).getByText('ETH')).toBeInTheDocument();
@@ -54,7 +63,6 @@ describe('EvmBridgeTokenDrawer', () => {
         open
         onOpenChange={jest.fn()}
         selected="CIRCLE_USDC"
-        usdcLabel="USDC"
         circleUsdcBalance="3"
         circleUsdcLabel="USDC"
         onSelect={jest.fn()}

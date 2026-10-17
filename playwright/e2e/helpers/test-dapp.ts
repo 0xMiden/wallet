@@ -30,8 +30,7 @@ import type {
   DappOutput,
   Outcome,
   RawArg,
-  SessionView,
-  TestDappWindowApi
+  SessionView
 } from '../test-dapp/protocol';
 
 /**
@@ -49,7 +48,8 @@ const DAPP_INIT_BUDGET_MS = 120_000;
 
 export interface DappHandle {
   readonly page: Page;
-  readonly label: DappLabel;
+  /** `react` is the React page (helpers/react-dapp.ts), on its own origin. */
+  readonly label: DappLabel | 'react';
   readonly origin: string;
   readonly context: BrowserContext;
 }
@@ -71,7 +71,7 @@ async function ensureServed(context: BrowserContext): Promise<void> {
 
 // The page publishes `testDapp` once its modules loaded (the SDK's wasm among them); the provider is injected by the
 // content script on its own schedule, so both are awaited.
-async function waitReady(page: Page, timeoutMs: number): Promise<void> {
+export async function waitReady(page: Page, timeoutMs: number): Promise<void> {
   await page.waitForFunction(
     () => (window as unknown as { testDapp?: { ready?: boolean } }).testDapp?.ready === true,
     undefined,
@@ -133,23 +133,25 @@ const REPEATABLE: ReadonlySet<DappCommandName> = new Set([
 const NODE_RETRY_MS = 2_000;
 
 // What crosses into the page. Playwright maps an evaluate argument's type recursively, and a generic command and input
-// pair is too deep for it (TS2589), so the pair is pinned by evaluateOnce's own signature and crosses as this.
+// pair is too deep for it (TS2589), so the pair is pinned by the typed callers (evaluateOnce, callReact) and crosses as
+// this.
 interface PageCall {
-  command: DappCommandName;
+  command: string;
   input: unknown;
 }
+// Either page's `window.testDapp` (test-dapp/protocol.ts, test-dapp/react-protocol.ts), as the untyped channel sees it.
+interface AnyTestDapp {
+  call(command: string, input: unknown): Promise<unknown>;
+}
 
-function evaluateOnce<K extends DappCommandName>(
-  dapp: DappHandle,
-  command: K,
-  input: DappInput<K>
-): Promise<DappOutput<K>> {
+/** One `window.testDapp.call` on either page, untyped; a page error maps to ChainUnavailable or HarnessFault. */
+export function evaluateCommand(dapp: DappHandle, command: string, input: unknown): Promise<unknown> {
   const call: PageCall = { command, input };
   const answer = dapp.page.evaluate((sent: PageCall): Promise<unknown> => {
-    const api = (window as unknown as { testDapp?: TestDappWindowApi }).testDapp;
+    const api = (window as unknown as { testDapp?: AnyTestDapp }).testDapp;
     if (!api) throw new Error('window.testDapp is not installed');
-    return api.call(sent.command, sent.input as never);
-  }, call) as Promise<DappOutput<K>>;
+    return api.call(sent.command, sent.input);
+  }, call);
   return answer.catch((error: unknown) => {
     const text = error instanceof Error ? error.message : String(error);
     // Playwright carries the page error's stack, which opens with its name (test-dapp/test-dapp.ts).
@@ -157,6 +159,14 @@ function evaluateOnce<K extends DappCommandName>(
     // Any other page-side throw is a dApp bug (bad input, failed self-check), never a wallet verdict.
     throw new HarnessFault(`dApp ${dapp.label} ${command} threw: ${text}`);
   });
+}
+
+function evaluateOnce<K extends DappCommandName>(
+  dapp: DappHandle,
+  command: K,
+  input: DappInput<K>
+): Promise<DappOutput<K>> {
+  return evaluateCommand(dapp, command, input) as Promise<DappOutput<K>>;
 }
 
 /**

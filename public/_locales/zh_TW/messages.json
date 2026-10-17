@@ -4766,6 +4766,41 @@
     "message": "此次兌換中打包的成交",
     "englishSource": "Fills bundled into this swap"
   },
+  "swapActivityTitle": {
+    "message": "交換活動",
+    "englishSource": "Swap activity"
+  },
+  "swapReclaiming": {
+    "message": "退還資金",
+    "englishSource": "Returning funds"
+  },
+  "swapReturnedAt": {
+    "message": "已退回 · $time$",
+    "englishSource": "Returned · $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapPlacedAt": {
+    "message": "下單時間：$time$",
+    "englishSource": "Placed $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapOfferedAmount": {
+    "message": "出價 $amount$",
+    "englishSource": "Offered $amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
   "swapFillNote": {
     "message": "成交 $number$",
     "englishSource": "Fill $number$",
@@ -6677,6 +6712,114 @@
   "breadPresentationError": {
     "message": "此應用程式未完成載入。請重試或返回 Bread。",
     "englishSource": "This app did not finish loading. Try again or return to Bread."
+  },
+  "bridgeInTitle": {
+    "message": "Bridge in",
+    "englishSource": "Bridge in"
+  },
+  "bridgeConnectWalletTitle": {
+    "message": "連接您的錢包",
+    "englishSource": "Connect your wallet"
+  },
+  "bridgeConnectWalletBody": {
+    "message": "將您欲轉入 Miden 的代幣所存放的錢包進行連結。",
+    "englishSource": "Connect the wallet holding the tokens you want to bring to Miden."
+  },
+  "bridgeConnectWalletAction": {
+    "message": "連接錢包",
+    "englishSource": "Connect wallet"
+  },
+  "bridgeConnectSource": {
+    "message": "外部錢包",
+    "englishSource": "External wallet"
+  },
+  "bridgeConnectSourceHint": {
+    "message": "尚未連線",
+    "englishSource": "Not connected yet"
+  },
+  "bridgeConnectNextTitle": {
+    "message": "連線後",
+    "englishSource": "After connecting"
+  },
+  "bridgeConnectChooseTitle": {
+    "message": "選擇您的轉帳方式",
+    "englishSource": "Choose your transfer"
+  },
+  "bridgeConnectChooseBody": {
+    "message": "請選擇代幣、來源網路及金額。",
+    "englishSource": "Pick a token, source network and amount."
+  },
+  "bridgeConnectApproveTitle": {
+    "message": "審閱並核准",
+    "englishSource": "Review and approve"
+  },
+  "bridgeConnectApproveBody": {
+    "message": "請確認轉帳路徑與手續費，然後在您的錢包中批准轉帳。",
+    "englishSource": "Check the route and fees, then approve the transfer in your wallet."
+  },
+  "bridgeConnectTestWalletBody": {
+    "message": "請使用僅存放測試代幣的獨立錢包。切勿連接存放真實資金的錢包。",
+    "englishSource": "Use a separate wallet with test tokens only. Never connect a wallet holding real funds."
+  },
+  "bridgeChooseRoute": {
+    "message": "選擇路徑",
+    "englishSource": "Choose a route"
+  },
+  "bridgeRouteDescription": {
+    "message": "請在繼續之前，確認手續費及預估到帳時間。",
+    "englishSource": "Review the fee and estimated arrival before you continue."
+  },
+  "bridgeArrivalEstimate": {
+    "message": "預計抵達時間",
+    "englishSource": "Estimated arrival"
+  },
+  "bridgePayoutTiming": {
+    "message": "抵達時間取決於目標網路",
+    "englishSource": "Arrival depends on the destination network"
+  },
+  "bridgeSourceWallet": {
+    "message": "錢包",
+    "englishSource": "Wallet"
+  },
+  "bridgeRouteFee": {
+    "message": "橋接手續費",
+    "englishSource": "Bridge fee"
+  },
+  "bridgeRankBestValue": {
+    "message": "最佳價值",
+    "englishSource": "Best value"
+  },
+  "bridgeRankCheapest": {
+    "message": "最便宜",
+    "englishSource": "Cheapest"
+  },
+  "bridgeRankFastest": {
+    "message": "最快",
+    "englishSource": "Fastest"
+  },
+  "bridgeRouteSort": {
+    "message": "排序路徑",
+    "englishSource": "Sort routes"
+  },
+  "bridgeRouteProviders": {
+    "message": "橋接服務提供商",
+    "englishSource": "Bridge providers"
+  },
+  "bridgeRankValueDescription": {
+    "message": "大部分款項將於扣除服務商手續費後到帳。",
+    "englishSource": "Most received after provider fees."
+  },
+  "bridgeRankCostDescription": {
+    "message": "最低的跨鏈與網路成本，包含 gas 費用。",
+    "englishSource": "Lowest bridge and network cost, including gas."
+  },
+  "bridgeRankTimeDescription": {
+    "message": "預計最短抵達時間。",
+    "englishSource": "Shortest estimated arrival time."
+  },
+  "bridgeEstimatedCost": {
+    "message": "預估成本",
+    "englishSource": "Est. cost"
   },
   "earnWithdrawPositive": {
     "message": "Enter an amount greater than zero.",

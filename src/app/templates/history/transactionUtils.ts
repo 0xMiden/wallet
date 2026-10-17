@@ -187,11 +187,14 @@ export const isCompletedTransaction = (message: string): boolean => {
  * Shared by the list and the detail screen so one order cannot read "Pending"
  * in the list and "Confirmed" on its own receipt.
  */
-export const swapSettlementOf = (tx: ITransaction): 'pending' | 'reclaimed' | undefined => {
+export const swapSettlementOf = (tx: ITransaction): IHistoryEntry['swapSettlement'] => {
   if (tx.type !== 'swap' || tx.status !== ITransactionStatus.Completed) return undefined;
   const extra = tx.extraInputs ?? {};
   if (extra.settledAt != null) return undefined;
   if (extra.reclaimedAt != null) return 'reclaimed';
+  // Returning funds only for an order settlement acts on: it never settles a restored row, so that stamp stays put.
+  if (extra.expiryTriggeredAt != null && extra.autoConsume !== false && extra.orderId != null && !tx.restoredFromBackup)
+    return 'reclaiming';
   if (extra.autoConsume !== false && extra.orderId != null && extra.expiresAt != null) return 'pending';
   return undefined;
 };

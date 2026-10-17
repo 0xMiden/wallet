@@ -539,6 +539,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
     orderKey !== undefined && transaction?.restoredFromBackup !== true && (trackingEntry?.loading ?? true);
 
   const receipt = deriveSwapReceipt({
+    originalOutputNoteIds: transaction?.outputNoteIds,
     requestedAmount: requestedToken?.amount,
     requestedFaucetId: requestedToken?.faucetId,
     tracking: swapTracking,
@@ -733,7 +734,6 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
               receipt.offerClaimRoute && !transaction?.recovered ? () => navigate(ACTIVITY_PENDING_PATH) : undefined
             }
             offerCancelOrder={receipt.offerCancel}
-            reclaimPending={receipt.reclaimPending}
             isCancellingOrder={actions.isCancellingOrder}
             cancelOrderError={actions.cancelOrderError}
             onCancelOrder={actions.onCancelOrder}
