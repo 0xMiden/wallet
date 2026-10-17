@@ -1382,7 +1382,9 @@ describe('Explore', () => {
       expect(mockInitiateConsumeTransaction).toHaveBeenCalledWith(
         'mtst1account',
         expect.objectContaining({ id: 'actual-note' }),
-        expect.any(Boolean)
+        expect.any(Boolean),
+        false,
+        'auto_consume'
       );
       expect(mockInitiateConsumeTransaction).toHaveBeenCalledTimes(1);
       expect(screen.getByTestId('home-prompts')).toHaveAttribute('data-note-count', '1');
@@ -1405,7 +1407,9 @@ describe('Explore', () => {
       expect(mockInitiateConsumeTransaction).toHaveBeenCalledWith(
         'mtst1account',
         expect.objectContaining({ id: 'n1' }),
-        true // isDelegatedProvingEnabled
+        true, // isDelegatedProvingEnabled
+        false,
+        'auto_consume'
       );
       expect(mockMutateClaimableNotes).toHaveBeenCalled();
       expect(mockRequestSWTransactionProcessing).toHaveBeenCalledTimes(1);
@@ -1448,7 +1452,9 @@ describe('Explore', () => {
       expect(mockInitiateConsumeTransaction).toHaveBeenCalledWith(
         'mtst1account',
         expect.objectContaining({ id: 'n1' }),
-        false
+        false,
+        false,
+        'auto_consume'
       );
       expect(mockRequestSWTransactionProcessing).not.toHaveBeenCalled();
       expect(mockStartBackgroundTransactionProcessing).toHaveBeenCalledTimes(1);
