@@ -1,155 +1,155 @@
 {
   "arcadePreview": {
-    "message": "Preview",
-    "englishSource": "Pending translation: Preview"
+    "message": "미리 보기",
+    "englishSource": "Preview"
   },
   "arcadeExitPreview": {
-    "message": "Exit",
-    "englishSource": "Pending translation: Exit"
+    "message": "종료",
+    "englishSource": "Exit"
   },
   "arcadeSampleNotice": {
-    "message": "Sample data for design preview only. These are not your wallet funds or real player rankings. Nothing is published.",
-    "englishSource": "Pending translation: Sample data for design preview only. These are not your wallet funds or real player rankings. Nothing is published."
+    "message": "이 데이터는 디자인 미리보기용 샘플일 뿐입니다. 이는 귀하의 지갑 자금이나 실제 플레이어 순위가 아닙니다. 어떤 정보도 공개되지 않습니다.",
+    "englishSource": "Sample data for design preview only. These are not your wallet funds or real player rankings. Nothing is published."
   },
   "arcadeSamplePlayer": {
-    "message": "Sample player",
-    "englishSource": "Pending translation: Sample player"
+    "message": "플레이어 예시",
+    "englishSource": "Sample player"
   },
   "arcadePreviewOnly": {
-    "message": "Preview only",
-    "englishSource": "Pending translation: Preview only"
+    "message": "미리보기 전용",
+    "englishSource": "Preview only"
   },
   "arcadeApplySample": {
-    "message": "Apply sample update",
-    "englishSource": "Pending translation: Apply sample update"
+    "message": "샘플 업데이트 적용",
+    "englishSource": "Apply sample update"
   },
   "arcadeYourRank": {
-    "message": "Your rank",
-    "englishSource": "Pending translation: Your rank"
+    "message": "귀하의 등급",
+    "englishSource": "Your rank"
   },
   "arcadeSubmittedBalance": {
-    "message": "Submitted balance",
-    "englishSource": "Pending translation: Submitted balance"
+    "message": "제출된 잔액",
+    "englishSource": "Submitted balance"
   },
   "arcadeLeaderboard": {
-    "message": "GC leaderboard",
-    "englishSource": "Pending translation: GC leaderboard"
+    "message": "GC 순위표",
+    "englishSource": "GC leaderboard"
   },
   "arcadeSampleUpdated": {
-    "message": "Sample snapshot updated locally. Nothing was submitted.",
-    "englishSource": "Pending translation: Sample snapshot updated locally. Nothing was submitted."
+    "message": "로컬에서 샘플 스냅샷이 업데이트되었습니다. 제출된 내용은 없습니다.",
+    "englishSource": "Sample snapshot updated locally. Nothing was submitted."
   },
   "arcadeTitle": {
     "message": "Bread Arcade",
-    "englishSource": "Pending translation: Bread Arcade"
+    "englishSource": "Bread Arcade"
   },
   "arcadeHomeDescription": {
-    "message": "Discover games in Bread.",
-    "englishSource": "Pending translation: Discover games in Bread."
+    "message": "Bread에서 게임을 찾아보세요.",
+    "englishSource": "Discover games in Bread."
   },
   "arcadeExplore": {
-    "message": "Explore Arcade",
-    "englishSource": "Pending translation: Explore Arcade"
+    "message": "아케이드 둘러보기",
+    "englishSource": "Explore Arcade"
   },
   "arcadeFeatured": {
-    "message": "Featured games",
-    "englishSource": "Pending translation: Featured games"
+    "message": "추천 게임",
+    "englishSource": "Featured games"
   },
   "arcadeGamesToTry": {
-    "message": "Games to try",
-    "englishSource": "Pending translation: Games to try"
+    "message": "해볼 만한 게임들",
+    "englishSource": "Games to try"
   },
   "arcadeQuickActions": {
-    "message": "Arcade shortcuts",
-    "englishSource": "Pending translation: Arcade shortcuts"
+    "message": "아케이드 단축키",
+    "englishSource": "Arcade shortcuts"
   },
   "arcadeRankings": {
-    "message": "Rankings",
-    "englishSource": "Pending translation: Rankings"
+    "message": "순위",
+    "englishSource": "Rankings"
   },
   "arcadeCoins": {
-    "message": "Game Coins",
-    "englishSource": "Pending translation: Game Coins"
+    "message": "게임 코인",
+    "englishSource": "Game Coins"
   },
   "arcadeMyActivity": {
-    "message": "My activity",
-    "englishSource": "Pending translation: My activity"
+    "message": "내 활동",
+    "englishSource": "My activity"
   },
   "arcadeOpenGame": {
-    "message": "Open game",
-    "englishSource": "Pending translation: Open game"
+    "message": "오픈 게임",
+    "englishSource": "Open game"
   },
   "arcadeDetails": {
-    "message": "Details",
-    "englishSource": "Pending translation: Details"
+    "message": "세부 사항",
+    "englishSource": "Details"
   },
   "arcadeNoGames": {
-    "message": "No games available",
-    "englishSource": "Pending translation: No games available"
+    "message": "이용 가능한 게임 없음",
+    "englishSource": "No games available"
   },
   "arcadeNoGamesDescription": {
-    "message": "Games will appear here when they are available on this network.",
-    "englishSource": "Pending translation: Games will appear here when they are available on this network."
+    "message": "이 네트워크에서 게임이 이용 가능해지면 이곳에 표시될 것입니다.",
+    "englishSource": "Games will appear here when they are available on this network."
   },
   "arcadeOpeningNotice": {
-    "message": "Opening a game does not connect your wallet or approve a transaction. Bread asks separately when a game requests access.",
-    "englishSource": "Pending translation: Opening a game does not connect your wallet or approve a transaction. Bread asks separately when a game requests access."
+    "message": "게임을 실행한다고 해서 지갑이 연결되거나 거래가 승인되는 것은 아닙니다. 게임에서 접근 권한을 요청할 때 Bread가 별도로 확인을 요청합니다.",
+    "englishSource": "Opening a game does not connect your wallet or approve a transaction. Bread asks separately when a game requests access."
   },
   "arcadeGCRankings": {
-    "message": "GC rankings",
-    "englishSource": "Pending translation: GC rankings"
+    "message": "GC 순위",
+    "englishSource": "GC rankings"
   },
   "arcadeReviewBalance": {
-    "message": "Review GC balance",
-    "englishSource": "Pending translation: Review GC balance"
+    "message": "GC 잔액 확인",
+    "englishSource": "Review GC balance"
   },
   "arcadeGCBalance": {
-    "message": "GC balance",
-    "englishSource": "Pending translation: GC balance"
+    "message": "GC 잔액",
+    "englishSource": "GC balance"
   },
   "arcadeNotRead": {
-    "message": "Not read",
-    "englishSource": "Pending translation: Not read"
+    "message": "읽지 않음",
+    "englishSource": "Not read"
   },
   "arcadeSubmitBalance": {
-    "message": "Submit balance",
-    "englishSource": "Pending translation: Submit balance"
+    "message": "잔액 제출",
+    "englishSource": "Submit balance"
   },
   "arcadeUpdateBalance": {
-    "message": "Update balance",
-    "englishSource": "Pending translation: Update balance"
+    "message": "잔액 업데이트",
+    "englishSource": "Update balance"
   },
   "arcadeBalanceDisclosure": {
-    "message": "Submitting a balance snapshot shares your account identifier, GC balance, network and snapshot time with the leaderboard. Your other asset balances are not included.",
-    "englishSource": "Pending translation: Submitting a balance snapshot shares your account identifier, GC balance, network and snapshot time with the leaderboard. Your other asset balances are not included."
+    "message": "잔액 스냅샷을 제출하면 계정 식별자, GC 잔액, 네트워크 및 스냅샷 시간이 리더보드에 공유됩니다. 기타 자산 잔액은 포함되지 않습니다.",
+    "englishSource": "Submitting a balance snapshot shares your account identifier, GC balance, network and snapshot time with the leaderboard. Your other asset balances are not included."
   },
   "arcadeConnectionRequired": {
-    "message": "GC balance reading and leaderboard submission are not connected yet. No balance has been read or submitted.",
-    "englishSource": "Pending translation: GC balance reading and leaderboard submission are not connected yet. No balance has been read or submitted."
+    "message": "GC 잔액 조회와 순위표 제출 기능은 아직 연동되지 않았습니다. 현재까지 잔액이 조회되거나 제출된 바 없습니다.",
+    "englishSource": "GC balance reading and leaderboard submission are not connected yet. No balance has been read or submitted."
   },
   "arcadeRankingsUnavailable": {
-    "message": "Rankings are not connected yet",
-    "englishSource": "Pending translation: Rankings are not connected yet"
+    "message": "순위는 아직 연결되지 않았습니다",
+    "englishSource": "Rankings are not connected yet"
   },
   "arcadeRankingsDescription": {
-    "message": "GC rankings will use balances that players choose to submit. No player rankings are available in this preview.",
-    "englishSource": "Pending translation: GC rankings will use balances that players choose to submit. No player rankings are available in this preview."
+    "message": "GC 랭킹은 플레이어가 제출하기로 선택한 잔고를 기준으로 산정됩니다. 이 프리뷰 버전에서는 플레이어 랭킹을 확인할 수 없습니다.",
+    "englishSource": "GC rankings will use balances that players choose to submit. No player rankings are available in this preview."
   },
   "arcadeCoinsUnavailable": {
-    "message": "GC is not connected yet",
-    "englishSource": "Pending translation: GC is not connected yet"
+    "message": "GC는 아직 연결되지 않았습니다",
+    "englishSource": "GC is not connected yet"
   },
   "arcadeCoinsDescription": {
-    "message": "Your GC balance will appear here after the Game Coin asset is configured for this network. No balance is assumed.",
-    "englishSource": "Pending translation: Your GC balance will appear here after the Game Coin asset is configured for this network. No balance is assumed."
+    "message": "이 네트워크에 게임 코인(Game Coin) 자산이 설정되면 귀하의 GC 잔액이 여기에 표시됩니다. 잔액은 초기값으로 0으로 가정됩니다.",
+    "englishSource": "Your GC balance will appear here after the Game Coin asset is configured for this network. No balance is assumed."
   },
   "arcadePrivateBalanceNotice": {
-    "message": "Your GC balance stays private unless you choose to submit it. Opening this page publishes nothing.",
-    "englishSource": "Pending translation: Your GC balance stays private unless you choose to submit it. Opening this page publishes nothing."
+    "message": "귀하의 GC 잔액은 귀하가 직접 제출하기로 선택하지 않는 한 비공개로 유지됩니다. 이 페이지를 여는 것만으로는 어떠한 정보도 공개되지 않습니다.",
+    "englishSource": "Your GC balance stays private unless you choose to submit it. Opening this page publishes nothing."
   },
   "arcadeActivityScope": {
-    "message": "Shows recorded wallet transactions associated with games currently listed on this network. Untracked game rounds and ordinary GC transfers are not included.",
-    "englishSource": "Pending translation: Shows recorded wallet transactions associated with games currently listed on this network. Untracked game rounds and ordinary GC transfers are not included."
+    "message": "이 네트워크에 현재 등록된 게임과 관련된 기록된 지갑 거래 내역을 표시합니다. 추적되지 않은 게임 라운드와 일반적인 GC 이체는 포함되지 않습니다.",
+    "englishSource": "Shows recorded wallet transactions associated with games currently listed on this network. Untracked game rounds and ordinary GC transfers are not included."
   },
   "usdcxBurnTitle": {
     "message": "USDCx 소각",
@@ -4186,6 +4186,10 @@
     "message": "NFT",
     "englishSource": "NFTs"
   },
+  "categoryLearn": {
+    "message": "배우기",
+    "englishSource": "Learn"
+  },
   "categoryFinance": {
     "message": "금융",
     "englishSource": "Finance"
@@ -4197,10 +4201,6 @@
   "categoryOthers": {
     "message": "기타",
     "englishSource": "Others"
-  },
-  "categoryLearn": {
-    "message": "배우기",
-    "englishSource": "Learn"
   },
   "exploreCategoriesLabel": {
     "message": "카테고리",

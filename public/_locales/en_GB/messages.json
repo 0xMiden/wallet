@@ -4186,6 +4186,10 @@
     "message": "NFTs",
     "englishSource": "NFTs"
   },
+  "categoryLearn": {
+    "message": "Learn",
+    "englishSource": "Learn"
+  },
   "categoryFinance": {
     "message": "Finance",
     "englishSource": "Finance"
@@ -4197,10 +4201,6 @@
   "categoryOthers": {
     "message": "Others",
     "englishSource": "Others"
-  },
-  "categoryLearn": {
-    "message": "Learn",
-    "englishSource": "Learn"
   },
   "exploreCategoriesLabel": {
     "message": "Categories",
