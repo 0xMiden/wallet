@@ -73,8 +73,8 @@ export const MidenProvider: FC<PropsWithChildren> = ({ children }) => {
   // tree with `__wbindgen_malloc` undefined.
   const [ready, setReady] = useState(false);
   // A failed start is thrown to the root error boundary, whose screen reports it once and offers Try Again; left
-  // unhandled, it kept the page blank. Wrapped, so any rejection value counts as a failure.
-  const [startFailure, setStartFailure] = useState<{ error: unknown } | null>(null);
+  // unhandled, it kept the page blank.
+  const [startFailure, setStartFailure] = useState<Error | null>(null);
   useEffect(() => {
     let cancelled = false;
     let budgetTimer: ReturnType<typeof setTimeout> | undefined;
@@ -119,11 +119,14 @@ export const MidenProvider: FC<PropsWithChildren> = ({ children }) => {
       await ensureSdkWasmReady();
       await preloaded;
       if (!cancelled) setReady(true);
-    })().catch((error: unknown) => {
+    })().catch((reason: unknown) => {
+      // An Error stays itself, so the crash report keeps the SDK's own object; any other value is named by an Error
+      // the boundary and the reload marker can take.
+      const failure = reason instanceof Error ? reason : new Error(String(reason), { cause: reason });
       // The SDK keeps a failed start for the page's lifetime, and wasm-bindgen its half-started instance, so the
       // boundary's re-render would fail the same way: only a fresh page starts it again.
-      markReloadToRecover(error);
-      if (!cancelled) setStartFailure({ error });
+      markReloadToRecover(failure);
+      if (!cancelled) setStartFailure(failure);
     });
     return () => {
       cancelled = true;
@@ -156,7 +159,7 @@ export const MidenProvider: FC<PropsWithChildren> = ({ children }) => {
     initializeClient();
   }, [ready]);
 
-  if (startFailure) throw startFailure.error;
+  if (startFailure) throw startFailure;
 
   if (!ready) {
     return null;
