@@ -55,6 +55,14 @@ import { holdsNotes } from './verdict-rules';
 // An override's preset name is not evidence of the chain it actually points to.
 const badgeNetwork = () => (getActiveOverride() === null ? getEffectiveNetworkName() : undefined);
 
+/** A worker claim refused at a row write because its caller can no longer sign it; the call's rows are rolled back. */
+export class ClaimInsertRefusedError extends Error {
+  constructor() {
+    super('Claim not queued: its caller can no longer sign it');
+    this.name = 'ClaimInsertRefusedError';
+  }
+}
+
 export const requestCustomTransaction = async (
   accountId: string,
   transactionRequestBytes: string,
@@ -172,9 +180,18 @@ export const initiateConsumeTransaction = async (
   accountId: string,
   note: ConsumableNote,
   delegateTransaction?: boolean,
-  manualRetry?: boolean
+  manualRetry?: boolean,
+  canSign?: () => boolean
 ): Promise<string> => {
-  return initiateConsumeNotesTransaction(accountId, [note], delegateTransaction, manualRetry);
+  return initiateConsumeNotesTransaction(
+    accountId,
+    [note],
+    delegateTransaction,
+    manualRetry,
+    undefined,
+    undefined,
+    canSign
+  );
 };
 
 /** What {@link queueConsumeNotes} committed: the row id callers link to, and the row covering each note. */
@@ -220,7 +237,8 @@ export const queueConsumeNotes = async (
   delegateTransaction?: boolean,
   manualRetry?: boolean,
   isolateNotesWithFailedBatch?: boolean,
-  verificationBaseFee?: number | null
+  verificationBaseFee?: number | null,
+  canSign?: () => boolean
 ): Promise<ConsumeNotesQueueResult> =>
   queueConsumeRows(
     accountId,
@@ -228,7 +246,11 @@ export const queueConsumeNotes = async (
     delegateTransaction,
     manualRetry,
     isolateNotesWithFailedBatch,
-    verificationBaseFee
+    verificationBaseFee,
+    undefined,
+    undefined,
+    undefined,
+    canSign
   );
 
 /**
@@ -243,7 +265,8 @@ export const initiatePswapReclaimTransaction = async (
   note: ConsumableNote,
   requestBytes: Uint8Array,
   swapOrderTxId: string,
-  delegateTransaction?: boolean
+  delegateTransaction?: boolean,
+  canSign?: () => boolean
 ): Promise<string> =>
   (
     await queueConsumeRows(
@@ -258,7 +281,8 @@ export const initiatePswapReclaimTransaction = async (
       row => {
         row.requestBytes = requestBytes;
         row.extraInputs = { swapOrderTxId, swapSettleKind: 'reclaim' };
-      }
+      },
+      canSign
     )
   ).committedId;
 
@@ -456,7 +480,11 @@ const queueConsumeRows = async (
   dappOrigin?: string,
   // Applied before insertion. Used by prepared request rows whose bytes and
   // routing metadata must become visible atomically with the queued row.
-  initializeRow?: (row: ConsumeTransaction) => void
+  initializeRow?: (row: ConsumeTransaction) => void,
+  // The service worker's own claims only, which nobody signs while the vault is locked. Asked right before each row
+  // is written, after every await of the call, so a lock that landed meanwhile queues nothing: a refusal throws
+  // `ClaimInsertRefusedError`, which aborts this Dexie transaction and rolls back the rows the call already wrote.
+  canSign?: () => boolean
 ): Promise<ConsumeNotesQueueResult> => {
   if (notes.length === 0) {
     throw new Error('initiateConsumeNotesTransaction requires at least one note');
@@ -582,6 +610,11 @@ const queueConsumeRows = async (
     }
 
     const createdIds: string[] = [];
+    // No await between the check and the write it guards.
+    const insert = async (row: ConsumeTransaction): Promise<void> => {
+      if (canSign && !canSign()) throw new ClaimInsertRefusedError();
+      await Repo.transactions.add(row);
+    };
     const newRow = (rowNotes: ConsumableNote[]): ConsumeTransaction => {
       const row = Object.assign(new ConsumeTransaction(accountId, rowNotes, delegateTransaction), {
         badgeNetwork: badgeNetwork()
@@ -596,13 +629,13 @@ const queueConsumeRows = async (
     // isolated note rejoins the ordinary per-note lifecycle.
     for (const note of isolate) {
       const isolatedRow = newRow([note]);
-      await Repo.transactions.add(isolatedRow);
+      await insert(isolatedRow);
       createdIds.push(isolatedRow.id);
       coveringTxIdByNoteId.set(note.id, isolatedRow.id);
     }
     if (queueable.length > 0) {
       const dbTransaction = newRow(queueable);
-      await Repo.transactions.add(dbTransaction);
+      await insert(dbTransaction);
       createdIds.push(dbTransaction.id);
       for (const queued of queueable) coveringTxIdByNoteId.set(queued.id, dbTransaction.id);
     }

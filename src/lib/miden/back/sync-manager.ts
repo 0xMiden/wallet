@@ -792,7 +792,9 @@ async function runSync(force: boolean): Promise<void> {
             undefined,
             settlementNowSeconds,
             swapOrderRows,
-            zeroFillReclaims
+            zeroFillReclaims,
+            // Asked by the queue right before each claim row, so a lock landing while reconcile awaits queues none.
+            () => isUnlocked(store.getState())
           );
           if (settlement.queuedTransactionIds.length > 0) {
             const { startTransactionProcessing } = await import('./transaction-processor');
@@ -817,9 +819,13 @@ async function runSync(force: boolean): Promise<void> {
       if (nativeAutoConsumeNotes.length > 0 && isUnlocked(store.getState())) {
         try {
           const delegate = await isDelegateProofEnabledAsync();
+          // The queue asks this right before each row it writes, after every await of the lap, so a lock that landed
+          // since the gate above queues nothing. A lock refuses every note alike, so it ends the pass rather than
+          // falling back note by note.
+          const canSign = () => isUnlocked(store.getState());
           // ONE transaction for the batch: each consume pays its own fee, so a backlog
           // claimed note-by-note charges N fees for what settles in one. A Miden tx is
-          // atomic, so a single un-consumable note fails the whole batch; the LAST
+          // atomic, so a single un-consumable note fails the whole batch; the `true`
           // argument isolates it on the following enqueue, so it cannot drag its healthy
           // mates into the shared row's #215 backoff. NOT the catch below -- this call is
           // a queue write and the real failure happens later, at generation time.
@@ -830,14 +836,17 @@ async function runSync(force: boolean): Promise<void> {
               delegate,
               false,
               true,
-              nativeAutoConsumeBaseFee
+              nativeAutoConsumeBaseFee,
+              canSign
             );
           } catch (batchErr) {
+            if (!canSign()) throw batchErr;
             console.warn('[native-auto-consume] batch enqueue failed, falling back to per-note enqueue', batchErr);
             for (const note of nativeAutoConsumeNotes) {
               try {
-                await initiateConsumeTransaction(accountPubKey, note, delegate);
+                await initiateConsumeTransaction(accountPubKey, note, delegate, undefined, canSign);
               } catch (noteErr) {
+                if (!canSign()) throw noteErr;
                 console.warn('[native-auto-consume] enqueue failed for note', note.id, noteErr);
               }
             }

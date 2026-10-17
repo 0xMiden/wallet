@@ -217,6 +217,9 @@ async function stampExpiryIntent(order: SwapOrder, nowSeconds: number): Promise<
  * The single guard site for both callers (the service worker's inline call and
  * `settleSwapOrders` below): a rotation-pending account's orders are left untouched
  * until the flag clears, whichever caller reached here.
+ *
+ * `canSign` is the service worker's: the queue asks it right before each claim row
+ * it writes, and a refusal ends the pass with `ClaimInsertRefusedError`.
  */
 export async function reconcileSwapOrderNotes(
   accountId: string,
@@ -224,7 +227,8 @@ export async function reconcileSwapOrderNotes(
   delegateTransaction?: boolean,
   nowSeconds: number = Math.floor(Date.now() / 1000),
   preloadedOrders?: SwapOrder[],
-  zeroFillReclaims: Map<string, PreparedPswapReclaim> = new Map()
+  zeroFillReclaims: Map<string, PreparedPswapReclaim> = new Map(),
+  canSign?: () => boolean
 ): Promise<SwapSettlementResult> {
   if (isRotationPendingAccount(accountId)) {
     return { queuedTransactionIds: [], managedNoteIds: new Set() };
@@ -266,7 +270,8 @@ export async function reconcileSwapOrderNotes(
           reclaimNote,
           prepared.requestBytes,
           order.id,
-          delegate
+          delegate,
+          canSign
         );
         managedNoteIds.add(prepared.noteId);
         queuedTransactionIds.push(txId);
@@ -343,7 +348,15 @@ export async function reconcileSwapOrderNotes(
       // a trickle of fills costs one fee per lap rather than one per note. What
       // remains is that one lap's fee can exceed a very small fill, which is the
       // price of settling promptly on funds the user is owed.
-      const txId = await initiateConsumeNotesTransaction(accountId, batch, delegate);
+      const txId = await initiateConsumeNotesTransaction(
+        accountId,
+        batch,
+        delegate,
+        undefined,
+        undefined,
+        undefined,
+        canSign
+      );
       // A batch of payback notes delivered funds — it settles (Confirmed), it
       // doesn't reclaim. A tip-only batch is the unfilled remainder coming back.
       // Partial fills stay lineage-'active' until expiry, so this same-tick pair
