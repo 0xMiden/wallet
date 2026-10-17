@@ -3,18 +3,23 @@
  */
 import type { BrowserContext } from '@playwright/test';
 import fs from 'node:fs';
+import { createRequire } from 'node:module';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 
+import { exportedNames, importedSpecifiers, linkProblems } from './module-graph';
 import {
   buildImportMap,
+  buildReactShims,
   createDappServer,
+  createReactDappServer,
   DAPP_ORIGINS,
   DAPP_PORT,
   installTestDapp,
   REACT_DAPP_ORIGIN,
   resolvePackageRoots,
+  resolveReactPackageRoots,
   serveTestDappOnLoopback
 } from './test-dapp-server';
 
@@ -216,5 +221,55 @@ describe('test dApp server', () => {
     // A listener left on the other address would fail this second bind with EADDRINUSE and keep Jest alive.
     const stop = await serveTestDappOnLoopback(server, port);
     await stop();
+  });
+});
+
+describe('React page server', () => {
+  const reactRoots = resolveReactPackageRoots();
+  const manifestOf = (root: string): unknown => JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+  const versionOf = (root: string): unknown => Reflect.get(Object(manifestOf(root)), 'version');
+  const requireKeys = (root: string, specifier: string): string[] => {
+    const loaded: unknown = createRequire(path.join(root, 'package.json'))(specifier);
+    return typeof loaded === 'object' && loaded !== null ? Object.keys(loaded) : [];
+  };
+
+  it('resolves the React packages, adapter-react at its pin and zustand from @miden-sdk/react itself', () => {
+    for (const [name, root] of Object.entries(reactRoots)) {
+      expect(Reflect.get(Object(manifestOf(root)), 'name')).toBe(name);
+    }
+    expect({
+      react: versionOf(reactRoots.react),
+      reactDom: versionOf(reactRoots['react-dom']),
+      adapterReact: versionOf(reactRoots['@miden-sdk/miden-wallet-adapter-react'])
+    }).toEqual({ react: '18.2.0', reactDom: '18.2.0', adapterReact: '0.17.0' });
+    expect(reactRoots.zustand).toBe(
+      path.dirname(
+        createRequire(path.join(reactRoots['@miden-sdk/react'], 'package.json')).resolve('zustand/package.json')
+      )
+    );
+  });
+
+  it('shims export exactly the names require gives in Node, and a default', () => {
+    const shims = buildReactShims(reactRoots);
+    const shimExports = (name: string): string[] => exportedNames(shims.get(name) ?? '');
+    expect({
+      react: shimExports('react.js'),
+      jsxRuntime: shimExports('react-jsx-runtime.js'),
+      client: shimExports('react-dom-client.js')
+    }).toEqual({
+      react: ['default', ...requireKeys(reactRoots.react, 'react')].sort(),
+      jsxRuntime: ['default', ...requireKeys(reactRoots.react, 'react/jsx-runtime')].sort(),
+      client: ['default', ...requireKeys(reactRoots['react-dom'], 'react-dom/client')].sort()
+    });
+  });
+
+  it('loads React before react-dom, whose UMD build reads the global React as it loads', () => {
+    const client = buildReactShims(reactRoots).get('react-dom-client.js') ?? '';
+    expect(importedSpecifiers(client)).toEqual(['/shims/react.js', '/npm/react-dom/umd/react-dom.development.js']);
+  });
+
+  it('links every module the import map reaches: served, mapped, and every named import exported', () => {
+    const server = createReactDappServer({ roots: reactRoots });
+    expect(linkProblems(server, Object.values(server.importMap.imports))).toEqual([]);
   });
 });

@@ -46,6 +46,15 @@ export interface PackageRoots {
 }
 type ServedPackage = keyof PackageRoots;
 
+/** The packages the React page loads besides the base four (spec section 4.2). */
+export interface ReactPackageRoots extends PackageRoots {
+  react: string;
+  'react-dom': string;
+  '@miden-sdk/react': string;
+  '@miden-sdk/miden-wallet-adapter-react': string;
+  zustand: string;
+}
+
 export interface ImportMap {
   imports: Record<string, string>;
 }
@@ -80,6 +89,20 @@ export function resolvePackageRoots(repoRoot: string = REPO_ROOT): PackageRoots 
   };
 }
 
+/** The React packages the wallet resolves, zustand from `@miden-sdk/react`'s own directory as eventemitter3 above. */
+export function resolveReactPackageRoots(repoRoot: string = REPO_ROOT): ReactPackageRoots {
+  const fromRepo = createRequire(path.join(repoRoot, 'package.json'));
+  const midenReact = packageRoot(fromRepo, '@miden-sdk/react');
+  return {
+    ...resolvePackageRoots(repoRoot),
+    react: packageRoot(fromRepo, 'react'),
+    'react-dom': packageRoot(fromRepo, 'react-dom'),
+    '@miden-sdk/react': midenReact,
+    '@miden-sdk/miden-wallet-adapter-react': packageRoot(fromRepo, '@miden-sdk/miden-wallet-adapter-react'),
+    zustand: packageRoot(createRequire(path.join(midenReact, 'package.json')), 'zustand')
+  };
+}
+
 function manifestField(root: string, keys: readonly string[]): string {
   const manifest: unknown = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
   const value = keys.reduce<unknown>(
@@ -102,6 +125,92 @@ export function buildImportMap(roots: PackageRoots): ImportMap {
       eventemitter3: '/npm/eventemitter3/dist/eventemitter3.esm.js'
     }
   };
+}
+
+/** The base map plus React through its shims, the two React packages, and the three zustand specifiers they import. */
+export function buildReactImportMap(roots: ReactPackageRoots): ImportMap {
+  // The `./*` subpaths point at `.mjs` files, which the server's `.js` retry cannot reach from a bare subpath.
+  const zustand = (subpath: string): string =>
+    `/npm/zustand/${manifestField(roots.zustand, ['exports', './*', 'import', 'default']).replace('*', subpath)}`;
+  return {
+    imports: {
+      ...buildImportMap(roots).imports,
+      react: '/shims/react.js',
+      'react/jsx-runtime': '/shims/react-jsx-runtime.js',
+      'react-dom/client': '/shims/react-dom-client.js',
+      '@miden-sdk/react': `/npm/@miden-sdk/react/${manifestField(roots['@miden-sdk/react'], ['module'])}`,
+      '@miden-sdk/miden-wallet-adapter-react': `/npm/@miden-sdk/miden-wallet-adapter-react/${manifestField(roots['@miden-sdk/miden-wallet-adapter-react'], ['module'])}`,
+      zustand: `/npm/zustand/${manifestField(roots.zustand, ['exports', '.', 'import', 'default'])}`,
+      'zustand/vanilla': zustand('vanilla'),
+      'zustand/react': zustand('react')
+    }
+  };
+}
+
+// Development builds: their errors say what went wrong, which a failed cell's record keeps.
+const REACT_UMD = { react: 'umd/react.development.js', 'react-dom': 'umd/react-dom.development.js' } as const;
+const IDENTIFIER = /^[A-Za-z_$][\w$]*$/;
+
+/** The names `require(specifier)` gives in Node from `root`: what an ES module face of it must export. */
+function commonJsExports(root: string, specifier: string): string[] {
+  const loaded: unknown = createRequire(path.join(root, 'package.json'))(specifier);
+  if (typeof loaded !== 'object' || loaded === null) throw new Error(`${specifier} from ${root} exports no object`);
+  const names = Object.keys(loaded);
+  const unusable = names.filter(name => !IDENTIFIER.test(name) || name === 'default');
+  if (unusable.length > 0)
+    throw new Error(`${specifier} exports names a module cannot re-export: ${unusable.join(', ')}`);
+  return names;
+}
+
+/**
+ * ES module faces for React 18.2, which ships CommonJS and UMD only (spec section 4.2). Each loads the UMD build, which
+ * sets `React` or `ReactDOM` on the global, and re-exports exactly the names `require` gives in Node when the server
+ * starts, so a named import cannot go missing as React moves. `react/jsx-runtime` has no UMD build: its functions are
+ * written over `createElement`, and a name it gains that has none here stops the server.
+ */
+export function buildReactShims(roots: ReactPackageRoots): ReadonlyMap<string, string> {
+  for (const pkg of ['react', 'react-dom'] as const) {
+    if (!fs.existsSync(path.join(roots[pkg], REACT_UMD[pkg]))) throw new Error(`${pkg} has no ${REACT_UMD[pkg]}`);
+  }
+  const react = commonJsExports(roots.react, 'react');
+  const client = commonJsExports(roots['react-dom'], 'react-dom/client');
+  const jsxRuntime = commonJsExports(roots.react, 'react/jsx-runtime');
+  const jsxBodies: Record<string, string> = { Fragment: 'React.Fragment', jsx: 'element', jsxs: 'element' };
+  const unshimmed = jsxRuntime.filter(name => !Object.hasOwn(jsxBodies, name));
+  if (unshimmed.length > 0)
+    throw new Error(`react/jsx-runtime exports ${unshimmed.join(', ')}, which no shim implements`);
+  return new Map([
+    [
+      'react.js',
+      [
+        `import '/npm/react/${REACT_UMD.react}';`,
+        'const React = globalThis.React;',
+        'export default React;',
+        `export const { ${react.join(', ')} } = React;`
+      ].join('\n')
+    ],
+    [
+      'react-jsx-runtime.js',
+      [
+        "import React from '/shims/react.js';",
+        // The automatic runtime passes children inside props and the key apart; createElement takes both in its config.
+        'const element = (type, props, key) => React.createElement(type, key === undefined ? props : { ...props, key });',
+        ...jsxRuntime.map(name => `export const ${name} = ${jsxBodies[name]};`),
+        `export default { ${jsxRuntime.join(', ')} };`
+      ].join('\n')
+    ],
+    [
+      'react-dom-client.js',
+      [
+        // React first: the react-dom UMD reads the global React as it loads.
+        "import '/shims/react.js';",
+        `import '/npm/react-dom/${REACT_UMD['react-dom']}';`,
+        'const ReactDOM = globalThis.ReactDOM;',
+        `export const { ${client.join(', ')} } = ReactDOM;`,
+        `export default { ${client.join(', ')} };`
+      ].join('\n')
+    ]
+  ]);
 }
 
 const isServedPackage = (name: string, roots: PackageRoots): name is ServedPackage => Object.hasOwn(roots, name);
@@ -217,6 +326,18 @@ export function createDappServer(options: DappServerOptions = {}): DappServer {
       return served;
     }
   };
+}
+
+/** The React page's server (spec section 4): its own shell, the React import map and the generated shims. */
+export function createReactDappServer(options: { pageDir?: string; roots?: ReactPackageRoots } = {}): DappServer {
+  const roots = options.roots ?? resolveReactPackageRoots();
+  return createDappServer({
+    pageDir: options.pageDir,
+    roots,
+    shell: 'react-dapp.html',
+    importMap: buildReactImportMap(roots),
+    shims: buildReactShims(roots)
+  });
 }
 
 /**
