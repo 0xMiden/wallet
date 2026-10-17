@@ -87,7 +87,6 @@ const createArcReceive = () =>
     accountId: 'mtst1account',
     amount: '20000',
     faucetId: 'mtst1usdcx',
-    provider: 'usdcx',
     sourceChainId: ARC_TESTNET_CHAIN_ID,
     sourceAddress: '0x4D4A180C637a71FCB9b5BD1186C8ce23C40EBa81',
     sourceAmount: '0.02',
@@ -162,7 +161,6 @@ const createExecutorReceive = () =>
     accountId: 'mtst1account',
     amount: '1000',
     faucetId: 'mtst1usdcx',
-    provider: 'usdcx',
     sourceChainId: BASE_SEPOLIA_CHAIN_ID,
     sourceAddress: '0x4D4A180C637a71FCB9b5BD1186C8ce23C40EBa81',
     sourceAmount: '0.001',
@@ -217,5 +215,21 @@ it('hands the row to the reconciler, which asks Circle about the burn and takes 
   expect(await globalThis.__TEST_BRIDGE_RECEIVE_STATE__(id)).toMatchObject({
     phase: 'delivering',
     usdcxExecuteTxHash: FORWARD_HASH
+  });
+});
+
+it("reports an executor deposit's forwarded leg and the fee it paid", async () => {
+  installBridgeInTestHooks();
+
+  const id = await createExecutorReceive();
+
+  expect(await globalThis.__TEST_BRIDGE_RECEIVE_STATE__(id)).toMatchObject({
+    cctpForwarded: true,
+    cctpForwardFee: SUBMITTED.cctp.forwardFee
+  });
+  expect(await globalThis.__TEST_LATEST_BRIDGE_RECEIVE__('usdcx')).toMatchObject({
+    id,
+    cctpForwarded: true,
+    cctpForwardFee: SUBMITTED.cctp.forwardFee
   });
 });

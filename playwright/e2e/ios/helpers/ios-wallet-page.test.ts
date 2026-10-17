@@ -6,10 +6,12 @@ import path from 'path';
 import vm from 'vm';
 
 import type { CdpSession } from './cdp-bridge';
-import { IosWalletPage, routeOf } from './ios-wallet-page';
+import { IosWalletPage, networkRowNames, routeOf } from './ios-wallet-page';
 import type { SimulatorControl } from './simulator-control';
-import { enText, type BridgedSendRow } from '../../helpers/bridge';
+import { enText, usdcxPayoutRowsText, type BridgedSendRow } from '../../helpers/bridge';
 import { readTransactionRowsInPage } from '../../helpers/history';
+import { BRIDGE_SOURCE_NETWORK_JS } from '../../helpers/send-flow-scripts';
+import { BASE_SEPOLIA_PAYOUT } from '../../helpers/usdcx-constants';
 
 describe('IosWalletPage.screenshot', () => {
   it('runs the before-capture hook before it shoots', async () => {
@@ -126,6 +128,44 @@ describe('IosWalletPage bridge deposit helpers', () => {
         selector => /send-(token-selector|amount-input|amount-confirm)/.test(selector) && !selector.startsWith(bridge)
       );
     expect(unscoped).toEqual([]);
+  });
+});
+
+describe('IosWalletPage.selectBridgeNetwork', () => {
+  it("opens the network drawer from the bridge layer's From row, picks the chain and waits until the row names it", async () => {
+    const bridge = '[data-page-layer="/bridge/deposit"]';
+    const bodies: string[] = [];
+    // The From row's value: the network logo, which has no text, and the network's name.
+    const page = pageWith(async js => {
+      bodies.push(js);
+      return 'Sepolia';
+    });
+    const click = jest.fn(async (_selector: string) => undefined);
+    const waitFor = jest.fn(async (_selector: string, _opts: { timeoutMs?: number }) => undefined);
+    Object.assign(page as unknown as Record<string, unknown>, { click, waitFor });
+
+    await page.selectBridgeNetwork('sepolia', 'Sepolia');
+
+    expect(click.mock.calls.map(([selector]) => selector)).toEqual([
+      `${bridge} [data-testid="bridge-source-network"]`,
+      '[data-testid="bridge-network-sepolia"]'
+    ]);
+    // The drawer portals to <body>, outside the layer, as the token drawer does.
+    expect(waitFor).toHaveBeenCalledWith('[data-testid="bridge-network-sepolia"]', { timeoutMs: 10_000 });
+    expect(bodies).toEqual([BRIDGE_SOURCE_NETWORK_JS]);
+    expect(rootsOf(BRIDGE_SOURCE_NETWORK_JS)).toEqual([bridge]);
+  });
+});
+
+describe('networkRowNames', () => {
+  // "Sepolia" is part of "Base Sepolia" and "Arbitrum Sepolia", so only a value equal to it counts.
+  it.each([
+    ['Sepolia', 'Sepolia', true],
+    ['Base Sepolia', 'Sepolia', false],
+    ['Arc Testnet', 'Base Sepolia', false],
+    [null, 'Sepolia', false]
+  ] satisfies Array<[string | null, string, boolean]>)('reads %j as naming %s: %s', (value, name, names) => {
+    expect(networkRowNames(value, name)).toBe(names);
   });
 });
 
@@ -404,13 +444,15 @@ interface SpikeOverrides {
   outcome?: unknown;
   /** NetworkField renders the four rows only while its sheet is open. */
   sheetOpen?: boolean;
+  /** What the closed field names: Arc Testnet, the default, until another row is picked. */
+  summary?: string;
 }
 
 // Each reader is answered by its own root test id: the route card and the sheet rows both carry aria-pressed.
 function spikeAnswer(js: string, overrides: SpikeOverrides = {}): unknown {
   if (js.includes('send-network-picker')) {
     return {
-      summary: 'Arc Testnet',
+      summary: overrides.summary ?? 'Arc Testnet',
       rows: overrides.sheetOpen
         ? CHIPS.map(testId => ({ testId, pressed: testId === CHIPS[0] ? 'true' : 'false' }))
         : []
@@ -480,7 +522,7 @@ function burnPage(
   const page = pageWith(async js => {
     bodies.push(js);
     const clicks = (page as unknown as { click: jest.Mock }).click.mock.calls.map(call => String(call[0]));
-    return answer(js, clicks.lastIndexOf(PICKER) > clicks.lastIndexOf(ARC_ROW));
+    return answer(js, clicks.lastIndexOf(PICKER) > clicks.findLastIndex(selector => selector.startsWith(`${SHEET} `)));
   });
   const selectors = stubDom(page, backs);
   return { page, selectors, bodies };
@@ -555,8 +597,42 @@ describe('IosWalletPage.burnUsdcxViaSendFlow', () => {
     const { page } = burnPage((js, sheetOpen) => spikeAnswer(js, { sheetOpen, outcome }));
 
     await expect(page.burnUsdcxViaSendFlow(BURN)).rejects.toThrow(
-      `Arc RPC unavailable for the wallet's balance snapshot (burn.ts), infra: review-error "HTTP request failed."`
+      `Arc RPC unavailable for the wallet's balance snapshot (burn.ts:103), infra: review-error "HTTP request failed."`
     );
+  }, 15_000);
+
+  it('picks the payout chain it is given and holds the route and the review to that chain', async () => {
+    const baseRow = `${SHEET} [data-testid="send-network-${BASE_SEPOLIA_PAYOUT.reviewNetwork}"]`;
+    const href = HREF.replace('network=arc-testnet', `network=${BASE_SEPOLIA_PAYOUT.reviewNetwork}`);
+    const rows = usdcxPayoutRowsText(BASE_SEPOLIA_PAYOUT.chainId, BURN.amount);
+    const { page, selectors } = burnPage((js, sheetOpen) => {
+      if (js.includes('location.href')) return { href, hash: href.slice(href.indexOf('#')), submit: true };
+      if (js.includes('function row(')) {
+        return {
+          network: BASE_SEPOLIA_PAYOUT.networkName,
+          networkFee: enText('usdcxSponsorshipFee', { symbol: 'USDCX' }),
+          fee: rows.fee,
+          net: rows.net,
+          notice: enText('usdcxWithdrawalNotice')
+        };
+      }
+      if (js.includes('bridge-route-usdcx')) {
+        return {
+          pressed: 'true',
+          cardText: ROUTE_CARD_TEXT,
+          fee: rows.fee,
+          net: rows.net,
+          notice: enText('usdcxWithdrawalNotice')
+        };
+      }
+      return spikeAnswer(js, { sheetOpen, summary: BASE_SEPOLIA_PAYOUT.networkName });
+    });
+
+    const result = await page.burnUsdcxViaSendFlow({ ...BURN, payout: BASE_SEPOLIA_PAYOUT });
+
+    expect(result.reviewRoute).toBe(href.slice(href.indexOf('#')));
+    expect(result.defaultPressed).toEqual(['send-network-arc-testnet']);
+    expect(selectors.filter(selector => selector.includes('send-network-'))).toEqual([PICKER, PICKER, baseRow]);
   }, 15_000);
 
   // The carousel keeps Send mounted with its step and its network across hash navigations.
@@ -713,7 +789,7 @@ describe('IosWalletPage transaction details', () => {
 
   it('reads the pill and the Arc explorer links from the details layer only', async () => {
     const bodies: string[] = [];
-    const view = { pill: 'Confirmed', arcTxLinks: ['https://explorer.testnet.arc.io/tx/0xde87'] };
+    const view = { pill: 'Confirmed', txLinks: ['https://explorer.testnet.arc.io/tx/0xde87'] };
     const page = pageWith(async js => {
       bodies.push(js);
       return view;
@@ -722,5 +798,19 @@ describe('IosWalletPage transaction details', () => {
     await expect(page.transactionDetailsView('row-1')).resolves.toEqual(view);
     expect(bodies[0]).toContain(`document.querySelector(${JSON.stringify(LAYER)})`);
     expect(bodies[0]).toContain(JSON.stringify('https://explorer.testnet.arc.io/tx/'));
+  });
+
+  it("reads the links to the payout chain's explorer it is given", async () => {
+    const bodies: string[] = [];
+    const page = pageWith(async js => {
+      bodies.push(js);
+      return null;
+    });
+
+    await expect(page.transactionDetailsView('row-1', BASE_SEPOLIA_PAYOUT.explorer)).resolves.toEqual({
+      pill: null,
+      txLinks: []
+    });
+    expect(bodies[0]).toContain(JSON.stringify(`${BASE_SEPOLIA_PAYOUT.explorer}/tx/`));
   });
 });

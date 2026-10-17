@@ -892,7 +892,7 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
   });
 
   // Circle has not registered Miden on Sepolia's xReserve, so a Sepolia deposit burns through CCTP to the executor on
-  // Arc, as Base and Arbitrum do; only the e2e build's Sepolia fork keeps the xReserve route.
+  // Arc, as Base and Arbitrum do; only an e2e build with MIDEN_E2E_USDCX_CHAIN=sepolia keeps the xReserve route.
   it.each([false, true])(
     'burns a Sepolia deposit through the executor on Arc, pinned to Sepolia (native=%s)',
     async native => {
