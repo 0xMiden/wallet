@@ -6,6 +6,7 @@ import { MIDEN_DESTINATION_CHAIN_ID } from 'lib/epoch/config';
 import { readEpochIntentStatus } from 'lib/epoch/intent-status';
 import * as Repo from 'lib/miden/repo';
 import { initBridgeConfig } from 'lib/remote-config/runtime';
+import { type BridgeReceiveFailureStep, walletRaised } from 'lib/telemetry/bridge-receive-failure';
 import {
   fetchXReserveAttestations,
   matchUsdcxDepositAttestation,
@@ -70,7 +71,10 @@ function firstString(source: unknown, key: string): string | undefined {
 async function reconcileAgglayerRow(row: ITransaction, inputs: IBridgedReceiveExtraInputs): Promise<void> {
   if (!inputs.evmTxHash) {
     if (inputs.phase === 'submitting') {
-      await updateBridgedReceivePhase(row.id, 'failed', { error: INTERRUPTED_BEFORE_HASH });
+      await updateBridgedReceivePhase(row.id, 'failed', {
+        error: INTERRUPTED_BEFORE_HASH,
+        failure: { step: 'submission_interrupted' }
+      });
     }
     return;
   }
@@ -80,12 +84,13 @@ async function reconcileAgglayerRow(row: ITransaction, inputs: IBridgedReceiveEx
       // A row saved before its route was is from DEFAULT_CHAIN_ID.
       const chainId = inputs.agglayerRoute?.chainId ?? inputs.sourceChainId ?? DEFAULT_CHAIN_ID;
       const chain = EVM_CHAIN_DEFINITIONS.find(candidate => candidate.id === chainId);
-      if (!chain) throw new Error(`EVM chain ${chainId} is not configured`);
+      if (!chain) throw walletRaised(new Error(`EVM chain ${chainId} is not configured`));
       await waitForEvmReceipt(inputs.evmTxHash as `0x${string}`, chain);
       await updateBridgedReceivePhase(row.id, 'delivering');
     } catch (error) {
       await updateBridgedReceivePhase(row.id, 'failed', {
-        error: error instanceof Error ? error.message : String(error)
+        error: error instanceof Error ? error.message : String(error),
+        failure: { step: 'reconciler_receipt', cause: error }
       });
       return;
     }
@@ -108,7 +113,8 @@ async function reconcileEpochRow(row: ITransaction, inputs: IBridgedReceiveExtra
   if (!inputs.intentNonce) {
     if (inputs.phase === 'submitting') {
       await updateBridgedReceivePhase(row.id, 'failed', {
-        error: 'Bridge submission was interrupted before an intent was recorded.'
+        error: 'Bridge submission was interrupted before an intent was recorded.',
+        failure: { step: 'submission_interrupted' }
       });
     }
     return;
@@ -132,7 +138,10 @@ async function reconcileEpochRow(row: ITransaction, inputs: IBridgedReceiveExtra
     if (noteId) await resolveBridgeInNoteId(inputs.sourceAddress, inputs.intentNonce, noteId);
     const midenLeg = results.find(result => result.chainId === MIDEN_DESTINATION_CHAIN_ID);
     if (midenLeg && midenLeg.status.toLowerCase() === 'failed') {
-      await updateBridgedReceivePhase(row.id, 'failed', { error: 'The Epoch bridge intent failed.' });
+      await updateBridgedReceivePhase(row.id, 'failed', {
+        error: 'The Epoch bridge intent failed.',
+        failure: { step: 'epoch_intent_failed' }
+      });
     }
   } catch (error) {
     console.warn('[bridge-receive] Epoch reconcile poll failed', row.id, error);
@@ -144,6 +153,13 @@ const USDCX_MISMATCH_ERRORS: Record<UsdcxAttestationMismatchField, string> = {
   remoteToken: 'Circle attested this deposit to a different token.',
   recipient: 'Circle attested this deposit to a different Miden account.',
   amount: 'Circle attested this deposit to a different amount.'
+};
+
+const USDCX_MISMATCH_STEPS: Record<UsdcxAttestationMismatchField, BridgeReceiveFailureStep> = {
+  remoteDomain: 'usdcx_mismatch_domain',
+  remoteToken: 'usdcx_mismatch_token',
+  recipient: 'usdcx_mismatch_recipient',
+  amount: 'usdcx_mismatch_amount'
 };
 
 const warnedUsdcxRows = new Set<string>();
@@ -204,7 +220,10 @@ async function matchUsdcxDeposit(
 async function reconcileUsdcxRow(row: ITransaction, inputs: IBridgedReceiveExtraInputs): Promise<void> {
   // Reached only once no flow holds the submission: with no hash, nothing can ever move the row on.
   if (inputs.phase === 'submitting' && !inputs.evmTxHash) {
-    await updateBridgedReceivePhase(row.id, 'failed', { error: INTERRUPTED_BEFORE_HASH });
+    await updateBridgedReceivePhase(row.id, 'failed', {
+      error: INTERRUPTED_BEFORE_HASH,
+      failure: { step: 'submission_interrupted' }
+    });
     return;
   }
   const source =
@@ -222,7 +241,10 @@ async function reconcileUsdcxRow(row: ITransaction, inputs: IBridgedReceiveExtra
         await updateBridgedReceivePhase(row.id, 'ready');
         return;
       case 'mismatch':
-        await updateBridgedReceivePhase(row.id, 'failed', { error: USDCX_MISMATCH_ERRORS[verdict.field] });
+        await updateBridgedReceivePhase(row.id, 'failed', {
+          error: USDCX_MISMATCH_ERRORS[verdict.field],
+          failure: { step: USDCX_MISMATCH_STEPS[verdict.field] }
+        });
         return;
       case 'unreadable':
         warnUsdcxRowOnce(row.id, 'attestation unreadable', inputs.evmTxHash);
@@ -352,7 +374,10 @@ async function reconcileRow(row: ITransaction, cutoffSec: number, resumeOrphans:
     return;
   }
   if (!withinDeliveryWindow(row, inputs, cutoffSec)) {
-    await updateBridgedReceivePhase(row.id, 'failed', { error: BRIDGE_DELIVERY_TIMED_OUT });
+    await updateBridgedReceivePhase(row.id, 'failed', {
+      error: BRIDGE_DELIVERY_TIMED_OUT,
+      failure: { step: 'delivery_timed_out' }
+    });
     return;
   }
   // Circle already attested a ready row; only its mint's consume moves it on.

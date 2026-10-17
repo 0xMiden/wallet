@@ -355,6 +355,7 @@ export async function reconcileSwapOrderNotes(
         undefined,
         undefined,
         undefined,
+        'swap_settlement',
         canSign
       );
       // A batch of payback notes delivered funds — it settles (Confirmed), it

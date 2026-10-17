@@ -1037,6 +1037,72 @@ describe('crash-report egress', () => {
     expect(leaksIn(wireText())).toEqual([]);
   });
 
+  // The text an Android Fast deposit stores when the wallet refuses: viem's flattened message, which names the RPC
+  // endpoint, the sender, the transaction and the amount, and hands over as its cause. Only the fixed values may cross
+  // the wire.
+  it('reports a failed inbound bridge by its route, step and library error, and nothing its text says', async () => {
+    consentOn();
+    const host = 'rpc.walletconnect.org';
+    const sender = `0x${'a1'.repeat(20)}`;
+    const amount = '1234.5678';
+    const stored = [
+      'An unknown RPC error occurred.',
+      '',
+      `URL: https://${host}/v1/?chainId=eip155:11155111&projectId=0123456789abcdef`,
+      'Request Arguments:',
+      `  from:   ${sender}`,
+      `  value:  ${amount} USDC`,
+      `  data:   ${POISON.privateKeyHex}`,
+      '',
+      'Details: User rejected the request.',
+      'Version: viem@2.55.4'
+    ].join('\n');
+
+    reportTransactionFailure({
+      type: 'bridged-receive',
+      point: 'bridge_receive_settlement',
+      error: stored,
+      bridgeReceive: { route: 'epoch', step: 'epoch_solve', cause: stored }
+    });
+    await flushEgress();
+
+    expect(captured).toHaveLength(1);
+    const values = captured
+      .flatMap(entry => entry.body.split('\n'))
+      .flatMap(line => {
+        try {
+          const item: unknown = JSON.parse(line);
+          const exception: unknown = typeof item === 'object' && item !== null ? Reflect.get(item, 'exception') : null;
+          const listed: unknown =
+            typeof exception === 'object' && exception !== null ? Reflect.get(exception, 'values') : null;
+          return Array.isArray(listed)
+            ? listed.map((value: unknown) => String(Reflect.get(Object(value), 'value')))
+            : [];
+        } catch {
+          return [];
+        }
+      });
+    expect(values).toEqual([
+      expect.stringMatching(
+        /^Transaction failed: tx_bridge; stage unknown; realm unknown; proving preference unknown; platform [a-z]+; point bridge_receive_settlement; rpc; via epoch; failed at epoch_solve; evm error user_rejected\. authentication preparation unavailable; layout unavailable; commitment match unavailable; account code unavailable\. SDK \d+\.\d+\.\d+; Guardian client \d+\.\d+\.\d+$/
+      )
+    ]);
+    for (const text of [
+      host,
+      'eip155',
+      '0123456789abcdef',
+      sender,
+      'a1a1',
+      amount,
+      'viem',
+      'User rejected',
+      'Request Arguments'
+    ]) {
+      expect(wireText()).not.toContain(text);
+    }
+    expect(leaksIn(wireText())).toEqual([]);
+  });
+
   it('retains each separate terminal failure even when their diagnostic facts match', async () => {
     consentOn();
     for (let attempt = 0; attempt < 2; attempt++) {

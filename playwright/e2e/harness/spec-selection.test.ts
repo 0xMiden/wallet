@@ -22,7 +22,11 @@ const repoRoot = resolve(__dirname, '../../..');
 const configSource = (file: string) => readFileSync(resolve(repoRoot, file), 'utf8');
 
 /** The json reports a real Playwright run leaves; listing tests must not rewrite them. */
-const reportFiles = ['test-results/results.json', 'test-results-stress/results.json'];
+const reportFiles = [
+  'test-results/results.json',
+  'test-results-stress/results.json',
+  'test-results/stored-override/results.json'
+];
 const reportStamp = (file: string) => statSync(resolve(repoRoot, file), { throwIfNoEntry: false })?.mtimeMs ?? null;
 let reportsBefore: (number | null)[];
 
@@ -34,7 +38,8 @@ beforeAll(() => {
 const overridingConfigs = [
   'playwright.resilience.config.ts',
   'playwright.swap.config.ts',
-  'playwright.usdcx.config.ts'
+  'playwright.usdcx.config.ts',
+  'playwright.stored-override.config.ts'
 ];
 
 /** A config's `testIgnore` value: one line, or a whole array literal however prettier wraps it. */
@@ -50,6 +55,7 @@ describe('dedicated e2e configs override the base testIgnore', () => {
     expect(testIgnore).toMatch(/resilience/);
     expect(testIgnore).toMatch(/swap/);
     expect(testIgnore).toMatch(/usdcx/);
+    expect(testIgnore).toMatch(/stored-override/);
   });
 });
 
@@ -180,6 +186,51 @@ describe('the USDCx live suites run under their own config only', () => {
       expect(configSource(`${USDCX_TESTS_DIR}/${file}`)).toMatch(USDCX_PAYOUT_PRECHECK);
     }
   );
+});
+
+const STORED_OVERRIDE_TEST =
+  'stored-override.spec.ts › Stored endpoint override › a wallet on an endpoint override stored through ' +
+  'Developer Settings shows a mint in its note list and balance, before and after a restart';
+const LOCAL_E2E = '.github/workflows/pr-e2e-local.yml';
+
+describe('the stored-override suite runs on a build that reads stored overrides, after the Local E2E core specs', () => {
+  it('playwright.stored-override.config.ts lists exactly the stored-override test, and the core config none', () => {
+    expect(listedTests(listPlaywrightTests('playwright.stored-override.config.ts'))).toEqual([STORED_OVERRIDE_TEST]);
+    expect(listPlaywrightTests('playwright.e2e.config.ts')).not.toMatch(/stored-override/);
+  });
+
+  it('every other build keeps ignoring stored overrides unless told otherwise, and the stored-override build reads them', () => {
+    const scripts: unknown = JSON.parse(configSource('package.json')).scripts;
+    const script = (name: string): unknown =>
+      typeof scripts === 'object' && scripts !== null ? Reflect.get(scripts, name) : undefined;
+    const coreBuild = String(script('test:e2e:blockchain:build'));
+    expect(
+      coreBuild.match(/ MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES=\$\{MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES:-true\} /g)
+    ).toHaveLength(3);
+    expect(coreBuild).not.toMatch(/MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES=true/);
+    expect(script('test:e2e:stored-override:build')).toBe(
+      'cross-env E2E_NETWORK=localhost MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES=false yarn test:e2e:blockchain:build'
+    );
+    expect(script('test:e2e:stored-override:run')).toBe(
+      'cross-env E2E_NETWORK=localhost playwright test --config playwright.stored-override.config.ts'
+    );
+  });
+
+  it('Local E2E builds and runs the suite once its core specs ran, whether they passed or failed', () => {
+    const src = configSource(LOCAL_E2E);
+    const core = src.indexOf('      - name: Run core specs\n        id: core\n');
+    const build = src.search(
+      / {8}if: \$\{\{ !cancelled\(\) && \(steps\.core\.outcome == 'success' \|\| steps\.core\.outcome == 'failure'\) \}\}\n {8}run: yarn test:e2e:stored-override:build\n/
+    );
+    const run = src.search(
+      / {8}if: \$\{\{ !cancelled\(\) && steps\.stored_override_build\.outcome == 'success' \}\}\n {8}run: xvfb-run -a yarn test:e2e:stored-override:run --retries=1\n/
+    );
+    expect(core).not.toBe(-1);
+    expect(build).toBeGreaterThan(core);
+    expect(run).toBeGreaterThan(build);
+    expect(src).toMatch(/\n {8}id: stored_override_build\n {8}if: /);
+    expect(src).toMatch(/run: E2E_NETWORK=localhost yarn test:e2e:blockchain:build\n/);
+  });
 });
 
 function listGuardianTests(suite?: string): string {
