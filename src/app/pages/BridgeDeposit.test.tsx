@@ -79,10 +79,10 @@ jest.mock('components/ui/Button', () => ({
 }));
 
 jest.mock('components/PageHeader', () => ({
-  PageHeader: ({ title, onClose }: { title: string; onClose?: () => void }) => (
+  PageHeader: ({ title, onBack }: { title: string; onBack?: () => void }) => (
     <div>
       {title}
-      <button type="button" aria-label="close" onClick={onClose}>
+      <button type="button" aria-label="close" onClick={onBack}>
         close
       </button>
     </div>

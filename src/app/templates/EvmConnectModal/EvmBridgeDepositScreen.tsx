@@ -721,7 +721,6 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   const handleRouteChange = useCallback(
     (next: BridgeRoute) => {
       if (next === route || confirming.current) return;
-      hapticLight();
       setRoute(next);
       setSlowStatus('idle');
       setSlowError(null);
@@ -1565,6 +1564,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
               outputAmount={formatMoneyAmount(outputAmount, 'typed')}
               fee={usdcxQuotedFee}
               networkName={networkName}
+              destinationName={midenAccount.name}
               sourceChainId={sourceChainId}
               youReceiveLoading={route === 'epoch' && epochStatus === 'quoting'}
               isSubmitting={submitting}
@@ -1618,6 +1618,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
               network={bridgeNetwork}
               tokenLabel={tokenLabel}
               arrivingName={arrivingName}
+              destinationName={midenAccount.name}
               amount={amount}
               isValidAmount={setupReady}
               error={
@@ -1642,6 +1643,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       reviewAmount,
       error,
       evmAddress,
+      midenAccount.name,
       epochStatus,
       fastAvailability,
       fastFeeUsd,
@@ -1692,7 +1694,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       <NetworkModeBanner />
       {activeRoute?.name !== ReceiveStep.ShowBridgePageStatus && (
         <div className="shrink-0 px-4">
-          <PageHeader title={t('midenBridge')} onBack={handleHeaderBack} />
+          <PageHeader title={t('bridgeInTitle')} onBack={handleHeaderBack} />
         </div>
       )}
       <NetworkNamedByShell>

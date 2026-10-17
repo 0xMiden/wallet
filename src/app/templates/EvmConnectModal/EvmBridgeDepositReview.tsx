@@ -29,6 +29,7 @@ export interface EvmBridgeDepositReviewProps {
   fee?: string;
   /** Source network name (e.g. Sepolia). */
   networkName: string;
+  destinationName?: string;
   /** Source chain id; on the USDCx route it picks the arrival estimate (`usdcxArrivalKey`). */
   sourceChainId?: number;
   /** Show a skeleton on the "You receive" row while the Fast quote is still loading. */
@@ -78,6 +79,7 @@ export const EvmBridgeDepositReview: React.FC<EvmBridgeDepositReviewProps> = ({
   outputAmount,
   fee,
   networkName,
+  destinationName,
   sourceChainId,
   youReceiveLoading = false,
   isSubmitting = false,
@@ -143,6 +145,10 @@ export const EvmBridgeDepositReview: React.FC<EvmBridgeDepositReviewProps> = ({
             <span className="w-2.5 h-2.5 rounded-full bg-primary-500" />
             {networkName}
           </span>
+        </DetailRow>
+
+        <DetailRow label={t('to')} sub={destinationName}>
+          {t('miden')}
         </DetailRow>
 
         <DetailRow label={t('route')}>{`${routeLabel} ${arrivalLabel}`}</DetailRow>

@@ -4,12 +4,14 @@ import { useAppKit, useDisconnect } from '@reown/appkit/react';
 import { useTranslation } from 'react-i18next';
 
 import { useFundTelemetry } from 'app/hooks/useFundTelemetry';
-import { Icon, IconName } from 'app/icons/v2';
+import { IconName } from 'app/icons/v2';
 import { EvmBridgeDepositScreen } from 'app/templates/EvmConnectModal/EvmBridgeDepositScreen';
 import { FeatureUnavailableNotice, isFeatureBlocked } from 'components/FeatureUnavailable';
+import { FlowLayout } from 'components/flow/FlowLayout';
 import { NetworkModeBanner } from 'components/NetworkModeBanner';
-import { PageHeader } from 'components/PageHeader';
 import { Button } from 'components/ui/Button';
+import { DetailCard, DetailRow } from 'components/ui/DetailCard';
+import { EmptyState } from 'components/ui/EmptyState';
 import { Notice } from 'components/ui/Notice';
 import { getTestNetworkNameKey } from 'lib/miden-chain/effective-endpoints';
 import { hapticMedium } from 'lib/mobile/haptics';
@@ -95,41 +97,48 @@ export const BridgeDeposit: React.FC<BridgeDepositProps> = ({ onClose }) => {
   return (
     <div className="flex h-full min-h-0 flex-col bg-app-bg text-ink">
       <NetworkModeBanner />
-      <div className="shrink-0 px-4">
-        <PageHeader title={t('midenBridge')} onClose={handleClose} />
-      </div>
-
-      <div className="flex flex-1 flex-col items-center justify-center gap-4 px-6 text-center">
-        <h2 className="text-2xl font-semibold text-ink">{t('connectEvmWallet')}</h2>
-        <p className="max-w-80 text-sm text-text-tertiary-token">{t('connectEvmWalletDescription')}</p>
-
-        {/* Same warning as the Receive-side connect drawer (#875), on a test network only. */}
+      <FlowLayout
+        title={t('bridgeInTitle')}
+        onBack={handleClose}
+        footer={
+          <Button
+            onClick={handleConnect}
+            disabled={isFeatureBlocked(bridgeIn) || status === 'connecting'}
+            className="w-full max-w-none"
+            data-testid="bridge-connect-wallet"
+          >
+            {t('openWallet')}
+          </Button>
+        }
+      >
+        <EmptyState
+          title={t('connectEvmWallet')}
+          description={t('connectEvmWalletDescription')}
+          icon={IconName.CrossChain}
+        />
+        <DetailCard face="heading" className="mt-6">
+          <DetailRow label={t('to')} sub={currentMidenAccount?.name}>
+            {t('miden')}
+          </DetailRow>
+        </DetailCard>
         {testNetwork && (
           <Notice
             tone="warning"
-            icon={<Icon name={IconName.WarningFill} size="xs" fill="currentColor" />}
             title={t('evmConnectTestWalletTitle')}
-            className="max-w-80"
+            className="mt-4"
             data-testid="evm-connect-test-wallet-warning"
           >
             {t('evmConnectTestWalletBody')}
           </Notice>
         )}
-
-        {status === 'connecting' && <p className="text-sm text-grey-500">{t('preparing')}</p>}
-
+        {status === 'connecting' && <p className="mt-4 text-body-sm text-muted">{t('preparing')}</p>}
         {nativeReown.error && (
-          <div className="w-full rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-500" role="alert">
+          <Notice tone="negative" role="alert" className="mt-4">
             {nativeReown.error}
-          </div>
+          </Notice>
         )}
-
-        <FeatureUnavailableNotice availability={bridgeIn} className="max-w-80" />
-
-        <Button onClick={handleConnect} disabled={isFeatureBlocked(bridgeIn)} className="max-w-80">
-          {t('openWallet')}
-        </Button>
-      </div>
+        <FeatureUnavailableNotice availability={bridgeIn} className="mt-4" />
+      </FlowLayout>
     </div>
   );
 };

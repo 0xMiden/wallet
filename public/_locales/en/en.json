@@ -1436,5 +1436,12 @@
   "breadExitNow": "Exit now",
   "breadPresentationBack": "Back to Bread",
   "breadPresentationHint": "Tap Bread to return",
-  "breadPresentationError": "This app did not finish loading. Try again or return to Bread."
+  "breadPresentationError": "This app did not finish loading. Try again or return to Bread.",
+  "bridgeInTitle": "Bridge in",
+  "bridgeChooseRoute": "Choose a route",
+  "bridgeRouteDescription": "Review the fee and estimated arrival before you continue.",
+  "bridgeArrivalEstimate": "Estimated arrival",
+  "bridgePayoutTiming": "Arrival depends on the destination network",
+  "bridgeSourceWallet": "Wallet",
+  "bridgeRouteFee": "Bridge fee"
 }

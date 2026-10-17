@@ -47,7 +47,7 @@ export const SendRoute: React.FC<SendRouteProps> = ({
 
   return (
     <SendStepLayout
-      title={t('route')}
+      title={t('bridgeChooseRoute')}
       onBack={onBack}
       footer={
         <Button
@@ -61,6 +61,7 @@ export const SendRoute: React.FC<SendRouteProps> = ({
         />
       }
     >
+      <p className="text-body-sm text-muted">{t('bridgeRouteDescription')}</p>
       <RouteOptions
         {...options}
         slowStatus={slowStatus}
