@@ -5,6 +5,7 @@ import { ApplyAfterSubmitError, SubmitCrossingUnrecordedError } from 'lib/miden/
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 
 import {
+  deterministicKernelFailureCopy,
   ERR_FEE_CONVERSION_INFO_COMMITMENT_MISMATCH_CODE,
   formatRawTransactionError,
   GUARDIAN_UNREACHABLE_ERROR,
@@ -303,6 +304,24 @@ describe('a dApp request whose own fee commitment does not verify (#1475)', () =
   it('leaves the missing-info code its own copy', () => {
     const missing = new Error('assertion failed with error code: 14712559985122731094');
     expect(resolveTransactionErrorMessage(missing)).toBe(TRANSACTION_FEE_CONVERSION_INFO_MISSING_ERROR);
+  });
+});
+
+// The dApp consent sheet reads a failed dry run through this helper, so it must give exactly the Failed row's copy.
+describe('deterministicKernelFailureCopy', () => {
+  it.each([
+    ['14712559985122731094', TRANSACTION_FEE_CONVERSION_INFO_MISSING_ERROR],
+    ['15404814807981965102', TRANSACTION_FEE_COMMITMENT_MISMATCH_ERROR],
+    ['644413868907058392', TRANSACTION_VAULT_SHORTFALL_ERROR]
+  ])('agrees with the classifier for code %s', (code, copy) => {
+    const raw = `failed to execute transaction kernel program: assertion failed with error code: ${code}`;
+    expect(deterministicKernelFailureCopy(raw)).toBe(copy);
+    expect(resolveTransactionErrorMessage(new Error(raw), 'sending')).toBe(copy);
+  });
+
+  it('names nothing for text without a code the classifier names', () => {
+    expect(deterministicKernelFailureCopy('assertion failed with error code: 9876543210')).toBeUndefined();
+    expect(deterministicKernelFailureCopy('note not found')).toBeUndefined();
   });
 });
 
