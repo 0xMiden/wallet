@@ -24,6 +24,7 @@ import {
 } from '../transaction/initiate';
 import { type ConsumableNote, NoteTypeEnum, type SwapOrderNoteMetadata } from '../types';
 import { swapOrderExpired } from './expiry';
+import { isRecoveredReturnOrder, recoveredOrderNoteId } from './recovered-order';
 
 export { classifySwapOrderNotes } from './classification';
 
@@ -63,6 +64,28 @@ export function noteZeroFillBuildHoldFailure(hold: WasmLockHold | null, error: u
   return mark !== undefined;
 }
 
+/**
+ * A recovered order's cancel-request build reads its order note from the node inside the settlement hold, so after a
+ * refusal (the note spent under a solver, a node error) that order waits before its next build rather than costing
+ * every lap two node reads. Per realm and per row; a returned request clears it.
+ */
+const RECOVERED_BUILD_RETRY_SECONDS = 30;
+const RECOVERED_BUILD_RETRY_MAX_SECONDS = 30 * 60;
+const recoveredBuildRetries = new Map<string, { refusals: number; retryAt: number }>();
+
+const recoveredBuildWaiting = (txId: string, nowSeconds: number): boolean =>
+  (recoveredBuildRetries.get(txId)?.retryAt ?? 0) > nowSeconds;
+
+function noteRecoveredBuildRefused(txId: string, nowSeconds: number): void {
+  const refusals = (recoveredBuildRetries.get(txId)?.refusals ?? 0) + 1;
+  const wait = Math.min(RECOVERED_BUILD_RETRY_SECONDS * 2 ** (refusals - 1), RECOVERED_BUILD_RETRY_MAX_SECONDS);
+  recoveredBuildRetries.set(txId, { refusals, retryAt: nowSeconds + wait });
+}
+
+export function __resetRecoveredBuildRetriesForTests(): void {
+  recoveredBuildRetries.clear();
+}
+
 export interface SwapSettlementResult {
   queuedTransactionIds: string[];
   managedNoteIds: Set<string>;
@@ -83,7 +106,8 @@ const outputNoteIdsOf = (row: ITransaction): string[] => row.outputNoteIds ?? []
 /**
  * Read one lineage snapshot and prepare the one class of settlement request
  * that cannot be built from consumable input notes: an expired, still-active,
- * zero-fill order whose depth-0 tip remains in the creator's output-note store.
+ * zero-fill order whose depth-0 tip remains in the creator's output-note store,
+ * or, for a recovered order this wallet was asked to return, on the node.
  */
 export async function classifySwapSettlementSnapshot(
   notes: ConsumableNoteDto[],
@@ -100,18 +124,22 @@ export async function classifySwapSettlementSnapshot(
   }
 
   for (const order of orders) {
-    if (order.extraInputs.autoConsume === false) continue;
+    // Recovery writes Auto accept off on every recovered order, so that setting is not the user's ask there.
+    const recovered = isRecoveredReturnOrder(order);
+    if (order.extraInputs.autoConsume === false && !recovered) continue;
     const expiresAt = order.extraInputs.expiresAt;
     if (!swapOrderExpired(expiresAt, nowSeconds)) continue;
     const orderId = orderIdString(order.extraInputs.orderId);
     const lineage = snapshot.lineages.get(orderId);
     // Active=0. A partial fill moves the tip to depth > 0 and imports it as an
     // input note; terminal lineages have nothing left to reclaim.
-    if (!lineage || lineage.state !== 0 || lineage.currentDepth !== 0) continue;
-    const tipNoteId = lineage.currentTipNoteId;
-    if (snapshot.notes.has(tipNoteId)) continue;
+    if (lineage && (lineage.state !== 0 || lineage.currentDepth !== 0)) continue;
+    // A device that did not place a recovered order has no lineage for it: its tip is the order note its record names.
+    const tipNoteId = lineage ? lineage.currentTipNoteId : recovered ? recoveredOrderNoteId(order) : undefined;
+    if (tipNoteId === undefined || snapshot.notes.has(tipNoteId)) continue;
     // A lineage the store maps wrongly names another order's note; a cancel of it takes back the wrong offer.
     if (!outputNoteIdsOf(order).includes(tipNoteId)) continue;
+    if (recovered && recoveredBuildWaiting(order.id, nowSeconds)) continue;
     // The queue would refuse a second row for a tip whose reclaim is live, completed or backing off, so the
     // fee-aware build is not paid for every tick until then.
     const coverage = await noteClaimCoverage(accountId, tipNoteId, nowSeconds);
@@ -120,10 +148,13 @@ export async function classifySwapSettlementSnapshot(
     assertWasmHoldCurrent(hold, 'before the zero-fill PSWAP cancel-request build');
     zeroFillBuildMarks.set(hold, 'building');
     let requestBytes: Uint8Array;
+    const assertBuildLive = (step?: string) =>
+      assertWasmHoldCurrent(hold, 'inside the zero-fill PSWAP cancel-request build', step);
     try {
-      requestBytes = await midenClientProxy.buildPswapCancelRequest(accountId, tipNoteId, step =>
-        assertWasmHoldCurrent(hold, 'inside the zero-fill PSWAP cancel-request build', step)
-      );
+      // Only a recovered order's note may come from the node; a live order's build is the one #1489 shipped.
+      requestBytes = await (recovered
+        ? midenClientProxy.buildPswapCancelRequest(accountId, tipNoteId, assertBuildLive, { allowNodeNote: true })
+        : midenClientProxy.buildPswapCancelRequest(accountId, tipNoteId, assertBuildLive));
       assertWasmHoldCurrent(hold, 'after the zero-fill PSWAP cancel-request build');
     } catch (error) {
       // A trap rejects into the hold's lock, which retires the client, and a kill (an eviction, an offscreen abort,
@@ -139,6 +170,7 @@ export async function classifySwapSettlementSnapshot(
       // A refusal after the hold's eviction is that eviction, which the hold's handler books from the mark.
       assertWasmHoldCurrent(hold, 'after the zero-fill PSWAP cancel-request build refused');
       zeroFillBuildMarks.delete(hold);
+      if (recovered) noteRecoveredBuildRefused(order.id, nowSeconds);
       // A sync can observe the lineage just before another actor consumes the
       // tip, or a legacy/local-store gap can leave the creator output absent.
       // Skip only this reclaim; aborting the whole note sync would also block
@@ -147,6 +179,7 @@ export async function classifySwapSettlementSnapshot(
       continue;
     }
     zeroFillBuildMarks.delete(hold);
+    recoveredBuildRetries.delete(order.id);
     zeroFillReclaims.set(orderId, { noteId: tipNoteId, requestBytes });
   }
 
@@ -231,7 +264,8 @@ export async function reconcileSwapOrderNotes(
   const managedNoteIds = new Set(notes.filter(n => n.swapOrder).map(n => n.id));
 
   for (const order of orders) {
-    if (order.extraInputs.autoConsume === false) continue;
+    // A recovered order this wallet's Cancel stamped is let through: recovery, not the user, wrote its Auto accept.
+    if (order.extraInputs.autoConsume === false && !isRecoveredReturnOrder(order)) continue;
     const orderId = orderIdString(order.extraInputs.orderId);
     const orderNotes = notes.filter(note => note.swapOrder?.orderId === orderId);
     if (orderNotes.length === 0) {
