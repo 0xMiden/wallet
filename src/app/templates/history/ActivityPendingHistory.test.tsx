@@ -377,6 +377,13 @@ it('hides pending notes when the activity filter excludes incoming transfers', (
   expect(screen.getByTestId('timeline')).toBeEmptyDOMElement();
 });
 
+it('does not classify incoming claim cards as Arcade or offer bulk acceptance there', () => {
+  render(<ActivityPendingHistory search="" filter="arcade" predicate={() => true} />);
+  expect(screen.getByTestId('timeline')).toBeEmptyDOMElement();
+  expect(screen.queryByRole('button', { name: 'acceptAll' })).not.toBeInTheDocument();
+  expect(mockHistoryRenders[mockHistoryRenders.length - 1]?.pendingItems).toEqual([]);
+});
+
 it('shows Accept All on the pending tab and claims every listed note that can be accepted', () => {
   const [, , claimed] = mockItems;
   if (!claimed) throw new Error('Missing note fixtures');

@@ -7,9 +7,11 @@ import { usePageActive } from 'app/layouts/page-active';
 import { ActivityGroupedHistory } from 'app/templates/history/ActivityGroupedHistory';
 import { ActivityPendingHistory } from 'app/templates/history/ActivityPendingHistory';
 import { ActivityViewMenu } from 'app/templates/history/ActivityViewMenu';
+import { ArcadeActivityHistory } from 'app/templates/history/ArcadeActivityHistory';
 import type { ActivityFilter } from 'app/templates/history/History';
 import { DeadletteredNotesNotice } from 'components/DeadletteredNotesNotice';
 import { TabHeaderAction, TabRootHeader } from 'components/ui';
+import { Notice } from 'components/ui/Notice';
 import { SegmentedControlItem } from 'components/ui/SegmentedControl';
 import { useAccount } from 'lib/miden/front';
 import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
@@ -83,7 +85,7 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
       { id: 'pending', label: t('pending') },
       { id: 'sent', label: t('sent') },
       { id: 'received', label: t('received') },
-      { id: 'faucet', label: t('faucet') }
+      { id: 'arcade', label: t('categoryArcade') }
     ],
     [t]
   );
@@ -201,9 +203,22 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
           Under the filter row, so an empty store costs the page nothing. */}
       <DeadletteredNotesNotice className="shrink-0 mx-4 mt-2" />
 
+      {view === 'list' && shownFilter === 'arcade' && (
+        <Notice variant="inline" className="mx-4" data-testid="arcade-activity-scope">
+          {t('arcadeActivityScope')}
+        </Notice>
+      )}
+
       {/* Keyed by account and endpoint: its claim receipts belong to one account on one chain. */}
       {view === 'groups' ? (
         <ActivityGroupedHistory
+          key={`${account.publicKey}|${getEffectiveRpcUrl()}|${getEffectiveNetworkName()}`}
+          search={search}
+          programId={programId}
+          onInitialLoad={handleHistoryLoaded}
+        />
+      ) : shownFilter === 'arcade' ? (
+        <ArcadeActivityHistory
           key={`${account.publicKey}|${getEffectiveRpcUrl()}|${getEffectiveNetworkName()}`}
           search={search}
           programId={programId}

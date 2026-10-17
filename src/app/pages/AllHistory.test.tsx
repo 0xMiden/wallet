@@ -147,6 +147,12 @@ jest.mock('app/templates/history/ActivityGroupedHistory', () => ({
   )
 }));
 
+jest.mock('app/templates/history/ArcadeActivityHistory', () => ({
+  ArcadeActivityHistory: ({ search }: { search: string }) => (
+    <div data-testid="arcade-history" data-search-query={search} />
+  )
+}));
+
 jest.mock('lib/miden/front', () => ({
   useAccount: () => ({ publicKey: 'test-public-key' })
 }));
@@ -202,6 +208,16 @@ const bubbleIn = (item: HTMLElement) => item.querySelector('[data-slot="motion-h
 const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
 
 describe('AllHistory', () => {
+  it('opens the existing Activity tab with Arcade selected, overriding Groups for this visit only', () => {
+    localStorage.setItem('activity_view_setting', 'groups');
+    mockLocationSearch.value = '?filter=arcade&view=list';
+    render(<AllHistory />);
+    expect(screen.getByTestId('arcade-history')).toBeInTheDocument();
+    expect(screen.queryByTestId('grouped-history')).toBeNull();
+    expect(screen.getByRole('radio', { name: 'categoryArcade' })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByTestId('arcade-activity-scope')).toHaveTextContent('arcadeActivityScope');
+    expect(localStorage.getItem('activity_view_setting')).toBe('groups');
+  });
   beforeEach(() => {
     jest.clearAllMocks();
     localStorage.clear();
@@ -230,14 +246,23 @@ describe('AllHistory', () => {
     expect(screen.getByRole('heading', { name: 'activity' })).toBeTruthy();
 
     // Every filter chip is rendered from the memoized filters list.
-    for (const label of ['all', 'pending', 'sent', 'received', 'faucet']) {
+    for (const label of ['all', 'pending', 'sent', 'received', 'categoryArcade']) {
       expect(getFilterButton(label)).toBeTruthy();
     }
+    expect(screen.queryByRole('radio', { name: 'faucet' })).toBeNull();
 
     // The search field is closed until the header's search button opens it.
     expect(screen.queryByPlaceholderText('searchByNameOrSymbol')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'activitySearch' }));
     expect(screen.getByPlaceholderText('searchByNameOrSymbol')).toBeTruthy();
+  });
+
+  it('falls back to All for a removed Faucet deep link rather than keeping an invisible filter', () => {
+    mockLocationSearch.value = '?filter=faucet&view=list';
+    render(<AllHistory />);
+    expect(getFilterButton('all')).toHaveAttribute('aria-checked', 'true');
+    expect(getHistory()).toHaveAttribute('data-filter', 'all');
+    expect(screen.queryByRole('radio', { name: 'faucet' })).toBeNull();
   });
 
   it('forwards programId and filters to the activity content', () => {
@@ -361,12 +386,12 @@ describe('AllHistory', () => {
   it('does not re-fire haptics when re-tapping a newly selected filter', () => {
     render(<AllHistory />);
 
-    fireEvent.click(getFilterButton('faucet'));
+    fireEvent.click(getFilterButton('received'));
     expect(hapticSelection).toHaveBeenCalledTimes(1);
-    expect(getHistory().getAttribute('data-filter')).toBe('faucet');
+    expect(getHistory().getAttribute('data-filter')).toBe('received');
 
     // A second tap on the same (now selected) filter is silent.
-    fireEvent.click(getFilterButton('faucet'));
+    fireEvent.click(getFilterButton('received'));
     expect(hapticSelection).toHaveBeenCalledTimes(1);
     expect(hapticLight).not.toHaveBeenCalled();
   });
