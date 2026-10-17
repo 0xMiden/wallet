@@ -1,5 +1,10 @@
 import { SpendingLimitAssessmentDetails } from 'lib/miden/spending-limits/queue';
-import { MidenMessageType } from 'lib/miden/types';
+import {
+  TRANSACTION_FEE_COMMITMENT_MISMATCH_ERROR,
+  TRANSACTION_FEE_CONVERSION_INFO_MISSING_ERROR,
+  TRANSACTION_VAULT_SHORTFALL_ERROR
+} from 'lib/miden/transaction/constants';
+import { MidenDAppSimulateTransactionRequest, MidenMessageType } from 'lib/miden/types';
 
 import { buildCustomTxConfirmPayload, makeSimulateHandler } from './dapp';
 import { simulateCustomTransaction } from './simulate-custom-tx';
@@ -142,6 +147,52 @@ describe('makeSimulateHandler', () => {
 
     expect(simulateCustomTransaction).toHaveBeenCalled();
     expect(out).toMatchObject({ summaryBytes: 'sumB64' });
+  });
+
+  // The reply hands a failed dry run's reason on to the sheet, so a deterministic kernel code reads as the copy the
+  // Failed row gets there too (#1475).
+  describe.each([
+    ['missing fee conversion info', '14712559985122731094', TRANSACTION_FEE_CONVERSION_INFO_MISSING_ERROR],
+    ["dApp's fee commitment mismatch", '15404814807981965102', TRANSACTION_FEE_COMMITMENT_MISMATCH_ERROR],
+    ['vault shortfall', '644413868907058392', TRANSACTION_VAULT_SHORTFALL_ERROR]
+  ])('a dry run failing with the %s code', (_name, code, copy) => {
+    const kernelLine = `failed to execute transaction kernel program: assertion failed with error code: ${code}`;
+    const simulateRequest: MidenDAppSimulateTransactionRequest = {
+      type: MidenMessageType.DAppSimulateTransactionRequest,
+      id: 'confirm-id'
+    };
+
+    it('replies with the Failed row copy, never the code', async () => {
+      jest.mocked(simulateCustomTransaction).mockResolvedValueOnce({ error: kernelLine });
+
+      const out = await makeSimulateHandler('confirm-id', customTx)(simulateRequest);
+
+      expect(out).toMatchObject({ error: copy });
+      expect(JSON.stringify(out)).not.toContain(code);
+    });
+
+    it('replies with the same copy when it reruns a failed cached dry run', async () => {
+      jest.mocked(simulateCustomTransaction).mockClear();
+      jest.mocked(simulateCustomTransaction).mockResolvedValueOnce({ error: kernelLine });
+
+      const out = await makeSimulateHandler('confirm-id', customTx, { error: kernelLine })(simulateRequest);
+
+      expect(simulateCustomTransaction).toHaveBeenCalledTimes(1);
+      expect(out).toMatchObject({ error: copy });
+      expect(JSON.stringify(out)).not.toContain(code);
+    });
+  });
+
+  it('replies with the text of a failure that carries no named code', async () => {
+    jest.mocked(simulateCustomTransaction).mockResolvedValueOnce({ error: 'Simulation timed out' });
+    const simulateRequest: MidenDAppSimulateTransactionRequest = {
+      type: MidenMessageType.DAppSimulateTransactionRequest,
+      id: 'confirm-id'
+    };
+
+    const out = await makeSimulateHandler('confirm-id', customTx)(simulateRequest);
+
+    expect(out).toMatchObject({ error: 'Simulation timed out' });
   });
 
   it('ignores a simulate request for a different id', async () => {
