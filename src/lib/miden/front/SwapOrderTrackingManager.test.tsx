@@ -463,7 +463,10 @@ describe('SwapOrderTrackingManager', () => {
           orderId: '7',
           noteId: 'note-7',
           offeredAmount: 70n,
-          requestedAmount: 30n
+          requestedAmount: 30n,
+          tipNoteId: 'note-7',
+          tipDepth: 0,
+          tipOfferedAmount: 70n
         }
       ]);
       expect(mockTrackSwapOrders).not.toHaveBeenCalled();

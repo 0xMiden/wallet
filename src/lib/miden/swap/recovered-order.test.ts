@@ -109,15 +109,37 @@ describe('isRecoveredReturnOrder', () => {
 });
 
 describe('recoveredSwapOrderRef', () => {
-  it('carries what the node read and the depth-0 lineage need', () => {
+  it('carries what the node read and the depth-0 lineage need, its tip the order note itself', () => {
     expect(recoveredSwapOrderRef(recoveredSwap({}, { orderId: 42n }))).toEqual({
       txId: 'guardian-history:testnet:account:0xcommitment',
       accountId: 'account',
       orderId: '42',
       noteId: 'order-note',
       offeredAmount: 70n,
-      requestedAmount: 30n
+      requestedAmount: 30n,
+      tipNoteId: 'order-note',
+      tipDepth: 0,
+      tipOfferedAmount: 70n
     });
+  });
+
+  // After a partial fill the unfilled offer sits in a remainder the order tracking recorded (#1487).
+  it('carries the remainder the order tracking recorded as its current tip', () => {
+    const row = recoveredSwap({}, { recoveredTip: { noteId: 'remainder-1', depth: 1, remainingOffered: 40n } });
+    expect(recoveredSwapOrderRef(row)).toEqual(
+      expect.objectContaining({ noteId: 'order-note', tipNoteId: 'remainder-1', tipDepth: 1, tipOfferedAmount: 40n })
+    );
+    expect(isOpenRecoveredOrder(row)).toBe(true);
+  });
+
+  it.each([
+    ['no note id', { depth: 1, remainingOffered: 40n }],
+    ['depth 0', { noteId: 'remainder-1', depth: 0, remainingOffered: 40n }],
+    ['no amount left', { noteId: 'remainder-1', depth: 1 }]
+  ])('falls back to the order note for a recorded tip with %s', (_label, recoveredTip) => {
+    expect(recoveredSwapOrderRef(recoveredSwap({}, { recoveredTip }))).toEqual(
+      expect.objectContaining({ tipNoteId: 'order-note', tipDepth: 0, tipOfferedAmount: 70n })
+    );
   });
 
   it('is absent for an order that is not open', () => {

@@ -1083,7 +1083,10 @@ describe('MidenClientProxy — zero-fill PSWAP cancel request', () => {
       new Uint8Array([20, 14, 7, 6])
     );
 
-    expect(G.__px.inlineBuildPswapCancelRequest).toHaveBeenCalledWith('acc-1', 'tip-1', assertLive);
+    // One call with the flag, false for a live order (#1487).
+    expect(G.__px.inlineBuildPswapCancelRequest).toHaveBeenCalledWith('acc-1', 'tip-1', assertLive, {
+      allowNodeNote: false
+    });
     expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
   });
 
@@ -1104,7 +1107,8 @@ describe('MidenClientProxy — zero-fill PSWAP cancel request', () => {
     await expect(pending).resolves.toEqual(bytes);
     const env = fakeChrome.runtime.sendMessage.mock.calls[0][0];
     expect(env.method).toBe('buildPswapCancelRequest');
-    expect(env.argsB64).toEqual(['s:"acc-2"', 's:"tip-2"']);
+    expect(env.argsB64).toEqual(['s:"acc-2"', 's:"tip-2"', 's:false']);
+    expect(env.deadline_ms).toBe(15_000);
     expect(G.__px.inlineBuildPswapCancelRequest).not.toHaveBeenCalled();
   });
 

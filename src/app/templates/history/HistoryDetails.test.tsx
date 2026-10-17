@@ -4550,6 +4550,18 @@ describe('HistoryDetails Guardian-recovered swap order', () => {
     expect(screen.queryByText('swapOpenPendingNotes')).not.toBeInTheDocument();
   });
 
+  // A partial fill moved what is left on offer to a remainder; the node's answer is its lineage (#1487).
+  it('reads a partly filled recovered order as Pending and partially filled, with Cancel swap on offer', async () => {
+    seedTracking({ orderId: '42', state: 'active', currentDepth: 1, remainingOffered: 28n, remainingRequested: 400n });
+    setMockRow(recoveredOrderTx({ recoveredTip: { noteId: 'remainder-1', depth: 1, remainingOffered: 28n } }));
+    await renderAndLoad();
+
+    expect(screen.getByTestId('status-pill')).toHaveAttribute('data-swap-settlement', 'pending');
+    expect(screen.getByTestId('swap-order-status')).toHaveTextContent('orderStatusPartiallyFilled');
+    expect(screen.getByTestId('swap-order-amount-filled')).toHaveTextContent('swapAmountProgress_600_1000_ ETH');
+    expect(screen.getByTestId('swap-cancel-order-button')).toBeInTheDocument();
+  });
+
   it('returns it through the confirmation sheet and the shared cancel', async () => {
     openOnNode();
     setMockRow(recoveredOrderTx());

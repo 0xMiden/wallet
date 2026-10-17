@@ -4,11 +4,11 @@ import type { RecoveredSwapOrderRef } from './recovered-order';
 import { closeRecoveredSwapOrder, trackRecoveredSwapOrders } from './recovered-order-tracking';
 
 const mockEnsureSdkWasmReady = jest.fn(async () => undefined);
-const mockReadPswapOrderNote = jest.fn();
+const mockReadPswapOrderLineage = jest.fn();
 const mockWhere = jest.fn();
 jest.mock('lib/miden-chain/constants', () => ({ ensureSdkWasmReady: () => mockEnsureSdkWasmReady() }));
 jest.mock('lib/miden/sdk/pswap-order-note', () => ({
-  readPswapOrderNote: (...args: unknown[]) => mockReadPswapOrderNote(...args)
+  readPswapOrderLineage: (...args: unknown[]) => mockReadPswapOrderLineage(...args)
 }));
 jest.mock('lib/miden/repo', () => ({ transactions: { where: (query: unknown) => mockWhere(query) } }));
 
@@ -21,6 +21,9 @@ const ref = (orderId = '42', overrides: Partial<RecoveredSwapOrderRef> = {}): Re
   noteId: `note-${orderId}`,
   offeredAmount: 70n,
   requestedAmount: 30n,
+  tipNoteId: `note-${orderId}`,
+  tipDepth: 0,
+  tipOfferedAmount: 70n,
   ...overrides
 });
 
@@ -35,6 +38,44 @@ const consume = (status: ITransactionStatus, swapSettleKind: 'settle' | 'reclaim
   status,
   completedAt,
   extraInputs: { swapOrderTxId: 'swap-42', swapSettleKind }
+});
+
+// The row as Guardian recovery wrote it, still open.
+const openRecoveredRow = (extraInputs: Record<string, unknown> = {}): Row => ({
+  id: 'swap-42',
+  type: 'swap',
+  accountId: 'account',
+  status: ITransactionStatus.Completed,
+  amount: 70n,
+  outputNoteIds: ['note-42'],
+  restoredFromBackup: true,
+  recovered: true,
+  recovery: {
+    version: 5,
+    network: 'testnet',
+    operators: [],
+    nonce: 2,
+    inputNotes: [],
+    outputNotes: [
+      {
+        id: 'note-42',
+        assets: [],
+        visibility: 'public',
+        swap: { orderId: '42', requestedAsset: { faucetId: 'requested', amount: '30' } }
+      }
+    ],
+    completeness: 'decoded',
+    reclaimed: false
+  },
+  extraInputs: { orderId: '42', requestedAmount: 30n, autoConsume: false, ...extraInputs }
+});
+
+const openLineage = (noteId: string, depth: number, offeredAmount: bigint, requestedAmount: bigint) => ({
+  kind: 'open',
+  noteId,
+  depth,
+  offeredAmount,
+  requestedAmount
 });
 
 beforeEach(() => {
@@ -67,11 +108,11 @@ afterEach(() => {
 
 describe('trackRecoveredSwapOrders', () => {
   it('reads an unspent order note as an open order at depth 0 with nothing filled', async () => {
-    mockReadPswapOrderNote.mockResolvedValue({ kind: 'open', note: {} });
+    mockReadPswapOrderLineage.mockResolvedValue(openLineage('note-42', 0, 70n, 30n));
 
     const results = await trackRecoveredSwapOrders([ref()]);
 
-    expect(mockReadPswapOrderNote).toHaveBeenCalledWith('note-42', 'account');
+    expect(mockReadPswapOrderLineage).toHaveBeenCalledWith('note-42', '42', 'account');
     expect(results.get('42')).toEqual({
       kind: 'open',
       tracking: { orderId: '42', state: 'active', currentDepth: 0, remainingOffered: 70n, remainingRequested: 30n }
@@ -79,8 +120,43 @@ describe('trackRecoveredSwapOrders', () => {
     expect(modifyRecipes).toHaveLength(0);
   });
 
-  it('closes an order whose note is spent, recording it as spent when no consume of this wallet explains it', async () => {
-    mockReadPswapOrderNote.mockResolvedValue({ kind: 'spent' });
+  // A partial fill spends the order note and leaves the unfilled offer in a remainder, which only this account can
+  // take back: closing the order there lost it for good (#1487).
+  it('keeps a partly filled order open at its remainder and records the remainder its Cancel returns', async () => {
+    swapRow = openRecoveredRow({ expiresAt: 150, expiryTriggeredAt: 150 });
+    mockReadPswapOrderLineage.mockResolvedValue(openLineage('remainder-1', 1, 40n, 10n));
+
+    const results = await trackRecoveredSwapOrders([ref()]);
+
+    expect(results.get('42')).toEqual({
+      kind: 'open',
+      tracking: { orderId: '42', state: 'active', currentDepth: 1, remainingOffered: 40n, remainingRequested: 10n }
+    });
+    expect(swapRow.extraInputs?.recoveredTip).toEqual({ noteId: 'remainder-1', depth: 1, remainingOffered: 40n });
+    expect(swapRow.extraInputs?.orderNoteSpentAt).toBeUndefined();
+    expect(swapRow.extraInputs?.expiryTriggeredAt).toBe(150);
+  });
+
+  it('writes nothing when the row already records that remainder', async () => {
+    mockReadPswapOrderLineage.mockResolvedValue(openLineage('remainder-1', 1, 40n, 10n));
+
+    await trackRecoveredSwapOrders([ref('42', { tipNoteId: 'remainder-1', tipDepth: 1, tipOfferedAmount: 40n })]);
+
+    expect(modifyRecipes).toHaveLength(0);
+  });
+
+  it('records no remainder over a row that has closed since it was read', async () => {
+    swapRow = openRecoveredRow({ settledAt: 160 });
+    mockReadPswapOrderLineage.mockResolvedValue(openLineage('remainder-1', 1, 40n, 10n));
+
+    await trackRecoveredSwapOrders([ref()]);
+
+    expect(modifyRecipes[0]?.(openRecoveredRow({ settledAt: 160 }))).toBe(false);
+    expect(swapRow.extraInputs?.recoveredTip).toBeUndefined();
+  });
+
+  it('closes an order the node shows finished, with no remainder left, recording it as spent', async () => {
+    mockReadPswapOrderLineage.mockResolvedValue({ kind: 'finished' });
 
     const results = await trackRecoveredSwapOrders([ref()]);
 
@@ -93,7 +169,7 @@ describe('trackRecoveredSwapOrders', () => {
   });
 
   it('leaves an absent note unresolved, so nothing is closed on an answer that proves nothing', async () => {
-    mockReadPswapOrderNote.mockResolvedValue({ kind: 'absent' });
+    mockReadPswapOrderLineage.mockResolvedValue({ kind: 'absent' });
 
     const results = await trackRecoveredSwapOrders([ref()]);
 
@@ -102,9 +178,9 @@ describe('trackRecoveredSwapOrders', () => {
   });
 
   it('reads the next order when one read fails, leaving the failed one unresolved', async () => {
-    mockReadPswapOrderNote
+    mockReadPswapOrderLineage
       .mockRejectedValueOnce(new Error('node unreachable'))
-      .mockResolvedValueOnce({ kind: 'open', note: {} });
+      .mockResolvedValueOnce(openLineage('note-43', 0, 70n, 30n));
 
     const results = await trackRecoveredSwapOrders([ref('42'), ref('43')]);
 
@@ -114,7 +190,7 @@ describe('trackRecoveredSwapOrders', () => {
   });
 
   it('waits for the SDK once per pass and not at all for an empty one', async () => {
-    mockReadPswapOrderNote.mockResolvedValue({ kind: 'absent' });
+    mockReadPswapOrderLineage.mockResolvedValue({ kind: 'absent' });
 
     await trackRecoveredSwapOrders([]);
     expect(mockEnsureSdkWasmReady).not.toHaveBeenCalled();

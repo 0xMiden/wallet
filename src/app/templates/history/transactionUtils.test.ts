@@ -1289,6 +1289,12 @@ describe('swap settlement state', () => {
       expect(swapSettlementOf(recovered())).toBe('pending');
     });
 
+    it('reads open while a fill has left a remainder on offer', () => {
+      expect(
+        swapSettlementOf(recovered({ recoveredTip: { noteId: 'remainder', depth: 1, remainingOffered: 20n } }))
+      ).toBe('pending');
+    });
+
     it('reads Returning funds once this wallet asked for its return', () => {
       expect(swapSettlementOf(recovered({ expiresAt: 150, expiryTriggeredAt: 150 }))).toBe('reclaiming');
     });

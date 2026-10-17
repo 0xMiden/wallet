@@ -1,5 +1,7 @@
 import Dexie, { DBCore, Middleware } from 'dexie';
 
+import { deriveSwapReceipt } from 'app/templates/history/swapReceipt';
+
 import { ITransaction, ITransactionStatus } from './db/types';
 import {
   createSchemaFor,
@@ -14,6 +16,7 @@ import {
   SPENDING_LIMITS_V17_STORE,
   SPENDING_LIMITS_V19_STORE
 } from './repo';
+import { isOpenRecoveredOrder, isRecoveredReturnOrder } from './swap/recovered-order';
 import { isRequeueableTransaction } from './transaction/retry';
 import { NoteTypeEnum } from './types';
 
@@ -474,15 +477,14 @@ describe('miden repo export/import', () => {
     const dump = JSON.stringify({
       [Table.Transactions]: [
         {
-          id: 'recovered-order',
+          id: 'local-order',
           type: 'swap',
           status: ITransactionStatus.Completed,
           accountId: 'acc1',
           initiatedAt: 1,
           completedAt: 2,
           displayIcon: 'DEFAULT',
-          recovered: true,
-          extraInputs: { orderId: '42', autoConsume: false, expiresAt: 150, expiryTriggeredAt: 150 }
+          extraInputs: { orderId: '42', autoConsume: true, expiresAt: 150, expiryTriggeredAt: 150 }
         }
       ]
     });
@@ -490,8 +492,102 @@ describe('miden repo export/import', () => {
     await importDb(dump);
 
     const [restored] = await transactions.toArray();
-    expect(restored!.recovered).toBe(true);
-    expect(restored!.extraInputs).toEqual({ orderId: '42', autoConsume: false, expiresAt: 150 });
+    expect(restored!.extraInputs).toEqual({ orderId: '42', autoConsume: true, expiresAt: 150 });
+  });
+
+  // A backup cut between a recovered order's Cancel and its reclaim carries the stamp and the expiry that Cancel
+  // moved to the press (recovery writes none). Dropping only the stamp left the expiry lapsed, so the importing device
+  // showed the return as pending, offered no Cancel and never acted on it. The import returns the order to open.
+  it('imports a cancelled recovered order open again, with Cancel on offer', async () => {
+    const recoveredOrder: ITransaction = {
+      id: 'recovered-order',
+      type: 'swap',
+      status: ITransactionStatus.Completed,
+      accountId: 'acc1',
+      initiatedAt: 1,
+      completedAt: 2,
+      displayIcon: 'DEFAULT',
+      amount: 70n,
+      outputNoteIds: ['order-note'],
+      restoredFromBackup: true,
+      recovered: true,
+      recovery: {
+        version: 5,
+        network: 'testnet',
+        operators: [],
+        nonce: 2,
+        inputNotes: [],
+        outputNotes: [
+          {
+            id: 'order-note',
+            assets: [],
+            visibility: 'public',
+            swap: { orderId: '42', requestedAsset: { faucetId: 'requested', amount: '30' } }
+          }
+        ],
+        completeness: 'decoded',
+        reclaimed: false
+      },
+      extraInputs: {
+        orderId: '42',
+        requestedFaucetId: 'requested',
+        requestedAmount: 30n,
+        autoConsume: false,
+        expiresAt: 150,
+        expiryTriggeredAt: 150,
+        recoveredTip: { noteId: 'remainder-note', depth: 1, remainingOffered: 20n }
+      }
+    };
+    await transactions.bulkAdd([recoveredOrder]);
+    const backup = await exportDb();
+    await transactions.clear();
+
+    await importDb(backup);
+
+    const [restored] = await transactions.toArray();
+    expect(restored!.extraInputs).toEqual({
+      orderId: '42',
+      requestedFaucetId: 'requested',
+      requestedAmount: 30n,
+      autoConsume: false
+    });
+    expect(isOpenRecoveredOrder(restored!)).toBe(true);
+    expect(isRecoveredReturnOrder(restored!)).toBe(false);
+    const receipt = deriveSwapReceipt({
+      requestedAmount: 30n,
+      tracking: { orderId: '42', state: 'active', currentDepth: 0, remainingOffered: 70n, remainingRequested: 30n },
+      settlement: null,
+      autoConsume: false,
+      recovered: true,
+      expiresAt: restored!.extraInputs.expiresAt ?? null
+    });
+    expect(receipt.offerCancel).toBe(true);
+  });
+
+  it('keeps the expiry of a restored swap that recovery did not rebuild', async () => {
+    const dump = JSON.stringify({
+      [Table.Transactions]: [
+        {
+          id: 'file-order',
+          type: 'swap',
+          status: ITransactionStatus.Completed,
+          accountId: 'acc1',
+          initiatedAt: 1,
+          completedAt: 2,
+          displayIcon: 'DEFAULT',
+          extraInputs: { orderId: '42', expiresAt: 150, recoveredTip: { noteId: 'kept', depth: 1 } }
+        }
+      ]
+    });
+
+    await importDb(dump);
+
+    const [restored] = await transactions.toArray();
+    expect(restored!.extraInputs).toEqual({
+      orderId: '42',
+      expiresAt: 150,
+      recoveredTip: { noteId: 'kept', depth: 1 }
+    });
   });
 
   // The status test is an allow-list of the terminal values, so a dump is free
