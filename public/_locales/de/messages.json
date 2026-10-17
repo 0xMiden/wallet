@@ -4412,6 +4412,23 @@
     "message": "{count} offene dApps",
     "englishSource": "{count} open dApps"
   },
+  "openLinkTitle": {
+    "message": "$host$ öffnen?",
+    "englishSource": "Open $host$?",
+    "placeholders": {
+      "host": {
+        "content": "$1"
+      }
+    }
+  },
+  "openLinkDescription": {
+    "message": "Diese Website ist nicht in „Explore“ gelistet, und jeder kann einen Link zu ihr erstellen. Öffnen Sie sie nur, wenn Sie dieser Website vertrauen.",
+    "englishSource": "This site is not listed in Explore, and anyone can make a link to it. Only open it if you trust this site."
+  },
+  "openLinkAction": {
+    "message": "Öffnen",
+    "englishSource": "Open"
+  },
   "approve": {
     "message": "Genehmigen",
     "englishSource": "Approve"

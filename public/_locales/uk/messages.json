@@ -4412,6 +4412,23 @@
     "message": "{count} відкритих dApps",
     "englishSource": "{count} open dApps"
   },
+  "openLinkTitle": {
+    "message": "Відкрити $host$?",
+    "englishSource": "Open $host$?",
+    "placeholders": {
+      "host": {
+        "content": "$1"
+      }
+    }
+  },
+  "openLinkDescription": {
+    "message": "Цей сайт не вказаний у розділі «Досліджувати», і будь-хто може створити посилання на нього. Відкривайте його лише в тому випадку, якщо довіряєте цьому сайту.",
+    "englishSource": "This site is not listed in Explore, and anyone can make a link to it. Only open it if you trust this site."
+  },
+  "openLinkAction": {
+    "message": "Відкрити",
+    "englishSource": "Open"
+  },
   "approve": {
     "message": "Затвердити",
     "englishSource": "Approve"

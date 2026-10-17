@@ -4412,6 +4412,23 @@
     "message": "{count} открытых dApps",
     "englishSource": "{count} open dApps"
   },
+  "openLinkTitle": {
+    "message": "Открыть $host$?",
+    "englishSource": "Open $host$?",
+    "placeholders": {
+      "host": {
+        "content": "$1"
+      }
+    }
+  },
+  "openLinkDescription": {
+    "message": "Этот сайт не указан в разделе «Explore», и любой может разместить ссылку на него. Открывайте его только в том случае, если доверяете этому сайту.",
+    "englishSource": "This site is not listed in Explore, and anyone can make a link to it. Only open it if you trust this site."
+  },
+  "openLinkAction": {
+    "message": "Открыть",
+    "englishSource": "Open"
+  },
   "approve": {
     "message": "Утвердить",
     "englishSource": "Approve"

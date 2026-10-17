@@ -4412,6 +4412,23 @@
     "message": "{count} 個開放式去中心化應用程式 (dApps)",
     "englishSource": "{count} open dApps"
   },
+  "openLinkTitle": {
+    "message": "開啟 $host$？",
+    "englishSource": "Open $host$?",
+    "placeholders": {
+      "host": {
+        "content": "$1"
+      }
+    }
+  },
+  "openLinkDescription": {
+    "message": "本網站未收錄於「探索」頁面，任何人皆可建立連結至此。請僅在您信任本網站的情況下才開啟瀏覽。",
+    "englishSource": "This site is not listed in Explore, and anyone can make a link to it. Only open it if you trust this site."
+  },
+  "openLinkAction": {
+    "message": "開啟",
+    "englishSource": "Open"
+  },
   "approve": {
     "message": "批准",
     "englishSource": "Approve"

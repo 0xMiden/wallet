@@ -4412,6 +4412,23 @@
     "message": "{count}個の公開済みdApp",
     "englishSource": "{count} open dApps"
   },
+  "openLinkTitle": {
+    "message": "$host$を開きますか？",
+    "englishSource": "Open $host$?",
+    "placeholders": {
+      "host": {
+        "content": "$1"
+      }
+    }
+  },
+  "openLinkDescription": {
+    "message": "このサイトは「Explore」に掲載されておらず、誰でもリンクを張ることができます。このサイトを信頼できる場合にのみアクセスしてください。",
+    "englishSource": "This site is not listed in Explore, and anyone can make a link to it. Only open it if you trust this site."
+  },
+  "openLinkAction": {
+    "message": "開く",
+    "englishSource": "Open"
+  },
   "approve": {
     "message": "承認する",
     "englishSource": "Approve"

@@ -4412,6 +4412,23 @@
     "message": "{count} otwartych aplikacji dApp",
     "englishSource": "{count} open dApps"
   },
+  "openLinkTitle": {
+    "message": "Otworzyć $host$?",
+    "englishSource": "Open $host$?",
+    "placeholders": {
+      "host": {
+        "content": "$1"
+      }
+    }
+  },
+  "openLinkDescription": {
+    "message": "Ta strona nie figuruje w sekcji „Explore”, a każdy może umieścić do niej link. Otwórz ją tylko wtedy, gdy ufasz tej stronie.",
+    "englishSource": "This site is not listed in Explore, and anyone can make a link to it. Only open it if you trust this site."
+  },
+  "openLinkAction": {
+    "message": "Otwórz",
+    "englishSource": "Open"
+  },
   "approve": {
     "message": "Zatwierdź",
     "englishSource": "Approve"

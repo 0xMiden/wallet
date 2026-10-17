@@ -4412,6 +4412,23 @@
     "message": "{count}개의 공개 dApp",
     "englishSource": "{count} open dApps"
   },
+  "openLinkTitle": {
+    "message": "$host$를 열까요?",
+    "englishSource": "Open $host$?",
+    "placeholders": {
+      "host": {
+        "content": "$1"
+      }
+    }
+  },
+  "openLinkDescription": {
+    "message": "이 사이트는 Explore에 등재되어 있지 않으며, 누구나 이 사이트로 링크를 생성할 수 있습니다. 이 사이트를 신뢰하는 경우에만 접속하십시오.",
+    "englishSource": "This site is not listed in Explore, and anyone can make a link to it. Only open it if you trust this site."
+  },
+  "openLinkAction": {
+    "message": "열기",
+    "englishSource": "Open"
+  },
   "approve": {
     "message": "승인",
     "englishSource": "Approve"
