@@ -108,6 +108,61 @@ const PROTECT_REGEX = new RegExp(
   'g',
 );
 
+// DeepL has put an <x> tag against a neighbouring word or also translated the word beside it, and
+// unwrapping left the two fused ("L’note", "notess", "Notnote", "dfaucet", #1399).
+const ANY_TERM_REGEX = new RegExp(TECHNICAL_TERM_VARIANTS.join('|'), 'g');
+const PLACEHOLDER_REGEX = /\$[a-zA-Z_][a-zA-Z0-9_]*\$/g;
+// Japanese and Chinese write no spaces and Korean attaches particles to the noun, so their letters may
+// touch a term.
+const GLUE_LETTER =
+  /^(?![\p{Script_Extensions=Han}\p{Script_Extensions=Hiragana}\p{Script_Extensions=Katakana}\p{Script_Extensions=Hangul}])[\p{L}\p{M}]$/u;
+const APOSTROPHE = /^['’ʼ]$/;
+// Endings a language attaches straight to a singular loanword ("blockchains", "Guardiana", "fauceta").
+// Any other letters after a term, and any after a plural one ("notess"), are glue.
+const TERM_ENDINGS: Record<string, string[]> = {
+  de: ['s'],
+  en: ['s'],
+  es: ['s', 'es'],
+  fr: ['s'],
+  pl: ['a', 'u', 'owi', 'em', 'ie', 'y', 'i', 'owie', 'ów', 'om', 'ami', 'ach'],
+  pt: ['s']
+};
+
+const termFamily = (term: string): string => term.toLowerCase().replace(/s$/, '');
+
+// The words of `translation` that fuse a term `english` protects with a neighbouring word. Only the terms
+// the English protects count, so a native word such as "Notez" or "Knoten" is not one. `language` is a
+// locale directory or a DeepL code ("pt", "pt-BR").
+function findGluedTerms(translation: string, english: string, language: string): string[] {
+  const families = new Set(
+    [...english.matchAll(PROTECT_REGEX)]
+      .map(m => m[0])
+      .filter(span => TECHNICAL_TERM_VARIANTS.includes(span))
+      .map(termFamily)
+  );
+  const endings = TERM_ENDINGS[language.split(/[-_]/)[0].toLowerCase()] ?? [];
+  const text = translation.replace(PLACEHOLDER_REGEX, placeholder => '$'.repeat(placeholder.length));
+  const isGlueLetter = (i: number): boolean => i >= 0 && i < text.length && GLUE_LETTER.test(text[i]);
+  const glued: string[] = [];
+  for (const m of text.matchAll(ANY_TERM_REGEX)) {
+    const term = m[0];
+    if (!families.has(termFamily(term))) continue;
+    const start = m.index;
+    const end = start + term.length;
+    let after = end;
+    while (isGlueLetter(after)) after++;
+    const ending = text.slice(end, after);
+    // Every term starts with a consonant, and no shipped language elides before one ("L’note" is "La note").
+    const elided = APOSTROPHE.test(text[start - 1] ?? '') && isGlueLetter(start - 2);
+    const gluedAfter = ending !== '' && (/s$/i.test(term) || !endings.includes(ending));
+    if (!isGlueLetter(start - 1) && !elided && !gluedAfter) continue;
+    let from = elided ? start - 1 : start;
+    while (isGlueLetter(from - 1)) from--;
+    glued.push(translation.slice(from, after));
+  }
+  return glued;
+}
+
 function xmlEscape(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
@@ -183,6 +238,20 @@ function buildEntry(message: string, englishMessage: string): any {
   return entry;
 }
 
+// The marker of an entry whose message is the English text: format-locales.js leaves it out of the flat
+// bundle and translateWithDiff translates it again on the next run.
+const UNTRANSLATED = '(untranslated)';
+
+// The entry written for a fresh DeepL translation. One that glues a protected term to a word is never
+// written: the entry keeps the English under UNTRANSLATED until a later run gets it clean or a hand fix
+// lands. No retry in the same run, since DeepL repeats the glue for the same request.
+function translatedEntry(key: string, translation: string, english: string, language: string) {
+  const glued = findGluedTerms(translation, english, language);
+  if (glued.length === 0) return buildEntry(translation, english);
+  console.warn(`Rejected the ${language} translation of ${key}, which glues ${glued.join(', ')}: keeping the English.`);
+  return { ...buildEntry(english, english), englishSource: UNTRANSLATED };
+}
+
 // Translate every key of en.json into `code`, writing a throwaway tmp file (does not
 // touch the real locale). Used by the `-c <code>` mode.
 async function translateFile(code: string) {
@@ -194,7 +263,7 @@ async function translateFile(code: string) {
 
   const newFile: any = {};
   keys.forEach((key, i) => {
-    newFile[key] = buildEntry(translations[i], englishFile[key]);
+    newFile[key] = translatedEntry(key, translations[i], englishFile[key], code);
   });
 
   fs.writeFileSync(path.join(root, 'utility/tmp-messages.json'), JSON.stringify(newFile, null, 2));
@@ -246,7 +315,7 @@ async function translateWithDiff(fileName: string, code: string, replaceFile: bo
       code,
     );
     toTranslate.forEach((t, i) => {
-      newFile[t.key] = buildEntry(translations[i], t.english);
+      newFile[t.key] = translatedEntry(t.key, translations[i], t.english, code);
     });
   }
 
@@ -342,7 +411,15 @@ async function fixAllPotentialErrors() {
 }
 
 // Export the pure, side-effect-free helpers for unit testing (no API calls).
-module.exports = { toDeepLXml, fromDeepLXml, PROTECT_REGEX, generateChromePlaceholders, LOCALE_TO_DEEPL };
+module.exports = {
+  toDeepLXml,
+  fromDeepLXml,
+  PROTECT_REGEX,
+  generateChromePlaceholders,
+  LOCALE_TO_DEEPL,
+  findGluedTerms,
+  translatedEntry
+};
 
 // CLI entry point — only when run directly (`ts-node generateLanguageFiles.ts`), never
 // when required by a test.
