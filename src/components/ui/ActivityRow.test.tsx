@@ -450,7 +450,8 @@ describe('ActivityRow', () => {
   });
 
   // jsdom does not lay out, so these pin the classes that keep a long amount line inside the row (#1490):
-  // the amount column shrinks but never past half the row, and the line clips to one line with an ellipsis.
+  // the amount column shrinks but never past half the row, and the line clips to one line with an ellipsis
+  // drawn in ink (a button's default text colour is near-black on the dark card).
   it.each<[string, NonNullable<React.ComponentProps<typeof ActivityRow>['amount']>]>([
     ['a 30-digit amount', { value: '+123456789012345678901234567890', symbol: 'MIDEN', direction: 'positive' }],
     ['a 40-character token symbol', { value: '+5', symbol: 'T'.repeat(40), direction: 'positive' }],
@@ -469,7 +470,7 @@ describe('ActivityRow', () => {
     expect(screen.getByTestId('row-title')).toHaveTextContent('Sent MIDEN');
     const line = screen.getByTestId('row-amount');
     const status = screen.getByTestId('row-status');
-    expect(line).toHaveClass('truncate', 'max-w-full');
+    expect(line).toHaveClass('truncate', 'max-w-full', 'text-ink');
     expect(line).not.toContainElement(status);
     const column = line.parentElement;
     expect(column).toContainElement(status);

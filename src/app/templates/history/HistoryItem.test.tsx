@@ -445,12 +445,16 @@ describe('HistoryItem', () => {
   });
 
   // jsdom does not lay out, so these pin the classes that keep a long line inside the row (#1490): each
-  // amount column shrinks but never past half the row, and every line in it clips with an ellipsis.
+  // amount column shrinks but never past half the row, and every line in it clips with an ellipsis, in a
+  // line box tall enough for descenders (`leading-none` cut them off once the line clipped).
   describe('long amounts and token names', () => {
     const longAmount = 123456789012345678901234567890n;
     const longToken = 'T'.repeat(40);
     const expectCappedColumn = (lines: HTMLElement[]) => {
-      for (const line of lines) expect(line).toHaveClass('truncate', 'max-w-full');
+      for (const line of lines) {
+        expect(line).toHaveClass('truncate', 'max-w-full', 'leading-tight');
+        expect(line).not.toHaveClass('leading-none');
+      }
       const column = lines[0]?.parentElement;
       expect(column).toHaveClass('min-w-0', 'max-w-1/2');
       expect(column).not.toHaveClass('shrink-0');

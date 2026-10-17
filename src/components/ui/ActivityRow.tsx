@@ -185,9 +185,15 @@ export const ActivityRow: FC<ActivityRowProps> = ({
         </div>
       </div>
 
-      <div className="flex shrink-0 flex-col items-end gap-1">
+      {/* Capped at half the row and free to shrink, so a long amount, token name or asset list
+          truncates on its one line instead of starving the title and spilling past the row. The line
+          takes `text-ink` for its ellipsis, which would otherwise draw in the button's default colour. */}
+      <div className="flex min-w-0 max-w-1/2 flex-col items-end gap-1">
         {amount && (
-          <span data-testid={testId && `${testId}-amount`} className="text-value text-right">
+          <span
+            data-testid={testId && `${testId}-amount`}
+            className="max-w-full truncate text-value text-right text-ink"
+          >
             {amount.value !== '' && (
               <span className={AMOUNT_COLOR[amount.direction ?? 'neutral']}>
                 {amount.preformatted ? amount.value : formatDisplayAmount(amount.value)}
