@@ -566,12 +566,19 @@ export async function exportDb(): Promise<string> {
 /**
  * A dump's swap Cancel stamp (`expiryTriggeredAt`) is dropped. On a Guardian-recovered order it is the permission
  * settlement acts on to return the order, which only this wallet's own Cancel may give (#1487); on any other restored
- * row nothing reads it.
+ * row nothing reads it. A recovered order also drops what else this wallet's own tracking and Cancel wrote on it (the
+ * expiry, which recovery never writes, and the remainder the tracking found): with only the stamp gone, the lapsed
+ * expiry left the order showing its return as pending with no Cancel, and nothing would ever act on it. It imports
+ * open, and its Cancel is offered again.
  */
-const withoutCancelStamp = (extraInputs: unknown): unknown =>
-  typeof extraInputs === 'object' && extraInputs !== null && !Array.isArray(extraInputs)
-    ? Object.fromEntries(Object.entries(extraInputs).filter(([key]) => key !== 'expiryTriggeredAt'))
-    : extraInputs;
+const CANCEL_STAMP = new Set(['expiryTriggeredAt']);
+const RECOVERED_ORDER_LOCAL_STATE = new Set(['expiryTriggeredAt', 'expiresAt', 'recoveredTip']);
+
+const importedExtraInputs = (extraInputs: unknown, recovered: boolean): unknown => {
+  if (typeof extraInputs !== 'object' || extraInputs === null || Array.isArray(extraInputs)) return extraInputs;
+  const dropped = recovered ? RECOVERED_ORDER_LOCAL_STATE : CANCEL_STAMP;
+  return Object.fromEntries(Object.entries(extraInputs).filter(([key]) => !dropped.has(key)));
+};
 
 export async function importDb(dump: string): Promise<void> {
   const data = JSON.parse(dump);
@@ -582,7 +589,7 @@ export async function importDb(dump: string): Promise<void> {
       const { amount, dappOrigins: _dappOrigins, extraInputs, ...rest } = mapValues(tx, fromSerializable);
       const imported = {
         ...rest,
-        ...(extraInputs !== undefined && { extraInputs: withoutCancelStamp(extraInputs) }),
+        ...(extraInputs !== undefined && { extraInputs: importedExtraInputs(extraInputs, rest.recovered === true) }),
         ...(isBigIntSource(amount) && { amount: BigInt(amount) })
       };
       return neutralizeUnfinishedTransaction(imported);
