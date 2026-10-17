@@ -9,12 +9,12 @@ import { Icon, IconName } from 'app/icons/v2';
 import { HomeGroupPaneBody } from 'app/layouts/HomeGroupPane';
 import { usePageActive } from 'app/layouts/page-active';
 import { FeatureUnavailableNotice, isFeatureBlocked } from 'components/FeatureUnavailable';
+import { ACCENT_CLASSES } from 'components/flow/accent';
 import { NetworkChip } from 'components/NetworkChip';
 import { QRCode, type QRCodeHandle, type QRPalette } from 'components/QRCode';
+import { Card } from 'components/ui/Card';
 import { CopyButton } from 'components/ui/CopyButton';
-import { DetailCard, DetailRow } from 'components/ui/DetailCard';
-import { ListGroup } from 'components/ui/ListGroup';
-import { ListRow } from 'components/ui/ListRow';
+import { IconCircle } from 'components/ui/FactRow';
 import { Notice } from 'components/ui/Notice';
 import { resolveTransition, tabBarMotion } from 'lib/animation';
 import { getTestNetworkNameKey } from 'lib/miden-chain/effective-endpoints';
@@ -23,6 +23,7 @@ import { isMobile } from 'lib/platform';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { useClipboardCopy } from 'lib/ui/useClipboardCopy';
 import { usePrimaryPress } from 'lib/ui/usePrimaryPress';
+import { cn } from 'lib/ui/util';
 import { useBridgeInAvailability } from 'lib/usdcx/use-bridge-in-availability';
 import { truncateAddress } from 'utils/string';
 
@@ -58,6 +59,61 @@ const blobToBase64 = (blob: Blob): Promise<string> =>
     reader.onerror = () => reject(reader.error ?? new Error('Failed to read QR image'));
     reader.readAsDataURL(blob);
   });
+
+interface ReceiveActionTileProps {
+  icon: IconName;
+  title: string;
+  /** A second line under the title; a tile with none draws only its title. */
+  caption?: string;
+  onClick: () => void;
+  /** Greyed out, and takes no tap, while what it opens cannot start. */
+  disabled?: boolean;
+  'data-testid'?: string;
+}
+
+/** One of the Receive actions: an outlined tile, the glyph in the Receive tint centred over the label and its caption. */
+const ReceiveActionTile: React.FC<ReceiveActionTileProps> = ({
+  icon,
+  title,
+  caption,
+  onClick,
+  disabled,
+  'data-testid': dataTestId
+}) => {
+  const tone = ACCENT_CLASSES.receive;
+  return (
+    <Card
+      asChild
+      surface="outline"
+      pressable
+      className="flex min-w-0 flex-1 flex-col items-center gap-2.5 text-center disabled:cursor-default disabled:opacity-50"
+    >
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => {
+          hapticLight();
+          onClick();
+        }}
+        data-testid={dataTestId}
+      >
+        <IconCircle size="lg" className={cn(tone.tint, tone.text)}>
+          <Icon name={icon} size="xs" />
+        </IconCircle>
+        <span className="flex min-w-0 max-w-full flex-col items-center gap-0.5">
+          <span data-slot="title" className="truncate text-row-title text-ink">
+            {title}
+          </span>
+          {caption !== undefined && (
+            <span data-slot="caption" className="truncate text-caption font-semibold text-muted">
+              {caption}
+            </span>
+          )}
+        </span>
+      </button>
+    </Card>
+  );
+};
 
 export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit }) => {
   const { t } = useTranslation();
@@ -188,12 +244,13 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
           {address}
         </span>
 
-        {/* The QR leads; the network and copy target form one address card beneath it. */}
-        <div data-testid="receive-qr-block" className="flex flex-col items-center gap-5">
-          <div data-testid="receive-qr-card" className="flex w-full flex-col items-center gap-5">
-            {/* The QR is a fixed square (256px), not the leftover height: big enough to scan
+        {/* The code, its network and the address: one centred block on the page itself, no card
+            around it — the card only added an edge between the code and the actions below. */}
+        <div data-testid="receive-qr-block" className="flex flex-col items-center gap-2">
+          <div data-testid="receive-qr-card" className="flex w-full flex-col items-center gap-2">
+            {/* The QR is a fixed square (272px), not the leftover height: big enough to scan
                 across a table, small enough to leave the page room to breathe. */}
-            <div data-testid="receive-qr-slot" className="relative w-full max-w-64">
+            <div data-testid="receive-qr-slot" className="relative w-full max-w-68">
               <motion.div
                 data-testid="receive-qr-frame"
                 className="aspect-square w-full"
@@ -226,49 +283,47 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
                 className="absolute left-1/2 top-1/2 h-[28%] w-[28%] -translate-x-1/2 -translate-y-1/2 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-receive"
               />
             </div>
-            <DetailCard surface="outline" face="heading" className="w-full">
-              {network && (
-                <DetailRow label={t('network')}>
-                  <NetworkChip kind="miden" label={t('qrNetworkCaption', { network })} data-testid="receive-network" />
-                </DetailRow>
-              )}
-              <CopyButton
-                text={address}
-                data-testid="receive-copy-address"
-                label={truncateAddress(address, false, 16, 8)}
-                aria-label={t('copy')}
-                icon="trailing"
-                variant="address"
-                iconClassName="text-accent-receive"
-                checkClassName="text-positive-ink"
-              />
-            </DetailCard>
+            {network && (
+              <NetworkChip kind="miden" label={t('qrNetworkCaption', { network })} data-testid="receive-network" />
+            )}
+            <CopyButton
+              text={address}
+              data-testid="receive-copy-address"
+              label={truncateAddress(address, false, 16, 8)}
+              icon="leading"
+              iconClassName="text-accent-receive"
+              checkClassName="text-positive-ink"
+              className="flex h-11 w-full items-center justify-center rounded-full bg-fill px-4 text-ink transition-colors hover:bg-fill-pressed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-receive"
+              contentClassName="gap-2 font-heading text-base leading-5 font-bold"
+            />
           </div>
         </div>
 
-        <div className="mt-5 flex shrink-0 flex-col gap-3">
-          <ListGroup data-testid="receive-actions">
-            <ListRow
-              icon={<Icon name={IconName.Share} size="xs" />}
+        <div className="mt-2 flex shrink-0 flex-col gap-2">
+          {/* Two equal choices, side by side: each its own outlined tile, the Receive green on its
+              glyph, the label over a one-line caption. */}
+          <div className="flex gap-2.5" data-testid="receive-actions">
+            <ReceiveActionTile
+              icon={IconName.Share}
               title={t('share')}
-              subtitle={t('receiveShareCaption')}
-              accent="receive"
-              chevron
+              caption={t('receiveShareCaption')}
               onClick={() => void handleShare()}
               data-testid="receive-share"
             />
+            {/* Drawn on every platform. The extension once hid it because the Reown relay closed its
+                socket (code 3000): the page's placeholder Buffer encoded the relay token from zero
+                bytes. public/globals.js no longer installs one. */}
             {crossChainOnNetwork && (
-              <ListRow
-                icon={<Icon name={IconName.CrossChain} size="xs" />}
+              <ReceiveActionTile
+                icon={IconName.CrossChain}
                 title={t('crossChain')}
-                accent="receive"
-                chevron
+                // No source named here: the bridge screen lists the chains the remote config offers.
                 onClick={onBridgeDeposit}
                 disabled={isFeatureBlocked(crossChain)}
                 data-testid="receive-cross-chain"
               />
             )}
-          </ListGroup>
+          </div>
           {crossChainOnNetwork && <FeatureUnavailableNotice availability={crossChain} variant="inline" />}
           {/* The funds-safety warning (#875), last: the page reads code → address → actions, and
               this qualifies all of it. A caption with the warning glyph, not a tinted block —

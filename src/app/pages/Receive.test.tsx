@@ -307,12 +307,12 @@ describe('Receive - Address', () => {
     const container = await renderReceive();
     const copyButton = container.querySelector('[data-testid="receive-copy-address"]')!;
 
-    // The address remains one full-width copy target inside the network/address card.
-    expect(copyButton).toHaveClass('min-h-14', 'w-full', 'text-ink');
-    // The shared CopyButton: the address rolls to copied and the trailing glyph confirms it.
+    // The address is a full-width 44px pill on `fill`, aligned with the notice and actions.
+    expect(copyButton).toHaveClass('h-11', 'w-full', 'rounded-full', 'bg-fill', 'text-ink');
+    // The shared CopyButton: the animated glyph leads, the address label rolls to "copied".
     const label = () => copyButton.querySelector('[data-copy-label] [data-present="true"]');
     const glyph = () => copyButton.querySelector('[data-copy-icon] [data-present="true"]');
-    expect(copyButton.querySelector('[aria-live]')!.lastElementChild).toHaveAttribute('data-copy-icon');
+    expect(copyButton.querySelector('[aria-live]')!.firstElementChild).toHaveAttribute('data-copy-icon');
     expect(label()?.textContent).toBe('test-acc');
     expect(glyph()).toHaveAttribute('data-copy-state', 'idle');
 
@@ -363,17 +363,28 @@ describe('Receive - Address', () => {
     expect(navigate).toHaveBeenCalledWith('/bridge/deposit');
   });
 
-  it('renders Share and Cross-chain as standard action rows, with one haptic per tap', async () => {
+  it('renders Share and Cross-chain as two outlined tiles side by side, with one haptic per tap', async () => {
     const container = await renderReceive();
+
     const actions = container.querySelector('[data-testid="receive-actions"]')!;
-    expect(actions).toHaveClass('flex-col', 'bg-fill', 'rounded-2xl');
+    // Two equal choices in a row, each its own outlined tile.
+    expect(actions).toHaveClass('flex', 'gap-2.5');
     const share = actions.querySelector('[data-testid="receive-share"]')!;
     const crossChain = actions.querySelector('[data-testid="receive-cross-chain"]')!;
     expect(share.tagName).toBe('BUTTON');
     expect(crossChain.tagName).toBe('BUTTON');
+    for (const tile of [share, crossChain]) {
+      expect(tile).toHaveClass('flex-1', 'flex-col', 'items-center', 'text-center', 'border-hairline');
+      expect(tile).not.toHaveClass('bg-fill');
+    }
     expect(share.querySelector('[data-slot="title"]')?.textContent).toBe('share');
-    expect(share.textContent).toContain('receiveShareCaption');
+    expect(share.querySelector('[data-slot="caption"]')?.textContent).toBe('receiveShareCaption');
     expect(crossChain.querySelector('[data-slot="title"]')?.textContent).toBe('crossChain');
+    // The captions are semibold, the one weight step up from the body caption.
+    expect(share.querySelector('[data-slot="caption"]')).toHaveClass('text-caption', 'font-semibold', 'text-muted');
+    // No label is sized by hand any more (the 40px `text-[2.5rem]` spans).
+    expect(container.querySelector('[class*="text-[2.5rem]"]')).toBeNull();
+
     await act(async () => {
       fireEvent.click(crossChain);
     });
@@ -498,8 +509,8 @@ describe('Receive - Address', () => {
     expect(card.className).not.toContain('bg-page');
     expect(card.className).not.toContain('rounded-2xl');
     const slot = container.querySelector('[data-testid="receive-qr-slot"]')!;
-    // 256px, not the leftover height: the rest of the page gets the room back.
-    expect(slot).toHaveClass('relative', 'w-full', 'max-w-64');
+    // 272px, not the leftover height: the rest of the page gets the room back.
+    expect(slot).toHaveClass('relative', 'w-full', 'max-w-68');
     expect(slot).not.toHaveClass('flex-1');
     const frame = container.querySelector('[data-testid="receive-qr-frame"]')!;
     expect(frame).toHaveClass('aspect-square', 'w-full');
@@ -549,7 +560,7 @@ describe('Receive - Address', () => {
         const tile = container.querySelector(`[data-testid="${testId}"]`)!;
         expect(tile.querySelector('[data-slot="icon"]')).toHaveClass('bg-accent-receive-tint', 'text-accent-receive');
         // The shared IconCircle at its 36px size, not a disc drawn on the page.
-        expect(tile.querySelector('[data-slot="icon"]')).toHaveClass('shrink-0', 'rounded-full');
+        expect(tile.querySelector('[data-slot="icon"]')).toHaveClass('shrink-0', 'h-9', 'w-9', 'rounded-full');
         // The titles stay `ink`: the accent is under 4.5:1 as text.
         expect(tile.querySelector('[data-slot="title"]')).toHaveClass('text-ink');
       }
