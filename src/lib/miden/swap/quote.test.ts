@@ -290,6 +290,8 @@ describe('a 2xx body the flow cannot read', () => {
     ['an empty pair price', pairPrice, {}],
     ['a pair price with string decimals', pairPrice, { ...IETH_IUSDT_PRICE, requestedDecimals: '8' }],
     ['a pair price whose fill price is not a decimal string', pairPrice, { ...IETH_IUSDT_PRICE, fillPrice: 2488.18 }],
+    ['a pair price with a negative fee', pairPrice, { ...IETH_IUSDT_PRICE, feePpm: -50 }],
+    ['a pair price with a fee above 1,000,000 ppm', pairPrice, { ...IETH_IUSDT_PRICE, feePpm: 1_000_001 }],
     ['an empty swap eta', swapEta, {}],
     ['a swap eta with settlementsRunning as a string', swapEta, { ...etaWith(), settlementsRunning: 'true' }],
     ['a swap eta with an unknown price band', swapEta, { ...etaWith(), priceBand: 'near_market' }],
@@ -319,6 +321,12 @@ describe('a 2xx body the flow cannot read', () => {
     installFetch([() => ({ status: 200, body: price }), () => ({ status: 200, body: eta })]);
     await expect(pairPrice()).resolves.toBe(price);
     await expect(swapEta()).resolves.toBe(eta);
+  });
+
+  it.each([0, 1_000_000])('reads a pair price whose fee is %d ppm, an end of the range', async feePpm => {
+    const price = { ...IETH_IUSDT_PRICE, feePpm };
+    installFetch([() => ({ status: 200, body: price })]);
+    await expect(pairPrice()).resolves.toBe(price);
   });
 });
 
