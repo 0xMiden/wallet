@@ -1333,13 +1333,15 @@ const importPrivateNoteFailure = (e: unknown): unknown => (isPipelineKillLink(e)
  * The bytes are checked by the id quarantine derives from them (a NoteFile's note id, else
  * a bare Note's id), never by the import's answer: for raw `Note` bytes that answer is a
  * details commitment, not a note id. Bytes that are neither a NoteFile nor a Note are not
- * imported; the consume then finds the note in the store or refuses it itself.
+ * imported; the consume then finds the note in the store or refuses it itself. A decode that
+ * traps refuses the consume: it runs under the WASM lock, which retires the client.
  */
 async function importConsumeNoteBytes(noteId: string, noteBytes: string): Promise<void> {
   let carriedId: string | null = null;
   try {
-    carriedId = noteIdFromBytes(b64ToU8(noteBytes));
-  } catch {
+    carriedId = await withWasmClientLock(async () => noteIdFromBytes(b64ToU8(noteBytes)));
+  } catch (e) {
+    if (e instanceof WebAssembly.RuntimeError) throw e;
     // Invalid base64 reads as unreadable bytes.
   }
   // Nothing readable to import: the consume reads the note from the store, as it did before bytes
@@ -2568,7 +2570,7 @@ const generatePromisifyConsumeTransaction = async (
   // Bytes that describe another note are a malformed request, refused before the gate so a locked wallet says so too.
   let carried: ResolvedConsumeNote | null = null;
   try {
-    carried = decodeCarriedConsumeNote(req.transaction);
+    carried = await decodeCarriedConsumeNoteLocked(req.transaction);
   } catch (e) {
     reject(new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`));
     return;
@@ -3090,16 +3092,19 @@ interface ResolvedConsumeNote {
  * its real assets and type, or null when neither format parses.
  */
 function decodeConsumeNoteBytes(noteBytesB64: string): (ResolvedConsumeNote & { noteId: string }) | null {
-  // Never throws: any unreadable byte string just means "the wallet could not
-  // decode this", and the caller falls back to reading the note from the store.
-  // Refusing the whole request here would break a legitimate dApp that carries a
-  // format this build cannot parse but whose note IS resolvable locally.
+  // Never throws for bytes it cannot read: any unreadable byte string just means
+  // "the wallet could not decode this", and the caller falls back to reading the
+  // note from the store. Refusing the whole request here would break a legitimate
+  // dApp that carries a format this build cannot parse but whose note IS resolvable
+  // locally. A WebAssembly trap is no such string: it is rethrown for the caller's
+  // lock, which retires the client the aborted module belongs to.
   try {
     const bytes = b64ToU8(noteBytesB64);
     let note: Note | undefined;
     try {
       note = NoteFile.deserialize(bytes).note();
-    } catch {
+    } catch (error) {
+      if (error instanceof WebAssembly.RuntimeError) throw error;
       // Not a NoteFile — fall through to a bare Note.
     }
     if (!note) {
@@ -3118,7 +3123,8 @@ function decodeConsumeNoteBytes(noteBytesB64: string): (ResolvedConsumeNote & { 
           faucetId: getBech32AddressFromAccountId(asset.faucetId())
         }))
     };
-  } catch {
+  } catch (error) {
+    if (error instanceof WebAssembly.RuntimeError) throw error;
     return null;
   }
 }
@@ -3141,6 +3147,17 @@ function decodeCarriedConsumeNote(transaction: MidenConsumeTransaction): Resolve
 }
 
 /**
+ * {@link decodeCarriedConsumeNote} under the WASM lock: a decode that traps rejects the hold, so the lock retires the
+ * client before any later call can run on it, and the request is refused rather than read from the store.
+ */
+async function decodeCarriedConsumeNoteLocked(
+  transaction: MidenConsumeTransaction
+): Promise<ResolvedConsumeNote | null> {
+  if (!transaction.noteBytes) return null;
+  return await withWasmClientLock(async () => decodeCarriedConsumeNote(transaction));
+}
+
+/**
  * Ground truth for a consume request: what the note the wallet will consume
  * actually holds.
  *
@@ -3156,7 +3173,7 @@ function decodeCarriedConsumeNote(transaction: MidenConsumeTransaction): Resolve
  * be resolved at all, rather than prompting with unverifiable numbers.
  */
 async function resolveConsumeNote(transaction: MidenConsumeTransaction): Promise<ResolvedConsumeNote> {
-  const carried = decodeCarriedConsumeNote(transaction);
+  const carried = await decodeCarriedConsumeNoteLocked(transaction);
   if (carried) return carried;
 
   const [details] = await withWasmClientLock(async hold =>

@@ -56,19 +56,23 @@ import { b64ToU8 } from 'lib/shared/helpers';
  * and the dApp controls which it sends. Deriving the id from only one format
  * would let notes in the other format be imported but never quarantined (they'd
  * leak into the claimable UI). Tries NoteFile first (as the import does), then a
- * bare Note. Returns null if neither parses.
+ * bare Note. Returns null if neither parses. A WebAssembly trap is rethrown, not
+ * read as bytes that do not parse: the caller's lock must see it to retire the
+ * client the aborted module belongs to.
  */
 export function noteIdFromBytes(bytes: Uint8Array): string | null {
   try {
     const noteFile = NoteFile.deserialize(bytes);
     const id = noteFile.noteId() ?? noteFile.note()?.id();
     if (id) return id.toString();
-  } catch {
+  } catch (error) {
+    if (error instanceof WebAssembly.RuntimeError) throw error;
     // Not a NoteFile — fall through to a bare Note.
   }
   try {
     return Note.deserialize(bytes).id().toString();
-  } catch {
+  } catch (error) {
+    if (error instanceof WebAssembly.RuntimeError) throw error;
     return null;
   }
 }
