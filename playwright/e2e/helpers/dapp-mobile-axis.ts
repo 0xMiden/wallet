@@ -78,18 +78,35 @@ export function mobileGuardianAxis(guardianUrl: string, timing: AxisTiming = TIM
       if (chainCommitmentHex === null) return;
       const want = normalizeHex(chainCommitmentHex);
       const until = Date.now() + Math.min(timing.settleMs, deadline.remainingMs());
-      let last = '';
+      let last = 'no commitment read';
+      const unsettled = (): InfrastructureFault =>
+        new InfrastructureFault(
+          `Guardian settle against ${guardianUrl}: the operator holds ${last}, the chain ${want}`
+        );
       for (;;) {
-        const view = await guardianOperatorView(wallet, account, guardianUrl);
-        last =
-          view.commitment === undefined ? `no commitment (${view.error ?? 'no error'})` : normalizeHex(view.commitment);
-        if (last === want) return;
+        const remainingMs = until - Date.now();
+        if (remainingMs <= 0) throw unsettled();
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+          const view = await Promise.race([
+            guardianOperatorView(wallet, account, guardianUrl),
+            new Promise<never>((_, reject) => {
+              timer = setTimeout(() => reject(unsettled()), remainingMs);
+            })
+          ]);
+          if (Date.now() >= until) throw unsettled();
+          last =
+            view.commitment === undefined
+              ? `no commitment (${view.error ?? 'no error'})`
+              : normalizeHex(view.commitment);
+          if (last === want) return;
+        } finally {
+          clearTimeout(timer);
+        }
         if (Date.now() + timing.pollMs > until) break;
         await sleep(timing.pollMs);
       }
-      throw new InfrastructureFault(
-        `Guardian settle against ${guardianUrl}: the operator holds ${last}, the chain ${want}`
-      );
+      throw unsettled();
     },
     connectKeyMembership: async (wallet, account, publicKeyHex) => {
       const info = await wallet.getGuardianAuthInfo(account);
