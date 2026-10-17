@@ -15,6 +15,7 @@
 import { isAndroid, isIOS } from 'lib/platform';
 
 import { commitmentFromPublicKeyHex } from './commitment';
+import { markHotKeyFailure } from './failure';
 import { HotKey } from './hotKeyPlugin';
 import type { GeneratedHotKey } from './jsFallback';
 
@@ -24,10 +25,21 @@ function assertMobile(): void {
   }
 }
 
+// Only the plugin's own rejection names a device-key code in a transaction-failure report
+// (lib/telemetry/transaction-failure); assertMobile's error and the SDK commitment step keep their own identity.
+async function pluginCall<T>(call: () => Promise<T>): Promise<T> {
+  try {
+    return await call();
+  } catch (error) {
+    markHotKeyFailure(error);
+    throw error;
+  }
+}
+
 export async function generateHotKey(): Promise<GeneratedHotKey> {
   assertMobile();
 
-  const { ciphertext, publicKeyHex, strongBoxError } = await HotKey.generateHotKey();
+  const { ciphertext, publicKeyHex, strongBoxError } = await pluginCall(() => HotKey.generateHotKey());
   if (strongBoxError) {
     // The key works (TEE-backed), but a present StrongBox failed to produce
     // one — surface the report prompt with the raw error without failing the
@@ -46,22 +58,24 @@ export async function generateHotKey(): Promise<GeneratedHotKey> {
 export async function signHotDigest(ciphertext: string, wordHex: string): Promise<string> {
   assertMobile();
 
-  const { signatureHex } = await HotKey.signWithHotKey({
-    ciphertext,
-    digestHex: wordHex
-  });
+  const { signatureHex } = await pluginCall(() =>
+    HotKey.signWithHotKey({
+      ciphertext,
+      digestHex: wordHex
+    })
+  );
   return signatureHex;
 }
 
 export async function deleteHotKey(ciphertext: string): Promise<void> {
   assertMobile();
 
-  await HotKey.deleteHotKey({ ciphertext });
+  await pluginCall(() => HotKey.deleteHotKey({ ciphertext }));
 }
 
 export async function revealHotKey(ciphertext: string): Promise<string> {
   assertMobile();
 
-  const { secretKeyHex } = await HotKey.revealHotKey({ ciphertext });
+  const { secretKeyHex } = await pluginCall(() => HotKey.revealHotKey({ ciphertext }));
   return secretKeyHex;
 }

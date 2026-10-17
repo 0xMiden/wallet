@@ -59,9 +59,16 @@ const ANSWERS = {
   l2Wei: '0x2386f26fc10000',
   l2GasPrice: '0x5b8d80',
   l2UsdcUnits: '1977802',
-  // The harness key's USDC on Ethereum Sepolia: the 9,999 units that let Circle's forwarder mint there (2026-10-16).
-  sepoliaUsdcUnits: '9999',
-  // Every L2 endpoint's answer to the empty raw transaction: a decode failure, so it takes writes.
+  // Ethereum Sepolia (2026-10-16): the harness key's USDC, past both the 9,999 units that let Circle's forwarder mint
+  // there and usdcx-in-l2's 0.101 USDC floor, and the 0.001 gwei gas price, a 26 wei base fee and a 0.001 gwei tip.
+  // publicnode's Sepolia is also the bridge suites' default Sepolia RPC, so every address there holds the 1 ETH their
+  // funded key reads.
+  sepoliaUsdcUnits: '3000523',
+  sepoliaGasPrice: '0xf425a',
+  sepoliaPriorityFee: '0xf4240',
+  sepoliaWei: '0xde0b6b3a7640000',
+  // Every Base, Arbitrum and Ethereum Sepolia endpoint's answer to the empty raw transaction: a decode failure, so it
+  // takes writes.
   l2RawTransaction: { code: -32602, message: 'failed to decode signed transaction' },
   irisFees: [
     { finalityThreshold: 1000, minimumFee: 1.3 },
@@ -133,7 +140,7 @@ const unavailable = method => ({
   error: { code: -32601, message: `the method ${method} does not exist/is not available` }
 });
 
-/** The harness key's reads on an L2 usdcx-in-l2 deposits from. */
+/** The harness key's reads on Base Sepolia and Arbitrum Sepolia, two of the chains usdcx-in-l2 deposits from. */
 function l2KeyAnswer({ method, params }) {
   switch (method) {
     case 'eth_getBalance':
@@ -149,7 +156,7 @@ function l2KeyAnswer({ method, params }) {
   }
 }
 
-// Ethereum Sepolia's USDC, where usdcx-burn-l2's preflight reads the harness key's balance.
+// Ethereum Sepolia's USDC, where usdcx-burn-l2's and usdcx-in-l2's preflights read the harness key's balance.
 const SEPOLIA_USDC = '0x1c7d4b196cb0c7b01d743fbc6116a902379c7238';
 
 function l2Answer(chainId, call) {
@@ -169,6 +176,9 @@ function l2Answer(chainId, call) {
       if (method === 'eth_call' && String(params[0]?.to).toLowerCase() === SEPOLIA_USDC) {
         return { result: word(BigInt(answers.sepoliaUsdcUnits).toString(16)) };
       }
+      if (method === 'eth_getBalance') return { result: answers.sepoliaWei };
+      if (method === 'eth_gasPrice') return { result: answers.sepoliaGasPrice };
+      if (method === 'eth_maxPriorityFeePerGas') return { result: answers.sepoliaPriorityFee };
       return Object.hasOwn(RPC_RESULTS, method) ? { result: RPC_RESULTS[method] } : unavailable(method);
   }
 }
