@@ -31,4 +31,10 @@ describe('E2E Bridge-IN workflow', () => {
       /\n {8}run: yarn playwright test --config playwright\.ios\.bridge-in\.config\.ts --retries="\$RETRIES"\n/
     );
   });
+
+  // The suite is the bridge-in deposit's only hermetic E2E; continue-on-error kept main green through a real
+  // regression (#1453 to #1478) and through three days in which one spec failed every run.
+  it('fails its run when a spec fails', () => {
+    expect(testStep()).not.toMatch(/^ {8}continue-on-error:/m);
+  });
 });

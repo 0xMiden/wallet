@@ -247,10 +247,8 @@ jobs:
         # even after one failed (maxFailures: 0). --retries=2 absorbs a degraded
         # simulator, CDP or a relay rate-limit trip on the connect step; each
         # attempt is a fresh wallet, pairing and Anvil. A dispatch can pass
-        # retries: 0 to prove a fix passes on its first attempt.
-        #
-        # NON-BLOCKING only until a dispatch at retries 0 passes on this config.
-        continue-on-error: true
+        # retries: 0 to prove a fix passes on its first attempt. A failed spec
+        # fails the run.
         env:
           RETRIES: ${{ inputs.retries || '2' }}
         run: yarn playwright test --config playwright.ios.bridge-in.config.ts --retries="$RETRIES"
