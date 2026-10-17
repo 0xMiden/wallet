@@ -24,7 +24,8 @@ import {
   SUBMIT_GRPC_STATUSES,
   SUBMIT_HIDDEN_ANSWERS,
   SUBMIT_NODE_ERRORS,
-  SUBMIT_UNKNOWN_OUTCOME_STATUSES
+  SUBMIT_UNKNOWN_OUTCOME_STATUSES,
+  type TransactionFailure
 } from './transaction-failure';
 import { TELEMETRY_ERROR_KINDS } from './types';
 // The shipped class, past the stub jest maps the package to, so the fields the report reads are the ones it sets.
@@ -40,6 +41,13 @@ const settle = () => new Promise(resolve => setTimeout(resolve, 0));
 const reportedMessage = async (): Promise<string> => {
   await settle();
   return (jest.mocked(captureCrash).mock.calls[0]![0] as Error).message;
+};
+
+// The message of the `index`th captured report, shown to be there first: a missing report fails this assertion.
+const capturedMessage = (index: number): string => {
+  const error: unknown = jest.mocked(captureCrash).mock.calls[index]?.[0];
+  expect(error).toBeInstanceOf(Error);
+  return error instanceof Error ? error.message : '';
 };
 
 const REPO_ROOT = join(__dirname, '..', '..', '..');
@@ -955,14 +963,13 @@ describe('the never-committed verdict', () => {
 
   it('names a verdict with no rule by its reason alone, and a rule outside the list as other', async () => {
     reportTransactionFailure({ point: 'guardian_node_verdict', type: 'switch-guardian', reason: 'never_committed' });
-    reportTransactionFailure({
-      point: 'node_verdict',
-      type: 'send',
-      reason: 'never_committed',
-      neverCommittedRule: ACCOUNT_HEX
-    } as never);
+    const malformed: TransactionFailure = { point: 'node_verdict', type: 'send', reason: 'never_committed' };
+    // A rule outside the list can only arrive from a stored row an older or newer build wrote, past the type.
+    Reflect.set(malformed, 'neverCommittedRule', ACCOUNT_HEX);
+    reportTransactionFailure(malformed);
     await settle();
-    const [guardian, poisoned] = jest.mocked(captureCrash).mock.calls.map(([error]) => (error as Error).message);
+    const guardian = capturedMessage(0);
+    const poisoned = capturedMessage(1);
     expect(guardian).toContain('; point guardian_node_verdict; never_committed. authentication');
     expect(poisoned).toContain('; point node_verdict; never_committed; rule other. authentication');
     expectNoTransactionData(poisoned);
@@ -1023,8 +1030,11 @@ const IDENTITY_TEXT: Record<string, () => string> = {
   guardian_http_: () => policyText(GUARDIAN, undefined, GUARDIAN_CODES)
 };
 
-// Read inside the test, so a list the reporter does not export yet fails here rather than at collection.
-it.each([
+// A label, the list it checks, and the policy text that documents it. Read inside the test, so a list the reporter
+// does not export yet fails here rather than at collection.
+type PolicyRow = readonly [label: string, values: () => readonly string[], documenting: () => string];
+
+const POLICY_ROWS: readonly PolicyRow[] = [
   ['wallet reason', () => [...FAILURE_REASONS, 'other'], () => policyText(OWN_REASON, undefined, NEVER_COMMITTED_RULE)],
   [
     'never-committed rule',
@@ -1059,15 +1069,20 @@ it.each([
   ['signing step', () => SIGNING_STEPS, () => policyText('The signing step')],
   ['broad category', () => TELEMETRY_ERROR_KINDS, () => policyText(BROAD)],
   ...Object.entries(IDENTITY_TEXT).map(
-    ([identity, text]) => [`reported identity ${identity}`, () => [identity], text] as const
+    ([identity, text]): PolicyRow => [`reported identity ${identity}`, () => [identity], text]
   )
-])('the privacy policy lists every reportable %s where it documents them', (_name, values, documenting) => {
-  const listed: readonly string[] | undefined = values();
-  const text = documenting();
-  expect(listed).toEqual(expect.arrayContaining([expect.any(String)]));
-  expect(text).not.toBe('');
-  expect((listed ?? []).filter(value => !text.includes(`\`${value}\``))).toEqual([]);
-});
+];
+
+it.each(POLICY_ROWS)(
+  'the privacy policy lists every reportable %s where it documents them',
+  (_name, values, documenting) => {
+    const listed: readonly string[] | undefined = values();
+    const text = documenting();
+    expect(listed).toEqual(expect.arrayContaining([expect.any(String)]));
+    expect(text).not.toBe('');
+    expect((listed ?? []).filter(value => !text.includes(`\`${value}\``))).toEqual([]);
+  }
+);
 
 it('checks every reported identity and every unknown-outcome status against its own text', () => {
   expect([...REPORTED_IDENTITIES].sort()).toEqual(Object.keys(IDENTITY_TEXT).sort());
