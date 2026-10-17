@@ -325,7 +325,7 @@ describe('customWriteToTheEnd', () => {
   });
 
   it('gives a fee-only script no asset row, no output notes and the storage value it names', async () => {
-    const { dapp } = dappAnswering([]);
+    const { dapp, commands } = dappAnswering([]);
     await customWriteToTheEnd(
       journey,
       dapp,
@@ -340,6 +340,7 @@ describe('customWriteToTheEnd', () => {
       },
       ctx()
     );
+    expect(commands).toEqual(['session', 'buildCustomScript', 'submitCustom']);
     expect(jest.mocked(expectVerifiedPreview).mock.calls[0]?.[1]).toEqual({
       amount: null,
       outputNotes: 0,
