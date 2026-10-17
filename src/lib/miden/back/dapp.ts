@@ -138,6 +138,7 @@ import {
   initiateConsumeTransactionFromId,
   waitForTransactionCompletion
 } from '../transaction';
+import { deterministicKernelFailureCopy } from '../transaction/constants';
 
 /**
  * Starts background transaction processing using the unified SW
@@ -1512,7 +1513,12 @@ export function makeSimulateHandler(
             transactionRequest: tx.transactionRequest,
             importNotes: tx.importNotes
           });
-    return { type: MidenMessageType.DAppSimulateTransactionResponse, summaryBytes, executedBytes, error };
+    return {
+      type: MidenMessageType.DAppSimulateTransactionResponse,
+      summaryBytes,
+      executedBytes,
+      error: error === undefined ? undefined : dryRunFailureReason(error)
+    };
   };
 }
 
@@ -3469,7 +3475,15 @@ function consentReason(e: unknown): string {
   if (isPipelineKillLink(e)) {
     return 'the simulation was interrupted before it finished';
   }
-  return e instanceof Error ? e.message : String(e);
+  return dryRunFailureReason(e instanceof Error ? e.message : String(e));
+}
+
+/**
+ * A failed dry run's text as the wallet shows it or hands it on. The dry run executes the bytes the write would, so a
+ * kernel failure the Failed row would name reads through that row's copy rather than as its hashed code (#1475).
+ */
+function dryRunFailureReason(text: string): string {
+  return deterministicKernelFailureCopy(text) ?? text;
 }
 
 // Background-safe helpers (duplicated from UI without UI deps)
