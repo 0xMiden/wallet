@@ -1,6 +1,7 @@
 import { act, renderHook } from '@testing-library/react';
 
 import { TEST_NATIVE_ETH_FAUCET } from 'lib/epoch/testing/bridge-config';
+import type { TokenBalanceData } from 'lib/miden/front/balance';
 import type { ClaimableNoteWithMetadata } from 'lib/miden/front/claimable-notes';
 
 import { __resetActivityClaimsForTest, useActivityClaims } from './useActivityClaims';
@@ -96,7 +97,16 @@ jest.mock('lib/miden/repo', () => ({
 jest.mock('lib/miden/db/types', () => ({
   ITransactionStatus: { Queued: 0, GeneratingTransaction: 1, Completed: 2, Failed: 3, Unconfirmed: 4 }
 }));
-jest.mock('lib/miden/front', () => ({ useMidenContext: () => ({ signTransaction: jest.fn() }) }));
+// The vault rows and the base fee the claim gate reads. A null fee fails the gate open, which every case not about
+// the fee runs under.
+const mockBalances: { data: TokenBalanceData[]; isLoading: boolean } = { data: [], isLoading: false };
+let mockBaseFee: number | null = null;
+jest.mock('lib/miden/front', () => ({
+  useMidenContext: () => ({ signTransaction: jest.fn() }),
+  useAllTokensBaseMetadata: () => ({}),
+  useAllBalances: () => mockBalances
+}));
+jest.mock('app/hooks/useVerificationBaseFee', () => ({ __esModule: true, default: () => mockBaseFee }));
 jest.mock('lib/miden/front/guardian-sync', () => ({ zustandProvider: {} }));
 jest.mock('lib/platform', () => ({ isExtension: () => mockFlags.extension }));
 // The bridge registry names its native-ETH faucet, which sends every Agglayer delivery; the SDK reads an id as itself.
@@ -880,4 +890,128 @@ describe('held claims (#1081)', () => {
 
 beforeEach(() => {
   mockLegacyFeeIdentity = undefined;
+});
+
+describe('the network fee', () => {
+  // No fee asset in the vault, a base fee of 100 units, and the fixture note in another token.
+  const nativeRow = (balance: number): TokenBalanceData => ({
+    tokenId: 'faucet-native',
+    tokenSlug: 'USDCX',
+    metadata: { name: 'USDCX', symbol: 'USDCX', decimals: 6 },
+    balance,
+    fiatPrice: 0,
+    change24h: 0
+  });
+  const nativeNote = (id: string, amount: string): ClaimableNoteWithMetadata => ({
+    ...note,
+    id,
+    faucetId: 'faucet-native',
+    amount
+  });
+
+  beforeEach(() => {
+    mockBaseFee = 100;
+    mockBalances.data = [nativeRow(0)];
+    mockBalances.isLoading = false;
+  });
+  afterEach(() => {
+    mockBaseFee = null;
+    mockBalances.data = [];
+  });
+
+  it('marks a transfer the account cannot pay the fee for and refuses to queue it', async () => {
+    const { result } = renderHook(() => useActivityClaims());
+    expect(result.current.items[0]).toMatchObject({ status: 'pending', cannotPayFee: true });
+    await act(async () => {
+      await result.current.accept(note);
+    });
+    expect(mockQueue).not.toHaveBeenCalled();
+    expect(result.current.items[0]?.status).toBe('pending');
+  });
+
+  it("withholds a failed claim's Retry the same way", async () => {
+    mockClaim.retriableNoteIds.add(note.id);
+    const { result } = renderHook(() => useActivityClaims());
+    expect(result.current.items[0]).toMatchObject({ status: 'failed', cannotPayFee: true });
+    await act(async () => {
+      await result.current.accept(note);
+    });
+    expect(mockQueue).not.toHaveBeenCalled();
+  });
+
+  it('lets a new wallet accept its first USDCX, which pays its own fee', async () => {
+    const first = nativeNote('first-usdcx', '1000000');
+    mockClaim.safeClaimableNotes = [first];
+    const { result } = renderHook(() => useActivityClaims());
+    expect(result.current.items[0]).toMatchObject({ status: 'pending', cannotPayFee: false });
+    await act(async () => {
+      await result.current.accept(first);
+    });
+    expect(mockQueue).toHaveBeenCalledWith('account', first, false, true);
+  });
+
+  it('counts the fee asset of a claim the queue runs first', async () => {
+    // An auto-consume of the faucet's USDCX, still running, pays for a token claimed after it.
+    const queued = { ...nativeNote('queued-usdcx', '1000000'), isBeingClaimed: true, claimingTxId: 'tx-auto' };
+    mockClaim.safeClaimableNotes = [queued, note];
+    const { result } = renderHook(() => useActivityClaims());
+    expect(result.current.items.find(item => item.note.id === note.id)).toMatchObject({
+      status: 'pending',
+      cannotPayFee: false
+    });
+    await act(async () => {
+      await result.current.accept(note);
+    });
+    expect(mockQueue).toHaveBeenCalledWith('account', note, false, true);
+  });
+
+  it('fails open until balances first land', async () => {
+    // Until then the rows are a zero placeholder, which would refuse every claim.
+    mockBalances.isLoading = true;
+    const { result } = renderHook(() => useActivityClaims());
+    expect(result.current.items[0]).toMatchObject({ status: 'pending', cannotPayFee: false });
+    await act(async () => {
+      await result.current.accept(note);
+    });
+    expect(mockQueue).toHaveBeenCalledTimes(1);
+  });
+
+  it('Accept All queues only the transactions the claim can pay for and leaves the rest as they were', async () => {
+    // 150 pays the USDCX transaction's own fee of at least 100 and leaves too little for another.
+    const dust = nativeNote('dust-usdcx', '150');
+    const other = { ...note, id: 'note-other', faucetId: 'faucet-other' };
+    mockClaim.safeClaimableNotes = [note, dust, other];
+    const { result } = renderHook(() => useActivityClaims());
+    expect(result.current.cannotPayFee([note, dust, other])).toBe(false);
+
+    await act(async () => {
+      await result.current.acceptMany([note, dust, other]);
+    });
+    expect(mockQueueMany).toHaveBeenCalledTimes(1);
+    expect(mockQueueMany).toHaveBeenCalledWith('account', [dust], false, true);
+    expect(result.current.items.map(item => [item.note.id, item.status, item.cannotPayFee])).toEqual([
+      ['note-one', 'pending', true],
+      ['dust-usdcx', 'claiming', undefined],
+      ['note-other', 'pending', true]
+    ]);
+  });
+
+  it('Accept All with no fee asset anywhere queues nothing and starts no processing', async () => {
+    const other = { ...note, id: 'note-other', faucetId: 'faucet-other' };
+    mockClaim.retriableNoteIds.add(other.id);
+    mockClaim.safeClaimableNotes = [note, other];
+    const { result } = renderHook(() => useActivityClaims());
+    expect(result.current.cannotPayFee([note, other])).toBe(true);
+
+    await act(async () => {
+      await result.current.acceptMany([note, other]);
+    });
+    expect(mockQueueMany).not.toHaveBeenCalled();
+    expect(mockStart).not.toHaveBeenCalled();
+    // Each note is back where it was: pending, and the failed one still failed.
+    expect(result.current.items.map(item => [item.note.id, item.status])).toEqual([
+      ['note-one', 'pending'],
+      ['note-other', 'failed']
+    ]);
+  });
 });
