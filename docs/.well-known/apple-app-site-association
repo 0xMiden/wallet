@@ -1,0 +1,15 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": ["LHU7B7J5WL.com.miden.bread"],
+        "components": [
+          {
+            "/": "/open",
+            "comment": "Opens the page named by ?url= in Bread's dApp browser"
+          }
+        ]
+      }
+    ]
+  }
+}

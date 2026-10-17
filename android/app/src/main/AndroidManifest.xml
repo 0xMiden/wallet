@@ -48,6 +48,15 @@
                 <data android:scheme="com.miden.wallet" />
             </intent-filter>
 
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data android:scheme="https" android:host="bread.miden.xyz" android:path="/open" />
+            </intent-filter>
+
         </activity>
 
         <provider

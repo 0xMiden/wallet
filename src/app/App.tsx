@@ -19,6 +19,7 @@ import { DappBrowserProvider } from 'app/providers/DappBrowserProvider';
 import { GuardianRecoveryProvider } from 'app/providers/GuardianRecoveryProvider';
 import { UpdateNotificationProvider } from 'app/providers/UpdateNotificationProvider';
 import { HotKeyRotationGate } from 'app/templates/HotKeyRotationGate';
+import { OpenLinkPrompt } from 'app/templates/OpenLinkPrompt';
 import { PinExtensionPrompt } from 'app/templates/PinExtensionPrompt';
 import { ScreenKeyPublisher } from 'app/templates/ScreenKeyPublisher';
 import { ExtensionMessageListener } from 'components/ConnectivityIssueBanner';
@@ -102,6 +103,7 @@ const App: FC<AppProps> = ({ env }) => {
                         <UpdateNotificationProvider>
                           <HotKeyRotationGate />
                           <GuardianRecoveryProvider />
+                          <OpenLinkPrompt />
                           <PageRouter />
                         </UpdateNotificationProvider>
                       </DappBrowserProvider>
