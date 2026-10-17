@@ -29,6 +29,13 @@ const positive = (value: unknown): value is bigint => typeof value === 'bigint' 
 const chainId = (value: unknown): value is string => typeof value === 'string' && /^(0x)?[0-9a-f]{64}$/i.test(value);
 const noteKey = (id: string) => id.toLowerCase().replace(/^0x/, '');
 
+// A batch claim's scalar amount totals only its first note's faucet, so read this faucet's own total.
+function consumedTotal(claim: ITransaction, faucetId: string): bigint | undefined {
+  if (claim.assetTotals) return claim.assetTotals.find(total => total.faucetId === faucetId)?.amount;
+  const faucets = new Set(claim.consumedNotes?.map(note => note.faucetId));
+  return faucets.size === 1 && faucets.has(faucetId) ? claim.amount : undefined;
+}
+
 function consumedBalance(row: ITransaction, faucetId: string): BalanceRequirement | undefined {
   const attempts = row.submitEvidence?.filter(
     attempt =>
@@ -85,19 +92,20 @@ export function badgeCandidates(
       const deposited = row.amount;
       const noteId: unknown = row.extraInputs.midenNoteId;
       const provider: unknown = row.extraInputs.provider;
-      if (typeof noteId !== 'string' || !['epoch', 'agglayer', 'usdcx'].includes(String(provider))) continue;
+      const faucetId = row.faucetId;
+      if (typeof noteId !== 'string' || !faucetId || !['epoch', 'agglayer', 'usdcx'].includes(String(provider)))
+        continue;
       const claim = eligible.find(
         other =>
           other.type === 'consume' &&
           other.transactionId === transactionId &&
-          positive(other.amount) &&
-          other.amount >= deposited &&
+          (consumedTotal(other, faucetId) ?? 0n) >= deposited &&
           compareAccountIds(row.accountId, other.accountId) &&
           other.consumedNotes?.some(
-            note => noteKey(note.id) === noteKey(noteId) && note.faucetId === row.faucetId && note.amount === row.amount
+            note => noteKey(note.id) === noteKey(noteId) && note.faucetId === faucetId && note.amount === row.amount
           )
       );
-      const balance = claim && row.faucetId ? consumedBalance(claim, row.faucetId) : undefined;
+      const balance = claim ? consumedBalance(claim, faucetId) : undefined;
       if (balance) result.push({ badge: 'first-deposit', transactionIds: [transactionId], balances: [balance] });
     }
     if (!badges.includes('first-swap') || row.type !== 'swap' || !positive(row.amount) || !row.faucetId) continue;
