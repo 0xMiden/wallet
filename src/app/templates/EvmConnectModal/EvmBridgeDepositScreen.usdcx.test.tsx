@@ -1634,7 +1634,7 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
     }
   );
 
-  it.each(['xreserve', 'cctp-executor'] as const)(
+  it.each(['xreserve', 'cctp-executor'])(
     'fails the row at the balance check with the RPC timeout when the %s balance re-read at Confirm times out',
     async route => {
       renderScreen();

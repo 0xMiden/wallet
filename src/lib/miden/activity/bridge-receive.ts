@@ -6,7 +6,7 @@ import { MIDEN_DESTINATION_CHAIN_ID } from 'lib/epoch/config';
 import { readEpochIntentStatus } from 'lib/epoch/intent-status';
 import * as Repo from 'lib/miden/repo';
 import { initBridgeConfig } from 'lib/remote-config/runtime';
-import type { BridgeReceiveFailureStep } from 'lib/telemetry/bridge-receive-failure';
+import { type BridgeReceiveFailureStep, walletRaised } from 'lib/telemetry/bridge-receive-failure';
 import {
   fetchXReserveAttestations,
   matchUsdcxDepositAttestation,
@@ -84,7 +84,7 @@ async function reconcileAgglayerRow(row: ITransaction, inputs: IBridgedReceiveEx
       // A row saved before its route was is from DEFAULT_CHAIN_ID.
       const chainId = inputs.agglayerRoute?.chainId ?? inputs.sourceChainId ?? DEFAULT_CHAIN_ID;
       const chain = EVM_CHAIN_DEFINITIONS.find(candidate => candidate.id === chainId);
-      if (!chain) throw new Error(`EVM chain ${chainId} is not configured`);
+      if (!chain) throw walletRaised(new Error(`EVM chain ${chainId} is not configured`));
       await waitForEvmReceipt(inputs.evmTxHash as `0x${string}`, chain);
       await updateBridgedReceivePhase(row.id, 'delivering');
     } catch (error) {

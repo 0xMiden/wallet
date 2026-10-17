@@ -44,7 +44,7 @@ import {
 } from 'lib/remote-config/values';
 import { withRequestTimeout } from 'lib/remote-json';
 import { WalletAccount } from 'lib/shared/types';
-import type { BridgeReceiveFailureStep } from 'lib/telemetry/bridge-receive-failure';
+import { type BridgeReceiveFailureStep, walletRaised } from 'lib/telemetry/bridge-receive-failure';
 import {
   CIRCLE_USDC_DECIMALS,
   CIRCLE_USDC_SYMBOL,
@@ -146,7 +146,7 @@ const HELD_BALANCE_REREAD_MS = 10_000;
 async function rpcRequest(method: string, params: unknown[], chainId = DEFAULT_CHAIN_ID): Promise<unknown> {
   const chain = getChain(chainId);
   if (!chain) {
-    throw new Error(`RPC is not configured for chain ${chainId}`);
+    throw walletRaised(new Error(`RPC is not configured for chain ${chainId}`));
   }
 
   const payload = await withRequestTimeout(RPC_TIMEOUT_MS, async (signal): Promise<RpcResponse> => {
@@ -179,7 +179,7 @@ function shownBalance({ value, loading }: BridgeBalance, decimals: number): numb
 /** Read the source chain's USDC through its 6-decimal ERC-20 interface. */
 async function readCircleUsdcBalance(evmAddress: string, source: UsdcxSourceChain): Promise<bigint> {
   if (!isAddress(evmAddress)) {
-    throw new Error(`Invalid EVM address: ${evmAddress}`);
+    throw walletRaised(new Error(`Invalid EVM address: ${evmAddress}`));
   }
   const data = encodeFunctionData({
     abi: ERC20_BALANCE_OF_ABI,
@@ -200,7 +200,7 @@ async function readCircleUsdcAllowance(
   source: UsdcxSourceChain
 ): Promise<bigint> {
   if (!isAddress(evmAddress)) {
-    throw new Error(`Invalid EVM address: ${evmAddress}`);
+    throw walletRaised(new Error(`Invalid EVM address: ${evmAddress}`));
   }
   const data = encodeFunctionData({
     abi: ERC20_ALLOWANCE_ABI,
@@ -238,7 +238,7 @@ async function readRemoteDomainRegistered(
 /** Read the bridge's own USDC (the token the config names) on Sepolia: `getBalance`, else `balanceOf`. */
 async function readEpochUsdcBalance(evmAddress: string, contract: `0x${string}`, chainId: number): Promise<bigint> {
   if (!isAddress(evmAddress)) {
-    throw new Error(`Invalid EVM address: ${evmAddress}`);
+    throw walletRaised(new Error(`Invalid EVM address: ${evmAddress}`));
   }
   const read = async (abi: typeof MOCK_USDC_GET_BALANCE_ABI | typeof ERC20_BALANCE_OF_ABI): Promise<bigint> => {
     const functionName = abi[0].name;
@@ -748,7 +748,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     (chainId: number, readBalance: () => Promise<bigint>): Promise<bigint> =>
       readBalance().catch((cause: unknown) => {
         const network = getChain(chainId)?.name ?? '';
-        throw new Error(t('bridgeDepositBalanceReadFailed', { token: tokenLabel, network }), { cause });
+        throw walletRaised(new Error(t('bridgeDepositBalanceReadFailed', { token: tokenLabel, network }), { cause }));
       }),
     [t, tokenLabel]
   );
@@ -759,8 +759,10 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       const balance = await readBalanceOrFail(chainId, readBalance);
       if (balance < spend) {
         const network = getChain(chainId)?.name ?? '';
-        throw new Error(
-          t('bridgeDepositBalanceTooLow', { balance: formatBalance(balance, decimals), token: tokenLabel, network })
+        throw walletRaised(
+          new Error(
+            t('bridgeDepositBalanceTooLow', { balance: formatBalance(balance, decimals), token: tokenLabel, network })
+          )
         );
       }
     },
@@ -820,14 +822,14 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         // already covers the deposit, and then bridged with its own address and no value.
         const isNative = token === 'ETH';
         if (!isNative && (!evmUsdc || evmUsdc.chainId !== agglayerChainId)) {
-          throw new Error('The bridge config has no supported USDC on this chain.');
+          throw walletRaised(new Error('The bridge config has no supported USDC on this chain.'));
         }
         // The L1 bridge the config names, and the Miden rollup id its bridge account reports.
-        if (!agglayerChainId) throw new Error('AggLayer chain is not configured');
+        if (!agglayerChainId) throw walletRaised(new Error('AggLayer chain is not configured'));
         const chain = EVM_CHAIN_DEFINITIONS.find(chain => chain.id === agglayerChainId);
-        if (!chain) throw new Error('AggLayer chain is not supported');
+        if (!chain) throw walletRaised(new Error('AggLayer chain is not supported'));
         const captured = agglayerRecovery;
-        if (!captured) throw new Error('AggLayer route is not configured');
+        if (!captured) throw walletRaised(new Error('AggLayer route is not configured'));
         const { contractAddress, rollupId } = captured;
         const amountInBaseUnits = parseUnits(amount.trim(), isNative ? ETH_DECIMALS : usdcDecimals);
         const tokenAddress: `0x${string}` =
@@ -866,7 +868,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
             contractAddress,
             agglayerChainId
           ).catch((cause: unknown) => {
-            throw new Error(ALLOWANCE_READ_FAILED, { cause });
+            throw walletRaised(new Error(ALLOWANCE_READ_FAILED, { cause }));
           })) < amountInBaseUnits;
 
         let hash: `0x${string}`;
@@ -1013,7 +1015,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         });
         const hash = unwrapNativeResult(result.hash);
         if (!isHash(hash)) {
-          throw new Error('The wallet returned no transaction hash.');
+          throw walletRaised(new Error('The wallet returned no transaction hash.'));
         }
         return hash;
       };
@@ -1049,7 +1051,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         // Encoded inside the try so an id the faucet cannot mint to fails the row
         // instead of throwing out of the flow.
         const recipient = usdcxRemoteRecipientFor(midenAccount.publicKey);
-        if (!isAddress(evmAddress)) throw new Error(`Invalid EVM address: ${evmAddress}`);
+        if (!isAddress(evmAddress)) throw walletRaised(new Error(`Invalid EVM address: ${evmAddress}`));
         const readBalance = () => readCircleUsdcBalance(evmAddress, usdcxSource);
         step = 'precheck_balance';
         await ensureBalanceCovers(
@@ -1209,7 +1211,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     async (trackingTxId: string) => {
       let step: BridgeReceiveFailureStep = 'precheck_route';
       try {
-        if (!evmUsdc || quotedTokenIn === null) throw new Error('The Fast route has no quoted deposit.');
+        if (!evmUsdc || quotedTokenIn === null) throw walletRaised(new Error('The Fast route has no quoted deposit.'));
         step = 'precheck_balance';
         await ensureBalanceCovers(quotedTokenIn, evmUsdc.decimals, evmUsdc.chainId, () =>
           readEpochUsdcBalance(evmAddress, evmUsdc.address, evmUsdc.chainId)
