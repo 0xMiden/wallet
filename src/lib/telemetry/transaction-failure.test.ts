@@ -1,9 +1,62 @@
+import { GUARDIAN_ERROR_CODES } from '@openzeppelin/guardian-client';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
+import { isIOS } from 'lib/platform';
+import { signHotDigest } from 'lib/secure-hot-key';
+import { HotKey } from 'lib/secure-hot-key/hotKeyPlugin';
+import { signHotDigest as fallbackSignHotDigest } from 'lib/secure-hot-key/jsFallback';
+
 import { captureCrash } from './crash';
-import { reportTransactionFailure } from './transaction-failure';
+import { FAILURE_REASONS, HOT_KEY_CODES, reportTransactionFailure } from './transaction-failure';
+// The shipped class, past the stub jest maps the package to, so the fields the report reads are the ones it sets.
+import { GuardianHttpError } from '../../../node_modules/@openzeppelin/guardian-client/dist/http.js';
 
 jest.mock('./crash', () => ({ captureCrash: jest.fn() }));
+jest.mock('lib/platform', () => ({ ...jest.requireActual('lib/platform'), isIOS: jest.fn(() => false) }));
+jest.mock('lib/secure-hot-key/hotKeyPlugin', () => ({ HotKey: { signWithHotKey: jest.fn() } }));
+jest.mock('lib/secure-hot-key/jsFallback', () => ({ signHotDigest: jest.fn() }));
 
 const settle = () => new Promise(resolve => setTimeout(resolve, 0));
+
+const reportedMessage = async (): Promise<string> => {
+  await settle();
+  return (jest.mocked(captureCrash).mock.calls[0]![0] as Error).message;
+};
+
+const REPO_ROOT = join(__dirname, '..', '..', '..');
+
+// Jest maps @openzeppelin/guardian-client to a stub, so this builds the shape its GuardianHttpError has: the code
+// normalized to the published list (null otherwise), the wire code verbatim, both null without a JSON envelope.
+const guardianRefusal = (status: number, statusText: string, code: string | null, rawCode = code) =>
+  Object.assign(new Error(`GUARDIAN HTTP error ${status}: ${statusText} - refused at https://guardian.example.org`), {
+    name: 'GuardianHttpError',
+    status,
+    statusText,
+    code,
+    rawCode
+  });
+
+const hotKeyRejection = async (message: string, code?: string): Promise<unknown> => {
+  jest.mocked(isIOS).mockReturnValueOnce(true);
+  jest
+    .mocked(HotKey.signWithHotKey)
+    .mockRejectedValueOnce(Object.assign(new Error(message), code === undefined ? {} : { code }));
+  return signHotDigest('tag:wrapped', '0x01').catch((error: unknown) => error);
+};
+
+const nativeHotKeyCodes = (): string[] => {
+  const codes = new Set<string>();
+  for (const source of [
+    'android/app/src/main/java/com/miden/wallet/HotKeyPlugin.kt',
+    'ios/App/App/HotKeyPlugin.swift'
+  ]) {
+    const text = readFileSync(join(REPO_ROOT, source), 'utf8');
+    for (const match of text.matchAll(/,\s*"([A-Z][A-Z_]+)"\s*\)/g)) codes.add(match[1]!);
+    for (const match of text.matchAll(/const val ERR_[A-Z_]+ = "([A-Z][A-Z_]+)"/g)) codes.add(match[1]!);
+  }
+  return [...codes].sort();
+};
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -63,6 +116,270 @@ it('does not confuse local proving with execution in the offscreen document', as
   const error = jest.mocked(captureCrash).mock.calls[0]![0] as Error;
   expect(error.message).toContain('realm offscreen');
   expect(error.message).toContain('proving preference local');
+});
+
+it('names the wallet reason a claim failed at its signing proposal', async () => {
+  reportTransactionFailure({
+    point: 'pipeline',
+    type: 'consume',
+    stage: 'signing-proposal',
+    delegateTransaction: true,
+    reason: 'user_cancelled',
+    error: 'Transaction was cancelled by user'
+  });
+  const message = await reportedMessage();
+  expect(message).toContain('tx_receive; stage signing;');
+  expect(message).toContain('; point pipeline; user_cancelled. authentication preparation');
+  expect(message).not.toContain('cancelled by user');
+});
+
+it('sends a reason outside the wallet list as other', async () => {
+  const poison = 'wallet-owner-password@example.org';
+  reportTransactionFailure({ type: 'consume', reason: poison, error: 'Transaction was cancelled by user' } as never);
+  const message = await reportedMessage();
+  expect(message).not.toContain(poison);
+  expect(message).toContain('; point pipeline; other. authentication preparation');
+});
+
+it('reports a Guardian refusal by its HTTP status and published code, through a wrapping error', async () => {
+  reportTransactionFailure({
+    type: 'consume',
+    stage: 'creating-proposal',
+    error: new Error('claim for mtst1aqsjql4cyylvpu2d2cwpxumpvvw5depe failed', {
+      cause: guardianRefusal(409, 'Conflict', 'conflict_pending_delta')
+    })
+  });
+  const message = await reportedMessage();
+  expect(message).toContain('; point pipeline; guardian_http_409; guardian code conflict_pending_delta. ');
+  expect(message).not.toContain('mtst1');
+  expect(message).not.toContain('guardian.example.org');
+  expect(message).not.toContain('Conflict');
+});
+
+it('reports a Guardian code outside the published list as other, and a refusal without one as none', async () => {
+  reportTransactionFailure({ type: 'consume', error: guardianRefusal(409, 'Conflict', null, 'shard_7_overloaded') });
+  reportTransactionFailure({ type: 'consume', error: guardianRefusal(409, 'Conflict', 'shard_7_overloaded') });
+  reportTransactionFailure({ type: 'consume', error: guardianRefusal(502, 'Bad Gateway', null) });
+  await settle();
+  const [unknown, unlisted, none] = jest.mocked(captureCrash).mock.calls.map(([error]) => (error as Error).message);
+  expect(unknown).toContain('; guardian_http_409; guardian code other. ');
+  expect(unlisted).toContain('; guardian_http_409; guardian code other. ');
+  expect(`${unknown} ${unlisted}`).not.toContain('shard_7');
+  expect(none).toContain('; guardian_http_502; guardian code none. ');
+});
+
+it('reports the shipped GuardianHttpError by the status and code it sets, for a published and an unknown code', async () => {
+  const envelope = (code: string) =>
+    JSON.stringify({ code, message: 'account mtst1poison is paused', meta: { retryable: false } });
+  reportTransactionFailure({
+    type: 'consume',
+    error: new GuardianHttpError(409, 'Conflict', envelope('GUARDIAN_ACCOUNT_PAUSED'))
+  });
+  reportTransactionFailure({
+    type: 'consume',
+    error: new GuardianHttpError(503, 'Service Unavailable', envelope('shard_7_overloaded'))
+  });
+  await settle();
+  const [published, unknown] = jest.mocked(captureCrash).mock.calls.map(([error]) => (error as Error).message);
+  expect(published).toContain('; point pipeline; guardian_http_409; guardian code account_paused. ');
+  expect(unknown).toContain('; point pipeline; guardian_http_503; guardian code other. ');
+  for (const text of [
+    'Conflict',
+    'Service Unavailable',
+    'mtst1poison',
+    'GUARDIAN_ACCOUNT_PAUSED',
+    'shard_7',
+    'retryable'
+  ]) {
+    expect(`${published} ${unknown}`).not.toContain(text);
+  }
+});
+
+it.each([...GUARDIAN_ERROR_CODES])('reports the published Guardian code %s', async code => {
+  reportTransactionFailure({ type: 'send', error: guardianRefusal(400, 'Bad Request', code) });
+  expect(await reportedMessage()).toContain(`; guardian_http_400; guardian code ${code}. `);
+});
+
+it.each([
+  ['a marked hot-key cause', () => hotKeyRejection('rejected', 'AUTH_FAILED'), '; hot_key; hot key code AUTH_FAILED. '],
+  [
+    'a Guardian cause',
+    async () => guardianRefusal(409, 'Conflict', 'conflict_pending_delta'),
+    '; guardian_http_409; guardian code conflict_pending_delta. '
+  ]
+] as const)('reports %s under a Guardian-shaped link whose status getter throws', async (_name, cause, identity) => {
+  const hostile = Object.defineProperty(new Error('GUARDIAN HTTP error', { cause: await cause() }), 'status', {
+    get: () => {
+      throw new Error('hostile accessor');
+    }
+  });
+  hostile.name = 'GuardianHttpError';
+  reportTransactionFailure({ type: 'consume', error: hostile });
+  await settle();
+  expect(captureCrash).toHaveBeenCalledTimes(1);
+  expect(await reportedMessage()).toContain(`; point pipeline${identity}`);
+});
+
+it.each([
+  [100, 'Continue'],
+  [599, 'Network Connect Timeout Error']
+])('reports a Guardian status of %s, at an edge of the range, as its number', async (status, statusText) => {
+  reportTransactionFailure({ type: 'consume', error: guardianRefusal(status, statusText, 'conflict_pending_delta') });
+  expect(await reportedMessage()).toContain(
+    `; point pipeline; guardian_http_${status}; guardian code conflict_pending_delta. `
+  );
+});
+
+it.each([
+  ['99', { status: 99 }],
+  ['600', { status: 600 }],
+  ['409.5', { status: 409.5 }],
+  ["the string '409'", { status: '409' }],
+  ['a missing status', {}]
+])('reports a Guardian status of %s as other', async (_name, fields) => {
+  const refusal = Object.assign(
+    new Error('GUARDIAN HTTP error'),
+    { name: 'GuardianHttpError', code: 'conflict_pending_delta', rawCode: 'conflict_pending_delta' },
+    fields
+  );
+  reportTransactionFailure({ type: 'consume', error: refusal });
+  const message = await reportedMessage();
+  expect(message).toContain('; point pipeline; guardian_http_other; guardian code conflict_pending_delta. ');
+  expect(message).not.toContain(`guardian_http_${String(Reflect.get(fields, 'status'))}`);
+  expect(message).not.toContain('409.5');
+});
+
+it('reports a hot-key plugin rejection by its code and nothing it says', async () => {
+  reportTransactionFailure({
+    type: 'consume',
+    stage: 'signing-proposal',
+    error: await hotKeyRejection('Authentication cancelled', 'USER_CANCELLED')
+  });
+  const message = await reportedMessage();
+  expect(message).toContain('; point pipeline; hot_key; hot key code USER_CANCELLED. ');
+  expect(message).not.toContain('Authentication cancelled');
+});
+
+it.each([
+  ['failed to execute transaction', ''],
+  ['assertion failed with error code: 1', '; kernel_assertion_unknown'],
+  ['advice stack read failed', ''],
+  ['WebClient terminated', '']
+])('reports a Guardian refusal whose text says "%s" by its status and code', async (text, protocol) => {
+  const refusal = Object.assign(guardianRefusal(409, 'Conflict', 'conflict_pending_delta'), {
+    message: `GUARDIAN HTTP error 409: Conflict - ${text}`
+  });
+  reportTransactionFailure({ type: 'consume', error: new Error(`claim failed: ${text}`, { cause: refusal }) });
+  expect(await reportedMessage()).toContain(
+    `; point pipeline; guardian_http_409; guardian code conflict_pending_delta${protocol}. `
+  );
+});
+
+it('keeps the protocol identity a Guardian refusal carries after its status and code', async () => {
+  const refusal = Object.assign(guardianRefusal(500, 'Internal Server Error', null), {
+    message: 'GUARDIAN HTTP error 500: Internal Server Error - assertion failed with error code: 15404814807981965102'
+  });
+  reportTransactionFailure({ type: 'consume', error: refusal });
+  const message = await reportedMessage();
+  expect(message).toContain(
+    '; point pipeline; guardian_http_500; guardian code none; ERR_FEE_CONVERSION_INFO_COMMITMENT_MISMATCH. '
+  );
+  expect(message).not.toContain('15404814807981965102');
+});
+
+it.each([
+  ['a known code', 'claim failed', '15404814807981965102', 'ERR_FEE_CONVERSION_INFO_COMMITMENT_MISMATCH'],
+  ['an unknown code', 'claim failed', '9876543210123', 'kernel_assertion_unknown'],
+  [
+    'a known code under a wrapper carrying another',
+    'claim failed: assertion failed with error code: 10256002255343504776',
+    '15404814807981965102',
+    'ERR_FEE_CONVERSION_INFO_COMMITMENT_MISMATCH'
+  ]
+])(
+  'reports the protocol identity a wrapped Guardian refusal carries, for %s',
+  async (_name, wrapper, code, protocol) => {
+    const refusal = Object.assign(guardianRefusal(500, 'Internal Server Error', null), {
+      message: `GUARDIAN HTTP error 500: Internal Server Error - assertion failed with error code: ${code}`
+    });
+    reportTransactionFailure({ type: 'consume', error: new Error(wrapper, { cause: refusal }) });
+    const message = await reportedMessage();
+    expect(message).toContain(`; point pipeline; guardian_http_500; guardian code none; ${protocol}. `);
+    expect(message).not.toContain(code);
+    expect(message).not.toContain('ERR_PROLOGUE_KERNEL_PROCEDURE_COMMITMENT_MISMATCH');
+  }
+);
+
+it("reports a wrapper's protocol identity after a Guardian refusal whose own message carries none", async () => {
+  reportTransactionFailure({
+    type: 'consume',
+    error: new Error('claim failed: assertion failed with error code: 10256002255343504776', {
+      cause: guardianRefusal(500, 'Internal Server Error', 'storage_error')
+    })
+  });
+  const message = await reportedMessage();
+  expect(message).toContain(
+    '; point pipeline; guardian_http_500; guardian code storage_error; ERR_PROLOGUE_KERNEL_PROCEDURE_COMMITMENT_MISMATCH. '
+  );
+  expect(message).not.toContain('10256002255343504776');
+  expect(message).not.toContain('guardian.example.org');
+});
+
+it('reports a hot-key rejection whose text says the client terminated by its code', async () => {
+  reportTransactionFailure({ type: 'consume', error: await hotKeyRejection('WebClient terminated', 'DEVICE_LOCKED') });
+  expect(await reportedMessage()).toContain('; point pipeline; hot_key; hot key code DEVICE_LOCKED. ');
+});
+
+it('reports a hot-key code outside the plugin list as other, and a rejection without one as none', async () => {
+  reportTransactionFailure({ type: 'consume', error: await hotKeyRejection('vendor fault 0x1f', 'VENDOR_TEE_FAULT') });
+  reportTransactionFailure({ type: 'consume', error: await hotKeyRejection('Unwrapped hot-key has wrong length') });
+  await settle();
+  const [other, none] = jest.mocked(captureCrash).mock.calls.map(([error]) => (error as Error).message);
+  expect(other).toContain('; hot_key; hot key code other. ');
+  expect(other).not.toContain('VENDOR_TEE_FAULT');
+  expect(none).toContain('; hot_key; hot key code none. ');
+  expect(none).not.toContain('wrong length');
+});
+
+it('reports a JS-fallback signing failure by its own identity, and only a native rejection as a device-key refusal', async () => {
+  jest.mocked(fallbackSignHotDigest).mockRejectedValueOnce(new Error('invalid hot key blob'));
+  const fallback = await signHotDigest('0a0b0c', '0x01').catch((error: unknown) => error);
+  reportTransactionFailure({ type: 'consume', error: fallback });
+  reportTransactionFailure({ type: 'consume', error: await hotKeyRejection('rejected', 'KEY_NOT_FOUND') });
+  await settle();
+  const [js, native] = jest.mocked(captureCrash).mock.calls.map(([error]) => (error as Error).message);
+  expect(js).toContain('; point pipeline; validation. ');
+  expect(js).not.toContain('hot_key');
+  expect(native).toContain('; point pipeline; hot_key; hot key code KEY_NOT_FOUND. ');
+});
+
+it.each(nativeHotKeyCodes())('reports the native HotKey plugin code %s', async code => {
+  reportTransactionFailure({ type: 'consume', error: await hotKeyRejection('rejected', code) });
+  expect(await reportedMessage()).toContain(`; hot_key; hot key code ${code}. `);
+});
+
+it('reads the native code list it checks against', () => {
+  expect(nativeHotKeyCodes()).toEqual(expect.arrayContaining(['HARDWARE_UNAVAILABLE', 'USER_CANCELLED']));
+  expect(nativeHotKeyCodes().length).toBeGreaterThanOrEqual(12);
+});
+
+const crashReportPolicy = (): string => {
+  const policy = readFileSync(join(REPO_ROOT, 'docs/privacy/index.md'), 'utf8');
+  const section = policy.slice(policy.indexOf('### Crash reports'));
+  return section.slice(0, section.indexOf('\n#', 1));
+};
+
+it.each([...FAILURE_REASONS, ...GUARDIAN_ERROR_CODES, ...HOT_KEY_CODES, 'other', 'none'])(
+  'the privacy policy lists the reportable value %s',
+  value => {
+    expect(crashReportPolicy()).toContain(`\`${value}\``);
+  }
+);
+
+it('the privacy policy states the Guardian HTTP status range and its fallback', () => {
+  const sentence = /[^.]*\bHTTP status\b[^.]*\./.exec(crashReportPolicy())?.[0] ?? '';
+  expect(sentence).toMatch(/\b100\b[^.]*\b599\b/);
+  expect(sentence).toContain('`other`');
 });
 
 it('does not title a refused EVM deposit on a bridged receive as a proving failure', async () => {

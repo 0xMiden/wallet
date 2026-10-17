@@ -193,8 +193,9 @@ describe('E2E USDCx workflow', () => {
     expect(suites[0]).toMatch(/^ {8}id: usdcx_in$/m);
   });
 
-  // usdcx-in-l2 spends from the key on both L2s and usdcx-burn-l2 proves each payout as the rise of that balance from a
-  // read right before its burn: every deposit is mined before usdcx-in-l2's step ends, so order inside the job suffices.
+  // usdcx-in-l2 spends from the key on all three chains and usdcx-burn-l2 proves each payout as the rise of that
+  // balance from a read right before its burn: every deposit is mined before usdcx-in-l2's step ends, so order inside
+  // the job suffices.
   it('runs usdcx-in-l2 then usdcx-burn-l2 in the L2 job, usdcx-burn-l2 after a red usdcx-in-l2 too but never after a failed setup step', () => {
     const [inL2, burnL2, ...rest] = stepsOf(L2_JOB).filter(isSuite);
     expect([runOf(inL2 ?? ''), runOf(burnL2 ?? ''), rest]).toEqual([
@@ -209,9 +210,9 @@ describe('E2E USDCx workflow', () => {
     ]);
   });
 
-  // Its suites read Base Sepolia and Arbitrum Sepolia, where nothing an Arc suite leaves pending lands, so it runs after a
-  // red Arc job, never in a cancelled run. Its own setup guards the key: a failed step there skips usdcx-in-l2, which has
-  // no condition, and with it usdcx-burn-l2, so no L2 suite runs on a missing key file.
+  // Its suites read Base Sepolia, Arbitrum Sepolia and Ethereum Sepolia, where nothing an Arc suite leaves pending lands,
+  // so it runs after a red Arc job, never in a cancelled run. Its own setup guards the key: a failed step there skips
+  // usdcx-in-l2, which has no condition, and with it usdcx-burn-l2, so no L2 suite runs on a missing key file.
   it('starts the L2 job after the Arc job, red or green, but never in a cancelled run', () => {
     expect(jobKey(L2_JOB, 'needs')).toBe(ARC_JOB);
     expect(jobKey(L2_JOB, 'if')).toBe(`\${{ !cancelled() }}`);
@@ -220,9 +221,19 @@ describe('E2E USDCx workflow', () => {
 
   it.each([
     [ARC_JOB, `\${{ github.event_name == 'workflow_dispatch' && 240 || 210 }}`],
-    [L2_JOB, `\${{ github.event_name == 'workflow_dispatch' && 260 || 230 }}`]
+    [L2_JOB, `\${{ github.event_name == 'workflow_dispatch' && 355 || 325 }}`]
   ])('gives %s its own ceiling', (job, ceiling) => {
     expect(jobKey(job, 'timeout-minutes')).toBe(ceiling);
+  });
+
+  // A ceiling the repository sets itself: no E2E USDCx job gets more than 6 hours.
+  it.each([ARC_JOB, L2_JOB])('keeps both of the ceilings of %s within the 360 minutes any E2E USDCx job gets', job => {
+    const minutes = /&& (\d+) \|\| (\d+) \}\}$/
+      .exec(jobKey(job, 'timeout-minutes') ?? '')
+      ?.slice(1)
+      .map(Number);
+    expect(minutes).toHaveLength(2);
+    for (const ceiling of minutes ?? []) expect(ceiling).toBeLessThanOrEqual(360);
   });
 
   it('uploads test-results after each suite that ran, whatever it did, failing no step after it, and never the key or the lock', () => {
