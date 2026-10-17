@@ -1,15 +1,19 @@
 name: E2E Bridge-IN
 
-# Runs the cross-chain bridge-IN deposit E2E (EVM -> Miden) on every push to
-# main, covering BOTH routes (two specs):
-#   - AggLayer "Slow"/ETH: the app builds `bridgeAsset` calldata a headless WC
-#     counterparty signs + broadcasts to a local Anvil bridge stub.
-#   - Epoch "Fast"/USDC: the Epoch SDK reads a stubbed Compact + USDC on Anvil,
-#     builds a real `depositERC20AndRegister` the counterparty signs+broadcasts,
-#     and registers the allocation with a local FAKE allocator.
-# Both drive the real deposit UI through a REAL WalletConnect pairing, then the
-# wallet consumes a REAL Miden note delivered by the miden-client CLI "solver"
-# and reconciles it to "Bridged from EVM".
+# Runs the iOS bridge-IN E2E (EVM -> Miden) on every push to main and by
+# dispatch, three specs:
+#   - Epoch "Fast"/USDC: the Epoch SDK reads a stubbed Compact and USDC on a
+#     local Anvil, builds a real `depositERC20AndRegister` that a headless Reown
+#     counterparty signs and broadcasts, and registers the allocation with a
+#     local FAKE allocator.
+#   - AggLayer "Slow"/ETH: the app builds `bridgeAsset` calldata that the
+#     counterparty signs and broadcasts to an Anvil bridge stub.
+#   - Reown pairing alone.
+# Both deposit specs drive the real deposit UI through a REAL Reown pairing, then
+# the wallet consumes a REAL Miden note delivered by the miden-client CLI
+# "solver" and reconciles it to "Bridged from EVM". The USDCx deposits run live
+# in e2e-usdcx-live.yml (Arc xReserve, and the executor route from Base Sepolia,
+# Arbitrum Sepolia and Ethereum Sepolia).
 #
 # HYBRID by necessity: the EVM leg is HERMETIC on a local Anvil (chain 11155111)
 # with on-chain doubles (the real L1 AggLayer bridge + the hosted Epoch solver
@@ -57,14 +61,6 @@ jobs:
       # broadcasts at the local Anvil the spec starts. Baked into the app bundle
       # at build time (config.ts override) and read by the counterparty at run.
       E2E_EVM_RPC_URL: http://127.0.0.1:8545
-      # The USDCx spec forks Sepolia on that Anvil and deposits into Circle's real
-      # xReserve contract; an Arc Testnet fork cannot move Arc's USDC. This makes
-      # the wallet's USDCx route use Sepolia's xReserve and USDC. Baked into the app
-      # bundle at build time, and read by the spec at run to decide if it can run.
-      MIDEN_E2E_USDCX_CHAIN: sepolia
-      # Optional: the RPC the fork reads Sepolia's state from. Unset, the spec uses
-      # a public Sepolia RPC.
-      E2E_SEPOLIA_FORK_URL: ${{ secrets.E2E_SEPOLIA_FORK_URL }}
       # The config document the suite's global setup serves on :8550: the live
       # testnet bridge account, indexer and USDC faucet, this job's Anvil bridge
       # and USDC, and the local FAKE allocator (:8548) the Epoch spec starts for
