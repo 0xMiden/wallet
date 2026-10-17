@@ -91,6 +91,8 @@ function failureBucket(count: number): RelayDiagnostics['relayFailures'] {
 
 const rank = (bucket: RelayDiagnostics['relayFailures']): number => RELAY_FAILURE_BUCKETS.indexOf(bucket);
 
+const isOffline = (): boolean => typeof navigator !== 'undefined' && navigator.onLine === false;
+
 /**
  * `undefined` unless `error` is WalletConnect's failed relay socket on one of WalletConnect's own relay hosts. Each
  * Error counts once, and its range is only named here: {@link claimRelayRange} uses it up when the report is sent.
@@ -104,9 +106,8 @@ export function classifyRelayFailure(error: Error): RelayFailure | undefined {
   counted.add(error);
   failures++;
   const bucket = failureBucket(failures);
-  const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
   // A blip sends one report and a stuck window three; a failure while offline uses none of them up.
-  if (offline || rank(bucket) <= reportedRank) return { report: false };
+  if (isOffline() || rank(bucket) <= reportedRank) return { report: false };
   const visibility =
     typeof document === 'undefined' ? undefined : RELAY_VISIBILITY.find(state => state === document.visibilityState);
   const justChanged =
@@ -127,11 +128,12 @@ export function classifyRelayFailure(error: Error): RelayFailure | undefined {
 }
 
 /**
- * Uses up `bucket`'s range, immediately before its report is captured. `false` when that range or a higher one was
- * already sent, so of two failures of one range only the first to get here is reported, and never after a later range.
+ * Uses up `bucket`'s range, immediately before its report is captured. `false`, using nothing up, while the device is
+ * offline (it can go offline after the failure was classified) or when that range or a higher one was already sent,
+ * so of two failures of one range only the first to get here is reported, and never after a later range.
  */
 export function claimRelayRange(bucket: RelayDiagnostics['relayFailures']): boolean {
-  if (rank(bucket) <= reportedRank) return false;
+  if (isOffline() || rank(bucket) <= reportedRank) return false;
   reportedRank = rank(bucket);
   return true;
 }
