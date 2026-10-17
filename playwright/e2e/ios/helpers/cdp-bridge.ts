@@ -8,6 +8,10 @@ const SELECT_APP_TIMEOUT = 60_000;
 const SELECT_APP_POLL_MS = 1_500;
 const PAGE_READY_TIMEOUT = 15_000;
 const SOCKET_DISCOVERY_TIMEOUT = 30_000;
+// Healthy selects took at most 51 s over 3,558 CI attaches; a wedged one returns at appium's fixed 180 s lock.
+const SELECT_PAGE_TIMEOUT_MS = 90_000;
+const LIVENESS_PROBE_TIMEOUT_MS = 10_000;
+const DISCONNECT_TIMEOUT_MS = 5_000;
 
 // A synchronous `execute_script` (reading window.__TEST_* globals) returns in
 // milliseconds. If `executeAtom` hasn't resolved within this window, the
@@ -277,7 +281,23 @@ export class CdpBridge {
     }
     const appKey = pageId.slice(0, dotIndex);
     const pageNum = parseInt(pageId.slice(dotIndex + 1), 10);
-    await (rd as unknown as SelectPageCapable).selectPage(appKey, pageNum);
+    try {
+      await withHardTimeout(
+        (rd as unknown as SelectPageCapable).selectPage(appKey, pageNum),
+        SELECT_PAGE_TIMEOUT_MS,
+        'selectPage'
+      );
+      // selectPage also returns once appium's page-init lock times out (a main frame replaced mid-init), and that
+      // session never sends another command; one trivial eval proves the session reaches the page.
+      await withHardTimeout(
+        (rd as unknown as ExecuteAtomCapable).executeAtom('execute_script', ['return document.readyState;', []]),
+        LIVENESS_PROBE_TIMEOUT_MS,
+        'liveness probe'
+      );
+    } catch (err) {
+      await withHardTimeout(rd.disconnect(), DISCONNECT_TIMEOUT_MS, 'disconnect').catch(() => undefined);
+      throw new CdpSessionWedgedError(bundleId, udid, err instanceof Error ? err.message : String(err));
+    }
 
     return new CdpSession(rd);
   }
@@ -393,4 +413,25 @@ export class CdpNoPagesError extends Error {
 
 export function isCdpNoPagesError(err: unknown): err is CdpNoPagesError {
   return err instanceof CdpNoPagesError;
+}
+
+/**
+ * Thrown when `selectPage`, or the liveness probe after it, fails or does not return in time. A main frame replaced
+ * while appium-remote-debugger initializes the page leaves its init waiting on a lock that releases only after 180 s,
+ * and every later command on that session stays queued. The simulator subsystem is healthy (the other wallet attaches
+ * normally), so callers relaunch that one app instead of running `recoverSimSubsystem`.
+ */
+export class CdpSessionWedgedError extends Error {
+  constructor(
+    public readonly bundleId: string,
+    public readonly udid: string,
+    public readonly reason: string
+  ) {
+    super(`CdpBridge: the CDP session for bundleId=${bundleId} on udid=${udid} is wedged at attach: ${reason}`);
+    this.name = 'CdpSessionWedgedError';
+  }
+}
+
+export function isCdpSessionWedgedError(err: unknown): err is CdpSessionWedgedError {
+  return err instanceof CdpSessionWedgedError;
 }
