@@ -92,14 +92,6 @@ jest.mock('./helper', () => ({
   recordNoteDelivery: (...args: RecordArgs) => mockRecord(...args)
 }));
 
-// jsdom has a `window`, so the realm reads as an extension page exactly when `isExtension()` holds.
-const mockIsExtension = jest.fn<boolean, []>();
-
-jest.mock('lib/platform', () => ({
-  ...jest.requireActual<typeof import('lib/platform')>('lib/platform'),
-  isExtension: () => mockIsExtension()
-}));
-
 const mockWakeWorker = jest.fn<Promise<unknown>, [unknown]>();
 
 jest.mock('lib/intercom/client', () => ({
@@ -136,7 +128,6 @@ beforeEach(() => {
   mockRelayById.mockResolvedValue(undefined);
   mockRecord.mockResolvedValue(undefined);
   mockTransportConfigured.mockReturnValue(true);
-  mockIsExtension.mockReturnValue(false);
   mockWakeWorker.mockResolvedValue(undefined);
   jest.spyOn(console, 'info').mockImplementation(() => undefined);
   // What the last pass learned about when work is next due is module state, like the sweep's realm.
@@ -1924,14 +1915,21 @@ describe('when a pass runs', () => {
   });
 });
 
-// On the extension the sweep runs in the service worker, so a delivery write a page makes (Retry's landing, the in-app
-// reconciler's) moves a count the sweep never reads unless the page tells the worker (#1473).
+// On the extension the sweep runs in the background (the service worker on Chrome, a page on Firefox), so a delivery
+// write an extension page makes (Retry's landing, the in-app reconciler's) moves a count the sweep never reads unless
+// the page tells the worker (#1473). The build names the bundle a realm runs.
 describe('a delivery write made in an extension page', () => {
   const { recordNoteDelivery } = jest.requireActual<typeof import('./helper')>('./helper');
+  const builtFor = process.env.WALLET_BUILD_TARGET;
+
+  afterEach(() => {
+    if (builtFor === undefined) delete process.env.WALLET_BUILD_TARGET;
+    else process.env.WALLET_BUILD_TARGET = builtFor;
+  });
 
   it('tells the service worker, where the sweep runs, once', async () => {
     rows.push(row({ noteDelivery: 'pending' }));
-    mockIsExtension.mockReturnValue(true);
+    process.env.WALLET_BUILD_TARGET = 'extension';
     const writes = noteDeliveryWriteCount();
 
     await recordNoteDelivery('tx-1', 'relayed', { ackedNoteIds: ['0xnote'] });
@@ -1941,23 +1939,27 @@ describe('a delivery write made in an extension page', () => {
     expect(mockWakeWorker).toHaveBeenCalledWith({ type: WalletMessageType.NoteDeliveryWrittenRequest });
   });
 
-  it('sends nothing on mobile and desktop, where the sweep reads the count the write moved', async () => {
-    rows.push(row({ nextRelayAt: NOW + 600 }));
+  it.each(['background', 'mobile', 'desktop'])(
+    'sends nothing from the %s bundle, where the sweep reads the count the write moved',
+    async target => {
+      rows.push(row({ nextRelayAt: NOW + 600 }));
+      process.env.WALLET_BUILD_TARGET = target;
 
-    await sweepNoteDeliveries();
-    await recordNoteDelivery('tx-1', 'pending');
-    await sweepNoteDeliveries();
+      await sweepNoteDeliveries();
+      await recordNoteDelivery('tx-1', 'pending');
+      await sweepNoteDeliveries();
 
-    expect(queries()).toBe(2);
-    expect(mockWakeWorker).not.toHaveBeenCalled();
-  });
+      expect(queries()).toBe(2);
+      expect(mockWakeWorker).not.toHaveBeenCalled();
+    }
+  );
 
   it.each<[string, () => Promise<unknown>]>([
     ['cannot be reached', () => Promise.reject(new Error('Could not establish connection'))],
     ['never answers', () => new Promise<unknown>(() => {})]
   ])('neither fails nor waits on the write when the worker %s', async (_case, answer) => {
     rows.push(row({ noteDelivery: 'pending' }));
-    mockIsExtension.mockReturnValue(true);
+    process.env.WALLET_BUILD_TARGET = 'extension';
     mockWakeWorker.mockImplementation(answer);
     const writes = noteDeliveryWriteCount();
 

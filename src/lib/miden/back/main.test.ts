@@ -148,11 +148,6 @@ jest.mock('lib/miden-chain/effective-endpoints', () => ({
   isNoteTransportConfigured: () => true
 }));
 
-// jsdom gives this realm a `window`, so a delivery write here reads as a page's; no real port is opened for it.
-jest.mock('lib/intercom/client', () => ({
-  createIntercomClient: () => ({ request: async () => undefined, subscribe: () => () => {} })
-}));
-
 jest.mock('lib/remote-config/runtime', () => ({
   ...jest.requireActual('lib/remote-config/runtime'),
   initBridgeConfig: async () => (globalThis as any).__mainTest.initBridgeConfig()
