@@ -9,12 +9,12 @@ import {
   quoteSwap,
   scale18,
   SwapEta,
+  swapEtaBlocksSubmit,
   SwapEtaUnavailableError,
   SwapPairPrice,
   SwapQuoteError,
   swapQuoteErrorCode,
-  swapVerdict,
-  swapVerdictBlocksSubmit
+  swapVerdict
 } from './quote';
 import { TEST_TOKEN_IETH, TEST_TOKEN_IUSDT } from './testing/registry';
 
@@ -160,16 +160,34 @@ describe('swapVerdict', () => {
     expect(swapVerdict(etaWith({ fillStatus: 'partial' }))).toBe('partial');
     expect(swapVerdict(etaWith())).toBe('full');
   });
+});
 
-  it('refuses to sign on no market, no price and off market only', () => {
-    expect(swapVerdictBlocksSubmit('no-market')).toBe(true);
-    expect(swapVerdictBlocksSubmit('no-price')).toBe(true);
-    expect(swapVerdictBlocksSubmit('off-market')).toBe(true);
-    expect(swapVerdictBlocksSubmit('settlement-delayed')).toBe(false);
-    expect(swapVerdictBlocksSubmit('no-liquidity')).toBe(false);
-    expect(swapVerdictBlocksSubmit('tolerated')).toBe(false);
-    expect(swapVerdictBlocksSubmit('partial')).toBe(false);
-    expect(swapVerdictBlocksSubmit('full')).toBe(false);
+describe('swapEtaBlocksSubmit', () => {
+  const offMarket = { priceBand: 'off_market', fillStatus: 'none', reason: 'price' } as const;
+  const noMarket = { priceBand: null, fillStatus: 'none', reason: 'no_market' } as const;
+  const noPrice = { priceBand: null, fillStatus: 'none', reason: 'no_price' } as const;
+
+  it.each([
+    ['off market', offMarket],
+    ['no market', noMarket],
+    ['no price', noPrice]
+  ])('refuses to sign on %s, whether settlements run or not', (_case, fields) => {
+    expect(swapEtaBlocksSubmit(etaWith({ ...fields, settlementsRunning: true }))).toBe(true);
+    expect(swapEtaBlocksSubmit(etaWith({ ...fields, settlementsRunning: false }))).toBe(true);
+  });
+
+  it('keeps the label order: paused settlements still read as delayed', () => {
+    expect(swapVerdict(etaWith({ ...offMarket, settlementsRunning: false }))).toBe('settlement-delayed');
+  });
+
+  it.each([
+    ['settlement delayed', etaWith({ settlementsRunning: false })],
+    ['no liquidity', etaWith({ fillStatus: 'none', reason: 'liquidity' })],
+    ['tolerated', etaWith({ priceBand: 'tolerated' })],
+    ['partial', etaWith({ fillStatus: 'partial' })],
+    ['full', etaWith()]
+  ])('lets an advisory %s answer through', (_case, eta) => {
+    expect(swapEtaBlocksSubmit(eta)).toBe(false);
   });
 });
 
@@ -262,6 +280,31 @@ describe('getSwapEta', () => {
   });
 });
 
+// A 2xx the wallet cannot read must not reach the gate: an `{}` eta reads `settlementsRunning` as
+// undefined, which the review would show as a delayed settlement and the press would let through.
+describe('a 2xx body the flow cannot read', () => {
+  const pairPrice = () => getSwapPairPrice(TEST_TOKEN_IETH, TEST_TOKEN_IUSDT);
+  const swapEta = () => getSwapEta(TEST_TOKEN_IETH, 50000000n, TEST_TOKEN_IUSDT, 124160211179n);
+
+  it.each([
+    ['an empty pair price', pairPrice, {}],
+    ['a pair price with string decimals', pairPrice, { ...IETH_IUSDT_PRICE, requestedDecimals: '8' }],
+    ['a pair price whose fill price is not a decimal string', pairPrice, { ...IETH_IUSDT_PRICE, fillPrice: 2488.18 }],
+    ['an empty swap eta', swapEta, {}],
+    ['a swap eta with settlementsRunning as a string', swapEta, { ...etaWith(), settlementsRunning: 'true' }],
+    ['a swap eta with an unknown price band', swapEta, { ...etaWith(), priceBand: 'near_market' }],
+    ['a swap eta with an unknown fill status', swapEta, { ...etaWith(), fillStatus: 'most' }],
+    ['a swap eta with an unknown reason', swapEta, { ...etaWith(), reason: 'weather' }],
+    ['a swap eta with a fractional amount', swapEta, { ...etaWith(), requestedAmount: '124160211179.5' }],
+    ['a swap eta with a numeric amount', swapEta, { ...etaWith(), expectedRequestedAmount: 124409028237 }]
+  ])('rejects %s as an unknown quote error', async (_case, request, body) => {
+    installFetch([() => ({ status: 200, body })]);
+    const failure = request();
+    await expect(failure).rejects.toBeInstanceOf(SwapQuoteError);
+    await expect(failure).rejects.toMatchObject({ code: 'unknown' });
+  });
+});
+
 describe('quoteSwap', () => {
   const now = () => 1_000;
 
@@ -300,6 +343,24 @@ describe('quoteSwap', () => {
     expect(quote.eta).toBe(offMarket);
     expect(calls).toHaveLength(2);
     expect(calls[1]?.url).toContain('&requested_amount=300000000000');
+  });
+
+  it('checks a wallet-built ask it is handed as it is, still wallet-built, and never rebuilds it', async () => {
+    const offMarket = etaWith({ priceBand: 'off_market', fillStatus: 'none', reason: 'price' });
+    const { calls } = installFetch([
+      () => ({ status: 200, body: IETH_IUSDT_PRICE }),
+      () => ({ status: 200, body: offMarket })
+    ]);
+    const quote = await quoteSwap(TEST_TOKEN_IETH, 50000000n, TEST_TOKEN_IUSDT, {
+      slippageBps: 20,
+      requestedAmount: 124160211179n,
+      builtAsk: true,
+      now
+    });
+    expect(quote.requestedAmount).toBe(124160211179n);
+    expect(quote.builtAsk).toBe(true);
+    expect(quote.eta).toEqual(offMarket);
+    expect(calls).toHaveLength(2);
   });
 
   it('refetches the price ONCE when a wallet-built ask lands off market, then returns what it gets', async () => {

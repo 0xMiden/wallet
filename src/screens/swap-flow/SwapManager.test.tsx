@@ -266,6 +266,13 @@ jest.mock('./useSwapQuote', () => ({
   useSwapQuote: (...args: unknown[]) => mockUseSwapQuote(...args)
 }));
 
+// Reached only by the suites that run the real hook.
+const mockQuoteSwap = jest.fn();
+jest.mock('lib/miden/swap/quote', () => ({
+  ...jest.requireActual('lib/miden/swap/quote'),
+  quoteSwap: (...args: unknown[]) => mockQuoteSwap(...args)
+}));
+
 jest.mock('lib/miden/front', () => ({
   useAccount: () => mockUseAccount(),
   useAllBalances: (pk: string, md: Record<string, unknown>) => mockUseAllBalances(pk, md),
@@ -2214,6 +2221,21 @@ describe('SwapFlow / SwapManager', () => {
       expect(screen.getByTestId('rs-request-amount')).toHaveTextContent('9');
     });
 
+    it('refuses an ask the solver reads off market while its settlements are paused', async () => {
+      quoteNowAnswers(
+        quoteAt('2', 5n, { settlementsRunning: false, priceBand: 'off_market', fillStatus: 'none', reason: 'price' })
+      );
+      renderFlow();
+      setOffer('10');
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('rs-submit'));
+      });
+
+      expect(mockInitiateSwap).not.toHaveBeenCalled();
+      expect(mockWalletState.assessSpendingLimit).not.toHaveBeenCalled();
+      expect(screen.getByTestId('rs-submit-error')).toHaveTextContent('swapPriceMoved');
+    });
+
     it('refuses to sign on a pair the solver does not trade or price', async () => {
       quoteNowAnswers(quoteAt('2', 5n, { priceBand: null, fillStatus: 'none', reason: 'no_price' }));
       renderFlow();
@@ -2249,6 +2271,91 @@ describe('SwapFlow / SwapManager', () => {
       expect(mockWalletState.assessSpendingLimit).not.toHaveBeenCalled();
       expect(screen.getByTestId('rs-submit-error')).toHaveTextContent('swapPriceUnavailable');
       expect(screen.getByTestId('review-swap')).toHaveAttribute('data-submitting', 'false');
+    });
+  });
+
+  // The real hook over a quoteSwap stand-in, since the ask's origin is lost between the hook's
+  // pre-submit check and the receive field that reads its answer.
+  describe('a press that stops short of the queue keeps the wallet-built receive amount', () => {
+    beforeEach(() => {
+      jest.useFakeTimers();
+      const { useSwapQuote } = jest.requireActual<typeof import('./useSwapQuote')>('./useSwapQuote');
+      mockUseSwapQuote.mockImplementation(useSwapQuote);
+      // quoteSwap's labelling: wallet-built for an ask it built, or for one it is told the wallet built.
+      mockQuoteSwap.mockImplementation(
+        async (
+          _offer: unknown,
+          offeredAmount: bigint,
+          _request: unknown,
+          options: { requestedAmount?: bigint; builtAsk?: boolean; slippageBps: number }
+        ) =>
+          quoteAt(
+            '2',
+            options.requestedAmount ?? 5n,
+            {},
+            {
+              offeredAmount,
+              slippageBps: options.slippageBps,
+              builtAsk: options.requestedAmount === undefined || options.builtAsk === true
+            }
+          )
+      );
+    });
+
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    const reviewTheBuiltAsk = async () => {
+      renderFlow();
+      setOffer('10');
+      await act(async () => {
+        jest.advanceTimersByTime(500);
+      });
+      expect(screen.getByTestId('rs-request-amount')).toHaveTextContent(/^5$/);
+    };
+    const press = () =>
+      act(async () => {
+        fireEvent.click(screen.getByTestId('rs-submit'));
+      });
+    const expectTheBuiltAskSent = () =>
+      expect(mockInitiateSwap).toHaveBeenLastCalledWith('pk-1', 'faucet-A', 10n, 'faucet-B', 5n, false, 120, true, 5);
+
+    it('after a cancelled biometric, and a second press sends it', async () => {
+      await reviewTheBuiltAsk();
+      mockConfirmSensitive.mockResolvedValueOnce(false);
+      await press();
+      expect(mockQuoteSwap).toHaveBeenCalledTimes(2);
+      expect(mockInitiateSwap).not.toHaveBeenCalled();
+      expect(screen.getByTestId('rs-request-amount')).toHaveTextContent(/^5$/);
+
+      await press();
+      expectTheBuiltAskSent();
+    });
+
+    it('after a dismissed spending-limit challenge, and a second press sends it', async () => {
+      await reviewTheBuiltAsk();
+      mockWalletState.assessSpendingLimit.mockResolvedValueOnce(breachAssessment());
+      await press();
+      expect(screen.getByTestId('spending-limit-challenge')).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', { name: 'cancel-limit' }));
+      expect(screen.getByTestId('rs-request-amount')).toHaveTextContent(/^5$/);
+
+      await press();
+      expectTheBuiltAskSent();
+    });
+
+    it('after the queue refuses the swap, and a second press sends it', async () => {
+      await reviewTheBuiltAsk();
+      mockInitiateSwap.mockRejectedValueOnce(new Error('queue refused'));
+      await press();
+      expect(screen.getByTestId('rs-submit-error')).toHaveTextContent('queue refused');
+      expect(screen.getByTestId('rs-request-amount')).toHaveTextContent(/^5$/);
+
+      await press();
+      expect(mockInitiateSwap).toHaveBeenCalledTimes(2);
+      expectTheBuiltAskSent();
     });
   });
 

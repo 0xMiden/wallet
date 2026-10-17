@@ -1,5 +1,7 @@
 import { act, renderHook } from '@testing-library/react';
 
+import { installHiddenDocument, type HiddenDocument } from 'lib/mobile/testing/hidden-document';
+
 import { useSwapQuote, UseSwapQuoteOpts } from './useSwapQuote';
 
 const mockQuoteSwap = jest.fn();
@@ -237,6 +239,30 @@ describe('useSwapQuote', () => {
       act(() => jest.advanceTimersByTime(0));
       expect(mockQuoteSwap).toHaveBeenCalledTimes(2);
     });
+
+    describe('while the document is hidden', () => {
+      let visibility: HiddenDocument;
+      beforeEach(() => {
+        visibility = installHiddenDocument();
+      });
+      afterEach(() => visibility.restore());
+
+      it('does not re-quote, and re-quotes once, at once, when it is shown again with a stale quote', async () => {
+        renderHook((props: UseSwapQuoteOpts) => useSwapQuote(props), { initialProps: opts() });
+        pastDebounce();
+        await settle(0, 'resolve', quoteWith('0.0003', Date.now()));
+
+        act(() => visibility.setHidden(true));
+        act(() => jest.advanceTimersByTime(60_000));
+        expect(mockQuoteSwap).toHaveBeenCalledTimes(1);
+
+        act(() => visibility.setHidden(false));
+        act(() => jest.advanceTimersByTime(0));
+        expect(mockQuoteSwap).toHaveBeenCalledTimes(2);
+        act(() => jest.advanceTimersByTime(29_999));
+        expect(mockQuoteSwap).toHaveBeenCalledTimes(2);
+      });
+    });
   });
 
   describe('after a refresh fails', () => {
@@ -283,12 +309,32 @@ describe('useSwapQuote', () => {
       expect(result.current).toMatchObject({ loading: false, quote });
     });
 
-    it('checks the ask it is given rather than building one', () => {
+    // quoteSwap's own labelling: wallet-built for an ask it built, or for one it is told the wallet built.
+    const labelledByQuoteSwap = ([, , , options]: unknown[]) => {
+      const { requestedAmount, builtAsk } = options as { requestedAmount?: bigint; builtAsk?: boolean };
+      return { ...quoteWith('0.0003'), builtAsk: requestedAmount === undefined || builtAsk === true };
+    };
+
+    it('checks a wallet-built ask it is given as it is, and keeps the answer wallet-built', async () => {
       const { result } = renderHook((props: UseSwapQuoteOpts) => useSwapQuote(props), { initialProps: opts() });
       act(() => {
         result.current.quoteNow(29_000n).catch(() => undefined);
       });
+      expect(lastCall()).toEqual([USDC, 100000000n, ETH, { slippageBps: 20, requestedAmount: 29000n, builtAsk: true }]);
+      await settle(1, 'resolve', labelledByQuoteSwap(lastCall()));
+      expect(result.current.quote?.builtAsk).toBe(true);
+    });
+
+    it('checks a user-edited ask it is given as the user own', async () => {
+      const { result } = renderHook((props: UseSwapQuoteOpts) => useSwapQuote(props), {
+        initialProps: opts({ requestEdited: true })
+      });
+      act(() => {
+        result.current.quoteNow(29_000n).catch(() => undefined);
+      });
       expect(lastCall()).toEqual([USDC, 100000000n, ETH, { slippageBps: 20, requestedAmount: 29000n }]);
+      await settle(1, 'resolve', labelledByQuoteSwap(lastCall()));
+      expect(result.current.quote?.builtAsk).toBe(false);
     });
 
     it('supersedes a debounced request in flight', async () => {

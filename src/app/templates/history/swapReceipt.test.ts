@@ -192,6 +192,36 @@ describe('deriveSwapReceipt', () => {
       expect(view.isPartialFill).toBe(true);
     });
 
+    it('still calls an expired order that reached the target filled once its remainder came back', () => {
+      const tip = consume({
+        id: 'local-row-2',
+        transactionId: '0xchain2',
+        noteIds: ['0xtip'],
+        amount: 4n,
+        faucetId: OFFERED_FAUCET
+      });
+      const view = derive({
+        slippageBps: 100,
+        tracking: tracking({ state: 'reclaimed', remainingRequested: 10n, remainingOffered: 4n }),
+        settlement: settlement({
+          settled: ['0xnote1'],
+          settledTransactions: [consume({ amount: 990n })],
+          reclaimed: ['0xtip'],
+          reclaimedTransactions: [tip]
+        }),
+        nowSeconds: 1_700_000_200
+      });
+
+      expect(view.orderState).toBe('filled');
+      expect(view.filledAmount).toBe(990n);
+      expect(view.isPartialFill).toBe(false);
+      // The reclaim is on the receipt's own rows, and nothing is left owed or claimable.
+      expect(view.settlementFound).toBe(true);
+      expect(view.reclaimPending).toBe(false);
+      expect(view.offerCancel).toBe(false);
+      expect(view.offerClaimRoute).toBe(false);
+    });
+
     it('never calls an order filled with nothing received', () => {
       const view = derive({ requestedAmount: 1n, slippageBps: 100, tracking: tracking({ remainingRequested: 1n }) });
 
