@@ -717,6 +717,14 @@ describe('requestConsumeTransaction — mobile error branches', () => {
         expect(mockInitiateConsumeTransactionFromId).not.toHaveBeenCalled();
       });
 
+      it('consumes a carried reclaim-disabled P2IDE whose target is the requesting account', async () => {
+        carryRawNote(() => p2ide(REQUESTER, 0n));
+        mockInitiateConsumeTransactionFromId.mockResolvedValueOnce('tx-c');
+
+        await expect(consumeWithBytes()).resolves.toEqual(consumed);
+        expect(mockInitiateConsumeTransactionFromId).toHaveBeenCalledTimes(1);
+      });
+
       it.each([
         ['P2IDE for another account', { prefix: OTHER.prefix.toString(), suffix: OTHER.suffix.toString() }],
         ['fee sponsorship', 'nobody']

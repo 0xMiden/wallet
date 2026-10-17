@@ -112,7 +112,14 @@ import { capitalizeFirstLetter, truncateAddress } from 'utils/string';
 
 import { queueNoteImport } from '../activity';
 import { isLikelyNetworkError } from '../activity/connectivity-classify';
-import { assertValidRecallBlocks, toNoteTypeString, toPersistedNoteType } from '../helpers';
+import {
+  assertValidRecallBlocks,
+  type ConsumeRestriction,
+  mayConsume,
+  noteConsumeRestriction,
+  toNoteTypeString,
+  toPersistedNoteType
+} from '../helpers';
 import {
   isStoreLocked,
   isWalletLockedError,
@@ -128,7 +135,7 @@ import { simulateCustomTransaction, type SimulateCustomTxResult } from './simula
 import { store, withUnlocked } from './store';
 import { startTransactionProcessing } from './transaction-processor';
 import { IConsumedAssetTotal, type ITransaction } from '../db/types';
-import { getBech32AddressFromAccountId, sameWalletAccountId } from '../sdk/helpers';
+import { accountRefToSdk, getBech32AddressFromAccountId, sameWalletAccountId } from '../sdk/helpers';
 import { assertWasmHoldCurrent, withWasmClientLock, type WasmLockHold } from '../sdk/miden-client';
 import { resolvePublicKeyCommitments } from '../sdk/resolve-public-key-commitments';
 import { isPipelineKillLink } from '../sdk/sdk-error-code';
@@ -944,7 +951,10 @@ async function getPrivateNoteDetails(
             )
           ).flatMap(note => (note.noteId ? [note.noteId] : []))
         );
-        return allNotes.filter(note => note.noteType === NoteType.Private && ownNoteIds.has(note.noteId));
+        // `restriction` is the wallet's own consume guard, not note data the user agreed to share.
+        return allNotes
+          .filter(note => note.noteType === NoteType.Private && ownNoteIds.has(note.noteId))
+          .map(({ restriction: _restriction, ...note }) => note);
       });
     });
     return privateNotes;
@@ -2565,7 +2575,9 @@ const generatePromisifyConsumeTransaction = async (
   }
   const prepare = async () => {
     try {
-      return await withUnlocked(async () => formatConsumeTransactionPreview(req.transaction, carried));
+      return await withUnlocked(async () =>
+        formatConsumeTransactionPreview(req.transaction, carried, req.sourcePublicKey)
+      );
     } catch (e) {
       if (isWalletLockedError(e)) throw e;
       throw new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`);
@@ -3066,6 +3078,7 @@ async function formatSendTransactionPreview(transaction: SendTransaction): Promi
 interface ResolvedConsumeNote {
   assets: Asset[];
   noteType: string;
+  restriction?: ConsumeRestriction;
 }
 
 /**
@@ -3094,6 +3107,7 @@ function decodeConsumeNoteBytes(noteBytesB64: string): (ResolvedConsumeNote & { 
     return {
       noteId: note.id().toString(),
       noteType: metadata ? toNoteTypeString(metadata.noteType()) : 'unknown',
+      restriction: noteConsumeRestriction(note),
       assets: note
         .assets()
         .fungibleAssets()
@@ -3118,7 +3132,7 @@ function decodeCarriedConsumeNote(transaction: MidenConsumeTransaction): Resolve
       if (decoded.noteId !== transaction.noteId) {
         throw new Error('noteBytes describe a different note than noteId - refusing to preview it');
       }
-      return { assets: decoded.assets, noteType: decoded.noteType };
+      return { assets: decoded.assets, noteType: decoded.noteType, restriction: decoded.restriction };
     }
   }
   return null;
@@ -3153,7 +3167,8 @@ async function resolveConsumeNote(transaction: MidenConsumeTransaction): Promise
   }
   return {
     assets: details.assets,
-    noteType: details.noteType !== undefined ? toNoteTypeString(details.noteType) : 'unknown'
+    noteType: details.noteType !== undefined ? toNoteTypeString(details.noteType) : 'unknown',
+    restriction: details.restriction
   };
 }
 
@@ -3161,9 +3176,15 @@ async function formatConsumeTransactionPreview(
   transaction: MidenConsumeTransaction,
   // Decoded before the gate; null makes this decode again, since a service worker that had not loaded the SDK
   // before the unlock could not read the bytes then.
-  carried: ResolvedConsumeNote | null
+  carried: ResolvedConsumeNote | null,
+  accountId: string
 ): Promise<string[]> {
-  const { assets, noteType } = carried ?? (await resolveConsumeNote(transaction));
+  const { assets, noteType, restriction } = carried ?? (await resolveConsumeNote(transaction));
+  // Refused here, before the sheet: once approved, the consume would fail at execution with ERR_RECLAIM_DISABLED, and
+  // nothing before execution asks whether the account can consume the note.
+  if (!mayConsume(restriction, () => accountRefToSdk(accountId))) {
+    throw new Error('This account can never consume this note - refusing it');
+  }
   const headlineFaucet = assets[0]?.faucetId;
   const messages = [
     headlineFaucet

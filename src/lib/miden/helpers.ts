@@ -3,6 +3,7 @@ import {
   Address,
   type Felt,
   InputNoteRecord,
+  type Note,
   type NoteRecipient,
   NoteScript,
   NoteType
@@ -148,8 +149,13 @@ const P2IDE_TARGET_SUFFIX_INDEX = 2;
 const P2IDE_TARGET_PREFIX_INDEX = 3;
 const P2IDE_RECLAIM_HEIGHT_INDEX = 4;
 const P2IDE_STORAGE_ITEM_COUNT = 6;
+// FEE_SPONSORSHIP storage (fee_sponsorship.masm, miden-standards 0.17.1):
+// [FEATURE_NOTE_ID (4 felts), reclaimer.suffix, reclaimer.prefix, reclaim_height].
+const FEE_SPONSORSHIP_RECLAIM_HEIGHT_INDEX = 6;
+const FEE_SPONSORSHIP_STORAGE_ITEM_COUNT = 7;
 
 let p2ideScriptRootHex: string | undefined;
+let feeSponsorshipScriptRootHex: string | undefined;
 let standardPaymentRoots: ReadonlySet<string> | undefined;
 
 /**
@@ -203,17 +209,18 @@ function readNote<T>(read: () => T): T | undefined {
   }
 }
 
-/** A note read as its recipient, or as the stored record that holds one. */
-type NoteSource = NoteRecipient | InputNoteRecord;
+/** A note read as its recipient, as a note, or as the stored record that holds one. */
+type NoteSource = NoteRecipient | Note | InputNoteRecord;
 
 function storageItems(note: NoteSource, scriptRootHex: () => string, count: number): Felt[] | undefined {
-  const recipient = 'details' in note ? note.details().recipient() : note;
+  const recipient = 'details' in note ? note.details().recipient() : 'recipient' in note ? note.recipient() : note;
   if (recipient.script().root().toHex() !== scriptRootHex()) return undefined;
   const items = recipient.storage().items();
   return items.length === count ? items : undefined;
 }
 
 const p2ideRoot = () => (p2ideScriptRootHex ??= NoteScript.p2ide().root().toHex());
+const feeSponsorshipRoot = () => (feeSponsorshipScriptRootHex ??= NoteScript.feeSponsorship().root().toHex());
 
 /**
  * The target of a P2IDE whose reclaim is disabled, the one account that can ever consume it: a non-target enters
@@ -232,6 +239,21 @@ export function reclaimDisabledP2ideTarget(note: NoteSource): AccountFelts | und
       suffix: items[P2IDE_TARGET_SUFFIX_INDEX]!.asInt().toString()
     };
   });
+}
+
+/**
+ * {@link reclaimDisabledP2ideTarget}, plus `'nobody'` for a fee sponsorship whose reclaim is disabled: consumed without
+ * its feature note, as the one note of a dApp consume request is, it can only take its reclaim branch, which a reclaim
+ * height of 0 closes (fee_sponsorship.masm, miden-standards 0.17.1).
+ */
+export function noteConsumeRestriction(note: NoteSource): ConsumeRestriction | undefined {
+  const sponsorshipReclaimDisabled = readNote(
+    () =>
+      storageItems(note, feeSponsorshipRoot, FEE_SPONSORSHIP_STORAGE_ITEM_COUNT)?.[
+        FEE_SPONSORSHIP_RECLAIM_HEIGHT_INDEX
+      ]?.asInt() === 0n
+  );
+  return sponsorshipReclaimDisabled ? 'nobody' : reclaimDisabledP2ideTarget(note);
 }
 
 /**

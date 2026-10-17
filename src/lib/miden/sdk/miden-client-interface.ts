@@ -108,7 +108,14 @@ import {
   type PendingGuardianRegistration
 } from '../guardian/account';
 import { withGuardianProbe } from '../guardian/native-http';
-import { EXPIRATION_DELTA_BLOCKS, isPrivateNoteType, mayConsume, reclaimDisabledP2ideTarget } from '../helpers';
+import {
+  type ConsumeRestriction,
+  EXPIRATION_DELTA_BLOCKS,
+  isPrivateNoteType,
+  mayConsume,
+  noteConsumeRestriction,
+  reclaimDisabledP2ideTarget
+} from '../helpers';
 
 export interface GuardianAccountCreationResult {
   accountId: string;
@@ -210,6 +217,8 @@ export type InputNoteDetails = {
   noteType: NoteType | undefined;
   nullifier: string;
   state: InputNoteState;
+  /** Who alone can consume the note, when its script settles that; read by the dApp consume guard, never sent to a dApp. */
+  restriction?: ConsumeRestriction;
 };
 
 export type FungibleAssetDetails = {
@@ -1435,6 +1444,7 @@ export class MidenClientInterface {
           faucetId: getBech32AddressFromAccountId(asset.faucetId())
         }));
       const noteMet = note.metadata();
+      const restriction = noteConsumeRestriction(note);
       return [
         {
           noteId: noteId.toString(),
@@ -1442,7 +1452,8 @@ export class MidenClientInterface {
           senderAccountId: noteMet ? getBech32AddressFromAccountId(noteMet.sender()) : undefined,
           nullifier,
           state: note.state(),
-          assets
+          assets,
+          ...(restriction !== undefined && { restriction })
         }
       ];
     });
