@@ -37,4 +37,13 @@ describe('E2E Bridge-IN workflow', () => {
   it('fails its run when a spec fails', () => {
     expect(testStep()).not.toMatch(/^ {8}continue-on-error:/m);
   });
+
+  // A job-level continue-on-error would turn every red run green without touching the test step.
+  it('does not let the job itself continue on error', () => {
+    const at = workflow.indexOf('\n  mobile-bridge-in-testnet:\n');
+    if (at === -1) throw new Error('no bridge-IN job');
+    const next = workflow.slice(at + 2).search(/^ {2}[\w-]+:$/m);
+    const job = workflow.slice(at, next === -1 ? workflow.length : at + 2 + next);
+    expect(job).not.toMatch(/^ {4}continue-on-error:/m);
+  });
 });
