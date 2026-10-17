@@ -1,6 +1,7 @@
 import { GUARDIAN_ERROR_CODES } from '@openzeppelin/guardian-client';
 
 import type { ITransactionStage, ITransactionType } from 'lib/miden/db/types';
+import { errorMessageParts, isIndefiniteSubmitOutcomeError } from 'lib/miden/sdk/sdk-error-code';
 import { isDesktop } from 'lib/platform';
 import { isHotKeyFailure } from 'lib/secure-hot-key/failure';
 
@@ -36,6 +37,22 @@ export const FAILURE_REASONS = [
 /** A failure the wallet itself decided, named by the caller because its stored text is never sent. */
 export type TransactionFailureReason = (typeof FAILURE_REASONS)[number];
 
+/** Identities the reporter names itself, beside the reasons, refusals and protocol identities. */
+export const REPORTED_IDENTITIES = ['submit_outcome_unknown'] as const;
+
+export const SUBMIT_GRPC_STATUSES = [
+  'unavailable',
+  'internal',
+  'cancelled',
+  'aborted',
+  'data_loss',
+  'deadline_exceeded',
+  'unknown',
+  'other'
+] as const;
+
+export const SUBMIT_HIDDEN_ANSWERS = ['yes', 'no', 'unavailable'] as const;
+
 export interface TransactionFailure {
   type: ITransactionType;
   stage?: ITransactionStage;
@@ -43,6 +60,8 @@ export interface TransactionFailure {
   error?: unknown;
   delegateTransaction?: boolean;
   outcome?: 'failed' | 'unconfirmed';
+  /** Whether the app was hidden while its submit was in flight; undefined when the platform cannot tell. */
+  hiddenDuringSubmit?: boolean;
   point?:
     | 'pipeline'
     | 'earn_settlement'
@@ -113,12 +132,40 @@ function protocolIdentity(message: string): string | undefined {
     : 'kernel_assertion_unknown';
 }
 
-function failureIdentity(error: unknown): string {
+// miden-client 0.17.3 `GrpcError` Display, for each status its `is_indeterminate_submission` reads as an unknown outcome.
+const SUBMIT_GRPC_TEXT: ReadonlyArray<readonly [(typeof SUBMIT_GRPC_STATUSES)[number], string]> = [
+  ['unavailable', 'Miden node is unavailable'],
+  ['internal', 'Miden node returned an internal error'],
+  ['cancelled', 'operation was cancelled'],
+  ['aborted', 'operation was aborted'],
+  ['data_loss', 'unrecoverable data loss or corruption'],
+  ['deadline_exceeded', 'request to Miden node timed out'],
+  ['unknown', 'unknown error: ']
+];
+
+const SUBMIT_REQUEST_FAILED = /grpc request failed for submit_proven_(?:transaction|batch): /;
+
+function submitOutcomeIdentity(error: unknown, hiddenDuringSubmit: boolean | undefined): string {
+  let status: (typeof SUBMIT_GRPC_STATUSES)[number] = 'other';
+  for (const part of errorMessageParts(error)) {
+    const request = SUBMIT_REQUEST_FAILED.exec(part);
+    if (request === null) continue;
+    const kind = part.slice(request.index + request[0].length);
+    status = SUBMIT_GRPC_TEXT.find(([, text]) => kind.startsWith(text))?.[0] ?? 'other';
+    break;
+  }
+  const hidden = hiddenDuringSubmit === undefined ? 'unavailable' : hiddenDuringSubmit ? 'yes' : 'no';
+  return `submit_outcome_unknown; grpc ${status}; app hidden during submit ${hidden}`;
+}
+
+function failureIdentity(failure: TransactionFailure): string {
+  const { error } = failure;
   const message = typeof error === 'string' ? error : error instanceof Error ? error.message : '';
   const protocol = protocolIdentity(message);
   // Ahead of the text arms: a Guardian refusal's message carries the server's own text, which can read as any of them.
   const rejection = rejectionIdentity(error, protocol);
   if (rejection !== undefined) return rejection;
+  if (isIndefiniteSubmitOutcomeError(error)) return submitOutcomeIdentity(error, failure.hiddenDuringSubmit);
   if (protocol !== undefined) return protocol;
   if (/advice stack read failed/i.test(message)) return 'advice_stack_read_failed';
   if (/WebClient terminated/.test(message)) return 'client_terminated';
@@ -199,7 +246,7 @@ export function reportTransactionFailure(failure: TransactionFailure): void {
     const platform = isDesktop() ? 'desktop' : resolveTelemetryContext().platform;
     const identity =
       failure.reason === undefined
-        ? failureIdentity(failure.error)
+        ? failureIdentity(failure)
         : diagnostic<string>(failure.reason, FAILURE_REASONS, 'other');
     const report = new Error(
       [

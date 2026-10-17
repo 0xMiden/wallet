@@ -296,6 +296,14 @@ export const cancelTransaction = async (
   return true;
 };
 
+// A hidden WebView can lose the request its submit sent. Off mobile nothing freezes the page, and a row with no submit
+// stamp has no start to measure from.
+const hiddenDuringSubmit = (row: ITransaction): boolean | undefined => {
+  const submittedAtMs = row.stageTimestamps?.submitting;
+  if (!isMobile() || submittedAtMs === undefined) return undefined;
+  return hiddenSecondsSince(Math.floor(submittedAtMs / 1000)) > 0;
+};
+
 /**
  * Enter `Unconfirmed` (#1081): the submit came back without a definite outcome, so the row waits for the node's
  * verdict instead of failing. One `modify`, applied only while the row is still GeneratingTransaction (the race
@@ -349,7 +357,8 @@ export const markTransactionUnconfirmed = async (tx: ITransaction, error: unknow
       delegateTransaction: committed.delegateTransaction,
       diagnostics: committed.failureDiagnostics,
       error,
-      outcome: 'unconfirmed'
+      outcome: 'unconfirmed',
+      hiddenDuringSubmit: hiddenDuringSubmit(committed)
     });
   }
   notifyBackgroundTransactionNotConfirmed();
