@@ -5,6 +5,7 @@ import { accountRefToSdk } from 'lib/miden/sdk/helpers';
 import { withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { getNativeAssetId } from 'lib/miden-chain/native-asset';
 import { initBridgeConfig } from 'lib/remote-config/runtime';
+import type { UsdcxBurnFeeEstimate } from 'lib/shared/types';
 
 import { buildUsdcxBurnRequest } from './burn';
 import { getUsdcxDestination } from './constant';
@@ -29,7 +30,7 @@ export const USDCX_BURN_FEE_PROBE_RECIPIENT = '0x1111111111111111111111111111111
  */
 const USDCX_BURN_FEE_MARGIN_PERCENT = 25n;
 
-/** How long an estimate waits for the WASM lock. One that has not won it by then gives up without a dry run. */
+/** How long an estimate waits for the WASM lock. One that has not won it by then answers busy without a dry run. */
 export const USDCX_BURN_FEE_LOCK_WAIT_MS = 30_000;
 
 /**
@@ -38,7 +39,10 @@ export const USDCX_BURN_FEE_LOCK_WAIT_MS = 30_000;
  */
 const USDCX_BURN_FEE_DRY_RUN_DEADLINE_MS = 30_000;
 
-const inFlight = new Map<string, Promise<bigint | null>>();
+const BUSY: UsdcxBurnFeeEstimate = { outcome: 'busy' };
+const FAILED: UsdcxBurnFeeEstimate = { outcome: 'failed' };
+
+const inFlight = new Map<string, Promise<UsdcxBurnFeeEstimate>>();
 
 /**
  * How much of the native asset to hold back so that a USDCx burn can pay its own cost, in base units.
@@ -53,13 +57,15 @@ const inFlight = new Map<string, Promise<bigint | null>>();
  * extension it runs on the offscreen document's client rather than building the service worker's own. Concurrent
  * callers for one account and chain share the estimate in flight.
  *
- * Returns `null` when the dry run cannot measure the cost (it failed, the lock stayed busy, or the destination is
- * not configured). A WebAssembly trap is rethrown, never read as an unmeasured cost.
+ * Answers `measured` with the reserve, which is 0n for a burn that costs nothing, `busy` when the lock was not won
+ * within `USDCX_BURN_FEE_LOCK_WAIT_MS` so nothing ran, and `failed` when the dry run could not measure the cost (it
+ * failed, its result did not show the probe, or the destination is not configured). A WebAssembly trap is rethrown,
+ * never read as an unmeasured cost.
  */
 export function estimateUsdcxBurnFeeReserve(
   accountPublicKey: string,
   destinationChainId: number
-): Promise<bigint | null> {
+): Promise<UsdcxBurnFeeEstimate> {
   const key = `${accountPublicKey}|${destinationChainId}`;
   const running = inFlight.get(key);
   if (running) return running;
@@ -68,7 +74,10 @@ export function estimateUsdcxBurnFeeReserve(
   return estimate;
 }
 
-async function measureBurnFeeReserve(accountPublicKey: string, destinationChainId: number): Promise<bigint | null> {
+async function measureBurnFeeReserve(
+  accountPublicKey: string,
+  destinationChainId: number
+): Promise<UsdcxBurnFeeEstimate> {
   try {
     // This handler can run before the realm hydrated the bridge config, and the burn request reads
     // the USDCx faucet and the destination domain from it.
@@ -84,22 +93,24 @@ async function measureBurnFeeReserve(accountPublicKey: string, destinationChainI
     const result = await dryRunUnderLock(accountRefToSdk(accountPublicKey).toString(), requestBytes);
     if (result === null) {
       console.warn('[usdcx burn fee] the WASM lock stayed busy, so no dry run ran');
-      return null;
+      return BUSY;
     }
     const view = simulatedBytesToView(result);
-    if (!view) return null;
+    if (!view) return FAILED;
     const fee = view.fee?.faucetId === nativeFaucetId ? view.fee.amount : 0n;
     const outgoing = view.outgoing
       .filter(asset => asset.faucetId === nativeFaucetId)
       .reduce((sum, asset) => sum + asset.amount, 0n);
     const cost = fee + outgoing - USDCX_BURN_FEE_PROBE_AMOUNT;
-    if (cost <= 0n) return null;
-    return cost + (cost * USDCX_BURN_FEE_MARGIN_PERCENT + 99n) / 100n;
+    // The probe's own unit leaves as a native output, so a correct match never costs less than zero. A result that
+    // shows less matched the wrong faucet: a failed measurement, not a free burn.
+    if (cost < 0n || outgoing < USDCX_BURN_FEE_PROBE_AMOUNT) return FAILED;
+    return { outcome: 'measured', reserve: cost + (cost * USDCX_BURN_FEE_MARGIN_PERCENT + 99n) / 100n };
   } catch (err) {
     // The lock has already retired the client for a trap; reading it as "unmeasured" would hide it from every caller.
     if (typeof WebAssembly !== 'undefined' && err instanceof WebAssembly.RuntimeError) throw err;
     console.warn('[usdcx burn fee] could not estimate the burn fee', err);
-    return null;
+    return FAILED;
   }
 }
 

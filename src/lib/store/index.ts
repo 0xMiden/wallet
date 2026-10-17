@@ -768,7 +768,9 @@ export const useWalletStore = create<WalletStore>()(
         destinationChainId
       });
       assertResponse(res.type === WalletMessageType.EstimateUsdcxBurnFeeResponse);
-      return res.feeReserve === null ? null : BigInt(res.feeReserve);
+      return res.outcome === 'measured'
+        ? { outcome: 'measured', reserve: BigInt(res.feeReserve) }
+        : { outcome: res.outcome };
     },
 
     confirmDAppPermission: async (id, confirmed, accountId, privateDataPermission, allowedPrivateData) => {

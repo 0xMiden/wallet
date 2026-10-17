@@ -367,11 +367,17 @@ export interface EstimateUsdcxBurnFeeRequest extends WalletMessageBase {
   destinationChainId: number;
 }
 
-export interface EstimateUsdcxBurnFeeResponse extends WalletMessageBase {
+/**
+ * What a USDCx burn fee estimate found: the native-asset base units to hold back for the burn's cost once `measured`
+ * (0n for a burn that costs nothing), `busy` when the WASM lock was not won in time so no dry run ran, or `failed`
+ * when the dry run ran and could not measure, or could not be built.
+ */
+export type UsdcxBurnFeeEstimate = { outcome: 'measured'; reserve: bigint } | { outcome: 'busy' | 'failed' };
+
+/** A {@link UsdcxBurnFeeEstimate} on the wire, its reserve as a decimal string. */
+export type EstimateUsdcxBurnFeeResponse = WalletMessageBase & {
   type: WalletMessageType.EstimateUsdcxBurnFeeResponse;
-  /** Native-asset base units to hold back for the burn's cost, as a decimal string; null when the dry run failed. */
-  feeReserve: string | null;
-}
+} & ({ outcome: 'measured'; feeReserve: string } | { outcome: 'busy' | 'failed' });
 
 export interface GetStateRequest extends WalletMessageBase {
   type: WalletMessageType.GetStateRequest;
