@@ -282,6 +282,74 @@ describe('requeueFailedTransaction - a send landed on its verified transaction o
     expect(await pushesAfterTheFirstWait(row.completedAt ?? landing)).toEqual([[NOTE, RECIPIENT]]);
   });
 
+  /** An earlier attempt the node proved never committed, whose completion recorded its note at the root. */
+  const earlierAttempt = () =>
+    unjudged({ transactionId: 'def456', outputNoteIds: [OTHER_NOTE], verdict: 'never-committed' });
+
+  it("replaces the note an earlier attempt recorded at the root, and that note's outcome, with the verified attempt's", async () => {
+    const landing = Math.floor(Date.now() / 1000);
+    const row = privateSend([earlierAttempt(), unjudged({ attemptId: 'a2' })]);
+    Object.assign(row, {
+      outputNoteIds: [OTHER_NOTE],
+      noteDelivery: 'relayed',
+      displayMessage: 'Sent',
+      relayAckedNoteIds: [OTHER_NOTE],
+      relayDeadNoteIds: [OTHER_NOTE],
+      relayVerifyPushes: 1,
+      relayOutageDeferred: true,
+      relayAttempts: MAX_RELAY_ATTEMPTS,
+      nextRelayAt: landing + 24 * 60 * 60,
+      relayRetriesStopped: true
+    });
+    wireRow(row);
+    const writes = noteDeliveryWriteCount();
+
+    await requeueFailedTransaction('tx-1');
+
+    expect(row).toMatchObject({
+      status: ITransactionStatus.Completed,
+      outputNoteIds: [NOTE],
+      noteDelivery: 'undelivered',
+      displayMessage: 'Sent - the private note could not be delivered'
+    });
+    for (const field of [
+      'relayAckedNoteIds',
+      'relayDeadNoteIds',
+      'relayVerifyPushes',
+      'relayOutageDeferred',
+      'relayAttempts',
+      'nextRelayAt',
+      'relayRetriesStopped'
+    ]) {
+      expect(row).not.toHaveProperty(field);
+    }
+    expect(noteDeliveryWriteCount()).toBe(writes + 1);
+    expect(await pushesAfterTheFirstWait(row.completedAt ?? landing)).toEqual([[NOTE, RECIPIENT]]);
+  });
+
+  it("keeps the outcome and schedule of a root that already holds the verified attempt's note", async () => {
+    const landing = Math.floor(Date.now() / 1000);
+    const row = privateSend([earlierAttempt(), unjudged({ attemptId: 'a2' })]);
+    const recorded: Partial<ITransaction> = {
+      outputNoteIds: [NOTE],
+      noteDelivery: 'relayed',
+      displayMessage: 'Sent',
+      relayAckedNoteIds: [NOTE],
+      relayVerifyPushes: 1,
+      relayOutageDeferred: true,
+      relayAttempts: 2,
+      nextRelayAt: landing + 30 * 60
+    };
+    Object.assign(row, recorded);
+    wireRow(row);
+    const writes = noteDeliveryWriteCount();
+
+    await requeueFailedTransaction('tx-1');
+
+    expect(row).toMatchObject({ status: ITransactionStatus.Completed, ...recorded });
+    expect(noteDeliveryWriteCount()).toBe(writes);
+  });
+
   it.each<[string, ISubmitEvidence[]]>([
     ['no attempt names the verified transaction', [unjudged({ transactionId: 'def456' })]],
     [
