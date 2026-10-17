@@ -145,13 +145,13 @@ describe('trackRecoveredSwapOrders', () => {
     expect(modifyRecipes).toHaveLength(0);
   });
 
-  it('records no remainder over a row that has closed since it was read', async () => {
-    swapRow = openRecoveredRow({ settledAt: 160 });
+  it('records no remainder over a row its lineage has closed since it was read', async () => {
+    swapRow = openRecoveredRow({ settledAt: 160, lineageClosedAt: 160 });
     mockReadPswapOrderLineage.mockResolvedValue(openLineage('remainder-1', 1, 40n, 10n));
 
     await trackRecoveredSwapOrders([ref()]);
 
-    expect(modifyRecipes[0]?.(openRecoveredRow({ settledAt: 160 }))).toBe(false);
+    expect(modifyRecipes[0]?.(openRecoveredRow({ settledAt: 160, lineageClosedAt: 160 }))).toBe(false);
     expect(swapRow.extraInputs?.recoveredTip).toBeUndefined();
   });
 
@@ -164,7 +164,8 @@ describe('trackRecoveredSwapOrders', () => {
     expect(swapRow.extraInputs).toEqual({
       orderId: '42',
       expiryTriggeredAt: 150,
-      orderNoteSpentAt: expect.any(Number)
+      orderNoteSpentAt: expect.any(Number),
+      lineageClosedAt: expect.any(Number)
     });
   });
 
@@ -198,6 +199,97 @@ describe('trackRecoveredSwapOrders', () => {
     await trackRecoveredSwapOrders([ref('42'), ref('43')]);
     expect(mockEnsureSdkWasmReady).toHaveBeenCalledTimes(1);
   });
+
+  // The pre-fix recovery reconcile stamped settledAt or reclaimedAt from a linked payout or reclaim with no lineage
+  // read, so a partial fill's payout closed an order whose remainder is still on offer (#1487).
+  describe('over a closure stamp no lineage read recorded', () => {
+    const provisional = ref('42', { provisionalClosure: true });
+
+    it('clears a settledAt once the node shows the order open', async () => {
+      swapRow = openRecoveredRow({ settledAt: 160 });
+      mockReadPswapOrderLineage.mockResolvedValue(openLineage('note-42', 0, 70n, 30n));
+
+      const results = await trackRecoveredSwapOrders([provisional]);
+
+      expect(results.get('42')).toEqual(expect.objectContaining({ kind: 'open' }));
+      expect(swapRow.extraInputs).toEqual({ orderId: '42', requestedAmount: 30n, autoConsume: false });
+    });
+
+    it('clears a reclaimedAt and records the remainder in one write', async () => {
+      swapRow = openRecoveredRow({ reclaimedAt: 160 });
+      mockReadPswapOrderLineage.mockResolvedValue(openLineage('remainder-1', 1, 40n, 10n));
+
+      await trackRecoveredSwapOrders([provisional]);
+
+      expect(modifyRecipes).toHaveLength(1);
+      expect(swapRow.extraInputs).toEqual({
+        orderId: '42',
+        requestedAmount: 30n,
+        autoConsume: false,
+        recoveredTip: { noteId: 'remainder-1', depth: 1, remainingOffered: 40n }
+      });
+    });
+
+    it.each([
+      [
+        'settledAt',
+        { settledAt: 160 },
+        consume(ITransactionStatus.Completed, 'settle', NOW - 20),
+        { settledAt: NOW - 20 }
+      ],
+      [
+        'reclaimedAt',
+        { reclaimedAt: 160 },
+        consume(ITransactionStatus.Completed, 'reclaim', NOW - 30),
+        { reclaimedAt: NOW - 30 }
+      ]
+    ])(
+      'closes an order carrying a %s once the walk ends, recording that its lineage closed it',
+      async (_label, stamp, linked, closure) => {
+        swapRow = openRecoveredRow(stamp);
+        linkedConsumes = [linked];
+        mockReadPswapOrderLineage.mockResolvedValue({ kind: 'finished' });
+
+        const results = await trackRecoveredSwapOrders([provisional]);
+
+        expect(results.get('42')).toEqual({ kind: 'closed' });
+        expect(swapRow.extraInputs).toEqual(
+          expect.objectContaining({ ...closure, lineageClosedAt: expect.any(Number) })
+        );
+      }
+    );
+
+    it.each([
+      ['an absent note', () => mockReadPswapOrderLineage.mockResolvedValue({ kind: 'absent' })],
+      ['a failed read', () => mockReadPswapOrderLineage.mockRejectedValue(new Error('node unreachable'))]
+    ])('keeps the stamp on %s, which shows nothing open', async (_label, answer) => {
+      swapRow = openRecoveredRow({ settledAt: 160 });
+      answer();
+
+      await trackRecoveredSwapOrders([provisional]);
+
+      expect(modifyRecipes).toHaveLength(0);
+      expect(swapRow.extraInputs?.settledAt).toBe(160);
+    });
+
+    it.each([
+      ['a stamp its lineage recorded', openRecoveredRow({ settledAt: 160, lineageClosedAt: 160 })],
+      [
+        "a live order's stamp",
+        { ...openRecoveredRow({ settledAt: 160 }), recovered: undefined, restoredFromBackup: undefined }
+      ]
+    ])('leaves %s alone on an open answer', async (_label, row) => {
+      swapRow = { ...row, extraInputs: { ...row.extraInputs } };
+      mockReadPswapOrderLineage.mockResolvedValue(openLineage('note-42', 0, 70n, 30n));
+
+      await trackRecoveredSwapOrders([provisional]);
+
+      expect(swapRow.extraInputs?.settledAt).toBe(160);
+      expect(modifyRecipes.every(recipe => recipe({ ...row, extraInputs: { ...row.extraInputs } }) === false)).toBe(
+        true
+      );
+    });
+  });
 });
 
 describe('closeRecoveredSwapOrder', () => {
@@ -216,7 +308,12 @@ describe('closeRecoveredSwapOrder', () => {
     linkedConsumes = [consume(ITransactionStatus.Completed, 'reclaim', NOW - 30)];
 
     await expect(closeRecoveredSwapOrder('swap-42', NOW)).resolves.toBe(true);
-    expect(swapRow.extraInputs).toEqual({ orderId: '42', expiryTriggeredAt: 150, reclaimedAt: NOW - 30 });
+    expect(swapRow.extraInputs).toEqual({
+      orderId: '42',
+      expiryTriggeredAt: 150,
+      reclaimedAt: NOW - 30,
+      lineageClosedAt: NOW
+    });
   });
 
   it('lets a completed settle consume outrank a reclaim, since funds arrived', async () => {
@@ -226,21 +323,36 @@ describe('closeRecoveredSwapOrder', () => {
     ];
 
     await closeRecoveredSwapOrder('swap-42', NOW);
-    expect(swapRow.extraInputs).toEqual({ orderId: '42', expiryTriggeredAt: 150, settledAt: NOW - 20 });
+    expect(swapRow.extraInputs).toEqual({
+      orderId: '42',
+      expiryTriggeredAt: 150,
+      settledAt: NOW - 20,
+      lineageClosedAt: NOW
+    });
   });
 
   it('records the note spent elsewhere when only failed consumes of this wallet exist', async () => {
     linkedConsumes = [consume(ITransactionStatus.Failed, 'reclaim', NOW - 30)];
 
     await closeRecoveredSwapOrder('swap-42', NOW);
-    expect(swapRow.extraInputs).toEqual({ orderId: '42', expiryTriggeredAt: 150, orderNoteSpentAt: NOW });
+    expect(swapRow.extraInputs).toEqual({
+      orderId: '42',
+      expiryTriggeredAt: 150,
+      orderNoteSpentAt: NOW,
+      lineageClosedAt: NOW
+    });
   });
 
   it('counts only consume rows linked to the order', async () => {
     linkedConsumes = [{ ...consume(ITransactionStatus.Queued, 'reclaim'), type: 'send' }];
 
     await expect(closeRecoveredSwapOrder('swap-42', NOW)).resolves.toBe(true);
-    expect(swapRow.extraInputs).toEqual({ orderId: '42', expiryTriggeredAt: 150, orderNoteSpentAt: NOW });
+    expect(swapRow.extraInputs).toEqual({
+      orderId: '42',
+      expiryTriggeredAt: 150,
+      orderNoteSpentAt: NOW,
+      lineageClosedAt: NOW
+    });
   });
 
   it('writes nothing over a row that is not a swap', async () => {

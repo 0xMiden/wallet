@@ -36,6 +36,7 @@ interface RowExtraInputs {
   requestedAmount?: bigint;
   autoConsume?: boolean;
   settledAt?: number;
+  lineageClosedAt?: number;
 }
 
 interface Row {
@@ -542,13 +543,25 @@ describe('SwapOrderTrackingManager', () => {
       expect(mockTrackRecoveredSwapOrders).toHaveBeenCalledTimes(1);
     });
 
-    it('does not poll a recovered order that has settled', async () => {
-      mockRows = [recoveredRow('7', { settledAt: 200 })];
+    it('does not poll a recovered order its lineage closed settled', async () => {
+      mockRows = [recoveredRow('7', { settledAt: 200, lineageClosedAt: 200 })];
       render(<SwapOrderTrackingManager />);
       await settleMount();
 
       expect(mockTrackRecoveredSwapOrders).not.toHaveBeenCalled();
       expect(mockTrackSwapOrders).not.toHaveBeenCalled();
+    });
+
+    // The pre-fix recovery reconcile stamped it from a linked payout with no lineage read (#1487).
+    it('polls a recovered order whose settlement stamp no lineage read recorded', async () => {
+      mockRows = [recoveredRow('7', { settledAt: 200 })];
+      mockTrackRecoveredSwapOrders.mockResolvedValue(openOnNode('7'));
+      render(<SwapOrderTrackingManager />);
+      await settleMount();
+
+      expect(mockTrackRecoveredSwapOrders).toHaveBeenCalledWith([
+        expect.objectContaining({ txId: 'recovered-7', provisionalClosure: true })
+      ]);
     });
   });
 });

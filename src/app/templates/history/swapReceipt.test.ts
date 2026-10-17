@@ -502,4 +502,37 @@ describe('deriveSwapReceipt', () => {
       expect(derive({ recovered: true, autoConsume: false, expiresAt: null, tracking: null }).offerCancel).toBe(false);
     });
   });
+
+  // A recovered order's linked payout may be a partial fill's while its remainder is still on offer, so whether it is
+  // open is its lineage's alone to say (#1487).
+  describe("a recovered order's state", () => {
+    const partial = tracking({ currentDepth: 1, remainingOffered: 600n, remainingRequested: 600n });
+    const linkedPayout = settlement({ settled: ['0xnote1'], settledTransactions: [consume()] });
+    const recovered = { recovered: true, autoConsume: false, expiresAt: null, settlement: linkedPayout };
+
+    it('stays active, with Cancel, over a linked settled payout while its lineage is open', () => {
+      const view = derive({ ...recovered, tracking: partial });
+
+      expect(view.orderState).toBe('active');
+      expect(view.offerCancel).toBe(true);
+      expect(view.filledAmount).toBe(400n);
+      expect(view.isPartialFill).toBe(true);
+      expect(view.settlementFound).toBe(true);
+    });
+
+    it('is unresolved, with no Cancel, while the node has not answered', () => {
+      const view = derive({ ...recovered, tracking: null });
+
+      expect(view.orderState).toBeNull();
+      expect(view.offerCancel).toBe(false);
+      expect(view.filledAmount).toBe(400n);
+    });
+
+    it('leaves a live order reading filled over the same payout, which covers its lineage lag', () => {
+      const view = derive({ tracking: partial, settlement: linkedPayout });
+
+      expect(view.orderState).toBe('filled');
+      expect(view.offerCancel).toBe(false);
+    });
+  });
 });
