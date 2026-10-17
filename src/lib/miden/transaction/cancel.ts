@@ -226,6 +226,7 @@ export const cancelTransaction = async (
       stage: committed.stage,
       delegateTransaction: committed.delegateTransaction,
       diagnostics: committed.failureDiagnostics,
+      entryPoint: committed.consumeEntryPoint,
       reason: reportedReason ?? reportedWalletReason(error),
       error
     });
@@ -358,6 +359,7 @@ export const markTransactionUnconfirmed = async (tx: ITransaction, error: unknow
       stage: committed.stage,
       delegateTransaction: committed.delegateTransaction,
       diagnostics: committed.failureDiagnostics,
+      entryPoint: committed.consumeEntryPoint,
       error,
       outcome: 'unconfirmed',
       hiddenDuringSubmit: hiddenDuringSubmit(committed, returnedAtMs)

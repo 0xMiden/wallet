@@ -13,6 +13,7 @@ import { getNativeAssetId } from 'lib/miden-chain/native-asset';
 import type { AgglayerRecoveryConfig } from 'lib/remote-config/schema';
 import { sameGuardianEndpoint } from 'lib/settings/helpers';
 import { WalletAccount } from 'lib/shared/types';
+import type { ConsumeEntryPoint } from 'lib/telemetry/transaction-failure';
 import { getUsdcxRemoteDomain, usdcxSourceChains } from 'lib/usdcx/constant';
 import type { UsdcxSourceChain } from 'lib/usdcx/constant';
 import { WalletType } from 'screens/onboarding/types';
@@ -119,7 +120,8 @@ export const initiateConsumeTransactionFromId = async (
   // that id would let this dApp read another transaction's outcome and output notes, private ones included
   // (`waitForTransaction`), so only a claim may answer it, and the claim then lists the origin so the dApp may wait on
   // it. The wallet's own callers pass none and link the user to the holder instead.
-  dappOrigin?: string
+  dappOrigin?: string,
+  entryPoint?: ConsumeEntryPoint
 ): Promise<string> => {
   // Routed through `midenClientProxy.getInputNoteSummary` (issue #260, slice 7a):
   // flag-ON it reads the OFFSCREEN client that owns the note (the SW client is
@@ -146,7 +148,9 @@ export const initiateConsumeTransactionFromId = async (
     undefined,
     undefined,
     undefined,
-    dappOrigin
+    dappOrigin,
+    undefined,
+    entryPoint
   );
   if (dappOrigin !== undefined) await grantDappOrigin(committedId, dappOrigin);
   return committedId;
@@ -181,6 +185,7 @@ export const initiateConsumeTransaction = async (
   note: ConsumableNote,
   delegateTransaction?: boolean,
   manualRetry?: boolean,
+  entryPoint?: ConsumeEntryPoint,
   canSign?: () => boolean
 ): Promise<string> => {
   return initiateConsumeNotesTransaction(
@@ -190,6 +195,7 @@ export const initiateConsumeTransaction = async (
     manualRetry,
     undefined,
     undefined,
+    entryPoint,
     canSign
   );
 };
@@ -238,6 +244,7 @@ export const queueConsumeNotes = async (
   manualRetry?: boolean,
   isolateNotesWithFailedBatch?: boolean,
   verificationBaseFee?: number | null,
+  entryPoint?: ConsumeEntryPoint,
   canSign?: () => boolean
 ): Promise<ConsumeNotesQueueResult> =>
   queueConsumeRows(
@@ -250,6 +257,7 @@ export const queueConsumeNotes = async (
     undefined,
     undefined,
     undefined,
+    entryPoint,
     canSign
   );
 
@@ -282,6 +290,7 @@ export const initiatePswapReclaimTransaction = async (
         row.requestBytes = requestBytes;
         row.extraInputs = { swapOrderTxId, swapSettleKind: 'reclaim' };
       },
+      'swap_settlement',
       canSign
     )
   ).committedId;
@@ -343,6 +352,7 @@ export const initiateRotationFundingClaim = async (
     true,
     undefined,
     undefined,
+    'rotation_funding',
     opts.canSign
   );
   return committedId;
@@ -485,6 +495,8 @@ const queueConsumeRows = async (
   // Applied before insertion. Used by prepared request rows whose bytes and
   // routing metadata must become visible atomically with the queued row.
   initializeRow?: (row: ConsumeTransaction) => void,
+  // Stamped on every row this creates, in the same insert, so a failed claim's report can name it from the row.
+  entryPoint?: ConsumeEntryPoint,
   // The service worker's own claims only, which nobody signs while the vault is locked. Asked right before each row
   // is written, after every await of the call, so a lock that landed meanwhile queues nothing: a refusal throws
   // `ClaimInsertRefusedError`, which aborts this Dexie transaction and rolls back the rows the call already wrote.
@@ -625,6 +637,7 @@ const queueConsumeRows = async (
       });
       if (rotationFunding) row.rotationFunding = true;
       if (dappOrigin !== undefined) row.dappOrigins = [dappOrigin];
+      if (entryPoint !== undefined) row.consumeEntryPoint = entryPoint;
       initializeRow?.(row);
       return row;
     };

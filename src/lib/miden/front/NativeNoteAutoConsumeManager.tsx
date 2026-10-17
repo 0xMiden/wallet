@@ -92,6 +92,7 @@ export function NativeNoteAutoConsumeManager(): null {
             false,
             true,
             baseFee,
+            'auto_consume',
             isWalletReadyNow
           );
         } catch (batchErr) {
@@ -99,7 +100,7 @@ export function NativeNoteAutoConsumeManager(): null {
           console.warn('[native-auto-consume] batch enqueue failed, falling back to per-note enqueue', batchErr);
           for (const note of nativeNotes) {
             try {
-              await initiateConsumeTransaction(publicKey, note, delegate, undefined, isWalletReadyNow);
+              await initiateConsumeTransaction(publicKey, note, delegate, false, 'auto_consume', isWalletReadyNow);
             } catch (noteErr) {
               if (!isWalletReadyNow()) throw noteErr;
               console.warn('[native-auto-consume] enqueue failed for note', note.id, noteErr);

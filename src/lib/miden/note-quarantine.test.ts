@@ -72,6 +72,23 @@ describe('importedNoteIds', () => {
     expect(importedNoteIds([])).toEqual([]);
   });
 
+  // Inside a WASM lock hold the trap has to reach the lock, which retires the client; outside one it skips the entry.
+  it('rethrows a WebAssembly trap only when asked to, and otherwise skips its entry', () => {
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    mockDeserialize.mockImplementation(() => {
+      throw trap;
+    });
+    expect(importedNoteIds(['aa'])).toEqual([]);
+    expect(() => importedNoteIds(['aa'], { rethrowTraps: true })).toThrow(trap);
+  });
+
+  it('still skips an entry that fails ordinarily when asked to rethrow traps', () => {
+    mockDeserialize.mockImplementationOnce(() => {
+      throw new Error('bad note bytes');
+    });
+    expect(importedNoteIds(['bad', 'good'], { rethrowTraps: true })).toEqual(['id:4']);
+  });
+
   it('tolerates a note that fails to deserialize by skipping it', () => {
     mockDeserialize.mockImplementationOnce(() => {
       throw new Error('bad note bytes');

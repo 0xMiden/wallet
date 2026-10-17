@@ -12,6 +12,7 @@ import { signHotDigest as fallbackSignHotDigest } from 'lib/secure-hot-key/jsFal
 import { captureCrash } from './crash';
 import assertions from './protocol-assertions.json';
 import {
+  CONSUME_ENTRY_POINTS,
   EXECUTION_CAUSES,
   FAILURE_REASONS,
   HOT_KEY_CODES,
@@ -191,6 +192,49 @@ it('names the wallet reason a claim failed at its signing proposal', async () =>
   expect(message).toContain('tx_receive; stage signing;');
   expect(message).toContain('; point pipeline; user_cancelled. authentication preparation');
   expect(message).not.toContain('cancelled by user');
+});
+
+// BREAD-WALLET-G: a consume failed with ERR_RECLAIM_DISABLED, and nothing said which entry point had queued it.
+it('names what queued a failed claim by a fixed value, and no id, address or note content', async () => {
+  const noteId = '0x8c3a1f0e2b7d4c6a9e5f1b3d7a2c4e6f8b0d2f4a6c8e0b2d4f6a8c0e2b4d6f8a';
+  const accountId = '0xa1b2c3d4e5f60718293a4b5c6d7e8f';
+  reportTransactionFailure({
+    point: 'pipeline',
+    type: 'consume',
+    stage: 'creating-proposal',
+    delegateTransaction: true,
+    entryPoint: 'claim_all',
+    error: new Error(
+      `failed to create consume proposal for account ${accountId}: failed to execute transaction: note ${noteId} ` +
+        'failed: assertion failed with error code: 6980628190221363142'
+    )
+  });
+  const message = await reportedMessage();
+  expect(message).toContain('tx_receive; stage signing;');
+  expect(message).toContain('; queued by claim_all; point pipeline; ERR_RECLAIM_DISABLED. ');
+  for (const leak of [
+    noteId,
+    noteId.slice(2),
+    accountId,
+    accountId.slice(2),
+    '6980628190221363142',
+    'consume proposal'
+  ]) {
+    expect(message).not.toContain(leak);
+  }
+});
+
+it('sends what queued a claim as other when it is outside the list or unknown, and names it for no other type', async () => {
+  const poison = 'wallet-owner-password@example.org';
+  reportTransactionFailure({ type: 'consume', entryPoint: poison, error: 'failed' } as never);
+  reportTransactionFailure({ type: 'consume', error: 'failed' });
+  reportTransactionFailure({ type: 'send', entryPoint: 'claim', error: 'failed' } as never);
+  await settle();
+  const [unlisted, absent, send] = jest.mocked(captureCrash).mock.calls.map(([error]) => (error as Error).message);
+  expect(unlisted).toContain('; queued by other; point pipeline;');
+  expect(unlisted).not.toContain(poison);
+  expect(absent).toContain('; queued by other; point pipeline;');
+  expect(send).not.toContain('queued by');
 });
 
 it('sends a reason outside the wallet list as other', async () => {
@@ -1003,6 +1047,12 @@ const policyText = (heading: string, from?: string, to?: string): string => {
   return start === -1 || end === -1 ? '' : bullet.slice(start, end);
 };
 
+/** The Crash reports paragraph that opens with `opening`, for a list documented in a clause of its own. */
+const policyParagraph = (opening: string): string =>
+  crashReportPolicy()
+    .split('\n')
+    .find(line => line.startsWith(opening)) ?? '';
+
 const OWN_REASON = "The App's own reason";
 const NEVER_COMMITTED_RULE = 'With `never_committed`';
 const GUARDIAN = 'A guardian refusal';
@@ -1016,6 +1066,7 @@ const EXECUTION_CAUSE_LIST = 'its own fixed wording names';
 const COINED_ASSERTIONS = "A check in the transaction's program";
 const ENGINE = 'Two failures the transaction engine names itself';
 const BROAD = 'A broad category';
+const CLAIM_ORIGIN = 'A failed claim of an incoming transfer also says what queued the claim';
 
 // Each identity the reporter coins, with the text that documents it.
 const IDENTITY_TEXT: Record<string, () => string> = {
@@ -1068,6 +1119,7 @@ const POLICY_ROWS: readonly PolicyRow[] = [
   ['execution cause', () => EXECUTION_CAUSES, () => policyText(EXECUTION, EXECUTION_CAUSE_LIST, COINED_ASSERTIONS)],
   ['signing step', () => SIGNING_STEPS, () => policyText('The signing step')],
   ['broad category', () => TELEMETRY_ERROR_KINDS, () => policyText(BROAD)],
+  ['claim entry point', () => [...CONSUME_ENTRY_POINTS, 'other'], () => policyParagraph(CLAIM_ORIGIN)],
   ...Object.entries(IDENTITY_TEXT).map(
     ([identity, text]): PolicyRow => [`reported identity ${identity}`, () => [identity], text]
   )

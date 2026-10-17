@@ -166,6 +166,19 @@ type ExecutionCause = (typeof EXECUTION_CAUSES)[number];
 
 export const SIGNING_STEPS = ['creating_proposal', 'signing_proposal', 'signing_locally'] as const;
 
+export const CONSUME_ENTRY_POINTS = [
+  'auto_consume',
+  'claim',
+  'claim_all',
+  'dapp',
+  'bridge_reclaim',
+  'swap_settlement',
+  'rotation_funding'
+] as const;
+
+/** What queued a consume row, stamped on the row when it is created. */
+export type ConsumeEntryPoint = (typeof CONSUME_ENTRY_POINTS)[number];
+
 export interface TransactionFailure {
   type: ITransactionType;
   stage?: ITransactionStage;
@@ -175,6 +188,7 @@ export interface TransactionFailure {
   error?: unknown;
   delegateTransaction?: boolean;
   outcome?: 'failed' | 'unconfirmed';
+  entryPoint?: ConsumeEntryPoint;
   /** Whether the app was hidden while its submit was in flight; undefined when the platform cannot tell. */
   hiddenDuringSubmit?: boolean;
   /** This transaction's failure was reported before, so this report is evidence for that one, not a second error. */
@@ -547,6 +561,8 @@ export function reportTransactionFailure(failure: TransactionFailure): void {
         : 'unknown';
     const proving =
       failure.delegateTransaction === true ? 'delegated' : failure.delegateTransaction === false ? 'local' : 'unknown';
+    const queuedBy =
+      type === 'consume' ? `; queued by ${diagnostic<string>(failure.entryPoint, CONSUME_ENTRY_POINTS, 'other')}` : '';
     const platform = isDesktop() ? 'desktop' : resolveTelemetryContext().platform;
     const reason =
       failure.reason === undefined ? undefined : diagnostic<string>(failure.reason, FAILURE_REASONS, 'other');
@@ -558,7 +574,7 @@ export function reportTransactionFailure(failure: TransactionFailure): void {
           : reason;
     const report = new Error(
       [
-        `Transaction ${outcome}: ${operation}; stage ${stage}${signingStep === undefined ? '' : `; signing step ${signingStep}`}; realm ${realm}; proving preference ${proving}; platform ${platform}; point ${point}; ${identity}`,
+        `Transaction ${outcome}: ${operation}; stage ${stage}${signingStep === undefined ? '' : `; signing step ${signingStep}`}; realm ${realm}; proving preference ${proving}; platform ${platform}${queuedBy}; point ${point}; ${identity}`,
         `authentication preparation ${preparation}; layout ${layout}; commitment match ${match}; account code ${accountCode}`,
         `SDK ${softwareVersion(packageJson.dependencies['@miden-sdk/miden-sdk'])}; Guardian client ${softwareVersion(packageJson.dependencies['@openzeppelin/miden-multisig-client'])}`
       ].join('. ')
