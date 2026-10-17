@@ -2,7 +2,7 @@ import { App } from '@capacitor/app';
 
 /**
  * Host of Bread's open links, `https://bread.miden.xyz/open?url=<page>`. The iOS associated-domains
- * entitlement, the Android intent filter and `docs/.well-known` all name it too.
+ * entitlement, the Android intent filter and the association files 0xMiden/wallet-link serves all name it too.
  */
 export const OPEN_LINK_HOST = 'bread.miden.xyz';
 const OPEN_LINK_PATH = '/open';

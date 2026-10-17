@@ -7,8 +7,9 @@ jest.mock('@capacitor/app', () => ({ App: {} }));
 import { OPEN_LINK_HOST, parseOpenLink } from './open-link';
 
 /**
- * An open link reaches Bread only while the app's native declarations, the files the link host serves and
- * the parser agree. A mismatch fails silently on a device: the link just opens the web page instead.
+ * An open link reaches Bread only while the app's native declarations, the parser and the files
+ * 0xMiden/wallet-link serves at the link host agree. A mismatch fails silently on a device: the link just
+ * opens the web page instead.
  */
 
 const read = (relative: string) => fs.readFileSync(path.join(__dirname, '../../..', relative), 'utf8');
@@ -48,41 +49,17 @@ describe('open link declarations', () => {
     for (const scheme of schemes) expect(parseOpenLink(`${scheme}://open${QUERY}`)).toBe(PAGE);
   });
 
-  it('serves an Apple association file naming the iOS app and the open path', () => {
+  // 0xMiden/wallet-link's association files name this app ID and package: changing either here needs a change there.
+  it('keeps the app ID and package 0xMiden/wallet-link names', () => {
     const project = read('ios/App/App.xcodeproj/project.pbxproj');
     const teams = new Set(captures(project, /DEVELOPMENT_TEAM = (\w+);/g));
     const bundleIds = new Set(
       captures(project, /PRODUCT_BUNDLE_IDENTIFIER = ([\w.]+);/g).filter(id => !id.endsWith('.tests'))
     );
-    expect(teams.size).toBe(1);
-    expect(bundleIds.size).toBe(1);
-    const appId = `${[...teams][0]}.${[...bundleIds][0]}`;
 
-    const association = JSON.parse(read('docs/.well-known/apple-app-site-association'));
-
-    expect(association.applinks.details).toEqual([
-      expect.objectContaining({ appIDs: [appId], components: [expect.objectContaining({ '/': '/open' })] })
+    expect([...teams].flatMap(team => [...bundleIds].map(id => `${team}.${id}`))).toEqual([
+      'LHU7B7J5WL.com.miden.bread'
     ]);
-  });
-
-  it('serves an asset links file naming the Android app and at least one signing certificate', () => {
-    const [applicationId] = captures(read('android/app/build.gradle'), /applicationId "([^"]+)"/g);
-
-    const assetLinks = JSON.parse(read('docs/.well-known/assetlinks.json'));
-
-    expect(assetLinks).toEqual([
-      {
-        relation: ['delegate_permission/common.handle_all_urls'],
-        target: {
-          namespace: 'android_app',
-          package_name: applicationId,
-          sha256_cert_fingerprints: expect.arrayContaining([expect.stringMatching(/^([0-9A-F]{2}:){31}[0-9A-F]{2}$/)])
-        }
-      }
-    ]);
-  });
-
-  it('has the Pages build publish the association files, which Jekyll skips as a dot-directory', () => {
-    expect(read('docs/_config.yml')).toMatch(/^include:\n {2}- \.well-known$/m);
+    expect(captures(read('android/app/build.gradle'), /applicationId "([^"]+)"/g)).toEqual(['com.miden.wallet']);
   });
 });
