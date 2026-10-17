@@ -2,6 +2,10 @@
 
 ## 1.17.5 (TBD)
 
+### Features
+
+- [FEATURE][all] A transaction-failure crash report says why the transaction failed, in fixed values only: the wallet's own reason (a cancel, the startup sweep, the stuck reaper, a queue expiry, the rotation gate, or the node check of a claim), a Guardian refusal's HTTP status and published error code, or the device key's refusal code. A code outside those lists is sent as `other`, no failure text is sent, and the privacy policy lists every value. These failures move from their earlier crash-report titles, which named only a broad error category, to new titles that carry these values, so they start new crash-report issues.
+
 ### Fixes
 
 - [FIX][ci] A fourth live USDCx suite, `usdcx-burn-l2`, burns 1 USDCx through Send from a fresh Guardian wallet to the harness key on Base Sepolia and on Arbitrum Sepolia, and passes only once Circle has paid each burn there and the wallet itself reads Confirmed; its preflight checks both chains and the wallet's RPC for them, and E2E USDCx runs it after the Arc suites, even when one of them failed.

@@ -7,7 +7,7 @@ import { hiddenSecondsSince } from 'lib/mobile/background-time';
 import { isMobile } from 'lib/platform';
 import { classifyError } from 'lib/telemetry/classify';
 import { reportOperation } from 'lib/telemetry/report-operation';
-import { reportTransactionFailure } from 'lib/telemetry/transaction-failure';
+import { reportTransactionFailure, type TransactionFailureReason } from 'lib/telemetry/transaction-failure';
 import { elapsedMsSince, operationOfType, stepOfStage } from 'lib/telemetry/transaction-operation';
 
 import {
@@ -18,6 +18,10 @@ import {
   isUnconfirmedFailureReason,
   isWalletFailureReason,
   resolveTransactionErrorMessage,
+  ROTATION_FUNDING_NON_NATIVE_ERROR,
+  ROTATION_FUNDING_NOTE_UNAVAILABLE_ERROR,
+  ROTATION_PENDING_CONSUME_ERROR,
+  RotationGateConsumeRefusal,
   TRANSACTION_EXPIRED_ERROR,
   TRANSACTION_FORCE_CANCELLED_ERROR,
   TRANSACTION_INTERRUPTED_ERROR,
@@ -57,6 +61,27 @@ export const MAX_WAIT_BEFORE_CANCEL = isMobile() ? 2 * 60 : 30 * 60; // 2 mins o
 
 // Maximum age for a queued transaction before it's considered stale and cancelled
 export const MAX_QUEUED_AGE = 30 * 60; // 30 minutes (seconds)
+
+// The failure report sends no text, so it carries the wallet's own reason as a fixed name instead.
+const REPORTED_WALLET_REASONS = new Map<unknown, TransactionFailureReason>([
+  [USER_CANCELLED_TRANSACTION_REASON, 'user_cancelled'],
+  [TRANSACTION_INTERRUPTED_ON_STARTUP, 'interrupted_on_startup'],
+  [TRANSACTION_STUCK_ERROR, 'stuck_reaped'],
+  [TRANSACTION_EXPIRED_ERROR, 'queued_expired'],
+  [TRANSACTION_INTERRUPTED_ERROR, 'consume_not_landed'],
+  [INVALID_NOTE_ERROR, 'note_invalid']
+]);
+
+const REPORTED_ROTATION_REFUSALS = new Map<string, TransactionFailureReason>([
+  [ROTATION_PENDING_CONSUME_ERROR, 'rotation_key_pending'],
+  [ROTATION_FUNDING_NOTE_UNAVAILABLE_ERROR, 'rotation_funding_note_unavailable'],
+  [ROTATION_FUNDING_NON_NATIVE_ERROR, 'rotation_funding_not_native']
+]);
+
+const reportedWalletReason = (error: unknown): TransactionFailureReason | undefined =>
+  error instanceof RotationGateConsumeRefusal
+    ? (REPORTED_ROTATION_REFUSALS.get(error.message) ?? 'rotation_gate_refusal')
+    : REPORTED_WALLET_REASONS.get(error);
 
 /**
  * The stored failure text for `error` on this row: the message the classifier writes (or a wallet reason verbatim)
@@ -120,7 +145,10 @@ export const cancelTransaction = async (
   transaction: Transaction,
   error: any,
   displayMessage: string = 'Failed',
-  onlyIfStatus?: ITransactionStatus
+  onlyIfStatus?: ITransactionStatus,
+  // Names the failure report's reason in place of the one read from `error`; the stored text and every gate below
+  // still follow `error`.
+  reportedReason?: TransactionFailureReason
 ) => {
   // Refuse to downgrade a finalized transaction. A late error fired AFTER
   // completeXxxTransaction has already marked the tx Completed (most often
@@ -198,6 +226,7 @@ export const cancelTransaction = async (
       stage: committed.stage,
       delegateTransaction: committed.delegateTransaction,
       diagnostics: committed.failureDiagnostics,
+      reason: reportedReason ?? reportedWalletReason(error),
       error
     });
   }
@@ -1038,7 +1067,11 @@ const verifyStuckTransactions = async (): Promise<number> => {
         : 0;
       if (processingTime > MIN_PROCESSING_TIME_BEFORE_STUCK) {
         await recordOutOfBandEnd(tx.id);
-        if (await cancelTransaction(tx, TRANSACTION_INTERRUPTED_ERROR)) resolvedCount++;
+        // The row reads the same for both verdicts; only the report tells them apart.
+        const reportedReason = verdict === 'landed-external' ? 'consume_landed_external' : undefined;
+        if (await cancelTransaction(tx, TRANSACTION_INTERRUPTED_ERROR, undefined, undefined, reportedReason)) {
+          resolvedCount++;
+        }
       }
     }
     // 'unknown' (no note row / node query error) and 'processing' (our own consume
