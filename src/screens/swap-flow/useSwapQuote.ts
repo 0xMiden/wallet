@@ -39,8 +39,9 @@ export interface UseSwapQuoteOpts {
 export interface UseSwapQuoteResult extends SwapQuoteState {
   /**
    * A fresh quote for the live inputs, now, skipping the debounce: the pre-submit check. Given an
-   * ask, it checks THAT ask (the one on screen, about to be signed) rather than building one. It
-   * supersedes any request in flight and lands in the hook's state too. Rejects as `quoteSwap`.
+   * ask, it checks THAT ask (the one on screen, about to be signed) rather than building one, and a
+   * wallet-built ask stays wallet-built. It supersedes any request in flight and lands in the hook's
+   * state too. Rejects as `quoteSwap`.
    */
   quoteNow: (requestedAmount?: bigint) => Promise<SwapQuote>;
 }
@@ -139,12 +140,13 @@ export function useSwapQuote({
   const liveRef = useRef({ offerToken, requestToken, key: liveKey, pair: livePair });
   liveRef.current = { offerToken, requestToken, key: liveKey, pair: livePair };
 
-  const runQuote = useCallback((quoteKey: QuoteKey, id: number): Promise<SwapQuote> => {
+  const runQuote = useCallback((quoteKey: QuoteKey, id: number, builtAsk = false): Promise<SwapQuote> => {
     const { offerToken: offer, requestToken: request } = liveRef.current;
     const pair = pairOf(quoteKey.of, quoteKey.rf);
     return quoteSwap(offer, BigInt(quoteKey.oa), request, {
       slippageBps: quoteKey.bps,
-      ...(quoteKey.ra === null ? {} : { requestedAmount: BigInt(quoteKey.ra) })
+      ...(quoteKey.ra === null ? {} : { requestedAmount: BigInt(quoteKey.ra) }),
+      ...(builtAsk ? { builtAsk } : {})
     }).then(
       quote => {
         if (id === reqId.current) setState({ loading: false, pair, quote, settledAt: quote.fetchedAt });
@@ -191,9 +193,12 @@ export function useSwapQuote({
       if (liveQuoteKey === null) return Promise.reject(new Error('Nothing to quote'));
       const quoteKey =
         requestedAmount === undefined ? liveQuoteKey : { ...liveQuoteKey, ra: requestedAmount.toString() };
+      // The ask's origin is the live key's, not the amount's: a wallet-built ask checked again must
+      // still fill the receive field, or a press that stops short of the queue empties it.
+      const builtAsk = requestedAmount !== undefined && liveQuoteKey.ra === null;
       const id = ++reqId.current;
       setState(prev => ({ loading: true, pair, quote: prev.pair === pair ? prev.quote : undefined }));
-      return runQuote(quoteKey, id);
+      return runQuote(quoteKey, id, builtAsk);
     },
     [runQuote]
   );

@@ -352,10 +352,13 @@ function assertDecimalsMatch(price: SwapPairPrice, offerToken: SwapToken, reques
 
 export interface QuoteSwapOptions {
   /**
-   * The user's own ask, in requested base units, when they edited the receive field. Absent, the
-   * ask is built from the price and `slippageBps`.
+   * The ask to check, in requested base units: the user's own once they edited the receive field, or
+   * the wallet-built ask on screen checked again before it is signed. Absent, the ask is built from
+   * the price and `slippageBps`.
    */
   requestedAmount?: bigint;
+  /** `requestedAmount` is one the wallet built at `slippageBps`, so the quote stays wallet-built. */
+  builtAsk?: boolean;
   slippageBps: number;
   /** Injected clock for tests. */
   now?: () => number;
@@ -366,14 +369,15 @@ export interface QuoteSwapOptions {
  *
  * A wallet-built ask that the solver reads as `off_market` means the price moved between the two
  * calls. The price is fetched ONCE more and the ask rebuilt from it, which converges in one round
- * trip; a second `off_market` is returned as it is and the review screen shows it. A user-edited
- * ask is never rebuilt: an above-market limit order is the user's choice, and the verdict says so.
+ * trip; a second `off_market` is returned as it is and the review screen shows it. An ask it is
+ * given is never rebuilt: a user-edited one is the user's choice, and the verdict says so; a
+ * wallet-built one checked again before signing is the ask that would be signed.
  */
 export async function quoteSwap(
   offerToken: SwapToken,
   offerAmountRaw: bigint,
   requestToken: SwapToken,
-  { requestedAmount, slippageBps, now = Date.now }: QuoteSwapOptions
+  { requestedAmount, builtAsk = false, slippageBps, now = Date.now }: QuoteSwapOptions
 ): Promise<SwapQuote> {
   const fetchPrice = async (): Promise<SwapPairPrice> => {
     const price = await getSwapPairPrice(offerToken, requestToken);
@@ -389,7 +393,7 @@ export async function quoteSwap(
       price,
       offeredAmount: offerAmountRaw,
       requestedAmount: ask,
-      builtAsk: requestedAmount === undefined,
+      builtAsk: requestedAmount === undefined || builtAsk,
       slippageBps,
       eta,
       fetchedAt
