@@ -2,6 +2,9 @@
 
 ## 1.17.5 (TBD)
 
+### Changes
+
+- [CHANGE][all] Replace the Settings tab with Profile: a centered account identity, My badges, and the original settings groups below it. Add private, wallet-wide local badges for confirmed Mainnet sends, claimed bridge deposits, and fully filled swaps with claimed output. Incoming badges wait until the notes are consumed and a matching account balance snapshot includes those consumes. Ignore Testnet, imported history, incomplete actions and duplicate events. First Receive, Recovery Checked and Miniapp Explorer remain unavailable until reliable completion signals are defined. Progress survives app restarts and account switching, but resetting app data clears it; restore/reinstall carryover is not promised.
 ### Features
 
 - [FEATURE][all] Swap quotes come from the solver's Swap Quote API v2: the receive amount is built in integer arithmetic from the pair's fill price less an editable slippage (0.05% by default, up to 1%, on the review screen), the review shows the solver's verdict on the exact order (fills now, part fills, waits for the price, no orders yet, pair not traded) and the amount a full fill is expected to pay, the quote refreshes every 30 seconds while the swap screen is on screen, and a press on Swap re-checks the order with the solver first and refuses one the price has moved past instead of leaving it unfilled in the book. Activity shows a swap as filled once it has received its requested amount less the slippage it was placed with, and the wallet still reclaims the remainder of such an order at expiry.
@@ -25,6 +28,10 @@
 - [FIX][all] Accepting an incoming transfer no longer queues a claim that is certain to fail on the network fee: when the account's USDCX, plus the USDCX the transfers being accepted carry and what claims already queued will add, is below one base fee, Accept (and a failed transfer's Retry) is disabled with a fee message on the card, and Accept All queues only the transactions that can pay, or is disabled when none can. A transfer of USDCX still pays for itself, so a new wallet accepts its first USDCX as before.
 - [FIX][all] A claim that fails because an asset it needed (most often the USDCX for the network fee) was not available now says so instead of naming an "amount sent" that a claim does not have; every other transaction keeps its copy.
 - [FIX][extension] Approving a dApp transaction or consume no longer flashes an "Oops" error screen (and reports a "Not identified" crash) in the approval window before it closes: the window no longer navigates away from its own request after the approval, which dropped the request id from its address.
+
+### Changes
+
+- [CHANGE][ci] The dApp E2E harness also checks transaction scripts the dApp compiles itself on single-sig and Guardian accounts: a payment through the basic wallet, one that first checks its script argument and an advice value, and a fee-only script.
 
 ## 1.17.4 (2026-10-15)
 

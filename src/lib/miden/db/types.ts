@@ -651,6 +651,8 @@ export interface IRequeueStreak {
 }
 
 export interface ITransaction {
+  /** Origin network stamped at queue time for private badge evidence. Legacy/imported rows cannot earn credit. */
+  badgeNetwork?: string;
   /**
    * Set on a row rebuilt from a Guardian operator's retained history, and the
    * only field that means so; `recovery` is the data such a row, or a local row

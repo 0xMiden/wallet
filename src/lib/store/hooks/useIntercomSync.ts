@@ -74,7 +74,7 @@ function readSyncData(accountPublicKey: string, onData: (d: SyncData) => void): 
 async function rehydrateBalancesFromStorage(accountPublicKey: string): Promise<void> {
   await new Promise<void>(resolve => {
     readSyncData(accountPublicKey, syncData => {
-      updateBalancesFromSyncData(syncData.accountPublicKey, syncData.vaultAssets)
+      updateBalancesFromSyncData(syncData.accountPublicKey, syncData.vaultAssets, syncData.balanceSnapshot)
         .catch(err => console.warn('[useIntercomSync] Initial balance rehydrate failed:', err))
         .finally(() => resolve());
     });
@@ -177,8 +177,8 @@ export function useIntercomSync() {
         // async `seenNoteIds` hydration resolved; missing toasts when custom-faucet
         // metadata arrived after Path A's notes had already been marked seen).
         // Convert vault assets → balances, update Zustand
-        updateBalancesFromSyncData(syncData.accountPublicKey, syncData.vaultAssets).catch(err =>
-          console.warn('[useIntercomSync] Balance update failed:', err)
+        updateBalancesFromSyncData(syncData.accountPublicKey, syncData.vaultAssets, syncData.balanceSnapshot).catch(
+          err => console.warn('[useIntercomSync] Balance update failed:', err)
         );
       });
     };

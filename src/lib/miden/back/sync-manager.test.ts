@@ -383,6 +383,7 @@ describe('doSync', () => {
   it('reads notes and vault assets, enriches with metadata, and writes to chrome.storage', async () => {
     mockClient.getConsumableNoteDtos.mockResolvedValueOnce([fakeNote({ id: 'n1', faucetId: 'f1' })]);
     mockClient.getAccount.mockResolvedValueOnce({
+      nonce: () => ({ asInt: () => 5n }),
       vault: () => ({
         fungibleAssets: () => [
           {
@@ -405,7 +406,10 @@ describe('doSync', () => {
     expect(mockStorageSet).toHaveBeenCalledWith(
       expect.objectContaining({
         miden_cached_consumable_notes: expect.any(Array),
-        miden_sync_data: expect.objectContaining({ accountPublicKey: 'pk-1' })
+        miden_sync_data: expect.objectContaining({
+          accountPublicKey: 'pk-1',
+          balanceSnapshot: { network: 'testnet', accountNonce: '5' }
+        })
       })
     );
     // The faucet's name and description go to the frontend with the sync data.

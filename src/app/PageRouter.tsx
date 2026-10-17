@@ -9,6 +9,8 @@ import MobilePageLayers from 'app/layouts/MobilePageLayers';
 import TabLayout from 'app/layouts/TabLayout';
 import Explore from 'app/pages/Explore';
 import HelpImproveWalletPrompt from 'app/pages/HelpImproveWallet';
+import Me from 'app/pages/Me';
+import MyBadges from 'app/pages/MyBadges';
 import OpenSidePanel from 'app/pages/OpenSidePanel';
 import { Receive } from 'app/pages/Receive';
 import Settings from 'app/pages/Settings';
@@ -214,16 +216,34 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
       </FullScreenPage>
     ))
   ],
-  // The Settings ROOT is a primary tab destination, so it renders in TabLayout
-  // with the persistent footer. Exact-matched and placed ahead of the generic
-  // route below, which keeps serving every `/settings/<slug>` sub-page in
-  // FullScreenPage — drilling in and backing out is unchanged.
+  // Me is the personal tab. Its badge collection is a pushed page so the profile
+  // remains mounted underneath and the tab bar cannot cover the catalog.
+  [
+    '/me/badges',
+    onlyReady(() => (
+      <FullScreenPage entrance="slide">
+        <MyBadges />
+      </FullScreenPage>
+    ))
+  ],
+  [
+    '/me',
+    onlyReady(() => (
+      <TabLayout>
+        <Me />
+      </TabLayout>
+    ))
+  ],
+  // Me embeds the settings groups; this standalone root is a pushed page for the
+  // links that still open it (the accounts drawer, a sub-page's fallback back).
+  // Exact-matched and placed ahead of the generic route below, which keeps every
+  // `/settings/<slug>` flow unchanged.
   [
     '/settings',
     onlyReady((_p, ctx) => (
-      <TabLayout>
+      <FullScreenPage entrance="slide">
         <Settings rootScrollTop={ctx.settingsScrollTop} />
-      </TabLayout>
+      </FullScreenPage>
     ))
   ],
   [

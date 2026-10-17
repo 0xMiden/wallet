@@ -208,6 +208,8 @@ export interface SyncData {
   notes: SerializedConsumableNote[];
   vaultAssets: SerializedVaultAsset[];
   accountPublicKey: string;
+  /** Network + nonce of the SAME account/vault read. Old cached payloads have no proof. */
+  balanceSnapshot?: import('lib/miden/balance-snapshot').BalanceSnapshot;
   // When the service worker's last successful sync finished, so a reader can tell a
   // live result from the snapshot persisted by an earlier session. A pass whose sync
   // failed repeats the previous value. Absent before this service worker's first
