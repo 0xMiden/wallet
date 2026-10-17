@@ -87,27 +87,28 @@ export interface ClaimFeeNote {
 }
 
 /**
- * For each consume transaction of a claim, in the order the queue runs them, whether it is certain
- * to fail because the account cannot pay its network fee.
+ * For each consume transaction of a claim, whether it is certain to fail because the account cannot pay its network
+ * fee. `ahead` holds every note that may be consumed before these transactions, in any order: the claims already
+ * queued, and in Accept All the groups it queued before.
  *
- * Unlike a send, a claim can pay for itself. The kernel runs every input note's script before the
- * epilogue's auth procedure withdraws the fee from the vault, so the fee asset a consumed note
- * carries is already there to pay it: a new wallet pays for claiming its first USDCX out of that
- * very note, and `groupNotesForClaim` claims the native group first for the same reason. So each
- * transaction is judged against a running budget: the vault's fee asset plus what the transactions
- * before it credited, plus what its own notes carry. A caller puts the claims already queued ahead
- * of this one first, so their credit and their fees are counted too.
+ * Unlike a send, a claim can pay for itself. The kernel runs every input note's script before the epilogue's auth
+ * procedure withdraws the fee from the vault, so the fee asset a consumed note carries is already there to pay it: a
+ * new wallet pays for claiming its first USDCX out of that very note. So a transaction is refused only when the
+ * vault's fee asset plus what its own notes carry is below one base fee, `hasNoFeeAsset`'s LOWER bound, because this
+ * asks the same question, whether failure is certain, and no note ahead carries the fee asset.
  *
- * The threshold is `hasNoFeeAsset`'s LOWER bound, one base fee per transaction, because this asks
- * the same question, whether failure is certain: an admitted transaction spends exactly one base fee
- * of the budget, which can only admit more after it. A refused one never runs, so what its notes
- * carry leaves the budget again.
+ * Nothing ahead is simulated. Which row the queue runs first turns on state the list cannot see (cooldowns, recovery
+ * holds, deduplication), so any fee asset ahead may land first and admits every transaction, and the fees paid ahead
+ * are not charged: a claim they leave unable to pay fails at signing, as it would without this check. Each transaction
+ * is judged alone, so none of them funds another; a caller queueing them one by one adds each queued one to `ahead`.
  *
- * Fails OPEN, refusing nothing, wherever `hasNoFeeAsset` does, and also when a note holds assets
- * the list does not show (any of them may be the fee asset) or a fee-asset amount does not parse.
+ * Fails OPEN, refusing nothing, wherever `hasNoFeeAsset` does or a note ahead holds assets the list does not show (any
+ * of them may be the fee asset), and admits a transaction whose own notes hold such assets or whose fee-asset amount
+ * does not parse.
  */
 export function claimFeeShortfalls(
   transactions: ReadonlyArray<readonly ClaimFeeNote[]>,
+  ahead: readonly ClaimFeeNote[],
   balances: readonly TokenBalanceData[],
   nativeAssetId: string | undefined | null,
   verificationBaseFee: number | null
@@ -120,28 +121,24 @@ export function claimFeeShortfalls(
   if (held === null || !Number.isFinite(held)) {
     return refuseNone;
   }
-  const carried: bigint[] = [];
-  for (const notes of transactions) {
-    let total = 0n;
-    for (const note of notes) {
-      if (note.carriesMoreAssets) return refuseNone;
-      if (note.faucetId !== nativeAssetId) continue;
-      try {
-        total += BigInt(note.amount);
-      } catch {
-        return refuseNone;
-      }
-    }
-    carried.push(total);
+  if (ahead.some(note => note.carriesMoreAssets || note.faucetId === nativeAssetId)) {
+    return refuseNone;
   }
   // A whole-unit budget is below a fractional fee exactly when it is below its ceiling.
   const fee = BigInt(Math.ceil(verificationBaseFee));
-  let budget = BigInt(Math.round(held));
-  return carried.map(amount => {
-    const available = budget + amount;
-    if (available < fee) return true;
-    budget = available - fee;
-    return false;
+  const vault = BigInt(Math.round(held));
+  return transactions.map(notes => {
+    let available = vault;
+    for (const note of notes) {
+      if (note.carriesMoreAssets) return false;
+      if (note.faucetId !== nativeAssetId) continue;
+      try {
+        available += BigInt(note.amount);
+      } catch {
+        return false;
+      }
+    }
+    return available < fee;
   });
 }
 

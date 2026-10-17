@@ -62,20 +62,9 @@ function subscribe(listener: () => void) {
   };
 }
 
-/**
- * The claims the queue runs before a new one, one transaction per row: they credit the vault, and pay
- * a fee, before it runs. A held row has already run, so it is neither.
- */
-function queuedClaims(items: readonly PendingActivityItem[]): ClaimableNoteWithMetadata[][] {
-  const byRow = new Map<string, ClaimableNoteWithMetadata[]>();
-  for (const item of items) {
-    if (item.status !== 'claiming' || item.held === true) continue;
-    const row = item.txId ?? item.note.id;
-    const notes = byRow.get(row);
-    if (notes) notes.push(item.note);
-    else byRow.set(row, [item.note]);
-  }
-  return [...byRow.values()];
+/** The notes of the claims the queue may run before a new one. A held row has already run, so it is not one. */
+function queuedNotes(items: readonly PendingActivityItem[]): ClaimableNoteWithMetadata[] {
+  return items.flatMap(item => (item.status === 'claiming' && item.held !== true ? [item.note] : []));
 }
 
 /** Test-only: forget every account's claims. */
@@ -195,18 +184,22 @@ export function useActivityClaims() {
       result.set(id, { ...attempt, note: current?.note ?? attempt.note, ...heldFields(attempt.status, attempt.txId) });
     }
     const built = [...result.values()];
-    const queued = queuedClaims(built);
     // Each card's Accept claims its note alone, after whatever is already queued.
-    return built.map(item =>
-      (item.status === 'pending' || item.status === 'failed') && item.note.fromCache !== true
-        ? {
-            ...item,
-            cannotPayFee:
-              claimFeeShortfalls([...queued, [item.note]], balances, nativeFaucetId, feeGateBaseFee)[queued.length] ===
-              true
-          }
-        : item
+    const gated = built.filter(
+      item => (item.status === 'pending' || item.status === 'failed') && item.note.fromCache !== true
     );
+    const refused = claimFeeShortfalls(
+      gated.map(item => [item.note]),
+      queuedNotes(built),
+      balances,
+      nativeFaucetId,
+      feeGateBaseFee
+    );
+    const refusedById = new Map(gated.map((item, index) => [item.note.id, refused[index] === true]));
+    return built.map(item => {
+      const cannotPayFee = refusedById.get(item.note.id);
+      return cannotPayFee === undefined ? item : { ...item, cannotPayFee };
+    });
   }, [
     claim.safeClaimableNotes,
     claim.checkingNoteIds,
@@ -220,16 +213,15 @@ export function useActivityClaims() {
     feeGateBaseFee
   ]);
 
-  // Which of `transactions` are certain to fail on the fee when queued after the claims already queued.
-  const feeShortfalls = (transactions: readonly ClaimableNoteWithMetadata[][]): boolean[] => {
-    const queued = queuedClaims(items);
-    return claimFeeShortfalls([...queued, ...transactions], balances, nativeFaucetId, feeGateBaseFee).slice(
-      queued.length
-    );
-  };
+  // Which of `transactions` are certain to fail on the fee when queued after `ahead`.
+  const feeShortfalls = (
+    transactions: readonly ClaimableNoteWithMetadata[][],
+    ahead: readonly ClaimableNoteWithMetadata[] = queuedNotes(items)
+  ): boolean[] => claimFeeShortfalls(transactions, ahead, balances, nativeFaucetId, feeGateBaseFee);
 
-  // Accept All's own grouping without its delivery split: a delivery claimed alone is never native, so the
-  // split only adds transactions after the first and cannot change whether the first can pay.
+  // Accept All's own grouping without its delivery split, which only divides a non-native group and so cannot
+  // change whether every group is refused. Each group is judged alone, so when every one is, none is queued to
+  // fund the rest.
   const cannotPayFee = (notes: readonly ClaimableNoteWithMetadata[]): boolean => {
     const refused = feeShortfalls(groupNotesForClaim(notes, nativeFaucetId));
     return refused.length > 0 && refused.every(Boolean);
@@ -290,9 +282,11 @@ export function useActivityClaims() {
     let queued = false;
     const isDelivery = await agglayerDeliverySenders();
     const groups = groupNotesForClaim(accepted, nativeFaucetId, note => isDelivery(note.senderAddress));
-    const refused = feeShortfalls(groups);
-    for (const [index, groupNotes] of groups.entries()) {
-      if (refused[index]) {
+    // Each group is decided once the ones before it were queued. A queue call that returned may fund the rest even
+    // when it deduplicated onto existing rows, which credit the vault or may; a failed write funds nothing.
+    const ahead = queuedNotes(items);
+    for (const groupNotes of groups) {
+      if (feeShortfalls([groupNotes], ahead)[0]) {
         // Certain to fail on the fee, so it is not queued: its notes go back to what they were before the tap.
         setAttempts(previous => {
           const next = new Map(previous);
@@ -311,6 +305,7 @@ export function useActivityClaims() {
           queueConsumeNotes(claim.account.publicKey, groupNotes, claim.isDelegatedProvingEnabled, true)
         );
         queued = true;
+        ahead.push(...groupNotes);
         // Per note: a note already covered by a live, completed or note-holding row never joins the
         // batch, so it settles with that row.
         setAttempts(previous => {
