@@ -265,7 +265,8 @@ const OFFSCREEN_ROUTABLE_GUARDIAN_TYPES: ReadonlySet<ITransactionType> = new Set
  * A zero-fill PSWAP reclaim is represented as a consume row for history,
  * deduplication, retry/backoff, and completion, but its note is creator-owned
  * output rather than an input note. Its fee-aware request is therefore built
- * during settlement and persisted on the row.
+ * during settlement and persisted on the row; a Guardian row rebuilds it in
+ * each proposal's hold.
  */
 const preparedPswapReclaimBytes = (transaction: ITransaction): Uint8Array | undefined =>
   transaction.type === 'consume' && transaction.extraInputs?.swapSettleKind === 'reclaim'
@@ -3259,15 +3260,20 @@ const generateGuardianTransaction = async (
     }
     case 'consume': {
       const consumeTx = transaction as ConsumeTransaction;
-      const reclaimBytes = preparedPswapReclaimBytes(transaction);
-      if (reclaimBytes) {
-        // The request was built from the creator's output-note record through
-        // the SDK's fee-aware PSWAP-cancel builder. Keep those exact bytes for
-        // proposal creation and the later signed request reconstruction.
+      if (preparedPswapReclaimBytes(transaction)) {
         service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
         await releaseUnabandonedCandidate(transaction, service);
         await assertPriorCandidateSettled(transaction, service);
-        proposalResult = await service.createCustomProposal(reclaimBytes);
+        // Settlement's bytes are bound to the block it built them at, so the cancel is rebuilt in the proposal's hold,
+        // never rebased (that rebuild drops the tip it consumes). It gets no GUARDIAN_EXPIRATION_DELTA_BLOCKS bound:
+        // the SDK's PSWAP cancel builder takes no builder options. A late approval is harmless, since it only takes
+        // back the creator's own note, and once that tip is consumed the cancel fails execution.
+        proposalResult = await service.createPswapCancelProposal(consumeTx.noteId, async requestBytes => {
+          transaction.requestBytes = requestBytes;
+          await Repo.transactions.where({ id: transaction.id }).modify(t => {
+            t.requestBytes = requestBytes;
+          });
+        });
       } else {
         const consumeNoteIds = consumeTx.noteIds?.length > 0 ? consumeTx.noteIds : [consumeTx.noteId];
         service = await consumeServiceFor(transaction, consumeNoteIds, guardianProvider);
