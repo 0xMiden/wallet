@@ -338,12 +338,15 @@ function rebuildError(error: Error, seen: Set<Error>, depth: number): Error {
   return reportable;
 }
 
-/** A relay report keeps the failure's own frames under its fixed text, and none of its causes, which are free text. */
+/**
+ * A relay report keeps the failure's own frames under WalletConnect's fixed name and text, and neither the failure's
+ * name nor any of its causes, which are free text.
+ */
 function rebuildRelayError(error: Error, message: string): Error {
   const relay = new Error(message);
-  relay.name = error.name;
+  relay.name = 'Error';
   const frames = framesAfterHeader(error.name, error.message, error.stack);
-  relay.stack = frames && `${error.name}: ${message}\n${frames}`;
+  relay.stack = frames && `${relay.name}: ${message}\n${frames}`;
   return rebuildError(relay, new Set(), 0);
 }
 
