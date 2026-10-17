@@ -362,11 +362,11 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     setSlowStatus('idle');
     setSlowError(null);
   }, [resetEpoch]);
-  const { token, selectToken } = useDepositToken(clearTokenState);
+  const { token, selectToken } = useDepositToken(clearTokenState, 'CIRCLE_USDC');
   const [tokenDrawerOpen, setTokenDrawerOpen] = useState(false);
   const [networkDrawerOpen, setNetworkDrawerOpen] = useState(false);
   const [switchDrawerOpen, setSwitchDrawerOpen] = useState(false);
-  const [route, setRoute] = useState<BridgeRoute>('epoch');
+  const [route, setRoute] = useState<BridgeRoute>(token === 'CIRCLE_USDC' ? 'usdcx' : 'epoch');
   // The one chain picked in the network drawer. Each route resolves its own chain from it: the picked chain when
   // that chain offers the route, else the first that does.
   const [pickedChainId, setPickedChainId] = useState<number>();
@@ -451,14 +451,22 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   // A token or chain not named yet while the snapshot loads is a wait, not a failure.
   const usdcPending = evmUsdc === null && bridgeConfig.status === 'loading';
   const agglayerPending = agglayerChainId === undefined && bridgeConfig.status === 'loading';
-  // The document decides the token the screen opens on. A document that names no Epoch USDC but names a USDCx
-  // source (mainnet) opens on Circle USDC, not on a token it does not name. A token the user picked stands.
+  // A retained legacy engine state may move to Circle when its old source is no longer configured.
+  // New flows already start on Circle; a token the user picked stands.
   useEffect(() => {
     if (tokenChosen.current || token !== 'USDC' || usdcPending || usdcxPending) return;
     if (evmUsdc !== null || !usdcxAvailable || !usdcxSource) return;
     selectToken('CIRCLE_USDC');
     setRoute('usdcx');
   }, [token, usdcPending, usdcxPending, evmUsdc, usdcxAvailable, usdcxSource, selectToken]);
+  // Circle USDC is the opening token. A network with no Circle source may still offer native ETH;
+  // never fall back to the retired Epoch test token, even if an older config advertises it.
+  useEffect(() => {
+    if (tokenChosen.current || token !== 'CIRCLE_USDC' || bridgeConfig.status === 'loading') return;
+    if (usdcxSource || !agglayerChain) return;
+    selectToken('ETH');
+    setRoute('agglayer');
+  }, [token, bridgeConfig.status, usdcxSource, agglayerChain, selectToken]);
   // The status page is the one step that leads to no route card these grey out.
   const routesAhead = activeRoute?.name !== ReceiveStep.ShowBridgePageStatus;
   const fastAvailability = useFeatureAvailability('fastBridgeIn', { hold: routesAhead, chainId: evmUsdcChainId });
@@ -515,7 +523,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
 
   useEffect(() => {
     setUsdcBalance(EMPTY_BALANCE);
-    if (usdcPending) return;
+    if (token !== 'USDC' || usdcPending) return;
     let cancelled = false;
 
     const usdcRead = evmUsdc
@@ -539,7 +547,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [evmAddress, evmUsdc, usdcPending]);
+  }, [evmAddress, evmUsdc, usdcPending, token]);
 
   // Circle's USDC on the source chain, the token xReserve takes; the config's Fast USDC pair is not it.
   useEffect(() => {
@@ -647,7 +655,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
 
   const handleTokenSelect = useCallback(
     (next: DepositToken) => {
-      if (confirming.current) return;
+      if (confirming.current || next === 'USDC') return;
       tokenChosen.current = true;
       setTokenDrawerOpen(false);
       selectToken(next);
@@ -1705,8 +1713,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         open={tokenDrawerOpen}
         onOpenChange={setTokenDrawerOpen}
         selected={token}
-        // A token is offered only where the document names a route for it: ETH needs an AggLayer chain, the Epoch
-        // test USDC needs `epoch.tokens.USDC`. A mainnet document names neither, so Circle's USDC is the one row.
+        // New deposits offer Circle USDC and configured native ETH, never the retired Epoch test token.
         ethBalance={agglayerChain ? ethBalance.formatted : undefined}
         usdcBalance={evmUsdc ? usdcBalance.formatted : undefined}
         usdcLabel={usdcLabel}

@@ -25,6 +25,13 @@ import { EvmBridgeDepositScreen } from './EvmBridgeDepositScreen';
 // of the bridge itself.
 
 // The key, then any values it names, so a case can read which balance, token and network a message was given.
+// This suite exercises the retained legacy Epoch engine and its in-flight submission guards.
+// New deposit UI seeds Circle USDC instead and rejects selecting the retired test token.
+jest.mock('./useDepositToken', () => ({
+  useDepositToken: (onChange: () => void) =>
+    jest.requireActual<typeof import('./useDepositToken')>('./useDepositToken').useDepositToken(onChange, 'USDC')
+}));
+
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, values?: Record<string, unknown>) => (values ? `${key} ${JSON.stringify(values)}` : key)
