@@ -28,6 +28,8 @@ import {
   type TransactionRowsQuery
 } from '../../helpers/history';
 import {
+  BRIDGE_DEPOSIT_LAYER,
+  BRIDGE_SOURCE_NETWORK_JS,
   OPEN_SHEET,
   scopedJs,
   SEND_FLOW,
@@ -144,9 +146,9 @@ export function routeOf(href: string): string {
   return new URL(href).hash;
 }
 
-/** Whether the bridge network row's spans name `name` exactly: "Sepolia" is part of "Base Sepolia". */
-export function networkRowNames(spans: readonly string[] | null, name: string): boolean {
-  return spans !== null && spans.includes(name);
+/** Whether the bridge From row's value names `name` exactly: "Sepolia" is part of "Base Sepolia". */
+export function networkRowNames(value: string | null, name: string): boolean {
+  return value === name;
 }
 
 /** `text` with every `?query` cut out: a serialized URL's query holds no `#`, `"` or whitespace, so the cut ends there. */
@@ -255,7 +257,7 @@ export interface UsdcxBurnSubmission {
   /** `location.hash` only (routeOf). */
   reviewRoute: string;
   generatingRoute: string;
-  /** Network sheet rows pressed when the address validated, before the Arc pick (R16 evidence). */
+  /** Network sheet rows pressed when the address validated, before the payout chain's pick (R16 evidence). */
   defaultPressed: string[];
 }
 
@@ -437,7 +439,7 @@ export class IosWalletPage implements WalletPage {
    * DOM, and their Swap pane reuses the form's send-token-selector and send-amount-* test ids: an unscoped lookup
    * finds the hidden Swap controls first. The token drawer portals to <body>, so its rows stay unscoped.
    */
-  private static readonly BRIDGE_PAGE = '[data-page-layer="/bridge/deposit"]';
+  private static readonly BRIDGE_PAGE = BRIDGE_DEPOSIT_LAYER;
 
   /** Receive → "Cross Chain" → the deposit amount screen (requires EVM connected). */
   async openBridgeDeposit(): Promise<void> {
@@ -468,19 +470,17 @@ export class IosWalletPage implements WalletPage {
   }
 
   /**
-   * Open the network drawer from the amount step and pick the source chain `slug` (bridge-networks.ts), then wait until
-   * the row names it: a Reown session that approves that chain alone refuses any other chain's prompt.
+   * Open the network drawer from the amount step's From row and pick the source chain `slug` (bridge-networks.ts), then
+   * wait until the row names it: a Reown session that approves that chain alone refuses any other chain's prompt.
    */
   async selectBridgeNetwork(slug: string, name: string): Promise<void> {
-    const row = `${IosWalletPage.BRIDGE_PAGE} [data-testid="bridge-network-selector"]`;
-    await this.click(row);
+    await this.click(`${IosWalletPage.BRIDGE_PAGE} [data-testid="bridge-source-network"]`);
     await this.waitFor(`[data-testid="bridge-network-${slug}"]`, { timeoutMs: 10_000 });
     await this.click(`[data-testid="bridge-network-${slug}"]`);
-    await this.pollEval<string[] | null>(
-      `the bridge network row naming ${name}`,
-      `var e = document.querySelector(${JSON.stringify(row)}); if (!e) return null; ` +
-        `return Array.from(e.querySelectorAll('span')).map(function (s) { return (s.textContent || '').trim(); });`,
-      spans => networkRowNames(spans, name),
+    await this.pollEval<string | null>(
+      `the bridge From row naming ${name}`,
+      BRIDGE_SOURCE_NETWORK_JS,
+      value => networkRowNames(value, name),
       10_000
     );
   }

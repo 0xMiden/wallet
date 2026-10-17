@@ -191,7 +191,6 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
 
       <button
         type="button"
-        data-testid="bridge-network-selector"
         onClick={() => {
           hapticLight();
           onSelectNetwork?.();

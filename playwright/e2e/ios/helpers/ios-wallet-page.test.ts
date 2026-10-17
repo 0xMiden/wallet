@@ -10,6 +10,7 @@ import { IosWalletPage, networkRowNames, routeOf } from './ios-wallet-page';
 import type { SimulatorControl } from './simulator-control';
 import { enText, usdcxPayoutRowsText, type BridgedSendRow } from '../../helpers/bridge';
 import { readTransactionRowsInPage } from '../../helpers/history';
+import { BRIDGE_SOURCE_NETWORK_JS } from '../../helpers/send-flow-scripts';
 import { BASE_SEPOLIA_PAYOUT } from '../../helpers/usdcx-constants';
 
 describe('IosWalletPage.screenshot', () => {
@@ -131,13 +132,13 @@ describe('IosWalletPage bridge deposit helpers', () => {
 });
 
 describe('IosWalletPage.selectBridgeNetwork', () => {
-  it('opens the network drawer from the bridge layer, picks the chain and waits until the row names it', async () => {
+  it("opens the network drawer from the bridge layer's From row, picks the chain and waits until the row names it", async () => {
     const bridge = '[data-page-layer="/bridge/deposit"]';
     const bodies: string[] = [];
-    // The row's spans: the label, the network, and the line under them.
+    // The From row's value: the network logo, which has no text, and the network's name.
     const page = pageWith(async js => {
       bodies.push(js);
-      return ['NetworkSepolia', 'Network', 'Sepolia', 'Receive on Sepolia, arrives as USDCX'];
+      return 'Sepolia';
     });
     const click = jest.fn(async (_selector: string) => undefined);
     const waitFor = jest.fn(async (_selector: string, _opts: { timeoutMs?: number }) => undefined);
@@ -146,26 +147,25 @@ describe('IosWalletPage.selectBridgeNetwork', () => {
     await page.selectBridgeNetwork('sepolia', 'Sepolia');
 
     expect(click.mock.calls.map(([selector]) => selector)).toEqual([
-      `${bridge} [data-testid="bridge-network-selector"]`,
+      `${bridge} [data-testid="bridge-source-network"]`,
       '[data-testid="bridge-network-sepolia"]'
     ]);
     // The drawer portals to <body>, outside the layer, as the token drawer does.
     expect(waitFor).toHaveBeenCalledWith('[data-testid="bridge-network-sepolia"]', { timeoutMs: 10_000 });
-    expect(bodies.some(js => js.includes(JSON.stringify(`${bridge} [data-testid="bridge-network-selector"]`)))).toBe(
-      true
-    );
+    expect(bodies).toEqual([BRIDGE_SOURCE_NETWORK_JS]);
+    expect(rootsOf(BRIDGE_SOURCE_NETWORK_JS)).toEqual([bridge]);
   });
 });
 
 describe('networkRowNames', () => {
-  // "Sepolia" is part of "Base Sepolia", "Arbitrum Sepolia" and the row's whole text, so only a span equal to it counts.
+  // "Sepolia" is part of "Base Sepolia" and "Arbitrum Sepolia", so only a value equal to it counts.
   it.each([
-    [['NetworkSepolia', 'Network', 'Sepolia'], 'Sepolia', true],
-    [['NetworkBase Sepolia', 'Network', 'Base Sepolia', 'Receive on Base Sepolia, arrives as USDCX'], 'Sepolia', false],
-    [['NetworkArc Testnet', 'Network', 'Arc Testnet'], 'Base Sepolia', false],
+    ['Sepolia', 'Sepolia', true],
+    ['Base Sepolia', 'Sepolia', false],
+    ['Arc Testnet', 'Base Sepolia', false],
     [null, 'Sepolia', false]
-  ] satisfies Array<[readonly string[] | null, string, boolean]>)('reads %j as naming %s: %s', (spans, name, names) => {
-    expect(networkRowNames(spans, name)).toBe(names);
+  ] satisfies Array<[string | null, string, boolean]>)('reads %j as naming %s: %s', (value, name, names) => {
+    expect(networkRowNames(value, name)).toBe(names);
   });
 });
 

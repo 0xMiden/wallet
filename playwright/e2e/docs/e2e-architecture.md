@@ -337,12 +337,12 @@ flowchart TB
 > #### Stand-in contracts that enforce real invariants
 > Ethereum contracts live at fixed addresses. The stand-ins for the bridge and USDC are deployed at the exact addresses the app expects, so the app runs its real bridging code unchanged. These stand-ins are not permissive: the bridge stand-in rejects a malformed deposit on-chain, and the test decodes the app's actual transaction to confirm it requested precisely the right operation. A defect cannot pass by doing something plausible — it has to do the correct thing.
 
-> **Status:** the mobile bridge-in suite runs after every merge to main and fails its run when a spec fails. Its three specs drive the real deposit UI or the Reown pairing alone; none makes a bridge row through a test hook. Every spec runs even after another failed, and a dispatch can run the suite with `retries: 0` to prove a fix passes on its first attempt. Each test's Reown counterparty has a Reown core of its own and answers nothing once its test ends, so no counterparty answers a later test's app. The app and the counterparty pair through the built-in Reown project id; relay rate limits are handled by retrying the connect step. The live USDCx deposits, from Arc and on the executor route from Base Sepolia, Arbitrum Sepolia and Ethereum Sepolia, run in E2E USDCx Bridge-IN (live).
+> **Status:** the mobile bridge-in suite runs after every merge to main and fails its run when a spec fails. Its two specs, the AggLayer deposit through the real deposit UI and the Reown pairing alone, make no bridge row through a test hook; the Epoch deposit spec went with the retired Epoch test USDC, which new deposits can no longer pick. Every spec runs even after another failed, and a dispatch can run the suite with `retries: 0` to prove a fix passes on its first attempt. Each test's Reown counterparty has a Reown core of its own and answers nothing once its test ends, so no counterparty answers a later test's app. The app and the counterparty pair through the built-in Reown project id; relay rate limits are handled by retrying the connect step. The live USDCx deposits, from Arc and on the executor route from Base Sepolia, Arbitrum Sepolia and Ethereum Sepolia, run in E2E USDCx Bridge-IN (live).
 
 <details>
 <summary>The tests in this group</summary>
 
-Bridge-in via the two routes through the real deposit screen, a Reown-pairing-only check, and the guardian flow, all on iPhone. (An Android two-emulator harness also exists in the codebase, not yet wired into CI.)
+Bridge-in on the AggLayer route through the real deposit screen, a Reown-pairing-only check, and the guardian flow, all on iPhone. (An Android two-emulator harness also exists in the codebase, not yet wired into CI.)
 </details>
 
 ---
