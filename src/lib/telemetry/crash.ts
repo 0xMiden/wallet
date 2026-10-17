@@ -16,6 +16,12 @@ import { getCrashBuildIdentity, type CrashBuildIdentity } from './crash-build';
 import { snapshotCrashDiagnostics, type CrashDiagnostics } from './crash-diagnostics';
 import { sanitizeWalletFrame } from './crash-frames';
 import { REDACTED, containsSeedMaterialDeep, redactInPlace, redactMessage, redactText } from './redact';
+import {
+  RELAY_SERVICE,
+  classifyRelayFailure,
+  noteConnectivityChanged,
+  type RelayDiagnostics
+} from './relay-diagnostics';
 
 /**
  * Consent-gated crash reporting.
@@ -114,6 +120,9 @@ function buildIntegrations() {
   dedupe.processEvent = (event, hint, activeClient) => {
     // Guarded terminal writes already deduplicate no-ops; separate failed attempts must each be counted.
     if (event.exception?.values?.some(value => value.type === 'WalletTransactionFailure')) return event;
+    // A relay report is sent only as its window enters a new failure bucket, and repeats the last one's text and frames.
+    const original = hint.originalException;
+    if (original instanceof Error && capturedDiagnostics.get(original)?.service === RELAY_SERVICE) return event;
     return processEvent ? processEvent(event, hint, activeClient) : event;
   };
   return selectIntegrations([inboundFiltersIntegration(), linkedErrorsIntegration(), dedupe]);
@@ -156,7 +165,10 @@ function reportableStack(name: string, safeMessage: string, stack: string | unde
 }
 
 type CrashSource = 'manual' | 'react' | 'onerror' | 'onunhandledrejection';
-type DiagnosticSnapshot = CrashDiagnostics & ReturnType<typeof resolveTelemetryContext> & CrashBuildIdentity;
+type DiagnosticSnapshot = CrashDiagnostics &
+  ReturnType<typeof resolveTelemetryContext> &
+  CrashBuildIdentity &
+  Partial<RelayDiagnostics>;
 const capturedDiagnostics = new WeakMap<Error, DiagnosticSnapshot>();
 type ReportableFrame = {
   filename?: string;
@@ -173,7 +185,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function restoreDiagnostics(event: Record<string, unknown>, reportable: Error, diagnostics: DiagnosticSnapshot): void {
   event.extra = { walletDiagnostics: { ...diagnostics } };
   // Also a tag, because Sentry can search and filter by tags but not by extra data.
-  event.tags = { ...(isRecord(event.tags) ? event.tags : {}), network: diagnostics.network };
+  event.tags = {
+    ...(isRecord(event.tags) ? event.tags : {}),
+    network: diagnostics.network,
+    ...(diagnostics.service === undefined ? {} : { service: diagnostics.service })
+  };
   const exception = event.exception;
   if (!isRecord(exception) || !Array.isArray(exception.values)) return;
   let link: unknown = reportable;
@@ -217,6 +233,8 @@ function installCrashListeners(): void {
   if (listenersInstalled || typeof globalThis.addEventListener !== 'function') return;
   globalThis.addEventListener('error', onGlobalError);
   globalThis.addEventListener('unhandledrejection', onUnhandledRejection);
+  globalThis.addEventListener('online', noteConnectivityChanged);
+  globalThis.addEventListener('offline', noteConnectivityChanged);
   listenersInstalled = true;
 }
 
@@ -270,6 +288,8 @@ export function stopCrashReporting(): void {
     if (listenersInstalled) {
       globalThis.removeEventListener('error', onGlobalError);
       globalThis.removeEventListener('unhandledrejection', onUnhandledRejection);
+      globalThis.removeEventListener('online', noteConnectivityChanged);
+      globalThis.removeEventListener('offline', noteConnectivityChanged);
     }
   } catch {
     // Best-effort.
@@ -318,6 +338,15 @@ function rebuildError(error: Error, seen: Set<Error>, depth: number): Error {
   return reportable;
 }
 
+/** A relay report keeps the failure's own frames under its fixed text, and none of its causes, which are free text. */
+function rebuildRelayError(error: Error, message: string): Error {
+  const relay = new Error(message);
+  relay.name = error.name;
+  const frames = framesAfterHeader(error.name, error.message, error.stack);
+  relay.stack = frames && `${error.name}: ${message}\n${frames}`;
+  return rebuildError(relay, new Set(), 0);
+}
+
 export function captureCrash(
   error: unknown,
   source: CrashSource = 'manual',
@@ -325,13 +354,18 @@ export function captureCrash(
 ): void {
   try {
     if (!(error instanceof Error)) return;
+    const relay = classifyRelayFailure(error.message);
+    if (relay?.report === false) return;
     // Snapshot before consent's await: later handling may mutate the original failure.
-    const reportable = rebuildError(error, new Set(), 0);
+    const reportable = relay?.report ? rebuildRelayError(error, relay.message) : rebuildError(error, new Set(), 0);
     capturedDiagnostics.set(reportable, {
       ...snapshotCrashDiagnostics(error),
       ...resolveTelemetryContext(),
-      ...getCrashBuildIdentity()
+      ...getCrashBuildIdentity(),
+      ...(relay?.report ? relay.diagnostics : {})
     });
+    // WalletConnect retries a failed relay on its own, so the failure is a warning however it surfaced.
+    const level = relay?.report ? 'warning' : options.level;
     const mechanism =
       source === 'onerror' || source === 'onunhandledrejection'
         ? { type: source, handled: false }
@@ -351,7 +385,7 @@ export function captureCrash(
           return;
         target.captureException(reportable, {
           mechanism,
-          ...(options.level === undefined ? {} : { captureContext: { level: options.level } })
+          ...(level === undefined ? {} : { captureContext: { level } })
         });
       } catch {
         // Best-effort: telemetry must not be able to fail a wallet operation.

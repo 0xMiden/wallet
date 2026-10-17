@@ -1152,7 +1152,8 @@ const EGRESS_APIS: readonly Api[] = [
   { label: 'fetch()', pattern: /\bfetch\s*\(/ },
   { label: 'navigator.sendBeacon()', pattern: /\bsendBeacon\s*\(/ },
   { label: 'XMLHttpRequest', pattern: /\bXMLHttpRequest\b/ },
-  { label: 'WebSocket', pattern: /\bWebSocket\b/ },
+  // The relay classifier matches WalletConnect's fixed text for a failed relay socket, which opens nothing.
+  { label: 'WebSocket', pattern: /\bWebSocket\b(?! connection failed for host: )/ },
   { label: 'EventSource', pattern: /\bEventSource\b/ },
   { label: 'new Image()', pattern: /\bnew Image\s*\(/ },
   { label: 'axios', pattern: /\baxios\b/ }
