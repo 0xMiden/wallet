@@ -13,6 +13,7 @@ import { getNativeAssetId } from 'lib/miden-chain/native-asset';
 import type { AgglayerRecoveryConfig } from 'lib/remote-config/schema';
 import { sameGuardianEndpoint } from 'lib/settings/helpers';
 import { WalletAccount } from 'lib/shared/types';
+import type { ConsumeEntryPoint } from 'lib/telemetry/transaction-failure';
 import { getUsdcxRemoteDomain, usdcxSourceChains } from 'lib/usdcx/constant';
 import type { UsdcxSourceChain } from 'lib/usdcx/constant';
 import { WalletType } from 'screens/onboarding/types';
@@ -54,6 +55,14 @@ import { holdsNotes } from './verdict-rules';
 
 // An override's preset name is not evidence of the chain it actually points to.
 const badgeNetwork = () => (getActiveOverride() === null ? getEffectiveNetworkName() : undefined);
+
+/** A worker claim refused at a row write because its caller can no longer sign it; the call's rows are rolled back. */
+export class ClaimInsertRefusedError extends Error {
+  constructor() {
+    super('Claim not queued: its caller can no longer sign it');
+    this.name = 'ClaimInsertRefusedError';
+  }
+}
 
 export const requestCustomTransaction = async (
   accountId: string,
@@ -111,7 +120,8 @@ export const initiateConsumeTransactionFromId = async (
   // that id would let this dApp read another transaction's outcome and output notes, private ones included
   // (`waitForTransaction`), so only a claim may answer it, and the claim then lists the origin so the dApp may wait on
   // it. The wallet's own callers pass none and link the user to the holder instead.
-  dappOrigin?: string
+  dappOrigin?: string,
+  entryPoint?: ConsumeEntryPoint
 ): Promise<string> => {
   // Routed through `midenClientProxy.getInputNoteSummary` (issue #260, slice 7a):
   // flag-ON it reads the OFFSCREEN client that owns the note (the SW client is
@@ -138,7 +148,9 @@ export const initiateConsumeTransactionFromId = async (
     undefined,
     undefined,
     undefined,
-    dappOrigin
+    dappOrigin,
+    undefined,
+    entryPoint
   );
   if (dappOrigin !== undefined) await grantDappOrigin(committedId, dappOrigin);
   return committedId;
@@ -172,9 +184,20 @@ export const initiateConsumeTransaction = async (
   accountId: string,
   note: ConsumableNote,
   delegateTransaction?: boolean,
-  manualRetry?: boolean
+  manualRetry?: boolean,
+  entryPoint?: ConsumeEntryPoint,
+  canSign?: () => boolean
 ): Promise<string> => {
-  return initiateConsumeNotesTransaction(accountId, [note], delegateTransaction, manualRetry);
+  return initiateConsumeNotesTransaction(
+    accountId,
+    [note],
+    delegateTransaction,
+    manualRetry,
+    undefined,
+    undefined,
+    entryPoint,
+    canSign
+  );
 };
 
 /** What {@link queueConsumeNotes} committed: the row id callers link to, and the row covering each note. */
@@ -220,7 +243,9 @@ export const queueConsumeNotes = async (
   delegateTransaction?: boolean,
   manualRetry?: boolean,
   isolateNotesWithFailedBatch?: boolean,
-  verificationBaseFee?: number | null
+  verificationBaseFee?: number | null,
+  entryPoint?: ConsumeEntryPoint,
+  canSign?: () => boolean
 ): Promise<ConsumeNotesQueueResult> =>
   queueConsumeRows(
     accountId,
@@ -228,7 +253,12 @@ export const queueConsumeNotes = async (
     delegateTransaction,
     manualRetry,
     isolateNotesWithFailedBatch,
-    verificationBaseFee
+    verificationBaseFee,
+    undefined,
+    undefined,
+    undefined,
+    entryPoint,
+    canSign
   );
 
 /**
@@ -243,7 +273,8 @@ export const initiatePswapReclaimTransaction = async (
   note: ConsumableNote,
   requestBytes: Uint8Array,
   swapOrderTxId: string,
-  delegateTransaction?: boolean
+  delegateTransaction?: boolean,
+  canSign?: () => boolean
 ): Promise<string> =>
   (
     await queueConsumeRows(
@@ -258,7 +289,9 @@ export const initiatePswapReclaimTransaction = async (
       row => {
         row.requestBytes = requestBytes;
         row.extraInputs = { swapOrderTxId, swapSettleKind: 'reclaim' };
-      }
+      },
+      'swap_settlement',
+      canSign
     )
   ).committedId;
 
@@ -267,6 +300,7 @@ export interface RotationFundingClaimOptions {
   delegate?: boolean;
   manualRetry?: boolean;
   verificationBaseFee?: number | null;
+  canSign?: () => boolean;
 }
 
 /**
@@ -315,7 +349,11 @@ export const initiateRotationFundingClaim = async (
     opts.manualRetry,
     true,
     opts.verificationBaseFee,
-    true
+    true,
+    undefined,
+    undefined,
+    'rotation_funding',
+    opts.canSign
   );
   return committedId;
 };
@@ -456,7 +494,13 @@ const queueConsumeRows = async (
   dappOrigin?: string,
   // Applied before insertion. Used by prepared request rows whose bytes and
   // routing metadata must become visible atomically with the queued row.
-  initializeRow?: (row: ConsumeTransaction) => void
+  initializeRow?: (row: ConsumeTransaction) => void,
+  // Stamped on every row this creates, in the same insert, so a failed claim's report can name it from the row.
+  entryPoint?: ConsumeEntryPoint,
+  // The service worker's own claims only, which nobody signs while the vault is locked. Asked right before each row
+  // is written, after every await of the call, so a lock that landed meanwhile queues nothing: a refusal throws
+  // `ClaimInsertRefusedError`, which aborts this Dexie transaction and rolls back the rows the call already wrote.
+  canSign?: () => boolean
 ): Promise<ConsumeNotesQueueResult> => {
   if (notes.length === 0) {
     throw new Error('initiateConsumeNotesTransaction requires at least one note');
@@ -582,12 +626,18 @@ const queueConsumeRows = async (
     }
 
     const createdIds: string[] = [];
+    // No await between the check and the write it guards.
+    const insert = async (row: ConsumeTransaction): Promise<void> => {
+      if (canSign && !canSign()) throw new ClaimInsertRefusedError();
+      await Repo.transactions.add(row);
+    };
     const newRow = (rowNotes: ConsumableNote[]): ConsumeTransaction => {
       const row = Object.assign(new ConsumeTransaction(accountId, rowNotes, delegateTransaction), {
         badgeNetwork: badgeNetwork()
       });
       if (rotationFunding) row.rotationFunding = true;
       if (dappOrigin !== undefined) row.dappOrigins = [dappOrigin];
+      if (entryPoint !== undefined) row.consumeEntryPoint = entryPoint;
       initializeRow?.(row);
       return row;
     };
@@ -596,13 +646,13 @@ const queueConsumeRows = async (
     // isolated note rejoins the ordinary per-note lifecycle.
     for (const note of isolate) {
       const isolatedRow = newRow([note]);
-      await Repo.transactions.add(isolatedRow);
+      await insert(isolatedRow);
       createdIds.push(isolatedRow.id);
       coveringTxIdByNoteId.set(note.id, isolatedRow.id);
     }
     if (queueable.length > 0) {
       const dbTransaction = newRow(queueable);
-      await Repo.transactions.add(dbTransaction);
+      await insert(dbTransaction);
       createdIds.push(dbTransaction.id);
       for (const queued of queueable) coveringTxIdByNoteId.set(queued.id, dbTransaction.id);
     }

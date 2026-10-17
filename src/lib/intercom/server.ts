@@ -4,12 +4,14 @@ import { serializeInternalError } from './helpers';
 import { MessageType, RequestMessage, ResponseMessage, ErrorMessage, SubscriptionMessage } from './types';
 
 type ReqHandler = (payload: any, port: Runtime.Port) => Promise<any>;
+type NotFoundFallback = (payload: unknown) => Error | undefined;
 
 export class IntercomServer {
   private ports = new Set<Runtime.Port>();
   private reqHandlers: Array<ReqHandler> = [];
   private initializedHandlers: boolean = false;
   private disconnectListeners: Array<() => void> = [];
+  private notFoundFallback: NotFoundFallback | undefined;
 
   constructor() {
     browser.runtime.onConnect.addListener(port => {
@@ -53,6 +55,14 @@ export class IntercomServer {
     return () => {
       this.removeReqHandler(handler);
     };
+  }
+
+  /**
+   * The error for a request every handler declined, in place of the plain Not Found when it returns one. Consulted
+   * only after the last handler, so no handler's answer depends on the order they were registered in.
+   */
+  onNotFound(fallback: NotFoundFallback) {
+    this.notFoundFallback = fallback;
   }
 
   broadcast(data: any) {
@@ -129,7 +139,7 @@ export class IntercomServer {
             return;
           }
         }
-        throw new Error('Not Found');
+        throw this.notFoundFallback?.(msgInner.data) ?? new Error('Not Found');
       } catch (err: any) {
         this.send(port, {
           type: MessageType.Err,

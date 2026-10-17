@@ -87,8 +87,12 @@ jest.mock('lib/platform', () => ({
 }));
 
 const mockWithUnlocked = jest.fn();
+// The store's unlock predicate, answering as `withUnlocked` does: `lockedWithUnlocked` locks both.
+let mockVaultUnlocked = true;
 jest.mock('./store', () => ({
   withUnlocked: (fn: (ctx: unknown) => unknown) => mockWithUnlocked(fn),
+  isUnlocked: () => mockVaultUnlocked,
+  store: { getState: () => ({}) },
   accountsUpdated: jest.fn()
 }));
 
@@ -99,6 +103,7 @@ jest.mock('./store', () => ({
  * — that shape is unreachable in production now that the gate exists.
  */
 const lockedWithUnlocked = () => {
+  mockVaultUnlocked = false;
   mockWithUnlocked.mockImplementation(() => {
     throw Object.assign(new Error('Wallet is locked'), { reason: 'locked' as const });
   });
@@ -113,6 +118,7 @@ beforeEach(() => {
   jest.resetModules();
   jest.clearAllMocks();
   mockWithUnlocked.mockReset();
+  mockVaultUnlocked = true;
   mockSafeGenerateTransactionsLoopFn = (...args: unknown[]) => mockSafeGenerateTransactionsLoop(...args);
   mockGetAllUncompletedTransactions.mockResolvedValue([]);
   mockSafeGenerateTransactionsLoop.mockResolvedValue({ success: true });

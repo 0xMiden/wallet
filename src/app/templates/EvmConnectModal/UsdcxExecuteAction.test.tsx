@@ -95,6 +95,18 @@ describe('UsdcxExecuteAction', () => {
     expect(screen.getByTestId('usdcx-execute-button')).not.toBeDisabled();
   });
 
+  // #1469: on the deposit status screen this sits in a centred column, which `break-words` cannot narrow.
+  it('wraps a failure carrying an unbreakable token', async () => {
+    execute.mockRejectedValueOnce(new Error(`execution reverted: 0x${'ab'.repeat(100)}`));
+    render(<UsdcxExecuteAction txId="row" sourceChainId={BASE_SEPOLIA} phase="delivering" cctp={LEG} />);
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('usdcx-execute-button'));
+    });
+
+    expect(screen.getByRole('alert')).toHaveClass('wrap-anywhere', 'select-text');
+  });
+
   it('shows the localized reconnect message when the session did not approve the chain', async () => {
     execute.mockRejectedValueOnce(new NativeSessionChainNotApprovedError(5042002, 'Arc Testnet'));
     render(<UsdcxExecuteAction txId="row" sourceChainId={BASE_SEPOLIA} phase="delivering" cctp={LEG} />);

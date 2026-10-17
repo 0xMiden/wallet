@@ -5,6 +5,7 @@ import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { getBridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import type { SupportedEvmChainConfig } from 'lib/remote-config/schema';
+import { walletRaised } from 'lib/telemetry/bridge-receive-failure';
 import { ARC_TESTNET, copyPlainData, EVM_CHAIN_DEFINITIONS, getChain } from 'lib/walletconnect/config';
 
 import { USDCX_DECIMALS } from './protocol';
@@ -286,7 +287,7 @@ export function listUsdcxDestinations(): UsdcxDestination[] {
  */
 export function getUsdcxRemoteDomain(): number {
   const domain = getBridgeConfigSnapshot().config?.['bridge-providers'].usdcx.midenDomain;
-  if (domain === undefined) throw new Error('USDCx Miden domain is not configured');
+  if (domain === undefined) throw walletRaised(new Error('USDCx Miden domain is not configured'));
   return domain;
 }
 

@@ -173,6 +173,17 @@ describe('committed terminal transaction failure reports', () => {
     expect(report.mock.calls[0]![0].reason).toEqual(expect.any(String));
   });
 
+  it.each([
+    ['cancel', (tx: ITransaction) => cancelTransaction(tx, 'assertion failed')],
+    ['status', (tx: ITransaction) => updateTransactionStatus(tx.id, ITransactionStatus.Failed, { error: 'failed' })],
+    ['unconfirmed', (tx: ITransaction) => markTransactionUnconfirmed(tx, 'indefinite outcome')]
+  ] as const)('forwards what queued a claim from its stored row through %s', async (_name, fail) => {
+    await Repo.transactions.put(row({ type: 'consume', consumeEntryPoint: 'claim_all' }));
+    await fail(row({ type: 'consume' }));
+    expect(report).toHaveBeenCalledTimes(1);
+    expect(report).toHaveBeenCalledWith(expect.objectContaining({ type: 'consume', entryPoint: 'claim_all' }));
+  });
+
   it('gives a failure the wallet did not decide no reason', async () => {
     await Repo.transactions.put(row());
     await cancelTransaction(row(), new Error('GUARDIAN HTTP error 409: Conflict'));
@@ -312,7 +323,8 @@ describe('committed terminal transaction failure reports', () => {
       stage: 'proving',
       delegateTransaction: true,
       diagnostics: undefined,
-      error: 'relay timeout'
+      error: 'relay timeout',
+      ...(type === 'bridged-receive' ? { bridgeReceive: { route: undefined, step: undefined, cause: undefined } } : {})
     });
   });
 
@@ -320,6 +332,49 @@ describe('committed terminal transaction failure reports', () => {
     await Repo.transactions.put(phased('bridged-receive', 'ready'));
     await updateBridgedReceivePhase('tx', 'failed', { error: 'claim failed' });
     expect(report).toHaveBeenCalledTimes(1);
+  });
+
+  it("hands an inbound bridge's report its route, the step that failed it and the cause", async () => {
+    const cause = new Error('User rejected the request.');
+    await Repo.transactions.put(
+      row({
+        type: 'bridged-receive',
+        status: ITransactionStatus.Completed,
+        extraInputs: { phase: 'submitting', provider: 'epoch' }
+      })
+    );
+
+    await updateBridgedReceivePhase('tx', 'failed', {
+      error: 'User rejected the request.',
+      failure: { step: 'epoch_execute', cause }
+    });
+
+    expect(report).toHaveBeenCalledWith(
+      expect.objectContaining({
+        point: 'bridge_receive_settlement',
+        error: 'User rejected the request.',
+        bridgeReceive: { route: 'epoch', step: 'epoch_execute', cause }
+      })
+    );
+  });
+
+  it('fails a restored inbound bridge the reconciler cannot verify without reporting it', async () => {
+    await Repo.transactions.put(
+      row({
+        type: 'bridged-receive',
+        status: ITransactionStatus.Completed,
+        restoredFromBackup: true,
+        extraInputs: { phase: 'submitting', provider: 'usdcx' }
+      })
+    );
+
+    await updateBridgedReceivePhase('tx', 'failed', { error: 'delivery could not be verified' });
+
+    expect(await Repo.transactions.get('tx')).toMatchObject({
+      error: 'delivery could not be verified',
+      extraInputs: { phase: 'failed', provider: 'usdcx' }
+    });
+    expect(report).not.toHaveBeenCalled();
   });
 
   it('reports outbound bridge demotion once even after the note completed', async () => {
@@ -346,7 +401,9 @@ describe('committed terminal transaction failure reports', () => {
     expect(report).toHaveBeenCalledTimes(1);
     expect(report).toHaveBeenCalledWith(
       expect.objectContaining({
+        point: 'guardian_node_verdict',
         type: 'switch-guardian',
+        reason: 'never_committed',
         error: 'The node discarded this guardian switch after submission.'
       })
     );
