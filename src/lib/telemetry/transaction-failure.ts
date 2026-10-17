@@ -82,6 +82,18 @@ export const SUBMIT_GRPC_STATUSES = [
   'other'
 ] as const;
 
+// The statuses miden-client 0.17.3's `is_indeterminate_submission` reads as an unknown outcome, and the fallback.
+export const SUBMIT_UNKNOWN_OUTCOME_STATUSES = [
+  'unavailable',
+  'internal',
+  'cancelled',
+  'aborted',
+  'data_loss',
+  'deadline_exceeded',
+  'unknown',
+  'other'
+] as const;
+
 export const SUBMIT_ENDPOINTS = [
   'submit_proven_transaction',
   'submit_proven_batch',
@@ -421,7 +433,8 @@ const grpcStatusOf = (kind: string | undefined) =>
   kind === undefined ? undefined : SUBMIT_GRPC_TEXT.find(([, text]) => kind.startsWith(text));
 
 function submitOutcomeIdentity(error: unknown, hiddenDuringSubmit: boolean | undefined): string {
-  const status = grpcStatusOf(submitRequestFailure(error)?.kind)?.[0] ?? 'other';
+  const matched = grpcStatusOf(submitRequestFailure(error)?.kind)?.[0];
+  const status = SUBMIT_UNKNOWN_OUTCOME_STATUSES.find(listed => listed === matched) ?? 'other';
   const hidden: (typeof SUBMIT_HIDDEN_ANSWERS)[number] =
     hiddenDuringSubmit === undefined ? 'unavailable' : hiddenDuringSubmit ? 'yes' : 'no';
   return `${coined('submit_outcome_unknown')}; grpc ${status}; app hidden during submit ${hidden}`;
