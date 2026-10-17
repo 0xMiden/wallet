@@ -431,7 +431,8 @@ describe('History', () => {
     ]);
     await renderHistory({
       filter: 'arcade',
-      predicate: (entry: { dappOrigins?: string[] }) => entry.dappOrigins?.includes('https://game.example') ?? false
+      predicate: (entry: { dappOrigins?: string[] }) =>
+        entry.dappOrigins?.some(origin => origin === 'https://game.example') ?? false
     });
     await waitFor(() => expect(mockHistoryViewProps.entries).toHaveLength(2));
     expect(mockHistoryViewProps.entries.map((entry: { key: string }) => entry.key)).toEqual([
@@ -440,7 +441,7 @@ describe('History', () => {
     ]);
     expect(
       mockHistoryViewProps.entries.every((entry: { dappOrigins?: string[] }) =>
-        entry.dappOrigins?.includes('https://game.example')
+        entry.dappOrigins?.some(origin => origin === 'https://game.example')
       )
     ).toBe(true);
   });
