@@ -3,7 +3,7 @@ import { __resetSyncFuseStateForTests } from 'lib/miden/front/sync-fuse';
 import * as Repo from 'lib/miden/repo';
 import { NoteTypeEnum } from 'lib/miden/types';
 
-import { __resetNoteDeliverySweepForTests, sweepNoteDeliveries } from './note-delivery-sweep';
+import { __resetNoteDeliverySweepForTests, MAX_RELAY_ATTEMPTS, sweepNoteDeliveries } from './note-delivery-sweep';
 import { NodeReads } from './reconcile-reads';
 import { judgeAndWrite } from './reconcile-unconfirmed';
 import { ISubmitEvidence, ITransaction, ITransactionStatus } from '../db/types';
@@ -78,6 +78,21 @@ const keptSend = (overrides: Partial<ITransaction> = {}): ITransaction => ({
   ...overrides
 });
 
+/**
+ * A retried send: the earlier attempt's completion recorded its note at the root before its relay, the node proved
+ * that attempt dead, and the retry's attempt is the kept one.
+ */
+const retriedSend = (overrides: Partial<ITransaction> = {}): ITransaction =>
+  keptSend({
+    noteDelivery: 'undelivered',
+    outputNoteIds: [OTHER_NOTE],
+    submitEvidence: [
+      entry({ outputNoteIds: [OTHER_NOTE], verdict: 'never-committed' }),
+      entry({ ...KEPT, attemptId: 'a2', capturedAt: NOW - 30, transactionId: hex(3) })
+    ],
+    ...overrides
+  });
+
 /** The note is on chain in the attempt's window and no other row names it. */
 const noteOnChain: NodeReads = {
   blockCommitment: async () => HEADER,
@@ -136,6 +151,58 @@ describe('a send landed from its submit evidence owes the sweep its note (#1473)
 
     expect(await pushesAfterTheFirstWait()).toEqual([[NOTE, RECIPIENT]]);
     expect(await read()).toMatchObject({ noteDelivery: 'relayed', relayAckedNoteIds: [NOTE], displayMessage: 'Sent' });
+  });
+
+  // With nothing owed the sweep makes no query for up to an hour, unless a delivery write lands meanwhile.
+  it('the landing wakes an idle sweep: its next call arms the note, and a call after the first wait pushes it', async () => {
+    await sweepNoteDeliveries();
+    await Repo.transactions.put(keptSend());
+
+    expect((await land(noteOnChain)).kind).toBe('landed');
+    await sweepNoteDeliveries();
+    expect((await read())?.nextRelayAt).toBeDefined();
+    expect(mockRelayById).not.toHaveBeenCalled();
+
+    jest.spyOn(Date, 'now').mockReturnValue((NOW + 10 * 60) * 1000);
+    await sweepNoteDeliveries();
+    expect(mockRelayById.mock.calls).toEqual([[NOTE, RECIPIENT]]);
+  });
+
+  it('a retried attempt that lands replaces the note an earlier attempt left at the root, and that is the one pushed', async () => {
+    await Repo.transactions.put(retriedSend());
+
+    expect((await land(noteOnChain)).kind).toBe('landed');
+    expect(await read()).toMatchObject({ transactionId: hex(3), outputNoteIds: [NOTE] });
+    expect(await pushesAfterTheFirstWait()).toEqual([[NOTE, RECIPIENT]]);
+  });
+
+  it('the landed note does not inherit the spent attempts and stopped mark of the note it replaces', async () => {
+    await Repo.transactions.put(
+      retriedSend({ relayAttempts: MAX_RELAY_ATTEMPTS, nextRelayAt: NOW + 30 * 60, relayRetriesStopped: true })
+    );
+
+    expect((await land(noteOnChain)).kind).toBe('landed');
+    expect((await read())?.relayRetriesStopped).toBeUndefined();
+    expect(await pushesAfterTheFirstWait()).toEqual([[NOTE, RECIPIENT]]);
+    expect((await read())?.relayRetriesStopped).toBeUndefined();
+  });
+
+  // The sweep ages its 72 h retry window from completedAt, which the Unconfirmed write stamped.
+  it('a send that lands three days after it left the queue gets its delivery window from the landing', async () => {
+    const leftQueue = NOW - 73 * 60 * 60;
+    await Repo.transactions.put(
+      keptSend({
+        initiatedAt: leftQueue - 20,
+        completedAt: leftQueue,
+        submitEvidence: [entry({ ...KEPT, capturedAt: leftQueue - 10 })]
+      })
+    );
+    jest.spyOn(Date, 'now').mockReturnValue(NOW * 1000);
+
+    expect((await land(noteOnChain)).kind).toBe('landed');
+    expect((await read())?.completedAt).toBe(NOW);
+    expect(await pushesAfterTheFirstWait()).toEqual([[NOTE, RECIPIENT]]);
+    expect((await read())?.relayRetriesStopped).toBeUndefined();
   });
 
   it('two attempts that replayed one request name the same note: the landing binds neither and records that note', async () => {
@@ -212,7 +279,11 @@ describe('a send landed from its submit evidence owes the sweep its note (#1473)
     );
 
     expect((await land(noteOnChain)).kind).toBe('landed');
-    expect(await read()).toMatchObject({ status: ITransactionStatus.Completed, outputNoteIds: [recorded] });
+    expect(await read()).toMatchObject({
+      status: ITransactionStatus.Completed,
+      outputNoteIds: [recorded],
+      completedAt: NOW - 100
+    });
     expect(await pushesAfterTheFirstWait()).toEqual([[recorded, RECIPIENT]]);
   });
 });
