@@ -134,12 +134,13 @@ Everything the App stores about *your wallet* — your keys, accounts, balances,
 
 The scrubbing described under "Crash reports" is thorough but it is a filter, not a guarantee, and you should know its limits before deciding to turn the setting on.
 
-It works by recognising what secrets look like. That is reliable for the things that have a recognisable shape — a Miden address, a long hex value, a run of digits, a credential in a URL, or any value stored under a name like `password`. Two kinds of thing can get past it:
+It works by recognising what secrets look like. That is reliable for the things that have a recognisable shape: a Miden address, a long hex value, a run of digits, a credential in a URL, or any value stored under a name like `password`. Three kinds of thing can get past it:
 
 - **A recovery phrase broken into small pieces.** The filter spots runs of consecutive words from the recovery-phrase wordlist, and a real phrase is 12 or 24 words. A phrase scattered two or three words at a time across many separate fields of one report could fall below that threshold and survive.
+- **A recovery phrase split by the App's own fixed words.** A transaction failure report is built only from fixed values the App defines, and each of them ends a run of wordlist words, so that the report's own labels are never read as a phrase. Some of those values, such as `fee`, `local` and `other`, are wordlist words themselves, so a phrase that such values split every three words would not read as one run. No transaction failure report carries free text, so nothing can place a phrase there today.
 - **A password with nothing around it.** If a password were ever the entire text of an error message, with no field name and no URL to identify it, the filter has nothing to go on: by shape alone it is indistinguishable from a harmless request id.
 
-Neither is a known leak. No part of the App puts a recovery phrase or a password into an error, and automated tests run on every change assert that. They are the residual risk if some future code did, and we would rather name them than imply the filter is perfect.
+None of them is a known leak. No part of the App puts a recovery phrase or a password into an error, and automated tests run on every change assert that. They are the residual risk if some future code did, and we would rather name them than imply the filter is perfect.
 
 ## Who processes this data
 
