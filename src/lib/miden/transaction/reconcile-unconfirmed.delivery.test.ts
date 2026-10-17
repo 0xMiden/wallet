@@ -1,13 +1,16 @@
 // Real Dexie and the real sweep: the landed write and the sweep's selection meet only in the stored row (#1473).
+import type { TransactionResult } from '@miden-sdk/miden-sdk/lazy';
+
 import { __resetSyncFuseStateForTests } from 'lib/miden/front/sync-fuse';
 import * as Repo from 'lib/miden/repo';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { NoteTypeEnum } from 'lib/miden/types';
 
+import { completeSendTransaction } from './complete';
 import { __resetNoteDeliverySweepForTests, MAX_RELAY_ATTEMPTS, sweepNoteDeliveries } from './note-delivery-sweep';
 import { NodeReads } from './reconcile-reads';
 import { judgeAndWrite } from './reconcile-unconfirmed';
-import { ISubmitEvidence, ITransaction, ITransactionStatus } from '../db/types';
+import { ISubmitEvidence, ITransaction, ITransactionStatus, SendTransaction } from '../db/types';
 
 jest.mock('../sdk/helpers', () => ({
   ...jest.requireActual('../sdk/helpers'),
@@ -22,12 +25,15 @@ jest.mock('lib/miden-chain/effective-endpoints', () => ({
 
 const mockIsConsumed = jest.fn<Promise<boolean>, [string]>();
 const mockRelayById = jest.fn<Promise<void>, [string, string]>();
+const mockSendPrivateNote = jest.fn<Promise<void>, [unknown, string]>();
 
 jest.mock('../back/miden-client-proxy', () => ({
   ...jest.requireActual('../back/miden-client-proxy'),
   midenClientProxy: {
     isOutputNoteConsumed: (noteId: string) => mockIsConsumed(noteId),
-    relayPrivateNoteById: (noteId: string, to: string) => mockRelayById(noteId, to)
+    relayPrivateNoteById: (noteId: string, to: string) => mockRelayById(noteId, to),
+    waitForTransactionCommit: async () => undefined,
+    sendPrivateNote: (note: unknown, to: string) => mockSendPrivateNote(note, to)
   }
 }));
 
@@ -146,22 +152,63 @@ const held = <T>(): Held<T> => {
   return { promise, resolve, reject };
 };
 
-/** Land the row while a sweep pass waits at `reached`, then let the pass go on with `release` and finish. */
-const landWhileTheSweepWaits = async (reached: Promise<void>, release: () => void) => {
-  const sweeping = sweepNoteDeliveries();
+/** Land the row while `running` waits at `reached`, then let it go on with `release` and finish. */
+const landWhileWaiting = async (running: Promise<unknown>, reached: Promise<void>, release: () => void) => {
   try {
-    await Promise.race([reached, sweeping]);
+    await Promise.race([reached, running]);
     expect((await land(noteOnChain)).kind).toBe('landed');
   } finally {
     release();
-    await sweeping;
+    await running;
   }
+};
+
+/** Land the row while a sweep pass waits at `reached`, then let the pass go on with `release` and finish. */
+const landWhileTheSweepWaits = (reached: Promise<void>, release: () => void) =>
+  landWhileWaiting(sweepNoteDeliveries(), reached, release);
+
+/** The row as the pipeline of a send to the recipient holds it. */
+const sendOf = (row: ITransaction): SendTransaction => ({
+  ...row,
+  amount: 1n,
+  faucetId: 'mtst1faucet',
+  secondaryAccountId: RECIPIENT,
+  noteType: NoteTypeEnum.Private,
+  extraInputs: {}
+});
+
+/** What the SDK hands the completion of attempt a1 (`hex(2)`) when it sent the private note `noteId`. */
+const sentNote = (noteId: string): TransactionResult => {
+  const note = { id: () => ({ toString: () => noteId }) };
+  const result: TransactionResult = Object.create(null);
+  Object.assign(result, {
+    executedTransaction: () => ({
+      id: () => ({ toHex: () => hex(2) }),
+      outputNotes: () => ({ notes: () => [{ intoFull: () => note }] })
+    }),
+    serialize: () => new Uint8Array([1])
+  });
+  return result;
+};
+
+/** Run attempt a1's completion of `row` for `noteId` and land the row while its relay waits, then resolve the relay. */
+const landWhileTheRelayWaits = async (row: ITransaction, noteId: string) => {
+  const reached = held<void>();
+  const relay = held<void>();
+  mockSendPrivateNote.mockImplementation(async () => {
+    reached.resolve();
+    await relay.promise;
+  });
+  await landWhileWaiting(completeSendTransaction(sendOf(row), sentNote(noteId)), reached.promise, () =>
+    relay.resolve()
+  );
 };
 
 beforeEach(async () => {
   jest.clearAllMocks();
   mockIsConsumed.mockResolvedValue(false);
   mockRelayById.mockResolvedValue(undefined);
+  mockSendPrivateNote.mockResolvedValue(undefined);
   jest.spyOn(console, 'info').mockImplementation(() => undefined);
   __resetNoteDeliverySweepForTests();
   __resetSyncFuseStateForTests();
@@ -515,5 +562,42 @@ describe('a send landed from its submit evidence owes the sweep its note (#1473)
     expect(mockIsConsumed).toHaveBeenCalledWith(OTHER_NOTE);
     expect((await read())?.noteDelivery).toBe('undelivered');
     expect(await pushesAfterTheFirstWait()).toEqual([[NOTE, RECIPIENT]]);
+  });
+
+  // A completion past its liveness window relays on (#1233); once the send lands, only its write after the relay lands.
+  it("a completion's relay of the replaced note that is acknowledged after the send lands writes nothing onto the landed note", async () => {
+    jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    const row = retriedSend();
+    await Repo.transactions.put(row);
+
+    await landWhileTheRelayWaits(row, OTHER_NOTE);
+
+    expect(mockSendPrivateNote).toHaveBeenCalledTimes(1);
+    const landed = await read();
+    expect(landed).toMatchObject({
+      status: ITransactionStatus.Completed,
+      outputNoteIds: [NOTE],
+      noteDelivery: 'undelivered',
+      displayMessage: UNDELIVERED_SEND
+    });
+    expect(landed?.relayAckedNoteIds).toBeUndefined();
+    expect(await pushesAfterTheFirstWait()).toEqual([[NOTE, RECIPIENT]]);
+  });
+
+  it("a completion's relay of the note the send lands with records it relayed and acknowledged after the landing", async () => {
+    jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    const row = keptSend();
+    await Repo.transactions.put(row);
+
+    await landWhileTheRelayWaits(row, NOTE);
+
+    expect(mockSendPrivateNote).toHaveBeenCalledTimes(1);
+    expect(await read()).toMatchObject({
+      status: ITransactionStatus.Completed,
+      outputNoteIds: [NOTE],
+      noteDelivery: 'relayed',
+      displayMessage: 'Sent',
+      relayAckedNoteIds: [NOTE]
+    });
   });
 });
