@@ -9,7 +9,7 @@ import { WagmiProvider } from 'wagmi';
 import { initBridgeConfig, subscribeBridgeConfig } from 'lib/remote-config/runtime';
 import { getThemeSetting } from 'lib/settings/helpers';
 import { resolveTheme } from 'lib/settings/theme';
-import { followRelay, noteConnectModalOpened } from 'lib/telemetry/relay-diagnostics';
+import { followRelay, noteConnectModalOpen } from 'lib/telemetry/relay-diagnostics';
 
 import { getWalletConnectChains, prepareWalletConnectChains } from './chains';
 import { APP_METADATA, copyPlainData, EVM_CHAIN_DEFINITIONS, getChain, WC_PROJECT_ID } from './config';
@@ -76,11 +76,11 @@ export const modal = createAppKit({
   features: { analytics: false }
 });
 
-// Read only, for relay failure reports: whether this window opened the connect modal, and whether the relay connected.
+// Read only, for relay failure reports: whether the connect modal is open, and whether the relay connected.
 let relayFollowed = false;
 try {
   modal.subscribeState(state => {
-    if (state.open) noteConnectModalOpened();
+    noteConnectModalOpen(state.open);
     if (!state.initialized || relayFollowed) return;
     relayFollowed = true;
     modal

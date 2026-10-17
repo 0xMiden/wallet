@@ -3,16 +3,16 @@
  * (BREAD-WALLET-5).
  *
  * The browser never says why a relay handshake failed, so the report says what can tell the causes apart instead:
- * whether the network had just changed, whether the window was on screen, which window it was, whether it had opened
- * the connect modal, whether the relay ever connected there, and how often it had failed. Import-free, so the pages
- * and AppKit's setup can feed it without loading the crash client.
+ * whether the network had just changed, whether the window was on screen, which window it was, whether its connect
+ * modal was open, whether the relay ever connected there, and how often it had failed. Import-free, so the pages and
+ * AppKit's setup can feed it without loading the crash client.
  */
 export const RELAY_SERVICE = 'walletconnect_relay';
 // A failure while offline is counted but never reported, so `offline` is not a value a report can carry.
 export const RELAY_CONNECTIVITY = ['just_changed', 'steady'] as const;
 export const RELAY_VISIBILITY = ['visible', 'hidden'] as const;
 export const RELAY_SURFACES = ['popup', 'fullpage', 'sidepanel', 'confirm'] as const;
-export const RELAY_TRIGGERS = ['session_restore', 'connect_modal'] as const;
+export const RELAY_TRIGGERS = ['connect_modal', 'no_connect_modal'] as const;
 export const RELAY_FAILURE_BUCKETS = ['1', '2-5', '6+'] as const;
 
 export type RelaySurface = (typeof RELAY_SURFACES)[number];
@@ -43,7 +43,7 @@ const RELAY_HOSTS = ['relay.walletconnect.org', 'relay.walletconnect.com'] as co
 const CONNECTIVITY_SETTLE_MS = 30_000;
 
 let surface: RelaySurface | undefined;
-let connectModalOpened = false;
+let connectModalOpen = false;
 let everConnected = false;
 let connectivityChangedAt: number | undefined;
 let failures = 0;
@@ -52,8 +52,8 @@ export function recordRelaySurface(next: RelaySurface): void {
   if (RELAY_SURFACES.includes(next)) surface = next;
 }
 
-export function noteConnectModalOpened(): void {
-  connectModalOpened = true;
+export function noteConnectModalOpen(open: boolean): void {
+  connectModalOpen = open;
 }
 
 export function noteConnectivityChanged(): void {
@@ -109,7 +109,7 @@ export function classifyRelayFailure(message: unknown): RelayFailure | undefined
       connectivity: justChanged ? 'just_changed' : 'steady',
       ...(visibility === undefined ? {} : { visibility }),
       ...(surface === undefined ? {} : { surface }),
-      relayTrigger: connectModalOpened ? 'connect_modal' : 'session_restore',
+      relayTrigger: connectModalOpen ? 'connect_modal' : 'no_connect_modal',
       relayEverConnected: everConnected,
       relayFailures: bucket
     }
@@ -119,7 +119,7 @@ export function classifyRelayFailure(message: unknown): RelayFailure | undefined
 /** Test-only: forget this window's relay history, as a fresh page load would. */
 export function __resetRelayDiagnosticsForTest(): void {
   surface = undefined;
-  connectModalOpened = false;
+  connectModalOpen = false;
   everConnected = false;
   connectivityChangedAt = undefined;
   failures = 0;
