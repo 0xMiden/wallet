@@ -19,11 +19,10 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(SystemChromePlugin.class);
         registerPlugin(UpdateAvailabilityPlugin.class);
 
-        // An activity restored after its process died, or reopened from Recents, gets back the launch intent
-        // whose link an earlier instance already received; dropped here, before the bridge reads the launch
-        // URL, it cannot open its page again.
+        // A launch intent whose link an earlier instance already received is dropped here, before the bridge
+        // reads the launch URL, so it cannot open its page again.
         Intent intent = getIntent();
-        if (savedInstanceState != null || (intent.getFlags() & Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY) != 0) {
+        if (LaunchIntentLogic.alreadyDelivered(savedInstanceState != null, intent.getFlags())) {
             intent.setData(null);
         }
 
