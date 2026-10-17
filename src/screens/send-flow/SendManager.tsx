@@ -606,6 +606,20 @@ export const SendManager: React.FC<SendManagerProps> = ({
     bridgeConfig
   ]);
 
+  // The picker's rule on the Amount step, so a held token goToReview refuses always has its reason on screen. A
+  // retired token is left out silently.
+  const tokenHeld = useMemo(() => {
+    const pending = (id: string | null | undefined) =>
+      !!id &&
+      isNewTransferTokenHeld(bridgeConfig, id, nativeFaucetId) &&
+      !isRetiredTransferToken(bridgeConfig, id, nativeFaucetId);
+    return (
+      pending(token?.id) ||
+      (!draft && pending(preselectedTokenId)) ||
+      !!balanceData?.some(row => !isHidden(row.tokenId) && pending(row.tokenId))
+    );
+  }, [bridgeConfig, nativeFaucetId, token?.id, draft, preselectedTokenId, balanceData, isHidden]);
+
   // Clear a token that the selected destination cannot receive.
   useEffect(() => {
     if (usdcxOnly && token && !usdcxAvailable) setValue('token', undefined);
@@ -1076,6 +1090,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
               recipientName={selectedContact?.name}
               network={displayedNetwork}
               maxDisabled={burnFeeUnmeasured}
+              tokenHeld={tokenHeld}
               onAmountChange={onAmountChange}
               onSelectToken={() => setShowTokenDrawer(true)}
               onReceive={onReceive}
@@ -1118,6 +1133,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
       errors.amount,
       payoutFeeShortfall,
       burnFeeUnmeasured,
+      tokenHeld,
       onAddressChange,
       onScan,
       amount,
