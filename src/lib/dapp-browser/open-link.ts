@@ -42,9 +42,11 @@ export function parseOpenLink(link: string): string | null {
   }
 }
 
-// A reload starts this module afresh; sessionStorage keeps the held link and the links already taken.
+// A reload starts this module afresh; sessionStorage keeps the held link, the links already taken and the last launch
+// link seen.
 const PENDING_KEY = 'open-link:pending';
 const TAKEN_KEY = 'open-link:taken';
+const LAUNCH_KEY = 'open-link:launch';
 const TAKEN_LIMIT = 20;
 
 function stored(key: string): string | null {
@@ -115,8 +117,9 @@ export function takePendingOpenLink(): string | null {
 }
 
 let capturing = false;
-// The launch URL outlives its link (iOS reports the last link the app was opened with, even after a reload), so
-// it counts only while no newer link is held.
+// The launch URL outlives its link: after a reload iOS still reports the last link the app was opened with, and Android
+// the link that started the activity. So it counts only while no newer link is held, and only the first time this
+// session sees it.
 let launchSuperseded = false;
 
 /** Start listening for open links, including the one that launched the app. Idempotent. */
@@ -136,7 +139,10 @@ export function startOpenLinkCapture(): void {
   });
   App.getLaunchUrl()
     .then(launch => {
-      if (launch?.url && !launchSuperseded && !takenLinks().includes(launch.url)) acceptOpenLink(launch.url);
+      if (!launch?.url) return;
+      const seen = stored(LAUNCH_KEY) === launch.url;
+      store(LAUNCH_KEY, launch.url);
+      if (!seen && !launchSuperseded && !takenLinks().includes(launch.url)) acceptOpenLink(launch.url);
     })
     .catch(error => {
       console.warn('[open-link] getLaunchUrl failed:', error);
