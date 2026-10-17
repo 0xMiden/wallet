@@ -1,9 +1,15 @@
 import { FeltArray, Poseidon2, type Word } from '@miden-sdk/miden-sdk/lazy';
 
+/** The key and value words committed by one note asset. */
+export interface NoteAssetWords {
+  vaultKey(): Word;
+  intoWord(): Word;
+}
+
 /** What {@link noteDetailsCommitment} reads of a note: a `NoteDetails` and a `Note` are each one. */
 export interface NoteDetailsParts {
   recipient(): { digest(): Word };
-  assets(): { assets(): ReadonlyArray<{ vaultKey(): Word; intoWord(): Word }> };
+  assets(): { assets(): ReadonlyArray<NoteAssetWords> };
 }
 
 /** A note id or details commitment as unprefixed lower-case hex, so every spelling of one word compares equal. */
@@ -20,17 +26,16 @@ export function normalizedCommitment(hex: string): string {
  * commitment being Poseidon2 over each asset in note order, its key word then its value word.
  */
 export function noteDetailsCommitment(details: NoteDetailsParts): string {
+  return normalizedCommitment(
+    noteDetailsCommitmentWord(details.recipient().digest(), details.assets().assets()).toHex()
+  );
+}
+
+/** The shared protocol hash, including an empty asset list; callers apply their own asset constraints. */
+export function noteDetailsCommitmentWord(recipientDigest: Word, assets: ReadonlyArray<NoteAssetWords>): Word {
   // Each FeltArray is built for its one hash: the browser binding consumes the array it is given.
   const assetsCommitment = Poseidon2.hashElements(
-    new FeltArray(
-      details
-        .assets()
-        .assets()
-        .flatMap(asset => [...asset.vaultKey().toFelts(), ...asset.intoWord().toFelts()])
-    )
+    new FeltArray(assets.flatMap(asset => [...asset.vaultKey().toFelts(), ...asset.intoWord().toFelts()]))
   );
-  const commitment = Poseidon2.hashElements(
-    new FeltArray([...details.recipient().digest().toFelts(), ...assetsCommitment.toFelts()])
-  );
-  return normalizedCommitment(commitment.toHex());
+  return Poseidon2.hashElements(new FeltArray([...recipientDigest.toFelts(), ...assetsCommitment.toFelts()]));
 }
