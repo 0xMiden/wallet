@@ -20,7 +20,7 @@ import {
   storedNoteIds,
   verifiedLandingRowFields
 } from './helper';
-import { accountOthers, deferralHolds, judgeSubmitEvidence, RowJudgement } from './reconcile-judge';
+import { accountOthers, deferralHolds, judgeSubmitEvidence, LandingProof, RowJudgement } from './reconcile-judge';
 import { createNodeReads, NodeReads, observedCadenceMs } from './reconcile-reads';
 import { awaitingVerdict, evidenceKey, isCheckable, nowSeconds } from './verdict-rules';
 import { adoptLandedConsume } from '../activity/bridge-in';
@@ -116,24 +116,34 @@ async function networkStillMatches(node: NodeReads, entries: readonly ISubmitEvi
   return true;
 }
 
+/** The notes recorded by the attempts that submitted `transactionId`: none when none did, or two disagree. */
+const notesOfTransaction = (row: Pick<ITransaction, 'submitEvidence'>, transactionId: string): string[] => {
+  const recorded = (row.submitEvidence ?? [])
+    .filter(entry => entry.transactionId === transactionId && entry.outputNoteIds !== undefined)
+    .map(entry => storedNoteIds(entry.outputNoteIds));
+  const key = (noteIds: string[]) => JSON.stringify(noteIds.map(normalizeHex).sort());
+  const [first] = recorded;
+  return first !== undefined && recorded.every(noteIds => key(noteIds) === key(first)) ? first : [];
+};
+
 /**
  * The note a landed send owes, at the root where `completeSendTransaction` records it and the delivery sweep reads it
  * (#1473): every note of the attempt the landing binds, else the note a note landing was proven by (attempts replaying
  * one request share it), else none. Never an execute's: its evidence names neither its private notes nor their owner.
  * A root holding only those notes is the landed attempt's own record and stays as written; one another attempt
  * recorded is replaced. A row whose relay recorded the notes it owes in `relayNoteIds`, which the sweep reads before
- * the root, gets none. Undefined when the landing records no target.
+ * the root, gets none. Undefined when the landing records no target. Retry's landing on the transaction the node
+ * verified binds that id and has no proof.
  */
-const landedDeliveryTarget = (
+export const landedDeliveryTarget = (
   row: ITransaction,
-  landing: NonNullable<RowJudgement['landed']>,
-  entry: ISubmitEvidence
+  landing: { boundTransactionId?: string; proof?: LandingProof }
 ): string[] | undefined => {
   if (row.type !== 'send' || row.noteDelivery === undefined || row.relayNoteIds != null) return undefined;
   const proven =
     landing.boundTransactionId !== undefined
-      ? storedNoteIds(entry.outputNoteIds)
-      : landing.proof.kind === 'note'
+      ? notesOfTransaction(row, landing.boundTransactionId)
+      : landing.proof?.kind === 'note'
         ? [landing.proof.noteId]
         : [];
   if (proven.length === 0) return undefined;
@@ -169,7 +179,7 @@ async function writeLanding(rowId: string, judgement: RowJudgement, accountKey: 
       ...(landing.boundTransactionId === undefined ? {} : { transactionId: landing.boundTransactionId }),
       completedAt: fresh.completedAt
     });
-    const target = landedDeliveryTarget(fresh, landing, landedEntry);
+    const target = landedDeliveryTarget(fresh, landing);
     if (target !== undefined) {
       const replacesNotes = storedNoteIds(fresh.outputNoteIds).length > 0;
       fresh.outputNoteIds = target;
