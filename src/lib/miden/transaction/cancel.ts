@@ -3,7 +3,7 @@ import { InputNoteState } from '@miden-sdk/miden-sdk/lazy';
 import { isGuardianWriteDiscardedError } from 'lib/miden/guardian/direct-switch';
 import * as Repo from 'lib/miden/repo';
 import { syncBeforeVerdict } from 'lib/miden/sync-lock';
-import { hiddenSecondsSince } from 'lib/mobile/background-time';
+import { hiddenMsBetween, hiddenSecondsSince } from 'lib/mobile/background-time';
 import { isMobile } from 'lib/platform';
 import { classifyError } from 'lib/telemetry/classify';
 import { reportOperation } from 'lib/telemetry/report-operation';
@@ -296,12 +296,12 @@ export const cancelTransaction = async (
   return true;
 };
 
-// A hidden WebView can lose the request its submit sent. Off mobile nothing freezes the page, and a row with no submit
-// stamp has no start to measure from.
-const hiddenDuringSubmit = (row: ITransaction): boolean | undefined => {
+// A hidden WebView can lose the request its submit sent, so only the submit itself counts: from its stamp to the moment
+// it returned. Off mobile nothing freezes the page, and a row with no submit stamp has no start to measure from.
+const hiddenDuringSubmit = (row: ITransaction, returnedAtMs: number): boolean | undefined => {
   const submittedAtMs = row.stageTimestamps?.submitting;
   if (!isMobile() || submittedAtMs === undefined) return undefined;
-  return hiddenSecondsSince(Math.floor(submittedAtMs / 1000)) > 0;
+  return hiddenMsBetween(submittedAtMs, returnedAtMs) > 0;
 };
 
 /**
@@ -312,6 +312,8 @@ const hiddenDuringSubmit = (row: ITransaction): boolean | undefined => {
  * write does for an unconfirmed row today.
  */
 export const markTransactionUnconfirmed = async (tx: ITransaction, error: unknown): Promise<void> => {
+  // Before the first await: the submit returned its unknown outcome by the time this is called.
+  const returnedAtMs = Date.now();
   const existing = await Repo.transactions.where({ id: tx.id }).first();
   const { displayError, rawError } = describeFailure(tx, error, existing);
   const transactionId = indefiniteSubmitTransactionId(error);
@@ -358,7 +360,7 @@ export const markTransactionUnconfirmed = async (tx: ITransaction, error: unknow
       diagnostics: committed.failureDiagnostics,
       error,
       outcome: 'unconfirmed',
-      hiddenDuringSubmit: hiddenDuringSubmit(committed)
+      hiddenDuringSubmit: hiddenDuringSubmit(committed, returnedAtMs)
     });
   }
   notifyBackgroundTransactionNotConfirmed();
