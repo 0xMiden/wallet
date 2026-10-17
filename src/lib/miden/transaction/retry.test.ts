@@ -7,7 +7,7 @@ import {
   USER_CANCELLED_TRANSACTION_REASON
 } from './constants';
 import { noteDeliveryWriteCount } from './helper';
-import { __resetNoteDeliverySweepForTests, sweepNoteDeliveries } from './note-delivery-sweep';
+import { __resetNoteDeliverySweepForTests, MAX_RELAY_ATTEMPTS, sweepNoteDeliveries } from './note-delivery-sweep';
 import {
   UnverifiableSendRetryError,
   isCancellableTransaction,
@@ -258,6 +258,27 @@ describe('requeueFailedTransaction - a send landed on its verified transaction o
     });
     expect(row.completedAt).toBeGreaterThanOrEqual(landing);
     expect(noteDeliveryWriteCount()).toBe(writes + 1);
+    expect(await pushesAfterTheFirstWait(row.completedAt ?? landing)).toEqual([[NOTE, RECIPIENT]]);
+  });
+
+  it('starts the note on a clean schedule, not the one the row kept while it had nothing to push', async () => {
+    const landing = Math.floor(Date.now() / 1000);
+    const row = privateSend([unjudged()]);
+    // The sweep saw the empty root as inert: its attempts ran out and it stopped retries for good.
+    Object.assign(row, {
+      noteDelivery: 'undelivered',
+      relayAttempts: MAX_RELAY_ATTEMPTS,
+      nextRelayAt: landing + 24 * 60 * 60,
+      relayRetriesStopped: true
+    });
+    wireRow(row);
+
+    await requeueFailedTransaction('tx-1');
+
+    expect(row).toMatchObject({ status: ITransactionStatus.Completed, outputNoteIds: [NOTE] });
+    expect(row).not.toHaveProperty('relayAttempts');
+    expect(row).not.toHaveProperty('nextRelayAt');
+    expect(row).not.toHaveProperty('relayRetriesStopped');
     expect(await pushesAfterTheFirstWait(row.completedAt ?? landing)).toEqual([[NOTE, RECIPIENT]]);
   });
 

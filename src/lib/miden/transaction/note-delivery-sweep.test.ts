@@ -21,9 +21,11 @@ import {
   MAX_CONSECUTIVE_ABANDONED_PROBES,
   MAX_CONSECUTIVE_WATCHDOG_EVICTIONS
 } from 'lib/miden/sync-backoff';
+import { WalletMessageType } from 'lib/shared/types';
 
 import { INoteDeliveryState, ITransaction, ITransactionStatus, ITransactionType } from '../db/types';
 import { NoteTypeEnum } from '../types';
+import { noteDeliveryWriteCount } from './helper';
 import { __resetNoteDeliverySweepForTests, MAX_RELAY_ATTEMPTS, sweepNoteDeliveries } from './note-delivery-sweep';
 
 const NOW = 1_800_000_000;
@@ -90,6 +92,20 @@ jest.mock('./helper', () => ({
   recordNoteDelivery: (...args: RecordArgs) => mockRecord(...args)
 }));
 
+// jsdom has a `window`, so the realm reads as an extension page exactly when `isExtension()` holds.
+const mockIsExtension = jest.fn<boolean, []>();
+
+jest.mock('lib/platform', () => ({
+  ...jest.requireActual<typeof import('lib/platform')>('lib/platform'),
+  isExtension: () => mockIsExtension()
+}));
+
+const mockWakeWorker = jest.fn<Promise<unknown>, [unknown]>();
+
+jest.mock('lib/intercom/client', () => ({
+  createIntercomClient: () => ({ request: (payload: unknown) => mockWakeWorker(payload), subscribe: () => () => {} })
+}));
+
 /** A landed private send that owes a delivery, overridable per case. */
 const row = (overrides: Partial<ITransaction> = {}): ITransaction =>
   ({
@@ -120,6 +136,8 @@ beforeEach(() => {
   mockRelayById.mockResolvedValue(undefined);
   mockRecord.mockResolvedValue(undefined);
   mockTransportConfigured.mockReturnValue(true);
+  mockIsExtension.mockReturnValue(false);
+  mockWakeWorker.mockResolvedValue(undefined);
   jest.spyOn(console, 'info').mockImplementation(() => undefined);
   // What the last pass learned about when work is next due is module state, like the sweep's realm.
   __resetNoteDeliverySweepForTests();
@@ -1903,5 +1921,49 @@ describe('when a pass runs', () => {
 
     await expect(sweepNoteDeliveries()).resolves.toBeUndefined();
     expect(warn).toHaveBeenCalled();
+  });
+});
+
+// On the extension the sweep runs in the service worker, so a delivery write a page makes (Retry's landing, the in-app
+// reconciler's) moves a count the sweep never reads unless the page tells the worker (#1473).
+describe('a delivery write made in an extension page', () => {
+  const { recordNoteDelivery } = jest.requireActual<typeof import('./helper')>('./helper');
+
+  it('tells the service worker, where the sweep runs, once', async () => {
+    rows.push(row({ noteDelivery: 'pending' }));
+    mockIsExtension.mockReturnValue(true);
+    const writes = noteDeliveryWriteCount();
+
+    await recordNoteDelivery('tx-1', 'relayed', { ackedNoteIds: ['0xnote'] });
+
+    expect(noteDeliveryWriteCount()).toBe(writes + 1);
+    expect(mockWakeWorker).toHaveBeenCalledTimes(1);
+    expect(mockWakeWorker).toHaveBeenCalledWith({ type: WalletMessageType.NoteDeliveryWrittenRequest });
+  });
+
+  it('sends nothing on mobile and desktop, where the sweep reads the count the write moved', async () => {
+    rows.push(row({ nextRelayAt: NOW + 600 }));
+
+    await sweepNoteDeliveries();
+    await recordNoteDelivery('tx-1', 'pending');
+    await sweepNoteDeliveries();
+
+    expect(queries()).toBe(2);
+    expect(mockWakeWorker).not.toHaveBeenCalled();
+  });
+
+  it.each<[string, () => Promise<unknown>]>([
+    ['cannot be reached', () => Promise.reject(new Error('Could not establish connection'))],
+    ['never answers', () => new Promise<unknown>(() => {})]
+  ])('neither fails nor waits on the write when the worker %s', async (_case, answer) => {
+    rows.push(row({ noteDelivery: 'pending' }));
+    mockIsExtension.mockReturnValue(true);
+    mockWakeWorker.mockImplementation(answer);
+    const writes = noteDeliveryWriteCount();
+
+    await expect(recordNoteDelivery('tx-1', 'relayed')).resolves.toBeUndefined();
+
+    expect(rows[0]!.noteDelivery).toBe('relayed');
+    expect(noteDeliveryWriteCount()).toBe(writes + 1);
   });
 });
