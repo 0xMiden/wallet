@@ -56,6 +56,7 @@ import {
   resetMidenClient,
   withWasmClientLock
 } from '../sdk/miden-client';
+import { countNoteDeliveryWrite } from '../transaction/helper';
 import { MidenMessageType } from '../types';
 
 // frontStore is initialized lazily inside start() because with Vite's TLA stripping,
@@ -392,6 +393,11 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
       // Fire-and-forget — start processing asynchronously
       startTransactionProcessing().catch(err => console.error('[TransactionProcessor] Error:', err));
       return { type: WalletMessageType.ProcessTransactionsResponse };
+    case WalletMessageType.NoteDeliveryWrittenRequest:
+      // Counted, never a cleared idle finding: a running pass took its count before its query and writes that finding
+      // back when it ends, so only a count past the one it took makes the next sweep query.
+      countNoteDeliveryWrite();
+      return { type: WalletMessageType.NoteDeliveryWrittenResponse };
     case WalletMessageType.ReloadEndpointOverridesRequest:
       // Re-hydrate the override cache in THIS (service-worker) realm, then invalidate
       // every client that baked the old endpoints in at creation time. All three steps
