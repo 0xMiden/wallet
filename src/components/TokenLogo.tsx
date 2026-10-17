@@ -22,7 +22,7 @@ const TOKEN_LOGOS: Record<string, TokenMark> = {
 };
 
 const markOf = (symbol: string | undefined): TokenMark | undefined =>
-  symbol === undefined ? undefined : TOKEN_LOGOS[symbol === 'USDCX' ? 'USDC' : symbol];
+  symbol === undefined ? undefined : TOKEN_LOGOS[symbol.toUpperCase() === 'USDCX' ? 'USDC' : symbol];
 
 type TokenLogoSize = 'sm' | 'md' | 'lg' | 'xl' | '2xl';
 

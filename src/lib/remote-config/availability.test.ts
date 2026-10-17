@@ -139,7 +139,7 @@ it('requires the shared allocator only for Epoch operations', () => {
 });
 
 it.each<[string, DerivedPatch, BridgeFeature[]]>([
-  ['the testnet output faucet', { epoch: { midenUsdcFaucet: ABSENT } }, ['earnDeposit', 'fastBridgeIn']],
+  ['the testnet output faucet', { epoch: { midenUsdcFaucet: ABSENT } }, ['fastBridgeIn']],
   ['the Epoch EVM token', { epoch: { evmUsdc: ABSENT } }, ['fastBridgeOut', 'fastBridgeIn']],
   ['the service market', { epoch: { market: ABSENT } }, ['earnDeposit']],
   ['the L1 contract', { agglayer: { l1BridgeCode: ABSENT } }, ['bridgeIn']],
@@ -159,7 +159,7 @@ it('refuses an empty registry even when the account exists', () => {
 it.each<[string, DerivedPatch, BridgeFeature[]]>([
   ['allocator health', { epoch: { allocator: ERROR } }, ['earnDeposit', 'fastBridgeOut', 'fastBridgeIn']],
   ['indexer health', { agglayer: { indexer: ERROR } }, ['bridgeIn']],
-  ['the output faucet', { epoch: { midenUsdcFaucet: ERROR } }, ['earnDeposit', 'fastBridgeIn']],
+  ['the output faucet', { epoch: { midenUsdcFaucet: ERROR } }, ['fastBridgeIn']],
   ['the EVM token', { epoch: { evmUsdc: ERROR } }, ['fastBridgeOut', 'fastBridgeIn']],
   ['the service market', { epoch: { market: ERROR } }, ['earnDeposit']],
   ['the L1 contract', { agglayer: { l1BridgeCode: ERROR } }, ['bridgeIn']],
@@ -191,6 +191,19 @@ it.each<BridgeFeature>(['bridgeIn', 'fastBridgeIn', 'earnDeposit'])(
     });
   }
 );
+
+it.each<[Probe<never>, string]>([
+  [ABSENT, 'not-deployed'],
+  [ERROR, 'service-down']
+])('still needs the output faucet for Earn off Testnet (%p)', (midenUsdcFaucet, reason) => {
+  const snapshot = withProbes({ epoch: { midenUsdcFaucet } });
+  if (!snapshot.config) throw new Error('The test document is missing');
+  snapshot.config.network = 'devnet';
+  expect(featureAvailability('earnDeposit', snapshot, NO_OVERRIDES, 11155111)).toMatchObject({
+    state: 'unavailable',
+    reason
+  });
+});
 
 it('reports an absent dependency before a failed call', () => {
   const snapshot = withProbes({ epoch: { allocator: ERROR, midenUsdcFaucet: ABSENT } });
@@ -228,14 +241,16 @@ describe('the E2E collateral faucet', () => {
   it('replaces the document output and its probe', () => {
     expect(featureAvailability('earnDeposit', noFaucet(), collateral)).toEqual(AVAILABLE);
     expect(featureAvailability('fastBridgeIn', noFaucet(), collateral)).toEqual(AVAILABLE);
-    expect(featureAvailability('earnDeposit', noFaucet(), NO_OVERRIDES)).toMatchObject({ reason: 'not-configured' });
+    expect(featureAvailability('earnDeposit', noFaucet(), NO_OVERRIDES)).toEqual(AVAILABLE);
+    expect(featureAvailability('fastBridgeIn', noFaucet(), NO_OVERRIDES)).toMatchObject({ reason: 'not-configured' });
   });
   it('reads the installed override only for E2E', () => {
     const saved = process.env.MIDEN_E2E_TEST;
     process.env.MIDEN_E2E_TEST = 'true';
     try {
       setEarnCollateralFaucetOverride({ faucetId: '0xab000000000000ab00000000000001' });
-      expect(featureAvailability('earnDeposit', noFaucet())).toEqual(AVAILABLE);
+      // Testnet Earn skips the output faucet anyway, so only Fast bridge-in shows the override was read.
+      expect(featureAvailability('fastBridgeIn', noFaucet())).toEqual(AVAILABLE);
     } finally {
       _resetE2eOverridesForTest();
       if (saved === undefined) delete process.env.MIDEN_E2E_TEST;

@@ -207,7 +207,9 @@ export function useEarnPositions(): {
         ...mapEarnPosition(position),
         stale: Boolean(readError) || failedOwners.has(position.owner)
       })),
-      vaults: (data?.vaults ?? []).map(mapEarnVault),
+      vaults: (data?.vaults ?? []).map(vault =>
+        mapEarnVault(vault, config.network === 'testnet' ? 'USDCx' : undefined)
+      ),
       summary: data ? buildEarnSummary(data.positions) : loadingEarnSummary(),
       isLoading,
       // Surface a load failure so the UI can show "couldn't load - retry" instead
@@ -222,5 +224,5 @@ export function useEarnPositions(): {
         if (!isValidating) void mutate();
       }
     };
-  }, [data, isLoading, readError, notOnNetwork, isValidating, mutate]);
+  }, [data, isLoading, readError, notOnNetwork, isValidating, mutate, config.network]);
 }
