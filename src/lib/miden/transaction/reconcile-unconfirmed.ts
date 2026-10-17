@@ -15,6 +15,7 @@ import { TRANSACTION_NEVER_COMMITTED_ERROR } from './constants';
 import {
   applyVerifiedLanding,
   countNoteDeliveryWrite,
+  landedValueRowFields,
   reportVerifiedLanding,
   storedNoteIds,
   verifiedLandingRowFields
@@ -169,6 +170,7 @@ async function writeLanding(rowId: string, judgement: RowJudgement, accountKey: 
     });
     const target = landedDeliveryTarget(fresh, landing, landedEntry);
     if (target !== undefined) {
+      const replacesNotes = storedNoteIds(fresh.outputNoteIds).length > 0;
       fresh.outputNoteIds = target;
       // Its completion records a note at the root before relaying it, so this one was never pushed: its delivery
       // window opens now, as Retry's landing opens it, and the attempts, the next push and the stopped mark of the
@@ -177,6 +179,16 @@ async function writeLanding(rowId: string, judgement: RowJudgement, accountKey: 
       delete fresh.relayAttempts;
       delete fresh.nextRelayAt;
       delete fresh.relayRetriesStopped;
+      // Nor is the outcome the sweep recorded for another attempt's notes. On an empty root a recorded outcome is
+      // the relay's own (#1233) and stays.
+      if (replacesNotes) {
+        fresh.noteDelivery = 'undelivered';
+        fresh.displayMessage = landedValueRowFields(fresh).displayMessage;
+        delete fresh.relayVerifyPushes;
+        delete fresh.relayOutageDeferred;
+        delete fresh.relayAckedNoteIds;
+        delete fresh.relayDeadNoteIds;
+      }
     }
     await Repo.transactions.put(fresh);
     landed = fresh;
