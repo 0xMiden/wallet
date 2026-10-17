@@ -1,10 +1,10 @@
-import { useEffect, useState, useSyncExternalStore } from 'react';
+import { useEffect, useSyncExternalStore } from 'react';
 
 import useNativeFeeFaucetId from 'app/hooks/useNativeFeeFaucetId';
 import { usePageActive } from 'app/layouts/page-active';
 import { selectEarnCollateral } from 'lib/epoch/earn-collateral';
 import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
-import { getNativeAssetMetadata } from 'lib/miden-chain/native-asset';
+import { getNativeAssetMetadata, getNativeAssetMetadataSync, onNativeAssetChanged } from 'lib/miden-chain/native-asset';
 import { getE2eOverrides, subscribeE2eOverrides } from 'lib/remote-config/e2e-overrides';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 
@@ -15,24 +15,15 @@ export function useEarnCollateral() {
   const nativeId = useNativeFeeFaucetId();
   const rpc = getEffectiveRpcUrl();
   const overrides = useSyncExternalStore(subscribeE2eOverrides, getE2eOverrides);
-  const [, refresh] = useState(0);
+  // The module emits whenever it adopts metadata, so the consumer re-renders only when the metadata changes.
+  const metadata = useSyncExternalStore(onNativeAssetChanged, getNativeAssetMetadataSync);
   useEffect(() => {
-    if (!active || snapshot.network !== 'testnet' || !nativeId || overrides.earnCollateralFaucet) return;
-    let cancelled = false;
-    const load = () => {
-      void getNativeAssetMetadata().then(
-        () => {
-          if (!cancelled) refresh(value => value + 1);
-        },
-        () => {}
-      );
-    };
+    if (!active || snapshot.network !== 'testnet' || !nativeId || overrides.earnCollateralFaucet || metadata) return;
+    // Asked again only while missing: a failed read adopts nothing, so nothing would emit.
+    const load = () => void getNativeAssetMetadata().catch(() => {});
     load();
     const timer = setInterval(load, 30_000);
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
-  }, [active, snapshot.network, nativeId, rpc, overrides.earnCollateralFaucet]);
+    return () => clearInterval(timer);
+  }, [active, snapshot.network, nativeId, rpc, overrides.earnCollateralFaucet, metadata]);
   return selectEarnCollateral(snapshot);
 }
