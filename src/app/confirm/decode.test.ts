@@ -3,6 +3,7 @@ import { Note, NoteFile, TransactionRequest, TransactionResult, TransactionSumma
 import {
   declaredRequestToView,
   executedBytesToView,
+  importedNoteAssets,
   netOutflowByFaucet,
   simulatedBytesToView,
   summaryBytesToView,
@@ -412,6 +413,34 @@ describe('declaredRequestToView', () => {
     const view = declaredRequestToView('reqB64', ['bad']);
     expect(view.incoming).toEqual([]);
     expect(view.inputNotesConsumed).toBe(1);
+  });
+});
+
+// The custom-transaction simulation decodes inside its WASM hold, where a trap has to reach the lock to retire the
+// client; the confirm sheet's own decode runs outside any hold and keeps skipping the entry.
+describe('importedNoteAssets', () => {
+  const trap = new WebAssembly.RuntimeError('unreachable');
+  const throwTrap = () => {
+    throw trap;
+  };
+  const traps: Record<string, () => void> = {
+    'NoteFile.deserialize': () => (NoteFile.deserialize as jest.Mock).mockImplementationOnce(throwTrap),
+    'Note.deserialize': () => (Note.deserialize as jest.Mock).mockImplementationOnce(throwTrap),
+    'the asset read': () => (Note.deserialize as jest.Mock).mockReturnValueOnce({ assets: throwTrap })
+  };
+
+  it.each(Object.keys(traps))('rethrows a trap in %s only when asked to', name => {
+    traps[name]!();
+    expect(() => importedNoteAssets('imported', { rethrowTraps: true })).toThrow(trap);
+    traps[name]!();
+    expect(importedNoteAssets('imported')).toEqual([]);
+  });
+
+  it('still skips an entry that fails ordinarily when asked to rethrow traps', () => {
+    (Note.deserialize as jest.Mock).mockImplementationOnce(() => {
+      throw new Error('bad note bytes');
+    });
+    expect(importedNoteAssets('imported', { rethrowTraps: true })).toEqual([]);
   });
 });
 

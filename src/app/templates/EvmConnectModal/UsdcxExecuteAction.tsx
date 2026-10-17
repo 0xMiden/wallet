@@ -92,7 +92,7 @@ export const UsdcxExecuteAction: React.FC<UsdcxExecuteActionProps> = ({
         className="w-full max-w-none"
       />
       {error && (
-        <p role="alert" className="text-center text-sm text-negative-ink break-words">
+        <p role="alert" className="text-center text-sm text-negative-ink wrap-anywhere select-text">
           {error}
         </p>
       )}

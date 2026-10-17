@@ -54,7 +54,7 @@ Three more things travel with each message as part of the technical envelope our
 
 ### Crash reports
 
-Handled transaction failures are also reported when sharing is enabled, including failures after submission and transactions whose network outcome remains unknown. These reports contain only fixed transaction, stage and execution-route categories, bundled software versions, the network the App was on, known public protocol error identities, the fixed failure reasons and refusal codes listed below, and authentication-code compatibility, preparation, layout and commitment-match categories calculated locally. They never include the transaction request, an account or transaction identifier, addresses, amounts, signatures, salts, commitments or dApp URLs. Unknown assertion numbers and raw failure text are not sent. Historical rows imported from a backup do not generate new failure reports.
+Handled transaction failures are also reported when sharing is enabled, including failures after submission and transactions whose network outcome remains unknown. These reports contain only fixed transaction, stage and execution-route categories, bundled software versions, the network the App was on, known public protocol error identities, the fixed failure reasons, refusal codes and claim origins listed below, and authentication-code compatibility, preparation, layout and commitment-match categories calculated locally. They never include the transaction request, an account or transaction identifier, addresses, amounts, signatures, salts, commitments or dApp URLs. Unknown assertion numbers and raw failure text are not sent. Historical rows imported from a backup do not generate new failure reports.
 
 A failure report can also say why the transaction failed, using only these fixed values:
 
@@ -70,6 +70,8 @@ A failure report can also say why the transaction failed, using only these fixed
 - **A broad category**, when nothing above names the failure: one of `network`, `rpc`, `proving`, `validation`, `storage`, `auth`, `timeout` or `unknown`, chosen on the device by reading the failure's text, which is never sent.
 
 None of these carries the text of the refusal, the guardian's response, or the address of the server that sent it.
+
+A failed claim of an incoming transfer also says what queued the claim, using only these fixed values: `auto_consume` (the App claimed the transfer on its own), `claim` (you accepted one transfer), `claim_all` (you accepted several transfers at once), `dapp` (a connected site asked to claim it), `bridge_reclaim` (you took back the funds of a failed bridge transfer), `swap_settlement` (the App settled one of your swaps), or `rotation_funding` (the App claimed it to activate the account's everyday key). A claim queued any other way, or before the App recorded this, is sent as `other`. It never names the transfer, the site or the account.
 
 A failed inbound bridge, a deposit from another network into Miden, also carries these fixed values:
 

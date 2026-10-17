@@ -1392,7 +1392,8 @@ describe('Explore', () => {
         'mtst1account',
         expect.objectContaining({ id: 'actual-note' }),
         expect.any(Boolean),
-        undefined,
+        false,
+        'auto_consume',
         expect.any(Function)
       );
       expect(mockInitiateConsumeTransaction).toHaveBeenCalledTimes(1);
@@ -1417,7 +1418,8 @@ describe('Explore', () => {
         'mtst1account',
         expect.objectContaining({ id: 'n1' }),
         true, // isDelegatedProvingEnabled
-        undefined,
+        false,
+        'auto_consume',
         expect.any(Function)
       );
       expect(mockMutateClaimableNotes).toHaveBeenCalled();
@@ -1462,7 +1464,8 @@ describe('Explore', () => {
         'mtst1account',
         expect.objectContaining({ id: 'n1' }),
         false,
-        undefined,
+        false,
+        'auto_consume',
         expect.any(Function)
       );
       expect(mockRequestSWTransactionProcessing).not.toHaveBeenCalled();
@@ -1498,7 +1501,7 @@ describe('Explore', () => {
       // reads, and a guard that answers no at the write refuses it.
       mockInitiateConsumeNotesTransaction.mockImplementation(async (...args: any[]) => {
         mockWalletReady = false;
-        const canSign = args[6];
+        const canSign = args[7];
         if (typeof canSign === 'function' && !canSign()) throw new Error('Claim not queued');
         written.push(args[1].map((n: { id: string }) => n.id));
         return 'batch-tx';

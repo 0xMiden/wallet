@@ -154,6 +154,7 @@ const Explore: FC = () => {
         false,
         true,
         verificationBaseFee,
+        'auto_consume',
         isWalletReadyNow
       );
     } catch (batchErr) {
@@ -165,7 +166,8 @@ const Explore: FC = () => {
             account.publicKey,
             note,
             isDelegatedProvingEnabled,
-            undefined,
+            false,
+            'auto_consume',
             isWalletReadyNow
           );
         } catch (noteErr) {

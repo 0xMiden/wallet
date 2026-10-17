@@ -837,6 +837,7 @@ async function runSync(force: boolean): Promise<void> {
               false,
               true,
               nativeAutoConsumeBaseFee,
+              'auto_consume',
               canSign
             );
           } catch (batchErr) {
@@ -844,7 +845,7 @@ async function runSync(force: boolean): Promise<void> {
             console.warn('[native-auto-consume] batch enqueue failed, falling back to per-note enqueue', batchErr);
             for (const note of nativeAutoConsumeNotes) {
               try {
-                await initiateConsumeTransaction(accountPubKey, note, delegate, undefined, canSign);
+                await initiateConsumeTransaction(accountPubKey, note, delegate, false, 'auto_consume', canSign);
               } catch (noteErr) {
                 if (!canSign()) throw noteErr;
                 console.warn('[native-auto-consume] enqueue failed for note', note.id, noteErr);

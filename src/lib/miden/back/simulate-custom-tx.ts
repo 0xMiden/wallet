@@ -2,7 +2,7 @@ import { TransactionRequest } from '@miden-sdk/miden-sdk/lazy';
 import { executeForSummaryAtTip } from '@openzeppelin/miden-multisig-client';
 
 import { importedNoteAssets, type AssetAmount } from 'app/confirm/decode';
-import { importedNoteIds, quarantineNoteIds } from 'lib/miden/note-quarantine';
+import { importedNoteIds, type NoteDecodeOptions, quarantineNoteIds } from 'lib/miden/note-quarantine';
 import { prepareCustomRequestBytes } from 'lib/miden/sdk/custom-request';
 import {
   isAlreadyAuthorizedError,
@@ -49,6 +49,10 @@ export interface SimulateCustomTxResult {
   introducedCount?: number;
 }
 
+// Every decode of the dApp's note bytes runs inside the dry run's hold, so a trap is rethrown for the lock to retire
+// the client rather than skipped like bytes that do not parse.
+const IN_HOLD: NoteDecodeOptions = { rethrowTraps: true };
+
 /**
  * Assets of the notes this request introduced, read from the request's own bytes.
  *
@@ -59,8 +63,8 @@ function introducedAssets(importNotes: string[] | undefined, introducedIds: stri
   if (!importNotes || introducedIds.length === 0) return [];
   const introduced = new Set(introducedIds);
   return importNotes.flatMap(noteB64 => {
-    const [id] = importedNoteIds([noteB64]);
-    return id !== undefined && introduced.has(id) ? importedNoteAssets(noteB64) : [];
+    const [id] = importedNoteIds([noteB64], IN_HOLD);
+    return id !== undefined && introduced.has(id) ? importedNoteAssets(noteB64, IN_HOLD) : [];
   });
 }
 
@@ -168,16 +172,17 @@ export async function simulateCustomTransaction(input: SimulateCustomTxInput): P
         // nothing, so quarantining by id alone would let any dApp hide the
         // user's own claimable notes just by opening a confirm dialog they
         // then cancel. See lib/miden/note-quarantine.ts for the full lifecycle.
-        const introducedIds = await idsNotAlreadyHeld(client, importedNoteIds(input.importNotes), hold);
-        await quarantineNoteIds(introducedIds);
+        const introducedIds = await idsNotAlreadyHeld(client, importedNoteIds(input.importNotes, IN_HOLD), hold);
         // The same provenance check decides what the spending-limit policy may treat as value the
         // request BROUGHT IN, and so may offset against what leaves. Notes the wallet already held
         // are the user's own, and crediting them let a dApp consume a pending 1000 and send 1050
         // for a charge of 50. Computed here because this is the only place that knows which ids
         // were already held AND holds the bytes to read their assets from; it never crosses the
-        // intercom boundary, so a request cannot claim membership.
+        // intercom boundary, so a request cannot claim membership. Read before the quarantine
+        // write, so a trap while decoding the bytes fails the dry run before it writes anything.
         introducedCredit = introducedAssets(input.importNotes, introducedIds);
         introducedCount = introducedIds.length;
+        await quarantineNoteIds(introducedIds);
         // The quarantine write is Dexie, not WASM — but it is still an await,
         // and the watchdog does not pause for it, so the check has to sit
         // between it and the next WASM call rather than before it (same
