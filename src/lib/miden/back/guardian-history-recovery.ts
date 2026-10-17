@@ -40,6 +40,22 @@ class HistoryInterrupted extends Error {}
 const isOwnOperator = (ownOperators: string[], operator: string) =>
   ownOperators.some(own => sameGuardianEndpoint(own, operator));
 
+// An upgrade replaces the stored row with what recovery derives, and recovery derives no settlement stamp, so a
+// recovered swap row keeps the ones already written on it.
+function withStoredSettlementStamps(record: ITransaction, stored: ITransaction): ITransaction {
+  if (record.type !== 'swap' || stored.type !== 'swap') return record;
+  const { settledAt, reclaimedAt, expiryTriggeredAt } = stored.extraInputs ?? {};
+  return {
+    ...record,
+    extraInputs: {
+      ...record.extraInputs,
+      ...(settledAt != null ? { settledAt } : {}),
+      ...(reclaimedAt != null ? { reclaimedAt } : {}),
+      ...(expiryTriggeredAt != null ? { expiryTriggeredAt } : {})
+    }
+  };
+}
+
 // An eviction, an offscreen abort or a terminated client of a summary or local result-commitment decode the pass was
 // not interrupted for. It says the decode did not finish, not that the bytes failed a check, so the source is filed
 // 'network' and never spends the invalid-data cap.
@@ -478,7 +494,11 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
                       record.recovery?.completeness === 'decoded' &&
                       (match.recovery.completeness === 'partial' || match.recovery.version < GUARDIAN_HISTORY_VERSION)
                     ) {
-                      const upgraded = { ...record, id: match.id, recovery: { ...record.recovery, operators } };
+                      const upgraded = {
+                        ...withStoredSettlementStamps(record, match),
+                        id: match.id,
+                        recovery: { ...record.recovery, operators }
+                      };
                       await transactions.put(upgraded);
                       Object.assign(match, upgraded);
                     } else {

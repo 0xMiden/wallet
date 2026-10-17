@@ -192,7 +192,9 @@ export const swapSettlementOf = (tx: ITransaction): IHistoryEntry['swapSettlemen
   const extra = tx.extraInputs ?? {};
   if (extra.settledAt != null) return undefined;
   if (extra.reclaimedAt != null) return 'reclaimed';
-  if (extra.expiryTriggeredAt != null && extra.autoConsume !== false) return 'reclaiming';
+  // Returning funds only for an order settlement acts on: it never settles a restored row, so that stamp stays put.
+  if (extra.expiryTriggeredAt != null && extra.autoConsume !== false && extra.orderId != null && !tx.restoredFromBackup)
+    return 'reclaiming';
   if (extra.autoConsume !== false && extra.orderId != null && extra.expiresAt != null) return 'pending';
   return undefined;
 };

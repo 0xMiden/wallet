@@ -18,7 +18,7 @@ import type { ConsumableNote, NoteType } from '../types';
 import { NoteTypeEnum } from '../types';
 import { GuardianHistoryDataError } from './history-errors';
 
-export const GUARDIAN_HISTORY_VERSION = 4;
+export const GUARDIAN_HISTORY_VERSION = 5;
 export { GuardianHistoryDataError };
 
 export interface GuardianHistoryRecovery {
@@ -316,8 +316,12 @@ export function recoveredHistoryRecord(
       visibility: note.noteType
     }));
   // A Guardian zero-fill reclaim is proposed as a custom transaction. Recorded as the consume it is, it carries its
-  // input notes where reconcileRecoveredSwaps and every settlement reader look for a reclaim.
-  const type = action === 'execute' && reclaimsOwnSwapOrder(accountId, inputNotes) ? 'consume' : action;
+  // input notes where reconcileRecoveredSwaps and every settlement reader look for a reclaim. One that also creates a
+  // user note (the fee note is split off) did more than reclaim, and as a consume it would drop that note.
+  const type =
+    action === 'execute' && outputNotes.length === 0 && reclaimsOwnSwapOrder(accountId, inputNotes)
+      ? 'consume'
+      : action;
   const selectedNotes = transferNotes(type, inputNotes, outputNotes);
   const totals = sumHistoryAssets(selectedNotes);
   const first = totals.length === 1 ? totals[0] : undefined;
