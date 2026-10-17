@@ -77,8 +77,14 @@ test.describe('swap: create-side guards', () => {
     await walletA.createNewWallet();
     await walletB.createNewWallet();
 
-    // A funded with 1000 SWPA (fundSwapPair default); registry + price feed set.
-    await fundSwapPair(midenCli, walletA, walletB, { offerSymbol: 'SWPA', requestSymbol: 'SWPB' }, timeline);
+    // A funded with 1000 SWPA (fundSwapPair default); registry set. The document and quote answers are the ones above.
+    await fundSwapPair(
+      midenCli,
+      walletA,
+      walletB,
+      { offerSymbol: 'SWPA', requestSymbol: 'SWPB', stubQuoteService: false },
+      timeline
+    );
 
     await page.goto(`chrome-extension://${extensionId}/fullpage.html#/swap`);
     await expect(page.getByTestId('swap-flow')).toBeVisible({ timeout: 30_000 });
