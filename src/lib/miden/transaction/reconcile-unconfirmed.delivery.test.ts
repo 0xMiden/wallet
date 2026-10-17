@@ -40,6 +40,7 @@ const TIP = hex(12);
 const NULLIFIER = hex(30);
 const NOTE = hex(0xabc20);
 const OTHER_NOTE = hex(0xabc21);
+const SIBLING_NOTE = hex(0xabc22);
 const RECIPIENT = 'mtst1recipient';
 const UNDELIVERED_SEND = 'Sent - the private note could not be delivered';
 const TRANSPORT_DISABLED =
@@ -219,6 +220,96 @@ describe('a send landed from its submit evidence owes the sweep its note (#1473)
     expect((await read())?.relayRetriesStopped).toBeUndefined();
     expect(await pushesAfterTheFirstWait()).toEqual([[NOTE, RECIPIENT]]);
     expect((await read())?.relayRetriesStopped).toBeUndefined();
+  });
+
+  it('the landed note does not inherit the outcome, acknowledgements, dead notes, verification count or outage mark of the note it replaces', async () => {
+    await Repo.transactions.put(
+      retriedSend({
+        noteDelivery: 'confirmed',
+        displayMessage: 'Sent',
+        relayAckedNoteIds: [OTHER_NOTE],
+        relayDeadNoteIds: [OTHER_NOTE],
+        relayVerifyPushes: 2,
+        relayOutageDeferred: true
+      })
+    );
+
+    expect((await land(noteOnChain)).kind).toBe('landed');
+    const row = await read();
+    expect(row).toMatchObject({ noteDelivery: 'undelivered', displayMessage: UNDELIVERED_SEND, outputNoteIds: [NOTE] });
+    expect(row?.relayAckedNoteIds).toBeUndefined();
+    expect(row?.relayDeadNoteIds).toBeUndefined();
+    expect(row?.relayVerifyPushes).toBeUndefined();
+    expect(row?.relayOutageDeferred).toBeUndefined();
+
+    expect(await pushesAfterTheFirstWait()).toEqual([[NOTE, RECIPIENT]]);
+    expect((await read())?.relayAckedNoteIds).toEqual([NOTE]);
+
+    // The acknowledgement arms the first verification push 5 minutes on; the replaced note's count would skip it.
+    jest.spyOn(Date, 'now').mockReturnValue((NOW + 20 * 60) * 1000);
+    await sweepNoteDeliveries();
+    expect(mockRelayById.mock.calls).toEqual([
+      [NOTE, RECIPIENT],
+      [NOTE, RECIPIENT]
+    ]);
+    expect((await read())?.relayVerifyPushes).toBe(1);
+  });
+
+  // An outage mark makes a row due as soon as a push earlier in the same pass succeeds.
+  it("the replaced note's outage mark does not pull the landed note forward when another row's push succeeds", async () => {
+    jest.spyOn(Date, 'now').mockReturnValue(NOW * 1000);
+    await Repo.transactions.put(retriedSend({ relayOutageDeferred: true }));
+    await Repo.transactions.put({
+      id: 'tx-2',
+      type: 'send',
+      accountId: 'mtst1sibling_s',
+      secondaryAccountId: RECIPIENT,
+      status: ITransactionStatus.Completed,
+      initiatedAt: NOW - 320,
+      completedAt: NOW - 300,
+      noteType: NoteTypeEnum.Private,
+      noteDelivery: 'undelivered',
+      outputNoteIds: [SIBLING_NOTE],
+      relayAttempts: 1,
+      nextRelayAt: NOW + 60,
+      displayMessage: UNDELIVERED_SEND,
+      displayIcon: 'SEND'
+    });
+
+    expect((await land(noteOnChain)).kind).toBe('landed');
+    expect((await read())?.relayOutageDeferred).toBeUndefined();
+    await sweepNoteDeliveries();
+    expect((await read())?.nextRelayAt).toBe(NOW + 5 * 60);
+
+    jest.spyOn(Date, 'now').mockReturnValue((NOW + 2 * 60) * 1000);
+    await sweepNoteDeliveries();
+    expect(mockRelayById.mock.calls).toEqual([[SIBLING_NOTE, RECIPIENT]]);
+    expect((await read())?.nextRelayAt).toBe(NOW + 5 * 60);
+  });
+
+  it('a landing that keeps the note at the root keeps its relayed outcome, acknowledgements and marks', async () => {
+    await Repo.transactions.put(
+      keptSend({
+        noteDelivery: 'relayed',
+        displayMessage: 'Sent',
+        outputNoteIds: [NOTE],
+        relayAckedNoteIds: [NOTE],
+        relayVerifyPushes: 1,
+        relayOutageDeferred: true
+      })
+    );
+
+    expect((await land(noteOnChain)).kind).toBe('landed');
+    expect(await read()).toMatchObject({
+      status: ITransactionStatus.Completed,
+      noteDelivery: 'relayed',
+      displayMessage: 'Sent',
+      outputNoteIds: [NOTE],
+      relayAckedNoteIds: [NOTE],
+      relayVerifyPushes: 1,
+      relayOutageDeferred: true,
+      completedAt: NOW - 100
+    });
   });
 
   // The sweep ages its 72 h retry window from completedAt, which the Unconfirmed write stamped.
