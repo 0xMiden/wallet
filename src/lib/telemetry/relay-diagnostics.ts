@@ -47,6 +47,7 @@ let connectModalOpen = false;
 let everConnected = false;
 let connectivityChangedAt: number | undefined;
 let failures = 0;
+const reportedBuckets = new Set<RelayDiagnostics['relayFailures']>();
 
 export function recordRelaySurface(next: RelaySurface): void {
   if (RELAY_SURFACES.includes(next)) surface = next;
@@ -80,12 +81,9 @@ function relayHost(message: string): (typeof RELAY_HOSTS)[number] | undefined {
   return RELAY_HOSTS.find(host => host === hostname);
 }
 
-// Only the failure that enters a bucket is reported: a blip sends one report, a stuck window three.
-function enteredBucket(count: number): RelayDiagnostics['relayFailures'] | undefined {
+function failureBucket(count: number): RelayDiagnostics['relayFailures'] {
   if (count === 1) return '1';
-  if (count === 2) return '2-5';
-  if (count === 6) return '6+';
-  return undefined;
+  return count <= 5 ? '2-5' : '6+';
 }
 
 /** `undefined` unless `message` is WalletConnect's failed relay socket on one of WalletConnect's own relay hosts. */
@@ -94,9 +92,12 @@ export function classifyRelayFailure(message: unknown): RelayFailure | undefined
   const host = relayHost(message);
   if (host === undefined) return undefined;
   failures++;
-  const bucket = enteredBucket(failures);
+  const bucket = failureBucket(failures);
   const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
-  if (bucket === undefined || offline) return { report: false };
+  // Each bucket is reported once, by its first failure while online: a blip sends one report, a stuck window three,
+  // and a failure while offline uses none of them up.
+  if (offline || reportedBuckets.has(bucket)) return { report: false };
+  reportedBuckets.add(bucket);
   const visibility =
     typeof document === 'undefined' ? undefined : RELAY_VISIBILITY.find(state => state === document.visibilityState);
   const justChanged =
@@ -123,4 +124,5 @@ export function __resetRelayDiagnosticsForTest(): void {
   everConnected = false;
   connectivityChangedAt = undefined;
   failures = 0;
+  reportedBuckets.clear();
 }

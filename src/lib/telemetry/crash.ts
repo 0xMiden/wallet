@@ -120,7 +120,7 @@ function buildIntegrations() {
   dedupe.processEvent = (event, hint, activeClient) => {
     // Guarded terminal writes already deduplicate no-ops; separate failed attempts must each be counted.
     if (event.exception?.values?.some(value => value.type === 'WalletTransactionFailure')) return event;
-    // A relay report is sent only as its window enters a new failure bucket, and repeats the last one's text and frames.
+    // A relay report is sent once per failure bucket of its window, and repeats the last one's text and frames.
     const original = hint.originalException;
     if (original instanceof Error && capturedDiagnostics.get(original)?.service === RELAY_SERVICE) return event;
     return processEvent ? processEvent(event, hint, activeClient) : event;
