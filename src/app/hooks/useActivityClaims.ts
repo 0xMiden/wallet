@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 
 import { useClaimNotes } from 'app/hooks/useClaimNotes';
 import useNativeFeeFaucetId from 'app/hooks/useNativeFeeFaucetId';
+import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
 import type { PendingActivityItem, PendingActivityStatus } from 'app/templates/history/PendingActivityCard';
 import { subscribeToLiveQuery } from 'lib/dexie-live-query';
 import {
@@ -14,7 +15,8 @@ import {
 } from 'lib/miden/activity';
 import { agglayerDeliverySenders } from 'lib/miden/activity/bridge-in';
 import { ITransactionStatus } from 'lib/miden/db/types';
-import { useMidenContext } from 'lib/miden/front';
+import { claimFeeShortfalls } from 'lib/miden/fees/spendable';
+import { useAllBalances, useAllTokensBaseMetadata, useMidenContext } from 'lib/miden/front';
 import { groupNotesForClaim } from 'lib/miden/front/claim-groups';
 import { reportNoteClaim } from 'lib/miden/front/claim-telemetry';
 import type { ClaimableNoteWithMetadata } from 'lib/miden/front/claimable-notes';
@@ -60,6 +62,22 @@ function subscribe(listener: () => void) {
   };
 }
 
+/**
+ * The claims the queue runs before a new one, one transaction per row: they credit the vault, and pay
+ * a fee, before it runs. A held row has already run, so it is neither.
+ */
+function queuedClaims(items: readonly PendingActivityItem[]): ClaimableNoteWithMetadata[][] {
+  const byRow = new Map<string, ClaimableNoteWithMetadata[]>();
+  for (const item of items) {
+    if (item.status !== 'claiming' || item.held === true) continue;
+    const row = item.txId ?? item.note.id;
+    const notes = byRow.get(row);
+    if (notes) notes.push(item.note);
+    else byRow.set(row, [item.note]);
+  }
+  return [...byRow.values()];
+}
+
 /** Test-only: forget every account's claims. */
 export function __resetActivityClaimsForTest(): void {
   slots.clear();
@@ -69,6 +87,11 @@ export function useActivityClaims() {
   const claim = useClaimNotes();
   const { signTransaction } = useMidenContext();
   const nativeFaucetId = useNativeFeeFaucetId();
+  const allTokensBaseMetadata = useAllTokensBaseMetadata();
+  const { data: balances, isLoading: balancesLoading } = useAllBalances(claim.account.publicKey, allTokensBaseMetadata);
+  const verificationBaseFee = useVerificationBaseFee();
+  // Before the first balance read lands the rows are a zero placeholder, which would refuse every claim.
+  const feeGateBaseFee = balancesLoading ? null : verificationBaseFee;
   const key = `${claim.account.publicKey}|${getEffectiveRpcUrl()}|${getEffectiveNetworkName()}`;
   const attempts = useSyncExternalStore(subscribe, () => slots.get(key)?.attempts ?? noAttempts);
   const setAttempts = (update: (previous: Attempts) => Attempts) => updateAttempts(key, update);
@@ -171,7 +194,19 @@ export function useActivityClaims() {
         continue;
       result.set(id, { ...attempt, note: current?.note ?? attempt.note, ...heldFields(attempt.status, attempt.txId) });
     }
-    return [...result.values()];
+    const built = [...result.values()];
+    const queued = queuedClaims(built);
+    // Each card's Accept claims its note alone, after whatever is already queued.
+    return built.map(item =>
+      (item.status === 'pending' || item.status === 'failed') && item.note.fromCache !== true
+        ? {
+            ...item,
+            cannotPayFee:
+              claimFeeShortfalls([...queued, [item.note]], balances, nativeFaucetId, feeGateBaseFee)[queued.length] ===
+              true
+          }
+        : item
+    );
   }, [
     claim.safeClaimableNotes,
     claim.checkingNoteIds,
@@ -179,8 +214,26 @@ export function useActivityClaims() {
     claim.retriableNoteIds,
     attempts,
     heldTxIds,
-    retryErrors
+    retryErrors,
+    balances,
+    nativeFaucetId,
+    feeGateBaseFee
   ]);
+
+  // Which of `transactions` are certain to fail on the fee when queued after the claims already queued.
+  const feeShortfalls = (transactions: readonly ClaimableNoteWithMetadata[][]): boolean[] => {
+    const queued = queuedClaims(items);
+    return claimFeeShortfalls([...queued, ...transactions], balances, nativeFaucetId, feeGateBaseFee).slice(
+      queued.length
+    );
+  };
+
+  // Accept All's own grouping without its delivery split: a delivery claimed alone is never native, so the
+  // split only adds transactions after the first and cannot change whether the first can pay.
+  const cannotPayFee = (notes: readonly ClaimableNoteWithMetadata[]): boolean => {
+    const refused = feeShortfalls(groupNotesForClaim(notes, nativeFaucetId));
+    return refused.length > 0 && refused.every(Boolean);
+  };
 
   const accept = async (note: ClaimableNoteWithMetadata) => {
     // A cache-first entry is displayed before any live read has confirmed it, so it
@@ -188,6 +241,8 @@ export function useActivityClaims() {
     if (note.fromCache) return;
     const item = items.find(candidate => candidate.note.id === note.id);
     if (!item || (item.status !== 'pending' && item.status !== 'failed') || busy.has(note.id)) return;
+    // The card withholds Accept, so this is a tap that raced the balance landing.
+    if (item.cannotPayFee === true) return;
     busy.add(note.id);
     setAttempts(previous => new Map(previous).set(note.id, { note, status: 'claiming' }));
     try {
@@ -225,6 +280,7 @@ export function useActivityClaims() {
     });
     if (accepted.length === 0) return;
     for (const note of accepted) busy.add(note.id);
+    const before = slotOf(key).attempts;
     setAttempts(previous => {
       const next = new Map(previous);
       for (const note of accepted) next.set(note.id, { note, status: 'claiming' });
@@ -234,7 +290,22 @@ export function useActivityClaims() {
     let queued = false;
     const isDelivery = await agglayerDeliverySenders();
     const groups = groupNotesForClaim(accepted, nativeFaucetId, note => isDelivery(note.senderAddress));
-    for (const groupNotes of groups) {
+    const refused = feeShortfalls(groups);
+    for (const [index, groupNotes] of groups.entries()) {
+      if (refused[index]) {
+        // Certain to fail on the fee, so it is not queued: its notes go back to what they were before the tap.
+        setAttempts(previous => {
+          const next = new Map(previous);
+          for (const note of groupNotes) {
+            const earlier = before.get(note.id);
+            if (earlier) next.set(note.id, earlier);
+            else next.delete(note.id);
+          }
+          return next;
+        });
+        for (const note of groupNotes) busy.delete(note.id);
+        continue;
+      }
       try {
         const { committedId, coveringTxIdByNoteId } = await reportNoteClaim(() =>
           queueConsumeNotes(claim.account.publicKey, groupNotes, claim.isDelegatedProvingEnabled, true)
@@ -301,6 +372,7 @@ export function useActivityClaims() {
     accept,
     acceptMany,
     retryHeld,
+    cannotPayFee,
     account: claim.account,
     isLoadingNotes: claim.isFetchingNotes || claim.checkingNoteIds.size > 0
   };
