@@ -32,6 +32,16 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      retries:
+        description: Playwright retries per spec (0 proves a fix passes on its first attempt)
+        required: false
+        type: choice
+        options:
+          - '0'
+          - '1'
+          - '2'
+        default: '2'
 
 permissions:
   contents: read
@@ -50,8 +60,9 @@ jobs:
     # shared macos-26 runners were intermittently too degraded for two-sim setup.
     runs-on: macos-26-xlarge
     # Setup dominates: miden-client-cli compile on cache miss (~7-15 min) + iOS
-    # build (~25 min) + simulator cold boot (overlapped). The suite is two tests
-    # (~2 min each, serial), and --retries=2 gives up to three fresh attempts each.
+    # build (~25 min) + simulator cold boot (overlapped). The suite is three specs
+    # (0.7-7 min an attempt, serial), and --retries=2 gives each up to three fresh
+    # attempts.
     # A dispatch may first build a linked web-sdk PR from source (73 min on macos-26, pr-compile-surfaces.yml).
     # A `Client PR:` or `Protocol PR:` marker on that PR also rebuilds the CLI cold (up to 6 min on this runner).
     timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 195 || 110 }}
@@ -229,23 +240,20 @@ jobs:
             yarn test:e2e:mobile:build
           }
 
-      - name: Run bridge-IN deposit E2E (mobile, testnet + local Anvil)
+      - name: Run bridge-IN E2E (mobile, testnet + local Anvil)
         id: e2e
-        # The `bridge-in-deposit` filter matches BOTH deposit specs (AggLayer +
-        # Epoch); they run serially (workers:1), each booting/tearing down its own
-        # Anvil (+ the Epoch spec its own fake allocator). --retries=2 absorbs
-        # flaky CDP setup on macos-26 AND transient relay rate-limit trips on the
-        # connect step; each attempt is a fresh wallet + pairing + Anvil.
+        # The specs run serially (workers: 1), each booting and tearing down its
+        # own Anvil (and the Epoch spec its fake allocator), and every spec runs
+        # even after one failed (maxFailures: 0). --retries=2 absorbs a degraded
+        # simulator, CDP or a relay rate-limit trip on the connect step; each
+        # attempt is a fresh wallet, pairing and Anvil. A dispatch can pass
+        # retries: 0 to prove a fix passes on its first attempt.
         #
-        # NON-BLOCKING for now: the deposit ships to users (testnet.json switches
-        # bridge-in on), so this suite is its only E2E. Its WalletConnect handshake was
-        # rejected with WS close 3000 ("Project not found"). Until #1259, an
-        # unset WC_COUNTERPARTY_PROJECT_ID secret made the counterparty send a
-        # blank project id, which alone produces that rejection; whether the
-        # app's own id was also rejected is not recorded. REMOVE this
-        # continue-on-error once a run on the current default passes.
+        # NON-BLOCKING only until a dispatch at retries 0 passes on this config.
         continue-on-error: true
-        run: yarn playwright test --config playwright.ios.bridge-in.config.ts --retries=2
+        env:
+          RETRIES: ${{ inputs.retries || '2' }}
+        run: yarn playwright test --config playwright.ios.bridge-in.config.ts --retries="$RETRIES"
 
       - name: Upload artifacts
         if: always()

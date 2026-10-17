@@ -136,11 +136,11 @@ test.describe('Bridge-IN deposit (Epoch/USDC, full real UI)', () => {
         expect(token.toLowerCase(), 'deposited token = USDC').toBe(MOCK_USDC_ADDRESS.toLowerCase());
         expect(amount, 'deposit amount > 0').toBeGreaterThan(0n);
 
-        // The Compact stub actually executed the deposit — not green against dead
-        // code. The allocation is registered (/compact) only AFTER the SDK's
-        // post-deposit receipt wait (confirmations:3), so poll rather than assert
-        // immediately (the deposit broadcast lands well before createAllocation).
-        expect(await readCompactDepositCount(anvil.rpcUrl)).toBe(1);
+        // The Compact stub actually executed the deposit, not green against dead code. Anvil mines a block a second
+        // here (--block-time 1) and the counterparty logs the request when it is sent, not mined, so the count is
+        // polled. The allocation is registered (/compact) only AFTER the SDK's post-deposit receipt wait
+        // (confirmations:3), so that is polled too.
+        await expect.poll(() => readCompactDepositCount(anvil.rpcUrl), { timeout: 15_000, intervals: [500] }).toBe(1);
         await expect
           .poll(() => allocator.requests.some(r => r.path === '/compact'), { timeout: 60_000, intervals: [1000] })
           .toBe(true);
