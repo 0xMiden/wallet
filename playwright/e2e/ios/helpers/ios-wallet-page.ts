@@ -408,22 +408,6 @@ export class IosWalletPage implements WalletPage {
     }
   }
 
-  /** Create a `bridged-receive` tracking row; returns its txId. */
-  async createBridgeReceive(args: {
-    accountId: string;
-    amount: string;
-    faucetId: string;
-    provider: 'epoch' | 'agglayer';
-    sourceAddress: string;
-    sourceAmount: string;
-    sourceSymbol: string;
-    outputAmount?: string;
-    outputSymbol?: string;
-    evmTxHash: string;
-  }): Promise<string> {
-    return this.stashAndPoll<string>('__bi_create', `window.__TEST_CREATE_BRIDGE_RECEIVE__(${JSON.stringify(args)})`);
-  }
-
   /** Read a `bridged-receive` row's current phase/displayMessage for assertions. */
   async getBridgeReceiveState(txId: string): Promise<{
     found: boolean;

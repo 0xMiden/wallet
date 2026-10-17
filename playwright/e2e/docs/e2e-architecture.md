@@ -342,7 +342,7 @@ flowchart TB
 <details>
 <summary>The tests in this group</summary>
 
-Bridge-in via the two routes, a WalletConnect-pairing-only check, a delivery-only check, and the guardian flow — all on iPhone. (An Android two-emulator harness also exists in the codebase, not yet wired into CI.)
+Bridge-in via the two routes through the real deposit screen, a Reown-pairing-only check, and the guardian flow, all on iPhone. (An Android two-emulator harness also exists in the codebase, not yet wired into CI.)
 </details>
 
 ---

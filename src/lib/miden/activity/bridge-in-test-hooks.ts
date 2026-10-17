@@ -8,31 +8,25 @@ import { updateBridgedReceivePhase } from '../transaction/complete';
 import { initiateBridgedReceiveTransaction } from '../transaction/initiate';
 
 /**
- * E2E-only service-worker hooks for the bridge-IN localnet harness. Installed
- * from `back/main.ts` ONLY under `MIDEN_E2E_TEST`, so this whole module (and the
- * globals it defines) is dead-stripped from production builds.
+ * E2E-only hooks for the bridge-IN harnesses, installed ONLY under `MIDEN_E2E_TEST` (the extension's service worker
+ * from `back/main.ts`, the mobile app from `intercom/mobile-adapter.ts`), so this whole module (and the globals it
+ * defines) is dead-stripped from production builds.
  *
- * The harness exercises the REAL Miden receipt path: a real note is delivered to
- * the wallet's account on the localnet (via the miden-client CLI acting as the
- * bridge "solver"), the wallet's real sync + consume runs, and the real
- * reconciliation tags it "Bridged from EVM". These hooks only supply the two
- * pieces the pure-Miden path can't otherwise get without the EVM leg:
- *   - a `bridged-receive` tracking row to match against, and
- *   - pointing the AggLayer sender-match at the runtime-created solver account.
+ * Every iOS bridge-in row comes from the real deposit screen. These hooks supply what a spec cannot reach through the
+ * UI: a `usdcx` tracking row for the Chrome USDCx suites, which sign their deposit in Node because the extension cannot
+ * pair with Reown under its cross-origin isolation; the AggLayer sender-match pointed at a runtime-created solver
+ * account; the Reown pairing URI and state; and reads of a row's state.
  */
 
-interface CreateBridgeReceiveArgs {
+interface CreateUsdcxBridgeReceiveArgs {
   accountId: string;
   amount: string; // base units (bigint as string across the evaluate boundary)
   faucetId: string;
-  provider: IBridgeProvider;
-  /** Type only: the hook hands its args to `initiateBridgedReceiveTransaction`, which stores it. */
-  sourceChainId?: number;
+  /** Stored on the row, which reads its USDCx route and Miden domain for this chain. */
+  sourceChainId: number;
   sourceAddress: string;
   sourceAmount: string;
   sourceSymbol: string;
-  outputAmount?: string;
-  outputSymbol?: string;
   /** The deposit's EVM hash; the row is moved to `delivering` with it, as the deposit screen does after its EVM tx. */
   evmTxHash: string;
   /**
@@ -67,7 +61,7 @@ interface BridgeReceiveState extends BridgeReceiveDepositFields {
 
 declare global {
   // eslint-disable-next-line no-var
-  var __TEST_CREATE_BRIDGE_RECEIVE__: (args: CreateBridgeReceiveArgs) => Promise<string>;
+  var __TEST_CREATE_BRIDGE_RECEIVE__: (args: CreateUsdcxBridgeReceiveArgs) => Promise<string>;
   // eslint-disable-next-line no-var
   var __TEST_SET_AGGLAYER_SENDER__: (senderAccountId: string) => void;
   // eslint-disable-next-line no-var
@@ -108,13 +102,14 @@ export function installBridgeInTestHooks(): void {
     usdcxRemoteRecipient,
     cctp,
     ...args
-  }: CreateBridgeReceiveArgs) => {
-    // A USDCx row reads the document's source route and Miden domain. A profile that never stored a document has
-    // nothing to hydrate, and initBridgeConfig never waits for the network, so this waits for the first document.
+  }: CreateUsdcxBridgeReceiveArgs) => {
+    // The row reads the document's source route and Miden domain. A profile that never stored a document has nothing
+    // to hydrate, and initBridgeConfig never waits for the network, so this waits for the first document.
     await ensureBridgeConfig();
     let advanced: Promise<void> | undefined;
     const txId = await startBridgeReceiveSubmission(
-      () => initiateBridgedReceiveTransaction({ ...args, amount: BigInt(args.amount) }),
+      // A USDCx row whatever the caller sends: every other provider's row comes from the deposit screen alone.
+      () => initiateBridgedReceiveTransaction({ ...args, provider: 'usdcx', amount: BigInt(args.amount) }),
       id => {
         advanced = updateBridgedReceivePhase(id, 'delivering', {
           evmTxHash,
