@@ -1,4 +1,5 @@
 import type { AxisLabel, FailureEvidence } from './dapp-cells';
+import pinned from './dapp-pinned.json';
 
 /**
  * Known bugs the suite exposes (spec section 7). The assertions encode correct behaviour; a failure counts as a
@@ -72,6 +73,21 @@ export const KNOWN_BUGS: readonly KnownBug[] = [
     // The preview swallows the deserialize failure (src/lib/miden/back/dapp.ts:2920-2931) and the popup says it could
     // not decode the request, so the refusal check sees a confirm page open.
     signature: ({ source, evidence }) => source === 'hard' && evidence.popupOpened === true
+  },
+  {
+    id: 'K13',
+    title:
+      'MidenFiSignerProvider cannot set up its signer account for a private wallet account, so MidenProvider never readies',
+    tracking: '0xMiden/web-sdk#400 (open)',
+    cells: on(['MF3'], BOTH),
+    // importAccountId is the wallet's raw address (MidenFiSignerProvider.tsx:712) and initializeSignerAccount tolerates
+    // only two import errors (@miden-sdk/react index.mjs:435-451). The settled error names the account id between its
+    // pinned parts, so each part is matched on its own.
+    signature: ({ source, evidence }) =>
+      source === 'hard' &&
+      Object.values(pinned.texts.MF3).some(({ error, reason }) =>
+        [error, reason].every(part => part.length > 0 && (evidence.signerInitError ?? '').includes(part))
+      )
   }
 ];
 
