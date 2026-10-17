@@ -14,7 +14,7 @@
  * `<DappActive>`. On its first mount the page reveals itself top to bottom (`useExploreMotion`).
  */
 
-import React, { type FC, useCallback, useEffect, useMemo, useState } from 'react';
+import React, { type FC, useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react';
 
 import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
@@ -47,13 +47,14 @@ import { urlForQuery } from './search-url';
 interface DappLauncherProps {
   onOpen: (url: string) => void;
   requestedFilter?: ExploreFilter;
+  entryIntent?: number;
   onChooseFilter?: (filter: ExploreFilter) => void;
 }
 
 /** The categories are header chrome now, so the reveal starts at the first section. */
 const FIRST_SECTION_REVEAL = 0;
 
-export const DappLauncher: FC<DappLauncherProps> = ({ onOpen, requestedFilter, onChooseFilter }) => {
+export const DappLauncher: FC<DappLauncherProps> = ({ onOpen, requestedFilter, onChooseFilter, entryIntent }) => {
   const { t, i18n } = useTranslation();
   const active = usePageActive();
   const motionTokens = useExploreMotion();
@@ -133,6 +134,14 @@ export const DappLauncher: FC<DappLauncherProps> = ({ onOpen, requestedFilter, o
   // to a reveal that is actually playing: on a return from a dApp `reveal` is already false, and a
   // section arriving late then enters like one answering a chip, with no delay in front of it.
   const [settled, setSettled] = useState(false);
+  useLayoutEffect(() => {
+    if (entryIntent === undefined) return;
+    // An explicit Home → Arcade push reveals the landing, not a retained search.
+    // Ordinary tab returns, chip replacements and Back keep their search state.
+    setSearchOpen(false);
+    setQuery('');
+    setSettled(true);
+  }, [entryIntent]);
   useEffect(() => {
     markRevealed();
   }, []);

@@ -12,6 +12,17 @@ import { DappLauncher } from './index';
 import { markRevealed, resetRevealed } from './reveal-once';
 
 const originalResizeObserver = globalThis.ResizeObserver;
+it('reveals the Arcade landing on explicit Home entry while retaining ordinary tab searches', async () => {
+  const onOpen = jest.fn();
+  const { rerender } = render(<DappLauncher onOpen={onOpen} requestedFilter="arcade" />);
+  fireEvent.click(screen.getByTestId('explore-search-toggle'));
+  fireEvent.change(screen.getByTestId('dapp-hero-search'), { target: { value: 'Quest' } });
+  rerender(<DappLauncher onOpen={onOpen} requestedFilter="arcade" />);
+  expect(screen.getByTestId('dapp-hero-search')).toHaveValue('Quest');
+  rerender(<DappLauncher onOpen={onOpen} requestedFilter="arcade" entryIntent={3} />);
+  await waitFor(() => expect(screen.queryByTestId('dapp-hero-search')).toBeNull());
+  expect(screen.getByTestId('arcade-landing')).toBeInTheDocument();
+});
 beforeAll(() => {
   Object.defineProperty(globalThis, 'ResizeObserver', {
     configurable: true,
@@ -92,7 +103,7 @@ const catalog: ExploreCatalog = {
   items: [
     {
       id: 'faucet',
-      category: 'tools',
+      category: 'finance',
       name: { en: 'Faucet' },
       tagline: { en: 'Get testnet MIDEN tokens' },
       url: 'https://faucet.example/',
@@ -102,7 +113,7 @@ const catalog: ExploreCatalog = {
     },
     {
       id: 'forkchoice',
-      category: 'tools',
+      category: 'finance',
       name: { en: 'Forkchoice Faucet' },
       tagline: { en: 'Get testnet tokens for swap', de: 'Testnet-Token für Swaps erhalten' },
       url: 'https://forkchoice.example/',
@@ -110,7 +121,7 @@ const catalog: ExploreCatalog = {
     },
     {
       id: 'quest',
-      category: 'games',
+      category: 'arcade',
       name: { en: 'Quest' },
       tagline: { en: 'Play' },
       url: 'https://quest.example/',

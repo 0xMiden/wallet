@@ -47,6 +47,7 @@ function recordOpenedDapp(url: string): Promise<void> {
 
 export interface BrowserScreenProps {
   requestedFilter?: ExploreFilter;
+  entryIntent?: number;
   onChooseFilter?: (filter: ExploreFilter) => void;
 }
 

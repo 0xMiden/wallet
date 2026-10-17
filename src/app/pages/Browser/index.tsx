@@ -15,12 +15,13 @@ import { HistoryAction, navigate, useLocation } from 'lib/woozie';
 import { BrowserScreen } from './BrowserScreen';
 
 const Browser: FC = () => {
-  const { pathname, search } = useLocation();
+  const { pathname, search, trigger, historyPosition } = useLocation();
   const asked = pathname === '/browser' ? new URLSearchParams(search).get('category') : null;
   const requestedFilter = EXPLORE_FILTERS.find(filter => filter.id === asked)?.id;
   return (
     <BrowserScreen
       requestedFilter={requestedFilter}
+      entryIntent={requestedFilter === 'arcade' && trigger === HistoryAction.Push ? historyPosition : undefined}
       onChooseFilter={filter =>
         navigate({ pathname: '/browser', search: `?category=${filter}` }, HistoryAction.Replace)
       }
