@@ -160,7 +160,7 @@ describe('cancelSwapOrder on a Guardian-recovered order', () => {
 
   it.each([
     ['whose order note it cannot name', recoveredRow({}, { outputNoteIds: [] })],
-    ['that recovery found settled', recoveredRow({ settledAt: NOW - 10 })],
+    ['whose lineage closed it settled', recoveredRow({ settledAt: NOW - 10, lineageClosedAt: NOW - 10 })],
     ['whose order note the node showed spent', recoveredRow({ orderNoteSpentAt: NOW - 10 })]
   ])('refuses a recovered order %s', async (_label, row) => {
     storedRow = row;

@@ -1299,10 +1299,25 @@ describe('swap settlement state', () => {
       expect(swapSettlementOf(recovered({ expiresAt: 150, expiryTriggeredAt: 150 }))).toBe('reclaiming');
     });
 
-    it('reads the settlement and reclaim recovery found, as any order does', () => {
-      expect(swapSettlementOf(recovered({ settledAt: 160 }))).toBeUndefined();
-      expect(swapSettlementOf(recovered({ reclaimedAt: 160 }))).toBe('reclaimed');
-      expect(swapSettlementOf(recovered({ expiryTriggeredAt: 150, reclaimedAt: 160 }))).toBe('reclaimed');
+    it('reads the settlement or reclaim its lineage closed it with, as any order does', () => {
+      expect(swapSettlementOf(recovered({ settledAt: 160, lineageClosedAt: 160 }))).toBeUndefined();
+      expect(swapSettlementOf(recovered({ reclaimedAt: 160, lineageClosedAt: 160 }))).toBe('reclaimed');
+      expect(swapSettlementOf(recovered({ expiryTriggeredAt: 150, reclaimedAt: 160, lineageClosedAt: 160 }))).toBe(
+        'reclaimed'
+      );
+    });
+
+    // The pre-fix recovery reconcile stamped an order closed from a linked payout or reclaim with no lineage read, so a
+    // partial fill's payout read Confirmed while the remainder was still on offer (#1487).
+    it.each([
+      ['settledAt', { settledAt: 160 }, undefined],
+      ['reclaimedAt', { reclaimedAt: 160 }, 'reclaimed']
+    ])('reads open over a %s no lineage read recorded, until a read decides', (_label, stamp, closed) => {
+      expect(swapSettlementOf(recovered(stamp))).toBe('pending');
+      // An open read cleared it.
+      expect(swapSettlementOf(recovered())).toBe('pending');
+      // A finished read recorded it.
+      expect(swapSettlementOf(recovered({ ...stamp, lineageClosedAt: 170 }))).toBe(closed);
     });
 
     it('reads Confirmed once the node showed its order note spent with nothing of this wallet behind it', () => {

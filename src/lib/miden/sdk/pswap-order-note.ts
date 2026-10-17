@@ -1,4 +1,14 @@
-import { AccountId, NoteId, NoteScript, type FetchedNote, type Note, type RpcClient } from '@miden-sdk/miden-sdk/lazy';
+import {
+  AccountId,
+  Note,
+  NoteAttachment,
+  NoteAttachmentScheme,
+  NoteId,
+  NoteScript,
+  NoteTag,
+  type FetchedNote,
+  type RpcClient
+} from '@miden-sdk/miden-sdk/lazy';
 
 import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
@@ -10,8 +20,10 @@ import { walletAccountIdToSdk } from './helpers';
 const PSWAP_ORDER_NOTE_READ_TIMEOUT_MS = 5_000;
 // The deepest tip one lineage read follows, in fill rounds over the order note; a deeper one is left unresolved.
 const MAX_LINEAGE_ROUNDS = 16;
-// Notes under the order's tag in one spending block whose bodies the read fetches; a busier block is left unresolved.
+// Notes under one tag in one spending block whose bodies the read fetches; a busier block is left unresolved.
 const MAX_SUCCESSOR_CANDIDATES = 100;
+// The attachment scheme `pswap.masm` stamps on a fill's payback, one word [total fill, order id, depth, 0].
+const PSWAP_ATTACHMENT_SCHEME = 3;
 
 export type PswapOrderNoteRead = { kind: 'open'; note: Note } | { kind: 'spent' } | { kind: 'absent' };
 
@@ -145,17 +157,17 @@ const keepsFixedFields = (parent: PswapFields, next: PswapFields): boolean =>
  * Whether `rounds` partial fills can take a PSWAP note from `parent` to `next`, by the arithmetic of the PSWAP script
  * the pinned SDK runs (miden-standards 0.17.1, `asm/standards/notes/pswap.masm`, `execute_pswap` and
  * `create_remainder_note`). The pinned RpcClient serves no link from a note to the transaction that created it, so
- * this is the whole tie between a remainder and its parent. One fill of F of the R a note asks for, the note offering
- * O with fill floor S (storage item 3):
+ * for one round this is the whole tie between a remainder and its parent. One fill of F of the R a note asks for, the
+ * note offering O with fill floor S (storage item 3):
  *  - F >= min(S, R) (`ERR_PSWAP_FILL_BELOW_MINIMUM`), and F >= 1, since `main` runs a zero fill as a full one;
  *  - a remainder only for F < R, asking R - F (`execute_pswap`'s partial-fill branch), so a note asking no more than
  *    S is only ever filled whole, and every fill that leaves a remainder takes at least max(1, S);
  *  - the payout is `calculate_output_amount` over the account and the note legs, a + b = F, with fill_reference R:
  *    floor(O a / R) + floor(O b / R), which is floor(O F / R) or one less, and the remainder offers O less it.
- * So k fills lower the request by at least k max(1, S), and any such drop is k - 1 fills of max(1, S) and one of the
- * rest. Each fill leaves O_i in [O_{i-1} R_i / R_{i-1}, that + 2), exactly ceil(O R' / R) and one more for one
- * round; over k rounds every chain keeps O R_k <= O_k R < O R_k + 2 k R, though for k > 1 that bound also holds
- * some offers no chain of fills reaches.
+ * So k fills lower the request by at least k max(1, S). Each fill leaves O_i in [O_{i-1} R_i / R_{i-1}, that + 2),
+ * exactly ceil(O R' / R) and one more for one round; over k rounds every chain keeps O R_k <= O_k R < O R_k + 2 k R,
+ * but for k > 1 that bound also holds offers no chain reaches, so a jump is taken only once its fills' paybacks
+ * rebuild it (`fillsReach`).
  */
 function fillsAllow(parent: PswapFields, next: PswapFields, rounds: bigint): boolean {
   const offered = parent.offeredAmount;
@@ -172,12 +184,104 @@ function fillsAllow(parent: PswapFields, next: PswapFields, rounds: bigint): boo
 }
 
 /**
+ * Whether `fills`, applied in depth order to `parent` by `fillsAllow`'s arithmetic, land exactly on `next`. Each step
+ * carries the set of offers it may leave, O - floor(O F / R) or, from a fill split between the two legs, one more.
+ */
+function fillsReach(parent: PswapFields, next: PswapFields, fills: bigint[]): boolean {
+  const fillStep = parent.storage[3] ?? 0n;
+  let requested = parent.storage[2] ?? 0n;
+  let offers = new Set([parent.offeredAmount]);
+  for (const fill of fills) {
+    if (fill < (fillStep > 1n ? fillStep : 1n) || fill >= requested) return false;
+    const reached = new Set<bigint>();
+    for (const offered of offers) {
+      const payout = (offered * fill) / requested;
+      reached.add(offered - payout);
+      if (payout > 0n) reached.add(offered - payout + 1n);
+    }
+    offers = reached;
+    requested -= fill;
+  }
+  return requested === (next.storage[2] ?? 0n) && offers.has(next.offeredAmount);
+}
+
+/**
+ * The fill and depth `note` reports as a payback of `order`: a P2ID note carrying the PSWAP attachment
+ * `create_p2id_note` gives every payback, with this order's id; undefined for any other note. The pinned SDK reads no
+ * attachment's scheme, but a note id commits to every scheme (miden-protocol 0.17.1 `NoteMetadata::to_metadata_word`),
+ * so the note rebuilt with that word under scheme 3 keeps its id only if it carries it there.
+ */
+function paybackOf(note: Note, noteId: string, order: PswapFields): { depth: bigint; fill: bigint } | undefined {
+  if (note.id().toString() !== noteId) return undefined;
+  if (note.script().root().toHex() !== NoteScript.p2id().root().toHex()) return undefined;
+  for (const [index, attachment] of note.attachments().entries()) {
+    const [word, ...otherWords] = attachment.toWords();
+    const [fill, orderId, depth, last] = word ? [...word.toU64s()] : [];
+    if (!word || otherWords.length > 0 || fill === undefined || depth === undefined) continue;
+    if (orderId !== order.serial[1] || last !== 0n) continue;
+    const asPswap = note.attachments();
+    asPswap[index] = NoteAttachment.fromWord(new NoteAttachmentScheme(PSWAP_ATTACHMENT_SCHEME), word);
+    if (Note.withAttachments(note.assets(), note.metadata(), note.recipient(), asPswap).id().toString() === noteId) {
+      return { depth, fill };
+    }
+  }
+  return undefined;
+}
+
+/**
+ * The fills of `order` from depth `from` to `to`, in depth order, as the paybacks block `spentAt` holds under the
+ * creator's account-target tag (`create_p2id_note` tags every payback so): undefined unless each depth has exactly one.
+ * A note without a public body is skipped, so a private payback leaves its depth missing.
+ */
+async function paybackFills(
+  key: string,
+  order: PswapFields,
+  creatorAccountId: string,
+  spentAt: number,
+  from: number,
+  to: number
+): Promise<bigint[] | undefined> {
+  const committed = await read(key, 'PSWAP payback search', rpc =>
+    rpc.syncNotes(spentAt - 1, spentAt, [NoteTag.withAccountTarget(walletAccountIdToSdk(creatorAccountId))])
+  );
+  const noteIds = [
+    ...new Set(
+      committed
+        .notes()
+        .filter(candidate => candidate.inclusionProof().location().blockNum() === spentAt)
+        .map(candidate => candidate.noteId().toString())
+    )
+  ];
+  if (noteIds.length > MAX_SUCCESSOR_CANDIDATES) throw new Error('Too many notes to search for PSWAP paybacks');
+  const fetched =
+    noteIds.length === 0
+      ? []
+      : await read(key, 'PSWAP paybacks', rpc => rpc.getNotesById(noteIds.map(noteId => NoteId.fromHex(noteId))));
+  const fillsByDepth = new Map<bigint, bigint[]>();
+  for (const noteId of noteIds) {
+    const note = fetchedEntry(fetched, noteId)?.note;
+    const payback = note && paybackOf(note, noteId, order);
+    if (payback) fillsByDepth.set(payback.depth, [...(fillsByDepth.get(payback.depth) ?? []), payback.fill]);
+  }
+  const fills: bigint[] = [];
+  for (let depth = from; depth <= to; depth += 1) {
+    const [fill, ...others] = fillsByDepth.get(BigInt(depth)) ?? [];
+    if (fill === undefined || others.length > 0) return undefined;
+    fills.push(fill);
+  }
+  return fills;
+}
+
+/**
  * The next tip after `tip`, spent at `spentAt`: undefined when that block holds no note of this order at all. The fill
  * that spent the tip created its remainder in the same transaction, so in that block, under the tip's own tag (a
- * PSWAP remainder carries its parent's tag over). Fills of one order inside one batch erase the remainders between
- * them, so the block can hold only a later round: the lowest round the fill arithmetic allows is the next tip, and
- * any later one is followed from it. Anything the walk cannot tie (a note under the tag with no body, a note claiming
- * this order that is not its lineage, two notes of one round) rejects, leaving the order to the next read.
+ * PSWAP remainder carries its parent's tag over). One round on, the fill arithmetic ties it exactly. Fills of one
+ * order inside one batch erase the remainders between them, so the block can hold only a later round: the lowest
+ * round the arithmetic allows is the next tip, taken only when the block also holds, under the creator's account-target
+ * tag, one public payback per round between them whose fills rebuild it, and any later one is followed from it.
+ * Anything the walk cannot tie (a note under the tag with no body, a note claiming this order that is not its lineage,
+ * two notes of one round, a jump with a missing, private or duplicated payback) rejects, leaving the order to the next
+ * read.
  */
 async function successorOf(
   key: string,
@@ -221,7 +325,15 @@ async function successorOf(
   const nextDepth = Math.min(...lineage.map(candidate => candidate.depth));
   const next = lineage.filter(candidate => candidate.depth === nextDepth);
   if (next.length > 1) throw new Error('Two notes claim the same round of this PSWAP order');
-  return next[0];
+  const [successor] = next;
+  if (!successor) return undefined;
+  if (successor.depth > MAX_LINEAGE_ROUNDS) throw new Error('PSWAP lineage is deeper than one read follows');
+  if (successor.depth === tip.depth + 1) return successor;
+  const fills = await paybackFills(key, order, creatorAccountId, spentAt, tip.depth + 1, successor.depth);
+  if (!fills || !fillsReach(tip.fields, successor.fields, fills)) {
+    throw new Error("A later round of this PSWAP order is not rebuilt by its fills' paybacks");
+  }
+  return successor;
 }
 
 /**
@@ -263,7 +375,6 @@ export async function readPswapOrderLineage(
     }
     const next = await successorOf(key, fields, tip, spentAt, creatorAccountId);
     if (!next) return { kind: 'finished' };
-    if (next.depth > MAX_LINEAGE_ROUNDS) throw new Error('PSWAP lineage is deeper than one read follows');
     tip = next;
   }
 }

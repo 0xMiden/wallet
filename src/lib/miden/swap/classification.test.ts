@@ -85,7 +85,7 @@ describe('localSwapOrders', () => {
 
   it.each([
     ['carries no Cancel', {}],
-    ['has been reclaimed since', { expiryTriggeredAt: 150, reclaimedAt: 160 }],
+    ['its lineage has closed reclaimed since', { expiryTriggeredAt: 150, reclaimedAt: 160, lineageClosedAt: 160 }],
     ['the node showed spent', { expiryTriggeredAt: 150, orderNoteSpentAt: 160 }]
   ])('keeps out a recovered order that %s', async (_label, extraInputs) => {
     withRows([recovered(extraInputs)]);

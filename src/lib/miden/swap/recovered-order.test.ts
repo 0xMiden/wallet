@@ -85,14 +85,27 @@ describe('isOpenRecoveredOrder', () => {
     ['a local row', recoveredSwap({ recovered: undefined, restoredFromBackup: undefined })],
     ['a row restored from a backup file only', recoveredSwap({ recovered: undefined })],
     ['a failed row', recoveredSwap({ status: ITransactionStatus.Failed })],
-    ['a settled order', recoveredSwap({}, { settledAt: 200 })],
-    ['a reclaimed order', recoveredSwap({}, { reclaimedAt: 200 })],
+    ['an order its lineage closed settled', recoveredSwap({}, { settledAt: 200, lineageClosedAt: 200 })],
+    ['an order its lineage closed reclaimed', recoveredSwap({}, { reclaimedAt: 200, lineageClosedAt: 200 })],
+    [
+      'a local order with a settlement stamp',
+      recoveredSwap({ recovered: undefined, restoredFromBackup: undefined }, { settledAt: 200 })
+    ],
     ['an order whose note the node showed spent', recoveredSwap({}, { orderNoteSpentAt: 200 })],
     ['an order with no offered amount', recoveredSwap({ amount: undefined })],
     ['an order with no requested amount', recoveredSwap({}, { requestedAmount: undefined })],
     ['an order with no order note', withOutputNotes([], [])]
   ])('does not hold for %s', (_label, row) => {
     expect(isOpenRecoveredOrder(row)).toBe(false);
+  });
+
+  // The pre-fix recovery reconcile stamped an order closed from a linked payout or reclaim, with no lineage read, so a
+  // partial fill's payout closed an order whose remainder is still on offer (#1487).
+  it.each([
+    ['settled', { settledAt: 200 }],
+    ['reclaimed', { reclaimedAt: 200 }]
+  ])('holds for an order the pre-fix recovery stamped %s, which no lineage read closed', (_label, stamp) => {
+    expect(isOpenRecoveredOrder(recoveredSwap({}, stamp))).toBe(true);
   });
 });
 
@@ -103,7 +116,9 @@ describe('isRecoveredReturnOrder', () => {
   });
 
   it('does not hold for a stamped order that has since closed', () => {
-    expect(isRecoveredReturnOrder(recoveredSwap({}, { expiryTriggeredAt: 150, reclaimedAt: 200 }))).toBe(false);
+    expect(
+      isRecoveredReturnOrder(recoveredSwap({}, { expiryTriggeredAt: 150, reclaimedAt: 200, lineageClosedAt: 200 }))
+    ).toBe(false);
     expect(isRecoveredReturnOrder(recoveredSwap({}, { expiryTriggeredAt: 150, orderNoteSpentAt: 200 }))).toBe(false);
   });
 });
@@ -143,6 +158,15 @@ describe('recoveredSwapOrderRef', () => {
   });
 
   it('is absent for an order that is not open', () => {
-    expect(recoveredSwapOrderRef(recoveredSwap({}, { settledAt: 200 }))).toBeUndefined();
+    expect(recoveredSwapOrderRef(recoveredSwap({}, { settledAt: 200, lineageClosedAt: 200 }))).toBeUndefined();
+  });
+
+  it.each([
+    ['settledAt', { settledAt: 200 }],
+    ['reclaimedAt', { reclaimedAt: 200 }]
+  ])('tracks an order whose %s no lineage read recorded, marking that closure provisional', (_label, stamp) => {
+    expect(recoveredSwapOrderRef(recoveredSwap({}, stamp))).toEqual(
+      expect.objectContaining({ noteId: 'order-note', tipNoteId: 'order-note', provisionalClosure: true })
+    );
   });
 });
