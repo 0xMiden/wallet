@@ -538,7 +538,8 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   // bounded interval and updates the receipt whenever a consume row changes.
   const settlementNotes = useSwapSettlementNotes(transaction?.type === 'swap' ? transaction.id : undefined);
 
-  const swapTracking = trackingEntry?.tracking ?? null;
+  // An untracked row reads no entry: a recovered order closed outside the poll keeps its last open one (#1487).
+  const swapTracking = tracksOrder ? (trackingEntry?.tracking ?? null) : null;
   const trackingLoading = orderKey !== undefined && tracksOrder && (trackingEntry?.loading ?? true);
 
   const receipt = deriveSwapReceipt({
