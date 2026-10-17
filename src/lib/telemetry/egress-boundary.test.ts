@@ -1621,6 +1621,31 @@ describe('WalletConnect relay failure reports', () => {
     expect(wireText()).toContain('"relayFailures":"2-5"');
   });
 
+  it('sends nothing for a failure whose device went offline before consent answered, and the range of the next one', async () => {
+    consentOn();
+    initCrashReporting();
+    captureCrash(relayFailure(), 'onunhandledrejection');
+    await flushEgress();
+    expect(relayRanges()).toEqual(['1']);
+
+    let allow = (_granted: boolean) => {};
+    jest.mocked(isTelemetryEnabledAsync).mockReturnValueOnce(
+      new Promise<boolean>(resolve => {
+        allow = resolve;
+      })
+    );
+    captureCrash(relayFailure(), 'onunhandledrejection');
+    replace(navigator, 'onLine', false);
+    allow(true);
+    await flushEgress();
+    expect(relayRanges()).toEqual(['1']);
+
+    restores.pop()?.();
+    captureCrash(relayFailure(), 'onunhandledrejection');
+    await flushEgress();
+    expect(relayRanges()).toEqual(['1', '2-5']);
+  });
+
   it.each<[string, (capture: () => void) => void, () => void]>([
     [
       'reporting is off',
