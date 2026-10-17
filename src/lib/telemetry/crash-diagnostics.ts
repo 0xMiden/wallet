@@ -1,7 +1,9 @@
 import { MidenMessageType } from 'lib/miden/types';
 import { WalletMessageType } from 'lib/shared/types';
 
-export type CrashDiagnostics = {
+import { EXTENSION_VIEW_COUNTS, SHARED_MEMORY_PROBES, type WasmStartupEvidence } from './wasm-startup';
+
+export type CrashDiagnostics = WasmStartupEvidence & {
   operation?: 'intercom_request' | 'confirm_payload' | 'sdk_initialize';
   requestType?: WalletMessageType | MidenMessageType;
   confirmationId?: 'missing' | 'empty';
@@ -23,7 +25,15 @@ export function annotateCrash(error: unknown, diagnostics: Record<string, unknow
   try {
     if (!(error instanceof Error)) return;
     const safe: CrashDiagnostics = {};
-    const { operation, requestType: suppliedRequestType, confirmationId, stage, workerMode } = diagnostics;
+    const {
+      operation,
+      requestType: suppliedRequestType,
+      confirmationId,
+      stage,
+      workerMode,
+      sharedMemoryProbe: suppliedProbe,
+      extensionViews: suppliedViews
+    } = diagnostics;
     if (operation === 'intercom_request' || operation === 'confirm_payload' || operation === 'sdk_initialize') {
       safe.operation = operation;
     }
@@ -33,6 +43,10 @@ export function annotateCrash(error: unknown, diagnostics: Record<string, unknow
     if (stage === 'wasm_ready' || stage === 'mock_import' || stage === 'mock_create' || stage === 'client_create')
       safe.stage = stage;
     if (workerMode === 'enabled' || workerMode === 'disabled') safe.workerMode = workerMode;
+    const sharedMemoryProbe = SHARED_MEMORY_PROBES.find(value => value === suppliedProbe);
+    if (sharedMemoryProbe !== undefined) safe.sharedMemoryProbe = sharedMemoryProbe;
+    const extensionViews = EXTENSION_VIEW_COUNTS.find(value => value === suppliedViews);
+    if (extensionViews !== undefined) safe.extensionViews = extensionViews;
     diagnosticsByError.set(error, { ...diagnosticsByError.get(error), ...safe });
   } catch {
     // Reporting cannot change the failure being handled.

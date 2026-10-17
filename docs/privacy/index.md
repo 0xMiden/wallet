@@ -68,6 +68,8 @@ When the setting is on, a crash sends the error type, the error's message, and t
 
 Every crash report also names the network the App was on: `mainnet`, `testnet`, `devnet`, or `localnet`.
 
+If the App's built-in WebAssembly module fails while starting, the report also says which startup step failed (`wasm_ready`, `client_create`, `mock_import` or `mock_create`) and whether that step used a worker (`enabled` or `disabled`). When the failure is a WebAssembly trap, it adds whether a fresh one-page block of shared memory could still grow (`grew`, `refused` or `unavailable`) and how many of the App's own pages were open, counting its hidden background page (`1`, `2-3`, `4+` or `unavailable`). None of these is an identifier.
+
 Crash reports do not include the page you were on, your browser's user-agent string, your language, your timezone, or a recording of your screen or clicks. Alongside the error, each report carries the time it happened, a severity level, its own random report id generated for that one report, and the name and version of the reporting library — the standard technical envelope, with nothing about you in it.
 
 Please read "What scrubbing can and cannot promise" below, which is the honest limit of this.
