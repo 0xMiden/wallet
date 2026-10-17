@@ -1578,6 +1578,66 @@ describe('EvmBridgeDepositScreen Slow-route USDC approval', () => {
       failedAt('precheck_allowance', 'Could not check the USDC allowance the bridge has on Sepolia.')
     );
   });
+
+  it.each([false, true])(
+    'fails the row at the approval prompt when the wallet rejects it (native=%s)',
+    async native => {
+      mockNativeReown = native;
+      answerAllowance(0n);
+      if (native) jest.mocked(NativeReown.sendTransaction).mockRejectedValueOnce(new Error('approval rejected'));
+      else mockMutateAsync.mockRejectedValueOnce(new Error('approval rejected'));
+
+      await confirmSlowUsdcDeposit();
+
+      const signer = native ? NativeReown.sendTransaction : mockMutateAsync;
+      expect(signer).toHaveBeenCalledTimes(1);
+      expect(signer).toHaveBeenCalledWith(expect.objectContaining(native ? { to: USDC } : { functionName: 'approve' }));
+      expect(waitForEvmReceipt).not.toHaveBeenCalled();
+      expect(updateBridgedReceivePhase).toHaveBeenCalledWith(
+        'bridge-tx',
+        'failed',
+        failedAt('wallet_approve', 'approval rejected')
+      );
+    }
+  );
+
+  // The web wallet is moved to the AggLayer chain before its first prompt, so a refused switch prompts for nothing.
+  it('fails the row at the session chain when the web wallet refuses the switch', async () => {
+    mockSwitchChainAsync.mockRejectedValueOnce(new Error('switch rejected'));
+    render(depositScreen(undefined, EVM_WALLET));
+
+    await reachReview();
+    fireEvent.click(screen.getByTestId('confirm-deposit'));
+    await settle();
+
+    expect(mockSwitchChainAsync).toHaveBeenCalledWith({ chainId: 11155111 });
+    expect(mockMutateAsync).not.toHaveBeenCalled();
+    expect(updateBridgedReceivePhase).toHaveBeenCalledWith(
+      'bridge-tx',
+      'failed',
+      failedAt('precheck_session_chain', 'switch rejected')
+    );
+  });
+
+  it.each([false, true])(
+    'fails the row at the deposit receipt once the deposit is signed (native=%s)',
+    async native => {
+      mockNativeReown = native;
+      jest.mocked(waitForEvmReceipt).mockRejectedValueOnce(new Error('deposit receipt failed'));
+      render(depositScreen(undefined, EVM_WALLET));
+
+      await reachReview();
+      fireEvent.click(screen.getByTestId('confirm-deposit'));
+      await settle();
+
+      expect(updateBridgedReceivePhase).toHaveBeenCalledWith('bridge-tx', 'submitting', { evmTxHash: '0xhash' });
+      expect(updateBridgedReceivePhase).toHaveBeenLastCalledWith(
+        'bridge-tx',
+        'failed',
+        failedAt('deposit_receipt', 'deposit receipt failed')
+      );
+    }
+  );
 });
 
 // #1431: an approval never checks the balance, so a deposit above it failed only at the wallet's second prompt.

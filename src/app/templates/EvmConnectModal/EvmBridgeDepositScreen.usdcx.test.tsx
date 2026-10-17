@@ -1681,4 +1681,98 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
     expect(screen.getByTestId('usdcx-route-notice').textContent).toBe(EXECUTOR_NOTICE);
     expect(screen.getByTestId('usdcx-route-confirm')).toBeEnabled();
   });
+
+  const confirmDeposit = async (route: 'xreserve' | 'cctp-executor' = 'xreserve') => {
+    renderScreen();
+    await reachRoute(route);
+    fireEvent.click(screen.getByTestId('usdcx-route-confirm'));
+    await settle();
+    fireEvent.click(screen.getByTestId('confirm-deposit'));
+    await settle();
+  };
+  /** Every RPC read from here on fails; the balance the screen checks first has already been read. */
+  const failRpc = () => {
+    global.fetch = jest.fn().mockResolvedValue({ json: async () => ({ error: { message: 'rpc down' } }) });
+  };
+
+  // A registration read that throws, rather than answering false, still fails the row at the domain check.
+  it.each(['xreserve', 'cctp-executor'] as const)(
+    'fails the row at the domain check, before any prompt, when the %s registration read fails',
+    async route => {
+      const readDomain = async (deps: Pick<UsdcxExecutorDepositDeps, 'isRemoteDomainRegistered'>) => {
+        failRpc();
+        await deps.isRemoteDomainRegistered(10007);
+        return `0x${'2'.repeat(64)}` as const;
+      };
+      if (route === 'xreserve') {
+        jest.mocked(runUsdcxDeposit).mockImplementationOnce((_id, _amount, _recipient, deps) => readDomain(deps));
+      } else {
+        jest
+          .mocked(runUsdcxExecutorDeposit)
+          .mockImplementationOnce((_id, _amount, _recipient, deps) => readDomain(deps));
+      }
+
+      await confirmDeposit(route);
+
+      expect(mockWriteContract).not.toHaveBeenCalled();
+      expect(mockNativeSend).not.toHaveBeenCalled();
+      expect(updateBridgedReceivePhase).toHaveBeenLastCalledWith(
+        'bridge-tx',
+        'failed',
+        failedAt('precheck_domain', 'rpc down')
+      );
+    }
+  );
+
+  it('fails the row at the allowance check, before any prompt, when the allowance read fails', async () => {
+    jest.mocked(runUsdcxDeposit).mockImplementationOnce(async (_id, _amount, _recipient, deps) => {
+      await deps.isRemoteDomainRegistered(10007);
+      failRpc();
+      await deps.readAllowance('0x008888878f94C0d87defdf0B07f46B93C1934442');
+      return deps.signer.approve('0x008888878f94C0d87defdf0B07f46B93C1934442', 1_500_000n);
+    });
+
+    await confirmDeposit();
+
+    expect(mockWriteContract).not.toHaveBeenCalled();
+    expect(mockNativeSend).not.toHaveBeenCalled();
+    expect(updateBridgedReceivePhase).toHaveBeenLastCalledWith(
+      'bridge-tx',
+      'failed',
+      failedAt('precheck_allowance', 'rpc down')
+    );
+  });
+
+  it.each((['prompt', 'receipt'] as const).flatMap(stage => [false, true].map(native => [stage, native] as const)))(
+    'fails the row at the approval %s when it fails (native=%s)',
+    async (stage, native) => {
+      mockNativeAvailable = native;
+      const walletPrompt = native ? mockNativeSend : mockWriteContract;
+      const error = new Error(`approval ${stage} failed`);
+      if (stage === 'prompt') walletPrompt.mockRejectedValueOnce(error);
+      else jest.mocked(waitForEvmReceipt).mockRejectedValueOnce(error);
+      jest.mocked(runUsdcxDeposit).mockImplementationOnce(async (_id, _amount, recipient, deps) => {
+        await deps.isRemoteDomainRegistered(10007);
+        await deps.readAllowance('0x008888878f94C0d87defdf0B07f46B93C1934442');
+        await deps.waitForReceipt(await deps.signer.approve('0x008888878f94C0d87defdf0B07f46B93C1934442', 1_500_000n));
+        return deps.signer.depositToRemote([
+          1_500_000n,
+          10007,
+          recipient,
+          '0x3600000000000000000000000000000000000000',
+          0n,
+          '0x'
+        ]);
+      });
+
+      await confirmDeposit();
+
+      expect(walletPrompt).toHaveBeenCalledTimes(1);
+      expect(updateBridgedReceivePhase).toHaveBeenLastCalledWith(
+        'bridge-tx',
+        'failed',
+        failedAt(stage === 'prompt' ? 'wallet_approve' : 'approve_receipt', error.message)
+      );
+    }
+  );
 });
