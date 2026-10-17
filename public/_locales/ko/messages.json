@@ -6547,5 +6547,113 @@
   "breadPresentationError": {
     "message": "이 앱의 로딩이 완료되지 않았습니다. 다시 시도하거나 Bread로 돌아가세요.",
     "englishSource": "This app did not finish loading. Try again or return to Bread."
+  },
+  "bridgeInTitle": {
+    "message": "브리지 인",
+    "englishSource": "Bridge in"
+  },
+  "bridgeConnectWalletTitle": {
+    "message": "지갑 연결하기",
+    "englishSource": "Connect your wallet"
+  },
+  "bridgeConnectWalletBody": {
+    "message": "Miden으로 가져오고자 하는 토큰이 들어 있는 지갑을 연결하십시오.",
+    "englishSource": "Connect the wallet holding the tokens you want to bring to Miden."
+  },
+  "bridgeConnectWalletAction": {
+    "message": "지갑 연결",
+    "englishSource": "Connect wallet"
+  },
+  "bridgeConnectSource": {
+    "message": "외부 지갑",
+    "englishSource": "External wallet"
+  },
+  "bridgeConnectSourceHint": {
+    "message": "아직 연결되지 않음",
+    "englishSource": "Not connected yet"
+  },
+  "bridgeConnectNextTitle": {
+    "message": "연결 후",
+    "englishSource": "After connecting"
+  },
+  "bridgeConnectChooseTitle": {
+    "message": "이체 유형 선택",
+    "englishSource": "Choose your transfer"
+  },
+  "bridgeConnectChooseBody": {
+    "message": "토큰, 소스 네트워크 및 금액을 선택하십시오.",
+    "englishSource": "Pick a token, source network and amount."
+  },
+  "bridgeConnectApproveTitle": {
+    "message": "검토 및 승인",
+    "englishSource": "Review and approve"
+  },
+  "bridgeConnectApproveBody": {
+    "message": "경로와 수수료를 확인한 후, 지갑에서 이체를 승인하십시오.",
+    "englishSource": "Check the route and fees, then approve the transfer in your wallet."
+  },
+  "bridgeConnectTestWalletBody": {
+    "message": "테스트 토큰 전용으로 별도의 지갑을 사용하십시오. 실제 자금이 들어 있는 지갑은 절대로 연결하지 마십시오.",
+    "englishSource": "Use a separate wallet with test tokens only. Never connect a wallet holding real funds."
+  },
+  "bridgeChooseRoute": {
+    "message": "경로 선택",
+    "englishSource": "Choose a route"
+  },
+  "bridgeRouteDescription": {
+    "message": "계속 진행하기 전에 수수료와 예상 도착 시간을 확인하십시오.",
+    "englishSource": "Review the fee and estimated arrival before you continue."
+  },
+  "bridgeArrivalEstimate": {
+    "message": "예상 도착 시간",
+    "englishSource": "Estimated arrival"
+  },
+  "bridgePayoutTiming": {
+    "message": "도착 여부는 목적지 네트워크에 따라 달라집니다",
+    "englishSource": "Arrival depends on the destination network"
+  },
+  "bridgeSourceWallet": {
+    "message": "지갑",
+    "englishSource": "Wallet"
+  },
+  "bridgeRouteFee": {
+    "message": "브리지 수수료",
+    "englishSource": "Bridge fee"
+  },
+  "bridgeRankBestValue": {
+    "message": "최적의 가치",
+    "englishSource": "Best value"
+  },
+  "bridgeRankCheapest": {
+    "message": "가장 저렴한",
+    "englishSource": "Cheapest"
+  },
+  "bridgeRankFastest": {
+    "message": "가장 빠른",
+    "englishSource": "Fastest"
+  },
+  "bridgeRouteSort": {
+    "message": "경로 정렬",
+    "englishSource": "Sort routes"
+  },
+  "bridgeRouteProviders": {
+    "message": "브리지 제공업체",
+    "englishSource": "Bridge providers"
+  },
+  "bridgeRankValueDescription": {
+    "message": "대부분은 제공자 수수료를 공제한 후 수령됩니다.",
+    "englishSource": "Most received after provider fees."
+  },
+  "bridgeRankCostDescription": {
+    "message": "가스 비용을 포함한 최저의 브리지 및 네트워크 비용.",
+    "englishSource": "Lowest bridge and network cost, including gas."
+  },
+  "bridgeRankTimeDescription": {
+    "message": "예상 도착 시간 중 가장 짧은 시간.",
+    "englishSource": "Shortest estimated arrival time."
+  },
+  "bridgeEstimatedCost": {
+    "message": "예상 비용",
+    "englishSource": "Est. cost"
   }
 }
