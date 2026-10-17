@@ -1,4 +1,7 @@
 {
+  "categoryFinance": "Finanzen",
+  "categoryArcade": "Arcade",
+  "categoryOthers": "Sonstiges",
   "usdcxBurnTitle": "USDCx verbrennen",
   "usdcxBurnSubmitted": "Einreichung zum Verbrennen",
   "usdcxMidenFees": "$symbol$-Gebühren",

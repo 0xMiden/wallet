@@ -1,4 +1,7 @@
 {
+  "categoryFinance": "Финансы",
+  "categoryArcade": "Arcade",
+  "categoryOthers": "Другое",
   "usdcxBurnTitle": "Сжигание USDCx",
   "usdcxBurnSubmitted": "Заявка на сжигание отправлена",
   "usdcxMidenFees": "Комиссии $symbol$",

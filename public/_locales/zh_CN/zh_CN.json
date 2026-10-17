@@ -1,4 +1,7 @@
 {
+  "categoryFinance": "金融",
+  "categoryArcade": "Arcade",
+  "categoryOthers": "其他",
   "usdcxBurnTitle": "销毁 USDCx",
   "usdcxBurnSubmitted": "已提交销毁请求",
   "usdcxMidenFees": "$symbol$手续费",

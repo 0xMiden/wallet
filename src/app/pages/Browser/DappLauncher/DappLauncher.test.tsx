@@ -11,6 +11,21 @@ import { BrowserScreen } from '../BrowserScreen';
 import { DappLauncher } from './index';
 import { markRevealed, resetRevealed } from './reveal-once';
 
+const originalResizeObserver = globalThis.ResizeObserver;
+beforeAll(() => {
+  Object.defineProperty(globalThis, 'ResizeObserver', {
+    configurable: true,
+    value: class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    }
+  });
+});
+afterAll(() =>
+  Object.defineProperty(globalThis, 'ResizeObserver', { configurable: true, value: originalResizeObserver })
+);
+
 let mockBrowserMode = 'launcher';
 jest.mock('app/providers/DappBrowserProvider', () => ({
   useDappBrowser: () => ({ mode: mockBrowserMode, open: jest.fn() })
@@ -155,6 +170,11 @@ describe('DappLauncher', () => {
   it('renders the sections from config, in order, each in its own layout', async () => {
     await renderLauncher();
 
+    expect(
+      within(screen.getByTestId('explore-category-chips'))
+        .getAllByRole('radio')
+        .map(chip => chip.textContent)
+    ).toEqual(['all', 'categoryFinance', 'categoryArcade', 'categoryOthers']);
     expect(sectionIds()).toEqual(['featured', 'helper-tools', 'games', 'recents']);
     expect(screen.getByTestId('explore-section-featured')).toHaveAttribute('data-kind', 'featured');
     expect(screen.getByRole('heading', { level: 2, name: 'Featured' })).toHaveClass('text-title-page');
@@ -225,6 +245,8 @@ describe('DappLauncher', () => {
     expect(cards).toHaveLength(2);
     expect(cards[0]!.parentElement).toBe(cards[1]!.parentElement);
     expect(cards[0]!.parentElement).toHaveClass('overflow-x-auto');
+    expect(within(cards[0]!).getByText('categoryFinance')).toBeInTheDocument();
+    expect(within(cards[1]!).getByText('categoryArcade')).toBeInTheDocument();
     fireEvent.click(cards[0]!);
     fireEvent.click(cards[1]!);
     expect(onOpen.mock.calls.map(call => call[0])).toEqual(['https://faucet.example/', 'https://quest.example/']);
@@ -243,7 +265,7 @@ describe('DappLauncher', () => {
     expect(card.tagName).toBe('BUTTON');
     expect(card).toHaveAccessibleName('Faucet');
     expect(card.querySelector('[data-slot="featured-art"]')).toHaveStyle({ backgroundColor: '#0EA5E9' });
-    expect(within(card).getByText('categoryTools')).toBeInTheDocument();
+    expect(within(card).getByText('categoryFinance')).toBeInTheDocument();
     expect(within(card).getByText('Get testnet MIDEN tokens')).toBeInTheDocument();
     expect(within(card).getByText('exploreOpen')).toBeInTheDocument();
   });
@@ -290,19 +312,21 @@ describe('DappLauncher', () => {
     fireEvent.click(screen.getByTestId('explore-chip-all'));
     expect(hapticSelection).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByTestId('explore-chip-games'));
+    fireEvent.click(screen.getByTestId('explore-chip-arcade'));
     expect(hapticSelection).toHaveBeenCalledTimes(1);
-    expect(screen.getByTestId('explore-chip-games')).toHaveAttribute('aria-checked', 'true');
-    await waitFor(() => expect(sectionIds()).toEqual(['games']));
+    expect(screen.getByTestId('explore-chip-arcade')).toHaveAttribute('aria-checked', 'true');
+    await waitFor(() => expect(screen.getByTestId('arcade-landing')).toBeInTheDocument());
+    expect(screen.getByTestId('arcade-quick-actions')).toBeInTheDocument();
+    expect(sectionIds()).toEqual([]);
 
-    fireEvent.click(screen.getByTestId('explore-chip-tools'));
+    fireEvent.click(screen.getByTestId('explore-chip-finance'));
     await waitFor(() => expect(sectionIds()).toEqual(['featured', 'helper-tools']));
   });
 
   it('shows "Coming soon to Miden" for a category with nothing in it yet', async () => {
     await renderLauncher();
 
-    fireEvent.click(screen.getByTestId('explore-chip-learn'));
+    fireEvent.click(screen.getByTestId('explore-chip-others'));
     const empty = await screen.findByTestId('explore-empty');
     expect(empty).toHaveTextContent('exploreComingSoonTitle');
     expect(empty).toHaveTextContent('exploreComingSoonDescription');
@@ -344,7 +368,7 @@ describe('DappLauncher', () => {
     await act(async () => {});
 
     await act(async () => {
-      fireEvent.click(screen.getByTestId('explore-chip-tools'));
+      fireEvent.click(screen.getByTestId('explore-chip-finance'));
     });
 
     expect(screen.getByTestId('explore-section-helper-tools')).toHaveAttribute('data-reveal-index', '0');
@@ -590,7 +614,7 @@ it('retains the actual launcher and its query, category and scroll through activ
   mockBrowserMode = 'launcher';
   const view = render(<BrowserScreen />);
   await act(async () => {});
-  fireEvent.click(screen.getByTestId('explore-chip-games'));
+  fireEvent.click(screen.getByTestId('explore-chip-arcade'));
   fireEvent.click(screen.getByTestId('explore-search-toggle'));
   const search = screen.getByTestId('dapp-hero-search');
   fireEvent.change(search, { target: { value: 'Quest' } });
@@ -607,7 +631,7 @@ it('retains the actual launcher and its query, category and scroll through activ
   view.rerender(<BrowserScreen />);
   expect(screen.getByTestId('explore-launcher')).toBe(launcher);
   expect(search).toHaveValue('Quest');
-  expect(screen.getByTestId('explore-chip-games')).toHaveAttribute('aria-checked', 'true');
+  expect(screen.getByTestId('explore-chip-arcade')).toHaveAttribute('aria-checked', 'true');
   expect(launcher.scrollTop).toBe(124);
   await act(async () => {});
 });

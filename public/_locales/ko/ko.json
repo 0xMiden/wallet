@@ -1,4 +1,7 @@
 {
+  "categoryFinance": "금융",
+  "categoryArcade": "Arcade",
+  "categoryOthers": "기타",
   "usdcxBurnTitle": "USDCx 소각",
   "usdcxBurnSubmitted": "소각 요청 제출됨",
   "usdcxMidenFees": "$symbol$ 수수료",

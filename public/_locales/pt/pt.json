@@ -1,4 +1,7 @@
 {
+  "categoryFinance": "Finanças",
+  "categoryArcade": "Arcade",
+  "categoryOthers": "Outros",
   "usdcxBurnTitle": "Queimar USDCx",
   "usdcxBurnSubmitted": "Queima enviada",
   "usdcxMidenFees": "Taxas de $symbol$",

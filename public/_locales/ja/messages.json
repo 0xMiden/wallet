@@ -1,4 +1,156 @@
 {
+  "arcadePreview": {
+    "message": "Preview",
+    "englishSource": "Pending translation: Preview"
+  },
+  "arcadeExitPreview": {
+    "message": "Exit",
+    "englishSource": "Pending translation: Exit"
+  },
+  "arcadeSampleNotice": {
+    "message": "Sample data for design preview only. These are not your wallet funds or real player rankings. Nothing is published.",
+    "englishSource": "Pending translation: Sample data for design preview only. These are not your wallet funds or real player rankings. Nothing is published."
+  },
+  "arcadeSamplePlayer": {
+    "message": "Sample player",
+    "englishSource": "Pending translation: Sample player"
+  },
+  "arcadePreviewOnly": {
+    "message": "Preview only",
+    "englishSource": "Pending translation: Preview only"
+  },
+  "arcadeApplySample": {
+    "message": "Apply sample update",
+    "englishSource": "Pending translation: Apply sample update"
+  },
+  "arcadeYourRank": {
+    "message": "Your rank",
+    "englishSource": "Pending translation: Your rank"
+  },
+  "arcadeSubmittedBalance": {
+    "message": "Submitted balance",
+    "englishSource": "Pending translation: Submitted balance"
+  },
+  "arcadeLeaderboard": {
+    "message": "GC leaderboard",
+    "englishSource": "Pending translation: GC leaderboard"
+  },
+  "arcadeSampleUpdated": {
+    "message": "Sample snapshot updated locally. Nothing was submitted.",
+    "englishSource": "Pending translation: Sample snapshot updated locally. Nothing was submitted."
+  },
+  "arcadeTitle": {
+    "message": "Bread Arcade",
+    "englishSource": "Pending translation: Bread Arcade"
+  },
+  "arcadeHomeDescription": {
+    "message": "Discover games in Bread.",
+    "englishSource": "Pending translation: Discover games in Bread."
+  },
+  "arcadeExplore": {
+    "message": "Explore Arcade",
+    "englishSource": "Pending translation: Explore Arcade"
+  },
+  "arcadeFeatured": {
+    "message": "Featured games",
+    "englishSource": "Pending translation: Featured games"
+  },
+  "arcadeGamesToTry": {
+    "message": "Games to try",
+    "englishSource": "Pending translation: Games to try"
+  },
+  "arcadeQuickActions": {
+    "message": "Arcade shortcuts",
+    "englishSource": "Pending translation: Arcade shortcuts"
+  },
+  "arcadeRankings": {
+    "message": "Rankings",
+    "englishSource": "Pending translation: Rankings"
+  },
+  "arcadeCoins": {
+    "message": "Game Coins",
+    "englishSource": "Pending translation: Game Coins"
+  },
+  "arcadeMyActivity": {
+    "message": "My activity",
+    "englishSource": "Pending translation: My activity"
+  },
+  "arcadeOpenGame": {
+    "message": "Open game",
+    "englishSource": "Pending translation: Open game"
+  },
+  "arcadeDetails": {
+    "message": "Details",
+    "englishSource": "Pending translation: Details"
+  },
+  "arcadeNoGames": {
+    "message": "No games available",
+    "englishSource": "Pending translation: No games available"
+  },
+  "arcadeNoGamesDescription": {
+    "message": "Games will appear here when they are available on this network.",
+    "englishSource": "Pending translation: Games will appear here when they are available on this network."
+  },
+  "arcadeOpeningNotice": {
+    "message": "Opening a game does not connect your wallet or approve a transaction. Bread asks separately when a game requests access.",
+    "englishSource": "Pending translation: Opening a game does not connect your wallet or approve a transaction. Bread asks separately when a game requests access."
+  },
+  "arcadeGCRankings": {
+    "message": "GC rankings",
+    "englishSource": "Pending translation: GC rankings"
+  },
+  "arcadeReviewBalance": {
+    "message": "Review GC balance",
+    "englishSource": "Pending translation: Review GC balance"
+  },
+  "arcadeGCBalance": {
+    "message": "GC balance",
+    "englishSource": "Pending translation: GC balance"
+  },
+  "arcadeNotRead": {
+    "message": "Not read",
+    "englishSource": "Pending translation: Not read"
+  },
+  "arcadeSubmitBalance": {
+    "message": "Submit balance",
+    "englishSource": "Pending translation: Submit balance"
+  },
+  "arcadeUpdateBalance": {
+    "message": "Update balance",
+    "englishSource": "Pending translation: Update balance"
+  },
+  "arcadeBalanceDisclosure": {
+    "message": "Submitting a balance snapshot shares your account identifier, GC balance, network and snapshot time with the leaderboard. Your other asset balances are not included.",
+    "englishSource": "Pending translation: Submitting a balance snapshot shares your account identifier, GC balance, network and snapshot time with the leaderboard. Your other asset balances are not included."
+  },
+  "arcadeConnectionRequired": {
+    "message": "GC balance reading and leaderboard submission are not connected yet. No balance has been read or submitted.",
+    "englishSource": "Pending translation: GC balance reading and leaderboard submission are not connected yet. No balance has been read or submitted."
+  },
+  "arcadeRankingsUnavailable": {
+    "message": "Rankings are not connected yet",
+    "englishSource": "Pending translation: Rankings are not connected yet"
+  },
+  "arcadeRankingsDescription": {
+    "message": "GC rankings will use balances that players choose to submit. No player rankings are available in this preview.",
+    "englishSource": "Pending translation: GC rankings will use balances that players choose to submit. No player rankings are available in this preview."
+  },
+  "arcadeCoinsUnavailable": {
+    "message": "GC is not connected yet",
+    "englishSource": "Pending translation: GC is not connected yet"
+  },
+  "arcadeCoinsDescription": {
+    "message": "Your GC balance will appear here after the Game Coin asset is configured for this network. No balance is assumed.",
+    "englishSource": "Pending translation: Your GC balance will appear here after the Game Coin asset is configured for this network. No balance is assumed."
+  },
+  "arcadePrivateBalanceNotice": {
+    "message": "Your GC balance stays private unless you choose to submit it. Opening this page publishes nothing.",
+    "englishSource": "Pending translation: Your GC balance stays private unless you choose to submit it. Opening this page publishes nothing."
+  },
+  "arcadeActivityScope": {
+    "message": "Shows recorded wallet transactions associated with games currently listed on this network. Untracked game rounds and ordinary GC transfers are not included.",
+    "englishSource": "Pending translation: Shows recorded wallet transactions associated with games currently listed on this network. Untracked game rounds and ordinary GC transfers are not included."
+  },
   "usdcxBurnTitle": {
     "message": "USDCxのバーン",
     "englishSource": "Burn USDCx"
@@ -4033,6 +4185,18 @@
   "categoryNfts": {
     "message": "NFT",
     "englishSource": "NFTs"
+  },
+  "categoryFinance": {
+    "message": "ファイナンス",
+    "englishSource": "Finance"
+  },
+  "categoryArcade": {
+    "message": "Arcade",
+    "englishSource": "Arcade"
+  },
+  "categoryOthers": {
+    "message": "その他",
+    "englishSource": "Others"
   },
   "categoryLearn": {
     "message": "学ぶ",

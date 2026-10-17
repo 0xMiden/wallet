@@ -1,0 +1,47 @@
+import React from 'react';
+
+import { fireEvent, render, screen } from '@testing-library/react';
+
+import type { ExploreFilter } from 'lib/dapp-browser/explore-catalog';
+import { HistoryAction, navigate } from 'lib/woozie';
+
+import Browser from './index';
+
+const mockLocation = { pathname: '/browser', search: '?category=arcade' };
+jest.mock('lib/woozie', () => ({
+  useLocation: () => mockLocation,
+  navigate: jest.fn(),
+  HistoryAction: { Replace: 'replacestate' }
+}));
+jest.mock('./BrowserScreen', () => ({
+  BrowserScreen: ({
+    requestedFilter,
+    onChooseFilter
+  }: {
+    requestedFilter?: ExploreFilter;
+    onChooseFilter: (filter: ExploreFilter) => void;
+  }) => <button data-testid="browser" data-filter={requestedFilter} onClick={() => onChooseFilter('finance')} />
+}));
+
+beforeEach(() => {
+  jest.clearAllMocks();
+  mockLocation.pathname = '/browser';
+  mockLocation.search = '?category=arcade';
+});
+
+it('selects the Home banner category on the first frame and replaces category changes', () => {
+  render(<Browser />);
+  expect(screen.getByTestId('browser')).toHaveAttribute('data-filter', 'arcade');
+  fireEvent.click(screen.getByTestId('browser'));
+  expect(navigate).toHaveBeenCalledWith({ pathname: '/browser', search: '?category=finance' }, HistoryAction.Replace);
+});
+
+it('ignores unknown categories and query parameters on a different active page', () => {
+  mockLocation.search = '?category=not-a-category';
+  const { rerender } = render(<Browser />);
+  expect(screen.getByTestId('browser')).not.toHaveAttribute('data-filter');
+  mockLocation.search = '?category=arcade';
+  mockLocation.pathname = '/history';
+  rerender(<Browser />);
+  expect(screen.getByTestId('browser')).not.toHaveAttribute('data-filter');
+});

@@ -1,4 +1,7 @@
 {
+  "categoryFinance": "Finans",
+  "categoryArcade": "Arcade",
+  "categoryOthers": "Diğer",
   "usdcxBurnTitle": "USDCx'i Yak",
   "usdcxBurnSubmitted": "Yakma işlemi gönderildi",
   "usdcxMidenFees": "$symbol$ ücretleri",

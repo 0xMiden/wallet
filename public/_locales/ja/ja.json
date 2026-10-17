@@ -1,4 +1,7 @@
 {
+  "categoryFinance": "ファイナンス",
+  "categoryArcade": "Arcade",
+  "categoryOthers": "その他",
   "usdcxBurnTitle": "USDCxのバーン",
   "usdcxBurnSubmitted": "バーンが送信されました",
   "usdcxMidenFees": "$symbol$の手数料",
