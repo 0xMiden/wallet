@@ -3230,7 +3230,9 @@ async function resolveConsumeNote(
     return byCommitment && { details: byCommitment, noteId: byCommitment.noteId };
   });
   if (!resolved) {
-    throw new Error(`Note ${transaction.noteId} could not be resolved — refusing to preview it`);
+    throw new Error(
+      `Note ${transaction.noteId} could not be resolved - an imported note resolves once the wallet has synced it`
+    );
   }
   const { details, noteId } = resolved;
   return {
@@ -3245,14 +3247,14 @@ async function resolveConsumeNote(
  * The note of this account whose details commitment is `commitment`: the id `importPrivateNote` returns for a
  * details-only note file or a bare Note, which no record has as its note id (#1389). Only a note this account can
  * consume counts, the same attribution {@link getPrivateNoteDetails} uses, so the id never resolves to another
- * account's note. A match that no sync has committed has no note id to consume yet and is refused with that reason.
+ * account's note. An uncommitted match remains unresolved until a wallet sync supplies its metadata.
  */
 async function noteOfDetailsCommitment(
   commitment: string,
   accountId: string,
   hold: WasmLockHold
 ): Promise<DetailsCommitmentMatches['notes'][number] | undefined> {
-  const { notes, uncommitted } = await midenClientProxy.getDetailsCommitmentMatches(commitment, () =>
+  const { notes } = await midenClientProxy.getDetailsCommitmentMatches(commitment, () =>
     assertWasmHoldCurrent(hold, 'inside the details-commitment read, before the record reach-through')
   );
   if (notes.length > 0) {
@@ -3266,9 +3268,6 @@ async function noteOfDetailsCommitment(
       throw new Error(`Note ${commitment} names more than one note this account can consume - refusing to preview it`);
     }
     if (note) return note;
-  }
-  if (uncommitted > 0) {
-    throw new Error(`Note ${commitment} was imported but is not committed yet - retry once the wallet has synced it`);
   }
   return undefined;
 }
