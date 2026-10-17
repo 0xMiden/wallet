@@ -16,6 +16,7 @@ import {
 import type { ResolvedGuardianOption } from 'lib/miden-chain/networks-config';
 import { sameGuardianEndpoint } from 'lib/settings/helpers';
 import { annotateCrash } from 'lib/telemetry/crash-diagnostics';
+import { wasmStartupEvidence } from 'lib/telemetry/wasm-startup';
 
 export * from './networks-config';
 
@@ -216,7 +217,7 @@ export async function ensureSdkWasmReady(): Promise<void> {
   try {
     await MidenClient.ready();
   } catch (error) {
-    annotateCrash(error, { operation: 'sdk_initialize', stage: 'wasm_ready' });
+    annotateCrash(error, { operation: 'sdk_initialize', stage: 'wasm_ready', ...wasmStartupEvidence(error) });
     throw error;
   }
 }

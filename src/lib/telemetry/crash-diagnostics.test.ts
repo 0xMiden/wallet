@@ -60,6 +60,50 @@ describe('source-bound crash diagnostics', () => {
     expect(snapshotCrashDiagnostics(error)).toEqual({ operation: 'intercom_request' });
   });
 
+  it("keeps a startup trap's memory evidence only as its fixed values", () => {
+    const error = new Error('unreachable');
+    annotateCrash(error, { sharedMemoryProbe: 'refused', extensionViews: '2-3' });
+    expect(snapshotCrashDiagnostics(error)).toEqual({ sharedMemoryProbe: 'refused', extensionViews: '2-3' });
+    for (const [sharedMemoryProbe, extensionViews] of [
+      [5, 5],
+      ['5', '5'],
+      ['RangeError: WebAssembly.Memory.grow(): Maximum memory size exceeded', '4 +'],
+      ['REFUSED', 'one']
+    ]) {
+      const dropped = new Error('unreachable');
+      annotateCrash(dropped, { sharedMemoryProbe, extensionViews });
+      expect(snapshotCrashDiagnostics(dropped)).toEqual({});
+    }
+  });
+
+  it.each(['open', 'answered', 'window_closed', 'expired', 'payload_failed', 'unknown'])(
+    "reads the background's confirmation_%s code back to its state",
+    state => {
+      const error = new Error('Not Found');
+      annotateCrash(error, { confirmationHandler: `confirmation_${state}`, portReconnected: true });
+      expect(snapshotCrashDiagnostics(error)).toEqual({ confirmationHandler: state, portReconnected: true });
+    }
+  );
+
+  it('drops a confirmation code or a reconnect flag that is not exactly one of its values', () => {
+    for (const confirmationHandler of [
+      'expired',
+      'confirmation_unknown 0xab',
+      `0x${'ab'.repeat(32)}`,
+      'confirmation_V1StGXR8_Z5jdHi6B-myT',
+      'confirmation_',
+      7
+    ]) {
+      const error = new Error('Not Found');
+      annotateCrash(error, { confirmationHandler, portReconnected: 'true' });
+      annotateCrash(error, { portReconnected: 1 });
+      expect(snapshotCrashDiagnostics(error)).toEqual({});
+    }
+    const error = new Error('Not Found');
+    annotateCrash(error, { portReconnected: false });
+    expect(snapshotCrashDiagnostics(error)).toEqual({ portReconnected: false });
+  });
+
   it('returns detached snapshots and preserves annotations across wrappers', () => {
     const cause = new Error('cause');
     annotateCrash(cause, { operation: 'sdk_initialize', stage: 'client_create', workerMode: 'disabled' });
