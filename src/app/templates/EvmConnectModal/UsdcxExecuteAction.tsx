@@ -83,6 +83,7 @@ export const UsdcxExecuteAction: React.FC<UsdcxExecuteActionProps> = ({
     <div className={clsx('flex flex-col gap-3', className)} data-testid="usdcx-execute-ready">
       <p className="text-center text-sm text-gray">{t('usdcxExecuteNeeded', { network })}</p>
       <Button
+        accent="receive"
         title={busy ? t('usdcxExecuting') : t('usdcxExecuteOnNetwork', { network })}
         variant={ButtonVariant.Primary}
         onClick={handleExecute}

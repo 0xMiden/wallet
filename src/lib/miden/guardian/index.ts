@@ -514,6 +514,29 @@ export class MultisigService {
   }
 
   /**
+   * Propose the creator's cancel of a zero-fill PSWAP order, built in the proposal's own chain-synced hold so the
+   * request binds the height the proposal is made at. `persistRequest` stores the bytes before the proposal exists,
+   * so the row always holds the request a proposal of it was made from, and signing reads them from there.
+   *
+   * Never `createRebasedCustomProposal`: its rebuild keeps only own output notes, and this request's content is the
+   * tip it consumes.
+   */
+  async createPswapCancelProposal(
+    noteId: string,
+    persistRequest: (requestBytes: Uint8Array) => Promise<void>
+  ): Promise<Proposal> {
+    return await this.withChainSyncedHold('PSWAP cancel proposal', async hold => {
+      const requestBytes = await midenClientProxy.buildPswapCancelRequest(this.accountId, noteId, step =>
+        assertWasmHoldCurrent(hold, 'PSWAP cancel proposal: inside the cancel-request build', step)
+      );
+      assertWasmHoldCurrent(hold, 'PSWAP cancel proposal: after the cancel-request build');
+      await persistRequest(requestBytes);
+      assertWasmHoldCurrent(hold, 'PSWAP cancel proposal: after persisting the request');
+      return this.multisig.createCustomProposal(requestBytes, 'custom_transaction');
+    });
+  }
+
+  /**
    * Sign a proposal with this service's bound signer. Used by switch_guardian's
    * cold co-sign path where cold contributes a signature without driving the
    * follow-up createTransactionProposalRequest call (hot does that).

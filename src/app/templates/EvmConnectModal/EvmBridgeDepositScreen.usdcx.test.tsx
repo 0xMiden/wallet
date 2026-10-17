@@ -6,7 +6,7 @@ import { toFunctionSelector } from 'viem';
 import { TEST_BRIDGE_CONFIG_SNAPSHOT } from 'lib/epoch/testing/bridge-config';
 import { initiateBridgedReceiveTransaction, updateBridgedReceivePhase } from 'lib/miden/activity';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
-import type { AgglayerChainConfig } from 'lib/remote-config/schema';
+import type { AgglayerChainConfig, UsdcxChainConfig } from 'lib/remote-config/schema';
 import type { CctpBurnQuote } from 'lib/usdcx/cctp';
 import { runUsdcxDeposit } from 'lib/usdcx/deposit';
 import { usdcxRemoteRecipientFor } from 'lib/usdcx/deposit-target';
@@ -23,14 +23,20 @@ import { EvmTransactionRevertedError, waitForEvmReceipt } from 'lib/walletconnec
 
 import { EvmBridgeDepositScreen } from './EvmBridgeDepositScreen';
 
-// The suite's document unless a case sets another before it renders.
+// The suite's document unless a case sets another before it renders, or publishes one mid-flow.
 let mockBridgeSnapshot: BridgeConfigSnapshot | undefined;
+const mockConfigListeners = new Set<() => void>();
 jest.mock('lib/remote-config/runtime', () => ({
   getBridgeConfigSnapshot: () =>
     mockBridgeSnapshot ??
     jest.requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
       .TEST_BRIDGE_CONFIG_SNAPSHOT,
-  subscribeBridgeConfig: () => () => {},
+  subscribeBridgeConfig: (listener: () => void) => {
+    mockConfigListeners.add(listener);
+    return () => {
+      mockConfigListeners.delete(listener);
+    };
+  },
   initBridgeConfig: async () => {},
   holdFastPoll: () => () => {}
 }));
@@ -207,10 +213,12 @@ jest.mock('./EvmBridgeDepositForm', () => ({
     onSelectToken,
     onSelectNetwork,
     network,
+    tokenLabel,
     isValidAmount,
     error
   }: {
     network?: { chainId: number };
+    tokenLabel: string;
     isValidAmount: boolean;
     error?: string;
     onAmountChange: (value?: string) => void;
@@ -219,6 +227,7 @@ jest.mock('./EvmBridgeDepositForm', () => ({
     onSelectNetwork?: () => void;
   }) => (
     <div>
+      <span data-testid="form-token">{tokenLabel}</span>
       <span data-testid="form-network">{String(network?.chainId)}</span>
       <span data-testid="form-ready">{String(isValidAmount)}</span>
       <span data-testid="form-error">{error}</span>
@@ -442,6 +451,15 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
     mockBridgeSnapshot = undefined;
   });
 
+  it('opens on Circle USDC even while the config still advertises the retired Epoch token', async () => {
+    renderScreen();
+    await settle();
+    expect(screen.getByTestId('form-network')).toHaveTextContent(/^5042002$/);
+    await reachRouteStep();
+    expect(screen.getByTestId('usdcx-route-confirm')).toBeInTheDocument();
+    expect(epochState.quoteEVMToMiden).not.toHaveBeenCalled();
+  });
+
   it('offers only the xReserve route for a USDC deposit, already selected', async () => {
     renderScreen();
 
@@ -481,14 +499,15 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
     expect(screen.getByTestId('usdcx-route-confirm')).toBeInTheDocument();
   });
 
-  it('keeps the token the user picked over the document opening token', async () => {
+  it('ignores attempts to select the retired Epoch token', async () => {
     mockBridgeSnapshot = withoutEpochUsdc();
     renderScreen();
     await settle();
 
     await pickToken('pick-usdc');
 
-    expect(screen.getByTestId('form-error')).toHaveTextContent(/^The bridge config names no USDC token\.$/);
+    expect(screen.getByTestId('form-network')).toHaveTextContent(/^5042002$/);
+    expect(screen.getByTestId('form-error')).toHaveTextContent(/^$/);
   });
 
   it('asks for a network instead of naming Sepolia when no route has a chain', async () => {
@@ -509,6 +528,33 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
     await settle();
 
     expect(screen.getByTestId('form-network')).toHaveTextContent(/^undefined$/);
+  });
+
+  it('opens on native ETH rather than retired USDC when Circle has no configured source', async () => {
+    const config = TEST_BRIDGE_CONFIG_SNAPSHOT.config!;
+    const agglayer: AgglayerChainConfig = {
+      contractAddress: '0x528e26b25a34a4a5d0dbda1d57d318153d2ed582',
+      midenBridgeId: '0x187cabbc',
+      depositEnabled: true,
+      withdrawalEnabled: true
+    };
+    mockBridgeSnapshot = {
+      ...TEST_BRIDGE_CONFIG_SNAPSHOT,
+      config: {
+        ...config,
+        supportedEvmChains: Object.fromEntries(
+          Object.entries(config.supportedEvmChains).map(([slug, chain]) => {
+            const { usdcx: _usdcx, ...bridges } = chain.bridges;
+            return [slug, { ...chain, bridges: slug === 'sepolia' ? { ...bridges, agglayer } : bridges }];
+          })
+        )
+      }
+    };
+    renderScreen();
+    await settle();
+    expect(screen.getByTestId('form-token')).toHaveTextContent(/^ETH$/);
+    expect(screen.getByTestId('form-network')).toHaveTextContent(/^11155111$/);
+    expect(epochState.quoteEVMToMiden).not.toHaveBeenCalled();
   });
 
   it('shows the Fast/Slow picker again once ETH is chosen', async () => {
@@ -539,6 +585,89 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
 
     expect(screen.getByTestId('fast-slow-route-confirm')).toBeInTheDocument();
     expect(screen.queryByTestId('usdcx-route-confirm')).not.toBeInTheDocument();
+  });
+
+  // ETH bridges only through AggLayer; these cases name it on Sepolia, which the suite's document lacks.
+  const AGGLAYER: AgglayerChainConfig = {
+    contractAddress: '0x528e26b25a34a4a5d0dbda1d57d318153d2ed582',
+    midenBridgeId: '0x187cabbc',
+    depositEnabled: true,
+    withdrawalEnabled: true
+  };
+  /** `snapshot` with AggLayer ETH on Sepolia and each chain's Circle route passed through `circle`. */
+  const withAgglayerEth = (
+    snapshot: BridgeConfigSnapshot,
+    circle: (route: UsdcxChainConfig) => UsdcxChainConfig | undefined
+  ): BridgeConfigSnapshot => ({
+    ...snapshot,
+    config: {
+      ...snapshot.config!,
+      supportedEvmChains: Object.fromEntries(
+        Object.entries(snapshot.config!.supportedEvmChains).map(([slug, chain]) => {
+          const { usdcx, ...bridges } = chain.bridges;
+          const route = usdcx && circle(usdcx);
+          return [
+            slug,
+            {
+              ...chain,
+              bridges: {
+                ...bridges,
+                ...(route ? { usdcx: route } : {}),
+                ...(slug === 'sepolia' ? { agglayer: AGGLAYER } : {})
+              }
+            }
+          ];
+        })
+      )
+    }
+  });
+  const publish = (next: BridgeConfigSnapshot) =>
+    act(() => {
+      mockBridgeSnapshot = next;
+      mockConfigListeners.forEach(listener => listener());
+    });
+
+  it('opens on native ETH and the AggLayer route when Circle deposits are switched off on a named source', async () => {
+    mockBridgeSnapshot = withAgglayerEth(TEST_BRIDGE_CONFIG_SNAPSHOT, route => ({ ...route, depositEnabled: false }));
+    renderScreen();
+    await settle();
+
+    expect(screen.getByTestId('form-token')).toHaveTextContent(/^ETH$/);
+    expect(screen.getByTestId('form-network')).toHaveTextContent(/^11155111$/);
+  });
+
+  it('moves ETH picked from Circle USDC to the AggLayer route, which names its chain and continues', async () => {
+    mockBridgeSnapshot = withAgglayerEth(withoutEpochUsdc(), route => route);
+    renderScreen();
+    await settle();
+    expect(screen.getByTestId('form-network')).toHaveTextContent(/^5042002$/);
+
+    await pickToken('pick-eth');
+    expect(screen.getByTestId('form-network')).toHaveTextContent(/^11155111$/);
+    fireEvent.click(screen.getByTestId('set-amount'));
+    await settle();
+    expect(screen.getByTestId('form-ready')).toHaveTextContent(/^true$/);
+    fireEvent.click(screen.getByTestId('continue'));
+    await settle();
+
+    expect(screen.getByTestId('fast-slow-route-confirm')).toBeInTheDocument();
+  });
+
+  it('keeps the token, the route and the quote of a deposit on Review when a publish drops the Circle source', async () => {
+    mockBridgeSnapshot = withAgglayerEth(TEST_BRIDGE_CONFIG_SNAPSHOT, route => route);
+    renderScreen();
+    await reachRouteStep();
+    fireEvent.click(screen.getByTestId('usdcx-route-confirm'));
+    await settle();
+    expect(screen.getByTestId('review-symbols')).toHaveTextContent('USDC->USDCx');
+    epochState.reset.mockClear();
+
+    publish(withAgglayerEth(TEST_BRIDGE_CONFIG_SNAPSHOT, () => undefined));
+    await settle();
+
+    expect(screen.getByTestId('confirm-deposit')).toBeInTheDocument();
+    expect(screen.getByTestId('review-symbols')).toHaveTextContent('USDC->USDCx');
+    expect(epochState.reset).not.toHaveBeenCalled();
   });
 
   it('reviews a USDC deposit as arriving in USDCx', async () => {
@@ -1199,8 +1328,8 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
       expect(balanceOfRequests()).toHaveLength(reads);
     });
 
-    // Only a hold on Circle's USDC is cleared by adding it; the bridge's own USDC on the Fast route reads nothing.
-    it('sends no Circle USDC re-read while the Fast route holds the bridge USDC amount', async () => {
+    // The opening token is now Circle USDC, so its balance hold uses the normal bounded re-read.
+    it('rechecks the default Circle USDC balance while it holds the amount', async () => {
       mockBalance = 1n;
       renderScreen();
       fireEvent.click(screen.getByTestId('set-amount'));
@@ -1210,7 +1339,7 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
 
       await advance(30_000);
 
-      expect(balanceOfRequests()).toHaveLength(reads);
+      expect(balanceOfRequests()).toHaveLength(reads + 3);
     });
 
     it('keeps the held balance on screen while its re-reads fail', async () => {
@@ -1323,8 +1452,7 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
     expect(screen.getByTestId('review-source')).toHaveTextContent('84532');
   });
 
-  // One picked chain; each route resolves its own from it, so a USDCx-only chain does not strand the Fast route.
-  it('keeps the Fast route on its own chain after a USDCx-only pick', async () => {
+  it('keeps the Circle source and route when a stale picker attempts the retired token', async () => {
     renderScreen();
     await pickToken('pick-circle-usdc');
     fireEvent.click(screen.getByTestId('open-network-drawer'));
@@ -1332,14 +1460,10 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
     fireEvent.click(screen.getByTestId('pick-network-base-sepolia'));
     await settle();
     await pickToken('pick-usdc');
-    expect(screen.getByTestId('form-network')).toHaveTextContent('11155111');
+    expect(screen.getByTestId('form-network')).toHaveTextContent('84532');
     await reachRouteStep();
-
-    expect(screen.getByTestId('fast-availability')).toHaveTextContent('available');
-    expect(epochState.quoteEVMToMiden).toHaveBeenCalledWith(
-      expect.objectContaining({ sourceChainId: 11155111 }),
-      expect.any(String)
-    );
+    expect(screen.getByTestId('usdcx-route-confirm')).toBeInTheDocument();
+    expect(epochState.quoteEVMToMiden).not.toHaveBeenCalled();
   });
 
   const deferred = <T,>() => {

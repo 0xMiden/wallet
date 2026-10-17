@@ -32,6 +32,8 @@ export interface CopyButtonProps {
   /** Classes for the row that holds the glyph and label: gap, font. */
   contentClassName?: string;
   className?: string;
+  /** A full-width address row inside a card, with the shared field sizing and focus. */
+  variant?: 'text' | 'address';
   disabled?: boolean;
   'data-testid'?: string;
   /**
@@ -63,6 +65,7 @@ export const CopyButton: React.FC<CopyButtonProps> = ({
   checkClassName,
   contentClassName,
   className,
+  variant = 'text',
   disabled,
   'data-testid': dataTestId,
   'aria-label': ariaLabel
@@ -94,11 +97,23 @@ export const CopyButton: React.FC<CopyButtonProps> = ({
       aria-label={typeof ariaLabel === 'function' ? ariaLabel(copied) : ariaLabel}
       // `cn` (tailwind-merge), not `clsx`: a caller's own text color in `className` has to
       // REPLACE the default `text-accent-tint-ink` it conflicts with, not just coexist with it.
-      className={cn('shrink-0 text-action text-accent-tint-ink disabled:opacity-50', className)}
+      className={cn(
+        'shrink-0 text-action text-accent-tint-ink disabled:opacity-50',
+        variant === 'address' &&
+          'flex min-h-14 w-full items-center px-4 py-3 text-ink transition-colors hover:bg-fill-pressed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-receive focus-visible:ring-inset',
+        className
+      )}
     >
       {/* `aria-live` so "Copied" is announced even though nothing moves focus. The leaving label
           is `aria-hidden` while it rolls out, so only the new one is read. */}
-      <span aria-live="polite" className={cn('flex min-w-0 items-center gap-1.5', contentClassName)}>
+      <span
+        aria-live="polite"
+        className={cn(
+          'flex min-w-0 items-center gap-1.5',
+          variant === 'address' && 'w-full justify-between gap-3 text-value',
+          contentClassName
+        )}
+      >
         {icon !== 'trailing' && glyph}
         {showLabel && (
           <CopyLabel copied={labelAnnounces && copied} copiedLabel={rollsTo}>

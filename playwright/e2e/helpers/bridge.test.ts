@@ -390,26 +390,57 @@ describe('bridgeOutUsdcx', () => {
 });
 
 describe('expectArcPreselected', () => {
-  const pageWithChips = (pressed: string) =>
-    ({
-      locator: () => ({
+  const SHEET_ROWS = '[role="dialog"][data-state="open"] [data-testid^="send-network-"]';
+  // NetworkField: the four destinations are rows of a sheet the summary row opens, and exist only while it is open.
+  const pageWithSheet = (pressed: string) => {
+    const actions: string[] = [];
+    let open = false;
+    const page = {
+      getByTestId: (testId: string) => ({
+        click: async () => {
+          actions.push(`click ${testId}`);
+          if (testId === 'send-network-picker') open = true;
+        },
+        waitFor: async ({ state }: { state: string }) => {
+          actions.push(`${state} ${testId}`);
+        }
+      }),
+      locator: (selector: string) => ({
         evaluateAll: async () =>
-          [
-            'send-network-arc-testnet',
-            'send-network-sepolia',
-            'send-network-base-sepolia',
-            'send-network-arbitrum-sepolia'
-          ].map(testId => ({ testId, pressed: testId === pressed ? 'true' : 'false' }))
+          open && selector === SHEET_ROWS
+            ? [
+                'send-network-arc-testnet',
+                'send-network-sepolia',
+                'send-network-base-sepolia',
+                'send-network-arbitrum-sepolia'
+              ].map(testId => ({ testId, pressed: testId === pressed ? 'true' : 'false' }))
+            : [],
+        getByRole: (role: string, { name }: { name: string }) => ({
+          click: async () => {
+            actions.push(`click ${role} ${name} in ${selector}`);
+            open = false;
+          }
+        })
       })
-    }) as unknown as Page;
+    } as unknown as Page;
+    return { page, actions };
+  };
 
-  it('resolves once Arc Testnet alone is pressed among the four chips', async () => {
-    await expect(expectArcPreselected(pageWithChips('send-network-arc-testnet'), 1_000)).resolves.toBeUndefined();
+  it('opens the network sheet, resolves once Arc Testnet alone is pressed among its four rows, and closes it', async () => {
+    const { page, actions } = pageWithSheet('send-network-arc-testnet');
+
+    await expect(expectArcPreselected(page, 1_000)).resolves.toBeUndefined();
+
+    expect(actions).toEqual([
+      'click send-network-picker',
+      `click button ${enText('close')} in [role="dialog"][data-state="open"]`,
+      'hidden send-network-arc-testnet'
+    ]);
   });
 
-  it('says it checks the chip set and the default, not USDCx mode', async () => {
-    await expect(expectArcPreselected(pageWithChips('send-network-sepolia'), 300)).rejects.toThrow(
-      'checks the chip set and its default'
+  it('says it checks the destination set and the default, not USDCx mode', async () => {
+    await expect(expectArcPreselected(pageWithSheet('send-network-sepolia').page, 300)).rejects.toThrow(
+      'checks the destination set and its default'
     );
   });
 });

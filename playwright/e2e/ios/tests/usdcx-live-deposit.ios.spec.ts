@@ -196,8 +196,8 @@ test.describe('Bridge-IN deposit (Circle xReserve/USDC, live testnets)', () => {
       });
 
       await steps.step('deposit_via_ui', async () => {
-        // The screen opens on the bridge's own USDC. Circle's USDC is the token xReserve
-        // takes, and it has one route.
+        // The screen opens on Circle's USDC, the token xReserve takes, and it has one
+        // route; the pick names the token the deposit needs.
         await walletA.openBridgeDeposit();
         await walletA.selectBridgeToken('CIRCLE_USDC');
         await walletA.enterBridgeAmount(depositAmount);

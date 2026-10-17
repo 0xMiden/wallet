@@ -315,7 +315,7 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
   // The Home pane holds the swipe carousel for every home-group route.
   panesRef.current[activeTab] = showActionBar ? (
     <>
-      <div className="shrink-0 relative z-10">
+      <div className="shrink-0 relative z-10" data-home-actions="true">
         <SegmentedActionBar
           items={actionItems}
           activeId={activeAction}

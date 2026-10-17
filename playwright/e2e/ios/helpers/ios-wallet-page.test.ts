@@ -407,6 +407,10 @@ describe('routeOf', () => {
 const SEND = '[data-testid="send-flow"]';
 const REVIEW = '[data-page-layer="/send/review"]';
 const SUBMIT = `${REVIEW} [data-testid="send-review-submit"]`;
+// The network sheet portals to <body>, outside the Send flow.
+const SHEET = '[role="dialog"][data-state="open"]';
+const PICKER = `${SEND} [data-testid="send-network-picker"]`;
+const ARC_ROW = `${SHEET} [data-testid="send-network-arc-testnet"]`;
 const NATIVE = 'mtst1apxtmjhlua0s5vt5sg3ymtnyxclasaf0_qr7qqq9wr6w';
 const KEY = '0xd07e6586a66ddA1Bad34aF529c1f07156b167861';
 const CHIPS = [
@@ -426,15 +430,38 @@ const BURN = {
   screenshotDir: path.join(os.tmpdir(), 'ios-wallet-page-burn-test')
 } as const;
 
-function spikeAnswer(js: string, overrides: { ready?: unknown; outcome?: unknown; pressed?: string } = {}): unknown {
-  if (js.includes('aria-pressed')) {
-    const pressed = overrides.pressed ?? CHIPS[0];
-    return CHIPS.map(testId => ({ testId, pressed: testId === pressed ? 'true' : 'false' }));
+// RouteCard's text: its label, then the fee and arrival metrics, each a caption over its value.
+const ROUTE_CARD_TEXT = [
+  enText('usdcxRouteLabel'),
+  enText('networkFee'),
+  enText('usdcxMidenFees', { symbol: 'USDCX' }),
+  enText('bridgeArrivalEstimate'),
+  enText('bridgePayoutTiming')
+].join('');
+
+interface SpikeOverrides {
+  ready?: unknown;
+  outcome?: unknown;
+  /** NetworkField renders the four rows only while its sheet is open. */
+  sheetOpen?: boolean;
+  /** What the closed field names: Arc Testnet, the default, until another row is picked. */
+  summary?: string;
+}
+
+// Each reader is answered by its own root test id: the route card and the sheet rows both carry aria-pressed.
+function spikeAnswer(js: string, overrides: SpikeOverrides = {}): unknown {
+  if (js.includes('send-network-picker')) {
+    return {
+      summary: overrides.summary ?? 'Arc Testnet',
+      rows: overrides.sheetOpen
+        ? CHIPS.map(testId => ({ testId, pressed: testId === CHIPS[0] ? 'true' : 'false' }))
+        : []
+    };
   }
   if (js.includes('bridge-route-usdcx')) {
     return {
-      checked: 'true',
-      cardText: 'USDCx (Circle xReserve)USDCX fees',
+      pressed: 'true',
+      cardText: ROUTE_CARD_TEXT,
       fee: 'Up to 0.1 USDC',
       net: 'At least 9.9 USDC',
       notice: enText('usdcxWithdrawalNotice')
@@ -486,15 +513,25 @@ function stubDom(page: IosWalletPage, backs = 0): string[] {
   return selectors;
 }
 
+/** A burn page answering as the spike's DOM did, its network sheet open from a picker click until a row click. */
+function burnPage(
+  answer: (js: string, sheetOpen: boolean) => unknown = (js, sheetOpen) => spikeAnswer(js, { sheetOpen }),
+  backs = 0
+) {
+  const bodies: string[] = [];
+  const page = pageWith(async js => {
+    bodies.push(js);
+    const clicks = (page as unknown as { click: jest.Mock }).click.mock.calls.map(call => String(call[0]));
+    return answer(js, clicks.lastIndexOf(PICKER) > clicks.findLastIndex(selector => selector.startsWith(`${SHEET} `)));
+  });
+  const selectors = stubDom(page, backs);
+  return { page, selectors, bodies };
+}
+
 describe('IosWalletPage.burnUsdcxViaSendFlow', () => {
   // #1404 clicked the hidden Swap selector; here the review slides over a Send layer holding the same payout rows.
-  it('drives every step inside the Send flow and the review layer, presses Arc and returns routes without the password', async () => {
-    const bodies: string[] = [];
-    const page = pageWith(async js => {
-      bodies.push(js);
-      return spikeAnswer(js);
-    });
-    const selectors = stubDom(page);
+  it('drives every step inside the Send flow, its network sheet and the review layer, picks Arc and returns routes without the password', async () => {
+    const { page, selectors, bodies } = burnPage();
 
     const result = await page.burnUsdcxViaSendFlow(BURN);
 
@@ -505,18 +542,16 @@ describe('IosWalletPage.burnUsdcxViaSendFlow', () => {
       defaultPressed: ['send-network-arc-testnet']
     });
     expect(JSON.stringify(result)).not.toContain('password');
-    expect(selectors.filter(selector => !selector.startsWith(SEND) && !selector.startsWith(REVIEW))).toEqual([]);
-    expect(selectors.filter(selector => selector.includes('send-network-'))).toEqual([
-      `${SEND} [data-testid="send-network-arc-testnet"]`
-    ]);
+    expect(selectors.filter(selector => !selector.startsWith(SEND) && !selector.startsWith(REVIEW))).toEqual([ARC_ROW]);
+    expect(selectors.filter(selector => selector.includes('send-network-'))).toEqual([PICKER, PICKER, ARC_ROW]);
     expect(selectors.filter(selector => selector === SUBMIT)).toHaveLength(1);
     const roots = bodies.flatMap(rootsOf);
     expect(roots.length).toBeGreaterThan(5);
-    expect(roots.filter(root => !root.startsWith(SEND) && !root.startsWith(REVIEW))).toEqual([]);
+    expect([...new Set(roots.filter(root => !root.startsWith(SEND) && !root.startsWith(REVIEW)))]).toEqual([SHEET]);
     expect(bodies.join('\n')).not.toMatch(/document\.querySelector(?:All)?\('/);
     // A prefix check passes a review read rooted at the hidden Send copy, which comes first in the DOM.
     const rootsFor = (marker: string) => [...new Set(bodies.filter(js => js.includes(marker)).flatMap(rootsOf))];
-    expect(rootsFor('aria-pressed')).toEqual([SEND]);
+    expect(rootsFor('send-network-picker')).toEqual([SEND, SHEET]);
     expect(rootsFor('bridge-route-usdcx')).toEqual([SEND]);
     expect(rootsFor('location.href')).toEqual([SUBMIT]);
     expect(rootsFor('function row(')).toEqual([REVIEW]);
@@ -535,8 +570,9 @@ describe('IosWalletPage.burnUsdcxViaSendFlow', () => {
   });
 
   it("names the review's refusal and never submits", async () => {
-    const page = pageWith(async js => spikeAnswer(js, { ready: { state: 'error', text: 'Not enough USDCX' } }));
-    const selectors = stubDom(page);
+    const { page, selectors } = burnPage((js, sheetOpen) =>
+      spikeAnswer(js, { sheetOpen, ready: { state: 'error', text: 'Not enough USDCX' } })
+    );
 
     await expect(page.burnUsdcxViaSendFlow(BURN)).rejects.toThrow(
       'the review refused the burn before submit: review-error "Not enough USDCX"'
@@ -546,8 +582,7 @@ describe('IosWalletPage.burnUsdcxViaSendFlow', () => {
 
   // R26: withStepBudget aborts an overrun step's signal, and the step itself runs on after its test failed.
   it('never clicks submit once its step has been aborted', async () => {
-    const page = pageWith(async js => spikeAnswer(js));
-    const selectors = stubDom(page);
+    const { page, selectors } = burnPage();
     const controller = new AbortController();
     controller.abort(new Error('burn_via_send exceeded its 240000 ms budget'));
 
@@ -559,19 +594,18 @@ describe('IosWalletPage.burnUsdcxViaSendFlow', () => {
 
   it("tells the wallet's failed Arc snapshot apart from a refusal after submit", async () => {
     const outcome = { hash: '#/send/review?amount=10', error: 'HTTP request failed.', loading: false };
-    const page = pageWith(async js => spikeAnswer(js, { outcome }));
-    stubDom(page);
+    const { page } = burnPage((js, sheetOpen) => spikeAnswer(js, { sheetOpen, outcome }));
 
     await expect(page.burnUsdcxViaSendFlow(BURN)).rejects.toThrow(
       `Arc RPC unavailable for the wallet's balance snapshot (burn.ts:103), infra: review-error "HTTP request failed."`
     );
   }, 15_000);
 
-  it('presses the payout chain it is given and holds the route and the review to that chain', async () => {
-    const baseChip = BASE_SEPOLIA_PAYOUT.chip;
+  it('picks the payout chain it is given and holds the route and the review to that chain', async () => {
+    const baseRow = `${SHEET} [data-testid="send-network-${BASE_SEPOLIA_PAYOUT.reviewNetwork}"]`;
     const href = HREF.replace('network=arc-testnet', `network=${BASE_SEPOLIA_PAYOUT.reviewNetwork}`);
     const rows = usdcxPayoutRowsText(BASE_SEPOLIA_PAYOUT.chainId, BURN.amount);
-    const page = pageWith(async js => {
+    const { page, selectors } = burnPage((js, sheetOpen) => {
       if (js.includes('location.href')) return { href, hash: href.slice(href.indexOf('#')), submit: true };
       if (js.includes('function row(')) {
         return {
@@ -584,29 +618,26 @@ describe('IosWalletPage.burnUsdcxViaSendFlow', () => {
       }
       if (js.includes('bridge-route-usdcx')) {
         return {
-          checked: 'true',
-          cardText: 'USDCx (Circle xReserve)USDCX fees',
+          pressed: 'true',
+          cardText: ROUTE_CARD_TEXT,
           fee: rows.fee,
           net: rows.net,
           notice: enText('usdcxWithdrawalNotice')
         };
       }
-      return spikeAnswer(js, { pressed: baseChip });
+      return spikeAnswer(js, { sheetOpen, summary: BASE_SEPOLIA_PAYOUT.networkName });
     });
-    const selectors = stubDom(page);
 
     const result = await page.burnUsdcxViaSendFlow({ ...BURN, payout: BASE_SEPOLIA_PAYOUT });
 
     expect(result.reviewRoute).toBe(href.slice(href.indexOf('#')));
-    expect(selectors.filter(selector => selector.includes('send-network-'))).toEqual([
-      `${SEND} [data-testid="${baseChip}"]`
-    ]);
+    expect(result.defaultPressed).toEqual(['send-network-arc-testnet']);
+    expect(selectors.filter(selector => selector.includes('send-network-'))).toEqual([PICKER, PICKER, baseRow]);
   }, 15_000);
 
-  // The carousel keeps Send mounted with its step and its chip across hash navigations.
+  // The carousel keeps Send mounted with its step and its network across hash navigations.
   it('backs the persistent Send pane out to the recipient step before it fills the address', async () => {
-    const page = pageWith(async js => spikeAnswer(js));
-    const selectors = stubDom(page, 2);
+    const { page, selectors } = burnPage(undefined, 2);
 
     await page.burnUsdcxViaSendFlow(BURN);
 
@@ -624,10 +655,11 @@ describe('IosWalletPage.burnUsdcxViaSendFlow review landing', () => {
   it("keeps the onboarding password out of the timed-out review poll's failure", async () => {
     // The landing read runs as the WebView runs it; no submit button renders, so the poll runs out.
     const webView = { location: new URL(HREF), document: { querySelector: () => null } };
-    const page = pageWith(async js =>
-      js.includes('location.href') ? vm.runInNewContext(`(function () { ${js} })()`, webView) : spikeAnswer(js)
+    const { page } = burnPage((js, sheetOpen) =>
+      js.includes('location.href')
+        ? vm.runInNewContext(`(function () { ${js} })()`, webView)
+        : spikeAnswer(js, { sheetOpen })
     );
-    stubDom(page);
     jest.useFakeTimers();
 
     const failure = page.burnUsdcxViaSendFlow(BURN).then(

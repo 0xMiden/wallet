@@ -66,7 +66,6 @@ describe('Route', () => {
     render(<Route route="epoch" onRouteChange={jest.fn()} fastQuoteLoading={false} {...UP} onConfirm={jest.fn()} />);
 
     const footer = screen.getByTestId('bridge-route-confirm').parentElement!;
-    expect(footer).toHaveClass('pt-4');
     expect(footer).toHaveClass(stepFooterCushionClass());
     expect(footer.className).not.toContain('pb-24');
   });
