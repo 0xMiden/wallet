@@ -1421,7 +1421,7 @@ export const generatePromisifyImportPrivateNote = async (
               type: MidenDAppMessageType.ImportPrivateNoteResponse,
               // Hex string: the note ID for metadata-bearing files, or the
               // details commitment for details-only imports (the common
-              // dApp `noteBytes` path).
+              // dApp `noteBytes` path). `requestConsume` accepts either (#1389).
               noteId
             });
           } catch (e) {
