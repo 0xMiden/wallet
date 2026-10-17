@@ -97,6 +97,7 @@ before(async () => {
     return dataModule(compiled.outputText);
   };
   // A data: module resolves no relative specifier, so the page's own modules load through the same map, leaves first.
+  imports.set('./page-common.js', await pageModule('page-common.ts'));
   imports.set('./custom-scripts.js', await pageModule('custom-scripts.ts'));
   imports.set('./script-request.js', await pageModule('script-request.ts'));
   globalThis.window = { midenWallet: { on: () => undefined }, location: { host: 'fixture-unit' } };
