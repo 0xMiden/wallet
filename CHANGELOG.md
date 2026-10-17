@@ -4,6 +4,7 @@
 
 ### Features
 
+- [FEATURE][all] Swap quotes come from the solver's Swap Quote API v2: the receive amount is built in integer arithmetic from the pair's fill price less an editable slippage (0.05% by default, up to 1%, on the review screen), the review shows the solver's verdict on the exact order (fills now, part fills, waits for the price, no orders yet, pair not traded) and the amount a full fill is expected to pay, the quote refreshes every 30 seconds while the swap screen is on screen, and a press on Swap re-checks the order with the solver first and refuses one the price has moved past instead of leaving it unfilled in the book. Activity shows a swap as filled once it has received its requested amount less the slippage it was placed with, and the wallet still reclaims the remainder of such an order at expiry.
 - [FEATURE][all] A transaction-failure crash report says why the transaction failed, in fixed values only: the wallet's own reason (a cancel, the startup sweep, the stuck reaper, a queue expiry, the rotation gate, or the node check of a claim), a Guardian refusal's HTTP status and published error code, or the device key's refusal code. A code outside those lists is sent as `other`, no failure text is sent, and the privacy policy lists every value. These failures move from their earlier crash-report titles, which named only a broad error category, to new titles that carry these values, so they start new crash-report issues.
 
 ### Fixes

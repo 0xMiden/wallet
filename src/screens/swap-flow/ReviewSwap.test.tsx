@@ -2,14 +2,14 @@ import React from 'react';
 
 import { act, fireEvent, render, screen } from '@testing-library/react';
 
+import { SwapEta, SwapQuote } from 'lib/miden/swap/quote';
 import { TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
-import { SwapEta } from 'lib/miden/swap/tokens';
 
 import { ReviewSwap, ReviewSwapProps } from './ReviewSwap';
 
 // react-i18next: echo the key back, and fold interpolation options into the
-// returned string so we can assert that `swapSolverFeeNote`'s `{percent}` was
-// computed from SOLVER_MARGIN (mirrors sibling atom/screen tests that mock
+// returned string so we can assert what `swapRateNote`'s slippage and fee were
+// computed from (mirrors sibling atom/screen tests that mock
 // `useTranslation` with `t: (key) => key`).
 // The network banner now tops this screen, so the wallet names the chain on every surface that
 // commits value. Its sheet and the effective-endpoint lookup are tested in their own suites;
@@ -35,11 +35,9 @@ jest.mock('app/hooks/useNetworkFeeEstimate', () => ({
   useNetworkFeeEstimate: () => '0.02 MIDEN'
 }));
 
-// Pin SOLVER_MARGIN so the disclosed fee percent is deterministic (0.05 -> 5%).
-// The `SwapToken` type import in the source is erased at compile time, so the
-// mock only needs to supply the runtime `SOLVER_MARGIN` value.
+// The `SwapToken` type import in the source is erased at compile time; the labels read the
+// registry's id normalizer only.
 jest.mock('lib/miden/swap/tokens', () => ({
-  SOLVER_MARGIN: 0.05,
   normalizedFaucetId: jest.requireActual('lib/miden/swap/tokens').normalizedFaucetId
 }));
 
@@ -95,13 +93,45 @@ jest.mock('components/TokenLogo', () => {
   };
 });
 
-/** A `SwapEta` carrying just the oracle rate; fill signals default to "no data". */
-const etaWithRate = (marketPrice: string): SwapEta => ({
-  canFill: false,
-  estimatedSeconds: null,
-  offMarket: false,
-  marketPrice,
-  median24hSeconds: null
+/** A quote at a fill price, with the solver's usual pre-sign testnet verdict unless a test says otherwise. */
+const quoteAtRate = (fillPrice: string, eta: Partial<SwapEta> = {}): SwapQuote => ({
+  price: {
+    offeredFaucet: 'f-offer',
+    requestedFaucet: 'f-request',
+    marketPrice: fillPrice,
+    fillPrice,
+    feePpm: 50,
+    offeredDecimals: 8,
+    requestedDecimals: 8,
+    asOf: 0
+  },
+  // 1.5 IMIDEN for 3 IETH at 8 decimals: the amounts the fixture props show.
+  offeredAmount: 150000000n,
+  requestedAmount: 300000000n,
+  builtAsk: true,
+  slippageBps: 20,
+  eta: {
+    offeredFaucet: 'f-offer',
+    requestedFaucet: 'f-request',
+    offeredAmount: '150000000',
+    requestedAmount: '300000000',
+    priceBand: 'at_market',
+    fillStatus: 'none',
+    reason: 'liquidity',
+    fillableOfferedAmount: '0',
+    fillableRequestedAmount: '0',
+    maxOfferedAmount: '0',
+    expectedRequestedAmount: null,
+    feePpm: 50,
+    feeAmount: null,
+    marketPrice: fillPrice,
+    fillPrice,
+    settlementsRunning: true,
+    estimatedSeconds: null,
+    median24hSeconds: null,
+    ...eta
+  },
+  fetchedAt: 0
 });
 
 jest.mock('components/Toggle', () => ({
@@ -122,10 +152,13 @@ const renderComponent = (overrides: Partial<ReviewSwapProps> = {}) => {
     offerAmount: '1.5',
     requestToken: REQUEST_TOKEN,
     requestAmount: '3',
-    swapEta: undefined,
+    requestEdited: false,
+    quote: undefined,
     expirySeconds: '120',
+    slippageBps: 20,
     autoConsume: true,
     onExpirySecondsChange: jest.fn(),
+    onSlippageBpsChange: jest.fn(),
     onAutoConsumeChange: jest.fn(),
     submitError: null,
     onGoBack: jest.fn(),
@@ -162,7 +195,7 @@ describe('ReviewSwap', () => {
     it('names the registry iETH "Test iETH" in the receive hero and the rate row, keeping the symbol for the logo (#477)', () => {
       renderComponent({
         requestToken: { ...REQUEST_TOKEN, faucetId: TEST_TOKEN_IETH.faucetId },
-        swapEta: etaWithRate('2')
+        quote: quoteAtRate('2')
       });
 
       expect(screen.getByText('3 Test iETH')).toBeInTheDocument();
@@ -214,7 +247,7 @@ describe('ReviewSwap', () => {
     const rateRow = () => screen.getByTestId('swap-rate-row');
 
     it('shows no rate value and offers no solver-fee hint when there is no quote', () => {
-      renderComponent({ swapEta: undefined });
+      renderComponent({ quote: undefined });
 
       expect(rateRow()).toHaveTextContent('rate');
       expect(screen.queryByTestId('swap-rate-info')).not.toBeInTheDocument();
@@ -222,36 +255,36 @@ describe('ReviewSwap', () => {
     });
 
     it('shows no rate when the market price is zero (falsy)', () => {
-      renderComponent({ swapEta: etaWithRate('0') });
+      renderComponent({ quote: quoteAtRate('0') });
       expect(screen.queryByText(/≈/)).not.toBeInTheDocument();
       expect(screen.queryByTestId('swap-rate-info')).not.toBeInTheDocument();
     });
 
     it('shows no rate when the market price is not a number', () => {
-      renderComponent({ swapEta: etaWithRate('not-a-number') });
+      renderComponent({ quote: quoteAtRate('not-a-number') });
       expect(screen.queryByText(/≈/)).not.toBeInTheDocument();
       expect(screen.queryByTestId('swap-rate-info')).not.toBeInTheDocument();
     });
 
     it('shows no rate when the market price is non-finite', () => {
-      renderComponent({ swapEta: etaWithRate('Infinity') });
+      renderComponent({ quote: quoteAtRate('Infinity') });
       expect(screen.queryByText(/≈/)).not.toBeInTheDocument();
       expect(screen.queryByTestId('swap-rate-info')).not.toBeInTheDocument();
     });
 
     it('renders a whole-number rate when the market price is valid', () => {
-      renderComponent({ swapEta: etaWithRate('2') });
+      renderComponent({ quote: quoteAtRate('2') });
 
       expect(rateRow()).toHaveTextContent('1 IMIDEN ≈ 2 IETH');
     });
 
     it('renders a fractional rate rounded to 4 significant figures', () => {
-      renderComponent({ swapEta: etaWithRate('0.333333333') });
+      renderComponent({ quote: quoteAtRate('0.333333333') });
       expect(rateRow()).toHaveTextContent('1 IMIDEN ≈ 0.3333 IETH');
     });
 
     it('lands a five-figure rate on its four significant figures', () => {
-      renderComponent({ swapEta: etaWithRate('12345.678') });
+      renderComponent({ quote: quoteAtRate('12345.678') });
       expect(rateRow()).toHaveTextContent('1 IMIDEN ≈ 12350 IETH');
     });
 
@@ -270,13 +303,13 @@ describe('ReviewSwap', () => {
 
       /** Every text the rate figure shows while it travels from `from` to `to`. */
       const travel = async (from: string, to: string) => {
-        const { rerender, props } = renderComponent({ swapEta: etaWithRate(from) });
+        const { rerender, props } = renderComponent({ quote: quoteAtRate(from) });
         const node = rateRow().querySelector('.tabular-nums') as HTMLElement;
         const frames: string[] = [];
         const observer = new MutationObserver(() => frames.push(node.textContent ?? ''));
         observer.observe(node, { characterData: true, childList: true, subtree: true });
 
-        rerender(<ReviewSwap {...props} swapEta={etaWithRate(to)} />);
+        rerender(<ReviewSwap {...props} quote={quoteAtRate(to)} />);
         frames.push(node.textContent ?? '');
         await act(() => new Promise(resolve => setTimeout(resolve, 800)));
         observer.disconnect();
@@ -305,17 +338,17 @@ describe('ReviewSwap', () => {
       });
     });
 
-    it('keeps the solver-fee sentence out of the layout until the (i) is tapped', () => {
-      renderComponent({ swapEta: etaWithRate('2') });
+    it('keeps the slippage-and-fee sentence out of the layout until the (i) is tapped', () => {
+      renderComponent({ quote: quoteAtRate('2') });
 
-      // Percent is Math.round(0.05 * 100) = 5.
-      expect(screen.queryByText('swapSolverFeeNote_5%')).not.toBeInTheDocument();
+      // 20 bps of slippage and a 50 ppm fee.
+      expect(screen.queryByText('swapRateNote_0.2%_0.005%')).not.toBeInTheDocument();
       fireEvent.click(screen.getByTestId('swap-rate-info'));
-      expect(screen.getByText('swapSolverFeeNote_5%')).toBeInTheDocument();
+      expect(screen.getByText('swapRateNote_0.2%_0.005%')).toBeInTheDocument();
     });
 
     it('names the row the rate hint belongs to', () => {
-      renderComponent({ swapEta: etaWithRate('2') });
+      renderComponent({ quote: quoteAtRate('2') });
 
       expect(screen.getByTestId('swap-rate-info')).toHaveAttribute('aria-label', 'moreInfoAbout_rate');
     });
@@ -335,23 +368,91 @@ describe('ReviewSwap', () => {
     const fillsInRow = () => screen.getByTestId('swap-fills-in-row');
 
     it('falls back to the static estimate when both live signals are absent', () => {
-      renderComponent({ swapEta: undefined });
+      renderComponent({ quote: undefined });
       expect(fillsInRow()).toHaveTextContent('swapEtaFallback');
     });
 
-    it('prefers the next-batch ETA in seconds when the order can fill', () => {
-      renderComponent({ swapEta: { ...etaWithRate('2'), canFill: true, estimatedSeconds: 12 } });
+    it('prefers the next-batch ETA in seconds when the solver names one', () => {
+      renderComponent({ quote: quoteAtRate('2', { fillStatus: 'full', reason: null, estimatedSeconds: 12 }) });
       expect(fillsInRow()).toHaveTextContent('swapEtaSeconds_12');
     });
 
     it('renders minutes once the estimate reaches 90s', () => {
-      renderComponent({ swapEta: { ...etaWithRate('2'), canFill: true, estimatedSeconds: 150 } });
+      renderComponent({ quote: quoteAtRate('2', { fillStatus: 'full', reason: null, estimatedSeconds: 150 }) });
       expect(fillsInRow()).toHaveTextContent('swapEtaMinutes_3');
     });
 
     it('falls back to the 24h median when the order cannot fill right now', () => {
-      renderComponent({ swapEta: { ...etaWithRate('2'), estimatedSeconds: 12, median24hSeconds: 45 } });
+      renderComponent({ quote: quoteAtRate('2', { median24hSeconds: 45 }) });
       expect(fillsInRow()).toHaveTextContent('swapEtaSeconds_45');
+    });
+  });
+
+  describe('fill row', () => {
+    const verdictRow = () => screen.getByTestId('swap-verdict-row');
+
+    it('renders no verdict without a quote', () => {
+      renderComponent();
+      expect(screen.queryByTestId('swap-verdict-row')).not.toBeInTheDocument();
+    });
+
+    it('shows the testnet pre-sign answer as advisory, not as a refusal', () => {
+      renderComponent({ quote: quoteAtRate('2') });
+      expect(verdictRow()).toHaveTextContent('swapVerdictNoLiquidity');
+      expect(verdictRow()).not.toHaveClass('text-negative-ink');
+      expect(screen.getByTestId('swap-submit')).toBeEnabled();
+    });
+
+    it('marks a verdict the press refuses on', () => {
+      renderComponent({ quote: quoteAtRate('2', { priceBand: 'off_market', reason: 'price' }) });
+      expect(verdictRow()).toHaveTextContent('swapVerdictOffMarket');
+      expect(verdictRow()).toHaveClass('text-negative-ink');
+    });
+
+    it('says what a full fill pays when it is more than the ask', () => {
+      renderComponent({
+        quote: quoteAtRate('2', { fillStatus: 'full', reason: null, expectedRequestedAmount: '301000000' })
+      });
+      expect(verdictRow()).toHaveTextContent('swapVerdictFull');
+      expect(verdictRow()).toHaveTextContent('swapVerdictExpected_3.01_IETH');
+    });
+
+    it('names no expected amount when a full fill pays exactly the ask', () => {
+      renderComponent({
+        quote: quoteAtRate('2', { fillStatus: 'full', reason: null, expectedRequestedAmount: '300000000' })
+      });
+      expect(verdictRow()).not.toHaveTextContent('swapVerdictExpected');
+    });
+  });
+
+  describe('slippage row', () => {
+    const slippageInput = () => screen.getByTestId('swap-slippage-percent');
+
+    it('opens on the flow slippage as a percent', () => {
+      renderComponent({ slippageBps: 20 });
+      expect(slippageInput()).toHaveValue('0.2');
+      expect(screen.getByText('swapSlippage')).toBeInTheDocument();
+    });
+
+    it('pushes a valid percent up as basis points and keeps an invalid draft to itself', () => {
+      const onSlippageBpsChange = jest.fn();
+      renderComponent({ onSlippageBpsChange });
+
+      fireEvent.change(slippageInput(), { target: { value: '0.5' } });
+      expect(onSlippageBpsChange).toHaveBeenLastCalledWith(50);
+
+      fireEvent.change(slippageInput(), { target: { value: '1.5' } });
+      expect(onSlippageBpsChange).toHaveBeenCalledTimes(1);
+      expect(slippageInput()).toHaveAttribute('aria-invalid', 'true');
+      expect(screen.getByText('swapSlippageRange_0.01_1')).toBeInTheDocument();
+      expect(screen.getByTestId('swap-submit')).toBeDisabled();
+    });
+
+    it('is read-only, with its own note, once the user set the receive amount themselves', () => {
+      renderComponent({ requestEdited: true });
+      expect(slippageInput()).toBeDisabled();
+      fireEvent.click(screen.getByTestId('swap-slippage-info'));
+      expect(screen.getByText('swapSlippageEditedNote')).toBeInTheDocument();
     });
   });
 
