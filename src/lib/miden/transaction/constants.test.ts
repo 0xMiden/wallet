@@ -5,9 +5,11 @@ import { ApplyAfterSubmitError, SubmitCrossingUnrecordedError } from 'lib/miden/
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 
 import {
+  ERR_FEE_CONVERSION_INFO_COMMITMENT_MISMATCH_CODE,
   formatRawTransactionError,
   GUARDIAN_UNREACHABLE_ERROR,
   INVALID_NOTE_ERROR,
+  isFeeConversionCommitmentMismatchError,
   isGuardianOutage,
   isOutcomeUnconfirmed,
   isProverProcedureMismatch,
@@ -20,6 +22,7 @@ import {
   ROTATION_PENDING_CONSUME_ERROR,
   RotationGateConsumeRefusal,
   SUBMIT_CROSSING_UNRECORDED_ERROR,
+  TRANSACTION_FEE_COMMITMENT_MISMATCH_ERROR,
   TRANSACTION_FEE_CONVERSION_INFO_MISSING_ERROR,
   TRANSACTION_FORCE_CANCELLED_ERROR,
   TRANSACTION_INTERRUPTED_ERROR,
@@ -265,6 +268,41 @@ describe('fee failures', () => {
     const message = resolveTransactionErrorMessage(err);
     expect(message).not.toMatch(/receive some miden/i);
     expect(message).not.toMatch(/not enough/i);
+  });
+});
+
+describe('a dApp request whose own fee commitment does not verify (#1475)', () => {
+  // What the extension stored for #1475: the offscreen wrapper, the SDK chain and the kernel's ANSI marks.
+  const reported = new Error(
+    "Offscreen call 'newTransaction' failed: failed to execute transaction: transaction execution failed: " +
+      'failed to execute transaction kernel program: \x1b[31mx\x1b[0m assertion failed with error code: ' +
+      '15404814807981965102'
+  );
+
+  it('names the dApp request instead of the hashed kernel code', () => {
+    expect(resolveTransactionErrorMessage(reported, 'sending')).toBe(TRANSACTION_FEE_COMMITMENT_MISMATCH_ERROR);
+  });
+
+  it('is the code of the masm message', () => {
+    expect(ERR_FEE_CONVERSION_INFO_COMMITMENT_MISMATCH_CODE).toBe('15404814807981965102');
+    expect(isFeeConversionCommitmentMismatchError('assertion failed with error code: 15404814807981965102')).toBe(true);
+  });
+
+  it('does not read a longer number that contains the code', () => {
+    expect(isFeeConversionCommitmentMismatchError('error code: 115404814807981965102')).toBe(false);
+    expect(isFeeConversionCommitmentMismatchError('error code: 154048148079819651021')).toBe(false);
+  });
+
+  it('says a retry fails the same way and does not blame the balance', () => {
+    expect(TRANSACTION_FEE_COMMITMENT_MISMATCH_ERROR).toMatch(/dApp/);
+    expect(TRANSACTION_FEE_COMMITMENT_MISMATCH_ERROR).toMatch(/nothing was submitted/);
+    expect(TRANSACTION_FEE_COMMITMENT_MISMATCH_ERROR).toMatch(/fail the same way/);
+    expect(TRANSACTION_FEE_COMMITMENT_MISMATCH_ERROR).not.toMatch(/balance|receive some/i);
+  });
+
+  it('leaves the missing-info code its own copy', () => {
+    const missing = new Error('assertion failed with error code: 14712559985122731094');
+    expect(resolveTransactionErrorMessage(missing)).toBe(TRANSACTION_FEE_CONVERSION_INFO_MISSING_ERROR);
   });
 });
 
