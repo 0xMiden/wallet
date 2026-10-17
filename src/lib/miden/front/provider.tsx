@@ -1,5 +1,6 @@
 import React, { FC, useEffect, useMemo, useState } from 'react';
 
+import { markReloadToRecover } from 'app/reload-to-recover';
 import { NoteToastProvider } from 'components/NoteToastProvider';
 import { BadgeIssuanceManager } from 'lib/badges/BadgeIssuanceManager';
 import { BADGE_STORAGE_KEY } from 'lib/badges/types';
@@ -71,6 +72,9 @@ export const MidenProvider: FC<PropsWithChildren> = ({ children }) => {
   // constructor reached before the module has initialized crashes the whole
   // tree with `__wbindgen_malloc` undefined.
   const [ready, setReady] = useState(false);
+  // A failed start is thrown to the root error boundary, whose screen reports it once and offers Try Again; left
+  // unhandled, it kept the page blank. Wrapped, so any rejection value counts as a failure.
+  const [startFailure, setStartFailure] = useState<{ error: unknown } | null>(null);
   useEffect(() => {
     let cancelled = false;
     let budgetTimer: ReturnType<typeof setTimeout> | undefined;
@@ -115,7 +119,12 @@ export const MidenProvider: FC<PropsWithChildren> = ({ children }) => {
       await ensureSdkWasmReady();
       await preloaded;
       if (!cancelled) setReady(true);
-    })();
+    })().catch((error: unknown) => {
+      // The SDK keeps a failed start for the page's lifetime, and wasm-bindgen its half-started instance, so the
+      // boundary's re-render would fail the same way: only a fresh page starts it again.
+      markReloadToRecover(error);
+      if (!cancelled) setStartFailure({ error });
+    });
     return () => {
       cancelled = true;
       clearTimeout(budgetTimer);
@@ -146,6 +155,8 @@ export const MidenProvider: FC<PropsWithChildren> = ({ children }) => {
     };
     initializeClient();
   }, [ready]);
+
+  if (startFailure) throw startFailure.error;
 
   if (!ready) {
     return null;
