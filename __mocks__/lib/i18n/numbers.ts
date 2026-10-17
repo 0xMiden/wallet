@@ -27,3 +27,12 @@ export const formatUsd = (v: number) => usdFormatterFor(v)(v);
 // Mirrors the real stringToBigInt: scale by the decimals and round.
 export const stringToBigInt = (str: string, decimals: number): bigint =>
   BigInt(Math.round(parseFloat(str) * Math.pow(10, decimals)));
+// Mirrors the real formatBigInt: the decimal point shifted into the digit string, trailing zeros dropped.
+export const formatBigInt = (amount: bigint, decimals: number): string => {
+  const negative = amount < 0n;
+  const digits = (negative ? -amount : amount).toString().padStart(decimals + 1, '0');
+  const whole = digits.slice(0, digits.length - decimals);
+  const fraction = digits.slice(digits.length - decimals).replace(/0+$/, '');
+  const text = fraction === '' ? whole : `${whole}.${fraction}`;
+  return negative ? `-${text}` : text;
+};

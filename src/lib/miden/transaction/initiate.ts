@@ -605,6 +605,7 @@ export const initiateSwapTransaction = async (
   delegateTransaction?: boolean,
   expirySeconds: number = 120,
   autoConsume: boolean = true,
+  slippageBps?: number,
   spendingLimitAuthorization?: SpendingLimitAuthorization
 ): Promise<string> => {
   const dbTransaction = new SwapTransaction(
@@ -615,7 +616,8 @@ export const initiateSwapTransaction = async (
     requestedAmount,
     delegateTransaction,
     expirySeconds,
-    autoConsume
+    autoConsume,
+    slippageBps
   );
   await queueOutgoingTransaction(
     { ...dbTransaction, badgeNetwork: badgeNetwork() },

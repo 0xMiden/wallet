@@ -21,10 +21,8 @@ import {
 } from './testing/registry';
 import {
   canonicalFaucetId,
-  deriveRequestAmount,
   getDefaultSwapPair,
   getSwapTokenByFaucetId,
-  getSwapEta,
   getSwapPartners,
   getSwapTokens,
   isSwapPair,
@@ -32,7 +30,6 @@ import {
   normalizedFaucetId,
   priceSymbolFor,
   strictPriceSymbolFor,
-  SwapEtaUnavailableError,
   tokenQuote,
   _allowlistedPriceSymbolsForTest,
   _resetNormalizedFaucetIdsForTest,
@@ -491,50 +488,6 @@ describe('getSwapTokenByFaucetId', () => {
   });
 });
 
-describe('deriveRequestAmount', () => {
-  it('discounts the fair quote by the solver margin', () => {
-    // 10 offered * 2 per offered = 20 fair, less 5% => 19.
-    expect(deriveRequestAmount('10', '2', TEST_SWAP_TOKEN_DECIMALS)).toBe('19');
-  });
-
-  it('rounds down to the requested token precision', () => {
-    // 1 * 1 * 0.95 = 0.95, truncated to 1 decimal => 0.9.
-    expect(deriveRequestAmount('1', '1', 1)).toBe('0.9');
-  });
-
-  it.each([
-    ['11', '1', '10'],
-    ['200', '1', '190'],
-    ['2000', '1', '1900']
-  ])('preserves significant integer zeros for offer %s at zero decimals', (offer, rate, expected) => {
-    expect(deriveRequestAmount(offer, rate, 0)).toBe(expected);
-  });
-
-  it('returns empty for a missing or unusable offered amount', () => {
-    expect(deriveRequestAmount('', '2', TEST_SWAP_TOKEN_DECIMALS)).toBe('');
-    expect(deriveRequestAmount('0', '2', TEST_SWAP_TOKEN_DECIMALS)).toBe('');
-    expect(deriveRequestAmount('abc', '2', TEST_SWAP_TOKEN_DECIMALS)).toBe('');
-  });
-
-  it('returns empty for a missing or non-finite rate', () => {
-    expect(deriveRequestAmount('10', null, TEST_SWAP_TOKEN_DECIMALS)).toBe('');
-    expect(deriveRequestAmount('10', undefined, TEST_SWAP_TOKEN_DECIMALS)).toBe('');
-    expect(deriveRequestAmount('10', '0', TEST_SWAP_TOKEN_DECIMALS)).toBe('');
-    expect(deriveRequestAmount('10', 'not-a-rate', TEST_SWAP_TOKEN_DECIMALS)).toBe('');
-    expect(deriveRequestAmount('10', 'Infinity', TEST_SWAP_TOKEN_DECIMALS)).toBe('');
-  });
-
-  it('returns empty when the quote rounds away to zero at the token precision', () => {
-    expect(deriveRequestAmount('0.0001', '0.0001', 2)).toBe('');
-  });
-
-  it('returns empty when the fair quote is non-positive', () => {
-    // A negative offered amount is truthy (passes the earlier `!offered` guard)
-    // but produces a negative quote, so the `quote <= 0` guard returns ''.
-    expect(deriveRequestAmount('-5', '2', TEST_SWAP_TOKEN_DECIMALS)).toBe('');
-  });
-});
-
 describe('getDefaultSwapPair', () => {
   afterEach(() => _setSwapTokensForTest(undefined));
 
@@ -633,62 +586,6 @@ describe('getSwapPartners', () => {
     _setSwapTokensForTest([TEST_TOKEN_IBTC, TEST_TOKEN_IMIDEN, TEST_TOKEN_IETH]);
     expect(getSwapPartners(TEST_TOKEN_IBTC.faucetId)).toEqual([TEST_TOKEN_IMIDEN, TEST_TOKEN_IETH]);
     expect(isSwapPair(TEST_TOKEN_IMIDEN.faucetId, TEST_TOKEN_IBTC.faucetId)).toBe(true);
-  });
-});
-
-describe('getSwapEta', () => {
-  const originalFetch = Object.getOwnPropertyDescriptor(globalThis, 'fetch');
-
-  it('asks the quote service the document names, and none while the document names no service', async () => {
-    const fetchMock = jest.fn(async (_url: string, _init: RequestInit) => ({
-      ok: true,
-      status: 200,
-      json: async () => ({ canFill: true })
-    }));
-    Object.defineProperty(globalThis, 'fetch', { value: fetchMock, writable: true, configurable: true });
-    await expect(getSwapEta(TEST_TOKEN_IMIDEN, 1n, TEST_TOKEN_IUSDT, 0n)).resolves.toEqual({ canFill: true });
-    expect(fetchMock.mock.calls[0]?.[0]).toMatch(/^https:\/\/quotes\.example\/v1\/swap-eta\?offered_faucet=/);
-
-    mockSnapshot.mockReturnValue({ ...LOADED, config: { ...LOADED.config!, swap: {} } });
-    await expect(getSwapEta(TEST_TOKEN_IMIDEN, 1n, TEST_TOKEN_IUSDT, 0n)).rejects.toBeInstanceOf(
-      SwapEtaUnavailableError
-    );
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-  });
-
-  afterEach(() => {
-    jest.useRealTimers();
-    if (originalFetch) Object.defineProperty(globalThis, 'fetch', originalFetch);
-    else Reflect.deleteProperty(globalThis, 'fetch');
-  });
-
-  it('bounds the quote body read too, rejecting once the 10 s timeout passes', async () => {
-    jest.useFakeTimers();
-    // Headers arrive, then a body that ends only when the request's signal aborts, as a real stream does.
-    let signal: AbortSignal | undefined;
-    const fetchMock = jest.fn(async (_url: string, init: RequestInit) => {
-      const given = init.signal ?? undefined;
-      signal = given;
-      const json = () =>
-        new Promise((_resolve, reject) => given?.addEventListener('abort', () => reject(given.reason)));
-      return { ok: true, status: 200, json };
-    });
-    Object.defineProperty(globalThis, 'fetch', { value: fetchMock, writable: true, configurable: true });
-    const quote: { outcome: unknown } = { outcome: 'pending' };
-    void getSwapEta(TEST_TOKEN_IMIDEN, 1n, TEST_TOKEN_IUSDT, 0n).then(
-      () => {
-        quote.outcome = 'resolved';
-      },
-      (error: unknown) => {
-        quote.outcome = error;
-      }
-    );
-
-    await jest.advanceTimersByTimeAsync(9_999);
-    expect(quote.outcome).toBe('pending');
-    await jest.advanceTimersByTimeAsync(1);
-
-    expect(quote.outcome).toBe(signal?.reason);
   });
 });
 

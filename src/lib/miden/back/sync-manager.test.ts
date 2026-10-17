@@ -1084,6 +1084,25 @@ describe('doSync — note metadata branches', () => {
     ]);
   });
 
+  it('carries whether each note holds more assets than the one it lists', async () => {
+    mockClient.getConsumableNoteDtos.mockResolvedValueOnce([
+      {
+        ...fakeNote({ id: 'multi' }),
+        assets: [
+          { faucetId: 'faucet-1', amount: '100' },
+          { faucetId: 'faucet-2', amount: '5' }
+        ]
+      },
+      fakeNote({ id: 'single' })
+    ]);
+    await doSync();
+    const written: SyncData = mockStorageSet.mock.calls.at(-1)?.[0]?.miden_sync_data;
+    expect(written.notes.map(note => [note.id, note.carriesMoreAssets])).toEqual([
+      ['multi', true],
+      ['single', undefined]
+    ]);
+  });
+
   it('stamps each sync it writes, so readers can tell a live result from an old snapshot', async () => {
     mockClient.getConsumableNoteDtos.mockResolvedValueOnce([]);
     const before = Date.now();
