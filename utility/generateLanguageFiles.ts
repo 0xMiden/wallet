@@ -130,23 +130,26 @@ const TERM_ENDINGS: Record<string, string[]> = {
 
 const termFamily = (term: string): string => term.toLowerCase().replace(/s$/, '');
 
-// The words of `translation` that fuse a term `english` protects with a neighbouring word. Only the terms
-// the English protects count, so a native word such as "Notez" or "Knoten" is skipped unless its English
-// also protects that term. `language` is a locale directory or a DeepL code ("pt", "pt-BR").
+// The words of `translation` that embed a term `english` protects. An embedded match counts as glue only
+// when the translation has fewer clean occurrences of its family (whole words or allowed endings) than
+// the English protects. Enough clean occurrences leave native words such as "Notez" and "Knoten" alone.
+// `language` is a locale directory or a DeepL code ("pt", "pt-BR").
 function findGluedTerms(translation: string, english: string, language: string): string[] {
-  const families = new Set(
-    [...english.matchAll(PROTECT_REGEX)]
-      .map(m => m[0])
-      .filter(span => TECHNICAL_TERM_VARIANTS.includes(span))
-      .map(termFamily)
-  );
+  const protectedCounts = new Map<string, number>();
+  for (const m of english.matchAll(PROTECT_REGEX)) {
+    if (!TECHNICAL_TERM_VARIANTS.includes(m[0])) continue;
+    const family = termFamily(m[0]);
+    protectedCounts.set(family, (protectedCounts.get(family) ?? 0) + 1);
+  }
   const endings = TERM_ENDINGS[language.split(/[-_]/)[0].toLowerCase()] ?? [];
   const text = translation.replace(PLACEHOLDER_REGEX, placeholder => '$'.repeat(placeholder.length));
   const isGlueLetter = (i: number): boolean => i >= 0 && i < text.length && GLUE_LETTER.test(text[i]);
-  const glued: string[] = [];
+  const cleanCounts = new Map<string, number>();
+  const glued: { family: string; word: string }[] = [];
   for (const m of text.matchAll(ANY_TERM_REGEX)) {
     const term = m[0];
-    if (!families.has(termFamily(term))) continue;
+    const family = termFamily(term);
+    if (!protectedCounts.has(family)) continue;
     const start = m.index;
     const end = start + term.length;
     let after = end;
@@ -155,12 +158,17 @@ function findGluedTerms(translation: string, english: string, language: string):
     // Every term starts with a consonant, and no shipped language elides before one ("L’note" is "La note").
     const elided = APOSTROPHE.test(text[start - 1] ?? '') && isGlueLetter(start - 2);
     const gluedAfter = ending !== '' && (/s$/i.test(term) || !endings.includes(ending));
-    if (!isGlueLetter(start - 1) && !elided && !gluedAfter) continue;
+    if (!isGlueLetter(start - 1) && !elided && !gluedAfter) {
+      cleanCounts.set(family, (cleanCounts.get(family) ?? 0) + 1);
+      continue;
+    }
     let from = elided ? start - 1 : start;
     while (isGlueLetter(from - 1)) from--;
-    glued.push(translation.slice(from, after));
+    glued.push({ family, word: translation.slice(from, after) });
   }
-  return glued;
+  return glued
+    .filter(({ family }) => (cleanCounts.get(family) ?? 0) < (protectedCounts.get(family) ?? 0))
+    .map(({ word }) => word);
 }
 
 function xmlEscape(s: string): string {
