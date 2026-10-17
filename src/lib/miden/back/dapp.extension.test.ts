@@ -2757,3 +2757,95 @@ describe('an approved connect whose account key read fails (#1471)', () => {
     }
   });
 });
+
+describe('a connect from an origin with a saved session that the session does not cover (#1471)', () => {
+  const ORIGIN = 'https://miden.xyz';
+  const ANSWERED = { type: MidenMessageType.DAppPermConfirmationResponse };
+  const APPROVE_AUTO = { confirmed: true, accountPublicKey: 'miden-account-1', privateDataPermission: 'AUTO' };
+  const savedSession = () => _g.__dappExtTest.storage[STORAGE_KEY][ORIGIN];
+  const connect = (name: string, force: boolean, privateDataPermission: string, allowedPrivateData: number) => () =>
+    dapp.requestPermission(ORIGIN, {
+      type: MidenDAppMessageType.PermissionRequest,
+      appMeta: { name, url: ORIGIN },
+      force,
+      network: 'testnet',
+      privateDataPermission,
+      allowedPrivateData
+    } as never);
+
+  let originalGetAccount: unknown;
+  beforeEach(() => {
+    originalGetAccount = _g.__dappExtTest.midenClient.getAccount;
+    _g.__dappExtTest.midenClient.getAccount = jest.fn(async () => ({
+      getPublicKeyCommitments: () => [{ serialize: () => new Uint8Array([7, 8, 9]) }]
+    }));
+  });
+  afterEach(() => {
+    _g.__dappExtTest.midenClient.getAccount = originalGetAccount;
+  });
+
+  it.each<[string, string, boolean]>([
+    ['a forced connect', SESSION.appMeta.name, true],
+    ['a connect under another app name', 'Miden Test v2', false]
+  ])(
+    'asks %s as a new permission with its requested scope, and saves that scope on approval',
+    async (_case, name, force) => {
+      const popup = await openPopup(connect(name, force, 'AUTO', 2));
+
+      await expect(popup.getPayload()).resolves.toEqual({
+        type: MidenMessageType.DAppGetPayloadResponse,
+        payload: expect.objectContaining({
+          type: 'connect',
+          existingPermission: false,
+          privateDataPermission: 'AUTO',
+          allowedPrivateData: 2
+        })
+      });
+
+      await expect(popup.decide(MidenMessageType.DAppPermConfirmationRequest, APPROVE_AUTO)).resolves.toEqual(ANSWERED);
+      await expect(popup.outcome).resolves.toEqual({
+        ok: true,
+        value: expect.objectContaining({
+          type: MidenDAppMessageType.PermissionResponse,
+          privateDataPermission: 'AUTO',
+          allowedPrivateData: 2
+        })
+      });
+      expect(savedSession()).toEqual([
+        expect.objectContaining({
+          accountId: 'miden-account-1',
+          appMeta: { name, url: ORIGIN },
+          privateDataPermission: 'AUTO',
+          allowedPrivateData: 2,
+          publicKey: 'BwgJ'
+        })
+      ]);
+    }
+  );
+
+  it('still answers the locked reconnect of the same app on its own, with the saved scope, and saves nothing', async () => {
+    const saved = { ...SESSION, privateDataPermission: 'AUTO', allowedPrivateData: 2 };
+    _g.__dappExtTest.storage[STORAGE_KEY] = { [ORIGIN]: [saved] };
+    lockWallet();
+    const popup = await openPopup(connect(SESSION.appMeta.name, false, 'UPON_REQUEST', 0));
+
+    await expect(popup.getPayload()).resolves.toEqual({
+      type: MidenMessageType.DAppGetPayloadResponse,
+      payload: expect.objectContaining({
+        type: 'connect',
+        appMeta: SESSION.appMeta,
+        existingPermission: true,
+        privateDataPermission: 'AUTO',
+        allowedPrivateData: 2
+      })
+    });
+
+    unlockWallet();
+    await expect(popup.decide(MidenMessageType.DAppPermConfirmationRequest, APPROVE_AUTO)).resolves.toEqual(ANSWERED);
+    await expect(popup.outcome).resolves.toEqual({
+      ok: true,
+      value: expect.objectContaining({ privateDataPermission: 'AUTO', allowedPrivateData: 2, publicKey: 'BwgJ' })
+    });
+    expect(savedSession()).toEqual([saved]);
+  });
+});
