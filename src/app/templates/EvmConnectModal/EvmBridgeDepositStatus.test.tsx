@@ -98,17 +98,20 @@ jest.mock('components/PageHeader', () => ({
   )
 }));
 
+// `className` forwarded: the real Button caps its width unless the caller lifts it (#1469).
 jest.mock('components/Button', () => ({
   Button: ({
     children,
     onClick,
-    title
+    title,
+    className
   }: {
     children?: React.ReactNode;
     onClick?: React.MouseEventHandler<HTMLButtonElement>;
     title?: string;
+    className?: string;
   }) => (
-    <button type="button" onClick={onClick}>
+    <button type="button" className={className} onClick={onClick}>
       {children ?? title}
     </button>
   ),
@@ -272,6 +275,43 @@ describe('EvmBridgeDepositStatus', () => {
     render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
 
     expect(screen.getByText('transactionErrorDescription')).toBeInTheDocument();
+  });
+
+  // #1469: the in-flight and failed branches drew their own frame, so on a screen wider than the
+  // Button's 370px cap the CTA sat at the left gutter and the root scrolled a long error sideways.
+  describe('layout wider than the button cap', () => {
+    const LONG_TOKEN_ERROR = `execution reverted: 0x${'ab'.repeat(100)}`;
+
+    it.each([
+      ['hide', makeInputs()],
+      ['done', makeInputs({ phase: 'failed', error: LONG_TOKEN_ERROR })]
+    ])('pins an uncapped %s button in the shared flow footer', (name, inputs) => {
+      mockRowState = { row: makeRow(inputs), loaded: true };
+      render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
+
+      const button = screen.getByRole('button', { name });
+      expect(button).toHaveClass('w-full', 'max-w-none');
+      expect(button.closest('[data-flow-footer]')).not.toBeNull();
+    });
+
+    it('wraps a failure message with an unbreakable token inside the body', () => {
+      mockRowState = { row: makeRow(makeInputs({ phase: 'failed', error: LONG_TOKEN_ERROR })), loaded: true };
+      render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
+
+      const message = screen.getByTestId('bridge-deposit-processing-description');
+      expect(message).toHaveTextContent(LONG_TOKEN_ERROR);
+      // Only `anywhere` lowers the min-content width the centred column sizes this line to.
+      expect(message).toHaveClass('w-full', 'wrap-anywhere', 'select-text');
+      expect(message.closest('[data-home-pane-body="true"]')).toHaveClass('overflow-x-hidden');
+    });
+
+    it('closes from the header while the deposit is in flight', () => {
+      mockRowState = { row: makeRow(makeInputs()), loaded: true };
+      render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
+
+      fireEvent.click(screen.getByRole('button', { name: 'close' }));
+      expect(onDone).toHaveBeenCalledTimes(1);
+    });
   });
 
   it('moves to the success layout once the deposit is submitted', () => {
