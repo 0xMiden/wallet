@@ -227,9 +227,12 @@ it.each([
   });
   await settle();
   expect(captured).toHaveLength(1);
-  expect(captured[0]).toContain(`; point pipeline; ${name}. authentication preparation`);
-  expect(captured[0]).not.toContain('[redacted]');
-  expect(captured[0]).not.toContain(code);
+  // The report's own text: the envelope's event line also holds a trace context the scrub always redacts.
+  const event = JSON.parse(captured[0]!.split('\n')[2]!) as { exception: { values: { value: string }[] } };
+  const report = event.exception.values[0]!.value;
+  expect(report).toContain(`; point pipeline; ${name}. authentication preparation`);
+  expect(report).not.toContain('[redacted]');
+  expect(report).not.toContain(code);
 });
 
 it('sends none of a recovery phrase a report carries beside a closed name', async () => {
