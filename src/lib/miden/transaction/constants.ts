@@ -420,6 +420,15 @@ export const TRANSACTION_VAULT_SHORTFALL_ERROR =
   'amount sent, or the USDCX for the network fee. Check your balances once the wallet has synced, then try again.';
 
 /**
+ * The copy above as a claim (`consume` row) stores it: a claim has no amount sent. It names the fee as the likeliest
+ * asset, not the only one, since a note script can also pay an asset out of the vault (a SWAP note, or another
+ * account's PSWAP note), and hedges for the same reasons (`isVaultShortfallError`).
+ */
+export const CLAIM_VAULT_SHORTFALL_ERROR =
+  'This transfer could not be claimed because an asset it needed was not available in full, most often the USDCX ' +
+  'for the network fee. Check your balances once the wallet has synced, then claim it again.';
+
+/**
  * An everyday-key rotation that failed because the account could not pay its fee. A
  * rotation moves no asset, so on this row type the only withdrawal that can fall short
  * is the fee. A row a build without the code match failed keeps the raw kernel line as
