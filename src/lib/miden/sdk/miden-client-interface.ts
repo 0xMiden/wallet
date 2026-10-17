@@ -1,6 +1,7 @@
 import {
   Account,
   AccountFile,
+  type AccountId,
   Address,
   AuthSecretKey,
   Endpoint,
@@ -107,7 +108,7 @@ import {
   type PendingGuardianRegistration
 } from '../guardian/account';
 import { withGuardianProbe } from '../guardian/native-http';
-import { EXPIRATION_DELTA_BLOCKS, isPrivateNoteType } from '../helpers';
+import { EXPIRATION_DELTA_BLOCKS, isPrivateNoteType, mayConsume, reclaimDisabledP2ideTarget } from '../helpers';
 
 export interface GuardianAccountCreationResult {
   accountId: string;
@@ -1572,19 +1573,25 @@ export class MidenClientInterface {
     const inner = await getRealmReaderClient();
     assertLive('after the reader build');
     const records: ConsumableNoteRecord[] = await inner.getConsumableNotes(resolveAccountId(wasm, accountId));
-    return records
-      .filter(record => {
-        // One consumability entry per relevant account; we queried a single
-        // account, so any entry gated on a future block hides the note.
-        // `consumableAfterBlock()` is undefined for consumable-now (and for
-        // never-consumable - those keep the pre-existing behavior).
-        const gatedUntil = record
-          .noteConsumability()
-          .map(entry => entry.consumptionStatus().consumableAfterBlock())
-          .find(after => after !== undefined);
-        return gatedUntil === undefined || gatedUntil <= syncHeight;
-      })
-      .map(record => record.inputNoteRecord());
+    // The call above took its id by value, which frees the handle, so a P2IDE rule that needs the account parses it
+    // again.
+    let queried: AccountId | undefined;
+    return records.flatMap(record => {
+      // One consumability entry per relevant account; we queried a single
+      // account, so any entry gated on a future block hides the note.
+      // `consumableAfterBlock()` is undefined for consumable-now (and for
+      // never-consumable - those keep the pre-existing behavior).
+      const gatedUntil = record
+        .noteConsumability()
+        .map(entry => entry.consumptionStatus().consumableAfterBlock())
+        .find(after => after !== undefined);
+      if (gatedUntil !== undefined && gatedUntil > syncHeight) return [];
+      // The SDK lists a reclaim-disabled P2IDE as consumable now to its reclaimer, which can never consume it, so
+      // auto-consume, the Accept cards, swap settlement and the dApp listing would each queue a claim that fails.
+      const note = record.inputNoteRecord();
+      const target = reclaimDisabledP2ideTarget(note);
+      return mayConsume(target, () => (queried ??= resolveAccountId(wasm, accountId))) ? [note] : [];
+    });
   }
 
   /**

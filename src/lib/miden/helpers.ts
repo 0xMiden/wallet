@@ -1,4 +1,12 @@
-import { Address, InputNoteRecord, NoteScript, NoteType } from '@miden-sdk/miden-sdk/lazy';
+import {
+  type AccountId,
+  Address,
+  type Felt,
+  InputNoteRecord,
+  type NoteRecipient,
+  NoteScript,
+  NoteType
+} from '@miden-sdk/miden-sdk/lazy';
 
 import { NoteTypeEnum, NoteType as NoteTypeString } from './types';
 
@@ -136,6 +144,8 @@ export const assertValidRecallBlocks = (recallBlocks: number | undefined | null)
 // felt, which is far larger than any plausible block height. Reading the wrong
 // slot therefore fails the range check below and silently suppresses the
 // "returns to sender by" banner on every recallable note.
+const P2IDE_TARGET_SUFFIX_INDEX = 2;
+const P2IDE_TARGET_PREFIX_INDEX = 3;
 const P2IDE_RECLAIM_HEIGHT_INDEX = 4;
 const P2IDE_STORAGE_ITEM_COUNT = 6;
 
@@ -174,4 +184,66 @@ export function getNoteRecallableAtMs(note: InputNoteRecord, syncHeight: number)
   } catch {
     return undefined;
   }
+}
+
+/** An account id as its prefix and suffix felts in decimal, so it crosses realms as JSON. */
+export type AccountFelts = { prefix: string; suffix: string };
+
+/** The only account that can ever consume a note, or nobody, when its script settles that from storage alone. */
+export type ConsumeRestriction = AccountFelts | 'nobody';
+
+// Reading a note is no call on the client, so a note that cannot be read restricts nothing. A trap still reaches the
+// caller's lock, which retires the client.
+function readNote<T>(read: () => T): T | undefined {
+  try {
+    return read();
+  } catch (error) {
+    if (error instanceof WebAssembly.RuntimeError) throw error;
+    return undefined;
+  }
+}
+
+/** A note read as its recipient, or as the stored record that holds one. */
+type NoteSource = NoteRecipient | InputNoteRecord;
+
+function storageItems(note: NoteSource, scriptRootHex: () => string, count: number): Felt[] | undefined {
+  const recipient = 'details' in note ? note.details().recipient() : note;
+  if (recipient.script().root().toHex() !== scriptRootHex()) return undefined;
+  const items = recipient.storage().items();
+  return items.length === count ? items : undefined;
+}
+
+const p2ideRoot = () => (p2ideScriptRootHex ??= NoteScript.p2ide().root().toHex());
+
+/**
+ * The target of a P2IDE whose reclaim is disabled, the one account that can ever consume it: a non-target enters
+ * p2ide.masm only through its reclaim branch, and a reclaim height of 0 closes that branch at every block
+ * (note_reclaim.masm, miden-standards 0.17.1). Undefined for any other note.
+ *
+ * The SDK's static check reads that 0 as "reclaimable from block 0" and reports the note consumable now to its
+ * reclaimer, usually its sender (0xMiden/protocol#3675), so this follows the script, not that verdict.
+ */
+export function reclaimDisabledP2ideTarget(note: NoteSource): AccountFelts | undefined {
+  return readNote(() => {
+    const items = storageItems(note, p2ideRoot, P2IDE_STORAGE_ITEM_COUNT);
+    if (!items || items[P2IDE_RECLAIM_HEIGHT_INDEX]!.asInt() !== 0n) return undefined;
+    return {
+      prefix: items[P2IDE_TARGET_PREFIX_INDEX]!.asInt().toString(),
+      suffix: items[P2IDE_TARGET_SUFFIX_INDEX]!.asInt().toString()
+    };
+  });
+}
+
+/**
+ * Whether the account `resolveAccount` returns may consume a note under `restriction`, compared by its prefix and
+ * suffix felts. The account is resolved only for a note restricted to one account.
+ */
+export function mayConsume(restriction: ConsumeRestriction | undefined, resolveAccount: () => AccountId): boolean {
+  if (restriction === undefined) return true;
+  if (restriction === 'nobody') return false;
+  const account = resolveAccount();
+  return (
+    account.prefix().asInt().toString() === restriction.prefix &&
+    account.suffix().asInt().toString() === restriction.suffix
+  );
 }
