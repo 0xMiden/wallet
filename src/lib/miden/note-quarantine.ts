@@ -97,6 +97,15 @@ interface QuarantineEntry {
   at: number;
 }
 
+/** How {@link importedNoteIds} and `importedNoteAssets` treat an entry whose decode traps. */
+export interface NoteDecodeOptions {
+  /**
+   * Rethrow a WebAssembly trap instead of skipping the entry. A caller inside a WASM lock hold sets it, so the lock
+   * sees the trap and retires the client; every other caller keeps the skip.
+   */
+  rethrowTraps?: boolean;
+}
+
 /**
  * Derives the note ids for a custom-tx's `importNotes` (base64 note bytes),
  * deterministically — the SAME way `getConsumableNotes` derives ids for the
@@ -106,12 +115,13 @@ interface QuarantineEntry {
  * deserialize is skipped rather than throwing, so one malformed entry can't
  * blow up quarantine/release for the rest of the batch.
  */
-export function importedNoteIds(importNotes: string[] | undefined): string[] {
+export function importedNoteIds(importNotes: string[] | undefined, options: NoteDecodeOptions = {}): string[] {
   return (importNotes ?? [])
     .map(b64 => {
       try {
         return noteIdFromBytes(b64ToU8(b64));
-      } catch {
+      } catch (error) {
+        if (options.rethrowTraps && error instanceof WebAssembly.RuntimeError) throw error;
         return null;
       }
     })
