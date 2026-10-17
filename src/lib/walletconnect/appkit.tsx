@@ -76,20 +76,17 @@ export const modal = createAppKit({
   features: { analytics: false }
 });
 
-// Read only, for relay failure reports: whether the connect modal is open, and whether the relay connected.
-let relayFollowed = false;
+// Read only, for relay failure reports: whether the connect modal is open, and whether the relay connected. AppKit's
+// start has created the universal provider by the time ready() resolves, so reading it then creates nothing.
 try {
-  modal.subscribeState(state => {
-    noteConnectModalOpen(state.open);
-    if (!state.initialized || relayFollowed) return;
-    relayFollowed = true;
-    modal
-      .getUniversalProvider()
-      .then(provider => {
-        if (provider) followRelay(provider.client.core.relayer);
-      })
-      .catch(() => {});
-  });
+  modal.subscribeState(state => noteConnectModalOpen(state.open));
+  modal
+    .ready()
+    .then(() => modal.getUniversalProvider())
+    .then(provider => {
+      if (provider) followRelay(provider.client.core.relayer);
+    })
+    .catch(() => {});
 } catch {
   // Crash diagnostics cannot keep AppKit from starting.
 }
