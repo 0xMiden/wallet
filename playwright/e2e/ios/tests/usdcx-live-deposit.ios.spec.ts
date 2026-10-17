@@ -129,7 +129,7 @@ test.describe('Bridge-IN deposit (Circle xReserve/USDC, live testnets)', () => {
     const evmAddress = privateKeyToAccount(evmPrivateKey as `0x${string}`).address;
     let depositHash: `0x${string}`;
     let bridgeTxId: string;
-    let addressA: string;
+    let addressA = '';
     const step = namedSteps(steps);
     const arc: ArcReadDeps = { endpoints: arcEndpoints(process.env.E2E_ARC_RPC_URL) };
     const evidence = newRunEvidence('usdcx-live-ios');
