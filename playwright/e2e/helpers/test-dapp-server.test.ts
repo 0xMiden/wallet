@@ -229,6 +229,23 @@ describe('test dApp server', () => {
     const stop = await serveTestDappOnLoopback(server, port);
     await stop();
   });
+
+  it('lets the routes it is given answer first, and serves the rest', async () => {
+    const server = createDappServer({ pageDir: pageFixture(), roots });
+    const port = await freePort();
+    const stop = await serveTestDappOnLoopback(server, port, (request, response) => {
+      if (request.url !== '/ping') return false;
+      response.writeHead(204);
+      response.end();
+      return true;
+    });
+    try {
+      expect((await fetch(`http://127.0.0.1:${port}/ping`)).status).toBe(204);
+      expect((await fetch(`http://127.0.0.1:${port}/`)).status).toBe(200);
+    } finally {
+      await stop();
+    }
+  });
 });
 
 describe('React page server', () => {

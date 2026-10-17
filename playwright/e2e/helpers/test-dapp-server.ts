@@ -358,17 +358,31 @@ export async function installTestDapp(
   }
 }
 
+/** A handler for the routes the static server does not own; it returns true when it answered the request. */
+export type LoopbackRoutes = (request: http.IncomingMessage, response: http.ServerResponse) => boolean;
+const PAGE_MODULE = /^\/[a-z][a-z0-9-]*\.js$/;
+
 /**
  * Loopback-listener mode, for when Chromium treats a route-fulfilled page as public and applies Local Network
  * Access to its node calls (the spike decides). `::1` is best effort: a host without IPv6 still serves 127.0.0.1.
+ * A request `routes` answers (it returns true) never reaches the static server; the command channel's routes ride here
+ * (spec 3.2).
  */
 export async function serveTestDappOnLoopback(
   server: DappServer,
-  port: number = DAPP_PORT
+  port: number = DAPP_PORT,
+  routes?: LoopbackRoutes
 ): Promise<() => Promise<void>> {
   const handler = (request: http.IncomingMessage, response: http.ServerResponse): void => {
-    const served = server.serve(new URL(request.url ?? '/', 'http://loopback').pathname);
-    response.writeHead(served.status, { 'content-type': served.contentType });
+    if (routes?.(request, response) === true) return;
+    const pathname = new URL(request.url ?? '/', 'http://loopback').pathname;
+    const served = server.serve(pathname);
+    // The shell and the page modules come from the working tree, which a session edits between loads (spec 3.2).
+    const noStore = served.contentType.startsWith('text/html') || PAGE_MODULE.test(pathname);
+    response.writeHead(served.status, {
+      'content-type': served.contentType,
+      ...(noStore ? { 'cache-control': 'no-store' } : {})
+    });
     response.end(served.body);
   };
   const listen = (host: string): Promise<http.Server | null> =>
@@ -385,8 +399,17 @@ export async function serveTestDappOnLoopback(
   const listeners = settled.flatMap(result =>
     result.status === 'fulfilled' && result.value !== null ? [result.value] : []
   );
+  // A held long-poll keeps its socket open, so close() alone would wait out its hold.
   const stop = async (): Promise<void> => {
-    await Promise.all(listeners.map(listener => new Promise<void>(resolve => listener.close(() => resolve()))));
+    await Promise.all(
+      listeners.map(
+        listener =>
+          new Promise<void>(resolve => {
+            listener.close(() => resolve());
+            listener.closeAllConnections();
+          })
+      )
+    );
   };
   const failure = settled.find((result): result is PromiseRejectedResult => result.status === 'rejected');
   if (failure !== undefined) {
