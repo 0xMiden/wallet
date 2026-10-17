@@ -112,8 +112,11 @@ function asAddress(value: string, label: string): Address {
   return value;
 }
 
-function parseWithdrawAmount(value: string, decimals: number): bigint {
-  const amount = withdrawalAmount(value, decimals);
+/** A persisted retry keeps the old parser's reading of its saved amount: trimmed, with digits past the scale cut. */
+function parseWithdrawAmount(value: string, decimals: number, persisted: boolean): bigint {
+  const legacy = persisted ? /^(\d+)(?:\.(\d+))?$/.exec(value.trim()) : null;
+  const fraction = legacy?.[2]?.slice(0, decimals);
+  const amount = withdrawalAmount(legacy ? `${legacy[1]}${fraction ? `.${fraction}` : ''}` : value, decimals);
   if (amount === null) throw new Error('Withdraw amount is invalid or exceeds token precision.');
   return amount;
 }
@@ -200,7 +203,7 @@ async function submitEarnWithdrawal(
   if (verifyMarket && findEpochUsdcAddress(chainId)?.toLowerCase() !== underlyingAddress.toLowerCase()) {
     throw new Error(UNSUPPORTED_MARKET);
   }
-  const amountAtomic = parseWithdrawAmount(args.amount, args.underlyingDecimals);
+  const amountAtomic = parseWithdrawAmount(args.amount, args.underlyingDecimals, !verifyMarket);
   if (amountAtomic <= 0n) throw new Error('Withdraw amount must be greater than zero.');
   // Read before the row exists, so a config that names no allocator refuses without leaving a failed row.
   const apiBaseUrl = args.allocatorUrl ?? getEpochAllocatorUrl();
