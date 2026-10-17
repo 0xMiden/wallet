@@ -40,6 +40,30 @@ describe('known-bug registry', () => {
     );
   });
 
+  it('K1 matches a React context left on the old account after a switch or a revoke, and nothing else', () => {
+    expect(bug('K1').cells).toEqual(
+      expect.objectContaining({ 'WP7-switch': ['offchain', 'guardian'], 'WP7-revoke': ['offchain', 'guardian'] })
+    );
+    const stayed = { previousAddress: 'a', reactAddress: 'a', reactConnected: true };
+    expect(bug('K1').signature(hard('WP7-switch', { ...stayed, providerAddress: 'b' }))).toBe(true);
+    expect(bug('K1').signature(hard('WP7-revoke', { ...stayed, providerAddress: null }))).toBe(true);
+    // The context followed, or the provider never moved: not K1.
+    expect(bug('K1').signature(hard('WP7-switch', { ...stayed, reactAddress: 'b', providerAddress: 'b' }))).toBe(false);
+    expect(
+      bug('K1').signature(
+        hard('WP7-revoke', { previousAddress: 'a', providerAddress: null, reactAddress: null, reactConnected: false })
+      )
+    ).toBe(false);
+    expect(bug('K1').signature(hard('WP7-revoke', { ...stayed, reactConnected: false, providerAddress: null }))).toBe(
+      false
+    );
+    expect(bug('K1').signature(hard('WP7-switch', { ...stayed, providerAddress: 'a' }))).toBe(false);
+    // The adapter's fact alone does not explain a React cell.
+    expect(
+      bug('K1').signature(hard('WP7-switch', { previousAddress: 'a', providerAddress: 'b', adapterAddress: 'a' }))
+    ).toBe(false);
+  });
+
   it('judges W6 on the fixed consume of carried noteBytes, with K2 (#1413) gone', () => {
     expect(KNOWN_BUGS.filter(entry => entry.cells.W6 !== undefined).map(entry => entry.id)).toEqual([]);
     expect(KNOWN_BUGS.map(entry => entry.id)).not.toContain('K2');

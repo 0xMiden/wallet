@@ -37,13 +37,17 @@ export const KNOWN_BUGS: readonly KnownBug[] = [
     id: 'K1',
     title: 'MidenWalletAdapter never follows the provider accountChange',
     tracking: '0xMiden/web-sdk#469 (open)',
-    cells: on(['S7', 'M1'], BOTH),
-    signature: ({ source, evidence }) =>
+    cells: on(['S7', 'M1', 'WP7-switch', 'WP7-revoke'], BOTH),
+    signature: ({ cellId, source, evidence }) =>
       source === 'hard' &&
       // With no address from before the switch there is nothing the adapter could have kept.
       evidence.previousAddress !== undefined &&
       evidence.providerAddress !== evidence.previousAddress &&
-      evidence.adapterAddress === evidence.previousAddress
+      // React copies the adapter's fields on its connect event only (WalletProvider.tsx:154-170), so after a switch or
+      // a revoke the context keeps the old account, still connected, as the adapter does.
+      (cellId.startsWith('WP7-')
+        ? evidence.reactAddress === evidence.previousAddress && evidence.reactConnected === true
+        : evidence.adapterAddress === evidence.previousAddress)
   },
   {
     id: 'K10',
