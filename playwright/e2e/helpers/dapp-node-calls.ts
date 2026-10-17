@@ -18,6 +18,8 @@ export interface FetchLogEntry {
   status: number | null;
   error: string | null;
   ms: number | null;
+  completedAt: number | null;
+  bodyDigest: string | null;
 }
 
 export interface NodeCallSummary {
@@ -87,6 +89,7 @@ export function toFetchLog(value: unknown): FetchLogEntry[] {
       const read = (key: string): unknown => Reflect.get(item, key);
       const headers = read('headers');
       const error = read('error');
+      const digest = read('bodyDigest');
       return {
         url: String(read('url') ?? ''),
         method: String(read('method') ?? ''),
@@ -96,7 +99,9 @@ export function toFetchLog(value: unknown): FetchLogEntry[] {
         at: numberOrNull(read('at')) ?? 0,
         status: numberOrNull(read('status')),
         error: typeof error === 'string' ? error : null,
-        ms: numberOrNull(read('ms'))
+        ms: numberOrNull(read('ms')),
+        completedAt: numberOrNull(read('completedAt')),
+        bodyDigest: typeof digest === 'string' && /^[a-f\d]{64}$/i.test(digest) ? digest.toLowerCase() : null
       };
     });
 }

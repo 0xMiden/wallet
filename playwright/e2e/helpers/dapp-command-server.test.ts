@@ -1,6 +1,7 @@
 /**
  * @jest-environment node
  */
+import { createHash, webcrypto } from 'node:crypto';
 import fs from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
@@ -89,6 +90,7 @@ const live = (): CommandServer => {
 
 // The page's window as the fetch log sees it: the test's fetch, which the log script replaces in place.
 interface FakePage {
+  crypto: typeof webcrypto;
   fetch: (input: Request | string) => Promise<Response>;
   __dappFetchLog?: unknown;
 }
@@ -212,6 +214,7 @@ describe('command server', () => {
   it('logs a cross-origin request without consuming the body the SDK sends', async () => {
     const sent: Request[] = [];
     const page: FakePage = {
+      crypto: webcrypto,
       fetch: input => {
         sent.push(typeof input === 'string' ? new Request(input) : input);
         return Promise.resolve(new Response('ok', { status: 200 }));
@@ -230,6 +233,10 @@ describe('command server', () => {
       expect.objectContaining({
         url: 'https://rpc.testnet.miden.io/rpc.Api/SyncChainMmr',
         method: 'POST',
+        completedAt: expect.any(Number),
+        bodyDigest: createHash('sha256')
+          .update(new Uint8Array([1, 2, 3]))
+          .digest('hex'),
         status: 200,
         error: null,
         headers: expect.arrayContaining([
@@ -240,9 +247,92 @@ describe('command server', () => {
     ]);
   });
 
+  it('records response completion order and distinct body digests without storing request bytes', async () => {
+    let now = 0;
+    const clock = jest.spyOn(Date, 'now').mockImplementation(() => now);
+    const replies: Array<(response: Response) => void> = [];
+    const firstResponse = new Promise<Response>(resolve => replies.push(resolve));
+    const secondResponse = new Promise<Response>(resolve => replies.push(resolve));
+    let calls = 0;
+    const page: FakePage = {
+      crypto: webcrypto,
+      fetch: () => {
+        calls++;
+        return calls === 1 ? firstResponse : secondResponse;
+      }
+    };
+    try {
+      // eslint-disable-next-line no-new-func
+      new Function('window', 'location', FETCH_LOG_BODY)(page, { origin: 'http://localhost:4810' });
+      const request = (body: string): Request =>
+        new Request('https://rpc.testnet.miden.io/rpc', { method: 'POST', body });
+      const a = page.fetch(request('request-a'));
+      now = 10;
+      const b = page.fetch(request('request-b'));
+      const [first, second] = replies;
+      if (first === undefined || second === undefined) throw new Error('response resolvers missing');
+      now = 20;
+      second(new Response('ok', { status: 200 }));
+      await b;
+      now = 100;
+      first(new Response('unavailable', { status: 503 }));
+      await a;
+      expect(page.__dappFetchLog).toEqual([
+        {
+          url: 'https://rpc.testnet.miden.io/rpc',
+          method: 'POST',
+          headers: [['content-type', 'text/plain;charset=UTF-8']],
+          at: 0,
+          completedAt: 100,
+          ms: 100,
+          status: 503,
+          error: null,
+          bodyDigest: createHash('sha256').update('request-a').digest('hex')
+        },
+        {
+          url: 'https://rpc.testnet.miden.io/rpc',
+          method: 'POST',
+          headers: [['content-type', 'text/plain;charset=UTF-8']],
+          at: 10,
+          completedAt: 20,
+          ms: 10,
+          status: 200,
+          error: null,
+          bodyDigest: createHash('sha256').update('request-b').digest('hex')
+        }
+      ]);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it('records a rejected fetch completion and preserves its rejection', async () => {
+    const failure = new Error('connection reset');
+    const page: FakePage = {
+      crypto: webcrypto,
+      fetch: async () => {
+        throw failure;
+      }
+    };
+    // eslint-disable-next-line no-new-func
+    new Function('window', 'location', FETCH_LOG_BODY)(page, { origin: 'http://localhost:4810' });
+    await expect(
+      page.fetch(new Request('https://rpc.testnet.miden.io/rpc', { method: 'POST', body: 'request' }))
+    ).rejects.toBe(failure);
+    expect(page.__dappFetchLog).toEqual([
+      expect.objectContaining({
+        completedAt: expect.any(Number),
+        status: null,
+        error: 'connection reset',
+        bodyDigest: createHash('sha256').update('request').digest('hex')
+      })
+    ]);
+  });
+
   it('passes a same-origin request through without logging it', async () => {
     const sent: Request[] = [];
     const page: FakePage = {
+      crypto: webcrypto,
       fetch: input => {
         sent.push(typeof input === 'string' ? new Request(input) : input);
         return Promise.resolve(new Response(null, { status: 204 }));

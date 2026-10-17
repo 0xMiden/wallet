@@ -24,6 +24,8 @@ const call = (headers: string[][], extra: Partial<FetchLogEntry> = {}): FetchLog
   status: 200,
   error: null,
   ms: 5,
+  completedAt: 6,
+  bodyDigest: 'a'.repeat(64),
   ...extra
 });
 const GRPC = [
@@ -64,6 +66,12 @@ describe('the page node-call guard', () => {
   it('reads the page log as it crossed the channel and drops what is not an entry', () => {
     expect(toFetchLog([call(GRPC), 'noise', null])).toEqual([call(GRPC)]);
     expect(toFetchLog('not a log')).toEqual([]);
+  });
+
+  it('keeps completion and request identity metadata while treating missing metadata as unknown', () => {
+    expect(toFetchLog([{ url: RPC, method: 'POST', bodyDigest: 'invalid', completedAt: 'unknown' }])).toEqual([
+      expect.objectContaining({ bodyDigest: null, completedAt: null })
+    ]);
   });
 });
 

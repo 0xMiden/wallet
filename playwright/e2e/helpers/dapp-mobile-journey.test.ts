@@ -11,6 +11,7 @@ import {
   DappCellRunner,
   deadlineIn,
   HarnessFault,
+  InfrastructureFault,
   type CellContext,
   type Deadline
 } from './dapp-cells';
@@ -22,6 +23,7 @@ import {
   type CommandResult,
   type DeviceKey
 } from './dapp-command-server';
+import { registryOf } from './dapp-known-bugs';
 import { mobileOffchainAxis } from './dapp-mobile-axis';
 import { androidDevice, iosDevice, type MobileDevice } from './dapp-mobile-device';
 import {
@@ -305,6 +307,8 @@ describe('mobile journey hooks and setup', () => {
     status,
     error: null,
     ms: 1,
+    completedAt: 2,
+    bodyDigest: 'a'.repeat(64),
     ...options
   });
 
@@ -521,13 +525,83 @@ describe('mobile journey hooks and setup', () => {
     expect(selectAccountIfNeeded).toHaveBeenCalledWith(journey.walletA, 'mtst1a');
   });
 
+  it.each([
+    {
+      name: 'infrastructure',
+      denial: undefined,
+      disconnect: new InfrastructureFault('operator unavailable', { abortsLeg: false }),
+      revocation: new Error('revocation failed'),
+      verdict: 'blocked-infra',
+      failedSteps: ['disconnect', 'revocation']
+    },
+    {
+      name: 'harness',
+      denial: new HarnessFault('sheet bridge failed'),
+      disconnect: undefined,
+      revocation: undefined,
+      verdict: 'harness-fault',
+      failedSteps: ['sheet denial']
+    }
+  ])(
+    'preserves $name classification in a cell record after every restore attempt',
+    async ({ denial, disconnect, revocation, verdict, failedSteps }) => {
+      const { journey, restore } = await prepare();
+      const call = jest.spyOn(journey, 'call');
+      if (denial !== undefined) jest.mocked(denyOpenSheet).mockRejectedValueOnce(denial);
+      if (disconnect !== undefined) call.mockRejectedValueOnce(disconnect);
+      if (revocation !== undefined) jest.mocked(removeDappSession).mockRejectedValueOnce(revocation);
+      const { DappCellRunner: ActualRunner } = jest.requireActual<typeof import('./dapp-cells')>('./dapp-cells');
+      const runner = new ActualRunner({
+        surface: 'ios',
+        part: 'unit',
+        axis: 'offchain',
+        journey: 'PL',
+        testTitle: 'restore classification',
+        outDir: path.join(directory, 'restore-records'),
+        declared: ['R7-send'],
+        registry: registryOf([]),
+        hooks: { quiesce: async () => undefined, restore: async () => undefined }
+      });
+      const record = await runner.run({ id: 'R7-send', budget: 'read', run: restore });
+      expect(record.verdict).toBe(verdict);
+      for (const step of failedSteps) expect(record.error).toContain(step);
+      expect(denyOpenSheet).toHaveBeenCalledTimes(1);
+      expect(call).toHaveBeenCalledWith('disconnect', {}, expect.anything());
+      expect(removeDappSession).toHaveBeenCalledWith(journey.walletA, origin);
+      expect(selectAccountIfNeeded).toHaveBeenCalledWith(journey.walletA, 'mtst1a');
+    }
+  );
+
+  it('does not recover from an overlapping request that completed earlier', async () => {
+    fetchLog = [
+      nodeCall(503, { at: 0, completedAt: 100, ms: 100 }),
+      nodeCall(200, { at: 10, completedAt: 20, ms: 10 })
+    ];
+    await expect(prepare()).rejects.toBeInstanceOf(ChainUnavailable);
+  });
+
+  it('does not recover from a success with a different body on the same endpoint', async () => {
+    fetchLog = [nodeCall(503), nodeCall(200, { at: 3, completedAt: 4, bodyDigest: 'b'.repeat(64) })];
+    await expect(prepare()).rejects.toBeInstanceOf(ChainUnavailable);
+  });
+
+  it('keeps a failure after a success of the same call unrecovered', async () => {
+    fetchLog = [nodeCall(200), nodeCall(503, { at: 3, completedAt: 4 })];
+    await expect(prepare()).rejects.toBeInstanceOf(ChainUnavailable);
+  });
+
+  it('does not infer recovery when a request has no body digest', async () => {
+    fetchLog = [nodeCall(503, { bodyDigest: null }), nodeCall(200, { at: 3, completedAt: 4 })];
+    await expect(prepare()).rejects.toBeInstanceOf(ChainUnavailable);
+  });
+
   it('accepts a node 503 followed by a successful retry of the same call', async () => {
-    fetchLog = [nodeCall(503), nodeCall(200, { at: 2 })];
+    fetchLog = [nodeCall(503), nodeCall(200, { at: 3, completedAt: 4 })];
     await expect(prepare()).resolves.toHaveProperty('journey');
   });
 
   it('accepts a failed node fetch followed by a successful retry', async () => {
-    fetchLog = [nodeCall(0, { status: null, error: 'connection reset' }), nodeCall(200)];
+    fetchLog = [nodeCall(0, { status: null, error: 'connection reset' }), nodeCall(200, { at: 3, completedAt: 4 })];
     await expect(prepare()).resolves.toHaveProperty('journey');
   });
 
@@ -542,12 +616,12 @@ describe('mobile journey hooks and setup', () => {
   });
 
   it('does not let a different successful call recover a node failure', async () => {
-    fetchLog = [nodeCall(503), nodeCall(200, { url: 'https://rpc.testnet.miden.io/other' })];
+    fetchLog = [nodeCall(503), nodeCall(200, { at: 3, completedAt: 4, url: 'https://rpc.testnet.miden.io/other' })];
     await expect(prepare()).rejects.toBeInstanceOf(ChainUnavailable);
   });
 
   it('keeps a disallowed header as a harness fault even after a successful retry', async () => {
-    fetchLog = [nodeCall(503, { headers: [['x-bad-header', 'value']] }), nodeCall(200)];
+    fetchLog = [nodeCall(503, { headers: [['x-bad-header', 'value']] }), nodeCall(200, { at: 3, completedAt: 4 })];
     await expect(prepare()).rejects.toBeInstanceOf(HarnessFault);
   });
 

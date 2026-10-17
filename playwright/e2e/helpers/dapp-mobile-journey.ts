@@ -3,6 +3,7 @@ import path from 'node:path';
 
 import { pollUntil } from './dapp-assertions';
 import {
+  abortsLeg,
   CellDeadlineExceeded,
   DappCellRunner,
   describeFailure,
@@ -10,6 +11,7 @@ import {
   HarnessFault,
   infraAborted,
   InfrastructureFault,
+  isInfrastructureFailure,
   ranClean,
   type CellContext,
   type CellRecord,
@@ -289,19 +291,22 @@ function guardNodeCalls(value: unknown, rpcUrl: string): void {
   if (problems.length > 0)
     throw new HarnessFault(`the page's node calls would fail every cell: ${problems.join('; ')}`);
   const unrecovered = calls.filter(
-    (call, index) =>
+    call =>
       nodeFailed(call) &&
-      !calls
-        .slice(index + 1)
-        .some(
-          next =>
-            next.url === call.url &&
-            next.method === call.method &&
-            next.error === null &&
-            next.status !== null &&
-            next.status >= 200 &&
-            next.status < 400
-        )
+      !calls.some(
+        next =>
+          call.bodyDigest !== null &&
+          next.bodyDigest === call.bodyDigest &&
+          call.completedAt !== null &&
+          next.completedAt !== null &&
+          next.completedAt > call.completedAt &&
+          next.url === call.url &&
+          next.method === call.method &&
+          next.error === null &&
+          next.status !== null &&
+          next.status >= 200 &&
+          next.status < 400
+      )
   );
   if (unrecovered.length > 0) {
     throw new ChainUnavailable(
@@ -706,8 +711,20 @@ async function restore(j: MobileJourney, cell: CellSpec<Partial<MobileCellState>
     const primary = await beforeDeadline(deadline, 'primary account', () => j.account('primary', deadline));
     await beforeDeadline(deadline, 'account selection', () => selectAccountIfNeeded(j.walletA, primary));
   });
-  if (errors.length > 0)
-    throw new AggregateError(errors, `${cell.id} restore failed: ${errors.map(error => error.message).join('; ')}`);
+  if (errors.length === 0) return;
+  const message = `${cell.id} restore failed: ${errors.map(error => error.message).join('; ')}`;
+  const infrastructure = errors.find(abortsLeg) ?? errors.find(isInfrastructureFailure);
+  const harness = errors.find(error => error.cause instanceof HarnessFault);
+  const collected = new AggregateError(errors, message, { cause: infrastructure ?? harness });
+  if (infrastructure !== undefined) {
+    throw new InfrastructureFault(message, { cause: collected, abortsLeg: abortsLeg(infrastructure) });
+  }
+  if (harness !== undefined) {
+    const fault = new HarnessFault(message);
+    fault.cause = collected;
+    throw fault;
+  }
+  throw collected;
 }
 
 /** Runs the journey's declared cells in order, then fails the test with every cell that did not pass. */

@@ -73,7 +73,7 @@ export interface CommandServer {
 
 /**
  * Runs in the page before any module and logs every cross-origin fetch (the SDK's node calls) with the headers the
- * browser kept and how it ended. The request is rebuilt once and that copy is the one sent, so its body is read once.
+ * browser kept and when it ended. A clone supplies only a body digest for retry identity; the sent body stays intact.
  */
 export const FETCH_LOG_BODY = `
 var log = [];
@@ -87,21 +87,36 @@ window.fetch = function (input, init) {
     return original(input, init);
   }
   if (request.url.indexOf(location.origin + '/') === 0) return original(request);
-  var entry = { url: request.url, method: request.method, headers: [], at: Date.now(), status: null, error: null, ms: null };
+  var entry = { url: request.url, method: request.method, headers: [], at: Date.now(), status: null, error: null, ms: null,
+    completedAt: null, bodyDigest: null };
+  var identity = Promise.resolve();
+  try {
+    identity = request.clone().arrayBuffer().then(function (bytes) {
+      return window.crypto.subtle.digest('SHA-256', bytes);
+    }).then(function (digest) {
+      var bytes = new Uint8Array(digest);
+      var hex = '';
+      for (var i = 0; i < bytes.length; i++) hex += ('0' + bytes[i].toString(16)).slice(-2);
+      entry.bodyDigest = hex;
+    }).catch(function () {});
+  } catch (error) {}
   request.headers.forEach(function (value, name) {
     entry.headers.push([name, value]);
   });
   log.push(entry);
+  // Hashing latency must not change the order in which fetches completed.
   return original(request).then(
     function (response) {
       entry.status = response.status;
-      entry.ms = Date.now() - entry.at;
-      return response;
+      entry.completedAt = Date.now();
+      entry.ms = entry.completedAt - entry.at;
+      return identity.then(function () { return response; });
     },
     function (error) {
       entry.error = String((error && error.message) || error);
-      entry.ms = Date.now() - entry.at;
-      throw error;
+      entry.completedAt = Date.now();
+      entry.ms = entry.completedAt - entry.at;
+      return identity.then(function () { throw error; });
     }
   );
 };
