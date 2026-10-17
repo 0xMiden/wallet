@@ -205,6 +205,40 @@ describe('an unknown submit outcome at the Unconfirmed write', () => {
     expectNoTransactionData(report?.message ?? '');
   });
 
+  it('counts a hidden stretch shorter than a second inside the submit', async () => {
+    jest.mocked(isMobile).mockReturnValue(true);
+    initBackgroundTimeTracking();
+    clock.mockReturnValue(SUBMITTED_AT_MS + 200);
+    doc.setHidden(true);
+    clock.mockReturnValue(SUBMITTED_AT_MS + 700);
+    doc.setHidden(false);
+    clock.mockReturnValue(SUBMITTED_AT_MS + 1_000);
+    await Repo.transactions.put(submitting());
+    await markTransactionUnconfirmed(submitting(), unavailable());
+    expect(captured()[0]?.message).toContain('; app hidden during submit yes. ');
+  });
+
+  it('does not count a hide that starts only once the submit has returned', async () => {
+    jest.mocked(isMobile).mockReturnValue(true);
+    initBackgroundTimeTracking();
+    await Repo.transactions.put(submitting());
+    // The app goes to the background while the Unconfirmed write is in flight, and stays there past the report.
+    const hideDuringWrite = () => {
+      clock.mockReturnValue(SUBMITTED_AT_MS + 5_000);
+      doc.setHidden(true);
+      clock.mockReturnValue(SUBMITTED_AT_MS + 8_000);
+    };
+    Repo.transactions.hook('updating', hideDuringWrite);
+    try {
+      clock.mockReturnValue(SUBMITTED_AT_MS + 4_000);
+      await markTransactionUnconfirmed(submitting(), unavailable());
+    } finally {
+      Repo.transactions.hook('updating').unsubscribe(hideDuringWrite);
+    }
+    expect((await Repo.transactions.get('tx-1'))?.status).toBe(ITransactionStatus.Unconfirmed);
+    expect(captured()[0]?.message).toContain('; app hidden during submit no. ');
+  });
+
   it('a hidden stretch that ended before the submit is not one during it', async () => {
     jest.mocked(isMobile).mockReturnValue(true);
     initBackgroundTimeTracking();

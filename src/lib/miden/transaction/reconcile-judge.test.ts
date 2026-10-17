@@ -823,6 +823,33 @@ describe('the check that proved the row never committed', () => {
     expect(judged.allDead).toBe(false);
     expect(judged.neverCommittedBy).toBeUndefined();
   });
+
+  it('aggregates the rule an earlier pass stored with the one this pass proves', async () => {
+    const target = row('t', {
+      submitEvidence: [
+        entry({ verdict: 'never-committed', neverCommittedBy: 'expired' }),
+        entry({ attemptId: 'b', expirationBlock: undefined })
+      ]
+    });
+    const judged = await judge(target, { tip: { blockNum: 150, commitment: OTHER, nonce: '6' } });
+    expect(judged.entries.map(judgement => [judgement.attemptId, judgement.neverCommittedBy])).toEqual([
+      ['b', 'superseded']
+    ]);
+    expect(judged.allDead).toBe(true);
+    expect(judged.neverCommittedBy).toBe('mixed');
+  });
+
+  it('leaves the rule unset beside an earlier verdict stored with none', async () => {
+    const target = row('t', {
+      submitEvidence: [entry({ verdict: 'never-committed' }), entry({ attemptId: 'b', expirationBlock: undefined })]
+    });
+    const judged = await judge(target, { tip: { blockNum: 150, commitment: OTHER, nonce: '6' } });
+    expect(judged.entries.map(judgement => [judgement.attemptId, judgement.neverCommittedBy])).toEqual([
+      ['b', 'superseded']
+    ]);
+    expect(judged.allDead).toBe(true);
+    expect(judged.neverCommittedBy).toBeUndefined();
+  });
 });
 
 describe('E`s nullifier window', () => {

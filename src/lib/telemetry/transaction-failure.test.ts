@@ -686,6 +686,83 @@ describe('an SDK execution failure with no assertion code', () => {
     expect(message).not.toContain(`error code: ${code}`);
     expectNoTransactionData(message);
   });
+
+  it.each([
+    [
+      'a u32 assertion',
+      `u32 assertion failed: u32assert2 requires both stack values to be valid 32-bit unsigned integers; error code: 10404896929510279404; invalid values: [4294967296, ${AMOUNT}]`,
+      'ERR_NOTE_TAG_MUST_BE_U32'
+    ],
+    [
+      'an assertion',
+      'assertion failed with error code: 15404814807981965102',
+      'ERR_FEE_CONVERSION_INFO_COMMITMENT_MISMATCH'
+    ]
+  ])('names %s whose code only a cause carries', async (_name, diagnostic, identity) => {
+    reportTransactionFailure({
+      type: 'consume',
+      stage: 'signing-proposal',
+      error: new Error(`claim for ${ACCOUNT} failed`, {
+        cause: new Error(`failed to execute transaction: ${kernel(diagnostic)}`)
+      })
+    });
+    const message = await reportedMessage();
+    expect(message).toContain(`; point pipeline; ${identity}. authentication`);
+    expect(message).not.toContain('4294967296');
+    expectNoTransactionData(message);
+  });
+
+  it('classifies a long run of u32 assertion prefixes with no delimiter within a fixed bound', async () => {
+    const started = performance.now();
+    reportTransactionFailure({
+      type: 'send',
+      stage: 'sending',
+      error: new Error(`failed to execute transaction: ${'u32 assertion failed:'.repeat(20_000)}`)
+    });
+    expect(performance.now() - started).toBeLessThan(1_000);
+    expect(await reportedMessage()).toContain('; point pipeline; transaction_execution_failed; cause other. ');
+  });
+
+  it("never lets an opaque variant's payload choose the cause", async () => {
+    reportTransactionFailure({
+      type: 'consume',
+      stage: 'creating-proposal',
+      error: new Error(
+        'failed to execute transaction: RPC error: grpc request failed for get_account: unknown error: failed to generate signature'
+      )
+    });
+    reportTransactionFailure({
+      type: 'consume',
+      stage: 'creating-proposal',
+      error: new Error(
+        `failed to execute transaction: storage error: note with details commitment ${NOTE_COMMITMENT} has already been consumed`
+      )
+    });
+    reportTransactionFailure({
+      type: 'consume',
+      stage: 'creating-proposal',
+      error: new Error(
+        `failed to execute transaction: data store error: input note ${NOTE_ID} was created in a block past the transaction reference block number (790)`
+      )
+    });
+    await settle();
+    expect(
+      jest.mocked(captureCrash).mock.calls.map(([error]) => /; cause ([a-z_]+)\./.exec((error as Error).message)?.[1])
+    ).toEqual(['rpc', 'store', 'data_store']);
+  });
+
+  it('still names a real SDK cause carried by a later link under an opaque variant', async () => {
+    reportTransactionFailure({
+      type: 'consume',
+      stage: 'creating-proposal',
+      error: new Error("Offscreen call 'guardianPipeline' failed: failed to execute transaction: RPC error", {
+        cause: new Error(
+          'failed to execute transaction: transaction execution failed: failed to fetch transaction inputs from the data store: requested block 812 is after transaction reference block 790'
+        )
+      })
+    });
+    expect(await reportedMessage()).toContain('; transaction_execution_failed; cause block_after_reference. ');
+  });
 });
 
 describe('the signing step', () => {
@@ -773,6 +850,19 @@ it.each([
   const listed: readonly string[] | undefined = values();
   expect(listed).toEqual(expect.arrayContaining([expect.any(String)]));
   expect((listed ?? []).filter(value => !crashReportPolicy().includes(`\`${value}\``))).toEqual([]);
+});
+
+it.each([
+  ['a plain assertion', 'assertion failed with error code: 99887766554433221100'],
+  [
+    'a u32 assertion',
+    'u32 assertion failed: u32assert2 requires both stack values to be valid 32-bit unsigned integers; error code: 7; invalid values: [1, 2]'
+  ]
+])('lists the identity it sends for %s with an unpublished code', async (_name, text) => {
+  reportTransactionFailure({ type: 'send', error: new Error(`failed to execute transaction: ${text}`) });
+  const identity = /; point pipeline; ([a-z0-9_]+)\. authentication/.exec(await reportedMessage())?.[1];
+  expect(identity).toMatch(/_unknown$/);
+  expect(REPORTED_IDENTITIES).toContain(identity);
 });
 
 it('the privacy policy states the Guardian HTTP status range and its fallback', () => {

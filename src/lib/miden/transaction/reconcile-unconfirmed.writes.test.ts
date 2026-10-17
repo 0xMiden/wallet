@@ -3,8 +3,9 @@ import * as Repo from 'lib/miden/repo';
 import { NoteTypeEnum } from 'lib/miden/types';
 
 import { TRANSACTION_NEVER_COMMITTED_ERROR } from './constants';
+import { RowJudgement } from './reconcile-judge';
 import { AccountState, NodeReads } from './reconcile-reads';
-import { checkEvidenceForRetry, judgeAndWrite } from './reconcile-unconfirmed';
+import { applyEntryWrites, checkEvidenceForRetry, judgeAndWrite } from './reconcile-unconfirmed';
 import { INoteDeliveryState, ISubmitEvidence, ITransaction, ITransactionStatus } from '../db/types';
 
 jest.mock('../sdk/helpers', () => ({
@@ -311,6 +312,48 @@ describe('the never-committed write (#1081)', () => {
     });
     await judgeAndWrite('tx-1', context(node({ blockNum: 750, commitment: INITIAL })));
     expect(report).toHaveBeenCalledTimes(1);
+  });
+
+  it('stores the rule that proved an attempt dead beside its verdict, and none beside another result', () => {
+    const judgement: RowJudgement = {
+      rowId: 'tx-1',
+      judgedEntries: [entry(), entry({ attemptId: 'a2' })],
+      entries: [
+        { attemptId: 'a1', result: 'never-committed', neverCommittedBy: 'spent_elsewhere', readsFailed: false },
+        { attemptId: 'a2', result: 'unresolvable', readsFailed: false }
+      ],
+      allDead: false,
+      landingHeld: false
+    };
+    expect(
+      applyEntryWrites([entry(), entry({ attemptId: 'a2' })], judgement).map(written => [
+        written.verdict,
+        written.neverCommittedBy
+      ])
+    ).toEqual([
+      ['never-committed', 'spent_elsewhere'],
+      ['unresolvable', undefined]
+    ]);
+  });
+
+  it('reports mixed for attempts proved dead by different checks in separate passes', async () => {
+    await Repo.transactions.put(
+      unconfirmed({ submitEvidence: [entry(), entry({ attemptId: 'a2', expirationBlock: undefined })] })
+    );
+    expect((await judgeAndWrite('tx-1', context(node({ blockNum: 750, commitment: INITIAL })))).kind).toBe('pending');
+    expect((await read())?.submitEvidence?.map(stored => [stored.verdict, stored.neverCommittedBy])).toEqual([
+      ['never-committed', 'expired'],
+      [undefined, undefined]
+    ]);
+    const report = jest.requireMock('lib/telemetry/transaction-failure').reportTransactionFailure;
+    expect(report).not.toHaveBeenCalled();
+
+    const outcome = await judgeAndWrite('tx-1', context(node({ blockNum: 760, commitment: OTHER, nonce: '6' })));
+    expect(outcome.kind).toBe('never-committed');
+    expect(report).toHaveBeenCalledTimes(1);
+    expect(report).toHaveBeenCalledWith(
+      expect.objectContaining({ reason: 'never_committed', neverCommittedRule: 'mixed' })
+    );
   });
 
   it('does not report an imported backup row as a new failure', async () => {
