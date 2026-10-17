@@ -117,8 +117,19 @@ const OPERATOR_WORDS = [
   [/'/g, '']
 ];
 
+// Crash scrubbing (src/lib/telemetry/redact.ts) blanks a report holding four wordlist words in a row, as a recovery
+// phrase, and redacts four digits in a row, so these messages' own words would cost the report its name.
+// protocol-assertions.test.ts finds the next one.
+const NAME_OVERRIDES = new Map([
+  ['kernel witness length must fit in a u32', 'CORE_LIB_KERNEL_WITNESS_LEN_NOT_U32'],
+  ['invalid insert: already at maximum size of 8192', 'CORE_LIB_INVALID_INSERT_ALREADY_AT_MAXIMUM_SIZE'],
+  ['invalid leaf: larger than maximum size of 8192', 'CORE_LIB_INVALID_LEAF_LARGER_THAN_MAXIMUM_SIZE']
+]);
+
 // An inline message has no name of its own: it is named by its crate and its words.
 export function inlineName(crate, message) {
+  const override = NAME_OVERRIDES.get(message);
+  if (override !== undefined) return override;
   const words = OPERATOR_WORDS.reduce((text, [pattern, word]) => text.replace(pattern, word), message);
   return `${crate.replace(/^miden-/, '')} ${words}`
     .toUpperCase()
