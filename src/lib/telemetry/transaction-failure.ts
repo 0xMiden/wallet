@@ -428,7 +428,11 @@ export function reportTransactionFailure(failure: TransactionFailure): void {
     // This stack would name the reporter, not the failed execution, and can include private file paths.
     report.stack = undefined;
     annotateCrash(report, snapshotCrashDiagnostics(failure.error));
-    captureCrash(report, 'manual', { initializeIfNeeded: true });
+    // An unknown outcome waits for the node's verdict, which is reported again as an error if it never landed.
+    captureCrash(report, 'manual', {
+      initializeIfNeeded: true,
+      level: outcome === 'unconfirmed' ? 'warning' : 'error'
+    });
   } catch {
     // Reporting must never change the transaction outcome.
   }
