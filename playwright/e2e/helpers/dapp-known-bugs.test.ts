@@ -81,7 +81,7 @@ describe('known-bug registry', () => {
   });
 
   it('K10 matches an N4 miss by the id an import returned, and no longer the consume by it (#1389)', () => {
-    expect(bug('K10').tracking).toContain('0xMiden/wallet#1389');
+    expect(bug('K10').tracking).toContain('0xMiden/wallet#1536');
     expect(bug('K10').cells).toEqual({ N4: ['offchain', 'guardian'] });
     const unresolved = {
       name: 'WalletTransactionError',

@@ -53,7 +53,7 @@ export const KNOWN_BUGS: readonly KnownBug[] = [
   {
     id: 'K10',
     title: 'A note imported details-only or bare is not listed by the id its import returned',
-    tracking: '0xMiden/wallet#1389 (consume fixed, the private-note list still open)',
+    tracking: '0xMiden/wallet#1536 (the private-note list by the id an import returned)',
     cells: on(['N4'], BOTH),
     // The private-note list looks the returned details commitment up as a note id (`getPrivateNoteDetails` in
     // `src/lib/miden/back/dapp.ts`); a consume by it resolves the commitment to its note (W5b, W5c).
