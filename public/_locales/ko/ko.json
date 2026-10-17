@@ -1,11 +1,6 @@
 {
   "me": "나",
   "profile": "프로필",
-  "profileWallet": "지갑",
-  "profilePrivacySecurity": "개인정보 및 보안",
-  "profileConnectedApps": "연결된 앱",
-  "profileHelpSupport": "도움말 및 지원",
-  "profileLegal": "법적 고지",
   "myBadges": "내 배지",
   "openMyBadges": "내 배지 열기",
   "badgesEarnedCount": "$total$개 중 $earned$개 획득",

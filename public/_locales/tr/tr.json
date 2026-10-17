@@ -1,11 +1,6 @@
 {
   "me": "Ben",
   "profile": "Profil",
-  "profileWallet": "Cüzdan",
-  "profilePrivacySecurity": "Gizlilik ve güvenlik",
-  "profileConnectedApps": "Bağlı uygulamalar",
-  "profileHelpSupport": "Yardım ve destek",
-  "profileLegal": "Yasal bilgiler",
   "myBadges": "Rozetlerim",
   "openMyBadges": "Rozetlerimi aç",
   "badgesEarnedCount": "$total$ rozetten $earned$ tanesi kazanıldı",

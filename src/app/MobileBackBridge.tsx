@@ -26,8 +26,7 @@ export const MobileBackBridge: FC = () => {
   const { pathname, historyPosition } = useLocation();
 
   const inHome = pathname === '/';
-  const isProfileSubpage =
-    pathname === '/settings' || pathname === '/me/badges' || pathname.startsWith('/settings/profile-');
+  const isProfileSubpage = pathname === '/settings' || pathname === '/me/badges';
   const isSettingsSubpage = pathname.startsWith('/settings/') && !isProfileSubpage;
   const isTabPage = pathname === '/me' || TAB_PAGES.some(tab => pathname === tab || pathname.startsWith(tab + '/'));
 

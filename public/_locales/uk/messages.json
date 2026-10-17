@@ -7,26 +7,6 @@
     "message": "Профіль",
     "englishSource": "Profile"
   },
-  "profileWallet": {
-    "message": "Гаманець",
-    "englishSource": "Wallet"
-  },
-  "profilePrivacySecurity": {
-    "message": "Конфіденційність і безпека",
-    "englishSource": "Privacy & security"
-  },
-  "profileConnectedApps": {
-    "message": "Підключені застосунки",
-    "englishSource": "Connected apps"
-  },
-  "profileHelpSupport": {
-    "message": "Допомога та підтримка",
-    "englishSource": "Help & support"
-  },
-  "profileLegal": {
-    "message": "Правова інформація",
-    "englishSource": "Legal"
-  },
   "myBadges": {
     "message": "Мої значки",
     "englishSource": "My badges"

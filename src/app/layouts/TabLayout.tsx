@@ -43,8 +43,8 @@ import { navigate, useLocation } from 'lib/woozie';
  * Overview ↔ Send ↔ Receive ↔ Earn ↔ Swap transitions. Other tabs (Explore,
  * Activity, Me) hide it.
  *
- * Me is the personal tab destination. Settings lives behind its gear action and
- * keeps the FullScreenPage drill-in used by every settings page (see PageRouter).
+ * Me is the personal tab destination. It embeds the settings groups, whose rows
+ * keep the FullScreenPage drill-in used by every settings page (see PageRouter).
  */
 const TAB_ROUTES: Record<string, string> = {
   home: '/',

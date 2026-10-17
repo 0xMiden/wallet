@@ -1,11 +1,6 @@
 {
   "me": "Eu",
   "profile": "Perfil",
-  "profileWallet": "Carteira",
-  "profilePrivacySecurity": "Privacidade e segurança",
-  "profileConnectedApps": "Aplicativos conectados",
-  "profileHelpSupport": "Ajuda e suporte",
-  "profileLegal": "Informações legais",
   "myBadges": "Meus emblemas",
   "openMyBadges": "Abrir Meus emblemas",
   "badgesEarnedCount": "$earned$ de $total$ conquistados",

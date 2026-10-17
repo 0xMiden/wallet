@@ -7,26 +7,6 @@
     "message": "Profil",
     "englishSource": "Profile"
   },
-  "profileWallet": {
-    "message": "Cüzdan",
-    "englishSource": "Wallet"
-  },
-  "profilePrivacySecurity": {
-    "message": "Gizlilik ve güvenlik",
-    "englishSource": "Privacy & security"
-  },
-  "profileConnectedApps": {
-    "message": "Bağlı uygulamalar",
-    "englishSource": "Connected apps"
-  },
-  "profileHelpSupport": {
-    "message": "Yardım ve destek",
-    "englishSource": "Help & support"
-  },
-  "profileLegal": {
-    "message": "Yasal bilgiler",
-    "englishSource": "Legal"
-  },
   "myBadges": {
     "message": "Rozetlerim",
     "englishSource": "My badges"

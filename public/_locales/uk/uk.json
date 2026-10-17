@@ -1,11 +1,6 @@
 {
   "me": "Я",
   "profile": "Профіль",
-  "profileWallet": "Гаманець",
-  "profilePrivacySecurity": "Конфіденційність і безпека",
-  "profileConnectedApps": "Підключені застосунки",
-  "profileHelpSupport": "Допомога та підтримка",
-  "profileLegal": "Правова інформація",
   "myBadges": "Мої значки",
   "openMyBadges": "Відкрити Мої значки",
   "badgesEarnedCount": "Отримано $earned$ із $total$",

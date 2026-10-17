@@ -7,26 +7,6 @@
     "message": "プロフィール",
     "englishSource": "Profile"
   },
-  "profileWallet": {
-    "message": "ウォレット",
-    "englishSource": "Wallet"
-  },
-  "profilePrivacySecurity": {
-    "message": "プライバシーとセキュリティ",
-    "englishSource": "Privacy & security"
-  },
-  "profileConnectedApps": {
-    "message": "接続済みアプリ",
-    "englishSource": "Connected apps"
-  },
-  "profileHelpSupport": {
-    "message": "ヘルプとサポート",
-    "englishSource": "Help & support"
-  },
-  "profileLegal": {
-    "message": "法的情報",
-    "englishSource": "Legal"
-  },
   "myBadges": {
     "message": "マイバッジ",
     "englishSource": "My badges"

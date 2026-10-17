@@ -7,26 +7,6 @@
     "message": "프로필",
     "englishSource": "Profile"
   },
-  "profileWallet": {
-    "message": "지갑",
-    "englishSource": "Wallet"
-  },
-  "profilePrivacySecurity": {
-    "message": "개인정보 및 보안",
-    "englishSource": "Privacy & security"
-  },
-  "profileConnectedApps": {
-    "message": "연결된 앱",
-    "englishSource": "Connected apps"
-  },
-  "profileHelpSupport": {
-    "message": "도움말 및 지원",
-    "englishSource": "Help & support"
-  },
-  "profileLegal": {
-    "message": "법적 고지",
-    "englishSource": "Legal"
-  },
   "myBadges": {
     "message": "내 배지",
     "englishSource": "My badges"

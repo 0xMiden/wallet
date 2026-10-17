@@ -1048,24 +1048,6 @@ describe('Settings page — mobile body attribute effects', () => {
     }
     expect(document.body.hasAttribute('data-drawer-open')).toBe(false);
   });
-  it('opens Wallet with its account controls and keeps recovery and legal controls elsewhere', () => {
-    render(<Settings tabSlug="profile-wallet" />);
-    expect(screen.getByTestId('nav-title')).toHaveTextContent('profileWallet');
-    expect(screen.getByTestId('row-addressBook')).toBeInTheDocument();
-    expect(screen.getByTestId('row-spendingLimits')).toBeInTheDocument();
-    expect(screen.getByTestId('row-networks')).toBeInTheDocument();
-    expect(screen.queryByTestId('row-recoveryPhrase')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('row-privacyPolicy')).not.toBeInTheDocument();
-  });
-
-  it('keeps security visibility gates in the reorganized category', () => {
-    mockWalletState.seedPhraseStatus = 'removed';
-    render(<Settings tabSlug="profile-security" />);
-    expect(screen.getByTestId('row-keys')).toBeInTheDocument();
-    expect(screen.queryByTestId('row-recoveryPhrase')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('row-guardianSettings')).not.toBeInTheDocument();
-  });
-
   it('keeps Settings in the pushed-page frame and releases dApp trays on unmount', () => {
     mockIsMobile = true;
     const { unmount } = render(<Settings tabSlug={null} />);

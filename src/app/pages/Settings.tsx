@@ -36,7 +36,6 @@ import { useWalletStore } from 'lib/store';
 import { HistoryAction, navigate } from 'lib/woozie';
 import { EncryptedFileFlow } from 'screens/encrypted-file-flow/EncryptedFileManager';
 import { WalletType } from 'screens/onboarding/types';
-import { PROFILE_CATEGORIES } from 'screens/profile/navigation';
 
 import AdvancedSettings from './AdvancedSettings';
 import ExportAccountFile from './ExportAccountFile';
@@ -467,14 +466,6 @@ const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTo
     () => allTabs.find(tab => tab.slug === tabSlug && !tab.actionOnly) || null,
     [allTabs, tabSlug]
   );
-  const activeCategory = PROFILE_CATEGORIES.find(category => category.slug === tabSlug);
-  const categoryTabs = activeCategory
-    ? activeCategory.entryTitles.flatMap(title =>
-        [...tabGroups.flatMap(group => group.tabs), ...HIDDEN_TABS.filter(tab => tab.slug === 'networks')].filter(
-          tab => tab.titleI18nKey === title && tabIsVisible(tab)
-        )
-      )
-    : [];
   const handleSubPageBack = useBackWithFallback('/settings');
   const handleSettingsBack = useBackWithFallback('/me');
   const languageLabel = getCurrentLanguageLabel();
@@ -483,7 +474,7 @@ const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTo
   const localRootScrollTop = useRef(0);
   const rootScrollTop = savedRootScrollTop ?? localRootScrollTop;
   const rootBodyRef = useRef<HTMLDivElement>(null);
-  const invalidTab = Boolean(tabSlug) && !activeTab && !activeCategory;
+  const invalidTab = Boolean(tabSlug) && !activeTab;
 
   useEffect(() => {
     // Return to the menu when a slug is unknown or unavailable to this account.
@@ -505,7 +496,7 @@ const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTo
   // PageRouter remounts the root when a settings sub-page is popped. Preserve the
   // root's position without adding a second scroller inside SubPageLayout.
   useEffect(() => {
-    if (embedded || activeTab || activeCategory) return;
+    if (embedded || activeTab) return;
     const node = rootBodyRef.current;
     if (!node) return;
     node.scrollTop = rootScrollTop.current;
@@ -517,7 +508,7 @@ const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTo
       rootScrollTop.current = node.scrollTop;
       node.removeEventListener('scroll', rememberScroll);
     };
-  }, [embedded, activeTab, activeCategory, rootScrollTop]);
+  }, [embedded, activeTab, rootScrollTop]);
 
   // The existing-wallet way into Developer Settings, the Welcome logo's hidden gesture on the version line.
   const openDeveloperSettings = useTapUnlock(() => navigate('/developer-settings'));
@@ -547,13 +538,6 @@ const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTo
       />
     );
   };
-
-  if (activeCategory)
-    return (
-      <SubPageLayout title={t(activeCategory.titleI18nKey)} onBack={handleSettingsBack} focusTitleOnMount>
-        <ListGroup surface="plain">{categoryTabs.map(renderRow)}</ListGroup>
-      </SubPageLayout>
-    );
 
   if (activeTab) {
     return (

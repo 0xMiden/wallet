@@ -234,9 +234,10 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
       </TabLayout>
     ))
   ],
-  // Settings now opens from Me's gear as a pushed page. Exact-matched and placed
-  // ahead of the generic route below, which keeps every `/settings/<slug>` flow
-  // unchanged.
+  // Me embeds the settings groups; this standalone root is a pushed page for the
+  // links that still open it (the accounts drawer, a sub-page's fallback back).
+  // Exact-matched and placed ahead of the generic route below, which keeps every
+  // `/settings/<slug>` flow unchanged.
   [
     '/settings',
     onlyReady((_p, ctx) => (

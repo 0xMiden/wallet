@@ -160,12 +160,6 @@ describe('MobileBackBridge', () => {
     expect(navigateMock).toHaveBeenCalledWith('/me', HistoryAction.Replace);
   });
 
-  it('returns a cold-opened Profile settings category to Profile', () => {
-    const { handler } = renderAt('/settings/profile-security', 0);
-    expect(handler()).toBe(true);
-    expect(navigateMock).toHaveBeenCalledWith('/me', HistoryAction.Replace);
-  });
-
   it('pops the badge collection when it was opened from Me', () => {
     const { handler } = renderAt('/me/badges', 2);
     expect(handler()).toBe(true);

@@ -85,11 +85,6 @@ import { ReactComponent as More } from './more.svg';
 import { ReactComponent as PendingNotes } from './pending-notes.svg';
 import { ReactComponent as ProfileApps } from './profile-apps.svg';
 import { ReactComponent as ProfileBadge } from './profile-badge.svg';
-import { ReactComponent as ProfileHelp } from './profile-help.svg';
-import { ReactComponent as ProfileLegal } from './profile-legal.svg';
-import { ReactComponent as ProfilePreferences } from './profile-preferences.svg';
-import { ReactComponent as ProfileSecurity } from './profile-security.svg';
-import { ReactComponent as ProfileWallet } from './profile-wallet.svg';
 import { ReactComponent as QrScan } from './qr-scan.svg';
 import { ReactComponent as Receive } from './receive-new.svg';
 import { ReactComponent as Refresh } from './refresh.svg';
@@ -124,12 +119,7 @@ export enum IconName {
   BadgeSend = 'badge-send',
   BadgeSwap = 'badge-swap',
   BadgeRecovery = 'badge-recovery',
-  ProfileWallet = 'profile-wallet',
-  ProfilePreferences = 'profile-preferences',
-  ProfileSecurity = 'profile-security',
   ProfileApps = 'profile-apps',
-  ProfileHelp = 'profile-help',
-  ProfileLegal = 'profile-legal',
   ProfileBadge = 'profile-badge',
   Activity = 'activity',
   AddCircle = 'add-circle',
@@ -250,18 +240,8 @@ const IconSwitch = (props: IconProps) => {
       return <BadgeSwap {...props} />;
     case IconName.BadgeRecovery:
       return <BadgeRecovery {...props} />;
-    case IconName.ProfileWallet:
-      return <ProfileWallet {...props} />;
-    case IconName.ProfilePreferences:
-      return <ProfilePreferences {...props} />;
-    case IconName.ProfileSecurity:
-      return <ProfileSecurity {...props} />;
     case IconName.ProfileApps:
       return <ProfileApps {...props} />;
-    case IconName.ProfileHelp:
-      return <ProfileHelp {...props} />;
-    case IconName.ProfileLegal:
-      return <ProfileLegal {...props} />;
     case IconName.ProfileBadge:
       return <ProfileBadge {...props} />;
     case IconName.Activity:

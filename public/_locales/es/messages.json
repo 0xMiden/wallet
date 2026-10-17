@@ -7,26 +7,6 @@
     "message": "Perfil",
     "englishSource": "Profile"
   },
-  "profileWallet": {
-    "message": "Billetera",
-    "englishSource": "Wallet"
-  },
-  "profilePrivacySecurity": {
-    "message": "Privacidad y seguridad",
-    "englishSource": "Privacy & security"
-  },
-  "profileConnectedApps": {
-    "message": "Aplicaciones conectadas",
-    "englishSource": "Connected apps"
-  },
-  "profileHelpSupport": {
-    "message": "Ayuda y soporte",
-    "englishSource": "Help & support"
-  },
-  "profileLegal": {
-    "message": "Información legal",
-    "englishSource": "Legal"
-  },
   "myBadges": {
     "message": "Mis insignias",
     "englishSource": "My badges"

@@ -1,11 +1,6 @@
 {
   "me": "我",
   "profile": "個人資料",
-  "profileWallet": "錢包",
-  "profilePrivacySecurity": "隱私與安全",
-  "profileConnectedApps": "已連接的應用程式",
-  "profileHelpSupport": "說明與支援",
-  "profileLegal": "法律資訊",
   "myBadges": "我的徽章",
   "openMyBadges": "開啟我的徽章",
   "badgesEarnedCount": "已獲得 $earned$ / $total$",

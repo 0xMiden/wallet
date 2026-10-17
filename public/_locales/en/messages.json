@@ -664,26 +664,6 @@
     "message": "Profile",
     "englishSource": "Profile"
   },
-  "profileWallet": {
-    "message": "Wallet",
-    "englishSource": "Wallet"
-  },
-  "profilePrivacySecurity": {
-    "message": "Privacy & security",
-    "englishSource": "Privacy & security"
-  },
-  "profileConnectedApps": {
-    "message": "Connected apps",
-    "englishSource": "Connected apps"
-  },
-  "profileHelpSupport": {
-    "message": "Help & support",
-    "englishSource": "Help & support"
-  },
-  "profileLegal": {
-    "message": "Legal",
-    "englishSource": "Legal"
-  },
   "settings": {
     "message": "Settings",
     "englishSource": "Settings"

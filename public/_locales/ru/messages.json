@@ -7,26 +7,6 @@
     "message": "Профиль",
     "englishSource": "Profile"
   },
-  "profileWallet": {
-    "message": "Кошелёк",
-    "englishSource": "Wallet"
-  },
-  "profilePrivacySecurity": {
-    "message": "Конфиденциальность и безопасность",
-    "englishSource": "Privacy & security"
-  },
-  "profileConnectedApps": {
-    "message": "Подключённые приложения",
-    "englishSource": "Connected apps"
-  },
-  "profileHelpSupport": {
-    "message": "Помощь и поддержка",
-    "englishSource": "Help & support"
-  },
-  "profileLegal": {
-    "message": "Правовая информация",
-    "englishSource": "Legal"
-  },
   "myBadges": {
     "message": "Мои значки",
     "englishSource": "My badges"

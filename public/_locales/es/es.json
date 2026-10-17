@@ -1,11 +1,6 @@
 {
   "me": "Yo",
   "profile": "Perfil",
-  "profileWallet": "Billetera",
-  "profilePrivacySecurity": "Privacidad y seguridad",
-  "profileConnectedApps": "Aplicaciones conectadas",
-  "profileHelpSupport": "Ayuda y soporte",
-  "profileLegal": "Información legal",
   "myBadges": "Mis insignias",
   "openMyBadges": "Abrir Mis insignias",
   "badgesEarnedCount": "$earned$ de $total$ obtenidas",

@@ -1,11 +1,6 @@
 {
   "me": "自分",
   "profile": "プロフィール",
-  "profileWallet": "ウォレット",
-  "profilePrivacySecurity": "プライバシーとセキュリティ",
-  "profileConnectedApps": "接続済みアプリ",
-  "profileHelpSupport": "ヘルプとサポート",
-  "profileLegal": "法的情報",
   "myBadges": "マイバッジ",
   "openMyBadges": "マイバッジを開く",
   "badgesEarnedCount": "$total$個中$earned$個を獲得",

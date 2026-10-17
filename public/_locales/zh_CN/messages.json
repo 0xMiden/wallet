@@ -7,26 +7,6 @@
     "message": "个人资料",
     "englishSource": "Profile"
   },
-  "profileWallet": {
-    "message": "钱包",
-    "englishSource": "Wallet"
-  },
-  "profilePrivacySecurity": {
-    "message": "隐私与安全",
-    "englishSource": "Privacy & security"
-  },
-  "profileConnectedApps": {
-    "message": "已连接的应用",
-    "englishSource": "Connected apps"
-  },
-  "profileHelpSupport": {
-    "message": "帮助与支持",
-    "englishSource": "Help & support"
-  },
-  "profileLegal": {
-    "message": "法律信息",
-    "englishSource": "Legal"
-  },
   "myBadges": {
     "message": "我的徽章",
     "englishSource": "My badges"
