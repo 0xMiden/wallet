@@ -245,9 +245,10 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
       if (intent.error) {
         set({ status: 'failed', intent, error: intent.error });
         if (bridgeReceiveTxId) {
+          // The Epoch SDK's own text, viem's flattened answer, so its report reads it as the cause.
           await updateBridgedReceivePhase(bridgeReceiveTxId, 'failed', {
             error: intent.error,
-            failure: { step: 'epoch_solve' }
+            failure: { step: 'epoch_solve', cause: intent.error }
           });
         }
         return;

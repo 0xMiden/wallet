@@ -31,7 +31,7 @@ export type BridgeReceiveFailureStep = (typeof BRIDGE_RECEIVE_STEPS)[number];
 /** What failed an inbound bridge's row, as its writer knows it. Only the row's crash report reads it; it is never stored. */
 export interface BridgeReceiveFailureSource {
   step: BridgeReceiveFailureStep;
-  /** The error the step failed with, read for its library identity alone. */
+  /** The error the step failed with, read for its library identity alone; a failure the wallet raised has none. */
   cause?: unknown;
 }
 
@@ -155,11 +155,12 @@ export function bridgeReceiveLibraryError(error: unknown): string {
 const listed = (value: unknown, allowed: readonly string[]): string =>
   allowed.find(entry => entry === value) ?? 'other';
 
-/** `via <route>; failed at <step>; evm error <error>`, each from its closed list; the cause, else the stored text. */
-export function bridgeReceiveIdentity(failure: BridgeReceiveFailure, storedError: unknown): string {
+/** `via <route>; failed at <step>; evm error <error>`, each from its closed list; the error from the cause alone. */
+export function bridgeReceiveIdentity(failure: BridgeReceiveFailure): string {
   const route = listed(failure.route, BRIDGE_RECEIVE_ROUTES);
   const step = listed(failure.step, BRIDGE_RECEIVE_STEPS);
-  const error = bridgeReceiveLibraryError(failure.cause ?? storedError);
+  // Never the row's stored text: for a failure the wallet raised, that is the App's own words, not an answer.
+  const error = bridgeReceiveLibraryError(failure.cause);
   // Labels of words outside BIP-39: the crash reporter drops a report holding four wordlist words in a row (redact.ts),
   // and `route other; step other` is four.
   return `via ${route}; failed at ${step}; evm error ${error}`;
