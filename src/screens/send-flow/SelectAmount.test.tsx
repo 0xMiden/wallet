@@ -590,6 +590,16 @@ describe('SelectAmount', () => {
       expect(() => fireEvent.click(networkRow())).not.toThrow();
     });
 
+    it('opens the network picker from its own test id', () => {
+      const onSelectNetwork = jest.fn();
+      renderComponent({ isBridge: true, network: sepolia, onSelectNetwork });
+
+      fireEvent.click(screen.getByTestId('bridge-network-selector'));
+
+      expect(onSelectNetwork).toHaveBeenCalledTimes(1);
+      expect(screen.getByTestId('bridge-network-selector')).toHaveTextContent('Sepolia');
+    });
+
     it.each([true, false])(
       'names the token by its label in the selector and the Available line, logo on its symbol (bridge: %s)',
       isBridge => {
