@@ -1,7 +1,7 @@
 import React from 'react';
 
 import { act, cleanup, render, renderHook, waitFor } from '@testing-library/react';
-import { SWRConfig } from 'swr';
+import { SWRConfig, useSWRConfig } from 'swr';
 
 import { PageActiveContext } from 'app/layouts/page-active';
 import type { EarnPositionsResult } from 'lib/epoch';
@@ -465,6 +465,38 @@ describe('useEarnPositions', () => {
     beforeEach(() => {
       mockUseRetryableSWR.mockImplementation(realSWR);
       jest.mocked(getEarnDepositEvmAddresses).mockResolvedValue([]);
+    });
+
+    it('reloads the remaining position on return after a receipt invalidated its cached balance', async () => {
+      const initial = { ...liveResult, positions: [position], errors: [] };
+      jest.mocked(fetchEarnPositions).mockResolvedValue(initial);
+      const cache = new Map();
+      let visible = true;
+      const { result, rerender } = renderHook(() => ({ earn: useEarnPositions(), mutate: useSWRConfig().mutate }), {
+        wrapper: ({ children }: { children: React.ReactNode }) =>
+          React.createElement(
+            SWRConfig,
+            { value: { provider: () => cache } },
+            React.createElement(PageActiveContext.Provider, { value: visible }, children)
+          )
+      });
+      await waitFor(() => expect(result.current.earn.positions[0]?.withdrawable).toBe('9.5'));
+      visible = false;
+      rerender();
+      jest
+        .mocked(fetchEarnPositions)
+        .mockResolvedValue({ ...initial, positions: [{ ...position, deposits: '7.75', withdrawable: '7.25' }] });
+      await act(async () => {
+        await result.current.mutate(
+          key => Array.isArray(key) && key[0] === 'earn-positions' && key[1] === mockAccount.publicKey,
+          undefined,
+          { revalidate: true }
+        );
+      });
+      visible = true;
+      rerender();
+      await waitFor(() => expect(result.current.earn.positions[0]?.withdrawable).toBe('7.25'));
+      expect(result.current.earn.positions[0]?.stale).toBe(false);
     });
 
     it('retries on the page that is showing when a covered page of the same account mounted first', async () => {

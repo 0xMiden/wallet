@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 
 import { useTranslation } from 'react-i18next';
+import { useSWRConfig } from 'swr';
 
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import { earnWithdrawAmountFields, formatMoneyAmount } from 'app/templates/history/transactionUtils';
@@ -43,6 +44,19 @@ interface EarnWithdrawStatusProps {
 export const EarnWithdrawStatus: React.FC<EarnWithdrawStatusProps> = ({ txId }) => {
   const { t } = useTranslation();
   const { row, loaded } = useTransactionRow(txId);
+  const { mutate } = useSWRConfig();
+  const refreshedReceipt = useRef<string>();
+  const receiptId = row?.extraInputs?.phase === 'received' ? row.id : undefined;
+  const receiptAccountId = row?.accountId;
+  useEffect(() => {
+    if (!receiptId || !receiptAccountId || refreshedReceipt.current === receiptId) return;
+    refreshedReceipt.current = receiptId;
+    // Drop the old position snapshot as the real credit arrives. Active readers refresh now;
+    // a covered Earn page reloads when it returns, even within its normal 30-second read interval.
+    void mutate(key => Array.isArray(key) && key[0] === 'earn-positions' && key[1] === receiptAccountId, undefined, {
+      revalidate: true
+    });
+  }, [receiptId, receiptAccountId, mutate]);
   const assetsMetadata = useWalletStore(state => state.assetsMetadata);
   const nativeFaucetId = useMidenFaucetId();
   const onDone = () => navigate('/');
@@ -94,7 +108,7 @@ export const EarnWithdrawStatus: React.FC<EarnWithdrawStatusProps> = ({ txId }) 
           lhs={amountLabel}
           rhs={destinationLabel}
           fillForArrow={EARN_ARROW_FILL}
-          className="mt-4"
+          className="mt-4 face-heading"
         />
         <ReceiptRows
           className="mt-4"
@@ -144,7 +158,7 @@ export const EarnWithdrawStatus: React.FC<EarnWithdrawStatusProps> = ({ txId }) 
     >
       <section className="flex flex-1 flex-col items-center pt-5">
         <Hero
-          visual={<TransactionHeroIcon state={failed ? 'failed' : 'processing'} />}
+          visual={<TransactionHeroIcon state={failed ? 'failed' : 'processing'} accent="earn" />}
           name={failed ? t('withdrawalFailed') : t('withdrawalProcessing')}
         />
         <TransactionSummaryBadge lhs={amountLabel} rhs="Miden" fillForArrow={EARN_ARROW_FILL} className="mt-4" />

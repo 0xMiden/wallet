@@ -1,0 +1,130 @@
+import type { IntentQuoteResult } from '@epoch-protocol/epoch-intents-sdk';
+
+import { getNativeAssetId, getNativeAssetMetadata } from 'lib/miden-chain/native-asset';
+
+import { quoteEarnWithdrawal, assertWithdrawalReviewCurrent, assertWithdrawalDelivery } from './earn-withdraw-quote';
+import { fetchEarnPositions } from './positions';
+
+jest.mock('./client', () => ({ buildEpochReadOnlyWalletClient: jest.fn() }));
+jest.mock('./bridge', () => ({ normalizeMidenIdToHex: (v: string) => v }));
+jest.mock('./positions', () => ({ fetchEarnPositions: jest.fn() }));
+jest.mock('lib/miden-chain/native-asset', () => ({
+  getNativeAssetId: jest.fn().mockResolvedValue('0x4cbdcaffe75f0a317482224dae6436'),
+  getNativeAssetMetadata: jest.fn().mockResolvedValue({ symbol: 'USDCX', decimals: 6 }),
+  cacheScope: () => 'testnet'
+}));
+jest.mock('lib/remote-config/values', () => ({
+  getEpochAllocatorUrl: () => 'https://allocator.example',
+  getEarnMarket: () => ({ marketUid: 'DUMMY_LENDING:11155111:0x1111111111111111111111111111111111111111' })
+}));
+const token = '0x1111111111111111111111111111111111111111';
+const position = {
+  owner: token,
+  marketUid: `DUMMY_LENDING:11155111:${token}`,
+  underlyingAddress: token,
+  decimals: 18,
+  withdrawable: '10'
+};
+const args = { position, amount: '1.000000000000000001', accountId: 'miden' };
+const getTaskData = jest.fn();
+const getIntentQuote = jest.fn<Promise<IntentQuoteResult>, []>();
+const sdk = { getTaskData, getIntentQuote };
+
+beforeEach(() => {
+  jest.clearAllMocks();
+  getTaskData.mockImplementation(async p => ({ taskTypeString: 'task', intentData: p.intentData }));
+  getIntentQuote.mockResolvedValue({ success: true, tokenOut: '991822', transactions: [], resourceLockRequired: true });
+  jest.mocked(fetchEarnPositions).mockResolvedValue({
+    positions: [
+      {
+        ...position,
+        symbol: 'USDC',
+        lenderKey: 'DUMMY_LENDING',
+        lenderName: 'Dummy',
+        chainId: '11155111',
+        deposits: '10',
+        depositsUSD: 10,
+        depositApr: 2,
+        priceUsd: 1
+      }
+    ],
+    owners: [token],
+    vaults: [],
+    totalDepositsUSD: 10,
+    errors: []
+  });
+});
+
+it('quotes the exact underlying amount, preserving native payout identity and a positive 1% floor', async () => {
+  const q = await quoteEarnWithdrawal(args, sdk);
+  expect(getTaskData.mock.calls[0]?.[0].intentData.tokenInAmount).toBe('1000000000000000001');
+  expect(q).toMatchObject({
+    amount: args.amount,
+    amountAtomic: '1000000000000000001',
+    expectedAtomic: '991822',
+    minimumAtomic: '981903',
+    destinationDecimals: 6,
+    destinationSymbol: 'USDCX'
+  });
+  await expect(assertWithdrawalReviewCurrent(q)).resolves.toBeUndefined();
+});
+it.each(['0', '1', undefined])('refuses a missing, zero, or zero-floor payout %p', async out => {
+  getIntentQuote.mockResolvedValue({ success: true, tokenOut: out, transactions: [], resourceLockRequired: true });
+  await expect(quoteEarnWithdrawal(args, sdk)).rejects.toThrow('earnWithdrawQuoteUnavailable');
+});
+it('refuses an unsuccessful quote or missing native scale', async () => {
+  getIntentQuote.mockResolvedValue({ success: false, tokenOut: '100', transactions: [], resourceLockRequired: true });
+  await expect(quoteEarnWithdrawal(args, sdk)).rejects.toThrow();
+  jest.mocked(getNativeAssetMetadata).mockResolvedValueOnce(null);
+  await expect(quoteEarnWithdrawal(args, sdk)).rejects.toThrow();
+});
+it('requires refresh on expiry, changed availability, payout identity or failed position read', async () => {
+  const q = await quoteEarnWithdrawal(args, sdk);
+  await expect(assertWithdrawalReviewCurrent({ ...q, expiresAt: 0 })).rejects.toThrow('earnWithdrawRefresh');
+  await expect(assertWithdrawalReviewCurrent({ ...q, availableAtomic: '1' })).rejects.toThrow('earnWithdrawRefresh');
+  jest.mocked(getNativeAssetId).mockResolvedValueOnce('different');
+  await expect(assertWithdrawalReviewCurrent(q)).rejects.toThrow('earnWithdrawRefresh');
+  jest.mocked(fetchEarnPositions).mockResolvedValueOnce({
+    positions: [],
+    owners: [token],
+    vaults: [],
+    totalDepositsUSD: 0,
+    errors: [{ owner: token, error: 'offline' }]
+  });
+  await expect(assertWithdrawalReviewCurrent(q)).rejects.toThrow('earnWithdrawRefresh');
+});
+it('binds the prepared delivery to the reviewed source amount, underlying and minimum', async () => {
+  const q = await quoteEarnWithdrawal(args, sdk);
+  const mandate = { tokenIn: token, tokenInAmount: q.amountAtomic, minTokenOut: q.minimumAtomic };
+  expect(() => assertWithdrawalDelivery(q, mandate)).not.toThrow();
+  for (const bad of [
+    { ...mandate, tokenInAmount: '2' },
+    { ...mandate, tokenIn: 'wrong' },
+    { ...mandate, minTokenOut: '0' }
+  ]) {
+    expect(() => assertWithdrawalDelivery(q, bad)).toThrow('earnWithdrawRefresh');
+  }
+});
+
+it('accepts the first positive payout-floor boundary', async () => {
+  getIntentQuote.mockResolvedValue({ success: true, tokenOut: '2', transactions: [], resourceLockRequired: true });
+  expect((await quoteEarnWithdrawal(args, sdk)).minimumAtomic).toBe('1');
+});
+it('refuses a quote for another input amount or scale', async () => {
+  getIntentQuote.mockResolvedValue({
+    success: true,
+    tokenIn: '2',
+    tokenOut: '100',
+    transactions: [],
+    resourceLockRequired: true
+  });
+  await expect(quoteEarnWithdrawal(args, sdk)).rejects.toThrow('earnWithdrawQuoteUnavailable');
+  getIntentQuote.mockResolvedValue({
+    success: true,
+    tokenInDecimals: 6,
+    tokenOut: '100',
+    transactions: [],
+    resourceLockRequired: true
+  });
+  await expect(quoteEarnWithdrawal(args, sdk)).rejects.toThrow('earnWithdrawQuoteUnavailable');
+});

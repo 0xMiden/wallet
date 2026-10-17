@@ -1,6 +1,6 @@
 import { EpochIntentSDK, TaskType, ActionType } from '@epoch-protocol/epoch-intents-sdk';
 import { v4 } from 'uuid';
-import { type Address, getAddress, parseUnits } from 'viem';
+import { type Address, getAddress } from 'viem';
 import { sepolia } from 'viem/chains';
 
 import {
@@ -40,6 +40,12 @@ import {
   selectEarnWithdrawPreparedExecution,
   validateEarnWithdrawPreparedExecution
 } from './earn-withdraw-policy';
+import {
+  assertWithdrawalReviewCurrent,
+  assertWithdrawalDelivery,
+  quoteEarnWithdrawal,
+  type EarnWithdrawalQuote
+} from './earn-withdraw-quote';
 import { buildVaultEvmWalletClient } from './evm-account';
 import { isEvmAddress } from './evm-address';
 import {
@@ -51,7 +57,9 @@ import {
 } from './intent-key';
 import { readEpochIntentStatus } from './intent-status';
 import { startIntentPoll } from './poll-registry';
+import { fetchEarnPositions } from './positions';
 import { getEpochReadOnlySdk, ensureEpochSmartAccount } from './sdk';
+import { withdrawalAmount } from './withdraw-amount';
 
 /** Non-terminal `earn-withdraw` phases the reconciler resumes; terminal ones are skipped. */
 const NON_TERMINAL_WITHDRAW_PHASES = new Set(['redeeming', 'delivering']);
@@ -68,6 +76,8 @@ export interface GaslessEarnWithdrawalArgs {
   amount: string;
   underlyingDecimals: number;
   allocatorUrl?: string;
+  /** Required by the amount-entry UI; legacy persisted retries retain their original execution. */
+  review?: EarnWithdrawalQuote;
   /** Fired once the tracking `earn-withdraw` row exists (before the intent work),
    * so the caller can navigate to the generating-transaction screen, matching
    * `openEarnPosition`'s callback. */
@@ -102,10 +112,9 @@ function asAddress(value: string, label: string): Address {
 }
 
 function parseWithdrawAmount(value: string, decimals: number): bigint {
-  const match = value.trim().match(/^(\d+)(?:\.(\d+))?$/);
-  if (!match) throw new Error('Withdraw amount is invalid.');
-  const fraction = (match[2] ?? '').slice(0, decimals);
-  return parseUnits(fraction ? `${match[1]}.${fraction}` : match[1]!, decimals);
+  const amount = withdrawalAmount(value, decimals);
+  if (amount === null) throw new Error('Withdraw amount is invalid or exceeds token precision.');
+  return amount;
 }
 
 /** Read the untyped `midenNoteId` field the allocator includes on EVM→Miden status entries. */
@@ -199,6 +208,23 @@ async function submitEarnWithdrawal(
   const startDeliveryPoll = deps.startDeliveryPoll ?? pollEarnWithdrawDelivery;
   const withSubmissionLock = deps.withSubmissionLock ?? withEarnSubmissionLock;
   const destinationFaucetId = await getNativeAssetId();
+  if (args.review) {
+    const review = args.review;
+    if (
+      review.amount !== args.amount ||
+      review.amountAtomic !== amountAtomic.toString() ||
+      normalizeMidenIdToHex(review.accountId) !== midenRecipientHex ||
+      review.position.owner.toLowerCase() !== sponsorAddress.toLowerCase() ||
+      review.position.marketUid.toLowerCase() !== args.marketUid.toLowerCase() ||
+      review.position.underlyingAddress.toLowerCase() !== underlyingAddress.toLowerCase() ||
+      review.position.decimals !== args.underlyingDecimals ||
+      review.allocatorUrl !== apiBaseUrl ||
+      normalizeMidenIdToHex(review.destinationFaucetId) !== normalizeMidenIdToHex(destinationFaucetId)
+    ) {
+      throw new Error('earnWithdrawRefresh');
+    }
+    await assertWithdrawalReviewCurrent(review);
+  }
   const attemptId = v4();
   const attemptStartedAt = Math.floor(Date.now() / 1000);
 
@@ -221,7 +247,12 @@ async function submitEarnWithdrawal(
     );
     assertCurrent();
     await Repo.transactions.where({ id: txId }).modify(row => {
-      row.extraInputs = { ...row.extraInputs, epochAllocatorUrl: apiBaseUrl, underlyingAddress };
+      row.extraInputs = {
+        ...row.extraInputs,
+        epochAllocatorUrl: apiBaseUrl,
+        underlyingAddress,
+        ...(args.review ? { reviewedMinimumReceivedAtomic: args.review.minimumAtomic } : {})
+      };
     });
     args.onRowCreated?.(txId);
     const expected: ExpectedEarnWithdrawIntent = { owner: sponsorAddress, attemptId };
@@ -286,6 +317,14 @@ async function submitEarnWithdrawal(
           };
           const selected = selectEarnWithdrawPreparedExecution(execution, identity);
           if (!selected) throw new Error('The prepared withdrawal does not match its destination.');
+          if (args.review) {
+            await assertWithdrawalReviewCurrent(args.review);
+            assertCurrent();
+            const validated = validateEarnWithdrawPreparedExecution(selected, identity);
+            const delivery = validated?.allocationRequests[selected.delivery.allocationIndex]?.compact.mandate;
+            if (!delivery) throw new Error('earnWithdrawRefresh');
+            assertWithdrawalDelivery(args.review, delivery);
+          }
           preparedExecution = selected;
           const prepareExecution = deps.prepareExecution ?? prepareEarnWithdrawExecution;
           if (!(await prepareExecution(txId, selected, expected, context.isCurrent)))
@@ -742,6 +781,20 @@ export async function resubmitEarnWithdrawal(txId: string, deps: ResubmitDeps = 
   const marketChainId = Number(marketChain);
   const underlyingAddress = ei.underlyingAddress ?? marketUnderlying ?? findEpochUsdcAddress(marketChainId);
   if (!underlyingAddress) throw new Error(MISSING_RETRY_DETAILS);
+  let review: EarnWithdrawalQuote | undefined;
+  if (ei.reviewedMinimumReceivedAtomic !== undefined) {
+    // Source retries get fresh availability and a fresh quote for the saved selected amount.
+    // Retain the original floor; a worse route requires the user to start another review.
+    if (!/^\d+$/.test(ei.reviewedMinimumReceivedAtomic)) throw new Error('earnWithdrawRefresh');
+    const fresh = await fetchEarnPositions({ accountId: row.accountId, owners: [ei.evmOwner] });
+    const position = fresh.positions.find(
+      p =>
+        p.owner.toLowerCase() === ei.evmOwner.toLowerCase() && p.marketUid.toLowerCase() === ei.marketUid.toLowerCase()
+    );
+    if (fresh.errors.length || !position) throw new Error('earnWithdrawRefresh');
+    review = await quoteEarnWithdrawal({ position, amount: ei.sourceAmount, accountId: row.accountId });
+    if (BigInt(review.minimumAtomic) < BigInt(ei.reviewedMinimumReceivedAtomic)) throw new Error('earnWithdrawRefresh');
+  }
   await submitEarnWithdrawal(
     {
       midenAccountPublicKey: row.accountId,
@@ -750,7 +803,8 @@ export async function resubmitEarnWithdrawal(txId: string, deps: ResubmitDeps = 
       underlyingAddress,
       allocatorUrl: ei.epochAllocatorUrl,
       amount: ei.sourceAmount,
-      underlyingDecimals: retryDecimals(marketChainId, underlyingAddress, ei.sourceDecimals)
+      underlyingDecimals: retryDecimals(marketChainId, underlyingAddress, ei.sourceDecimals),
+      ...(review ? { review } : {})
     },
     {
       ...deps,

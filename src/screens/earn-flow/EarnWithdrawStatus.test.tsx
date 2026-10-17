@@ -11,6 +11,9 @@ import type { TransactionSuccessLayoutProps } from 'screens/generating-transacti
 
 import { EarnWithdrawStatus } from './EarnWithdrawStatus';
 
+const mockMutate = jest.fn().mockResolvedValue(undefined);
+jest.mock('swr', () => ({ useSWRConfig: () => ({ mutate: mockMutate }) }));
+
 let mockRowState: { row?: ITransaction; loaded: boolean } = { row: undefined, loaded: false };
 let mockSuccessProps: TransactionSuccessLayoutProps | undefined;
 let mockAssetsMetadata: Record<string, AssetMetadata> = {};
@@ -344,4 +347,20 @@ describe('EarnWithdrawStatus', () => {
 
     expect(screen.getByTestId('summary-badge').textContent).toBe('42.25 USDC → Miden');
   });
+});
+
+it('invalidates only this account positions after the actual withdrawal receipt', () => {
+  jest.clearAllMocks();
+  mockRowState = { row: makeRow(makeInputs({ phase: 'delivering' })), loaded: true };
+  const view = render(<EarnWithdrawStatus txId="withdraw-1" />);
+  expect(mockMutate).not.toHaveBeenCalled();
+  mockRowState = { row: makeRow(makeInputs({ phase: 'received' })), loaded: true };
+  view.rerender(<EarnWithdrawStatus txId="withdraw-1" />);
+  expect(mockMutate).toHaveBeenCalledTimes(1);
+  const matches = mockMutate.mock.calls[0]?.[0];
+  expect(matches(['earn-positions', 'miden-account', 'owner'])).toBe(true);
+  expect(matches(['earn-positions', 'another-account', 'owner'])).toBe(false);
+  expect(matches(['balance', 'miden-account'])).toBe(false);
+  view.rerender(<EarnWithdrawStatus txId="withdraw-1" />);
+  expect(mockMutate).toHaveBeenCalledTimes(1);
 });

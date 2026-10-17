@@ -32,9 +32,12 @@ import {
   earnWithdrawExecutionIdentity,
   selectEarnWithdrawPreparedExecution
 } from './earn-withdraw-policy';
+import { assertWithdrawalReviewCurrent, quoteEarnWithdrawal } from './earn-withdraw-quote';
+import type { EarnWithdrawalQuote } from './earn-withdraw-quote';
 import { matchesEarnWithdrawIntent } from './intent-key';
 import { EPOCH_INTENT_STATUS_TIMEOUT_MS } from './intent-status';
 import { clearPollRegistryForTests, createIntentPollCoordinator } from './poll-registry';
+import { fetchEarnPositions } from './positions';
 import { TEST_EVM_USDC } from './testing/bridge-config';
 import { deferred, SharedEarnLocks } from './testing/earn-locks';
 import { preparedExecution, PREPARED_FAUCET, PREPARED_RECIPIENT } from './testing/earn-prepared';
@@ -90,6 +93,12 @@ jest.mock('./earn', () => {
     }
   };
 });
+jest.mock('./earn-withdraw-quote', () => ({
+  assertWithdrawalReviewCurrent: jest.fn().mockResolvedValue(undefined),
+  assertWithdrawalDelivery: jest.fn(),
+  quoteEarnWithdrawal: jest.fn()
+}));
+jest.mock('./positions', () => ({ fetchEarnPositions: jest.fn() }));
 jest.mock('./evm-account', () => ({ buildVaultEvmWalletClient: jest.fn(() => ({})) }));
 jest.mock('./sdk', () => ({ getEpochReadOnlySdk: jest.fn(), ensureEpochSmartAccount: jest.fn() }));
 jest.mock('lib/miden-chain/native-asset', () => ({
@@ -821,16 +830,61 @@ describe('resubmitEarnWithdrawal', () => {
     expect(deps.startDeliveryPoll).toHaveBeenCalledWith(expect.objectContaining({ txId: 'TX1', nonce: '22' }));
   });
 
-  it('resubmits a row that never reached Epoch (no nonce recorded)', async () => {
-    const row = failedRow({ withdrawIntentNonce: undefined });
-    mockRow(row);
-    const executeActions = jest.fn().mockResolvedValue({ nonce: 'FRESH_NONCE' });
-    const deps = baseDeps({ sdk: fakeSdk(executeActions) });
-
-    await resubmitEarnWithdrawal('TX1', deps);
-
-    expect(executeActions).toHaveBeenCalled();
-  });
+  it.each([false, true])(
+    'revalidates a partial source retry and refuses a worse reviewed minimum (%p)',
+    async worse => {
+      const row = failedRow({ sourceAmount: '1', reviewedMinimumReceivedAtomic: '5', sourceDecimals: 6 });
+      mockRow(row);
+      const position = {
+        owner: EVM_OWNER,
+        marketUid: MARKET_UID,
+        underlyingAddress: UNDERLYING,
+        decimals: 6,
+        withdrawable: '20',
+        lenderKey: 'DUMMY_LENDING',
+        lenderName: 'Dummy',
+        chainId: '11155111',
+        deposits: '20',
+        depositsUSD: 20,
+        depositApr: 2,
+        symbol: 'USDC',
+        priceUsd: 1
+      };
+      jest.mocked(fetchEarnPositions).mockResolvedValueOnce({
+        positions: [position],
+        owners: [EVM_OWNER],
+        vaults: [],
+        totalDepositsUSD: 20,
+        errors: []
+      });
+      jest.mocked(quoteEarnWithdrawal).mockResolvedValueOnce({
+        position,
+        accountId: row.accountId,
+        amount: '1',
+        amountAtomic: '1000000',
+        availableAtomic: '20000000',
+        scope: 'testnet',
+        allocatorUrl: getEpochAllocatorUrl(),
+        destinationFaucetId: PREPARED_FAUCET,
+        destinationSymbol: 'USDCX',
+        destinationDecimals: 6,
+        expectedAtomic: '10',
+        minimumAtomic: worse ? '4' : '6',
+        expiresAt: Date.now() + 60000
+      });
+      const execute = jest.fn();
+      const deps = baseDeps({ sdk: fakeSdk(execute) });
+      const result = await resubmitEarnWithdrawal('TX1', deps).then(
+        () => 'submitted',
+        (error: Error) => error.message
+      );
+      expect(result).toBe(worse ? 'earnWithdrawRefresh' : 'submitted');
+      expect(deps.ensureSmartAccount).toHaveBeenCalledTimes(worse ? 0 : 1);
+      expect(execute).toHaveBeenCalledTimes(worse ? 0 : 1);
+      expect(quoteEarnWithdrawal).toHaveBeenCalledWith(expect.objectContaining({ amount: '1' }));
+      expect(row.extraInputs.reviewedMinimumReceivedAtomic).toBe(worse ? '5' : '6');
+    }
+  );
 
   it('is a no-op on a non-failed row', async () => {
     mockRow(failedRow({ phase: 'delivering' }));
@@ -1616,5 +1670,65 @@ describe('withdrawal ownership across independent document factories', () => {
     await jest.advanceTimersByTimeAsync(1);
     expect(registerBridgeIn).toHaveBeenCalledTimes(2);
     expect(getIntentStatus).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe('reviewed withdrawals', () => {
+  const reviewed = (): EarnWithdrawalQuote => ({
+    position: {
+      owner: EVM_OWNER,
+      marketUid: MARKET_UID,
+      underlyingAddress: UNDERLYING,
+      decimals: 6,
+      withdrawable: '20'
+    },
+    accountId: PREPARED_RECIPIENT,
+    amount: '10',
+    amountAtomic: '10000000',
+    availableAtomic: '20000000',
+    scope: 'testnet',
+    allocatorUrl: getEpochAllocatorUrl(),
+    destinationFaucetId: PREPARED_FAUCET,
+    destinationSymbol: 'USDCX',
+    destinationDecimals: 6,
+    expectedAtomic: '10',
+    minimumAtomic: '1',
+    expiresAt: Date.now() + 60000
+  });
+  beforeEach(() => jest.clearAllMocks());
+  it('rejects excess precision before creating a row or signing', async () => {
+    const deps = baseDeps();
+    await expect(gaslessEarnWithdrawalToMiden({ ...validArgs(), amount: '1.0000001' }, deps)).rejects.toThrow();
+    expect(deps.initiateRow).not.toHaveBeenCalled();
+  });
+  it('refuses a selected amount that differs from its review', async () => {
+    const deps = baseDeps();
+    await expect(
+      gaslessEarnWithdrawalToMiden({ ...validArgs(), amount: '1', review: reviewed() }, deps)
+    ).rejects.toThrow('earnWithdrawRefresh');
+    expect(deps.ensureSmartAccount).not.toHaveBeenCalled();
+    expect(deps.initiateRow).not.toHaveBeenCalled();
+  });
+  it('refuses stale availability before any row or smart-account signing', async () => {
+    jest.mocked(assertWithdrawalReviewCurrent).mockRejectedValueOnce(new Error('earnWithdrawRefresh'));
+    const deps = baseDeps();
+    await expect(gaslessEarnWithdrawalToMiden({ ...validArgs(), review: reviewed() }, deps)).rejects.toThrow(
+      'earnWithdrawRefresh'
+    );
+    expect(deps.ensureSmartAccount).not.toHaveBeenCalled();
+    expect(deps.initiateRow).not.toHaveBeenCalled();
+  });
+  it('rechecks availability after preparation and refuses execution if it changed', async () => {
+    jest
+      .mocked(assertWithdrawalReviewCurrent)
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error('earnWithdrawRefresh'));
+    const execute = jest.fn();
+    const deps = baseDeps({ sdk: fakeSdk(execute) });
+    await expect(gaslessEarnWithdrawalToMiden({ ...validArgs(), review: reviewed() }, deps)).rejects.toThrow(
+      'earnWithdrawRefresh'
+    );
+    expect(assertWithdrawalReviewCurrent).toHaveBeenCalledTimes(2);
+    expect(execute).not.toHaveBeenCalled();
   });
 });

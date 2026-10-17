@@ -21,6 +21,7 @@
 - [FIX][all] Error telemetry no longer labels an approval or provider failure as proving: a failed EVM-to-Miden deposit refused by the connected wallet ("did not approve", "provider", "please provide") was reported as a proving failure though nothing was proved; it now reads `unknown` (or `validation`). Only prove and prover forms (prove, proven, prover, proving, re-prove) read `proving`, not approve, approval, provide or provider. Keystore-wiring and restored-from-backup failures no longer read `storage` either: only quota, IndexedDB, object-store and word-start `store` failures do.
 - [FIX][all] A claim that fails because an asset it needed (most often the USDCX for the network fee) was not available now says so instead of naming an "amount sent" that a claim does not have; every other transaction keeps its copy.
 - [FIX][extension] Approving a dApp transaction or consume no longer flashes an "Oops" error screen (and reports a "Not identified" crash) in the approval window before it closes: the window no longer navigates away from its own request after the approval, which dropped the request id from its address.
+- [FEATURE][all] Choose an Earn withdrawal amount or Max, review the native payout and minimum received, and revalidate availability and quote before submitting the selected amount (#1491).
 
 ## 1.17.4 (2026-10-15)
 
