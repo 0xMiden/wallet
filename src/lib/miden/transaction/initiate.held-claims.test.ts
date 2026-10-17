@@ -283,6 +283,7 @@ describe('what queued a consume row', () => {
     const reclaim = await initiatePswapReclaimTransaction(ACCOUNT, note('g'), new Uint8Array([1]), 'swap-row', false);
     expect(await stamp(reclaim)).toBe('swap_settlement');
     const unnamed = await initiateConsumeTransaction(ACCOUNT, note('h'), false, true);
-    expect(await Repo.transactions.get(unnamed)).not.toHaveProperty('consumeEntryPoint');
+    expect(await Repo.transactions.get(unnamed)).toBeDefined();
+    expect(await stamp(unnamed)).toBeUndefined();
   });
 });
