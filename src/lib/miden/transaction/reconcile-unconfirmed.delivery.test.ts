@@ -1,0 +1,218 @@
+// Real Dexie and the real sweep: the landed write and the sweep's selection meet only in the stored row (#1473).
+import { __resetSyncFuseStateForTests } from 'lib/miden/front/sync-fuse';
+import * as Repo from 'lib/miden/repo';
+import { NoteTypeEnum } from 'lib/miden/types';
+
+import { __resetNoteDeliverySweepForTests, sweepNoteDeliveries } from './note-delivery-sweep';
+import { NodeReads } from './reconcile-reads';
+import { judgeAndWrite } from './reconcile-unconfirmed';
+import { ISubmitEvidence, ITransaction, ITransactionStatus } from '../db/types';
+
+jest.mock('../sdk/helpers', () => ({
+  ...jest.requireActual('../sdk/helpers'),
+  sameWalletAccountId: (a: string, b: string) => a.split('_')[0] === b.split('_')[0]
+}));
+jest.mock('lib/telemetry/report-operation', () => ({ reportOperation: jest.fn() }));
+jest.mock('lib/telemetry/transaction-failure', () => ({ reportTransactionFailure: jest.fn() }));
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  ...jest.requireActual('lib/miden-chain/effective-endpoints'),
+  isNoteTransportConfigured: () => true
+}));
+
+const mockIsConsumed = jest.fn<Promise<boolean>, [string]>();
+const mockRelayById = jest.fn<Promise<void>, [string, string]>();
+
+jest.mock('../back/miden-client-proxy', () => ({
+  ...jest.requireActual('../back/miden-client-proxy'),
+  midenClientProxy: {
+    isOutputNoteConsumed: (noteId: string) => mockIsConsumed(noteId),
+    relayPrivateNoteById: (noteId: string, to: string) => mockRelayById(noteId, to)
+  }
+}));
+
+const NOW = Math.floor(Date.now() / 1000);
+const hex = (n: number) => `0x${n.toString(16).padStart(64, '0')}`;
+const HEADER = hex(1);
+const INITIAL = hex(10);
+const FINAL = hex(11);
+const TIP = hex(12);
+const NULLIFIER = hex(30);
+const NOTE = hex(0xabc20);
+const OTHER_NOTE = hex(0xabc21);
+const RECIPIENT = 'mtst1recipient';
+const UNDELIVERED_SEND = 'Sent - the private note could not be delivered';
+
+const entry = (overrides: Partial<ISubmitEvidence> = {}): ISubmitEvidence => ({
+  attemptId: 'a1',
+  capturedAt: NOW - 60,
+  source: 'stage',
+  transactionId: hex(2),
+  initialCommitment: INITIAL,
+  finalCommitment: FINAL,
+  initialNonce: '5',
+  outputNoteIds: [NOTE],
+  nullifiers: [],
+  refBlock: 100,
+  refBlockCommitment: HEADER,
+  expirationBlock: 700,
+  ...overrides
+});
+
+/** What the Guardian catch records for an attempt it keeps for the node's verdict. */
+const KEPT: Partial<ISubmitEvidence> = { source: 'kill', candidateKept: true, guardianProposalNonce: 7 };
+
+/** A Guardian private send the catch left Unconfirmed: its note id is only in the kept attempt's evidence. */
+const keptSend = (overrides: Partial<ITransaction> = {}): ITransaction => ({
+  id: 'tx-1',
+  type: 'send',
+  accountId: 'mtst1acct_s',
+  secondaryAccountId: RECIPIENT,
+  status: ITransactionStatus.Unconfirmed,
+  initiatedAt: NOW - 120,
+  completedAt: NOW - 100,
+  error: 'sdk said no definite outcome',
+  mayHaveSubmitted: true,
+  noteType: NoteTypeEnum.Private,
+  displayIcon: 'SEND',
+  submitEvidence: [entry(KEPT)],
+  ...overrides
+});
+
+/** The note is on chain in the attempt's window and no other row names it. */
+const noteOnChain: NodeReads = {
+  blockCommitment: async () => HEADER,
+  account: async () => ({ ok: true, state: { blockNum: 150, commitment: TIP } }),
+  noteInclusions: async ids => new Map(ids.filter(id => id === NOTE).map((id): [string, number] => [id, 140])),
+  nullifierHeight: async () => null
+};
+
+/** The input note is spent at 150, where the account reads the attempts' final commitment; no output note is seen. */
+const spentAtFinal: NodeReads = {
+  blockCommitment: async () => HEADER,
+  account: async (_id, atBlock) => ({
+    ok: true,
+    state: atBlock === 150 ? { blockNum: 150, commitment: FINAL } : { blockNum: 160, commitment: TIP }
+  }),
+  noteInclusions: async () => new Map(),
+  nullifierHeight: async () => 150
+};
+
+const land = (reads: NodeReads) => judgeAndWrite('tx-1', { node: reads, nowSec: NOW, cadenceMs: 3_000 });
+const read = () => Repo.transactions.where({ id: 'tx-1' }).first();
+
+/** Two sweep passes, the second past the wait the first arms: the pushes the sweep made. */
+const pushesAfterTheFirstWait = async () => {
+  await sweepNoteDeliveries();
+  jest.spyOn(Date, 'now').mockReturnValue((NOW + 10 * 60) * 1000);
+  await sweepNoteDeliveries();
+  return mockRelayById.mock.calls;
+};
+
+beforeEach(async () => {
+  jest.clearAllMocks();
+  mockIsConsumed.mockResolvedValue(false);
+  mockRelayById.mockResolvedValue(undefined);
+  jest.spyOn(console, 'info').mockImplementation(() => undefined);
+  __resetNoteDeliverySweepForTests();
+  __resetSyncFuseStateForTests();
+  await Repo.transactions.clear();
+});
+
+afterEach(() => {
+  jest.restoreAllMocks();
+});
+
+describe('a send landed from its submit evidence owes the sweep its note (#1473)', () => {
+  it('a Guardian private send landed from its kept candidate records the note at the root, and the sweep pushes it', async () => {
+    await Repo.transactions.put(keptSend());
+
+    expect((await land(noteOnChain)).kind).toBe('landed');
+    expect(await read()).toMatchObject({
+      status: ITransactionStatus.Completed,
+      noteDelivery: 'undelivered',
+      displayMessage: UNDELIVERED_SEND,
+      outputNoteIds: [NOTE]
+    });
+
+    expect(await pushesAfterTheFirstWait()).toEqual([[NOTE, RECIPIENT]]);
+    expect(await read()).toMatchObject({ noteDelivery: 'relayed', relayAckedNoteIds: [NOTE], displayMessage: 'Sent' });
+  });
+
+  it('two attempts that replayed one request name the same note: the landing binds neither and records that note', async () => {
+    await Repo.transactions.put(
+      keptSend({
+        submitEvidence: [entry(KEPT), entry({ attemptId: 'a2', capturedAt: NOW - 30, transactionId: hex(3) })]
+      })
+    );
+
+    expect((await land(noteOnChain)).kind).toBe('landed');
+    const row = await read();
+    expect(row?.transactionId).toBeUndefined();
+    expect(row?.outputNoteIds).toEqual([NOTE]);
+  });
+
+  it('a public send owes no delivery: nothing is recorded for the sweep and nothing is pushed', async () => {
+    await Repo.transactions.put(keptSend({ noteType: NoteTypeEnum.Public }));
+
+    expect((await land(noteOnChain)).kind).toBe('landed');
+    const row = await read();
+    expect(row).toMatchObject({ status: ITransactionStatus.Completed, displayMessage: 'Sent' });
+    expect(row?.noteDelivery).toBeUndefined();
+    expect(row?.outputNoteIds).toBeUndefined();
+    expect(await pushesAfterTheFirstWait()).toEqual([]);
+  });
+
+  // Its evidence lists public and private notes alike, and its recipient field can hold a consumed note's sender.
+  it('an execute gets no note from its evidence, so the sweep pushes none of its notes', async () => {
+    await Repo.transactions.put(
+      keptSend({ type: 'execute', displayIcon: 'DEFAULT', submitEvidence: [entry({ ...KEPT, fromExecute: true })] })
+    );
+
+    expect((await land(noteOnChain)).kind).toBe('landed');
+    const row = await read();
+    expect(row?.noteDelivery).toBe('undelivered');
+    expect(row?.outputNoteIds).toBeUndefined();
+    expect(row?.relayNoteIds).toBeUndefined();
+    expect(await pushesAfterTheFirstWait()).toEqual([]);
+  });
+
+  it('a spend that two attempts with different notes share cannot say which landed: no note is recorded', async () => {
+    const spending = { nullifiers: [NULLIFIER] };
+    await Repo.transactions.put(
+      keptSend({
+        submitEvidence: [
+          entry({ ...KEPT, ...spending }),
+          entry({
+            ...spending,
+            attemptId: 'a2',
+            capturedAt: NOW - 30,
+            transactionId: hex(3),
+            outputNoteIds: [OTHER_NOTE]
+          })
+        ]
+      })
+    );
+
+    expect((await land(spentAtFinal)).kind).toBe('landed');
+    const row = await read();
+    expect(row?.noteDelivery).toBe('undelivered');
+    expect(row?.outputNoteIds).toBeUndefined();
+  });
+
+  // `completeSendTransaction` records its note before its relay; a cancelled pipeline runs on and does so.
+  it('a note the normal completion already recorded stays as it wrote it, and is the one the sweep pushes', async () => {
+    const recorded = `0x${NOTE.slice(2).toUpperCase()}`;
+    await Repo.transactions.put(
+      keptSend({
+        status: ITransactionStatus.Failed,
+        noteDelivery: 'undelivered',
+        outputNoteIds: [recorded],
+        submitEvidence: [entry({ source: 'out-of-band', endedBy: 'out-of-band', endedAt: NOW - 90 })]
+      })
+    );
+
+    expect((await land(noteOnChain)).kind).toBe('landed');
+    expect(await read()).toMatchObject({ status: ITransactionStatus.Completed, outputNoteIds: [recorded] });
+    expect(await pushesAfterTheFirstWait()).toEqual([[recorded, RECIPIENT]]);
+  });
+});
