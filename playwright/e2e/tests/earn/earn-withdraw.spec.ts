@@ -23,6 +23,8 @@ const CHAIN_ID = 11155111;
 const MIDEN_CHAIN_ID = 999999999;
 const NOTE_AMOUNT = 10_000_000n;
 const WITHDRAW_AMOUNT = '10';
+// The position is seeded at 18 decimals, so Max reviews 10 * 10^18 base units.
+const REVIEWED_AMOUNT_ATOMIC = `${WITHDRAW_AMOUNT}${'0'.repeat(18)}`;
 const SUGGESTED_NONCES = ['101', '102', '11', '103', '22'];
 
 interface PreparedWithdrawal extends PreparedExecution {
@@ -179,9 +181,15 @@ function expectPreparedWithdrawal(row: EarnWithdrawView, owner: string): Prepare
   expect(prepared.delivery.owner.toLowerCase()).toBe(owner.toLowerCase());
   for (const allocation of prepared.allocations) {
     expect(allocation.sponsor.toLowerCase()).toBe(owner.toLowerCase());
+    // Both legs spend the reviewed amount: the withdraw redeems it and the delivery swaps it.
     expect(parseRequest(allocation.requestJson)).toMatchObject({
       chainId: String(CHAIN_ID),
-      compact: { sponsor: allocation.sponsor, nonce: allocation.nonce, expires: allocation.expires },
+      compact: {
+        sponsor: allocation.sponsor,
+        nonce: allocation.nonce,
+        expires: allocation.expires,
+        mandate: { tokenInAmount: REVIEWED_AMOUNT_ATOMIC }
+      },
       isRegisteredOnchain: true,
       sponsorSignature: '0x'
     });
@@ -246,7 +254,14 @@ function defineEarnWithdrawSuite(axis: AccountAxis): void {
       const withdrawBtn = walletA.page.getByTestId('earn-withdraw-btn');
       await expect(withdrawBtn).toBeEnabled({ timeout: 30_000 });
       await withdrawBtn.click();
+      const amountStep = walletA.page.getByTestId('earn-withdraw-amount-page');
+      await expect(amountStep).toBeVisible({ timeout: 30_000 });
+      await amountStep.getByRole('button', { name: 'Max', exact: true }).click();
+      await amountStep.getByRole('button', { name: 'Review', exact: true }).click();
       await expect(walletA.page.getByTestId('earn-withdraw-review-page')).toBeVisible({ timeout: 30_000 });
+      expect(new URL(walletA.page.url()).hash, 'Max reviews the whole position').toMatch(
+        new RegExp(`/withdraw/review\\?amount=${WITHDRAW_AMOUNT}$`)
+      );
       const confirm = walletA.page.getByTestId('earn-withdraw-review-confirm');
       await expect(confirm).toBeEnabled({ timeout: 30_000 });
 
