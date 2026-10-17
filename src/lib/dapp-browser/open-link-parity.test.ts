@@ -12,7 +12,7 @@ import { OPEN_LINK_HOST, parseOpenLink } from './open-link';
  */
 
 const read = (relative: string) => fs.readFileSync(path.join(__dirname, '../../..', relative), 'utf8');
-const captures = (text: string, pattern: RegExp) => [...text.matchAll(pattern)].map(match => match[1]);
+const captures = (text: string, pattern: RegExp) => [...text.matchAll(pattern)].flatMap(match => match[1] ?? []);
 
 const PAGE = 'https://app.example.com/';
 const QUERY = `?url=${encodeURIComponent(PAGE)}`;
@@ -29,7 +29,7 @@ describe('open link declarations', () => {
 
   it('has Android verify exactly the link host and path', () => {
     expect(verifiedFilters).toHaveLength(1);
-    const [filter] = verifiedFilters;
+    const [filter = ''] = verifiedFilters;
     expect(captures(filter, /android:scheme="([^"]+)"/g)).toEqual(['https']);
     expect(captures(filter, /android:host="([^"]+)"/g)).toEqual([OPEN_LINK_HOST]);
     expect(captures(filter, /android:path="([^"]+)"/g)).toEqual(['/open']);

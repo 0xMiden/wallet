@@ -29,7 +29,7 @@ jest.mock('lib/dapp-browser', () => ({
   parseOrigin: (url: string) => new URL(url).origin
 }));
 
-const mockRecordOpenedDapp = jest.fn(() => Promise.resolve());
+const mockRecordOpenedDapp = jest.fn<Promise<void>, [string]>(() => Promise.resolve());
 jest.mock('app/pages/Browser/record-opened-dapp', () => ({
   recordOpenedDapp: (url: string) => mockRecordOpenedDapp(url)
 }));
