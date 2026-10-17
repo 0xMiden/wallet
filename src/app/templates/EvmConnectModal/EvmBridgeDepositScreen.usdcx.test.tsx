@@ -72,8 +72,10 @@ jest.mock('react-i18next', () => ({
   })
 }));
 
+// The web wallet's provider, connected unless a case takes it away.
+let mockWebProviderConnected = true;
 jest.mock('@reown/appkit/react', () => ({
-  useAppKitProvider: () => ({ walletProvider: { request: jest.fn() } })
+  useAppKitProvider: () => ({ walletProvider: mockWebProviderConnected ? { request: jest.fn() } : undefined })
 }));
 
 const mockWriteContract = jest.fn().mockResolvedValue(`0x${'2'.repeat(64)}`);
@@ -452,6 +454,7 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
 
   afterEach(() => {
     mockBridgeSnapshot = undefined;
+    mockWebProviderConnected = true;
   });
 
   it('opens on Circle USDC even while the config still advertises the retired Epoch token', async () => {
@@ -1775,4 +1778,24 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
       );
     }
   );
+
+  it('fails the row at provider_unavailable, before any prompt, with no native or web provider', async () => {
+    mockNativeAvailable = false;
+    mockWebProviderConnected = false;
+
+    await confirmDeposit();
+
+    await waitFor(() =>
+      expect(updateBridgedReceivePhase).toHaveBeenCalledWith('bridge-tx', 'failed', {
+        error: 'The connected EVM wallet provider is unavailable.',
+        failure: { step: 'provider_unavailable' }
+      })
+    );
+    expect(runUsdcxDeposit).not.toHaveBeenCalled();
+    expect(runUsdcxExecutorDeposit).not.toHaveBeenCalled();
+    expect(mockWriteContract).not.toHaveBeenCalled();
+    expect(mockNativeSend).not.toHaveBeenCalled();
+    expect(mockSwitchChain).not.toHaveBeenCalled();
+    expect(prepareNativeSessionChain).not.toHaveBeenCalled();
+  });
 });

@@ -138,8 +138,8 @@ it('refuses without switching when no wallet is connected, and when the wallet d
   expect(mockRegister).not.toHaveBeenCalled();
 });
 
-// The Epoch SDK keeps only viem's flattened text, so the solve's failure reaches the row as a string.
-it('fails the tracking row at the solve when the Epoch SDK refuses the intent', async () => {
+// The Epoch SDK keeps only viem's flattened text, so the solve's failure reaches the row, and its report, as a string.
+it('fails the tracking row at the solve, with what failed it, when the Epoch SDK refuses the intent', async () => {
   const refusal = 'An unknown RPC error occurred.\n\nDetails: User rejected the request.\nVersion: viem@2.55.4';
   mockGetRow.mockResolvedValue(undefined);
   mockBuildIntent.mockResolvedValue({ taskTypeString: 'bridge', intentData: {}, error: refusal });
@@ -149,7 +149,7 @@ it('fails the tracking row at the solve when the Epoch SDK refuses the intent', 
 
   expect(mockUpdatePhase).toHaveBeenCalledWith('row-1', 'failed', {
     error: refusal,
-    failure: { step: 'epoch_solve' }
+    failure: { step: 'epoch_solve', cause: refusal }
   });
 });
 

@@ -40,7 +40,10 @@ beforeEach(() => {
 });
 
 it('names the route, step and wallet answer of a refused Fast deposit, and none of its text', () => {
-  const message = reportBridge({ route: 'epoch', step: 'epoch_solve' }, REFUSED_FAST_DEPOSIT);
+  const message = reportBridge(
+    { route: 'epoch', step: 'epoch_solve', cause: REFUSED_FAST_DEPOSIT },
+    REFUSED_FAST_DEPOSIT
+  );
 
   expect(message).toContain(
     '; point bridge_receive_settlement; rpc; via epoch; failed at epoch_solve; evm error user_rejected. authentication preparation'
@@ -48,11 +51,34 @@ it('names the route, step and wallet answer of a refused Fast deposit, and none 
   for (const text of ['User rejected', 'unknown RPC', 'viem', '2.55.4']) expect(message).not.toContain(text);
 });
 
-it('reads the library error from the cause the writer handed over before the stored text', () => {
+it('reads the library error from the cause the writer handed over, not the stored text', () => {
   const cause = named('HttpRequestError', 'HTTP request failed.', { status: 503 });
 
   expect(reportBridge({ route: 'agglayer', step: 'deposit_receipt', cause }, 'Service Unavailable')).toContain(
     '; via agglayer; failed at deposit_receipt; evm error http_503. '
+  );
+});
+
+it('reports no answer for a failure the wallet raised, whose writer hands over no cause', () => {
+  expect(
+    reportBridge(
+      { route: 'epoch', step: 'submission_interrupted' },
+      'Bridge submission was interrupted before an intent was recorded.'
+    )
+  ).toContain('; via epoch; failed at submission_interrupted; evm error none. ');
+});
+
+it('reports no answer for a failure with no cause, even when the row stores a wallet answer', () => {
+  expect(reportBridge({ route: 'epoch', step: 'epoch_solve' }, REFUSED_FAST_DEPOSIT)).toContain(
+    '; via epoch; failed at epoch_solve; evm error none. '
+  );
+});
+
+it('reports other for a cause that names no library error', () => {
+  const cause = new Error('socket hang up');
+
+  expect(reportBridge({ route: 'agglayer', step: 'reconciler_receipt', cause }, cause.message)).toContain(
+    '; via agglayer; failed at reconciler_receipt; evm error other. '
   );
 });
 

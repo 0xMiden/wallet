@@ -347,6 +347,25 @@ describe('committed terminal transaction failure reports', () => {
     );
   });
 
+  it('fails a restored inbound bridge the reconciler cannot verify without reporting it', async () => {
+    await Repo.transactions.put(
+      row({
+        type: 'bridged-receive',
+        status: ITransactionStatus.Completed,
+        restoredFromBackup: true,
+        extraInputs: { phase: 'submitting', provider: 'usdcx' }
+      })
+    );
+
+    await updateBridgedReceivePhase('tx', 'failed', { error: 'delivery could not be verified' });
+
+    expect(await Repo.transactions.get('tx')).toMatchObject({
+      error: 'delivery could not be verified',
+      extraInputs: { phase: 'failed', provider: 'usdcx' }
+    });
+    expect(report).not.toHaveBeenCalled();
+  });
+
   it('reports outbound bridge demotion once even after the note completed', async () => {
     await Repo.transactions.put(row({ type: 'bridged-send', status: ITransactionStatus.Completed }));
     await markBridgedSendFailed('tx', 'no route liquidity');

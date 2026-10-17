@@ -38,8 +38,10 @@ jest.mock('react-i18next', () => ({
   })
 }));
 
+// The web wallet's provider, connected unless a case takes it away.
+let mockWebProviderConnected = true;
 jest.mock('@reown/appkit/react', () => ({
-  useAppKitProvider: () => ({ walletProvider: { request: jest.fn() } })
+  useAppKitProvider: () => ({ walletProvider: mockWebProviderConnected ? { request: jest.fn() } : undefined })
 }));
 
 const mockMutateAsync = jest.fn();
@@ -577,6 +579,7 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
   afterEach(() => {
     Object.assign(epochState, idleEpoch);
     mockBridgeSnapshot = undefined;
+    mockWebProviderConnected = true;
   });
 
   it('routes the deposit submission through the reporter', async () => {
@@ -631,6 +634,27 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
     });
 
     expect(initiateBridgedReceiveTransaction).toHaveBeenCalledTimes(1);
+  });
+
+  it('fails the AggLayer row at provider_unavailable, before any prompt, with no native or web provider', async () => {
+    mockNativeReown = false;
+    mockWebProviderConnected = false;
+    renderScreen();
+
+    await reachReview();
+    fireEvent.click(screen.getByTestId('confirm-deposit'));
+    await settle();
+
+    await waitFor(() =>
+      expect(updateBridgedReceivePhase).toHaveBeenCalledWith('bridge-tx', 'failed', {
+        error: 'The connected EVM wallet provider is unavailable.',
+        failure: { step: 'provider_unavailable' }
+      })
+    );
+    expect(mockMutateAsync).not.toHaveBeenCalled();
+    expect(mockSwitchChainAsync).not.toHaveBeenCalled();
+    expect(NativeReown.sendTransaction).not.toHaveBeenCalled();
+    expect(prepareNativeSessionChain).not.toHaveBeenCalled();
   });
 
   it('names the USDC token USDC while no bridge config is loaded', () => {
