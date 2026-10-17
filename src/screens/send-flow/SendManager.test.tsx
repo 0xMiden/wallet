@@ -2427,6 +2427,13 @@ it('does not preselect the retired Epoch faucet from a Testnet token-page link',
 
 describe('Testnet send while no bridge config document has arrived', () => {
   const T1_ROW = { tokenId: 'T1', metadata: { symbol: 'TKN', decimals: 2 }, balance: 42, fiatPrice: 3 };
+  const NATIVE_ROW = { tokenId: 'MIDEN-ID', metadata: { symbol: 'MIDEN', decimals: 6 }, balance: 10, fiatPrice: 0 };
+  const pickNative = () => {
+    mockSelectedToken = { id: 'MIDEN-ID', name: 'MIDEN', decimals: 6, balance: 10, fiatPrice: 0 };
+    act(() => {
+      fireEvent.click(screen.getByTestId('td-select'));
+    });
+  };
   const acceptDocument = () =>
     act(() => {
       mockSendConfigLoaded = true;
@@ -2457,8 +2464,6 @@ describe('Testnet send while no bridge config document has arrived', () => {
   });
 
   it('says why a linked token is not applied, and applies it with no notice once the document arrives', () => {
-    // Hidden, so no row the picker offers names it: only the link does.
-    mockHiddenTokenIds = new Set(['T1']);
     mockSearch = '?tokenId=T1';
     useAllBalancesMock.mockReturnValue({ data: [T1_ROW] });
     renderFlow();
@@ -2472,7 +2477,6 @@ describe('Testnet send while no bridge config document has arrived', () => {
   });
 
   it('says why a restored draft cannot continue, keeping its token and amount, until the document arrives', () => {
-    mockHiddenTokenIds = new Set(['T1']);
     isValidMidenAddressMock.mockImplementation((addr: string) => addr === 'mtst1recipient');
     setSendDraft({ amount: '7', recipientAddress: 'mtst1recipient', tokenId: 'T1' });
     useAllBalancesMock.mockReturnValue({ data: [T1_ROW] });
@@ -2496,10 +2500,31 @@ describe('Testnet send while no bridge config document has arrived', () => {
     expect(navigateMock).toHaveBeenCalledWith(expect.stringMatching(/^\/send\/review\?/));
   });
 
-  it('says why the picker holds a token back while nothing is linked or chosen', () => {
+  it("leaves a held row to the picker's notice while nothing is linked or chosen", () => {
     useAllBalancesMock.mockReturnValue({ data: [T1_ROW] });
     renderFlow();
     expect(screen.getByTestId('sa-token')).toHaveTextContent('no-token');
+    expect(screen.getByTestId('sa-token-held')).toHaveTextContent('false');
+  });
+
+  it('shows no held notice for the native token chosen beside a held row', () => {
+    useAllBalancesMock.mockReturnValue({ data: [NATIVE_ROW, T1_ROW] });
+    renderFlow();
+    pickNative();
+    expect(screen.getByTestId('sa-token-id')).toHaveTextContent('MIDEN-ID');
+    expect(screen.getByTestId('sa-token-held')).toHaveTextContent('false');
+  });
+
+  it('drops a held link from the notice once the user picks the native token instead', () => {
+    mockSearch = '?tokenId=T1';
+    useAllBalancesMock.mockReturnValue({ data: [NATIVE_ROW, T1_ROW] });
+    renderFlow();
+    expect(screen.getByTestId('sa-token')).toHaveTextContent('no-token');
     expect(screen.getByTestId('sa-token-held')).toHaveTextContent('true');
+
+    pickNative();
+
+    expect(screen.getByTestId('sa-token-id')).toHaveTextContent('MIDEN-ID');
+    expect(screen.getByTestId('sa-token-held')).toHaveTextContent('false');
   });
 });
