@@ -492,6 +492,14 @@ let noteDeliveryWrites = 0;
  */
 export const noteDeliveryWriteCount = (): number => noteDeliveryWrites;
 
+/**
+ * Count a delivery write, once it has landed, so a sweep that reads the new count cannot have queried before the
+ * write. {@link recordNoteDelivery} calls it, and so does any other write that gives the sweep a note to push.
+ */
+export const countNoteDeliveryWrite = (): void => {
+  noteDeliveryWrites++;
+};
+
 /** `held`, read as stored ids, plus each of `added` it lacks, in order. */
 const withIds = (held: string[] | undefined, added: string[]): string[] => {
   const kept = storedNoteIds(held);
@@ -547,8 +555,7 @@ export const recordNoteDelivery = async (
     // there too.
     if (tx.displayMessage) tx.displayMessage = relabelForDelivery(tx, tx.displayMessage);
   });
-  // Counted once the write has landed, so a sweep that reads the new count cannot have queried before the write.
-  noteDeliveryWrites++;
+  countNoteDeliveryWrite();
 };
 
 /**

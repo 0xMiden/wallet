@@ -12,13 +12,20 @@ import { getStorageProvider, type StorageProvider } from 'lib/platform/storage-a
 import { reportTransactionFailure } from 'lib/telemetry/transaction-failure';
 
 import { TRANSACTION_NEVER_COMMITTED_ERROR } from './constants';
-import { applyVerifiedLanding, reportVerifiedLanding, storedNoteIds, verifiedLandingRowFields } from './helper';
+import {
+  applyVerifiedLanding,
+  countNoteDeliveryWrite,
+  reportVerifiedLanding,
+  storedNoteIds,
+  verifiedLandingRowFields
+} from './helper';
 import { accountOthers, deferralHolds, judgeSubmitEvidence, RowJudgement } from './reconcile-judge';
 import { createNodeReads, NodeReads, observedCadenceMs } from './reconcile-reads';
 import { awaitingVerdict, evidenceKey, isCheckable, nowSeconds } from './verdict-rules';
 import { adoptLandedConsume } from '../activity/bridge-in';
 import { ISubmitEvidence, ITransaction, ITransactionStatus } from '../db/types';
 import { sameWalletAccountId } from '../sdk/helpers';
+import { normalizeHex } from '../sdk/submit-evidence';
 
 export { judgeSubmitEvidence } from './reconcile-judge';
 
@@ -112,32 +119,39 @@ async function networkStillMatches(node: NodeReads, entries: readonly ISubmitEvi
  * The note a landed send owes, at the root where `completeSendTransaction` records it and the delivery sweep reads it
  * (#1473): every note of the attempt the landing binds, else the note a note landing was proven by (attempts replaying
  * one request share it), else none. Never an execute's: its evidence names neither its private notes nor their owner.
+ * A root holding only those notes is the landed attempt's own record and stays as written; one another attempt
+ * recorded is replaced. Undefined when the landing records no target.
  */
 const landedDeliveryTarget = (
   row: ITransaction,
   landing: NonNullable<RowJudgement['landed']>,
   entry: ISubmitEvidence
-): Pick<ITransaction, 'outputNoteIds'> => {
-  if (row.type !== 'send' || row.noteDelivery === undefined || storedNoteIds(row.outputNoteIds).length > 0) return {};
+): string[] | undefined => {
+  if (row.type !== 'send' || row.noteDelivery === undefined) return undefined;
   const proven =
     landing.boundTransactionId !== undefined
       ? storedNoteIds(entry.outputNoteIds)
       : landing.proof.kind === 'note'
         ? [landing.proof.noteId]
         : [];
-  return proven.length > 0 ? { outputNoteIds: proven } : {};
+  if (proven.length === 0) return undefined;
+  const own = new Set(proven.map(normalizeHex));
+  const root = storedNoteIds(row.outputNoteIds);
+  return root.length > 0 && root.every(noteId => own.has(normalizeHex(noteId))) ? undefined : proven;
 };
 
 /**
  * The landed write: one rw transaction that re-reads every row of the account, the target's included. If any entry
  * differs from what the judgement read, or the deferral now holds the landing, it writes nothing and the next pass
- * judges again from the fresh rows.
+ * judges again from the fresh rows. One that records a delivery target is a delivery write, counted once it commits,
+ * so an idle sweep looks again.
  */
 async function writeLanding(rowId: string, judgement: RowJudgement, accountKey: string): Promise<boolean> {
   const landing = judgement.landed;
   const landedEntry = judgement.judgedEntries.find(entry => entry.attemptId === landing?.attemptId);
   if (landing === undefined || landedEntry === undefined) return false;
   let landed: ITransaction | undefined;
+  let addedTarget: string[] | undefined;
   await Repo.db.transaction('rw', Repo.transactions, async () => {
     const fresh = await Repo.transactions.where({ id: rowId }).first();
     if (
@@ -153,11 +167,23 @@ async function writeLanding(rowId: string, judgement: RowJudgement, accountKey: 
       ...(landing.boundTransactionId === undefined ? {} : { transactionId: landing.boundTransactionId }),
       completedAt: fresh.completedAt
     });
-    Object.assign(fresh, landedDeliveryTarget(fresh, landing, landedEntry));
+    const target = landedDeliveryTarget(fresh, landing, landedEntry);
+    if (target !== undefined) {
+      fresh.outputNoteIds = target;
+      // Its completion records a note at the root before relaying it, so this one was never pushed: its delivery
+      // window opens now, as Retry's landing opens it, and the attempts, the next push and the stopped mark of the
+      // target it replaces are not its own.
+      fresh.completedAt = nowSeconds();
+      delete fresh.relayAttempts;
+      delete fresh.nextRelayAt;
+      delete fresh.relayRetriesStopped;
+    }
     await Repo.transactions.put(fresh);
     landed = fresh;
+    addedTarget = target;
   });
   if (landed === undefined) return false;
+  if (addedTarget !== undefined) countNoteDeliveryWrite();
   reportVerifiedLanding(landed);
   if (landed.type === 'consume') await adoptLandedConsume(landed.id);
   return true;
