@@ -321,7 +321,7 @@ function rebuildError(error: Error, seen: Set<Error>, depth: number): Error {
 export function captureCrash(
   error: unknown,
   source: CrashSource = 'manual',
-  options: { initializeIfNeeded?: boolean } = {}
+  options: { initializeIfNeeded?: boolean; level?: 'error' | 'warning' } = {}
 ): void {
   try {
     if (!(error instanceof Error)) return;
@@ -349,7 +349,10 @@ export function captureCrash(
           ((!options.initializeIfNeeded || reportingClient !== null) && client !== reportingClient)
         )
           return;
-        target.captureException(reportable, { mechanism });
+        target.captureException(reportable, {
+          mechanism,
+          ...(options.level === undefined ? {} : { captureContext: { level: options.level } })
+        });
       } catch {
         // Best-effort: telemetry must not be able to fail a wallet operation.
       }

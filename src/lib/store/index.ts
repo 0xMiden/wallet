@@ -1176,6 +1176,12 @@ export const selectIsReady = (state: WalletStore) => state.status === WalletStat
 export const selectIsLocked = (state: WalletStore) => state.status === WalletStatus.Locked;
 export const selectIsIdle = (state: WalletStore) => state.status === WalletStatus.Idle;
 
+/**
+ * The claim guard of a page's unattended claim writers: the claim queue asks it right before each row it writes, so a
+ * lock that lands mid-pass queues nothing. Every page realm keeps this store's status in step with the backend's lock.
+ */
+export const isWalletReadyNow = (): boolean => selectIsReady(useWalletStore.getState());
+
 // Expose store and intercom for E2E test introspection (only in E2E builds).
 // Use globalThis (not window) so this works in both extension pages and the
 // service worker context where window is undefined.

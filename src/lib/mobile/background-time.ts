@@ -111,6 +111,15 @@ export function hiddenSecondsSince(sinceSeconds: number, nowMs: number = Date.no
   return Math.floor(ms / 1000);
 }
 
+/**
+ * Milliseconds the document spent hidden inside `[sinceMs, untilMs]`, both epoch milliseconds, for a window that has
+ * already closed: hidden time after `untilMs` never counts. It reads the clock first, as `hiddenSecondsSince` does.
+ */
+export function hiddenMsBetween(sinceMs: number, untilMs: number): number {
+  markNow();
+  return hiddenMsWithin(hiddenIntervals, hiddenSince, sinceMs, untilMs);
+}
+
 /** `performance.now()`, or `Date.now()` where the timing API is missing. */
 function monotonicNow(): number {
   return typeof performance !== 'undefined' && typeof performance.now === 'function' ? performance.now() : Date.now();

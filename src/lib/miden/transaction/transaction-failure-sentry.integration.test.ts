@@ -173,6 +173,17 @@ describe('committed terminal transaction failure reports', () => {
     expect(report.mock.calls[0]![0].reason).toEqual(expect.any(String));
   });
 
+  it.each([
+    ['cancel', (tx: ITransaction) => cancelTransaction(tx, 'assertion failed')],
+    ['status', (tx: ITransaction) => updateTransactionStatus(tx.id, ITransactionStatus.Failed, { error: 'failed' })],
+    ['unconfirmed', (tx: ITransaction) => markTransactionUnconfirmed(tx, 'indefinite outcome')]
+  ] as const)('forwards what queued a claim from its stored row through %s', async (_name, fail) => {
+    await Repo.transactions.put(row({ type: 'consume', consumeEntryPoint: 'claim_all' }));
+    await fail(row({ type: 'consume' }));
+    expect(report).toHaveBeenCalledTimes(1);
+    expect(report).toHaveBeenCalledWith(expect.objectContaining({ type: 'consume', entryPoint: 'claim_all' }));
+  });
+
   it('gives a failure the wallet did not decide no reason', async () => {
     await Repo.transactions.put(row());
     await cancelTransaction(row(), new Error('GUARDIAN HTTP error 409: Conflict'));
@@ -346,7 +357,9 @@ describe('committed terminal transaction failure reports', () => {
     expect(report).toHaveBeenCalledTimes(1);
     expect(report).toHaveBeenCalledWith(
       expect.objectContaining({
+        point: 'guardian_node_verdict',
         type: 'switch-guardian',
+        reason: 'never_committed',
         error: 'The node discarded this guardian switch after submission.'
       })
     );

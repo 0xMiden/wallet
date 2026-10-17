@@ -43,7 +43,9 @@ jest.mock('../activity/notes', () => ({ queueNoteImport: jest.fn() }));
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const {
+  ClaimInsertRefusedError,
   initiateConsumeNotesTransaction,
+  initiateConsumeTransaction,
   initiatePswapReclaimTransaction,
   MAX_RETRY_BACKOFF_SEC,
   noteClaimCoverage,
@@ -361,4 +363,74 @@ describe('queueConsumeNotes - the row covering each note', () => {
     expect(coveringTxIdByNoteId.get('a')).toBe(failed.id);
     expect(committedId).toBe(failed.id);
   });
+});
+
+describe('a worker claim its caller can no longer sign', () => {
+  type CanSign = () => boolean;
+
+  it.each([
+    [
+      'initiateConsumeNotesTransaction',
+      (canSign: CanSign) =>
+        initiateConsumeNotesTransaction(ACCOUNT, [note('a'), note('b')], false, false, true, null, undefined, canSign)
+    ],
+    [
+      'initiateConsumeTransaction',
+      (canSign: CanSign) => initiateConsumeTransaction(ACCOUNT, note('a'), false, undefined, undefined, canSign)
+    ],
+    [
+      'initiatePswapReclaimTransaction',
+      (canSign: CanSign) =>
+        initiatePswapReclaimTransaction(ACCOUNT, note('a'), new Uint8Array([7]), 'swap-order-row', false, canSign)
+    ]
+  ])('%s writes no row when the lock lands during its reads, and writes it once unlocked', async (_name, enqueue) => {
+    let unlocked = true;
+    const pending = enqueue(() => unlocked);
+    // The call is now awaiting its dedup and backoff reads, ahead of any row it writes.
+    unlocked = false;
+
+    await expect(pending).rejects.toBeInstanceOf(ClaimInsertRefusedError);
+    expect(await consumeRows()).toEqual([]);
+
+    unlocked = true;
+    await enqueue(() => unlocked);
+    expect(await consumeRows()).toHaveLength(1);
+  });
+
+  it.each([
+    ['between two isolated rows', ['a', 'b', 'c'], ['a', 'b', 'c'], 1, 3],
+    ["after the isolated rows, before the remainder's batch row", ['a', 'b'], ['a', 'b', 'c', 'd'], 2, 3]
+  ])(
+    'rolls back the rows it wrote when the lock lands %s',
+    async (_when, failedTogether, claimed, rowsBeforeLock, rowsUnlocked) => {
+      const failed = new ConsumeTransaction(
+        ACCOUNT,
+        failedTogether.map(id => note(id)),
+        false
+      );
+      failed.status = ITransactionStatus.Failed;
+      failed.initiatedAt = 0;
+      failed.completedAt = 0;
+      await Repo.transactions.add(failed);
+      let checks = 0;
+      const lockAfterRows: CanSign = () => checks++ < rowsBeforeLock;
+      const enqueue = (canSign: CanSign) =>
+        initiateConsumeNotesTransaction(
+          ACCOUNT,
+          claimed.map(id => note(id)),
+          false,
+          false,
+          true,
+          null,
+          undefined,
+          canSign
+        );
+
+      await expect(enqueue(lockAfterRows)).rejects.toBeInstanceOf(ClaimInsertRefusedError);
+      expect((await consumeRows()).map(row => row.id)).toEqual([failed.id]);
+
+      await enqueue(() => true);
+      expect((await consumeRows()).filter(row => row.status === ITransactionStatus.Queued)).toHaveLength(rowsUnlocked);
+    }
+  );
 });

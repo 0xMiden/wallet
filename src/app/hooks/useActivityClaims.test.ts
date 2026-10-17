@@ -22,6 +22,9 @@ const mockRequeue = jest.fn();
 const mockStart = jest.fn();
 const mockRequest = jest.fn();
 const mockQueueMany = jest.fn();
+// What Accept and Accept All pass after their notes: delegate, manualRetry, and what queued the row.
+const ACCEPTS = [false, true, 'claim'] as const;
+const ACCEPTS_ALL = [false, true, undefined, undefined, 'claim_all'] as const;
 const mockAnyOf = jest.fn();
 const mockSubscriptions: Array<{
   query: () => Promise<unknown>;
@@ -181,7 +184,7 @@ it('queues only once when the carousel and list accept the same note together', 
     await Promise.all([result.current.accept(note), result.current.accept(note)]);
   });
   expect(mockQueue).toHaveBeenCalledTimes(1);
-  expect(mockQueue).toHaveBeenCalledWith('account', note, false, true);
+  expect(mockQueue).toHaveBeenCalledWith('account', note, ...ACCEPTS);
   expect(mockStart).toHaveBeenCalledTimes(1);
   expect(result.current.items[0]?.status).toBe('claiming');
 });
@@ -217,7 +220,7 @@ it('drops a failed attempt once its note leaves the live list, so neither Retry 
     await result.current.acceptMany([note, other]);
   });
   expect(mockQueue).toHaveBeenCalledTimes(1);
-  expect(mockQueueMany).toHaveBeenCalledWith('account', [other], false, true);
+  expect(mockQueueMany).toHaveBeenCalledWith('account', [other], ...ACCEPTS_ALL);
   log.mockRestore();
 });
 
@@ -464,7 +467,7 @@ it('filters cached and busy notes from a batch and wakes the extension worker', 
     await Promise.all([result.current.acceptMany([cached, accepted]), result.current.acceptMany([accepted])]);
   });
   expect(mockQueueMany).toHaveBeenCalledTimes(1);
-  expect(mockQueueMany).toHaveBeenCalledWith('account', [accepted], false, true);
+  expect(mockQueueMany).toHaveBeenCalledWith('account', [accepted], ...ACCEPTS_ALL);
   expect(mockRequest).toHaveBeenCalledTimes(1);
   expect(mockStart).not.toHaveBeenCalled();
 });
@@ -482,7 +485,7 @@ it('groups notes from the same faucet and keeps them queued if the worker wake-u
   await act(async () => {
     await result.current.acceptMany([first, second]);
   });
-  expect(mockQueueMany).toHaveBeenCalledWith('account', [first, second], false, true);
+  expect(mockQueueMany).toHaveBeenCalledWith('account', [first, second], ...ACCEPTS_ALL);
   expect(result.current.items.map(item => item.status)).toEqual(['claiming', 'claiming']);
   expect(log).toHaveBeenCalled();
   log.mockRestore();
@@ -498,8 +501,8 @@ it('queues each Agglayer bridge delivery in a consume of its own', async () => {
     await result.current.acceptMany([first, second]);
   });
   expect(mockQueueMany).toHaveBeenCalledTimes(2);
-  expect(mockQueueMany).toHaveBeenNthCalledWith(1, 'account', [first], false, true);
-  expect(mockQueueMany).toHaveBeenNthCalledWith(2, 'account', [second], false, true);
+  expect(mockQueueMany).toHaveBeenNthCalledWith(1, 'account', [first], ...ACCEPTS_ALL);
+  expect(mockQueueMany).toHaveBeenNthCalledWith(2, 'account', [second], ...ACCEPTS_ALL);
 });
 
 it('queues each delivery from the faucet an open deposit saved alone after the document drops its chain', async () => {
@@ -521,8 +524,8 @@ it('queues each delivery from the faucet an open deposit saved alone after the d
     await result.current.acceptMany([first, second]);
   });
   expect(mockQueueMany).toHaveBeenCalledTimes(2);
-  expect(mockQueueMany).toHaveBeenNthCalledWith(1, 'account', [first], false, true);
-  expect(mockQueueMany).toHaveBeenNthCalledWith(2, 'account', [second], false, true);
+  expect(mockQueueMany).toHaveBeenNthCalledWith(1, 'account', [first], ...ACCEPTS_ALL);
+  expect(mockQueueMany).toHaveBeenNthCalledWith(2, 'account', [second], ...ACCEPTS_ALL);
 });
 
 it('queues only failed notes when a batch also contains unknown and checking notes', async () => {
@@ -536,7 +539,7 @@ it('queues only failed notes when a batch also contains unknown and checking not
   await act(async () => {
     await result.current.acceptMany([{ ...note, id: 'unknown' }, checking, failed]);
   });
-  expect(mockQueueMany).toHaveBeenCalledWith('account', [failed], false, true);
+  expect(mockQueueMany).toHaveBeenCalledWith('account', [failed], ...ACCEPTS_ALL);
 });
 
 it('lets a live checking state take priority over an old failed attempt', async () => {
@@ -953,7 +956,7 @@ describe('the network fee', () => {
     await act(async () => {
       await result.current.accept(first);
     });
-    expect(mockQueue).toHaveBeenCalledWith('account', first, false, true);
+    expect(mockQueue).toHaveBeenCalledWith('account', first, ...ACCEPTS);
   });
 
   it('counts the fee asset of a claim the queue runs first', async () => {
@@ -968,7 +971,7 @@ describe('the network fee', () => {
     await act(async () => {
       await result.current.accept(note);
     });
-    expect(mockQueue).toHaveBeenCalledWith('account', note, false, true);
+    expect(mockQueue).toHaveBeenCalledWith('account', note, ...ACCEPTS);
   });
 
   it('admits a card when a queued USDCX claim is listed after it', () => {
@@ -1045,7 +1048,7 @@ describe('the network fee', () => {
     });
     // The failed write delivers no USDCX, so the token claim after it is certain to fail on the fee.
     expect(mockQueueMany).toHaveBeenCalledTimes(1);
-    expect(mockQueueMany).toHaveBeenCalledWith('account', [usdcx], false, true);
+    expect(mockQueueMany).toHaveBeenCalledWith('account', [usdcx], ...ACCEPTS_ALL);
     expect(mockStart).not.toHaveBeenCalled();
     expect(result.current.items.map(item => [item.note.id, item.status])).toEqual([
       ['note-one', 'pending'],

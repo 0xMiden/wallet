@@ -2,6 +2,12 @@ import { expect, test, type Page, type TestInfo } from '@playwright/test';
 
 import { SEPOLIA_NETWORK, selectSendNetwork } from './contact-network';
 import {
+  CONFIRMATION_SUBMIT,
+  pollCreatedWalletReady,
+  readConfirmationFailureInPage,
+  type CreatedWalletState
+} from './created-wallet-ready';
+import {
   drainFailureReason,
   extendTestTimeoutForDrain,
   readDrainSnapshot,
@@ -27,6 +33,8 @@ import type { TimelineRecorder } from '../harness/timeline-recorder';
 // forever. This value passes all five checks. The bypass paths accept any value.
 export const PASSWORD = 'Test1234!';
 const SYNC_WAIT_MS = 3_500;
+// Short, so a successful create's wait resolves about as soon as the wallet is ready.
+const CREATED_WALLET_POLL_MS = 250;
 
 /**
  * The spending-limit challenge sheet (`components/SpendingLimitChallenge.tsx`).
@@ -599,6 +607,18 @@ export interface GuardianOperatorView {
 }
 
 /**
+ * In the page: a create's home surface. The new home (Explore) has no stable "Send"/"Receive" text, so this signals on
+ * the store's currentAccount.publicKey (register() populates it in place, with no reload) or the home page's testid.
+ */
+function walletAtHomeSurface(): boolean {
+  const store = (window as unknown as { __TEST_STORE__?: { getState(): { currentAccount?: { publicKey?: string } } } })
+    .__TEST_STORE__;
+  const pk = store?.getState?.().currentAccount?.publicKey ?? '';
+  if (/^m[a-z]{1,4}1[a-z0-9]+/i.test(pk)) return true;
+  return !!document.querySelector('[data-testid="explore-page"]');
+}
+
+/**
  * Page Object Model for a single wallet extension instance.
  * Encapsulates all UI interactions, reusing selectors from popup-smoke.spec.ts.
  */
@@ -713,27 +733,8 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     // the SW. Do NOT reload afterwards: that kills the in-flight intercom request.
     await this.page.getByTestId('onboarding-confirmation-submit').click();
 
-    // Wait for the wallet to be ready. The new home (Explore) has no stable
-    // "Send"/"Receive" text, so signal on the store's currentAccount.publicKey
-    // (register() populates it in place — no reload) or the home page testid.
     try {
-      await this.page.waitForFunction(
-        () => {
-          const store = (
-            window as unknown as { __TEST_STORE__?: { getState(): { currentAccount?: { publicKey?: string } } } }
-          ).__TEST_STORE__;
-          const pk = store?.getState?.().currentAccount?.publicKey ?? '';
-          if (/^m[a-z]{1,4}1[a-z0-9]+/i.test(pk)) return true;
-          return !!document.querySelector('[data-testid="explore-page"]');
-        },
-        // `arg` (3rd overload param is `options`) must be passed explicitly:
-        // omitting it shifts `{ timeout }` into the `arg` slot for a
-        // zero-parameter pageFunction, silently dropping the timeout override
-        // (only ever surfaced a hang, never a fast reject -- see guardian-fault
-        // A3's smoke test, the first caller to exercise the failure path).
-        undefined,
-        { timeout: 120_000 }
-      );
+      await this.waitForCreatedWalletReady(`ChromeWalletPage.createWalletViaBypass(${opts.walletType})`, 120_000);
     } catch (e) {
       const bodyText = await this.page
         .locator('body')
@@ -803,6 +804,53 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     const seedPhrase = generatedSeed ? generatedSeed.trim().split(/\s+/) : (opts.seed ?? []);
 
     return { address, seedPhrase };
+  }
+
+  /**
+   * Waits for a created wallet to pass `isReady`, by default the home surface `createWalletViaBypass` has always waited
+   * for, pressing Confirmation's Retry once (see `pollCreatedWalletReady`).
+   */
+  private async waitForCreatedWalletReady(
+    label: string,
+    timeoutMs: number,
+    isReady: () => Promise<boolean> = () => this.page.evaluate(walletAtHomeSurface)
+  ): Promise<void> {
+    await pollCreatedWalletReady({
+      label,
+      timeoutMs,
+      poll: (ms, accept) => this.pollCreatedWalletState(label, isReady, ms, accept),
+      pressRetry: () => this.page.locator(CONFIRMATION_SUBMIT).click()
+    });
+  }
+
+  /** Reads `isReady`, then Confirmation's failure screen, until `accept` takes a read; a failed read is not yet. */
+  private async pollCreatedWalletState(
+    label: string,
+    isReady: () => Promise<boolean>,
+    timeoutMs: number,
+    accept: (state: CreatedWalletState) => Promise<boolean>
+  ): Promise<void> {
+    const start = Date.now();
+    let readError: unknown;
+    while (Date.now() - start < timeoutMs) {
+      let state: CreatedWalletState | undefined;
+      try {
+        state = (await isReady())
+          ? { ready: true, failed: null }
+          : { ready: false, failed: await this.page.evaluate(readConfirmationFailureInPage) };
+        readError = undefined;
+      } catch (error) {
+        readError = error;
+      }
+      if (state && (await accept(state))) return;
+      await this.page.waitForTimeout(CREATED_WALLET_POLL_MS);
+    }
+    // A page that stopped answering would otherwise read as a wallet that never came up.
+    const last =
+      readError === undefined
+        ? ''
+        : ` (last read failed: ${readError instanceof Error ? readError.message : String(readError)})`;
+    throw new Error(`${label}: the created wallet was not ready within ${timeoutMs}ms${last}`);
   }
 
   /**
@@ -1267,18 +1315,7 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     // The pasted key IS the working hot key: the account must come up ready,
     // with no rotation gate in the way. Wait for the home surface the same way
     // createWalletViaBypass does, then assert the gate never mounted.
-    await this.page.waitForFunction(
-      () => {
-        const store = (
-          window as unknown as { __TEST_STORE__?: { getState(): { currentAccount?: { publicKey?: string } } } }
-        ).__TEST_STORE__;
-        const pk = store?.getState?.().currentAccount?.publicKey ?? '';
-        if (/^m[a-z]{1,4}1[a-z0-9]+/i.test(pk)) return true;
-        return !!document.querySelector('[data-testid="explore-page"]');
-      },
-      undefined,
-      { timeout: 120_000 }
-    );
+    await this.waitForCreatedWalletReady('ChromeWalletPage.recoverGuardianFromHotKey', 120_000);
     await expect(
       this.page.getByTestId('hot-key-rotation-gate'),
       'a hot-key import must not trigger the rotation gate — the pasted key is the working device key'
@@ -1480,7 +1517,9 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     await guardian.click();
     await this.page.getByTestId('meet-guardian-continue').click();
     await this.page.getByTestId('onboarding-confirmation-submit').click();
-    await this.page.getByTestId('explore-page').waitFor({ timeout: 120_000 });
+    await this.waitForCreatedWalletReady('ChromeWalletPage.createGuardianWalletViaUi', 120_000, () =>
+      this.page.getByTestId('explore-page').isVisible()
+    );
     return this.getAccountAddress();
   }
 
@@ -1576,8 +1615,8 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
 
     await this.page.getByTestId('onboarding-confirmation').waitFor({ timeout: 60_000 });
     await this.page.getByTestId('onboarding-confirmation-submit').click();
-    await this.page.waitForFunction(
-      () => {
+    await this.waitForCreatedWalletReady('ChromeWalletPage.restoreEncryptedWalletFile', 120_000, () =>
+      this.page.evaluate(() => {
         const store = (
           window as unknown as {
             __TEST_STORE__?: { getState(): { accounts?: unknown[]; currentAccount?: { publicKey?: string } | null } };
@@ -1585,9 +1624,7 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
         ).__TEST_STORE__;
         const state = store?.getState?.();
         return Boolean(state?.currentAccount?.publicKey) && (state?.accounts?.length ?? 0) > 0;
-      },
-      undefined,
-      { timeout: 120_000 }
+      })
     );
   }
 

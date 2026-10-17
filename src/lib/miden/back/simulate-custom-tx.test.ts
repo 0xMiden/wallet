@@ -24,6 +24,9 @@ let currentWasmHold: object | null = null;
 const revokeWasmHold = () => {
   currentWasmHold = null;
 };
+const mockRetireWasmClientForCaughtTrap = jest.fn();
+// A WebAssembly trap from decoding an `importNotes` entry whose bytes start with `trap`.
+const mockDecodeTrap = new WebAssembly.RuntimeError('unreachable');
 
 jest.mock('lib/miden/sdk/miden-client', () => ({
   // Lazy closure, not shorthand: the hoisted require of the module under test
@@ -41,6 +44,10 @@ jest.mock('lib/miden/sdk/miden-client', () => ({
     currentWasmHold = hold;
     try {
       return await fn(hold);
+    } catch (error) {
+      // The real lock's caught-trap path: a callback that rejects with a trap retires the client through its holder.
+      if (error instanceof WebAssembly.RuntimeError) mockRetireWasmClientForCaughtTrap(hold, error);
+      throw error;
     } finally {
       if (currentWasmHold === hold) currentWasmHold = null;
     }
@@ -54,8 +61,15 @@ jest.mock('lib/miden/sdk/helpers', () => {
 jest.mock('lib/miden/sdk/custom-request', () => ({
   prepareCustomRequestBytes: jest.fn(async (_client: unknown, _account: string, bytes: Uint8Array) => bytes)
 }));
+// As the real decode does: an entry that traps is skipped unless the caller asks for the trap, and one that cannot be
+// read (`unreadable`) is always skipped.
 jest.mock('lib/miden/note-quarantine', () => ({
-  importedNoteIds: jest.fn((notes: string[] | undefined) => (notes ?? []).map(n => `id:${n}`)),
+  importedNoteIds: jest.fn((notes: string[] | undefined, options?: { rethrowTraps?: boolean }) =>
+    (notes ?? []).flatMap(n => {
+      if (n.startsWith('trap') && options?.rethrowTraps) throw mockDecodeTrap;
+      return n.startsWith('trap') || n.startsWith('unreadable') ? [] : [`id:${n}`];
+    })
+  ),
   quarantineNoteIds: jest.fn(async () => undefined)
 }));
 // As strict as the SDK where it matters: fromHex takes only a literal `0x` and returns the canonical
@@ -137,7 +151,7 @@ describe('simulateCustomTransaction', () => {
       transactionRequest: 'reqB64',
       importNotes: ['noteA', 'noteB']
     });
-    expect(importedNoteIds).toHaveBeenCalledWith(['noteA', 'noteB']);
+    expect(importedNoteIds).toHaveBeenCalledWith(['noteA', 'noteB'], { rethrowTraps: true });
     expect(quarantineNoteIds).toHaveBeenCalledWith(['id:noteA', 'id:noteB']);
     // Quarantine must be placed before the notes actually land in the client DB.
     const quarantineOrder = (quarantineNoteIds as jest.Mock).mock.invocationCallOrder[0]!;
@@ -147,7 +161,7 @@ describe('simulateCustomTransaction', () => {
 
   it('quarantines with an empty id list when importNotes is missing', async () => {
     await simulateCustomTransaction({ address: 'mtst1abc', transactionRequest: 'reqB64' });
-    expect(importedNoteIds).toHaveBeenCalledWith(undefined);
+    expect(importedNoteIds).toHaveBeenCalledWith(undefined, { rethrowTraps: true });
     expect(quarantineNoteIds).toHaveBeenCalledWith([]);
     expect(getInputNote).not.toHaveBeenCalled();
   });
@@ -176,6 +190,62 @@ describe('simulateCustomTransaction', () => {
     const res = await simulateCustomTransaction({ address: 'mtst1abc', transactionRequest: 'reqB64' });
     expect(importNoteBytes).not.toHaveBeenCalled();
     expect(res.summaryBytes).toBe('b64:1-2-3');
+  });
+
+  // Inside the hold a trap from decoding the dApp's note bytes has to reach the lock, which retires the client, and
+  // the dry run must stop before it quarantines, credits or imports anything on that client.
+  describe('a WebAssembly trap while decoding an importNotes entry', () => {
+    const sdk: Record<string, unknown> = jest.requireMock('@miden-sdk/miden-sdk/lazy');
+
+    it('in its id fails the dry run before the quarantine write and every import, and retires the client', async () => {
+      const res = await simulateCustomTransaction({
+        address: 'mtst1abc',
+        transactionRequest: 'reqB64',
+        importNotes: ['noteA', 'trap-id']
+      });
+
+      expect(res).toEqual({ error: 'unreachable' });
+      expect(mockRetireWasmClientForCaughtTrap).toHaveBeenCalledWith(expect.anything(), mockDecodeTrap);
+      expect(getInputNote).not.toHaveBeenCalled();
+      expect(quarantineNoteIds).not.toHaveBeenCalled();
+      expect(importNoteBytes).not.toHaveBeenCalled();
+    });
+
+    it('in its assets fails the dry run before the quarantine write and every import, and retires the client', async () => {
+      const trap = new WebAssembly.RuntimeError('unreachable');
+      sdk.NoteFile = {
+        deserialize: () => {
+          throw trap;
+        }
+      };
+      try {
+        const res = await simulateCustomTransaction({
+          address: 'mtst1abc',
+          transactionRequest: 'reqB64',
+          importNotes: ['noteA']
+        });
+
+        expect(res).toEqual({ error: 'unreachable' });
+        expect(mockRetireWasmClientForCaughtTrap).toHaveBeenCalledWith(expect.anything(), trap);
+        expect(quarantineNoteIds).not.toHaveBeenCalled();
+        expect(importNoteBytes).not.toHaveBeenCalled();
+      } finally {
+        delete sdk.NoteFile;
+      }
+    });
+
+    it('is not what an ordinary decode failure is: that entry is still skipped and the rest import', async () => {
+      const res = await simulateCustomTransaction({
+        address: 'mtst1abc',
+        transactionRequest: 'reqB64',
+        importNotes: ['noteA', 'unreadable']
+      });
+
+      expect(res).toMatchObject({ summaryBytes: 'b64:1-2-3', introducedCount: 1 });
+      expect(quarantineNoteIds).toHaveBeenCalledWith(['id:noteA']);
+      expect(importNoteBytes).toHaveBeenCalledTimes(2);
+      expect(mockRetireWasmClientForCaughtTrap).not.toHaveBeenCalled();
+    });
   });
 
   it('returns { error } when execution throws, without rethrowing', async () => {

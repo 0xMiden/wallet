@@ -242,7 +242,7 @@ export function useActivityClaims() {
       // catch below absorbs a queue-time throw, so a wrapper further out would report every failure
       // as a success.
       const txId = await reportNoteClaim(() =>
-        initiateConsumeTransaction(claim.account.publicKey, note, claim.isDelegatedProvingEnabled, true)
+        initiateConsumeTransaction(claim.account.publicKey, note, claim.isDelegatedProvingEnabled, true, 'claim')
       );
       setAttempts(previous => new Map(previous).set(note.id, { note, status: 'claiming', txId }));
     } catch (error) {
@@ -302,7 +302,15 @@ export function useActivityClaims() {
       }
       try {
         const { committedId, coveringTxIdByNoteId } = await reportNoteClaim(() =>
-          queueConsumeNotes(claim.account.publicKey, groupNotes, claim.isDelegatedProvingEnabled, true)
+          queueConsumeNotes(
+            claim.account.publicKey,
+            groupNotes,
+            claim.isDelegatedProvingEnabled,
+            true,
+            undefined,
+            undefined,
+            'claim_all'
+          )
         );
         queued = true;
         ahead.push(...groupNotes);
