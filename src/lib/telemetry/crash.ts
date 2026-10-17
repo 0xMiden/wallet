@@ -18,6 +18,7 @@ import { sanitizeWalletFrame } from './crash-frames';
 import { REDACTED, containsSeedMaterialDeep, redactInPlace, redactMessage, redactText } from './redact';
 import {
   RELAY_SERVICE,
+  claimRelayRange,
   classifyRelayFailure,
   noteConnectivityChanged,
   type RelayDiagnostics
@@ -357,7 +358,7 @@ export function captureCrash(
 ): void {
   try {
     if (!(error instanceof Error)) return;
-    const relay = classifyRelayFailure(error.message);
+    const relay = classifyRelayFailure(error);
     if (relay?.report === false) return;
     // Snapshot before consent's await: later handling may mutate the original failure.
     const reportable = relay?.report ? rebuildRelayError(error, relay.message) : rebuildError(error, new Set(), 0);
@@ -386,6 +387,8 @@ export function captureCrash(
           ((!options.initializeIfNeeded || reportingClient !== null) && client !== reportingClient)
         )
           return;
+        // Last, so a report dropped by any check above leaves its range to the next failure in it.
+        if (relay?.report && !claimRelayRange(relay.diagnostics.relayFailures)) return;
         target.captureException(reportable, {
           mechanism,
           ...(level === undefined ? {} : { captureContext: { level } })

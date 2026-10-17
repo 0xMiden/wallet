@@ -27,7 +27,7 @@ export type RelayDiagnostics = {
   relayFailures: (typeof RELAY_FAILURE_BUCKETS)[number];
 };
 
-/** A relay failure: withheld, or reported under its fixed text with its fixed values. */
+/** A relay failure: withheld, or to be reported under its fixed text with its fixed values once its range is claimed. */
 export type RelayFailure = { report: false } | { report: true; message: string; diagnostics: RelayDiagnostics };
 
 /** The part of AppKit's relayer this module reads and listens to. */
@@ -47,7 +47,10 @@ let connectModalOpen = false;
 let everConnected = false;
 let connectivityChangedAt: number | undefined;
 let failures = 0;
-const reportedBuckets = new Set<RelayDiagnostics['relayFailures']>();
+// One failure can reach the reporter more than once (a global handler, the error boundary, a manual capture).
+let counted = new WeakSet<Error>();
+// The highest range a report was sent for, as its index in `RELAY_FAILURE_BUCKETS`.
+let reportedRank = -1;
 
 export function recordRelaySurface(next: RelaySurface): void {
   if (RELAY_SURFACES.includes(next)) surface = next;
@@ -86,18 +89,24 @@ function failureBucket(count: number): RelayDiagnostics['relayFailures'] {
   return count <= 5 ? '2-5' : '6+';
 }
 
-/** `undefined` unless `message` is WalletConnect's failed relay socket on one of WalletConnect's own relay hosts. */
-export function classifyRelayFailure(message: unknown): RelayFailure | undefined {
+const rank = (bucket: RelayDiagnostics['relayFailures']): number => RELAY_FAILURE_BUCKETS.indexOf(bucket);
+
+/**
+ * `undefined` unless `error` is WalletConnect's failed relay socket on one of WalletConnect's own relay hosts. Each
+ * Error counts once, and its range is only named here: {@link claimRelayRange} uses it up when the report is sent.
+ */
+export function classifyRelayFailure(error: Error): RelayFailure | undefined {
+  const message: unknown = error.message;
   if (typeof message !== 'string') return undefined;
   const host = relayHost(message);
   if (host === undefined) return undefined;
+  if (counted.has(error)) return { report: false };
+  counted.add(error);
   failures++;
   const bucket = failureBucket(failures);
   const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
-  // Each bucket is reported once, by its first failure while online: a blip sends one report, a stuck window three,
-  // and a failure while offline uses none of them up.
-  if (offline || reportedBuckets.has(bucket)) return { report: false };
-  reportedBuckets.add(bucket);
+  // A blip sends one report and a stuck window three; a failure while offline uses none of them up.
+  if (offline || rank(bucket) <= reportedRank) return { report: false };
   const visibility =
     typeof document === 'undefined' ? undefined : RELAY_VISIBILITY.find(state => state === document.visibilityState);
   const justChanged =
@@ -117,6 +126,16 @@ export function classifyRelayFailure(message: unknown): RelayFailure | undefined
   };
 }
 
+/**
+ * Uses up `bucket`'s range, immediately before its report is captured. `false` when that range or a higher one was
+ * already sent, so of two failures of one range only the first to get here is reported, and never after a later range.
+ */
+export function claimRelayRange(bucket: RelayDiagnostics['relayFailures']): boolean {
+  if (rank(bucket) <= reportedRank) return false;
+  reportedRank = rank(bucket);
+  return true;
+}
+
 /** Test-only: forget this window's relay history, as a fresh page load would. */
 export function __resetRelayDiagnosticsForTest(): void {
   surface = undefined;
@@ -124,5 +143,6 @@ export function __resetRelayDiagnosticsForTest(): void {
   everConnected = false;
   connectivityChangedAt = undefined;
   failures = 0;
-  reportedBuckets.clear();
+  counted = new WeakSet();
+  reportedRank = -1;
 }
