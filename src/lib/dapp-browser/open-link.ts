@@ -1,7 +1,7 @@
 import { App } from '@capacitor/app';
 
 /**
- * Host of Bread's open links, `https://bread.miden.xyz/open?url=<page>`. The iOS associated-domains
+ * Host of Bread's open links, `https://bread.miden.xyz/open#url=<page>`. The iOS associated-domains
  * entitlement, the Android intent filter and the association files 0xMiden/wallet-link serves all name it too.
  */
 export const OPEN_LINK_HOST = 'bread.miden.xyz';
@@ -12,13 +12,14 @@ const SCHEME_LINK = /^com\.miden\.wallet:\/\/open\/?(\?[^#]*)?(#.*)?$/i;
 // iOS delivers a link that cold-starts the app twice: as the launch URL and as a retained `appUrlOpen` event.
 const DUPLICATE_WINDOW_MS = 2_000;
 
-function linkQuery(link: string): URLSearchParams | null {
+function linkParams(link: string): URLSearchParams | null {
   const scheme = SCHEME_LINK.exec(link);
   if (scheme) return new URLSearchParams(scheme[1] ?? '');
   try {
     const url = new URL(link);
+    // The https link carries the page in its fragment, which a browser never sends to the link host.
     return url.protocol === 'https:' && url.hostname === OPEN_LINK_HOST && url.pathname === OPEN_LINK_PATH
-      ? url.searchParams
+      ? new URLSearchParams(url.hash.slice(1))
       : null;
   } catch {
     return null;
@@ -27,12 +28,12 @@ function linkQuery(link: string): URLSearchParams | null {
 
 /**
  * The page an open link asks Bread to show, normalized, or null when `link` is not an open link
- * (`https://bread.miden.xyz/open?url=…` or `com.miden.wallet://open?url=…`) or names a page Bread will
+ * (`https://bread.miden.xyz/open#url=…` or `com.miden.wallet://open?url=…`) or names a page Bread will
  * not open: only https, and never one with credentials before the host, which is how a URL like
  * `https://wallet.example@evil.example` disguises where it really goes.
  */
 export function parseOpenLink(link: string): string | null {
-  const raw = linkQuery(link)?.get('url');
+  const raw = linkParams(link)?.get('url');
   if (!raw) return null;
   try {
     const page = new URL(raw);

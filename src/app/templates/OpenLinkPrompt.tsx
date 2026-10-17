@@ -27,7 +27,7 @@ function isListed(catalog: ExploreCatalog | null, page: string): boolean {
 }
 
 /**
- * Opens the page an open link (`https://bread.miden.xyz/open?url=…`) names in the dApp browser. It
+ * Opens the page an open link (`https://bread.miden.xyz/open#url=…`) names in the dApp browser. It
  * waits for the wallet to be open, so a link that arrives on the lock screen, during onboarding, behind
  * the hot-key rotation gate or on a recovery screen opens after it. A page on the origin of an app
  * Explore lists opens straight away; any other page asks first, because anyone can publish a link.
