@@ -7,8 +7,9 @@ import { isBalanceReflected } from 'lib/miden/balance-snapshot';
 import { ITransactionStatus } from 'lib/miden/db/types';
 import { useMidenContext } from 'lib/miden/front/client';
 import { fetchFromStorage, inStorageTurn, onStorageChanged, putToStorage } from 'lib/miden/front/storage';
+import { isSyncFused, noteProbeFailure, noteSyncSuccess } from 'lib/miden/front/sync-fuse';
 import * as Repo from 'lib/miden/repo';
-import { assertWasmHoldCurrent, withWasmClientLock } from 'lib/miden/sdk/miden-client';
+import { assertWasmHoldCurrent, withWasmClientLock, type WasmLockHold } from 'lib/miden/sdk/miden-client';
 import { WASM_LOCK_SYNC_WATCHDOG_MS } from 'lib/miden/sdk/wasm-client-poison';
 import { isSwapPair } from 'lib/miden/swap/tokens';
 import { getActiveOverride, getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
@@ -17,6 +18,14 @@ import { useWalletStore } from 'lib/store';
 
 import { createBadgeIssuer } from './issuance';
 import { BADGE_STORAGE_KEY, readEarnedBadges } from './types';
+
+// A timer-driven hold (#777): bounded, labelled, and booked against the issuer's fuse key.
+function verdictHold<T>(label: string, operation: (hold: WasmLockHold) => Promise<T>): Promise<T> {
+  return withWasmClientLock(operation, { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label }).catch((error: unknown) => {
+    noteProbeFailure('badge-verdict', error);
+    throw error;
+  });
+}
 
 export function BadgeIssuanceManager(): null {
   const { accounts } = useMidenContext();
@@ -31,6 +40,8 @@ export function BadgeIssuanceManager(): null {
       accounts: () => accountIds,
       // Developer endpoint overrides must not turn a private chain into Mainnet badge evidence.
       isMainnet: () => getEffectiveNetworkName() === 'mainnet' && getActiveOverride() === null,
+      // A lit idle-sync fuse means the realm's client is parked too, which a verdict hold would rebuild against.
+      canVerify: () => !isSyncFused('badge-verdict') && !isSyncFused('idle-sync'),
       readTransactions: () =>
         Repo.transactions
           .where('badgeNetwork')
@@ -38,29 +49,27 @@ export function BadgeIssuanceManager(): null {
           .filter(row => row.status === ITransactionStatus.Completed)
           .toArray(),
       isCommitted: id =>
-        withWasmClientLock(async () => (await midenClientProxy.getTransactionCommitState(id)) === 'committed', {
-          watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS,
-          label: 'badge-commit-verdict'
-        }),
+        verdictHold(
+          'badge-commit-verdict',
+          async () => (await midenClientProxy.getTransactionCommitState(id)) === 'committed'
+        ),
       isBalanceReflected: requirement => isBalanceReflected(requirement, useWalletStore.getState().balances),
       isFilledApprovedSwap: swap =>
-        withWasmClientLock(
-          async hold => {
-            if (!isSwapPair(swap.offeredFaucetId, swap.requestedFaucetId)) return false;
-            const lineages = await midenClientProxy.getPswapLineages(() =>
-              assertWasmHoldCurrent(hold, 'badge swap lineage')
-            );
-            assertWasmHoldCurrent(hold, 'badge swap lineage');
-            return lineages.some(
-              lineage =>
-                lineage.orderId === swap.orderId &&
-                lineage.state === 1 &&
-                BigInt(lineage.remainingOffered) === 0n &&
-                BigInt(lineage.remainingRequested) === 0n
-            );
-          },
-          { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'badge-swap-verdict' }
-        ),
+        verdictHold('badge-swap-verdict', async hold => {
+          if (!isSwapPair(swap.offeredFaucetId, swap.requestedFaucetId)) return false;
+          const lineages = await midenClientProxy.getPswapLineages(() =>
+            assertWasmHoldCurrent(hold, 'badge swap lineage')
+          );
+          assertWasmHoldCurrent(hold, 'badge swap lineage');
+          return lineages.some(
+            lineage =>
+              lineage.orderId === swap.orderId &&
+              lineage.state === 1 &&
+              BigInt(lineage.remainingOffered) === 0n &&
+              BigInt(lineage.remainingRequested) === 0n
+          );
+        }),
+      reportVerified: () => noteSyncSuccess('badge-verdict'),
       readAwards: () => fetchFromStorage(BADGE_STORAGE_KEY),
       mergeAwards: (additions, current) =>
         inStorageTurn(BADGE_STORAGE_KEY, async () => {

@@ -8,15 +8,24 @@ export interface BadgeIssuanceSource {
   /** All local wallet accounts, not just the selected account. */
   accounts(): readonly string[];
   isMainnet(): boolean;
+  /** False while the realm's client is fused: the pass takes no hold and leaves every candidate pending. */
+  canVerify(): boolean;
   readTransactions(): Promise<ITransaction[]>;
+  /** A hold: books its own failure against the fuse before rejecting. */
   isCommitted(transactionId: string): Promise<boolean>;
   isBalanceReflected(requirement: BalanceRequirement): boolean;
+  /** A hold, like `isCommitted`. */
   isFilledApprovedSwap(swap: NonNullable<BadgeCandidate['swap']>): Promise<boolean>;
+  /** Every hold the pass took answered. */
+  reportVerified(): void;
   readAwards(): Promise<unknown>;
   /** Must merge under a cross-context storage lock, rechecking `isCurrent` before writing. */
   mergeAwards(awards: readonly BadgeId[], isCurrent: () => boolean): Promise<void>;
   reportError(error: unknown): void;
 }
+
+/** Not checked: a fuse lit or the pass went stale first, so the candidate stays pending as it was. */
+type Verdict = 'committed' | 'not-committed' | 'not-checked';
 
 const candidateKey = (candidate: BadgeCandidate) =>
   JSON.stringify([
@@ -50,39 +59,49 @@ export function createBadgeIssuer(source: BadgeIssuanceSource) {
         const accounts = [...source.accounts()];
         const fingerprint = JSON.stringify([...accounts].sort());
         const current = () => isCurrent(epoch, fingerprint);
-        if (!current()) continue;
+        if (!current() || !source.canVerify()) continue;
         const earned = readEarnedBadges(await source.readAwards());
         if (['first-send', 'first-deposit', 'first-swap'].every(id => earned.some(badge => badge === id))) continue;
         const candidates = badgeCandidates(await source.readTransactions(), accounts);
         const verified = new Map<string, boolean>();
         const additions: BadgeId[] = [];
         const verifiedCandidates = new Set<string>();
+        let holds = 0;
         const reflected = (candidate: BadgeCandidate) =>
           candidate.balances?.every(requirement => source.isBalanceReflected(requirement)) ?? true;
+        // Asked before every hold, not only at the start: a fuse lit mid-pass stops the next one too.
+        const checkable = () => current() && source.canVerify();
+        const verify = async (candidate: BadgeCandidate): Promise<Verdict> => {
+          for (const id of candidate.transactionIds) {
+            let verdict = verified.get(id);
+            if (verdict === undefined) {
+              if (!checkable()) return 'not-checked';
+              verdict = await source.isCommitted(id);
+              holds += 1;
+              verified.set(id, verdict);
+            }
+            if (!current()) return 'not-checked';
+            if (!verdict) return 'not-committed';
+          }
+          if (!candidate.swap) return 'committed';
+          if (!checkable()) return 'not-checked';
+          const filled = await source.isFilledApprovedSwap(candidate.swap);
+          holds += 1;
+          if (!current()) return 'not-checked';
+          return filled ? 'committed' : 'not-committed';
+        };
         for (const candidate of candidates) {
           if (!current()) break;
           if (earned.includes(candidate.badge) || additions.includes(candidate.badge) || !reflected(candidate))
             continue;
-          let committed = true;
-          for (const id of candidate.transactionIds) {
-            if (!current()) {
-              committed = false;
-              break;
-            }
-            const verdict = verified.get(id) ?? (await source.isCommitted(id));
-            verified.set(id, verdict);
-            if (!verdict) {
-              committed = false;
-              break;
-            }
-          }
-          if (!committed || !current()) continue;
-          if (candidate.swap && !(await source.isFilledApprovedSwap(candidate.swap))) continue;
-          if (current() && reflected(candidate)) {
+          if ((await verify(candidate)) !== 'committed' || !current()) continue;
+          if (reflected(candidate)) {
             additions.push(candidate.badge);
             verifiedCandidates.add(candidateKey(candidate));
           }
         }
+        // A failed hold rejects out of the pass, so reaching here means every hold answered.
+        if (holds > 0) source.reportVerified();
         if (current() && additions.length) {
           // A cancellation or a failed settlement may have changed while the SDK answered.
           const fresh = badgeCandidates(await source.readTransactions(), accounts);
