@@ -198,6 +198,19 @@ describe('SendAmount', () => {
     expect(props.onReceive).toHaveBeenCalledTimes(1);
   });
 
+  it('says Send is still checking a token it holds back, in the shared warning notice', () => {
+    renderAmount({ tokenHeld: true });
+
+    expect(screen.getByTestId('send-amount-held-notice')).toHaveTextContent('sendTokenAvailabilityChecking');
+    expect(screen.getByTestId('send-amount-held-notice')).toHaveAttribute('data-tone', 'warning');
+  });
+
+  it('shows no held notice while no token is held', () => {
+    renderAmount();
+
+    expect(screen.queryByTestId('send-amount-held-notice')).not.toBeInTheDocument();
+  });
+
   it('draws Max and the Receive link in the Send ink, never the bare brand colour', () => {
     renderAmount({ error: 'insufficientFeeAsset' });
 

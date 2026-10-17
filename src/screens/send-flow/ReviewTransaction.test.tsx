@@ -787,7 +787,7 @@ describe('ReviewTransaction — rendering', () => {
   });
 
   it('renders header, hero and detail rows, seeding the 7-day expiration', async () => {
-    setValidRoute(MIDEN_USDC_FAUCET);
+    setValidRoute();
     render(<ReviewTransaction />);
     await flush();
 
@@ -796,13 +796,11 @@ describe('ReviewTransaction — rendering', () => {
     // The network is a plain value with its mark, not a chip; the fee has no inline note.
     expect(screen.getByTestId('network-logo')).toHaveAttribute('data-kind', 'miden');
     expect(screen.queryByText('networkFeeEstimateNote')).not.toBeInTheDocument();
-    // Both the amount and its fiat subtitle live inside the review-amount hero —
-    // scoping to it is what proves they render together, not just somewhere on the page.
+    // The amount is inside the hero; the unquoted asset has no inferred fiat value.
     const hero = within(screen.getByTestId('review-amount'));
-    expect(hero.getByText('5 Test Epoch USDC')).toBeInTheDocument();
-    expect(screen.getByTestId('token-logo')).toHaveAttribute('data-faucet-id', MIDEN_USDC_FAUCET);
-    // The fiat subtitle renders under the hero value once the token's price is known.
-    expect(hero.getByText('approxFiatValue')).toBeInTheDocument();
+    expect(hero.getByText('5 MDN')).toBeInTheDocument();
+    expect(screen.getByTestId('token-logo')).toHaveAttribute('data-faucet-id', VALID_TOKEN.tokenId);
+    expect(hero.queryByText('approxFiatValue')).not.toBeInTheDocument();
     // Recipient row value.
     expect(screen.getByText('0xrecipient')).toBeInTheDocument();
 
@@ -810,7 +808,7 @@ describe('ReviewTransaction — rendering', () => {
     // label + reclaim note both present.
     // The reclaim reassurance is one caption under the card, not a note in the expiration row.
     await waitFor(() => expect(screen.getByTestId('review-recall-note')).toBeInTheDocument());
-    expect(screen.getByTestId('review-recall-note').textContent).toBe('recallReturnsNote 5 Test Epoch USDC');
+    expect(screen.getByTestId('review-recall-note').textContent).toBe('recallReturnsNote 5 MDN');
     expect(screen.queryByTestId('row-note')).not.toBeInTheDocument();
     // Advanced options starts closed, its summary naming the default transfer type and the window.
     expect(screen.getByTestId('review-advanced-options')).toHaveAttribute('data-open', 'false');
@@ -1007,25 +1005,67 @@ describe('ReviewTransaction — rendering', () => {
       expect(screen.getByText('≈ 10.65 Test Epoch USDC')).toBeInTheDocument();
     });
 
-    it('names a send of the bridge faucet by the testnet label in the hero', async () => {
+    it('holds a review of another token while Testnet config is unavailable, without leaving it', async () => {
+      mockBridgeSnapshot = { ...TEST_BRIDGE_CONFIG_SNAPSHOT, config: null, derived: null, status: 'loading' };
       setValidRoute(MIDEN_USDC_FAUCET);
       mockBalanceData = [{ ...VALID_TOKEN, tokenId: MIDEN_USDC_FAUCET, metadata: { symbol: 'USDC', decimals: 6 } }];
-
       render(<ReviewTransaction />);
       await flush();
-
-      expect(within(screen.getByTestId('review-amount')).getByText('5 Test Epoch USDC')).toBeInTheDocument();
+      expect(screen.queryByTestId('redirect')).not.toBeInTheDocument();
+      expect(screen.getByTestId('send-review-submit')).toBeDisabled();
+      expect(screen.getByTestId('review-held-notice')).toHaveTextContent('sendTokenAvailabilityChecking');
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('send-review-submit'));
+      });
+      await flush();
+      expect(confirmMock).not.toHaveBeenCalled();
+      expect(initiateSendTransaction).not.toHaveBeenCalled();
     });
 
-    it('names a send of the bridge faucet by the testnet label in the recall note', async () => {
+    it('lets a native-asset review confirm while Testnet config is unavailable', async () => {
+      mockBridgeSnapshot = { ...TEST_BRIDGE_CONFIG_SNAPSHOT, config: null, derived: null, status: 'loading' };
+      setValidRoute(USDCX_FAUCET_ID_BECH32);
+      render(<ReviewTransaction />);
+      await flush();
+      await waitFor(() => expect(screen.getByTestId('review-recall-note')).toBeInTheDocument());
+      expect(screen.queryByTestId('redirect')).not.toBeInTheDocument();
+      expect(screen.getByTestId('send-review-submit')).toBeEnabled();
+      expect(screen.queryByTestId('review-held-notice')).not.toBeInTheDocument();
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('send-review-submit'));
+      });
+      await flush();
+      expect(initiateSendTransaction).toHaveBeenCalledWith(
+        'pubkey-1',
+        '0xrecipient',
+        USDCX_FAUCET_ID_BECH32,
+        'private',
+        12345n,
+        999,
+        false
+      );
+    });
+
+    it('redirects a retired Epoch USDC deep link to the new send flow', async () => {
       setValidRoute(MIDEN_USDC_FAUCET);
       mockBalanceData = [{ ...VALID_TOKEN, tokenId: MIDEN_USDC_FAUCET, metadata: { symbol: 'USDC', decimals: 6 } }];
 
       render(<ReviewTransaction />);
       await flush();
 
-      await waitFor(() => expect(screen.getByTestId('review-recall-note')).toBeInTheDocument());
-      expect(screen.getByTestId('review-recall-note').textContent).toContain('5 Test Epoch USDC');
+      expect(screen.getByTestId('redirect')).toHaveTextContent('/send');
+      expect(screen.queryByTestId('send-review-submit')).not.toBeInTheDocument();
+    });
+
+    it('does not render a new recallable send for the retired faucet', async () => {
+      setValidRoute(MIDEN_USDC_FAUCET);
+      mockBalanceData = [{ ...VALID_TOKEN, tokenId: MIDEN_USDC_FAUCET, metadata: { symbol: 'USDC', decimals: 6 } }];
+
+      render(<ReviewTransaction />);
+      await flush();
+
+      expect(screen.getByTestId('redirect')).toHaveTextContent('/send');
+      expect(screen.queryByTestId('review-recall-note')).not.toBeInTheDocument();
     });
   });
 });

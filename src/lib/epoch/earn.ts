@@ -25,7 +25,7 @@ import { getEpochReadOnlySdk } from './sdk';
 import type { IntentResult } from './types';
 
 /**
- * Epoch "Earn" — open a lending position by depositing Miden-held USDC into a
+ * Epoch "Earn" — open a lending position by depositing reviewed Miden collateral into a
  * protocol market. Structurally this is the Miden→EVM `bridgeEpochSend` flow:
  * collateral is `CollateralType.Miden` (a recallable P2IDE note to the solver's
  * allocator), the EVM lending leg is solver-fulfilled, and the typed EVM address
@@ -327,7 +327,7 @@ export function pollEarnIntentStatus(args: {
 export interface OpenEarnPositionArgs {
   /** Collateral amount in `collateral`'s base units. */
   amount: bigint;
-  /** The collateral the deposit was reviewed with (`selectMidenUsdc`). */
+  /** The collateral the deposit was reviewed with (`selectEarnCollateral` in the frontend). */
   collateral: MidenUsdc;
   /** 0x EVM address that will own the lending position. */
   evmAddress: string;

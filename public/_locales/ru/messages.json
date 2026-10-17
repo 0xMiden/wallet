@@ -546,6 +546,18 @@
     "message": "Не удалось открыть позицию",
     "englishSource": "Failed to open position"
   },
+  "earnCollateralLoading": {
+    "message": "Загрузка данных токена депозита. Вы сможете продолжить, как только они появятся.",
+    "englishSource": "Loading the deposit token's details. You can continue once they arrive."
+  },
+  "earnCollateralUnavailable": {
+    "message": "Токен для пополнения счета в данный момент недоступен, поэтому пополнение счета приостановлено. Попробуйте позже.",
+    "englishSource": "The deposit token isn't available right now, so deposits are paused. Try again later."
+  },
+  "earnCollateralMismatch": {
+    "message": "Этот обзор был подготовлен для другого депозитного токена. Вернитесь и введите сумму заново.",
+    "englishSource": "This review was prepared for a different deposit token. Go back and enter the amount again."
+  },
   "earnTotalEarnedRewards": {
     "message": "Общая сумма заработка",
     "englishSource": "Total earned"
@@ -1021,6 +1033,10 @@
   "unknownTokenScale": {
     "message": "Десятичные знаки этого токена не удалось проверить, поэтому суммы не могут отображаться или отправляться.",
     "englishSource": "This token's decimals could not be verified, so amounts can't be shown or sent."
+  },
+  "sendTokenAvailabilityChecking": {
+    "message": "Проверка возможности отправки данного токена в тестовой сети (Testnet). Вы сможете отправить его после завершения проверки.",
+    "englishSource": "Checking whether this token can be sent on Testnet. You can send it once the check finishes."
   },
   "oops": {
     "message": "Ой!",

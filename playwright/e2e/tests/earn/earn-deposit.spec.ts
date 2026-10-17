@@ -182,11 +182,14 @@ function defineEarnDepositSuite(axis: AccountAxis): void {
       await depositBtn.click();
 
       // The deposit CTA lands on the amount screen (proves routing). The deposit
-      // itself is placed from a deep link to the review route (whose confirm is
-      // gated only on amount>0 && vault.id), so it carries exactly DEPOSIT_AMOUNT.
+      // itself is placed from a deep link to the review route, so it carries exactly
+      // DEPOSIT_AMOUNT; the link names the faucet set below, as the amount step's
+      // does, because a review is bound to the collateral it names.
       await expect(walletA.page.getByTestId('earn-deposit-amount-page')).toBeVisible({ timeout: 30_000 });
 
-      await walletA.navigateTo(`/earn/vaults/${vaultId}/deposit/review?amount=${DEPOSIT_AMOUNT}`);
+      await walletA.navigateTo(
+        `/earn/vaults/${vaultId}/deposit/review?amount=${DEPOSIT_AMOUNT}&collateral=${encodeURIComponent(faucetHex)}`
+      );
       // Set the collateral-faucet override in the freshly-loaded review page realm -
       // `openEarnPosition` reads it (page-side) on confirm.
       await walletA.page.evaluate(setEarnFaucet, faucetHex);
