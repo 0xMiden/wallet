@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { UserRejectedRequestError } from 'viem';
 
 import { englishWordlist } from '@miden/hd-key';
 
@@ -8,7 +9,8 @@ import {
   BRIDGE_RECEIVE_ROUTES,
   BRIDGE_RECEIVE_STEPS,
   type BridgeReceiveFailure,
-  bridgeReceiveLibraryError
+  bridgeReceiveLibraryError,
+  walletRaised
 } from './bridge-receive-failure';
 import { captureCrash } from './crash';
 import { containsSeedMaterial } from './redact';
@@ -80,6 +82,27 @@ it('reports other for a cause that names no library error', () => {
   expect(reportBridge({ route: 'agglayer', step: 'reconciler_receipt', cause }, cause.message)).toContain(
     '; via agglayer; failed at reconciler_receipt; evm error other. '
   );
+});
+
+const OWN_WORDS = 'The Fast route has no quoted deposit.';
+
+it('reports no answer for a cause the wallet raised itself that wraps none', () => {
+  const cause = walletRaised(new Error(OWN_WORDS));
+
+  expect(bridgeReceiveLibraryError(cause)).toBe('none');
+  expect(reportBridge({ route: 'epoch', step: 'precheck_route', cause }, OWN_WORDS)).toContain(
+    '; via epoch; failed at precheck_route; evm error none. '
+  );
+});
+
+it('reads past a cause the wallet raised itself to the answer it wraps', () => {
+  const rejection = new UserRejectedRequestError(new Error('User denied transaction signature.'));
+
+  expect(bridgeReceiveLibraryError(walletRaised(new Error(OWN_WORDS, { cause: rejection })))).toBe('user_rejected');
+});
+
+it('reports other for the same words when the wallet did not mark them as its own', () => {
+  expect(bridgeReceiveLibraryError(new Error(OWN_WORDS))).toBe('other');
 });
 
 // [identity, the failure as a writer hands it over]

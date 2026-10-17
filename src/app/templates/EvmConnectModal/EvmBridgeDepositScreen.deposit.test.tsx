@@ -13,6 +13,7 @@ import {
 import { initiateBridgedReceiveTransaction, updateBridgedReceivePhase } from 'lib/miden/activity';
 import type { BridgeFeature, FeatureAvailability } from 'lib/remote-config/availability';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
+import { bridgeReceiveLibraryError } from 'lib/telemetry/bridge-receive-failure';
 import { NativeReown, NativeSessionChainNotApprovedError, prepareNativeSessionChain } from 'lib/walletconnect/native';
 import { readEvmErc20Allowance, waitForEvmReceipt } from 'lib/walletconnect/receipt';
 
@@ -462,6 +463,14 @@ const balanceTooLow = (balance: string, token: string) =>
 
 // The failure write the screen makes: the row's text, and the step and error its crash report names.
 const failedAt = (step: string, error: string) => ({ error, failure: { step, cause: expect.any(Error) } });
+/** The library error the crash report names for the cause the last failure write handed it. */
+const reportedEvmError = (): string =>
+  bridgeReceiveLibraryError(
+    jest
+      .mocked(updateBridgedReceivePhase)
+      .mock.calls.filter(([, phase]) => phase === 'failed')
+      .at(-1)?.[2]?.failure?.cause
+  );
 
 /** Drive the ETH + Slow route to Review, the deposit path with no quote needed. */
 const settle = () =>
@@ -1810,7 +1819,7 @@ describe('EvmBridgeDepositScreen holds a deposit to the wallet balance', () => {
   });
 
   it.each(SLOW_CASES)(
-    'raises no prompt and fails the row when the balance falls under a Slow deposit before Confirm (native=%s, %s)',
+    'raises no prompt and fails the row with no answer when the balance falls under a Slow deposit before Confirm (native=%s, %s)',
     async (native, token) => {
       mockNativeReown = native;
       await renderWallet();
@@ -1826,6 +1835,7 @@ describe('EvmBridgeDepositScreen holds a deposit to the wallet balance', () => {
         'failed',
         failedAt('precheck_balance', balanceTooLow(token === 'ETH' ? '1.4999' : '10.6511', LABEL[token]))
       );
+      expect(reportedEvmError()).toBe('none');
     }
   );
 
@@ -2005,7 +2015,7 @@ describe('EvmBridgeDepositScreen holds a deposit to the wallet balance', () => {
   });
 
   it.each([false, true])(
-    'starts no Fast deposit and fails the row when the balance falls under its quote before Confirm (native=%s)',
+    'starts no Fast deposit and fails the row with no answer when the balance falls under its quote before Confirm (native=%s)',
     async native => {
       mockNativeReown = native;
       quoteFast();
@@ -2023,6 +2033,7 @@ describe('EvmBridgeDepositScreen holds a deposit to the wallet balance', () => {
         'failed',
         failedAt('precheck_balance', balanceTooLow('10.6511', LABEL.USDC))
       );
+      expect(reportedEvmError()).toBe('none');
     }
   );
 
@@ -2119,7 +2130,7 @@ describe('EvmBridgeDepositScreen holds a deposit to the wallet balance', () => {
       { route: 'Slow', token: 'ETH' as const, setup: () => undefined, reach: () => reachReview(), reads: 1 },
       { route: 'Slow', token: 'USDC' as const, setup: () => undefined, reach: () => reachSlowUsdcReview(), reads: 2 }
     ])(
-      'fails a $route $token row once the re-read at Confirm times out, and opens no prompt',
+      'fails a $route $token row with the RPC timeout once the re-read at Confirm times out, and opens no prompt',
       async ({ token, setup, reach, reads }) => {
         setup();
         await renderWallet();
@@ -2140,6 +2151,7 @@ describe('EvmBridgeDepositScreen holds a deposit to the wallet balance', () => {
             `bridgeDepositBalanceReadFailed ${JSON.stringify({ token: LABEL[token], network: 'Sepolia' })}`
           )
         );
+        expect(reportedEvmError()).toBe('timeout');
         expectNoPrompt();
         expect(epochState.executeEVMToMiden).not.toHaveBeenCalled();
       }
