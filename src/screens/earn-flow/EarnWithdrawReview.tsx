@@ -13,7 +13,7 @@ import { gaslessEarnWithdrawalToMiden } from 'lib/epoch';
 import { quoteEarnWithdrawal, type EarnWithdrawalQuote } from 'lib/epoch/earn-withdraw-quote';
 import { withdrawalAmount, withdrawalAmountError } from 'lib/epoch/withdraw-amount';
 import { useAccount } from 'lib/miden/front';
-import { goBack, navigate, useLocation } from 'lib/woozie';
+import { goBack, navigate, Redirect, useLocation } from 'lib/woozie';
 import { truncateAddress } from 'utils/string';
 
 import { EarnAmountUnit, EarnAssetMark, EarnHero, EarnSubjectSubtitle, earnSubjectTitle } from './components';
@@ -25,7 +25,7 @@ interface EarnWithdrawReviewProps {
   positionId: string;
 }
 
-/** Review the fixed selected amount. Legacy full-withdraw links retain their recovery path. */
+/** Review the selected amount against its quote. A URL without an amount goes back to the amount step. */
 const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
   const { t } = useTranslation();
   const { positions, isLoading, error, refetch } = useEarnPositions();
@@ -36,23 +36,18 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
   const withdrawSymbol = found?.asset ?? 'USDC';
   const { search } = useLocation();
   const requested = new URLSearchParams(search).get('amount');
-  // Older deep links have no amount. Snapshot their full amount once; later reads cannot increase it.
-  const legacy = useRef<{ id: string; amount: string }>();
-  if (found && legacy.current?.id !== positionId) legacy.current = { id: positionId, amount: found.withdrawable };
-  const amount = requested ?? legacy.current?.amount ?? '0';
+  const amount = requested ?? '';
   const validation = withdrawalAmountError(amount, position.withdrawable, position.decimals);
   const [quote, setQuote] = useState<EarnWithdrawalQuote>();
   const [quoteError, setQuoteError] = useState<string>();
   const [refresh, setRefresh] = useState(0);
   const submitting = useRef(false);
-  const latest = useRef({ accountId: account.publicKey, owner: account.evmAddress, position, amount });
-  latest.current = { accountId: account.publicKey, owner: account.evmAddress, position, amount };
   useEffect(() => {
     let active = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
     setQuote(undefined);
     setQuoteError(undefined);
-    if (requested !== null && found && !found.stale && !validation) {
+    if (found && !found.stale && !validation) {
       void quoteEarnWithdrawal({ position: found, amount, accountId: account.publicKey })
         .then(next => {
           if (!active) return;
@@ -76,10 +71,13 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
       active = false;
       clearTimeout(timer);
     };
-  }, [requested, amount, found, account.publicKey, account.evmAddress, validation, refresh]);
+  }, [amount, found, account.publicKey, account.evmAddress, validation, refresh]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
+
+  // Every submission carries a quote, so an unquoted full-balance withdrawal has no way in.
+  if (requested === null) return <Redirect to={`/earn/positions/${encodeURIComponent(positionId)}/withdraw`} />;
   const selectedUnits = withdrawalAmount(amount, position.decimals);
   const availableUnits = withdrawalAmount(position.withdrawable, position.decimals);
   const remaining =
@@ -104,7 +102,7 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
   // `Button` fires the tap haptic itself; calling it here too would buzz twice.
   const handleWithdraw = async () => {
     // A position the latest read did not load signs nothing; the disabled button and the notice say why.
-    if (submitting.current || isSubmitting || position.stale || validation || (requested !== null && !quote)) return;
+    if (submitting.current || isSubmitting || position.stale || validation || !quote) return;
     if (!account.evmAddress || account.evmAddress.toLowerCase() !== position.owner.toLowerCase()) {
       setSubmitError(t('earnWithdrawNotOwned'));
       return;
@@ -113,23 +111,13 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
     setIsSubmitting(true);
     setSubmitError(null);
     try {
-      const current = latest.current;
-      if (
-        current.accountId !== account.publicKey ||
-        current.owner !== account.evmAddress ||
-        current.position.stale ||
-        current.position.withdrawable !== position.withdrawable ||
-        current.amount !== amount
-      ) {
-        throw new Error('earnWithdrawRefresh');
-      }
       await gaslessEarnWithdrawalToMiden({
         midenAccountPublicKey: account.publicKey,
         evmAddress: account.evmAddress,
         marketUid: position.marketUid,
         underlyingAddress: position.underlyingAddress,
         amount,
-        ...(quote ? { review: quote } : {}),
+        review: quote,
         underlyingDecimals: position.decimals,
         // No Miden-side transaction happens (gasless EVM intent sign), so the
         // handoff goes to the bespoke withdraw status screen — not the
@@ -141,10 +129,8 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
       // generating screen renders the failed phase; this only surfaces
       // pre-row validation errors.
       setSubmitError(e instanceof Error ? t(e.message) : t('earnGaslessWithdrawalFailed'));
-      if (requested !== null) {
-        setQuote(undefined);
-        setQuoteError('earnWithdrawRefresh');
-      }
+      setQuote(undefined);
+      setQuoteError('earnWithdrawRefresh');
     } finally {
       submitting.current = false;
       setIsSubmitting(false);
@@ -178,13 +164,7 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
                 variant={ButtonVariant.Primary}
                 accent="earn"
                 onClick={handleWithdraw}
-                disabled={
-                  isSubmitting ||
-                  Boolean(validation) ||
-                  !position.id ||
-                  position.stale ||
-                  (requested !== null && !quote)
-                }
+                disabled={isSubmitting || Boolean(validation) || !position.id || position.stale || !quote}
                 className="w-full max-w-none"
               />
             </>
@@ -199,72 +179,54 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
             <EarnHero
               labelId="earn-withdraw-review-amount"
               value={
-                requested !== null ? (
-                  expectedReceipt && quote ? (
-                    <>
-                      <span className="text-hero-name text-muted">≈ </span>
-                      {formatMoneyAmount(expectedReceipt, 'receives', quote.destinationSymbol)}
-                    </>
-                  ) : (
-                    EARN_PLACEHOLDER
-                  )
+                expectedReceipt && quote ? (
+                  <>
+                    <span className="text-hero-name text-muted">≈ </span>
+                    {formatMoneyAmount(expectedReceipt, 'receives', quote.destinationSymbol)}
+                  </>
                 ) : (
-                  formatMoneyAmount(amount, 'receives', withdrawSymbol)
+                  EARN_PLACEHOLDER
                 )
               }
               valueClassName="text-ink break-words"
-              unit={
-                requested !== null ? (
-                  quote && <EarnAmountUnit symbol={quote.destinationSymbol} />
-                ) : (
-                  <EarnAmountUnit symbol={withdrawSymbol} />
-                )
-              }
-              label={t(requested !== null ? 'youReceive' : 'earnWithdrawAmount')}
+              unit={quote && <EarnAmountUnit symbol={quote.destinationSymbol} />}
+              label={t('youReceive')}
               layout="label-first"
             >
               <p className="mt-2 text-caption text-muted face-heading">{t('earnWithdrawDeliverySummary')}</p>
             </EarnHero>
 
             {/* Keep the financial choices visible. Exact amounts and route context stay available in Details. */}
-            {requested !== null && (
-              <>
-                {(validation || quoteError) && (
-                  <Notice tone="negative" role="alert">
-                    {t(validation ?? quoteError!, { decimals: position.decimals })}
-                  </Notice>
-                )}
-                {quoteError && (
-                  <Button
-                    title={t('earnWithdrawRefreshQuote')}
-                    variant={ButtonVariant.Secondary}
-                    disabled={isSubmitting}
-                    onClick={() => {
-                      setSubmitError(null);
-                      refetch();
-                      setRefresh(n => n + 1);
-                    }}
-                  />
-                )}
-              </>
+            {(validation || quoteError) && (
+              <Notice tone="negative" role="alert">
+                {t(validation ?? quoteError!, { decimals: position.decimals })}
+              </Notice>
+            )}
+            {quoteError && (
+              <Button
+                title={t('earnWithdrawRefreshQuote')}
+                variant={ButtonVariant.Secondary}
+                disabled={isSubmitting}
+                onClick={() => {
+                  setSubmitError(null);
+                  refetch();
+                  setRefresh(n => n + 1);
+                }}
+              />
             )}
             <DetailCard face="heading">
-              {requested !== null && (
-                <>
-                  <DetailRow
-                    label={t('earnWithdrawYouWithdraw')}
-                    sub={amount === position.withdrawable ? t('earnWithdrawAll') : undefined}
-                  >
-                    <span>
-                      {compact(amount, withdrawSymbol)} {withdrawSymbol}
-                    </span>
-                  </DetailRow>
-                  <DetailRow label={t('earnWithdrawStaysInvested')} data-testid="earn-withdraw-remaining">
-                    {remainingLabel}
-                  </DetailRow>
-                  <DetailRow label={t('earnWithdrawMinimumReceipt')}>{minimumLabel}</DetailRow>
-                </>
-              )}
+              <DetailRow
+                label={t('earnWithdrawYouWithdraw')}
+                sub={amount === position.withdrawable ? t('earnWithdrawAll') : undefined}
+              >
+                <span>
+                  {compact(amount, withdrawSymbol)} {withdrawSymbol}
+                </span>
+              </DetailRow>
+              <DetailRow label={t('earnWithdrawStaysInvested')} data-testid="earn-withdraw-remaining">
+                {remainingLabel}
+              </DetailRow>
+              <DetailRow label={t('earnWithdrawMinimumReceipt')}>{minimumLabel}</DetailRow>
               <DetailDisclosure
                 title={t('details')}
                 summary={`${position.network} → Miden`}
