@@ -1,6 +1,4 @@
-import { toFixedRoundedDown } from 'lib/i18n/numbers';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
-import { accountIdStringToSdk } from 'lib/miden/sdk/helpers';
 import {
   getNativeAssetIdSync,
   getNativeAssetMetadataSync,
@@ -12,7 +10,6 @@ import { isE2eFixtureSymbol } from 'lib/prices/constant';
 import { getBridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import type { SwapPairsToken } from 'lib/remote-config/swap-pairs';
 import { selectSwapPairs } from 'lib/remote-config/values';
-import { withRequestTimeout } from 'lib/remote-json';
 
 import { bridgePriceAllowlist, type PricedFaucet } from './bridge-price-allowlist';
 import { canonicalFaucetId, normalizedFaucetId } from './faucet-ids';
@@ -258,102 +255,4 @@ export function tokenQuote(
   symbol: string
 ): TokenPriceInfo | undefined {
   return faucetId ? quotedPrice(prices, priceSymbolFor(faucetId, symbol)) : undefined;
-}
-
-/**
- * A single quote for an (offered, requested) pair from the DEX `swap-eta`
- * endpoint. It rolls the oracle fair rate together with live fill signals, so
- * the swap flow needs just this one call instead of two per-token price fetches.
- */
-export interface SwapEta {
-  /** Does the order cross resting liquidity right now (at the asked price)? */
-  canFill: boolean;
-  /** Next-batch ETA in seconds, set when `canFill` is true. */
-  estimatedSeconds: number | null;
-  /** Is the asked price worse than the live oracle? */
-  offMarket: boolean | null;
-  /** Oracle fair rate: requested whole tokens per 1 offered whole token. */
-  marketPrice: string | null;
-  /** Median settle time (s) for this pair over the last 24h, null if no data. */
-  median24hSeconds: number | null;
-}
-
-/**
- * Fetch a `SwapEta` for an offered → requested pair from the quote service the
- * network's bridge config names (`swap.etaUrl`). Amounts are raw base units
- * (bigint); faucets are converted to their canonical hex account ids. The
- * oracle `marketPrice` is amount-independent, so passing `0n` for
- * `requestAmountRaw` still returns a usable rate to seed the receive field.
- * Rejects at once, with no request, while the document names no service: the
- * form then reads the quote as unavailable and takes the amounts by hand.
- */
-
-/** Abort a quote request whose response and body have not both arrived within this window. */
-const SWAP_ETA_FETCH_TIMEOUT_MS = 10_000;
-
-/** Thrown by `getSwapEta` while the accepted document names no quote service. */
-export class SwapEtaUnavailableError extends Error {
-  constructor() {
-    super('The bridge config names no swap quote service (swap.etaUrl).');
-    this.name = 'SwapEtaUnavailableError';
-  }
-}
-
-export async function getSwapEta(
-  offerToken: SwapToken,
-  offerAmountRaw: bigint,
-  requestToken: SwapToken,
-  requestAmountRaw: bigint
-): Promise<SwapEta> {
-  const etaUrl = getBridgeConfigSnapshot().config?.swap?.etaUrl;
-  if (etaUrl === undefined) throw new SwapEtaUnavailableError();
-  const params = new URLSearchParams({
-    offered_faucet: accountIdStringToSdk(offerToken.faucetId).toString(),
-    offered_amount: offerAmountRaw.toString(),
-    requested_faucet: accountIdStringToSdk(requestToken.faucetId).toString(),
-    requested_amount: requestAmountRaw.toString()
-  });
-
-  return withRequestTimeout(SWAP_ETA_FETCH_TIMEOUT_MS, async signal => {
-    const res = await fetch(`${etaUrl}/v1/swap-eta?${params.toString()}`, { signal });
-    if (!res.ok) {
-      throw new Error(`Swap ETA request failed for ${offerToken.symbol}→${requestToken.symbol}: ${res.status}`);
-    }
-    const json: SwapEta = await res.json();
-    return json;
-  });
-}
-
-/**
- * Fraction shaved off the fair USD-derived quote so a filler/solver that
- * consumes the PSWAP note has margin to do so profitably. The user receives
- * `1 - SOLVER_MARGIN` of the price-fair amount.
- */
-export const SOLVER_MARGIN = 0.05;
-
-/**
- * Derive the requested-token amount from the offered amount and the oracle
- * `marketPrice` (requested whole tokens per 1 offered whole token): the fair
- * quote is `offered * marketPrice`, discounted by `SOLVER_MARGIN` so a filler
- * has margin to take the order. Rounded down to the requested token's
- * precision; returns '' when the inputs aren't usable yet (no amount, no rate,
- * or a non-positive result).
- */
-export function deriveRequestAmount(
-  offerAmount: string,
-  marketPrice: string | null | undefined,
-  decimals: number
-): string {
-  const offered = Number(offerAmount);
-  const rate = Number(marketPrice);
-  if (!offered || !rate || !Number.isFinite(rate)) {
-    return '';
-  }
-  const quote = offered * rate * (1 - SOLVER_MARGIN);
-  if (!Number.isFinite(quote) || quote <= 0) {
-    return '';
-  }
-  const fixed = toFixedRoundedDown(quote, decimals);
-  const formatted = fixed.includes('.') ? fixed.replace(/\.?0+$/, '') : fixed;
-  return formatted === '0' ? '' : formatted;
 }

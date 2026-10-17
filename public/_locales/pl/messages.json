@@ -1812,14 +1812,97 @@
     "message": "Ocena",
     "englishSource": "Rate"
   },
-  "swapSolverFeeNote": {
-    "message": "Kwota, którą otrzymasz, obejmuje już opłatę za rozwiązanie zadania w serwisie $percent$.",
-    "englishSource": "Your receive amount already includes a $percent$ solver fee.",
+  "swapRateNote": {
+    "message": "Kurs to maksymalna kwota, jaką solver wypełnia w danej chwili, z uwzględnioną już opłatą w wysokości $fee$. Kwota, którą otrzymasz, to ten kurs pomniejszony o poślizg cenowy w wysokości $slippage$.",
+    "englishSource": "The rate is the most the solver fills at right now, with its $fee$ fee already in it. Your receive amount is that rate less your $slippage$ slippage.",
     "placeholders": {
-      "percent": {
+      "fee": {
         "content": "$1"
+      },
+      "slippage": {
+        "content": "$2"
       }
     }
+  },
+  "swapFillStatus": {
+    "message": "Wypełnienie",
+    "englishSource": "Fill"
+  },
+  "swapVerdictSettlementDelayed": {
+    "message": "Opóźnienie rozliczenia. Twoje zlecenie zostanie wstrzymane.",
+    "englishSource": "Settlement delayed. Your order will wait."
+  },
+  "swapVerdictNoMarket": {
+    "message": "Ta para nie jest przedmiotem obrotu.",
+    "englishSource": "This pair isn't traded."
+  },
+  "swapVerdictNoPrice": {
+    "message": "Ceny są obecnie niedostępne. Spróbuj ponownie za chwilę.",
+    "englishSource": "Prices are unavailable right now. Try again shortly."
+  },
+  "swapVerdictOffMarket": {
+    "message": "Cena uległa zmianie. Odśwież notowania.",
+    "englishSource": "The price moved. Refresh the quote."
+  },
+  "swapVerdictNoLiquidity": {
+    "message": "W tej chwili nie ma wystarczającej liczby zleceń po aktualnej cenie.",
+    "englishSource": "Not enough orders at the current price right now."
+  },
+  "swapVerdictTolerated": {
+    "message": "Może to potrwać dłużej: zlecenie zostanie zrealizowane, gdy cena nieznacznie się zmieni.",
+    "englishSource": "May take longer: fills when the price moves slightly."
+  },
+  "swapVerdictPartial": {
+    "message": "Obecnie realizowana jest tylko część tego zlecenia; reszta pozostaje w oczekiwaniu.",
+    "englishSource": "Only part of this order fills now; the rest waits."
+  },
+  "swapVerdictFull": {
+    "message": "Realizacja po aktualnej cenie.",
+    "englishSource": "Fills at the current price."
+  },
+  "swapVerdictExpected": {
+    "message": "Otrzymujesz około $amount$ $symbol$.",
+    "englishSource": "You receive about $amount$ $symbol$.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "swapSlippage": {
+    "message": "Poślizg cenowy",
+    "englishSource": "Slippage"
+  },
+  "percentSign": {
+    "message": "%",
+    "englishSource": "%"
+  },
+  "swapSlippageNote": {
+    "message": "O ile poniżej aktualnego kursu może zostać zrealizowane zlecenie. W sieci testowej zlecenie powyżej około 0,25% nie zostaje zrealizowane.",
+    "englishSource": "How far below the current rate your order may fill. On testnet an order above about 0.25% does not fill."
+  },
+  "swapSlippageEditedNote": {
+    "message": "Kwotę do otrzymania ustalasz samodzielnie, więc poślizg cenowy nie ma zastosowania do tego zlecenia.",
+    "englishSource": "You set the receive amount yourself, so slippage does not apply to this order."
+  },
+  "swapSlippageRange": {
+    "message": "Wprowadź wartość procentową z przedziału od $min$ do $max$ z maksymalnie dwoma miejscami po przecinku.",
+    "englishSource": "Enter a percent from $min$ to $max$ with up to two decimals.",
+    "placeholders": {
+      "min": {
+        "content": "$1"
+      },
+      "max": {
+        "content": "$2"
+      }
+    }
+  },
+  "swapPriceMoved": {
+    "message": "Cena uległa zmianie. Sprawdź nową kwotę i spróbuj ponownie.",
+    "englishSource": "The price moved. Check the new amount and try again."
   },
   "usuallyFillsIn": {
     "message": "Zazwyczaj wypełnia",
@@ -3317,6 +3400,14 @@
   "feeReserveBlocksSend": {
     "message": "Twoje USDCX są zarezerwowane na opłatę sieciową. Otrzymaj więcej USDCX, aby móc je wysłać.",
     "englishSource": "Your USDCX is reserved for the network fee. Receive more USDCX to send."
+  },
+  "usdcxBurnFeeMeasuring": {
+    "message": "Opłatę sieciową związaną z tym spaleniem można sprawdzić przed podaniem kwoty.",
+    "englishSource": "Measuring this burn's network fee before the amount can be checked."
+  },
+  "usdcxBurnFeeUnavailable": {
+    "message": "Nie można zmierzyć opłaty sieciowej za to spalenie, więc kwota nie może zostać sprawdzona. Wybierz inne miejsce docelowe, aby spróbować ponownie.",
+    "englishSource": "Unable to measure this burn's network fee, so the amount cannot be checked. Choose another destination to try again."
   },
   "insufficientFeeAsset": {
     "message": "Aby uiścić opłatę sieciową, potrzebujesz USDCX. Odbierz trochę USDCX, aby kontynuować.",

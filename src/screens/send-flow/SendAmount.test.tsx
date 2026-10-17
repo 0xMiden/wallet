@@ -163,6 +163,14 @@ describe('SendAmount', () => {
     expect(props.onAmountChange).toHaveBeenCalledWith('12.3456');
   });
 
+  it('keeps Max visible but inert while the caller disables it', () => {
+    const props = renderAmount({ maxDisabled: true });
+
+    expect(screen.getByTestId('send-amount-max')).toBeDisabled();
+    fireEvent.click(screen.getByTestId('send-amount-max'));
+    expect(props.onAmountChange).not.toHaveBeenCalled();
+  });
+
   it('opens the token picker from the token row', () => {
     const props = renderAmount({ token: undefined });
 

@@ -513,6 +513,8 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
     }
     case WalletMessageType.ReportTelemetryEventRequest:
       return Actions.handleReportTelemetryEvent(req);
+    case WalletMessageType.EstimateUsdcxBurnFeeRequest:
+      return Actions.estimateUsdcxBurnFee(req);
     case WalletMessageType.GetStateRequest:
       const state = await Actions.getFrontState();
       return {

@@ -22,6 +22,7 @@ import {
   SerializedConsumableNote,
   SignEvmOperation,
   SeedPhraseStatus,
+  UsdcxBurnFeeEstimate,
   WalletAccount,
   WalletBackupMaterial,
   WalletSettings,
@@ -227,6 +228,8 @@ export interface WalletActions {
   // DApp actions
   getDAppPayload: (id: string) => Promise<any>;
   simulateCustomTransaction: (id: string) => Promise<{ summaryBytes?: string; executedBytes?: string; error?: string }>;
+  /** Native-asset base units a USDCx burn needs for its cost, from a dry run, or why it was not measured. */
+  estimateUsdcxBurnFee: (accountPublicKey: string, destinationChainId: number) => Promise<UsdcxBurnFeeEstimate>;
   confirmDAppPermission: (
     id: string,
     confirmed: boolean,

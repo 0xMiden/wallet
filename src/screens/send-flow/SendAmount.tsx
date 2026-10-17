@@ -33,6 +33,8 @@ export interface SendAmountProps {
   /** The values of the error copy's placeholders. */
   errorValues?: Record<string, string>;
   recipientAddress: string;
+  /** Keeps Max on screen but inert, while the token has no cap to fill it with. */
+  maxDisabled?: boolean;
   /** Saved contact name for the recipient, shown instead of the address. */
   recipientName?: string;
   network?: SendNetworkId;
@@ -56,6 +58,7 @@ export const SendAmount: React.FC<SendAmountProps> = ({
   error,
   errorValues,
   recipientAddress,
+  maxDisabled,
   recipientName,
   network,
   onAmountChange,
@@ -165,6 +168,7 @@ export const SendAmount: React.FC<SendAmountProps> = ({
               >
                 <Pill
                   onClick={() => onAmountChange(formatBalance(token.balance))}
+                  disabled={maxDisabled}
                   className="text-accent-send-ink"
                   data-testid="send-amount-max"
                 >
