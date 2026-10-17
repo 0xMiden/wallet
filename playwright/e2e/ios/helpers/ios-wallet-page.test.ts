@@ -9,6 +9,7 @@ import type { CdpSession } from './cdp-bridge';
 import { IosWalletPage, networkRowNames, routeOf } from './ios-wallet-page';
 import type { SimulatorControl } from './simulator-control';
 import { enText, usdcxPayoutRowsText, type BridgedSendRow } from '../../helpers/bridge';
+import { fakeConfirmationApp, type CreateAttemptOutcome } from '../../helpers/confirmation-app-fake';
 import { readTransactionRowsInPage } from '../../helpers/history';
 import { BRIDGE_SOURCE_NETWORK_JS } from '../../helpers/send-flow-scripts';
 import { BASE_SEPOLIA_PAYOUT } from '../../helpers/usdcx-constants';
@@ -812,5 +813,192 @@ describe('IosWalletPage transaction details', () => {
       txLinks: []
     });
     expect(bodies[0]).toContain(JSON.stringify(`${BASE_SEPOLIA_PAYOUT.explorer}/tx/`));
+  });
+});
+
+describe('IosWalletPage poll attribution', () => {
+  afterEach(() => jest.useRealTimers());
+
+  const WELCOME = '[data-testid="onboarding-welcome"]';
+  const WEDGED = `eval: CDP call did not return within 30000ms (WebView/RWI wedged) at ${HREF}`;
+
+  interface Polls {
+    pollForSelector(selector: string, timeoutMs: number): Promise<void>;
+    pollForCondition(jsBody: string, timeoutMs: number): Promise<void>;
+  }
+
+  async function outcomeOf(poll: (polls: Polls) => Promise<void>, reads: Array<() => unknown>): Promise<string> {
+    let call = 0;
+    const page = pageWith(async () => reads[Math.min(call++, reads.length - 1)]!());
+    jest.useFakeTimers();
+    const outcome = poll(page as unknown as Polls).then(
+      () => 'resolved',
+      (error: unknown) => (error instanceof Error ? error.message : String(error))
+    );
+    await jest.advanceTimersByTimeAsync(1_100);
+    return outcome;
+  }
+
+  const wedged = (): never => {
+    throw new Error(WEDGED);
+  };
+
+  // A session that died at attach failed its first poll as "onboarding-welcome did not appear" (run 39034367703).
+  it('names a dead session when no selector eval returned, with no URL query in it', async () => {
+    const message = await outcomeOf(polls => polls.pollForSelector(WELCOME, 1_000), [wedged]);
+
+    expect(message).toBe(
+      `pollForSelector: could not check ${WELCOME}: no CDP eval returned in 1000ms ` +
+        '(last error: eval: CDP call did not return within 30000ms (WebView/RWI wedged) at capacitor://localhost/#/send/review)'
+    );
+  });
+
+  it('keeps the old message once an eval returned and the selector was absent', async () => {
+    const message = await outcomeOf(polls => polls.pollForSelector(WELCOME, 1_000), [wedged, () => false]);
+
+    expect(message).toBe(`pollForSelector: ${WELCOME} did not appear within 1000ms`);
+  });
+
+  it('names a dead session when no condition eval returned', async () => {
+    const message = await outcomeOf(polls => polls.pollForCondition('return window.ready === true;', 1_000), [wedged]);
+
+    expect(message).toMatch(
+      /^pollForCondition: could not check return window\.ready === true;: no CDP eval returned in 1000ms \(last error: eval: CDP call did not return/
+    );
+  });
+
+  it('keeps the old message once a condition eval returned false', async () => {
+    const message = await outcomeOf(polls => polls.pollForCondition('return false;', 1_000), [() => false]);
+
+    expect(message).toMatch(/^pollForCondition: condition not met within 1000ms \S return false;$/);
+  });
+
+  it('still passes when a check holds after failed evals', async () => {
+    await expect(outcomeOf(polls => polls.pollForSelector(WELCOME, 1_000), [wedged, () => true])).resolves.toBe(
+      'resolved'
+    );
+    await expect(outcomeOf(polls => polls.pollForCondition('return true;', 1_000), [wedged, () => true])).resolves.toBe(
+      'resolved'
+    );
+  });
+});
+
+// A create whose first sync failed sat on Confirmation's failure screen until the 120 s Ready wait ran out
+// (run 39025104169, attempt 2).
+describe('IosWalletPage.waitForCreatedWalletReady', () => {
+  afterEach(() => jest.useRealTimers());
+
+  function confirmationApp(outcomes: CreateAttemptOutcome[], opts: { lagReads?: number; retryButton?: boolean } = {}) {
+    const { evalJs, clicks } = fakeConfirmationApp(outcomes, opts);
+    return { page: pageWith(evalJs), clicks };
+  }
+
+  async function outcomeOf(page: IosWalletPage, timeoutMs = 120_000): Promise<{ settled: boolean; outcome: string }> {
+    jest.useFakeTimers();
+    let settled = false;
+    const outcome = (page as unknown as { waitForCreatedWalletReady(label: string, timeoutMs: number): Promise<void> })
+      .waitForCreatedWalletReady('create(private)', timeoutMs)
+      .then(
+        () => 'ready',
+        (error: unknown) => (error instanceof Error ? error.message : String(error))
+      )
+      .finally(() => (settled = true));
+    await jest.advanceTimersByTimeAsync(10_000);
+    return { settled, outcome: settled ? await outcome : 'pending' };
+  }
+
+  it("is the wait a create runs after pressing Confirmation's button", async () => {
+    // The address read answers the account; the consent dismissal sees the home surface already up.
+    const page = pageWith(async js => (js.includes('publicKey') ? 'mtst1qcreated' : js.includes('explore-page')));
+    const waitForCreatedWalletReady = jest.fn(async () => undefined);
+    const click = jest.fn(async () => undefined);
+    Object.assign(page as unknown as Record<string, unknown>, {
+      pollForSelector: jest.fn(async () => undefined),
+      click,
+      waitForCreatedWalletReady
+    });
+    jest.useFakeTimers();
+
+    const created = page.createGuardianWallet('Password123!');
+    await jest.advanceTimersByTimeAsync(3_000);
+
+    await expect(created).resolves.toEqual({ address: 'mtst1qcreated', seedPhrase: [] });
+    expect(click).toHaveBeenCalledWith('[data-testid="onboarding-confirmation-submit"]');
+    expect(waitForCreatedWalletReady).toHaveBeenCalledWith('IosWalletPage.createWalletViaBypass(guardian)', 180_000);
+  });
+
+  it('waits for Ready without pressing anything when the create succeeds', async () => {
+    const { page, clicks } = confirmationApp(['ready']);
+
+    await expect(outcomeOf(page)).resolves.toEqual({ settled: true, outcome: 'ready' });
+    expect(clicks).toEqual([]);
+  });
+
+  it("presses the app's Retry once on the first failure screen and keeps waiting for Ready", async () => {
+    const { page, clicks } = confirmationApp(['fails', 'ready']);
+
+    await expect(outcomeOf(page)).resolves.toEqual({ settled: true, outcome: 'ready' });
+    expect(clicks).toEqual([0]);
+  });
+
+  it('fails at once, with the screen text, when the Retry fails too', async () => {
+    const { page, clicks } = confirmationApp(['fails', 'fails', 'ready']);
+
+    await expect(outcomeOf(page)).resolves.toEqual({
+      settled: true,
+      outcome:
+        'create(private): wallet creation failed again after one Retry: ' +
+        'Something went wrong Failed to sync state: RPC deadline exceeded Retry'
+    });
+    expect(clicks).toEqual([0]);
+  });
+
+  it('does not count the first failure twice while the screen still shows it after the Retry', async () => {
+    const { page, clicks } = confirmationApp(['fails', 'ready'], { lagReads: 2 });
+
+    await expect(outcomeOf(page)).resolves.toEqual({ settled: true, outcome: 'ready' });
+    expect(clicks).toEqual([0]);
+  });
+
+  // walletSetupDidNotComplete: the store turns Ready while the Notice from the timed-out wait is still up.
+  it('takes a Ready wallet as created while the failure screen still shows', async () => {
+    const { page, clicks } = confirmationApp(['ready-under-failure']);
+
+    await expect(outcomeOf(page)).resolves.toEqual({ settled: true, outcome: 'ready' });
+    expect(clicks).toEqual([]);
+  });
+
+  // A Retry that failed before any read saw it start, or a press that did nothing, leaves the screen unchanged.
+  it('fails at the deadline with the screen text when the failure screen never clears after the Retry', async () => {
+    const { page, clicks } = confirmationApp(['fails', 'fails'], { lagReads: Infinity });
+
+    await expect(outcomeOf(page, 5_000)).resolves.toEqual({
+      settled: true,
+      outcome:
+        'create(private): wallet creation still shows its failure screen after one Retry: ' +
+        'Something went wrong Failed to sync state: RPC deadline exceeded Retry'
+    });
+    expect(clicks).toEqual([0]);
+  });
+
+  it('keeps the plain timeout when the screen cleared after the Retry and the wallet never turned Ready', async () => {
+    const { page, clicks } = confirmationApp(['fails', 'creating'], { lagReads: 2 });
+
+    const { outcome } = await outcomeOf(page, 5_000);
+
+    expect(outcome).toMatch(/^pollForCondition: condition not met within 5000ms /);
+    expect(clicks).toEqual([0]);
+  });
+
+  it('fails at once with the screen text when the failure screen has no Retry to press', async () => {
+    const { page } = confirmationApp(['fails'], { retryButton: false });
+
+    const { outcome } = await outcomeOf(page);
+
+    expect(outcome).toBe(
+      'create(private): wallet creation failed and its Retry could not be pressed ' +
+        '(IosWalletPage.click: no element matched [data-testid="onboarding-confirmation-submit"]): ' +
+        'Something went wrong Failed to sync state: RPC deadline exceeded Retry'
+    );
   });
 });
