@@ -1265,6 +1265,12 @@ export interface ISwapExtraInputs {
    */
   orderNoteSpentAt?: number;
   /**
+   * Stamped on a Guardian-recovered order with its closing stamp once the node's lineage read finished. A settledAt or
+   * reclaimedAt without it is the pre-fix recovery reconcile's, written from a linked payout or reclaim with no
+   * lineage read, so it is provisional until the next read decides (#1487).
+   */
+  lineageClosedAt?: number;
+  /**
    * The open remainder a partial fill left of a Guardian-recovered order, as the node's lineage showed it: the note
    * its Cancel returns, since the order note is spent (#1487).
    */

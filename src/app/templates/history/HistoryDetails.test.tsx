@@ -4602,6 +4602,17 @@ describe('HistoryDetails Guardian-recovered swap order', () => {
     expect(screen.queryByTestId('swap-cancel-order-button')).not.toBeInTheDocument();
   });
 
+  // The refused-Cancel check or another realm can close it while the store still holds the poll's last open entry.
+  it('reads no stale open entry once its lineage closed it', async () => {
+    openOnNode();
+    setMockRow(recoveredOrderTx({ orderNoteSpentAt: 1_700_000_100, lineageClosedAt: 1_700_000_100 }));
+    await renderAndLoad();
+
+    expect(screen.getByTestId('status-pill')).toHaveAttribute('data-swap-settlement', 'undefined');
+    expect(screen.getByTestId('swap-order-status')).toHaveTextContent('trackingUnavailable');
+    expect(screen.queryByTestId('swap-cancel-order-button')).not.toBeInTheDocument();
+  });
+
   it('offers nothing once its lineage closed it settled', async () => {
     setMockRow(recoveredOrderTx({ settledAt: 1_700_000_100, lineageClosedAt: 1_700_000_100 }));
     await renderAndLoad();

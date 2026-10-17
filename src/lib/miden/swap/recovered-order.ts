@@ -17,6 +17,8 @@ export interface RecoveredSwapOrderRef {
   tipNoteId: string;
   tipDepth: number;
   tipOfferedAmount: bigint;
+  /** The row carries a settledAt or reclaimedAt no lineage read recorded, which an open read clears. */
+  provisionalClosure?: boolean;
 }
 
 const swapExtraOf = (tx: ITransaction): Partial<ISwapExtraInputs> => tx.extraInputs ?? {};
@@ -24,7 +26,8 @@ const swapExtraOf = (tx: ITransaction): Partial<ISwapExtraInputs> => tx.extraInp
 /**
  * A swap order Guardian history recovery rebuilt. Whether it is closed is its lineage's to say on the node, so only
  * `closeRecoveredSwapOrder` stamps its settlement or reclaim, once the walk reads finished, from the consumes linked
- * to it: one of them may be a partial fill's payout while the remainder is still open (#1487).
+ * to it, and records `lineageClosedAt` with it: one of them may be a partial fill's payout while the remainder is
+ * still open (#1487).
  */
 export const isRecoveredSwapOrder = (tx: ITransaction): boolean => tx.type === 'swap' && tx.recovered === true;
 
@@ -42,14 +45,17 @@ export function recoveredOrderNoteId(tx: ITransaction): string | undefined {
   return candidates.length === 1 && note && tx.outputNoteIds?.includes(note.id) ? note.id : undefined;
 }
 
-/** The recovered order while nothing has closed it: no settlement, no reclaim, no spent order note. */
+/**
+ * The recovered order while its lineage has not closed it: no recorded close and no spent order note. A settledAt or
+ * reclaimedAt with no record is the pre-fix recovery reconcile's, so the order is still tracked and its next read
+ * decides (#1487).
+ */
 export function recoveredSwapOrderRef(tx: ITransaction): RecoveredSwapOrderRef | undefined {
   const extra = swapExtraOf(tx);
   if (
     tx.recovered !== true ||
     tx.status !== ITransactionStatus.Completed ||
-    extra.settledAt != null ||
-    extra.reclaimedAt != null ||
+    extra.lineageClosedAt != null ||
     extra.orderNoteSpentAt != null ||
     typeof tx.amount !== 'bigint' ||
     typeof extra.requestedAmount !== 'bigint' ||
@@ -77,7 +83,8 @@ export function recoveredSwapOrderRef(tx: ITransaction): RecoveredSwapOrderRef |
     requestedAmount: extra.requestedAmount,
     tipNoteId: tip?.noteId ?? noteId,
     tipDepth: tip?.depth ?? 0,
-    tipOfferedAmount: tip?.remainingOffered ?? tx.amount
+    tipOfferedAmount: tip?.remainingOffered ?? tx.amount,
+    ...(extra.settledAt != null || extra.reclaimedAt != null ? { provisionalClosure: true } : {})
   };
 }
 
