@@ -301,6 +301,11 @@ jest.mock('lib/miden/sdk/miden-client-interface', () => {
   };
 });
 
+// The dry run's request preparation, which reads the account through the client, answered per test.
+jest.mock('lib/miden/sdk/custom-request', () => ({
+  prepareCustomRequestBytes: (...a: any[]) => (globalThis as any).__off.prepareCustomRequestBytes(...a)
+}));
+
 // #945: every local prove in this document goes to the prove worker client, which
 // is replaced here by a fake transport. The default proof bytes are [1, 2, 3].
 const mockProveTransport = {
@@ -351,6 +356,8 @@ function resetControl() {
     // guardianPipeline hands to executeRequest. Echo the bytes so the test can
     // assert the co-signed request crossed intact.
     deserializeTxRequest: jest.fn((b: Uint8Array) => ({ __trFromBytes: Array.from(b), authArg: () => undefined })),
+    // The dry run's request preparation; the bytes pass through unless a test holds or changes them.
+    prepareCustomRequestBytes: jest.fn(async (_client: unknown, _account: string, bytes: Uint8Array) => bytes),
     // Slice 7b: Note.deserialize(noteBytes) → a live-Note handle the sendPrivateNote
     // DISPATCH hands to the client. Echo the bytes so the test can assert the note
     // crossed intact.
@@ -2757,6 +2764,107 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     const resp = sendResponse.mock.calls[0][0];
     expect(resp.ok).toBe(false);
     expect(resp.errorName).toBe('WasmClientPoisonedError');
+  });
+
+  describe('dryRunTransaction (the USDCx burn fee probe)', () => {
+    const REQUEST = new Uint8Array([1, 2, 3]);
+    const dryRunReq = (op_id = 'op-dry-run') =>
+      callReq({ op_id, method: 'dryRunTransaction', argsB64: [encodeArg('0xaccount'), encodeArg(REQUEST)] });
+    const decoded = (resp: { resultB64: string }) => JSON.parse(Buffer.from(resp.resultB64, 'base64').toString('utf8'));
+
+    it("executes the request on this document's client with no sync and no note import", async () => {
+      await loadModule();
+      const { executeForSummaryAtTip } = await import('@openzeppelin/miden-multisig-client');
+      const sendResponse = jest.fn();
+
+      capturedListener!(dryRunReq(), {}, sendResponse);
+      await flush();
+
+      const resp = sendResponse.mock.calls[0][0];
+      expect(resp.ok).toBe(true);
+      // The multisig mock's summary serializes to [0xab].
+      expect(decoded(resp)).toEqual({ summaryBytes: Buffer.from([0xab]).toString('base64') });
+      const client = await G.__off.getMidenClient.mock.results[0].value;
+      expect(G.__off.prepareCustomRequestBytes).toHaveBeenCalledWith(
+        client.client,
+        '0xaccount',
+        REQUEST,
+        expect.objectContaining({ mock: 'wasm-lock-hold' })
+      );
+      expect(executeForSummaryAtTip).toHaveBeenCalledWith(client.client, '0xaccount', {
+        __trFromBytes: [1, 2, 3],
+        authArg: expect.any(Function)
+      });
+      expect(G.__off.clientSyncState).not.toHaveBeenCalled();
+      expect(G.__off.clientSyncChain).not.toHaveBeenCalled();
+      expect(G.__off.clientImportNoteBytes).not.toHaveBeenCalled();
+    });
+
+    it('executes locally when the account is already fully authorized, still submitting nothing', async () => {
+      await loadModule();
+      const { executeForSummaryAtTip } = await import('@openzeppelin/miden-multisig-client');
+      jest
+        .mocked(executeForSummaryAtTip)
+        .mockRejectedValueOnce(new Error('TRANSACTION_ALREADY_AUTHORIZED: already fully authorized'));
+      const sendResponse = jest.fn();
+
+      capturedListener!(dryRunReq(), {}, sendResponse);
+      await flush();
+
+      const resp = sendResponse.mock.calls[0][0];
+      expect(resp.ok).toBe(true);
+      expect(decoded(resp)).toEqual({ executedBytes: Buffer.from([55, 66, 77]).toString('base64') });
+      expect(G.__off.guardianExecuteRequest).toHaveBeenCalledWith('0xaccount', {
+        __trFromBytes: [1, 2, 3],
+        authArg: expect.any(Function)
+      });
+      expect(G.__off.guardianSubmitted).toBe(false);
+    });
+
+    it.each([
+      ['an execution failure', () => new Error('the kernel assertion failed')],
+      ['a trap', () => new WebAssembly.RuntimeError('unreachable')]
+    ])('reports %s as it stands, with no local retry', async (_kind, failure) => {
+      await loadModule();
+      const { executeForSummaryAtTip } = await import('@openzeppelin/miden-multisig-client');
+      const error = failure();
+      jest.mocked(executeForSummaryAtTip).mockRejectedValueOnce(error);
+      const sendResponse = jest.fn();
+
+      capturedListener!(dryRunReq(), {}, sendResponse);
+      await flush();
+
+      const resp = sendResponse.mock.calls[0][0];
+      expect(resp.ok).toBe(false);
+      expect(resp.error).toBe(error.message);
+      expect(G.__off.guardianExecuteRequest).not.toHaveBeenCalled();
+    });
+
+    it('refuses to execute once an eviction took its hold during the request preparation', async () => {
+      await loadModule();
+      const miden: any = await import('lib/miden/sdk/miden-client');
+      const { executeForSummaryAtTip } = await import('@openzeppelin/miden-multisig-client');
+      let releasePreparation: (() => void) | undefined;
+      G.__off.prepareCustomRequestBytes = jest.fn(async (_client: unknown, _account: string, bytes: Uint8Array) => {
+        await new Promise<void>(resolve => {
+          releasePreparation = resolve;
+        });
+        return bytes;
+      });
+      const sendResponse = jest.fn();
+
+      capturedListener!(dryRunReq('op-dry-run-evicted'), {}, sendResponse);
+      await flush();
+      miden.__evictHolder();
+      releasePreparation?.();
+      await flush();
+
+      expect(executeForSummaryAtTip).not.toHaveBeenCalled();
+      expect(G.__off.deserializeTxRequest).not.toHaveBeenCalled();
+      const resp = sendResponse.mock.calls[0][0];
+      expect(resp.ok).toBe(false);
+      expect(resp.errorName).toBe('WasmClientPoisonedError');
+    });
   });
 
   it('getInputNoteDetails maps a JSON-null query arg back to undefined for the SDK', async () => {

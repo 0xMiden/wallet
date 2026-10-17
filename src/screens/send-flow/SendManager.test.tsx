@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 
 import { TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET } from 'lib/epoch/testing/bridge-config';
 import { TEST_SWAP_TOKENS, TEST_TOKEN_IBTC, TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
@@ -200,6 +200,7 @@ jest.mock('./SendAmount', () => ({
       <span data-testid="sa-scale-known">{props.token ? String(props.token.scaleIsKnown) : ''}</span>
       <span data-testid="sa-amount">{props.amount}</span>
       <span data-testid="sa-valid">{String(props.isValidAmount)}</span>
+      <span data-testid="sa-max-disabled">{String(!!props.maxDisabled)}</span>
       <span data-testid="sa-error">{props.error ?? ''}</span>
       <span data-testid="sa-error-values">{JSON.stringify(props.errorValues ?? null)}</span>
       <span data-testid="sa-recipient">{props.recipientName ?? props.recipientAddress}</span>
@@ -309,8 +310,15 @@ jest.mock('./SendRoute', () => ({
       <span data-testid="route-usdcx-payout">
         {props.usdcxPayout ? `${props.usdcxPayout.chainId}:${props.usdcxPayout.amount}` : ''}
       </span>
+      <button data-testid="route-confirm" onClick={props.onConfirm} />
     </>
   )
+}));
+
+// The burn fee dry run behind `useBurnFeeReserve`; it never answers unless a case says otherwise.
+const mockEstimateUsdcxBurnFee = jest.fn<Promise<bigint | null>, [string, number]>(() => new Promise(() => {}));
+jest.mock('lib/miden/front/client', () => ({
+  useMidenContext: () => ({ estimateUsdcxBurnFee: mockEstimateUsdcxBurnFee })
 }));
 
 jest.mock('lib/miden/front', () => ({
@@ -2224,5 +2232,133 @@ describe('USDCx withdrawal wiring', () => {
 
     pickToken(otherToken);
     expect(screen.getByTestId('route-usdcx-payout')).toBeEmptyDOMElement();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The measured fee reserve of a USDCx burn of the native token.
+// ---------------------------------------------------------------------------
+describe('USDCx burn fee reserve', () => {
+  // 9.909734 USDCx at base fee 7: the static reserve holds back 210 base units (cap 9.909524) and the measured one
+  // 315 (cap 9.909419), so 9.9095 fits only the static cap.
+  const NATIVE = 'MIDEN-ID';
+  const never = () => new Promise<bigint | null>(() => {});
+
+  const openBurn = (step: SendFlowStep, amount = '') => {
+    setSendDraft({
+      amount,
+      recipientAddress: '0xrecip',
+      tokenId: NATIVE,
+      bridgeNetwork: 'arc-testnet',
+      bridgeRoute: 'usdcx'
+    });
+    mockCardStack = [{ name: step }];
+    return renderFlow();
+  };
+
+  const typeAmount = (value: string) => {
+    act(() => {
+      fireEvent.change(screen.getByTestId('sa-input'), { target: { value } });
+    });
+  };
+
+  beforeEach(() => {
+    mockUsdcxTokenId = NATIVE;
+    mockBaseFee = 7;
+    stringToBigIntMock.mockImplementation((s: string) => BigInt(Math.round(parseFloat(s) * 1_000_000)));
+    useAllBalancesMock.mockReturnValue({
+      data: [{ tokenId: NATIVE, metadata: { symbol: 'USDCx', decimals: 6 }, balance: 9.909734, fiatPrice: 0 }]
+    });
+    mockEstimateUsdcxBurnFee.mockReset().mockImplementation(never);
+  });
+
+  it('disables Max and Continue and says the fee is being measured before any amount is typed', () => {
+    openBurn(SendFlowStep.SelectAmount);
+
+    expect(screen.getByTestId('sa-max-disabled')).toHaveTextContent(/^true$/);
+    expect(screen.getByTestId('sa-valid')).toHaveTextContent(/^false$/);
+    expect(screen.getByTestId('sa-error')).toHaveTextContent(/^usdcxBurnFeeMeasuring$/);
+    expect(mockEstimateUsdcxBurnFee).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the measuring message and Continue disabled for an amount below the static cap', () => {
+    openBurn(SendFlowStep.SelectAmount);
+
+    typeAmount('5');
+
+    expect(screen.getByTestId('sa-error')).toHaveTextContent(/^usdcxBurnFeeMeasuring$/);
+    expect(screen.getByTestId('sa-valid')).toHaveTextContent(/^false$/);
+  });
+
+  it('keeps Max and Continue disabled with the failure message once the estimate and its retry fail', async () => {
+    mockEstimateUsdcxBurnFee.mockResolvedValue(null);
+    openBurn(SendFlowStep.SelectAmount);
+
+    await waitFor(() => expect(mockEstimateUsdcxBurnFee).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.getByTestId('sa-error')).toHaveTextContent(/^usdcxBurnFeeUnavailable$/));
+    typeAmount('5');
+
+    expect(screen.getByTestId('sa-error')).toHaveTextContent(/^usdcxBurnFeeUnavailable$/);
+    expect(screen.getByTestId('sa-max-disabled')).toHaveTextContent(/^true$/);
+    expect(screen.getByTestId('sa-valid')).toHaveTextContent(/^false$/);
+    expect(mockEstimateUsdcxBurnFee).toHaveBeenCalledTimes(2);
+  });
+
+  it('caps the amount at the measured reserve once it lands', async () => {
+    mockEstimateUsdcxBurnFee.mockResolvedValue(315n);
+    openBurn(SendFlowStep.SelectAmount);
+    await act(async () => {});
+
+    expect(screen.getByTestId('sa-max-disabled')).toHaveTextContent(/^false$/);
+    expect(Number(screen.getByTestId('sa-balance').textContent)).toBeCloseTo(9.909419, 6);
+    typeAmount('9.9095');
+    expect(screen.getByTestId('sa-error')).toHaveTextContent(/^amountMustBeLessThanBalance$/);
+  });
+
+  it('measures once per account and chain, not again for another recipient', async () => {
+    mockEstimateUsdcxBurnFee.mockResolvedValue(315n);
+    openBurn(SendFlowStep.SelectAmount);
+    await act(async () => {});
+
+    mockSelectedContact = { id: '0xother', name: 'Other', isOwned: false, contactType: 'external' };
+    act(() => {
+      fireEvent.click(screen.getByTestId('ad-select'));
+    });
+    await act(async () => {});
+
+    expect(screen.getByTestId('sa-recipient')).toHaveTextContent(/^0xother$/);
+    expect(mockEstimateUsdcxBurnFee).toHaveBeenCalledTimes(1);
+    expect(mockEstimateUsdcxBurnFee).toHaveBeenCalledWith('me-pk', 5042002);
+  });
+
+  it('refuses review from the Route step while the fee is measured and for an amount the measured reserve exceeds', async () => {
+    let land: (reserve: bigint | null) => void = () => {};
+    mockEstimateUsdcxBurnFee.mockImplementation(
+      () =>
+        new Promise(resolve => {
+          land = resolve;
+        })
+    );
+    // Accepted under the static cap, which the old flow applied while the dry run ran.
+    openBurn(SendFlowStep.Route, '9.9095');
+
+    fireEvent.click(screen.getByTestId('route-confirm'));
+    expect(navigateMock).not.toHaveBeenCalled();
+
+    await act(async () => land(315n));
+    fireEvent.click(screen.getByTestId('route-confirm'));
+
+    expect(navigateMock).not.toHaveBeenCalled();
+    expect(consumeSendDraft()).toBeNull();
+  });
+
+  it('hands an amount the measured reserve covers to review', async () => {
+    mockEstimateUsdcxBurnFee.mockResolvedValue(315n);
+    openBurn(SendFlowStep.Route, '9.9094');
+    await act(async () => {});
+
+    fireEvent.click(screen.getByTestId('route-confirm'));
+
+    expect(navigateMock).toHaveBeenCalledWith(expect.stringMatching(/^\/send\/review\?/));
   });
 });

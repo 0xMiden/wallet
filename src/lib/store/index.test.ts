@@ -1613,6 +1613,30 @@ describe('useWalletStore', () => {
     });
   });
 
+  describe('USDCx burn fee estimate', () => {
+    it('asks for the account and chain and decodes the reserve as a bigint', async () => {
+      mockRequest.mockResolvedValueOnce({
+        type: WalletMessageType.EstimateUsdcxBurnFeeResponse,
+        feeReserve: '9007199254740993'
+      });
+
+      await expect(useWalletStore.getState().estimateUsdcxBurnFee('mm1account', 5042002)).resolves.toBe(
+        9007199254740993n
+      );
+      expect(mockRequest).toHaveBeenCalledWith({
+        type: WalletMessageType.EstimateUsdcxBurnFeeRequest,
+        accountPublicKey: 'mm1account',
+        destinationChainId: 5042002
+      });
+    });
+
+    it('decodes an unmeasured reserve as null', async () => {
+      mockRequest.mockResolvedValueOnce({ type: WalletMessageType.EstimateUsdcxBurnFeeResponse, feeReserve: null });
+
+      await expect(useWalletStore.getState().estimateUsdcxBurnFee('mm1account', 5042002)).resolves.toBeNull();
+    });
+  });
+
   describe('Fiat currency actions', () => {
     it('setSelectedFiatCurrency updates currency', () => {
       const { setSelectedFiatCurrency } = useWalletStore.getState();

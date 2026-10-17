@@ -12,7 +12,12 @@ import { processInProcessRequest } from './in-process-request-handler';
 const mockRetryDeadletteredNotes = jest.fn(async () => ({ requeued: 3 }));
 const mockExportAccountFile = jest.fn(async (_accountPublicKey: string, _password?: string) => 'BAUG');
 const mockUnlock = jest.fn(async (_password: string) => undefined);
+const mockEstimateUsdcxBurnFee = jest.fn(async (_req: unknown) => ({
+  type: WalletMessageType.EstimateUsdcxBurnFeeResponse,
+  feeReserve: '315'
+}));
 jest.mock('lib/miden/back/actions', () => ({
+  estimateUsdcxBurnFee: (req: unknown) => mockEstimateUsdcxBurnFee(req),
   retryDeadletteredNotes: () => mockRetryDeadletteredNotes(),
   exportAccountFile: (...args: unknown[]) => mockExportAccountFile(...(args as [string, string | undefined])),
   unlock: (password: string) => mockUnlock(password)
@@ -51,6 +56,19 @@ describe('processInProcessRequest', () => {
 
     expect(res).toEqual({ type: WalletMessageType.ExportAccountFileResponse, accountFileBase64: 'BAUG' });
     expect(mockExportAccountFile).toHaveBeenCalledWith('mtst1account', 'pw');
+  });
+
+  it('EstimateUsdcxBurnFeeRequest reaches the estimate action and answers its response', async () => {
+    const req = {
+      type: WalletMessageType.EstimateUsdcxBurnFeeRequest,
+      accountPublicKey: 'mm1account',
+      destinationChainId: 5042002
+    } as WalletRequest;
+
+    const res = await processInProcessRequest(req, 'test-adapter');
+
+    expect(res).toEqual({ type: WalletMessageType.EstimateUsdcxBurnFeeResponse, feeReserve: '315' });
+    expect(mockEstimateUsdcxBurnFee).toHaveBeenCalledWith(req);
   });
 
   // #1202: claims requeued while the vault was locked have nothing else to restart them off the extension.

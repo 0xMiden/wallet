@@ -10,7 +10,7 @@ import { resolveSpendsUsd } from 'lib/miden/spending-limits/valuation';
 import { NoteTypeEnum } from 'lib/miden/types';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
-import { WalletMessageType, WalletStatus } from 'lib/shared/types';
+import { EstimateUsdcxBurnFeeRequest, WalletMessageType, WalletStatus } from 'lib/shared/types';
 import { sendEvent } from 'lib/telemetry/sink';
 import { WalletType } from 'screens/onboarding/types';
 
@@ -54,6 +54,7 @@ import {
   importFundraiserAccount,
   importWatchOnlyAccount,
   handleReportTelemetryEvent,
+  estimateUsdcxBurnFee,
   getSpendingLimit,
   saveSpendingLimit,
   assessOutgoingSpendingLimit,
@@ -64,6 +65,12 @@ import {
 import packageJson from '../../../../package.json';
 
 jest.mock('lib/miden/spending-limits/valuation', () => ({ resolveSpendsUsd: jest.fn() }));
+
+const mockEstimateUsdcxBurnFeeReserve = jest.fn<Promise<bigint | null>, [string, number]>();
+jest.mock('lib/usdcx/burn-fee', () => ({
+  estimateUsdcxBurnFeeReserve: (accountPublicKey: string, destinationChainId: number) =>
+    mockEstimateUsdcxBurnFeeReserve(accountPublicKey, destinationChainId)
+}));
 
 const mockedResolve = jest.mocked(resolveSpendsUsd);
 
@@ -2417,6 +2424,35 @@ describe('actions', () => {
       expect(secondStartedWhileFirstInFlight).toBe(false);
       expect(pk1).toBe('pk1');
       expect(pk2).toBe('pk2');
+    });
+  });
+
+  describe('estimateUsdcxBurnFee', () => {
+    const request: EstimateUsdcxBurnFeeRequest = {
+      type: WalletMessageType.EstimateUsdcxBurnFeeRequest,
+      accountPublicKey: 'mm1account',
+      destinationChainId: 5042002
+    };
+
+    beforeEach(() => mockEstimateUsdcxBurnFeeReserve.mockReset());
+
+    it('measures for the account and chain and answers the reserve as a decimal string', async () => {
+      mockEstimateUsdcxBurnFeeReserve.mockResolvedValueOnce(9007199254740993n);
+
+      await expect(estimateUsdcxBurnFee(request)).resolves.toEqual({
+        type: WalletMessageType.EstimateUsdcxBurnFeeResponse,
+        feeReserve: '9007199254740993'
+      });
+      expect(mockEstimateUsdcxBurnFeeReserve).toHaveBeenCalledWith('mm1account', 5042002);
+    });
+
+    it('answers null when nothing was measured', async () => {
+      mockEstimateUsdcxBurnFeeReserve.mockResolvedValueOnce(null);
+
+      await expect(estimateUsdcxBurnFee(request)).resolves.toEqual({
+        type: WalletMessageType.EstimateUsdcxBurnFeeResponse,
+        feeReserve: null
+      });
     });
   });
 
