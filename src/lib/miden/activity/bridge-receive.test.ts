@@ -299,7 +299,10 @@ describe('reconcileBridgedReceives', () => {
     expect(updatePhase).toHaveBeenCalledWith(
       'interrupted',
       'failed',
-      expect.objectContaining({ error: expect.stringContaining('interrupted') })
+      expect.objectContaining({
+        error: expect.stringContaining('interrupted'),
+        failure: { step: 'submission_interrupted' }
+      })
     );
   });
 
@@ -318,7 +321,8 @@ describe('reconcileBridgedReceives', () => {
     await reconcileBridgedReceives();
 
     expect(updatePhase).toHaveBeenCalledWith('usdcx-interrupted', 'failed', {
-      error: 'Bridge submission was interrupted before a transaction hash was recorded.'
+      error: 'Bridge submission was interrupted before a transaction hash was recorded.',
+      failure: { step: 'submission_interrupted' }
     });
     expect(fetchAttestations).not.toHaveBeenCalled();
     expect(fetchAttestedMessage).not.toHaveBeenCalled();
@@ -366,8 +370,14 @@ describe('reconcileBridgedReceives', () => {
 
     await reconcileBridgedReceives();
 
-    expect(updatePhase).toHaveBeenCalledWith('stale-agg', 'failed', { error: 'Bridge delivery timed out.' });
-    expect(updatePhase).toHaveBeenCalledWith('stale-epoch', 'failed', { error: 'Bridge delivery timed out.' });
+    expect(updatePhase).toHaveBeenCalledWith('stale-agg', 'failed', {
+      error: 'Bridge delivery timed out.',
+      failure: { step: 'delivery_timed_out' }
+    });
+    expect(updatePhase).toHaveBeenCalledWith('stale-epoch', 'failed', {
+      error: 'Bridge delivery timed out.',
+      failure: { step: 'delivery_timed_out' }
+    });
     expect(registerBridgeIn).not.toHaveBeenCalled();
   });
 
@@ -383,7 +393,10 @@ describe('reconcileBridgedReceives', () => {
 
     await reconcileBridgedReceives();
 
-    expect(updatePhase).toHaveBeenCalledWith('agg-reverted', 'failed', { error: 'reverted on L1' });
+    expect(updatePhase).toHaveBeenCalledWith('agg-reverted', 'failed', {
+      error: 'reverted on L1',
+      failure: { step: 'reconciler_receipt', cause: new Error('reverted on L1') }
+    });
     expect(fetchDeposits).not.toHaveBeenCalled();
   });
 
@@ -415,7 +428,7 @@ describe('reconcileBridgedReceives', () => {
     expect(updatePhase).toHaveBeenCalledWith(
       'epoch-interrupted',
       'failed',
-      expect.objectContaining({ error: expect.stringContaining('intent') })
+      expect.objectContaining({ error: expect.stringContaining('intent'), failure: { step: 'submission_interrupted' } })
     );
     expect(registerBridgeIn).not.toHaveBeenCalled();
   });
@@ -441,7 +454,8 @@ describe('reconcileBridgedReceives', () => {
 
     expect(resolveNoteId).toHaveBeenCalledWith('0x1111111111111111111111111111111111111111', 'nonce-2', '0xnote-1');
     expect(updatePhase).toHaveBeenCalledWith('epoch-failed-leg', 'failed', {
-      error: 'The Epoch bridge intent failed.'
+      error: 'The Epoch bridge intent failed.',
+      failure: { step: 'epoch_intent_failed' }
     });
   });
 
@@ -909,18 +923,18 @@ describe('reconcileBridgedReceives with a USDCx row', () => {
   });
 
   it.each([
-    ['remoteDomain', 'Circle attested this deposit to a different network.'],
-    ['remoteToken', 'Circle attested this deposit to a different token.'],
-    ['recipient', 'Circle attested this deposit to a different Miden account.'],
-    ['amount', 'Circle attested this deposit to a different amount.']
-  ])('fails a USDCx row whose attestation differs in %s, saying so', async (field, error) => {
+    ['remoteDomain', 'Circle attested this deposit to a different network.', 'usdcx_mismatch_domain'],
+    ['remoteToken', 'Circle attested this deposit to a different token.', 'usdcx_mismatch_token'],
+    ['recipient', 'Circle attested this deposit to a different Miden account.', 'usdcx_mismatch_recipient'],
+    ['amount', 'Circle attested this deposit to a different amount.', 'usdcx_mismatch_amount']
+  ])('fails a USDCx row whose attestation differs in %s, saying so', async (field, error, step) => {
     matchAttestation.mockReturnValue({ kind: 'mismatch', field });
     rows.push(usdcxRow());
 
     await reconcileBridgedReceives();
 
     expect(updatePhase).toHaveBeenCalledTimes(1);
-    expect(updatePhase).toHaveBeenCalledWith('usdcx-row', 'failed', { error });
+    expect(updatePhase).toHaveBeenCalledWith('usdcx-row', 'failed', { error, failure: { step } });
   });
 
   it('writes nothing for an attestation it cannot read, and warns once', async () => {
@@ -987,7 +1001,10 @@ describe('reconcileBridgedReceives with a USDCx row', () => {
 
     await reconcileBridgedReceives();
 
-    expect(updatePhase).toHaveBeenCalledWith('usdcx-stale-ready', 'failed', { error: 'Bridge delivery timed out.' });
+    expect(updatePhase).toHaveBeenCalledWith('usdcx-stale-ready', 'failed', {
+      error: 'Bridge delivery timed out.',
+      failure: { step: 'delivery_timed_out' }
+    });
   });
 
   it('times out a ready USDCx row from before readyAt by its age', async () => {
@@ -995,7 +1012,10 @@ describe('reconcileBridgedReceives with a USDCx row', () => {
 
     await reconcileBridgedReceives();
 
-    expect(updatePhase).toHaveBeenCalledWith('usdcx-legacy-ready', 'failed', { error: 'Bridge delivery timed out.' });
+    expect(updatePhase).toHaveBeenCalledWith('usdcx-legacy-ready', 'failed', {
+      error: 'Bridge delivery timed out.',
+      failure: { step: 'delivery_timed_out' }
+    });
   });
 
   it('never asks Circle again about a fresh ready USDCx row, nor writes it', async () => {
@@ -1039,7 +1059,10 @@ describe('reconcileBridgedReceives with a USDCx row', () => {
 
     await reconcileBridgedReceives();
 
-    expect(updatePhase).toHaveBeenCalledWith('usdcx-old', 'failed', { error: 'Bridge delivery timed out.' });
+    expect(updatePhase).toHaveBeenCalledWith('usdcx-old', 'failed', {
+      error: 'Bridge delivery timed out.',
+      failure: { step: 'delivery_timed_out' }
+    });
   });
 });
 
@@ -1263,7 +1286,10 @@ describe('reconcileBridgedReceives with a USDCx executor row', () => {
 
     await reconcileBridgedReceives();
 
-    expect(updatePhase).toHaveBeenCalledWith('usdcx-executor-row', 'failed', { error: 'Bridge delivery timed out.' });
+    expect(updatePhase).toHaveBeenCalledWith('usdcx-executor-row', 'failed', {
+      error: 'Bridge delivery timed out.',
+      failure: { step: 'delivery_timed_out' }
+    });
   });
 
   // An execute that mined but whose deposit Circle attests to something else never reopens: without a week from its
@@ -1284,7 +1310,10 @@ describe('reconcileBridgedReceives with a USDCx executor row', () => {
 
     await reconcileBridgedReceives();
 
-    expect(updatePhase).toHaveBeenCalledWith('usdcx-executor-row', 'failed', { error: 'Bridge delivery timed out.' });
+    expect(updatePhase).toHaveBeenCalledWith('usdcx-executor-row', 'failed', {
+      error: 'Bridge delivery timed out.',
+      failure: { step: 'delivery_timed_out' }
+    });
   });
 
   it('keeps an old executor deposit whose execute hash was saved this week', async () => {
@@ -1339,7 +1368,10 @@ describe('reconcileBridgedReceives with a USDCx executor row', () => {
 
     await reconcileBridgedReceives();
 
-    expect(updatePhase).toHaveBeenCalledWith('usdcx-executor-row', 'failed', { error: 'Bridge delivery timed out.' });
+    expect(updatePhase).toHaveBeenCalledWith('usdcx-executor-row', 'failed', {
+      error: 'Bridge delivery timed out.',
+      failure: { step: 'delivery_timed_out' }
+    });
   });
 
   it('never adopts a reverted forward again and offers the execute with the attested message', async () => {

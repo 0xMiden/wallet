@@ -4,15 +4,15 @@ import { useEpochStore } from './store';
 
 const mockRegister = jest.fn();
 const mockGetRow = jest.fn();
+const SOLVED_INTENT = {
+  taskTypeString: 'bridge',
+  intentData: {},
+  intentNonce: 'nonce-1',
+  solveResult: { hash: '0xdeposit' }
+};
+const mockBuildIntent = jest.fn();
 
-jest.mock('./bridge', () => ({
-  buildEVMToMidenIntent: async () => ({
-    taskTypeString: 'bridge',
-    intentData: {},
-    intentNonce: 'nonce-1',
-    solveResult: { hash: '0xdeposit' }
-  })
-}));
+jest.mock('./bridge', () => ({ buildEVMToMidenIntent: (...args: unknown[]) => mockBuildIntent(...args) }));
 const mockConnection = jest.fn();
 const mockSwitchWebWalletChain = jest.fn();
 jest.mock('./client', () => ({
@@ -54,6 +54,7 @@ beforeEach(() => {
   mockConnection.mockReset().mockResolvedValue({ address: '0xowner', isNative: true });
   mockSwitchWebWalletChain.mockReset().mockResolvedValue(undefined);
   mockRegister.mockReset().mockResolvedValue(undefined);
+  mockBuildIntent.mockReset().mockResolvedValue(SOLVED_INTENT);
   mockGetRow.mockReset();
   mockGetEpochSdk.mockClear();
   mockUpdatePhase.mockClear();
@@ -135,6 +136,34 @@ it('refuses without switching when no wallet is connected, and when the wallet d
   expect(mockSwitchWebWalletChain).toHaveBeenCalledTimes(1);
   expect(useEpochStore.getState()).toMatchObject({ status: 'failed', error: 'Connect an EVM wallet first' });
   expect(mockRegister).not.toHaveBeenCalled();
+});
+
+// The Epoch SDK keeps only viem's flattened text, so the solve's failure reaches the row as a string.
+it('fails the tracking row at the solve when the Epoch SDK refuses the intent', async () => {
+  const refusal = 'An unknown RPC error occurred.\n\nDetails: User rejected the request.\nVersion: viem@2.55.4';
+  mockGetRow.mockResolvedValue(undefined);
+  mockBuildIntent.mockResolvedValue({ taskTypeString: 'bridge', intentData: {}, error: refusal });
+  useEpochStore.setState({ flow: 'evm-to-miden', status: 'quoted', quote });
+
+  await useEpochStore.getState().executeEVMToMiden('row-1');
+
+  expect(mockUpdatePhase).toHaveBeenCalledWith('row-1', 'failed', {
+    error: refusal,
+    failure: { step: 'epoch_solve' }
+  });
+});
+
+it('fails the tracking row at the execute, with what failed it, when the deposit throws before the solve', async () => {
+  const cause = new Error('Wallet did not switch');
+  mockConnection.mockRejectedValue(cause);
+  useEpochStore.setState({ flow: 'evm-to-miden', status: 'quoted', quote });
+
+  await useEpochStore.getState().executeEVMToMiden('row-1');
+
+  expect(mockUpdatePhase).toHaveBeenCalledWith('row-1', 'failed', {
+    error: 'Wallet did not switch',
+    failure: { step: 'epoch_execute', cause }
+  });
 });
 
 describe('the allocator an intent was submitted to', () => {

@@ -458,6 +458,9 @@ const answerBalance = (balance: bigint | null) => {
 const balanceTooLow = (balance: string, token: string) =>
   `bridgeDepositBalanceTooLow ${JSON.stringify({ balance, token, network: 'Sepolia' })}`;
 
+// The failure write the screen makes: the row's text, and the step and error its crash report names.
+const failedAt = (step: string, error: string) => ({ error, failure: { step, cause: expect.any(Error) } });
+
 /** Drive the ETH + Slow route to Review, the deposit path with no quote needed. */
 const settle = () =>
   act(async () => {
@@ -1423,9 +1426,13 @@ describe('EvmBridgeDepositScreen Slow-route USDC approval', () => {
       }
       await waitFor(() => expect(status).toHaveAttribute('data-awaiting', 'false'));
       expect(signer).toHaveBeenCalledTimes(stage === 'receipt' ? 1 : 2);
-      expect(updateBridgedReceivePhase).toHaveBeenCalledWith('bridge-tx', 'failed', {
-        error: stage === 'receipt' ? 'approval receipt failed' : 'second prompt rejected'
-      });
+      expect(updateBridgedReceivePhase).toHaveBeenCalledWith(
+        'bridge-tx',
+        'failed',
+        stage === 'receipt'
+          ? failedAt('approve_receipt', 'approval receipt failed')
+          : failedAt('wallet_deposit', 'second prompt rejected')
+      );
     }
   );
 
@@ -1565,9 +1572,11 @@ describe('EvmBridgeDepositScreen Slow-route USDC approval', () => {
 
     expect(mockMutateAsync).not.toHaveBeenCalled();
     expect(NativeReown.sendTransaction).not.toHaveBeenCalled();
-    expect(updateBridgedReceivePhase).toHaveBeenCalledWith('bridge-tx', 'failed', {
-      error: 'Could not check the USDC allowance the bridge has on Sepolia.'
-    });
+    expect(updateBridgedReceivePhase).toHaveBeenCalledWith(
+      'bridge-tx',
+      'failed',
+      failedAt('precheck_allowance', 'Could not check the USDC allowance the bridge has on Sepolia.')
+    );
   });
 });
 
@@ -1728,9 +1737,11 @@ describe('EvmBridgeDepositScreen holds a deposit to the wallet balance', () => {
       await settle();
 
       expectNoPrompt();
-      expect(updateBridgedReceivePhase).toHaveBeenCalledWith('bridge-tx', 'failed', {
-        error: balanceTooLow(token === 'ETH' ? '1.4999' : '10.6511', LABEL[token])
-      });
+      expect(updateBridgedReceivePhase).toHaveBeenCalledWith(
+        'bridge-tx',
+        'failed',
+        failedAt('precheck_balance', balanceTooLow(token === 'ETH' ? '1.4999' : '10.6511', LABEL[token]))
+      );
     }
   );
 
@@ -1745,9 +1756,14 @@ describe('EvmBridgeDepositScreen holds a deposit to the wallet balance', () => {
       await settle();
 
       expectNoPrompt();
-      expect(updateBridgedReceivePhase).toHaveBeenCalledWith('bridge-tx', 'failed', {
-        error: `bridgeDepositBalanceReadFailed ${JSON.stringify({ token: LABEL[token], network: 'Sepolia' })}`
-      });
+      expect(updateBridgedReceivePhase).toHaveBeenCalledWith(
+        'bridge-tx',
+        'failed',
+        failedAt(
+          'precheck_balance',
+          `bridgeDepositBalanceReadFailed ${JSON.stringify({ token: LABEL[token], network: 'Sepolia' })}`
+        )
+      );
     }
   );
 
@@ -1918,9 +1934,11 @@ describe('EvmBridgeDepositScreen holds a deposit to the wallet balance', () => {
 
       expect(epochState.executeEVMToMiden).not.toHaveBeenCalled();
       expect(prepareNativeSessionChain).not.toHaveBeenCalled();
-      expect(updateBridgedReceivePhase).toHaveBeenCalledWith('bridge-tx', 'failed', {
-        error: balanceTooLow('10.6511', LABEL.USDC)
-      });
+      expect(updateBridgedReceivePhase).toHaveBeenCalledWith(
+        'bridge-tx',
+        'failed',
+        failedAt('precheck_balance', balanceTooLow('10.6511', LABEL.USDC))
+      );
     }
   );
 
@@ -2030,9 +2048,14 @@ describe('EvmBridgeDepositScreen holds a deposit to the wallet balance', () => {
         expect(updateBridgedReceivePhase).not.toHaveBeenCalledWith('bridge-tx', 'failed', expect.anything());
 
         await advance(1);
-        expect(updateBridgedReceivePhase).toHaveBeenCalledWith('bridge-tx', 'failed', {
-          error: `bridgeDepositBalanceReadFailed ${JSON.stringify({ token: LABEL[token], network: 'Sepolia' })}`
-        });
+        expect(updateBridgedReceivePhase).toHaveBeenCalledWith(
+          'bridge-tx',
+          'failed',
+          failedAt(
+            'precheck_balance',
+            `bridgeDepositBalanceReadFailed ${JSON.stringify({ token: LABEL[token], network: 'Sepolia' })}`
+          )
+        );
         expectNoPrompt();
         expect(epochState.executeEVMToMiden).not.toHaveBeenCalled();
       }
@@ -2103,9 +2126,11 @@ describe('EvmBridgeDepositScreen native session chain', () => {
 
     expect(prepareNativeSessionChain).toHaveBeenCalledWith(SEPOLIA);
     expect(NativeReown.sendTransaction).not.toHaveBeenCalled();
-    expect(updateBridgedReceivePhase).toHaveBeenCalledWith('bridge-tx', 'failed', {
-      error: chainNotApproved('Sepolia')
-    });
+    expect(updateBridgedReceivePhase).toHaveBeenCalledWith(
+      'bridge-tx',
+      'failed',
+      failedAt('precheck_session_chain', chainNotApproved('Sepolia'))
+    );
     expect(await screen.findByTestId('deposit-status')).toBeInTheDocument();
   });
 
@@ -2119,9 +2144,11 @@ describe('EvmBridgeDepositScreen native session chain', () => {
 
     expect(readEvmErc20Allowance).not.toHaveBeenCalled();
     expect(NativeReown.sendTransaction).not.toHaveBeenCalled();
-    expect(updateBridgedReceivePhase).toHaveBeenCalledWith('bridge-tx', 'failed', {
-      error: chainNotApproved('Sepolia')
-    });
+    expect(updateBridgedReceivePhase).toHaveBeenCalledWith(
+      'bridge-tx',
+      'failed',
+      failedAt('precheck_session_chain', chainNotApproved('Sepolia'))
+    );
   });
 
   it('fails a Fast deposit with the reconnect message and never starts the Epoch SDK', async () => {
@@ -2135,9 +2162,11 @@ describe('EvmBridgeDepositScreen native session chain', () => {
 
     expect(prepareNativeSessionChain).toHaveBeenCalledWith(SEPOLIA);
     expect(epochState.executeEVMToMiden).not.toHaveBeenCalled();
-    expect(updateBridgedReceivePhase).toHaveBeenCalledWith('bridge-tx', 'failed', {
-      error: chainNotApproved('Sepolia')
-    });
+    expect(updateBridgedReceivePhase).toHaveBeenCalledWith(
+      'bridge-tx',
+      'failed',
+      failedAt('precheck_session_chain', chainNotApproved('Sepolia'))
+    );
     expect(await screen.findByTestId('deposit-status')).toBeInTheDocument();
   });
 
@@ -2168,9 +2197,11 @@ describe('EvmBridgeDepositScreen native session chain', () => {
 
     expect(prepareNativeSessionChain).toHaveBeenCalledWith(BASE_SEPOLIA);
     expect(NativeReown.sendTransaction).not.toHaveBeenCalled();
-    expect(updateBridgedReceivePhase).toHaveBeenCalledWith('bridge-tx', 'failed', {
-      error: chainNotApproved('Base Sepolia')
-    });
+    expect(updateBridgedReceivePhase).toHaveBeenCalledWith(
+      'bridge-tx',
+      'failed',
+      failedAt('precheck_session_chain', chainNotApproved('Base Sepolia'))
+    );
   });
 
   it('checks the chain the config names for the Fast USDC before a Fast deposit', async () => {
