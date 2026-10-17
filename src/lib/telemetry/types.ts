@@ -129,16 +129,19 @@ export type TelemetryStep =
   | 'prove_local'
   | 'prove_fallback';
 
-/** Broad categories only. Never a message, code, or detail string. */
-export type TelemetryErrorKind =
-  | 'network'
-  | 'rpc'
-  | 'proving'
-  | 'validation'
-  | 'storage'
-  | 'auth'
-  | 'timeout'
-  | 'unknown';
+/** Broad categories only. Never a message, code, or detail string. The privacy policy lists each one. */
+export const TELEMETRY_ERROR_KINDS = [
+  'network',
+  'rpc',
+  'proving',
+  'validation',
+  'storage',
+  'auth',
+  'timeout',
+  'unknown'
+] as const;
+
+export type TelemetryErrorKind = (typeof TELEMETRY_ERROR_KINDS)[number];
 
 export type TelemetryPlatform = 'extension' | 'ios' | 'android';
 

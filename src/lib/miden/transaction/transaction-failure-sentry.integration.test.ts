@@ -371,7 +371,9 @@ describe('committed terminal transaction failure reports', () => {
     expect(report).toHaveBeenCalledTimes(1);
     expect(report).toHaveBeenCalledWith(
       expect.objectContaining({
+        point: 'guardian_node_verdict',
         type: 'switch-guardian',
+        reason: 'never_committed',
         error: 'The node discarded this guardian switch after submission.'
       })
     );
