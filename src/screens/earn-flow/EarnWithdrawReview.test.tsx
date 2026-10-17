@@ -3,6 +3,7 @@ import React from 'react';
 import { render, screen, fireEvent, waitFor, act, within } from '@testing-library/react';
 
 import { gaslessEarnWithdrawalToMiden } from 'lib/epoch';
+import { withdrawalAmount } from 'lib/epoch/withdraw-amount';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
 import { goBack, navigate } from 'lib/woozie';
@@ -67,7 +68,8 @@ jest.mock('lib/platform', () => ({
 jest.mock('lib/woozie', () => ({
   useLocation: () => ({ search: mockSearch }),
   goBack: jest.fn(),
-  navigate: jest.fn()
+  navigate: jest.fn(),
+  Redirect: ({ to }: { to: string }) => <div data-testid="redirect">{to}</div>
 }));
 
 jest.mock('./useEarnPositions', () => ({
@@ -144,13 +146,42 @@ const position: EarnPosition = {
   chartData: [{ label: 'now', value: 42.25 }]
 };
 
+const quotes = jest.requireMock<typeof import('lib/epoch/earn-withdraw-quote')>('lib/epoch/earn-withdraw-quote');
+
+/** Quotes whatever amount the page reviews, paying 99% of it at the same scale. */
+function serveQuotes() {
+  jest.mocked(quotes.quoteEarnWithdrawal).mockImplementation(async ({ position: subject, amount, accountId }) => {
+    const units = withdrawalAmount(amount, subject.decimals) ?? 0n;
+    return {
+      position: subject,
+      accountId,
+      amount,
+      amountAtomic: units.toString(),
+      availableAtomic: (withdrawalAmount(subject.withdrawable, subject.decimals) ?? 0n).toString(),
+      scope: 'testnet',
+      nativeRevision: 1,
+      allocatorUrl: 'url',
+      destinationFaucetId: 'faucet',
+      destinationSymbol: 'USDCX',
+      destinationDecimals: subject.decimals,
+      expectedAtomic: ((units * 99n) / 100n).toString(),
+      minimumAtomic: ((units * 98n) / 100n).toString(),
+      expiresAt: Date.now() + 60000
+    };
+  });
+}
+
+const confirmEnabled = () => waitFor(() => expect(screen.getByRole('button', { name: 'withdraw' })).toBeEnabled());
+
 describe('EarnWithdrawReview', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    mockSearch = '';
+    mockSearch = `?amount=${position.withdrawable}`;
+    mockConfirmClick = undefined;
     mockAccount.evmAddress = position.owner;
     mockPositions = [position];
     jest.mocked(isMobile).mockReturnValue(false);
+    serveQuotes();
     jest.mocked(gaslessEarnWithdrawalToMiden).mockResolvedValue({
       txId: 'tx-id',
       nonce: 'owner:1',
@@ -158,12 +189,25 @@ describe('EarnWithdrawReview', () => {
     });
   });
 
-  it('renders the selected position and the full-withdraw route details', () => {
+  // Only the amount step opens the review, and every review submits with its quote.
+  it('sends a review URL with no amount back to the amount step and submits nothing', () => {
+    mockSearch = '';
     render(<EarnWithdrawReview positionId="position-1" />);
+
+    expect(screen.getByTestId('redirect')).toHaveTextContent(/^\/earn\/positions\/position-1\/withdraw$/);
+    expect(screen.queryByRole('button', { name: 'withdraw' })).toBeNull();
+    expect(mockConfirmClick).toBeUndefined();
+    expect(quotes.quoteEarnWithdrawal).not.toHaveBeenCalled();
+    expect(gaslessEarnWithdrawalToMiden).not.toHaveBeenCalled();
+  });
+
+  it('renders the selected position and the full-withdraw route details', async () => {
+    render(<EarnWithdrawReview positionId="position-1" />);
+    await confirmEnabled();
 
     expect(screen.getByTestId('earn-withdraw-review-page')).toBeInTheDocument();
     // The protocol is the title; the asset and its network are the muted line under it.
-    expect(screen.getByRole('heading')).toHaveTextContent(/^Aave$/);
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/^Aave$/);
     // The asset and its network ride the header as the shared mark, the same one the vault and
     // deposit pages carry, rather than a page-local pill. The subtitle names the pair, so the mark
     // is hidden and the banner says it once.
@@ -171,15 +215,15 @@ describe('EarnWithdrawReview', () => {
     expect(within(banner).getAllByText('earnAssetOnNetwork')).toHaveLength(1);
     expect(within(banner).getByTestId('token-logo')).toHaveTextContent('USDC');
     expect(within(banner).getByTestId('token-logo').parentElement).toHaveAttribute('aria-hidden', 'true');
-    // The hero's figure carries the withdrawn token as its unit.
-    const hero = screen.getByRole('region', { name: 'earnWithdrawAmount' });
-    expect(within(hero).getByText('42.25')).toBeInTheDocument();
-    expect(within(hero).getByText('USDC', { selector: '.text-entry-unit' })).toBeInTheDocument();
-    expect(within(hero).getByTestId('token-logo')).toHaveTextContent('USDC');
+    // The hero's figure is the quoted payout, carrying the native token as its unit.
+    const hero = screen.getByRole('region', { name: 'youReceive' });
+    expect(hero).toHaveTextContent('≈ 41.82USDCX');
+    expect(within(hero).getByText('USDCX', { selector: '.text-entry-unit' })).toBeInTheDocument();
+    expect(within(hero).getByTestId('token-logo')).toHaveTextContent('USDCX');
+    expect(screen.getByText('earnWithdrawAll')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /details/ }));
     expect(screen.getByText('Aave (Sepolia) -> Miden')).toBeInTheDocument();
     expect(screen.getByText('earnFullPositionGasless')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'withdraw' })).toBeEnabled();
 
     fireEvent.click(screen.getByRole('button', { name: 'back' }));
     expect(goBack).toHaveBeenCalledTimes(1);
@@ -187,21 +231,24 @@ describe('EarnWithdrawReview', () => {
 
   // The withdrawable is what arrives at most, so it rounds down, and from the API's own string: a
   // Number() of it loses digits past double precision.
-  it('rounds the withdrawable down from its exact string', () => {
+  it('rounds the full withdrawable down from its exact string', async () => {
     mockPositions = [{ ...position, withdrawable: '10.6555' }];
+    mockSearch = '?amount=10.6555';
     const { unmount } = render(<EarnWithdrawReview positionId="position-1" />);
-    expect(within(screen.getByRole('region', { name: 'earnWithdrawAmount' })).getByText('10.65')).toBeInTheDocument();
+    await confirmEnabled();
+    expect(screen.getByText('≈ 10.65 USDC')).toBeInTheDocument();
     unmount();
 
     mockPositions = [{ ...position, withdrawable: '12345678901234567.899' }];
+    mockSearch = '?amount=12345678901234567.899';
     render(<EarnWithdrawReview positionId="position-1" />);
-    expect(
-      within(screen.getByRole('region', { name: 'earnWithdrawAmount' })).getByText('12345678901234567.89')
-    ).toBeInTheDocument();
+    await confirmEnabled();
+    expect(screen.getByText('≈ 12345678901234567.89 USDC')).toBeInTheDocument();
   });
 
-  it('gives the withdraw confirm the earn flow colour', () => {
+  it('gives the withdraw confirm the earn flow colour', async () => {
     render(<EarnWithdrawReview positionId="position-1" />);
+    await confirmEnabled();
 
     expect(screen.getByRole('button', { name: 'withdraw' })).toHaveAttribute('data-accent', 'earn');
   });
@@ -209,16 +256,18 @@ describe('EarnWithdrawReview', () => {
   it('falls back to an empty position and disables withdrawal for an unknown id', () => {
     render(<EarnWithdrawReview positionId="unknown" />);
 
-    expect(within(screen.getByRole('region', { name: 'earnWithdrawAmount' })).getByText('0')).toBeInTheDocument();
+    expect(within(screen.getByRole('region', { name: 'youReceive' })).getByText(EARN_PLACEHOLDER)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'withdraw' })).toBeDisabled();
+    expect(quotes.quoteEarnWithdrawal).not.toHaveBeenCalled();
   });
 
-  it('submits the full position and routes as soon as the tracking row exists', async () => {
+  it('submits the reviewed full position and routes as soon as the tracking row exists', async () => {
     jest.mocked(gaslessEarnWithdrawalToMiden).mockImplementation(async args => {
       args.onRowCreated?.('tx/1');
       return { txId: 'tx/1', nonce: 'owner:1', gaslessUsed: true };
     });
     render(<EarnWithdrawReview positionId="position-1" />);
+    await confirmEnabled();
 
     fireEvent.click(screen.getByRole('button', { name: 'withdraw' }));
 
@@ -232,6 +281,7 @@ describe('EarnWithdrawReview', () => {
       marketUid: position.marketUid,
       underlyingAddress: position.underlyingAddress,
       amount: '42.25',
+      review: expect.objectContaining({ amount: '42.25', amountAtomic: '42250000', minimumAtomic: '41405000' }),
       underlyingDecimals: 6,
       onRowCreated: expect.any(Function)
     });
@@ -241,6 +291,7 @@ describe('EarnWithdrawReview', () => {
   it('rejects a position not owned by the current wallet account', async () => {
     mockAccount.evmAddress = '0x2222222222222222222222222222222222222222';
     render(<EarnWithdrawReview positionId="position-1" />);
+    await confirmEnabled();
 
     fireEvent.click(screen.getByRole('button', { name: 'withdraw' }));
 
@@ -251,6 +302,7 @@ describe('EarnWithdrawReview', () => {
   it('handles an account without a derived EVM address', async () => {
     mockAccount.evmAddress = undefined;
     render(<EarnWithdrawReview positionId="position-1" />);
+    await confirmEnabled();
 
     fireEvent.click(screen.getByRole('button', { name: 'withdraw' }));
 
@@ -258,19 +310,23 @@ describe('EarnWithdrawReview', () => {
     expect(gaslessEarnWithdrawalToMiden).not.toHaveBeenCalled();
   });
 
-  it('surfaces SDK errors and restores the CTA', async () => {
+  it('surfaces SDK errors and restores the CTA once the amount is quoted again', async () => {
     jest.mocked(gaslessEarnWithdrawalToMiden).mockRejectedValue(new Error('intent unavailable'));
     render(<EarnWithdrawReview positionId="position-1" />);
+    await confirmEnabled();
 
     fireEvent.click(screen.getByRole('button', { name: 'withdraw' }));
 
     expect(await screen.findByText('intent unavailable')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'withdraw' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'withdraw' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'earnWithdrawRefreshQuote' }));
+    await confirmEnabled();
   });
 
   it('uses the fallback message for non-Error failures', async () => {
     jest.mocked(gaslessEarnWithdrawalToMiden).mockRejectedValue('failed');
     render(<EarnWithdrawReview positionId="position-1" />);
+    await confirmEnabled();
 
     fireEvent.click(screen.getByRole('button', { name: 'withdraw' }));
 
@@ -282,6 +338,7 @@ describe('EarnWithdrawReview', () => {
     let release: (value: { txId: string; nonce: string; gaslessUsed: boolean }) => void = () => {};
     jest.mocked(gaslessEarnWithdrawalToMiden).mockImplementation(() => new Promise(resolve => (release = resolve)));
     render(<EarnWithdrawReview positionId="position-1" />);
+    await confirmEnabled();
 
     const cta = screen.getByRole('button', { name: 'withdraw' });
     fireEvent.click(cta);
@@ -293,9 +350,10 @@ describe('EarnWithdrawReview', () => {
     });
   });
 
-  it('pins the CTA in the shared frame footer, on the page margin rather than a per-platform one', () => {
+  it('pins the CTA in the shared frame footer, on the page margin rather than a per-platform one', async () => {
     jest.mocked(isMobile).mockReturnValue(true);
     render(<EarnWithdrawReview positionId="position-1" />);
+    await confirmEnabled();
 
     const footer = screen.getByRole('button', { name: 'withdraw' }).parentElement;
     expect(footer).toHaveAttribute('data-slot', 'footer');
@@ -307,8 +365,9 @@ describe('EarnWithdrawReview', () => {
   // This screen commits value, so it names the network. The registry test proves the element is
   // in the file; this proves it actually renders - which is the distinction a source match could
   // not make, and how a banner once shipped behind an early return.
-  it('names the network it will commit on', () => {
+  it('names the network it will commit on', async () => {
     render(<EarnWithdrawReview positionId="position-1" />);
+    await confirmEnabled();
 
     expect(screen.getByTestId('network-mode-banner')).toBeInTheDocument();
   });
@@ -317,8 +376,10 @@ describe('EarnWithdrawReview', () => {
 describe('EarnWithdrawReview after a failed load', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockSearch = `?amount=${position.withdrawable}`;
     mockPositions = [position];
     mockConfirmClick = undefined;
+    serveQuotes();
   });
   afterEach(() => {
     mockLoadState = { isLoading: false };
@@ -356,15 +417,15 @@ describe('EarnWithdrawReview after a failed load', () => {
 
     expect(screen.queryByRole('alert')).toBeNull();
     expect(screen.queryByRole('button', { name: 'withdraw' })).toBeNull();
-    expect(screen.queryByText('earnWithdrawAmount')).toBeNull();
+    expect(screen.queryByText('youReceive')).toBeNull();
   });
 
-  it('keeps a position it already has, under the notice', () => {
+  it('keeps a position it already has, under the notice', async () => {
     mockLoadState = { isLoading: false, error: 'boom' };
     render(<EarnWithdrawReview positionId="position-1" />);
+    await confirmEnabled();
 
     expect(screen.getByRole('alert')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'withdraw' })).toBeEnabled();
   });
 
   it('disables Withdraw for a position the latest read did not load, under the notice with Retry', () => {
@@ -405,6 +466,10 @@ const MISSING_LOAD_STATES: Array<[string, { isLoading: boolean; error?: string }
 ];
 
 describe('EarnWithdrawReview with no position to name', () => {
+  beforeEach(() => {
+    mockSearch = `?amount=${position.withdrawable}`;
+    serveQuotes();
+  });
   afterEach(() => {
     mockLoadState = { isLoading: false };
   });
@@ -416,13 +481,13 @@ describe('EarnWithdrawReview with no position to name', () => {
     const headings = screen.getAllByRole('heading', { level: 1 });
     expect(headings).toHaveLength(1);
     expect(headings[0]).toHaveTextContent(/^withdraw$/);
-    expect(screen.queryByText(EARN_PLACEHOLDER)).toBeNull();
+    // The header names no placeholder; an unquoted payout in the body may read as one.
+    expect(within(screen.getByRole('banner')).queryByText(EARN_PLACEHOLDER)).toBeNull();
     expect(screen.queryByText(/earnAssetOnNetwork/)).toBeNull();
   });
 });
 
 describe('selected withdrawal review', () => {
-  const quotes = jest.requireMock<typeof import('lib/epoch/earn-withdraw-quote')>('lib/epoch/earn-withdraw-quote');
   beforeEach(() => {
     mockSearch = '?amount=1.000001';
     mockPositions = [position];

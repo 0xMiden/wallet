@@ -1,6 +1,11 @@
 import type { IntentQuoteResult } from '@epoch-protocol/epoch-intents-sdk';
 
-import { getNativeAssetId, getNativeAssetMetadata, captureNativeAssetSnapshot } from 'lib/miden-chain/native-asset';
+import {
+  getNativeAssetId,
+  getNativeAssetMetadata,
+  captureNativeAssetSnapshot,
+  type NativeAssetChainMetadata
+} from 'lib/miden-chain/native-asset';
 
 import { quoteEarnWithdrawal, assertWithdrawalReviewCurrent, assertWithdrawalDelivery } from './earn-withdraw-quote';
 import { fetchEarnPositions } from './positions';
@@ -34,6 +39,7 @@ const sdk = { getTaskData, getIntentQuote };
 beforeEach(() => {
   jest.clearAllMocks();
   jest.mocked(captureNativeAssetSnapshot).mockReturnValue({ scope: 'testnet', revision: 1 });
+  jest.mocked(getNativeAssetMetadata).mockReset().mockResolvedValue({ symbol: 'USDCX', decimals: 6 });
   getTaskData.mockImplementation(async p => ({ taskTypeString: 'task', intentData: p.intentData }));
   getIntentQuote.mockResolvedValue({ success: true, tokenOut: '991822', transactions: [], resourceLockRequired: true });
   jest.mocked(fetchEarnPositions).mockResolvedValue({
@@ -74,11 +80,21 @@ it.each(['0', '1', undefined])('refuses a missing, zero, or zero-floor payout %p
   getIntentQuote.mockResolvedValue({ success: true, tokenOut: out, transactions: [], resourceLockRequired: true });
   await expect(quoteEarnWithdrawal(args, sdk)).rejects.toThrow('earnWithdrawQuoteUnavailable');
 });
-it('refuses an unsuccessful quote or missing native scale', async () => {
+it('refuses an unsuccessful quote', async () => {
   getIntentQuote.mockResolvedValue({ success: false, tokenOut: '100', transactions: [], resourceLockRequired: true });
-  await expect(quoteEarnWithdrawal(args, sdk)).rejects.toThrow();
-  jest.mocked(getNativeAssetMetadata).mockResolvedValueOnce(null);
-  await expect(quoteEarnWithdrawal(args, sdk)).rejects.toThrow();
+  await expect(quoteEarnWithdrawal(args, sdk)).rejects.toThrow(new Error('earnWithdrawQuoteUnavailable'));
+});
+const unusableMetadata: Array<[string, NativeAssetChainMetadata | null]> = [
+  ['no metadata', null],
+  ['an unknown scale', { symbol: 'USDCX', decimals: 6, scaleIsUnknown: true }],
+  ['fractional decimals', { symbol: 'USDCX', decimals: 6.5 }],
+  ['negative decimals', { symbol: 'USDCX', decimals: -1 }],
+  ['decimals above 12', { symbol: 'USDCX', decimals: 13 }],
+  ['no symbol', { symbol: '', decimals: 6 }]
+];
+it.each(unusableMetadata)('refuses a successful quote when the native asset has %s', async (_case, metadata) => {
+  jest.mocked(getNativeAssetMetadata).mockResolvedValue(metadata);
+  await expect(quoteEarnWithdrawal(args, sdk)).rejects.toThrow(new Error('earnWithdrawQuoteUnavailable'));
 });
 it('requires refresh on expiry, changed availability, payout identity or failed position read', async () => {
   const q = await quoteEarnWithdrawal(args, sdk);
