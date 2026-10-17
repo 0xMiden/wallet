@@ -185,13 +185,18 @@ function rejectionIdentity(error: unknown, outer: string | undefined): string | 
   return undefined;
 }
 
-const ASSERTION_CODE = /assertion failed with error code:\s*(\d{1,20})(?!\d)/;
+// Each chain link is read only this far: an assertion opens its link's text, and a crafted long message must not cost
+// the failure path more. Both patterns are fixed text, so each is linear in what it reads.
+const PROTOCOL_TEXT_LIMIT = 4096;
+const ASSERTION_CODE = /assertion failed with error code:\s{0,8}(\d{1,20})(?!\d)/;
 // VM 0.35 `U32AssertionFailed` puts its code after the check's own text, beside the stack values it refused.
-const U32_ASSERTION_CODE = /u32 assertion failed:[^;\n]*; error code:\s*(\d{1,20})(?!\d)/;
+const U32_ASSERTION_CODE =
+  /u32 assertion failed: u32assert2 requires both stack values to be valid 32-bit unsigned integers; error code:\s{0,8}(\d{1,20})(?!\d)/;
 
 function protocolIdentity(message: string): string | undefined {
-  const assertion = ASSERTION_CODE.exec(message)?.[1];
-  const code = assertion ?? U32_ASSERTION_CODE.exec(message)?.[1];
+  const text = message.slice(0, PROTOCOL_TEXT_LIMIT);
+  const assertion = ASSERTION_CODE.exec(text)?.[1];
+  const code = assertion ?? U32_ASSERTION_CODE.exec(text)?.[1];
   if (code === undefined) return undefined;
   // Only identities in the shipped public protocol sources survive. Arbitrary numbers can be user data.
   if (Object.prototype.hasOwnProperty.call(assertions, code)) return assertions[code as keyof typeof assertions];
@@ -327,7 +332,10 @@ function submitOutcomeIdentity(error: unknown, hiddenDuringSubmit: boolean | und
 function failureIdentity(failure: TransactionFailure): string {
   const { error } = failure;
   const message = typeof error === 'string' ? error : error instanceof Error ? error.message : '';
-  const protocol = protocolIdentity(message);
+  // Outer link first, so a wrapper's own code keeps precedence over the one its cause carries.
+  const protocol = errorMessageParts(error)
+    .map(protocolIdentity)
+    .find(identity => identity !== undefined);
   // Ahead of the text arms: a Guardian refusal's message carries the server's own text, which can read as any of them.
   const rejection = rejectionIdentity(error, protocol);
   if (rejection !== undefined) return rejection;
