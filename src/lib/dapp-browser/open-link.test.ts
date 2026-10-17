@@ -270,15 +270,16 @@ describe('startOpenLinkCapture', () => {
 
   it.each([
     ['unreadable', '['],
-    ['not a list', '"taken"']
-  ])('offers the launch link when the taken record is %s', async (_case, record) => {
+    ['not a list', '{}']
+  ])('offers the launch link when the taken record is %s, and rewrites the record', async (_case, record) => {
     sessionStorage.setItem('open-link:taken', record);
     mockGetLaunchUrl.mockResolvedValue({ url: LINK });
 
     startOpenLinkCapture();
     await flushPromises();
 
-    expect(getPendingOpenLink()).toBe(PAGE);
+    expect(takePendingOpenLink()).toBe(PAGE);
+    expect(JSON.parse(sessionStorage.getItem('open-link:taken') ?? '')).toEqual([LINK]);
   });
 
   it('does not restore a stored link that is not an open link', async () => {
