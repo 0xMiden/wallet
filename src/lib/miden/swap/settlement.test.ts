@@ -10,6 +10,7 @@ import {
   reconcileSwapOrderNotes,
   settleSwapOrders
 } from './settlement';
+import { OperationAbortedError } from '../back/offscreen-codec';
 import { __resetSyncFuseStateForTests, isSyncFused, noteSyncWatchdogEviction } from '../front/sync-fuse';
 import { withWasmClientLock, type WasmLockHold } from '../sdk/miden-client';
 import { WasmClientPoisonedError } from '../sdk/wasm-client-poison';
@@ -382,6 +383,38 @@ describe('swap order note settlement', () => {
 
     // The trapped client is not asked for the next order's request.
     expect(midenClientProxy.buildPswapCancelRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['an offscreen abort', () => new OperationAbortedError('op-1', 'deadline')],
+    ['a terminated client', () => new Error('Client terminated')],
+    ['a terminated inner client', () => new Error('WebClient terminated')]
+  ])('ends the pass on %s from the cancel-request build, asking the dead client nothing more', async (_label, kill) => {
+    jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const error = kill();
+    jest
+      .mocked(midenClientProxy.getPswapLineages)
+      .mockResolvedValue([zeroFillLineage('zero-fill-tip'), { ...zeroFillLineage('second-tip'), orderId: '88' }]);
+    jest.mocked(midenClientProxy.buildPswapCancelRequest).mockImplementation(async (_accountId, noteId) => {
+      if (noteId === 'zero-fill-tip') throw error;
+      return new Uint8Array([8, 8]);
+    });
+    const orders = [
+      tx({ outputNoteIds: ['zero-fill-tip'] }),
+      tx({ id: 'swap-2', outputNoteIds: ['second-tip'], extraInputs: { ...tx().extraInputs, orderId: 88n } })
+    ];
+
+    await expect(
+      withWasmClientLock(hold => classifySwapSettlementSnapshot([], 'account-1', orders as never, hold, 300))
+    ).rejects.toBe(error);
+
+    expect(midenClientProxy.buildPswapCancelRequest).toHaveBeenCalledTimes(1);
+    expect(midenClientProxy.buildPswapCancelRequest).not.toHaveBeenCalledWith(
+      'account-1',
+      'second-tip',
+      expect.any(Function)
+    );
+    expect(console.warn).not.toHaveBeenCalled();
   });
 
   it('never treats a pre-upgrade order without an explicit expiresAt as expired', async () => {
