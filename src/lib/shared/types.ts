@@ -147,6 +147,9 @@ export enum WalletMessageType {
   // Transaction processing (popup → SW)
   ProcessTransactionsRequest = 'PROCESS_TRANSACTIONS_REQUEST',
   ProcessTransactionsResponse = 'PROCESS_TRANSACTIONS_RESPONSE',
+  // A page's delivery write (page → SW), so the SW's delivery sweep looks again
+  NoteDeliveryWrittenRequest = 'NOTE_DELIVERY_WRITTEN_REQUEST',
+  NoteDeliveryWrittenResponse = 'NOTE_DELIVERY_WRITTEN_RESPONSE',
   // Developer endpoint overrides (popup → SW): re-hydrate the SW's override
   // cache + rebuild its Miden client singleton(s) after a save.
   ReloadEndpointOverridesRequest = 'RELOAD_ENDPOINT_OVERRIDES_REQUEST',
@@ -278,6 +281,19 @@ export interface ProcessTransactionsRequest extends WalletMessageBase {
 
 export interface ProcessTransactionsResponse extends WalletMessageBase {
   type: WalletMessageType.ProcessTransactionsResponse;
+}
+
+/**
+ * A delivery write an extension page made, such as Retry's landing or the in-app reconciler's, which the background
+ * counts as one of its own so its idle delivery sweep queries again. It carries no row data: the sweep reads the rows.
+ * Extension-only: on mobile and desktop the writer and the sweep share a realm and its count.
+ */
+export interface NoteDeliveryWrittenRequest extends WalletMessageBase {
+  type: WalletMessageType.NoteDeliveryWrittenRequest;
+}
+
+export interface NoteDeliveryWrittenResponse extends WalletMessageBase {
+  type: WalletMessageType.NoteDeliveryWrittenResponse;
 }
 
 /**
@@ -1308,6 +1324,7 @@ export type WalletRequest =
   | SyncRequest
   | NoteClaimStarted
   | ProcessTransactionsRequest
+  | NoteDeliveryWrittenRequest
   | ReloadEndpointOverridesRequest
   | ImportNoteBytesRequest
   | RetryDeadletteredNotesRequest
@@ -1382,6 +1399,7 @@ export type WalletResponse =
   | SyncResponse
   | NoteClaimStartedResponse
   | ProcessTransactionsResponse
+  | NoteDeliveryWrittenResponse
   | ReloadEndpointOverridesResponse
   | ImportNoteBytesResponse
   | RetryDeadletteredNotesResponse

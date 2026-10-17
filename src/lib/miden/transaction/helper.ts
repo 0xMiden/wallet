@@ -1,8 +1,10 @@
 import { TransactionResult } from '@miden-sdk/miden-sdk/lazy';
 import { liveQuery } from 'dexie';
 
+import { createIntercomClient, type IIntercomClient } from 'lib/intercom/client';
 import * as Repo from 'lib/miden/repo';
 import { u8ToB64 } from 'lib/shared/helpers';
+import { WalletMessageType } from 'lib/shared/types';
 import { classifyError } from 'lib/telemetry/classify';
 import { reportOperation } from 'lib/telemetry/report-operation';
 import { reportTransactionFailure } from 'lib/telemetry/transaction-failure';
@@ -500,18 +502,37 @@ const relabelForDelivery = (row: ITransaction, label: string): string => {
 let noteDeliveryWrites = 0;
 
 /**
- * How many delivery writes this realm has made. The delivery sweep skips its query while nothing
+ * How many delivery writes this realm has made or been told of. The delivery sweep skips its query while nothing
  * is due, and a write it did not make itself (a new send owing a relay) is what tells it to look
  * again before then.
  */
 export const noteDeliveryWriteCount = (): number => noteDeliveryWrites;
 
 /**
+ * An extension page, as against the extension's background, where `isExtension()` holds too and which Firefox runs as
+ * a page with a `window`: the build names each bundle (`WALLET_BUILD_TARGET`, as crash reports read it).
+ */
+const inExtensionPage = (): boolean => process.env.WALLET_BUILD_TARGET === 'extension';
+
+let workerIntercom: IIntercomClient | undefined;
+
+/**
  * Count a delivery write, once it has landed, so a sweep that reads the new count cannot have queried before the
  * write. {@link recordNoteDelivery} calls it, and so does any other write that gives the sweep a note to push.
+ *
+ * On the extension the sweep runs in the background, which never reads a page's count, so a page's write also tells
+ * the background, which counts it as its own. The signal is never awaited and carries nothing: one that does not
+ * arrive leaves the sweep to its idle window, an hour at most, and cannot fail the write it reports.
  */
 export const countNoteDeliveryWrite = (): void => {
   noteDeliveryWrites++;
+  try {
+    if (!inExtensionPage()) return;
+    workerIntercom ??= createIntercomClient();
+    workerIntercom.request({ type: WalletMessageType.NoteDeliveryWrittenRequest }).catch(() => undefined);
+  } catch {
+    // The write landed; only the wake is lost.
+  }
 };
 
 /** `held`, read as stored ids, plus each of `added` it lacks, in order. */

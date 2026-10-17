@@ -1014,7 +1014,7 @@ describe('a delivery write a page reports', () => {
   const countQueries = () => {
     const where = jest.spyOn(Repo.transactions, 'where');
     spies.push(where);
-    return () => where.mock.calls.filter(([index]) => index === 'noteDelivery').length;
+    return () => where.mock.calls.filter(([index]) => String(index) === 'noteDelivery').length;
   };
 
   beforeEach(() => {
