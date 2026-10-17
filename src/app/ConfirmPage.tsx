@@ -503,9 +503,6 @@ const ConfirmDAppForm: FC = () => {
   let privateDataPermission = PrivateDataPermission.UponRequest;
   if (payload.type === 'connect') {
     privateDataPermission = payload.privateDataPermission;
-    if (payload.existingPermission) {
-      confirmDAppPermission(id, true, account.publicKey, privateDataPermission, payload.allowedPrivateData);
-    }
   }
   requirePrivateDataCheckbox = privateDataPermission === PrivateDataPermission.Auto && !isPublicAccount;
   const [isPrivateDataChecked, setIsPrivateDataChecked] = useState(false);
@@ -568,6 +565,17 @@ const ConfirmDAppForm: FC = () => {
   const [error, setError] = useSafeState<any>(null);
   const [confirming, setConfirming] = useSafeState(false);
   const [declining, setDeclining] = useSafeState(false);
+
+  // An existing permission is answered once, unasked; a failed answer shows the error with Retry (#1471).
+  const existingPermissionAnsweredRef = useRef(false);
+  useEffect(() => {
+    if (payload.type !== 'connect' || !payload.existingPermission || existingPermissionAnsweredRef.current) return;
+    existingPermissionAnsweredRef.current = true;
+    onConfirm(true).catch(err => {
+      console.error(err);
+      setError(err);
+    });
+  }, [payload, onConfirm, setError]);
 
   // The extension's approval telemetry. The confirmation store the other
   // platforms report from is unreachable here — see `useApprovalPrompt`.

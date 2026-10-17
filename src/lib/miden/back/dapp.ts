@@ -485,8 +485,7 @@ export async function generatePromisifyRequestPermission(
         if (confirmReq?.type === MidenMessageType.DAppPermConfirmationRequest && confirmReq?.id === id) {
           const { confirmed, accountPublicKey, privateDataPermission } = confirmReq;
           if (confirmed && accountPublicKey) {
-            let publicKey: string | null = null;
-            let publicKeyError: unknown;
+            let publicKey: string;
             try {
               publicKey = await withUnlocked(async () => {
                 // Wrap WASM client operations in a lock to prevent concurrent access
@@ -496,43 +495,28 @@ export async function generatePromisifyRequestPermission(
               });
             } catch (e) {
               console.error('Error fetching account public key:', e);
-              publicKeyError = e;
+              // The user approved, so a failed read is no answer to the dApp (#1471): not NotGranted, and not the
+              // read's error either, a kill included (#775). The throw fails this confirmation, so the window stays
+              // open on its error with Retry, and the dApp waits for a Retry, a Cancel or the auto-decline.
+              throw e;
             }
-            if (publicKey == null) {
-              // A failed public-key fetch must fail the connect, not persist a
-              // session with publicKey: null. The direct-return path hands that
-              // null pubkey back verbatim on every later connect, wedging the
-              // dApp at "Connecting…" until the session is cleared. Mirrors the
-              // non-extension branch, which throws NotGranted on the same failure.
-              //
-              // …except for a kill (a lock-recovery eviction, an offscreen abort
-              // or a terminated client, #775), which that branch rethrows
-              // verbatim precisely because it is a retryable internal failure
-              // and NOT a permissions verdict. Reporting the user's own approval
-              // back as NotGranted tells the dApp to stop asking. The
-              // `decline()` below still closes the prompt; its own reject is a
-              // no-op once this one has settled the promise.
-              if (isPipelineKillLink(publicKeyError)) reject(publicKeyError);
-              decline();
-            } else {
-              if (!existingPermission)
-                await setDApp(origin, {
-                  network,
-                  appMeta,
-                  accountId: accountPublicKey,
-                  privateDataPermission: privateDataPermission || PrivateDataPermission.UponRequest,
-                  allowedPrivateData: allowedPrivateData || AllowedPrivateData.None,
-                  publicKey
-                });
-              resolve({
-                type: MidenDAppMessageType.PermissionResponse,
-                accountId: accountPublicKey,
+            if (!existingPermission)
+              await setDApp(origin, {
                 network,
+                appMeta,
+                accountId: accountPublicKey,
                 privateDataPermission: privateDataPermission || PrivateDataPermission.UponRequest,
                 allowedPrivateData: allowedPrivateData || AllowedPrivateData.None,
                 publicKey
               });
-            }
+            resolve({
+              type: MidenDAppMessageType.PermissionResponse,
+              accountId: accountPublicKey,
+              network,
+              privateDataPermission: privateDataPermission || PrivateDataPermission.UponRequest,
+              allowedPrivateData: allowedPrivateData || AllowedPrivateData.None,
+              publicKey
+            });
           } else {
             decline();
           }
