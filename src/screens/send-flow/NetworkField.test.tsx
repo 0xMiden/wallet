@@ -5,7 +5,11 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 
 import { NetworkField } from './NetworkField';
-import { selectContactNetwork, type ContactNetworkPage } from '../../../playwright/e2e/helpers/contact-network';
+import {
+  selectContactNetwork,
+  selectSendNetwork,
+  type ContactNetworkPage
+} from '../../../playwright/e2e/helpers/contact-network';
 
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 jest.mock('./bridge-networks', () => ({ BRIDGE_NETWORKS: [] }));
@@ -58,9 +62,9 @@ it('closes a nested network picker while preserving its parent sheet', () => {
   expect(screen.getByRole('dialog', { name: 'selectNetwork' })).toHaveAttribute('data-state', 'closed');
 });
 
-// Adapt the driver's locator boundary to the real rendered component. The helper must open the
+// Adapt the drivers' locator boundary to the real rendered component. A helper must open the
 // nested sheet and change React state; a click that leaves the previous network cannot pass.
-const contactPage: ContactNetworkPage = {
+const fieldPage: ContactNetworkPage = {
   getByTestId: id => ({
     isVisible: async () => {
       const element = screen.queryByTestId(id);
@@ -86,12 +90,14 @@ const contactPage: ContactNetworkPage = {
   })
 };
 
-function ContactNetworkFixture({
+function NetworkFieldFixture({
   chain = 'ethereum',
-  single = false
+  single = false,
+  prefix = 'add-contact'
 }: {
   chain?: 'miden' | 'ethereum';
   single?: boolean;
+  prefix?: string;
 }) {
   const [network, setNetwork] = useState('base');
   return (
@@ -100,27 +106,27 @@ function ContactNetworkFixture({
       networks={single ? networks.slice(0, 1) : networks}
       network={network}
       onSelect={setNetwork}
-      testIdPrefix="add-contact"
+      testIdPrefix={prefix}
     />
   );
 }
 
 it('the contact E2E driver opens the picker, changes network and verifies the closed summary', async () => {
-  render(<ContactNetworkFixture />);
-  await selectContactNetwork(contactPage, { id: 'arbitrum', name: 'Arbitrum' }, 1000);
+  render(<NetworkFieldFixture />);
+  await selectContactNetwork(fieldPage, { id: 'arbitrum', name: 'Arbitrum' }, 1000);
   expect(screen.getByTestId('add-contact-network-picker')).toHaveTextContent('Arbitrum');
   expect(screen.getByRole('dialog', { name: 'selectNetwork' })).toHaveAttribute('data-state', 'closed');
 });
 
 it('the contact E2E driver verifies a static Miden network without opening a picker', async () => {
-  render(<ContactNetworkFixture chain="miden" />);
-  await selectContactNetwork(contactPage, { id: 'miden', name: 'miden' }, 1000);
+  render(<NetworkFieldFixture chain="miden" />);
+  await selectContactNetwork(fieldPage, { id: 'miden', name: 'miden' }, 1000);
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
 });
 
 it('the contact E2E driver supports a single fixed EVM network', async () => {
-  render(<ContactNetworkFixture single />);
-  await selectContactNetwork(contactPage, { id: 'base', name: 'Base' }, 1000);
+  render(<NetworkFieldFixture single />);
+  await selectContactNetwork(fieldPage, { id: 'base', name: 'Base' }, 1000);
   expect(screen.queryByTestId('add-contact-network-picker')).not.toBeInTheDocument();
 });
 
@@ -128,7 +134,28 @@ it('the contact E2E driver rejects a choice that closed the picker without chang
   render(
     <NetworkField chain="ethereum" networks={networks} network="base" onSelect={jest.fn()} testIdPrefix="add-contact" />
   );
-  await expect(selectContactNetwork(contactPage, { id: 'arbitrum', name: 'Arbitrum' }, 1000)).rejects.toThrow(
+  await expect(selectContactNetwork(fieldPage, { id: 'arbitrum', name: 'Arbitrum' }, 1000)).rejects.toThrow(
     'Contact network selection stayed "Base", expected "Arbitrum".'
+  );
+});
+
+it('the Send E2E driver opens the picker, changes network and verifies the closed summary', async () => {
+  render(<NetworkFieldFixture prefix="send" />);
+  await selectSendNetwork(fieldPage, { id: 'arbitrum', name: 'Arbitrum' }, 1000);
+  expect(screen.getByTestId('send-network-picker')).toHaveTextContent('Arbitrum');
+  expect(screen.getByRole('dialog', { name: 'selectNetwork' })).toHaveAttribute('data-state', 'closed');
+});
+
+it('the Send E2E driver reads a single network from its static row without opening a picker', async () => {
+  render(<NetworkFieldFixture prefix="send" single />);
+  await selectSendNetwork(fieldPage, { id: 'base', name: 'Base' }, 1000);
+  expect(screen.queryByTestId('send-network-picker')).not.toBeInTheDocument();
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+});
+
+it('the Send E2E driver rejects a choice that closed the picker without changing the selection', async () => {
+  render(<NetworkField chain="ethereum" networks={networks} network="base" onSelect={jest.fn()} testIdPrefix="send" />);
+  await expect(selectSendNetwork(fieldPage, { id: 'arbitrum', name: 'Arbitrum' }, 1000)).rejects.toThrow(
+    'Send network selection stayed "Base", expected "Arbitrum".'
   );
 });

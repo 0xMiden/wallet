@@ -28,22 +28,14 @@ const renderDrawer = () =>
   );
 
 describe('EvmBridgeTokenDrawer', () => {
-  it('does not offer retired Epoch USDC even when old config supplied its balance', () => {
-    render(
-      <EvmBridgeTokenDrawer
-        open
-        onOpenChange={jest.fn()}
-        selected="CIRCLE_USDC"
-        ethBalance="0.5"
-        usdcBalance="12"
-        usdcLabel="Test Epoch USDC"
-        circleUsdcBalance="3"
-        onSelect={jest.fn()}
-      />
-    );
+  it('offers Circle USDC and ETH, and no retired Epoch USDC row', () => {
+    renderDrawer();
+
+    expect(screen.getAllByRole('button').map(row => row.getAttribute('data-testid'))).toEqual([
+      'bridge-token-ETH',
+      'bridge-token-CIRCLE_USDC'
+    ]);
     expect(screen.queryByTestId('bridge-token-USDC')).not.toBeInTheDocument();
-    expect(screen.queryByText(/Test Epoch USDC/)).not.toBeInTheDocument();
-    expect(screen.getByTestId('bridge-token-CIRCLE_USDC')).toHaveTextContent('3 USDC');
   });
 
   it('offers Circle USDC under its symbol with the USDC logo', () => {
@@ -71,7 +63,6 @@ describe('EvmBridgeTokenDrawer', () => {
         open
         onOpenChange={jest.fn()}
         selected="CIRCLE_USDC"
-        usdcLabel="USDC"
         circleUsdcBalance="3"
         circleUsdcLabel="USDC"
         onSelect={jest.fn()}
