@@ -4,7 +4,7 @@
 
 ### Fixes
 
-- [FIX][all] Max on a USDCx bridge-out holds back the burn's real cost, measured by a dry run of the burn, so a full-balance burn no longer fails with a vault shortfall when it costs more than the static fee reserve.
+- [FIX][all] Max on a USDCx bridge-out holds back the burn's real cost, measured by a dry run of the burn, so a full-balance burn no longer fails with a vault shortfall when it costs more than the static fee reserve; Max and Continue wait until that cost is measured, and an amount above it cannot reach review.
 - [FIX][ci] A fourth live USDCx suite, `usdcx-burn-l2`, burns 1 USDCx through Send from a fresh Guardian wallet to the harness key on Base Sepolia and on Arbitrum Sepolia, and passes only once Circle has paid each burn there and the wallet itself reads Confirmed; its preflight checks both chains and the wallet's RPC for them, and E2E USDCx runs it after the Arc suites, even when one of them failed.
 - [FIX][ci] The USDCx executor-route deposit (Base, Arbitrum and Ethereum to Arc) runs without the wallet's configuration runtime, so the E2E harness signs the wallet's own deposit, and the E2E bridge-in hook keeps a deposit's forwarded CCTP leg, so the wallet reconciles a deposit the harness signed as it does its own.
 - [FIX][ci] A fifth live USDCx suite, `usdcx-in-l2`, deposits 0.001 USDC plus Circle's forward fee from the harness key on Base Sepolia and on Arbitrum Sepolia through the wallet's own executor deposit, and passes only once the burn, Circle's attestation and forward, the Arc execution, the mint and the wallet's claim are each proven; its preflight names the chain, the key and the minimum when the key needs ETH or USDC there, and E2E USDCx now runs the Arc suites and then the L2 suites as two jobs.
