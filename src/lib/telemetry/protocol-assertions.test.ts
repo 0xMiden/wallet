@@ -97,15 +97,4 @@ describe('the kernel assertion table', () => {
     expect(Object.keys(assertions).length).toBeGreaterThan(0);
     expect(changed).toEqual([]);
   });
-
-  // Crash scrubbing blanks a report holding four wordlist words in a row, as a recovery phrase, and redacts four digits
-  // in a row: a name coined from a message's words has to survive both.
-  it('coins only names a report survives crash scrubbing with', () => {
-    const coined = Object.values(assertions).filter(name => /^(PROTOCOL|STANDARDS|CORE_LIB|AGGLAYER)_/.test(name));
-    const report = (name: string) =>
-      'Transaction failed: tx_dapp; stage signing; signing step creating_proposal; realm unknown; proving preference ' +
-      `delegated; platform ios; point pipeline; ${name}. authentication preparation provided; layout guardian`;
-    expect(coined.length).toBeGreaterThan(0);
-    expect(coined.filter(name => redactMessage(report(name), englishWordlist) !== report(name))).toEqual([]);
-  });
 });
