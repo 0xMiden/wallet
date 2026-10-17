@@ -1828,6 +1828,7 @@ export const resolveUnconfirmedSwitch = async (id: string, landed: boolean): Pro
       stage: failed.stage,
       delegateTransaction: failed.delegateTransaction,
       diagnostics: failed.failureDiagnostics,
+      reason: 'never_committed',
       error: failed.error
     });
   }

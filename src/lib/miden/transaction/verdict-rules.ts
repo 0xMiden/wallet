@@ -291,7 +291,7 @@ const canonicalEntry = (entry: ISubmitEvidence): unknown[] => [
 /**
  * The entries' evidence as one comparable string, the seen fields aside (`initialSeenAtBlock`, `landingSeenAtBlock`,
  * `landingSeenBy`): only the verdict lock's holder writes those, so recording a seen block never voids its own next
- * write (#1081).
+ * write (#1081). `neverCommittedBy` is aside too: it only names why a verdict the key already holds was reached.
  */
 export const evidenceKey = (entries: readonly ISubmitEvidence[] | undefined): string =>
   JSON.stringify((entries ?? []).map(canonicalEntry));
