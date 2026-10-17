@@ -71,28 +71,32 @@ before(async () => {
       `)
     ]
   ]);
-  const source = await readFile(new URL('../playwright/e2e/test-dapp/test-dapp.ts', import.meta.url), 'utf8');
-  const compiled = ts.transpileModule(source, {
-    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
-    transformers: {
-      before: [
-        context => root =>
-          ts.visitNode(root, function visit(node) {
-            const replacement = ts.isImportDeclaration(node) ? imports.get(node.moduleSpecifier.text) : undefined;
-            if (replacement !== undefined) {
-              return context.factory.updateImportDeclaration(
-                node,
-                node.modifiers,
-                node.importClause,
-                context.factory.createStringLiteral(replacement),
-                node.attributes
-              );
-            }
-            return ts.visitEachChild(node, visit, context);
-          })
-      ]
-    }
-  });
+  const compile = async name => {
+    const source = await readFile(new URL(`../playwright/e2e/test-dapp/${name}`, import.meta.url), 'utf8');
+    return ts.transpileModule(source, {
+      compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+      transformers: {
+        before: [
+          context => root =>
+            ts.visitNode(root, function visit(node) {
+              const replacement = ts.isImportDeclaration(node) ? imports.get(node.moduleSpecifier.text) : undefined;
+              if (replacement !== undefined) {
+                return context.factory.updateImportDeclaration(
+                  node,
+                  node.modifiers,
+                  node.importClause,
+                  context.factory.createStringLiteral(replacement),
+                  node.attributes
+                );
+              }
+              return ts.visitEachChild(node, visit, context);
+            })
+        ]
+      }
+    }).outputText;
+  };
+  imports.set('./page-common.js', dataModule(await compile('page-common.ts')));
+  const compiled = { outputText: await compile('test-dapp.ts') };
   globalThis.window = { midenWallet: { on: () => undefined }, location: { host: 'fixture-unit' } };
   globalThis.document = { getElementById: () => null, querySelectorAll: () => [] };
   globalThis.fetch = async () => ({ json: async () => ({ version: '0.17.3' }) });
