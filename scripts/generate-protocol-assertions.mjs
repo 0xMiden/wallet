@@ -119,11 +119,9 @@ const OPERATOR_WORDS = [
   [/'/g, '']
 ];
 
-// Crash scrubbing (src/lib/telemetry/redact.ts) redacts four digits in a row even in a closed name, and reads four
-// wordlist words in a row as a recovery phrase wherever it is given no closed names, so these coined names avoid both.
-// protocol-assertions.test.ts finds the next one.
+// Crash scrubbing (src/lib/telemetry/redact.ts) redacts four digits in a row even in a closed name, so these coined
+// names leave the digits out. protocol-assertions.test.ts finds the next one.
 const NAME_OVERRIDES = new Map([
-  ['kernel witness length must fit in a u32', 'CORE_LIB_KERNEL_WITNESS_LEN_NOT_U32'],
   ['invalid insert: already at maximum size of 8192', 'CORE_LIB_INVALID_INSERT_ALREADY_AT_MAXIMUM_SIZE'],
   ['invalid leaf: larger than maximum size of 8192', 'CORE_LIB_INVALID_LEAF_LARGER_THAN_MAXIMUM_SIZE']
 ]);
