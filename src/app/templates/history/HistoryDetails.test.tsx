@@ -4416,6 +4416,19 @@ describe('HistoryDetails swap order actions', () => {
     expect(screen.queryByTestId('swap-cancel-order-button')).not.toBeInTheDocument();
   });
 
+  it('shows no reclaim notice on a restored order, which the settlement never acts on', async () => {
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
+    setMockRow({
+      ...openSwapTx({ expiresAt: nowSeconds - 5, expiryTriggeredAt: nowSeconds - 2 }),
+      restoredFromBackup: true
+    });
+    await renderAndLoad();
+
+    expect(screen.getByTestId('status-pill')).toHaveAttribute('data-swap-settlement', 'pending');
+    expect(screen.queryByTestId('swap-cancel-order-pending')).not.toBeInTheDocument();
+  });
+
   // A row is Queued OR its order is open, never both: an order only exists once
   // the place-order transaction completed. So the page's own Cancel and the
   // card's Cancel swap can never appear together, in either direction.

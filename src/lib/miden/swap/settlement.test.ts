@@ -11,10 +11,17 @@ import {
   settleSwapOrders
 } from './settlement';
 import { OperationAbortedError } from '../back/offscreen-codec';
-import { __resetSyncFuseStateForTests, isSyncFused, noteSyncWatchdogEviction } from '../front/sync-fuse';
+import {
+  __resetSyncFuseStateForTests,
+  isSyncFused,
+  noteSyncSuccess,
+  noteSyncWatchdogEviction,
+  type SyncFuseKey,
+  syncFuseUntilMs
+} from '../front/sync-fuse';
 import { withWasmClientLock, type WasmLockHold } from '../sdk/miden-client';
 import { WasmClientPoisonedError } from '../sdk/wasm-client-poison';
-import { MAX_CONSECUTIVE_WATCHDOG_EVICTIONS } from '../sync-backoff';
+import { MAX_CONSECUTIVE_ABANDONED_PROBES, MAX_CONSECUTIVE_WATCHDOG_EVICTIONS } from '../sync-backoff';
 
 // Models hold ownership like production: the tick re-checks its hold before starting the
 // lineage reads, so the mock has to be able to take one away.
@@ -136,6 +143,7 @@ describe('swap order note settlement', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    __resetSyncFuseStateForTests();
     toArray.mockResolvedValue([tx()]);
     jest.mocked(midenClientProxy.getPswapLineages).mockResolvedValue([]);
     jest.mocked(midenClientProxy.buildPswapCancelRequest).mockResolvedValue(new Uint8Array([1, 4, 7, 6]));
@@ -785,6 +793,104 @@ describe('swap order note settlement', () => {
 
       await expect(settleSwapOrders('account-1')).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
       expect(midenClientProxy.getPswapLineages).not.toHaveBeenCalled();
+    });
+  });
+
+  // A node call the claimable-notes poll never makes, so it parks independently of the read the hold shares with it.
+  describe('the zero-fill cancel-request build as a probe of its own', () => {
+    const ZERO_FILL_BUILD: SyncFuseKey = 'swap-zero-fill-build';
+    let warn: jest.SpyInstance;
+
+    beforeEach(() => {
+      warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+      toArray.mockResolvedValue([tx({ outputNoteIds: ['zero-fill-tip'] })]);
+      jest.mocked(midenClientProxy.getConsumableNotes).mockResolvedValue([]);
+      jest.mocked(midenClientProxy.getPswapLineages).mockResolvedValue([zeroFillLineage('zero-fill-tip')]);
+    });
+
+    afterEach(() => {
+      warn.mockRestore();
+      __resetSyncFuseStateForTests();
+    });
+
+    // One settlement pass whose build fails with `error`, then the claimable-notes poll's success on its own key.
+    const failedPass = async (error: Error) => {
+      jest.mocked(midenClientProxy.buildPswapCancelRequest).mockRejectedValue(error);
+      await expect(settleSwapOrders('account-1')).rejects.toBe(error);
+      noteSyncSuccess('claimable-notes');
+    };
+    const evictedPass = () => failedPass(new WasmClientPoisonedError('watchdog'));
+
+    it('lights its own key on evicted builds the poll successes between them cannot clear, then builds nothing', async () => {
+      for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; i++) await evictedPass();
+
+      expect(isSyncFused(ZERO_FILL_BUILD)).toBe(true);
+      expect(isSyncFused('claimable-notes')).toBe(false);
+      jest.mocked(midenClientProxy.buildPswapCancelRequest).mockClear();
+      jest.mocked(midenClientProxy.getPswapLineages).mockClear();
+
+      await expect(settleSwapOrders('account-1')).resolves.toEqual({
+        queuedTransactionIds: [],
+        managedNoteIds: new Set()
+      });
+      expect(midenClientProxy.buildPswapCancelRequest).not.toHaveBeenCalled();
+      // The pass still reads and classifies the orders; only the build waits.
+      expect(midenClientProxy.getPswapLineages).toHaveBeenCalledTimes(1);
+      expect(initiatePswapReclaimTransaction).not.toHaveBeenCalled();
+    });
+
+    it('clears its key on a pass whose build returns the request', async () => {
+      for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; i++) await evictedPass();
+      expect(isSyncFused(ZERO_FILL_BUILD)).toBe(true);
+      // The window served out, the one probe it grants gets the request bytes back.
+      const now = jest.spyOn(performance, 'now').mockReturnValue(performance.now() + 40 * 60_000);
+      try {
+        jest.mocked(midenClientProxy.buildPswapCancelRequest).mockResolvedValue(new Uint8Array([1, 4, 7, 6]));
+
+        await settleSwapOrders('account-1');
+
+        expect(initiatePswapReclaimTransaction).toHaveBeenCalledTimes(1);
+        expect(syncFuseUntilMs(ZERO_FILL_BUILD)).toBeNull();
+      } finally {
+        now.mockRestore();
+      }
+    });
+
+    it('leaves its evidence as it was on a pass whose only build refuses on the data', async () => {
+      for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS - 1; i++) await evictedPass();
+      jest.mocked(midenClientProxy.buildPswapCancelRequest).mockRejectedValue(new Error('note already consumed'));
+
+      await expect(settleSwapOrders('account-1')).resolves.toEqual({
+        queuedTransactionIds: [],
+        managedNoteIds: new Set()
+      });
+      expect(isSyncFused(ZERO_FILL_BUILD)).toBe(false);
+
+      await evictedPass();
+      expect(isSyncFused(ZERO_FILL_BUILD)).toBe(true);
+    });
+
+    it('lights its key at the abandoned-probe threshold on offscreen deadline kills, whatever the poll reads', async () => {
+      const deadlineKill = () => new OperationAbortedError('op-1', 'deadline');
+      for (let i = 0; i < MAX_CONSECUTIVE_ABANDONED_PROBES - 1; i++) await failedPass(deadlineKill());
+      expect(isSyncFused(ZERO_FILL_BUILD)).toBe(false);
+
+      await failedPass(deadlineKill());
+      expect(isSyncFused(ZERO_FILL_BUILD)).toBe(true);
+      jest.mocked(midenClientProxy.buildPswapCancelRequest).mockClear();
+
+      await settleSwapOrders('account-1');
+      expect(midenClientProxy.buildPswapCancelRequest).not.toHaveBeenCalled();
+    });
+
+    it('leaves its evidence unchanged on an abort that tore nothing down', async () => {
+      for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS - 1; i++) await evictedPass();
+
+      await failedPass(new OperationAbortedError('op-1', 'deadline-no-kill'));
+      expect(isSyncFused(ZERO_FILL_BUILD)).toBe(false);
+
+      await evictedPass();
+      expect(isSyncFused(ZERO_FILL_BUILD)).toBe(true);
     });
   });
 

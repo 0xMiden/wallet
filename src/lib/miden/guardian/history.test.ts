@@ -566,6 +566,29 @@ it.each([
   expect(swap.extraInputs.reclaimedAt).toBeUndefined();
 });
 
+it('keeps a recovered custom transaction an execute with its output when it also creates a note', () => {
+  const { swap } = recoveredSwapPair();
+  // `summary` carries one user output note: this transaction did more than take the order back.
+  const row = recoveredHistoryRecord(
+    'account',
+    '0x123',
+    'testnet',
+    'one',
+    entry,
+    delta({ proposalType: 'custom_transaction' }),
+    { ...summary, inputNotes: [{ ...orderNote(swap), sender: 'account' }] }
+  );
+  expect(row).toMatchObject({
+    type: 'execute',
+    amount: 9007199254740993n,
+    faucetId: 'asset',
+    noteId: 'out',
+    noteIds: ['out']
+  });
+  expect(reconcileRecoveredSwaps([row, swap])).toEqual([]);
+  expect(swap.extraInputs.reclaimedAt).toBeUndefined();
+});
+
 it.each([
   { proposalType: 'add_signer', description: 'Replace device (hot) signer' },
   { proposalType: 'switch_guardian', newGuardianEndpoint: 'https://next' },
