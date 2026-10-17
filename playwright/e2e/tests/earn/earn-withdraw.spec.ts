@@ -25,7 +25,8 @@ const NOTE_AMOUNT = 10_000_000n;
 const WITHDRAW_AMOUNT = '10';
 // The position is seeded at 18 decimals, so Max reviews 10 * 10^18 base units.
 const REVIEWED_AMOUNT_ATOMIC = `${WITHDRAW_AMOUNT}${'0'.repeat(18)}`;
-const SUGGESTED_NONCES = ['101', '102', '11', '103', '22'];
+// The review's own quote takes the first nonce before Confirm; the withdrawal's quotes and allocations take the rest.
+const SUGGESTED_NONCES = ['100', '101', '102', '11', '103', '22'];
 
 interface PreparedWithdrawal extends PreparedExecution {
   attemptId: string;
@@ -264,13 +265,14 @@ function defineEarnWithdrawSuite(axis: AccountAxis): void {
       );
       const confirm = walletA.page.getByTestId('earn-withdraw-review-confirm');
       await expect(confirm).toBeEnabled({ timeout: 30_000 });
+      const nonceRequests = () => allocator.requests.filter(request => request.path.startsWith('/suggested-nonce/'));
+      expect(nonceRequests(), 'the review quotes once before Confirm').toHaveLength(1);
 
       const statusPath = (nonce: string) => `/intentStatus/${evmOwner}/${nonce}`.toLowerCase();
       const compactRequests = () =>
         allocator.requests.filter(request => request.method === 'POST' && request.path === '/compact');
       const relayRequests = () =>
         allocator.requests.filter(request => request.method === 'POST' && request.path === '/relay-execute');
-      const nonceRequests = () => allocator.requests.filter(request => request.path.startsWith('/suggested-nonce/'));
       const observeTraffic = (wallet: ChromeWalletPageApi) => {
         const statuses: string[] = [];
         const compacts: string[] = [];
@@ -311,7 +313,10 @@ function defineEarnWithdrawSuite(axis: AccountAxis): void {
         proof.prepared = prepared;
         expect(relayRequests(), 'source was accepted once while its response is parked').toHaveLength(1);
         expect(compactRequests(), 'SDK cannot allocate until the parked relay answers').toHaveLength(0);
-        expect(nonceRequests(), 'three quote nonces and two final allocation nonces').toHaveLength(5);
+        expect(
+          nonceRequests(),
+          'one review quote nonce, three execution quote nonces and two final allocation nonces'
+        ).toHaveLength(6);
 
         // The position lock admits one withdrawal per position; the attempt lock is what recovery defers to.
         const heldSubmitLocks = (await heldEarnLocks(walletA)).filter(lock => lock.name.startsWith('earn-submit:'));
@@ -440,7 +445,7 @@ function defineEarnWithdrawSuite(axis: AccountAxis): void {
         await expect.poll(async () => (await withdrawState(survivor, txId))?.phase).toBe('redeeming');
         expect((await withdrawState(survivor, txId))?.preparedExecution).toEqual(prepared);
         expect(relayRequests(), 'Retry delivery cannot submit the source again').toHaveLength(1);
-        expect(nonceRequests(), 'recovery cannot construct a new intent').toHaveLength(5);
+        expect(nonceRequests(), 'recovery cannot construct a new intent').toHaveLength(6);
 
         const nativeDelivery = await midenCli.transferNativeFromFunder(addressA, NOTE_AMOUNT);
         expect(nativeDelivery.faucetId).toBe(prepared.delivery.destinationFaucetId);
@@ -500,7 +505,7 @@ function defineEarnWithdrawSuite(axis: AccountAxis): void {
           deliveryPostsBeforeRetry + 1
         );
         expect(relayRequests()).toHaveLength(1);
-        expect(nonceRequests()).toHaveLength(5);
+        expect(nonceRequests()).toHaveLength(6);
         expect(positions.requests.some(request => request.path === '/positions')).toBe(true);
         await survivor.navigateTo(`/history-details/${txId}`);
         await expect(survivorPage.getByText('Received', { exact: true })).toBeVisible({ timeout: 30_000 });
