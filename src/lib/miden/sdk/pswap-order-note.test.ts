@@ -180,18 +180,19 @@ describe('readPswapOrderLineage', () => {
   });
 
   // A partial fill spends the order note and creates the remainder in the same transaction, so in the spending block,
-  // under the order note's own tag (a PSWAP remainder carries its parent's tag over unchanged).
+  // under the order note's own tag (a PSWAP remainder carries its parent's tag over unchanged). The amounts follow the
+  // PSWAP script: a fill of 20 of the 30 asked pays floor(70 * 20 / 30) = 46, leaving 24 offered for 10.
   it('follows a partial fill to the remainder the spending block holds', async () => {
     commit(pswapNote({ id: 'order-note' }), 120);
     spentAt.set('order-note', 125);
-    commit(remainder('remainder-1', 1n, 40n, 10n), 125);
+    commit(remainder('remainder-1', 1n, 24n, 10n), 125);
     commit(pswapNote({ id: 'other-order', serial: [9n, 99n, 9n, 1n] }), 125);
 
     await expect(read()).resolves.toEqual({
       kind: 'open',
       noteId: 'remainder-1',
       depth: 1,
-      offeredAmount: 40n,
+      offeredAmount: 24n,
       requestedAmount: 10n
     });
     expect(mockSyncNotes).toHaveBeenCalledWith(124, 125, [{ tagOf: 'order-note' }]);
@@ -200,15 +201,32 @@ describe('readPswapOrderLineage', () => {
   it('follows the lineage round by round to its open tip', async () => {
     commit(pswapNote({ id: 'order-note' }), 120);
     spentAt.set('order-note', 125);
-    commit(remainder('remainder-1', 1n, 40n, 10n), 125);
+    commit(remainder('remainder-1', 1n, 24n, 10n), 125);
     spentAt.set('remainder-1', 140);
-    commit(remainder('remainder-2', 2n, 20n, 5n), 140);
+    // A fill of 5 of the 10 asked pays floor(24 * 5 / 10) = 12.
+    commit(remainder('remainder-2', 2n, 12n, 5n), 140);
 
     await expect(read()).resolves.toEqual({
       kind: 'open',
       noteId: 'remainder-2',
       depth: 2,
-      offeredAmount: 20n,
+      offeredAmount: 12n,
+      requestedAmount: 5n
+    });
+  });
+
+  // Two fills of one order in one batch erase the remainder between them, so the spending block holds only the later
+  // round; reading that as a finished order closed an open one for good (#1487).
+  it('continues the walk at a later round when the spending block holds only it', async () => {
+    commit(pswapNote({ id: 'order-note' }), 120);
+    spentAt.set('order-note', 125);
+    commit(remainder('remainder-2', 2n, 12n, 5n), 125);
+
+    await expect(read()).resolves.toEqual({
+      kind: 'open',
+      noteId: 'remainder-2',
+      depth: 2,
+      offeredAmount: 12n,
       requestedAmount: 5n
     });
   });
@@ -223,41 +241,82 @@ describe('readPswapOrderLineage', () => {
   it('reads a remainder spent with nothing after it as a finished order', async () => {
     commit(pswapNote({ id: 'order-note' }), 120);
     spentAt.set('order-note', 125);
-    commit(remainder('remainder-1', 1n, 40n, 10n), 125);
+    commit(remainder('remainder-1', 1n, 24n, 10n), 125);
     spentAt.set('remainder-1', 140);
 
     await expect(read()).resolves.toEqual({ kind: 'finished' });
   });
 
-  // Anyone can publish a note under the pair's tag; only a note that is this order's own next round is its remainder.
+  // A block where only other notes share the pair's tag holds nothing of this order.
   it.each([
-    ['a note of another order', remainder('look-alike', 1n, 40n, 10n, { serial: [1n, 43n, 3n, 8n] })],
-    ['a note two rounds on', remainder('look-alike', 2n, 40n, 10n)],
+    ['a note of another order', remainder('other', 1n, 24n, 10n, { serial: [1n, 43n, 3n, 8n] })],
     [
-      'a note of another creator',
-      remainder('look-alike', 1n, 40n, 10n, { storage: [11n, 12n, 10n, 0n, 1n, 77n, 66n] })
+      'a note another account created',
+      remainder('other', 1n, 24n, 10n, { storage: [11n, 12n, 10n, 0n, 1n, 77n, 66n] })
     ],
+    ['a note with another script', remainder('other', 1n, 24n, 10n, { root: 'p2id-root' })]
+  ])('reads a spend whose block holds only %s as a finished order', async (_label, other) => {
+    commit(pswapNote({ id: 'order-note' }), 120);
+    spentAt.set('order-note', 125);
+    commit(other, 125);
+
+    await expect(read()).resolves.toEqual({ kind: 'finished' });
+  });
+
+  // A note that claims this order's serial but is not its lineage is not taken as the tip, and since the block then
+  // holds a note of this order the walk cannot prove finished: it leaves the order to the next read.
+  it.each([
+    // Inside the old bounds (no more offered, no more asked), but a fill of 20 leaves 24 or 25 offered, not 40.
+    ['a note whose amounts no fill allows', remainder('look-alike', 1n, 40n, 10n)],
+    ['a note two rounds on whose amounts no two fills allow', remainder('look-alike', 2n, 40n, 10n)],
     [
       'a note asking for another token',
-      remainder('look-alike', 1n, 40n, 10n, { storage: [13n, 12n, 10n, 0n, 1n, 55n, 66n] })
+      remainder('look-alike', 1n, 24n, 10n, { storage: [13n, 12n, 10n, 0n, 1n, 55n, 66n] })
     ],
-    ['a note offering another token', remainder('look-alike', 1n, 40n, 10n, { faucet: 'elsewhere' })],
+    ['a note offering another token', remainder('look-alike', 1n, 24n, 10n, { faucet: 'elsewhere' })],
     ['a note offering more than was left', remainder('look-alike', 1n, 71n, 10n)],
-    ['a note asking for more than was left', remainder('look-alike', 1n, 40n, 31n)],
-    ['a note with another script', remainder('look-alike', 1n, 40n, 10n, { root: 'p2id-root' })]
-  ])('does not take %s for the remainder', async (_label, lookAlike) => {
+    ['a note asking for more than was left', remainder('look-alike', 1n, 24n, 31n)],
+    ['a note of the same round as its parent', remainder('look-alike', 0n, 24n, 10n)]
+  ])('does not take %s for the remainder, and leaves the order unresolved', async (_label, lookAlike) => {
     commit(pswapNote({ id: 'order-note' }), 120);
     spentAt.set('order-note', 125);
     commit(lookAlike, 125);
 
-    await expect(read()).resolves.toEqual({ kind: 'finished' });
+    await expect(read()).rejects.toThrow();
+  });
+
+  it('leaves the order unresolved when a look-alike sits beside the real remainder', async () => {
+    commit(pswapNote({ id: 'order-note' }), 120);
+    spentAt.set('order-note', 125);
+    commit(remainder('remainder-1', 1n, 24n, 10n), 125);
+    commit(remainder('look-alike', 1n, 40n, 10n), 125);
+
+    await expect(read()).rejects.toThrow();
   });
 
   it('refuses to choose between two remainders of the same round', async () => {
     commit(pswapNote({ id: 'order-note' }), 120);
     spentAt.set('order-note', 125);
-    commit(remainder('remainder-a', 1n, 40n, 10n), 125);
-    commit(remainder('remainder-b', 1n, 41n, 10n), 125);
+    commit(remainder('remainder-a', 1n, 24n, 10n), 125);
+    commit(remainder('remainder-b', 1n, 25n, 10n), 125);
+
+    await expect(read()).rejects.toThrow();
+  });
+
+  // Whether a note the node shows under the tag but serves no body for is this order's, nothing can tell.
+  it('leaves the order unresolved when the spending block holds a note under its tag with no body', async () => {
+    commit(pswapNote({ id: 'order-note' }), 120);
+    spentAt.set('order-note', 125);
+    chain.set('bodiless', { note: undefined, block: 125 });
+
+    await expect(read()).rejects.toThrow();
+  });
+
+  // The depth is the serial round over the order note's, and one read follows at most 16 of them.
+  it('leaves an order deeper than one read follows unresolved', async () => {
+    commit(pswapNote({ id: 'order-note' }), 120);
+    spentAt.set('order-note', 125);
+    commit(remainder('remainder-17', 17n, 12n, 5n), 125);
 
     await expect(read()).rejects.toThrow();
   });
