@@ -12,7 +12,7 @@ import { getStorageProvider, type StorageProvider } from 'lib/platform/storage-a
 import { reportTransactionFailure } from 'lib/telemetry/transaction-failure';
 
 import { TRANSACTION_NEVER_COMMITTED_ERROR } from './constants';
-import { applyVerifiedLanding, reportVerifiedLanding, verifiedLandingRowFields } from './helper';
+import { applyVerifiedLanding, reportVerifiedLanding, storedNoteIds, verifiedLandingRowFields } from './helper';
 import { accountOthers, deferralHolds, judgeSubmitEvidence, RowJudgement } from './reconcile-judge';
 import { createNodeReads, NodeReads, observedCadenceMs } from './reconcile-reads';
 import { awaitingVerdict, evidenceKey, isCheckable, nowSeconds } from './verdict-rules';
@@ -109,6 +109,26 @@ async function networkStillMatches(node: NodeReads, entries: readonly ISubmitEvi
 }
 
 /**
+ * The note a landed send owes, at the root where `completeSendTransaction` records it and the delivery sweep reads it
+ * (#1473): every note of the attempt the landing binds, else the note a note landing was proven by (attempts replaying
+ * one request share it), else none. Never an execute's: its evidence names neither its private notes nor their owner.
+ */
+const landedDeliveryTarget = (
+  row: ITransaction,
+  landing: NonNullable<RowJudgement['landed']>,
+  entry: ISubmitEvidence
+): Pick<ITransaction, 'outputNoteIds'> => {
+  if (row.type !== 'send' || row.noteDelivery === undefined || storedNoteIds(row.outputNoteIds).length > 0) return {};
+  const proven =
+    landing.boundTransactionId !== undefined
+      ? storedNoteIds(entry.outputNoteIds)
+      : landing.proof.kind === 'note'
+        ? [landing.proof.noteId]
+        : [];
+  return proven.length > 0 ? { outputNoteIds: proven } : {};
+};
+
+/**
  * The landed write: one rw transaction that re-reads every row of the account, the target's included. If any entry
  * differs from what the judgement read, or the deferral now holds the landing, it writes nothing and the next pass
  * judges again from the fresh rows.
@@ -128,12 +148,12 @@ async function writeLanding(rowId: string, judgement: RowJudgement, accountKey: 
     const freshRows = await accountRowsOf(fresh);
     if (accountEvidenceKey(freshRows) !== accountKey) return;
     if (deferralHolds(landedEntry, landing.proof, accountOthers(fresh, freshRows))) return;
-    // A row re-derived as undelivered with no output note to push is inert to the delivery sweep.
     applyVerifiedLanding(fresh, {
       ...verifiedLandingRowFields(fresh),
       ...(landing.boundTransactionId === undefined ? {} : { transactionId: landing.boundTransactionId }),
       completedAt: fresh.completedAt
     });
+    Object.assign(fresh, landedDeliveryTarget(fresh, landing, landedEntry));
     await Repo.transactions.put(fresh);
     landed = fresh;
   });
