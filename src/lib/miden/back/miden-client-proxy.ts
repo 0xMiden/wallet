@@ -46,6 +46,7 @@ import {
   WASM_LOCK_SYNC_WATCHDOG_MS
 } from 'lib/miden/sdk/wasm-client-poison';
 import { tagLockedSignReason } from 'lib/miden/transaction/sign-callback';
+import { getEndpointState, whenEndpointOverridesLoaded } from 'lib/miden-chain/effective-endpoints';
 import type { SerializedInputNoteDetail } from 'lib/shared/types';
 
 import {
@@ -557,6 +558,9 @@ async function dispatchOp(
   } catch (error) {
     throw markErrorBeforeSubmit(error);
   }
+  // The `miden-sync` alarm can get here before start() has loaded this realm's override, when the state the
+  // envelope carries would still be the build's network. The load settles even when it fails.
+  await whenEndpointOverridesLoaded();
   let argsB64: string[];
   try {
     argsB64 = args.map(encodeArg);
@@ -594,7 +598,8 @@ async function dispatchOp(
       op_id,
       method,
       argsB64,
-      deadline_ms: deadlineMs
+      deadline_ms: deadlineMs,
+      endpoints: getEndpointState()
     };
     // `sendMessage` may resolve with the response, resolve `undefined` (doc
     // closed), or reject ("message port closed"). All three are handled: a
@@ -711,15 +716,16 @@ export async function handleOffscreenSignRequest(
 }
 
 /**
- * Tell the OFFSCREEN realm that the saved developer endpoint override changed, so
- * it re-reads it and drops its client singleton.
+ * Send the OFFSCREEN realm this realm's endpoint state, so it adopts it and drops
+ * its client singleton.
  *
  * Needed because BOTH the override cache (`lib/miden-chain/effective-endpoints`)
  * and the Miden client singleton are module-scoped, and module scope is per realm.
  * The SW's `loadEndpointOverrides()` + `resetMidenClient()` therefore reach only
  * the SW realm — while flag-on it is the OFFSCREEN client that executes writes,
- * runs `syncState` and talks to the node. Without this nudge that client would keep
- * the endpoints it was created with until the document is closed.
+ * runs `syncState` and talks to the node, and that realm has no extension storage
+ * to read the override from (#1482). Every OFFSCREEN_CALL carries the same state,
+ * so this message drops the client before the next call rather than with it.
  *
  * Chosen over closing the document (`forceCloseOffscreenDocument`) because a close
  * is only safe when {@link isCriticalOpInFlight} is false, and skipping the
@@ -730,21 +736,23 @@ export async function handleOffscreenSignRequest(
  *
  * Resolves false — doing nothing — when the flag is off, when there is no
  * `chrome.offscreen` API, or when NO document is currently open. In the last case
- * there is nothing to invalidate and a document opened later hydrates the override
- * during its own init, so this never creates one (contrast `dispatchOp`, which
- * always `ensureOffscreenDocument()`s first).
+ * there is nothing to invalidate and a document opened later gets the state with
+ * its first call, so this never creates one (contrast `dispatchOp`, which always
+ * `ensureOffscreenDocument()`s first).
  *
  * Resolves true only on an explicit ack. A rejected `sendMessage` — the document
  * was reaped between the check and the send — resolves false rather than throwing:
- * that realm is gone and its replacement loads the override at init, so there is
- * nothing for the caller to recover from.
+ * that realm is gone and its replacement gets the state with its first call, so
+ * there is nothing for the caller to recover from.
  */
 export async function reloadOffscreenEndpointOverrides(): Promise<boolean> {
   if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) return false;
   if (!(await hasOffscreenDocument())) return false;
+  await whenEndpointOverridesLoaded();
   const envelope: OffscreenReloadEndpointsRequest = {
     target: OFFSCREEN_TARGET,
-    type: OFFSCREEN_RELOAD_ENDPOINTS
+    type: OFFSCREEN_RELOAD_ENDPOINTS,
+    endpoints: getEndpointState()
   };
   try {
     const resp = (await chrome.runtime.sendMessage(envelope)) as OffscreenReloadEndpointsResponse | undefined;
