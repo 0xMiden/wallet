@@ -9,7 +9,7 @@ import AwaitI18N from 'app/a11y/AwaitI18N';
 import BootAnimation from 'app/a11y/BootAnimation';
 import DisableOutlinesForClick from 'app/a11y/DisableOutlinesForClick';
 import RootSuspenseFallback from 'app/a11y/RootSuspenseFallback';
-import { AppEnvProvider } from 'app/env';
+import { AppEnvProvider, WindowType } from 'app/env';
 import ErrorBoundary from 'app/ErrorBoundary';
 import { ExternalPageFailedNotice } from 'app/ExternalPageFailedNotice';
 import Dialogs from 'app/layouts/Dialogs';
@@ -32,6 +32,7 @@ import { clearLegacyAnalyticsStorage } from 'lib/telemetry';
 // Deep import: the barrel deliberately does not re-export `crash`, so that
 // `@sentry/browser` stays out of the many chunks that only want `beginFlow`.
 import { initCrashReporting } from 'lib/telemetry/crash';
+import { recordRelaySurface, type RelaySurface } from 'lib/telemetry/relay-diagnostics';
 import { setOperationTransport } from 'lib/telemetry/report-operation';
 import { DialogsProvider } from 'lib/ui/dialog';
 import { AppKitProvider } from 'lib/walletconnect/appkit';
@@ -48,7 +49,18 @@ interface AppProps extends Partial<PropsWithChildren> {
   env: ComponentProps<typeof AppEnvProvider>;
 }
 
+// Mobile and desktop render the full page too; the report's platform and build target tell them apart.
+const RELAY_SURFACE: Record<WindowType, RelaySurface> = {
+  [WindowType.Popup]: 'popup',
+  [WindowType.FullPage]: 'fullpage',
+  [WindowType.SidePanel]: 'sidepanel'
+};
+
 const App: FC<AppProps> = ({ env }) => {
+  useEffect(() => {
+    recordRelaySurface(env.confirmWindow ? 'confirm' : RELAY_SURFACE[env.windowType]);
+  }, [env.windowType, env.confirmWindow]);
+
   useEffect(() => {
     // Unconditional: the dormant `localStorage['analytics']` identifier from the
     // removed analytics scaffold is data held with no basis, so it goes whether
