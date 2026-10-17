@@ -606,19 +606,12 @@ export const SendManager: React.FC<SendManagerProps> = ({
     bridgeConfig
   ]);
 
-  // The picker's rule on the Amount step, so a held token goToReview refuses always has its reason on screen. A
-  // retired token is left out silently.
-  const tokenHeld = useMemo(() => {
-    const pending = (id: string | null | undefined) =>
-      !!id &&
-      isNewTransferTokenHeld(bridgeConfig, id, nativeFaucetId) &&
-      !isRetiredTransferToken(bridgeConfig, id, nativeFaucetId);
-    return (
-      pending(token?.id) ||
-      (!draft && pending(preselectedTokenId)) ||
-      !!balanceData?.some(row => !isHidden(row.tokenId) && pending(row.tokenId))
-    );
-  }, [bridgeConfig, nativeFaucetId, token?.id, draft, preselectedTokenId, balanceData, isHidden]);
+  // Only the token Continue would send: the chosen one, else a link not yet applied. The picker explains the rows it
+  // leaves out, and a retired token goes silently.
+  const sendingTokenId = token?.id ?? (draft ? undefined : (preselectedTokenId ?? undefined));
+  const tokenHeld =
+    isNewTransferTokenHeld(bridgeConfig, sendingTokenId, nativeFaucetId) &&
+    !isRetiredTransferToken(bridgeConfig, sendingTokenId, nativeFaucetId);
 
   // Clear a token that the selected destination cannot receive.
   useEffect(() => {
