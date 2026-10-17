@@ -121,14 +121,15 @@ async function networkStillMatches(node: NodeReads, entries: readonly ISubmitEvi
  * (#1473): every note of the attempt the landing binds, else the note a note landing was proven by (attempts replaying
  * one request share it), else none. Never an execute's: its evidence names neither its private notes nor their owner.
  * A root holding only those notes is the landed attempt's own record and stays as written; one another attempt
- * recorded is replaced. Undefined when the landing records no target.
+ * recorded is replaced. A row whose relay recorded the notes it owes in `relayNoteIds`, which the sweep reads before
+ * the root, gets none. Undefined when the landing records no target.
  */
 const landedDeliveryTarget = (
   row: ITransaction,
   landing: NonNullable<RowJudgement['landed']>,
   entry: ISubmitEvidence
 ): string[] | undefined => {
-  if (row.type !== 'send' || row.noteDelivery === undefined) return undefined;
+  if (row.type !== 'send' || row.noteDelivery === undefined || row.relayNoteIds != null) return undefined;
   const proven =
     landing.boundTransactionId !== undefined
       ? storedNoteIds(entry.outputNoteIds)
