@@ -1,7 +1,9 @@
 import { GUARDIAN_ERROR_CODES } from '@openzeppelin/guardian-client';
 
+import { isOperationAbortedError } from 'lib/miden/back/offscreen-codec';
 import type { ITransactionStage, ITransactionType } from 'lib/miden/db/types';
 import { errorMessageParts, isIndefiniteSubmitOutcomeError } from 'lib/miden/sdk/sdk-error-code';
+import { isWasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { isDesktop } from 'lib/platform';
 import { isHotKeyFailure } from 'lib/secure-hot-key/failure';
 
@@ -52,6 +54,19 @@ export const SUBMIT_GRPC_STATUSES = [
 ] as const;
 
 export const SUBMIT_HIDDEN_ANSWERS = ['yes', 'no', 'unavailable'] as const;
+
+export const PIPELINE_KILLS = [
+  'offscreen_aborted_deadline',
+  'offscreen_aborted_deadline_no_kill',
+  'offscreen_aborted_doc_closed',
+  'offscreen_aborted_transport',
+  'offscreen_aborted_other',
+  'wasm_lock_evicted_watchdog',
+  'wasm_lock_evicted_realm_error',
+  'wasm_lock_evicted_other'
+] as const;
+
+type PipelineKill = (typeof PIPELINE_KILLS)[number];
 
 export interface TransactionFailure {
   type: ITransactionType;
@@ -132,6 +147,41 @@ function protocolIdentity(message: string): string | undefined {
     : 'kernel_assertion_unknown';
 }
 
+// The reasons miden-client-proxy.ts aborts an offscreen operation with, and wasm-client-poison.ts's eviction mechanisms.
+// Maps, not objects: a reason is read off a thrown value, and an object lookup would answer for `constructor`.
+const OFFSCREEN_ABORTS = new Map<unknown, PipelineKill>([
+  ['deadline', 'offscreen_aborted_deadline'],
+  ['deadline-no-kill', 'offscreen_aborted_deadline_no_kill'],
+  ['doc-closed', 'offscreen_aborted_doc_closed'],
+  ['transport', 'offscreen_aborted_transport']
+]);
+const LOCK_EVICTIONS = new Map<unknown, PipelineKill>([
+  ['watchdog', 'wasm_lock_evicted_watchdog'],
+  ['realm-error', 'wasm_lock_evicted_realm_error']
+]);
+
+// Named by class and reason, never by message: the abort's message carries the operation id.
+function killIdentity(error: unknown): PipelineKill | undefined {
+  for (const link of errorChain(error)) {
+    try {
+      const offscreen = isOperationAbortedError(link);
+      if (!offscreen && !isWasmClientPoisonedError(link)) continue;
+      let reason: unknown;
+      try {
+        reason = Reflect.get(link, 'reason');
+      } catch {
+        reason = undefined;
+      }
+      return offscreen
+        ? (OFFSCREEN_ABORTS.get(reason) ?? 'offscreen_aborted_other')
+        : (LOCK_EVICTIONS.get(reason) ?? 'wasm_lock_evicted_other');
+    } catch {
+      // A throwing accessor costs this link, not the report.
+    }
+  }
+  return undefined;
+}
+
 // miden-client 0.17.3 `GrpcError` Display, for each status its `is_indeterminate_submission` reads as an unknown outcome.
 const SUBMIT_GRPC_TEXT: ReadonlyArray<readonly [(typeof SUBMIT_GRPC_STATUSES)[number], string]> = [
   ['unavailable', 'Miden node is unavailable'],
@@ -165,6 +215,8 @@ function failureIdentity(failure: TransactionFailure): string {
   // Ahead of the text arms: a Guardian refusal's message carries the server's own text, which can read as any of them.
   const rejection = rejectionIdentity(error, protocol);
   if (rejection !== undefined) return rejection;
+  const kill = killIdentity(error);
+  if (kill !== undefined) return kill;
   if (isIndefiniteSubmitOutcomeError(error)) return submitOutcomeIdentity(error, failure.hiddenDuringSubmit);
   if (protocol !== undefined) return protocol;
   if (/advice stack read failed/i.test(message)) return 'advice_stack_read_failed';
