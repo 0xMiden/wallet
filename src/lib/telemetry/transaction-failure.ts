@@ -48,6 +48,7 @@ export type NeverCommittedRule = (typeof NEVER_COMMITTED_RULES)[number];
 /** Identities the reporter names itself, beside the reasons, refusals and protocol identities. */
 export const REPORTED_IDENTITIES = [
   'submit_outcome_unknown',
+  'submit_rejected',
   'kernel_assertion_unknown',
   'kernel_u32_assertion_unknown'
 ] as const;
@@ -60,6 +61,37 @@ export const SUBMIT_GRPC_STATUSES = [
   'data_loss',
   'deadline_exceeded',
   'unknown',
+  'not_found',
+  'invalid_argument',
+  'permission_denied',
+  'already_exists',
+  'resource_exhausted',
+  'failed_precondition',
+  'out_of_range',
+  'unimplemented',
+  'unauthenticated',
+  'other'
+] as const;
+
+export const SUBMIT_ENDPOINTS = [
+  'submit_proven_transaction',
+  'submit_proven_batch',
+  'get_transaction_encryption_key',
+  'other'
+] as const;
+
+export const SUBMIT_NODE_ERRORS = [
+  'internal',
+  'expired',
+  'state_conflict',
+  'capacity_exceeded',
+  'missing_fee',
+  'consumes_inflight_fee_notes',
+  'invalid_fee_asset',
+  'batch_id_mismatch',
+  'authentication_failed',
+  'unknown_code',
+  'none',
   'other'
 ] as const;
 
@@ -312,31 +344,86 @@ function killIdentity(error: unknown): PipelineKill | undefined {
   return undefined;
 }
 
-// miden-client 0.17.3 `GrpcError` Display, for each status its `is_indeterminate_submission` reads as an unknown outcome.
+// miden-client 0.17.3 `GrpcError` Display, whole except `unknown`'s free text, so a node error after it can be read.
 const SUBMIT_GRPC_TEXT: ReadonlyArray<readonly [(typeof SUBMIT_GRPC_STATUSES)[number], string]> = [
-  ['unavailable', 'Miden node is unavailable'],
-  ['internal', 'Miden node returned an internal error'],
+  ['unavailable', 'Miden node is unavailable; check that the node is running and reachable'],
+  ['internal', 'Miden node returned an internal error; this is likely a node-side issue'],
   ['cancelled', 'operation was cancelled'],
   ['aborted', 'operation was aborted'],
   ['data_loss', 'unrecoverable data loss or corruption'],
-  ['deadline_exceeded', 'request to Miden node timed out'],
-  ['unknown', 'unknown error: ']
+  ['deadline_exceeded', 'request to Miden node timed out; the node may be under heavy load'],
+  ['unknown', 'unknown error: '],
+  ['not_found', 'resource not found'],
+  ['invalid_argument', 'invalid request parameters'],
+  ['permission_denied', 'permission denied'],
+  ['already_exists', 'resource already exists'],
+  ['resource_exhausted', "request was rate-limited or the node's resources are exhausted; retry after a delay"],
+  ['failed_precondition', 'precondition failed'],
+  ['out_of_range', 'operation was attempted past the valid range'],
+  ['unimplemented', 'the requested method is not implemented by this version of the Miden node'],
+  ['unauthenticated', 'request was rejected as unauthenticated; check your credentials and connection settings']
 ];
 
-const SUBMIT_REQUEST_FAILED = /grpc request failed for submit_proven_(?:transaction|batch): /;
+// The node's `AddTransactionError` Display (miden-client 0.17.3), which the SDK puts in parentheses after the status.
+// Only these fixed words are read: what follows them is the node's own message, which can carry ids and commitments.
+const SUBMIT_NODE_TEXT: ReadonlyArray<readonly [(typeof SUBMIT_NODE_ERRORS)[number], string]> = [
+  ['internal', 'internal server error'],
+  ['expired', 'transaction expired'],
+  ['state_conflict', 'transaction conflicts with current state: '],
+  ['capacity_exceeded', 'the mempool is at capacity'],
+  ['missing_fee', 'transaction does not contain a canonical fee output note'],
+  ['consumes_inflight_fee_notes', 'transaction consumes in-flight fee notes'],
+  ['invalid_fee_asset', 'transaction fee output note must use only the native asset'],
+  ['batch_id_mismatch', 'batch proof ID does not match the batch ID'],
+  ['authentication_failed', 'failed to authenticate transaction: '],
+  ['unknown_code', 'unknown error code ']
+];
+
+const SUBMIT_ENDPOINT_BY_NAME = new Map<unknown, (typeof SUBMIT_ENDPOINTS)[number]>([
+  ['submit_proven_transaction', 'submit_proven_transaction'],
+  ['submit_proven_batch', 'submit_proven_batch'],
+  ['get_transaction_encryption_key', 'get_transaction_encryption_key']
+]);
+
+const REQUEST_FAILED = /grpc request failed for ([a-z_]{1,64}): /;
+// web-sdk 0.17.3's contexts for its two submit calls: a request that fails under them is part of the submit.
+const SUBMIT_CONTEXT = /failed to submit (?:proven transaction|transaction batch)/;
+
+/** The SDK's request failure inside a submit: the submit request itself, or one the submit made first. */
+function submitRequestFailure(error: unknown): { endpoint: string; kind: string } | undefined {
+  for (const part of errorMessageParts(error)) {
+    const link = part.slice(0, PROTOCOL_TEXT_LIMIT);
+    const request = REQUEST_FAILED.exec(link);
+    const endpoint = request?.[1];
+    if (request === null || endpoint === undefined) continue;
+    if (!SUBMIT_CONTEXT.test(link) && endpoint !== 'submit_proven_transaction' && endpoint !== 'submit_proven_batch') {
+      continue;
+    }
+    return { endpoint, kind: link.slice(request.index + request[0].length) };
+  }
+  return undefined;
+}
+
+const grpcStatusOf = (kind: string | undefined) =>
+  kind === undefined ? undefined : SUBMIT_GRPC_TEXT.find(([, text]) => kind.startsWith(text));
 
 function submitOutcomeIdentity(error: unknown, hiddenDuringSubmit: boolean | undefined): string {
-  let status: (typeof SUBMIT_GRPC_STATUSES)[number] = 'other';
-  for (const part of errorMessageParts(error)) {
-    const request = SUBMIT_REQUEST_FAILED.exec(part);
-    if (request === null) continue;
-    const kind = part.slice(request.index + request[0].length);
-    status = SUBMIT_GRPC_TEXT.find(([, text]) => kind.startsWith(text))?.[0] ?? 'other';
-    break;
-  }
+  const status = grpcStatusOf(submitRequestFailure(error)?.kind)?.[0] ?? 'other';
   const hidden: (typeof SUBMIT_HIDDEN_ANSWERS)[number] =
     hiddenDuringSubmit === undefined ? 'unavailable' : hiddenDuringSubmit ? 'yes' : 'no';
   return `submit_outcome_unknown; grpc ${status}; app hidden during submit ${hidden}`;
+}
+
+function submitRefusalIdentity(refusal: { endpoint: string; kind: string }): string {
+  const endpoint = SUBMIT_ENDPOINT_BY_NAME.get(refusal.endpoint) ?? 'other';
+  const status = grpcStatusOf(refusal.kind);
+  let node: (typeof SUBMIT_NODE_ERRORS)[number] = 'none';
+  // `unknown` ends in the node's free text, so where a node error would start cannot be told.
+  if (status !== undefined && status[0] !== 'unknown') {
+    const after = refusal.kind.slice(status[1].length);
+    if (after.startsWith(' (')) node = SUBMIT_NODE_TEXT.find(([, text]) => after.startsWith(text, 2))?.[0] ?? 'other';
+  }
+  return `submit_rejected; endpoint ${endpoint}; grpc ${status?.[0] ?? 'other'}; node ${node}`;
 }
 
 function failureIdentity(failure: TransactionFailure): string {
@@ -352,6 +439,8 @@ function failureIdentity(failure: TransactionFailure): string {
   const kill = killIdentity(error);
   if (kill !== undefined) return kill;
   if (isIndefiniteSubmitOutcomeError(error)) return submitOutcomeIdentity(error, failure.hiddenDuringSubmit);
+  const refusal = submitRequestFailure(error);
+  if (refusal !== undefined) return submitRefusalIdentity(refusal);
   if (protocol !== undefined) return protocol;
   if (/advice stack read failed/i.test(message)) return 'advice_stack_read_failed';
   if (/WebClient terminated/.test(message)) return 'client_terminated';
