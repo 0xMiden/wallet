@@ -10,9 +10,14 @@ import {
   TRANSACTION_RETRY_UNSAFE_ERROR,
   isSubmitOutcomeUnknown
 } from './constants';
-import { completeVerifiedLandedTransaction, verifiedLandingRowFields } from './helper';
+import {
+  completeVerifiedLandedTransaction,
+  countNoteDeliveryWrite,
+  storedNoteIds,
+  verifiedLandingRowFields
+} from './helper';
 import { latestEndMayStillRun } from './reconcile-judge';
-import { checkEvidenceForRetry } from './reconcile-unconfirmed';
+import { checkEvidenceForRetry, landedDeliveryTarget } from './reconcile-unconfirmed';
 import { awaitingVerdict, evidenceKey, isUnresolvedEntry, keptCandidateHoldUntil, nowSeconds } from './verdict-rules';
 import {
   IBridgeProvider,
@@ -417,13 +422,24 @@ const planRequeue = async (
     const verdict = await verifySendLanded(tx);
     if (verdict === 'landed') {
       // Completed as the landed catches complete a row (#1233). Only `completeSendTransaction`
-      // relays a private send's note, and with no delivery recorded that relay never ran. A row
-      // re-derived as undelivered with no output note to push is inert to the delivery sweep.
+      // relays a private send's note, and with no delivery recorded that relay never ran. On an
+      // empty root the note the verified transaction's attempt recorded becomes the delivery
+      // target, as for a bound landing (#1473), with its window opening at the landing.
       const completedAt = Math.floor(Date.now() / 1000);
+      const verifiedId = tx.transactionId;
+      let target: string[] | undefined;
       // Not `updateTransactionStatus`: its terminal guard rejects the Failed row
       // this function is defined over, so this branch used to throw rather than
       // complete and the guard's only success path never once worked.
-      await completeVerifiedLandedTransaction(tx.id, fresh => ({ ...verifiedLandingRowFields(fresh), completedAt }));
+      await completeVerifiedLandedTransaction(tx.id, fresh => {
+        const fields = { ...verifiedLandingRowFields(fresh), completedAt };
+        target =
+          verifiedId === undefined || storedNoteIds(fresh.outputNoteIds).length > 0
+            ? undefined
+            : landedDeliveryTarget({ ...fresh, ...fields }, { boundTransactionId: verifiedId });
+        return target === undefined ? fields : { ...fields, outputNoteIds: target };
+      });
+      if (target !== undefined) countNoteDeliveryWrite();
       return undefined;
     }
     // Not provably landed. For a row that executed, `'unknown'` means "we could
