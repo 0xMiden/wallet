@@ -35,9 +35,10 @@ import { goBack, navigate, Redirect, useLocation } from 'lib/woozie';
 
 import { EarnAmountUnit, EarnAssetMark, EarnHero, EarnSubjectSubtitle, earnSubjectTitle } from './components';
 import { placeholderVault } from './earn-mapping';
+import { EarnCollateralNotice } from './EarnCollateralNotice';
 import { EarnLoadError } from './EarnLoadError';
 import { ChartDotProps, EarnVault } from './types';
-import { useEarnCollateral } from './useEarnCollateral';
+import { useEarnCollateralState } from './useEarnCollateral';
 import { earnItemLoadState, useEarnPositions } from './useEarnPositions';
 
 // Fractions of a year for the projection columns; rewards = amount × APY × fraction.
@@ -72,7 +73,8 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
   const assessSpendingLimit = useWalletStore(state => state.assessSpendingLimit);
   const readSpendingLimit = useWalletStore(state => state.readSpendingLimit);
   // Testnet uses discovered native USDCx (an E2E fixture override first); missing metadata blocks deposits.
-  const collateral = useEarnCollateral();
+  const earnCollateral = useEarnCollateralState();
+  const { collateral } = earnCollateral;
   const depositSymbol = collateral?.symbol ?? '';
   // Bound to the faucet the amount step reviewed: a link that names none, or another, never deposits.
   const reviewedFaucet = new URLSearchParams(search).get('collateral');
@@ -80,6 +82,8 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
     collateral !== null &&
     !!reviewedFaucet &&
     normalizedFaucetId(reviewedFaucet) === normalizedFaucetId(collateral.faucetId);
+  const collateralReason =
+    earnCollateral.state !== 'resolved' ? earnCollateral.state : collateralMatches ? null : 'mismatch';
   const collateralDecimals = collateral?.decimals;
   const amountBaseUnits = useMemo(() => {
     if (collateralDecimals === undefined) return undefined;
@@ -260,6 +264,7 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
         footer={
           (loadFailed && !found) || pending ? undefined : (
             <>
+              <EarnCollateralNotice reason={collateralReason} />
               {submitError && (
                 <Notice tone="negative" role="alert" data-testid="earn-deposit-review-error">
                   {submitError}

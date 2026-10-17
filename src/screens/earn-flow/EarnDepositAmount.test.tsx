@@ -503,7 +503,6 @@ it('reserves native fees when the only Earn collateral is USDCx, ignoring the le
 });
 
 jest.mock('./useEarnCollateral', () => ({
-  useEarnCollateral: () => mockCollateral,
   useEarnCollateralState: () =>
     mockCollateral ? { state: 'resolved', collateral: mockCollateral } : { state: mockCollateralWait, collateral: null }
 }));

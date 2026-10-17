@@ -730,6 +730,16 @@ export const ReviewTransaction: React.FC = () => {
         }
       >
         {isBridge && <FeatureUnavailableNotice availability={bridgeAvailability} />}
+        {/* A held token never reaches a rendered bridge review, so this never stacks on the notice above. */}
+        {tokenHeld && (
+          <Notice
+            tone="warning"
+            icon={<Icon name={IconName.Information} size="xs" fill="currentColor" />}
+            data-testid="review-held-notice"
+          >
+            {t('sendTokenAvailabilityChecking')}
+          </Notice>
+        )}
         {/* The amount is the page's hero, in the same place as on the amount step. */}
         <Hero
           data-testid="review-amount"

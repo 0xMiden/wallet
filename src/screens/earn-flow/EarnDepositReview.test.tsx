@@ -864,7 +864,6 @@ describe('EarnDepositReview after a failed load', () => {
 });
 
 jest.mock('./useEarnCollateral', () => ({
-  useEarnCollateral: () => mockCollateral,
   useEarnCollateralState: () =>
     mockCollateral ? { state: 'resolved', collateral: mockCollateral } : { state: mockCollateralWait, collateral: null }
 }));

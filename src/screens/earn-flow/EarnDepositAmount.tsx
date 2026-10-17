@@ -19,8 +19,9 @@ import { UIToken } from 'screens/send-flow/types';
 
 import { EarnFlowHeader } from './components';
 import { placeholderVault } from './earn-mapping';
+import { EarnCollateralNotice } from './EarnCollateralNotice';
 import { EarnLoadError } from './EarnLoadError';
-import { useEarnCollateral } from './useEarnCollateral';
+import { useEarnCollateralState } from './useEarnCollateral';
 import { earnItemLoadState, useEarnPositions } from './useEarnPositions';
 
 interface EarnDepositAmountProps {
@@ -57,7 +58,8 @@ const EarnDepositAmount: FC<EarnDepositAmountProps> = ({ vaultId }) => {
   const tokenPrices = useWalletStore(s => s.tokenPrices);
   const nativeFaucetId = useNativeFeeFaucetId();
   const verificationBaseFee = useVerificationBaseFee();
-  const collateral = useEarnCollateral();
+  const earnCollateral = useEarnCollateralState();
+  const { collateral } = earnCollateral;
   // Neither the pending nor the vault-less failed branch draws the amount step or its notice.
   const earnDeposit = useFeatureAvailability('earnDeposit', { hold: !((loadFailed && !found) || pending) });
   // Testnet spends native USDCx. Match by faucet identity, never by another token's USDC symbol.
@@ -117,6 +119,13 @@ const EarnDepositAmount: FC<EarnDepositAmountProps> = ({ vaultId }) => {
             <EarnLoadError onRetry={refetch} message={t('earnVaultLoadError')} className="shrink-0 px-4 pt-4" />
           )}
           <FeatureUnavailableNotice availability={earnDeposit} className="mx-4 mt-4 shrink-0" />
+          {/* One reason at a time: a deposit that is down already says why Continue is dead. */}
+          {earnDeposit.state !== 'unavailable' && (
+            <EarnCollateralNotice
+              reason={earnCollateral.state === 'resolved' ? null : earnCollateral.state}
+              className="mx-4 mt-4 shrink-0"
+            />
+          )}
           <div className="min-h-0 flex-1">
             <SelectAmount
               accent="earn"
