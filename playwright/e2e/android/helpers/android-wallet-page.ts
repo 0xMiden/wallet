@@ -4,6 +4,8 @@ import { ACTIVITY_PENDING_PATH } from '../../../../src/app/pages/activity-paths'
 import type { TimelineRecorder } from '../../harness/timeline-recorder';
 import { buildBalanceTotalScript } from '../../helpers/balance-script';
 import { claimFromPendingList } from '../../helpers/claim-drain';
+import { SEPOLIA_NETWORK } from '../../helpers/contact-network';
+import { selectSendNetworkByScript } from '../../helpers/send-flow-scripts';
 import { dismissTelemetryConsent } from '../../helpers/telemetry-consent';
 import type { GuardianAuthInfo, WalletPage, SendTokensParams } from '../../helpers/wallet-page';
 
@@ -258,8 +260,7 @@ export class AndroidWalletPage implements WalletPage {
 
     await this.fillInput('[data-testid="send-recipient-input"]', params.recipientAddress);
     if (params.recipientAddress.trim().startsWith('0x')) {
-      await this.pollForSelector('[data-testid="send-network-sepolia"]', 15_000);
-      await this.click('[data-testid="send-network-sepolia"]');
+      await selectSendNetworkByScript(this, SEPOLIA_NETWORK, 15_000, POLL_INTERVAL_MS);
     }
     await this.clickWhenEnabled('[data-testid="send-recipient-confirm"]', 30_000);
 

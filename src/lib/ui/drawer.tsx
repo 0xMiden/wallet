@@ -24,6 +24,8 @@ interface DrawerContextValue {
 const DrawerContext = createContext<DrawerContextValue>({ open: false, onClose: () => {} });
 
 interface DrawerProps {
+  /** A sheet opened inside an existing Drawer uses Vaul's coordinated nested root. */
+  nested?: boolean;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
   children: React.ReactNode;
@@ -61,7 +63,10 @@ function CloseOnBack({ close }: { close: () => void }) {
   return null;
 }
 
+export const useIsInDrawer = () => useContext(DrawerContext).open;
+
 function Drawer({
+  nested = false,
   open = false,
   onOpenChange,
   children,
@@ -70,6 +75,7 @@ function Drawer({
   noBodyStyles,
   closeOnBack = true
 }: DrawerProps) {
+  const Root = nested ? VaulDrawer.NestedRoot : VaulDrawer.Root;
   const onClose = useCallback(() => onOpenChange?.(false), [onOpenChange]);
   // Keep the bottom tab navbar hidden while any drawer is open.
   useHideNavbarWhileOpen(open);
@@ -77,7 +83,7 @@ function Drawer({
   return (
     <DrawerContext.Provider value={{ open, onClose }}>
       {open && dismissible !== false && closeOnBack && <CloseOnBack close={onClose} />}
-      <VaulDrawer.Root
+      <Root
         open={open}
         autoFocus
         onOpenChange={onOpenChange}
@@ -87,7 +93,7 @@ function Drawer({
         noBodyStyles={noBodyStyles}
       >
         {children}
-      </VaulDrawer.Root>
+      </Root>
     </DrawerContext.Provider>
   );
 }

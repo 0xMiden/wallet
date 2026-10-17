@@ -3,9 +3,11 @@ import fs from 'fs';
 import path from 'path';
 import { formatUnits, parseUnits, type Hash } from 'viem';
 
+import { SEPOLIA_NETWORK, selectSendNetwork } from './contact-network';
 import { captureEpochTraffic, fastFeeExpectation, waitForFastQuote } from './epoch-quote';
 import { readTransactionRowsWithBytes, type JsonValue, type TransactionRowSnapshot } from './history';
 import type { MidenCli } from './miden-cli';
+import { OPEN_SHEET } from './send-flow-scripts';
 import { swOf } from './swap';
 import {
   ARC_PAYOUT,
@@ -115,9 +117,9 @@ export async function bridgeOutFast(wallet: Wallet, opts: BridgeOutFastOptions):
   // full-screen route, so those stay on `page`.
   const flow = page.getByTestId('send-flow');
 
-  // Recipient: a 0x address flips the flow to cross-chain and reveals the network row.
+  // Recipient: a 0x address flips the flow to cross-chain and reveals the network field.
   await flow.getByTestId('send-recipient-input').fill(opts.destAddress);
-  await page.getByTestId('send-network-sepolia').click({ timeout: step });
+  await selectSendNetwork(page, SEPOLIA_NETWORK, step);
   await flow.getByTestId('send-recipient-confirm').click({ timeout: step });
 
   // Amount: pick the funded token, type the amount.
@@ -190,9 +192,9 @@ export async function openRouteStep(wallet: Wallet, opts: BridgeOutSlowOptions):
 
   const flow = page.getByTestId('send-flow');
 
-  // Recipient: a 0x address flips the flow to cross-chain and reveals the network row.
+  // Recipient: a 0x address flips the flow to cross-chain and reveals the network field.
   await flow.getByTestId('send-recipient-input').fill(opts.destAddress);
-  await page.getByTestId('send-network-sepolia').click({ timeout: step });
+  await selectSendNetwork(page, SEPOLIA_NETWORK, step);
   await flow.getByTestId('send-recipient-confirm').click({ timeout: step });
 
   // Amount: pick the funded token, type the amount.
@@ -678,7 +680,7 @@ export async function readNativeDisplaySymbol(page: Page, nativeTokenId: string)
   return read.symbol;
 }
 
-/** The destination chips a USDCx burn offers on testnet, in no particular order (bridge-networks.ts). */
+/** The network sheet rows a USDCx burn offers on testnet, in no particular order (bridge-networks.ts). */
 export const USDCX_DESTINATION_CHIPS: readonly string[] = [
   'send-network-arc-testnet',
   'send-network-sepolia',
@@ -693,16 +695,16 @@ const RPC_FAILURE = /\b(HTTP|RPC|JSON-RPC|429|5\d\d|fetch|timed? ?out|timeout|ra
 
 export interface NetworkChipState {
   testId: string;
-  /** The chip's `aria-pressed`, or null when it has none. */
+  /** The network row's `aria-pressed`, or null when it has none. */
   pressed: string | null;
 }
 
-/** Why the chips are not exactly the four USDCx destinations with only `selected` pressed, or undefined when they are. */
+/** Why the rows are not exactly the four USDCx destinations with only `selected` pressed; undefined when they are. */
 export function usdcxChipsProblem(chips: readonly NetworkChipState[], selected: string): string | undefined {
   const ids = chips.map(chip => chip.testId).sort();
   const expected = [...USDCX_DESTINATION_CHIPS].sort();
   if (ids.join(',') !== expected.join(',')) {
-    return `network chips ${JSON.stringify(ids)}, expected exactly ${JSON.stringify(expected)}`;
+    return `network rows ${JSON.stringify(ids)}, expected exactly ${JSON.stringify(expected)}`;
   }
   const wrong = chips.filter(chip => chip.pressed !== (chip.testId === selected ? 'true' : 'false'));
   return wrong.length === 0
@@ -755,29 +757,35 @@ function payoutRowValue(scope: Page | Locator, testId: string): Locator {
 }
 
 function readNetworkChips(page: Page): Promise<NetworkChipState[]> {
-  return page
-    .locator('[data-testid^="send-network-"]:not([data-testid="send-network-options"])')
-    .evaluateAll(elements =>
-      elements.map(element => ({
-        testId: element.getAttribute('data-testid') ?? '',
-        pressed: element.getAttribute('aria-pressed')
-      }))
-    );
+  return page.locator(`${OPEN_SHEET} [data-testid^="send-network-"]`).evaluateAll(elements =>
+    elements.map(element => ({
+      testId: element.getAttribute('data-testid') ?? '',
+      pressed: element.getAttribute('aria-pressed')
+    }))
+  );
 }
 
 /**
- * Polls until Arc Testnet alone is pressed among exactly the four USDCx destination chips. Every token shows the four
- * chips (#1403), so this proves the set and its default; Arc pressed and `bridge-route-usdcx` prove USDCx mode.
+ * Opens the destination sheet, polls until Arc Testnet alone is pressed among exactly the four USDCx destinations, and
+ * closes it unchanged. Every token offers the four (#1403), so this proves the set and its default; Arc pressed and
+ * `bridge-route-usdcx` prove USDCx mode.
  */
 export async function expectArcPreselected(page: Page, timeoutMs: number): Promise<void> {
+  await page.getByTestId('send-network-picker').click({ timeout: timeoutMs });
   await expect
     .poll(async () => usdcxChipsProblem(await readNetworkChips(page), ARC_CHIP) ?? 'ok', {
       timeout: timeoutMs,
       message:
-        'this checks the chip set and its default: exactly the four USDCx destination chips, Arc Testnet alone ' +
-        'pressed (every token shows the four chips, so USDCx mode rests on Arc pressed and bridge-route-usdcx)'
+        'this checks the destination set and its default: exactly the four USDCx destinations in the network ' +
+        'sheet, Arc Testnet alone pressed (every token offers the four, so USDCx mode rests on Arc pressed and ' +
+        'bridge-route-usdcx)'
     })
     .toBe('ok');
+  await page
+    .locator(OPEN_SHEET)
+    .getByRole('button', { name: enText('close'), exact: true })
+    .click({ timeout: timeoutMs });
+  await page.getByTestId(ARC_CHIP).waitFor({ state: 'hidden', timeout: timeoutMs });
 }
 
 /** What a USDCx burn's payout rows read (`UsdcxPayoutRows`). */
@@ -843,7 +851,7 @@ export interface BridgeOutUsdcxOptions {
   stepTimeoutMs?: number;
   /** Where usdcx-route.png, usdcx-review-light.png and usdcx-review-dark.png go. */
   screenshotDir: string;
-  /** Where Circle pays the burn (default Arc Testnet): the chip clicked, the review's network and the payout rows. */
+  /** Where Circle pays the burn (default Arc Testnet): the network picked, the review's network and the payout rows. */
   payoutChain?: PayoutChain;
 }
 
@@ -855,8 +863,9 @@ export interface BridgeOutUsdcxResult {
 /**
  * Burn the native USDCx to an address on `opts.payoutChain` (default Arc Testnet) through the real Send UI (spec
  * section 5 step 6), ending on the generating-transaction screen. Checks on the way: exactly the four USDCx
- * destination chips with Arc pressed by default and then the destination's alone, the route subtitle and fee row
- * naming the native symbol, the payout rows and the burn notice on route and review, and the review's network.
+ * destinations in the network sheet with Arc pressed by default, the closed field naming the destination picked, the
+ * route subtitle and fee row naming the native symbol, the payout rows and the burn notice on route and review, and
+ * the review's network.
  */
 export async function bridgeOutUsdcx(wallet: Wallet, opts: BridgeOutUsdcxOptions): Promise<BridgeOutUsdcxResult> {
   const { page, extensionId } = wallet;
@@ -879,10 +888,7 @@ export async function bridgeOutUsdcx(wallet: Wallet, opts: BridgeOutUsdcxOptions
   await expect(flow).toBeVisible({ timeout: step });
   await flow.getByTestId('send-recipient-input').fill(opts.destAddress);
   await expectArcPreselected(page, step);
-  await page.getByTestId(payoutChain.chip).click({ timeout: step });
-  await expect
-    .poll(async () => usdcxChipsProblem(await readNetworkChips(page), payoutChain.chip) ?? 'ok', { timeout: step })
-    .toBe('ok');
+  await selectSendNetwork(page, { id: payoutChain.reviewNetwork, name: payoutChain.networkName }, step);
   await flow.getByTestId('send-recipient-confirm').click({ timeout: step });
   await flow.getByTestId('send-amount-input').fill(opts.amount);
   await flow.getByTestId('send-amount-confirm').click({ timeout: step });

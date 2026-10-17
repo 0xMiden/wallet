@@ -6712,5 +6712,113 @@
   "breadPresentationError": {
     "message": "Cette application ne s’est pas entièrement chargée. Réessayez ou revenez à Bread.",
     "englishSource": "This app did not finish loading. Try again or return to Bread."
+  },
+  "bridgeInTitle": {
+    "message": "Bridge in",
+    "englishSource": "Bridge in"
+  },
+  "bridgeConnectWalletTitle": {
+    "message": "Connectez votre portefeuille",
+    "englishSource": "Connect your wallet"
+  },
+  "bridgeConnectWalletBody": {
+    "message": "Connectez le portefeuille contenant les jetons que vous souhaitez transférer vers Miden.",
+    "englishSource": "Connect the wallet holding the tokens you want to bring to Miden."
+  },
+  "bridgeConnectWalletAction": {
+    "message": "Connecter un portefeuille",
+    "englishSource": "Connect wallet"
+  },
+  "bridgeConnectSource": {
+    "message": "Portefeuille externe",
+    "englishSource": "External wallet"
+  },
+  "bridgeConnectSourceHint": {
+    "message": "Pas encore connecté",
+    "englishSource": "Not connected yet"
+  },
+  "bridgeConnectNextTitle": {
+    "message": "Après la connexion",
+    "englishSource": "After connecting"
+  },
+  "bridgeConnectChooseTitle": {
+    "message": "Choisissez votre transfert",
+    "englishSource": "Choose your transfer"
+  },
+  "bridgeConnectChooseBody": {
+    "message": "Choisissez un token, un réseau source et un montant.",
+    "englishSource": "Pick a token, source network and amount."
+  },
+  "bridgeConnectApproveTitle": {
+    "message": "Vérifier et approuver",
+    "englishSource": "Review and approve"
+  },
+  "bridgeConnectApproveBody": {
+    "message": "Vérifiez l’itinéraire et les frais, puis validez le transfert dans votre portefeuille.",
+    "englishSource": "Check the route and fees, then approve the transfer in your wallet."
+  },
+  "bridgeConnectTestWalletBody": {
+    "message": "Utilisez un portefeuille distinct contenant uniquement des jetons de test. Ne connectez jamais un portefeuille contenant de véritables fonds.",
+    "englishSource": "Use a separate wallet with test tokens only. Never connect a wallet holding real funds."
+  },
+  "bridgeChooseRoute": {
+    "message": "Choisissez un itinéraire",
+    "englishSource": "Choose a route"
+  },
+  "bridgeRouteDescription": {
+    "message": "Vérifiez les frais et la date d’arrivée estimée avant de continuer.",
+    "englishSource": "Review the fee and estimated arrival before you continue."
+  },
+  "bridgeArrivalEstimate": {
+    "message": "Heure d’arrivée estimée",
+    "englishSource": "Estimated arrival"
+  },
+  "bridgePayoutTiming": {
+    "message": "L’arrivée dépend du réseau de destination",
+    "englishSource": "Arrival depends on the destination network"
+  },
+  "bridgeSourceWallet": {
+    "message": "Portefeuille",
+    "englishSource": "Wallet"
+  },
+  "bridgeRouteFee": {
+    "message": "Frais de pont",
+    "englishSource": "Bridge fee"
+  },
+  "bridgeRankBestValue": {
+    "message": "Meilleur rapport qualité-prix",
+    "englishSource": "Best value"
+  },
+  "bridgeRankCheapest": {
+    "message": "Le moins cher",
+    "englishSource": "Cheapest"
+  },
+  "bridgeRankFastest": {
+    "message": "Le plus rapide",
+    "englishSource": "Fastest"
+  },
+  "bridgeRouteSort": {
+    "message": "Trier les itinéraires",
+    "englishSource": "Sort routes"
+  },
+  "bridgeRouteProviders": {
+    "message": "Fournisseurs de ponts",
+    "englishSource": "Bridge providers"
+  },
+  "bridgeRankValueDescription": {
+    "message": "La plupart des montants sont reçus après déduction des frais du prestataire.",
+    "englishSource": "Most received after provider fees."
+  },
+  "bridgeRankCostDescription": {
+    "message": "Coût de pont et de réseau le plus bas, gaz compris.",
+    "englishSource": "Lowest bridge and network cost, including gas."
+  },
+  "bridgeRankTimeDescription": {
+    "message": "Délai d’arrivée estimé le plus court.",
+    "englishSource": "Shortest estimated arrival time."
+  },
+  "bridgeEstimatedCost": {
+    "message": "Coût estimé",
+    "englishSource": "Est. cost"
   }
 }

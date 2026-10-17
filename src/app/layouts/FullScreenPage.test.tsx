@@ -5,7 +5,8 @@ import { render, screen, waitFor } from '@testing-library/react';
 import { presets, reducedMotionTransition } from 'lib/animation';
 
 import FullScreenPage from './FullScreenPage';
-import { PageMountedByReturnContext, PageRevealedByLayerContext } from './page-active';
+import { PageActiveContext, PageMountedByReturnContext, PageRevealedByLayerContext } from './page-active';
+import { useHideHomeActionsWhileOpen } from './useHideHomeActionsWhileOpen';
 
 const mockMotion: { reduce: boolean; props: Record<string, any> | null } = { reduce: false, props: null };
 
@@ -126,4 +127,27 @@ it('plays no entrance of its own when its layer reveals it', () => {
   );
   expect(mockMotion.props?.initial).toBe(false);
   expect(document.body).toHaveAttribute('data-hide-navbar');
+});
+
+it('preserves hidden home actions while review slides over a retained Send layer', () => {
+  const SendLayer = () => {
+    useHideHomeActionsWhileOpen(true);
+    return <span>Send amount</span>;
+  };
+  const Layers = ({ review }: { review: boolean }) => (
+    <>
+      <PageActiveContext.Provider value={!review}>
+        <SendLayer />
+      </PageActiveContext.Provider>
+      {review && <FullScreenPage entrance="slide">Review</FullScreenPage>}
+    </>
+  );
+  const view = render(<Layers review={false} />);
+  expect(document.body).toHaveAttribute('data-hide-home-actions');
+  view.rerender(<Layers review />);
+  expect(document.body).toHaveAttribute('data-hide-home-actions');
+  view.rerender(<Layers review={false} />);
+  expect(document.body).toHaveAttribute('data-hide-home-actions');
+  view.unmount();
+  expect(document.body).not.toHaveAttribute('data-hide-home-actions');
 });

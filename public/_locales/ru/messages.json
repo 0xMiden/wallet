@@ -6712,5 +6712,113 @@
   "breadPresentationError": {
     "message": "Это приложение не загрузилось полностью. Попробуйте ещё раз или вернитесь в Bread.",
     "englishSource": "This app did not finish loading. Try again or return to Bread."
+  },
+  "bridgeInTitle": {
+    "message": "Мост в",
+    "englishSource": "Bridge in"
+  },
+  "bridgeConnectWalletTitle": {
+    "message": "Подключите свой кошелек",
+    "englishSource": "Connect your wallet"
+  },
+  "bridgeConnectWalletBody": {
+    "message": "Подключите кошелек, в котором хранятся токены, которые вы хотите перенести в Miden.",
+    "englishSource": "Connect the wallet holding the tokens you want to bring to Miden."
+  },
+  "bridgeConnectWalletAction": {
+    "message": "Подключить кошелек",
+    "englishSource": "Connect wallet"
+  },
+  "bridgeConnectSource": {
+    "message": "Внешний кошелек",
+    "englishSource": "External wallet"
+  },
+  "bridgeConnectSourceHint": {
+    "message": "Пока не подключено",
+    "englishSource": "Not connected yet"
+  },
+  "bridgeConnectNextTitle": {
+    "message": "После подключения",
+    "englishSource": "After connecting"
+  },
+  "bridgeConnectChooseTitle": {
+    "message": "Выберите тип перевода",
+    "englishSource": "Choose your transfer"
+  },
+  "bridgeConnectChooseBody": {
+    "message": "Выберите токен, исходную сеть и сумму.",
+    "englishSource": "Pick a token, source network and amount."
+  },
+  "bridgeConnectApproveTitle": {
+    "message": "Проверить и утвердить",
+    "englishSource": "Review and approve"
+  },
+  "bridgeConnectApproveBody": {
+    "message": "Проверьте маршрут и комиссии, а затем подтвердите перевод в своём кошельке.",
+    "englishSource": "Check the route and fees, then approve the transfer in your wallet."
+  },
+  "bridgeConnectTestWalletBody": {
+    "message": "Используйте отдельный кошелек, содержащий исключительно тестовые токены. Ни в коем случае не подключайте кошелек, в котором хранятся реальные средства.",
+    "englishSource": "Use a separate wallet with test tokens only. Never connect a wallet holding real funds."
+  },
+  "bridgeChooseRoute": {
+    "message": "Выберите маршрут",
+    "englishSource": "Choose a route"
+  },
+  "bridgeRouteDescription": {
+    "message": "Перед тем как продолжить, ознакомьтесь с комиссией и предполагаемым временем поступления.",
+    "englishSource": "Review the fee and estimated arrival before you continue."
+  },
+  "bridgeArrivalEstimate": {
+    "message": "Ориентировочное время прибытия",
+    "englishSource": "Estimated arrival"
+  },
+  "bridgePayoutTiming": {
+    "message": "Время прибытия зависит от сети назначения",
+    "englishSource": "Arrival depends on the destination network"
+  },
+  "bridgeSourceWallet": {
+    "message": "Кошелек",
+    "englishSource": "Wallet"
+  },
+  "bridgeRouteFee": {
+    "message": "Комиссия за мост",
+    "englishSource": "Bridge fee"
+  },
+  "bridgeRankBestValue": {
+    "message": "Наилучшая стоимость",
+    "englishSource": "Best value"
+  },
+  "bridgeRankCheapest": {
+    "message": "Самый дешёвый",
+    "englishSource": "Cheapest"
+  },
+  "bridgeRankFastest": {
+    "message": "Самый быстрый",
+    "englishSource": "Fastest"
+  },
+  "bridgeRouteSort": {
+    "message": "Сортировка маршрутов",
+    "englishSource": "Sort routes"
+  },
+  "bridgeRouteProviders": {
+    "message": "Поставщики мостов",
+    "englishSource": "Bridge providers"
+  },
+  "bridgeRankValueDescription": {
+    "message": "Большая часть суммы поступает после удержания комиссии провайдера.",
+    "englishSource": "Most received after provider fees."
+  },
+  "bridgeRankCostDescription": {
+    "message": "Минимальные затраты на мост и сеть, включая газ.",
+    "englishSource": "Lowest bridge and network cost, including gas."
+  },
+  "bridgeRankTimeDescription": {
+    "message": "Наименьшее предполагаемое время прибытия.",
+    "englishSource": "Shortest estimated arrival time."
+  },
+  "bridgeEstimatedCost": {
+    "message": "Приблизительная стоимость",
+    "englishSource": "Est. cost"
   }
 }
