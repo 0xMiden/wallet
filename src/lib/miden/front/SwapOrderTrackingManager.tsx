@@ -21,10 +21,12 @@ const RECOVERED_INTERVAL_MS = 30_000;
  * A payback consume can precede reclaim, so only filled/reclaimed lineage stops
  * tracking permanently. Missing orders keep checking with bounded backoff.
  * A Guardian-recovered order has no lineage on this device, so its order note
- * is checked on the node instead, outside the lineage read's hold and fuse.
+ * is checked on the node instead, outside the lineage read's hold and fuse, and
+ * on a guard of its own, so a long WASM hold delays only the live poll.
  */
 export function SwapOrderTrackingManager(): null {
-  const running = useRef(false);
+  const lineageRunning = useRef(false);
+  const recoveredRunning = useRef(false);
 
   useEffect(() => {
     let disposed = false;
@@ -61,24 +63,33 @@ export function SwapOrderTrackingManager(): null {
       if (!disposed) publishResults(due, results, RECOVERED_INTERVAL_MS);
     };
 
+    const start = (guard: { current: boolean }, track: () => Promise<void>) => {
+      if (guard.current) return;
+      guard.current = true;
+      track()
+        .catch(err => console.warn('[swap-order-tracking] tick failed', err))
+        .finally(() => {
+          guard.current = false;
+        });
+    };
+
     const tick = async () => {
-      if (disposed || running.current) return;
+      if (disposed || (lineageRunning.current && recoveredRunning.current)) return;
       if (typeof document !== 'undefined' && document.hidden) return;
-      running.current = true;
+      let due: PollableOrder[];
       try {
         const candidates = await findPollableOrders();
         const now = Date.now();
-        const due = candidates.filter(({ schedule }) => schedule.nextAt <= now);
-        if (disposed || due.length === 0) return;
-        const lineageDue = due.filter(order => order.recovered === undefined);
-        const recoveredDue = due.filter((order): order is RecoveredPollableOrder => order.recovered !== undefined);
-        if (lineageDue.length > 0) await trackLineages(lineageDue);
-        if (!disposed && recoveredDue.length > 0) await trackRecovered(recoveredDue);
+        due = candidates.filter(({ schedule }) => schedule.nextAt <= now);
       } catch (err) {
         console.warn('[swap-order-tracking] tick failed', err);
-      } finally {
-        running.current = false;
+        return;
       }
+      if (disposed) return;
+      const lineageDue = due.filter(order => order.recovered === undefined);
+      const recoveredDue = due.filter((order): order is RecoveredPollableOrder => order.recovered !== undefined);
+      if (lineageDue.length > 0) start(lineageRunning, () => trackLineages(lineageDue));
+      if (recoveredDue.length > 0) start(recoveredRunning, () => trackRecovered(recoveredDue));
     };
 
     tick();

@@ -590,6 +590,24 @@ describe('miden repo export/import', () => {
     );
   });
 
+  // A spent order note closes a recovered order as finally as `lineageClosedAt` does, so it is dropped with it (#1487).
+  it('imports a recovered order without its spent-note close, tracked until its next read', async () => {
+    await transactions.bulkAdd([recoveredOrderRow({ orderNoteSpentAt: 160, lineageClosedAt: 160 })]);
+    const backup = await exportDb();
+    await transactions.clear();
+
+    await importDb(backup);
+
+    const [restored] = await transactions.toArray();
+    expect(restored!.extraInputs).toEqual({
+      orderId: '42',
+      requestedFaucetId: 'requested',
+      requestedAmount: 30n,
+      autoConsume: false
+    });
+    expect(recoveredSwapOrderRef(restored!)).toEqual(expect.objectContaining({ txId: 'recovered-order' }));
+  });
+
   it('keeps the expiry of a restored swap that recovery did not rebuild', async () => {
     const dump = JSON.stringify({
       [Table.Transactions]: [

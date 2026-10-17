@@ -3,6 +3,7 @@ import * as Repo from 'lib/miden/repo';
 import { type PswapOrderLineageRead, readPswapOrderLineage } from 'lib/miden/sdk/pswap-order-note';
 import type { SwapOrderTracking } from 'lib/miden/transaction/get';
 import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
+import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 
 import { isOpenRecoveredOrder, type RecoveredSwapOrderRef } from './recovered-order';
 
@@ -13,8 +14,9 @@ export type RecoveredOrderTracking = { kind: 'open'; tracking: SwapOrderTracking
  * is open while its lineage has an unspent tip: the order note itself with nothing filled, or the remainder a partial
  * fill left, which is recorded on the row as what its Cancel returns, and an open read clears a closure stamp no
  * lineage read recorded. It is closed (`closeRecoveredSwapOrder`) only when a spend left no remainder. An order with
- * no entry in the answer is unresolved: the read failed, the node knows no such note, or a consume of this wallet may
- * still be landing.
+ * no entry in the answer is unresolved: the read failed, the node knows no such note, a consume of this wallet may
+ * still be landing, the wallet left the node the read ran on before its result was written, which writes nothing, or
+ * an open read found its row closed by then.
  */
 export async function trackRecoveredSwapOrders(
   orders: RecoveredSwapOrderRef[]
@@ -23,6 +25,8 @@ export async function trackRecoveredSwapOrders(
   if (orders.length === 0) return results;
   await ensureSdkWasmReady();
   for (const order of orders) {
+    // The node the walk's first read binds to, read in the same synchronous turn.
+    const readOn = getEffectiveRpcUrl();
     let read: PswapOrderLineageRead;
     try {
       read = await readPswapOrderLineage(order.noteId, order.orderId, order.accountId);
@@ -32,7 +36,8 @@ export async function trackRecoveredSwapOrders(
     }
     if (read.kind === 'open') {
       const newTip = read.depth > 0 && read.noteId !== order.tipNoteId;
-      if (newTip || order.provisionalClosure) await recordOpenRecoveredSwapOrder(order.txId, newTip ? read : undefined);
+      const tip = newTip ? read : undefined;
+      if (!(await recordOpenRecoveredSwapOrder(order.txId, readOn, tip, order.provisionalClosure === true))) continue;
       results.set(order.orderId, {
         kind: 'open',
         tracking: {
@@ -43,7 +48,10 @@ export async function trackRecoveredSwapOrders(
           remainingRequested: read.requestedAmount
         }
       });
-    } else if (read.kind === 'finished' && (await closeRecoveredSwapOrder(order.txId))) {
+    } else if (
+      read.kind === 'finished' &&
+      (await closeRecoveredSwapOrder(order.txId, Math.floor(Date.now() / 1000), readOn))
+    ) {
       results.set(order.orderId, { kind: 'closed' });
     }
   }
@@ -51,16 +59,23 @@ export async function trackRecoveredSwapOrders(
 }
 
 /**
- * Record what an open read showed on a row that is still an open recovered order: the remainder its Cancel returns,
- * if new, and no settledAt or reclaimedAt, since on an open row neither was recorded by a finished read.
+ * Confirm that an open read still holds on a row that is still an open recovered order, and record what it showed:
+ * the remainder its Cancel returns, if new, and no settledAt or reclaimedAt, since on an open row neither was recorded
+ * by a finished read. True only when the row is still such an order and `readOn`, the node the read ran on, is still
+ * the effective one, checked in the modify that writes: a row a finished read closed meanwhile (the refused-cancel
+ * check, another realm) reports no open order, so no reader shows it open (#1487).
  */
 async function recordOpenRecoveredSwapOrder(
   txId: string,
-  tip: { noteId: string; depth: number; offeredAmount: bigint } | undefined
-): Promise<void> {
+  readOn: string,
+  tip: { noteId: string; depth: number; offeredAmount: bigint } | undefined,
+  clearsClosure: boolean
+): Promise<boolean> {
+  let confirmed = false;
   await Repo.transactions.where({ id: txId }).modify(row => {
+    confirmed = getEffectiveRpcUrl() === readOn && isOpenRecoveredOrder(row);
     // `false`, not a bare return - dexie re-puts the deep clone for any other value.
-    if (!isOpenRecoveredOrder(row)) return false;
+    if (!confirmed || (!tip && !clearsClosure)) return false;
     const { settledAt: _settledAt, reclaimedAt: _reclaimedAt, ...extraInputs } = row.extraInputs ?? {};
     row.extraInputs = {
       ...extraInputs,
@@ -68,6 +83,7 @@ async function recordOpenRecoveredSwapOrder(
     };
     return undefined;
   });
+  return confirmed;
 }
 
 const isRunning = (row: ITransaction): boolean =>
@@ -77,12 +93,10 @@ const isRunning = (row: ITransaction): boolean =>
  * Record why a recovered order's lineage ended: a completed consume of this wallet linked to the order is its
  * settlement or reclaim, a settle outranking a reclaim as funds arrived, and with none the order ended elsewhere.
  * `lineageClosedAt` records that the stamp is final. Returns false and records nothing while a linked consume is still
- * running, since that consume may be what spent it.
+ * running, since that consume may be what spent it, or once `readOn`, the node the walk read, is no longer the
+ * effective one: a newer read on the node the wallet moved to may show the order open (#1487).
  */
-export async function closeRecoveredSwapOrder(
-  txId: string,
-  nowSeconds: number = Math.floor(Date.now() / 1000)
-): Promise<boolean> {
+export async function closeRecoveredSwapOrder(txId: string, nowSeconds: number, readOn: string): Promise<boolean> {
   const consumes = await Repo.transactions
     .where('extraInputs.swapOrderTxId')
     .equals(txId)
@@ -98,11 +112,13 @@ export async function closeRecoveredSwapOrder(
       : consume.extraInputs?.swapSettleKind === 'reclaim'
         ? { reclaimedAt: closedAt }
         : { settledAt: closedAt };
+  let closed = false;
   await Repo.transactions.where({ id: txId }).modify(row => {
     // `false`, not a bare return - dexie re-puts the deep clone for any other value.
-    if (row.type !== 'swap') return false;
+    if (row.type !== 'swap' || getEffectiveRpcUrl() !== readOn) return false;
     row.extraInputs = { ...row.extraInputs, ...stamp, lineageClosedAt: nowSeconds };
+    closed = true;
     return undefined;
   });
-  return true;
+  return closed;
 }
