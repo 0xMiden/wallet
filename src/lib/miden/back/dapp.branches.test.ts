@@ -349,46 +349,6 @@ describe('requestPermission — mobile branches', () => {
     ).rejects.toThrow(MidenDAppErrorType.NotGranted);
   });
 
-  it('rejects when getAccountPublicKeyB64 throws (account not found)', async () => {
-    _g.__dappBranchMockGetAccount.mockResolvedValueOnce(null);
-    await expect(
-      dapp.requestPermission(
-        'https://miden.xyz',
-        {
-          type: MidenDAppMessageType.PermissionRequest,
-          appMeta: { name: 'Miden Test', url: 'https://miden.xyz' },
-          force: true,
-          network: 'testnet',
-          privateDataPermission: 'UPON_REQUEST',
-          allowedPrivateData: 0
-        } as never,
-        'session-1'
-      )
-    ).rejects.toThrow(MidenDAppErrorType.NotGranted);
-  });
-
-  it('rejects when account has no public key commitments', async () => {
-    // Interface empty and guardian signer map empty: the resolver misses both.
-    _g.__dappBranchMockGetAccount.mockResolvedValueOnce({
-      getPublicKeyCommitments: () => [],
-      storage: () => ({ getMapItem: () => undefined })
-    });
-    await expect(
-      dapp.requestPermission(
-        'https://miden.xyz',
-        {
-          type: MidenDAppMessageType.PermissionRequest,
-          appMeta: { name: 'Miden Test', url: 'https://miden.xyz' },
-          force: true,
-          network: 'testnet',
-          privateDataPermission: 'UPON_REQUEST',
-          allowedPrivateData: 0
-        } as never,
-        'session-1'
-      )
-    ).rejects.toThrow(MidenDAppErrorType.NotGranted);
-  });
-
   it('saves dApp session when existingPermission is false', async () => {
     delete (storageState[STORAGE_KEY] as any)['https://miden.xyz'];
     await dapp.requestPermission(
@@ -404,6 +364,181 @@ describe('requestPermission — mobile branches', () => {
     const sessions = (storageState[STORAGE_KEY] as any)['https://miden.xyz'];
     expect(sessions).toBeDefined();
     expect(sessions.length).toBeGreaterThan(0);
+  });
+});
+
+describe('an approved connect whose account key read fails, on mobile and desktop (#1471)', () => {
+  const ORIGIN = 'https://key-read-dapp.xyz';
+  const ACCOUNT = { getPublicKeyCommitments: () => [{ serialize: () => new Uint8Array([1, 2, 3]) }] };
+  const APPROVE = { confirmed: true, accountPublicKey: 'miden-account-1', privateDataPermission: 'UPON_REQUEST' };
+  const DENY = { confirmed: false };
+  const kill = new WasmClientPoisonedError('watchdog', new Error('account read parked'));
+  const failures: ReadonlyArray<readonly [string, () => Promise<unknown>, string]> = [
+    ['"Account not found"', async () => null, 'Account not found'],
+    [
+      'no public key commitments',
+      // Interface empty and guardian signer map empty: the resolver misses both.
+      async () => ({ getPublicKeyCommitments: () => [], storage: () => ({ getMapItem: () => undefined }) }),
+      'Account has no public key commitments'
+    ],
+    [
+      'a kill',
+      async () => {
+        throw kill;
+      },
+      kill.message
+    ]
+  ];
+  const connect = () =>
+    dapp.requestPermission(
+      ORIGIN,
+      {
+        type: MidenDAppMessageType.PermissionRequest,
+        appMeta: { name: 'Key Read Dapp', url: ORIGIN },
+        force: false,
+        network: 'testnet',
+        privateDataPermission: 'UPON_REQUEST',
+        allowedPrivateData: 0
+      } as never,
+      'session-1'
+    );
+  const savedSession = () => (storageState[STORAGE_KEY] as Record<string, unknown>)[ORIGIN];
+  const sheets = () => mockRequestConfirmation.mock.calls.map(([request]) => request);
+  type Outcome = { settled: boolean; message: string };
+  const track = (call: Promise<unknown>): Outcome => {
+    const outcome: Outcome = { settled: false, message: '' };
+    call.then(
+      () => {
+        outcome.settled = true;
+      },
+      (err: Error) => {
+        outcome.settled = true;
+        outcome.message = err.message;
+      }
+    );
+    return outcome;
+  };
+  const untilSheets = async (count: number) => {
+    for (let i = 0; i < 50 && mockRequestConfirmation.mock.calls.length < count; i++) {
+      await jest.advanceTimersByTimeAsync(0);
+    }
+    expect(mockRequestConfirmation).toHaveBeenCalledTimes(count);
+  };
+
+  // Each key read takes the next of these, then reads the account; each sheet takes the next answer, and a sheet with
+  // none left is denied, so a read that keeps failing cannot ask forever.
+  let keyReads: Array<() => Promise<unknown>>;
+  let sheetAnswers: unknown[];
+  let consoleError: jest.SpyInstance;
+  beforeEach(() => {
+    keyReads = [];
+    sheetAnswers = [];
+    _g.__dappBranchMockGetAccount.mockImplementation(async () => (keyReads.shift() ?? (async () => ACCOUNT))());
+    mockRequestConfirmation.mockImplementation(async () => sheetAnswers.shift() ?? DENY);
+    consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
+  });
+  afterEach(() => consoleError.mockRestore());
+
+  it.each(failures)(
+    "asks again with the read's error after %s instead of answering the dApp, and the next approval's read resolves it",
+    async (_name, failingRead, message) => {
+      keyReads = [failingRead];
+      sheetAnswers = [APPROVE, APPROVE];
+
+      await expect(connect()).resolves.toEqual({
+        type: MidenDAppMessageType.PermissionResponse,
+        accountId: 'miden-account-1',
+        network: 'testnet',
+        privateDataPermission: 'UPON_REQUEST',
+        allowedPrivateData: 0,
+        publicKey: 'AQID'
+      });
+      const [first, second] = sheets();
+      expect(sheets()).toHaveLength(2);
+      expect(first).not.toHaveProperty('previousAttemptError');
+      expect(second).toEqual({ ...first, id: expect.any(String), previousAttemptError: message });
+      expect(second.id).not.toBe(first.id);
+      expect(savedSession()).toEqual([expect.objectContaining({ accountId: 'miden-account-1', publicKey: 'AQID' })]);
+    }
+  );
+
+  it.each(failures)('answers NOT_GRANTED when the user denies the sheet asked again after %s', async (_name, read) => {
+    keyReads = [read];
+    sheetAnswers = [APPROVE, DENY];
+
+    await expect(connect()).rejects.toThrow(new Error(MidenDAppErrorType.NotGranted));
+    expect(mockRequestConfirmation).toHaveBeenCalledTimes(2);
+    expect(savedSession()).toBeUndefined();
+  });
+
+  it('keeps one 120 s deadline across the sheets a failing read asks again', async () => {
+    jest.useFakeTimers();
+    try {
+      _g.__dappBranchMockGetAccount.mockImplementation(async () => null);
+      mockRequestConfirmation.mockImplementation(
+        () => new Promise(resolve => setTimeout(() => resolve(APPROVE), 50_000))
+      );
+      const outcome = track(connect());
+      await untilSheets(1);
+
+      // Approved at 50 s and 100 s, each read failing: the third sheet still ends at 120 s.
+      await jest.advanceTimersByTimeAsync(119_999);
+      expect(outcome.settled).toBe(false);
+      expect(mockRequestConfirmation).toHaveBeenCalledTimes(3);
+      await jest.advanceTimersByTimeAsync(1);
+      expect(outcome).toEqual({ settled: true, message: MidenDAppErrorType.NotGranted });
+      expect(mockRequestConfirmation).toHaveBeenCalledTimes(3);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('keeps the 240 s deadline of an unlock wait across the sheets a failing read asks again', async () => {
+    jest.useFakeTimers();
+    try {
+      _g.__dappBranchMockGetAccount.mockImplementation(async () => null);
+      mockRequestConfirmation.mockImplementation(
+        () => new Promise(resolve => setTimeout(() => resolve(APPROVE), 50_000))
+      );
+      lockWallet();
+      const outcome = track(connect());
+      await jest.advanceTimersByTimeAsync(100_000);
+      expect(mockRequestConfirmation).not.toHaveBeenCalled();
+      unlockWallet();
+      await untilSheets(1);
+
+      // Posted at 100 s, approved at 150 s and 200 s, each read failing: the third sheet ends at 240 s.
+      await jest.advanceTimersByTimeAsync(139_999);
+      expect(outcome.settled).toBe(false);
+      expect(mockRequestConfirmation).toHaveBeenCalledTimes(3);
+      await jest.advanceTimersByTimeAsync(1);
+      expect(outcome).toEqual({ settled: true, message: MidenDAppErrorType.NotGranted });
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('answers NOT_GRANTED at the deadline while the approved read runs, and the late read saves nothing', async () => {
+    jest.useFakeTimers();
+    try {
+      let release: (account: unknown) => void = () => {};
+      keyReads = [() => new Promise(resolve => (release = resolve))];
+      sheetAnswers = [APPROVE];
+      const outcome = track(connect());
+      await untilSheets(1);
+
+      await jest.advanceTimersByTimeAsync(119_999);
+      expect(outcome.settled).toBe(false);
+      await jest.advanceTimersByTimeAsync(1);
+      expect(outcome).toEqual({ settled: true, message: MidenDAppErrorType.NotGranted });
+
+      release(ACCOUNT);
+      await jest.advanceTimersByTimeAsync(0);
+      expect(savedSession()).toBeUndefined();
+      expect(mockRequestConfirmation).toHaveBeenCalledTimes(1);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });
 

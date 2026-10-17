@@ -2732,4 +2732,28 @@ describe('an approved connect whose account key read fails (#1471)', () => {
     expect(remove).toHaveBeenCalledWith(999);
     expect(savedSession()).toBeUndefined();
   });
+
+  it('saves no session when a Retry read ends after the auto-decline answered the dApp', async () => {
+    // Auto-advancing, so the popup helpers' zero-delay waits still run.
+    jest.useFakeTimers({ advanceTimers: true });
+    try {
+      const { popup, failed } = await approveWithFailingRead(failures[0]![1]);
+      expect(failed.ok).toBe(false);
+
+      let release: (account: unknown) => void = () => {};
+      failingRead = () => new Promise(resolve => (release = resolve));
+      const retry = settle(popup.decide(MidenMessageType.DAppPermConfirmationRequest, APPROVE));
+      await jest.advanceTimersByTimeAsync(120_000);
+      await expect(popup.outcome).resolves.toEqual({ ok: false, message: MidenDAppErrorType.NotGranted });
+      await flush();
+      expect(remove).toHaveBeenCalledWith(999);
+
+      release({ getPublicKeyCommitments: () => [{ serialize: () => new Uint8Array([7, 8, 9]) }] });
+      await retry;
+      expect(savedSession()).toBeUndefined();
+      await expect(popup.outcome).resolves.toEqual({ ok: false, message: MidenDAppErrorType.NotGranted });
+    } finally {
+      jest.useRealTimers();
+    }
+  });
 });

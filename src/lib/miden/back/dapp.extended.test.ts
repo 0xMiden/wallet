@@ -1773,6 +1773,16 @@ describe('Asset/Notes data fetching error branches', () => {
   });
 });
 
+// An approval whose key read fails is asked again with the read's error (#1471); the user denies that sheet.
+const approveThenDeny = () => {
+  const answers = [{ confirmed: true, accountPublicKey: 'miden-account-1', privateDataPermission: 'UPON_REQUEST' }];
+  mockRequestConfirmation.mockImplementation(async () => answers.shift() ?? { confirmed: false });
+};
+const expectAskedAgainWith = (previousAttemptError: string) => {
+  expect(mockRequestConfirmation).toHaveBeenCalledTimes(2);
+  expect(mockRequestConfirmation).toHaveBeenLastCalledWith(expect.objectContaining({ previousAttemptError }));
+};
+
 describe('requestPermission (mobile)', () => {
   it('stores a new session when user grants permission and wallet returns an account', async () => {
     mockGetAccount.mockResolvedValue({
@@ -1827,13 +1837,9 @@ describe('requestPermission (mobile)', () => {
     expect(res.type).toBe(MidenDAppMessageType.PermissionResponse);
   });
 
-  it('rejects with NotGranted when getMidenClient throws while fetching the public key', async () => {
+  it('answers NotGranted only on the Deny of the sheet asked again when getMidenClient throws while fetching the public key', async () => {
     _g.__dappTestMockGetAccount.mockRejectedValueOnce(new Error('wasm down'));
-    mockRequestConfirmation.mockResolvedValueOnce({
-      confirmed: true,
-      accountPublicKey: 'miden-account-1',
-      privateDataPermission: 'UPON_REQUEST'
-    });
+    approveThenDeny();
     delete (storageState[STORAGE_KEY] as any)['https://newdapp4.xyz'];
     await expect(
       dapp.requestPermission('https://newdapp4.xyz', {
@@ -1845,20 +1851,17 @@ describe('requestPermission (mobile)', () => {
         force: false
       } as never)
     ).rejects.toThrow(MidenDAppErrorType.NotGranted);
+    expectAskedAgainWith('wasm down');
   });
 
-  it('rejects with NotGranted when the wallet returns no public key commitments', async () => {
+  it('answers NotGranted only on the Deny of the sheet asked again when the wallet returns no public key commitments', async () => {
     // Neither the standard interface nor the guardian signer map yields a
     // commitment, so the resolver comes up empty.
     _g.__dappTestMockGetAccount.mockResolvedValueOnce({
       getPublicKeyCommitments: () => [],
       storage: () => ({ getMapItem: () => undefined })
     });
-    mockRequestConfirmation.mockResolvedValueOnce({
-      confirmed: true,
-      accountPublicKey: 'miden-account-1',
-      privateDataPermission: 'UPON_REQUEST'
-    });
+    approveThenDeny();
     delete (storageState[STORAGE_KEY] as any)['https://newdapp5.xyz'];
     await expect(
       dapp.requestPermission('https://newdapp5.xyz', {
@@ -1870,6 +1873,7 @@ describe('requestPermission (mobile)', () => {
         force: false
       } as never)
     ).rejects.toThrow(MidenDAppErrorType.NotGranted);
+    expectAskedAgainWith('Account has no public key commitments');
   });
 
   it('skips setDApp when existingPermission is true', async () => {
@@ -1895,13 +1899,9 @@ describe('requestPermission (mobile)', () => {
     expect(res.type).toBe(MidenDAppMessageType.PermissionResponse);
   });
 
-  it('rejects with NotGranted when getMidenClient returns null account', async () => {
+  it('answers NotGranted only on the Deny of the sheet asked again when getMidenClient returns null account', async () => {
     _g.__dappTestMockGetAccount.mockResolvedValueOnce(null);
-    mockRequestConfirmation.mockResolvedValueOnce({
-      confirmed: true,
-      accountPublicKey: 'miden-account-1',
-      privateDataPermission: 'UPON_REQUEST'
-    });
+    approveThenDeny();
     delete (storageState[STORAGE_KEY] as any)['https://newdapp6.xyz'];
     await expect(
       dapp.requestPermission('https://newdapp6.xyz', {
@@ -1913,6 +1913,7 @@ describe('requestPermission (mobile)', () => {
         force: false
       } as never)
     ).rejects.toThrow(MidenDAppErrorType.NotGranted);
+    expectAskedAgainWith('Account not found');
   });
 });
 
@@ -1923,7 +1924,8 @@ describe('a watchdog eviction mid-read abandons the dApp flow instead of double-
   // moment the real watchdog hands the mutex to a successor — and pins that the
   // next WASM step never runs (that call would be a second borrow of a client
   // somebody else is inside) and that the caller sees the retryable poison
-  // error, not a false permissions/params verdict.
+  // error, not a false permissions/params verdict. A connect shows it to the user
+  // on the sheet it asks again (#1471).
 
   it('requestPermission stops before reading the evicted account commitments', async () => {
     const getPublicKeyCommitments = jest.fn(() => [{ serialize: () => new Uint8Array([1, 2, 3]) }]);
@@ -1931,11 +1933,7 @@ describe('a watchdog eviction mid-read abandons the dApp flow instead of double-
       revokeWasmHold();
       return { getPublicKeyCommitments };
     });
-    mockRequestConfirmation.mockResolvedValueOnce({
-      confirmed: true,
-      accountPublicKey: 'miden-account-1',
-      privateDataPermission: 'UPON_REQUEST'
-    });
+    approveThenDeny();
     delete (storageState[STORAGE_KEY] as any)['https://evicted.xyz'];
     await expect(
       dapp.requestPermission('https://evicted.xyz', {
@@ -1946,7 +1944,8 @@ describe('a watchdog eviction mid-read abandons the dApp flow instead of double-
         allowedPrivateData: 0,
         force: false
       } as never)
-    ).rejects.toThrow(WasmClientPoisonedError);
+    ).rejects.toThrow(MidenDAppErrorType.NotGranted);
+    expectAskedAgainWith(new WasmClientPoisonedError('watchdog').message);
     // The commitments (and their serialize()) are borrows of the client the
     // successor now owns — the abandoned flow must never touch them…
     expect(getPublicKeyCommitments).not.toHaveBeenCalled();
@@ -1954,22 +1953,19 @@ describe('a watchdog eviction mid-read abandons the dApp flow instead of double-
     expect((storageState[STORAGE_KEY] as any)['https://evicted.xyz']).toBeUndefined();
   });
 
-  it('requestPermission rejects with the terminated-client refusal, not a false NotGranted', async () => {
+  it('requestPermission shows the terminated-client refusal on the sheet it asks again, not a false NotGranted', async () => {
     // A terminated client is a kill like the eviction above: retryable, never a permissions verdict.
     const terminated = new Error('WebClient terminated');
     mockGetAccount.mockRejectedValueOnce(terminated);
-    mockRequestConfirmation.mockResolvedValueOnce({
-      confirmed: true,
-      accountPublicKey: 'miden-account-1',
-      privateDataPermission: 'UPON_REQUEST'
-    });
+    approveThenDeny();
     await expect(
       dapp.requestPermission('https://terminated.xyz', {
         type: MidenDAppMessageType.PermissionRequest,
         appMeta: { name: 'Terminated Dapp' },
         network: WalletAdapterNetwork.Testnet
       })
-    ).rejects.toBe(terminated);
+    ).rejects.toThrow(MidenDAppErrorType.NotGranted);
+    expectAskedAgainWith('WebClient terminated');
   });
 
   it('requestAssets (Auto) stops before the vault borrow chain', async () => {

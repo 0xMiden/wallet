@@ -511,6 +511,30 @@ describe('connect payload', () => {
     }
   });
 
+  it('retries an existing permission with Auto private data on a private account without asking for the consent box', async () => {
+    // The consent was given when the session was saved; a new connect still asks for it (the unchecked-box case below).
+    mockUseAccount.mockReturnValue({ ...ACCOUNT, isPublic: false });
+    ctx.confirmDAppPermission.mockRejectedValue(new Error('Account not found'));
+    try {
+      setPayload(connectPayload({ existingPermission: true, privateDataPermission: AUTO }));
+      render(<ConfirmPage />);
+
+      await waitFor(() => expect(screen.getByText('Account not found')).toBeInTheDocument());
+      expect(ctx.confirmDAppPermission).toHaveBeenCalledTimes(1);
+
+      ctx.confirmDAppPermission.mockResolvedValue(undefined);
+      await act(async () => {
+        fireEvent.click(screen.getByTestId(ConfirmPageSelectors.ConnectAction_RetryButton));
+      });
+
+      await waitFor(() => expect(ctx.confirmDAppPermission).toHaveBeenCalledTimes(2));
+      expect(ctx.confirmDAppPermission).toHaveBeenLastCalledWith('req-1', true, ACCOUNT.publicKey, AUTO, ['balance']);
+      expect(screen.queryByText('confirmError')).not.toBeInTheDocument();
+    } finally {
+      ctx.confirmDAppPermission.mockReset();
+    }
+  });
+
   it('shows the private-data checkbox when permission is Auto and account is non-public', () => {
     mockUseAccount.mockReturnValue({ ...ACCOUNT, isPublic: false });
     setPayload(connectPayload({ privateDataPermission: AUTO }));
