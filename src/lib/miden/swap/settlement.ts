@@ -40,6 +40,29 @@ const WASM_SETTLEMENT_LOCK_OPTIONS = { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, l
  */
 const ZERO_FILL_BUILD_FUSE_KEY: SyncFuseKey = 'swap-zero-fill-build';
 
+/**
+ * Per hold, the zero-fill build its pass has in flight: `building` from just before the call until it answers on a hold
+ * still ours, `booked` once the failure is on the build's key. A hold evicted while a build parks is rejected without
+ * the build's catch ever running, so the hold's handler reads this to book that failure where it belongs. Keyed by the
+ * hold, so a mark dies with its hold and never reaches a later one.
+ */
+const zeroFillBuildMarks = new WeakMap<WasmLockHold, 'building' | 'booked'>();
+
+/**
+ * Book a failed hold that ran {@link classifySwapSettlementSnapshot} on the zero-fill build's key when the hold failed
+ * with a build in flight that nothing booked yet. Returns whether the failure is the build's (booked here or by the
+ * build's own catch), so the caller books only a failure outside the build, and on its own key.
+ */
+export function noteZeroFillBuildHoldFailure(hold: WasmLockHold | null, error: unknown): boolean {
+  if (!hold) return false;
+  const mark = zeroFillBuildMarks.get(hold);
+  if (mark === 'building') {
+    noteProbeFailure(ZERO_FILL_BUILD_FUSE_KEY, error);
+    zeroFillBuildMarks.set(hold, 'booked');
+  }
+  return mark !== undefined;
+}
+
 export interface SwapSettlementResult {
   queuedTransactionIds: string[];
   managedNoteIds: Set<string>;
@@ -95,6 +118,7 @@ export async function classifySwapSettlementSnapshot(
     if (coverage.liveOrCompleted || coverage.backingOff) continue;
 
     assertWasmHoldCurrent(hold, 'before the zero-fill PSWAP cancel-request build');
+    zeroFillBuildMarks.set(hold, 'building');
     let requestBytes: Uint8Array;
     try {
       requestBytes = await midenClientProxy.buildPswapCancelRequest(accountId, tipNoteId, step =>
@@ -105,9 +129,14 @@ export async function classifySwapSettlementSnapshot(
       // A trap rejects into the hold's lock, which retires the client, and a kill (an eviction, an offscreen abort,
       // a terminated client) ends this pass's client; swallowed, either sends the next order's build to a dead client.
       if (isPipelineKillLink(error) || error instanceof WebAssembly.RuntimeError) {
-        noteProbeFailure(ZERO_FILL_BUILD_FUSE_KEY, error);
+        // Booked here only while the hold is ours: an answer after its eviction is the eviction the hold's handler books.
+        if (getCurrentWasmLockHold() === hold) {
+          noteProbeFailure(ZERO_FILL_BUILD_FUSE_KEY, error);
+          zeroFillBuildMarks.set(hold, 'booked');
+        }
         throw error;
       }
+      zeroFillBuildMarks.delete(hold);
       // A sync can observe the lineage just before another actor consumes the
       // tip, or a legacy/local-store gap can leave the creator output absent.
       // Skip only this reclaim; aborting the whole note sync would also block
@@ -115,6 +144,7 @@ export async function classifySwapSettlementSnapshot(
       console.warn(`[Swap] Could not prepare zero-fill reclaim for order ${orderId}:`, error);
       continue;
     }
+    zeroFillBuildMarks.delete(hold);
     zeroFillReclaims.set(orderId, { noteId: tipNoteId, requestBytes });
   }
 
@@ -359,7 +389,9 @@ export async function settleSwapOrders(
   }
 
   const nowSeconds = Math.floor(Date.now() / 1000);
+  let settlementHold: WasmLockHold | null = null;
   const settlementSnapshot = await withWasmClientLock(async hold => {
+    settlementHold = hold;
     // Asked AGAIN, now that the mutex is ours. The gate above runs before the
     // queue, so while the sibling claimable-notes probe sits parked for its full
     // two minutes this tick passes an unlit fuse and lines up behind it — then
@@ -408,7 +440,8 @@ export async function settleSwapOrders(
     });
     return { managedNotes, zeroFillReclaims };
   }, WASM_SETTLEMENT_LOCK_OPTIONS).catch((e: unknown) => {
-    noteProbeFailure('claimable-notes', e);
+    // Only the note and lineage reads share the poll's key; the zero-fill build's failures are on its own.
+    if (!noteZeroFillBuildHoldFailure(settlementHold, e)) noteProbeFailure('claimable-notes', e);
     throw e;
   });
   if (settlementSnapshot === null) {

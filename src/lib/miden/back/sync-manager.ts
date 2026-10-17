@@ -31,10 +31,15 @@ import { mergeAndPersistSeenNoteIds } from './note-checker-storage';
 import { isRotationPendingAccount } from './rotation-pending';
 import { Vault } from './vault';
 import { getBech32AddressFromAccountId } from '../sdk/helpers';
-import { getCurrentWasmLockHold, getMidenClient, withWasmClientLock } from '../sdk/miden-client';
+import { getCurrentWasmLockHold, getMidenClient, withWasmClientLock, type WasmLockHold } from '../sdk/miden-client';
 import { isSyncWatchdogEviction, WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 import { localSwapOrders } from '../swap/classification';
-import { classifySwapSettlementSnapshot, type PreparedPswapReclaim, reconcileSwapOrderNotes } from '../swap/settlement';
+import {
+  classifySwapSettlementSnapshot,
+  noteZeroFillBuildHoldFailure,
+  type PreparedPswapReclaim,
+  reconcileSwapOrderNotes
+} from '../swap/settlement';
 import { getNoteHoldingTransactions } from '../transaction/get';
 import { initiateConsumeNotesTransaction, initiateConsumeTransaction } from '../transaction/initiate';
 import { sweepNoteDeliveries } from '../transaction/note-delivery-sweep';
@@ -437,8 +442,10 @@ async function runSync(force: boolean): Promise<void> {
       // before the ceiling was added, on the one path (#777) that has no offscreen
       // realm to absorb it.
       const settlementNowSeconds = Math.floor(Date.now() / 1000);
+      let notesReadHold: WasmLockHold | null = null;
       const { parsedNotes, vaultAssets, noteBlocks, zeroFillReclaims } = await withWasmClientLock(
         async hold => {
+          notesReadHold = hold;
           const client = await getMidenClient();
           if (!client)
             return {
@@ -547,7 +554,11 @@ async function runSync(force: boolean): Promise<void> {
           return { parsedNotes: notes, vaultAssets: assets, noteBlocks, zeroFillReclaims };
         },
         inlineWasm ? { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'sw-notes-read' } : undefined
-      );
+      ).catch((err: unknown) => {
+        // A zero-fill build this hold's eviction abandoned books its own key; no other failure of the read is booked.
+        noteZeroFillBuildHoldFailure(notesReadHold, err);
+        throw err;
+      });
 
       // Receive dates from the notes' inclusion blocks, read alongside the metadata below (RPC, outside lock).
       const blockTimesRead = getBlockTimestamps([...noteBlocks.values()], notesScope);
