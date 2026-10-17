@@ -165,7 +165,6 @@ const renderDetail = (over: Partial<React.ComponentProps<typeof SwapDetail>> = {
       fromAccount={<span>me</span>}
       showActions={false}
       offerCancelOrder={false}
-      reclaimPending={false}
       isCancellingOrder={false}
       cancelOrderError={null}
       onCancelOrder={mockCancelOrder}
@@ -579,7 +578,7 @@ describe('SwapDetail cancelling a live order', () => {
 
   it('reads an order settlement has not stamped as pending in every place', () => {
     // The list reads the same stamp, so the receipt never says Returning funds while the list says Pending.
-    renderDetail({ entry: { ...entry, swapSettlement: 'pending' }, filledAmount: 0n, reclaimPending: true });
+    renderDetail({ entry: { ...entry, swapSettlement: 'pending' }, filledAmount: 0n });
 
     expect(screen.getByTestId('status-pill')).toHaveAttribute('data-swap-settlement', 'pending');
     expect(screen.getByTestId('swap-order-status')).toHaveTextContent('orderStatusActive');

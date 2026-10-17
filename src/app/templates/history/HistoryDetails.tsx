@@ -729,7 +729,6 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
               receipt.offerClaimRoute && !transaction?.recovered ? () => navigate(ACTIVITY_PENDING_PATH) : undefined
             }
             offerCancelOrder={receipt.offerCancel}
-            reclaimPending={receipt.reclaimPending}
             isCancellingOrder={actions.isCancellingOrder}
             cancelOrderError={actions.cancelOrderError}
             onCancelOrder={actions.onCancelOrder}

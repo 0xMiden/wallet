@@ -134,8 +134,8 @@ export interface SwapReceiptView {
    * The expiry has passed and the tip has not come back yet - so a reclaim is
    * owed, whether the user asked for it or the order simply timed out. This is
    * the state a successful Cancel lands in, which is why the two are derived
-   * together: the button's disappearance and the notice replacing it are one
-   * fact about the row, not two.
+   * together. The receipt's status and reclaim notice do not read it: they
+   * follow the settlement stamp, as the Activity list does.
    */
   reclaimPending: boolean;
 }
