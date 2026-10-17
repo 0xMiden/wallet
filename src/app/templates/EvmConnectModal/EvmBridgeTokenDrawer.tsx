@@ -15,7 +15,7 @@ export type DepositToken = 'ETH' | 'USDC' | 'CIRCLE_USDC';
 
 interface TokenRow {
   token: DepositToken;
-  /** The row's title and balance unit: the token, or the USDC token's display label. */
+  /** The row's title and balance unit. */
   name: string;
   /** Keys the row's logo. */
   logoSymbol: string;
@@ -30,15 +30,7 @@ export interface EvmBridgeTokenDrawerProps {
   selected: DepositToken;
   /** Native ETH, which bridges only through AggLayer. The row is drawn only when the balance is given. */
   ethBalance?: string;
-  /**
-   * Legacy engine metadata retained for existing callers. The retired token is never drawn,
-   * even while an older bridge config supplies a balance.
-   */
-  usdcBalance?: string;
-  /** The USDC row's name, such as the testnet label (`evmUsdcLabel`). */
-  usdcLabel?: string;
   ethLoading?: boolean;
-  usdcLoading?: boolean;
   /**
    * Circle's USDC, which bridges only through Circle xReserve. The row is
    * drawn only when the balance is given, which the host does where that route can start.
@@ -53,14 +45,13 @@ export interface EvmBridgeTokenDrawerProps {
 /**
  * Bottom-sheet picker for the deposit source token. The chosen token drives the
  * amount screen's balance and route. Circle USDC arrives as USDCx on Miden; native ETH
- * uses AggLayer where configured. Legacy Epoch token metadata cannot create a picker row.
+ * uses AggLayer where configured.
  */
 export const EvmBridgeTokenDrawer: React.FC<EvmBridgeTokenDrawerProps> = ({
   open,
   onOpenChange,
   selected,
   ethBalance,
-
   ethLoading,
   circleUsdcBalance,
   circleUsdcLabel,
