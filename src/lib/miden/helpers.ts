@@ -4,7 +4,6 @@ import {
   type Felt,
   InputNoteRecord,
   type Note,
-  type NoteRecipient,
   NoteScript,
   NoteType
 } from '@miden-sdk/miden-sdk/lazy';
@@ -167,6 +166,22 @@ export function standardPaymentScriptRoots(): ReadonlySet<string> {
   return standardPaymentRoots;
 }
 
+/** A note read as a note, or as the stored record that holds one. */
+type NoteSource = Note | InputNoteRecord;
+
+// Bails rather than index blind when the layout is not the one the constants were
+// written for: a future protocol move that shifts the slots again must read as no
+// such note, never as a felt from an unrelated slot.
+function storageItems(note: NoteSource, scriptRootHex: () => string, count: number): Felt[] | undefined {
+  const recipient = 'details' in note ? note.details().recipient() : note.recipient();
+  if (recipient.script().root().toHex() !== scriptRootHex()) return undefined;
+  const items = recipient.storage().items();
+  return items.length === count ? items : undefined;
+}
+
+const p2ideRoot = () => (p2ideScriptRootHex ??= NoteScript.p2ide().root().toHex());
+const feeSponsorshipRoot = () => (feeSponsorshipScriptRootHex ??= NoteScript.feeSponsorship().root().toHex());
+
 /**
  * Estimated wall-clock time (epoch ms) at which the sender of a P2IDE note
  * becomes able to reclaim it, or undefined for non-recallable notes (plain
@@ -174,15 +189,7 @@ export function standardPaymentScriptRoots(): ReadonlySet<string> {
  */
 export function getNoteRecallableAtMs(note: InputNoteRecord, syncHeight: number): number | undefined {
   try {
-    const recipient = note.details().recipient();
-    p2ideScriptRootHex ??= NoteScript.p2ide().root().toHex();
-    if (recipient.script().root().toHex() !== p2ideScriptRootHex) return undefined;
-    const items = recipient.storage().items();
-    // Bail rather than index blind when the layout is not the one this constant
-    // was written for: a future protocol move that shifts the slot again must
-    // hide the banner, never render a felt from an unrelated slot as a date.
-    if (items.length !== P2IDE_STORAGE_ITEM_COUNT) return undefined;
-    const reclaimFelt = items[P2IDE_RECLAIM_HEIGHT_INDEX];
+    const reclaimFelt = storageItems(note, p2ideRoot, P2IDE_STORAGE_ITEM_COUNT)?.[P2IDE_RECLAIM_HEIGHT_INDEX];
     if (!reclaimFelt) return undefined;
     const reclaimHeight = Number(reclaimFelt.asInt());
     if (reclaimHeight <= 0 || reclaimHeight > 0xffffffff) return undefined;
@@ -208,19 +215,6 @@ function readNote<T>(read: () => T): T | undefined {
     return undefined;
   }
 }
-
-/** A note read as its recipient, as a note, or as the stored record that holds one. */
-type NoteSource = NoteRecipient | Note | InputNoteRecord;
-
-function storageItems(note: NoteSource, scriptRootHex: () => string, count: number): Felt[] | undefined {
-  const recipient = 'details' in note ? note.details().recipient() : 'recipient' in note ? note.recipient() : note;
-  if (recipient.script().root().toHex() !== scriptRootHex()) return undefined;
-  const items = recipient.storage().items();
-  return items.length === count ? items : undefined;
-}
-
-const p2ideRoot = () => (p2ideScriptRootHex ??= NoteScript.p2ide().root().toHex());
-const feeSponsorshipRoot = () => (feeSponsorshipScriptRootHex ??= NoteScript.feeSponsorship().root().toHex());
 
 /**
  * The target of a P2IDE whose reclaim is disabled, the one account that can ever consume it: a non-target enters
