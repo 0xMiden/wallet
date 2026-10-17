@@ -1915,7 +1915,8 @@ it('upgrades existing decoded rows and links a payback imported before its swap'
   const swap = rows.find(row => row.recovery?.nonce === 2);
   const consume = rows.find(row => row.recovery?.nonce === 3);
   expect(swap?.extraInputs).toMatchObject({ requestedFaucetId: 'ieth', requestedAmount: 30n, autoConsume: false });
-  expect(swap?.extraInputs.settledAt).toBeDefined();
+  // Linked, but not closed: a recovered order's close is its lineage's on the node (#1487).
+  expect(swap?.extraInputs.settledAt).toBeUndefined();
   expect(consume?.extraInputs).toMatchObject({ swapOrderTxId: swap?.id, swapSettleKind: 'settle' });
   expect(rows).toHaveLength(3);
   expect(swap?.id).toBe(oldRows.find(row => row.recovery?.nonce === 2)?.id);
@@ -1976,7 +1977,7 @@ it('derives a version-4 custom transaction reclaiming an own order again, as the
     extraInputs: { swapOrderTxId: order.id, swapSettleKind: 'reclaim' },
     recovery: { version: GUARDIAN_HISTORY_VERSION }
   });
-  expect((await transactions.get(order.id))?.extraInputs.reclaimedAt).toBe(upgraded?.completedAt);
+  expect((await transactions.get(order.id))?.extraInputs.reclaimedAt).toBeUndefined();
   expect(await transactions.count()).toBe(2);
 });
 

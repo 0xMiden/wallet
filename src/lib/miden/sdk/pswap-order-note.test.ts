@@ -1,3 +1,5 @@
+import { RpcClient } from '@miden-sdk/miden-sdk/lazy';
+
 import { readPswapOrderLineage, readPswapOrderNote } from './pswap-order-note';
 
 const mockGetNotesById = jest.fn();
@@ -18,7 +20,10 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
     free: jest.fn()
   }))
 }));
-jest.mock('lib/miden-chain/constants', () => ({ getRpcEndpoint: () => 'https://rpc.example' }));
+// The effective node: each read's client is built for it, and a read parked on it bounds only reads of that node.
+let mockRpcUrl = 'https://node-a';
+jest.mock('lib/miden-chain/constants', () => ({ getRpcEndpoint: () => mockRpcUrl }));
+jest.mock('lib/miden-chain/effective-endpoints', () => ({ getEffectiveRpcUrl: () => mockRpcUrl }));
 jest.mock('./helpers', () => ({
   // The creator is the account whose id the PSWAP storage carries at items 6 (prefix) and 5 (suffix).
   walletAccountIdToSdk: (accountId: string) => ({ toString: () => (accountId === 'creator' ? 'acct:66:55' : 'other') })
@@ -84,6 +89,7 @@ const commit = (note: NoteBody, block: number) => chain.set(note.id().toString()
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockRpcUrl = 'https://node-a';
   chain = new Map();
   spentAt = new Map();
   mockGetNotesById.mockImplementation(async (ids: Array<{ id: string }>) =>
@@ -160,6 +166,28 @@ describe('readPswapOrderNote', () => {
     mockGetNotesById.mockRejectedValueOnce(new Error('node unreachable'));
 
     await expect(readPswapOrderNote('order-note', 'creator')).rejects.toThrow('node unreachable');
+  });
+
+  // A read parked on a silent node bounds the reads of that node only: once the endpoint moves, the note is read on the
+  // new node at once, not after the parked read settles, which may be never (#1487).
+  it('reads a note on the new node after an endpoint change while a read is still parked on the old one', async () => {
+    jest.useFakeTimers();
+    try {
+      mockGetNotesById.mockImplementationOnce(() => new Promise(() => undefined));
+      const parked = readPswapOrderNote('hung-note', 'creator').catch((error: unknown) => error);
+      await jest.advanceTimersByTimeAsync(5_000);
+      expect(await parked).toBeInstanceOf(Error);
+      await expect(readPswapOrderNote('hung-note', 'creator')).rejects.toThrow();
+      expect(mockGetNotesById).toHaveBeenCalledTimes(1);
+
+      mockRpcUrl = 'https://node-b';
+      const note = pswapNote({ id: 'hung-note' });
+      commit(note, 120);
+      await expect(readPswapOrderNote('hung-note', 'creator')).resolves.toEqual({ kind: 'open', note });
+      expect(RpcClient).toHaveBeenLastCalledWith('https://node-b');
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });
 
@@ -310,6 +338,31 @@ describe('readPswapOrderLineage', () => {
     chain.set('bodiless', { note: undefined, block: 125 });
 
     await expect(read()).rejects.toThrow();
+  });
+
+  // A fill below the note's fill floor is refused unless it takes the whole request, so a note asking no more than the
+  // floor is only ever filled whole: after a first fill of at least 20 of 30, no second fill leaves a remainder.
+  it('does not take a later round that no partial fills above the fill floor reach', async () => {
+    commit(pswapNote({ id: 'order-note', storage: [11n, 12n, 30n, 20n, 1n, 55n, 66n] }), 120);
+    spentAt.set('order-note', 125);
+    commit(remainder('look-alike', 2n, 3n, 1n, { storage: [11n, 12n, 1n, 20n, 1n, 55n, 66n] }), 125);
+
+    await expect(read()).rejects.toThrow();
+  });
+
+  // Two fills of 10 at a fill floor of 10: 70 for 30 pays 23 and leaves 47 for 20, which pays 23 and leaves 24 for 10.
+  it('follows two fills at the fill floor inside one block to the later round', async () => {
+    commit(pswapNote({ id: 'order-note', storage: [11n, 12n, 30n, 10n, 1n, 55n, 66n] }), 120);
+    spentAt.set('order-note', 125);
+    commit(remainder('remainder-2', 2n, 24n, 10n, { storage: [11n, 12n, 10n, 10n, 1n, 55n, 66n] }), 125);
+
+    await expect(read()).resolves.toEqual({
+      kind: 'open',
+      noteId: 'remainder-2',
+      depth: 2,
+      offeredAmount: 24n,
+      requestedAmount: 10n
+    });
   });
 
   // The depth is the serial round over the order note's, and one read follows at most 16 of them.

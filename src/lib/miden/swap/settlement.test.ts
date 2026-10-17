@@ -1,5 +1,5 @@
 import { midenClientProxy } from 'lib/miden/back/miden-client-proxy';
-import { ITransactionStatus } from 'lib/miden/db/types';
+import { type ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 import { initiateConsumeNotesTransaction, initiatePswapReclaimTransaction } from 'lib/miden/transaction/initiate';
 import { NoteTypeEnum } from 'lib/miden/types';
@@ -1293,6 +1293,85 @@ describe('swap order note settlement', () => {
         'recovered-swap',
         true
       );
+    });
+
+    // A partial fill's payout this wallet claimed is linked to the order while the remainder is still open on the node,
+    // and the stamp repair read that link as the order's settlement: closed, it lost its tracking and its Cancel.
+    it('stamps no close from a linked payout on a recovered order whose remainder its cancel could not build', async () => {
+      jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+      const order: ITransaction = {
+        id: 'recovered-swap',
+        type: 'swap',
+        accountId: 'account-1',
+        status: ITransactionStatus.Completed,
+        initiatedAt: 10,
+        completedAt: 100,
+        displayIcon: 'SWAP',
+        faucetId: 'offer',
+        amount: 70n,
+        outputNoteIds: ['order-note'],
+        restoredFromBackup: true,
+        recovered: true,
+        recovery: {
+          version: 1,
+          network: 'testnet',
+          operators: ['https://one'],
+          nonce: 2,
+          inputNotes: [],
+          outputNotes: [
+            {
+              id: 'order-note',
+              visibility: 'public',
+              assets: [{ faucetId: 'offer', amount: '70' }],
+              swap: { orderId: '77', requestedAsset: { faucetId: 'requested', amount: '30' } }
+            }
+          ],
+          completeness: 'decoded',
+          reclaimed: false
+        },
+        extraInputs: {
+          requestedFaucetId: 'requested',
+          requestedAmount: 30n,
+          orderId: '77',
+          autoConsume: false,
+          expiresAt: 220,
+          expiryTriggeredAt: 220,
+          // 70 for 30 filled 10 pays 23, leaving 47 for 20.
+          recoveredTip: { noteId: 'remainder-1', depth: 1, remainingOffered: 47n }
+        }
+      };
+      const payout: ITransaction = {
+        id: 'payout-claim',
+        type: 'consume',
+        accountId: 'account-1',
+        status: ITransactionStatus.Completed,
+        initiatedAt: 400,
+        completedAt: 500,
+        displayIcon: 'RECEIVE',
+        faucetId: 'requested',
+        amount: 10n,
+        extraInputs: { swapOrderTxId: 'recovered-swap', swapSettleKind: 'settle' }
+      };
+      const rows = [order, payout];
+      // Each scan returns what its own filter keeps, so the order list and the repair's consume read see the real rows.
+      toArray.mockImplementation(async () => {
+        const keep = jest.mocked(Repo.transactions.filter).mock.lastCall?.[0];
+        return keep ? rows.filter(keep) : [];
+      });
+      jest.mocked(midenClientProxy.buildPswapCancelRequest).mockRejectedValue(new Error('remainder not open'));
+
+      await settleSwapOrders('account-1');
+
+      expect(midenClientProxy.buildPswapCancelRequest).toHaveBeenCalledWith(
+        'account-1',
+        'remainder-1',
+        expect.any(Function),
+        { allowNodeNote: true }
+      );
+      expect(modify).not.toHaveBeenCalled();
+      expect(mockTrackRecoveredSwapOrders).toHaveBeenCalledWith([
+        expect.objectContaining({ txId: 'recovered-swap', tipNoteId: 'remainder-1', tipDepth: 1 })
+      ]);
     });
 
     it('waits 30, then 60 seconds after refused builds instead of reading the node on every lap', async () => {
