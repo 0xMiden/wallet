@@ -1488,6 +1488,10 @@ describe('WalletConnect relay failure reports', () => {
   const withoutSentryIds = (text: string): string =>
     text.replace(/"(?:event_id|trace_id|span_id|parent_span_id)":"[0-9a-f]+"/g, '');
 
+  /** The failure range of each report on the wire, in the order sent. */
+  const relayRanges = (): Array<string | undefined> =>
+    captured.map(entry => /"relayFailures":"([^"]+)"/.exec(entry.body)?.[1]);
+
   /** The event item of a Sentry envelope: its header, the item's header, then the event. */
   const sentryEvent = (entry: CapturedRequest | undefined): Record<string, unknown> =>
     parsePayload(entry?.body.split('\n')[2] ?? '');
@@ -1615,6 +1619,73 @@ describe('WalletConnect relay failure reports', () => {
     await flushEgress();
     expect(captured).toHaveLength(1);
     expect(wireText()).toContain('"relayFailures":"2-5"');
+  });
+
+  it.each<[string, (capture: () => void) => void, () => void]>([
+    [
+      'reporting is off',
+      capture => {
+        consentOff();
+        capture();
+      },
+      consentOn
+    ],
+    [
+      'reporting stopped before its consent check answered',
+      capture => {
+        capture();
+        stopCrashReporting();
+      },
+      () => initCrashReporting()
+    ],
+    [
+      'there was no client to capture it',
+      capture => {
+        stopCrashReporting();
+        capture();
+      },
+      () => initCrashReporting()
+    ]
+  ])('sends nothing for a failure dropped because %s, and the range of the next one', async (_label, drop, restore) => {
+    consentOn();
+    initCrashReporting();
+    captureCrash(relayFailure(), 'onunhandledrejection');
+    await flushEgress();
+    drop(() => captureCrash(relayFailure(), 'onunhandledrejection'));
+    await flushEgress();
+    expect(relayRanges()).toEqual(['1']);
+
+    restore();
+    captureCrash(relayFailure(), 'onunhandledrejection');
+    await flushEgress();
+    expect(relayRanges()).toEqual(['1', '2-5']);
+  });
+
+  it('sends one report for two failures of one range captured before either is sent', async () => {
+    consentOn();
+    initCrashReporting();
+    captureCrash(relayFailure(), 'onunhandledrejection');
+    await flushEgress();
+    captureCrash(relayFailure(), 'onunhandledrejection');
+    captureCrash(relayFailure(), 'onunhandledrejection');
+    await flushEgress();
+    expect(relayRanges()).toEqual(['1', '2-5']);
+  });
+
+  it('counts an Error captured by every path as one failure, and a new Error with the same text as the next', async () => {
+    consentOn();
+    initCrashReporting();
+    const failure = relayFailure();
+    captureCrash(failure, 'onunhandledrejection');
+    captureCrash(failure, 'onerror');
+    captureCrash(failure, 'react');
+    captureCrash(failure);
+    await flushEgress();
+    expect(relayRanges()).toEqual(['1']);
+
+    captureCrash(relayFailure(), 'onunhandledrejection');
+    await flushEgress();
+    expect(relayRanges()).toEqual(['1', '2-5']);
   });
 
   it('names a network change the crash listeners saw in the 30 seconds before, and none once they stopped', async () => {

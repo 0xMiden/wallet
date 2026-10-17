@@ -1,5 +1,6 @@
 import {
   __resetRelayDiagnosticsForTest,
+  claimRelayRange,
   classifyRelayFailure,
   followRelay,
   noteConnectModalOpen,
@@ -10,9 +11,15 @@ import {
 
 const RELAY_FAILURE = 'WebSocket connection failed for host: wss://relay.walletconnect.org';
 
-function reported(message: string = RELAY_FAILURE): RelayDiagnostics | undefined {
-  const failure = classifyRelayFailure(message);
-  return failure?.report ? failure.diagnostics : undefined;
+/** An Error whose `message` is `message`, even one that is not text, as a hostile error's can be. */
+function relayError(message: unknown = RELAY_FAILURE): Error {
+  return Object.defineProperty(new Error(), 'message', { value: message });
+}
+
+/** Classifies `failure` and, as a report that is sent does, uses up its range. */
+function reported(failure: Error = relayError()): RelayDiagnostics | undefined {
+  const verdict = classifyRelayFailure(failure);
+  return verdict?.report && claimRelayRange(verdict.diagnostics.relayFailures) ? verdict.diagnostics : undefined;
 }
 
 const restores: Array<() => void> = [];
@@ -48,14 +55,16 @@ describe('which failures are the relay', () => {
       'sync failed: WebSocket connection failed for host: wss://relay.walletconnect.org'
     ]
   ])('is not %s', (_label, message) => {
-    expect(classifyRelayFailure(message)).toBeUndefined();
+    expect(classifyRelayFailure(relayError(message))).toBeUndefined();
   });
 
   it.each(['relay.walletconnect.org', 'relay.walletconnect.com'])(
     'is the relay on %s, reported under its fixed text without the query',
     host => {
       const failure = classifyRelayFailure(
-        `WebSocket connection failed for host: wss://${host}?projectId=${'ab'.repeat(16)}&auth=eyJhbGciOiJFZERTQSJ9.e30.c2ln`
+        relayError(
+          `WebSocket connection failed for host: wss://${host}?projectId=${'ab'.repeat(16)}&auth=eyJhbGciOiJFZERTQSJ9.e30.c2ln`
+        )
       );
       expect(failure).toEqual({
         report: true,
@@ -81,14 +90,14 @@ describe('how often it is reported', () => {
 
   it('counts a failure while offline without reporting it', () => {
     replace(navigator, 'onLine', false);
-    expect(classifyRelayFailure(RELAY_FAILURE)).toEqual({ report: false });
+    expect(classifyRelayFailure(relayError())).toEqual({ report: false });
     restores.pop()?.();
     expect(reported()?.relayFailures).toBe('2-5');
   });
 
   it('reports the range a window reached offline at its first online failure: six offline, then one online', () => {
     replace(navigator, 'onLine', false);
-    expect(Array.from({ length: 6 }, () => classifyRelayFailure(RELAY_FAILURE))).toEqual(
+    expect(Array.from({ length: 6 }, () => classifyRelayFailure(relayError()))).toEqual(
       Array.from({ length: 6 }, () => ({ report: false }))
     );
     restores.pop()?.();
@@ -104,10 +113,49 @@ describe('how often it is reported', () => {
     expect(verdicts).toEqual(['1', undefined, '2-5']);
   });
 
+  it('uses a range up only when it is claimed, so a failure whose report was dropped leaves it to the next', () => {
+    expect(reported()?.relayFailures).toBe('1');
+    const dropped = classifyRelayFailure(relayError());
+    expect(dropped?.report && dropped.diagnostics.relayFailures).toBe('2-5');
+    expect(reported()?.relayFailures).toBe('2-5');
+  });
+
+  it('claims each range once, and never a range below one already claimed', () => {
+    const ranges: RelayDiagnostics['relayFailures'][] = ['2-5', '2-5', '6+', '1', '2-5', '6+'];
+    expect(ranges.map(range => claimRelayRange(range))).toEqual([true, false, true, false, false, false]);
+  });
+
+  it('reports one of two failures of one range classified before either is sent', () => {
+    reported();
+    const together = [classifyRelayFailure(relayError()), classifyRelayFailure(relayError())];
+    expect(together.map(failure => failure?.report && claimRelayRange(failure.diagnostics.relayFailures))).toEqual([
+      true,
+      false
+    ]);
+  });
+
   it('starts counting again after a reset, as a new page does', () => {
     reported();
     __resetRelayDiagnosticsForTest();
     expect(reported()?.relayFailures).toBe('1');
+  });
+});
+
+describe('what counts as one failure', () => {
+  it('counts an Error once however often it is classified, and a new Error with the same text as the next', () => {
+    const failure = relayError();
+    expect(reported(failure)?.relayFailures).toBe('1');
+    expect(Array.from({ length: 5 }, () => classifyRelayFailure(failure))).toEqual(
+      Array.from({ length: 5 }, () => ({ report: false }))
+    );
+    expect(reported()?.relayFailures).toBe('2-5');
+  });
+
+  it('withholds a repeat of an Error whose report was dropped, without counting it again', () => {
+    const failure = relayError();
+    expect(classifyRelayFailure(failure)?.report).toBe(true);
+    expect(classifyRelayFailure(failure)).toEqual({ report: false });
+    expect(reported()?.relayFailures).toBe('2-5');
   });
 });
 
