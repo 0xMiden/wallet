@@ -79,6 +79,7 @@ import type {
 import { prepareGuardianTipExecution } from 'lib/miden/guardian/tip-execution';
 import { applyAfterSubmit } from 'lib/miden/sdk/apply-after-submit';
 import { COMMIT_WAIT_POLL_INTERVAL_MS } from 'lib/miden/sdk/constants';
+import { dryRunRequest } from 'lib/miden/sdk/dry-run-request';
 import { collectInputNoteDetails } from 'lib/miden/sdk/input-note-detail';
 import { reduceInputNoteSummary } from 'lib/miden/sdk/input-note-summary';
 import {
@@ -721,6 +722,14 @@ const DISPATCH: Record<string, DispatchFn> = {
       return record;
     }, noteIds);
     return new TextEncoder().encode(JSON.stringify(details));
+  },
+
+  // The USDCx burn fee probe: execute one request for its effects, with no sync and no note import, on the client
+  // that owns the synced state. `dryRunRequest` re-checks this dispatch's hold after every await; the summary or the
+  // executed result crosses back as plain base64 strings in JSON.
+  dryRunTransaction: async (context, client, accountIdHex: string, requestBytes: Uint8Array) => {
+    const result = await dryRunRequest(client, accountIdHex, requestBytes, context.hold);
+    return new TextEncoder().encode(JSON.stringify(result));
   },
 
   // Import serialized note bytes into THIS (offscreen) client's store — a store

@@ -94,9 +94,9 @@ export const HARNESS_ARC_KEY_FILE = path.join(os.homedir(), '.miden-e2e', 'arc-k
 /** One usdcx run at a time (R21). Beside arc-keys, not in it, so a sweep over the key files never reads it. */
 export const USDCX_RUN_LOCK = path.join(os.homedir(), '.miden-e2e', 'usdcx-run.lock');
 /**
- * The L2s usdcx-burn-l2 burns to: each chain's USDC and the endpoints the harness reads it through, in the order its
- * payout gate tries them (BASE_SEPOLIA_PAYOUT and ARBITRUM_SEPOLIA_PAYOUT in usdcx-constants.ts); e2e-real.test.ts
- * pins each copy to the harness and the wallet.
+ * The chains usdcx-burn-l2 burns to, Ethereum Sepolia among them despite the name: each chain's USDC and the endpoints
+ * the harness reads it through, in the order its payout gate tries them (BASE_SEPOLIA_PAYOUT, ARBITRUM_SEPOLIA_PAYOUT
+ * and ETHEREUM_SEPOLIA_PAYOUT in usdcx-constants.ts); e2e-real.test.ts pins each copy to the harness and the wallet.
  */
 export const L2_PAYOUT_CHAINS = [
   {
@@ -118,12 +118,18 @@ export const L2_PAYOUT_CHAINS = [
       'https://arbitrum-sepolia-rpc.publicnode.com',
       'https://arbitrum-sepolia.gateway.tenderly.co'
     ]
+  },
+  {
+    name: 'Ethereum Sepolia',
+    chainId: 11155111,
+    usdc: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238',
+    rpcs: ['https://ethereum-sepolia-rpc.publicnode.com', 'https://sepolia.gateway.tenderly.co']
   }
 ];
 /**
- * The chains usdcx-in-l2 deposits from: each chain's Circle domain, USDC, fee entry point and the endpoints the harness
- * reads it through (L2_BRIDGE_IN_SOURCES in usdcx-constants.ts); e2e-real.test.ts pins each copy to the harness and the
- * wallet.
+ * The chains usdcx-in-l2 deposits from, Ethereum Sepolia among them despite the name: each chain's Circle domain, USDC,
+ * fee entry point, the endpoints the harness reads it through and the cap on a send's tip where it has one
+ * (L2_BRIDGE_IN_SOURCES in usdcx-constants.ts); e2e-real.test.ts pins each copy to the harness and the wallet.
  */
 export const L2_BRIDGE_IN_CHAINS = [
   {
@@ -149,21 +155,30 @@ export const L2_BRIDGE_IN_CHAINS = [
       'https://arbitrum-sepolia-rpc.publicnode.com',
       'https://arbitrum-sepolia.gateway.tenderly.co'
     ]
+  },
+  {
+    name: 'Ethereum Sepolia',
+    chainId: 11155111,
+    domain: 0,
+    usdc: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238',
+    tokenMessengerWithFees: '0x8745D906D67C346E5eb1aEEED38Eb87F34DF0C0A',
+    rpcs: ['https://ethereum-sepolia-rpc.publicnode.com', 'https://sepolia.gateway.tenderly.co'],
+    maxPriorityFeeCap: 10_000_000n
   }
 ];
 /** Circle's sandbox Iris, which prices and attests every testnet executor deposit (the fixture's irisUrl). */
 export const IRIS_API_TESTNET = 'https://iris-api-sandbox.circle.com';
 /** One bridge-in's gas: an approve and the forwarded burn, each sent at 1.2x its estimate (usdcx-constants.ts). */
-export const L2_BRIDGE_IN_GAS = 1_000_000n;
+export const L2_BRIDGE_IN_GAS = 1_100_000n;
 /**
- * One 0.001 USDC deposit and twice a forward fee of up to 0.05 USDC (0.022404 on 2026-10-16), which its approve
- * covers.
+ * One 0.001 USDC deposit and twice a forward fee of up to 0.05 USDC (0.022404 from Base Sepolia and 0.015638 from
+ * Ethereum Sepolia on 2026-10-16), which its approve covers.
  */
 export const L2_BRIDGE_IN_USDC_FLOOR_UNITS = 101_000n;
 /** The Reown project id an E2E build bakes in unless WALLETCONNECT_PROJECT_ID is set (src/lib/walletconnect/config.ts). */
 const DEFAULT_WC_PROJECT_ID = 'd18d112eb50cbe764f03e51a90210611';
 
-/** The wallet's own RPC for an L2, built as walletconnect/config.ts builds it. Only its host is ever printed. */
+/** The wallet's own RPC for a payout chain, built as walletconnect/config.ts builds it. Only its host is printed. */
 export function walletL2RpcUrl(chainId, env = process.env) {
   const projectId = (env.WALLETCONNECT_PROJECT_ID ?? '').trim() || DEFAULT_WC_PROJECT_ID;
   return `https://rpc.walletconnect.org/v1?chainId=eip155:${chainId}&projectId=${projectId}`;
@@ -257,7 +272,8 @@ export const SUITES = {
     describe: 'standard and Guardian wallets: faucet grant, UI burn to the harness Arc key, Circle payout'
   },
   // Its own suite, after usdcx-in and before usdcx-burn-l2 (E2E USDCx's L2 job): it spends from the harness key on Base
-  // Sepolia and Arbitrum Sepolia, where usdcx-burn-l2 proves each payout as that key's balance rising by exactly it.
+  // Sepolia, Arbitrum Sepolia and Ethereum Sepolia, where usdcx-burn-l2 proves each payout as that key's balance rising
+  // by exactly it.
   'usdcx-in-l2': {
     config: 'playwright.usdcx.config.ts',
     grep: 'USDCx L2 bridge-in',
@@ -267,13 +283,13 @@ export const SUITES = {
     spendsHarnessL2: true,
     headlessByDefault: true,
     retries: 0,
-    // Each test is on its own chain with its own key state, so stopping at the first red hides the other chain's result.
+    // Each test is on its own chain with its own key state, so stopping at the first red hides the other chains' results.
     maxFailures: 0,
     describe:
-      'Guardian wallets: a CCTP deposit the harness key signs on Base Sepolia and Arbitrum Sepolia, forwarded to Arc, minted, claimed'
+      'Guardian wallets: a CCTP deposit the harness key signs on Base, Arbitrum and Ethereum Sepolia, forwarded to Arc, minted, claimed'
   },
   // Its own suite, so an L2 RPC outage stops no Arc suite, and E2E USDCx can run it after a red one: its payout windows
-  // are on Base Sepolia and Arbitrum Sepolia, where nothing an Arc suite leaves pending lands.
+  // are on Base Sepolia, Arbitrum Sepolia and Ethereum Sepolia, where nothing an Arc suite leaves pending lands.
   'usdcx-burn-l2': {
     config: 'playwright.usdcx.config.ts',
     grep: 'USDCx L2 burn',
@@ -282,10 +298,10 @@ export const SUITES = {
     usdcx: true,
     headlessByDefault: true,
     retries: 0,
-    // Each test is on its own chain with its own key state, so stopping at the first red hides the other chain's result.
+    // Each test is on its own chain with its own key state, so stopping at the first red hides the other chains' results.
     maxFailures: 0,
     describe:
-      'Guardian wallets: faucet grant, UI burn to the harness key on Base Sepolia and Arbitrum Sepolia, payout, confirmation'
+      'Guardian wallets: faucet grant, UI burn to the harness key on Base, Arbitrum and Ethereum Sepolia, payout, confirmation'
   }
 };
 
@@ -331,10 +347,10 @@ The usdcx suites need no secret. usdcx and usdcx-burn burn to one harness Arc
 key, ~/.miden-e2e/arc-keys/harness.json (mode 0600), which the first real run
 creates; the round trip and usdcx-in deposit from it and Circle's payouts refill
 it, so no run needs Circle's faucet. usdcx-in needs the key to hold 0.021 USDC,
-or an exported E2E_ARC_PRIVATE_KEY that does. usdcx-burn-l2 burns to that key's address on Base Sepolia and Arbitrum Sepolia,
-and usdcx-in-l2 deposits back from it there: 0.001 USDC and Circle's forward
-fee per chain, plus gas in ETH, which is sent to the key by hand. usdcx-in-l2
-needs an existing harness key and never creates one.
+or an exported E2E_ARC_PRIVATE_KEY that does. usdcx-burn-l2 burns to that key's address on Base Sepolia, Arbitrum Sepolia
+and Ethereum Sepolia, and usdcx-in-l2 deposits back from it on all three: 0.001
+USDC and Circle's forward fee per chain, plus gas in ETH, which is sent to the
+key by hand. usdcx-in-l2 needs an existing harness key and never creates one.
 
 Bridge-out is solver-fulfilled and swap is Miden-side, so neither signs on EVM;
 E2E_SEPOLIA_PRIVATE_KEY is read so a funded account's gas and test-USDC balance
@@ -1073,18 +1089,12 @@ async function probeSwapQuoteService() {
   }
 
   try {
-    const query = new URLSearchParams({
-      offered_faucet: offered,
-      offered_amount: '100000000',
-      requested_faucet: requested,
-      requested_amount: '200000000'
-    });
-    const { status, body } = await getJson(`${BASE}/v1/swap-eta?${query}`);
+    const query = new URLSearchParams({ offered_faucet: offered, requested_faucet: requested });
+    const { status, body } = await getJson(`${BASE}/v2/pair-price?${query}`);
     if (status !== 200) {
-      return note('DEX quote service', `degraded: HTTP ${status} (the suite does not use it)`);
+      return note('DEX quote service', `degraded: HTTP ${status} ${body?.error ?? ''} (the suite does not use it)`);
     }
-    const fill = body?.canFill ? `fillable, eta ${body.estimatedSeconds}s` : 'priced, no filler offering';
-    return note('DEX quote service', `${fill}, price ${body?.marketPrice}`);
+    return note('DEX quote service', `priced, fill price ${body?.fillPrice} (mid ${body?.marketPrice})`);
   } catch (err) {
     return note('DEX quote service', `unreachable: ${err.message} (the suite does not use it)`);
   }
@@ -1433,12 +1443,12 @@ async function probeL2Rpc(chain) {
 }
 
 /**
- * One L2 usdcx-burn-l2 pays out on, read as its spec reads it: a harness endpoint serving the chain (the first healthy
- * one is asked the rest), the GatewayMinter and the USDC with code there, and a head from the wallet's own RPC, whose
- * pre-burn snapshot read otherwise fails the burn before any row exists. That RPC is printed by host only: its URL
- * carries the build's project id.
+ * One chain usdcx-burn-l2 pays out on, read as its spec reads it: a harness endpoint serving the chain (the first
+ * healthy one is asked the rest), the GatewayMinter and the USDC with code there, and a head from the wallet's own RPC,
+ * whose pre-burn snapshot read otherwise fails the burn before any row exists. That RPC is printed by host only: its
+ * URL carries the build's project id. On Ethereum Sepolia it also reads the harness key's USDC.
  */
-async function probeL2Payout(chain) {
+async function probeL2Payout(chain, arcKey) {
   const [healthy] = await probeL2Rpc(chain);
   if (healthy !== undefined) {
     try {
@@ -1458,6 +1468,7 @@ async function probeL2Payout(chain) {
     } catch (err) {
       record(false, `${chain.name} contracts`, `${endpointHost(healthy)}: ${err.message}`);
     }
+    if (chain.chainId === SEPOLIA_CHAIN_ID) await probeSepoliaPayoutKey(chain, healthy, arcKey);
   }
   const walletRpc = walletL2RpcUrl(chain.chainId);
   try {
@@ -1465,6 +1476,36 @@ async function probeL2Payout(chain) {
     record(true, `${chain.name} wallet RPC`, `${endpointHost(walletRpc)} #${head}`);
   } catch (err) {
     record(false, `${chain.name} wallet RPC`, `${endpointHost(walletRpc)}: ${err.message}`);
+  }
+}
+
+/**
+ * The harness key must already hold USDC on Ethereum Sepolia: Circle's forwarder sends gatewayMint with a fixed 250,000
+ * gas limit, and a mint to an address that never held Sepolia USDC needs about 346,000, so it reverts out of gas on
+ * every retry. Once the key held 9,999 units, the next retry paid at 240,405 gas (2026-10-16).
+ */
+async function probeSepoliaPayoutKey(chain, endpoint, arcKey) {
+  const why = "Circle's forwarder cannot mint a payout to a recipient with no USDC under its fixed gas limit";
+  const fund = 'fund the key with any amount of Sepolia USDC first';
+  if (arcKey.missing) {
+    return record(
+      false,
+      `${chain.name} key`,
+      `no harness key yet, and ${why}: a real run creates the key and names its address here; ${fund}`
+    );
+  }
+  try {
+    const units = BigInt(
+      await arcRpc(endpoint, 'eth_call', [
+        { to: chain.usdc, data: calldata(ARC_SELECTORS.balanceOf, arcKey.address) },
+        'latest'
+      ])
+    );
+    // Every digit: formatUnits shows a balance under 0.0001 as 0, which this check passes.
+    const held = `${arcKey.address} holds ${exactUnits(units, USDCX_DECIMALS)} USDC`;
+    return record(units > 0n, `${chain.name} key`, units > 0n ? held : `${held}, and ${why}: ${fund}`);
+  } catch (err) {
+    return record(false, `${chain.name} key`, `could not read ${arcKey.address}: ${err.message}`);
   }
 }
 
@@ -1476,6 +1517,16 @@ function exactUnits(value, decimals) {
   const whole = raw.slice(0, -decimals);
   const frac = raw.slice(-decimals).replace(/0+$/, '');
   return frac ? `${whole}.${frac}` : whole;
+}
+
+/**
+ * The gas price one bridge-in on `chain` pays: eth_gasPrice, its tip (`priorityFee`, eth_maxPriorityFeePerGas) held to
+ * the chain's maxPriorityFeeCap as sendSigned (arc-usdcx.ts) holds it. Exported for test.
+ */
+export function l2BridgeInGasPrice(chain, gasPrice, priorityFee) {
+  const cap = chain.maxPriorityFeeCap;
+  if (cap === undefined || priorityFee === undefined || priorityFee <= cap) return gasPrice;
+  return (gasPrice > priorityFee ? gasPrice - priorityFee : 0n) + cap;
 }
 
 /**
@@ -1558,6 +1609,9 @@ async function probeL2BridgeIn(chain, arcKey) {
   try {
     const wei = BigInt(await arcRpc(healthy, 'eth_getBalance', [arcKey.address, 'latest']));
     const gasPrice = BigInt(await arcRpc(healthy, 'eth_gasPrice', []));
+    // Only a chain with a tip cap is asked its tip; the others' floor stays eth_gasPrice.
+    const priorityFee =
+      chain.maxPriorityFeeCap === undefined ? undefined : BigInt(await arcRpc(healthy, 'eth_maxPriorityFeePerGas', []));
     const units = BigInt(
       await arcRpc(healthy, 'eth_call', [
         { to: chain.usdc, data: calldata(ARC_SELECTORS.balanceOf, arcKey.address) },
@@ -1565,7 +1619,8 @@ async function probeL2BridgeIn(chain, arcKey) {
       ])
     );
     const problem =
-      l2KeyGasProblem(chain, arcKey.address, wei, gasPrice) ?? l2KeyUsdcProblem(chain, arcKey.address, units);
+      l2KeyGasProblem(chain, arcKey.address, wei, l2BridgeInGasPrice(chain, gasPrice, priorityFee)) ??
+      l2KeyUsdcProblem(chain, arcKey.address, units);
     record(
       problem === undefined,
       `${chain.name} key`,
@@ -1815,7 +1870,8 @@ async function resolveArcKey(opts, suite) {
       return { error: 'the Arc key (E2E_ARC_PRIVATE_KEY) is not a valid secp256k1 private key' };
     }
   }
-  // usdcx-in-l2 spends what earlier runs paid the harness key on the L2s, so a key made now would hold nothing there.
+  // usdcx-in-l2 spends what earlier runs paid the harness key on its source chains, so a key made now holds nothing
+  // there.
   const create = !suite.arcKey && !suite.spendsHarnessL2 && !opts.preflightOnly;
   const harness = await harnessArcKey(HARNESS_ARC_KEY_FILE, { create });
   if (harness.missing && suite.arcKey) {
@@ -1828,9 +1884,9 @@ async function resolveArcKey(opts, suite) {
   if (harness.missing && suite.spendsHarnessL2) {
     return {
       error:
-        `--suite ${opts.suite} deposits from the harness key on Base Sepolia and Arbitrum Sepolia, and there is none ` +
-        `yet: run --suite usdcx-burn-l2 first, which creates ${HARNESS_ARC_KEY_FILE} and has Circle pay it USDC ` +
-        'there, then send the key ETH on both chains'
+        `--suite ${opts.suite} deposits from the harness key on Base Sepolia, Arbitrum Sepolia and Ethereum Sepolia, ` +
+        `and there is none yet: run --suite usdcx-burn-l2 first, which creates ${HARNESS_ARC_KEY_FILE} and has ` +
+        'Circle pay it USDC there, then send the key ETH on all three chains'
     };
   }
   return { role: 'harness', ...harness };
@@ -2174,7 +2230,7 @@ async function runSuite(opts, suite, grep, lock) {
   if (needs.includes('usdcx-guardian')) await probeUsdcxGuardian(opts.network);
   if (needs.includes('usdcx')) await probeUsdcx(opts, needs, arcKey);
   if (needs.includes('l2-payout')) {
-    for (const chain of L2_PAYOUT_CHAINS) await probeL2Payout(chain);
+    for (const chain of L2_PAYOUT_CHAINS) await probeL2Payout(chain, arcKey);
   }
   if (needs.includes('l2-bridge-in')) {
     for (const chain of L2_BRIDGE_IN_CHAINS) await probeL2BridgeIn(chain, arcKey);

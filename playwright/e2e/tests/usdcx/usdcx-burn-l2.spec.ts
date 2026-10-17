@@ -4,7 +4,7 @@ import {
   ARBITRUM_SEPOLIA_PAYOUT,
   ARC_READ_STEP_BUDGET_MS,
   BASE_SEPOLIA_PAYOUT,
-  BURN_UNITS,
+  ETHEREUM_SEPOLIA_PAYOUT,
   PAYOUT_TIMEOUT_MS,
   USDCX_REMOTE_DOMAIN,
   WALLET_CONFIRM_TIMEOUT_MS,
@@ -35,7 +35,7 @@ import {
 /** Step budgets of spec section 5, steps 1 to 8b, as usdcx-burn.spec.ts and the round trip set them. */
 const BUDGET = {
   wallet: 180_000,
-  // Each read step outlasts a stall on every endpoint before the last one answers, on Arc and on each L2.
+  // Each read step outlasts a stall on every endpoint before the last one answers, on Arc and on each chain paid.
   arcState: ARC_READ_STEP_BUDGET_MS,
   fund: 180_000,
   settle: 240_000,
@@ -48,13 +48,14 @@ const BUDGET = {
 } as const;
 
 const SETTLE_WAIT_MS = 120_000;
-/** Ethereum Sepolia stays out: Circle never pays a burn out there, and payoutChainFor refuses it. */
-const DESTINATIONS: readonly PayoutChain[] = [BASE_SEPOLIA_PAYOUT, ARBITRUM_SEPOLIA_PAYOUT];
+/** Each burns its chain's `burnUnits`: 1 USDCx, and 2 on Ethereum Sepolia, whose 1.5 USDC allowance refuses 1. */
+const DESTINATIONS: readonly PayoutChain[] = [BASE_SEPOLIA_PAYOUT, ARBITRUM_SEPOLIA_PAYOUT, ETHEREUM_SEPOLIA_PAYOUT];
 
 /**
- * A burn through Send from a fresh Guardian wallet to the harness key's address on Base Sepolia, and one on Arbitrum
- * Sepolia, each funded by one public faucet grant. Run only through `yarn e2e:real --suite usdcx-burn-l2`. Each test
- * ends only once Circle has paid its own burn on that L2 (R22) and the wallet itself reads Confirmed.
+ * A burn through Send from a fresh Guardian wallet to the harness key's address on Base Sepolia, one on Arbitrum
+ * Sepolia and one on Ethereum Sepolia, each funded by one public faucet grant. Run only through
+ * `yarn e2e:real --suite usdcx-burn-l2`. Each test ends only once Circle has paid its own burn on that chain (R22) and
+ * the wallet itself reads Confirmed.
  */
 test.describe('USDCx L2 burn through the Send UI after a public faucet grant', () => {
   // The injected fee faucet masks the wallet's own native-asset discovery (two-wallets.ts:840).
@@ -96,7 +97,7 @@ test.describe('USDCx L2 burn through the Send UI after a public faucet grant', (
         evidence.ids.native = ids.native;
 
         // On Arc for every destination: Miden's xReserve domain is what pays any burn out, and the depositor it names is
-        // the source every L2 payout carries.
+        // the source every payout here carries.
         const xreserve = await step('arc_state', BUDGET.arcState, async () => {
           const state = await readXReserveDomainState(arc);
           expect(
@@ -109,7 +110,7 @@ test.describe('USDCx L2 burn through the Send UI after a public faucet grant', (
         const funding = await step(
           'fund',
           BUDGET.fund,
-          () => fundFromPublicFaucet(walletA.page, ids, envConfig.rpcUrl, where),
+          () => fundFromPublicFaucet(walletA.page, ids, envConfig.rpcUrl, where, chain.burnUnits),
           onGuardian
         );
         evidence.fees.push(funding.f0);
@@ -122,7 +123,8 @@ test.describe('USDCx L2 burn through the Send UI after a public faucet grant', (
           onGuardian
         );
 
-        // R21, R22 on the L2: the harness key's address there, read right before the burn on the harness's endpoints.
+        // R21, R22 on the chain paid: the harness key's address there, read right before the burn on the harness's
+        // endpoints.
         const { key, snapshot, waitForPayout } = await harnessPayoutLeg(step, {
           env: process.env,
           arc,
@@ -138,7 +140,7 @@ test.describe('USDCx L2 burn through the Send UI after a public faucet grant', (
           () =>
             submitBurn(walletA, ids, {
               destination: key.address,
-              units: BURN_UNITS,
+              units: chain.burnUnits,
               screenshotDir: test.info().outputDir,
               payoutChain: chain
             }),
@@ -152,7 +154,7 @@ test.describe('USDCx L2 burn through the Send UI after a public faucet grant', (
               priorRowIds: priorBurns,
               destination: key.address,
               keySnapshot: snapshot,
-              units: BURN_UNITS,
+              units: chain.burnUnits,
               vaultBefore: funding.vault,
               rpcUrl: envConfig.rpcUrl,
               guardian: true,

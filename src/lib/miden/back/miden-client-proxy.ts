@@ -20,6 +20,7 @@ import { Buffer } from 'buffer';
 
 import type { NoteExportType } from 'lib/miden/sdk/constants';
 import type { ConsumableNoteDto } from 'lib/miden/sdk/consumable-notes';
+import { dryRunRequest, type DryRunResult } from 'lib/miden/sdk/dry-run-request';
 import { collectInputNoteDetails } from 'lib/miden/sdk/input-note-detail';
 import type { InputNoteSummaryDto } from 'lib/miden/sdk/input-note-summary';
 import { reduceInputNoteSummary } from 'lib/miden/sdk/input-note-summary';
@@ -148,6 +149,12 @@ const SYNC_DEADLINE_MS = 45_000;
  * gets the realm killed.
  */
 const NOTE_RECOVERY_CHUNK_DEADLINE_MS = 60_000;
+
+/**
+ * Per-op deadline (ms) for a dry run of one transaction request. Its execution reads the chain tip, so it sits above
+ * a read's; a read's deadline is re-armed when the op wins the offscreen mutex, so this counts execution only.
+ */
+const DRY_RUN_DEADLINE_MS = 30_000;
 
 /**
  * Decode one recovery chunk's JSON payload. Recovery decides whether to clear
@@ -1394,6 +1401,26 @@ export const midenClientProxy = {
     const resultB64 = await this.call('getSerializedInputNoteDetails', [noteIds], { deadlineMs: READ_DEADLINE_MS });
     if (resultB64 == null) return [];
     return JSON.parse(new TextDecoder().decode(b64ToBytes(resultB64))) as SerializedInputNoteDetail[];
+  },
+
+  /**
+   * Dry-run a transaction request for its effects ({@link dryRunRequest}): no sync, no note import, nothing proved or
+   * submitted. The USDCx burn fee probe runs on it so the service worker never builds or syncs its own client beside
+   * the offscreen document's, which is the realm that syncs on the extension (#1493).
+   *
+   * Flag off: inline under the CALLER's lock, whose `hold` the dry run re-checks after every await. Flag on: one op
+   * with {@link DRY_RUN_DEADLINE_MS}, run under the offscreen document's own hold; the result crosses as JSON.
+   */
+  async dryRunTransaction(accountIdHex: string, requestBytes: Uint8Array, hold: WasmLockHold): Promise<DryRunResult> {
+    if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
+      return dryRunRequest(await getMidenClient(), accountIdHex, requestBytes, hold);
+    }
+    const resultB64 = await this.call('dryRunTransaction', [accountIdHex, requestBytes], {
+      deadlineMs: DRY_RUN_DEADLINE_MS
+    });
+    if (resultB64 == null) throw new Error('dryRunTransaction: offscreen document returned no result');
+    const result: DryRunResult = JSON.parse(new TextDecoder().decode(b64ToBytes(resultB64)));
+    return result;
   },
 
   /**

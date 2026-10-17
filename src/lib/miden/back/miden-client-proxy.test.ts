@@ -30,8 +30,16 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
     Account: { deserialize: (...a: any[]) => g.__px.accountDeserialize(...a) },
     // Slice 5: the flag-on offscreen consume re-hydrates the serialized
     // TransactionResult on the SW side.
-    TransactionResult: { deserialize: (...a: any[]) => g.__px.txResultDeserialize(...a) }
+    TransactionResult: { deserialize: (...a: any[]) => g.__px.txResultDeserialize(...a) },
+    // The inline dry run deserializes the request it executes.
+    TransactionRequest: { deserialize: (...a: any[]) => g.__px.txRequestDeserialize(...a) }
   };
+});
+
+// The dry run's request preparation, which reads the account through the client, answered here.
+jest.mock('lib/miden/sdk/custom-request', () => {
+  const g = globalThis as any;
+  return { prepareCustomRequestBytes: (...a: any[]) => g.__px.prepareCustomRequestBytes(...a) };
 });
 
 jest.mock('lib/miden/sdk/miden-client', () => {
@@ -111,6 +119,8 @@ function resetControl() {
     accountDeserialize: jest.fn((bytes: Uint8Array) => ({ __account: Array.from(bytes) })),
     // Slice 5: rehydrate a serialized TransactionResult on the SW side.
     txResultDeserialize: jest.fn((bytes: Uint8Array) => ({ __txResult: Array.from(bytes) })),
+    txRequestDeserialize: jest.fn((bytes: Uint8Array) => ({ __request: Array.from(bytes) })),
+    prepareCustomRequestBytes: jest.fn(async (_client: unknown, _account: string, bytes: Uint8Array) => bytes),
     inlineGetAccount: jest.fn(async () => ({ __inlineAccount: true })),
     // The inline (flag-off) client also exposes the slice-3/4/5 methods so the
     // flag-off pass-through of each is assertable against a spy.
@@ -1618,6 +1628,75 @@ describe('MidenClientProxy — slice-7-reads getSerializedInputNoteDetails (inva
     await flush();
     fireReady();
     expect(await p).toEqual([]);
+  });
+});
+
+describe('MidenClientProxy - dryRunTransaction (the USDCx burn fee probe)', () => {
+  const REQUEST = new Uint8Array([1, 2, 3]);
+
+  it('flag OFF → dry-runs on the inline client under the caller hold, with no sync and no note import', async () => {
+    const { midenClientProxy } = await loadProxy(false);
+    const { executeForSummaryAtTip } = await import('@openzeppelin/miden-multisig-client');
+
+    const result = await midenClientProxy.dryRunTransaction('0xaccount', REQUEST, G.__px.inlineHold);
+
+    // The multisig mock's summary serializes to [0xab].
+    expect(result).toEqual({ summaryBytes: Buffer.from([0xab]).toString('base64') });
+    const inline = await G.__px.getMidenClient.mock.results[0].value;
+    expect(G.__px.prepareCustomRequestBytes).toHaveBeenCalledWith(
+      inline.client,
+      '0xaccount',
+      REQUEST,
+      G.__px.inlineHold
+    );
+    expect(executeForSummaryAtTip).toHaveBeenCalledWith(inline.client, '0xaccount', { __request: [1, 2, 3] });
+    expect(G.__px.inlineSyncState).not.toHaveBeenCalled();
+    expect(G.__px.inlineSync).not.toHaveBeenCalled();
+    expect(G.__px.inlineImportNoteBytes).not.toHaveBeenCalled();
+    // The caller holds the lock; the proxy takes none of its own.
+    expect(G.__px.withWasmClientLock).not.toHaveBeenCalled();
+    expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('flag ON → forwards ONE dryRunTransaction op with a deadline and parses its result', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    const answer = { executedBytes: 'ZXhlY3V0ZWQ=' };
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: Buffer.from(new TextEncoder().encode(JSON.stringify(answer))).toString('base64'),
+      durationMs: 2
+    }));
+
+    const p = midenClientProxy.dryRunTransaction('0xaccount', REQUEST, G.__px.inlineHold);
+    await flush();
+    fireReady();
+
+    await expect(p).resolves.toEqual(answer);
+    expect(fakeChrome.runtime.sendMessage).toHaveBeenCalledTimes(1);
+    const env = fakeChrome.runtime.sendMessage.mock.calls[0][0];
+    expect(env.method).toBe('dryRunTransaction');
+    expect(env.deadline_ms).toEqual(expect.any(Number));
+    expect(env.deadline_ms).toBeGreaterThan(0);
+    expect(env.argsB64).toEqual(['s:"0xaccount"', `b:${Buffer.from(REQUEST).toString('base64')}`]);
+    // The service worker's own client is never built for the probe.
+    expect(G.__px.getMidenClient).not.toHaveBeenCalled();
+  });
+
+  it('flag ON → a dry run that answers nothing rejects', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: null,
+      durationMs: 1
+    }));
+
+    const p = midenClientProxy.dryRunTransaction('0xaccount', REQUEST, G.__px.inlineHold).catch((e: Error) => e);
+    await flush();
+    fireReady();
+
+    expect(await p).toBeInstanceOf(Error);
   });
 });
 

@@ -348,6 +348,14 @@ describe('SwapDetail status line', () => {
     expect(status()).toHaveClass(tone);
   });
 
+  it('reads Filled once the slippage target arrived, not Partially filled', () => {
+    // 1000 requested at 100 bps: the target is ceil(1000 × 0.99) = 990.
+    renderDetail({ orderState: 'filled', requestedAmount: 1000n, filledAmount: 990n, slippageBps: 100 });
+
+    expect(status().textContent).toBe('orderStatusFilled');
+    expect(status()).toHaveClass('bg-positive-tint');
+  });
+
   it('distinguishes a lineage still loading from one that never answered', () => {
     renderDetail({ orderState: null, trackingLoading: true });
     expect(status().textContent).toBe('loading');

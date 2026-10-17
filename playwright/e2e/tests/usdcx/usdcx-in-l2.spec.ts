@@ -47,7 +47,7 @@ import {
 
 const BUDGET = {
   wallet: 180_000,
-  // Each read step outlasts a stall on every endpoint before the last one answers, on Arc and on each L2.
+  // Each read step outlasts a stall on every endpoint before the last one answers, on Arc and on each source chain.
   arcState: ARC_READ_STEP_BUDGET_MS,
   l2Key: ARC_READ_STEP_BUDGET_MS + 15_000,
   depositSubmit: 300_000,
@@ -67,10 +67,10 @@ const BUDGET = {
 const READY_WITHIN_MS = 30_000;
 
 /**
- * A deposit the harness key signs on Base Sepolia, and one on Arbitrum Sepolia, through the wallet's own executor-route
- * deposit: Circle attests and forwards it to Arc, its executor deposits into xReserve for a fresh Guardian wallet, and
- * the relayer mints. Run only through `yarn e2e:real --suite usdcx-in-l2`. Each test ends once the wallet claimed the
- * mint and its row reads received.
+ * A deposit the harness key signs on Base Sepolia, one on Arbitrum Sepolia and one on Ethereum Sepolia, through the
+ * wallet's own executor-route deposit: Circle attests and forwards it to Arc, its executor deposits into xReserve for a
+ * fresh Guardian wallet, and the relayer mints. Run only through `yarn e2e:real --suite usdcx-in-l2`. Each test ends
+ * once the wallet claimed the mint and its row reads received.
  */
 test.describe('USDCx L2 bridge-in from the harness key, forwarded by Circle to Arc', () => {
   // The injected fee faucet masks the wallet's own native-asset discovery (two-wallets.ts:840).
@@ -151,7 +151,7 @@ test.describe('USDCx L2 bridge-in from the harness key, forwarded by Circle to A
           const funds = await readL2KeyFunds(key.address, reads);
           const quote = await quoteL2Deposit(l2, { units: DEPOSIT_UNITS, recipient, depositor: key.address });
           const shortfall = l2KeyShortfall({
-            label: chain.networkName,
+            label: chain.label,
             address: key.address,
             ...funds,
             units: DEPOSIT_UNITS,
@@ -163,7 +163,7 @@ test.describe('USDCx L2 bridge-in from the harness key, forwarded by Circle to A
         evidence.ids.arcKey = funded.key.address;
         evidence.ids.arcKeyRole = 'harness';
         evidence.notes.push(
-          `key on ${chain.networkName}: ${funded.funds.wei} wei, ${funded.funds.usdc} USDC base units, quoted fee ${funded.fee}`
+          `key on ${chain.label}: ${funded.funds.wei} wei, ${funded.funds.usdc} USDC base units, quoted fee ${funded.fee}`
         );
 
         // An overrun step runs on after the test failed; the signal stops it before it sends the approve or the burn.

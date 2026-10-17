@@ -4,20 +4,21 @@ name: E2E USDCx
 # (scripts/e2e-real.mjs), in two jobs. The Arc job runs usdcx-in (a deposit from the CI key into a fresh Guardian wallet),
 # usdcx-burn (a Send burn to that key from a fresh standard and a fresh Guardian wallet, each waiting for Circle's payout)
 # and usdcx (the round trip: burn, payout, deposit back). The L2 job then runs usdcx-in-l2 (a deposit the same key signs
-# on Base Sepolia and on Arbitrum Sepolia, which Circle forwards to Arc, its relayer mints and the wallet claims) and
-# usdcx-burn-l2 (Send burns from fresh Guardian wallets to the key's address on both L2s, each waiting for Circle's payout
-# there and the wallet's own confirmation). Nothing is a double: public Miden testnet and its faucet, the hosted
-# Guardian, Arc Testnet, Base Sepolia, Arbitrum Sepolia, Circle's Iris, forwarder and executor, xReserve, its attestation
-# service and Gateway. A red payout or forward step can be Circle's doing rather than the wallet's, and its message says
-# so. The runner probes every service before it builds, builds the extension itself for each suite and runs the browser
-# headless.
+# on Base Sepolia, on Arbitrum Sepolia and on Ethereum Sepolia, which Circle forwards to Arc, its relayer mints and the
+# wallet claims) and usdcx-burn-l2 (Send burns from fresh Guardian wallets to the key's address on the same three
+# chains, each waiting for Circle's payout there and the wallet's own confirmation). Nothing is a double: public Miden
+# testnet and its faucet, the hosted Guardian, Arc Testnet, Base Sepolia, Arbitrum Sepolia, Ethereum Sepolia, Circle's
+# Iris, forwarder and executor, xReserve, its attestation service and Gateway. A red payout or forward step can be
+# Circle's doing rather than the wallet's, and its message says so. The runner probes every service before it builds,
+# builds the extension itself for each suite and runs the browser headless.
 #
 # The suites burn to and deposit from ONE key, so each burn's payout refills what the deposits spend: a green run leaves
-# it about 2.9 USDC richer on Arc and about 0.97 USDC richer on each L2 (a 0.99 payout less a 0.023 deposit with Circle's
-# fee). On the L2s it also pays gas in ETH, which is sent to it by hand. CI has its own key, the repository secret
-# USDCX_HARNESS_ARC_KEY: never a developer's harness key and never the iOS job's. In each job only the step that writes
-# it to the runner's key file reads the secret; the suites read the file through the runner, and no cache or upload
-# includes it.
+# it about 2.9 USDC richer on Arc, about 0.97 USDC richer on each L2 (a 0.99 payout less a 0.023 deposit with Circle's
+# fee) and about 0.98 USDC richer on Ethereum Sepolia (a 2 USDCx burn's 0.9965 payout less a 0.017 deposit with
+# Circle's fee). On all three it also pays gas in ETH, which is sent to it by hand. CI has its own key, the repository
+# secret USDCX_HARNESS_ARC_KEY: never a developer's harness key and never the iOS job's. In each job only the step that
+# writes it to the runner's key file reads the secret; the suites read the file through the runner, and no cache or
+# upload includes it.
 #
 # Not a per-PR gate: it spends public testnet funds and depends on services the project does not run.
 
@@ -157,19 +158,20 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
-  # After the Arc job, red or green: its suites leave nothing pending on Base Sepolia or Arbitrum Sepolia, so a red one
-  # cannot break an L2 proof. Never in a cancelled run. This job's own setup guards the key: a failed step skips
-  # usdcx-in-l2 and, through its condition, usdcx-burn-l2. `needs` also keeps the two jobs from spending from the key
-  # at once.
+  # After the Arc job, red or green: its suites leave nothing pending on Base Sepolia, Arbitrum Sepolia or Ethereum
+  # Sepolia, so a red one cannot break a proof here. Never in a cancelled run. This job's own setup guards the key: a
+  # failed step skips usdcx-in-l2 and, through its condition, usdcx-burn-l2. `needs` also keeps the two jobs from
+  # spending from the key at once.
   chrome-usdcx-l2:
-    name: USDCx E2E (Chrome, Base and Arbitrum Sepolia)
+    name: USDCx E2E (Chrome, Base, Arbitrum and Ethereum Sepolia)
     needs: chrome-usdcx-arc
     if: ${{ !cancelled() }}
     runs-on: warp-ubuntu-latest-x64-8x
-    # usdcx-in-l2 two tests of 55 (25 of each wait on Circle's attestation, which can fall back to source finality) and
-    # usdcx-burn-l2 two of 38 come to 186; with two preflights and builds (10) and a cold setup (30), 226, rounded up to
-    # 230. A dispatch's from-source builds add 30.
-    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 260 || 230 }}
+    # usdcx-in-l2 three tests of 55 (25 of each wait on Circle's attestation, which can fall back to source finality)
+    # and usdcx-burn-l2 three of 38 come to 279; with two preflights and builds (10) and a cold setup (30), 319, rounded
+    # up to 325. A dispatch's from-source builds add 30, to 355, inside the 360 minutes this repository allows any E2E
+    # USDCx job.
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 355 || 325 }}
     steps:
       - uses: actions/checkout@v4
 
@@ -234,9 +236,9 @@ jobs:
           USDCX_HARNESS_ARC_KEY: ${{ secrets.USDCX_HARNESS_ARC_KEY }}
         run: node scripts/write-ci-harness-arc-key.mjs
 
-      # usdcx-in-l2 spends from the key on both L2s, and usdcx-burn-l2 proves each payout as the rise of the key's balance
-      # there from a read taken right before its burn. Every deposit is mined before usdcx-in-l2's step ends, so running
-      # them in this order is enough.
+      # usdcx-in-l2 spends from the key on all three chains, and usdcx-burn-l2 proves each payout as the rise of the
+      # key's balance there from a read taken right before its burn. Every deposit is mined before usdcx-in-l2's step
+      # ends, so running them in this order is enough.
       - name: Run usdcx-in-l2
         id: usdcx_in_l2
         run: node scripts/e2e-real.mjs --suite usdcx-in-l2
