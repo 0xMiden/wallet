@@ -635,11 +635,15 @@ const DISPATCH: Record<string, DispatchFn> = {
 
   // Fee-aware depth-0 PSWAP reclaim request. The full output-note record exists
   // only in the creator's canonical realm; return the serialized request, never
-  // a live note or request object.
-  buildPswapCancelRequest: async (context, client, accountId: string, noteId: string) =>
-    client.buildPswapCancelRequest(accountId, noteId, step =>
-      assertWasmHoldCurrent(context.hold, 'in offscreen buildPswapCancelRequest', step)
-    ),
+  // a live note or request object. A third `true` lets the build read the note
+  // on the node when no record exists, as for a recovered order (#1487).
+  buildPswapCancelRequest: async (context, client, accountId: string, noteId: string, allowNodeNote?: boolean) => {
+    const assertLive = (step?: string) =>
+      assertWasmHoldCurrent(context.hold, 'in offscreen buildPswapCancelRequest', step);
+    return allowNodeNote === true
+      ? client.buildPswapCancelRequest(accountId, noteId, assertLive, { allowNodeNote: true })
+      : client.buildPswapCancelRequest(accountId, noteId, assertLive);
+  },
 
   // Deferred reach-through READS moved offscreen (issue #260, slice 7a). Each reads
   // the OFFSCREEN client's canonical synced state — the whole point, since flag-on
