@@ -337,6 +337,20 @@ describe('ConfirmationScreen', () => {
         expect(screen.getByRole('alert')).toHaveTextContent('biometricFailed');
       });
 
+      // The iOS E2E driver recognizes a failed create by this id and presses Retry through the submit button's id.
+      it('marks the failure for E2E and keeps the Retry on the submit id', () => {
+        renderComponent({ recoveryError: 'Failed to sync state' });
+
+        expect(screen.getByTestId('onboarding-confirmation-failed')).toHaveTextContent('Failed to sync state');
+        expect(screen.getByTestId('onboarding-confirmation-submit')).toHaveTextContent('retry');
+      });
+
+      it('has no failure mark while the wallet is ready', () => {
+        renderComponent();
+
+        expect(screen.queryByTestId('onboarding-confirmation-failed')).not.toBeInTheDocument();
+      });
+
       it('announces a registration failure that is also a biometric attempt as one alert', () => {
         renderComponent({ recoveryError: 'hardware key rejected', biometricError: 'boom', biometricAttempts: 1 });
 
