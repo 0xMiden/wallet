@@ -38,7 +38,8 @@ Call `open` from the main document of an https page. `window.bread` isn't define
 - It starts with exactly `https://`, in lowercase: `HTTPS://` is refused.
 - Next comes the page's host, written as the page's origin reports it, apart from ASCII letter case. For an internationalized domain, that is the punycode (`xn--`) form.
 - Then, only if the page uses a port other than 443, comes `:` and that port as the page's origin shows it, such as `:8443`. Writing `:443` on a page that uses 443 is also accepted.
-- Nothing else comes between `https://` and the first `/`, `?` or `#`, or the end of the URL: no user name, no percent-encoding and no trailing dot.
+- Nothing else comes between `https://` and the first `/`, `?` or `#`, or the end of the URL: no user name and no percent-encoding.
+- In the path, query and fragment, `%` appears only as `%` plus two hex digits, so a literal `%` is written `%25`, and `[`, `]` and any `#` after the first are percent-encoded as `%5B`, `%5D` and `%23`. Bread re-encodes nothing: the sheet opens exactly the string the page passed, or refuses it.
 - It isn't relative: Bread refuses a relative URL and never resolves it.
 
 The rules cover only the URL you pass; inside the sheet, the flow can redirect to Google or Apple as usual. Building the URL from `location.origin` gets the origin right, and `URLSearchParams` keeps the query inside the allowed characters, as the example under "Binding the handle to the page" does.
