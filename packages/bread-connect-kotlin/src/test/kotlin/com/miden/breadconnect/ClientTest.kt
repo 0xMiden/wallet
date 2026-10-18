@@ -7,6 +7,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -227,6 +228,15 @@ class ClientTest {
 
         connecting.cancel()
         runCurrent()
+
+        assertNull(storage.items[BreadConnect.PENDING_KEY])
+    }
+
+    @Test
+    fun aCallersOwnTimeoutEndsTheRequestAsTheCallersCancellation() = runTest {
+        val client = client()
+
+        assertNull(withTimeoutOrNull(1_000) { client.connect("Where Legends Grow") })
 
         assertNull(storage.items[BreadConnect.PENDING_KEY])
     }

@@ -255,11 +255,7 @@ describe('a request link', () => {
   });
 
   it.each([
-    [
-      'refuses',
-      () => Promise.reject(new Error('NOT_GRANTED')),
-      { code: 'TRANSACTION_TIMEOUT', message: 'NOT_GRANTED' }
-    ],
+    ['refuses', () => Promise.reject(new Error('NOT_GRANTED')), { code: 'TRANSACTION_TIMEOUT', message: 'NOT_GRANTED' }],
     [
       'answers nothing',
       () => Promise.resolve(undefined),

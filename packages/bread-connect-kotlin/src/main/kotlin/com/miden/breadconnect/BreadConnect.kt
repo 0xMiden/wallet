@@ -2,8 +2,7 @@ package com.miden.breadconnect
 
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.TimeoutCancellationException
-import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -192,7 +191,8 @@ class BreadConnect(
             this.waiter = waiter
         }
         try {
-            return withTimeout(ANSWER_WAIT_MS) {
+            // Null is this deadline alone: a caller's own timeout arrives as a cancellation and propagates as one.
+            val answer = withTimeoutOrNull(ANSWER_WAIT_MS) {
                 val opened = try {
                     opener.open(link)
                 } catch (e: CancellationException) {
@@ -204,7 +204,7 @@ class BreadConnect(
                 if (!opened) settle(waiter, failure(BreadConnectException.Code.NotInstalled, "Bread is not installed; its store page is open"))
                 waiter.answer.await()
             }
-        } catch (e: TimeoutCancellationException) {
+            if (answer != null) return answer
             settle(waiter, failure(BreadConnectException.Code.Timeout, "Bread did not answer in time"))
             throw BreadConnectException(BreadConnectException.Code.Timeout, "Bread did not answer in time")
         } catch (e: CancellationException) {
