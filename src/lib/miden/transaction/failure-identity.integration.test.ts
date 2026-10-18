@@ -398,6 +398,45 @@ describe('an unknown failure at the Failed write', () => {
     expect((await Repo.transactions.get('tx-1'))?.status).toBe(ITransactionStatus.Failed);
     expectNoTransactionData(report?.message ?? '');
   });
+
+  describe('on mobile', () => {
+    let doc: HiddenDocument;
+
+    beforeEach(() => {
+      __resetBackgroundTimeForTest();
+      doc = installHiddenDocument();
+      clock.mockReturnValue(SUBMITTED_AT_MS);
+      jest.mocked(isMobile).mockReturnValue(true);
+      initBackgroundTimeTracking();
+    });
+
+    afterEach(() => {
+      doc.restore();
+      __resetBackgroundTimeForTest();
+      jest.mocked(isMobile).mockReturnValue(false);
+    });
+
+    it.each([
+      ['backgrounded during the submit', true, 'yes'],
+      ['in the foreground throughout', false, 'no']
+    ])('says the app was %s', async (_name, backgrounded, answer) => {
+      if (backgrounded) {
+        clock.mockReturnValue(SUBMITTED_AT_MS + 1_000);
+        doc.setHidden(true);
+        clock.mockReturnValue(SUBMITTED_AT_MS + 4_000);
+        doc.setHidden(false);
+      }
+      clock.mockReturnValue(SUBMITTED_AT_MS + 5_000);
+      await Repo.transactions.put(submitting());
+      expect(await cancelTransaction(submitting(), new Error('opaque detail'))).toBe(true);
+      const [report, ...rest] = captured();
+      expect(rest).toEqual([]);
+      expect(report?.message).toContain(
+        `; point pipeline; unknown; thrown error; app hidden during submit ${answer}; submit leg under_9s. authentication`
+      );
+      expectNoTransactionData(report?.message ?? '');
+    });
+  });
 });
 
 describe('a pre-flight sync killed by the offscreen deadline', () => {
