@@ -260,12 +260,12 @@ describe('request-based functions', () => {
     expect(postSpy).toHaveBeenCalledWith(
       {
         type: MidenPageMessageType.Request,
-        payload: { type: MidenDAppMessageType.LoginKeyRequest, sourceAccountId: 'acct-9' },
+        payload: { type: 'LOGIN_KEY_REQUEST', sourceAccountId: 'acct-9' },
         reqId: 'id'
       },
       ORIGIN
     );
-    deliverPageResponse({ type: MidenDAppMessageType.LoginKeyResponse, loginKey: 'login-key-b64' });
+    deliverPageResponse({ type: 'LOGIN_KEY_RESPONSE', loginKey: 'login-key-b64' });
     await expect(p).resolves.toBe('login-key-b64');
   });
 
@@ -275,7 +275,7 @@ describe('request-based functions', () => {
       {
         type: MidenPageMessageType.Request,
         payload: {
-          type: MidenDAppMessageType.LoginSignRequest,
+          type: 'LOGIN_SIGN_REQUEST',
           sourceAccountId: 'acct-9',
           payload: 'word-b64',
           kind: 'word'
@@ -284,7 +284,7 @@ describe('request-based functions', () => {
       },
       ORIGIN
     );
-    deliverPageResponse({ type: MidenDAppMessageType.LoginSignResponse, signature: 'login-sig-b64' });
+    deliverPageResponse({ type: 'LOGIN_SIGN_RESPONSE', signature: 'login-sig-b64' });
     await expect(p).resolves.toBe('login-sig-b64');
   });
 
