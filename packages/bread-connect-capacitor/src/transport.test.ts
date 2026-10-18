@@ -163,6 +163,20 @@ describe('AppSwitchTransport', () => {
     h.transport.stop();
   });
 
+  it('restores no session opened for another callback, so connect asks Bread again', async () => {
+    const h = await connected();
+    h.transport.stop();
+    const moved = new AppSwitchTransport({ ...h.options, callback: 'https://game.example/bread2' });
+
+    expect(moved.session()).toBeNull();
+    await expect(moved.request({ type: 'SIGN_REQUEST' })).rejects.toMatchObject({ code: 'NOT_GRANTED' });
+    const answer = moved.connect(PERMISSION_REQUEST);
+    await flush();
+    expect(h.opened).toHaveLength(2);
+    moved.cancelPending();
+    await expect(answer).rejects.toMatchObject({ code: 'CANCELLED' });
+  });
+
   it('sends a request in the session and keeps the outcome Bread reported with a transaction', async () => {
     const h = await connected();
     const answer = h.transport.request({ type: 'SEND_TRANSACTION_REQUEST', transaction: {} });

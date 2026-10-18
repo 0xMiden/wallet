@@ -68,6 +68,17 @@ final class ClientTests: XCTestCase {
         XCTAssertNil(storage.items[BreadConnect.pendingKey])
     }
 
+    func testASessionOpenedForAnotherCallbackIsNotRestored() async throws {
+        _ = try await connected()
+
+        let moved = try BreadConnect(
+            callback: "https://wherelegendsgrow.com/bread2", storage: storage, opener: opener,
+            now: { [unowned self] in self.now })
+
+        XCTAssertNil(moved.session)
+        await assertThrows(.bread(.notGranted)) { _ = try await moved.request(["type": "SIGN_REQUEST"]) }
+    }
+
     func testARefusedConnectThrowsBreadsErrorAndKeepsNoSession() async throws {
         let client = try client()
         answer(with: client) { [bread] in

@@ -72,6 +72,18 @@ class ClientTest {
     }
 
     @Test
+    fun aSessionOpenedForAnotherCallbackIsNotRestored() = runTest {
+        connected()
+
+        val moved = BreadConnect("https://wherelegendsgrow.com/bread2", storage, opener) { now }
+
+        assertNull(moved.session)
+        assertFails(BreadConnectException.Code.Bread(ProtocolErrorCode.NOT_GRANTED)) {
+            moved.request(json("""{"type":"SIGN_REQUEST"}"""))
+        }
+    }
+
+    @Test
     fun aRefusedConnectThrowsBreadsErrorAndKeepsNoSession() = runTest {
         val client = client()
         client.answering {
