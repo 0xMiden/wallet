@@ -44,12 +44,9 @@ import {
   type PreparedPswapReclaim,
   reconcileSwapOrderNotes
 } from '../swap/settlement';
+import { ClaimFeeRefusedError } from '../transaction/claim-fee';
 import { getNoteHoldingTransactions } from '../transaction/get';
-import {
-  ClaimFeeRefusedError,
-  initiateConsumeNotesTransaction,
-  initiateConsumeTransaction
-} from '../transaction/initiate';
+import { initiateConsumeNotesTransaction, initiateConsumeTransaction } from '../transaction/initiate';
 import { sweepNoteDeliveries } from '../transaction/note-delivery-sweep';
 import { runTrimTick } from '../transaction/trim-result-bytes';
 import { heldNoteIdsOf } from '../transaction/verdict-rules';
@@ -788,7 +785,6 @@ async function runSync(force: boolean): Promise<void> {
             faucetId: n.faucetId,
             amount: n.amountBaseUnits,
             senderAddress: n.senderAddress,
-            carriesMoreAssets: n.carriesMoreAssets,
             isBeingClaimed: false,
             type,
             swapOrder: { ...n.swapOrder, autoConsume: n.swapOrder.autoConsume ?? true }

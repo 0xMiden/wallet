@@ -24,7 +24,7 @@ import { reportNoteClaim } from 'lib/miden/front/claim-telemetry';
 import type { ClaimableNoteWithMetadata } from 'lib/miden/front/claimable-notes';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import * as Repo from 'lib/miden/repo';
-import { ClaimFeeRefusedError } from 'lib/miden/transaction/initiate';
+import { ClaimFeeRefusedError } from 'lib/miden/transaction/claim-fee';
 import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { isExtension } from 'lib/platform';
 

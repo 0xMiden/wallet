@@ -302,6 +302,66 @@ describe('swap order note settlement', () => {
     expect(swapRow.extraInputs).toEqual(expect.objectContaining({ expiryTriggeredAt: 300 }));
   });
 
+  it("in-process settlement hands the queue each note's first asset and whether it carries more", async () => {
+    jest.mocked(midenClientProxy.getConsumableNotes).mockResolvedValue([
+      {
+        ...note('token-payback', [999n, 77n, 1n, 0n]),
+        assets: [{ faucetId: 'requested-token', amount: '35' }]
+      },
+      {
+        ...note('two-asset-remainder'),
+        assets: [
+          { faucetId: 'offered-token', amount: '15' },
+          { faucetId: 'native-fee-token', amount: '5' }
+        ]
+      },
+      { ...note('assetless-payback', [999n, 77n, 2n, 0n]), assets: [] }
+    ]);
+    jest.mocked(midenClientProxy.getPswapLineages).mockResolvedValue([
+      {
+        orderId: '77',
+        currentTipNoteId: 'two-asset-remainder',
+        currentDepth: 2,
+        state: 0,
+        remainingOffered: '15',
+        remainingRequested: '15'
+      }
+    ]);
+
+    const result = await settleSwapOrders('account-1', false);
+
+    expect(jest.mocked(initiateConsumeNotesTransaction).mock.calls).toEqual([
+      [
+        'account-1',
+        [
+          expect.objectContaining({
+            id: 'token-payback',
+            faucetId: 'requested-token',
+            amount: '35',
+            carriesMoreAssets: false
+          }),
+          expect.objectContaining({ id: 'assetless-payback', faucetId: '', amount: '', carriesMoreAssets: false })
+        ],
+        false,
+        ...SETTLES
+      ],
+      [
+        'account-1',
+        [
+          expect.objectContaining({
+            id: 'two-asset-remainder',
+            faucetId: 'offered-token',
+            amount: '15',
+            carriesMoreAssets: true
+          })
+        ],
+        false,
+        ...SETTLES
+      ]
+    ]);
+    expect(result.managedNoteIds).toEqual(new Set(['token-payback', 'two-asset-remainder', 'assetless-payback']));
+  });
+
   it('leaves partial-fill paybacks untouched while active and unexpired', async () => {
     await reconcileSwapOrderNotes(
       'account-1',
@@ -358,6 +418,37 @@ describe('swap order note settlement', () => {
     // The expiry intent is durable before the queue write.
     expect(modify.mock.invocationCallOrder[0]).toBeLessThan(
       (initiatePswapReclaimTransaction as jest.Mock).mock.invocationCallOrder[0]!
+    );
+  });
+
+  it('a zero-fill reclaim of a non-native token meets the fee gate as a known single asset', async () => {
+    toArray.mockResolvedValue([tx({ faucetId: 'non-native-offer', outputNoteIds: ['zero-fill-token-tip'] })]);
+    jest.mocked(midenClientProxy.getConsumableNotes).mockResolvedValue([]);
+    jest.mocked(midenClientProxy.getPswapLineages).mockResolvedValue([
+      {
+        orderId: '77',
+        currentTipNoteId: 'zero-fill-token-tip',
+        currentDepth: 0,
+        state: 0,
+        remainingOffered: '50',
+        remainingRequested: '50'
+      }
+    ]);
+
+    await settleSwapOrders('account-1', true);
+
+    expect(initiatePswapReclaimTransaction).toHaveBeenCalledWith(
+      'account-1',
+      expect.objectContaining({
+        id: 'zero-fill-token-tip',
+        faucetId: 'non-native-offer',
+        amount: '50',
+        carriesMoreAssets: false
+      }),
+      new Uint8Array([1, 4, 7, 6]),
+      'swap-1',
+      true,
+      undefined
     );
   });
 

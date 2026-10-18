@@ -1,3 +1,4 @@
+import { getMessage } from 'lib/i18n/core';
 import { ClaimFeeNote } from 'lib/miden/fees/spendable';
 import { getNativeAssetId, getVerificationBaseFee } from 'lib/miden-chain/native-asset';
 
@@ -7,6 +8,13 @@ import { ITransaction } from '../db/types';
 import { getBech32AddressFromAccountId } from '../sdk/helpers';
 import { assertWasmHoldCurrent, tryWithWasmClientLock } from '../sdk/miden-client';
 import { ConsumableNote } from '../types';
+
+export class ClaimFeeRefusedError extends Error {
+  constructor() {
+    super(getMessage('insufficientFeeAsset'));
+    this.name = 'ClaimFeeRefusedError';
+  }
+}
 
 export interface ClaimFeeContext {
   vaultFeeAsset: bigint | null;

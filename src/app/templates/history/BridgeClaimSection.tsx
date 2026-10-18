@@ -24,7 +24,7 @@ import {
 } from 'lib/miden/activity';
 import { IBridgeClaimStatus, ITransactionStatus } from 'lib/miden/db/types';
 import { useAccount } from 'lib/miden/front';
-import { ClaimFeeRefusedError } from 'lib/miden/transaction/initiate';
+import { ClaimFeeRefusedError } from 'lib/miden/transaction/claim-fee';
 import { hapticMedium } from 'lib/mobile/haptics';
 import { isExtension } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';

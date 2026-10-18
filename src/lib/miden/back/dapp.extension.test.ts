@@ -62,6 +62,22 @@ const unlockedContext = () => ({
   }
 });
 
+jest.mock('lib/telemetry/transaction-failure', () => ({
+  ...jest.requireActual('lib/telemetry/transaction-failure'),
+  reportTransactionFailure: jest.fn(jest.requireActual('lib/telemetry/transaction-failure').reportTransactionFailure)
+}));
+jest.mock('./background-notification', () => ({
+  ...jest.requireActual('./background-notification'),
+  notifyBackgroundTransactionFailed: jest.fn(
+    jest.requireActual('./background-notification').notifyBackgroundTransactionFailed
+  )
+}));
+
+jest.mock('../transaction/claim-fee', () => ({
+  ...jest.requireActual('../transaction/claim-fee'),
+  readClaimFeeContext: jest.fn(jest.requireActual('../transaction/claim-fee').readClaimFeeContext)
+}));
+
 jest.mock('lib/miden/back/store', () => ({
   store: {
     getState: () => ({
@@ -2113,11 +2129,19 @@ describe('Full confirmation cycles in extension mode', () => {
     const { ClaimFeeRefusedError } = realQueue;
     const transaction = jest.requireMock('lib/miden/transaction');
     const originalConsume = transaction.initiateConsumeTransactionFromId.getMockImplementation();
-    const feeContext = jest.spyOn(jest.requireActual('../transaction/claim-fee'), 'readClaimFeeContext');
+    const feeContext = jest.mocked(
+      jest.requireMock<typeof import('../transaction/claim-fee')>('../transaction/claim-fee').readClaimFeeContext
+    );
     const proxy = jest.requireActual<typeof import('./miden-client-proxy')>('./miden-client-proxy').midenClientProxy;
     const summary = jest.spyOn(proxy, 'getInputNoteSummary');
-    const report = jest.spyOn(jest.requireActual('lib/telemetry/transaction-failure'), 'reportTransactionFailure');
-    const notify = jest.spyOn(jest.requireActual('./background-notification'), 'notifyBackgroundTransactionFailed');
+    const report = jest.mocked(
+      jest.requireMock<typeof import('lib/telemetry/transaction-failure')>('lib/telemetry/transaction-failure')
+        .reportTransactionFailure
+    );
+    const notify = jest.mocked(
+      jest.requireMock<typeof import('./background-notification')>('./background-notification')
+        .notifyBackgroundTransactionFailed
+    );
     await Repo.transactions.clear();
     feeContext.mockResolvedValue({ vaultFeeAsset: 0n, nativeAssetId: 'native-faucet', verificationBaseFee: 10000 });
     summary.mockResolvedValue({ noteType: NoteType.Public, assets: [{ faucetId: 'faucet-1', amount: '50' }] });
@@ -2148,10 +2172,9 @@ describe('Full confirmation cycles in extension mode', () => {
     } finally {
       transaction.initiateConsumeTransactionFromId.mockReset();
       if (originalConsume) transaction.initiateConsumeTransactionFromId.mockImplementation(originalConsume);
-      feeContext.mockRestore();
+      feeContext.mockReset();
+      feeContext.mockImplementation(jest.requireActual('../transaction/claim-fee').readClaimFeeContext);
       summary.mockRestore();
-      report.mockRestore();
-      notify.mockRestore();
       await Repo.transactions.clear();
     }
   });

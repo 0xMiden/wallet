@@ -10,7 +10,7 @@ import { selectAutoConsumeBatch } from './auto-managed-notes';
 import { useClaimableNotes } from './claimable-notes';
 import { useMidenContext } from './client';
 import { zustandProvider } from './guardian-sync';
-import { ClaimFeeRefusedError } from '../transaction/initiate';
+import { ClaimFeeRefusedError } from '../transaction/claim-fee';
 import { ConsumableNote } from '../types';
 
 /**

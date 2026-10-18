@@ -26,7 +26,7 @@ import { ITransactionStatus } from 'lib/miden/db/types';
 import { useMidenContext } from 'lib/miden/front';
 import { reconcileUnconfirmedInApp, zustandProvider } from 'lib/miden/front/guardian-sync';
 import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
-import { ClaimFeeRefusedError } from 'lib/miden/transaction/initiate';
+import { ClaimFeeRefusedError } from 'lib/miden/transaction/claim-fee';
 import { getExplorerTxUrl } from 'lib/miden-chain/constants';
 import { openExternalUrl } from 'lib/mobile/external-browser';
 import { isExtension } from 'lib/platform';

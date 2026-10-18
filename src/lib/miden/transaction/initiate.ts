@@ -1,4 +1,3 @@
-import { getMessage } from 'lib/i18n';
 import {
   ClaimFeeNote,
   claimFeeShortfallsBaseUnits,
@@ -54,11 +53,19 @@ import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
 import { queueOutgoingTransaction, spendsOf } from '../spending-limits/queue';
 import { SpendingLimitAuthorization } from '../spending-limits/types';
 import { ConsumableNote, NoteTypeEnum, NoteType as NoteTypeString } from '../types';
-import { ClaimFeeContext, claimFeeNotes, getClaimFeeAhead, readClaimFeeContext } from './claim-fee';
+import {
+  ClaimFeeContext,
+  ClaimFeeRefusedError,
+  claimFeeNotes,
+  getClaimFeeAhead,
+  readClaimFeeContext
+} from './claim-fee';
 import { EARN_DEPOSIT_MISSING_REQUEST_ERROR, NOTE_HELD_BY_ANOTHER_TRANSACTION_ERROR } from './constants';
 import { getNoteHoldingTransactions } from './get';
 import { hotKeyRotationLockName, isLiveRotationRow } from './rotation-funding';
 import { holdsNotes } from './verdict-rules';
+
+export { ClaimFeeRefusedError } from './claim-fee';
 
 // An override's preset name is not evidence of the chain it actually points to.
 const badgeNetwork = () => (getActiveOverride() === null ? getEffectiveNetworkName() : undefined);
@@ -68,13 +75,6 @@ export class ClaimInsertRefusedError extends Error {
   constructor() {
     super('Claim not queued: its caller can no longer sign it');
     this.name = 'ClaimInsertRefusedError';
-  }
-}
-
-export class ClaimFeeRefusedError extends Error {
-  constructor() {
-    super(getMessage('insufficientFeeAsset'));
-    this.name = 'ClaimFeeRefusedError';
   }
 }
 

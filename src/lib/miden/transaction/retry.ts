@@ -4,7 +4,13 @@ import { inVerdictTurn } from 'lib/miden/front/storage';
 import * as Repo from 'lib/miden/repo';
 
 import { pipelineMayStillBeRunning, verifySendLanded } from './cancel';
-import { ClaimFeeContext, getClaimFeeAhead, persistedClaimFeeNotes, readClaimFeeContext } from './claim-fee';
+import {
+  ClaimFeeContext,
+  ClaimFeeRefusedError,
+  getClaimFeeAhead,
+  persistedClaimFeeNotes,
+  readClaimFeeContext
+} from './claim-fee';
 import {
   guardianHoldRetryMessage,
   TRANSACTION_BEING_CHECKED_RETRY_ERROR,
@@ -18,7 +24,6 @@ import {
   countNoteDeliveryWrite,
   verifiedLandingRowFields
 } from './helper';
-import { ClaimFeeRefusedError } from './initiate';
 import { latestEndMayStillRun } from './reconcile-judge';
 import { checkEvidenceForRetry, recordLandedDeliveryTarget } from './reconcile-unconfirmed';
 import { awaitingVerdict, evidenceKey, isUnresolvedEntry, keptCandidateHoldUntil, nowSeconds } from './verdict-rules';

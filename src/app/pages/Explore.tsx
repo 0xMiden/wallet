@@ -36,7 +36,7 @@ import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { priceSymbolFor, tokenQuote } from 'lib/miden/swap/tokens';
-import { ClaimFeeRefusedError } from 'lib/miden/transaction/initiate';
+import { ClaimFeeRefusedError } from 'lib/miden/transaction/claim-fee';
 import { hapticLight } from 'lib/mobile/haptics';
 import { clearNoteReceivedNotification } from 'lib/mobile/native-notifications';
 import { isExtension, isMobile } from 'lib/platform';

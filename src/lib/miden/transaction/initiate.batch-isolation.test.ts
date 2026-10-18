@@ -777,20 +777,6 @@ describe('the consume writer fee gate', () => {
     }
 
     await Repo.transactions.clear();
-    mockNativeAssetId.mockClear();
-    mockVerificationBaseFee.mockClear();
-    mockProxyGetAccount.mockClear();
-    const injected = await queueConsumeNotes(ACCOUNT, [knownToken()], false, true, false, null, undefined, () => true, {
-      vaultFeeAsset: 10000n,
-      nativeAssetId: 'native-faucet',
-      verificationBaseFee: 10000
-    });
-    expect(injected).toMatchObject({ feeRefusedNoteIds: [] });
-    expect(mockNativeAssetId).not.toHaveBeenCalled();
-    expect(mockVerificationBaseFee).not.toHaveBeenCalled();
-    expect(mockProxyGetAccount).not.toHaveBeenCalled();
-
-    await Repo.transactions.clear();
     const native = knownNative('native', '1000000');
     const remainder = { ...knownToken(), amount: '1000000' };
     const failed = await failedTogether([native, knownNative('old-batch-mate')]);

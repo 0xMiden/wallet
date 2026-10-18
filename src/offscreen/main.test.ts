@@ -221,6 +221,13 @@ jest.mock('lib/miden/sdk/miden-client', () => {
   return {
     getMidenClient: (...a: any[]) => g.__off.getMidenClient(...a),
     withWasmClientLock,
+    tryWithWasmClientLock: async <T>(
+      op: (hold: object) => Promise<T>,
+      options?: unknown
+    ): Promise<{ ran: false } | { ran: true; value: T }> => {
+      if (locked) return { ran: false };
+      return { ran: true, value: await withWasmClientLock(op, options) };
+    },
     lockOptionsSeen,
     withWasmLockWatchdogPaused: async <T>(op: () => Promise<T>): Promise<T> => op(),
     yieldWasmClientLock,
@@ -1380,6 +1387,64 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(order).toEqual(['start:first', 'end:first', 'start:second', 'end:second']);
     expect(r1.mock.calls[0][0].ok).toBe(true);
     expect(r2.mock.calls[0][0].ok).toBe(true);
+  });
+
+  it('a try-lock account read answers busy while the offscreen mutex is held, and the account when it is free', async () => {
+    await loadModule();
+    const miden = await import('lib/miden/sdk/miden-client');
+    let releaseHolder!: () => void;
+    const held = miden.withWasmClientLock(
+      () =>
+        new Promise<void>(resolve => {
+          releaseHolder = resolve;
+        })
+    );
+    await flush();
+    const busyResponse = jest.fn();
+    capturedListener!(
+      callReq({ op_id: 'fee-busy', method: 'tryGetAccount', argsB64: [encodeArg('fee-account')] }),
+      {},
+      busyResponse
+    );
+    await flush();
+    const repliesWhileHeld = busyResponse.mock.calls.map(([reply]) => reply);
+    const wasHeld = miden.isWasmClientBusy();
+    const accountReadsWhileHeld = G.__off.clientGetAccount.mock.calls.length;
+    const clientBuildsWhileHeld = G.__off.getMidenClient.mock.calls.length;
+    releaseHolder();
+    await held;
+    await flush();
+
+    expect(repliesWhileHeld).toEqual([
+      expect.objectContaining({
+        ok: true,
+        op_id: 'fee-busy',
+        resultB64: Buffer.from(JSON.stringify({ ran: false })).toString('base64')
+      })
+    ]);
+    expect(wasHeld).toBe(true);
+    expect(accountReadsWhileHeld).toBe(0);
+    expect(clientBuildsWhileHeld).toBe(0);
+
+    const freeResponse = jest.fn();
+    capturedListener!(
+      callReq({ op_id: 'fee-free', method: 'tryGetAccount', argsB64: [encodeArg('fee-account')] }),
+      {},
+      freeResponse
+    );
+    await flush();
+
+    expect(freeResponse).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ok: true,
+        op_id: 'fee-free',
+        resultB64: Buffer.from(
+          JSON.stringify({ ran: true, accountB64: Buffer.from([10, 20, 30]).toString('base64') })
+        ).toString('base64')
+      })
+    );
+    expect(G.__off.clientGetAccount).toHaveBeenCalledWith('fee-account');
+    expect(miden.isWasmClientBusy()).toBe(false);
   });
 
   it('bounds a syncState dispatch at the sync ceiling, and leaves the writes on the default (#777)', async () => {

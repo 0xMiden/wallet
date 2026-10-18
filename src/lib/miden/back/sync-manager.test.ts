@@ -12,6 +12,11 @@
 
 const mockIsExist = jest.fn();
 const mockGetCurrentAccountPublicKey = jest.fn();
+jest.mock('../transaction/claim-fee', () => ({
+  ...jest.requireActual('../transaction/claim-fee'),
+  readClaimFeeContext: jest.fn(jest.requireActual('../transaction/claim-fee').readClaimFeeContext)
+}));
+
 jest.mock('./vault', () => ({
   Vault: {
     isExist: (...args: unknown[]) => mockIsExist(...args),
@@ -2356,7 +2361,9 @@ describe('doSync - expired swap order settlement', () => {
 
   it('worker settlement refuses token-only payback and remainder and still settles a funded order', async () => {
     const undoRealQueue = useRealClaimQueue();
-    const feeContext = jest.spyOn(jest.requireActual('../transaction/claim-fee'), 'readClaimFeeContext');
+    const feeContext = jest.mocked(
+      jest.requireMock<typeof import('../transaction/claim-fee')>('../transaction/claim-fee').readClaimFeeContext
+    );
     feeContext.mockResolvedValue({ vaultFeeAsset: 0n, nativeAssetId: 'native-faucet', verificationBaseFee: 10000 });
     mockBaseFee = 10000;
     mockGetFaucetIdSetting.mockResolvedValue('native-faucet');
@@ -2403,7 +2410,8 @@ describe('doSync - expired swap order settlement', () => {
       expect(refusedOrder?.extraInputs).not.toHaveProperty('reclaimedAt');
       expect(feeContext).toHaveBeenCalledWith('pk-1');
     } finally {
-      feeContext.mockRestore();
+      feeContext.mockReset();
+      feeContext.mockImplementation(jest.requireActual('../transaction/claim-fee').readClaimFeeContext);
       undoRealQueue();
       mockGetMidenClient.mockImplementation(async () => mockClient);
       await Repo.transactions.clear();

@@ -17,8 +17,8 @@ import { assertWasmHoldCurrent, getCurrentWasmLockHold, withWasmClientLock } fro
 import type { WasmLockHold } from '../sdk/miden-client';
 import { isPipelineKillLink } from '../sdk/sdk-error-code';
 import { WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
+import { ClaimFeeRefusedError } from '../transaction/claim-fee';
 import {
-  ClaimFeeRefusedError,
   initiateConsumeNotesTransaction,
   initiatePswapReclaimTransaction,
   noteClaimCoverage

@@ -15,7 +15,7 @@ import {
 } from 'lib/miden/activity';
 import { ITransaction } from 'lib/miden/db/types';
 import { cancelSwapOrder } from 'lib/miden/swap/cancel-order';
-import { ClaimFeeRefusedError } from 'lib/miden/transaction/initiate';
+import { ClaimFeeRefusedError } from 'lib/miden/transaction/claim-fee';
 import { useConfirm } from 'lib/ui/dialog';
 import { navigate } from 'lib/woozie';
 
