@@ -1616,13 +1616,10 @@ const customSpendingLimitState = async (
     const details = await assessOutgoingSpendingLimitDetails({ accountId, spends: outgoing });
     return { totals: outgoing, details: details?.assessment.breach === undefined ? undefined : details };
   } catch (error) {
-    // A value the wallet cannot establish is the same answer as a value it cannot see: an
-    // untrusted page does not get to spend against a cap nobody can check. Converted at this
-    // boundary - not left to propagate for `dappSendFailure` to map downstream - so no internal
-    // error text can ever reach an untrusted page even if some future caller's catch does not
-    // route through that mapper; `spendingLimitRetryError` keeps the wording identical to the
-    // send path's own mapping of the same condition.
-    if (isSpendingLimitPriceUnavailable(error)) throw spendingLimitRetryError();
+    // An untrusted page cannot spend against a cap the wallet cannot value, so ordinary price
+    // failures become the same retry refusal as the send path at this boundary. A kill must
+    // keep its cause chain for the caller's mapper to return the kill link instead.
+    if (pipelineKillIn(error) === undefined && isSpendingLimitPriceUnavailable(error)) throw spendingLimitRetryError();
     throw error;
   }
 };
@@ -1656,6 +1653,8 @@ const assertDappSendStillAuthorized = async (
 };
 
 const dappSendFailure = (error: unknown): unknown => {
+  const kill = pipelineKillIn(error);
+  if (kill !== undefined) return kill;
   if (spendingLimitAssessmentFromError(error) !== undefined) {
     return spendingLimitRetryError();
   }
