@@ -12,6 +12,7 @@
 
 ### Fixes
 
+- [FIX][all] A transaction-failure crash report for an unknown submit outcome also says how long the submit took, as one of four fixed buckets, so a client-side request timeout can be told from a deadline the node returned (Sentry BREAD-WALLET-V and -X). Only the bucket is sent, never the duration in milliseconds, and the privacy policy lists every value.
 - [FIX][mobile] The in-app-browser provider exposes `createAccount()`, which rejects with the extension's explicit unsupported-operation error (#1543).
 - [FIX][all] A dApp that imported a details-only note file or a bare Note can list it with `requestPrivateNotes` by the id `importPrivateNote` returned for it: the List filter looks an id that is no note id up as the note's details commitment and lists that note, if this account can consume it, under its own note id (#1536).
 - [FIX][all] Guardian swaps and faucet lookups accept composite account ids with any routing suffix and hex faucet ids with either prefix case (#1384).
