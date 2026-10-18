@@ -156,6 +156,7 @@ const originalSdk = {
   SigningInputs: sdk.SigningInputs,
   SigningInputsType: sdk.SigningInputsType,
   TransactionRequest: sdk.TransactionRequest,
+  MidenClient: sdk.MidenClient,
   Note: sdk.Note,
   NoteFile: sdk.NoteFile
 };
@@ -370,6 +371,52 @@ describe('dApp custom-transaction approval shows the asset movement of the reque
       requestTransaction(DAPP_ORIGIN, customRequest('mtst1qqqqqqqqqqqqqqqqqqqqqqqqqqqsavings'), 'session-1')
     ).rejects.toBe(kill);
 
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+  });
+
+  it('waits for the SDK to load before decoding the request', async () => {
+    let loaded = false;
+    let finishLoading = (): void => undefined;
+    const loading = new Promise<void>(resolve => {
+      finishLoading = () => {
+        loaded = true;
+        resolve();
+      };
+    });
+    const ready = jest.fn(() => loading);
+    sdk.MidenClient = { ready };
+    // A cold realm cannot decode until the SDK has loaded.
+    const deserialize = jest.fn(() => {
+      if (!loaded) throw new Error('the SDK has not loaded');
+      return { expectedOutputOwnNotes: () => [] };
+    });
+    sdk.TransactionRequest = { deserialize };
+
+    const answer = requestTransaction(
+      DAPP_ORIGIN,
+      customRequest('mtst1qqqqqqqqqqqqqqqqqqqqqqqqqqqsavings'),
+      'session-1'
+    );
+    for (let i = 0; i < 10; i++) await new Promise(resolve => setTimeout(resolve, 0));
+    expect(ready).toHaveBeenCalled();
+    expect(deserialize).not.toHaveBeenCalled();
+
+    finishLoading();
+    await expect(answer).rejects.toThrow(DECLINED);
+    expect(mockRequestConfirmation).toHaveBeenCalledTimes(1);
+  });
+
+  it('answers a WASM startup failure with its own error, not INVALID_PARAMS', async () => {
+    const startupFailure = new Error('wasm failed to start');
+    sdk.MidenClient = { ready: () => Promise.reject(startupFailure) };
+    const deserialize = jest.fn(() => ({ expectedOutputOwnNotes: () => [] }));
+    sdk.TransactionRequest = { deserialize };
+
+    await expect(
+      requestTransaction(DAPP_ORIGIN, customRequest('mtst1qqqqqqqqqqqqqqqqqqqqqqqqqqqsavings'), 'session-1')
+    ).rejects.toBe(startupFailure);
+
+    expect(deserialize).not.toHaveBeenCalled();
     expect(mockRequestConfirmation).not.toHaveBeenCalled();
   });
 
