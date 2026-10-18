@@ -2063,9 +2063,10 @@ it("keeps a recovered swap row's recorded remainder when it derives the row agai
   const order = (await transactions.toArray()).find(row => row.recovery?.nonce === 2);
   if (!order?.recovery) throw new Error('Missing recovered order');
   const recoveredTip = { noteId: 'remainder-1', depth: 1, remainingOffered: 24n };
+  const recoveredCheckpoint = { noteId: 'remainder-17', depth: 17 };
   await transactions.put({
     ...order,
-    extraInputs: { ...order.extraInputs, recoveredTip },
+    extraInputs: { ...order.extraInputs, recoveredTip, recoveredCheckpoint },
     recovery: { ...order.recovery, version: GUARDIAN_HISTORY_VERSION - 1 }
   });
   await clearGuardianHistoryCheckpoints();
@@ -2076,6 +2077,7 @@ it("keeps a recovered swap row's recorded remainder when it derives the row agai
   const upgraded = await transactions.get(order.id);
   expect(upgraded?.recovery?.version).toBe(GUARDIAN_HISTORY_VERSION);
   expect(upgraded?.extraInputs?.recoveredTip).toEqual(recoveredTip);
+  expect(upgraded?.extraInputs?.recoveredCheckpoint).toEqual(recoveredCheckpoint);
   expect(upgraded && recoveredSwapOrderRef(upgraded)).toEqual(
     expect.objectContaining({ tipNoteId: 'remainder-1', tipDepth: 1, tipOfferedAmount: 24n })
   );

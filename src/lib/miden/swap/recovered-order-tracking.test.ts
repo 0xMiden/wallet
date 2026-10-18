@@ -1,6 +1,6 @@
 import { ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 
-import type { RecoveredSwapOrderRef } from './recovered-order';
+import { recoveredSwapOrderRef, type RecoveredSwapOrderRef } from './recovered-order';
 import { closeRecoveredSwapOrder, trackRecoveredSwapOrders } from './recovered-order-tracking';
 
 const mockEnsureSdkWasmReady = jest.fn(async () => undefined);
@@ -45,12 +45,14 @@ const consume = (status: ITransactionStatus, swapSettleKind: 'settle' | 'reclaim
 });
 
 // The row as Guardian recovery wrote it, still open.
-const openRecoveredRow = (extraInputs: Record<string, unknown> = {}): Row => ({
+const openRecoveredRow = (extraInputs: Record<string, unknown> = {}): ITransaction => ({
   id: 'swap-42',
   type: 'swap',
   accountId: 'account',
   status: ITransactionStatus.Completed,
   amount: 70n,
+  initiatedAt: 100,
+  displayIcon: 'SWAP',
   outputNoteIds: ['note-42'],
   restoredFromBackup: true,
   recovered: true,
@@ -155,6 +157,147 @@ describe('trackRecoveredSwapOrders', () => {
     expect(swapRow.extraInputs?.orderNoteSpentAt).toBeUndefined();
     expect(swapRow.extraInputs?.expiryTriggeredAt).toBe(150);
   });
+
+  it('records an unresolved checkpoint without publishing, then resumes there and records the open remainder', async () => {
+    const row = openRecoveredRow({ settledAt: 160 });
+    swapRow = row;
+    mockReadPswapOrderLineage.mockResolvedValueOnce({
+      kind: 'unresolved',
+      checkpoint: { noteId: 'remainder-16', depth: 16 }
+    });
+    const order = recoveredSwapOrderRef(row);
+    if (!order) throw new Error('Missing recovered order');
+
+    const first = await trackRecoveredSwapOrders([order]);
+
+    expect(first.size).toBe(0);
+    expect(modifyRecipes).toHaveLength(1);
+    expect(row.extraInputs).toEqual({
+      ...openRecoveredRow({ settledAt: 160 }).extraInputs,
+      recoveredCheckpoint: { noteId: 'remainder-16', depth: 16 }
+    });
+    const resumed = recoveredSwapOrderRef(row);
+    expect(resumed).toEqual(expect.objectContaining({ tipNoteId: 'note-42', tipDepth: 0, tipOfferedAmount: 70n }));
+    if (!resumed) throw new Error('The checkpoint closed the recovered order');
+    mockReadPswapOrderLineage.mockResolvedValueOnce(openLineage('remainder-20', 20, 10n, 3n));
+
+    const second = await trackRecoveredSwapOrders([resumed]);
+
+    expect(mockReadPswapOrderLineage).toHaveBeenLastCalledWith('note-42', '42', 'account', {
+      noteId: 'remainder-16',
+      depth: 16
+    });
+    expect(second.get('42')).toEqual({
+      kind: 'open',
+      tracking: { orderId: '42', state: 'active', currentDepth: 20, remainingOffered: 10n, remainingRequested: 3n }
+    });
+    expect(row.extraInputs?.recoveredTip).toEqual({ noteId: 'remainder-20', depth: 20, remainingOffered: 10n });
+    expect(row.extraInputs?.settledAt).toBeUndefined();
+  });
+
+  it.each([
+    [2, 16, 'checkpoint', 16],
+    [20, 16, 'remainder', 20]
+  ])(
+    'starts from the deeper position with remainder depth %s and checkpoint depth %s',
+    async (tip, checkpoint, noteId, depth) => {
+      const row = openRecoveredRow({
+        recoveredTip: { noteId: 'remainder', depth: tip, remainingOffered: 20n },
+        recoveredCheckpoint: { noteId: 'checkpoint', depth: checkpoint }
+      });
+      swapRow = row;
+      const order = recoveredSwapOrderRef(row);
+      if (!order) throw new Error('Missing recovered order');
+      mockReadPswapOrderLineage.mockResolvedValue({ kind: 'absent' });
+
+      await trackRecoveredSwapOrders([order]);
+
+      expect(mockReadPswapOrderLineage).toHaveBeenCalledWith('note-42', '42', 'account', { noteId, depth });
+      expect(order.tipNoteId).toBe('remainder');
+    }
+  );
+
+  it.each([
+    ['no note id', { depth: 16 }],
+    ['a non-string note id', { noteId: 42, depth: 16 }],
+    ['depth zero', { noteId: 'checkpoint', depth: 0 }],
+    ['negative depth', { noteId: 'checkpoint', depth: -1 }],
+    ['fractional depth', { noteId: 'checkpoint', depth: 16.5 }],
+    ['unsafe depth', { noteId: 'checkpoint', depth: Number.MAX_SAFE_INTEGER + 1 }]
+  ])(
+    'ignores a recorded checkpoint with %s and resumes at the validated remainder',
+    async (_label, recoveredCheckpoint) => {
+      const row = openRecoveredRow({
+        recoveredTip: { noteId: 'remainder-2', depth: 2, remainingOffered: 20n },
+        recoveredCheckpoint
+      });
+      swapRow = row;
+      const order = recoveredSwapOrderRef(row);
+      if (!order) throw new Error('Missing recovered order');
+      expect(order.checkpoint).toBeUndefined();
+      mockReadPswapOrderLineage.mockResolvedValue(openLineage('remainder-2', 2, 20n, 10n));
+
+      const results = await trackRecoveredSwapOrders([order]);
+
+      expect(mockReadPswapOrderLineage).toHaveBeenCalledWith('note-42', '42', 'account', {
+        noteId: 'remainder-2',
+        depth: 2
+      });
+      expect(results.get('42')).toEqual(expect.objectContaining({ kind: 'open' }));
+    }
+  );
+
+  it.each([16, 20])(
+    'declines an unresolved checkpoint at depth 16 when depth %s was recorded during the read',
+    async depth => {
+      swapRow = openRecoveredRow();
+      const recorded = { recoveredCheckpoint: { noteId: `recorded-${depth}`, depth }, settledAt: 160 };
+      mockReadPswapOrderLineage.mockImplementation(async () => {
+        swapRow = openRecoveredRow(recorded);
+        return { kind: 'unresolved', checkpoint: { noteId: 'remainder-16', depth: 16 } };
+      });
+
+      const results = await trackRecoveredSwapOrders([ref()]);
+
+      expect(results.size).toBe(0);
+      expect(modifyRecipes).toHaveLength(1);
+      expect(modifyRecipes[0]?.(openRecoveredRow(recorded))).toBe(false);
+      expect(swapRow.extraInputs).toEqual(openRecoveredRow(recorded).extraInputs);
+    }
+  );
+
+  it.each([0, 19])('keeps a deeper checkpoint and provisional stamp on an open read at depth %s', async depth => {
+    const recorded = { recoveredCheckpoint: { noteId: 'remainder-20', depth: 20 }, settledAt: 160 };
+    swapRow = openRecoveredRow(recorded);
+    mockReadPswapOrderLineage.mockResolvedValue(openLineage(`remainder-${depth}`, depth, 20n, 10n));
+
+    const results = await trackRecoveredSwapOrders([ref('42', { provisionalClosure: true })]);
+
+    expect(results.has('42')).toBe(false);
+    expect(modifyRecipes).toHaveLength(1);
+    expect(modifyRecipes[0]?.(openRecoveredRow(recorded))).toBe(false);
+    expect(swapRow.extraInputs).toEqual(openRecoveredRow(recorded).extraInputs);
+  });
+
+  it.each(['endpoint changed', 'lineage closed'])(
+    'declines an unresolved checkpoint once the %s while its read was in flight',
+    async reason => {
+      const row = openRecoveredRow();
+      swapRow = row;
+      mockReadPswapOrderLineage.mockImplementation(async () => {
+        if (reason === 'endpoint changed') mockRpcUrl = RPC_B;
+        else row.extraInputs = { ...row.extraInputs, lineageClosedAt: 160, settledAt: 160 };
+        return { kind: 'unresolved', checkpoint: { noteId: 'remainder-16', depth: 16 } };
+      });
+
+      const results = await trackRecoveredSwapOrders([ref()]);
+
+      expect(results.size).toBe(0);
+      expect(modifyRecipes).toHaveLength(1);
+      expect(row.extraInputs?.recoveredCheckpoint).toBeUndefined();
+      expect(modifyRecipes[0]?.(row)).toBe(false);
+    }
+  );
 
   it('writes nothing when the row already records that remainder', async () => {
     const recorded = { recoveredTip: { noteId: 'remainder-1', depth: 1, remainingOffered: 40n } };

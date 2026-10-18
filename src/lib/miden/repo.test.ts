@@ -568,6 +568,20 @@ describe('miden repo export/import', () => {
     expect(receipt.offerCancel).toBe(true);
   });
 
+  it('imports a recovered order without its recorded lineage checkpoint', async () => {
+    await transactions.bulkAdd([
+      recoveredOrderRow({ recoveredCheckpoint: { noteId: 'spent-remainder-16', depth: 16 } })
+    ]);
+    const backup = await exportDb();
+    await transactions.clear();
+
+    await importDb(backup);
+
+    const [restored] = await transactions.toArray();
+    expect(restored!.extraInputs?.recoveredCheckpoint).toBeUndefined();
+    expect(recoveredSwapOrderRef(restored!)).toEqual(expect.objectContaining({ tipNoteId: 'order-note', tipDepth: 0 }));
+  });
+
   // `lineageClosedAt` is what makes a recovered order's closure final, so a backup carrying it closed an order its node
   // may still hold open, with no read of the node (#1487).
   it('imports a recovered order without its lineage close record, tracked until its next read', async () => {

@@ -259,7 +259,8 @@ describe('readPswapOrderNote', () => {
 });
 
 describe('readPswapOrderLineage', () => {
-  const read = () => readPswapOrderLineage('order-note', '42', 'creator');
+  const read = (start?: { noteId: string; depth: number }) =>
+    readPswapOrderLineage('order-note', '42', 'creator', start);
 
   it('reads an unspent order note as the open order at depth 0', async () => {
     commit(pswapNote({ id: 'order-note' }), 120);
@@ -554,13 +555,104 @@ describe('readPswapOrderLineage', () => {
     expect(mockSyncNotes).toHaveBeenCalledWith(124, 125, [{ tagOf: 'order-note' }]);
   });
 
+  const placeLongLineage = (rounds: number) => {
+    commit(pswapNote({ id: 'order-note', amount: 1n }), 120);
+    for (let depth = 1; depth <= rounds; depth++) {
+      const parent = depth === 1 ? 'order-note' : `remainder-${depth - 1}`;
+      spentAt.set(parent, 120 + depth);
+      commit(remainder(`remainder-${depth}`, BigInt(depth), 1n, 30n - BigInt(depth)), 120 + depth);
+    }
+  };
+
+  it('resumes a 20-round lineage at its spent round-16 checkpoint and reads the open round-20 remainder', async () => {
+    placeLongLineage(20);
+
+    const first = await read();
+
+    expect(first).toEqual({ kind: 'unresolved', checkpoint: { noteId: 'remainder-16', depth: 16 } });
+    expect(mockGetNullifierCommitHeight).toHaveBeenCalledTimes(17);
+    expect(mockSyncNotes).toHaveBeenCalledTimes(16);
+    if (first.kind !== 'unresolved') throw new Error('Missing lineage checkpoint');
+    mockGetNullifierCommitHeight.mockClear();
+    mockSyncNotes.mockClear();
+
+    await expect(read(first.checkpoint)).resolves.toEqual({
+      kind: 'open',
+      noteId: 'remainder-20',
+      depth: 20,
+      offeredAmount: 1n,
+      requestedAmount: 10n
+    });
+    expect(mockGetNullifierCommitHeight).toHaveBeenNthCalledWith(1, { nullifierOf: 'remainder-16' }, 136);
+    expect(mockGetNullifierCommitHeight).toHaveBeenCalledTimes(5);
+    expect(mockSyncNotes).toHaveBeenCalledTimes(4);
+  });
+
+  it('counts the 16-round bound from a validated start rather than the order note', async () => {
+    placeLongLineage(20);
+
+    await expect(read({ noteId: 'remainder-2', depth: 2 })).resolves.toEqual({
+      kind: 'unresolved',
+      checkpoint: { noteId: 'remainder-18', depth: 18 }
+    });
+    expect(mockSyncNotes).toHaveBeenCalledTimes(16);
+    expect(mockGetNullifierCommitHeight).toHaveBeenNthCalledWith(1, { nullifierOf: 'remainder-2' }, 122);
+    expect(mockGetNullifierCommitHeight).toHaveBeenLastCalledWith({ nullifierOf: 'remainder-18' }, 138);
+  });
+
+  it.each([
+    ['another note id', remainder('different-id', 16n, 70n, 14n), 16],
+    ['another order', remainder('start', 16n, 70n, 14n, { serial: [1n, 99n, 3n, 23n] }), 16],
+    ['another serial', remainder('start', 16n, 70n, 14n, { serial: [2n, 42n, 3n, 23n] }), 16],
+    ['another creator', remainder('start', 16n, 70n, 14n, { storage: [11n, 12n, 14n, 0n, 1n, 77n, 66n] }), 16],
+    ['another script', remainder('start', 16n, 70n, 14n, { root: 'p2id-root' }), 16],
+    ['another requested token', remainder('start', 16n, 70n, 14n, { storage: [13n, 12n, 14n, 0n, 1n, 55n, 66n] }), 16],
+    ['another offered token', remainder('start', 16n, 70n, 14n, { faucet: 'elsewhere' }), 16],
+    ['another fill floor', remainder('start', 16n, 70n, 14n, { storage: [11n, 12n, 14n, 1n, 1n, 55n, 66n] }), 16],
+    ['another payback type', remainder('start', 16n, 70n, 14n, { storage: [11n, 12n, 14n, 0n, 2n, 55n, 66n] }), 16],
+    ['a mismatched depth', remainder('start', 16n, 70n, 14n), 15],
+    ['an unsafe depth', remainder('start', 16n, 70n, 14n), Number.MAX_SAFE_INTEGER + 1],
+    ['no public body', undefined, 16]
+  ])('ignores a start with %s and begins at the order note', async (_label, startNote, depth) => {
+    placeLongLineage(20);
+    chain.set('start', { note: startNote, block: 100 });
+
+    await expect(read({ noteId: 'start', depth })).resolves.toEqual({
+      kind: 'unresolved',
+      checkpoint: { noteId: 'remainder-16', depth: 16 }
+    });
+    expect(mockGetNullifierCommitHeight).toHaveBeenNthCalledWith(1, { nullifierOf: 'order-note' }, 120);
+    expect(mockGetNullifierCommitHeight).not.toHaveBeenCalledWith({ nullifierOf: 'start' }, 100);
+    await expect(read({ noteId: 'remainder-16', depth: 16 })).resolves.toEqual({
+      kind: 'open',
+      noteId: 'remainder-20',
+      depth: 20,
+      offeredAmount: 1n,
+      requestedAmount: 10n
+    });
+  });
+
+  it('leaves a jump beyond the resumed read bound unresolved without advancing the checkpoint', async () => {
+    commit(pswapNote({ id: 'order-note', amount: 1n }), 120);
+    commit(remainder('remainder-2', 2n, 1n, 28n), 122);
+    spentAt.set('remainder-2', 125);
+    commit(remainder('remainder-19', 19n, 1n, 11n), 125);
+
+    await expect(read({ noteId: 'remainder-2', depth: 2 })).resolves.toEqual({
+      kind: 'unresolved',
+      checkpoint: { noteId: 'remainder-2', depth: 2 }
+    });
+    expect(mockSyncNotes).toHaveBeenCalledTimes(1);
+  });
+
   // The depth is the serial round over the order note's, and one read follows at most 16 of them.
   it('leaves an order deeper than one read follows unresolved', async () => {
     commit(pswapNote({ id: 'order-note' }), 120);
     spentAt.set('order-note', 125);
     commit(remainder('remainder-17', 17n, 12n, 5n), 125);
 
-    await expect(read()).rejects.toThrow();
+    await expect(read()).resolves.toEqual({ kind: 'unresolved', checkpoint: { noteId: 'order-note', depth: 0 } });
+    expect(mockSyncNotes).toHaveBeenCalledTimes(1);
   });
 
   it.each([
