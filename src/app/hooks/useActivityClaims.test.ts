@@ -55,10 +55,9 @@ const mockClaim = {
 jest.mock('./useClaimNotes', () => ({
   useClaimNotes: () => {
     const { useMemo } = jest.requireActual<typeof import('react')>('react');
-    const safeClaimableNotes = useMemo(
-      () => mockClaim.safeClaimableNotes.filter(note => note != null),
-      [mockClaim.safeClaimableNotes]
-    );
+    // Each consumer derives its own array from the shared source, as the real hook's filter does.
+    const source = mockClaim.safeClaimableNotes;
+    const safeClaimableNotes = useMemo(() => source.filter(note => note != null), [source]);
     return { ...mockClaim, safeClaimableNotes };
   }
 }));
