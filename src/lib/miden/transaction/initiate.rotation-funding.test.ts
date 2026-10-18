@@ -13,6 +13,7 @@ import { ConsumableNote } from '../types';
 let mockNativeFaucetId: string | null = 'native-faucet';
 let mockLegacyFeeIdentity: string | undefined;
 let mockNativeIdentityError: Error | undefined;
+let mockFeeContextBaseFee: number | null = null;
 jest.mock('lib/miden/assets/faucet-id-setting', () => ({
   getFaucetIdSetting: async () => mockLegacyFeeIdentity ?? (mockNativeIdentityError ? null : mockNativeFaucetId)
 }));
@@ -20,7 +21,8 @@ jest.mock('lib/miden-chain/native-asset', () => ({
   getNativeAssetId: async () => {
     if (mockNativeIdentityError) throw mockNativeIdentityError;
     return mockNativeFaucetId;
-  }
+  },
+  getVerificationBaseFee: async () => mockFeeContextBaseFee
 }));
 
 jest.mock('lib/miden/front/guardian-manager', () => ({
@@ -33,7 +35,9 @@ jest.mock('lib/miden-chain/effective-endpoints', () => ({
   isNoteTransportConfigured: () => false,
   getEffectiveNetworkName: () => 'testnet'
 }));
-jest.mock('../back/miden-client-proxy', () => ({ midenClientProxy: {} }));
+jest.mock('../back/miden-client-proxy', () => ({
+  midenClientProxy: { getAccount: async () => ({ vault: () => ({ fungibleAssets: () => [] }) }) }
+}));
 jest.mock('../activity/notes', () => ({ queueNoteImport: jest.fn() }));
 
 const ACCOUNT = 'mtst1account';
@@ -68,10 +72,24 @@ const failedRow = async (noteIds: string[], secondsAgo: number, flagged: boolean
 beforeEach(async () => {
   mockNativeFaucetId = 'native-faucet';
   mockNativeIdentityError = undefined;
+  mockFeeContextBaseFee = null;
   await Repo.transactions.clear();
 });
 
 describe('initiateRotationFundingClaim', () => {
+  it('rotation funding uses the fee gate without bypassing its native-only guard', async () => {
+    mockFeeContextBaseFee = 10000;
+    const native9999 = { ...note('native9999'), amount: '9999', carriesMoreAssets: false };
+    const native10000 = { ...note('native10000'), amount: '10000', carriesMoreAssets: false };
+    const foreign = { ...note('foreign', 'foreign-faucet'), carriesMoreAssets: false };
+    await expect(initiateRotationFundingClaim(ACCOUNT, [native9999])).rejects.toMatchObject({
+      name: 'ClaimFeeRefusedError'
+    });
+    expect(await consumeRows()).toEqual([]);
+    await expect(initiateRotationFundingClaim(ACCOUNT, [native10000])).resolves.toEqual(expect.any(String));
+    await expect(initiateRotationFundingClaim(ACCOUNT, [foreign])).rejects.toThrow('not the native asset');
+  });
+
   it('fee identity: queues actual native rotation funding with a different legacy display override', async () => {
     mockLegacyFeeIdentity = 'legacy-B';
     const id = await initiateRotationFundingClaim(ACCOUNT, [note('actual-note')]);

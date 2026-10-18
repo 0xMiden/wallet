@@ -131,6 +131,7 @@ jest.mock('../sdk/miden-client', () => ({
       if (swLockHold === hold) swLockHold = null;
     }
   },
+  tryWithWasmClientLock: async () => ({ ran: false }),
   getCurrentWasmLockHold: () => swLockHold,
   // The swap classification re-checks its hold per lineage read, the way production does.
   assertWasmHoldCurrent: (hold: object, where: string, step?: string): void => {
@@ -1166,7 +1167,7 @@ describe('doSync — note metadata branches', () => {
     ]);
   });
 
-  it('carries whether each note holds more assets than the one it lists', async () => {
+  it('worker single-asset notes preserve explicit asset knowledge', async () => {
     mockClient.getConsumableNoteDtos.mockResolvedValueOnce([
       {
         ...fakeNote({ id: 'multi' }),
@@ -1181,8 +1182,10 @@ describe('doSync — note metadata branches', () => {
     const written: SyncData = mockStorageSet.mock.calls.at(-1)?.[0]?.miden_sync_data;
     expect(written.notes.map(note => [note.id, note.carriesMoreAssets])).toEqual([
       ['multi', true],
-      ['single', undefined]
+      ['single', false]
     ]);
+    expect(written.notes.find(note => note.id === 'single')).toMatchObject({ carriesMoreAssets: false });
+    expect(written.notes.find(note => note.id === 'multi')).toMatchObject({ carriesMoreAssets: true });
   });
 
   it('stamps each sync it writes, so readers can tell a live result from an old snapshot', async () => {
