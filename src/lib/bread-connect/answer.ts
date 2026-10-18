@@ -21,7 +21,7 @@ import {
   type WalletSession
 } from '@miden-sdk/bread-connect';
 import { MidenDAppErrorType, MidenDAppMessageType, type MidenDAppRequest } from 'lib/adapter/types';
-import { processDApp } from 'lib/miden/back/actions';
+import { DAppQueueDeadlineError, processDApp } from 'lib/miden/back/actions';
 import { ITransactionStatus } from 'lib/miden/db/types';
 import { getTransactionById } from 'lib/miden/transaction/get';
 
@@ -74,6 +74,7 @@ const INTERNAL = problem('INTERNAL_ERROR', 'Bread could not complete the request
 const TOO_LONG = problem('INTERNAL_ERROR', "Bread's answer is longer than a link carries");
 const OUTCOME_TOO_LONG = problem('TRANSACTION_TIMEOUT', "The transaction's outcome is longer than a link carries");
 const OUTCOME_UNKNOWN = problem('TRANSACTION_TIMEOUT', "Bread could not learn the transaction's outcome");
+const QUEUED_TOO_LONG = problem('REQUEST_EXPIRED', 'The request waited too long behind other requests in Bread');
 
 function refusal(error: unknown): ProtocolError {
   const code = error instanceof Error ? error.message : '';
@@ -157,11 +158,12 @@ async function request(
   }
   let response: DAppMessage;
   try {
-    const answered = await processDApp(session.origin, request as unknown as MidenDAppRequest);
+    const startBy = opened.sentAt + REQUEST_MAX_AGE_MS;
+    const answered = await processDApp(session.origin, request as unknown as MidenDAppRequest, undefined, startBy);
     if (!answered) return reply({ error: INTERNAL });
     response = answered as unknown as DAppMessage;
   } catch (error) {
-    return reply({ error: refusal(error) });
+    return reply({ error: error instanceof DAppQueueDeadlineError ? QUEUED_TOO_LONG : refusal(error) });
   }
   if (!TRANSACTIONS.has(request.type)) return reply({ response });
   const transactionId = response.transactionId;

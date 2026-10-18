@@ -1,6 +1,7 @@
 /* eslint-disable import/first */
 const mockProcessDApp = jest.fn();
 jest.mock('lib/miden/back/actions', () => ({
+  DAppQueueDeadlineError: class DAppQueueDeadlineError extends Error {},
   processDApp: (...args: unknown[]) => mockProcessDApp(...args)
 }));
 
@@ -34,12 +35,14 @@ import {
   MAX_MESSAGE_LENGTH,
   readLink,
   readResponse,
+  REQUEST_MAX_AGE_MS,
   type RequestAnswer,
   sendRequest,
   SESSION_IDLE_MS,
   startConnect,
   toBase64Url
 } from '@miden-sdk/bread-connect';
+import { DAppQueueDeadlineError } from 'lib/miden/back/actions';
 import { ITransactionStatus } from 'lib/miden/db/types';
 
 import { answerRequestLink, type BreadConnectAnswer } from './answer';
@@ -193,7 +196,7 @@ describe('a request link', () => {
 
     const answer = await answerRequestLink(link, { now: NOW });
 
-    expect(mockProcessDApp).toHaveBeenCalledWith(ORIGIN, SIGN_REQUEST);
+    expect(mockProcessDApp).toHaveBeenCalledWith(ORIGIN, SIGN_REQUEST, undefined, NOW + REQUEST_MAX_AGE_MS);
     expect(answer?.callback).toBe(CALLBACK);
     expect(answer?.sentTransaction).toBeUndefined();
     expect(requestAnswer(answer!, session)).toEqual({ response: { type: 'SIGN_RESPONSE', signature: 'c2ln' } });
@@ -372,6 +375,19 @@ describe('a request link', () => {
     expect(mockProcessDApp).not.toHaveBeenCalled();
     expect(requestAnswer(answer!, session)).toEqual({
       error: { code: 'REQUEST_EXPIRED', message: 'The request is too old, or from a clock far ahead' }
+    });
+  });
+
+  it("refuses a request whose turn in Bread's queue comes after its age limit", async () => {
+    const session = await connected();
+    const sentAt = NOW - 60 * 1000;
+    mockProcessDApp.mockRejectedValueOnce(new DAppQueueDeadlineError('late'));
+
+    const answer = await answerRequestLink(sendRequest(session, SIGN_REQUEST, sentAt).link, { now: NOW });
+
+    expect(mockProcessDApp).toHaveBeenCalledWith(ORIGIN, SIGN_REQUEST, undefined, sentAt + REQUEST_MAX_AGE_MS);
+    expect(requestAnswer(answer!, session)).toEqual({
+      error: { code: 'REQUEST_EXPIRED', message: 'The request waited too long behind other requests in Bread' }
     });
   });
 
