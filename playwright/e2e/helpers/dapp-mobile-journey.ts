@@ -98,6 +98,7 @@ const PRESENTATION_MS = 35_000;
 const FUND_CLAIM_MS = 240_000;
 const FUND_SETTLE_MS = 120_000;
 const RECIPIENT_SETTLE_MS = 60_000;
+const RECIPIENT_JOIN_MARGIN_MS = 1_000;
 const RESTORE_STEP_MS = 30_000;
 /** Cells that pay B: after one that ran clean, a transfer still pending at B is a payment no write accounted for. */
 const PAYS_B = new Set(['W1', 'X1']);
@@ -629,7 +630,9 @@ async function quiesce(
 ): Promise<void> {
   const claim = j.recipientClaim;
   if (claim !== undefined) {
-    await beforeDeadline(deadline, "wallet B's previous claim", () =>
+    // Keep the named join failure ahead of the runner's outer quiesce timeout.
+    const joinDeadline = deadlineIn(Math.max(0, deadline.remainingMs() - RECIPIENT_JOIN_MARGIN_MS), deadline.label);
+    await beforeDeadline(joinDeadline, "wallet B's previous claim", () =>
       claim.promise.catch((error: unknown) => {
         j.runner.recordRecipientClaimFailure(claim.cellId, error);
         // eslint-disable-next-line no-console

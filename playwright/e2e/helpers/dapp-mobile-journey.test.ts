@@ -622,8 +622,15 @@ describe('mobile journey hooks and setup', () => {
   it('blocks the leg when the raw claim cannot join within the next quiesce budget', async () => {
     const { journey, runner, raw, claim } = await pendingRecipientClaim(20_000);
     const run = jest.fn(async () => undefined);
-    const next = runner.run({ id: 'W4', budget: 'read', run });
-    await jest.advanceTimersByTimeAsync(20_000);
+    let finished = false;
+    const next = runner.run({ id: 'W4', budget: 'read', run }).then(record => {
+      finished = true;
+      return record;
+    });
+    await jest.advanceTimersByTimeAsync(18_999);
+    expect(finished).toBe(false);
+    await jest.advanceTimersByTimeAsync(1);
+    expect(finished).toBe(true);
     const record = await next;
     expect(record.verdict).toBe('blocked-state');
     expect(record.error).toContain("wallet B's previous claim");
