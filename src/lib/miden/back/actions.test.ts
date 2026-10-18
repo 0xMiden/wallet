@@ -2329,6 +2329,27 @@ describe('actions', () => {
       expect(requestLoginSign).toHaveBeenCalledTimes(1);
     });
 
+    it("leaves a login signature's word out of the debug dump", async () => {
+      const { dappDebug, requestLoginSign } = jest.requireMock('./dapp');
+      dappDebug.mockClear();
+      requestLoginSign.mockReset().mockResolvedValueOnce({ signature: 'login-signature' });
+      const signInReq = {
+        type: MidenDAppMessageType.LoginSignRequest,
+        sourceAccountId: 'acc',
+        payload: 'word-to-sign',
+        kind: 'word'
+      };
+
+      await processDApp('https://example.com', signInReq as any);
+      expect(dappDebug).toHaveBeenCalledWith(
+        '[processDApp] Full request:',
+        JSON.stringify({ ...signInReq, payload: '[redacted]' })
+      );
+      expect(JSON.stringify(dappDebug.mock.calls)).not.toContain('word-to-sign');
+      // The handler still gets the word.
+      expect(requestLoginSign).toHaveBeenCalledWith('https://example.com', signInReq, undefined);
+    });
+
     // The Settings toggle used to be enforced only in the extension's PageRequest
     // arm; mobile and desktop call processDApp directly, so it was inert there.
     it('refuses every request when the DApps Interaction switch is off', async () => {

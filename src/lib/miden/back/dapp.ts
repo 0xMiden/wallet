@@ -910,15 +910,17 @@ const generatePromisifyLoginSign = async (
     return;
   }
 
-  // The popup unlocks a locked wallet and then shows the approval, so only an unlocked wallet has its root key checked
-  // before the popup; a locked one without it is refused the same way when the approval signs.
-  if ((await prepareOrReject(checkRootKey, error => reject(loginKeyFailure(error)))) === undefined) return;
+  // A locked wallet's popup builds its payload once unlocked, so the root key is checked before the approval shows
+  // either way: before the popup while unlocked, and after the popup's unlock while locked.
+  const prepared = await prepareOrReject(checkRootKey, error => reject(loginKeyFailure(error)));
+  if (prepared === undefined) return;
+  const sheet = sheetFor(prepared, origin, req.sourceAccountId, dApp.accountId, checkRootKey);
   const id = nanoid();
-  await requestConfirm({
+  await requestConfirmFor(origin, sheet, error => reject(loginKeyFailure(error)), {
     id,
-    payload: { type: 'loginSign', origin, networkRpc, appMeta: dApp.appMeta, domain, accountId: dApp.accountId },
-    onDecline: () => {
-      reject(new Error(MidenDAppErrorType.NotGranted));
+    payload: async () => {
+      await sheet.data();
+      return { type: 'loginSign', origin, networkRpc, appMeta: dApp.appMeta, domain, accountId: dApp.accountId };
     },
     handleIntercomRequest: async (confirmReq, decline) => {
       if (confirmReq?.type !== MidenMessageType.DAppSignConfirmationRequest || confirmReq.id !== id) {
@@ -968,12 +970,13 @@ function isLoginWord(payload: unknown): boolean {
   }
 }
 
-// A device without the account's root key is refused with LOGIN_KEY_UNAVAILABLE leading the message, so a page can
-// tell it from a malformed request.
+const hasDAppErrorCode = (message: string): boolean =>
+  Object.values(MidenDAppErrorType).some(code => message === code || message.startsWith(`${code}:`));
+
+// A refusal already in the dApp's terms keeps its message, so its code leads it once: LOGIN_KEY_UNAVAILABLE stays
+// apart from a malformed request, and the vault's own INVALID_PARAMS is not wrapped in another.
 const loginKeyFailure = (error: unknown): Error =>
-  error instanceof Error && error.message.startsWith(`${MidenDAppErrorType.LoginKeyUnavailable}:`)
-    ? error
-    : dappRequestFailure(error);
+  error instanceof Error && hasDAppErrorCode(error.message) ? error : dappRequestFailure(error);
 
 export async function requestPrivateNotes(
   origin: string,
@@ -1369,24 +1372,29 @@ export async function requestLoginKey(
 ): Promise<MidenDAppLoginKeyResponse> {
   const { dApp, domain } = await loginKeySession(origin, req?.sourceAccountId);
   const prepare = sessionLoginKey(dApp, domain);
-  const prepared = await runPrepare(prepare);
-  if (!prepared.locked) {
-    return { type: MidenDAppMessageType.LoginKeyResponse, loginKey: prepared.value };
+  // Mapped at this boundary, not in `prepare`: `runPrepare` must still see a lock as one.
+  try {
+    const prepared = await runPrepare(prepare);
+    if (!prepared.locked) {
+      return { type: MidenDAppMessageType.LoginKeyResponse, loginKey: prepared.value };
+    }
+    if (!isExtension()) {
+      const loginKey = await prepareAfterUnlock(origin, req.sourceAccountId, dApp.accountId, prepare);
+      return { type: MidenDAppMessageType.LoginKeyResponse, loginKey };
+    }
+    return await new Promise<MidenDAppLoginKeyResponse>((resolve, reject) => {
+      requestUnlockOnly(
+        origin,
+        dApp,
+        req.sourceAccountId,
+        prepare,
+        loginKey => resolve({ type: MidenDAppMessageType.LoginKeyResponse, loginKey }),
+        reject
+      ).catch(reject);
+    });
+  } catch (error) {
+    throw loginKeyFailure(error);
   }
-  if (!isExtension()) {
-    const loginKey = await prepareAfterUnlock(origin, req.sourceAccountId, dApp.accountId, prepare);
-    return { type: MidenDAppMessageType.LoginKeyResponse, loginKey };
-  }
-  return new Promise<MidenDAppLoginKeyResponse>((resolve, reject) => {
-    requestUnlockOnly(
-      origin,
-      dApp,
-      req.sourceAccountId,
-      prepare,
-      loginKey => resolve({ type: MidenDAppMessageType.LoginKeyResponse, loginKey }),
-      reject
-    ).catch(reject);
-  });
 }
 
 export async function requestImportPrivateNote(

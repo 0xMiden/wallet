@@ -374,6 +374,30 @@ describe('both login key messages', () => {
     expect(mockRequestConfirmation).not.toHaveBeenCalled();
   });
 
+  it("refuses a page whose session is stored for another origin of the page's domain", async () => {
+    // Keys are per domain, but sessions are per origin.
+    connect('https://example.org');
+    await expect(dapp.requestLoginKey(ORIGIN, keyRequest())).rejects.toThrow(new Error(MidenDAppErrorType.NotGranted));
+    await expect(dapp.requestLoginSign(ORIGIN, signRequest())).rejects.toThrow(
+      new Error(MidenDAppErrorType.NotGranted)
+    );
+    expect(mockWithUnlocked).not.toHaveBeenCalled();
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+    expect(mockSignWithLoginKey).not.toHaveBeenCalled();
+  });
+
+  it('words a vault failure the same for both messages', async () => {
+    mockLoginKeyCommitment.mockRejectedValue(new Error('Failed to derive the login key'));
+    const failure = `${MidenDAppErrorType.InvalidParams}: Error: Failed to derive the login key`;
+    for (const extension of [false, true]) {
+      mockIsExtension = extension;
+      await expect(dapp.requestLoginKey(ORIGIN, keyRequest())).rejects.toThrow(new Error(failure));
+      await expect(dapp.requestLoginSign(ORIGIN, signRequest())).rejects.toThrow(new Error(failure));
+    }
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+    expect(extensionBrowser.windows.create).not.toHaveBeenCalled();
+  });
+
   it('refuses a page that is not https', async () => {
     connect('http://example.org');
     await expect(dapp.requestLoginKey('http://example.org', keyRequest())).rejects.toThrow(new Error(NOT_HTTPS));
@@ -553,15 +577,33 @@ describe('requestLoginSign', () => {
     expect(mockSignWithLoginKey).toHaveBeenCalledWith(ACCOUNT, SESSION_KEY, DOMAIN, WORD);
   });
 
-  it('keeps the LOGIN_KEY_UNAVAILABLE code when a locked extension finds no root key on approval', async () => {
+  it('refuses a locked extension without the root key after the unlock, before any approval', async () => {
     mockIsExtension = true;
     lockWallet();
-    mockSignWithLoginKey.mockRejectedValue(new Error(UNAVAILABLE));
+    mockLoginKeyCommitment.mockRejectedValue(new Error(UNAVAILABLE));
     const popup = await openPopup(() => dapp.requestLoginSign(ORIGIN, signRequest()));
+    expect(mockLoginKeyCommitment).not.toHaveBeenCalled();
     unlockWallet();
+    // The popup asks for its approval once unlocked: the root check refuses instead of serving one.
+    await expect(settle(popup.getPayload())).resolves.toEqual({ ok: false, message: UNAVAILABLE });
+    await expect(popup.outcome).resolves.toEqual({ ok: false, message: UNAVAILABLE });
+    expect(mockLoginKeyCommitment).toHaveBeenCalledWith(ACCOUNT, SESSION_KEY, DOMAIN);
+    expect(mockIntercomListeners).toHaveLength(0);
+    expect(mockSignWithLoginKey).not.toHaveBeenCalled();
+  });
+
+  it("passes the vault's refusal of a word on with its code once", async () => {
+    // 32 bytes, but no field elements: the check before the prompt passes them, and the vault refuses them.
+    const notFieldElements = signRequest({ payload: u8ToB64(new Uint8Array(32).fill(255)) });
+    const refusal = `${MidenDAppErrorType.InvalidParams}: not a word to sign`;
+    mockSignWithLoginKey.mockRejectedValue(new Error(refusal));
+    await expect(dapp.requestLoginSign(ORIGIN, notFieldElements)).rejects.toThrow(new Error(refusal));
+
+    mockIsExtension = true;
+    const popup = await openPopup(() => dapp.requestLoginSign(ORIGIN, notFieldElements));
     await popup.getPayload();
     await popup.decide(MidenMessageType.DAppSignConfirmationRequest, { confirmed: true });
-    await expect(popup.outcome).resolves.toEqual({ ok: false, message: UNAVAILABLE });
+    await expect(popup.outcome).resolves.toEqual({ ok: false, message: refusal });
   });
 
   it('refuses an approval once the page has been disconnected', async () => {

@@ -1017,8 +1017,10 @@ export async function processDApp(
   }
   // This dumps the full request payload (addresses, amounts, note ids,
   // transaction payload). Gated behind DEBUG_DAPP_BRIDGE so release
-  // builds don't leak transaction data to os_log / logcat.
-  dappDebug('[processDApp] Full request:', JSON.stringify(req));
+  // builds don't leak transaction data to os_log / logcat. A login
+  // signature's word is left out even then.
+  const dumped = req?.type === MidenDAppMessageType.LoginSignRequest ? { ...req, payload: '[redacted]' } : req;
+  dappDebug('[processDApp] Full request:', JSON.stringify(dumped));
   switch (req?.type) {
     case MidenDAppMessageType.GetCurrentPermissionRequest:
       return withInited(() => getCurrentPermission(origin));
