@@ -86,7 +86,8 @@ final class BreadAuthTests: XCTestCase {
 
     func testValidationRejectsUrlsOutsideThePageOrigin() {
         let urls: [Any?] = [nil, NSNumber(value: 42), "", "/auth", "//game.example/auth", "http://game.example/auth",
-                            "https://other.example/auth", "https://game.example:444/auth", "https://user@game.example/auth",
+                            "HTTPS://game.example/auth", "https://other.example/auth", "https://g%61me.example/auth",
+                            "https://game.example:444/auth", "https://user@game.example/auth",
                             "https://other.example\\@game.example/auth", "https://game.example/a b",
                             "https://g\u{E4}me.example/auth", longURL(length: 4097)]
         for url in urls {
@@ -245,14 +246,29 @@ final class BreadAuthTests: XCTestCase {
         XCTAssertNotNil(BreadAuthController.state.openTicket)
     }
 
-    func testHiddenOrInactiveBrowserIsUnavailable() async throws {
+    func testUrlIsCheckedBeforeBusyAndBusyBeforePresentability() {
+        let first = presentable()
+        let second = BreadAuthController(owner: WKWebViewController())
+        second.canPresent = { false }
+        let firstLog = ReplyLog()
+        let log = ReplyLog()
+        openSheet(first, firstLog)
+        second.handle(body: ["url": "https://other.test/auth"], mainFrame: true, page: page, reply: log.record)
+        openSheet(second, log)
+        XCTAssertEqual(log.entries.map { $0.error }, ["AUTH_INVALID_URL", "AUTH_BUSY"])
+        XCTAssertEqual(sessions.count, 1)
+        XCTAssertTrue(firstLog.entries.isEmpty)
+    }
+
+    func testBrowserWithoutAVisibleWindowIsUnavailable() async throws {
         let owner = WKWebViewController()
         let auth = BreadAuthController(owner: owner)
+        XCTAssertNil(owner.viewIfLoaded)
         XCTAssertFalse(auth.canPresent())
         let window = try await show(owner)
         defer { InAppBrowserPlugin.releaseContainerWindow(window) }
-        XCTAssertEqual(auth.canPresent(), UIApplication.shared.applicationState == .active)
         window.isHidden = true
+        XCTAssertTrue(owner.viewIfLoaded?.window === window)
         XCTAssertFalse(auth.canPresent())
         let log = ReplyLog()
         openSheet(auth, log)
@@ -265,7 +281,6 @@ final class BreadAuthTests: XCTestCase {
 
     func testCleanupCancelsTheSessionAndRepliesOnce() async throws {
         let owner = breadBrowser()
-        owner.initWebview()
         let auth = try XCTUnwrap(owner.breadAuth)
         auth.canPresent = { true }
         let log = ReplyLog()
@@ -318,11 +333,14 @@ final class BreadAuthTests: XCTestCase {
         WebViewRegistry.shared.register(instance)
         defer { plugin.closeInstance(id: id, animated: false) }
         let webView = try XCTUnwrap(controller.view.subviews.first { $0 is WKWebView } as? WKWebView)
+        // The controller's own first load is deferred to the main queue and would replace the fixture.
+        await drainMainQueue()
         webView.loadHTMLString("<html><body>Auth fixture</body></html>", baseURL: URL(string: "https://example.test"))
-        for _ in 0..<100 {
-            if !webView.isLoading, (try? await webView.evaluateJavaScript("window.__breadPresentationToken")) as? String == "current" { break }
-            try await Task.sleep(nanoseconds: 20_000_000)
+        let loaded = try await eventually {
+            guard !webView.isLoading else { return false }
+            return (try? await webView.evaluateJavaScript("location.origin === 'https://example.test' && window.__breadPresentationToken === 'current'")) as? Bool == true
         }
+        XCTAssertTrue(loaded)
         let post = "try { await window.webkit.messageHandlers.breadAuth.postMessage({ url }); return 'resolved'; } catch (error) { return error.message; }"
         let foreign = try await webView.callAsyncJavaScript(post, arguments: ["url": "https://other.test/"], in: nil, contentWorld: .page) as? String
         XCTAssertEqual(foreign, "AUTH_INVALID_URL")
@@ -337,6 +355,29 @@ final class BreadAuthTests: XCTestCase {
             return framed?.isEmpty == false
         }
         XCTAssertEqual(framed, "AUTH_NOT_MAIN_FRAME")
+        controller.breadAuth?.canPresent = { true }
+        let start = "window.__authResult = null; window.webkit.messageHandlers.breadAuth.postMessage({ url }).then((r) => { window.__authResult = r; }, (error) => { window.__authResult = { error: error.message }; }); return true;"
+        _ = try await webView.callAsyncJavaScript(start, arguments: ["url": "https://example.test/auth"], in: nil, contentWorld: .page)
+        let opened = try await eventually { self.sessions.count == 1 }
+        XCTAssertTrue(opened)
+        let cancelSession = try XCTUnwrap(sessions.last)
+        await respond(cancelSession, error: ASWebAuthenticationSessionError(.canceledLogin))
+        let cancelled = try await eventually {
+            (try? await webView.callAsyncJavaScript("const r = window.__authResult; return !!r && r.cancelled === true && typeof r.cancelled === 'boolean';",
+                                                   in: nil, contentWorld: .page)) as? Bool == true
+        }
+        XCTAssertTrue(cancelled)
+        _ = try await webView.callAsyncJavaScript(start, arguments: ["url": "https://example.test/auth"], in: nil, contentWorld: .page)
+        let reopened = try await eventually { self.sessions.count == 2 }
+        XCTAssertTrue(reopened)
+        let callbackSession = try XCTUnwrap(sessions.last)
+        let callback = "com.miden.wallet.auth://callback?login=a%2Fb&x=1"
+        await respond(callbackSession, callback: callback)
+        let resolved = try await eventually {
+            (try? await webView.callAsyncJavaScript("const r = window.__authResult; return !!r && typeof r.url === 'string' && r.url === expected;",
+                                                   arguments: ["expected": callback], in: nil, contentWorld: .page)) as? Bool == true
+        }
+        XCTAssertTrue(resolved)
         controller.breadAuth = nil
         let orphaned = try await webView.callAsyncJavaScript(post, arguments: ["url": "https://other.test/"], in: nil, contentWorld: .page) as? String
         XCTAssertEqual(orphaned, "AUTH_UNAVAILABLE")
@@ -371,6 +412,10 @@ final class BreadAuthTests: XCTestCase {
 
     private func respond(_ session: FakeSession, callback: String? = nil, error: Error? = nil) async {
         session.completion(callback.flatMap { URL(string: $0) }, error)
+        await drainMainQueue()
+    }
+
+    private func drainMainQueue() async {
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             DispatchQueue.main.async { continuation.resume() }
         }

@@ -38,7 +38,8 @@ final class BreadAuthState {
         guard let text = url as? String, (1...maxURLLength).contains(text.utf16.count),
               text.utf16.allSatisfy({ urlCharacters.contains($0) }),
               let components = URLComponents(string: text), components.scheme == "https",
-              let host = components.host, !host.isEmpty, components.user == nil, components.password == nil,
+              // Not `host`: it undoes percent-encoding, which would let an encoded host match.
+              let host = components.percentEncodedHost, !host.isEmpty, components.user == nil, components.password == nil,
               asciiLowercased(host) == asciiLowercased(page.host), (components.port ?? 443) == pagePort,
               let valid = URL(string: text) else { return .failure(.invalidURL) }
         return .success(valid)
