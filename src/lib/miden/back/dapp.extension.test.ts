@@ -2424,6 +2424,41 @@ describe('a request that prompts, made while the wallet is locked (#1414)', () =
     }
   ];
 
+  it('rejects custom request bytes that cannot deserialize without opening a locked-wallet popup', async () => {
+    const sdk: Record<string, unknown> = require('@miden-sdk/miden-sdk/lazy');
+    const originalRequest = sdk.TransactionRequest;
+    sdk.TransactionRequest = {
+      deserialize: () => {
+        throw new Error('not a transaction request');
+      }
+    };
+    lockWallet();
+    try {
+      const outcome = settle(
+        dapp.requestTransaction(LOCKED_ORIGIN, {
+          type: MidenDAppMessageType.TransactionRequest,
+          sourcePublicKey: 'miden-account-1',
+          transaction: {
+            type: 'custom',
+            payload: {
+              address: 'miden-account-1',
+              recipientAddress: 'bob',
+              transactionRequest: 'bm90IGEgdHJhbnNhY3Rpb24gcmVxdWVzdA=='
+            }
+          }
+        } as never)
+      );
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      expect(extensionBrowser.windows.create).not.toHaveBeenCalled();
+      await expect(outcome).resolves.toEqual({ ok: false, message: expect.stringMatching(/^INVALID_PARAMS: /) });
+    } finally {
+      closeConfirmWindow();
+      unlockWallet();
+      sdk.TransactionRequest = originalRequest;
+    }
+  });
+
   it.each(kinds)('$name: opens the popup with no read, reads only for the payload after the unlock', async kind => {
     lockWallet();
     const popup = await openPopup(kind.start);
