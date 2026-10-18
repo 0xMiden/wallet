@@ -100,19 +100,23 @@ const HistoryContent: FC<HistoryItemProps> = ({ fullHistory, entry, lastEntry })
         <span className="text-ink font-medium truncate text-sm leading-none">{title}</span>
 
         {entry.secondaryAddress && (
-          <span className="text-xs text-text-muted truncate flex gap-0.5">
-            <p className="font-medium">{`${isReceive ? t('from') : t('to')}: `}</p>
-            <AddressShortView address={entry.secondaryAddress} trim={isMobile() || compact} />
+          <span className="flex min-w-0 gap-0.5 text-xs text-text-muted">
+            <p className="shrink-0 font-medium">{`${isReceive ? t('from') : t('to')}: `}</p>
+            <span className="min-w-0 truncate">
+              <AddressShortView address={entry.secondaryAddress} trim={isMobile() || compact} />
+            </span>
           </span>
         )}
       </div>
 
-      {/* Amount */}
+      {/* Amount: capped at half the row, each line truncating, so a long amount or token name cannot
+          push the title out of the row. A truncated line clips to its box, so `leading-tight`, not
+          `leading-none`, which would cut off descenders. */}
       {entry.amount !== undefined && (
-        <div className="flex flex-col items-end shrink-0">
+        <div className="flex shrink-0 max-w-1/2 flex-col items-end">
           <span
             className={classNames(
-              'font-heading text-sm font-medium leading-none',
+              'max-w-full truncate font-heading text-sm font-medium leading-tight',
               isReceive ? 'text-positive-tint-ink' : 'text-negative-tint-ink'
             )}
           >
@@ -121,7 +125,9 @@ const HistoryContent: FC<HistoryItemProps> = ({ fullHistory, entry, lastEntry })
             {entry.amount.toString()}
           </span>
           {entry.token && (
-            <span className="font-heading text-sm text-ink opacity-64 font-medium leading-none">{entry.token}</span>
+            <span className="max-w-full truncate font-heading text-sm text-ink opacity-64 font-medium leading-tight">
+              {entry.token}
+            </span>
           )}
         </div>
       )}
@@ -189,9 +195,9 @@ const BridgeRowContent: FC<Pick<HistoryItemProps, 'entry' | 'fullHistory' | 'las
         </span>
       </div>
 
-      <div className="flex flex-col items-end shrink-0 gap-1">
+      <div className="flex shrink-0 max-w-1/2 flex-col items-end gap-1">
         {outAmount !== undefined && (
-          <span className="text-sm font-medium leading-none text-ink">
+          <span className="max-w-full truncate text-sm font-medium leading-tight text-ink">
             {outAmount} {outLabel}
           </span>
         )}
@@ -235,10 +241,10 @@ const EarnWithdrawRowContent: FC<Pick<HistoryItemProps, 'entry' | 'fullHistory' 
         <span className="text-xs text-text-muted truncate mt-1">{t('earnWithdrawRowVia')}</span>
       </div>
 
-      <div className="flex flex-col items-end shrink-0 gap-1">
+      <div className="flex shrink-0 max-w-1/2 flex-col items-end gap-1">
         {/* eslint-disable i18next/no-literal-string -- numeric amount sign prefix, not translatable copy */}
         {showAmount && (
-          <span className="text-sm font-medium leading-none text-positive-tint-ink">
+          <span className="max-w-full truncate text-sm font-medium leading-tight text-positive-tint-ink">
             +{entry.amount?.toString()} {entry.token}
           </span>
         )}

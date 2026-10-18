@@ -5,20 +5,18 @@ import { cva } from 'class-variance-authority';
 /** The design system's avatar scale. `36` exists for token logos; everything else in the app uses 24, 40 or 88. */
 export type AvatarSize = 24 | 36 | 40 | 88;
 
-const avatarVariants = cva(
-  'flex items-center justify-center overflow-hidden rounded-full font-heading font-bold text-pure-white',
-  {
-    variants: {
-      size: {
-        24: 'h-6 w-6 text-[10px]',
-        36: 'h-9 w-9 text-sm',
-        40: 'h-10 w-10 text-sm',
-        88: 'h-22 w-22 text-3xl'
-      } satisfies Record<AvatarSize, string>
-    },
-    defaultVariants: { size: 40 }
-  }
-);
+const avatarVariants = cva('flex items-center justify-center overflow-hidden rounded-full font-heading font-bold', {
+  variants: {
+    tone: { custom: 'text-pure-white', brand: 'bg-accent-tint text-accent-tint-ink' },
+    size: {
+      24: 'h-6 w-6 text-[10px]',
+      36: 'h-9 w-9 text-sm',
+      40: 'h-10 w-10 text-sm',
+      88: 'h-22 w-22 text-3xl'
+    } satisfies Record<AvatarSize, string>
+  },
+  defaultVariants: { size: 40, tone: 'custom' }
+});
 
 const avatarBadgeVariants = cva('absolute flex items-center justify-center rounded-full border-2 border-page bg-page', {
   variants: {
@@ -34,6 +32,7 @@ const avatarBadgeVariants = cva('absolute flex items-center justify-center round
 
 export interface AvatarProps {
   size?: AvatarSize;
+  tone?: 'custom' | 'brand';
   /** An image URL. Takes priority over `initials` and `icon`. */
   image?: string;
   /** Accessible name for `image`. Omit for a decorative image (e.g. a token's own mark). */
@@ -61,6 +60,7 @@ export interface AvatarProps {
  */
 export const Avatar: React.FC<AvatarProps> = ({
   size = 40,
+  tone = 'custom',
   image,
   alt,
   onImageError,
@@ -77,7 +77,7 @@ export const Avatar: React.FC<AvatarProps> = ({
       <span
         // Plain concatenation (no tailwind-merge): a caller's class sits beside the variant's, as
         // it always has (e.g. a squared token tile adds its radius next to `rounded-full`).
-        className={avatarVariants({ size, className })}
+        className={avatarVariants({ size, tone, className })}
         style={!image && color ? { backgroundColor: color } : undefined}
       >
         {image ? (

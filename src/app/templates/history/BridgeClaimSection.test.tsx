@@ -2,6 +2,10 @@ import React from 'react';
 
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
+import type { AgglayerRecoveryConfig } from 'lib/remote-config/schema';
+import { NativeSessionChainNotApprovedError } from 'lib/walletconnect/native';
+import { NO_EXPLORER_CHAIN } from 'lib/walletconnect/testing/chains';
+
 import { BridgeClaimSection } from './BridgeClaimSection';
 import { IHistoryEntry } from './IHistoryEntry';
 
@@ -27,6 +31,8 @@ jest.mock('lib/epoch', () => ({
 }));
 
 const mockInitiateConsumeFromId = jest.fn(async (..._a: unknown[]) => 'reclaim-tx-1');
+// What the Reclaim button passes after the note id: delegate, manualRetry, no dApp origin, and what queued the row.
+const RECLAIMS = [false, true, undefined, 'bridge_reclaim'] as const;
 const mockRequestSWProcessing = jest.fn();
 const mockUpdateBridgeClaimStatus = jest.fn(async (..._a: unknown[]) => undefined);
 const mockPinAgglayerDeposit = jest.fn(async (..._a: unknown[]) => undefined);
@@ -118,6 +124,14 @@ jest.mock('./TransactionStatus', () => ({
   ExternalLinkValue: ({ href }: { href?: string }) => <a href={href}>explorer</a>
 }));
 
+// The registry's chains, plus one the wallet knows no explorer for.
+jest.mock('lib/walletconnect/config', () => {
+  const chains = jest.requireActual<typeof import('lib/walletconnect/testing/chains')>(
+    'lib/walletconnect/testing/chains'
+  );
+  return chains.walletConnectConfigMock([chains.NO_EXPLORER_CHAIN]);
+});
+
 const FAILED = 3;
 const UNCONFIRMED = 4;
 
@@ -169,6 +183,21 @@ describe('BridgeClaimSection', () => {
     mockTrackerPolls.splice(0);
   });
 
+  it('uses a saved route for lookup and reconnect after the remote route is removed', async () => {
+    const route: AgglayerRecoveryConfig = {
+      chainId: 84532,
+      contractAddress: '0x00000000000000000000000000000000000000b3',
+      midenBridgeId: '0x187cabbc404359d16be94954ca9879',
+      indexerUrl: 'https://saved-indexer.example/api',
+      rollupId: 73,
+      evmNetworkId: 6
+    };
+    renderSection({ entry: agglayer({ bridgeAgglayerRoute: route }) });
+    await waitFor(() => expect(mockFindExitDeposit).toHaveBeenCalledWith('0xdead', '0xexit', undefined, route));
+    fireEvent.click(screen.getByText('t:connectEvmWallet'));
+    expect(mockEvm.connect).toHaveBeenCalledWith(84532);
+  });
+
   describe('failed Epoch bridge-out reclaim', () => {
     it('shows "reclaimable after block N" until the reclaim height is reached', async () => {
       mockGetCurrentMidenBlock.mockResolvedValueOnce(500); // below 1000
@@ -186,7 +215,7 @@ describe('BridgeClaimSection', () => {
       // 4th arg = manualRetry. The button only exists behind an explicit tap, so
       // auto-consume's exponential backoff must not swallow it and answer with a
       // previously-failed reclaim's row id.
-      await waitFor(() => expect(mockInitiateConsumeFromId).toHaveBeenCalledWith('acct-1', 'note-1', false, true));
+      await waitFor(() => expect(mockInitiateConsumeFromId).toHaveBeenCalledWith('acct-1', 'note-1', ...RECLAIMS));
       expect(mockRequestSWProcessing).not.toHaveBeenCalled(); // isExtension() mocked false
       expect(mockNavigate).toHaveBeenCalledWith('/generating-transaction-full/reclaim-tx-1');
     });
@@ -219,7 +248,7 @@ describe('BridgeClaimSection', () => {
       });
       fireEvent.click(await screen.findByText('t:reclaimFunds'));
       await waitFor(() =>
-        expect(mockInitiateConsumeFromId).toHaveBeenCalledWith('acct-1', 'note-stamped', false, true)
+        expect(mockInitiateConsumeFromId).toHaveBeenCalledWith('acct-1', 'note-stamped', ...RECLAIMS)
       );
     });
 
@@ -278,7 +307,7 @@ describe('BridgeClaimSection', () => {
       });
       fireEvent.click(await screen.findByText('t:reclaimFunds'));
       await waitFor(() =>
-        expect(mockInitiateConsumeFromId).toHaveBeenCalledWith('acct-1', 'note-stamped', false, true)
+        expect(mockInitiateConsumeFromId).toHaveBeenCalledWith('acct-1', 'note-stamped', ...RECLAIMS)
       );
     });
 
@@ -302,7 +331,7 @@ describe('BridgeClaimSection', () => {
       mockGetCurrentMidenBlock.mockResolvedValueOnce(1200); // >= 1000
       renderSection({ entry: entry({ bridgeReclaimNoteId: 'note-stamped' }) });
       fireEvent.click(await screen.findByText('t:reclaimFunds'));
-      await waitFor(() => expect(mockInitiateConsumeFromId).toHaveBeenCalledWith('acct-1', 'note-1', false, true));
+      await waitFor(() => expect(mockInitiateConsumeFromId).toHaveBeenCalledWith('acct-1', 'note-1', ...RECLAIMS));
     });
 
     describe('a completed bridge-out', () => {
@@ -315,7 +344,7 @@ describe('BridgeClaimSection', () => {
         mockGetCurrentMidenBlock.mockResolvedValueOnce(1200); // >= 1000
         renderSection({ entry: completed() });
         fireEvent.click(await screen.findByText('t:reclaimFunds'));
-        await waitFor(() => expect(mockInitiateConsumeFromId).toHaveBeenCalledWith('acct-1', 'note-1', false, true));
+        await waitFor(() => expect(mockInitiateConsumeFromId).toHaveBeenCalledWith('acct-1', 'note-1', ...RECLAIMS));
       });
 
       it('shows no countdown for a completed bridge-out whose intent is not recorded yet (#1250)', async () => {
@@ -337,7 +366,7 @@ describe('BridgeClaimSection', () => {
         mockGetCurrentMidenBlock.mockResolvedValueOnce(1200); // >= 1000
         renderSection({ entry: completed({ bridgeIntentNonce: 'user:1', bridgeEpochStatus: 'failed' }) });
         fireEvent.click(await screen.findByText('t:reclaimFunds'));
-        await waitFor(() => expect(mockInitiateConsumeFromId).toHaveBeenCalledWith('acct-1', 'note-1', false, true));
+        await waitFor(() => expect(mockInitiateConsumeFromId).toHaveBeenCalledWith('acct-1', 'note-1', ...RECLAIMS));
       });
 
       it('shows the countdown for a completed bridge-out whose fill failed (#1250)', async () => {
@@ -392,18 +421,36 @@ describe('BridgeClaimSection', () => {
     expect(screen.getByRole('link', { name: 'explorer' })).toHaveAttribute('href', `${explorer}/address/0xdead`);
   });
 
-  it('links the destination transaction to the destination explorer', () => {
+  it.each([
+    [5042002, 'https://explorer.testnet.arc.io'],
+    [5042, 'https://explorer.arc.io']
+  ])('links the destination transaction on %s to the destination explorer', (network, explorer) => {
     const hash = `0x${'a'.repeat(64)}`;
     render(
       <BridgeClaimSection
-        entry={entry({ bridgeProvider: 'usdcx', bridgeDestinationNetwork: 5042002 })}
+        entry={entry({ bridgeProvider: 'usdcx', bridgeDestinationNetwork: network })}
         restoredFromBackup={false}
         destinationTxHash={hash}
       />
     );
     expect(screen.getAllByRole('link', { name: 'explorer' }).map(link => link.getAttribute('href'))).toContain(
-      `https://explorer.testnet.arc.io/tx/${hash}`
+      `${explorer}/tx/${hash}`
     );
+  });
+
+  it('shows the recipient and the receiving transaction unlinked on a chain with no explorer', () => {
+    render(
+      <BridgeClaimSection
+        entry={entry({ bridgeProvider: 'usdcx', bridgeDestinationNetwork: NO_EXPLORER_CHAIN.id })}
+        restoredFromBackup={false}
+        destinationTxHash={`0x${'a'.repeat(64)}`}
+      />
+    );
+
+    expect(screen.getByText('t:destinationNetworkNo Explorer')).toBeInTheDocument();
+    expect(screen.getByText('t:to')).toHaveTextContent('explorer');
+    expect(screen.getByText('t:receivingTx')).toHaveTextContent('explorer');
+    expect(screen.queryAllByRole('link', { name: 'explorer' })).toEqual([]);
   });
 
   describe('USDCx faucet consumption', () => {
@@ -548,7 +595,7 @@ describe('BridgeClaimSection', () => {
         })
       });
 
-      await waitFor(() => expect(mockFindExitDeposit).toHaveBeenCalledWith('0xdead', '0xrow-a-exit', 41));
+      await waitFor(() => expect(mockFindExitDeposit).toHaveBeenCalledWith('0xdead', '0xrow-a-exit', 41, undefined));
       fireEvent.click(await screen.findByText('t:claimAsset'));
       await waitFor(() =>
         expect(mockClaimAgglayer).toHaveBeenCalledWith(
@@ -564,7 +611,9 @@ describe('BridgeClaimSection', () => {
       );
       renderSection({ entry: agglayer({ bridgeAgglayerExitTxHash: '0xrow-b-exit' }) });
 
-      await waitFor(() => expect(mockFindExitDeposit).toHaveBeenCalledWith('0xdead', '0xrow-b-exit', undefined));
+      await waitFor(() =>
+        expect(mockFindExitDeposit).toHaveBeenCalledWith('0xdead', '0xrow-b-exit', undefined, undefined)
+      );
       // The claim button stays disabled on "Claim Pending" (the same label also
       // renders in the status row) and never offers row A's deposit.
       expect(screen.getByRole('button', { name: 't:claimPending' })).toBeDisabled();
@@ -614,6 +663,17 @@ describe('BridgeClaimSection', () => {
       expect(mockUpdateBridgeClaimStatus).toHaveBeenCalledWith('tx-1', 'failed');
     });
 
+    it('shows the localized reconnect message when the session error is wrapped as a cause', async () => {
+      mockEvm = { provider: {}, address: '0xdead', isConnected: true, connect: jest.fn() };
+      mockFindExitDeposit.mockResolvedValueOnce(READY).mockResolvedValueOnce(READY);
+      mockClaimAgglayer.mockRejectedValueOnce(
+        new Error('claim wrapper', { cause: new NativeSessionChainNotApprovedError(11155111, 'Sepolia') })
+      );
+      renderSection({ entry: agglayer() });
+      fireEvent.click(await screen.findByText('t:claimAsset'));
+      expect(await screen.findByText('t:evmChainNotApproved')).toBeInTheDocument();
+    });
+
     it('offers Claim again once its own claim has failed', async () => {
       mockEvm = { provider: {}, address: '0xdead', isConnected: true, connect: jest.fn() };
       mockFindExitDeposit.mockResolvedValueOnce(READY).mockResolvedValueOnce(READY);
@@ -645,7 +705,7 @@ describe('BridgeClaimSection', () => {
       fireEvent.click(await screen.findByText('t:claimAsset'));
 
       expect(await screen.findByText('t:claimAssetSubmitted')).toBeInTheDocument();
-      expect(mockFindExitDeposit).toHaveBeenLastCalledWith('0xdead', '0xexit', 5);
+      expect(mockFindExitDeposit).toHaveBeenLastCalledWith('0xdead', '0xexit', 5, undefined);
       expect(mockUpdateBridgeClaimStatus).toHaveBeenCalledWith(
         'tx-1',
         'claimed',
@@ -765,7 +825,7 @@ describe('BridgeClaimSection', () => {
     it('polls an Unconfirmed row by its exit hash, with no transaction id (#1081)', async () => {
       renderSection({ entry: agglayer({ status: UNCONFIRMED, isUnconfirmed: true, externalTxId: undefined }) });
       expect(mockTrackerActive).toHaveBeenLastCalledWith(true);
-      await waitFor(() => expect(mockFindExitDeposit).toHaveBeenCalledWith('0xdead', '0xexit', undefined));
+      await waitFor(() => expect(mockFindExitDeposit).toHaveBeenCalledWith('0xdead', '0xexit', undefined, undefined));
     });
 
     it('never polls a restored Unconfirmed row, though it has an exit hash (#1081)', async () => {
@@ -789,7 +849,9 @@ describe('BridgeClaimSection', () => {
       it('reads Not confirmed and keeps the claim UI open while no deposit has been found', async () => {
         const row = agglayer({ status: FAILED, isUnconfirmed: true, bridgeAgglayerExitTxHash: '0xrow-exit' });
         renderSection({ entry: row });
-        await waitFor(() => expect(mockFindExitDeposit).toHaveBeenCalledWith('0xdead', '0xrow-exit', undefined));
+        await waitFor(() =>
+          expect(mockFindExitDeposit).toHaveBeenCalledWith('0xdead', '0xrow-exit', undefined, undefined)
+        );
         expect(screen.getByText(/t:notConfirmed/)).toBeInTheDocument();
         expect(screen.queryByText(/t:bridgeFailed/)).not.toBeInTheDocument();
         expect(screen.getByText('t:connectEvmWallet')).toBeInTheDocument();
@@ -811,7 +873,7 @@ describe('BridgeClaimSection', () => {
       // The exit hash binds the lookup, so a row whose Miden transaction id was never read still polls.
       it('looks up a row with an exit hash and no transaction id', async () => {
         renderSection({ entry: agglayer({ status: FAILED, isUnconfirmed: true, externalTxId: undefined }) });
-        await waitFor(() => expect(mockFindExitDeposit).toHaveBeenCalledWith('0xdead', '0xexit', undefined));
+        await waitFor(() => expect(mockFindExitDeposit).toHaveBeenCalledWith('0xdead', '0xexit', undefined, undefined));
       });
 
       it('reads Not confirmed with no lookup and no claim UI when the row has no exit hash', () => {

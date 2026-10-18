@@ -5,6 +5,7 @@
  * call the node failed throws `ChainUnavailableError`, which the driver asks again where a repeat cannot change the
  * answer and otherwise records as an infrastructure failure of that cell alone.
  */
+import type { ScriptKind } from './custom-scripts';
 import type { DappError } from '../helpers/dapp-cells';
 
 export type { DappError };
@@ -90,6 +91,28 @@ export interface BuildCustomOutput {
   inputNoteIds: string[];
   attachmentWordsHex: string[];
   /** The self-checks the page ran before handing the request over; any false one throws instead. */
+  checks: Record<string, boolean>;
+}
+export interface BuildCustomScriptInput {
+  /**
+   * `pay` creates one P2ID note through the basic wallet's `create_note` and `move_asset_to_note` (X8a); `pay-checked`
+   * first asserts the script argument and an advice-map value the dApp built (X8b); `fee-only` moves nothing (X8c).
+   */
+  kind: ScriptKind;
+  /** One single-asset output for `pay` and `pay-checked`, none for `fee-only`. */
+  outputs: OutputSpec[];
+}
+export interface BuildCustomScriptOutput {
+  /** The page keeps the built request; `submitCustom` sends it by this id. */
+  requestId: string;
+  requestB64: string;
+  boundBlockNum: number;
+  /** The note the script creates, predicted by the dApp; empty for `fee-only`. */
+  outputNoteIds: string[];
+  /** Always empty: `create_note` adds no attachment, so the chain must show none. */
+  attachmentWordsHex: string[];
+  scriptRootHex: string;
+  scriptArgHex?: string;
   checks: Record<string, boolean>;
 }
 export interface OutputNoteView {
@@ -183,8 +206,9 @@ export interface DappCommands {
   noteFacts: { input: { noteBytesB64: string }; output: { noteId: string; nullifierHex: string } };
   importNote: { input: { noteBytesB64: string }; output: Outcome<{ noteId: string }> };
   buildCustom: { input: BuildCustomInput; output: BuildCustomOutput };
+  buildCustomScript: { input: BuildCustomScriptInput; output: BuildCustomScriptOutput };
   submitCustom: {
-    /** `recipientAddress: ''` is no recipient: the wallet reads an empty string as none (dapp.ts:1951). */
+    /** `recipientAddress: ''` is no recipient: the wallet reads an empty string as none (dapp.ts:1985). */
     input: { requestId: string; recipientAddress: string; importNotes: boolean; inputNoteIds?: string[] };
     output: Outcome<{ txId: string }>;
   };

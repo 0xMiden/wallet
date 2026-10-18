@@ -3,6 +3,7 @@ import React, { FC, useCallback, useEffect, useMemo, useRef, useState } from 're
 import { useTranslation } from 'react-i18next';
 
 import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
+import { useTapUnlock } from 'app/hooks/useTapUnlock';
 import { ReactComponent as GroupAboutIcon } from 'app/icons/settings/group-about.svg';
 import { ReactComponent as GroupDeveloperIcon } from 'app/icons/settings/group-developer.svg';
 import { ReactComponent as GroupPreferencesIcon } from 'app/icons/settings/group-preferences.svg';
@@ -27,12 +28,10 @@ import { SubPageHeaderProvider, SubPageLayout } from 'components/ui/SubPageLayou
 // Imported from the module rather than the `components/ui` barrel: the barrel
 // pulls in siblings that touch `lib/platform` at module scope, which this
 // page's test suite mocks only partially.
-import { TabRootHeader } from 'components/ui/TabRootHeader';
 import { getCurrentLocale } from 'lib/i18n/core';
 import { isEndpointOverrideActive } from 'lib/miden-chain/effective-endpoints';
 import { openExternalUrl } from 'lib/mobile/external-browser';
 import { useHideDappBubblesWhileOpen } from 'lib/mobile/useHideDappBubblesWhileOpen';
-import { isMobile } from 'lib/platform';
 import { useWalletStore } from 'lib/store';
 import { HistoryAction, navigate } from 'lib/woozie';
 import { EncryptedFileFlow } from 'screens/encrypted-file-flow/EncryptedFileManager';
@@ -46,6 +45,7 @@ import pkg from '../../../package.json';
 import { FEEDBACK_URL, PRIVACY_POLICY_URL, SUPPORT_URL, TERMS_OF_USE_URL } from '../constants';
 
 type SettingsProps = {
+  embedded?: boolean;
   tabSlug?: string | null;
   rootScrollTop?: React.MutableRefObject<number>;
 };
@@ -371,7 +371,7 @@ export async function shouldShowDevEndpointsRow(): Promise<boolean> {
   return isEndpointOverrideActive();
 }
 
-const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTop }) => {
+const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTop, embedded = false }) => {
   const { t } = useTranslation();
   const currentAccountType = useWalletStore(s => s.currentAccount?.type);
   const currentAccountHotPublicKey = useWalletStore(s => s.currentAccount?.hotPublicKey);
@@ -467,20 +467,21 @@ const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTo
     [allTabs, tabSlug]
   );
   const handleSubPageBack = useBackWithFallback('/settings');
+  const handleSettingsBack = useBackWithFallback('/me');
   const languageLabel = getCurrentLanguageLabel();
-  // PageRouter owns the root offset because changing between TabLayout and
-  // FullScreenPage remounts Settings. Standalone instances keep a local fallback.
+  // PageRouter owns the root offset across settings routes. Standalone instances
+  // keep a local fallback.
   const localRootScrollTop = useRef(0);
   const rootScrollTop = savedRootScrollTop ?? localRootScrollTop;
+  const rootBodyRef = useRef<HTMLDivElement>(null);
   const invalidTab = Boolean(tabSlug) && !activeTab;
 
   useEffect(() => {
-    // The root menu needs TabLayout's footer. Do not render it inside the
-    // full-screen route when a slug is unknown or unavailable to this account.
+    // Return to the menu when a slug is unknown or unavailable to this account.
     if (invalidTab) navigate('/settings', HistoryAction.Replace);
   }, [invalidTab]);
 
-  // On mobile, move parked dApp trays out while a settings sub-page owns the
+  // On mobile, move parked dApp trays out while Settings owns the
   // screen. The sub-pages need it for the same
   // reason the drawers they replaced did: the tray floats above the bottom of
   // the viewport, which is where these screens pin their primary action.
@@ -490,23 +491,27 @@ const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTo
   // Setting it here by hand meant a confirmation closing over a settings sub-page (the
   // one in Address Book, say) dropped the count to zero and cleared the flag
   // while this page still wanted it.
-  useHideDappBubblesWhileOpen(activeTab !== null);
+  useHideDappBubblesWhileOpen(!embedded);
 
-  // Mark Settings as an edge-to-edge page. The list container below
-  // adds its own bottom padding so the last item can still scroll above
-  // the React BottomNav.
-  const showSettingsRoot = !tabSlug;
+  // PageRouter remounts the root when a settings sub-page is popped. Preserve the
+  // root's position without adding a second scroller inside SubPageLayout.
   useEffect(() => {
-    if (!isMobile()) return;
-    if (showSettingsRoot) {
-      document.body.setAttribute('data-edge-to-edge', '');
-    } else {
-      document.body.removeAttribute('data-edge-to-edge');
-    }
-    return () => {
-      document.body.removeAttribute('data-edge-to-edge');
+    if (embedded || activeTab) return;
+    const node = rootBodyRef.current;
+    if (!node) return;
+    node.scrollTop = rootScrollTop.current;
+    const rememberScroll = () => {
+      rootScrollTop.current = node.scrollTop;
     };
-  }, [showSettingsRoot]);
+    node.addEventListener('scroll', rememberScroll, { passive: true });
+    return () => {
+      rootScrollTop.current = node.scrollTop;
+      node.removeEventListener('scroll', rememberScroll);
+    };
+  }, [embedded, activeTab, rootScrollTop]);
+
+  // The existing-wallet way into Developer Settings, the Welcome logo's hidden gesture on the version line.
+  const openDeveloperSettings = useTapUnlock(() => navigate('/developer-settings'));
 
   if (invalidTab) return null;
 
@@ -515,6 +520,24 @@ const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTo
   // are not announced and the row that opened them unmounts with the list, dropping focus to
   // <body>. Skipped for the pages that focus a field themselves — see `ownsInitialFocus`.
   const focusSubPageTitle = activeTab ? !activeTab.ownsInitialFocus?.() : false;
+
+  const renderRow = (tab: Tab) => {
+    const isExternal = tab.linksOutsideOfWallet;
+    const isSupport = tab.slug === 'support';
+    const handleClick = isSupport ? () => openExternalUrl({ url: SUPPORT_URL, title: t('support') }) : tab.onClick;
+    return (
+      <ListRow
+        key={tab.slug + tab.titleI18nKey}
+        title={t(tab.titleI18nKey)}
+        to={isExternal || handleClick ? undefined : `/settings/${tab.slug}`}
+        href={isExternal ? tab.slug : undefined}
+        onClick={isExternal ? undefined : handleClick}
+        value={tab.slug === 'language' ? languageLabel : undefined}
+        chevron
+        data-testid={tab.testID}
+      />
+    );
+  };
 
   if (activeTab) {
     return (
@@ -536,75 +559,43 @@ const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTo
     );
   }
 
-  return (
+  const menu = (
     <>
-      {/* Settings root is a primary tab destination, so it wears the same header as Activity and
-          Explore: the shared `TabRootHeader`, here without a filter row, a plain title and no back
-          button. A sub-page above keeps `PageHeader`, drawn by its own layout. */}
-      <TabRootHeader title={t('settings')} />
-      <div
-        // A ref avoids re-rendering the page on every scroll event.
-        ref={node => {
-          if (node) node.scrollTop = rootScrollTop.current;
-        }}
-        onScroll={event => {
-          rootScrollTop.current = event.currentTarget.scrollTop;
-        }}
-        className="flex-1 min-h-0 overflow-y-auto bg-app-bg flex flex-col"
-      >
-        {
-          // pb-22 reserves space at the bottom so the last row can scroll above
-          // the React BottomNav. No top padding: the 8px under the rule is
-          // TabRootHeader's, the same 8px the other tab roots' filter rows get.
-          <div className="flex w-full flex-col gap-5 px-4 pb-[calc(5.5rem+var(--wallet-control-safe-bottom,0px))]">
-            {tabGroups.map(group => (
-              <section key={group.titleI18nKey}>
-                {/* h2: the only heading above these is the page title the header
+      {tabGroups.map(group => (
+        <section key={group.titleI18nKey}>
+          {/* h2: the only heading above these is the page title the header
                     renders as h1. `lg` + the group's own coloured glyph: these are
                     page-level section titles, not the plain 13px list-group label. */}
-                <SectionHeader size="lg" icon={<group.Icon />} className="px-0">
-                  {t(group.titleI18nKey)}
-                </SectionHeader>
-                <ListGroup surface="plain">
-                  {group.tabs.map(tab => {
-                    const isExternal = tab.linksOutsideOfWallet;
-                    const isSupport = tab.slug === 'support';
-                    // A tab may carry its own onClick (e.g. Send feedback →
-                    // openExternalUrl); such rows never route to a /settings page.
-                    // Recovery phrase routes like every other row: its sub-page
-                    // opens on the privacy warning, full screen, so the tab bar
-                    // never covers the warning's buttons.
-                    const hasCustomClick = isSupport || !!tab.onClick;
-                    // Support's webview title needs `t`, which the module-level
-                    // TAB_GROUPS can't reach, so its click is built here.
-                    const handleClick = isSupport
-                      ? () => openExternalUrl({ url: SUPPORT_URL, title: t('support') })
-                      : tab.onClick;
-                    return (
-                      <ListRow
-                        key={tab.slug + tab.titleI18nKey}
-                        title={t(tab.titleI18nKey)}
-                        to={isExternal || hasCustomClick ? undefined : `/settings/${tab.slug}`}
-                        href={isExternal ? tab.slug : undefined}
-                        // No `hapticLight()` here: ListRow fires one for every branch
-                        // it renders, so adding one buzzed twice per tap.
-                        onClick={isExternal ? undefined : handleClick}
-                        value={tab.slug === 'language' ? languageLabel : undefined}
-                        // Every row opens something: a page, a sheet or a site.
-                        chevron
-                        data-testid={tab.testID}
-                      />
-                    );
-                  })}
-                </ListGroup>
-              </section>
-            ))}
+          <SectionHeader size="lg" icon={<group.Icon />} className="px-0">
+            {t(group.titleI18nKey)}
+          </SectionHeader>
+          <ListGroup surface="plain">{group.tabs.map(renderRow)}</ListGroup>
+        </section>
+      ))}
 
-            <p className="px-1 text-caption text-muted">{t('settingsVersion', { version: pkg.version })}</p>
-          </div>
-        }
-      </div>
+      <p className="px-1 text-caption text-muted" onClick={openDeveloperSettings}>
+        {t('settingsVersion', { version: pkg.version })}
+      </p>
     </>
+  );
+
+  if (embedded)
+    return (
+      <div className="flex flex-col gap-5" data-testid="profile-settings-menu">
+        {menu}
+      </div>
+    );
+
+  return (
+    <SubPageLayout
+      title={t('settings')}
+      onBack={handleSettingsBack}
+      focusTitleOnMount
+      bodyRef={rootBodyRef}
+      data-testid="settings-root"
+    >
+      {menu}
+    </SubPageLayout>
   );
 };
 

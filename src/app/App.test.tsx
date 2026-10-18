@@ -23,10 +23,12 @@ import React from 'react';
 
 import { render, waitFor } from '@testing-library/react';
 
+import { WindowType } from 'app/env';
 import { initBridgeConfig } from 'lib/remote-config/runtime';
 import { isTelemetryEnabled } from 'lib/settings/helpers';
 import { clearLegacyAnalyticsStorage } from 'lib/telemetry';
 import { initCrashReporting } from 'lib/telemetry/crash';
+import { recordRelaySurface } from 'lib/telemetry/relay-diagnostics';
 
 // NOTE: App is required lazily (not statically imported) because App.tsx calls
 // `isExtension()` at module scope, and the mock control fns below must be
@@ -71,8 +73,19 @@ jest.mock('lib/telemetry/crash', () => ({
   initCrashReporting: jest.fn()
 }));
 
+jest.mock('lib/telemetry/relay-diagnostics', () => ({
+  recordRelaySurface: jest.fn()
+}));
+
+// Test the App startup call. The AppKit provider has a separate config subscription.
+jest.mock('lib/walletconnect/appkit', () => ({
+  AppKitProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>
+}));
+
 jest.mock('lib/remote-config/runtime', () => ({
-  initBridgeConfig: jest.fn(() => Promise.resolve())
+  initBridgeConfig: jest.fn(() => Promise.resolve()),
+  subscribeBridgeConfig: () => () => undefined,
+  getBridgeConfigSnapshot: () => ({ network: 'testnet', config: null })
 }));
 
 // `getThemeSetting` is here only because the (unmocked) AppKit provider reads it
@@ -112,7 +125,8 @@ jest.mock('lib/ui/dialog', () => ({
 }));
 
 jest.mock('app/env', () => ({
-  AppEnvProvider: ({ children }: { children?: React.ReactNode }) => <>{children}</>
+  AppEnvProvider: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
+  WindowType: jest.requireActual<typeof import('app/env')>('app/env').WindowType
 }));
 
 jest.mock('lib/woozie', () => ({
@@ -418,6 +432,17 @@ describe('app/App', () => {
       // not a surface to leave unreported.
       expect(mockClearLegacyAnalyticsStorage).toHaveBeenCalledTimes(1);
       expect(mockInitCrashReporting).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([
+      ['popup', { windowType: WindowType.Popup }],
+      ['fullpage', { windowType: WindowType.FullPage }],
+      ['sidepanel', { windowType: WindowType.SidePanel }],
+      ['confirm', { windowType: WindowType.Popup, confirmWindow: true }]
+    ])('records the window as %s for relay failure reports', (surface, env) => {
+      render(<App env={env} />);
+
+      expect(jest.mocked(recordRelaySurface)).toHaveBeenCalledWith(surface);
     });
   });
 

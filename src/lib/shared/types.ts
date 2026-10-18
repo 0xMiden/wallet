@@ -147,6 +147,9 @@ export enum WalletMessageType {
   // Transaction processing (popup → SW)
   ProcessTransactionsRequest = 'PROCESS_TRANSACTIONS_REQUEST',
   ProcessTransactionsResponse = 'PROCESS_TRANSACTIONS_RESPONSE',
+  // A page's delivery write (page → SW), so the SW's delivery sweep looks again
+  NoteDeliveryWrittenRequest = 'NOTE_DELIVERY_WRITTEN_REQUEST',
+  NoteDeliveryWrittenResponse = 'NOTE_DELIVERY_WRITTEN_RESPONSE',
   // Developer endpoint overrides (popup → SW): re-hydrate the SW's override
   // cache + rebuild its Miden client singleton(s) after a save.
   ReloadEndpointOverridesRequest = 'RELOAD_ENDPOINT_OVERRIDES_REQUEST',
@@ -161,7 +164,10 @@ export enum WalletMessageType {
   GetInputNoteDetailsRequest = 'GET_INPUT_NOTE_DETAILS_REQUEST',
   GetInputNoteDetailsResponse = 'GET_INPUT_NOTE_DETAILS_RESPONSE',
   ReportTelemetryEventRequest = 'REPORT_TELEMETRY_EVENT_REQUEST',
-  ReportTelemetryEventResponse = 'REPORT_TELEMETRY_EVENT_RESPONSE'
+  ReportTelemetryEventResponse = 'REPORT_TELEMETRY_EVENT_RESPONSE',
+  // USDCx burn fee dry run (popup → backend)
+  EstimateUsdcxBurnFeeRequest = 'ESTIMATE_USDCX_BURN_FEE_REQUEST',
+  EstimateUsdcxBurnFeeResponse = 'ESTIMATE_USDCX_BURN_FEE_RESPONSE'
 }
 
 export type WalletNotification = StateUpdated | SyncCompleted | NoteClaimStarted;
@@ -205,6 +211,8 @@ export interface SyncData {
   notes: SerializedConsumableNote[];
   vaultAssets: SerializedVaultAsset[];
   accountPublicKey: string;
+  /** Network + nonce of the SAME account/vault read. Old cached payloads have no proof. */
+  balanceSnapshot?: import('lib/miden/balance-snapshot').BalanceSnapshot;
   // When the service worker's last successful sync finished, so a reader can tell a
   // live result from the snapshot persisted by an earlier session. A pass whose sync
   // failed repeats the previous value. Absent before this service worker's first
@@ -235,6 +243,8 @@ export interface SerializedConsumableNote {
   recallableAtMs?: number;
   /** The note is a standard P2ID or P2IDE payment; absent reads as not. */
   standardPayment?: boolean;
+  /** The note holds fungible assets beyond the one `faucetId` and `amountBaseUnits` describe; absent reads as not. */
+  carriesMoreAssets?: boolean;
   /** Note inclusion time, in Unix seconds. */
   receivedAt?: number;
   swapOrder?: {
@@ -271,6 +281,19 @@ export interface ProcessTransactionsRequest extends WalletMessageBase {
 
 export interface ProcessTransactionsResponse extends WalletMessageBase {
   type: WalletMessageType.ProcessTransactionsResponse;
+}
+
+/**
+ * A delivery write an extension page made, such as Retry's landing or the in-app reconciler's, which the background
+ * counts as one of its own so its idle delivery sweep queries again. It carries no row data: the sweep reads the rows.
+ * Extension-only: on mobile and desktop the writer and the sweep share a realm and its count.
+ */
+export interface NoteDeliveryWrittenRequest extends WalletMessageBase {
+  type: WalletMessageType.NoteDeliveryWrittenRequest;
+}
+
+export interface NoteDeliveryWrittenResponse extends WalletMessageBase {
+  type: WalletMessageType.NoteDeliveryWrittenResponse;
 }
 
 /**
@@ -355,6 +378,26 @@ export interface GetInputNoteDetailsResponse extends WalletMessageBase {
   type: WalletMessageType.GetInputNoteDetailsResponse;
   notes: SerializedInputNoteDetail[];
 }
+
+export interface EstimateUsdcxBurnFeeRequest extends WalletMessageBase {
+  type: WalletMessageType.EstimateUsdcxBurnFeeRequest;
+  /** The account that burns. */
+  accountPublicKey: string;
+  /** The chain the burn pays out on. The recipient does not change the cost, so the request names none. */
+  destinationChainId: number;
+}
+
+/**
+ * What a USDCx burn fee estimate found: the native-asset base units to hold back for the burn's cost once `measured`
+ * (0n for a burn that costs nothing), `busy` when the WASM lock was not won in time so no dry run ran, or `failed`
+ * when the dry run ran and could not measure, or could not be built.
+ */
+export type UsdcxBurnFeeEstimate = { outcome: 'measured'; reserve: bigint } | { outcome: 'busy' | 'failed' };
+
+/** A {@link UsdcxBurnFeeEstimate} on the wire, its reserve as a decimal string. */
+export type EstimateUsdcxBurnFeeResponse = WalletMessageBase & {
+  type: WalletMessageType.EstimateUsdcxBurnFeeResponse;
+} & ({ outcome: 'measured'; feeReserve: string } | { outcome: 'busy' | 'failed' });
 
 export interface GetStateRequest extends WalletMessageBase {
   type: WalletMessageType.GetStateRequest;
@@ -544,6 +587,8 @@ export interface NewWalletRequest extends WalletMessageBase {
   // probed (import / recovery), threaded explicitly so a new Guardian account
   // binds to the caller's chosen endpoint. Undefined for non-guardian wallets.
   guardianEndpoint?: string;
+  /** Bind the final account before wallet setup completes. */
+  accessCode?: string;
 }
 
 export interface NewWalletResponse extends WalletMessageBase {
@@ -1279,12 +1324,14 @@ export type WalletRequest =
   | SyncRequest
   | NoteClaimStarted
   | ProcessTransactionsRequest
+  | NoteDeliveryWrittenRequest
   | ReloadEndpointOverridesRequest
   | ImportNoteBytesRequest
   | RetryDeadletteredNotesRequest
   | ExportNoteRequest
   | GetInputNoteDetailsRequest
-  | ReportTelemetryEventRequest;
+  | ReportTelemetryEventRequest
+  | EstimateUsdcxBurnFeeRequest;
 
 export type WalletResponse =
   | MidenResponse
@@ -1352,9 +1399,11 @@ export type WalletResponse =
   | SyncResponse
   | NoteClaimStartedResponse
   | ProcessTransactionsResponse
+  | NoteDeliveryWrittenResponse
   | ReloadEndpointOverridesResponse
   | ImportNoteBytesResponse
   | RetryDeadletteredNotesResponse
   | ExportNoteResponse
   | GetInputNoteDetailsResponse
-  | ReportTelemetryEventResponse;
+  | ReportTelemetryEventResponse
+  | EstimateUsdcxBurnFeeResponse;

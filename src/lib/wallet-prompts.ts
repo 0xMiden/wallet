@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import BigNumber from 'bignumber.js';
+import { TFunction } from 'i18next';
 
 import {
   agglayerClaimedFields,
@@ -232,7 +233,8 @@ async function pollBridgedSend(tx: ITransaction): Promise<void> {
     const { deposit, complete } = await searchAgglayerExitDeposit(
       inputs.destinationAddress,
       exitTxHash,
-      inputs.agglayerDepositCnt
+      inputs.agglayerDepositCnt,
+      inputs.agglayerRoute
     );
     if (!deposit) {
       // An exit filed before the renumbering is under network 78, which the indexer no longer serves; the bridge's
@@ -274,6 +276,8 @@ async function pollBridgedSend(tx: ITransaction): Promise<void> {
   const { pollEpochIntentFill } = await import('lib/epoch');
   const fill = await pollEpochIntentFill({
     destinationAddress: inputs.destinationAddress,
+    destinationChainId: inputs.destinationNetwork,
+    allocatorUrl: inputs.epochAllocatorUrl,
     intentNonce: inputs.intentNonce
   });
   if (!fill || (!fill.fillTxHash && fill.status === 'pending')) return;
@@ -858,6 +862,29 @@ export function faucet(
 export function __resetInFlightFaucetRequestsForTest(): void {
   inFlightFaucetRequests.clear();
   settledFaucetRequests.clear();
+}
+
+/**
+ * The line that tells the user the pending-note scan runs, or null when the record is not a step of the notes
+ * pass. The public-backfill step carries the block progress the SW reports after each scanned chunk.
+ */
+export function guardianNoteScanText(progress: GuardianNoteRecoveryProgress | null, t: TFunction): string | null {
+  switch (progress?.step) {
+    case 'transport':
+      return t('guardianNoteRecoveryTransportStep');
+    case 'proposals':
+      return t('guardianNoteRecoveryProposalsStep');
+    case 'public': {
+      const { syncedToBlock, latestBlock } = progress;
+      if (syncedToBlock === undefined || latestBlock === undefined) return t('guardianNoteRecoveryPublicPreparingStep');
+      return t('guardianNoteRecoveryPublicStep', {
+        current: syncedToBlock.toLocaleString(),
+        latest: latestBlock.toLocaleString()
+      });
+    }
+    default:
+      return null;
+  }
 }
 
 /**

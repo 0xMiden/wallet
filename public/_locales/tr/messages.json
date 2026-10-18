@@ -78,8 +78,8 @@
     "englishSource": "Enter a valid address on a supported network for this withdrawal."
   },
   "usdcxUnsupportedFaucet": {
-    "message": "USDCx para çekme işlemleri, yalnızca Miden test ağında yapılandırılmış faucet adresi için kullanılabilir.",
-    "englishSource": "USDCx withdrawals are available only for the configured faucet on Miden testnet."
+    "message": "Bu ağda bu token için USDCx para çekme işlemleri mevcut değildir.",
+    "englishSource": "USDCx withdrawals are not available for this token on this network."
   },
   "usdcxInvalidAmount": {
     "message": "En fazla altı ondalık basamaklı pozitif bir USDCx tutarı girin.",
@@ -546,6 +546,18 @@
     "message": "Pozisyon açılamadı",
     "englishSource": "Failed to open position"
   },
+  "earnCollateralLoading": {
+    "message": "Para yatırma jetonunun ayrıntılarını yüklüyoruz. Ayrıntılar geldiğinde devam edebilirsiniz.",
+    "englishSource": "Loading the deposit token's details. You can continue once they arrive."
+  },
+  "earnCollateralUnavailable": {
+    "message": "Para yatırma jetonu şu anda kullanılamıyor, bu nedenle para yatırma işlemleri askıya alınmıştır. Daha sonra tekrar deneyin.",
+    "englishSource": "The deposit token isn't available right now, so deposits are paused. Try again later."
+  },
+  "earnCollateralMismatch": {
+    "message": "Bu inceleme, farklı bir mevduat token'ı için hazırlanmıştır. Geri dönün ve tutarı tekrar girin.",
+    "englishSource": "This review was prepared for a different deposit token. Go back and enter the amount again."
+  },
   "earnTotalEarnedRewards": {
     "message": "Toplam kazanç",
     "englishSource": "Total earned"
@@ -578,6 +590,10 @@
   "earnPositionsLoadError": {
     "message": "Pozisyonlarınız yüklenemedi. Bağlantınızı kontrol edin ve tekrar deneyin.",
     "englishSource": "Couldn't load your positions. Check your connection and try again."
+  },
+  "earnUnavailableOnNetwork": {
+    "message": "Bu ağda \"Earn\" özelliği mevcut değildir",
+    "englishSource": "Earn is not available on this network"
   },
   "earnVaultLoadError": {
     "message": "Bu kasayı yükleyemedik. Bağlantınızı kontrol edin ve tekrar deneyin.",
@@ -652,9 +668,139 @@
     "message": "Hesap Oluştur",
     "englishSource": "Create Account"
   },
+  "me": {
+    "message": "Ben",
+    "englishSource": "Me"
+  },
+  "profile": {
+    "message": "Profil",
+    "englishSource": "Profile"
+  },
   "settings": {
     "message": "Ayarlar",
     "englishSource": "Settings"
+  },
+  "myBadges": {
+    "message": "Rozetlerim",
+    "englishSource": "My badges"
+  },
+  "openMyBadges": {
+    "message": "Rozetlerimi aç",
+    "englishSource": "Open My badges"
+  },
+  "badgesEarnedCount": {
+    "message": "$total$ rozetten $earned$ tanesi kazanıldı",
+    "englishSource": "$earned$ of $total$ earned",
+    "placeholders": {
+      "earned": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      }
+    }
+  },
+  "badgesProfileDescription": {
+    "message": "Mainnet etkinliklerinizden özel dönüm noktaları",
+    "englishSource": "Private milestones from your Mainnet activity"
+  },
+  "badgesCollectionDescription": {
+    "message": "Cüzdanınızın özel dönüm noktaları.",
+    "englishSource": "Your private wallet milestones."
+  },
+  "badgeCollection": {
+    "message": "Rozet koleksiyonu",
+    "englishSource": "Badge collection"
+  },
+  "mainnetOnly": {
+    "message": "Yalnızca Mainnet",
+    "englishSource": "Mainnet only"
+  },
+  "badgesMainnetNoticeTitle": {
+    "message": "Rozetler Mainnet üzerinde açılır",
+    "englishSource": "Badges unlock on Mainnet"
+  },
+  "badgesMainnetNoticeDescription": {
+    "message": "Rozetler Mainnet üzerinde açılır. Test etkinlikleri sayılmaz.",
+    "englishSource": "Badges unlock on Mainnet. Test activity does not count."
+  },
+  "badgeEarnedLabel": {
+    "message": "$badge$, kazanıldı",
+    "englishSource": "$badge$, earned",
+    "placeholders": {
+      "badge": {
+        "content": "$1"
+      }
+    }
+  },
+  "badgeLockedLabel": {
+    "message": "$badge$, kilitli",
+    "englishSource": "$badge$, locked",
+    "placeholders": {
+      "badge": {
+        "content": "$1"
+      }
+    }
+  },
+  "locked": {
+    "message": "Kilitli",
+    "englishSource": "Locked"
+  },
+  "badgeEarned": {
+    "message": "Kazanıldı",
+    "englishSource": "Earned"
+  },
+  "badgeVerificationPending": {
+    "message": "Henüz kullanılamıyor",
+    "englishSource": "Not available yet"
+  },
+  "badgeFirstDeposit": {
+    "message": "İlk Yatırma",
+    "englishSource": "First Deposit"
+  },
+  "badgeFirstDepositDescription": {
+    "message": "Para ekleyin ve harcanabilir hale gelmesini bekleyin.",
+    "englishSource": "Add funds and wait for them to become spendable."
+  },
+  "badgeFirstReceive": {
+    "message": "İlk Alma",
+    "englishSource": "First Receive"
+  },
+  "badgeFirstReceiveDescription": {
+    "message": "Bu hesaba gelen bir transferi kabul edip alın.",
+    "englishSource": "Accept and claim a transfer to this account."
+  },
+  "badgeFirstSend": {
+    "message": "İlk Gönderim",
+    "englishSource": "First Send"
+  },
+  "badgeFirstSendDescription": {
+    "message": "Giden bir Miden transferini onaylayın.",
+    "englishSource": "Confirm an outgoing Miden transfer."
+  },
+  "badgeFirstSwap": {
+    "message": "İlk Takas",
+    "englishSource": "First Swap"
+  },
+  "badgeFirstSwapDescription": {
+    "message": "Bir takası tamamlayın ve harcanabilir tutarı alın.",
+    "englishSource": "Complete a swap and receive spendable output."
+  },
+  "badgeRecoveryChecked": {
+    "message": "Kurtarma Kontrol Edildi",
+    "englishSource": "Recovery Checked"
+  },
+  "badgeRecoveryCheckedDescription": {
+    "message": "Bu hesabın kurtarma yedeğini doğrulayın.",
+    "englishSource": "Verify this account's recovery backup."
+  },
+  "badgeMiniappExplorer": {
+    "message": "Mini Uygulama Kaşifi",
+    "englishSource": "Miniapp Explorer"
+  },
+  "badgeMiniappExplorerDescription": {
+    "message": "Desteklenen bir mini uygulama deneyimini tamamlayın.",
+    "englishSource": "Complete a supported mini app experience."
   },
   "authorizedDApps": {
     "message": "Yetkili DApp'ler",
@@ -888,6 +1034,10 @@
     "message": "Bu token'ın ondalık basamakları doğrulanamadığı için tutarlar gösterilemez veya gönderilemez.",
     "englishSource": "This token's decimals could not be verified, so amounts can't be shown or sent."
   },
+  "sendTokenAvailabilityChecking": {
+    "message": "Bu token'ın Testnet'te gönderilip gönderilemeyeceğini kontrol ediliyor. Kontrol tamamlandığında token'ı gönderebilirsiniz.",
+    "englishSource": "Checking whether this token can be sent on Testnet. You can send it once the check finishes."
+  },
   "oops": {
     "message": "Oops!",
     "englishSource": "Oops!"
@@ -1024,6 +1174,10 @@
   "transactionStepSyncingGuardian": {
     "message": "Guardian ile senkronizasyon",
     "englishSource": "Syncing with Guardian"
+  },
+  "transactionStepDeliveringNote": {
+    "message": "Alıcıya teslimat",
+    "englishSource": "Delivering to recipient"
   },
   "guardianBusyStep": {
     "message": "Guardian'ınızı bekliyorsunuz",
@@ -1707,6 +1861,10 @@
     "message": "Yapıştır",
     "englishSource": "Paste"
   },
+  "mainnetAccessPasteFailed": {
+    "message": "Pano okunamadı. Kodunuzu girin veya tekrar deneyin.",
+    "englishSource": "Could not read the clipboard. Enter your code or try again."
+  },
   "nothingToPaste": {
     "message": "Yapıştırılacak bir şey yok. Önce bir adres kopyalayın.",
     "englishSource": "Nothing to paste. Copy an address first."
@@ -1800,14 +1958,97 @@
     "message": "Oran",
     "englishSource": "Rate"
   },
-  "swapSolverFeeNote": {
-    "message": "Alacağınız tutara, $percent$ çözümleme ücreti zaten dahildir.",
-    "englishSource": "Your receive amount already includes a $percent$ solver fee.",
+  "swapRateNote": {
+    "message": "Oran, çözücünün şu anda doldurabileceği en yüksek miktardır ve bu tutara $fee$ ücreti zaten dahildir. Alacağınız tutar, bu orandan $slippage$ kayma tutarının düşülmesiyle elde edilir.",
+    "englishSource": "The rate is the most the solver fills at right now, with its $fee$ fee already in it. Your receive amount is that rate less your $slippage$ slippage.",
     "placeholders": {
-      "percent": {
+      "fee": {
         "content": "$1"
+      },
+      "slippage": {
+        "content": "$2"
       }
     }
+  },
+  "swapFillStatus": {
+    "message": "Doldur",
+    "englishSource": "Fill"
+  },
+  "swapVerdictSettlementDelayed": {
+    "message": "Takas ertelendi. Emriniz beklemeye alınacaktır.",
+    "englishSource": "Settlement delayed. Your order will wait."
+  },
+  "swapVerdictNoMarket": {
+    "message": "Bu ikili işlem yapılmaz.",
+    "englishSource": "This pair isn't traded."
+  },
+  "swapVerdictNoPrice": {
+    "message": "Fiyatlar şu anda mevcut değil. Bir süre sonra tekrar deneyin.",
+    "englishSource": "Prices are unavailable right now. Try again shortly."
+  },
+  "swapVerdictOffMarket": {
+    "message": "Fiyat değişti. Fiyat bilgisini yenileyin.",
+    "englishSource": "The price moved. Refresh the quote."
+  },
+  "swapVerdictNoLiquidity": {
+    "message": "Şu anda mevcut fiyattan yeterli emir yok.",
+    "englishSource": "Not enough orders at the current price right now."
+  },
+  "swapVerdictTolerated": {
+    "message": "Daha uzun sürebilir: fiyat hafifçe hareket ettiğinde doldurulur.",
+    "englishSource": "May take longer: fills when the price moves slightly."
+  },
+  "swapVerdictPartial": {
+    "message": "Şu anda bu emrin sadece bir kısmı yerine getiriliyor; geri kalanı beklemede.",
+    "englishSource": "Only part of this order fills now; the rest waits."
+  },
+  "swapVerdictFull": {
+    "message": "Mevcut fiyattan doldurulur.",
+    "englishSource": "Fills at the current price."
+  },
+  "swapVerdictExpected": {
+    "message": "$amount$ tutarında $symbol$ alırsınız.",
+    "englishSource": "You receive about $amount$ $symbol$.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "swapSlippage": {
+    "message": "Kayma",
+    "englishSource": "Slippage"
+  },
+  "percentSign": {
+    "message": "%",
+    "englishSource": "%"
+  },
+  "swapSlippageNote": {
+    "message": "Emirinizin mevcut kurun ne kadar altında gerçekleşebileceği. Test ağında, yaklaşık %0,25'in üzerindeki emirler gerçekleşmez.",
+    "englishSource": "How far below the current rate your order may fill. On testnet an order above about 0.25% does not fill."
+  },
+  "swapSlippageEditedNote": {
+    "message": "Alım tutarını kendiniz belirlediğiniz için, bu emirde kayma söz konusu değildir.",
+    "englishSource": "You set the receive amount yourself, so slippage does not apply to this order."
+  },
+  "swapSlippageRange": {
+    "message": "$min$ ile $max$ arasında, en fazla iki ondalık basamaklı bir yüzde girin.",
+    "englishSource": "Enter a percent from $min$ to $max$ with up to two decimals.",
+    "placeholders": {
+      "min": {
+        "content": "$1"
+      },
+      "max": {
+        "content": "$2"
+      }
+    }
+  },
+  "swapPriceMoved": {
+    "message": "Fiyat değişti. Yeni tutarı kontrol edin ve tekrar deneyin.",
+    "englishSource": "The price moved. Check the new amount and try again."
   },
   "usuallyFillsIn": {
     "message": "Genellikle doldurulur",
@@ -1850,6 +2091,10 @@
   "swapInvalidAmounts": {
     "message": "Takas edilecek geçerli bir tutar girin.",
     "englishSource": "Enter a valid amount to swap."
+  },
+  "swapPairNotListed": {
+    "message": "Bu ikili artık takas edilemez. Geri dönün ve başka bir token seçin.",
+    "englishSource": "This pair can no longer be swapped. Go back and choose another token."
   },
   "swapPriceUnavailable": {
     "message": "Fiyat mevcut değil. Bir süre sonra tekrar deneyin.",
@@ -2516,6 +2761,10 @@
     "message": "Korea Digital Asset, Güney Kore merkezli bir dijital varlık saklama şirketidir.",
     "englishSource": "Korea Digital Asset, a digital asset custody company based in South Korea."
   },
+  "guardianAboutPara": {
+    "message": "Para, gömülü cüzdan altyapısı sağlayıcısıdır.",
+    "englishSource": "Para, an embedded wallet infrastructure provider."
+  },
   "guardianKindOpenZeppelin": {
     "message": "Akıllı sözleşme güvenliği ve denetimleri",
     "englishSource": "Smart contract security and audits"
@@ -2531,6 +2780,10 @@
   "guardianKindKodax": {
     "message": "Dijital varlık saklayıcısı",
     "englishSource": "Digital asset custodian"
+  },
+  "guardianKindPara": {
+    "message": "Gömülü cüzdan altyapısı",
+    "englishSource": "Embedded wallet infrastructure"
   },
   "guardianInfoDescription": {
     "message": "Guardian, cüzdanınızdan yapılan her işlemi <b>ortak olarak onaylayan</b> bağımsız bir hizmettir ve kendi varlıklarınızı kendiniz saklamaktan vazgeçmeden bir güvenlik ağı sağlar.",
@@ -3246,6 +3499,10 @@
     "message": "Bu cüzdan dosyası daha yeni bir Bread sürümüyle oluşturuldu. Bread'i güncelleyip tekrar deneyin.",
     "englishSource": "This wallet file was created by a newer version of Bread. Update Bread and try again."
   },
+  "encryptedWalletFileWrongNetwork": {
+    "message": "Bu cüzdan dosyası başka bir ağa aittir ve bu ağda geri yüklenemez.",
+    "englishSource": "This wallet file belongs to another network and cannot be restored on this one."
+  },
   "encryptedWalletFileRestoreFailed": {
     "message": "Cüzdan geri yüklenemedi. Depolama alanınızı kontrol edip tekrar deneyin.",
     "englishSource": "The wallet could not be restored. Check your storage and try again."
@@ -3289,6 +3546,14 @@
   "feeReserveBlocksSend": {
     "message": "USDCX'iniz ağ ücreti için ayrılmıştır. Göndermek için daha fazla USDCX alın.",
     "englishSource": "Your USDCX is reserved for the network fee. Receive more USDCX to send."
+  },
+  "usdcxBurnFeeMeasuring": {
+    "message": "Tutar kontrol edilebilmeden önce bu yakma işleminin ağ ücretini hesaplayın.",
+    "englishSource": "Measuring this burn's network fee before the amount can be checked."
+  },
+  "usdcxBurnFeeUnavailable": {
+    "message": "Bu yakma işleminin ağ ücretini ölçemediğimiz için tutar kontrol edilemiyor. Tekrar denemek için başka bir hedef seçin.",
+    "englishSource": "Unable to measure this burn's network fee, so the amount cannot be checked. Choose another destination to try again."
   },
   "insufficientFeeAsset": {
     "message": "Ağ ücretini ödemek için USDCX'e ihtiyacınız var. Devam etmek için biraz USDCX alın.",
@@ -3573,6 +3838,10 @@
     "message": "guardian adresinde hesabınızı bulamadık. URL'yi kontrol edin veya bunun yerine genel hesap olarak içe aktarın.",
     "englishSource": "We couldn't find your account on this guardian. Check the URL or import as a public account instead."
   },
+  "guardianOtherNetwork": {
+    "message": "Bu guardian, başka bir Miden ağında çalışır; bu nedenle buradaki bir hesabı kurtaramaz.",
+    "englishSource": "This guardian runs on another Miden network, so it cannot recover an account here."
+  },
   "useCustomGuardianUrl": {
     "message": "Guardian'da özel bir URL kullanın",
     "englishSource": "Use a custom Guardian URL"
@@ -3634,7 +3903,7 @@
     "englishSource": "Input notes consumed"
   },
   "outputNotesCreated": {
-    "message": "Çıktınotes dosyası oluşturuldu",
+    "message": "Çıktı note'ları oluşturuldu",
     "englishSource": "Output notes created"
   },
   "storageChanged": {
@@ -4151,6 +4420,18 @@
     "message": "Bu uygulama cüzdanınıza bağlanmak istiyor",
     "englishSource": "This app wants to connect to your wallet"
   },
+  "dappNetworkMismatch": {
+    "message": "Bu uygulama Miden $dappNetwork$'yi istedi, ancak cüzdanınız Miden $walletNetwork$ üzerinde.",
+    "englishSource": "This app asked for Miden $dappNetwork$, but your wallet is on Miden $walletNetwork$.",
+    "placeholders": {
+      "dappnetwork": {
+        "content": "$1"
+      },
+      "walletnetwork": {
+        "content": "$2"
+      }
+    }
+  },
   "dappTransactionRequest": {
     "message": "Bu uygulama bir işlem talep ediyor",
     "englishSource": "This app is requesting a transaction"
@@ -4501,6 +4782,41 @@
     "message": "Bu takasta toplanan gerçekleşmeler",
     "englishSource": "Fills bundled into this swap"
   },
+  "swapActivityTitle": {
+    "message": "Takas faaliyeti",
+    "englishSource": "Swap activity"
+  },
+  "swapReclaiming": {
+    "message": "Fonların iadesi",
+    "englishSource": "Returning funds"
+  },
+  "swapReturnedAt": {
+    "message": "Geri döndü · $time$",
+    "englishSource": "Returned · $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapPlacedAt": {
+    "message": "$time$ tarihinde verilmiştir",
+    "englishSource": "Placed $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapOfferedAmount": {
+    "message": "Teklif Edilen $amount$",
+    "englishSource": "Offered $amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
   "swapFillNote": {
     "message": "Gerçekleşme $number$",
     "englishSource": "Fill $number$",
@@ -4644,6 +4960,15 @@
     "message": "EVM cüzdanı bağlandı",
     "englishSource": "EVM wallet connected"
   },
+  "evmChainNotApproved": {
+    "message": "Bağlı cüzdan $network$'yi onaylamadı. Onaylamak için cüzdanı yeniden bağlayın.",
+    "englishSource": "The connected wallet did not approve $network$. Reconnect the wallet to approve it.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
   "connectedWallet": {
     "message": "Bağlantılı cüzdan",
     "englishSource": "Connected wallet"
@@ -4725,12 +5050,39 @@
     "englishSource": "Confirming bridge deposit"
   },
   "bridgeDepositProcessingDescription": {
-    "message": "Cüzdanınızda talebi onaylayın ve kaynak ağ bunu onaylarken bu ekranı açık tutun.",
-    "englishSource": "Approve the request in your wallet and keep this screen open while the source network confirms it."
+    "message": "Cüzdanınızdaki istekleri onaylayın — birden fazla kez sorulabilir — ve kaynak ağ bunları onaylarken bu ekranı açık tutun.",
+    "englishSource": "Approve the requests in your wallet — it may ask more than once — and keep this screen open while the source network confirms them."
   },
   "bridgeDepositFailed": {
     "message": "Köprü yatırımı başarısız oldu",
     "englishSource": "Bridge deposit failed"
+  },
+  "bridgeDepositBalanceTooLow": {
+    "message": "Bağlı cüzdanınızda $balance$ tutarında $token$, $network$ ağında bulunmaktadır; bu tutar, bu para yatırma işlemi için gereken miktardan daha azdır. Hiçbir şey gönderilmedi.",
+    "englishSource": "Your connected wallet holds $balance$ $token$ on $network$, less than this deposit needs. Nothing was sent.",
+    "placeholders": {
+      "balance": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      }
+    }
+  },
+  "bridgeDepositBalanceReadFailed": {
+    "message": "$network$ ağındaki $token$ bakiyenizi kontrol edilemedi. Hiçbir şey gönderilmedi.",
+    "englishSource": "Could not check your $token$ balance on $network$. Nothing was sent.",
+    "placeholders": {
+      "token": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
   },
   "bridgeDepositSubmitted": {
     "message": "Köprü başlatıldı!",
@@ -4751,6 +5103,21 @@
   "fastEthWrapNotice": {
     "message": "Hızlı yoldan ETH köprüleme işlemi, ETH’yi önce WETH’e dönüştürür, ardından WETH’i köprüler. Bu yol henüz kullanıma açık değildir.",
     "englishSource": "Bridging ETH on the Fast route wraps it to WETH first, then bridges the WETH. This route isn't available yet."
+  },
+  "fastQuoteAboveBalanceNotice": {
+    "message": "Fast için, ücret dahil $deposit$ $token$ tutarında bir depozito gereklidir, ancak bağlı cüzdanınızda $balance$ $token$ tutarında bakiye bulunmaktadır. Tutarını azaltın veya Slow seçeneğini tercih edin.",
+    "englishSource": "Fast needs a deposit of $deposit$ $token$, fee included, but your connected wallet holds $balance$ $token$. Lower the amount or choose Slow.",
+    "placeholders": {
+      "deposit": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$4"
+      },
+      "balance": {
+        "content": "$3"
+      }
+    }
   },
   "destinationNetwork": {
     "message": "Hedef ağ",
@@ -4841,14 +5208,39 @@
     "englishSource": "USDCx was minted on Miden and your wallet received it."
   },
   "usdcxExecutorRouteNotice": {
-    "message": "USDC, $source$ adresinde yakılır ve $target$ adresindeki Circle'ın yetkili temsilcisine basılır; bu temsilci de parayı Miden adına xReserve'e yatırır. Circle, tutara ek olarak kendi ücretini alır ve $target$ adresinde transferi gerçekleştirir. Circle transferin bedelini belirleyemezse, siz $target$ adresinde bir imza daha ekleyerek transferi gerçekleştirirsiniz.",
-    "englishSource": "USDC is burned on $source$ and minted to Circle's executor on $target$, which deposits it into xReserve for Miden. Circle charges its fee in addition to the amount, and Circle executes the transfer on $target$. If Circle cannot price the transfer, you execute it on $target$ with one more signature.",
+    "message": "USDC, $source$ üzerinde yakılır ve $target$ üzerinde Circle'ın yürütücüsüne basılır; bu da onu Miden için xReserve'e yatırır. Circle, tutara ek olarak ücretini alır ve Circle, $target$ üzerinde transferi gerçekleştirir.",
+    "englishSource": "USDC is burned on $source$ and minted to Circle's executor on $target$, which deposits it into xReserve for Miden. Circle charges its fee in addition to the amount, and Circle executes the transfer on $target$.",
     "placeholders": {
       "source": {
         "content": "$1"
       },
       "target": {
+        "content": "$3"
+      }
+    }
+  },
+  "usdcxForwardQuoteUnavailable": {
+    "message": "Circle şu anda bu transfer için fiyat belirleyemedi. Hiçbir şey gönderilmedi. Bir süre sonra tekrar deneyin.",
+    "englishSource": "Circle could not price this transfer right now. Nothing was sent. Try again in a moment."
+  },
+  "usdcxDepositFeeAboveBalance": {
+    "message": "Bu para yatırma işlemi için $network$ ağında $total$ $token$ gereklidir: bu tutara Circle’ın $fee$ $token$ tutarındaki ücreti eklenir. Bağlı cüzdanınızda $balance$ $token$ bulunmaktadır. Tutarı ücret kadar azaltın veya cüzdanınıza $token$ ekleyin.",
+    "englishSource": "This deposit needs $total$ $token$ on $network$: the amount plus Circle's fee of $fee$ $token$. Your connected wallet holds $balance$ $token$. Lower the amount by the fee or add $token$ to your wallet.",
+    "placeholders": {
+      "total": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$8"
+      },
+      "network": {
+        "content": "$3"
+      },
+      "fee": {
         "content": "$4"
+      },
+      "balance": {
+        "content": "$6"
       }
     }
   },
@@ -5568,6 +5960,62 @@
       }
     }
   },
+  "mainnetAccessCodeLabel": {
+    "message": "Erişim kodu",
+    "englishSource": "Access code"
+  },
+  "unlockMainnet": {
+    "message": "Mainnet'in kilidini aç",
+    "englishSource": "Unlock mainnet"
+  },
+  "mainnetAccessCodeRejected": {
+    "message": "Bu kod çalışmadı. Kontrol edin ve tekrar deneyin.",
+    "englishSource": "This code did not work. Check it and try again."
+  },
+  "mainnetAccessCheckFailed": {
+    "message": "Bu kodu kontrol edemedik. Daha sonra tekrar deneyin.",
+    "englishSource": "We could not check this code. Try again later."
+  },
+  "mainnetAccountNotAdmitted": {
+    "message": "Bu cüzdan, Miden ana ağında kabul edilmez. Yeni bir cüzdan için erişim kodu gereklidir.",
+    "englishSource": "This wallet is not admitted on Miden mainnet. A new wallet needs an access code."
+  },
+  "mainnetSecondAccountRefused": {
+    "message": "Miden ana ağı, yalnızca kayıtlı bir erişim kodu olan hesapları kabul eder.",
+    "englishSource": "Miden mainnet admits only the account an access code registered."
+  },
+  "mainnet": {
+    "message": "Mainnet",
+    "englishSource": "Mainnet"
+  },
+  "mainnetAccessTitle": {
+    "message": "Mainnet erişim kodunuz var mı?",
+    "englishSource": "Have a mainnet access code?"
+  },
+  "mainnetAccessOnboardingBody": {
+    "message": "Mainnet şimdilik sadece davetle erişilebilir. Davetinizdeki 12 karakterlik kodu girin ve cüzdanınız Miden Mainnet'te açılsın.",
+    "englishSource": "Mainnet is invite-only for now. Enter the 12-character code from your invite and your wallet starts on Miden Mainnet."
+  },
+  "mainnetAccessHint": {
+    "message": "Kod, davet e-postanızda yer almaktadır.",
+    "englishSource": "The code is in your invite email."
+  },
+  "iHaveACode": {
+    "message": "Bir kodum var",
+    "englishSource": "I have a code"
+  },
+  "iDontHaveACode": {
+    "message": "Elimde bir kod yok",
+    "englishSource": "I don't have a code"
+  },
+  "noCodeTitle": {
+    "message": "Bread'e katılım davetle mümkündür",
+    "englishSource": "Bread is invite-only"
+  },
+  "noCodeBody": {
+    "message": "Yeni bir cüzdan için davetinizden alacağınız bir ana ağ erişim kodu gereklidir. Halihazırda mevcut olan bir hesap yine de kurtarılabilir.",
+    "englishSource": "A new wallet needs a mainnet access code from your invite. An account that already exists can still be recovered."
+  },
   "networkModePillNoValue": {
     "message": "Tokenların gerçek bir değeri yok",
     "englishSource": "Tokens have no real value"
@@ -5575,6 +6023,22 @@
   "mainnetCountdownLink": {
     "message": "Erken erişim listesine katılın",
     "englishSource": "Join the early access list"
+  },
+  "switchToMainnet": {
+    "message": "Mainnet’e geçiş",
+    "englishSource": "Switch to mainnet"
+  },
+  "resetAndSwitchToMainnet": {
+    "message": "Sıfırla ve ana ağa geç",
+    "englishSource": "Reset and switch to mainnet"
+  },
+  "switchToMainnetConfirm": {
+    "message": "Erişim kodunuz kabul edildi. Cihaz değiştirme işlemi, bu cüzdanı, bakiyelerini ve geçmişini bu cihazdan siler. Öncelikle kurtarma bilgilerinizi kaydedin. Test tokenleri ana ağa aktarılmaz. Ardından bu kodla bir ana ağ cüzdanı oluşturacak veya mevcut bir ana ağ cüzdanını kurtaracaksınız.",
+    "englishSource": "Your access code was accepted. Switching clears this wallet, its balances and its history from this device. Save your recovery details first. Test tokens do not transfer to mainnet. You will then create a mainnet wallet with this code or recover an existing mainnet wallet."
+  },
+  "mainnetSwitchCodeBody": {
+    "message": "Davetinizdeki kodu girin. Mainnet bunu kabul edene kadar hiçbir şey silinmez.",
+    "englishSource": "Enter the code from your invite. Nothing is cleared until mainnet accepts it."
   },
   "mainnetCountdownLabel": {
     "message": "Bread'in ana ağa geçmesine kalan süre: $time$",
@@ -6197,6 +6661,54 @@
     "message": "Bu sayfa açılamadı. Bağlantınızı kontrol edin ve tekrar deneyin.",
     "englishSource": "Couldn't open this page. Check your connection and try again."
   },
+  "bridgeDepositAwaitingNextConfirmation": {
+    "message": "Bir sonraki cüzdan onayı bekleniyor",
+    "englishSource": "Waiting for the next wallet confirmation"
+  },
+  "bridgeDepositAwaitingNextConfirmationDescription": {
+    "message": "İlk onay tamamlandı. Cüzdanınız sizden tekrar onay vermenizi isteyecektir – bu ekranı açık tutun.",
+    "englishSource": "The first confirmation is done. Your wallet will ask you to confirm again - keep this screen open."
+  },
+  "advancedOptions": {
+    "message": "Gelişmiş seçenekler",
+    "englishSource": "Advanced options"
+  },
+  "advancedOptionsSummary": {
+    "message": "$transferType$ · $expiration$",
+    "englishSource": "$transferType$ · $expiration$",
+    "placeholders": {
+      "transfertype": {
+        "content": "$1"
+      },
+      "expiration": {
+        "content": "$2"
+      }
+    }
+  },
+  "transferType": {
+    "message": "Transfer türü",
+    "englishSource": "Transfer type"
+  },
+  "publicTransfer": {
+    "message": "Herkese açık transfer",
+    "englishSource": "Public transfer"
+  },
+  "publicTransferNotice": {
+    "message": "Token, tutar ve alıcı adresi Miden üzerinde görünür olacak.",
+    "englishSource": "The token, amount, and recipient address will be visible on Miden."
+  },
+  "publicTransferHelp": {
+    "message": "Bu transferin token'ını, tutarını ve alıcı adresini Miden üzerinde herkes görebilir.",
+    "englishSource": "Anyone can see this transfer's token, amount, and recipient address on Miden."
+  },
+  "senderAddressPublicNote": {
+    "message": "Gönderen adresiniz her iki modda da herkese açıktır.",
+    "englishSource": "Your sender address is public in both modes."
+  },
+  "sendPublicly": {
+    "message": "Herkese açık gönder",
+    "englishSource": "Send publicly"
+  },
   "breadCloseError": {
     "message": "Bread’e dönülemedi.",
     "englishSource": "Could not return to Bread."
@@ -6216,5 +6728,113 @@
   "breadPresentationError": {
     "message": "Bu uygulamanın yüklenmesi tamamlanmadı. Tekrar deneyin veya Bread’e dönün.",
     "englishSource": "This app did not finish loading. Try again or return to Bread."
+  },
+  "bridgeInTitle": {
+    "message": "Köprü",
+    "englishSource": "Bridge in"
+  },
+  "bridgeConnectWalletTitle": {
+    "message": "Cüzdanınızı bağlayın",
+    "englishSource": "Connect your wallet"
+  },
+  "bridgeConnectWalletBody": {
+    "message": "Miden’e aktarmak istediğiniz token’ları barındıran cüzdanı bağlayın.",
+    "englishSource": "Connect the wallet holding the tokens you want to bring to Miden."
+  },
+  "bridgeConnectWalletAction": {
+    "message": "Cüzdanı bağla",
+    "englishSource": "Connect wallet"
+  },
+  "bridgeConnectSource": {
+    "message": "Harici cüzdan",
+    "englishSource": "External wallet"
+  },
+  "bridgeConnectSourceHint": {
+    "message": "Henüz bağlanmadı",
+    "englishSource": "Not connected yet"
+  },
+  "bridgeConnectNextTitle": {
+    "message": "Bağlandıktan sonra",
+    "englishSource": "After connecting"
+  },
+  "bridgeConnectChooseTitle": {
+    "message": "Transferinizi seçin",
+    "englishSource": "Choose your transfer"
+  },
+  "bridgeConnectChooseBody": {
+    "message": "Bir token, kaynak ağ ve tutar seçin.",
+    "englishSource": "Pick a token, source network and amount."
+  },
+  "bridgeConnectApproveTitle": {
+    "message": "İnceleme ve onaylama",
+    "englishSource": "Review and approve"
+  },
+  "bridgeConnectApproveBody": {
+    "message": "Güzergâhı ve ücretleri kontrol edin, ardından cüzdanınızdan transferi onaylayın.",
+    "englishSource": "Check the route and fees, then approve the transfer in your wallet."
+  },
+  "bridgeConnectTestWalletBody": {
+    "message": "Yalnızca test token'ları içeren ayrı bir cüzdan kullanın. Asla gerçek fonların bulunduğu bir cüzdanı bağlamayın.",
+    "englishSource": "Use a separate wallet with test tokens only. Never connect a wallet holding real funds."
+  },
+  "bridgeChooseRoute": {
+    "message": "Bir yol seçin",
+    "englishSource": "Choose a route"
+  },
+  "bridgeRouteDescription": {
+    "message": "Devam etmeden önce ücreti ve tahmini varış süresini gözden geçirin.",
+    "englishSource": "Review the fee and estimated arrival before you continue."
+  },
+  "bridgeArrivalEstimate": {
+    "message": "Tahmini varış",
+    "englishSource": "Estimated arrival"
+  },
+  "bridgePayoutTiming": {
+    "message": "Varış, hedef ağa bağlıdır",
+    "englishSource": "Arrival depends on the destination network"
+  },
+  "bridgeSourceWallet": {
+    "message": "Cüzdan",
+    "englishSource": "Wallet"
+  },
+  "bridgeRouteFee": {
+    "message": "Köprü ücreti",
+    "englishSource": "Bridge fee"
+  },
+  "bridgeRankBestValue": {
+    "message": "En iyi değer",
+    "englishSource": "Best value"
+  },
+  "bridgeRankCheapest": {
+    "message": "En ucuz",
+    "englishSource": "Cheapest"
+  },
+  "bridgeRankFastest": {
+    "message": "En hızlı",
+    "englishSource": "Fastest"
+  },
+  "bridgeRouteSort": {
+    "message": "Yolları sıralama",
+    "englishSource": "Sort routes"
+  },
+  "bridgeRouteProviders": {
+    "message": "Köprü sağlayıcıları",
+    "englishSource": "Bridge providers"
+  },
+  "bridgeRankValueDescription": {
+    "message": "Çoğu, sağlayıcı ücretleri düşüldükten sonra alınır.",
+    "englishSource": "Most received after provider fees."
+  },
+  "bridgeRankCostDescription": {
+    "message": "Gaz dahil en düşük köprü ve ağ maliyeti.",
+    "englishSource": "Lowest bridge and network cost, including gas."
+  },
+  "bridgeRankTimeDescription": {
+    "message": "Tahmini en kısa varış süresi.",
+    "englishSource": "Shortest estimated arrival time."
+  },
+  "bridgeEstimatedCost": {
+    "message": "Tahmini maliyet",
+    "englishSource": "Est. cost"
   }
 }

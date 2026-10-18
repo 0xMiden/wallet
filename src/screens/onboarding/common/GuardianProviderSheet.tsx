@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useCallback } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
@@ -10,18 +10,45 @@ import { Drawer, DrawerContent, DrawerDescription, DrawerHeader, DrawerTitle } f
 import { guardianOperatorCard } from './guardian-operator-card';
 
 /**
- * Who each listed operator is, in words: `about` is the sentence the guardian step shows under the
- * chosen operator's name, `kind` the short line on its card in this sheet. An operator missing here
- * falls back to its `operatedBy`.
+ * The bundled words for the operators the wallet ships with, by id: `about` is the sentence the guardian
+ * step shows under the chosen operator's name, `kind` the short line on its card in this sheet. The
+ * config document's own text for an operator comes first (`useGuardianOperatorText`).
  */
 const GUARDIAN_OPERATOR_COPY: Record<string, { aboutKey: string; kindKey: string }> = {
   'open-zeppelin': { aboutKey: 'guardianAboutOpenZeppelin', kindKey: 'guardianKindOpenZeppelin' },
   gateway: { aboutKey: 'guardianAboutGateway', kindKey: 'guardianKindGateway' },
   'lambda-class': { aboutKey: 'guardianAboutLambdaClass', kindKey: 'guardianKindLambdaClass' },
-  kodax: { aboutKey: 'guardianAboutKodax', kindKey: 'guardianKindKodax' }
+  kodax: { aboutKey: 'guardianAboutKodax', kindKey: 'guardianKindKodax' },
+  para: { aboutKey: 'guardianAboutPara', kindKey: 'guardianKindPara' }
 };
 
-export const guardianOperatorCopy = (id: string) => GUARDIAN_OPERATOR_COPY[id];
+export const guardianOperatorCopy = (id: string) =>
+  Object.prototype.hasOwnProperty.call(GUARDIAN_OPERATOR_COPY, id) ? GUARDIAN_OPERATOR_COPY[id] : undefined;
+
+export interface GuardianOperatorText {
+  about: string;
+  kind: string;
+}
+
+/**
+ * Who an operator is, in words. Each line is the config document's English text for the operator, else
+ * the bundled text for its id in the user's language, else its `operatedBy`.
+ */
+export function useGuardianOperatorText(): (option: ResolvedGuardianOption) => GuardianOperatorText {
+  const { t } = useTranslation();
+  return useCallback(
+    (option: ResolvedGuardianOption) => {
+      const bundled = guardianOperatorCopy(option.id);
+      const line = (text: string | undefined, bundledKey: string | undefined): string => {
+        if (text) return text;
+        if (bundledKey) return t(bundledKey);
+        return option.operatedBy;
+      };
+      return { about: line(option.about, bundled?.aboutKey), kind: line(option.kind, bundled?.kindKey) };
+    },
+    [t]
+  );
+}
 
 export interface GuardianProviderSheetProps {
   open: boolean;
@@ -56,6 +83,7 @@ export const GuardianProviderSheet: React.FC<GuardianProviderSheetProps> = ({
   onPick
 }) => {
   const { t } = useTranslation();
+  const operatorText = useGuardianOperatorText();
 
   const pick = (id: string) => {
     onPick(id);
@@ -63,13 +91,12 @@ export const GuardianProviderSheet: React.FC<GuardianProviderSheetProps> = ({
   };
 
   const items: ChoiceCardItem[] = options.map(option => {
-    const copy = guardianOperatorCopy(option.id);
     return guardianOperatorCard({
       option,
       // The region is kept on one line: a break inside "EU-NORTH" reads as two words.
       subtitle: (
         <>
-          {copy ? t(copy.kindKey) : option.operatedBy}
+          {operatorText(option).kind}
           {' · '}
           <span className="whitespace-nowrap">{option.location}</span>
         </>

@@ -2569,6 +2569,14 @@
   dependencies:
     "@miden-sdk/miden-wallet-adapter-base" "0.17.0"
 
+"@miden-sdk/miden-wallet-adapter-react@0.17.0":
+  version "0.17.0"
+  resolved "https://registry.yarnpkg.com/@miden-sdk/miden-wallet-adapter-react/-/miden-wallet-adapter-react-0.17.0.tgz#3ada3b3d785588536687b44142f2a9d20c5f3c9a"
+  integrity sha512-S5B0+8fEJiVSrtGwUA/t3XiP5pEv5nKj5WzZo7q3tsN80rfItaJjgIjG7QrC8CSZxQ7CxFLTZz1X+AFnF2MxdQ==
+  dependencies:
+    "@miden-sdk/miden-wallet-adapter-base" "0.17.0"
+    "@miden-sdk/miden-wallet-adapter-miden" "0.17.0"
+
 "@miden-sdk/node-darwin-arm64@0.17.3":
   version "0.17.3"
   resolved "https://registry.yarnpkg.com/@miden-sdk/node-darwin-arm64/-/node-darwin-arm64-0.17.3.tgz#676d9ff83a2ccc3dbcd1fb97be0dc833af9a415e"

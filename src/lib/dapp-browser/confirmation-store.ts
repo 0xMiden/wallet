@@ -55,6 +55,11 @@ export interface DAppConfirmationRequest {
   privateDataPermission: PrivateDataPermission;
   allowedPrivateData: AllowedPrivateData;
   existingPermission: boolean;
+  /**
+   * Set on a connect asked again because the account key read after its approval failed (#1471): that read's error
+   * message, empty when it had none. The sheet shows it, and its approve button reads Retry.
+   */
+  previousAttemptError?: string;
   // Transaction-specific fields
   transactionMessages?: string[];
   sourcePublicKey?: string;

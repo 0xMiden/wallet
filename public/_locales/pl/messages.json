@@ -21,7 +21,7 @@
     "englishSource": "Burn only"
   },
   "usdcxWithdrawalNotice": {
-    "message": "Potwierdzone spalenie oznacza, że tokeny USDCx zostały spalone na platformie Miden. Potwierdzenie oznacza, że saldo USDC na koncie docelowym wzrosło. Notnote, która powoduje spalenie tokenów USDCx, oraz adres docelowy są publiczne. Opublikowanej notnote nie można cofnąć.",
+    "message": "Potwierdzone spalenie oznacza, że tokeny USDCx zostały spalone na platformie Miden. Potwierdzenie oznacza, że saldo USDC na koncie docelowym wzrosło. Note, która powoduje spalenie tokenów USDCx, oraz adres docelowy są publiczne. Opublikowanej note nie można cofnąć.",
     "englishSource": "Burn confirmed means USDCx was burned on Miden. Confirmed means the destination USDC balance increased. The note that burns the USDCx and the destination address are public. A published note cannot be reclaimed."
   },
   "usdcxBurnTestNotice": {
@@ -78,8 +78,8 @@
     "englishSource": "Enter a valid address on a supported network for this withdrawal."
   },
   "usdcxUnsupportedFaucet": {
-    "message": "Wypłaty w USDCx są dostępne wyłącznie dla skonfigurowanego adresu faucet w sieci testowej Miden.",
-    "englishSource": "USDCx withdrawals are available only for the configured faucet on Miden testnet."
+    "message": "Wypłaty w USDCx nie są dostępne dla tego tokenu w tej sieci.",
+    "englishSource": "USDCx withdrawals are not available for this token on this network."
   },
   "usdcxInvalidAmount": {
     "message": "Wprowadź dodatnią kwotę w USDCx z maksymalnie sześcioma miejscami po przecinku.",
@@ -546,6 +546,18 @@
     "message": "Nie udało się otworzyć pozycji",
     "englishSource": "Failed to open position"
   },
+  "earnCollateralLoading": {
+    "message": "Ładowanie danych tokenu depozytowego. Możesz kontynuować, gdy tylko się pojawią.",
+    "englishSource": "Loading the deposit token's details. You can continue once they arrive."
+  },
+  "earnCollateralUnavailable": {
+    "message": "Token do wpłat jest obecnie niedostępny, więc wpłaty zostały wstrzymane. Spróbuj ponownie później.",
+    "englishSource": "The deposit token isn't available right now, so deposits are paused. Try again later."
+  },
+  "earnCollateralMismatch": {
+    "message": "Niniejszy przegląd został przygotowany dla innego tokenu depozytowego. Cofnij się i wprowadź kwotę ponownie.",
+    "englishSource": "This review was prepared for a different deposit token. Go back and enter the amount again."
+  },
   "earnTotalEarnedRewards": {
     "message": "Łączna kwota zarobków",
     "englishSource": "Total earned"
@@ -578,6 +590,10 @@
   "earnPositionsLoadError": {
     "message": "Nie udało się załadować Twoich pozycji. Sprawdź połączenie i spróbuj ponownie.",
     "englishSource": "Couldn't load your positions. Check your connection and try again."
+  },
+  "earnUnavailableOnNetwork": {
+    "message": "Funkcja „Earn” nie jest dostępna w tej sieci",
+    "englishSource": "Earn is not available on this network"
   },
   "earnVaultLoadError": {
     "message": "Nie udało się załadować tego sejfu. Sprawdź połączenie i spróbuj ponownie.",
@@ -652,9 +668,139 @@
     "message": "Załóż konto",
     "englishSource": "Create Account"
   },
+  "me": {
+    "message": "Ja",
+    "englishSource": "Me"
+  },
+  "profile": {
+    "message": "Profil",
+    "englishSource": "Profile"
+  },
   "settings": {
     "message": "Ustawienia",
     "englishSource": "Settings"
+  },
+  "myBadges": {
+    "message": "Moje odznaki",
+    "englishSource": "My badges"
+  },
+  "openMyBadges": {
+    "message": "Otwórz Moje odznaki",
+    "englishSource": "Open My badges"
+  },
+  "badgesEarnedCount": {
+    "message": "Zdobyto $earned$ z $total$",
+    "englishSource": "$earned$ of $total$ earned",
+    "placeholders": {
+      "earned": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      }
+    }
+  },
+  "badgesProfileDescription": {
+    "message": "Prywatne osiągnięcia z aktywności w Mainnet",
+    "englishSource": "Private milestones from your Mainnet activity"
+  },
+  "badgesCollectionDescription": {
+    "message": "Prywatne osiągnięcia Twojego portfela.",
+    "englishSource": "Your private wallet milestones."
+  },
+  "badgeCollection": {
+    "message": "Kolekcja odznak",
+    "englishSource": "Badge collection"
+  },
+  "mainnetOnly": {
+    "message": "Tylko Mainnet",
+    "englishSource": "Mainnet only"
+  },
+  "badgesMainnetNoticeTitle": {
+    "message": "Odznaki odblokowują się w Mainnet",
+    "englishSource": "Badges unlock on Mainnet"
+  },
+  "badgesMainnetNoticeDescription": {
+    "message": "Odznaki odblokowują się w Mainnet. Aktywność testowa się nie liczy.",
+    "englishSource": "Badges unlock on Mainnet. Test activity does not count."
+  },
+  "badgeEarnedLabel": {
+    "message": "$badge$, zdobyta",
+    "englishSource": "$badge$, earned",
+    "placeholders": {
+      "badge": {
+        "content": "$1"
+      }
+    }
+  },
+  "badgeLockedLabel": {
+    "message": "$badge$, zablokowana",
+    "englishSource": "$badge$, locked",
+    "placeholders": {
+      "badge": {
+        "content": "$1"
+      }
+    }
+  },
+  "locked": {
+    "message": "Zablokowana",
+    "englishSource": "Locked"
+  },
+  "badgeEarned": {
+    "message": "Zdobyta",
+    "englishSource": "Earned"
+  },
+  "badgeVerificationPending": {
+    "message": "Jeszcze niedostępne",
+    "englishSource": "Not available yet"
+  },
+  "badgeFirstDeposit": {
+    "message": "Pierwsza wpłata",
+    "englishSource": "First Deposit"
+  },
+  "badgeFirstDepositDescription": {
+    "message": "Dodaj środki i poczekaj, aż będzie można je wydać.",
+    "englishSource": "Add funds and wait for them to become spendable."
+  },
+  "badgeFirstReceive": {
+    "message": "Pierwszy odbiór",
+    "englishSource": "First Receive"
+  },
+  "badgeFirstReceiveDescription": {
+    "message": "Zaakceptuj i odbierz przelew na to konto.",
+    "englishSource": "Accept and claim a transfer to this account."
+  },
+  "badgeFirstSend": {
+    "message": "Pierwsza wysyłka",
+    "englishSource": "First Send"
+  },
+  "badgeFirstSendDescription": {
+    "message": "Potwierdź wychodzący przelew Miden.",
+    "englishSource": "Confirm an outgoing Miden transfer."
+  },
+  "badgeFirstSwap": {
+    "message": "Pierwsza wymiana",
+    "englishSource": "First Swap"
+  },
+  "badgeFirstSwapDescription": {
+    "message": "Zakończ wymianę i otrzymaj środki dostępne do wydania.",
+    "englishSource": "Complete a swap and receive spendable output."
+  },
+  "badgeRecoveryChecked": {
+    "message": "Odzyskiwanie sprawdzone",
+    "englishSource": "Recovery Checked"
+  },
+  "badgeRecoveryCheckedDescription": {
+    "message": "Zweryfikuj kopię zapasową odzyskiwania tego konta.",
+    "englishSource": "Verify this account's recovery backup."
+  },
+  "badgeMiniappExplorer": {
+    "message": "Odkrywca miniaplikacji",
+    "englishSource": "Miniapp Explorer"
+  },
+  "badgeMiniappExplorerDescription": {
+    "message": "Ukończ aktywność w obsługiwanej miniaplikacji.",
+    "englishSource": "Complete a supported mini app experience."
   },
   "authorizedDApps": {
     "message": "Autoryzowane aplikacje DApp",
@@ -888,6 +1034,10 @@
     "message": "Nie udało się zweryfikować miejsc po przecinku tego tokenu, więc kwoty nie mogą być wyświetlane ani wysyłane.",
     "englishSource": "This token's decimals could not be verified, so amounts can't be shown or sent."
   },
+  "sendTokenAvailabilityChecking": {
+    "message": "Sprawdzanie, czy ten token można wysłać w sieci Testnet. Po zakończeniu sprawdzania można go wysłać.",
+    "englishSource": "Checking whether this token can be sent on Testnet. You can send it once the check finishes."
+  },
   "oops": {
     "message": "Ups!",
     "englishSource": "Oops!"
@@ -1024,6 +1174,10 @@
   "transactionStepSyncingGuardian": {
     "message": "Synchronizacja z Guardian",
     "englishSource": "Syncing with Guardian"
+  },
+  "transactionStepDeliveringNote": {
+    "message": "Dostarczenie do odbiorcy",
+    "englishSource": "Delivering to recipient"
   },
   "guardianBusyStep": {
     "message": "Czekasz na swój Guardian",
@@ -1707,6 +1861,10 @@
     "message": "Wklej",
     "englishSource": "Paste"
   },
+  "mainnetAccessPasteFailed": {
+    "message": "Nie udało się odczytać zawartości schowka. Wprowadź kod lub spróbuj ponownie.",
+    "englishSource": "Could not read the clipboard. Enter your code or try again."
+  },
   "nothingToPaste": {
     "message": "Nie ma nic do wklejenia. Najpierw skopiuj adres.",
     "englishSource": "Nothing to paste. Copy an address first."
@@ -1800,14 +1958,97 @@
     "message": "Ocena",
     "englishSource": "Rate"
   },
-  "swapSolverFeeNote": {
-    "message": "Kwota, którą otrzymasz, obejmuje już opłatę za rozwiązanie zadania w serwisie $percent$.",
-    "englishSource": "Your receive amount already includes a $percent$ solver fee.",
+  "swapRateNote": {
+    "message": "Kurs to maksymalna kwota, jaką solver wypełnia w danej chwili, z uwzględnioną już opłatą w wysokości $fee$. Kwota, którą otrzymasz, to ten kurs pomniejszony o poślizg cenowy w wysokości $slippage$.",
+    "englishSource": "The rate is the most the solver fills at right now, with its $fee$ fee already in it. Your receive amount is that rate less your $slippage$ slippage.",
     "placeholders": {
-      "percent": {
+      "fee": {
         "content": "$1"
+      },
+      "slippage": {
+        "content": "$2"
       }
     }
+  },
+  "swapFillStatus": {
+    "message": "Wypełnienie",
+    "englishSource": "Fill"
+  },
+  "swapVerdictSettlementDelayed": {
+    "message": "Opóźnienie rozliczenia. Twoje zlecenie zostanie wstrzymane.",
+    "englishSource": "Settlement delayed. Your order will wait."
+  },
+  "swapVerdictNoMarket": {
+    "message": "Ta para nie jest przedmiotem obrotu.",
+    "englishSource": "This pair isn't traded."
+  },
+  "swapVerdictNoPrice": {
+    "message": "Ceny są obecnie niedostępne. Spróbuj ponownie za chwilę.",
+    "englishSource": "Prices are unavailable right now. Try again shortly."
+  },
+  "swapVerdictOffMarket": {
+    "message": "Cena uległa zmianie. Odśwież notowania.",
+    "englishSource": "The price moved. Refresh the quote."
+  },
+  "swapVerdictNoLiquidity": {
+    "message": "W tej chwili nie ma wystarczającej liczby zleceń po aktualnej cenie.",
+    "englishSource": "Not enough orders at the current price right now."
+  },
+  "swapVerdictTolerated": {
+    "message": "Może to potrwać dłużej: zlecenie zostanie zrealizowane, gdy cena nieznacznie się zmieni.",
+    "englishSource": "May take longer: fills when the price moves slightly."
+  },
+  "swapVerdictPartial": {
+    "message": "Obecnie realizowana jest tylko część tego zlecenia; reszta pozostaje w oczekiwaniu.",
+    "englishSource": "Only part of this order fills now; the rest waits."
+  },
+  "swapVerdictFull": {
+    "message": "Realizacja po aktualnej cenie.",
+    "englishSource": "Fills at the current price."
+  },
+  "swapVerdictExpected": {
+    "message": "Otrzymujesz około $amount$ $symbol$.",
+    "englishSource": "You receive about $amount$ $symbol$.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "swapSlippage": {
+    "message": "Poślizg cenowy",
+    "englishSource": "Slippage"
+  },
+  "percentSign": {
+    "message": "%",
+    "englishSource": "%"
+  },
+  "swapSlippageNote": {
+    "message": "O ile poniżej aktualnego kursu może zostać zrealizowane zlecenie. W sieci testowej zlecenie powyżej około 0,25% nie zostaje zrealizowane.",
+    "englishSource": "How far below the current rate your order may fill. On testnet an order above about 0.25% does not fill."
+  },
+  "swapSlippageEditedNote": {
+    "message": "Kwotę do otrzymania ustalasz samodzielnie, więc poślizg cenowy nie ma zastosowania do tego zlecenia.",
+    "englishSource": "You set the receive amount yourself, so slippage does not apply to this order."
+  },
+  "swapSlippageRange": {
+    "message": "Wprowadź wartość procentową z przedziału od $min$ do $max$ z maksymalnie dwoma miejscami po przecinku.",
+    "englishSource": "Enter a percent from $min$ to $max$ with up to two decimals.",
+    "placeholders": {
+      "min": {
+        "content": "$1"
+      },
+      "max": {
+        "content": "$2"
+      }
+    }
+  },
+  "swapPriceMoved": {
+    "message": "Cena uległa zmianie. Sprawdź nową kwotę i spróbuj ponownie.",
+    "englishSource": "The price moved. Check the new amount and try again."
   },
   "usuallyFillsIn": {
     "message": "Zazwyczaj wypełnia",
@@ -1850,6 +2091,10 @@
   "swapInvalidAmounts": {
     "message": "Wprowadź prawidłową kwotę do wymiany.",
     "englishSource": "Enter a valid amount to swap."
+  },
+  "swapPairNotListed": {
+    "message": "Tej pary nie można już wymienić. Wróć i wybierz inny token.",
+    "englishSource": "This pair can no longer be swapped. Go back and choose another token."
   },
   "swapPriceUnavailable": {
     "message": "Cena niedostępna. Spróbuj ponownie za chwilę.",
@@ -2516,6 +2761,10 @@
     "message": "Korea Digital Asset – firma zajmująca się przechowywaniem aktywów cyfrowych z siedzibą w Korei Południowej.",
     "englishSource": "Korea Digital Asset, a digital asset custody company based in South Korea."
   },
+  "guardianAboutPara": {
+    "message": "Para, dostawca infrastruktury portfeli wbudowanych.",
+    "englishSource": "Para, an embedded wallet infrastructure provider."
+  },
   "guardianKindOpenZeppelin": {
     "message": "Bezpieczeństwo i audyty inteligentnych kontraktów",
     "englishSource": "Smart contract security and audits"
@@ -2531,6 +2780,10 @@
   "guardianKindKodax": {
     "message": "Depozytariusz aktywów cyfrowych",
     "englishSource": "Digital asset custodian"
+  },
+  "guardianKindPara": {
+    "message": "Infrastruktura portfeli wbudowanych",
+    "englishSource": "Embedded wallet infrastructure"
   },
   "guardianInfoDescription": {
     "message": "Guardian to niezależna usługa, która <b>współpodpisuje każdą transakcję</b> z Twojego portfela, zapewniając dodatkową ochronę bez rezygnacji z samodzielnego przechowywania środków.",
@@ -3246,6 +3499,10 @@
     "message": "Ten plik portfela został utworzony w nowszej wersji Bread. Zaktualizuj Bread i spróbuj ponownie.",
     "englishSource": "This wallet file was created by a newer version of Bread. Update Bread and try again."
   },
+  "encryptedWalletFileWrongNetwork": {
+    "message": "Ten plik portfela należy do innej sieci i nie można go przywrócić w tej sieci.",
+    "englishSource": "This wallet file belongs to another network and cannot be restored on this one."
+  },
   "encryptedWalletFileRestoreFailed": {
     "message": "Nie udało się przywrócić portfela. Sprawdź pamięć i spróbuj ponownie.",
     "englishSource": "The wallet could not be restored. Check your storage and try again."
@@ -3289,6 +3546,14 @@
   "feeReserveBlocksSend": {
     "message": "Twoje USDCX są zarezerwowane na opłatę sieciową. Otrzymaj więcej USDCX, aby móc je wysłać.",
     "englishSource": "Your USDCX is reserved for the network fee. Receive more USDCX to send."
+  },
+  "usdcxBurnFeeMeasuring": {
+    "message": "Opłatę sieciową związaną z tym spaleniem można sprawdzić przed podaniem kwoty.",
+    "englishSource": "Measuring this burn's network fee before the amount can be checked."
+  },
+  "usdcxBurnFeeUnavailable": {
+    "message": "Nie można zmierzyć opłaty sieciowej za to spalenie, więc kwota nie może zostać sprawdzona. Wybierz inne miejsce docelowe, aby spróbować ponownie.",
+    "englishSource": "Unable to measure this burn's network fee, so the amount cannot be checked. Choose another destination to try again."
   },
   "insufficientFeeAsset": {
     "message": "Aby uiścić opłatę sieciową, potrzebujesz USDCX. Odbierz trochę USDCX, aby kontynuować.",
@@ -3573,6 +3838,10 @@
     "message": "Nie udało nam się znaleźć Twojego konta pod tym adresem guardian. Sprawdź adres URL lub spróbuj zaimportować je jako konto publiczne.",
     "englishSource": "We couldn't find your account on this guardian. Check the URL or import as a public account instead."
   },
+  "guardianOtherNetwork": {
+    "message": "Ten guardian działa w innej sieci Miden, więc nie może odzyskać konta tutaj.",
+    "englishSource": "This guardian runs on another Miden network, so it cannot recover an account here."
+  },
   "useCustomGuardianUrl": {
     "message": "Użyj niestandardowego adresu URL typu Guardian",
     "englishSource": "Use a custom Guardian URL"
@@ -3702,7 +3971,7 @@
     "englishSource": "Import private note"
   },
   "requestConsumableNotes": {
-    "message": "Zamów materiały eksploatacyjneNotes",
+    "message": "Prośba o Notes do wykorzystania",
     "englishSource": "Request Consumable Notes"
   },
   "requestsConsumableNotes": {
@@ -3838,7 +4107,7 @@
     "englishSource": "Set new Faucet ID"
   },
   "setNewFaucetIdDescription": {
-    "message": "Wprowadź identyfikator urządzenia Midenfaucet",
+    "message": "Wprowadź identyfikator fauceta Miden",
     "englishSource": "Enter the ID of a miden faucet"
   },
   "addAccount": {
@@ -4150,6 +4419,18 @@
   "dappConnectionRequest": {
     "message": "Ta aplikacja chce nawiązać połączenie z Twoim portfelem",
     "englishSource": "This app wants to connect to your wallet"
+  },
+  "dappNetworkMismatch": {
+    "message": "Ta aplikacja zażądała sieci Miden $dappNetwork$, ale Twój portfel znajduje się w sieci Miden $walletNetwork$.",
+    "englishSource": "This app asked for Miden $dappNetwork$, but your wallet is on Miden $walletNetwork$.",
+    "placeholders": {
+      "dappnetwork": {
+        "content": "$1"
+      },
+      "walletnetwork": {
+        "content": "$2"
+      }
+    }
   },
   "dappTransactionRequest": {
     "message": "Ta aplikacja wysyła żądanie transakcji",
@@ -4501,6 +4782,41 @@
     "message": "Realizacje powiązane z tą wymianą",
     "englishSource": "Fills bundled into this swap"
   },
+  "swapActivityTitle": {
+    "message": "Aktywność swapowa",
+    "englishSource": "Swap activity"
+  },
+  "swapReclaiming": {
+    "message": "Zwrot środków",
+    "englishSource": "Returning funds"
+  },
+  "swapReturnedAt": {
+    "message": "Zwrócone · $time$",
+    "englishSource": "Returned · $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapPlacedAt": {
+    "message": "Złożono o godz. $time$",
+    "englishSource": "Placed $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapOfferedAmount": {
+    "message": "Oferowana kwota: $amount$",
+    "englishSource": "Offered $amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
   "swapFillNote": {
     "message": "Realizacja $number$",
     "englishSource": "Fill $number$",
@@ -4644,6 +4960,15 @@
     "message": "Podłączono portfel EVM",
     "englishSource": "EVM wallet connected"
   },
+  "evmChainNotApproved": {
+    "message": "Podłączony portfel nie zatwierdził $network$. Podłącz ponownie portfel, aby to zatwierdzić.",
+    "englishSource": "The connected wallet did not approve $network$. Reconnect the wallet to approve it.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
   "connectedWallet": {
     "message": "Portfel połączony z internetem",
     "englishSource": "Connected wallet"
@@ -4725,12 +5050,39 @@
     "englishSource": "Confirming bridge deposit"
   },
   "bridgeDepositProcessingDescription": {
-    "message": "Zatwierdź żądanie w swoim portfelu i pozostaw ten ekran otwarty, dopóki sieć źródłowa nie potwierdzi operacji.",
-    "englishSource": "Approve the request in your wallet and keep this screen open while the source network confirms it."
+    "message": "Zatwierdź żądania w swoim portfelu — może pojawić się prośba więcej niż raz — i pozostaw ten ekran otwarty, dopóki sieć źródłowa ich nie potwierdzi.",
+    "englishSource": "Approve the requests in your wallet — it may ask more than once — and keep this screen open while the source network confirms them."
   },
   "bridgeDepositFailed": {
     "message": "Niepowodzenie wpłaty na most",
     "englishSource": "Bridge deposit failed"
+  },
+  "bridgeDepositBalanceTooLow": {
+    "message": "Twój podłączony portfel zawiera $balance$ $token$ w sieci $network$, co stanowi kwotę mniejszą niż wymagana do dokonania wpłaty. Nic nie zostało wysłane.",
+    "englishSource": "Your connected wallet holds $balance$ $token$ on $network$, less than this deposit needs. Nothing was sent.",
+    "placeholders": {
+      "balance": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      }
+    }
+  },
+  "bridgeDepositBalanceReadFailed": {
+    "message": "Nie udało się sprawdzić salda $token$ w sieci $network$. Nic nie zostało wysłane.",
+    "englishSource": "Could not check your $token$ balance on $network$. Nothing was sent.",
+    "placeholders": {
+      "token": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
   },
   "bridgeDepositSubmitted": {
     "message": "Most uruchomiony!",
@@ -4751,6 +5103,21 @@
   "fastEthWrapNotice": {
     "message": "Przenoszenie ETH trasą „Fast” polega najpierw na zamianie go na WETH, a następnie na przeniesieniu WETH. Ta trasa nie jest jeszcze dostępna.",
     "englishSource": "Bridging ETH on the Fast route wraps it to WETH first, then bridges the WETH. This route isn't available yet."
+  },
+  "fastQuoteAboveBalanceNotice": {
+    "message": "Opcja „Fast” wymaga wpłaty $deposit$ $token$, wliczając opłatę, ale w podłączonym portfelu znajduje się $balance$ $token$. Zmniejsz kwotę lub wybierz opcję „Slow”.",
+    "englishSource": "Fast needs a deposit of $deposit$ $token$, fee included, but your connected wallet holds $balance$ $token$. Lower the amount or choose Slow.",
+    "placeholders": {
+      "deposit": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$4"
+      },
+      "balance": {
+        "content": "$3"
+      }
+    }
   },
   "destinationNetwork": {
     "message": "Sieć docelowa",
@@ -4841,14 +5208,39 @@
     "englishSource": "USDCx was minted on Miden and your wallet received it."
   },
   "usdcxExecutorRouteNotice": {
-    "message": "USDC jest spalane na $source$ i wybijane na rzecz wykonawcy Circle na $target$, który wpłaca je do xReserve dla Miden. Circle pobiera swoją opłatę oprócz kwoty, a Circle realizuje transfer na $target$. Jeśli Circle nie może wycenić transferu, realizujesz go na $target$ za pomocą jeszcze jednego podpisu.",
-    "englishSource": "USDC is burned on $source$ and minted to Circle's executor on $target$, which deposits it into xReserve for Miden. Circle charges its fee in addition to the amount, and Circle executes the transfer on $target$. If Circle cannot price the transfer, you execute it on $target$ with one more signature.",
+    "message": "USDC jest spalane na $source$ i emitowane na rzecz wykonawcy Circle na $target$, który wpłaca je do xReserve dla Miden. Circle pobiera swoją opłatę dodatkowo do kwoty, a Circle realizuje transfer na $target$.",
+    "englishSource": "USDC is burned on $source$ and minted to Circle's executor on $target$, which deposits it into xReserve for Miden. Circle charges its fee in addition to the amount, and Circle executes the transfer on $target$.",
     "placeholders": {
       "source": {
         "content": "$1"
       },
       "target": {
+        "content": "$3"
+      }
+    }
+  },
+  "usdcxForwardQuoteUnavailable": {
+    "message": "Circle nie może w tej chwili wycenić tego przelewu. Nic nie zostało wysłane. Spróbuj ponownie za chwilę.",
+    "englishSource": "Circle could not price this transfer right now. Nothing was sent. Try again in a moment."
+  },
+  "usdcxDepositFeeAboveBalance": {
+    "message": "Ta wpłata wymaga $total$ $token$ w sieci $network$: kwota plus opłata Circle w wysokości $fee$ $token$. Twój podłączony portfel zawiera $balance$ $token$. Zmniejsz kwotę o wysokość opłaty lub dodaj $token$ do swojego portfela.",
+    "englishSource": "This deposit needs $total$ $token$ on $network$: the amount plus Circle's fee of $fee$ $token$. Your connected wallet holds $balance$ $token$. Lower the amount by the fee or add $token$ to your wallet.",
+    "placeholders": {
+      "total": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$8"
+      },
+      "network": {
+        "content": "$3"
+      },
+      "fee": {
         "content": "$4"
+      },
+      "balance": {
+        "content": "$6"
       }
     }
   },
@@ -5568,6 +5960,62 @@
       }
     }
   },
+  "mainnetAccessCodeLabel": {
+    "message": "Kod dostępu",
+    "englishSource": "Access code"
+  },
+  "unlockMainnet": {
+    "message": "Odblokuj sieć główną",
+    "englishSource": "Unlock mainnet"
+  },
+  "mainnetAccessCodeRejected": {
+    "message": "Ten kod nie zadziałał. Sprawdź go i spróbuj ponownie.",
+    "englishSource": "This code did not work. Check it and try again."
+  },
+  "mainnetAccessCheckFailed": {
+    "message": "Nie udało nam się sprawdzić tego kodu. Spróbuj ponownie później.",
+    "englishSource": "We could not check this code. Try again later."
+  },
+  "mainnetAccountNotAdmitted": {
+    "message": "Ten portfel nie jest dopuszczony do sieci głównej Miden. Nowy portfel wymaga kodu dostępu.",
+    "englishSource": "This wallet is not admitted on Miden mainnet. A new wallet needs an access code."
+  },
+  "mainnetSecondAccountRefused": {
+    "message": "Sieć główna Miden dopuszcza wyłącznie konto zarejestrowane wraz z kodem dostępu.",
+    "englishSource": "Miden mainnet admits only the account an access code registered."
+  },
+  "mainnet": {
+    "message": "Sieć główna",
+    "englishSource": "Mainnet"
+  },
+  "mainnetAccessTitle": {
+    "message": "Masz kod dostępu do sieci głównej?",
+    "englishSource": "Have a mainnet access code?"
+  },
+  "mainnetAccessOnboardingBody": {
+    "message": "Sieć Mainnet jest na razie dostępna wyłącznie na zaproszenie. Wprowadź 12-znakowy kod z zaproszenia, a Twój portfel zostanie uruchomiony w sieci Miden Mainnet.",
+    "englishSource": "Mainnet is invite-only for now. Enter the 12-character code from your invite and your wallet starts on Miden Mainnet."
+  },
+  "mainnetAccessHint": {
+    "message": "Kod znajduje się w wiadomości e-mail z zaproszeniem.",
+    "englishSource": "The code is in your invite email."
+  },
+  "iHaveACode": {
+    "message": "Mam kod",
+    "englishSource": "I have a code"
+  },
+  "iDontHaveACode": {
+    "message": "Nie mam kodu",
+    "englishSource": "I don't have a code"
+  },
+  "noCodeTitle": {
+    "message": "Bread jest dostępny wyłącznie na zaproszenie",
+    "englishSource": "Bread is invite-only"
+  },
+  "noCodeBody": {
+    "message": "Nowy portfel wymaga kodu dostępu do sieci głównej zawartego w zaproszeniu. Istniejące już konto nadal można odzyskać.",
+    "englishSource": "A new wallet needs a mainnet access code from your invite. An account that already exists can still be recovered."
+  },
   "networkModePillNoValue": {
     "message": "Tokeny nie mają realnej wartości",
     "englishSource": "Tokens have no real value"
@@ -5575,6 +6023,22 @@
   "mainnetCountdownLink": {
     "message": "Dołącz do listy wczesnego dostępu",
     "englishSource": "Join the early access list"
+  },
+  "switchToMainnet": {
+    "message": "Przejście do sieci głównej",
+    "englishSource": "Switch to mainnet"
+  },
+  "resetAndSwitchToMainnet": {
+    "message": "Reset i przejście do sieci głównej",
+    "englishSource": "Reset and switch to mainnet"
+  },
+  "switchToMainnetConfirm": {
+    "message": "Twój kod dostępu został zaakceptowany. Przełączenie spowoduje wyczyszczenie tego portfela, jego sald i historii z tego urządzenia. Najpierw zapisz swoje dane do odzyskiwania. Tokeny testowe nie są przenoszone do sieci głównej. Następnie utworzysz portfel w sieci głównej za pomocą tego kodu lub odzyskasz istniejący portfel w sieci głównej.",
+    "englishSource": "Your access code was accepted. Switching clears this wallet, its balances and its history from this device. Save your recovery details first. Test tokens do not transfer to mainnet. You will then create a mainnet wallet with this code or recover an existing mainnet wallet."
+  },
+  "mainnetSwitchCodeBody": {
+    "message": "Wprowadź kod z zaproszenia. Nic nie zostanie zatwierdzone, dopóki sieć główna tego nie zaakceptuje.",
+    "englishSource": "Enter the code from your invite. Nothing is cleared until mainnet accepts it."
   },
   "mainnetCountdownLabel": {
     "message": "Czas pozostały do uruchomienia sieci głównej Bread: $time$",
@@ -6130,7 +6594,7 @@
     "englishSource": "Save"
   },
   "resetToFaucetValues": {
-    "message": "Przywróć wartości domyślne dfaucet",
+    "message": "Przywróć wartości fauceta",
     "englishSource": "Reset to faucet values"
   },
   "tokenMetadataEdited": {
@@ -6197,6 +6661,54 @@
     "message": "Nie udało się otworzyć tej strony. Sprawdź połączenie i spróbuj ponownie.",
     "englishSource": "Couldn't open this page. Check your connection and try again."
   },
+  "bridgeDepositAwaitingNextConfirmation": {
+    "message": "Oczekiwanie na kolejne potwierdzenie portfela",
+    "englishSource": "Waiting for the next wallet confirmation"
+  },
+  "bridgeDepositAwaitingNextConfirmationDescription": {
+    "message": "Pierwsze potwierdzenie zostało wykonane. Twój portfel poprosi Cię o ponowne potwierdzenie – pozostaw ten ekran otwarty.",
+    "englishSource": "The first confirmation is done. Your wallet will ask you to confirm again - keep this screen open."
+  },
+  "advancedOptions": {
+    "message": "Opcje zaawansowane",
+    "englishSource": "Advanced options"
+  },
+  "advancedOptionsSummary": {
+    "message": "$transferType$ · $expiration$",
+    "englishSource": "$transferType$ · $expiration$",
+    "placeholders": {
+      "transfertype": {
+        "content": "$1"
+      },
+      "expiration": {
+        "content": "$2"
+      }
+    }
+  },
+  "transferType": {
+    "message": "Typ transferu",
+    "englishSource": "Transfer type"
+  },
+  "publicTransfer": {
+    "message": "Transfer publiczny",
+    "englishSource": "Public transfer"
+  },
+  "publicTransferNotice": {
+    "message": "Token, kwota i adres odbiorcy będą widoczne w sieci Miden.",
+    "englishSource": "The token, amount, and recipient address will be visible on Miden."
+  },
+  "publicTransferHelp": {
+    "message": "Każdy może zobaczyć token, kwotę i adres odbiorcy tego transferu w sieci Miden.",
+    "englishSource": "Anyone can see this transfer's token, amount, and recipient address on Miden."
+  },
+  "senderAddressPublicNote": {
+    "message": "Twój adres nadawcy jest publiczny w obu trybach.",
+    "englishSource": "Your sender address is public in both modes."
+  },
+  "sendPublicly": {
+    "message": "Wyślij publicznie",
+    "englishSource": "Send publicly"
+  },
   "breadCloseError": {
     "message": "Nie udało się wrócić do Bread.",
     "englishSource": "Could not return to Bread."
@@ -6216,5 +6728,113 @@
   "breadPresentationError": {
     "message": "Ta aplikacja nie została w pełni załadowana. Spróbuj ponownie lub wróć do Bread.",
     "englishSource": "This app did not finish loading. Try again or return to Bread."
+  },
+  "bridgeInTitle": {
+    "message": "Bridge in",
+    "englishSource": "Bridge in"
+  },
+  "bridgeConnectWalletTitle": {
+    "message": "Podłącz swój portfel",
+    "englishSource": "Connect your wallet"
+  },
+  "bridgeConnectWalletBody": {
+    "message": "Podłącz portfel zawierający tokeny, które chcesz przenieść do Miden.",
+    "englishSource": "Connect the wallet holding the tokens you want to bring to Miden."
+  },
+  "bridgeConnectWalletAction": {
+    "message": "Połącz portfel",
+    "englishSource": "Connect wallet"
+  },
+  "bridgeConnectSource": {
+    "message": "Portfel zewnętrzny",
+    "englishSource": "External wallet"
+  },
+  "bridgeConnectSourceHint": {
+    "message": "Jeszcze nie połączono",
+    "englishSource": "Not connected yet"
+  },
+  "bridgeConnectNextTitle": {
+    "message": "Po nawiązaniu połączenia",
+    "englishSource": "After connecting"
+  },
+  "bridgeConnectChooseTitle": {
+    "message": "Wybierz rodzaj przelewu",
+    "englishSource": "Choose your transfer"
+  },
+  "bridgeConnectChooseBody": {
+    "message": "Wybierz token, sieć źródłową i kwotę.",
+    "englishSource": "Pick a token, source network and amount."
+  },
+  "bridgeConnectApproveTitle": {
+    "message": "Sprawdź i zatwierdź",
+    "englishSource": "Review and approve"
+  },
+  "bridgeConnectApproveBody": {
+    "message": "Sprawdź trasę i opłaty, a następnie zatwierdź przelew w swoim portfelu.",
+    "englishSource": "Check the route and fees, then approve the transfer in your wallet."
+  },
+  "bridgeConnectTestWalletBody": {
+    "message": "Należy używać oddzielnego portfela przeznaczonego wyłącznie na tokeny testowe. Nigdy nie należy podłączać portfela zawierającego prawdziwe środki.",
+    "englishSource": "Use a separate wallet with test tokens only. Never connect a wallet holding real funds."
+  },
+  "bridgeChooseRoute": {
+    "message": "Wybierz trasę",
+    "englishSource": "Choose a route"
+  },
+  "bridgeRouteDescription": {
+    "message": "Przed kontynuowaniem sprawdź opłatę i przewidywany czas realizacji.",
+    "englishSource": "Review the fee and estimated arrival before you continue."
+  },
+  "bridgeArrivalEstimate": {
+    "message": "Przewidywany czas dostawy",
+    "englishSource": "Estimated arrival"
+  },
+  "bridgePayoutTiming": {
+    "message": "Czas dotarcia zależy od sieci docelowej",
+    "englishSource": "Arrival depends on the destination network"
+  },
+  "bridgeSourceWallet": {
+    "message": "Portfel",
+    "englishSource": "Wallet"
+  },
+  "bridgeRouteFee": {
+    "message": "Opłata za most",
+    "englishSource": "Bridge fee"
+  },
+  "bridgeRankBestValue": {
+    "message": "Najlepsza wartość",
+    "englishSource": "Best value"
+  },
+  "bridgeRankCheapest": {
+    "message": "Najtańszy",
+    "englishSource": "Cheapest"
+  },
+  "bridgeRankFastest": {
+    "message": "Najszybszy",
+    "englishSource": "Fastest"
+  },
+  "bridgeRouteSort": {
+    "message": "Sortowanie tras",
+    "englishSource": "Sort routes"
+  },
+  "bridgeRouteProviders": {
+    "message": "Dostawcy mostów",
+    "englishSource": "Bridge providers"
+  },
+  "bridgeRankValueDescription": {
+    "message": "Większość kwot otrzymuje się po potrąceniu opłat dostawcy.",
+    "englishSource": "Most received after provider fees."
+  },
+  "bridgeRankCostDescription": {
+    "message": "Najniższe koszty mostu i sieci, w tym opłaty za gaz.",
+    "englishSource": "Lowest bridge and network cost, including gas."
+  },
+  "bridgeRankTimeDescription": {
+    "message": "Najkrótszy szacowany czas przybycia.",
+    "englishSource": "Shortest estimated arrival time."
+  },
+  "bridgeEstimatedCost": {
+    "message": "Szacunkowy koszt",
+    "englishSource": "Est. cost"
   }
 }

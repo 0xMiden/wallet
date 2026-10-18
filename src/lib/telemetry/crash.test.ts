@@ -1,3 +1,5 @@
+import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { isTelemetryEnabledAsync } from 'lib/settings/helpers';
 
 import {
@@ -10,8 +12,16 @@ import {
 } from './crash';
 import { annotateCrash } from './crash-diagnostics';
 import { REDACTED } from './redact';
+import { __resetRelayDiagnosticsForTest } from './relay-diagnostics';
+import packageJson from '../../../package.json';
 
 jest.mock('lib/settings/helpers', () => ({ isTelemetryEnabledAsync: jest.fn() }));
+jest.mock('lib/miden-chain/effective-endpoints', () => {
+  const actual = jest.requireActual<typeof import('lib/miden-chain/effective-endpoints')>(
+    'lib/miden-chain/effective-endpoints'
+  );
+  return { ...actual, getEffectiveNetworkName: jest.fn(actual.getEffectiveNetworkName) };
+});
 
 interface ClientOptions {
   dsn?: string;
@@ -82,6 +92,33 @@ const serializeError = (error: Error) => ({ name: error.name, message: error.mes
 
 const consentOn = () => jest.mocked(isTelemetryEnabledAsync).mockResolvedValue(true);
 const consentOff = () => jest.mocked(isTelemetryEnabledAsync).mockResolvedValue(false);
+
+/** An Error that counts each read of its own name, message and stack. */
+function countingFieldReads(message: string): { error: Error; reads: Record<'name' | 'message' | 'stack', number> } {
+  const error = new Error(message);
+  const reads = { name: 0, message: 0, stack: 0 };
+  Object.defineProperties(error, {
+    name: {
+      get() {
+        reads.name++;
+        return 'Error';
+      }
+    },
+    message: {
+      get() {
+        reads.message++;
+        return message;
+      }
+    },
+    stack: {
+      get() {
+        reads.stack++;
+        return `Error: ${message}\n    at source (capacitor://localhost/mobile.js:1:5000)`;
+      }
+    }
+  });
+  return { error, reads };
+}
 
 beforeEach(() => {
   process.env.SENTRY_DSN = 'https://publickey@o0.ingest.de.sentry.io/1';
@@ -611,39 +648,82 @@ describe('diagnostic snapshots', () => {
         operation: 'sdk_initialize',
         stage: 'client_create',
         workerMode: 'disabled',
-        appVersion: '1.17.3'
+        appVersion: packageJson.version
       })
     });
+  });
+
+  it('names the network the crash happened on, in the diagnostics and as a tag beside any other', async () => {
+    consentOn();
+    initCrashReporting();
+    // Only the capture sees mainnet: the report is sent after a switch back, and still says where it happened.
+    jest.mocked(getEffectiveNetworkName).mockReturnValueOnce(MIDEN_NETWORK_NAME.MAINNET);
+    captureCrash(new Error('sync failed'));
+    await flushMicrotasks();
+    const event: Record<string, unknown> = { tags: { kept: 'yes' }, exception: { values: [{ type: 'Error' }] } };
+    scrubEvent(event, { originalException: captured[0] });
+    expect(event.extra).toEqual({ walletDiagnostics: expect.objectContaining({ network: 'mainnet' }) });
+    expect(event.tags).toEqual({ kept: 'yes', network: 'mainnet' });
   });
 
   it('reads each raw error field only once before asynchronous consent', async () => {
     consentOn();
     initCrashReporting();
-    const error = new Error('body');
-    const reads = { name: 0, message: 0, stack: 0 };
-    Object.defineProperties(error, {
-      name: {
-        get() {
-          reads.name++;
-          return 'Error';
-        }
-      },
-      message: {
-        get() {
-          reads.message++;
-          return 'body';
-        }
-      },
-      stack: {
-        get() {
-          reads.stack++;
-          return 'Error: body\n    at source (capacitor://localhost/mobile.js:1:5000)';
-        }
-      }
-    });
+    const { error, reads } = countingFieldReads('body');
     captureCrash(error);
     await flushMicrotasks();
     expect(reads).toEqual({ name: 1, message: 1, stack: 1 });
+  });
+
+  describe('reads each raw field of a relay failure only once, whether or not it is reported', () => {
+    const RELAY_FAILURE = 'WebSocket connection failed for host: wss://relay.walletconnect.org';
+
+    beforeEach(() => {
+      __resetRelayDiagnosticsForTest();
+      consentOn();
+      initCrashReporting();
+    });
+
+    it('when it is reported', async () => {
+      const { error, reads } = countingFieldReads(RELAY_FAILURE);
+      captureCrash(error);
+      await flushMicrotasks();
+      expect(captured).toHaveLength(1);
+      expect(reads).toEqual({ name: 1, message: 1, stack: 1 });
+    });
+
+    it('when the same Error is captured again, and counts it once', async () => {
+      const { error, reads } = countingFieldReads(RELAY_FAILURE);
+      captureCrash(error);
+      await flushMicrotasks();
+      Object.assign(reads, { name: 0, message: 0, stack: 0 });
+      captureCrash(error);
+      await flushMicrotasks();
+      expect(captured).toHaveLength(1);
+      expect(reads).toEqual({ name: 1, message: 1, stack: 1 });
+    });
+
+    it('when a new Error falls in a range already reported', async () => {
+      captureCrash(new Error(RELAY_FAILURE));
+      await flushMicrotasks();
+      captureCrash(new Error(RELAY_FAILURE));
+      await flushMicrotasks();
+      const { error, reads } = countingFieldReads(RELAY_FAILURE);
+      captureCrash(error);
+      await flushMicrotasks();
+      expect(captured).toHaveLength(2);
+      expect(reads).toEqual({ name: 1, message: 1, stack: 1 });
+    });
+
+    it('when it is classified while offline', async () => {
+      const { error, reads } = countingFieldReads(RELAY_FAILURE);
+      const offline = jest.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+      captureCrash(error);
+      offline.mockRestore();
+      await flushMicrotasks();
+      expect(captured).toHaveLength(0);
+      expect(reads).toEqual({ name: 1, message: 1, stack: 1 });
+    });
   });
 
   it('replaces SDK-created frames with the trusted empty frame snapshot', async () => {

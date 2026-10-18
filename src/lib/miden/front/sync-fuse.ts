@@ -26,6 +26,10 @@ import { isSyncWatchdogEviction } from '../sdk/wasm-client-poison';
  * threshold was unreachable and a guardian wallet parked and leaked a client every two
  * minutes forever. Guardian is the wallet's DEFAULT account type, so that path is the
  * likeliest one in the product, not a corner.
+ *
+ * `swap-zero-fill-build` names a call, not a hold: the zero-fill PSWAP cancel-request build inside the
+ * `swap-settlement` hold and the service worker's `sw-notes-read` hold. The claimable-notes poll never makes that node
+ * call, so the build parks independently of the note read it shares those holds with.
  */
 export type SyncFuseKey =
   | 'idle-sync'
@@ -35,6 +39,9 @@ export type SyncFuseKey =
   | 'note-delivery'
   | 'note-delivery-receipt'
   | 'swap-order-tracking'
+  | 'swap-zero-fill-build'
+  // Shared by the badge issuer's commit and swap verdict holds: one client asking one node.
+  | 'badge-verdict'
   | `pending-rotation-recheck:${string}`
   | `guardian-sync:${string}`
   | `guardian-drift:${string}`

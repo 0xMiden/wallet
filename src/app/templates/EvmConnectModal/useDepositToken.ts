@@ -7,11 +7,14 @@ import type { DepositToken } from './EvmBridgeTokenDrawer';
  * belonged to the old token (its Epoch quote, a Slow attempt). Picking the selected token again changes nothing: no
  * effect would re-quote after a reset, so Fast would stay unconfirmable.
  */
-export function useDepositToken(onChange: () => void): {
+export function useDepositToken(
+  onChange: () => void,
+  initialToken: DepositToken = 'CIRCLE_USDC'
+): {
   token: DepositToken;
   selectToken: (next: DepositToken) => void;
 } {
-  const [token, setToken] = useState<DepositToken>('USDC');
+  const [token, setToken] = useState<DepositToken>(initialToken);
   const selectToken = useCallback(
     (next: DepositToken) => {
       if (next === token) return;

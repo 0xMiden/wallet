@@ -6,6 +6,7 @@ import { subscribeWithSelector } from 'zustand/middleware';
 import { installFaucetAddressTestHook } from 'lib/e2e/faucet-address';
 import { createIntercomClient, IIntercomClient } from 'lib/intercom/client';
 import { clearPersistedSeenNoteIds, persistSeenNoteIds } from 'lib/miden/back/note-checker-storage';
+import { tagBalanceSnapshot, type BalanceSnapshot } from 'lib/miden/balance-snapshot';
 import type { IConsumeBridgeInExtraInputs, IEarnWithdrawExtraInputs, ITransaction } from 'lib/miden/db/types';
 import { setTestSyncPaused } from 'lib/miden/front/test-sync-pause';
 import { fetchTokenMetadata } from 'lib/miden/metadata';
@@ -29,6 +30,7 @@ import {
 } from 'lib/miden/spending-limits/types';
 import { describeHookError, installSwapTestHooks } from 'lib/miden/swap/test-hooks';
 import { MidenMessageType, MidenState } from 'lib/miden/types';
+import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { isExtension } from 'lib/platform';
 import { setEarnCollateralFaucetOverride } from 'lib/remote-config/e2e-overrides';
 import { subscribeNominalUnquotedPrice } from 'lib/settings/nominal-price';
@@ -163,7 +165,8 @@ export function withLandedBalances(
   accountAddress: string,
   rows: WalletStore['balances'][string],
   midenFaucetId: string | null,
-  overriddenFaucetIds: ReadonlySet<string>
+  overriddenFaucetIds: ReadonlySet<string>,
+  snapshot?: BalanceSnapshot
 ): Pick<
   WalletStore,
   | 'tokenMetadataOverrides'
@@ -185,12 +188,15 @@ export function withLandedBalances(
         state.tokenMetadataOverrides[id] !== undefined ||
         faucetMetadataFor(state, id) !== undefined
     );
-  return {
+  const result = {
     ...withOverrides(landed, state.tokenMetadataOverrides, faucetIds),
     balancesDisplayFaucetId,
     balancesLoading: { ...state.balancesLoading, [accountAddress]: false },
     balancesLastFetched: { ...state.balancesLastFetched, [accountAddress]: Date.now() }
   };
+  const finalRows = result.balances[accountAddress];
+  if (snapshot && finalRows) tagBalanceSnapshot(finalRows, snapshot);
+  return result;
 }
 
 function withTokenMetadataOverride(
@@ -326,7 +332,7 @@ export const useWalletStore = create<WalletStore>()(
     },
 
     // Auth actions
-    registerWallet: async (walletType, password, mnemonic, ownMnemonic, guardianEndpoint) => {
+    registerWallet: async (walletType, password, mnemonic, ownMnemonic, guardianEndpoint, accessCode) => {
       console.log('[WalletStore] registerWallet called with walletType:', walletType);
       const res = await request({
         type: WalletMessageType.NewWalletRequest,
@@ -334,7 +340,8 @@ export const useWalletStore = create<WalletStore>()(
         password,
         mnemonic,
         ownMnemonic,
-        guardianEndpoint
+        guardianEndpoint,
+        accessCode
       });
       assertResponse(res.type === WalletMessageType.NewWalletResponse);
       // State will be synced via StateUpdated notification
@@ -759,6 +766,18 @@ export const useWalletStore = create<WalletStore>()(
       return { summaryBytes: res.summaryBytes, executedBytes: res.executedBytes, error: res.error };
     },
 
+    estimateUsdcxBurnFee: async (accountPublicKey, destinationChainId) => {
+      const res = await request({
+        type: WalletMessageType.EstimateUsdcxBurnFeeRequest,
+        accountPublicKey,
+        destinationChainId
+      });
+      assertResponse(res.type === WalletMessageType.EstimateUsdcxBurnFeeResponse);
+      return res.outcome === 'measured'
+        ? { outcome: 'measured', reserve: BigInt(res.feeReserve) }
+        : { outcome: res.outcome };
+    },
+
     confirmDAppPermission: async (id, confirmed, accountId, privateDataPermission, allowedPrivateData) => {
       const res = await request({
         type: MidenMessageType.DAppPermConfirmationRequest,
@@ -816,6 +835,14 @@ export const useWalletStore = create<WalletStore>()(
       assertResponse(res.type === MidenMessageType.DAppConsumableNotesConfirmationResponse);
     },
 
+    confirmDAppUnlock: async id => {
+      const res = await request({
+        type: MidenMessageType.DAppUnlockConfirmationRequest,
+        id
+      });
+      assertResponse(res.type === MidenMessageType.DAppUnlockConfirmationResponse);
+    },
+
     confirmDAppTransaction: async (id, confirmed, delegate, spendingLimitAuthenticated) => {
       const res = await request({
         type: MidenMessageType.DAppTransactionConfirmationRequest,
@@ -865,9 +892,12 @@ export const useWalletStore = create<WalletStore>()(
       fetchingAddresses.add(accountAddress);
 
       try {
+        const effectiveNetwork = () => `${getEffectiveNetworkName()}:${getEffectiveRpcUrl()}`;
+        const network = effectiveNetwork();
         const overridden = new Set<string>();
         // The display faucet setting the read built its MIDEN row for. A reader that reports none leaves no row exempt.
         let midenFaucetId: string | null = null;
+        let snapshot: BalanceSnapshot | undefined;
         const balances = await fetchBalances(accountAddress, tokenMetadatas, {
           setAssetsMetadata: get().setAssetsMetadata,
           faucetMetadataOf,
@@ -875,13 +905,19 @@ export const useWalletStore = create<WalletStore>()(
           onDisplayFaucetId: faucetId => {
             midenFaucetId = faucetId;
           },
+          onSnapshot: value => {
+            snapshot = value;
+          },
           tokenPrices: get().tokenPrices,
           waitForLock: get().balances[accountAddress] === undefined
         });
         // `null` = a refresh found the lock busy or the balance probe is fused; keep any
         // prior balances. Only a landed read ends loading.
         if (balances === null) return;
-        set(state => withLandedBalances(state, accountAddress, balances, midenFaucetId, overridden));
+        // A Developer Settings save repointed this realm while the read was out: these are the old
+        // node's balances. The metadata it wrote stays, each faucet's own record on any network.
+        if (effectiveNetwork() !== network) return;
+        set(state => withLandedBalances(state, accountAddress, balances, midenFaucetId, overridden, snapshot));
       } finally {
         fetchingAddresses.delete(accountAddress);
       }
@@ -891,6 +927,10 @@ export const useWalletStore = create<WalletStore>()(
       set(state => ({
         balancesLoading: { ...state.balancesLoading, [accountAddress]: isLoading }
       }));
+    },
+
+    clearBalances: () => {
+      set({ balances: {}, balancesLoading: {}, balancesLastFetched: {} });
     },
 
     // Asset actions
@@ -1135,6 +1175,12 @@ export function reloadEndpointOverridesInSW(): Promise<void> {
 export const selectIsReady = (state: WalletStore) => state.status === WalletStatus.Ready;
 export const selectIsLocked = (state: WalletStore) => state.status === WalletStatus.Locked;
 export const selectIsIdle = (state: WalletStore) => state.status === WalletStatus.Idle;
+
+/**
+ * The claim guard of a page's unattended claim writers: the claim queue asks it right before each row it writes, so a
+ * lock that lands mid-pass queues nothing. Every page realm keeps this store's status in step with the backend's lock.
+ */
+export const isWalletReadyNow = (): boolean => selectIsReady(useWalletStore.getState());
 
 // Expose store and intercom for E2E test introspection (only in E2E builds).
 // Use globalThis (not window) so this works in both extension pages and the

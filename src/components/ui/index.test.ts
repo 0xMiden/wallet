@@ -24,11 +24,12 @@ import { Card, CardButton } from './Card';
 import { CheckboxIndicator, CheckboxRow } from './Checkbox';
 import ChoiceCard, { ChoiceCardGroup } from './ChoiceCard';
 import { ClearFieldButton } from './ClearFieldButton';
+import { CodeInput } from './CodeInput';
 import { CopyButton } from './CopyButton';
 import { CopyChip } from './CopyChip';
 import { CopyLabel } from './CopyLabel';
 import { DappOrigin } from './DappOrigin';
-import { DetailCard, DetailRow } from './DetailCard';
+import { DetailCard, DetailDisclosure, DetailRow } from './DetailCard';
 import { EmptyState } from './EmptyState';
 import { ErrorDetails } from './ErrorDetails';
 import { ErrorLine } from './ErrorLine';
@@ -119,6 +120,7 @@ describe('components/ui barrel', () => {
     UnreadDot,
     Button,
     DetailCard,
+    DetailDisclosure,
     DetailRow,
     Hero,
     ListGroup,
@@ -138,6 +140,7 @@ describe('components/ui barrel', () => {
     SubPageLayout,
     ErrorLine,
     ErrorDetails,
+    CodeInput,
     SeedPhraseGrid,
     DappOrigin
   } as const;

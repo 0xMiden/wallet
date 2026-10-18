@@ -10,6 +10,7 @@ import { NetworkChip } from 'components/NetworkChip';
 import { TokenLogo } from 'components/TokenLogo';
 import { AnimatedNumber, Pill } from 'components/ui';
 import { Card } from 'components/ui/Card';
+import { Notice } from 'components/ui/Notice';
 import { useMotion } from 'lib/animation';
 import { durations } from 'lib/animation/durations';
 import { easings } from 'lib/animation/easings';
@@ -33,6 +34,10 @@ export interface SendAmountProps {
   /** The values of the error copy's placeholders. */
   errorValues?: Record<string, string>;
   recipientAddress: string;
+  /** Keeps Max on screen but inert, while the token has no cap to fill it with. */
+  maxDisabled?: boolean;
+  /** Says Send is still checking a token it holds back from new sends until the Testnet document arrives. */
+  tokenHeld?: boolean;
   /** Saved contact name for the recipient, shown instead of the address. */
   recipientName?: string;
   network?: SendNetworkId;
@@ -56,6 +61,8 @@ export const SendAmount: React.FC<SendAmountProps> = ({
   error,
   errorValues,
   recipientAddress,
+  maxDisabled,
+  tokenHeld,
   recipientName,
   network,
   onAmountChange,
@@ -165,6 +172,7 @@ export const SendAmount: React.FC<SendAmountProps> = ({
               >
                 <Pill
                   onClick={() => onAmountChange(formatBalance(token.balance))}
+                  disabled={maxDisabled}
                   className="text-accent-send-ink"
                   data-testid="send-amount-max"
                 >
@@ -186,12 +194,23 @@ export const SendAmount: React.FC<SendAmountProps> = ({
             {recipientName ?? truncateAddress(recipientAddress)}
           </span>
           {bridgeNetwork ? (
-            <NetworkChip kind="ethereum" label={bridgeNetwork.name} />
+            <NetworkChip kind="ethereum" network={bridgeNetwork.id} label={bridgeNetwork.name} />
           ) : (
             <NetworkChip kind="miden" label={t('miden')} />
           )}
         </div>
       </Card>
+
+      {tokenHeld && (
+        <Notice
+          tone="warning"
+          icon={<Icon name={IconName.Information} size="xs" fill="currentColor" />}
+          className="mt-4"
+          data-testid="send-amount-held-notice"
+        >
+          {t('sendTokenAvailabilityChecking')}
+        </Notice>
+      )}
 
       <AnimatePresence initial={false}>
         {feeShortfall && (

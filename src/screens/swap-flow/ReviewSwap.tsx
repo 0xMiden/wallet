@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 
 import { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
@@ -14,22 +14,30 @@ import { Hero } from 'components/ui/Hero';
 import { InfoHint } from 'components/ui/InfoHint';
 import { Pill } from 'components/ui/Pill';
 import { SegmentedControl } from 'components/ui/SegmentedControl';
-import { SOLVER_MARGIN, SwapEta, SwapToken } from 'lib/miden/swap/tokens';
+import { TextField } from 'components/ui/TextField';
+import { formatBigInt } from 'lib/i18n/numbers';
+import { SWAP_VERDICT_LABEL_KEYS, swapEtaBlocksSubmit, SwapQuote, swapVerdict } from 'lib/miden/swap/quote';
+import { SwapToken } from 'lib/miden/swap/tokens';
 import { midenTokenLabel } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 
 import { EXPIRY_PRESETS, ExpiryPresetId, presetForSeconds } from './expiry';
+import { SLIPPAGE_PERCENT_BOUNDS, slippageBpsToPercent, slippagePercentToBps } from './slippage';
 
 export interface ReviewSwapProps {
   offerToken: SwapToken;
   offerAmount: string;
   requestToken: SwapToken;
   requestAmount: string;
-  /** Latest quote for the pair; drives the Rate and "Usually fills in" rows. */
-  swapEta?: SwapEta;
+  /** The user took the receive field over: the slippage no longer sets it, so its row says so. */
+  requestEdited: boolean;
+  /** Latest quote for the pair; drives the Rate, Fill and "Usually fills in" rows. */
+  quote?: SwapQuote;
   expirySeconds: string;
+  slippageBps: number;
   autoConsume: boolean;
   onExpirySecondsChange: (seconds: string) => void;
+  onSlippageBpsChange: (bps: number) => void;
   onAutoConsumeChange: (enabled: boolean) => void;
   submitError?: string | null;
   onGoBack: () => void;
@@ -38,11 +46,28 @@ export interface ReviewSwapProps {
   submitting?: boolean;
 }
 
-/** The oracle rate as a number, or `undefined` when there isn't one to show. */
-function parseRate(marketPrice?: string | null): number | undefined {
-  const rate = Number(marketPrice);
+/** The fill price as a number, or `undefined` when there isn't one to show. */
+function parseRate(fillPrice?: string): number | undefined {
+  const rate = Number(fillPrice);
   if (!rate || !Number.isFinite(rate)) return undefined;
   return rate;
+}
+
+/** `50` ppm → `"0.005"`: the fee as a percent with no trailing zeros. */
+function feePpmToPercent(feePpm: number): string {
+  return (feePpm / 10_000).toFixed(4).replace(/\.?0+$/, '');
+}
+
+/**
+ * What a full fill pays over the ask, as a display amount, or undefined when the solver names no
+ * expected amount or it is not above the ask. Shown only beside a `full` verdict, where it is the
+ * amount the user actually receives.
+ */
+function expectedOverAsk(quote: SwapQuote, decimals: number): string | undefined {
+  const expected = quote.eta.expectedRequestedAmount;
+  if (expected === null || !/^\d+$/.test(expected)) return undefined;
+  const amount = BigInt(expected);
+  return amount > quote.requestedAmount ? formatBigInt(amount, decimals) : undefined;
 }
 
 /**
@@ -66,13 +91,12 @@ function rateFormatterFor(rate: number): (value: number) => string {
 }
 
 /**
- * Human "usually fills in" estimate. Prefers the live next-batch ETA when the
- * order crosses resting liquidity, then the pair's 24h median, then a static
+ * Human "usually fills in" estimate. Prefers the live next-batch ETA, which the solver names only
+ * when the order is at market and fills fully or partly, then the pair's 24h median, then a static
  * fallback (both live signals are often null on the current testnet book).
  */
-function formatFillsIn(t: TFunction, swapEta?: SwapEta): string {
-  const seconds =
-    swapEta?.canFill && swapEta.estimatedSeconds != null ? swapEta.estimatedSeconds : swapEta?.median24hSeconds;
+function formatFillsIn(t: TFunction, quote?: SwapQuote): string {
+  const seconds = quote?.eta.estimatedSeconds ?? quote?.eta.median24hSeconds;
   if (seconds == null || !Number.isFinite(seconds) || seconds <= 0) {
     return t('swapEtaFallback');
   }
@@ -114,10 +138,13 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
   offerAmount,
   requestToken,
   requestAmount,
-  swapEta,
+  requestEdited,
+  quote,
   expirySeconds,
+  slippageBps,
   autoConsume,
   onExpirySecondsChange,
+  onSlippageBpsChange,
   onAutoConsumeChange,
   submitError,
   onGoBack,
@@ -130,9 +157,27 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
   const offerLabel = midenTokenLabel(bridgeConfig, offerToken.faucetId, offerToken.symbol);
   const requestLabel = midenTokenLabel(bridgeConfig, requestToken.faucetId, requestToken.symbol);
   const divider = <div className="h-0.75 flex-1 bg-[#ECEBE8]" />;
-  // The quote is re-fetched while this screen is open, so the rate counts to each new one.
-  const rate = parseRate(swapEta?.marketPrice);
+  // The quote is re-fetched while this screen is open, so the rate counts to each new one. It is
+  // the FILL price, the most the ask can name and still fill, with the solver's fee already in it.
+  const rate = parseRate(quote?.price.fillPrice);
   const formatRateValue = rateFormatterFor(rate ?? 0);
+  const verdict = quote === undefined ? undefined : swapVerdict(quote.eta);
+  const blocksSubmit = quote !== undefined && swapEtaBlocksSubmit(quote.eta);
+  const expected =
+    quote !== undefined && verdict === 'full' ? expectedOverAsk(quote, requestToken.decimals) : undefined;
+
+  // The slippage draft: the typed percent is this screen's own until it reads
+  // as a whole number of basis points inside the range, which is when it is pushed up.
+  const [slippageDraft, setSlippageDraft] = useState(() => slippageBpsToPercent(slippageBps));
+  const slippageOutOfRange = slippagePercentToBps(slippageDraft) === undefined;
+  const onSlippageChange = useCallback(
+    (next: string) => {
+      setSlippageDraft(next);
+      const bps = slippagePercentToBps(next);
+      if (bps !== undefined) onSlippageBpsChange(bps);
+    },
+    [onSlippageBpsChange]
+  );
 
   // Seconds stay the value the flow owns (`expirySeconds` in, seconds out). A value that is not
   // one of the presets (none today: the flow starts at 2 minutes) snaps to the closest, so the
@@ -212,6 +257,7 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
       primary={{
         label: t('swap'),
         onPress: onSubmit,
+        disabled: slippageOutOfRange,
         loading: submitting,
         'data-testid': 'swap-submit'
       }}
@@ -220,14 +266,17 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
       {/* The card is its own block under the hero, not the next line of it: without this the
           receive amount and the first row read as one run of text. */}
       <DetailCard surface="outline" face="heading" className="mt-8">
-        {/* The solver spread explains the rate figure, but it is a sentence: as a sub-line it
+        {/* The slippage and fee explain the rate figure, but it is a sentence: as a sub-line it
             wrapped over three lines and pushed the rows apart, so it waits behind the (i). */}
         <DetailRow
           label={t('rate')}
           info={
-            rate !== undefined ? (
+            rate !== undefined && quote !== undefined ? (
               <InfoHint label={t('moreInfoAbout', { label: t('rate') })} data-testid="swap-rate-info">
-                {t('swapSolverFeeNote', { percent: `${Math.round(SOLVER_MARGIN * 100)}%` })}
+                {t('swapRateNote', {
+                  slippage: `${slippageBpsToPercent(slippageBps)}%`,
+                  fee: `${feePpmToPercent(quote.price.feePpm)}%`
+                })}
               </InfoHint>
             ) : undefined
           }
@@ -239,6 +288,49 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
               format={value => `1 ${offerLabel} ≈ ${formatRateValue(value)} ${requestLabel}`}
             />
           )}
+        </DetailRow>
+        {/* The solver's verdict on this exact ask, in the service's own priority order. A blocking
+            one (no market, no price, off market) is what the Swap press refuses on; the rest, the
+            testnet's usual "no orders yet" included, are advisory. */}
+        {verdict !== undefined && (
+          <DetailRow
+            label={t('swapFillStatus')}
+            sub={
+              expected !== undefined ? t('swapVerdictExpected', { amount: expected, symbol: requestLabel }) : undefined
+            }
+            className={blocksSubmit ? 'text-negative-ink' : undefined}
+            data-testid="swap-verdict-row"
+          >
+            <span data-verdict={verdict}>{t(SWAP_VERDICT_LABEL_KEYS[verdict])}</span>
+          </DetailRow>
+        )}
+        <DetailRow
+          label={t('swapSlippage')}
+          info={
+            <InfoHint label={t('moreInfoAbout', { label: t('swapSlippage') })} data-testid="swap-slippage-info">
+              {t(requestEdited ? 'swapSlippageEditedNote' : 'swapSlippageNote')}
+            </InfoHint>
+          }
+          stacked
+          data-testid="swap-slippage-row"
+        >
+          {/* The shared field in its compact size, with the unit in its trailing slot and its own
+              error line, so the row reads like every other field in the wallet. */}
+          <TextField
+            size="sm"
+            containerClassName="w-32"
+            inputMode="decimal"
+            enterKeyHint="done"
+            aria-label={t('swapSlippage')}
+            value={slippageDraft}
+            disabled={submitting || requestEdited}
+            clearable={false}
+            onChange={event => onSlippageChange(event.target.value)}
+            trailing={<span className="text-body text-muted">{t('percentSign')}</span>}
+            error={slippageOutOfRange ? t('swapSlippageRange', SLIPPAGE_PERCENT_BOUNDS) : undefined}
+            errorTestId="swap-slippage-range"
+            data-testid="swap-slippage-percent"
+          />
         </DetailRow>
         {networkFee && (
           // Kept as its own row so the solver spread noted above isn't read as the whole price
@@ -255,7 +347,7 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
           </DetailRow>
         )}
         <DetailRow label={t('usuallyFillsIn')} data-testid="swap-fills-in-row">
-          {formatFillsIn(t, swapEta)}
+          {formatFillsIn(t, quote)}
         </DetailRow>
         {/* Stacked: four choices do not fit beside a label on a phone. */}
         <DetailRow label={t('swapExpiryLabel')} stacked data-testid="swap-expiry-row">

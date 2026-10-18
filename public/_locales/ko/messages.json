@@ -78,8 +78,8 @@
     "englishSource": "Enter a valid address on a supported network for this withdrawal."
   },
   "usdcxUnsupportedFaucet": {
-    "message": "USDCx 인출은 Miden 테스트넷에서 설정된 faucet에서만 가능합니다.",
-    "englishSource": "USDCx withdrawals are available only for the configured faucet on Miden testnet."
+    "message": "이 네트워크에서는 해당 토큰에 대한 USDCx 인출이 지원되지 않습니다.",
+    "englishSource": "USDCx withdrawals are not available for this token on this network."
   },
   "usdcxInvalidAmount": {
     "message": "소수점 이하 최대 6자리까지의 양수 USDCx 금액을 입력하십시오.",
@@ -546,6 +546,18 @@
     "message": "포지션을 개설하지 못했습니다",
     "englishSource": "Failed to open position"
   },
+  "earnCollateralLoading": {
+    "message": "입금 토큰의 세부 정보를 불러오는 중입니다. 정보가 표시되면 계속 진행할 수 있습니다.",
+    "englishSource": "Loading the deposit token's details. You can continue once they arrive."
+  },
+  "earnCollateralUnavailable": {
+    "message": "현재 입금 토큰을 사용할 수 없으므로 입금이 일시 중지되었습니다. 나중에 다시 시도해 주십시오.",
+    "englishSource": "The deposit token isn't available right now, so deposits are paused. Try again later."
+  },
+  "earnCollateralMismatch": {
+    "message": "이 검토는 다른 예치 토큰을 위해 작성되었습니다. 돌아가서 금액을 다시 입력하십시오.",
+    "englishSource": "This review was prepared for a different deposit token. Go back and enter the amount again."
+  },
   "earnTotalEarnedRewards": {
     "message": "총 수익",
     "englishSource": "Total earned"
@@ -578,6 +590,10 @@
   "earnPositionsLoadError": {
     "message": "포지션을 불러올 수 없습니다. 연결 상태를 확인하고 다시 시도해 주세요.",
     "englishSource": "Couldn't load your positions. Check your connection and try again."
+  },
+  "earnUnavailableOnNetwork": {
+    "message": "이 네트워크에서는 'Earn' 기능을 이용할 수 없습니다.",
+    "englishSource": "Earn is not available on this network"
   },
   "earnVaultLoadError": {
     "message": "이 볼트를 불러올 수 없습니다. 연결 상태를 확인하고 다시 시도해 주세요.",
@@ -652,9 +668,139 @@
     "message": "계정 만들기",
     "englishSource": "Create Account"
   },
+  "me": {
+    "message": "나",
+    "englishSource": "Me"
+  },
+  "profile": {
+    "message": "프로필",
+    "englishSource": "Profile"
+  },
   "settings": {
     "message": "설정",
     "englishSource": "Settings"
+  },
+  "myBadges": {
+    "message": "내 배지",
+    "englishSource": "My badges"
+  },
+  "openMyBadges": {
+    "message": "내 배지 열기",
+    "englishSource": "Open My badges"
+  },
+  "badgesEarnedCount": {
+    "message": "$total$개 중 $earned$개 획득",
+    "englishSource": "$earned$ of $total$ earned",
+    "placeholders": {
+      "earned": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      }
+    }
+  },
+  "badgesProfileDescription": {
+    "message": "Mainnet 활동으로 달성한 비공개 이정표",
+    "englishSource": "Private milestones from your Mainnet activity"
+  },
+  "badgesCollectionDescription": {
+    "message": "나만의 비공개 지갑 이정표입니다.",
+    "englishSource": "Your private wallet milestones."
+  },
+  "badgeCollection": {
+    "message": "배지 컬렉션",
+    "englishSource": "Badge collection"
+  },
+  "mainnetOnly": {
+    "message": "Mainnet 전용",
+    "englishSource": "Mainnet only"
+  },
+  "badgesMainnetNoticeTitle": {
+    "message": "배지는 Mainnet에서 획득할 수 있습니다",
+    "englishSource": "Badges unlock on Mainnet"
+  },
+  "badgesMainnetNoticeDescription": {
+    "message": "배지는 Mainnet에서 획득할 수 있습니다. 테스트 활동은 포함되지 않습니다.",
+    "englishSource": "Badges unlock on Mainnet. Test activity does not count."
+  },
+  "badgeEarnedLabel": {
+    "message": "$badge$, 획득함",
+    "englishSource": "$badge$, earned",
+    "placeholders": {
+      "badge": {
+        "content": "$1"
+      }
+    }
+  },
+  "badgeLockedLabel": {
+    "message": "$badge$, 잠김",
+    "englishSource": "$badge$, locked",
+    "placeholders": {
+      "badge": {
+        "content": "$1"
+      }
+    }
+  },
+  "locked": {
+    "message": "잠김",
+    "englishSource": "Locked"
+  },
+  "badgeEarned": {
+    "message": "획득함",
+    "englishSource": "Earned"
+  },
+  "badgeVerificationPending": {
+    "message": "아직 사용할 수 없음",
+    "englishSource": "Not available yet"
+  },
+  "badgeFirstDeposit": {
+    "message": "첫 입금",
+    "englishSource": "First Deposit"
+  },
+  "badgeFirstDepositDescription": {
+    "message": "자금을 추가하고 사용 가능해질 때까지 기다리세요.",
+    "englishSource": "Add funds and wait for them to become spendable."
+  },
+  "badgeFirstReceive": {
+    "message": "첫 수령",
+    "englishSource": "First Receive"
+  },
+  "badgeFirstReceiveDescription": {
+    "message": "이 계정으로 온 송금을 수락하고 수령하세요.",
+    "englishSource": "Accept and claim a transfer to this account."
+  },
+  "badgeFirstSend": {
+    "message": "첫 송금",
+    "englishSource": "First Send"
+  },
+  "badgeFirstSendDescription": {
+    "message": "Miden 송금을 확정하세요.",
+    "englishSource": "Confirm an outgoing Miden transfer."
+  },
+  "badgeFirstSwap": {
+    "message": "첫 스왑",
+    "englishSource": "First Swap"
+  },
+  "badgeFirstSwapDescription": {
+    "message": "스왑을 완료하고 사용 가능한 자금을 받으세요.",
+    "englishSource": "Complete a swap and receive spendable output."
+  },
+  "badgeRecoveryChecked": {
+    "message": "복구 확인 완료",
+    "englishSource": "Recovery Checked"
+  },
+  "badgeRecoveryCheckedDescription": {
+    "message": "이 계정의 복구 백업을 확인하세요.",
+    "englishSource": "Verify this account's recovery backup."
+  },
+  "badgeMiniappExplorer": {
+    "message": "미니 앱 탐험가",
+    "englishSource": "Miniapp Explorer"
+  },
+  "badgeMiniappExplorerDescription": {
+    "message": "지원되는 미니 앱 경험을 완료하세요.",
+    "englishSource": "Complete a supported mini app experience."
   },
   "authorizedDApps": {
     "message": "승인된 DApp",
@@ -888,6 +1034,10 @@
     "message": "이 토큰의 소수점 자릿수를 확인할 수 없어, 금액을 표시하거나 전송할 수 없습니다.",
     "englishSource": "This token's decimals could not be verified, so amounts can't be shown or sent."
   },
+  "sendTokenAvailabilityChecking": {
+    "message": "이 토큰을 테스트넷에서 전송할 수 있는지 확인 중입니다. 확인이 완료되면 전송할 수 있습니다.",
+    "englishSource": "Checking whether this token can be sent on Testnet. You can send it once the check finishes."
+  },
   "oops": {
     "message": "이런!",
     "englishSource": "Oops!"
@@ -1024,6 +1174,10 @@
   "transactionStepSyncingGuardian": {
     "message": "Guardian와의 동기화",
     "englishSource": "Syncing with Guardian"
+  },
+  "transactionStepDeliveringNote": {
+    "message": "수취인에게 전달",
+    "englishSource": "Delivering to recipient"
   },
   "guardianBusyStep": {
     "message": "Guardian를 기다리는 중",
@@ -1707,6 +1861,10 @@
     "message": "붙여넣기",
     "englishSource": "Paste"
   },
+  "mainnetAccessPasteFailed": {
+    "message": "클립보드 내용을 읽을 수 없습니다. 코드를 입력하거나 다시 시도해 주세요.",
+    "englishSource": "Could not read the clipboard. Enter your code or try again."
+  },
   "nothingToPaste": {
     "message": "붙여넣을 내용이 없습니다. 먼저 주소를 복사하세요.",
     "englishSource": "Nothing to paste. Copy an address first."
@@ -1800,14 +1958,97 @@
     "message": "요율",
     "englishSource": "Rate"
   },
-  "swapSolverFeeNote": {
-    "message": "수령 금액에는 이미 $percent$의 해결 수수료가 포함되어 있습니다.",
-    "englishSource": "Your receive amount already includes a $percent$ solver fee.",
+  "swapRateNote": {
+    "message": "'레이트(rate)'는 현재 솔버가 채울 수 있는 최대량으로, 여기에는 이미 $fee$ 수수료가 포함되어 있습니다. 귀하의 수령 금액은 해당 레이트에서 $slippage$ 슬리피지를 차감한 금액입니다.",
+    "englishSource": "The rate is the most the solver fills at right now, with its $fee$ fee already in it. Your receive amount is that rate less your $slippage$ slippage.",
     "placeholders": {
-      "percent": {
+      "fee": {
         "content": "$1"
+      },
+      "slippage": {
+        "content": "$2"
       }
     }
+  },
+  "swapFillStatus": {
+    "message": "Fill",
+    "englishSource": "Fill"
+  },
+  "swapVerdictSettlementDelayed": {
+    "message": "결제가 지연되었습니다. 귀하의 주문은 대기 상태가 됩니다.",
+    "englishSource": "Settlement delayed. Your order will wait."
+  },
+  "swapVerdictNoMarket": {
+    "message": "이 통화 쌍은 거래되지 않습니다.",
+    "englishSource": "This pair isn't traded."
+  },
+  "swapVerdictNoPrice": {
+    "message": "현재 가격 정보를 확인할 수 없습니다. 잠시 후 다시 시도해 주십시오.",
+    "englishSource": "Prices are unavailable right now. Try again shortly."
+  },
+  "swapVerdictOffMarket": {
+    "message": "가격이 변동되었습니다. 시세를 새로 고침하십시오.",
+    "englishSource": "The price moved. Refresh the quote."
+  },
+  "swapVerdictNoLiquidity": {
+    "message": "현재 가격으로 체결될 주문이 충분하지 않습니다.",
+    "englishSource": "Not enough orders at the current price right now."
+  },
+  "swapVerdictTolerated": {
+    "message": "시간이 더 걸릴 수 있습니다: 가격이 약간 변동할 때 체결됩니다.",
+    "englishSource": "May take longer: fills when the price moves slightly."
+  },
+  "swapVerdictPartial": {
+    "message": "현재 이 주문 중 일부만 체결되며, 나머지는 대기 중입니다.",
+    "englishSource": "Only part of this order fills now; the rest waits."
+  },
+  "swapVerdictFull": {
+    "message": "현재 가격으로 체결됩니다.",
+    "englishSource": "Fills at the current price."
+  },
+  "swapVerdictExpected": {
+    "message": "$amount$ 상당의 $symbol$를 수령하게 됩니다.",
+    "englishSource": "You receive about $amount$ $symbol$.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "swapSlippage": {
+    "message": "슬리피지",
+    "englishSource": "Slippage"
+  },
+  "percentSign": {
+    "message": "%",
+    "englishSource": "%"
+  },
+  "swapSlippageNote": {
+    "message": "주문이 현재 시세보다 얼마나 낮은 가격에서 체결될 수 있는지를 나타냅니다. 테스트넷에서는 약 0.25% 이상 낮은 가격의 주문은 체결되지 않습니다.",
+    "englishSource": "How far below the current rate your order may fill. On testnet an order above about 0.25% does not fill."
+  },
+  "swapSlippageEditedNote": {
+    "message": "수취 금액은 본인이 직접 설정하므로, 이 주문에는 슬리피지가 적용되지 않습니다.",
+    "englishSource": "You set the receive amount yourself, so slippage does not apply to this order."
+  },
+  "swapSlippageRange": {
+    "message": "$min$에서 $max$ 사이의 백분율을 소수점 둘째 자리까지 입력하십시오.",
+    "englishSource": "Enter a percent from $min$ to $max$ with up to two decimals.",
+    "placeholders": {
+      "min": {
+        "content": "$1"
+      },
+      "max": {
+        "content": "$2"
+      }
+    }
+  },
+  "swapPriceMoved": {
+    "message": "가격이 변동되었습니다. 새로운 금액을 확인하고 다시 시도해 주세요.",
+    "englishSource": "The price moved. Check the new amount and try again."
   },
   "usuallyFillsIn": {
     "message": "보통 채워집니다",
@@ -1850,6 +2091,10 @@
   "swapInvalidAmounts": {
     "message": "교환할 유효한 금액을 입력하세요.",
     "englishSource": "Enter a valid amount to swap."
+  },
+  "swapPairNotListed": {
+    "message": "이 토큰 쌍은 더 이상 교환할 수 없습니다. 돌아가서 다른 토큰을 선택하십시오.",
+    "englishSource": "This pair can no longer be swapped. Go back and choose another token."
   },
   "swapPriceUnavailable": {
     "message": "가격을 확인할 수 없습니다. 잠시 후 다시 시도해 주세요.",
@@ -2516,6 +2761,10 @@
     "message": "한국에 본사를 둔 디지털 자산 수탁 기업인 코리아 디지털 애셋(Korea Digital Asset).",
     "englishSource": "Korea Digital Asset, a digital asset custody company based in South Korea."
   },
+  "guardianAboutPara": {
+    "message": "임베디드 지갑 인프라 제공업체인 Para.",
+    "englishSource": "Para, an embedded wallet infrastructure provider."
+  },
   "guardianKindOpenZeppelin": {
     "message": "스마트 계약 보안 및 감사",
     "englishSource": "Smart contract security and audits"
@@ -2531,6 +2780,10 @@
   "guardianKindKodax": {
     "message": "디지털 자산 수탁자",
     "englishSource": "Digital asset custodian"
+  },
+  "guardianKindPara": {
+    "message": "내장형 지갑 인프라",
+    "englishSource": "Embedded wallet infrastructure"
   },
   "guardianInfoDescription": {
     "message": "Guardian는 <b>사용자의 지갑에서 발생하는 모든 거래</b>에 공동 서명하여, 자가 관리 권한을 포기하지 않으면서도 안전망을 제공하는 독립적인 서비스입니다.",
@@ -3246,6 +3499,10 @@
     "message": "이 지갑 파일은 최신 버전의 Bread에서 생성되었습니다. Bread를 업데이트한 후 다시 시도하세요.",
     "englishSource": "This wallet file was created by a newer version of Bread. Update Bread and try again."
   },
+  "encryptedWalletFileWrongNetwork": {
+    "message": "이 지갑 파일은 다른 네트워크에 속해 있으므로 이 네트워크에서는 복원할 수 없습니다.",
+    "englishSource": "This wallet file belongs to another network and cannot be restored on this one."
+  },
   "encryptedWalletFileRestoreFailed": {
     "message": "지갑을 복원할 수 없습니다. 저장 공간을 확인한 후 다시 시도하세요.",
     "englishSource": "The wallet could not be restored. Check your storage and try again."
@@ -3289,6 +3546,14 @@
   "feeReserveBlocksSend": {
     "message": "사용자의 USDCX은 네트워크 수수료로 예약되어 있습니다. 더 많은 USDCX을 수령하여 송금하십시오.",
     "englishSource": "Your USDCX is reserved for the network fee. Receive more USDCX to send."
+  },
+  "usdcxBurnFeeMeasuring": {
+    "message": "금액을 확인하기 전에 이번 소각에 소요된 네트워크 수수료를 측정할 수 있습니다.",
+    "englishSource": "Measuring this burn's network fee before the amount can be checked."
+  },
+  "usdcxBurnFeeUnavailable": {
+    "message": "이번 소각에 대한 네트워크 수수료를 측정할 수 없으므로 금액을 확인할 수 없습니다. 다른 목적지를 선택하여 다시 시도하십시오.",
+    "englishSource": "Unable to measure this burn's network fee, so the amount cannot be checked. Choose another destination to try again."
   },
   "insufficientFeeAsset": {
     "message": "네트워크 수수료를 지불하려면 USDCX이 필요합니다. 계속 진행하려면 USDCX을 일부 받으세요.",
@@ -3572,6 +3837,10 @@
   "guardianAccountNotFound": {
     "message": "guardian에서 귀하의 계정을 찾을 수 없습니다. URL을 확인하거나 대신 공개 계정으로 가져오시기 바랍니다.",
     "englishSource": "We couldn't find your account on this guardian. Check the URL or import as a public account instead."
+  },
+  "guardianOtherNetwork": {
+    "message": "이 guardian는 다른 Miden 네트워크에서 운영되므로, 이곳의 계정을 복구할 수 없습니다.",
+    "englishSource": "This guardian runs on another Miden network, so it cannot recover an account here."
   },
   "useCustomGuardianUrl": {
     "message": "Guardian 맞춤 URL을 사용하세요",
@@ -4151,6 +4420,18 @@
     "message": "이 앱이 사용자의 지갑에 연결하려고 합니다",
     "englishSource": "This app wants to connect to your wallet"
   },
+  "dappNetworkMismatch": {
+    "message": "이 앱은 Miden $dappNetwork$를 요청했으나, 귀하의 지갑은 Miden $walletNetwork$에 있습니다.",
+    "englishSource": "This app asked for Miden $dappNetwork$, but your wallet is on Miden $walletNetwork$.",
+    "placeholders": {
+      "dappnetwork": {
+        "content": "$1"
+      },
+      "walletnetwork": {
+        "content": "$2"
+      }
+    }
+  },
   "dappTransactionRequest": {
     "message": "이 앱에서 거래를 요청하고 있습니다.",
     "englishSource": "This app is requesting a transaction"
@@ -4501,6 +4782,41 @@
     "message": "이 스왑에 묶인 체결",
     "englishSource": "Fills bundled into this swap"
   },
+  "swapActivityTitle": {
+    "message": "스왑 활동",
+    "englishSource": "Swap activity"
+  },
+  "swapReclaiming": {
+    "message": "자금 반환",
+    "englishSource": "Returning funds"
+  },
+  "swapReturnedAt": {
+    "message": "반환됨 · $time$",
+    "englishSource": "Returned · $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapPlacedAt": {
+    "message": "주문 접수 $time$",
+    "englishSource": "Placed $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapOfferedAmount": {
+    "message": "매도 호가 $amount$",
+    "englishSource": "Offered $amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
   "swapFillNote": {
     "message": "체결 $number$",
     "englishSource": "Fill $number$",
@@ -4644,6 +4960,15 @@
     "message": "EVM 지갑 연결됨",
     "englishSource": "EVM wallet connected"
   },
+  "evmChainNotApproved": {
+    "message": "연결된 지갑이 $network$를 승인하지 않았습니다. 지갑을 다시 연결하여 승인하십시오.",
+    "englishSource": "The connected wallet did not approve $network$. Reconnect the wallet to approve it.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
   "connectedWallet": {
     "message": "연동 지갑",
     "englishSource": "Connected wallet"
@@ -4725,12 +5050,39 @@
     "englishSource": "Confirming bridge deposit"
   },
   "bridgeDepositProcessingDescription": {
-    "message": "지갑에서 요청을 승인하고, 소스 네트워크에서 확인이 완료될 때까지 이 화면을 열어 두십시오.",
-    "englishSource": "Approve the request in your wallet and keep this screen open while the source network confirms it."
+    "message": "지갑에서 요청을 승인하십시오 — 여러 번 요청될 수 있습니다 — 그리고 소스 네트워크에서 요청을 확인하는 동안 이 화면을 열어 두십시오.",
+    "englishSource": "Approve the requests in your wallet — it may ask more than once — and keep this screen open while the source network confirms them."
   },
   "bridgeDepositFailed": {
     "message": "브리지 입금 실패",
     "englishSource": "Bridge deposit failed"
+  },
+  "bridgeDepositBalanceTooLow": {
+    "message": "연결된 지갑에는 $network$에서 $balance$의 $token$가 보관되어 있으나, 이는 입금에 필요한 금액보다 적습니다. 아무것도 전송되지 않았습니다.",
+    "englishSource": "Your connected wallet holds $balance$ $token$ on $network$, less than this deposit needs. Nothing was sent.",
+    "placeholders": {
+      "balance": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      }
+    }
+  },
+  "bridgeDepositBalanceReadFailed": {
+    "message": "$network$에서 $token$ 잔액을 확인할 수 없습니다. 전송된 내역이 없습니다.",
+    "englishSource": "Could not check your $token$ balance on $network$. Nothing was sent.",
+    "placeholders": {
+      "token": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
   },
   "bridgeDepositSubmitted": {
     "message": "브릿지 시작되었습니다!",
@@ -4751,6 +5103,21 @@
   "fastEthWrapNotice": {
     "message": "Fast 경로를 통해 ETH를 브리징할 경우, 먼저 ETH를 WETH로 래핑한 후 WETH를 브리징합니다. 이 경로는 아직 이용 불가능합니다.",
     "englishSource": "Bridging ETH on the Fast route wraps it to WETH first, then bridges the WETH. This route isn't available yet."
+  },
+  "fastQuoteAboveBalanceNotice": {
+    "message": "Fast를 이용하려면 수수료 포함 $deposit$ $token$의 예치금이 필요하지만, 연결된 지갑에는 $balance$ $token$만 있습니다. 금액을 줄이거나 Slow를 선택하십시오.",
+    "englishSource": "Fast needs a deposit of $deposit$ $token$, fee included, but your connected wallet holds $balance$ $token$. Lower the amount or choose Slow.",
+    "placeholders": {
+      "deposit": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$4"
+      },
+      "balance": {
+        "content": "$3"
+      }
+    }
   },
   "destinationNetwork": {
     "message": "목적지 네트워크",
@@ -4841,14 +5208,39 @@
     "englishSource": "USDCx was minted on Miden and your wallet received it."
   },
   "usdcxExecutorRouteNotice": {
-    "message": "USDC는 $source$에서 소각되고, $target$에서 서클(Circle)의 집행자에게 발행되며, 서클은 이를 미덴(Miden)을 위한 xReserve에 예치합니다. 서클은 금액 외에 수수료를 부과하며, $target$에서 이체를 실행합니다. 서클이 이체 가격을 책정할 수 없는 경우, 사용자는 $target$에서 서명을 한 번 더 추가하여 이체를 실행합니다.",
-    "englishSource": "USDC is burned on $source$ and minted to Circle's executor on $target$, which deposits it into xReserve for Miden. Circle charges its fee in addition to the amount, and Circle executes the transfer on $target$. If Circle cannot price the transfer, you execute it on $target$ with one more signature.",
+    "message": "USDC는 $source$에서 소각되고, $target$에서 서클(Circle)의 집행자에게 발행되며, 서클은 이를 Miden을 위한 xReserve에 예치합니다. 서클은 금액에 추가로 수수료를 부과하며, $target$에서 이체를 실행합니다.",
+    "englishSource": "USDC is burned on $source$ and minted to Circle's executor on $target$, which deposits it into xReserve for Miden. Circle charges its fee in addition to the amount, and Circle executes the transfer on $target$.",
     "placeholders": {
       "source": {
         "content": "$1"
       },
       "target": {
+        "content": "$3"
+      }
+    }
+  },
+  "usdcxForwardQuoteUnavailable": {
+    "message": "Circle은 현재 이 이체에 대한 가격을 산정할 수 없습니다. 전송된 내역이 없습니다. 잠시 후 다시 시도해 주세요.",
+    "englishSource": "Circle could not price this transfer right now. Nothing was sent. Try again in a moment."
+  },
+  "usdcxDepositFeeAboveBalance": {
+    "message": "이 입금에는 $network$에서 $total$ $token$이 필요합니다: 해당 금액에 Circle의 수수료 $fee$ $token$을 더한 금액입니다. 연결된 지갑에는 $balance$ $token$이 있습니다. 수수료만큼 금액을 줄이거나 지갑에 $token$을 추가하십시오.",
+    "englishSource": "This deposit needs $total$ $token$ on $network$: the amount plus Circle's fee of $fee$ $token$. Your connected wallet holds $balance$ $token$. Lower the amount by the fee or add $token$ to your wallet.",
+    "placeholders": {
+      "total": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$8"
+      },
+      "network": {
+        "content": "$3"
+      },
+      "fee": {
         "content": "$4"
+      },
+      "balance": {
+        "content": "$6"
       }
     }
   },
@@ -5568,6 +5960,62 @@
       }
     }
   },
+  "mainnetAccessCodeLabel": {
+    "message": "접근 코드",
+    "englishSource": "Access code"
+  },
+  "unlockMainnet": {
+    "message": "메인넷 잠금 해제",
+    "englishSource": "Unlock mainnet"
+  },
+  "mainnetAccessCodeRejected": {
+    "message": "이 코드가 작동하지 않았습니다. 코드를 확인하고 다시 시도해 주세요.",
+    "englishSource": "This code did not work. Check it and try again."
+  },
+  "mainnetAccessCheckFailed": {
+    "message": "이 코드를 확인할 수 없습니다. 나중에 다시 시도해 주세요.",
+    "englishSource": "We could not check this code. Try again later."
+  },
+  "mainnetAccountNotAdmitted": {
+    "message": "이 지갑은 Miden 메인넷에서 허용되지 않습니다. 새 지갑을 사용하려면 액세스 코드가 필요합니다.",
+    "englishSource": "This wallet is not admitted on Miden mainnet. A new wallet needs an access code."
+  },
+  "mainnetSecondAccountRefused": {
+    "message": "Miden 메인넷은 등록된 계정과 액세스 코드만 허용합니다.",
+    "englishSource": "Miden mainnet admits only the account an access code registered."
+  },
+  "mainnet": {
+    "message": "메인넷",
+    "englishSource": "Mainnet"
+  },
+  "mainnetAccessTitle": {
+    "message": "메인넷 접속 코드가 있으신가요?",
+    "englishSource": "Have a mainnet access code?"
+  },
+  "mainnetAccessOnboardingBody": {
+    "message": "메인넷은 현재 초대제입니다. 초대장에 기재된 12자리 코드를 입력하면 지갑이 Miden 메인넷에서 활성화됩니다.",
+    "englishSource": "Mainnet is invite-only for now. Enter the 12-character code from your invite and your wallet starts on Miden Mainnet."
+  },
+  "mainnetAccessHint": {
+    "message": "코드는 초대 이메일에 있습니다.",
+    "englishSource": "The code is in your invite email."
+  },
+  "iHaveACode": {
+    "message": "코드가 있습니다",
+    "englishSource": "I have a code"
+  },
+  "iDontHaveACode": {
+    "message": "코드는 없습니다",
+    "englishSource": "I don't have a code"
+  },
+  "noCodeTitle": {
+    "message": "Bread는 초대 전용입니다",
+    "englishSource": "Bread is invite-only"
+  },
+  "noCodeBody": {
+    "message": "새로운 지갑을 생성하려면 초대 링크를 통해 받은 메인넷 접속 코드가 필요합니다. 이미 존재하는 계정은 여전히 복구할 수 있습니다.",
+    "englishSource": "A new wallet needs a mainnet access code from your invite. An account that already exists can still be recovered."
+  },
   "networkModePillNoValue": {
     "message": "토큰에는 실제 가치가 없습니다",
     "englishSource": "Tokens have no real value"
@@ -5575,6 +6023,22 @@
   "mainnetCountdownLink": {
     "message": "얼리 액세스 목록에 가입하세요",
     "englishSource": "Join the early access list"
+  },
+  "switchToMainnet": {
+    "message": "메인넷으로 전환",
+    "englishSource": "Switch to mainnet"
+  },
+  "resetAndSwitchToMainnet": {
+    "message": "리셋 및 메인넷으로 전환",
+    "englishSource": "Reset and switch to mainnet"
+  },
+  "switchToMainnetConfirm": {
+    "message": "접근 코드가 승인되었습니다. 전환을 진행하면 이 기기에서 해당 지갑, 잔액 및 내역이 모두 삭제됩니다. 먼저 복구 정보를 저장하십시오. 테스트 토큰은 메인넷으로 전송되지 않습니다. 이후 이 코드를 사용하여 메인넷 지갑을 생성하거나 기존 메인넷 지갑을 복구하게 됩니다.",
+    "englishSource": "Your access code was accepted. Switching clears this wallet, its balances and its history from this device. Save your recovery details first. Test tokens do not transfer to mainnet. You will then create a mainnet wallet with this code or recover an existing mainnet wallet."
+  },
+  "mainnetSwitchCodeBody": {
+    "message": "초대장에 기재된 코드를 입력하세요. 메인넷에서 승인하기 전까지는 아무것도 처리되지 않습니다.",
+    "englishSource": "Enter the code from your invite. Nothing is cleared until mainnet accepts it."
   },
   "mainnetCountdownLabel": {
     "message": "Bread가 메인넷에 출시되기까지 남은 시간: $time$",
@@ -6197,6 +6661,54 @@
     "message": "이 페이지를 열 수 없습니다. 연결 상태를 확인하고 다시 시도해 주세요.",
     "englishSource": "Couldn't open this page. Check your connection and try again."
   },
+  "bridgeDepositAwaitingNextConfirmation": {
+    "message": "다음 지갑 확인을 기다리는 중",
+    "englishSource": "Waiting for the next wallet confirmation"
+  },
+  "bridgeDepositAwaitingNextConfirmationDescription": {
+    "message": "첫 번째 확인이 완료되었습니다. 지갑에서 다시 확인을 요청할 것입니다. 이 화면을 계속 열어 두십시오.",
+    "englishSource": "The first confirmation is done. Your wallet will ask you to confirm again - keep this screen open."
+  },
+  "advancedOptions": {
+    "message": "고급 옵션",
+    "englishSource": "Advanced options"
+  },
+  "advancedOptionsSummary": {
+    "message": "$transferType$ · $expiration$",
+    "englishSource": "$transferType$ · $expiration$",
+    "placeholders": {
+      "transfertype": {
+        "content": "$1"
+      },
+      "expiration": {
+        "content": "$2"
+      }
+    }
+  },
+  "transferType": {
+    "message": "전송 유형",
+    "englishSource": "Transfer type"
+  },
+  "publicTransfer": {
+    "message": "공개 전송",
+    "englishSource": "Public transfer"
+  },
+  "publicTransferNotice": {
+    "message": "토큰, 금액, 수신자 주소가 Miden에서 공개됩니다.",
+    "englishSource": "The token, amount, and recipient address will be visible on Miden."
+  },
+  "publicTransferHelp": {
+    "message": "누구나 이 전송의 토큰, 금액, 수신자 주소를 Miden에서 볼 수 있습니다.",
+    "englishSource": "Anyone can see this transfer's token, amount, and recipient address on Miden."
+  },
+  "senderAddressPublicNote": {
+    "message": "발신자 주소는 두 모드 모두에서 공개됩니다.",
+    "englishSource": "Your sender address is public in both modes."
+  },
+  "sendPublicly": {
+    "message": "공개로 보내기",
+    "englishSource": "Send publicly"
+  },
   "breadCloseError": {
     "message": "Bread로 돌아갈 수 없습니다.",
     "englishSource": "Could not return to Bread."
@@ -6216,5 +6728,113 @@
   "breadPresentationError": {
     "message": "이 앱의 로딩이 완료되지 않았습니다. 다시 시도하거나 Bread로 돌아가세요.",
     "englishSource": "This app did not finish loading. Try again or return to Bread."
+  },
+  "bridgeInTitle": {
+    "message": "브리지 인",
+    "englishSource": "Bridge in"
+  },
+  "bridgeConnectWalletTitle": {
+    "message": "지갑 연결하기",
+    "englishSource": "Connect your wallet"
+  },
+  "bridgeConnectWalletBody": {
+    "message": "Miden으로 가져오고자 하는 토큰이 들어 있는 지갑을 연결하십시오.",
+    "englishSource": "Connect the wallet holding the tokens you want to bring to Miden."
+  },
+  "bridgeConnectWalletAction": {
+    "message": "지갑 연결",
+    "englishSource": "Connect wallet"
+  },
+  "bridgeConnectSource": {
+    "message": "외부 지갑",
+    "englishSource": "External wallet"
+  },
+  "bridgeConnectSourceHint": {
+    "message": "아직 연결되지 않음",
+    "englishSource": "Not connected yet"
+  },
+  "bridgeConnectNextTitle": {
+    "message": "연결 후",
+    "englishSource": "After connecting"
+  },
+  "bridgeConnectChooseTitle": {
+    "message": "이체 유형 선택",
+    "englishSource": "Choose your transfer"
+  },
+  "bridgeConnectChooseBody": {
+    "message": "토큰, 소스 네트워크 및 금액을 선택하십시오.",
+    "englishSource": "Pick a token, source network and amount."
+  },
+  "bridgeConnectApproveTitle": {
+    "message": "검토 및 승인",
+    "englishSource": "Review and approve"
+  },
+  "bridgeConnectApproveBody": {
+    "message": "경로와 수수료를 확인한 후, 지갑에서 이체를 승인하십시오.",
+    "englishSource": "Check the route and fees, then approve the transfer in your wallet."
+  },
+  "bridgeConnectTestWalletBody": {
+    "message": "테스트 토큰 전용으로 별도의 지갑을 사용하십시오. 실제 자금이 들어 있는 지갑은 절대로 연결하지 마십시오.",
+    "englishSource": "Use a separate wallet with test tokens only. Never connect a wallet holding real funds."
+  },
+  "bridgeChooseRoute": {
+    "message": "경로 선택",
+    "englishSource": "Choose a route"
+  },
+  "bridgeRouteDescription": {
+    "message": "계속 진행하기 전에 수수료와 예상 도착 시간을 확인하십시오.",
+    "englishSource": "Review the fee and estimated arrival before you continue."
+  },
+  "bridgeArrivalEstimate": {
+    "message": "예상 도착 시간",
+    "englishSource": "Estimated arrival"
+  },
+  "bridgePayoutTiming": {
+    "message": "도착 여부는 목적지 네트워크에 따라 달라집니다",
+    "englishSource": "Arrival depends on the destination network"
+  },
+  "bridgeSourceWallet": {
+    "message": "지갑",
+    "englishSource": "Wallet"
+  },
+  "bridgeRouteFee": {
+    "message": "브리지 수수료",
+    "englishSource": "Bridge fee"
+  },
+  "bridgeRankBestValue": {
+    "message": "최적의 가치",
+    "englishSource": "Best value"
+  },
+  "bridgeRankCheapest": {
+    "message": "가장 저렴한",
+    "englishSource": "Cheapest"
+  },
+  "bridgeRankFastest": {
+    "message": "가장 빠른",
+    "englishSource": "Fastest"
+  },
+  "bridgeRouteSort": {
+    "message": "경로 정렬",
+    "englishSource": "Sort routes"
+  },
+  "bridgeRouteProviders": {
+    "message": "브리지 제공업체",
+    "englishSource": "Bridge providers"
+  },
+  "bridgeRankValueDescription": {
+    "message": "대부분은 제공자 수수료를 공제한 후 수령됩니다.",
+    "englishSource": "Most received after provider fees."
+  },
+  "bridgeRankCostDescription": {
+    "message": "가스 비용을 포함한 최저의 브리지 및 네트워크 비용.",
+    "englishSource": "Lowest bridge and network cost, including gas."
+  },
+  "bridgeRankTimeDescription": {
+    "message": "예상 도착 시간 중 가장 짧은 시간.",
+    "englishSource": "Shortest estimated arrival time."
+  },
+  "bridgeEstimatedCost": {
+    "message": "예상 비용",
+    "englishSource": "Est. cost"
   }
 }

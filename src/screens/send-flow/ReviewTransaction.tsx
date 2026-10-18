@@ -1,23 +1,28 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { addDays, addSeconds, format, formatDistanceToNow } from 'date-fns';
+import { AnimatePresence, motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import { formatUnits, parseUnits } from 'viem';
 
 import { useAppEnv } from 'app/env';
 import useNativeFeeFaucetId from 'app/hooks/useNativeFeeFaucetId';
 import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
+import { Icon, IconName } from 'app/icons/v2';
 import { formatMoneyAmount } from 'app/templates/history/transactionUtils';
 import { Button, ButtonVariant } from 'components/Button';
+import { FeatureUnavailableNotice, isFeatureBlocked } from 'components/FeatureUnavailable';
 import { NetworkLogo } from 'components/NetworkChip';
 import { NetworkModeBanner } from 'components/NetworkModeBanner';
 import { SpendingLimitChallenge, SpendingLimitChallengeProps } from 'components/SpendingLimitChallenge';
 import { TokenLogo } from 'components/TokenLogo';
-import { DetailCard, DetailRow } from 'components/ui/DetailCard';
+import { DetailCard, DetailDisclosure, DetailRow } from 'components/ui/DetailCard';
 import { Hero } from 'components/ui/Hero';
+import { Notice } from 'components/ui/Notice';
 import { Skeleton } from 'components/ui/Skeleton';
 import { isAgglayerFaucetAllowed } from 'lib/agglayer/allowed-faucets';
 import { initiateB2AggBridge } from 'lib/agglayer/b2agg';
+import { usePreset } from 'lib/animation';
 import { confirmSensitiveAction } from 'lib/biometric';
 import { bridgeEpochSend } from 'lib/epoch';
 import { stringToBigInt } from 'lib/i18n/numbers';
@@ -37,8 +42,10 @@ import {
 import { NoteTypeEnum } from 'lib/miden/types';
 import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { isExtension } from 'lib/platform';
+import type { BridgeFeature } from 'lib/remote-config/availability';
+import { isNewTransferTokenHeld, isRetiredTransferToken } from 'lib/remote-config/token-availability';
 import { evmUsdcLabel, midenTokenLabel } from 'lib/remote-config/token-labels';
-import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
+import { useBridgeConfigSnapshot, useFeatureAvailability } from 'lib/remote-config/use-feature-availability';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
 import { classifyError } from 'lib/telemetry';
@@ -61,6 +68,7 @@ import { dateTimeToRecallBlocks, RecallCalendarDrawer, SECONDS_PER_BLOCK } from 
 import { clearSendDraft } from './send-draft';
 import { enterSendFlow, reportSendStep, settleSendFlow } from './send-telemetry';
 import { SendStepLayout } from './SendStepLayout';
+import { TransferType, TransferTypeDrawer } from './TransferTypeDrawer';
 import { BridgeRoute, UIToken } from './types';
 import { uiTokenFromBalance } from './ui-token';
 import { UsdcxPayoutRows } from './UsdcxPayoutRows';
@@ -107,13 +115,29 @@ export const ReviewTransaction: React.FC = () => {
   // A 0x recipient bridges to an EVM chain instead of a same-chain Miden send.
   const isBridge = !!to && detectAddressChain(to) === 'ethereum';
   const bridgeNetworkObj = getBridgeNetwork(network);
+  const bridgeFeature = (): BridgeFeature => {
+    switch (route) {
+      case 'agglayer':
+        return 'bridgeOut';
+      case 'usdcx':
+        return 'usdcxWithdrawal';
+      default:
+        return 'fastBridgeOut';
+    }
+  };
+  const bridgeAvailability = useFeatureAvailability(bridgeFeature(), {
+    hold: isBridge,
+    chainId: bridgeNetworkObj?.chainId
+  });
+  const bridgeBlocked = isBridge && isFeatureBlocked(bridgeAvailability);
 
   // Re-derive the UIToken from balances with SendManager's builder; the URL
   // only carries the token id.
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
   const { data: balanceData } = useAllBalances(publicKey, allTokensBaseMetadata);
   const tokenPrices = useWalletStore(s => s.tokenPrices);
-  const bridgeConfig = useBridgeConfigSnapshot({ load: false });
+  // Loaded here too: a review held for want of the document resolves only once one arrives.
+  const bridgeConfig = useBridgeConfigSnapshot();
   const token = useMemo<UIToken | undefined>(() => {
     const match = balanceData?.find(b => b.tokenId === tokenId);
     return match && uiTokenFromBalance(match, tokenPrices);
@@ -121,6 +145,8 @@ export const ReviewTransaction: React.FC = () => {
   const tokenLabel = token ? midenTokenLabel(bridgeConfig, token.id, token.name) : '';
   // A burn's fee and the faucet's sponsorship are paid in the native asset, whatever it is on this network.
   const nativeFaucetId = useNativeFeeFaucetId();
+  // Held, not left: the review stays on screen, unconfirmable, until the document says whether it is retired.
+  const tokenHeld = isNewTransferTokenHeld(bridgeConfig, tokenId, nativeFaucetId);
   const assetsMetadata = useWalletStore(s => s.assetsMetadata);
   const nativeSymbol = resolveDisplayMetadata(nativeFaucetId ?? undefined, assetsMetadata, nativeFaucetId).symbol;
 
@@ -150,12 +176,18 @@ export const ReviewTransaction: React.FC = () => {
     enabled: isBridge && !isUsdcxBurn
   });
 
-  // Private by default; the per-send toggle was removed from the UI. Only the
-  // E2E hook below can flip it.
+  // Private by default. The user changes it under Advanced options (the "Transfer type" row
+  // opens `TransferTypeDrawer`); the E2E hook below can also flip it.
   const [sharePrivately, setSharePrivately] = useState(true);
+  const transferType: TransferType = sharePrivately ? 'private' : 'public';
+  const [showTransferType, setShowTransferType] = useState(false);
+  // Collapsed by default: the rows under it are the choices most sends never touch, and the
+  // header's summary keeps the current choice in view while it is closed.
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const reveal = usePreset('reveal');
 
-  // E2E-only hook: the harness can't pick a PUBLIC send by clicking (no UI
-  // toggle), so expose a setter while the review page is mounted. Mirrors the
+  // E2E-only hook: the harness drives the transfer type without opening the
+  // sheet, so expose a setter while the review page is mounted. Mirrors the
   // __TEST_STORE__ gate. Zero production impact.
   useEffect(() => {
     if (process.env.MIDEN_E2E_TEST !== 'true') return;
@@ -223,23 +255,43 @@ export const ReviewTransaction: React.FC = () => {
     setRecallBlocks(String(dateTimeToRecallBlocks(date)));
   }, [isBridge]);
 
+  // From the press until the send settles, the choices it carries are frozen: the sheets stay
+  // closed and ignore a change, so the page never shows anything but what the send carries.
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
   // Recall-height handlers. All mark the choice as user-made so the seeding
   // effect above won't overwrite it. "Never" clears the height entirely → P2ID.
-  const handleRecallDateChange = useCallback((date: Date | undefined) => {
-    recallTouchedRef.current = true;
-    if (date) setRecallNever(false);
-    setRecallDate(date);
-  }, []);
-  const handleRecallBlocksChange = useCallback((blocks: string) => {
-    recallTouchedRef.current = true;
-    setRecallBlocks(blocks);
-  }, []);
+  const handleRecallDateChange = useCallback(
+    (date: Date | undefined) => {
+      if (isSubmitting) return;
+      recallTouchedRef.current = true;
+      if (date) setRecallNever(false);
+      setRecallDate(date);
+    },
+    [isSubmitting]
+  );
+  const handleRecallBlocksChange = useCallback(
+    (blocks: string) => {
+      if (isSubmitting) return;
+      recallTouchedRef.current = true;
+      setRecallBlocks(blocks);
+    },
+    [isSubmitting]
+  );
+  const handleRecallTimeChange = useCallback(
+    (time: string) => {
+      if (isSubmitting) return;
+      setRecallTime(time);
+    },
+    [isSubmitting]
+  );
   const handleRecallNever = useCallback(() => {
+    if (isSubmitting) return;
     recallTouchedRef.current = true;
     setRecallNever(true);
     setRecallDate(undefined);
     setRecallBlocks(undefined);
-  }, []);
+  }, [isSubmitting]);
 
   // Leaving review without submitting ends the `send` flow the form began.
   // Without this the handle would stay open past the send flow entirely and the
@@ -257,7 +309,6 @@ export const ReviewTransaction: React.FC = () => {
     };
   }, []);
 
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | undefined>(undefined);
   const [spendingLimitChallenge, setSpendingLimitChallenge] =
     useState<Pick<SpendingLimitChallengeProps, 'assessment' | 'spends' | 'unpriced'>>();
@@ -406,10 +457,11 @@ export const ReviewTransaction: React.FC = () => {
           goToGeneratingTransaction(txId);
         } else if (route === 'agglayer') {
           // This page also opens from its URL, so it re-checks; after the route step that costs no RPC.
-          if (!(await isAgglayerFaucetAllowed(token.id, getEffectiveRpcUrl()))) {
+          if (!(await isAgglayerFaucetAllowed(token.id, getEffectiveRpcUrl(), bridgeNetworkObj?.chainId))) {
             throw new Error(t('agglayerTokenUnsupported'));
           }
           const txId = await initiateB2AggBridge({
+            destinationChainId: bridgeNetworkObj?.chainId,
             amount: amountBaseUnits,
             faucetId: token.id,
             destinationAddress: to as `0x${string}`,
@@ -421,6 +473,7 @@ export const ReviewTransaction: React.FC = () => {
           goToGeneratingTransaction(txId);
         } else {
           await bridgeEpochSend({
+            destinationChainId: bridgeNetworkObj?.chainId,
             amount: amountBaseUnits,
             faucetId: token.id,
             destinationAddress: to as `0x${string}`,
@@ -477,6 +530,7 @@ export const ReviewTransaction: React.FC = () => {
   );
 
   const onSubmit = useCallback(async () => {
+    if (bridgeBlocked || tokenHeld) return;
     if (isSubmitting || !token || !publicKey || amountBaseUnits === undefined) return;
     if (!token.scaleIsKnown) {
       setSubmitError(t('unknownTokenScale'));
@@ -519,6 +573,8 @@ export const ReviewTransaction: React.FC = () => {
       setIsSubmitting(false);
     }
   }, [
+    bridgeBlocked,
+    tokenHeld,
     amountBaseUnits,
     assessSpendingLimit,
     isBridge,
@@ -571,7 +627,9 @@ export const ReviewTransaction: React.FC = () => {
       !route ||
       (isUsdcxBurn ? !isUsdcxBridgeNetwork(network) : !isEpochBridgeNetwork(network)) ||
       (isUsdcxBurn && !!token && !isUsdcxWithdrawalAvailable(token.id)));
-  const tokenInvalid = !!balanceData && (!token || parseFloat(amount) > token.balance);
+  const tokenInvalid =
+    isRetiredTransferToken(bridgeConfig, tokenId, nativeFaucetId) ||
+    (!!balanceData && (!token || parseFloat(amount) > token.balance));
   if (paramsInvalid || bridgeParamsInvalid || tokenInvalid) {
     return <Redirect to="/send" />;
   }
@@ -647,7 +705,9 @@ export const ReviewTransaction: React.FC = () => {
             )}
             <Button
               type="button"
-              title={t('sendPayment')}
+              // The CTA names the consequence of a non-default choice, so a public send is never
+              // confirmed by a button that reads like a private one.
+              title={sharePrivately ? t('sendPayment') : t('sendPublicly')}
               variant={ButtonVariant.Primary}
               accent="send"
               onClick={onSubmit}
@@ -657,7 +717,11 @@ export const ReviewTransaction: React.FC = () => {
               // CTA only to be refused reads as a wallet fault rather than a
               // deliberate refusal.
               disabled={
-                isSubmitting || scaleIsUnknown || (isUsdcxBurn && (burnPreflight.loading || !!burnValidationError))
+                bridgeBlocked ||
+                tokenHeld ||
+                isSubmitting ||
+                scaleIsUnknown ||
+                (isUsdcxBurn && (burnPreflight.loading || !!burnValidationError))
               }
               data-testid="send-review-submit"
               className="w-full max-w-none"
@@ -665,6 +729,17 @@ export const ReviewTransaction: React.FC = () => {
           </div>
         }
       >
+        {isBridge && <FeatureUnavailableNotice availability={bridgeAvailability} />}
+        {/* A held token never reaches a rendered bridge review, so this never stacks on the notice above. */}
+        {tokenHeld && (
+          <Notice
+            tone="warning"
+            icon={<Icon name={IconName.Information} size="xs" fill="currentColor" />}
+            data-testid="review-held-notice"
+          >
+            {t('sendTokenAvailabilityChecking')}
+          </Notice>
+        )}
         {/* The amount is the page's hero, in the same place as on the amount step. */}
         <Hero
           data-testid="review-amount"
@@ -683,7 +758,7 @@ export const ReviewTransaction: React.FC = () => {
           {/* A plain value with the network's mark, like every other row: a chip here read as a button. */}
           <DetailRow label={t('network')}>
             <span className="flex items-center gap-1.5">
-              <NetworkLogo kind={isBridge ? 'ethereum' : 'miden'} />
+              <NetworkLogo kind={isBridge ? 'ethereum' : 'miden'} network={bridgeNetworkObj?.id} />
               {isBridge ? (bridgeNetworkObj?.name ?? t('ethereum')) : t('miden')}
             </span>
           </DetailRow>
@@ -721,20 +796,58 @@ export const ReviewTransaction: React.FC = () => {
               )}
             </>
           ) : (
-            <DetailRow
-              label={t('expires')}
-              action={{
-                label: t('edit'),
-                onClick: () => setShowCalendar(true),
-                'aria-haspopup': 'dialog',
-                'data-testid': 'review-expiration-edit'
-              }}
-              data-testid="review-row-expiration"
+            // The transfer type and the expiration are the two choices a same-chain send offers;
+            // both fold under one row, whose summary line names them while it is closed.
+            <DetailDisclosure
+              title={t('advancedOptions')}
+              summary={t('advancedOptionsSummary', { transferType: t(transferType), expiration: expirationLabel })}
+              summaryEmphasis={!sharePrivately}
+              open={advancedOpen}
+              onOpenChange={setAdvancedOpen}
+              data-testid="review-advanced-options"
             >
-              {expirationLabel}
-            </DetailRow>
+              <DetailRow
+                label={t('transferType')}
+                onClick={() => setShowTransferType(true)}
+                aria-haspopup="dialog"
+                disabled={isSubmitting}
+                data-testid="review-row-transfer-type"
+              >
+                {t(transferType)}
+              </DetailRow>
+              <DetailRow
+                label={t('expires')}
+                action={{
+                  label: t('edit'),
+                  onClick: () => setShowCalendar(true),
+                  'aria-haspopup': 'dialog',
+                  disabled: isSubmitting,
+                  'data-testid': 'review-expiration-edit'
+                }}
+                data-testid="review-row-expiration"
+              >
+                {expirationLabel}
+              </DetailRow>
+            </DetailDisclosure>
           )}
         </DetailCard>
+        {/* What a public note gives away stays on the page whether or not Advanced options is open:
+            the choice is made in a sheet, and the consequence must survive closing both. */}
+        <AnimatePresence initial={false}>
+          {!isBridge && !sharePrivately && (
+            <motion.div key="public-transfer-notice" className="overflow-hidden" {...reveal}>
+              <Notice
+                tone="warning"
+                title={t('publicTransfer')}
+                icon={<Icon name={IconName.Information} size="xs" fill="currentColor" />}
+                className="mt-3"
+                data-testid="review-public-notice"
+              >
+                {t('publicTransferNotice')}
+              </Notice>
+            </motion.div>
+          )}
+        </AnimatePresence>
         {isUsdcxBurn && (
           <p className="mt-3 px-4 text-caption face-heading text-muted" data-testid="usdcx-burn-notice">
             {t('usdcxWithdrawalNotice')}
@@ -750,14 +863,25 @@ export const ReviewTransaction: React.FC = () => {
       </SendStepLayout>
 
       {!isBridge && (
+        <TransferTypeDrawer
+          open={showTransferType && !isSubmitting}
+          onOpenChange={setShowTransferType}
+          value={transferType}
+          onChange={next => {
+            if (isSubmitting) return;
+            setSharePrivately(next === 'private');
+          }}
+        />
+      )}
+      {!isBridge && (
         <RecallCalendarDrawer
-          open={showCalendar}
+          open={showCalendar && !isSubmitting}
           onOpenChange={setShowCalendar}
           recallDate={recallDate}
           recallTime={recallTime}
           onRecallBlocksChange={handleRecallBlocksChange}
           onRecallDateChange={handleRecallDateChange}
-          onRecallTimeChange={setRecallTime}
+          onRecallTimeChange={handleRecallTimeChange}
           onRecallNever={handleRecallNever}
         />
       )}

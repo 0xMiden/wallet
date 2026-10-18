@@ -4,12 +4,12 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 
 import {
   publishMockBridgeSnapshot,
-  TEST_BRIDGE_CONFIG,
   TEST_BRIDGE_CONFIG_SNAPSHOT,
-  TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET
+  TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET,
+  testSnapshotWithSwapPairs
 } from 'lib/epoch/testing/bridge-config';
 import type { GuardianNoteRecoveryProgress } from 'lib/guardian-note-recovery-progress';
-import { TEST_TOKEN_IUSDT } from 'lib/miden/swap/testing/registry';
+import { TEST_TOKEN_IUSDT, testSwapPairsToken } from 'lib/miden/swap/testing/registry';
 import { _setSwapTokensForTest } from 'lib/miden/swap/tokens';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { resetActivityReadState } from 'lib/settings/activity-read';
@@ -21,6 +21,8 @@ import type { PendingActivityItem } from './PendingActivityCard';
 const mockAccept = jest.fn();
 const mockAcceptMany = jest.fn();
 const mockRetryHeld = jest.fn();
+// Whether accepting the notes it is handed is certain to fail on the fee for every transaction.
+const mockCannotPayFee = jest.fn((_notes: readonly unknown[]) => false);
 const mockHide = jest.fn();
 const mockRestore = jest.fn();
 const mockConfirm = jest.fn();
@@ -71,6 +73,7 @@ jest.mock('app/hooks/useActivityClaims', () => ({
     accept: mockAccept,
     acceptMany: mockAcceptMany,
     retryHeld: mockRetryHeld,
+    cannotPayFee: (notes: readonly unknown[]) => mockCannotPayFee(notes),
     account: { publicKey: 'account', guardianNoteRecoveryPending: mockRecoveryPending }
   })
 }));
@@ -171,6 +174,7 @@ jest.mock('components/Button', () => ({
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockCannotPayFee.mockReturnValue(false);
   mockPathname = '/history';
   mockItems.forEach(item => {
     item.status = 'pending';
@@ -195,22 +199,11 @@ function expandCard(noteId: string): HTMLElement {
 
 it('revalues an unchanged pending list on config-only price changes and removes an unavailable total', () => {
   _setSwapTokensForTest(undefined);
-  const snapshotFor = (priceSymbol?: string): BridgeConfigSnapshot => ({
-    ...TEST_BRIDGE_CONFIG_SNAPSHOT,
-    config: {
-      ...TEST_BRIDGE_CONFIG,
-      swap: {
-        tokens: [
-          {
-            symbol: TEST_TOKEN_IUSDT.symbol,
-            faucetId: TEST_TOKEN_IUSDT.faucetId,
-            decimals: TEST_TOKEN_IUSDT.decimals,
-            ...(priceSymbol === undefined ? {} : { priceSymbol })
-          }
-        ]
-      }
-    }
-  });
+  const snapshotFor = (priceSymbol?: string): BridgeConfigSnapshot =>
+    testSnapshotWithSwapPairs({
+      tokens: [testSwapPairsToken({ ...TEST_TOKEN_IUSDT, priceSymbol })],
+      pairs: []
+    });
   mockBridgeSnapshot = snapshotFor('USDC');
   mockState.items = [
     {
@@ -398,6 +391,21 @@ it('shows Accept All on the pending tab and claims every listed note that can be
   fireEvent.click(screen.getByRole('button', { name: 'acceptAll' }));
   expect(mockAcceptMany).toHaveBeenCalledTimes(1);
   expect(mockAcceptMany.mock.calls[0]?.[0].map((note: { id: string }) => note.id)).toEqual(['first', 'second']);
+});
+
+it('holds Accept All when no transaction of the claim can pay its network fee', () => {
+  // Each card says why; queueing them would only fail every one on the fee (BREAD-WALLET-C).
+  mockCannotPayFee.mockReturnValue(true);
+  render(<ActivityPendingHistory search="" filter="pending" />);
+  const button = screen.getByTestId('pending-row-accept-all');
+  expect(button).toBeDisabled();
+  expect(mockCannotPayFee.mock.calls.at(-1)?.[0].map(note => (note as { id: string }).id)).toEqual([
+    'first',
+    'second',
+    'third'
+  ]);
+  fireEvent.click(button);
+  expect(mockAcceptMany).not.toHaveBeenCalled();
 });
 
 it('marks every transfer Accept All takes as read with one write', () => {

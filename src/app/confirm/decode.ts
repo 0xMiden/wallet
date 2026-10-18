@@ -8,6 +8,7 @@ import {
 } from '@miden-sdk/miden-sdk/lazy';
 
 import { splitExecutedOutputNotes } from 'lib/miden/activity/fee-notes';
+import type { NoteDecodeOptions } from 'lib/miden/note-quarantine';
 import { canonicalWalletAccountId, getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
 import { b64ToU8 } from 'lib/shared/helpers';
 
@@ -61,17 +62,19 @@ function noteAssets(note: { assets(): { fungibleAssets(): any[] } | undefined } 
  * bare Note (the dApp chooses which, mirroring importNoteBytes). Handling only
  * one format would throw for the other and blank the declared incoming assets.
  */
-export function importedNoteAssets(b64: string): AssetAmount[] {
+export function importedNoteAssets(b64: string, options: NoteDecodeOptions = {}): AssetAmount[] {
   const bytes = b64ToU8(b64);
   try {
     const nf = NoteFile.deserialize(bytes);
     return noteAssets(nf.note() ?? nf.noteDetails());
-  } catch {
+  } catch (error) {
+    if (options.rethrowTraps && error instanceof WebAssembly.RuntimeError) throw error;
     // Not a NoteFile — try a bare Note below.
   }
   try {
     return noteAssets(Note.deserialize(bytes));
-  } catch {
+  } catch (error) {
+    if (options.rethrowTraps && error instanceof WebAssembly.RuntimeError) throw error;
     return [];
   }
 }

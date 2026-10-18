@@ -2,14 +2,16 @@ import { defineConfig } from '@playwright/test';
 
 import base from './playwright.ios.config';
 
-// Same harness as the iOS E2E config, but runs ONLY the live USDCx spec (which the base
-// iOS config ignores). The spec deposits real Arc Testnet USDC through Circle xReserve
-// from a funded key (USDCX_LIVE_EVM_PRIVATE_KEY), then burns public faucet USDCx
-// through Send back to that key and waits for Circle's payout. It runs in the
-// dedicated USDCx live E2E job. Run with: yarn test:e2e:mobile:usdcx-live:run.
+// Same harness as the iOS E2E config, but runs ONLY the live USDCx specs (which the base iOS config ignores): the Arc
+// spec deposits real Arc Testnet USDC through Circle xReserve, and the executor spec deposits from Base Sepolia,
+// Arbitrum Sepolia or Ethereum Sepolia through Circle's CCTP forward to Arc, each from the funded key
+// USDCX_LIVE_EVM_PRIVATE_KEY and each then burning public faucet USDCx through Send back to that key and waiting for
+// Circle's payout. E2E USDCx Bridge-IN (live) runs each in jobs of its own with a file filter:
+// yarn test:e2e:mobile:usdcx-live:run usdcx-live-deposit.ios, or usdcx-live-executor-deposit.ios with
+// USDCX_LIVE_SOURCE naming the chain.
 //
-// The app must be built WITHOUT E2E_EVM_RPC_URL: that flag sends the Arc reads to
-// a local Anvil, and this suite needs the real Arc Testnet RPC.
+// The app must be built WITHOUT E2E_EVM_RPC_URL: that flag sends the EVM reads to a local Anvil, and these specs need
+// the real RPCs.
 export default defineConfig({
   ...base,
   testIgnore: undefined,

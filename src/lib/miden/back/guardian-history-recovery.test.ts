@@ -8,7 +8,6 @@ import {
 
 import { reportGuardianNoteRecoveryProgress } from 'lib/guardian-note-recovery-progress';
 import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
-import { MIDEN_GUARDIAN_ENDPOINTS } from 'lib/miden-chain/constants';
 import type { WalletAccount } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
@@ -39,7 +38,9 @@ import {
   GuardianHistoryFeeLookupError,
   GuardianHistoryFeeUnavailableError
 } from '../guardian/history-errors';
+import type { GuardianHistoryNote } from '../sdk/guardian-history';
 import { WasmClientPoisonedError } from '../sdk/wasm-client-poison';
+import { recoveredSwapOrderRef } from '../swap/recovered-order';
 
 jest.mock('@openzeppelin/guardian-client', () => ({
   GuardianHttpClient: class {
@@ -68,9 +69,14 @@ jest.mock('lib/miden/front/storage', () => {
   };
 });
 jest.mock('lib/guardian-note-recovery-progress', () => ({ reportGuardianNoteRecoveryProgress: jest.fn() }));
+// The network's operators; a test may replace a network's list and restore it.
+const mockNetworkGuardianEndpoints = new Map<string, string[]>([['testnet', ['https://one/', 'https://two']]]);
 jest.mock('lib/miden-chain/constants', () => ({
-  MIDEN_GUARDIAN_ENDPOINTS: new Map([['testnet', ['https://one/', 'https://two']]])
+  getGuardianEndpointsForNetwork: (network: string) => mockNetworkGuardianEndpoints.get(network) ?? []
 }));
+// The pass hydrates the config document before it reads the network's operators.
+const mockInitBridgeConfig = jest.fn(async () => undefined);
+jest.mock('lib/remote-config/runtime', () => ({ initBridgeConfig: () => mockInitBridgeConfig() }));
 jest.mock('lib/miden-chain/effective-endpoints', () => ({ getEffectiveNetworkName: () => 'testnet' }));
 // The node a terminal fee answer came from: the effective RPC URL and network name.
 let mockFeeScope = 'rpc-a|testnet';
@@ -1909,10 +1915,172 @@ it('upgrades existing decoded rows and links a payback imported before its swap'
   const swap = rows.find(row => row.recovery?.nonce === 2);
   const consume = rows.find(row => row.recovery?.nonce === 3);
   expect(swap?.extraInputs).toMatchObject({ requestedFaucetId: 'ieth', requestedAmount: 30n, autoConsume: false });
-  expect(swap?.extraInputs.settledAt).toBeDefined();
+  // Linked, but not closed: a recovered order's close is its lineage's on the node (#1487).
+  expect(swap?.extraInputs.settledAt).toBeUndefined();
   expect(consume?.extraInputs).toMatchObject({ swapOrderTxId: swap?.id, swapSettleKind: 'settle' });
   expect(rows).toHaveLength(3);
   expect(swap?.id).toBe(oldRows.find(row => row.recovery?.nonce === 2)?.id);
+});
+
+// The account's own order (nonce 2) and, when `reclaimNonce` is given, a custom transaction that takes it back.
+function serveOrderHistory(reclaimNonce?: number) {
+  const entries = reclaimNonce === undefined ? [entry(2)] : [entry(reclaimNonce), entry(2)];
+  jest.spyOn(source('https://one', [{ entries }]), 'getDelta').mockImplementation(async (_account, nonce) => ({
+    ...delta(nonce),
+    metadata: { proposal: { proposalType: nonce === reclaimNonce ? 'custom_transaction' : 'swap' } }
+  }));
+  source('https://two', []);
+  const orderNote: GuardianHistoryNote = {
+    id: 'order',
+    visibility: 'public',
+    sender: 'account',
+    assets: [{ faucetId: 'miden', amount: '70' }],
+    swap: { orderId: '42', requestedAsset: { faucetId: 'ieth', amount: '30' } }
+  };
+  jest.mocked(midenClientProxy.decodeGuardianHistory).mockImplementation(async encoded => ({
+    accountId: 'account',
+    inputNotes: encoded === String(reclaimNonce) ? [orderNote] : [],
+    outputNotes: encoded === '2' ? [orderNote] : []
+  }));
+}
+
+// Version 4 recorded a custom transaction that reclaims the account's own order as an execute.
+const PRE_RECLAIM_HISTORY_VERSION = 4;
+
+it('derives a version-4 custom transaction reclaiming an own order again, as the reclaim linked to its order', async () => {
+  serveOrderHistory(3);
+  await run();
+  const first = await transactions.toArray();
+  const reclaim = first.find(row => row.recovery?.nonce === 3);
+  const order = first.find(row => row.recovery?.nonce === 2);
+  if (!reclaim?.recovery || !order?.recovery) throw new Error('Missing recovered rows');
+  // The rows as version 4 stored them: the reclaim an unlinked execute, the order with no reclaim stamp.
+  await transactions.put({
+    ...reclaim,
+    type: 'execute',
+    extraInputs: undefined,
+    recovery: { ...reclaim.recovery, version: PRE_RECLAIM_HISTORY_VERSION }
+  });
+  await transactions.put({
+    ...order,
+    extraInputs: { ...order.extraInputs, reclaimedAt: undefined },
+    recovery: { ...order.recovery, version: PRE_RECLAIM_HISTORY_VERSION }
+  });
+  await clearGuardianHistoryCheckpoints();
+  serveOrderHistory(3);
+
+  await run();
+
+  const upgraded = await transactions.get(reclaim.id);
+  expect(upgraded).toMatchObject({
+    type: 'consume',
+    extraInputs: { swapOrderTxId: order.id, swapSettleKind: 'reclaim' },
+    recovery: { version: GUARDIAN_HISTORY_VERSION }
+  });
+  expect((await transactions.get(order.id))?.extraInputs.reclaimedAt).toBeUndefined();
+  expect(await transactions.count()).toBe(2);
+});
+
+it('keeps the local settlement stamps of a recovered swap row it derives again, and their lineage record', async () => {
+  serveOrderHistory();
+  await run();
+  const order = (await transactions.toArray()).find(row => row.recovery?.nonce === 2);
+  if (!order?.recovery) throw new Error('Missing recovered order');
+  await transactions.put({
+    ...order,
+    extraInputs: { ...order.extraInputs, expiryTriggeredAt: 150, settledAt: 160, lineageClosedAt: 160 },
+    recovery: { ...order.recovery, version: GUARDIAN_HISTORY_VERSION - 1 }
+  });
+  await clearGuardianHistoryCheckpoints();
+  serveOrderHistory();
+
+  await run();
+
+  const upgraded = await transactions.get(order.id);
+  expect(upgraded?.recovery?.version).toBe(GUARDIAN_HISTORY_VERSION);
+  expect(upgraded?.extraInputs).toMatchObject({
+    orderId: '42',
+    expiryTriggeredAt: 150,
+    settledAt: 160,
+    lineageClosedAt: 160
+  });
+  expect(upgraded && recoveredSwapOrderRef(upgraded)).toBeUndefined();
+});
+
+// The pre-fix recovery reconcile stamped settledAt from a linked payout with no lineage read: an upgrade keeps it, and
+// it stays provisional, so the order is still tracked and its next lineage read decides it (#1487).
+it('keeps a settlement stamp no lineage read recorded through an upgrade, with the order still tracked', async () => {
+  serveOrderHistory();
+  await run();
+  const order = (await transactions.toArray()).find(row => row.recovery?.nonce === 2);
+  if (!order?.recovery) throw new Error('Missing recovered order');
+  await transactions.put({
+    ...order,
+    extraInputs: { ...order.extraInputs, settledAt: 160 },
+    recovery: { ...order.recovery, version: GUARDIAN_HISTORY_VERSION - 1 }
+  });
+  await clearGuardianHistoryCheckpoints();
+  serveOrderHistory();
+
+  await run();
+
+  const upgraded = await transactions.get(order.id);
+  expect(upgraded?.recovery?.version).toBe(GUARDIAN_HISTORY_VERSION);
+  expect(upgraded?.extraInputs.settledAt).toBe(160);
+  expect(upgraded?.extraInputs.lineageClosedAt).toBeUndefined();
+  expect(upgraded && recoveredSwapOrderRef(upgraded)).toEqual(
+    expect.objectContaining({ noteId: 'order', provisionalClosure: true })
+  );
+});
+
+// A Cancel moves the order's expiry forward and the order tracking records a spent order note; both are this wallet's
+// own record of the order (#1487).
+it("keeps a recovered swap row's Cancel expiry and spent-note stamp when it derives the row again", async () => {
+  serveOrderHistory();
+  await run();
+  const order = (await transactions.toArray()).find(row => row.recovery?.nonce === 2);
+  if (!order?.recovery) throw new Error('Missing recovered order');
+  await transactions.put({
+    ...order,
+    extraInputs: { ...order.extraInputs, expiresAt: 150, expiryTriggeredAt: 150, orderNoteSpentAt: 170 },
+    recovery: { ...order.recovery, version: GUARDIAN_HISTORY_VERSION - 1 }
+  });
+  await clearGuardianHistoryCheckpoints();
+  serveOrderHistory();
+
+  await run();
+
+  const upgraded = await transactions.get(order.id);
+  expect(upgraded?.recovery?.version).toBe(GUARDIAN_HISTORY_VERSION);
+  expect(upgraded?.extraInputs).toMatchObject({ expiresAt: 150, expiryTriggeredAt: 150, orderNoteSpentAt: 170 });
+});
+
+// The remainder a partial fill left is what the order's Cancel returns: losing it on an upgrade sent settlement back
+// to the spent order note (#1487).
+it("keeps a recovered swap row's recorded remainder when it derives the row again, so it still names its tip", async () => {
+  serveOrderHistory();
+  await run();
+  const order = (await transactions.toArray()).find(row => row.recovery?.nonce === 2);
+  if (!order?.recovery) throw new Error('Missing recovered order');
+  const recoveredTip = { noteId: 'remainder-1', depth: 1, remainingOffered: 24n };
+  const recoveredCheckpoint = { noteId: 'remainder-17', depth: 17 };
+  await transactions.put({
+    ...order,
+    extraInputs: { ...order.extraInputs, recoveredTip, recoveredCheckpoint },
+    recovery: { ...order.recovery, version: GUARDIAN_HISTORY_VERSION - 1 }
+  });
+  await clearGuardianHistoryCheckpoints();
+  serveOrderHistory();
+
+  await run();
+
+  const upgraded = await transactions.get(order.id);
+  expect(upgraded?.recovery?.version).toBe(GUARDIAN_HISTORY_VERSION);
+  expect(upgraded?.extraInputs?.recoveredTip).toEqual(recoveredTip);
+  expect(upgraded?.extraInputs?.recoveredCheckpoint).toEqual(recoveredCheckpoint);
+  expect(upgraded && recoveredSwapOrderRef(upgraded)).toEqual(
+    expect.objectContaining({ tipNoteId: 'remainder-1', tipDepth: 1, tipOfferedAmount: 24n })
+  );
 });
 
 it('stops recovery and retains the failure when fee metadata is unavailable', async () => {
@@ -2374,8 +2542,8 @@ it('does not visit a plain http operator on a remote host', async () => {
 
 it('reads a renamed built-in host once under the spelling the account saved', async () => {
   const oldHost = 'https://guardian.openzeppelin.com';
-  const builtIn = MIDEN_GUARDIAN_ENDPOINTS.get('testnet');
-  MIDEN_GUARDIAN_ENDPOINTS.set('testnet', ['https://guardian-testnet.openzeppelin.com']);
+  const builtIn = mockNetworkGuardianEndpoints.get('testnet');
+  mockNetworkGuardianEndpoints.set('testnet', ['https://guardian-testnet.openzeppelin.com']);
   jest.mocked(resolveGuardianEndpoint).mockReturnValue(oldHost);
   try {
     source(oldHost, [{ entries: [entry(1)] }]);
@@ -2383,7 +2551,7 @@ it('reads a renamed built-in host once under the spelling the account saved', as
     expect(createClient.mock.calls.map(call => call[1])).toEqual([oldHost]);
     expect(Object.values((await readGuardianHistoryState()).checkpoints)).toHaveLength(1);
   } finally {
-    MIDEN_GUARDIAN_ENDPOINTS.set('testnet', builtIn ?? []);
+    mockNetworkGuardianEndpoints.set('testnet', builtIn ?? []);
     jest.mocked(resolveGuardianEndpoint).mockReturnValue('https://one');
   }
 });
@@ -2391,8 +2559,8 @@ it('reads a renamed built-in host once under the spelling the account saved', as
 it('finds a checkpoint written under the old host name when the list spells the new one', async () => {
   const oldHost = 'https://guardian.openzeppelin.com';
   const newHost = 'https://guardian-testnet.openzeppelin.com';
-  const builtIn = MIDEN_GUARDIAN_ENDPOINTS.get('testnet');
-  MIDEN_GUARDIAN_ENDPOINTS.set('testnet', [newHost]);
+  const builtIn = mockNetworkGuardianEndpoints.get('testnet');
+  mockNetworkGuardianEndpoints.set('testnet', [newHost]);
   try {
     await saveCheckpoint('https://one', { completed: true });
     await saveCheckpoint(oldHost, { completed: true });
@@ -2401,23 +2569,23 @@ it('finds a checkpoint written under the old host name when the list spells the 
     expect((await run()).sourceFailures).toBe(0);
     expect(createClient).not.toHaveBeenCalled();
   } finally {
-    MIDEN_GUARDIAN_ENDPOINTS.set('testnet', builtIn ?? []);
+    mockNetworkGuardianEndpoints.set('testnet', builtIn ?? []);
   }
 });
 
 describe('own operator across a renamed host', () => {
   const oldHost = 'https://guardian.openzeppelin.com';
   const newHost = 'https://guardian-testnet.openzeppelin.com';
-  const builtIn = MIDEN_GUARDIAN_ENDPOINTS.get('testnet');
+  const builtIn = mockNetworkGuardianEndpoints.get('testnet');
   const hostCheckpoint = async () => operatorCheckpoint(newHost);
 
   // The list keeps the built-in new spelling while the wallet's own switch row recorded the old one.
   beforeEach(async () => {
-    MIDEN_GUARDIAN_ENDPOINTS.set('testnet', [newHost]);
+    mockNetworkGuardianEndpoints.set('testnet', [newHost]);
     await switchRow(ITransactionStatus.Completed, oldHost, 'https://one');
   });
   afterEach(() => {
-    MIDEN_GUARDIAN_ENDPOINTS.set('testnet', builtIn ?? []);
+    mockNetworkGuardianEndpoints.set('testnet', builtIn ?? []);
   });
 
   it('counts an unsupported answer as an own failure and leaves its checkpoint open', async () => {

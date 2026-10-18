@@ -29,7 +29,7 @@ function isShown(item: PendingActivityItem, hiddenIds: ReadonlySet<string>): boo
  */
 export function useActivityClaimList(search: string, filter: ActivityFilter) {
   const { t } = useTranslation();
-  const { items, accept, acceptMany, retryHeld, account, isLoadingNotes } = useActivityClaims();
+  const { items, accept, acceptMany, retryHeld, cannotPayFee, account, isLoadingNotes } = useActivityClaims();
   const hidden = useActivityHiddenNotes(account.publicKey);
   const confirm = useConfirm();
   const bridgeConfig = useBridgeConfigSnapshot({ load: false });
@@ -108,6 +108,7 @@ export function useActivityClaimList(search: string, filter: ActivityFilter) {
     listItems,
     renderPendingItem,
     acceptMany,
+    cannotPayFee,
     account,
     isLoadingNotes,
     hidden,

@@ -1,6 +1,6 @@
 {
   "name": "miden-wallet",
-  "version": "1.17.3",
+  "version": "1.17.4",
   "private": true,
   "engines": {
     "node": ">=22.0.0"
@@ -12,7 +12,7 @@
     "rev": "0ae55272ffe67e9240285b1e820029f3da6ec51a"
   },
   "scripts": {
-    "postinstall": "rimraf node_modules/@miden-sdk/react/node_modules node_modules/@openzeppelin/miden-multisig-client/node_modules/@miden-sdk && patch-package && yarn build:hd-key",
+    "postinstall": "rimraf node_modules/@openzeppelin/miden-multisig-client/node_modules/@miden-sdk && patch-package && yarn build:hd-key",
     "build:hd-key": "tsc --project packages/hd-key/tsconfig.json",
     "start": "yarn watch:src",
     "dev": "rimraf ./dist && cross-env TARGET_BROWSER=chrome MODE_ENV=development NODE_ENV=development yarn build:bg && cross-env TARGET_BROWSER=chrome MODE_ENV=development NODE_ENV=development yarn build:cs && concurrently -n bg,ext -c blue,green \"cross-env TARGET_BROWSER=chrome MODE_ENV=development NODE_ENV=development vite build --config vite.background.config.ts --watch\" \"cross-env TARGET_BROWSER=chrome MANIFEST_VERSION=3 MODE_ENV=development NODE_ENV=development vite build --config vite.extension.config.ts --watch\"",
@@ -82,7 +82,7 @@
     "test:e2e": "playwright test",
     "build:chrome:telemetry": "cross-env MIDEN_USE_MOCK_CLIENT=true APTABASE_APP_KEY=A-SH-0000000000 APTABASE_HOST=http://127.0.0.1:57399 SENTRY_DSN= yarn build:chrome",
     "test:e2e:telemetry": "playwright test --config playwright.telemetry.config.ts",
-    "test:e2e:blockchain:build": "rimraf dist/chrome_unpacked && cross-env MIDEN_USE_MOCK_CLIENT=false MIDEN_E2E_TEST=true MIDEN_E2E_DISABLE_SIDEPANEL=true MIDEN_WRITE_DEADLINE_MS=${MIDEN_WRITE_DEADLINE_MS:-240000} MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES=true MIDEN_NETWORK=${E2E_NETWORK:-testnet} TARGET_BROWSER=chrome yarn build:bg && cross-env MIDEN_USE_MOCK_CLIENT=false MIDEN_E2E_TEST=true MIDEN_E2E_DISABLE_SIDEPANEL=true MIDEN_WRITE_DEADLINE_MS=${MIDEN_WRITE_DEADLINE_MS:-240000} MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES=true MIDEN_NETWORK=${E2E_NETWORK:-testnet} TARGET_BROWSER=chrome yarn build:cs && cross-env MIDEN_USE_MOCK_CLIENT=false MIDEN_E2E_TEST=true MIDEN_E2E_DISABLE_SIDEPANEL=true MIDEN_WRITE_DEADLINE_MS=${MIDEN_WRITE_DEADLINE_MS:-240000} MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES=true MIDEN_NETWORK=${E2E_NETWORK:-testnet} TARGET_BROWSER=chrome MANIFEST_VERSION=3 yarn build:ext",
+    "test:e2e:blockchain:build": "rimraf dist/chrome_unpacked && cross-env MIDEN_USE_MOCK_CLIENT=false MIDEN_E2E_TEST=true MIDEN_E2E_DISABLE_SIDEPANEL=true MIDEN_WRITE_DEADLINE_MS=${MIDEN_WRITE_DEADLINE_MS:-240000} MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES=${MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES:-true} MIDEN_NETWORK=${E2E_NETWORK:-testnet} TARGET_BROWSER=chrome yarn build:bg && cross-env MIDEN_USE_MOCK_CLIENT=false MIDEN_E2E_TEST=true MIDEN_E2E_DISABLE_SIDEPANEL=true MIDEN_WRITE_DEADLINE_MS=${MIDEN_WRITE_DEADLINE_MS:-240000} MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES=${MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES:-true} MIDEN_NETWORK=${E2E_NETWORK:-testnet} TARGET_BROWSER=chrome yarn build:cs && cross-env MIDEN_USE_MOCK_CLIENT=false MIDEN_E2E_TEST=true MIDEN_E2E_DISABLE_SIDEPANEL=true MIDEN_WRITE_DEADLINE_MS=${MIDEN_WRITE_DEADLINE_MS:-240000} MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES=${MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES:-true} MIDEN_NETWORK=${E2E_NETWORK:-testnet} TARGET_BROWSER=chrome MANIFEST_VERSION=3 yarn build:ext",
     "test:e2e:blockchain": "yarn test:e2e:blockchain:build && playwright test --config playwright.e2e.config.ts",
     "test:e2e:blockchain:run": "playwright test --config playwright.e2e.config.ts",
     "test:e2e:guardian:run": "playwright test --config playwright.guardian.config.ts",
@@ -90,6 +90,9 @@
     "test:e2e:blockchain:devnet": "cross-env E2E_NETWORK=devnet yarn test:e2e:blockchain",
     "test:e2e:blockchain:localhost": "cross-env E2E_NETWORK=localhost yarn test:e2e:blockchain",
     "test:e2e:blockchain:agentic": "cross-env E2E_AGENTIC=true yarn test:e2e:blockchain",
+    "test:e2e:stored-override:build": "cross-env E2E_NETWORK=localhost MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES=false yarn test:e2e:blockchain:build",
+    "test:e2e:stored-override:run": "cross-env E2E_NETWORK=localhost playwright test --config playwright.stored-override.config.ts",
+    "test:e2e:stored-override": "yarn test:e2e:stored-override:build && yarn test:e2e:stored-override:run",
     "test:e2e:bridge:run": "playwright test --config playwright.bridge.config.ts",
     "test:e2e:bridge": "yarn test:e2e:blockchain:build && playwright test --config playwright.bridge.config.ts",
     "test:e2e:bridge:testnet": "cross-env E2E_NETWORK=testnet yarn test:e2e:bridge",
@@ -162,7 +165,6 @@
     "@miden-sdk/miden-sdk": "0.17.3",
     "@miden-sdk/miden-wallet-adapter-base": "0.17.0",
     "@miden-sdk/miden-wallet-adapter-miden": "0.17.0",
-    "@miden-sdk/react": "0.17.3",
     "@miden/dapp-browser": "link:./packages/dapp-browser",
     "@miden/hd-key": "link:./packages/hd-key",
     "@miden/native-prover": "link:./packages/native-prover",
@@ -258,6 +260,8 @@
   "devDependencies": {
     "@capacitor/cli": "^8.0.1",
     "@chromatic-com/storybook": "^1.5.0",
+    "@miden-sdk/miden-wallet-adapter-react": "0.17.0",
+    "@miden-sdk/react": "0.17.3",
     "@miden-sdk/vite-plugin": "0.17.0",
     "@noble/curves": "^1.9.7",
     "@playwright/test": "^1.48.2",
@@ -363,7 +367,6 @@
   },
   "resolutions": {
     "@miden-sdk/miden-sdk": "0.17.3",
-    "@miden-sdk/react": "0.17.3",
     "strip-ansi": "6.0.1",
     "webpack": "^5",
     "**/@types/react": "18.2.76",

@@ -1,7 +1,7 @@
 import { serializeEvent, WIRE_KEYS } from './serialize';
 import { TelemetryContext, TelemetryEvent } from './types';
 
-const context: TelemetryContext = { appVersion: '1.15.21', platform: 'extension' };
+const context: TelemetryContext = { appVersion: '1.15.21', platform: 'extension', network: 'mainnet' };
 
 describe('serializeEvent', () => {
   it('serializes a started event with no result or duration', () => {
@@ -12,7 +12,8 @@ describe('serializeEvent', () => {
       flowId: 'f1',
       runId: 'r1',
       appVersion: '1.15.21',
-      platform: 'extension'
+      platform: 'extension',
+      network: 'mainnet'
     });
   });
 
@@ -33,7 +34,8 @@ describe('serializeEvent', () => {
       result: 'completed',
       durationMs: 1235,
       appVersion: '1.15.21',
-      platform: 'extension'
+      platform: 'extension',
+      network: 'mainnet'
     });
   });
 
@@ -106,10 +108,22 @@ describe('serializeEvent', () => {
     expect(start.runId).not.toBe(start.flowId);
   });
 
-  it('derives appVersion and platform from context, ignoring any caller-supplied value', () => {
+  it('derives appVersion, platform and network from context, ignoring any caller-supplied value', () => {
     const payload = serializeEvent({ phase: 'started', flow: 'open', flowId: 'a', runId: 'r1' }, context);
     expect(payload.appVersion).toBe('1.15.21');
     expect(payload.platform).toBe('extension');
+    expect(payload.network).toBe('mainnet');
+  });
+
+  it('carries the network on a settled operation too', () => {
+    const payload = serializeEvent(
+      { phase: 'settled', operation: 'tx_send', runId: 'r1', result: 'completed' },
+      {
+        ...context,
+        network: 'devnet'
+      }
+    );
+    expect(payload.network).toBe('devnet');
   });
 
   it('never produces a nested object or array', () => {
@@ -157,7 +171,8 @@ describe('serializeEvent', () => {
         errorKind: 'proving',
         step: 'sending',
         appVersion: '1.15.21',
-        platform: 'extension'
+        platform: 'extension',
+        network: 'mainnet'
       });
     });
 
@@ -178,7 +193,8 @@ describe('serializeEvent', () => {
         runId: 'r1',
         result: 'completed',
         appVersion: '1.15.21',
-        platform: 'extension'
+        platform: 'extension',
+        network: 'mainnet'
       });
     });
 

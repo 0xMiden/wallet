@@ -2,9 +2,10 @@ import { GuardianHttpClient, GuardianHttpError, type HistoryPage } from '@openze
 import Dexie from 'dexie';
 
 import { reportGuardianNoteRecoveryProgress } from 'lib/guardian-note-recovery-progress';
-import { MIDEN_GUARDIAN_ENDPOINTS } from 'lib/miden-chain/constants';
+import { getGuardianEndpointsForNetwork } from 'lib/miden-chain/constants';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { cacheScope } from 'lib/miden-chain/native-asset';
+import { initBridgeConfig } from 'lib/remote-config/runtime';
 import { sameGuardianEndpoint } from 'lib/settings/helpers';
 import type { WalletAccount } from 'lib/shared/types';
 
@@ -38,6 +39,37 @@ class HistoryInterrupted extends Error {}
 
 const isOwnOperator = (ownOperators: string[], operator: string) =>
   ownOperators.some(own => sameGuardianEndpoint(own, operator));
+
+// An upgrade replaces the stored row with what recovery derives, and recovery derives no settlement stamp, so a
+// recovered swap row keeps its stamps, Cancel expiry, spent-note stamp, remainder, checkpoint and lineage-close
+// record (#1487). A stamp without that record stays provisional.
+function withStoredSettlementStamps(record: ITransaction, stored: ITransaction): ITransaction {
+  if (record.type !== 'swap' || stored.type !== 'swap') return record;
+  const {
+    settledAt,
+    reclaimedAt,
+    expiryTriggeredAt,
+    expiresAt,
+    orderNoteSpentAt,
+    recoveredTip,
+    recoveredCheckpoint,
+    lineageClosedAt
+  } = stored.extraInputs ?? {};
+  return {
+    ...record,
+    extraInputs: {
+      ...record.extraInputs,
+      ...(settledAt != null ? { settledAt } : {}),
+      ...(reclaimedAt != null ? { reclaimedAt } : {}),
+      ...(expiryTriggeredAt != null ? { expiryTriggeredAt } : {}),
+      ...(expiresAt != null ? { expiresAt } : {}),
+      ...(orderNoteSpentAt != null ? { orderNoteSpentAt } : {}),
+      ...(recoveredTip != null ? { recoveredTip } : {}),
+      ...(recoveredCheckpoint != null ? { recoveredCheckpoint } : {}),
+      ...(lineageClosedAt != null ? { lineageClosedAt } : {})
+    }
+  };
+}
 
 // An eviction, an offscreen abort or a terminated client of a summary or local result-commitment decode the pass was
 // not interrupted for. It says the decode did not finish, not that the bytes failed a check, so the source is filed
@@ -226,7 +258,10 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
       if (typeof value === 'string') previous.push(value);
     }
   }
-  const operators = normalizeHistoryOperators([current, ...(MIDEN_GUARDIAN_ENDPOINTS.get(network) ?? []), ...previous]);
+  // The network's operators are the config document's list, so the stored document is in memory before the read: a
+  // pass that ran first would ask the bundled list, and an operator the document removed with it.
+  await initBridgeConfig();
+  const operators = normalizeHistoryOperators([current, ...getGuardianEndpointsForNetwork(network), ...previous]);
   const ownOperators = normalizeHistoryOperators([current, ...previous]);
   // Every write of this pass relies on this: reportHistory carries no guard of its own.
   const interrupted = async () => {
@@ -474,7 +509,11 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
                       record.recovery?.completeness === 'decoded' &&
                       (match.recovery.completeness === 'partial' || match.recovery.version < GUARDIAN_HISTORY_VERSION)
                     ) {
-                      const upgraded = { ...record, id: match.id, recovery: { ...record.recovery, operators } };
+                      const upgraded = {
+                        ...withStoredSettlementStamps(record, match),
+                        id: match.id,
+                        recovery: { ...record.recovery, operators }
+                      };
                       await transactions.put(upgraded);
                       Object.assign(match, upgraded);
                     } else {

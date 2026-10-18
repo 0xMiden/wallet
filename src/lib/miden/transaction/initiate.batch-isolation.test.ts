@@ -33,12 +33,25 @@ jest.mock('lib/miden/front/guardian-manager', () => ({
 }));
 
 jest.mock('lib/miden/guardian/account', () => ({ resolveGuardianEndpoint: jest.fn() }));
-jest.mock('lib/miden-chain/effective-endpoints', () => ({ isNoteTransportConfigured: () => false }));
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  getActiveOverride: () => null,
+  isNoteTransportConfigured: () => false,
+  getEffectiveNetworkName: () => 'testnet'
+}));
 jest.mock('../back/miden-client-proxy', () => ({ midenClientProxy: {} }));
 jest.mock('../activity/notes', () => ({ queueNoteImport: jest.fn() }));
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const { initiateConsumeNotesTransaction, queueConsumeNotes } = require('./initiate');
+const {
+  ClaimInsertRefusedError,
+  initiateConsumeNotesTransaction,
+  initiateConsumeTransaction,
+  initiatePswapReclaimTransaction,
+  MAX_RETRY_BACKOFF_SEC,
+  noteClaimCoverage,
+  queueConsumeNotes,
+  RETRY_COOLDOWN_SEC
+} = require('./initiate');
 
 const ACCOUNT = 'mtst1account';
 
@@ -66,6 +79,79 @@ describe('initiateConsumeNotesTransaction — batching', () => {
     const rows = await consumeRows();
     expect(rows).toHaveLength(1);
     expect(rows[0]!.noteIds).toEqual(['a', 'b', 'c']);
+  });
+});
+
+describe('initiatePswapReclaimTransaction', () => {
+  it('inserts the prepared request and settlement link atomically on the consume row', async () => {
+    const requestBytes = new Uint8Array([7, 4, 7, 6]);
+
+    const id = await initiatePswapReclaimTransaction(
+      ACCOUNT,
+      note('zero-fill-tip'),
+      requestBytes,
+      'swap-order-row',
+      true
+    );
+
+    const row = await Repo.transactions.get(id);
+    expect(row).toMatchObject({
+      id,
+      type: 'consume',
+      noteId: 'zero-fill-tip',
+      delegateTransaction: true,
+      requestBytes,
+      extraInputs: { swapOrderTxId: 'swap-order-row', swapSettleKind: 'reclaim' }
+    });
+  });
+});
+
+describe('noteClaimCoverage', () => {
+  const NOW = 10_000_000;
+  const claimRow = async (status: ITransactionStatus, completedAt?: number, accountId = ACCOUNT) => {
+    const row = new ConsumeTransaction(accountId, [note('tip')], false);
+    row.status = status;
+    row.initiatedAt = (completedAt ?? NOW) - 1;
+    row.completedAt = completedAt;
+    await Repo.transactions.add(row);
+    return row;
+  };
+
+  it.each([
+    ['queued', ITransactionStatus.Queued, undefined],
+    ['in flight', ITransactionStatus.GeneratingTransaction, undefined],
+    ['completed', ITransactionStatus.Completed, NOW - MAX_RETRY_BACKOFF_SEC]
+  ])('names a %s claim as the one that keeps a new claim out', async (_label, status, completedAt) => {
+    const row = await claimRow(status, completedAt);
+
+    await expect(noteClaimCoverage(ACCOUNT, 'tip', NOW)).resolves.toMatchObject({
+      liveOrCompleted: { id: row.id },
+      backingOff: undefined
+    });
+  });
+
+  it('names a failed claim only while its backoff runs', async () => {
+    const failed = await claimRow(ITransactionStatus.Failed, NOW - 1);
+
+    await expect(noteClaimCoverage(ACCOUNT, 'tip', NOW)).resolves.toMatchObject({
+      liveOrCompleted: undefined,
+      backingOff: { id: failed.id }
+    });
+    await expect(noteClaimCoverage(ACCOUNT, 'tip', NOW - 1 + RETRY_COOLDOWN_SEC)).resolves.toMatchObject({
+      backingOff: undefined
+    });
+  });
+
+  it("ignores another account's claims and rows restored from a backup", async () => {
+    await claimRow(ITransactionStatus.Queued, undefined, 'mtst1other');
+    const restored = new ConsumeTransaction(ACCOUNT, [note('tip')], false);
+    await Repo.transactions.add({ ...restored, restoredFromBackup: true });
+
+    await expect(noteClaimCoverage(ACCOUNT, 'tip', NOW)).resolves.toEqual({
+      rows: [],
+      liveOrCompleted: undefined,
+      backingOff: undefined
+    });
   });
 });
 
@@ -277,4 +363,74 @@ describe('queueConsumeNotes - the row covering each note', () => {
     expect(coveringTxIdByNoteId.get('a')).toBe(failed.id);
     expect(committedId).toBe(failed.id);
   });
+});
+
+describe('a worker claim its caller can no longer sign', () => {
+  type CanSign = () => boolean;
+
+  it.each([
+    [
+      'initiateConsumeNotesTransaction',
+      (canSign: CanSign) =>
+        initiateConsumeNotesTransaction(ACCOUNT, [note('a'), note('b')], false, false, true, null, undefined, canSign)
+    ],
+    [
+      'initiateConsumeTransaction',
+      (canSign: CanSign) => initiateConsumeTransaction(ACCOUNT, note('a'), false, undefined, undefined, canSign)
+    ],
+    [
+      'initiatePswapReclaimTransaction',
+      (canSign: CanSign) =>
+        initiatePswapReclaimTransaction(ACCOUNT, note('a'), new Uint8Array([7]), 'swap-order-row', false, canSign)
+    ]
+  ])('%s writes no row when the lock lands during its reads, and writes it once unlocked', async (_name, enqueue) => {
+    let unlocked = true;
+    const pending = enqueue(() => unlocked);
+    // The call is now awaiting its dedup and backoff reads, ahead of any row it writes.
+    unlocked = false;
+
+    await expect(pending).rejects.toBeInstanceOf(ClaimInsertRefusedError);
+    expect(await consumeRows()).toEqual([]);
+
+    unlocked = true;
+    await enqueue(() => unlocked);
+    expect(await consumeRows()).toHaveLength(1);
+  });
+
+  it.each([
+    ['between two isolated rows', ['a', 'b', 'c'], ['a', 'b', 'c'], 1, 3],
+    ["after the isolated rows, before the remainder's batch row", ['a', 'b'], ['a', 'b', 'c', 'd'], 2, 3]
+  ])(
+    'rolls back the rows it wrote when the lock lands %s',
+    async (_when, failedTogether, claimed, rowsBeforeLock, rowsUnlocked) => {
+      const failed = new ConsumeTransaction(
+        ACCOUNT,
+        failedTogether.map(id => note(id)),
+        false
+      );
+      failed.status = ITransactionStatus.Failed;
+      failed.initiatedAt = 0;
+      failed.completedAt = 0;
+      await Repo.transactions.add(failed);
+      let checks = 0;
+      const lockAfterRows: CanSign = () => checks++ < rowsBeforeLock;
+      const enqueue = (canSign: CanSign) =>
+        initiateConsumeNotesTransaction(
+          ACCOUNT,
+          claimed.map(id => note(id)),
+          false,
+          false,
+          true,
+          null,
+          undefined,
+          canSign
+        );
+
+      await expect(enqueue(lockAfterRows)).rejects.toBeInstanceOf(ClaimInsertRefusedError);
+      expect((await consumeRows()).map(row => row.id)).toEqual([failed.id]);
+
+      await enqueue(() => true);
+      expect((await consumeRows()).filter(row => row.status === ITransactionStatus.Queued)).toHaveLength(rowsUnlocked);
+    }
+  );
 });

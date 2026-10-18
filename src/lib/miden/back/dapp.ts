@@ -19,7 +19,7 @@ import {
   SendTransaction
 } from '@miden-sdk/miden-wallet-adapter-base';
 import { nanoid } from 'nanoid';
-import type { Runtime } from 'webextension-polyfill';
+import type { Runtime, Windows } from 'webextension-polyfill';
 
 import {
   declaredTransactionRequestToView,
@@ -73,7 +73,8 @@ import { MIDEN_METADATA } from 'lib/miden/metadata';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { getAssetSymbol, getTokenMetadata } from 'lib/miden/metadata/utils';
 import { NETWORKS } from 'lib/miden/networks';
-import { importedNoteIds, releaseNoteIds } from 'lib/miden/note-quarantine';
+import { importedNoteIds, noteIdFromBytes, releaseNoteIds } from 'lib/miden/note-quarantine';
+import * as Repo from 'lib/miden/repo';
 import { createSpendingLimitAuthorization } from 'lib/miden/spending-limits/authorization';
 import {
   assessOutgoingSpendingLimitDetails,
@@ -88,33 +89,58 @@ import {
 } from 'lib/miden/spending-limits/types';
 import {
   DappMetadata,
+  MidenDAppAssetsConfirmationRequest,
+  MidenDAppConsumableNotesConfirmationRequest,
   MidenDAppPayload,
+  MidenDAppPrivateNotesConfirmationRequest,
   MidenDAppSession,
   MidenDAppSessions,
   MidenDAppTransactionPayload,
   MidenMessageType,
   MidenRequest
 } from 'lib/miden/types';
+import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { getNativeAssetId, getVerificationBaseFee } from 'lib/miden-chain/native-asset';
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { isDesktop, isExtension } from 'lib/platform';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
+import { commitmentToHex } from 'lib/secure-hot-key/commitment';
 import { DEFAULT_DELEGATE_PROOF } from 'lib/settings/constants';
 import { b64ToU8, bytesToHex, u8ToB64 } from 'lib/shared/helpers';
 import { GuardianInfo, WalletStatus } from 'lib/shared/types';
+import type { ConfirmationHandlerState } from 'lib/telemetry/crash-diagnostics';
 import { WalletType } from 'screens/onboarding/types';
 import { capitalizeFirstLetter, truncateAddress } from 'utils/string';
 
 import { queueNoteImport } from '../activity';
 import { isLikelyNetworkError } from '../activity/connectivity-classify';
-import { assertValidRecallBlocks, toNoteTypeString, toPersistedNoteType } from '../helpers';
+import {
+  assertValidRecallBlocks,
+  type ConsumeRestriction,
+  mayConsume,
+  noteConsumeRestriction,
+  toNoteTypeString,
+  toPersistedNoteType
+} from '../helpers';
+import {
+  isStoreLocked,
+  isWalletLockedError,
+  lockedRefusal,
+  mayPromptToUnlock,
+  noteLockedPromptEnded,
+  onceAfterUnlock,
+  waitForUnlock
+} from './dapp-locked';
 import { midenClientProxy } from './miden-client-proxy';
 import { getCurrentMidenNetwork } from './safe-network';
 import { simulateCustomTransaction, type SimulateCustomTxResult } from './simulate-custom-tx';
 import { store, withUnlocked } from './store';
 import { startTransactionProcessing } from './transaction-processor';
-import { IConsumedAssetTotal } from '../db/types';
-import { getBech32AddressFromAccountId, sameWalletAccountId } from '../sdk/helpers';
+import { IConsumedAssetTotal, type ITransaction } from '../db/types';
+import { accountRefToSdk, getBech32AddressFromAccountId, sameWalletAccountId } from '../sdk/helpers';
 import { assertWasmHoldCurrent, withWasmClientLock, type WasmLockHold } from '../sdk/miden-client';
+import type { DetailsCommitmentMatches } from '../sdk/miden-client-interface';
+import { normalizedCommitment, noteDetailsCommitment, type NoteDetailsParts } from '../sdk/note-details-commitment';
 import { resolvePublicKeyCommitments } from '../sdk/resolve-public-key-commitments';
 import { isPipelineKillLink } from '../sdk/sdk-error-code';
 import {
@@ -123,6 +149,7 @@ import {
   initiateConsumeTransactionFromId,
   waitForTransactionCompletion
 } from '../transaction';
+import { deterministicKernelFailureCopy } from '../transaction/constants';
 
 /**
  * Starts background transaction processing using the unified SW
@@ -196,33 +223,6 @@ async function getAccountPublicKeyB64(accountId: string, hold: WasmLockHold): Pr
 }
 
 /**
- * The 32 bytes a signer-commitment string denotes, whatever form it arrived in,
- * as lowercase hex — or undefined if it denotes none.
- *
- * Both forms are in circulation for the same commitment, and a comparison that
- * knew only one would be worse than none: it would refuse legitimate signing
- * while looking like a working check. `connect` hands the page b64 of
- * `Word.serialize()`; the vault stores its key blobs under `Word.toHex()` with
- * the `0x` dropped, which is the form `signData` looks up by. Those two encode
- * the identical 32 bytes (verified against @miden-sdk/miden-sdk: `toHex()` sans
- * prefix is byte-for-byte `serialize()`), so normalizing to bytes is what makes
- * them comparable rather than merely similar.
- */
-function commitmentToHex(value: string): string | undefined {
-  const unprefixed = value.startsWith('0x') || value.startsWith('0X') ? value.slice(2) : value;
-  if (/^[0-9a-fA-F]{64}$/.test(unprefixed)) {
-    return unprefixed.toLowerCase();
-  }
-  try {
-    const bytes = b64ToU8(value);
-    if (bytes.length !== 32) return undefined;
-    return Buffer.from(bytes).toString('hex');
-  } catch {
-    return undefined;
-  }
-}
-
-/**
  * True when `suppliedPublicKey` names a signing key that `accountId` actually
  * authenticates with.
  *
@@ -275,6 +275,8 @@ const CONFIRM_WINDOW_WIDTH = 380;
 // 632 plus the 44px network banner (#875) that tops the confirm window.
 const CONFIRM_WINDOW_HEIGHT = 676;
 const AUTODECLINE_AFTER = 120_000;
+// How long a confirm popup may hold the dApp queue through an unlock, its build and a full review.
+const LOCKED_PROMPT_CAP_MS = 2 * AUTODECLINE_AFTER;
 const STORAGE_KEY = 'dapp_sessions';
 
 export async function getCurrentPermission(origin: string): Promise<MidenDAppGetCurrentPermissionResponse> {
@@ -319,7 +321,9 @@ export async function requestPermission(
   // PR-4 chunk 8: optional multi-instance session id, threaded into the
   // confirmation store so the React modal can route the prompt to the
   // matching foreground session.
-  sessionId?: string
+  sessionId?: string,
+  // Internal, never from the dApp: the re-entry after an unlock keeps the request's one deadline.
+  waits: UnlockWaits = {}
 ): Promise<MidenDAppPermissionResponse> {
   dappDebug('[requestPermission] Called with origin:', origin);
   dappDebug('[requestPermission] Request:', JSON.stringify(req));
@@ -344,6 +348,11 @@ export async function requestPermission(
 
   if (!req.force && dApp && req.appMeta.name === dApp.appMeta.name) {
     if (store.getState().status === WalletStatus.Locked) {
+      if (!isExtension()) {
+        // The app's own lock screen is the Unlock step here; once unlocked, the request runs as it would have.
+        if (!(await waitForUnlockOnNonExtension(origin, waits))) throw lockedRefusal();
+        return requestPermission(origin, req, sessionId, waits);
+      }
       dappLog('[requestPermission] PATH: existing permission but wallet LOCKED, going through confirmation');
       return generatePromisifyRequestPermission(
         origin,
@@ -374,10 +383,13 @@ export async function requestPermission(
     reqChainId,
     networkRpc,
     req.appMeta,
-    !!dApp,
+    // Not `!!dApp`: a forced or renamed connect asks a scope the saved session's consent never covered, so it is a new
+    // permission, prompted with its consent box and saved on approval, never answered on its own.
+    false,
     req.privateDataPermission,
     req.allowedPrivateData,
-    sessionId
+    sessionId,
+    waits
   );
 }
 
@@ -390,83 +402,95 @@ export async function generatePromisifyRequestPermission(
   privateDataPermission?: PrivateDataPermission,
   allowedPrivateData?: AllowedPrivateData,
   // PR-4 chunk 8: optional multi-instance session id.
-  sessionId?: string
+  sessionId?: string,
+  waits: UnlockWaits = {}
 ): Promise<MidenDAppPermissionResponse> {
   dappDebug('[generatePromisifyRequestPermission] Called, isExtension:', isExtension());
   // On mobile/desktop, use confirmation store to request user approval
   if (!isExtension()) {
-    const id = nanoid();
-    dappLog(`[DApp] Non-extension requesting confirmation for: ${origin} id: ${id} sessionId: ${sessionId}`);
-    dappLog(`[DApp] Calling dappConfirmationStore.requestConfirmation...`);
-
-    // Request confirmation from the user via the confirmation store
-    dappLog(`[DApp] About to call requestConfirmation, store instance: ${dappConfirmationStore.getInstanceId()}`);
-    const result = await dappConfirmationStore.requestConfirmation({
-      id,
-      sessionId,
-      type: 'connect',
-      origin,
-      appMeta,
-      network,
-      networkRpc,
-      privateDataPermission: privateDataPermission || PrivateDataPermission.UponRequest,
-      allowedPrivateData: allowedPrivateData || AllowedPrivateData.None,
-      existingPermission
-    });
-    dappLog(`[DApp] requestConfirmation returned! confirmed: ${result.confirmed}`);
-
-    if (!result.confirmed || !result.accountPublicKey) {
-      throw new Error(MidenDAppErrorType.NotGranted);
+    if (isStoreLocked() && !(await waitForUnlockOnNonExtension(origin, waits))) {
+      throw lockedRefusal();
     }
+    // One deadline bounds every sheet and key read of this connect, so a failed read never buys a fresh window.
+    const deadline = waits.deadline ?? Date.now() + AUTODECLINE_AFTER;
+    let previousAttemptError: string | undefined;
+    for (;;) {
+      const id = nanoid();
+      dappLog(`[DApp] Non-extension requesting confirmation for: ${origin} id: ${id} sessionId: ${sessionId}`);
+      dappLog(`[DApp] Calling dappConfirmationStore.requestConfirmation...`);
 
-    const accountPublicKey = result.accountPublicKey;
-    let publicKey: string | null = null;
-
-    try {
-      publicKey = await withUnlocked(async () => {
-        return await withWasmClientLock(async hold => {
-          return await getAccountPublicKeyB64(accountPublicKey, hold);
-        });
-      });
-    } catch (e) {
-      console.error('[DApp] Error fetching account public key:', e);
-      // A kill (a lock-recovery eviction, an offscreen abort or a terminated
-      // client) is a retryable internal failure, not a permissions verdict
-      // (issue #775).
-      if (isPipelineKillLink(e)) throw e;
-      throw new Error(MidenDAppErrorType.NotGranted);
-    }
-
-    if (!existingPermission) {
-      await setDApp(origin, {
-        network,
+      // Request confirmation from the user via the confirmation store
+      dappLog(`[DApp] About to call requestConfirmation, store instance: ${dappConfirmationStore.getInstanceId()}`);
+      const result = await requestConfirmationWithWatchdog(deadline, {
+        id,
+        sessionId,
+        type: 'connect',
+        origin,
         appMeta,
+        network,
+        networkRpc,
+        privateDataPermission: privateDataPermission || PrivateDataPermission.UponRequest,
+        allowedPrivateData: allowedPrivateData || AllowedPrivateData.None,
+        existingPermission,
+        ...(previousAttemptError !== undefined && { previousAttemptError })
+      });
+      dappLog(`[DApp] requestConfirmation returned! confirmed: ${result.confirmed}`);
+
+      if (!result.confirmed || !result.accountPublicKey) {
+        throw new Error(MidenDAppErrorType.NotGranted);
+      }
+
+      const accountPublicKey = result.accountPublicKey;
+      let publicKey: string | typeof KEY_READ_PAST_DEADLINE;
+      try {
+        publicKey = await readApprovedKeyBefore(deadline, accountPublicKey);
+      } catch (e) {
+        console.error('[DApp] Error fetching account public key:', e);
+        // The user approved, so a failed read, a kill included (#775), is no answer to the dApp (#1471): the sheet is
+        // asked again with its error, until a read succeeds, the user denies or the deadline passes.
+        if (Date.now() >= deadline) throw new Error(MidenDAppErrorType.NotGranted);
+        previousAttemptError = e instanceof Error ? e.message : '';
+        continue;
+      }
+      if (publicKey === KEY_READ_PAST_DEADLINE) throw new Error(MidenDAppErrorType.NotGranted);
+
+      if (!existingPermission) {
+        await setDApp(origin, {
+          network,
+          appMeta,
+          accountId: accountPublicKey,
+          privateDataPermission: result.privateDataPermission || PrivateDataPermission.UponRequest,
+          allowedPrivateData: allowedPrivateData || AllowedPrivateData.None,
+          publicKey
+        });
+      }
+
+      dappDebug('[DApp] Non-extension approved connection for:', origin);
+      return {
+        type: MidenDAppMessageType.PermissionResponse,
         accountId: accountPublicKey,
+        network,
         privateDataPermission: result.privateDataPermission || PrivateDataPermission.UponRequest,
         allowedPrivateData: allowedPrivateData || AllowedPrivateData.None,
-        publicKey: publicKey!
-      });
+        publicKey
+      };
     }
-
-    dappDebug('[DApp] Non-extension approved connection for:', origin);
-    return {
-      type: MidenDAppMessageType.PermissionResponse,
-      accountId: accountPublicKey,
-      network,
-      privateDataPermission: result.privateDataPermission || PrivateDataPermission.UponRequest,
-      allowedPrivateData: allowedPrivateData || AllowedPrivateData.None,
-      publicKey: publicKey!
-    };
   }
 
-  return new Promise(async (resolve, reject) => {
+  // `.catch(reject)`, as in every other handler: a popup that cannot be opened answers the dApp instead of becoming an
+  // unhandled rejection in the worker.
+  return new Promise((resolve, reject) => {
     const id = nanoid();
+    // Set once requestConfirm answers the dApp (auto-decline, window close, Cancel): a key read still running then
+    // saves no session and sends nothing (#1471).
+    let refused = false;
 
-    await requestConfirm({
+    requestConfirm({
       id,
       payload: {
         type: 'connect',
         origin,
+        network,
         networkRpc,
         appMeta,
         privateDataPermission: privateDataPermission || PrivateDataPermission.UponRequest,
@@ -474,14 +498,14 @@ export async function generatePromisifyRequestPermission(
         existingPermission
       },
       onDecline: () => {
+        refused = true;
         reject(new Error(MidenDAppErrorType.NotGranted));
       },
       handleIntercomRequest: async (confirmReq, decline) => {
         if (confirmReq?.type === MidenMessageType.DAppPermConfirmationRequest && confirmReq?.id === id) {
           const { confirmed, accountPublicKey, privateDataPermission } = confirmReq;
           if (confirmed && accountPublicKey) {
-            let publicKey: string | null = null;
-            let publicKeyError: unknown;
+            let publicKey: string;
             try {
               publicKey = await withUnlocked(async () => {
                 // Wrap WASM client operations in a lock to prevent concurrent access
@@ -491,43 +515,29 @@ export async function generatePromisifyRequestPermission(
               });
             } catch (e) {
               console.error('Error fetching account public key:', e);
-              publicKeyError = e;
+              // The user approved, so a failed read is no answer to the dApp (#1471): not NotGranted, and not the
+              // read's error either, a kill included (#775). The throw fails this confirmation, so the window stays
+              // open on its error with Retry, and the dApp waits for a Retry, a Cancel or the auto-decline.
+              throw e;
             }
-            if (publicKey == null) {
-              // A failed public-key fetch must fail the connect, not persist a
-              // session with publicKey: null. The direct-return path hands that
-              // null pubkey back verbatim on every later connect, wedging the
-              // dApp at "Connecting…" until the session is cleared. Mirrors the
-              // non-extension branch, which throws NotGranted on the same failure.
-              //
-              // …except for a kill (a lock-recovery eviction, an offscreen abort
-              // or a terminated client, #775), which that branch rethrows
-              // verbatim precisely because it is a retryable internal failure
-              // and NOT a permissions verdict. Reporting the user's own approval
-              // back as NotGranted tells the dApp to stop asking. The
-              // `decline()` below still closes the prompt; its own reject is a
-              // no-op once this one has settled the promise.
-              if (isPipelineKillLink(publicKeyError)) reject(publicKeyError);
-              decline();
-            } else {
-              if (!existingPermission)
-                await setDApp(origin, {
-                  network,
-                  appMeta,
-                  accountId: accountPublicKey,
-                  privateDataPermission: privateDataPermission || PrivateDataPermission.UponRequest,
-                  allowedPrivateData: allowedPrivateData || AllowedPrivateData.None,
-                  publicKey
-                });
-              resolve({
-                type: MidenDAppMessageType.PermissionResponse,
-                accountId: accountPublicKey,
+            if (refused) return { type: MidenMessageType.DAppPermConfirmationResponse };
+            if (!existingPermission)
+              await setDApp(origin, {
                 network,
+                appMeta,
+                accountId: accountPublicKey,
                 privateDataPermission: privateDataPermission || PrivateDataPermission.UponRequest,
                 allowedPrivateData: allowedPrivateData || AllowedPrivateData.None,
                 publicKey
               });
-            }
+            resolve({
+              type: MidenDAppMessageType.PermissionResponse,
+              accountId: accountPublicKey,
+              network,
+              privateDataPermission: privateDataPermission || PrivateDataPermission.UponRequest,
+              allowedPrivateData: allowedPrivateData || AllowedPrivateData.None,
+              publicKey
+            });
           } else {
             decline();
           }
@@ -538,8 +548,68 @@ export async function generatePromisifyRequestPermission(
         }
         return undefined;
       }
-    });
+    }).catch(reject);
   });
+}
+
+const KEY_READ_PAST_DEADLINE = Symbol('key read past deadline');
+
+// The approved account's key, or KEY_READ_PAST_DEADLINE once `deadline` passes first. A read still running then is
+// abandoned, not cancelled: it keeps its WASM hold until it ends, and its key is never used.
+async function readApprovedKeyBefore(
+  deadline: number,
+  accountPublicKey: string
+): Promise<string | typeof KEY_READ_PAST_DEADLINE> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      withUnlocked(async () => {
+        return await withWasmClientLock(async hold => {
+          return await getAccountPublicKeyB64(accountPublicKey, hold);
+        });
+      }),
+      new Promise<typeof KEY_READ_PAST_DEADLINE>(resolve => {
+        timer = setTimeout(() => resolve(KEY_READ_PAST_DEADLINE), Math.max(0, deadline - Date.now()));
+      })
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
+/**
+ * Posts a confirmation on mobile or desktop and waits for the user's answer, bounded like the extension popup: a full
+ * AUTODECLINE_AFTER, within what `deadline` leaves when the request waited for an unlock first.
+ * Every non-extension sheet goes through here (#1414).
+ */
+async function requestConfirmationWithWatchdog(
+  deadline: number | undefined,
+  request: DAppConfirmationRequest
+): Promise<DAppConfirmationResult> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      dappConfirmationStore.requestConfirmation(request),
+      // Backstop watchdog, mirroring `requestConfirm`'s AUTODECLINE_AFTER on the
+      // extension popup path. Without it a prompt that never reaches a renderer
+      // (a routing bug, a session closed before its modal mounted) leaves this
+      // promise pending forever, and because `processDApp` runs every request
+      // through ONE `PQueue({concurrency: 1})` shared by every origin, that
+      // wedges dApp handling process-wide until a full restart.
+      new Promise<DAppConfirmationResult>(resolve => {
+        timer = setTimeout(() => {
+          // Only cancel OUR entry: the slot is keyed by session, and a later
+          // request may already have replaced it.
+          if (dappConfirmationStore.getPendingRequest(request.sessionId)?.id === request.id) {
+            dappConfirmationStore.resolveConfirmation(request.sessionId, { confirmed: false });
+          }
+          resolve({ confirmed: false });
+        }, timeLeftWithin(deadline));
+      })
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
 }
 
 /**
@@ -560,47 +630,24 @@ async function confirmOnNonExtension(
   dApp: MidenDAppSession,
   networkRpc: string,
   detailMessages: string[],
-  sessionId?: string
+  sessionId: string | undefined,
+  deadline: number | undefined
 ): Promise<boolean> {
-  const id = nanoid();
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    const result = await Promise.race([
-      dappConfirmationStore.requestConfirmation({
-        id,
-        sessionId,
-        type,
-        origin,
-        appMeta: dApp.appMeta,
-        network: dApp.network,
-        networkRpc,
-        privateDataPermission: dApp.privateDataPermission,
-        allowedPrivateData: dApp.allowedPrivateData,
-        existingPermission: true,
-        transactionMessages: detailMessages,
-        sourcePublicKey: dApp.accountId
-      }),
-      // Backstop watchdog, mirroring `requestConfirm`'s AUTODECLINE_AFTER on the
-      // extension popup path. Without it a prompt that never reaches a renderer
-      // — a routing bug, a session closed before its modal mounted — leaves this
-      // promise pending forever, and because `processDApp` runs every request
-      // through ONE `PQueue({concurrency: 1})` shared by every origin, that
-      // wedges dApp handling process-wide until a full restart.
-      new Promise<DAppConfirmationResult>(resolve => {
-        timer = setTimeout(() => {
-          // Only cancel OUR entry: the slot is keyed by session, and a later
-          // request may already have replaced it.
-          if (dappConfirmationStore.getPendingRequest(sessionId)?.id === id) {
-            dappConfirmationStore.resolveConfirmation(sessionId, { confirmed: false });
-          }
-          resolve({ confirmed: false });
-        }, AUTODECLINE_AFTER);
-      })
-    ]);
-    return result.confirmed;
-  } finally {
-    if (timer !== undefined) clearTimeout(timer);
-  }
+  const result = await requestConfirmationWithWatchdog(deadline, {
+    id: nanoid(),
+    sessionId,
+    type,
+    origin,
+    appMeta: dApp.appMeta,
+    network: dApp.network,
+    networkRpc,
+    privateDataPermission: dApp.privateDataPermission,
+    allowedPrivateData: dApp.allowedPrivateData,
+    existingPermission: true,
+    transactionMessages: detailMessages,
+    sourcePublicKey: dApp.accountId
+  });
+  return result.confirmed;
 }
 
 /**
@@ -657,6 +704,7 @@ export async function requestSign(
   if (!dApp) {
     throw new Error(MidenDAppErrorType.NotGranted);
   }
+  await assertRequestAccountIsCurrent(dApp.accountId);
 
   // Bind the signing KEY to the authorized ACCOUNT before anything prompts the
   // user: no approval surface can contradict a swapped key. The extension's
@@ -693,24 +741,33 @@ const generatePromisifySign = async (
   // confirmation store instead of falling into requestConfirm's throw.
   if (!isExtension()) {
     try {
+      // The sheet cannot unlock, and posted while locked it would sit over the lock screen.
+      const waits: UnlockWaits = {};
+      if (isStoreLocked() && !(await waitForUnlockOnNonExtension(origin, waits))) {
+        reject(lockedRefusal());
+        return;
+      }
       const confirmed = await confirmOnNonExtension(
         'sign',
         origin,
         dApp,
         networkRpc,
         await formatSignPreview(req),
-        sessionId
+        sessionId,
+        waits.deadline
       );
       if (!confirmed) {
         reject(new Error(MidenDAppErrorType.NotGranted));
         return;
       }
+      // The entry gate ran before the sheet opened; the session or the current account may have changed since (#1419).
+      await assertDappSendStillAuthorized(origin, req.sourceAccountId, dApp.accountId);
       const signature = await withUnlocked(async ({ vault }) =>
         vault.signData(req.sourcePublicKey, req.payload, req.kind, req.sourceAccountId)
       );
       resolve({ type: MidenDAppMessageType.SignResponse, signature });
     } catch (e) {
-      reject(new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`));
+      reject(dappSendFailure(e));
     }
     return;
   }
@@ -752,6 +809,8 @@ const generatePromisifySign = async (
             };
           }
           try {
+            // See the mobile/desktop arm: same post-approval re-check.
+            await assertDappSendStillAuthorized(origin, req.sourceAccountId, dApp.accountId);
             let signature = await withUnlocked(async ({ vault }) => {
               const signDataResult = await vault.signData(
                 req.sourcePublicKey,
@@ -799,6 +858,7 @@ export async function requestPrivateNotes(
   if (!dApp) {
     throw new Error(MidenDAppErrorType.NotGranted);
   }
+  await assertRequestAccountIsCurrent(dApp.accountId);
 
   // `.catch(reject)`: each `generatePromisify*` is an async function invoked
   // inside this executor, so a throw of its own would otherwise become an
@@ -809,94 +869,31 @@ export async function requestPrivateNotes(
   });
 }
 
-const generatePromisifyRequestPrivateNotes = async (
+const generatePromisifyRequestPrivateNotes = (
   resolve: (value: MidenDAppPrivateNotesResponse | PromiseLike<MidenDAppPrivateNotesResponse>) => void,
   reject: (reason?: any) => void,
   origin: string,
   dApp: MidenDAppSession,
   req: MidenDAppPrivateNotesRequest,
   sessionId?: string
-) => {
-  let privateNotes: InputNoteDetails[] = [];
-  if (
-    dApp.privateDataPermission === PrivateDataPermission.Auto &&
-    (dApp.allowedPrivateData & AllowedPrivateData.Notes) !== 0
-  ) {
-    try {
-      privateNotes = await getPrivateNoteDetails(dApp.accountId, req.notefilterType, req.noteIds);
-      resolve({
-        type: MidenDAppMessageType.PrivateNotesResponse,
-        privateNotes: privateNotes
-      });
-    } catch (e) {
-      reject(e);
+) =>
+  servePrivateDataRead<InputNoteDetails[], MidenDAppPrivateNotesResponse>(
+    resolve,
+    reject,
+    origin,
+    dApp,
+    req.sourcePublicKey,
+    sessionId,
+    {
+      allowed: AllowedPrivateData.Notes,
+      prepare: () => getPrivateNoteDetails(dApp.accountId, req.notefilterType, req.noteIds),
+      respond: privateNotes => ({ type: MidenDAppMessageType.PrivateNotesResponse, privateNotes }),
+      lines: privateNotes => ['This app is requesting your private notes.', `Notes, ${privateNotes.length}`],
+      payload: (base, privateNotes) => ({ ...base, type: 'privateNotes', privateNotes }),
+      confirmation: MidenMessageType.DAppPrivateNotesConfirmationRequest,
+      confirmationResponse: MidenMessageType.DAppPrivateNotesConfirmationResponse
     }
-  } else {
-    const id = nanoid();
-    const networkRpc = await getNetworkRPC(dApp.network);
-
-    try {
-      privateNotes = await getPrivateNoteDetails(dApp.accountId, req.notefilterType, req.noteIds);
-    } catch (e) {
-      reject(e);
-      return;
-    }
-
-    if (!isExtension()) {
-      const confirmed = await confirmOnNonExtension(
-        'privateData',
-        origin,
-        dApp,
-        networkRpc,
-        ['This app is requesting your private notes.', `Notes, ${privateNotes.length}`],
-        sessionId
-      );
-      if (!confirmed) {
-        reject(new Error(MidenDAppErrorType.NotGranted));
-        return;
-      }
-      resolve({ type: MidenDAppMessageType.PrivateNotesResponse, privateNotes });
-      return;
-    }
-
-    await requestConfirm({
-      id,
-      payload: {
-        type: 'privateNotes',
-        origin,
-        networkRpc,
-        appMeta: dApp.appMeta,
-        sourcePublicKey: req.sourcePublicKey,
-        privateNotes: privateNotes,
-        preview: null
-      },
-      onDecline: () => {
-        reject(new Error(MidenDAppErrorType.NotGranted));
-      },
-      handleIntercomRequest: async (confirmReq, decline) => {
-        if (confirmReq?.type === MidenMessageType.DAppPrivateNotesConfirmationRequest && confirmReq?.id === id) {
-          if (confirmReq.confirmed) {
-            try {
-              resolve({
-                type: MidenDAppMessageType.PrivateNotesResponse,
-                privateNotes
-              } as any);
-            } catch (e) {
-              reject(new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`));
-            }
-          } else {
-            decline();
-          }
-
-          return {
-            type: MidenMessageType.DAppPrivateNotesConfirmationResponse
-          };
-        }
-        return undefined;
-      }
-    });
-  }
-};
+  );
 
 function noteFilterTypeToQuery(filterType: NoteFilterTypes, noteIds?: string[]): NoteQuery | undefined {
   if (filterType === NoteFilterTypes.List && noteIds) return { ids: noteIds };
@@ -932,6 +929,10 @@ function noteFilterTypeToQuery(filterType: NoteFilterTypes, noteIds?: string[]):
  * account and is withheld — but it can never over-report across accounts, which is
  * the property the user consented to. Intersecting also covers a caller that names
  * another account's note ids explicitly via `req.noteIds`.
+ *
+ * With the List filter, every requested id is also looked up as the details
+ * commitment `importPrivateNote` returns (#1536), hashing only this account's
+ * consumable notes. Matches are listed under their own note ids, once per note.
  */
 async function getPrivateNoteDetails(
   accountId: string,
@@ -946,12 +947,19 @@ async function getPrivateNoteDetails(
         const allNotes = await midenClientProxy.getInputNoteDetails(query, () =>
           assertWasmHoldCurrent(hold, 'inside the private-note read, before the record reach-through')
         );
-        // Between the two reads: an eviction during the note-details read hands
-        // the mutex to a successor without stopping this callback, and the
-        // consumability read below would then run inside a client somebody else
-        // is inside. Both reads return plain DTOs, so this is the only WASM
-        // transition left to guard.
+        // An eviction hands the mutex to a successor without stopping this callback,
+        // so every subsequent client read must first prove this hold is still current.
         assertWasmHoldCurrent(hold, 'after the private-note read');
+        const listed = notefilterType === NoteFilterTypes.List ? (noteIds ?? []) : [];
+        // Every listed id is looked up as a commitment too, found by the id read or not, so an id another account
+        // holds takes the same path as one nobody holds and the timing tells a dApp nothing about other accounts.
+        const asked = new Set<string>();
+        const commitments = listed.filter(id => {
+          const key = normalizedCommitment(id);
+          if (asked.has(key)) return false;
+          asked.add(key);
+          return true;
+        });
         const ownNoteIds = new Set(
           (
             await midenClientProxy.getConsumableNotes(accountId, step =>
@@ -959,15 +967,41 @@ async function getPrivateNoteDetails(
             )
           ).flatMap(note => (note.noteId ? [note.noteId] : []))
         );
-        return allNotes.filter(note => note.noteType === NoteType.Private && ownNoteIds.has(note.noteId));
+        if (commitments.length > 0) assertWasmHoldCurrent(hold, 'after the consumable-notes read');
+        const byCommitment =
+          commitments.length === 0
+            ? []
+            : (
+                await midenClientProxy.getDetailsCommitmentMatches(commitments, [...ownNoteIds], () =>
+                  assertWasmHoldCurrent(
+                    hold,
+                    'inside the private-note details-commitment read, before the record reach-through'
+                  )
+                )
+              ).flatMap(match => match.notes);
+        const candidates = [...allNotes, ...byCommitment];
+        const seen = new Set<string>();
+        const uniqueCandidates =
+          notefilterType === NoteFilterTypes.List
+            ? candidates.filter(note => {
+                const id = normalizedCommitment(note.noteId);
+                if (seen.has(id)) return false;
+                seen.add(id);
+                return true;
+              })
+            : candidates;
+        // `restriction` is the wallet's own consume guard, not note data the user agreed to share.
+        return uniqueCandidates
+          .filter(note => note.noteType === NoteType.Private && ownNoteIds.has(note.noteId))
+          .map(({ restriction: _restriction, ...note }) => note);
       });
     });
     return privateNotes;
   } catch (e) {
     // A kill (a lock-recovery eviction, an offscreen abort or a terminated
     // client) is a retryable internal failure, not a parameter problem
-    // (issue #775).
-    if (isPipelineKillLink(e)) throw e;
+    // (issue #775); a locked wallet gets an Unlock step from the caller (#1414).
+    if (isPipelineKillLink(e) || isWalletLockedError(e)) throw e;
     throw new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`);
   }
 }
@@ -990,6 +1024,7 @@ export async function requestConsumableNotes(
   if (!dApp) {
     throw new Error(MidenDAppErrorType.NotGranted);
   }
+  await assertRequestAccountIsCurrent(dApp.accountId);
 
   // `.catch(reject)`: each `generatePromisify*` is an async function invoked
   // inside this executor, so a throw of its own would otherwise become an
@@ -1000,94 +1035,31 @@ export async function requestConsumableNotes(
   });
 }
 
-export const generatePromisifyRequestConsumableNotes = async (
+export const generatePromisifyRequestConsumableNotes = (
   resolve: (value: MidenDAppConsumableNotesResponse | PromiseLike<MidenDAppConsumableNotesResponse>) => void,
   reject: (reason?: any) => void,
   origin: string,
   dApp: MidenDAppSession,
   req: MidenDAppConsumableNotesRequest,
   sessionId?: string
-) => {
-  let consumableNotes: InputNoteDetails[] = [];
-  if (
-    dApp.privateDataPermission === PrivateDataPermission.Auto &&
-    (dApp.allowedPrivateData & AllowedPrivateData.Notes) !== 0
-  ) {
-    try {
-      consumableNotes = await getConsumableNotes(dApp.accountId);
-      resolve({
-        type: MidenDAppMessageType.ConsumableNotesResponse,
-        consumableNotes
-      });
-    } catch (e) {
-      reject(e);
+) =>
+  servePrivateDataRead<InputNoteDetails[], MidenDAppConsumableNotesResponse>(
+    resolve,
+    reject,
+    origin,
+    dApp,
+    req.sourcePublicKey,
+    sessionId,
+    {
+      allowed: AllowedPrivateData.Notes,
+      prepare: () => getConsumableNotes(dApp.accountId),
+      respond: consumableNotes => ({ type: MidenDAppMessageType.ConsumableNotesResponse, consumableNotes }),
+      lines: consumableNotes => ['This app is requesting your consumable notes.', `Notes, ${consumableNotes.length}`],
+      payload: (base, consumableNotes) => ({ ...base, type: 'consumableNotes', consumableNotes }),
+      confirmation: MidenMessageType.DAppConsumableNotesConfirmationRequest,
+      confirmationResponse: MidenMessageType.DAppConsumableNotesConfirmationResponse
     }
-  } else {
-    const id = nanoid();
-    const networkRpc = await getNetworkRPC(dApp.network);
-
-    try {
-      consumableNotes = await getConsumableNotes(dApp.accountId);
-    } catch (e) {
-      reject(e);
-      return;
-    }
-
-    if (!isExtension()) {
-      const confirmed = await confirmOnNonExtension(
-        'privateData',
-        origin,
-        dApp,
-        networkRpc,
-        ['This app is requesting your consumable notes.', `Notes, ${consumableNotes.length}`],
-        sessionId
-      );
-      if (!confirmed) {
-        reject(new Error(MidenDAppErrorType.NotGranted));
-        return;
-      }
-      resolve({ type: MidenDAppMessageType.ConsumableNotesResponse, consumableNotes });
-      return;
-    }
-
-    await requestConfirm({
-      id,
-      payload: {
-        type: 'consumableNotes',
-        origin,
-        networkRpc,
-        appMeta: dApp.appMeta,
-        sourcePublicKey: req.sourcePublicKey,
-        consumableNotes,
-        preview: null
-      },
-      onDecline: () => {
-        reject(new Error(MidenDAppErrorType.NotGranted));
-      },
-      handleIntercomRequest: async (confirmReq, decline) => {
-        if (confirmReq?.type === MidenMessageType.DAppConsumableNotesConfirmationRequest && confirmReq?.id === id) {
-          if (confirmReq.confirmed) {
-            try {
-              resolve({
-                type: MidenDAppMessageType.ConsumableNotesResponse,
-                consumableNotes
-              } as any);
-            } catch (e) {
-              reject(new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`));
-            }
-          } else {
-            decline();
-          }
-
-          return {
-            type: MidenMessageType.DAppConsumableNotesConfirmationResponse
-          };
-        }
-        return undefined;
-      }
-    });
-  }
-};
+  );
 
 async function getConsumableNotes(accountId: string): Promise<InputNoteDetails[]> {
   let consumableNotes: InputNoteDetails[] = [];
@@ -1132,8 +1104,8 @@ async function getConsumableNotes(accountId: string): Promise<InputNoteDetails[]
   } catch (e) {
     // A kill (a lock-recovery eviction, an offscreen abort or a terminated
     // client) is a retryable internal failure, not a parameter problem
-    // (issue #775).
-    if (isPipelineKillLink(e)) throw e;
+    // (issue #775); a locked wallet gets an Unlock step from the caller (#1414).
+    if (isPipelineKillLink(e) || isWalletLockedError(e)) throw e;
     throw new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`);
   }
 }
@@ -1156,6 +1128,7 @@ export async function requestAssets(
   if (!dApp) {
     throw new Error(MidenDAppErrorType.NotGranted);
   }
+  await assertRequestAccountIsCurrent(dApp.accountId);
 
   // `.catch(reject)`: each `generatePromisify*` is an async function invoked
   // inside this executor, so a throw of its own would otherwise become an
@@ -1166,95 +1139,31 @@ export async function requestAssets(
   });
 }
 
-export const generatePromisifyRequestAssets = async (
+export const generatePromisifyRequestAssets = (
   resolve: (value: MidenDAppAssetsResponse | PromiseLike<MidenDAppAssetsResponse>) => void,
   reject: (reason?: any) => void,
   origin: string,
   dApp: MidenDAppSession,
   req: MidenDAppAssetsRequest,
   sessionId?: string
-) => {
-  if (
-    dApp.privateDataPermission === PrivateDataPermission.Auto &&
-    (dApp.allowedPrivateData & AllowedPrivateData.Assets) !== 0
-  ) {
-    let assets: Asset[] = [];
-    try {
-      assets = await getAssets(dApp.accountId);
-      resolve({
-        type: MidenDAppMessageType.AssetsResponse,
-        assets
-      });
-    } catch (e) {
-      reject(e);
+) =>
+  servePrivateDataRead<Asset[], MidenDAppAssetsResponse>(
+    resolve,
+    reject,
+    origin,
+    dApp,
+    req.sourcePublicKey,
+    sessionId,
+    {
+      allowed: AllowedPrivateData.Assets,
+      prepare: () => getAssets(dApp.accountId),
+      respond: assets => ({ type: MidenDAppMessageType.AssetsResponse, assets }),
+      lines: assets => ['This app is requesting your account balances.', `Assets, ${assets.length}`],
+      payload: (base, assets) => ({ ...base, type: 'assets', assets }),
+      confirmation: MidenMessageType.DAppAssetsConfirmationRequest,
+      confirmationResponse: MidenMessageType.DAppAssetsConfirmationResponse
     }
-  } else {
-    const id = nanoid();
-    const networkRpc = await getNetworkRPC(dApp.network);
-
-    let assets: Asset[] = [];
-    try {
-      assets = await getAssets(dApp.accountId);
-    } catch (e) {
-      reject(e);
-      return;
-    }
-
-    if (!isExtension()) {
-      const confirmed = await confirmOnNonExtension(
-        'privateData',
-        origin,
-        dApp,
-        networkRpc,
-        ['This app is requesting your account balances.', `Assets, ${assets.length}`],
-        sessionId
-      );
-      if (!confirmed) {
-        reject(new Error(MidenDAppErrorType.NotGranted));
-        return;
-      }
-      resolve({ type: MidenDAppMessageType.AssetsResponse, assets });
-      return;
-    }
-
-    await requestConfirm({
-      id,
-      payload: {
-        type: 'assets',
-        origin,
-        networkRpc,
-        appMeta: dApp.appMeta,
-        sourcePublicKey: req.sourcePublicKey,
-        assets,
-        preview: null
-      },
-      onDecline: () => {
-        reject(new Error(MidenDAppErrorType.NotGranted));
-      },
-      handleIntercomRequest: async (confirmReq, decline) => {
-        if (confirmReq?.type === MidenMessageType.DAppAssetsConfirmationRequest && confirmReq?.id === id) {
-          if (confirmReq.confirmed) {
-            try {
-              resolve({
-                type: MidenDAppMessageType.AssetsResponse,
-                assets
-              } as any);
-            } catch (e) {
-              reject(new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`));
-            }
-          } else {
-            decline();
-          }
-
-          return {
-            type: MidenMessageType.DAppAssetsConfirmationResponse
-          };
-        }
-        return undefined;
-      }
-    });
-  }
-};
+  );
 
 async function getAssets(accountId: string): Promise<Asset[]> {
   let assets: Asset[] = [];
@@ -1281,14 +1190,14 @@ async function getAssets(accountId: string): Promise<Asset[]> {
   } catch (e) {
     // A kill (a lock-recovery eviction, an offscreen abort or a terminated
     // client) is a retryable internal failure, not a parameter problem
-    // (issue #775).
-    if (isPipelineKillLink(e)) throw e;
+    // (issue #775); a locked wallet gets an Unlock step from the caller (#1414).
+    if (isPipelineKillLink(e) || isWalletLockedError(e)) throw e;
     throw new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`);
   }
 }
 
-// Direct-return handler (mirrors getCurrentPermission) — guardian info is
-// non-sensitive, so it skips the requestConfirm popup that gated Assets.
+// Answers directly while unlocked (mirrors getCurrentPermission): guardian info is non-sensitive. Locked, it needs the
+// unlock all the same, since the account records it reads are encrypted (#1414).
 export async function requestGuardianInfo(
   origin: string,
   req: MidenDAppGuardianInfoRequest
@@ -1301,12 +1210,27 @@ export async function requestGuardianInfo(
   if (!dApp) {
     throw new Error(MidenDAppErrorType.NotGranted);
   }
+  await assertRequestAccountIsCurrent(dApp.accountId);
 
-  const guardianInfo = await getGuardianInfoData(dApp.accountId);
-  return {
-    type: MidenDAppMessageType.GuardianInfoResponse,
-    guardianInfo
-  };
+  const prepare = () => getGuardianInfoData(dApp.accountId);
+  const prepared = await runPrepare(prepare);
+  if (!prepared.locked) {
+    return { type: MidenDAppMessageType.GuardianInfoResponse, guardianInfo: prepared.value };
+  }
+  if (!isExtension()) {
+    const guardianInfo = await prepareAfterUnlock(origin, req.sourcePublicKey, dApp.accountId, prepare);
+    return { type: MidenDAppMessageType.GuardianInfoResponse, guardianInfo };
+  }
+  return new Promise<MidenDAppGuardianInfoResponse>((resolve, reject) => {
+    requestUnlockOnly(
+      origin,
+      dApp,
+      req.sourcePublicKey,
+      prepare,
+      guardianInfo => resolve({ type: MidenDAppMessageType.GuardianInfoResponse, guardianInfo }),
+      reject
+    ).catch(reject);
+  });
 }
 
 const NOT_GUARDIAN_INFO: GuardianInfo = {
@@ -1354,6 +1278,7 @@ export async function requestImportPrivateNote(
   if (!dApp) {
     throw new Error(MidenDAppErrorType.NotGranted);
   }
+  await assertRequestAccountIsCurrent(dApp.accountId);
 
   // `.catch(reject)`: each `generatePromisify*` is an async function invoked
   // inside this executor, so a throw of its own would otherwise become an
@@ -1428,8 +1353,32 @@ async function importDAppPrivateNote(note: string): Promise<string> {
  * move, and lost the one signal the kill exists to carry. Same rule the connect
  * path follows.
  */
-const importPrivateNoteFailure = (e: unknown): unknown =>
-  isPipelineKillLink(e) ? e : new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`);
+const importPrivateNoteFailure = (e: unknown): unknown => (isPipelineKillLink(e) ? e : dappRequestFailure(e));
+
+/**
+ * Imports carried bytes checked against the request's id, which may be their note id or details commitment.
+ * The resolved store id is used to consume the note, never to validate the bytes. Unreadable bytes are not imported;
+ * the consume reads the note from the store or refuses it. A decode that traps rejects its WASM hold.
+ */
+async function importConsumeNoteBytes(transaction: MidenConsumeTransaction): Promise<void> {
+  const { noteId, noteBytes } = transaction;
+  if (!noteBytes) return;
+  const carried = await decodeCarriedConsumeNoteLocked(transaction);
+  if (!carried) {
+    let carriedId: string | null = null;
+    try {
+      carriedId = await withWasmClientLock(async () => noteIdFromBytes(b64ToU8(noteBytes)));
+    } catch (e) {
+      if (e instanceof WebAssembly.RuntimeError) throw e;
+      // Invalid base64 reads as unreadable bytes.
+    }
+    if (carriedId === null) return;
+    if (carriedId !== noteId) {
+      throw new Error('noteBytes describe a different note than noteId - refusing to consume it');
+    }
+  }
+  await importDAppPrivateNote(noteBytes);
+}
 
 export const generatePromisifyImportPrivateNote = async (
   resolve: (value: MidenDAppImportPrivateNoteResponse | PromiseLike<MidenDAppImportPrivateNoteResponse>) => void,
@@ -1444,18 +1393,26 @@ export const generatePromisifyImportPrivateNote = async (
 
   if (!isExtension()) {
     try {
+      // The sheet cannot unlock, and posted while locked it would sit over the lock screen.
+      const waits: UnlockWaits = {};
+      if (isStoreLocked() && !(await waitForUnlockOnNonExtension(origin, waits))) {
+        reject(lockedRefusal());
+        return;
+      }
       const confirmed = await confirmOnNonExtension(
         'importPrivateNote',
         origin,
         dApp,
         networkRpc,
         [`Account, ${truncateAddress(dApp.accountId)}`],
-        sessionId
+        sessionId,
+        waits.deadline
       );
       if (!confirmed) {
         reject(new Error(MidenDAppErrorType.NotGranted));
         return;
       }
+      await assertDappSendStillAuthorized(origin, req.sourcePublicKey, dApp.accountId);
       const noteId = await importDAppPrivateNote(req.note);
       resolve({ type: MidenDAppMessageType.ImportPrivateNoteResponse, noteId });
     } catch (e) {
@@ -1482,12 +1439,13 @@ export const generatePromisifyImportPrivateNote = async (
       if (confirmReq?.type === MidenMessageType.DAppImportPrivateNoteConfirmationRequest && confirmReq?.id === id) {
         if (confirmReq.confirmed) {
           try {
+            await assertDappSendStillAuthorized(origin, req.sourcePublicKey, dApp.accountId);
             const noteId = await importDAppPrivateNote(req.note);
             resolve({
               type: MidenDAppMessageType.ImportPrivateNoteResponse,
               // Hex string: the note ID for metadata-bearing files, or the
               // details commitment for details-only imports (the common
-              // dApp `noteBytes` path).
+              // dApp `noteBytes` path). `requestConsume` accepts either (#1389).
               noteId
             });
           } catch (e) {
@@ -1522,6 +1480,7 @@ export async function requestTransaction(
   if (!dApp) {
     throw new Error(MidenDAppErrorType.NotGranted);
   }
+  await assertRequestAccountIsCurrent(dApp.accountId);
 
   // `.catch(reject)`: each `generatePromisify*` is an async function invoked
   // inside this executor, so a throw of its own would otherwise become an
@@ -1592,7 +1551,12 @@ export function makeSimulateHandler(
             transactionRequest: tx.transactionRequest,
             importNotes: tx.importNotes
           });
-    return { type: MidenMessageType.DAppSimulateTransactionResponse, summaryBytes, executedBytes, error };
+    return {
+      type: MidenMessageType.DAppSimulateTransactionResponse,
+      summaryBytes,
+      executedBytes,
+      error: error === undefined ? undefined : dryRunFailureReason(error)
+    };
   };
 }
 
@@ -1668,6 +1632,17 @@ const customSpendingLimitState = async (
   }
 };
 
+// A request names the account it acts for; answering one that is not current would show or act on an account the
+// user is not looking at (#1419). The vault's plain-storage read works while locked, unlike the store.
+const assertRequestAccountIsCurrent = async (accountId: string): Promise<void> => {
+  const current = await Vault.getCurrentAccountPublicKey();
+  if (!current || !sameWalletAccountId(current, accountId)) {
+    throw new Error(MidenDAppErrorType.NotGranted);
+  }
+};
+
+// Every prompted request runs this after approval and before it answers or acts: the sheet may have sat open while
+// the dApp was disconnected or the user switched accounts (#1419, #1415).
 const assertDappSendStillAuthorized = async (
   origin: string,
   sourcePublicKey: string,
@@ -1699,12 +1674,341 @@ const dappSendFailure = (error: unknown): Error => {
   ) {
     return spendingLimitRetryError();
   }
+  return dappRequestFailure(error);
+};
+
+// A refusal reaches the dApp as NOT_GRANTED; any other failure is reported as INVALID_PARAMS.
+const dappRequestFailure = (error: unknown): Error => {
+  // A lock that lands after approval is not a malformed request (#1414).
+  if (isWalletLockedError(error)) return lockedRefusal();
   if (error instanceof Error && error.message === MidenDAppErrorType.NotGranted) return error;
   if (error instanceof Error && error.message.startsWith(`${MidenDAppErrorType.NotGranted}:`)) return error;
   return new Error(`${MidenDAppErrorType.InvalidParams}: ${error}`);
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null;
+
+type Prepared<T> = { readonly locked: false; readonly value: T } | { readonly locked: true };
+
+// A request's pre-prompt work. Its failures are already in the dApp's terms, except a locked wallet, which the caller
+// answers with an Unlock step rather than an error (#1414).
+async function runPrepare<T>(prepare: () => Promise<T>): Promise<Prepared<T>> {
+  try {
+    return { locked: false, value: await prepare() };
+  } catch (error) {
+    if (isWalletLockedError(error)) return { locked: true };
+    throw error;
+  }
+}
+
+// `runPrepare` with any other failure answered: `undefined` means the dApp already has its answer.
+async function prepareOrReject<T>(
+  prepare: () => Promise<T>,
+  reject: (reason: unknown) => void
+): Promise<Prepared<T> | undefined> {
+  try {
+    return await runPrepare(prepare);
+  } catch (error) {
+    reject(error);
+    return undefined;
+  }
+}
+
+// A request's pre-prompt work for after an unlock. The gate goes first: the re-check reads the store's current account,
+// which a locked store does not hold, so it would refuse a request that only has to wait.
+const recheckedPrepare =
+  <T>(origin: string, sourcePublicKey: string, accountId: string, prepare: () => Promise<T>) =>
+  async (): Promise<T> => {
+    await withUnlocked(() => assertDappSendStillAuthorized(origin, sourcePublicKey, accountId));
+    return prepare();
+  };
+
+// What a confirm popup shows. `cancel` runs when the popup closes, so a build still waiting for the unlock never runs
+// the re-check or the read for a popup nobody sees.
+type Sheet<T> = {
+  readonly locked: boolean;
+  readonly data: () => Promise<T>;
+  readonly cancel: () => void;
+};
+
+// A request that met no lock shows what it read before its popup, as it always did. One that met a locked wallet is
+// built once by its popup after the unlock; the popup's own lock-up check can lock the wallet as it opens, so the build
+// waits for the unlock itself rather than trust the page. The wait's own bound is a backstop: the popup's auto-decline
+// closes the popup first, and the close cancels the wait.
+function sheetFor<T>(
+  prepared: Prepared<T>,
+  origin: string,
+  sourcePublicKey: string,
+  accountId: string,
+  prepare: () => Promise<T>
+): Sheet<T> {
+  if (!prepared.locked) {
+    const { value } = prepared;
+    return { locked: false, data: async () => value, cancel: () => undefined };
+  }
+  const closed = new AbortController();
+  const build = recheckedPrepare(origin, sourcePublicKey, accountId, prepare);
+  return {
+    locked: true,
+    data: onceAfterUnlock(build, LOCKED_PROMPT_CAP_MS, closed.signal),
+    cancel: () => closed.abort()
+  };
+}
+
+// A request's confirm popup. One raised for a locked wallet opens on Unlock, and closing it before unlocking answers
+// that the wallet is locked rather than a decline.
+async function requestConfirmFor(
+  origin: string,
+  sheet: Sheet<unknown>,
+  reject: (reason: unknown) => void,
+  params: Omit<RequestConfirmParams, 'onDecline' | 'onPayloadError' | 'onClose'>
+): Promise<void> {
+  if (sheet.locked && !mayPromptToUnlock(origin)) {
+    reject(lockedRefusal());
+    return;
+  }
+  await requestConfirm({
+    ...params,
+    onClose: sheet.cancel,
+    onPayloadError: reject,
+    onDecline: () => {
+      if (sheet.locked && isStoreLocked()) {
+        noteLockedPromptEnded(origin);
+        reject(lockedRefusal());
+      } else {
+        reject(new Error(MidenDAppErrorType.NotGranted));
+      }
+    }
+  });
+}
+
+type PrivateDataConfirmationRequest =
+  | MidenDAppAssetsConfirmationRequest
+  | MidenDAppPrivateNotesConfirmationRequest
+  | MidenDAppConsumableNotesConfirmationRequest;
+
+type PrivateDataPayloadBase = {
+  origin: string;
+  networkRpc: string;
+  appMeta: DappMetadata;
+  sourcePublicKey: string;
+  preview: null;
+};
+
+// What sets the three private-data reads apart; `servePrivateDataRead` runs each in the same order (#1414).
+type PrivateDataRead<T, R> = {
+  // The `allowedPrivateData` bit that lets an Auto session read with no prompt.
+  allowed: AllowedPrivateData;
+  prepare: () => Promise<T>;
+  respond: (data: T) => R;
+  // The mobile and desktop sheet's lines.
+  lines: (data: T) => string[];
+  payload: (base: PrivateDataPayloadBase, data: T) => MidenDAppPayload;
+  confirmation: PrivateDataConfirmationRequest['type'];
+  confirmationResponse: MidenMessageType;
+};
+
+function privateDataConfirmation(
+  req: MidenRequest,
+  type: PrivateDataConfirmationRequest['type'],
+  id: string
+): PrivateDataConfirmationRequest | undefined {
+  switch (req?.type) {
+    case MidenMessageType.DAppAssetsConfirmationRequest:
+    case MidenMessageType.DAppPrivateNotesConfirmationRequest:
+    case MidenMessageType.DAppConsumableNotesConfirmationRequest:
+      return req.type === type && req.id === id ? req : undefined;
+    default:
+      return undefined;
+  }
+}
+
+async function servePrivateDataRead<T, R>(
+  resolve: (value: R) => void,
+  reject: (reason: unknown) => void,
+  origin: string,
+  dApp: MidenDAppSession,
+  sourcePublicKey: string,
+  sessionId: string | undefined,
+  read: PrivateDataRead<T, R>
+): Promise<void> {
+  const { prepare } = read;
+  if (dApp.privateDataPermission === PrivateDataPermission.Auto && (dApp.allowedPrivateData & read.allowed) !== 0) {
+    const prepared = await prepareOrReject(prepare, reject);
+    if (prepared === undefined) return;
+    if (!prepared.locked) {
+      resolve(read.respond(prepared.value));
+    } else if (isExtension()) {
+      await requestUnlockOnly(origin, dApp, sourcePublicKey, prepare, data => resolve(read.respond(data)), reject);
+    } else {
+      try {
+        resolve(read.respond(await prepareAfterUnlock(origin, sourcePublicKey, dApp.accountId, prepare)));
+      } catch (e) {
+        reject(e);
+      }
+    }
+    return;
+  }
+
+  const id = nanoid();
+  const networkRpc = await getNetworkRPC(dApp.network);
+  const prepared = await prepareOrReject(prepare, reject);
+  if (prepared === undefined) return;
+
+  if (!isExtension()) {
+    const waits: UnlockWaits = {};
+    const data = await sheetDataOnNonExtension(
+      origin,
+      sourcePublicKey,
+      dApp.accountId,
+      prepared,
+      prepare,
+      reject,
+      waits
+    );
+    if (data === undefined) return;
+    const confirmed = await confirmOnNonExtension(
+      'privateData',
+      origin,
+      dApp,
+      networkRpc,
+      read.lines(data),
+      sessionId,
+      waits.deadline
+    );
+    if (!confirmed) {
+      reject(new Error(MidenDAppErrorType.NotGranted));
+      return;
+    }
+    await assertDappSendStillAuthorized(origin, sourcePublicKey, dApp.accountId);
+    resolve(read.respond(data));
+    return;
+  }
+
+  const sheet = sheetFor(prepared, origin, sourcePublicKey, dApp.accountId, prepare);
+  await requestConfirmFor(origin, sheet, reject, {
+    id,
+    payload: async () =>
+      read.payload({ origin, networkRpc, appMeta: dApp.appMeta, sourcePublicKey, preview: null }, await sheet.data()),
+    handleIntercomRequest: async (confirmReq, decline) => {
+      const decision = privateDataConfirmation(confirmReq, read.confirmation, id);
+      if (decision === undefined) return undefined;
+      if (decision.confirmed) {
+        try {
+          const data = await sheet.data();
+          await assertDappSendStillAuthorized(origin, sourcePublicKey, dApp.accountId);
+          resolve(read.respond(data));
+        } catch (e) {
+          reject(dappRequestFailure(e));
+        }
+      } else {
+        decline();
+      }
+      return { type: read.confirmationResponse };
+    }
+  });
+}
+
+/**
+ * A request that never prompts while unlocked (an Auto read, guardianInfo) met a locked wallet: its popup only
+ * unlocks. ConfirmPage answers it on its own once unlocked; the request then runs its unlocked path after the same
+ * re-check a prompted request runs, since the session may have changed while the popup sat on Unlock.
+ */
+async function requestUnlockOnly<T>(
+  origin: string,
+  dApp: MidenDAppSession,
+  sourcePublicKey: string,
+  prepare: () => Promise<T>,
+  resolve: (value: T) => void,
+  reject: (reason: unknown) => void
+): Promise<void> {
+  const id = nanoid();
+  const networkRpc = await getNetworkRPC(dApp.network);
+  const sheet = sheetFor<T>({ locked: true }, origin, sourcePublicKey, dApp.accountId, prepare);
+  await requestConfirmFor(origin, sheet, reject, {
+    id,
+    payload: { type: 'unlock', origin, networkRpc, appMeta: dApp.appMeta },
+    handleIntercomRequest: async confirmReq => {
+      if (confirmReq?.type !== MidenMessageType.DAppUnlockConfirmationRequest || confirmReq.id !== id) {
+        return undefined;
+      }
+      try {
+        resolve(await sheet.data());
+      } catch (e) {
+        reject(e);
+      }
+      return { type: MidenMessageType.DAppUnlockConfirmationResponse };
+    }
+  });
+}
+
+// One mobile or desktop request's unlock waits, and the sheet that follows them, share one deadline set by its first
+// wait: LOCKED_PROMPT_CAP_MS, the extension popup's cap over its whole life, so a wallet that locks again after each
+// unlock cannot hold the dApp queue past it. Unset while the request has never waited.
+type UnlockWaits = { deadline?: number };
+
+// A full AUTODECLINE_AFTER, within what the request's deadline leaves.
+function timeLeftWithin(deadline: number | undefined): number {
+  if (deadline === undefined) return AUTODECLINE_AFTER;
+  return Math.max(0, Math.min(AUTODECLINE_AFTER, deadline - Date.now()));
+}
+
+// Mobile and desktop have no Unlock step in their sheet, so the app's own lock screen is that step: a request that met
+// a locked wallet waits for the unlock, bounded because the dApp queue is held meanwhile.
+async function waitForUnlockOnNonExtension(origin: string, waits: UnlockWaits): Promise<boolean> {
+  if (!mayPromptToUnlock(origin)) return false;
+  waits.deadline ??= Date.now() + LOCKED_PROMPT_CAP_MS;
+  // The desktop wallet window sits behind the dApp's own, and nothing else raises it while locked.
+  if (isDesktop()) void raiseWalletWindow();
+  const isUnlocked = await waitForUnlock(timeLeftWithin(waits.deadline));
+  if (!isUnlocked) noteLockedPromptEnded(origin);
+  return isUnlocked;
+}
+
+async function raiseWalletWindow(): Promise<void> {
+  try {
+    const { focusMainWindow } = await import('lib/desktop/dapp-browser');
+    await focusMainWindow();
+  } catch {
+    // Non-fatal: the user can still bring the window up and unlock.
+  }
+}
+
+// A request's pre-prompt work run again once the app is unlocked, after the same re-check the extension popup runs.
+async function prepareAfterUnlock<T>(
+  origin: string,
+  sourcePublicKey: string,
+  accountId: string,
+  prepare: () => Promise<T>,
+  waits: UnlockWaits = {}
+): Promise<T> {
+  const build = recheckedPrepare(origin, sourcePublicKey, accountId, prepare);
+  for (;;) {
+    if (!(await waitForUnlockOnNonExtension(origin, waits))) throw lockedRefusal();
+    const prepared = await runPrepare(build);
+    if (!prepared.locked) return prepared.value;
+  }
+}
+
+// What a mobile or desktop sheet shows: the prepared value, or the same work after the unlock. `undefined` means the
+// dApp already has its answer.
+async function sheetDataOnNonExtension<T>(
+  origin: string,
+  sourcePublicKey: string,
+  accountId: string,
+  prepared: Prepared<T>,
+  prepare: () => Promise<T>,
+  reject: (reason: unknown) => void,
+  waits: UnlockWaits
+): Promise<T | undefined> {
+  if (!prepared.locked) return prepared.value;
+  try {
+    return await prepareAfterUnlock(origin, sourcePublicKey, accountId, prepare, waits);
+  } catch (error) {
+    reject(error);
+    return undefined;
+  }
+}
 
 /**
  * The account a dApp request is AUTHORIZED for is `dApp.accountId` — the id
@@ -1803,65 +2107,83 @@ const generatePromisifyTransaction = async (
   const networkRpc = await getNetworkRPC(dApp.network);
   const customTransaction = req.transaction.payload as MidenCustomTransaction;
 
-  let transactionMessages: string[] = [];
-  try {
-    transactionMessages = await withUnlocked(async () => {
-      if (!customTransaction.address || !customTransaction.transactionRequest) {
-        throw new Error(`${MidenDAppErrorType.InvalidParams}: Invalid CustomTransaction payload`);
-      }
-
-      return await formatCustomTransactionPreview(customTransaction);
-    });
-  } catch (e) {
-    reject(new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`));
+  // Checked before the gate, so a malformed payload is reported as one while the wallet is locked. The text keeps the
+  // double prefix it had when this check threw inside the preview's catch; the E2E cell R3-customPayload pins it.
+  if (!customTransaction.address || !customTransaction.transactionRequest) {
+    reject(
+      new Error(
+        `${MidenDAppErrorType.InvalidParams}: Error: ${MidenDAppErrorType.InvalidParams}: Invalid CustomTransaction payload`
+      )
+    );
     return;
   }
 
-  // The effects go in front of the user BEFORE either sheet is raised, because the mobile/desktop
-  // sheet cannot ask for them itself - see `formatSimulatedCustomEffects`. Hoisted above the
-  // platform split because the spending-limit gate below needs the dry run's outgoing totals on
-  // BOTH paths: a custom request moves value too, and before this it reached the queue with no
-  // assessment at all, which made "send it as a custom transaction" the way around a cap.
-  // ONE dry run per custom request, shared by the effects the signer reads, the spending-limit
-  // assessment, and (on the extension arm) the confirm sheet's own simulate request. Running it
-  // twice took the single-threaded WASM lock twice and let the displayed numbers and the enforced
-  // numbers come from two different executions.
-  // A dry run that throws must not take the request down with it: the sheet still rises, saying
-  // the effects are unknown. Previously this catch lived inside the formatter; hoisting the call
-  // moved the failure out of its reach, so it is restated here as the same contract.
-  const simulated = await withUnlocked(async () => {
+  const prepare = async () => {
+    let declaredMessages: string[];
     try {
-      return await simulateCustomTransaction({
-        address: customTransaction.address,
-        transactionRequest: customTransaction.transactionRequest,
-        importNotes: customTransaction.importNotes
-      });
+      declaredMessages = await withUnlocked(async () => formatCustomTransactionPreview(customTransaction));
     } catch (e) {
-      console.error('Failed to simulate a custom transaction for approval', e);
-      return { error: consentReason(e) };
+      if (isWalletLockedError(e)) throw e;
+      throw new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`);
     }
-  });
-  const simulatedEffects = await formatSimulatedCustomEffects(simulated);
-
-  let customLimit: { totals: IConsumedAssetTotal[]; details?: SpendingLimitAssessmentDetails };
-  try {
-    customLimit = await customSpendingLimitState(customTransaction.address, simulatedEffects.outgoing);
-  } catch (e) {
-    // The dry run above already quarantined the carried notes. This refusal is the WALLET's, not a
-    // user decline, so the notes go back to the claimable list; only a decline earns staying
-    // hidden. Without this a contention refusal hid the user's own notes for the 7-day TTL.
-    await releaseNoteIds(importedNoteIds(customTransaction.importNotes));
-    // Through the same mapper as every other limit-observing path: this catch also sees a
-    // SpendingLimitPolicyUnavailableError from the configuration read or a malformed record.
-    reject(dappSendFailure(e));
-    return;
-  }
+    // The effects go in front of the user BEFORE either sheet is raised, because the mobile/desktop
+    // sheet cannot ask for them itself - see `formatSimulatedCustomEffects`. Hoisted above the
+    // platform split because the spending-limit gate below needs the dry run's outgoing totals on
+    // BOTH paths: a custom request moves value too, and before this it reached the queue with no
+    // assessment at all, which made "send it as a custom transaction" the way around a cap.
+    // ONE dry run per custom request, shared by the effects the signer reads, the spending-limit
+    // assessment, and (on the extension arm) the confirm sheet's own simulate request. Running it
+    // twice took the single-threaded WASM lock twice and let the displayed numbers and the enforced
+    // numbers come from two different executions.
+    // A dry run that throws must not take the request down with it: the sheet still rises, saying
+    // the effects are unknown. Previously this catch lived inside the formatter; hoisting the call
+    // moved the failure out of its reach, so it is restated here as the same contract.
+    const simulated = await withUnlocked(async () => {
+      try {
+        return await simulateCustomTransaction({
+          address: customTransaction.address,
+          transactionRequest: customTransaction.transactionRequest,
+          importNotes: customTransaction.importNotes
+        });
+      } catch (e) {
+        console.error('Failed to simulate a custom transaction for approval', e);
+        return { error: consentReason(e) };
+      }
+    });
+    const simulatedEffects = await formatSimulatedCustomEffects(simulated);
+    try {
+      const customLimit = await customSpendingLimitState(customTransaction.address, simulatedEffects.outgoing);
+      return { transactionMessages: [...declaredMessages, ...simulatedEffects.messages], simulated, customLimit };
+    } catch (e) {
+      // The dry run above already quarantined the carried notes. This refusal is the WALLET's, not a
+      // user decline, so the notes go back to the claimable list; only a decline earns staying
+      // hidden. Without this a contention refusal hid the user's own notes for the 7-day TTL.
+      await releaseNoteIds(importedNoteIds(customTransaction.importNotes));
+      // Through the same mapper as every other limit-observing path: this catch also sees a
+      // SpendingLimitPolicyUnavailableError from the configuration read or a malformed record.
+      throw dappSendFailure(e);
+    }
+  };
+  const prepared = await prepareOrReject(prepare, reject);
+  if (prepared === undefined) return;
 
   // On mobile/desktop, use confirmation store to request user approval
   if (!isExtension()) {
     dappDebug('[DApp] Non-extension requesting transaction confirmation');
+    const waits: UnlockWaits = {};
+    const sheetData = await sheetDataOnNonExtension(
+      origin,
+      req.sourcePublicKey,
+      customTransaction.address,
+      prepared,
+      prepare,
+      reject,
+      waits
+    );
+    if (sheetData === undefined) return;
+    const { transactionMessages, customLimit } = sheetData;
 
-    const result = await dappConfirmationStore.requestConfirmation({
+    const result = await requestConfirmationWithWatchdog(waits.deadline, {
       id,
       sessionId,
       type: 'transaction',
@@ -1872,7 +2194,7 @@ const generatePromisifyTransaction = async (
       privateDataPermission: dApp.privateDataPermission,
       allowedPrivateData: dApp.allowedPrivateData,
       existingPermission: true,
-      transactionMessages: [...transactionMessages, ...simulatedEffects.messages],
+      transactionMessages,
       ...(customLimit.details !== undefined && {
         spendingLimitAssessment: customLimit.details.assessment
       }),
@@ -1900,7 +2222,8 @@ const generatePromisifyTransaction = async (
           delegateFromConfirmation(result),
           recipientAddress || undefined,
           customLimit.totals,
-          authorizationForDappSend(customLimit.details, result.spendingLimitAuthenticated, customLimit.totals)
+          authorizationForDappSend(customLimit.details, result.spendingLimitAuthenticated, customLimit.totals),
+          origin
         );
       });
       // Same reason as the extension branch below: the dry run above quarantined
@@ -1918,25 +2241,29 @@ const generatePromisifyTransaction = async (
     return;
   }
 
-  await requestConfirm({
+  const sheet = sheetFor(prepared, origin, req.sourcePublicKey, customTransaction.address, prepare);
+  await requestConfirmFor(origin, sheet, reject, {
     id,
-    payload: buildCustomTxConfirmPayload({
-      origin,
-      networkRpc,
-      appMeta: dApp.appMeta,
-      sourcePublicKey: req.sourcePublicKey,
-      transactionMessages: [...transactionMessages, ...simulatedEffects.messages],
-      customTransaction,
-      spendingLimitDetails: customLimit.details
-    }),
-    handleSimulate: makeSimulateHandler(id, customTransaction, simulated),
-    onDecline: () => {
-      reject(new Error(MidenDAppErrorType.NotGranted));
+    payload: async () => {
+      const { transactionMessages, customLimit } = await sheet.data();
+      return buildCustomTxConfirmPayload({
+        origin,
+        networkRpc,
+        appMeta: dApp.appMeta,
+        sourcePublicKey: req.sourcePublicKey,
+        transactionMessages,
+        customTransaction,
+        spendingLimitDetails: customLimit.details
+      });
     },
+    // The sheet's own simulate request reuses the build's dry run, so it shows what the policy assessed.
+    handleSimulate: async simulateReq =>
+      makeSimulateHandler(id, customTransaction, (await sheet.data()).simulated)(simulateReq),
     handleIntercomRequest: async (confirmReq, decline) => {
       if (confirmReq?.type === MidenMessageType.DAppTransactionConfirmationRequest && confirmReq?.id === id) {
         if (confirmReq.confirmed) {
           try {
+            const { customLimit } = await sheet.data();
             const transactionId = await withUnlocked(async () => {
               const { payload } = req.transaction;
               const { address, recipientAddress, transactionRequest, inputNoteIds, importNotes } =
@@ -1951,7 +2278,12 @@ const generatePromisifyTransaction = async (
                 confirmReq.delegate,
                 recipientAddress || undefined,
                 customLimit.totals,
-                authorizationForDappSend(customLimit.details, confirmReq.spendingLimitAuthenticated, customLimit.totals)
+                authorizationForDappSend(
+                  customLimit.details,
+                  confirmReq.spendingLimitAuthenticated,
+                  customLimit.totals
+                ),
+                origin
               );
             });
             // The transaction is queued and will consume these notes —
@@ -1996,6 +2328,7 @@ export async function requestSendTransaction(
   if (!dApp) {
     throw new Error(MidenDAppErrorType.NotGranted);
   }
+  await assertRequestAccountIsCurrent(dApp.accountId);
 
   // `.catch(reject)`: each `generatePromisify*` is an async function invoked
   // inside this executor, so a throw of its own would otherwise become an
@@ -2050,8 +2383,6 @@ const generatePromisifySendTransaction = async (
     return;
   }
 
-  let transactionMessages: string[] = [];
-  let spendingLimitDetails: SpendingLimitAssessmentDetails | undefined;
   let spends: IConsumedAssetTotal[] = [];
   try {
     // Normalize the note type ONCE, before anything reads it. It crosses
@@ -2072,26 +2403,45 @@ const generatePromisifySendTransaction = async (
     // truncates rather than rejects. Check it here so the number the approval
     // sheet renders below is the number the note is actually built with.
     assertValidRecallBlocks(req.transaction.recallBlocks);
-    transactionMessages = await withUnlocked(async () => {
-      return await formatSendTransactionPreview(req.transaction);
-    });
+    // Parsed here, before the gate, so a malformed amount is reported as one while the wallet is locked.
     spends = [{ faucetId: req.transaction.faucetId, amount: BigInt(req.transaction.amount) }];
-    spendingLimitDetails = await assessOutgoingSpendingLimitDetails({
-      accountId: senderAddress,
-      spends
-    });
   } catch (e) {
-    // Through the mapper: the assessment above can raise a policy error from a storage read or a
-    // malformed record, and a malformed REQUEST is the only thing InvalidParams should mean.
     reject(dappSendFailure(e));
     return;
   }
 
+  const prepare = async () => {
+    try {
+      const transactionMessages = await withUnlocked(async () => formatSendTransactionPreview(req.transaction));
+      const spendingLimitDetails = await assessOutgoingSpendingLimitDetails({ accountId: senderAddress, spends });
+      return { transactionMessages, spendingLimitDetails };
+    } catch (e) {
+      if (isWalletLockedError(e)) throw e;
+      // Through the mapper: the assessment above can raise a policy error from a storage read or a
+      // malformed record, and a malformed REQUEST is the only thing InvalidParams should mean.
+      throw dappSendFailure(e);
+    }
+  };
+  const prepared = await prepareOrReject(prepare, reject);
+  if (prepared === undefined) return;
+
   // On mobile/desktop, use confirmation store to request user approval
   if (!isExtension()) {
     dappDebug('[DApp] Non-extension requesting send transaction confirmation');
+    const waits: UnlockWaits = {};
+    const sheetData = await sheetDataOnNonExtension(
+      origin,
+      req.sourcePublicKey,
+      senderAddress,
+      prepared,
+      prepare,
+      reject,
+      waits
+    );
+    if (sheetData === undefined) return;
+    const { transactionMessages, spendingLimitDetails } = sheetData;
 
-    const result = await dappConfirmationStore.requestConfirmation({
+    const result = await requestConfirmationWithWatchdog(waits.deadline, {
       id,
       sessionId,
       type: 'transaction',
@@ -2132,7 +2482,8 @@ const generatePromisifySendTransaction = async (
           BigInt(amount),
           recallBlocks,
           delegateFromConfirmation(result),
-          spendingLimitAuthorization
+          spendingLimitAuthorization,
+          origin
         );
       });
       startDappBackgroundProcessing();
@@ -2146,28 +2497,30 @@ const generatePromisifySendTransaction = async (
     return;
   }
 
-  await requestConfirm({
+  const sheet = sheetFor(prepared, origin, req.sourcePublicKey, senderAddress, prepare);
+  await requestConfirmFor(origin, sheet, reject, {
     id,
-    payload: {
-      type: 'transaction',
-      origin,
-      networkRpc,
-      appMeta: dApp.appMeta,
-      sourcePublicKey: req.sourcePublicKey,
-      transactionMessages,
-      preview: null,
-      ...(spendingLimitDetails !== undefined &&
-        spendingLimitDetails.assessment.breach !== undefined && {
-          spendingLimitAssessment: toSerializedSpendingLimitAssessment(spendingLimitDetails.assessment)
-        })
-    },
-    onDecline: () => {
-      reject(new Error(MidenDAppErrorType.NotGranted));
+    payload: async () => {
+      const { transactionMessages, spendingLimitDetails } = await sheet.data();
+      return {
+        type: 'transaction',
+        origin,
+        networkRpc,
+        appMeta: dApp.appMeta,
+        sourcePublicKey: req.sourcePublicKey,
+        transactionMessages,
+        preview: null,
+        ...(spendingLimitDetails !== undefined &&
+          spendingLimitDetails.assessment.breach !== undefined && {
+            spendingLimitAssessment: toSerializedSpendingLimitAssessment(spendingLimitDetails.assessment)
+          })
+      };
     },
     handleIntercomRequest: async (confirmReq, decline) => {
       if (confirmReq?.type === MidenMessageType.DAppTransactionConfirmationRequest && confirmReq?.id === id) {
         if (confirmReq.confirmed) {
           try {
+            const { spendingLimitDetails } = await sheet.data();
             const transactionId = await withUnlocked(async () => {
               await assertDappSendStillAuthorized(origin, req.sourcePublicKey, senderAddress);
               const spendingLimitAuthorization = authorizationForDappSend(
@@ -2184,7 +2537,8 @@ const generatePromisifySendTransaction = async (
                 BigInt(amount),
                 recallBlocks,
                 confirmReq.delegate,
-                spendingLimitAuthorization
+                spendingLimitAuthorization,
+                origin
               );
             });
             startDappBackgroundProcessing();
@@ -2223,6 +2577,7 @@ export async function requestConsumeTransaction(
   if (!dApp) {
     throw new Error(MidenDAppErrorType.NotGranted);
   }
+  await assertRequestAccountIsCurrent(dApp.accountId);
 
   // `.catch(reject)`: each `generatePromisify*` is an async function invoked
   // inside this executor, so a throw of its own would otherwise become an
@@ -2244,21 +2599,44 @@ const generatePromisifyConsumeTransaction = async (
   const id = nanoid();
   const networkRpc = await getNetworkRPC(dApp.network);
 
-  let transactionMessages: string[] = [];
+  // Bytes that describe another note are a malformed request, refused before the gate so a locked wallet says so too.
+  let carried: ResolvedConsumeNote | null = null;
   try {
-    transactionMessages = await withUnlocked(async () => {
-      return await formatConsumeTransactionPreview(req.transaction);
-    });
+    carried = await decodeCarriedConsumeNoteLocked(req.transaction);
   } catch (e) {
     reject(new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`));
     return;
   }
+  const prepare = async () => {
+    try {
+      return await withUnlocked(async () =>
+        formatConsumeTransactionPreview(req.transaction, carried, req.sourcePublicKey)
+      );
+    } catch (e) {
+      if (isWalletLockedError(e)) throw e;
+      throw new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`);
+    }
+  };
+  const prepared = await prepareOrReject(prepare, reject);
+  if (prepared === undefined) return;
 
   // On mobile/desktop, use confirmation store to request user approval
   if (!isExtension()) {
     dappDebug('[DApp] Non-extension requesting consume transaction confirmation');
+    const waits: UnlockWaits = {};
+    const sheetData = await sheetDataOnNonExtension(
+      origin,
+      req.sourcePublicKey,
+      dApp.accountId,
+      prepared,
+      prepare,
+      reject,
+      waits
+    );
+    if (sheetData === undefined) return;
+    const { noteId, messages: transactionMessages } = sheetData;
 
-    const result = await dappConfirmationStore.requestConfirmation({
+    const result = await requestConfirmationWithWatchdog(waits.deadline, {
       id,
       sessionId,
       type: 'consume',
@@ -2280,21 +2658,27 @@ const generatePromisifyConsumeTransaction = async (
 
     try {
       const transactionId = await withUnlocked(async () => {
-        const { noteId, noteBytes } = req.transaction;
+        // The same re-check send and custom perform: a consume approved for a stale session moves value too (#1415).
+        await assertDappSendStillAuthorized(origin, req.sourcePublicKey, dApp.accountId);
+        const { noteBytes } = req.transaction;
         if (noteBytes) {
-          await queueNoteImport(noteBytes);
+          await importConsumeNoteBytes(req.transaction);
+          // The import can run long; the account or session may have changed under it.
+          await assertDappSendStillAuthorized(origin, req.sourcePublicKey, dApp.accountId);
         }
         // `manualRetry`: the user just approved THIS consume on the sheet, so it
         // must not be dropped by auto-consume's exponential backoff — which
         // would queue nothing and answer the dApp with the previous attempt's
-        // Failed row id. The last `true` refuses a note another transaction holds
-        // rather than answer with that transaction (see the callee).
+        // Failed row id. `origin` refuses a note another transaction holds rather
+        // than answer with that transaction, and lets this origin wait on the
+        // answer (see the callee).
         return await initiateConsumeTransactionFromId(
           req.sourcePublicKey,
           noteId,
           delegateFromConfirmation(result),
           true,
-          true
+          origin,
+          'dapp'
         );
       });
       startDappBackgroundProcessing();
@@ -2303,43 +2687,52 @@ const generatePromisifyConsumeTransaction = async (
         transactionId
       });
     } catch (e) {
-      reject(new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`));
+      // A killed note import may have landed and the bytes are queued: not bad params.
+      reject(importPrivateNoteFailure(e));
     }
     return;
   }
 
-  await requestConfirm({
+  const sheet = sheetFor(prepared, origin, req.sourcePublicKey, dApp.accountId, prepare);
+  await requestConfirmFor(origin, sheet, reject, {
     id,
-    payload: {
-      type: 'consume',
-      origin,
-      networkRpc,
-      appMeta: dApp.appMeta,
-      sourcePublicKey: req.sourcePublicKey,
-      transactionMessages,
-      noteId: req.transaction.noteId
-    },
-    onDecline: () => {
-      reject(new Error(MidenDAppErrorType.NotGranted));
+    payload: async () => {
+      const { noteId, messages } = await sheet.data();
+      return {
+        type: 'consume',
+        origin,
+        networkRpc,
+        appMeta: dApp.appMeta,
+        sourcePublicKey: req.sourcePublicKey,
+        transactionMessages: messages,
+        noteId
+      };
     },
     handleIntercomRequest: async (confirmReq, decline) => {
       if (confirmReq?.type === MidenMessageType.DAppTransactionConfirmationRequest && confirmReq?.id === id) {
         if (confirmReq.confirmed) {
           try {
             const transactionId = await withUnlocked(async () => {
-              const { noteId, noteBytes } = req.transaction;
+              // See the mobile/desktop arm: same post-approval re-check.
+              await assertDappSendStillAuthorized(origin, req.sourcePublicKey, dApp.accountId);
+              // The note the popup showed, kept by the sheet: a details commitment resolved to its note id (#1389).
+              const { noteId } = await sheet.data();
+              const { noteBytes } = req.transaction;
               if (noteBytes) {
-                await queueNoteImport(noteBytes);
+                await importConsumeNoteBytes(req.transaction);
+                // See the mobile/desktop arm: the import can outlast the approval's check.
+                await assertDappSendStillAuthorized(origin, req.sourcePublicKey, dApp.accountId);
               }
               // `manualRetry`: approved on the confirm page — see the
               // non-extension branch above for why the backoff must not apply,
-              // and why the last `true`.
+              // and why `origin`.
               return await initiateConsumeTransactionFromId(
                 req.sourcePublicKey,
                 noteId,
                 confirmReq.delegate,
                 true,
-                true
+                origin,
+                'dapp'
               );
             });
             startDappBackgroundProcessing();
@@ -2348,7 +2741,8 @@ const generatePromisifyConsumeTransaction = async (
               transactionId
             });
           } catch (e) {
-            reject(new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`));
+            // Same mapping as the non-extension branch above.
+            reject(importPrivateNoteFailure(e));
           }
         } else {
           decline();
@@ -2363,14 +2757,46 @@ const generatePromisifyConsumeTransaction = async (
   });
 };
 
-export async function waitForTransaction(req: MidenDAppWaitForTxRequest): Promise<MidenDAppWaitForTxResponse> {
-  if (!req.txId) {
+// Only an origin the wallet answered with this row's id may read its outcome, and only while it holds a session on the
+// row's account (#1416). Neither the current account nor the lock matters: the row names the account, and a dApp
+// waiting on its own transaction must survive an account switch or an auto-lock. A missing row is refused the same
+// way, so the answer never says whether an id exists.
+const assertDappMayReadTransaction = async (origin: string, txId: string): Promise<ITransaction> => {
+  const row = await Repo.transactions.get(txId);
+  if (
+    row === undefined ||
+    row.restoredFromBackup === true ||
+    row.recovered === true ||
+    !(row.dappOrigins ?? []).includes(origin)
+  ) {
+    throw new Error(MidenDAppErrorType.NotGranted);
+  }
+  const sessions = (await getAllDApps())[origin] ?? [];
+  if (!sessions.some(session => sameWalletAccountId(session.accountId, row.accountId))) {
+    throw new Error(MidenDAppErrorType.NotGranted);
+  }
+  return row;
+};
+
+export async function waitForTransaction(
+  origin: string,
+  req: MidenDAppWaitForTxRequest
+): Promise<MidenDAppWaitForTxResponse> {
+  // A non-string id would reach Dexie's `get` as a where-clause object and match some other row.
+  if (typeof req.txId !== 'string' || req.txId === '') {
     throw new Error(MidenDAppErrorType.InvalidParams);
   }
+  // Before the wait starts: its answers name the on-chain id and the raw failure text.
+  await assertDappMayReadTransaction(origin, req.txId);
   const res = await waitForTransactionCompletion(req.txId);
+  // The wait lasts up to five minutes; a disconnect or a restore meanwhile gets no result.
+  const row = await assertDappMayReadTransaction(origin, req.txId);
+  // The consume dedup can grant a dApp a claim that covers other notes too, and the output notes those emitted are not
+  // its to read: it learns the outcome alone.
+  const sharedClaim = row.type === 'consume' && (row.noteIds?.length ?? 0) > 1;
   return {
     type: MidenDAppMessageType.WaitForTransactionResponse,
-    transactionOutput: res
+    transactionOutput: sharedClaim && 'outputNotes' in res ? { txHash: res.txHash, outputNotes: [] } : res
   };
 }
 
@@ -2419,22 +2845,70 @@ function setDApps(newDApps: MidenDAppSessions) {
 
 type RequestConfirmParams = {
   id: string;
-  payload: MidenDAppPayload;
+  // A function is built when the popup first asks for its payload, which it does only once unlocked (#1414).
+  payload: MidenDAppPayload | (() => Promise<MidenDAppPayload>);
   onDecline: () => void;
+  // Answers the dApp when a built payload fails; the popup then closes.
+  onPayloadError?: (error: unknown) => void;
+  onClose?: () => void;
   handleIntercomRequest: (req: MidenRequest, decline: () => void) => Promise<any>;
   handleSimulate?: (req: MidenRequest) => Promise<any>;
 };
 
-async function requestConfirm({ id, payload, onDecline, handleIntercomRequest, handleSimulate }: RequestConfirmParams) {
+// The last state of each recent approval, so a request no handler answered can say which state it met. The ids stay
+// in this worker's memory; only the state crosses the port, as the Not Found error's code.
+type ConfirmationState = Exclude<ConfirmationHandlerState, 'unknown'>;
+const CONFIRMATION_STATES_KEPT = 64;
+const confirmationStates = new Map<string, ConfirmationState>();
+
+function recordConfirmationState(id: string, state: ConfirmationState): void {
+  confirmationStates.delete(id);
+  confirmationStates.set(id, state);
+  for (const oldest of confirmationStates.keys()) {
+    if (confirmationStates.size <= CONFIRMATION_STATES_KEPT) return;
+    confirmationStates.delete(oldest);
+  }
+}
+
+/** The "Not Found" for a confirmation request no handler answered, coded with the state its approval reached. */
+export function confirmationNotFound(req: unknown): Error & { code: string } {
+  const sent: unknown = typeof req === 'object' && req !== null && 'id' in req ? req.id : undefined;
+  // The payload request sends the popup's SWR key, an array holding the id.
+  const id: unknown = Array.isArray(sent) ? sent[0] : sent;
+  const state = typeof id === 'string' ? confirmationStates.get(id) : undefined;
+  return Object.assign(new Error('Not Found'), { code: `confirmation_${state ?? 'unknown'}` });
+}
+
+async function requestConfirm({
+  id,
+  payload,
+  onDecline,
+  onPayloadError,
+  onClose,
+  handleIntercomRequest,
+  handleSimulate
+}: RequestConfirmParams) {
   /* c8 ignore start */ if (!isExtension())
     throw new Error('DApp confirmation popup is only available in extension context'); /* c8 ignore stop */
 
   const browser = await getBrowser();
 
   let closing = false;
-  const close = async () => {
+  const openedAt = Date.now();
+  let payloadServed = false;
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const stopTimeout = () => clearTimeout(timeout);
+  const restartTimeout = (ms: number) => {
+    stopTimeout();
+    timeout = setTimeout(() => declineAndClose('expired'), ms);
+  };
+  const capLeft = () => LOCKED_PROMPT_CAP_MS - (Date.now() - openedAt);
+  const close = async (reason: Exclude<ConfirmationState, 'open'>) => {
     /* c8 ignore start */ if (closing) return; /* c8 ignore stop */
     closing = true;
+    recordConfirmationState(id, reason);
+    // However the popup closes, a payload build still waiting for the unlock stops here (#1414).
+    onClose?.();
 
     try {
       stopTimeout();
@@ -2445,19 +2919,36 @@ async function requestConfirm({ id, payload, onDecline, handleIntercomRequest, h
     } catch (_err) {}
   };
 
-  const declineAndClose = () => {
+  const declineAndClose = (reason: 'expired' | 'window_closed') => {
     onDecline();
-    close();
+    close(reason);
   };
 
   let knownPort: Runtime.Port | undefined;
+  recordConfirmationState(id, 'open');
   const stopRequestListening = intercom.onRequest(async (req: MidenRequest, port) => {
     if (req?.type === MidenMessageType.DAppGetPayloadRequest && req.id[0] === id) {
       knownPort = port;
-
+      // The first ask can wait out an unlock and a build, which the first window may not cover: until the payload is
+      // served only the cap bounds the popup.
+      if (!payloadServed && !closing) restartTimeout(capLeft());
+      let served: MidenDAppPayload;
+      try {
+        served = typeof payload === 'function' ? await payload() : payload;
+      } catch (error) {
+        if (onPayloadError) onPayloadError(error);
+        else onDecline();
+        close('payload_failed');
+        throw error;
+      }
+      if (!payloadServed && !closing) {
+        payloadServed = true;
+        // The review gets a full window from the serve, within what the dApp queue can be held.
+        restartTimeout(Math.min(AUTODECLINE_AFTER, capLeft()));
+      }
       return {
         type: MidenMessageType.DAppGetPayloadResponse,
-        payload
+        payload: served
       };
     }
 
@@ -2472,47 +2963,25 @@ async function requestConfirm({ id, payload, onDecline, handleIntercomRequest, h
 
     const result = await handleIntercomRequest(req, onDecline);
     if (result) {
-      close();
+      close('answered');
       return result;
     }
   });
 
   const isWin = (await browser.runtime.getPlatformInfo()).os === 'win';
 
-  let left = 0;
-  let top = 0;
-  try {
-    const lastFocused = await browser.windows.getLastFocused();
-    // Position window in top right corner of lastFocused window.
+  const { confirmWin, position } = await createConfirmWindow(
+    browser,
+    {
+      type: 'popup',
+      url: browser.runtime.getURL(`confirm.html#?id=${id}`),
+      width: isWin ? CONFIRM_WINDOW_WIDTH + 16 : CONFIRM_WINDOW_WIDTH,
+      height: isWin ? CONFIRM_WINDOW_HEIGHT + 17 : CONFIRM_WINDOW_HEIGHT
+    },
+    await confirmWindowPosition(browser)
+  );
 
-    top = Math.round(lastFocused.top! + lastFocused.height! / 2 - CONFIRM_WINDOW_HEIGHT / 2);
-    left = Math.round(lastFocused.left! + lastFocused.width! / 2 - CONFIRM_WINDOW_WIDTH / 2);
-  } catch {
-    // The following properties are more than likely 0, due to being
-    // opened from the background chrome process for the extension that
-    // has no physical dimensions
-    const { screenX, screenY, outerWidth, outerHeight } = window;
-    top = Math.round(screenY + outerHeight / 2 - CONFIRM_WINDOW_HEIGHT / 2);
-    left = Math.round(screenX + outerWidth / 2 - CONFIRM_WINDOW_WIDTH / 2);
-  }
-
-  left = Math.max(left, 20);
-  top = Math.max(top, 20);
-
-  const confirmWin = await browser.windows.create({
-    type: 'popup',
-    url: browser.runtime.getURL(`confirm.html#?id=${id}`),
-    width: isWin ? CONFIRM_WINDOW_WIDTH + 16 : CONFIRM_WINDOW_WIDTH,
-    height: isWin ? CONFIRM_WINDOW_HEIGHT + 17 : CONFIRM_WINDOW_HEIGHT,
-    top,
-    left
-  });
-
-  // Firefox currently ignores left/top for create, but it works for update
-  if (confirmWin.id && confirmWin.left !== left && confirmWin.state !== 'fullscreen') {
-    await browser.windows.update(confirmWin.id, { left, top });
-  }
-
+  // Ready before any later await: a decline, a close or the autodecline must be able to remove a window that exists.
   const closeWindow = async () => {
     if (confirmWin.id) {
       const win = await browser.windows.get(confirmWin.id);
@@ -2524,15 +2993,63 @@ async function requestConfirm({ id, payload, onDecline, handleIntercomRequest, h
 
   const handleWinRemoved = (winId: number) => {
     if (winId === confirmWin?.id) {
-      declineAndClose();
+      declineAndClose('window_closed');
     }
   };
   browser.windows.onRemoved.addListener(handleWinRemoved);
   const stopWinRemovedListening = () => browser.windows.onRemoved.removeListener(handleWinRemoved);
 
-  // Decline after timeout
-  const t = setTimeout(declineAndClose, AUTODECLINE_AFTER);
-  const stopTimeout = () => clearTimeout(t);
+  // Firefox currently ignores left/top for create, but it works for update
+  if (position && confirmWin.id && confirmWin.left !== position.left && confirmWin.state !== 'fullscreen') {
+    try {
+      await browser.windows.update(confirmWin.id, position);
+    } catch {
+      // Chrome checks a move at the window's current size and refuses one that leaves it mostly off-screen; the popup
+      // then stays where the browser put it.
+    }
+  }
+
+  // Decline after timeout, unless a payload request already armed the cap while the window was being created.
+  if (!closing && timeout === undefined) restartTimeout(AUTODECLINE_AFTER);
+}
+
+type ConfirmWindowPosition = { left: number; top: number };
+
+// Centred on the last-focused browser window. The last-focused window can be another approval popup that is closing or
+// that something resized, and a popup centred on it lands off to one side, so any other type gives way to the browser
+// windows getAll lists (the polyfill declares a type filter for getAll, not for getLastFocused). The request does not
+// say which window the dApp runs in, so a dApp in its own app or popup window gets its confirm on the browser window,
+// and with no browser window open the browser places it.
+async function confirmWindowPosition(browser: Browser): Promise<ConfirmWindowPosition | undefined> {
+  let anchor = await browser.windows.getLastFocused().catch(() => undefined);
+  if (anchor?.type !== 'normal') {
+    const browserWindows = await browser.windows.getAll({ windowTypes: ['normal'] }).catch((): Windows.Window[] => []);
+    anchor = browserWindows.find(win => win.focused) ?? browserWindows[0];
+  }
+  // The service worker has no `window` to measure instead: with no anchor, the browser places the popup.
+  if (!anchor) return undefined;
+  const { left, top, width, height } = anchor;
+  if (left === undefined || top === undefined || width === undefined || height === undefined) return undefined;
+  return {
+    left: Math.max(Math.round(left + width / 2 - CONFIRM_WINDOW_WIDTH / 2), 20),
+    top: Math.max(Math.round(top + height / 2 - CONFIRM_WINDOW_HEIGHT / 2), 20)
+  };
+}
+
+// Chrome refuses to create a window mostly off-screen, as one centred on a window dragged away or left on an unplugged
+// display would be; given no position, it places the window itself.
+async function createConfirmWindow(
+  browser: Browser,
+  popup: Windows.CreateCreateDataType,
+  position: ConfirmWindowPosition | undefined
+): Promise<{ confirmWin: Windows.Window; position: ConfirmWindowPosition | undefined }> {
+  if (!position) return { confirmWin: await browser.windows.create(popup), position };
+  try {
+    return { confirmWin: await browser.windows.create({ ...popup, ...position }), position };
+  } catch (error) {
+    if (!(error instanceof Error && /\bbounds\b/i.test(error.message))) throw error;
+    return { confirmWin: await browser.windows.create(popup), position: undefined };
+  }
 }
 
 export async function getNetworkRPC(net: string | undefined) {
@@ -2545,6 +3062,11 @@ export async function getNetworkRPC(net: string | undefined) {
       throw new Error(MidenDAppErrorType.NetworkNotGranted);
     }
     return current.rpcBaseURL;
+  }
+  // Only a mainnet wallet takes a mainnet claim. A test-network claim still reaches a mainnet wallet, whose
+  // connect sheet warns, because the adapter cannot name mainnet yet.
+  if (net === MIDEN_NETWORK_NAME.MAINNET && getEffectiveNetworkName() !== MIDEN_NETWORK_NAME.MAINNET) {
+    throw new Error(MidenDAppErrorType.NetworkNotGranted);
   }
   const found = NETWORKS.find(n => n.id === net);
   if (!found) {
@@ -2621,8 +3143,16 @@ async function formatSendTransactionPreview(transaction: SendTransaction): Promi
 
 /** The note a consume request will actually consume, as resolved by the wallet. */
 interface ResolvedConsumeNote {
+  noteId: string;
   assets: Asset[];
   noteType: string;
+  restriction?: ConsumeRestriction;
+}
+
+/** What a consume sheet shows, and the id of the note it shows, which is the note the approved consume spends. */
+interface ConsumePreview {
+  noteId: string;
+  messages: string[];
 }
 
 /**
@@ -2631,17 +3161,20 @@ interface ResolvedConsumeNote {
  * (see `noteIdFromBytes` in note-quarantine.ts). Returns the note's id alongside
  * its real assets and type, or null when neither format parses.
  */
-function decodeConsumeNoteBytes(noteBytesB64: string): (ResolvedConsumeNote & { noteId: string }) | null {
-  // Never throws: any unreadable byte string just means "the wallet could not
-  // decode this", and the caller falls back to reading the note from the store.
-  // Refusing the whole request here would break a legitimate dApp that carries a
-  // format this build cannot parse but whose note IS resolvable locally.
+function decodeConsumeNoteBytes(noteBytesB64: string): (ResolvedConsumeNote & { details: NoteDetailsParts }) | null {
+  // Never throws for bytes it cannot read: any unreadable byte string just means
+  // "the wallet could not decode this", and the caller falls back to reading the
+  // note from the store. Refusing the whole request here would break a legitimate
+  // dApp that carries a format this build cannot parse but whose note IS resolvable
+  // locally. A WebAssembly trap is no such string: it is rethrown for the caller's
+  // lock, which retires the client the aborted module belongs to.
   try {
     const bytes = b64ToU8(noteBytesB64);
     let note: Note | undefined;
     try {
       note = NoteFile.deserialize(bytes).note();
-    } catch {
+    } catch (error) {
+      if (error instanceof WebAssembly.RuntimeError) throw error;
       // Not a NoteFile — fall through to a bare Note.
     }
     if (!note) {
@@ -2650,7 +3183,9 @@ function decodeConsumeNoteBytes(noteBytesB64: string): (ResolvedConsumeNote & { 
     const metadata = note.metadata();
     return {
       noteId: note.id().toString(),
+      details: note,
       noteType: metadata ? toNoteTypeString(metadata.noteType()) : 'unknown',
+      restriction: noteConsumeRestriction(note),
       assets: note
         .assets()
         .fungibleAssets()
@@ -2659,53 +3194,132 @@ function decodeConsumeNoteBytes(noteBytesB64: string): (ResolvedConsumeNote & { 
           faucetId: getBech32AddressFromAccountId(asset.faucetId())
         }))
     };
-  } catch {
+  } catch (error) {
+    if (error instanceof WebAssembly.RuntimeError) throw error;
     return null;
   }
 }
 
 /**
- * Ground truth for a consume request: what the note the wallet will consume
- * actually holds.
- *
- * Execution uses ONLY `transaction.noteId` — `initiateConsumeTransactionFromId`
- * loads the note from the store and explicitly blanks the request's declared
- * `faucetId`/`amount`/`senderAddress` (transaction/initiate.ts). So the
- * dApp-declared faucet, amount and note type provably cannot influence the
- * transaction, and rendering them on the approval screen shows the user numbers
- * with no causal relationship to what they are authorizing (e.g. "+500 USDC" over
- * an attacker's asset-less note). Resolve the note instead — from the carried
- * bytes when they are supplied (rejecting bytes whose id is not the id that will
- * be consumed), else from the local store — and refuse the request when it cannot
- * be resolved at all, rather than prompting with unverifiable numbers.
+ * The note that carried bytes describe, or null when they do not decode. The request may name the note by its id or
+ * its details commitment; bytes matching neither are refused. The returned id is the note's own id for consumption.
  */
-async function resolveConsumeNote(transaction: MidenConsumeTransaction): Promise<ResolvedConsumeNote> {
+function decodeCarriedConsumeNote(transaction: MidenConsumeTransaction): ResolvedConsumeNote | null {
   if (transaction.noteBytes) {
     const decoded = decodeConsumeNoteBytes(transaction.noteBytes);
     if (decoded) {
       if (decoded.noteId !== transaction.noteId) {
-        throw new Error('noteBytes describe a different note than noteId — refusing to preview it');
+        let commitment: string | undefined;
+        try {
+          commitment = noteDetailsCommitment(decoded.details);
+        } catch (error) {
+          if (error instanceof WebAssembly.RuntimeError) throw error;
+        }
+        if (commitment !== normalizedCommitment(transaction.noteId)) {
+          throw new Error('noteBytes describe a different note than noteId - refusing to preview it');
+        }
       }
-      return { assets: decoded.assets, noteType: decoded.noteType };
+      return {
+        noteId: decoded.noteId,
+        assets: decoded.assets,
+        noteType: decoded.noteType,
+        restriction: decoded.restriction
+      };
     }
   }
+  return null;
+}
 
-  const [details] = await withWasmClientLock(async hold =>
-    midenClientProxy.getInputNoteDetails({ ids: [transaction.noteId] }, () =>
+/**
+ * {@link decodeCarriedConsumeNote} under the WASM lock: a decode that traps rejects the hold, so the lock retires the
+ * client before any later call can run on it, and the request is refused rather than read from the store.
+ */
+async function decodeCarriedConsumeNoteLocked(
+  transaction: MidenConsumeTransaction
+): Promise<ResolvedConsumeNote | null> {
+  if (!transaction.noteBytes) return null;
+  return await withWasmClientLock(async () => decodeCarriedConsumeNote(transaction));
+}
+
+/**
+ * Ground truth for a consume sheet and its approved spend. Carried bytes are checked against the request's id,
+ * which may be their note id or details commitment. A note-id match keeps the request's id; a commitment match
+ * spends the resolved note's own id. Without decodable bytes, resolve from the store, scoped to this account for
+ * commitment matches. Refuse an unresolved note rather than show dApp-declared assets unrelated to the spend.
+ */
+async function resolveConsumeNote(
+  transaction: MidenConsumeTransaction,
+  accountId: string
+): Promise<ResolvedConsumeNote> {
+  const carried = await decodeCarriedConsumeNoteLocked(transaction);
+  if (carried) return carried;
+
+  const resolved = await withWasmClientLock(async hold => {
+    const [byNoteId] = await midenClientProxy.getInputNoteDetails({ ids: [transaction.noteId] }, () =>
       assertWasmHoldCurrent(hold, 'inside the note-preview read, before the record reach-through')
-    )
-  );
-  if (!details) {
-    throw new Error(`Note ${transaction.noteId} could not be resolved — refusing to preview it`);
+    );
+    // A note found by its id is consumed by the id exactly as the request spells it.
+    if (byNoteId) return { details: byNoteId, noteId: transaction.noteId };
+    assertWasmHoldCurrent(hold, 'after the note-preview read');
+    const byCommitment = await noteOfDetailsCommitment(transaction.noteId, accountId, hold);
+    return byCommitment && { details: byCommitment, noteId: byCommitment.noteId };
+  });
+  if (!resolved) {
+    throw new Error(
+      `Note ${transaction.noteId} could not be resolved - an imported note resolves once the wallet has synced it`
+    );
   }
+  const { details, noteId } = resolved;
   return {
+    noteId,
     assets: details.assets,
-    noteType: details.noteType !== undefined ? toNoteTypeString(details.noteType) : 'unknown'
+    noteType: details.noteType !== undefined ? toNoteTypeString(details.noteType) : 'unknown',
+    restriction: details.restriction
   };
 }
 
-async function formatConsumeTransactionPreview(transaction: MidenConsumeTransaction): Promise<string[]> {
-  const { assets, noteType } = await resolveConsumeNote(transaction);
+/**
+ * The note of this account whose details commitment is `commitment`: the id `importPrivateNote` returns for a
+ * details-only note file or a bare Note, which no record has as its note id (#1389). Only a note this account can
+ * consume is listed and hashed, the same attribution {@link getPrivateNoteDetails} uses, so the id never resolves
+ * to another account's note. An uncommitted match remains unresolved until a wallet sync supplies its metadata.
+ */
+async function noteOfDetailsCommitment(
+  commitment: string,
+  accountId: string,
+  hold: WasmLockHold
+): Promise<DetailsCommitmentMatches['notes'][number] | undefined> {
+  const consumable = await midenClientProxy.getConsumableNotes(accountId, step =>
+    assertWasmHoldCurrent(hold, 'inside the details-commitment consumable-notes read', step)
+  );
+  assertWasmHoldCurrent(hold, 'after the details-commitment consumable-notes read');
+  const own = new Set(consumable.flatMap(note => (note.noteId ? [note.noteId] : [])));
+  const [{ notes } = { notes: [] }] = await midenClientProxy.getDetailsCommitmentMatches([commitment], [...own], () =>
+    assertWasmHoldCurrent(hold, 'inside the details-commitment read, before the record reach-through')
+  );
+  if (notes.length > 0) {
+    const [note, ...more] = notes.filter(candidate => own.has(candidate.noteId));
+    if (more.length > 0) {
+      throw new Error(`Note ${commitment} names more than one note this account can consume - refusing to preview it`);
+    }
+    if (note) return note;
+  }
+  return undefined;
+}
+
+async function formatConsumeTransactionPreview(
+  transaction: MidenConsumeTransaction,
+  // Decoded before the gate; null makes this decode again, since a service worker that had not loaded the SDK
+  // before the unlock could not read the bytes then.
+  carried: ResolvedConsumeNote | null,
+  accountId: string
+): Promise<ConsumePreview> {
+  const { noteId, assets, noteType, restriction } = carried ?? (await resolveConsumeNote(transaction, accountId));
+  // Refused here, before the sheet: once approved, the consume would fail at execution with ERR_RECLAIM_DISABLED, and
+  // nothing before execution asks whether the account can consume the note.
+  if (!mayConsume(restriction, () => accountRefToSdk(accountId))) {
+    throw new Error('This account can never consume this note - refusing it');
+  }
   const headlineFaucet = assets[0]?.faucetId;
   const messages = [
     headlineFaucet
@@ -2723,7 +3337,7 @@ async function formatConsumeTransactionPreview(transaction: MidenConsumeTransact
   if (maxFee) {
     messages.push(`Network fee (max), ${maxFee}`);
   }
-  return messages;
+  return { noteId, messages };
 }
 
 /**
@@ -3016,7 +3630,15 @@ function consentReason(e: unknown): string {
   if (isPipelineKillLink(e)) {
     return 'the simulation was interrupted before it finished';
   }
-  return e instanceof Error ? e.message : String(e);
+  return dryRunFailureReason(e instanceof Error ? e.message : String(e));
+}
+
+/**
+ * A failed dry run's text as the wallet shows it or hands it on. The dry run executes the bytes the write would, so a
+ * kernel failure the Failed row would name reads through that row's copy rather than as its hashed code (#1475).
+ */
+function dryRunFailureReason(text: string): string {
+  return deterministicKernelFailureCopy(text) ?? text;
 }
 
 // Background-safe helpers (duplicated from UI without UI deps)

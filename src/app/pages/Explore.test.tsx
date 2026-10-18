@@ -6,14 +6,19 @@ import BigNumber from 'bignumber.js';
 import { resetHiddenTokens, useHiddenTokens } from 'app/hooks/useHiddenTokens';
 import {
   publishMockBridgeSnapshot,
-  TEST_BRIDGE_CONFIG,
   TEST_BRIDGE_CONFIG_SNAPSHOT,
   TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET,
-  TEST_NATIVE_ETH_FAUCET as MIDEN_AGGLAYER_FAUCET_ID
+  TEST_NATIVE_ETH_FAUCET as MIDEN_AGGLAYER_FAUCET_ID,
+  testSnapshotWithSwapPairs
 } from 'lib/epoch/testing/bridge-config';
 import { deferred } from 'lib/epoch/testing/earn-locks';
 import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
-import { TEST_SWAP_TOKENS, TEST_TOKEN_IBTC, TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
+import {
+  TEST_SWAP_TOKENS,
+  TEST_TOKEN_IBTC,
+  TEST_TOKEN_IETH,
+  testSwapPairsToken
+} from 'lib/miden/swap/testing/registry';
 import { _setSwapTokensForTest } from 'lib/miden/swap/tokens';
 import { hapticLight } from 'lib/mobile/haptics';
 import { hasUnquotedDefaultPrice } from 'lib/prices/unquoted-default';
@@ -78,6 +83,9 @@ const mockSignTransaction = jest.fn();
 const mockMutateBalances = jest.fn();
 const mockMutateClaimableNotes = jest.fn();
 const mockInitiateConsumeTransaction = jest.fn();
+// The suite's batch enqueue fails, so the page falls back to one claim per note, which the per-note assertions follow;
+// a test that sets its own implementation gets the batch path.
+const mockInitiateConsumeNotesTransaction = jest.fn();
 const mockRequestSWTransactionProcessing = jest.fn();
 const mockStartBackgroundTransactionProcessing = jest.fn();
 const mockNavigate = jest.fn();
@@ -233,6 +241,7 @@ jest.mock('lib/i18n/numbers', () => ({
 }));
 
 jest.mock('lib/miden/activity', () => ({
+  initiateConsumeNotesTransaction: (...args: any[]) => mockInitiateConsumeNotesTransaction(...args),
   initiateConsumeTransaction: (...args: any[]) => mockInitiateConsumeTransaction(...args),
   requestSWTransactionProcessing: (...args: any[]) => mockRequestSWTransactionProcessing(...args),
   startBackgroundTransactionProcessing: (...args: any[]) => mockStartBackgroundTransactionProcessing(...args)
@@ -294,7 +303,10 @@ jest.mock('lib/settings/helpers', () => ({
   isDelegateProofEnabled: () => mockDelegateProof
 }));
 
+// The wallet store's lock state, as the claim guard reads it.
+let mockWalletReady = true;
 jest.mock('lib/store', () => ({
+  isWalletReadyNow: () => mockWalletReady,
   useWalletStore: (selector: (s: any) => unknown) => selector({ tokenPrices: mockTokenPrices })
 }));
 
@@ -364,6 +376,8 @@ describe('Explore', () => {
       return Promise.resolve();
     });
     mockInitiateConsumeTransaction.mockResolvedValue(undefined);
+    mockInitiateConsumeNotesTransaction.mockRejectedValue(new Error('batch enqueue failed'));
+    mockWalletReady = true;
     mockMutateBalances.mockResolvedValue(undefined);
     mockMutateClaimableNotes.mockResolvedValue(undefined);
     consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
@@ -391,28 +405,13 @@ describe('Explore', () => {
         expect(listedIds()).toEqual([TEST_TOKEN_IETH.faucetId, TEST_TOKEN_IBTC.faucetId]);
 
         act(() => {
-          mockBridgeSnapshot = {
-            ...TEST_BRIDGE_CONFIG_SNAPSHOT,
-            config: {
-              ...TEST_BRIDGE_CONFIG,
-              swap: {
-                tokens: [
-                  {
-                    symbol: TEST_TOKEN_IETH.symbol,
-                    faucetId: TEST_TOKEN_IETH.faucetId,
-                    decimals: TEST_TOKEN_IETH.decimals,
-                    priceSymbol: 'BTC'
-                  },
-                  {
-                    symbol: TEST_TOKEN_IBTC.symbol,
-                    faucetId: TEST_TOKEN_IBTC.faucetId,
-                    decimals: TEST_TOKEN_IBTC.decimals,
-                    priceSymbol: 'ETH'
-                  }
-                ]
-              }
-            }
-          };
+          mockBridgeSnapshot = testSnapshotWithSwapPairs({
+            tokens: [
+              testSwapPairsToken({ ...TEST_TOKEN_IETH, priceSymbol: 'BTC' }),
+              testSwapPairsToken({ ...TEST_TOKEN_IBTC, priceSymbol: 'ETH' })
+            ],
+            pairs: []
+          });
           publishMockBridgeSnapshot();
         });
         expect(listedIds()).toEqual([TEST_TOKEN_IBTC.faucetId, TEST_TOKEN_IETH.faucetId]);
@@ -433,21 +432,10 @@ describe('Explore', () => {
         expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^\u2014$/);
 
         act(() => {
-          mockBridgeSnapshot = {
-            ...TEST_BRIDGE_CONFIG_SNAPSHOT,
-            config: {
-              ...TEST_BRIDGE_CONFIG,
-              swap: {
-                tokens: [
-                  {
-                    symbol: TEST_TOKEN_IETH.symbol,
-                    faucetId: TEST_TOKEN_IETH.faucetId,
-                    decimals: TEST_TOKEN_IETH.decimals
-                  }
-                ]
-              }
-            }
-          };
+          mockBridgeSnapshot = testSnapshotWithSwapPairs({
+            tokens: [testSwapPairsToken({ ...TEST_TOKEN_IETH, priceSymbol: undefined })],
+            pairs: []
+          });
           publishMockBridgeSnapshot();
         });
         expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^100$/);
@@ -1403,7 +1391,10 @@ describe('Explore', () => {
       expect(mockInitiateConsumeTransaction).toHaveBeenCalledWith(
         'mtst1account',
         expect.objectContaining({ id: 'actual-note' }),
-        expect.any(Boolean)
+        expect.any(Boolean),
+        false,
+        'auto_consume',
+        expect.any(Function)
       );
       expect(mockInitiateConsumeTransaction).toHaveBeenCalledTimes(1);
       expect(screen.getByTestId('home-prompts')).toHaveAttribute('data-note-count', '1');
@@ -1426,7 +1417,10 @@ describe('Explore', () => {
       expect(mockInitiateConsumeTransaction).toHaveBeenCalledWith(
         'mtst1account',
         expect.objectContaining({ id: 'n1' }),
-        true // isDelegatedProvingEnabled
+        true, // isDelegatedProvingEnabled
+        false,
+        'auto_consume',
+        expect.any(Function)
       );
       expect(mockMutateClaimableNotes).toHaveBeenCalled();
       expect(mockRequestSWTransactionProcessing).toHaveBeenCalledTimes(1);
@@ -1469,7 +1463,10 @@ describe('Explore', () => {
       expect(mockInitiateConsumeTransaction).toHaveBeenCalledWith(
         'mtst1account',
         expect.objectContaining({ id: 'n1' }),
-        false
+        false,
+        false,
+        'auto_consume',
+        expect.any(Function)
       );
       expect(mockRequestSWTransactionProcessing).not.toHaveBeenCalled();
       expect(mockStartBackgroundTransactionProcessing).toHaveBeenCalledTimes(1);
@@ -1492,6 +1489,32 @@ describe('Explore', () => {
       expect(mockMutateClaimableNotes).not.toHaveBeenCalled();
       expect(mockRequestSWTransactionProcessing).not.toHaveBeenCalled();
       expect(mockStartBackgroundTransactionProcessing).not.toHaveBeenCalled();
+    });
+
+    it('writes no row and runs no fallback when the lock lands during the batch enqueue', async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+      mockAutoConsume = true;
+      mockPlatform.isExtension = true;
+      mockClaimableNotes = [makeNote('n1', 'faucet-native', false), makeNote('n2', 'faucet-native', false)];
+      const written: string[][] = [];
+      // The claim queue's contract, pinned on real rows in initiate.batch-isolation.test.ts: the lock lands while it
+      // reads, and a guard that answers no at the write refuses it.
+      mockInitiateConsumeNotesTransaction.mockImplementation(async (...args: any[]) => {
+        mockWalletReady = false;
+        const canSign = args[7];
+        if (typeof canSign === 'function' && !canSign()) throw new Error('Claim not queued');
+        written.push(args[1].map((n: { id: string }) => n.id));
+        return 'batch-tx';
+      });
+
+      await renderExplore();
+
+      expect(mockInitiateConsumeNotesTransaction).toHaveBeenCalledTimes(1);
+      expect(written).toEqual([]);
+      expect(mockInitiateConsumeTransaction).not.toHaveBeenCalled();
+      expect(mockRequestSWTransactionProcessing).not.toHaveBeenCalled();
+      expect(mockStartBackgroundTransactionProcessing).not.toHaveBeenCalled();
+      warn.mockRestore();
     });
 
     it('consumes multiple matching notes in one pass', async () => {

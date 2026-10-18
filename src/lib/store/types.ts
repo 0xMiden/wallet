@@ -22,6 +22,7 @@ import {
   SerializedConsumableNote,
   SignEvmOperation,
   SeedPhraseStatus,
+  UsdcxBurnFeeEstimate,
   WalletAccount,
   WalletBackupMaterial,
   WalletSettings,
@@ -152,7 +153,8 @@ export interface WalletActions {
     password: string | undefined,
     mnemonic: string,
     ownMnemonic: boolean,
-    guardianEndpoint?: string
+    guardianEndpoint?: string,
+    accessCode?: string
   ) => Promise<void>;
   registerWalletFromHotKey: (
     password: string | undefined,
@@ -226,6 +228,8 @@ export interface WalletActions {
   // DApp actions
   getDAppPayload: (id: string) => Promise<any>;
   simulateCustomTransaction: (id: string) => Promise<{ summaryBytes?: string; executedBytes?: string; error?: string }>;
+  /** Native-asset base units a USDCx burn needs for its cost, from a dry run, or why it was not measured. */
+  estimateUsdcxBurnFee: (accountPublicKey: string, destinationChainId: number) => Promise<UsdcxBurnFeeEstimate>;
   confirmDAppPermission: (
     id: string,
     confirmed: boolean,
@@ -238,6 +242,7 @@ export interface WalletActions {
   confirmDAppAssets: (id: string, confirmed: boolean) => Promise<void>;
   confirmDAppImportPrivateNote: (id: string, confirmed: boolean) => Promise<void>;
   confirmDAppConsumableNotes: (id: string, confirmed: boolean) => Promise<void>;
+  confirmDAppUnlock: (id: string) => Promise<void>;
   confirmDAppTransaction: (
     id: string,
     confirmed: boolean,
@@ -259,6 +264,8 @@ export interface WalletActions {
 export interface BalanceActions {
   fetchBalances: (accountAddress: string, tokenMetadatas: Record<string, AssetMetadata>) => Promise<void>;
   setBalancesLoading: (accountAddress: string, isLoading: boolean) => void;
+  /** Drops every address's balances, loading flag and last fetch, so each reader waits for a new read. */
+  clearBalances: () => void;
 }
 
 export interface AssetActions {

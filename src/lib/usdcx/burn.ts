@@ -89,10 +89,11 @@ export async function initiateUsdcxBurn(args: {
 }): Promise<string> {
   const { senderPublicKey, faucetId, amount, destinationAddress, destinationChainId, spendingLimitAuthorization } =
     args;
+  const destination = getUsdcxDestination(destinationChainId);
   // Resolve the native asset so the checks below read a known faucet id.
   await getNativeAssetId();
   validateUsdcxWithdrawal(faucetId, destinationChainId, amount);
-  const { domain } = getUsdcxDestination(destinationChainId);
+  const { domain } = destination;
   const minimum = await readUsdcxMinimumBurn();
   if (amount < minimum) throw new UsdcxBurnError('usdcxBelowMinimumBurn');
   const built = {
@@ -100,7 +101,12 @@ export async function initiateUsdcxBurn(args: {
     destinationDomain: domain,
     faucetBech32: getBech32AddressFromAccountId(accountRefToSdk(requireUsdcxFaucetId()))
   };
-  const destinationBalanceBefore = await readUsdcxDestinationSnapshot(destinationChainId, destinationAddress);
+  const destinationBalanceBefore = await readUsdcxDestinationSnapshot(
+    destinationChainId,
+    destinationAddress,
+    undefined,
+    destination.usdc
+  );
   return initiateBridgedSendTransaction(
     senderPublicKey,
     amount,
@@ -117,7 +123,9 @@ export async function initiateUsdcxBurn(args: {
       noteId: built.burnNoteId,
       destinationDomain: built.destinationDomain,
       phase: 'pending',
-      destinationBalanceBefore
+      destinationBalanceBefore,
+      destinationUsdc: destination.usdc,
+      payoutFeeAllowance: destination.payoutFeeAllowance.toString()
     }
   );
 }

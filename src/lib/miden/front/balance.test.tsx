@@ -6,7 +6,7 @@ import { createRoot } from 'react-dom/client';
 import { act } from 'react-dom/test-utils';
 
 import { TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET } from 'lib/epoch/testing/bridge-config';
-import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
+import { getNativeAssetIdSync, getNativeAssetMetadataSync } from 'lib/miden-chain/native-asset';
 import { WalletStatus } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
 import { fetchingAddresses } from 'lib/store/utils/fetchBalances';
@@ -441,6 +441,48 @@ describe('instant balance loading', () => {
       expect(rows[0]).toMatchObject({ tokenId: MIDEN_USDC_FAUCET, fiatPrice: 2, change24h: 0.5 });
     } finally {
       jest.mocked(getNativeAssetIdSync).mockImplementation(() => 'miden-faucet-id');
+    }
+  });
+
+  // A reader with an effect on the rows, such as Send's amount check, re-renders forever on a new array per render.
+  it('keeps one placeholder across renders until the prices or the native metadata change', async () => {
+    testContainer = document.createElement('div');
+    testRoot = createRoot(testContainer);
+    fetchBalancesMock.mockImplementation(() => new Promise(() => {}));
+    let rows: TokenBalanceData[] = [];
+    const BalanceConsumer = ({ pass }: { pass: number }) => {
+      rows = useAllBalances('placeholder-identity-address', {}).data;
+      return <div data-pass={pass} />;
+    };
+
+    useWalletStore.setState({ tokenPrices: {} });
+    await act(async () => {
+      testRoot!.render(<BalanceConsumer pass={1} />);
+    });
+    const first = rows;
+    await act(async () => {
+      testRoot!.render(<BalanceConsumer pass={2} />);
+    });
+    expect(rows).toBe(first);
+
+    await act(async () => {
+      useWalletStore.setState({ tokenPrices: { ETH: { price: 2, change24h: 0.5, percentageChange24h: 1 } } });
+    });
+    const repriced = rows;
+    expect(repriced).not.toBe(first);
+    expect(repriced).toEqual(first);
+
+    // The chain's own record of the native faucet: only the scale flag differs from the provisional metadata.
+    jest.mocked(getNativeAssetMetadataSync).mockImplementation(() => ({ symbol: 'USDCX', decimals: 6 }));
+    try {
+      await act(async () => {
+        testRoot!.render(<BalanceConsumer pass={3} />);
+      });
+      expect(rows).not.toBe(repriced);
+      expect(rows[0]).toMatchObject({ tokenId: 'miden-faucet-id', balance: 0 });
+      expect(rows[0]!.metadata).toEqual({ ...repriced[0]!.metadata, scaleIsUnknown: false });
+    } finally {
+      jest.mocked(getNativeAssetMetadataSync).mockImplementation(() => null);
     }
   });
 

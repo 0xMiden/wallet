@@ -80,10 +80,13 @@ const clearEndpointOverride = jest.fn();
 // opening on a SAVED custom override is a real entry path, and the one the mount-time half of the
 // restore is about, so it has to be settable.
 let activeOverride: unknown = null;
+// The effective network's test-network key; null stands for mainnet.
+let mockTestNetworkKey: 'testnet' | 'devnet' | 'localnet' | null = 'testnet';
 jest.mock('lib/miden-chain/effective-endpoints', () => {
   const { MIDEN_NETWORK_NAME } = jest.requireActual('lib/miden-chain/constants');
   return {
     getActiveOverride: () => activeOverride,
+    getTestNetworkNameKey: () => mockTestNetworkKey,
     applyEndpointOverride: (o: unknown) => applyEndpointOverride(o),
     clearEndpointOverride: () => clearEndpointOverride(),
     getEffectiveNetworkName: () => MIDEN_NETWORK_NAME.TESTNET,
@@ -129,6 +132,18 @@ const mockRetireGuardianSyncPasses = jest.fn();
 jest.mock('lib/miden/front/guardian-sync', () => ({
   retireGuardianSyncPasses: () => mockRetireGuardianSyncPasses()
 }));
+// The durable-write half of the same retirement; spied so the save's order can be read off the calls.
+const mockRetireGuardianWrites = jest.fn();
+jest.mock('lib/miden/sync-backoff', () => ({
+  ...jest.requireActual<typeof import('lib/miden/sync-backoff')>('lib/miden/sync-backoff'),
+  retireGuardianWritesForEndpointChange: () => mockRetireGuardianWrites()
+}));
+
+// The save rebuilds this realm's client on mobile and desktop; spied, since the rebuild is the client module's.
+const mockResetMidenClient = jest.fn();
+jest.mock('lib/miden/sdk/miden-client', () => ({
+  resetMidenClient: () => mockResetMidenClient()
+}));
 
 // The save has the bridge config follow the new network in this realm; spied, since the load itself is the runtime's.
 const mockFollowEffectiveNetwork = jest.fn();
@@ -147,7 +162,12 @@ const reloadEndpointOverridesInSW = jest.fn();
 // to idle (no wallet) so the existing extension/non-extension save tests, which predate
 // this gate, keep exercising the "onboarding" case unchanged; a dedicated test below
 // flips it to Ready.
-const mockWalletState: { status: number } = { status: 0 };
+// The save drops every cached balance in this realm; spied, since what the drop does is the store's.
+const mockClearBalances = jest.fn();
+const mockWalletState: { status: number; clearBalances: () => void } = {
+  status: 0,
+  clearBalances: () => mockClearBalances()
+};
 jest.mock('lib/store', () => {
   const { WalletStatus } = jest.requireActual('lib/shared/types');
   return {
@@ -156,6 +176,16 @@ jest.mock('lib/store', () => {
     selectIsIdle: (s: typeof mockWalletState) => s.status === WalletStatus.Idle
   };
 });
+
+// The banner's own code-first switch, rendered here as a stand-in that shows whether it is open: the
+// banner's suite drives the real sheet.
+const mockSwitchSheet = jest.fn<void, [{ open: boolean }]>();
+jest.mock('components/MainnetSwitchSheet', () => ({
+  MainnetSwitchSheet: ({ open }: { open: boolean; onOpenChange: (open: boolean) => void }) => {
+    mockSwitchSheet({ open });
+    return open ? <div data-testid="mainnet-switch-sheet" /> : null;
+  }
+}));
 
 // House components — replace with lightweight stand-ins that forward the
 // props DeveloperSettings actually passes, so testids/values stay assertable
@@ -211,7 +241,8 @@ beforeEach(() => {
     applyEndpointOverride,
     clearEndpointOverride,
     resetStorageDestructive,
-    reloadEndpointOverridesInSW
+    reloadEndpointOverridesInSW,
+    mockResetMidenClient
   ]) {
     service.mockReset().mockResolvedValue(undefined);
   }
@@ -219,6 +250,8 @@ beforeEach(() => {
   mockHealthStatus.value = 'idle';
   mockIsExtension.value = false;
   mockWalletState.status = WalletStatus.Idle;
+  mockTestNetworkKey = 'testnet';
+  mockClearBalances.mockReset();
   confirm.mockResolvedValue(true);
   mockUseConfirm.mockReturnValue(confirm);
   alert = jest.fn().mockResolvedValue(undefined);
@@ -291,6 +324,93 @@ describe('DeveloperSettings', () => {
 
     await screen.findByRole('alert');
     expect(mockFollowEffectiveNetwork).not.toHaveBeenCalled();
+  });
+
+  it('drops the cached balances once the override is applied, since every one was read from the OLD node', async () => {
+    const order: string[] = [];
+    applyEndpointOverride.mockImplementationOnce(async () => {
+      order.push('apply');
+    });
+    mockClearBalances.mockImplementationOnce(() => {
+      order.push('clear');
+    });
+    render(<DeveloperSettings />);
+    fireEvent.click(screen.getByTestId('dev-endpoints-save'));
+
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/'));
+    expect(mockClearBalances).toHaveBeenCalledTimes(1);
+    expect(order).toEqual(['apply', 'clear']);
+  });
+
+  it('keeps the cached balances and the client when the endpoint write fails', async () => {
+    applyEndpointOverride.mockRejectedValueOnce(new Error('quota exceeded'));
+    render(<DeveloperSettings />);
+    fireEvent.click(screen.getByTestId('dev-endpoints-save'));
+
+    await screen.findByRole('alert');
+    expect(mockClearBalances).not.toHaveBeenCalled();
+    expect(mockResetMidenClient).not.toHaveBeenCalled();
+  });
+
+  it('rebuilds the client once the old node is retired and before the balances drop, without waiting for it', async () => {
+    // Never settles: a reset queued behind a long hold must not keep the save from navigating.
+    armIdleSyncFuse();
+    let fusedWhenResetStarted: boolean | undefined;
+    mockResetMidenClient.mockImplementation(() => {
+      fusedWhenResetStarted = isSyncFused('idle-sync');
+      return new Promise<void>(() => undefined);
+    });
+    render(<DeveloperSettings />);
+    fireEvent.click(screen.getByTestId('dev-endpoints-save'));
+
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/'));
+    expect(mockResetMidenClient).toHaveBeenCalledTimes(1);
+    expect(mockRetireGuardianSyncPasses).toHaveBeenCalledTimes(1);
+    expect(mockRetireGuardianWrites).toHaveBeenCalledTimes(1);
+    expect(fusedWhenResetStarted).toBe(false);
+    const [resetAt] = mockResetMidenClient.mock.invocationCallOrder;
+    if (resetAt === undefined) throw new Error('the save never started the client reset');
+    expect(applyEndpointOverride.mock.invocationCallOrder[0]).toBeLessThan(resetAt);
+    expect(mockRetireGuardianSyncPasses.mock.invocationCallOrder[0]).toBeLessThan(resetAt);
+    expect(mockRetireGuardianWrites.mock.invocationCallOrder[0]).toBeLessThan(resetAt);
+    expect(mockClearBalances.mock.invocationCallOrder[0]).toBeGreaterThan(resetAt);
+  });
+
+  it('logs a client rebuild that fails, and still saves', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation();
+    const failure = new Error('dispose failed');
+    mockResetMidenClient.mockRejectedValueOnce(failure);
+    render(<DeveloperSettings />);
+    fireEvent.click(screen.getByTestId('dev-endpoints-save'));
+
+    await waitFor(() => expect(warn).toHaveBeenCalledWith(expect.any(String), failure));
+    expect(mockNavigate).toHaveBeenCalledWith('/');
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('offers no save on the extension once a wallet exists, which would switch only this page', () => {
+    // The worker and offscreen would keep the old network, and the wallet would look broken.
+    mockIsExtension.value = true;
+    mockWalletState.status = WalletStatus.Ready;
+    render(<DeveloperSettings />);
+
+    expect(screen.queryByTestId('dev-endpoints-save')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('dev-endpoints-reset-defaults')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('dev-endpoint-preset')).not.toBeInTheDocument();
+    expect(applyEndpointOverride).not.toHaveBeenCalled();
+    expect(mockClearBalances).not.toHaveBeenCalled();
+    expect(mockResetMidenClient).not.toHaveBeenCalled();
+  });
+
+  it('drops the balances but leaves the client to the worker on the extension before a wallet exists', async () => {
+    mockIsExtension.value = true;
+    mockWalletState.status = WalletStatus.Idle;
+    render(<DeveloperSettings />);
+    fireEvent.click(screen.getByTestId('dev-endpoints-save'));
+
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/'));
+    expect(mockClearBalances).toHaveBeenCalledTimes(1);
+    expect(mockResetMidenClient).not.toHaveBeenCalled();
   });
 
   it('stops the spinner and shows an error when the endpoint write fails, and stays on the screen', async () => {
@@ -378,14 +498,57 @@ describe('DeveloperSettings', () => {
     expect(reloadEndpointOverridesInSW).not.toHaveBeenCalled();
   });
 
-  it('does not nudge the service worker on save when a wallet already exists (live/unlocked, reachable via /developer-settings without onlyReady), even on the extension', async () => {
+  it('leaves the endpoints read-only once a wallet exists (reachable via /developer-settings without onlyReady), so nothing reaches the service worker', () => {
     mockIsExtension.value = true;
     mockWalletState.status = WalletStatus.Ready;
     render(<DeveloperSettings />);
-    fireEvent.click(screen.getByTestId('dev-endpoints-save'));
 
-    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/'));
+    expect(screen.getByTestId('dev-endpoint-rpcUrl')).toBeDisabled();
+    expect(screen.getByTestId('dev-endpoint-feeFaucetId')).toBeDisabled();
+    expect(
+      within(screen.getByTestId('dev-endpoint-network-id')).getByTestId('dev-endpoint-network-mainnet')
+    ).toBeDisabled();
+    expect(screen.getByTestId('dev-allow-no-guardian')).toBeDisabled();
     expect(reloadEndpointOverridesInSW).not.toHaveBeenCalled();
+  });
+
+  it.each<[string, boolean]>([
+    ['the standalone route', false],
+    ['the Settings sub-page', true]
+  ])('offers the code-first switch to mainnet for an existing wallet on %s', (_route, readOnly) => {
+    mockWalletState.status = WalletStatus.Ready;
+    render(<DeveloperSettings readOnly={readOnly} />);
+    expect(screen.queryByTestId('mainnet-switch-sheet')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('dev-switch-to-mainnet'));
+
+    expect(screen.getByTestId('mainnet-switch-sheet')).toBeInTheDocument();
+    expect(screen.getByTestId('dev-switch-to-mainnet')).toHaveTextContent('switchToMainnet');
+    expect(applyEndpointOverride).not.toHaveBeenCalled();
+    expect(resetStorageDestructive).not.toHaveBeenCalled();
+  });
+
+  it('keeps the standalone route free of any way back to the build network once a wallet exists', () => {
+    mockWalletState.status = WalletStatus.Ready;
+    mockTestNetworkKey = null;
+    render(<DeveloperSettings />);
+    expect(screen.queryByTestId('dev-endpoints-reset')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('dev-endpoints-save')).not.toBeInTheDocument();
+  });
+
+  it('does not offer the switch on mainnet', () => {
+    mockWalletState.status = WalletStatus.Ready;
+    mockTestNetworkKey = null;
+    render(<DeveloperSettings readOnly />);
+    expect(screen.queryByTestId('dev-switch-to-mainnet')).not.toBeInTheDocument();
+    expect(screen.getByTestId('dev-endpoints-reset')).toBeInTheDocument();
+  });
+
+  it('does not offer the switch before a wallet exists, where the edit mode saves as before', () => {
+    render(<DeveloperSettings />);
+    expect(screen.queryByTestId('dev-switch-to-mainnet')).not.toBeInTheDocument();
+    expect(screen.getByTestId('dev-endpoints-save')).toBeInTheDocument();
+    expect(screen.getByTestId('dev-endpoint-rpcUrl')).toBeEnabled();
   });
 
   it('read-only mode disables inputs and shows the reset action', () => {
@@ -564,13 +727,25 @@ describe('DeveloperSettings', () => {
     expect(within(presetPicker).getByTestId('dev-endpoint-preset-custom')).toHaveAttribute('aria-checked', 'true');
   });
 
-  it('offers Mainnet on the Network ID picker but not on the preset/URL-prefill picker', () => {
+  it('offers Mainnet on the Network ID picker and as the first preset tab', () => {
     render(<DeveloperSettings />);
     const presetPicker = screen.getByTestId('dev-endpoint-preset');
     const networkPicker = screen.getByTestId('dev-endpoint-network-id');
 
     expect(within(networkPicker).getByTestId('dev-endpoint-network-mainnet')).toBeInTheDocument();
-    expect(within(presetPicker).queryByTestId('dev-endpoint-preset-mainnet')).not.toBeInTheDocument();
+    expect(within(presetPicker).getByTestId('dev-endpoint-preset-mainnet')).toHaveTextContent('Mainnet');
+    expect(within(presetPicker).getAllByRole('radio')[0]).toHaveAttribute('data-testid', 'dev-endpoint-preset-mainnet');
+  });
+
+  it('the Mainnet preset selects the mainnet network id', () => {
+    render(<DeveloperSettings />);
+    const presetPicker = screen.getByTestId('dev-endpoint-preset');
+    const networkPicker = screen.getByTestId('dev-endpoint-network-id');
+
+    fireEvent.click(within(presetPicker).getByTestId('dev-endpoint-preset-mainnet'));
+
+    expect(within(presetPicker).getByTestId('dev-endpoint-preset-mainnet')).toHaveAttribute('aria-checked', 'true');
+    expect(within(networkPicker).getByTestId('dev-endpoint-network-mainnet')).toHaveAttribute('aria-checked', 'true');
   });
 
   it('capitalizes the preset and network-id tab labels for display, keeping the raw id for logic', () => {

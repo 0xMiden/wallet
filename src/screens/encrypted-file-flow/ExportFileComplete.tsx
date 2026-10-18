@@ -11,6 +11,7 @@ import { SubPageLayout } from 'components/ui/SubPageLayout';
 import { CURRENT_BACKUP_FORMAT_VERSION, parseImportedAccountBackupFailure } from 'lib/miden/backup-file';
 import { useMidenContext } from 'lib/miden/front';
 import { deriveKey, encrypt, encryptJson, generateKey, generateSalt } from 'lib/miden/passworder';
+import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { isShareCancellation } from 'lib/mobile/share-cancellation';
 import { isMobile } from 'lib/platform';
 import { TransactionHeroIcon } from 'screens/generating-transaction/components';
@@ -68,9 +69,12 @@ const ExportFileComplete: React.FC<ExportFileCompleteProps> = ({ filePassword, f
     // serialized turn, so they cannot describe two different wallets. The wallet
     // transaction dump is taken after that turn on purpose: it is display history
     // and nothing in the restore checks it against the accounts.
+    // Recorded so a restore on another network refuses the file before reading
+    // its dump; the restore compares it with this same effective network.
     const filePayload: DecryptedWalletFile = {
       ...backupMaterial,
-      formatVersion: CURRENT_BACKUP_FORMAT_VERSION
+      formatVersion: CURRENT_BACKUP_FORMAT_VERSION,
+      network: getEffectiveNetworkName()
     };
 
     const salt = generateSalt();

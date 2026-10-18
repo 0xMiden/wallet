@@ -78,8 +78,8 @@
     "englishSource": "Enter a valid address on a supported network for this withdrawal."
   },
   "usdcxUnsupportedFaucet": {
-    "message": "Виведення коштів у USDCx доступні лише для налаштованої мережі «faucet» у тестовій мережі Miden.",
-    "englishSource": "USDCx withdrawals are available only for the configured faucet on Miden testnet."
+    "message": "Виведення коштів у USDCx для цього токена в цій мережі недоступні.",
+    "englishSource": "USDCx withdrawals are not available for this token on this network."
   },
   "usdcxInvalidAmount": {
     "message": "Введіть додатну суму в USDCx з не більше ніж шістьма знаками після коми.",
@@ -546,6 +546,18 @@
     "message": "Не вдалося відкрити позицію",
     "englishSource": "Failed to open position"
   },
+  "earnCollateralLoading": {
+    "message": "Завантаження даних депозитного токена. Ви зможете продовжити, коли вони з’являться.",
+    "englishSource": "Loading the deposit token's details. You can continue once they arrive."
+  },
+  "earnCollateralUnavailable": {
+    "message": "Токен для депозиту наразі недоступний, тому прийом депозитів призупинено. Спробуйте пізніше.",
+    "englishSource": "The deposit token isn't available right now, so deposits are paused. Try again later."
+  },
+  "earnCollateralMismatch": {
+    "message": "Цей огляд було підготовлено для іншого депозитного токена. Поверніться назад і введіть суму ще раз.",
+    "englishSource": "This review was prepared for a different deposit token. Go back and enter the amount again."
+  },
   "earnTotalEarnedRewards": {
     "message": "Загальна сума заробленого",
     "englishSource": "Total earned"
@@ -578,6 +590,10 @@
   "earnPositionsLoadError": {
     "message": "Не вдалося завантажити ваші позиції. Перевірте з’єднання та спробуйте ще раз.",
     "englishSource": "Couldn't load your positions. Check your connection and try again."
+  },
+  "earnUnavailableOnNetwork": {
+    "message": "Функція «Earn» недоступна в цій мережі",
+    "englishSource": "Earn is not available on this network"
   },
   "earnVaultLoadError": {
     "message": "Не вдалося завантажити це сховище. Перевірте підключення та спробуйте ще раз.",
@@ -652,9 +668,139 @@
     "message": "Створити обліковий запис",
     "englishSource": "Create Account"
   },
+  "me": {
+    "message": "Я",
+    "englishSource": "Me"
+  },
+  "profile": {
+    "message": "Профіль",
+    "englishSource": "Profile"
+  },
   "settings": {
     "message": "Налаштування",
     "englishSource": "Settings"
+  },
+  "myBadges": {
+    "message": "Мої значки",
+    "englishSource": "My badges"
+  },
+  "openMyBadges": {
+    "message": "Відкрити Мої значки",
+    "englishSource": "Open My badges"
+  },
+  "badgesEarnedCount": {
+    "message": "Отримано $earned$ із $total$",
+    "englishSource": "$earned$ of $total$ earned",
+    "placeholders": {
+      "earned": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      }
+    }
+  },
+  "badgesProfileDescription": {
+    "message": "Особисті досягнення за активність у Mainnet",
+    "englishSource": "Private milestones from your Mainnet activity"
+  },
+  "badgesCollectionDescription": {
+    "message": "Особисті досягнення вашого гаманця.",
+    "englishSource": "Your private wallet milestones."
+  },
+  "badgeCollection": {
+    "message": "Колекція значків",
+    "englishSource": "Badge collection"
+  },
+  "mainnetOnly": {
+    "message": "Лише Mainnet",
+    "englishSource": "Mainnet only"
+  },
+  "badgesMainnetNoticeTitle": {
+    "message": "Значки відкриваються в Mainnet",
+    "englishSource": "Badges unlock on Mainnet"
+  },
+  "badgesMainnetNoticeDescription": {
+    "message": "Значки відкриваються в Mainnet. Тестова активність не враховується.",
+    "englishSource": "Badges unlock on Mainnet. Test activity does not count."
+  },
+  "badgeEarnedLabel": {
+    "message": "$badge$, отримано",
+    "englishSource": "$badge$, earned",
+    "placeholders": {
+      "badge": {
+        "content": "$1"
+      }
+    }
+  },
+  "badgeLockedLabel": {
+    "message": "$badge$, заблоковано",
+    "englishSource": "$badge$, locked",
+    "placeholders": {
+      "badge": {
+        "content": "$1"
+      }
+    }
+  },
+  "locked": {
+    "message": "Заблоковано",
+    "englishSource": "Locked"
+  },
+  "badgeEarned": {
+    "message": "Отримано",
+    "englishSource": "Earned"
+  },
+  "badgeVerificationPending": {
+    "message": "Поки недоступно",
+    "englishSource": "Not available yet"
+  },
+  "badgeFirstDeposit": {
+    "message": "Перше поповнення",
+    "englishSource": "First Deposit"
+  },
+  "badgeFirstDepositDescription": {
+    "message": "Додайте кошти й дочекайтеся, коли їх можна буде витратити.",
+    "englishSource": "Add funds and wait for them to become spendable."
+  },
+  "badgeFirstReceive": {
+    "message": "Перше отримання",
+    "englishSource": "First Receive"
+  },
+  "badgeFirstReceiveDescription": {
+    "message": "Прийміть і заберіть переказ на цей обліковий запис.",
+    "englishSource": "Accept and claim a transfer to this account."
+  },
+  "badgeFirstSend": {
+    "message": "Перше надсилання",
+    "englishSource": "First Send"
+  },
+  "badgeFirstSendDescription": {
+    "message": "Підтвердьте вихідний переказ Miden.",
+    "englishSource": "Confirm an outgoing Miden transfer."
+  },
+  "badgeFirstSwap": {
+    "message": "Перший обмін",
+    "englishSource": "First Swap"
+  },
+  "badgeFirstSwapDescription": {
+    "message": "Завершіть обмін і отримайте доступні для витрачання кошти.",
+    "englishSource": "Complete a swap and receive spendable output."
+  },
+  "badgeRecoveryChecked": {
+    "message": "Відновлення перевірено",
+    "englishSource": "Recovery Checked"
+  },
+  "badgeRecoveryCheckedDescription": {
+    "message": "Перевірте резервну копію для відновлення цього облікового запису.",
+    "englishSource": "Verify this account's recovery backup."
+  },
+  "badgeMiniappExplorer": {
+    "message": "Дослідник мінізастосунків",
+    "englishSource": "Miniapp Explorer"
+  },
+  "badgeMiniappExplorerDescription": {
+    "message": "Завершіть дію в підтримуваному мінізастосунку.",
+    "englishSource": "Complete a supported mini app experience."
   },
   "authorizedDApps": {
     "message": "Авторизовані DApps",
@@ -888,6 +1034,10 @@
     "message": "Десятичні знаки цього токена не вдалося перевірити, тому суми не можна відобразити чи надіслати.",
     "englishSource": "This token's decimals could not be verified, so amounts can't be shown or sent."
   },
+  "sendTokenAvailabilityChecking": {
+    "message": "Перевірка можливості відправлення цього токена в тестовій мережі (Testnet). Ви зможете відправити його після завершення перевірки.",
+    "englishSource": "Checking whether this token can be sent on Testnet. You can send it once the check finishes."
+  },
   "oops": {
     "message": "Ой!",
     "englishSource": "Oops!"
@@ -1024,6 +1174,10 @@
   "transactionStepSyncingGuardian": {
     "message": "Синхронізація з Guardian",
     "englishSource": "Syncing with Guardian"
+  },
+  "transactionStepDeliveringNote": {
+    "message": "Доставка одержувачу",
+    "englishSource": "Delivering to recipient"
   },
   "guardianBusyStep": {
     "message": "Очікування вашого «Guardian»",
@@ -1707,6 +1861,10 @@
     "message": "Вставити",
     "englishSource": "Paste"
   },
+  "mainnetAccessPasteFailed": {
+    "message": "Не вдалося прочитати вміст буфера обміну. Введіть свій код або спробуйте ще раз.",
+    "englishSource": "Could not read the clipboard. Enter your code or try again."
+  },
   "nothingToPaste": {
     "message": "Нема чого вставити. Спершу скопіюйте адресу.",
     "englishSource": "Nothing to paste. Copy an address first."
@@ -1800,14 +1958,97 @@
     "message": "Рейтинг",
     "englishSource": "Rate"
   },
-  "swapSolverFeeNote": {
-    "message": "У суму, яку ви отримаєте, вже включено комісію за використання сервісу «$percent$».",
-    "englishSource": "Your receive amount already includes a $percent$ solver fee.",
+  "swapRateNote": {
+    "message": "Ставка — це максимальна сума, яку система виконання замовлень може заповнити на даний момент, з урахування комісії $fee$. Ваша отримана сума дорівнює цій ставці за вирахуванням прослизання $slippage$.",
+    "englishSource": "The rate is the most the solver fills at right now, with its $fee$ fee already in it. Your receive amount is that rate less your $slippage$ slippage.",
     "placeholders": {
-      "percent": {
+      "fee": {
         "content": "$1"
+      },
+      "slippage": {
+        "content": "$2"
       }
     }
+  },
+  "swapFillStatus": {
+    "message": "Виконати",
+    "englishSource": "Fill"
+  },
+  "swapVerdictSettlementDelayed": {
+    "message": "Розрахунок відкладено. Ваше замовлення буде очікувати.",
+    "englishSource": "Settlement delayed. Your order will wait."
+  },
+  "swapVerdictNoMarket": {
+    "message": "Ця пара не торгується.",
+    "englishSource": "This pair isn't traded."
+  },
+  "swapVerdictNoPrice": {
+    "message": "Ціни наразі недоступні. Спробуйте ще раз незабаром.",
+    "englishSource": "Prices are unavailable right now. Try again shortly."
+  },
+  "swapVerdictOffMarket": {
+    "message": "Ціна змінилася. Оновіть котирування.",
+    "englishSource": "The price moved. Refresh the quote."
+  },
+  "swapVerdictNoLiquidity": {
+    "message": "Наразі недостатньо заявок за поточною ціною.",
+    "englishSource": "Not enough orders at the current price right now."
+  },
+  "swapVerdictTolerated": {
+    "message": "Може зайняти більше часу: заповнюється, коли ціна трохи змінюється.",
+    "englishSource": "May take longer: fills when the price moves slightly."
+  },
+  "swapVerdictPartial": {
+    "message": "Зараз виконується лише частина цього замовлення; решта залишається в очікуванні.",
+    "englishSource": "Only part of this order fills now; the rest waits."
+  },
+  "swapVerdictFull": {
+    "message": "Виконання за поточною ціною.",
+    "englishSource": "Fills at the current price."
+  },
+  "swapVerdictExpected": {
+    "message": "Ви отримуєте приблизно $amount$ $symbol$.",
+    "englishSource": "You receive about $amount$ $symbol$.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "swapSlippage": {
+    "message": "Прослизання",
+    "englishSource": "Slippage"
+  },
+  "percentSign": {
+    "message": "%",
+    "englishSource": "%"
+  },
+  "swapSlippageNote": {
+    "message": "Наскільки нижче поточного курсу може бути виконано ваше замовлення. У тестовій мережі замовлення, яке перевищує приблизно 0,25%, не виконується.",
+    "englishSource": "How far below the current rate your order may fill. On testnet an order above about 0.25% does not fill."
+  },
+  "swapSlippageEditedNote": {
+    "message": "Ви самостійно встановлюєте суму отримання, тому до цього замовлення не застосовується прослизання.",
+    "englishSource": "You set the receive amount yourself, so slippage does not apply to this order."
+  },
+  "swapSlippageRange": {
+    "message": "Введіть відсоток у діапазоні від $min$ до $max$ з точністю до двох знаків після коми.",
+    "englishSource": "Enter a percent from $min$ to $max$ with up to two decimals.",
+    "placeholders": {
+      "min": {
+        "content": "$1"
+      },
+      "max": {
+        "content": "$2"
+      }
+    }
+  },
+  "swapPriceMoved": {
+    "message": "Ціна змінилася. Перевірте нову суму та спробуйте ще раз.",
+    "englishSource": "The price moved. Check the new amount and try again."
   },
   "usuallyFillsIn": {
     "message": "Зазвичай заповнює",
@@ -1850,6 +2091,10 @@
   "swapInvalidAmounts": {
     "message": "Введіть дійсну суму для обміну.",
     "englishSource": "Enter a valid amount to swap."
+  },
+  "swapPairNotListed": {
+    "message": "Цю пару більше не можна обміняти. Поверніться назад і виберіть інший токен.",
+    "englishSource": "This pair can no longer be swapped. Go back and choose another token."
   },
   "swapPriceUnavailable": {
     "message": "Ціна недоступна. Спробуйте ще раз трохи пізніше.",
@@ -2516,6 +2761,10 @@
     "message": "Korea Digital Asset — компанія з зберігання цифрових активів, що базується в Південній Кореї.",
     "englishSource": "Korea Digital Asset, a digital asset custody company based in South Korea."
   },
+  "guardianAboutPara": {
+    "message": "Para — постачальник інфраструктури вбудованих гаманців.",
+    "englishSource": "Para, an embedded wallet infrastructure provider."
+  },
   "guardianKindOpenZeppelin": {
     "message": "Безпека та аудит смарт-контрактів",
     "englishSource": "Smart contract security and audits"
@@ -2531,6 +2780,10 @@
   "guardianKindKodax": {
     "message": "Зберігач цифрових активів",
     "englishSource": "Digital asset custodian"
+  },
+  "guardianKindPara": {
+    "message": "Інфраструктура вбудованих гаманців",
+    "englishSource": "Embedded wallet infrastructure"
   },
   "guardianInfoDescription": {
     "message": "Guardian — це незалежна служба, яка <b>підписує кожну транзакцію</b> з вашого гаманця, додаючи захисний механізм без відмови від самостійного зберігання активів.",
@@ -3246,6 +3499,10 @@
     "message": "Цей файл гаманця створено в новішій версії Bread. Оновіть Bread і повторіть спробу.",
     "englishSource": "This wallet file was created by a newer version of Bread. Update Bread and try again."
   },
+  "encryptedWalletFileWrongNetwork": {
+    "message": "Цей файл гаманця належить іншій мережі і не може бути відновлений у цій мережі.",
+    "englishSource": "This wallet file belongs to another network and cannot be restored on this one."
+  },
   "encryptedWalletFileRestoreFailed": {
     "message": "Не вдалося відновити гаманець. Перевірте сховище й повторіть спробу.",
     "englishSource": "The wallet could not be restored. Check your storage and try again."
@@ -3289,6 +3546,14 @@
   "feeReserveBlocksSend": {
     "message": "Ваші USDCX зарезервовані для оплати мережевої комісії. Отримайте більше USDCX, щоб здійснити переказ.",
     "englishSource": "Your USDCX is reserved for the network fee. Receive more USDCX to send."
+  },
+  "usdcxBurnFeeMeasuring": {
+    "message": "Можна перевірити розмір мережевої комісії за це спалення, перш ніж буде підтверджена сума.",
+    "englishSource": "Measuring this burn's network fee before the amount can be checked."
+  },
+  "usdcxBurnFeeUnavailable": {
+    "message": "Неможливо виміряти мережеву комісію за це спалення, тому суму перевірити неможливо. Оберіть інший пункт призначення, щоб спробувати ще раз.",
+    "englishSource": "Unable to measure this burn's network fee, so the amount cannot be checked. Choose another destination to try again."
   },
   "insufficientFeeAsset": {
     "message": "Для сплати комісії мережі вам потрібен USDCX. Отримайте трохи USDCX, щоб продовжити.",
@@ -3572,6 +3837,10 @@
   "guardianAccountNotFound": {
     "message": "Ми не змогли знайти ваш обліковий запис за цим посиланням: guardian. Перевірте URL-адресу або спробуйте імпортувати його як публічний обліковий запис.",
     "englishSource": "We couldn't find your account on this guardian. Check the URL or import as a public account instead."
+  },
+  "guardianOtherNetwork": {
+    "message": "Цей «guardian» працює в іншій мережі Miden, тому він не може відновити обліковий запис тут.",
+    "englishSource": "This guardian runs on another Miden network, so it cannot recover an account here."
   },
   "useCustomGuardianUrl": {
     "message": "Використовуйте власний URL-адресу Guardian",
@@ -4151,6 +4420,18 @@
     "message": "Цей додаток хоче підключитися до вашого гаманця",
     "englishSource": "This app wants to connect to your wallet"
   },
+  "dappNetworkMismatch": {
+    "message": "Цей додаток запитував мережу Miden $dappNetwork$, але ваш гаманець знаходиться в мережі Miden $walletNetwork$.",
+    "englishSource": "This app asked for Miden $dappNetwork$, but your wallet is on Miden $walletNetwork$.",
+    "placeholders": {
+      "dappnetwork": {
+        "content": "$1"
+      },
+      "walletnetwork": {
+        "content": "$2"
+      }
+    }
+  },
   "dappTransactionRequest": {
     "message": "Цей додаток надсилає запит на транзакцію",
     "englishSource": "This app is requesting a transaction"
@@ -4501,6 +4782,41 @@
     "message": "Виконання, включені в цей своп",
     "englishSource": "Fills bundled into this swap"
   },
+  "swapActivityTitle": {
+    "message": "Операції зі свопами",
+    "englishSource": "Swap activity"
+  },
+  "swapReclaiming": {
+    "message": "Повернення коштів",
+    "englishSource": "Returning funds"
+  },
+  "swapReturnedAt": {
+    "message": "Повернено · $time$",
+    "englishSource": "Returned · $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapPlacedAt": {
+    "message": "Розміщено о $time$",
+    "englishSource": "Placed $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapOfferedAmount": {
+    "message": "Пропонована сума: $amount$",
+    "englishSource": "Offered $amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
   "swapFillNote": {
     "message": "Виконання $number$",
     "englishSource": "Fill $number$",
@@ -4644,6 +4960,15 @@
     "message": "Підключено гаманець EVM",
     "englishSource": "EVM wallet connected"
   },
+  "evmChainNotApproved": {
+    "message": "Підключений гаманець не затвердив $network$. Підключіть гаманець знову, щоб затвердити це.",
+    "englishSource": "The connected wallet did not approve $network$. Reconnect the wallet to approve it.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
   "connectedWallet": {
     "message": "Підключений гаманець",
     "englishSource": "Connected wallet"
@@ -4725,12 +5050,39 @@
     "englishSource": "Confirming bridge deposit"
   },
   "bridgeDepositProcessingDescription": {
-    "message": "Схвалити запит у своєму гаманці та залишити цей екран відкритим, поки вихідна мережа його підтверджує.",
-    "englishSource": "Approve the request in your wallet and keep this screen open while the source network confirms it."
+    "message": "Схвалити запити у своєму гаманці — система може запитувати про це кілька разів — і залишити цей екран відкритим, поки вихідна мережа їх підтверджує.",
+    "englishSource": "Approve the requests in your wallet — it may ask more than once — and keep this screen open while the source network confirms them."
   },
   "bridgeDepositFailed": {
     "message": "Помилка під час депозиту через міст",
     "englishSource": "Bridge deposit failed"
+  },
+  "bridgeDepositBalanceTooLow": {
+    "message": "У вашому підключеному гаманці на $network$ зберігається $balance$ $token$, що менше, ніж потрібно для цього депозиту. Нічого не було надіслано.",
+    "englishSource": "Your connected wallet holds $balance$ $token$ on $network$, less than this deposit needs. Nothing was sent.",
+    "placeholders": {
+      "balance": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      }
+    }
+  },
+  "bridgeDepositBalanceReadFailed": {
+    "message": "Не вдалося перевірити ваш баланс $token$ у мережі $network$. Нічого не було надіслано.",
+    "englishSource": "Could not check your $token$ balance on $network$. Nothing was sent.",
+    "placeholders": {
+      "token": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
   },
   "bridgeDepositSubmitted": {
     "message": "Міст ініційовано!",
@@ -4751,6 +5103,21 @@
   "fastEthWrapNotice": {
     "message": "Перенесення ETH за швидким маршрутом спочатку перетворює його на WETH, а потім здійснює перенесення WETH. Цей маршрут поки що недоступний.",
     "englishSource": "Bridging ETH on the Fast route wraps it to WETH first, then bridges the WETH. This route isn't available yet."
+  },
+  "fastQuoteAboveBalanceNotice": {
+    "message": "Для опції «Fast» потрібен депозит у розмірі $deposit$ $token$, включаючи комісію, але у вашому підключеному гаманці є $balance$ $token$. Зменшіть суму або виберіть опцію «Slow».",
+    "englishSource": "Fast needs a deposit of $deposit$ $token$, fee included, but your connected wallet holds $balance$ $token$. Lower the amount or choose Slow.",
+    "placeholders": {
+      "deposit": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$4"
+      },
+      "balance": {
+        "content": "$3"
+      }
+    }
   },
   "destinationNetwork": {
     "message": "Мережа пунктів призначення",
@@ -4841,14 +5208,39 @@
     "englishSource": "USDCx was minted on Miden and your wallet received it."
   },
   "usdcxExecutorRouteNotice": {
-    "message": "USDC спалюються на $source$ і випускаються на ім’я виконавця Circle на $target$, який депонує їх у xReserve для Miden. Circle стягує свою комісію на додаток до суми, і Circle здійснює переказ на $target$. Якщо Circle не може визначити вартість переказу, ви здійснюєте його на $target$ за допомогою ще одного підпису.",
-    "englishSource": "USDC is burned on $source$ and minted to Circle's executor on $target$, which deposits it into xReserve for Miden. Circle charges its fee in addition to the amount, and Circle executes the transfer on $target$. If Circle cannot price the transfer, you execute it on $target$ with one more signature.",
+    "message": "USDC спалюються на $source$ і випускаються на ім’я виконавця Circle на $target$, який депонує їх у xReserve для Miden. Circle стягує свою комісію додатково до суми, і Circle здійснює переказ на $target$.",
+    "englishSource": "USDC is burned on $source$ and minted to Circle's executor on $target$, which deposits it into xReserve for Miden. Circle charges its fee in addition to the amount, and Circle executes the transfer on $target$.",
     "placeholders": {
       "source": {
         "content": "$1"
       },
       "target": {
+        "content": "$3"
+      }
+    }
+  },
+  "usdcxForwardQuoteUnavailable": {
+    "message": "Circle наразі не може визначити вартість цього переказу. Нічого не було надіслано. Спробуйте ще раз через деякий час.",
+    "englishSource": "Circle could not price this transfer right now. Nothing was sent. Try again in a moment."
+  },
+  "usdcxDepositFeeAboveBalance": {
+    "message": "Для цього депозиту потрібно $total$ $token$ на $network$: сума плюс комісія Circle у розмірі $fee$ $token$. У вашому підключеному гаманці знаходиться $balance$ $token$. Зменшіть суму на суму комісії або додайте $token$ до вашого гаманця.",
+    "englishSource": "This deposit needs $total$ $token$ on $network$: the amount plus Circle's fee of $fee$ $token$. Your connected wallet holds $balance$ $token$. Lower the amount by the fee or add $token$ to your wallet.",
+    "placeholders": {
+      "total": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$8"
+      },
+      "network": {
+        "content": "$3"
+      },
+      "fee": {
         "content": "$4"
+      },
+      "balance": {
+        "content": "$6"
       }
     }
   },
@@ -5568,6 +5960,62 @@
       }
     }
   },
+  "mainnetAccessCodeLabel": {
+    "message": "Код доступу",
+    "englishSource": "Access code"
+  },
+  "unlockMainnet": {
+    "message": "Розблокувати мейннет",
+    "englishSource": "Unlock mainnet"
+  },
+  "mainnetAccessCodeRejected": {
+    "message": "Цей код не спрацював. Перевірте його та спробуйте ще раз.",
+    "englishSource": "This code did not work. Check it and try again."
+  },
+  "mainnetAccessCheckFailed": {
+    "message": "Ми не змогли перевірити цей код. Спробуйте ще раз пізніше.",
+    "englishSource": "We could not check this code. Try again later."
+  },
+  "mainnetAccountNotAdmitted": {
+    "message": "Цей гаманець не підтримується в основній мережі Miden. Для нового гаманця потрібен код доступу.",
+    "englishSource": "This wallet is not admitted on Miden mainnet. A new wallet needs an access code."
+  },
+  "mainnetSecondAccountRefused": {
+    "message": "Мережа Miden mainnet допускає лише той обліковий запис, для якого зареєстровано код доступу.",
+    "englishSource": "Miden mainnet admits only the account an access code registered."
+  },
+  "mainnet": {
+    "message": "Mainnet",
+    "englishSource": "Mainnet"
+  },
+  "mainnetAccessTitle": {
+    "message": "Маєте код доступу до мейннету?",
+    "englishSource": "Have a mainnet access code?"
+  },
+  "mainnetAccessOnboardingBody": {
+    "message": "Наразі доступ до Mainnet надається лише за запрошенням. Введіть 12-символьний код зі свого запрошення, і ваш гаманець запрацює в мережі Miden Mainnet.",
+    "englishSource": "Mainnet is invite-only for now. Enter the 12-character code from your invite and your wallet starts on Miden Mainnet."
+  },
+  "mainnetAccessHint": {
+    "message": "Код міститься у вашому листі-запрошенні.",
+    "englishSource": "The code is in your invite email."
+  },
+  "iHaveACode": {
+    "message": "У мене є код",
+    "englishSource": "I have a code"
+  },
+  "iDontHaveACode": {
+    "message": "У мене немає коду",
+    "englishSource": "I don't have a code"
+  },
+  "noCodeTitle": {
+    "message": "Bread доступний лише за запрошенням",
+    "englishSource": "Bread is invite-only"
+  },
+  "noCodeBody": {
+    "message": "Новому гаманцю потрібен код доступу до основної мережі з вашого запрошення. Вже існуючий обліковий запис все ще можна відновити.",
+    "englishSource": "A new wallet needs a mainnet access code from your invite. An account that already exists can still be recovered."
+  },
   "networkModePillNoValue": {
     "message": "Токени не мають реальної цінності",
     "englishSource": "Tokens have no real value"
@@ -5575,6 +6023,22 @@
   "mainnetCountdownLink": {
     "message": "Приєднайтеся до списку раннього доступу",
     "englishSource": "Join the early access list"
+  },
+  "switchToMainnet": {
+    "message": "Перехід на мейннет",
+    "englishSource": "Switch to mainnet"
+  },
+  "resetAndSwitchToMainnet": {
+    "message": "Скидання налаштувань та перехід на мейннет",
+    "englishSource": "Reset and switch to mainnet"
+  },
+  "switchToMainnetConfirm": {
+    "message": "Ваш код доступу було прийнято. Перехід очистить цей гаманець, його залишки та історію з цього пристрою. Спочатку збережіть свої дані для відновлення. Тестові токени не переносяться в основну мережу. Потім ви створите гаманець в основній мережі за допомогою цього коду або відновите існуючий гаманець в основній мережі.",
+    "englishSource": "Your access code was accepted. Switching clears this wallet, its balances and its history from this device. Save your recovery details first. Test tokens do not transfer to mainnet. You will then create a mainnet wallet with this code or recover an existing mainnet wallet."
+  },
+  "mainnetSwitchCodeBody": {
+    "message": "Введіть код із вашого запрошення. Ніщо не вважається підтвердженим, доки мережа mainnet не прийме його.",
+    "englishSource": "Enter the code from your invite. Nothing is cleared until mainnet accepts it."
   },
   "mainnetCountdownLabel": {
     "message": "Час, що залишився до запуску Bread у мейннеті: $time$",
@@ -6197,6 +6661,54 @@
     "message": "Не вдалося відкрити цю сторінку. Перевірте з’єднання та спробуйте ще раз.",
     "englishSource": "Couldn't open this page. Check your connection and try again."
   },
+  "bridgeDepositAwaitingNextConfirmation": {
+    "message": "Очікування наступного підтвердження гаманця",
+    "englishSource": "Waiting for the next wallet confirmation"
+  },
+  "bridgeDepositAwaitingNextConfirmationDescription": {
+    "message": "Перше підтвердження виконано. Ваш гаманець попросить вас підтвердити ще раз — залиште цей екран відкритим.",
+    "englishSource": "The first confirmation is done. Your wallet will ask you to confirm again - keep this screen open."
+  },
+  "advancedOptions": {
+    "message": "Додаткові параметри",
+    "englishSource": "Advanced options"
+  },
+  "advancedOptionsSummary": {
+    "message": "$transferType$ · $expiration$",
+    "englishSource": "$transferType$ · $expiration$",
+    "placeholders": {
+      "transfertype": {
+        "content": "$1"
+      },
+      "expiration": {
+        "content": "$2"
+      }
+    }
+  },
+  "transferType": {
+    "message": "Тип переказу",
+    "englishSource": "Transfer type"
+  },
+  "publicTransfer": {
+    "message": "Публічний переказ",
+    "englishSource": "Public transfer"
+  },
+  "publicTransferNotice": {
+    "message": "Токен, сума та адреса отримувача будуть видимі в мережі Miden.",
+    "englishSource": "The token, amount, and recipient address will be visible on Miden."
+  },
+  "publicTransferHelp": {
+    "message": "Будь-хто може побачити токен, суму та адресу отримувача цього переказу в мережі Miden.",
+    "englishSource": "Anyone can see this transfer's token, amount, and recipient address on Miden."
+  },
+  "senderAddressPublicNote": {
+    "message": "Ваша адреса відправника є публічною в обох режимах.",
+    "englishSource": "Your sender address is public in both modes."
+  },
+  "sendPublicly": {
+    "message": "Надіслати публічно",
+    "englishSource": "Send publicly"
+  },
   "breadCloseError": {
     "message": "Не вдалося повернутися до Bread.",
     "englishSource": "Could not return to Bread."
@@ -6216,5 +6728,113 @@
   "breadPresentationError": {
     "message": "Цей застосунок не завантажився повністю. Спробуйте ще раз або поверніться до Bread.",
     "englishSource": "This app did not finish loading. Try again or return to Bread."
+  },
+  "bridgeInTitle": {
+    "message": "Міст у",
+    "englishSource": "Bridge in"
+  },
+  "bridgeConnectWalletTitle": {
+    "message": "Підключіть свій гаманець",
+    "englishSource": "Connect your wallet"
+  },
+  "bridgeConnectWalletBody": {
+    "message": "Підключіть гаманець, у якому зберігаються токени, які ви хочете перенести до Miden.",
+    "englishSource": "Connect the wallet holding the tokens you want to bring to Miden."
+  },
+  "bridgeConnectWalletAction": {
+    "message": "Підключити гаманець",
+    "englishSource": "Connect wallet"
+  },
+  "bridgeConnectSource": {
+    "message": "Зовнішній гаманець",
+    "englishSource": "External wallet"
+  },
+  "bridgeConnectSourceHint": {
+    "message": "Ще не підключено",
+    "englishSource": "Not connected yet"
+  },
+  "bridgeConnectNextTitle": {
+    "message": "Після підключення",
+    "englishSource": "After connecting"
+  },
+  "bridgeConnectChooseTitle": {
+    "message": "Оберіть спосіб переказу",
+    "englishSource": "Choose your transfer"
+  },
+  "bridgeConnectChooseBody": {
+    "message": "Виберіть токен, вихідну мережу та суму.",
+    "englishSource": "Pick a token, source network and amount."
+  },
+  "bridgeConnectApproveTitle": {
+    "message": "Переглянути та затвердити",
+    "englishSource": "Review and approve"
+  },
+  "bridgeConnectApproveBody": {
+    "message": "Перевірте маршрут і комісії, а потім підтвердьте переказ у своєму гаманці.",
+    "englishSource": "Check the route and fees, then approve the transfer in your wallet."
+  },
+  "bridgeConnectTestWalletBody": {
+    "message": "Використовуйте окремий гаманець виключно для тестових токенів. Ніколи не підключайте гаманець, на якому зберігаються реальні кошти.",
+    "englishSource": "Use a separate wallet with test tokens only. Never connect a wallet holding real funds."
+  },
+  "bridgeChooseRoute": {
+    "message": "Оберіть маршрут",
+    "englishSource": "Choose a route"
+  },
+  "bridgeRouteDescription": {
+    "message": "Перевірте комісію та передбачуваний час надходження, перш ніж продовжувати.",
+    "englishSource": "Review the fee and estimated arrival before you continue."
+  },
+  "bridgeArrivalEstimate": {
+    "message": "Орієнтовний час прибуття",
+    "englishSource": "Estimated arrival"
+  },
+  "bridgePayoutTiming": {
+    "message": "Час прибуття залежить від мережі призначення",
+    "englishSource": "Arrival depends on the destination network"
+  },
+  "bridgeSourceWallet": {
+    "message": "Гаманець",
+    "englishSource": "Wallet"
+  },
+  "bridgeRouteFee": {
+    "message": "Комісія за міст",
+    "englishSource": "Bridge fee"
+  },
+  "bridgeRankBestValue": {
+    "message": "Найкраща вартість",
+    "englishSource": "Best value"
+  },
+  "bridgeRankCheapest": {
+    "message": "Найдешевше",
+    "englishSource": "Cheapest"
+  },
+  "bridgeRankFastest": {
+    "message": "Найшвидше",
+    "englishSource": "Fastest"
+  },
+  "bridgeRouteSort": {
+    "message": "Сортування маршрутів",
+    "englishSource": "Sort routes"
+  },
+  "bridgeRouteProviders": {
+    "message": "Провайдери мостів",
+    "englishSource": "Bridge providers"
+  },
+  "bridgeRankValueDescription": {
+    "message": "Більшість суми надходить після вирахування комісій провайдера.",
+    "englishSource": "Most received after provider fees."
+  },
+  "bridgeRankCostDescription": {
+    "message": "Найнижчі витрати на міст та мережу, включаючи газ.",
+    "englishSource": "Lowest bridge and network cost, including gas."
+  },
+  "bridgeRankTimeDescription": {
+    "message": "Найкоротший передбачуваний час прибуття.",
+    "englishSource": "Shortest estimated arrival time."
+  },
+  "bridgeEstimatedCost": {
+    "message": "Орієнтовна вартість",
+    "englishSource": "Est. cost"
   }
 }

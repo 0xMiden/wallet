@@ -163,6 +163,14 @@ describe('SendAmount', () => {
     expect(props.onAmountChange).toHaveBeenCalledWith('12.3456');
   });
 
+  it('keeps Max visible but inert while the caller disables it', () => {
+    const props = renderAmount({ maxDisabled: true });
+
+    expect(screen.getByTestId('send-amount-max')).toBeDisabled();
+    fireEvent.click(screen.getByTestId('send-amount-max'));
+    expect(props.onAmountChange).not.toHaveBeenCalled();
+  });
+
   it('opens the token picker from the token row', () => {
     const props = renderAmount({ token: undefined });
 
@@ -188,6 +196,19 @@ describe('SendAmount', () => {
     expect(screen.getByTestId('send-amount-input')).toHaveAttribute('data-invalid', 'false');
     fireEvent.click(screen.getByTestId('send-fee-notice-receive'));
     expect(props.onReceive).toHaveBeenCalledTimes(1);
+  });
+
+  it('says Send is still checking a token it holds back, in the shared warning notice', () => {
+    renderAmount({ tokenHeld: true });
+
+    expect(screen.getByTestId('send-amount-held-notice')).toHaveTextContent('sendTokenAvailabilityChecking');
+    expect(screen.getByTestId('send-amount-held-notice')).toHaveAttribute('data-tone', 'warning');
+  });
+
+  it('shows no held notice while no token is held', () => {
+    renderAmount();
+
+    expect(screen.queryByTestId('send-amount-held-notice')).not.toBeInTheDocument();
   });
 
   it('draws Max and the Receive link in the Send ink, never the bare brand colour', () => {

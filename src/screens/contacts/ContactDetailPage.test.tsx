@@ -69,11 +69,12 @@ jest.mock('components/contacts/ContactAvatar', () => ({
   ContactAvatar: ({ name, network }: any) => <span data-testid="avatar" data-name={name} data-network={network} />
 }));
 jest.mock('components/NetworkChip', () => ({
+  NetworkLogo: () => null,
   NetworkChip: ({ label, ...rest }: any) => <span data-testid={rest['data-testid']}>{label}</span>
 }));
 jest.mock('screens/send-flow/bridge-networks', () => ({
   BRIDGE_NETWORKS: [{ id: 'sepolia', name: 'Sepolia', chainId: 1 }],
-  DEFAULT_BRIDGE_NETWORK: { id: 'sepolia', name: 'Sepolia', chainId: 1 }
+  defaultBridgeNetwork: () => ({ id: 'sepolia', name: 'Sepolia', chainId: 1 })
 }));
 const clipboardWriteMock = jest.fn().mockResolvedValue(undefined);
 jest.mock('@capacitor/clipboard', () => ({
@@ -155,7 +156,7 @@ it('keeps Save disabled on a 0x contact stored without a network until something
 it('renames a contact from edit mode', async () => {
   render(<ContactDetailPage address="0xpaul" />);
   fireEvent.click(screen.getByTestId('contact-edit'));
-  expect(screen.getByRole('heading')).toHaveTextContent('editContact');
+  expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('editContact');
   expect(screen.getByTestId('contact-save')).toBeDisabled();
   // Was `w-full max-w-none rounded-full text-base font-semibold`.
   expect(screen.getByTestId('contact-save').className).not.toMatch(/rounded-full|text-base|font-semibold/);

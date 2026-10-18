@@ -24,7 +24,6 @@ import {
   NoteFile,
   NoteFilterTypes,
   NoteId,
-  NoteScript,
   NoteType,
   PublicKey,
   RpcClient,
@@ -55,40 +54,30 @@ import {
 } from '@miden-sdk/miden-wallet-adapter-miden';
 
 import { guardianRequestBuilder, previewTwinSummary } from './guardian-request-builder.js';
+import {
+  canonical,
+  ChainUnavailableError,
+  describeError,
+  field,
+  fromNode,
+  HarnessCheckError,
+  noteTypeName,
+  outcome,
+  outputNoteView
+} from './page-common.js';
 import type {
   ConnectedView,
   DappCommandName,
-  DappError,
   DappHandlers,
   DappInput,
   DappOutput,
   NoteTypeName,
   NoteView,
-  Outcome,
-  OutputNoteView,
   RawArg,
   SessionEvent,
   TestDappWindowApi
 } from './protocol';
-
-/** A dApp-side failure: thrown through to the driver as a harness fault, never folded into an Outcome. */
-class HarnessCheckError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'HarnessCheckError';
-  }
-}
-/**
- * The node failed a call the page made, or the chain did not advance: the network's fault, not the page's. The driver
- * matches the name, asks again a command a repeat cannot change, and records the rest as an infrastructure failure of
- * that cell alone (callDapp).
- */
-class ChainUnavailableError extends Error {
-  constructor(message: string, options?: { cause?: unknown }) {
-    super(message, options);
-    this.name = 'ChainUnavailableError';
-  }
-}
+import { buildScriptRequest } from './script-request.js';
 
 /** A built custom request waits here until `submitCustom`, so a test can let the chain move in between. */
 interface HeldRequest {
@@ -111,24 +100,14 @@ const state = {
 };
 
 const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
-// The wallet hands out its stored account key, which can carry a `_<suffix>` (dapp.ts:443-453); the SDK parses only the
-// bech32 part, so this drops the suffix the way the wallet's own canonicalWalletAccountId does (helpers.ts:72-79).
-const canonical = (address: string): string => address.split('_')[0] ?? address;
 // Ids the page computes are hex; addresses the wallet and the driver pass are bech32, possibly suffixed.
 const toAccountId = (id: string): AccountId =>
   id.startsWith('0x') ? AccountId.fromHex(id) : AccountId.fromBech32(canonical(id));
 const noteTypeOf = (name: NoteTypeName): NoteType => (name === 'public' ? NoteType.Public : NoteType.Private);
-const noteTypeName = (type: NoteType): NoteTypeName => (type === NoteType.Public ? 'public' : 'private');
 const cryptoWord = (): Word => {
   const values = crypto.getRandomValues(new BigUint64Array(4));
   return Word.newFromFelts(Array.from(values, value => new Felt(value & 0x7fff_ffff_ffff_ffffn)));
 };
-// By script root, as the wallet's own guardian-history.ts reads a payment note.
-function scriptOf(note: Note): OutputNoteView['script'] {
-  const root = note.script().root().toHex();
-  if (root === NoteScript.p2id().root().toHex()) return 'p2id';
-  return root === NoteScript.p2ide().root().toHex() ? 'p2ide' : 'other';
-}
 // The note type and state are stringified as the wallet sent them, so the view stays JSON whichever form they take.
 const noteView = (note: InputNoteDetails): NoteView => ({
   noteId: note.noteId,
@@ -153,33 +132,6 @@ function record(source: SessionEvent['source'], event: string, address: string |
   if (log) log.textContent += `${source} ${event} ${address ?? ''}\n`;
 }
 
-const field = (value: unknown, key: string): string | undefined => {
-  const found: unknown = typeof value === 'object' && value !== null ? Reflect.get(value, key) : undefined;
-  return typeof found === 'string' ? found : undefined;
-};
-
-// Provider errors are MidenWalletError objects that implement Error without extending it, so read fields, not instanceof.
-function describeError(error: unknown): DappError {
-  const cause: unknown = typeof error === 'object' && error !== null ? Reflect.get(error, 'error') : undefined;
-  const causeName = field(cause, 'name');
-  return {
-    name: field(error, 'name') ?? 'NonError',
-    message: field(error, 'message') ?? String(error),
-    ...(causeName === undefined ? {} : { causeName, causeMessage: field(cause, 'message') ?? '' })
-  };
-}
-
-// Wallet and adapter errors are the verdicts under test, so they come back as data with their exact class and text
-// (spec section 2.4). A HarnessCheckError is the page's own fault and a ChainUnavailableError the node's: both throw.
-async function outcome<T>(work: () => Promise<T>): Promise<Outcome<T>> {
-  try {
-    return { ok: true, value: await work() };
-  } catch (error) {
-    if (error instanceof HarnessCheckError || error instanceof ChainUnavailableError) throw error;
-    return { ok: false, error: describeError(error) };
-  }
-}
-
 // Each command is a separate call from the driver, so each checks its own preconditions; a missing one is the
 // driver's mistake and throws as a harness fault.
 function client(): MidenClient {
@@ -198,16 +150,6 @@ function provider(): MidenWallet {
 }
 // Chain reads bypass the dApp's client store as well as the wallet: the chain's view of a write is checked on its own.
 const rpc = (): RpcClient => new RpcClient(new Endpoint(state.rpcUrl));
-// Every call the page makes to the node goes through here, so the driver can tell a failed request from a page fault.
-async function fromNode<T>(what: string, work: () => Promise<T>): Promise<T> {
-  try {
-    return await work();
-  } catch (error) {
-    if (error instanceof HarnessCheckError) throw error;
-    const { name, message } = describeError(error);
-    throw new ChainUnavailableError(`${what}: ${name}: ${message}`, { cause: error });
-  }
-}
 
 // The adapter never subscribes to the provider's accountChange (K1), so the page listens on the provider itself to
 // record what the wallet actually emitted next to what the adapter reports.
@@ -388,7 +330,7 @@ const handlers: Partial<DappHandlers> = {
 
   consumableNotes: () => outcome(async () => (await state.adapter.requestConsumableNotes()).map(noteView)),
 
-  // The ids go to the wallet as given, so N4 can ask by the id an import returned (K10) as well as by the note's own.
+  // The ids go to the wallet as given, so N4 can ask by the id an import returned as well as by the note's own.
   privateNotes: ({ filter, noteIds }) =>
     outcome(async () => (await state.adapter.requestPrivateNotes(NoteFilterTypes[filter], noteIds)).map(noteView)),
 
@@ -464,7 +406,7 @@ const handlers: Partial<DappHandlers> = {
     }),
 
   // The declared faucet and amount go to the wallet as given and may differ from the note's on purpose (W4, W5): the
-  // wallet resolves the note itself and shows what it really holds (dapp.ts:2655-2668).
+  // wallet resolves the note itself and shows what it really holds (dapp.ts:2707-2720).
   consume: input =>
     outcome(async () => {
       const bytes = input.noteBytesB64 === undefined ? undefined : b64ToU8(input.noteBytesB64);
@@ -514,9 +456,8 @@ const handlers: Partial<DappHandlers> = {
   },
 
   // Returns the id the wallet reports: the note id for a file with an inclusion proof, the details commitment for a
-  // details-only file or a bare note (dapp.ts:1485-1490). The spike found the wallet then refuses a consume by that
-  // commitment before any popup, while the same note consumes by its own id: a cell that consumes by the returned id
-  // (W5b, W5c) meets that refusal.
+  // details-only file or a bare note (dapp.ts:1502-1507). A consume by that commitment (W5b, W5c) consumes the note it
+  // names once a sync has committed it (#1389); N4 lists the same note by that returned id (#1536).
   importNote: ({ noteBytesB64 }) =>
     outcome(async () => ({ noteId: await state.adapter.importPrivateNote(b64ToU8(noteBytesB64)) })),
 
@@ -624,6 +565,67 @@ const handlers: Partial<DappHandlers> = {
     };
   },
 
+  // A transaction script the dApp compiles (spec section 5.1). Like buildCustom it syncs first, so N is the dApp's own
+  // height, and a Guardian request takes the twin's auth args; the script, not an own output note, makes the payment.
+  buildCustomScript: async input => {
+    const me = requireConnected();
+    const ownClient = client();
+    const [output, ...extra] = input.outputs;
+    if (
+      extra.length > 0 ||
+      (input.kind === 'fee-only') !== (output === undefined) ||
+      output?.extraAssets !== undefined
+    ) {
+      throw new HarnessCheckError(
+        `a ${input.kind} script takes ${input.kind === 'fee-only' ? 'no output' : 'one single-asset output'}`
+      );
+    }
+    await fromNode('syncChain', () => ownClient.syncChain());
+    const height = await ownClient.getSyncHeight();
+    const twin = me.builder === 'guardian-twin';
+    const builder = twin ? await guardianRequestBuilder(ownClient, height) : new TransactionRequestBuilder();
+    const built = await buildScriptRequest(
+      ownClient,
+      builder,
+      input.kind,
+      output === undefined
+        ? undefined
+        : {
+            sender: AccountId.fromHex(me.accountIdHex),
+            target: toAccountId(output.recipientAddress),
+            faucet: toAccountId(output.faucetId),
+            amount: BigInt(output.amount),
+            noteType: noteTypeOf(output.noteType)
+          }
+    );
+    const checks: Record<string, boolean> = {
+      ...built.checks,
+      ...(twin
+        ? {
+            authArgCommitted: built.request.authArg() !== undefined,
+            declaresBoundBlock: built.request.blockNumbers().includes(height)
+          }
+        : {})
+    };
+    const failed = Object.entries(checks)
+      .filter(([, ok]) => !ok)
+      .map(([name]) => name);
+    if (failed.length > 0) throw new HarnessCheckError(`request self-check failed: ${failed.join(', ')}`);
+
+    const requestId = `r${(state.nextRequest += 1)}`;
+    state.requests.set(requestId, { request: built.request, importNotes: [] });
+    return {
+      requestId,
+      requestB64: u8ToB64(built.request.serialize()),
+      boundBlockNum: height,
+      outputNoteIds: built.predicted === undefined ? [] : [built.predicted.id().toString()],
+      attachmentWordsHex: [],
+      scriptRootHex: built.scriptRootHex,
+      ...(built.scriptArgHex === undefined ? {} : { scriptArgHex: built.scriptArgHex }),
+      checks
+    };
+  },
+
   // The sender is always the connected account: a custom request from any other address is refused before any popup
   // (R3), which a test drives through `raw` instead.
   submitCustom: input =>
@@ -645,14 +647,7 @@ const handlers: Partial<DappHandlers> = {
       const result = await state.adapter.waitForTransaction(txId);
       return {
         txHash: result.txHash,
-        outputNotes: result.outputNotes.map(note => ({
-          noteId: note.id().toString(),
-          noteType: noteTypeName(note.metadata().noteType()),
-          bytesB64: u8ToB64(note.serialize()),
-          // The adapter deserializes with the bare specifier, so one import map means one SDK instance.
-          isSameSdkNote: note instanceof Note,
-          script: scriptOf(note)
-        }))
+        outputNotes: result.outputNotes.map(outputNoteView)
       };
     }),
 

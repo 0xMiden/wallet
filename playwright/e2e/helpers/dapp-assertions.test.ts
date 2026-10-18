@@ -135,6 +135,23 @@ describe('expectWritesToTheEnd', () => {
     expect(syncs()).toBe(2);
   });
 
+  it('asks the page that made the write for its result when the side names one', async () => {
+    walletShows(after, [row('funding'), written]);
+    jest.mocked(callDapp).mockClear();
+    const waitForTransaction = jest.fn(async () => ({
+      ok: true as const,
+      value: {
+        txHash: TX_HASH,
+        outputNotes: [
+          { noteId: NOTE, noteType: 'public' as const, bytesB64: '', isSameSdkNote: true, script: 'p2id' as const }
+        ]
+      }
+    }));
+    await expect(assertSend({ ...sideOf().side, waitForTransaction })).resolves.toHaveLength(1);
+    expect(waitForTransaction).toHaveBeenCalledWith(TX, expect.anything());
+    expect(jest.mocked(callDapp).mock.calls.map(call => call[1])).toEqual(['chainNote', 'chainAccount']);
+  });
+
   it('fails a write the wallet ran twice as two rows', async () => {
     walletShows(after, [row('funding'), written, row('tx-again', { transactionId: `0x${'ef'.repeat(32)}` })]);
     await expect(assertSend(sideOf().side)).rejects.toThrow(/tx-again/);
@@ -552,7 +569,7 @@ describe('a note from outside the journey', () => {
       expect(error).toBeInstanceOf(InfrastructureFault);
     });
 
-    it("leaves the read to K9's rule when the consume finished before the capture or moved the other account", async () => {
+    it('leaves the read to the per-read rule when the consume finished before the capture or moved the other account', async () => {
       const before = gift('gift', { completedAt: baseline.capturedAtSec - 5 });
       expect(await judge(read(movedOwn), [row('funding'), before], { ...baseline, rowIds: ['funding', 'gift'] })).toBe(
         undefined
@@ -570,7 +587,7 @@ describe('a note from outside the journey', () => {
       expect(await judge(read(movedOwn), [row('funding'), gift('gift'), row('tx-read')])).toBe(undefined);
     });
 
-    it("leaves a consume of a journey sender's note to K9's rule, even one running at the capture", async () => {
+    it("leaves a consume of a journey sender's note to the per-read rule, even one running at the capture", async () => {
       const grant = gift('grant', { secondaryAccountId: 'mtst1publicfaucet', status: 1, completedAt: undefined });
       expect(await judge(read(movedOwn), [row('funding'), grant], { ...baseline, rowIds: ['funding', 'grant'] })).toBe(
         undefined

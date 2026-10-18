@@ -16,7 +16,8 @@ export const WIRE_KEYS: readonly string[] = [
   'durationMs',
   'step',
   'appVersion',
-  'platform'
+  'platform',
+  'network'
 ];
 
 /**
@@ -31,7 +32,8 @@ export function serializeEvent(event: TelemetryEvent, context: TelemetryContext)
     phase: event.phase,
     runId: event.runId,
     appVersion: context.appVersion,
-    platform: context.platform
+    platform: context.platform,
+    network: context.network
   };
 
   // Named per phase rather than copied from a shared shape, so the two kinds of

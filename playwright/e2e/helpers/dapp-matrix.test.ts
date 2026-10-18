@@ -34,15 +34,24 @@ describe('dApp matrix data', () => {
     expect(lowered).toEqual([]);
   });
 
-  it("fits each part's journeys in the workflow's 140-min run step", () => {
+  it("fits each part's journeys in the workflow's 170-min run step", () => {
     const overrun = Object.entries(PART_JOURNEYS)
       .map(([part, journeys]) => [part, journeys.reduce((sum, j) => sum + JOURNEY_TIMEOUT_MS[j], 0) / 60_000] as const)
-      .filter(([, minutes]) => minutes >= 140);
+      .filter(([, minutes]) => minutes >= 170);
     expect(overrun).toEqual([]);
+  });
+
+  it('runs the X8 script cells on both axes, after X11', () => {
+    for (const axis of ['offchain', 'guardian'] as const) {
+      expect(cellIdsFor('X', axis).slice(-4)).toEqual(['X11', 'X8a', 'X8b', 'X8c']);
+    }
   });
 });
 
 // Spec section 6: a timeout the spike recomputes replaces one of these only when it is higher.
-const INITIAL_TIMEOUT_MIN: Record<JourneyId, number> = { S: 20, R: 45, W: 60, X: 45, XL: 25, M: 60 };
+const INITIAL_TIMEOUT_MIN: Record<JourneyId, number> = { S: 20, R: 45, W: 60, X: 45, XL: 25, M: 60, RA: 30 };
 
-const PART_JOURNEYS: Record<'core' | 'writes', JourneyId[]> = { core: ['S', 'R', 'M'], writes: ['W', 'X', 'XL'] };
+const PART_JOURNEYS: Record<'core' | 'writes', JourneyId[]> = {
+  core: ['S', 'R', 'M', 'RA'],
+  writes: ['W', 'X', 'XL']
+};

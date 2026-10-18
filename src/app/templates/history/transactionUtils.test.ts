@@ -1197,6 +1197,21 @@ describe('swap settlement state', () => {
   // Same minimal-shape casting as the helpers above; only these fields are read.
   const swap = (extraInputs: Record<string, unknown>, status = 2): any => ({ type: 'swap', status, extraInputs });
 
+  it('reports the queued return instead of continuing to advertise matching', () => {
+    expect(swapSettlementOf(swap({ orderId: 42n, expiresAt: 100, expiryTriggeredAt: 101 }))).toBe('reclaiming');
+    expect(swapSettlementOf(swap({ orderId: 42n, expiresAt: 100, expiryTriggeredAt: 101, reclaimedAt: 110 }))).toBe(
+      'reclaimed'
+    );
+  });
+
+  // Settlement never acts on a restored row (localSwapOrders drops it), so its stamp cannot become reclaimed.
+  it('reports the return only for an order the settlement acts on', () => {
+    const stamped = { orderId: 42n, expiresAt: 100, expiryTriggeredAt: 101 };
+    expect(swapSettlementOf({ ...swap(stamped), restoredFromBackup: true })).toBe('pending');
+    expect(swapSettlementOf(swap(stamped))).toBe('reclaiming');
+    expect(swapSettlementOf(swap({ expiresAt: 100, expiryTriggeredAt: 101 }))).toBeUndefined();
+  });
+
   it('reports pending only for an auto-consumed order with an expiry and no stamp', () => {
     expect(swapSettlementOf(swap({ orderId: 42n, expiresAt: 1_700_000_120 }))).toBe('pending');
   });
@@ -1230,6 +1245,88 @@ describe('swap settlement state', () => {
     expect(swapSettlementOf(swap({ expiresAt: 1_700_000_120 }))).toBeUndefined();
     expect(swapSettlementOf(swap({ orderId: 42n, expiresAt: 1_700_000_120 }, 0))).toBeUndefined();
     expect(swapSettlementOf({ type: 'send', status: 2, extraInputs: { orderId: 42n } } as any)).toBeUndefined();
+  });
+
+  describe('a Guardian-recovered order', () => {
+    // Recovery records every order with Auto accept off and no expiry, so the rule above read each one Confirmed
+    // while the placing device read it Pending (#1487).
+    const recovered = (
+      extraInputs: Record<string, unknown> = {},
+      overrides: Partial<ITransaction> = {}
+    ): ITransaction => ({
+      id: 'guardian-history:testnet:account:0xcommitment',
+      type: 'swap',
+      accountId: 'account',
+      status: ITransactionStatus.Completed,
+      initiatedAt: 100,
+      displayIcon: 'DEFAULT',
+      amount: 70n,
+      outputNoteIds: ['order-note'],
+      restoredFromBackup: true,
+      recovered: true,
+      recovery: {
+        version: 5,
+        network: 'testnet',
+        operators: [],
+        nonce: 2,
+        inputNotes: [],
+        outputNotes: [
+          {
+            id: 'order-note',
+            assets: [],
+            visibility: 'public',
+            swap: { orderId: '42', requestedAsset: { faucetId: 'requested', amount: '30' } }
+          }
+        ],
+        completeness: 'decoded',
+        reclaimed: false
+      },
+      extraInputs: { orderId: '42', requestedAmount: 30n, autoConsume: false, ...extraInputs },
+      ...overrides
+    });
+
+    it('reads open while no fill or reclaim was found', () => {
+      expect(swapSettlementOf(recovered())).toBe('pending');
+    });
+
+    it('reads open while a fill has left a remainder on offer', () => {
+      expect(
+        swapSettlementOf(recovered({ recoveredTip: { noteId: 'remainder', depth: 1, remainingOffered: 20n } }))
+      ).toBe('pending');
+    });
+
+    it('reads Returning funds once this wallet asked for its return', () => {
+      expect(swapSettlementOf(recovered({ expiresAt: 150, expiryTriggeredAt: 150 }))).toBe('reclaiming');
+    });
+
+    it('reads the settlement or reclaim its lineage closed it with, as any order does', () => {
+      expect(swapSettlementOf(recovered({ settledAt: 160, lineageClosedAt: 160 }))).toBeUndefined();
+      expect(swapSettlementOf(recovered({ reclaimedAt: 160, lineageClosedAt: 160 }))).toBe('reclaimed');
+      expect(swapSettlementOf(recovered({ expiryTriggeredAt: 150, reclaimedAt: 160, lineageClosedAt: 160 }))).toBe(
+        'reclaimed'
+      );
+    });
+
+    // The pre-fix recovery reconcile stamped an order closed from a linked payout or reclaim with no lineage read, so a
+    // partial fill's payout read Confirmed while the remainder was still on offer (#1487).
+    it.each([
+      ['settledAt', { settledAt: 160 }, undefined],
+      ['reclaimedAt', { reclaimedAt: 160 }, 'reclaimed']
+    ])('reads open over a %s no lineage read recorded, until a read decides', (_label, stamp, closed) => {
+      expect(swapSettlementOf(recovered(stamp))).toBe('pending');
+      // An open read cleared it.
+      expect(swapSettlementOf(recovered())).toBe('pending');
+      // A finished read recorded it.
+      expect(swapSettlementOf(recovered({ ...stamp, lineageClosedAt: 170 }))).toBe(closed);
+    });
+
+    it('reads Confirmed once the node showed its order note spent with nothing of this wallet behind it', () => {
+      expect(swapSettlementOf(recovered({ orderNoteSpentAt: 170 }))).toBeUndefined();
+    });
+
+    it('reads Confirmed for a recovered order whose order note it cannot name, which it cannot track', () => {
+      expect(swapSettlementOf(recovered({}, { outputNoteIds: [] }))).toBeUndefined();
+    });
   });
 });
 

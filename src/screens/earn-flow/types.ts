@@ -62,6 +62,8 @@ export interface ChartDotProps {
 }
 
 export interface EarnVault {
+  /** Miden funding asset shown by the listing; `asset` remains the EVM underlying. */
+  fundingAsset?: string;
   id: string;
   protocol: string;
   asset: string;

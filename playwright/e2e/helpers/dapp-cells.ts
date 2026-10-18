@@ -10,7 +10,7 @@ import type { KnownBugRegistry } from './dapp-known-bugs';
  */
 
 export type AxisLabel = 'offchain' | 'guardian';
-export type JourneyId = 'S' | 'R' | 'W' | 'X' | 'XL' | 'M';
+export type JourneyId = 'S' | 'R' | 'W' | 'X' | 'XL' | 'M' | 'RA';
 /**
  * A cell's outcome (spec section 5). `fail-known` means every failure matched a signature registered for this cell
  * and axis; `known-now-passing` means such a cell ran clean, which fails the judge until the entry is removed. A
@@ -48,18 +48,25 @@ export interface FailureEvidence {
   adapterAddress?: string | null;
   previousAddress?: string | null;
   staleConsumeExecuted?: boolean;
-  /** A request made as a session's account while another account was current opened a popup (Q10, K9). */
+  /** A request made as a session's account while another account was current opened a popup (Q10). */
   nonCurrentPrompted?: boolean;
-  /** Such a request left a row that ran, for any account: whatever the answer said, it was not refused (K9). */
+  /** Such a request left a row that ran, for any account: whatever the answer said, it was not refused. */
   nonCurrentRowRan?: boolean;
   /**
    * Every such read was refused before any popup with NOT_GRANTED or, after one, served its session account's own
-   * vault (`nonCurrentReadEvidence`); a leak, a failed approval or a read served with no popup is new, never K9.
+   * vault (`nonCurrentReadEvidence`); a leak, a failed approval or a read served with no popup is new.
    */
   nonCurrentReadsOwnOrRefused?: boolean;
   crossOriginWaitServed?: boolean;
-  /** N4 listed every imported note by its own note id, then missed one asked by the id its import returned (K10). */
-  returnedIdUnlisted?: boolean;
+  /** Why the React context `connectReact` returned holds a key that is not a Word, so its `publicKeyHex` is null. */
+  reactPublicKeyError?: string;
+  /** WP7: the React context's account and connection once the provider moved (K1 at the React layer). */
+  reactAddress?: string | null;
+  reactConnected?: boolean;
+  /** WP9: what `useContext(WalletContext)` from the package entry read under WalletProvider; null for no state. */
+  reactExportedConnected?: boolean | null;
+  /** MF3: the error MidenProvider settled on while it set the MidenFi signer account up. */
+  signerInitError?: string;
 }
 
 /** A check that failed without stopping the cell, so one run can record a soft and a hard known bug. */

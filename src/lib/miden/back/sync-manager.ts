@@ -3,6 +3,7 @@ import browser from 'webextension-polyfill';
 import { getMessage } from 'lib/i18n';
 import { classifySyncError, isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
 import { clearReachabilityIssues, markConnectivityIssue } from 'lib/miden/activity/connectivity-state';
+import { beginBalanceSnapshot } from 'lib/miden/balance-snapshot';
 import { isWorthClaiming, totalClaimableAmount } from 'lib/miden/fees/spendable';
 import { getQuarantinedNoteIds } from 'lib/miden/note-quarantine';
 import {
@@ -13,7 +14,7 @@ import {
   monotonicNowMs
 } from 'lib/miden/sync-backoff';
 import { getBlockTimestamps } from 'lib/miden-chain/block-timestamps';
-import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
+import { getEffectiveRpcUrl, whenEndpointOverridesLoaded } from 'lib/miden-chain/effective-endpoints';
 import { getNativeAssetId, getVerificationBaseFee } from 'lib/miden-chain/native-asset';
 import {
   areBackgroundSettingsMirrored,
@@ -29,12 +30,20 @@ import { getIntercom } from './defaults';
 import { midenClientProxy, runsWasmInThisRealm } from './miden-client-proxy';
 import { mergeAndPersistSeenNoteIds } from './note-checker-storage';
 import { isRotationPendingAccount } from './rotation-pending';
+import { isUnlocked, store } from './store';
 import { Vault } from './vault';
 import { getBech32AddressFromAccountId } from '../sdk/helpers';
-import { getCurrentWasmLockHold, getMidenClient, withWasmClientLock } from '../sdk/miden-client';
+import { getCurrentWasmLockHold, getMidenClient, withWasmClientLock, type WasmLockHold } from '../sdk/miden-client';
 import { isSyncWatchdogEviction, WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
-import { classifySwapOrderNotes, localSwapOrders } from '../swap/classification';
-import { reconcileSwapOrderNotes } from '../swap/settlement';
+import { localSwapOrders } from '../swap/classification';
+import type { RecoveredSwapOrderRef } from '../swap/recovered-order';
+import {
+  checkRefusedRecoveredOrders,
+  classifySwapSettlementSnapshot,
+  noteZeroFillBuildHoldFailure,
+  type PreparedPswapReclaim,
+  reconcileSwapOrderNotes
+} from '../swap/settlement';
 import { getNoteHoldingTransactions } from '../transaction/get';
 import { initiateConsumeNotesTransaction, initiateConsumeTransaction } from '../transaction/initiate';
 import { sweepNoteDeliveries } from '../transaction/note-delivery-sweep';
@@ -202,6 +211,9 @@ export function doSync(force = false): Promise<void> {
 
 async function runSync(force: boolean): Promise<void> {
   try {
+    // The `miden-sync` alarm can fire before start() has loaded the override; until then the note scope below and
+    // the state sent to the offscreen document would be the build's network (#1482).
+    await whenEndpointOverridesLoaded();
     // Skip if wallet not set up
     const vault = await getVault();
     const exists = await vault.isExist();
@@ -433,14 +445,21 @@ async function runSync(force: boolean): Promise<void> {
       // instead of the ~30s the old JS timeout bounded it to — strictly worse than
       // before the ceiling was added, on the one path (#777) that has no offscreen
       // realm to absorb it.
-      const { parsedNotes, vaultAssets, noteBlocks } = await withWasmClientLock(
+      const settlementNowSeconds = Math.floor(Date.now() / 1000);
+      let notesReadHold: WasmLockHold | null = null;
+      // Set by the hold below; read only once it has resolved, so an evicted hold's late write never reaches the check.
+      let refusedRecoveredOrders: RecoveredSwapOrderRef[] = [];
+      const { parsedNotes, vaultAssets, noteBlocks, balanceSnapshot, zeroFillReclaims } = await withWasmClientLock(
         async hold => {
+          notesReadHold = hold;
           const client = await getMidenClient();
           if (!client)
             return {
               parsedNotes: [] as SerializedConsumableNote[],
               vaultAssets: [] as SerializedVaultAsset[],
-              noteBlocks: new Map<string, number>()
+              noteBlocks: new Map<string, number>(),
+              balanceSnapshot: undefined,
+              zeroFillReclaims: new Map<string, PreparedPswapReclaim>()
             };
           // The client build is an await, and on the inline path it can be the long one
           // (a genesis fetch against a parked node). If this hold was evicted while it
@@ -486,7 +505,17 @@ async function runSync(force: boolean): Promise<void> {
           // buys is the window where the user DOES have open orders — covered by the
           // classifier's own per-order guard — plus an accurate attribution when it fires.
           stillOurs('after the quarantine read');
-          const swapOrders = await classifySwapOrderNotes(rawNotes, accountPubKey, swapOrderRows, hold);
+          // A locked lap settles nothing (below), so it builds no zero-fill reclaim request it would throw away.
+          const settlementSnapshot = await classifySwapSettlementSnapshot(
+            rawNotes,
+            accountPubKey,
+            swapOrderRows,
+            hold,
+            settlementNowSeconds,
+            isUnlocked(store.getState())
+          );
+          const { classified: swapOrders, zeroFillReclaims } = settlementSnapshot;
+          refusedRecoveredOrders = settlementSnapshot.refusedRecoveredOrders;
           stillOurs('after the swap-order lineage read');
           // Inclusion block of each note, dated once this hold has released the client (below).
           const noteBlocks = new Map<string, number>();
@@ -510,12 +539,14 @@ async function runSync(force: boolean): Promise<void> {
                 noteType: note.noteType !== undefined ? toNoteTypeString(note.noteType) : 'unknown',
                 recallableAtMs: note.recallableAtMs,
                 standardPayment: note.standardPayment,
+                carriesMoreAssets: note.assets.length > 1 || undefined,
                 swapOrder: swapOrders.get(noteId)
               };
             })
             .filter((note): note is SerializedConsumableNote => note !== null);
 
           // Read vault assets
+          const finishSnapshot = beginBalanceSnapshot();
           const account = await midenClientProxy.getAccount(accountPubKey);
           // Before touching the returned Account: `vault().fungibleAssets()` is a WASM
           // call on an object borrowed from the client's RefCell, so reading it after an
@@ -532,10 +563,25 @@ async function runSync(force: boolean): Promise<void> {
             }
           }
 
-          return { parsedNotes: notes, vaultAssets: assets, noteBlocks };
+          return {
+            parsedNotes: notes,
+            vaultAssets: assets,
+            noteBlocks,
+            balanceSnapshot: finishSnapshot(account),
+            zeroFillReclaims
+          };
         },
         inlineWasm ? { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'sw-notes-read' } : undefined
-      );
+      ).catch((err: unknown) => {
+        // A zero-fill build this hold's eviction abandoned books its own key; no other failure of the read is booked.
+        noteZeroFillBuildHoldFailure(notesReadHold, err);
+        throw err;
+      });
+
+      // A recovered order whose cancel the hold refused is asked about on the node now that the hold is released, here
+      // as well as on a page: only an open page closed a spent one, so this realm rebuilt its cancel every lap (#1487).
+      // Fired and forgotten like the delivery sweep: bounded node reads the lap need not wait for.
+      void checkRefusedRecoveredOrders(refusedRecoveredOrders);
 
       // Receive dates from the notes' inclusion blocks, read alongside the metadata below (RPC, outside lock).
       const blockTimesRead = getBlockTimestamps([...noteBlocks.values()], notesScope);
@@ -682,6 +728,7 @@ async function runSync(force: boolean): Promise<void> {
         notes: parsedNotes,
         vaultAssets,
         accountPublicKey: accountPubKey,
+        balanceSnapshot,
         syncedAt: syncSucceededAt ?? lastPublishedSyncAt
       };
       try {
@@ -744,14 +791,21 @@ async function runSync(force: boolean): Promise<void> {
       });
       // Gate on orders, not notes: an order with no consumable notes left may
       // still need its settlement stamp repaired inside reconcile.
-      if (swapOrderRows.length > 0) {
+      //
+      // And only while the vault is unlocked, for the reason the native enqueue below gives: a locked worker cannot
+      // sign a settlement claim either. The notes stay swap-managed, and the first lap after unlock settles them; the
+      // stamps reconcile writes, which only label the order, wait for that lap too.
+      if (swapOrderRows.length > 0 && isUnlocked(store.getState())) {
         try {
           const settlement = await reconcileSwapOrderNotes(
             accountPubKey,
             managedNotes,
             undefined,
-            undefined,
-            swapOrderRows
+            settlementNowSeconds,
+            swapOrderRows,
+            zeroFillReclaims,
+            // Asked by the queue right before each claim row, so a lock landing while reconcile awaits queues none.
+            () => isUnlocked(store.getState())
           );
           if (settlement.queuedTransactionIds.length > 0) {
             const { startTransactionProcessing } = await import('./transaction-processor');
@@ -769,12 +823,20 @@ async function runSync(force: boolean): Promise<void> {
       // inside the initiate helpers, so a repeated ~30s tick never spawns duplicate rows.
       // Proving follows the user's delegated/local setting via the SW-readable mirror —
       // like every other proving path in the wallet.
-      if (nativeAutoConsumeNotes.length > 0) {
+      //
+      // Only while the vault is unlocked: a locked worker cannot sign the claim, so its row would only be deferred
+      // until it expired as a failure, reported and notified for a claim the user never started. The note stays
+      // auto-consume's (the prompt above still leaves it out) and the first lap after unlock queues it.
+      if (nativeAutoConsumeNotes.length > 0 && isUnlocked(store.getState())) {
         try {
           const delegate = await isDelegateProofEnabledAsync();
+          // The queue asks this right before each row it writes, after every await of the lap, so a lock that landed
+          // since the gate above queues nothing. A lock refuses every note alike, so it ends the pass rather than
+          // falling back note by note.
+          const canSign = () => isUnlocked(store.getState());
           // ONE transaction for the batch: each consume pays its own fee, so a backlog
           // claimed note-by-note charges N fees for what settles in one. A Miden tx is
-          // atomic, so a single un-consumable note fails the whole batch; the LAST
+          // atomic, so a single un-consumable note fails the whole batch; the `true`
           // argument isolates it on the following enqueue, so it cannot drag its healthy
           // mates into the shared row's #215 backoff. NOT the catch below -- this call is
           // a queue write and the real failure happens later, at generation time.
@@ -785,14 +847,18 @@ async function runSync(force: boolean): Promise<void> {
               delegate,
               false,
               true,
-              nativeAutoConsumeBaseFee
+              nativeAutoConsumeBaseFee,
+              'auto_consume',
+              canSign
             );
           } catch (batchErr) {
+            if (!canSign()) throw batchErr;
             console.warn('[native-auto-consume] batch enqueue failed, falling back to per-note enqueue', batchErr);
             for (const note of nativeAutoConsumeNotes) {
               try {
-                await initiateConsumeTransaction(accountPubKey, note, delegate);
+                await initiateConsumeTransaction(accountPubKey, note, delegate, false, 'auto_consume', canSign);
               } catch (noteErr) {
+                if (!canSign()) throw noteErr;
                 console.warn('[native-auto-consume] enqueue failed for note', note.id, noteErr);
               }
             }

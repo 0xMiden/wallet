@@ -15,6 +15,7 @@
 import { GuardianHttpClient } from '@openzeppelin/guardian-client';
 
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
+import { _resetGuardianRegistryForTest, setDocumentGuardians } from 'lib/miden-chain/guardian-registry';
 
 import {
   checkEndpointCommitment,
@@ -31,6 +32,7 @@ const KEY_C = 'c'.repeat(64);
 const KEY_D = 'd'.repeat(64);
 const KEY_E = 'e'.repeat(64);
 const KEY_F = 'f'.repeat(64);
+const KEY_G = '9'.repeat(64);
 const served = (key: string) => `0x${key.toUpperCase()}`;
 
 // `unknown`, not `string`: the guardian client returns this field off an
@@ -41,6 +43,7 @@ const MOCK_DEFAULT_PUBKEYS: Record<string, unknown> = {
   'https://miden-guardian.dev.eu-north-3.gateway.fm': served(KEY_B),
   'https://miden-guardian.lambdaclass.com': served(KEY_C),
   'https://guardian-testnet.kodax.com': served(KEY_D),
+  'https://miden-guardian.beta.getpara.com': served(KEY_G),
   // The devnet OpenZeppelin endpoint, so a lookup that resolved the wrong
   // network answers with a DIFFERENT key rather than with nothing.
   'https://guardian-devnet.openzeppelin.com': served(KEY_E),
@@ -77,6 +80,13 @@ jest.mock('lib/miden-chain/effective-endpoints', () => ({
   getEffectiveGuardianUrl: () => mockGuardianUrlOverride
 }));
 
+// The config document's hydration, which every round awaits before it reads the built-in operators. A test gives it
+// the list a stored document would put in the registry.
+let mockHydrateConfigDocument: () => void = () => undefined;
+jest.mock('lib/remote-config/runtime', () => ({
+  initBridgeConfig: async () => mockHydrateConfigDocument()
+}));
+
 // The shared native-HTTP double records the probe each `GET /pubkey` takes and its verdict.
 jest.mock('lib/miden/guardian/native-http');
 const { mockProbedEndpoints, mockProbeVerdicts, resetMockProbes } = jest.requireMock<
@@ -86,6 +96,46 @@ const { mockProbedEndpoints, mockProbeVerdicts, resetMockProbes } = jest.require
 afterEach(() => {
   jest.restoreAllMocks();
   mockPubkeyByEndpoint = { ...MOCK_DEFAULT_PUBKEYS };
+  mockHydrateConfigDocument = () => undefined;
+  _resetGuardianRegistryForTest();
+});
+
+// The built-ins are the config document's `guardians`, not the bundled list, once a document names them. The round
+// must read the list only after the stored document is in memory: a service-worker lap can run before startup did.
+describe('the config document operators', () => {
+  const LISTED = 'https://listed.guardian.test';
+  const listOnly = (endpoint: string) => () =>
+    setDocumentGuardians(MIDEN_NETWORK_NAME.TESTNET, [
+      { id: 'listed', name: 'Listed', operatedBy: 'Listed Co', location: 'EU', endpoint }
+    ]);
+
+  it('identifies an operator only the document lists, hydrated by the round itself', async () => {
+    mockPubkeyByEndpoint[LISTED] = served(KEY_F);
+    mockHydrateConfigDocument = listOnly(LISTED);
+
+    expect(await identifyGuardianOperator(KEY_F, MIDEN_NETWORK_NAME.TESTNET)).toEqual({
+      outcome: 'identified',
+      operator: expect.objectContaining({ id: 'listed', endpoint: LISTED })
+    });
+  });
+
+  it('no longer names a bundled operator the document removed', async () => {
+    mockPubkeyByEndpoint[LISTED] = served(KEY_F);
+    mockHydrateConfigDocument = listOnly(LISTED);
+
+    // OpenZeppelin still serves KEY_A, but it is not in the document: the round is complete without it.
+    expect(await identifyGuardianOperator(KEY_A, MIDEN_NETWORK_NAME.TESTNET)).toEqual({ outcome: 'none' });
+  });
+
+  it('asks only the listed operators', async () => {
+    mockPubkeyByEndpoint[LISTED] = served(KEY_F);
+    mockHydrateConfigDocument = listOnly(LISTED);
+    resetMockProbes();
+
+    await identifyGuardianOperator(KEY_F, MIDEN_NETWORK_NAME.TESTNET);
+
+    expect(mockProbedEndpoints).toEqual([LISTED]);
+  });
 });
 
 describe('normalizeHex', () => {
@@ -186,7 +236,7 @@ describe('identifyGuardianOperator', () => {
   // rather than as `'none'`, which a caller would read as licence to believe a
   // stored endpoint instead.
   it('names no operator when two built-ins serve the same commitment', async () => {
-    // kodax, probed LAST, claims the key open-zeppelin already served. Under
+    // kodax, probed after it, claims the key open-zeppelin already served. Under
     // arrival-order insertion the outcome depended on which reply landed first;
     // now neither is named, in either order.
     mockPubkeyByEndpoint['https://guardian-testnet.kodax.com'] = served(KEY_A);

@@ -30,18 +30,6 @@ export interface KnownBugRegistry {
 }
 
 const BOTH: readonly AxisLabel[] = ['offchain', 'guardian'];
-const GUARDIAN: readonly AxisLabel[] = ['guardian'];
-// The consume rows of M3 and M9: consume skips the post-approval re-check that send and custom run.
-const STALE_CONSUME_CELLS = [
-  'M3-consume-switch',
-  'M3-consume-revoke',
-  'M3-consumeBytes-switch',
-  'M3-consumeBytes-revoke',
-  'M9-consume',
-  'M9-consumeBytes'
-] as const;
-// M9 issues each request type from a session bound to an account that is not current.
-const NON_CURRENT_CELLS = ['M9-send', 'M9-transaction', 'M9-consume', 'M9-consumeBytes', 'M9-custom'] as const;
 const on = (ids: readonly string[], axes: readonly AxisLabel[]): Record<string, readonly AxisLabel[]> =>
   Object.fromEntries(ids.map(id => [id, axes]));
 
@@ -50,94 +38,42 @@ export const KNOWN_BUGS: readonly KnownBug[] = [
     id: 'K1',
     title: 'MidenWalletAdapter never follows the provider accountChange',
     tracking: '0xMiden/web-sdk#469 (open)',
-    cells: on(['S7', 'M1'], BOTH),
-    signature: ({ source, evidence }) =>
+    cells: on(['S7', 'M1', 'WP7-switch', 'WP7-revoke'], BOTH),
+    signature: ({ cellId, source, evidence }) =>
       source === 'hard' &&
       // With no address from before the switch there is nothing the adapter could have kept.
       evidence.previousAddress !== undefined &&
       evidence.providerAddress !== evidence.previousAddress &&
-      evidence.adapterAddress === evidence.previousAddress
+      // React copies the adapter's fields on its connect event only (WalletProvider.tsx:154-170), so after a switch or
+      // a revoke the context keeps the old account, still connected, as the adapter does.
+      (cellId.startsWith('WP7-')
+        ? evidence.reactAddress === evidence.previousAddress && evidence.reactConnected === true
+        : evidence.adapterAddress === evidence.previousAddress)
   },
   {
-    id: 'K2',
-    title: 'requestConsume with noteBytes of an unheld note fails after approval',
-    tracking: '0xMiden/wallet#1413 (open)',
-    cells: on(['W6'], BOTH),
+    id: 'K12',
+    title: "adapter-react exports MidenFi's own WalletContext, so it reads no state under WalletProvider",
+    tracking: '0xMiden/web-sdk#484 (open)',
+    cells: on(['WP9'], BOTH),
+    // index.ts:7-16 exports MidenFiSignerProvider's local context under the name useWallet.ts exports too, and only
+    // the latter is the one WalletProvider fills (WalletProvider.tsx:449): useWallet() sees the connect, the export {}.
     signature: ({ source, evidence }) =>
-      source === 'hard' &&
-      evidence.popupOpened === true &&
-      (evidence.dappError?.message ?? '').includes('INVALID_PARAMS') &&
-      (evidence.dappError?.message ?? '').includes('not found')
+      source === 'hard' && evidence.reactConnected === true && evidence.reactExportedConnected === null
   },
   {
-    id: 'K5',
-    title: 'Send, consume, custom and note or asset reads while locked are refused before any prompt as INVALID_PARAMS',
-    tracking: '0xMiden/wallet#1414 (open)',
-    cells: on(['S9'], BOTH),
-    signature: ({ source, evidence }) =>
-      source === 'hard' &&
-      evidence.popupOpened === false &&
-      (evidence.dappError?.message ?? '').includes('INVALID_PARAMS') &&
-      (evidence.dappError?.message ?? '').includes('Wallet is locked')
-  },
-  {
-    id: 'K6',
-    title: 'An approved consume executes for an account whose authorization went stale',
-    tracking: '0xMiden/wallet#1415 (open)',
-    cells: on(STALE_CONSUME_CELLS, BOTH),
-    signature: ({ source, evidence }) => source === 'hard' && evidence.staleConsumeExecuted === true
-  },
-  {
-    id: 'K7',
-    title: 'waitForTransaction has no session or origin gate',
-    tracking: '0xMiden/wallet#1416 (open)',
-    cells: on(['M7'], BOTH),
-    signature: ({ source, evidence }) => source === 'hard' && evidence.crossOriginWaitServed === true
-  },
-  {
-    id: 'K8',
+    id: 'K13',
     title:
-      'Guardian signBytes(signingInputs) fails after approval with an opaque keystore miss instead of signing with the hot key',
-    tracking: '0xMiden/wallet#1417 (open)',
-    cells: on(['G2a', 'G2b', 'G2c'], GUARDIAN),
-    // Only a `word` reaches the hot key (src/lib/miden/back/vault.ts:2227); signingInputs reads the keystore under the
-    // connect commitment (:2250), which the hot key is not stored under, and the dApp gets the miss as INVALID_PARAMS.
+      'MidenFiSignerProvider cannot set up its signer account for a private wallet account, so MidenProvider never readies',
+    tracking: '0xMiden/web-sdk#400 (open)',
+    cells: on(['MF3'], BOTH),
+    // importAccountId is the wallet's raw address (MidenFiSignerProvider.tsx:712) and initializeSignerAccount tolerates
+    // only two import errors (@miden-sdk/react index.mjs:435-451). The settled error names the account id between its
+    // pinned parts, so each part is matched on its own.
     signature: ({ source, evidence }) =>
       source === 'hard' &&
-      evidence.popupOpened === true &&
-      evidence.dappError?.causeName === 'InvalidParamsMidenWalletError' &&
-      (evidence.dappError?.message ?? '').includes(pinned.texts.G2.guardian.error)
-  },
-  {
-    id: 'K9',
-    title: 'A request from a session bound to a non-current account opens a popup instead of being refused',
-    tracking: '0xMiden/wallet#1419 (open)',
-    cells: on([...NON_CURRENT_CELLS, 'M4-reads'], BOTH),
-    // The cells approve the popup to see what follows: M9 a refusal after approval with nothing run for any account, or
-    // a consume that executes for the stale account (K6); M4-reads each read served the dApp's own vault after its
-    // popup, or refused before one.
-    signature: ({ cellId, source, evidence }) =>
-      source === 'hard' &&
-      evidence.nonCurrentPrompted === true &&
-      (cellId === 'M4-reads'
-        ? evidence.nonCurrentReadsOwnOrRefused === true
-        : (evidence.dappError?.message === 'NOT_GRANTED' && evidence.nonCurrentRowRan === false) ||
-          (cellId.startsWith('M9-consume') && evidence.staleConsumeExecuted === true))
-  },
-  {
-    id: 'K10',
-    title: 'A note imported details-only or bare cannot be consumed or listed by the id its import returned',
-    tracking: '0xMiden/wallet#1389 (open)',
-    cells: on(['W5b', 'W5c', 'N4'], BOTH),
-    // The consume preview and the private-note list both look the returned details commitment up as a note id
-    // (`src/lib/miden/back/dapp.ts:2680-2687` and `:901, 945`), so a consume is refused before any popup.
-    signature: ({ cellId, source, evidence }) =>
-      source === 'hard' &&
-      (cellId === 'N4'
-        ? evidence.returnedIdUnlisted === true
-        : evidence.popupOpened === false &&
-          (evidence.dappError?.message ?? '').includes('INVALID_PARAMS') &&
-          (evidence.dappError?.message ?? '').includes('could not be resolved'))
+      Object.values(pinned.texts.MF3).some(({ error, reason }) =>
+        [error, reason].every(part => part.length > 0 && (evidence.signerInitError ?? '').includes(part))
+      )
   }
 ];
 

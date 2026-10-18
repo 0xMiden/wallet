@@ -1,22 +1,27 @@
 /**
- * The fixed numbers of the USDCx live suites (spec section 5) and the Arc Testnet addresses, read from the product's
- * own tables so the harness and the wallet cannot drift apart. Nothing here reads the environment.
+ * The fixed numbers of the USDCx live suites (spec section 5), the Arc Testnet addresses and the chains a burn's payout
+ * is read on, read from the product's own tables so the harness and the wallet cannot drift apart. Nothing here reads
+ * the environment; an L2's `walletRpcUrl` is the wallet module's, whose project id follows WALLETCONNECT_PROJECT_ID.
  */
 import os from 'os';
 import path from 'path';
-import type { Address, Hex } from 'viem';
+import { formatUnits, type Address, type Chain, type Hex } from 'viem';
 
-import { getUsdcxXReserveSource } from '../../../src/lib/usdcx/constant';
-import { ARC_TESTNET } from '../../../src/lib/walletconnect/config';
+import { getUsdcxExecutorSource, getUsdcxXReserveSource, minimumUsdcxPayout, USDCX_DESTINATIONS } from './usdcx-config';
+import { evmChainSlug } from '../../../src/lib/remote-config/chains';
+import type { UsdcxExecutorSource } from '../../../src/lib/usdcx/constant';
+import { USDCX_DECIMALS } from '../../../src/lib/usdcx/protocol';
+import { ARC_TESTNET, getChain } from '../../../src/lib/walletconnect/config';
+export { USDCX_DESTINATIONS, USDCX_REMOTE_DOMAIN } from './usdcx-config';
+
+export { minimumUsdcxPayout } from './usdcx-config';
 
 export {
-  minimumUsdcxPayout,
   USDCX_BURN_TAG,
   USDCX_BURN_WITHDRAWAL_ATTACHMENT_SCHEME,
-  USDCX_DECIMALS,
-  USDCX_DESTINATIONS,
-  USDCX_REMOTE_DOMAIN
-} from '../../../src/lib/usdcx/constant';
+  USDCX_DECIMALS
+} from '../../../src/lib/usdcx/protocol';
+
 export { CLAIM_COST_FEE_MULTIPLE, FEE_RESERVE_MULTIPLE, isWorthClaiming } from '../../../src/lib/miden/fees/spendable';
 
 /** The UI burn: 1 USDCx, the USDCx faucet's on-chain min_burn_amount; the review refuses anything less. */
@@ -71,6 +76,193 @@ export const ARC_USDC: Address = ARC_SOURCE.usdc;
 export const ARC_ATTESTATION_API: string = ARC_SOURCE.attestationApi;
 export const ARC_CIRCLE_DOMAIN: number = ARC_SOURCE.domain;
 export const GUARDIAN_ECDSA_SCHEME = 'ecdsa';
+
+/**
+ * publicnode and tenderly on both L2s, and Arbitrum's own RPC, served 10_000-block eth_getLogs when probed
+ * (2026-10-11), as publicnode and tenderly did on Ethereum Sepolia (2026-10-16); 1000 keeps a scan to a few calls.
+ */
+export const L2_LOG_CHUNK = 1000;
+/** Base Sepolia's own RPC refuses an eth_getLogs over more than 200 blocks (-32614 `limited to a 200 range`). */
+export const BASE_OFFICIAL_LOG_CHUNK = 200;
+const BASE_SEPOLIA_OFFICIAL_URL = 'https://sepolia.base.org';
+/**
+ * The harness's L2 read endpoints, in the order the payout gate tries them. drpc is left out: near the head it fails
+ * even a 100-block log scan. Never the wallet's own RPC (rpc.walletconnect.org), whose reads the tests check.
+ */
+export const DEFAULT_BASE_SEPOLIA_RPCS: readonly string[] = [
+  'https://base-sepolia-rpc.publicnode.com',
+  'https://base-sepolia.gateway.tenderly.co',
+  BASE_SEPOLIA_OFFICIAL_URL
+];
+export const DEFAULT_ARBITRUM_SEPOLIA_RPCS: readonly string[] = [
+  'https://sepolia-rollup.arbitrum.io/rpc',
+  'https://arbitrum-sepolia-rpc.publicnode.com',
+  'https://arbitrum-sepolia.gateway.tenderly.co'
+];
+/**
+ * The harness's Ethereum Sepolia read endpoints, in the order the payout gate tries them. Left out when probed
+ * (2026-10-16): drpc and 1rpc refuse Sepolia on their free plans (1rpc also caps eth_getLogs at 50 blocks), and
+ * rpc.sepolia.org did not answer.
+ */
+export const DEFAULT_ETHEREUM_SEPOLIA_RPCS: readonly string[] = [
+  'https://ethereum-sepolia-rpc.publicnode.com',
+  'https://sepolia.gateway.tenderly.co'
+];
+
+/**
+ * A chain a burn's payout lands on: what the harness reads there, the domains the burn and the payout carry, and what
+ * the Send flow and the details page show. Arc's values are exactly the ones its tests read before the L2 suite.
+ */
+export interface PayoutChain {
+  chainId: number;
+  /** The viem chain the harness's read clients are built on. */
+  chain: Chain;
+  /** How messages name the chain; Arc's `Arc` keeps every Arc message as it was. */
+  label: string;
+  rpcUrls: readonly string[];
+  usdc: Address;
+  /** The destination's Circle domain, which the burn note's attachment and its row carry: 26, 6, 3 or 0. */
+  burnDomain: number;
+  /** `AttestationUsed.sourceDomain`, the Gateway source: Arc's 26 for every destination, never `burnDomain`. */
+  attestationSourceDomain: number;
+  logChunk(endpoint: string): number;
+  /** The Send flow's network id (its row is `send-network-<id>`), also the review's `network=` (bridge-networks.ts). */
+  reviewNetwork: string;
+  /** What the Send flow's network field and the review's Network row name the chain. */
+  networkName: string;
+  /** The explorer the details page links (walletconnect/config.ts). */
+  explorer: string;
+  /** The wallet's own RPC for the chain, and the name a message gives it: never the URL, which carries a project id. */
+  walletRpcUrl: string;
+  walletRpcName: string;
+  /** What the harness burns to this chain: BURN_UNITS unless the chain's payout fee allowance takes it whole. */
+  burnUnits: bigint;
+  /** The most a send from the harness key tips per gas here (sendSigned in arc-usdcx.ts); none caps the estimate. */
+  maxPriorityFeeCap?: bigint;
+}
+
+const hostnameOf = (endpoint: string): string => {
+  try {
+    return new URL(endpoint).hostname;
+  } catch {
+    return '';
+  }
+};
+
+/** drpc refuses a 1000-block eth_getLogs on Arc with a misleading "ranges over 10000 blocks"; the rest take 1000. */
+function arcLogChunk(endpoint: string): number {
+  return hostnameOf(endpoint).includes('drpc') ? ARC_DRPC_LOG_CHUNK : ARC_LOG_CHUNK;
+}
+
+/**
+ * The payout chain of `chainId`, its values read from the config fixture (usdcx-config.ts) and the wallet's chain
+ * table; `reads` is the harness's side. Refuses any chain the Send flow does not offer, and a burn (BURN_UNITS by
+ * default) that does not exceed the chain's payout fee allowance, which the Send flow refuses too.
+ */
+export function payoutChainFor(
+  chainId: number,
+  reads: {
+    rpcUrls: readonly string[];
+    logChunk(endpoint: string): number;
+    label?: string;
+    walletRpcName?: string;
+    burnUnits?: bigint;
+    maxPriorityFeeCap?: bigint;
+  }
+): PayoutChain {
+  const id = evmChainSlug(chainId);
+  const evm = getChain(chainId);
+  const destination = USDCX_DESTINATIONS.get(chainId);
+  if (id === undefined || evm === undefined || destination === undefined) {
+    throw new Error(`chain ${chainId} is not a Send destination`);
+  }
+  const burnUnits = reads.burnUnits ?? BURN_UNITS;
+  if (minimumUsdcxPayout(chainId, burnUnits) <= 0n) {
+    throw new Error(
+      `a ${formatUnits(burnUnits, USDCX_DECIMALS)} USDCx burn to ${evm.name} does not exceed its ` +
+        `${formatUnits(destination.payoutFeeAllowance, USDCX_DECIMALS)} USDC payout fee allowance, so the Send flow ` +
+        'refuses it'
+    );
+  }
+  return {
+    chainId,
+    chain: destination.chain,
+    label: reads.label ?? evm.name,
+    rpcUrls: reads.rpcUrls,
+    usdc: destination.usdc,
+    burnDomain: destination.domain,
+    attestationSourceDomain: ARC_CIRCLE_DOMAIN,
+    logChunk: reads.logChunk,
+    reviewNetwork: id,
+    networkName: evm.name,
+    explorer: evm.explorer,
+    walletRpcUrl: evm.rpcUrl,
+    walletRpcName: reads.walletRpcName ?? hostnameOf(evm.rpcUrl),
+    burnUnits,
+    ...(reads.maxPriorityFeeCap === undefined ? {} : { maxPriorityFeeCap: reads.maxPriorityFeeCap })
+  };
+}
+
+export const ARC_PAYOUT: PayoutChain = payoutChainFor(ARC_CHAIN_ID, {
+  rpcUrls: DEFAULT_ARC_RPCS,
+  logChunk: arcLogChunk,
+  label: 'Arc',
+  walletRpcName: 'arc.io'
+});
+export const BASE_SEPOLIA_PAYOUT: PayoutChain = payoutChainFor(84532, {
+  rpcUrls: DEFAULT_BASE_SEPOLIA_RPCS,
+  logChunk: endpoint =>
+    hostnameOf(endpoint) === hostnameOf(BASE_SEPOLIA_OFFICIAL_URL) ? BASE_OFFICIAL_LOG_CHUNK : L2_LOG_CHUNK
+});
+export const ARBITRUM_SEPOLIA_PAYOUT: PayoutChain = payoutChainFor(421614, {
+  rpcUrls: DEFAULT_ARBITRUM_SEPOLIA_RPCS,
+  logChunk: () => L2_LOG_CHUNK
+});
+/**
+ * Ethereum's 1.5 USDC payout fee allowance takes the faucet's 1 USDCx minimum whole, so this burns 2 USDCx. Sepolia's
+ * signers tipped from 22 wei to 1.5 gwei (2026-10-16) and its tip oracle follows them, while the key holds about 0.002
+ * ETH there: an uncapped 1.5 gwei tip would cost about 0.0013 ETH a run. 0.01 gwei is above every oracle answer read
+ * (1 wei to about 0.001 gwei, 2026-10-16 and 17).
+ */
+export const ETHEREUM_SEPOLIA_PAYOUT: PayoutChain = payoutChainFor(11155111, {
+  rpcUrls: DEFAULT_ETHEREUM_SEPOLIA_RPCS,
+  logChunk: () => L2_LOG_CHUNK,
+  label: 'Ethereum Sepolia',
+  burnUnits: 2_000_000n,
+  maxPriorityFeeCap: 10_000_000n
+});
+
+/**
+ * A chain usdcx-in-l2 deposits from, Ethereum Sepolia among them despite the name: where it is read (the PayoutChain
+ * usdcx-burn-l2 pays on, so both suites read the same endpoints) and the executor route the fixture names for it.
+ */
+export interface L2BridgeInSource {
+  payout: PayoutChain;
+  source: UsdcxExecutorSource;
+}
+
+export function bridgeInSourceFor(payout: PayoutChain): L2BridgeInSource {
+  return { payout, source: getUsdcxExecutorSource(payout.chainId) };
+}
+
+export const L2_BRIDGE_IN_SOURCES: readonly L2BridgeInSource[] = [
+  bridgeInSourceFor(BASE_SEPOLIA_PAYOUT),
+  bridgeInSourceFor(ARBITRUM_SEPOLIA_PAYOUT),
+  bridgeInSourceFor(ETHEREUM_SEPOLIA_PAYOUT)
+];
+
+/**
+ * One bridge-in's gas on its source chain, each write sent at 1.2x its estimate: an approve (about 55k on the L2s, and
+ * on Ethereum Sepolia 140,005 estimated over an empty allowance, 40,195 over a left-over one) and the forwarded burn
+ * (693-699k on Base Sepolia, 698,683 with no L1 gas on Arbitrum Sepolia, 726,617 on Ethereum Sepolia, read 2026-10-16),
+ * so at most 1.04M.
+ */
+export const L2_BRIDGE_IN_GAS = 1_100_000n;
+
+/** viem's error text quotes the request URL, whose WalletConnect project id an operator's build may set. */
+export function redactProjectId(text: string): string {
+  return text.replace(/(projectId=)[^&\s"']+/g, '$1<redacted>');
+}
 
 /** Every wait in the Arc and Miden oracles runs on this, so unit tests drive time instead of sleeping. */
 export interface ArcClock {

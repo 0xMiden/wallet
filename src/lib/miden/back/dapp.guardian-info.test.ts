@@ -14,6 +14,7 @@
  */
 
 import { MidenDAppMessageType, MidenDAppErrorType } from 'lib/adapter/types';
+import { WalletStatus } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
 // ── Mocks ──────────────────────────────────────────────────────────
@@ -23,9 +24,18 @@ const mockWithUnlocked = jest.fn(async (fn: (ctx: unknown) => unknown) =>
   fn({ vault: { fetchAccounts: mockFetchAccounts } })
 );
 
+let mockWalletStatus: unknown = 'Ready';
+const mockStoreListeners = new Set<(state: unknown) => void>();
 jest.mock('lib/miden/back/store', () => ({
   store: {
-    getState: () => ({ currentAccount: { publicKey: 'miden-account-1' }, status: 'Ready' })
+    getState: () => ({ currentAccount: { publicKey: 'miden-account-1' }, status: mockWalletStatus }),
+    // Drives `waitForUnlock`: `unlockWallet()` notifies these the way the real store's updates do.
+    updates: {
+      watch: (listener: (state: unknown) => void) => {
+        mockStoreListeners.add(listener);
+        return () => mockStoreListeners.delete(listener);
+      }
+    }
   },
   withUnlocked: (fn: (ctx: unknown) => unknown) => mockWithUnlocked(fn)
 }));
@@ -93,9 +103,10 @@ jest.mock('lib/miden/back/defaults', () => ({
   intercom: { broadcast: jest.fn() }
 }));
 
+const mockGetCurrentAccountPublicKey = jest.fn();
 jest.mock('lib/miden/back/vault', () => ({
   Vault: {
-    getCurrentAccountPublicKey: jest.fn()
+    getCurrentAccountPublicKey: (...args: unknown[]) => mockGetCurrentAccountPublicKey(...args)
   }
 }));
 
@@ -132,10 +143,27 @@ jest.mock('lib/miden/guardian/account', () => ({
 // ── Import under test ─────────────────────────────────────────────
 
 import * as dapp from './dapp';
+import { _resetLockedPromptCooldownsForTest, WALLET_LOCKED_REFUSAL } from './dapp-locked';
+
+const UNLOCKED_CONTEXT = { vault: { fetchAccounts: mockFetchAccounts } };
+
+const lockWallet = () => {
+  mockWalletStatus = WalletStatus.Locked;
+  mockWithUnlocked.mockImplementation(async () => {
+    throw Object.assign(new Error('Wallet is locked'), { reason: 'locked' });
+  });
+};
+
+const unlockWallet = () => {
+  mockWalletStatus = WalletStatus.Ready;
+  mockWithUnlocked.mockImplementation(async (fn: (ctx: unknown) => unknown) => fn(UNLOCKED_CONTEXT));
+  for (const listener of [...mockStoreListeners]) listener({ status: WalletStatus.Ready });
+};
 
 const STORAGE_KEY = 'dapp_sessions';
 
 function seedDApp(origin: string, sourcePublicKey: string, accountId: string) {
+  mockGetCurrentAccountPublicKey.mockResolvedValue(accountId);
   storageState[STORAGE_KEY] = {
     [origin]: [
       {
@@ -151,7 +179,10 @@ function seedDApp(origin: string, sourcePublicKey: string, accountId: string) {
 }
 
 beforeEach(() => {
+  _resetLockedPromptCooldownsForTest();
   jest.clearAllMocks();
+  mockWalletStatus = 'Ready';
+  mockStoreListeners.clear();
   for (const k of Object.keys(storageState)) delete storageState[k];
   mockWithUnlocked.mockImplementation(async (fn: (ctx: unknown) => unknown) =>
     fn({ vault: { fetchAccounts: mockFetchAccounts } })
@@ -189,6 +220,18 @@ describe('requestGuardianInfo', () => {
         sourcePublicKey: 'wrong-key'
       } as never)
     ).rejects.toThrow(MidenDAppErrorType.NotGranted);
+  });
+
+  it('throws NotGranted for a session whose account is not the current one (#1419)', async () => {
+    seedDApp('https://dapp', 'pk', 'pk');
+    mockGetCurrentAccountPublicKey.mockResolvedValue('other-account');
+    await expect(
+      dapp.requestGuardianInfo('https://dapp', {
+        type: MidenDAppMessageType.GuardianInfoRequest,
+        sourcePublicKey: 'pk'
+      } as never)
+    ).rejects.toThrow(MidenDAppErrorType.NotGranted);
+    expect(mockWithUnlocked).not.toHaveBeenCalled();
   });
 
   it('returns endpoint + provider + status for a guardian account', async () => {
@@ -312,5 +355,42 @@ describe('requestGuardianInfo', () => {
     });
 
     expect(res.guardianInfo.guardianSyncStatus).toBe('out-of-sync');
+  });
+
+  it('waits for the unlock, then answers', async () => {
+    seedDApp('https://dapp', 'miden-account-1', 'miden-account-1');
+    mockFetchAccounts.mockResolvedValue([]);
+    lockWallet();
+    const call = dapp.requestGuardianInfo('https://dapp', {
+      type: MidenDAppMessageType.GuardianInfoRequest,
+      sourcePublicKey: 'miden-account-1'
+    } as never);
+    await new Promise(r => setTimeout(r, 0));
+    expect(mockFetchAccounts).not.toHaveBeenCalled();
+    unlockWallet();
+    await expect(call).resolves.toEqual(expect.objectContaining({ type: MidenDAppMessageType.GuardianInfoResponse }));
+    expect(mockFetchAccounts).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses NOT_GRANTED: Wallet is locked when the wait runs out, reading no account', async () => {
+    jest.useFakeTimers();
+    try {
+      seedDApp('https://dapp', 'miden-account-1', 'miden-account-1');
+      lockWallet();
+      const outcome = dapp
+        .requestGuardianInfo('https://dapp', {
+          type: MidenDAppMessageType.GuardianInfoRequest,
+          sourcePublicKey: 'miden-account-1'
+        } as never)
+        .then(
+          () => 'resolved',
+          (err: Error) => err.message
+        );
+      await jest.advanceTimersByTimeAsync(120_000);
+      await expect(outcome).resolves.toBe(WALLET_LOCKED_REFUSAL);
+      expect(mockFetchAccounts).not.toHaveBeenCalled();
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });

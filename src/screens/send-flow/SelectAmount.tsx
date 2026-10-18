@@ -18,14 +18,14 @@ import { PRIMARY_HEX } from 'utils/brand-colors';
 
 import { balanceFormatterFor } from './amount-format';
 import { BridgeNetwork } from './bridge-networks';
-import { UIToken } from './types';
+import { UITokenWithPendingBalance } from './types';
 
 // Placeholder-circle background before a token/network is chosen. Not a design-system token —
 // carried over from the pre-Avatar literal as-is; a later token-cleanup pass maps it to one.
 const PLACEHOLDER_BLUE = '#2F6BED';
 
 export interface SelectAmountProps {
-  token?: UIToken;
+  token?: UITokenWithPendingBalance;
   amount: string;
   isValidAmount: boolean;
   error?: string;
@@ -128,8 +128,8 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
   const { t } = useTranslation();
   const accentClasses = ACCENT_CLASSES[accent];
 
-  const availableFiat = token ? token.balance * token.fiatPrice : 0;
-  const formatAvailableFiat = adaptiveFormatterFor(availableFiat);
+  const availableFiat = token && token.balance !== null ? token.balance * token.fiatPrice : null;
+  const formatAvailableFiat = adaptiveFormatterFor(availableFiat ?? 0);
   // An amount typed here is converted to base units with `token.decimals`. When
   // those decimals are the unknown-token placeholder's guess, that conversion
   // does not mean what the user thinks: "1" becomes 10^6 base units for a faucet
@@ -227,7 +227,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
   let helper: React.ReactNode = null;
   if (token && showBalanceHelper) {
     // Built once per render, not per frame: `token` is only known here, inside the branch.
-    const formatAvailableBalance = balanceFormatterFor(token.balance);
+    const formatAvailableBalance = balanceFormatterFor(token.balance ?? 0);
     helper = (
       <>
         <span className="font-heading text-gray text-base font-bold">
@@ -235,11 +235,13 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
               balance from it would be inviting the user to act on a number the
               wallet cannot stand behind. */}
           {/* Keyed by token, so a different token lands its own balance instead of counting from the
-              last token's; a new balance for the same token still counts. */}
-          {scaleIsKnown ? (
+              last token's; a new balance for the same token still counts. A balance still pending
+              quotes no number, so it reads as loading whatever its scale. */}
+          {scaleIsKnown || token.balance === null ? (
             <AnimatedNumber
               key={token.id}
               value={token.balance}
+              placeholder={t('loading')}
               format={value => `${t('available')} ${formatAvailableBalance(value)} ${tokenLabel ?? token.name}`}
             />
           ) : (

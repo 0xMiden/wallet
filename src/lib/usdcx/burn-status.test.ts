@@ -3,6 +3,13 @@ import { RpcTimeoutError } from 'lib/miden-chain/rpc-timeout';
 
 import { burnPhaseFromStatus, pollUsdcxBurn } from './burn-status';
 
+jest.mock('lib/remote-config/runtime', () => ({
+  getBridgeConfigSnapshot: () =>
+    jest
+      .requireActual<typeof import('lib/remote-config/testing/fixture')>('lib/remote-config/testing/fixture')
+      .testBridgeSnapshot()
+}));
+
 let stored: ITransaction;
 const mockGetNetworkNoteStatus = jest.fn();
 const mockFree = jest.fn();
@@ -14,7 +21,8 @@ jest.mock('lib/miden/repo', () => ({
   transactions: { where: () => ({ modify: async (fn: (row: ITransaction) => void) => fn(stored) }) }
 }));
 jest.mock('lib/miden-chain/constants', () => ({ getRpcEndpoint: () => 'https://rpc.example' }));
-jest.mock('lib/miden-chain/effective-endpoints', () => ({ getEffectiveNetworkName: () => 'testnet' }));
+let mockNetworkName = 'testnet';
+jest.mock('lib/miden-chain/effective-endpoints', () => ({ getEffectiveNetworkName: () => mockNetworkName }));
 
 function row(phase: 'pending' | 'consuming' | 'confirmed' | 'discarded' = 'pending'): ITransaction {
   const extraInputs: IBridgedSendExtraInputs = {
@@ -38,7 +46,17 @@ function row(phase: 'pending' | 'consuming' | 'confirmed' | 'discarded' = 'pendi
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockNetworkName = 'testnet';
   stored = row();
+});
+
+// A testnet-only gate left every mainnet withdrawal at "Awaiting burn" after the faucet had consumed its note.
+it('polls a mainnet burn like a testnet one', async () => {
+  mockNetworkName = 'mainnet';
+  mockGetNetworkNoteStatus.mockResolvedValueOnce({ status: 'NullifierCommitted', attemptCount: 1 });
+  await pollUsdcxBurn(stored);
+  expect(mockGetNetworkNoteStatus).toHaveBeenCalledWith('burn-note');
+  expect(stored.extraInputs.usdcxBurn.phase).toBe('confirmed');
 });
 
 it('reads burn status through its own RPC client and frees it', async () => {

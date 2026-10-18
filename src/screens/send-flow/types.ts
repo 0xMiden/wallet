@@ -108,6 +108,9 @@ export type UIToken = {
   scaleIsKnown: boolean;
 };
 
+/** A `UIToken` whose balance read may still be pending: `null` until it lands, which the amount field shows as loading. */
+export type UITokenWithPendingBalance = Omit<UIToken, 'balance'> & { balance: number | null };
+
 export type UIContact = {
   id: string;
   name: string;

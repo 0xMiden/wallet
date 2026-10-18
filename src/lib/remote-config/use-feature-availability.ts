@@ -44,6 +44,7 @@ export interface FeatureAvailabilityOptions {
    * while it reads unavailable. Defaults to true; a branch that draws neither passes false.
    */
   hold?: boolean;
+  chainId?: number;
 }
 
 // A greyed-out control on the page the user is looking at holds the 60 s cadence, whatever greyed it, so it recovers
@@ -57,28 +58,33 @@ function useFastPollWhileUnavailable(availability: FeatureAvailability, hold: bo
 /** The availability of the feature a control starts. */
 export function useFeatureAvailability(
   feature: BridgeFeature,
-  { hold = true }: FeatureAvailabilityOptions = {}
+  { hold = true, chainId }: FeatureAvailabilityOptions = {}
 ): FeatureAvailability {
   const { snapshot, overrides } = useAvailabilityInputs();
-  const availability = featureAvailability(feature, snapshot, overrides);
+  const availability = featureAvailability(feature, snapshot, overrides, chainId);
   useFastPollWhileUnavailable(availability, hold);
   return availability;
 }
 
 /**
  * One control that opens a choice of features, such as Receive's Cross Chain (Fast or Slow bridge-in): available
- * while any is; else loading while any is; else the first one's reason.
+ * while any is; else loading while any is; else the first reason other than not configured; else not configured, so
+ * the control reads as not configured only on a network that configures none of its features.
  */
 export function useAnyFeatureAvailability(
   features: readonly [BridgeFeature, ...BridgeFeature[]],
-  { hold = true }: FeatureAvailabilityOptions = {}
+  { hold = true, chainId }: FeatureAvailabilityOptions = {}
 ): FeatureAvailability {
   const { snapshot, overrides } = useAvailabilityInputs();
   const [first, ...rest] = features;
-  const head = featureAvailability(first, snapshot, overrides);
-  const all = [head, ...rest.map(feature => featureAvailability(feature, snapshot, overrides))];
+  const head = featureAvailability(first, snapshot, overrides, chainId);
+  const all = [head, ...rest.map(feature => featureAvailability(feature, snapshot, overrides, chainId))];
   const available = all.some(candidate => candidate.state === 'available');
-  const availability = available ? AVAILABLE : (all.find(candidate => candidate.state === 'loading') ?? head);
+  const availability = available
+    ? AVAILABLE
+    : (all.find(candidate => candidate.state === 'loading') ??
+      all.find(candidate => candidate.state === 'unavailable' && candidate.reason !== 'not-configured') ??
+      head);
   useFastPollWhileUnavailable(availability, hold);
   return availability;
 }

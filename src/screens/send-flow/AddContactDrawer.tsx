@@ -9,7 +9,7 @@ import { useContacts } from 'lib/miden/front';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 import { detectAddressChain, isValidRecipientAddress } from 'utils/miden';
 
-import { BridgeNetworkId, DEFAULT_BRIDGE_NETWORK } from './bridge-networks';
+import { BridgeNetworkId, defaultBridgeNetwork } from './bridge-networks';
 import { NetworkField } from './NetworkField';
 
 const NAME_MAX_LENGTH = 50;
@@ -42,7 +42,7 @@ const SheetBody: React.FC<SheetBodyProps> = ({ address, initialNetwork, onSaved,
   const { addContact } = useContacts();
   const isEvm = detectAddressChain(address) === 'ethereum';
   const [name, setName] = useState('');
-  const [network, setNetwork] = useState<BridgeNetworkId>(initialNetwork ?? DEFAULT_BRIDGE_NETWORK.id);
+  const [network, setNetwork] = useState<BridgeNetworkId>(() => initialNetwork ?? defaultBridgeNetwork().id);
   const [error, setError] = useState<string>();
   const [saving, setSaving] = useState(false);
   const trimmedName = name.trim();

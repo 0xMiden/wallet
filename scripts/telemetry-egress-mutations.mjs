@@ -226,7 +226,7 @@ const MUTATIONS = [
     name: 'the message scrubber neutered',
     guards: 'crash: no forbidden value',
     file: CRASH,
-    find: `  const safeMessage = redactMessage(message, WORDLIST) ?? REDACTED;`,
+    find: `  const safeMessage = redactMessage(message, WORDLIST, closedNames) ?? REDACTED;`,
     replace: `  const safeMessage = message;
   void redactMessage;
   void REDACTED;`
@@ -259,7 +259,7 @@ const MUTATIONS = [
     replace: `      beforeSend: (event: unknown) => event`,
     also: {
       file: CRASH,
-      find: `  const safeMessage = redactMessage(message, WORDLIST) ?? REDACTED;`,
+      find: `  const safeMessage = redactMessage(message, WORDLIST, closedNames) ?? REDACTED;`,
       replace: `  const safeMessage = message;
   void redactMessage;
   void REDACTED;`
