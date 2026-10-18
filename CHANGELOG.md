@@ -12,6 +12,7 @@
 
 ### Fixes
 
+- [FIX][all] dApp previews, signing and consumes report a killed wallet client as a retryable failure; approved sends and custom transactions answer OUTCOME_UNKNOWN with the queued transaction id when available, so the dApp checks before sending again (#1378).
 - [FIX][ci] The PasscodeDots shake test runs a 30-second shake and waits for the row to move, instead of reading it 50 ms into the real 0.42-second shake, which a loaded coverage runner could pause past.
 - [FIX][mobile][desktop] The in-app-browser and desktop dApp providers reject a wallet refusal with the extension's error classes (`NotGrantedMidenWalletError`, `InvalidParamsMidenWalletError`, `NotFoundMidenWalletError`, else `MidenWalletError`) and its message, not a plain `Error` (#1542).
 - [FIX][all] A transaction-failure crash report that falls through to `unknown` also says what kind of value was thrown and, while submitting, whether the app was hidden during the submit and how long it took as a fixed bucket, so an unclassified failure can be traced to a cause (Sentry BREAD-WALLET-Z). An exact `Client terminated`, including one wrapped as a cause, reads `client_terminated`. Only fixed values are sent, never the error's text or the duration in milliseconds, and the privacy policy lists every value.
