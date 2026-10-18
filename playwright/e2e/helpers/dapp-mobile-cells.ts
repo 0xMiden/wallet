@@ -479,7 +479,15 @@ export function mobileCells(j: MobileJourney): Record<string, MobileCellImpl> {
         const baseline = await captureMobileBaseline(side, [j.tokenFaucetId], ctx);
         const amount = tst(5);
         const built = await buildPast(amount, ctx);
-        let shown: string[] = [];
+        const feeSuffix = ` ${j.native.symbol}`;
+        const expectedFixed = [
+          SHEET.simulatedEffects,
+          `${SHEET.leaves}, -${fromBaseUnits(amount, TOKEN_DECIMALS)} ${TOKEN}`,
+          `${SHEET.fee}<amount>${feeSuffix}`,
+          `${SHEET.notesConsumed}0`,
+          `${SHEET.notesCreated}1`
+        ];
+        const fee: { figure?: string } = {};
         const { result } = await answerSheet(
           j.dapp,
           () =>
@@ -491,7 +499,23 @@ export function mobileCells(j: MobileJourney): Record<string, MobileCellImpl> {
           {
             decision: 'approve',
             whileOpen: async sheet => {
-              shown = sheet.messages;
+              // The declared preview precedes the effects; pin their fixed text before any later wait can fail.
+              const from = sheet.messages.indexOf(SHEET.simulatedEffects);
+              const effects = from < 0 ? [] : sheet.messages.slice(from);
+              const fixed = effects.map((line, index) =>
+                index === 2 && line.startsWith(SHEET.fee) && line.endsWith(feeSuffix)
+                  ? `${SHEET.fee}<amount>${feeSuffix}`
+                  : line
+              );
+              if (fixed[2] === expectedFixed[2]) {
+                fee.figure = effects[2]?.slice(SHEET.fee.length, -feeSuffix.length);
+              }
+              if (!isDeepStrictEqual(fixed, expectedFixed)) {
+                ctx.softFail(
+                  'sheet-effects',
+                  `the sheet showed ${JSON.stringify(sheet.messages)}, expected it to end ${JSON.stringify(expectedFixed)}`
+                );
+              }
               await sheetBlock(j.env.rpcUrl, sheet, ctx);
             }
           },
@@ -515,21 +539,12 @@ export function mobileCells(j: MobileJourney): Record<string, MobileCellImpl> {
           { [j.tokenFaucetId]: -amount },
           ctx
         );
-        // The fee line is checked against the fee the row paid, so the sheet's figure is the one that left the vault.
-        const expected = [
-          SHEET.simulatedEffects,
-          `${SHEET.leaves}, -${fromBaseUnits(amount, TOKEN_DECIMALS)} ${TOKEN}`,
-          `${SHEET.fee}-${fromBaseUnits(written.feeAmount, j.native.decimals)} ${j.native.symbol}`,
-          `${SHEET.notesConsumed}0`,
-          `${SHEET.notesCreated}1`
-        ];
-        // The declared preview comes first (dapp.ts formatCustomTransactionPreview); the effects are the sheet's tail.
-        const from = shown.indexOf(SHEET.simulatedEffects);
-        const effects = from < 0 ? [] : shown.slice(from);
-        if (!isDeepStrictEqual(effects, expected)) {
+        // Only the fee figure needs the landed row: it must be what actually left the vault.
+        const expectedFee = `-${fromBaseUnits(written.feeAmount, j.native.decimals)}`;
+        if (fee.figure !== undefined && fee.figure !== expectedFee) {
           ctx.softFail(
             'sheet-effects',
-            `the sheet showed ${JSON.stringify(shown)}, expected it to end ${JSON.stringify(expected)}`
+            `the sheet's fee amount was ${JSON.stringify(fee.figure)}, expected ${JSON.stringify(expectedFee)}`
           );
         }
       }

@@ -78,7 +78,8 @@ const listTests = (config: string): string => listPlaywrightTests(config);
 const listedTitles = (listing: string): string[] =>
   listing.split('\n').flatMap(line => {
     const match = /^\s+\S+\.spec\.ts:\d+:\d+ › (.+)$/.exec(line);
-    return match ? [match[1]] : [];
+    const title = match?.[1];
+    return title === undefined ? [] : [title];
   });
 
 describe('production Guardian account E2E coverage', () => {
