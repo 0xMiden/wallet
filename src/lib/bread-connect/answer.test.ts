@@ -242,18 +242,21 @@ describe('a request link', () => {
     expect(requestAnswer(answer!, session)).toMatchObject({ transaction: { error: { code, message: 'no luck' } } });
   });
 
-  it('counts a transaction whose row is gone as failed', async () => {
+  it.each([
+    ['is gone', new Error('Transaction not found')],
+    ['cannot be read', new Error('The database connection is closing')]
+  ])('answers an unknown outcome when the transaction row %s', async (_name, lookup) => {
     const session = await connected();
     const { link } = sendRequest(session, SEND_REQUEST, NOW);
     mockProcessDApp
       .mockResolvedValueOnce({ type: 'SEND_TRANSACTION_RESPONSE', transactionId: 'tx-1' })
       .mockResolvedValueOnce({ type: 'WAIT_FOR_TRANSACTION_RESPONSE', transactionOutput: { errorMessage: 'gone' } });
-    mockGetTransactionById.mockRejectedValueOnce(new Error('Transaction not found'));
+    mockGetTransactionById.mockRejectedValueOnce(lookup);
 
     const answer = await answerRequestLink(link, { now: NOW });
 
     expect(requestAnswer(answer!, session)).toMatchObject({
-      transaction: { error: { code: 'TRANSACTION_FAILED', message: 'gone' } }
+      transaction: { error: { code: 'TRANSACTION_TIMEOUT', message: 'gone' } }
     });
   });
 
