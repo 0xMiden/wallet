@@ -1502,9 +1502,9 @@ public class BreadPresentationControllerTest {
     @Test public void noMessageListenerFailsClosedWithoutBridgeOrPublicScript() { unsupported(true, false); }
     @Test public void neitherCapabilityFailsClosedWithoutBridgeOrPublicScript() { unsupported(false, false); }
 
-    @Test public void supportedInstallsBothTransportsBeforeFirstNavigation() {
+    @Test public void supportedInstallsEveryTransportBeforeFirstNavigation() {
         open(true, true, "default");
-        assertEquals(List.of("listener:breadPresentation", "script:window.bread={version:1}"), installed);
+        assertEquals(List.of("listener:breadAuth", "listener:breadPresentation", "script:window.bread={version:1}"), installed);
         assertEquals("https://fixture.example/first", shadowOf(webView).getLastLoadedUrl());
         assertEquals(BreadPresentationState.Phase.PREPARING, controller.state.phase());
     }
