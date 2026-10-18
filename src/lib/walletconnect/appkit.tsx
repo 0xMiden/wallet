@@ -9,6 +9,7 @@ import { WagmiProvider } from 'wagmi';
 import { initBridgeConfig, subscribeBridgeConfig } from 'lib/remote-config/runtime';
 import { getThemeSetting } from 'lib/settings/helpers';
 import { resolveTheme } from 'lib/settings/theme';
+import { followRelay, noteConnectModalOpen } from 'lib/telemetry/relay-diagnostics';
 
 import { getWalletConnectChains, prepareWalletConnectChains } from './chains';
 import { APP_METADATA, copyPlainData, EVM_CHAIN_DEFINITIONS, getChain, WC_PROJECT_ID } from './config';
@@ -74,6 +75,21 @@ export const modal = createAppKit({
   ],
   features: { analytics: false }
 });
+
+// Read only, for relay failure reports: whether the connect modal is open, and whether the relay connected. AppKit's
+// start has created the universal provider by the time ready() resolves, so reading it then creates nothing.
+try {
+  modal.subscribeState(state => noteConnectModalOpen(state.open));
+  modal
+    .ready()
+    .then(() => modal.getUniversalProvider())
+    .then(provider => {
+      if (provider) followRelay(provider.client.core.relayer);
+    })
+    .catch(() => {});
+} catch {
+  // Crash diagnostics cannot keep AppKit from starting.
+}
 
 let recoveryChainId: number | undefined;
 

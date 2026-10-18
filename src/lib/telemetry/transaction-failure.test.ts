@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { OperationAbortedError } from 'lib/miden/back/offscreen-codec';
+import { TRANSACTION_STAGES } from 'lib/miden/db/types';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { isIOS } from 'lib/platform';
 import { signHotDigest } from 'lib/secure-hot-key';
@@ -12,12 +13,22 @@ import { signHotDigest as fallbackSignHotDigest } from 'lib/secure-hot-key/jsFal
 import { captureCrash } from './crash';
 import assertions from './protocol-assertions.json';
 import {
+  ACCOUNT_AUTH_CODES,
+  AUTH_LAYOUTS,
+  AUTH_PREPARATIONS,
+  COMMITMENT_MATCHES,
+  CONFIRMING_STEPS,
   CONSUME_ENTRY_POINTS,
   EXECUTION_CAUSES,
+  EXECUTION_REALMS,
+  FAILURE_OUTCOMES,
+  FAILURE_PLATFORMS,
+  FAILURE_POINTS,
   FAILURE_REASONS,
   HOT_KEY_CODES,
   NEVER_COMMITTED_RULES,
   PIPELINE_KILLS,
+  PROVING_PREFERENCES,
   REPORTED_IDENTITIES,
   reportTransactionFailure,
   SIGNING_STEPS,
@@ -28,6 +39,7 @@ import {
   SUBMIT_UNKNOWN_OUTCOME_STATUSES,
   type TransactionFailure
 } from './transaction-failure';
+import { stepOfStage, TRANSACTION_OPERATIONS, TRANSACTION_STEPS } from './transaction-operation';
 import { TELEMETRY_ERROR_KINDS } from './types';
 // The shipped class, past the stub jest maps the package to, so the fields the report reads are the ones it sets.
 import { GuardianHttpError } from '../../../node_modules/@openzeppelin/guardian-client/dist/http.js';
@@ -106,8 +118,44 @@ it('reports the screenshot assertion as a fixed diagnostic instead of redacted n
   expect((error as Error).message).toContain('executing');
   expect((error as Error).message).toContain('offscreen');
   expect((error as Error).message).toContain('guardian');
-  expect(options).toEqual({ initializeIfNeeded: true, level: 'error' });
+  expect(options).toEqual({ initializeIfNeeded: true, level: 'error', closedNames: expect.any(Set) });
   expect(source).toBe('manual');
+});
+
+it('hands crash scrubbing every closed name a report can carry, and nothing else', async () => {
+  reportTransactionFailure({ type: 'send' });
+  await settle();
+  const closedNames = jest.mocked(captureCrash).mock.calls[0]?.[2]?.closedNames;
+  const closedLists: ReadonlyArray<readonly string[]> = [
+    Object.values(assertions),
+    REPORTED_IDENTITIES,
+    FAILURE_REASONS,
+    NEVER_COMMITTED_RULES,
+    SUBMIT_GRPC_STATUSES,
+    SUBMIT_ENDPOINTS,
+    SUBMIT_NODE_ERRORS,
+    SUBMIT_HIDDEN_ANSWERS,
+    PIPELINE_KILLS,
+    EXECUTION_CAUSES,
+    SIGNING_STEPS,
+    CONFIRMING_STEPS,
+    CONSUME_ENTRY_POINTS,
+    HOT_KEY_CODES,
+    GUARDIAN_ERROR_CODES,
+    TELEMETRY_ERROR_KINDS,
+    FAILURE_OUTCOMES,
+    TRANSACTION_OPERATIONS,
+    TRANSACTION_STEPS,
+    EXECUTION_REALMS,
+    PROVING_PREFERENCES,
+    FAILURE_PLATFORMS,
+    FAILURE_POINTS,
+    AUTH_PREPARATIONS,
+    AUTH_LAYOUTS,
+    COMMITMENT_MATCHES,
+    ACCOUNT_AUTH_CODES
+  ];
+  expect([...(closedNames ?? [])].sort()).toEqual([...new Set(closedLists.flat())].sort());
 });
 
 it('reports a failure already reported at warning, still as a failure', async () => {
@@ -130,6 +178,31 @@ it('reports a failure already reported at warning, still as a failure', async ()
   expect((already?.[0] as Error).message).toMatch(/^Transaction failed: tx_receive; stage submitting;/);
   expect(already?.[2]?.level).toBe('warning');
   expect(first?.[2]?.level).toBe('error');
+});
+
+// BREAD-WALLET-R: one blocked queue expired every claim behind it at once, each one an error.
+it('reports a queued row the loop never started that expired at warning', async () => {
+  reportTransactionFailure({
+    type: 'consume',
+    point: 'pipeline',
+    reason: 'queued_expired',
+    error: 'Transaction expired after being queued too long'
+  });
+  await settle();
+  const [error, , options] = jest.mocked(captureCrash).mock.calls[0]!;
+  expect((error as Error).message).toMatch(/^Transaction failed: tx_receive; stage unknown; realm unknown;/);
+  expect((error as Error).message).toContain('; point pipeline; queued_expired. authentication');
+  expect(options?.level).toBe('warning');
+});
+
+it.each([
+  ['a requeued Guardian row that had started', { reason: 'queued_expired', stage: 'creating-proposal' }],
+  ['another wallet reason on a row with no stage', { reason: 'user_cancelled' }],
+  ['a failure with no reason on a row with no stage', {}]
+] as const)('keeps %s at error', async (_name, fields) => {
+  reportTransactionFailure({ type: 'consume', point: 'pipeline', ...fields });
+  await settle();
+  expect(jest.mocked(captureCrash).mock.calls[0]?.[2]?.level).toBe('error');
 });
 
 it('reports an unknown submit outcome at warning and a final failure at error', async () => {
@@ -157,7 +230,7 @@ it('does not forward unknown assertion codes, error text, or poisoned metadata',
   const text = `${(error as Error).message} ${(error as Error).stack}`;
   expect(text).not.toContain(poison);
   expect(text).not.toContain('99887766554433221100');
-  expect(text).toContain('kernel_assertion_unknown');
+  expect(text).toContain('kernel_assertion_outside_shipped_sources');
   expect(text).toContain('tx_other');
 });
 
@@ -366,7 +439,7 @@ it('reports a hot-key plugin rejection by its code and nothing it says', async (
 
 it.each([
   ['failed to execute transaction', ''],
-  ['assertion failed with error code: 1', '; kernel_assertion_unknown'],
+  ['assertion failed with error code: 1', '; kernel_assertion_outside_shipped_sources'],
   ['advice stack read failed', ''],
   ['WebClient terminated', '']
 ])('reports a Guardian refusal whose text says "%s" by its status and code', async (text, protocol) => {
@@ -393,7 +466,7 @@ it('keeps the protocol identity a Guardian refusal carries after its status and 
 
 it.each([
   ['a known code', 'claim failed', '15404814807981965102', 'ERR_FEE_CONVERSION_INFO_COMMITMENT_MISMATCH'],
-  ['an unknown code', 'claim failed', '9876543210123', 'kernel_assertion_unknown'],
+  ['an unknown code', 'claim failed', '9876543210123', 'kernel_assertion_outside_shipped_sources'],
   [
     'a known code under a wrapper carrying another',
     'claim failed: assertion failed with error code: 10256002255343504776',
@@ -873,7 +946,7 @@ describe('an SDK execution failure with no assertion code', () => {
 
   it.each([
     ['a published code', '10404896929510279404', 'ERR_NOTE_TAG_MUST_BE_U32'],
-    ['an unknown code', '7', 'kernel_u32_assertion_unknown']
+    ['an unknown code', '7', 'kernel_u32_assertion_outside_shipped_sources']
   ])('names a u32 assertion with %s and not its stack values', async (_name, code, identity) => {
     reportTransactionFailure({
       type: 'send',
@@ -969,6 +1042,69 @@ describe('an SDK execution failure with no assertion code', () => {
   });
 });
 
+// BREAD-WALLET-T: a dApp transaction failed a check whose code was public, but the table held only the protocol and
+// standards constants.
+describe('an assertion from the crates the shipped SDK was built from', () => {
+  const u32 = (code: string) =>
+    `u32 assertion failed: u32assert2 requires both stack values to be valid 32-bit unsigned integers; error code: ${code}; invalid values: [4294967296, ${AMOUNT}]`;
+
+  it.each([
+    ['a core library message written inline', '17772623450895643168', 'CORE_LIB_INVALID_PUBLIC_KEY_COMMITMENT'],
+    [
+      'a core library preimage check',
+      '11387458292363377498',
+      'CORE_LIB_PIPE_DOUBLE_WORDS_PREIMAGE_TO_MEMORY_COMMITMENT_DOES_NOT_MATCH'
+    ],
+    ['a core library constant without the ERR_ prefix', '8884138617546109530', 'LEAF_VALUE_MISMATCH'],
+    ['an AggLayer constant', '14064239620284524827', 'ERR_CLAIM_ALREADY_SPENT'],
+    [
+      'a protocol message written inline',
+      '7815687906632357981',
+      'PROTOCOL_NUMBER_OF_STORAGE_MAP_ELEMENTS_MUST_BE_A_MULTIPLE_OF_8'
+    ]
+  ])('names %s and not its number', async (_name, code, identity) => {
+    reportTransactionFailure({
+      type: 'execute',
+      stage: 'creating-proposal',
+      error: new Error(`failed to execute transaction: ${ACCOUNT}: assertion failed with error code: ${code}`)
+    });
+    const message = await reportedMessage();
+    expect(message).toContain(`; point pipeline; ${identity}. authentication`);
+    expect(message).not.toContain(code);
+    expectNoTransactionData(message);
+  });
+
+  it.each([
+    ['a core library range check', '4656276824384881619', 'CORE_LIB_INVALID_SHA256_MESSAGE_WORD'],
+    ['a protocol range check', '10617534845770812077', 'PROTOCOL_INVALID_ATTACHMENT_NUM_ELEMENTS_ADVICE_INPUT']
+  ])('names %s on the u32 path, and not its stack values', async (_name, code, identity) => {
+    reportTransactionFailure({ type: 'execute', stage: 'creating-proposal', error: new Error(u32(code)) });
+    const message = await reportedMessage();
+    expect(message).toContain(`; point pipeline; ${identity}. authentication`);
+    expect(message).not.toContain(code);
+    expect(message).not.toContain('4294967296');
+    expectNoTransactionData(message);
+  });
+
+  it.each([
+    ['a check', 'assertion failed with error code: 0', 'kernel_assertion_without_message'],
+    ['a range check', u32('0'), 'kernel_u32_assertion_without_message']
+  ])('names %s written with no message', async (_name, text, identity) => {
+    reportTransactionFailure({ type: 'execute', stage: 'signing-proposal', error: new Error(text) });
+    expect(await reportedMessage()).toContain(`; point pipeline; ${identity}. authentication`);
+  });
+
+  it.each([
+    ['a check', 'assertion failed with error code: 9876543210123', 'kernel_assertion_outside_shipped_sources'],
+    ['a range check', u32('9876543210123'), 'kernel_u32_assertion_outside_shipped_sources']
+  ])('says %s whose number no shipped source publishes came from outside them', async (_name, text, identity) => {
+    reportTransactionFailure({ type: 'execute', stage: 'signing-proposal', error: new Error(text) });
+    const message = await reportedMessage();
+    expect(message).toContain(`; point pipeline; ${identity}. authentication`);
+    expect(message).not.toContain('9876543210123');
+  });
+});
+
 describe('the signing step', () => {
   it.each([
     ['creating-proposal', 'creating_proposal'],
@@ -984,6 +1120,39 @@ describe('the signing step', () => {
     const message = await reportedMessage();
     expect(message).toContain('tx_receive; stage sending; realm unknown;');
     expect(message).not.toContain('signing step');
+  });
+});
+
+describe('the confirming step', () => {
+  it.each([
+    ['confirming', 'confirming'],
+    ['delivering', 'delivering'],
+    ['registering-guardian', 'registering_guardian'],
+    ['guardian-syncing', 'guardian_syncing'],
+    ['guardian-synced', 'guardian_synced']
+  ] as const)('names %s inside the confirming stage', async (stage, step) => {
+    reportTransactionFailure({ type: 'consume', stage, error: new Error('failed to execute transaction') });
+    expect(await reportedMessage()).toContain(`tx_receive; stage confirming; confirming step ${step}; realm unknown;`);
+  });
+
+  // BREAD-WALLET-S: a Guardian claim failed after its submit, and the report could not say whether it failed during
+  // the post-submit Guardian sync or after it.
+  it('names the Guardian sync a submitted claim failed in, beside the wallet reason', async () => {
+    reportTransactionFailure({
+      type: 'consume',
+      stage: 'guardian-syncing',
+      point: 'pipeline',
+      reason: 'user_cancelled'
+    });
+    const message = await reportedMessage();
+    expect(message).toContain('tx_receive; stage confirming; confirming step guardian_syncing; realm unknown;');
+    expect(message).toContain('; point pipeline; user_cancelled. authentication');
+  });
+
+  it.each(TRANSACTION_STAGES)('names a confirming step for %s only when it folds into confirming', async stage => {
+    reportTransactionFailure({ type: 'consume', stage });
+    const message = await reportedMessage();
+    expect(message.includes('; confirming step ')).toBe(stepOfStage(stage) === 'confirming');
   });
 });
 
@@ -1064,6 +1233,8 @@ const REFUSED = 'A submit the network refused';
 const EXECUTION = 'What the transaction software said went wrong';
 const EXECUTION_CAUSE_LIST = 'its own fixed wording names';
 const COINED_ASSERTIONS = "A check in the transaction's program";
+const NO_MESSAGE = 'A check that fails with no message';
+const OUTSIDE_SOURCES = 'and one whose number';
 const ENGINE = 'Two failures the transaction engine names itself';
 const BROAD = 'A broad category';
 const CLAIM_ORIGIN = 'A failed claim of an incoming transfer also says what queued the claim';
@@ -1072,8 +1243,10 @@ const CLAIM_ORIGIN = 'A failed claim of an incoming transfer also says what queu
 const IDENTITY_TEXT: Record<string, () => string> = {
   submit_outcome_unknown: () => policyText(UNKNOWN_OUTCOME, undefined, 'It carries'),
   submit_rejected: () => policyText(REFUSED, undefined, 'It names'),
-  kernel_assertion_unknown: () => policyText(EXECUTION, COINED_ASSERTIONS),
-  kernel_u32_assertion_unknown: () => policyText(EXECUTION, COINED_ASSERTIONS),
+  kernel_assertion_outside_shipped_sources: () => policyText(EXECUTION, OUTSIDE_SOURCES),
+  kernel_u32_assertion_outside_shipped_sources: () => policyText(EXECUTION, OUTSIDE_SOURCES),
+  kernel_assertion_without_message: () => policyText(EXECUTION, NO_MESSAGE, OUTSIDE_SOURCES),
+  kernel_u32_assertion_without_message: () => policyText(EXECUTION, NO_MESSAGE, OUTSIDE_SOURCES),
   advice_stack_read_failed: () => policyText(ENGINE),
   client_terminated: () => policyText(ENGINE),
   transaction_execution_failed: () => policyText(EXECUTION, undefined, EXECUTION_CAUSE_LIST),
@@ -1118,6 +1291,7 @@ const POLICY_ROWS: readonly PolicyRow[] = [
   ['pipeline kill', () => PIPELINE_KILLS, () => policyText('Work the App stopped')],
   ['execution cause', () => EXECUTION_CAUSES, () => policyText(EXECUTION, EXECUTION_CAUSE_LIST, COINED_ASSERTIONS)],
   ['signing step', () => SIGNING_STEPS, () => policyText('The signing step')],
+  ['confirming step', () => CONFIRMING_STEPS, () => policyText('The confirming step')],
   ['broad category', () => TELEMETRY_ERROR_KINDS, () => policyText(BROAD)],
   ['claim entry point', () => [...CONSUME_ENTRY_POINTS, 'other'], () => policyParagraph(CLAIM_ORIGIN)],
   ...Object.entries(IDENTITY_TEXT).map(
@@ -1168,12 +1342,20 @@ describe('every identity the reporter coins sits in a documented list', () => {
     ['transaction_execution_failed', () => new Error(`failed to execute transaction: wasm-bindgen: ${ACCOUNT_HEX}`)],
     ['guardian_http_409', () => guardianRefusal(409, 'Conflict', 'conflict_pending_delta')],
     ['guardian_http_other', () => guardianRefusal(700, 'Odd', null)],
-    ['kernel_assertion_unknown', () => new Error('assertion failed with error code: 9')],
+    ['kernel_assertion_outside_shipped_sources', () => new Error('assertion failed with error code: 9')],
     [
-      'kernel_u32_assertion_unknown',
+      'kernel_u32_assertion_outside_shipped_sources',
       () =>
         new Error(
           'u32 assertion failed: u32assert2 requires both stack values to be valid 32-bit unsigned integers; error code: 7; invalid values: [1, 2]'
+        )
+    ],
+    ['kernel_assertion_without_message', () => new Error('assertion failed with error code: 0')],
+    [
+      'kernel_u32_assertion_without_message',
+      () =>
+        new Error(
+          'u32 assertion failed: u32assert2 requires both stack values to be valid 32-bit unsigned integers; error code: 0; invalid values: [1, 2]'
         )
     ],
     ['submit_outcome_unknown', () => submitOutcomeUnknown('operation was aborted')],
@@ -1247,7 +1429,7 @@ it.each([
 ])('lists the identity it sends for %s with an unpublished code', async (_name, text) => {
   reportTransactionFailure({ type: 'send', error: new Error(`failed to execute transaction: ${text}`) });
   const identity = /; point pipeline; ([a-z0-9_]+)\. authentication/.exec(await reportedMessage())?.[1];
-  expect(identity).toMatch(/_unknown$/);
+  expect(identity).toMatch(/_outside_shipped_sources$/);
   expect(REPORTED_IDENTITIES).toContain(identity);
 });
 

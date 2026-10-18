@@ -56,6 +56,21 @@ describe('updateBridgedReceivePhase', () => {
     expect(row?.error).toBe('Bridge delivery timed out.');
   });
 
+  // A cause can carry the wallet's message, an address or an amount: only the row's crash report reads it.
+  it('never stores what its writer said failed the row', async () => {
+    const id = await seed('submitting');
+
+    await updateBridgedReceivePhase(id, 'failed', {
+      error: 'User rejected the request.',
+      failure: { step: 'wallet_deposit', cause: new Error(`refused for 0x${'ab'.repeat(20)}`) }
+    });
+
+    const row = await Repo.transactions.get(id);
+    expect(row?.extraInputs.phase).toBe('failed');
+    expect(row?.error).toBe('User rejected the request.');
+    expect(Object.keys(row?.extraInputs ?? {})).not.toContain('failure');
+  });
+
   it('accepts a write at the same phase, so the deposit screen can add the hash', async () => {
     const id = await seed('submitting');
 
