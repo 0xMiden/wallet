@@ -195,6 +195,15 @@ const invalid = [
     base: breadBase,
     link: link(breadBase, { ...connectEnvelope, appPublicKey: b64u(app.publicKey.subarray(1)) }),
     read: { kind: 'invalid', callback, id }
+  },
+  {
+    name: 'unsealed error with a code Bread seals',
+    base: callback,
+    link: link(callback, {
+      ...errorEnvelope,
+      error: { code: 'TRANSACTION_FAILED', message: 'The transaction failed' }
+    }),
+    read: { kind: 'invalid', id }
   }
 ];
 

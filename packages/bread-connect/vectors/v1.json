@@ -214,6 +214,15 @@
         "callback": "https://wherelegendsgrow.com/bread",
         "id": "AAECAwQFBgcICQoLDA0ODw"
       }
+    },
+    {
+      "name": "unsealed error with a code Bread seals",
+      "base": "https://wherelegendsgrow.com/bread",
+      "link": "https://wherelegendsgrow.com/bread#v=1&m=eyJ0eXBlIjoiZXJyb3IiLCJpZCI6IkFBRUNBd1FGQmdjSUNRb0xEQTBPRHciLCJlcnJvciI6eyJjb2RlIjoiVFJBTlNBQ1RJT05fRkFJTEVEIiwibWVzc2FnZSI6IlRoZSB0cmFuc2FjdGlvbiBmYWlsZWQifX0",
+      "read": {
+        "kind": "invalid",
+        "id": "AAECAwQFBgcICQoLDA0ODw"
+      }
     }
   ],
   "unopenable": [

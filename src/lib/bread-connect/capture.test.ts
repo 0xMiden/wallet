@@ -83,6 +83,10 @@ describe('requestLinkId', () => {
       'an answer meant for an app',
       messageLink({ type: 'error', id: ID, error: { code: 'NOT_GRANTED', message: 'no' } })
     ],
+    [
+      'an unsealed transaction outcome',
+      messageLink({ type: 'error', id: ID, error: { code: 'TRANSACTION_FAILED', message: 'no' } })
+    ],
     ['a link for another receiver', `${CALLBACK}#v=1&m=e30`],
     ['an open link', 'https://bread.miden.xyz/open#url=https%3A%2F%2Fapp.example%2F']
   ])('has none for %s', (_name, link) => {

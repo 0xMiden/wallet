@@ -230,7 +230,7 @@ final class ClientTests: XCTestCase {
 
     func testAnAnswerToAnotherRequestIsIgnored() async throws {
         let client = try await connected()
-        answer(with: client) { [bread] _ in bread.error(id: Base64URL.encode(counting(from: 9, count: 16)), code: .notFound, message: "No") }
+        answer(with: client) { [bread] _ in bread.error(id: Base64URL.encode(counting(from: 9, count: 16)), code: .sessionNotFound, message: "No") }
         let request = Task { try await client.request(["type": "SIGN_REQUEST"]) }
         try await waitFor("the request to open Bread") { opener.opened.count >= 2 }
         for _ in 0..<10 { await Task.yield() }

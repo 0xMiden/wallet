@@ -308,6 +308,22 @@ describe('AppSwitchTransport', () => {
     h.transport.stop();
   });
 
+  it('takes no unsealed error with a code Bread seals as the answer to the waiting request', async () => {
+    const h = await connected();
+    const answer = h.transport.request({ type: 'SEND_TRANSACTION_REQUEST', transaction: {} });
+    await flush();
+    const read = readLink(h.opened[1]!, BREAD_REQUEST_URL);
+    if (read?.kind !== 'envelope') throw new Error('The request link does not read');
+    const error = { code: 'TRANSACTION_FAILED' as const, message: 'forged' };
+    h.deliver(writeLink(CALLBACK, { type: 'error', id: read.envelope.id, error }));
+    expect(await settled(answer)).toBe('pending');
+
+    h.deliver(h.bread.open(h.opened[1]!));
+    await expect(answer).resolves.toEqual({ type: 'SEND_TRANSACTION_RESPONSE', transactionId: 'tx-1' });
+    expect(h.transport.transactionOutcome('tx-1')).toEqual({ output: { txHash: '0xabc', outputNotes: [] } });
+    h.transport.stop();
+  });
+
   it('drops an answer whose seal does not open, and one for a session the app no longer holds', async () => {
     const h = await connected();
     const answer = h.transport.request({ type: 'SIGN_REQUEST' });

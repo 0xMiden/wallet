@@ -334,7 +334,7 @@ describe('a round trip with fresh keys', () => {
     expect(() =>
       answerRequest(request, approved.session, { response: { type: 'SIGN_RESPONSE', signature: long } })
     ).toThrow(ProtocolMessageError);
-    expect(() => errorLink(callback, { code: 'INTERNAL_ERROR', message: long })).toThrow(ProtocolMessageError);
+    expect(() => errorLink(callback, { code: 'INVALID_REQUEST', message: long })).toThrow(ProtocolMessageError);
   });
 });
 
@@ -361,11 +361,11 @@ describe('the rules', () => {
   it('measures a message from the end of its base, whatever the callback path holds', () => {
     const base = `https://game.example/a&m=${'x'.repeat(300)}`;
     const prefix = `${base}#v=1&m=`;
-    const empty = errorLink(base, { code: 'INTERNAL_ERROR', message: '' }).length - prefix.length;
+    const empty = errorLink(base, { code: 'INVALID_REQUEST', message: '' }).length - prefix.length;
     const message = 'y'.repeat(Math.floor(((MAX_MESSAGE_LENGTH - 100 - empty) * 3) / 4));
-    const link = errorLink(base, { code: 'INTERNAL_ERROR', message });
+    const link = errorLink(base, { code: 'INVALID_REQUEST', message });
     expect(link.length - prefix.length).toBeLessThanOrEqual(MAX_MESSAGE_LENGTH);
-    expect(envelopeOf(link, base)).toEqual({ type: 'error', error: { code: 'INTERNAL_ERROR', message } });
+    expect(envelopeOf(link, base)).toEqual({ type: 'error', error: { code: 'INVALID_REQUEST', message } });
   });
 
   it('writes an unsealed error with and without a request id', () => {
@@ -376,6 +376,13 @@ describe('the rules', () => {
       error
     });
     expect(envelopeOf(errorLink(CALLBACK, error), CALLBACK)).toEqual({ type: 'error', error });
+  });
+
+  it('writes no unsealed error with a code Bread seals', () => {
+    expect(() => errorLink(CALLBACK, { code: 'TRANSACTION_FAILED', message: 'failed' }, vectors.id)).toThrow(
+      ProtocolMessageError
+    );
+    expect(() => errorLink(CALLBACK, { code: 'NOT_GRANTED', message: 'declined' })).toThrow(ProtocolMessageError);
   });
 
   it('reads only links under its base, with exactly v and m', () => {

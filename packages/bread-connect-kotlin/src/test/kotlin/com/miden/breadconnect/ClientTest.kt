@@ -177,7 +177,7 @@ class ClientTest {
     @Test
     fun anAnswerToAnotherRequestIsIgnored() = runTest {
         val client = connected()
-        client.answering { bread.error(Base64Url.encode(counting(9, 16)), ProtocolErrorCode.NOT_FOUND, "No") }
+        client.answering { bread.error(Base64Url.encode(counting(9, 16)), ProtocolErrorCode.SESSION_NOT_FOUND, "No") }
         val request = async { runCatching { client.request(json("""{"type":"SIGN_REQUEST"}""")) } }
         runCurrent()
         assertTrue(request.isActive)
