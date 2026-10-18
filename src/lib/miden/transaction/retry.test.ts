@@ -19,10 +19,12 @@ import { ISubmitEvidence, ITransaction, ITransactionStatus } from '../db/types';
 import { NoteTypeEnum } from '../types';
 
 const mockTransactionsWhere = jest.fn();
+const mockTransactionsFilter = jest.fn();
 
 jest.mock('lib/miden/repo', () => ({
+  db: { transaction: (_mode: string, _table: unknown, callback: () => Promise<unknown>) => callback() },
   get transactions() {
-    return { where: mockTransactionsWhere };
+    return { where: mockTransactionsWhere, filter: mockTransactionsFilter };
   }
 }));
 
@@ -34,7 +36,15 @@ jest.mock('./cancel', () => ({
 
 jest.mock('../sdk/miden-client', () => ({
   getMidenClient: jest.fn(),
+  assertWasmHoldCurrent: jest.fn(),
+  tryWithWasmClientLock: async () => ({ ran: false }),
   withWasmClientLock: async (fn: () => unknown) => fn()
+}));
+
+jest.mock('lib/miden-chain/native-asset', () => ({
+  ...jest.requireActual('lib/miden-chain/native-asset'),
+  getNativeAssetId: async () => 'native-faucet',
+  getVerificationBaseFee: async () => 10000
 }));
 
 // These rows hold no checkable entry, so the tap-time proof never runs; mocked so this suite never builds a client.
@@ -63,6 +73,9 @@ jest.mock('./helper', () => ({
 
 /** In-memory row + Dexie-shaped where().first()/where().modify()/where().anyOf().toArray() plumbing. */
 function wireRow(row: ITransaction | undefined) {
+  mockTransactionsFilter.mockImplementation((predicate: (tx: ITransaction) => boolean) => ({
+    toArray: jest.fn().mockResolvedValue(row && predicate(row) ? [row] : [])
+  }));
   mockTransactionsWhere.mockImplementation(() => ({
     first: jest.fn().mockResolvedValue(row),
     modify: jest.fn((fn: (tx: ITransaction) => void) => {
