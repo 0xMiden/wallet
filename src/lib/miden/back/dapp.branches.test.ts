@@ -1176,6 +1176,22 @@ describe('removeDApp', () => {
     expect(storageState.bread_connect_sessions).toEqual({ 'session-2': other, broken: 7, empty: null });
   });
 
+  it('keeps the permission when the Bread Connect sessions cannot be ended, so no session outlives it', async () => {
+    const sessions = { 'session-1': { session: 'session-1', origin: 'https://miden.xyz' } };
+    Object.defineProperty(storageState, 'bread_connect_sessions', {
+      configurable: true,
+      enumerable: true,
+      get: () => sessions,
+      set: () => {
+        throw new Error('disk full');
+      }
+    });
+
+    await expect(dapp.removeDApp('https://miden.xyz', 'miden-account-1')).rejects.toThrow('disk full');
+
+    expect((await dapp.getAllDApps())['https://miden.xyz']).toEqual([SESSION]);
+  });
+
   it.each([
     ['absent', undefined],
     ['null', null],

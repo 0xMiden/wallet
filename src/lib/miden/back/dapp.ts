@@ -2783,11 +2783,12 @@ export async function setDApp(origin: string, permissions: MidenDAppSession) {
 }
 
 export async function removeDApp(origin: string, accountId: string) {
+  // A native app's Bread Connect session lives under its origin; left in place, the origin's next grant revives it.
+  // It ends first, so a failure keeps the permission rather than a session that outlives it.
+  await endOriginSessions(origin);
   const { [origin]: permissionsToRemove, ...restDApps } = await getAllDApps();
   const newPermissions = permissionsToRemove?.filter(session => session.accountId !== accountId) ?? [];
   await setDApps({ ...restDApps, [origin]: newPermissions });
-  // A native app's Bread Connect session lives under its origin; left in place, the origin's next grant revives it.
-  await endOriginSessions(origin);
   return restDApps;
 }
 
