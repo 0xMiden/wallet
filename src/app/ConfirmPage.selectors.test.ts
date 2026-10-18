@@ -2,8 +2,8 @@ import { ConfirmPageSelectors } from './ConfirmPage.selectors';
 
 // ConfirmPage.selectors is a pure, dependency-free TypeScript string enum used to
 // tag the confirm-page action controls (connect / sign / decrypt / records /
-// transaction / consume / bulk / deploy / private-notes / sign-data / assets /
-// import-note / consumable-notes accept & reject buttons) with stable
+// transaction / consume / bulk / deploy / private-notes / sign-data / login-sign /
+// assets / import-note / consumable-notes accept & reject buttons) with stable
 // automation/testIDs. A string enum has no reverse mapping, so the compiled object
 // is exactly the set of named string members. We exercise every exported member
 // end-to-end: its exact value, the shape of the compiled enum object, and the
@@ -11,7 +11,7 @@ import { ConfirmPageSelectors } from './ConfirmPage.selectors';
 // the enum emits.
 
 describe('ConfirmPageSelectors', () => {
-  // Verbatim expected mapping — one entry per source member (all 27).
+  // Verbatim expected mapping, one entry per source member (all 29).
   const EXPECTED: Record<string, string> = {
     ConnectAction_CancelButton: 'ConfirmPage/ConnectAction/CancelButton',
     ConnectAction_RetryButton: 'ConfirmPage/ConnectAction/RetryButton',
@@ -34,6 +34,8 @@ describe('ConfirmPageSelectors', () => {
     RequestPrivateNotes_AcceptButton: 'ConfirmPage/RequestPrivateNotes/AcceptButton',
     SignData_RejectButton: 'ConfirmPage/SignData/RejectButton',
     SignData_AcceptButton: 'ConfirmPage/SignData/AcceptButton',
+    LoginSign_RejectButton: 'ConfirmPage/LoginSign/RejectButton',
+    LoginSign_AcceptButton: 'ConfirmPage/LoginSign/AcceptButton',
     RequestAssets_RejectButton: 'ConfirmPage/RequestAssets/RejectButton',
     RequestAssets_AcceptButton: 'ConfirmPage/RequestAssets/AcceptButton',
     RequestImportPrivateNote_RejectButton: 'ConfirmPage/RequestImportPrivateNote/RejectButton',
@@ -68,6 +70,8 @@ describe('ConfirmPageSelectors', () => {
     expect(ConfirmPageSelectors.RequestPrivateNotes_AcceptButton).toBe('ConfirmPage/RequestPrivateNotes/AcceptButton');
     expect(ConfirmPageSelectors.SignData_RejectButton).toBe('ConfirmPage/SignData/RejectButton');
     expect(ConfirmPageSelectors.SignData_AcceptButton).toBe('ConfirmPage/SignData/AcceptButton');
+    expect(ConfirmPageSelectors.LoginSign_RejectButton).toBe('ConfirmPage/LoginSign/RejectButton');
+    expect(ConfirmPageSelectors.LoginSign_AcceptButton).toBe('ConfirmPage/LoginSign/AcceptButton');
     expect(ConfirmPageSelectors.RequestAssets_RejectButton).toBe('ConfirmPage/RequestAssets/RejectButton');
     expect(ConfirmPageSelectors.RequestAssets_AcceptButton).toBe('ConfirmPage/RequestAssets/AcceptButton');
     expect(ConfirmPageSelectors.RequestImportPrivateNote_RejectButton).toBe(
@@ -93,8 +97,8 @@ describe('ConfirmPageSelectors', () => {
     expect({ ...(ConfirmPageSelectors as Record<string, string>) }).toEqual(EXPECTED);
   });
 
-  it('declares exactly 27 members', () => {
-    expect(Object.keys(ConfirmPageSelectors)).toHaveLength(27);
+  it('declares exactly 29 members', () => {
+    expect(Object.keys(ConfirmPageSelectors)).toHaveLength(29);
   });
 
   it('is a string enum without a numeric reverse mapping', () => {

@@ -3954,6 +3954,24 @@
     "message": "Prosi o Twój podpis",
     "englishSource": "Requests your signature"
   },
+  "confirmLoginSignature": {
+    "message": "Zaloguj się na $domain$",
+    "englishSource": "Sign in to $domain$",
+    "placeholders": {
+      "domain": {
+        "content": "$1"
+      }
+    }
+  },
+  "loginSignatureNote": {
+    "message": "Bread podpisuje się kluczem stworzonym wyłącznie dla $domain$. Nie może on przenosić środków ani wprowadzać zmian na koncie.",
+    "englishSource": "Bread signs with a key made only for $domain$. It can't move funds or change your account.",
+    "placeholders": {
+      "domain": {
+        "content": "$1"
+      }
+    }
+  },
   "requestAssets": {
     "message": "Poproś o materiały",
     "englishSource": "Request Assets"
@@ -4439,6 +4457,15 @@
   "dappSignRequest": {
     "message": "Ta aplikacja wymaga podpisania danych za pomocą portfela",
     "englishSource": "This app wants you to sign data with your wallet"
+  },
+  "dappLoginSignRequest": {
+    "message": "Ta strona wymaga zalogowania się do serwisu $domain$ za pomocą Bread",
+    "englishSource": "This site wants you to sign in to $domain$ with Bread",
+    "placeholders": {
+      "domain": {
+        "content": "$1"
+      }
+    }
   },
   "dappImportNoteRequest": {
     "message": "Ta aplikacja chce zaimportować prywatny adres note do Twojego portfela",

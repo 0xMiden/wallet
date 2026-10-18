@@ -22,7 +22,8 @@ describe('commitmentToHex', () => {
     ['hex a byte long', `${HEX}00`],
     ['base64 of 31 bytes', u8ToB64(bytes(31))],
     ['base64 of 33 bytes', u8ToB64(bytes(33))],
-    ['text that is neither', 'not a commitment']
+    ['text that is neither', 'not a commitment'],
+    ['a missing value', undefined]
   ])('refuses %s', (_form, value) => {
     expect(commitmentToHex(value)).toBeUndefined();
   });
