@@ -216,8 +216,8 @@ export async function sheetBlock(rpcUrl: string, sheet: SeenSheet, ctx: CellCont
     );
   }
   const query = async (read: (ms: number) => Promise<number>, what: string): Promise<number> => {
-    const expired = (): CellDeadlineExceeded =>
-      new CellDeadlineExceeded(`${ctx.deadline.label}: ${what} exceeded the sheet block cutoff`);
+    const expired = (): ChainUnavailable =>
+      new ChainUnavailable(`${ctx.deadline.label}: ${what} exceeded the sheet block cutoff`);
     const remaining = cutoff - Date.now();
     if (remaining <= 0) throw expired();
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -228,6 +228,9 @@ export async function sheetBlock(rpcUrl: string, sheet: SeenSheet, ctx: CellCont
       const height = await ctx.deadline.race(Promise.race([read(remaining), timeout]), what);
       if (Date.now() >= cutoff) throw expired();
       return height;
+    } catch (error) {
+      if (error instanceof CellDeadlineExceeded) throw expired();
+      throw error;
     } finally {
       clearTimeout(timer);
     }

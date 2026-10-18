@@ -12,6 +12,7 @@ import {
   deadlineIn,
   HarnessFault,
   InfrastructureFault,
+  judgeCell,
   type CellContext,
   type Deadline,
   type JourneyRecord,
@@ -369,7 +370,18 @@ describe('the sheet block cutoff', () => {
     const outcome = jest.fn();
     void sheetBlock(rpc, sheet(), context()).then(outcome, outcome);
     await jest.advanceTimersByTimeAsync(20);
-    expect(outcome).toHaveBeenCalledWith(expect.any(CellDeadlineExceeded));
+    expect(outcome).toHaveBeenCalledWith(expect.any(ChainUnavailable));
+    expect(
+      judgeCell({
+        surface: 'ios',
+        cellId: 'X1',
+        axis: 'offchain',
+        hardError: outcome.mock.calls[0]?.[0],
+        softFailures: [],
+        evidence: {},
+        registry: registryOf([])
+      }).verdict
+    ).toBe('blocked-infra');
     expect(waitForNodeHeight).not.toHaveBeenCalled();
   });
 
@@ -380,7 +392,18 @@ describe('the sheet block cutoff', () => {
     void sheetBlock(rpc, sheet(), context()).then(outcome, outcome);
     await jest.advanceTimersByTimeAsync(20);
     expect(waitForNodeHeight).toHaveBeenCalledWith(rpc, 101, 10);
-    expect(outcome).toHaveBeenCalledWith(expect.any(CellDeadlineExceeded));
+    expect(outcome).toHaveBeenCalledWith(expect.any(ChainUnavailable));
+    expect(
+      judgeCell({
+        surface: 'ios',
+        cellId: 'X1',
+        axis: 'offchain',
+        hardError: outcome.mock.calls[0]?.[0],
+        softFailures: [],
+        evidence: {},
+        registry: registryOf([])
+      }).verdict
+    ).toBe('blocked-infra');
   });
 
   it('rejects a target returned after the cutoff even before its timer can fire', async () => {
@@ -395,7 +418,7 @@ describe('the sheet block cutoff', () => {
     await jest.advanceTimersByTimeAsync(0);
     jest.setSystemTime(held.sentAt + AUTO_DECLINE_MS - HOLD_MARGIN_MS + 1);
     target.resolve(101);
-    await expect(outcome).resolves.toBeInstanceOf(CellDeadlineExceeded);
+    await expect(outcome).resolves.toBeInstanceOf(ChainUnavailable);
   });
 
   it('uses the cell deadline when it precedes the sheet hold cutoff', async () => {
@@ -404,7 +427,7 @@ describe('the sheet block cutoff', () => {
     void sheetBlock(rpc, sheet(), context(5)).then(outcome, outcome);
     await jest.advanceTimersByTimeAsync(5);
     expect(waitForNodeHeight).toHaveBeenCalledWith(rpc, 101, 5);
-    expect(outcome).toHaveBeenCalledWith(expect.any(CellDeadlineExceeded));
+    expect(outcome).toHaveBeenCalledWith(expect.any(ChainUnavailable));
   });
 });
 

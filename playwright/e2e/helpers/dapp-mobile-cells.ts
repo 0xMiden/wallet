@@ -3,7 +3,8 @@ import { isDeepStrictEqual } from 'node:util';
 
 import { fromBaseUnits } from './balance-truth';
 import { pollUntil } from './dapp-assertions';
-import { HarnessFault, type CellContext } from './dapp-cells';
+import { CellDeadlineExceeded, HarnessFault, type CellContext } from './dapp-cells';
+import { ChainUnavailable } from './dapp-channel';
 import { assetMap, canonicalAddress, normalizeHex } from './dapp-gates';
 import { FUND_A, tst } from './dapp-journey';
 import { REFUSAL_WRAPPERS } from './dapp-known-bugs';
@@ -140,10 +141,16 @@ export function mobileCells(j: MobileJourney): Record<string, MobileCellImpl> {
   // The page's own build at its height N, the chain past N + 3 by the driver's read, then the request.
   const buildPast = async (amount: bigint, ctx: CellContext) => {
     const built = await j.call('buildCustom', { shape: 'p2id', outputs: [toB(amount)] }, ctx.deadline);
-    await ctx.deadline.race(
-      waitForNodeHeight(j.env.rpcUrl, built.boundBlockNum + B3, ctx.deadline.remainingMs()),
-      'the chain past the dApp height'
-    );
+    try {
+      await beforeMobileDeadline(ctx.deadline, 'the chain past the dApp height', () =>
+        waitForNodeHeight(j.env.rpcUrl, built.boundBlockNum + B3, ctx.deadline.remainingMs())
+      );
+    } catch (error) {
+      if (error instanceof CellDeadlineExceeded) {
+        throw new ChainUnavailable(`${ctx.deadline.label}: the chain did not pass the dApp height before the cutoff`);
+      }
+      throw error;
+    }
     return built;
   };
 
