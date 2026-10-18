@@ -2,6 +2,8 @@ package com.miden.breadconnect
 
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -195,16 +197,25 @@ class BreadConnect(
         try {
             // Null is this deadline alone: a caller's own timeout arrives as a cancellation and propagates as one.
             val answer = withTimeoutOrNull(ANSWER_WAIT_MS) {
-                val opened = try {
-                    opener.open(link)
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    settle(waiter, failure(ProtocolError(ProtocolErrorCode.INTERNAL_ERROR, "Bread could not be opened: $e")))
-                    true
+                coroutineScope {
+                    // Beside the wait, so a cancel or a newer request ends this request while the opener has not returned.
+                    val opening = launch {
+                        val opened = try {
+                            opener.open(link)
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            settle(waiter, failure(ProtocolError(ProtocolErrorCode.INTERNAL_ERROR, "Bread could not be opened: $e")))
+                            true
+                        }
+                        if (!opened) settle(waiter, failure(BreadConnectException.Code.NotInstalled, "Bread is not installed; its store page is open"))
+                    }
+                    try {
+                        waiter.answer.await()
+                    } finally {
+                        opening.cancel()
+                    }
                 }
-                if (!opened) settle(waiter, failure(BreadConnectException.Code.NotInstalled, "Bread is not installed; its store page is open"))
-                waiter.answer.await()
             }
             if (answer != null) return answer
             settle(waiter, failure(BreadConnectException.Code.Timeout, "Bread did not answer in time"))
