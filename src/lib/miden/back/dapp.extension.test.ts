@@ -1128,18 +1128,24 @@ describe('Full confirmation cycles in extension mode', () => {
     const queuedMessage = 'OUTCOME_UNKNOWN: transaction tx-1 may already be queued; wait for it before sending again';
     const queued = new TransactionQueuedError('tx-1', { cause: new Error('note queue unavailable') });
 
-    it.each<[string, Error, string, number]>([
-      ['a queued row', queued, queuedMessage, 1],
-      ['a cause-wrapped queued row', new Error('custom wrapper', { cause: queued }), queuedMessage, 1],
-      ['a NOT_GRANTED refusal', new Error(MidenDAppErrorType.NotGranted), 'NOT_GRANTED', 0]
-    ])('follows up only a queued row after %s', async (_label, error, message, followUps) => {
+    type Spies = {
+      importNotes: string[];
+      noteIds: string[];
+      importedIds: jest.SpyInstance;
+      releaseNotes: jest.SpyInstance;
+    };
+    const runCustomFailure = async (
+      error: Error,
+      message: string,
+      queuedRow: boolean,
+      check: (spies: Spies) => void
+    ) => {
       const importNotes = ['bm90ZS0x', 'bm90ZS0y'];
       const noteIds = ['carried-note-1', 'carried-note-2'];
       const importedIds = jest.spyOn(noteQuarantine, 'importedNoteIds').mockReturnValue(noteIds);
       const releaseNotes = jest.spyOn(noteQuarantine, 'releaseNoteIds').mockResolvedValue(undefined);
       jest.mocked(requestCustomTransaction).mockRejectedValueOnce(error);
-      if (followUps > 0) jest.mocked(startTransactionProcessing).mockResolvedValueOnce(undefined);
-
+      if (queuedRow) jest.mocked(startTransactionProcessing).mockResolvedValueOnce(undefined);
       try {
         await expect(
           driveConfirmation(
@@ -1156,19 +1162,33 @@ describe('Full confirmation cycles in extension mode', () => {
           )
         ).rejects.toEqual(new Error(message));
         expect(requestCustomTransaction).toHaveBeenCalledTimes(1);
-        expect(startTransactionProcessing).toHaveBeenCalledTimes(followUps);
-        expect(releaseNotes).toHaveBeenCalledTimes(followUps);
-        if (followUps > 0) {
-          expect(importedIds).toHaveBeenCalledWith(importNotes);
-          expect(releaseNotes).toHaveBeenCalledWith(noteIds);
-        }
         expect(_g.__dappExtTest.lastConfirmResponse).toEqual({
           type: MidenMessageType.DAppTransactionConfirmationResponse
         });
+        check({ importNotes, noteIds, importedIds, releaseNotes });
       } finally {
         importedIds.mockRestore();
         releaseNotes.mockRestore();
       }
+    };
+
+    it.each<[string, Error]>([
+      ['a queued row', queued],
+      ['a cause-wrapped queued row', new Error('custom wrapper', { cause: queued })]
+    ])('starts processing and releases the carried notes after %s', async (_label, error) => {
+      await runCustomFailure(error, queuedMessage, true, ({ importNotes, noteIds, importedIds, releaseNotes }) => {
+        expect(startTransactionProcessing).toHaveBeenCalledTimes(1);
+        expect(importedIds).toHaveBeenCalledWith(importNotes);
+        expect(releaseNotes).toHaveBeenCalledTimes(1);
+        expect(releaseNotes).toHaveBeenCalledWith(noteIds);
+      });
+    });
+
+    it('starts nothing and keeps the carried notes quarantined after a NOT_GRANTED refusal', async () => {
+      await runCustomFailure(new Error(MidenDAppErrorType.NotGranted), 'NOT_GRANTED', false, ({ releaseNotes }) => {
+        expect(startTransactionProcessing).not.toHaveBeenCalled();
+        expect(releaseNotes).not.toHaveBeenCalled();
+      });
     });
   });
 
