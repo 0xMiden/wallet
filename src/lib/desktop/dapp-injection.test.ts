@@ -41,6 +41,20 @@ const REFUSALS: [string, { error?: unknown; payload?: unknown }, string, string]
     'INVALID_PARAMS: bad'
   ],
   ['an array payload', { payload: ['NOT_GRANTED'] }, new NotGrantedMidenWalletError().name, 'NOT_GRANTED'],
+  ['an object payload with no message', { payload: {} }, new MidenWalletError().name, new MidenWalletError().message],
+  ['a non-string error', { error: 42 }, new MidenWalletError().name, new MidenWalletError().message],
+  [
+    'NOT_FOUND over INVALID_PARAMS',
+    { error: 'INVALID_PARAMS: NOT_FOUND' },
+    new NotFoundMidenWalletError().name,
+    'INVALID_PARAMS: NOT_FOUND'
+  ],
+  [
+    'NOT_GRANTED over the other codes',
+    { error: 'INVALID_PARAMS: NOT_FOUND: NOT_GRANTED' },
+    new NotGrantedMidenWalletError().name,
+    'INVALID_PARAMS: NOT_FOUND: NOT_GRANTED'
+  ],
   ['no error and no payload', {}, new MidenWalletError().name, 'Unknown error']
 ];
 
