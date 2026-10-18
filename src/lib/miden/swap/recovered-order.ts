@@ -1,4 +1,5 @@
 import {
+  type IRecoveredSwapCheckpoint,
   type IRecoveredSwapTip,
   type ISwapExtraInputs,
   type ITransaction,
@@ -22,6 +23,8 @@ export interface RecoveredSwapOrderRef {
   tipNoteId: string;
   tipDepth: number;
   tipOfferedAmount: bigint;
+  /** A spent lineage tip at which a bounded read stopped, never the note Cancel returns. */
+  checkpoint?: IRecoveredSwapCheckpoint;
   /** The row carries a settledAt or reclaimedAt no lineage read recorded, which an open read clears. */
   provisionalClosure?: boolean;
 }
@@ -50,16 +53,19 @@ export function recoveredOrderNoteId(tx: ITransaction): string | undefined {
   return candidates.length === 1 && note && tx.outputNoteIds?.includes(note.id) ? note.id : undefined;
 }
 
+const isRecordedPosition = (recorded: IRecoveredSwapCheckpoint | undefined): recorded is IRecoveredSwapCheckpoint =>
+  recorded != null && typeof recorded.noteId === 'string' && Number.isSafeInteger(recorded.depth) && recorded.depth > 0;
+
 /** A malformed stored remainder falls back to the order note and counts as depth 0 when confirming an open read. */
 export function recordedRecoveredSwapTip(tx: ITransaction): IRecoveredSwapTip | undefined {
   const recorded = swapExtraOf(tx).recoveredTip;
-  return recorded != null &&
-    typeof recorded.noteId === 'string' &&
-    Number.isSafeInteger(recorded.depth) &&
-    recorded.depth > 0 &&
-    typeof recorded.remainingOffered === 'bigint'
-    ? recorded
-    : undefined;
+  return isRecordedPosition(recorded) && typeof recorded.remainingOffered === 'bigint' ? recorded : undefined;
+}
+
+/** A malformed stored checkpoint is ignored, as a malformed remainder is. */
+export function recordedRecoveredSwapCheckpoint(tx: ITransaction): IRecoveredSwapCheckpoint | undefined {
+  const recorded = swapExtraOf(tx).recoveredCheckpoint;
+  return isRecordedPosition(recorded) ? recorded : undefined;
 }
 
 /**
@@ -82,6 +88,7 @@ export function recoveredSwapOrderRef(tx: ITransaction): RecoveredSwapOrderRef |
   const noteId = recoveredOrderNoteId(tx);
   if (noteId === undefined) return undefined;
   const tip = recordedRecoveredSwapTip(tx);
+  const checkpoint = recordedRecoveredSwapCheckpoint(tx);
   return {
     txId: tx.id,
     accountId: tx.accountId,
@@ -92,6 +99,7 @@ export function recoveredSwapOrderRef(tx: ITransaction): RecoveredSwapOrderRef |
     tipNoteId: tip?.noteId ?? noteId,
     tipDepth: tip?.depth ?? 0,
     tipOfferedAmount: tip?.remainingOffered ?? tx.amount,
+    ...(checkpoint ? { checkpoint } : {}),
     ...(extra.settledAt != null || extra.reclaimedAt != null ? { provisionalClosure: true } : {})
   };
 }

@@ -1,11 +1,20 @@
 import { isLiveTransaction, type ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
-import { type PswapOrderLineageRead, readPswapOrderLineage } from 'lib/miden/sdk/pswap-order-note';
+import {
+  type PswapOrderLineageCheckpoint,
+  type PswapOrderLineageRead,
+  readPswapOrderLineage
+} from 'lib/miden/sdk/pswap-order-note';
 import type { SwapOrderTracking } from 'lib/miden/transaction/get';
 import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
 import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 
-import { isOpenRecoveredOrder, recordedRecoveredSwapTip, type RecoveredSwapOrderRef } from './recovered-order';
+import {
+  isOpenRecoveredOrder,
+  recordedRecoveredSwapCheckpoint,
+  recordedRecoveredSwapTip,
+  type RecoveredSwapOrderRef
+} from './recovered-order';
 
 export type RecoveredOrderTracking = { kind: 'open'; tracking: SwapOrderTracking } | { kind: 'closed' };
 
@@ -29,12 +38,20 @@ export async function trackRecoveredSwapOrders(
     const readOn = getEffectiveRpcUrl();
     let read: PswapOrderLineageRead;
     try {
-      read = await readPswapOrderLineage(order.noteId, order.orderId, order.accountId);
+      const start =
+        order.checkpoint && order.checkpoint.depth > order.tipDepth
+          ? order.checkpoint
+          : order.tipDepth > 0
+            ? { noteId: order.tipNoteId, depth: order.tipDepth }
+            : undefined;
+      read = await readPswapOrderLineage(order.noteId, order.orderId, order.accountId, start);
     } catch (error) {
       console.warn('[swap-order-tracking] could not read a recovered order lineage', error);
       continue;
     }
-    if (read.kind === 'open') {
+    if (read.kind === 'unresolved') {
+      await recordRecoveredSwapCheckpoint(order.txId, readOn, read.checkpoint);
+    } else if (read.kind === 'open') {
       const newTip = read.depth > 0 && read.noteId !== order.tipNoteId;
       const tip = newTip ? read : undefined;
       if (!(await recordOpenRecoveredSwapOrder(order.txId, readOn, read.depth, tip, order.provisionalClosure === true)))
@@ -59,10 +76,26 @@ export async function trackRecoveredSwapOrders(
   return results;
 }
 
+const recordedDepth = (row: ITransaction): number =>
+  Math.max(recordedRecoveredSwapTip(row)?.depth ?? 0, recordedRecoveredSwapCheckpoint(row)?.depth ?? 0);
+
+async function recordRecoveredSwapCheckpoint(
+  txId: string,
+  readOn: string,
+  checkpoint: PswapOrderLineageCheckpoint
+): Promise<void> {
+  await Repo.transactions.where({ id: txId }).modify(row => {
+    if (getEffectiveRpcUrl() !== readOn || !isOpenRecoveredOrder(row) || checkpoint.depth <= recordedDepth(row))
+      return false;
+    row.extraInputs = { ...row.extraInputs, recoveredCheckpoint: checkpoint };
+    return undefined;
+  });
+}
+
 /**
  * Confirm that an open read still holds on a row that is still an open recovered order, and record what it showed:
  * the remainder its Cancel returns, if new, and no settledAt or reclaimedAt. Its depth must be at least the row's
- * validated recorded remainder's depth (0 with none), checked in the modify that writes: a shallower read changes
+ * validated remainder and checkpoint depths (0 with none), checked in the writing modify: a shallower read changes
  * nothing, clears no provisional stamp and returns false. True only when the row is still such an order and `readOn`,
  * the node the read ran on, is still effective: a row a finished read closed meanwhile reports no open order (#1487).
  */
@@ -75,10 +108,7 @@ async function recordOpenRecoveredSwapOrder(
 ): Promise<boolean> {
   let confirmed = false;
   await Repo.transactions.where({ id: txId }).modify(row => {
-    confirmed =
-      getEffectiveRpcUrl() === readOn &&
-      isOpenRecoveredOrder(row) &&
-      depth >= (recordedRecoveredSwapTip(row)?.depth ?? 0);
+    confirmed = getEffectiveRpcUrl() === readOn && isOpenRecoveredOrder(row) && depth >= recordedDepth(row);
     // `false`, not a bare return - dexie re-puts the deep clone for any other value.
     if (!confirmed || (!tip && !clearsClosure)) return false;
     const { settledAt: _settledAt, reclaimedAt: _reclaimedAt, ...extraInputs } = row.extraInputs ?? {};

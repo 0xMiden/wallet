@@ -120,7 +120,7 @@ describe('trackRecoveredSwapOrders', () => {
 
     const results = await trackRecoveredSwapOrders([ref()]);
 
-    expect(mockReadPswapOrderLineage).toHaveBeenCalledWith('note-42', '42', 'account');
+    expect(mockReadPswapOrderLineage).toHaveBeenCalledWith('note-42', '42', 'account', undefined);
     expect(results.get('42')).toEqual({
       kind: 'open',
       tracking: { orderId: '42', state: 'active', currentDepth: 0, remainingOffered: 70n, remainingRequested: 30n }
@@ -309,6 +309,8 @@ describe('trackRecoveredSwapOrders', () => {
     ]);
 
     expect(results.get('42')).toEqual(expect.objectContaining({ kind: 'open' }));
+    expect(modifyRecipes).toHaveLength(1);
+    expect(modifyRecipes[0]?.(openRecoveredRow(recorded))).toBe(false);
     expect(swapRow.extraInputs).toEqual(openRecoveredRow(recorded).extraInputs);
   });
 
@@ -526,9 +528,11 @@ describe('trackRecoveredSwapOrders', () => {
       swapRow = { ...row, extraInputs: { ...row.extraInputs } };
       mockReadPswapOrderLineage.mockResolvedValue(openLineage('note-42', 0, 70n, 30n));
 
-      await trackRecoveredSwapOrders([provisional]);
+      const results = await trackRecoveredSwapOrders([provisional]);
 
       expect(swapRow.extraInputs?.settledAt).toBe(160);
+      expect(results.has('42')).toBe(false);
+      expect(modifyRecipes).toHaveLength(1);
       expect(modifyRecipes.every(recipe => recipe({ ...row, extraInputs: { ...row.extraInputs } }) === false)).toBe(
         true
       );

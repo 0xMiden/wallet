@@ -555,12 +555,12 @@ describe('readPswapOrderLineage', () => {
     expect(mockSyncNotes).toHaveBeenCalledWith(124, 125, [{ tagOf: 'order-note' }]);
   });
 
-  const placeLongLineage = (rounds: number) => {
-    commit(pswapNote({ id: 'order-note', amount: 1n }), 120);
+  const placeLongLineage = (rounds: number, orderBlock = 120) => {
+    commit(pswapNote({ id: 'order-note', amount: 1n }), orderBlock);
     for (let depth = 1; depth <= rounds; depth++) {
       const parent = depth === 1 ? 'order-note' : `remainder-${depth - 1}`;
-      spentAt.set(parent, 120 + depth);
-      commit(remainder(`remainder-${depth}`, BigInt(depth), 1n, 30n - BigInt(depth)), 120 + depth);
+      spentAt.set(parent, orderBlock + depth);
+      commit(remainder(`remainder-${depth}`, BigInt(depth), 1n, 30n - BigInt(depth)), orderBlock + depth);
     }
   };
 
@@ -629,6 +629,40 @@ describe('readPswapOrderLineage', () => {
       depth: 20,
       offeredAmount: 1n,
       requestedAmount: 10n
+    });
+  });
+
+  describe('a jump after single fills to depth 10', () => {
+    beforeEach(() => {
+      placeLongLineage(10, 100);
+      spentAt.set('remainder-10', 125);
+      commit(remainder('remainder-20', 20n, 1n, 10n), 125);
+      for (let depth = 11; depth <= 20; depth++) {
+        commitPayback(payback({ id: `payback-${depth}`, fill: 1n, depth: BigInt(depth) }));
+      }
+    });
+
+    it('checkpoints the last spent tip before a jump past the read budget and resumes from it', async () => {
+      const first = await read();
+
+      expect(first).toEqual({ kind: 'unresolved', checkpoint: { noteId: 'remainder-10', depth: 10 } });
+      if (first.kind !== 'unresolved') throw new Error('Missing lineage checkpoint');
+
+      await expect(read(first.checkpoint)).resolves.toEqual({
+        kind: 'open',
+        noteId: 'remainder-20',
+        depth: 20,
+        offeredAmount: 1n,
+        requestedAmount: 10n
+      });
+    });
+
+    it('keeps progress from a resumed start before a jump past that read budget', async () => {
+      await expect(read({ noteId: 'remainder-2', depth: 2 })).resolves.toEqual({
+        kind: 'unresolved',
+        checkpoint: { noteId: 'remainder-10', depth: 10 }
+      });
+      expect(mockGetNullifierCommitHeight).toHaveBeenNthCalledWith(1, { nullifierOf: 'remainder-2' }, 102);
     });
   });
 
