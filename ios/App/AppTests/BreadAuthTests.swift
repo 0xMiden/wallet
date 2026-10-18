@@ -91,16 +91,25 @@ final class BreadAuthTests: XCTestCase {
                             "https://game.example:444/auth", "https://game.example:8443/auth", "https://game.example:/auth",
                             "https://game.example:0443/auth", "https://user@game.example/auth",
                             "https://other.example\\@game.example/auth", "https://game.example/a b",
-                            "https://g\u{E4}me.example/auth", longURL(length: 4097)]
+                            "https://g\u{E4}me.example/auth", longURL(length: 4097), "https://game.example/auth#a#b",
+                            "https://game.example/%zz", "https://game.example/a%4", "https://game.example/auth?x=[1]",
+                            "https://game.example/[x]", "https://game.example/auth#[x]"]
         for url in urls {
             XCTAssertEqual(failure(url: url), .invalidURL, String(describing: url))
         }
     }
 
     func testValidationAcceptsSameOriginWithDefaultPortAndHostCase() {
+        let exact = ["https://game.example/a%2Fb?x=%41&y=/?#z?/", "https://game.example/auth?x=1#"]
         for url in ["https://GAME.example:443/auth?x=1#y", "https://GAME.example/auth", "https://game.example:443/auth",
-                    "https://game.example", "https://game.example?x=1", "https://game.example#x", longURL(length: 4096)] {
+                    "https://game.example", "https://game.example?x=1", "https://game.example#x", longURL(length: 4096)] + exact {
             XCTAssertEqual(try BreadAuthState.validate(mainFrame: true, page: page, url: url).get().absoluteString, url)
+        }
+        let auth = presentable()
+        for url in exact {
+            auth.handle(body: ["url": url], mainFrame: true, page: page, reply: ReplyLog().record)
+            XCTAssertEqual(sessions.last?.url.absoluteString, url)
+            auth.close()
         }
     }
 

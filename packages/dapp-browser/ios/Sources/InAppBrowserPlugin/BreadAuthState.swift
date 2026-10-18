@@ -16,6 +16,7 @@ final class BreadAuthState {
     static let callbackAddress = "com.miden.wallet.auth://callback"
     static let maxURLLength = 4096
     private static let urlCharacters = Set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~:/?#[]@!$&'()*+,;=%".utf16)
+    private static let hexDigits = Set("0123456789ABCDEFabcdef".utf8)
     private(set) var openTicket: Int?
     private var lastTicket = 0
 
@@ -37,7 +38,7 @@ final class BreadAuthState {
         let pagePort = page.port == 0 ? 443 : page.port
         guard let text = url as? String, (1...maxURLLength).contains(text.utf16.count),
               text.utf16.allSatisfy({ urlCharacters.contains($0) }), authorityMatches(text, host: page.host, port: pagePort),
-              let valid = URL(string: text) else { return .failure(.invalidURL) }
+              restIsValid(text), let valid = URL(string: text), valid.absoluteString == text else { return .failure(.invalidURL) }
         return .success(valid)
     }
 
@@ -54,6 +55,26 @@ final class BreadAuthState {
         guard text.utf8.starts(with: https) else { return false }
         let authority = asciiLowercased(text.utf8.dropFirst(https.count).prefix { !"/?#".utf8.contains($0) })
         return authority == asciiLowercased("\(host):\(port)".utf8) || (port == 443 && authority == asciiLowercased(host.utf8))
+    }
+
+    // Path, query and fragment are checked by hand: URL(string:) treats invalid ones differently per iOS version.
+    private static func restIsValid(_ text: String) -> Bool {
+        var hexDigitsOwed = 0
+        var fragments = 0
+        for byte in text.utf8.dropFirst("https://".utf8.count).drop(while: { !"/?#".utf8.contains($0) }) {
+            if hexDigitsOwed > 0 {
+                guard hexDigits.contains(byte) else { return false }
+                hexDigitsOwed -= 1
+            } else if byte == UInt8(ascii: "%") {
+                hexDigitsOwed = 2
+            } else if byte == UInt8(ascii: "#") {
+                fragments += 1
+                guard fragments == 1 else { return false }
+            } else if byte == UInt8(ascii: "[") || byte == UInt8(ascii: "]") {
+                return false
+            }
+        }
+        return hexDigitsOwed == 0
     }
 
     private static func asciiLowercased<Bytes: Sequence>(_ bytes: Bytes) -> [UInt8] where Bytes.Element == UInt8 {
