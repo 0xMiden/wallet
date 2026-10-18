@@ -47,6 +47,14 @@
   if (window.__midenInjected) return;
   window.__midenInjected = true;
 
+  // Desktop has neither presentation nor auth; a page detects Bread by window.bread and each capability by its presence.
+  // Writable and configurable, so a page's own top-level `bread` replaces the marker instead of throwing or being ignored.
+  try {
+    Object.defineProperty(window, 'bread', { value: Object.freeze({}), writable: true, configurable: true });
+  } catch (e) {
+    // An earlier non-configurable `bread`, from another injector, is left in place; the wallet bridge still installs.
+  }
+
   // Pending requests waiting for responses
   const pendingRequests = new Map();
   // Random per document: the wallet can answer after a same-origin reload, and the next document's requests must not
