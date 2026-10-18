@@ -51,7 +51,7 @@
   try {
     Object.defineProperty(window, 'bread', { value: Object.freeze({}) });
   } catch (e) {
-    // A page-defined non-configurable `bread` keeps its value; the wallet bridge still installs.
+    // An earlier non-configurable `bread`, from another injector, is left in place; the wallet bridge still installs.
   }
 
   // Pending requests waiting for responses

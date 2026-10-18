@@ -194,6 +194,15 @@ it('keeps the same marker when the script runs again', () => {
   expect(win.bread).toBe(marker);
 });
 
+it('leaves an earlier non-configurable window.bread in place and still installs the wallet API', () => {
+  const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'https://dapp.example/' });
+  const win = dom.window as unknown as DappWindow;
+  Object.defineProperty(win, 'bread', { value: 'page' });
+  run(win);
+  expect(win.bread).toBe('page');
+  expect(win.midenWallet).toBeDefined();
+});
+
 describe('account switch (#174)', () => {
   it('does not poll before 10 s, and an unchanged grant emits nothing', async () => {
     const h = await connected();
