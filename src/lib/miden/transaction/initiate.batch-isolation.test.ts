@@ -488,22 +488,25 @@ describe('the consume writer fee gate', () => {
     window.dispatchEvent(new ErrorEvent('error', { error: new WebAssembly.RuntimeError('unreachable') }));
   };
 
-  beforeEach(() => {
+  const mockFeeContextReads = (assertOutsideTransaction: () => void) => {
     mockNativeAssetId.mockImplementation(async () => {
-      expect(Dexie.currentTransaction).toBeNull();
+      assertOutsideTransaction();
       return 'native-faucet';
     });
     mockVerificationBaseFee.mockImplementation(async () => {
-      expect(Dexie.currentTransaction).toBeNull();
+      assertOutsideTransaction();
       return 10000;
     });
     mockProxyGetAccount.mockImplementation(async () => {
-      expect(Dexie.currentTransaction).toBeNull();
+      assertOutsideTransaction();
       return emptyAccount();
     });
-  });
+  };
 
   it('writer refuses a known shortage and admits self funding and same-call funding', async () => {
+    mockFeeContextReads(() => {
+      expect(Dexie.currentTransaction).toBeNull();
+    });
     await expect(enqueue([knownToken()])).rejects.toMatchObject({ name: 'ClaimFeeRefusedError' });
     expect(await consumeRows()).toEqual([]);
 
@@ -520,7 +523,10 @@ describe('the consume writer fee gate', () => {
     const funded = await enqueue([native, token], true);
     const rows = await queuedRows();
     expect(rows).toHaveLength(2);
-    expect(funded).toMatchObject({ committedId: rows.find(row => row.noteId === native.id)?.id, feeRefusedNoteIds: [] });
+    expect(funded).toMatchObject({
+      committedId: rows.find(row => row.noteId === native.id)?.id,
+      feeRefusedNoteIds: []
+    });
     expect(rows.map(row => row.consumedNotes)).toEqual(
       expect.arrayContaining([
         [expect.objectContaining({ id: native.id, carriesMoreAssets: false })],
@@ -530,6 +536,9 @@ describe('the consume writer fee gate', () => {
   });
 
   it('writer admits on a busy or reentrant vault lock', async () => {
+    mockFeeContextReads(() => {
+      expect(Dexie.currentTransaction).toBeNull();
+    });
     const tryLock = jest.spyOn(WasmClient, 'tryWithWasmClientLock');
     try {
       tryLock.mockResolvedValueOnce({ ran: false });
@@ -553,6 +562,9 @@ describe('the consume writer fee gate', () => {
   });
 
   it('writer ignores an evicted vault read and retires a trap before continuing', async () => {
+    mockFeeContextReads(() => {
+      expect(Dexie.currentTransaction).toBeNull();
+    });
     const staleAccount = emptyAccount();
     let returnAccount!: (account: ReturnType<typeof emptyAccount>) => void;
     let readStarted!: () => void;
@@ -585,17 +597,14 @@ describe('the consume writer fee gate', () => {
     let trapSeenByLock: unknown;
     const realTryLock = WasmClient.tryWithWasmClientLock;
     const observeTryLock: typeof realTryLock = (operation, options) =>
-      realTryLock(
-        async hold => {
-          try {
-            return await operation(hold);
-          } catch (error) {
-            trapSeenByLock = error;
-            throw error;
-          }
-        },
-        options
-      );
+      realTryLock(async hold => {
+        try {
+          return await operation(hold);
+        } catch (error) {
+          trapSeenByLock = error;
+          throw error;
+        }
+      }, options);
     const tryLock = jest.spyOn(WasmClient, 'tryWithWasmClientLock').mockImplementation(observeTryLock);
     mockProxyGetAccount.mockResolvedValueOnce({
       vault: () => ({
@@ -623,6 +632,9 @@ describe('the consume writer fee gate', () => {
   });
 
   it('writer distinguishes unknown ahead assets from known token-only assets', async () => {
+    mockFeeContextReads(() => {
+      expect(Dexie.currentTransaction).toBeNull();
+    });
     const ahead = new ConsumeTransaction(ACCOUNT, [knownToken('ahead')], false);
     // Seed the record explicitly so this control also exercises pre-task persistence.
     const knownRecord = { id: 'ahead', senderAddress: 'sender', faucetId: 'token-faucet', amount: 10000n };
@@ -686,6 +698,9 @@ describe('the consume writer fee gate', () => {
   });
 
   it('writer reports partial fee refusal without covering refused notes', async () => {
+    mockFeeContextReads(() => {
+      expect(Dexie.currentTransaction).toBeNull();
+    });
     const token = { ...knownToken(), amount: '1000000' };
     const native = knownNative('native', '1000000');
     await failedTogether([token, knownToken('old-batch-mate')]);
@@ -712,6 +727,9 @@ describe('the consume writer fee gate', () => {
   });
 
   it('writer fee refusal preserves dedup and signing rollback', async () => {
+    mockFeeContextReads(() => {
+      expect(Dexie.currentTransaction).toBeNull();
+    });
     await expect(enqueue([knownToken()])).rejects.toMatchObject({ name: 'ClaimFeeRefusedError' });
     expect(await consumeRows()).toEqual([]);
     mockVerificationBaseFee.mockResolvedValueOnce(null);
@@ -733,7 +751,7 @@ describe('the consume writer fee gate', () => {
     await Repo.transactions.clear();
     const canonicalFaucet = jest.spyOn(SdkHelpers, 'getBech32AddressFromAccountId');
     try {
-      for (const lastAmount of [3999n, 4000n]) {
+      const mockVaultAmounts = (lastAmount: bigint) => {
         canonicalFaucet
           .mockReturnValueOnce('native-faucet')
           .mockReturnValueOnce('token-faucet')
@@ -747,13 +765,12 @@ describe('the consume writer fee gate', () => {
             ]
           })
         });
-        if (lastAmount === 3999n) {
-          await expect(enqueue([knownToken()])).rejects.toMatchObject({ name: 'ClaimFeeRefusedError' });
-          expect(await consumeRows()).toEqual([]);
-        } else {
-          expect(await enqueue([knownToken()])).toMatchObject({ feeRefusedNoteIds: [] });
-        }
-      }
+      };
+      mockVaultAmounts(3999n);
+      await expect(enqueue([knownToken()])).rejects.toMatchObject({ name: 'ClaimFeeRefusedError' });
+      expect(await consumeRows()).toEqual([]);
+      mockVaultAmounts(4000n);
+      expect(await enqueue([knownToken()])).toMatchObject({ feeRefusedNoteIds: [] });
       expect(canonicalFaucet).toHaveBeenCalledTimes(6);
     } finally {
       canonicalFaucet.mockRestore();
@@ -763,17 +780,11 @@ describe('the consume writer fee gate', () => {
     mockNativeAssetId.mockClear();
     mockVerificationBaseFee.mockClear();
     mockProxyGetAccount.mockClear();
-    const injected = await queueConsumeNotes(
-      ACCOUNT,
-      [knownToken()],
-      false,
-      true,
-      false,
-      null,
-      undefined,
-      () => true,
-      { vaultFeeAsset: 10000n, nativeAssetId: 'native-faucet', verificationBaseFee: 10000 }
-    );
+    const injected = await queueConsumeNotes(ACCOUNT, [knownToken()], false, true, false, null, undefined, () => true, {
+      vaultFeeAsset: 10000n,
+      nativeAssetId: 'native-faucet',
+      verificationBaseFee: 10000
+    });
     expect(injected).toMatchObject({ feeRefusedNoteIds: [] });
     expect(mockNativeAssetId).not.toHaveBeenCalled();
     expect(mockVerificationBaseFee).not.toHaveBeenCalled();
