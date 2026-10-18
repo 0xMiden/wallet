@@ -31,6 +31,7 @@ import {
   BREAD_REQUEST_URL,
   type DAppMessage,
   finishConnect,
+  MAX_MESSAGE_LENGTH,
   readLink,
   readResponse,
   type RequestAnswer,
@@ -87,6 +88,8 @@ function requestAnswer(answer: BreadConnectAnswer, session: AppSession): Request
   if (read?.kind !== 'envelope' || read.envelope.type !== 'response') throw new Error('not a response link');
   return readResponse(read.envelope, session);
 }
+
+const messageLength = (link: string) => link.length - link.indexOf('&m=') - 3;
 
 function unsealedError(answer: BreadConnectAnswer | null) {
   const read = answer && readLink(answer.link, answer.callback);
@@ -299,6 +302,44 @@ describe('a request link', () => {
     const answer = await answerRequestLink(link, { now: NOW });
 
     expect(requestAnswer(answer!, session)).toEqual({ error });
+  });
+
+  it('answers a response longer than a link carries with a sealed internal error', async () => {
+    const session = await connected();
+    const { link } = sendRequest(session, { type: 'PRIVATE_NOTES_REQUEST', notefilterType: 'all' }, NOW);
+    mockProcessDApp.mockResolvedValueOnce({
+      type: 'PRIVATE_NOTES_RESPONSE',
+      privateNotes: [{ noteId: 'n'.repeat(MAX_MESSAGE_LENGTH) }]
+    });
+
+    const answer = await answerRequestLink(link, { now: NOW });
+
+    expect(messageLength(answer!.link)).toBeLessThanOrEqual(MAX_MESSAGE_LENGTH);
+    expect(requestAnswer(answer!, session)).toEqual({
+      error: { code: 'INTERNAL_ERROR', message: "Bread's answer is longer than a link carries" }
+    });
+  });
+
+  it('answers a transaction whose outcome is longer than a link carries with its id and a timeout', async () => {
+    const session = await connected();
+    const { link } = sendRequest(session, SEND_REQUEST, NOW);
+    mockProcessDApp
+      .mockResolvedValueOnce({ type: 'SEND_TRANSACTION_RESPONSE', transactionId: 'tx-1' })
+      .mockResolvedValueOnce({
+        type: 'WAIT_FOR_TRANSACTION_RESPONSE',
+        transactionOutput: { txHash: '0xabc', outputNotes: ['n'.repeat(MAX_MESSAGE_LENGTH)] }
+      });
+
+    const answer = await answerRequestLink(link, { now: NOW });
+
+    expect(messageLength(answer!.link)).toBeLessThanOrEqual(MAX_MESSAGE_LENGTH);
+    expect(answer?.sentTransaction).toBe(true);
+    expect(requestAnswer(answer!, session)).toEqual({
+      response: { type: 'SEND_TRANSACTION_RESPONSE', transactionId: 'tx-1' },
+      transaction: {
+        error: { code: 'TRANSACTION_TIMEOUT', message: "The transaction's outcome is longer than a link carries" }
+      }
+    });
   });
 
   it('refuses a request id it already answered, without asking again', async () => {

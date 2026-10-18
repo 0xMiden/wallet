@@ -323,6 +323,19 @@ describe('a round trip with fresh keys', () => {
     );
     expect(() => openRequest(request, { ...approved.session, session: vectors.session })).toThrow(ProtocolMessageError);
   });
+
+  it("refuses to send Bread's answers longer than an app reads, as it refuses the app's requests", () => {
+    const { started, approved, finished } = connected();
+    const long = 'A'.repeat(MAX_MESSAGE_LENGTH);
+    expect(() =>
+      answerConnect(connectOf(started.link), { response: { type: 'PERMISSION_RESPONSE', accountId: long } })
+    ).toThrow(ProtocolMessageError);
+    const request = requestOf(sendRequest(finished.session, { type: 'SIGN_REQUEST' }).link);
+    expect(() =>
+      answerRequest(request, approved.session, { response: { type: 'SIGN_RESPONSE', signature: long } })
+    ).toThrow(ProtocolMessageError);
+    expect(() => errorLink(callback, { code: 'INTERNAL_ERROR', message: long })).toThrow(ProtocolMessageError);
+  });
 });
 
 describe('the rules', () => {

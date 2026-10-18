@@ -11,12 +11,14 @@ import {
   openRequest,
   type OpenedRequest,
   type ProtocolError,
+  ProtocolMessageError,
   readLink,
   REQUEST_MAX_AGE_MS,
   REQUEST_MAX_CLOCK_AHEAD_MS,
   type RequestAnswer,
   type RequestEnvelope,
-  type TransactionOutcome
+  type TransactionOutcome,
+  type WalletSession
 } from '@miden-sdk/bread-connect';
 import { MidenDAppErrorType, MidenDAppMessageType, type MidenDAppRequest } from 'lib/adapter/types';
 import { processDApp } from 'lib/miden/back/actions';
@@ -69,6 +71,8 @@ function problem(code: ErrorCode, message: string): ProtocolError {
 }
 
 const INTERNAL = problem('INTERNAL_ERROR', 'Bread could not complete the request');
+const TOO_LONG = problem('INTERNAL_ERROR', "Bread's answer is longer than a link carries");
+const OUTCOME_TOO_LONG = problem('TRANSACTION_TIMEOUT', "The transaction's outcome is longer than a link carries");
 
 function refusal(error: unknown): ProtocolError {
   const code = error instanceof Error ? error.message : '';
@@ -136,7 +140,7 @@ async function request(
     return null;
   }
   const reply = (answer: RequestAnswer): BreadConnectAnswer => ({
-    link: answerRequest(envelope, session, answer),
+    link: fittingAnswer(envelope, session, answer),
     callback: session.callback
   });
   if (hasAnswered(session, envelope.id, now)) {
@@ -163,6 +167,20 @@ async function request(
   if (typeof transactionId !== 'string') return { ...reply({ response }), sentTransaction: true };
   onTransactionSent?.(session.callback);
   return { ...reply({ response, transaction: await outcome(session.origin, transactionId) }), sentTransaction: true };
+}
+
+/** The sealed answer, or, when the app could not read one that long, the shortest that keeps what it must know. */
+function fittingAnswer(envelope: RequestEnvelope, session: WalletSession, answer: RequestAnswer): string {
+  try {
+    return answerRequest(envelope, session, answer);
+  } catch (error) {
+    if (!(error instanceof ProtocolMessageError)) throw error;
+    const shorter: RequestAnswer =
+      'response' in answer && answer.transaction
+        ? { response: answer.response, transaction: { error: OUTCOME_TOO_LONG } }
+        : { error: TOO_LONG };
+    return answerRequest(envelope, session, shorter);
+  }
 }
 
 async function outcome(origin: string, txId: string): Promise<TransactionOutcome> {

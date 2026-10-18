@@ -16,6 +16,7 @@ import {
   ConnectEnvelope,
   ConnectedEnvelope,
   DAppMessage,
+  Envelope,
   isProtocolError,
   isRecord,
   ProtocolError,
@@ -166,7 +167,7 @@ export function answerConnect(
     nonce,
     sealed
   };
-  return { link: writeLink(envelope.callback, connected), session };
+  return { link: checkedLink(envelope.callback, connected), session };
 }
 
 /** Opens a request sealed for the session; throws when it was not. */
@@ -179,7 +180,10 @@ export function openRequest(envelope: RequestEnvelope, session: WalletSession): 
   return { request: payload.request, sentAt: payload.sentAt };
 }
 
-/** Bread's sealed answer to a request, addressed to the callback the session was made with. */
+/**
+ * Bread's sealed answer to a request, addressed to the callback the session was made with. Throws when the link is
+ * longer than the app reads.
+ */
 export function answerRequest(envelope: RequestEnvelope, session: WalletSession, answer: RequestAnswer): string {
   const { nonce, sealed } = sealPayload(
     walletKeys(session).walletKey,
@@ -189,12 +193,12 @@ export function answerRequest(envelope: RequestEnvelope, session: WalletSession,
     answer
   );
   const response: ResponseEnvelope = { type: 'response', id: envelope.id, session: session.session, nonce, sealed };
-  return writeLink(session.callback, response);
+  return checkedLink(session.callback, response);
 }
 
 /** An unsealed error, for a message Bread holds no keys for. */
 export function errorLink(callback: string, error: ProtocolError, id?: string): string {
-  return writeLink(callback, id === undefined ? { type: 'error', error } : { type: 'error', id, error });
+  return checkedLink(callback, id === undefined ? { type: 'error', error } : { type: 'error', id, error });
 }
 
 function appKeys(appSecretKey: string, appPublicKey: string, walletPublicKey: string): SessionKeys {
@@ -274,10 +278,10 @@ function requireBytes(text: string, length?: number): Uint8Array {
   return bytes;
 }
 
-function checkedLink(base: string, envelope: ConnectEnvelope | RequestEnvelope): string {
+function checkedLink(base: string, envelope: Envelope): string {
   const link = writeLink(base, envelope);
   if (link.length - link.indexOf('&m=') - 3 > MAX_MESSAGE_LENGTH) {
-    throw new ProtocolMessageError('The message is longer than Bread reads');
+    throw new ProtocolMessageError('The message is longer than its receiver reads');
   }
   return link;
 }

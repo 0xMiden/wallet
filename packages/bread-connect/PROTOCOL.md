@@ -21,7 +21,7 @@ https://wherelegendsgrow.com/bread#v=1&m=<base64url of the UTF-8 JSON envelope>
 
 - `v` is the protocol version, `1`. A receiver refuses any other version.
 - base64url is RFC 4648 section 5 without padding, here and for every byte string inside an envelope.
-- `m` is at most 524288 characters. A sender refuses to send anything longer, and a receiver drops it.
+- `m` is at most 524288 characters. A sender refuses to send anything longer, and a receiver drops it. When Bread's answer to a request would be longer, Bread answers a sealed `INTERNAL_ERROR` instead, and for a transaction its response with a `TRANSACTION_TIMEOUT` outcome, so the app still learns the transaction id.
 - Request ids and session ids are 16 random bytes. Public keys are 32 bytes and nonces 12.
 
 ## Keys and encryption
