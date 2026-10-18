@@ -16,8 +16,10 @@
 import * as Repo from 'lib/miden/repo';
 import { reportOperation } from 'lib/telemetry/report-operation';
 
+import { midenClientProxy } from '../back/miden-client-proxy';
 import { IBridgeClaimStatus, ITransactionStatus, Transaction } from '../db/types';
 import { NoteTypeEnum } from '../types';
+import * as ClaimFee from './claim-fee';
 import {
   cancelTransaction,
   claimBridgeSubmit,
@@ -50,6 +52,9 @@ jest.mock('lib/telemetry/report-operation', () => ({
   reportOperation: jest.fn()
 }));
 const mockedReportOperation = jest.mocked(reportOperation);
+
+// Writable exports let this suite pin fee facts independently of the context reader's WASM tests.
+jest.mock('./claim-fee', () => ({ __esModule: true, ...jest.requireActual('./claim-fee') }));
 
 // In-memory db so liveQuery has something to subscribe to.
 const _g = globalThis as any;
@@ -151,6 +156,7 @@ jest.mock('../sdk/miden-client', () => ({
     syncState: mockSyncState,
     getInputNoteDetails: mockGetInputNoteDetails
   }),
+  getCurrentWasmLockHold: () => null,
   withWasmClientLock: async <T>(fn: () => Promise<T>) => fn()
 }));
 
@@ -1102,6 +1108,79 @@ describe('completeSendTransaction relay acknowledgement', () => {
 });
 
 describe('initiateConsumeTransactionFromId', () => {
+  it(
+    'from-id refuses known token-only assets but admits native and unknown assets without changing display fields',
+    async () => {
+      const ACCOUNT = 'acc-1';
+      const nativeId = 'native-faucet';
+      const tokenId = 'token-faucet';
+      const context = jest.spyOn(ClaimFee, 'readClaimFeeContext').mockResolvedValue({
+        vaultFeeAsset: 0n,
+        nativeAssetId: nativeId,
+        verificationBaseFee: 10000
+      });
+      const summary = jest.spyOn(midenClientProxy, 'getInputNoteSummary');
+      const { initiateConsumeTransactionFromId } = require('./index');
+      const tokenSummary = { noteType: 0, assets: [{ faucetId: tokenId, amount: '7' }] };
+      const nativeSummary = { noteType: 0, assets: [{ faucetId: nativeId, amount: '10000' }] };
+      const multiSummary = {
+        noteType: 0,
+        assets: [
+          { faucetId: tokenId, amount: '7' },
+          { faucetId: nativeId, amount: '10000' }
+        ]
+      };
+      const unknownSummary = { noteType: 0, assets: null };
+      const emptySummary = { noteType: 0, assets: [] };
+
+      try {
+        summary.mockResolvedValue(tokenSummary);
+        await expect(initiateConsumeTransactionFromId(ACCOUNT, 'token', false, true)).rejects.toMatchObject({
+          name: 'ClaimFeeRefusedError'
+        });
+        expect(txStore.filter(tx => tx.type === 'consume')).toEqual([]);
+
+        summary.mockResolvedValue(emptySummary);
+        await expect(initiateConsumeTransactionFromId(ACCOUNT, 'empty', false, true)).rejects.toMatchObject({
+          name: 'ClaimFeeRefusedError'
+        });
+        expect(txStore.filter(tx => tx.type === 'consume')).toEqual([]);
+
+        summary.mockResolvedValue(nativeSummary);
+        const nativeClaimId = await initiateConsumeTransactionFromId(ACCOUNT, 'native', false, true);
+        expect(txStore.find(tx => tx.id === nativeClaimId)).toMatchObject({ faucetId: '', amount: undefined });
+        expect(txStore.find(tx => tx.id === nativeClaimId)).toMatchObject({
+          secondaryAccountId: '',
+          assetTotals: undefined,
+          consumedNotes: [{ id: 'native', faucetId: '', senderAddress: '' }]
+        });
+        expect(txStore[0]?.consumedNotes[0]?.amount).toBeUndefined();
+
+        for (const [noteId, dto] of [
+          ['multi', multiSummary],
+          ['unknown', unknownSummary]
+        ] as const) {
+          // Each case starts without a possibly funding claim ahead.
+          txStore.length = 0;
+          summary.mockResolvedValue(dto);
+          const id = await initiateConsumeTransactionFromId(ACCOUNT, noteId, false, true);
+          expect(txStore).toHaveLength(1);
+          expect(txStore.find(tx => tx.id === id)).toMatchObject({
+            faucetId: '',
+            amount: undefined,
+            secondaryAccountId: '',
+            assetTotals: undefined,
+            consumedNotes: [{ id: noteId, faucetId: '', senderAddress: '' }]
+          });
+          expect(txStore[0]?.consumedNotes[0]?.amount).toBeUndefined();
+        }
+      } finally {
+        summary.mockRestore();
+        context.mockRestore();
+      }
+    }
+  );
+
   it('throws when the note is not found', async () => {
     const sdk = require('../sdk/miden-client');
     const orig = sdk.getMidenClient;
@@ -1118,7 +1197,10 @@ describe('initiateConsumeTransactionFromId', () => {
     const orig = sdk.getMidenClient;
     sdk.getMidenClient = async () => ({
       getInputNote: jest.fn(async () => ({
-        metadata: () => ({ noteType: () => 0 })
+        metadata: () => ({ noteType: () => 0 }),
+        details: () => {
+          throw new Error('note details unavailable');
+        }
       }))
     });
     const { initiateConsumeTransactionFromId } = require('./index');
@@ -1155,7 +1237,12 @@ describe('initiateConsumeTransactionFromId manual-retry gate', () => {
     const sdk = require('../sdk/miden-client');
     const orig = sdk.getMidenClient;
     sdk.getMidenClient = async () => ({
-      getInputNote: jest.fn(async () => ({ metadata: () => ({ noteType: () => 0 }) }))
+      getInputNote: jest.fn(async () => ({
+        metadata: () => ({ noteType: () => 0 }),
+        details: () => {
+          throw new Error('note details unavailable');
+        }
+      }))
     });
     try {
       return await run();

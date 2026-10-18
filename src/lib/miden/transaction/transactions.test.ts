@@ -111,6 +111,7 @@ const mockGetMidenClient = jest.fn((): any => ({
 jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-client'));
 jest.mock('../sdk/miden-client', () => ({
   getMidenClient: () => mockGetMidenClient(),
+  getCurrentWasmLockHold: () => null,
   withWasmClientLock: jest.fn((fn: () => Promise<any>) => fn())
 }));
 
@@ -1227,7 +1228,10 @@ describe('transactions utilities', () => {
     noNoteHoldingRows();
     it('creates consume transaction from note id', async () => {
       mockGetInputNote.mockReturnValueOnce({
-        metadata: () => ({ noteType: () => 'public' })
+        metadata: () => ({ noteType: () => 'public' }),
+        details: () => {
+          throw new Error('note details unavailable');
+        }
       });
       // Scalar `noteId` query + multi-entry `noteIds` query (batch rows).
       mockTransactionsWhere

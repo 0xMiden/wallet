@@ -62,6 +62,10 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
   const g = globalThis as any;
   const mod: any = {
     getWasmOrThrow: (...a: any[]) => g.__off.getWasmOrThrow(...a),
+    Address: {
+      fromAccountId: (accountId: { canonical: string }) => ({ toBech32: () => accountId.canonical })
+    },
+    NetworkId: { testnet: () => 'testnet' },
     WebClient: class {
       constructor() {
         g.__off.webClientCtorCount++;
@@ -444,7 +448,12 @@ function resetControl() {
       remainingOffered: () => 10n,
       remainingRequested: () => 20n
     })),
-    clientGetInputNote: jest.fn(async (_id: string) => ({ metadata: () => ({ noteType: () => 1 }) })),
+    clientGetInputNote: jest.fn(async (_id: string) => ({
+      metadata: () => ({ noteType: () => 1 }),
+      details: () => {
+        throw new Error('note details unavailable');
+      }
+    })),
     clientImportNoteBytes: jest.fn(async (_bytes: Uint8Array) => '0ximportedid'),
     clientDrainPrivateNoteTransport: jest.fn(async () => {}),
     clientDecodeGuardianHistory: jest.fn(async (_encoded: string) => ({
@@ -2643,7 +2652,7 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(G.__off.clientGetInputNote).toHaveBeenCalledWith('0xn');
     const resp = sendResponse.mock.calls[0][0];
     expect(resp.ok).toBe(true);
-    expect(JSON.parse(Buffer.from(resp.resultB64, 'base64').toString('utf8'))).toEqual({ noteType: 1 });
+    expect(JSON.parse(Buffer.from(resp.resultB64, 'base64').toString('utf8'))).toMatchObject({ noteType: 1 });
   });
 
   it('dispatches getInputNoteSummary → returns resultB64:null for a not-found note', async () => {
@@ -2658,20 +2667,45 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(resp.resultB64).toBeNull();
   });
 
-  it('getInputNoteSummary: refuses to reduce the live record after an eviction (#788)', async () => {
-    // Same shape as the lineage guard: the InputNoteRecord is a borrow of the
-    // shared client, and the reduction's `metadata()` reach-through after an
-    // eviction would double-borrow alongside the successor.
+  it('offscreen summary carries fee assets and rejects stale reduction', async () => {
     await loadModule();
+    const nativeId = 'native-faucet';
+    const tokenId = 'token-faucet';
+    const details = jest.fn(() => ({
+      assets: () => ({
+        fungibleAssets: () => [
+          { faucetId: () => ({ canonical: nativeId }), amount: () => 10000n },
+          { faucetId: () => ({ canonical: tokenId }), amount: () => 7n }
+        ]
+      })
+    }));
+    G.__off.clientGetInputNote.mockResolvedValue({ metadata: () => ({ noteType: () => 1 }), details });
+    const liveResponse = jest.fn();
+    capturedListener!(callReq({ method: 'getInputNoteSummary', argsB64: [encodeArg('0xn')] }), {}, liveResponse);
+    await flush();
+
+    expect(G.__off.clientGetInputNote).toHaveBeenCalledTimes(1);
+    expect(liveResponse.mock.calls[0][0].ok).toBe(true);
+    const summary = JSON.parse(Buffer.from(liveResponse.mock.calls[0][0].resultB64, 'base64').toString('utf8'));
+    expect(summary).toEqual({
+      noteType: 1,
+      assets: [
+        { faucetId: nativeId, amount: '10000' },
+        { faucetId: tokenId, amount: '7' }
+      ]
+    });
+    expect(details).toHaveBeenCalledTimes(1);
+
     const miden: any = await import('lib/miden/sdk/miden-client');
-    const metadataSpy = jest.fn(() => ({ noteType: () => 1 }));
+    const staleRecord = { metadata: jest.fn(() => ({ noteType: () => 1 })), details };
+    staleRecord.details.mockClear();
     let releaseNote!: () => void;
     const parkedNote = new Promise<void>(resolve => {
       releaseNote = resolve;
     });
     G.__off.clientGetInputNote = jest.fn(async () => {
       await parkedNote;
-      return { metadata: metadataSpy };
+      return staleRecord;
     });
 
     const sendResponse = jest.fn();
@@ -2686,7 +2720,8 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     releaseNote();
     await flush();
 
-    expect(metadataSpy).not.toHaveBeenCalled();
+    expect(staleRecord.metadata).not.toHaveBeenCalled();
+    expect(staleRecord.details).not.toHaveBeenCalled();
     const resp = sendResponse.mock.calls[0][0];
     expect(resp.ok).toBe(false);
     expect(resp.errorName).toBe('WasmClientPoisonedError');
