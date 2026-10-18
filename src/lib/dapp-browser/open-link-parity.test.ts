@@ -23,8 +23,10 @@ const PARAMS = `url=${encodeURIComponent(PAGE)}`;
 
 const manifest = read('android/app/src/main/AndroidManifest.xml');
 const verifiedFilters = captures(manifest, /<intent-filter android:autoVerify="true">([\s\S]*?)<\/intent-filter>/g);
-const schemeFilters = captures(manifest, /<intent-filter>([\s\S]*?)<\/intent-filter>/g).filter(filter =>
-  filter.includes('android:scheme=')
+// A scheme link's host is "open", so a filter limited to another host, like the sign-in callback's, never takes one.
+const schemeFilters = captures(manifest, /<intent-filter>([\s\S]*?)<\/intent-filter>/g).filter(
+  filter =>
+    filter.includes('android:scheme=') && captures(filter, /android:host="([^"]+)"/g).every(host => host === 'open')
 );
 
 describe('open link declarations', () => {
@@ -81,7 +83,7 @@ describe('open link declarations', () => {
       read('ios/App/App/Info.plist'),
       /<key>CFBundleURLSchemes<\/key>\s*<array>([\s\S]*?)<\/array>/g
     ).flatMap(array => captures(array, /<string>([^<]+)<\/string>/g));
-    const manifestSchemes = captures(manifest, /android:scheme="([^"]+)"/g).filter(scheme => scheme !== 'https');
+    const manifestSchemes = schemeFilters.flatMap(filter => captures(filter, /android:scheme="([^"]+)"/g));
     const schemes = [...new Set([...plistSchemes, ...manifestSchemes])];
 
     expect(schemes).not.toHaveLength(0);
