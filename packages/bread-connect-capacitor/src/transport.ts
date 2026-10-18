@@ -82,6 +82,8 @@ export class AppSwitchTransport {
   private settledId: string | null = null;
   private started: Promise<void> | null = null;
   private unsubscribe: (() => void) | null = null;
+  /** Every cancel so far: one that comes while a connect or request awaits `start` finds no waiter to settle. */
+  private cancellations = 0;
 
   constructor(private readonly options: TransportOptions) {}
 
@@ -128,14 +130,18 @@ export class AppSwitchTransport {
 
   /** Asks Bread for a permission; resolves with Bread's PERMISSION_RESPONSE and keeps the session. */
   async connect(request: DAppMessage): Promise<DAppMessage> {
+    const cancellations = this.cancellations;
     await this.start();
+    this.endIfCancelled(cancellations);
     const { link, connection } = startConnect(this.options.callback, request);
     return this.exchange({ kind: 'connect', connection, request, sentAt: this.now() }, link);
   }
 
   /** Sends a request in the connected session; resolves with Bread's response. */
   async request(request: DAppMessage): Promise<DAppMessage> {
+    const cancellations = this.cancellations;
     await this.start();
+    this.endIfCancelled(cancellations);
     const session = this.session();
     if (!session) throw new BreadConnectError('NOT_GRANTED', 'The app is not connected to Bread');
     const sentAt = this.now();
@@ -143,9 +149,16 @@ export class AppSwitchTransport {
     return this.exchange({ kind: 'request', id, session: session.session, sentAt }, link);
   }
 
-  /** Stops waiting for the answer to the request in flight. */
+  /** Stops waiting for the answer to the request in flight, and ends any connect or request not yet sent. */
   cancelPending(): void {
+    this.cancellations += 1;
     this.settle(new BreadConnectError('CANCELLED', 'The request to Bread was cancelled'));
+  }
+
+  private endIfCancelled(cancellations: number): void {
+    if (this.cancellations !== cancellations) {
+      throw new BreadConnectError('CANCELLED', 'The request to Bread was cancelled');
+    }
   }
 
   /** Reads a link the app was opened with; anything but an answer to the waiting request is dropped. */

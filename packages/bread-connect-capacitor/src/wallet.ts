@@ -31,6 +31,7 @@ export class BreadConnectWallet extends EventEmitter<MidenWalletEvents> implemen
   privateDataPermission?: string;
   allowedPrivateData?: number;
   network?: WalletAdapterNetwork;
+  private disconnects = 0;
 
   constructor(
     private readonly transport: AppSwitchTransport,
@@ -56,13 +57,17 @@ export class BreadConnectWallet extends EventEmitter<MidenWalletEvents> implemen
       network,
       ...(allowedPrivateData === undefined ? {} : { allowedPrivateData })
     };
+    const disconnectsBefore = this.disconnects;
     // Bread's answer may be the link that launched the app, so it is read before the stored session.
     await this.transport.start();
+    // A disconnect() since this call began ends it: before it opens Bread, and after Bread answers.
+    if (this.disconnects !== disconnectsBefore) throw new WalletError('The wallet was disconnected while connecting');
     const stored = this.transport.session();
     const response =
       stored && !stored.recheck && sameRequest(stored.request, request)
         ? stored.permission
         : await this.transport.connect(request);
+    if (this.disconnects !== disconnectsBefore) throw new WalletError('The wallet was disconnected while connecting');
     expectType(response, 'PERMISSION_RESPONSE');
     const publicKey = fromBase64(stringField(response, 'publicKey'));
     this.address = stringField(response, 'accountId');
@@ -74,6 +79,7 @@ export class BreadConnectWallet extends EventEmitter<MidenWalletEvents> implemen
 
   /** Forgets the session in the app; the user removes the app's permission in Bread. */
   async disconnect(): Promise<void> {
+    this.disconnects += 1;
     this.transport.cancelPending();
     this.transport.forgetSession();
     this.address = undefined;
