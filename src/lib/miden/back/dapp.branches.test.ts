@@ -1040,9 +1040,8 @@ describe('requestConsumeTransaction by the id importPrivateNote returned (#1389)
 
   it.each([
     'after the note-preview read',
-    'inside the details-commitment read, before the record reach-through',
-    'after the details-commitment read',
-    'inside the consumable-notes read'
+    'inside the consumable-notes read',
+    'inside the details-commitment read, before the record reach-through'
   ])('refuses a stale hold %s before any sheet or consume', async where => {
     mockGetDetailsCommitmentMatches.mockResolvedValue([{ notes: [importedNote], uncommitted: 0 }]);
     mockGetConsumableNoteDtos.mockResolvedValue(consumable(importedNote.noteId));
@@ -1051,15 +1050,10 @@ describe('requestConsumeTransaction by the id importPrivateNote returned (#1389)
         currentWasmHold = null;
         return [];
       });
-    } else if (where === 'after the details-commitment read') {
-      mockGetDetailsCommitmentMatches.mockImplementationOnce(async () => {
-        currentWasmHold = null;
-        return [{ notes: [importedNote], uncommitted: 0 }];
-      });
     } else if (where.startsWith('inside the details-commitment')) {
       mockGetDetailsCommitmentMatches.mockImplementationOnce(async (...args: unknown[]) => {
         currentWasmHold = null;
-        const assertLive = args[1];
+        const assertLive = args[2];
         if (typeof assertLive === 'function') assertLive();
         return [{ notes: [importedNote], uncommitted: 0 }];
       });

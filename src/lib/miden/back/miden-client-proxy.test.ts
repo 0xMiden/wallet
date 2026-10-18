@@ -960,7 +960,7 @@ describe('MidenClientProxy - getDetailsCommitmentMatches', () => {
     G.__px.inlineGetDetailsCommitmentMatches.mockResolvedValueOnce(dto);
 
     await expect(
-      midenClientProxy.getDetailsCommitmentMatches(['0xcommitment', '0xother'], assertLive)
+      midenClientProxy.getDetailsCommitmentMatches(['0xcommitment', '0xother'], ['n9', 'n10'], assertLive)
     ).resolves.toEqual(dto);
 
     expect(G.__px.inlineGetDetailsCommitmentMatches).toHaveBeenCalledWith(
@@ -984,7 +984,7 @@ describe('MidenClientProxy - getDetailsCommitmentMatches', () => {
       durationMs: 1
     }));
 
-    const pending = midenClientProxy.getDetailsCommitmentMatches(['0xcommitment', '0xother']);
+    const pending = midenClientProxy.getDetailsCommitmentMatches(['0xcommitment', '0xother'], ['n9', 'n10']);
     await flush();
     fireReady();
 
@@ -1004,7 +1004,7 @@ describe('MidenClientProxy - getDetailsCommitmentMatches', () => {
       durationMs: 1
     }));
 
-    const pending = midenClientProxy.getDetailsCommitmentMatches(['0xcommitment', '0xother']);
+    const pending = midenClientProxy.getDetailsCommitmentMatches(['0xcommitment', '0xother'], []);
     await flush();
     fireReady();
 
@@ -1018,7 +1018,7 @@ describe('MidenClientProxy - getDetailsCommitmentMatches', () => {
     const { midenClientProxy } = await loadProxy(false);
     const assertLive = jest.fn();
 
-    const matches = await midenClientProxy.getDetailsCommitmentMatches(['0xcommitment'], assertLive);
+    const matches = await midenClientProxy.getDetailsCommitmentMatches(['0xcommitment'], ['n9'], assertLive);
 
     expect(G.__px.inlineGetDetailsCommitmentMatches).toHaveBeenCalledWith(['0xcommitment'], ['n9'], assertLive);
     expect(matches).toEqual([{ notes: [{ __inlineDetail: true }], uncommitted: 1 }]);
@@ -1042,7 +1042,7 @@ describe('MidenClientProxy - getDetailsCommitmentMatches', () => {
       durationMs: 3
     }));
 
-    const p = midenClientProxy.getDetailsCommitmentMatches(['0xcommitment'], jest.fn());
+    const p = midenClientProxy.getDetailsCommitmentMatches(['0xcommitment'], ['0xreal'], jest.fn());
     await flush();
     fireReady();
     const matches = await p;
@@ -1063,7 +1063,7 @@ describe('MidenClientProxy - getDetailsCommitmentMatches', () => {
       durationMs: 1
     }));
 
-    const p = midenClientProxy.getDetailsCommitmentMatches(['0xcommitment']);
+    const p = midenClientProxy.getDetailsCommitmentMatches(['0xcommitment'], []);
     await flush();
     fireReady();
 

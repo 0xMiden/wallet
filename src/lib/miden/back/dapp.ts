@@ -929,9 +929,9 @@ function noteFilterTypeToQuery(filterType: NoteFilterTypes, noteIds?: string[]):
  * the property the user consented to. Intersecting also covers a caller that names
  * another account's note ids explicitly via `req.noteIds`.
  *
- * With the List filter, an id matching no note id is looked up as the details
- * commitment `importPrivateNote` returns (#1536). Matches use the same
- * consumability scope and are listed under their own note ids, once per note.
+ * With the List filter, every requested id is also looked up as the details
+ * commitment `importPrivateNote` returns (#1536), hashing only this account's
+ * consumable notes. Matches are listed under their own note ids, once per note.
  */
 async function getPrivateNoteDetails(
   accountId: string,
@@ -959,18 +959,25 @@ async function getPrivateNoteDetails(
           asked.add(key);
           return true;
         });
+        const ownNoteIds = new Set(
+          (
+            await midenClientProxy.getConsumableNotes(accountId, step =>
+              assertWasmHoldCurrent(hold, 'inside the consumable-notes read', step)
+            )
+          ).flatMap(note => (note.noteId ? [note.noteId] : []))
+        );
+        if (commitments.length > 0) assertWasmHoldCurrent(hold, 'after the consumable-notes read');
         const byCommitment =
           commitments.length === 0
             ? []
             : (
-                await midenClientProxy.getDetailsCommitmentMatches(commitments, () =>
+                await midenClientProxy.getDetailsCommitmentMatches(commitments, [...ownNoteIds], () =>
                   assertWasmHoldCurrent(
                     hold,
                     'inside the private-note details-commitment read, before the record reach-through'
                   )
                 )
               ).flatMap(match => match.notes);
-        if (commitments.length > 0) assertWasmHoldCurrent(hold, 'after the private-note details-commitment read');
         const candidates = [...allNotes, ...byCommitment];
         const seen = new Set<string>();
         const uniqueCandidates =
@@ -982,13 +989,6 @@ async function getPrivateNoteDetails(
                 return true;
               })
             : candidates;
-        const ownNoteIds = new Set(
-          (
-            await midenClientProxy.getConsumableNotes(accountId, step =>
-              assertWasmHoldCurrent(hold, 'inside the consumable-notes read', step)
-            )
-          ).flatMap(note => (note.noteId ? [note.noteId] : []))
-        );
         // `restriction` is the wallet's own consume guard, not note data the user agreed to share.
         return uniqueCandidates
           .filter(note => note.noteType === NoteType.Private && ownNoteIds.has(note.noteId))
@@ -3280,23 +3280,23 @@ async function resolveConsumeNote(
 /**
  * The note of this account whose details commitment is `commitment`: the id `importPrivateNote` returns for a
  * details-only note file or a bare Note, which no record has as its note id (#1389). Only a note this account can
- * consume counts, the same attribution {@link getPrivateNoteDetails} uses, so the id never resolves to another
- * account's note. An uncommitted match remains unresolved until a wallet sync supplies its metadata.
+ * consume is listed and hashed, the same attribution {@link getPrivateNoteDetails} uses, so the id never resolves
+ * to another account's note. An uncommitted match remains unresolved until a wallet sync supplies its metadata.
  */
 async function noteOfDetailsCommitment(
   commitment: string,
   accountId: string,
   hold: WasmLockHold
 ): Promise<DetailsCommitmentMatches['notes'][number] | undefined> {
-  const [{ notes } = { notes: [] }] = await midenClientProxy.getDetailsCommitmentMatches([commitment], () =>
+  const consumable = await midenClientProxy.getConsumableNotes(accountId, step =>
+    assertWasmHoldCurrent(hold, 'inside the details-commitment consumable-notes read', step)
+  );
+  assertWasmHoldCurrent(hold, 'after the details-commitment consumable-notes read');
+  const own = new Set(consumable.flatMap(note => (note.noteId ? [note.noteId] : [])));
+  const [{ notes } = { notes: [] }] = await midenClientProxy.getDetailsCommitmentMatches([commitment], [...own], () =>
     assertWasmHoldCurrent(hold, 'inside the details-commitment read, before the record reach-through')
   );
   if (notes.length > 0) {
-    assertWasmHoldCurrent(hold, 'after the details-commitment read');
-    const consumable = await midenClientProxy.getConsumableNotes(accountId, step =>
-      assertWasmHoldCurrent(hold, 'inside the details-commitment consumable-notes read', step)
-    );
-    const own = new Set(consumable.map(note => note.noteId));
     const [note, ...more] = notes.filter(candidate => own.has(candidate.noteId));
     if (more.length > 0) {
       throw new Error(`Note ${commitment} names more than one note this account can consume - refusing to preview it`);

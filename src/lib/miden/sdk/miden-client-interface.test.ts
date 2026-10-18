@@ -596,18 +596,20 @@ describe('MidenClientInterface', () => {
 
   // The id `importNoteBytes` returns for a details-only file is no note id, so the store cannot look it up (#1389).
   describe('getDetailsCommitmentMatches', () => {
-    // `details()` carries the commitment the stubbed hash answers for it; a record with no id has no metadata yet.
-    const record = (commitment: string, noteId?: string) => ({
-      id: () => (noteId ? { toString: () => noteId } : undefined),
-      nullifier: () => (noteId ? `nf-${noteId}` : undefined),
-      metadata: () => (noteId ? { noteType: () => 'type', sender: () => 'sender' } : undefined),
+    // Pending fixture records need an id so the candidate query can list them before they have metadata.
+    const record = (commitment: string, noteId: string, committed = true) => ({
+      id: () => ({ toString: () => noteId }),
+      nullifier: () => (committed ? `nf-${noteId}` : undefined),
+      metadata: () => (committed ? { noteType: () => 'type', sender: () => 'sender' } : undefined),
       state: () => 'state',
       details: jest.fn(() => ({ commitment, assets: () => ({ fungibleAssets: () => [] }) }))
     });
 
     const clientListing = async (records: ReturnType<typeof record>[]) => {
       const fakeMidenClient = buildFakeMidenClient();
-      fakeMidenClient.notes.list = jest.fn(async (): Promise<any[]> => records);
+      fakeMidenClient.notes.list = jest.fn(async (query?: { ids?: string[] }) =>
+        records.filter(note => query?.ids === undefined || query.ids.includes(note.id().toString()))
+      );
       jest.doMock('./note-details-commitment', () => ({
         ...jest.requireActual('./note-details-commitment'),
         noteDetailsCommitment: jest.fn((details: { commitment: string }) => details.commitment)
@@ -630,12 +632,12 @@ describe('MidenClientInterface', () => {
     it('answers the committed records with the commitment, in any spelling, and counts the uncommitted ones', async () => {
       const { fakeMidenClient, client } = await clientListing([
         record('abc1', '0xcommitted'),
-        record('abc1'),
+        record('abc1', '0xpending', false),
         record('other', '0xunrelated')
       ]);
       const assertLive = jest.fn();
 
-      const matches = await client.getDetailsCommitmentMatches(['0xABC1'], assertLive);
+      const matches = await client.getDetailsCommitmentMatches(['0xABC1'], ['0xcommitted', '0xpending'], assertLive);
 
       expect(fakeMidenClient.notes.list).toHaveBeenCalledWith({ ids: ['0xcommitted', '0xpending'] });
       expect(assertLive).toHaveBeenCalledTimes(1);
@@ -654,7 +656,11 @@ describe('MidenClientInterface', () => {
       ];
       const { fakeMidenClient, client } = await clientListing(records);
 
-      const matches = await client.getDetailsCommitmentMatches(['0xDEF2', '0xabc1', '0xnone'], jest.fn());
+      const matches = await client.getDetailsCommitmentMatches(
+        ['0xDEF2', '0xabc1', '0xnone'],
+        ['0xone', '0xtwo', '0xthree'],
+        jest.fn()
+      );
 
       expect(fakeMidenClient.notes.list).toHaveBeenCalledTimes(1);
       expect(matches.map(match => match.notes.map(note => note.noteId))).toEqual([['0xtwo'], ['0xone', '0xthree'], []]);
@@ -663,9 +669,12 @@ describe('MidenClientInterface', () => {
     });
 
     it('normalizes every commitment spelling and counts uncommitted matches per entry', async () => {
-      const { client } = await clientListing([record('def2', '0xtwo'), record('abc1')]);
+      const { client } = await clientListing([record('def2', '0xtwo'), record('abc1', '0xpending', false)]);
 
-      const matches = await client.getDetailsCommitmentMatches(['0xDEF2', 'def2', '0XDeF2', 'abc1']);
+      const matches = await client.getDetailsCommitmentMatches(
+        ['0xDEF2', 'def2', '0XDeF2', 'abc1'],
+        ['0xtwo', '0xpending']
+      );
 
       expect(matches.map(match => match.notes.map(note => note.noteId))).toEqual([['0xtwo'], ['0xtwo'], ['0xtwo'], []]);
       expect(matches.map(match => match.uncommitted)).toEqual([0, 0, 0, 1]);
@@ -676,11 +685,23 @@ describe('MidenClientInterface', () => {
       const { client } = await clientListing([listed]);
 
       await expect(
-        client.getDetailsCommitmentMatches(['0xabc1'], () => {
+        client.getDetailsCommitmentMatches(['0xabc1'], ['0xcommitted'], () => {
           throw new Error('evicted');
         })
       ).rejects.toThrow('evicted');
       expect(listed.details).not.toHaveBeenCalled();
+    });
+
+    it('lists and hashes nothing when no candidate ids are consumable', async () => {
+      const { fakeMidenClient, client } = await clientListing([record('abc1', '0xoutside')]);
+
+      await expect(client.getDetailsCommitmentMatches(['0xabc1', 'def2'], [])).resolves.toEqual([
+        { notes: [], uncommitted: 0 },
+        { notes: [], uncommitted: 0 }
+      ]);
+      expect(fakeMidenClient.notes.list).not.toHaveBeenCalled();
+      const { noteDetailsCommitment } = await import('./note-details-commitment');
+      expect(noteDetailsCommitment).not.toHaveBeenCalled();
     });
   });
 

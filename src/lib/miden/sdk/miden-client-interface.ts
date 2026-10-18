@@ -228,11 +228,11 @@ export type FungibleAssetDetails = {
   faucetId: string;
 };
 
-/** What {@link MidenClientInterface.getDetailsCommitmentMatches} finds for each details commitment. */
+/** What {@link MidenClientInterface.getDetailsCommitmentMatches} finds among the candidates for each commitment. */
 export type DetailsCommitmentMatches = {
-  /** The matching records that have metadata, and so a note id. */
+  /** The matching candidate records that reduce to note details. */
   notes: InputNoteDetails[];
-  /** The matching records with no metadata yet: imported from details alone, and not committed by a sync. */
+  /** The matching candidates that cannot yet be reduced: imported from details alone, not committed by a sync. */
   uncommitted: number;
 };
 
@@ -1479,13 +1479,15 @@ export class MidenClientInterface {
 
   /**
    * The records for each commitment, the id {@link importNoteBytes} returns for a details-only file (#1389).
-   * Results follow the requested order. The SDK exposes no lookup by it, so every record is listed and hashed once.
+   * Results follow the requested order. Only candidate note ids are listed and hashed, once per record.
+   * No records are listed when the candidate ids are empty.
    */
   async getDetailsCommitmentMatches(
     commitments: string[],
+    candidateIds: string[],
     assertLive: AssertLive = noAssertLive
   ): Promise<DetailsCommitmentMatches[]> {
-    const records = await this.client.notes.list();
+    const records = candidateIds.length === 0 ? [] : await this.client.notes.list({ ids: candidateIds });
     assertLive();
     const byCommitment = new Map<string, InputNoteRecord[]>();
     for (const record of records) {

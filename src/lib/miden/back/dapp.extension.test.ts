@@ -891,14 +891,11 @@ describe('requestPrivateNotes by an import id - extension Auto flow (#1536)', ()
     expect(extensionBrowser.windows.create).not.toHaveBeenCalled();
   });
 
-  it.each([
-    'inside the private-note details-commitment read, before the record reach-through',
-    'after the private-note details-commitment read'
-  ])('propagates an evicted hold %s without a later consumability read', async where => {
+  it('propagates an eviction inside the commitment read after reading consumables', async () => {
     _g.__dappExtTest.midenClient.getDetailsCommitmentMatches = jest.fn(
-      async (_commitments: string[], assertLive: () => void) => {
+      async (_commitments: string[], _candidateIds: string[], assertLive: () => void) => {
         revokeWasmHold();
-        if (where.startsWith('inside')) assertLive();
+        assertLive();
         return [{ notes: [], uncommitted: 0 }];
       }
     );
@@ -906,7 +903,9 @@ describe('requestPrivateNotes by an import id - extension Auto flow (#1536)', ()
     const pending = requestList(NoteFilterTypes.List);
     await expect(pending).rejects.toBeInstanceOf(WasmClientPoisonedError);
     await expect(pending).rejects.toMatchObject({
-      cause: expect.objectContaining({ message: `operation abandoned ${where}` })
+      cause: expect.objectContaining({
+        message: 'operation abandoned inside the private-note details-commitment read, before the record reach-through'
+      })
     });
     await expect(pending).rejects.not.toThrow(MidenDAppErrorType.InvalidParams);
     expect(_g.__dappExtTest.midenClient.getConsumableNoteDtos).toHaveBeenCalledWith(
