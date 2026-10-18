@@ -34,6 +34,23 @@ class MemoryStorage implements KeyValueStorage {
   }
 }
 
+/** A store that throws for the calls in `failing`, as a full or unavailable localStorage does. */
+class FailingStorage extends MemoryStorage {
+  readonly failing = new Set<string>();
+  getItem(key: string): string | null {
+    if (this.failing.has(`get ${key}`)) throw new Error('storage unavailable');
+    return super.getItem(key);
+  }
+  setItem(key: string, value: string): void {
+    if (this.failing.has(`set ${key}`)) throw new Error('QuotaExceededError');
+    super.setItem(key, value);
+  }
+  removeItem(key: string): void {
+    if (this.failing.has(`remove ${key}`)) throw new Error('storage unavailable');
+    super.removeItem(key);
+  }
+}
+
 /** Bread's side of the protocol, answering every request with `answer`. */
 function fakeBread(answer: (request: DAppMessage) => ConnectAnswer | RequestAnswer) {
   const sessions = new Map<string, WalletSession>();
@@ -60,8 +77,11 @@ function fakeBread(answer: (request: DAppMessage) => ConnectAnswer | RequestAnsw
   };
 }
 
-function harness({ installed = true, launch }: { installed?: boolean; launch?: string } = {}) {
-  const storage = new MemoryStorage();
+function harness({
+  installed = true,
+  launch,
+  storage = new MemoryStorage()
+}: { installed?: boolean; launch?: string; storage?: MemoryStorage } = {}) {
   let listener: ((url: string) => void) | null = null;
   const links: LinkSource = {
     launchUrl: jest.fn(async () => launch),
@@ -95,6 +115,16 @@ function harness({ installed = true, launch }: { installed?: boolean; launch?: s
 
 const flush = () => new Promise(resolve => setTimeout(resolve, 0));
 
+/** Whether `promise` has settled once pending work has run. */
+const settled = (promise: Promise<unknown>) =>
+  Promise.race([
+    promise.then(
+      () => 'resolved',
+      () => 'rejected'
+    ),
+    flush().then(() => 'pending')
+  ]);
+
 const approve = (request: DAppMessage): ConnectAnswer | RequestAnswer => {
   if (request.type === 'PERMISSION_REQUEST') return { response: PERMISSION_RESPONSE };
   if (request.type === 'SEND_TRANSACTION_REQUEST') {
@@ -106,8 +136,8 @@ const approve = (request: DAppMessage): ConnectAnswer | RequestAnswer => {
   return { response: { type: 'SIGN_RESPONSE', signature: 'c2ln' } };
 };
 
-async function connected(bread = fakeBread(approve)) {
-  const h = harness();
+async function connected(bread = fakeBread(approve), storage = new MemoryStorage()) {
+  const h = harness({ storage });
   const answer = h.transport.connect(PERMISSION_REQUEST);
   await flush();
   h.deliver(bread.open(h.opened[0]!));
@@ -260,6 +290,76 @@ describe('AppSwitchTransport', () => {
     if (connect?.kind !== 'envelope' || connect.envelope.type !== 'connect') throw new Error('no connect');
     h.deliver(errorLink(CALLBACK, { code: 'UNSUPPORTED_VERSION', message: 'old' }, connect.envelope.id));
     await expect(connecting).rejects.toMatchObject({ code: 'UNSUPPORTED_VERSION' });
+  });
+
+  describe('when the store fails while it takes an answer', () => {
+    // The platform reports an exception from its link listener and carries on, so a throw is no answer.
+    const deliver = (h: ReturnType<typeof harness>, url: string) => {
+      try {
+        h.deliver(url);
+      } catch {
+        // dropped, as the listener dispatch drops it
+      }
+    };
+
+    it('ends a connect whose session cannot be kept with INTERNAL_ERROR at once', async () => {
+      const storage = new FailingStorage();
+      storage.failing.add('set bread-connect:session');
+      const h = harness({ storage });
+      const answer = h.transport.connect(PERMISSION_REQUEST);
+      await flush();
+      deliver(h, fakeBread(approve).open(h.opened[0]!));
+      expect(await settled(answer)).toBe('rejected');
+      await expect(answer).rejects.toMatchObject({ code: 'INTERNAL_ERROR' });
+    });
+
+    it('still answers a transaction whose outcome cannot be kept', async () => {
+      const storage = new FailingStorage();
+      const h = await connected(fakeBread(approve), storage);
+      storage.failing.add('set bread-connect:outcomes');
+      const answer = h.transport.request({ type: 'SEND_TRANSACTION_REQUEST', transaction: {} });
+      await flush();
+      deliver(h, h.bread.open(h.opened[1]!));
+      expect(await settled(answer)).toBe('resolved');
+      await expect(answer).resolves.toEqual({ type: 'SEND_TRANSACTION_RESPONSE', transactionId: 'tx-1' });
+      h.transport.stop();
+    });
+
+    it('ends a request with INTERNAL_ERROR when its session cannot be read as the answer arrives', async () => {
+      const storage = new FailingStorage();
+      const h = await connected(fakeBread(approve), storage);
+      const answer = h.transport.request({ type: 'SIGN_REQUEST' });
+      await flush();
+      storage.failing.add('get bread-connect:session');
+      deliver(h, h.bread.open(h.opened[1]!));
+      expect(await settled(answer)).toBe('rejected');
+      await expect(answer).rejects.toMatchObject({ code: 'INTERNAL_ERROR' });
+      h.transport.stop();
+    });
+
+    it('settles an answer when the pending record cannot be cleared', async () => {
+      const storage = new FailingStorage();
+      const h = await connected(fakeBread(approve), storage);
+      const answer = h.transport.request({ type: 'SIGN_REQUEST' });
+      await flush();
+      storage.failing.add('remove bread-connect:pending');
+      deliver(h, h.bread.open(h.opened[1]!));
+      expect(await settled(answer)).toBe('resolved');
+      h.transport.stop();
+    });
+
+    it("settles Bread's unsealed SESSION_NOT_FOUND when the session cannot be forgotten", async () => {
+      const storage = new FailingStorage();
+      const h = await connected(fakeBread(approve), storage);
+      h.bread.sessions.clear();
+      const answer = h.transport.request({ type: 'SIGN_REQUEST' });
+      await flush();
+      storage.failing.add('remove bread-connect:session');
+      deliver(h, h.bread.open(h.opened[1]!));
+      expect(await settled(answer)).toBe('rejected');
+      await expect(answer).rejects.toMatchObject({ code: 'SESSION_NOT_FOUND' });
+      h.transport.stop();
+    });
   });
 
   it('completes a connection and records an outcome from the link that relaunches the app', async () => {

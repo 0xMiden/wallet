@@ -142,14 +142,20 @@ class BreadConnect(
                     }
                     when (answer) {
                         is ConnectAnswer.Response -> {
-                            storage.write(SESSION_KEY, encodeSession(StoredSession(session, pending.request, answer.response)))
-                            settle(null, Result.success(answer.response))
+                            val kept = runCatching {
+                                storage.write(SESSION_KEY, encodeSession(StoredSession(session, pending.request, answer.response)))
+                            }
+                            settle(null, kept.fold({ Result.success(answer.response) }, { storageFailure("kept", it) }))
                         }
                         is ConnectAnswer.Error -> settle(null, failure(answer.error))
                     }
                 }
                 envelope is Envelope.Response && pending is Pending.Request && envelope.id == pending.id -> {
-                    val stored = session?.takeIf { it.session.session == pending.session } ?: return true
+                    val read = runCatching { session }.getOrElse {
+                        settle(null, storageFailure("read", it))
+                        return true
+                    }
+                    val stored = read?.takeIf { it.session.session == pending.session } ?: return true
                     val answer = try {
                         BreadConnectProtocol.readResponse(envelope, stored.session)
                     } catch (e: ProtocolException) {
@@ -159,7 +165,8 @@ class BreadConnect(
                         is RequestAnswer.Response -> {
                             val transactionId = answer.response["transactionId"].string
                             if (answer.transaction != null && transactionId != null) {
-                                recordOutcome(transactionId, answer.transaction)
+                                // The caller still gets the answer and its transaction id; only transactionOutcome goes without it.
+                                runCatching { recordOutcome(transactionId, answer.transaction) }
                             }
                             settle(null, Result.success(answer.response))
                         }
@@ -167,7 +174,8 @@ class BreadConnect(
                     }
                 }
                 envelope is Envelope.Error && envelope.id != null && envelope.id == pending.id -> {
-                    if (envelope.error.code == ProtocolErrorCode.SESSION_NOT_FOUND) forgetSession()
+                    // Kept, the dead session draws the same answer from Bread on the app's next request.
+                    if (envelope.error.code == ProtocolErrorCode.SESSION_NOT_FOUND) runCatching { forgetSession() }
                     settle(null, failure(envelope.error))
                 }
             }
@@ -208,7 +216,8 @@ class BreadConnect(
     private fun settle(only: Waiter?, result: Result<JsonObject>) {
         synchronized(lock) {
             if (only != null && waiter !== only) return
-            storage.write(PENDING_KEY, null)
+            // Left behind, the record only lets a late answer to its request land after a relaunch.
+            runCatching { storage.write(PENDING_KEY, null) }
             val current = waiter ?: return
             waiter = null
             result.fold({ current.answer.complete(it) }, { current.answer.completeExceptionally(it) })
@@ -234,6 +243,9 @@ class BreadConnect(
     }
 
     private fun failure(error: ProtocolError) = failure(BreadConnectException.Code.Bread(error.code), error.message)
+
+    private fun storageFailure(action: String, error: Throwable) =
+        failure(ProtocolError(ProtocolErrorCode.INTERNAL_ERROR, "The session could not be $action: $error"))
 
     private fun failure(code: BreadConnectException.Code, message: String): Result<JsonObject> =
         Result.failure(BreadConnectException(code, message))

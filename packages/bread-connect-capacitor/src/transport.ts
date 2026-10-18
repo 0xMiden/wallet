@@ -163,14 +163,25 @@ export class AppSwitchTransport {
           request: pending.request,
           permission: finished.answer.response
         };
-        writeJson(this.options.storage, SESSION_KEY, session);
+        try {
+          writeJson(this.options.storage, SESSION_KEY, session);
+        } catch (error) {
+          this.settle(new BreadConnectError('INTERNAL_ERROR', `The session could not be kept: ${String(error)}`));
+          return;
+        }
       }
       this.settle(finished.answer);
       return;
     }
 
     if (envelope.type === 'response' && pending.kind === 'request' && envelope.id === pending.id) {
-      const session = this.session();
+      let session: StoredSession | null;
+      try {
+        session = this.session();
+      } catch (error) {
+        this.settle(new BreadConnectError('INTERNAL_ERROR', `The session could not be read: ${String(error)}`));
+        return;
+      }
       if (!session || session.session !== pending.session) return;
       let answer: RequestAnswer;
       try {
@@ -180,14 +191,24 @@ export class AppSwitchTransport {
       }
       const transactionId = 'response' in answer ? answer.response.transactionId : undefined;
       if ('response' in answer && answer.transaction && typeof transactionId === 'string') {
-        this.recordOutcome(transactionId, answer.transaction);
+        try {
+          this.recordOutcome(transactionId, answer.transaction);
+        } catch {
+          // The caller still gets the answer and its transaction id; only waitForTransaction goes without the outcome.
+        }
       }
       this.settle(answer);
       return;
     }
 
     if (envelope.type === 'error' && envelope.id !== undefined && envelope.id === pendingId(pending)) {
-      if (envelope.error.code === 'SESSION_NOT_FOUND') this.forgetSession();
+      if (envelope.error.code === 'SESSION_NOT_FOUND') {
+        try {
+          this.forgetSession();
+        } catch {
+          // Kept, the dead session draws the same answer from Bread on the app's next request.
+        }
+      }
       this.settle({ error: envelope.error });
     }
   }
@@ -220,7 +241,11 @@ export class AppSwitchTransport {
 
   /** Ends the waiting request, if any, and forgets it. */
   private settle(outcome: ConnectAnswer | RequestAnswer | BreadConnectError): void {
-    this.options.storage.removeItem(PENDING_KEY);
+    try {
+      this.options.storage.removeItem(PENDING_KEY);
+    } catch {
+      // Left behind, the record only lets a late answer to its request land after a relaunch.
+    }
     const waiter = this.waiter;
     if (!waiter) return;
     this.waiter = null;

@@ -279,6 +279,107 @@ class ClientTest {
         assertEquals(BreadConnectException.Code.Cancelled, (connecting.await().exceptionOrNull() as BreadConnectException).code)
     }
 
+    /** A store that throws for one key, as a full disk or an unavailable keystore does. */
+    private class FailingStorage : BreadConnectStorage {
+        val items = mutableMapOf<String, String>()
+        var failingRead: String? = null
+        var failingWrite: String? = null
+        var failingRemoval: String? = null
+
+        override fun read(key: String): String? {
+            if (key == failingRead) throw IllegalStateException("storage unavailable")
+            return items[key]
+        }
+
+        override fun write(key: String, value: String?) {
+            if (key == (if (value == null) failingRemoval else failingWrite)) throw IllegalStateException("keystore unavailable")
+            if (value == null) items.remove(key) else items[key] = value
+        }
+    }
+
+    private suspend fun connectedWith(failing: FailingStorage): BreadConnect {
+        val client = BreadConnect(callback, failing, opener) { now }
+        client.answering { bread.answerConnect(it, json("""{"response":$permission}""")) }
+        client.connect("Where Legends Grow")
+        opener.onOpen = null
+        return client
+    }
+
+    @Test
+    fun aSessionThatCannotBeKeptEndsTheConnectAtOnce() = runTest {
+        val failing = FailingStorage().apply { failingWrite = BreadConnect.SESSION_KEY }
+        val client = BreadConnect(callback, failing, opener) { now }
+        val connecting = async { runCatching { client.connect("Where Legends Grow") } }
+        runCurrent()
+
+        assertTrue(client.handle(bread.answerConnect(opener.opened[0], json("""{"response":$permission}"""))))
+
+        val error = connecting.await().exceptionOrNull() as BreadConnectException
+        assertEquals(BreadConnectException.Code.Bread(ProtocolErrorCode.INTERNAL_ERROR), error.code)
+        assertNull(client.session)
+    }
+
+    @Test
+    fun aSessionThatCannotBeReadAsTheAnswerArrivesEndsTheRequestAtOnce() = runTest {
+        val failing = FailingStorage()
+        val client = connectedWith(failing)
+        val signing = async { runCatching { client.request(json("""{"type":"SIGN_REQUEST"}""")) } }
+        runCurrent()
+        failing.failingRead = BreadConnect.SESSION_KEY
+
+        val answer = bread.answerRequest(opener.opened[1], json("""{"response":{"type":"SIGN_RESPONSE","signature":"c2ln"}}"""))
+        assertTrue(client.handle(answer))
+
+        val error = signing.await().exceptionOrNull() as BreadConnectException
+        assertEquals(BreadConnectException.Code.Bread(ProtocolErrorCode.INTERNAL_ERROR), error.code)
+    }
+
+    @Test
+    fun anOutcomeThatCannotBeKeptStillAnswersTheRequest() = runTest {
+        val failing = FailingStorage().apply { failingWrite = BreadConnect.OUTCOMES_KEY }
+        val client = connectedWith(failing)
+        val sending = async { client.request(json("""{"type":"SEND_TRANSACTION_REQUEST"}""")) }
+        runCurrent()
+
+        val answer = bread.answerRequest(
+            opener.opened[1],
+            json("""{"response":{"type":"SEND_TRANSACTION_RESPONSE","transactionId":"tx-1"},"transaction":{"output":{"txHash":"0xabc"}}}"""),
+        )
+        assertTrue(client.handle(answer))
+
+        assertEquals("tx-1", sending.await()["transactionId"].string)
+        assertNull(client.transactionOutcome("tx-1"))
+    }
+
+    @Test
+    fun aPendingRecordThatCannotBeClearedStillSettlesTheAnswer() = runTest {
+        val failing = FailingStorage()
+        val client = connectedWith(failing)
+        val signing = async { client.request(json("""{"type":"SIGN_REQUEST"}""")) }
+        runCurrent()
+        failing.failingRemoval = BreadConnect.PENDING_KEY
+
+        val answer = bread.answerRequest(opener.opened[1], json("""{"response":{"type":"SIGN_RESPONSE","signature":"c2ln"}}"""))
+        assertTrue(client.handle(answer))
+
+        assertEquals("SIGN_RESPONSE", signing.await()["type"].string)
+    }
+
+    @Test
+    fun aSessionThatCannotBeForgottenStillSettlesBreadsSessionNotFound() = runTest {
+        val failing = FailingStorage()
+        val client = connectedWith(failing)
+        val signing = async { runCatching { client.request(json("""{"type":"SIGN_REQUEST"}""")) } }
+        runCurrent()
+        failing.failingRemoval = BreadConnect.SESSION_KEY
+        val (request) = bread.openRequest(opener.opened[1])
+
+        assertTrue(client.handle(bread.error(request.id, ProtocolErrorCode.SESSION_NOT_FOUND, "gone")))
+
+        val error = signing.await().exceptionOrNull() as BreadConnectException
+        assertEquals(BreadConnectException.Code.Bread(ProtocolErrorCode.SESSION_NOT_FOUND), error.code)
+    }
+
     @Test
     fun onlyLinksUnderTheCallbackAreBreads() {
         val client = client()
