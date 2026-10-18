@@ -2,6 +2,7 @@ package com.miden.breadconnect
 
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
@@ -180,6 +181,24 @@ class ClientTest {
         val connecting = async { runCatching { client.connect("Where Legends Grow") } }
         runCurrent()
         assertNotNull(storage.items[BreadConnect.PENDING_KEY])
+
+        advanceTimeBy(BreadConnect.REQUEST_MAX_AGE_MS + 1)
+
+        assertEquals(BreadConnectException.Code.Timeout, (connecting.await().exceptionOrNull() as BreadConnectException).code)
+        assertNull(storage.items[BreadConnect.PENDING_KEY])
+    }
+
+    @Test
+    fun anOpenerThatNeverReturnsStillEndsTheRequestInTenMinutes() = runTest {
+        val client = BreadConnect(
+            callback,
+            storage,
+            object : BreadOpener {
+                override suspend fun open(link: String): Boolean = awaitCancellation()
+            },
+        ) { now }
+        val connecting = async { runCatching { client.connect("Where Legends Grow") } }
+        runCurrent()
 
         advanceTimeBy(BreadConnect.REQUEST_MAX_AGE_MS + 1)
 
