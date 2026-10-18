@@ -18,7 +18,8 @@ import { walletAccountIdToSdk } from './helpers';
 
 // Per node read. The cancel-request build makes two of them inside its offscreen op, whose deadline allows for both.
 const PSWAP_ORDER_NOTE_READ_TIMEOUT_MS = 5_000;
-// Fill rounds one lineage read follows from its validated start; a spent tip at the bound is a resume checkpoint.
+// Fill rounds from a read's validated start; checkpoint the spent tip at the bound or last spent tip before a jump
+// past it, which is the start only when the read made no progress.
 const MAX_LINEAGE_ROUNDS = 16;
 // Notes under one tag in one spending block whose bodies the read fetches; a busier block is left unresolved.
 const MAX_SUCCESSOR_CANDIDATES = 100;
@@ -288,6 +289,8 @@ async function paybackFills(
  * Anything the walk cannot tie (a note under the tag with no body, a note claiming this order that is not its lineage,
  * two notes of one round, a jump with a missing, private or duplicated payback) rejects, leaving the order to the next
  * read.
+ * A jump past the read's budget returns `unresolved`; the caller checkpoints the spent tip at the bound or the last
+ * spent tip before such a jump, which is the read's start only when the read made no progress.
  */
 async function successorOf(
   key: string,
@@ -349,7 +352,8 @@ async function successorOf(
  * the serial round over the order note's), with what it still offers and asks for; `finished` only when a spend left
  * no note of the order at all (a full fill or a reclaim); `absent` when the order note is not this account's PSWAP
  * note of that order. A validated start resumes the walk there, following at most MAX_LINEAGE_ROUNDS more rounds;
- * `unresolved` carries the last spent tip as a checkpoint. A jump beyond that bound leaves the checkpoint unchanged.
+ * `unresolved` carries the spent tip at the bound or the last spent tip before a jump past it as a checkpoint,
+ * which is the read's start only when the read made no progress.
  * A failed or ambiguous read rejects, and the order stays open until a later read settles it.
  */
 export async function readPswapOrderLineage(
