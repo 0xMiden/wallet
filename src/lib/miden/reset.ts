@@ -1,3 +1,4 @@
+import { OPEN_LINK_SESSION_KEYS } from 'lib/dapp-browser/open-link-keys';
 import { EXPLORE_CONFIG_FLOOR_KEY } from 'lib/explore-config/floor-key';
 import { rereadStorageCache } from 'lib/miden/front/storage';
 import * as Repo from 'lib/miden/repo';
@@ -81,6 +82,12 @@ function removeLocalStorageExcept(keep: readonly string[]): void {
   }
 }
 
+function removeSessionStorageExcept(keep: readonly string[]): void {
+  for (const key of Object.keys(sessionStorage)) {
+    if (!keep.includes(key)) sessionStorage.removeItem(key);
+  }
+}
+
 /**
  * Soft storage reset called during wallet creation / spawn.
  *
@@ -160,11 +167,12 @@ export async function resetStorageDestructive({
 
 // The recovery page's own wipe. On desktop localStorage is also the key-value store, so it keeps
 // what a wallet-setup reset keeps, and re-reads the cache as every other wipe does; on the extension
-// and mobile those names are not in it, and the re-read finds nothing changed.
+// and mobile those names are not in it, and the re-read finds nothing changed. sessionStorage keeps
+// open-link's records, because the platform keeps reporting the launch link for the rest of the app session.
 export async function clearClientStorage(): Promise<void> {
   try {
     removeLocalStorageExcept(PRESERVED_STORAGE_KEYS);
-    sessionStorage.clear();
+    removeSessionStorageExcept(OPEN_LINK_SESSION_KEYS);
   } finally {
     await rereadStorageCache();
     // localStorage was cleared in this document, which gets no storage event for it (activity-read caches it).

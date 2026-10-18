@@ -1,5 +1,7 @@
 import { App } from '@capacitor/app';
 
+import { OPEN_LINK_LAUNCH_KEY, OPEN_LINK_PENDING_KEY, OPEN_LINK_TAKEN_KEY } from './open-link-keys';
+
 /**
  * Host of Bread's open links, `https://bread.miden.xyz/open#url=<page>`. The iOS associated-domains
  * entitlement, the Android intent filter and the association files 0xMiden/wallet-link serves all name it too.
@@ -43,11 +45,6 @@ export function parseOpenLink(link: string): string | null {
   }
 }
 
-// A reload starts this module afresh; sessionStorage keeps the held link, the links already taken and the last launch
-// link seen.
-const PENDING_KEY = 'open-link:pending';
-const TAKEN_KEY = 'open-link:taken';
-const LAUNCH_KEY = 'open-link:launch';
 const TAKEN_LIMIT = 20;
 
 function stored(key: string): string | null {
@@ -69,7 +66,7 @@ function store(key: string, value: string | null): void {
 
 function takenLinks(): unknown[] {
   try {
-    const taken: unknown = JSON.parse(stored(TAKEN_KEY) ?? '[]');
+    const taken: unknown = JSON.parse(stored(OPEN_LINK_TAKEN_KEY) ?? '[]');
     return Array.isArray(taken) ? taken : [];
   } catch {
     return [];
@@ -91,7 +88,7 @@ export function acceptOpenLink(link: string, now = Date.now()): void {
   if (lastAccepted?.link === link && now - lastAccepted.at < DUPLICATE_WINDOW_MS) return;
   lastAccepted = { link, at: now };
   pending = { link, page };
-  store(PENDING_KEY, link);
+  store(OPEN_LINK_PENDING_KEY, link);
   notify();
 }
 
@@ -111,8 +108,11 @@ export function takePendingOpenLink(): string | null {
   if (!pending) return null;
   const { link, page } = pending;
   pending = null;
-  store(PENDING_KEY, null);
-  store(TAKEN_KEY, JSON.stringify([...takenLinks().filter(taken => taken !== link), link].slice(-TAKEN_LIMIT)));
+  store(OPEN_LINK_PENDING_KEY, null);
+  store(
+    OPEN_LINK_TAKEN_KEY,
+    JSON.stringify([...takenLinks().filter(taken => taken !== link), link].slice(-TAKEN_LIMIT))
+  );
   notify();
   return page;
 }
@@ -127,7 +127,7 @@ let launchSuperseded = false;
 export function startOpenLinkCapture(): void {
   if (capturing) return;
   capturing = true;
-  const held = stored(PENDING_KEY);
+  const held = stored(OPEN_LINK_PENDING_KEY);
   if (held && parseOpenLink(held)) {
     launchSuperseded = true;
     acceptOpenLink(held);
@@ -141,8 +141,8 @@ export function startOpenLinkCapture(): void {
   App.getLaunchUrl()
     .then(launch => {
       if (!launch?.url) return;
-      const seen = stored(LAUNCH_KEY) === launch.url;
-      store(LAUNCH_KEY, launch.url);
+      const seen = stored(OPEN_LINK_LAUNCH_KEY) === launch.url;
+      store(OPEN_LINK_LAUNCH_KEY, launch.url);
       if (!seen && !launchSuperseded && !takenLinks().includes(launch.url)) acceptOpenLink(launch.url);
     })
     .catch(error => {
