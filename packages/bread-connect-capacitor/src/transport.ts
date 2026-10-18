@@ -5,6 +5,7 @@ import {
   ConnectAnswer,
   DAppMessage,
   finishConnect,
+  isErrorCode,
   isRecord,
   ProtocolError,
   readLink,
@@ -315,5 +316,7 @@ function isPending(value: unknown): value is Pending {
 }
 
 function isOutcome(value: unknown): value is TransactionOutcome {
-  return isRecord(value) && ('output' in value || isRecord(value.error));
+  if (!isRecord(value)) return false;
+  if ('output' in value) return value.error === undefined;
+  return isRecord(value.error) && isErrorCode(value.error.code) && typeof value.error.message === 'string';
 }

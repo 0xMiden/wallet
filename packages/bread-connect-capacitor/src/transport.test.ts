@@ -467,6 +467,10 @@ describe('AppSwitchTransport', () => {
     expect(h.transport.transactionOutcome('tx')).toBeUndefined();
     h.storage.setItem('bread-connect:outcomes', JSON.stringify([7, { transactionId: 'tx', outcome: 1 }]));
     expect(h.transport.transactionOutcome('tx')).toBeUndefined();
+    for (const outcome of [{ error: {} }, { output: {}, error: { code: 'TRANSACTION_FAILED', message: 'x' } }]) {
+      h.storage.setItem('bread-connect:outcomes', JSON.stringify([{ transactionId: 'tx', outcome }]));
+      expect(h.transport.transactionOutcome('tx')).toBeUndefined();
+    }
     const failed = { error: { code: 'TRANSACTION_FAILED', message: 'rejected' } };
     h.storage.setItem('bread-connect:outcomes', JSON.stringify([{ transactionId: 'tx', outcome: failed }]));
     expect(h.transport.transactionOutcome('tx')).toEqual(failed);
