@@ -2578,30 +2578,15 @@
     "@miden-sdk/miden-wallet-adapter-base" "0.17.0"
     "@miden-sdk/miden-wallet-adapter-miden" "0.17.0"
 
-"@miden-sdk/node-darwin-arm64@0.17.3":
-  version "0.17.3"
-  resolved "https://registry.yarnpkg.com/@miden-sdk/node-darwin-arm64/-/node-darwin-arm64-0.17.3.tgz#676d9ff83a2ccc3dbcd1fb97be0dc833af9a415e"
-  integrity sha512-9jvvccYqyUUSr0svSsIf/ZVd9ZzOGT9dmw/8pM2/n0IB+EzIZTFPmHTZH4Pivu7hjBy0W7UFLCESZdYg0RVOdQ==
-
 "@miden-sdk/node-darwin-arm64@0.17.4":
   version "0.17.4"
   resolved "https://registry.yarnpkg.com/@miden-sdk/node-darwin-arm64/-/node-darwin-arm64-0.17.4.tgz#40b021d93709514bf5d80c17d6001261f5aa605d"
   integrity sha512-vxiZnREW7so55hBlKP0+rfBGgiyZo+QbmVCubVHtC4bG+XPBuQoVOBi+uPHwcywlnw5xP3SA4zORKo1Ot9II5Q==
 
-"@miden-sdk/node-darwin-x64@0.17.3":
-  version "0.17.3"
-  resolved "https://registry.yarnpkg.com/@miden-sdk/node-darwin-x64/-/node-darwin-x64-0.17.3.tgz#2e88587e4c45eac3c85b3230f35dcb4828d94b03"
-  integrity sha512-Rk0hlwEZFISc4BOTL0Unb+bFW++sb0ZUzXJKiVYvva6rKCga4lcgmTKtXhIPWnWyqAsykp7ljFq+ys2BFAeViw==
-
 "@miden-sdk/node-darwin-x64@0.17.4":
   version "0.17.4"
   resolved "https://registry.yarnpkg.com/@miden-sdk/node-darwin-x64/-/node-darwin-x64-0.17.4.tgz#1c5c1894d5b11da08ce18a817b1d058d5fe2214a"
   integrity sha512-QZVTDLISt1sISdXRUcX5KlDHA5apPnltPmqsl824Q471J0KCUuiV7Ncq0R+7CZrYxZrqvVDKDaFriaY/oERkAA==
-
-"@miden-sdk/node-linux-x64-gnu@0.17.3":
-  version "0.17.3"
-  resolved "https://registry.yarnpkg.com/@miden-sdk/node-linux-x64-gnu/-/node-linux-x64-gnu-0.17.3.tgz#79c063f00535a9957ecc1f9fc0128d65b2a3ec8c"
-  integrity sha512-S4R49wHo8nyBC2dfBhZYPpFSzqbDneU0N0fzd1OuL1D7VRpc4hL6dXs5hiaifVZHJL8SNH9mksCwr6eUeYdjTA==
 
 "@miden-sdk/node-linux-x64-gnu@0.17.4":
   version "0.17.4"
