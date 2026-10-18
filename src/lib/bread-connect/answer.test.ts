@@ -220,7 +220,8 @@ describe('a request link', () => {
     ['failed', { status: ITransactionStatus.Failed }, 'TRANSACTION_FAILED'],
     ['still queued', { status: ITransactionStatus.Queued }, 'TRANSACTION_TIMEOUT'],
     ['still generating', { status: ITransactionStatus.GeneratingTransaction }, 'TRANSACTION_TIMEOUT'],
-    ['waiting for the node', { status: ITransactionStatus.Unconfirmed }, 'TRANSACTION_TIMEOUT']
+    ['waiting for the node', { status: ITransactionStatus.Unconfirmed }, 'TRANSACTION_TIMEOUT'],
+    ['landed without a result', { status: ITransactionStatus.Completed }, 'TRANSACTION_TIMEOUT']
   ])('tells a transaction that %s from the wait', async (_name, row, code) => {
     const session = await connected();
     const { link } = sendRequest(session, SEND_REQUEST, NOW);

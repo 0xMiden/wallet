@@ -20,7 +20,7 @@ import {
 } from '@miden-sdk/bread-connect';
 import { MidenDAppErrorType, MidenDAppMessageType, type MidenDAppRequest } from 'lib/adapter/types';
 import { processDApp } from 'lib/miden/back/actions';
-import { isLiveTransaction, ITransactionStatus } from 'lib/miden/db/types';
+import { ITransactionStatus } from 'lib/miden/db/types';
 import { getTransactionById } from 'lib/miden/transaction/get';
 
 import { dropSession, findSession, hasAnswered, keepSession, recordAnswered } from './sessions';
@@ -172,8 +172,9 @@ async function outcome(origin: string, txId: string): Promise<TransactionOutcome
     if (!output) return { error: INTERNAL };
     if (!('errorMessage' in output)) return { output };
     const row = await getTransactionById(txId).catch(() => undefined);
-    const running = row !== undefined && (isLiveTransaction(row) || row.status === ITransactionStatus.Unconfirmed);
-    return { error: problem(running ? 'TRANSACTION_TIMEOUT' : 'TRANSACTION_FAILED', output.errorMessage) };
+    // A Completed row ends the wait in an error when it landed without a result Bread can return: not a failure.
+    const failed = row === undefined || row.status === ITransactionStatus.Failed;
+    return { error: problem(failed ? 'TRANSACTION_FAILED' : 'TRANSACTION_TIMEOUT', output.errorMessage) };
   } catch (error) {
     return { error: refusal(error) };
   }
