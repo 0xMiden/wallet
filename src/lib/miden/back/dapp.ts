@@ -99,6 +99,7 @@ import {
   MidenMessageType,
   MidenRequest
 } from 'lib/miden/types';
+import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { getNativeAssetId, getVerificationBaseFee } from 'lib/miden-chain/native-asset';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
@@ -2118,10 +2119,22 @@ const generatePromisifyTransaction = async (
     return;
   }
 
+  // Reject malformed bytes before any unlock prompt; WASM startup failures keep their original error.
+  await ensureSdkWasmReady();
+  let decodedRequest: TransactionRequest;
+  try {
+    decodedRequest = TransactionRequest.deserialize(b64ToU8(customTransaction.transactionRequest));
+  } catch (e) {
+    reject(new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`));
+    return;
+  }
+
   const prepare = async () => {
     let declaredMessages: string[];
     try {
-      declaredMessages = await withUnlocked(async () => formatCustomTransactionPreview(customTransaction));
+      declaredMessages = await withUnlocked(async () =>
+        formatCustomTransactionPreview(customTransaction, decodedRequest)
+      );
     } catch (e) {
       if (isWalletLockedError(e)) throw e;
       throw new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`);
@@ -3483,12 +3496,10 @@ async function formatSignPreview(req: MidenDAppSignRequest): Promise<string[]> {
  * labelled as such: it is not derived from the request bytes and nothing
  * downstream checks it.
  */
-async function formatCustomTransactionPreview(payload: MidenCustomTransaction): Promise<string[]> {
-  // Malformed bytes can never execute. Reject them before opening any approval
-  // surface instead of asking the user to approve a transaction that is known
-  // to fail. Failures after this point only mean that a valid request could not
-  // be summarized, for which the existing opaque-request warning still applies.
-  const request = TransactionRequest.deserialize(b64ToU8(payload.transactionRequest));
+async function formatCustomTransactionPreview(
+  payload: MidenCustomTransaction,
+  request: TransactionRequest
+): Promise<string[]> {
   const messages = [
     'This dApp is requesting a custom transaction,',
     'please ensure you know the details of the transaction before proceeding.',
