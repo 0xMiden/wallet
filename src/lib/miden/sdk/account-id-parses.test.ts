@@ -1,11 +1,12 @@
 /**
  * Outside `src/lib/miden/sdk/helpers.ts`, the production-source scan flags the identifier
- * `accountIdStringToSdk`, `.accountId()` called on any `<receiver>.fromBech32(...)` result, and
- * `fromBech32` calls whose receiver's last name is `AccountId` (#1384). A bare
- * `Address.fromBech32(address)` validation is not flagged. Three files are allowlisted by path:
- * `src/lib/epoch/bridge.ts` (normalizeMidenIdToHex), `src/lib/epoch/earn-withdraw-policy.ts`
- * (canonicalMidenId) and `src/lib/miden/sdk/miden-client-interface.ts` (resolveAccountId).
- * These parsers already handle hex and composite ids before their bech32 arm.
+ * `accountIdStringToSdk` and every `<receiver>.fromBech32(...)` call, whatever the receiver, except
+ * the validation form: a receiver that is the identifier `Address`, with no `.accountId` read on the
+ * result (#1384). Three functions are allowlisted by path and name, the nearest enclosing function
+ * declaration or the variable an arrow or function expression initializes: normalizeMidenIdToHex in
+ * `src/lib/epoch/bridge.ts`, canonicalMidenId in `src/lib/epoch/earn-withdraw-policy.ts` and
+ * resolveAccountId in `src/lib/miden/sdk/miden-client-interface.ts`. These parsers already handle hex
+ * and composite ids before their bech32 arm.
  */
 import fs from 'fs';
 import path from 'path';
@@ -15,44 +16,48 @@ const ROOT = path.resolve(__dirname, '../../../..');
 const HELPERS = 'src/lib/miden/sdk/helpers.ts';
 const ALLOWED = new Set([
   // normalizeMidenIdToHex routes 0x/0X to fromHex and composites to accountRefToSdk.
-  'src/lib/epoch/bridge.ts',
+  'src/lib/epoch/bridge.ts#normalizeMidenIdToHex',
   // canonicalMidenId routes 0x/0X to fromHex and composites to accountRefToSdk.
-  'src/lib/epoch/earn-withdraw-policy.ts',
+  'src/lib/epoch/earn-withdraw-policy.ts#canonicalMidenId',
   // resolveAccountId is the canonical parser over a passed WASM module.
-  'src/lib/miden/sdk/miden-client-interface.ts'
+  'src/lib/miden/sdk/miden-client-interface.ts#resolveAccountId'
 ]);
 
 const repoPath = (file: string): string => path.relative(ROOT, file).split(path.sep).join('/');
 
+function enclosingFunction(node: ts.Node): string | undefined {
+  for (let current = node.parent; current; current = current.parent) {
+    if (ts.isFunctionDeclaration(current)) return current.name?.text;
+    if (
+      (ts.isArrowFunction(current) || ts.isFunctionExpression(current)) &&
+      ts.isVariableDeclaration(current.parent) &&
+      ts.isIdentifier(current.parent.name)
+    ) {
+      return current.parent.name.text;
+    }
+  }
+  return undefined;
+}
+
 function bech32OnlyParses(fileName: string, text: string): string[] {
-  if (fileName === HELPERS || ALLOWED.has(fileName)) return [];
+  if (fileName === HELPERS) return [];
   const source = ts.createSourceFile(fileName, text, ts.ScriptTarget.Latest, true);
   const found: string[] = [];
+  const flag = (node: ts.Node, label: string): void => {
+    if (!ALLOWED.has(`${fileName}#${enclosingFunction(node)}`)) found.push(`${fileName}: ${label}`);
+  };
   const visit = (node: ts.Node): void => {
-    if (ts.isIdentifier(node) && node.text === 'accountIdStringToSdk') {
-      found.push(`${fileName}: accountIdStringToSdk`);
-    }
-    if (
-      ts.isCallExpression(node) &&
-      ts.isPropertyAccessExpression(node.expression) &&
-      node.expression.name.text === 'accountId' &&
-      ts.isCallExpression(node.expression.expression) &&
-      ts.isPropertyAccessExpression(node.expression.expression.expression) &&
-      node.expression.expression.expression.name.text === 'fromBech32'
-    ) {
-      found.push(`${fileName}: ${node.expression.expression.expression.getText()}(...).accountId()`);
-    }
+    if (ts.isIdentifier(node) && node.text === 'accountIdStringToSdk') flag(node, 'accountIdStringToSdk');
     if (
       ts.isCallExpression(node) &&
       ts.isPropertyAccessExpression(node.expression) &&
       node.expression.name.text === 'fromBech32'
     ) {
       const receiver = node.expression.expression;
-      if (
-        (ts.isIdentifier(receiver) && receiver.text === 'AccountId') ||
-        (ts.isPropertyAccessExpression(receiver) && receiver.name.text === 'AccountId')
-      ) {
-        found.push(`${fileName}: ${node.expression.getText()}(...)`);
+      const readsAccountId = ts.isPropertyAccessExpression(node.parent) && node.parent.name.text === 'accountId';
+      if (readsAccountId) flag(node, `${node.expression.getText()}(...).accountId()`);
+      else if (!(ts.isIdentifier(receiver) && receiver.text === 'Address')) {
+        flag(node, `${node.expression.getText()}(...)`);
       }
     }
     ts.forEachChild(node, visit);
@@ -81,6 +86,22 @@ describe('canonical account-id parses', () => {
     'wasm.Address.fromBech32(x);'
   ])('flags exactly one parse in %s', code => {
     expect(bech32OnlyParses('src/new-parser.ts', code)).toHaveLength(1);
+  });
+
+  it.each([
+    ['(Address.fromBech32(x)).accountId();', ['Address.fromBech32(...)']],
+    ['Address.fromBech32(x)!.accountId();', ['Address.fromBech32(...)']],
+    ['(Address.fromBech32(x) as Address).accountId();', ['Address.fromBech32(...)']],
+    ['const a = Address.fromBech32(x);', ['Address.fromBech32(...)']],
+    ['(Address.fromBech32(x));', ['Address.fromBech32(...)']],
+    ["AccountId['fromBech32'](x);", ["AccountId['fromBech32'](...)"]],
+    ['const parse = Address.fromBech32; parse(x).accountId();', ['Address.fromBech32']],
+    ['const { fromBech32 } = AccountId; fromBech32(x);', ['fromBech32', 'fromBech32(...)']],
+    ["sdk['accountIdStringToSdk'](x);", ['accountIdStringToSdk']],
+    ['Address.fromBech32(address);', []],
+    ['try { Address.fromBech32(address); } catch {}', []]
+  ])('reports every reference by name in %s', (code, labels) => {
+    expect(bech32OnlyParses('src/new-parser.ts', code)).toEqual(labels.map(label => `src/new-parser.ts: ${label}`));
   });
 
   it.each([
