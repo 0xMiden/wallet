@@ -64,7 +64,8 @@ import {
 import {
   dappConfirmationStore,
   type DAppConfirmationRequest,
-  type DAppConfirmationResult
+  type DAppConfirmationResult,
+  type DAppLoginSignConfirmationRequest
 } from 'lib/dapp-browser/confirmation-store';
 import { formatBigInt } from 'lib/i18n/numbers';
 import { intercom } from 'lib/miden/back/defaults';
@@ -616,6 +617,12 @@ async function requestConfirmationWithWatchdog(
   }
 }
 
+// What `confirmOnNonExtension` asks for: a kind on its own, or a login's with the site's domain and the account it
+// signs in to, which only a login carries.
+type ConfirmationKind =
+  | Exclude<DAppConfirmationRequest['type'], 'loginSign'>
+  | Pick<DAppLoginSignConfirmationRequest, 'type' | 'domain' | 'accountId'>;
+
 /**
  * Raise a confirmation on the platforms that have no extension popup (mobile via
  * Capacitor, desktop via Tauri) and report whether the user approved.
@@ -629,20 +636,17 @@ async function requestConfirmationWithWatchdog(
  * injection script's 5-minute timeout reported the misleading "Request timeout".
  */
 async function confirmOnNonExtension(
-  type: DAppConfirmationRequest['type'],
+  kind: ConfirmationKind,
   origin: string,
   dApp: MidenDAppSession,
   networkRpc: string,
   detailMessages: string[],
   sessionId: string | undefined,
-  deadline: number | undefined,
-  // A login approval names the site's domain and the account it signs in to.
-  login?: { domain: string; accountId: string }
+  deadline: number | undefined
 ): Promise<boolean> {
   const result = await requestConfirmationWithWatchdog(deadline, {
     id: nanoid(),
     sessionId,
-    type,
     origin,
     appMeta: dApp.appMeta,
     network: dApp.network,
@@ -652,7 +656,7 @@ async function confirmOnNonExtension(
     existingPermission: true,
     transactionMessages: detailMessages,
     sourcePublicKey: dApp.accountId,
-    ...login
+    ...(typeof kind === 'string' ? { type: kind } : kind)
   });
   return result.confirmed;
 }
@@ -898,8 +902,8 @@ const generatePromisifyLoginSign = async (
       }
       // Unlocked from here, so a device without the account's root key is refused before the sheet opens.
       await checkRootKey();
-      const login = { domain, accountId: dApp.accountId };
-      if (!(await confirmOnNonExtension('loginSign', origin, dApp, networkRpc, [], sessionId, waits.deadline, login))) {
+      const login: ConfirmationKind = { type: 'loginSign', domain, accountId: dApp.accountId };
+      if (!(await confirmOnNonExtension(login, origin, dApp, networkRpc, [], sessionId, waits.deadline))) {
         reject(new Error(MidenDAppErrorType.NotGranted));
         return;
       }

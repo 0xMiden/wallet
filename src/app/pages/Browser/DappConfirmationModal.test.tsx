@@ -5,7 +5,11 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 
 import { expectDomainNeverClipped } from 'components/ui/dapp-origin-test-utils';
 import { confirmSensitiveAction } from 'lib/biometric';
-import { dappConfirmationStore, type DAppConfirmationRequest } from 'lib/dapp-browser/confirmation-store';
+import {
+  dappConfirmationStore,
+  type DAppConfirmationRequest,
+  type DAppLoginSignConfirmationRequest
+} from 'lib/dapp-browser/confirmation-store';
 import { useDappConfirmation } from 'lib/dapp-browser/use-dapp-confirmation';
 import { probeHardwareProtector } from 'lib/miden/back/protector-probe';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
@@ -912,7 +916,7 @@ describe('DappConfirmationModal network', () => {
 describe('DappConfirmationModal - a login signature', () => {
   const LOGIN_ACCOUNT_ID = 'mtst1azcw08rget79fqp8ymr0zqkv5v4lj3s7_qruqqypuyph';
   const OPAQUE_ROW = 'Warning, this site asked you to sign a value the wallet cannot decode.';
-  const loginRequest = (overrides: Partial<DAppConfirmationRequest> = {}) =>
+  const loginRequest = (overrides: Partial<DAppLoginSignConfirmationRequest> = {}) =>
     buildRequest({
       type: 'loginSign',
       origin: 'https://example.org',

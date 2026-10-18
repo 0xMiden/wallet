@@ -24,7 +24,10 @@ async function freshStore(): Promise<Store> {
   return mod.dappConfirmationStore;
 }
 
-function makeRequest(overrides: Partial<DAppConfirmationRequest> = {}): DAppConfirmationRequest {
+// Any kind but a login, whose request also names a site and an account: the login test builds its own.
+function makeRequest(
+  overrides: Partial<Exclude<DAppConfirmationRequest, { type: 'loginSign' }>> = {}
+): DAppConfirmationRequest {
   return {
     id: 'req-' + Math.random().toString(36).slice(2, 8),
     type: 'connect',
@@ -314,16 +317,16 @@ describe('confirmationPromptKey / confirmationPromptValues / isDetailsConfirmati
 
   it('titles an in-app login request with the domain', async () => {
     const { confirmationPromptKey, confirmationPromptValues } = await import('./confirmation-store');
-    const login = makeRequest({
+    const login: DAppConfirmationRequest = {
+      ...makeRequest({ origin: 'https://www.example.org' }),
       type: 'loginSign',
-      origin: 'https://www.example.org',
       domain: 'example.org',
       accountId: 'mtst1account_login'
-    });
+    };
 
     expect(confirmationPromptKey(login.type)).toBe('dappLoginSignRequest');
     expect(confirmationPromptValues(login)).toEqual({ domain: 'example.org' });
     // Only a login's prompt names a site.
-    expect(confirmationPromptValues(makeRequest({ type: 'sign', domain: 'example.org' }))).toBeUndefined();
+    expect(confirmationPromptValues(makeRequest({ type: 'sign' }))).toBeUndefined();
   });
 });
