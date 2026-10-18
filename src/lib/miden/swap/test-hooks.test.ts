@@ -167,7 +167,7 @@ describe('E2E swap hooks under the realm client lock (#878)', () => {
       balance: '5'
     });
     expect(getBalance).toHaveBeenCalledTimes(1);
-    expect(getBalance.mock.calls[0][0].toString()).toBe('0xabc');
+    expect(getBalance.mock.calls[0]?.[0]?.toString()).toBe('0xabc');
     expect(held.labels).toEqual(['pswap-token-balance']);
     expect(held.count).toBe(0);
   });
