@@ -75,9 +75,22 @@ describe('canonical account-id parses', () => {
     'AccountId.fromBech32(x);',
     'wasm.AccountId.fromBech32(x);',
     'wasm.Address.fromBech32(x).accountId();',
-    'MidenAddress.fromBech32(x).accountId();'
+    'MidenAddress.fromBech32(x).accountId();',
+    'const Id = AccountId; Id.fromBech32(x);',
+    'SdkAccountId.fromBech32(x);',
+    'wasm.Address.fromBech32(x);'
   ])('flags exactly one parse in %s', code => {
     expect(bech32OnlyParses('src/new-parser.ts', code)).toHaveLength(1);
+  });
+
+  it.each([
+    ['src/lib/epoch/bridge.ts', 'normalizeMidenIdToHex'],
+    ['src/lib/epoch/earn-withdraw-policy.ts', 'canonicalMidenId'],
+    ['src/lib/miden/sdk/miden-client-interface.ts', 'resolveAccountId']
+  ])('allows only the canonical parser in %s', (fileName, allowed) => {
+    const parse = (name: string) => `function ${name}(w: any, x: string) { return w.AccountId.fromBech32(x); }`;
+    expect(bech32OnlyParses(fileName, parse('other'))).toHaveLength(1);
+    expect(bech32OnlyParses(fileName, parse(allowed))).toEqual([]);
   });
 
   it('detects bech32-only parses and permits only the canonical helpers and address validation', () => {
