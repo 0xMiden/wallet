@@ -603,6 +603,14 @@ const DISPATCH: Record<string, DispatchFn> = {
     return new TextEncoder().encode(JSON.stringify(details));
   },
 
+  // The records a details commitment names (#1389): hashed and reduced here like `getInputNoteDetails`'s.
+  getDetailsCommitmentMatches: async (context, client, commitment: string) => {
+    const matches = await client.getDetailsCommitmentMatches(commitment, () =>
+      assertWasmHoldCurrent(context.hold, 'in offscreen getDetailsCommitmentMatches before reducing the records')
+    );
+    return new TextEncoder().encode(JSON.stringify(matches));
+  },
+
   // Node-authoritative commit state of one tx id, backing the send/swap
   // idempotent-retry guard. A plain string union, so JSON like the DTO reads
   // above. Its absence here was not neutral: the SW-side stub returned

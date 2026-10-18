@@ -133,6 +133,7 @@ function resetControl() {
     inlineIsOutputNoteConsumed: jest.fn(async () => false),
     inlineExportNote: jest.fn(async () => new Uint8Array([1, 2, 3])),
     inlineGetInputNoteDetails: jest.fn(async () => [{ __inlineDetail: true }]),
+    inlineGetDetailsCommitmentMatches: jest.fn(async () => ({ notes: [{ __inlineDetail: true }], uncommitted: 1 })),
     inlineGetConsumableNoteDtos: jest.fn(async () => [{ __inlineConsumable: true }]),
     inlineBuildPswapCancelRequest: jest.fn(async () => new Uint8Array([20, 14, 7, 6])),
     inlineConsumeNoteId: jest.fn(async () => ({ __inlineTxResult: true })),
@@ -194,6 +195,7 @@ function resetControl() {
       isOutputNoteConsumed: (...a: any[]) => G.__px.inlineIsOutputNoteConsumed(...a),
       exportNote: (...a: any[]) => G.__px.inlineExportNote(...a),
       getInputNoteDetails: (...a: any[]) => G.__px.inlineGetInputNoteDetails(...a),
+      getDetailsCommitmentMatches: (...a: any[]) => G.__px.inlineGetDetailsCommitmentMatches(...a),
       getTransactionCommitState: (...a: any[]) => G.__px.inlineGetTransactionCommitState(...a),
       getConsumableNoteDtos: (...a: any[]) => G.__px.inlineGetConsumableNoteDtos(...a),
       buildPswapCancelRequest: (...a: any[]) => G.__px.inlineBuildPswapCancelRequest(...a),
@@ -943,6 +945,63 @@ describe('MidenClientProxy — slice-3 reads: getInputNoteDetails (plain-DTO rou
     // `undefined` arg is JSON-null on the wire (decodeArg → null → `?? undefined`).
     expect(env.argsB64).toEqual(['s:null']);
     expect(details).toEqual([]);
+  });
+});
+
+// The records a details commitment names, read where the store lives (#1389).
+describe('MidenClientProxy - getDetailsCommitmentMatches', () => {
+  it('flag OFF goes inline, forwarding the commitment and the caller check', async () => {
+    const { midenClientProxy } = await loadProxy(false);
+    const assertLive = jest.fn();
+
+    const matches = await midenClientProxy.getDetailsCommitmentMatches('0xcommitment', assertLive);
+
+    expect(G.__px.inlineGetDetailsCommitmentMatches).toHaveBeenCalledWith('0xcommitment', assertLive);
+    expect(matches).toEqual({ notes: [{ __inlineDetail: true }], uncommitted: 1 });
+    expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('flag ON asks the offscreen client and parses the DTO it answers', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    const dto = {
+      notes: [
+        { noteId: '0xreal', senderAccountId: 'mtst1qsender', assets: [], noteType: 0, nullifier: '0xn', state: 2 }
+      ],
+      uncommitted: 1
+    };
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: Buffer.from(new TextEncoder().encode(JSON.stringify(dto))).toString('base64'),
+      durationMs: 3
+    }));
+
+    const p = midenClientProxy.getDetailsCommitmentMatches('0xcommitment', jest.fn());
+    await flush();
+    fireReady();
+    const matches = await p;
+
+    expect(G.__px.inlineGetDetailsCommitmentMatches).not.toHaveBeenCalled();
+    const env = fakeChrome.runtime.sendMessage.mock.calls[0][0];
+    expect(env.method).toBe('getDetailsCommitmentMatches');
+    expect(env.argsB64).toEqual(['s:"0xcommitment"']);
+    expect(matches).toEqual(dto);
+  });
+
+  it('flag ON reads no result as no match', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: null,
+      durationMs: 1
+    }));
+
+    const p = midenClientProxy.getDetailsCommitmentMatches('0xcommitment');
+    await flush();
+    fireReady();
+
+    await expect(p).resolves.toEqual({ notes: [], uncommitted: 0 });
   });
 });
 

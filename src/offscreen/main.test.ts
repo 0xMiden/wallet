@@ -395,6 +395,12 @@ function resetControl() {
     clientGetInputNoteDetails: jest.fn(async (_q: unknown) => [
       { noteId: '0xabc', senderAccountId: 'mtst1qsender', assets: [], noteType: 0, nullifier: '0xn', state: 2 }
     ]),
+    clientGetDetailsCommitmentMatches: jest.fn(async (_commitment: string) => ({
+      notes: [
+        { noteId: '0xreal', senderAccountId: 'mtst1qsender', assets: [], noteType: 0, nullifier: '0xn', state: 2 }
+      ],
+      uncommitted: 1
+    })),
     clientGetTransactionCommitState: jest.fn(async (_txId: string) => 'committed'),
     // Slice-4 consumable-note DTOs on the offscreen-owned client.
     clientGetConsumableNoteDtos: jest.fn(async (_id: string) => [
@@ -545,6 +551,7 @@ function resetControl() {
         waitForTransactionCommit: (...a: any[]) => (globalThis as any).__off.clientWaitForTransactionCommit(...a),
         exportNote: (...a: any[]) => (globalThis as any).__off.clientExportNote(...a),
         getInputNoteDetails: (...a: any[]) => (globalThis as any).__off.clientGetInputNoteDetails(...a),
+        getDetailsCommitmentMatches: (...a: any[]) => (globalThis as any).__off.clientGetDetailsCommitmentMatches(...a),
         getTransactionCommitState: (...a: any[]) => (globalThis as any).__off.clientGetTransactionCommitState(...a),
         getConsumableNoteDtos: (...a: any[]) => (globalThis as any).__off.clientGetConsumableNoteDtos(...a),
         buildPswapCancelRequest: (...a: any[]) => (globalThis as any).__off.clientBuildPswapCancelRequest(...a),
@@ -1101,10 +1108,10 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(resp.errorName).toBe('WasmClientPoisonedError');
   });
 
-  // The same guard for the three reads whose reach-through happens one frame
+  // The same guard for the reads whose reach-through happens one frame
   // deeper, INSIDE `MidenClientInterface`, where the dispatch cannot place a
   // check either side of it: `exportNote` serializes the live export result,
-  // `getInputNoteDetails` reduces live records, and `getConsumableNoteDtos`
+  // `getInputNoteDetails` and `getDetailsCommitmentMatches` reduce live records, and `getConsumableNoteDtos`
   // makes a second shared-client call (`getSyncHeight`) after the listing's
   // await. Each is handed a liveness callback, and these dispatches used to be
   // marked `_context` — the reach-through was simply unguarded.
@@ -1115,6 +1122,7 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
   it.each([
     ['exportNote', 'clientExportNote', ['note-x', 'Details'], undefined, 'in offscreen'],
     ['getInputNoteDetails', 'clientGetInputNoteDetails', [{ ids: ['0xabc'] }], undefined, 'in offscreen'],
+    ['getDetailsCommitmentMatches', 'clientGetDetailsCommitmentMatches', ['0xcommitment'], undefined, 'in offscreen'],
     // The consumability read names each of its checks; the dispatch forwards that step into its own label.
     [
       'getConsumableNotes',
@@ -2214,6 +2222,27 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(decoded).toEqual([
       { noteId: '0xabc', senderAccountId: 'mtst1qsender', assets: [], noteType: 0, nullifier: '0xn', state: 2 }
     ]);
+  });
+
+  it('dispatches getDetailsCommitmentMatches and JSON-encodes its plain DTO (#1389)', async () => {
+    await loadModule();
+    const sendResponse = jest.fn();
+    capturedListener!(
+      callReq({ method: 'getDetailsCommitmentMatches', argsB64: [encodeArg('0xcommitment')] }),
+      {},
+      sendResponse
+    );
+    await flush();
+
+    expect(G.__off.clientGetDetailsCommitmentMatches).toHaveBeenCalledWith('0xcommitment', expect.any(Function));
+    const resp = sendResponse.mock.calls[0][0];
+    expect(resp.ok).toBe(true);
+    expect(JSON.parse(Buffer.from(resp.resultB64, 'base64').toString('utf8'))).toEqual({
+      notes: [
+        { noteId: '0xreal', senderAccountId: 'mtst1qsender', assets: [], noteType: 0, nullifier: '0xn', state: 2 }
+      ],
+      uncommitted: 1
+    });
   });
 
   // The read the send/swap retry guard is built on. It has to actually run in
