@@ -63,8 +63,12 @@ internal fun ByteArray.strictUtf8(): String? = try {
     null
 }
 
-/** kotlinx keeps object key order and number text, and escapes strings as JavaScript's `JSON.stringify` does. */
-internal fun JsonElement.serialized(): String = Json.encodeToString(JsonElement.serializer(), this)
+/**
+ * The element's own text keeps object key order and each number as written, and escapes strings as JavaScript's
+ * `JSON.stringify` does. Encoding through `JsonElement.serializer()` would rewrite a number that does not fit a Long
+ * as a Double, so `-0.5e10` would come back as `-5.0E9` and a larger integer would lose digits.
+ */
+internal fun JsonElement.serialized(): String = toString()
 
 internal fun parseJson(text: String): JsonElement? = try {
     Json.parseToJsonElement(text)

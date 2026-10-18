@@ -18,7 +18,7 @@ class EncodingTest {
 
     @Test
     fun parsingKeepsKeyOrderAndNumberText() {
-        val text = """{"b":1,"a":[true,false,null,-0.5e10,"x"],"c":{}}"""
+        val text = """{"b":1,"a":[true,false,null,-0.5e10,123456789012345678901234567890,"x"],"c":{}}"""
         assertEquals(text, parseJson(text)!!.serialized())
         assertEquals("""{"a":3,"b":2}""", parseJson("""{"a":1,"b":2,"a":3}""")!!.serialized())
     }
