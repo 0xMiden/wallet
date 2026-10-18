@@ -86,7 +86,8 @@ const PATH = /^(?:[A-Za-z0-9\-._~!$&'()*+,;=:@/]|%[0-9A-Fa-f]{2})*$/;
 
 /**
  * The origin of a callback that follows the protocol's rules, else null: a canonical https link on a named host,
- * with a path and no port, credentials, query or fragment, by the grammar the Swift and Kotlin clients also apply.
+ * with a path and no port, credentials, query or fragment. The grammar alone decides, as in the Swift and Kotlin
+ * clients, because URL parsers disagree on hosts such as a malformed xn-- label.
  */
 export function callbackOrigin(callback: string): string | null {
   if (callback.length > MAX_CALLBACK_LENGTH || !callback.startsWith('https://')) return null;
@@ -103,13 +104,7 @@ export function callbackOrigin(callback: string): string | null {
     const dots = segment.toLowerCase().replace(/%2e/g, '.');
     if (dots === '.' || dots === '..') return null;
   }
-  // Bread reads the callback with this engine's URL parser too, which refuses some hosts the grammar allows, such as
-  // a malformed xn-- label.
-  try {
-    return new URL(callback).href === callback ? `https://${host}` : null;
-  } catch {
-    return null;
-  }
+  return `https://${host}`;
 }
 
 export function isErrorCode(code: unknown): code is ErrorCode {

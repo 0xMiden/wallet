@@ -2,6 +2,7 @@ import React, { FC, useEffect, useRef, useState, useSyncExternalStore } from 're
 
 import { useTranslation } from 'react-i18next';
 
+import { callbackOrigin } from '@miden-sdk/bread-connect';
 import { useOnboardingFinishing } from 'app/onboarding-finish';
 import { useDappBrowser, useHideForegroundDappWhileOpen } from 'app/providers/DappBrowserProvider';
 import { resolveRootView } from 'app/root-view';
@@ -20,6 +21,9 @@ import { useWalletStore } from 'lib/store';
 import { useLocation } from 'lib/woozie';
 
 type Notice = { kind: 'waiting' | 'unreturned' | 'unreturned-transaction'; host: string };
+
+// Read by the protocol's grammar, never a URL parser, which may refuse a host the grammar allows.
+const hostOf = (callback: string) => callbackOrigin(callback)?.slice('https://'.length) ?? callback;
 
 /**
  * Answers what other apps ask through Bread Connect links (`https://bread.miden.xyz/request#…`), one at a time and
@@ -58,14 +62,14 @@ export const BreadConnectPrompt: FC = () => {
       try {
         if (session) await park();
         const answer = await answerRequestLink(taken, {
-          onTransactionSent: callback => setNotice({ kind: 'waiting', host: new URL(callback).host })
+          onTransactionSent: callback => setNotice({ kind: 'waiting', host: hostOf(callback) })
         });
         if (!answer) return;
         setNotice(null);
         await answer.keep?.();
         if (await openCallback(answer.link)) return;
         await answer.drop?.();
-        const host = new URL(answer.callback).host;
+        const host = hostOf(answer.callback);
         setNotice({ kind: answer.sentTransaction ? 'unreturned-transaction' : 'unreturned', host });
       } catch (error) {
         console.warn('[bread-connect] answering a request failed:', error);

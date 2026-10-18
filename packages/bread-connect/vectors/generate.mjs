@@ -203,6 +203,7 @@ const longPath = 'b'.repeat(512 - 'https://wherelegendsgrow.com/'.length);
 const callbacks = [
   { callback, origin: 'https://wherelegendsgrow.com' },
   { callback: 'https://xn--bcher-kva.example/a/B%20c/', origin: 'https://xn--bcher-kva.example' },
+  { callback: 'https://xn--.example/bread', origin: 'https://xn--.example' },
   { callback: 'https://game.example/', origin: 'https://game.example' },
   { callback: "https://a-1.game.example/x;y=1/@z:~/(a)!$&'*+,", origin: 'https://a-1.game.example' },
   { callback: `https://wherelegendsgrow.com/${longPath}`, origin: 'https://wherelegendsgrow.com' },

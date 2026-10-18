@@ -80,6 +80,14 @@ import { BreadConnectPrompt } from './BreadConnectPrompt';
 
 const CALLBACK = 'https://game.example/bread';
 
+/** A URL parser that refuses the app's callback, as a WebView's may refuse a host the grammar allows. */
+class CallbackRefusingURL extends URL {
+  constructor(input: string | URL, base?: string | URL) {
+    if (String(input).startsWith(CALLBACK)) throw new TypeError('Invalid URL');
+    super(input, base);
+  }
+}
+
 function requestLink(): string {
   return startConnect(CALLBACK, { type: 'PERMISSION_REQUEST', appMeta: { name: 'Game' } }).link;
 }
@@ -180,6 +188,29 @@ it('shows that Bread is finishing an approved transaction until it answers', asy
 
   expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
   expect(mockHideForegroundDapp).toHaveBeenLastCalledWith(false);
+});
+
+it('names the app in its notices by the callback grammar, never by the engine URL parser', async () => {
+  const answered = deferred<unknown>();
+  mockAnswer.mockImplementation((_link: string, { onTransactionSent }: { onTransactionSent: (c: string) => void }) => {
+    onTransactionSent(CALLBACK);
+    return answered.promise;
+  });
+  mockOpenCallback.mockResolvedValue(false);
+  act(() => acceptRequestLink(requestLink()));
+  const realURL = globalThis.URL;
+  globalThis.URL = CallbackRefusingURL;
+  try {
+    render(<BreadConnectPrompt />);
+    await settle();
+    expect(screen.getByRole('heading')).toHaveTextContent('breadConnectWaitingTitle:game.example');
+
+    answered.resolve({ link: `${CALLBACK}#answer`, callback: CALLBACK, sentTransaction: true });
+    await settle();
+    expect(screen.getByRole('heading')).toHaveTextContent('breadConnectUnreturnedTitle:game.example');
+  } finally {
+    globalThis.URL = realURL;
+  }
 });
 
 it.each([

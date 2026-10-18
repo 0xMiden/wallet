@@ -41,6 +41,14 @@ import {
 import vectors from '../vectors/v1.json';
 
 const CALLBACK = vectors.callback;
+
+/** A URL parser that refuses every https link, as a WebView's may refuse a host the grammar allows. */
+class RefusingURL extends URL {
+  constructor(input: string | URL, base?: string | URL) {
+    if (String(input).startsWith('https://')) throw new TypeError('Invalid URL');
+    super(input, base);
+  }
+}
 const utf8 = (text: string) => new TextEncoder().encode(text);
 
 function bytes(text: string): Uint8Array {
@@ -219,6 +227,16 @@ describe('the v1 vectors', () => {
       expect(callbackOrigin(entry.callback)).toBe(entry.origin);
     }
   );
+
+  it('reads a callback by the grammar alone, whatever URL parser the engine has', () => {
+    const realURL = globalThis.URL;
+    globalThis.URL = RefusingURL;
+    try {
+      expect(callbackOrigin('https://xn--.example/bread')).toBe('https://xn--.example');
+    } finally {
+      globalThis.URL = realURL;
+    }
+  });
 
   it.each(vectors.unopenable.map(entry => [entry.name, entry] as const))('refuses to open the %s', (_, entry) => {
     const envelope = parseEnvelope(entry.envelope);

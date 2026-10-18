@@ -275,6 +275,10 @@
       "origin": "https://xn--bcher-kva.example"
     },
     {
+      "callback": "https://xn--.example/bread",
+      "origin": "https://xn--.example"
+    },
+    {
       "callback": "https://game.example/",
       "origin": "https://game.example"
     },
