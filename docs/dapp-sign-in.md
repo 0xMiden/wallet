@@ -96,7 +96,7 @@ The server accepts `/auth/redeem` only when the handle is unused and recent, and
 
 - **iOS:** the sheet is a non-ephemeral `ASWebAuthenticationSession`, so it shares Safari's cookies and reuses a Google or Apple sign-in the user already has in Safari. iOS first shows its own prompt, such as "'Bread' Wants to Use 'example.org' to Sign In" for a page on example.org. Cancel on that prompt or in the sheet gives `{ cancelled: true }`.
 - **Android:** the URL opens in a Custom Tab in Bread's own task, with no prompt, sharing the browser's cookies. When the flow reaches the callback address, the tab closes and Bread comes back in the same task with the page still loaded. Closing the tab with X or Back gives `{ cancelled: true }`. A phone with no browser that supports Custom Tabs gets `AUTH_UNAVAILABLE`. If Android ends Bread's process while the tab is open, Bread drops the callback when it restarts, nothing resolves, and the user signs in again.
-- **Desktop:** Bread's desktop app defines an empty, frozen `window.bread`, with no `auth`, so a site can tell it runs inside Bread.
+- **Desktop:** Bread's desktop app defines an empty, frozen `window.bread`, with no `auth`, so a site can tell it runs inside Bread; a page's own top-level `bread` replaces it.
 - **Extension:** the browser extension defines no `window.bread`.
 
 ## Native integration
