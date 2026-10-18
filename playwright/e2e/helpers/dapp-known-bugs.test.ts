@@ -148,21 +148,6 @@ describe('known-bug registry', () => {
     expect(bug('K13').signature(soft('MF3', { signerInitError: observed }))).toBe(false);
   });
 
-  it('K14 matches a mobile conformance run failing on exactly the pinned createAccount gap, on the mobile surfaces only', () => {
-    const gap = [...pinned.mobileConformanceGap];
-    expect(bug('K14').tracking).toContain('0xMiden/wallet#1543');
-    expect(bug('K14').cells).toEqual({ S11: ON_MOBILE });
-    expect(bug('K14').signature(hard('S11', { conformanceFailed: gap }))).toBe(true);
-    expect(bug('K14').signature(hard('S11', { conformanceFailed: [...gap, 'requestSend'] }))).toBe(false);
-    expect(bug('K14').signature(hard('S11', { conformanceFailed: [] }))).toBe(false);
-    expect(bug('K14').signature(hard('S11', {}))).toBe(false);
-    expect(bug('K14').signature(soft('S11', { conformanceFailed: gap }))).toBe(false);
-    const registry = registryOf(KNOWN_BUGS);
-    expect(registry.bugsFor('S11', 'extension', 'offchain').map(entry => entry.id)).not.toContain('K14');
-    expect(registry.bugsFor('S11', 'ios', 'guardian').map(entry => entry.id)).toContain('K14');
-    expect(registry.bugsFor('S11', 'android', 'offchain').map(entry => entry.id)).toContain('K14');
-  });
-
   it("K15 matches the mobile provider's plain Error with the expected text, by cause under the adapter and by name raw", () => {
     const k15 = bug('K15');
     const wrapped = (name: string, causeName: string, message = 'NOT_GRANTED') => ({
@@ -293,7 +278,7 @@ describe('known-bug registry', () => {
     expect(registry.bugsFor('M1', 'extension', 'offchain')).toEqual([]);
   });
 
-  // Spec 3.8: an entry reaches iOS or Android only with the run that showed its signature there (Task 12's K14, K15
+  // Spec 3.8: an entry reaches iOS or Android only with the run that showed its signature there (Task 12's K15
   // and any K1 or K11 extension each name theirs).
   const unproven = (bugs: readonly KnownBug[]): string[] =>
     bugs
@@ -320,7 +305,6 @@ describe('known-bug registry', () => {
     ).toEqual([
       ['K1', '39090853726'],
       ['K11', '39090853726'],
-      ['K14', '39090853726'],
       ['K15', '39090853726']
     ]);
   });

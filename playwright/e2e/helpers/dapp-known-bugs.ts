@@ -50,8 +50,6 @@ const on = (
 // Keeping runtime imports JSON-only lets the mobile cells share these names without loading their journey here.
 export const REFUSAL_WRAPPERS = { connect: 'WalletConnectionError', transaction: 'WalletTransactionError' };
 
-const MOBILE_CREATE_ACCOUNT_ISSUE = 1543;
-const MOBILE_CREATE_ACCOUNT_RUN = '39090853726';
 // K15: each candidate cell's refusal text as the extension cell expects it (dapp-mobile-cells.ts), which the mobile
 // provider keeps word for word; under the adapter the wallet's class is the cause's, on a raw call the error's own.
 const PLAIN_ERROR_TEXT: Readonly<Record<string, string | RegExp>> = {
@@ -131,19 +129,6 @@ export const KNOWN_BUGS: readonly KnownBug[] = [
       Object.values(pinned.texts.MF3).some(({ error, reason }) =>
         [error, reason].every(part => part.length > 0 && (evidence.signerInitError ?? '').includes(part))
       )
-  },
-  {
-    id: 'K14',
-    title:
-      "The in-app browser's provider has no createAccount, so a dApp gets a TypeError, not the extension's WalletError",
-    tracking: `0xMiden/wallet#${MOBILE_CREATE_ACCOUNT_ISSUE} (open)`,
-    mobileEvidenceRun: MOBILE_CREATE_ACCOUNT_RUN,
-    cells: on(['S11'], BOTH, ['ios', 'android']),
-    // injection-script.ts defines no createAccount; the extension throws a named WalletError (midenWindowObject.ts).
-    // Exactly the pinned conformance gap: one more failing case is a new bug, not this one.
-    signature: ({ source, evidence }) =>
-      source === 'hard' &&
-      JSON.stringify(evidence.conformanceFailed ?? []) === JSON.stringify(pinned.mobileConformanceGap)
   },
   {
     id: 'K15',
