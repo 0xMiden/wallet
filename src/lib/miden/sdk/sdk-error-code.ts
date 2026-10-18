@@ -199,7 +199,15 @@ export function isKilledPipeline(err: unknown): boolean {
  * Returns the link itself so callers keep its message without a wrapper, while a terminated client under an
  * apply-after-submit error keeps its landed verdict.
  */
-export function pipelineKillIn(_err: unknown): unknown {
+export function pipelineKillIn(err: unknown): unknown {
+  if (!isKilledPipeline(err)) return undefined;
+  for (const link of causeChain(err)) {
+    try {
+      if (isPipelineKillLink(link)) return link;
+    } catch {
+      // An unreadable link must not hide its cause, just as in isKilledPipeline.
+    }
+  }
   return undefined;
 }
 

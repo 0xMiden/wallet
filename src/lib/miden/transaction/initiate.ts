@@ -109,8 +109,12 @@ export const requestCustomTransaction = async (
   }
 
   if (importNotes) {
-    for (const noteBytes of importNotes) {
-      await queueNoteImport(noteBytes);
+    try {
+      for (const noteBytes of importNotes) {
+        await queueNoteImport(noteBytes);
+      }
+    } catch (cause) {
+      throw new TransactionQueuedError(transaction.id, { cause });
     }
   }
 
