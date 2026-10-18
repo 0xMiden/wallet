@@ -1,0 +1,105 @@
+name: Bread Connect SDKs
+
+# The Swift and Kotlin SDKs that let native apps use Bread as their wallet, and the
+# Capacitor adapter's native plugin, are not part of any wallet surface, so no other
+# workflow builds them. Every SDK checks itself against
+# packages/bread-connect/vectors, so a change to the vectors runs them all.
+
+on:
+  pull_request:
+    paths:
+      - 'packages/bread-connect/vectors/**'
+      - 'packages/bread-connect-swift/**'
+      - 'packages/bread-connect-kotlin/**'
+      - 'packages/bread-connect-capacitor/ios/**'
+      - 'packages/bread-connect-capacitor/android/**'
+      - 'packages/bread-connect-capacitor/Package.swift'
+      - '.github/workflows/bread-connect-sdks.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bread-connect-sdks-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  swift:
+    name: Swift SDK
+    # Matches the iOS build in build-mobile.yml, which needs the iOS 26 SDK.
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      # The tests run on macOS, where the UIKit opener does not compile, so the iOS
+      # builds below are what compile it.
+      - name: Run the Swift SDK tests
+        working-directory: packages/bread-connect-swift
+        run: swift test
+      - name: Build the Swift SDK for iOS
+        working-directory: packages/bread-connect-swift
+        run: |
+          xcodebuild build \
+            -scheme BreadConnect \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO
+      - name: Build the Capacitor plugin for iOS
+        working-directory: packages/bread-connect-capacitor
+        run: |
+          xcodebuild build \
+            -scheme MidenBreadConnect \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO
+
+  kotlin:
+    name: Kotlin SDK
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      # The action's default packages include the retired 'tools' package, which sdkmanager no longer finds.
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Run the Kotlin SDK unit tests
+        working-directory: packages/bread-connect-kotlin
+        run: ./gradlew testDebugUnitTest --console=plain
+      # The plugin compiles against @capacitor/android, which only an app's
+      # node_modules provides, so a throwaway build fetches that one package at the
+      # version the wallet uses.
+      - name: Compile the Capacitor plugin for Android
+        run: |
+          build="$(mktemp -d)"
+          version="$(node -p "require('./package.json').dependencies['@capacitor/android']")"
+          (cd "$build" && npm pack "@capacitor/android@$version" --silent >/dev/null)
+          mkdir "$build/capacitor-android"
+          tar -xzf "$build"/capacitor-android-*.tgz -C "$build/capacitor-android" --strip-components=1
+          cat > "$build/settings.gradle" <<EOF
+          include ':capacitor-android'
+          project(':capacitor-android').projectDir = new File('$build/capacitor-android/capacitor')
+          include ':bread-connect-capacitor'
+          project(':bread-connect-capacitor').projectDir = new File('$GITHUB_WORKSPACE/packages/bread-connect-capacitor/android')
+          EOF
+          cat > "$build/build.gradle" <<'EOF'
+          buildscript {
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+              dependencies {
+                  classpath 'com.android.tools.build:gradle:8.13.0'
+              }
+          }
+          EOF
+          echo 'android.useAndroidX=true' > "$build/gradle.properties"
+          packages/bread-connect-kotlin/gradlew -p "$build" :bread-connect-capacitor:compileDebugJavaWithJavac --console=plain
