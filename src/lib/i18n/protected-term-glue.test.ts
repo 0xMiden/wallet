@@ -14,10 +14,12 @@ type Entry = {
   rejectedSource?: string;
   placeholders?: Record<string, { content: string }>;
 };
+// An entry written before englishSource existed has none.
+type StoredEntry = Omit<Entry, 'englishSource'> & { englishSource?: string };
 type Generator = {
   findGluedTerms: (translation: string, english: string, language: string) => string[];
   translatedEntry: (key: string, translation: string, english: string, language: string) => Entry;
-  translationEntryToKeep: (english: string, existingItem?: Entry) => Entry | undefined;
+  translationEntryToKeep: (english: string, existingItem?: StoredEntry) => StoredEntry | undefined;
 };
 
 // generateLanguageFiles.ts is a CommonJS script (module.exports), so it has no ES exports to import.
@@ -138,6 +140,7 @@ const ACCEPTED_FORMS: [string, string, string, string][] = [
     'Die Verbrennungsrichtlinie des USDCx-faucets kann nicht gelesen werden.'
   ],
   ['a native word the English does not protect', 'fr', 'Write down your recovery phrase.', 'Notez votre phrase.'],
+  ['an unlisted Polish word when English protects no term', 'pl', 'Open the notebook', 'Otwórz notesik'],
   ['a native German word', 'de', 'Cannot reach the Miden node', 'Der Knoten „Miden“ ist nicht erreichbar'],
   [
     'a native German word beside a protected term',
@@ -202,7 +205,11 @@ describe('translatedEntry', () => {
     const log = jest.spyOn(console, 'log').mockImplementation(() => undefined);
     try {
       const entry = translatedEntry('gluedKey', 'A<x>note</x> é pública.', 'The note is public.', 'pt');
-      expect(entry).toEqual({ message: 'The note is public.', englishSource: '(untranslated)' });
+      expect(entry).toEqual({
+        message: 'The note is public.',
+        englishSource: '(untranslated)',
+        rejectedSource: 'The note is public.'
+      });
       expect(entry.message).not.toMatch(/<\/?x\s*>/);
       expect(log).toHaveBeenCalledTimes(1);
       expect(log.mock.calls[0]?.[0]).toBe(
@@ -229,7 +236,11 @@ describe('translatedEntry', () => {
         'The note and the note are public.',
         'pt'
       );
-      expect(entry).toEqual({ message: 'The note and the note are public.', englishSource: '(untranslated)' });
+      expect(entry).toEqual({
+        message: 'The note and the note are public.',
+        englishSource: '(untranslated)',
+        rejectedSource: 'The note and the note are public.'
+      });
       expect(log).toHaveBeenCalledTimes(1);
       expect(log.mock.calls[0]?.[0]).toBe(
         '::warning title=Rejected translation::pt gluedKey glues Anote; keeping the English.'
@@ -239,7 +250,7 @@ describe('translatedEntry', () => {
     }
   });
 
-  it('keeps the English, queued for the next run, instead of a glued translation and flags the key on the checks', () => {
+  it('keeps the English instead of a glued translation and flags the key on the checks', () => {
     const log = jest.spyOn(console, 'log').mockImplementation(() => undefined);
     try {
       const entry = translatedEntry(
@@ -248,10 +259,11 @@ describe('translatedEntry', () => {
         'A published note for $amount$ cannot be reclaimed.',
         'pl'
       );
-      // The sentinel keeps the key out of the flat bundle (English fallback) and makes the next run re-translate it.
+      // The sentinel omits the key from the flat bundle; retry only after English changes or the entry is deleted.
       expect(entry).toEqual({
         message: 'A published note for $amount$ cannot be reclaimed.',
         englishSource: '(untranslated)',
+        rejectedSource: 'A published note for $amount$ cannot be reclaimed.',
         placeholders: { amount: { content: '$1' } }
       });
       // A GitHub Actions annotation, so the rejection shows on the pull request rather than only in the job log.
@@ -302,6 +314,20 @@ describe('translationEntryToKeep', () => {
         englishSource: 'The note is public.'
       })
     ).toBeUndefined();
+  });
+
+  it('queues a hand-copied English entry that carries the sentinel but no rejection', () => {
+    expect(
+      translationEntryToKeep('The note is public.', { message: 'The note is public.', englishSource: '(untranslated)' })
+    ).toBeUndefined();
+  });
+
+  it('keeps an entry written before englishSource existed and records its English', () => {
+    expect(translationEntryToKeep('The note is worth $amount$.', { message: 'La note vaut $amount$.' })).toEqual({
+      message: 'La note vaut $amount$.',
+      englishSource: 'The note is worth $amount$.',
+      placeholders: { amount: { content: '$1' } }
+    });
   });
 
   it('copies a current entry and refreshes placeholders without changing the stored entry', () => {
