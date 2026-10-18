@@ -218,12 +218,15 @@ it('exposes nothing in ordinary browsers or child frames', () => {
   ordinary.evaluate();
   expect(ordinary.win.bread).toBeUndefined();
   const child = page('', 'ios', true);
-  child.win.breadAuth = child.androidAuth;
   child.win.top = {};
   child.evaluate();
   expect(child.win.bread).toBeUndefined();
   expect(child.messages).toHaveLength(0);
-  expect(child.postedAuthUrls()).toHaveLength(0);
+  const androidChild = page('', 'android', true);
+  androidChild.win.top = {};
+  androidChild.evaluate();
+  expect(androidChild.win.bread).toBeUndefined();
+  expect(() => androidChild.nativeReply('{}')).toThrow('Missing auth listener');
 });
 
 it('refreshes injection padding from actual native presentation state without replacing the API', () => {
