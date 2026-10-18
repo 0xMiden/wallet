@@ -20,7 +20,8 @@ final class BreadAuthState {
         String text = (String) url;
         if (text.isEmpty() || text.length() > MAX_URL_LENGTH) return INVALID_URL;
         for (int i = 0; i < text.length(); i++) if (!allowed(text.charAt(i))) return INVALID_URL;
-        return authorityMatches(text, pageHost, pagePort < 0 ? 443 : pagePort) ? null : INVALID_URL;
+        if (!authorityMatches(text, pageHost, pagePort < 0 ? 443 : pagePort)) return INVALID_URL;
+        return restIsValid(text) ? null : INVALID_URL;
     }
 
     // The authority is compared as written: platform URL parsers decode some hosts and refuse others.
@@ -35,6 +36,31 @@ final class BreadAuthState {
 
     private static boolean equalsIgnoringAsciiCase(String text, String other) {
         return text.length() == other.length() && startsWithIgnoringAsciiCase(text, other);
+    }
+
+    // The sheet opens exactly the caller's string, so path, query and fragment must be valid RFC 3986, checked by hand.
+    private static boolean restIsValid(String text) {
+        int i = "https://".length();
+        while (i < text.length() && "/?#".indexOf(text.charAt(i)) < 0) i++;
+        int hexDigitsOwed = 0, fragments = 0;
+        for (; i < text.length(); i++) {
+            char c = text.charAt(i);
+            if (hexDigitsOwed > 0) {
+                if (!isAsciiHexDigit(c)) return false;
+                hexDigitsOwed--;
+            } else if (c == '%') {
+                hexDigitsOwed = 2;
+            } else if (c == '#') {
+                if (++fragments > 1) return false;
+            } else if (c == '[' || c == ']') {
+                return false;
+            }
+        }
+        return hexDigitsOwed == 0;
+    }
+
+    private static boolean isAsciiHexDigit(char c) {
+        return (c >= '0' && c <= '9') || (c >= 'A' && c <= 'F') || (c >= 'a' && c <= 'f');
     }
 
     static boolean isCallback(String url) {

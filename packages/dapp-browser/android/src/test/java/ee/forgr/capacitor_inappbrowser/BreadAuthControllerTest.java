@@ -237,6 +237,19 @@ public class BreadAuthControllerTest {
         assertEquals(BreadAuthState.Phase.LAUNCHING, BreadAuthController.state.phase());
     }
 
+    @Test public void acceptedUrlsLaunchExactlyAsWritten() throws Exception {
+        registerChrome();
+        for (String url : new String[] {"https://game.example/a%2Fb?x=%41&y=/?#z?/", "https://game.example/auth?x=1#"}) {
+            WebViewDialog dialog = open();
+            JavaScriptReplyProxy proxy = post(dialog, "https://game.example", true, request("a", url));
+            Intent tab = shadowOf(activity).getNextStartedActivity();
+            assertNotNull(url, tab);
+            assertEquals(url, tab.getDataString());
+            verifyNoInteractions(proxy);
+            dialog.forceClose();
+        }
+    }
+
     @Test public void callbackIntentResolvesTheUrlUntouched() throws Exception {
         registerChrome();
         JavaScriptReplyProxy proxy = post(open(), PAGE, true, request("a", SIGN_IN));

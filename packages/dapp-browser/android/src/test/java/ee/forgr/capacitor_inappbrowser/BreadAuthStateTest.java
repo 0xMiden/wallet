@@ -35,13 +35,16 @@ public class BreadAuthStateTest {
             "https://game.example:444/auth", "https://game.example:8443/auth", "https://game.example:/auth",
             "https://game.example:0443/auth", "https://user@game.example/auth",
             "https://other.example\\@game.example/auth", "https://game.example/a b",
-            "https://g\u00e4me.example/auth", url(4097),
+            "https://g\u00e4me.example/auth", url(4097), "https://game.example/auth#a#b",
+            "https://game.example/%zz", "https://game.example/a%4", "https://game.example/auth?x=[1]",
+            "https://game.example/[x]", "https://game.example/auth#[x]",
         };
         for (Object url : invalid) assertEquals(String.valueOf(url), BreadAuthState.INVALID_URL, rejection(url));
         assertEquals(4096, url(4096).length());
         for (String url : new String[] {
             "https://GAME.example:443/a?b#c", "https://GAME.example:443/auth?x=1#y", "https://GAME.example/auth",
             "https://game.example:443/auth", "https://game.example", "https://game.example?x=1", "https://game.example#x", url(4096),
+            "https://game.example/a%2Fb?x=%41&y=/?#z?/", "https://game.example/auth?x=1#",
         }) assertNull(url, rejection(url));
     }
 
