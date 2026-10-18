@@ -1,7 +1,7 @@
 import { defineConfig } from '@playwright/test';
 
 /**
- * iOS Simulator E2E config - mirrors playwright.e2e.config.ts but with:
+ * iOS Simulator E2E config — mirrors playwright.e2e.config.ts but with:
  *   - separate testDir (playwright/e2e/ios/tests)
  *   - longer per-test timeout for cold WASM compile + sync to chain tip
  *   - global setup that asserts App.app exists and reserves the device pair
@@ -10,10 +10,10 @@ import { defineConfig } from '@playwright/test';
 export default defineConfig({
   testDir: './playwright/e2e/ios/tests',
   // Guardian specs run via playwright.ios.guardian.config.ts and bridge-in specs
-  // via playwright.ios.bridge-in.config.ts (dedicated runs with their own setup -
+  // via playwright.ios.bridge-in.config.ts (dedicated runs with their own setup —
   // the bridge-in deposit specs need a local Anvil this suite doesn't provide);
   // keep both out of the standard iOS suite.
-  // dApp-browser specs run via playwright.ios.dapp.config.ts - they need no
+  // dApp-browser specs run via playwright.ios.dapp.config.ts — they need no
   // chain, so they get their own (much faster) workflow.
   // The live USDCx spec runs via playwright.ios.usdcx-live.config.ts: it spends real
   // Arc Testnet USDC and public faucet USDCx in its own job.
@@ -30,7 +30,7 @@ export default defineConfig({
   // at 13 min, see SETUP_DEADLINE_MS) and the test body's simctl/WASM ops crawl.
   // 25 min leaves room for a slow-but-completing setup + a slow test instead of
   // killing a run that would have passed given a little more patience (no
-  // assertion is relaxed - this is purely tolerance for degraded-runner IO).
+  // assertion is relaxed — this is purely tolerance for degraded-runner IO).
   timeout: 1_500_000,
   expect: {
     timeout: 60_000

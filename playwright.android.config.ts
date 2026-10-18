@@ -1,7 +1,7 @@
 import { defineConfig } from '@playwright/test';
 
 /**
- * Android Emulator E2E config - mirrors playwright.ios.config.ts. Test
+ * Android Emulator E2E config — mirrors playwright.ios.config.ts. Test
  * artifacts go under `test-results-android/` so they don't collide with
  * iOS or Chrome runs.
  */
@@ -11,7 +11,7 @@ export default defineConfig({
   // dependency, so they get their own faster workflow).
   // The dApp in-app browser journey runs via playwright.android.dapp-e2e.config.ts.
   testIgnore: ['**/dapp-browser.*.spec.ts', '**/dapp-inapp.*.spec.ts'],
-  // Same 15-min ceiling as iOS - Android emulator on Apple Silicon is
+  // Same 15-min ceiling as iOS — Android emulator on Apple Silicon is
   // comparable to iOS sim for our prove workload.
   timeout: 900_000,
   expect: {
