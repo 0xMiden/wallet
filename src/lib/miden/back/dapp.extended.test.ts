@@ -1379,12 +1379,7 @@ describe('approved non-extension custom carried-note failures (#1378)', () => {
     importedIds: jest.SpyInstance;
     releaseNotes: jest.SpyInstance;
   };
-  const runCustomFailure = async (
-    error: Error,
-    message: string,
-    queuedRow: boolean,
-    check: (spies: Spies) => void
-  ) => {
+  const runCustomFailure = async (error: Error, message: string, queuedRow: boolean, check: (spies: Spies) => void) => {
     const importNotes = ['bm90ZS0x', 'bm90ZS0y'];
     const noteIds = ['carried-note-1', 'carried-note-2'];
     const importedIds = jest.spyOn(noteQuarantine, 'importedNoteIds').mockReturnValue(noteIds);
