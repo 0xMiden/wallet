@@ -726,6 +726,22 @@ it.each([
   expect(await reportedMessage()).toContain('; point pipeline; client_terminated. authentication');
 });
 
+it('reads a bounded stretch of a cause chain whose accessor keeps returning new links', async () => {
+  let reads = 0;
+  // Stops itself after 10000 reads so an unbounded walk ends too and the read count can say what it did.
+  const endless = (): object => ({
+    get cause() {
+      reads += 1;
+      return reads < 10000 ? endless() : undefined;
+    }
+  });
+  // Four wrappers keep the eviction past the kill identity's four links, and the pipeline's kill check stops at it.
+  const error = wrapIn(new WasmClientPoisonedError('watchdog', endless()), 4);
+  reportTransactionFailure({ type: 'execute', stage: 'executing', error });
+  expect(await reportedMessage()).toContain('; point pipeline; unknown; thrown non_error. authentication');
+  expect(reads).toBeLessThan(200);
+});
+
 describe('an unknown submit outcome', () => {
   it('sends a status outside the unknown-outcome list as other', async () => {
     reportTransactionFailure({
