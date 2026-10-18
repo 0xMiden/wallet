@@ -344,7 +344,7 @@ const handlers: Partial<DappHandlers> = {
 
   consumableNotes: () => outcome(async () => (await state.adapter.requestConsumableNotes()).map(noteView)),
 
-  // The ids go to the wallet as given, so N4 can ask by the id an import returned (K10) as well as by the note's own.
+  // The ids go to the wallet as given, so N4 can ask by the id an import returned as well as by the note's own.
   privateNotes: ({ filter, noteIds }) =>
     outcome(async () => (await state.adapter.requestPrivateNotes(NoteFilterTypes[filter], noteIds)).map(noteView)),
 
@@ -471,7 +471,7 @@ const handlers: Partial<DappHandlers> = {
 
   // Returns the id the wallet reports: the note id for a file with an inclusion proof, the details commitment for a
   // details-only file or a bare note (dapp.ts:1502-1507). A consume by that commitment (W5b, W5c) consumes the note it
-  // names once a sync has committed it (#1389); the private-note list still misses it (N4, K10).
+  // names once a sync has committed it (#1389); N4 lists the same note by that returned id (#1536).
   importNote: ({ noteBytesB64 }) =>
     outcome(async () => ({ noteId: await state.adapter.importPrivateNote(b64ToU8(noteBytesB64)) })),
 

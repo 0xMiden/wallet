@@ -73,7 +73,7 @@ const conformance = loadConformance();
  * that nobody records is how the list rots back into being wrong.
  */
 const KNOWN_GAPS: Record<string, string[]> = {
-  'mobile (dApp browser injection script)': ['createAccount'],
+  'mobile (dApp browser injection script)': [],
   'desktop (Tauri injection script)': ['requestGuardianInfo', 'createAccount']
 };
 

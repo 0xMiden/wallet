@@ -149,6 +149,7 @@ describe('INJECTION_SCRIPT constant', () => {
       'isAvailable',
       'connect',
       'disconnect',
+      'createAccount',
       'requestSend',
       'requestConsume',
       'requestTransaction',
@@ -569,6 +570,20 @@ describe('isAvailable', () => {
     const promise = win.midenWallet.isAvailable();
     respond(win, lastMessage(win).reqId, { type: 'MIDEN_PAGE_ERROR_RESPONSE', error: 'unavailable' });
     await expect(promise).resolves.toBe(false);
+  });
+});
+
+describe('createAccount', () => {
+  it('rejects with the extension refusal without sending a bridge message', async () => {
+    const win = makeWindow({ withMobileApp: true });
+    inject(win);
+
+    await expect(win.midenWallet.createAccount()).rejects.toMatchObject({
+      name: 'Error',
+      message:
+        'createAccount is not supported by the Miden wallet. No provider implements it and there is no wire message for it.'
+    });
+    expect(win.mobileApp!.postMessage).not.toHaveBeenCalled();
   });
 });
 

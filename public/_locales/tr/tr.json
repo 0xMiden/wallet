@@ -881,7 +881,7 @@
   "assetChanges": "Varlık değişiklikleri",
   "unknown": "Bilinmiyor",
   "inputNotesConsumed": "notes'lık girdi tüketildi",
-  "outputNotesCreated": "Çıktınotes dosyası oluşturuldu",
+  "outputNotesCreated": "Çıktı note'ları oluşturuldu",
   "storageChanged": "Depolama alanı değiştirildi",
   "downloadFullSummary": "Tam özeti indir (bayt)",
   "signArbitraryPayload": "\"Arbitrary\" yükünü imzalamak mı?",

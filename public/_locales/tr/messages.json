@@ -3903,7 +3903,7 @@
     "englishSource": "Input notes consumed"
   },
   "outputNotesCreated": {
-    "message": "Çıktınotes dosyası oluşturuldu",
+    "message": "Çıktı note'ları oluşturuldu",
     "englishSource": "Output notes created"
   },
   "storageChanged": {

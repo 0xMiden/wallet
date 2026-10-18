@@ -41,6 +41,7 @@ import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { requestSwapOrderRefresh, useSwapOrderTrackingStore } from 'lib/miden/swap/order-tracking-store';
+import { isOpenRecoveredOrder, isRecoveredSwapOrder } from 'lib/miden/swap/recovered-order';
 import { getSwapTokenByFaucetId, tokenQuote } from 'lib/miden/swap/tokens';
 import { RETRY_WINDOW_SECONDS } from 'lib/miden/transaction/note-delivery-window';
 import { getExplorerAccountUrl, getExplorerTxUrl } from 'lib/miden-chain/constants';
@@ -525,18 +526,23 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const trackingEntry = useSwapOrderTrackingStore(state =>
     orderKey === undefined ? undefined : state.entries[orderKey]
   );
+  // A restored row is not tracked, except an open recovered order, which the manager reads from the node (#1487).
+  const recoveredOrderOpen = transaction !== undefined && isOpenRecoveredOrder(transaction);
+  const tracksOrder = transaction?.restoredFromBackup !== true || recoveredOrderOpen;
   useEffect(() => {
-    if (orderKey === undefined || transaction?.restoredFromBackup === true) return;
+    if (orderKey === undefined || !tracksOrder) return;
     requestSwapOrderRefresh(orderKey);
-  }, [orderKey, transaction?.restoredFromBackup]);
+  }, [orderKey, tracksOrder]);
 
   // Settlement consumes are Dexie-backed too, so liveQuery replaces the old
   // bounded interval and updates the receipt whenever a consume row changes.
   const settlementNotes = useSwapSettlementNotes(transaction?.type === 'swap' ? transaction.id : undefined);
 
-  const swapTracking = trackingEntry?.tracking ?? null;
-  const trackingLoading =
-    orderKey !== undefined && transaction?.restoredFromBackup !== true && (trackingEntry?.loading ?? true);
+  // A closed recovered order reads no entry: one closed outside the poll keeps its last open one (#1487). Every other
+  // row, a file-restored order included, reads its entry.
+  const recoveredOrderClosed = transaction !== undefined && isRecoveredSwapOrder(transaction) && !recoveredOrderOpen;
+  const swapTracking = recoveredOrderClosed ? null : (trackingEntry?.tracking ?? null);
+  const trackingLoading = orderKey !== undefined && tracksOrder && (trackingEntry?.loading ?? true);
 
   const receipt = deriveSwapReceipt({
     originalOutputNoteIds: transaction?.outputNoteIds,
@@ -545,6 +551,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
     tracking: swapTracking,
     settlement: settlementNotes,
     autoConsume: swapAutoConsume,
+    recovered: recoveredOrderOpen,
     slippageBps: swapSlippageBps,
     expiresAt: swapExpiresAt
   });

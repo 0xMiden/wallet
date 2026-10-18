@@ -409,6 +409,13 @@ export const INJECTION_SCRIPT = `
       });
       return { guardianInfo: res.guardianInfo };
     }
+
+    // Mirrors the extension's refusal; there is no wire message.
+    async createAccount() {
+      throw new Error(
+        'createAccount is not supported by the Miden wallet. No provider implements it and there is no wire message for it.'
+      );
+    }
   }
 
   // Create and expose the wallet instance

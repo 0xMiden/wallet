@@ -3793,7 +3793,7 @@
     "englishSource": "Guardian URL"
   },
   "useDifferentGuardian": {
-    "message": "Verwenden Sie eine andere Webguardian",
+    "message": "Verwenden Sie einen anderen Guardian",
     "englishSource": "Use a different guardian"
   },
   "detectingGuardian": {
@@ -3939,7 +3939,7 @@
     "englishSource": "Requests to consume a note"
   },
   "requestPrivateNotes": {
-    "message": "Anfrage an „PrivateNotes“",
+    "message": "Private Notes anfordern",
     "englishSource": "Request Private Notes"
   },
   "requestsPrivateNotes": {
@@ -3985,7 +3985,7 @@
     "englishSource": "Request Import Private Note"
   },
   "importPrivateNote": {
-    "message": "Privatnote importieren",
+    "message": "Private Note importieren",
     "englishSource": "Import private note"
   },
   "requestConsumableNotes": {
@@ -5626,7 +5626,7 @@
     "englishSource": "Custom guardian URL"
   },
   "devEndpointFeeFaucet": {
-    "message": "Gebührenfaucet-Konto-ID",
+    "message": "Konto-ID des Gebühren-Faucets",
     "englishSource": "Fee faucet account ID"
   },
   "devAllowNoGuardian": {
@@ -6621,7 +6621,7 @@
     "englishSource": "Save"
   },
   "resetToFaucetValues": {
-    "message": "Auf die Standardwerte vfaucet zurücksetzen",
+    "message": "Auf die Werte des Faucets zurücksetzen",
     "englishSource": "Reset to faucet values"
   },
   "tokenMetadataEdited": {

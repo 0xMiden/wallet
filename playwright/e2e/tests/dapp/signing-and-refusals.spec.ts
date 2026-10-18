@@ -661,7 +661,7 @@ function failureCells(j: Journey, fx: RefusalFixtures): Record<string, DappCellI
           ctx
         );
         if (toBNote === undefined) throw new HarnessFault("B's producer returned no note");
-        // With its proof, the import returns the note id; bare bytes return the details commitment (K10).
+        // With its proof, the import returns the note id; bare bytes return the details commitment (#1389).
         const file = await callDapp(
           dapp,
           'makeNoteFile',

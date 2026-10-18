@@ -3899,7 +3899,7 @@
     "englishSource": "Unknown"
   },
   "inputNotesConsumed": {
-    "message": "noteses de entrada consumidos",
+    "message": "Notes de entrada consumidos",
     "englishSource": "Input notes consumed"
   },
   "outputNotesCreated": {
@@ -5690,7 +5690,7 @@
     "englishSource": "Write all words on paper in this order. Keep the paper in a safe place outside this device."
   },
   "removeSeedPhraseConfirmation": {
-    "message": "Isso remove a frase de recuperação e as chaves de recuperaçõGuardianes desta carteira neste dispositivo. Guarde seu backup em papel. Os backups feitos anteriormente não são excluídos.",
+    "message": "Isso remove a frase de recuperação e as chaves de recuperação do Guardian desta carteira neste dispositivo. Guarde seu backup em papel. Os backups feitos anteriormente não são excluídos.",
     "englishSource": "This removes the recovery phrase and Guardian recovery keys from this wallet on this device. Keep your paper backup. Previously made backups are not deleted."
   },
   "removeSeedPhraseConfirm": {

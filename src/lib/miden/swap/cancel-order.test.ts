@@ -117,3 +117,54 @@ describe('cancelSwapOrder', () => {
     expect(modify).not.toHaveBeenCalled();
   });
 });
+
+describe('cancelSwapOrder on a Guardian-recovered order', () => {
+  // Recovery records Auto accept off and no expiry; settlement returns such an order once its Cancel is stamped, from
+  // the order note the node holds (#1487).
+  const recoveredExtra = { orderId: '42', requestedFaucetId: 'req', requestedAmount: 1000n, autoConsume: false };
+  const recoveredRow = (extra: Record<string, unknown> = {}, overrides: Row = {}): Row =>
+    swapRow({
+      restoredFromBackup: true,
+      recovered: true,
+      amount: 70n,
+      outputNoteIds: ['order-note'],
+      recovery: {
+        version: 5,
+        network: 'testnet',
+        operators: [],
+        nonce: 2,
+        inputNotes: [],
+        outputNotes: [
+          {
+            id: 'order-note',
+            assets: [],
+            visibility: 'public',
+            swap: { orderId: '42', requestedAsset: { faucetId: 'req', amount: '1000' } }
+          }
+        ],
+        completeness: 'decoded',
+        reclaimed: false
+      },
+      extraInputs: { ...recoveredExtra, ...extra },
+      ...overrides
+    });
+
+  it('stamps an open recovered order exactly as it stamps a live one', async () => {
+    storedRow = recoveredRow();
+    await cancelSwapOrder('tx-1', NOW);
+
+    const row = recoveredRow();
+    expect(applyModify(row)).toBeUndefined();
+    expect(row.extraInputs).toEqual({ ...recoveredExtra, expiresAt: NOW, expiryTriggeredAt: NOW });
+  });
+
+  it.each([
+    ['whose order note it cannot name', recoveredRow({}, { outputNoteIds: [] })],
+    ['whose lineage closed it settled', recoveredRow({ settledAt: NOW - 10, lineageClosedAt: NOW - 10 })],
+    ['whose order note the node showed spent', recoveredRow({ orderNoteSpentAt: NOW - 10 })]
+  ])('refuses a recovered order %s', async (_label, row) => {
+    storedRow = row;
+    await expect(cancelSwapOrder('tx-1', NOW)).rejects.toThrow('restored from a backup');
+    expect(modify).not.toHaveBeenCalled();
+  });
+});

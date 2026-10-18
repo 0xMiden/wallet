@@ -3899,7 +3899,7 @@
     "englishSource": "Unknown"
   },
   "inputNotesConsumed": {
-    "message": "Использовано входные данныеnotes",
+    "message": "Входные notes использованы",
     "englishSource": "Input notes consumed"
   },
   "outputNotesCreated": {
@@ -5347,7 +5347,7 @@
     }
   },
   "usdcxStepBurned": {
-    "message": "Сжето на $network$",
+    "message": "Сожжено в $network$",
     "englishSource": "Burned on $network$",
     "placeholders": {
       "network": {

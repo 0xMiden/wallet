@@ -25,7 +25,7 @@
     "englishSource": "Burn confirmed means USDCx was burned on Miden. Confirmed means the destination USDC balance increased. The note that burns the USDCx and the destination address are public. A published note cannot be reclaimed."
   },
   "usdcxBurnTestNotice": {
-    "message": "Ce test faucet brûle des USDCx sur Miden sans versement vers une destination. L’note de la destruction et l’adresse de destination sont publiques. Les notess de destruction publiées ne peuvent pas être récupérées.",
+    "message": "Ce faucet de test brûle des USDCx sur Miden sans versement vers une destination. La note de destruction et l’adresse de destination sont publiques. Les notes de destruction publiées ne peuvent pas être récupérées.",
     "englishSource": "This test faucet burns USDCx on Miden without a destination payout. The burn note and destination address are public. Published burn notes cannot be reclaimed."
   },
   "usdcxBurnPending": {
@@ -172,11 +172,11 @@
     }
   },
   "guardianHistoryFailed": {
-    "message": "La récupération de l’historique des transactions s’est interrompue car le réseau ou un opérateur d’Guardiane ne peut pas la fournir. La récupération ne sera pas relancée automatiquement.",
+    "message": "La récupération de l’historique des transactions s’est interrompue car le réseau ou un opérateur de Guardian ne peut pas la fournir. La récupération ne sera pas relancée automatiquement.",
     "englishSource": "Transaction history recovery stopped because the network or a Guardian operator cannot provide it. Recovery will not retry automatically."
   },
   "guardianHistoryPartial": {
-    "message": "$count$ Transactions restaurées. Certaines sources d'Guardians n'ont pas pu être lues. La récupération sera relancée lors du prochain déverrouillage du portefeuille.",
+    "message": "$count$ transactions restaurées. Certaines sources de Guardian n'ont pas pu être lues. La récupération sera relancée lors du prochain déverrouillage du portefeuille.",
     "englishSource": "$count$ transactions restored. Some Guardian sources could not be read. Recovery will retry when you next unlock the wallet.",
     "placeholders": {
       "count": {
@@ -661,7 +661,7 @@
     "englishSource": "Bread"
   },
   "appDesc": {
-    "message": "Un portefeuille de navigateur pour l’blockchain Miden",
+    "message": "Un portefeuille de navigateur pour la blockchain Miden",
     "englishSource": "A browser wallet for the Miden blockchain"
   },
   "createAccount": {
@@ -1233,7 +1233,7 @@
     "englishSource": "Creating the proof for your transaction."
   },
   "transactionStageSwitching": {
-    "message": "Changement d’guardian",
+    "message": "Changement de guardian",
     "englishSource": "Switching guardian"
   },
   "transactionStageSwapping": {
@@ -2641,7 +2641,7 @@
     "englishSource": "I'd rather make a fully private account instead"
   },
   "learnMoreAboutGuardian": {
-    "message": "En savoir plus sur l’Guardian",
+    "message": "En savoir plus sur le Guardian",
     "englishSource": "Learn more about the Guardian"
   },
   "guardianOperatedBy": {
@@ -3258,11 +3258,11 @@
     "englishSource": "You can rotate your Guardian again at any time — keep your recovery phrase safe, it's required to do so."
   },
   "guardianSwitchAuthenticationDescription": {
-    "message": "Authentifiez-vous pour approuver ce changement d’Guardian.",
+    "message": "Authentifiez-vous pour approuver ce changement de Guardian.",
     "englishSource": "Authenticate to approve this Guardian switch."
   },
   "guardianAuthenticationUnavailable": {
-    "message": "L'authentification n'est pas disponible. Réessayez avant de changer d'Guardian.",
+    "message": "L'authentification n'est pas disponible. Réessayez avant de changer de Guardian.",
     "englishSource": "Authentication is unavailable. Try again before switching Guardian."
   },
   "walletKeyHot": {
@@ -3395,7 +3395,7 @@
     "englishSource": "Your guardian was switched and we couldn't identify the new operator. Enter its URL to reconnect."
   },
   "guardianUrlMismatch": {
-    "message": "Cet opérateur ne correspond pas à l’guardian sur la blockchain de votre compte.",
+    "message": "Cet opérateur ne correspond pas au guardian de votre compte sur la blockchain.",
     "englishSource": "That operator doesn't match your account's on-chain guardian."
   },
   "guardianUrlUnreachable": {
@@ -3879,11 +3879,11 @@
     "englishSource": "(invalid payload)"
   },
   "sharePrivateNoteDataForAccount": {
-    "message": "Partager toutes les données d'notes personnelles associées au compte",
+    "message": "Partager toutes les données des notes privées associées au compte",
     "englishSource": "Share all private note data for account"
   },
   "downloadPrivateNoteData": {
-    "message": "Télécharger les données relatives à l'Notee privée",
+    "message": "Télécharger les données de la Note privée",
     "englishSource": "Download Private Note Data"
   },
   "failedToParseSigningPayload": {
@@ -3899,11 +3899,11 @@
     "englishSource": "Unknown"
   },
   "inputNotesConsumed": {
-    "message": "notess d'entrée consommées",
+    "message": "Notes d'entrée consommées",
     "englishSource": "Input notes consumed"
   },
   "outputNotesCreated": {
-    "message": "notess de sortie créées",
+    "message": "Notes de sortie créées",
     "englishSource": "Output notes created"
   },
   "storageChanged": {
@@ -3939,11 +3939,11 @@
     "englishSource": "Requests to consume a note"
   },
   "requestPrivateNotes": {
-    "message": "Demande d'Notess confidentielles",
+    "message": "Demande de Notes confidentielles",
     "englishSource": "Request Private Notes"
   },
   "requestsPrivateNotes": {
-    "message": "Demande d'notess confidentielles",
+    "message": "Demande des notes confidentielles",
     "englishSource": "Requests private notes"
   },
   "confirmSignature": {
@@ -3981,7 +3981,7 @@
     "englishSource": "Requests assets"
   },
   "requestImportPrivateNote": {
-    "message": "Demande d'importation d'Notes confidentielles",
+    "message": "Demande d'importation d'une Note confidentielle",
     "englishSource": "Request Import Private Note"
   },
   "importPrivateNote": {
@@ -3989,11 +3989,11 @@
     "englishSource": "Import private note"
   },
   "requestConsumableNotes": {
-    "message": "Demande d'Notes sur les consommables",
+    "message": "Demande de Notes consommables",
     "englishSource": "Request Consumable Notes"
   },
   "requestsConsumableNotes": {
-    "message": "Demander des informations sur les consommnotes",
+    "message": "Demande des notes consommables",
     "englishSource": "Request consumable notes"
   },
   "review": {
@@ -4101,7 +4101,7 @@
     "englishSource": "Account Public Key"
   },
   "editMidenFaucetId": {
-    "message": "Modifier l'identifiant d'Faucetation de Miden",
+    "message": "Modifier l'identifiant du Faucet Miden",
     "englishSource": "Edit Miden Faucet ID"
   },
   "faucetId": {
@@ -4121,7 +4121,7 @@
     "englishSource": "Faucet IDs"
   },
   "setNewFaucetId": {
-    "message": "Définir un nouvel identifiant d'Faucet",
+    "message": "Définir un nouvel identifiant de Faucet",
     "englishSource": "Set new Faucet ID"
   },
   "setNewFaucetIdDescription": {
@@ -5454,7 +5454,7 @@
     "englishSource": "Unverified"
   },
   "unverifiedTokenDescription": {
-    "message": "Ce jeton ne figure pas sur la liste des jetons vérifiés de Miden. N’importe qui peut créer un jeton sous n’importe quel nom ; vérifiez donc l’identifiant de l’faucete avant de lui accorder votre confiance.",
+    "message": "Ce jeton ne figure pas sur la liste des jetons vérifiés de Miden. N’importe qui peut créer un jeton sous n’importe quel nom ; vérifiez donc l’identifiant du faucet avant de lui accorder votre confiance.",
     "englishSource": "This token is not on Miden's verified token list. Anyone can create a token with any name, so check the faucet ID before you trust it."
   },
   "unverifiedTokenTitle": {
@@ -5682,7 +5682,7 @@
     "englishSource": "Remove recovery phrase"
   },
   "removeSeedPhraseDescription": {
-    "message": "Notez votre phrase de récupération avant de la supprimer. Les transactions quotidiennes continueront de fonctionner. Les modifications de l'Guardiant le remplacement quotidien de la clé vous obligeront à saisir la phrase de récupération.",
+    "message": "Notez votre phrase de récupération avant de la supprimer. Les transactions quotidiennes continueront de fonctionner. Les changements de Guardian et le remplacement de la clé quotidienne vous obligeront à saisir la phrase de récupération.",
     "englishSource": "Write down your recovery phrase before you remove it. Daily transactions will still work. Guardian changes and everyday key replacement will require you to enter the recovery phrase."
   },
   "removeSeedPhraseWriteDown": {
@@ -5690,7 +5690,7 @@
     "englishSource": "Write all words on paper in this order. Keep the paper in a safe place outside this device."
   },
   "removeSeedPhraseConfirmation": {
-    "message": "Cette opération supprime la phrase de récupération et les clés de récupération d’Guardians de ce portefeuille sur cet appareil. Conservez votre sauvegarde papier. Les sauvegardes effectuées précédemment ne sont pas supprimées.",
+    "message": "Cette opération supprime la phrase de récupération et les clés de récupération de Guardian de ce portefeuille sur cet appareil. Conservez votre sauvegarde papier. Les sauvegardes effectuées précédemment ne sont pas supprimées.",
     "englishSource": "This removes the recovery phrase and Guardian recovery keys from this wallet on this device. Keep your paper backup. Previously made backups are not deleted."
   },
   "removeSeedPhraseConfirm": {
@@ -6184,7 +6184,7 @@
     "englishSource": "Funding your wallet"
   },
   "fundWalletLoadingBody": {
-    "message": "Demande de jetons auprès de l'faucet…",
+    "message": "Demande de jetons auprès du faucet…",
     "englishSource": "Requesting tokens from the faucet…"
   },
   "fundWalletSuccessTitle": {
@@ -6621,7 +6621,7 @@
     "englishSource": "Save"
   },
   "resetToFaucetValues": {
-    "message": "Réinitialisation aux valeurs d’faucet",
+    "message": "Réinitialiser aux valeurs du faucet",
     "englishSource": "Reset to faucet values"
   },
   "tokenMetadataEdited": {
@@ -6656,7 +6656,7 @@
     }
   },
   "tokenMetadataOverrideNotice": {
-    "message": "Ces valeurs ne modifient que la manière dont ce portefeuille affiche le jeton. L’faucete conserve ses propres valeurs. Les montants que vous envoyez utilisent les décimales que vous définissez ici.",
+    "message": "Ces valeurs ne modifient que la manière dont ce portefeuille affiche le jeton. Le faucet conserve ses propres valeurs. Les montants que vous envoyez utilisent les décimales que vous définissez ici.",
     "englishSource": "These values change only how this wallet shows the token. The faucet keeps its own values. Amounts you send use the decimals you set here."
   },
   "tokenMetadataSaveError": {
