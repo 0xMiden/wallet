@@ -5,16 +5,10 @@
  * confirm releases their quarantine, and an unrecorded one was claimed out from under the dApp's transaction.
  */
 
-const mockAdd = jest.fn((..._args: unknown[]) => Promise.resolve(undefined));
-
-jest.mock('../repo', () => ({
-  transactions: {
-    add: (...args: unknown[]) => mockAdd(...args)
-  }
-}));
+const mockQueueNoteImport = jest.fn((_noteBytes: string) => Promise.resolve(undefined));
 
 jest.mock('../activity/notes', () => ({
-  queueNoteImport: () => Promise.resolve(undefined)
+  queueNoteImport: (noteBytes: string) => mockQueueNoteImport(noteBytes)
 }));
 
 jest.mock('../sdk/miden-client', () => ({
@@ -35,35 +29,59 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   }
 }));
 
-import { requestCustomTransaction } from './initiate';
+import * as Repo from 'lib/miden/repo';
+
+import { requestCustomTransaction, TransactionQueuedError } from './initiate';
 
 const REQUEST_BYTES = Buffer.from('custom-request').toString('base64');
 const carried = (id: string) => Buffer.from(id).toString('base64');
 
-beforeEach(() => {
+beforeEach(async () => {
   jest.clearAllMocks();
+  mockQueueNoteImport.mockReset();
+  mockQueueNoteImport.mockResolvedValue(undefined);
+  await Repo.transactions.clear();
 });
 
 describe('requestCustomTransaction records the notes the row will consume', () => {
   it('records the carried notes alongside the ones the dApp names', async () => {
     await requestCustomTransaction('account-a', REQUEST_BYTES, ['named-note'], [carried('carried-note')]);
 
-    expect(mockAdd).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'execute', heldNoteIds: ['named-note', 'carried-note'] })
-    );
-    // The dApp's own list is left as it sent it.
-    expect(mockAdd).toHaveBeenCalledWith(expect.objectContaining({ inputNoteIds: ['named-note'] }));
+    expect(await Repo.transactions.toArray()).toEqual([
+      expect.objectContaining({
+        type: 'execute',
+        heldNoteIds: ['named-note', 'carried-note'],
+        inputNoteIds: ['named-note']
+      })
+    ]);
   });
 
   it('records a carried note the dApp also names once', async () => {
     await requestCustomTransaction('account-a', REQUEST_BYTES, ['same-note'], [carried('same-note')]);
 
-    expect(mockAdd).toHaveBeenCalledWith(expect.objectContaining({ heldNoteIds: ['same-note'] }));
+    expect(await Repo.transactions.toArray()).toEqual([expect.objectContaining({ heldNoteIds: ['same-note'] })]);
   });
 
   it('records the carried notes when the dApp names none', async () => {
     await requestCustomTransaction('account-a', REQUEST_BYTES, undefined, [carried('a'), carried('b')]);
 
-    expect(mockAdd).toHaveBeenCalledWith(expect.objectContaining({ heldNoteIds: ['a', 'b'] }));
+    expect(await Repo.transactions.toArray()).toEqual([expect.objectContaining({ heldNoteIds: ['a', 'b'] })]);
+  });
+
+  it('reports the queued id when a carried note cannot be queued after the insert', async () => {
+    const queueError = new Error('note queue unavailable');
+    mockQueueNoteImport.mockRejectedValueOnce(queueError);
+
+    const request = requestCustomTransaction('account-a', REQUEST_BYTES, [], [carried('carried-note')]);
+
+    await expect(request).rejects.toHaveProperty('name', 'TransactionQueuedError');
+    await expect(request).rejects.toBeInstanceOf(TransactionQueuedError);
+    const error: unknown = await request.catch((cause: unknown) => cause);
+    if (!(error instanceof TransactionQueuedError)) throw error;
+
+    const rows = await Repo.transactions.toArray();
+    expect(rows).toHaveLength(1);
+    expect(error.transactionId).toBe(rows[0].id);
+    expect(error.cause).toBe(queueError);
   });
 });
