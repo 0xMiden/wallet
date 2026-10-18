@@ -59,6 +59,9 @@ class BreadConnect(
     private val lock = Any()
     private var waiter: Waiter? = null
 
+    /** Runs after the still-waiting check and before the open. Tests cancel from another thread here. */
+    internal var beforeOpen: (() -> Unit)? = null
+
     /** The last request this client settled: a record of it left in storage takes no answer until a relaunch. */
     private var settledId: String? = null
 
@@ -202,6 +205,7 @@ class BreadConnect(
                     val opening = launch {
                         // The cancel below runs only once the settled wait resumes, which can come after this starts.
                         if (synchronized(lock) { this@BreadConnect.waiter !== waiter }) return@launch
+                        beforeOpen?.invoke()
                         val opened = try {
                             opener.open(link)
                         } catch (e: CancellationException) {

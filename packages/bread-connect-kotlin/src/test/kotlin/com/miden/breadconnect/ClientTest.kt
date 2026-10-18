@@ -1,14 +1,22 @@
 package com.miden.breadconnect
 
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.currentTime
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.serialization.json.JsonObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -207,6 +215,59 @@ class ClientTest {
 
         assertEquals(BreadConnectException.Code.Cancelled, (cancelled.await().exceptionOrNull() as BreadConnectException).code)
         assertEquals(0, opener.opened.size)
+    }
+
+    @Test
+    fun aCancelFromAnotherThreadBetweenTheCheckAndTheOpenNeverOpensBread() = runBlocking {
+        val opened = AtomicBoolean(false)
+        val opener = object : BreadOpener {
+            override suspend fun open(link: String): Boolean {
+                opened.set(true)
+                return true
+            }
+        }
+        val client = BreadConnect(callback, MemoryStorage(), opener) { now }
+        client.beforeOpen = {
+            val cancelling = Thread { client.cancelPending() }
+            cancelling.start()
+            cancelling.join()
+        }
+
+        val error = withTimeout(5_000) { runCatching { client.connect("Where Legends Grow") } }.exceptionOrNull()
+        assertEquals(BreadConnectException.Code.Cancelled, (error as? BreadConnectException)?.code)
+        assertFalse(opened.get())
+    }
+
+    @Test
+    fun anOpenerAlreadyInProgressNeverOpensAfterAnotherThreadCancels() = runBlocking {
+        val inside = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val opened = AtomicBoolean(false)
+        val opener = object : BreadOpener {
+            override suspend fun open(link: String): Boolean {
+                inside.countDown()
+                release.await()
+                if (!isActive) return true
+                opened.set(true)
+                return true
+            }
+        }
+        val client = BreadConnect(callback, MemoryStorage(), opener) { now }
+        // One thread, so the waiting call cannot cancel the opener until the opener leaves this function.
+        val serial = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
+        try {
+            val connect = async(serial) { runCatching { client.connect("Where Legends Grow") } }
+            assertTrue(inside.await(5, TimeUnit.SECONDS))
+
+            client.cancelPending()
+            release.countDown()
+
+            val error = withTimeout(5_000) { connect.await() }.exceptionOrNull()
+            assertEquals(BreadConnectException.Code.Cancelled, (error as? BreadConnectException)?.code)
+            assertFalse(opened.get())
+        } finally {
+            serial.close()
+        }
     }
 
     @Test

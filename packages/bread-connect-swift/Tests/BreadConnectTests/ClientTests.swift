@@ -171,6 +171,19 @@ final class ClientTests: XCTestCase {
         XCTAssertEqual(opener.opened.count, 0)
     }
 
+    func testCancellingTheCallerBeforeItsOpenerRunsNeverOpensBread() async throws {
+        let client = try client()
+        // Queued during the yield, and this resumes before that task runs, so the cancel lands behind it.
+        let caller = Task { try await client.connect(appName: "Where Legends Grow") }
+        await Task.yield()
+        caller.cancel()
+
+        await assertThrows(.cancelled) { _ = try await caller.value }
+        for _ in 0..<10 { await Task.yield() }
+
+        XCTAssertEqual(opener.opened.count, 0)
+    }
+
     func testALostSessionIsForgotten() async throws {
         let client = try await connected()
         answer(with: client) { [bread] link in
