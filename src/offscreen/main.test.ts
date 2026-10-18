@@ -2224,6 +2224,30 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     ]);
   });
 
+  it('dispatches a commitment batch and JSON-encodes the ordered DTO entries', async () => {
+    await loadModule();
+    const dto = [
+      { notes: [{ noteId: 'n9' }], uncommitted: 0 },
+      { notes: [], uncommitted: 1 }
+    ];
+    G.__off.clientGetDetailsCommitmentMatches.mockResolvedValueOnce(dto);
+    const sendResponse = jest.fn();
+    capturedListener!(
+      callReq({ method: 'getDetailsCommitmentMatches', argsB64: [encodeArg(['0xcommitment', '0xother'])] }),
+      {},
+      sendResponse
+    );
+    await flush();
+
+    expect(G.__off.clientGetDetailsCommitmentMatches).toHaveBeenCalledWith(
+      ['0xcommitment', '0xother'],
+      expect.any(Function)
+    );
+    const resp = sendResponse.mock.calls[0][0];
+    expect(resp.ok).toBe(true);
+    expect(JSON.parse(Buffer.from(resp.resultB64, 'base64').toString('utf8'))).toEqual(dto);
+  });
+
   it('dispatches getDetailsCommitmentMatches and JSON-encodes its plain DTO (#1389)', async () => {
     await loadModule();
     const sendResponse = jest.fn();

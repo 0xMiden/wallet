@@ -610,7 +610,7 @@ describe('MidenClientInterface', () => {
       fakeMidenClient.notes.list = jest.fn(async (): Promise<any[]> => records);
       jest.doMock('./note-details-commitment', () => ({
         ...jest.requireActual('./note-details-commitment'),
-        noteDetailsCommitment: (details: { commitment: string }) => details.commitment
+        noteDetailsCommitment: jest.fn((details: { commitment: string }) => details.commitment)
       }));
       jest.doMock('./helpers', () => ({
         getBech32AddressFromAccountId: (id: any) => String(id),
@@ -641,6 +641,27 @@ describe('MidenClientInterface', () => {
       expect(assertLive).toHaveBeenCalledTimes(1);
       expect(matches.uncommitted).toBe(1);
       expect(matches.notes).toEqual([expect.objectContaining({ noteId: '0xcommitted', nullifier: 'nf-0xcommitted' })]);
+    });
+
+    it('answers each commitment from one listing, in the order asked', async () => {
+      const records = [record('abc1', '0xone'), record('def2', '0xtwo'), record('abc1', '0xthree')];
+      const { fakeMidenClient, client } = await clientListing(records);
+
+      const matches = await client.getDetailsCommitmentMatches(['0xDEF2', '0xabc1', '0xnone'], jest.fn());
+
+      expect(fakeMidenClient.notes.list).toHaveBeenCalledTimes(1);
+      expect(matches.map(match => match.notes.map(note => note.noteId))).toEqual([['0xtwo'], ['0xone', '0xthree'], []]);
+      const { noteDetailsCommitment } = await import('./note-details-commitment');
+      expect(noteDetailsCommitment).toHaveBeenCalledTimes(3);
+    });
+
+    it('normalizes every commitment spelling and counts uncommitted matches per entry', async () => {
+      const { client } = await clientListing([record('def2', '0xtwo'), record('abc1')]);
+
+      const matches = await client.getDetailsCommitmentMatches(['0xDEF2', 'def2', '0XDeF2', 'abc1']);
+
+      expect(matches.map(match => match.notes.map(note => note.noteId))).toEqual([['0xtwo'], ['0xtwo'], ['0xtwo'], []]);
+      expect(matches.map(match => match.uncommitted)).toEqual([0, 0, 0, 1]);
     });
 
     it('reads no record once the listing comes back to a hold that is no longer current', async () => {
