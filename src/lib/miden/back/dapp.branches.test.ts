@@ -8,7 +8,7 @@
  * and the startDappBackgroundProcessing error-swallowing.
  */
 
-import { Poseidon2, Word } from '@miden-sdk/miden-sdk/lazy';
+import { NoteFilterTypes, NoteType, Poseidon2, Word } from '@miden-sdk/miden-sdk/lazy';
 
 import { MidenDAppConsumeRequest, MidenDAppMessageType, MidenDAppErrorType } from 'lib/adapter/types';
 import { ITransactionStatus, type ITransaction, type TransactionOutput } from 'lib/miden/db/types';
@@ -193,7 +193,7 @@ const storedNote = {
 };
 const mockGetInputNoteDetails = jest.fn(async (..._args: unknown[]): Promise<unknown[]> => [storedNote]);
 const NO_COMMITMENT_MATCH = { notes: [], uncommitted: 0 };
-const mockGetDetailsCommitmentMatches = jest.fn(async (..._args: unknown[]): Promise<unknown> => NO_COMMITMENT_MATCH);
+const mockGetDetailsCommitmentMatches = jest.fn(async (..._args: unknown[]): Promise<unknown> => [NO_COMMITMENT_MATCH]);
 const mockGetConsumableNoteDtos = jest.fn(async (..._args: unknown[]): Promise<unknown[]> => []);
 const mockRetireWasmClientForCaughtTrap = jest.fn();
 jest.mock('../sdk/miden-client', () => ({
@@ -953,7 +953,7 @@ describe('requestConsumeTransaction by the id importPrivateNote returned (#1389)
     mockGetInputNoteDetails.mockReset();
     mockGetInputNoteDetails.mockResolvedValue([storedNote]);
     mockGetDetailsCommitmentMatches.mockReset();
-    mockGetDetailsCommitmentMatches.mockResolvedValue(NO_COMMITMENT_MATCH);
+    mockGetDetailsCommitmentMatches.mockResolvedValue([NO_COMMITMENT_MATCH]);
     mockGetConsumableNoteDtos.mockReset();
     mockGetConsumableNoteDtos.mockResolvedValue([]);
   });
@@ -1016,7 +1016,7 @@ describe('requestConsumeTransaction by the id importPrivateNote returned (#1389)
         throw new Error('not a Note');
       }
     };
-    mockGetDetailsCommitmentMatches.mockResolvedValue({ notes: [importedNote], uncommitted: 0 });
+    mockGetDetailsCommitmentMatches.mockResolvedValue([{ notes: [importedNote], uncommitted: 0 }]);
     mockGetConsumableNoteDtos.mockResolvedValue(consumable(importedNote.noteId));
     mockImportNoteBytes.mockResolvedValue(COMMITMENT);
     try {
@@ -1040,28 +1040,22 @@ describe('requestConsumeTransaction by the id importPrivateNote returned (#1389)
 
   it.each([
     'after the note-preview read',
-    'inside the details-commitment read, before the record reach-through',
-    'after the details-commitment read',
-    'inside the consumable-notes read'
+    'inside the consumable-notes read',
+    'inside the details-commitment read, before the record reach-through'
   ])('refuses a stale hold %s before any sheet or consume', async where => {
-    mockGetDetailsCommitmentMatches.mockResolvedValue({ notes: [importedNote], uncommitted: 0 });
+    mockGetDetailsCommitmentMatches.mockResolvedValue([{ notes: [importedNote], uncommitted: 0 }]);
     mockGetConsumableNoteDtos.mockResolvedValue(consumable(importedNote.noteId));
     if (where === 'after the note-preview read') {
       mockGetInputNoteDetails.mockImplementationOnce(async () => {
         currentWasmHold = null;
         return [];
       });
-    } else if (where === 'after the details-commitment read') {
-      mockGetDetailsCommitmentMatches.mockImplementationOnce(async () => {
-        currentWasmHold = null;
-        return { notes: [importedNote], uncommitted: 0 };
-      });
     } else if (where.startsWith('inside the details-commitment')) {
       mockGetDetailsCommitmentMatches.mockImplementationOnce(async (...args: unknown[]) => {
         currentWasmHold = null;
-        const assertLive = args[1];
+        const assertLive = args[2];
         if (typeof assertLive === 'function') assertLive();
-        return { notes: [importedNote], uncommitted: 0 };
+        return [{ notes: [importedNote], uncommitted: 0 }];
       });
     } else {
       mockGetConsumableNoteDtos.mockImplementationOnce(async (...args: unknown[]) => {
@@ -1091,7 +1085,7 @@ describe('requestConsumeTransaction by the id importPrivateNote returned (#1389)
   });
 
   it('shows the note the commitment names and consumes it by its own note id', async () => {
-    mockGetDetailsCommitmentMatches.mockResolvedValueOnce({ notes: [importedNote], uncommitted: 0 });
+    mockGetDetailsCommitmentMatches.mockResolvedValueOnce([{ notes: [importedNote], uncommitted: 0 }]);
     mockGetConsumableNoteDtos.mockResolvedValueOnce(consumable('0xother-note', '0xreal-note'));
 
     await expect(consumeByCommitment()).resolves.toEqual({
@@ -1099,8 +1093,15 @@ describe('requestConsumeTransaction by the id importPrivateNote returned (#1389)
       transactionId: 'tx-imported'
     });
 
-    expect(mockGetDetailsCommitmentMatches).toHaveBeenCalledWith(COMMITMENT, expect.any(Function));
+    expect(mockGetDetailsCommitmentMatches).toHaveBeenCalledWith(
+      [COMMITMENT],
+      ['0xother-note', '0xreal-note'],
+      expect.any(Function)
+    );
     expect(mockGetConsumableNoteDtos).toHaveBeenCalledWith('miden-account-1', expect.any(Function));
+    expect(mockGetConsumableNoteDtos.mock.invocationCallOrder[0]).toBeLessThan(
+      mockGetDetailsCommitmentMatches.mock.invocationCallOrder[0]!
+    );
     const sheet = mockRequestConfirmation.mock.calls[0]![0] as { transactionMessages: string[] };
     expect(sheet.transactionMessages).toContain('Amount, +4500000');
     expect(mockInitiateConsumeTransactionFromId).toHaveBeenCalledWith(
@@ -1113,6 +1114,24 @@ describe('requestConsumeTransaction by the id importPrivateNote returned (#1389)
     );
   });
 
+  it('rejects an eviction in the commitment consumable read before looking up a commitment', async () => {
+    mockGetConsumableNoteDtos.mockImplementationOnce(async () => {
+      currentWasmHold = null;
+      return consumable(importedNote.noteId);
+    });
+
+    const lock: { assertWasmHoldCurrent(hold: object | null, label: string): void } =
+      jest.requireMock('../sdk/miden-client');
+    const check = jest.spyOn(lock, 'assertWasmHoldCurrent');
+    try {
+      await expect(consumeByCommitment()).rejects.toThrow('WASM client poisoned');
+      expect(check).toHaveBeenLastCalledWith(expect.anything(), 'after the details-commitment consumable-notes read');
+      expect(mockGetDetailsCommitmentMatches).not.toHaveBeenCalled();
+    } finally {
+      check.mockRestore();
+    }
+  });
+
   it('gives unknown, uncommitted and other-account ids exactly the same sync guidance', async () => {
     const refusal = new Error(
       `${MidenDAppErrorType.InvalidParams}: Error: Note ${COMMITMENT} could not be resolved - an imported note resolves once the wallet has synced it`
@@ -1122,15 +1141,19 @@ describe('requestConsumeTransaction by the id importPrivateNote returned (#1389)
       { notes: [], uncommitted: 1 },
       { notes: [importedNote], uncommitted: 0 }
     ]) {
-      mockGetDetailsCommitmentMatches.mockResolvedValueOnce(match);
+      mockGetDetailsCommitmentMatches.mockResolvedValueOnce([match]);
       await expect(consumeByCommitment()).rejects.toEqual(refusal);
     }
+    expect(mockGetConsumableNoteDtos).toHaveBeenCalledTimes(3);
+    expect(mockGetDetailsCommitmentMatches).toHaveBeenNthCalledWith(1, [COMMITMENT], [], expect.any(Function));
+    expect(mockGetDetailsCommitmentMatches).toHaveBeenNthCalledWith(2, [COMMITMENT], [], expect.any(Function));
+    expect(mockGetDetailsCommitmentMatches).toHaveBeenNthCalledWith(3, [COMMITMENT], [], expect.any(Function));
     expect(mockRequestConfirmation).not.toHaveBeenCalled();
     expect(mockInitiateConsumeTransactionFromId).not.toHaveBeenCalled();
   });
 
   it('refuses a commitment that names only a note of another account, as one it cannot resolve', async () => {
-    mockGetDetailsCommitmentMatches.mockResolvedValueOnce({ notes: [importedNote], uncommitted: 0 });
+    mockGetDetailsCommitmentMatches.mockResolvedValueOnce([{ notes: [importedNote], uncommitted: 0 }]);
     mockGetConsumableNoteDtos.mockResolvedValueOnce(consumable('0xother-note'));
 
     await expect(consumeByCommitment()).rejects.toThrow(`Note ${COMMITMENT} could not be resolved`);
@@ -1140,7 +1163,7 @@ describe('requestConsumeTransaction by the id importPrivateNote returned (#1389)
 
   it('refuses a commitment that names two notes this account can consume', async () => {
     const twin = { ...importedNote, noteId: '0xtwin-note' };
-    mockGetDetailsCommitmentMatches.mockResolvedValueOnce({ notes: [importedNote, twin], uncommitted: 0 });
+    mockGetDetailsCommitmentMatches.mockResolvedValueOnce([{ notes: [importedNote, twin], uncommitted: 0 }]);
     mockGetConsumableNoteDtos.mockResolvedValueOnce(consumable('0xreal-note', '0xtwin-note'));
 
     await expect(consumeByCommitment()).rejects.toThrow(
@@ -1592,6 +1615,250 @@ describe('requestSign — input validation', () => {
 
 // ── requestPrivateNotes — input validation branches ──────────────
 
+describe('requestPrivateNotes by the id importPrivateNote returned (#1536)', () => {
+  const importedNote = { ...storedNote, noteId: 'n9', noteType: NoteType.Private };
+  const firstNote = { ...importedNote, noteId: 'n1' };
+  const requestList = (notefilterType: NoteFilterTypes, noteIds?: string[]) =>
+    dapp.requestPrivateNotes('https://miden.xyz', {
+      type: MidenDAppMessageType.PrivateNotesRequest,
+      sourcePublicKey: 'miden-account-1',
+      notefilterType,
+      noteIds
+    });
+
+  beforeEach(() => {
+    storageState[STORAGE_KEY] = {
+      'https://miden.xyz': [{ ...SESSION, privateDataPermission: 'AUTO', allowedPrivateData: 2 }]
+    };
+    mockGetInputNoteDetails.mockReset();
+    mockGetInputNoteDetails.mockResolvedValue([]);
+    mockGetDetailsCommitmentMatches.mockReset();
+    mockGetDetailsCommitmentMatches.mockResolvedValue([{ notes: [importedNote], uncommitted: 0 }]);
+    mockGetConsumableNoteDtos.mockReset();
+    mockGetConsumableNoteDtos.mockResolvedValue([{ noteId: 'n1' }, { noteId: 'n9' }]);
+  });
+
+  afterEach(() => {
+    mockGetInputNoteDetails.mockReset();
+    mockGetInputNoteDetails.mockResolvedValue([storedNote]);
+    mockGetDetailsCommitmentMatches.mockReset();
+    mockGetDetailsCommitmentMatches.mockResolvedValue([NO_COMMITMENT_MATCH]);
+    mockGetConsumableNoteDtos.mockReset();
+    mockGetConsumableNoteDtos.mockResolvedValue([]);
+  });
+
+  it('lists the imported note under its real note id when asked by its returned commitment', async () => {
+    await expect(requestList(NoteFilterTypes.List, ['0xcommit'])).resolves.toEqual({
+      type: MidenDAppMessageType.PrivateNotesResponse,
+      privateNotes: [importedNote]
+    });
+    expect(mockGetInputNoteDetails).toHaveBeenCalledWith({ ids: ['0xcommit'] }, expect.any(Function));
+    expect(mockGetDetailsCommitmentMatches).toHaveBeenCalledWith(['0xcommit'], ['n1', 'n9'], expect.any(Function));
+    expect(mockGetConsumableNoteDtos).toHaveBeenCalledWith('miden-account-1', expect.any(Function));
+    expect(mockGetConsumableNoteDtos.mock.invocationCallOrder[0]).toBeLessThan(
+      mockGetDetailsCommitmentMatches.mock.invocationCallOrder[0]!
+    );
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+  });
+
+  it('rejects an eviction in the List consumable read before looking up commitments', async () => {
+    mockGetConsumableNoteDtos.mockImplementationOnce(async () => {
+      currentWasmHold = null;
+      return [{ noteId: 'n9' }];
+    });
+
+    const pending = requestList(NoteFilterTypes.List, ['0xcommit']);
+    await expect(pending).rejects.toBeInstanceOf(WasmClientPoisonedError);
+    await expect(pending).rejects.toMatchObject({
+      cause: expect.objectContaining({ message: 'operation abandoned after the consumable-notes read' })
+    });
+    expect(mockGetDetailsCommitmentMatches).not.toHaveBeenCalled();
+  });
+
+  it('looks up every id in one batch when note ids and commitments are mixed', async () => {
+    mockGetInputNoteDetails.mockResolvedValueOnce([firstNote]);
+
+    await expect(requestList(NoteFilterTypes.List, ['n1', '0xcommit'])).resolves.toMatchObject({
+      privateNotes: [firstNote, importedNote]
+    });
+    expect(mockGetDetailsCommitmentMatches).toHaveBeenCalledTimes(1);
+    expect(mockGetDetailsCommitmentMatches).toHaveBeenCalledWith(
+      ['n1', '0xcommit'],
+      ['n1', 'n9'],
+      expect.any(Function)
+    );
+  });
+
+  it('resolves several commitments in a single batch and lists all of their notes', async () => {
+    const twin = { ...importedNote, noteId: 'n10' };
+    mockGetDetailsCommitmentMatches.mockResolvedValueOnce([
+      { notes: [importedNote, twin], uncommitted: 0 },
+      { notes: [firstNote], uncommitted: 0 }
+    ]);
+    mockGetConsumableNoteDtos.mockResolvedValueOnce([{ noteId: 'n1' }, { noteId: 'n9' }, { noteId: 'n10' }]);
+
+    await expect(requestList(NoteFilterTypes.List, ['0xcommit', '0xsecond'])).resolves.toMatchObject({
+      privateNotes: [importedNote, twin, firstNote]
+    });
+    expect(mockGetDetailsCommitmentMatches).toHaveBeenCalledTimes(1);
+    expect(mockGetDetailsCommitmentMatches).toHaveBeenCalledWith(
+      ['0xcommit', '0xsecond'],
+      ['n1', 'n9', 'n10'],
+      expect.any(Function)
+    );
+  });
+
+  it.each([
+    ['another account holds', [{ ...importedNote, noteId: 'foreign' }]],
+    ['nobody holds', []]
+  ])('takes the same lookup path for an id %s', async (_label, byId) => {
+    mockGetInputNoteDetails.mockResolvedValueOnce(byId);
+    mockGetDetailsCommitmentMatches.mockResolvedValueOnce([NO_COMMITMENT_MATCH]);
+
+    await expect(requestList(NoteFilterTypes.List, ['0xforeign'])).resolves.toMatchObject({ privateNotes: [] });
+    expect(mockGetDetailsCommitmentMatches).toHaveBeenCalledTimes(1);
+    expect(mockGetDetailsCommitmentMatches).toHaveBeenCalledWith(['0xforeign'], ['n1', 'n9'], expect.any(Function));
+  });
+
+  it('withholds a commitment match that only another account can consume', async () => {
+    mockGetConsumableNoteDtos.mockResolvedValueOnce([{ noteId: 'other-account-note' }]);
+
+    await expect(requestList(NoteFilterTypes.List, ['0xcommit'])).resolves.toMatchObject({ privateNotes: [] });
+    expect(mockGetDetailsCommitmentMatches).toHaveBeenCalledWith(
+      ['0xcommit'],
+      ['other-account-note'],
+      expect.any(Function)
+    );
+  });
+
+  it.each([0, 1])(
+    'lists nothing for a commitment with no committed note and %s uncommitted matches',
+    async uncommitted => {
+      mockGetDetailsCommitmentMatches.mockResolvedValueOnce([{ notes: [], uncommitted }]);
+
+      await expect(requestList(NoteFilterTypes.List, ['0xcommit'])).resolves.toMatchObject({ privateNotes: [] });
+      expect(mockGetDetailsCommitmentMatches).toHaveBeenCalledWith(['0xcommit'], ['n1', 'n9'], expect.any(Function));
+    }
+  );
+
+  it('lists a note once when both its note id and its commitment name it', async () => {
+    mockGetInputNoteDetails.mockResolvedValueOnce([importedNote]);
+
+    await expect(requestList(NoteFilterTypes.List, ['n9', '0xcommit'])).resolves.toMatchObject({
+      privateNotes: [importedNote]
+    });
+    expect(mockGetDetailsCommitmentMatches).toHaveBeenCalledWith(
+      ['n9', '0xcommit'],
+      ['n1', 'n9'],
+      expect.any(Function)
+    );
+  });
+
+  it('lists repeated note ids once and looks the id up once', async () => {
+    mockGetInputNoteDetails.mockResolvedValueOnce([importedNote, importedNote]);
+
+    await expect(requestList(NoteFilterTypes.List, ['n9', 'n9'])).resolves.toMatchObject({
+      privateNotes: [importedNote]
+    });
+    expect(mockGetDetailsCommitmentMatches).toHaveBeenCalledWith(['n9'], ['n1', 'n9'], expect.any(Function));
+  });
+
+  it('looks up a repeated commitment once and deduplicates notes across batch entries', async () => {
+    mockGetDetailsCommitmentMatches.mockResolvedValueOnce([
+      { notes: [importedNote], uncommitted: 0 },
+      { notes: [importedNote], uncommitted: 0 }
+    ]);
+
+    await expect(requestList(NoteFilterTypes.List, ['0xcommit', '0xcommit', '0xsecond'])).resolves.toMatchObject({
+      privateNotes: [importedNote]
+    });
+    expect(mockGetDetailsCommitmentMatches).toHaveBeenCalledWith(
+      ['0xcommit', '0xsecond'],
+      ['n1', 'n9'],
+      expect.any(Function)
+    );
+  });
+
+  it.each(['0xN1', 'N1'])('recognizes the note id spelling %s and lists its note once', async requestedId => {
+    mockGetInputNoteDetails.mockResolvedValueOnce([firstNote]);
+    mockGetDetailsCommitmentMatches.mockResolvedValueOnce([NO_COMMITMENT_MATCH]);
+
+    await expect(requestList(NoteFilterTypes.List, [requestedId])).resolves.toMatchObject({
+      privateNotes: [firstNote]
+    });
+    expect(mockGetDetailsCommitmentMatches).toHaveBeenCalledWith([requestedId], ['n1', 'n9'], expect.any(Function));
+  });
+
+  it('deduplicates note id spellings across the id and commitment reads', async () => {
+    mockGetInputNoteDetails.mockResolvedValueOnce([importedNote]);
+    mockGetDetailsCommitmentMatches.mockResolvedValueOnce([
+      { notes: [{ ...importedNote, noteId: '0xN9' }], uncommitted: 0 }
+    ]);
+    mockGetConsumableNoteDtos.mockResolvedValueOnce([{ noteId: 'n9' }, { noteId: '0xN9' }]);
+
+    await expect(requestList(NoteFilterTypes.List, ['n9', '0xcommit'])).resolves.toMatchObject({
+      privateNotes: [importedNote]
+    });
+    expect(mockGetDetailsCommitmentMatches).toHaveBeenCalledWith(
+      ['n9', '0xcommit'],
+      ['n9', '0xN9'],
+      expect.any(Function)
+    );
+  });
+
+  it('withholds public commitment matches and removes the private consume restriction', async () => {
+    mockGetDetailsCommitmentMatches.mockResolvedValueOnce([
+      {
+        notes: [
+          { ...importedNote, restriction: { prefix: '1', suffix: '2' } },
+          { ...firstNote, noteType: NoteType.Public }
+        ],
+        uncommitted: 0
+      }
+    ]);
+
+    await expect(requestList(NoteFilterTypes.List, ['0xcommit'])).resolves.toEqual({
+      type: MidenDAppMessageType.PrivateNotesResponse,
+      privateNotes: [importedNote]
+    });
+  });
+
+  it.each<[NoteFilterTypes, { status: string } | undefined]>([
+    [NoteFilterTypes.All, undefined],
+    [NoteFilterTypes.Consumed, { status: 'consumed' }],
+    [NoteFilterTypes.Committed, { status: 'committed' }],
+    [NoteFilterTypes.Expected, { status: 'expected' }],
+    [NoteFilterTypes.Processing, { status: 'processing' }],
+    [NoteFilterTypes.Unverified, { status: 'unverified' }]
+  ])('preserves the %s filter without any commitment lookup', async (filter, query) => {
+    mockGetInputNoteDetails.mockResolvedValueOnce([firstNote, firstNote]);
+
+    await expect(requestList(filter)).resolves.toMatchObject({ privateNotes: [firstNote, firstNote] });
+    expect(mockGetInputNoteDetails).toHaveBeenCalledWith(query, expect.any(Function));
+    expect(mockGetDetailsCommitmentMatches).not.toHaveBeenCalled();
+  });
+
+  it('ignores supplied ids on a non-List filter instead of resolving them as commitments', async () => {
+    mockGetInputNoteDetails.mockResolvedValueOnce([firstNote]);
+
+    await expect(requestList(NoteFilterTypes.Committed, ['0xcommit'])).resolves.toMatchObject({
+      privateNotes: [firstNote]
+    });
+    expect(mockGetInputNoteDetails).toHaveBeenCalledWith({ status: 'committed' }, expect.any(Function));
+    expect(mockGetDetailsCommitmentMatches).not.toHaveBeenCalled();
+  });
+
+  it('keeps an invalid id read as InvalidParams before trying any commitment', async () => {
+    mockGetInputNoteDetails.mockRejectedValueOnce(new Error('invalid hex'));
+
+    await expect(requestList(NoteFilterTypes.List, ['not-hex'])).rejects.toThrow(
+      `${MidenDAppErrorType.InvalidParams}: Error: invalid hex`
+    );
+    expect(mockGetDetailsCommitmentMatches).not.toHaveBeenCalled();
+    expect(mockGetConsumableNoteDtos).not.toHaveBeenCalled();
+  });
+});
+
 describe('requestPrivateNotes — input validation', () => {
   it('throws InvalidParams when sourcePublicKey is missing', async () => {
     await expect(
@@ -1608,6 +1875,7 @@ describe('requestPrivateNotes — input validation', () => {
       dapp.requestPrivateNotes('https://unknown-dapp.xyz', {
         type: MidenDAppMessageType.PrivateNotesRequest,
         sourcePublicKey: 'miden-account-1',
+        notefilterType: NoteFilterTypes.List,
         noteIds: ['n1']
       } as never)
     ).rejects.toThrow(MidenDAppErrorType.NotGranted);
@@ -1926,6 +2194,7 @@ describe('requests for an account that is not the current one (#1419)', () => {
       dapp.requestPrivateNotes(ORIGIN, {
         type: MidenDAppMessageType.PrivateNotesRequest,
         sourcePublicKey: ACCOUNT_A,
+        notefilterType: NoteFilterTypes.List,
         noteIds: ['n1']
       } as never),
     consumableNotes: () =>

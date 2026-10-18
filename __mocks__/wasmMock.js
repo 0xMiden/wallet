@@ -48,7 +48,9 @@ module.exports = {
     Consumed: 'Consumed',
     Committed: 'Committed',
     Expected: 'Expected',
-    Processing: 'Processing'
+    Processing: 'Processing',
+    List: 'List',
+    Unverified: 'Unverified'
   },
   // AssetCallbackFlag enum — the flag `buildSendTransactionRequest` derives from
   // a vault key, and that `lib/agglayer/b2agg` sets explicitly.
