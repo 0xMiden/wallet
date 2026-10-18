@@ -4426,7 +4426,7 @@
     "englishSource": "This site is not listed in Explore, and anyone can make a link to it. Only open it if you trust this site."
   },
   "openLinkAction": {
-    "message": "Açık",
+    "message": "Aç",
     "englishSource": "Open"
   },
   "approve": {

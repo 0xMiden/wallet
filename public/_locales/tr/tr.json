@@ -1003,7 +1003,7 @@
   "openDappCountPlural": "{count} açık dApp",
   "openLinkTitle": "$host$'yi aç?",
   "openLinkDescription": "Bu site Explore'da listelenmemiştir ve herkes bu siteye bağlantı verebilir. Yalnızca bu siteye güveniyorsanız açın.",
-  "openLinkAction": "Açık",
+  "openLinkAction": "Aç",
   "approve": "Onayla",
   "dappConnectionRequest": "Bu uygulama cüzdanınıza bağlanmak istiyor",
   "dappNetworkMismatch": "Bu uygulama Miden $dappNetwork$'yi istedi, ancak cüzdanınız Miden $walletNetwork$ üzerinde.",
