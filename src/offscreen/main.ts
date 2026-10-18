@@ -603,6 +603,14 @@ const DISPATCH: Record<string, DispatchFn> = {
     return new TextEncoder().encode(JSON.stringify(details));
   },
 
+  // Only the candidate records for each details commitment (#1389) are hashed and reduced here.
+  getDetailsCommitmentMatches: async (context, client, commitments: string[], candidateIds: string[]) => {
+    const matches = await client.getDetailsCommitmentMatches(commitments, candidateIds, () =>
+      assertWasmHoldCurrent(context.hold, 'in offscreen getDetailsCommitmentMatches before reducing the records')
+    );
+    return new TextEncoder().encode(JSON.stringify(matches));
+  },
+
   // Node-authoritative commit state of one tx id, backing the send/swap
   // idempotent-retry guard. A plain string union, so JSON like the DTO reads
   // above. Its absence here was not neutral: the SW-side stub returned
@@ -635,10 +643,14 @@ const DISPATCH: Record<string, DispatchFn> = {
 
   // Fee-aware depth-0 PSWAP reclaim request. The full output-note record exists
   // only in the creator's canonical realm; return the serialized request, never
-  // a live note or request object.
-  buildPswapCancelRequest: async (context, client, accountId: string, noteId: string) =>
-    client.buildPswapCancelRequest(accountId, noteId, step =>
-      assertWasmHoldCurrent(context.hold, 'in offscreen buildPswapCancelRequest', step)
+  // a live note or request object. The third argument lets the build read the
+  // note on the node when no record exists, as for a recovered order (#1487).
+  buildPswapCancelRequest: async (context, client, accountId: string, noteId: string, allowNodeNote?: boolean) =>
+    client.buildPswapCancelRequest(
+      accountId,
+      noteId,
+      step => assertWasmHoldCurrent(context.hold, 'in offscreen buildPswapCancelRequest', step),
+      { allowNodeNote: allowNodeNote === true }
     ),
 
   // Deferred reach-through READS moved offscreen (issue #260, slice 7a). Each reads

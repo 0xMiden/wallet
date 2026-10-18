@@ -2,24 +2,39 @@ import { GUARDIAN_ERROR_CODES } from '@openzeppelin/guardian-client';
 
 import { isOperationAbortedError } from 'lib/miden/back/offscreen-codec';
 import type { ITransactionStage, ITransactionType } from 'lib/miden/db/types';
-import { errorMessageParts, isIndefiniteSubmitOutcomeError } from 'lib/miden/sdk/sdk-error-code';
+import {
+  causeChain,
+  errorMessageParts,
+  isClientTerminatedError,
+  isIndefiniteSubmitOutcomeError
+} from 'lib/miden/sdk/sdk-error-code';
 import { isWasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { isDesktop } from 'lib/platform';
 import { isHotKeyFailure } from 'lib/secure-hot-key/failure';
 
+import { type BridgeReceiveFailure, bridgeReceiveIdentity } from './bridge-receive-failure';
 import { classifyError } from './classify';
 import { resolveTelemetryContext } from './context';
 import { captureCrash } from './crash';
 import { annotateCrash, errorChain, snapshotCrashDiagnostics } from './crash-diagnostics';
 import assertions from './protocol-assertions.json';
-import { operationOfType, stepOfStage } from './transaction-operation';
+import { operationOfType, stepOfStage, TRANSACTION_OPERATIONS, TRANSACTION_STEPS } from './transaction-operation';
+import { TELEMETRY_ERROR_KINDS } from './types';
 import packageJson from '../../../package.json';
 
+export const AUTH_PREPARATIONS = ['provided', 'wallet_enriched', 'unchanged', 'failed', 'unavailable'] as const;
+
+export const AUTH_LAYOUTS = ['absent', 'fee', 'guardian', 'other', 'missing_preimage', 'unavailable'] as const;
+
+export const COMMITMENT_MATCHES = ['fee', 'guardian', 'neither', 'unavailable'] as const;
+
+export const ACCOUNT_AUTH_CODES = ['current_guardian', 'unrecognized', 'unavailable'] as const;
+
 export interface TransactionFailureDiagnostics {
-  authPreparation: 'provided' | 'wallet_enriched' | 'unchanged' | 'failed' | 'unavailable';
-  authLayout: 'absent' | 'fee' | 'guardian' | 'other' | 'missing_preimage' | 'unavailable';
-  commitmentMatch: 'fee' | 'guardian' | 'neither' | 'unavailable';
-  accountAuthCode?: 'current_guardian' | 'unrecognized' | 'unavailable';
+  authPreparation: (typeof AUTH_PREPARATIONS)[number];
+  authLayout: (typeof AUTH_LAYOUTS)[number];
+  commitmentMatch: (typeof COMMITMENT_MATCHES)[number];
+  accountAuthCode?: (typeof ACCOUNT_AUTH_CODES)[number];
 }
 
 export const FAILURE_REASONS = [
@@ -49,8 +64,10 @@ export type NeverCommittedRule = (typeof NEVER_COMMITTED_RULES)[number];
 export const REPORTED_IDENTITIES = [
   'submit_outcome_unknown',
   'submit_rejected',
-  'kernel_assertion_unknown',
-  'kernel_u32_assertion_unknown',
+  'kernel_assertion_outside_shipped_sources',
+  'kernel_u32_assertion_outside_shipped_sources',
+  'kernel_assertion_without_message',
+  'kernel_u32_assertion_without_message',
   'advice_stack_read_failed',
   'client_terminated',
   'transaction_execution_failed',
@@ -118,6 +135,77 @@ export const SUBMIT_NODE_ERRORS = [
 
 export const SUBMIT_HIDDEN_ANSWERS = ['yes', 'no', 'unavailable'] as const;
 
+export const SUBMIT_LEG_BUCKETS: readonly ['under_9s', '9_to_11s', 'over_11s', 'unavailable'] = [
+  'under_9s',
+  '9_to_11s',
+  'over_11s',
+  'unavailable'
+];
+
+export const THROWN_CLASSES: readonly [
+  'wasm_runtime_error',
+  'type_error',
+  'range_error',
+  'reference_error',
+  'syntax_error',
+  'error',
+  'string',
+  'non_error',
+  'none'
+] = [
+  'wasm_runtime_error',
+  'type_error',
+  'range_error',
+  'reference_error',
+  'syntax_error',
+  'error',
+  'string',
+  'non_error',
+  'none'
+];
+
+type ThrownClass = (typeof THROWN_CLASSES)[number];
+
+const THROWN_CLASS_BY_NAME = new Map<unknown, ThrownClass>([
+  ['RuntimeError', 'wasm_runtime_error'],
+  ['TypeError', 'type_error'],
+  ['RangeError', 'range_error'],
+  ['ReferenceError', 'reference_error'],
+  ['SyntaxError', 'syntax_error']
+]);
+
+// The chain the pipeline's kill classifier walks, cut at a length no real error reaches: that walk stops at a kill,
+// so a cause accessor that keeps returning new links past one would otherwise hang this report.
+const REPORTED_CAUSE_LINKS = 64;
+
+function* reportedCauseChain(error: unknown): Generator<unknown, void, undefined> {
+  let links = 0;
+  for (const link of causeChain(error)) {
+    yield link;
+    if (++links === REPORTED_CAUSE_LINKS) return;
+  }
+}
+
+// The deepest link: a wrapper must not hide the original throw, such as the WASM trap the lock rethrows raw, nor a
+// value thrown as a cause.
+function thrownClass(error: unknown): ThrownClass {
+  let link: unknown;
+  for (const cause of reportedCauseChain(error)) if (cause !== undefined && cause !== null) link = cause;
+  try {
+    if (link instanceof Error) {
+      try {
+        return THROWN_CLASS_BY_NAME.get(link.name) ?? 'error';
+      } catch {
+        return 'error';
+      }
+    }
+  } catch {
+    // A revoked Proxy throws from instanceof, and a throw out of here would lose the whole report.
+    return 'non_error';
+  }
+  return typeof link === 'string' ? 'string' : link === undefined ? 'none' : 'non_error';
+}
+
 export const PIPELINE_KILLS = [
   'offscreen_aborted_deadline',
   'offscreen_aborted_deadline_no_kill',
@@ -166,6 +254,44 @@ type ExecutionCause = (typeof EXECUTION_CAUSES)[number];
 
 export const SIGNING_STEPS = ['creating_proposal', 'signing_proposal', 'signing_locally'] as const;
 
+export const CONFIRMING_STEPS = [
+  'confirming',
+  'delivering',
+  'registering_guardian',
+  'guardian_syncing',
+  'guardian_synced'
+] as const;
+
+export const CONSUME_ENTRY_POINTS = [
+  'auto_consume',
+  'claim',
+  'claim_all',
+  'dapp',
+  'bridge_reclaim',
+  'swap_settlement',
+  'rotation_funding'
+] as const;
+
+/** What queued a consume row, stamped on the row when it is created. */
+export type ConsumeEntryPoint = (typeof CONSUME_ENTRY_POINTS)[number];
+
+export const FAILURE_POINTS = [
+  'pipeline',
+  'earn_settlement',
+  'bridge_receive_settlement',
+  'bridge_send_settlement',
+  'guardian_node_verdict',
+  'node_verdict'
+] as const;
+
+export const FAILURE_OUTCOMES = ['failed', 'unconfirmed'] as const;
+
+export const EXECUTION_REALMS = ['offscreen', 'unknown'] as const;
+
+export const PROVING_PREFERENCES = ['delegated', 'local', 'unknown'] as const;
+
+export const FAILURE_PLATFORMS = ['desktop', 'extension', 'ios', 'android'] as const;
+
 export interface TransactionFailure {
   type: ITransactionType;
   stage?: ITransactionStage;
@@ -174,19 +300,18 @@ export interface TransactionFailure {
   neverCommittedRule?: NeverCommittedRule;
   error?: unknown;
   delegateTransaction?: boolean;
-  outcome?: 'failed' | 'unconfirmed';
+  outcome?: (typeof FAILURE_OUTCOMES)[number];
+  entryPoint?: ConsumeEntryPoint;
   /** Whether the app was hidden while its submit was in flight; undefined when the platform cannot tell. */
   hiddenDuringSubmit?: boolean;
+  /** Milliseconds from the submit stamp to its return; undefined when the row has no submit stamp. */
+  submitLegMs?: number;
   /** This transaction's failure was reported before, so this report is evidence for that one, not a second error. */
   alreadyReported?: boolean;
-  point?:
-    | 'pipeline'
-    | 'earn_settlement'
-    | 'bridge_receive_settlement'
-    | 'bridge_send_settlement'
-    | 'guardian_node_verdict'
-    | 'node_verdict';
+  point?: (typeof FAILURE_POINTS)[number];
   diagnostics?: TransactionFailureDiagnostics;
+  /** A failed inbound bridge's route and what failed it, each read against its closed list. */
+  bridgeReceive?: BridgeReceiveFailure;
 }
 
 function diagnostic<T extends string>(value: unknown, allowed: readonly T[], fallback: T): T {
@@ -255,9 +380,13 @@ function protocolIdentity(message: string): string | undefined {
   const assertion = ASSERTION_CODE.exec(text)?.[1];
   const code = assertion ?? U32_ASSERTION_CODE.exec(text)?.[1];
   if (code === undefined) return undefined;
-  // Only identities in the shipped public protocol sources survive. Arbitrary numbers can be user data.
+  // Only identities in the MASM sources of the crates the shipped SDK was built from survive
+  // (scripts/generate-protocol-assertions.mjs). Arbitrary numbers can be user data.
   if (Object.prototype.hasOwnProperty.call(assertions, code)) return assertions[code as keyof typeof assertions];
-  return coined(assertion === undefined ? 'kernel_u32_assertion_unknown' : 'kernel_assertion_unknown');
+  const u32 = assertion === undefined;
+  // An assertion written without a message is assembled with code 0.
+  if (code === '0') return coined(u32 ? 'kernel_u32_assertion_without_message' : 'kernel_assertion_without_message');
+  return coined(u32 ? 'kernel_u32_assertion_outside_shipped_sources' : 'kernel_assertion_outside_shipped_sources');
 }
 
 // The pinned SDK's own Display text (miden-client 0.17.3, miden-tx 0.17.1) under web-sdk 0.17.3's "failed to execute
@@ -332,6 +461,17 @@ const SIGNING_STEP_BY_STAGE = new Map<unknown, (typeof SIGNING_STEPS)[number]>([
   ['creating-proposal', 'creating_proposal'],
   ['signing-proposal', 'signing_proposal'],
   ['signing-locally', 'signing_locally']
+]);
+
+// The post-submit stages `stepOfStage` folds into `confirming`. `guardian_syncing` is not only a failed sync: a sync
+// that throws is caught and leaves this stage on the row while the completion runs, so a completion failure after a
+// failed sync reads `guardian_syncing` too. `guardian_synced` is stamped only after a sync that succeeded.
+const CONFIRMING_STEP_BY_STAGE = new Map<unknown, (typeof CONFIRMING_STEPS)[number]>([
+  ['confirming', 'confirming'],
+  ['delivering', 'delivering'],
+  ['registering-guardian', 'registering_guardian'],
+  ['guardian-syncing', 'guardian_syncing'],
+  ['guardian-synced', 'guardian_synced']
 ]);
 
 // The reasons miden-client-proxy.ts aborts an offscreen operation with, and wasm-client-poison.ts's eviction mechanisms.
@@ -432,12 +572,24 @@ function submitRequestFailure(error: unknown): { endpoint: string; kind: string 
 const grpcStatusOf = (kind: string | undefined) =>
   kind === undefined ? undefined : SUBMIT_GRPC_TEXT.find(([, text]) => kind.startsWith(text));
 
-function submitOutcomeIdentity(error: unknown, hiddenDuringSubmit: boolean | undefined): string {
-  const matched = grpcStatusOf(submitRequestFailure(error)?.kind)?.[0];
-  const status = SUBMIT_UNKNOWN_OUTCOME_STATUSES.find(listed => listed === matched) ?? 'other';
+function submitContextIdentity(hiddenDuringSubmit: boolean | undefined, submitLegMs: number | undefined): string {
   const hidden: (typeof SUBMIT_HIDDEN_ANSWERS)[number] =
     hiddenDuringSubmit === undefined ? 'unavailable' : hiddenDuringSubmit ? 'yes' : 'no';
-  return `${coined('submit_outcome_unknown')}; grpc ${status}; app hidden during submit ${hidden}`;
+  let bucket: (typeof SUBMIT_LEG_BUCKETS)[number] = 'unavailable';
+  if (submitLegMs !== undefined && Number.isFinite(submitLegMs) && submitLegMs >= 0) {
+    bucket = submitLegMs < 9000 ? 'under_9s' : submitLegMs <= 11000 ? '9_to_11s' : 'over_11s';
+  }
+  return `app hidden during submit ${hidden}; submit leg ${bucket}`;
+}
+
+function submitOutcomeIdentity(
+  error: unknown,
+  hiddenDuringSubmit: boolean | undefined,
+  submitLegMs: number | undefined
+): string {
+  const matched = grpcStatusOf(submitRequestFailure(error)?.kind)?.[0];
+  const status = SUBMIT_UNKNOWN_OUTCOME_STATUSES.find(listed => listed === matched) ?? 'other';
+  return `${coined('submit_outcome_unknown')}; grpc ${status}; ${submitContextIdentity(hiddenDuringSubmit, submitLegMs)}`;
 }
 
 function submitRefusalIdentity(refusal: { endpoint: string; kind: string }): string {
@@ -464,17 +616,61 @@ function failureIdentity(failure: TransactionFailure): string {
   if (rejection !== undefined) return rejection;
   const kill = killIdentity(error);
   if (kill !== undefined) return kill;
-  if (isIndefiniteSubmitOutcomeError(error)) return submitOutcomeIdentity(error, failure.hiddenDuringSubmit);
+  if (isIndefiniteSubmitOutcomeError(error)) {
+    return submitOutcomeIdentity(error, failure.hiddenDuringSubmit, failure.submitLegMs);
+  }
   const refusal = submitRequestFailure(error);
   if (refusal !== undefined) return submitRefusalIdentity(refusal);
   if (protocol !== undefined) return protocol;
   if (/advice stack read failed/i.test(message)) return coined('advice_stack_read_failed');
-  if (/WebClient terminated/.test(message)) return coined('client_terminated');
+  if ([...reportedCauseChain(error)].some(isClientTerminatedError) || /WebClient terminated/.test(message)) {
+    return coined('client_terminated');
+  }
   if (/failed to execute transaction/i.test(message)) {
     return `${coined('transaction_execution_failed')}; cause ${executionCause(error)}`;
   }
-  return classifyError(error);
+  const category = classifyError(error);
+  if (category !== 'unknown') return category;
+  const identity = `unknown; thrown ${thrownClass(error)}`;
+  return failure.stage === 'submitting'
+    ? `${identity}; ${submitContextIdentity(failure.hiddenDuringSubmit, failure.submitLegMs)}`
+    : identity;
 }
+
+// Every value the report's text interpolates, each of which crash scrubbing reads as one non-wordlist word where it
+// stands whole: a published name can read as a recovery phrase, as ERR_INPUT_NOTE_ASSET_INDEX_OUT_OF_BOUNDS holds four
+// wordlist words in a row, and a value outside the set joins the label words beside it, as `match fee; account code`.
+const CLOSED_NAMES: ReadonlySet<string> = new Set<string>([
+  ...Object.values(assertions),
+  ...REPORTED_IDENTITIES,
+  ...FAILURE_REASONS,
+  ...NEVER_COMMITTED_RULES,
+  ...SUBMIT_GRPC_STATUSES,
+  ...SUBMIT_ENDPOINTS,
+  ...SUBMIT_NODE_ERRORS,
+  ...SUBMIT_HIDDEN_ANSWERS,
+  ...SUBMIT_LEG_BUCKETS,
+  ...THROWN_CLASSES,
+  ...PIPELINE_KILLS,
+  ...EXECUTION_CAUSES,
+  ...SIGNING_STEPS,
+  ...CONFIRMING_STEPS,
+  ...CONSUME_ENTRY_POINTS,
+  ...HOT_KEY_CODES,
+  ...GUARDIAN_ERROR_CODES,
+  ...TELEMETRY_ERROR_KINDS,
+  ...FAILURE_OUTCOMES,
+  ...TRANSACTION_OPERATIONS,
+  ...TRANSACTION_STEPS,
+  ...EXECUTION_REALMS,
+  ...PROVING_PREFERENCES,
+  ...FAILURE_PLATFORMS,
+  ...FAILURE_POINTS,
+  ...AUTH_PREPARATIONS,
+  ...AUTH_LAYOUTS,
+  ...COMMITMENT_MATCHES,
+  ...ACCOUNT_AUTH_CODES
+]);
 
 function softwareVersion(value: string): string {
   return /^\d{1,3}\.\d{1,3}\.\d{1,3}(?:-rc\.\d{1,3})?$/.test(value) ? value : 'unavailable';
@@ -483,26 +679,10 @@ function softwareVersion(value: string): string {
 export function reportTransactionFailure(failure: TransactionFailure): void {
   try {
     const facts = failure.diagnostics;
-    const preparation = diagnostic(
-      facts?.authPreparation,
-      ['provided', 'wallet_enriched', 'unchanged', 'failed', 'unavailable'] as const,
-      'unavailable'
-    );
-    const layout = diagnostic(
-      facts?.authLayout,
-      ['absent', 'fee', 'guardian', 'other', 'missing_preimage', 'unavailable'] as const,
-      'unavailable'
-    );
-    const match = diagnostic(
-      facts?.commitmentMatch,
-      ['fee', 'guardian', 'neither', 'unavailable'] as const,
-      'unavailable'
-    );
-    const accountCode = diagnostic(
-      facts?.accountAuthCode,
-      ['current_guardian', 'unrecognized', 'unavailable'] as const,
-      'unavailable'
-    );
+    const preparation = diagnostic(facts?.authPreparation, AUTH_PREPARATIONS, 'unavailable');
+    const layout = diagnostic(facts?.authLayout, AUTH_LAYOUTS, 'unavailable');
+    const match = diagnostic(facts?.commitmentMatch, COMMITMENT_MATCHES, 'unavailable');
+    const accountCode = diagnostic(facts?.accountAuthCode, ACCOUNT_AUTH_CODES, 'unavailable');
     const type = diagnostic(
       failure.type,
       [
@@ -522,32 +702,26 @@ export function reportTransactionFailure(failure: TransactionFailure): void {
     );
     const operation = type === failure.type ? operationOfType(type) : 'tx_other';
     const step = stepOfStage(failure.stage);
-    const stage = typeof step === 'string' ? step : 'unknown';
+    const stepName = typeof step === 'string' ? step : 'unknown';
+    const confirmingStep = CONFIRMING_STEP_BY_STAGE.get(failure.stage);
+    const stage = confirmingStep === undefined ? stepName : `${stepName}; confirming step ${confirmingStep}`;
     const signingStep = SIGNING_STEP_BY_STAGE.get(failure.stage);
-    const outcome = failure.outcome === 'unconfirmed' ? 'unconfirmed' : 'failed';
-    const point = diagnostic(
-      failure.point,
-      [
-        'pipeline',
-        'earn_settlement',
-        'bridge_receive_settlement',
-        'bridge_send_settlement',
-        'guardian_node_verdict',
-        'node_verdict'
-      ] as const,
-      'pipeline'
-    );
+    const outcome: (typeof FAILURE_OUTCOMES)[number] = failure.outcome === 'unconfirmed' ? 'unconfirmed' : 'failed';
+    const point = diagnostic(failure.point, FAILURE_POINTS, 'pipeline');
     const message =
       typeof failure.error === 'string' ? failure.error : failure.error instanceof Error ? failure.error.message : '';
-    const realm =
+    const realm: (typeof EXECUTION_REALMS)[number] =
       /Offscreen call '(?:newTransaction|sendTransaction|consumeNoteId|swapTransaction|faucetTransaction|guardianPipeline)' failed:/.test(
         message
       )
         ? 'offscreen'
         : 'unknown';
-    const proving =
+    const proving: (typeof PROVING_PREFERENCES)[number] =
       failure.delegateTransaction === true ? 'delegated' : failure.delegateTransaction === false ? 'local' : 'unknown';
-    const platform = isDesktop() ? 'desktop' : resolveTelemetryContext().platform;
+    const bridge = failure.bridgeReceive === undefined ? '' : `; ${bridgeReceiveIdentity(failure.bridgeReceive)}`;
+    const queuedBy =
+      type === 'consume' ? `; queued by ${diagnostic<string>(failure.entryPoint, CONSUME_ENTRY_POINTS, 'other')}` : '';
+    const platform: (typeof FAILURE_PLATFORMS)[number] = isDesktop() ? 'desktop' : resolveTelemetryContext().platform;
     const reason =
       failure.reason === undefined ? undefined : diagnostic<string>(failure.reason, FAILURE_REASONS, 'other');
     const identity =
@@ -558,7 +732,7 @@ export function reportTransactionFailure(failure: TransactionFailure): void {
           : reason;
     const report = new Error(
       [
-        `Transaction ${outcome}: ${operation}; stage ${stage}${signingStep === undefined ? '' : `; signing step ${signingStep}`}; realm ${realm}; proving preference ${proving}; platform ${platform}; point ${point}; ${identity}`,
+        `Transaction ${outcome}: ${operation}; stage ${stage}${signingStep === undefined ? '' : `; signing step ${signingStep}`}; realm ${realm}; proving preference ${proving}; platform ${platform}${queuedBy}; point ${point}; ${identity}${bridge}`,
         `authentication preparation ${preparation}; layout ${layout}; commitment match ${match}; account code ${accountCode}`,
         `SDK ${softwareVersion(packageJson.dependencies['@miden-sdk/miden-sdk'])}; Guardian client ${softwareVersion(packageJson.dependencies['@openzeppelin/miden-multisig-client'])}`
       ].join('. ')
@@ -567,11 +741,15 @@ export function reportTransactionFailure(failure: TransactionFailure): void {
     // This stack would name the reporter, not the failed execution, and can include private file paths.
     report.stack = undefined;
     annotateCrash(report, snapshotCrashDiagnostics(failure.error));
+    // A queued row with no stage expired untried (the loop's requeues stamp one, and every requeue clears `attemptId`):
+    // whatever held the queue has its own report, and each row behind it would otherwise add another error.
+    const neverStarted = reason === 'queued_expired' && failure.stage === undefined;
     // An unknown outcome waits for the node's verdict, which is the error if it never landed; a failure already reported
     // already has its error, so a later report on it is evidence for that one.
     captureCrash(report, 'manual', {
       initializeIfNeeded: true,
-      level: outcome === 'unconfirmed' || failure.alreadyReported === true ? 'warning' : 'error'
+      level: outcome === 'unconfirmed' || failure.alreadyReported === true || neverStarted ? 'warning' : 'error',
+      closedNames: CLOSED_NAMES
     });
   } catch {
     // Reporting must never change the transaction outcome.

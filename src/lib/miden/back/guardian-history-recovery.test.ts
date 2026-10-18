@@ -40,6 +40,7 @@ import {
 } from '../guardian/history-errors';
 import type { GuardianHistoryNote } from '../sdk/guardian-history';
 import { WasmClientPoisonedError } from '../sdk/wasm-client-poison';
+import { recoveredSwapOrderRef } from '../swap/recovered-order';
 
 jest.mock('@openzeppelin/guardian-client', () => ({
   GuardianHttpClient: class {
@@ -1914,7 +1915,8 @@ it('upgrades existing decoded rows and links a payback imported before its swap'
   const swap = rows.find(row => row.recovery?.nonce === 2);
   const consume = rows.find(row => row.recovery?.nonce === 3);
   expect(swap?.extraInputs).toMatchObject({ requestedFaucetId: 'ieth', requestedAmount: 30n, autoConsume: false });
-  expect(swap?.extraInputs.settledAt).toBeDefined();
+  // Linked, but not closed: a recovered order's close is its lineage's on the node (#1487).
+  expect(swap?.extraInputs.settledAt).toBeUndefined();
   expect(consume?.extraInputs).toMatchObject({ swapOrderTxId: swap?.id, swapSettleKind: 'settle' });
   expect(rows).toHaveLength(3);
   expect(swap?.id).toBe(oldRows.find(row => row.recovery?.nonce === 2)?.id);
@@ -1975,18 +1977,18 @@ it('derives a version-4 custom transaction reclaiming an own order again, as the
     extraInputs: { swapOrderTxId: order.id, swapSettleKind: 'reclaim' },
     recovery: { version: GUARDIAN_HISTORY_VERSION }
   });
-  expect((await transactions.get(order.id))?.extraInputs.reclaimedAt).toBe(upgraded?.completedAt);
+  expect((await transactions.get(order.id))?.extraInputs.reclaimedAt).toBeUndefined();
   expect(await transactions.count()).toBe(2);
 });
 
-it('keeps the local settlement stamps of a recovered swap row it derives again', async () => {
+it('keeps the local settlement stamps of a recovered swap row it derives again, and their lineage record', async () => {
   serveOrderHistory();
   await run();
   const order = (await transactions.toArray()).find(row => row.recovery?.nonce === 2);
   if (!order?.recovery) throw new Error('Missing recovered order');
   await transactions.put({
     ...order,
-    extraInputs: { ...order.extraInputs, expiryTriggeredAt: 150, settledAt: 160 },
+    extraInputs: { ...order.extraInputs, expiryTriggeredAt: 150, settledAt: 160, lineageClosedAt: 160 },
     recovery: { ...order.recovery, version: GUARDIAN_HISTORY_VERSION - 1 }
   });
   await clearGuardianHistoryCheckpoints();
@@ -1996,7 +1998,89 @@ it('keeps the local settlement stamps of a recovered swap row it derives again',
 
   const upgraded = await transactions.get(order.id);
   expect(upgraded?.recovery?.version).toBe(GUARDIAN_HISTORY_VERSION);
-  expect(upgraded?.extraInputs).toMatchObject({ orderId: '42', expiryTriggeredAt: 150, settledAt: 160 });
+  expect(upgraded?.extraInputs).toMatchObject({
+    orderId: '42',
+    expiryTriggeredAt: 150,
+    settledAt: 160,
+    lineageClosedAt: 160
+  });
+  expect(upgraded && recoveredSwapOrderRef(upgraded)).toBeUndefined();
+});
+
+// The pre-fix recovery reconcile stamped settledAt from a linked payout with no lineage read: an upgrade keeps it, and
+// it stays provisional, so the order is still tracked and its next lineage read decides it (#1487).
+it('keeps a settlement stamp no lineage read recorded through an upgrade, with the order still tracked', async () => {
+  serveOrderHistory();
+  await run();
+  const order = (await transactions.toArray()).find(row => row.recovery?.nonce === 2);
+  if (!order?.recovery) throw new Error('Missing recovered order');
+  await transactions.put({
+    ...order,
+    extraInputs: { ...order.extraInputs, settledAt: 160 },
+    recovery: { ...order.recovery, version: GUARDIAN_HISTORY_VERSION - 1 }
+  });
+  await clearGuardianHistoryCheckpoints();
+  serveOrderHistory();
+
+  await run();
+
+  const upgraded = await transactions.get(order.id);
+  expect(upgraded?.recovery?.version).toBe(GUARDIAN_HISTORY_VERSION);
+  expect(upgraded?.extraInputs.settledAt).toBe(160);
+  expect(upgraded?.extraInputs.lineageClosedAt).toBeUndefined();
+  expect(upgraded && recoveredSwapOrderRef(upgraded)).toEqual(
+    expect.objectContaining({ noteId: 'order', provisionalClosure: true })
+  );
+});
+
+// A Cancel moves the order's expiry forward and the order tracking records a spent order note; both are this wallet's
+// own record of the order (#1487).
+it("keeps a recovered swap row's Cancel expiry and spent-note stamp when it derives the row again", async () => {
+  serveOrderHistory();
+  await run();
+  const order = (await transactions.toArray()).find(row => row.recovery?.nonce === 2);
+  if (!order?.recovery) throw new Error('Missing recovered order');
+  await transactions.put({
+    ...order,
+    extraInputs: { ...order.extraInputs, expiresAt: 150, expiryTriggeredAt: 150, orderNoteSpentAt: 170 },
+    recovery: { ...order.recovery, version: GUARDIAN_HISTORY_VERSION - 1 }
+  });
+  await clearGuardianHistoryCheckpoints();
+  serveOrderHistory();
+
+  await run();
+
+  const upgraded = await transactions.get(order.id);
+  expect(upgraded?.recovery?.version).toBe(GUARDIAN_HISTORY_VERSION);
+  expect(upgraded?.extraInputs).toMatchObject({ expiresAt: 150, expiryTriggeredAt: 150, orderNoteSpentAt: 170 });
+});
+
+// The remainder a partial fill left is what the order's Cancel returns: losing it on an upgrade sent settlement back
+// to the spent order note (#1487).
+it("keeps a recovered swap row's recorded remainder when it derives the row again, so it still names its tip", async () => {
+  serveOrderHistory();
+  await run();
+  const order = (await transactions.toArray()).find(row => row.recovery?.nonce === 2);
+  if (!order?.recovery) throw new Error('Missing recovered order');
+  const recoveredTip = { noteId: 'remainder-1', depth: 1, remainingOffered: 24n };
+  const recoveredCheckpoint = { noteId: 'remainder-17', depth: 17 };
+  await transactions.put({
+    ...order,
+    extraInputs: { ...order.extraInputs, recoveredTip, recoveredCheckpoint },
+    recovery: { ...order.recovery, version: GUARDIAN_HISTORY_VERSION - 1 }
+  });
+  await clearGuardianHistoryCheckpoints();
+  serveOrderHistory();
+
+  await run();
+
+  const upgraded = await transactions.get(order.id);
+  expect(upgraded?.recovery?.version).toBe(GUARDIAN_HISTORY_VERSION);
+  expect(upgraded?.extraInputs?.recoveredTip).toEqual(recoveredTip);
+  expect(upgraded?.extraInputs?.recoveredCheckpoint).toEqual(recoveredCheckpoint);
+  expect(upgraded && recoveredSwapOrderRef(upgraded)).toEqual(
+    expect.objectContaining({ tipNoteId: 'remainder-1', tipDepth: 1, tipOfferedAmount: 24n })
+  );
 });
 
 it('stops recovery and retains the failure when fee metadata is unavailable', async () => {

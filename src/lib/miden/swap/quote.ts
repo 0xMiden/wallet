@@ -1,4 +1,4 @@
-import { accountIdStringToSdk } from 'lib/miden/sdk/helpers';
+import { accountRefToSdk } from 'lib/miden/sdk/helpers';
 import { getBridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { withRequestTimeout } from 'lib/remote-json';
 import { isRecord } from 'lib/update/guards';
@@ -314,7 +314,7 @@ async function getQuoteJson<T>(
   });
 }
 
-const faucetParam = (token: SwapToken): string => accountIdStringToSdk(token.faucetId).toString();
+const faucetParam = (token: SwapToken): string => accountRefToSdk(token.faucetId).toString();
 
 /** `GET /v2/pair-price` for an offered → requested pair. Rejects with `no_market` or `no_price` as the service does. */
 export async function getSwapPairPrice(offerToken: SwapToken, requestToken: SwapToken): Promise<SwapPairPrice> {

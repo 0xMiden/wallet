@@ -144,7 +144,6 @@ import {
 import { GUARDIAN_EXPIRATION_DELTA_BLOCKS, isPrivateNoteType } from '../helpers';
 import { applyAfterSubmit } from '../sdk/apply-after-submit';
 import {
-  accountIdStringToSdk,
   accountRefToSdk,
   buildPswapCreateRequest,
   buildSendTransactionRequest,
@@ -184,6 +183,7 @@ import {
 } from '../sdk/sdk-error-code';
 import { readSubmitEvidence } from '../sdk/submit-evidence';
 import { isSyncWatchdogEviction, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
+import { isRecoveredReturnOrder } from '../swap/recovered-order';
 
 export * from './cancel';
 export * from './complete';
@@ -3268,12 +3268,19 @@ const generateGuardianTransaction = async (
         // never rebased (that rebuild drops the tip it consumes). It gets no GUARDIAN_EXPIRATION_DELTA_BLOCKS bound:
         // the SDK's PSWAP cancel builder takes no builder options. A late approval is harmless, since it only takes
         // back the creator's own note, and once that tip is consumed the cancel fails execution.
-        proposalResult = await service.createPswapCancelProposal(consumeTx.noteId, async requestBytes => {
-          transaction.requestBytes = requestBytes;
-          await Repo.transactions.where({ id: transaction.id }).modify(t => {
-            t.requestBytes = requestBytes;
-          });
-        });
+        // Only a Guardian-recovered order's tip is a note this client never tracked, read on the node (#1487).
+        const swapOrderTxId = transaction.extraInputs?.swapOrderTxId;
+        const swapOrder = swapOrderTxId ? await Repo.transactions.where({ id: swapOrderTxId }).first() : undefined;
+        proposalResult = await service.createPswapCancelProposal(
+          consumeTx.noteId,
+          async requestBytes => {
+            transaction.requestBytes = requestBytes;
+            await Repo.transactions.where({ id: transaction.id }).modify(t => {
+              t.requestBytes = requestBytes;
+            });
+          },
+          { allowNodeNote: swapOrder !== undefined && isRecoveredReturnOrder(swapOrder) }
+        );
       } else {
         const consumeNoteIds = consumeTx.noteIds?.length > 0 ? consumeTx.noteIds : [consumeTx.noteId];
         service = await consumeServiceFor(transaction, consumeNoteIds, guardianProvider);
@@ -3540,7 +3547,7 @@ const generateGuardianTransaction = async (
           // offscreen client the key comes from the realm that will EXECUTE the
           // request. The proxy read is unlocked by design and this scope already
           // holds the client lock, which is what that contract requires.
-          const creatorAccount = await midenClientProxy.getAccount(accountIdStringToSdk(swapTx.accountId).toString());
+          const creatorAccount = await midenClientProxy.getAccount(walletAccountIdToSdk(swapTx.accountId).toString());
           // An eviction during the read ABANDONS this callback without stopping
           // it: the creator Account is a borrow of a client a successor now
           // owns, and reaching for the realm's reader below would queue this dead
@@ -3554,10 +3561,10 @@ const generateGuardianTransaction = async (
           const client = await getRealmReaderClient();
           assertWasmHoldCurrent(hold, 'PSWAP request build: after the reader build');
           const tr = await client.newPswapCreateTransactionRequest(
-            accountIdStringToSdk(swapTx.accountId),
-            accountIdStringToSdk(swapTx.faucetId),
+            walletAccountIdToSdk(swapTx.accountId),
+            accountRefToSdk(swapTx.faucetId),
             swapTx.amount,
-            accountIdStringToSdk(swapTx.extraInputs.requestedFaucetId),
+            accountRefToSdk(swapTx.extraInputs.requestedFaucetId),
             swapTx.extraInputs.requestedAmount,
             NoteType.Public,
             NoteType.Public
@@ -3568,7 +3575,7 @@ const generateGuardianTransaction = async (
           assertWasmHoldCurrent(hold, 'PSWAP request build: after the request build');
           const baseBuilder = await feeAwareRequestBuilder(
             (await getMidenClient()).client,
-            accountIdStringToSdk(swapTx.accountId).toString(),
+            walletAccountIdToSdk(swapTx.accountId).toString(),
             swapFeeSalt
           );
           assertWasmHoldCurrent(hold, 'PSWAP request build: after the fee-aware builder');

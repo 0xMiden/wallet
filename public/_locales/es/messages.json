@@ -3899,7 +3899,7 @@
     "englishSource": "Unknown"
   },
   "inputNotesConsumed": {
-    "message": "noteses de entrada consumidas",
+    "message": "Notes de entrada consumidas",
     "englishSource": "Input notes consumed"
   },
   "outputNotesCreated": {
@@ -3971,7 +3971,7 @@
     "englishSource": "Import private note"
   },
   "requestConsumableNotes": {
-    "message": "Solicitar consumiblesNotes",
+    "message": "Solicitar Notes consumibles",
     "englishSource": "Request Consumable Notes"
   },
   "requestsConsumableNotes": {
@@ -4075,7 +4075,7 @@
     "englishSource": "Get tokens"
   },
   "midenFaucet": {
-    "message": "MidenFaucet",
+    "message": "Miden Faucet",
     "englishSource": "Miden Faucet"
   },
   "accountPublicKey": {
@@ -5710,7 +5710,7 @@
     "englishSource": "Write all words on paper in this order. Keep the paper in a safe place outside this device."
   },
   "removeSeedPhraseConfirmation": {
-    "message": "Esto elimina la frase de recuperación y las llaves de recuperacióGuardianes de este monedero en este dispositivo. Conserva tu copia de seguridad en papel. Las copias de seguridad realizadas anteriormente no se eliminan.",
+    "message": "Esto elimina la frase de recuperación y las llaves de recuperación de Guardian de este monedero en este dispositivo. Conserva tu copia de seguridad en papel. Las copias de seguridad realizadas anteriormente no se eliminan.",
     "englishSource": "This removes the recovery phrase and Guardian recovery keys from this wallet on this device. Keep your paper backup. Previously made backups are not deleted."
   },
   "removeSeedPhraseConfirm": {

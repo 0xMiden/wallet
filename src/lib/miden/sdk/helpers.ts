@@ -223,11 +223,13 @@ export function randomFeeSalt(): Word {
  *
  * Since protocol 0.17 a multisig, which every guardian account is, resolves THREE words of auth
  * args (`[bound_block, approval_expiration, 0, 0] || SALT || CONVERSION_INFO`) at any base fee.
- * A bare `withFeeConversionSalt` commits two, so the auth procedure ran the advice stack dry
- * (`advice stack read failed`) at the proposal's first execution. The SDK's fee-aware builder
- * commits the full preimage for a multisig, bound to the store's sync height, and returns an
- * untouched builder for any other account, which miden-client then settles by itself. The salt
- * is serialized with the request, so persisted bytes reproduce the co-signed summary.
+ * For a bare `withFeeConversionSalt` request miden-client (0.17.4) derives them at execution, bound
+ * to that execution's reference block, so the approvers' signatures stop authorizing it once it
+ * executes at a later tip (`transaction is unauthorized`). The SDK's fee-aware builder binds the
+ * store's sync height once, when the request is built, and declares that block, so a tip execution
+ * matches what the approvers signed; for any other account it returns an untouched builder, which
+ * miden-client then settles by itself. The salt and the bound block are serialized with the
+ * request, so persisted bytes reproduce the co-signed summary.
  *
  * `approvalExpirationDelta` (multisig only) expires the approvers' signatures that many blocks after the bound
  * block, so the transaction must be included by `bound_block + delta` wherever it executes (#1081). It is bound by the

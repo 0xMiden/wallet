@@ -40,10 +40,10 @@ const en = loadMessages('en');
 const es = loadMessages('es');
 
 /**
- * Keys whose stored `englishSource` no longer matches en.json — the English text
- * changed and the translation still describes superseded copy. `format-locales.js`
- * omits these from the flat bundle so i18next falls back to accurate English, and
- * `translateWithDiff` re-translates exactly these on the next DeepL run.
+ * Keys whose stored `englishSource` differs from en.json: superseded copy or a
+ * rejected translation. `format-locales.js` omits both from the flat bundle for English
+ * fallback. `translateWithDiff` sends a rejected key again only when its English changes
+ * or its entry is deleted; other stale entries are queued on the next DeepL run.
  */
 const staleKeys = (locale: string): string[] =>
   Object.entries(loadMessages(locale))
@@ -146,8 +146,8 @@ describe('runtime locale bundles (the files src/i18n.ts actually renders from)',
   it.each(RUNTIME_LOCALES)('%s translates every shipped English key it has a current translation for', locale => {
     const bundle = loadFlat(locale);
     const missing = Object.keys(en).filter(key => !(key in bundle));
-    // The only permitted gap is a key awaiting re-translation, which renders as
-    // accurate English via `fallbackLng` until the next DeepL run.
+    // Stale and rejected keys stay out of the flat bundle for English fallback. Rejected keys wait
+    // for their English to change or their entry to be deleted; other stale entries are queued.
     expect(missing.sort()).toEqual(staleKeys(locale).sort());
   });
 
@@ -269,9 +269,9 @@ describe('Chrome i18n placeholder declarations', () => {
 });
 
 describe('hand-copied English is queued for translation', () => {
-  // A non-English entry whose message is the English text is only acceptable while it is marked for
-  // the next DeepL run; `translateWithDiff` re-translates an entry whose englishSource is stale, so
-  // the explicit sentinel is what puts it in that queue. Every derived bundle, en_GB included, must
+  // A non-English entry whose message is English must carry the sentinel so the flat bundle omits it.
+  // `translateWithDiff` sends a rejected key again only when its English changes or its entry is deleted;
+  // other sentinel entries are queued on the next run. Every derived bundle, en_GB included, must
   // carry the keys: en_GB is outside the runtime parity check, so a key could otherwise vanish from it
   // unnoticed. The queued check skips English variants (en_*), whose translation can equal English.
   const COPIED_KEYS = [

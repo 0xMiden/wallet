@@ -1,4 +1,4 @@
-import { AccountId, RpcClient } from '@miden-sdk/miden-sdk/lazy';
+import { RpcClient } from '@miden-sdk/miden-sdk/lazy';
 
 import {
   fetchFromStorage,
@@ -7,7 +7,7 @@ import {
   type StorageChangeSubscription
 } from 'lib/miden/front/storage';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
-import { accountIdStringToSdk, getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
+import { accountRefToSdk, getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
 import {
   getEffectiveFeeFaucetId,
   getEffectiveNetworkName,
@@ -141,8 +141,7 @@ function isCurrent(snapshot: NativeAssetSnapshot): boolean {
 }
 
 function canonicalId(id: string): string {
-  const accountId = id.startsWith('0x') ? AccountId.fromHex(id) : accountIdStringToSdk(id);
-  return getBech32AddressFromAccountId(accountId);
+  return getBech32AddressFromAccountId(accountRefToSdk(id));
 }
 
 function adoptIdentity(id: string | null, notify = true): void {

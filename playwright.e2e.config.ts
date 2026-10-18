@@ -23,7 +23,9 @@ export default defineConfig({
   // need a Guardian on one axis and run via playwright.dapp.config.ts. USDCx
   // live specs spend public testnet funds and run only through the `yarn
   // e2e:real` runner (playwright.usdcx.config.ts), which E2E USDCx calls after
-  // every push to main.
+  // every push to main. Stored-override specs need a build that reads stored
+  // endpoint overrides, which this suite's build ignores, so they run via
+  // playwright.stored-override.config.ts on a second build.
   testIgnore: [
     '**/guardian-*.spec.ts',
     '**/swap/**',
@@ -31,7 +33,8 @@ export default defineConfig({
     '**/earn/**',
     '**/resilience/**',
     '**/dapp/**',
-    '**/usdcx/**'
+    '**/usdcx/**',
+    '**/stored-override/**'
   ],
   timeout: 300_000, // 5 min per test (blockchain ops are slow)
   expect: {

@@ -5,7 +5,8 @@ import { act, render, waitFor } from '@testing-library/react';
 import { NativeNoteAutoConsumeManager } from './NativeNoteAutoConsumeManager';
 
 const mockInitiateConsume = jest.fn(
-  async (_account: string, _note: { id: string }, _delegate?: boolean): Promise<string> => 'consume-tx'
+  async (_account: string, _note: { id: string }, _delegate?: boolean, ..._rest: unknown[]): Promise<string> =>
+    'consume-tx'
 );
 const mockStartBg = jest.fn();
 const mockGetUncompleted = jest.fn(async (..._args: unknown[]): Promise<unknown[]> => [{ id: 'tx' }]);
@@ -103,10 +104,10 @@ describe('NativeNoteAutoConsumeManager', () => {
     mockInitiateConsumeBatch.mockImplementation(async (...args: any[]) =>
       write(
         args[1].map((n: { id: string }) => n.id),
-        args[6]
+        args[7]
       )
     );
-    mockInitiateConsume.mockImplementation(async (...args: any[]) => write([args[1].id], args[4]));
+    mockInitiateConsume.mockImplementation(async (...args: any[]) => write([args[1].id], args[5]));
     return written;
   };
 
@@ -197,6 +198,9 @@ describe('NativeNoteAutoConsumeManager', () => {
 
     await waitFor(() => expect(mockInitiateConsume.mock.calls.length).toBe(2));
     expect(new Set(mockInitiateConsume.mock.calls.map(c => c[1].id))).toEqual(new Set(['a', 'b']));
+    // Batched or one per note, every row is queued as auto-consume.
+    expect(mockInitiateConsumeBatch.mock.calls[0]![6]).toBe('auto_consume');
+    expect(mockInitiateConsume.mock.calls.map(c => c[4])).toEqual(['auto_consume', 'auto_consume']);
   });
 
   it('does not auto-consume a native backlog worth less than the fee to claim it', async () => {

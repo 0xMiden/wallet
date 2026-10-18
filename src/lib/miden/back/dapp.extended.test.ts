@@ -177,6 +177,8 @@ jest.mock('../sdk/miden-client', () => ({
     getAccount: (id: string) => (globalThis as any).__dappTestMockGetAccount(id),
     getOutputNotes: (id: string) => (globalThis as any).__dappTestMockGetOutputNotes(id),
     getInputNoteDetails: (q: unknown) => (globalThis as any).__dappTestMockGetInputNoteDetails(q),
+    // No record has a consume request's id as its details commitment here (#1389).
+    getDetailsCommitmentMatches: async () => [{ notes: [], uncommitted: 0 }],
     getConsumableNoteDtos: (...a: unknown[]) => (globalThis as any).__dappTestMockGetConsumableNotes(...a),
     importNoteBytes: (b: Uint8Array) => (globalThis as any).__dappTestMockImportNoteBytes(b),
     syncState: () => (globalThis as any).__dappTestMockSyncState(),
@@ -1377,6 +1379,27 @@ describe('requestPrivateNotes account scoping', () => {
       notefilterType: 'List'
     } as never);
 
+    expect(mockGetInputNoteDetails).toHaveBeenCalledWith({ ids: ['note-of-account-1', 'note-of-account-2'] });
+    expect(res).toEqual({
+      type: MidenDAppMessageType.PrivateNotesResponse,
+      privateNotes: [CONNECTED_ACCOUNT_NOTE]
+    });
+  });
+
+  it('keeps the wallet-side record of which account alone can consume a note out of the response', async () => {
+    storageState[STORAGE_KEY] = {
+      'https://miden.xyz': [{ ...SESSION, privateDataPermission: 'AUTO', allowedPrivateData: 65535 }]
+    };
+    mockGetInputNoteDetails.mockImplementation(async () => [
+      { ...CONNECTED_ACCOUNT_NOTE, restriction: { prefix: '1', suffix: '2' } }
+    ]);
+
+    const res = await dapp.requestPrivateNotes('https://miden.xyz', {
+      type: MidenDAppMessageType.PrivateNotesRequest,
+      sourcePublicKey: 'miden-account-1',
+      notefilterType: 'All'
+    } as never);
+
     expect(res).toEqual({
       type: MidenDAppMessageType.PrivateNotesResponse,
       privateNotes: [CONNECTED_ACCOUNT_NOTE]
@@ -1640,6 +1663,8 @@ describe("a non-extension write carries the resolver's delegate flag", () => {
     expect(mockInitiateConsumeTransactionFromId.mock.calls[0]![3]).toBe(true);
     // 5th is the requesting origin: it refuses a note another transaction holds and lets this origin wait on the row.
     expect(mockInitiateConsumeTransactionFromId.mock.calls[0]![4]).toBe('https://miden.xyz');
+    // 6th is what queued the row, which a failed claim's report names.
+    expect(mockInitiateConsumeTransactionFromId.mock.calls[0]![5]).toBe('dapp');
   });
 
   it('executes a custom transaction without delegating the proof', async () => {

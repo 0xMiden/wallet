@@ -11,6 +11,7 @@
  * trigger the resolve / reject branches inside generatePromisify*.
  */
 
+import { NoteFilterTypes, NoteType, Poseidon2, Word } from '@miden-sdk/miden-sdk/lazy';
 import { WalletAdapterNetwork } from '@miden-sdk/miden-wallet-adapter-base';
 import extensionBrowser, { type Windows } from 'webextension-polyfill';
 
@@ -32,6 +33,7 @@ _g.__dappExtTest = {
     // Slice-4: dapp reads consumable notes as DTOs via the proxy (flag-off →
     // getMidenClient().getConsumableNoteDtos()).
     getConsumableNoteDtos: jest.fn(async () => []),
+    getDetailsCommitmentMatches: jest.fn(),
     syncState: jest.fn(),
     importNoteBytes: jest.fn(),
     on: jest.fn()
@@ -172,6 +174,7 @@ let currentWasmHold: object | null = null;
 const revokeWasmHold = (): void => {
   currentWasmHold = null;
 };
+const mockRetireWasmClientForCaughtTrap = jest.fn();
 jest.mock('../sdk/miden-client', () => ({
   getMidenClient: async () => (globalThis as any).__dappExtTest.midenClient,
   withWasmClientLock: async <T>(fn: (hold: object) => Promise<T>) => {
@@ -179,6 +182,10 @@ jest.mock('../sdk/miden-client', () => ({
     currentWasmHold = hold;
     try {
       return await fn(hold);
+    } catch (error) {
+      // The real lock's caught-trap path: a callback that rejects with a trap retires the client through its holder.
+      if (error instanceof WebAssembly.RuntimeError) mockRetireWasmClientForCaughtTrap(hold, error);
+      throw error;
     } finally {
       if (currentWasmHold === hold) currentWasmHold = null;
     }
@@ -286,6 +293,10 @@ beforeEach(() => {
       assets: [{ faucetId: 'faucet-1', amount: '50' }]
     }
   ]);
+  // No record has a consume request's id as its details commitment unless a test says so (#1389).
+  _g.__dappExtTest.midenClient.getDetailsCommitmentMatches = jest
+    .fn()
+    .mockResolvedValue([{ notes: [], uncommitted: 0 }]);
   _g.__dappExtTest.intercomListeners.length = 0;
   for (const k of Object.keys(_g.__dappExtTest.storage)) delete _g.__dappExtTest.storage[k];
   _g.__dappExtTest.storage[STORAGE_KEY] = { 'https://miden.xyz': [SESSION] };
@@ -814,6 +825,7 @@ describe('requestPrivateNotes — extension flow', () => {
     const p = dapp.requestPrivateNotes('https://miden.xyz', {
       type: MidenDAppMessageType.PrivateNotesRequest,
       sourcePublicKey: 'miden-account-1',
+      notefilterType: NoteFilterTypes.List,
       noteIds: ['n1']
     } as never);
     await new Promise(r => setTimeout(r, 0));
@@ -832,9 +844,89 @@ describe('requestPrivateNotes — extension flow', () => {
     const res = await dapp.requestPrivateNotes('https://miden.xyz', {
       type: MidenDAppMessageType.PrivateNotesRequest,
       sourcePublicKey: 'miden-account-1',
+      notefilterType: NoteFilterTypes.List,
       noteIds: ['n1']
     } as never);
     expect(res.type).toBe(MidenDAppMessageType.PrivateNotesResponse);
+  });
+});
+
+describe('requestPrivateNotes by an import id - extension Auto flow (#1536)', () => {
+  const importedNote = {
+    noteId: 'n9',
+    noteType: NoteType.Private,
+    senderAccountId: 's1',
+    nullifier: 'nf9',
+    state: 0,
+    assets: []
+  };
+  const requestList = (notefilterType: NoteFilterTypes) =>
+    dapp.requestPrivateNotes('https://miden.xyz', {
+      type: MidenDAppMessageType.PrivateNotesRequest,
+      sourcePublicKey: 'miden-account-1',
+      notefilterType,
+      noteIds: ['0xcommit']
+    });
+
+  beforeEach(() => {
+    _g.__dappExtTest.storage[STORAGE_KEY]['https://miden.xyz'] = [
+      { ...SESSION, privateDataPermission: 'AUTO', allowedPrivateData: 2 }
+    ];
+    _g.__dappExtTest.midenClient.getInputNoteDetails = jest.fn().mockResolvedValue([]);
+    _g.__dappExtTest.midenClient.getDetailsCommitmentMatches = jest
+      .fn()
+      .mockResolvedValue([{ notes: [importedNote], uncommitted: 0 }]);
+    _g.__dappExtTest.midenClient.getConsumableNoteDtos = jest.fn().mockResolvedValue([{ noteId: 'n9' }]);
+  });
+
+  afterEach(() => {
+    _g.__dappExtTest.midenClient.getConsumableNoteDtos = jest.fn(async () => []);
+  });
+
+  it('lists by the returned commitment under the real note id without a prompt', async () => {
+    await expect(requestList(NoteFilterTypes.List)).resolves.toEqual({
+      type: MidenDAppMessageType.PrivateNotesResponse,
+      privateNotes: [importedNote]
+    });
+    expect(extensionBrowser.windows.create).not.toHaveBeenCalled();
+  });
+
+  it('propagates an eviction inside the commitment read after reading consumables', async () => {
+    _g.__dappExtTest.midenClient.getDetailsCommitmentMatches = jest.fn(
+      async (_commitments: string[], _candidateIds: string[], assertLive: () => void) => {
+        revokeWasmHold();
+        assertLive();
+        return [{ notes: [], uncommitted: 0 }];
+      }
+    );
+
+    const pending = requestList(NoteFilterTypes.List);
+    await expect(pending).rejects.toBeInstanceOf(WasmClientPoisonedError);
+    await expect(pending).rejects.toMatchObject({
+      cause: expect.objectContaining({
+        message: 'operation abandoned inside the private-note details-commitment read, before the record reach-through'
+      })
+    });
+    await expect(pending).rejects.not.toThrow(MidenDAppErrorType.InvalidParams);
+    expect(_g.__dappExtTest.midenClient.getConsumableNoteDtos).toHaveBeenCalledWith(
+      'miden-account-1',
+      expect.any(Function)
+    );
+    expect(extensionBrowser.windows.create).not.toHaveBeenCalled();
+  });
+
+  it('keeps an ordinary commitment read failure wrapped as InvalidParams', async () => {
+    _g.__dappExtTest.midenClient.getDetailsCommitmentMatches = jest
+      .fn()
+      .mockRejectedValue(new Error('store unavailable'));
+
+    await expect(requestList(NoteFilterTypes.List)).rejects.toThrow(
+      `${MidenDAppErrorType.InvalidParams}: Error: store unavailable`
+    );
+    expect(_g.__dappExtTest.midenClient.getConsumableNoteDtos).toHaveBeenCalledWith(
+      'miden-account-1',
+      expect.any(Function)
+    );
   });
 });
 
@@ -1013,6 +1105,7 @@ describe('Full confirmation cycles in extension mode', () => {
         dapp.requestPrivateNotes('https://miden.xyz', {
           type: MidenDAppMessageType.PrivateNotesRequest,
           sourcePublicKey: 'miden-account-1',
+          notefilterType: NoteFilterTypes.List,
           noteIds: ['n1']
         } as never),
       MidenMessageType.DAppPrivateNotesConfirmationRequest
@@ -1028,6 +1121,7 @@ describe('Full confirmation cycles in extension mode', () => {
           dapp.requestPrivateNotes('https://miden.xyz', {
             type: MidenDAppMessageType.PrivateNotesRequest,
             sourcePublicKey: 'miden-account-1',
+            notefilterType: NoteFilterTypes.List,
             noteIds: ['n1']
           } as never),
         MidenMessageType.DAppPrivateNotesConfirmationRequest,
@@ -1275,6 +1369,7 @@ describe('Full confirmation cycles in extension mode', () => {
     const sdk = require('lib/miden/transaction');
     expect(sdk.initiateConsumeTransactionFromId.mock.calls[0][3]).toBe(true);
     expect(sdk.initiateConsumeTransactionFromId.mock.calls[0][4]).toBe('https://miden.xyz');
+    expect(sdk.initiateConsumeTransactionFromId.mock.calls[0][5]).toBe('dapp');
   });
 
   it('requestConsumeTransaction refuses a note another transaction holds rather than answer with it', async () => {
@@ -1306,6 +1401,7 @@ describe('Full confirmation cycles in extension mode', () => {
           dapp.requestPrivateNotes('https://miden.xyz', {
             type: MidenDAppMessageType.PrivateNotesRequest,
             sourcePublicKey: 'miden-account-1',
+            notefilterType: NoteFilterTypes.List,
             noteIds: ['n1']
           } as never),
         MidenMessageType.DAppPrivateNotesConfirmationRequest,
@@ -1769,6 +1865,23 @@ describe('Full confirmation cycles in extension mode', () => {
       expect(transaction().initiateConsumeTransactionFromId).not.toHaveBeenCalled();
     });
 
+    it('refuses the consume before the import and retires the client when the approval-time decode traps', async () => {
+      const trap = new WebAssembly.RuntimeError('unreachable');
+      carryRawNote(
+        jest
+          .fn()
+          .mockReturnValueOnce(sdkNote('note-1'))
+          .mockImplementation(() => {
+            throw trap;
+          })
+      );
+
+      await expect(consumeWithBytes()).rejects.toThrow(`${MidenDAppErrorType.InvalidParams}: RuntimeError`);
+      expect(mockRetireWasmClientForCaughtTrap).toHaveBeenCalledWith(expect.anything(), trap);
+      expect(_g.__dappExtTest.midenClient.importNoteBytes).not.toHaveBeenCalled();
+      expect(transaction().initiateConsumeTransactionFromId).not.toHaveBeenCalled();
+    });
+
     const detailsOnlyFile = (id: string) => ({
       note: () => undefined,
       noteId: () => ({ toString: () => id })
@@ -1992,6 +2105,7 @@ describe('a prompted request approved after the current account changed (#1419, 
         dapp.requestPrivateNotes(ORIGIN, {
           type: MidenDAppMessageType.PrivateNotesRequest,
           sourcePublicKey: 'miden-account-1',
+          notefilterType: NoteFilterTypes.List,
           noteIds: ['note-1']
         } as never),
       MidenMessageType.DAppPrivateNotesConfirmationRequest,
@@ -2234,6 +2348,7 @@ describe('a request that prompts, made while the wallet is locked (#1414)', () =
         dapp.requestPrivateNotes(LOCKED_ORIGIN, {
           type: MidenDAppMessageType.PrivateNotesRequest,
           sourcePublicKey: 'miden-account-1',
+          notefilterType: NoteFilterTypes.List,
           noteIds: ['note-1']
         } as never),
       reads: () => _g.__dappExtTest.midenClient.getInputNoteDetails.mock.calls.length,
@@ -2442,6 +2557,177 @@ describe('a request that prompts, made while the wallet is locked (#1414)', () =
   });
 });
 
+// A details-only note file or a bare Note imports as its details commitment, which no record has as its note id.
+describe('requestConsumeTransaction by the id importPrivateNote returned, in extension mode (#1389)', () => {
+  const COMMITMENT = '0xd37a115c0ffee';
+  const request: MidenDAppConsumeRequest = {
+    type: MidenDAppMessageType.ConsumeRequest,
+    sourcePublicKey: 'miden-account-1',
+    transaction: { noteId: COMMITMENT, faucetId: 'faucet-1', noteType: 'private', amount: 1 }
+  };
+  const importedNote = {
+    noteId: '0xreal-note',
+    noteType: 0,
+    senderAccountId: 's1',
+    nullifier: 'nf-real',
+    state: 2,
+    assets: [{ faucetId: 'faucet-1', amount: '45' }]
+  };
+
+  beforeEach(() => {
+    _g.__dappExtTest.midenClient.getInputNoteDetails = jest.fn().mockResolvedValue([]);
+    _g.__dappExtTest.midenClient.getConsumableNoteDtos = jest
+      .fn()
+      .mockResolvedValue([{ noteId: '0xreal-note', nullifier: 'nf-real' }]);
+  });
+
+  afterEach(() => {
+    _g.__dappExtTest.midenClient.getConsumableNoteDtos = jest.fn(async () => []);
+  });
+
+  it.each([false, true])(
+    'consumes bare Note bytes by commitment when decoding after unlock is %s',
+    async decodeAfterUnlock => {
+      const sdk: Record<string, unknown> = require('@miden-sdk/miden-sdk/lazy');
+      const original = { Note: sdk.Note, NoteFile: sdk.NoteFile };
+      const hash = jest.mocked(Poseidon2.hashElements);
+      const originalHash = hash.getMockImplementation();
+      hash.mockReturnValue(Word.fromHex(COMMITMENT));
+      const note = {
+        id: () => ({ toString: () => importedNote.noteId }),
+        metadata: () => undefined,
+        recipient: () => ({ digest: () => Word.fromHex(COMMITMENT) }),
+        assets: () => ({ assets: () => [], fungibleAssets: () => [] })
+      };
+      const deserialize = jest.fn(() => note);
+      if (decodeAfterUnlock)
+        deserialize.mockImplementationOnce(() => {
+          throw new Error('SDK not ready');
+        });
+      sdk.NoteFile = {
+        deserialize: () => {
+          throw new Error('not a NoteFile');
+        }
+      };
+      sdk.Note = { deserialize };
+      _g.__dappExtTest.midenClient.importNoteBytes = jest.fn().mockResolvedValue(COMMITMENT);
+      const outcome = dapp.requestConsumeTransaction('https://miden.xyz', {
+        ...request,
+        transaction: { ...request.transaction, noteBytes: 'c29tZWJ5dGVz' }
+      });
+      outcome.catch(() => undefined);
+      try {
+        await expect(
+          driveConfirmation(() => outcome, MidenMessageType.DAppTransactionConfirmationRequest, {
+            confirmed: true,
+            delegate: true
+          })
+        ).resolves.toEqual({ type: MidenDAppMessageType.ConsumeResponse, transactionId: 'tx-consume-1' });
+        expect(_g.__dappExtTest.lastPayloadResponse.payload).toMatchObject({
+          type: 'consume',
+          noteId: importedNote.noteId
+        });
+        expect(_g.__dappExtTest.midenClient.importNoteBytes).toHaveBeenCalledTimes(1);
+        expect(require('lib/miden/transaction').initiateConsumeTransactionFromId).toHaveBeenCalledWith(
+          'miden-account-1',
+          importedNote.noteId,
+          true,
+          true,
+          'https://miden.xyz',
+          'dapp'
+        );
+      } finally {
+        Object.assign(sdk, original);
+        hash.mockReset();
+        if (originalHash) hash.mockImplementation(originalHash);
+      }
+    }
+  );
+
+  it('consumes a details-only file by its requested commitment after approval', async () => {
+    const sdk: Record<string, unknown> = require('@miden-sdk/miden-sdk/lazy');
+    const original = { Note: sdk.Note, NoteFile: sdk.NoteFile };
+    sdk.NoteFile = { deserialize: () => ({ note: () => undefined, noteId: () => ({ toString: () => COMMITMENT }) }) };
+    sdk.Note = {
+      deserialize: () => {
+        throw new Error('not a Note');
+      }
+    };
+    _g.__dappExtTest.midenClient.getDetailsCommitmentMatches = jest
+      .fn()
+      .mockResolvedValue([{ notes: [importedNote], uncommitted: 0 }]);
+    _g.__dappExtTest.midenClient.importNoteBytes = jest.fn().mockResolvedValue(COMMITMENT);
+    try {
+      await expect(
+        driveConfirmation(
+          () =>
+            dapp.requestConsumeTransaction('https://miden.xyz', {
+              ...request,
+              transaction: { ...request.transaction, noteBytes: 'c29tZWJ5dGVz' }
+            }),
+          MidenMessageType.DAppTransactionConfirmationRequest,
+          { confirmed: true, delegate: true }
+        )
+      ).resolves.toEqual({ type: MidenDAppMessageType.ConsumeResponse, transactionId: 'tx-consume-1' });
+      expect(_g.__dappExtTest.lastPayloadResponse.payload).toMatchObject({
+        type: 'consume',
+        noteId: importedNote.noteId
+      });
+      expect(require('lib/miden/transaction').initiateConsumeTransactionFromId).toHaveBeenCalledWith(
+        'miden-account-1',
+        importedNote.noteId,
+        true,
+        true,
+        'https://miden.xyz',
+        'dapp'
+      );
+    } finally {
+      Object.assign(sdk, original);
+    }
+  });
+
+  it('opens on the note the commitment names and consumes it by its own note id', async () => {
+    _g.__dappExtTest.midenClient.getDetailsCommitmentMatches = jest
+      .fn()
+      .mockResolvedValue([{ notes: [importedNote], uncommitted: 0 }]);
+
+    const res = await driveConfirmation(
+      () => dapp.requestConsumeTransaction('https://miden.xyz', request),
+      MidenMessageType.DAppTransactionConfirmationRequest,
+      { confirmed: true, delegate: true }
+    );
+
+    expect(res).toEqual({ type: MidenDAppMessageType.ConsumeResponse, transactionId: 'tx-consume-1' });
+    expect(_g.__dappExtTest.lastPayloadResponse.payload).toMatchObject({ type: 'consume', noteId: '0xreal-note' });
+    expect(_g.__dappExtTest.lastPayloadResponse.payload.transactionMessages).toContain('Amount, +45');
+    expect(require('lib/miden/transaction').initiateConsumeTransactionFromId).toHaveBeenCalledWith(
+      'miden-account-1',
+      '0xreal-note',
+      true,
+      true,
+      'https://miden.xyz',
+      'dapp'
+    );
+  });
+
+  it('gives unknown, uncommitted and other-account ids exactly the same sync guidance', async () => {
+    const refusal = new Error(
+      `${MidenDAppErrorType.InvalidParams}: Error: Note ${COMMITMENT} could not be resolved - an imported note resolves once the wallet has synced it`
+    );
+    _g.__dappExtTest.midenClient.getConsumableNoteDtos = jest.fn().mockResolvedValue([]);
+    for (const match of [
+      { notes: [], uncommitted: 0 },
+      { notes: [], uncommitted: 1 },
+      { notes: [importedNote], uncommitted: 0 }
+    ]) {
+      _g.__dappExtTest.midenClient.getDetailsCommitmentMatches = jest.fn().mockResolvedValue([match]);
+      await expect(dapp.requestConsumeTransaction('https://miden.xyz', request)).rejects.toEqual(refusal);
+    }
+    expect(extensionBrowser.windows.create).not.toHaveBeenCalled();
+    expect(require('lib/miden/transaction').initiateConsumeTransactionFromId).not.toHaveBeenCalled();
+  });
+});
+
 describe('a request that never prompts while unlocked, made while the wallet is locked (#1414)', () => {
   const autoSession = (allowedPrivateData: number) => {
     _g.__dappExtTest.storage[STORAGE_KEY] = {
@@ -2470,6 +2756,7 @@ describe('a request that never prompts while unlocked, made while the wallet is 
         dapp.requestPrivateNotes(LOCKED_ORIGIN, {
           type: MidenDAppMessageType.PrivateNotesRequest,
           sourcePublicKey: 'miden-account-1',
+          notefilterType: NoteFilterTypes.List,
           noteIds: ['note-1']
         } as never),
       reads: () => _g.__dappExtTest.midenClient.getInputNoteDetails.mock.calls.length,

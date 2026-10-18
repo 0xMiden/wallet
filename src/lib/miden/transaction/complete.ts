@@ -25,6 +25,7 @@ import {
 } from 'lib/miden/guardian/post-switch-state';
 import { rotationVerdict } from 'lib/miden/guardian/rotation-verdict';
 import * as Repo from 'lib/miden/repo';
+import type { BridgeReceiveFailureSource } from 'lib/telemetry/bridge-receive-failure';
 import { classifyError } from 'lib/telemetry/classify';
 import { reportOperation } from 'lib/telemetry/report-operation';
 import { reportTransactionFailure } from 'lib/telemetry/transaction-failure';
@@ -73,6 +74,7 @@ import { isPrivateNoteType, toNoteTypeString } from '../helpers';
 import { getBech32AddressFromAccountId, sameWalletAccountId } from '../sdk/helpers';
 import { assertWasmHoldCurrent, withWasmClientLock } from '../sdk/miden-client';
 import { isPoisonedPipeline } from '../sdk/sdk-error-code';
+import { isRecoveredSwapOrder } from '../swap/recovered-order';
 import { NoteTypeEnum } from '../types';
 
 export const completeCustomTransaction = async (transaction: ITransaction, result: TransactionResult) => {
@@ -353,7 +355,7 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
       const stampedAt = Math.floor(Date.now() / 1000);
       await Repo.transactions.where({ id: settle.swapOrderTxId }).modify(tx => {
         // `false`, not a bare return - dexie re-puts the deep clone for any other value.
-        if (tx.type !== 'swap') return false;
+        if (tx.type !== 'swap' || isRecoveredSwapOrder(tx)) return false;
         tx.extraInputs = {
           ...(tx.extraInputs ?? {}),
           ...(settle.swapSettleKind === 'reclaim' ? { reclaimedAt: stampedAt } : { settledAt: stampedAt })
@@ -1554,12 +1556,16 @@ export const updateBridgedReceivePhase = async (
       | 'usdcxRemoteRecipient'
       | 'epochAllocatorUrl'
     >
-  >,
+  > & {
+    /** What failed the row, read only by its crash report and never stored: a cause can carry addresses and amounts. */
+    failure?: BridgeReceiveFailureSource;
+  },
   received?: { amount: bigint; faucetId: string; transactionId?: string },
   // The reconciler's adoption of Circle's forward lands only on a leg with no execute hash, so it never replaces a
   // manual execute; the wallet's own execute always lands, and the reconciler reopens on whichever held hash reverts.
   { onlyIfNoExecuteHash = false }: { onlyIfNoExecuteHash?: boolean } = {}
 ) => {
+  const { failure: source, ...details }: NonNullable<typeof extra> = extra ?? {};
   let settled: ITransaction | undefined;
   let failed: ITransaction | undefined;
   await Repo.transactions.where({ id }).modify(tx => {
@@ -1601,7 +1607,7 @@ export const updateBridgedReceivePhase = async (
     tx.extraInputs = {
       ...inputs,
       phase,
-      ...(extra ?? {}),
+      ...details,
       ...(cctp ? { cctp } : {}),
       ...(readyAt === undefined ? {} : { readyAt })
     };
@@ -1615,13 +1621,15 @@ export const updateBridgedReceivePhase = async (
   });
 
   if (failed !== undefined && !failed.restoredFromBackup) {
+    const inputs: IBridgedReceiveExtraInputs | undefined = failed.extraInputs;
     reportTransactionFailure({
       point: 'bridge_receive_settlement',
       type: failed.type,
       stage: failed.stage,
       delegateTransaction: failed.delegateTransaction,
       diagnostics: failed.failureDiagnostics,
-      error: extra?.error ?? failed.rawError ?? failed.error
+      error: extra?.error ?? failed.rawError ?? failed.error,
+      bridgeReceive: { route: inputs?.provider, step: source?.step, cause: source?.cause }
     });
   }
 
