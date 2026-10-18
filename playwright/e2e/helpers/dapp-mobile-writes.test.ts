@@ -281,18 +281,19 @@ describe('mobile write read boundaries', () => {
             outputNotes: [{ noteId: '0xABC', noteType: 'public', bytesB64: '', isSameSdkNote: true, script: 'p2id' }]
           }
         };
-      if (command === 'chainNote') return { found: true, senderHex: '0xaaa', noteType: 'public' };
+      if (command === 'chainNote')
+        return { found: true, senderHex: '0xaaa', noteType: 'public', blockNum: 1, attachmentWordsHex: [] };
       return send(command, input, timeout);
     };
     jest.useFakeTimers();
     const outcome = expectMobileWriteToTheEnd(
       side,
       baseline,
-      { txId: 'write', outputNotes: [{ noteType: 'public' }], consumedNullifiers: [] },
+      { txId: 'write', outputNotes: [{ noteType: 'public', attachmentWordsHex: [] }], consumedNullifiers: [] },
       {},
       { deadline: deadlineIn(10_000, 'W1'), evidence: {}, softFail: () => undefined }
     );
-    await jest.advanceTimersByTimeAsync(5_000);
+    await jest.advanceTimersByTimeAsync(9_000);
     await expect(outcome).resolves.toMatchObject({ txHash: hash });
     expect([...side.j.outputNoteIds]).toEqual(['abc']);
   });
