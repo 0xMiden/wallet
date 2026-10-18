@@ -456,9 +456,8 @@ const handlers: Partial<DappHandlers> = {
   },
 
   // Returns the id the wallet reports: the note id for a file with an inclusion proof, the details commitment for a
-  // details-only file or a bare note (dapp.ts:1502-1507). The spike found the wallet then refuses a consume by that
-  // commitment before any popup, while the same note consumes by its own id: a cell that consumes by the returned id
-  // (W5b, W5c) meets that refusal.
+  // details-only file or a bare note (dapp.ts:1502-1507). A consume by that commitment (W5b, W5c) consumes the note it
+  // names once a sync has committed it (#1389); the private-note list still misses it (N4, K10).
   importNote: ({ noteBytesB64 }) =>
     outcome(async () => ({ noteId: await state.adapter.importPrivateNote(b64ToU8(noteBytesB64)) })),
 

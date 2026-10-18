@@ -8,6 +8,8 @@
  * and the startDappBackgroundProcessing error-swallowing.
  */
 
+import { Poseidon2, Word } from '@miden-sdk/miden-sdk/lazy';
+
 import { MidenDAppConsumeRequest, MidenDAppMessageType, MidenDAppErrorType } from 'lib/adapter/types';
 import { ITransactionStatus, type ITransaction, type TransactionOutput } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
@@ -190,13 +192,17 @@ const storedNote = {
   assets: [{ faucetId: 'faucet-1', amount: '1000000' }]
 };
 const mockGetInputNoteDetails = jest.fn(async (..._args: unknown[]): Promise<unknown[]> => [storedNote]);
+const NO_COMMITMENT_MATCH = { notes: [], uncommitted: 0 };
+const mockGetDetailsCommitmentMatches = jest.fn(async (..._args: unknown[]): Promise<unknown> => NO_COMMITMENT_MATCH);
+const mockGetConsumableNoteDtos = jest.fn(async (..._args: unknown[]): Promise<unknown[]> => []);
 const mockRetireWasmClientForCaughtTrap = jest.fn();
 jest.mock('../sdk/miden-client', () => ({
   getMidenClient: async () => ({
     getAccount: (id: string) => (globalThis as any).__dappBranchMockGetAccount(id),
     getInputNoteDetails: (...args: unknown[]) => mockGetInputNoteDetails(...args),
+    getDetailsCommitmentMatches: (...args: unknown[]) => mockGetDetailsCommitmentMatches(...args),
     getConsumableNotes: jest.fn(async () => []),
-    getConsumableNoteDtos: jest.fn(async () => []),
+    getConsumableNoteDtos: (...args: unknown[]) => mockGetConsumableNoteDtos(...args),
     syncState: jest.fn(async () => {}),
     importNoteBytes: (...args: unknown[]) => mockImportNoteBytes(...args),
     on: jest.fn()
@@ -921,6 +927,242 @@ describe('requestConsumeTransaction — mobile error branches', () => {
         transaction: validTx
       } as never)
     ).rejects.toThrow(MidenDAppErrorType.InvalidParams);
+  });
+});
+
+// A details-only note file or a bare Note imports as its details commitment, which no record has as its note id.
+describe('requestConsumeTransaction by the id importPrivateNote returned (#1389)', () => {
+  const COMMITMENT = '0xd37a115c0ffee';
+  const importedNote = { ...storedNote, noteId: '0xreal-note', assets: [{ faucetId: 'faucet-1', amount: '4500000' }] };
+  const consumable = (...noteIds: string[]) => noteIds.map(noteId => ({ noteId, nullifier: `nf-${noteId}` }));
+  const consumeByCommitment = (noteBytes?: string) =>
+    dapp.requestConsumeTransaction('https://miden.xyz', {
+      type: MidenDAppMessageType.ConsumeRequest,
+      sourcePublicKey: 'miden-account-1',
+      transaction: { noteId: COMMITMENT, noteBytes, faucetId: 'faucet-1', noteType: 'private', amount: 1 }
+    });
+
+  beforeEach(() => {
+    mockGetInputNoteDetails.mockReset();
+    mockGetInputNoteDetails.mockResolvedValue([]);
+    mockInitiateConsumeTransactionFromId.mockReset();
+    mockInitiateConsumeTransactionFromId.mockResolvedValue('tx-imported');
+  });
+
+  afterEach(() => {
+    mockGetInputNoteDetails.mockReset();
+    mockGetInputNoteDetails.mockResolvedValue([storedNote]);
+    mockGetDetailsCommitmentMatches.mockReset();
+    mockGetDetailsCommitmentMatches.mockResolvedValue(NO_COMMITMENT_MATCH);
+    mockGetConsumableNoteDtos.mockReset();
+    mockGetConsumableNoteDtos.mockResolvedValue([]);
+  });
+
+  it.each([false, true])(
+    'consumes bare Note bytes by commitment when decoding after unlock is %s',
+    async decodeAfterUnlock => {
+      const sdk: Record<string, unknown> = require('@miden-sdk/miden-sdk/lazy');
+      const original = { Note: sdk.Note, NoteFile: sdk.NoteFile };
+      const hash = jest.mocked(Poseidon2.hashElements);
+      const originalHash = hash.getMockImplementation();
+      hash.mockReturnValue(Word.fromHex(COMMITMENT));
+      const note = {
+        id: () => ({ toString: () => importedNote.noteId }),
+        metadata: () => undefined,
+        recipient: () => ({ digest: () => Word.fromHex(COMMITMENT) }),
+        assets: () => ({ assets: () => [], fungibleAssets: () => [] })
+      };
+      const deserialize = jest.fn(() => note);
+      if (decodeAfterUnlock)
+        deserialize.mockImplementationOnce(() => {
+          throw new Error('SDK not ready');
+        });
+      sdk.NoteFile = {
+        deserialize: () => {
+          throw new Error('not a NoteFile');
+        }
+      };
+      sdk.Note = { deserialize };
+      mockImportNoteBytes.mockResolvedValue(COMMITMENT);
+      try {
+        await expect(consumeByCommitment('c29tZWJ5dGVz')).resolves.toEqual({
+          type: MidenDAppMessageType.ConsumeResponse,
+          transactionId: 'tx-imported'
+        });
+        expect(mockRequestConfirmation).toHaveBeenCalledTimes(1);
+        expect(mockImportNoteBytes).toHaveBeenCalledTimes(1);
+        expect(mockInitiateConsumeTransactionFromId).toHaveBeenCalledWith(
+          'miden-account-1',
+          importedNote.noteId,
+          true,
+          true,
+          'https://miden.xyz',
+          'dapp'
+        );
+      } finally {
+        Object.assign(sdk, original);
+        hash.mockReset();
+        if (originalHash) hash.mockImplementation(originalHash);
+      }
+    }
+  );
+
+  it('consumes a details-only file by its requested commitment after approval', async () => {
+    const sdk: Record<string, unknown> = require('@miden-sdk/miden-sdk/lazy');
+    const original = { Note: sdk.Note, NoteFile: sdk.NoteFile };
+    sdk.NoteFile = { deserialize: () => ({ note: () => undefined, noteId: () => ({ toString: () => COMMITMENT }) }) };
+    sdk.Note = {
+      deserialize: () => {
+        throw new Error('not a Note');
+      }
+    };
+    mockGetDetailsCommitmentMatches.mockResolvedValue({ notes: [importedNote], uncommitted: 0 });
+    mockGetConsumableNoteDtos.mockResolvedValue(consumable(importedNote.noteId));
+    mockImportNoteBytes.mockResolvedValue(COMMITMENT);
+    try {
+      await expect(consumeByCommitment('c29tZWJ5dGVz')).resolves.toEqual({
+        type: MidenDAppMessageType.ConsumeResponse,
+        transactionId: 'tx-imported'
+      });
+      expect(mockRequestConfirmation).toHaveBeenCalledTimes(1);
+      expect(mockInitiateConsumeTransactionFromId).toHaveBeenCalledWith(
+        'miden-account-1',
+        importedNote.noteId,
+        true,
+        true,
+        'https://miden.xyz',
+        'dapp'
+      );
+    } finally {
+      Object.assign(sdk, original);
+    }
+  });
+
+  it.each([
+    'after the note-preview read',
+    'inside the details-commitment read, before the record reach-through',
+    'after the details-commitment read',
+    'inside the consumable-notes read'
+  ])('refuses a stale hold %s before any sheet or consume', async where => {
+    mockGetDetailsCommitmentMatches.mockResolvedValue({ notes: [importedNote], uncommitted: 0 });
+    mockGetConsumableNoteDtos.mockResolvedValue(consumable(importedNote.noteId));
+    if (where === 'after the note-preview read') {
+      mockGetInputNoteDetails.mockImplementationOnce(async () => {
+        currentWasmHold = null;
+        return [];
+      });
+    } else if (where === 'after the details-commitment read') {
+      mockGetDetailsCommitmentMatches.mockImplementationOnce(async () => {
+        currentWasmHold = null;
+        return { notes: [importedNote], uncommitted: 0 };
+      });
+    } else if (where.startsWith('inside the details-commitment')) {
+      mockGetDetailsCommitmentMatches.mockImplementationOnce(async (...args: unknown[]) => {
+        currentWasmHold = null;
+        const assertLive = args[1];
+        if (typeof assertLive === 'function') assertLive();
+        return { notes: [importedNote], uncommitted: 0 };
+      });
+    } else {
+      mockGetConsumableNoteDtos.mockImplementationOnce(async (...args: unknown[]) => {
+        currentWasmHold = null;
+        const assertLive = args[1];
+        if (typeof assertLive === 'function') assertLive('before the record reach-through');
+        return consumable(importedNote.noteId);
+      });
+    }
+    const lock: { assertWasmHoldCurrent(hold: object | null, label: string): void } =
+      jest.requireMock('../sdk/miden-client');
+    const check = jest.spyOn(lock, 'assertWasmHoldCurrent');
+    const expectedWhere =
+      where === 'inside the consumable-notes read' ? /^inside the details-commitment consumable-notes read$/ : where;
+    try {
+      await expect(consumeByCommitment()).rejects.toThrow('WASM client poisoned');
+      expect(check).toHaveBeenLastCalledWith(
+        expect.anything(),
+        expect.stringMatching(expectedWhere),
+        ...(where === 'inside the consumable-notes read' ? ['before the record reach-through'] : [])
+      );
+      expect(mockRequestConfirmation).not.toHaveBeenCalled();
+      expect(mockInitiateConsumeTransactionFromId).not.toHaveBeenCalled();
+    } finally {
+      check.mockRestore();
+    }
+  });
+
+  it('shows the note the commitment names and consumes it by its own note id', async () => {
+    mockGetDetailsCommitmentMatches.mockResolvedValueOnce({ notes: [importedNote], uncommitted: 0 });
+    mockGetConsumableNoteDtos.mockResolvedValueOnce(consumable('0xother-note', '0xreal-note'));
+
+    await expect(consumeByCommitment()).resolves.toEqual({
+      type: MidenDAppMessageType.ConsumeResponse,
+      transactionId: 'tx-imported'
+    });
+
+    expect(mockGetDetailsCommitmentMatches).toHaveBeenCalledWith(COMMITMENT, expect.any(Function));
+    expect(mockGetConsumableNoteDtos).toHaveBeenCalledWith('miden-account-1', expect.any(Function));
+    const sheet = mockRequestConfirmation.mock.calls[0]![0] as { transactionMessages: string[] };
+    expect(sheet.transactionMessages).toContain('Amount, +4500000');
+    expect(mockInitiateConsumeTransactionFromId).toHaveBeenCalledWith(
+      'miden-account-1',
+      '0xreal-note',
+      true,
+      true,
+      'https://miden.xyz',
+      'dapp'
+    );
+  });
+
+  it('gives unknown, uncommitted and other-account ids exactly the same sync guidance', async () => {
+    const refusal = new Error(
+      `${MidenDAppErrorType.InvalidParams}: Error: Note ${COMMITMENT} could not be resolved - an imported note resolves once the wallet has synced it`
+    );
+    for (const match of [
+      { notes: [], uncommitted: 0 },
+      { notes: [], uncommitted: 1 },
+      { notes: [importedNote], uncommitted: 0 }
+    ]) {
+      mockGetDetailsCommitmentMatches.mockResolvedValueOnce(match);
+      await expect(consumeByCommitment()).rejects.toEqual(refusal);
+    }
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+    expect(mockInitiateConsumeTransactionFromId).not.toHaveBeenCalled();
+  });
+
+  it('refuses a commitment that names only a note of another account, as one it cannot resolve', async () => {
+    mockGetDetailsCommitmentMatches.mockResolvedValueOnce({ notes: [importedNote], uncommitted: 0 });
+    mockGetConsumableNoteDtos.mockResolvedValueOnce(consumable('0xother-note'));
+
+    await expect(consumeByCommitment()).rejects.toThrow(`Note ${COMMITMENT} could not be resolved`);
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+    expect(mockInitiateConsumeTransactionFromId).not.toHaveBeenCalled();
+  });
+
+  it('refuses a commitment that names two notes this account can consume', async () => {
+    const twin = { ...importedNote, noteId: '0xtwin-note' };
+    mockGetDetailsCommitmentMatches.mockResolvedValueOnce({ notes: [importedNote, twin], uncommitted: 0 });
+    mockGetConsumableNoteDtos.mockResolvedValueOnce(consumable('0xreal-note', '0xtwin-note'));
+
+    await expect(consumeByCommitment()).rejects.toThrow(
+      `Note ${COMMITMENT} names more than one note this account can consume - refusing to preview it`
+    );
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+  });
+
+  it('never reads by commitment for a note it finds by its note id', async () => {
+    mockGetInputNoteDetails.mockReset();
+    mockGetInputNoteDetails.mockImplementation(async () => [storedNote]);
+
+    await expect(
+      dapp.requestConsumeTransaction('https://miden.xyz', {
+        type: MidenDAppMessageType.ConsumeRequest,
+        sourcePublicKey: 'miden-account-1',
+        transaction: { noteId: 'note-1', faucetId: 'faucet-1', noteType: 'private', amount: 1 }
+      })
+    ).resolves.toEqual({ type: MidenDAppMessageType.ConsumeResponse, transactionId: 'tx-imported' });
+
+    expect(mockGetDetailsCommitmentMatches).not.toHaveBeenCalled();
+    expect(mockInitiateConsumeTransactionFromId.mock.calls[0]?.[1]).toBe('note-1');
   });
 });
 
