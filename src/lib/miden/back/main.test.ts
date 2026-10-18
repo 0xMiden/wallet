@@ -222,6 +222,7 @@ const Actions: any = jest.requireMock('lib/miden/back/actions');
 
 import { __resetSyncFuseStateForTests } from 'lib/miden/front/sync-fuse';
 import * as Repo from 'lib/miden/repo';
+import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { WalletMessageType } from 'lib/shared/types';
 
 import { CONNECTIVITY_CATEGORIES } from '../activity/connectivity-state';
@@ -526,6 +527,18 @@ describe('processRequest', () => {
     ).rejects.toThrow('Client terminated');
 
     expect(mockQueueNoteImport).toHaveBeenCalledWith(Buffer.from([1, 2, 3]).toString('base64'));
+  });
+
+  it('ImportNoteBytesRequest queues the bytes and rethrows a cause-wrapped poison', async () => {
+    const noteBytes = Buffer.from([1, 2, 3]).toString('base64');
+    const poison = new WasmClientPoisonedError('watchdog', new Error('note import parked'));
+    const error = new Error('import wrapper', { cause: poison });
+    mockClient.importNoteBytes.mockRejectedValueOnce(error);
+
+    await expect(dispatch({ type: WalletMessageType.ImportNoteBytesRequest, noteBytes })).rejects.toBe(error);
+
+    expect(mockQueueNoteImport).toHaveBeenCalledWith(noteBytes);
+    expect(mockClient.syncState).not.toHaveBeenCalled();
   });
 
   // #788 follow-up: the Activity notice's Retry drains the dead-letter store in

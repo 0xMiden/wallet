@@ -147,7 +147,7 @@ import { assertWasmHoldCurrent, withWasmClientLock, type WasmLockHold } from '..
 import type { DetailsCommitmentMatches } from '../sdk/miden-client-interface';
 import { normalizedCommitment, noteDetailsCommitment, type NoteDetailsParts } from '../sdk/note-details-commitment';
 import { resolvePublicKeyCommitments } from '../sdk/resolve-public-key-commitments';
-import { isPipelineKillLink } from '../sdk/sdk-error-code';
+import { causeChain, isPipelineKillLink, pipelineKillIn } from '../sdk/sdk-error-code';
 import {
   initiateSendTransaction,
   requestCustomTransaction,
@@ -155,6 +155,7 @@ import {
   waitForTransactionCompletion
 } from '../transaction';
 import { deterministicKernelFailureCopy } from '../transaction/constants';
+import { TransactionQueuedError } from '../transaction/initiate';
 
 /**
  * Starts background transaction processing using the unified SW
@@ -808,13 +809,13 @@ const generatePromisifySign = async (
           // worse than approving and then declining.
           const authorized = await withUnlocked(() =>
             withWasmClientLock(hold => publicKeyBelongsToAccount(dApp.accountId, req.sourcePublicKey, hold))
-          ).catch((err: unknown) => (isPipelineKillLink(err) ? err : false));
+          ).catch((err: unknown) => pipelineKillIn(err) ?? false);
           if (authorized !== true) {
             // A kill (a lock-recovery eviction, an offscreen abort or a
             // terminated client, issue #775) is not an authorization verdict:
             // reject an APPROVED request with the real, retryable failure
             // rather than a false NotGranted.
-            reject(isPipelineKillLink(authorized) ? authorized : new Error(MidenDAppErrorType.NotGranted));
+            reject(pipelineKillIn(authorized) ?? new Error(MidenDAppErrorType.NotGranted));
             return {
               type: MidenMessageType.DAppSignConfirmationResponse
             };
@@ -981,7 +982,7 @@ const hasDAppErrorCode = (message: string): boolean =>
 
 // A refusal already in the dApp's terms keeps its message, so its code leads it once: LOGIN_KEY_UNAVAILABLE stays
 // apart from a malformed request, and the vault's own INVALID_PARAMS is not wrapped in another.
-const loginKeyFailure = (error: unknown): Error =>
+const loginKeyFailure = (error: unknown): unknown =>
   error instanceof Error && hasDAppErrorCode(error.message) ? error : dappRequestFailure(error);
 
 export async function requestPrivateNotes(
@@ -1142,11 +1143,7 @@ async function getPrivateNoteDetails(
     });
     return privateNotes;
   } catch (e) {
-    // A kill (a lock-recovery eviction, an offscreen abort or a terminated
-    // client) is a retryable internal failure, not a parameter problem
-    // (issue #775); a locked wallet gets an Unlock step from the caller (#1414).
-    if (isPipelineKillLink(e) || isWalletLockedError(e)) throw e;
-    throw new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`);
+    throw dappReadFailure(e);
   }
 }
 
@@ -1246,11 +1243,7 @@ async function getConsumableNotes(accountId: string): Promise<InputNoteDetails[]
     });
     return consumableNotes;
   } catch (e) {
-    // A kill (a lock-recovery eviction, an offscreen abort or a terminated
-    // client) is a retryable internal failure, not a parameter problem
-    // (issue #775); a locked wallet gets an Unlock step from the caller (#1414).
-    if (isPipelineKillLink(e) || isWalletLockedError(e)) throw e;
-    throw new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`);
+    throw dappReadFailure(e);
   }
 }
 
@@ -1332,11 +1325,7 @@ async function getAssets(accountId: string): Promise<Asset[]> {
 
     return assets;
   } catch (e) {
-    // A kill (a lock-recovery eviction, an offscreen abort or a terminated
-    // client) is a retryable internal failure, not a parameter problem
-    // (issue #775); a locked wallet gets an Unlock step from the caller (#1414).
-    if (isPipelineKillLink(e) || isWalletLockedError(e)) throw e;
-    throw new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`);
+    throw dappReadFailure(e);
   }
 }
 
@@ -1479,7 +1468,7 @@ async function importDAppPrivateNote(note: string): Promise<string> {
     // as a match today purely because its message contains 'aborted', which is a
     // coincidence of transport-text heuristics rather than a contract — so it is named
     // here too, and the clause stays load-bearing the moment that token list is re-tuned.
-    if (isLikelyNetworkError(e) || isPipelineKillLink(e)) {
+    if (isLikelyNetworkError(e) || pipelineKillIn(e) !== undefined) {
       await queueNoteImport(note).catch(queueError =>
         console.error('[importDAppPrivateNote] failed to queue the note for background retry', queueError)
       );
@@ -1487,19 +1476,6 @@ async function importDAppPrivateNote(note: string): Promise<string> {
     throw e;
   }
 }
-
-/**
- * What a failed dApp note import is reported as.
- *
- * `InvalidParams` says "your bytes are bad", a verdict the dApp can act on by
- * not sending them again. A KILL is the opposite claim: the bytes were fine, the
- * import was stopped from outside (a lock-recovery eviction, an offscreen abort
- * or a terminated client), and it may even have landed. Flattening it into
- * `InvalidParams` told a dApp to give up on a note whose retry was the correct
- * move, and lost the one signal the kill exists to carry. Same rule the connect
- * path follows.
- */
-const importPrivateNoteFailure = (e: unknown): unknown => (isPipelineKillLink(e) ? e : dappRequestFailure(e));
 
 /**
  * Imports carried bytes checked against the request's id, which may be their note id or details commitment.
@@ -1515,6 +1491,8 @@ async function importConsumeNoteBytes(transaction: MidenConsumeTransaction): Pro
     try {
       carriedId = await withWasmClientLock(async () => noteIdFromBytes(b64ToU8(noteBytes)));
     } catch (e) {
+      const kill = pipelineKillIn(e);
+      if (kill !== undefined) throw kill;
       if (e instanceof WebAssembly.RuntimeError) throw e;
       // Invalid base64 reads as unreadable bytes.
     }
@@ -1562,7 +1540,7 @@ export const generatePromisifyImportPrivateNote = async (
       const noteId = await importDAppPrivateNote(req.note);
       resolve({ type: MidenDAppMessageType.ImportPrivateNoteResponse, noteId });
     } catch (e) {
-      reject(importPrivateNoteFailure(e));
+      reject(dappRequestFailure(e));
     }
     return;
   }
@@ -1595,7 +1573,7 @@ export const generatePromisifyImportPrivateNote = async (
               noteId
             });
           } catch (e) {
-            reject(importPrivateNoteFailure(e));
+            reject(dappRequestFailure(e));
           }
         } else {
           decline();
@@ -1767,13 +1745,10 @@ const customSpendingLimitState = async (
     const details = await assessOutgoingSpendingLimitDetails({ accountId, spends: outgoing });
     return { totals: outgoing, details: details?.assessment.breach === undefined ? undefined : details };
   } catch (error) {
-    // A value the wallet cannot establish is the same answer as a value it cannot see: an
-    // untrusted page does not get to spend against a cap nobody can check. Converted at this
-    // boundary - not left to propagate for `dappSendFailure` to map downstream - so no internal
-    // error text can ever reach an untrusted page even if some future caller's catch does not
-    // route through that mapper; `spendingLimitRetryError` keeps the wording identical to the
-    // send path's own mapping of the same condition.
-    if (isSpendingLimitPriceUnavailable(error)) throw spendingLimitRetryError();
+    // An untrusted page cannot spend against a cap the wallet cannot value, so ordinary price
+    // failures become the same retry refusal as the send path at this boundary. A kill must
+    // keep its cause chain for the caller's mapper to return the kill link instead.
+    if (pipelineKillIn(error) === undefined && isSpendingLimitPriceUnavailable(error)) throw spendingLimitRetryError();
     throw error;
   }
 };
@@ -1806,7 +1781,9 @@ const assertDappSendStillAuthorized = async (
   }
 };
 
-const dappSendFailure = (error: unknown): Error => {
+const dappSendFailure = (error: unknown): unknown => {
+  const kill = pipelineKillIn(error);
+  if (kill !== undefined) return kill;
   if (spendingLimitAssessmentFromError(error) !== undefined) {
     return spendingLimitRetryError();
   }
@@ -1823,13 +1800,48 @@ const dappSendFailure = (error: unknown): Error => {
   return dappRequestFailure(error);
 };
 
-// A refusal reaches the dApp as NOT_GRANTED; any other failure is reported as INVALID_PARAMS.
-const dappRequestFailure = (error: unknown): Error => {
+/**
+ * InvalidParams tells a dApp its bytes are bad and it should give up. A kill means the operation was stopped from
+ * outside and may even have landed, so retrying the note import is still correct, as on the connect path.
+ * Preserve the kill link's own message: a wrapper can carry a misleading parameter or permission code.
+ */
+const dappRequestFailure = (error: unknown): unknown => {
+  const kill = pipelineKillIn(error);
+  if (kill !== undefined) return kill;
   // A lock that lands after approval is not a malformed request (#1414).
   if (isWalletLockedError(error)) return lockedRefusal();
   if (error instanceof Error && error.message === MidenDAppErrorType.NotGranted) return error;
   if (error instanceof Error && error.message.startsWith(`${MidenDAppErrorType.NotGranted}:`)) return error;
   return new Error(`${MidenDAppErrorType.InvalidParams}: ${error}`);
+};
+
+// A kill (a lock-recovery eviction, an offscreen abort or a terminated
+// client) is a retryable internal failure, not a parameter problem
+// (issue #775); a locked wallet gets an Unlock step from the caller (#1414).
+const dappReadFailure = (error: unknown): unknown => {
+  const kill = pipelineKillIn(error);
+  if (kill !== undefined) return kill;
+  if (isWalletLockedError(error)) return error;
+  return new Error(`${MidenDAppErrorType.InvalidParams}: ${error}`);
+};
+
+const dappWriteFailure = (error: unknown): unknown => {
+  // A queued id outranks a kill anywhere in the chain: retrying the write could send it twice.
+  for (const link of causeChain(error)) {
+    if (link instanceof TransactionQueuedError) {
+      return new Error(
+        `${MidenDAppErrorType.OutcomeUnknown}: transaction ${link.transactionId} may already be queued; ` +
+          'wait for it before sending again'
+      );
+    }
+  }
+  if (pipelineKillIn(error) !== undefined) {
+    return new Error(
+      `${MidenDAppErrorType.OutcomeUnknown}: the wallet could not confirm whether the transaction was queued; ` +
+        'check before sending again'
+    );
+  }
+  return dappSendFailure(error);
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null;
@@ -2287,8 +2299,7 @@ const generatePromisifyTransaction = async (
     try {
       declaredMessages = await withUnlocked(async () => formatCustomTransactionPreview(customTransaction));
     } catch (e) {
-      if (isWalletLockedError(e)) throw e;
-      throw new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`);
+      throw dappReadFailure(e);
     }
     // The effects go in front of the user BEFORE either sheet is raised, because the mobile/desktop
     // sheet cannot ask for them itself - see `formatSimulatedCustomEffects`. Hoisted above the
@@ -2400,7 +2411,11 @@ const generatePromisifyTransaction = async (
         transactionId
       } as any);
     } catch (e) {
-      reject(dappSendFailure(e));
+      if ([...causeChain(e)].some(link => link instanceof TransactionQueuedError)) {
+        await releaseNoteIds(importedNoteIds(customTransaction.importNotes));
+        startDappBackgroundProcessing();
+      }
+      reject(dappWriteFailure(e));
     }
     return;
   }
@@ -2462,7 +2477,11 @@ const generatePromisifyTransaction = async (
               transactionId
             } as any);
           } catch (e) {
-            reject(dappSendFailure(e));
+            if ([...causeChain(e)].some(link => link instanceof TransactionQueuedError)) {
+              await releaseNoteIds(importedNoteIds(customTransaction.importNotes));
+              startDappBackgroundProcessing();
+            }
+            reject(dappWriteFailure(e));
           }
         } else {
           decline();
@@ -2656,7 +2675,7 @@ const generatePromisifySendTransaction = async (
         transactionId
       } as any);
     } catch (e) {
-      reject(dappSendFailure(e));
+      reject(dappWriteFailure(e));
     }
     return;
   }
@@ -2711,7 +2730,7 @@ const generatePromisifySendTransaction = async (
               transactionId
             } as any);
           } catch (e) {
-            reject(dappSendFailure(e));
+            reject(dappWriteFailure(e));
           }
         } else {
           decline();
@@ -2768,7 +2787,7 @@ const generatePromisifyConsumeTransaction = async (
   try {
     carried = await decodeCarriedConsumeNoteLocked(req.transaction);
   } catch (e) {
-    reject(new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`));
+    reject(pipelineKillIn(e) ?? new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`));
     return;
   }
   const prepare = async () => {
@@ -2777,8 +2796,7 @@ const generatePromisifyConsumeTransaction = async (
         formatConsumeTransactionPreview(req.transaction, carried, req.sourcePublicKey)
       );
     } catch (e) {
-      if (isWalletLockedError(e)) throw e;
-      throw new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`);
+      throw dappReadFailure(e);
     }
   };
   const prepared = await prepareOrReject(prepare, reject);
@@ -2852,7 +2870,7 @@ const generatePromisifyConsumeTransaction = async (
       });
     } catch (e) {
       // A killed note import may have landed and the bytes are queued: not bad params.
-      reject(importPrivateNoteFailure(e));
+      reject(dappRequestFailure(e));
     }
     return;
   }
@@ -2906,7 +2924,7 @@ const generatePromisifyConsumeTransaction = async (
             });
           } catch (e) {
             // Same mapping as the non-extension branch above.
-            reject(importPrivateNoteFailure(e));
+            reject(dappRequestFailure(e));
           }
         } else {
           decline();
