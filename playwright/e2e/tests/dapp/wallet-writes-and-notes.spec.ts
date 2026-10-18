@@ -275,7 +275,7 @@ function writeCells(
           );
         const listsEvery = (notes: { noteId: string }[]) =>
           real.every(id => notes.some(note => normalizeHex(note.noteId) === id));
-        // Committed first, asked by each note's own id, so a miss below is the lookup by the returned id alone (K10).
+        // Committed first, asked by each note's own id, so a miss below is the lookup by the returned id alone.
         await pollUntil(() => list(own), listsEvery, 'every imported note listed by its own id once committed', ctx);
         // a, b and c are A's only consumable private notes here, so a wallet that ignored the ids would answer the
         // three-id query right; asked one returned id at a time (spec N4's [id]) it would answer all three to each.
@@ -285,7 +285,6 @@ function writeCells(
         ];
         const got: string[][] = [];
         for (const { noteIds } of asks) got.push((await list(noteIds)).map(note => normalizeHex(note.noteId)).sort());
-        ctx.evidence.returnedIdUnlisted = asks.some(({ want }, index) => want.some(id => !got[index]?.includes(id)));
         expect(got).toEqual(asks.map(({ want }) => want));
       }
     },
