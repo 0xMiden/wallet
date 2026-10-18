@@ -15,7 +15,9 @@ import { Button, ButtonVariant } from 'components/Button';
 import { DappNetworkMismatchNotice } from 'components/DappNetworkMismatchNotice';
 import { NetworkModeBanner } from 'components/NetworkModeBanner';
 import { SpendingLimitChallenge } from 'components/SpendingLimitChallenge';
+import { CopyButton } from 'components/ui/CopyButton';
 import { DappOrigin } from 'components/ui/DappOrigin';
+import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { Spinner } from 'components/ui/Spinner';
 import { useAccount, useMidenContext } from 'lib/miden/front';
 import { parseSerializedSpendingLimitAssessment } from 'lib/miden/spending-limits/types';
@@ -191,6 +193,21 @@ const PayloadContent: React.FC<PayloadContentProps> = ({ payload, error, account
       break;
     }
 
+    // The login key signs only sign-ins to its own site, so a login shows no opaque-signature warning.
+    case 'loginSign':
+      content = (
+        <>
+          <p className="my-2 text-body-sm text-ink">{t('loginSignatureNote', { domain: payload.domain })}</p>
+          <DetailCard className="my-2">
+            <DetailRow label={t('account')} stacked data-testid="confirm-login-account">
+              <span className="min-w-0 font-sans font-semibold">{payload.accountId}</span>
+              <CopyButton text={payload.accountId} data-testid="confirm-login-account-copy" />
+            </DetailRow>
+          </DetailCard>
+        </>
+      );
+      break;
+
     case 'privateNotes': {
       content = (
         <>
@@ -310,7 +327,8 @@ const PayloadContent: React.FC<PayloadContentProps> = ({ payload, error, account
 
   return (
     <div className={classNames('w-full', 'flex flex-col')}>
-      {t('payload') && (
+      {/* A login shows the note and the signing account, never a payload, so it gets no payload heading. */}
+      {payload.type !== 'loginSign' && t('payload') && (
         <h2 className={classNames('mb-2', 'leading-tight', 'flex flex-col')}>
           <span className="text-ink font-medium" style={{ fontSize: '14px', lineHeight: '20px' }}>
             {t('payload')}
@@ -534,6 +552,7 @@ const ConfirmDAppForm: FC = () => {
         case 'privateNotes':
           return confirmDAppPrivateNotes(id, confirmed);
         case 'sign':
+        case 'loginSign':
           return confirmDAppSign(id, confirmed);
         case 'assets':
           return confirmDAppAssets(id, confirmed);
@@ -707,6 +726,19 @@ const ConfirmDAppForm: FC = () => {
           want: (
             <RequestOriginBanner origin={payload.origin}>
               <span className="text-text-muted">{t('requestsYourSignature')}</span>
+            </RequestOriginBanner>
+          )
+        };
+      case 'loginSign':
+        return {
+          title: t('confirmLoginSignature', { domain: payload.domain }),
+          declineActionTitle: t('cancel'),
+          declineActionTestID: ConfirmPageSelectors.LoginSign_RejectButton,
+          confirmActionTitle: t('confirm'),
+          confirmActionTestID: ConfirmPageSelectors.LoginSign_AcceptButton,
+          want: (
+            <RequestOriginBanner origin={payload.origin}>
+              <span className="text-muted">{t('requestsYourSignature')}</span>
             </RequestOriginBanner>
           )
         };

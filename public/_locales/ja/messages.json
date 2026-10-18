@@ -3954,6 +3954,24 @@
     "message": "署名をお願いします",
     "englishSource": "Requests your signature"
   },
+  "confirmLoginSignature": {
+    "message": "$domain$ にログインする",
+    "englishSource": "Sign in to $domain$",
+    "placeholders": {
+      "domain": {
+        "content": "$1"
+      }
+    }
+  },
+  "loginSignatureNote": {
+    "message": "Breadは、$domain$専用に作成された鍵でのみ署名を行います。この鍵では、資金の移動やアカウントの変更を行うことはできません。",
+    "englishSource": "Bread signs with a key made only for $domain$. It can't move funds or change your account.",
+    "placeholders": {
+      "domain": {
+        "content": "$1"
+      }
+    }
+  },
   "requestAssets": {
     "message": "アセットのリクエスト",
     "englishSource": "Request Assets"
@@ -4486,6 +4504,15 @@
   "dappSignRequest": {
     "message": "このアプリでは、ウォレットを使用してデータに署名することを求めています",
     "englishSource": "This app wants you to sign data with your wallet"
+  },
+  "dappLoginSignRequest": {
+    "message": "当サイトでは、Breadを使用して$domain$にログインすることを推奨しています。",
+    "englishSource": "This site wants you to sign in to $domain$ with Bread",
+    "placeholders": {
+      "domain": {
+        "content": "$1"
+      }
+    }
   },
   "dappImportNoteRequest": {
     "message": "このアプリは、プライベートなnoteをあなたのウォレットにインポートしようとしています",

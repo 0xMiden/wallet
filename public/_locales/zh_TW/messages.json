@@ -3954,6 +3954,24 @@
     "message": "請您簽名",
     "englishSource": "Requests your signature"
   },
+  "confirmLoginSignature": {
+    "message": "登入 $domain$",
+    "englishSource": "Sign in to $domain$",
+    "placeholders": {
+      "domain": {
+        "content": "$1"
+      }
+    }
+  },
+  "loginSignatureNote": {
+    "message": "Bread 使用專為 $domain$ 打造的金鑰進行簽署。該金鑰無法轉移資金或變更您的帳戶。",
+    "englishSource": "Bread signs with a key made only for $domain$. It can't move funds or change your account.",
+    "placeholders": {
+      "domain": {
+        "content": "$1"
+      }
+    }
+  },
   "requestAssets": {
     "message": "請求資產",
     "englishSource": "Request Assets"
@@ -4486,6 +4504,15 @@
   "dappSignRequest": {
     "message": "此應用程式要求您使用您的錢包對資料進行簽名",
     "englishSource": "This app wants you to sign data with your wallet"
+  },
+  "dappLoginSignRequest": {
+    "message": "本網站希望您使用 Bread 登入 $domain$",
+    "englishSource": "This site wants you to sign in to $domain$ with Bread",
+    "placeholders": {
+      "domain": {
+        "content": "$1"
+      }
+    }
   },
   "dappImportNoteRequest": {
     "message": "此應用程式欲將私有note匯入您的錢包中",

@@ -64,6 +64,13 @@
                 <data android:scheme="https" android:host="bread.miden.xyz" android:path="/request" />
             </intent-filter>
 
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="com.miden.wallet.auth" android:host="callback" />
+            </intent-filter>
+
         </activity>
 
         <provider
