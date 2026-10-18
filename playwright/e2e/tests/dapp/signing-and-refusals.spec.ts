@@ -63,6 +63,8 @@ const OTHER_KEY = `0x${'22'.repeat(32)}`;
 const SUMMARY_AMOUNT = tst(0.5);
 // en.json:1084, rendered by OpaqueSignatureWarning (ConfirmPage.tsx:116-120) for Arbitrary and Blind inputs.
 const OPAQUE_WARNING = 'Opaque signature request';
+// en.json:897 up to the domain it names: the login sheet's title (ConfirmPage.tsx:734), which has no test id.
+const LOGIN_TITLE = 'Sign in to ';
 
 async function connectedView(j: Journey, ctx: CellContext): Promise<ConnectedView> {
   const view = await callDapp(j.dapp, 'session', {}, ctx.deadline);
@@ -201,10 +203,15 @@ function signingCells(j: Journey): Record<string, DappCellImpl> {
         expect(again).toEqual(first);
         expect(Buffer.from(first.loginKeyB64, 'base64')).toHaveLength(32);
         expect(first.loginKeyHex).not.toBe(me.publicKeyHex);
+        // Loopback hosts have no registrable domain, so `loginKeyDomain` gives the fixture's whole host.
+        const domain = new URL(dapp.origin).hostname;
+        const namesDomain = async (popup: Page) => {
+          await expect(popup.getByRole('heading', { name: LOGIN_TITLE })).toHaveText(`${LOGIN_TITLE}${domain}`);
+        };
         const { result } = await answerPrompt(
           dapp,
           () => callDapp(dapp, 'signLoginWord', { wordHex: WORD }, ctx.deadline),
-          { kind: 'loginSign', decision: 'approve', origin: dapp.origin },
+          { kind: 'loginSign', decision: 'approve', origin: dapp.origin, whileOpen: namesDomain },
           ctx
         );
         const signed = unwrap(result, 'signLoginBytes(word)', ctx);
