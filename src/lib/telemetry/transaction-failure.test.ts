@@ -742,6 +742,37 @@ it('reads a bounded stretch of a cause chain whose accessor keeps returning new 
   expect(reads).toBeLessThan(200);
 });
 
+it.each<[string, () => object]>([
+  [
+    'a revoked Proxy',
+    () => {
+      const { proxy, revoke } = Proxy.revocable({}, {});
+      revoke();
+      return proxy;
+    }
+  ],
+  [
+    'a Proxy whose prototype read throws',
+    () =>
+      new Proxy(
+        {},
+        {
+          getPrototypeOf: () => {
+            throw new Error('hostile trap');
+          }
+        }
+      )
+  ]
+])('still reports a failure whose cause is %s, as a thrown non_error', async (_name, cause) => {
+  reportTransactionFailure({
+    type: 'execute',
+    stage: 'executing',
+    error: new Error('opaque detail', { cause: cause() })
+  });
+  await settle();
+  expect(capturedMessage(0)).toContain('; point pipeline; unknown; thrown non_error. authentication');
+});
+
 describe('an unknown submit outcome', () => {
   it('sends a status outside the unknown-outcome list as other', async () => {
     reportTransactionFailure({
