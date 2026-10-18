@@ -151,16 +151,17 @@ describe('mobile write read boundaries', () => {
     };
     const win = { __TEST_STORE__: { getState: () => state } };
     const observer = { onRead: (_js: string): void => undefined };
-    const evalJs = jest.fn(async <T>(js: string): Promise<T> => {
-      observer.onRead(js);
-      // eslint-disable-next-line no-new-func
-      return new Function('window', 'indexedDB', js)(win, indexedDB);
-    });
+    const evalJs = jest.fn(async (_js: string): Promise<void> => undefined);
     const unused = async (): Promise<never> => {
       throw new Error('unused wallet action');
     };
     const wallet: MobileWallet = {
-      evalJs,
+      evalJs: async <T>(js: string): Promise<T> => {
+        await evalJs(js);
+        observer.onRead(js);
+        // eslint-disable-next-line no-new-func
+        return new Function('window', 'indexedDB', js)(win, indexedDB);
+      },
       click: unused,
       waitFor: unused,
       screenshot: unused,
