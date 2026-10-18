@@ -6,8 +6,7 @@ import {
   causeChain,
   errorMessageParts,
   isClientTerminatedError,
-  isIndefiniteSubmitOutcomeError,
-  someInCauseChain
+  isIndefiniteSubmitOutcomeError
 } from 'lib/miden/sdk/sdk-error-code';
 import { isWasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { isDesktop } from 'lib/platform';
@@ -175,11 +174,23 @@ const THROWN_CLASS_BY_NAME = new Map<unknown, ThrownClass>([
   ['SyntaxError', 'syntax_error']
 ]);
 
-// The deepest link of the chain the pipeline's kill classifier walks: a wrapper must not hide the original throw, such
-// as the WASM trap the lock rethrows raw, nor a value thrown as a cause.
+// The chain the pipeline's kill classifier walks, cut at a length no real error reaches: that walk stops at a kill,
+// so a cause accessor that keeps returning new links past one would otherwise hang this report.
+const REPORTED_CAUSE_LINKS = 64;
+
+function* reportedCauseChain(error: unknown): Generator<unknown, void, undefined> {
+  let links = 0;
+  for (const link of causeChain(error)) {
+    yield link;
+    if (++links === REPORTED_CAUSE_LINKS) return;
+  }
+}
+
+// The deepest link: a wrapper must not hide the original throw, such as the WASM trap the lock rethrows raw, nor a
+// value thrown as a cause.
 function thrownClass(error: unknown): ThrownClass {
   let link: unknown;
-  for (const cause of causeChain(error)) if (cause !== undefined && cause !== null) link = cause;
+  for (const cause of reportedCauseChain(error)) if (cause !== undefined && cause !== null) link = cause;
   if (link instanceof Error) {
     try {
       return THROWN_CLASS_BY_NAME.get(link.name) ?? 'error';
@@ -607,7 +618,7 @@ function failureIdentity(failure: TransactionFailure): string {
   if (refusal !== undefined) return submitRefusalIdentity(refusal);
   if (protocol !== undefined) return protocol;
   if (/advice stack read failed/i.test(message)) return coined('advice_stack_read_failed');
-  if (someInCauseChain(error, isClientTerminatedError) || /WebClient terminated/.test(message)) {
+  if ([...reportedCauseChain(error)].some(isClientTerminatedError) || /WebClient terminated/.test(message)) {
     return coined('client_terminated');
   }
   if (/failed to execute transaction/i.test(message)) {
