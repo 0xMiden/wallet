@@ -452,7 +452,7 @@ describe('GeneralSettings', () => {
       expect(mockSetTelemetrySetting).toHaveBeenCalledWith(false);
       expect(mockDropQueue).toHaveBeenCalledTimes(1);
       expect(mockDropQueue.mock.invocationCallOrder[0]).toBeLessThan(
-        mockSetTelemetrySetting.mock.invocationCallOrder[0]
+        mockSetTelemetrySetting.mock.invocationCallOrder[0]!
       );
       expect(mockStopCrashReporting).not.toHaveBeenCalled();
       expect(mockInitCrashReporting).not.toHaveBeenCalled();
