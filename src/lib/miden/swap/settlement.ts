@@ -18,6 +18,7 @@ import type { WasmLockHold } from '../sdk/miden-client';
 import { isPipelineKillLink } from '../sdk/sdk-error-code';
 import { WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 import {
+  ClaimFeeRefusedError,
   initiateConsumeNotesTransaction,
   initiatePswapReclaimTransaction,
   noteClaimCoverage
@@ -340,16 +341,20 @@ export async function reconcileSwapOrderNotes(
           }
         };
         const delegate = delegateTransaction ?? order.delegateTransaction;
-        const txId = await initiatePswapReclaimTransaction(
-          accountId,
-          reclaimNote,
-          prepared.requestBytes,
-          order.id,
-          delegate,
-          canSign
-        );
         managedNoteIds.add(prepared.noteId);
-        queuedTransactionIds.push(txId);
+        try {
+          const txId = await initiatePswapReclaimTransaction(
+            accountId,
+            reclaimNote,
+            prepared.requestBytes,
+            order.id,
+            delegate,
+            canSign
+          );
+          queuedTransactionIds.push(txId);
+        } catch (error) {
+          if (!(error instanceof ClaimFeeRefusedError)) throw error;
+        }
         continue;
       }
       // Nothing consumable left but no settlement stamp: either the stamp
@@ -423,16 +428,22 @@ export async function reconcileSwapOrderNotes(
       // a trickle of fills costs one fee per lap rather than one per note. What
       // remains is that one lap's fee can exceed a very small fill, which is the
       // price of settling promptly on funds the user is owed.
-      const txId = await initiateConsumeNotesTransaction(
-        accountId,
-        batch,
-        delegate,
-        undefined,
-        undefined,
-        undefined,
-        'swap_settlement',
-        canSign
-      );
+      let txId: string;
+      try {
+        txId = await initiateConsumeNotesTransaction(
+          accountId,
+          batch,
+          delegate,
+          undefined,
+          undefined,
+          undefined,
+          'swap_settlement',
+          canSign
+        );
+      } catch (error) {
+        if (!(error instanceof ClaimFeeRefusedError)) throw error;
+        continue;
+      }
       // A batch of payback notes delivered funds — it settles (Confirmed), it
       // doesn't reclaim. A tip-only batch is the unfilled remainder coming back.
       // Partial fills stay lineage-'active' until expiry, so this same-tick pair

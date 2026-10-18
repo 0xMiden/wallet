@@ -45,7 +45,11 @@ import {
   reconcileSwapOrderNotes
 } from '../swap/settlement';
 import { getNoteHoldingTransactions } from '../transaction/get';
-import { initiateConsumeNotesTransaction, initiateConsumeTransaction } from '../transaction/initiate';
+import {
+  ClaimFeeRefusedError,
+  initiateConsumeNotesTransaction,
+  initiateConsumeTransaction
+} from '../transaction/initiate';
 import { sweepNoteDeliveries } from '../transaction/note-delivery-sweep';
 import { runTrimTick } from '../transaction/trim-result-bytes';
 import { heldNoteIdsOf } from '../transaction/verdict-rules';
@@ -700,6 +704,7 @@ async function runSync(force: boolean): Promise<void> {
                   faucetId: n.faucetId,
                   amount: n.amountBaseUnits,
                   senderAddress: n.senderAddress,
+                  carriesMoreAssets: n.carriesMoreAssets,
                   isBeingClaimed: false,
                   type,
                   swapOrder: undefined
@@ -783,6 +788,7 @@ async function runSync(force: boolean): Promise<void> {
             faucetId: n.faucetId,
             amount: n.amountBaseUnits,
             senderAddress: n.senderAddress,
+            carriesMoreAssets: n.carriesMoreAssets,
             isBeingClaimed: false,
             type,
             swapOrder: { ...n.swapOrder, autoConsume: n.swapOrder.autoConsume ?? true }
@@ -852,16 +858,27 @@ async function runSync(force: boolean): Promise<void> {
               canSign
             );
           } catch (batchErr) {
+            if (batchErr instanceof ClaimFeeRefusedError) {
+              console.debug('[native-auto-consume] batch waiting for fee funding', batchErr);
+              return;
+            }
             if (!canSign()) throw batchErr;
             console.warn('[native-auto-consume] batch enqueue failed, falling back to per-note enqueue', batchErr);
+            let feeRefusedNotes = 0;
             for (const note of nativeAutoConsumeNotes) {
               try {
                 await initiateConsumeTransaction(accountPubKey, note, delegate, false, 'auto_consume', canSign);
               } catch (noteErr) {
+                if (noteErr instanceof ClaimFeeRefusedError) {
+                  console.debug('[native-auto-consume] note waiting for fee funding', note.id, noteErr);
+                  feeRefusedNotes += 1;
+                  continue;
+                }
                 if (!canSign()) throw noteErr;
                 console.warn('[native-auto-consume] enqueue failed for note', note.id, noteErr);
               }
             }
+            if (feeRefusedNotes === nativeAutoConsumeNotes.length) return;
           }
           const { startTransactionProcessing } = await import('./transaction-processor');
           startTransactionProcessing().catch(err => console.warn('[native-auto-consume] processing failed', err));

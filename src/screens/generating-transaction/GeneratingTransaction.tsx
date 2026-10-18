@@ -26,6 +26,7 @@ import { ITransactionStatus } from 'lib/miden/db/types';
 import { useMidenContext } from 'lib/miden/front';
 import { reconcileUnconfirmedInApp, zustandProvider } from 'lib/miden/front/guardian-sync';
 import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
+import { ClaimFeeRefusedError } from 'lib/miden/transaction/initiate';
 import { getExplorerTxUrl } from 'lib/miden-chain/constants';
 import { openExternalUrl } from 'lib/mobile/external-browser';
 import { isExtension } from 'lib/platform';
@@ -163,8 +164,12 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
         await requeueFailedTransaction(active.id, acknowledged === undefined ? {} : { acknowledged });
         requestSWTransactionProcessing();
       } catch (error) {
-        console.error('[GeneratingTransaction] Failed to retry transaction:', error);
-        setRetryError(error instanceof Error ? error.message : t('smthWentWrong'));
+        if (error instanceof ClaimFeeRefusedError) {
+          setRetryError(t('insufficientFeeAsset'));
+        } else {
+          console.error('[GeneratingTransaction] Failed to retry transaction:', error);
+          setRetryError(error instanceof Error ? error.message : t('smthWentWrong'));
+        }
         // Not a dead end: the wallet cannot tell whether this send landed, but the
         // user can see it in their balance. Offer that as an explicit second step
         // rather than leaving a Retry button that throws the same error forever.
