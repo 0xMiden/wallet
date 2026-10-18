@@ -453,6 +453,7 @@ describe('mobile journey hooks and setup', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     jest.mocked(pendingNotes).mockReset().mockResolvedValue([]);
+    jest.mocked(selectAccountIfNeeded).mockReset().mockResolvedValue(undefined);
     device = iosDevice([]);
     fetchLog = [nodeCall(200)];
     directory = fs.mkdtempSync(path.join(os.tmpdir(), 'mobile-journey-'));
@@ -624,6 +625,38 @@ describe('mobile journey hooks and setup', () => {
     created.resolve('mtst1second');
     await jest.advanceTimersByTimeAsync(0);
     expect(selectAccountIfNeeded).not.toHaveBeenCalled();
+  });
+
+  it('stops selection commands at the quiesce deadline before cleanup and the next account change', async () => {
+    const { journey, quiesce, restore } = await prepare();
+    const updates: Array<{ address: string; at: number }> = [];
+    const state = {
+      currentAccount: { publicKey: 'mtst1other' },
+      updateCurrentAccount: async (address: string): Promise<void> => {
+        updates.push({ address, at: Date.now() });
+      }
+    };
+    const win = { __TEST_STORE__: { getState: () => state } };
+    journey.walletA.evalJs = async <T>(js: string): Promise<T> => {
+      // eslint-disable-next-line no-new-func
+      return new Function('window', js)(win);
+    };
+    const { selectAccountIfNeeded: select } =
+      jest.requireActual<typeof import('./dapp-mobile-wallet')>('./dapp-mobile-wallet');
+    jest.mocked(selectAccountIfNeeded).mockImplementation(select);
+    jest.useFakeTimers({ now: 0 });
+    const deadline = deadlineIn(700, 'short quiesce');
+    const outcome = quiesce(deadline).catch((error: unknown) => error);
+    await jest.advanceTimersByTimeAsync(700);
+    await expect(outcome).resolves.toBeInstanceOf(CellDeadlineExceeded);
+    const atExpiry = updates.length;
+    expect(atExpiry).toBeGreaterThan(0);
+    expect(updates.every(update => update.address === 'mtst1a' && update.at < 700)).toBe(true);
+    state.currentAccount.publicKey = 'mtst1a';
+    await restore();
+    state.currentAccount.publicKey = 'mtst1other';
+    await jest.advanceTimersByTimeAsync(30_000);
+    expect(updates).toHaveLength(atExpiry);
   });
 
   async function pendingRecipientClaim(quiesceMs: number) {
@@ -901,7 +934,7 @@ describe('mobile journey hooks and setup', () => {
     await expect(restore()).rejects.toThrow('denial failed');
     expect(disconnect).toHaveBeenCalledWith('disconnect', {}, expect.anything());
     expect(removeDappSession).toHaveBeenCalledWith(journey.walletA, origin);
-    expect(selectAccountIfNeeded).toHaveBeenCalledWith(journey.walletA, 'mtst1a');
+    expect(selectAccountIfNeeded).toHaveBeenCalledWith(journey.walletA, 'mtst1a', expect.anything());
   });
 
   it('attempts revocation and primary selection after disconnect rejects and preserves every error', async () => {
@@ -916,7 +949,7 @@ describe('mobile journey hooks and setup', () => {
       ]
     });
     expect(removeDappSession).toHaveBeenCalledWith(journey.walletA, origin);
-    expect(selectAccountIfNeeded).toHaveBeenCalledWith(journey.walletA, 'mtst1a');
+    expect(selectAccountIfNeeded).toHaveBeenCalledWith(journey.walletA, 'mtst1a', expect.anything());
   });
 
   it('attempts revocation and primary selection after disconnect times out', async () => {
@@ -930,7 +963,7 @@ describe('mobile journey hooks and setup', () => {
     await jest.advanceTimersByTimeAsync(30_000);
     await expect(outcome).resolves.toMatchObject({ message: expect.stringContaining('disconnect') });
     expect(removeDappSession).toHaveBeenCalledWith(journey.walletA, origin);
-    expect(selectAccountIfNeeded).toHaveBeenCalledWith(journey.walletA, 'mtst1a');
+    expect(selectAccountIfNeeded).toHaveBeenCalledWith(journey.walletA, 'mtst1a', expect.anything());
   });
 
   it.each([
@@ -976,7 +1009,7 @@ describe('mobile journey hooks and setup', () => {
       expect(denyOpenSheet).toHaveBeenCalledTimes(1);
       expect(call).toHaveBeenCalledWith('disconnect', {}, expect.anything());
       expect(removeDappSession).toHaveBeenCalledWith(journey.walletA, origin);
-      expect(selectAccountIfNeeded).toHaveBeenCalledWith(journey.walletA, 'mtst1a');
+      expect(selectAccountIfNeeded).toHaveBeenCalledWith(journey.walletA, 'mtst1a', expect.anything());
     }
   );
 

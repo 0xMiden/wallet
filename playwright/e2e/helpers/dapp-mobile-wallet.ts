@@ -82,25 +82,24 @@ export function currentGuardianEndpoint(wallet: MobileWallet): Promise<string> {
   );
 }
 
-export async function selectAccount(wallet: MobileWallet, address: string, deadline?: Deadline): Promise<void> {
+export async function selectAccount(wallet: MobileWallet, address: string, deadline: Deadline): Promise<void> {
   const startedAt = Date.now();
-  const bound = deadline ?? deadlineIn(30_000, 'selectAccount');
   let selected: string | null = null;
   const select = (): Promise<string> =>
-    beforeMobileDeadline(bound, 'account selection update', () =>
+    beforeMobileDeadline(deadline, 'account selection update', () =>
       stashAndPoll<string>(
-        evalOf(wallet, bound),
+        evalOf(wallet, deadline),
         '__dapp_select',
         `(async function () { ${STORE} await st.updateCurrentAccount(${JSON.stringify(address)}); ` +
           `var a = s.getState().currentAccount; return a ? a.publicKey : ''; })()`,
-        bound.remainingMs()
+        deadline.remainingMs()
       )
     );
   try {
     selected = await select();
     while (selected !== address) {
-      await beforeMobileDeadline(bound, 'account selection convergence', () => sleep(250));
-      selected = await currentAccount(wallet, bound);
+      await beforeMobileDeadline(deadline, 'account selection convergence', () => sleep(250));
+      selected = await currentAccount(wallet, deadline);
       if (selected !== address) selected = await select();
     }
   } catch (error) {
@@ -113,7 +112,7 @@ export async function selectAccount(wallet: MobileWallet, address: string, deadl
   }
 }
 
-export async function selectAccountIfNeeded(wallet: MobileWallet, address: string, deadline?: Deadline): Promise<void> {
+export async function selectAccountIfNeeded(wallet: MobileWallet, address: string, deadline: Deadline): Promise<void> {
   if ((await currentAccount(wallet, deadline)) !== address) await selectAccount(wallet, address, deadline);
 }
 

@@ -603,9 +603,11 @@ export async function startMobileJourney(input: MobileJourneyInput): Promise<Mob
         const created =
           deadline === undefined ? await create() : await beforeDeadline(deadline, 'account creation', create);
         accounts.set(slot, created);
-        const select = (): Promise<void> => selectAccountIfNeeded(walletA, primary);
-        if (deadline === undefined) await select();
-        else await beforeDeadline(deadline, 'primary account selection after creation', select);
+        // Account creation can also be requested outside a cell; its primary-account restore still needs a bound.
+        const selectionDeadline = deadline ?? deadlineIn(RESTORE_STEP_MS, 'primary account selection after creation');
+        await beforeDeadline(selectionDeadline, 'primary account selection after creation', () =>
+          selectAccountIfNeeded(walletA, primary, selectionDeadline)
+        );
         return created;
       },
       call: callerOf(opened.dapp.channel)
@@ -647,7 +649,7 @@ async function quiesce(
   if (front !== j.dapp.origin)
     throw new Error(`the dApp browser shows ${front ?? 'no page'} in front, not ${j.dapp.origin}`);
   const account = await beforeDeadline(deadline, 'journey account', () => j.account(state.account, deadline));
-  await beforeDeadline(deadline, 'account selection', () => selectAccountIfNeeded(j.walletA, account));
+  await beforeDeadline(deadline, 'account selection', () => selectAccountIfNeeded(j.walletA, account, deadline));
   // One queue serves every origin (`getDappQueue`, actions.ts:109-113); a round trip through it proves no sheet waits.
   await beforeDeadline(deadline, 'request queue round trip', () =>
     j.call('raw', { call: 'requestGuardianInfo', args: [] }, deadline)
@@ -777,7 +779,7 @@ async function restore(j: MobileJourney, cell: CellSpec<Partial<MobileCellState>
   }
   await attempt('primary account selection', async deadline => {
     const primary = await beforeDeadline(deadline, 'primary account', () => j.account('primary', deadline));
-    await beforeDeadline(deadline, 'account selection', () => selectAccountIfNeeded(j.walletA, primary));
+    await beforeDeadline(deadline, 'account selection', () => selectAccountIfNeeded(j.walletA, primary, deadline));
   });
   if (errors.length === 0) return;
   const message = `${cell.id} restore failed: ${errors.map(error => error.message).join('; ')}`;
