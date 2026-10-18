@@ -232,7 +232,7 @@ describe('an unknown submit outcome at the Unconfirmed write', () => {
       `Transaction unconfirmed: tx_receive; stage submitting; realm unknown; proving preference delegated;`
     );
     expect(report?.message).toContain(
-      `; point pipeline; submit_outcome_unknown; grpc unavailable; app hidden during submit ${answer}. authentication`
+      `; point pipeline; submit_outcome_unknown; grpc unavailable; app hidden during submit ${answer}; submit leg under_9s. authentication`
     );
     expect(report?.level).toBe('warning');
     expectNoTransactionData(report?.message ?? '');
@@ -248,7 +248,7 @@ describe('an unknown submit outcome at the Unconfirmed write', () => {
     clock.mockReturnValue(SUBMITTED_AT_MS + 1_000);
     await Repo.transactions.put(submitting());
     await markTransactionUnconfirmed(submitting(), unavailable());
-    expect(captured()[0]?.message).toContain('; app hidden during submit yes. ');
+    expect(captured()[0]?.message).toContain('; app hidden during submit yes; submit leg under_9s. ');
   });
 
   it('does not count a hide that starts only once the submit has returned', async () => {
@@ -269,7 +269,7 @@ describe('an unknown submit outcome at the Unconfirmed write', () => {
       Repo.transactions.hook('updating').unsubscribe(hideDuringWrite);
     }
     expect((await Repo.transactions.get('tx-1'))?.status).toBe(ITransactionStatus.Unconfirmed);
-    expect(captured()[0]?.message).toContain('; app hidden during submit no. ');
+    expect(captured()[0]?.message).toContain('; app hidden during submit no; submit leg under_9s. ');
   });
 
   it('a hidden stretch that ended before the submit is not one during it', async () => {
@@ -282,7 +282,7 @@ describe('an unknown submit outcome at the Unconfirmed write', () => {
     clock.mockReturnValue(SUBMITTED_AT_MS + 5_000);
     await Repo.transactions.put(submitting());
     await markTransactionUnconfirmed(submitting(), unavailable());
-    expect(captured()[0]?.message).toContain('; app hidden during submit no. ');
+    expect(captured()[0]?.message).toContain('; app hidden during submit no; submit leg under_9s. ');
   });
 
   it('off mobile, or with no submit stamp, cannot say', async () => {
@@ -293,11 +293,40 @@ describe('an unknown submit outcome at the Unconfirmed write', () => {
     await markTransactionUnconfirmed({ ...submitting(), id: 'tx-2' }, unavailable());
     const reports = captured();
     expect(reports).toHaveLength(2);
-    for (const report of reports) {
+    for (const [index, report] of reports.entries()) {
+      const bucket = index === 0 ? 'under_9s' : 'unavailable';
       expect(report.message).toContain(
-        '; submit_outcome_unknown; grpc unavailable; app hidden during submit unavailable. '
+        `; submit_outcome_unknown; grpc unavailable; app hidden during submit unavailable; submit leg ${bucket}. `
       );
     }
+  });
+
+  it('off mobile, measures the committed submit stamp to the return before the write', async () => {
+    const pickedUp: ITransaction = { ...submitting(), stage: 'sending', stageTimestamps: undefined };
+    await Repo.transactions.put(submitting());
+    const advanceDuringWrite = () => {
+      clock.mockReturnValue(SUBMITTED_AT_MS + 20_000);
+    };
+    Repo.transactions.hook('updating', advanceDuringWrite);
+    try {
+      clock.mockReturnValue(SUBMITTED_AT_MS + 9_500);
+      await markTransactionUnconfirmed(pickedUp, unavailable());
+    } finally {
+      Repo.transactions.hook('updating').unsubscribe(advanceDuringWrite);
+    }
+    expect(captured()[0]?.message).toContain(
+      '; submit_outcome_unknown; grpc unavailable; app hidden during submit unavailable; submit leg 9_to_11s. '
+    );
+  });
+
+  it('off mobile, reports an unavailable submit leg when the committed row has no submit stamp', async () => {
+    const row: ITransaction = { ...submitting(), stageTimestamps: undefined };
+    await Repo.transactions.put(row);
+    clock.mockReturnValue(SUBMITTED_AT_MS + 9_500);
+    await markTransactionUnconfirmed(submitting(), unavailable());
+    expect(captured()[0]?.message).toContain(
+      '; submit_outcome_unknown; grpc unavailable; app hidden during submit unavailable; submit leg unavailable. '
+    );
   });
 });
 
