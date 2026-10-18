@@ -63,7 +63,10 @@ jest.mock('lib/miden-chain/native-asset', () => ({
   getVerificationBaseFee: () => mockVerificationBaseFee()
 }));
 jest.mock('../back/miden-client-proxy', () => ({
-  midenClientProxy: { getAccount: (...args: unknown[]) => mockProxyGetAccount(...args) }
+  midenClientProxy: {
+    getAccount: (...args: unknown[]) => mockProxyGetAccount(...args),
+    tryGetAccount: async (...args: unknown[]) => ({ ran: true, account: await mockProxyGetAccount(...args) })
+  }
 }));
 jest.mock('../activity/notes', () => ({ queueNoteImport: jest.fn() }));
 

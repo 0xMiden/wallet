@@ -282,8 +282,7 @@ export const queueConsumeNotes = async (
   isolateNotesWithFailedBatch?: boolean,
   verificationBaseFee?: number | null,
   entryPoint?: ConsumeEntryPoint,
-  canSign?: () => boolean,
-  feeContext?: ClaimFeeContext
+  canSign?: () => boolean
 ): Promise<ConsumeNotesQueueResult> =>
   queueConsumeRows(
     accountId,
@@ -296,8 +295,7 @@ export const queueConsumeNotes = async (
     undefined,
     undefined,
     entryPoint,
-    canSign,
-    feeContext
+    canSign
   );
 
 /**
@@ -547,7 +545,21 @@ const queueConsumeRows = async (
     throw new Error('initiateConsumeNotesTransaction requires at least one note');
   }
 
-  const context = feeContext ?? (await readClaimFeeContext(accountId));
+  // This pre-pass saves a WASM probe only; the rw transaction still decides what may be written.
+  const mayWrite = await Repo.db.transaction('r', Repo.transactions, async () => {
+    const heldNoteIds = new Set((await getNoteHoldingTransactions(accountId)).flatMap(row => row.heldNoteIds ?? []));
+    const nowSec = Math.floor(Date.now() / 1000);
+    for (const note of notes) {
+      const { liveOrCompleted, backingOff } = await noteClaimCoverage(accountId, note.id, nowSec, rotationFunding);
+      if (!liveOrCompleted && !heldNoteIds.has(note.id) && (manualRetry || !backingOff)) return true;
+    }
+    return false;
+  });
+  const context =
+    feeContext ??
+    (mayWrite
+      ? await readClaimFeeContext(accountId)
+      : { vaultFeeAsset: null, nativeAssetId: null, verificationBaseFee: null });
 
   return await Repo.db.transaction('rw', Repo.transactions, async () => {
     const queueable: ConsumableNote[] = [];
@@ -694,7 +706,7 @@ const queueConsumeRows = async (
       ahead.push(...feeNotes);
     };
     const newRow = (rowNotes: ConsumableNote[]): ConsumeTransaction => {
-      const row = Object.assign(new ConsumeTransaction(accountId, rowNotes, delegateTransaction), {
+      const row = Object.assign(new ConsumeTransaction(accountId, rowNotes, delegateTransaction, feeNotesById), {
         badgeNetwork: badgeNetwork()
       });
       if (rotationFunding) row.rotationFunding = true;

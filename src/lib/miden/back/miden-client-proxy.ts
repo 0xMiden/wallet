@@ -1009,6 +1009,28 @@ export const midenClientProxy = {
     return Account.deserialize(b64ToBytes(resultB64));
   },
 
+  /** A fee probe skips a busy offscreen mutex; inline reads remain under the caller's hold. */
+  async tryGetAccount(accountId: string): Promise<{ ran: false } | { ran: true; account: Account | null }> {
+    if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
+      const hold = getCurrentWasmLockHold();
+      const client = await getMidenClient();
+      if (hold) assertWasmHoldCurrent(hold, 'reading a claim fee account', 'after the client build');
+      return { ran: true, account: await client.getAccount(accountId) };
+    }
+    const resultB64 = await this.call('tryGetAccount', [accountId], { deadlineMs: READ_DEADLINE_MS });
+    const result = parseRecoveryResult('tryGetAccount', resultB64);
+    if (!result || typeof result !== 'object') throw new Error('tryGetAccount: malformed offscreen result');
+    const ran: unknown = Reflect.get(result, 'ran');
+    if (ran === false) return { ran: false };
+    const accountB64: unknown = Reflect.get(result, 'accountB64');
+    if (ran !== true || (accountB64 !== null && typeof accountB64 !== 'string')) {
+      throw new Error('tryGetAccount: malformed offscreen account');
+    }
+    if (accountB64 === null) return { ran: true, account: null };
+    await getWasmOrThrow();
+    return { ran: true, account: Account.deserialize(b64ToBytes(accountB64)) };
+  },
+
   /**
    * Sync local state against the node.
    *

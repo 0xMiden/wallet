@@ -1,6 +1,7 @@
 import type { PreparedExecution } from '@epoch-protocol/epoch-intents-sdk';
 import { v4 as uuid } from 'uuid';
 
+import type { ClaimFeeNote } from 'lib/miden/fees/spendable';
 import type { AgglayerRecoveryConfig } from 'lib/remote-config/schema';
 import type { ConsumeEntryPoint, TransactionFailureDiagnostics } from 'lib/telemetry/transaction-failure';
 import type { UsdcxSourceChain } from 'lib/usdcx/constant';
@@ -155,6 +156,8 @@ export interface IConsumedNote {
   amount?: bigint;
   /** Whether the queued note carried other assets; absent means its full asset list is unknown. */
   carriesMoreAssets?: boolean;
+  /** Full fungible assets used by the fee gate, independent of the row's display fields. */
+  feeAssets?: { faucetId: string; amount: bigint }[];
 }
 
 /**
@@ -1183,7 +1186,12 @@ export class ConsumeTransaction implements ITransaction {
   // hot key was Face-ID-gated (`.userPresence`). Hot signing is silent again, so
   // every consume signs the same way. Old persisted rows may still carry a stray
   // `background` property; it's ignored.
-  constructor(accountId: string, notes: ConsumableNote | ConsumableNote[], delegateTransaction?: boolean) {
+  constructor(
+    accountId: string,
+    notes: ConsumableNote | ConsumableNote[],
+    delegateTransaction?: boolean,
+    feeNotesById?: ReadonlyMap<string, readonly ClaimFeeNote[]>
+  ) {
     const list = Array.isArray(notes) ? notes : [notes];
     const first = list[0];
     if (!first) {
@@ -1217,13 +1225,30 @@ export class ConsumeTransaction implements ITransaction {
       total => total.faucetId !== ''
     );
     this.assetTotals = identifiedTotals.length > 0 ? identifiedTotals : undefined;
-    this.consumedNotes = list.map(note => ({
-      id: note.id,
-      senderAddress: note.senderAddress,
-      faucetId: note.faucetId,
-      carriesMoreAssets: note.carriesMoreAssets,
-      ...(note.amount === '' ? {} : { amount: BigInt(note.amount) })
-    }));
+    this.consumedNotes = list.map(note => {
+      const feeNotes = feeNotesById?.get(note.id);
+      let feeAssets: IConsumedNote['feeAssets'];
+      if (
+        feeNotes !== undefined &&
+        feeNotes.every(
+          fact => !fact.assetsUnknown && !fact.carriesMoreAssets && fact.faucetId.trim() && fact.amount.trim()
+        )
+      ) {
+        try {
+          feeAssets = feeNotes.map(fact => ({ faucetId: fact.faucetId, amount: BigInt(fact.amount) }));
+        } catch {
+          // Unparseable facts must stay unknown to later fee checks.
+        }
+      }
+      return {
+        id: note.id,
+        senderAddress: note.senderAddress,
+        faucetId: note.faucetId,
+        carriesMoreAssets: note.carriesMoreAssets,
+        ...(note.amount === '' ? {} : { amount: BigInt(note.amount) }),
+        ...(feeAssets === undefined ? {} : { feeAssets })
+      };
+    });
     this.status = ITransactionStatus.Queued;
     this.initiatedAt = Math.floor(Date.now() / 1000); // seconds
     this.queuedSeq = nextQueuedSeq();

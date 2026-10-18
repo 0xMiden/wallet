@@ -328,6 +328,7 @@ export async function reconcileSwapOrderNotes(
           faucetId: order.faucetId,
           amount: (prepared.offeredAmount ?? order.amount).toString(),
           senderAddress: accountId,
+          carriesMoreAssets: false,
           isBeingClaimed: false,
           type: NoteTypeEnum.Public,
           swapOrder: {
@@ -409,16 +410,6 @@ export async function reconcileSwapOrderNotes(
       if (batch.length === 0) continue;
       // No `verificationBaseFee`, so no claim floor — unlike the three native
       // auto-consumers. Deliberate, and the reason is the RISK, not the plumbing.
-      //
-      // On one of the two paths in it is not even expressible: `settleSwapOrders`
-      // builds its records with `faucetId: ''` and `amount: ''`, keeping only note
-      // id + lineage because that is all settlement needs, so a floor would sum to
-      // 0n and settle NOTHING rather than settling frugally. The service worker's
-      // path DOES carry real amounts (`sync-manager` passes `n.amountBaseUnits`),
-      // so a floor could be applied there — which is precisely why the decision
-      // has to rest on the argument below rather than on what is available: the
-      // extension is the primary platform, and having the floor apply on one
-      // platform and not the other would be worse than either choice.
       //
       // It is not the same risk. The floor exists against a griefing vector —
       // one fee buys an attacker a pile of dust notes the victim must sweep — and
@@ -536,12 +527,14 @@ export async function settleSwapOrders(
       const swapOrder = id ? classified.get(id) : undefined;
       if (!id || !swapOrder) return [];
       const type: ConsumableNote['type'] = note.noteType !== undefined ? toNoteTypeString(note.noteType) : 'unknown';
+      const firstAsset = note.assets?.[0];
       return [
         {
           id,
-          faucetId: '',
-          amount: '',
+          faucetId: firstAsset?.faucetId ?? '',
+          amount: firstAsset?.amount ?? '',
           senderAddress: '',
+          carriesMoreAssets: (note.assets?.length ?? 0) > 1,
           isBeingClaimed: false,
           type,
           swapOrder

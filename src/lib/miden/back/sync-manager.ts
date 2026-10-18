@@ -785,6 +785,7 @@ async function runSync(force: boolean): Promise<void> {
             faucetId: n.faucetId,
             amount: n.amountBaseUnits,
             senderAddress: n.senderAddress,
+            carriesMoreAssets: n.carriesMoreAssets,
             isBeingClaimed: false,
             type,
             swapOrder: { ...n.swapOrder, autoConsume: n.swapOrder.autoConsume ?? true }

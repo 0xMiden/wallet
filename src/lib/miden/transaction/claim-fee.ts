@@ -5,8 +5,10 @@ import { getNativeAssetId, getVerificationBaseFee } from 'lib/miden-chain/native
 import { getUncompletedTransactions } from './get';
 import { midenClientProxy } from '../back/miden-client-proxy';
 import { ITransaction } from '../db/types';
+import { isSyncFused, noteProbeFailure, noteSyncSuccess } from '../front/sync-fuse';
 import { getBech32AddressFromAccountId } from '../sdk/helpers';
 import { assertWasmHoldCurrent, tryWithWasmClientLock } from '../sdk/miden-client';
+import { WASM_LOCK_SYNC_WATCHDOG_MS } from '../sdk/wasm-client-poison';
 import { ConsumableNote } from '../types';
 
 export class ClaimFeeRefusedError extends Error {
@@ -38,20 +40,28 @@ export async function readClaimFeeContext(accountId: string): Promise<ClaimFeeCo
     ) {
       return { vaultFeeAsset: null, nativeAssetId, verificationBaseFee };
     }
+    if (isSyncFused('balances')) return { vaultFeeAsset: null, nativeAssetId, verificationBaseFee };
     const read = await tryWithWasmClientLock(
       async hold => {
-        const account = await midenClientProxy.getAccount(accountId);
+        const result = await midenClientProxy.tryGetAccount(accountId);
         assertWasmHoldCurrent(hold, 'inside the claim fee read', 'after the account read');
-        if (!account) return null;
+        if (!result.ran) return { ran: false, vaultFeeAsset: null };
+        const { account } = result;
+        if (!account) return { ran: true, vaultFeeAsset: null };
         let held = 0n;
         for (const asset of account.vault().fungibleAssets()) {
           if (getBech32AddressFromAccountId(asset.faucetId()) === nativeId) held += asset.amount();
         }
-        return held;
+        return { ran: true, vaultFeeAsset: held };
       },
-      { label: 'claim-fee' }
-    );
-    return { vaultFeeAsset: read.ran ? read.value : null, nativeAssetId, verificationBaseFee };
+      { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'claim-fee' }
+    ).catch(error => {
+      noteProbeFailure('balances', error);
+      throw error;
+    });
+    if (!read.ran || !read.value.ran) return { vaultFeeAsset: null, nativeAssetId, verificationBaseFee };
+    noteSyncSuccess('balances');
+    return { vaultFeeAsset: read.value.vaultFeeAsset, nativeAssetId, verificationBaseFee };
   } catch {
     // A trap must reach the lock's retirement path before it becomes an unknown holding.
     return { vaultFeeAsset: null, nativeAssetId, verificationBaseFee };
@@ -94,19 +104,29 @@ export function persistedClaimFeeNotes(
   const ids = new Set([...(row.noteIds ?? []), ...(row.noteId !== undefined ? [row.noteId] : [])]);
   // Missing records are possible funding, including a legacy row with no note identifiers.
   if (ids.size === 0) return [{ faucetId: '', amount: '', assetsUnknown: true }];
-  return Array.from(ids, id => {
+  return Array.from(ids).flatMap<ClaimFeeNote>(id => {
     const note = records.get(id);
-    return {
-      faucetId: note?.faucetId ?? '',
-      amount: note?.amount?.toString() ?? '',
-      carriesMoreAssets: note?.carriesMoreAssets,
-      assetsUnknown:
-        !id.trim() ||
-        !note ||
-        typeof note.carriesMoreAssets !== 'boolean' ||
-        !note.faucetId.trim() ||
-        note.amount === undefined
-    };
+    if (note?.feeAssets !== undefined && id.trim()) {
+      return note.feeAssets.map(asset => ({
+        faucetId: asset.faucetId,
+        amount: asset.amount.toString(),
+        carriesMoreAssets: false,
+        assetsUnknown: !asset.faucetId.trim()
+      }));
+    }
+    return [
+      {
+        faucetId: note?.faucetId ?? '',
+        amount: note?.amount?.toString() ?? '',
+        carriesMoreAssets: note?.carriesMoreAssets,
+        assetsUnknown:
+          !id.trim() ||
+          !note ||
+          typeof note.carriesMoreAssets !== 'boolean' ||
+          !note.faucetId.trim() ||
+          note.amount === undefined
+      }
+    ];
   });
 }
 

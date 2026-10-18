@@ -36,7 +36,10 @@ jest.mock('lib/miden-chain/effective-endpoints', () => ({
   getEffectiveNetworkName: () => 'testnet'
 }));
 jest.mock('../back/miden-client-proxy', () => ({
-  midenClientProxy: { getAccount: async () => ({ vault: () => ({ fungibleAssets: () => [] }) }) }
+  midenClientProxy: {
+    getAccount: async () => ({ vault: () => ({ fungibleAssets: () => [] }) }),
+    tryGetAccount: async () => ({ ran: true, account: { vault: () => ({ fungibleAssets: () => [] }) } })
+  }
 }));
 jest.mock('../activity/notes', () => ({ queueNoteImport: jest.fn() }));
 

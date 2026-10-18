@@ -130,12 +130,10 @@ export function useActivityClaims() {
     [claim.safeClaimableNotes, balances, nativeFaucetId, feeGateBaseFee, balancesLoading]
   );
   slotOf(key).feeSnapshot = feeSnapshot;
-  const waitingForFee = (note: ClaimableNoteWithMetadata): ClaimAttempt => ({
-    note,
-    status: 'pending',
-    cannotPayFee: true,
-    feeRefusedAt: slotOf(key).feeSnapshot ?? feeSnapshot
-  });
+  const waitingForFee = (note: ClaimableNoteWithMetadata, startedAt: FeeSnapshot): ClaimAttempt =>
+    sameFeeSnapshot(startedAt, slotOf(key).feeSnapshot ?? feeSnapshot)
+      ? { note, status: 'pending', cannotPayFee: true, feeRefusedAt: startedAt }
+      : { note, status: 'pending' };
 
   // A writer refusal survives its own render, but a fresh live snapshot must let the fee pre-gate decide again.
   useEffect(() => {
@@ -304,6 +302,7 @@ export function useActivityClaims() {
     if (item.cannotPayFee === true) return;
     busy.add(note.id);
     setAttempts(previous => new Map(previous).set(note.id, { note, status: 'claiming' }));
+    const startedAt = slotOf(key).feeSnapshot ?? feeSnapshot;
     try {
       // Each queue call is one `note_handle` attempt. It wraps the call, not the whole action: the
       // catch below absorbs a queue-time throw, so a wrapper further out would report every failure
@@ -314,7 +313,7 @@ export function useActivityClaims() {
       setAttempts(previous => new Map(previous).set(note.id, { note, status: 'claiming', txId }));
     } catch (error) {
       if (error instanceof ClaimFeeRefusedError) {
-        setAttempts(previous => new Map(previous).set(note.id, waitingForFee(note)));
+        setAttempts(previous => new Map(previous).set(note.id, waitingForFee(note, startedAt)));
         return;
       }
       setAttempts(previous => new Map(previous).set(note.id, { note, status: 'failed' }));
@@ -371,6 +370,7 @@ export function useActivityClaims() {
         for (const note of groupNotes) busy.delete(note.id);
         continue;
       }
+      const startedAt = slotOf(key).feeSnapshot ?? feeSnapshot;
       try {
         const { committedId, coveringTxIdByNoteId, feeRefusedNoteIds } = await reportNoteClaim(() =>
           queueConsumeNotes(
@@ -395,7 +395,7 @@ export function useActivityClaims() {
             next.set(
               note.id,
               feeRefused.has(note.id)
-                ? waitingForFee(note)
+                ? waitingForFee(note, startedAt)
                 : { note, status: 'claiming', txId: coveringTxIdByNoteId.get(note.id) ?? committedId }
             );
           }
@@ -405,7 +405,7 @@ export function useActivityClaims() {
         if (error instanceof ClaimFeeRefusedError) {
           setAttempts(previous => {
             const next = new Map(previous);
-            for (const note of groupNotes) next.set(note.id, waitingForFee(note));
+            for (const note of groupNotes) next.set(note.id, waitingForFee(note, startedAt));
             return next;
           });
           continue;

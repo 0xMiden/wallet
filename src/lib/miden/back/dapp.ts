@@ -154,6 +154,7 @@ import {
   initiateConsumeTransactionFromId,
   waitForTransactionCompletion
 } from '../transaction';
+import { ClaimFeeRefusedError } from '../transaction/claim-fee';
 import { deterministicKernelFailureCopy } from '../transaction/constants';
 import { TransactionQueuedError } from '../transaction/initiate';
 
@@ -1808,6 +1809,7 @@ const dappSendFailure = (error: unknown): unknown => {
 const dappRequestFailure = (error: unknown): unknown => {
   const kill = pipelineKillIn(error);
   if (kill !== undefined) return kill;
+  if (error instanceof ClaimFeeRefusedError) return error;
   // A lock that lands after approval is not a malformed request (#1414).
   if (isWalletLockedError(error)) return lockedRefusal();
   if (error instanceof Error && error.message === MidenDAppErrorType.NotGranted) return error;
