@@ -316,14 +316,17 @@ describe('startOpenLinkCapture', () => {
       jest.spyOn(Storage.prototype, 'setItem').mockImplementation(denied),
       jest.spyOn(Storage.prototype, 'removeItem').mockImplementation(denied)
     ];
-    mockGetLaunchUrl.mockResolvedValue({ url: LINK });
+    try {
+      mockGetLaunchUrl.mockResolvedValue({ url: LINK });
 
-    startOpenLinkCapture();
-    await flushPromises();
+      startOpenLinkCapture();
+      await flushPromises();
 
-    expect(takePendingOpenLink()).toBe(PAGE);
-    expect(getPendingOpenLink()).toBeNull();
-    for (const spy of spies) spy.mockRestore();
+      expect(takePendingOpenLink()).toBe(PAGE);
+      expect(getPendingOpenLink()).toBeNull();
+    } finally {
+      for (const spy of spies) spy.mockRestore();
+    }
   });
 
   it('starts once', async () => {
@@ -337,14 +340,17 @@ describe('startOpenLinkCapture', () => {
 
   it('survives the plugin failing', async () => {
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
-    mockAddListener.mockRejectedValue(new Error('not implemented'));
-    mockGetLaunchUrl.mockRejectedValue(new Error('not implemented'));
+    try {
+      mockAddListener.mockRejectedValue(new Error('not implemented'));
+      mockGetLaunchUrl.mockRejectedValue(new Error('not implemented'));
 
-    startOpenLinkCapture();
-    await flushPromises();
+      startOpenLinkCapture();
+      await flushPromises();
 
-    expect(getPendingOpenLink()).toBeNull();
-    expect(warn).toHaveBeenCalledTimes(2);
-    warn.mockRestore();
+      expect(getPendingOpenLink()).toBeNull();
+      expect(warn).toHaveBeenCalledTimes(2);
+    } finally {
+      warn.mockRestore();
+    }
   });
 });
