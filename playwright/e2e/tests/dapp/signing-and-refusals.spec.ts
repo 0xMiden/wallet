@@ -188,6 +188,55 @@ function signingCells(j: Journey): Record<string, DappCellImpl> {
           refusal('NotGrantedMidenWalletError', "NOT_GRANTED: signing key is not the connected account's key")
         );
       }
+    },
+    // A site gets one login key and a verifiable login signature.
+    L1: {
+      budget: 'read',
+      run: async ctx => {
+        const me = await connectedView(j, ctx);
+        const loginKey = async (what: string) =>
+          unwrap(await expectNoPrompt(dapp, () => callDapp(dapp, 'loginKey', {}, ctx.deadline), ctx), what, ctx);
+        const first = await loginKey('requestLoginKey');
+        const again = await loginKey('requestLoginKey again');
+        expect(again).toEqual(first);
+        expect(Buffer.from(first.loginKeyB64, 'base64')).toHaveLength(32);
+        expect(first.loginKeyHex).not.toBe(me.publicKeyHex);
+        const { result } = await answerPrompt(
+          dapp,
+          () => callDapp(dapp, 'signLoginWord', { wordHex: WORD }, ctx.deadline),
+          { kind: 'loginSign', decision: 'approve', origin: dapp.origin },
+          ctx
+        );
+        const signed = unwrap(result, 'signLoginBytes(word)', ctx);
+        expect(Buffer.from(signed.signatureB64, 'base64')).toHaveLength(66);
+        expect(signed.schemeTag).toBe(ECDSA_SCHEME_TAG);
+        expect(
+          await callDapp(
+            dapp,
+            'verifySignature',
+            {
+              kind: 'word',
+              payloadB64: signed.payloadB64,
+              signatureB64: signed.signatureB64,
+              publicKeyB64: recoverEcdsaPublicKey(signed.signatureB64, signed.messageB64)
+            },
+            ctx.deadline
+          )
+        ).toEqual({ verifies: true, commitmentHex: first.loginKeyHex });
+      }
+    },
+    // A declined login signature rejects. No adapter wraps these calls, so the provider's own class reaches the dApp.
+    L2: {
+      budget: 'read',
+      run: async ctx => {
+        const { result } = await answerPrompt(
+          dapp,
+          () => callDapp(dapp, 'signLoginWord', { wordHex: WORD }, ctx.deadline),
+          { kind: 'loginSign', decision: 'decline', origin: dapp.origin },
+          ctx
+        );
+        expect(result).toEqual(refusal('NotGrantedMidenWalletError', 'NOT_GRANTED'));
+      }
     }
   };
 }

@@ -148,6 +148,20 @@ function provider(): MidenWallet {
   if (injected === undefined) throw new HarnessCheckError('window.midenWallet is not injected');
   return injected;
 }
+// The published adapter has neither login key method, so the page calls them on the provider by name, as `raw` does.
+async function callProvider(method: 'requestLoginKey' | 'signLoginBytes', args: unknown[]): Promise<unknown> {
+  const injected = provider();
+  const call: unknown = Reflect.get(injected, method);
+  if (typeof call !== 'function') throw new HarnessCheckError(`the provider has no ${method}`);
+  return Reflect.apply(call, injected, args);
+}
+// The provider hands login bytes over as a Uint8Array; any other answer is the wallet's failure, so it comes back as
+// Outcome data rather than a harness fault.
+function answerBytes(answer: unknown, key: 'loginKey' | 'signature'): Uint8Array {
+  const bytes: unknown = typeof answer === 'object' && answer !== null ? Reflect.get(answer, key) : undefined;
+  if (!(bytes instanceof Uint8Array)) throw new Error(`the wallet answered without ${key} bytes`);
+  return bytes;
+}
 // Chain reads bypass the dApp's client store as well as the wallet: the chain's view of a write is checked on its own.
 const rpc = (): RpcClient => new RpcClient(new Endpoint(state.rpcUrl));
 
@@ -692,6 +706,26 @@ const handlers: Partial<DappHandlers> = {
         schemeTag: signature[0] ?? -1,
         payloadB64: u8ToB64(payload),
         messageB64: u8ToB64(message)
+      };
+    }),
+
+  // Read as afterConnect reads connect's key, so `loginKeyHex` compares with `publicKeyHex`.
+  loginKey: () =>
+    outcome(async () => {
+      const loginKey = answerBytes(await callProvider('requestLoginKey', []), 'loginKey');
+      return { loginKeyB64: u8ToB64(loginKey), loginKeyHex: Word.deserialize(loginKey).toHex() };
+    }),
+
+  // As signWord: the login key signs only words, so the signed message is the word itself.
+  signLoginWord: ({ wordHex }) =>
+    outcome(async () => {
+      const payload = Word.fromHex(wordHex).serialize();
+      const signature = answerBytes(await callProvider('signLoginBytes', [payload, 'word']), 'signature');
+      return {
+        signatureB64: u8ToB64(signature),
+        schemeTag: signature[0] ?? -1,
+        payloadB64: u8ToB64(payload),
+        messageB64: u8ToB64(payload)
       };
     }),
 

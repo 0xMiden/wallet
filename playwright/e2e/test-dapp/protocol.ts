@@ -138,6 +138,12 @@ export interface SelfTestView {
   payloadB64: string;
   messageB64: string;
 }
+export interface LoginKeyView {
+  /** The bytes `requestLoginKey` returned. */
+  loginKeyB64: string;
+  /** The commitment in the form `publicKeyHex` and `verifySignature`'s `commitmentHex` take, so the three compare. */
+  loginKeyHex: string;
+}
 export type RawArg = string | number | boolean | null | { bytesB64: string } | RawArg[] | { [key: string]: RawArg };
 export type RawCall =
   | 'requestSend'
@@ -225,6 +231,9 @@ export interface DappCommands {
     };
     output: Outcome<SignatureView>;
   };
+  /** The two login key calls go to `window.midenWallet` directly: the published adapter has neither method. */
+  loginKey: { input: Empty; output: Outcome<LoginKeyView> };
+  signLoginWord: { input: { wordHex: string }; output: Outcome<SignatureView> };
   verifySignature: {
     input: { kind: 'word' | 'signingInputs'; payloadB64: string; signatureB64: string; publicKeyB64: string };
     output: { verifies: boolean; commitmentHex: string };
