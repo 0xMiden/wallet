@@ -73,6 +73,22 @@ let currentAccountPublicKey = 'miden-account-1';
 // Steerable for the Idle case; `'Ready'` is the string every other suite in this family uses.
 let mockWalletStatus: unknown = 'Ready';
 const mockStoreListeners = new Set<(state: unknown) => void>();
+jest.mock('lib/telemetry/transaction-failure', () => ({
+  ...jest.requireActual('lib/telemetry/transaction-failure'),
+  reportTransactionFailure: jest.fn(jest.requireActual('lib/telemetry/transaction-failure').reportTransactionFailure)
+}));
+jest.mock('./background-notification', () => ({
+  ...jest.requireActual('./background-notification'),
+  notifyBackgroundTransactionFailed: jest.fn(
+    jest.requireActual('./background-notification').notifyBackgroundTransactionFailed
+  )
+}));
+
+jest.mock('../transaction/claim-fee', () => ({
+  ...jest.requireActual('../transaction/claim-fee'),
+  readClaimFeeContext: jest.fn(jest.requireActual('../transaction/claim-fee').readClaimFeeContext)
+}));
+
 jest.mock('lib/miden/back/store', () => ({
   store: {
     getState: () => ({ currentAccount: { publicKey: currentAccountPublicKey }, status: mockWalletStatus }),
@@ -616,6 +632,58 @@ describe('requestConsumeTransaction — mobile error branches', () => {
       expect(mockInitiateConsumeTransactionFromId).not.toHaveBeenCalled();
     } finally {
       decodeLock.mockRestore();
+    }
+  });
+
+  it('approved consume fee refusal preserves its message without INVALID_PARAMS', async () => {
+    const realQueue = jest.requireActual<typeof import('../transaction/initiate')>('../transaction/initiate');
+    const { ClaimFeeRefusedError } = realQueue;
+    const originalConsume = mockInitiateConsumeTransactionFromId.getMockImplementation();
+    const feeContext = jest.mocked(
+      jest.requireMock<typeof import('../transaction/claim-fee')>('../transaction/claim-fee').readClaimFeeContext
+    );
+    const proxy = jest.requireActual<typeof import('./miden-client-proxy')>('./miden-client-proxy').midenClientProxy;
+    const summary = jest.spyOn(proxy, 'getInputNoteSummary');
+    const report = jest.mocked(
+      jest.requireMock<typeof import('lib/telemetry/transaction-failure')>('lib/telemetry/transaction-failure')
+        .reportTransactionFailure
+    );
+    const notify = jest.mocked(
+      jest.requireMock<typeof import('./background-notification')>('./background-notification')
+        .notifyBackgroundTransactionFailed
+    );
+    await Repo.transactions.clear();
+    feeContext.mockResolvedValue({ vaultFeeAsset: 0n, nativeAssetId: 'native-faucet', verificationBaseFee: 10000 });
+    summary.mockResolvedValue({ noteType: NoteType.Public, assets: [{ faucetId: 'faucet-1', amount: '50' }] });
+    mockInitiateConsumeTransactionFromId.mockImplementation(realQueue.initiateConsumeTransactionFromId);
+    try {
+      const error: unknown = await dapp
+        .requestConsumeTransaction('https://miden.xyz', {
+          type: MidenDAppMessageType.ConsumeRequest,
+          sourcePublicKey: 'miden-account-1',
+          transaction: { noteId: 'note-1', faucetId: 'faucet-1', noteType: 'private', amount: 50 }
+        })
+        .catch((reason: unknown) => reason);
+
+      expect(error).toBeInstanceOf(ClaimFeeRefusedError);
+      if (!(error instanceof Error)) throw new Error('Expected an approved consume refusal');
+      expect(error.message).toBe(new ClaimFeeRefusedError().message);
+      expect(error.message).not.toContain('INVALID_PARAMS');
+      expect(error.message).not.toContain(MidenDAppErrorType.InvalidParams);
+      expect((await Repo.transactions.toArray()).filter(row => row.type === 'consume')).toEqual([]);
+      expect(summary).toHaveBeenCalledWith('note-1');
+      expect(feeContext).toHaveBeenCalledWith('miden-account-1');
+      expect(mockRequestConfirmation).toHaveBeenCalled();
+      expect(mockStartTransactionProcessing).not.toHaveBeenCalled();
+      expect(report).not.toHaveBeenCalled();
+      expect(notify).not.toHaveBeenCalled();
+    } finally {
+      mockInitiateConsumeTransactionFromId.mockReset();
+      if (originalConsume) mockInitiateConsumeTransactionFromId.mockImplementation(originalConsume);
+      feeContext.mockReset();
+      feeContext.mockImplementation(jest.requireActual('../transaction/claim-fee').readClaimFeeContext);
+      summary.mockRestore();
+      await Repo.transactions.clear();
     }
   });
 

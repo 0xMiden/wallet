@@ -10,6 +10,7 @@ import { selectAutoConsumeBatch } from './auto-managed-notes';
 import { useClaimableNotes } from './claimable-notes';
 import { useMidenContext } from './client';
 import { zustandProvider } from './guardian-sync';
+import { ClaimFeeRefusedError } from '../transaction/claim-fee';
 import { ConsumableNote } from '../types';
 
 /**
@@ -80,7 +81,7 @@ export function NativeNoteAutoConsumeManager(): null {
         // backoff, the regression the previous per-note-always design existed to avoid.
         // The `true` argument is what isolates it, on the next enqueue after the batch row
         // fails. NOT this catch: the call is a queue write, and an un-consumable note
-        // fails much later at generation time, so the catch only sees a DB error.
+        // fails much later at generation time, so the catch sees enqueue errors, not execution failures.
         //
         // The queue asks `isWalletReadyNow` right before each row it writes, so a lock that landed during the reads
         // above queues nothing. A lock refuses every note alike, so it ends the pass: no per-note fallback, no kick.
@@ -96,16 +97,27 @@ export function NativeNoteAutoConsumeManager(): null {
             isWalletReadyNow
           );
         } catch (batchErr) {
+          if (batchErr instanceof ClaimFeeRefusedError) {
+            console.debug('[native-auto-consume] batch waiting for fee funding', batchErr);
+            return;
+          }
           if (!isWalletReadyNow()) throw batchErr;
           console.warn('[native-auto-consume] batch enqueue failed, falling back to per-note enqueue', batchErr);
+          let feeRefusedNotes = 0;
           for (const note of nativeNotes) {
             try {
               await initiateConsumeTransaction(publicKey, note, delegate, false, 'auto_consume', isWalletReadyNow);
             } catch (noteErr) {
+              if (noteErr instanceof ClaimFeeRefusedError) {
+                console.debug('[native-auto-consume] note waiting for fee funding', note.id, noteErr);
+                feeRefusedNotes += 1;
+                continue;
+              }
               if (!isWalletReadyNow()) throw noteErr;
               console.warn('[native-auto-consume] enqueue failed for note', note.id, noteErr);
             }
           }
+          if (feeRefusedNotes === nativeNotes.length) return;
         }
         // This route-independent consumer is the one that fires when the user is
         // NOT on Home, so it must also dismiss the now-stale "click to claim"

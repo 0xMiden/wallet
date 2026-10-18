@@ -84,6 +84,21 @@ export interface ClaimFeeNote {
   amount: string;
   /** The note holds fungible assets beyond the listed one. */
   carriesMoreAssets?: boolean;
+  /** The note's full asset list is not known. */
+  assetsUnknown?: boolean;
+}
+
+/** Activity's decimal-scaled balances adapted to the shared base-unit claim fee rule. */
+export function claimFeeShortfalls(
+  transactions: ReadonlyArray<readonly ClaimFeeNote[]>,
+  ahead: readonly ClaimFeeNote[],
+  balances: readonly TokenBalanceData[],
+  nativeAssetId: string | undefined | null,
+  verificationBaseFee: number | null
+): boolean[] {
+  const held = feeAssetHeld(balances, nativeAssetId);
+  const vaultFeeAsset = held !== null && Number.isFinite(held) ? BigInt(Math.round(held)) : null;
+  return claimFeeShortfallsBaseUnits(transactions, ahead, vaultFeeAsset, nativeAssetId, verificationBaseFee);
 }
 
 /**
@@ -102,35 +117,38 @@ export interface ClaimFeeNote {
  * are not charged: a claim they leave unable to pay fails at signing, as it would without this check. Each transaction
  * is judged alone, so none of them funds another; a caller queueing them one by one adds each queued one to `ahead`.
  *
- * Fails OPEN, refusing nothing, wherever `hasNoFeeAsset` does or a note ahead holds assets the list does not show (any
- * of them may be the fee asset), and admits a transaction whose own notes hold such assets or whose fee-asset amount
- * does not parse.
+ * Fails OPEN, refusing nothing, when the fee, native asset or vault holding is unknown or a note ahead holds assets
+ * the list does not show (any of them may be the fee asset), and admits a transaction whose own notes hold such
+ * assets or whose fee-asset amount does not parse.
  */
-export function claimFeeShortfalls(
-  transactions: ReadonlyArray<readonly ClaimFeeNote[]>,
+export function claimFeeShortfallsBaseUnits(
+  transactions: readonly (readonly ClaimFeeNote[])[],
   ahead: readonly ClaimFeeNote[],
-  balances: readonly TokenBalanceData[],
+  vaultFeeAsset: bigint | null,
   nativeAssetId: string | undefined | null,
   verificationBaseFee: number | null
 ): boolean[] {
   const refuseNone = transactions.map(() => false);
-  if (verificationBaseFee === null || !Number.isFinite(verificationBaseFee) || verificationBaseFee <= 0) {
+  if (
+    vaultFeeAsset === null ||
+    !nativeAssetId ||
+    verificationBaseFee === null ||
+    !Number.isFinite(verificationBaseFee) ||
+    verificationBaseFee <= 0
+  ) {
     return refuseNone;
   }
-  const held = feeAssetHeld(balances, nativeAssetId);
-  if (held === null || !Number.isFinite(held)) {
-    return refuseNone;
-  }
-  if (ahead.some(note => note.carriesMoreAssets || note.faucetId === nativeAssetId)) {
+  const hasUnknownAssets = (note: ClaimFeeNote) =>
+    note.assetsUnknown || note.carriesMoreAssets || !note.faucetId.trim() || !note.amount.trim();
+  if (ahead.some(note => hasUnknownAssets(note) || note.faucetId === nativeAssetId)) {
     return refuseNone;
   }
   // A whole-unit budget is below a fractional fee exactly when it is below its ceiling.
   const fee = BigInt(Math.ceil(verificationBaseFee));
-  const vault = BigInt(Math.round(held));
   return transactions.map(notes => {
-    let available = vault;
+    let available = vaultFeeAsset;
     for (const note of notes) {
-      if (note.carriesMoreAssets) return false;
+      if (hasUnknownAssets(note)) return false;
       if (note.faucetId !== nativeAssetId) continue;
       try {
         available += BigInt(note.amount);
@@ -236,7 +254,7 @@ export function isWorthClaiming(
 }
 
 /**
- * Sum of note amounts, in the asset's smallest unit — the value to hand
+ * Sum of note amounts, in the asset's smallest unit - the value to hand
  * `isWorthClaiming` when these notes will be claimed as ONE transaction.
  *
  * Shared by the three unattended auto-consumers so they cannot drift on how the batch

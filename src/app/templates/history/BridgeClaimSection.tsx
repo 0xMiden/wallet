@@ -24,6 +24,7 @@ import {
 } from 'lib/miden/activity';
 import { IBridgeClaimStatus, ITransactionStatus } from 'lib/miden/db/types';
 import { useAccount } from 'lib/miden/front';
+import { ClaimFeeRefusedError } from 'lib/miden/transaction/claim-fee';
 import { hapticMedium } from 'lib/mobile/haptics';
 import { isExtension } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
@@ -338,11 +339,15 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
       if (isExtension()) requestSWTransactionProcessing();
       navigate(`/generating-transaction-full/${encodeURIComponent(txId)}`);
     } catch (err) {
-      console.error('[bridge-claim] reclaim failed', err);
-      setReclaimError(err instanceof Error ? err.message : 'Reclaim failed');
+      if (err instanceof ClaimFeeRefusedError) {
+        setReclaimError(t('insufficientFeeAsset'));
+      } else {
+        console.error('[bridge-claim] reclaim failed', err);
+        setReclaimError(err instanceof Error ? err.message : 'Reclaim failed');
+      }
       setReclaiming(false);
     }
-  }, [reclaimNoteId, account.publicKey]);
+  }, [reclaimNoteId, account.publicKey, t]);
 
   return (
     <div className="mt-6 mb-4">

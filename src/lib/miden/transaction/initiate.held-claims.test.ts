@@ -15,7 +15,16 @@ jest.mock('lib/miden-chain/effective-endpoints', () => ({
   isNoteTransportConfigured: () => false,
   getEffectiveNetworkName: () => 'testnet'
 }));
-jest.mock('../back/miden-client-proxy', () => ({ midenClientProxy: { getInputNoteSummary: async () => ({}) } }));
+jest.mock('lib/miden-chain/native-asset', () => ({
+  getNativeAssetId: async () => 'native-faucet',
+  getVerificationBaseFee: async () => null
+}));
+jest.mock('../back/miden-client-proxy', () => ({
+  midenClientProxy: {
+    getInputNoteSummary: async () => ({ noteType: undefined, assets: null }),
+    getAccount: async () => null
+  }
+}));
 jest.mock('../activity/notes', () => ({ queueNoteImport: jest.fn() }));
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires

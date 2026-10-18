@@ -1517,6 +1517,45 @@ describe('Explore', () => {
       warn.mockRestore();
     });
 
+    it('fee-refused native batch has no single-note fallback or processing kick', async () => {
+      const { ClaimFeeRefusedError } = jest.requireActual<typeof import('lib/miden/transaction/initiate')>(
+        'lib/miden/transaction/initiate'
+      );
+      mockAutoConsume = true;
+      mockPlatform.isExtension = true;
+      mockClaimableNotes = [makeNote('n1', 'faucet-native', false), makeNote('n2', 'faucet-native', false)];
+      mockInitiateConsumeNotesTransaction.mockRejectedValueOnce(new ClaimFeeRefusedError());
+
+      const view = await renderExplore();
+
+      expect(mockInitiateConsumeNotesTransaction).toHaveBeenCalledTimes(1);
+      expect(mockInitiateConsumeTransaction).not.toHaveBeenCalled();
+      expect(mockRequestSWTransactionProcessing).not.toHaveBeenCalled();
+      expect(mockStartBackgroundTransactionProcessing).not.toHaveBeenCalled();
+      expect(mockClearNoteReceivedNotification).not.toHaveBeenCalled();
+      expect(mockMutateClaimableNotes).not.toHaveBeenCalled();
+      expect(mockClaimableNotes.map((item: { id: string }) => item.id)).toEqual(['n1', 'n2']);
+      view.unmount();
+
+      mockInitiateConsumeNotesTransaction.mockRejectedValueOnce(new Error('batch enqueue failed'));
+      mockInitiateConsumeTransaction
+        .mockRejectedValueOnce(new ClaimFeeRefusedError())
+        .mockRejectedValueOnce(new ClaimFeeRefusedError());
+      const fallback = await renderExplore();
+      expect(mockInitiateConsumeTransaction).toHaveBeenCalledTimes(2);
+      expect(mockRequestSWTransactionProcessing).not.toHaveBeenCalled();
+      expect(mockClearNoteReceivedNotification).not.toHaveBeenCalled();
+      expect(mockMutateClaimableNotes).not.toHaveBeenCalled();
+      fallback.unmount();
+
+      mockInitiateConsumeNotesTransaction.mockRejectedValueOnce(new Error('batch enqueue failed'));
+      mockInitiateConsumeTransaction.mockRejectedValueOnce(new ClaimFeeRefusedError());
+      await renderExplore();
+      expect(mockInitiateConsumeTransaction).toHaveBeenCalledTimes(4);
+      expect(mockRequestSWTransactionProcessing).toHaveBeenCalledTimes(1);
+      expect(mockClearNoteReceivedNotification).toHaveBeenCalledTimes(1);
+    });
+
     it('consumes multiple matching notes in one pass', async () => {
       mockAutoConsume = true;
       mockClaimableNotes = [makeNote('n1', 'faucet-native', false), makeNote('n2', 'faucet-native', false)];

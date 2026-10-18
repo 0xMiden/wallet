@@ -85,6 +85,9 @@ jest.mock('../sdk/helpers', () => ({
 // What queueConsumeRows' dedup and backoff say about a note; its rules are pinned with real rows in initiate's suite.
 const mockNoteClaimCoverage = jest.fn(async (..._args: unknown[]): Promise<Record<string, unknown>> => ({ rows: [] }));
 jest.mock('lib/miden/transaction/initiate', () => ({
+  get ClaimFeeRefusedError() {
+    return jest.requireActual('lib/miden/transaction/initiate').ClaimFeeRefusedError;
+  },
   initiateConsumeNotesTransaction: jest.fn(async () => 'consume-1'),
   initiatePswapReclaimTransaction: jest.fn(async () => 'consume-zero-fill'),
   noteClaimCoverage: (...args: unknown[]) => mockNoteClaimCoverage(...args)
@@ -299,6 +302,66 @@ describe('swap order note settlement', () => {
     expect(swapRow.extraInputs).toEqual(expect.objectContaining({ expiryTriggeredAt: 300 }));
   });
 
+  it("in-process settlement hands the queue each note's first asset and whether it carries more", async () => {
+    jest.mocked(midenClientProxy.getConsumableNotes).mockResolvedValue([
+      {
+        ...note('token-payback', [999n, 77n, 1n, 0n]),
+        assets: [{ faucetId: 'requested-token', amount: '35' }]
+      },
+      {
+        ...note('two-asset-remainder'),
+        assets: [
+          { faucetId: 'offered-token', amount: '15' },
+          { faucetId: 'native-fee-token', amount: '5' }
+        ]
+      },
+      { ...note('assetless-payback', [999n, 77n, 2n, 0n]), assets: [] }
+    ]);
+    jest.mocked(midenClientProxy.getPswapLineages).mockResolvedValue([
+      {
+        orderId: '77',
+        currentTipNoteId: 'two-asset-remainder',
+        currentDepth: 2,
+        state: 0,
+        remainingOffered: '15',
+        remainingRequested: '15'
+      }
+    ]);
+
+    const result = await settleSwapOrders('account-1', false);
+
+    expect(jest.mocked(initiateConsumeNotesTransaction).mock.calls).toEqual([
+      [
+        'account-1',
+        [
+          expect.objectContaining({
+            id: 'token-payback',
+            faucetId: 'requested-token',
+            amount: '35',
+            carriesMoreAssets: false
+          }),
+          expect.objectContaining({ id: 'assetless-payback', faucetId: '', amount: '', carriesMoreAssets: false })
+        ],
+        false,
+        ...SETTLES
+      ],
+      [
+        'account-1',
+        [
+          expect.objectContaining({
+            id: 'two-asset-remainder',
+            faucetId: 'offered-token',
+            amount: '15',
+            carriesMoreAssets: true
+          })
+        ],
+        false,
+        ...SETTLES
+      ]
+    ]);
+    expect(result.managedNoteIds).toEqual(new Set(['token-payback', 'two-asset-remainder', 'assetless-payback']));
+  });
+
   it('leaves partial-fill paybacks untouched while active and unexpired', async () => {
     await reconcileSwapOrderNotes(
       'account-1',
@@ -355,6 +418,37 @@ describe('swap order note settlement', () => {
     // The expiry intent is durable before the queue write.
     expect(modify.mock.invocationCallOrder[0]).toBeLessThan(
       (initiatePswapReclaimTransaction as jest.Mock).mock.invocationCallOrder[0]!
+    );
+  });
+
+  it('a zero-fill reclaim of a non-native token meets the fee gate as a known single asset', async () => {
+    toArray.mockResolvedValue([tx({ faucetId: 'non-native-offer', outputNoteIds: ['zero-fill-token-tip'] })]);
+    jest.mocked(midenClientProxy.getConsumableNotes).mockResolvedValue([]);
+    jest.mocked(midenClientProxy.getPswapLineages).mockResolvedValue([
+      {
+        orderId: '77',
+        currentTipNoteId: 'zero-fill-token-tip',
+        currentDepth: 0,
+        state: 0,
+        remainingOffered: '50',
+        remainingRequested: '50'
+      }
+    ]);
+
+    await settleSwapOrders('account-1', true);
+
+    expect(initiatePswapReclaimTransaction).toHaveBeenCalledWith(
+      'account-1',
+      expect.objectContaining({
+        id: 'zero-fill-token-tip',
+        faucetId: 'non-native-offer',
+        amount: '50',
+        carriesMoreAssets: false
+      }),
+      new Uint8Array([1, 4, 7, 6]),
+      'swap-1',
+      true,
+      undefined
     );
   });
 
@@ -619,6 +713,60 @@ describe('swap order note settlement', () => {
     // The unfilled remainder is a reclaim — and now that it has its own row,
     // `getSwapSettlementNotes` no longer buckets it as a settled (received) note.
     expect(tagsWrittenBy(2)).toEqual({ swapOrderTxId: 'swap-1', swapSettleKind: 'reclaim' });
+  });
+
+  it('fee refusal skips one role batch and prepared reclaim without aborting later orders', async () => {
+    const { ClaimFeeRefusedError } = jest.requireActual<typeof import('lib/miden/transaction/initiate')>(
+      'lib/miden/transaction/initiate'
+    );
+    const orders = [
+      tx(),
+      tx({ id: 'swap-prepared', extraInputs: { ...tx().extraInputs, orderId: 88n } }),
+      tx({ id: 'swap-later', extraInputs: { ...tx().extraInputs, orderId: 99n } })
+    ];
+    toArray.mockResolvedValue(orders);
+    const later = consumable('later-payback', 'payback', 'filled');
+    later.swapOrder.orderId = '99';
+    jest
+      .mocked(initiateConsumeNotesTransaction)
+      .mockRejectedValueOnce(new ClaimFeeRefusedError())
+      .mockRejectedValueOnce(new ClaimFeeRefusedError())
+      .mockResolvedValueOnce('later-tx');
+    jest.mocked(initiatePswapReclaimTransaction).mockRejectedValueOnce(new ClaimFeeRefusedError());
+    const written: Array<{ id: string; extraInputs?: Record<string, unknown> }> = [];
+    modify.mockImplementation(async writer => {
+      const where: unknown = jest.mocked(Repo.transactions.where).mock.calls.at(-1)?.[0];
+      const id = typeof where === 'object' && where !== null && 'id' in where ? String(where.id) : '';
+      const row = orders.find(order => order.id === id) ?? { id, type: 'consume', extraInputs: {} };
+      if (typeof writer === 'function') writer(row);
+      written.push(row);
+      return 1;
+    });
+    try {
+      const result = await reconcileSwapOrderNotes(
+        'account-1',
+        [consumable('tip', 'tip'), consumable('payback', 'payback'), later],
+        true,
+        220,
+        undefined,
+        new Map([['88', { noteId: 'prepared-tip', requestBytes: new Uint8Array([1]) }]])
+      );
+
+      expect(result.queuedTransactionIds).toEqual(['later-tx']);
+      expect(result.managedNoteIds).toEqual(new Set(['tip', 'payback', 'later-payback', 'prepared-tip']));
+      expect(initiateConsumeNotesTransaction).toHaveBeenCalledTimes(3);
+      expect(initiatePswapReclaimTransaction).toHaveBeenCalledTimes(1);
+      expect(written.filter(row => row.id === 'later-tx')).toHaveLength(1);
+      expect(written.filter(row => row.id !== 'later-tx').every(row => row.id.startsWith('swap-'))).toBe(true);
+      for (const order of orders.slice(0, 2)) {
+        expect(order.extraInputs).toHaveProperty('expiryTriggeredAt', 220);
+        expect(order.extraInputs).not.toHaveProperty('settledAt');
+        expect(order.extraInputs).not.toHaveProperty('reclaimedAt');
+        expect(order.extraInputs).not.toHaveProperty('swapOrderTxId');
+      }
+    } finally {
+      modify.mockImplementation(async () => 1);
+    }
   });
 
   it('tags a fund-less expired batch (tip only) as reclaim', async () => {

@@ -27,6 +27,10 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
   const g = globalThis as any;
   return {
     getWasmOrThrow: (...a: any[]) => g.__px.getWasmOrThrow(...a),
+    Address: {
+      fromAccountId: (accountId: { canonical: string }) => ({ toBech32: () => accountId.canonical })
+    },
+    NetworkId: { testnet: () => 'testnet' },
     Account: { deserialize: (...a: any[]) => g.__px.accountDeserialize(...a) },
     // Slice 5: the flag-on offscreen consume re-hydrates the serialized
     // TransactionResult on the SW side.
@@ -173,7 +177,12 @@ function resetControl() {
         remainingRequested: () => 40n
       }
     ]),
-    inlineGetInputNote: jest.fn(async () => ({ metadata: () => ({ noteType: () => 1 }) })),
+    inlineGetInputNote: jest.fn(async () => ({
+      metadata: () => ({ noteType: () => 1 }),
+      details: () => {
+        throw new Error('note details unavailable');
+      }
+    })),
     inlineGetTransactionCommitState: jest.fn(async () => 'committed'),
     inlineImportNoteBytes: jest.fn(async () => '0ximportedid'),
     inlineDrainPrivateNoteTransport: jest.fn(async () => {}),
@@ -240,6 +249,12 @@ async function loadProxy(flagOn: boolean, { overridesLoaded = true }: { override
   return import('./miden-client-proxy');
 }
 
+function tryReadAccount(proxy: object, accountId: string): Promise<unknown> {
+  const method: unknown = Reflect.get(proxy, 'tryGetAccount');
+  if (typeof method !== 'function') throw new Error('midenClientProxy.tryGetAccount is missing');
+  return Promise.resolve(Reflect.apply(method, proxy, [accountId]));
+}
+
 beforeEach(() => {
   ORIGINAL_FLAG = process.env.MIDEN_USE_OFFSCREEN_CLIENT;
   resetControl();
@@ -253,6 +268,56 @@ afterEach(() => {
 });
 
 describe('MidenClientProxy — flag routing', () => {
+  it('the try-lock read reports busy without waiting', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: { op_id: string }) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: Buffer.from(JSON.stringify({ ran: false })).toString('base64'),
+      durationMs: 0
+    }));
+
+    const read = tryReadAccount(midenClientProxy, 'busy-fee-account');
+    await flush();
+    fireReady();
+    const result = await read;
+
+    expect(result).toEqual({ ran: false });
+    expect(fakeChrome.runtime.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        method: 'tryGetAccount',
+        argsB64: ['s:"busy-fee-account"'],
+        deadline_ms: 15_000
+      })
+    );
+    expect(fakeChrome.offscreen.closeDocument).not.toHaveBeenCalled();
+    expect(G.__px.getMidenClient).not.toHaveBeenCalled();
+    expect(G.__px.accountDeserialize).not.toHaveBeenCalled();
+  });
+
+  it('the try-lock inline read runs under the caller hold', async () => {
+    const { midenClientProxy } = await loadProxy(false);
+    const { withWasmClientLock, getCurrentWasmLockHold } = await import('lib/miden/sdk/miden-client');
+    const account = { __inlineFeeAccount: true };
+    let callerHold: unknown;
+    let holdAtRead: unknown;
+    G.__px.inlineGetAccount.mockImplementation(async () => {
+      holdAtRead = getCurrentWasmLockHold();
+      return account;
+    });
+
+    const result = await withWasmClientLock(async hold => {
+      callerHold = hold;
+      return tryReadAccount(midenClientProxy, 'inline-fee-account');
+    });
+
+    expect(result).toEqual({ ran: true, account });
+    expect(holdAtRead).toBe(callerHold);
+    expect(G.__px.withWasmClientLock).toHaveBeenCalledTimes(1);
+    expect(G.__px.inlineGetAccount).toHaveBeenCalledWith('inline-fee-account');
+    expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
+  });
+
   it('flag OFF → getAccount goes inline (getMidenClient), never touches offscreen', async () => {
     const { midenClientProxy } = await loadProxy(false);
     const result = await midenClientProxy.getAccount('acc-1');
@@ -1575,13 +1640,57 @@ describe('MidenClientProxy — slice-7a reach-through reads', () => {
   });
 
   // ── getInputNoteSummary ───────────────────────────────────────────────────
-  it('flag OFF → getInputNoteSummary reduces the inline live InputNoteRecord to its noteType', async () => {
+  it('inline summary carries fee assets under its current hold', async () => {
     const { midenClientProxy } = await loadProxy(false);
+    const nativeId = 'native-faucet';
+    const tokenId = 'token-faucet';
+    const record = {
+      metadata: jest.fn(() => ({ noteType: () => 1 })),
+      details: jest.fn(() => ({
+        assets: () => ({
+          fungibleAssets: () => [
+            { faucetId: () => ({ canonical: nativeId }), amount: () => 10000n },
+            { faucetId: () => ({ canonical: tokenId }), amount: () => 7n }
+          ]
+        })
+      }))
+    };
+    G.__px.inlineGetInputNote.mockResolvedValue(record);
     const summary = await midenClientProxy.getInputNoteSummary('0xn');
 
     expect(G.__px.inlineGetInputNote).toHaveBeenCalledWith('0xn');
-    expect(summary).toEqual({ noteType: 1 });
+    expect(G.__px.inlineGetInputNote).toHaveBeenCalledTimes(1);
+    expect(summary).toEqual({
+      noteType: 1,
+      assets: [
+        { faucetId: nativeId, amount: '10000' },
+        { faucetId: tokenId, amount: '7' }
+      ]
+    });
+    expect(record.details).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(JSON.stringify(summary))).toEqual(summary);
     expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
+
+    const client = await G.__px.getMidenClient();
+    G.__px.inlineGetInputNote.mockClear();
+    G.__px.getMidenClient = jest.fn(async () => {
+      G.__px.inlineHold = { mock: 'replacement-during-build' };
+      return client;
+    });
+    await expect(midenClientProxy.getInputNoteSummary('stale-build')).rejects.toThrow('hold replaced');
+    expect(G.__px.inlineGetInputNote).not.toHaveBeenCalled();
+
+    const staleRecord = { metadata: record.metadata, details: record.details };
+    staleRecord.metadata.mockClear();
+    staleRecord.details.mockClear();
+    G.__px.getMidenClient = jest.fn(async () => client);
+    G.__px.inlineGetInputNote.mockImplementation(async () => {
+      G.__px.inlineHold = { mock: 'replacement-during-read' };
+      return staleRecord;
+    });
+    await expect(midenClientProxy.getInputNoteSummary('stale-record')).rejects.toThrow('hold replaced');
+    expect(staleRecord.metadata).not.toHaveBeenCalled();
+    expect(staleRecord.details).not.toHaveBeenCalled();
   });
 
   it('flag OFF → getInputNoteSummary returns null for a not-found note (preserves the caller throw)', async () => {
@@ -1592,10 +1701,19 @@ describe('MidenClientProxy — slice-7a reach-through reads', () => {
 
   it('flag ON → getInputNoteSummary dispatches by note id and parses the DTO back', async () => {
     const { midenClientProxy } = await loadProxy(true);
+    const nativeId = 'native-faucet';
+    const tokenId = 'token-faucet';
+    const dto = {
+      noteType: 1,
+      assets: [
+        { faucetId: nativeId, amount: '10000' },
+        { faucetId: tokenId, amount: '7' }
+      ]
+    };
     fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
       ok: true,
       op_id: env.op_id,
-      resultB64: Buffer.from(new TextEncoder().encode(JSON.stringify({ noteType: 1 }))).toString('base64'),
+      resultB64: Buffer.from(new TextEncoder().encode(JSON.stringify(dto))).toString('base64'),
       durationMs: 2
     }));
 
@@ -1609,7 +1727,7 @@ describe('MidenClientProxy — slice-7a reach-through reads', () => {
     expect(env.method).toBe('getInputNoteSummary');
     expect(env.deadline_ms).toBe(15_000);
     expect(env.argsB64).toEqual(['s:"0xn"']);
-    expect(summary).toEqual({ noteType: 1 });
+    expect(summary).toEqual(dto);
   });
 
   it('flag ON → a null getInputNoteSummary result is a not-found note (null)', async () => {
