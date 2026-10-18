@@ -49,6 +49,10 @@
 
   // Pending requests waiting for responses
   const pendingRequests = new Map();
+  // Random per document: the wallet can answer after a same-origin reload, and the next document's requests must not
+  // match an answer meant for the one before it (#1416).
+  const requestPrefix =
+    'req_' + Array.from(crypto.getRandomValues(new Uint8Array(8)), b => b.toString(16).padStart(2, '0')).join('') + '_';
   let requestId = 0;
 
   // Store original hash to restore after signaling
@@ -56,6 +60,56 @@
 
   // Debug: expose pendingRequests for troubleshooting
   window.__midenPendingRequests = pendingRequests;
+
+  // The extension's provider errors (lib/adapter/client.ts), so a refusal reads the same on every provider.
+  class MidenWalletError {
+    constructor() {
+      this.name = 'MidenWalletError';
+      this.message = 'An unknown error occured. Please try again or report it';
+    }
+  }
+  class NotGrantedMidenWalletError extends MidenWalletError {
+    constructor() {
+      super();
+      this.name = 'NotGrantedMidenWalletError';
+      this.message = 'Permission Not Granted';
+    }
+  }
+  class NotFoundMidenWalletError extends MidenWalletError {
+    constructor() {
+      super();
+      this.name = 'NotFoundMidenWalletError';
+      this.message = 'Account Not Found. Try connect again';
+    }
+  }
+  class InvalidParamsMidenWalletError extends MidenWalletError {
+    constructor() {
+      super();
+      this.name = 'InvalidParamsMidenWalletError';
+      this.message = 'Some of the parameters you provided are invalid';
+    }
+  }
+  function createError(value) {
+    const message = Array.isArray(value)
+      ? typeof value[0] === 'string'
+        ? value[0]
+        : String(value[0])
+      : typeof value === 'string'
+        ? value
+        : value && typeof value === 'object' && typeof value.message === 'string'
+          ? value.message
+          : undefined;
+    const has = code => value === code || (typeof message === 'string' && message.includes(code));
+    const error = has('NOT_GRANTED')
+      ? new NotGrantedMidenWalletError()
+      : has('NOT_FOUND')
+        ? new NotFoundMidenWalletError()
+        : has('INVALID_PARAMS')
+          ? new InvalidParamsMidenWalletError()
+          : new MidenWalletError();
+    if (message) error.message = message;
+    return error;
+  }
 
   // Function for Tauri to call to send responses
   window.__midenWalletResponse = function(responseStr) {
@@ -71,7 +125,7 @@
       pendingRequests.delete(reqId);
 
       if (type === 'MIDEN_PAGE_ERROR_RESPONSE' || error) {
-        pending.reject(new Error(error || payload || 'Unknown error'));
+        pending.reject(createError(error || payload || 'Unknown error'));
       } else {
         pending.resolve(payload);
       }
@@ -109,7 +163,7 @@
   // Send a request to the wallet
   function request(payload) {
     return new Promise((resolve, reject) => {
-      const reqId = 'req_' + ++requestId;
+      const reqId = requestPrefix + ++requestId;
       pendingRequests.set(reqId, { resolve, reject });
 
       const message = {

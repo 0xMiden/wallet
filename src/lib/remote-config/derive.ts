@@ -7,7 +7,7 @@ import {
   RpcClient,
   SlotAndKeys
 } from '@miden-sdk/miden-sdk/lazy';
-import { createPublicClient, http, parseAbi } from 'viem';
+import { createPublicClient, getAddress, http, keccak256, parseAbi, toBytes } from 'viem';
 
 import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
 import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
@@ -16,7 +16,15 @@ import { fetchBoundedJson, type JsonFetch } from 'lib/remote-json';
 import { isRecord } from 'lib/update/guards';
 import { getChain } from 'lib/walletconnect/config';
 
-import type { BridgeConfig, EvmAddress } from './schema';
+import {
+  type BridgeConfig,
+  EARN_LENDER_KEYS,
+  epochCollateralFaucetId,
+  type EvmAddress,
+  SUPPORTED_EARN_PROTOCOLS
+} from './schema';
+import { parseSwapPairs, SWAP_PAIRS_PATH, type SwapPairs, type SwapPairsToken } from './swap-pairs';
+import type { EarnMarket } from './values';
 
 export type Probe<T> =
   | { state: 'ok'; value: T }
@@ -40,18 +48,30 @@ export interface DerivedBridgeConfig {
   network: string;
   version: number; // the document version it was derived from
   derivedAt: number;
+  /** Every listed chain's reads, by chain id; a route the chain does not list reads as skipped. */
+  chains: Record<number, DerivedChainConfig>;
+  // The providers every chain shares.
+  agglayer: { indexer: Probe<true> };
+  epoch: {
+    allocator: Probe<true>;
+    market: Probe<EarnMarket>;
+    midenUsdcFaucet: Probe<TokenMetadata>; // existence and metadata in one read
+  };
+  /** Always set by a derivation; optional in the type so a stand-in snapshot built by a test needs none. */
+  swap?: {
+    /** The solver's tokens and pairs, read from `swap.etaUrl`. */
+    pairs: Probe<SwapPairs>;
+  };
+}
+
+export interface DerivedChainConfig {
   agglayer: {
     rollupId: Probe<number>;
     tokens: Probe<BridgeToken[]>;
     evmNetworkId: Probe<number>;
     l1BridgeCode: Probe<true>;
-    indexer: Probe<true>;
   };
-  epoch: {
-    allocator: Probe<true>;
-    midenUsdcFaucet: Probe<TokenMetadata>; // existence and metadata in one read
-    evmUsdc: Probe<TokenMetadata>;
-  };
+  epoch: { evmUsdc: Probe<TokenMetadata> };
 }
 
 /** Reads over one EVM chain's RPC. */
@@ -71,7 +91,10 @@ export interface DeriveDeps {
   midenRpcUrl(): string;
   /** Rejects with NotDeployedError when the bridge account does not exist or is not a bridge. */
   readBridgeRegistry(midenBridge: string, rpcUrl: string): Promise<{ rollupId: number; tokens: BridgeToken[] }>;
-  /** Rejects with NotDeployedError when the faucet account does not exist. */
+  /**
+   * Rejects with NotDeployedError when the faucet account does not exist, and with NotAFaucetError when it has no
+   * public state or its storage is not a basic fungible faucet's.
+   */
   readMidenFaucet(faucetId: string, rpcUrl: string): Promise<TokenMetadata>;
   /** Reads over the wallet's RPC for the chain, or null when the wallet ships none for it. */
   evm(chainId: number): EvmReads | null;
@@ -81,6 +104,14 @@ export interface DeriveDeps {
 /** A confirmed absence: the node has no such account, or the account at that id is not an AggLayer bridge. */
 export class NotDeployedError extends Error {
   name = 'NotDeployedError';
+}
+
+/**
+ * The account exists but is not a public basic fungible faucet. Not a NotDeployedError, so the Earn probe reads it as
+ * an error, not as absent.
+ */
+export class NotAFaucetError extends Error {
+  name = 'NotAFaucetError';
 }
 
 // The bridge account's layout, the same in miden-agglayer 0.16.1 and 0.17.0
@@ -238,6 +269,73 @@ const ERC20_ABI = parseAbi(['function symbol() view returns (string)', 'function
 const isAllocatorHealthy = (body: unknown) => isRecord(body) && body.status === 'healthy';
 const isIndexerServing = (body: unknown) => isRecord(body) && body.status === 'SERVING';
 
+const SWAP_PAIRS_TIMEOUT_MS = 10_000;
+const SWAP_PAIRS_MAX_BYTES = 64 * 1_024;
+// The derivation settles only once every probe has. Each faucet read is bounded, but a long enough list read four at a
+// time is not, so the list is capped and its verification bounded as a whole.
+const SWAP_PAIRS_MAX_TOKENS = 64;
+const SWAP_PAIRS_VERIFY_TIMEOUT_MS = 30_000;
+const SWAP_FAUCET_READS_AT_ONCE = 4;
+
+type FaucetRead = (faucetId: string) => Promise<TokenMetadata>;
+
+// The solver's decimals convert typed amounts into the swap note's base units, so a token is kept only at its faucet's
+// on-chain scale. A faucet that is missing or not a fungible faucet costs only its own listing; any other failure fails
+// the read, so the registry last verified stays in use rather than one at an unchecked scale.
+// `stop.expired` is set once the caller's deadline has failed the probe: no batch starts after that, while one already
+// started finishes on its own per-read bounds and its result is discarded.
+async function verifyOnChain(
+  listed: SwapPairs,
+  readFaucet: FaucetRead,
+  stop: { expired: boolean }
+): Promise<SwapPairs> {
+  const verified = new Set<string>();
+  const verify = async (token: SwapPairsToken) => {
+    try {
+      if ((await readFaucet(token.faucetId)).decimals === token.decimals) verified.add(token.faucetId);
+    } catch (err) {
+      if (!(err instanceof NotDeployedError || err instanceof NotAFaucetError)) throw err;
+    }
+  };
+  for (let start = 0; start < listed.tokens.length; start += SWAP_FAUCET_READS_AT_ONCE) {
+    if (stop.expired) break;
+    await Promise.all(listed.tokens.slice(start, start + SWAP_FAUCET_READS_AT_ONCE).map(verify));
+  }
+  return {
+    tokens: listed.tokens.filter(token => verified.has(token.faucetId)),
+    pairs: listed.pairs.filter(pair => pair.faucetIds.every(id => verified.has(id)))
+  };
+}
+
+// The solver answers 503 `not_ready` for a moment after it starts. That is an error here, so a registry read before
+// stays in use (see keepValuesRead in runtime.ts).
+function readSwapPairs(fetchFn: JsonFetch, etaUrl: string, readFaucet: FaucetRead): Promise<Probe<SwapPairs>> {
+  return attempt(async () => {
+    const url = `${etaUrl}${SWAP_PAIRS_PATH}`;
+    const body = await fetchBoundedJson(fetchFn, url, {
+      maxBytes: SWAP_PAIRS_MAX_BYTES,
+      timeoutMs: SWAP_PAIRS_TIMEOUT_MS
+    });
+    const pairs = parseSwapPairs(body);
+    if (!pairs) throw new Error(`${url} answered an unexpected body`);
+    if (pairs.tokens.length > SWAP_PAIRS_MAX_TOKENS) {
+      throw new Error(
+        `${url} lists ${pairs.tokens.length} tokens, more than the ${SWAP_PAIRS_MAX_TOKENS} the wallet verifies`
+      );
+    }
+    const stop = { expired: false };
+    try {
+      return await withRpcTimeout(() => verifyOnChain(pairs, readFaucet, stop), 'swap pairs faucet verification', {
+        timeoutMs: SWAP_PAIRS_VERIFY_TIMEOUT_MS,
+        retries: 0
+      });
+    } catch (err) {
+      stop.expired = true;
+      throw err;
+    }
+  });
+}
+
 async function readMidenFaucet(faucetId: string, rpcUrl: string): Promise<TokenMetadata> {
   await ensureSdkWasmReady();
   const rpc = new RpcClient(new Endpoint(rpcUrl));
@@ -245,9 +343,25 @@ async function readMidenFaucet(faucetId: string, rpcUrl: string): Promise<TokenM
     rpc.getAccountDetails(AccountId.fromHex(faucetId))
   );
   const account = fetched.account();
-  if (!account) throw new Error(`${faucetId} has no public state`);
-  const faucet = BasicFungibleFaucetComponent.fromAccountStorage(account.storage());
+  if (!account) throw new NotAFaucetError(`${faucetId} has no public state`);
+  let faucet: BasicFungibleFaucetComponent;
+  try {
+    faucet = BasicFungibleFaucetComponent.fromAccountStorage(account.storage());
+  } catch (err) {
+    if (err instanceof WebAssembly.RuntimeError) throw err;
+    throw new NotAFaucetError(`${faucetId} is not a basic fungible faucet: ${errorMessage(err)}`);
+  }
   return { symbol: faucet.symbol().toString(), decimals: faucet.decimals() };
+}
+
+// One read per faucet per derivation: the Earn probe and the swap registry can name the same faucet.
+function sharedFaucetReads(io: DeriveDeps, rpcUrl: string): FaucetRead {
+  const reads = new Map<string, Promise<TokenMetadata>>();
+  return faucetId => {
+    const read = reads.get(faucetId) ?? io.readMidenFaucet(faucetId, rpcUrl);
+    reads.set(faucetId, read);
+    return read;
+  };
 }
 
 /** Reads over the RPC the wallet's own reads of that chain use (walletconnect/config.ts), E2E override included. */
@@ -323,6 +437,67 @@ async function probeErc20(reads: EvmReads | null, token: EvmAddress | undefined)
   return code.state === 'ok' ? attempt(() => reads.erc20(token)) : code;
 }
 
+// The checksummed form of a 20-byte hex address, or null for anything else.
+const checksummed = (value: string | undefined): EvmAddress | null =>
+  value !== undefined && /^0x[0-9a-fA-F]{40}$/.test(value) ? getAddress(`0x${value.slice(2)}`) : null;
+
+// The uid of a listed USDC position whose chain, underlying and the chain and token its uid names are all the route's.
+function listedMarketUid(groups: unknown, route: { chainId: number; usdc: EvmAddress }): string | undefined {
+  if (!Array.isArray(groups)) return undefined;
+  for (const group of groups) {
+    if (!isRecord(group) || !Array.isArray(group.positions)) continue;
+    for (const position of group.positions) {
+      if (!isRecord(position) || typeof position.marketUid !== 'string' || !isRecord(position.underlyingInfo)) continue;
+      const asset = position.underlyingInfo.asset;
+      if (!isRecord(asset) || asset.symbol !== 'USDC' || typeof asset.address !== 'string') continue;
+      const [, uidChain, uidToken] = position.marketUid.split(':');
+      if (checksummed(asset.address) !== route.usdc || checksummed(uidToken) !== route.usdc) continue;
+      if (uidChain === String(route.chainId)) return position.marketUid;
+    }
+  }
+  return undefined;
+}
+
+// A deposit mandates the market's chain and token, so only an Epoch route's own USDC can be the market. The zero
+// account holds no position, so a supported lender listed on a route's chain is the market; a position it does list
+// lends its uid only when that uid names the route's chain and token.
+async function discoverEarnMarket(config: BridgeConfig, io: DeriveDeps): Promise<Probe<EarnMarket>> {
+  const positionsUrl = config['bridge-providers'].epoch.positionsUrl;
+  const routes = Object.values(config.supportedEvmChains).flatMap(chain => {
+    const usdc = chain.bridges.epoch?.tokens.USDC?.contractAddress;
+    return usdc ? [{ chainId: chain.chainId, usdc: getAddress(usdc) }] : [];
+  });
+  if (!positionsUrl || routes.length === 0) return { state: 'skipped' };
+  return attempt(async () => {
+    const body = await fetchBoundedJson(
+      io.fetch,
+      `${positionsUrl}/positions?account=0x0000000000000000000000000000000000000000&chains=${routes.map(route => route.chainId).join(',')}`,
+      { maxBytes: 512 * 1024, timeoutMs: HEALTH_TIMEOUT_MS }
+    );
+    if (!isRecord(body) || body.success !== true || !isRecord(body.data) || !Array.isArray(body.data.items)) {
+      throw new Error('Epoch market response is invalid');
+    }
+    for (const item of body.data.items) {
+      if (!isRecord(item) || !isRecord(item.lenderInfo)) continue;
+      const lenderKey = item.lenderInfo.lenderKey;
+      const protocol = SUPPORTED_EARN_PROTOCOLS.find(candidate => EARN_LENDER_KEYS[candidate] === lenderKey);
+      const route = routes.find(route => String(route.chainId) === item.chainId);
+      if (!protocol || !route) continue;
+      return {
+        // Lowercase when built: the form earlier deposits sent to Epoch and stored.
+        marketUid:
+          listedMarketUid(item.data, route) ??
+          `${EARN_LENDER_KEYS[protocol]}:${route.chainId}:${route.usdc.toLowerCase()}`,
+        // The protocol's name, never its lender key.
+        protocolHash: keccak256(toBytes(protocol)),
+        underlying: route.usdc,
+        chainId: route.chainId
+      };
+    }
+    throw new NotDeployedError('Epoch has no supported USDC market');
+  });
+}
+
 /** Every value the document leaves to chain and service reads; a probe's failure never stops another. */
 export async function deriveBridgeConfig(
   config: BridgeConfig,
@@ -330,32 +505,48 @@ export async function deriveBridgeConfig(
 ): Promise<DerivedBridgeConfig> {
   const io: DeriveDeps = { ...defaultDeps, ...deps };
   const rpcUrl = io.midenRpcUrl();
-  const { agglayer, epoch, evm } = config;
-  const reads = evm.chainId === undefined ? null : io.evm(evm.chainId);
-  const [registry, l1Bridge, indexer, allocator, midenUsdcFaucet, evmUsdc] = await Promise.all([
-    when(agglayer.midenBridge, bridge => attempt(() => io.readBridgeRegistry(bridge, rpcUrl))),
-    probeL1Bridge(reads, agglayer.l1Bridge),
-    when(agglayer.indexerUrl, url => checkHealth(io.fetch, `${url}/healthz`, isIndexerServing)),
+  const providers = config['bridge-providers'];
+  const epoch = providers.epoch;
+  const faucetId = epochCollateralFaucetId(config);
+  const readFaucet = sharedFaucetReads(io, rpcUrl);
+  const [market, allocator, midenUsdcFaucet, indexer, swapPairs] = await Promise.all([
+    discoverEarnMarket(config, io),
     when(epoch.allocatorUrl, url => checkHealth(io.fetch, `${url}/health`, isAllocatorHealthy)),
-    when(epoch.midenUsdcFaucet, faucetId => attempt(() => io.readMidenFaucet(faucetId, rpcUrl))),
-    probeErc20(reads, epoch.evmUsdc)
+    when(faucetId, id => attempt(() => readFaucet(id))),
+    when(providers.agglayer.indexerUrl, url => checkHealth(io.fetch, `${url}/healthz`, isIndexerServing)),
+    when(config.swap?.etaUrl, url => readSwapPairs(io.fetch, url, readFaucet))
   ]);
-
-  let tokens: Probe<BridgeToken[]> = registry.state === 'ok' ? { state: 'ok', value: registry.value.tokens } : registry;
-  // A bridge that registers nothing has nothing to bridge, the same as no bridge.
-  if (tokens.state === 'ok' && tokens.value.length === 0) tokens = { state: 'absent' };
-
+  const chains: Record<number, DerivedChainConfig> = {};
+  await Promise.all(
+    Object.values(config.supportedEvmChains).map(async chain => {
+      const reads = io.evm(chain.chainId);
+      const agglayer = chain.bridges.agglayer;
+      const [registry, l1Bridge, evmUsdc] = await Promise.all([
+        when(agglayer?.midenBridgeId, bridge => attempt(() => io.readBridgeRegistry(bridge, rpcUrl))),
+        probeL1Bridge(reads, agglayer?.contractAddress),
+        probeErc20(reads, chain.bridges.epoch?.tokens.USDC?.contractAddress)
+      ]);
+      let tokens: Probe<BridgeToken[]> =
+        registry.state === 'ok' ? { state: 'ok', value: registry.value.tokens } : registry;
+      if (tokens.state === 'ok' && tokens.value.length === 0) tokens = { state: 'absent' };
+      chains[chain.chainId] = {
+        agglayer: {
+          rollupId: registry.state === 'ok' ? { state: 'ok', value: registry.value.rollupId } : registry,
+          tokens,
+          evmNetworkId: l1Bridge.networkId,
+          l1BridgeCode: l1Bridge.code
+        },
+        epoch: { evmUsdc }
+      };
+    })
+  );
   return {
     network: config.network,
     version: config.version,
     derivedAt: io.now(),
-    agglayer: {
-      rollupId: registry.state === 'ok' ? { state: 'ok', value: registry.value.rollupId } : registry,
-      tokens,
-      evmNetworkId: l1Bridge.networkId,
-      l1BridgeCode: l1Bridge.code,
-      indexer
-    },
-    epoch: { allocator, midenUsdcFaucet, evmUsdc }
+    chains,
+    agglayer: { indexer },
+    epoch: { allocator, market, midenUsdcFaucet },
+    swap: { pairs: swapPairs }
   };
 }

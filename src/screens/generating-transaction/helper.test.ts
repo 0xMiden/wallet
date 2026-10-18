@@ -1,4 +1,7 @@
+import { NoteType } from '@miden-sdk/miden-sdk/lazy';
+
 import { ITransactionStatus, type ITransactionStage, type ITransactionType } from 'lib/miden/db/types';
+import { NoteTypeEnum } from 'lib/miden/types';
 
 import {
   DIRECT_SWITCH_TRANSACTION_STEPS,
@@ -14,8 +17,15 @@ import {
   getStepDurationsMs,
   getTransactionStepState,
   isDirectGuardianSwitch,
-  isUnconfirmedGuardianSwitch
+  isUnconfirmedGuardianSwitch,
+  waitsToDeliverNote
 } from './helper';
+
+// The SDK's real values: `Private` is 0, which a string compare reads as public.
+jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
+  ...jest.requireActual('../../../__mocks__/wasmMock.js'),
+  NoteType: { Private: 0, Public: 1 }
+}));
 
 describe('getActiveStepIndex', () => {
   it('returns steps.length once the tx is complete', () => {
@@ -49,9 +59,28 @@ describe('getActiveStepIndex', () => {
     expect(getActiveStepIndex(GUARDIAN_TRANSACTION_STEPS, stage, false)).toBe(expected);
   });
 
+  // The Guardian sync finishing is not the end of a private send: its commit wait and relay follow, as a step of
+  // their own, so the sync ticks only its own step rather than every step done and then one back (#1492).
+  it('keeps a private send on its delivery step once the Guardian sync is done (#1492)', () => {
+    const steps = stepsForFlow(true, false, true);
+    expect(steps).toHaveLength(5);
+    expect(getActiveStepIndex(steps, 'guardian-syncing', false)).toBe(3);
+    expect(getActiveStepIndex(steps, 'guardian-synced', false)).toBe(4);
+    expect(getActiveStepIndex(steps, 'confirming', false)).toBe(4);
+    expect(getActiveStepIndex(steps, 'delivering', false)).toBe(4);
+    expect(getActiveStepIndex(steps, 'complete', false)).toBe(5);
+  });
+
   it('maps standard-send stages to its two steps', () => {
     expect(getActiveStepIndex(STANDARD_TRANSACTION_STEPS, 'proving', false)).toBe(0);
     expect(getActiveStepIndex(STANDARD_TRANSACTION_STEPS, 'submitting', false)).toBe(1);
+  });
+
+  // A standard send or execute also waits for the commit and relays a private note, and falling back to the first
+  // step would show the proof as being generated again.
+  it('keeps a standard row on its last step through the commit wait and the relay', () => {
+    expect(getActiveStepIndex(STANDARD_TRANSACTION_STEPS, 'confirming', false)).toBe(1);
+    expect(getActiveStepIndex(STANDARD_TRANSACTION_STEPS, 'delivering', false)).toBe(1);
   });
 
   it('falls back to the first step for an undefined or unowned stage', () => {
@@ -133,6 +162,21 @@ describe('getStepDurationsMs', () => {
       complete: 2_000
     });
     expect(durations).toEqual([300, 400, 300, 800]);
+  });
+
+  // The Guardian sync is one quick call; the commit wait and relay after it are the delivery step's time (#1492).
+  it("times a private send's Guardian sync up to its commit wait, and its delivery from there", () => {
+    const durations = getStepDurationsMs(stepsForFlow(true, false, true), {
+      'creating-proposal': 0,
+      proving: 1_700,
+      submitting: 2_300,
+      'guardian-syncing': 2_600,
+      'guardian-synced': 2_900,
+      confirming: 2_950,
+      delivering: 7_900,
+      complete: 8_300
+    });
+    expect(durations).toEqual([1_700, 600, 300, 350, 5_350]);
   });
 
   it('returns undefined for a step whose start or end stamp is missing (no fabricated value)', () => {
@@ -271,6 +315,91 @@ describe('stepsForFlow', () => {
 
   it('ignores the marker for a non-guardian account, which has no such step', () => {
     expect(stepsForFlow(false, true)).toEqual(STANDARD_TRANSACTION_STEPS);
+  });
+
+  it('gives a private send its delivery as a step after the Guardian sync (#1492)', () => {
+    const steps = stepsForFlow(true, false, true);
+    expect(steps.slice(0, 3)).toEqual(GUARDIAN_TRANSACTION_STEPS.slice(0, 3));
+    expect(steps[3]).toEqual({
+      id: 'syncing-guardian',
+      labelKey: 'transactionStepSyncingGuardian',
+      defaultLabel: 'Syncing with Guardian',
+      startStage: 'guardian-syncing',
+      activeStages: ['guardian-syncing']
+    });
+    expect(steps[4]).toEqual({
+      id: 'delivering-note',
+      labelKey: 'transactionStepDeliveringNote',
+      defaultLabel: 'Delivering to recipient',
+      startStage: 'confirming',
+      activeStages: ['guardian-synced', 'confirming', 'delivering']
+    });
+  });
+
+  // A rotation times its last step from the four-step set's `registering-guardian` fallback and shows its commit
+  // wait there, so that set stays as it is for everything but a private send.
+  it('keeps the four-step set for a public send, and a non-guardian account ignores the flag', () => {
+    expect(stepsForFlow(true, false, false)).toBe(GUARDIAN_TRANSACTION_STEPS);
+    expect(stepsForFlow(false, false, true)).toBe(STANDARD_TRANSACTION_STEPS);
+  });
+});
+
+describe('waitsToDeliverNote', () => {
+  it('is true for a send of a private note, in either note-type form', () => {
+    expect(waitsToDeliverNote({ type: 'send', noteType: NoteTypeEnum.Private } as never)).toBe(true);
+    expect(waitsToDeliverNote({ type: 'send', noteType: NoteType.Private } as never)).toBe(true);
+  });
+
+  // The pipeline relays for a send whose note metadata says private whatever the row's `noteType`, and for an
+  // execute's private outputs; the delivery record and the stamps are what say so.
+  it.each(['pending', 'relayed'])('is true for a row whose note delivery is %s', noteDelivery => {
+    expect(waitsToDeliverNote({ type: 'send', noteType: NoteTypeEnum.Public, noteDelivery } as never)).toBe(true);
+    expect(waitsToDeliverNote({ type: 'execute', noteDelivery } as never)).toBe(true);
+  });
+
+  // The delivery record is a best-effort write, so the stamps the commit wait and the relay leave count on their own.
+  it('is true for a row stamped for the commit wait or the relay, with no delivery recorded', () => {
+    expect(waitsToDeliverNote({ type: 'execute', stage: 'confirming' } as never)).toBe(true);
+    expect(waitsToDeliverNote({ type: 'execute', stage: 'delivering' } as never)).toBe(true);
+    expect(
+      waitsToDeliverNote({ type: 'execute', stage: 'complete', stageTimestamps: { confirming: 1 } } as never)
+    ).toBe(true);
+    expect(waitsToDeliverNote({ type: 'send', stage: 'complete', stageTimestamps: { delivering: 1 } } as never)).toBe(
+      true
+    );
+    // A relay that failed still waited and relayed.
+    expect(
+      waitsToDeliverNote({ type: 'execute', noteDelivery: 'undelivered', stageTimestamps: { confirming: 1 } } as never)
+    ).toBe(true);
+  });
+
+  // These wait for their own commit at 'confirming' and relay nothing; their last step owns that wait.
+  it.each(['switch-guardian', 'replace-hot-key', 'update-procedure-threshold'])(
+    'is false for a %s row waiting for its commit',
+    type => {
+      expect(waitsToDeliverNote({ type, stage: 'confirming' } as never)).toBe(false);
+      expect(waitsToDeliverNote({ type, stage: 'complete', stageTimestamps: { confirming: 1 } } as never)).toBe(false);
+    }
+  );
+
+  it('is false for a row that waits for no relay', () => {
+    expect(waitsToDeliverNote({ type: 'send', noteType: NoteTypeEnum.Public } as never)).toBe(false);
+    expect(waitsToDeliverNote({ type: 'send' } as never)).toBe(false);
+    expect(waitsToDeliverNote({ type: 'execute', stage: 'guardian-synced' } as never)).toBe(false);
+    // Only a send's note type says it relays; a bridged send's note is not relayed.
+    expect(waitsToDeliverNote({ type: 'bridged-send', noteType: NoteTypeEnum.Private } as never)).toBe(false);
+    expect(waitsToDeliverNote(undefined)).toBe(false);
+  });
+
+  it('is false for an unreadable note type, without throwing', () => {
+    const row = { type: 'send', noteType: 'bogus' } as never;
+    expect(() => waitsToDeliverNote(row)).not.toThrow();
+    expect(waitsToDeliverNote(row)).toBe(false);
+  });
+
+  // Notes that could not be made relayable are recorded undelivered with no wait and no relay.
+  it('is false for a row recorded undelivered that never waited or relayed', () => {
+    expect(waitsToDeliverNote({ type: 'execute', noteDelivery: 'undelivered' } as never)).toBe(false);
   });
 });
 

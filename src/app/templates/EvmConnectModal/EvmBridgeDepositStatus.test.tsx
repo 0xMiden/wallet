@@ -8,6 +8,7 @@ import { ITransactionStatus } from 'lib/miden/db/types';
 import type { AssetMetadata } from 'lib/miden/metadata/types';
 import { openExternalUrl } from 'lib/mobile/external-browser';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
+import { NO_EXPLORER_CHAIN } from 'lib/walletconnect/testing/chains';
 
 import { EvmBridgeDepositStatus } from './EvmBridgeDepositStatus';
 
@@ -62,6 +63,14 @@ jest.mock('components/ui/Spinner', () => ({
 
 jest.mock('lib/mobile/external-browser', () => ({ openExternalUrl: jest.fn() }));
 
+// The registry's chains, plus one the wallet knows no explorer for.
+jest.mock('lib/walletconnect/config', () => {
+  const chains = jest.requireActual<typeof import('lib/walletconnect/testing/chains')>(
+    'lib/walletconnect/testing/chains'
+  );
+  return chains.walletConnectConfigMock([chains.NO_EXPLORER_CHAIN]);
+});
+
 // The step list animates with framer; here only its inputs matter.
 jest.mock('./UsdcxDepositSteps', () => ({
   UsdcxDepositSteps: ({ sourceChainId, phase }: Record<string, unknown>) => (
@@ -89,17 +98,20 @@ jest.mock('components/PageHeader', () => ({
   )
 }));
 
+// `className` forwarded: the real Button caps its width unless the caller lifts it (#1469).
 jest.mock('components/Button', () => ({
   Button: ({
     children,
     onClick,
-    title
+    title,
+    className
   }: {
     children?: React.ReactNode;
     onClick?: React.MouseEventHandler<HTMLButtonElement>;
     title?: string;
+    className?: string;
   }) => (
-    <button type="button" onClick={onClick}>
+    <button type="button" className={className} onClick={onClick}>
       {children ?? title}
     </button>
   ),
@@ -214,6 +226,35 @@ describe('EvmBridgeDepositStatus', () => {
     expect(onDone).toHaveBeenCalledTimes(1);
   });
 
+  it('names the pending wallet confirmation while the deposit waits for the next prompt', () => {
+    // #1290: between the approve landing and the bridge prompt opening the wallet is silent for
+    // several seconds, and the generic processing copy reads as "done" — users left mid-flow.
+    mockRowState = { row: makeRow(makeInputs()), loaded: true };
+    render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} awaitingNextConfirmation />);
+
+    expect(screen.getByText('bridgeDepositAwaitingNextConfirmation')).toBeInTheDocument();
+    expect(screen.getByText('bridgeDepositAwaitingNextConfirmationDescription')).toBeInTheDocument();
+    expect(screen.queryByText('bridgeDepositProcessingDescription')).not.toBeInTheDocument();
+    // The wait appears while the user is looking at their wallet, so it is announced.
+    expect(screen.getByTestId('bridge-deposit-processing-description')).toHaveAttribute('role', 'status');
+    // Still in flight: the spinner state and the Hide affordance are unchanged.
+    expect(screen.getByTestId('hero-state')).toHaveTextContent('processing');
+    expect(screen.getByRole('button', { name: 'hide' })).toBeInTheDocument();
+  });
+
+  it('keeps the failure message when a confirmation was pending as the deposit failed', () => {
+    // A rejected prompt sets the row to failed; the stale "waiting" copy must not outrank the error.
+    mockRowState = {
+      row: makeRow(makeInputs({ phase: 'failed', error: 'user rejected the bridge request' })),
+      loaded: true
+    };
+    render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} awaitingNextConfirmation />);
+
+    expect(screen.getByText('bridgeDepositFailed')).toBeInTheDocument();
+    expect(screen.getByText('user rejected the bridge request')).toBeInTheDocument();
+    expect(screen.queryByText('bridgeDepositAwaitingNextConfirmation')).not.toBeInTheDocument();
+  });
+
   it('shows the failed title and its recorded error', () => {
     mockRowState = {
       row: makeRow(makeInputs({ phase: 'failed', error: 'solver rejected the deposit' })),
@@ -234,6 +275,43 @@ describe('EvmBridgeDepositStatus', () => {
     render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
 
     expect(screen.getByText('transactionErrorDescription')).toBeInTheDocument();
+  });
+
+  // #1469: the in-flight and failed branches drew their own frame, so on a screen wider than the
+  // Button's 370px cap the CTA sat at the left gutter and the root scrolled a long error sideways.
+  describe('layout wider than the button cap', () => {
+    const LONG_TOKEN_ERROR = `execution reverted: 0x${'ab'.repeat(100)}`;
+
+    it.each([
+      ['hide', makeInputs()],
+      ['done', makeInputs({ phase: 'failed', error: LONG_TOKEN_ERROR })]
+    ])('pins an uncapped %s button in the shared flow footer', (name, inputs) => {
+      mockRowState = { row: makeRow(inputs), loaded: true };
+      render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
+
+      const button = screen.getByRole('button', { name });
+      expect(button).toHaveClass('w-full', 'max-w-none');
+      expect(button.closest('[data-flow-footer]')).not.toBeNull();
+    });
+
+    it('wraps a failure message with an unbreakable token inside the body', () => {
+      mockRowState = { row: makeRow(makeInputs({ phase: 'failed', error: LONG_TOKEN_ERROR })), loaded: true };
+      render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
+
+      const message = screen.getByTestId('bridge-deposit-processing-description');
+      expect(message).toHaveTextContent(LONG_TOKEN_ERROR);
+      // Only `anywhere` lowers the min-content width the centred column sizes this line to.
+      expect(message).toHaveClass('w-full', 'wrap-anywhere', 'select-text');
+      expect(message.closest('[data-home-pane-body="true"]')).toHaveClass('overflow-x-hidden');
+    });
+
+    it('closes from the header while the deposit is in flight', () => {
+      mockRowState = { row: makeRow(makeInputs()), loaded: true };
+      render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
+
+      fireEvent.click(screen.getByRole('button', { name: 'close' }));
+      expect(onDone).toHaveBeenCalledTimes(1);
+    });
   });
 
   it('moves to the success layout once the deposit is submitted', () => {
@@ -274,6 +352,14 @@ describe('EvmBridgeDepositStatus', () => {
         url: `https://explorer.testnet.arc.io/tx/${DEPOSIT_HASH}`,
         title: 'Arc Testnet'
       });
+    });
+
+    it('offers no explorer for a source chain the wallet knows no explorer for', () => {
+      mockRowState = { row: makeRow(usdcxInputs({ sourceChainId: NO_EXPLORER_CHAIN.id })), loaded: true };
+      render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
+
+      expect(screen.getByTestId('receipt-rows')).toHaveTextContent('usdcxRouteName · No Explorer → Miden');
+      expect(screen.queryByText('viewOnBlockExplorer')).not.toBeInTheDocument();
     });
 
     // The app-root watcher writes the phase; the screen reads the row and polls nothing.

@@ -41,6 +41,7 @@ import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { requestSwapOrderRefresh, useSwapOrderTrackingStore } from 'lib/miden/swap/order-tracking-store';
+import { isOpenRecoveredOrder, isRecoveredSwapOrder } from 'lib/miden/swap/recovered-order';
 import { getSwapTokenByFaucetId, tokenQuote } from 'lib/miden/swap/tokens';
 import { RETRY_WINDOW_SECONDS } from 'lib/miden/transaction/note-delivery-window';
 import { getExplorerAccountUrl, getExplorerTxUrl } from 'lib/miden-chain/constants';
@@ -55,7 +56,7 @@ import { WalletAccount } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
 import { isUsdcxExecutorSource } from 'lib/usdcx/constant';
 import { useUsdcxDestinationTransaction } from 'lib/usdcx/use-destination-transaction';
-import { DEFAULT_CHAIN_ID, getChain } from 'lib/walletconnect/config';
+import { DEFAULT_CHAIN_ID, evmExplorerUrl, getChain } from 'lib/walletconnect/config';
 import { navigate } from 'lib/woozie';
 import {
   consumeAssetBreakdown,
@@ -301,6 +302,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const [orderId, setOrderId] = useState<string | bigint | null>(null);
   const [requestedToken, setRequestedToken] = useState<RequestedTokenInfo | null>(null);
   const [swapAutoConsume, setSwapAutoConsume] = useState(true);
+  const [swapSlippageBps, setSwapSlippageBps] = useState<number | undefined>(undefined);
   const [swapExpiresAt, setSwapExpiresAt] = useState<number | null>(null);
   // Smart Withdraw metadata (market, position owner, intent nonce, phase) for the details card.
   const [earnWithdraw, setEarnWithdraw] = useState<IEarnWithdrawExtraInputs | null>(null);
@@ -434,6 +436,8 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           bridgeProvider: bridge?.provider,
           bridgeDestinationAddress: bridge?.destinationAddress,
           bridgeDestinationNetwork: bridge?.destinationNetwork,
+          bridgeAgglayerRoute: bridge?.agglayerRoute,
+          bridgeEpochAllocatorUrl: bridge?.epochAllocatorUrl,
           bridgeClaimStatus: bridge?.claimStatus,
           bridgeOutputAmount: bridge?.outputAmount,
           bridgeOutputSymbol: bridge?.outputSymbol,
@@ -451,6 +455,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           bridgeInProvider: bridgeReceive?.provider ?? consumedBridge?.provider,
           bridgeInSourceAddress: bridgeReceive?.sourceAddress ?? consumedBridge?.intentOwner,
           bridgeInSourceChainId: bridgeReceive?.sourceChainId,
+          bridgeInSourceConfig: bridgeReceive?.usdcxSource,
           bridgeInSourceAmount: bridgeReceive?.sourceAmount ?? consumedBridge?.sourceAmount,
           bridgeInSourceSymbol: bridgeReceive?.sourceSymbol ?? consumedBridge?.sourceSymbol,
           bridgeInEvmTxHash: bridgeReceive?.evmTxHash ?? consumedBridge?.evmTxHash,
@@ -478,11 +483,13 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
             scaleIsKnown: swapToken !== undefined || hasKnownScale(requestedMeta)
           });
           setSwapAutoConsume(extra.autoConsume ?? true);
+          setSwapSlippageBps(extra.slippageBps);
           setSwapExpiresAt(extra.expiresAt ?? null);
           setOrderId(extra.orderId ?? null);
         } else {
           setRequestedToken(null);
           setSwapAutoConsume(true);
+          setSwapSlippageBps(undefined);
           setSwapExpiresAt(null);
           setOrderId(null);
         }
@@ -519,25 +526,33 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const trackingEntry = useSwapOrderTrackingStore(state =>
     orderKey === undefined ? undefined : state.entries[orderKey]
   );
+  // A restored row is not tracked, except an open recovered order, which the manager reads from the node (#1487).
+  const recoveredOrderOpen = transaction !== undefined && isOpenRecoveredOrder(transaction);
+  const tracksOrder = transaction?.restoredFromBackup !== true || recoveredOrderOpen;
   useEffect(() => {
-    if (orderKey === undefined || transaction?.restoredFromBackup === true) return;
+    if (orderKey === undefined || !tracksOrder) return;
     requestSwapOrderRefresh(orderKey);
-  }, [orderKey, transaction?.restoredFromBackup]);
+  }, [orderKey, tracksOrder]);
 
   // Settlement consumes are Dexie-backed too, so liveQuery replaces the old
   // bounded interval and updates the receipt whenever a consume row changes.
   const settlementNotes = useSwapSettlementNotes(transaction?.type === 'swap' ? transaction.id : undefined);
 
-  const swapTracking = trackingEntry?.tracking ?? null;
-  const trackingLoading =
-    orderKey !== undefined && transaction?.restoredFromBackup !== true && (trackingEntry?.loading ?? true);
+  // A closed recovered order reads no entry: one closed outside the poll keeps its last open one (#1487). Every other
+  // row, a file-restored order included, reads its entry.
+  const recoveredOrderClosed = transaction !== undefined && isRecoveredSwapOrder(transaction) && !recoveredOrderOpen;
+  const swapTracking = recoveredOrderClosed ? null : (trackingEntry?.tracking ?? null);
+  const trackingLoading = orderKey !== undefined && tracksOrder && (trackingEntry?.loading ?? true);
 
   const receipt = deriveSwapReceipt({
+    originalOutputNoteIds: transaction?.outputNoteIds,
     requestedAmount: requestedToken?.amount,
     requestedFaucetId: requestedToken?.faucetId,
     tracking: swapTracking,
     settlement: settlementNotes,
     autoConsume: swapAutoConsume,
+    recovered: recoveredOrderOpen,
+    slippageBps: swapSlippageBps,
     expiresAt: swapExpiresAt
   });
 
@@ -688,7 +703,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
       {/* Every line of the detail page is Nunito: the body styles that read `--font-sans` (row labels,
           section labels, the ID chips) resolve to the heading face here, and the text that sets no
           face of its own inherits it. */}
-      <div className="flex flex-1 flex-col min-h-0 px-4 face-heading">
+      <div className="flex flex-1 flex-col min-h-0 px-4 pb-[var(--wallet-control-safe-bottom,0px)] face-heading">
         {loadError ? (
           <div className="flex-1 flex flex-col items-center justify-center p-4">
             <p className="text-red-500 text-center mb-2">{t('smthWentWrong')}</p>
@@ -714,6 +729,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
             }
             requestedFaucetId={requestedToken.faucetId}
             filledAmount={receipt.filledAmount}
+            slippageBps={swapSlippageBps}
             orderState={receipt.orderState}
             trackingLoading={trackingLoading}
             settledTransactions={settledTransactions}
@@ -725,7 +741,6 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
               receipt.offerClaimRoute && !transaction?.recovered ? () => navigate(ACTIVITY_PENDING_PATH) : undefined
             }
             offerCancelOrder={receipt.offerCancel}
-            reclaimPending={receipt.reclaimPending}
             isCancellingOrder={actions.isCancellingOrder}
             cancelOrderError={actions.cancelOrderError}
             onCancelOrder={actions.onCancelOrder}
@@ -813,7 +828,11 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                     <DetailRow label={t('from')}>
                       <ExternalLinkValue
                         displayValue={<HashChip hash={entry.bridgeInSourceAddress} trimHash className="ml-2" />}
-                        href={`${getChain(entry.bridgeInSourceChainId ?? DEFAULT_CHAIN_ID)?.explorer}/address/${entry.bridgeInSourceAddress}`}
+                        href={evmExplorerUrl(
+                          getChain(entry.bridgeInSourceChainId ?? DEFAULT_CHAIN_ID),
+                          'address',
+                          entry.bridgeInSourceAddress
+                        )}
                       />
                     </DetailRow>
                   )}
@@ -1133,6 +1152,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                     <SectionHeader size="md">{t('usdcxProgress')}</SectionHeader>
                     <UsdcxDepositSteps
                       sourceChainId={entry.bridgeInSourceChainId}
+                      sourceConfig={entry.bridgeInSourceConfig}
                       phase={entry.bridgeInPhase}
                       cctp={entry.bridgeInCctp}
                     />
@@ -1157,7 +1177,11 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                       <DetailRow label={t('txIdLabel')}>
                         <ExternalLinkValue
                           displayValue={<HashChip hash={entry.bridgeInEvmTxHash} trimHash className="ml-2" />}
-                          href={`${getChain(entry.bridgeInSourceChainId ?? DEFAULT_CHAIN_ID)?.explorer}/tx/${entry.bridgeInEvmTxHash}`}
+                          href={evmExplorerUrl(
+                            getChain(entry.bridgeInSourceChainId ?? DEFAULT_CHAIN_ID),
+                            'tx',
+                            entry.bridgeInEvmTxHash
+                          )}
                         />
                       </DetailRow>
                     )}
@@ -1173,12 +1197,15 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                       only place that offers it once the deposit screen is gone. */}
                   {entry.txId &&
                     entry.bridgeInProvider === 'usdcx' &&
-                    isUsdcxExecutorSource(entry.bridgeInSourceChainId) &&
+                    (entry.bridgeInCctp !== undefined ||
+                      entry.bridgeInSourceConfig?.route === 'cctp-executor' ||
+                      isUsdcxExecutorSource(entry.bridgeInSourceChainId)) &&
                     entry.bridgeInPhase &&
                     !entry.restoredFromBackup && (
                       <UsdcxExecuteAction
                         txId={entry.txId}
                         sourceChainId={entry.bridgeInSourceChainId}
+                        sourceConfig={entry.bridgeInSourceConfig}
                         phase={entry.bridgeInPhase}
                         cctp={entry.bridgeInCctp}
                         className="mt-4"

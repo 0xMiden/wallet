@@ -56,10 +56,9 @@ const NOW = 1_800_000_000_000;
 const config = (version: number): BridgeConfig => ({
   network: 'testnet',
   version,
-  evm: {},
-  agglayer: {},
-  epoch: {},
-  features: { earn: false, fastBridge: false, bridgeIn: false, bridgeOut: false }
+  'bridge-providers': { epoch: {}, agglayer: {}, usdcx: {} },
+  supportedEvmChains: {},
+  features: { earn: false }
 });
 const derivedFor = (source: BridgeConfig, derivedAt: number): DerivedBridgeConfig => {
   const skipped = { state: 'skipped' } as const;
@@ -67,8 +66,10 @@ const derivedFor = (source: BridgeConfig, derivedAt: number): DerivedBridgeConfi
     network: source.network,
     version: source.version,
     derivedAt,
-    agglayer: { rollupId: skipped, tokens: skipped, evmNetworkId: skipped, l1BridgeCode: skipped, indexer: skipped },
-    epoch: { allocator: skipped, midenUsdcFaucet: skipped, evmUsdc: skipped }
+    chains: {},
+    agglayer: { indexer: skipped },
+    epoch: { allocator: skipped, market: skipped, midenUsdcFaucet: skipped },
+    swap: { pairs: skipped }
   };
 };
 const storeEntry = (version: number, fetchedAt = Date.now()): StoredBridgeConfig => {
@@ -154,14 +155,15 @@ it('backs off a failed refresh before the next load may retry', async () => {
   expect(mockFetch).toHaveBeenCalledTimes(2);
 });
 
-it('after a wipe, drops the copy and waits for the next load to fetch', async () => {
+// A reset keeps the stored document and its derivation, so a request right after one reads them without a fetch.
+it('after a wipe, keeps the copy and fetches nothing', async () => {
   seed(1);
   await initBridgeConfig();
-  mockStorage.clear();
+  const before = getBridgeConfigSnapshot();
   await Promise.all(mockRereads.map(reread => reread()));
-  expect(mockFetch).not.toHaveBeenCalled();
-  expect(getBridgeConfigSnapshot().status).toBe('loading');
+  expect(getBridgeConfigSnapshot()).toBe(before);
   await initBridgeConfig();
   await flush();
-  expect(mockFetch).toHaveBeenCalledTimes(1);
+  expect(getBridgeConfigSnapshot()).toBe(before);
+  expect(mockFetch).not.toHaveBeenCalled();
 });

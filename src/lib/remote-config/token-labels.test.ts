@@ -1,10 +1,10 @@
 import {
-  TEST_BRIDGE_CONFIG,
   TEST_BRIDGE_CONFIG_SNAPSHOT,
   TEST_MIDEN_USDC_FAUCET,
-  TEST_NATIVE_ETH_FAUCET
+  TEST_NATIVE_ETH_FAUCET,
+  testSnapshotWithSwapPairs
 } from 'lib/epoch/testing/bridge-config';
-import { TEST_SWAP_TOKEN_CONFIG, TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
+import { TEST_TOKEN_IETH, testSwapPairsToken } from 'lib/miden/swap/testing/registry';
 import { getTestNetworkNameKey } from 'lib/miden-chain/effective-endpoints';
 
 import { _resetE2eOverridesForTest, setEarnCollateralFaucetOverride } from './e2e-overrides';
@@ -37,11 +37,11 @@ const UNLOADED: BridgeConfigSnapshot = {
   derived: null,
   lastFetch: null
 };
-// The testnet document with its swap tokens, which name the iETH faucet.
-const LOADED: BridgeConfigSnapshot = {
-  ...TEST_BRIDGE_CONFIG_SNAPSHOT,
-  config: { ...TEST_BRIDGE_CONFIG, swap: { tokens: TEST_SWAP_TOKEN_CONFIG } }
-};
+// The testnet document with the solver's pairs read, which name the iETH faucet in hex.
+const LOADED: BridgeConfigSnapshot = testSnapshotWithSwapPairs({
+  tokens: [testSwapPairsToken(TEST_TOKEN_IETH, '0xe33498f1176661512b5ac4ded86ec7')],
+  pairs: []
+});
 
 const savedE2e = process.env.MIDEN_E2E_TEST;
 beforeEach(() => {
@@ -58,19 +58,18 @@ afterAll(() => {
 describe('token labels', () => {
   const IETH_FAUCET = TEST_TOKEN_IETH.faucetId;
 
-  it('names iETH "Test iETH" on testnet by the faucet the document lists it at, in either spelling', () => {
+  it('names iETH "Test iETH" on testnet by the faucet the solver lists it at, in either spelling', () => {
     expect(TEST_IETH_LABEL).toBe('Test iETH');
     expect(midenTokenLabel(LOADED, IETH_FAUCET, 'IETH')).toBe('Test iETH');
     expect(midenTokenLabel(LOADED, '0xe33498f1176661512b5ac4ded86ec7', 'IETH')).toBe('Test iETH');
   });
 
-  it('keeps the IETH symbol until the document names the faucet', () => {
-    const noSwapTokens: BridgeConfigSnapshot = {
-      ...TEST_BRIDGE_CONFIG_SNAPSHOT,
-      config: { ...TEST_BRIDGE_CONFIG, swap: { tokens: [] } }
-    };
+  it('keeps the IETH symbol until the solver names the faucet', () => {
+    const noSwapTokens = testSnapshotWithSwapPairs({ tokens: [], pairs: [] });
+    const pairsUnread: BridgeConfigSnapshot = { ...TEST_BRIDGE_CONFIG_SNAPSHOT, derived: null };
     expect(midenTokenLabel(UNLOADED, IETH_FAUCET, 'IETH')).toBe('IETH');
     expect(midenTokenLabel(noSwapTokens, IETH_FAUCET, 'IETH')).toBe('IETH');
+    expect(midenTokenLabel(pairsUnread, IETH_FAUCET, 'IETH')).toBe('IETH');
   });
 
   it('keeps the symbol of a token that only calls itself IETH, and of iETH off testnet', () => {
@@ -119,25 +118,17 @@ describe('token labels', () => {
   });
 
   it('keeps the EVM symbol under a document that names no EVM USDC', () => {
-    const { evmUsdc: _evmUsdc, ...epoch } = TEST_BRIDGE_CONFIG.epoch;
-    const noEvmUsdc: BridgeConfigSnapshot = {
-      ...TEST_BRIDGE_CONFIG_SNAPSHOT,
-      config: { ...TEST_BRIDGE_CONFIG, epoch }
-    };
+    const noEvmUsdc = cloneSnapshot();
+    if (!noEvmUsdc.config) throw new Error('The test document is missing');
+    noEvmUsdc.config.supportedEvmChains = {};
     expect(evmUsdcLabel(noEvmUsdc, 'USDC')).toBe('USDC');
   });
 
   it('follows a document that moves the bridge tokens', () => {
-    const moved: BridgeConfigSnapshot = {
-      ...TEST_BRIDGE_CONFIG_SNAPSHOT,
-      config: {
-        ...TEST_BRIDGE_CONFIG,
-        epoch: {
-          ...TEST_BRIDGE_CONFIG.epoch,
-          midenUsdcFaucet: TEST_NATIVE_ETH_FAUCET,
-          evmUsdc: '0x1c7d4b196cb0c7b01d743fbc6116a902379c7238'
-        }
-      }
+    const moved = cloneSnapshot();
+    if (!moved.config) throw new Error('The test document is missing');
+    moved.config['bridge-providers'].epoch.outputs = {
+      'usdc-testnet-output': { faucetId: TEST_NATIVE_ETH_FAUCET }
     };
     expect(midenTokenLabel(moved, TEST_MIDEN_USDC_FAUCET, 'USDC')).toBe('USDC');
     expect(midenTokenLabel(moved, TEST_NATIVE_ETH_FAUCET, 'USDC')).toBe('Test Epoch USDC');
@@ -174,3 +165,7 @@ describe('testnet token info', () => {
     expect(testnetTokenInfo(LOADED, TEST_MIDEN_USDC_FAUCET)).toBeNull();
   });
 });
+
+function cloneSnapshot(): import('./runtime').BridgeConfigSnapshot {
+  return JSON.parse(JSON.stringify(TEST_BRIDGE_CONFIG_SNAPSHOT));
+}

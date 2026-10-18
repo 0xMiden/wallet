@@ -212,24 +212,24 @@ const MUTATIONS = [
     name: 'the ORIGINAL error captured instead of the rebuilt one',
     guards: 'crash: no forbidden value from the cause chain',
     file: CRASH,
-    find: `      target.captureException(reportable);`,
-    replace: `      target.captureException(error);`
+    find: `        target.captureException(reportable, { mechanism });`,
+    replace: `        target.captureException(error, { mechanism });`
   },
   {
     name: 'the poisoned cause chain kept on the rebuilt error',
     guards: 'crash: no forbidden value from the cause chain',
     file: CRASH,
-    find: `      const reportable = new Error(safeMessage);`,
-    replace: `      const reportable = new Error(safeMessage, { cause: error });`
+    find: `  const reportable = new Error(safeMessage);`,
+    replace: `  const reportable = new Error(safeMessage, { cause: error });`
   },
   {
     name: 'the message scrubber neutered',
     guards: 'crash: no forbidden value',
     file: CRASH,
-    find: `      const safeMessage = redactMessage(error.message, WORDLIST) ?? REDACTED;`,
-    replace: `      const safeMessage = error.message;
-      void redactMessage;
-      void REDACTED;`
+    find: `  const safeMessage = redactMessage(message, WORDLIST, closedNames) ?? REDACTED;`,
+    replace: `  const safeMessage = message;
+  void redactMessage;
+  void REDACTED;`
   },
   {
     name: 'the stack scrubber neutered',
@@ -259,24 +259,24 @@ const MUTATIONS = [
     replace: `      beforeSend: (event: unknown) => event`,
     also: {
       file: CRASH,
-      find: `      const safeMessage = redactMessage(error.message, WORDLIST) ?? REDACTED;`,
-      replace: `      const safeMessage = error.message;
-      void redactMessage;
-      void REDACTED;`
+      find: `  const safeMessage = redactMessage(message, WORDLIST, closedNames) ?? REDACTED;`,
+      replace: `  const safeMessage = message;
+  void redactMessage;
+  void REDACTED;`
     }
   },
   {
     name: 'the consent gate removed from captureCrash',
     guards: 'nothing at all with consent off',
     file: CRASH,
-    find: `      if (!(await isTelemetryEnabledAsync())) return;`,
-    replace: `      await isTelemetryEnabledAsync();`
+    find: `        if (!(await isTelemetryEnabledAsync())) return;`,
+    replace: `        await isTelemetryEnabledAsync();`
   },
   {
     name: 'crash reporting silenced entirely (anti-vacuity: no envelope is sent)',
     guards: 'crash: sends an envelope at all',
     file: CRASH,
-    find: `      target.captureException(reportable);`,
+    find: `        target.captureException(reportable, { mechanism });`,
     replace: `      void target;
       void reportable;`
   },
@@ -363,18 +363,18 @@ const MUTATIONS = [
     name: 'a second call site reaching the sender directly',
     guards: 'one consent-gated sender, reached from one place',
     file: 'src/lib/miden/back/main.ts',
-    find: `import { WalletMessageType, WalletRequest, WalletResponse } from 'lib/shared/types';`,
+    find: `import { ReportTelemetryEventRequest, WalletMessageType, WalletRequest, WalletResponse } from 'lib/shared/types';`,
     replace: `import { sendEvent } from 'lib/telemetry/sink';
-import { WalletMessageType, WalletRequest, WalletResponse } from 'lib/shared/types';
+import { ReportTelemetryEventRequest, WalletMessageType, WalletRequest, WalletResponse } from 'lib/shared/types';
 void sendEvent;`
   },
   {
     name: 'the crash SDK imported outside the module that scrubs',
     guards: 'the crash SDK is confined to crash.ts',
     file: 'src/lib/miden/back/main.ts',
-    find: `import { WalletMessageType, WalletRequest, WalletResponse } from 'lib/shared/types';`,
+    find: `import { ReportTelemetryEventRequest, WalletMessageType, WalletRequest, WalletResponse } from 'lib/shared/types';`,
     replace: `import { captureException } from '@sentry/browser';
-import { WalletMessageType, WalletRequest, WalletResponse } from 'lib/shared/types';
+import { ReportTelemetryEventRequest, WalletMessageType, WalletRequest, WalletResponse } from 'lib/shared/types';
 void captureException;`
   },
   {

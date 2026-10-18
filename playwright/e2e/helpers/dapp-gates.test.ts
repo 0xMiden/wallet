@@ -6,15 +6,19 @@ import {
   canonicalAddress,
   isForeignConsume,
   isJourneySender,
+  latestSnapshot,
   maxConcurrentConfirmPages,
   nonCurrentReadEvidence,
   normalizeHex,
   onlyStaleConsumesRan,
+  reactAtRest,
   sessionHeld,
+  settledMiden,
   sharedOpen,
   waitForFreshSyncs,
   type NonCurrentRead
 } from './dapp-gates';
+import type { ReactPageView, ReactSnapshot, ReactTree } from '../test-dapp/react-protocol';
 
 function clock(stamps: (number | null)[]) {
   let t = 0;
@@ -229,5 +233,93 @@ describe('third-party notes', () => {
     expect(isForeignConsume(consumeFrom(), SENDERS)).toBe(false);
     // A send's secondaryAccountId is its recipient, never a sender.
     expect(isForeignConsume({ id: 'row', type: 'send', secondaryAccountId: 'mtst1stranger' }, SENDERS)).toBe(false);
+  });
+});
+
+const snapshotOf = (tree: ReactTree, extra: Partial<ReactSnapshot> = {}): ReactSnapshot => ({
+  at: 0,
+  tree,
+  autoConnect: false,
+  connected: false,
+  connecting: false,
+  disconnecting: false,
+  address: null,
+  publicKeyHex: null,
+  selected: null,
+  readyStates: ['Installed'],
+  requestFunctions: [],
+  ...extra
+});
+const viewOf = (snapshots: ReactSnapshot[], extra: Partial<ReactPageView> = {}): ReactPageView => ({
+  now: 10_000,
+  adapterName: 'Bread Wallet',
+  snapshots,
+  events: [],
+  providerAddress: null,
+  storedNames: { wallet: null, midenfi: 'Bread Wallet' },
+  pageErrors: [],
+  ...extra
+});
+
+describe('latestSnapshot', () => {
+  it("takes each tree's last commit", () => {
+    const view = viewOf([
+      snapshotOf('wallet', { at: 1 }),
+      snapshotOf('midenfi', { at: 2 }),
+      snapshotOf('wallet', { at: 3 })
+    ]);
+    expect([latestSnapshot(view, 'wallet')?.at, latestSnapshot(view, 'midenfi')?.at]).toEqual([3, 2]);
+  });
+});
+
+describe('reactAtRest', () => {
+  it('passes a page whose two trees detected the wallet and hold nothing', () => {
+    expect(reactAtRest(viewOf([snapshotOf('wallet'), snapshotOf('midenfi', { selected: 'Bread Wallet' })]))).toEqual(
+      []
+    );
+  });
+
+  it('refuses a tree that has not detected the wallet: a connect then opens the store page instead of a prompt', () => {
+    const view = viewOf([
+      snapshotOf('wallet', { readyStates: ['NotDetected'] }),
+      snapshotOf('midenfi', { readyStates: [] })
+    ]);
+    expect(reactAtRest(view)).toEqual(['wallet readyStates NotDetected', 'midenfi readyStates none']);
+  });
+
+  it('refuses a missing probe, a connected tree, a provider holding an account and a page error', () => {
+    const view = viewOf([snapshotOf('wallet', { connecting: true })], {
+      providerAddress: 'mtst1qa',
+      pageErrors: ['error: boom']
+    });
+    expect(reactAtRest(view)).toEqual([
+      'wallet is connected or connecting',
+      'the midenfi probe has not committed',
+      'the provider holds mtst1qa',
+      'page errors: error: boom'
+    ]);
+  });
+});
+
+describe('settledMiden', () => {
+  const miden = (extra: Partial<NonNullable<ReactSnapshot['miden']>>, at: number) =>
+    viewOf([
+      snapshotOf('midenfi', {
+        at,
+        miden: { isReady: false, isInitializing: false, error: null, signerAccountId: null, ...extra }
+      })
+    ]);
+
+  it('waits while MidenProvider is initializing or has neither a client nor an error', () => {
+    expect(settledMiden(miden({ isInitializing: true }, 0), 2_000)).toBeNull();
+    expect(settledMiden(miden({}, 0), 2_000)).toBeNull();
+  });
+
+  it('waits until a ready or failed state has stood unchanged for the quiet time', () => {
+    expect(settledMiden(miden({ isReady: true }, 9_000), 2_000)).toBeNull();
+    expect(settledMiden(miden({ isReady: true }, 8_000), 2_000)).toEqual(expect.objectContaining({ isReady: true }));
+    expect(settledMiden(miden({ error: 'Error: boom' }, 0), 2_000)).toEqual(
+      expect.objectContaining({ error: 'Error: boom' })
+    );
   });
 });

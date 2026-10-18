@@ -25,8 +25,10 @@ import {
 } from 'lib/miden/guardian/post-switch-state';
 import { rotationVerdict } from 'lib/miden/guardian/rotation-verdict';
 import * as Repo from 'lib/miden/repo';
+import type { BridgeReceiveFailureSource } from 'lib/telemetry/bridge-receive-failure';
 import { classifyError } from 'lib/telemetry/classify';
 import { reportOperation } from 'lib/telemetry/report-operation';
+import { reportTransactionFailure } from 'lib/telemetry/transaction-failure';
 import { elapsedMsSince, operationOfType, stepOfStage } from 'lib/telemetry/transaction-operation';
 
 import {
@@ -36,6 +38,7 @@ import {
   recordNoteDelivery,
   reportVerifiedLanding,
   setTransactionStage,
+  stampPostSubmitStage,
   undeliveredDisplayMessage,
   updateTransactionStatus
 } from './helper';
@@ -71,6 +74,7 @@ import { isPrivateNoteType, toNoteTypeString } from '../helpers';
 import { getBech32AddressFromAccountId, sameWalletAccountId } from '../sdk/helpers';
 import { assertWasmHoldCurrent, withWasmClientLock } from '../sdk/miden-client';
 import { isPoisonedPipeline } from '../sdk/sdk-error-code';
+import { isRecoveredSwapOrder } from '../swap/recovered-order';
 import { NoteTypeEnum } from '../types';
 
 export const completeCustomTransaction = async (transaction: ITransaction, result: TransactionResult) => {
@@ -175,6 +179,10 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
     // flag it runs on the offscreen client that applied the transaction. The relays
     // run on the SW client (see `midenClientProxy.sendPrivateNote`), whose store
     // holds the output notes the offscreen client applied.
+    //
+    // The stamps are display state, as on the send path: they let the screen name the wait and the relay (#1492),
+    // and a failed one must not skip either.
+    await stampPostSubmitStage(transaction.id, 'confirming');
     try {
       await midenClientProxy.waitForTransactionCommit(executedTx.id().toHex());
     } catch (error) {
@@ -183,6 +191,8 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
         error
       });
     }
+
+    await stampPostSubmitStage(transaction.id, 'delivering');
 
     for (const { noteId, fullNote } of notesToRelay) {
       try {
@@ -345,7 +355,7 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
       const stampedAt = Math.floor(Date.now() / 1000);
       await Repo.transactions.where({ id: settle.swapOrderTxId }).modify(tx => {
         // `false`, not a bare return - dexie re-puts the deep clone for any other value.
-        if (tx.type !== 'swap') return false;
+        if (tx.type !== 'swap' || isRecoveredSwapOrder(tx)) return false;
         tx.extraInputs = {
           ...(tx.extraInputs ?? {}),
           ...(settle.swapSettleKind === 'reclaim' ? { reclaimedAt: stampedAt } : { settledAt: stampedAt })
@@ -1080,8 +1090,6 @@ export const completeSendTransaction = async (tx: SendTransaction, result: Trans
   let noteDelivery: INoteDeliveryState | undefined;
 
   if (isPrivateSend && note && noteId) {
-    await setTransactionStage(tx.id, 'delivering');
-
     // Record that a relay is OWED before attempting it, together with the landed
     // transaction id and the note it produced.
     //
@@ -1098,16 +1106,22 @@ export const completeSendTransaction = async (tx: SendTransaction, result: Trans
       console.warn('Could not record the pending note delivery', { txId: tx.id, noteId, error });
     }
 
+    // Display state, like the delivering stamp below: a failed stamp must not skip the wait.
+    await stampPostSubmitStage(tx.id, 'confirming');
+
     try {
       // The proof rc.5's transport verifies exists only after this commit wait
       // syncs past the block. The wait routes through `midenClientProxy` (issue
       // #260, slice 7b) and runs on the client that applied the transaction; the
       // relay runs on the SW client, whose store holds that output note too.
-      await setTransactionStage(tx.id, 'confirming');
       await midenClientProxy.waitForTransactionCommit(executedTx.id().toHex());
     } catch (error) {
       console.warn('Commit wait failed during private send; the relay may find no proof', { txId: tx.id, error });
     }
+
+    // After the wait, so 'confirming' covers the wait and 'delivering' only the relay, and the screen names the
+    // one the user is waiting on (#1492). Display state only: a failed stamp must not cost the recipient the note.
+    await stampPostSubmitStage(tx.id, 'delivering');
 
     try {
       await midenClientProxy.sendPrivateNote(note, tx.secondaryAccountId);
@@ -1134,9 +1148,11 @@ export const completeSendTransaction = async (tx: SendTransaction, result: Trans
     // this row was failed from outside its pipeline — Cancel, or the stuck-row
     // reaper — that terminal write throws on the finalized row and the relay's
     // outcome would be lost with it. This is the same reason `recordNoteDelivery`
-    // carries no terminal guard.
+    // carries no terminal guard. It is guarded on the note relayed instead, as every sweep write after an await is: a
+    // landing can replace the delivery target while the relay runs (#1473), and this outcome is not the new note's.
     try {
-      await recordNoteDelivery(tx.id, noteDelivery, { ackedNoteIds: noteDelivery === 'relayed' ? [noteId] : [] });
+      const ackedNoteIds = noteDelivery === 'relayed' ? [noteId] : [];
+      await recordNoteDelivery(tx.id, noteDelivery, { ackedNoteIds }, [noteId]);
     } catch (error) {
       console.warn('Could not record the note delivery outcome', { txId: tx.id, noteId, noteDelivery, error });
     }
@@ -1474,6 +1490,17 @@ export const updateEarnWithdrawPhase = async (
     return undefined;
   });
 
+  if (settled !== undefined && phase === 'failed' && !settled.restoredFromBackup) {
+    reportTransactionFailure({
+      point: 'earn_settlement',
+      type: settled.type,
+      stage: settled.stage,
+      delegateTransaction: settled.delegateTransaction,
+      diagnostics: settled.failureDiagnostics,
+      error: extra?.error ?? settled.rawError ?? settled.error
+    });
+  }
+
   // Reported from here because there is nowhere else it could be. This row is
   // `Completed` in the database from birth and its real outcome lives in
   // `extraInputs.phase`, so it never makes a terminal write through
@@ -1527,14 +1554,20 @@ export const updateBridgedReceivePhase = async (
       | 'cctp'
       | 'error'
       | 'usdcxRemoteRecipient'
+      | 'epochAllocatorUrl'
     >
-  >,
+  > & {
+    /** What failed the row, read only by its crash report and never stored: a cause can carry addresses and amounts. */
+    failure?: BridgeReceiveFailureSource;
+  },
   received?: { amount: bigint; faucetId: string; transactionId?: string },
   // The reconciler's adoption of Circle's forward lands only on a leg with no execute hash, so it never replaces a
   // manual execute; the wallet's own execute always lands, and the reconciler reopens on whichever held hash reverts.
   { onlyIfNoExecuteHash = false }: { onlyIfNoExecuteHash?: boolean } = {}
 ) => {
+  const { failure: source, ...details }: NonNullable<typeof extra> = extra ?? {};
   let settled: ITransaction | undefined;
+  let failed: ITransaction | undefined;
   await Repo.transactions.where({ id }).modify(tx => {
     const inputs: IBridgedReceiveExtraInputs | undefined = tx.extraInputs;
     if (!canMoveBridgedReceivePhase(inputs?.phase, phase)) return;
@@ -1561,6 +1594,7 @@ export const updateBridgedReceivePhase = async (
     // the note exists and is claimable, then it is claimed — so a row can pass
     // through both and must report on the first.
     const fromPhase = inputs?.phase;
+    if (phase === 'failed' && fromPhase !== 'failed') failed = tx;
     if (
       (fromPhase === undefined || !BRIDGED_RECEIVE_SETTLED_PHASES.has(fromPhase)) &&
       BRIDGED_RECEIVE_SETTLED_PHASES.has(phase)
@@ -1573,7 +1607,7 @@ export const updateBridgedReceivePhase = async (
     tx.extraInputs = {
       ...inputs,
       phase,
-      ...(extra ?? {}),
+      ...details,
       ...(cctp ? { cctp } : {}),
       ...(readyAt === undefined ? {} : { readyAt })
     };
@@ -1585,6 +1619,19 @@ export const updateBridgedReceivePhase = async (
     }
     if (phase === 'failed' && extra?.error) tx.error = extra.error;
   });
+
+  if (failed !== undefined && !failed.restoredFromBackup) {
+    const inputs: IBridgedReceiveExtraInputs | undefined = failed.extraInputs;
+    reportTransactionFailure({
+      point: 'bridge_receive_settlement',
+      type: failed.type,
+      stage: failed.stage,
+      delegateTransaction: failed.delegateTransaction,
+      diagnostics: failed.failureDiagnostics,
+      error: extra?.error ?? failed.rawError ?? failed.error,
+      bridgeReceive: { route: inputs?.provider, step: source?.step, cause: source?.cause }
+    });
+  }
 
   // Same reason as the earn-withdraw writer above: this row is `Completed` from
   // birth and carries its real outcome in `extraInputs.phase`, so it never makes
@@ -1760,7 +1807,9 @@ export const resolveUnconfirmedSwitch = async (id: string, landed: boolean): Pro
     });
     return;
   }
+  let failed: ITransaction | undefined;
   await Repo.transactions.where({ id }).modify(tx => {
+    if (rotationVerdict(tx)?.kind !== 'submitted-unconfirmed') return false;
     tx.status = ITransactionStatus.Failed;
     tx.displayMessage = 'Guardian switch discarded';
     // Plain prose, like every other `tx.error` (the field carries thrown-error
@@ -1777,7 +1826,20 @@ export const resolveUnconfirmedSwitch = async (id: string, landed: boolean): Pro
     // "completed with no evidence either way", and the node has now answered.
     // The row's terminal status carries the outcome from here.
     tx.extraInputs = { ...tx.extraInputs, commitUnconfirmed: false };
+    failed = { ...tx };
+    return undefined;
   });
+  if (failed !== undefined && !failed.restoredFromBackup) {
+    reportTransactionFailure({
+      point: 'guardian_node_verdict',
+      type: failed.type,
+      stage: failed.stage,
+      delegateTransaction: failed.delegateTransaction,
+      diagnostics: failed.failureDiagnostics,
+      reason: 'never_committed',
+      error: failed.error
+    });
+  }
 };
 
 /**
@@ -1856,6 +1918,16 @@ export const markBridgedSendFailed = async (id: string, error: string) => {
     return undefined;
   });
   if (demoted === undefined) return;
+  if (!demoted.restoredFromBackup) {
+    reportTransactionFailure({
+      point: 'bridge_send_settlement',
+      type: demoted.type,
+      stage: demoted.stage,
+      delegateTransaction: demoted.delegateTransaction,
+      diagnostics: demoted.failureDiagnostics,
+      error
+    });
+  }
 
   console.error(
     committed

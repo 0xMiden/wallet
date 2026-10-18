@@ -45,7 +45,7 @@ import { midenTokenLabel } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { isAutoConsumeEnabled, isDelegateProofEnabled } from 'lib/settings/helpers';
 import { WalletAccount } from 'lib/shared/types';
-import { useWalletStore } from 'lib/store';
+import { isWalletReadyNow, useWalletStore } from 'lib/store';
 import type { PendingNoteValue } from 'lib/wallet-prompts';
 import { navigate } from 'lib/woozie';
 import { isHexAddress } from 'utils/miden';
@@ -140,9 +140,12 @@ const Explore: FC = () => {
     // against the others -- leaving it per-note meant the batching those two do was
     // defeated in the common case.
     //
-    // Poison-note isolation is the LAST argument, not this catch: an un-consumable note
+    // Poison-note isolation is the `true` argument, not this catch: an un-consumable note
     // fails at generation time, long after this queue write returned, so the catch here
     // only ever sees a DB error. See `initiateConsumeNotesTransaction`.
+    //
+    // The queue asks `isWalletReadyNow` right before each row it writes, so a lock that lands meanwhile queues
+    // nothing. A lock refuses every note alike, so it ends the pass: no per-note fallback, no processing request.
     try {
       await initiateConsumeNotesTransaction(
         account.publicKey,
@@ -150,14 +153,25 @@ const Explore: FC = () => {
         isDelegatedProvingEnabled,
         false,
         true,
-        verificationBaseFee
+        verificationBaseFee,
+        'auto_consume',
+        isWalletReadyNow
       );
     } catch (batchErr) {
+      if (!isWalletReadyNow()) return;
       console.warn('[native-auto-consume] batch enqueue failed, falling back to per-note enqueue', batchErr);
       for (const note of notesToClaim) {
         try {
-          await initiateConsumeTransaction(account.publicKey, note, isDelegatedProvingEnabled);
+          await initiateConsumeTransaction(
+            account.publicKey,
+            note,
+            isDelegatedProvingEnabled,
+            false,
+            'auto_consume',
+            isWalletReadyNow
+          );
         } catch (noteErr) {
+          if (!isWalletReadyNow()) return;
           console.warn('[native-auto-consume] enqueue failed for note', note.id, noteErr);
         }
       }
@@ -440,7 +454,7 @@ const HomeOverview: FC<HomeOverviewProps> = ({
         tokenPrices={tokenPrices}
       />
 
-      <div className="flex items-center justify-between pt-2">
+      <div className="-mb-1.5 flex items-center justify-between pt-2">
         <span id={assetsHeadingId} className="font-heading text-2xl font-extrabold text-text-primary-token">
           {t('assets')}
         </span>

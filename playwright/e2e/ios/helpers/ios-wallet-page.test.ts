@@ -6,10 +6,13 @@ import path from 'path';
 import vm from 'vm';
 
 import type { CdpSession } from './cdp-bridge';
-import { IosWalletPage, routeOf } from './ios-wallet-page';
+import { IosWalletPage, networkRowNames, routeOf } from './ios-wallet-page';
 import type { SimulatorControl } from './simulator-control';
-import { enText, type BridgedSendRow } from '../../helpers/bridge';
+import { enText, usdcxPayoutRowsText, type BridgedSendRow } from '../../helpers/bridge';
+import { fakeConfirmationApp, type CreateAttemptOutcome } from '../../helpers/confirmation-app-fake';
 import { readTransactionRowsInPage } from '../../helpers/history';
+import { BRIDGE_SOURCE_NETWORK_JS } from '../../helpers/send-flow-scripts';
+import { BASE_SEPOLIA_PAYOUT } from '../../helpers/usdcx-constants';
 
 describe('IosWalletPage.screenshot', () => {
   it('runs the before-capture hook before it shoots', async () => {
@@ -126,6 +129,44 @@ describe('IosWalletPage bridge deposit helpers', () => {
         selector => /send-(token-selector|amount-input|amount-confirm)/.test(selector) && !selector.startsWith(bridge)
       );
     expect(unscoped).toEqual([]);
+  });
+});
+
+describe('IosWalletPage.selectBridgeNetwork', () => {
+  it("opens the network drawer from the bridge layer's From row, picks the chain and waits until the row names it", async () => {
+    const bridge = '[data-page-layer="/bridge/deposit"]';
+    const bodies: string[] = [];
+    // The From row's value: the network logo, which has no text, and the network's name.
+    const page = pageWith(async js => {
+      bodies.push(js);
+      return 'Sepolia';
+    });
+    const click = jest.fn(async (_selector: string) => undefined);
+    const waitFor = jest.fn(async (_selector: string, _opts: { timeoutMs?: number }) => undefined);
+    Object.assign(page as unknown as Record<string, unknown>, { click, waitFor });
+
+    await page.selectBridgeNetwork('sepolia', 'Sepolia');
+
+    expect(click.mock.calls.map(([selector]) => selector)).toEqual([
+      `${bridge} [data-testid="bridge-source-network"]`,
+      '[data-testid="bridge-network-sepolia"]'
+    ]);
+    // The drawer portals to <body>, outside the layer, as the token drawer does.
+    expect(waitFor).toHaveBeenCalledWith('[data-testid="bridge-network-sepolia"]', { timeoutMs: 10_000 });
+    expect(bodies).toEqual([BRIDGE_SOURCE_NETWORK_JS]);
+    expect(rootsOf(BRIDGE_SOURCE_NETWORK_JS)).toEqual([bridge]);
+  });
+});
+
+describe('networkRowNames', () => {
+  // "Sepolia" is part of "Base Sepolia" and "Arbitrum Sepolia", so only a value equal to it counts.
+  it.each([
+    ['Sepolia', 'Sepolia', true],
+    ['Base Sepolia', 'Sepolia', false],
+    ['Arc Testnet', 'Base Sepolia', false],
+    [null, 'Sepolia', false]
+  ] satisfies Array<[string | null, string, boolean]>)('reads %j as naming %s: %s', (value, name, names) => {
+    expect(networkRowNames(value, name)).toBe(names);
   });
 });
 
@@ -367,6 +408,10 @@ describe('routeOf', () => {
 const SEND = '[data-testid="send-flow"]';
 const REVIEW = '[data-page-layer="/send/review"]';
 const SUBMIT = `${REVIEW} [data-testid="send-review-submit"]`;
+// The network sheet portals to <body>, outside the Send flow.
+const SHEET = '[role="dialog"][data-state="open"]';
+const PICKER = `${SEND} [data-testid="send-network-picker"]`;
+const ARC_ROW = `${SHEET} [data-testid="send-network-arc-testnet"]`;
 const NATIVE = 'mtst1apxtmjhlua0s5vt5sg3ymtnyxclasaf0_qr7qqq9wr6w';
 const KEY = '0xd07e6586a66ddA1Bad34aF529c1f07156b167861';
 const CHIPS = [
@@ -386,14 +431,38 @@ const BURN = {
   screenshotDir: path.join(os.tmpdir(), 'ios-wallet-page-burn-test')
 } as const;
 
-function spikeAnswer(js: string, overrides: { ready?: unknown; outcome?: unknown } = {}): unknown {
-  if (js.includes('aria-pressed')) {
-    return CHIPS.map(testId => ({ testId, pressed: testId === CHIPS[0] ? 'true' : 'false' }));
+// RouteCard's text: its label, then the fee and arrival metrics, each a caption over its value.
+const ROUTE_CARD_TEXT = [
+  enText('usdcxRouteLabel'),
+  enText('networkFee'),
+  enText('usdcxMidenFees', { symbol: 'USDCX' }),
+  enText('bridgeArrivalEstimate'),
+  enText('bridgePayoutTiming')
+].join('');
+
+interface SpikeOverrides {
+  ready?: unknown;
+  outcome?: unknown;
+  /** NetworkField renders the four rows only while its sheet is open. */
+  sheetOpen?: boolean;
+  /** What the closed field names: Arc Testnet, the default, until another row is picked. */
+  summary?: string;
+}
+
+// Each reader is answered by its own root test id: the route card and the sheet rows both carry aria-pressed.
+function spikeAnswer(js: string, overrides: SpikeOverrides = {}): unknown {
+  if (js.includes('send-network-picker')) {
+    return {
+      summary: overrides.summary ?? 'Arc Testnet',
+      rows: overrides.sheetOpen
+        ? CHIPS.map(testId => ({ testId, pressed: testId === CHIPS[0] ? 'true' : 'false' }))
+        : []
+    };
   }
   if (js.includes('bridge-route-usdcx')) {
     return {
-      checked: 'true',
-      cardText: 'USDCx (Circle xReserve)USDCX fees',
+      pressed: 'true',
+      cardText: ROUTE_CARD_TEXT,
       fee: 'Up to 0.1 USDC',
       net: 'At least 9.9 USDC',
       notice: enText('usdcxWithdrawalNotice')
@@ -445,15 +514,25 @@ function stubDom(page: IosWalletPage, backs = 0): string[] {
   return selectors;
 }
 
+/** A burn page answering as the spike's DOM did, its network sheet open from a picker click until a row click. */
+function burnPage(
+  answer: (js: string, sheetOpen: boolean) => unknown = (js, sheetOpen) => spikeAnswer(js, { sheetOpen }),
+  backs = 0
+) {
+  const bodies: string[] = [];
+  const page = pageWith(async js => {
+    bodies.push(js);
+    const clicks = (page as unknown as { click: jest.Mock }).click.mock.calls.map(call => String(call[0]));
+    return answer(js, clicks.lastIndexOf(PICKER) > clicks.findLastIndex(selector => selector.startsWith(`${SHEET} `)));
+  });
+  const selectors = stubDom(page, backs);
+  return { page, selectors, bodies };
+}
+
 describe('IosWalletPage.burnUsdcxViaSendFlow', () => {
   // #1404 clicked the hidden Swap selector; here the review slides over a Send layer holding the same payout rows.
-  it('drives every step inside the Send flow and the review layer, presses Arc and returns routes without the password', async () => {
-    const bodies: string[] = [];
-    const page = pageWith(async js => {
-      bodies.push(js);
-      return spikeAnswer(js);
-    });
-    const selectors = stubDom(page);
+  it('drives every step inside the Send flow, its network sheet and the review layer, picks Arc and returns routes without the password', async () => {
+    const { page, selectors, bodies } = burnPage();
 
     const result = await page.burnUsdcxViaSendFlow(BURN);
 
@@ -464,18 +543,16 @@ describe('IosWalletPage.burnUsdcxViaSendFlow', () => {
       defaultPressed: ['send-network-arc-testnet']
     });
     expect(JSON.stringify(result)).not.toContain('password');
-    expect(selectors.filter(selector => !selector.startsWith(SEND) && !selector.startsWith(REVIEW))).toEqual([]);
-    expect(selectors.filter(selector => selector.includes('send-network-'))).toEqual([
-      `${SEND} [data-testid="send-network-arc-testnet"]`
-    ]);
+    expect(selectors.filter(selector => !selector.startsWith(SEND) && !selector.startsWith(REVIEW))).toEqual([ARC_ROW]);
+    expect(selectors.filter(selector => selector.includes('send-network-'))).toEqual([PICKER, PICKER, ARC_ROW]);
     expect(selectors.filter(selector => selector === SUBMIT)).toHaveLength(1);
     const roots = bodies.flatMap(rootsOf);
     expect(roots.length).toBeGreaterThan(5);
-    expect(roots.filter(root => !root.startsWith(SEND) && !root.startsWith(REVIEW))).toEqual([]);
+    expect([...new Set(roots.filter(root => !root.startsWith(SEND) && !root.startsWith(REVIEW)))]).toEqual([SHEET]);
     expect(bodies.join('\n')).not.toMatch(/document\.querySelector(?:All)?\('/);
     // A prefix check passes a review read rooted at the hidden Send copy, which comes first in the DOM.
     const rootsFor = (marker: string) => [...new Set(bodies.filter(js => js.includes(marker)).flatMap(rootsOf))];
-    expect(rootsFor('aria-pressed')).toEqual([SEND]);
+    expect(rootsFor('send-network-picker')).toEqual([SEND, SHEET]);
     expect(rootsFor('bridge-route-usdcx')).toEqual([SEND]);
     expect(rootsFor('location.href')).toEqual([SUBMIT]);
     expect(rootsFor('function row(')).toEqual([REVIEW]);
@@ -494,8 +571,9 @@ describe('IosWalletPage.burnUsdcxViaSendFlow', () => {
   });
 
   it("names the review's refusal and never submits", async () => {
-    const page = pageWith(async js => spikeAnswer(js, { ready: { state: 'error', text: 'Not enough USDCX' } }));
-    const selectors = stubDom(page);
+    const { page, selectors } = burnPage((js, sheetOpen) =>
+      spikeAnswer(js, { sheetOpen, ready: { state: 'error', text: 'Not enough USDCX' } })
+    );
 
     await expect(page.burnUsdcxViaSendFlow(BURN)).rejects.toThrow(
       'the review refused the burn before submit: review-error "Not enough USDCX"'
@@ -505,8 +583,7 @@ describe('IosWalletPage.burnUsdcxViaSendFlow', () => {
 
   // R26: withStepBudget aborts an overrun step's signal, and the step itself runs on after its test failed.
   it('never clicks submit once its step has been aborted', async () => {
-    const page = pageWith(async js => spikeAnswer(js));
-    const selectors = stubDom(page);
+    const { page, selectors } = burnPage();
     const controller = new AbortController();
     controller.abort(new Error('burn_via_send exceeded its 240000 ms budget'));
 
@@ -518,18 +595,50 @@ describe('IosWalletPage.burnUsdcxViaSendFlow', () => {
 
   it("tells the wallet's failed Arc snapshot apart from a refusal after submit", async () => {
     const outcome = { hash: '#/send/review?amount=10', error: 'HTTP request failed.', loading: false };
-    const page = pageWith(async js => spikeAnswer(js, { outcome }));
-    stubDom(page);
+    const { page } = burnPage((js, sheetOpen) => spikeAnswer(js, { sheetOpen, outcome }));
 
     await expect(page.burnUsdcxViaSendFlow(BURN)).rejects.toThrow(
-      `Arc RPC unavailable for the wallet's balance snapshot (burn.ts), infra: review-error "HTTP request failed."`
+      `Arc RPC unavailable for the wallet's balance snapshot (burn.ts:103), infra: review-error "HTTP request failed."`
     );
   }, 15_000);
 
-  // The carousel keeps Send mounted with its step and its chip across hash navigations.
+  it('picks the payout chain it is given and holds the route and the review to that chain', async () => {
+    const baseRow = `${SHEET} [data-testid="send-network-${BASE_SEPOLIA_PAYOUT.reviewNetwork}"]`;
+    const href = HREF.replace('network=arc-testnet', `network=${BASE_SEPOLIA_PAYOUT.reviewNetwork}`);
+    const rows = usdcxPayoutRowsText(BASE_SEPOLIA_PAYOUT.chainId, BURN.amount);
+    const { page, selectors } = burnPage((js, sheetOpen) => {
+      if (js.includes('location.href')) return { href, hash: href.slice(href.indexOf('#')), submit: true };
+      if (js.includes('function row(')) {
+        return {
+          network: BASE_SEPOLIA_PAYOUT.networkName,
+          networkFee: enText('usdcxSponsorshipFee', { symbol: 'USDCX' }),
+          fee: rows.fee,
+          net: rows.net,
+          notice: enText('usdcxWithdrawalNotice')
+        };
+      }
+      if (js.includes('bridge-route-usdcx')) {
+        return {
+          pressed: 'true',
+          cardText: ROUTE_CARD_TEXT,
+          fee: rows.fee,
+          net: rows.net,
+          notice: enText('usdcxWithdrawalNotice')
+        };
+      }
+      return spikeAnswer(js, { sheetOpen, summary: BASE_SEPOLIA_PAYOUT.networkName });
+    });
+
+    const result = await page.burnUsdcxViaSendFlow({ ...BURN, payout: BASE_SEPOLIA_PAYOUT });
+
+    expect(result.reviewRoute).toBe(href.slice(href.indexOf('#')));
+    expect(result.defaultPressed).toEqual(['send-network-arc-testnet']);
+    expect(selectors.filter(selector => selector.includes('send-network-'))).toEqual([PICKER, PICKER, baseRow]);
+  }, 15_000);
+
+  // The carousel keeps Send mounted with its step and its network across hash navigations.
   it('backs the persistent Send pane out to the recipient step before it fills the address', async () => {
-    const page = pageWith(async js => spikeAnswer(js));
-    const selectors = stubDom(page, 2);
+    const { page, selectors } = burnPage(undefined, 2);
 
     await page.burnUsdcxViaSendFlow(BURN);
 
@@ -547,10 +656,11 @@ describe('IosWalletPage.burnUsdcxViaSendFlow review landing', () => {
   it("keeps the onboarding password out of the timed-out review poll's failure", async () => {
     // The landing read runs as the WebView runs it; no submit button renders, so the poll runs out.
     const webView = { location: new URL(HREF), document: { querySelector: () => null } };
-    const page = pageWith(async js =>
-      js.includes('location.href') ? vm.runInNewContext(`(function () { ${js} })()`, webView) : spikeAnswer(js)
+    const { page } = burnPage((js, sheetOpen) =>
+      js.includes('location.href')
+        ? vm.runInNewContext(`(function () { ${js} })()`, webView)
+        : spikeAnswer(js, { sheetOpen })
     );
-    stubDom(page);
     jest.useFakeTimers();
 
     const failure = page.burnUsdcxViaSendFlow(BURN).then(
@@ -680,7 +790,7 @@ describe('IosWalletPage transaction details', () => {
 
   it('reads the pill and the Arc explorer links from the details layer only', async () => {
     const bodies: string[] = [];
-    const view = { pill: 'Confirmed', arcTxLinks: ['https://explorer.testnet.arc.io/tx/0xde87'] };
+    const view = { pill: 'Confirmed', txLinks: ['https://explorer.testnet.arc.io/tx/0xde87'] };
     const page = pageWith(async js => {
       bodies.push(js);
       return view;
@@ -689,5 +799,206 @@ describe('IosWalletPage transaction details', () => {
     await expect(page.transactionDetailsView('row-1')).resolves.toEqual(view);
     expect(bodies[0]).toContain(`document.querySelector(${JSON.stringify(LAYER)})`);
     expect(bodies[0]).toContain(JSON.stringify('https://explorer.testnet.arc.io/tx/'));
+  });
+
+  it("reads the links to the payout chain's explorer it is given", async () => {
+    const bodies: string[] = [];
+    const page = pageWith(async js => {
+      bodies.push(js);
+      return null;
+    });
+
+    await expect(page.transactionDetailsView('row-1', BASE_SEPOLIA_PAYOUT.explorer)).resolves.toEqual({
+      pill: null,
+      txLinks: []
+    });
+    expect(bodies[0]).toContain(JSON.stringify(`${BASE_SEPOLIA_PAYOUT.explorer}/tx/`));
+  });
+});
+
+describe('IosWalletPage poll attribution', () => {
+  afterEach(() => jest.useRealTimers());
+
+  const WELCOME = '[data-testid="onboarding-welcome"]';
+  const WEDGED = `eval: CDP call did not return within 30000ms (WebView/RWI wedged) at ${HREF}`;
+
+  interface Polls {
+    pollForSelector(selector: string, timeoutMs: number): Promise<void>;
+    pollForCondition(jsBody: string, timeoutMs: number): Promise<void>;
+  }
+
+  async function outcomeOf(poll: (polls: Polls) => Promise<void>, reads: Array<() => unknown>): Promise<string> {
+    let call = 0;
+    const page = pageWith(async () => reads[Math.min(call++, reads.length - 1)]!());
+    jest.useFakeTimers();
+    const outcome = poll(page as unknown as Polls).then(
+      () => 'resolved',
+      (error: unknown) => (error instanceof Error ? error.message : String(error))
+    );
+    await jest.advanceTimersByTimeAsync(1_100);
+    return outcome;
+  }
+
+  const wedged = (): never => {
+    throw new Error(WEDGED);
+  };
+
+  // A session that died at attach failed its first poll as "onboarding-welcome did not appear" (run 39034367703).
+  it('names a dead session when no selector eval returned, with no URL query in it', async () => {
+    const message = await outcomeOf(polls => polls.pollForSelector(WELCOME, 1_000), [wedged]);
+
+    expect(message).toBe(
+      `pollForSelector: could not check ${WELCOME}: no CDP eval returned in 1000ms ` +
+        '(last error: eval: CDP call did not return within 30000ms (WebView/RWI wedged) at capacitor://localhost/#/send/review)'
+    );
+  });
+
+  it('keeps the old message once an eval returned and the selector was absent', async () => {
+    const message = await outcomeOf(polls => polls.pollForSelector(WELCOME, 1_000), [wedged, () => false]);
+
+    expect(message).toBe(`pollForSelector: ${WELCOME} did not appear within 1000ms`);
+  });
+
+  it('names a dead session when no condition eval returned', async () => {
+    const message = await outcomeOf(polls => polls.pollForCondition('return window.ready === true;', 1_000), [wedged]);
+
+    expect(message).toMatch(
+      /^pollForCondition: could not check return window\.ready === true;: no CDP eval returned in 1000ms \(last error: eval: CDP call did not return/
+    );
+  });
+
+  it('keeps the old message once a condition eval returned false', async () => {
+    const message = await outcomeOf(polls => polls.pollForCondition('return false;', 1_000), [() => false]);
+
+    expect(message).toMatch(/^pollForCondition: condition not met within 1000ms \S return false;$/);
+  });
+
+  it('still passes when a check holds after failed evals', async () => {
+    await expect(outcomeOf(polls => polls.pollForSelector(WELCOME, 1_000), [wedged, () => true])).resolves.toBe(
+      'resolved'
+    );
+    await expect(outcomeOf(polls => polls.pollForCondition('return true;', 1_000), [wedged, () => true])).resolves.toBe(
+      'resolved'
+    );
+  });
+});
+
+// A create whose first sync failed sat on Confirmation's failure screen until the 120 s Ready wait ran out
+// (run 39025104169, attempt 2).
+describe('IosWalletPage.waitForCreatedWalletReady', () => {
+  afterEach(() => jest.useRealTimers());
+
+  function confirmationApp(outcomes: CreateAttemptOutcome[], opts: { lagReads?: number; retryButton?: boolean } = {}) {
+    const { evalJs, clicks } = fakeConfirmationApp(outcomes, opts);
+    return { page: pageWith(evalJs), clicks };
+  }
+
+  async function outcomeOf(page: IosWalletPage, timeoutMs = 120_000): Promise<{ settled: boolean; outcome: string }> {
+    jest.useFakeTimers();
+    let settled = false;
+    const outcome = (page as unknown as { waitForCreatedWalletReady(label: string, timeoutMs: number): Promise<void> })
+      .waitForCreatedWalletReady('create(private)', timeoutMs)
+      .then(
+        () => 'ready',
+        (error: unknown) => (error instanceof Error ? error.message : String(error))
+      )
+      .finally(() => (settled = true));
+    await jest.advanceTimersByTimeAsync(10_000);
+    return { settled, outcome: settled ? await outcome : 'pending' };
+  }
+
+  it("is the wait a create runs after pressing Confirmation's button", async () => {
+    // The address read answers the account; the consent dismissal sees the home surface already up.
+    const page = pageWith(async js => (js.includes('publicKey') ? 'mtst1qcreated' : js.includes('explore-page')));
+    const waitForCreatedWalletReady = jest.fn(async () => undefined);
+    const click = jest.fn(async () => undefined);
+    Object.assign(page as unknown as Record<string, unknown>, {
+      pollForSelector: jest.fn(async () => undefined),
+      click,
+      waitForCreatedWalletReady
+    });
+    jest.useFakeTimers();
+
+    const created = page.createGuardianWallet('Password123!');
+    await jest.advanceTimersByTimeAsync(3_000);
+
+    await expect(created).resolves.toEqual({ address: 'mtst1qcreated', seedPhrase: [] });
+    expect(click).toHaveBeenCalledWith('[data-testid="onboarding-confirmation-submit"]');
+    expect(waitForCreatedWalletReady).toHaveBeenCalledWith('IosWalletPage.createWalletViaBypass(guardian)', 180_000);
+  });
+
+  it('waits for Ready without pressing anything when the create succeeds', async () => {
+    const { page, clicks } = confirmationApp(['ready']);
+
+    await expect(outcomeOf(page)).resolves.toEqual({ settled: true, outcome: 'ready' });
+    expect(clicks).toEqual([]);
+  });
+
+  it("presses the app's Retry once on the first failure screen and keeps waiting for Ready", async () => {
+    const { page, clicks } = confirmationApp(['fails', 'ready']);
+
+    await expect(outcomeOf(page)).resolves.toEqual({ settled: true, outcome: 'ready' });
+    expect(clicks).toEqual([0]);
+  });
+
+  it('fails at once, with the screen text, when the Retry fails too', async () => {
+    const { page, clicks } = confirmationApp(['fails', 'fails', 'ready']);
+
+    await expect(outcomeOf(page)).resolves.toEqual({
+      settled: true,
+      outcome:
+        'create(private): wallet creation failed again after one Retry: ' +
+        'Something went wrong Failed to sync state: RPC deadline exceeded Retry'
+    });
+    expect(clicks).toEqual([0]);
+  });
+
+  it('does not count the first failure twice while the screen still shows it after the Retry', async () => {
+    const { page, clicks } = confirmationApp(['fails', 'ready'], { lagReads: 2 });
+
+    await expect(outcomeOf(page)).resolves.toEqual({ settled: true, outcome: 'ready' });
+    expect(clicks).toEqual([0]);
+  });
+
+  // walletSetupDidNotComplete: the store turns Ready while the Notice from the timed-out wait is still up.
+  it('takes a Ready wallet as created while the failure screen still shows', async () => {
+    const { page, clicks } = confirmationApp(['ready-under-failure']);
+
+    await expect(outcomeOf(page)).resolves.toEqual({ settled: true, outcome: 'ready' });
+    expect(clicks).toEqual([]);
+  });
+
+  // A Retry that failed before any read saw it start, or a press that did nothing, leaves the screen unchanged.
+  it('fails at the deadline with the screen text when the failure screen never clears after the Retry', async () => {
+    const { page, clicks } = confirmationApp(['fails', 'fails'], { lagReads: Infinity });
+
+    await expect(outcomeOf(page, 5_000)).resolves.toEqual({
+      settled: true,
+      outcome:
+        'create(private): wallet creation still shows its failure screen after one Retry: ' +
+        'Something went wrong Failed to sync state: RPC deadline exceeded Retry'
+    });
+    expect(clicks).toEqual([0]);
+  });
+
+  it('keeps the plain timeout when the screen cleared after the Retry and the wallet never turned Ready', async () => {
+    const { page, clicks } = confirmationApp(['fails', 'creating'], { lagReads: 2 });
+
+    const { outcome } = await outcomeOf(page, 5_000);
+
+    expect(outcome).toMatch(/^pollForCondition: condition not met within 5000ms /);
+    expect(clicks).toEqual([0]);
+  });
+
+  it('fails at once with the screen text when the failure screen has no Retry to press', async () => {
+    const { page } = confirmationApp(['fails'], { retryButton: false });
+
+    const { outcome } = await outcomeOf(page);
+
+    expect(outcome).toBe(
+      'create(private): wallet creation failed and its Retry could not be pressed ' +
+        '(IosWalletPage.click: no element matched [data-testid="onboarding-confirmation-submit"]): ' +
+        'Something went wrong Failed to sync state: RPC deadline exceeded Retry'
+    );
   });
 });

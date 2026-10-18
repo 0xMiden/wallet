@@ -4,9 +4,12 @@ import { useTranslation } from 'react-i18next';
 
 import { MAINNET_EARLY_ACCESS_URL } from 'app/constants';
 import { ReactComponent as BreadLogo } from 'app/icons/brand/new-bread.svg';
+import { MainnetSwitchSheet } from 'components/MainnetSwitchSheet';
 import { TextAction } from 'components/ui/TextAction';
+import { getTestNetworkNameKey } from 'lib/miden-chain/effective-endpoints';
 import { openExternalUrl } from 'lib/mobile/external-browser';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
+import { selectInviteOnlyOnboarding } from 'lib/remote-config/values';
 
 const SECOND_MS = 1000;
 const MINUTE_MS = 60 * SECOND_MS;
@@ -32,8 +35,9 @@ export function formatCountdown(now: number, launchAt: number): string | null {
 /**
  * The strip above every page of the open wallet: the Bread mark, a live `DD:HH:MM:SS` countdown
  * to the mainnet launch, and a link to the early-access list. The network's remote config drives
- * it (`mainnetCountdown`, 0xMiden/wallet-config): the banner shows while the switch is on and the
- * launch moment is set and still ahead, and renders nothing otherwise, so flipping the switch or
+ * it (`mainnetCountdown`, 0xMiden/wallet-config): the banner shows on a test network while the
+ * switch is on and the launch moment is set and still ahead, and renders nothing otherwise (so
+ * never on mainnet), so flipping the switch or
  * the moment there reaches every wallet within about an hour. The clock ticks once a second while a
  * countdown is set; the banner mounts outside every page-active provider, so it has no on-screen
  * signal to gate on.
@@ -42,8 +46,13 @@ export const MainnetCountdownBanner: FC = () => {
   const { t } = useTranslation();
   const [now, setNow] = useState(() => Date.now());
 
-  const config = useBridgeConfigSnapshot().config?.mainnetCountdown;
-  const launchAt = config?.enabled ? config.launchAt : undefined;
+  const snapshot = useBridgeConfigSnapshot();
+  const config = snapshot.config?.mainnetCountdown;
+  // A wallet on mainnet has nothing to count down to. The effective network decides, so a
+  // Developer Settings override to mainnet hides the banner too.
+  const onTestNetwork = getTestNetworkNameKey() !== null;
+  const canSwitch = onTestNetwork && selectInviteOnlyOnboarding(snapshot) === true;
+  const launchAt = onTestNetwork && !canSwitch && config?.enabled ? config.launchAt : undefined;
   const countdown = launchAt === undefined ? null : formatCountdown(now, launchAt);
   const ticking = countdown !== null;
 
@@ -54,6 +63,7 @@ export const MainnetCountdownBanner: FC = () => {
     return () => clearInterval(intervalId);
   }, [ticking]);
 
+  if (canSwitch) return <MainnetSwitchBanner />;
   if (countdown === null) return null;
 
   const openEarlyAccess = () => {
@@ -61,11 +71,7 @@ export const MainnetCountdownBanner: FC = () => {
   };
 
   return (
-    <div
-      className="flex w-full shrink-0 items-center justify-center gap-2 border-b border-dashed border-accent-tint-ink/30 bg-accent-tint px-4 py-1"
-      data-testid="mainnet-countdown-banner"
-    >
-      <BreadLogo aria-hidden="true" className="h-[18px] w-[18px] shrink-0" />
+    <BannerFrame testId="mainnet-countdown-banner">
       <div className="flex items-center gap-2">
         <time
           className="text-value font-extrabold tracking-[0.06em] tabular-nums text-accent-tint-ink"
@@ -75,10 +81,43 @@ export const MainnetCountdownBanner: FC = () => {
           {countdown}
         </time>
         <span aria-hidden="true" className="size-[3px] shrink-0 rounded-full bg-accent-tint-ink opacity-50" />
-        <TextAction onClick={openEarlyAccess} data-testid="mainnet-countdown-link">
+        <TextAction
+          onClick={openEarlyAccess}
+          className="underline decoration-1 underline-offset-[3px]"
+          data-testid="mainnet-countdown-link"
+        >
           {t('mainnetCountdownLink')}
         </TextAction>
       </div>
-    </div>
+    </BannerFrame>
+  );
+};
+
+const BannerFrame: FC<{ testId: string; children: React.ReactNode }> = ({ testId, children }) => (
+  <div
+    className="flex w-full shrink-0 items-center justify-center gap-2 border-b border-dashed border-accent-tint-ink/30 bg-accent-tint px-4"
+    data-testid={testId}
+  >
+    <BreadLogo aria-hidden="true" className="h-6 w-6 shrink-0" />
+    {children}
+  </div>
+);
+
+// Asks for the code before anything else: the sheet wipes the wallet only for a code mainnet accepted.
+const MainnetSwitchBanner: FC = () => {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+
+  return (
+    <BannerFrame testId="mainnet-switch-banner">
+      <TextAction
+        onClick={() => setOpen(true)}
+        className="text-title-section underline decoration-1 underline-offset-[3px]"
+        data-testid="mainnet-switch-link"
+      >
+        {t('mainnetAccessTitle')}
+      </TextAction>
+      <MainnetSwitchSheet open={open} onOpenChange={setOpen} />
+    </BannerFrame>
   );
 };

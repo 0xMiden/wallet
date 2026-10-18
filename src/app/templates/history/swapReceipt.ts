@@ -1,5 +1,6 @@
 import { compareAccountIds } from 'lib/miden/activity/utils';
 import { swapOrderExpired } from 'lib/miden/swap/expiry';
+import { swapFillReached } from 'lib/miden/swap/fill-target';
 import type { SwapOrderState, SwapOrderTracking, SwapSettlementNotes } from 'lib/miden/transaction/get';
 
 type SwapSettlementTransaction = SwapSettlementNotes['settledTransactions'][number];
@@ -95,7 +96,25 @@ export const filledRequestedAmount = (
   return fromLineage > local ? fromLineage : local;
 };
 
+/**
+ * A fill that arrived in part and short of the order's target (`swapFillReached`). An order that
+ * received `requested × (1 − slippage)` is filled, whatever remainder is still out or came back.
+ * The receipt and the status line under its progress bar both read this, so they cannot disagree.
+ */
+export const isPartialSwapFill = (
+  requestedAmount: bigint | undefined,
+  filledAmount: bigint | undefined,
+  slippageBps?: number
+): boolean =>
+  requestedAmount !== undefined &&
+  filledAmount !== undefined &&
+  filledAmount > 0n &&
+  filledAmount < requestedAmount &&
+  !swapFillReached(requestedAmount, filledAmount, slippageBps);
+
 export interface SwapReceiptInputs {
+  /** Original PSWAP output; reclaiming that same note proves no fill advanced it. */
+  originalOutputNoteIds?: string[];
   /** Undefined for rows persisted without one — unknown, not zero. */
   requestedAmount?: bigint;
   requestedFaucetId?: string;
@@ -104,6 +123,14 @@ export interface SwapReceiptInputs {
   /** This wallet's own settlement consumes; null before the first read. */
   settlement: SwapSettlementNotes | null;
   autoConsume: boolean;
+  /**
+   * An open Guardian-recovered order. Recovery writes `autoConsume` false on it, and the one thing the wallet does for
+   * it is return it on Cancel, from the order note its lineage (the node's answer) is read from (#1487). Its state is
+   * that lineage's alone.
+   */
+  recovered?: boolean;
+  /** The slippage the ask was built with; absent means only a full fill counts as filled. */
+  slippageBps?: number;
   /** Absent on orders placed before expiry stamping; those never auto-settle. */
   expiresAt: number | null;
   /** Injectable so the expiry boundary can be tested without a clock. */
@@ -132,8 +159,8 @@ export interface SwapReceiptView {
    * The expiry has passed and the tip has not come back yet - so a reclaim is
    * owed, whether the user asked for it or the order simply timed out. This is
    * the state a successful Cancel lands in, which is why the two are derived
-   * together: the button's disappearance and the notice replacing it are one
-   * fact about the row, not two.
+   * together. The receipt's status and reclaim notice do not read it: they
+   * follow the settlement stamp, as the Activity list does.
    */
   reclaimPending: boolean;
 }
@@ -154,11 +181,14 @@ export interface SwapReceiptView {
  * order. The receipt keeps them converged by re-reading the row.
  */
 export const deriveSwapReceipt = ({
+  originalOutputNoteIds,
   requestedAmount,
   requestedFaucetId,
   tracking,
   settlement,
   autoConsume,
+  recovered = false,
+  slippageBps,
   expiresAt,
   nowSeconds = Math.floor(Date.now() / 1000)
 }: SwapReceiptInputs): SwapReceiptView => {
@@ -191,22 +221,47 @@ export const deriveSwapReceipt = ({
   // backwards mislabels the protocol's most common partial-fill path: an expiry
   // batch carrying any payback is tagged 'settle' (see `reconcileSwapOrderNotes`),
   // so a 40%-filled order that expired — lineage 'reclaimed' — read as "Filled".
-  const orderState: SwapOrderState | null =
-    tracking && tracking.state !== 'active' ? tracking.state : (settledOrderState ?? tracking?.state ?? null);
+  // A recovered order's linked payout may be a partial fill's while its remainder is still on offer, so there is no
+  // lag to cover: only its lineage says whether it is open (#1487).
+  const reportedState: SwapOrderState | null = recovered
+    ? (tracking?.state ?? null)
+    : tracking && tracking.state !== 'active'
+      ? tracking.state
+      : (settledOrderState ?? tracking?.state ?? null);
 
+  // A reclaimed tip can have both remaining amounts cleared by the SDK. That
+  // means the offer is gone, not that the counter-asset arrived. Depth zero is
+  // positive evidence of no fills; a cleared partial lineage needs payback
+  // evidence instead of manufacturing 100% from the terminal zero.
   const fromLineage =
     requestedAmount !== undefined && tracking
-      ? tracking.remainingRequested > requestedAmount
-        ? 0n
-        : requestedAmount - tracking.remainingRequested
+      ? tracking.state === 'reclaimed' && tracking.remainingRequested === 0n
+        ? tracking.currentDepth === 0
+          ? 0n
+          : undefined
+        : tracking.remainingRequested > requestedAmount
+          ? 0n
+          : requestedAmount - tracking.remainingRequested
       : undefined;
-  const filledAmount = filledRequestedAmount(
-    fromLineage,
-    locallySettledRequestedAmount(settledTransactions, requestedFaucetId),
-    requestedAmount
-  );
-  const isPartialFill =
-    requestedAmount !== undefined && filledAmount !== undefined && filledAmount > 0n && filledAmount < requestedAmount;
+  // A full or partial fill consumes the original PSWAP and creates a different
+  // remainder. A completed reclaim of the original output is durable zero-fill
+  // evidence even after the SDK's tracking cache is unavailable on restart.
+  const reclaimedOriginal = originalOutputNoteIds?.some(noteId => settlement?.reclaimed.includes(noteId)) === true;
+  const filledAmount = reclaimedOriginal
+    ? 0n
+    : filledRequestedAmount(
+        fromLineage,
+        locallySettledRequestedAmount(settledTransactions, requestedFaucetId),
+        requestedAmount
+      );
+  // An order that received `requested × (1 − slippage)` reads as filled, whether its remainder is
+  // still on the tip or settlement has reclaimed it at expiry. Only the label follows the target.
+  const fillReached =
+    requestedAmount !== undefined &&
+    filledAmount !== undefined &&
+    swapFillReached(requestedAmount, filledAmount, slippageBps);
+  const orderState: SwapOrderState | null = fillReached && !recovered ? 'filled' : reportedState;
+  const isPartialFill = isPartialSwapFill(requestedAmount, filledAmount, slippageBps);
 
   // `reconcileSwapOrderNotes` declines an order in exactly two situations: the
   // user chose manual consume, or it is still 'active' and not yet expired. Only
@@ -234,7 +289,7 @@ export const deriveSwapReceipt = ({
   // An order carrying NO expiry (persisted before the stamp existed) is the one
   // most in need of this, not the least: nothing will ever deem it expired, so it
   // waits forever, and the stamp this writes is the only thing that can end it.
-  const cancellableState = orderState === 'active' && autoConsume;
+  const cancellableState = orderState === 'active' && (autoConsume || recovered);
   const expiryLapsed = swapOrderExpired(expiresAt, nowSeconds);
 
   return {

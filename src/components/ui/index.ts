@@ -11,8 +11,8 @@ export type { ButtonProps, ButtonSize } from './Button';
 
 export { DappOrigin } from './DappOrigin';
 
-export { DetailCard, DetailRow } from './DetailCard';
-export type { DetailRowProps } from './DetailCard';
+export { DetailCard, DetailDisclosure, DetailRow } from './DetailCard';
+export type { DetailDisclosureProps, DetailRowProps } from './DetailCard';
 
 export { Hero } from './Hero';
 export type { HeroProps } from './Hero';
@@ -145,4 +145,6 @@ export type { SubPageLayoutProps } from './SubPageLayout';
 export { ErrorLine } from './ErrorLine';
 export { ErrorDetails } from './ErrorDetails';
 export type { ErrorDetailsProps } from './ErrorDetails';
+export { CodeInput } from './CodeInput';
+export type { CodeInputProps } from './CodeInput';
 export { SeedPhraseGrid } from './SeedPhraseGrid';

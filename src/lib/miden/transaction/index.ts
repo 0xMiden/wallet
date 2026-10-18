@@ -13,7 +13,14 @@ import {
   isGuardianAccount,
   type GuardianAccountProvider
 } from 'lib/miden/front/guardian-manager';
-import { GUARDIAN_CANDIDATE_HOLD_MS, MultisigService, PRIOR_CANDIDATE_CHECK_TIMEOUT_MS } from 'lib/miden/guardian';
+import {
+  GUARDIAN_CANDIDATE_HOLD_MS,
+  isProposalChainSyncError,
+  MultisigService,
+  PRIOR_CANDIDATE_CHECK_TIMEOUT_MS,
+  ProposalChainSyncError,
+  type ProposalSyncPhase
+} from 'lib/miden/guardian';
 import {
   createDirectSwitchGuardianRequest,
   didDirectSwitchLand,
@@ -100,6 +107,7 @@ import {
   recordLeafEnd,
   recordSubmitCrossing,
   setTransactionStage,
+  stampPostSubmitStage,
   updateTransactionStatus
 } from './helper';
 import type { CandidateRelease } from './reconcile-unconfirmed';
@@ -136,7 +144,6 @@ import {
 import { GUARDIAN_EXPIRATION_DELTA_BLOCKS, isPrivateNoteType } from '../helpers';
 import { applyAfterSubmit } from '../sdk/apply-after-submit';
 import {
-  accountIdStringToSdk,
   accountRefToSdk,
   buildPswapCreateRequest,
   buildSendTransactionRequest,
@@ -176,6 +183,7 @@ import {
 } from '../sdk/sdk-error-code';
 import { readSubmitEvidence } from '../sdk/submit-evidence';
 import { isSyncWatchdogEviction, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
+import { isRecoveredReturnOrder } from '../swap/recovered-order';
 
 export * from './cancel';
 export * from './complete';
@@ -252,6 +260,18 @@ const OFFSCREEN_ROUTABLE_GUARDIAN_TYPES: ReadonlySet<ITransactionType> = new Set
   'bridged-send',
   'earn-deposit'
 ]);
+
+/**
+ * A zero-fill PSWAP reclaim is represented as a consume row for history,
+ * deduplication, retry/backoff, and completion, but its note is creator-owned
+ * output rather than an input note. Its fee-aware request is therefore built
+ * during settlement and persisted on the row; a Guardian row rebuilds it in
+ * each proposal's hold.
+ */
+const preparedPswapReclaimBytes = (transaction: ITransaction): Uint8Array | undefined =>
+  transaction.type === 'consume' && transaction.extraInputs?.swapSettleKind === 'reclaim'
+    ? transaction.requestBytes
+    : undefined;
 
 /**
  * Whether a row's caller BLOCKS on `waitForTransactionCompletion(txId)` and then
@@ -944,6 +964,7 @@ async function requeueTransactionForRetry(
   await updateTransactionStatus(txId, ITransactionStatus.Queued, {
     processingStartedAt: undefined,
     attemptId: undefined,
+    failureDiagnostics: undefined,
     stage,
     // Reset the per-stage timing stamps: the row re-enters at `stage`, and the
     // stamps are first-entry-wins, so a stale original would make that step span
@@ -1357,12 +1378,14 @@ const generateTransactionWithProvider = async (
   // Mark transaction as in progress
   // Each run is its own attempt, so evidence, ends and acknowledgements name the run they are about (#1081).
   transaction.attemptId = uuid();
+  delete (transaction as ITransaction).failureDiagnostics;
   markStartedInThisRealm(transaction.id);
   await updateTransactionStatus(transaction.id, ITransactionStatus.GeneratingTransaction, {
     processingStartedAt: Math.floor(Date.now() / 1000), // seconds
     stage: 'sending',
     // Running again, so the transaction screen stops saying the Guardian is busy (#312).
     guardianBusy: undefined,
+    failureDiagnostics: undefined,
     attemptId: transaction.attemptId
   });
 
@@ -1795,12 +1818,21 @@ const generateTransactionWithProvider = async (
       // Only an eligible claim is stamped: a rotation-funding claim shares this leaf, and an entry on it would decide
       // nothing while its crossing relabelled it Not confirmed with no verdict ever coming (#1081).
       const attempt = canAwaitVerdict(transaction) ? attemptContextOf(transaction) : undefined;
+      const reclaimBytes = preparedPswapReclaimBytes(transaction);
       result = await runWriteLeaf(transaction.id, attempt, writeLeafRunsOffscreen(), () =>
-        midenClientProxy.consumeNoteId(
-          transaction as ConsumeTransaction,
-          signCallback,
-          attempt && stageStampFor(transaction.id, attempt)
-        )
+        reclaimBytes
+          ? midenClientProxy.newTransaction(
+              transaction.accountId,
+              reclaimBytes,
+              transaction.delegateTransaction,
+              signCallback,
+              attempt && stageStampFor(transaction.id, attempt)
+            )
+          : midenClientProxy.consumeNoteId(
+              transaction as ConsumeTransaction,
+              signCallback,
+              attempt && stageStampFor(transaction.id, attempt)
+            )
       );
       break;
     }
@@ -2809,7 +2841,7 @@ const generateDirectSwitchGuardianTransaction = async (
   const discardedMessage =
     `Direct guardian switch ${id} did not land: the node discarded it. ` +
     'Leaving the stored guardian endpoint untouched.';
-  await setTransactionStage(transaction.id, 'confirming');
+  await stampPostSubmitStage(transaction.id, 'confirming');
   let commitConfirmed = true;
   try {
     await midenClientProxy.waitForTransactionCommit(id);
@@ -2846,7 +2878,7 @@ const generateDirectSwitchGuardianTransaction = async (
   }
 
   await completeSwitchGuardianTransaction(transaction, result, undefined, guardianProvider, commitUnconfirmed);
-  await setTransactionStage(transaction.id, 'complete');
+  await stampPostSubmitStage(transaction.id, 'complete');
 };
 
 /**
@@ -3228,11 +3260,34 @@ const generateGuardianTransaction = async (
     }
     case 'consume': {
       const consumeTx = transaction as ConsumeTransaction;
-      const consumeNoteIds = consumeTx.noteIds?.length > 0 ? consumeTx.noteIds : [consumeTx.noteId];
-      service = await consumeServiceFor(transaction, consumeNoteIds, guardianProvider);
-      await releaseUnabandonedCandidate(transaction, service);
-      await assertPriorCandidateSettled(transaction, service);
-      proposalResult = await service.createConsumeNotesProposal(consumeNoteIds);
+      if (preparedPswapReclaimBytes(transaction)) {
+        service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
+        await releaseUnabandonedCandidate(transaction, service);
+        await assertPriorCandidateSettled(transaction, service);
+        // Settlement's bytes are bound to the block it built them at, so the cancel is rebuilt in the proposal's hold,
+        // never rebased (that rebuild drops the tip it consumes). It gets no GUARDIAN_EXPIRATION_DELTA_BLOCKS bound:
+        // the SDK's PSWAP cancel builder takes no builder options. A late approval is harmless, since it only takes
+        // back the creator's own note, and once that tip is consumed the cancel fails execution.
+        // Only a Guardian-recovered order's tip is a note this client never tracked, read on the node (#1487).
+        const swapOrderTxId = transaction.extraInputs?.swapOrderTxId;
+        const swapOrder = swapOrderTxId ? await Repo.transactions.where({ id: swapOrderTxId }).first() : undefined;
+        proposalResult = await service.createPswapCancelProposal(
+          consumeTx.noteId,
+          async requestBytes => {
+            transaction.requestBytes = requestBytes;
+            await Repo.transactions.where({ id: transaction.id }).modify(t => {
+              t.requestBytes = requestBytes;
+            });
+          },
+          { allowNodeNote: swapOrder !== undefined && isRecoveredReturnOrder(swapOrder) }
+        );
+      } else {
+        const consumeNoteIds = consumeTx.noteIds?.length > 0 ? consumeTx.noteIds : [consumeTx.noteId];
+        service = await consumeServiceFor(transaction, consumeNoteIds, guardianProvider);
+        await releaseUnabandonedCandidate(transaction, service);
+        await assertPriorCandidateSettled(transaction, service);
+        proposalResult = await service.createConsumeNotesProposal(consumeNoteIds);
+      }
       break;
     }
     case 'switch-guardian': {
@@ -3248,6 +3303,7 @@ const generateGuardianTransaction = async (
       // (one rejection, either origin), so the message widens rather than
       // guesses; the direct path then re-fails on the new endpoint and names it.
       let unreachableSubject = 'outgoing guardian';
+      let syncPhase: ProposalSyncPhase | undefined;
       try {
         service = await withOutgoingGuardianDeadline(
           () => getOrCreateMultisigService(transaction.accountId, guardianProvider),
@@ -3255,14 +3311,27 @@ const generateGuardianTransaction = async (
         );
         await releaseUnabandonedCandidate(transaction, service);
         unreachableSubject = 'outgoing or new guardian';
-        const { proposal } = await withGuardianConflictRetry(() =>
-          withOutgoingGuardianDeadline(
-            () => service.createSwitchGuardianProposal(sgTx.extraInputs.newGuardianEndpoint),
+        const { proposal } = await withGuardianConflictRetry(() => {
+          const phase: ProposalSyncPhase = { syncing: false, abandoned: false };
+          syncPhase = phase;
+          return withOutgoingGuardianDeadline(
+            () => service.createSwitchGuardianProposal(sgTx.extraInputs.newGuardianEndpoint, phase),
             'pushing the switch-guardian proposal'
-          )
-        );
+          );
+        });
         proposalResult = proposal;
       } catch (error) {
+        // The arm awaits this attempt no longer, whatever rejected it, so its hold must push nothing in any phase.
+        if (syncPhase) syncPhase.abandoned = true;
+        // A deadline or an eviction can reject mid-sync. A kill is never the node's answer, so it keeps its own name;
+        // anything else there is the node keeping the attempt waiting, not the Guardian.
+        if (syncPhase?.syncing) {
+          if (isKilledPipeline(error)) throw error;
+          throw new ProposalChainSyncError(error);
+        }
+        // The node failed, not the Guardian: a direct switch would replace a coordinated proposal against a
+        // possibly healthy Guardian with a fresh on-chain write.
+        if (isProposalChainSyncError(error)) throw error;
         // When the guardian side is unreachable (down operator, DNS, proxy 5xx),
         // fall back to the direct on-chain switch — the whole point of
         // switch-guardian as a recovery path is escaping a dead guardian.
@@ -3478,7 +3547,7 @@ const generateGuardianTransaction = async (
           // offscreen client the key comes from the realm that will EXECUTE the
           // request. The proxy read is unlocked by design and this scope already
           // holds the client lock, which is what that contract requires.
-          const creatorAccount = await midenClientProxy.getAccount(accountIdStringToSdk(swapTx.accountId).toString());
+          const creatorAccount = await midenClientProxy.getAccount(walletAccountIdToSdk(swapTx.accountId).toString());
           // An eviction during the read ABANDONS this callback without stopping
           // it: the creator Account is a borrow of a client a successor now
           // owns, and reaching for the realm's reader below would queue this dead
@@ -3492,10 +3561,10 @@ const generateGuardianTransaction = async (
           const client = await getRealmReaderClient();
           assertWasmHoldCurrent(hold, 'PSWAP request build: after the reader build');
           const tr = await client.newPswapCreateTransactionRequest(
-            accountIdStringToSdk(swapTx.accountId),
-            accountIdStringToSdk(swapTx.faucetId),
+            walletAccountIdToSdk(swapTx.accountId),
+            accountRefToSdk(swapTx.faucetId),
             swapTx.amount,
-            accountIdStringToSdk(swapTx.extraInputs.requestedFaucetId),
+            accountRefToSdk(swapTx.extraInputs.requestedFaucetId),
             swapTx.extraInputs.requestedAmount,
             NoteType.Public,
             NoteType.Public
@@ -3506,7 +3575,7 @@ const generateGuardianTransaction = async (
           assertWasmHoldCurrent(hold, 'PSWAP request build: after the request build');
           const baseBuilder = await feeAwareRequestBuilder(
             (await getMidenClient()).client,
-            accountIdStringToSdk(swapTx.accountId).toString(),
+            walletAccountIdToSdk(swapTx.accountId).toString(),
             swapFeeSalt
           );
           assertWasmHoldCurrent(hold, 'PSWAP request build: after the fee-aware builder');
@@ -3573,11 +3642,31 @@ const generateGuardianTransaction = async (
       service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
       await releaseUnabandonedCandidate(transaction, service);
       await assertPriorCandidateSettled(transaction, service);
-      const preparedBytes = await withWasmClientLock(async hold => {
-        const client = await getMidenClient();
-        assertWasmHoldCurrent(hold, 'after the custom request client build');
-        return prepareCustomRequestBytes(client.client, transaction.accountId, requestBytes, hold);
-      });
+      let preparedBytes: Uint8Array;
+      let observedDiagnostics: ITransaction['failureDiagnostics'];
+      const attemptId = transaction.attemptId;
+      try {
+        preparedBytes = await withWasmClientLock(async hold => {
+          const client = await getMidenClient();
+          assertWasmHoldCurrent(hold, 'after the custom request client build');
+          return prepareCustomRequestBytes(client.client, transaction.accountId, requestBytes, hold, diagnostics => {
+            observedDiagnostics = diagnostics;
+            transaction.failureDiagnostics = diagnostics;
+          });
+        });
+      } finally {
+        if (observedDiagnostics !== undefined) {
+          try {
+            await Repo.transactions.where({ id: transaction.id }).modify(t => {
+              if (t.attemptId !== attemptId) return false;
+              t.failureDiagnostics = observedDiagnostics;
+              return undefined;
+            });
+          } catch {
+            // A diagnostic write must not fail a transaction or hide its original error.
+          }
+        }
+      }
       if (preparedBytes !== requestBytes) {
         // Signing and retries must reuse the salt and bound block the proposal executes with.
         await Repo.transactions.where({ id: transaction.id }).modify(t => {
@@ -4048,7 +4137,7 @@ const generateGuardianTransaction = async (
     transaction.type === 'replace-hot-key' ||
     transaction.type === 'update-procedure-threshold'
   ) {
-    await setTransactionStage(transaction.id, 'confirming');
+    await stampPostSubmitStage(transaction.id, 'confirming');
     // Route the commit-wait through the proxy so it polls the SAME client that
     // applied the tx: the offscreen realm flag-on (which ran the whole leaf), the
     // SW client flag-off. A raw `getMidenClient().waitForTransactionCommit(id)` here
@@ -4080,13 +4169,15 @@ const generateGuardianTransaction = async (
     transaction.type !== 'update-procedure-threshold' &&
     transaction.type !== 'switch-guardian'
   ) {
+    await stampPostSubmitStage(transaction.id, 'guardian-syncing');
+    let synced = false;
     try {
-      await setTransactionStage(transaction.id, 'guardian-syncing');
       await service.sync();
-      await setTransactionStage(transaction.id, 'guardian-synced');
+      synced = true;
     } catch (error) {
       console.warn('[Guardian] post-completion sync failed; will reconcile on next tick', error);
     }
+    if (synced) await stampPostSubmitStage(transaction.id, 'guardian-synced');
   }
 
   switch (transaction.type) {
@@ -4133,7 +4224,7 @@ const generateGuardianTransaction = async (
       break;
   }
 
-  await setTransactionStage(transaction.id, 'complete');
+  await stampPostSubmitStage(transaction.id, 'complete');
 };
 
 export const generateTransactionsLoop = async (

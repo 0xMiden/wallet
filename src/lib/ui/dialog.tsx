@@ -6,6 +6,7 @@ import constate from 'constate';
 export interface AlertOptions {
   title?: ReactNode;
   children?: ReactNode;
+  variant?: 'default' | 'explanation';
 }
 
 /** What `useConfirm()` asks: a title and one sentence, answered with the action or Cancel. */

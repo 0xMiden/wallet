@@ -10,9 +10,14 @@ import {
   TRANSACTION_RETRY_UNSAFE_ERROR,
   isSubmitOutcomeUnknown
 } from './constants';
-import { completeVerifiedLandedTransaction, verifiedLandingRowFields } from './helper';
+import {
+  applyVerifiedLanding,
+  completeVerifiedLandedTransaction,
+  countNoteDeliveryWrite,
+  verifiedLandingRowFields
+} from './helper';
 import { latestEndMayStillRun } from './reconcile-judge';
-import { checkEvidenceForRetry } from './reconcile-unconfirmed';
+import { checkEvidenceForRetry, recordLandedDeliveryTarget } from './reconcile-unconfirmed';
 import { awaitingVerdict, evidenceKey, isUnresolvedEntry, keptCandidateHoldUntil, nowSeconds } from './verdict-rules';
 import {
   IBridgeProvider,
@@ -417,13 +422,24 @@ const planRequeue = async (
     const verdict = await verifySendLanded(tx);
     if (verdict === 'landed') {
       // Completed as the landed catches complete a row (#1233). Only `completeSendTransaction`
-      // relays a private send's note, and with no delivery recorded that relay never ran. A row
-      // re-derived as undelivered with no output note to push is inert to the delivery sweep.
+      // relays a private send's note, and with no delivery recorded that relay never ran, so the
+      // note the verified transaction's attempt recorded becomes the delivery target by the
+      // reconciler's rule for a bound landing (#1473).
       const completedAt = Math.floor(Date.now() / 1000);
+      const verifiedId = tx.transactionId;
+      let target: string[] | undefined;
       // Not `updateTransactionStatus`: its terminal guard rejects the Failed row
       // this function is defined over, so this branch used to throw rather than
       // complete and the guard's only success path never once worked.
-      await completeVerifiedLandedTransaction(tx.id, fresh => ({ ...verifiedLandingRowFields(fresh), completedAt }));
+      await completeVerifiedLandedTransaction(tx.id, fresh => {
+        // `fresh` is the row this write stores. The landing is applied to it here, not returned, so the target is
+        // recorded on the completed row and nothing assigned after it can overwrite a replaced target's relabel.
+        applyVerifiedLanding(fresh, { ...verifiedLandingRowFields(fresh), completedAt });
+        target =
+          verifiedId === undefined ? undefined : recordLandedDeliveryTarget(fresh, { boundTransactionId: verifiedId });
+        return {};
+      });
+      if (target !== undefined) countNoteDeliveryWrite();
       return undefined;
     }
     // Not provably landed. For a row that executed, `'unknown'` means "we could
@@ -509,6 +525,7 @@ const writeRequeue = async (txId: string, plan: RequeuePlan): Promise<RequeueWri
     dbTx.queuedSeq = nextQueuedSeq();
     dbTx.processingStartedAt = undefined;
     dbTx.attemptId = undefined;
+    delete dbTx.failureDiagnostics;
     dbTx.completedAt = undefined;
     dbTx.stage = undefined;
     // Clear the stage stamps with the stage. `setTransactionStage` is

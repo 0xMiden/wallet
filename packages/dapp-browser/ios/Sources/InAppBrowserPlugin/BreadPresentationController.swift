@@ -33,7 +33,6 @@ final class BreadPresentationController: NSObject {
     private let button = UIButton(type: .system)
     private let capsuleBackground = UIVisualEffectView(effect: UIBlurEffect(style: .systemThinMaterial))
     private var revealAnimator: UIViewPropertyAnimator?
-    private let hint = UILabel()
     private let errorLabel = UILabel()
     private let retryButton = UIButton(type: .system)
     private let spinner = UIActivityIndicatorView(style: .large)
@@ -49,7 +48,7 @@ final class BreadPresentationController: NSObject {
     private var rotating = false
     private var navigationCommitted = false
     private var notifiedPolicyRevision: Int?
-    private var hintDeadline: TimeInterval?
+    private var lastSafeArea = UIEdgeInsets.zero
 
     init(options: BreadPresentationOptions, owner: WKWebViewController, webView: WKWebView) {
         self.options = options
@@ -59,7 +58,7 @@ final class BreadPresentationController: NSObject {
         super.init()
         installControls(in: owner.view)
         state.setForeground(UIApplication.shared.applicationState == .active)
-        for name in [UIApplication.willResignActiveNotification, UIApplication.didBecomeActiveNotification] {
+        for name in [UIApplication.willResignActiveNotification, UIApplication.willEnterForegroundNotification, UIApplication.didBecomeActiveNotification] {
             observers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
                 guard let self else { return }
                 self.tick()
@@ -74,7 +73,19 @@ final class BreadPresentationController: NSObject {
 
     deinit { timer?.invalidate(); observers.forEach(NotificationCenter.default.removeObserver) }
 
-    var immersive: Bool { state.display == .fullscreen && state.effectiveVisibility }
+    var immersive: Bool { state.display == .fullscreen && state.surfaceVisibility }
+
+    func preparePrivacyCover() -> Bool {
+        guard owner?.managedClose?.closing != true, let window = instance?.containerWindow,
+              !window.isHidden, window.isKeyWindow else { return false }
+        tick()
+        state.setForeground(false)
+        invalidateLayout()
+        window.layoutIfNeeded()
+        render()
+        return immersive && !window.isHidden && window.isKeyWindow && cover.isOpaque
+            && !cover.isHidden && cover.alpha == 1 && cover.frame == owner?.view.bounds
+    }
 
     func attach(_ instance: WKWebViewInstance, hostWindow: UIWindow?) {
         self.instance = instance
@@ -109,8 +120,9 @@ final class BreadPresentationController: NSObject {
 
     func layoutChanged() {
         guard let owner, state.phase != .closed else { return }
-        if lastBounds != owner.view.bounds {
+        if lastBounds != owner.view.bounds || lastSafeArea != owner.view.safeAreaInsets {
             lastBounds = owner.view.bounds
+            lastSafeArea = owner.view.safeAreaInsets
             invalidateLayout()
         }
         layoutControls()
@@ -234,7 +246,6 @@ final class BreadPresentationController: NSObject {
         let now = ProcessInfo.processInfo.systemUptime
         state.elapse(now - lastTick)
         lastTick = now
-        if let deadline = hintDeadline, now >= deadline { hint.isHidden = true }
         if state.phase == .error { render() }
     }
 
@@ -259,8 +270,8 @@ final class BreadPresentationController: NSObject {
             }
             window.backgroundColor = cover.backgroundColor
             window.accessibilityViewIsModal = immersive
-            window.isHidden = !state.effectiveVisibility
-            if immersive && state.foreground { window.makeKey() }
+            window.isHidden = !state.surfaceVisibility
+            if immersive { window.makeKey() }
             else if window.isKeyWindow { hostWindow?.makeKey() }
         }
         owner.setNeedsStatusBarAppearanceUpdate()
@@ -276,11 +287,6 @@ final class BreadPresentationController: NSObject {
         if !failed { spinner.startAnimating() } else { spinner.stopAnimating() }
         button.isHidden = state.display != .fullscreen && state.phase == .visible
         capsuleBackground.isHidden = button.isHidden
-        if state.display == .fullscreen && hintDeadline == nil {
-            hintDeadline = ProcessInfo.processInfo.systemUptime + 5
-            hint.isHidden = false
-        }
-        if state.display != .fullscreen { hint.isHidden = true }
         layoutControls()
         owner.view.setNeedsLayout()
         publishMetrics()
@@ -291,18 +297,25 @@ final class BreadPresentationController: NSObject {
         if (window.__breadPresentationToken !== token) return false;
         const previous = window.__breadNativeMetrics;
         if (previous?.token === token && previous.revision > revision) return false;
-        const metrics = {token, revision, display, inset, width};
+        const metrics = {token, revision, display, inset, width, controlBounds, safeAreaInsets};
         window.__breadNativeMetrics = metrics;
         if (!window.__breadReprojectMetrics) {
             window.__breadReprojectMetrics = () => {
                 const current = window.__breadNativeMetrics;
                 if (!current || window.__breadPresentationToken !== current.token) return;
-                const controlInsetTop = current.inset * innerWidth / current.width;
-                if (current.projectedInset === controlInsetTop) return;
+                const scale = innerWidth / current.width;
+                const controlInsetTop = current.inset * scale;
+                const project = value => value && Object.fromEntries(Object.entries(value).map(([key, value]) => [key, value * scale]));
+                const update = {token: current.token, display: current.display, controlInsetTop,
+                    controlBounds: project(current.controlBounds), safeAreaInsets: project(current.safeAreaInsets)};
+                const key = JSON.stringify(update);
+                if (current.projectedKey === key) return;
+                current.projectedKey = key;
                 current.projectedInset = controlInsetTop;
-                window.__breadPresentationUpdate({token: current.token, display: current.display, controlInsetTop});
+                window.__breadPresentationUpdate(update);
             };
             addEventListener('resize', window.__breadReprojectMetrics);
+            if (window.visualViewport) visualViewport.addEventListener('resize', window.__breadReprojectMetrics);
         }
         const isCurrent = () => window.__breadPresentationToken === token &&
             window.__breadNativeMetrics.token === token && window.__breadNativeMetrics.revision === revision;
@@ -319,13 +332,20 @@ final class BreadPresentationController: NSObject {
     private func metricArguments() -> [String: Any]? {
         guard let token, let webView, !webView.bounds.isEmpty else { return nil }
         let inset = state.display == .fullscreen ? button.frame.maxY + 8 : 0
-        let key = "\(token):\(layoutRevision):\(state.display.rawValue):\(inset):\(webView.bounds.width)"
+        let frame = button.convert(button.bounds, to: webView)
+        let safe = owner?.view.safeAreaInsets ?? .zero
+        let controlBounds: [String: CGFloat]? = state.display == .fullscreen ?
+            ["left": max(0, frame.minX), "top": max(0, frame.minY), "width": frame.width, "height": frame.height] : nil
+        let safeAreaInsets: [String: CGFloat]? = state.display == .fullscreen ?
+            ["top": safe.top, "left": safe.left, "right": safe.right, "bottom": safe.bottom] : nil
+        let key = "\(token):\(layoutRevision):\(state.display.rawValue):\(inset):\(webView.bounds.width):\(frame):\(safe)"
         if key != lastMetricKey {
             lastMetricKey = key
             metricRevision += 1
         }
         return ["token": token, "revision": metricRevision, "display": state.display.rawValue,
-                "inset": inset, "width": webView.bounds.width, "fence": false]
+                "inset": inset, "width": webView.bounds.width, "fence": false,
+                "controlBounds": controlBounds.map { $0 as Any } ?? NSNull(), "safeAreaInsets": safeAreaInsets.map { $0 as Any } ?? NSNull()]
     }
 
     private func publishMetrics() {
@@ -394,7 +414,7 @@ final class BreadPresentationController: NSObject {
             retryButton.heightAnchor.constraint(greaterThanOrEqualToConstant: 48)
         ])
         button.accessibilityLabel = options.backLabel
-        button.accessibilityIdentifier = "bread-presentation-close"
+        button.accessibilityIdentifier = "bread-presentation-minimize"
         capsuleBackground.isUserInteractionEnabled = false
         capsuleBackground.accessibilityElementsHidden = true
         capsuleBackground.layer.cornerRadius = 24
@@ -411,18 +431,8 @@ final class BreadPresentationController: NSObject {
             }
         }
         button.imageEdgeInsets = UIEdgeInsets(top: 8, left: 12, bottom: 8, right: 12)
-        button.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
+        button.addTarget(self, action: #selector(minimizeTapped), for: .touchUpInside)
         view.addSubview(button)
-        hint.text = options.hintLabel
-        hint.font = .preferredFont(forTextStyle: .caption1)
-        hint.adjustsFontForContentSizeCategory = true
-        hint.textColor = .label
-        hint.backgroundColor = .secondarySystemBackground
-        hint.layer.cornerRadius = 8
-        hint.clipsToBounds = true
-        hint.textAlignment = .center
-        hint.isHidden = true
-        view.addSubview(hint)
         render()
     }
 
@@ -432,9 +442,7 @@ final class BreadPresentationController: NSObject {
         let safe = view.safeAreaInsets
         button.frame = CGRect(x: safe.left + 12, y: safe.top + 8, width: 64, height: 48)
         capsuleBackground.frame = button.frame
-        let hintSize = hint.sizeThatFits(CGSize(width: max(0, view.bounds.width - safe.left - safe.right - 112), height: 80))
-        hint.frame = CGRect(x: button.frame.maxX + 8, y: button.frame.midY - (hintSize.height + 16) / 2,
-                            width: hintSize.width + 16, height: hintSize.height + 16)
+
     }
 
     @objc private func retry() {
@@ -443,9 +451,13 @@ final class BreadPresentationController: NSObject {
         owner?.reload()
     }
 
-    @objc private func closeTapped() {
+    @objc private func minimizeTapped() {
+        guard state.effectiveVisibility, let owner, owner.managedClose?.closing != true else { return }
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
-        owner?.closeView()
+        var data: [String: Any] = ["id": owner.instanceId ?? "", "policyRevision": state.policyRevision,
+            "visibilitySequence": state.acknowledgedVisibilitySequence]
+        if let lifetime = owner.managedClose?.token { data["managedHostCloseToken"] = lifetime }
+        owner.capBrowserPlugin?.notifyListeners("presentationMinimizeRequested", data: data)
     }
 
     func close() {

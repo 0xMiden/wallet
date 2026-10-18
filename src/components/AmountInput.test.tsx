@@ -20,6 +20,13 @@ jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) =>
 
 // Convenience: the underlying react-currency-input-field renders a plain
 // <input>; we tag it with data-testid so every test can grab it directly.
+let mockAppLocale = 'en';
+jest.mock('lib/i18n/core', () => ({ getCurrentLocale: () => mockAppLocale }));
+
+afterEach(() => {
+  mockAppLocale = 'en';
+});
+
 const TESTID = 'amount';
 const getInput = () => screen.getByTestId(TESTID) as HTMLInputElement;
 
@@ -284,6 +291,46 @@ describe('AmountInput', () => {
     it('forwards autoFocus to the input (input receives focus on mount)', () => {
       render(<AmountInput autoFocus data-testid={TESTID} />);
       expect(getInput()).toHaveFocus();
+    });
+  });
+
+  describe('canonical numeric entry', () => {
+    it.each(['fa-IR', 'ar-EG'])('preserves every typed digit under ambient %s numbering', ambientLocale => {
+      mockAppLocale = ambientLocale.replace('-', '_');
+      const RealNumberFormat = Intl.NumberFormat;
+      const spy = jest
+        .spyOn(Intl, 'NumberFormat')
+        .mockImplementation((locale, options) => new RealNumberFormat(locale || ambientLocale, options));
+      const onValueChange = jest.fn();
+      const ControlledAmount = () => {
+        const [value, setValue] = React.useState('');
+        return (
+          <AmountInput
+            value={value}
+            onValueChange={(next, name, values) => {
+              onValueChange(next, name, values);
+              setValue(next || '');
+            }}
+            data-testid={TESTID}
+          />
+        );
+      };
+
+      try {
+        render(<ControlledAmount />);
+        for (const key of ['1', '2', '.', '5']) {
+          fireEvent.change(getInput(), { target: { value: `${getInput().value}${key}` } });
+        }
+        expect(getInput()).toHaveValue('12.5');
+        expect(onValueChange.mock.calls.map(([value]) => value)).toEqual(['1', '12', '12.', '12.5']);
+        expect(onValueChange).toHaveBeenLastCalledWith(
+          '12.5',
+          undefined,
+          expect.objectContaining({ value: '12.5', formatted: '12.5' })
+        );
+      } finally {
+        spy.mockRestore();
+      }
     });
   });
 

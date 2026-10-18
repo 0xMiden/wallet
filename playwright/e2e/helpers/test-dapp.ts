@@ -30,8 +30,7 @@ import type {
   DappOutput,
   Outcome,
   RawArg,
-  SessionView,
-  TestDappWindowApi
+  SessionView
 } from '../test-dapp/protocol';
 
 /**
@@ -49,7 +48,8 @@ const DAPP_INIT_BUDGET_MS = 120_000;
 
 export interface DappHandle {
   readonly page: Page;
-  readonly label: DappLabel;
+  /** `react` is the React page (helpers/react-dapp.ts), on its own origin. */
+  readonly label: DappLabel | 'react';
   readonly origin: string;
   readonly context: BrowserContext;
 }
@@ -71,7 +71,7 @@ async function ensureServed(context: BrowserContext): Promise<void> {
 
 // The page publishes `testDapp` once its modules loaded (the SDK's wasm among them); the provider is injected by the
 // content script on its own schedule, so both are awaited.
-async function waitReady(page: Page, timeoutMs: number): Promise<void> {
+export async function waitReady(page: Page, timeoutMs: number): Promise<void> {
   await page.waitForFunction(
     () => (window as unknown as { testDapp?: { ready?: boolean } }).testDapp?.ready === true,
     undefined,
@@ -118,8 +118,8 @@ export class ChainUnavailable extends InfrastructureFault {
 // Commands a repeat cannot change the answer of, so callDapp asks again after the node failed one. Each makes its node
 // call before anything the wallet, the adapter or the dApp's store sees, or repeats harmlessly (see the handlers in
 // test-dapp/test-dapp.ts): the chain reads; syncHeight; init, which keeps its first client and listens on the provider
-// once; buildCustom, which syncs before it builds or holds anything; makeNoteFile, whose getNotesById comes before its
-// import. waitForHeight is not one: the page retries its own syncs until the timeout it is handed.
+// once; buildCustom and buildCustomScript, which sync before they compile, build or hold anything; makeNoteFile, whose
+// getNotesById comes before its import. waitForHeight is not one: the page retries its own syncs until its timeout.
 const REPEATABLE: ReadonlySet<DappCommandName> = new Set([
   'chainNote',
   'chainNullifier',
@@ -127,28 +127,31 @@ const REPEATABLE: ReadonlySet<DappCommandName> = new Set([
   'syncHeight',
   'init',
   'buildCustom',
+  'buildCustomScript',
   'makeNoteFile'
 ]);
 const NODE_RETRY_MS = 2_000;
 
 // What crosses into the page. Playwright maps an evaluate argument's type recursively, and a generic command and input
-// pair is too deep for it (TS2589), so the pair is pinned by evaluateOnce's own signature and crosses as this.
+// pair is too deep for it (TS2589), so the pair is pinned by the typed callers (evaluateOnce, callReact) and crosses as
+// this.
 interface PageCall {
-  command: DappCommandName;
+  command: string;
   input: unknown;
 }
+// Either page's `window.testDapp` (test-dapp/protocol.ts, test-dapp/react-protocol.ts), as the untyped channel sees it.
+interface AnyTestDapp {
+  call(command: string, input: unknown): Promise<unknown>;
+}
 
-function evaluateOnce<K extends DappCommandName>(
-  dapp: DappHandle,
-  command: K,
-  input: DappInput<K>
-): Promise<DappOutput<K>> {
+/** One `window.testDapp.call` on either page, untyped; a page error maps to ChainUnavailable or HarnessFault. */
+export function evaluateCommand(dapp: DappHandle, command: string, input: unknown): Promise<unknown> {
   const call: PageCall = { command, input };
   const answer = dapp.page.evaluate((sent: PageCall): Promise<unknown> => {
-    const api = (window as unknown as { testDapp?: TestDappWindowApi }).testDapp;
+    const api = (window as unknown as { testDapp?: AnyTestDapp }).testDapp;
     if (!api) throw new Error('window.testDapp is not installed');
-    return api.call(sent.command, sent.input as never);
-  }, call) as Promise<DappOutput<K>>;
+    return api.call(sent.command, sent.input);
+  }, call);
   return answer.catch((error: unknown) => {
     const text = error instanceof Error ? error.message : String(error);
     // Playwright carries the page error's stack, which opens with its name (test-dapp/test-dapp.ts).
@@ -156,6 +159,14 @@ function evaluateOnce<K extends DappCommandName>(
     // Any other page-side throw is a dApp bug (bad input, failed self-check), never a wallet verdict.
     throw new HarnessFault(`dApp ${dapp.label} ${command} threw: ${text}`);
   });
+}
+
+function evaluateOnce<K extends DappCommandName>(
+  dapp: DappHandle,
+  command: K,
+  input: DappInput<K>
+): Promise<DappOutput<K>> {
+  return evaluateCommand(dapp, command, input) as Promise<DappOutput<K>>;
 }
 
 /**
@@ -342,7 +353,7 @@ const confirmPagesOpen = (context: BrowserContext): Page[] =>
   context.pages().filter(page => !page.isClosed() && page.url().includes('confirm.html'));
 
 /**
- * The wallet answers the dApp before its popup window is gone (`close()` is not awaited, dapp.ts:2463-2466), so a
+ * The wallet answers the dApp before its popup window is gone (`close()` is not awaited, dapp.ts:2512-2515), so a
  * page from the previous answer can still be closing when the next request starts; wait it out rather than count it.
  */
 export async function waitForNoConfirmPages(context: BrowserContext, timeoutMs = 10_000): Promise<void> {
@@ -462,7 +473,7 @@ export async function popupBlock(dapp: DappHandle, ctx: CellContext): Promise<vo
   await callDapp(dapp, 'waitForHeight', { target: height + 1, timeoutMs: heightWaitMs(ctx.deadline) }, ctx.deadline);
 }
 
-/** Closing a confirm page is the wallet's decline (dapp.ts:2512-2516). */
+/** Closing a confirm page is the wallet's decline (dapp.ts:2564-2568). */
 export async function closeOpenConfirmPages(context: BrowserContext): Promise<number> {
   const open = context.pages().filter(page => page.url().includes('confirm.html'));
   for (const page of open) await page.close();
@@ -517,7 +528,7 @@ export async function revokeDappSession(wallet: GuardianAwareWalletPage, origin:
   }, origin);
 }
 
-/** The account ids the wallet holds a session for under one origin (`dapp_sessions`, dapp.ts:2367-2372). */
+/** The account ids the wallet holds a session for under one origin (`dapp_sessions`, dapp.ts:2416-2426). */
 export async function dappSessionsFor(wallet: GuardianAwareWalletPage, origin: string): Promise<string[]> {
   return wallet.page.evaluate(async target => {
     const got = await chrome.storage.local.get('dapp_sessions');

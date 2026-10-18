@@ -22,7 +22,11 @@ const repoRoot = resolve(__dirname, '../../..');
 const configSource = (file: string) => readFileSync(resolve(repoRoot, file), 'utf8');
 
 /** The json reports a real Playwright run leaves; listing tests must not rewrite them. */
-const reportFiles = ['test-results/results.json', 'test-results-stress/results.json'];
+const reportFiles = [
+  'test-results/results.json',
+  'test-results-stress/results.json',
+  'test-results/stored-override/results.json'
+];
 const reportStamp = (file: string) => statSync(resolve(repoRoot, file), { throwIfNoEntry: false })?.mtimeMs ?? null;
 let reportsBefore: (number | null)[];
 
@@ -34,7 +38,8 @@ beforeAll(() => {
 const overridingConfigs = [
   'playwright.resilience.config.ts',
   'playwright.swap.config.ts',
-  'playwright.usdcx.config.ts'
+  'playwright.usdcx.config.ts',
+  'playwright.stored-override.config.ts'
 ];
 
 /** A config's `testIgnore` value: one line, or a whole array literal however prettier wraps it. */
@@ -50,6 +55,7 @@ describe('dedicated e2e configs override the base testIgnore', () => {
     expect(testIgnore).toMatch(/resilience/);
     expect(testIgnore).toMatch(/swap/);
     expect(testIgnore).toMatch(/usdcx/);
+    expect(testIgnore).toMatch(/stored-override/);
   });
 });
 
@@ -75,18 +81,32 @@ const BURN_TESTS = [
   'usdcx-burn.spec.ts › USDCx burn through the Send UI after a public faucet grant › ' +
     'Guardian wallet publishes a burn, the faucet consumes it and Circle pays it out'
 ];
+const L2_BURN_TESTS = ['Base Sepolia', 'Arbitrum Sepolia', 'Sepolia'].map(
+  chain =>
+    'usdcx-burn-l2.spec.ts › USDCx L2 burn through the Send UI after a public faucet grant › ' +
+    `Guardian wallet burns to ${chain}, the faucet consumes it, Circle pays it out and the wallet confirms it`
+);
+const L2_BRIDGE_IN_TESTS = ['Base Sepolia', 'Arbitrum Sepolia', 'Sepolia'].map(
+  chain =>
+    'usdcx-in-l2.spec.ts › USDCx L2 bridge-in from the harness key, forwarded by Circle to Arc › ' +
+    `Guardian wallet receives a deposit from ${chain} that Circle forwards to Arc, then mints and claims it`
+);
 /** Every test `playwright.usdcx.config.ts` must list, and nothing else. */
-const USDCX_LIVE_TESTS = [ROUND_TRIP_TEST, BRIDGE_IN_TEST, ...BURN_TESTS];
+const USDCX_LIVE_TESTS = [ROUND_TRIP_TEST, BRIDGE_IN_TEST, ...BURN_TESTS, ...L2_BURN_TESTS, ...L2_BRIDGE_IN_TESTS];
 /** Each runner suite's grep, compiled case-insensitive as scripts/e2e-real.mjs does, and the tests it must select. */
 const USDCX_RUNNER_GREPS: Array<[grep: string, tests: string[]]> = [
   ['USDCx round trip', [ROUND_TRIP_TEST]],
   ['funded Arc key', [BRIDGE_IN_TEST]],
-  ['USDCx burn through the Send UI', BURN_TESTS]
+  ['USDCx burn through the Send UI', BURN_TESTS],
+  ['USDCx L2 burn', L2_BURN_TESTS],
+  ['USDCx L2 bridge-in', L2_BRIDGE_IN_TESTS]
 ];
 /** Each live spec file and how many describes it guards. */
 const USDCX_LIVE_SPECS: Array<[file: string, describes: number]> = [
   ['usdcx-roundtrip.spec.ts', 2],
-  ['usdcx-burn.spec.ts', 1]
+  ['usdcx-burn.spec.ts', 1],
+  ['usdcx-burn-l2.spec.ts', 1],
+  ['usdcx-in-l2.spec.ts', 1]
 ];
 /**
  * R21 and R22: every burn to the shared harness Arc key runs `harnessPayoutLeg` (usdcx-legs.ts, unit-tested in
@@ -106,7 +126,8 @@ const USDCX_PAYOUT_WIRING: RegExp[] = [
 const USDCX_PAYOUT_PRECHECK =
   /step\('arc_state', BUDGET\.arcState, async \(\) => \{\s*const state = await readXReserveDomainState\(arc\);[^;]*\)\.toEqual\(\{ registered: true, paused: false, (?:depositsPaused: false, )?withdrawalsPaused: false \}\);[\s\S]*?'fund'[\s\S]*'burn_via_ui'/;
 /** A live USDCx spec in another config's listing, the burn spec under its old tests/bridge name included. */
-const USDCX_LIVE_SPEC = /usdcx-roundtrip\.spec\.ts|usdcx-burn\.spec\.ts|bridge-out-usdcx\.spec\.ts/;
+const USDCX_LIVE_SPEC =
+  /usdcx-roundtrip\.spec\.ts|usdcx-burn\.spec\.ts|usdcx-burn-l2\.spec\.ts|usdcx-in-l2\.spec\.ts|bridge-out-usdcx\.spec\.ts/;
 
 /** `playwright test --list` lines as `file › describe › test`, without the line and column. */
 const listedTests = (listing: string): string[] =>
@@ -151,7 +172,7 @@ describe('the USDCx live suites run under their own config only', () => {
     ).toHaveLength(describes);
   });
 
-  it.each(['usdcx-roundtrip.spec.ts', 'usdcx-burn.spec.ts'])(
+  it.each(['usdcx-roundtrip.spec.ts', 'usdcx-burn.spec.ts', 'usdcx-burn-l2.spec.ts'])(
     "%s waits for each burn's own payout, proven against the key read right before the burn",
     file => {
       const source = configSource(`${USDCX_TESTS_DIR}/${file}`);
@@ -159,12 +180,57 @@ describe('the USDCx live suites run under their own config only', () => {
     }
   );
 
-  it.each(['usdcx-roundtrip.spec.ts', 'usdcx-burn.spec.ts'])(
+  it.each(['usdcx-roundtrip.spec.ts', 'usdcx-burn.spec.ts', 'usdcx-burn-l2.spec.ts'])(
     '%s refuses to burn, before its faucet grant, while xReserve cannot pay the burn out',
     file => {
       expect(configSource(`${USDCX_TESTS_DIR}/${file}`)).toMatch(USDCX_PAYOUT_PRECHECK);
     }
   );
+});
+
+const STORED_OVERRIDE_TEST =
+  'stored-override.spec.ts › Stored endpoint override › a wallet on an endpoint override stored through ' +
+  'Developer Settings shows a mint in its note list and balance, before and after a restart';
+const LOCAL_E2E = '.github/workflows/pr-e2e-local.yml';
+
+describe('the stored-override suite runs on a build that reads stored overrides, after the Local E2E core specs', () => {
+  it('playwright.stored-override.config.ts lists exactly the stored-override test, and the core config none', () => {
+    expect(listedTests(listPlaywrightTests('playwright.stored-override.config.ts'))).toEqual([STORED_OVERRIDE_TEST]);
+    expect(listPlaywrightTests('playwright.e2e.config.ts')).not.toMatch(/stored-override/);
+  });
+
+  it('every other build keeps ignoring stored overrides unless told otherwise, and the stored-override build reads them', () => {
+    const scripts: unknown = JSON.parse(configSource('package.json')).scripts;
+    const script = (name: string): unknown =>
+      typeof scripts === 'object' && scripts !== null ? Reflect.get(scripts, name) : undefined;
+    const coreBuild = String(script('test:e2e:blockchain:build'));
+    expect(
+      coreBuild.match(/ MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES=\$\{MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES:-true\} /g)
+    ).toHaveLength(3);
+    expect(coreBuild).not.toMatch(/MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES=true/);
+    expect(script('test:e2e:stored-override:build')).toBe(
+      'cross-env E2E_NETWORK=localhost MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES=false yarn test:e2e:blockchain:build'
+    );
+    expect(script('test:e2e:stored-override:run')).toBe(
+      'cross-env E2E_NETWORK=localhost playwright test --config playwright.stored-override.config.ts'
+    );
+  });
+
+  it('Local E2E builds and runs the suite once its core specs ran, whether they passed or failed', () => {
+    const src = configSource(LOCAL_E2E);
+    const core = src.indexOf('      - name: Run core specs\n        id: core\n');
+    const build = src.search(
+      / {8}if: \$\{\{ !cancelled\(\) && \(steps\.core\.outcome == 'success' \|\| steps\.core\.outcome == 'failure'\) \}\}\n {8}run: yarn test:e2e:stored-override:build\n/
+    );
+    const run = src.search(
+      / {8}if: \$\{\{ !cancelled\(\) && steps\.stored_override_build\.outcome == 'success' \}\}\n {8}run: xvfb-run -a yarn test:e2e:stored-override:run --retries=1\n/
+    );
+    expect(core).not.toBe(-1);
+    expect(build).toBeGreaterThan(core);
+    expect(run).toBeGreaterThan(build);
+    expect(src).toMatch(/\n {8}id: stored_override_build\n {8}if: /);
+    expect(src).toMatch(/run: E2E_NETWORK=localhost yarn test:e2e:blockchain:build\n/);
+  });
 });
 
 function listGuardianTests(suite?: string): string {
@@ -220,8 +286,10 @@ describe('guardian e2e suite split', () => {
 });
 
 describe('PR workflows skip the heavy swap and earn jobs', () => {
-  it('swap-e2e is skipped on pull_request', () => {
-    expect(jobIf('.github/workflows/pr-e2e-swap.yml', 'swap-e2e')).toBe("github.event_name != 'pull_request'");
+  it('swap-e2e is skipped on pull_request and uses free ARM64', () => {
+    const src = configSource('.github/workflows/pr-e2e-swap.yml');
+    expect(jobIf('.github/workflows/pr-e2e-swap.yml', 'swap-e2e', src)).toBe("github.event_name != 'pull_request'");
+    expect(src).toMatch(/runs-on: ubuntu-24.04-arm/);
   });
 
   it('earn-e2e is skipped on pull_request', () => {
@@ -1932,6 +2000,18 @@ describe('PR workflows run the heavy E2E jobs only on a pull request based on ma
         rmSync(dir, { recursive: true, force: true });
       }
     }
+  });
+
+  it('the bridge-guardian runs-on picks WarpBuild on a dispatch or a wallet-body marker only, not the markers the linked web-sdk PR carries', () => {
+    const source = readFileSync(resolve(repoRoot, '.github/workflows/pr-e2e-bridge-guardian.yml'), 'utf8');
+    const runsOn = /^ {4}runs-on: >-\n((?: {6}.*\n)+)/m.exec(source)?.[1];
+    expect(runsOn).toBeDefined();
+    const checked = [
+      ...(runsOn ?? '').matchAll(
+        /github\.event_name == '([^']+)'|contains\(github\.event\.pull_request\.body, '([^']+)'\)/g
+      )
+    ].map(m => m[1] ?? m[2]);
+    expect(checked).toEqual(['workflow_dispatch', 'Web SDK PR:', 'Guardian PR:']);
   });
 
   it('the E2E workflows trigger on exactly their intended events, so no label re-runs a gate', () => {

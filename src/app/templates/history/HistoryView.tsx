@@ -269,12 +269,18 @@ function buildRowProps(
       : faucet
         ? t('faucetRequestTitle')
         : isSwap && entry.token && entry.requestedToken
-          ? `${t('swap')} ${entry.token} → ${entry.requestedToken}`
+          ? entry.swapSettlement === 'reclaimed' || entry.swapSettlement === 'reclaiming'
+            ? `${entry.token} → ${entry.requestedToken}`
+            : `${t('swap')} ${entry.token} → ${entry.requestedToken}`
           : entry.guardianRecovered
             ? t(guardianHistoryActionKey(entry.txType, entry.guardianReclaimed))
             : guardianTitleKey
               ? t(guardianTitleKey)
               : entry.message || '';
+  const placedAt = new Date(entry.timestamp * 1000);
+  const swapPlacement = isSwap
+    ? t('swapPlacedAt', { time: Number.isFinite(placedAt.getTime()) ? format(placedAt, 'HH:mm') : t('unknown') })
+    : undefined;
   const subtitle =
     entry.txType === 'switch-guardian'
       ? `${guardianEndpointDisplayName(
@@ -282,7 +288,7 @@ function buildRowProps(
           t('unknown')
         )} → ${guardianEndpointDisplayName(entry.newGuardianEndpoint, t('unknown'))}`
       : isSwap
-        ? t('viaInProtocolDex')
+        ? swapPlacement
         : entry.secondaryAddress
           ? `${isReceiveEntry(entry) ? t('from') : t('to')}: ${shortAddr(entry.secondaryAddress)}`
           : undefined;
@@ -312,6 +318,17 @@ function buildRowProps(
       direction: amountDirection,
       preformatted: true
     };
+  } else if (isSwap && (entry.swapSettlement === 'reclaimed' || entry.swapSettlement === 'reclaiming')) {
+    // The quote is not a credit. Nor is the original offer proof of how much
+    // returned after a partial fill. Name it as the offer, without a +/- sign.
+    if (swapSide !== 'requested' && entry.amount !== undefined) {
+      amount = {
+        value: t('swapOfferedAmount', { amount: entry.amount }),
+        symbol: entry.token,
+        direction: 'neutral',
+        preformatted: true
+      };
+    }
   } else if (swapSide === 'requested' && entry.requestedAmount) {
     amount = { value: `+${entry.requestedAmount}`, symbol: entry.requestedToken, direction: 'positive' };
   } else if (swapSide === 'offered' && entry.amount !== undefined) {
@@ -415,6 +432,8 @@ function buildRowProps(
     status = 'pending';
   } else if (isSwap && entry.swapSettlement === 'reclaimed') {
     status = 'reclaimed';
+  } else if (isSwap && entry.swapSettlement === 'reclaiming') {
+    status = 'reclaiming';
   }
 
   return {
@@ -682,6 +701,7 @@ const HistoryView = memo<HistoryViewProps>(
                       leading={
                         <UnreadDot
                           unread={unread}
+                          placement="corner"
                           label={t('activityUnread')}
                           data-testid={unread ? 'activity-row-unread' : undefined}
                         />

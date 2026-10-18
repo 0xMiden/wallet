@@ -5,7 +5,9 @@ import * as Repo from 'lib/miden/repo';
 import { midenClientProxy } from '../back/miden-client-proxy';
 import type { ConsumableNoteDto } from '../sdk/consumable-notes';
 import { assertWasmHoldCurrent, type WasmLockHold } from '../sdk/miden-client';
+import type { PswapLineageDto } from '../sdk/pswap-lineage';
 import type { SwapOrderNoteMetadata } from '../types';
+import { isRecoveredReturnOrder } from './recovered-order';
 
 export const SWAP_ORDER_EXPIRY_SECONDS = 120;
 
@@ -43,7 +45,9 @@ export async function localSwapOrders(accountId: string): Promise<SwapOrder[]> {
         // restored row is not evidence of that — it says whatever the backup's
         // author wrote. Downstream this drives reclaim, which initiates a real
         // consume against the order's own `expiresAt` and asset data.
-        !tx.restoredFromBackup &&
+        // A Guardian-recovered order joins once this wallet's Cancel stamped it,
+        // and only to have its order note, as the node holds it, taken back (#1487).
+        (!tx.restoredFromBackup || isRecoveredReturnOrder(tx)) &&
         compareAccountIds(tx.accountId, accountId) &&
         isSwapTransaction(tx)
     )
@@ -61,10 +65,30 @@ export async function classifySwapOrderNotes(
   preloadedOrders: SwapOrder[] | undefined,
   hold: WasmLockHold
 ): Promise<Map<string, SwapOrderNoteMetadata>> {
+  return (await classifySwapOrderSnapshot(notes, accountId, preloadedOrders, hold)).notes;
+}
+
+export interface SwapOrderSnapshot {
+  notes: Map<string, SwapOrderNoteMetadata>;
+  lineages: Map<string, PswapLineageDto>;
+}
+
+/**
+ * Classify consumable notes and retain the same bulk lineage snapshot. Settlement
+ * also needs the lineage entry when a zero-fill order has no input note at all:
+ * its depth-0 tip still lives in output-notes, so it cannot be represented in the
+ * note map above.
+ */
+export async function classifySwapOrderSnapshot(
+  notes: ConsumableNoteDto[],
+  accountId: string,
+  preloadedOrders: SwapOrder[] | undefined,
+  hold: WasmLockHold
+): Promise<SwapOrderSnapshot> {
   const orders = preloadedOrders ?? (await localSwapOrders(accountId));
   const result = new Map<string, SwapOrderNoteMetadata>();
 
-  if (orders.length === 0) return result;
+  if (orders.length === 0) return { notes: result, lineages: new Map() };
   const assertLive = () => assertWasmHoldCurrent(hold, 'during swap lineage classification');
   assertLive();
   const snapshot = await midenClientProxy.getPswapLineages(assertLive);
@@ -107,5 +131,5 @@ export async function classifySwapOrderNotes(
       });
     }
   }
-  return result;
+  return { notes: result, lineages };
 }

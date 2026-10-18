@@ -18,13 +18,13 @@ import {
   TRANSACTION_VAULT_SHORTFALL_ERROR,
   USER_CANCELLED_TRANSACTION_REASON
 } from 'lib/miden/transaction/constants';
+import { newestRow } from 'lib/miden/transaction/rotation-funding';
 
 import {
   claimNoteIds,
   describeRotationFailure,
   GateRow,
   isBelowBaseFee,
-  newestRow,
   resolveRotationGateView,
   RotationFailureRow,
   RotationGateViewInput,

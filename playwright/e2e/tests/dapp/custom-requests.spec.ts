@@ -245,6 +245,71 @@ function customCells(j: Journey, fx: CustomFixtures): Record<string, DappCellImp
           ctx
         );
       }
+    },
+    X8a: {
+      budget: 'write',
+      run: async ctx => {
+        // The dApp's own script pays B through the basic wallet's create_note and move_asset_to_note.
+        const { written } = await customWriteToTheEnd(
+          j,
+          dapp,
+          {
+            build: { kind: 'pay', outputs: [toB(tst(2))] },
+            submit: { recipientAddress: j.addressB, importNotes: false },
+            advance: B3,
+            vaultDelta: { [j.tokenFaucetId]: -tst(2) },
+            toB: [true],
+            consumedNullifiers: [],
+            preview: { amount: /^2 TST$/, outputNotes: 1, storageChanged: false }
+          },
+          ctx
+        );
+        expect(
+          written.outputNotes.map(note => note.script),
+          'output note script'
+        ).toEqual(['p2id']);
+      }
+    },
+    X8b: {
+      budget: 'write',
+      run: async ctx => {
+        // Landing proves the script argument and the advice words reached execution unchanged.
+        await customWriteToTheEnd(
+          j,
+          dapp,
+          {
+            build: { kind: 'pay-checked', outputs: [toB(tst(3), 'private')] },
+            submit: { recipientAddress: j.addressB, importNotes: false },
+            advance: B3,
+            vaultDelta: { [j.tokenFaucetId]: -tst(3) },
+            toB: [true],
+            consumedNullifiers: [],
+            preview: { amount: /^3 TST$/, outputNotes: 1, storageChanged: false }
+          },
+          ctx
+        );
+      }
+    },
+    X8c: {
+      budget: 'write',
+      run: async ctx => {
+        const { written } = await customWriteToTheEnd(
+          j,
+          dapp,
+          {
+            build: { kind: 'fee-only', outputs: [] },
+            submit: { recipientAddress: '', importNotes: false },
+            advance: B3,
+            vaultDelta: {},
+            toB: [],
+            consumedNullifiers: [],
+            preview: { amount: null, outputNotes: 0, storageChanged: false }
+          },
+          ctx
+        );
+        // The native drop is exactly the row's fee (expectWritesToTheEnd step 5); a zero fee would make that vacuous.
+        expect(written.feeAmount !== 0n, 'the row recorded the fee it paid').toBe(j.env.chargesFees === true);
+      }
     }
   };
 }

@@ -56,6 +56,7 @@ import {
   resetMidenClient,
   withWasmClientLock
 } from '../sdk/miden-client';
+import { countNoteDeliveryWrite } from '../transaction/helper';
 import { MidenMessageType } from '../types';
 
 // frontStore is initialized lazily inside start() because with Vite's TLA stripping,
@@ -73,6 +74,7 @@ export async function start() {
   });
   // Registered first so no message is missed; it dispatches only once startupHydration settles.
   intercom.onRequest(dispatchWhenHydrated);
+  intercom.onNotFound(confirmationRequestNotFound);
   registerOffscreenSignHandler();
 
   // The connectivity snapshot is in-memory and therefore empty on every MV3 wake,
@@ -375,6 +377,25 @@ function registerOffscreenSignHandler(): void {
   });
 }
 
+// What an approval window asks for; one that no live handler answered is an approval this worker no longer holds.
+const CONFIRMATION_REQUEST_TYPES: ReadonlySet<unknown> = new Set([
+  MidenMessageType.DAppGetPayloadRequest,
+  MidenMessageType.DAppSimulateTransactionRequest,
+  MidenMessageType.DAppUnlockConfirmationRequest,
+  MidenMessageType.DAppPermConfirmationRequest,
+  MidenMessageType.DAppTransactionConfirmationRequest,
+  MidenMessageType.DAppPrivateNotesConfirmationRequest,
+  MidenMessageType.DAppSignConfirmationRequest,
+  MidenMessageType.DAppAssetsConfirmationRequest,
+  MidenMessageType.DAppImportPrivateNoteConfirmationRequest,
+  MidenMessageType.DAppConsumableNotesConfirmationRequest
+]);
+
+function confirmationRequestNotFound(req: unknown): Error | undefined {
+  const type: unknown = typeof req === 'object' && req !== null && 'type' in req ? req.type : undefined;
+  return CONFIRMATION_REQUEST_TYPES.has(type) ? Actions.confirmationNotFound(req) : undefined;
+}
+
 async function dispatchWhenHydrated(req: WalletRequest, port: Runtime.Port): Promise<WalletResponse | void> {
   await startupHydration;
   return processRequest(req, port);
@@ -392,6 +413,11 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
       // Fire-and-forget — start processing asynchronously
       startTransactionProcessing().catch(err => console.error('[TransactionProcessor] Error:', err));
       return { type: WalletMessageType.ProcessTransactionsResponse };
+    case WalletMessageType.NoteDeliveryWrittenRequest:
+      // Counted, never a cleared idle finding: a running pass took its count before its query and writes that finding
+      // back when it ends, so only a count past the one it took makes the next sweep query.
+      countNoteDeliveryWrite();
+      return { type: WalletMessageType.NoteDeliveryWrittenResponse };
     case WalletMessageType.ReloadEndpointOverridesRequest:
       // Re-hydrate the override cache in THIS (service-worker) realm, then invalidate
       // every client that baked the old endpoints in at creation time. All three steps
@@ -513,6 +539,8 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
     }
     case WalletMessageType.ReportTelemetryEventRequest:
       return Actions.handleReportTelemetryEvent(req);
+    case WalletMessageType.EstimateUsdcxBurnFeeRequest:
+      return Actions.estimateUsdcxBurnFee(req);
     case WalletMessageType.GetStateRequest:
       const state = await Actions.getFrontState();
       return {
@@ -527,7 +555,8 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
           req.password,
           req.mnemonic,
           req.ownMnemonic,
-          req.guardianEndpoint
+          req.guardianEndpoint,
+          req.accessCode
         );
         console.log('[processRequest] registerNewWallet completed successfully');
       } catch (err: unknown) {

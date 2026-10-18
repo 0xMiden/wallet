@@ -25,9 +25,14 @@
         "error": "assertion failed with error code: 9127845879078954504"
       }
     },
-    "G2": {
+    "MF3": {
+      "offchain": {
+        "error": "Error: failed to import public account: account",
+        "reason": "is private and its details cannot be retrieved from the network"
+      },
       "guardian": {
-        "error": "Some storage item not found"
+        "error": "Error: failed to import public account: account",
+        "reason": "is private and its details cannot be retrieved from the network"
       }
     }
   }

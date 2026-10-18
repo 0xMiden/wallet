@@ -54,6 +54,7 @@ import {
   selectAccountIfNeeded,
   sessionWithin,
   unwrap,
+  waitForNoConfirmPages,
   type DappHandle
 } from '../../helpers/test-dapp';
 import type { ConnectedView, Outcome, RawArg, SessionView } from '../../test-dapp/protocol';
@@ -61,9 +62,9 @@ import type { ConnectedView, Outcome, RawArg, SessionView } from '../../test-dap
 type StaleRequest = 'send' | 'transaction' | 'consume' | 'consumeBytes' | 'custom';
 const STALE: readonly StaleRequest[] = ['send', 'transaction', 'consume', 'consumeBytes', 'custom'];
 const NOT_GRANTED_WRAPPED = refusal('WalletTransactionError', 'NOT_GRANTED', 'NotGrantedMidenWalletError');
-// M9 calls the provider directly, so the refusal reaches the dApp unwrapped: assertDappSendStillAuthorized throws
-// NOT_GRANTED (dapp.ts:1670-1685) and createError names it (client.ts:300-317). Consume is held to the same answer
-// (Q9); today it executes instead, which is K6. M9 expects it before any popup (Q10).
+// M9 calls the provider directly, so the refusal reaches the dApp unwrapped: assertRequestAccountIsCurrent throws
+// NOT_GRANTED (dapp.ts:1690-1695) and createError names it (client.ts:300-317). Consume is held to the same answer
+// (Q9). M9 expects it before any popup (Q10).
 const NOT_GRANTED_RAW = refusal('NotGrantedMidenWalletError', 'NOT_GRANTED');
 
 interface AccountFixtures {
@@ -234,8 +235,8 @@ function accountCells(j: Journey, fx: AccountFixtures): Record<string, DappCellI
       const baseline = await captureBaseline(await sideOf(j, dapp), [j.tokenFaucetId], ctx);
       const args = await asStaleAccount(request, me, note, ctx);
       await j.walletA.selectAccount(second);
-      // Q10: refused before any popup. Today the wallet prompts (K9); approving that popup lets the request settle,
-      // so what then runs for account 1 is seen too (an executed consume is K6).
+      // Q10: refused before any popup; if one opens anyway, approving it lets the request settle, so what then runs
+      // for account 1 is seen too.
       const { result, prompted } = await answerIfPrompted(
         dapp,
         () => callDapp(dapp, 'raw', { call: rawCallOf(request), args, asAddress: me.address }, ctx.deadline),
@@ -245,7 +246,7 @@ function accountCells(j: Journey, fx: AccountFixtures): Record<string, DappCellI
       ctx.evidence.nonCurrentPrompted = prompted;
       await j.walletA.waitForQueueDrained(ctx.deadline.remainingMs());
       const ran = await rowsRunSince(baseline.rowIds);
-      // A refusal is K9 only when nothing ran behind it; a row that ran, for any account, is new.
+      // A refusal must leave no row that ran, for any account.
       ctx.evidence.nonCurrentRowRan = ran.length > 0;
       ctx.evidence.staleConsumeExecuted = result.ok && onlyStaleConsumesRan(ran, primary);
       expect({ prompted, result }).toEqual({ prompted: false, result: NOT_GRANTED_RAW });
@@ -344,8 +345,8 @@ function accountCells(j: Journey, fx: AccountFixtures): Record<string, DappCellI
         expect(ownTwo).not.toEqual(ownOne);
         // Each dApp reads as its own account while the OTHER account is current, the address pinned through the
         // provider, whose poll clears it once its account is not current (client.ts:68-87). Q10: refused before any
-        // popup with NOT_GRANTED. Today the wallet prompts (K9); approved, the read must still serve the dApp's own
-        // vault, so anything else after a popup (another account's vault, nothing) is new, never K9.
+        // popup with NOT_GRANTED; a read that still reaches a popup must serve the dApp's own vault, so anything else
+        // after a popup (another account's vault, nothing) is a failure.
         const crossRead = async (
           handle: DappHandle,
           address: string,
@@ -429,6 +430,8 @@ function accountCells(j: Journey, fx: AccountFixtures): Record<string, DappCellI
         expect(await popupConnect.getByTestId('connect-origin').getAttribute('title')).toBe(dapp.origin);
         await popupConnect.getByTestId(CONFIRM_ACTIONS.connect.decline).click();
         expect(await connectOne).toEqual(NOT_GRANTED_RAW);
+        // A declined popup the wallet failed to close fails here, not later as a refused placement or a stray page.
+        await ctx.deadline.race(waitForNoConfirmPages(dapp.context), 'declined connect popup closed');
         const txTwo = unwrap(await sendTwo, "dApp two's send", ctx).txId;
         expect(maxConcurrentConfirmPages(j.confirmLog.events.slice(mark))).toBe(1);
 
@@ -509,16 +512,13 @@ function accountCells(j: Journey, fx: AccountFixtures): Record<string, DappCellI
         for (const answer of [fromTwo, fromDisconnected]) {
           expect(JSON.stringify(answer)).not.toContain('Transaction result expired');
         }
-        // Q8: neither gets the result or any note bytes, and each is refused: an `ok` answer without notes still hands
-        // another origin the result. The text is not pinned until the wallet's is decided.
+        // Q8: neither gets the result or any note bytes, and each is refused as a missing id is (R6), so the answer
+        // does not say whether the row exists or whose it is (#1416).
         expect({ fromTwo: served(fromTwo), fromDisconnected: served(fromDisconnected) }).toEqual({
           fromTwo: false,
           fromDisconnected: false
         });
-        expect({ fromTwo, fromDisconnected }).toEqual({
-          fromTwo: expect.objectContaining({ ok: false }),
-          fromDisconnected: expect.objectContaining({ ok: false })
-        });
+        expect({ fromTwo, fromDisconnected }).toEqual({ fromTwo: NOT_GRANTED_RAW, fromDisconnected: NOT_GRANTED_RAW });
       }
     },
     'M8-single': {

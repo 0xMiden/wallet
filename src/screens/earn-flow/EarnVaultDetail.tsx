@@ -43,7 +43,11 @@ const EarnVaultDetail: FC<EarnVaultDetailProps> = ({ vaultId }) => {
       title={found ? earnSubjectTitle(found) : t('earnDeposit')}
       subtitle={found && <EarnSubjectSubtitle subject={found} />}
       onBack={goBack}
-      headerActions={found && <EarnAssetMark asset={found.asset} network={found.network} decorative />}
+      headerActions={
+        found && (
+          <EarnAssetMark asset={found.asset} network={found.network} fundingAsset={found.fundingAsset} decorative />
+        )
+      }
       footer={
         (loadFailed && !found) || pending ? undefined : (
           <Button

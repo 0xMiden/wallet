@@ -12,6 +12,9 @@ export interface FeatureUnavailableNoticeProps {
   variant?: NoticeVariant;
   /** Layout only (margins, width). */
   className?: string;
+  /** Lets the control it qualifies point at the notice with `aria-describedby`. */
+  id?: string;
+  'data-testid'?: string;
 }
 
 /**
@@ -21,7 +24,9 @@ export interface FeatureUnavailableNoticeProps {
 export function FeatureUnavailableNotice({
   availability,
   variant,
-  className
+  className,
+  id,
+  'data-testid': dataTestId = 'feature-unavailable-notice'
 }: FeatureUnavailableNoticeProps): JSX.Element | null {
   const { t } = useTranslation();
   if (availability.state !== 'unavailable') return null;
@@ -32,7 +37,8 @@ export function FeatureUnavailableNotice({
       icon={<Icon name={IconName.WarningFill} size="xs" fill="currentColor" />}
       title={t('bridgeFeatureUnavailableTitle')}
       className={className}
-      data-testid="feature-unavailable-notice"
+      id={id}
+      data-testid={dataTestId}
     >
       {t('bridgeFeatureUnavailableBody')}
     </Notice>

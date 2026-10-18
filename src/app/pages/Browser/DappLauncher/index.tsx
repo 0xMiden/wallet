@@ -114,6 +114,7 @@ export const DappLauncher: FC<DappLauncherProps> = ({ onOpen }) => {
     if (!url) return;
     hapticLight();
     onOpen(url);
+    closeSearch();
   };
 
   // The reveal plays on the first mount of the session only (see `reveal-once.ts`); after that
@@ -190,7 +191,7 @@ export const DappLauncher: FC<DappLauncherProps> = ({ onOpen }) => {
       {/* `pt-2` and nothing more: the first section title sits right under the category row. */}
       <motion.main
         layoutScroll
-        className="grow overflow-y-auto pt-2 pb-24"
+        className="grow overflow-y-auto pt-2 pb-[calc(6rem+var(--wallet-control-safe-bottom,0px))]"
         style={{ overscrollBehavior: 'contain' }}
         data-testid="explore-launcher"
       >

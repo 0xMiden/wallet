@@ -20,6 +20,7 @@ import { Buffer } from 'buffer';
 
 import type { NoteExportType } from 'lib/miden/sdk/constants';
 import type { ConsumableNoteDto } from 'lib/miden/sdk/consumable-notes';
+import { dryRunRequest, type DryRunResult } from 'lib/miden/sdk/dry-run-request';
 import { collectInputNoteDetails } from 'lib/miden/sdk/input-note-detail';
 import type { InputNoteSummaryDto } from 'lib/miden/sdk/input-note-summary';
 import { reduceInputNoteSummary } from 'lib/miden/sdk/input-note-summary';
@@ -32,7 +33,9 @@ import {
 } from 'lib/miden/sdk/miden-client';
 import type {
   AssertLive,
+  DetailsCommitmentMatches,
   InputNoteDetails,
+  PswapCancelRequestOptions,
   RecoveryRangeResult,
   TransactionCommitState
 } from 'lib/miden/sdk/miden-client-interface';
@@ -45,6 +48,7 @@ import {
   WASM_LOCK_SYNC_WATCHDOG_MS
 } from 'lib/miden/sdk/wasm-client-poison';
 import { tagLockedSignReason } from 'lib/miden/transaction/sign-callback';
+import { getEndpointState, whenEndpointOverridesLoaded } from 'lib/miden-chain/effective-endpoints';
 import type { SerializedInputNoteDetail } from 'lib/shared/types';
 
 import {
@@ -130,6 +134,9 @@ export function runsWasmInThisRealm(): boolean {
  */
 const READ_DEADLINE_MS = 15_000;
 
+/** A cancel-request build that may read its order note on the node: the read deadline plus its two 5 s node reads. */
+const NODE_NOTE_CANCEL_DEADLINE_MS = READ_DEADLINE_MS + 10_000;
+
 /**
  * Per-op deadline (ms) for a `syncState`. Sync is legitimately slow on testnet
  * — the balance/notes sync loop already wraps it in its own 30s
@@ -147,6 +154,12 @@ const SYNC_DEADLINE_MS = 45_000;
  * gets the realm killed.
  */
 const NOTE_RECOVERY_CHUNK_DEADLINE_MS = 60_000;
+
+/**
+ * Per-op deadline (ms) for a dry run of one transaction request. Its execution reads the chain tip, so it sits above
+ * a read's; a read's deadline is re-armed when the op wins the offscreen mutex, so this counts execution only.
+ */
+const DRY_RUN_DEADLINE_MS = 30_000;
 
 /**
  * Decode one recovery chunk's JSON payload. Recovery decides whether to clear
@@ -550,6 +563,9 @@ async function dispatchOp(
   } catch (error) {
     throw markErrorBeforeSubmit(error);
   }
+  // The `miden-sync` alarm can get here before start() has loaded this realm's override, when the state the
+  // envelope carries would still be the build's network. The load settles even when it fails.
+  await whenEndpointOverridesLoaded();
   let argsB64: string[];
   try {
     argsB64 = args.map(encodeArg);
@@ -587,7 +603,8 @@ async function dispatchOp(
       op_id,
       method,
       argsB64,
-      deadline_ms: deadlineMs
+      deadline_ms: deadlineMs,
+      endpoints: getEndpointState()
     };
     // `sendMessage` may resolve with the response, resolve `undefined` (doc
     // closed), or reject ("message port closed"). All three are handled: a
@@ -704,15 +721,16 @@ export async function handleOffscreenSignRequest(
 }
 
 /**
- * Tell the OFFSCREEN realm that the saved developer endpoint override changed, so
- * it re-reads it and drops its client singleton.
+ * Send the OFFSCREEN realm this realm's endpoint state, so it adopts it and drops
+ * its client singleton.
  *
  * Needed because BOTH the override cache (`lib/miden-chain/effective-endpoints`)
  * and the Miden client singleton are module-scoped, and module scope is per realm.
  * The SW's `loadEndpointOverrides()` + `resetMidenClient()` therefore reach only
  * the SW realm — while flag-on it is the OFFSCREEN client that executes writes,
- * runs `syncState` and talks to the node. Without this nudge that client would keep
- * the endpoints it was created with until the document is closed.
+ * runs `syncState` and talks to the node, and that realm has no extension storage
+ * to read the override from (#1482). Every OFFSCREEN_CALL carries the same state,
+ * so this message drops the client before the next call rather than with it.
  *
  * Chosen over closing the document (`forceCloseOffscreenDocument`) because a close
  * is only safe when {@link isCriticalOpInFlight} is false, and skipping the
@@ -723,21 +741,23 @@ export async function handleOffscreenSignRequest(
  *
  * Resolves false — doing nothing — when the flag is off, when there is no
  * `chrome.offscreen` API, or when NO document is currently open. In the last case
- * there is nothing to invalidate and a document opened later hydrates the override
- * during its own init, so this never creates one (contrast `dispatchOp`, which
- * always `ensureOffscreenDocument()`s first).
+ * there is nothing to invalidate and a document opened later gets the state with
+ * its first call, so this never creates one (contrast `dispatchOp`, which always
+ * `ensureOffscreenDocument()`s first).
  *
  * Resolves true only on an explicit ack. A rejected `sendMessage` — the document
  * was reaped between the check and the send — resolves false rather than throwing:
- * that realm is gone and its replacement loads the override at init, so there is
- * nothing for the caller to recover from.
+ * that realm is gone and its replacement gets the state with its first call, so
+ * there is nothing for the caller to recover from.
  */
 export async function reloadOffscreenEndpointOverrides(): Promise<boolean> {
   if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) return false;
   if (!(await hasOffscreenDocument())) return false;
+  await whenEndpointOverridesLoaded();
   const envelope: OffscreenReloadEndpointsRequest = {
     target: OFFSCREEN_TARGET,
-    type: OFFSCREEN_RELOAD_ENDPOINTS
+    type: OFFSCREEN_RELOAD_ENDPOINTS,
+    endpoints: getEndpointState()
   };
   try {
     const resp = (await chrome.runtime.sendMessage(envelope)) as OffscreenReloadEndpointsResponse | undefined;
@@ -1174,6 +1194,26 @@ export const midenClientProxy = {
   },
 
   /**
+   * The candidate records for each details commitment (#1389), as plain DTOs in the realm that owns the store,
+   * scoped by candidate note ids like {@link getInputNoteDetails}. `assertLive` goes to the inline branch only.
+   */
+  async getDetailsCommitmentMatches(
+    commitments: string[],
+    candidateIds: string[],
+    assertLive?: AssertLive
+  ): Promise<DetailsCommitmentMatches[]> {
+    if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
+      return (await getMidenClient()).getDetailsCommitmentMatches(commitments, candidateIds, assertLive);
+    }
+    const resultB64 = await this.call('getDetailsCommitmentMatches', [commitments, candidateIds], {
+      deadlineMs: READ_DEADLINE_MS
+    });
+    if (resultB64 == null) return commitments.map(() => ({ notes: [], uncommitted: 0 }));
+    const matches: DetailsCommitmentMatches[] = JSON.parse(new TextDecoder().decode(b64ToBytes(resultB64)));
+    return matches;
+  },
+
+  /**
    * Node-authoritative commit state of a tx by hex id (see
    * MidenClientInterface.getTransactionCommitState). Backs the send/swap
    * idempotent-retry guard so a Failed row whose submit actually landed is never
@@ -1236,6 +1276,30 @@ export const midenClientProxy = {
     const resultB64 = await this.call('getConsumableNotes', [accountId], { deadlineMs: READ_DEADLINE_MS });
     if (resultB64 == null) return [];
     return JSON.parse(new TextDecoder().decode(b64ToBytes(resultB64))) as ConsumableNoteDto[];
+  },
+
+  /**
+   * Build the exact fee-aware request used to reclaim a creator-owned depth-0
+   * PSWAP tip. The output-note record and request builder must live in the realm
+   * that owns the synchronized client; only the serialized request crosses the
+   * offscreen boundary.
+   */
+  async buildPswapCancelRequest(
+    accountId: string,
+    noteId: string,
+    assertLive?: AssertLive,
+    { allowNodeNote = false }: PswapCancelRequestOptions = {}
+  ): Promise<Uint8Array> {
+    if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
+      return (await getMidenClient()).buildPswapCancelRequest(accountId, noteId, assertLive, { allowNodeNote });
+    }
+    const resultB64 = await this.call('buildPswapCancelRequest', [accountId, noteId, allowNodeNote], {
+      deadlineMs: allowNodeNote ? NODE_NOTE_CANCEL_DEADLINE_MS : READ_DEADLINE_MS
+    });
+    if (resultB64 == null) {
+      throw new Error('buildPswapCancelRequest: offscreen document returned no request bytes');
+    }
+    return b64ToBytes(resultB64);
   },
 
   /**
@@ -1367,6 +1431,26 @@ export const midenClientProxy = {
     const resultB64 = await this.call('getSerializedInputNoteDetails', [noteIds], { deadlineMs: READ_DEADLINE_MS });
     if (resultB64 == null) return [];
     return JSON.parse(new TextDecoder().decode(b64ToBytes(resultB64))) as SerializedInputNoteDetail[];
+  },
+
+  /**
+   * Dry-run a transaction request for its effects ({@link dryRunRequest}): no sync, no note import, nothing proved or
+   * submitted. The USDCx burn fee probe runs on it so the service worker never builds or syncs its own client beside
+   * the offscreen document's, which is the realm that syncs on the extension (#1493).
+   *
+   * Flag off: inline under the CALLER's lock, whose `hold` the dry run re-checks after every await. Flag on: one op
+   * with {@link DRY_RUN_DEADLINE_MS}, run under the offscreen document's own hold; the result crosses as JSON.
+   */
+  async dryRunTransaction(accountIdHex: string, requestBytes: Uint8Array, hold: WasmLockHold): Promise<DryRunResult> {
+    if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
+      return dryRunRequest(await getMidenClient(), accountIdHex, requestBytes, hold);
+    }
+    const resultB64 = await this.call('dryRunTransaction', [accountIdHex, requestBytes], {
+      deadlineMs: DRY_RUN_DEADLINE_MS
+    });
+    if (resultB64 == null) throw new Error('dryRunTransaction: offscreen document returned no result');
+    const result: DryRunResult = JSON.parse(new TextDecoder().decode(b64ToBytes(resultB64)));
+    return result;
   },
 
   /**

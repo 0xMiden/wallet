@@ -4,11 +4,17 @@ import { encodeFunctionData, Hash, isHash, isHex, toHex } from 'viem';
 import { useSwitchChain, useWriteContract } from 'wagmi';
 
 import { updateBridgedReceivePhase } from 'lib/miden/activity';
-import { IUsdcxCctpLeg } from 'lib/miden/db/types';
+import { IBridgedReceiveExtraInputs, IUsdcxCctpLeg } from 'lib/miden/db/types';
+import * as Repo from 'lib/miden/repo';
 import { revertedExecuteLeg } from 'lib/usdcx/cctp';
 import { GENERIC_EXECUTOR_ABI, getUsdcxExecutorSource } from 'lib/usdcx/constant';
 import { readNativeFeeFields } from 'lib/walletconnect/fees';
-import { isNativeReownAvailable, NativeReown, unwrapNativeResult } from 'lib/walletconnect/native';
+import {
+  isNativeReownAvailable,
+  NativeReown,
+  prepareNativeSessionChain,
+  unwrapNativeResult
+} from 'lib/walletconnect/native';
 import { EvmTransactionRevertedError, waitForEvmReceipt } from 'lib/walletconnect/receipt';
 
 /** The Arc leg of an executor-route deposit: `GenericExecutor.execute` with the attested CCTP message. */
@@ -29,7 +35,12 @@ export function useCctpExecute(): CctpExecute {
 
   return useCallback(
     async (txId, sourceChainId, leg) => {
-      const { target } = getUsdcxExecutorSource(sourceChainId);
+      const row = await Repo.transactions.get(txId);
+      const inputs: IBridgedReceiveExtraInputs | undefined = row?.extraInputs;
+      const saved = inputs?.usdcxSource;
+      const source = saved ?? getUsdcxExecutorSource(sourceChainId);
+      if (source.route !== 'cctp-executor') throw new Error('The saved route has no executor');
+      const { target } = source;
       const { message, attestation } = leg;
       if (!isHex(message) || !isHex(attestation)) {
         throw new Error('The CCTP attestation is not available yet.');
@@ -42,6 +53,8 @@ export function useCctpExecute(): CctpExecute {
 
       let hash: Hash;
       if (nativeReownAvailable) {
+        // A session that did not approve the target chain fails here, before the wallet prompt.
+        await prepareNativeSessionChain(target.chain.id);
         const result = await NativeReown.sendTransaction({
           chainId: target.chain.id,
           to: target.executor,

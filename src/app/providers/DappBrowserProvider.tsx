@@ -92,10 +92,11 @@ import { captureSnapshot, clearSnapshot, getSnapshot, snapshotStoreInternals } f
 import { type WebViewRect } from 'lib/dapp-browser/webview-rect';
 import { useOverlayScreenKey } from 'lib/e2e/useOverlayScreenKey';
 import { externalPageFailed } from 'lib/mobile/external-page-failed';
+import { faucetNoTopInsetScript, isFaucetOrigin } from 'lib/mobile/faucet-top-inset';
 import { useHideDappBubblesWhileOpen } from 'lib/mobile/useHideDappBubblesWhileOpen';
 import { resetViewportAfterWebview } from 'lib/mobile/viewport-reset';
 import { markReturningFromWebview } from 'lib/mobile/webview-state';
-import { isMobile } from 'lib/platform';
+import { isIOS, isMobile } from 'lib/platform';
 import { PropsWithChildren } from 'lib/props-with-children';
 import { selectIsReady, useWalletStore } from 'lib/store';
 import { useModalsParams } from 'lib/ui/dialog';
@@ -145,7 +146,8 @@ export interface DappSessionState {
    * requests that arrive first are refused rather than attributed to an origin we
    * have not confirmed. Dropping a request is safe; mis-attributing one is not.
    *
-   * Cleared ONLY in `openInternal` (a load this provider starts). A soft reload
+   * Cleared ONLY in `openInternal` (a load this provider starts), and never set for
+   * an opaque document, which has no origin to bind a grant or an answer to. A soft reload
    * goes through `InAppBrowser.reload` and never clears it, which matters because
    * Android's `doUpdateVisitedHistory` deliberately skips `urlChangeEvent` on a
    * reload — clearing it there would leave the session permanently refused.
@@ -232,6 +234,8 @@ interface DappBrowserContextValue {
   holdHostOverlay: () => () => void;
 }
 
+type ParkGuard = (afterHide: boolean) => boolean;
+
 const DappBrowserContext = createContext<DappBrowserContextValue | null>(null);
 
 export function useDappBrowser(): DappBrowserContextValue {
@@ -269,13 +273,30 @@ export function useForegroundDappActive(): boolean {
  * Mirrors the PR-3 helper in `useDappBrowserWebView`; the retry loop protects
  * against the rare case where executeScript races the injection of
  * `window.__midenWalletResponse`.
+ *
+ * `stillTarget` is asked before every attempt, after each sleep, and the answer
+ * is dropped once it says no (#1416). A navigation can commit after it, so the
+ * script re-checks `expectedOrigin` first, on the unforgeable `location`; "null"
+ * (any opaque document) and "" never deliver, and `null` sends a dataless answer unbound.
  */
-async function sendResponseToInstance(instance: DappWebViewInstance, response: unknown, retries = 3): Promise<void> {
-  const code = `window.__midenWalletResponse(${JSON.stringify(JSON.stringify(response))});`;
+async function sendResponseToInstance(
+  instance: DappWebViewInstance,
+  response: unknown,
+  expectedOrigin: string | null,
+  stillTarget: () => boolean,
+  retries = 3
+): Promise<void> {
+  if (expectedOrigin === 'null' || expectedOrigin === '') return;
+  const hand = `window.__midenWalletResponse(${JSON.stringify(JSON.stringify(response))});`;
+  const code =
+    expectedOrigin === null
+      ? hand
+      : `(function () { if (location.origin !== ${JSON.stringify(expectedOrigin)}) return; ${hand} })();`;
   // Small delay before the first attempt to give the bridge time to settle
   // after an awaited user confirmation.
   await new Promise(resolve => setTimeout(resolve, 100));
   for (let attempt = 1; attempt <= retries; attempt++) {
+    if (!stillTarget()) return;
     try {
       await instance.executeScript(code);
       return;
@@ -289,6 +310,9 @@ async function sendResponseToInstance(instance: DappWebViewInstance, response: u
     }
   }
 }
+
+/** Only iOS reports the phone's top inset to the faucet under our header (`faucet-top-inset.ts`). */
+const needsFaucetTopInset = (origin: string): boolean => isIOS() && isFaucetOrigin(origin);
 
 /**
  * The provider — mounted at the TabLayout level (above the route switcher).
@@ -351,6 +375,8 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
   const foregroundBlocked =
     !walletShellActive || !!request || switcherOpen || hostOverlays > 0 || alertParams.isOpen || confirmParams.isOpen;
   const foregroundBlockedRef = useRef(foregroundBlocked);
+  const foregroundOwnershipRevision = useRef(0);
+  if (foregroundBlocked && !foregroundBlockedRef.current) foregroundOwnershipRevision.current++;
   foregroundBlockedRef.current = foregroundBlocked;
   const openSwitcher = useCallback(() => setSwitcherOpen(true), []);
   const closeSwitcher = useCallback(() => setSwitcherOpen(false), []);
@@ -370,6 +396,8 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
   // a circular useCallback dependency. Populated after `restore` is
   // defined below.
   const restoreRef = useRef<((sessionId: string) => Promise<void>) | null>(null);
+  const parkRef = useRef<((sessionId: string, guard?: ParkGuard) => Promise<void>) | null>(null);
+  const nativeMinimizations = useRef(new Set<string>());
 
   useEffect(() => {
     sessionStatesRef.current = sessionStates;
@@ -577,6 +605,54 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
         });
       });
       listenerRemovers.push(() => presentationL.remove());
+      const minimizeL = await InAppBrowser.addListener('presentationMinimizeRequested', event => {
+        const state = getSessionStateById(event.id);
+        const lifetime = event.managedHostCloseToken;
+        const instance = state?.instance;
+        const park = parkRef.current;
+        if (
+          !mounted ||
+          !lifetime ||
+          !instance ||
+          !park ||
+          foregroundBlockedRef.current ||
+          foregroundIdRef.current !== event.id ||
+          managedTokens.current.get(event.id) !== lifetime ||
+          managedClosings.current.has(lifetime) ||
+          state.status !== 'active' ||
+          !state.policyResolved ||
+          state.policyRevision !== event.policyRevision ||
+          nativeMinimizations.current.has(lifetime) ||
+          !Number.isSafeInteger(event.visibilitySequence) ||
+          event.visibilitySequence !== instance.currentVisibilitySequence
+        )
+          return;
+        const ownership = foregroundOwnershipRevision.current;
+        const owns: ParkGuard = afterHide => {
+          const current = getSessionStateById(event.id);
+          return (
+            mounted &&
+            foregroundOwnershipRevision.current === ownership &&
+            !foregroundBlockedRef.current &&
+            !dappConfirmationStore.getPendingRequest(event.id) &&
+            foregroundIdRef.current === event.id &&
+            managedTokens.current.get(event.id) === lifetime &&
+            !managedClosings.current.has(lifetime) &&
+            current?.instance === instance &&
+            current.policyResolved === true &&
+            current.policyRevision === event.policyRevision &&
+            (afterHide ||
+              (current.status === 'active' && instance.currentVisibilitySequence === event.visibilitySequence))
+          );
+        };
+        nativeMinimizations.current.add(lifetime);
+        void park(event.id, owns)
+          .catch(error => {
+            console.warn('[DappBrowserProvider] native minimize failed:', error);
+          })
+          .finally(() => nativeMinimizations.current.delete(lifetime));
+      });
+      listenerRemovers.push(() => minimizeL.remove());
 
       const messageL = await InAppBrowser.addListener('messageFromWebview', async event => {
         const id = (event as { id?: string })?.id ?? 'default';
@@ -626,19 +702,42 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
           // availability probe, answered locally with PONG and never reaching
           // `processDApp`, so it carries no origin-derived authority.
           if (!state.originConfirmed && walletMessage.payload !== 'PING') {
-            await sendResponseToInstance(state.instance, {
-              type: 'MIDEN_PAGE_ERROR_RESPONSE',
-              payload: null,
-              reqId: walletMessage.reqId,
-              error: MidenDAppErrorType.NotGranted
-            });
+            // A refusal with no data, sent at once: nothing to bind.
+            await sendResponseToInstance(
+              state.instance,
+              {
+                type: 'MIDEN_PAGE_ERROR_RESPONSE',
+                payload: null,
+                reqId: walletMessage.reqId,
+                error: MidenDAppErrorType.NotGranted
+              },
+              null,
+              () => true
+            );
             return;
           }
           // PR-4 chunk 8: pass the session id through to the backend so any
           // confirmation prompt this request triggers is keyed by it and
           // the React modal routes correctly.
-          const response = await handleWebViewMessage(walletMessage, state.origin, id);
-          await sendResponseToInstance(state.instance, response);
+          const requestOrigin = state.origin;
+          const response = await handleWebViewMessage(walletMessage, requestOrigin, id);
+          if (walletMessage.payload === 'PING') {
+            // A PONG carries no data either, and the origin it would be bound to may not be confirmed yet.
+            await sendResponseToInstance(state.instance, response, null, () => true);
+            return;
+          }
+          // The page may have left the origin that asked while this ran (a wait lasts up to five
+          // minutes), and its successor can redefine the response hook, so the answer goes only to
+          // that origin (#1416).
+          await sendResponseToInstance(state.instance, response, requestOrigin, () => {
+            const current = getSessionStateById(id);
+            return (
+              current !== undefined &&
+              current.instance === state.instance &&
+              current.originConfirmed &&
+              current.origin === requestOrigin
+            );
+          });
         } catch (error) {
           console.error('[DappBrowserProvider] Error handling WebView message:', error);
         }
@@ -656,6 +755,12 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
           await state.instance.executeScript(INJECTION_SCRIPT);
         } catch (e) {
           console.error('[DappBrowserProvider] Error injecting bridge:', e);
+        }
+        // Re-read: the snapshot above predates the await, and `urlChangeEvent` may have confirmed the
+        // origin since. An unconfirmed one is left to that handler.
+        const loaded = getSessionStateById(id);
+        if (loaded?.instance === state.instance && loaded.originConfirmed && needsFaucetTopInset(loaded.origin)) {
+          await state.instance.executeScript(faucetNoTopInsetScript(loaded.origin)).catch(() => undefined);
         }
         try {
           // JSON.stringify the id so a non-alphanumeric session id
@@ -692,9 +797,15 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
           updateSession(id, s => ({
             ...s,
             origin,
-            originConfirmed: true,
+            originConfirmed: origin !== 'null',
             session: { ...s.session, url: newUrl, origin }
           }));
+          // The script is a no-op in any other document, so no loading check: a later `browserPageLoaded`
+          // for the faucet document injects again.
+          const current = getSessionStateById(id);
+          if (current?.instance && needsFaucetTopInset(origin)) {
+            void current.instance.executeScript(faucetNoTopInsetScript(origin)).catch(() => undefined);
+          }
         } catch {
           /* ignore */
         }
@@ -918,9 +1029,9 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
   );
 
   const parkInternal = useCallback(
-    async (id: string) => {
+    async (id: string, guard?: ParkGuard) => {
       const state = getSessionStateById(id);
-      if (!state?.instance) return;
+      if (!state?.instance || (guard && !guard(false))) return;
       // Clear the "was visible" watermark so the auto-park effect
       // below doesn't treat a subsequent restore() as a stale-foreground
       // → auto-park trigger. Without this, parking session A then
@@ -931,7 +1042,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       //   4. fires parkInternal(A) again → session flashes then re-parks
       // (User-visible: "dApp opens and closes immediately on first tap,
       // works on second tap once the ref was cleared by step 4.")
-      if (slotRectShownForRef.current === id) {
+      if (!guard && slotRectShownForRef.current === id) {
         slotRectShownForRef.current = null;
       }
       // Snapshot first so the bubble has a frozen preview to render.
@@ -941,13 +1052,24 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       } catch (e) {
         console.warn('[DappBrowserProvider] snapshot capture failed:', e);
       }
-      if (finalizations.current.has(id) || getSessionStateById(id)?.instance !== state.instance) return;
+      if (
+        finalizations.current.has(id) ||
+        getSessionStateById(id)?.instance !== state.instance ||
+        (guard && !guard(false))
+      )
+        return;
       try {
         await state.instance.setVisible(false);
       } catch (e) {
         console.warn('[DappBrowserProvider] setVisible(false) failed:', e);
       }
-      if (finalizations.current.has(id) || getSessionStateById(id)?.instance !== state.instance) return;
+      if (
+        finalizations.current.has(id) ||
+        getSessionStateById(id)?.instance !== state.instance ||
+        (guard && !guard(true))
+      )
+        return;
+      if (guard && slotRectShownForRef.current === id) slotRectShownForRef.current = null;
       updateSession(id, s => ({ ...s, status: 'parked' }));
 
       // PR-6 cold-bubble persistence: write both the session metadata and
@@ -971,6 +1093,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
 
   const open = useCallback(
     (next: DappSession) => {
+      foregroundOwnershipRevision.current++;
       // Dedup by id first, then by URL — tapping the same dApp tile or a
       // "recents" entry for an already-open session should restore the
       // existing session instead of spawning a duplicate. Without this,
@@ -1026,6 +1149,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
     async (sessionId?: string) => {
       const id = sessionId ?? foregroundIdRef.current;
       if (!id) return;
+      if (foregroundIdRef.current === id) foregroundOwnershipRevision.current++;
       const token = managedTokens.current.get(id);
       const closing = token ? managedClosings.current.get(token) : undefined;
       if (closing) {
@@ -1051,10 +1175,12 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
   );
 
   const park = useCallback(
-    async (sessionId?: string) => {
+    async (sessionId?: string, guard?: ParkGuard) => {
       const id = sessionId ?? foregroundIdRef.current;
       if (!id) return;
-      await parkInternal(id);
+      if (!guard && foregroundIdRef.current === id) foregroundOwnershipRevision.current++;
+      const committed = await parkInternal(id, guard);
+      if (!committed || (guard && !guard(true))) return;
       // If parking the foreground, clear the foregroundId so the launcher
       // shows again (with the bubble overlay).
       if (foregroundIdRef.current === id) {
@@ -1069,6 +1195,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       const state = getSessionStateById(sessionId);
       const lifetime = sessionLifetimes.current.get(sessionId);
       if (!state || !lifetime) return;
+      foregroundOwnershipRevision.current++;
       // Park the current foreground (if any and different from the restore
       // target) so its bubble appears while the restored session takes the
       // active slot.
@@ -1125,7 +1252,8 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
   // circular useCallback deps.
   useEffect(() => {
     restoreRef.current = restore;
-  }, [restore]);
+    parkRef.current = park;
+  }, [park, restore]);
 
   // ─── Effects that drive the native side ─────────────────────────────────
 
@@ -1364,6 +1492,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
   const foregroundPolicyRevision = foregroundVisibilityTarget?.policyRevision;
   const foregroundPolicyResolved = foregroundVisibilityTarget?.policyResolved;
   const foregroundPolicyLifetime = foregroundVisibilityTarget?.policyLifetime;
+  const foregroundOwnership = foregroundOwnershipRevision.current;
 
   // Generic dialogs are outside this provider. All native windows remain hidden while the host owns visibility.
   useEffect(() => {
@@ -1397,6 +1526,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       if (
         !reveal ||
         cancelled ||
+        foregroundOwnershipRevision.current !== foregroundOwnership ||
         foregroundBlockedRef.current ||
         foregroundIdRef.current !== id ||
         sessionLifetimes.current.get(id) !== foregroundLifetime ||
@@ -1427,6 +1557,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
     };
   }, [
     foregroundId,
+    foregroundOwnership,
     foregroundBlocked,
     foregroundInstance,
     foregroundActive,

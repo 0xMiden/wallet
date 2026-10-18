@@ -35,6 +35,10 @@ const mockRpcClient = jest.fn(() => ({
   getBlockHeaderByNumber: mockGetBlockHeaderByNumber
 }));
 const mockFromBech32 = jest.fn();
+const mockFromHex = jest.fn((id: string) => {
+  if (!id.startsWith('0x')) throw new Error(`Invalid hex account: ${id}`);
+  return { toString: () => id.toLowerCase() };
+});
 const mockFromAccountStorage = jest.fn();
 
 jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
@@ -42,8 +46,12 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
     return mockRpcClient();
   },
   Address: {
-    fromBech32: (...args: unknown[]) => mockFromBech32(...args)
+    fromBech32: (id: string) => {
+      if (id.includes('_') || /^0x/i.test(id)) throw new Error(`Invalid bech32 account: ${id}`);
+      return mockFromBech32(id);
+    }
   },
+  AccountId: { fromHex: (id: string) => mockFromHex(id) },
   BasicFungibleFaucetComponent: {
     fromAccountStorage: (storage: unknown) => mockFromAccountStorage(storage)
   }
@@ -104,6 +112,33 @@ describe('metadata/fetch', () => {
   });
 
   describe('fetchTokenMetadata', () => {
+    it.each([
+      { assetId: '0xfaucet', parsed: '0xfaucet', bech32Calls: [], hexCalls: [['0xfaucet']] },
+      {
+        assetId: 'mtst1faucet_qruqqypuyph',
+        parsed: 'mtst1faucet',
+        bech32Calls: [['mtst1faucet']],
+        hexCalls: []
+      }
+    ])(
+      'reads chain metadata for $assetId with the parsed account id',
+      async ({ assetId, parsed, bech32Calls, hexCalls }) => {
+        mockIsMidenAsset.mockReturnValue(false);
+        mockFromBech32.mockImplementation((id: string) => ({ accountId: () => ({ toString: () => id }) }));
+        mockGetAccountDetails.mockResolvedValue({
+          account: () => ({ storage: () => ({}) }),
+          isPublic: () => true
+        });
+        mockFromAccountStorage.mockReturnValue(faucetComponent('TEST', 8));
+
+        await expect(fetchTokenMetadata(assetId)).resolves.toMatchObject({ symbol: 'TEST', decimals: 8 });
+        expect(mockGetAccountDetails).toHaveBeenCalledTimes(1);
+        expect(mockGetAccountDetails.mock.calls[0][0].toString()).toBe(parsed);
+        expect(mockFromHex.mock.calls).toEqual(hexCalls);
+        expect(mockFromBech32.mock.calls).toEqual(bech32Calls);
+      }
+    );
+
     it('returns provisional USDCX for the native asset alias', async () => {
       mockIsMidenAsset.mockReturnValue(true);
 

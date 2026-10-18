@@ -10,12 +10,22 @@ jest.mock('lib/miden/front/guardian-manager', () => ({
   getOrCreateMultisigService: jest.fn()
 }));
 jest.mock('lib/miden/guardian/account', () => ({ resolveGuardianEndpoint: jest.fn() }));
-jest.mock('lib/miden-chain/effective-endpoints', () => ({ isNoteTransportConfigured: () => false }));
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  getActiveOverride: () => null,
+  isNoteTransportConfigured: () => false,
+  getEffectiveNetworkName: () => 'testnet'
+}));
 jest.mock('../back/miden-client-proxy', () => ({ midenClientProxy: { getInputNoteSummary: async () => ({}) } }));
 jest.mock('../activity/notes', () => ({ queueNoteImport: jest.fn() }));
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const { initiateConsumeNotesTransaction, initiateConsumeTransactionFromId, queueConsumeNotes } = require('./initiate');
+const {
+  initiateConsumeNotesTransaction,
+  initiateConsumeTransaction,
+  initiateConsumeTransactionFromId,
+  initiatePswapReclaimTransaction,
+  queueConsumeNotes
+} = require('./initiate');
 
 const ACCOUNT = 'mtst1account';
 const hex = (n: number) => `0x${n.toString(16).padStart(64, '0')}`;
@@ -40,6 +50,8 @@ const checkable: ISubmitEvidence = {
   refBlock: 10,
   refBlockCommitment: hex(5)
 };
+const ORIGIN = 'https://dapp.example';
+const OTHER = 'https://other.example';
 
 const existingClaim = async (
   status: ITransactionStatus,
@@ -164,7 +176,7 @@ describe("a dApp's consume request for a note another transaction holds", () => 
 
   it('is refused, never answered with the dApp transaction holding the note', async () => {
     const holder = await putDappTransaction({ status: ITransactionStatus.Queued });
-    const answer = initiateConsumeTransactionFromId(ACCOUNT, 'n1', false, true, true);
+    const answer = initiateConsumeTransactionFromId(ACCOUNT, 'n1', false, true, ORIGIN);
     await expect(answer).rejects.toThrow('This note is being consumed by another transaction');
     expect(await Repo.transactions.count()).toBe(1);
     expect(await Repo.transactions.get(holder)).toBeDefined();
@@ -176,18 +188,102 @@ describe("a dApp's consume request for a note another transaction holds", () => 
       completedAt: Math.floor(Date.now() / 1000) - 10,
       type: 'consume'
     });
-    await expect(initiateConsumeTransactionFromId(ACCOUNT, 'n1', false, true, true)).rejects.toThrow(
+    await expect(initiateConsumeTransactionFromId(ACCOUNT, 'n1', false, true, ORIGIN)).rejects.toThrow(
       'This note is being consumed by another transaction'
     );
   });
 
   it('is answered with a claim that holds the note, as before', async () => {
     const claim = await existingClaim(ITransactionStatus.Queued, []);
-    expect(await initiateConsumeTransactionFromId(ACCOUNT, 'n1', false, true, true)).toBe(claim);
+    expect(await initiateConsumeTransactionFromId(ACCOUNT, 'n1', false, true, ORIGIN)).toBe(claim);
   });
 
   it("leaves the wallet's own claim pointing at the dApp transaction that holds the note", async () => {
     const holder = await putDappTransaction({ status: ITransactionStatus.Queued });
     expect(await initiateConsumeTransactionFromId(ACCOUNT, 'n1', false, true)).toBe(holder);
+  });
+});
+
+describe('the origins a dApp consume request lets wait on its answer (#1416)', () => {
+  const origins = async (id: string) => (await Repo.transactions.get(id))?.dappOrigins;
+
+  it('a fresh row lists the requesting origin in the write that creates it', async () => {
+    const add = jest.spyOn(Repo.transactions, 'add');
+    try {
+      const id = await initiateConsumeTransactionFromId(ACCOUNT, 'n1', false, true, ORIGIN);
+      expect(add).toHaveBeenCalledTimes(1);
+      expect(add).toHaveBeenCalledWith(expect.objectContaining({ id, dappOrigins: [ORIGIN] }));
+      expect(await origins(id)).toEqual([ORIGIN]);
+    } finally {
+      add.mockRestore();
+    }
+  });
+
+  it('a wallet claim the dedup answered with gains the origin', async () => {
+    const claim = await existingClaim(ITransactionStatus.Queued, []);
+    expect(await initiateConsumeTransactionFromId(ACCOUNT, 'n1', false, true, ORIGIN)).toBe(claim);
+    expect(await origins(claim)).toEqual([ORIGIN]);
+    expect(await Repo.transactions.count()).toBe(1);
+  });
+
+  it("another origin's consume row the dedup answered with lists both origins", async () => {
+    const row = new ConsumeTransaction(ACCOUNT, [note('n1')], false);
+    await Repo.transactions.put({ ...row, dappOrigins: [OTHER] });
+    expect(await initiateConsumeTransactionFromId(ACCOUNT, 'n1', false, true, ORIGIN)).toBe(row.id);
+    expect(await origins(row.id)).toEqual([OTHER, ORIGIN]);
+  });
+
+  it('the same origin asking again is listed once', async () => {
+    const first = await initiateConsumeTransactionFromId(ACCOUNT, 'n1', false, true, ORIGIN);
+    expect(await initiateConsumeTransactionFromId(ACCOUNT, 'n1', false, true, ORIGIN)).toBe(first);
+    expect(await origins(first)).toEqual([ORIGIN]);
+  });
+
+  it('a holder the request is refused with gains no origin', async () => {
+    const holder = new Transaction(ACCOUNT, new Uint8Array([1]));
+    await Repo.transactions.put({ ...holder, heldNoteIds: ['n1'], status: ITransactionStatus.Queued });
+    await expect(initiateConsumeTransactionFromId(ACCOUNT, 'n1', false, true, ORIGIN)).rejects.toThrow(
+      'This note is being consumed by another transaction'
+    );
+    expect(await origins(holder.id)).toBeUndefined();
+  });
+
+  it("the wallet's own claims list no origin", async () => {
+    const fromId = await initiateConsumeTransactionFromId(ACCOUNT, 'n1', false, true);
+    const batch = await initiateConsumeNotesTransaction(ACCOUNT, [note('n2')], false, true);
+    expect(await origins(fromId)).toBeUndefined();
+    expect(await origins(batch)).toBeUndefined();
+  });
+});
+
+// A failed claim's report names what queued its row, read from the row itself, so it is stamped where the row is made.
+describe('what queued a consume row', () => {
+  const stamp = async (id: string) => (await Repo.transactions.get(id))?.consumeEntryPoint;
+
+  it('stamps each row with the entry point its queue call names', async () => {
+    expect(await stamp(await initiateConsumeTransaction(ACCOUNT, note('a'), false, true, 'claim'))).toBe('claim');
+    const many = await queueConsumeNotes(
+      ACCOUNT,
+      [note('b'), note('c')],
+      false,
+      true,
+      undefined,
+      undefined,
+      'claim_all'
+    );
+    expect(await stamp(many.committedId)).toBe('claim_all');
+    const auto = await initiateConsumeNotesTransaction(ACCOUNT, [note('d')], false, false, true, null, 'auto_consume');
+    expect(await stamp(auto)).toBe('auto_consume');
+    expect(await stamp(await initiateConsumeTransactionFromId(ACCOUNT, 'e', false, true, ORIGIN, 'dapp'))).toBe('dapp');
+    const reclaim = await initiateConsumeTransactionFromId(ACCOUNT, 'f', false, true, undefined, 'bridge_reclaim');
+    expect(await stamp(reclaim)).toBe('bridge_reclaim');
+  });
+
+  it('stamps a zero-fill PSWAP reclaim as swap settlement, and a row queued without an entry point with none', async () => {
+    const reclaim = await initiatePswapReclaimTransaction(ACCOUNT, note('g'), new Uint8Array([1]), 'swap-row', false);
+    expect(await stamp(reclaim)).toBe('swap_settlement');
+    const unnamed = await initiateConsumeTransaction(ACCOUNT, note('h'), false, true);
+    expect(await Repo.transactions.get(unnamed)).toBeDefined();
+    expect(await stamp(unnamed)).toBeUndefined();
   });
 });

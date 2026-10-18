@@ -32,6 +32,8 @@ export interface PendingActivityItem {
   held?: boolean;
   /** The refusal its last Retry met, shown in place of the hint. */
   retryError?: string;
+  /** Accepting it is certain to fail on the network fee, so Accept is withheld and the card says why. */
+  cannotPayFee?: boolean;
 }
 
 interface PendingActivityCardProps {
@@ -76,6 +78,7 @@ export const PendingActivityCard = ({ item, onAccept, onReject, onRetryHeld }: P
   const unreadKey = pendingNoteUnreadKey(note.id);
   const unread = !isActivityRead(readState, unreadKey, note.receivedAt ?? Number.NaN);
   const detailsId = useId();
+  const feeNoticeId = useId();
   const [expanded, setExpanded] = useState(false);
   const sender = note.senderAddress ? truncateAddress(note.senderAddress, false, 8, 4) : t('unknown');
   const amount = hasKnownScale(note.metadata) ? formatBigInt(BigInt(note.amount), note.metadata.decimals) : undefined;
@@ -83,6 +86,8 @@ export const PendingActivityCard = ({ item, onAccept, onReject, onRetryHeld }: P
   const amountLabel = amount === undefined ? tokenLabel : `${amount} ${tokenLabel}`;
   // A note served from the cache waits for the live read before it can be accepted.
   const canAccept = (status === 'pending' || status === 'failed') && note.fromCache !== true;
+  // Separate from `canAccept`: Decline costs no fee, so it stays.
+  const feeBlocked = canAccept && item.cannotPayFee === true;
   const held = status === 'claiming' && item.held === true;
   const busy = (status === 'claiming' && !held) || status === 'checking';
   // The section renders only after a tap, so it always moves on the preset except while a claim is
@@ -147,92 +152,107 @@ export const PendingActivityCard = ({ item, onAccept, onReject, onRetryHeld }: P
     />
   );
 
-  // The dot belongs to the card's left margin, not to the row's content, so it hangs off whichever
-  // control the header currently is rather than shifting the avatar beside it.
-  const header = (
-    <>
-      <UnreadDot unread={unread} label={t('activityUnread')} data-testid="pending-activity-unread" />
-      {headerRow}
-    </>
-  );
-
   return (
-    <Card asChild surface="outline" padding="none">
-      <article className="flex flex-col overflow-hidden" data-pending-status={status}>
-        <button
-          type="button"
-          className="relative flex w-full items-center gap-2 px-4 text-left focus-visible:outline-accent-primary"
-          aria-expanded={expanded}
-          aria-controls={detailsId}
-          onClick={() => {
-            hapticLight();
-            setExpanded(open => !open);
-          }}
-        >
-          {header}
-          {/* The only motion left on the card, and it cannot replay on a remount: `initial={false}`
+    // The unread dot sits on the card's top-right corner, outside the card's own box: the card clips
+    // its content to its rounded edge (`overflow-hidden`), which would cut the dot off. It is hidden
+    // from assistive tech there; the header button carries the same label, so the card is still
+    // announced as unread.
+    <div className="relative">
+      <span aria-hidden="true">
+        <UnreadDot
+          unread={unread}
+          placement="corner"
+          label={t('activityUnread')}
+          className="z-1"
+          data-testid="pending-activity-unread"
+        />
+      </span>
+      <Card asChild surface="outline" padding="none">
+        <article className="flex flex-col overflow-hidden" data-pending-status={status}>
+          <button
+            type="button"
+            className="relative flex w-full items-center gap-2 px-4 text-left focus-visible:outline-accent-primary"
+            aria-expanded={expanded}
+            aria-controls={detailsId}
+            onClick={() => {
+              hapticLight();
+              setExpanded(open => !open);
+            }}
+          >
+            {unread && <span className="sr-only">{t('activityUnread')}</span>}
+            {headerRow}
+            {/* The only motion left on the card, and it cannot replay on a remount: `initial={false}`
               mounts the glyph at its `animate` value instead of tweening to it, and `expanded`
               starts false anyway, so a card rebuilt by a filter change draws an unrotated chevron
               with nothing in flight. It turns only in answer to a tap. */}
-          <motion.span
-            aria-hidden
-            className="flex h-6 w-6 shrink-0 items-center justify-center text-text-secondary-token"
-            initial={false}
-            animate={{ rotate: expanded ? 180 : 0 }}
-            transition={transition}
-          >
-            <Icon name={IconName.ChevronDown} size="sm" className="w-4! h-4!" fill="currentColor" />
-          </motion.span>
-        </button>
+            <motion.span
+              aria-hidden
+              className="flex h-6 w-6 shrink-0 items-center justify-center text-text-secondary-token"
+              initial={false}
+              animate={{ rotate: expanded ? 180 : 0 }}
+              transition={transition}
+            >
+              <Icon name={IconName.ChevronDown} size="sm" className="w-4! h-4!" fill="currentColor" />
+            </motion.span>
+          </button>
 
-        {/* The disclosure unfolds and folds away on the design system's `reveal` preset, the one
+          {/* The disclosure unfolds and folds away on the design system's `reveal` preset, the one
             written for exactly this (height 0 <-> auto plus opacity, `springs.standard`), reduced-
             motion aware through `usePreset`, so no duration is spelled out here. A card rebuilt by
             a filter change mounts closed and renders no section, so there is nothing for an entry
             animation to act on. */}
-        <AnimatePresence>
-          {expanded && (
-            <motion.div
-              id={detailsId}
-              initial={reveal.initial}
-              animate={reveal.animate}
-              exit={reveal.exit}
-              transition={disclosureTransition}
-              className="overflow-hidden"
-            >
-              <dl className="border-t border-hairline divide-y divide-hairline text-sm">
-                {rows.map(row => (
-                  <div key={row.key} className="flex items-center justify-between gap-3 px-3 py-3">
-                    <dt className="font-heading text-text-secondary-token">{row.label}</dt>
-                    <dd className="min-w-0 truncate text-right font-heading font-bold text-text-primary-token">
-                      {row.value}
-                    </dd>
-                  </div>
-                ))}
-              </dl>
+          <AnimatePresence>
+            {expanded && (
+              <motion.div
+                id={detailsId}
+                initial={reveal.initial}
+                animate={reveal.animate}
+                exit={reveal.exit}
+                transition={disclosureTransition}
+                className="overflow-hidden"
+              >
+                <dl className="border-t border-hairline divide-y divide-hairline text-sm">
+                  {rows.map(row => (
+                    <div key={row.key} className="flex items-center justify-between gap-3 px-3 py-3">
+                      <dt className="font-heading text-text-secondary-token">{row.label}</dt>
+                      <dd className="min-w-0 truncate text-right font-heading font-bold text-text-primary-token">
+                        {row.value}
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
 
-              {/* The shared inline explanation, not a hand-rolled grey band: one 13px size for
+                {/* The shared inline explanation, not a hand-rolled grey band: one 13px size for
                 both lines, the explanation in the tone's ink and the deadline under it in the
                 quieter one, left-aligned and upright like every other block of copy in the app.
                 It sits in the card's own margin with 12px above and below, so it no longer shares
                 an edge with the buttons under it. */}
-              <div className="px-4 py-3">
-                <Notice
-                  data-testid="pending-activity-hint"
-                  tone={negative ? 'negative' : 'neutral'}
-                  role={negative ? 'alert' : 'status'}
-                  title={hint}
-                >
-                  {note.recallableAtMs === undefined
-                    ? undefined
-                    : t('noteReturnsToSenderBy', { date: new Date(note.recallableAtMs).toLocaleString() })}
-                </Notice>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+                <div className="px-4 py-3">
+                  <Notice
+                    data-testid="pending-activity-hint"
+                    tone={negative ? 'negative' : 'neutral'}
+                    role={negative ? 'alert' : 'status'}
+                    title={hint}
+                  >
+                    {note.recallableAtMs === undefined
+                      ? undefined
+                      : t('noteReturnsToSenderBy', { date: new Date(note.recallableAtMs).toLocaleString() })}
+                  </Notice>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
-        {/* The actions are ordinary design-system buttons: the app's pill, with the card's own
+          {/* Outside the fold, so a withheld Accept is never left without its reason. */}
+          {feeBlocked && (
+            <div className="px-4 pb-3">
+              <Notice id={feeNoticeId} variant="inline" tone="warning" data-testid="pending-activity-fee-notice">
+                {t('insufficientFeeAssetShort')}
+              </Notice>
+            </div>
+          )}
+
+          {/* The actions are ordinary design-system buttons: the app's pill, with the card's own
             padding around them. `className` here sets width only; nothing restyles a Button from
             the call site.
             They are `sm`, the same size as the Pending list's own Accept All — a row-level
@@ -246,39 +266,41 @@ export const PendingActivityCard = ({ item, onAccept, onReject, onRetryHeld }: P
             for what is present when that `AnimatePresence` FIRST mounts. Switching the Activity
             filter renders a different list, so every card remounted and the width tween replayed
             from zero on each tab change, reflowing the whole footer. */}
-        {/* The actions run edge to edge along the card's foot, square-cornered, under a hairline:
+          {/* The actions run edge to edge along the card's foot, square-cornered, under a hairline:
             the card's own rounded clip shapes the outer corners. */}
-        <div className="flex border-t border-hairline">
-          {onReject && status !== 'claiming' && (
-            <Button
-              variant={ButtonVariant.Ghost}
-              size="sm"
-              className="h-12 w-2/5 whitespace-nowrap rounded-none border-0"
-              title={t('activityRejectTransfer')}
-              disabled={!canAccept}
-              onClick={() => onReject(note)}
-            />
-          )}
-          {/* A claim in flight is the Button's own loading state: the accent fill stays, the
+          <div className="flex border-t border-hairline">
+            {onReject && status !== 'claiming' && (
+              <Button
+                variant={ButtonVariant.Ghost}
+                size="sm"
+                className="h-12 w-2/5 whitespace-nowrap rounded-none border-0"
+                title={t('activityRejectTransfer')}
+                disabled={!canAccept}
+                onClick={() => onReject(note)}
+              />
+            )}
+            {/* A claim in flight is the Button's own loading state: the accent fill stays, the
               label is swapped for the spinner at the label's width and taps are refused. It is
               NOT `disabled`, which would grey the one action in progress. */}
-          <Button
-            size="sm"
-            className="h-12 min-w-0 flex-1 rounded-none"
-            title={actionLabel}
-            disabled={!canAccept && !held && status !== 'claiming'}
-            isLoading={status === 'claiming' && !held}
-            aria-busy={busy}
-            onClick={() => {
-              // Accepting IS the decision, so the transfer is read from here on even though no
-              // detail page was opened.
-              markActivityRead(unreadKey, note.receivedAt ?? Number.NaN);
-              if (held) onRetryHeld?.(item);
-              else onAccept(note);
-            }}
-          />
-        </div>
-      </article>
-    </Card>
+            <Button
+              size="sm"
+              className="h-12 min-w-0 flex-1 rounded-none"
+              title={actionLabel}
+              disabled={(!canAccept && !held && status !== 'claiming') || feeBlocked}
+              isLoading={status === 'claiming' && !held}
+              aria-busy={busy}
+              aria-describedby={feeBlocked ? feeNoticeId : undefined}
+              onClick={() => {
+                // Accepting IS the decision, so the transfer is read from here on even though no
+                // detail page was opened.
+                markActivityRead(unreadKey, note.receivedAt ?? Number.NaN);
+                if (held) onRetryHeld?.(item);
+                else onAccept(note);
+              }}
+            />
+          </div>
+        </article>
+      </Card>
+    </div>
   );
 };

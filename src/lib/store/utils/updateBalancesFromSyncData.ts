@@ -1,6 +1,7 @@
 import BigNumber from 'bignumber.js';
 
 import { getFaucetIdSetting } from 'lib/miden/assets';
+import type { BalanceSnapshot } from 'lib/miden/balance-snapshot';
 import { TokenBalanceData } from 'lib/miden/front/balance';
 import { AssetMetadata, DEFAULT_TOKEN_METADATA } from 'lib/miden/metadata';
 import { getNativeDisplayMetadataSync } from 'lib/miden/metadata/native';
@@ -26,7 +27,8 @@ import { balancePrice } from './balancePrice';
  */
 export async function updateBalancesFromSyncData(
   accountPublicKey: string,
-  vaultAssets: SerializedVaultAsset[]
+  vaultAssets: SerializedVaultAsset[],
+  snapshot?: BalanceSnapshot
 ): Promise<void> {
   const store = useWalletStore.getState();
   /* c8 ignore next -- tokenPrices always initialized in store */
@@ -120,5 +122,7 @@ export async function updateBalancesFromSyncData(
     });
   }
 
-  useWalletStore.setState(state => withLandedBalances(state, accountPublicKey, balances, midenFaucetId, overridden));
+  useWalletStore.setState(state =>
+    withLandedBalances(state, accountPublicKey, balances, midenFaucetId, overridden, snapshot)
+  );
 }

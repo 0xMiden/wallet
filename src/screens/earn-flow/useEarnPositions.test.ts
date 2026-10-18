@@ -51,20 +51,34 @@ const MARKET_UID = 'DUMMY_LENDING:11155111:0x2bb4ffd7e2c6d432b697554efd77fa13bdb
 const READY_CONFIG: BridgeConfig = {
   network: 'testnet',
   version: 1,
-  evm: { chainId: 11155111 },
-  agglayer: {},
-  epoch: {
-    positionsUrl: POSITIONS_URL,
-    evmUsdc: '0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69',
-    earnProtocol: 'dummy-lending'
-  },
-  features: { earn: true, fastBridge: true, bridgeIn: false, bridgeOut: false }
+  'bridge-providers': { epoch: { positionsUrl: POSITIONS_URL }, agglayer: {}, usdcx: {} },
+  supportedEvmChains: {},
+  features: { earn: true }
 };
 const READY: BridgeConfigSnapshot = {
   network: 'testnet',
   status: 'ready',
   config: READY_CONFIG,
-  derived: null,
+  derived: {
+    network: 'testnet',
+    version: 1,
+    derivedAt: 0,
+    chains: {},
+    agglayer: { indexer: { state: 'skipped' } },
+    epoch: {
+      allocator: { state: 'skipped' },
+      midenUsdcFaucet: { state: 'skipped' },
+      market: {
+        state: 'ok',
+        value: {
+          marketUid: MARKET_UID,
+          protocolHash: '0x7a2ccf6fa10307c054284131a341a8d8cbd10ec7d3cc469fbf369c40fd86d0f9',
+          underlying: '0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69',
+          chainId: 11155111
+        }
+      }
+    }
+  },
   lastFetch: null
 };
 const LOADING: BridgeConfigSnapshot = {
@@ -74,6 +88,11 @@ const LOADING: BridgeConfigSnapshot = {
   derived: null,
   lastFetch: null
 };
+/** READY, with the Earn market read answered as `market`. */
+function withMarketRead(market: NonNullable<BridgeConfigSnapshot['derived']>['epoch']['market']): BridgeConfigSnapshot {
+  if (!READY.derived) throw new Error('READY carries a derivation');
+  return { ...READY, derived: { ...READY.derived, epoch: { ...READY.derived.epoch, market } } };
+}
 let mockConfigSnapshot = READY;
 const mockConfigListeners = new Set<() => void>();
 const publishConfig = (next: BridgeConfigSnapshot) => {
@@ -148,6 +167,7 @@ describe('useEarnPositions', () => {
     expect(result.current.vaults[0]).toMatchObject({
       id: 'dummy-lending-11155111',
       protocol: 'Dummy Lending',
+      fundingAsset: 'USDCx',
       apy: '5.00%'
     });
     expect(result.current.summary).toMatchObject({
@@ -337,19 +357,16 @@ describe('useEarnPositions', () => {
       ['names no config', null, 'The bridge config has no usable epoch.positionsUrl.'],
       [
         'names no positions host',
-        { ...READY_CONFIG, epoch: { ...READY_CONFIG.epoch, positionsUrl: undefined } },
+        { ...READY_CONFIG, 'bridge-providers': { ...READY_CONFIG['bridge-providers'], epoch: {} } },
         'The bridge config has no usable epoch.positionsUrl.'
       ],
-      [
-        'names the positions host but no Earn market',
-        { ...READY_CONFIG, epoch: { ...READY_CONFIG.epoch, earnProtocol: undefined } },
-        'The bridge config has no usable Earn market.'
-      ]
+      ['names the positions host but no Earn market', READY_CONFIG, 'The bridge config has no usable Earn market.']
     ])(
       'settles at once as a failed load, reading nothing, when a loaded snapshot %s',
       async (_case, config, message) => {
         mockUseRetryableSWR.mockImplementation(realSWR);
-        publishConfig({ ...READY, config });
+        const derived = _case === 'names the positions host but no Earn market' ? null : READY.derived;
+        publishConfig({ ...READY, config, derived });
         const { result } = renderHook(() => useEarnPositions(), { wrapper });
         await act(async () => {
           await new Promise(resolve => setTimeout(resolve, 0));
@@ -362,13 +379,47 @@ describe('useEarnPositions', () => {
       }
     );
 
+    // A market read that failed is a configured Earn whose service is down, and keeps the error and its Retry; so is a
+    // snapshot with no accepted document, since only a document says what the network configures.
+    it.each<[string, BridgeConfigSnapshot, boolean]>([
+      ['no accepted document, a config outage', { ...READY, config: null, derived: null }, false],
+      [
+        'a document with no positions host',
+        {
+          ...READY,
+          config: { ...READY_CONFIG, 'bridge-providers': { ...READY_CONFIG['bridge-providers'], epoch: {} } }
+        },
+        true
+      ],
+      ['a document with no Epoch route, so the market read was skipped', withMarketRead({ state: 'skipped' }), true],
+      ['a market read that failed', withMarketRead({ state: 'error', message: 'positions 503' }), false],
+      ['a configured market', READY, false],
+      ['a snapshot still loading', LOADING, false]
+    ])(
+      'reports Earn as not on this network only when its document configures none: %s',
+      async (_case, snapshot, expected) => {
+        mockUseRetryableSWR.mockImplementation(realSWR);
+        jest.mocked(getEarnDepositEvmAddresses).mockResolvedValue([]);
+        jest.mocked(fetchEarnPositions).mockRejectedValue(new Error('positions 503'));
+        publishConfig(snapshot);
+        const { result } = renderHook(() => useEarnPositions(), { wrapper });
+        await act(async () => {
+          await new Promise(resolve => setTimeout(resolve, 0));
+        });
+        expect(result.current.notOnNetwork).toBe(expected);
+      }
+    );
+
     it('reads again at once when the config moves the positions host', async () => {
       mockUseRetryableSWR.mockImplementation(realSWR);
       jest.mocked(getEarnDepositEvmAddresses).mockResolvedValue([]);
       jest.mocked(fetchEarnPositions).mockResolvedValue(liveResult);
       const { result } = renderHook(() => useEarnPositions(), { wrapper });
       await waitFor(() => expect(result.current.positions).toHaveLength(1));
-      const moved = { ...READY_CONFIG, epoch: { ...READY_CONFIG.epoch, positionsUrl: 'https://moved.test' } };
+      const moved = {
+        ...READY_CONFIG,
+        'bridge-providers': { ...READY_CONFIG['bridge-providers'], epoch: { positionsUrl: 'https://moved.test' } }
+      };
       act(() => publishConfig({ ...READY, config: moved }));
       await waitFor(() => expect(fetchEarnPositions).toHaveBeenCalledTimes(2));
     });

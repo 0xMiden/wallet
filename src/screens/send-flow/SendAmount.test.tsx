@@ -63,6 +63,11 @@ jest.mock('components/AmountInput', () => ({
         value={props.value}
         onChange={e => props.onValueChange(e.target.value)}
       />
+      <button
+        data-testid="change-localized-amount"
+        onClick={() => props.onValueChange('1.5', undefined, { value: '1.5', float: 1.5, formatted: '۱.۵' })}
+      />
+      <button data-testid="clear-amount" onClick={() => props.onValueChange(undefined)} />
       {props.error && <span data-testid="amount-error">{props.error}</span>}
       {props.helper}
     </div>
@@ -93,6 +98,18 @@ function renderAmount(overrides: Partial<SendAmountProps> = {}) {
 }
 
 describe('SendAmount', () => {
+  it('stores the canonical amount when the formatted callback uses Persian digits', () => {
+    const props = renderAmount();
+    fireEvent.click(screen.getByTestId('change-localized-amount'));
+    expect(props.onAmountChange).toHaveBeenCalledWith('1.5');
+  });
+
+  it('stores an empty amount when the input is cleared', () => {
+    const props = renderAmount({ amount: '1.5' });
+    fireEvent.click(screen.getByTestId('clear-amount'));
+    expect(props.onAmountChange).toHaveBeenCalledWith('');
+  });
+
   it('names the testnet bridge faucet by its label on the token row, keeping its logo', () => {
     mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
     renderAmount({ token: { ...TOKEN, id: TEST_MIDEN_USDC_FAUCET, name: 'USDC' } });
@@ -146,6 +163,14 @@ describe('SendAmount', () => {
     expect(props.onAmountChange).toHaveBeenCalledWith('12.3456');
   });
 
+  it('keeps Max visible but inert while the caller disables it', () => {
+    const props = renderAmount({ maxDisabled: true });
+
+    expect(screen.getByTestId('send-amount-max')).toBeDisabled();
+    fireEvent.click(screen.getByTestId('send-amount-max'));
+    expect(props.onAmountChange).not.toHaveBeenCalled();
+  });
+
   it('opens the token picker from the token row', () => {
     const props = renderAmount({ token: undefined });
 
@@ -171,6 +196,19 @@ describe('SendAmount', () => {
     expect(screen.getByTestId('send-amount-input')).toHaveAttribute('data-invalid', 'false');
     fireEvent.click(screen.getByTestId('send-fee-notice-receive'));
     expect(props.onReceive).toHaveBeenCalledTimes(1);
+  });
+
+  it('says Send is still checking a token it holds back, in the shared warning notice', () => {
+    renderAmount({ tokenHeld: true });
+
+    expect(screen.getByTestId('send-amount-held-notice')).toHaveTextContent('sendTokenAvailabilityChecking');
+    expect(screen.getByTestId('send-amount-held-notice')).toHaveAttribute('data-tone', 'warning');
+  });
+
+  it('shows no held notice while no token is held', () => {
+    renderAmount();
+
+    expect(screen.queryByTestId('send-amount-held-notice')).not.toBeInTheDocument();
   });
 
   it('draws Max and the Receive link in the Send ink, never the bare brand colour', () => {

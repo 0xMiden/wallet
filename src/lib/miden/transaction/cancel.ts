@@ -3,24 +3,31 @@ import { InputNoteState } from '@miden-sdk/miden-sdk/lazy';
 import { isGuardianWriteDiscardedError } from 'lib/miden/guardian/direct-switch';
 import * as Repo from 'lib/miden/repo';
 import { syncBeforeVerdict } from 'lib/miden/sync-lock';
-import { hiddenSecondsSince } from 'lib/mobile/background-time';
+import { hiddenMsBetween, hiddenSecondsSince } from 'lib/mobile/background-time';
 import { isMobile } from 'lib/platform';
 import { classifyError } from 'lib/telemetry/classify';
 import { reportOperation } from 'lib/telemetry/report-operation';
+import { reportTransactionFailure, type TransactionFailureReason } from 'lib/telemetry/transaction-failure';
 import { elapsedMsSince, operationOfType, stepOfStage } from 'lib/telemetry/transaction-operation';
 
 import {
+  CLAIM_VAULT_SHORTFALL_ERROR,
   formatRawTransactionError,
   INVALID_NOTE_ERROR,
   isUnconfirmedFailure,
   isUnconfirmedFailureReason,
   isWalletFailureReason,
   resolveTransactionErrorMessage,
+  ROTATION_FUNDING_NON_NATIVE_ERROR,
+  ROTATION_FUNDING_NOTE_UNAVAILABLE_ERROR,
+  ROTATION_PENDING_CONSUME_ERROR,
+  RotationGateConsumeRefusal,
   TRANSACTION_EXPIRED_ERROR,
   TRANSACTION_FORCE_CANCELLED_ERROR,
   TRANSACTION_INTERRUPTED_ERROR,
   TRANSACTION_INTERRUPTED_ON_STARTUP,
   TRANSACTION_STUCK_ERROR,
+  TRANSACTION_VAULT_SHORTFALL_ERROR,
   USER_CANCELLED_TRANSACTION_REASON
 } from './constants';
 import { getTransactionsInProgress } from './get';
@@ -55,13 +62,34 @@ export const MAX_WAIT_BEFORE_CANCEL = isMobile() ? 2 * 60 : 30 * 60; // 2 mins o
 // Maximum age for a queued transaction before it's considered stale and cancelled
 export const MAX_QUEUED_AGE = 30 * 60; // 30 minutes (seconds)
 
+// The failure report sends no text, so it carries the wallet's own reason as a fixed name instead.
+const REPORTED_WALLET_REASONS = new Map<unknown, TransactionFailureReason>([
+  [USER_CANCELLED_TRANSACTION_REASON, 'user_cancelled'],
+  [TRANSACTION_INTERRUPTED_ON_STARTUP, 'interrupted_on_startup'],
+  [TRANSACTION_STUCK_ERROR, 'stuck_reaped'],
+  [TRANSACTION_EXPIRED_ERROR, 'queued_expired'],
+  [TRANSACTION_INTERRUPTED_ERROR, 'consume_not_landed'],
+  [INVALID_NOTE_ERROR, 'note_invalid']
+]);
+
+const REPORTED_ROTATION_REFUSALS = new Map<string, TransactionFailureReason>([
+  [ROTATION_PENDING_CONSUME_ERROR, 'rotation_key_pending'],
+  [ROTATION_FUNDING_NOTE_UNAVAILABLE_ERROR, 'rotation_funding_note_unavailable'],
+  [ROTATION_FUNDING_NON_NATIVE_ERROR, 'rotation_funding_not_native']
+]);
+
+const reportedWalletReason = (error: unknown): TransactionFailureReason | undefined =>
+  error instanceof RotationGateConsumeRefusal
+    ? (REPORTED_ROTATION_REFUSALS.get(error.message) ?? 'rotation_gate_refusal')
+    : REPORTED_WALLET_REASONS.get(error);
+
 /**
  * The stored failure text for `error` on this row: the message the classifier writes (or a wallet reason verbatim)
  * and the untouched thrown text. Shared by `cancelTransaction` and the Unconfirmed write so one failure never reads
  * two ways (#1081).
  */
 const describeFailure = (
-  transaction: Pick<ITransaction, 'delegateTransaction'>,
+  transaction: Pick<ITransaction, 'type' | 'delegateTransaction'>,
   error: unknown,
   existing: ITransaction | undefined
 ): { displayError: string; rawError: string } => {
@@ -84,6 +112,10 @@ const describeFailure = (
     typeof error === 'string' && (isWalletFailureReason(error) || isUnconfirmedFailureReason(error))
       ? error
       : resolveTransactionErrorMessage(error, failedStage, transaction.delegateTransaction, abandonedPreWrite);
+  // A claim has no amount sent for the shortfall copy to name.
+  if (displayError === TRANSACTION_VAULT_SHORTFALL_ERROR && (existing ?? transaction).type === 'consume') {
+    return { displayError: CLAIM_VAULT_SHORTFALL_ERROR, rawError };
+  }
   return { displayError, rawError };
 };
 
@@ -113,7 +145,10 @@ export const cancelTransaction = async (
   transaction: Transaction,
   error: any,
   displayMessage: string = 'Failed',
-  onlyIfStatus?: ITransactionStatus
+  onlyIfStatus?: ITransactionStatus,
+  // Names the failure report's reason in place of the one read from `error`; the stored text and every gate below
+  // still follow `error`.
+  reportedReason?: TransactionFailureReason
 ) => {
   // Refuse to downgrade a finalized transaction. A late error fired AFTER
   // completeXxxTransaction has already marked the tx Completed (most often
@@ -184,6 +219,19 @@ export const cancelTransaction = async (
     return false;
   }
 
+  if (committed !== undefined && !committed.restoredFromBackup) {
+    reportTransactionFailure({
+      point: 'pipeline',
+      type: committed.type,
+      stage: committed.stage,
+      delegateTransaction: committed.delegateTransaction,
+      diagnostics: committed.failureDiagnostics,
+      entryPoint: committed.consumeEntryPoint,
+      reason: reportedReason ?? reportedWalletReason(error),
+      error
+    });
+  }
+
   // Gap 6: a transaction that terminally failed while the user wasn't watching
   // used to be silent - the row went to Failed and nothing told them. Notify the
   // row the modify above committed, worded by the same rule every reader of a
@@ -249,6 +297,19 @@ export const cancelTransaction = async (
   return true;
 };
 
+// A hidden WebView can lose the request its submit sent, so only the submit itself counts: from its stamp to the moment
+// it returned. Off mobile nothing freezes the page, and a row with no submit stamp has no start to measure from.
+const hiddenDuringSubmit = (row: ITransaction, returnedAtMs: number): boolean | undefined => {
+  const submittedAtMs = row.stageTimestamps?.submitting;
+  if (!isMobile() || submittedAtMs === undefined) return undefined;
+  return hiddenMsBetween(submittedAtMs, returnedAtMs) > 0;
+};
+
+const submitLegMs = (row: ITransaction, returnedAtMs: number): number | undefined => {
+  const submittedAtMs = row.stageTimestamps?.submitting;
+  return submittedAtMs === undefined ? undefined : returnedAtMs - submittedAtMs;
+};
+
 /**
  * Enter `Unconfirmed` (#1081): the submit came back without a definite outcome, so the row waits for the node's
  * verdict instead of failing. One `modify`, applied only while the row is still GeneratingTransaction (the race
@@ -257,11 +318,14 @@ export const cancelTransaction = async (
  * write does for an unconfirmed row today.
  */
 export const markTransactionUnconfirmed = async (tx: ITransaction, error: unknown): Promise<void> => {
+  // Before the first await: the submit returned its unknown outcome by the time this is called.
+  const returnedAtMs = Date.now();
   const existing = await Repo.transactions.where({ id: tx.id }).first();
   const { displayError, rawError } = describeFailure(tx, error, existing);
   const transactionId = indefiniteSubmitTransactionId(error);
   const nowSec = Math.floor(Date.now() / 1000);
   let entered = false;
+  let committed: ITransaction | undefined;
   await Repo.transactions.where({ id: tx.id }).modify(row => {
     const attemptId = row.attemptId ?? tx.attemptId;
     const windowOpen = row.cancelledInFlightAt !== undefined;
@@ -289,9 +353,24 @@ export const markTransactionUnconfirmed = async (tx: ITransaction, error: unknow
     row.error = displayError;
     if (displayError !== rawError) row.rawError = rawError;
     entered = true;
+    committed = { ...row };
     return undefined;
   });
   if (!entered) return;
+  if (committed !== undefined && !committed.restoredFromBackup) {
+    reportTransactionFailure({
+      point: 'pipeline',
+      type: committed.type,
+      stage: committed.stage,
+      delegateTransaction: committed.delegateTransaction,
+      diagnostics: committed.failureDiagnostics,
+      entryPoint: committed.consumeEntryPoint,
+      error,
+      outcome: 'unconfirmed',
+      hiddenDuringSubmit: hiddenDuringSubmit(committed, returnedAtMs),
+      submitLegMs: submitLegMs(committed, returnedAtMs)
+    });
+  }
   notifyBackgroundTransactionNotConfirmed();
   reportOperation({
     operation: operationOfType(tx.type),
@@ -1007,7 +1086,11 @@ const verifyStuckTransactions = async (): Promise<number> => {
         : 0;
       if (processingTime > MIN_PROCESSING_TIME_BEFORE_STUCK) {
         await recordOutOfBandEnd(tx.id);
-        if (await cancelTransaction(tx, TRANSACTION_INTERRUPTED_ERROR)) resolvedCount++;
+        // The row reads the same for both verdicts; only the report tells them apart.
+        const reportedReason = verdict === 'landed-external' ? 'consume_landed_external' : undefined;
+        if (await cancelTransaction(tx, TRANSACTION_INTERRUPTED_ERROR, undefined, undefined, reportedReason)) {
+          resolvedCount++;
+        }
       }
     }
     // 'unknown' (no note row / node query error) and 'processing' (our own consume

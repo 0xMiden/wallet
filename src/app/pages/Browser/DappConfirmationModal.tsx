@@ -6,6 +6,7 @@ import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
+import { DappNetworkMismatchNotice } from 'components/DappNetworkMismatchNotice';
 import { SpendingLimitChallenge } from 'components/SpendingLimitChallenge';
 import { DappOrigin } from 'components/ui/DappOrigin';
 import { ErrorLine } from 'components/ui/ErrorLine';
@@ -20,6 +21,7 @@ import {
 import { formatAllowedPrivateData, grantsStandingPrivateDataAccess } from 'lib/dapp-browser/private-data-scope';
 import { probeHardwareProtector } from 'lib/miden/back/protector-probe';
 import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
+import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
@@ -66,6 +68,9 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
   // Kept with the request whose prompt failed and shown only while that request is on screen, so a
   // rejection that lands after a replacement never reads as the new request's failure.
   const [approvalError, setApprovalError] = useState<{ requestId: string; message: string } | null>(null);
+  const previousAttemptError =
+    request.previousAttemptError === undefined ? undefined : request.previousAttemptError || t('smthWentWrong');
+  const shownError = approvalError?.requestId === request.id ? approvalError.message : previousAttemptError;
   const resolvedRef = useRef(false);
   // A declined or failed prompt must leave Approve tappable again, so this is its own
   // latch rather than folded into `resolvedRef`, which marks a request as settled for good.
@@ -296,12 +301,19 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
 
                 <div className="rounded-xl bg-fill p-4">
                   <p className="mb-1 text-xs text-text-muted">{t('network')}</p>
-                  <p className="text-sm capitalize text-ink">{request.network}</p>
+                  {/* Every request runs on the wallet's own network; `request.network` is only the dApp's claim. */}
+                  <p className="text-sm text-ink" data-testid="dapp-confirmation-network">
+                    {t(getEffectiveNetworkName())}
+                  </p>
                 </div>
 
-                {approvalError?.requestId === request.id && (
+                {request.type === 'connect' && (
+                  <DappNetworkMismatchNotice claimedNetwork={request.network} className="mt-3" />
+                )}
+
+                {shownError !== undefined && (
                   <ErrorLine data-testid="dapp-approval-error" className="mt-3">
-                    {approvalError.message}
+                    {shownError}
                   </ErrorLine>
                 )}
               </div>
@@ -322,7 +334,7 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
                   disabled={!canApprove}
                   className="flex-1 rounded-full bg-primary-500 px-6 py-3 text-sm font-semibold text-pure-white hover:bg-primary-600 disabled:cursor-not-allowed disabled:bg-primary-200"
                 >
-                  {isTransaction ? t('confirm') : t('approve')}
+                  {isTransaction ? t('confirm') : previousAttemptError === undefined ? t('approve') : t('retry')}
                 </button>
               </div>
             </motion.div>

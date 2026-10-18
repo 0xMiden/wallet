@@ -35,23 +35,22 @@ import { PropsWithChildren } from 'lib/props-with-children';
 import { navigate, useLocation } from 'lib/woozie';
 
 /**
- * Layout for tab-based pages (Home, History, Settings, Browser).
+ * Layout for tab-based pages (Home, History, Me, Browser).
  * Provides a persistent footer and animated content area.
  *
  * The top action bar is mounted when the route is in the "home"
  * tab group (/, /send, /receive, /earn, /swap) so it stays visible across
  * Overview ↔ Send ↔ Receive ↔ Earn ↔ Swap transitions. Other tabs (Explore,
- * Activity, Settings) hide it.
+ * Activity, Me) hide it.
  *
- * Only the Settings ROOT (`/settings`) is a tab destination; `/settings/<slug>`
- * sub-pages keep their FullScreenPage drill-in so back behaviour and history
- * depth are unchanged (see PageRouter).
+ * Me is the personal tab destination. It embeds the settings groups, whose rows
+ * keep the FullScreenPage drill-in used by every settings page (see PageRouter).
  */
 const TAB_ROUTES: Record<string, string> = {
   home: '/',
   explore: '/browser',
   activity: '/history',
-  settings: '/settings'
+  me: '/me'
 };
 
 const ACTION_ROUTES: Record<string, string> = {
@@ -99,13 +98,7 @@ function activeTabFromPath(pathname: string): string {
   const segment = pathname.split('/')[1] ?? '';
   if (segment === 'browser') return 'explore';
   if (segment === 'history' || segment === 'activity-details') return 'activity';
-  // Exact, unlike the segment matches above: `/history/:programId` renders
-  // inside this shell, so Activity has sub-paths to stay lit for, whereas the
-  // only Settings route that mounts TabLayout is the bare root — every
-  // `/settings/<slug>` sub-page renders in FullScreenPage (see PageRouter).
-  // Matching the segment here would only ever cover paths that cannot reach
-  // this function.
-  if (pathname === '/settings') return 'settings';
+  if (pathname === '/me') return 'me';
   return 'home';
 }
 
@@ -161,15 +154,9 @@ const FloatingNavBar = forwardRef<FloatingNavBarHandle, FloatingNavBarProps>(({ 
     }
   }));
 
-  /* The pill floats on every platform: `px-4` + `justify-center` center it and `pb-2` lifts it off
-       the frame edge. On mobile that edge is the top of the body's safe-area padding. On iOS the
-       pill sits directly on that edge, as low as the home indicator's inset permits, with no `pb-2`.
-       On Android the inset is the system navigation bar, so the pill keeps 8px above it. `min-w-0`
-       lets this flex child shrink to the footer width instead of ballooning to the pill's
-       min-content, which otherwise overflowed a 375px-wide viewport. A hidden pill moves down by its
-       own height, the safe-area floor below it and 2rem more for its shadow, so nothing of it stays
-       on screen. This wrapper spans the footer's width, so only the pill takes pointer events and
-       content beside it stays tappable and scrollable. */
+  /* The footer reserves iOS gesture clearance internally while its canvas reaches the screen edge.
+     Other platforms keep the pill's 8px lift. Only the pill takes pointer events; its wrapper keeps
+     adjacent content scrollable and lets a hidden pill move past its shadow and safe-area floor. */
   return (
     <div
       className={classNames(
@@ -224,9 +211,9 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
       unread: hasUnreadActivity ? { label: t('activityUnread') } : undefined
     },
     {
-      id: 'settings',
-      label: t('settings'),
-      icon: <Icon name={IconName.Settings} className="w-6 h-6" fill="currentColor" />
+      id: 'me',
+      label: t('profile'),
+      icon: <Icon name={IconName.User} className="w-6 h-6" fill="currentColor" />
     }
   ];
 
@@ -308,7 +295,7 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
   };
 
   // Platform-specific sizing:
-  // - Mobile: 100% to inherit from parent chain (body has safe area padding)
+  // - Mobile: inherit the canvas, with gesture clearance reserved by controls.
   // - Desktop: Responsive with max-width for comfortable reading
   // - Extension: Fixed sizes for popup/fullpage modes
   const containerStyles = isMobile()
@@ -328,7 +315,7 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
   // The Home pane holds the swipe carousel for every home-group route.
   panesRef.current[activeTab] = showActionBar ? (
     <>
-      <div className="shrink-0 relative z-10">
+      <div className="shrink-0 relative z-10" data-home-actions="true">
         <SegmentedActionBar
           items={actionItems}
           activeId={activeAction}
@@ -355,8 +342,8 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
       // that draws the bar reserves it; a slide page beside a covered tab layer does not (#1109).
       data-tab-layout="floating"
       // Mobile clips horizontally only (`clip` keeps overflow-y visible) so
-      // the BottomNav shadow can fade into the body's safe-area padding
-      // strip below the container; fixed-size extension/desktop frames keep
+      // the BottomNav shadow can fade into the safe-area floor below its controls;
+      // fixed-size extension/desktop frames keep
       // full overflow-hidden.
       className={classNames(
         'relative m-auto bg-app-bg flex flex-col',

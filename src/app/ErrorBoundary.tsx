@@ -9,8 +9,9 @@ import { PropsWithChildren } from 'lib/props-with-children';
 // frontend flow reporter, which pulls in React via `lib/miden/front`.
 import { captureCrash } from 'lib/telemetry/crash';
 
-import { WindowType } from './env';
+import { reloadPage, WindowType } from './env';
 import { Icon, IconName } from './icons/v2';
+import { needsReloadToRecover } from './reload-to-recover';
 
 interface ErrorBoundaryProps extends PropsWithChildren {
   className?: string;
@@ -34,7 +35,7 @@ export default class ErrorBoundary extends Component<ErrorBoundaryProps> {
     // Consent-gated and scrubbed downstream; guarded so a reporting failure
     // cannot replace the error screen with a second crash.
     try {
-      captureCrash(error);
+      captureCrash(error, 'react');
     } catch {
       /* best-effort */
     }
@@ -59,6 +60,7 @@ export default class ErrorBoundary extends Component<ErrorBoundaryProps> {
           className={this.props.className}
           whileMessage={this.props.whileMessage}
           windowType={this.props.windowType}
+          reloadOnTryAgain={needsReloadToRecover(this.state.error)}
         />
       );
     }
@@ -71,9 +73,10 @@ interface ErrorDisplayProps {
   className?: string;
   whileMessage?: string;
   windowType?: WindowType;
+  reloadOnTryAgain: boolean;
 }
 
-const ErrorDisplay: FC<ErrorDisplayProps> = ({ className, whileMessage, windowType }) => {
+const ErrorDisplay: FC<ErrorDisplayProps> = ({ className, whileMessage, windowType, reloadOnTryAgain }) => {
   const { t } = useTranslation();
   // Subscribe to connectivity so the offline hint updates live if the user
   // reconnects while on the crash screen (resilience gap 11 — was a one-shot read).
@@ -93,7 +96,11 @@ const ErrorDisplay: FC<ErrorDisplayProps> = ({ className, whileMessage, windowTy
   // Try Again was a dead control (no onClick). Fire the reset channel the boundary
   // already listens for: it clears the error and re-mounts the children, which
   // re-initialise (the client singleton self-heals — see gap 7). (resilience gap 11)
-  const handleTryAgain = () => window.dispatchEvent(new Event('reseterrorboundary'));
+  // A failure the page keeps, such as a failed SDK start, would fail that re-mount the same way, so it reloads.
+  const handleTryAgain = () => {
+    if (reloadOnTryAgain) reloadPage();
+    else window.dispatchEvent(new Event('reseterrorboundary'));
+  };
 
   return (
     <div

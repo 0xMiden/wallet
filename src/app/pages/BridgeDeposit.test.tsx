@@ -13,7 +13,7 @@ import { BridgeDeposit } from './BridgeDeposit';
 let mockEffectiveNetwork = 'testnet';
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
   ...jest.requireActual('lib/miden-chain/effective-endpoints'),
-  getTestNetworkNameKey: () => 'testnet',
+  getTestNetworkNameKey: () => (mockEffectiveNetwork === 'mainnet' ? null : 'testnet'),
   getEffectiveNetworkName: () => mockEffectiveNetwork
 }));
 jest.mock('components/NetworkModeSheet', () => ({ NetworkModeSheet: () => null }));
@@ -47,10 +47,15 @@ jest.mock('lib/woozie', () => ({ navigate: (...args: unknown[]) => mockNavigate(
 
 jest.mock('lib/mobile/haptics', () => ({ hapticMedium: jest.fn() }));
 
+let mockUsdcxDepositAvailable = false;
 let mockBridgeIn: FeatureAvailability = { state: 'available' };
 const mockAnyFeatureAvailability = jest.fn(
   (features: readonly string[], _options?: { hold?: boolean }): FeatureAvailability =>
-    features.join() === 'fastBridgeIn,bridgeIn' ? mockBridgeIn : { state: 'loading' }
+    features.join() === 'fastBridgeIn,bridgeIn,usdcxDeposit'
+      ? mockUsdcxDepositAvailable
+        ? { state: 'available' }
+        : mockBridgeIn
+      : { state: 'loading' }
 );
 jest.mock('lib/remote-config/use-feature-availability', () => ({
   useAnyFeatureAvailability: (features: readonly string[], options?: { hold?: boolean }) =>
@@ -74,10 +79,10 @@ jest.mock('components/ui/Button', () => ({
 }));
 
 jest.mock('components/PageHeader', () => ({
-  PageHeader: ({ title, onClose }: { title: string; onClose?: () => void }) => (
+  PageHeader: ({ title, onBack }: { title: string; onBack?: () => void }) => (
     <div>
       {title}
-      <button type="button" aria-label="close" onClick={onClose}>
+      <button type="button" aria-label="close" onClick={onBack}>
         close
       </button>
     </div>
@@ -97,6 +102,7 @@ describe('BridgeDeposit (#875)', () => {
   beforeEach(() => {
     mockConnection = { address: undefined, connected: false };
     mockBridgeIn = { state: 'available' };
+    mockUsdcxDepositAvailable = false;
     mockEffectiveNetwork = 'testnet';
     mockNavigate.mockClear();
   });
@@ -126,13 +132,21 @@ describe('BridgeDeposit (#875)', () => {
     expect(warning).toHaveAttribute('role', 'note');
     expect(warning).toHaveAttribute('data-tone', 'warning');
     expect(warning.querySelector('[data-slot="title"]')?.textContent).toBe('evmConnectTestWalletTitle');
-    expect(warning.querySelector('[data-slot="body"]')?.textContent).toBe('evmConnectTestWalletBody');
+    expect(warning.querySelector('[data-slot="body"]')?.textContent).toBe('bridgeConnectTestWalletBody');
+  });
+
+  it('shows no test-wallet warning on mainnet, where the funds are real', () => {
+    mockEffectiveNetwork = 'mainnet';
+    render(<BridgeDeposit />);
+
+    expect(screen.getByText('bridgeConnectWalletTitle')).toBeInTheDocument();
+    expect(screen.queryByTestId('evm-connect-test-wallet-warning')).not.toBeInTheDocument();
   });
 
   it('opens a wallet while a bridge-in route can start', () => {
     render(<BridgeDeposit />);
 
-    expect(screen.getByRole('button', { name: 'openWallet' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'bridgeConnectWalletAction' })).toBeEnabled();
     expect(screen.queryByTestId('feature-unavailable-notice')).not.toBeInTheDocument();
   });
 
@@ -142,18 +156,21 @@ describe('BridgeDeposit (#875)', () => {
     mockBridgeIn = { state: 'unavailable', reason: 'not-deployed', detail: 'l1Bridge has no code' };
     render(<BridgeDeposit />);
 
-    expect(screen.getByRole('button', { name: 'openWallet' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'bridgeConnectWalletAction' })).toBeDisabled();
     expect(screen.getByTestId('feature-unavailable-notice')).toHaveTextContent('bridgeFeatureUnavailableTitle');
   });
 
-  // The USDCx route reads no bridge config, so on testnet it keeps the entry open and holds no fast poll.
+  // A configured USDCx route keeps the entry open when the other routes are unavailable.
   it('keeps Open wallet enabled on testnet while the Fast and Slow routes cannot start', () => {
+    mockUsdcxDepositAvailable = true;
     mockBridgeIn = { state: 'unavailable', reason: 'not-deployed', detail: 'l1Bridge has no code' };
     render(<BridgeDeposit />);
 
-    expect(screen.getByRole('button', { name: 'openWallet' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'bridgeConnectWalletAction' })).toBeEnabled();
     expect(screen.queryByTestId('feature-unavailable-notice')).not.toBeInTheDocument();
-    expect(mockAnyFeatureAvailability).toHaveBeenLastCalledWith(['fastBridgeIn', 'bridgeIn'], { hold: false });
+    expect(mockAnyFeatureAvailability).toHaveBeenLastCalledWith(['fastBridgeIn', 'bridgeIn', 'usdcxDeposit'], {
+      hold: true
+    });
   });
 
   // The connected branch hands the page to the deposit screen, which holds for its own greyed-out routes.
@@ -168,7 +185,7 @@ describe('BridgeDeposit (#875)', () => {
     render(<BridgeDeposit />);
 
     expect(screen.queryByTestId('feature-unavailable-notice') !== null).toBe(hold);
-    expect(mockAnyFeatureAvailability).toHaveBeenLastCalledWith(['fastBridgeIn', 'bridgeIn'], { hold });
+    expect(mockAnyFeatureAvailability).toHaveBeenLastCalledWith(['fastBridgeIn', 'bridgeIn', 'usdcxDeposit'], { hold });
   });
 
   it('hands a connected wallet to the deposit screen, whose form carries its own warning', () => {

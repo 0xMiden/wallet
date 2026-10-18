@@ -5,8 +5,9 @@
  */
 import * as Repo from 'lib/miden/repo';
 
-import { initiateConsumeNotesTransaction, initiateRotationFundingClaim } from './initiate';
-import { ConsumeTransaction, ITransaction, ITransactionStatus } from '../db/types';
+import { enqueueRotationFundingClaim, initiateConsumeNotesTransaction, initiateRotationFundingClaim } from './initiate';
+import { hotKeyRotationLockName } from './rotation-funding';
+import { ConsumeTransaction, ITransaction, ITransactionStatus, ReplaceHotKeyTransaction } from '../db/types';
 import { ConsumableNote } from '../types';
 
 let mockNativeFaucetId: string | null = 'native-faucet';
@@ -27,7 +28,11 @@ jest.mock('lib/miden/front/guardian-manager', () => ({
   getOrCreateMultisigService: jest.fn()
 }));
 jest.mock('lib/miden/guardian/account', () => ({ resolveGuardianEndpoint: jest.fn() }));
-jest.mock('lib/miden-chain/effective-endpoints', () => ({ isNoteTransportConfigured: () => false }));
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  getActiveOverride: () => null,
+  isNoteTransportConfigured: () => false,
+  getEffectiveNetworkName: () => 'testnet'
+}));
 jest.mock('../back/miden-client-proxy', () => ({ midenClientProxy: {} }));
 jest.mock('../activity/notes', () => ({ queueNoteImport: jest.fn() }));
 
@@ -104,6 +109,7 @@ describe('initiateRotationFundingClaim', () => {
     expect(rows[0]!.id).toBe(id);
     expect(rows[0]!.noteIds).toEqual(['a', 'b']);
     expect(rows[0]!.rotationFunding).toBe(true);
+    expect(rows[0]!.consumeEntryPoint).toBe('rotation_funding');
   });
 
   it('stamps every row when a failed flagged batch splits the notes into rows of their own', async () => {
@@ -196,6 +202,69 @@ describe('initiateRotationFundingClaim', () => {
     await initiateRotationFundingClaim(ACCOUNT, [note('a')], { manualRetry: true });
 
     expect((await consumeRows()).filter(row => row.status === ITransactionStatus.Queued)).toHaveLength(1);
+  });
+});
+
+describe('enqueueRotationFundingClaim', () => {
+  const lockNames: string[] = [];
+  // The consume rows as they stood when the lock stub released, so a rewrite that queues
+  // the claim after the rotation lock is released fails the calling test.
+  let rowsAtRelease: ITransaction[] = [];
+  beforeAll(() => {
+    Object.defineProperty(navigator, 'locks', {
+      configurable: true,
+      value: {
+        request: async (name: string, callback: () => Promise<unknown>) => {
+          lockNames.push(name);
+          try {
+            return await callback();
+          } finally {
+            rowsAtRelease = await consumeRows();
+          }
+        }
+      }
+    });
+  });
+
+  beforeEach(() => {
+    lockNames.length = 0;
+    rowsAtRelease = [];
+  });
+
+  it('queues the claim under the rotation lock when no rotation is live', async () => {
+    const id = await enqueueRotationFundingClaim(ACCOUNT, [note('a')], {
+      delegate: true,
+      verificationBaseFee: BASE_FEE
+    });
+
+    expect(lockNames).toEqual([hotKeyRotationLockName(ACCOUNT)]);
+    expect(hotKeyRotationLockName(ACCOUNT)).toBe('hot-key-rotation:mtst1account');
+    expect(rowsAtRelease).toEqual([
+      expect.objectContaining({ id, noteIds: ['a'], rotationFunding: true, delegateTransaction: true })
+    ]);
+  });
+
+  it.each([ITransactionStatus.Queued, ITransactionStatus.GeneratingTransaction])(
+    'writes nothing while a rotation row is live (status %i)',
+    async status => {
+      await Repo.transactions.add({ ...new ReplaceHotKeyTransaction(ACCOUNT, false), status });
+
+      const id = await enqueueRotationFundingClaim(ACCOUNT, [note('a')], {});
+
+      expect(id).toBeNull();
+      expect(await consumeRows()).toEqual([]);
+    }
+  );
+
+  it('is not held back by a failed rotation, or by a live rotation of another account', async () => {
+    await Repo.transactions.bulkAdd([
+      { ...new ReplaceHotKeyTransaction(ACCOUNT, false), status: ITransactionStatus.Failed },
+      new ReplaceHotKeyTransaction('mtst1other', false)
+    ]);
+
+    await enqueueRotationFundingClaim(ACCOUNT, [note('a')], {});
+
+    expect(await consumeRows()).toHaveLength(1);
   });
 });
 

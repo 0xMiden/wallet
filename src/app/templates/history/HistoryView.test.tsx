@@ -1,6 +1,7 @@
 import React from 'react';
 
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { format } from 'date-fns';
 
 import { PageActiveContext, TabActiveContext } from 'app/layouts/page-active';
 import { springs, tabBarSwap } from 'lib/animation';
@@ -1049,7 +1050,7 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
     const row = rowByTitle('swap MDN → ETH');
     expect(iconNameIn(row)).toBe('Convert');
     expect(row).toHaveAttribute('data-iconbg', 'bg-tx-swap');
-    expect(row).toHaveAttribute('data-subtitle', 'viaInProtocolDex');
+    expect(row).toHaveAttribute('data-subtitle', 'swapPlacedAt');
     expect(row).toHaveAttribute('data-amount-value', '0.5');
     expect(row).toHaveAttribute('data-amount-symbol', 'ETH');
     expect(row).toHaveAttribute('data-amount-direction', 'neutral');
@@ -1100,7 +1101,7 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
     renderFull();
     const row = rowByTitle('swap fallback');
     expect(iconNameIn(row)).toBe('Convert');
-    expect(row).toHaveAttribute('data-subtitle', 'viaInProtocolDex');
+    expect(row).toHaveAttribute('data-subtitle', 'swapPlacedAt');
     expect(row).toHaveAttribute('data-amount-value', '3');
     expect(row).toHaveAttribute('data-amount-direction', 'neutral');
   });
@@ -1108,7 +1109,7 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
   it('falls back to message for a swap missing the offered token', () => {
     renderFull();
     const row = rowByTitle('swap notoken');
-    expect(row).toHaveAttribute('data-subtitle', 'viaInProtocolDex');
+    expect(row).toHaveAttribute('data-subtitle', 'swapPlacedAt');
     // No entry.amount and no requestedAmount → no amount at all.
     expect(row).toHaveAttribute('data-amount-value', '');
   });
@@ -1616,9 +1617,45 @@ describe('HistoryView Guardian switch audit trail', () => {
 
 // A completed swap row is the one trace of the whole order, so its badge follows settlement.
 describe('HistoryView swap settlement status', () => {
+  it('keeps distinct orders distinct without presenting the unreceived quote as money received', () => {
+    const base = makeEntry({
+      txType: 'swap',
+      token: 'USDCX',
+      amount: '10',
+      requestedToken: 'IUSDT',
+      requestedAmount: '99',
+      swapSettlement: 'reclaimed'
+    });
+    render(
+      <HistoryView
+        {...baseProps}
+        entries={[
+          { ...base, key: 'expiry-order', timestamp: 1_792_130_261 },
+          { ...base, key: 'cancel-order', timestamp: 1_792_130_629 }
+        ]}
+        fullHistory
+      />
+    );
+    const rows = screen.getAllByTestId('activity-row');
+    expect(rows).toHaveLength(2);
+    for (const row of rows) {
+      expect(row).toHaveAttribute('data-amount-value', 'swapOfferedAmount');
+      expect(row).toHaveAttribute('data-amount-symbol', 'USDCX');
+      expect(row).toHaveAttribute('data-amount-direction', 'neutral');
+    }
+    // The identity translator renders every subtitle as the bare key, so each row's own time is read off the call.
+    const expiryPlacedAt = format(new Date(1_792_130_261 * 1000), 'HH:mm');
+    const cancelPlacedAt = format(new Date(1_792_130_629 * 1000), 'HH:mm');
+    expect(expiryPlacedAt).not.toBe(cancelPlacedAt);
+    expect(mockT).toHaveBeenCalledWith('swapPlacedAt', { time: expiryPlacedAt });
+    expect(mockT).toHaveBeenCalledWith('swapPlacedAt', { time: cancelPlacedAt });
+    expect(mockT).toHaveBeenCalledWith('swapOfferedAmount', { amount: '10' });
+  });
+
   it.each([
     ['pending', 'pending'],
     ['reclaimed', 'reclaimed'],
+    ['reclaiming', 'reclaiming'],
     [undefined, 'confirmed']
   ] as const)('reads %s settlement as the %s status', (swapSettlement, status) => {
     const entry = makeEntry({

@@ -32,6 +32,8 @@ import {
 import type {
   BuildCustomInput,
   BuildCustomOutput,
+  BuildCustomScriptInput,
+  BuildCustomScriptOutput,
   NoteTypeName,
   Outcome,
   OutputSpec,
@@ -66,7 +68,7 @@ export interface DappSend {
   noteType: NoteTypeName;
   /**
    * `wire` sends `requestTransaction({ type: 'send' })` through the raw provider: the adapter routes send and consume
-   * client-side (adapter.js:118-124), so only this reaches the wallet's own routing (dapp.ts:1761-1775).
+   * client-side (adapter.js:118-124), so only this reaches the wallet's own routing (dapp.ts:1795-1809).
    */
   via: 'requestSend' | 'requestTransaction' | 'wire';
   recallBlocks?: number;
@@ -170,8 +172,12 @@ export async function dappSendToTheEnd(
   return written;
 }
 
+/** A dApp-built request: the notes it builds itself (`buildCustom`), or a transaction script it compiles (X8). */
+export type CustomBuild = BuildCustomInput | BuildCustomScriptInput;
+const isScriptBuild = (build: CustomBuild): build is BuildCustomScriptInput => 'kind' in build;
+
 export interface CustomWrite {
-  build: BuildCustomInput;
+  build: CustomBuild;
   submit: { recipientAddress: string; importNotes: boolean; inputNoteIds?: string[] };
   /** Blocks the chain moves between the dApp's build and the request: 3 (B3) or 55 (X6). */
   advance: number;
@@ -179,27 +185,52 @@ export interface CustomWrite {
   /** Per output, in build order: whether B receives and claims it. */
   toB: boolean[];
   consumedNullifiers: string[];
-  /** `amount` is the gross row single-sig shows; `netAmount`, when it differs, the net row a Guardian summary shows. */
-  preview: { amount: RegExp; netAmount?: RegExp; outputNotes: number; timeoutMs?: number };
+  /**
+   * `amount` is the gross row single-sig shows, null for a request that moves nothing but the fee (X8c); `netAmount`,
+   * when it differs, the net row a Guardian summary shows; `storageChanged`, when set, the "Storage changed" row.
+   */
+  preview: {
+    amount: RegExp | null;
+    netAmount?: RegExp;
+    outputNotes: number;
+    storageChanged?: boolean;
+    timeoutMs?: number;
+  };
   slot?: AccountSlot;
 }
 
 const previewFor = (side: WriteSide, preview: CustomWrite['preview']) => ({
   amount: side.axis.expected.previewAmount === 'net' ? (preview.netAmount ?? preview.amount) : preview.amount,
   outputNotes: preview.outputNotes,
+  storageChanged: preview.storageChanged,
   timeoutMs: preview.timeoutMs
 });
 
 /** A dApp-built request at the dApp's own height N, requested at N + advance, approved at N + advance + 1, to the end. */
+export function customWriteToTheEnd(
+  j: Journey,
+  dapp: DappHandle,
+  write: CustomWrite & { build: BuildCustomInput },
+  ctx: CellContext
+): Promise<{ built: BuildCustomOutput; written: WriteResult }>;
+/** The same for any build; only a note build's output carries the note bytes X7 compares. */
+export function customWriteToTheEnd(
+  j: Journey,
+  dapp: DappHandle,
+  write: CustomWrite,
+  ctx: CellContext
+): Promise<{ built: BuildCustomOutput | BuildCustomScriptOutput; written: WriteResult }>;
 export async function customWriteToTheEnd(
   j: Journey,
   dapp: DappHandle,
   write: CustomWrite,
   ctx: CellContext
-): Promise<{ built: BuildCustomOutput; written: WriteResult }> {
+): Promise<{ built: BuildCustomOutput | BuildCustomScriptOutput; written: WriteResult }> {
   const side = await sideOf(j, dapp, write.slot);
   const baseline = await captureBaseline(side, Object.keys(write.vaultDelta), ctx);
-  const built = await callDapp(dapp, 'buildCustom', write.build, ctx.deadline);
+  const built = isScriptBuild(write.build)
+    ? await callDapp(dapp, 'buildCustomScript', write.build, ctx.deadline)
+    : await callDapp(dapp, 'buildCustom', write.build, ctx.deadline);
   await advanceChain(j.walletA, dapp, built.boundBlockNum + write.advance, ctx);
   const { result } = await answerPrompt(
     dapp,

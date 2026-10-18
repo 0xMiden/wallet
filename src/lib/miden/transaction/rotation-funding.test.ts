@@ -1,55 +1,6 @@
 import { ITransactionStatus, ReplaceHotKeyTransaction } from '../db/types';
 import { ConsumableNote, SwapOrderNoteMetadata } from '../types';
-import {
-  enqueueRotationFundingClaim,
-  hotKeyRotationLockName,
-  isLiveRotationFundingRow,
-  isLiveRotationRow,
-  selectRotationFundingNotes
-} from './rotation-funding';
-
-// Set while the lock stub's callback is running, cleared once it returns. The mock below
-// throws on it so a rewrite that calls `initiateRotationFundingClaim` after the lock has
-// already been released fails the calling test instead of passing on its returned value
-// alone. A thrown error, not `expect`, because this runs outside any `it` block.
-let held = false;
-const mockInitiateRotationFundingClaim = jest.fn(
-  async (_accountId: string, _notes: ConsumableNote[], _opts: object): Promise<string> => {
-    if (!held) throw new Error('initiateRotationFundingClaim called with the rotation lock already released');
-    return 'claim-tx';
-  }
-);
-jest.mock('./initiate', () => ({
-  initiateRotationFundingClaim: (accountId: string, notes: ConsumableNote[], opts: object) =>
-    mockInitiateRotationFundingClaim(accountId, notes, opts)
-}));
-
-let mockRows: ReplaceHotKeyTransaction[] = [];
-jest.mock('lib/miden/repo', () => ({
-  transactions: {
-    filter: (predicate: (row: ReplaceHotKeyTransaction) => boolean) => ({
-      first: async () => mockRows.find(predicate)
-    })
-  }
-}));
-
-const lockNames: string[] = [];
-beforeAll(() => {
-  Object.defineProperty(navigator, 'locks', {
-    configurable: true,
-    value: {
-      request: async (name: string, callback: () => Promise<unknown>) => {
-        lockNames.push(name);
-        held = true;
-        try {
-          return await callback();
-        } finally {
-          held = false;
-        }
-      }
-    }
-  });
-});
+import { isLiveRotationFundingRow, isLiveRotationRow, selectRotationFundingNotes } from './rotation-funding';
 
 const NATIVE = 'native-faucet';
 const ACCOUNT = 'acc-1';
@@ -167,45 +118,5 @@ describe('the gate row predicates', () => {
     expect(isLiveRotationRow(rotation, 'acc-2')).toBe(false);
     expect(isLiveRotationFundingRow({ ...rotation, type: 'consume', rotationFunding: true }, ACCOUNT)).toBe(true);
     expect(isLiveRotationFundingRow({ ...rotation, type: 'consume' }, ACCOUNT)).toBe(false);
-  });
-});
-
-describe('enqueueRotationFundingClaim', () => {
-  beforeEach(() => {
-    jest.clearAllMocks();
-    lockNames.length = 0;
-    mockRows = [];
-  });
-
-  it('queues the claim under the rotation lock when no rotation is live', async () => {
-    const id = await enqueueRotationFundingClaim(ACCOUNT, [note('a')], { verificationBaseFee: 10000 });
-
-    expect(id).toBe('claim-tx');
-    expect(lockNames).toEqual([hotKeyRotationLockName(ACCOUNT)]);
-    expect(hotKeyRotationLockName(ACCOUNT)).toBe('hot-key-rotation:acc-1');
-    expect(mockInitiateRotationFundingClaim).toHaveBeenCalledWith(ACCOUNT, [note('a')], { verificationBaseFee: 10000 });
-  });
-
-  it.each([ITransactionStatus.Queued, ITransactionStatus.GeneratingTransaction])(
-    'writes nothing while a rotation row is live (status %i)',
-    async status => {
-      mockRows = [{ ...new ReplaceHotKeyTransaction(ACCOUNT, false), status }];
-
-      const id = await enqueueRotationFundingClaim(ACCOUNT, [note('a')], {});
-
-      expect(id).toBeNull();
-      expect(mockInitiateRotationFundingClaim).not.toHaveBeenCalled();
-    }
-  );
-
-  it('is not held back by a failed rotation, or by a live rotation of another account', async () => {
-    mockRows = [
-      { ...new ReplaceHotKeyTransaction(ACCOUNT, false), status: ITransactionStatus.Failed },
-      new ReplaceHotKeyTransaction('acc-2', false)
-    ];
-
-    await enqueueRotationFundingClaim(ACCOUNT, [note('a')], {});
-
-    expect(mockInitiateRotationFundingClaim).toHaveBeenCalledTimes(1);
   });
 });

@@ -1,6 +1,7 @@
 import { isDeepStrictEqual } from 'node:util';
 
 import type { VaultReading } from './balance-truth';
+import type { ReactPageView, ReactSnapshot, ReactTree } from '../test-dapp/react-protocol';
 
 /** Pure decisions the dApp driver makes, kept free of Playwright and the wallet page so Jest can pin them. */
 
@@ -127,8 +128,8 @@ export interface RanRow {
 }
 
 /**
- * K6's evidence: something ran, and every row that ran is a consume of the stale account. A row for any other account,
- * of another type or naming no account is not that bug, so the cell stays a new failure.
+ * Whether a stale consume executed: something ran, and every row that ran is a consume of the stale account. A row for
+ * any other account, of another type or naming no account is a different failure.
  */
 export function onlyStaleConsumesRan(ran: readonly RanRow[], staleAccount: string): boolean {
   return (
@@ -153,8 +154,8 @@ export interface NonCurrentRead {
 }
 
 /**
- * K9's evidence for M4-reads. A read stays on its session's account when it was refused before any popup with
- * NOT_GRANTED (Q10) or, after a popup, served exactly that account's vault (K9). A read served with no popup, an
+ * The evidence for M4-reads. A read stays on its session's account when it was refused before any popup with
+ * NOT_GRANTED (Q10) or, after a popup, served exactly that account's vault. A read served with no popup, an
  * approval that then failed and another account's vault are neither, so the cell stays a new failure.
  */
 export function nonCurrentReadEvidence(reads: readonly NonCurrentRead[]): {
@@ -205,4 +206,42 @@ export function assetMap(assets: readonly { faucetId: string; amount: string | b
   return Object.fromEntries(
     [...totals].filter(([, amount]) => amount !== 0n).map(([id, amount]) => [id, amount.toString()])
   );
+}
+
+/** The last snapshot a React probe committed for `tree`: what its context holds now. */
+export const latestSnapshot = (view: ReactPageView, tree: ReactTree): ReactSnapshot | undefined =>
+  view.snapshots.filter(snapshot => snapshot.tree === tree).at(-1);
+
+/**
+ * Why a freshly loaded React page is not where every React cell starts, or [] when it is: both probes committed, both
+ * adapters detected the wallet (a connect before that opens the Chrome Web Store and throws WalletNotReadyError,
+ * WalletProvider.tsx:254-268), neither tree is connected or connecting, the provider holds no account and nothing
+ * threw.
+ */
+export function reactAtRest(view: ReactPageView): string[] {
+  const trees = (['wallet', 'midenfi'] as const).map(tree => ({ tree, snapshot: latestSnapshot(view, tree) }));
+  const problems = trees.flatMap(({ tree, snapshot }) => {
+    if (snapshot === undefined) return [`the ${tree} probe has not committed`];
+    const detected = snapshot.readyStates.length > 0 && snapshot.readyStates.every(state => state === 'Installed');
+    return [
+      ...(detected ? [] : [`${tree} readyStates ${snapshot.readyStates.join(',') || 'none'}`]),
+      ...(snapshot.connected || snapshot.connecting ? [`${tree} is connected or connecting`] : [])
+    ];
+  });
+  if (view.providerAddress !== null) problems.push(`the provider holds ${view.providerAddress}`);
+  if (view.pageErrors.length > 0) problems.push(`page errors: ${view.pageErrors.join(' | ')}`);
+  return problems;
+}
+
+/**
+ * MidenProvider's state once it settled: not initializing, ready or failed, and unchanged in the MidenFi probe's last
+ * commit for at least `quietMs` of the page's clock. Its client setup can start again when the signer context changes
+ * (MidenFiSignerProvider.tsx:618-631), so one ready or failed reading may still be replaced.
+ */
+export function settledMiden(view: ReactPageView, quietMs: number): NonNullable<ReactSnapshot['miden']> | null {
+  const last = latestSnapshot(view, 'midenfi');
+  const miden = last?.miden;
+  if (last === undefined || miden === undefined || miden.isInitializing) return null;
+  if (!miden.isReady && miden.error === null) return null;
+  return view.now - last.at >= quietMs ? miden : null;
 }

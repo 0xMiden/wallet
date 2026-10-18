@@ -1,6 +1,8 @@
 import { act, renderHook } from '@testing-library/react';
 
 import { TEST_NATIVE_ETH_FAUCET } from 'lib/epoch/testing/bridge-config';
+import { claimFeeShortfalls } from 'lib/miden/fees/spendable';
+import type { TokenBalanceData } from 'lib/miden/front/balance';
 import type { ClaimableNoteWithMetadata } from 'lib/miden/front/claimable-notes';
 
 import { __resetActivityClaimsForTest, useActivityClaims } from './useActivityClaims';
@@ -20,6 +22,9 @@ const mockRequeue = jest.fn();
 const mockStart = jest.fn();
 const mockRequest = jest.fn();
 const mockQueueMany = jest.fn();
+// What Accept and Accept All pass after their notes: delegate, manualRetry, and what queued the row.
+const ACCEPTS = [false, true, 'claim'] as const;
+const ACCEPTS_ALL = [false, true, undefined, undefined, 'claim_all'] as const;
 const mockAnyOf = jest.fn();
 const mockSubscriptions: Array<{
   query: () => Promise<unknown>;
@@ -78,23 +83,51 @@ jest.mock('lib/dexie-live-query', () => ({
     return unsubscribe;
   }
 }));
+// The open bridge trackers whose saved route names the faucet that delivers them.
+type MockBridgeRow = { type: string; extraInputs: Record<string, unknown> };
+const mockBridgeRows: MockBridgeRow[] = [];
 jest.mock('lib/miden/repo', () => ({
   transactions: {
-    where: (field: string) => ({ anyOf: (ids: string[]) => ({ toArray: () => mockAnyOf(field, ids) }) })
+    where: (field: string) => ({
+      anyOf: (ids: string[]) => ({ toArray: () => mockAnyOf(field, ids) }),
+      equals: (value: string) => ({
+        filter: (predicate: (row: MockBridgeRow) => boolean) => ({
+          toArray: async () => mockBridgeRows.filter(row => field === 'type' && row.type === value && predicate(row))
+        })
+      })
+    })
   }
 }));
 jest.mock('lib/miden/db/types', () => ({
   ITransactionStatus: { Queued: 0, GeneratingTransaction: 1, Completed: 2, Failed: 3, Unconfirmed: 4 }
 }));
-jest.mock('lib/miden/front', () => ({ useMidenContext: () => ({ signTransaction: jest.fn() }) }));
+// The vault rows and the base fee the claim gate reads. A null fee fails the gate open, which every case not about
+// the fee runs under.
+const mockBalances: { data: TokenBalanceData[]; isLoading: boolean } = { data: [], isLoading: false };
+let mockBaseFee: number | null = null;
+jest.mock('lib/miden/front', () => ({
+  useMidenContext: () => ({ signTransaction: jest.fn() }),
+  useAllTokensBaseMetadata: () => ({}),
+  useAllBalances: () => mockBalances
+}));
+jest.mock('app/hooks/useVerificationBaseFee', () => ({ __esModule: true, default: () => mockBaseFee }));
+// The real rule runs; the spy counts how often the hook asks it.
+jest.mock('lib/miden/fees/spendable', () => {
+  const actual = jest.requireActual<typeof import('lib/miden/fees/spendable')>('lib/miden/fees/spendable');
+  return { ...actual, claimFeeShortfalls: jest.fn(actual.claimFeeShortfalls) };
+});
 jest.mock('lib/miden/front/guardian-sync', () => ({ zustandProvider: {} }));
 jest.mock('lib/platform', () => ({ isExtension: () => mockFlags.extension }));
 // The bridge registry names its native-ETH faucet, which sends every Agglayer delivery; the SDK reads an id as itself.
-jest.mock('lib/remote-config/runtime', () => ({ getBridgeConfigSnapshot: () => ({}) }));
+jest.mock('lib/remote-config/runtime', () => ({
+  getBridgeConfigSnapshot: () => ({}),
+  initBridgeConfig: async () => ({})
+}));
 jest.mock('lib/remote-config/values', () => ({
-  selectNativeEthFaucet: () =>
+  selectNativeEthFaucets: () => [
     jest.requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
       .TEST_NATIVE_ETH_FAUCET
+  ]
 }));
 jest.mock('lib/miden/sdk/helpers', () => ({ accountRefToSdk: (ref: string) => ({ toString: () => ref }) }));
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
@@ -112,6 +145,13 @@ function settle(rows: MockRow[]) {
   act(() => latestSubscription().observer.next(rows));
 }
 
+// Accept All reads the saved delivery faucets before it groups, so its first queue call follows that read.
+async function settleDeliverySenders() {
+  await act(async () => {
+    await new Promise(resolve => setTimeout(resolve, 0));
+  });
+}
+
 beforeEach(() => {
   mockQueue.mockReset();
   mockRequeue.mockReset();
@@ -119,6 +159,7 @@ beforeEach(() => {
   mockRequest.mockReset();
   mockQueueMany.mockReset();
   mockAnyOf.mockReset();
+  mockBridgeRows.length = 0;
   mockSubscriptions.length = 0;
   mockReported.length = 0;
   mockFlags.extension = false;
@@ -143,7 +184,7 @@ it('queues only once when the carousel and list accept the same note together', 
     await Promise.all([result.current.accept(note), result.current.accept(note)]);
   });
   expect(mockQueue).toHaveBeenCalledTimes(1);
-  expect(mockQueue).toHaveBeenCalledWith('account', note, false, true);
+  expect(mockQueue).toHaveBeenCalledWith('account', note, ...ACCEPTS);
   expect(mockStart).toHaveBeenCalledTimes(1);
   expect(result.current.items[0]?.status).toBe('claiming');
 });
@@ -179,7 +220,7 @@ it('drops a failed attempt once its note leaves the live list, so neither Retry 
     await result.current.acceptMany([note, other]);
   });
   expect(mockQueue).toHaveBeenCalledTimes(1);
-  expect(mockQueueMany).toHaveBeenCalledWith('account', [other], false, true);
+  expect(mockQueueMany).toHaveBeenCalledWith('account', [other], ...ACCEPTS_ALL);
   log.mockRestore();
 });
 
@@ -269,6 +310,7 @@ it('marks every batch note as claiming at once, queues the native faucet group f
     batch = result.current.acceptMany([tokenNote, nativeNote]);
   });
   expect(result.current.items.map(item => item.status)).toEqual(['claiming', 'claiming']);
+  await settleDeliverySenders();
   expect(mockQueueMany).toHaveBeenCalledTimes(1);
   expect(mockQueueMany.mock.calls[0]?.[1]).toEqual([nativeNote]);
   expect(mockSubscriptions).toHaveLength(0);
@@ -425,7 +467,7 @@ it('filters cached and busy notes from a batch and wakes the extension worker', 
     await Promise.all([result.current.acceptMany([cached, accepted]), result.current.acceptMany([accepted])]);
   });
   expect(mockQueueMany).toHaveBeenCalledTimes(1);
-  expect(mockQueueMany).toHaveBeenCalledWith('account', [accepted], false, true);
+  expect(mockQueueMany).toHaveBeenCalledWith('account', [accepted], ...ACCEPTS_ALL);
   expect(mockRequest).toHaveBeenCalledTimes(1);
   expect(mockStart).not.toHaveBeenCalled();
 });
@@ -443,7 +485,7 @@ it('groups notes from the same faucet and keeps them queued if the worker wake-u
   await act(async () => {
     await result.current.acceptMany([first, second]);
   });
-  expect(mockQueueMany).toHaveBeenCalledWith('account', [first, second], false, true);
+  expect(mockQueueMany).toHaveBeenCalledWith('account', [first, second], ...ACCEPTS_ALL);
   expect(result.current.items.map(item => item.status)).toEqual(['claiming', 'claiming']);
   expect(log).toHaveBeenCalled();
   log.mockRestore();
@@ -459,8 +501,31 @@ it('queues each Agglayer bridge delivery in a consume of its own', async () => {
     await result.current.acceptMany([first, second]);
   });
   expect(mockQueueMany).toHaveBeenCalledTimes(2);
-  expect(mockQueueMany).toHaveBeenNthCalledWith(1, 'account', [first], false, true);
-  expect(mockQueueMany).toHaveBeenNthCalledWith(2, 'account', [second], false, true);
+  expect(mockQueueMany).toHaveBeenNthCalledWith(1, 'account', [first], ...ACCEPTS_ALL);
+  expect(mockQueueMany).toHaveBeenNthCalledWith(2, 'account', [second], ...ACCEPTS_ALL);
+});
+
+it('queues each delivery from the faucet an open deposit saved alone after the document drops its chain', async () => {
+  const savedFaucet = '0x5a7ed0000000000000000000000000';
+  mockBridgeRows.push({
+    type: 'bridged-receive',
+    extraInputs: {
+      provider: 'agglayer',
+      phase: 'delivering',
+      agglayerRoute: { chainId: 84532, nativeEthFaucetId: savedFaucet }
+    }
+  });
+  const first = { ...note, id: 'saved-1', senderAddress: savedFaucet };
+  const second = { ...note, id: 'saved-2', senderAddress: savedFaucet };
+  mockClaim.safeClaimableNotes = [first, second];
+  const { result } = renderHook(() => useActivityClaims());
+
+  await act(async () => {
+    await result.current.acceptMany([first, second]);
+  });
+  expect(mockQueueMany).toHaveBeenCalledTimes(2);
+  expect(mockQueueMany).toHaveBeenNthCalledWith(1, 'account', [first], ...ACCEPTS_ALL);
+  expect(mockQueueMany).toHaveBeenNthCalledWith(2, 'account', [second], ...ACCEPTS_ALL);
 });
 
 it('queues only failed notes when a batch also contains unknown and checking notes', async () => {
@@ -474,7 +539,7 @@ it('queues only failed notes when a batch also contains unknown and checking not
   await act(async () => {
     await result.current.acceptMany([{ ...note, id: 'unknown' }, checking, failed]);
   });
-  expect(mockQueueMany).toHaveBeenCalledWith('account', [failed], false, true);
+  expect(mockQueueMany).toHaveBeenCalledWith('account', [failed], ...ACCEPTS_ALL);
 });
 
 it('lets a live checking state take priority over an old failed attempt', async () => {
@@ -616,6 +681,7 @@ describe('a claim shared across the Activity views', () => {
       batch = groups.result.current.acceptMany([other]);
       single = list.result.current.accept(other);
     });
+    await settleDeliverySenders();
     await act(async () => {
       releaseBatch('tx-batch');
       await Promise.all([single, batch]);
@@ -719,6 +785,7 @@ describe('note_handle reporting', () => {
     });
     list.unmount();
     renderHook(() => useActivityClaims());
+    await settleDeliverySenders();
     await act(async () => {
       queued('tx-1');
       await accepting;
@@ -832,4 +899,180 @@ describe('held claims (#1081)', () => {
 
 beforeEach(() => {
   mockLegacyFeeIdentity = undefined;
+});
+
+describe('the network fee', () => {
+  // No fee asset in the vault, a base fee of 100 units, and the fixture note in another token.
+  const nativeRow = (balance: number): TokenBalanceData => ({
+    tokenId: 'faucet-native',
+    tokenSlug: 'USDCX',
+    metadata: { name: 'USDCX', symbol: 'USDCX', decimals: 6 },
+    balance,
+    fiatPrice: 0,
+    change24h: 0
+  });
+  const nativeNote = (id: string, amount: string): ClaimableNoteWithMetadata => ({
+    ...note,
+    id,
+    faucetId: 'faucet-native',
+    amount
+  });
+
+  beforeEach(() => {
+    mockBaseFee = 100;
+    mockBalances.data = [nativeRow(0)];
+    mockBalances.isLoading = false;
+  });
+  afterEach(() => {
+    mockBaseFee = null;
+    mockBalances.data = [];
+  });
+
+  it('marks a transfer the account cannot pay the fee for and refuses to queue it', async () => {
+    const { result } = renderHook(() => useActivityClaims());
+    expect(result.current.items[0]).toMatchObject({ status: 'pending', cannotPayFee: true });
+    await act(async () => {
+      await result.current.accept(note);
+    });
+    expect(mockQueue).not.toHaveBeenCalled();
+    expect(result.current.items[0]?.status).toBe('pending');
+  });
+
+  it("withholds a failed claim's Retry the same way", async () => {
+    mockClaim.retriableNoteIds.add(note.id);
+    const { result } = renderHook(() => useActivityClaims());
+    expect(result.current.items[0]).toMatchObject({ status: 'failed', cannotPayFee: true });
+    await act(async () => {
+      await result.current.accept(note);
+    });
+    expect(mockQueue).not.toHaveBeenCalled();
+  });
+
+  it('lets a new wallet accept its first USDCX, which pays its own fee', async () => {
+    const first = nativeNote('first-usdcx', '1000000');
+    mockClaim.safeClaimableNotes = [first];
+    const { result } = renderHook(() => useActivityClaims());
+    expect(result.current.items[0]).toMatchObject({ status: 'pending', cannotPayFee: false });
+    await act(async () => {
+      await result.current.accept(first);
+    });
+    expect(mockQueue).toHaveBeenCalledWith('account', first, ...ACCEPTS);
+  });
+
+  it('counts the fee asset of a claim the queue runs first', async () => {
+    // An auto-consume of the faucet's USDCX, still running, pays for a token claimed after it.
+    const queued = { ...nativeNote('queued-usdcx', '1000000'), isBeingClaimed: true, claimingTxId: 'tx-auto' };
+    mockClaim.safeClaimableNotes = [queued, note];
+    const { result } = renderHook(() => useActivityClaims());
+    expect(result.current.items.find(item => item.note.id === note.id)).toMatchObject({
+      status: 'pending',
+      cannotPayFee: false
+    });
+    await act(async () => {
+      await result.current.accept(note);
+    });
+    expect(mockQueue).toHaveBeenCalledWith('account', note, ...ACCEPTS);
+  });
+
+  it('admits a card when a queued USDCX claim is listed after it', () => {
+    // 150 covers little more than that claim's own fee, which is not charged against the card: the queue may run
+    // either first.
+    const queued = { ...nativeNote('queued-usdcx', '150'), isBeingClaimed: true, claimingTxId: 'tx-auto' };
+    mockClaim.safeClaimableNotes = [note, queued];
+    const { result } = renderHook(() => useActivityClaims());
+    expect(result.current.items.find(item => item.note.id === note.id)).toMatchObject({
+      status: 'pending',
+      cannotPayFee: false
+    });
+  });
+
+  it('reads the queued claims once per change, not once per card', () => {
+    const cards = Array.from({ length: 50 }, (_, index) => ({ ...note, id: `card-${index}` }));
+    const queued = Array.from({ length: 50 }, (_, index) => ({
+      ...note,
+      id: `queued-${index}`,
+      isBeingClaimed: true,
+      claimingTxId: `tx-${index}`
+    }));
+    mockClaim.safeClaimableNotes = [...cards, ...queued];
+    jest.mocked(claimFeeShortfalls).mockClear();
+    let renders = 0;
+    const { result } = renderHook(() => {
+      renders += 1;
+      return useActivityClaims();
+    });
+    expect(jest.mocked(claimFeeShortfalls).mock.calls.length).toBeLessThanOrEqual(renders);
+    // No fee asset anywhere, so every card is refused.
+    expect(result.current.items.filter(item => item.cannotPayFee === true)).toHaveLength(50);
+  });
+
+  it('fails open until balances first land', async () => {
+    // Until then the rows are a zero placeholder, which would refuse every claim.
+    mockBalances.isLoading = true;
+    const { result } = renderHook(() => useActivityClaims());
+    expect(result.current.items[0]).toMatchObject({ status: 'pending', cannotPayFee: false });
+    await act(async () => {
+      await result.current.accept(note);
+    });
+    expect(mockQueue).toHaveBeenCalledTimes(1);
+  });
+
+  it('Accept All queues the groups after a USDCX group it queued, whatever that group leaves after its fee', async () => {
+    // 150 pays the USDCX transaction's own fee of at least 100 and leaves less than another, which is not simulated.
+    const dust = nativeNote('dust-usdcx', '150');
+    const other = { ...note, id: 'note-other', faucetId: 'faucet-other' };
+    mockClaim.safeClaimableNotes = [note, dust, other];
+    const { result } = renderHook(() => useActivityClaims());
+    expect(result.current.cannotPayFee([note, dust, other])).toBe(false);
+
+    await act(async () => {
+      await result.current.acceptMany([note, dust, other]);
+    });
+    expect(mockQueueMany.mock.calls.map(call => call[1])).toEqual([[dust], [note], [other]]);
+    expect(result.current.items.map(item => [item.note.id, item.status])).toEqual([
+      ['note-one', 'claiming'],
+      ['dust-usdcx', 'claiming'],
+      ['note-other', 'claiming']
+    ]);
+  });
+
+  it('Accept All refuses the groups after a USDCX group whose queue write failed', async () => {
+    const log = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const usdcx = nativeNote('usdcx', '1000000');
+    mockClaim.safeClaimableNotes = [note, usdcx];
+    mockQueueMany.mockRejectedValueOnce(new Error('Queue failed'));
+    const { result } = renderHook(() => useActivityClaims());
+
+    await act(async () => {
+      await result.current.acceptMany([note, usdcx]);
+    });
+    // The failed write delivers no USDCX, so the token claim after it is certain to fail on the fee.
+    expect(mockQueueMany).toHaveBeenCalledTimes(1);
+    expect(mockQueueMany).toHaveBeenCalledWith('account', [usdcx], ...ACCEPTS_ALL);
+    expect(mockStart).not.toHaveBeenCalled();
+    expect(result.current.items.map(item => [item.note.id, item.status])).toEqual([
+      ['note-one', 'pending'],
+      ['usdcx', 'failed']
+    ]);
+    log.mockRestore();
+  });
+
+  it('Accept All with no fee asset anywhere queues nothing and starts no processing', async () => {
+    const other = { ...note, id: 'note-other', faucetId: 'faucet-other' };
+    mockClaim.retriableNoteIds.add(other.id);
+    mockClaim.safeClaimableNotes = [note, other];
+    const { result } = renderHook(() => useActivityClaims());
+    expect(result.current.cannotPayFee([note, other])).toBe(true);
+
+    await act(async () => {
+      await result.current.acceptMany([note, other]);
+    });
+    expect(mockQueueMany).not.toHaveBeenCalled();
+    expect(mockStart).not.toHaveBeenCalled();
+    // Each note is back where it was: pending, and the failed one still failed.
+    expect(result.current.items.map(item => [item.note.id, item.status])).toEqual([
+      ['note-one', 'pending'],
+      ['note-other', 'failed']
+    ]);
+  });
 });

@@ -3,11 +3,20 @@ import fs from 'fs';
 import path from 'path';
 import { formatUnits, parseUnits, type Hash } from 'viem';
 
+import { SEPOLIA_NETWORK, selectSendNetwork } from './contact-network';
 import { captureEpochTraffic, fastFeeExpectation, waitForFastQuote } from './epoch-quote';
 import { readTransactionRowsWithBytes, type JsonValue, type TransactionRowSnapshot } from './history';
 import type { MidenCli } from './miden-cli';
+import { OPEN_SHEET } from './send-flow-scripts';
 import { swOf } from './swap';
-import { ARC_CHAIN_ID, minimumUsdcxPayout, USDCX_DECIMALS, USDCX_DESTINATIONS } from './usdcx-constants';
+import {
+  ARC_PAYOUT,
+  minimumUsdcxPayout,
+  redactProjectId,
+  USDCX_DECIMALS,
+  USDCX_DESTINATIONS,
+  type PayoutChain
+} from './usdcx-constants';
 import type { ChromeWalletPageApi } from './wallet-page';
 import type { TimelineRecorder } from '../harness/timeline-recorder';
 
@@ -108,9 +117,9 @@ export async function bridgeOutFast(wallet: Wallet, opts: BridgeOutFastOptions):
   // full-screen route, so those stay on `page`.
   const flow = page.getByTestId('send-flow');
 
-  // Recipient: a 0x address flips the flow to cross-chain and reveals the network row.
+  // Recipient: a 0x address flips the flow to cross-chain and reveals the network field.
   await flow.getByTestId('send-recipient-input').fill(opts.destAddress);
-  await page.getByTestId('send-network-sepolia').click({ timeout: step });
+  await selectSendNetwork(page, SEPOLIA_NETWORK, step);
   await flow.getByTestId('send-recipient-confirm').click({ timeout: step });
 
   // Amount: pick the funded token, type the amount.
@@ -183,9 +192,9 @@ export async function openRouteStep(wallet: Wallet, opts: BridgeOutSlowOptions):
 
   const flow = page.getByTestId('send-flow');
 
-  // Recipient: a 0x address flips the flow to cross-chain and reveals the network row.
+  // Recipient: a 0x address flips the flow to cross-chain and reveals the network field.
   await flow.getByTestId('send-recipient-input').fill(opts.destAddress);
-  await page.getByTestId('send-network-sepolia').click({ timeout: step });
+  await selectSendNetwork(page, SEPOLIA_NETWORK, step);
   await flow.getByTestId('send-recipient-confirm').click({ timeout: step });
 
   // Amount: pick the funded token, type the amount.
@@ -541,6 +550,9 @@ export interface CreateUsdcxBridgeReceiveArgs {
   sourceAmount: string;
   sourceSymbol: string;
   evmTxHash: Hash;
+  /** An executor-route deposit: what runUsdcxExecutorDeposit wrote on its `submitting` step (usdcx-l2-deposit.ts). */
+  usdcxRemoteRecipient?: string;
+  cctp?: { sourceDomain: number; forwarded?: boolean; forwardFee?: string };
 }
 
 /**
@@ -575,8 +587,14 @@ export type BridgeReceiveStateSnapshot = {
   midenNoteId?: string;
   sourceChainId?: number;
   usdcxRemoteRecipient?: string;
+  /** The Arc transaction the row took as its execute: Circle's forward, on the executor route. */
+  usdcxExecuteTxHash?: string;
   /** Unix seconds the row first reached `ready`. */
   readyAt?: number;
+  /** Whether the burn paid Circle's forward fee: an executor-route deposit's forwarded CCTP leg. */
+  cctpForwarded?: boolean;
+  /** The quoted fee that burn paid on top of the amount, source USDC base units. */
+  cctpForwardFee?: string;
 };
 
 function isBridgeReceivePhase(value: unknown): value is BridgeReceivePhase {
@@ -599,6 +617,10 @@ export function parseBridgeReceiveState(value: unknown): BridgeReceiveStateSnaps
     const item = field(key);
     return typeof item === 'number' ? item : undefined;
   };
+  const flag = (key: string): boolean | undefined => {
+    const item = field(key);
+    return typeof item === 'boolean' ? item : undefined;
+  };
   const found = field('found');
   if (typeof found !== 'boolean') throw new Error('__TEST_BRIDGE_RECEIVE_STATE__ has no boolean found');
   const phase = field('phase');
@@ -617,7 +639,10 @@ export function parseBridgeReceiveState(value: unknown): BridgeReceiveStateSnaps
     midenNoteId: text('midenNoteId'),
     sourceChainId: count('sourceChainId'),
     usdcxRemoteRecipient: text('usdcxRemoteRecipient'),
-    readyAt: count('readyAt')
+    usdcxExecuteTxHash: text('usdcxExecuteTxHash'),
+    readyAt: count('readyAt'),
+    cctpForwarded: flag('cctpForwarded'),
+    cctpForwardFee: text('cctpForwardFee')
   };
 }
 
@@ -665,7 +690,7 @@ export async function readNativeDisplaySymbol(page: Page, nativeTokenId: string)
   return read.symbol;
 }
 
-/** The destination chips a USDCx burn offers on testnet, in no particular order (bridge-networks.ts). */
+/** The network sheet rows a USDCx burn offers on testnet, in no particular order (bridge-networks.ts). */
 export const USDCX_DESTINATION_CHIPS: readonly string[] = [
   'send-network-arc-testnet',
   'send-network-sepolia',
@@ -680,16 +705,16 @@ const RPC_FAILURE = /\b(HTTP|RPC|JSON-RPC|429|5\d\d|fetch|timed? ?out|timeout|ra
 
 export interface NetworkChipState {
   testId: string;
-  /** The chip's `aria-pressed`, or null when it has none. */
+  /** The network row's `aria-pressed`, or null when it has none. */
   pressed: string | null;
 }
 
-/** Why the chips are not exactly the four USDCx destinations with only `selected` pressed, or undefined when they are. */
+/** Why the rows are not exactly the four USDCx destinations with only `selected` pressed; undefined when they are. */
 export function usdcxChipsProblem(chips: readonly NetworkChipState[], selected: string): string | undefined {
   const ids = chips.map(chip => chip.testId).sort();
   const expected = [...USDCX_DESTINATION_CHIPS].sort();
   if (ids.join(',') !== expected.join(',')) {
-    return `network chips ${JSON.stringify(ids)}, expected exactly ${JSON.stringify(expected)}`;
+    return `network rows ${JSON.stringify(ids)}, expected exactly ${JSON.stringify(expected)}`;
   }
   const wrong = chips.filter(chip => chip.pressed !== (chip.testId === selected ? 'true' : 'false'));
   return wrong.length === 0
@@ -704,9 +729,30 @@ export function reviewQueryParam(url: string, name: string): string | null {
   return new URLSearchParams(query).get(name);
 }
 
-/** A review-error that names an RPC failure, with no burn row queued: the wallet's Arc snapshot read failed (Q14). */
+/**
+ * A review-error that names an RPC failure, with no burn row queued: the wallet's snapshot read on the destination
+ * chain failed (Q14).
+ */
 export function isArcSnapshotFailure(reviewError: string, newUsdcxRows: number): boolean {
   return newUsdcxRows === 0 && RPC_FAILURE.test(reviewError);
+}
+
+/**
+ * Why a submit that never reached the generating screen failed. An RPC-shaped review-error with no burn row queued is
+ * the wallet's destination snapshot read (burn.ts:103) failing on that chain's RPC: infra, never retried, the RPC
+ * named by host.
+ */
+export function burnSubmitFailure(payoutChain: PayoutChain, reviewError: string, newUsdcxRows: number): string {
+  const shown = redactProjectId(reviewError);
+  if (!isArcSnapshotFailure(reviewError, newUsdcxRows)) {
+    return `the review refused the burn: review-error "${shown}", ${newUsdcxRows} new usdcx rows`;
+  }
+  // Arc's message predates the L2 destinations and stays as it was.
+  const rpc =
+    payoutChain.chainId === ARC_PAYOUT.chainId
+      ? 'Arc RPC'
+      : `${payoutChain.networkName} RPC ${payoutChain.walletRpcName}`;
+  return `${rpc} unavailable for the wallet's balance snapshot (burn.ts:103), infra: review-error "${shown}"`;
 }
 
 /** The value cell of the review's detail row labelled `label` (`DetailRow`: a label span beside a value div). */
@@ -721,29 +767,35 @@ function payoutRowValue(scope: Page | Locator, testId: string): Locator {
 }
 
 function readNetworkChips(page: Page): Promise<NetworkChipState[]> {
-  return page
-    .locator('[data-testid^="send-network-"]:not([data-testid="send-network-options"])')
-    .evaluateAll(elements =>
-      elements.map(element => ({
-        testId: element.getAttribute('data-testid') ?? '',
-        pressed: element.getAttribute('aria-pressed')
-      }))
-    );
+  return page.locator(`${OPEN_SHEET} [data-testid^="send-network-"]`).evaluateAll(elements =>
+    elements.map(element => ({
+      testId: element.getAttribute('data-testid') ?? '',
+      pressed: element.getAttribute('aria-pressed')
+    }))
+  );
 }
 
 /**
- * Polls until Arc Testnet alone is pressed among exactly the four USDCx destination chips. Every token shows the four
- * chips (#1403), so this proves the set and its default; Arc pressed and `bridge-route-usdcx` prove USDCx mode.
+ * Opens the destination sheet, polls until Arc Testnet alone is pressed among exactly the four USDCx destinations, and
+ * closes it unchanged. Every token offers the four (#1403), so this proves the set and its default; Arc pressed and
+ * `bridge-route-usdcx` prove USDCx mode.
  */
 export async function expectArcPreselected(page: Page, timeoutMs: number): Promise<void> {
+  await page.getByTestId('send-network-picker').click({ timeout: timeoutMs });
   await expect
     .poll(async () => usdcxChipsProblem(await readNetworkChips(page), ARC_CHIP) ?? 'ok', {
       timeout: timeoutMs,
       message:
-        'this checks the chip set and its default: exactly the four USDCx destination chips, Arc Testnet alone ' +
-        'pressed (every token shows the four chips, so USDCx mode rests on Arc pressed and bridge-route-usdcx)'
+        'this checks the destination set and its default: exactly the four USDCx destinations in the network ' +
+        'sheet, Arc Testnet alone pressed (every token offers the four, so USDCx mode rests on Arc pressed and ' +
+        'bridge-route-usdcx)'
     })
     .toBe('ok');
+  await page
+    .locator(OPEN_SHEET)
+    .getByRole('button', { name: enText('close'), exact: true })
+    .click({ timeout: timeoutMs });
+  await page.getByTestId(ARC_CHIP).waitFor({ state: 'hidden', timeout: timeoutMs });
 }
 
 /** What a USDCx burn's payout rows read (`UsdcxPayoutRows`). */
@@ -809,6 +861,8 @@ export interface BridgeOutUsdcxOptions {
   stepTimeoutMs?: number;
   /** Where usdcx-route.png, usdcx-review-light.png and usdcx-review-dark.png go. */
   screenshotDir: string;
+  /** Where Circle pays the burn (default Arc Testnet): the network picked, the review's network and the payout rows. */
+  payoutChain?: PayoutChain;
 }
 
 export interface BridgeOutUsdcxResult {
@@ -817,18 +871,20 @@ export interface BridgeOutUsdcxResult {
 }
 
 /**
- * Burn the native USDCx to an Arc Testnet address through the real Send UI (spec section 5 step 6), ending on the
- * generating-transaction screen. Checks on the way: exactly the four USDCx destination chips with Arc pressed, the
+ * Burn the native USDCx to an address on `opts.payoutChain` (default Arc Testnet) through the real Send UI (spec
+ * section 5 step 6), ending on the generating-transaction screen. Checks on the way: exactly the four USDCx
+ * destinations in the network sheet with Arc pressed by default, the closed field naming the destination picked, the
  * route subtitle and fee row naming the native symbol, the payout rows and the burn notice on route and review, and
  * the review's network.
  */
 export async function bridgeOutUsdcx(wallet: Wallet, opts: BridgeOutUsdcxOptions): Promise<BridgeOutUsdcxResult> {
   const { page, extensionId } = wallet;
   const step = opts.stepTimeoutMs ?? STEP_TIMEOUT_MS;
+  const payoutChain = opts.payoutChain ?? ARC_PAYOUT;
   if (opts.nativeSymbol.trim() === '' || opts.nativeSymbol.trim().toUpperCase() === 'MIDEN') {
     throw new Error(`bridgeOutUsdcx: "${opts.nativeSymbol}" cannot name USDCx, the asset a USDCx burn spends`);
   }
-  const payout = usdcxPayoutRowsText(ARC_CHAIN_ID, opts.amount);
+  const payout = usdcxPayoutRowsText(payoutChain.chainId, opts.amount);
   const routeFees = enText('usdcxMidenFees', { symbol: opts.nativeSymbol });
   const sponsorshipFee = enText('usdcxSponsorshipFee', { symbol: opts.nativeSymbol });
   const notice = enText('usdcxWithdrawalNotice');
@@ -842,10 +898,7 @@ export async function bridgeOutUsdcx(wallet: Wallet, opts: BridgeOutUsdcxOptions
   await expect(flow).toBeVisible({ timeout: step });
   await flow.getByTestId('send-recipient-input').fill(opts.destAddress);
   await expectArcPreselected(page, step);
-  await page.getByTestId(ARC_CHIP).click({ timeout: step });
-  await expect
-    .poll(async () => usdcxChipsProblem(await readNetworkChips(page), ARC_CHIP) ?? 'ok', { timeout: step })
-    .toBe('ok');
+  await selectSendNetwork(page, { id: payoutChain.reviewNetwork, name: payoutChain.networkName }, step);
   await flow.getByTestId('send-recipient-confirm').click({ timeout: step });
   await flow.getByTestId('send-amount-input').fill(opts.amount);
   await flow.getByTestId('send-amount-confirm').click({ timeout: step });
@@ -871,8 +924,10 @@ export async function bridgeOutUsdcx(wallet: Wallet, opts: BridgeOutUsdcxOptions
 
   await page.waitForURL(/#\/send\/review\?/, { timeout: step });
   const reviewUrl = page.url();
-  expect(reviewQueryParam(reviewUrl, 'network'), 'the review is for Arc Testnet').toBe('arc-testnet');
-  await expect(detailRowValue(page, enText('network'))).toHaveText('Arc Testnet', { timeout: step });
+  expect(reviewQueryParam(reviewUrl, 'network'), `the review is for ${payoutChain.networkName}`).toBe(
+    payoutChain.reviewNetwork
+  );
+  await expect(detailRowValue(page, enText('network'))).toHaveText(payoutChain.networkName, { timeout: step });
   await expect(detailRowValue(page, enText('networkFee')), 'the fee row names the native fee asset').toHaveText(
     sponsorshipFee
   );
@@ -909,11 +964,7 @@ export async function bridgeOutUsdcx(wallet: Wallet, opts: BridgeOutUsdcxOptions
     const fresh = (await readBridgedSendRows(page)).filter(
       row => row.extraInputs?.provider === 'usdcx' && !rowsBefore.has(row.id)
     );
-    throw new Error(
-      isArcSnapshotFailure(reviewError, fresh.length)
-        ? `Arc RPC unavailable for the wallet's balance snapshot (burn.ts:103), infra: review-error "${reviewError}"`
-        : `the review refused the burn: review-error "${reviewError}", ${fresh.length} new usdcx rows`
-    );
+    throw new Error(burnSubmitFailure(payoutChain, reviewError, fresh.length));
   }
   return { reviewUrl, generatingUrl: page.url() };
 }

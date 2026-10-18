@@ -1,4 +1,5 @@
-import { DEFAULT_NETWORK, MIDEN_FAUCET_API_ENDPOINTS } from './constants';
+import { MIDEN_NETWORK_NAME } from './constants';
+import { applyEndpointOverride, buildNetworkChoiceOverride, clearEndpointOverride } from './effective-endpoints';
 import {
   FaucetAmountOverCapError,
   FaucetOutcomeUnknownError,
@@ -13,6 +14,24 @@ import {
 import { spawnFaucetPowWorker } from './spawn-faucet-pow-worker';
 
 jest.mock('./spawn-faucet-pow-worker', () => ({ spawnFaucetPowWorker: jest.fn() }));
+
+// Holds the endpoint override, so a case can put the wallet on mainnet the way onboarding does.
+const mockStorage = new Map<string, unknown>();
+jest.mock('lib/platform/storage-adapter', () => ({
+  getStorageProvider: () => ({
+    get: async (keys: string[]) => {
+      const out: Record<string, unknown> = {};
+      for (const key of keys) if (mockStorage.has(key)) out[key] = mockStorage.get(key);
+      return out;
+    },
+    set: async (items: Record<string, unknown>) => {
+      for (const [key, value] of Object.entries(items)) mockStorage.set(key, value);
+    },
+    remove: async (keys: string[]) => {
+      for (const key of keys) mockStorage.delete(key);
+    }
+  })
+}));
 
 class TestPowWorker extends EventTarget {
   terminate = jest.fn();
@@ -100,9 +119,12 @@ describe('faucet-api', () => {
       expect(getFaucetApiUrl('localnet')).toBe('http://localhost:8000');
     });
 
-    it('falls back to the default network endpoint for unknown networks', () => {
-      expect(getFaucetApiUrl('unknown-network')).toBe(MIDEN_FAUCET_API_ENDPOINTS.get(DEFAULT_NETWORK));
-    });
+    it.each<[string]>([[MIDEN_NETWORK_NAME.MAINNET], ['unknown-network']])(
+      'resolves no endpoint for %s, never another network faucet',
+      networkId => {
+        expect(getFaucetApiUrl(networkId)).toBeUndefined();
+      }
+    );
   });
 
   describe('getPowChallenge', () => {
@@ -825,6 +847,21 @@ describe('faucet-api', () => {
   });
 
   describe('mintFromMidenFaucet', () => {
+    it('sends nothing on a wallet whose network has no faucet (mainnet)', async () => {
+      await applyEndpointOverride(buildNetworkChoiceOverride(MIDEN_NETWORK_NAME.MAINNET));
+      try {
+        const onBeforeSubmit = jest.fn();
+        await expect(mintFromMidenFaucet('mm1mainnetaddress', undefined, undefined, onBeforeSubmit)).rejects.toThrow(
+          'No faucet'
+        );
+        expect(fetchMock).not.toHaveBeenCalled();
+        expect(spawnWorkerMock).not.toHaveBeenCalled();
+        expect(onBeforeSubmit).not.toHaveBeenCalled();
+      } finally {
+        await clearEndpointOverride();
+      }
+    });
+
     it.each([10000, 100000000])('uses advertised base_amount %i unchanged for challenge and mint', async baseAmount => {
       fetchMock.mockImplementation(async (url: string) => {
         if (url.endsWith('/get_metadata'))

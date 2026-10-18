@@ -30,8 +30,16 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
     Account: { deserialize: (...a: any[]) => g.__px.accountDeserialize(...a) },
     // Slice 5: the flag-on offscreen consume re-hydrates the serialized
     // TransactionResult on the SW side.
-    TransactionResult: { deserialize: (...a: any[]) => g.__px.txResultDeserialize(...a) }
+    TransactionResult: { deserialize: (...a: any[]) => g.__px.txResultDeserialize(...a) },
+    // The inline dry run deserializes the request it executes.
+    TransactionRequest: { deserialize: (...a: any[]) => g.__px.txRequestDeserialize(...a) }
   };
+});
+
+// The dry run's request preparation, which reads the account through the client, answered here.
+jest.mock('lib/miden/sdk/custom-request', () => {
+  const g = globalThis as any;
+  return { prepareCustomRequestBytes: (...a: any[]) => g.__px.prepareCustomRequestBytes(...a) };
 });
 
 jest.mock('lib/miden/sdk/miden-client', () => {
@@ -111,6 +119,8 @@ function resetControl() {
     accountDeserialize: jest.fn((bytes: Uint8Array) => ({ __account: Array.from(bytes) })),
     // Slice 5: rehydrate a serialized TransactionResult on the SW side.
     txResultDeserialize: jest.fn((bytes: Uint8Array) => ({ __txResult: Array.from(bytes) })),
+    txRequestDeserialize: jest.fn((bytes: Uint8Array) => ({ __request: Array.from(bytes) })),
+    prepareCustomRequestBytes: jest.fn(async (_client: unknown, _account: string, bytes: Uint8Array) => bytes),
     inlineGetAccount: jest.fn(async () => ({ __inlineAccount: true })),
     // The inline (flag-off) client also exposes the slice-3/4/5 methods so the
     // flag-off pass-through of each is assertable against a spy.
@@ -123,7 +133,9 @@ function resetControl() {
     inlineIsOutputNoteConsumed: jest.fn(async () => false),
     inlineExportNote: jest.fn(async () => new Uint8Array([1, 2, 3])),
     inlineGetInputNoteDetails: jest.fn(async () => [{ __inlineDetail: true }]),
+    inlineGetDetailsCommitmentMatches: jest.fn(async () => [{ notes: [{ __inlineDetail: true }], uncommitted: 1 }]),
     inlineGetConsumableNoteDtos: jest.fn(async () => [{ __inlineConsumable: true }]),
+    inlineBuildPswapCancelRequest: jest.fn(async () => new Uint8Array([20, 14, 7, 6])),
     inlineConsumeNoteId: jest.fn(async () => ({ __inlineTxResult: true })),
     // Slice 5b: the flag-off passthrough of each remaining non-guardian write.
     inlineSendTransaction: jest.fn(async () => ({ __inlineSendResult: true })),
@@ -183,8 +195,10 @@ function resetControl() {
       isOutputNoteConsumed: (...a: any[]) => G.__px.inlineIsOutputNoteConsumed(...a),
       exportNote: (...a: any[]) => G.__px.inlineExportNote(...a),
       getInputNoteDetails: (...a: any[]) => G.__px.inlineGetInputNoteDetails(...a),
+      getDetailsCommitmentMatches: (...a: any[]) => G.__px.inlineGetDetailsCommitmentMatches(...a),
       getTransactionCommitState: (...a: any[]) => G.__px.inlineGetTransactionCommitState(...a),
       getConsumableNoteDtos: (...a: any[]) => G.__px.inlineGetConsumableNoteDtos(...a),
+      buildPswapCancelRequest: (...a: any[]) => G.__px.inlineBuildPswapCancelRequest(...a),
       consumeNoteId: (...a: any[]) => G.__px.inlineConsumeNoteId(...a),
       sendTransaction: (...a: any[]) => G.__px.inlineSendTransaction(...a),
       swapTransaction: (...a: any[]) => G.__px.inlineSwapTransaction(...a),
@@ -211,11 +225,18 @@ function resetControl() {
   };
 }
 
-/** Set the flag, reset module registry, and import a fresh proxy. */
-async function loadProxy(flagOn: boolean) {
+/**
+ * Set the flag, reset module registry, and import a fresh proxy. The realm starts with nothing stored and,
+ * unless `overridesLoaded` is false, has run its first override load, as start() does before any message
+ * reaches the offscreen document (#1482).
+ */
+async function loadProxy(flagOn: boolean, { overridesLoaded = true }: { overridesLoaded?: boolean } = {}) {
   if (flagOn) process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
   else delete process.env.MIDEN_USE_OFFSCREEN_CLIENT;
   jest.resetModules();
+  const endpoints = await import('lib/miden-chain/effective-endpoints');
+  await endpoints.clearEndpointOverride();
+  if (overridesLoaded) await endpoints.loadEndpointOverrides();
   return import('./miden-client-proxy');
 }
 
@@ -927,6 +948,129 @@ describe('MidenClientProxy — slice-3 reads: getInputNoteDetails (plain-DTO rou
   });
 });
 
+// The records a details commitment names, read where the store lives (#1389).
+describe('MidenClientProxy - getDetailsCommitmentMatches', () => {
+  it('forwards a batch inline with its liveness check and preserves entry order', async () => {
+    const { midenClientProxy } = await loadProxy(false);
+    const assertLive = jest.fn();
+    const dto = [
+      { notes: [{ noteId: 'n9' }], uncommitted: 0 },
+      { notes: [], uncommitted: 1 }
+    ];
+    G.__px.inlineGetDetailsCommitmentMatches.mockResolvedValueOnce(dto);
+
+    await expect(
+      midenClientProxy.getDetailsCommitmentMatches(['0xcommitment', '0xother'], ['n9', 'n10'], assertLive)
+    ).resolves.toEqual(dto);
+
+    expect(G.__px.inlineGetDetailsCommitmentMatches).toHaveBeenCalledWith(
+      ['0xcommitment', '0xother'],
+      ['n9', 'n10'],
+      assertLive
+    );
+    expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('forwards a batch offscreen and decodes each result in order', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    const dto = [
+      { notes: [{ noteId: 'n9' }], uncommitted: 0 },
+      { notes: [], uncommitted: 1 }
+    ];
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: { op_id: string }) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: Buffer.from(JSON.stringify(dto)).toString('base64'),
+      durationMs: 1
+    }));
+
+    const pending = midenClientProxy.getDetailsCommitmentMatches(['0xcommitment', '0xother'], ['n9', 'n10']);
+    await flush();
+    fireReady();
+
+    await expect(pending).resolves.toEqual(dto);
+    expect(fakeChrome.runtime.sendMessage.mock.calls[0][0].argsB64).toEqual([
+      's:["0xcommitment","0xother"]',
+      's:["n9","n10"]'
+    ]);
+  });
+
+  it('returns one empty entry per requested commitment for a null offscreen reply', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: { op_id: string }) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: null,
+      durationMs: 1
+    }));
+
+    const pending = midenClientProxy.getDetailsCommitmentMatches(['0xcommitment', '0xother'], []);
+    await flush();
+    fireReady();
+
+    await expect(pending).resolves.toEqual([
+      { notes: [], uncommitted: 0 },
+      { notes: [], uncommitted: 0 }
+    ]);
+  });
+
+  it('flag OFF goes inline, forwarding the commitment and the caller check', async () => {
+    const { midenClientProxy } = await loadProxy(false);
+    const assertLive = jest.fn();
+
+    const matches = await midenClientProxy.getDetailsCommitmentMatches(['0xcommitment'], ['n9'], assertLive);
+
+    expect(G.__px.inlineGetDetailsCommitmentMatches).toHaveBeenCalledWith(['0xcommitment'], ['n9'], assertLive);
+    expect(matches).toEqual([{ notes: [{ __inlineDetail: true }], uncommitted: 1 }]);
+    expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('flag ON asks the offscreen client and parses the DTO it answers', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    const dto = [
+      {
+        notes: [
+          { noteId: '0xreal', senderAccountId: 'mtst1qsender', assets: [], noteType: 0, nullifier: '0xn', state: 2 }
+        ],
+        uncommitted: 1
+      }
+    ];
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: Buffer.from(new TextEncoder().encode(JSON.stringify(dto))).toString('base64'),
+      durationMs: 3
+    }));
+
+    const p = midenClientProxy.getDetailsCommitmentMatches(['0xcommitment'], ['0xreal'], jest.fn());
+    await flush();
+    fireReady();
+    const matches = await p;
+
+    expect(G.__px.inlineGetDetailsCommitmentMatches).not.toHaveBeenCalled();
+    const env = fakeChrome.runtime.sendMessage.mock.calls[0][0];
+    expect(env.method).toBe('getDetailsCommitmentMatches');
+    expect(env.argsB64).toEqual(['s:["0xcommitment"]', 's:["0xreal"]']);
+    expect(matches).toEqual(dto);
+  });
+
+  it('flag ON reads no result as no match', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: null,
+      durationMs: 1
+    }));
+
+    const p = midenClientProxy.getDetailsCommitmentMatches(['0xcommitment'], []);
+    await flush();
+    fireReady();
+
+    await expect(p).resolves.toEqual([{ notes: [], uncommitted: 0 }]);
+  });
+});
+
 /**
  * This read backs the send/swap idempotent-retry guard, and it used to be a
  * hardcoded 'not-found' whenever the flag was on — which is the DEFAULT in the
@@ -1052,6 +1196,93 @@ describe('MidenClientProxy — slice-4 consumable notes (DTO round-trip)', () =>
     await flush();
     fireReady();
     expect(await p).toEqual([]);
+  });
+});
+
+describe('MidenClientProxy — zero-fill PSWAP cancel request', () => {
+  it('flag OFF builds in the inline canonical client and forwards the hold check', async () => {
+    const { midenClientProxy } = await loadProxy(false);
+    const assertLive = jest.fn();
+
+    await expect(midenClientProxy.buildPswapCancelRequest('acc-1', 'tip-1', assertLive)).resolves.toEqual(
+      new Uint8Array([20, 14, 7, 6])
+    );
+
+    // One call with the flag, false for a live order (#1487).
+    expect(G.__px.inlineBuildPswapCancelRequest).toHaveBeenCalledWith('acc-1', 'tip-1', assertLive, {
+      allowNodeNote: false
+    });
+    expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('flag ON returns the offscreen-built request bytes verbatim', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    const bytes = new Uint8Array([20, 14, 7, 6]);
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: Buffer.from(bytes).toString('base64'),
+      durationMs: 4
+    }));
+
+    const pending = midenClientProxy.buildPswapCancelRequest('acc-2', 'tip-2');
+    await flush();
+    fireReady();
+
+    await expect(pending).resolves.toEqual(bytes);
+    const env = fakeChrome.runtime.sendMessage.mock.calls[0][0];
+    expect(env.method).toBe('buildPswapCancelRequest');
+    expect(env.argsB64).toEqual(['s:"acc-2"', 's:"tip-2"', 's:false']);
+    expect(env.deadline_ms).toBe(15_000);
+    expect(G.__px.inlineBuildPswapCancelRequest).not.toHaveBeenCalled();
+  });
+
+  // A recovered order's note exists only on the node (#1487).
+  it('flag OFF forwards the node-note option to the inline client', async () => {
+    const { midenClientProxy } = await loadProxy(false);
+    const assertLive = jest.fn();
+
+    await midenClientProxy.buildPswapCancelRequest('acc-1', 'tip-1', assertLive, { allowNodeNote: true });
+
+    expect(G.__px.inlineBuildPswapCancelRequest).toHaveBeenCalledWith('acc-1', 'tip-1', assertLive, {
+      allowNodeNote: true
+    });
+  });
+
+  it('flag ON sends the node-note option, with room in the deadline for its two node reads', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    const bytes = new Uint8Array([9, 9]);
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: Buffer.from(bytes).toString('base64'),
+      durationMs: 4
+    }));
+
+    const pending = midenClientProxy.buildPswapCancelRequest('acc-2', 'tip-2', undefined, { allowNodeNote: true });
+    await flush();
+    fireReady();
+
+    await expect(pending).resolves.toEqual(bytes);
+    const env = fakeChrome.runtime.sendMessage.mock.calls[0][0];
+    expect(env.argsB64).toEqual(['s:"acc-2"', 's:"tip-2"', 's:true']);
+    expect(env.deadline_ms).toBe(25_000);
+  });
+
+  it('flag ON refuses a missing request payload', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: null,
+      durationMs: 1
+    }));
+
+    const pending = midenClientProxy.buildPswapCancelRequest('acc-3', 'tip-3');
+    await flush();
+    fireReady();
+
+    await expect(pending).rejects.toThrow('returned no request bytes');
   });
 });
 
@@ -1558,6 +1789,75 @@ describe('MidenClientProxy — slice-7-reads getSerializedInputNoteDetails (inva
     await flush();
     fireReady();
     expect(await p).toEqual([]);
+  });
+});
+
+describe('MidenClientProxy - dryRunTransaction (the USDCx burn fee probe)', () => {
+  const REQUEST = new Uint8Array([1, 2, 3]);
+
+  it('flag OFF → dry-runs on the inline client under the caller hold, with no sync and no note import', async () => {
+    const { midenClientProxy } = await loadProxy(false);
+    const { executeForSummaryAtTip } = await import('@openzeppelin/miden-multisig-client');
+
+    const result = await midenClientProxy.dryRunTransaction('0xaccount', REQUEST, G.__px.inlineHold);
+
+    // The multisig mock's summary serializes to [0xab].
+    expect(result).toEqual({ summaryBytes: Buffer.from([0xab]).toString('base64') });
+    const inline = await G.__px.getMidenClient.mock.results[0].value;
+    expect(G.__px.prepareCustomRequestBytes).toHaveBeenCalledWith(
+      inline.client,
+      '0xaccount',
+      REQUEST,
+      G.__px.inlineHold
+    );
+    expect(executeForSummaryAtTip).toHaveBeenCalledWith(inline.client, '0xaccount', { __request: [1, 2, 3] });
+    expect(G.__px.inlineSyncState).not.toHaveBeenCalled();
+    expect(G.__px.inlineSync).not.toHaveBeenCalled();
+    expect(G.__px.inlineImportNoteBytes).not.toHaveBeenCalled();
+    // The caller holds the lock; the proxy takes none of its own.
+    expect(G.__px.withWasmClientLock).not.toHaveBeenCalled();
+    expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('flag ON → forwards ONE dryRunTransaction op with a deadline and parses its result', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    const answer = { executedBytes: 'ZXhlY3V0ZWQ=' };
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: Buffer.from(new TextEncoder().encode(JSON.stringify(answer))).toString('base64'),
+      durationMs: 2
+    }));
+
+    const p = midenClientProxy.dryRunTransaction('0xaccount', REQUEST, G.__px.inlineHold);
+    await flush();
+    fireReady();
+
+    await expect(p).resolves.toEqual(answer);
+    expect(fakeChrome.runtime.sendMessage).toHaveBeenCalledTimes(1);
+    const env = fakeChrome.runtime.sendMessage.mock.calls[0][0];
+    expect(env.method).toBe('dryRunTransaction');
+    expect(env.deadline_ms).toEqual(expect.any(Number));
+    expect(env.deadline_ms).toBeGreaterThan(0);
+    expect(env.argsB64).toEqual(['s:"0xaccount"', `b:${Buffer.from(REQUEST).toString('base64')}`]);
+    // The service worker's own client is never built for the probe.
+    expect(G.__px.getMidenClient).not.toHaveBeenCalled();
+  });
+
+  it('flag ON → a dry run that answers nothing rejects', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: null,
+      durationMs: 1
+    }));
+
+    const p = midenClientProxy.dryRunTransaction('0xaccount', REQUEST, G.__px.inlineHold).catch((e: Error) => e);
+    await flush();
+    fireReady();
+
+    expect(await p).toBeInstanceOf(Error);
   });
 });
 
@@ -3390,6 +3690,115 @@ describe('MidenClientProxy — slice-6a dispatchGuardianPipeline (guardian leaf 
 // The override cache and the client singleton are BOTH module-scoped, so the SW's
 // loadEndpointOverrides() + resetMidenClient() reach only the SW realm. Flag-on it
 // is the OFFSCREEN client that talks to the node, so it needs its own nudge.
+// The offscreen document has no extension storage, so the network it runs on is the one these messages carry (#1482).
+describe('MidenClientProxy - the endpoint state on every offscreen message (#1482)', () => {
+  const customOverride = async () => {
+    const { buildDefaultOverrideFor } = await import('lib/miden-chain/effective-endpoints');
+    const { MIDEN_NETWORK_NAME } = await import('lib/miden-chain/networks-config');
+    return {
+      ...buildDefaultOverrideFor(MIDEN_NETWORK_NAME.DEVNET),
+      rpcUrl: 'https://custom.example/rpc',
+      feeFaucetId: '0xfee'
+    };
+  };
+
+  it('attaches the state as it is when the message is sent, to a read and to a write', async () => {
+    const { midenClientProxy, __test } = await loadProxy(true);
+    const { applyEndpointOverride } = await import('lib/miden-chain/effective-endpoints');
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: null,
+      durationMs: 1
+    }));
+
+    const read = midenClientProxy.getAccount('acc');
+    await flush();
+    // Saved while the document was still opening: the read goes out on the saved network.
+    const override = await customOverride();
+    await applyEndpointOverride(override);
+    fireReady();
+    await read;
+    const { promise } = __test.dispatchCritical('sendTransaction', [{}], __test.writeDeadlineMs());
+    await promise;
+
+    const envelopes = fakeChrome.runtime.sendMessage.mock.calls.map(([env]: [any]) => env);
+    expect(envelopes.map((env: any) => env.method)).toEqual(['getAccount', 'sendTransaction']);
+    for (const env of envelopes) {
+      expect(env.endpoints).toEqual({ override, feeFaucetId: '0xfee' });
+    }
+  });
+
+  // The `miden-sync` alarm can reach a call before start() has loaded the override (#1482).
+  it('sends no call until the realm has loaded its own override, then sends that override', async () => {
+    const { midenClientProxy } = await loadProxy(true, { overridesLoaded: false });
+    const endpoints = await import('lib/miden-chain/effective-endpoints');
+    const { getStorageProvider } = await import('lib/platform/storage-adapter');
+    const { MIDEN_NETWORK_NAME } = await import('lib/miden-chain/networks-config');
+    const stored = endpoints.buildNetworkChoiceOverride(MIDEN_NETWORK_NAME.MAINNET);
+    await getStorageProvider().set({ [endpoints.ENDPOINT_OVERRIDE_STORAGE_KEY]: stored });
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: null,
+      durationMs: 1
+    }));
+    const calls = () =>
+      fakeChrome.runtime.sendMessage.mock.calls
+        .map(([env]: [any]) => env)
+        .filter((env: any) => env?.type === 'OFFSCREEN_CALL');
+
+    const read = midenClientProxy.getAccount('acc');
+    await flush();
+    fireReady();
+    await flush();
+    expect(calls()).toHaveLength(0);
+
+    await endpoints.loadEndpointOverrides();
+    await read;
+    expect(calls()).toHaveLength(1);
+    expect(calls()[0].endpoints.override).toEqual(stored);
+  });
+
+  it('sends no reload until the realm has loaded its own override, then sends the loaded state', async () => {
+    docExists = true;
+    const { reloadOffscreenEndpointOverrides } = await loadProxy(true, { overridesLoaded: false });
+    const endpoints = await import('lib/miden-chain/effective-endpoints');
+    const { getStorageProvider } = await import('lib/platform/storage-adapter');
+    const stored = await customOverride();
+    await getStorageProvider().set({ [endpoints.ENDPOINT_OVERRIDE_STORAGE_KEY]: stored });
+    fakeChrome.runtime.sendMessage.mockImplementation(async () => ({ ok: true }));
+
+    const reload = reloadOffscreenEndpointOverrides();
+    await flush();
+    expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
+
+    await endpoints.loadEndpointOverrides();
+    await expect(reload).resolves.toBe(true);
+    expect(fakeChrome.runtime.sendMessage).toHaveBeenCalledWith({
+      target: 'offscreen',
+      type: 'OFFSCREEN_RELOAD_ENDPOINTS',
+      endpoints: { override: stored, feeFaucetId: '0xfee' }
+    });
+  });
+
+  it('sends the state with the reload, so a live document switches without reading storage', async () => {
+    docExists = true;
+    const { reloadOffscreenEndpointOverrides } = await loadProxy(true);
+    const { applyEndpointOverride } = await import('lib/miden-chain/effective-endpoints');
+    const override = await customOverride();
+    await applyEndpointOverride(override);
+    fakeChrome.runtime.sendMessage.mockImplementation(async () => ({ ok: true }));
+
+    await expect(reloadOffscreenEndpointOverrides()).resolves.toBe(true);
+    expect(fakeChrome.runtime.sendMessage).toHaveBeenCalledWith({
+      target: 'offscreen',
+      type: 'OFFSCREEN_RELOAD_ENDPOINTS',
+      endpoints: { override, feeFaucetId: '0xfee' }
+    });
+  });
+});
+
 describe('MidenClientProxy — reloadOffscreenEndpointOverrides', () => {
   it('flag OFF → no-op even with a document open (the SW client is the one that talks to the node)', async () => {
     // A doc CAN exist flag-off (the offscreen prover uses one), so the flag is the
@@ -3408,7 +3817,7 @@ describe('MidenClientProxy — reloadOffscreenEndpointOverrides', () => {
     expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
   });
 
-  it('flag ON but NO document open → no-op, and does NOT create one (a fresh doc hydrates the override itself)', async () => {
+  it('flag ON but NO document open → no-op, and does NOT create one (a later doc gets the state with its first call)', async () => {
     const { reloadOffscreenEndpointOverrides } = await loadProxy(true);
     await expect(reloadOffscreenEndpointOverrides()).resolves.toBe(false);
     expect(fakeChrome.offscreen.createDocument).not.toHaveBeenCalled();
@@ -3425,7 +3834,8 @@ describe('MidenClientProxy — reloadOffscreenEndpointOverrides', () => {
     expect(fakeChrome.runtime.sendMessage).toHaveBeenCalledTimes(1);
     expect(fakeChrome.runtime.sendMessage).toHaveBeenCalledWith({
       target: 'offscreen',
-      type: 'OFFSCREEN_RELOAD_ENDPOINTS'
+      type: 'OFFSCREEN_RELOAD_ENDPOINTS',
+      endpoints: { override: null, feeFaucetId: undefined }
     });
     // Reuses the document it found — never respawns the realm.
     expect(fakeChrome.offscreen.createDocument).not.toHaveBeenCalled();
@@ -3443,7 +3853,7 @@ describe('MidenClientProxy — reloadOffscreenEndpointOverrides', () => {
     docExists = true;
     const { reloadOffscreenEndpointOverrides } = await loadProxy(true);
     fakeChrome.runtime.sendMessage.mockRejectedValue(new Error('message port closed'));
-    // Must not reject: the replacement document loads the override at its own init,
+    // Must not reject: the replacement document gets the state with its first call,
     // so the caller (the RELOAD_ENDPOINT_OVERRIDES handler) has nothing to recover.
     await expect(reloadOffscreenEndpointOverrides()).resolves.toBe(false);
   });

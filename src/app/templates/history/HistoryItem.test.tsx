@@ -481,4 +481,84 @@ describe('HistoryItem', () => {
     render(<HistoryItem entry={makeEntry({ txType: 'send' })} />);
     expect(screen.queryByTestId('earn-deposit-status')).toBeNull();
   });
+
+  // jsdom does not lay out, so these pin the classes that keep a long line inside the row (#1490): each
+  // amount column never shrinks and is capped at half the row, so a short amount or badge keeps its width,
+  // and a long line clips with an ellipsis inside the cap, in a line box tall enough for descenders
+  // (`leading-none` cut them off once the line clipped).
+  describe('long amounts and token names', () => {
+    const longAmount = 123456789012345678901234567890n;
+    const longToken = 'T'.repeat(40);
+    const expectCappedColumn = (lines: HTMLElement[]) => {
+      for (const line of lines) {
+        expect(line).toHaveClass('truncate', 'max-w-full', 'leading-tight');
+        expect(line).not.toHaveClass('leading-none');
+      }
+      const column = lines[0]?.parentElement;
+      expect(column).toHaveClass('shrink-0', 'max-w-1/2');
+      expect(column).not.toHaveClass('min-w-0');
+    };
+
+    it('keeps a send row amount and token inside the row, beside its title', () => {
+      const entry = makeEntry({
+        transactionIcon: 'SEND',
+        message: 'Sent tokens',
+        amount: longAmount,
+        token: longToken
+      });
+
+      render(<HistoryItem entry={entry} />);
+
+      expect(screen.getByText('Sent tokens')).toBeInTheDocument();
+      expectCappedColumn([screen.getByText(`-${longAmount}`), screen.getByText(longToken)]);
+    });
+
+    it('keeps the From/To label whole and truncates the address beside it', () => {
+      const entry = makeEntry({ transactionIcon: 'SEND', secondaryAddress: `0x${'a'.repeat(80)}`, amount: longAmount });
+
+      render(<HistoryItem entry={entry} />);
+
+      const label = screen.getByText(/t:to/);
+      expect(label).toHaveClass('shrink-0');
+      const address = screen.getByTestId('addr').parentElement;
+      expect(address).toHaveClass('min-w-0', 'truncate');
+      expect(address).not.toContainElement(label);
+    });
+
+    it('keeps a bridge row amount inside the row, beside its title and status', () => {
+      jest.mocked(bridgeRowDisplay).mockReturnValue({
+        inSymbol: 'USDC',
+        outSymbol: 'USDC',
+        inLabel: 'USDC',
+        outLabel: longToken,
+        outAmount: longAmount.toString(),
+        providerLabel: 'Epoch',
+        network: 'Sepolia',
+        status: 'pending'
+      });
+
+      render(<HistoryItem entry={makeEntry({ txType: 'bridged-send' })} />);
+
+      expect(screen.getByText('t:bridgeRowTitle')).toBeInTheDocument();
+      const line = screen.getByText(`${longAmount} ${longToken}`);
+      expect(line).not.toContainElement(screen.getByText('t:pending'));
+      expectCappedColumn([line]);
+    });
+
+    it('keeps a Smart Withdraw amount inside the row, beside its title and status', () => {
+      const entry = makeEntry({
+        txType: 'earn-withdraw',
+        earnWithdrawPhase: 'delivering',
+        amount: longAmount,
+        token: longToken
+      });
+
+      render(<HistoryItem entry={entry} />);
+
+      expect(screen.getByText('t:earnWithdrawRowTitle')).toBeInTheDocument();
+      const line = screen.getByText(`+${longAmount} ${longToken}`);
+      expect(line).not.toContainElement(screen.getByText(/earnWithdrawStatusDelivering/));
+      expectCappedColumn([line]);
+    });
+  });
 });

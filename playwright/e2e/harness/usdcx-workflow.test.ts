@@ -29,17 +29,41 @@ function topLevel(key: string): string[] {
     .filter(line => line.trim() !== '' && !line.trimStart().startsWith('#'));
 }
 
-/** The job's steps, each from its `      - ` to the next one; a comment above a step ends the step before it. */
-const steps = workflow.slice(workflow.indexOf('\n    steps:\n') + '\n    steps:\n'.length).split(/\n(?= {6}- )/);
+const ARC_JOB = 'chrome-usdcx-arc';
+const L2_JOB = 'chrome-usdcx-l2';
+
+/** A job's lines, from its `  <id>:` line to the next line at that indent (a job or a comment above one). */
+function jobBlock(id: string): string {
+  const lines = workflow.split('\n');
+  const at = lines.indexOf(`  ${id}:`);
+  if (at === -1) throw new Error(`no job ${id}`);
+  const next = lines.findIndex((line, index) => index > at && /^ {2}\S/.test(line));
+  return lines.slice(at, next === -1 ? lines.length : next).join('\n');
+}
+/** A job's own key, read from the lines above its steps. */
+const jobKey = (id: string, key: string): string | undefined =>
+  new RegExp(`^ {4}${key}: (.+)$`, 'm').exec(jobBlock(id).split('\n    steps:\n')[0] ?? '')?.[1];
+/** A job's steps, each from its `      - ` to the next one; a comment above a step ends the step before it. */
+const stepsOf = (id: string): string[] => {
+  const block = jobBlock(id);
+  return block.slice(block.indexOf('\n    steps:\n') + '\n    steps:\n'.length).split(/\n(?= {6}- )/);
+};
+const steps = [...stepsOf(ARC_JOB), ...stepsOf(L2_JOB)];
 const isNamed = (step: string, name: string): boolean =>
   step.split('\n').some(line => line.trim().replace(/^- /, '') === `name: ${name}`);
 const runOf = (step: string): string | undefined => /^ {6}(?:- | {2})run: (.+)$/m.exec(step)?.[1];
-const stepNamed = (name: string): string => {
-  const found = steps.filter(step => isNamed(step, name));
-  if (found.length !== 1) throw new Error(`${found.length} steps named ${name}`);
+const stepNamed = (id: string, name: string): string => {
+  const found = stepsOf(id).filter(step => isNamed(step, name));
+  if (found.length !== 1) throw new Error(`${found.length} steps named ${name} in ${id}`);
   return found[0]!;
 };
 const isSuite = (step: string): boolean => runOf(step)?.startsWith(RUNNER) === true;
+/** A step without its comment lines, which belong to the step after it. */
+const bare = (step: string): string =>
+  step
+    .split('\n')
+    .filter(line => !line.trimStart().startsWith('#'))
+    .join('\n');
 
 /** GitHub's Ubuntu runner: `~` is its home, and a relative path starts in the workspace. */
 const RUNNER_HOME = '/home/runner';
@@ -97,23 +121,33 @@ describe('E2E USDCx workflow', () => {
     expect(topLevel('concurrency')).toEqual(['  group: usdcx-harness-arc-key', '  cancel-in-progress: false']);
   });
 
-  it('is one job, so no other job can reach the key file', () => {
-    expect(topLevel('jobs').filter(line => /^ {2}\S/.test(line))).toEqual(['  chrome-usdcx-testnet:']);
+  it('is two jobs, the Arc suites then the L2 suites, each on a runner of its own', () => {
+    expect(topLevel('jobs').filter(line => /^ {2}\S/.test(line))).toEqual([`  ${ARC_JOB}:`, `  ${L2_JOB}:`]);
   });
 
-  it('reads one secret, once, in the env of the step that writes the key file', () => {
-    expect(workflow.match(/\bsecrets\./g)).toHaveLength(1);
-    const step = stepNamed(WRITE_STEP);
-    expect(step).toContain(`\n        env:\n          ${SECRET}: \${{ secrets.${SECRET} }}\n`);
-    expect(runOf(step)).toBe('node scripts/write-ci-harness-arc-key.mjs');
+  it('reads one secret, once in each job, in the env of the step that writes the key file', () => {
+    expect(workflow.match(/\bsecrets\./g)).toHaveLength(2);
+    for (const job of [ARC_JOB, L2_JOB]) {
+      const step = stepNamed(job, WRITE_STEP);
+      expect(step).toContain(`\n        env:\n          ${SECRET}: \${{ secrets.${SECRET} }}\n`);
+      expect(runOf(step)).toBe('node scripts/write-ci-harness-arc-key.mjs');
+    }
     // No workflow or job env: every step would see it, the dependency install and the builds among them.
     expect(workflow).not.toMatch(/^ {0,4}env:/m);
+  });
+
+  it("gives the L2 job the Arc job's setup, step for step, through the key write", () => {
+    const setup = (job: string) => {
+      const list = stepsOf(job).map(bare);
+      return list.slice(0, list.findIndex(step => isNamed(step, WRITE_STEP)) + 1);
+    };
+    expect(setup(L2_JOB)).toEqual(setup(ARC_JOB));
   });
 
   it('writes the key file 0600 in a 0700 directory, as the runner reads it, when that step runs', () => {
     const home = mkdtempSync(join(tmpdir(), 'usdcx-ci-home-'));
     const key = generatePrivateKey();
-    const command = runOf(stepNamed(WRITE_STEP));
+    const command = runOf(stepNamed(ARC_JOB, WRITE_STEP));
     if (command === undefined) throw new Error(`${WRITE_STEP} has no run line`);
     // stdin is /dev/null: Debian's bash sources /etc/bash.bashrc for a socket stdin (see linked-pr-injection.test.ts).
     const res = spawnSync('bash', ['-c', command], {
@@ -136,18 +170,19 @@ describe('E2E USDCx workflow', () => {
     });
   });
 
-  it('writes the key after the dependency install and before the first suite', () => {
-    const installs = steps.flatMap((step, index) =>
+  it.each([ARC_JOB, L2_JOB])('writes the key after the dependency install and before the first suite, in %s', job => {
+    const list = stepsOf(job);
+    const installs = list.flatMap((step, index) =>
       /yarn install|\.\/\.github\/actions\/yarn-install/.test(step) ? [index] : []
     );
-    const write = steps.indexOf(stepNamed(WRITE_STEP));
+    const write = list.indexOf(stepNamed(job, WRITE_STEP));
     expect(installs).not.toHaveLength(0);
     expect(write).toBeGreaterThan(Math.max(...installs));
-    expect(steps.findIndex(isSuite)).toBeGreaterThan(write);
+    expect(list.findIndex(isSuite)).toBeGreaterThan(write);
   });
 
-  it('runs the three suites through the runner in turn, with no key flag, no env, no if and no continue-on-error', () => {
-    const suites = steps.filter(isSuite);
+  it('runs the three Arc suites in the Arc job in turn, with no key flag, no env, no if and no continue-on-error', () => {
+    const suites = stepsOf(ARC_JOB).filter(isSuite);
     expect(suites.map(runOf)).toEqual([
       `${RUNNER} --suite usdcx-in`,
       `${RUNNER} --suite usdcx-burn`,
@@ -155,11 +190,55 @@ describe('E2E USDCx workflow', () => {
     ]);
     // A red suite can leave a payout or a deposit landing on the key inside the next one's payout window.
     for (const step of suites) expect(step).not.toMatch(/^ {8}(env|if|continue-on-error):/m);
+    expect(suites[0]).toMatch(/^ {8}id: usdcx_in$/m);
+  });
+
+  // usdcx-in-l2 spends from the key on all three chains and usdcx-burn-l2 proves each payout as the rise of that
+  // balance from a read right before its burn: every deposit is mined before usdcx-in-l2's step ends, so order inside
+  // the job suffices.
+  it('runs usdcx-in-l2 then usdcx-burn-l2 in the L2 job, usdcx-burn-l2 after a red usdcx-in-l2 too but never after a failed setup step', () => {
+    const [inL2, burnL2, ...rest] = stepsOf(L2_JOB).filter(isSuite);
+    expect([runOf(inL2 ?? ''), runOf(burnL2 ?? ''), rest]).toEqual([
+      `${RUNNER} --suite usdcx-in-l2`,
+      `${RUNNER} --suite usdcx-burn-l2`,
+      []
+    ]);
+    expect(inL2).not.toMatch(/^ {8}(env|if|continue-on-error):/m);
+    expect(inL2).toMatch(/^ {8}id: usdcx_in_l2$/m);
+    expect(burnL2?.match(/^ {8}(env|if|continue-on-error):.*$/gm)).toEqual([
+      `        if: \${{ !cancelled() && steps.usdcx_in_l2.outcome != 'skipped' }}`
+    ]);
+  });
+
+  // Its suites read Base Sepolia, Arbitrum Sepolia and Ethereum Sepolia, where nothing an Arc suite leaves pending lands,
+  // so it runs after a red Arc job, never in a cancelled run. Its own setup guards the key: a failed step there skips
+  // usdcx-in-l2, which has no condition, and with it usdcx-burn-l2, so no L2 suite runs on a missing key file.
+  it('starts the L2 job after the Arc job, red or green, but never in a cancelled run', () => {
+    expect(jobKey(L2_JOB, 'needs')).toBe(ARC_JOB);
+    expect(jobKey(L2_JOB, 'if')).toBe(`\${{ !cancelled() }}`);
+    expect(jobBlock(ARC_JOB)).not.toMatch(/^ {4}outputs:/m);
+  });
+
+  it.each([
+    [ARC_JOB, `\${{ github.event_name == 'workflow_dispatch' && 240 || 210 }}`],
+    [L2_JOB, `\${{ github.event_name == 'workflow_dispatch' && 355 || 325 }}`]
+  ])('gives %s its own ceiling', (job, ceiling) => {
+    expect(jobKey(job, 'timeout-minutes')).toBe(ceiling);
+  });
+
+  // A ceiling the repository sets itself: no E2E USDCx job gets more than 6 hours.
+  it.each([ARC_JOB, L2_JOB])('keeps both of the ceilings of %s within the 360 minutes any E2E USDCx job gets', job => {
+    const minutes = /&& (\d+) \|\| (\d+) \}\}$/
+      .exec(jobKey(job, 'timeout-minutes') ?? '')
+      ?.slice(1)
+      .map(Number);
+    expect(minutes).toHaveLength(2);
+    for (const ceiling of minutes ?? []) expect(ceiling).toBeLessThanOrEqual(360);
   });
 
   it('uploads test-results after each suite that ran, whatever it did, failing no step after it, and never the key or the lock', () => {
     const uploads = steps.filter(step => step.includes('uses: actions/upload-artifact@'));
-    expect(uploads).toHaveLength(3);
+    expect(uploads).toHaveLength(5);
     for (const upload of uploads) {
       const id = /^ {8}if: always\(\) && steps\.(\w+)\.outcome != 'skipped'$/m.exec(upload)?.[1];
       expect(steps[steps.indexOf(upload) - 1]).toMatch(new RegExp(`^ {8}id: ${id}$`, 'm'));

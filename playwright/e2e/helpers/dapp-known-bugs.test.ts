@@ -2,8 +2,7 @@
  * @jest-environment node
  */
 import type { FailureEvidence } from './dapp-cells';
-import { nonCurrentReadEvidence, type NonCurrentRead } from './dapp-gates';
-import { KNOWN_BUGS, knownBugRegistry, type KnownBug } from './dapp-known-bugs';
+import { KNOWN_BUGS, type KnownBug } from './dapp-known-bugs';
 import pinned from './dapp-pinned.json';
 
 const bug = (id: string): KnownBug => {
@@ -33,11 +32,6 @@ describe('known-bug registry', () => {
     }
   });
 
-  it('scopes the Guardian-only bugs to the Guardian axis', () => {
-    expect(knownBugRegistry.bugsFor('G2a', 'offchain').map(entry => entry.id)).toEqual([]);
-    expect(knownBugRegistry.bugsFor('G2a', 'guardian').map(entry => entry.id)).toEqual(['K8']);
-  });
-
   it('K1 matches a provider that moved while the adapter kept the old address', () => {
     expect(bug('K1').signature(hard('M1', { providerAddress: 'b', adapterAddress: 'a', previousAddress: 'a' }))).toBe(
       true
@@ -47,110 +41,47 @@ describe('known-bug registry', () => {
     );
   });
 
-  it('K2 matches an approved consume refused as INVALID_PARAMS not found', () => {
-    const refused = { name: 'WalletTransactionError', message: 'INVALID_PARAMS: Error: Note with id 0x12 not found' };
-    expect(bug('K2').signature(hard('W6', { popupOpened: true, dappError: refused }))).toBe(true);
-    expect(
-      bug('K2').signature(hard('W6', { popupOpened: true, dappError: { ...refused, message: 'NOT_GRANTED' } }))
-    ).toBe(false);
-  });
-
-  it('K5 matches a locked-wallet refusal before any popup', () => {
-    const locked = { name: 'WalletTransactionError', message: 'INVALID_PARAMS: Error: Wallet is locked' };
-    expect(bug('K5').signature(hard('S9', { popupOpened: false, dappError: locked }))).toBe(true);
-    expect(bug('K5').signature(hard('S9', { popupOpened: true, dappError: locked }))).toBe(false);
-  });
-
-  it('K6 and K7 match only their recorded facts', () => {
-    expect(bug('K6').signature(hard('M3-consume-switch', { staleConsumeExecuted: true }))).toBe(true);
-    expect(bug('K6').signature(hard('M3-consume-switch', {}))).toBe(false);
-    expect(bug('K7').signature(hard('M7', { crossOriginWaitServed: true }))).toBe(true);
-    expect(bug('K7').signature(hard('M7', { crossOriginWaitServed: false }))).toBe(false);
-  });
-
-  it('K8 matches the opaque keystore miss after approval, and not another refusal', () => {
-    const miss = {
-      name: 'WalletTransactionError',
-      message: `INVALID_PARAMS: Error: ${pinned.texts.G2.guardian.error}`,
-      causeName: 'InvalidParamsMidenWalletError'
-    };
-    expect(bug('K8').signature(hard('G2a', { popupOpened: true, dappError: miss }))).toBe(true);
-    const declined = {
-      name: 'WalletTransactionError',
-      message: 'NOT_GRANTED',
-      causeName: 'NotGrantedMidenWalletError'
-    };
-    expect(bug('K8').signature(hard('G2a', { popupOpened: true, dappError: declined }))).toBe(false);
-    expect(bug('K8').signature(hard('G2a', { popupOpened: false, dappError: miss }))).toBe(false);
-    expect(bug('K8').signature(soft('G2a', { popupOpened: true, dappError: miss }))).toBe(false);
-    for (const dappError of [
-      { ...miss, causeName: 'MidenWalletError' },
-      { ...miss, message: 'INVALID_PARAMS: Error: Wallet is locked' }
-    ]) {
-      expect(bug('K8').signature(hard('G2b', { popupOpened: true, dappError }))).toBe(false);
-    }
-  });
-
-  it('K9 matches a non-current session that prompted, and never a leak', () => {
-    const refused = { name: 'NotGrantedMidenWalletError', message: 'NOT_GRANTED' };
-    const nothingRan = { nonCurrentPrompted: true, dappError: refused, nonCurrentRowRan: false };
-    expect(bug('K9').signature(hard('M9-send', nothingRan))).toBe(true);
-    expect(bug('K9').signature(hard('M9-send', { ...nothingRan, nonCurrentPrompted: false }))).toBe(false);
-    expect(bug('K9').signature(hard('M9-send', { nonCurrentPrompted: true, staleConsumeExecuted: true }))).toBe(false);
-    expect(bug('K9').signature(hard('M9-consume', { nonCurrentPrompted: true, staleConsumeExecuted: true }))).toBe(
-      true
+  it('K1 matches a React context left on the old account after a switch or a revoke, and nothing else', () => {
+    expect(bug('K1').cells).toEqual(
+      expect.objectContaining({ 'WP7-switch': ['offchain', 'guardian'], 'WP7-revoke': ['offchain', 'guardian'] })
     );
-    const stayed = { nonCurrentPrompted: true, nonCurrentReadsOwnOrRefused: true };
-    expect(bug('K9').signature(hard('M4-reads', stayed))).toBe(true);
-    expect(bug('K9').signature(hard('M4-reads', { ...stayed, nonCurrentReadsOwnOrRefused: false }))).toBe(false);
-  });
-
-  it('K9 never explains M4-reads when an approved read failed or a read was served with no popup', () => {
-    const own = { '0xtst': '100' };
-    const servedOwn: NonCurrentRead = { prompted: true, result: { ok: true }, served: own, own };
-    const reads = (...seen: NonCurrentRead[]) => bug('K9').signature(hard('M4-reads', nonCurrentReadEvidence(seen)));
-    expect(reads(servedOwn, servedOwn)).toBe(true);
+    const stayed = { previousAddress: 'a', reactAddress: 'a', reactConnected: true };
+    expect(bug('K1').signature(hard('WP7-switch', { ...stayed, providerAddress: 'b' }))).toBe(true);
+    expect(bug('K1').signature(hard('WP7-revoke', { ...stayed, providerAddress: null }))).toBe(true);
+    // The context followed, or the provider never moved: not K1.
+    expect(bug('K1').signature(hard('WP7-switch', { ...stayed, reactAddress: 'b', providerAddress: 'b' }))).toBe(false);
     expect(
-      reads({ ...servedOwn, result: { ok: false, error: { message: 'INTERNAL_ERROR' } }, served: null }, servedOwn)
+      bug('K1').signature(
+        hard('WP7-revoke', { previousAddress: 'a', providerAddress: null, reactAddress: null, reactConnected: false })
+      )
     ).toBe(false);
-    expect(reads(servedOwn, { ...servedOwn, prompted: false })).toBe(false);
-    // Evidence that does not say how each read ended is not K9.
-    const internal = { name: 'MidenWalletError', message: 'INTERNAL_ERROR' };
-    expect(bug('K9').signature(hard('M4-reads', { nonCurrentPrompted: true, dappError: internal }))).toBe(false);
+    expect(bug('K1').signature(hard('WP7-revoke', { ...stayed, reactConnected: false, providerAddress: null }))).toBe(
+      false
+    );
+    expect(bug('K1').signature(hard('WP7-switch', { ...stayed, providerAddress: 'a' }))).toBe(false);
+    // The adapter's fact alone does not explain a React cell.
+    expect(
+      bug('K1').signature(hard('WP7-switch', { previousAddress: 'a', providerAddress: 'b', adapterAddress: 'a' }))
+    ).toBe(false);
   });
 
-  it('K9 never explains a refusal after approval when a row ran anyway, or when nothing says whether one did', () => {
-    const refused = { name: 'NotGrantedMidenWalletError', message: 'NOT_GRANTED' };
-    for (const cellId of ['M9-send', 'M9-transaction', 'M9-custom', 'M9-consume', 'M9-consumeBytes']) {
-      expect(
-        bug('K9').signature(hard(cellId, { nonCurrentPrompted: true, dappError: refused, nonCurrentRowRan: true }))
-      ).toBe(false);
-      expect(bug('K9').signature(hard(cellId, { nonCurrentPrompted: true, dappError: refused }))).toBe(false);
-    }
+  it('judges W6 on the fixed consume of carried noteBytes, with K2 (#1413) gone', () => {
+    expect(KNOWN_BUGS.filter(entry => entry.cells.W6 !== undefined).map(entry => entry.id)).toEqual([]);
+    expect(KNOWN_BUGS.map(entry => entry.id)).not.toContain('K2');
   });
 
-  it('K10 matches a consume by the returned id refused before any popup, and an N4 miss by that id', () => {
-    expect(bug('K10').tracking).toContain('0xMiden/wallet#1389');
-    expect(bug('K10').cells).toEqual({
-      W5b: ['offchain', 'guardian'],
-      W5c: ['offchain', 'guardian'],
-      N4: ['offchain', 'guardian']
-    });
-    const unresolved = {
-      name: 'WalletTransactionError',
-      message: 'INVALID_PARAMS: Error: Note 0x0e5a could not be resolved'
-    };
-    expect(bug('K10').signature(hard('W5b', { popupOpened: false, dappError: unresolved }))).toBe(true);
-    expect(bug('K10').signature(soft('W5b', { popupOpened: false, dappError: unresolved }))).toBe(false);
-    expect(bug('K10').signature(hard('W5c', { popupOpened: true, dappError: unresolved }))).toBe(false);
-    for (const message of ['INVALID_PARAMS: Error: Wallet is locked', 'Note 0x0e5a could not be resolved']) {
-      expect(bug('K10').signature(hard('W5c', { popupOpened: false, dappError: { ...unresolved, message } }))).toBe(
-        false
-      );
-    }
-    expect(bug('K10').signature(hard('N4', { returnedIdUnlisted: true }))).toBe(true);
-    expect(bug('K10').signature(hard('N4', { returnedIdUnlisted: false }))).toBe(false);
-    expect(bug('K10').signature(hard('N4', { popupOpened: false, dappError: unresolved }))).toBe(false);
+  it('judges S9 on the fixed locked-wallet prompt, with K5 (#1414) gone', () => {
+    expect(KNOWN_BUGS.filter(entry => entry.cells.S9 !== undefined).map(entry => entry.id)).toEqual([]);
+    expect(KNOWN_BUGS.map(entry => entry.id)).not.toContain('K5');
+  });
+
+  it('judges M7 on the origin gate, with K7 (#1416) gone', () => {
+    expect(KNOWN_BUGS.filter(entry => entry.cells.M7 !== undefined).map(entry => entry.id)).toEqual([]);
+    expect(KNOWN_BUGS.map(entry => entry.id)).not.toContain('K7');
+  });
+
+  it('judges N4 without an import-id lookup exception (#1536)', () => {
+    expect(KNOWN_BUGS.filter(entry => entry.cells.N4 !== undefined).map(entry => entry.id)).toEqual([]);
   });
 
   it('K11 matches an undecodable custom request that opened a popup, and not a refusal or a deadline', () => {
@@ -160,5 +91,41 @@ describe('known-bug registry', () => {
     const refused = { name: 'InvalidParamsMidenWalletError', message: 'INVALID_PARAMS: Error: unexpected end of file' };
     expect(bug('K11').signature(hard('R3-customUndecodable', { popupOpened: false, dappError: refused }))).toBe(false);
     expect(bug('K11').signature(hard('R3-customUndecodable', {}, 'CellDeadlineExceeded: dApp one raw'))).toBe(false);
+  });
+
+  it('K12 matches a WalletContext export that holds no state while useWallet() sees the connect', () => {
+    expect(bug('K12').tracking).toContain('0xMiden/web-sdk#484');
+    expect(bug('K12').cells).toEqual({ WP9: ['offchain', 'guardian'] });
+    expect(bug('K12').signature(hard('WP9', { reactConnected: true, reactExportedConnected: null }))).toBe(true);
+    expect(bug('K12').signature(hard('WP9', { reactConnected: true, reactExportedConnected: true }))).toBe(false);
+    expect(bug('K12').signature(hard('WP9', { reactConnected: true, reactExportedConnected: false }))).toBe(false);
+    expect(bug('K12').signature(hard('WP9', { reactConnected: false, reactExportedConnected: null }))).toBe(false);
+    expect(bug('K12').signature(soft('WP9', { reactConnected: true, reactExportedConnected: null }))).toBe(false);
+  });
+
+  it('K13 matches the signer setup error MF3 settled on, and no other', () => {
+    expect(bug('K13').tracking).toContain('0xMiden/web-sdk#400');
+    expect([...(bug('K13').cells.MF3 ?? [])].sort()).toEqual(Object.keys(pinned.texts.MF3).sort());
+    const texts = Object.values(pinned.texts.MF3);
+    expect(texts.length > 0 && texts.every(({ error, reason }) => error.length > 0 && reason.length > 0)).toBe(true);
+    expect(
+      texts.map(({ error, reason }) =>
+        bug('K13').signature(hard('MF3', { signerInitError: `${error} 0x01 ${reason}` }))
+      )
+    ).toEqual(texts.map(() => true));
+    // As the testnet run settled it on both axes, where only the private account's id differed.
+    const observed =
+      'Error: failed to import public account: account 0x2c0814e4ff753ac154d7d0659362d3 is private and its details ' +
+      'cannot be retrieved from the network';
+    expect(bug('K13').signature(hard('MF3', { signerInitError: observed }))).toBe(true);
+    expect(bug('K13').signature(hard('MF3', { signerInitError: 'Error: network unreachable' }))).toBe(false);
+    // The same import failing for another reason is another bug.
+    expect(
+      bug('K13').signature(
+        hard('MF3', { signerInitError: 'Error: failed to import public account: account 0x01 could not be fetched' })
+      )
+    ).toBe(false);
+    expect(bug('K13').signature(hard('MF3', {}))).toBe(false);
+    expect(bug('K13').signature(soft('MF3', { signerInitError: observed }))).toBe(false);
   });
 });

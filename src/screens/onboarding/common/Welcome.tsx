@@ -1,66 +1,139 @@
-import React, { useRef } from 'react';
+import React, { useEffect, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
+import { useTapUnlock } from 'app/hooks/useTapUnlock';
 import { ReactComponent as BreadLogo } from 'app/icons/brand/new-bread.svg';
 import { Button, ButtonVariant } from 'components/Button';
+import { Spinner } from 'components/ui/Spinner';
 import { SubPageLayout } from 'components/ui/SubPageLayout';
-import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
+import { TextAction } from 'components/ui/TextAction';
+import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
+import { cn } from 'lib/ui/util';
 import { navigate } from 'lib/woozie';
+
+import { NoCodeSheet } from './NoCodeSheet';
 
 export interface WelcomeScreenProps extends Omit<React.ButtonHTMLAttributes<HTMLDivElement>, 'onSubmit'> {
   onSubmit?: (action: Actions) => void;
+  /** The invite-only way in, as the host decided it (OnboardingNetwork). */
+  inviteOnly?: boolean;
+  /** Seven logo taps call it while the general Welcome shows; without it they open Developer Settings. */
+  onUnlockInviteOnly?: () => void;
+  /** Recovery is the only way in: a new wallet needs a code the host cannot take. */
+  recoverOnly?: boolean;
 }
 
-export type Actions = 'select-wallet-type' | 'select-import-type';
+/**
+ * `select-wallet-type` and `select-import-type` are the general ways in: the create and recover
+ * flows behind the test-network notice. `mainnet-access` is the invite-only way in: the access-code
+ * step.
+ */
+export type Actions = 'mainnet-access' | 'select-wallet-type' | 'select-import-type';
 
-export const WelcomeScreen = ({ onSubmit }: WelcomeScreenProps) => {
+/**
+ * The maximum time the actions stay hidden while the remote config loads, so that the variant the
+ * config sets does not replace the other one under the user's finger.
+ */
+const CONFIG_WAIT_MS = 3_000;
+
+/** True when the remote config has loaded, or the wait for it has ended. */
+function useConfigSettled(loading: boolean): boolean {
+  const [waitEnded, setWaitEnded] = useState(false);
+  useEffect(() => {
+    if (!loading) return undefined;
+    const timer = setTimeout(() => setWaitEnded(true), CONFIG_WAIT_MS);
+    return () => clearTimeout(timer);
+  }, [loading]);
+  return !loading || waitEnded;
+}
+
+export const WelcomeScreen = ({
+  onSubmit,
+  inviteOnly = false,
+  onUnlockInviteOnly,
+  recoverOnly = false
+}: WelcomeScreenProps) => {
   const { t } = useTranslation();
-  const tapCount = useRef(0);
-  const lastTap = useRef(0);
+  const snapshot = useBridgeConfigSnapshot();
+  const settled = useConfigSettled(snapshot.status === 'loading');
+  const [noCodeOpen, setNoCodeOpen] = useState(false);
+  // Hidden, not removed, so the hero does not move when the actions show.
+  const actionClassName = cn('max-w-none', !settled && 'invisible');
 
-  const handleLogoTap = (e: React.MouseEvent) => {
-    e.preventDefault();
-    window.getSelection()?.removeAllRanges();
-    const now = e.timeStamp;
-    tapCount.current = now - lastTap.current > 2000 ? 1 : tapCount.current + 1;
-    lastTap.current = now;
-    if (tapCount.current >= 4 && tapCount.current < 7) hapticLight();
-    if (tapCount.current >= 7) {
-      tapCount.current = 0;
-      hapticMedium();
+  // Seven logo taps unlock the invite-only Welcome, or open Developer Settings.
+  const handleLogoTap = useTapUnlock(() => {
+    if (inviteOnly || !onUnlockInviteOnly) {
       navigate('/developer-settings');
+      return;
     }
-  };
+    onUnlockInviteOnly();
+  });
+
+  const actions = inviteOnly ? (
+    <>
+      <Button
+        tabIndex={0}
+        className={actionClassName}
+        data-testid="onboarding-have-code"
+        title={t('iHaveACode')}
+        onClick={() => onSubmit?.('mainnet-access')}
+      />
+      {/* No code: Bread is invite-only, and the sheet says so (TextAction brings the haptic). */}
+      <TextAction
+        className={cn('self-center underline decoration-1 underline-offset-[3px]', !settled && 'invisible')}
+        data-testid="onboarding-no-code"
+        onClick={() => setNoCodeOpen(true)}
+      >
+        {t('iDontHaveACode')}
+      </TextAction>
+    </>
+  ) : (
+    <>
+      {!recoverOnly && (
+        <Button
+          tabIndex={0}
+          className={actionClassName}
+          data-testid="onboarding-get-started"
+          title={t('getStarted')}
+          onClick={() => onSubmit?.('select-wallet-type')}
+        />
+      )}
+      {/* Recover: secondary under Get started, or the primary when it is alone (Button brings the haptic). */}
+      <Button
+        id="import-link"
+        className={actionClassName}
+        variant={recoverOnly ? ButtonVariant.Primary : ButtonVariant.Secondary}
+        data-testid="onboarding-recover-account"
+        title={t('recoverYourAccount')}
+        onClick={() => onSubmit?.('select-import-type')}
+      />
+    </>
+  );
+
+  // While the remote config loads, the hidden actions keep their room and a spinner shows in it.
+  const footer = (
+    <div className="relative flex flex-col gap-2.5">
+      {!settled && (
+        <div
+          role="status"
+          aria-label={t('loading')}
+          data-testid="onboarding-config-loading"
+          className="absolute inset-0 flex items-center justify-center"
+        >
+          <Spinner size="lg" />
+        </div>
+      )}
+      {actions}
+    </div>
+  );
 
   return (
-    <SubPageLayout
-      data-testid="onboarding-welcome"
-      footerLayout="stack"
-      footer={
-        <>
-          <Button
-            tabIndex={0}
-            className="max-w-none"
-            data-testid="onboarding-get-started"
-            title={t('getStarted')}
-            onClick={() => onSubmit?.('select-wallet-type')}
-          />
-          {/* The second way in, as the secondary action under the primary one (Button brings the haptic). */}
-          <Button
-            id="import-link"
-            className="max-w-none"
-            variant={ButtonVariant.Secondary}
-            data-testid="onboarding-recover-account"
-            title={t('recoverYourAccount')}
-            onClick={() => onSubmit?.('select-import-type')}
-          />
-        </>
-      }
-    >
+    <SubPageLayout data-testid="onboarding-welcome" footerLayout="stack" footer={footer}>
       <div className="my-auto flex flex-col items-center py-8 text-center">
         <div
           data-testid="onboarding-bread-logo"
+          data-invite-onboarding={inviteOnly ? 'true' : undefined}
           onClick={handleLogoTap}
           className="cursor-default select-none [-webkit-touch-callout:none]"
         >
@@ -76,6 +149,14 @@ export const WelcomeScreen = ({ onSubmit }: WelcomeScreenProps) => {
           {t('breadWalletDescription')}
         </p>
       </div>
+      <NoCodeSheet
+        open={noCodeOpen}
+        onOpenChange={setNoCodeOpen}
+        onRecover={() => {
+          setNoCodeOpen(false);
+          onSubmit?.('select-import-type');
+        }}
+      />
     </SubPageLayout>
   );
 };

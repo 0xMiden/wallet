@@ -14,7 +14,7 @@ export interface EvmWallet {
   /** EIP-1193 provider for signing/claiming — works on web AND native. */
   provider?: EIP1193Provider;
   /** Open the connect UI (AppKit modal on web, native sheet on iOS/Android). */
-  connect: () => Promise<void>;
+  connect: (recoveryChainId?: number) => Promise<void>;
 }
 
 /**
@@ -45,9 +45,14 @@ export function useEvmWalletProvider(): EvmWallet {
     return buildNativeReownProvider({ chainId: nativeChainId, address: nativeAddress, rpcUrl }) as EIP1193Provider;
   }, [isNative, nativeAddress, nativeChainId]);
 
-  const connectWeb = useCallback(async () => {
-    await open({ view: 'Connect', namespace: 'eip155' });
-  }, [open]);
+  const connectWeb = useCallback(
+    async (recoveryChainId?: number) => {
+      const { prepareAppKitConnection } = await import('./appkit');
+      await prepareAppKitConnection(recoveryChainId);
+      await open({ view: 'Connect', namespace: 'eip155' });
+    },
+    [open]
+  );
 
   if (isNative) {
     return {

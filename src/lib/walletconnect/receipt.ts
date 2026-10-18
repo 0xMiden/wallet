@@ -7,11 +7,11 @@ import {
   type Chain,
   type Hash
 } from 'viem';
-import { sepolia } from 'viem/chains';
 
 import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
+import { walletRaised } from 'lib/telemetry/bridge-receive-failure';
 
-import { DEFAULT_CHAIN_ID, getChain } from './config';
+import { DEFAULT_CHAIN_ID, EVM_CHAIN_DEFINITIONS, getChain } from './config';
 
 export class EvmTransactionRevertedError extends Error {
   constructor(chainName: string) {
@@ -20,14 +20,9 @@ export class EvmTransactionRevertedError extends Error {
   }
 }
 
-/** Wait for one successful Sepolia confirmation using the app's configured RPC. */
-export async function waitForSepoliaReceipt(hash: Hash): Promise<void> {
-  return waitForEvmReceipt(hash, sepolia);
-}
-
 export async function waitForEvmReceipt(hash: Hash, chain: Chain): Promise<void> {
   const rpcUrl = getChain(chain.id)?.rpcUrl;
-  if (!rpcUrl) throw new Error(`${chain.name} RPC is not configured`);
+  if (!rpcUrl) throw walletRaised(new Error(`${chain.name} RPC is not configured`));
   const client = createPublicClient({ chain, transport: http(rpcUrl) });
   const receipt = await client.waitForTransactionReceipt({ hash, confirmations: 1 });
   if (receipt.status !== 'success') throw new EvmTransactionRevertedError(chain.name);
@@ -52,12 +47,22 @@ export async function readEvmReceiptOutcome(hash: Hash, chain: Chain): Promise<'
  * viem's own retry is off so a Retry-After header cannot stretch it.
  */
 export async function readSepoliaErc20Allowance(token: Address, owner: Address, spender: Address): Promise<bigint> {
-  const rpcUrl = getChain(DEFAULT_CHAIN_ID)?.rpcUrl;
-  if (!rpcUrl) throw new Error('Sepolia RPC is not configured');
-  const client = createPublicClient({ chain: sepolia, transport: http(rpcUrl, { timeout: 5_000, retryCount: 0 }) });
+  return readEvmErc20Allowance(token, owner, spender, DEFAULT_CHAIN_ID);
+}
+
+export async function readEvmErc20Allowance(
+  token: Address,
+  owner: Address,
+  spender: Address,
+  chainId: number
+): Promise<bigint> {
+  const rpcUrl = getChain(chainId)?.rpcUrl;
+  const chain = EVM_CHAIN_DEFINITIONS.find(entry => entry.id === chainId);
+  if (!rpcUrl || !chain) throw walletRaised(new Error(`RPC is not configured for EVM chain ${chainId}`));
+  const client = createPublicClient({ chain, transport: http(rpcUrl, { timeout: 5_000, retryCount: 0 }) });
   return withRpcTimeout(
     () => client.readContract({ address: token, abi: erc20Abi, functionName: 'allowance', args: [owner, spender] }),
-    'sepolia-allowance',
+    `erc20-allowance:${chainId}`,
     { timeoutMs: 5_000, retries: 1 }
   );
 }

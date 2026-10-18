@@ -8,14 +8,14 @@ import { ListRow } from 'components/ui/ListRow';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 
 /**
- * The EVM source tokens a deposit can bridge: native ETH, the bridge's own USDC on Sepolia (`USDC`),
- * or Circle's USDC on Arc Testnet (`CIRCLE_USDC`).
+ * New deposits use Circle USDC or configured native ETH. `USDC` identifies the retired Epoch test token
+ * in existing engine states; it is never offered by this picker.
  */
 export type DepositToken = 'ETH' | 'USDC' | 'CIRCLE_USDC';
 
 interface TokenRow {
   token: DepositToken;
-  /** The row's title and balance unit: the token, or the USDC token's display label. */
+  /** The row's title and balance unit. */
   name: string;
   /** Keys the row's logo. */
   logoSymbol: string;
@@ -28,14 +28,11 @@ export interface EvmBridgeTokenDrawerProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   selected: DepositToken;
-  ethBalance: string;
-  usdcBalance: string;
-  /** The USDC row's name, such as the testnet label (`evmUsdcLabel`). */
-  usdcLabel: string;
+  /** Native ETH, which bridges only through AggLayer. The row is drawn only when the balance is given. */
+  ethBalance?: string;
   ethLoading?: boolean;
-  usdcLoading?: boolean;
   /**
-   * Circle's Arc Testnet USDC, which bridges only through Circle xReserve. The row is
+   * Circle's USDC, which bridges only through Circle xReserve. The row is
    * drawn only when the balance is given, which the host does where that route can start.
    */
   circleUsdcBalance?: string;
@@ -47,19 +44,15 @@ export interface EvmBridgeTokenDrawerProps {
 
 /**
  * Bottom-sheet picker for the deposit source token. The chosen token drives the
- * amount screen's balance and selects the bridge routes: ETH and the bridge's
- * own USDC pick Fast (Epoch) or Slow (Agglayer); Circle's Arc Testnet USDC
- * bridges only through Circle xReserve to USDCx on Miden.
+ * amount screen's balance and route. Circle USDC arrives as USDCx on Miden; native ETH
+ * uses AggLayer where configured.
  */
 export const EvmBridgeTokenDrawer: React.FC<EvmBridgeTokenDrawerProps> = ({
   open,
   onOpenChange,
   selected,
   ethBalance,
-  usdcBalance,
-  usdcLabel,
   ethLoading,
-  usdcLoading,
   circleUsdcBalance,
   circleUsdcLabel,
   circleUsdcLoading,
@@ -67,10 +60,10 @@ export const EvmBridgeTokenDrawer: React.FC<EvmBridgeTokenDrawerProps> = ({
 }) => {
   const { t } = useTranslation();
 
-  const rows: TokenRow[] = [
-    { token: 'ETH', name: 'ETH', logoSymbol: 'ETH', balance: ethBalance, loading: ethLoading },
-    { token: 'USDC', name: usdcLabel, logoSymbol: 'USDC', balance: usdcBalance, loading: usdcLoading }
-  ];
+  const rows: TokenRow[] = [];
+  if (ethBalance !== undefined) {
+    rows.push({ token: 'ETH', name: 'ETH', logoSymbol: 'ETH', balance: ethBalance, loading: ethLoading });
+  }
   if (circleUsdcBalance !== undefined) {
     rows.push({
       token: 'CIRCLE_USDC',
@@ -93,6 +86,7 @@ export const EvmBridgeTokenDrawer: React.FC<EvmBridgeTokenDrawerProps> = ({
         <ListGroup className="mx-4">
           {rows.map(({ token, name, logoSymbol, balance, loading }) => (
             <ListRow
+              accent="receive"
               key={token}
               title={name}
               subtitle={loading ? t('loading') : `${balance} ${name}`}
