@@ -25,9 +25,21 @@ type Wallet = {
 type Sent = { payload: { type: string }; reqId: string };
 type DappWindow = Window & {
   midenWallet: Wallet;
+  bread?: object;
   __midenWalletResponse: (r: string) => void;
   __MIDEN_BRIDGE_TOKEN__?: string;
 };
+
+function run(win: DappWindow) {
+  // eslint-disable-next-line no-new-func
+  new Function('window', 'document', 'globalThis', 'setTimeout', 'clearTimeout', SOURCE)(
+    win,
+    win.document,
+    win,
+    setTimeout,
+    clearTimeout
+  );
+}
 
 function load() {
   const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'https://dapp.example/' });
@@ -43,19 +55,23 @@ function load() {
     return append(node);
   };
   win.__MIDEN_BRIDGE_TOKEN__ = 'token';
-  // eslint-disable-next-line no-new-func
-  new Function('window', 'document', 'globalThis', 'setTimeout', 'clearTimeout', SOURCE)(
-    win,
-    win.document,
-    win,
-    setTimeout,
-    clearTimeout
-  );
+  run(win);
   const answer = (reqId: string, payload: unknown) =>
     win.__midenWalletResponse(JSON.stringify({ type: 'MIDEN_PAGE_RESPONSE', payload, reqId }));
   const polls = () => sent.filter(m => m.payload?.type === 'GET_CURRENT_PERMISSION_REQUEST');
   const last = () => sent[sent.length - 1]!;
   return { win, sent, answer, polls, last };
+}
+
+// WebView2 runs the script in sub-frames too.
+function loadFrame() {
+  const dom = new JSDOM('<!doctype html><html><body><iframe></iframe></body></html>', {
+    url: 'https://dapp.example/'
+  });
+  const frame = dom.window.document.querySelector('iframe')!.contentWindow as DappWindow;
+  frame.__MIDEN_BRIDGE_TOKEN__ = 'token';
+  run(frame);
+  return frame;
 }
 
 // The connect response names the network by id and the poll by RPC URL, as the real host does.
@@ -125,6 +141,52 @@ it("numbers each document's requests under its own prefix, so a late answer for 
 
   current.answer(currentId, { assets: ['current'] });
   await expect(pending).resolves.toEqual({ assets: ['current'] });
+});
+
+it('marks the top document with an empty, frozen window.bread', () => {
+  const bread = load().win.bread!;
+  expect(Object.keys(bread)).toEqual([]);
+  expect(Object.isFrozen(bread)).toBe(true);
+  expect(['version', 'presentation', 'auth'].filter(key => key in bread)).toEqual([]);
+});
+
+it('defines window.bread synchronously even when the wallet API waits for DOMContentLoaded', () => {
+  const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'https://dapp.example/' });
+  const win = dom.window as unknown as DappWindow;
+  // A document-start script runs before the parser has made a body.
+  win.document.body.remove();
+  run(win);
+  expect(win.bread).toEqual({});
+  expect('midenWallet' in win).toBe(false);
+});
+
+it('keeps window.bread non-writable and non-configurable', () => {
+  const { win } = load();
+  const marker = win.bread;
+  expect(Object.getOwnPropertyDescriptor(win, 'bread')).toEqual({
+    value: {},
+    writable: false,
+    enumerable: false,
+    configurable: false
+  });
+  expect(Reflect.set(win, 'bread', {})).toBe(false);
+  expect(Reflect.deleteProperty(win, 'bread')).toBe(false);
+  expect(win.bread).toBe(marker);
+});
+
+it('defines nothing in a sub-frame', () => {
+  const frame = loadFrame();
+  expect(frame.__MIDEN_BRIDGE_TOKEN__).toBeUndefined();
+  expect('bread' in frame).toBe(false);
+  expect('midenWallet' in frame).toBe(false);
+});
+
+it('keeps the same marker when the script runs again', () => {
+  const { win } = load();
+  const marker = win.bread;
+  expect(marker).toBeDefined();
+  expect(() => run(win)).not.toThrow();
+  expect(win.bread).toBe(marker);
 });
 
 describe('account switch (#174)', () => {

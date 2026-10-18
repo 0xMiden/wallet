@@ -13,12 +13,12 @@ Bread reads the head while it parses, applies the first valid presentation polic
 For manual readiness, wait until the first correctly sized frame is ready before calling:
 
 ```js
-if (window.bread?.version === 1) {
+if (window.bread?.presentation) {
   await window.bread.presentation.ready();
 }
 ```
 
-`window.bread` and its `presentation` object are frozen. `ready()` and `close()` return `Promise<void>`, resolving only after native acknowledgement and rejecting on native refusal or a transport timeout. The API exists only in the main document of a supported native Bread WebView. A browser extension wallet object alone does not enable it.
+`window.bread` and its `presentation` object are frozen. `ready()` and `close()` return `Promise<void>`, resolving only after native acknowledgement and rejecting on native refusal or a transport timeout. The API exists only in the main document of a supported native Bread WebView. A browser extension wallet object alone does not enable it. Bread's desktop app defines an empty, frozen `window.bread`, so detect each capability by its presence.
 
 Fullscreen opens in the current portrait or landscape orientation and follows device rotation. Bread keeps a translucent native logo capsule visible, labeled "Back to Bread". Tap it once to minimize the page into Bread's standard parked-app view. Selecting that app again restores the same fullscreen document and session without a reload. Closing uses the same existing parked-app actions and switcher controls as every other app; no additional game-specific close control is introduced. Wallet confirmations, alerts, actions and locking temporarily suspend the page; dismissing the last overlay resumes the same session.
 
@@ -50,7 +50,7 @@ Native layout updates the metrics after resizing, viewport scaling, safe-area ch
 Programmatic closure retains the native close API:
 
 ```js
-if (window.bread?.version === 1) {
+if (window.bread?.presentation) {
   await window.bread.presentation.close();
 }
 ```

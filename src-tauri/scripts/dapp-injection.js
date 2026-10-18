@@ -47,6 +47,13 @@
   if (window.__midenInjected) return;
   window.__midenInjected = true;
 
+  // Desktop has neither presentation nor auth; a page detects Bread by window.bread and each capability by its presence.
+  try {
+    Object.defineProperty(window, 'bread', { value: Object.freeze({}) });
+  } catch (e) {
+    // A page-defined non-configurable `bread` keeps its value; the wallet bridge still installs.
+  }
+
   // Pending requests waiting for responses
   const pendingRequests = new Map();
   // Random per document: the wallet can answer after a same-origin reload, and the next document's requests must not
