@@ -65,6 +65,27 @@ const GLUED_FORMS: [string, string, string, string, string[]][] = [
     'The faucet keeps its own values.',
     'L’faucete conserve ses propres valeurs.',
     ['L’faucete']
+  ],
+  [
+    'fr glue beside a clean faucet',
+    'fr',
+    'The faucet keeps its own values.',
+    'Le faucet garde les valeurs du dfaucet.',
+    ['dfaucet']
+  ],
+  [
+    'fr doubled plural beside clean terms',
+    'fr',
+    'The note and notes are public.',
+    'La note et les notes notess sont publiques.',
+    ['notess']
+  ],
+  [
+    'fr glue beside a native word and a clean term',
+    'fr',
+    'Write down the note ID',
+    "Notez l'ID de la note notnote",
+    ['notnote']
   ]
 ];
 
@@ -90,7 +111,7 @@ const ACCEPTED_FORMS: [string, string, string, string][] = [
     'a $placeholder$ beside a term or naming one',
     'fr',
     'Note $noteId$ sent by the faucet $faucetId$',
-    'Note $noteId$ envoyée par le faucet $faucetId$'
+    'Elle ($noteId$) a été envoyée par le faucet $faucetId$'
   ],
   [
     'a Polish case ending',
@@ -115,6 +136,14 @@ const ACCEPTED_FORMS: [string, string, string, string][] = [
     'Der Knoten hat die note zurückgegeben'
   ],
   ['a native French word beside a protected term', 'fr', 'Write down the note ID', "Notez l'ID de la note"],
+  [
+    'a native French word beside a term and a pronoun',
+    'fr',
+    'Write down the note ID, then send the note.',
+    "Notez l'ID de la note, puis envoyez-la."
+  ],
+  ['a native Portuguese word beside a protected term', 'pt', 'Write down the note ID', 'Anote o ID da note'],
+  ['a native Portuguese word with a DeepL code', 'pt-BR', 'Write down the note ID', 'Anote o ID da note'],
   ['Japanese around a term', 'ja', 'What is a Guardian?', 'Guardianとは何ですか？'],
   ['Chinese before a term', 'zh_CN', 'Choose your Guardian', '选择您的Guardian'],
   ['a Korean particle', 'ko', 'Choose your Guardian', 'Guardian를 선택하세요']
