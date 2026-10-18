@@ -16,8 +16,8 @@ const SECP256K1_ORDER = 0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e
 
 /**
  * The domain a page's login key belongs to: the registrable domain of `origin`, with the Public Suffix List's private
- * section counted, or the whole host when it has none (an IP address, `localhost`). Only an https page, or an http page
- * on a loopback host, has one.
+ * section counted, or the whole host when it has none (an IP address, `localhost`). A trailing dot is dropped from the
+ * host, since it names the same host. Only an https page, or an http page on a loopback host, has one.
  */
 export function loginKeyDomain(origin: string): string {
   let url: URL;
@@ -26,9 +26,12 @@ export function loginKeyDomain(origin: string): string {
   } catch {
     throw new Error(`${MidenDAppErrorType.InvalidParams}: not an origin`);
   }
-  const host = url.hostname.toLowerCase();
+  let host = url.hostname.toLowerCase();
+  // tldts drops trailing dots for its own lookup, so the whole host has to as well.
+  while (host.endsWith('.')) host = host.slice(0, -1);
   const isSecure = url.protocol === 'https:' || (url.protocol === 'http:' && isLoopbackHost(host));
   if (!isSecure) throw new Error(`${MidenDAppErrorType.InvalidParams}: login keys need an https page`);
+  if (!host) throw new Error(`${MidenDAppErrorType.InvalidParams}: not an origin`);
   const { isIp, domain } = parse(host, { allowPrivateDomains: true });
   return isIp || !domain ? host : domain;
 }
