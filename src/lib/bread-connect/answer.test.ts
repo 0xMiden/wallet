@@ -10,6 +10,17 @@ jest.mock('lib/miden/transaction/get', () => ({
   getTransactionById: (id: string) => mockGetTransactionById(id)
 }));
 
+jest.mock('lib/miden/transaction/initiate', () => ({
+  TransactionQueuedError: class TransactionQueuedError extends Error {
+    readonly transactionId: string;
+
+    constructor(transactionId: string, options: { cause: unknown }) {
+      super(`Transaction ${transactionId} is queued but its carried notes could not be queued`, options);
+      this.transactionId = transactionId;
+    }
+  }
+}));
+
 let mockDApps: Record<string, unknown[]> = {};
 jest.mock('lib/miden/back/dapp', () => ({
   getAllDApps: () => Promise.resolve(mockDApps)
@@ -44,6 +55,7 @@ import {
 } from '@miden-sdk/bread-connect';
 import { DAppQueueDeadlineError } from 'lib/miden/back/actions';
 import { ITransactionStatus } from 'lib/miden/db/types';
+import { TransactionQueuedError } from 'lib/miden/transaction/initiate';
 
 import { answerRequestLink, type BreadConnectAnswer } from './answer';
 
@@ -156,9 +168,19 @@ describe('a connect link', () => {
   it.each([
     ['a refusal', new Error('NOT_GRANTED'), { code: 'NOT_GRANTED', message: 'NOT_GRANTED' }],
     [
+      'a refusal with details after its code, without them',
+      new Error('NOT_GRANTED: Wallet is locked'),
+      { code: 'NOT_GRANTED', message: 'NOT_GRANTED' }
+    ],
+    [
       'a network Bread does not serve',
       new Error('NETWORK_NOT_GRANTED'),
       { code: 'NETWORK_NOT_GRANTED', message: 'NETWORK_NOT_GRANTED' }
+    ],
+    [
+      'a wallet code the protocol lacks as an internal error',
+      new Error('LOGIN_KEY_UNAVAILABLE'),
+      { code: 'INTERNAL_ERROR', message: 'Bread could not complete the request' }
     ],
     [
       'any other failure, without its text',
@@ -298,7 +320,65 @@ describe('a request link', () => {
   });
 
   it.each([
+    ['TRANSACTION_REQUEST', 'TRANSACTION_RESPONSE'],
+    ['SEND_TRANSACTION_REQUEST', 'SEND_TRANSACTION_RESPONSE'],
+    ['CONSUME_REQUEST', 'CONSUME_RESPONSE']
+  ])(
+    'answers a %s the wallet may have queued with its id and an unknown outcome, marked as sent',
+    async (type, responseType) => {
+      const session = await connected();
+      const { link } = sendRequest(session, { type }, NOW);
+      const queued = new TransactionQueuedError('tx-1', { cause: new Error('write parked') });
+      mockProcessDApp.mockRejectedValueOnce(
+        new Error('OUTCOME_UNKNOWN: transaction tx-1 may already be queued; wait for it before sending again', {
+          cause: queued
+        })
+      );
+      const onTransactionSent = jest.fn();
+
+      const answer = await answerRequestLink(link, { now: NOW, onTransactionSent });
+
+      expect(mockProcessDApp).toHaveBeenCalledTimes(1);
+      expect(onTransactionSent).not.toHaveBeenCalled();
+      expect(answer?.sentTransaction).toBe(true);
+      expect(requestAnswer(answer!, session)).toEqual({
+        response: { type: responseType, transactionId: 'tx-1' },
+        transaction: {
+          error: { code: 'TRANSACTION_TIMEOUT', message: "Bread could not learn the transaction's outcome" }
+        }
+      });
+    }
+  );
+
+  it('answers a transaction the wallet cannot tell was sent with a sealed timeout, marked as sent', async () => {
+    const session = await connected();
+    const { link } = sendRequest(session, SEND_REQUEST, NOW);
+    mockProcessDApp.mockRejectedValueOnce(
+      new Error(
+        'OUTCOME_UNKNOWN: the wallet could not confirm whether the transaction was queued; check before sending again'
+      )
+    );
+
+    const answer = await answerRequestLink(link, { now: NOW });
+
+    expect(answer?.sentTransaction).toBe(true);
+    expect(requestAnswer(answer!, session)).toEqual({
+      error: { code: 'TRANSACTION_TIMEOUT', message: 'Bread could not tell whether the transaction was sent' }
+    });
+  });
+
+  it.each([
     ['refusal', () => Promise.reject(new Error('NOT_GRANTED')), { code: 'NOT_GRANTED', message: 'NOT_GRANTED' }],
+    [
+      'refusal with details after its code, without them,',
+      () => Promise.reject(new Error('INVALID_PARAMS: senderAddress is required')),
+      { code: 'INVALID_PARAMS', message: 'INVALID_PARAMS' }
+    ],
+    [
+      'unknown outcome, for a request that sends no transaction, as an internal error',
+      () => Promise.reject(new Error('OUTCOME_UNKNOWN')),
+      { code: 'INTERNAL_ERROR', message: 'Bread could not complete the request' }
+    ],
     [
       'empty response',
       () => Promise.resolve(undefined),
