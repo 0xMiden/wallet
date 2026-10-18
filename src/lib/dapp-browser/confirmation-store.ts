@@ -39,7 +39,7 @@ export interface DAppConfirmationRequest {
   /**
    * What the user is being asked to approve.
    *
-   * `connect` renders the account panel; every other kind renders the
+   * `connect` and `loginSign` render the account panel; every other kind renders the
    * `transactionMessages` detail list (see {@link isDetailsConfirmation}) — the
    * shape both the mobile modal and the desktop overlay already use for
    * transactions. `sign`, `importPrivateNote` and `privateData` exist so the
@@ -47,7 +47,7 @@ export interface DAppConfirmationRequest {
    * the `UponRequest` private-data reads instead of leaving the dApp's promise
    * unsettled (those handlers previously had no non-extension branch at all).
    */
-  type: 'connect' | 'sign' | 'transaction' | 'consume' | 'importPrivateNote' | 'privateData';
+  type: 'connect' | 'sign' | 'loginSign' | 'transaction' | 'consume' | 'importPrivateNote' | 'privateData';
   origin: string;
   appMeta: DappMetadata;
   network: string;
@@ -64,6 +64,9 @@ export interface DAppConfirmationRequest {
   transactionMessages?: string[];
   sourcePublicKey?: string;
   spendingLimitAssessment?: SpendingLimitAssessment;
+  // Login-signature fields: the site's registrable domain, and the account whose login key for that domain signs
+  domain?: string;
+  accountId?: string;
 }
 
 /**
@@ -72,7 +75,7 @@ export interface DAppConfirmationRequest {
  * modal and the desktop overlay so the two can't drift.
  */
 export function isDetailsConfirmation(type: DAppConfirmationRequest['type']): boolean {
-  return type !== 'connect';
+  return type !== 'connect' && type !== 'loginSign';
 }
 
 /**
@@ -84,6 +87,8 @@ export function confirmationPromptKey(type: DAppConfirmationRequest['type']): st
       return 'dappConnectionRequest';
     case 'sign':
       return 'dappSignRequest';
+    case 'loginSign':
+      return 'dappLoginSignRequest';
     case 'importPrivateNote':
       return 'dappImportNoteRequest';
     case 'privateData':
@@ -91,6 +96,13 @@ export function confirmationPromptKey(type: DAppConfirmationRequest['type']): st
     default:
       return 'dappTransactionRequest';
   }
+}
+
+/**
+ * Interpolation values for {@link confirmationPromptKey}'s prompt: a login names the site it signs in to.
+ */
+export function confirmationPromptValues(request: DAppConfirmationRequest): { domain?: string } | undefined {
+  return request.type === 'loginSign' ? { domain: request.domain } : undefined;
 }
 
 export interface DAppConfirmationResult {

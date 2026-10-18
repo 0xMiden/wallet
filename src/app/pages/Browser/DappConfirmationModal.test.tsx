@@ -11,6 +11,7 @@ import { probeHardwareProtector } from 'lib/miden/back/protector-probe';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { DELEGATE_PROOF_STORAGE_KEY } from 'lib/settings/constants';
+import { truncateAddress } from 'utils/string';
 
 import { DappConfirmationModal } from './DappConfirmationModal';
 
@@ -905,5 +906,65 @@ describe('DappConfirmationModal network', () => {
     );
 
     expect(screen.queryByTestId('dapp-network-mismatch')).not.toBeInTheDocument();
+  });
+});
+
+describe('DappConfirmationModal - a login signature', () => {
+  const LOGIN_ACCOUNT_ID = 'mtst1azcw08rget79fqp8ymr0zqkv5v4lj3s7_qruqqypuyph';
+  const OPAQUE_ROW = 'Warning, this site asked you to sign a value the wallet cannot decode.';
+  const loginRequest = (overrides: Partial<DAppConfirmationRequest> = {}) =>
+    buildRequest({
+      type: 'loginSign',
+      origin: 'https://example.org',
+      appMeta: { name: 'example.org' },
+      domain: 'example.org',
+      accountId: LOGIN_ACCOUNT_ID,
+      transactionMessages: ['Kind, word', OPAQUE_ROW],
+      ...overrides
+    });
+
+  beforeEach(() => {
+    confirmMock.mockReset();
+  });
+
+  it("names the site and shows the request's account, with no detail rows", () => {
+    render(<DappConfirmationModal request={loginRequest()} accountId={FULL_ACCOUNT_ID} onResolve={jest.fn()} />);
+
+    expect(screen.getByText('dappLoginSignRequest:example.org')).toBeInTheDocument();
+    expect(screen.getByText('loginSignatureNote:example.org')).toBeInTheDocument();
+    expect(screen.getByText(truncateAddress(LOGIN_ACCOUNT_ID))).toBeInTheDocument();
+    expect(screen.queryByText(truncateAddress(FULL_ACCOUNT_ID))).not.toBeInTheDocument();
+    expect(screen.queryByText(OPAQUE_ROW)).not.toBeInTheDocument();
+    expect(screen.queryByText('Kind, word')).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ['Approve', /approve/i, true],
+    ['Deny', /deny/i, false]
+  ] as const)('settles a login from %s, with no biometric prompt', (_label, name, confirmed) => {
+    const onResolve = jest.fn();
+    render(<DappConfirmationModal request={loginRequest()} accountId={FULL_ACCOUNT_ID} onResolve={onResolve} />);
+
+    fireEvent.click(screen.getByRole('button', { name }));
+
+    expect(onResolve).toHaveBeenCalledTimes(1);
+    expect(onResolve).toHaveBeenCalledWith(expect.objectContaining({ confirmed }), 'req-1');
+    expect(confirmMock).not.toHaveBeenCalled();
+  });
+
+  it('cannot approve a login that names no account', () => {
+    const onResolve = jest.fn();
+    render(
+      <DappConfirmationModal
+        request={loginRequest({ accountId: undefined })}
+        accountId={FULL_ACCOUNT_ID}
+        onResolve={onResolve}
+      />
+    );
+
+    expect(screen.getByText('noAccountSelected')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /approve/i })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: /approve/i }));
+    expect(onResolve).not.toHaveBeenCalled();
   });
 });

@@ -249,6 +249,34 @@ describe('DesktopDappConfirmationModal', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
+  it.each([
+    ['approve', true],
+    ['deny', false]
+  ] as const)('shows a login approval in the wallet window and settles it from %s', async (button, confirmed) => {
+    render(<DesktopDappConfirmationModal />);
+    const result = pushRequest(
+      buildRequest({
+        type: 'loginSign',
+        origin: 'https://example.org',
+        appMeta: { name: 'example.org' },
+        domain: 'example.org',
+        accountId: FULL_KEY
+      })
+    );
+    await flush();
+
+    expect(screen.getByText('dappLoginSignRequest')).toBeInTheDocument();
+    expect(screen.getByText('loginSignatureNote')).toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: button }));
+    });
+    await flush();
+
+    expect(result.get()).toMatchObject({ confirmed });
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
   it('keeps a newer request on screen when Deny lands on the request it replaced', async () => {
     render(<DesktopDappConfirmationModal />);
     const first = pushRequest(buildRequest({ id: 'req-1', origin: 'https://first.test' }));

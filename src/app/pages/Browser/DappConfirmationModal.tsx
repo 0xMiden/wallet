@@ -14,6 +14,7 @@ import { useSprings } from 'lib/animation';
 import { confirmSensitiveAction } from 'lib/biometric';
 import {
   confirmationPromptKey,
+  confirmationPromptValues,
   isDetailsConfirmation,
   type DAppConfirmationRequest,
   type DAppConfirmationResult
@@ -41,16 +42,20 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
   const { t } = useTranslation();
   // PR-7: reduce-motion-aware springs.
   const springs = useSprings();
-  // Every non-connect request kind (transaction, consume, sign, importPrivateNote,
-  // privateData) renders the same detail-list body; only the prompt line differs.
+  // Every request kind but connect and loginSign (transaction, consume, sign,
+  // importPrivateNote, privateData) renders the same detail-list body; only the
+  // prompt line differs.
   const isTransaction = isDetailsConfirmation(request.type);
   const transactionMessages = request.transactionMessages ?? [];
+  // A login signs with the login key of the account its request names, which the panel shows.
+  const shownAccountId = request.type === 'loginSign' ? request.accountId : accountId;
   const transactionAccountMatches =
     request.type !== 'transaction' ||
     (accountId !== null &&
       request.sourcePublicKey !== undefined &&
       sameWalletAccountId(accountId, request.sourcePublicKey));
-  const canApprove = request.type === 'transaction' ? transactionAccountMatches : isTransaction || Boolean(accountId);
+  const canApprove =
+    request.type === 'transaction' ? transactionAccountMatches : isTransaction || Boolean(shownAccountId);
 
   // Private-data scope of a connect request. `Auto` + a non-empty
   // `allowedPrivateData` is STANDING access: the private-notes /
@@ -246,7 +251,13 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
 
               {/* Body */}
               <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
-                <p className="mb-4 text-sm text-text-muted">{t(confirmationPromptKey(request.type))}</p>
+                <p className="mb-4 text-sm text-text-muted">
+                  {t(confirmationPromptKey(request.type), confirmationPromptValues(request))}
+                </p>
+
+                {request.type === 'loginSign' && (
+                  <p className="mb-4 text-body-sm text-ink">{t('loginSignatureNote', { domain: request.domain })}</p>
+                )}
 
                 {isTransaction && transactionMessages.length > 0 && (
                   <div className="mb-4 rounded-xl bg-fill p-4">
@@ -265,7 +276,7 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
                   <div className="mb-4 rounded-xl bg-grey-50 p-4">
                     <p className="mb-1 text-xs text-grey-500">{t('account')}</p>
                     <p className="font-inter text-sm text-grey-900">
-                      {accountId ? truncateAddress(accountId) : t('noAccountSelected')}
+                      {shownAccountId ? truncateAddress(shownAccountId) : t('noAccountSelected')}
                     </p>
                   </div>
                 )}

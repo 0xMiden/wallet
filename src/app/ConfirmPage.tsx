@@ -16,6 +16,7 @@ import { DappNetworkMismatchNotice } from 'components/DappNetworkMismatchNotice'
 import { NetworkModeBanner } from 'components/NetworkModeBanner';
 import { SpendingLimitChallenge } from 'components/SpendingLimitChallenge';
 import { DappOrigin } from 'components/ui/DappOrigin';
+import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { Spinner } from 'components/ui/Spinner';
 import { useAccount, useMidenContext } from 'lib/miden/front';
 import { parseSerializedSpendingLimitAssessment } from 'lib/miden/spending-limits/types';
@@ -190,6 +191,18 @@ const PayloadContent: React.FC<PayloadContentProps> = ({ payload, error, account
 
       break;
     }
+
+    // The login key signs only sign-ins to its own site, so a login shows no opaque-signature warning.
+    case 'loginSign':
+      content = (
+        <>
+          <p className="my-2 text-body-sm text-ink">{t('loginSignatureNote', { domain: payload.domain })}</p>
+          <DetailCard className="my-2">
+            <DetailRow label={t('account')}>{truncateAddress(payload.accountId)}</DetailRow>
+          </DetailCard>
+        </>
+      );
+      break;
 
     case 'privateNotes': {
       content = (
@@ -534,6 +547,7 @@ const ConfirmDAppForm: FC = () => {
         case 'privateNotes':
           return confirmDAppPrivateNotes(id, confirmed);
         case 'sign':
+        case 'loginSign':
           return confirmDAppSign(id, confirmed);
         case 'assets':
           return confirmDAppAssets(id, confirmed);
@@ -707,6 +721,19 @@ const ConfirmDAppForm: FC = () => {
           want: (
             <RequestOriginBanner origin={payload.origin}>
               <span className="text-text-muted">{t('requestsYourSignature')}</span>
+            </RequestOriginBanner>
+          )
+        };
+      case 'loginSign':
+        return {
+          title: t('confirmLoginSignature', { domain: payload.domain }),
+          declineActionTitle: t('cancel'),
+          declineActionTestID: ConfirmPageSelectors.LoginSign_RejectButton,
+          confirmActionTitle: t('confirm'),
+          confirmActionTestID: ConfirmPageSelectors.LoginSign_AcceptButton,
+          want: (
+            <RequestOriginBanner origin={payload.origin}>
+              <span className="text-muted">{t('requestsYourSignature')}</span>
             </RequestOriginBanner>
           )
         };
