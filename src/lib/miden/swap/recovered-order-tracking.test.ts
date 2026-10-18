@@ -169,6 +169,41 @@ describe('trackRecoveredSwapOrders', () => {
     expect(swapRow.extraInputs).toEqual(openRecoveredRow(recorded).extraInputs);
   });
 
+  it.each([openLineage('remainder-1', 1, 40n, 10n), openLineage('note-42', 0, 70n, 30n)])(
+    'keeps a deeper recorded remainder and provisional settledAt on an open read at depth $depth',
+    async read => {
+      const recorded = { recoveredTip: { noteId: 'remainder-2', depth: 2, remainingOffered: 20n }, settledAt: 160 };
+      swapRow = openRecoveredRow(recorded);
+      mockReadPswapOrderLineage.mockResolvedValue(read);
+
+      const results = await trackRecoveredSwapOrders([ref('42', { provisionalClosure: true })]);
+
+      expect(results.has('42')).toBe(false);
+      expect(swapRow.extraInputs).toEqual(openRecoveredRow(recorded).extraInputs);
+      expect(modifyRecipes).toHaveLength(1);
+      expect(modifyRecipes[0]?.(openRecoveredRow(recorded))).toBe(false);
+    }
+  );
+
+  it('records a deeper remainder and clears a provisional settledAt on a current open read', async () => {
+    swapRow = openRecoveredRow({
+      recoveredTip: { noteId: 'remainder-2', depth: 2, remainingOffered: 20n },
+      settledAt: 160
+    });
+    mockReadPswapOrderLineage.mockResolvedValue(openLineage('remainder-3', 3, 10n, 3n));
+
+    const results = await trackRecoveredSwapOrders([ref('42', { provisionalClosure: true })]);
+
+    expect(results.get('42')).toEqual({
+      kind: 'open',
+      tracking: { orderId: '42', state: 'active', currentDepth: 3, remainingOffered: 10n, remainingRequested: 3n }
+    });
+    expect(swapRow.extraInputs).toEqual({
+      ...openRecoveredRow().extraInputs,
+      recoveredTip: { noteId: 'remainder-3', depth: 3, remainingOffered: 10n }
+    });
+  });
+
   it('records no remainder, and reports no open order, over a row its lineage has closed since it was read', async () => {
     swapRow = openRecoveredRow({ settledAt: 160, lineageClosedAt: 160 });
     mockReadPswapOrderLineage.mockResolvedValue(openLineage('remainder-1', 1, 40n, 10n));
