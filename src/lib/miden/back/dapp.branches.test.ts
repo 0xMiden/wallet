@@ -1315,6 +1315,41 @@ describe('requestSendTransaction — mobile error branches', () => {
     expect(mockInitiateSendTransaction).not.toHaveBeenCalled();
   });
 
+  it('passes a spending-limit price error kill through before send approval', async () => {
+    const kill = new WasmClientPoisonedError('watchdog', new Error('price read parked'));
+    mockAssessOutgoingSpendingLimitDetails.mockRejectedValueOnce(
+      new SpendingLimitPriceUnavailableError('TOK', { cause: kill })
+    );
+
+    await expect(
+      dapp.requestSendTransaction('https://miden.xyz', {
+        type: MidenDAppMessageType.SendTransactionRequest,
+        sourcePublicKey: 'miden-account-1',
+        transaction: validTx
+      } as never)
+    ).rejects.toBe(kill);
+    expect(mockAssessOutgoingSpendingLimitDetails).toHaveBeenCalledTimes(1);
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+    expect(mockInitiateSendTransaction).not.toHaveBeenCalled();
+    expect(mockRequestCustomTransaction).not.toHaveBeenCalled();
+  });
+
+  it('answers a spending-limit price error without a kill with the send retry refusal', async () => {
+    mockAssessOutgoingSpendingLimitDetails.mockRejectedValueOnce(new SpendingLimitPriceUnavailableError('TOK'));
+
+    await expect(
+      dapp.requestSendTransaction('https://miden.xyz', {
+        type: MidenDAppMessageType.SendTransactionRequest,
+        sourcePublicKey: 'miden-account-1',
+        transaction: validTx
+      } as never)
+    ).rejects.toThrow(new Error('NOT_GRANTED: Spending limit changed. Review and retry the transaction.'));
+    expect(mockAssessOutgoingSpendingLimitDetails).toHaveBeenCalledTimes(1);
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+    expect(mockInitiateSendTransaction).not.toHaveBeenCalled();
+    expect(mockRequestCustomTransaction).not.toHaveBeenCalled();
+  });
+
   it('rejects when format preview throws', async () => {
     mockWithUnlocked.mockRejectedValueOnce(new Error('preview-fail'));
     await expect(
@@ -2176,7 +2211,20 @@ describe('requestTransaction - custom spending-limit gate', () => {
     ]);
   });
 
-  it('refuses a dApp request when a covered asset has no price', async () => {
+  it('passes a spending-limit price error kill through before custom approval', async () => {
+    const kill = new WasmClientPoisonedError('watchdog', new Error('price read parked'));
+    mockAssessOutgoingSpendingLimitDetails.mockRejectedValueOnce(
+      new SpendingLimitPriceUnavailableError('TOK', { cause: kill })
+    );
+
+    await expect(dapp.requestTransaction('https://miden.xyz', customRequest())).rejects.toBe(kill);
+    expect(mockAssessOutgoingSpendingLimitDetails).toHaveBeenCalledTimes(1);
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+    expect(mockInitiateSendTransaction).not.toHaveBeenCalled();
+    expect(mockRequestCustomTransaction).not.toHaveBeenCalled();
+  });
+
+  it('answers a spending-limit price error without a kill with the custom retry refusal', async () => {
     mockAssessOutgoingSpendingLimitDetails.mockRejectedValue(new SpendingLimitPriceUnavailableError('faucet-a'));
 
     // The full retry-suffixed message, not a bare NotGranted substring: the custom path converts
@@ -2184,8 +2232,11 @@ describe('requestTransaction - custom spending-limit gate', () => {
     // `customSpendingLimitState`), and a substring match can't tell that conversion apart from one
     // that dropped the retry text - which is exactly the divergence this asserts against.
     await expect(dapp.requestTransaction('https://miden.xyz', customRequest())).rejects.toThrow(
-      /spending limit changed.*retry/i
+      new Error('NOT_GRANTED: Spending limit changed. Review and retry the transaction.')
     );
+    expect(mockAssessOutgoingSpendingLimitDetails).toHaveBeenCalledTimes(1);
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+    expect(mockInitiateSendTransaction).not.toHaveBeenCalled();
     expect(mockRequestCustomTransaction).not.toHaveBeenCalled();
     // Same reasoning as every other wallet-side refusal here: the carried notes must not stay
     // hidden past a refusal that was never the user's decline.
