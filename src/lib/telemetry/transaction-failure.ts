@@ -3,9 +3,11 @@ import { GUARDIAN_ERROR_CODES } from '@openzeppelin/guardian-client';
 import { isOperationAbortedError } from 'lib/miden/back/offscreen-codec';
 import type { ITransactionStage, ITransactionType } from 'lib/miden/db/types';
 import {
+  causeChain,
   errorMessageParts,
   isClientTerminatedError,
-  isIndefiniteSubmitOutcomeError
+  isIndefiniteSubmitOutcomeError,
+  someInCauseChain
 } from 'lib/miden/sdk/sdk-error-code';
 import { isWasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { isDesktop } from 'lib/platform';
@@ -173,9 +175,11 @@ const THROWN_CLASS_BY_NAME = new Map<unknown, ThrownClass>([
   ['SyntaxError', 'syntax_error']
 ]);
 
-// The innermost link: a wrapper must not hide the original throw, such as the WASM trap the lock rethrows raw.
+// The deepest link of the chain the pipeline's kill classifier walks: a wrapper must not hide the original throw, such
+// as the WASM trap the lock rethrows raw, nor a value thrown as a cause.
 function thrownClass(error: unknown): ThrownClass {
-  const link = errorChain(error).at(-1) ?? error;
+  let link: unknown;
+  for (const cause of causeChain(error)) if (cause !== undefined && cause !== null) link = cause;
   if (link instanceof Error) {
     try {
       return THROWN_CLASS_BY_NAME.get(link.name) ?? 'error';
@@ -183,7 +187,7 @@ function thrownClass(error: unknown): ThrownClass {
       return 'error';
     }
   }
-  return typeof link === 'string' ? 'string' : link === undefined || link === null ? 'none' : 'non_error';
+  return typeof link === 'string' ? 'string' : link === undefined ? 'none' : 'non_error';
 }
 
 export const PIPELINE_KILLS = [
@@ -603,7 +607,7 @@ function failureIdentity(failure: TransactionFailure): string {
   if (refusal !== undefined) return submitRefusalIdentity(refusal);
   if (protocol !== undefined) return protocol;
   if (/advice stack read failed/i.test(message)) return coined('advice_stack_read_failed');
-  if (errorChain(error).some(isClientTerminatedError) || /WebClient terminated/.test(message)) {
+  if (someInCauseChain(error, isClientTerminatedError) || /WebClient terminated/.test(message)) {
     return coined('client_terminated');
   }
   if (/failed to execute transaction/i.test(message)) {
