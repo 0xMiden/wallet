@@ -13,6 +13,7 @@
 ### Fixes
 
 - [FIX][all] A dApp custom transaction whose request bytes are malformed is rejected before an approval screen opens, instead of asking the user to approve a transaction the wallet cannot execute (#1418).
+- [FIX][ci] The PasscodeDots shake test runs a 30-second shake and waits for the row to move, instead of reading it 50 ms into the real 0.42-second shake, which a loaded coverage runner could pause past.
 - [FIX][mobile][desktop] The in-app-browser and desktop dApp providers reject a wallet refusal with the extension's error classes (`NotGrantedMidenWalletError`, `InvalidParamsMidenWalletError`, `NotFoundMidenWalletError`, else `MidenWalletError`) and its message, not a plain `Error` (#1542).
 - [FIX][all] A transaction-failure crash report for an unknown submit outcome also says how long the submit took, as one of four fixed buckets, so a client-side request timeout can be told from a deadline the node returned (Sentry BREAD-WALLET-V and -X). Only the bucket is sent, never the duration in milliseconds, and the privacy policy lists every value.
 - [FIX][mobile] The in-app-browser provider exposes `createAccount()`, which rejects with the extension's explicit unsupported-operation error (#1543).
@@ -57,6 +58,7 @@
 
 ### Changes
 
+- [CHANGE][ci] Activity regression tests cover every USDCx burn phase in compact and full history rows, a received bridge-in's completed state, and the burn, source-chain and CCTP fields passed into history entries (#1435).
 - [CHANGE][ci] Local E2E also runs a wallet on an endpoint override stored through Developer Settings, on a build that reads stored overrides (every other E2E build ignores them): the override reaches the localnet node through `http://127.0.0.1:57291`, which the SDK keeps in another store than the build default, and a mint must reach the note list and the balance before and after a restart, which fails while the offscreen document runs on the build's network (#1482, #1485).
 - [CHANGE][all] Replace the Settings tab with Profile: a centered account identity, My badges, and the original settings groups below it. Add private, wallet-wide local badges for confirmed Mainnet sends, claimed bridge deposits, and fully filled swaps with claimed output. Incoming badges wait until the notes are consumed and a matching account balance snapshot includes those consumes. Ignore Testnet, imported history, incomplete actions and duplicate events. First Receive, Recovery Checked and Miniapp Explorer remain unavailable until reliable completion signals are defined. Progress survives app restarts and account switching, but resetting app data clears it; restore/reinstall carryover is not promised.
 - [CHANGE][ci] The dApp E2E harness also checks transaction scripts the dApp compiles itself on single-sig and Guardian accounts: a payment through the basic wallet, one that first checks its script argument and an advice value, and a fee-only script.
