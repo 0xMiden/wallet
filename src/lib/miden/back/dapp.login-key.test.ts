@@ -398,6 +398,35 @@ describe('both login key messages', () => {
     expect(extensionBrowser.windows.create).not.toHaveBeenCalled();
   });
 
+  it("words a failure to open the extension's popup the same for both messages", async () => {
+    // Locked, so the login key opens its popup too: one that only unlocks.
+    mockIsExtension = true;
+    lockWallet();
+    const create = jest.mocked(extensionBrowser.windows.create);
+    const noWindow = new Error('No window could be opened');
+    const failure = `${MidenDAppErrorType.InvalidParams}: Error: No window could be opened`;
+    // One rejection queued per call, so a failed assertion leaves none behind for a later test's popup.
+    create.mockRejectedValueOnce(noWindow);
+    await expect(dapp.requestLoginKey(ORIGIN, keyRequest())).rejects.toThrow(new Error(failure));
+    create.mockRejectedValueOnce(noWindow);
+    await expect(dapp.requestLoginSign(ORIGIN, signRequest())).rejects.toThrow(new Error(failure));
+    expect(create).toHaveBeenCalledTimes(2);
+    expect(mockSignWithLoginKey).not.toHaveBeenCalled();
+  });
+
+  it('refuses both messages NOT_GRANTED: Wallet is locked when no unlock is offered', async () => {
+    // A lock prompt from this page just ended still locked, so neither message prompts again (#1414).
+    noteLockedPromptEnded(ORIGIN);
+    lockWallet();
+    for (const extension of [false, true]) {
+      mockIsExtension = extension;
+      await expect(dapp.requestLoginKey(ORIGIN, keyRequest())).rejects.toThrow(new Error(WALLET_LOCKED_REFUSAL));
+      await expect(dapp.requestLoginSign(ORIGIN, signRequest())).rejects.toThrow(new Error(WALLET_LOCKED_REFUSAL));
+    }
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+    expect(extensionBrowser.windows.create).not.toHaveBeenCalled();
+  });
+
   it('refuses a page that is not https', async () => {
     connect('http://example.org');
     await expect(dapp.requestLoginKey('http://example.org', keyRequest())).rejects.toThrow(new Error(NOT_HTTPS));

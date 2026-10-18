@@ -866,9 +866,12 @@ export async function requestLoginSign(
     throw new Error(`${MidenDAppErrorType.InvalidParams}: a login signature signs only a 32-byte word`);
   }
 
-  // `.catch(reject)`, as requestSign's: a throw of its own would otherwise leave the dApp's promise unsettled.
+  // Caught, as requestSign's is, or a throw of its own would leave the dApp's promise unsettled. Mapped as
+  // requestLoginKey maps its failures, so a popup that fails to open reads the same from both.
   return new Promise((resolve, reject) => {
-    generatePromisifyLoginSign(resolve, reject, origin, dApp, req, domain, sessionId).catch(reject);
+    generatePromisifyLoginSign(resolve, reject, origin, dApp, req, domain, sessionId).catch(error =>
+      reject(loginKeyFailure(error))
+    );
   });
 }
 
