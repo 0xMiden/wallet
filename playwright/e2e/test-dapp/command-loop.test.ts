@@ -20,6 +20,8 @@ let polls: string[] = [];
 let posted: Posted[] = [];
 let pollAnswers: Array<() => Promise<PollAnswer>> = [];
 let idlePoll: () => Promise<PollAnswer>;
+let resultReplies: Array<() => Promise<number>> = [];
+let resultAttempts = 0;
 
 const held = (): Promise<PollAnswer> => new Promise(resolve => setTimeout(() => resolve({ status: 204 }), 1_000));
 
@@ -33,6 +35,15 @@ function installFetch(): void {
       polls.push(url);
       const next = pollAnswers.shift() ?? idlePoll;
       return next().then(answer => ({ status: answer.status, json: () => Promise.resolve(answer.body ?? null) }));
+    }
+    if (url.startsWith('/result?')) {
+      resultAttempts += 1;
+      const reply = resultReplies.shift() ?? (() => Promise.resolve(204));
+      return reply().then(status => {
+        if (status >= 200 && status < 300)
+          posted.push({ url, body: typeof init?.body === 'string' ? JSON.parse(init.body) : null });
+        return { status, json: () => Promise.resolve(null) };
+      });
     }
     posted.push({ url, body: typeof init?.body === 'string' ? JSON.parse(init.body) : null });
     return Promise.resolve({ status: 204, json: () => Promise.resolve(null) });
@@ -95,6 +106,8 @@ beforeEach(() => {
   polls = [];
   posted = [];
   pollAnswers = [];
+  resultReplies = [];
+  resultAttempts = 0;
   idlePoll = held;
   added = [];
   trackListeners();
@@ -202,5 +215,30 @@ test('reports a page with no presentation API as absent', async () => {
   await jest.advanceTimersByTimeAsync(10);
   expect(eventsOf('presentation')).toEqual([
     expect.objectContaining({ data: { path: 'absent', detail: 'window.bread.presentation.ready is not a function' } })
+  ]);
+});
+
+test.each([
+  ['rejects', () => Promise.reject(new TypeError('Load failed'))],
+  ['answers 500', () => Promise.resolve(500)]
+])('retries a result POST that %s once and then delivers it', async (_, fail) => {
+  resultReplies = [fail];
+  pollAnswers = [command('retry-result', 'session')];
+  startLoop();
+  await jest.advanceTimersByTimeAsync(1_100);
+  expect(resultsPosted()).toEqual([{ id: 'retry-result', ok: true, value: { ok: true } }]);
+  expect(resultAttempts).toBe(2);
+  expect(eventsOf('result-undelivered')).toEqual([]);
+});
+
+test('reports the command id after three undelivered result attempts', async () => {
+  resultReplies = Array.from({ length: 3 }, () => () => Promise.resolve(500));
+  pollAnswers = [command('lost-result', 'session')];
+  startLoop();
+  await jest.advanceTimersByTimeAsync(3_100);
+  expect(resultAttempts).toBe(3);
+  expect(resultsPosted()).toEqual([]);
+  expect(eventsOf('result-undelivered')).toEqual([
+    expect.objectContaining({ data: { id: 'lost-result', command: 'session', attempts: 3 } })
   ]);
 });

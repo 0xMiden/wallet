@@ -284,6 +284,26 @@ export async function startCommandServer(options: CommandServerOptions): Promise
     };
     events.push(event);
     write({ type: 'event', ...event });
+    if (event.kind === 'result-undelivered') {
+      const id = text(event.data, 'id');
+      const entry = pending.get(id);
+      if (entry !== undefined && entry.key === key) {
+        pending.delete(id);
+        queues.set(
+          key,
+          (queues.get(key) ?? []).filter(command => command.id !== id)
+        );
+        const receivedAt = Date.now();
+        write({ type: 'result', key, id, status: 'error', at: receivedAt });
+        entry.settle({
+          status: 'error',
+          error: { name: 'HarnessCheckError', message: `command ${id} result could not be delivered after 3 attempts` },
+          enqueuedAt: entry.enqueuedAt,
+          deliveredAt: entry.deliveredAt ?? receivedAt,
+          receivedAt
+        });
+      }
+    }
     for (const waiter of [...eventWaiters]) {
       if (!waiter.predicate(event)) continue;
       eventWaiters.delete(waiter);

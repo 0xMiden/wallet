@@ -96,6 +96,50 @@ interface FakePage {
 }
 
 describe('command server', () => {
+  it('settles a pending command as HarnessFault when the page reports its result undelivered', async () => {
+    const base = await start();
+    const outcome = commandChannel(live(), 'A', 'one')
+      .send('session', {}, 1_000)
+      .catch((error: unknown) => error);
+    const command: unknown = await (await poll(base, 'A', 'one')).json();
+    await fetch(`${base}/event?device=A&dapp=one`, {
+      method: 'POST',
+      body: JSON.stringify({ kind: 'result-undelivered', data: { id: idOf(command) } })
+    });
+    await expect(outcome).resolves.toBeInstanceOf(HarnessFault);
+    await expect(outcome).resolves.toHaveProperty('message', expect.stringContaining('result could not be delivered'));
+  });
+
+  it('ignores stale, unknown and wrong-key undelivered-result events', async () => {
+    const base = await start();
+    const completed = live().send('A', 'one', 'session', {}, 2_000);
+    const stale = idOf(await (await poll(base, 'A', 'one')).json());
+    await postResult(base, 'A', 'one', { id: stale, ok: true, value: 1 });
+    await completed;
+    let settled = false;
+    const pending = live()
+      .send('A', 'one', 'session', {}, 2_000)
+      .then(result => {
+        settled = true;
+        return result;
+      });
+    const id = idOf(await (await poll(base, 'A', 'one')).json());
+    for (const [key, eventId] of [
+      ['device=A&dapp=one', stale],
+      ['device=A&dapp=one', 'unknown'],
+      ['device=B&dapp=one', id],
+      ['device=A&dapp=two', id]
+    ]) {
+      await fetch(`${base}/event?${key}`, {
+        method: 'POST',
+        body: JSON.stringify({ kind: 'result-undelivered', data: { id: eventId } })
+      });
+    }
+    expect(settled).toBe(false);
+    await postResult(base, 'A', 'one', { id, ok: true, value: 2 });
+    await expect(pending).resolves.toMatchObject({ status: 'ok', value: 2 });
+  });
+
   it('delivers a command only to the poll of its own device and dApp, and returns the page answer', async () => {
     const base = await start(300);
     const result = live().send('A', 'one', 'session', {}, 5_000);

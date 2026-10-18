@@ -36,7 +36,7 @@ function describeError(error: unknown): { name: string; message: string } {
   };
 }
 
-function post(pathname: string, body: string, keepalive = false): Promise<void> {
+function post(pathname: string, body: string, keepalive = false): Promise<boolean> {
   return fetch(`${pathname}?${key}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -44,8 +44,8 @@ function post(pathname: string, body: string, keepalive = false): Promise<void> 
     cache: 'no-store',
     keepalive
   }).then(
-    () => undefined,
-    () => undefined
+    response => response.status >= 200 && response.status < 300,
+    () => false
   );
 }
 
@@ -116,7 +116,12 @@ async function dispatch(command: PageCommand): Promise<void> {
     (value): Answer => ({ ok: true, value }),
     (error: unknown): Answer => ({ ok: false, error: describeError(error) })
   );
-  await post('/result', answerBody(command, answer));
+  const body = answerBody(command, answer);
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    if (await post('/result', body)) return;
+    if (attempt < 3) await sleep(RETRY_MS);
+  }
+  report('result-undelivered', { id: command.id, command: command.command, attempts: 3 });
 }
 
 async function loop(): Promise<void> {
