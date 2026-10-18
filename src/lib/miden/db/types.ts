@@ -1259,6 +1259,34 @@ export interface ISwapExtraInputs {
   settledAt?: number;
   /** Stamped when an expiry-reclaim settlement consume completes. */
   reclaimedAt?: number;
+  /**
+   * Stamped on a Guardian-recovered order when the node shows its order note spent and no consume of this wallet
+   * explains it: a fill, or a reclaim made elsewhere. It closes the order, which then reads Confirmed (#1487).
+   */
+  orderNoteSpentAt?: number;
+  /**
+   * Stamped on a Guardian-recovered order with its closing stamp once the node's lineage read finished. A settledAt or
+   * reclaimedAt without it is the pre-fix recovery reconcile's, written from a linked payout or reclaim with no
+   * lineage read, so it is provisional until the next read decides (#1487).
+   */
+  lineageClosedAt?: number;
+  /**
+   * The open remainder a partial fill left of a Guardian-recovered order, as the node's lineage showed it: the note
+   * its Cancel returns, since the order note is spent (#1487).
+   */
+  recoveredTip?: IRecoveredSwapTip;
+  /** The last spent tip a bounded lineage read reached, for the next read to resume from, never for Cancel. */
+  recoveredCheckpoint?: IRecoveredSwapCheckpoint;
+}
+
+export interface IRecoveredSwapCheckpoint {
+  noteId: string;
+  /** The fill round that created it, 1 for the first remainder. */
+  depth: number;
+}
+
+export interface IRecoveredSwapTip extends IRecoveredSwapCheckpoint {
+  remainingOffered: bigint;
 }
 
 /**

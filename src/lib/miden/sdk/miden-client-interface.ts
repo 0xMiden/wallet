@@ -86,6 +86,7 @@ import {
 import { buildNativeProverCallback } from './native-prover-mobile';
 import { normalizedCommitment, noteDetailsCommitment } from './note-details-commitment';
 import { beginProveAttempt } from './prove-telemetry';
+import { readPswapOrderNote } from './pswap-order-note';
 import {
   isApplyAfterSubmitError,
   isPipelineKillLink,
@@ -324,6 +325,14 @@ export interface ClientLiveness {
  * eviction message says which await parked.
  */
 export type AssertLive = (step?: string) => void;
+
+export interface PswapCancelRequestOptions {
+  /**
+   * Read the order note from the node when this client's output-note store has no record of it: the order was placed
+   * on another device and reached this one through Guardian history recovery (#1487).
+   */
+  allowNodeNote?: boolean;
+}
 
 const noAssertLive: AssertLive = () => {};
 
@@ -1641,7 +1650,8 @@ export class MidenClientInterface {
 
   /**
    * Build, but do not execute, the fee-aware cancel request for a depth-0 PSWAP
-   * tip that still lives in this client's output-note store.
+   * tip: from this client's output-note store, else, when the caller allows it,
+   * from the public note the node holds.
    *
    * The SDK's `pswap.cancelByOrder` convenience path deliberately uses a bare
    * request builder and cannot declare the fee-conversion salt a Guardian
@@ -1652,25 +1662,39 @@ export class MidenClientInterface {
   async buildPswapCancelRequest(
     accountId: string,
     noteId: string,
-    assertLive: AssertLive = noAssertLive
+    assertLive: AssertLive = noAssertLive,
+    { allowNodeNote = false }: PswapCancelRequestOptions = {}
   ): Promise<Uint8Array> {
     const [record] = await this.client.notes.listSent({ ids: [noteId] });
     assertLive('after the output-note listing');
-    if (!record) throw new Error(`PSWAP cancel output note ${noteId} is not tracked`);
-    if (record.isConsumed()) throw new Error(`PSWAP cancel output note ${noteId} is already consumed`);
-    if (!record.isCommitted()) throw new Error(`PSWAP cancel output note ${noteId} is not committed yet`);
+    let note: Note;
+    if (record) {
+      if (record.isConsumed()) throw new Error(`PSWAP cancel output note ${noteId} is already consumed`);
+      if (!record.isCommitted()) throw new Error(`PSWAP cancel output note ${noteId} is not committed yet`);
 
-    const recipient = record.recipient();
-    if (!recipient) throw new Error(`PSWAP cancel output note ${noteId} has no recipient details`);
-    const creator = walletAccountIdToSdk(accountId);
-    if (record.metadata().sender().toString() !== creator.toString()) {
-      throw new Error(`PSWAP cancel output note ${noteId} was not created by account ${accountId}`);
+      const recipient = record.recipient();
+      if (!recipient) throw new Error(`PSWAP cancel output note ${noteId} has no recipient details`);
+      if (record.metadata().sender().toString() !== walletAccountIdToSdk(accountId).toString()) {
+        throw new Error(`PSWAP cancel output note ${noteId} was not created by account ${accountId}`);
+      }
+      note = new Note(record.assets(), record.metadata(), recipient);
+    } else if (allowNodeNote) {
+      // Checked to be this creator's PSWAP note, on RPC clients of the read's own: this client is not called.
+      const read = await readPswapOrderNote(noteId, accountId);
+      assertLive('after the node note read');
+      if (read.kind === 'spent') throw new Error(`PSWAP cancel order note ${noteId} is already consumed on chain`);
+      if (read.kind === 'absent') {
+        throw new Error(`PSWAP cancel order note ${noteId} is not a public order note of account ${accountId}`);
+      }
+      note = read.note;
+    } else {
+      throw new Error(`PSWAP cancel output note ${noteId} is not tracked`);
     }
-    const note = new Note(record.assets(), record.metadata(), recipient);
     if (note.id().toString() !== noteId) {
       throw new Error(`PSWAP cancel output note ${noteId} did not reconstruct to the tracked note id`);
     }
 
+    const creator = walletAccountIdToSdk(accountId);
     const request = await this.innerClientAccess()._withInnerWebClient(inner =>
       inner.newPswapCancelTransactionRequest(note, creator)
     );

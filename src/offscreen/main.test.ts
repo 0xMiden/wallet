@@ -2316,10 +2316,42 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(ret).toBe(true);
     await flush();
 
-    expect(G.__off.clientBuildPswapCancelRequest).toHaveBeenCalledWith('mtst1qqaccount', '0xtip', expect.any(Function));
+    // A request without the flag builds as a live order does, with it false (#1487).
+    expect(G.__off.clientBuildPswapCancelRequest).toHaveBeenCalledWith(
+      'mtst1qqaccount',
+      '0xtip',
+      expect.any(Function),
+      {
+        allowNodeNote: false
+      }
+    );
     const resp = sendResponse.mock.calls[0][0];
     expect(resp.ok).toBe(true);
     expect(Buffer.from(resp.resultB64, 'base64')).toEqual(Buffer.from([20, 14, 7, 6]));
+  });
+
+  it('dispatches a node-note buildPswapCancelRequest with its option', async () => {
+    await loadModule();
+    const sendResponse = jest.fn();
+    capturedListener!(
+      callReq({
+        method: 'buildPswapCancelRequest',
+        argsB64: [encodeArg('mtst1qqaccount'), encodeArg('0xtip'), encodeArg(true)]
+      }),
+      {},
+      sendResponse
+    );
+    await flush();
+
+    expect(G.__off.clientBuildPswapCancelRequest).toHaveBeenCalledWith(
+      'mtst1qqaccount',
+      '0xtip',
+      expect.any(Function),
+      {
+        allowNodeNote: true
+      }
+    );
+    expect(sendResponse.mock.calls[0][0].ok).toBe(true);
   });
 
   // ─── Slice 7a: deferred reach-through reads ─────────────────────────────────
