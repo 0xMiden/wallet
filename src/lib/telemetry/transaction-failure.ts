@@ -191,12 +191,17 @@ function* reportedCauseChain(error: unknown): Generator<unknown, void, undefined
 function thrownClass(error: unknown): ThrownClass {
   let link: unknown;
   for (const cause of reportedCauseChain(error)) if (cause !== undefined && cause !== null) link = cause;
-  if (link instanceof Error) {
-    try {
-      return THROWN_CLASS_BY_NAME.get(link.name) ?? 'error';
-    } catch {
-      return 'error';
+  try {
+    if (link instanceof Error) {
+      try {
+        return THROWN_CLASS_BY_NAME.get(link.name) ?? 'error';
+      } catch {
+        return 'error';
+      }
     }
+  } catch {
+    // A revoked Proxy throws from instanceof, and a throw out of here would lose the whole report.
+    return 'non_error';
   }
   return typeof link === 'string' ? 'string' : link === undefined ? 'none' : 'non_error';
 }
