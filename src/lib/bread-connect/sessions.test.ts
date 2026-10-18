@@ -71,6 +71,19 @@ describe('findSession', () => {
   });
 });
 
+describe('keepSession', () => {
+  it("keeps an origin's five most recently used sessions, and other origins' sessions besides", async () => {
+    const other = { origin: 'https://other.example', callback: 'https://other.example/bread' };
+    await keepSession({ ...SESSION, ...other, session: 'other-origin' }, NOW);
+    for (let i = 1; i <= 5; i += 1) await keepSession({ ...SESSION, session: `s${i}` }, NOW + i);
+    await recordAnswered('s1', 'request-1', NOW + 10);
+
+    await keepSession({ ...SESSION, session: 's6' }, NOW + 20);
+
+    expect(Object.keys(mockStore.get(KEY) as object).sort()).toEqual(['other-origin', 's1', 's3', 's4', 's5', 's6']);
+  });
+});
+
 describe('dropSession', () => {
   it('forgets only the session it names', async () => {
     await keepSession({ ...SESSION, session: 'other' }, NOW);
