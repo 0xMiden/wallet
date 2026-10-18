@@ -1,6 +1,6 @@
 # Bread Connect protocol, version 1
 
-Bread Connect lets a native iOS or Android app use Bread as its wallet. The app switches to Bread with a request, the user approves it in Bread, and Bread switches back with the answer. There is no relay server: every message is end-to-end encrypted and carried in an https link that the operating system hands only to the app that owns its domain. This is the pattern of Phantom's deeplinks and of WalletConnect's Link Mode.
+Bread Connect lets a native iOS or Android app use Bread as its wallet. The app switches to Bread with a request, the user approves it in Bread, and Bread switches back with the answer. There is no relay server: every message is carried in an https link that the operating system hands only to the app that owns its domain, and once the app is connected every request and answer is end-to-end encrypted. The connect and an error answer travel unsealed, and carry nothing secret. This is the pattern of Phantom's deeplinks and of WalletConnect's Link Mode.
 
 The requests and answers are the same objects the Miden wallet adapter exchanges with Bread's in-app browser (`MidenDAppRequest` and `MidenDAppResponse`), so Bread checks and approves them with the same rules and screens it uses for websites.
 
