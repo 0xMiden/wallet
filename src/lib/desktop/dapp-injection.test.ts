@@ -343,7 +343,7 @@ describe('a disconnect ends the connection (#1227)', () => {
       h.win.midenWallet.on('accountChange', spy);
       const disconnecting = h.win.midenWallet.disconnect();
       settle(h);
-      await expect(disconnecting).rejects.toThrow(error);
+      await expect(disconnecting).rejects.toMatchObject({ message: error });
       const w = h.win.midenWallet;
       expect([w.address, w.publicKey, w.permission]).toEqual([undefined, undefined, undefined]);
       expect(spy.mock.calls).toEqual([[null]]);
@@ -364,7 +364,7 @@ describe('a disconnect ends the connection (#1227)', () => {
     h.answer(h.last().reqId, { type: 'DISCONNECT_RESPONSE' });
     await disconnecting;
     refuse(h, h.last().reqId);
-    await expect(again[0]).rejects.toThrow('NOT_FOUND');
+    await expect(again[0]).rejects.toMatchObject({ message: 'NOT_FOUND' });
     await flush();
     expect(spy.mock.calls).toEqual([[null]]);
     expect(disconnects(h)).toHaveLength(2);
@@ -380,7 +380,7 @@ describe('a disconnect ends the connection (#1227)', () => {
     w.on('accountChange', spy);
     await answerPoll(h, null);
     refuse(h, h.last().reqId);
-    await expect(again[0]).rejects.toThrow('NOT_FOUND');
+    await expect(again[0]).rejects.toMatchObject({ message: 'NOT_FOUND' });
     await flush();
     expect(spy.mock.calls).toEqual([[null]]);
     expect(disconnects(h)).toHaveLength(1);
@@ -393,7 +393,7 @@ describe('a disconnect ends the connection (#1227)', () => {
     });
     const disconnecting = h.win.midenWallet.disconnect();
     refuse(h, h.last().reqId);
-    await expect(disconnecting).rejects.toThrow('NOT_FOUND');
+    await expect(disconnecting).rejects.toMatchObject({ message: 'NOT_FOUND' });
     expect(h.win.midenWallet.address).toBeUndefined();
   });
 
@@ -407,7 +407,7 @@ describe('a disconnect ends the connection (#1227)', () => {
     h.answer(firstReq!, { type: 'DISCONNECT_RESPONSE' });
     await first;
     refuse(h, secondReq!);
-    await expect(second).rejects.toThrow('NOT_FOUND');
+    await expect(second).rejects.toMatchObject({ message: 'NOT_FOUND' });
     expect(spy.mock.calls).toEqual([[null]]);
   });
 
