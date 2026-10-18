@@ -267,6 +267,7 @@ export enum MidenDAppErrorType {
   NotGranted = 'NOT_GRANTED',
   NotFound = 'NOT_FOUND',
   InvalidParams = 'INVALID_PARAMS',
+  OutcomeUnknown = 'OUTCOME_UNKNOWN',
   NetworkNotGranted = 'NETWORK_NOT_GRANTED',
   LoginKeyUnavailable = 'LOGIN_KEY_UNAVAILABLE'
 }

@@ -16,7 +16,11 @@ import { WalletAdapterNetwork } from '@miden-sdk/miden-wallet-adapter-base';
 import extensionBrowser, { type Windows } from 'webextension-polyfill';
 
 import { MidenDAppConsumeRequest, MidenDAppMessageType, MidenDAppErrorType } from 'lib/adapter/types';
+import { startTransactionProcessing } from 'lib/miden/back/transaction-processor';
+import * as noteQuarantine from 'lib/miden/note-quarantine';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
+import { requestCustomTransaction } from 'lib/miden/transaction';
+import { TransactionQueuedError } from 'lib/miden/transaction/initiate';
 import { MidenMessageType } from 'lib/miden/types';
 import { WalletStatus } from 'lib/shared/types';
 
@@ -74,6 +78,16 @@ jest.mock('lib/miden/back/store', () => ({
   withUnlocked: (fn: (ctx: unknown) => unknown) => mockWithUnlocked(fn)
 }));
 
+// Passthrough wrappers, so a test can count the carried-note quarantine release while every other test keeps the real
+// module (its exports are not configurable, so they cannot be spied on).
+jest.mock('lib/miden/note-quarantine', () => {
+  const actual = jest.requireActual('lib/miden/note-quarantine');
+  return {
+    ...actual,
+    importedNoteIds: jest.fn(actual.importedNoteIds),
+    releaseNoteIds: jest.fn(actual.releaseNoteIds)
+  };
+});
 jest.mock('lib/miden/transaction', () => ({
   initiateSendTransaction: jest.fn().mockResolvedValue('tx-send-1'),
   requestCustomTransaction: jest.fn().mockResolvedValue('tx-custom-1'),
@@ -1065,6 +1079,126 @@ function switchCurrentAccount(account: string) {
 }
 
 describe('Full confirmation cycles in extension mode', () => {
+  describe.each(['send', 'custom'])('an approved extension %s failure (#1378)', kind => {
+    const queuedMessage = 'OUTCOME_UNKNOWN: transaction tx-1 may already be queued; wait for it before sending again';
+    const killMessage =
+      'OUTCOME_UNKNOWN: the wallet could not confirm whether the transaction was queued; check before sending again';
+    const poison = new WasmClientPoisonedError('watchdog', new Error('write parked'));
+    const queued = new TransactionQueuedError('tx-1', { cause: poison });
+
+    it.each<[string, Error, string]>([
+      ['a queued transaction', queued, queuedMessage],
+      ['a cause-wrapped queued transaction', new Error('NOT_GRANTED', { cause: queued }), queuedMessage],
+      ['a kill carrying a queued transaction', new WasmClientPoisonedError('watchdog', queued), queuedMessage],
+      ['a watchdog eviction', poison, killMessage],
+      ['an offscreen abort', new OperationAbortedError('op-1378', 'deadline'), killMessage],
+      ['a terminated client', new Error('Client terminated'), killMessage],
+      ['a terminated web client', new Error('WebClient terminated'), killMessage],
+      ['a cause-wrapped poison', new Error('NOT_GRANTED', { cause: poison }), killMessage],
+      ['an authorization refusal', new Error(MidenDAppErrorType.NotGranted), 'NOT_GRANTED']
+    ])('reports %s with the exact outcome message', async (_label, error, message) => {
+      const sdk = jest.requireMock('lib/miden/transaction');
+      const initiate = kind === 'send' ? sdk.initiateSendTransaction : sdk.requestCustomTransaction;
+      initiate.mockRejectedValueOnce(error);
+
+      await expect(
+        driveConfirmation(
+          () =>
+            kind === 'send'
+              ? dapp.requestSendTransaction('https://miden.xyz', {
+                  type: MidenDAppMessageType.SendTransactionRequest,
+                  sourcePublicKey: 'miden-account-1',
+                  transaction: {
+                    senderAddress: 'miden-account-1',
+                    recipientAddress: 'bob',
+                    faucetId: 'faucet-1',
+                    noteType: 'Private',
+                    amount: '100'
+                  }
+                } as never)
+              : dapp.requestTransaction('https://miden.xyz', {
+                  type: MidenDAppMessageType.TransactionRequest,
+                  sourcePublicKey: 'miden-account-1',
+                  transaction: {
+                    payload: { address: 'miden-account-1', recipientAddress: 'bob', transactionRequest: 'b64req' }
+                  }
+                } as never),
+          MidenMessageType.DAppTransactionConfirmationRequest,
+          { confirmed: true, delegate: false }
+        )
+      ).rejects.toEqual(new Error(message));
+      expect(initiate).toHaveBeenCalledTimes(1);
+      expect(_g.__dappExtTest.lastConfirmResponse).toEqual({
+        type: MidenMessageType.DAppTransactionConfirmationResponse
+      });
+    });
+  });
+
+  describe('approved extension custom carried-note failures (#1378)', () => {
+    const queuedMessage = 'OUTCOME_UNKNOWN: transaction tx-1 may already be queued; wait for it before sending again';
+    const queued = new TransactionQueuedError('tx-1', { cause: new Error('note queue unavailable') });
+
+    const CARRIED_NOTES = ['bm90ZS0x', 'bm90ZS0y'];
+    const CARRIED_NOTE_IDS = ['note-1', 'note-2'];
+    // The SDK mock decodes no note, so each carried note decodes to the id its bytes spell.
+    const sdkNote: Record<string, unknown> = require('@miden-sdk/miden-sdk/lazy').Note;
+    let previousDeserialize: unknown;
+    beforeEach(() => {
+      previousDeserialize = sdkNote.deserialize;
+      sdkNote.deserialize = (bytes: Uint8Array) => ({
+        id: () => ({ toString: () => Array.from(bytes, byte => String.fromCharCode(byte)).join('') }),
+        metadata: () => undefined,
+        assets: () => ({ fungibleAssets: () => [] })
+      });
+    });
+    afterEach(() => {
+      sdkNote.deserialize = previousDeserialize;
+    });
+    const runCustomFailure = async (error: Error, message: string, queuedRow: boolean, check: () => void) => {
+      jest.mocked(requestCustomTransaction).mockRejectedValueOnce(error);
+      if (queuedRow) jest.mocked(startTransactionProcessing).mockResolvedValueOnce(undefined);
+      await expect(
+        driveConfirmation(
+          () =>
+            dapp.requestTransaction('https://miden.xyz', {
+              type: MidenDAppMessageType.TransactionRequest,
+              sourcePublicKey: 'miden-account-1',
+              transaction: {
+                payload: { address: 'miden-account-1', transactionRequest: 'b64req', importNotes: CARRIED_NOTES }
+              }
+            } as never),
+          MidenMessageType.DAppTransactionConfirmationRequest,
+          { confirmed: true, delegate: false }
+        )
+      ).rejects.toEqual(new Error(message));
+      expect(requestCustomTransaction).toHaveBeenCalledTimes(1);
+      expect(_g.__dappExtTest.lastConfirmResponse).toEqual({
+        type: MidenMessageType.DAppTransactionConfirmationResponse
+      });
+      check();
+    };
+
+    it.each<[string, Error]>([
+      ['a queued row', queued],
+      ['a cause-wrapped queued row', new Error('custom wrapper', { cause: queued })]
+    ])('starts processing and releases the carried notes after %s', async (_label, error) => {
+      await runCustomFailure(error, queuedMessage, true, () => {
+        expect(startTransactionProcessing).toHaveBeenCalledTimes(1);
+        // The dry run derives the same ids with a second argument; the release derives them with the notes alone.
+        expect(noteQuarantine.importedNoteIds).toHaveBeenCalledWith(CARRIED_NOTES);
+        expect(noteQuarantine.releaseNoteIds).toHaveBeenCalledTimes(1);
+        expect(noteQuarantine.releaseNoteIds).toHaveBeenCalledWith(CARRIED_NOTE_IDS);
+      });
+    });
+
+    it('starts nothing and keeps the carried notes quarantined after a NOT_GRANTED refusal', async () => {
+      await runCustomFailure(new Error(MidenDAppErrorType.NotGranted), 'NOT_GRANTED', false, () => {
+        expect(startTransactionProcessing).not.toHaveBeenCalled();
+        expect(noteQuarantine.releaseNoteIds).not.toHaveBeenCalled();
+      });
+    });
+  });
+
   it('requestImportPrivateNote resolves with note id when confirmed', async () => {
     _g.__dappExtTest.midenClient.importNoteBytes = jest.fn().mockResolvedValue('imported-note-id');
     _g.__dappExtTest.midenClient.syncState = jest.fn().mockResolvedValue(undefined);
@@ -2270,6 +2404,33 @@ describe('a watchdog eviction mid-read abandons the extension flow instead of do
       )
     ).rejects.toBe(terminated);
     expect(signData).not.toHaveBeenCalled();
+  });
+
+  it('requestSign rejects an approved cause-wrapped poison with its inner kill', async () => {
+    arrangeSignerAccount();
+    const kill = new WasmClientPoisonedError('watchdog', new Error('authorization read parked'));
+    _g.__dappExtTest.midenClient.getAccount = jest
+      .fn()
+      .mockRejectedValueOnce(new Error('NOT_GRANTED: authorization wrapper', { cause: kill }));
+    const signData = jest.fn(async () => 'stolen-signature');
+    mockWithUnlocked.mockImplementation(async (fn: (ctx: unknown) => unknown) => fn({ vault: { signData } }));
+
+    await expect(
+      driveConfirmation(
+        () =>
+          dapp.requestSign('https://miden.xyz', {
+            type: MidenDAppMessageType.SignRequest,
+            sourcePublicKey: SIGNER_COMMITMENT_HEX,
+            sourceAccountId: 'miden-account-1',
+            payload: 'aGVsbG8=',
+            kind: 'word'
+          }),
+        MidenMessageType.DAppSignConfirmationRequest,
+        { confirmed: true }
+      )
+    ).rejects.toBe(kill);
+    expect(signData).not.toHaveBeenCalled();
+    expect(_g.__dappExtTest.lastConfirmResponse).toEqual({ type: MidenMessageType.DAppSignConfirmationResponse });
   });
 });
 
