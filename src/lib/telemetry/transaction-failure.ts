@@ -130,6 +130,13 @@ export const SUBMIT_NODE_ERRORS = [
 
 export const SUBMIT_HIDDEN_ANSWERS = ['yes', 'no', 'unavailable'] as const;
 
+export const SUBMIT_LEG_BUCKETS: readonly ['under_9s', '9_to_11s', 'over_11s', 'unavailable'] = [
+  'under_9s',
+  '9_to_11s',
+  'over_11s',
+  'unavailable'
+];
+
 export const PIPELINE_KILLS = [
   'offscreen_aborted_deadline',
   'offscreen_aborted_deadline_no_kill',
@@ -228,6 +235,8 @@ export interface TransactionFailure {
   entryPoint?: ConsumeEntryPoint;
   /** Whether the app was hidden while its submit was in flight; undefined when the platform cannot tell. */
   hiddenDuringSubmit?: boolean;
+  /** Milliseconds from the submit stamp to its return; undefined when the row has no submit stamp. */
+  submitLegMs?: number;
   /** This transaction's failure was reported before, so this report is evidence for that one, not a second error. */
   alreadyReported?: boolean;
   point?: (typeof FAILURE_POINTS)[number];
@@ -494,12 +503,20 @@ function submitRequestFailure(error: unknown): { endpoint: string; kind: string 
 const grpcStatusOf = (kind: string | undefined) =>
   kind === undefined ? undefined : SUBMIT_GRPC_TEXT.find(([, text]) => kind.startsWith(text));
 
-function submitOutcomeIdentity(error: unknown, hiddenDuringSubmit: boolean | undefined): string {
+function submitOutcomeIdentity(
+  error: unknown,
+  hiddenDuringSubmit: boolean | undefined,
+  submitLegMs: number | undefined
+): string {
   const matched = grpcStatusOf(submitRequestFailure(error)?.kind)?.[0];
   const status = SUBMIT_UNKNOWN_OUTCOME_STATUSES.find(listed => listed === matched) ?? 'other';
   const hidden: (typeof SUBMIT_HIDDEN_ANSWERS)[number] =
     hiddenDuringSubmit === undefined ? 'unavailable' : hiddenDuringSubmit ? 'yes' : 'no';
-  return `${coined('submit_outcome_unknown')}; grpc ${status}; app hidden during submit ${hidden}`;
+  let bucket: (typeof SUBMIT_LEG_BUCKETS)[number] = 'unavailable';
+  if (submitLegMs !== undefined && Number.isFinite(submitLegMs) && submitLegMs >= 0) {
+    bucket = submitLegMs < 9000 ? 'under_9s' : submitLegMs <= 11000 ? '9_to_11s' : 'over_11s';
+  }
+  return `${coined('submit_outcome_unknown')}; grpc ${status}; app hidden during submit ${hidden}; submit leg ${bucket}`;
 }
 
 function submitRefusalIdentity(refusal: { endpoint: string; kind: string }): string {
@@ -526,7 +543,9 @@ function failureIdentity(failure: TransactionFailure): string {
   if (rejection !== undefined) return rejection;
   const kill = killIdentity(error);
   if (kill !== undefined) return kill;
-  if (isIndefiniteSubmitOutcomeError(error)) return submitOutcomeIdentity(error, failure.hiddenDuringSubmit);
+  if (isIndefiniteSubmitOutcomeError(error)) {
+    return submitOutcomeIdentity(error, failure.hiddenDuringSubmit, failure.submitLegMs);
+  }
   const refusal = submitRequestFailure(error);
   if (refusal !== undefined) return submitRefusalIdentity(refusal);
   if (protocol !== undefined) return protocol;
@@ -550,6 +569,7 @@ const CLOSED_NAMES: ReadonlySet<string> = new Set<string>([
   ...SUBMIT_ENDPOINTS,
   ...SUBMIT_NODE_ERRORS,
   ...SUBMIT_HIDDEN_ANSWERS,
+  ...SUBMIT_LEG_BUCKETS,
   ...PIPELINE_KILLS,
   ...EXECUTION_CAUSES,
   ...SIGNING_STEPS,

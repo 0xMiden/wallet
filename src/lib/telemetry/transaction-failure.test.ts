@@ -35,6 +35,7 @@ import {
   SUBMIT_ENDPOINTS,
   SUBMIT_GRPC_STATUSES,
   SUBMIT_HIDDEN_ANSWERS,
+  SUBMIT_LEG_BUCKETS,
   SUBMIT_NODE_ERRORS,
   SUBMIT_UNKNOWN_OUTCOME_STATUSES,
   type TransactionFailure
@@ -135,6 +136,7 @@ it('hands crash scrubbing every closed name a report can carry, and nothing else
     SUBMIT_ENDPOINTS,
     SUBMIT_NODE_ERRORS,
     SUBMIT_HIDDEN_ANSWERS,
+    ['under_9s', '9_to_11s', 'over_11s', 'unavailable'],
     PIPELINE_KILLS,
     EXECUTION_CAUSES,
     SIGNING_STEPS,
@@ -570,7 +572,9 @@ describe('an unknown submit outcome', () => {
       error: submitOutcomeUnknown(`resource not found: ${ACCOUNT_HEX}`)
     });
     const message = await reportedMessage();
-    expect(message).toContain('; submit_outcome_unknown; grpc other; app hidden during submit no. ');
+    expect(message).toContain(
+      '; submit_outcome_unknown; grpc other; app hidden during submit no; submit leg unavailable. '
+    );
     expect(message).not.toContain('not_found');
   });
 
@@ -596,7 +600,7 @@ describe('an unknown submit outcome', () => {
     });
     const message = await reportedMessage();
     expect(message).toContain(
-      `; point pipeline; submit_outcome_unknown; grpc ${status}; app hidden during submit no. authentication`
+      `; point pipeline; submit_outcome_unknown; grpc ${status}; app hidden during submit no; submit leg unavailable. authentication`
     );
     expectNoTransactionData(message);
   });
@@ -616,7 +620,36 @@ describe('an unknown submit outcome', () => {
       })
     });
     const message = await reportedMessage();
-    expect(message).toContain(`; submit_outcome_unknown; grpc unavailable; app hidden during submit ${answer}. `);
+    expect(message).toContain(
+      `; submit_outcome_unknown; grpc unavailable; app hidden during submit ${answer}; submit leg unavailable. `
+    );
+    expectNoTransactionData(message);
+  });
+
+  it.each<[number | undefined, string]>([
+    [0, 'under_9s'],
+    [8999, 'under_9s'],
+    [9000, '9_to_11s'],
+    [11000, '9_to_11s'],
+    [11001, 'over_11s'],
+    [undefined, 'unavailable'],
+    [-1, 'unavailable'],
+    [NaN, 'unavailable'],
+    [Infinity, 'unavailable'],
+    [-Infinity, 'unavailable']
+  ])('reports a submit leg of %s ms as %s without sending the duration', async (submitLegMs, bucket) => {
+    reportTransactionFailure({
+      type: 'send',
+      stage: 'submitting',
+      outcome: 'unconfirmed',
+      submitLegMs,
+      error: submitOutcomeUnknown('request to Miden node timed out; the node may be under heavy load')
+    });
+    const message = await reportedMessage();
+    expect(message).toContain(
+      `; submit_outcome_unknown; grpc deadline_exceeded; app hidden during submit unavailable; submit leg ${bucket}. `
+    );
+    expect(message).not.toMatch(/submitLegMs|\b(?:8999|9000|11000|11001|NaN|Infinity)\b/);
     expectNoTransactionData(message);
   });
 });
@@ -728,7 +761,9 @@ describe('a submit the node refused', () => {
       error: submitOutcomeUnknown('operation was cancelled')
     });
     const message = await reportedMessage();
-    expect(message).toContain('; submit_outcome_unknown; grpc cancelled; app hidden during submit unavailable. ');
+    expect(message).toContain(
+      '; submit_outcome_unknown; grpc cancelled; app hidden during submit unavailable; submit leg unavailable. '
+    );
     expect(message).not.toContain('submit_rejected');
   });
 });
@@ -1229,6 +1264,7 @@ const GUARDIAN_CODES = 'It also carries';
 const DEVICE_KEY = 'A device key refusal';
 const DEVICE_KEY_CODES = 'when it is one of';
 const UNKNOWN_OUTCOME = 'A submit with no definite answer';
+const SUBMIT_LEG = '; and how long the submit took';
 const REFUSED = 'A submit the network refused';
 const EXECUTION = 'What the transaction software said went wrong';
 const EXECUTION_CAUSE_LIST = 'its own fixed wording names';
@@ -1279,8 +1315,9 @@ const POLICY_ROWS: readonly PolicyRow[] = [
   [
     'hidden-during-submit answer',
     () => SUBMIT_HIDDEN_ANSWERS,
-    () => policyText(UNKNOWN_OUTCOME, 'and whether the App')
+    () => policyText(UNKNOWN_OUTCOME, 'and whether the App', SUBMIT_LEG)
   ],
+  ['submit leg bucket', () => SUBMIT_LEG_BUCKETS, () => policyText(UNKNOWN_OUTCOME, SUBMIT_LEG)],
   ['refused endpoint', () => SUBMIT_ENDPOINTS, () => policyText(REFUSED, 'It names', '; the kind of answer')],
   [
     'refused gRPC status',
