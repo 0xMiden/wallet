@@ -1385,23 +1385,29 @@ export const midenClientProxy = {
   /**
    * Read a to-be-consumed note's summary as a plain {@link InputNoteSummaryDto}
    * (issue #260, slice 7a). `getInputNote` returns a live `InputNoteRecord` the
-   * caller reaches through for `metadata()?.noteType()`; the record can't cross
-   * postMessage, so `reduceInputNoteSummary` reduces it to the one field the caller
-   * reads and only that crosses. `null` (not found) is preserved so the caller's
+   * caller needs for its note type and fee assets; the record can't cross
+   * postMessage, so `reduceInputNoteSummary` reduces it under the owning hold and
+   * only the JSON-safe facts cross. `null` (not found) is preserved so the caller's
    * "note not found" throw is unchanged.
    *
    * Flag off (default): the SW-inline client's `getInputNote` reduces here
-   * (behavior-preserving; caller owns the lock). Flag on: the OFFSCREEN client —
-   * which owns the imported/synced note — reduces, so the read can't miss a note the
+   * (caller owns the lock). Flag on: the OFFSCREEN client, which owns the
+   * imported/synced note, reduces, so the read can't miss a note the
    * dormant SW client never received.
    */
   async getInputNoteSummary(noteId: string): Promise<InputNoteSummaryDto | null> {
     if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
-      return reduceInputNoteSummary(await (await getMidenClient()).getInputNote(noteId));
+      const hold = getCurrentWasmLockHold();
+      const client = await getMidenClient();
+      if (hold) assertWasmHoldCurrent(hold, 'reading an input note summary');
+      const record = await client.getInputNote(noteId);
+      if (hold) assertWasmHoldCurrent(hold, 'reducing an input note summary');
+      return reduceInputNoteSummary(record);
     }
     const resultB64 = await this.call('getInputNoteSummary', [noteId], { deadlineMs: READ_DEADLINE_MS });
     if (resultB64 == null) return null;
-    return JSON.parse(new TextDecoder().decode(b64ToBytes(resultB64))) as InputNoteSummaryDto;
+    const summary: InputNoteSummaryDto = JSON.parse(new TextDecoder().decode(b64ToBytes(resultB64)));
+    return summary;
   },
 
   /**

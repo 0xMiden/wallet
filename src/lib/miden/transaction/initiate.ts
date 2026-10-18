@@ -168,6 +168,10 @@ export const initiateConsumeTransactionFromId = async (
     isBeingClaimed: false,
     type: summary.noteType !== undefined ? toNoteTypeString(summary.noteType) : 'unknown'
   };
+  const feeNotes: ClaimFeeNote[] =
+    summary.assets === null
+      ? [{ faucetId: '', amount: '', assetsUnknown: true }]
+      : summary.assets.map(asset => ({ ...asset, carriesMoreAssets: false }));
 
   const { committedId } = await queueConsumeRows(
     accountId,
@@ -179,7 +183,10 @@ export const initiateConsumeTransactionFromId = async (
     undefined,
     dappOrigin,
     undefined,
-    entryPoint
+    entryPoint,
+    undefined,
+    undefined,
+    new Map([[noteId, feeNotes]])
   );
   if (dappOrigin !== undefined) await grantDappOrigin(committedId, dappOrigin);
   return committedId;

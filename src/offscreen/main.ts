@@ -698,14 +698,11 @@ const DISPATCH: Record<string, DispatchFn> = {
     return new TextEncoder().encode(JSON.stringify(records.map(reducePswapLineage)));
   },
 
-  // A to-be-consumed note's summary, reduced in-realm to a minimal JSON DTO carrying
-  // just the note's `noteType`. Returns null (→ resultB64 null) for a not-found note,
-  // distinct from a found record whose `noteType` is undefined (the JSON `{}`).
+  // Note type and fee assets cross as JSON; null means not found, while a found
+  // note whose assets cannot be read carries assets:null so the fee gate admits it.
   getInputNoteSummary: async (context, client, noteId: string) => {
     const record = await client.getInputNote(noteId);
-    // Same shape as the lineage read above: the record's `metadata()`
-    // reach-through is a borrow of the shared client, refused once the hold is
-    // stale (#788).
+    // A displaced hold cannot authorize metadata or asset reads on this record (#788).
     assertWasmHoldCurrent(context.hold, 'in offscreen getInputNoteSummary before reducing the record');
     const dto = reduceInputNoteSummary(record);
     return dto ? new TextEncoder().encode(JSON.stringify(dto)) : null;
