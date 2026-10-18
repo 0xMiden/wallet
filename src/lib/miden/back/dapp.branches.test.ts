@@ -619,6 +619,51 @@ describe('requestConsumeTransaction — mobile error branches', () => {
     }
   });
 
+  it('approved consume fee refusal preserves its message without INVALID_PARAMS', async () => {
+    const realQueue = jest.requireActual<typeof import('../transaction/initiate')>('../transaction/initiate');
+    const { ClaimFeeRefusedError } = realQueue;
+    const originalConsume = mockInitiateConsumeTransactionFromId.getMockImplementation();
+    const feeContext = jest.spyOn(jest.requireActual('../transaction/claim-fee'), 'readClaimFeeContext');
+    const proxy = jest.requireActual<typeof import('./miden-client-proxy')>('./miden-client-proxy').midenClientProxy;
+    const summary = jest.spyOn(proxy, 'getInputNoteSummary');
+    const report = jest.spyOn(jest.requireActual('lib/telemetry/transaction-failure'), 'reportTransactionFailure');
+    const notify = jest.spyOn(jest.requireActual('./background-notification'), 'notifyBackgroundTransactionFailed');
+    await Repo.transactions.clear();
+    feeContext.mockResolvedValue({ vaultFeeAsset: 0n, nativeAssetId: 'native-faucet', verificationBaseFee: 10000 });
+    summary.mockResolvedValue({ noteType: NoteType.Public, assets: [{ faucetId: 'faucet-1', amount: '50' }] });
+    mockInitiateConsumeTransactionFromId.mockImplementation(realQueue.initiateConsumeTransactionFromId);
+    try {
+      const error: unknown = await dapp
+        .requestConsumeTransaction('https://miden.xyz', {
+          type: MidenDAppMessageType.ConsumeRequest,
+          sourcePublicKey: 'miden-account-1',
+          transaction: { noteId: 'note-1', faucetId: 'faucet-1', noteType: 'private', amount: 50 }
+        })
+        .catch((reason: unknown) => reason);
+
+      expect(error).toBeInstanceOf(ClaimFeeRefusedError);
+      if (!(error instanceof Error)) throw new Error('Expected an approved consume refusal');
+      expect(error.message).toBe(new ClaimFeeRefusedError().message);
+      expect(error.message).not.toContain('INVALID_PARAMS');
+      expect(error.message).not.toContain(MidenDAppErrorType.InvalidParams);
+      expect((await Repo.transactions.toArray()).filter(row => row.type === 'consume')).toEqual([]);
+      expect(summary).toHaveBeenCalledWith('note-1');
+      expect(feeContext).toHaveBeenCalledWith('miden-account-1');
+      expect(mockRequestConfirmation).toHaveBeenCalled();
+      expect(mockStartTransactionProcessing).not.toHaveBeenCalled();
+      expect(report).not.toHaveBeenCalled();
+      expect(notify).not.toHaveBeenCalled();
+    } finally {
+      mockInitiateConsumeTransactionFromId.mockReset();
+      if (originalConsume) mockInitiateConsumeTransactionFromId.mockImplementation(originalConsume);
+      feeContext.mockRestore();
+      summary.mockRestore();
+      report.mockRestore();
+      notify.mockRestore();
+      await Repo.transactions.clear();
+    }
+  });
+
   it('rejects when consume preview fails (getTokenMetadata throws)', async () => {
     mockGetTokenMetadata.mockRejectedValueOnce(new Error('metadata-fail'));
     await expect(

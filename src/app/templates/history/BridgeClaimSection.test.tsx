@@ -9,9 +9,14 @@ import { NO_EXPLORER_CHAIN } from 'lib/walletconnect/testing/chains';
 import { BridgeClaimSection } from './BridgeClaimSection';
 import { IHistoryEntry } from './IHistoryEntry';
 
+let mockFeeCopy = 'worker-fee-copy';
+jest.mock('lib/i18n', () => ({
+  ...jest.requireActual('lib/i18n'),
+  getMessage: (key: string) => (key === 'insufficientFeeAsset' ? mockFeeCopy : key)
+}));
 // t(key) echoes `t:<key>` so we can assert which label branch rendered.
 jest.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key: string) => `t:${key}` })
+  useTranslation: () => ({ t: (key: string) => (key === 'insufficientFeeAsset' ? mockFeeCopy : `t:${key}`) })
 }));
 
 // Only ITransactionStatus (the enum) is used at runtime.
@@ -175,6 +180,7 @@ const READY = { id: 'deposit-1', tx_hash: '0xexit', deposit_cnt: 5, ready_for_cl
 
 describe('BridgeClaimSection', () => {
   beforeEach(() => {
+    mockFeeCopy = 'worker-fee-copy';
     jest.clearAllMocks();
     // clearAllMocks keeps a queued *Once, so a block read a test never reaches would leak into the next.
     mockGetCurrentMidenBlock.mockReset().mockImplementation(async () => 0);
@@ -233,6 +239,30 @@ describe('BridgeClaimSection', () => {
       renderSection({ entry: entry() });
       fireEvent.click(await screen.findByText('t:reclaimFunds'));
       expect(await screen.findByText('reclaim boom')).toBeInTheDocument();
+    });
+
+    it('fee refusal uses localized fee copy and leaves the current view open', async () => {
+      const { ClaimFeeRefusedError } = jest.requireActual<typeof import('lib/miden/transaction/initiate')>(
+        'lib/miden/transaction/initiate'
+      );
+      const refusal = new ClaimFeeRefusedError();
+      mockFeeCopy = 'localized-fee-copy';
+      mockGetCurrentMidenBlock.mockResolvedValueOnce(1200);
+      mockInitiateConsumeFromId.mockRejectedValueOnce(refusal);
+      const log = jest.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        renderSection({ entry: entry() });
+        fireEvent.click(await screen.findByText('t:reclaimFunds'));
+
+        expect(await screen.findByText('localized-fee-copy')).toBeInTheDocument();
+        expect(screen.queryByText(refusal.message)).not.toBeInTheDocument();
+        expect(mockNavigate).not.toHaveBeenCalled();
+        expect(mockRequestSWProcessing).not.toHaveBeenCalled();
+        expect(screen.getByText('t:reclaimFunds')).not.toBeDisabled();
+        expect(log).not.toHaveBeenCalled();
+      } finally {
+        log.mockRestore();
+      }
     });
 
     it('offers Reclaim for an unconfirmed failed row from its stamped height and note id (#1250)', async () => {

@@ -222,6 +222,9 @@ const mockInitiateConsume = jest.fn((..._args: any[]) => Promise.resolve('consum
 const mockInitiateConsumeBatch = jest.fn((..._args: any[]) => Promise.resolve('consume-batch-tx'));
 const mockInitiatePswapReclaim = jest.fn((..._args: any[]) => Promise.resolve('reclaim-tx'));
 jest.mock('../transaction/initiate', () => ({
+  get ClaimFeeRefusedError() {
+    return jest.requireActual('../transaction/initiate').ClaimFeeRefusedError;
+  },
   initiateConsumeNotesTransaction: (...a: any[]) => mockInitiateConsumeBatch(...a),
   initiatePswapReclaimTransaction: (...a: any[]) => mockInitiatePswapReclaim(...a),
   noteClaimCoverage: async () => ({ rows: [] }),
@@ -1528,6 +1531,52 @@ describe('doSync — syncState timeout + circuit breaker', () => {
 });
 
 describe('doSync — native-note auto-consume', () => {
+  it('fee-refused native batch has no single-note fallback or processing kick', async () => {
+    const { ClaimFeeRefusedError } =
+      jest.requireActual<typeof import('../transaction/initiate')>('../transaction/initiate');
+    mockIsAutoConsumeAsync.mockResolvedValue(true);
+    mockGetFaucetIdSetting.mockResolvedValue('native-faucet');
+    mockInitiateConsumeBatch.mockRejectedValueOnce(new ClaimFeeRefusedError());
+    mockClient.getConsumableNoteDtos.mockResolvedValue([fakeNote({ id: 'native-note', faucetId: 'native-faucet' })]);
+    const clear = jest.fn();
+    const notificationHost = Reflect.get(globalThis, 'chrome');
+    const previousNotifications = Reflect.get(notificationHost, 'notifications');
+    Reflect.set(notificationHost, 'notifications', { clear });
+    try {
+      await doSync();
+
+      expect(mockInitiateConsumeBatch).toHaveBeenCalledTimes(1);
+      expect(mockInitiateConsume).not.toHaveBeenCalled();
+      expect(startTransactionProcessing).not.toHaveBeenCalled();
+      expect(clear).not.toHaveBeenCalled();
+      expect(mockStorageSet).toHaveBeenCalledWith(
+        expect.objectContaining({
+          miden_cached_consumable_notes: [expect.objectContaining({ id: 'native-note' })]
+        })
+      );
+
+      mockInitiateConsumeBatch.mockRejectedValueOnce(new Error('batch enqueue failed'));
+      mockInitiateConsume.mockRejectedValueOnce(new ClaimFeeRefusedError());
+      await doSync();
+      expect(mockInitiateConsume).toHaveBeenCalledTimes(1);
+      expect(startTransactionProcessing).not.toHaveBeenCalled();
+      expect(clear).not.toHaveBeenCalled();
+
+      mockClient.getConsumableNoteDtos.mockResolvedValue([
+        fakeNote({ id: 'native-note', faucetId: 'native-faucet' }),
+        fakeNote({ id: 'other-native', faucetId: 'native-faucet' })
+      ]);
+      mockInitiateConsumeBatch.mockRejectedValueOnce(new Error('batch enqueue failed'));
+      mockInitiateConsume.mockRejectedValueOnce(new ClaimFeeRefusedError());
+      await doSync();
+      expect(mockInitiateConsume).toHaveBeenCalledTimes(3);
+      expect(startTransactionProcessing).toHaveBeenCalledTimes(1);
+      expect(clear).not.toHaveBeenCalled();
+    } finally {
+      Reflect.set(notificationHost, 'notifications', previousNotifications);
+    }
+  });
+
   it('does not auto-consume a native backlog worth less than the fee to claim it', async () => {
     mockIsAutoConsumeAsync.mockResolvedValue(true);
     mockIsDelegateProofAsync.mockResolvedValue(false);
@@ -2304,6 +2353,62 @@ describe('doSync - expired swap order settlement', () => {
     ]);
     await Repo.transactions.put(partFilledOrderRow);
   };
+
+  it('worker settlement refuses token-only payback and remainder and still settles a funded order', async () => {
+    const undoRealQueue = useRealClaimQueue();
+    const feeContext = jest.spyOn(jest.requireActual('../transaction/claim-fee'), 'readClaimFeeContext');
+    feeContext.mockResolvedValue({ vaultFeeAsset: 0n, nativeAssetId: 'native-faucet', verificationBaseFee: 10000 });
+    mockBaseFee = 10000;
+    mockGetFaucetIdSetting.mockResolvedValue('native-faucet');
+    await seedPartFilledOrder();
+    try {
+      await doSync();
+
+      expect(await queuedClaimNoteIds()).toEqual([]);
+      expect(startTransactionProcessing).not.toHaveBeenCalled();
+
+      const fundedOrder: ITransaction = {
+        ...partFilledOrderRow,
+        id: 'swap-funded',
+        extraInputs: { ...partFilledOrderRow.extraInputs, orderId: '88', requestedFaucetId: 'native-faucet' }
+      };
+      await Repo.transactions.put(fundedOrder);
+      mockGetMidenClient.mockImplementation(async () => ({
+        ...mockClient,
+        client: {
+          pswap: {
+            lineages: async () => [
+              partFilledLineage,
+              { ...partFilledLineage, orderId: () => '88', currentTipNoteId: () => 'funded-tip', state: () => 1 }
+            ]
+          }
+        }
+      }));
+      mockClient.getConsumableNoteDtos.mockResolvedValue([
+        { ...fakeNote({ id: 'payback', faucetId: 'requested' }), swapAttachment: { orderId: '77', depth: 1 } },
+        fakeNote({ id: 'remainder-tip', faucetId: 'offer' }),
+        {
+          ...fakeNote({ id: 'native-payback', faucetId: 'native-faucet', amount: '10000' }),
+          swapAttachment: { orderId: '88', depth: 1 }
+        }
+      ]);
+
+      await doSync();
+
+      expect(await queuedClaimNoteIds()).toEqual(['native-payback']);
+      expect(startTransactionProcessing).toHaveBeenCalledTimes(1);
+      const refusedOrder = await Repo.transactions.get(partFilledOrderRow.id);
+      expect(refusedOrder?.extraInputs).toHaveProperty('expiryTriggeredAt');
+      expect(refusedOrder?.extraInputs).not.toHaveProperty('settledAt');
+      expect(refusedOrder?.extraInputs).not.toHaveProperty('reclaimedAt');
+      expect(feeContext).toHaveBeenCalledWith('pk-1');
+    } finally {
+      feeContext.mockRestore();
+      undoRealQueue();
+      mockGetMidenClient.mockImplementation(async () => mockClient);
+      await Repo.transactions.clear();
+    }
+  });
 
   it('queues no native claim and no settlement consume while the store is not initialized', async () => {
     mockIsAutoConsumeAsync.mockResolvedValue(true);

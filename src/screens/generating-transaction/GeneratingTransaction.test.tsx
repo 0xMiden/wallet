@@ -9,8 +9,13 @@ import { WalletType } from 'screens/onboarding/types';
 
 import { GeneratingTransaction, GeneratingTransactionPage } from './GeneratingTransaction';
 
+let mockFeeCopy = 'worker-fee-copy';
+jest.mock('lib/i18n', () => ({
+  ...jest.requireActual('lib/i18n'),
+  getMessage: (key: string) => (key === 'insufficientFeeAsset' ? mockFeeCopy : key)
+}));
 jest.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key: string) => key })
+  useTranslation: () => ({ t: (key: string) => (key === 'insufficientFeeAsset' ? mockFeeCopy : key) })
 }));
 
 jest.mock('lib/platform', () => ({
@@ -28,15 +33,24 @@ jest.mock('components/Button', () => ({
     onClick,
     variant,
     accent,
+    disabled,
     className
   }: {
     children?: React.ReactNode;
     onClick?: () => void;
     variant?: string;
     accent?: string;
+    disabled?: boolean;
     className?: string;
   }) => (
-    <button type="button" data-variant={variant} data-accent={accent} className={className} onClick={onClick}>
+    <button
+      type="button"
+      data-variant={variant}
+      data-accent={accent}
+      className={className}
+      disabled={disabled}
+      onClick={onClick}
+    >
       {children}
     </button>
   ),
@@ -391,6 +405,39 @@ describe('GeneratingTransactionPage container effects', () => {
 
     expect(container.textContent).toContain('transactionFailed');
     act(() => root.unmount());
+  });
+
+  it('fee refusal uses localized fee copy and leaves the current view open', async () => {
+    const { ClaimFeeRefusedError } = jest.requireActual<typeof import('lib/miden/transaction/initiate')>(
+      'lib/miden/transaction/initiate'
+    );
+    mockFeeCopy = 'worker-fee-copy';
+    const refusal = new ClaimFeeRefusedError();
+    mockFeeCopy = 'localized-fee-copy';
+    mockRowState = { row: makeTx({ status: 3, type: 'consume', displayIcon: 'RECEIVE' }), loaded: true };
+    requeueFailedTransactionMock.mockRejectedValueOnce(refusal);
+    const log = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
+    try {
+      const retryButton = Array.from(container.querySelectorAll('button')).find(
+        button => button.textContent === 'retry'
+      );
+      expect(retryButton).toBeTruthy();
+      await act(async () => {
+        retryButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      });
+
+      expect(container.textContent).toContain('localized-fee-copy');
+      expect(container.textContent).not.toContain(refusal.message);
+      expect(navigateMock).not.toHaveBeenCalled();
+      expect(requestSWTransactionProcessingMock).not.toHaveBeenCalled();
+      expect(retryButton).not.toBeDisabled();
+      expect(log).not.toHaveBeenCalled();
+    } finally {
+      act(() => root.unmount());
+      mockFeeCopy = 'worker-fee-copy';
+      log.mockRestore();
+    }
   });
 
   it('shows Retry on a failed requeueable tx and requeues + kicks processing on click (#483)', async () => {

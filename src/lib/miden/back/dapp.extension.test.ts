@@ -18,6 +18,7 @@ import extensionBrowser, { type Windows } from 'webextension-polyfill';
 import { MidenDAppConsumeRequest, MidenDAppMessageType, MidenDAppErrorType } from 'lib/adapter/types';
 import { startTransactionProcessing } from 'lib/miden/back/transaction-processor';
 import * as noteQuarantine from 'lib/miden/note-quarantine';
+import * as Repo from 'lib/miden/repo';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { requestCustomTransaction } from 'lib/miden/transaction';
 import { TransactionQueuedError } from 'lib/miden/transaction/initiate';
@@ -2105,6 +2106,54 @@ describe('Full confirmation cycles in extension mode', () => {
       expect(_g.__dappExtTest.midenClient.importNoteBytes).toHaveBeenCalledTimes(1);
       expect(transaction().initiateConsumeTransactionFromId).not.toHaveBeenCalled();
     });
+  });
+
+  it('approved consume fee refusal preserves its message without INVALID_PARAMS', async () => {
+    const realQueue = jest.requireActual<typeof import('../transaction/initiate')>('../transaction/initiate');
+    const { ClaimFeeRefusedError } = realQueue;
+    const transaction = jest.requireMock('lib/miden/transaction');
+    const originalConsume = transaction.initiateConsumeTransactionFromId.getMockImplementation();
+    const feeContext = jest.spyOn(jest.requireActual('../transaction/claim-fee'), 'readClaimFeeContext');
+    const proxy = jest.requireActual<typeof import('./miden-client-proxy')>('./miden-client-proxy').midenClientProxy;
+    const summary = jest.spyOn(proxy, 'getInputNoteSummary');
+    const report = jest.spyOn(jest.requireActual('lib/telemetry/transaction-failure'), 'reportTransactionFailure');
+    const notify = jest.spyOn(jest.requireActual('./background-notification'), 'notifyBackgroundTransactionFailed');
+    await Repo.transactions.clear();
+    feeContext.mockResolvedValue({ vaultFeeAsset: 0n, nativeAssetId: 'native-faucet', verificationBaseFee: 10000 });
+    summary.mockResolvedValue({ noteType: NoteType.Public, assets: [{ faucetId: 'faucet-1', amount: '50' }] });
+    transaction.initiateConsumeTransactionFromId.mockImplementation(realQueue.initiateConsumeTransactionFromId);
+    try {
+      const error: unknown = await driveConfirmation(
+        () =>
+          dapp.requestConsumeTransaction('https://miden.xyz', {
+            type: MidenDAppMessageType.ConsumeRequest,
+            sourcePublicKey: 'miden-account-1',
+            transaction: { noteId: 'note-1', faucetId: 'faucet-1', noteType: 'private', amount: 50 }
+          }),
+        MidenMessageType.DAppTransactionConfirmationRequest,
+        { confirmed: true, delegate: false }
+      ).catch((reason: unknown) => reason);
+
+      expect(error).toBeInstanceOf(ClaimFeeRefusedError);
+      if (!(error instanceof Error)) throw new Error('Expected an approved consume refusal');
+      expect(error.message).toBe(new ClaimFeeRefusedError().message);
+      expect(error.message).not.toContain('INVALID_PARAMS');
+      expect(error.message).not.toContain(MidenDAppErrorType.InvalidParams);
+      expect((await Repo.transactions.toArray()).filter(row => row.type === 'consume')).toEqual([]);
+      expect(summary).toHaveBeenCalledWith('note-1');
+      expect(feeContext).toHaveBeenCalledWith('miden-account-1');
+      expect(startTransactionProcessing).not.toHaveBeenCalled();
+      expect(report).not.toHaveBeenCalled();
+      expect(notify).not.toHaveBeenCalled();
+    } finally {
+      transaction.initiateConsumeTransactionFromId.mockReset();
+      if (originalConsume) transaction.initiateConsumeTransactionFromId.mockImplementation(originalConsume);
+      feeContext.mockRestore();
+      summary.mockRestore();
+      report.mockRestore();
+      notify.mockRestore();
+      await Repo.transactions.clear();
+    }
   });
 
   it('requestConsumeTransaction rejects with InvalidParams when consume throws', async () => {

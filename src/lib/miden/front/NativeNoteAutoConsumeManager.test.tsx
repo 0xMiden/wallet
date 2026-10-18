@@ -203,6 +203,46 @@ describe('NativeNoteAutoConsumeManager', () => {
     expect(mockInitiateConsume.mock.calls.map(c => c[4])).toEqual(['auto_consume', 'auto_consume']);
   });
 
+  it('fee-refused native batch has no single-note fallback or processing kick', async () => {
+    const { ClaimFeeRefusedError } =
+      jest.requireActual<typeof import('../transaction/initiate')>('../transaction/initiate');
+    mockClaimable = [note('a'), note('b')];
+    mockInitiateConsumeBatch.mockRejectedValueOnce(new ClaimFeeRefusedError());
+
+    const view = render(<NativeNoteAutoConsumeManager />);
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 20));
+    });
+
+    expect(mockInitiateConsumeBatch).toHaveBeenCalledTimes(1);
+    expect(mockInitiateConsume).not.toHaveBeenCalled();
+    expect(mockGetUncompleted).not.toHaveBeenCalled();
+    expect(mockStartBg).not.toHaveBeenCalled();
+    expect(mockClearNoteReceived).not.toHaveBeenCalled();
+    expect(mockClaimable).toEqual([note('a'), note('b')]);
+    view.unmount();
+
+    mockInitiateConsumeBatch.mockRejectedValueOnce(new Error('batch enqueue failed'));
+    mockInitiateConsume
+      .mockRejectedValueOnce(new ClaimFeeRefusedError())
+      .mockRejectedValueOnce(new ClaimFeeRefusedError());
+    const fallback = render(<NativeNoteAutoConsumeManager />);
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 20));
+    });
+    expect(mockInitiateConsume).toHaveBeenCalledTimes(2);
+    expect(mockStartBg).not.toHaveBeenCalled();
+    expect(mockClearNoteReceived).not.toHaveBeenCalled();
+    fallback.unmount();
+
+    mockInitiateConsumeBatch.mockRejectedValueOnce(new Error('batch enqueue failed'));
+    mockInitiateConsume.mockRejectedValueOnce(new ClaimFeeRefusedError());
+    render(<NativeNoteAutoConsumeManager />);
+    await waitFor(() => expect(mockStartBg).toHaveBeenCalledTimes(1));
+    expect(mockInitiateConsume).toHaveBeenCalledTimes(4);
+    expect(mockClearNoteReceived).toHaveBeenCalledTimes(1);
+  });
+
   it('does not auto-consume a native backlog worth less than the fee to claim it', async () => {
     // Auto-consume runs unattended, so claiming for more in fee than it yields silently
     // moves the balance DOWN. The whole backlog is ONE transaction paying ONE fee, so

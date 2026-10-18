@@ -85,6 +85,9 @@ jest.mock('../sdk/helpers', () => ({
 // What queueConsumeRows' dedup and backoff say about a note; its rules are pinned with real rows in initiate's suite.
 const mockNoteClaimCoverage = jest.fn(async (..._args: unknown[]): Promise<Record<string, unknown>> => ({ rows: [] }));
 jest.mock('lib/miden/transaction/initiate', () => ({
+  get ClaimFeeRefusedError() {
+    return jest.requireActual('lib/miden/transaction/initiate').ClaimFeeRefusedError;
+  },
   initiateConsumeNotesTransaction: jest.fn(async () => 'consume-1'),
   initiatePswapReclaimTransaction: jest.fn(async () => 'consume-zero-fill'),
   noteClaimCoverage: (...args: unknown[]) => mockNoteClaimCoverage(...args)
@@ -619,6 +622,60 @@ describe('swap order note settlement', () => {
     // The unfilled remainder is a reclaim — and now that it has its own row,
     // `getSwapSettlementNotes` no longer buckets it as a settled (received) note.
     expect(tagsWrittenBy(2)).toEqual({ swapOrderTxId: 'swap-1', swapSettleKind: 'reclaim' });
+  });
+
+  it('fee refusal skips one role batch and prepared reclaim without aborting later orders', async () => {
+    const { ClaimFeeRefusedError } = jest.requireActual<typeof import('lib/miden/transaction/initiate')>(
+      'lib/miden/transaction/initiate'
+    );
+    const orders = [
+      tx(),
+      tx({ id: 'swap-prepared', extraInputs: { ...tx().extraInputs, orderId: 88n } }),
+      tx({ id: 'swap-later', extraInputs: { ...tx().extraInputs, orderId: 99n } })
+    ];
+    toArray.mockResolvedValue(orders);
+    const later = consumable('later-payback', 'payback', 'filled');
+    later.swapOrder.orderId = '99';
+    jest
+      .mocked(initiateConsumeNotesTransaction)
+      .mockRejectedValueOnce(new ClaimFeeRefusedError())
+      .mockRejectedValueOnce(new ClaimFeeRefusedError())
+      .mockResolvedValueOnce('later-tx');
+    jest.mocked(initiatePswapReclaimTransaction).mockRejectedValueOnce(new ClaimFeeRefusedError());
+    const written: Array<{ id: string; extraInputs?: Record<string, unknown> }> = [];
+    modify.mockImplementation(async writer => {
+      const where: unknown = jest.mocked(Repo.transactions.where).mock.calls.at(-1)?.[0];
+      const id = typeof where === 'object' && where !== null && 'id' in where ? String(where.id) : '';
+      const row = orders.find(order => order.id === id) ?? { id, type: 'consume', extraInputs: {} };
+      if (typeof writer === 'function') writer(row);
+      written.push(row);
+      return 1;
+    });
+    try {
+      const result = await reconcileSwapOrderNotes(
+        'account-1',
+        [consumable('tip', 'tip'), consumable('payback', 'payback'), later],
+        true,
+        220,
+        undefined,
+        new Map([['88', { noteId: 'prepared-tip', requestBytes: new Uint8Array([1]) }]])
+      );
+
+      expect(result.queuedTransactionIds).toEqual(['later-tx']);
+      expect(result.managedNoteIds).toEqual(new Set(['tip', 'payback', 'later-payback', 'prepared-tip']));
+      expect(initiateConsumeNotesTransaction).toHaveBeenCalledTimes(3);
+      expect(initiatePswapReclaimTransaction).toHaveBeenCalledTimes(1);
+      expect(written.filter(row => row.id === 'later-tx')).toHaveLength(1);
+      expect(written.filter(row => row.id !== 'later-tx').every(row => row.id.startsWith('swap-'))).toBe(true);
+      for (const order of orders.slice(0, 2)) {
+        expect(order.extraInputs).toHaveProperty('expiryTriggeredAt', 220);
+        expect(order.extraInputs).not.toHaveProperty('settledAt');
+        expect(order.extraInputs).not.toHaveProperty('reclaimedAt');
+        expect(order.extraInputs).not.toHaveProperty('swapOrderTxId');
+      }
+    } finally {
+      modify.mockImplementation(async () => 1);
+    }
   });
 
   it('tags a fund-less expired batch (tip only) as reclaim', async () => {
