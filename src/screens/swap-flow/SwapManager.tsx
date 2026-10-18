@@ -17,12 +17,12 @@ import { probeHardwareProtector } from 'lib/miden/back/protector-probe';
 import { IConsumedAssetTotal } from 'lib/miden/db/types';
 import { hasNoFeeAsset, maxSendableNative } from 'lib/miden/fees/spendable';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
-import { accountRefToSdk, getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
 import {
   isSpendingLimitPriceUnavailable,
   SpendingLimitAuthorization,
   spendingLimitAssessmentFromError
 } from 'lib/miden/spending-limits/types';
+import { normalizedFaucetId } from 'lib/miden/swap/faucet-ids';
 import { DEFAULT_SWAP_SLIPPAGE_BPS, swapEtaBlocksSubmit, SwapQuote, SwapQuoteErrorCode } from 'lib/miden/swap/quote';
 import { getDefaultSwapPair, getSwapPartners, isSwapPair, SwapPair, SwapToken } from 'lib/miden/swap/tokens';
 import { swapAvailability, useSwapTokens } from 'lib/miden/swap/use-swap-tokens';
@@ -285,13 +285,7 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
   // the offer faucet through the same helper before matching — a raw-string
   // compare silently returns 0 and would block every swap. Fall back to the
   // raw id if the SDK isn't ready yet (matched below as a second key).
-  const offerBalanceKey = useMemo(() => {
-    try {
-      return getBech32AddressFromAccountId(accountRefToSdk(offerToken.faucetId));
-    } catch {
-      return offerToken.faucetId;
-    }
-  }, [offerToken.faucetId]);
+  const offerBalanceKey = useMemo(() => normalizedFaucetId(offerToken.faucetId), [offerToken.faucetId]);
   const offerBalance = useMemo(
     () =>
       balanceData.find(balance => balance.tokenId === offerBalanceKey || balance.tokenId === offerToken.faucetId)

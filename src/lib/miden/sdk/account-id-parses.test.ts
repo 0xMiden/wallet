@@ -1,9 +1,11 @@
 /**
- * Account ids reach the wallet as bech32 addresses, composite `<address>_<suffix>` public keys and hex in
- * either prefix case. Only `accountRefToSdk` and `walletAccountIdToSdk` accept all of them, so outside
- * `helpers.ts` no file may name the bech32-only `accountIdStringToSdk` or take `.accountId()` of an
- * `Address.fromBech32(...)` call (#1384). A bare `Address.fromBech32(address)` that only validates a typed
- * address is not a parse and is not flagged.
+ * Outside `src/lib/miden/sdk/helpers.ts`, the production-source scan flags the identifier
+ * `accountIdStringToSdk`, `.accountId()` called on any `<receiver>.fromBech32(...)` result, and
+ * `fromBech32` calls whose receiver's last name is `AccountId` (#1384). A bare
+ * `Address.fromBech32(address)` validation is not flagged. Three files are allowlisted by path:
+ * `src/lib/epoch/bridge.ts` (normalizeMidenIdToHex), `src/lib/epoch/earn-withdraw-policy.ts`
+ * (canonicalMidenId) and `src/lib/miden/sdk/miden-client-interface.ts` (resolveAccountId).
+ * These parsers already handle hex and composite ids before their bech32 arm.
  */
 import fs from 'fs';
 import path from 'path';
@@ -11,11 +13,19 @@ import ts from 'typescript';
 
 const ROOT = path.resolve(__dirname, '../../../..');
 const HELPERS = 'src/lib/miden/sdk/helpers.ts';
+const ALLOWED = new Set([
+  // normalizeMidenIdToHex routes 0x/0X to fromHex and composites to accountRefToSdk.
+  'src/lib/epoch/bridge.ts',
+  // canonicalMidenId routes 0x/0X to fromHex and composites to accountRefToSdk.
+  'src/lib/epoch/earn-withdraw-policy.ts',
+  // resolveAccountId is the canonical parser over a passed WASM module.
+  'src/lib/miden/sdk/miden-client-interface.ts'
+]);
 
 const repoPath = (file: string): string => path.relative(ROOT, file).split(path.sep).join('/');
 
 function bech32OnlyParses(fileName: string, text: string): string[] {
-  if (fileName === HELPERS) return [];
+  if (fileName === HELPERS || ALLOWED.has(fileName)) return [];
   const source = ts.createSourceFile(fileName, text, ts.ScriptTarget.Latest, true);
   const found: string[] = [];
   const visit = (node: ts.Node): void => {
@@ -28,11 +38,22 @@ function bech32OnlyParses(fileName: string, text: string): string[] {
       node.expression.name.text === 'accountId' &&
       ts.isCallExpression(node.expression.expression) &&
       ts.isPropertyAccessExpression(node.expression.expression.expression) &&
-      node.expression.expression.expression.name.text === 'fromBech32' &&
-      ts.isIdentifier(node.expression.expression.expression.expression) &&
-      node.expression.expression.expression.expression.text === 'Address'
+      node.expression.expression.expression.name.text === 'fromBech32'
     ) {
-      found.push(`${fileName}: Address.fromBech32(...).accountId()`);
+      found.push(`${fileName}: ${node.expression.expression.expression.getText()}(...).accountId()`);
+    }
+    if (
+      ts.isCallExpression(node) &&
+      ts.isPropertyAccessExpression(node.expression) &&
+      node.expression.name.text === 'fromBech32'
+    ) {
+      const receiver = node.expression.expression;
+      if (
+        (ts.isIdentifier(receiver) && receiver.text === 'AccountId') ||
+        (ts.isPropertyAccessExpression(receiver) && receiver.name.text === 'AccountId')
+      ) {
+        found.push(`${fileName}: ${node.expression.getText()}(...)`);
+      }
     }
     ts.forEachChild(node, visit);
   };
