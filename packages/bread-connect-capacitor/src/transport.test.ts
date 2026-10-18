@@ -258,6 +258,29 @@ describe('AppSwitchTransport', () => {
     expect(h.opened).toHaveLength(0);
   });
 
+  it('opens nothing for a connect or request cancelled while it reads the link that launched the app', async () => {
+    const first = await connected();
+    first.transport.stop();
+    const h = harness({ storage: first.storage });
+    let launched: (url: string | undefined) => void = () => undefined;
+    h.links.launchUrl = jest.fn(() => new Promise<string | undefined>(resolve => (launched = resolve)));
+
+    const connecting = h.transport.connect(PERMISSION_REQUEST).catch((error: unknown) => error);
+    h.transport.cancelPending();
+    const requesting = h.transport.request({ type: 'SIGN_REQUEST' }).catch((error: unknown) => error);
+    h.transport.stop();
+    launched(undefined);
+    await flush();
+
+    try {
+      expect(h.openWallet).not.toHaveBeenCalled();
+      await expect(connecting).resolves.toMatchObject({ code: 'CANCELLED' });
+      await expect(requesting).resolves.toMatchObject({ code: 'CANCELLED' });
+    } finally {
+      h.transport.stop();
+    }
+  });
+
   it('replaces the waiting request with a newer one, and cancels on request', async () => {
     const h = harness();
     const first = h.transport.connect(PERMISSION_REQUEST);

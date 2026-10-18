@@ -344,6 +344,27 @@ describe('BreadConnectWallet', () => {
     }
   });
 
+  it('opens nothing for a connect the app disconnects while it reads the link that launched it', async () => {
+    const after = relaunched(new MemoryStorage());
+
+    const connecting = after.wallet.connect(PrivateDataPermission.UponRequest, WalletAdapterNetwork.Testnet);
+    const settled = connecting.then(
+      () => 'connected',
+      (error: unknown) => error
+    );
+    await after.wallet.disconnect();
+    after.deliver('');
+    await flush();
+
+    try {
+      expect(after.openWallet).not.toHaveBeenCalled();
+      expect(await settled).toBeInstanceOf(WalletError);
+      expect(after.wallet.address).toBeUndefined();
+    } finally {
+      after.transport.stop();
+    }
+  });
+
   it('reads the answer that relaunched the app before it looks up a transaction outcome', async () => {
     const storage = new MemoryStorage();
     const connecting = await sentBefore(storage, transport => transport.connect(PERMISSION_REQUEST));
