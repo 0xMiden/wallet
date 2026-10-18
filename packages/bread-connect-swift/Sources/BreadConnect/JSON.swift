@@ -85,6 +85,8 @@ public indirect enum JSONValue: Equatable, Sendable {
 /// A JSON object whose keys keep the order they were added in; setting a present key keeps its place.
 public struct JSONObject: Equatable, Sendable, ExpressibleByDictionaryLiteral {
     public private(set) var members: [(key: String, value: JSONValue)] = []
+    /// Each key's place in `members`, so parsing a link's object takes time in proportion to its size.
+    private var places: [String: Int] = [:]
 
     public init() {}
 
@@ -94,16 +96,20 @@ public struct JSONObject: Equatable, Sendable, ExpressibleByDictionaryLiteral {
 
     public var keys: [String] { members.map(\.key) }
 
-    public func has(_ key: String) -> Bool { members.contains { $0.key == key } }
+    public func has(_ key: String) -> Bool { places[key] != nil }
 
     public subscript(key: String) -> JSONValue? {
-        get { members.first { $0.key == key }?.value }
+        get { places[key].map { members[$0].value } }
         set {
-            let index = members.firstIndex { $0.key == key }
-            switch (index, newValue) {
-            case (let index?, let value?): members[index].value = value
-            case (let index?, nil): members.remove(at: index)
-            case (nil, let value?): members.append((key, value))
+            switch (places[key], newValue) {
+            case (let place?, let value?): members[place].value = value
+            case (let place?, nil):
+                members.remove(at: place)
+                places[key] = nil
+                for later in place..<members.count { places[members[later].key] = later }
+            case (nil, let value?):
+                places[key] = members.count
+                members.append((key, value))
             case (nil, nil): break
             }
         }
