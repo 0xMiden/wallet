@@ -575,6 +575,10 @@ const submitOutcomeUnknown = (kind: string) =>
       `submit_proven_transaction: ${kind}`
   );
 
+// `cause` wrapped in `times` Errors, the outermost last.
+const wrapIn = (cause: unknown, times: number): unknown =>
+  times === 0 ? cause : wrapIn(new Error('opaque detail', { cause }), times - 1);
+
 describe('a failure with no named identity', () => {
   it.each<[string, () => unknown, string]>([
     [
@@ -582,6 +586,14 @@ describe('a failure with no named identity', () => {
       () => new Error('opaque detail', { cause: new WebAssembly.RuntimeError('opaque trap') }),
       'wasm_runtime_error'
     ],
+    [
+      'a WASM trap five wrappers deep',
+      () => wrapIn(new WebAssembly.RuntimeError('opaque trap'), 5),
+      'wasm_runtime_error'
+    ],
+    ['a string under a wrapper', () => new Error('opaque detail', { cause: 'opaque cause' }), 'string'],
+    ['a number under a wrapper', () => new Error('opaque detail', { cause: 42 }), 'non_error'],
+    ['an Error whose cause is undefined', () => new Error('opaque detail', { cause: undefined }), 'error'],
     ['a type error', () => new TypeError('opaque detail'), 'type_error'],
     ['a range error', () => new RangeError('opaque detail'), 'range_error'],
     ['a reference error', () => new ReferenceError('opaque detail'), 'reference_error'],
@@ -701,7 +713,8 @@ describe('a failure with no named identity', () => {
 
 it.each([
   ['exact', () => new Error('Client terminated')],
-  ['wrapped', () => new Error('Transaction failed', { cause: new Error('Client terminated') })]
+  ['wrapped', () => new Error('Transaction failed', { cause: new Error('Client terminated') })],
+  ['five-wrappers-deep', () => wrapIn(new Error('Client terminated'), 5)]
 ] as const)('names an %s Client terminated as client_terminated', async (_name, error) => {
   reportTransactionFailure({
     type: 'execute',
