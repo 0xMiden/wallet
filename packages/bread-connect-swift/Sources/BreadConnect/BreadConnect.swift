@@ -56,6 +56,8 @@ public final class BreadConnect {
     private let opener: BreadOpener
     private let now: () -> Date
     private var waiter: Waiter?
+    /// The last request this client settled: a record of it left in storage takes no answer until a relaunch.
+    private var settledID: String?
 
     private struct Waiter {
         let token: UUID
@@ -217,12 +219,13 @@ public final class BreadConnect {
         storage.write(Self.pendingKey, nil)
         guard let waiter else { return }
         self.waiter = nil
+        settledID = waiter.pending.id
         waiter.timeout.cancel()
         waiter.continuation.resume(with: result)
     }
 
     private func storedPending() -> Pending? {
-        guard let pending = storage.read(Self.pendingKey).flatMap(Self.decodePending),
+        guard let pending = storage.read(Self.pendingKey).flatMap(Self.decodePending), pending.id != settledID,
             Double(millis() - pending.sentAt) <= Self.answerWait * 1000
         else { return nil }
         return pending

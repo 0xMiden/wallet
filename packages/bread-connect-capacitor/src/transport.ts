@@ -75,6 +75,8 @@ export class BreadConnectError extends Error {
  */
 export class AppSwitchTransport {
   private waiter: Waiter | null = null;
+  /** The last request this client settled: a record of it left in storage takes no answer until a relaunch. */
+  private settledId: string | null = null;
   private started: Promise<void> | null = null;
   private unsubscribe: (() => void) | null = null;
 
@@ -249,6 +251,7 @@ export class AppSwitchTransport {
     const waiter = this.waiter;
     if (!waiter) return;
     this.waiter = null;
+    this.settledId = pendingId(waiter.pending);
     clearTimeout(waiter.timer);
     if (outcome instanceof BreadConnectError) waiter.reject(outcome);
     else if ('error' in outcome) waiter.reject(new BreadConnectError(outcome.error.code, outcome.error.message));
@@ -257,7 +260,9 @@ export class AppSwitchTransport {
 
   private storedPending(): Pending | null {
     const stored = readJson(this.options.storage, PENDING_KEY);
-    if (!isPending(stored) || this.now() - stored.sentAt > ANSWER_WAIT_MS) return null;
+    if (!isPending(stored) || this.now() - stored.sentAt > ANSWER_WAIT_MS || pendingId(stored) === this.settledId) {
+      return null;
+    }
     return stored;
   }
 

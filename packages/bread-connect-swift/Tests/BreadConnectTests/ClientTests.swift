@@ -216,6 +216,33 @@ final class ClientTests: XCTestCase {
         await assertThrows(.cancelled) { _ = try await connecting.value }
     }
 
+    /// A Keychain whose deletes fail, as SecItemDelete can, so a record it was told to remove stays.
+    private final class UndeletableStorage: BreadConnectStorage {
+        var items: [String: Data] = [:]
+
+        func read(_ key: String) -> Data? { items[key] }
+
+        func write(_ key: String, _ value: Data?) {
+            if let value { items[key] = value }
+        }
+    }
+
+    func testACancelledConnectWhosePendingRecordStaysTakesNoLateAnswer() async throws {
+        let undeletable = UndeletableStorage()
+        let client = try BreadConnect(
+            callback: callback, storage: undeletable, opener: opener, now: { [unowned self] in self.now })
+        let connecting = Task { try await client.connect(appName: "Where Legends Grow") }
+        try await waitFor("the connect to open Bread") { !opener.opened.isEmpty }
+        client.cancelPending()
+        await assertThrows(.cancelled) { _ = try await connecting.value }
+        XCTAssertNotNil(undeletable.items[BreadConnect.pendingKey])
+        let late = try bread.answerConnect(opener.opened[0], answer: ["response": .object(permission)])
+
+        XCTAssertTrue(client.handle(late))
+
+        XCTAssertNil(client.session)
+    }
+
     func testOnlyLinksUnderTheCallbackAreBreads() throws {
         let client = try client()
         XCTAssertFalse(client.handle(URL(string: "https://wherelegendsgrow.com/other#v=1&m=e30")!))

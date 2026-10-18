@@ -374,6 +374,21 @@ class ClientTest {
     }
 
     @Test
+    fun aCancelledConnectWhosePendingRecordCannotBeRemovedTakesNoLateAnswer() = runTest {
+        val failing = FailingStorage().apply { failingRemoval = BreadConnect.PENDING_KEY }
+        val client = BreadConnect(callback, failing, opener) { now }
+        val connecting = async { runCatching { client.connect("Where Legends Grow") } }
+        runCurrent()
+        client.cancelPending()
+        assertEquals(BreadConnectException.Code.Cancelled, (connecting.await().exceptionOrNull() as BreadConnectException).code)
+        assertNotNull(failing.items[BreadConnect.PENDING_KEY])
+
+        assertTrue(client.handle(bread.answerConnect(opener.opened[0], json("""{"response":$permission}"""))))
+
+        assertNull(client.session)
+    }
+
+    @Test
     fun aSessionThatCannotBeForgottenStillSettlesBreadsSessionNotFound() = runTest {
         val failing = FailingStorage()
         val client = connectedWith(failing)

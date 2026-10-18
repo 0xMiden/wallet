@@ -58,6 +58,9 @@ class BreadConnect(
     private val lock = Any()
     private var waiter: Waiter? = null
 
+    /** The last request this client settled: a record of it left in storage takes no answer until a relaunch. */
+    private var settledId: String? = null
+
     private class Waiter(val pending: Pending, val answer: CompletableDeferred<JsonObject>)
 
     private sealed class Pending {
@@ -218,12 +221,13 @@ class BreadConnect(
             runCatching { storage.write(PENDING_KEY, null) }
             val current = waiter ?: return
             waiter = null
+            settledId = current.pending.id
             result.fold({ current.answer.complete(it) }, { current.answer.completeExceptionally(it) })
         }
     }
 
-    private fun storedPending(): Pending? =
-        storage.read(PENDING_KEY)?.let(::decodePending)?.takeIf { clock() - it.sentAt <= ANSWER_WAIT_MS }
+    private fun storedPending(): Pending? = storage.read(PENDING_KEY)?.let(::decodePending)
+        ?.takeIf { clock() - it.sentAt <= ANSWER_WAIT_MS && it.id != settledId }
 
     private fun storedOutcomes(): List<JsonObject> =
         (storage.read(OUTCOMES_KEY)?.let(::parseJson) as? JsonArray)?.mapNotNull { it.obj }.orEmpty()

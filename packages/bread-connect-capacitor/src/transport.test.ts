@@ -358,6 +358,20 @@ describe('AppSwitchTransport', () => {
       h.transport.stop();
     });
 
+    it('takes no late answer to a connect it cancelled while its pending record could not be removed', async () => {
+      const storage = new FailingStorage();
+      storage.failing.add('remove bread-connect:pending');
+      const h = harness({ storage });
+      const answer = h.transport.connect(PERMISSION_REQUEST);
+      await flush();
+      h.transport.cancelPending();
+      await expect(answer).rejects.toMatchObject({ code: 'CANCELLED' });
+      expect(storage.items.has('bread-connect:pending')).toBe(true);
+      deliver(h, fakeBread(approve).open(h.opened[0]!));
+      expect(h.transport.session()).toBeNull();
+      h.transport.stop();
+    });
+
     it("settles Bread's unsealed SESSION_NOT_FOUND when the session cannot be forgotten", async () => {
       const storage = new FailingStorage();
       const h = await connected(fakeBread(approve), storage);
