@@ -311,6 +311,18 @@ public class BreadAuthControllerTest {
         assertEquals(BreadAuthState.Phase.IDLE, BreadAuthController.state.phase());
     }
 
+    @Test public void aTabClosedBeforeTheStopRepliesCancelled() throws Exception {
+        registerChrome();
+        WebViewDialog dialog = open();
+        JavaScriptReplyProxy proxy = post(dialog, PAGE, true, request("a", SIGN_IN));
+        assertNotNull(shadowOf(activity).getNextStartedActivity());
+        BreadAuthController.hostResumed();
+        BreadAuthController.hostResumed();
+        assertReply(proxy, "a", "cancelled", true);
+        post(dialog, PAGE, true, request("b", SIGN_IN));
+        assertNotNull(shadowOf(activity).getNextStartedActivity());
+    }
+
     @Test public void pluginStopAndResumeReachTheSheet() throws Exception {
         registerChrome();
         JavaScriptReplyProxy proxy = post(open(), PAGE, true, request("a", SIGN_IN));

@@ -123,6 +123,15 @@ public class BreadAuthStateTest {
         assertEquals(BreadAuthState.Phase.IDLE, state.phase());
     }
 
+    @Test public void aResumeWithoutAStopCancels() {
+        BreadAuthState state = new BreadAuthState();
+        state.begin();
+        assertEquals(BreadAuthState.Outcome.CANCELLED, state.resumed());
+        assertEquals(BreadAuthState.Phase.IDLE, state.phase());
+        assertEquals(BreadAuthState.Outcome.NONE, state.callback(CALLBACK));
+        assertNull(state.refusal());
+    }
+
     @Test public void callbackBeforeResumeResolvesAndResumeIsQuiet() {
         BreadAuthState state = new BreadAuthState();
         state.begin();
