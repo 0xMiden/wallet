@@ -122,6 +122,14 @@ describe('the mobile legs of the dApp E2E workflow', () => {
     expect(android).toContain("cmdline-tools-version: '15859902'");
     expect(android).toContain('packages: platform-tools');
     expect(android).toContain('ls -l /dev/kvm');
+    for (const command of ['"$ANDROID_HOME/emulator/emulator" -accel-check', 'nproc', 'free -m', 'vmstat 1 3']) {
+      expect(android).toContain(`${command} || echo "`);
+    }
+    for (const name of ['Install SDK packages', 'Collect emulator logs']) {
+      const step = android.match(new RegExp(`      - name: ${name}\\n(?:(?!      - ).*\\n)*`))?.[0];
+      expect(step).toBeDefined();
+      expect(step).not.toContain('continue-on-error:');
+    }
     const emulator = readFileSync(resolve(__dirname, '../android/helpers/emulator-control.ts'), 'utf8');
     expect(emulator).toContain("const BASE_AVD = process.env.E2E_ANDROID_BASE_AVD ?? 'Pixel_API_34';");
   });
