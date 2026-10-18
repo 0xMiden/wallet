@@ -14,10 +14,12 @@ type Entry = {
   rejectedSource?: string;
   placeholders?: Record<string, { content: string }>;
 };
+// An entry written before englishSource existed has none.
+type StoredEntry = Omit<Entry, 'englishSource'> & { englishSource?: string };
 type Generator = {
   findGluedTerms: (translation: string, english: string, language: string) => string[];
   translatedEntry: (key: string, translation: string, english: string, language: string) => Entry;
-  translationEntryToKeep: (english: string, existingItem?: Entry) => Entry | undefined;
+  translationEntryToKeep: (english: string, existingItem?: StoredEntry) => StoredEntry | undefined;
 };
 
 // generateLanguageFiles.ts is a CommonJS script (module.exports), so it has no ES exports to import.
@@ -312,6 +314,20 @@ describe('translationEntryToKeep', () => {
         englishSource: 'The note is public.'
       })
     ).toBeUndefined();
+  });
+
+  it('queues a hand-copied English entry that carries the sentinel but no rejection', () => {
+    expect(
+      translationEntryToKeep('The note is public.', { message: 'The note is public.', englishSource: '(untranslated)' })
+    ).toBeUndefined();
+  });
+
+  it('keeps an entry written before englishSource existed and records its English', () => {
+    expect(translationEntryToKeep('The note is worth $amount$.', { message: 'La note vaut $amount$.' })).toEqual({
+      message: 'La note vaut $amount$.',
+      englishSource: 'The note is worth $amount$.',
+      placeholders: { amount: { content: '$1' } }
+    });
   });
 
   it('copies a current entry and refreshes placeholders without changing the stored entry', () => {
