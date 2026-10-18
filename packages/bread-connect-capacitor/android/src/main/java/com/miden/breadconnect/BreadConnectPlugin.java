@@ -21,8 +21,8 @@ public class BreadConnectPlugin extends Plugin {
 
     static final String BREAD_PACKAGE = "com.miden.wallet";
     static final String REQUEST_PREFIX = "https://bread.miden.xyz/request#";
-    static final String MARKET_URL = "market://details?id=" + BREAD_PACKAGE;
-    static final String PLAY_URL = "https://play.google.com/store/apps/details?id=" + BREAD_PACKAGE;
+    static final String MARKET_URL = "market://details?id=com.miden.wallet";
+    static final String PLAY_URL = "https://play.google.com/store/apps/details?id=com.miden.wallet";
     /** SHA-256 fingerprints of the certificates Bread is signed with, as bread.miden.xyz/.well-known/assetlinks.json lists them. */
     static final String[] BREAD_CERTIFICATES = {
         "36:C8:B0:3B:C5:5D:45:19:64:A7:41:D4:36:C7:B4:7F:CC:AA:D9:A2:44:20:E1:DE:05:7A:8F:64:03:61:6D:29"

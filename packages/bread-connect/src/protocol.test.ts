@@ -1,7 +1,17 @@
 import { gcm } from '@noble/ciphers/aes';
+import { readFileSync } from 'fs';
+import { join } from 'path';
 
 import { fromBase64Url, toBase64Url } from './base64url.js';
-import { BREAD_REQUEST_URL, MAX_MESSAGE_LENGTH } from './constants.js';
+import {
+  APP_STORE_URL,
+  BREAD_ANDROID_CERTIFICATES,
+  BREAD_ANDROID_PACKAGE,
+  BREAD_REQUEST_URL,
+  MAX_MESSAGE_LENGTH,
+  PLAY_STORE_MARKET_URL,
+  PLAY_STORE_URL
+} from './constants.js';
 import {
   additionalData,
   decodeBytes,
@@ -456,5 +466,60 @@ describe('the rules', () => {
     const request = requestOf(vector('sign request').link);
     expect(() => openRequest(request, { ...walletSession, appPublicKey: 'AAAA' })).toThrow(ProtocolMessageError);
     expect(() => openRequest({ ...request, sealed: '!' }, walletSession)).toThrow(ProtocolMessageError);
+  });
+});
+
+describe("the clients' copies of Bread's identity", () => {
+  // The Capacitor plugin's native code and the Swift and Kotlin SDKs cannot import these constants, so each keeps a
+  // copy, and a copy that drifts sends requests elsewhere or refuses the real Bread only on a device.
+  const read = (file: string) => readFileSync(join(__dirname, '../..', file), 'utf8');
+  const CAPACITOR_IOS = 'bread-connect-capacitor/ios/Sources/BreadConnectPlugin/BreadConnectPlugin.swift';
+  const CAPACITOR_ANDROID =
+    'bread-connect-capacitor/android/src/main/java/com/miden/breadconnect/BreadConnectPlugin.java';
+  const SWIFT = 'bread-connect-swift/Sources/BreadConnect/Envelope.swift';
+  const KOTLIN = 'bread-connect-kotlin/src/main/kotlin/com/miden/breadconnect/Envelope.kt';
+
+  it.each([
+    [CAPACITOR_IOS, 'requestPrefix', `${BREAD_REQUEST_URL}#`],
+    [CAPACITOR_IOS, 'appStoreURL', APP_STORE_URL],
+    [CAPACITOR_ANDROID, 'BREAD_PACKAGE', BREAD_ANDROID_PACKAGE],
+    [CAPACITOR_ANDROID, 'REQUEST_PREFIX', `${BREAD_REQUEST_URL}#`],
+    [CAPACITOR_ANDROID, 'MARKET_URL', PLAY_STORE_MARKET_URL],
+    [CAPACITOR_ANDROID, 'PLAY_URL', PLAY_STORE_URL],
+    [SWIFT, 'requestURL', BREAD_REQUEST_URL],
+    [SWIFT, 'appStoreURL', APP_STORE_URL],
+    [KOTLIN, 'REQUEST_URL', BREAD_REQUEST_URL],
+    [KOTLIN, 'BREAD_PACKAGE', BREAD_ANDROID_PACKAGE],
+    [KOTLIN, 'PLAY_STORE_MARKET_URL', PLAY_STORE_MARKET_URL],
+    [KOTLIN, 'PLAY_STORE_URL', PLAY_STORE_URL]
+  ])('%s sets %s as the protocol package does', (file, name, value) => {
+    expect(read(file).match(new RegExp(`\\b${name} = (?:URL\\(string: )?"([^"]*)"`))?.[1]).toBe(value);
+  });
+
+  it('has both Android clients query only the package they hand requests to', () => {
+    for (const manifest of [
+      'bread-connect-capacitor/android/src/main/AndroidManifest.xml',
+      'bread-connect-kotlin/src/main/AndroidManifest.xml'
+    ]) {
+      expect([...read(manifest).matchAll(/<package android:name="([^"]+)"/g)].map(match => match[1])).toEqual([
+        BREAD_ANDROID_PACKAGE
+      ]);
+    }
+  });
+
+  it('has both Android clients accept exactly the certificates Bread is signed with', () => {
+    expect(BREAD_ANDROID_CERTIFICATES).not.toHaveLength(0);
+    for (const fingerprint of BREAD_ANDROID_CERTIFICATES) {
+      expect(fingerprint).toMatch(/^(?:[0-9A-F]{2}:){31}[0-9A-F]{2}$/);
+    }
+    const listed = (file: string, list: RegExp) =>
+      [...(read(file).match(list)?.[1] ?? '').matchAll(/"([^"]+)"/g)].map(match => match[1]);
+    expect(listed(CAPACITOR_ANDROID, /BREAD_CERTIFICATES = \{([^}]*)\}/)).toEqual(BREAD_ANDROID_CERTIFICATES);
+    expect(
+      listed(
+        'bread-connect-kotlin/src/main/kotlin/com/miden/breadconnect/Android.kt',
+        /BREAD_CERTIFICATES = listOf\(([^)]*)\)/
+      )
+    ).toEqual(BREAD_ANDROID_CERTIFICATES);
   });
 });

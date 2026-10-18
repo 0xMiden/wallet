@@ -9,6 +9,13 @@ export const BREAD_ANDROID_PACKAGE = 'com.miden.wallet';
 export const APP_STORE_URL = 'https://apps.apple.com/app/id6789341854';
 export const PLAY_STORE_URL = 'https://play.google.com/store/apps/details?id=com.miden.wallet';
 export const PLAY_STORE_MARKET_URL = 'market://details?id=com.miden.wallet';
+/**
+ * SHA-256 fingerprints of the certificates Bread is signed with, as bread.miden.xyz/.well-known/assetlinks.json lists
+ * them. An Android app hands a request only to the com.miden.wallet package signed with one of them.
+ */
+export const BREAD_ANDROID_CERTIFICATES: readonly string[] = [
+  '36:C8:B0:3B:C5:5D:45:19:64:A7:41:D4:36:C7:B4:7F:CC:AA:D9:A2:44:20:E1:DE:05:7A:8F:64:03:61:6D:29'
+];
 
 /** The longest `m` a sender may send and a receiver reads, in base64url characters. */
 export const MAX_MESSAGE_LENGTH = 524288;
