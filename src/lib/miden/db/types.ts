@@ -1275,12 +1275,17 @@ export interface ISwapExtraInputs {
    * its Cancel returns, since the order note is spent (#1487).
    */
   recoveredTip?: IRecoveredSwapTip;
+  /** The last spent tip a bounded lineage read reached, for the next read to resume from, never for Cancel. */
+  recoveredCheckpoint?: IRecoveredSwapCheckpoint;
 }
 
-export interface IRecoveredSwapTip {
+export interface IRecoveredSwapCheckpoint {
   noteId: string;
   /** The fill round that created it, 1 for the first remainder. */
   depth: number;
+}
+
+export interface IRecoveredSwapTip extends IRecoveredSwapCheckpoint {
   remainingOffered: bigint;
 }
 

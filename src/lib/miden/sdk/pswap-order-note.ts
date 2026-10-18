@@ -18,7 +18,7 @@ import { walletAccountIdToSdk } from './helpers';
 
 // Per node read. The cancel-request build makes two of them inside its offscreen op, whose deadline allows for both.
 const PSWAP_ORDER_NOTE_READ_TIMEOUT_MS = 5_000;
-// The deepest tip one lineage read follows, in fill rounds over the order note; a deeper one is left unresolved.
+// Fill rounds one lineage read follows from its validated start; a spent tip at the bound is a resume checkpoint.
 const MAX_LINEAGE_ROUNDS = 16;
 // Notes under one tag in one spending block whose bodies the read fetches; a busier block is left unresolved.
 const MAX_SUCCESSOR_CANDIDATES = 100;
@@ -27,8 +27,14 @@ const PSWAP_ATTACHMENT_SCHEME = 3;
 
 export type PswapOrderNoteRead = { kind: 'open'; note: Note } | { kind: 'spent' } | { kind: 'absent' };
 
+export interface PswapOrderLineageCheckpoint {
+  noteId: string;
+  depth: number;
+}
+
 export type PswapOrderLineageRead =
   | { kind: 'open'; noteId: string; depth: number; offeredAmount: bigint; requestedAmount: bigint }
+  | { kind: 'unresolved'; checkpoint: PswapOrderLineageCheckpoint }
   | { kind: 'finished' }
   | { kind: 'absent' };
 
@@ -288,8 +294,9 @@ async function successorOf(
   order: PswapFields,
   tip: LineageTip,
   spentAt: number,
-  creatorAccountId: string
-): Promise<LineageTip | undefined> {
+  creatorAccountId: string,
+  startDepth: number
+): Promise<LineageTip | 'unresolved' | undefined> {
   const committed = await read(key, 'PSWAP remainder search', rpc =>
     rpc.syncNotes(spentAt - 1, spentAt, [tip.note.metadata().tag()])
   );
@@ -327,7 +334,7 @@ async function successorOf(
   if (next.length > 1) throw new Error('Two notes claim the same round of this PSWAP order');
   const [successor] = next;
   if (!successor) return undefined;
-  if (successor.depth > MAX_LINEAGE_ROUNDS) throw new Error('PSWAP lineage is deeper than one read follows');
+  if (!Number.isSafeInteger(successor.depth) || successor.depth - startDepth > MAX_LINEAGE_ROUNDS) return 'unresolved';
   if (successor.depth === tip.depth + 1) return successor;
   const fills = await paybackFills(key, order, creatorAccountId, spentAt, tip.depth + 1, successor.depth);
   if (!fills || !fillsReach(tip.fields, successor.fields, fills)) {
@@ -341,12 +348,15 @@ async function successorOf(
  * it: `open` at the current tip (the order note at depth 0, else the remainder the last partial fill left, its depth
  * the serial round over the order note's), with what it still offers and asks for; `finished` only when a spend left
  * no note of the order at all (a full fill or a reclaim); `absent` when the order note is not this account's PSWAP
- * note of that order. A failed or ambiguous read rejects, and the order stays open until a later read settles it.
+ * note of that order. A validated start resumes the walk there, following at most MAX_LINEAGE_ROUNDS more rounds;
+ * `unresolved` carries the last spent tip as a checkpoint. A jump beyond that bound leaves the checkpoint unchanged.
+ * A failed or ambiguous read rejects, and the order stays open until a later read settles it.
  */
 export async function readPswapOrderLineage(
   orderNoteId: string,
   orderId: string,
-  creatorAccountId: string
+  creatorAccountId: string,
+  start?: PswapOrderLineageCheckpoint
 ): Promise<PswapOrderLineageRead> {
   const key = `order:${orderNoteId}`;
   const fetched = await read(key, 'PSWAP order note', rpc => rpc.getNotesById([NoteId.fromHex(orderNoteId)]));
@@ -362,6 +372,36 @@ export async function readPswapOrderLineage(
     fields,
     depth: 0
   };
+  if (start && typeof start.noteId === 'string' && Number.isSafeInteger(start.depth) && start.depth > 0) {
+    let startNoteId: NoteId | undefined;
+    try {
+      startNoteId = NoteId.fromHex(start.noteId);
+    } catch {
+      startNoteId = undefined;
+    }
+    const resumeId = startNoteId;
+    const fetchedStart = resumeId ? await read(key, 'PSWAP lineage start', rpc => rpc.getNotesById([resumeId])) : [];
+    const startEntry = fetchedEntry(fetchedStart, start.noteId);
+    const startNote = startEntry?.note;
+    const startFields = startNote && ownPswapFields(startNote, start.noteId, creatorAccountId);
+    if (
+      startEntry &&
+      startNote &&
+      startFields &&
+      claimsOrder(fields, startFields) &&
+      keepsFixedFields(fields, startFields) &&
+      (startFields.serial[3] ?? 0n) - (fields.serial[3] ?? 0n) === BigInt(start.depth)
+    ) {
+      tip = {
+        note: startNote,
+        noteId: start.noteId,
+        block: startEntry.inclusionProof.location().blockNum(),
+        fields: startFields,
+        depth: start.depth
+      };
+    }
+  }
+  const startDepth = tip.depth;
   for (;;) {
     const spentAt = await spendOf(key, tip.note, tip.block, 'PSWAP lineage nullifier');
     if (spentAt === undefined) {
@@ -373,7 +413,11 @@ export async function readPswapOrderLineage(
         requestedAmount: tip.fields.storage[2] ?? 0n
       };
     }
-    const next = await successorOf(key, fields, tip, spentAt, creatorAccountId);
+    if (tip.depth - startDepth >= MAX_LINEAGE_ROUNDS) {
+      return { kind: 'unresolved', checkpoint: { noteId: tip.noteId, depth: tip.depth } };
+    }
+    const next = await successorOf(key, fields, tip, spentAt, creatorAccountId, startDepth);
+    if (next === 'unresolved') return { kind: 'unresolved', checkpoint: { noteId: tip.noteId, depth: tip.depth } };
     if (!next) return { kind: 'finished' };
     tip = next;
   }

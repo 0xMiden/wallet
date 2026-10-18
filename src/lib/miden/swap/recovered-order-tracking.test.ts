@@ -120,7 +120,7 @@ describe('trackRecoveredSwapOrders', () => {
 
     const results = await trackRecoveredSwapOrders([ref()]);
 
-    expect(mockReadPswapOrderLineage).toHaveBeenCalledWith('note-42', '42', 'account');
+    expect(mockReadPswapOrderLineage).toHaveBeenCalledWith('note-42', '42', 'account', undefined);
     expect(results.get('42')).toEqual({
       kind: 'open',
       tracking: { orderId: '42', state: 'active', currentDepth: 0, remainingOffered: 70n, remainingRequested: 30n }
