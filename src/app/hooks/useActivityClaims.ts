@@ -29,7 +29,7 @@ import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/eff
 import { isExtension } from 'lib/platform';
 
 type FeeSnapshot = {
-  notes: readonly ClaimableNoteWithMetadata[];
+  notesKey: string;
   balances: ReturnType<typeof useAllBalances>['data'];
   nativeFaucetId: string | null;
   baseFee: number | null;
@@ -74,7 +74,7 @@ function sameIds(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean {
 
 function sameFeeSnapshot(a: FeeSnapshot, b: FeeSnapshot): boolean {
   return (
-    a.notes === b.notes &&
+    a.notesKey === b.notesKey &&
     a.balances === b.balances &&
     a.nativeFaucetId === b.nativeFaucetId &&
     a.baseFee === b.baseFee &&
@@ -119,7 +119,14 @@ export function useActivityClaims() {
   // second tap in that window would requeue a row the first one already requeued, and store its refusal.
   const retrying = slotOf(key).retrying;
   const feeSnapshot = useMemo<FeeSnapshot>(
-    () => ({ notes: claim.safeClaimableNotes, balances, nativeFaucetId, baseFee: feeGateBaseFee, balancesLoading }),
+    () => ({
+      // Each view mount rebuilds the derived notes, so their content identifies the live snapshot.
+      notesKey: JSON.stringify(claim.safeClaimableNotes),
+      balances,
+      nativeFaucetId,
+      baseFee: feeGateBaseFee,
+      balancesLoading
+    }),
     [claim.safeClaimableNotes, balances, nativeFaucetId, feeGateBaseFee, balancesLoading]
   );
   slotOf(key).feeSnapshot = feeSnapshot;
