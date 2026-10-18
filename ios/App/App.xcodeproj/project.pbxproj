@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		BCAD00000000000000000001 /* BreadPresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCAD00000000000000000002 /* BreadPresentationTests.swift */; };
+		BCAD00000000000000000003 /* BreadAuthTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCAD00000000000000000004 /* BreadAuthTests.swift */; };
 		E82100000000000000000001 /* UpdateAvailabilityLogic.swift in Sources */ = {isa = PBXBuildFile; fileRef = E82100000000000000000002 /* UpdateAvailabilityLogic.swift */; };
 		E82100000000000000000003 /* UpdateAvailabilityLogicTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E82100000000000000000004 /* UpdateAvailabilityLogicTests.swift */; };
 		E82100000000000000000010 /* UpdateAvailabilityPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = E82100000000000000000011 /* UpdateAvailabilityPlugin.swift */; };
@@ -45,6 +46,7 @@
 
 /* Begin PBXFileReference section */
 		BCAD00000000000000000002 /* BreadPresentationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BreadPresentationTests.swift; sourceTree = "<group>"; };
+		BCAD00000000000000000004 /* BreadAuthTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BreadAuthTests.swift; sourceTree = "<group>"; };
 		E82100000000000000000002 /* UpdateAvailabilityLogic.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateAvailabilityLogic.swift; sourceTree = "<group>"; };
 		E82100000000000000000004 /* UpdateAvailabilityLogicTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateAvailabilityLogicTests.swift; sourceTree = "<group>"; };
 		E82100000000000000000006 /* AppTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -144,6 +146,7 @@
 			children = (
 				E82100000000000000000004 /* UpdateAvailabilityLogicTests.swift */,
 				BCAD00000000000000000002 /* BreadPresentationTests.swift */,
+				BCAD00000000000000000004 /* BreadAuthTests.swift */,
 			);
 			path = AppTests;
 			sourceTree = "<group>";
@@ -276,6 +279,7 @@
 			files = (
 				E82100000000000000000003 /* UpdateAvailabilityLogicTests.swift in Sources */,
 				BCAD00000000000000000001 /* BreadPresentationTests.swift in Sources */,
+				BCAD00000000000000000003 /* BreadAuthTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -474,7 +478,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = App/App.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 16;
+				CURRENT_PROJECT_VERSION = 17;
 				DEVELOPMENT_TEAM = LHU7B7J5WL;
 				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
 				INFOPLIST_FILE = App/Info.plist;
@@ -483,7 +487,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.17.4;
+				MARKETING_VERSION = 1.17.5;
 				OTHER_SWIFT_FLAGS = "$(inherited) \"-D\" \"COCOAPODS\" \"-DDEBUG\"";
 				PRODUCT_BUNDLE_IDENTIFIER = com.miden.bread;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -499,7 +503,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = App/App.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 16;
+				CURRENT_PROJECT_VERSION = 17;
 				DEVELOPMENT_TEAM = LHU7B7J5WL;
 				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
 				INFOPLIST_FILE = App/Info.plist;
@@ -508,7 +512,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.17.4;
+				MARKETING_VERSION = 1.17.5;
 				PRODUCT_BUNDLE_IDENTIFIER = com.miden.bread;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "";

@@ -143,6 +143,13 @@ export interface MidenDAppSignPayload extends MidenDAppPayloadBase {
   kind: SignKind;
 }
 
+// A sign-in with `accountId`'s login key for `domain`, the registrable domain read from `origin`.
+export interface MidenDAppLoginSignPayload extends MidenDAppPayloadBase {
+  type: 'loginSign';
+  domain: string;
+  accountId: string;
+}
+
 export interface MidenDAppAssetsPayload extends MidenDAppPayloadBase {
   type: 'assets';
   sourcePublicKey: string;
@@ -175,6 +182,7 @@ export type MidenDAppPayload =
   | MidenDAppConsumePayload
   | MidenDAppPrivateNotesPayload
   | MidenDAppSignPayload
+  | MidenDAppLoginSignPayload
   | MidenDAppAssetsPayload
   | MidenDAppImportPrivateNotePayload
   | MidenDAppConsumableNotesPayload

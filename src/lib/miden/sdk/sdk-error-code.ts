@@ -195,6 +195,23 @@ export function isKilledPipeline(err: unknown): boolean {
 }
 
 /**
+ * The first kill link in `err`'s cause chain when {@link isKilledPipeline} holds, otherwise `undefined`.
+ * Returns the link itself so callers keep its message without a wrapper, while a terminated client under an
+ * apply-after-submit error keeps its landed verdict.
+ */
+export function pipelineKillIn(err: unknown): unknown {
+  if (!isKilledPipeline(err)) return undefined;
+  for (const link of causeChain(err)) {
+    try {
+      if (isPipelineKillLink(link)) return link;
+    } catch {
+      // An unreadable link must not hide its cause, just as in isKilledPipeline.
+    }
+  }
+  return undefined;
+}
+
+/**
  * A killed pipeline that tore nothing down: every kill in `err`'s cause chain is an
  * offscreen read failed on its own deadline while a critical op held the document
  * (`deadline-no-kill`). Only that read was lost; the realm and its client run on. A

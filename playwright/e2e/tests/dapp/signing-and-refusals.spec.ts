@@ -63,6 +63,8 @@ const OTHER_KEY = `0x${'22'.repeat(32)}`;
 const SUMMARY_AMOUNT = tst(0.5);
 // en.json:1084, rendered by OpaqueSignatureWarning (ConfirmPage.tsx:116-120) for Arbitrary and Blind inputs.
 const OPAQUE_WARNING = 'Opaque signature request';
+// en.json:897 up to the domain it names: the login sheet's title (ConfirmPage.tsx:734), which has no test id.
+const LOGIN_TITLE = 'Sign in to ';
 
 async function connectedView(j: Journey, ctx: CellContext): Promise<ConnectedView> {
   const view = await callDapp(j.dapp, 'session', {}, ctx.deadline);
@@ -187,6 +189,61 @@ function signingCells(j: Journey): Record<string, DappCellImpl> {
         expect(result).toEqual(
           refusal('NotGrantedMidenWalletError', "NOT_GRANTED: signing key is not the connected account's key")
         );
+      }
+    },
+    // A site gets one login key and a verifiable login signature.
+    L1: {
+      budget: 'read',
+      run: async ctx => {
+        const me = await connectedView(j, ctx);
+        const loginKey = async (what: string) =>
+          unwrap(await expectNoPrompt(dapp, () => callDapp(dapp, 'loginKey', {}, ctx.deadline), ctx), what, ctx);
+        const first = await loginKey('requestLoginKey');
+        const again = await loginKey('requestLoginKey again');
+        expect(again).toEqual(first);
+        expect(Buffer.from(first.loginKeyB64, 'base64')).toHaveLength(32);
+        expect(first.loginKeyHex).not.toBe(me.publicKeyHex);
+        // `localhost`, the fixture's host, has no registrable domain, so `loginKeyDomain` gives the whole host.
+        const domain = new URL(dapp.origin).hostname;
+        const namesDomain = async (popup: Page) => {
+          await expect(popup.getByRole('heading', { name: LOGIN_TITLE })).toHaveText(`${LOGIN_TITLE}${domain}`);
+        };
+        const { result } = await answerPrompt(
+          dapp,
+          () => callDapp(dapp, 'signLoginWord', { wordHex: WORD }, ctx.deadline),
+          { kind: 'loginSign', decision: 'approve', origin: dapp.origin, whileOpen: namesDomain },
+          ctx
+        );
+        const signed = unwrap(result, 'signLoginBytes(word)', ctx);
+        // A length compared as a number: toHaveLength would print the signature's bytes on a failure.
+        expect(Buffer.from(signed.signatureB64, 'base64').length).toBe(66);
+        expect(signed.schemeTag).toBe(ECDSA_SCHEME_TAG);
+        const publicKeyB64 = recoverEcdsaPublicKey(signed.signatureB64, signed.messageB64);
+        const verify = (payloadB64: string) =>
+          callDapp(
+            dapp,
+            'verifySignature',
+            { kind: 'word', payloadB64, signatureB64: signed.signatureB64, publicKeyB64 },
+            ctx.deadline
+          );
+        // The key signed the login message the page hashed from its word, as a site checks it, and not the word.
+        expect(await verify(signed.messageB64)).toEqual({ verifies: true, commitmentHex: first.loginKeyHex });
+        expect(await verify(signed.payloadB64)).toEqual({ verifies: false, commitmentHex: first.loginKeyHex });
+      }
+    },
+    // A declined login signature rejects. No adapter wraps these calls, so the provider's own class reaches the dApp.
+    L2: {
+      budget: 'read',
+      run: async ctx => {
+        const { result } = await answerPrompt(
+          dapp,
+          () => callDapp(dapp, 'signLoginWord', { wordHex: WORD }, ctx.deadline),
+          { kind: 'loginSign', decision: 'decline', origin: dapp.origin },
+          ctx
+        );
+        // `ok` first: a decline the wallet signed anyway must fail without printing the signature or the word.
+        expect(result.ok, 'the declined login signature was answered').toBe(false);
+        expect(result).toEqual(refusal('NotGrantedMidenWalletError', 'NOT_GRANTED'));
       }
     }
   };

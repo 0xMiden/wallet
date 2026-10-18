@@ -107,6 +107,7 @@ public class WebViewDialog extends Dialog {
 
     private WebView _webView;
     private BreadPresentationController presentation;
+    private BreadAuthController auth;
     private boolean permanentlyClosed;
     private ManagedHostClose managedClose;
     boolean managedClosing() { return managedClose != null && managedClose.closing(); }
@@ -929,6 +930,8 @@ public class WebViewDialog extends Dialog {
         setupToolbar();
         setWebViewClient();
         if (_options.getBreadPresentation() != null) {
+            auth = new BreadAuthController(this, _webView);
+            auth.install();
             presentation = new BreadPresentationController(this, _webView, _options.getBreadPresentation(), _options.isInitiallyVisible());
             presentation.install();
         }
@@ -2899,6 +2902,7 @@ public class WebViewDialog extends Dialog {
         if (permanentlyClosed) return;
         permanentlyClosed = true;
         String closedUrl = getUrl();
+        if (auth != null) auth.close();
         if (presentation != null) presentation.close();
         if (closedListener != null) closedListener.run();
         if (_options != null && _options.getCallbacks() != null) _options.getCallbacks().closeEvent(closedUrl);

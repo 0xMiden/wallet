@@ -22,11 +22,13 @@ import {
   requestConsume,
   requestDisconnect,
   requestGuardianInfo,
+  requestLoginKey,
   requestPermission,
   requestPrivateNotes,
   requestSend,
   requestTransaction,
   signBytes,
+  signLoginBytes,
   waitForTransaction
 } from 'lib/adapter/client';
 import { MidenDAppCurrentPermission, MidenDAppPermission } from 'lib/adapter/types';
@@ -80,6 +82,20 @@ export class MidenWindowObject extends EventEmitter<MidenWalletEvents> implement
     const messageAsB64 = u8ToB64(data);
 
     const signatureAsB64 = await signBytes(this.address!, publicKeyAsHex, messageAsB64, kind);
+    const signatureAsU8Array = b64ToU8(signatureAsB64);
+    return { signature: signatureAsU8Array };
+  }
+
+  async requestLoginKey(): Promise<{ loginKey: Uint8Array }> {
+    const loginKeyAsB64 = await requestLoginKey(this.address!);
+    const loginKeyAsU8Array = b64ToU8(loginKeyAsB64);
+    return { loginKey: loginKeyAsU8Array };
+  }
+
+  async signLoginBytes(data: Uint8Array, kind: 'word'): Promise<{ signature: Uint8Array }> {
+    const messageAsB64 = u8ToB64(data);
+
+    const signatureAsB64 = await signLoginBytes(this.address!, messageAsB64, kind);
     const signatureAsU8Array = b64ToU8(signatureAsB64);
     return { signature: signatureAsU8Array };
   }
