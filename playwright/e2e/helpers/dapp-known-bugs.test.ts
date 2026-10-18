@@ -1,7 +1,7 @@
 /**
  * @jest-environment node
  */
-import type { FailureEvidence } from './dapp-cells';
+import { judgeCell, type FailureEvidence } from './dapp-cells';
 import { KNOWN_BUGS, registryOf, type KnownBug } from './dapp-known-bugs';
 import pinned from './dapp-pinned.json';
 
@@ -22,11 +22,19 @@ const soft = (cellId: string, evidence: FailureEvidence, text = 'preview-verifie
   text,
   evidence
 });
-// Every phase-1 entry is red on the extension only, on both axes.
+// Phase-1 extension placements stay intact when mobile evidence extends an entry.
 const ON_EXTENSION = [
   { axis: 'offchain', surface: 'extension' },
   { axis: 'guardian', surface: 'extension' }
 ];
+
+const ON_MOBILE = [
+  { axis: 'offchain', surface: 'ios' },
+  { axis: 'guardian', surface: 'ios' },
+  { axis: 'offchain', surface: 'android' },
+  { axis: 'guardian', surface: 'android' }
+];
+const ON_ALL = [...ON_EXTENSION, ...ON_MOBILE];
 
 describe('known-bug registry', () => {
   it('has unique ids, a tracking issue or pull request and at least one cell each', () => {
@@ -38,6 +46,12 @@ describe('known-bug registry', () => {
   });
 
   it('K1 matches a provider that moved while the adapter kept the old address', () => {
+    expect(bug('K1').cells).toEqual({
+      S7: ON_EXTENSION,
+      M1: ON_ALL,
+      'WP7-switch': ON_EXTENSION,
+      'WP7-revoke': ON_EXTENSION
+    });
     expect(bug('K1').signature(hard('M1', { providerAddress: 'b', adapterAddress: 'a', previousAddress: 'a' }))).toBe(
       true
     );
@@ -99,7 +113,7 @@ describe('known-bug registry', () => {
   });
 
   it('K11 matches an undecodable custom request that opened a popup, and not a refusal or a deadline', () => {
-    expect(bug('K11').cells).toEqual({ 'R3-customUndecodable': ON_EXTENSION });
+    expect(bug('K11').cells).toEqual({ 'R3-customUndecodable': ON_ALL });
     expect(bug('K11').signature(hard('R3-customUndecodable', { popupOpened: true }))).toBe(true);
     expect(bug('K11').signature(soft('R3-customUndecodable', { popupOpened: true }))).toBe(false);
     const refused = { name: 'InvalidParamsMidenWalletError', message: 'INVALID_PARAMS: Error: unexpected end of file' };
@@ -143,6 +157,121 @@ describe('known-bug registry', () => {
     expect(bug('K13').signature(soft('MF3', { signerInitError: observed }))).toBe(false);
   });
 
+  it('K14 matches a mobile conformance run failing on exactly the pinned createAccount gap, on the mobile surfaces only', () => {
+    const gap = [...pinned.mobileConformanceGap];
+    expect(bug('K14').tracking).toContain('0xMiden/wallet#1543');
+    expect(bug('K14').cells).toEqual({ S11: ON_MOBILE });
+    expect(bug('K14').signature(hard('S11', { conformanceFailed: gap }))).toBe(true);
+    expect(bug('K14').signature(hard('S11', { conformanceFailed: [...gap, 'requestSend'] }))).toBe(false);
+    expect(bug('K14').signature(hard('S11', { conformanceFailed: [] }))).toBe(false);
+    expect(bug('K14').signature(hard('S11', {}))).toBe(false);
+    expect(bug('K14').signature(soft('S11', { conformanceFailed: gap }))).toBe(false);
+    const registry = registryOf(KNOWN_BUGS);
+    expect(registry.bugsFor('S11', 'extension', 'offchain').map(entry => entry.id)).not.toContain('K14');
+    expect(registry.bugsFor('S11', 'ios', 'guardian').map(entry => entry.id)).toContain('K14');
+    expect(registry.bugsFor('S11', 'android', 'offchain').map(entry => entry.id)).toContain('K14');
+  });
+
+  it("K15 matches the mobile provider's plain Error with the expected text, by cause under the adapter and by name raw", () => {
+    const k15 = bug('K15');
+    const wrapped = (causeName: string, message = 'NOT_GRANTED') => ({
+      name: 'WalletConnectionError',
+      message,
+      causeName,
+      causeMessage: message
+    });
+    expect(k15.tracking).toContain('0xMiden/wallet#1542');
+    expect(k15.cells).toEqual(
+      Object.fromEntries(
+        [
+          'S3',
+          'S6',
+          'R1-send',
+          'R1-custom',
+          'R3-noteType',
+          'R3-customPayload',
+          'R7-connect',
+          'R7-send',
+          'R7-consume',
+          'R7-custom'
+        ].map(id => [id, ON_MOBILE])
+      )
+    );
+    for (const cell of ['S3', 'R1-send', 'R1-custom', 'R7-connect', 'R7-send', 'R7-consume', 'R7-custom']) {
+      expect(k15.signature(soft(cell, { dappError: wrapped('Error') }))).toBe(true);
+      expect(k15.signature(soft(cell, { dappError: wrapped('NotGrantedMidenWalletError') }))).toBe(false);
+    }
+    expect(k15.signature(soft('S6', { dappError: { name: 'Error', message: 'NOT_GRANTED' } }))).toBe(true);
+    expect(
+      k15.signature(
+        soft('R3-noteType', {
+          dappError: { name: 'Error', message: 'INVALID_PARAMS: Error: noteType is required' }
+        })
+      )
+    ).toBe(true);
+    expect(
+      k15.signature(
+        soft('R3-customPayload', {
+          dappError: {
+            name: 'Error',
+            message: 'INVALID_PARAMS: Error: INVALID_PARAMS: Invalid CustomTransaction payload'
+          }
+        })
+      )
+    ).toBe(true);
+    expect(
+      k15.signature(
+        soft('R3-customUndecodable', { dappError: { name: 'Error', message: 'INVALID_PARAMS: Error: eof' } })
+      )
+    ).toBe(true);
+    // Candidate signatures never place an entry: this run's undecodable request prompted instead of refusing.
+    expect(k15.cells['R3-customUndecodable']).toBeUndefined();
+    expect(
+      k15.signature(soft('S6', { dappError: { name: 'NotGrantedMidenWalletError', message: 'NOT_GRANTED' } }))
+    ).toBe(false);
+    expect(k15.signature(soft('S6', {}))).toBe(false);
+    expect(k15.signature(soft('W1', { dappError: { name: 'Error', message: 'NOT_GRANTED' } }))).toBe(false);
+    expect(
+      registryOf(KNOWN_BUGS)
+        .bugsFor('S6', 'extension', 'offchain')
+        .map(entry => entry.id)
+    ).not.toContain('K15');
+  });
+
+  it('K15 leaves a hard failure or a wrong message as fail-new', () => {
+    const dappError = { name: 'Error', message: 'NOT_GRANTED' };
+    expect(bug('K15').signature(hard('S6', { dappError }))).toBe(false);
+    expect(bug('K15').signature(soft('S6', { dappError: { ...dappError, message: 'Request timeout' } }))).toBe(false);
+    const input = {
+      cellId: 'S6',
+      evidence: { dappError },
+      registry: registryOf(KNOWN_BUGS)
+    };
+    const refusal = { check: 'refusal-class', detail: 'plain Error' };
+    expect(judgeCell({ ...input, surface: 'ios', axis: 'guardian', softFailures: [refusal] }).verdict).toBe(
+      'fail-known'
+    );
+    // A later row, session or timing assertion must stay new even when the refusal class is already known.
+    expect(
+      judgeCell({
+        ...input,
+        surface: 'ios',
+        axis: 'guardian',
+        softFailures: [refusal],
+        hardError: new Error('session stayed connected')
+      }).verdict
+    ).toBe('fail-new');
+    expect(
+      judgeCell({
+        ...input,
+        surface: 'android',
+        axis: 'offchain',
+        softFailures: [refusal],
+        evidence: { dappError: { ...dappError, message: 'Request timeout' } }
+      }).verdict
+    ).toBe('fail-new');
+  });
+
   it('explains a cell only on the surface and axis an entry names', () => {
     const entry: KnownBug = {
       id: 'KT',
@@ -177,5 +306,16 @@ describe('known-bug registry', () => {
     expect(unproven([mobile])).toEqual(['KM']);
     expect(unproven([{ ...mobile, mobileEvidenceRun: '18700000001' }])).toEqual([]);
     expect(unproven(KNOWN_BUGS)).toEqual([]);
+    expect(
+      KNOWN_BUGS.filter(entry => entry.mobileEvidenceRun !== undefined).map(entry => [
+        entry.id,
+        entry.mobileEvidenceRun
+      ])
+    ).toEqual([
+      ['K1', '39090853726'],
+      ['K11', '39090853726'],
+      ['K14', '39090853726'],
+      ['K15', '39090853726']
+    ]);
   });
 });

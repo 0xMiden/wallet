@@ -13,6 +13,7 @@
     "notesConsumed": "Notes consumed, ",
     "notesCreated": "Notes created, "
   },
+  "mobileConformanceGap": ["implements createAccount()"],
   "texts": {
     "R5": {
       "offchain": {

@@ -46,12 +46,34 @@ const on = (
 ): Record<string, readonly CellPlacement[]> =>
   Object.fromEntries(ids.map(id => [id, surfaces.flatMap(surface => axes.map(axis => ({ axis, surface })))]));
 
+const MOBILE_CREATE_ACCOUNT_ISSUE = 1543;
+const MOBILE_CREATE_ACCOUNT_RUN = '39090853726';
+// K15: each candidate cell's refusal text as the extension cell expects it (dapp-mobile-cells.ts), which the mobile
+// provider keeps word for word; under the adapter the wallet's class is the cause's, on a raw call the error's own.
+const PLAIN_ERROR_TEXT: Readonly<Record<string, string | RegExp>> = {
+  S3: 'NOT_GRANTED',
+  S6: 'NOT_GRANTED',
+  'R1-send': 'NOT_GRANTED',
+  'R1-custom': 'NOT_GRANTED',
+  'R3-noteType': 'INVALID_PARAMS: Error: noteType is required',
+  'R3-customPayload': 'INVALID_PARAMS: Error: INVALID_PARAMS: Invalid CustomTransaction payload',
+  'R3-customUndecodable': /^INVALID_PARAMS: /,
+  'R7-connect': 'NOT_GRANTED',
+  'R7-send': 'NOT_GRANTED',
+  'R7-consume': 'NOT_GRANTED',
+  'R7-custom': 'NOT_GRANTED'
+};
+const ADAPTER_WRAPPED = new Set(['S3', 'R1-send', 'R1-custom', 'R7-connect', 'R7-send', 'R7-consume', 'R7-custom']);
+const MOBILE_PLAIN_ERROR_ISSUE = 1542;
+const MOBILE_PLAIN_ERROR_RUN = '39090853726';
+
 export const KNOWN_BUGS: readonly KnownBug[] = [
   {
     id: 'K1',
     title: 'MidenWalletAdapter never follows the provider accountChange',
     tracking: '0xMiden/web-sdk#469 (open)',
-    cells: on(['S7', 'M1', 'WP7-switch', 'WP7-revoke'], BOTH),
+    mobileEvidenceRun: '39090853726',
+    cells: { ...on(['S7', 'WP7-switch', 'WP7-revoke'], BOTH), ...on(['M1'], BOTH, ['extension', 'ios', 'android']) },
     signature: ({ cellId, source, evidence }) =>
       source === 'hard' &&
       // With no address from before the switch there is nothing the adapter could have kept.
@@ -76,7 +98,8 @@ export const KNOWN_BUGS: readonly KnownBug[] = [
     id: 'K11',
     title: 'A custom request whose transactionRequest cannot be deserialized opens a popup instead of being refused',
     tracking: '0xMiden/wallet#1418 (open)',
-    cells: on(['R3-customUndecodable'], BOTH),
+    mobileEvidenceRun: '39090853726',
+    cells: on(['R3-customUndecodable'], BOTH, ['extension', 'ios', 'android']),
     // The preview swallows the deserialize failure (src/lib/miden/back/dapp.ts:2920-2931) and the popup says it could
     // not decode the request, so the refusal check sees a confirm page open.
     signature: ({ source, evidence }) => source === 'hard' && evidence.popupOpened === true
@@ -105,6 +128,41 @@ export const KNOWN_BUGS: readonly KnownBug[] = [
       Object.values(pinned.texts.MF3).some(({ error, reason }) =>
         [error, reason].every(part => part.length > 0 && (evidence.signerInitError ?? '').includes(part))
       )
+  },
+  {
+    id: 'K14',
+    title:
+      "The in-app browser's provider has no createAccount, so a dApp gets a TypeError, not the extension's WalletError",
+    tracking: `0xMiden/wallet#${MOBILE_CREATE_ACCOUNT_ISSUE} (open)`,
+    mobileEvidenceRun: MOBILE_CREATE_ACCOUNT_RUN,
+    cells: on(['S11'], BOTH, ['ios', 'android']),
+    // injection-script.ts defines no createAccount; the extension throws a named WalletError (midenWindowObject.ts).
+    // Exactly the pinned conformance gap: one more failing case is a new bug, not this one.
+    signature: ({ source, evidence }) =>
+      source === 'hard' &&
+      JSON.stringify(evidence.conformanceFailed ?? []) === JSON.stringify(pinned.mobileConformanceGap)
+  },
+  {
+    id: 'K15',
+    title: "The in-app browser's provider rejects every refusal as a plain Error, so a dApp cannot tell its class",
+    tracking: `0xMiden/wallet#${MOBILE_PLAIN_ERROR_ISSUE} (open)`,
+    mobileEvidenceRun: MOBILE_PLAIN_ERROR_RUN,
+    // R3-customUndecodable opened a sheet and returned NOT_GRANTED; that is K11, not the candidate's INVALID_PARAMS.
+    cells: on(
+      Object.keys(PLAIN_ERROR_TEXT).filter(id => id !== 'R3-customUndecodable'),
+      BOTH,
+      ['ios', 'android']
+    ),
+    // injection-script.ts:128 rejects with `new Error(text)`: the text survives, the class the extension maps it to
+    // (src/lib/adapter/client.ts createError) does not.
+    signature: ({ cellId, source, evidence }) => {
+      const error = evidence.dappError;
+      const text = PLAIN_ERROR_TEXT[cellId];
+      // C-P15 keeps class parity soft so a later row, session or decline-timing failure stays unexplained.
+      if (source !== 'soft' || error === undefined || text === undefined) return false;
+      const said = typeof text === 'string' ? error.message === text : text.test(error.message);
+      return said && (ADAPTER_WRAPPED.has(cellId) ? error.causeName === 'Error' : error.name === 'Error');
+    }
   }
 ];
 
