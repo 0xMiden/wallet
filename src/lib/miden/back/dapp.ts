@@ -57,6 +57,7 @@ import {
   MidenDAppWaitForTxRequest,
   MidenDAppWaitForTxResponse
 } from 'lib/adapter/types';
+import { endOriginSessions } from 'lib/bread-connect/revoke';
 import {
   dappConfirmationStore,
   type DAppConfirmationRequest,
@@ -2785,6 +2786,8 @@ export async function removeDApp(origin: string, accountId: string) {
   const { [origin]: permissionsToRemove, ...restDApps } = await getAllDApps();
   const newPermissions = permissionsToRemove?.filter(session => session.accountId !== accountId) ?? [];
   await setDApps({ ...restDApps, [origin]: newPermissions });
+  // A native app's Bread Connect session lives under its origin; left in place, the origin's next grant revives it.
+  await endOriginSessions(origin);
   return restDApps;
 }
 

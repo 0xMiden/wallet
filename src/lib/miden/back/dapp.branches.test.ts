@@ -1159,6 +1159,38 @@ describe('removeDApp', () => {
     const result = await dapp.removeDApp('https://nonexistent.xyz', 'miden-account-1');
     expect(result).toBeDefined();
   });
+
+  it('ends every Bread Connect session kept for the origin, so a later grant cannot bring one back', async () => {
+    const other = { session: 'session-2', origin: 'https://other.xyz' };
+    storageState.bread_connect_sessions = {
+      'session-1': { session: 'session-1', origin: 'https://miden.xyz' },
+      'session-2': other,
+      broken: 7,
+      empty: null
+    };
+
+    await dapp.removeDApp('https://miden.xyz', 'miden-account-1');
+    expect(storageState.bread_connect_sessions).toEqual({ 'session-2': other, broken: 7, empty: null });
+
+    await dapp.removeDApp('https://nonexistent.xyz', 'miden-account-1');
+    expect(storageState.bread_connect_sessions).toEqual({ 'session-2': other, broken: 7, empty: null });
+  });
+
+  it.each([
+    ['absent', undefined],
+    ['null', null],
+    ['a string', 'sessions']
+  ])(
+    'removes the permission when the Bread Connect session store is %s, and leaves the store as it was',
+    async (_n, value) => {
+      storageState.bread_connect_sessions = value;
+
+      await dapp.removeDApp('https://miden.xyz', 'miden-account-1');
+
+      expect((await dapp.getAllDApps())['https://miden.xyz']).toEqual([]);
+      expect(storageState.bread_connect_sessions).toBe(value);
+    }
+  );
 });
 
 // ── requestSign — input validation branches ─────────────────────

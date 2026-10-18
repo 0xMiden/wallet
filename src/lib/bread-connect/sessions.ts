@@ -8,7 +8,7 @@ import {
 import { getAllDApps } from 'lib/miden/back/dapp';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
 
-const STORAGE_KEY = 'bread_connect_sessions';
+import { BREAD_CONNECT_SESSIONS_KEY as STORAGE_KEY } from './revoke';
 // A replayed link older than this fails the age check, so its id need not be remembered any longer.
 const ANSWERED_MS = REQUEST_MAX_AGE_MS + REQUEST_MAX_CLOCK_AHEAD_MS;
 
