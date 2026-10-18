@@ -1,7 +1,8 @@
 /* eslint-disable import/first */
-import { BREAD_REQUEST_URL } from '@miden-sdk/bread-connect';
 import fs from 'fs';
 import path from 'path';
+
+import { BREAD_REQUEST_URL } from '@miden-sdk/bread-connect';
 
 jest.mock('@capacitor/app', () => ({ App: {} }));
 
