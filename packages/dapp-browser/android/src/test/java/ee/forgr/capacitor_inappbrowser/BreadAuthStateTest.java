@@ -37,7 +37,7 @@ public class BreadAuthStateTest {
             "https://other.example\\@game.example/auth", "https://game.example/a b",
             "https://g\u00e4me.example/auth", url(4097), "https://game.example/auth#a#b",
             "https://game.example/%zz", "https://game.example/a%4", "https://game.example/auth?x=[1]",
-            "https://game.example/[x]", "https://game.example/auth#[x]",
+            "https://game.example/[x]", "https://game.example/auth#[x]", "https://game.example/a]", "https://game.example/a%",
         };
         for (Object url : invalid) assertEquals(String.valueOf(url), BreadAuthState.INVALID_URL, rejection(url));
         assertEquals(4096, url(4096).length());
