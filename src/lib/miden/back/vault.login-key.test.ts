@@ -536,21 +536,24 @@ describe('Vault login keys', () => {
     ).rejects.toThrow(LOGIN_KEY_UNAVAILABLE);
   });
 
-  it('derives a single-key import from that key, the same after reimporting', async () => {
+  it('refuses a single-key import, never reading its key as a root', async () => {
+    clearStore();
+    const fresh = await seedVault([]);
+    const [imported] = await fresh.importAccountFromPrivateKey(IMPORTED_SECRET_KEY);
+    // The commitment `connect` returned for the import names the key the wallet stores for it.
     const importedCommitment = secretKeyCommitment(IMPORTED_SECRET_KEY);
-    const loginKeyInFreshVault = async () => {
-      clearStore();
-      const fresh = await seedVault([]);
-      const [imported] = await fresh.importAccountFromPrivateKey(IMPORTED_SECRET_KEY);
-      return fresh.loginKeyCommitment(imported!.publicKey, importedCommitment, DOMAIN);
-    };
+    const importedKey = await wrapped(keys.accAuthSecretKey(bytesToHex(b64ToU8(importedCommitment))));
+    expect(Object.keys(memoryStore)).toContain(importedKey);
+    mockStorageReads.length = 0;
 
-    const loginKey = await loginKeyInFreshVault();
-    expect(await loginKeyInFreshVault()).toBe(loginKey);
-    expect(loginKey).toBe(expectedCommitment(hexToBytes(IMPORTED_SECRET_KEY), 'auth'));
-    // Its scalar is the OnChain account 1 EVM key, which as an EVM root gives another login key.
-    expect(loginKey).not.toBe(expectedCommitment(hexToBytes(EVM_KEY_1), 'evm'));
-    expect(loginKey).not.toBe(expectedCommitment(guardianEvmKey(0), 'evm'));
+    await expect(fresh.loginKeyCommitment(imported!.publicKey, importedCommitment, DOMAIN)).rejects.toThrow(
+      LOGIN_KEY_UNAVAILABLE
+    );
+    await expect(
+      fresh.signWithLoginKey(imported!.publicKey, importedCommitment, DOMAIN, u8ToB64(new Uint8Array(32).fill(7)))
+    ).rejects.toThrow(LOGIN_KEY_UNAVAILABLE);
+    expect(mockStorageReads).not.toContain(importedKey);
+    expect(deriveLoginKeyScalar).not.toHaveBeenCalled();
   });
 
   it("never matches one of the account's signing keys", async () => {
