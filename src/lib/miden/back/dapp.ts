@@ -1357,25 +1357,10 @@ export async function requestGuardianInfo(
   }
   await assertRequestAccountIsCurrent(dApp.accountId);
 
-  const prepare = () => getGuardianInfoData(dApp.accountId);
-  const prepared = await runPrepare(prepare);
-  if (!prepared.locked) {
-    return { type: MidenDAppMessageType.GuardianInfoResponse, guardianInfo: prepared.value };
-  }
-  if (!isExtension()) {
-    const guardianInfo = await prepareAfterUnlock(origin, req.sourcePublicKey, dApp.accountId, prepare);
-    return { type: MidenDAppMessageType.GuardianInfoResponse, guardianInfo };
-  }
-  return new Promise<MidenDAppGuardianInfoResponse>((resolve, reject) => {
-    requestUnlockOnly(
-      origin,
-      dApp,
-      req.sourcePublicKey,
-      prepare,
-      guardianInfo => resolve({ type: MidenDAppMessageType.GuardianInfoResponse, guardianInfo }),
-      reject
-    ).catch(reject);
-  });
+  const guardianInfo = await prepareWithoutPrompt(origin, dApp, req.sourcePublicKey, () =>
+    getGuardianInfoData(dApp.accountId)
+  );
+  return { type: MidenDAppMessageType.GuardianInfoResponse, guardianInfo };
 }
 
 const NOT_GUARDIAN_INFO: GuardianInfo = {
@@ -1415,24 +1400,8 @@ export async function requestLoginKey(
   const prepare = sessionLoginKey(dApp, domain);
   // Mapped at this boundary, not in `prepare`: `runPrepare` must still see a lock as one.
   try {
-    const prepared = await runPrepare(prepare);
-    if (!prepared.locked) {
-      return { type: MidenDAppMessageType.LoginKeyResponse, loginKey: prepared.value };
-    }
-    if (!isExtension()) {
-      const loginKey = await prepareAfterUnlock(origin, req.sourceAccountId, dApp.accountId, prepare);
-      return { type: MidenDAppMessageType.LoginKeyResponse, loginKey };
-    }
-    return await new Promise<MidenDAppLoginKeyResponse>((resolve, reject) => {
-      requestUnlockOnly(
-        origin,
-        dApp,
-        req.sourceAccountId,
-        prepare,
-        loginKey => resolve({ type: MidenDAppMessageType.LoginKeyResponse, loginKey }),
-        reject
-      ).catch(reject);
-    });
+    const loginKey = await prepareWithoutPrompt(origin, dApp, req.sourceAccountId, prepare);
+    return { type: MidenDAppMessageType.LoginKeyResponse, loginKey };
   } catch (error) {
     throw loginKeyFailure(error);
   }
@@ -2117,6 +2086,24 @@ async function requestUnlockOnly<T>(
       }
       return { type: MidenMessageType.DAppUnlockConfirmationResponse };
     }
+  });
+}
+
+/**
+ * `prepare`'s value for a request that never prompts: read at once while unlocked; locked, read after the app's own
+ * unlock on mobile and desktop, or after the extension's popup that only unlocks.
+ */
+async function prepareWithoutPrompt<T>(
+  origin: string,
+  dApp: MidenDAppSession,
+  sourcePublicKey: string,
+  prepare: () => Promise<T>
+): Promise<T> {
+  const prepared = await runPrepare(prepare);
+  if (!prepared.locked) return prepared.value;
+  if (!isExtension()) return prepareAfterUnlock(origin, sourcePublicKey, dApp.accountId, prepare);
+  return new Promise<T>((resolve, reject) => {
+    requestUnlockOnly(origin, dApp, sourcePublicKey, prepare, resolve, reject).catch(reject);
   });
 }
 
