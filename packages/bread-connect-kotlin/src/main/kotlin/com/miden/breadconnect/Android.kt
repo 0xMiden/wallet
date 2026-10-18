@@ -69,7 +69,10 @@ class PackageOpener(
     companion object {
         /** SHA-256 fingerprints of the certificates Bread is signed with, as bread.miden.xyz/.well-known/assetlinks.json lists them. */
         val BREAD_CERTIFICATES = listOf(
+            // The upload key, which signs release builds; only a build installed directly still carries it.
             "36:C8:B0:3B:C5:5D:45:19:64:A7:41:D4:36:C7:B4:7F:CC:AA:D9:A2:44:20:E1:DE:05:7A:8F:64:03:61:6D:29",
+            // Google Play's app signing key, with which Google Play re-signs every install it serves.
+            "8B:C9:95:6B:54:07:27:1C:3B:97:A2:38:29:5D:A4:72:9E:1A:85:BB:39:1F:D7:D2:8C:74:5E:74:D2:12:B8:2D",
         )
 
         /** The 32 bytes of a SHA-256 fingerprint written as hex, with or without colons; null when it is not one. */
