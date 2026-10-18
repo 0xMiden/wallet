@@ -148,6 +148,29 @@ final class ClientTests: XCTestCase {
         await assertThrows(.cancelled) { _ = try await second.value }
     }
 
+    func testTwoRequestsInOneTurnOpenBreadOnlyForTheNewer() async throws {
+        let client = try client()
+        let first = Task { try await client.connect(appName: "Where Legends Grow") }
+        let second = Task { try await client.connect(appName: "Where Legends Grow") }
+        await assertThrows(.superseded) { _ = try await first.value }
+        try await waitFor("the newer connect to open Bread") { !opener.opened.isEmpty }
+        for _ in 0..<10 { await Task.yield() }
+
+        XCTAssertEqual(opener.opened.count, 1)
+        client.cancelPending()
+        await assertThrows(.cancelled) { _ = try await second.value }
+    }
+
+    func testARequestCancelledBeforeItsOpenerRunsNeverOpensBread() async throws {
+        let client = try client()
+        let cancelled = Task { try await client.connect(appName: "Where Legends Grow") }
+        Task { client.cancelPending() }
+        await assertThrows(.cancelled) { _ = try await cancelled.value }
+        for _ in 0..<10 { await Task.yield() }
+
+        XCTAssertEqual(opener.opened.count, 0)
+    }
+
     func testALostSessionIsForgotten() async throws {
         let client = try await connected()
         answer(with: client) { [bread] link in

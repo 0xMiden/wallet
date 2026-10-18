@@ -184,6 +184,32 @@ class ClientTest {
     }
 
     @Test
+    fun twoRequestsInOneTurnOpenBreadOnlyForTheNewer() = runTest {
+        val client = client()
+
+        val first = async { runCatching { client.connect("Where Legends Grow") } }
+        val second = async { runCatching { client.connect("Where Legends Grow") } }
+        runCurrent()
+
+        assertEquals(BreadConnectException.Code.Superseded, (first.await().exceptionOrNull() as BreadConnectException).code)
+        assertEquals(1, opener.opened.size)
+        client.cancelPending()
+        assertEquals(BreadConnectException.Code.Cancelled, (second.await().exceptionOrNull() as BreadConnectException).code)
+    }
+
+    @Test
+    fun aRequestCancelledBeforeItsOpenerRunsNeverOpensBread() = runTest {
+        val client = client()
+
+        val cancelled = async { runCatching { client.connect("Where Legends Grow") } }
+        launch { client.cancelPending() }
+        runCurrent()
+
+        assertEquals(BreadConnectException.Code.Cancelled, (cancelled.await().exceptionOrNull() as BreadConnectException).code)
+        assertEquals(0, opener.opened.size)
+    }
+
+    @Test
     fun aLostSessionIsForgotten() = runTest {
         val client = connected()
         client.answering { link ->
