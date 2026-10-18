@@ -69,6 +69,16 @@ describe('login key derivation', () => {
     expect(loginKeyDomain('http://app.localhost:5198')).toBe('app.localhost');
   });
 
+  it('drops a trailing dot from the host', () => {
+    expect(loginKeyDomain('https://github.io.')).toBe('github.io');
+    expect(loginKeyDomain('https://intranet.')).toBe('intranet');
+    expect(loginKeyDomain('http://localhost.:5198')).toBe('localhost');
+    expect(loginKeyDomain('http://app.localhost.:5198')).toBe('app.localhost');
+    expect(loginKeyDomain('https://alpha.github.io.')).toBe('alpha.github.io');
+    expect(loginKeyDomain('https://www.example.org.')).toBe('example.org');
+    expect(() => loginKeyDomain('https://./')).toThrow('INVALID_PARAMS: not an origin');
+  });
+
   it('retries past a value outside the curve order', () => {
     const expand = jest
       .fn<Uint8Array, [Uint8Array]>()
