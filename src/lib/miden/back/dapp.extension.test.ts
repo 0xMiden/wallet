@@ -1140,6 +1140,20 @@ describe('Full confirmation cycles in extension mode', () => {
 
     const CARRIED_NOTES = ['bm90ZS0x', 'bm90ZS0y'];
     const CARRIED_NOTE_IDS = ['note-1', 'note-2'];
+    // The SDK mock decodes no note, so each carried note decodes to the id its bytes spell.
+    const sdkNote: Record<string, unknown> = require('@miden-sdk/miden-sdk/lazy').Note;
+    let previousDeserialize: unknown;
+    beforeEach(() => {
+      previousDeserialize = sdkNote.deserialize;
+      sdkNote.deserialize = (bytes: Uint8Array) => ({
+        id: () => ({ toString: () => Array.from(bytes, byte => String.fromCharCode(byte)).join('') }),
+        metadata: () => undefined,
+        assets: () => ({ fungibleAssets: () => [] })
+      });
+    });
+    afterEach(() => {
+      sdkNote.deserialize = previousDeserialize;
+    });
     const runCustomFailure = async (error: Error, message: string, queuedRow: boolean, check: () => void) => {
       jest.mocked(requestCustomTransaction).mockRejectedValueOnce(error);
       if (queuedRow) jest.mocked(startTransactionProcessing).mockResolvedValueOnce(undefined);
