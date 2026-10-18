@@ -1,5 +1,6 @@
 ext {
     junitVersion = project.hasProperty('junitVersion') ? rootProject.ext.junitVersion : '4.13.2'
+    androidxAppCompatVersion = project.hasProperty('androidxAppCompatVersion') ? rootProject.ext.androidxAppCompatVersion : '1.7.1'
 }
 
 buildscript {
@@ -41,5 +42,7 @@ repositories {
 
 dependencies {
     implementation project(':capacitor-android')
+    // Plugin.getActivity() returns an AppCompatActivity, which capacitor-android does not expose to its dependents.
+    implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
     testImplementation "junit:junit:$junitVersion"
 }
