@@ -18,6 +18,17 @@ final class EncodingTests: XCTestCase {
         XCTAssertEqual(JSONValue.parse("{\"a\":1,\"b\":2,\"a\":3}")?.serialized(), "{\"a\":3,\"b\":2}")
     }
 
+    func testAnObjectWithMoreMembersThanALinkCarriesParsesQuickly() throws {
+        let text = "{" + (0..<60_000).map { "\"k\($0)\":\($0)" }.joined(separator: ",") + "}"
+        let started = Date()
+
+        let parsed = try XCTUnwrap(JSONObject.parse(text))
+
+        XCTAssertLessThan(Date().timeIntervalSince(started), 5)
+        XCTAssertEqual(parsed.members.count, 60_000)
+        XCTAssertEqual(parsed["k59999"]?.serialized(), "59999")
+    }
+
     func testEscapesAndSurrogatesParse() {
         XCTAssertEqual(JSONValue.parse("\"\\ud83d\\ude00 \\u00e9\\/\\n\""), .string("😀 é/\n"))
         XCTAssertEqual(JSONValue.parse("\"\\ud800\""), .string("\u{FFFD}"))
