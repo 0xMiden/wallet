@@ -24,6 +24,7 @@ const key = `device=${encodeURIComponent(params.get('device') ?? '')}&dapp=${dap
 const sleep = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms));
 // The wait after a failed poll. The server's poll gap is built on it, so command-loop.test.ts pins it to PAGE_RETRY_MS.
 const RETRY_MS = 1_000;
+const POST_ATTEMPT_MS = 5_000;
 
 function describeError(error: unknown): { name: string; message: string } {
   const read = (prop: string): unknown =>
@@ -36,21 +37,45 @@ function describeError(error: unknown): { name: string; message: string } {
   };
 }
 
-function post(pathname: string, body: string, keepalive = false): Promise<boolean> {
-  return fetch(`${pathname}?${key}`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body,
-    cache: 'no-store',
-    keepalive
-  }).then(
-    response => response.status >= 200 && response.status < 300,
-    () => false
-  );
+async function post(pathname: string, body: string, keepalive = false): Promise<boolean> {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<boolean>(resolve => {
+    timer = setTimeout(() => {
+      controller.abort();
+      resolve(false);
+    }, POST_ATTEMPT_MS);
+  });
+  try {
+    const request = fetch(`${pathname}?${key}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body,
+      cache: 'no-store',
+      keepalive,
+      signal: controller.signal
+    }).then(
+      response => response.status >= 200 && response.status < 300,
+      () => false
+    );
+    return await Promise.race([request, timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function postWithRetry(pathname: string, body: string): Promise<boolean> {
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    if (await post(pathname, body)) return true;
+    if (attempt < 3) await sleep(RETRY_MS);
+  }
+  return false;
 }
 
 function report(kind: string, data: Record<string, unknown> = {}, keepalive = false): void {
-  void post('/event', JSON.stringify({ kind, at: Date.now(), visibility: document.visibilityState, data }), keepalive);
+  const body = JSON.stringify({ kind, at: Date.now(), visibility: document.visibilityState, data });
+  if (kind === 'result-undelivered') void postWithRetry('/event', body);
+  else void post('/event', body, keepalive);
 }
 
 function testDapp(): { ready: boolean; call: ((command: string, input: unknown) => Promise<unknown>) | undefined } {
@@ -116,11 +141,7 @@ async function dispatch(command: PageCommand): Promise<void> {
     (value): Answer => ({ ok: true, value }),
     (error: unknown): Answer => ({ ok: false, error: describeError(error) })
   );
-  const body = answerBody(command, answer);
-  for (let attempt = 1; attempt <= 3; attempt += 1) {
-    if (await post('/result', body)) return;
-    if (attempt < 3) await sleep(RETRY_MS);
-  }
+  if (await postWithRetry('/result', answerBody(command, answer))) return;
   report('result-undelivered', { id: command.id, command: command.command, attempts: 3 });
 }
 

@@ -22,13 +22,18 @@ let pollAnswers: Array<() => Promise<PollAnswer>> = [];
 let idlePoll: () => Promise<PollAnswer>;
 let resultReplies: Array<() => Promise<number>> = [];
 let resultAttempts = 0;
+let resultSignals: Array<AbortSignal | undefined> = [];
+let undeliveredReplies: Array<() => Promise<number>> = [];
+let undeliveredSignals: Array<AbortSignal | undefined> = [];
+const POST_ATTEMPT_MS = 5_000;
+const neverPosted = (): Promise<number> => new Promise(() => undefined);
 
 const held = (): Promise<PollAnswer> => new Promise(resolve => setTimeout(() => resolve({ status: 204 }), 1_000));
 
 function installFetch(): void {
   const fakeFetch = (
     input: unknown,
-    init?: { body?: unknown }
+    init?: { body?: unknown; signal?: AbortSignal }
   ): Promise<{ status: number; json(): Promise<unknown> }> => {
     const url = String(input);
     if (url.startsWith('/command?')) {
@@ -38,6 +43,7 @@ function installFetch(): void {
     }
     if (url.startsWith('/result?')) {
       resultAttempts += 1;
+      resultSignals.push(init?.signal);
       const reply = resultReplies.shift() ?? (() => Promise.resolve(204));
       return reply().then(status => {
         if (status >= 200 && status < 300)
@@ -45,7 +51,16 @@ function installFetch(): void {
         return { status, json: () => Promise.resolve(null) };
       });
     }
-    posted.push({ url, body: typeof init?.body === 'string' ? JSON.parse(init.body) : null });
+    const body: unknown = typeof init?.body === 'string' ? JSON.parse(init.body) : null;
+    if (url.startsWith('/event?') && kindOf(body) === 'result-undelivered') {
+      undeliveredSignals.push(init?.signal);
+      const reply = undeliveredReplies.shift() ?? (() => Promise.resolve(204));
+      return reply().then(status => {
+        if (status >= 200 && status < 300) posted.push({ url, body });
+        return { status, json: () => Promise.resolve(null) };
+      });
+    }
+    posted.push({ url, body });
     return Promise.resolve({ status: 204, json: () => Promise.resolve(null) });
   };
   Object.defineProperty(window, 'fetch', { value: fakeFetch, configurable: true, writable: true });
@@ -108,6 +123,9 @@ beforeEach(() => {
   pollAnswers = [];
   resultReplies = [];
   resultAttempts = 0;
+  resultSignals = [];
+  undeliveredReplies = [];
+  undeliveredSignals = [];
   idlePoll = held;
   added = [];
   trackListeners();
@@ -241,4 +259,40 @@ test('reports the command id after three undelivered result attempts', async () 
   expect(eventsOf('result-undelivered')).toEqual([
     expect.objectContaining({ data: { id: 'lost-result', command: 'session', attempts: 3 } })
   ]);
+});
+
+test('abandons a never-settling first result POST after the bound and delivers the retry', async () => {
+  resultReplies = [neverPosted];
+  pollAnswers = [command('hung-result', 'session')];
+  startLoop();
+  await jest.advanceTimersByTimeAsync(POST_ATTEMPT_MS + PAGE_RETRY_MS + 100);
+  expect(resultsPosted()).toEqual([{ id: 'hung-result', ok: true, value: { ok: true } }]);
+  expect(resultAttempts).toBe(2);
+  expect(resultSignals.map(signal => signal?.aborted)).toEqual([true, false]);
+  expect(eventsOf('result-undelivered')).toEqual([]);
+});
+
+test('reports result-undelivered after three never-settling result POST attempts', async () => {
+  resultReplies = Array.from({ length: 3 }, () => neverPosted);
+  pollAnswers = [command('hung-results', 'session')];
+  startLoop();
+  await jest.advanceTimersByTimeAsync(POST_ATTEMPT_MS * 3 + PAGE_RETRY_MS * 2 + 100);
+  expect(resultAttempts).toBe(3);
+  expect(resultSignals.map(signal => signal?.aborted)).toEqual([true, true, true]);
+  expect(resultsPosted()).toEqual([]);
+  expect(eventsOf('result-undelivered')).toEqual([
+    expect.objectContaining({ data: { id: 'hung-results', command: 'session', attempts: 3 } })
+  ]);
+});
+
+test('bounds and retries a never-settling result-undelivered event POST', async () => {
+  resultReplies = Array.from({ length: 3 }, () => () => Promise.resolve(500));
+  undeliveredReplies = [neverPosted];
+  pollAnswers = [command('hung-report', 'session')];
+  startLoop();
+  await jest.advanceTimersByTimeAsync(POST_ATTEMPT_MS + PAGE_RETRY_MS * 3 + 100);
+  expect(eventsOf('result-undelivered')).toEqual([
+    expect.objectContaining({ data: { id: 'hung-report', command: 'session', attempts: 3 } })
+  ]);
+  expect(undeliveredSignals.map(signal => signal?.aborted)).toEqual([true, false]);
 });
