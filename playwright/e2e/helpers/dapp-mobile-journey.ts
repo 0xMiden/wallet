@@ -275,14 +275,47 @@ async function fundOne(
   }
 }
 
-function guardNodeCalls(value: unknown, rpcUrl: string): void {
-  const log = toFetchLog(value);
+/** Waits for in-flight node calls before judging setup, within both the pending-call and page setup budgets. */
+export async function guardNodeCalls(
+  channel: DappChannel,
+  rpcUrl: string,
+  setupDeadline: Deadline,
+  options: { pendingWaitMs?: number; now?: () => number } = {}
+): Promise<void> {
+  const deadline = deadlineIn(
+    Math.min(30_000, options.pendingWaitMs ?? 30_000, setupDeadline.remainingMs()),
+    'setup node calls',
+    options.now ?? Date.now
+  );
+  const read = async (): Promise<FetchLogEntry[]> =>
+    toFetchLog(
+      await beforeDeadline(deadline, 'read the page fetch log', () =>
+        channel.send('__fetchLog', {}, deadline.remainingMs())
+      )
+    );
   const origin = new URL(rpcUrl).origin;
-  const calls = log.filter(call => call.url.startsWith(`${origin}/`));
+  const nodeCalls = (log: FetchLogEntry[]): FetchLogEntry[] => log.filter(call => call.url.startsWith(`${origin}/`));
+  let log = await read();
+  let calls = nodeCalls(log);
+  while (calls.some(call => call.completedAt === null) && deadline.remainingMs() > 0) {
+    try {
+      await deadline.race(
+        sleep(Math.max(1, Math.min(250, deadline.remainingMs() / 2))),
+        'wait for in-flight node calls'
+      );
+      if (deadline.remainingMs() <= 0) break;
+      log = await read();
+      calls = nodeCalls(log);
+    } catch (error) {
+      if (!(error instanceof CellDeadlineExceeded)) throw error;
+      break;
+    }
+  }
   const failed = (call: FetchLogEntry): boolean => call.error !== null || (call.status !== null && call.status >= 400);
   const nodeFailed = (call: FetchLogEntry): boolean =>
     !(call.error !== null && /cors|cross[- ]origin|preflight|malformed|invalid (?:request|url)/i.test(call.error)) &&
-    (call.error !== null ||
+    (call.completedAt === null ||
+      call.error !== null ||
       (call.status !== null && (call.status >= 500 || call.status === 408 || call.status === 429)));
   const problems = nodeCallProblems({
     ...summarizeNodeCalls(log, rpcUrl),
@@ -300,6 +333,7 @@ function guardNodeCalls(value: unknown, rpcUrl: string): void {
           call.completedAt !== null &&
           next.completedAt !== null &&
           next.completedAt > call.completedAt &&
+          next.at > call.completedAt &&
           next.url === call.url &&
           next.method === call.method &&
           next.error === null &&
@@ -310,7 +344,13 @@ function guardNodeCalls(value: unknown, rpcUrl: string): void {
   );
   if (unrecovered.length > 0) {
     throw new ChainUnavailable(
-      `the page's node calls failed: ${unrecovered.map(call => `${call.url} answered ${String(call.status)}`).join('; ')}`
+      `the page's node calls failed: ${unrecovered
+        .map(call =>
+          call.completedAt === null
+            ? `${call.method} ${call.url} still pending`
+            : `${call.method} ${call.url} ${call.error ?? `answered ${String(call.status)}`}`
+        )
+        .join('; ')}`
     );
   }
 }
@@ -321,7 +361,7 @@ async function openMobileDapp(
   device: DeviceKey,
   label: DappLabel,
   init: DappInit
-): Promise<{ dapp: MobileDapp; providerAtBoot: boolean }> {
+): Promise<{ dapp: MobileDapp; providerAtBoot: boolean; setupDeadline: Deadline }> {
   const url = server.urlFor(device, label);
   const origin = new URL(url).origin;
   const key = `${device}/${label}`;
@@ -345,8 +385,9 @@ async function openMobileDapp(
       throw new HarnessFault(`${origin} on device ${device}: window.testDapp never became ready`);
     });
   const dapp: MobileDapp = { label: key, origin, wallet, channel: commandChannel(server, device, label) };
-  await callOn(dapp.channel, 'init', init, deadlineIn(INIT_MS, `dApp ${key} init`));
-  return { dapp, providerAtBoot: provider.data.atBoot === true };
+  const setupDeadline = deadlineIn(INIT_MS, `dApp ${key} setup`);
+  await callOn(dapp.channel, 'init', init, setupDeadline);
+  return { dapp, providerAtBoot: provider.data.atBoot === true, setupDeadline };
 }
 
 /**
@@ -505,7 +546,7 @@ export async function startMobileJourney(input: MobileJourneyInput): Promise<Mob
             .catch(() => null)
         )
       );
-      guardNodeCalls(await one.dapp.channel.send('__fetchLog', {}, 30_000), envConfig.rpcUrl);
+      await guardNodeCalls(one.dapp.channel, envConfig.rpcUrl, one.setupDeadline);
       const b = (await openMobileDapp(started, walletB, 'B', 'one', init('B-one'))).dapp;
       const ctx = setupContext(180_000, "B's dApp connect");
       const { result } = await answerSheet(

@@ -15,7 +15,7 @@ import {
   type CellContext,
   type Deadline
 } from './dapp-cells';
-import { ChainUnavailable } from './dapp-channel';
+import { ChainUnavailable, type DappChannel } from './dapp-channel';
 import {
   MOBILE_COMMAND_CEILING_MS,
   startCommandServer,
@@ -29,6 +29,7 @@ import { androidDevice, iosDevice, type MobileDevice } from './dapp-mobile-devic
 import {
   AUTO_DECLINE_MS,
   coverageOf,
+  guardNodeCalls,
   HOLD_MARGIN_MS,
   holdLeftMs,
   MOBILE_CELL_BUDGET_MS,
@@ -572,10 +573,165 @@ describe('mobile journey hooks and setup', () => {
     }
   );
 
+  it.each([
+    { setupMs: 2_000, waitMs: 500, expectedMs: 500 },
+    { setupMs: 100, waitMs: 500, expectedMs: 100 },
+    { setupMs: 60_000, waitMs: 60_000, expectedMs: 30_000 }
+  ])('bounds a pending-only log by $expectedMs ms and names the call', async ({ setupMs, waitMs, expectedMs }) => {
+    jest.useFakeTimers({ now: 0 });
+    const now = jest.fn(() => Date.now());
+    const channel: DappChannel = {
+      label: 'A/one',
+      send: jest.fn(async () => [nodeCall(0, { status: null, completedAt: null, ms: null })])
+    };
+    let settled = false;
+    const outcome = guardNodeCalls(channel, getEnvironmentConfig().rpcUrl, deadlineIn(setupMs, 'setup', now), {
+      pendingWaitMs: waitMs,
+      now
+    }).then(
+      () => {
+        settled = true;
+        return null;
+      },
+      error => {
+        settled = true;
+        return error;
+      }
+    );
+    await jest.advanceTimersByTimeAsync(expectedMs - 1);
+    expect(settled).toBe(false);
+    await jest.advanceTimersByTimeAsync(1);
+    await expect(outcome).resolves.toMatchObject({
+      name: 'ChainUnavailable',
+      message: expect.stringContaining('POST https://rpc.testnet.miden.io/tip still pending')
+    });
+    await expect(outcome).resolves.toBeInstanceOf(InfrastructureFault);
+    const reads = jest.mocked(channel.send).mock.calls.length;
+    await jest.advanceTimersByTimeAsync(1_000);
+    expect(channel.send).toHaveBeenCalledTimes(reads);
+    expect(now).toHaveBeenCalled();
+  });
+
+  it.each([
+    { setupMs: 2_000, completedAt: 100, pollAt: 250 },
+    { setupMs: 100, completedAt: 25, pollAt: 50 }
+  ])(
+    'accepts a pending entry that completes within a $setupMs ms setup budget',
+    async ({ setupMs, completedAt, pollAt }) => {
+      jest.useFakeTimers({ now: 0 });
+      const send = jest.fn(async () => [
+        Date.now() >= completedAt
+          ? nodeCall(200, { completedAt, ms: completedAt - 1 })
+          : nodeCall(0, { status: null, completedAt: null, ms: null })
+      ]);
+      const outcome = guardNodeCalls(
+        { label: 'A/one', send },
+        getEnvironmentConfig().rpcUrl,
+        deadlineIn(setupMs, 'setup'),
+        {
+          pendingWaitMs: 1_000,
+          now: Date.now
+        }
+      );
+      await jest.advanceTimersByTimeAsync(pollAt);
+      await expect(outcome).resolves.toBeUndefined();
+      expect(send).toHaveBeenCalledTimes(2);
+    }
+  );
+
+  it('recovers a pending call that fails and then retries after that failure completes', async () => {
+    jest.useFakeTimers({ now: 0 });
+    const failed = nodeCall(503, { completedAt: 100, ms: 99 });
+    const retry = nodeCall(0, { at: 150, status: null, completedAt: null, ms: null });
+    const send = jest
+      .fn()
+      .mockResolvedValueOnce([nodeCall(0, { status: null, completedAt: null, ms: null })])
+      .mockResolvedValueOnce([failed, retry])
+      .mockResolvedValue([failed, { ...retry, status: 200, completedAt: 300, ms: 150 }]);
+    const outcome = guardNodeCalls(
+      { label: 'A/one', send },
+      getEnvironmentConfig().rpcUrl,
+      deadlineIn(2_000, 'setup'),
+      {
+        pendingWaitMs: 1_000,
+        now: Date.now
+      }
+    );
+    await jest.advanceTimersByTimeAsync(500);
+    await expect(outcome).resolves.toBeUndefined();
+    expect(send).toHaveBeenCalledTimes(3);
+  });
+
+  it('keeps a pending call that completes with an unrecovered failure as infrastructure', async () => {
+    jest.useFakeTimers({ now: 0 });
+    const send = jest
+      .fn()
+      .mockResolvedValueOnce([nodeCall(0, { status: null, completedAt: null, ms: null })])
+      .mockResolvedValue([nodeCall(503, { completedAt: 100, ms: 99 })]);
+    const outcome = guardNodeCalls(
+      { label: 'A/one', send },
+      getEnvironmentConfig().rpcUrl,
+      deadlineIn(2_000, 'setup'),
+      {
+        pendingWaitMs: 1_000,
+        now: Date.now
+      }
+    ).catch(error => error);
+    await jest.advanceTimersByTimeAsync(250);
+    await expect(outcome).resolves.toBeInstanceOf(ChainUnavailable);
+  });
+
+  it('bounds a stalled fetch-log refresh and reports the last known pending call', async () => {
+    jest.useFakeTimers({ now: 0 });
+    const send = jest
+      .fn()
+      .mockResolvedValueOnce([nodeCall(0, { status: null, completedAt: null, ms: null })])
+      .mockReturnValue(new Promise(() => undefined));
+    const outcome = guardNodeCalls(
+      { label: 'A/one', send },
+      getEnvironmentConfig().rpcUrl,
+      deadlineIn(2_000, 'setup'),
+      {
+        pendingWaitMs: 500,
+        now: Date.now
+      }
+    ).catch(error => error);
+    await jest.advanceTimersByTimeAsync(500);
+    await expect(outcome).resolves.toMatchObject({
+      name: 'ChainUnavailable',
+      message: expect.stringContaining('POST https://rpc.testnet.miden.io/tip still pending')
+    });
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(send).toHaveBeenLastCalledWith('__fetchLog', {}, 250);
+  });
+
+  it('waits for a pending node call to complete before setup passes', async () => {
+    jest.useFakeTimers({ now: 0 });
+    fetchLog = [nodeCall(0, { status: null, completedAt: null, ms: null })];
+    let settled = false;
+    const outcome = prepare().then(result => {
+      settled = true;
+      return result;
+    });
+    await jest.advanceTimersByTimeAsync(249);
+    expect(settled).toBe(false);
+    fetchLog = [nodeCall(200, { completedAt: 200, ms: 199 })];
+    await jest.advanceTimersByTimeAsync(1);
+    await expect(outcome).resolves.toHaveProperty('journey');
+  });
+
   it('does not recover from an overlapping request that completed earlier', async () => {
     fetchLog = [
       nodeCall(503, { at: 0, completedAt: 100, ms: 100 }),
       nodeCall(200, { at: 10, completedAt: 20, ms: 10 })
+    ];
+    await expect(prepare()).rejects.toBeInstanceOf(ChainUnavailable);
+  });
+
+  it('does not recover from an overlapping success that started before the failure', async () => {
+    fetchLog = [
+      nodeCall(200, { at: 0, completedAt: 120, ms: 120 }),
+      nodeCall(503, { at: 10, completedAt: 100, ms: 90 })
     ];
     await expect(prepare()).rejects.toBeInstanceOf(ChainUnavailable);
   });
