@@ -488,9 +488,11 @@ describe('importAllNotes', () => {
     await pass;
     jest.useRealTimers();
 
-    expect(_g.__notesTest.store['miden-notes-pending-import']).toEqual([
-      expect.objectContaining({ bytes: 'aGVsbG8=', poisonAttempts })
-    ]);
+    // The store drops a zero poison count when it writes an entry, so read it back as 0.
+    const queue = _g.__notesTest.store['miden-notes-pending-import'];
+    expect(queue).toHaveLength(1);
+    expect(queue[0].bytes).toBe('aGVsbG8=');
+    expect(queue[0].poisonAttempts ?? 0).toBe(poisonAttempts);
     expect(_g.__notesTest.store['miden-note-import-deadletter']).toBeUndefined();
   });
 
