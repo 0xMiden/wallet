@@ -7,6 +7,7 @@
 import fs from 'fs';
 import { JSDOM } from 'jsdom';
 import path from 'path';
+import vm from 'vm';
 
 const SOURCE = fs.readFileSync(path.join(__dirname, '../../../src-tauri/scripts/dapp-injection.js'), 'utf8');
 const PREFIX = 'https://miden-wallet-request/';
@@ -165,18 +166,38 @@ it('defines window.bread synchronously even when the wallet API waits for DOMCon
   expect(win.midenWallet).toBeDefined();
 });
 
-it('keeps window.bread non-writable and non-configurable', () => {
+it('keeps window.bread a non-enumerable, writable and configurable marker', () => {
   const { win } = load();
-  const marker = win.bread;
   expect(Object.getOwnPropertyDescriptor(win, 'bread')).toEqual({
     value: {},
-    writable: false,
+    writable: true,
     enumerable: false,
-    configurable: false
+    configurable: true
   });
-  expect(Reflect.set(win, 'bread', {})).toBe(false);
-  expect(Reflect.deleteProperty(win, 'bread')).toBe(false);
-  expect(win.bread).toBe(marker);
+});
+
+it.each([
+  ['let bread = "page";', 'bread'],
+  ['const bread = "page";', 'bread'],
+  ['class bread { static who = "page"; }', 'bread.who'],
+  ['function bread() { return "page"; }', 'bread()'],
+  ['var bread = "page";', 'bread'],
+  ['bread = "page";', 'bread'],
+  ['"use strict"; bread = "page";', 'bread'],
+  ['window.bread = "page";', 'window.bread']
+])("lets a page's own top-level bread win: %s", (declaration, read) => {
+  const dom = new JSDOM('<!doctype html><html><body></body></html>', {
+    url: 'https://dapp.example/',
+    runScripts: 'outside-only'
+  });
+  const win = dom.window as unknown as DappWindow;
+  win.__MIDEN_BRIDGE_TOKEN__ = 'token';
+  run(win);
+  expect(win.bread).toEqual({});
+  // A page's code runs as a classic Script, the only kind whose top-level let, const and class reach the global scope.
+  const script = (code: string) => new vm.Script(code).runInContext(dom.getInternalVMContext());
+  script(declaration);
+  expect(script(read)).toBe('page');
 });
 
 it('defines nothing in a sub-frame', () => {
