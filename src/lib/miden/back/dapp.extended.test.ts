@@ -1319,7 +1319,7 @@ describe.each(['send', 'custom'])('a non-extension %s preview kill (#1378)', kin
         : dapp.requestTransaction('https://miden.xyz', {
             type: MidenDAppMessageType.TransactionRequest,
             sourcePublicKey: 'miden-account-1',
-            transaction: { payload: { address: 'miden-account-1', transactionRequest: 'base64req' } }
+            transaction: { payload: { address: 'miden-account-1', transactionRequest: 'YmFzZTY0cmVx' } }
           } as never);
 
     await expect(answer).rejects.toBe(kill);
@@ -1368,7 +1368,7 @@ describe.each(['send', 'custom'])('an approved non-extension %s failure (#1378)'
             type: MidenDAppMessageType.TransactionRequest,
             sourcePublicKey: 'miden-account-1',
             transaction: {
-              payload: { address: 'miden-account-1', recipientAddress: 'bob', transactionRequest: 'base64req' }
+              payload: { address: 'miden-account-1', recipientAddress: 'bob', transactionRequest: 'YmFzZTY0cmVx' }
             }
           } as never);
 
@@ -1407,7 +1407,7 @@ describe('approved non-extension custom carried-note failures (#1378)', () => {
         type: MidenDAppMessageType.TransactionRequest,
         sourcePublicKey: 'miden-account-1',
         transaction: {
-          payload: { address: 'miden-account-1', transactionRequest: 'base64req', importNotes: CARRIED_NOTES }
+          payload: { address: 'miden-account-1', transactionRequest: 'YmFzZTY0cmVx', importNotes: CARRIED_NOTES }
         }
       } as never)
     ).rejects.toEqual(new Error(message));
