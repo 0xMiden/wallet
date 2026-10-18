@@ -2,7 +2,7 @@ import Foundation
 
 enum BreadAuthError: String, Error {
     case notMainFrame = "AUTH_NOT_MAIN_FRAME", insecurePage = "AUTH_INSECURE_PAGE", invalidURL = "AUTH_INVALID_URL",
-         busy = "AUTH_BUSY", unavailable = "AUTH_UNAVAILABLE", failed = "AUTH_FAILED"
+         busy = "AUTH_BUSY", unavailable = "AUTH_UNAVAILABLE", originMismatch = "AUTH_ORIGIN_MISMATCH", failed = "AUTH_FAILED"
 }
 
 struct BreadAuthPageOrigin {
@@ -47,6 +47,20 @@ final class BreadAuthState {
         guard address.starts(with: callbackAddress.utf8) else { return false }
         let next = address.dropFirst(callbackAddress.utf8.count).first
         return next == nil || next == UInt8(ascii: "?") || next == UInt8(ascii: "#")
+    }
+
+    // Split by hand, as Android does, so both decide every input alike; URLComponents.queryItems would decode names.
+    static func namesOrigin(_ callback: String, page: BreadAuthPageOrigin) -> Bool {
+        let equals = UInt8(ascii: "=")
+        let target = callback.utf8.prefix { $0 != UInt8(ascii: "#") }
+        guard let mark = target.firstIndex(of: UInt8(ascii: "?")) else { return false }
+        let values = target[target.index(after: mark)...]
+            .split(separator: UInt8(ascii: "&"), omittingEmptySubsequences: false)
+            .filter { field in field.prefix { $0 != equals }.elementsEqual("origin".utf8) }
+            .map { field in field.drop { $0 != equals }.dropFirst() }
+        guard values.count == 1, let origin = String(decoding: values[0], as: UTF8.self).removingPercentEncoding,
+              !origin.utf8.dropFirst("https://".utf8.count).contains(where: { "/?#".utf8.contains($0) }) else { return false }
+        return authorityMatches(origin, host: page.host, port: page.port == 0 ? 443 : page.port)
     }
 
     // The authority is compared as written: platform URL parsers decode some hosts and refuse others.

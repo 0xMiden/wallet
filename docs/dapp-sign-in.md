@@ -1,6 +1,6 @@
 # Sign-in sheet for dApps in Bread
 
-Google and Apple sign-in refuse to run inside embedded web views, so a dApp in the native Bread mobile browser can't run them in its own page. `window.bread.auth.open(url)` runs the flow in a secure sign-in sheet instead: the system's sign-in sheet on iOS, and a Custom Tab on Android. The flow starts at a URL on the page's own origin and ends at Bread's callback address, and the page stays loaded throughout.
+Google and Apple sign-in refuse to run inside embedded web views, so a dApp in the native Bread mobile browser can't run them in its own page. `window.bread.auth.open(url)` runs the flow in a secure sign-in sheet instead: the system's sign-in sheet on iOS, and a Custom Tab on Android. The flow starts at a URL on the page's own origin and ends at Bread's callback address with that origin in its query, and the page stays loaded throughout.
 
 ```js
 if (window.bread?.auth) {
@@ -13,20 +13,21 @@ if (window.bread?.auth) {
 }
 ```
 
-`open(url)` resolves to a frozen `{ url: string }` when the flow reaches Bread's callback address, with `url` set to the callback URL untouched, or to a frozen `{ cancelled: true }` when the user closes the sheet. It has no timeout, since a sign-in can take minutes. Bread never reads the callback's query, so its parameter names are yours; this guide puts a login handle in `login` and an error code in `login_error`.
+`open(url)` resolves to a frozen `{ url: string }` when the flow reaches Bread's callback address naming the page's origin (see "The callback"), with `url` set to the callback URL untouched, or to a frozen `{ cancelled: true }` when the user closes the sheet. It has no timeout, since a sign-in can take minutes. Bread reads only the `origin` parameter of the callback's query, so every other parameter name is yours; this guide puts a login handle in `login` and an error code in `login_error`.
 
 `window.bread.auth` is a frozen `{ version: 1, open(url) }` and exists only in the main document of a supported native Bread WebView on iOS or Android. Detect it by its presence: `window.bread.version` stays 1 with or without it.
 
 ## Errors
 
-`open` rejects with an `Error` whose message is exactly one of six codes. The page script first refuses a `url` that isn't a string or is longer than 4096 characters with `AUTH_INVALID_URL`, before any native check, so on a page that isn't https that error comes before `AUTH_INSECURE_PAGE`. Bread then checks in this order and rejects with the first code that applies:
+`open` rejects with an `Error` whose message is exactly one of seven codes. The page script first refuses a `url` that isn't a string or is longer than 4096 characters with `AUTH_INVALID_URL`, before any native check, so on a page that isn't https that error comes before `AUTH_INSECURE_PAGE`. Bread then checks in this order and rejects with the first code that applies:
 
 1. `AUTH_NOT_MAIN_FRAME`: the call came from a frame, not the main document.
 2. `AUTH_INSECURE_PAGE`: the page isn't https with a host. `http://localhost` is refused too.
 3. `AUTH_INVALID_URL`: `url` breaks one of the URL rules below.
 4. `AUTH_BUSY`: a sheet is already open in Bread, for this page or another dApp.
 5. `AUTH_UNAVAILABLE`: Bread can't show a sheet now, because the browser is hidden, parked or closing, Bread isn't in the foreground, or the system couldn't start or present the sheet.
-6. `AUTH_FAILED`: anything else, such as a callback address with a path (`com.miden.wallet.auth://callback/`).
+6. `AUTH_ORIGIN_MISMATCH`: the flow reached the callback address, but its query doesn't name this page's origin in exactly one `origin` parameter (see "The callback"). The page never receives that callback URL.
+7. `AUTH_FAILED`: anything else, such as a callback address with a path (`com.miden.wallet.auth://callback/`).
 
 ## Page rules
 
@@ -48,24 +49,28 @@ Only one sheet can be open across the whole app: a second call while one is open
 
 ## The callback
 
-A navigation inside the sheet to `com.miden.wallet.auth://callback` ends the flow, whether it comes from a redirect, a refresh or a link the user taps. The address may end there or continue with `?` or `#`, and it matches regardless of ASCII case; any path, such as `callback/`, fails with `AUTH_FAILED`. Bread resolves `{ url }` only while its own sheet is open and only for that address, forwards the URL untouched, and reads, stores and logs nothing from it.
+A navigation inside the sheet to `com.miden.wallet.auth://callback` ends the flow, whether it comes from a redirect, a refresh or a link the user taps. The address may end there or continue with `?` or `#`, and it matches regardless of ASCII case; any path, such as `callback/`, fails with `AUTH_FAILED`. Bread resolves `{ url }` only while its own sheet is open, only for that address, and only when the URL names the page that opened the sheet; it forwards the URL untouched, reads nothing from it but the `origin` parameter, and stores and logs nothing from it.
 
-End the flow with a small page, served with `Cache-Control: no-store`, that refreshes to `com.miden.wallet.auth://callback?login=<handle>` (or `?login_error=<code>`) and also shows a "Return to Bread" link to the same address. Chrome on Android may refuse a redirect to an app that no tap started, as after Apple's script-submitted form post, and the link lets the user finish with a tap:
+The callback names the page in exactly one `origin` query parameter: the page's origin, percent-encoded as a query value, such as `com.miden.wallet.auth://callback?origin=https%3A%2F%2Fexample.org&login=<handle>` for a page on example.org. Bread decodes the value once and compares it with the page that called `open` as the URL rules above compare the start of a URL: `https://` in lowercase, the page's host apart from ASCII letter case, `:` and the port only if the page uses a port other than 443 (`:443` is also accepted on a page that uses 443), and nothing after that, not even a `/`. The query is the text after the first `?` that comes before the first `#`, so an `origin` in the fragment doesn't count; parameter names are compared exactly as written, and a parameter without `=` has an empty value. A callback with no `origin`, more than one, or one naming another origin rejects with `AUTH_ORIGIN_MISMATCH`, and the page never receives its URL.
+
+End the flow with a small page, served with `Cache-Control: no-store`, that refreshes to `com.miden.wallet.auth://callback?origin=<origin>&login=<handle>` (or with `login_error=<code>` in place of `login`) and also shows a "Return to Bread" link to the same address. Chrome on Android may refuse a redirect to an app that no tap started, as after Apple's script-submitted form post, and the link lets the user finish with a tap:
 
 ```html
 <!doctype html>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<meta http-equiv="refresh" content="0; url=com.miden.wallet.auth://callback?login=HANDLE" />
+<meta http-equiv="refresh" content="0; url=com.miden.wallet.auth://callback?origin=https%3A%2F%2Fexample.org&amp;login=HANDLE" />
 <title>Return to Bread</title>
-<a href="com.miden.wallet.auth://callback?login=HANDLE">Return to Bread</a>
+<a href="com.miden.wallet.auth://callback?origin=https%3A%2F%2Fexample.org&amp;login=HANDLE">Return to Bread</a>
 ```
 
-The server writes the handle in place of `HANDLE`. Make the handle, and any `login_error` code, a URL-safe token such as hex or base64url: it goes into the URL and the HTML as it is, and `searchParams.get` turns `+` into a space and decodes `%xx` escapes, so a standard base64 handle containing `+` would not redeem.
+The server writes the handle in place of `HANDLE`, and in place of `https%3A%2F%2Fexample.org` the exact origin of its own pages, percent-encoded, as `location.origin` gives it on those pages: the punycode host for an internationalized domain, and the port if it isn't 443. It takes that origin from its own configuration, never from the request, the auth URL or anything else the flow carries, because the origin is what keeps the handle from another site's page (see "Binding the handle to the page"). Make the handle, and any `login_error` code, a URL-safe token such as hex or base64url: it goes into the URL and the HTML as it is, and `searchParams.get` turns `+` into a space and decodes `%xx` escapes, so a standard base64 handle containing `+` would not redeem.
 
 ## Binding the handle to the page
 
 On Android, the callback address is a custom scheme that any installed app can also register, so another app may receive the real callback instead of Bread, and any app can send Bread the callback address while a sheet is open, which Bread can't tell from the real one. So the callback URL isn't private, and a handle alone must never sign anyone in. Before calling `open`, keep a secret in the page's memory and put only its hash in the auth URL, like a PKCE challenge. The server stores that challenge with the flow and redeems a handle only together with the secret whose hash started it; each handle is single use and short-lived. A handle sent by another app then belongs to a flow the page never started, and a handle another app received is useless without the secret, which goes only from the page to your server.
+
+The secret doesn't help when another site's page in Bread starts your flow itself: it can open a URL on its own origin that redirects to your sign-in with a challenge of its own, and your server can't tell, because a navigation the sheet starts reports `Sec-Fetch-Site: none` through every redirect. The `origin` your server writes into the callback is what stops it: Bread answers that page `AUTH_ORIGIN_MISMATCH` and never hands it the callback URL.
 
 ```js
 const hex = bytes => Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
@@ -102,4 +107,4 @@ On iOS, `breadAuth` is a `WKScriptMessageHandlerWithReply` in the page content w
 
 On Android, `breadAuth` is a web message listener. The page calls `window.breadAuth.postMessage(JSON.stringify({ id, url }))`. Native replies once, on that message's `JavaScriptReplyProxy`, with the JSON string `{"id":id,"url":s}`, `{"id":id,"cancelled":true}` or `{"id":id,"error":"AUTH_..."}`. `id` is `<document token>_auth_<n>`; native ignores a message without a string `id` of 1 to 128 characters, because it can't address a reply.
 
-Native checks the callback rule on the URL as it arrives and forwards it byte for byte: it never parses its query, stores it or logs it. On iOS the session catches the `com.miden.wallet.auth` scheme itself, and the app doesn't register it. On Android, `MainActivity` takes the callback out of the intent before any Capacitor plugin sees it, and since the tab covers Bread until it closes, Bread coming back to the foreground without a callback replies `{ cancelled: true }`, even when the tab closed too quickly for Android to stop Bread. Closing the browser frees its sheet, and a later callback for that sheet resolves nothing.
+Native remembers the page's origin from the open message, checks the callback rule and the `origin` parameter on the URL as it arrives, and forwards it byte for byte: it reads nothing else from the query and never stores or logs the URL. On iOS the session catches the `com.miden.wallet.auth` scheme itself, and the app doesn't register it. On Android, `MainActivity` takes the callback out of the intent before any Capacitor plugin sees it, and since the tab covers Bread until it closes, Bread coming back to the foreground without a callback replies `{ cancelled: true }`, even when the tab closed too quickly for Android to stop Bread. Closing the browser frees its sheet, and a later callback for that sheet resolves nothing.

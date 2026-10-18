@@ -75,10 +75,10 @@ public class BreadAuthStateTest {
 
     @Test public void oneSheetAtATime() {
         BreadAuthState state = new BreadAuthState();
-        long stale = state.begin();
+        long stale = state.begin("game.example", -1);
         state.release(stale);
         assertNull(state.refusal());
-        long current = state.begin();
+        long current = state.begin("game.example", -1);
         assertEquals(BreadAuthState.BUSY, state.refusal());
         state.release(stale);
         assertEquals(BreadAuthState.BUSY, state.refusal());
@@ -99,14 +99,14 @@ public class BreadAuthStateTest {
 
     @Test public void anOpenSheetIsBusyBeforeTheStoppedHostIsUnavailable() {
         BreadAuthState state = new BreadAuthState();
-        state.begin();
+        state.begin("game.example", -1);
         state.stopped();
         assertEquals(BreadAuthState.BUSY, state.refusal());
     }
 
     @Test public void resumeAfterStopWithoutCallbackCancels() {
         BreadAuthState state = new BreadAuthState();
-        state.begin();
+        state.begin("game.example", -1);
         state.stopped();
         assertEquals(BreadAuthState.Phase.LAUNCHING, state.phase());
         assertEquals(BreadAuthState.Outcome.CANCELLED, state.resumed());
@@ -116,7 +116,7 @@ public class BreadAuthStateTest {
 
     @Test public void aResumeWithoutAStopCancels() {
         BreadAuthState state = new BreadAuthState();
-        state.begin();
+        state.begin("game.example", -1);
         assertEquals(BreadAuthState.Outcome.CANCELLED, state.resumed());
         assertEquals(BreadAuthState.Phase.IDLE, state.phase());
         assertEquals(BreadAuthState.Outcome.NONE, state.callback(CALLBACK));
@@ -125,7 +125,7 @@ public class BreadAuthStateTest {
 
     @Test public void callbackBeforeResumeResolvesAndResumeIsQuiet() {
         BreadAuthState state = new BreadAuthState();
-        state.begin();
+        state.begin("game.example", -1);
         state.stopped();
         assertEquals(BreadAuthState.Outcome.RESOLVED, state.callback(CALLBACK));
         assertEquals(BreadAuthState.Outcome.NONE, state.resumed());
@@ -134,7 +134,7 @@ public class BreadAuthStateTest {
 
     @Test public void foreignCallbackWhileOpenFails() {
         BreadAuthState state = new BreadAuthState();
-        state.begin();
+        state.begin("game.example", -1);
         assertEquals(BreadAuthState.Outcome.FAILED, state.callback("com.miden.wallet.auth://callback/x"));
         assertEquals(BreadAuthState.Phase.IDLE, state.phase());
         assertNull(state.refusal());
@@ -151,8 +151,8 @@ public class BreadAuthStateTest {
             "#origin=https%3A%2F%2Fgame.example", "?x=1#&origin=https%3A%2F%2Fgame.example", "#?origin=https%3A%2F%2Fgame.example",
         }) {
             BreadAuthState state = new BreadAuthState();
-            state.begin();
-            assertNotEquals(rest, BreadAuthState.Outcome.RESOLVED, state.callback(address + rest));
+            state.begin("game.example", -1);
+            assertEquals(rest, BreadAuthState.Outcome.MISMATCH, state.callback(address + rest));
             assertEquals(rest, BreadAuthState.Phase.IDLE, state.phase());
         }
         for (String callback : new String[] {
@@ -160,8 +160,15 @@ public class BreadAuthStateTest {
             address + "?origin=https%3A%2F%2Fgame.example%3A443#f", "COM.MIDEN.WALLET.AUTH://callback?origin=https%3A%2F%2Fgame.example",
         }) {
             BreadAuthState state = new BreadAuthState();
-            state.begin();
+            state.begin("game.example", -1);
             assertEquals(callback, BreadAuthState.Outcome.RESOLVED, state.callback(callback));
+        }
+        BreadAuthState custom = new BreadAuthState();
+        custom.begin("game.example", 8443);
+        assertEquals(BreadAuthState.Outcome.RESOLVED, custom.callback(address + "?origin=https%3A%2F%2Fgame.example%3A8443"));
+        for (String rest : new String[] {"?origin=https%3A%2F%2Fgame.example", "?origin=https%3A%2F%2Fgame.example%3A443"}) {
+            custom.begin("game.example", 8443);
+            assertEquals(rest, BreadAuthState.Outcome.MISMATCH, custom.callback(address + rest));
         }
     }
 

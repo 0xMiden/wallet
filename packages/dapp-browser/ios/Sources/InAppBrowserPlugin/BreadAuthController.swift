@@ -53,7 +53,7 @@ final class BreadAuthController: NSObject, WKScriptMessageHandlerWithReply, ASWe
         guard let ticket = Self.state.begin() else { reply(nil, BreadAuthError.busy.rawValue); return }
         guard canPresent() else { Self.state.end(ticket); reply(nil, BreadAuthError.unavailable.rawValue); return }
         let session = Self.makeSession(url, BreadAuthState.callbackScheme) { [weak self] callback, error in
-            DispatchQueue.main.async { [weak self] in self?.complete(ticket, callback: callback, error: error) }
+            DispatchQueue.main.async { [weak self] in self?.complete(ticket, page: page, callback: callback, error: error) }
         }
         session.presentationContextProvider = self
         session.prefersEphemeralWebBrowserSession = false
@@ -71,13 +71,15 @@ final class BreadAuthController: NSObject, WKScriptMessageHandlerWithReply, ASWe
         owner?.viewIfLoaded?.window ?? ASPresentationAnchor()
     }
 
-    private func complete(_ ticket: Int, callback: URL?, error: Error?) {
+    private func complete(_ ticket: Int, page: BreadAuthPageOrigin, callback: URL?, error: Error?) {
         if let callback {
             let address = callback.absoluteString
-            if BreadAuthState.isCallback(address) {
+            if !BreadAuthState.isCallback(address) {
+                finish(ticket, nil, BreadAuthError.failed.rawValue)
+            } else if BreadAuthState.namesOrigin(address, page: page) {
                 finish(ticket, ["url": address], nil)
             } else {
-                finish(ticket, nil, BreadAuthError.failed.rawValue)
+                finish(ticket, nil, BreadAuthError.originMismatch.rawValue)
             }
             return
         }

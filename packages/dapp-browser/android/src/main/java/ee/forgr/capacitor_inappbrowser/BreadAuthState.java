@@ -1,17 +1,23 @@
 package ee.forgr.capacitor_inappbrowser;
 
+import java.io.UnsupportedEncodingException;
+import java.net.URLDecoder;
+
 final class BreadAuthState {
     static final String CALLBACK_SCHEME = "com.miden.wallet.auth";
     static final String CALLBACK_ADDRESS = "com.miden.wallet.auth://callback";
     static final int MAX_URL_LENGTH = 4096;
     static final String NOT_MAIN_FRAME = "AUTH_NOT_MAIN_FRAME", INSECURE_PAGE = "AUTH_INSECURE_PAGE",
-        INVALID_URL = "AUTH_INVALID_URL", BUSY = "AUTH_BUSY", UNAVAILABLE = "AUTH_UNAVAILABLE", FAILED = "AUTH_FAILED";
+        INVALID_URL = "AUTH_INVALID_URL", BUSY = "AUTH_BUSY", UNAVAILABLE = "AUTH_UNAVAILABLE",
+        ORIGIN_MISMATCH = "AUTH_ORIGIN_MISMATCH", FAILED = "AUTH_FAILED";
     enum Phase { IDLE, LAUNCHING }
-    enum Outcome { NONE, RESOLVED, CANCELLED, FAILED }
+    enum Outcome { NONE, RESOLVED, CANCELLED, FAILED, MISMATCH }
 
     private Phase phase = Phase.IDLE;
     private long ticket;
     private boolean hostStopped;
+    private String openerHost;
+    private int openerPort;
 
     static String rejection(boolean mainFrame, String pageScheme, String pageHost, int pagePort, Object url) {
         if (!mainFrame) return NOT_MAIN_FRAME;
@@ -70,6 +76,34 @@ final class BreadAuthState {
         return next == '?' || next == '#';
     }
 
+    // Split by hand, as iOS does, so both decide every input alike.
+    static boolean namesOrigin(String url, String pageHost, int pagePort) {
+        int fragment = url.indexOf('#');
+        String target = fragment < 0 ? url : url.substring(0, fragment);
+        int query = target.indexOf('?');
+        if (query < 0) return false;
+        String value = null;
+        int origins = 0;
+        for (String field : target.substring(query + 1).split("&", -1)) {
+            int equals = field.indexOf('=');
+            if (!(equals < 0 ? field : field.substring(0, equals)).equals("origin")) continue;
+            origins++;
+            value = equals < 0 ? "" : field.substring(equals + 1);
+        }
+        String origin = origins == 1 ? percentDecoded(value) : null;
+        if (origin == null) return false;
+        for (int i = "https://".length(); i < origin.length(); i++) if ("/?#".indexOf(origin.charAt(i)) >= 0) return false;
+        return authorityMatches(origin, pageHost, pagePort < 0 ? 443 : pagePort);
+    }
+
+    private static String percentDecoded(String text) {
+        try {
+            return URLDecoder.decode(text, "UTF-8");
+        } catch (IllegalArgumentException | UnsupportedEncodingException e) {
+            return null;
+        }
+    }
+
     // ASCII only: equalsIgnoreCase would also fold U+0131 onto 'i' and U+212A onto 'k'.
     static boolean startsWithIgnoringAsciiCase(String text, String prefix) {
         if (text.length() < prefix.length()) return false;
@@ -90,7 +124,7 @@ final class BreadAuthState {
         if (phase != Phase.IDLE) return BUSY;
         return hostStopped ? UNAVAILABLE : null;
     }
-    long begin() { phase = Phase.LAUNCHING; return ++ticket; }
+    long begin(String pageHost, int pagePort) { phase = Phase.LAUNCHING; openerHost = pageHost; openerPort = pagePort; return ++ticket; }
 
     void stopped() { hostStopped = true; }
     // The tab covers Bread until it closes, and Android resumes Bread without a stop when the tab closes before the stop
@@ -104,7 +138,8 @@ final class BreadAuthState {
     Outcome callback(String url) {
         if (phase == Phase.IDLE) return Outcome.NONE;
         phase = Phase.IDLE;
-        return isCallback(url) ? Outcome.RESOLVED : Outcome.FAILED;
+        if (!isCallback(url)) return Outcome.FAILED;
+        return namesOrigin(url, openerHost, openerPort) ? Outcome.RESOLVED : Outcome.MISMATCH;
     }
     void release(long ticket) { if (ticket == this.ticket) phase = Phase.IDLE; }
     Phase phase() { return phase; }

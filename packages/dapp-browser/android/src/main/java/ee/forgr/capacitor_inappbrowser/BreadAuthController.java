@@ -64,7 +64,7 @@ final class BreadAuthController {
         String browser = code == null ? customTabsPackage(owner.activity) : null;
         if (code == null && browser == null) code = BreadAuthState.UNAVAILABLE;
         if (code != null) { send(proxy, id, "error", code); return; }
-        ticket = state.begin(); reply = proxy; requestId = id; active = this;
+        ticket = state.begin(origin.getHost(), origin.getPort()); reply = proxy; requestId = id; active = this;
         try {
             // No session: the plugin's shared session reports page loads to the wallet's JavaScript.
             CustomTabsIntent tab = new CustomTabsIntent.Builder().build();
@@ -100,6 +100,7 @@ final class BreadAuthController {
         BreadAuthState.Outcome outcome = state.callback(url);
         if (active == null) return;
         if (outcome == BreadAuthState.Outcome.RESOLVED) active.finish("url", url);
+        else if (outcome == BreadAuthState.Outcome.MISMATCH) active.finish("error", BreadAuthState.ORIGIN_MISMATCH);
         else if (outcome == BreadAuthState.Outcome.FAILED) active.finish("error", BreadAuthState.FAILED);
     }
 

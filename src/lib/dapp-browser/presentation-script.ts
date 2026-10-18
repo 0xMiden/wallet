@@ -110,7 +110,7 @@ export const PRESENTATION_SCRIPT = `
     else root.removeAttribute('data-bread-control-bounds');
     document.dispatchEvent(new Event('breadpresentationchange'));
   } });
-  const AUTH_ERRORS = ['AUTH_NOT_MAIN_FRAME', 'AUTH_INSECURE_PAGE', 'AUTH_INVALID_URL', 'AUTH_BUSY', 'AUTH_UNAVAILABLE', 'AUTH_FAILED'];
+  const AUTH_ERRORS = ['AUTH_NOT_MAIN_FRAME', 'AUTH_INSECURE_PAGE', 'AUTH_INVALID_URL', 'AUTH_BUSY', 'AUTH_UNAVAILABLE', 'AUTH_ORIGIN_MISMATCH', 'AUTH_FAILED'];
   const authPending = new Map();
   let authSequence = 0;
   function authError(error) {
