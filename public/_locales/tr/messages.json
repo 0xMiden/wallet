@@ -5884,8 +5884,8 @@
     "englishSource": "Help improve Wallet"
   },
   "helpImproveWalletDescription": {
-    "message": "Cüzdanın hangi bölümlerini kullandığınızı, nerede takıldığınızı, genel hata kategorilerini, uygulama sürümünü ve kullandığınız platformu paylaşın, böylece sorunları giderebilelim. Uygulama çökerse, hatayı ve kodda nerede meydana geldiğini içeren bir çökme raporu da gönderir; bu rapor, gönderilmeden önce hassas verilerin kaldırılması için temizlenir. Asla anahtarlarınız, kurtarma ifadesi, şifreniz, adresleriniz, bakiyeleriniz, tutarlarınız veya işlem içeriklerinizi paylaşmayız. Diğer uygulamalar veya siteler üzerinden izleme yapılmaz, hiçbir bilgi reklam amaçlı kullanılmaz ve hiçbir bilgi veri brokerlerine satılmaz veya paylaşılmaz. Bu ayarları istediğiniz zaman değiştirebilirsiniz.",
-    "englishSource": "Shares which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform, so we can fix what's breaking. If the app crashes, it also sends a crash report with the error and where it happened in the code, scrubbed to remove sensitive data before sending. Never your keys, recovery phrase, password, addresses, balances, amounts, or transaction contents. No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers. You can change this any time."
+    "message": "Cüzdanın hangi bölümlerini kullandığınızı, nerede takıldığınızı, genel hata kategorilerini, uygulama sürümünü ve platformunuzu paylaşın ki, sorunları giderebilelim. Asla anahtarlarınızı, kurtarma ifadesini, şifrenizi, adreslerinizi, bakiyelerinizi, tutarlarınızı veya işlem içeriklerinizi paylaşmayın. Diğer uygulamalar veya siteler üzerinden izleme yapılmaz, hiçbir bilgi reklam amaçlı kullanılmaz ve hiçbir bilgi veri aracılarına satılmaz veya paylaşılmaz. Çökme raporları her durumda gönderilir: hata ve kodda nerede meydana geldiği bilgisi, hassas verilerin kaldırılması için temizlenir ve sizin veya cihazınızın kimliğini belirleyen hiçbir bilgi içermez. Bunu istediğiniz zaman değiştirebilirsiniz.",
+    "englishSource": "Shares which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform, so we can fix what's breaking. Never your keys, recovery phrase, password, addresses, balances, amounts, or transaction contents. No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers. Crash reports are sent either way: the error and where it happened in the code, scrubbed to remove sensitive data, with no identifier for you or your device. You can change this any time."
   },
   "helpImproveWalletAccept": {
     "message": "Kullanım verilerini paylaşın",
@@ -5904,8 +5904,8 @@
     "englishSource": "Only what helps us fix bugs"
   },
   "helpImproveWalletSharedDescription": {
-    "message": "Which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform. If the app crashes, a crash report with the error and where it happened in the code, scrubbed to remove sensitive data before sending.",
-    "englishSource": "Which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform. If the app crashes, a crash report with the error and where it happened in the code, scrubbed to remove sensitive data before sending."
+    "message": "Cüzdanın hangi kısımlarını kullandığınızı, nerede takıldığınızı, genel hata kategorilerini, uygulama sürümünü ve kullandığınız platformu belirtin.",
+    "englishSource": "Which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform."
   },
   "helpImproveWalletPrivateTitle": {
     "message": "Your wallet stays private",
@@ -5922,6 +5922,10 @@
   "helpImproveWalletNoTrackingDescription": {
     "message": "No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers.",
     "englishSource": "No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers."
+  },
+  "helpImproveWalletCrashReports": {
+    "message": "Çökme raporları her durumda gönderilir; böylece çökmeleri düzeltebiliriz: hata ve kodda nerede meydana geldiği bilgileri, hassas verilerin kaldırılması için temizlenmiş ve sizin veya cihazınızın kimliğini ortaya çıkarmayacak şekilde gönderilir.",
+    "englishSource": "Crash reports are sent either way, so we can fix crashes: the error and where it happened in the code, scrubbed to remove sensitive data, with no identifier for you or your device."
   },
   "helpImproveWalletChangeAnyTime": {
     "message": "You can change this any time in Settings.",
