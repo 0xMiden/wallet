@@ -4,10 +4,20 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
+import { JOURNEY_TIMEOUT_MS } from '../helpers/dapp-matrix';
+
 const workflow = readFileSync(resolve(__dirname, '../../../.github/workflows/e2e-dapp.yml'), 'utf8');
 
 const partFiles = (part: string): string[] =>
   workflow.match(new RegExp(`^\\s+${part}\\) files="([a-z -]+)" ;;$`, 'm'))?.[1]?.split(' ') ?? [];
+
+/** One job's block, from its id line to the next job's. */
+const jobBlock = (id: string): string => {
+  const start = workflow.indexOf(`\n  ${id}:\n`);
+  if (start === -1) throw new Error(`e2e-dapp.yml has no job ${id}`);
+  const next = workflow.slice(start + 1).search(/\n {2}[a-z][\w-]*:\n/);
+  return next === -1 ? workflow.slice(start) : workflow.slice(start, start + 1 + next);
+};
 
 describe('dApp E2E workflow', () => {
   it('runs on merges to main and next and by hand, never on a pull request or a timer', () => {
@@ -53,5 +63,92 @@ describe('dApp E2E workflow', () => {
       .map(name => name.replace(/\.spec\.ts$/, ''));
     expect(specs).toContain('session');
     expect(selected).toEqual(expect.arrayContaining(specs));
+  });
+});
+
+describe('the mobile legs of the dApp E2E workflow', () => {
+  const ios = jobBlock('dapp-e2e-ios');
+  const android = jobBlock('dapp-e2e-android');
+
+  it('runs the in-app browser journey on two iOS simulators and two Android emulators, one account kind per leg', () => {
+    expect(ios).toContain('runs-on: macos-26-xlarge');
+    expect(android).toContain('runs-on: ubuntu-latest');
+    expect(ios).toContain('--config playwright.ios.dapp-e2e.config.ts');
+    expect(android).toContain('--config playwright.android.dapp-e2e.config.ts');
+    for (const job of [ios, android]) {
+      expect(job).toMatch(/fail-fast: false/);
+      expect(job).toMatch(/axis: \[offchain, guardian\]/);
+      expect(job).toContain("github.ref == 'refs/heads/next' && 'devnet' || 'testnet'");
+      expect(job).toMatch(/E2E_NETWORK: \$\{\{ matrix\.network \}\}/);
+      expect(job).toMatch(/--grep " - \$\{\{ matrix\.axis \}\} account" --retries=0/);
+    }
+    // One run step per job, each on first attempts only.
+    expect(workflow.match(/--retries=0/g)).toHaveLength(3);
+  });
+
+  it('lets a dispatch pick the surfaces, and runs every surface on a push', () => {
+    expect(workflow).toMatch(
+      /surface:\n\s+description: Which surfaces run\n\s+type: choice\n\s+options: \[all, extension, mobile\]\n\s+default: all/
+    );
+    expect(jobBlock('dapp-e2e')).toMatch(/if: \$\{\{ inputs\.surface != 'mobile' \}\}/);
+    expect([ios, android].filter(job => !/if: \$\{\{ inputs\.surface != 'extension' \}\}/.test(job))).toEqual([]);
+  });
+
+  it('bounds each mobile run step around the journey timeout and still renders, uploads and judges after it', () => {
+    for (const job of [ios, android]) {
+      expect(job).toMatch(/id: run\n\s+continue-on-error: true\n\s+timeout-minutes: 95/);
+      for (const step of ['Render matrix', 'Upload records', 'Judge']) {
+        expect(job).toMatch(new RegExp(`- name: ${step}\\n\\s+if: always\\(\\)`));
+      }
+      expect(job).toMatch(/render-dapp-matrix\.mjs --gate test-results\/dapp-cells test-results\/results\.json/);
+    }
+    // The global setup's probes and the report write fit in the step after a journey that used its whole timeout.
+    expect(JOURNEY_TIMEOUT_MS.PL).toBeLessThanOrEqual((95 - 5) * 60_000);
+    expect(ios).toMatch(/timeout-minutes: \$\{\{ github\.event_name == 'workflow_dispatch' && 245 \|\| 160 \}\}/);
+    expect(android).toMatch(/timeout-minutes: \$\{\{ github\.event_name == 'workflow_dispatch' && 190 \|\| 145 \}\}/);
+  });
+
+  it('keeps the Android image e2e-dapp-browser.yml uses (C-R16)', () => {
+    const browser = readFileSync(resolve(__dirname, '../../../.github/workflows/e2e-dapp-browser.yml'), 'utf8');
+    const images = (text: string): string[] => [
+      ...new Set(text.match(/system-images;android-\d+;[a-z_]+;x86_64/g) ?? [])
+    ];
+    expect(images(android)).toEqual(['system-images;android-34;default;x86_64']);
+    expect(images(browser)).toEqual(images(android));
+  });
+
+  it('assigns every in-app browser spec to the mobile leg of its platform', () => {
+    const inapp = (dir: string): string[] =>
+      readdirSync(resolve(__dirname, dir)).filter(name => /^dapp-inapp\..+\.spec\.ts$/.test(name));
+    expect(inapp('../ios/tests')).toEqual(['dapp-inapp.ios.spec.ts']);
+    expect(inapp('../android/tests')).toEqual(['dapp-inapp.android.spec.ts']);
+    const configs = ['playwright.ios.dapp-e2e.config.ts', 'playwright.android.dapp-e2e.config.ts'];
+    expect(
+      configs.filter(
+        config =>
+          !readFileSync(resolve(__dirname, '../../..', config), 'utf8').includes("testMatch: '**/dapp-inapp.*.spec.ts'")
+      )
+    ).toEqual([]);
+  });
+
+  it('never reuses an app build across a run that injected a linked PR', () => {
+    const notInjected =
+      "if: steps.inject-web-sdk.outputs.patched != 'true' && steps.inject-guardian.outputs.patched != 'true'";
+    expect(ios).toContain(`id: app-key\n        ${notInjected}`);
+    expect(android).toContain(`id: apk-key\n        ${notInjected}`);
+    expect(ios).toContain(
+      "- name: Restore the app build\n        id: app-cache\n        if: steps.app-key.outputs.key != ''"
+    );
+    expect(android).toContain(
+      "- name: Restore the APK build\n        id: apk-cache\n        if: steps.apk-key.outputs.key != ''"
+    );
+  });
+
+  it('rebuilds the iOS app for a new Xcode, and stops Gradle only after a build started it', () => {
+    expect(ios).toMatch(/xcode=\$\(xcodebuild -version \| git hash-object --stdin\)/);
+    expect(ios).toMatch(/-\$\{tree:0:16\}-\$\{xcode:0:12\}" >> "\$GITHUB_OUTPUT"/);
+    expect(android).toContain(
+      "- name: Stop the Gradle daemon\n        if: steps.apk-cache.outputs.cache-hit != 'true'"
+    );
   });
 });
