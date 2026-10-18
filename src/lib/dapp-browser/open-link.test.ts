@@ -239,6 +239,21 @@ describe('startOpenLinkCapture', () => {
     expect(getPendingOpenLink()).toBeNull();
   });
 
+  it('does not offer a taken live link again when iOS reports it as the launch link after a reload', async () => {
+    startOpenLinkCapture();
+    await flushPromises();
+    const onUrlOpen = mockAddListener.mock.calls[0][1] as (event: { url: string }) => void;
+    onUrlOpen({ url: LIVE_LINK });
+    expect(takePendingOpenLink()).toBe(LIVE);
+
+    __resetOpenLinksForTest();
+    mockGetLaunchUrl.mockResolvedValue({ url: LIVE_LINK });
+    startOpenLinkCapture();
+    await flushPromises();
+
+    expect(getPendingOpenLink()).toBeNull();
+  });
+
   it('keeps a held live link across a reload', async () => {
     startOpenLinkCapture();
     const onUrlOpen = mockAddListener.mock.calls[0][1] as (event: { url: string }) => void;
