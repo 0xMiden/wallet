@@ -273,12 +273,12 @@ function buildEntry(message: string, englishMessage: string): any {
 }
 
 // The marker of an entry whose message is the English text: format-locales.js leaves it out of the flat
-// bundle and translateWithDiff translates it again on the next run.
+// bundle. Rejections also record rejectedSource so unchanged English is not sent again.
 const UNTRANSLATED = '(untranslated)';
 
 // Check each protected term's DeepL tag without native-word exemptions and the unwrapped text with
-// findGluedTerms. Only clean text is written, without tags; otherwise keep English under UNTRANSLATED
-// until a later run gets it clean or a hand fix lands. No same-run retry: DeepL repeats the same glue.
+// findGluedTerms. Rejected text keeps English under UNTRANSLATED and stays out of the flat bundle; send it
+// again only when its English changes or its entry is deleted. Clean text is written without tags.
 function translatedEntry(key: string, translation: string, english: string, language: string) {
   const unwrapped = fromDeepLXml(translation);
   const protectedFamilies = protectedTermFamilies(english);
@@ -296,7 +296,7 @@ function translatedEntry(key: string, translation: string, english: string, lang
   console.log(
     `::warning title=Rejected translation::${language} ${key} glues ${glued.join(', ')}; keeping the English.`
   );
-  return { ...buildEntry(english, english), englishSource: UNTRANSLATED };
+  return { ...buildEntry(english, english), englishSource: UNTRANSLATED, rejectedSource: english };
 }
 
 // Translate every key of en.json into `code`, writing a throwaway tmp file (does not
@@ -316,6 +316,35 @@ async function translateFile(code: string) {
   fs.writeFileSync(path.join(root, 'utility/tmp-messages.json'), JSON.stringify(newFile, null, 2));
 }
 
+type TranslationEntry = {
+  message: string;
+  englishSource?: string;
+  rejectedSource?: string;
+  placeholders?: Record<string, { content: string }>;
+};
+
+function translationEntryToKeep(englishMessage: string, existingItem?: TranslationEntry): TranslationEntry | undefined {
+  const placeholders = generateChromePlaceholders(englishMessage);
+  if (!existingItem) {
+    return undefined;
+  } else if (!existingItem.englishSource) {
+    // Existing translation without englishSource - keep it, add the source (one-time migration)
+    const entry: any = { ...existingItem, englishSource: englishMessage };
+    if (placeholders) entry.placeholders = placeholders;
+    return entry;
+  } else if (
+    existingItem.englishSource !== englishMessage &&
+    !(existingItem.englishSource === UNTRANSLATED && existingItem.rejectedSource === englishMessage)
+  ) {
+    return undefined;
+  } else {
+    // Current or rejected against unchanged English - copy through, refreshing placeholders
+    const entry: any = { ...existingItem };
+    if (placeholders) entry.placeholders = placeholders;
+    return entry;
+  }
+}
+
 // Regenerate a locale's messages.json from en.json, translating only what changed:
 // missing keys and keys whose English source moved. Untouched keys are copied as-is,
 // stale keys (no longer in en.json) are dropped.
@@ -332,25 +361,11 @@ async function translateWithDiff(fileName: string, code: string, replaceFile: bo
   const toTranslate: { key: string; english: string }[] = [];
   for (const key in englishFile) {
     const englishMessage = englishFile[key]; // en.json is flat: "key": "value"
-    const existingItem = existingFile[key];
-    const placeholders = generateChromePlaceholders(englishMessage);
-
-    if (!existingItem) {
-      // Missing translation - queue it
-      toTranslate.push({ key, english: englishMessage });
-    } else if (!existingItem.englishSource) {
-      // Existing translation without englishSource - keep it, add the source (one-time migration)
-      const entry: any = { ...existingItem, englishSource: englishMessage };
-      if (placeholders) entry.placeholders = placeholders;
+    const entry = translationEntryToKeep(englishMessage, existingFile[key]);
+    if (entry) {
       newFile[key] = entry;
-    } else if (existingItem.englishSource !== englishMessage) {
-      // English source has changed - queue a re-translation
-      toTranslate.push({ key, english: englishMessage });
     } else {
-      // Up to date - copy through, refreshing placeholders
-      const entry: any = { ...existingItem };
-      if (placeholders) entry.placeholders = placeholders;
-      newFile[key] = entry;
+      toTranslate.push({ key, english: englishMessage });
     }
   }
 
@@ -465,7 +480,8 @@ module.exports = {
   generateChromePlaceholders,
   LOCALE_TO_DEEPL,
   findGluedTerms,
-  translatedEntry
+  translatedEntry,
+  translationEntryToKeep
 };
 
 // CLI entry point — only when run directly (`ts-node generateLanguageFiles.ts`), never

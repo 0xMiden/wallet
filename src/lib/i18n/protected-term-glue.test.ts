@@ -202,7 +202,11 @@ describe('translatedEntry', () => {
     const log = jest.spyOn(console, 'log').mockImplementation(() => undefined);
     try {
       const entry = translatedEntry('gluedKey', 'A<x>note</x> é pública.', 'The note is public.', 'pt');
-      expect(entry).toEqual({ message: 'The note is public.', englishSource: '(untranslated)' });
+      expect(entry).toEqual({
+        message: 'The note is public.',
+        englishSource: '(untranslated)',
+        rejectedSource: 'The note is public.'
+      });
       expect(entry.message).not.toMatch(/<\/?x\s*>/);
       expect(log).toHaveBeenCalledTimes(1);
       expect(log.mock.calls[0]?.[0]).toBe(
@@ -229,7 +233,11 @@ describe('translatedEntry', () => {
         'The note and the note are public.',
         'pt'
       );
-      expect(entry).toEqual({ message: 'The note and the note are public.', englishSource: '(untranslated)' });
+      expect(entry).toEqual({
+        message: 'The note and the note are public.',
+        englishSource: '(untranslated)',
+        rejectedSource: 'The note and the note are public.'
+      });
       expect(log).toHaveBeenCalledTimes(1);
       expect(log.mock.calls[0]?.[0]).toBe(
         '::warning title=Rejected translation::pt gluedKey glues Anote; keeping the English.'
@@ -239,7 +247,7 @@ describe('translatedEntry', () => {
     }
   });
 
-  it('keeps the English, queued for the next run, instead of a glued translation and flags the key on the checks', () => {
+  it('keeps the English instead of a glued translation and flags the key on the checks', () => {
     const log = jest.spyOn(console, 'log').mockImplementation(() => undefined);
     try {
       const entry = translatedEntry(
@@ -248,10 +256,11 @@ describe('translatedEntry', () => {
         'A published note for $amount$ cannot be reclaimed.',
         'pl'
       );
-      // The sentinel keeps the key out of the flat bundle (English fallback) and makes the next run re-translate it.
+      // The sentinel omits the key from the flat bundle; retry only after English changes or the entry is deleted.
       expect(entry).toEqual({
         message: 'A published note for $amount$ cannot be reclaimed.',
         englishSource: '(untranslated)',
+        rejectedSource: 'A published note for $amount$ cannot be reclaimed.',
         placeholders: { amount: { content: '$1' } }
       });
       // A GitHub Actions annotation, so the rejection shows on the pull request rather than only in the job log.
