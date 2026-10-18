@@ -22,6 +22,7 @@ import {
   ProtocolError,
   RequestEnvelope,
   ResponseEnvelope,
+  UNSEALED_ERROR_CODES,
   writeLink
 } from './envelope.js';
 
@@ -198,6 +199,9 @@ export function answerRequest(envelope: RequestEnvelope, session: WalletSession,
 
 /** An unsealed error, for a message Bread holds no keys for. */
 export function errorLink(callback: string, error: ProtocolError, id?: string): string {
+  if (!UNSEALED_ERROR_CODES.includes(error.code)) {
+    throw new ProtocolMessageError(`${error.code} travels only in a sealed answer`);
+  }
   return checkedLink(callback, id === undefined ? { type: 'error', error } : { type: 'error', id, error });
 }
 

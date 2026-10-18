@@ -79,7 +79,7 @@ The sealed payload is `{ "response": <MidenDAppResponse> }` or `{ "error": <erro
 
 ### `error`: Bread to app, not sealed
 
-Only when Bread holds no keys for the message: an unknown or expired session, an unsupported version or an envelope it cannot read.
+Only when Bread holds no keys for the message: an unknown or expired session (`SESSION_NOT_FOUND`), an unsupported version (`UNSUPPORTED_VERSION`) or an envelope it cannot read (`INVALID_REQUEST`). A reader refuses an unsealed error with any other code.
 
 ```json
 { "type": "error", "id": "<request id, when readable>", "error": { "code": "SESSION_NOT_FOUND", "message": "..." } }
@@ -96,7 +96,7 @@ An error is `{ "code": <code>, "message": <text for logs> }`. The codes are Brea
 | `NOT_GRANTED` | The user declined, or the app has no permission for the account. |
 | `NOT_FOUND`, `INVALID_PARAMS`, `NETWORK_NOT_GRANTED` | As in Bread's in-app browser. |
 | `UNSUPPORTED_METHOD` | The request type is not one of the methods below. |
-| `INVALID_REQUEST` | The envelope or its payload is malformed. |
+| `INVALID_REQUEST` | The envelope or its payload is malformed. Unsealed when Bread cannot read the envelope. |
 | `DUPLICATE_REQUEST` | The session already answered this request id. |
 | `REQUEST_EXPIRED` | `sentAt` is more than 10 minutes old, or more than 1 minute ahead of Bread's clock, when Bread reads the request or when its turn comes in Bread's queue. |
 | `SESSION_NOT_FOUND` | Bread has no session with this id. Unsealed. |

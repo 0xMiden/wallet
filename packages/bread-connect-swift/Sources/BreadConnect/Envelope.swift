@@ -14,6 +14,9 @@ public enum ProtocolErrorCode: String, CaseIterable, Sendable {
     case transactionFailed = "TRANSACTION_FAILED"
     case transactionTimeout = "TRANSACTION_TIMEOUT"
     case internalError = "INTERNAL_ERROR"
+
+    /// The codes Bread sends unsealed: those for a message it holds no keys for.
+    public static let unsealed: Set<ProtocolErrorCode> = [.sessionNotFound, .unsupportedVersion, .invalidRequest]
 }
 
 public struct ProtocolError: Equatable, Sendable {
@@ -138,7 +141,9 @@ public enum Envelope: Equatable, Sendable {
             else { return nil }
             self = .response(ResponseEnvelope(id: id, session: session, nonce: nonce, sealed: sealed))
         case "error"?:
-            guard let error = ProtocolError(json: value["error"]) else { return nil }
+            guard let error = ProtocolError(json: value["error"]), ProtocolErrorCode.unsealed.contains(error.code) else {
+                return nil
+            }
             guard let rawId = value["id"] else {
                 self = .error(ErrorEnvelope(id: nil, error: error))
                 return

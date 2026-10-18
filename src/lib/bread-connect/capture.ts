@@ -18,7 +18,7 @@ export function canonicalRequestLink(link: string): string {
 export function requestLinkId(link: string): string | null {
   const read = readLink(link, BREAD_REQUEST_URL);
   if (!read) return null;
-  if (read.kind !== 'envelope') return read.id ?? null;
+  if (read.kind !== 'envelope') return read.callback && read.id ? read.id : null;
   return read.envelope.type === 'connect' || read.envelope.type === 'request' ? read.envelope.id : null;
 }
 

@@ -19,6 +19,13 @@ export const ERROR_CODES = [
 
 export type ErrorCode = (typeof ERROR_CODES)[number];
 
+/** The codes Bread sends unsealed: those for a message it holds no keys for. */
+export const UNSEALED_ERROR_CODES: readonly ErrorCode[] = [
+  'SESSION_NOT_FOUND',
+  'UNSUPPORTED_VERSION',
+  'INVALID_REQUEST'
+];
+
 export interface ProtocolError {
   code: ErrorCode;
   message: string;
@@ -162,7 +169,9 @@ export function parseEnvelope(value: unknown): Envelope | null {
     }
     case 'error': {
       const { id, error } = value;
-      if ((id !== undefined && !isId(id)) || !isProtocolError(error)) return null;
+      if ((id !== undefined && !isId(id)) || !isProtocolError(error) || !UNSEALED_ERROR_CODES.includes(error.code)) {
+        return null;
+      }
       return id === undefined ? { type: 'error', error } : { type: 'error', id, error };
     }
     default:

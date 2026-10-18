@@ -23,6 +23,10 @@ enum class ProtocolErrorCode {
     INTERNAL_ERROR,
 }
 
+/** The codes Bread sends unsealed: those for a message it holds no keys for. */
+private val UNSEALED_CODES =
+    setOf(ProtocolErrorCode.SESSION_NOT_FOUND, ProtocolErrorCode.UNSUPPORTED_VERSION, ProtocolErrorCode.INVALID_REQUEST)
+
 data class ProtocolError(val code: ProtocolErrorCode, val message: String) {
     internal fun toJson(): JsonObject = buildJsonObject {
         put("code", code.name)
@@ -126,7 +130,7 @@ sealed class Envelope {
                     sealed = field("sealed")?.takeIf(::isSealed) ?: return null,
                 )
                 "error" -> {
-                    val error = ProtocolError.from(value["error"]) ?: return null
+                    val error = ProtocolError.from(value["error"])?.takeIf { it.code in UNSEALED_CODES } ?: return null
                     if (!value.containsKey("id")) return Error(null, error)
                     Error(field("id")?.takeIf(::isId) ?: return null, error)
                 }
