@@ -309,6 +309,17 @@ describe('resetStorageDestructive', () => {
     expect(mockBrowserStorageClear).not.toHaveBeenCalled();
   });
 
+  it('removes the request links Bread holds on mobile, which the wallet-setup wipe keeps', async () => {
+    (isMobile as jest.Mock).mockReturnValue(true);
+    localStorage.setItem('bread-connect:queue', '[]');
+
+    await clearStorage();
+    expect(localStorage.getItem('bread-connect:queue')).toBe('[]');
+
+    await resetStorageDestructive();
+    expect(localStorage.getItem('bread-connect:queue')).toBeNull();
+  });
+
   // The options page calls it with no options and relies on the override surviving.
   it('keeps the endpoint override across the wipe by default', async () => {
     (isExtension as jest.Mock).mockReturnValue(true);

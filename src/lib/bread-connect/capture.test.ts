@@ -48,6 +48,7 @@ function flushPromises(): Promise<void> {
 
 beforeEach(() => {
   sessionStorage.clear();
+  localStorage.clear();
   __resetRequestLinksForTest();
   mockAddListener.mockReset().mockResolvedValue({ remove: jest.fn() });
   mockGetLaunchUrl.mockReset().mockResolvedValue(undefined);
@@ -227,6 +228,34 @@ describe('startRequestLinkCapture', () => {
     await flushPromises();
 
     expect(nextRequestLink()).toBeNull();
+  });
+
+  it('holds again after a restart the links it held, but none taken or older than ten minutes', async () => {
+    const now = jest.spyOn(Date, 'now').mockReturnValue(1_792_000_000_000);
+    try {
+      const taken = connectLink();
+      const stale = connectLink();
+      const held = connectLink();
+      acceptRequestLink(taken.link);
+      expect(takeRequestLink()).toBe(taken.link);
+      acceptRequestLink(stale.link);
+      now.mockReturnValue(1_792_000_000_000 + 6 * 60_000);
+      acceptRequestLink(held.link);
+
+      now.mockReturnValue(1_792_000_000_000 + 11 * 60_000);
+      __resetRequestLinksForTest();
+      startRequestLinkCapture();
+      await flushPromises();
+
+      expect(takeRequestLink()).toBe(held.link);
+      expect(nextRequestLink()).toBeNull();
+      __resetRequestLinksForTest();
+      startRequestLinkCapture();
+      await flushPromises();
+      expect(nextRequestLink()).toBeNull();
+    } finally {
+      now.mockRestore();
+    }
   });
 
   it('warns when the listener or the launch link fails', async () => {
