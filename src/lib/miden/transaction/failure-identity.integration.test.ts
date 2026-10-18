@@ -6,7 +6,12 @@ import { installHiddenDocument, type HiddenDocument } from 'lib/mobile/testing/h
 import { isMobile } from 'lib/platform';
 import { captureCrash } from 'lib/telemetry/crash';
 
-import { cancelTransactionAfterPipelineStopped, markTransactionUnconfirmed } from './cancel';
+import {
+  cancelStaleQueuedTransactions,
+  cancelTransactionAfterPipelineStopped,
+  markTransactionUnconfirmed,
+  MAX_QUEUED_AGE
+} from './cancel';
 import { resolveUnconfirmedSwitch } from './complete';
 import { AccountState, NodeReads } from './reconcile-reads';
 import { judgeAndWrite } from './reconcile-unconfirmed';
@@ -319,5 +324,44 @@ describe('a pre-flight sync killed by the offscreen deadline', () => {
     expect(report?.message).toContain('; point pipeline; offscreen_aborted_deadline. authentication');
     expect(report?.message).not.toContain('3f2c8a9e');
     expect(report?.level).toBe('error');
+  });
+});
+
+// BREAD-WALLET-R: claims queued behind one blocked row expired together, and each was filed as an error.
+describe('the queue expiry', () => {
+  const queued = (id: string, stage?: ITransaction['stage']): ITransaction => ({
+    id,
+    type: 'consume',
+    accountId: ACCOUNT,
+    status: ITransactionStatus.Queued,
+    initiatedAt: NOW - MAX_QUEUED_AGE - 60,
+    delegateTransaction: true,
+    displayIcon: 'RECEIVE',
+    noteId: NOTE,
+    ...(stage === undefined ? {} : { stage })
+  });
+
+  it('reports claims the loop never started at warning, and a requeued Guardian claim that had started at error', async () => {
+    await Repo.transactions.bulkPut([queued('tx-1'), queued('tx-2'), queued('tx-3', 'creating-proposal')]);
+    await cancelStaleQueuedTransactions();
+    const reports = captured();
+    expect(reports).toHaveLength(3);
+    const neverStarted = reports.filter(({ message }) => message.includes('tx_receive; stage unknown; realm unknown;'));
+    const started = reports.filter(({ message }) =>
+      message.includes('tx_receive; stage signing; signing step creating_proposal; realm unknown;')
+    );
+    expect(neverStarted.map(({ level }) => level)).toEqual(['warning', 'warning']);
+    expect(started.map(({ level }) => level)).toEqual(['error']);
+    for (const { message } of reports) {
+      expect(message).toMatch(/^Transaction failed: /);
+      expect(message).toContain('; point pipeline; queued_expired. authentication');
+      expectNoTransactionData(message);
+    }
+    const rows = await Repo.transactions.bulkGet(['tx-1', 'tx-2', 'tx-3']);
+    expect(rows.map(row => row?.status)).toEqual([
+      ITransactionStatus.Failed,
+      ITransactionStatus.Failed,
+      ITransactionStatus.Failed
+    ]);
   });
 });

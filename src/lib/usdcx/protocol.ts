@@ -1,5 +1,7 @@
 import type { Hex } from 'viem';
 
+import { walletRaised } from 'lib/telemetry/bridge-receive-failure';
+
 /** The 24-byte hook name the Generic Executor looks for in composable hook data (`circle-generic-executor`). */
 export const CCTP_EXECUTOR_HOOK_NAME = 'circle-generic-executor';
 /** The hook name Circle's forwarding service looks for; its frame carries no payload for an EVM destination. */
@@ -166,6 +168,7 @@ export class UsdcxDomainNotRegisteredError extends Error {
     super(`xReserve remote domain ${remoteDomain} is not registered`);
     this.name = 'UsdcxDomainNotRegisteredError';
     this.remoteDomain = remoteDomain;
+    walletRaised(this);
   }
 }
 

@@ -1,5 +1,7 @@
 import { getAddress } from 'viem';
 
+import { walletRaised } from 'lib/telemetry/bridge-receive-failure';
+
 import type { BridgeToken, DerivedChainConfig, Probe, TokenMetadata } from './derive';
 import { getE2eOverrides, type MidenUsdc } from './e2e-overrides';
 import { type BridgeConfigSnapshot, getBridgeConfigSnapshot } from './runtime';
@@ -11,6 +13,7 @@ export class BridgeConfigUnavailableError extends Error {
   constructor(readonly value: string) {
     super(`The bridge config has no usable ${value}.`);
     this.name = 'BridgeConfigUnavailableError';
+    walletRaised(this);
   }
 }
 
