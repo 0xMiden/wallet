@@ -603,9 +603,9 @@ const DISPATCH: Record<string, DispatchFn> = {
     return new TextEncoder().encode(JSON.stringify(details));
   },
 
-  // The records a details commitment names (#1389): hashed and reduced here like `getInputNoteDetails`'s.
-  getDetailsCommitmentMatches: async (context, client, commitment: string) => {
-    const matches = await client.getDetailsCommitmentMatches(commitment, () =>
+  // Only the candidate records for each details commitment (#1389) are hashed and reduced here.
+  getDetailsCommitmentMatches: async (context, client, commitments: string[], candidateIds: string[]) => {
+    const matches = await client.getDetailsCommitmentMatches(commitments, candidateIds, () =>
       assertWasmHoldCurrent(context.hold, 'in offscreen getDetailsCommitmentMatches before reducing the records')
     );
     return new TextEncoder().encode(JSON.stringify(matches));
