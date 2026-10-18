@@ -494,6 +494,29 @@ describe('surfaces', () => {
     expect(judgeCell({ ...failure, surface: 'ios' }).verdict).toBe('fail-new');
   });
 
+  it('passes the runner surface to the judge instead of explaining a mobile failure with an extension placement', async () => {
+    const mobile = new DappCellRunner<string>({
+      surface: 'ios',
+      part: 'slim',
+      axis: 'offchain',
+      journey: 'PL',
+      testTitle: 'mobile surface regression',
+      outDir: outDir(),
+      declared: ['C1'],
+      registry: registry([KX]),
+      hooks: quietHooks()
+    });
+    const extension = makeRunner(outDir(), [KX]);
+    const failure = cellOf('C1', async ctx => {
+      ctx.evidence.stage = 'creating-proposal';
+      throw new Error('boom');
+    });
+    expect((await mobile.run(failure)).verdict).toBe('fail-new');
+    expect((await extension.run(failure)).verdict).toBe('fail-known');
+    expect(read(mobile.file).cells[0]?.verdict).toBe('fail-new');
+    expect(read(extension.file).cells[0]?.knownBugs).toEqual(['KX']);
+  });
+
   it("keeps a cell's evidence in its record, so a run is read for a signature and for its step times", async () => {
     const runner = mobileRunner(outDir());
     await runner.run(
