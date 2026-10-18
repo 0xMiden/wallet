@@ -1,4 +1,4 @@
-import React, { FC, useEffect, useState, useSyncExternalStore } from 'react';
+import React, { FC, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
@@ -36,6 +36,8 @@ export const BreadConnectPrompt: FC = () => {
   const rotationGated = useWalletStore(s => Boolean(s.currentAccount?.requiresHotKeyRotation));
   const link = useSyncExternalStore(subscribeRequestLinks, nextRequestLink, nextRequestLink);
   const [answering, setAnswering] = useState(false);
+  // Taking a link re-renders through the link store before `answering` is set, so the effect checks this instead.
+  const answeringRef = useRef(false);
   const [notice, setNotice] = useState<Notice | null>(null);
 
   useEffect(() => startRequestLinkCapture(), []);
@@ -46,9 +48,10 @@ export const BreadConnectPrompt: FC = () => {
     !OUTSIDE_WALLET_SHELL_ROUTES.has(pathname);
 
   useEffect(() => {
-    if (link === null || !walletOpen || answering) return;
+    if (link === null || !walletOpen || answeringRef.current) return;
     const taken = takeRequestLink();
     if (!taken) return;
+    answeringRef.current = true;
     setAnswering(true);
     setNotice(null);
     void (async () => {
@@ -69,6 +72,7 @@ export const BreadConnectPrompt: FC = () => {
         console.warn('[bread-connect] answering a request failed:', error);
         setNotice(null);
       } finally {
+        answeringRef.current = false;
         setAnswering(false);
       }
     })();
