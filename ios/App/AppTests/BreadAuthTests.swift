@@ -93,7 +93,8 @@ final class BreadAuthTests: XCTestCase {
                             "https://other.example\\@game.example/auth", "https://game.example/a b",
                             "https://g\u{E4}me.example/auth", longURL(length: 4097), "https://game.example/auth#a#b",
                             "https://game.example/%zz", "https://game.example/a%4", "https://game.example/auth?x=[1]",
-                            "https://game.example/[x]", "https://game.example/auth#[x]"]
+                            "https://game.example/[x]", "https://game.example/auth#[x]", "https://game.example/a]",
+                            "https://game.example/a%"]
         for url in urls {
             XCTAssertEqual(failure(url: url), .invalidURL, String(describing: url))
         }
