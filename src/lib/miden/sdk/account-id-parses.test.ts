@@ -50,6 +50,15 @@ const sourceFiles = (dir: string): string[] =>
   });
 
 describe('canonical account-id parses', () => {
+  it.each([
+    'AccountId.fromBech32(x);',
+    'wasm.AccountId.fromBech32(x);',
+    'wasm.Address.fromBech32(x).accountId();',
+    'MidenAddress.fromBech32(x).accountId();'
+  ])('flags exactly one parse in %s', code => {
+    expect(bech32OnlyParses('src/new-parser.ts', code)).toHaveLength(1);
+  });
+
   it('detects bech32-only parses and permits only the canonical helpers and address validation', () => {
     const fileName = 'src/new-parser.ts';
     const helperCall = 'accountIdStringToSdk(x);';

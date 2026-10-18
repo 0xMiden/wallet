@@ -6,6 +6,7 @@ import { SpendingLimitChallengeProps } from 'components/SpendingLimitChallenge';
 import { probeHardwareProtector } from 'lib/miden/back/protector-probe';
 import { applyOverrideFor } from 'lib/miden/metadata/overrides';
 import { SpendingLimitAuthorization } from 'lib/miden/spending-limits/types';
+import { _resetNormalizedFaucetIdsForTest } from 'lib/miden/swap/faucet-ids';
 import { SwapPair } from 'lib/miden/swap/tokens';
 import { ROUTE_DWELL_MS } from 'lib/telemetry/use-route-dwell';
 
@@ -403,6 +404,7 @@ const quoteAt = (
 
 beforeEach(() => {
   jest.clearAllMocks();
+  _resetNormalizedFaucetIdsForTest();
 
   mockBaseFee = 0;
   mockNativeFaucetId = 'MIDEN-ID';
