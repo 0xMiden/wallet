@@ -21,7 +21,7 @@
     "englishSource": "Burn only"
   },
   "usdcxWithdrawalNotice": {
-    "message": "Potwierdzone spalenie oznacza, że tokeny USDCx zostały spalone na platformie Miden. Potwierdzenie oznacza, że saldo USDC na koncie docelowym wzrosło. Notnote, która powoduje spalenie tokenów USDCx, oraz adres docelowy są publiczne. Opublikowanej notnote nie można cofnąć.",
+    "message": "Potwierdzone spalenie oznacza, że tokeny USDCx zostały spalone na platformie Miden. Potwierdzenie oznacza, że saldo USDC na koncie docelowym wzrosło. Note, która powoduje spalenie tokenów USDCx, oraz adres docelowy są publiczne. Opublikowanej note nie można cofnąć.",
     "englishSource": "Burn confirmed means USDCx was burned on Miden. Confirmed means the destination USDC balance increased. The note that burns the USDCx and the destination address are public. A published note cannot be reclaimed."
   },
   "usdcxBurnTestNotice": {
@@ -3971,7 +3971,7 @@
     "englishSource": "Import private note"
   },
   "requestConsumableNotes": {
-    "message": "Zamów materiały eksploatacyjneNotes",
+    "message": "Prośba o Notes do wykorzystania",
     "englishSource": "Request Consumable Notes"
   },
   "requestsConsumableNotes": {
@@ -4107,7 +4107,7 @@
     "englishSource": "Set new Faucet ID"
   },
   "setNewFaucetIdDescription": {
-    "message": "Wprowadź identyfikator urządzenia Midenfaucet",
+    "message": "Wprowadź identyfikator fauceta Miden",
     "englishSource": "Enter the ID of a miden faucet"
   },
   "addAccount": {
@@ -6594,7 +6594,7 @@
     "englishSource": "Save"
   },
   "resetToFaucetValues": {
-    "message": "Przywróć wartości domyślne dfaucet",
+    "message": "Przywróć wartości fauceta",
     "englishSource": "Reset to faucet values"
   },
   "tokenMetadataEdited": {

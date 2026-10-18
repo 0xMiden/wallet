@@ -60,8 +60,6 @@ export interface FailureEvidence {
   crossOriginWaitServed?: boolean;
   /** Why the React context `connectReact` returned holds a key that is not a Word, so its `publicKeyHex` is null. */
   reactPublicKeyError?: string;
-  /** N4 listed every imported note by its own note id, then missed one asked by the id its import returned (K10). */
-  returnedIdUnlisted?: boolean;
   /** WP7: the React context's account and connection once the provider moved (K1 at the React layer). */
   reactAddress?: string | null;
   reactConnected?: boolean;

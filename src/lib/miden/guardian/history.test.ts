@@ -19,7 +19,17 @@ import {
   SwitchGuardianTransaction,
   UpdateProcedureThresholdTransaction
 } from '../db/types';
+import * as Repo from '../repo';
 import type { GuardianHistoryNote, GuardianSummary } from '../sdk/guardian-history';
+import { recoveredSwapOrderRef } from '../swap/recovered-order';
+import { trackRecoveredSwapOrders } from '../swap/recovered-order-tracking';
+
+// What the node says of a recovered order's lineage; its reads are pinned in pswap-order-note's suite.
+const mockReadPswapOrderLineage = jest.fn();
+jest.mock('../sdk/pswap-order-note', () => ({
+  readPswapOrderLineage: (...args: unknown[]) => mockReadPswapOrderLineage(...args)
+}));
+jest.mock('lib/miden-chain/constants', () => ({ ensureSdkWasmReady: async () => undefined }));
 
 const timestamp = '2026-08-01T00:00:00Z';
 const entry: HistoryEntry = {
@@ -434,22 +444,67 @@ function recoveredSwapPair() {
   return { swap, consume };
 }
 
-it('links a recovered receive to its swap by order ID', () => {
+// Whether a recovered order is closed is its lineage's to say on the node: a payout claimed from a partial fill leaves
+// the remainder open, so a linked consume never stamps the order (#1487).
+it('links a recovered receive to its swap by order ID, and stamps no close on the order', () => {
   const { swap, consume } = recoveredSwapPair();
-  expect(reconcileRecoveredSwaps([consume, swap])).toHaveLength(2);
+  expect(reconcileRecoveredSwaps([consume, swap])).toEqual([consume]);
   expect(swap.faucetId).toBe('miden');
   expect(swap.extraInputs).toMatchObject({ requestedFaucetId: 'ieth', requestedAmount: 30n, autoConsume: false });
   expect(consume.extraInputs).toMatchObject({ swapOrderTxId: swap.id, swapSettleKind: 'settle' });
+  expect(swap.extraInputs.settledAt).toBeUndefined();
   expect(reconcileRecoveredSwaps([consume, swap])).toEqual([]);
 });
 
-it('returns a later receipt for a linked order and the order it moves, not the earlier receipt', () => {
+it('returns a later receipt for a linked order, not the earlier receipt', () => {
   const { swap, consume } = recoveredSwapPair();
   reconcileRecoveredSwaps([consume, swap]);
   const later = { ...consume, id: 'later-consume', completedAt: (consume.completedAt ?? 0) + 60, extraInputs: {} };
   const changed = reconcileRecoveredSwaps([consume, swap, later]);
-  expect(changed.map(row => row.id).sort()).toEqual([later.id, swap.id].sort());
-  expect(swap.extraInputs.settledAt).toBe(later.completedAt);
+  expect(changed.map(row => row.id)).toEqual([later.id]);
+  expect(swap.extraInputs.settledAt).toBeUndefined();
+});
+
+it('still stamps a local order a recovered receive settles, as a live order is settled', () => {
+  const { swap, consume } = recoveredSwapPair();
+  const local = { ...swap, recovered: undefined, restoredFromBackup: undefined };
+  expect(reconcileRecoveredSwaps([consume, local])).toHaveLength(2);
+  expect(local.extraInputs.settledAt).toBe(consume.completedAt ?? consume.initiatedAt);
+});
+
+it('keeps a recovered order a 10 of 30 payout settled open at its remainder, and closes it once the walk ends', async () => {
+  const { swap, consume } = recoveredSwapPair();
+  if (!consume.recovery) throw new Error('Missing recovery data');
+  const payout = consume.recovery.inputNotes[0];
+  if (!payout) throw new Error('Missing payout note');
+  consume.recovery.inputNotes = [{ ...payout, assets: [{ faucetId: 'ieth', amount: '10' }] }];
+  consume.completedAt = 1_785_000_000;
+  await Repo.transactions.clear();
+
+  for (const row of reconcileRecoveredSwaps([consume, swap])) await Repo.transactions.put(row);
+  await Repo.transactions.put(swap);
+  expect(consume.extraInputs).toMatchObject({ swapOrderTxId: swap.id, swapSettleKind: 'settle' });
+  const order = recoveredSwapOrderRef(swap);
+  if (!order) throw new Error('The linked payout closed the recovered order');
+
+  // 70 for 30 filled 10 pays 23, leaving 47 for 20 on the node.
+  mockReadPswapOrderLineage.mockResolvedValueOnce({
+    kind: 'open',
+    noteId: 'remainder-1',
+    depth: 1,
+    offeredAmount: 47n,
+    requestedAmount: 20n
+  });
+  await trackRecoveredSwapOrders([order]);
+  const open = await Repo.transactions.get(swap.id);
+  expect(open?.extraInputs?.settledAt).toBeUndefined();
+  const tip = open && recoveredSwapOrderRef(open);
+  expect(tip).toEqual(expect.objectContaining({ tipNoteId: 'remainder-1', tipDepth: 1, tipOfferedAmount: 47n }));
+  if (!tip) throw new Error('The open recovered order lost its tracking');
+
+  mockReadPswapOrderLineage.mockResolvedValueOnce({ kind: 'finished' });
+  await trackRecoveredSwapOrders([tip]);
+  expect((await Repo.transactions.get(swap.id))?.extraInputs?.settledAt).toBe(consume.completedAt);
 });
 
 it('leaves a local receipt that only gained recovery data alone', () => {
@@ -493,13 +548,13 @@ it('does not link across accounts or networks or ambiguous orders', () => {
   expect(reconcileRecoveredSwaps([consume, swap, { ...swap, id: 'duplicate-order' }])).toEqual([]);
 });
 
-it('links a reclaimed PSWAP remainder without treating it as a fill', () => {
+it('links a reclaimed PSWAP remainder without treating it as a fill, and leaves its close to the lineage', () => {
   const { swap, consume } = recoveredSwapPair();
   if (!consume.recovery) throw new Error('Missing recovery data');
   consume.recovery.inputNotes = swap.recovery?.outputNotes ?? [];
   reconcileRecoveredSwaps([consume, swap]);
   expect(consume.extraInputs.swapSettleKind).toBe('reclaim');
-  expect(swap.extraInputs.reclaimedAt).toBeDefined();
+  expect(swap.extraInputs.reclaimedAt).toBeUndefined();
   expect(swap.extraInputs.settledAt).toBeUndefined();
 });
 
@@ -543,7 +598,7 @@ it.each(['custom_transaction', 'consume_notes'])(
       recovery: { reclaimed: true }
     });
     const order = reloaded.find(row => row.id === swap.id);
-    expect(order?.extraInputs.reclaimedAt).toBe(reclaim.completedAt);
+    expect(order?.extraInputs.reclaimedAt).toBeUndefined();
     expect(order?.extraInputs.settledAt).toBeUndefined();
     expect(reconcileRecoveredSwaps(reloaded)).toEqual([]);
   }

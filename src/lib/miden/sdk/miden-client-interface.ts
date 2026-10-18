@@ -84,7 +84,9 @@ import {
   type WasmLockHold
 } from './miden-client';
 import { buildNativeProverCallback } from './native-prover-mobile';
+import { normalizedCommitment, noteDetailsCommitment } from './note-details-commitment';
 import { beginProveAttempt } from './prove-telemetry';
+import { readPswapOrderNote } from './pswap-order-note';
 import {
   isApplyAfterSubmitError,
   isPipelineKillLink,
@@ -227,6 +229,46 @@ export type FungibleAssetDetails = {
   faucetId: string;
 };
 
+/** What {@link MidenClientInterface.getDetailsCommitmentMatches} finds among the candidates for each commitment. */
+export type DetailsCommitmentMatches = {
+  /** The matching candidate records that reduce to note details. */
+  notes: InputNoteDetails[];
+  /** The matching candidates that cannot yet be reduced: imported from details alone, not committed by a sync. */
+  uncommitted: number;
+};
+
+function reduceInputNoteDetails(note: InputNoteRecord): InputNoteDetails[] {
+  // A partial (metadata-less) record has no note ID, and, since 0.15
+  // nullifiers fold in metadata, no nullifier either. It cannot be
+  // displayed or consumed, so skip it until sync completes it.
+  const noteId = note.id();
+  const nullifier = note.nullifier();
+  if (!noteId || !nullifier) {
+    return [];
+  }
+  const assets = note
+    .details()
+    .assets()
+    .fungibleAssets()
+    .map(asset => ({
+      amount: asset.amount().toString(),
+      faucetId: getBech32AddressFromAccountId(asset.faucetId())
+    }));
+  const noteMet = note.metadata();
+  const restriction = noteConsumeRestriction(note);
+  return [
+    {
+      noteId: noteId.toString(),
+      noteType: noteMet?.noteType(),
+      senderAccountId: noteMet ? getBech32AddressFromAccountId(noteMet.sender()) : undefined,
+      nullifier,
+      state: note.state(),
+      assets,
+      ...(restriction !== undefined && { restriction })
+    }
+  ];
+}
+
 /**
  * What the local store knows about a submitted transaction's fate. Only
  * `'committed'` and `'discarded'` are verdicts; see
@@ -283,6 +325,14 @@ export interface ClientLiveness {
  * eviction message says which await parked.
  */
 export type AssertLive = (step?: string) => void;
+
+export interface PswapCancelRequestOptions {
+  /**
+   * Read the order note from the node when this client's output-note store has no record of it: the order was placed
+   * on another device and reached this one through Guardian history recovery (#1487).
+   */
+  allowNodeNote?: boolean;
+}
 
 const noAssertLive: AssertLive = () => {};
 
@@ -1035,7 +1085,8 @@ export class MidenClientInterface {
    * the details commitment for a details-only file. The wallet's
    * `deserializeNoteFileOrNote` wraps raw `Note` bytes into the details variant
    * (`NoteFile.fromExpectedNote`), so for that path the returned hex is a
-   * details commitment, not a note ID.
+   * details commitment, not a note ID. A dApp's `requestConsume` accepts it
+   * once a sync has committed the note ({@link getDetailsCommitmentMatches}, #1389).
    */
   async importNoteBytes(noteBytes: Uint8Array, hold: WasmLockHold): Promise<string> {
     try {
@@ -1432,36 +1483,30 @@ export class MidenClientInterface {
   async getInputNoteDetails(query?: NoteQuery, assertLive: AssertLive = noAssertLive): Promise<InputNoteDetails[]> {
     const allInputNotes = await this.client.notes.list(query);
     assertLive();
-    return allInputNotes.flatMap(note => {
-      // A partial (metadata-less) record has no note ID — and, since 0.15
-      // nullifiers fold in metadata, no nullifier either. It cannot be
-      // displayed or consumed, so skip it until sync completes it.
-      const noteId = note.id();
-      const nullifier = note.nullifier();
-      if (!noteId || !nullifier) {
-        return [];
-      }
-      const assets = note
-        .details()
-        .assets()
-        .fungibleAssets()
-        .map(asset => ({
-          amount: asset.amount().toString(),
-          faucetId: getBech32AddressFromAccountId(asset.faucetId())
-        }));
-      const noteMet = note.metadata();
-      const restriction = noteConsumeRestriction(note);
-      return [
-        {
-          noteId: noteId.toString(),
-          noteType: noteMet?.noteType(),
-          senderAccountId: noteMet ? getBech32AddressFromAccountId(noteMet.sender()) : undefined,
-          nullifier,
-          state: note.state(),
-          assets,
-          ...(restriction !== undefined && { restriction })
-        }
-      ];
+    return allInputNotes.flatMap(reduceInputNoteDetails);
+  }
+
+  /**
+   * The records for each commitment, the id {@link importNoteBytes} returns for a details-only file (#1389).
+   * Results follow the requested order. Only candidate note ids are listed and hashed, once per record.
+   * No records are listed when the candidate ids are empty.
+   */
+  async getDetailsCommitmentMatches(
+    commitments: string[],
+    candidateIds: string[],
+    assertLive: AssertLive = noAssertLive
+  ): Promise<DetailsCommitmentMatches[]> {
+    const records = candidateIds.length === 0 ? [] : await this.client.notes.list({ ids: candidateIds });
+    assertLive();
+    const byCommitment = new Map<string, InputNoteRecord[]>();
+    for (const record of records) {
+      const commitment = noteDetailsCommitment(record.details());
+      byCommitment.set(commitment, [...(byCommitment.get(commitment) ?? []), record]);
+    }
+    return commitments.map(commitment => {
+      const matching = byCommitment.get(normalizedCommitment(commitment)) ?? [];
+      const notes = matching.flatMap(reduceInputNoteDetails);
+      return { notes, uncommitted: matching.length - notes.length };
     });
   }
 
@@ -1613,7 +1658,8 @@ export class MidenClientInterface {
 
   /**
    * Build, but do not execute, the fee-aware cancel request for a depth-0 PSWAP
-   * tip that still lives in this client's output-note store.
+   * tip: from this client's output-note store, else, when the caller allows it,
+   * from the public note the node holds.
    *
    * The SDK's `pswap.cancelByOrder` convenience path deliberately uses a bare
    * request builder and cannot declare the fee-conversion salt a Guardian
@@ -1624,25 +1670,39 @@ export class MidenClientInterface {
   async buildPswapCancelRequest(
     accountId: string,
     noteId: string,
-    assertLive: AssertLive = noAssertLive
+    assertLive: AssertLive = noAssertLive,
+    { allowNodeNote = false }: PswapCancelRequestOptions = {}
   ): Promise<Uint8Array> {
     const [record] = await this.client.notes.listSent({ ids: [noteId] });
     assertLive('after the output-note listing');
-    if (!record) throw new Error(`PSWAP cancel output note ${noteId} is not tracked`);
-    if (record.isConsumed()) throw new Error(`PSWAP cancel output note ${noteId} is already consumed`);
-    if (!record.isCommitted()) throw new Error(`PSWAP cancel output note ${noteId} is not committed yet`);
+    let note: Note;
+    if (record) {
+      if (record.isConsumed()) throw new Error(`PSWAP cancel output note ${noteId} is already consumed`);
+      if (!record.isCommitted()) throw new Error(`PSWAP cancel output note ${noteId} is not committed yet`);
 
-    const recipient = record.recipient();
-    if (!recipient) throw new Error(`PSWAP cancel output note ${noteId} has no recipient details`);
-    const creator = walletAccountIdToSdk(accountId);
-    if (record.metadata().sender().toString() !== creator.toString()) {
-      throw new Error(`PSWAP cancel output note ${noteId} was not created by account ${accountId}`);
+      const recipient = record.recipient();
+      if (!recipient) throw new Error(`PSWAP cancel output note ${noteId} has no recipient details`);
+      if (record.metadata().sender().toString() !== walletAccountIdToSdk(accountId).toString()) {
+        throw new Error(`PSWAP cancel output note ${noteId} was not created by account ${accountId}`);
+      }
+      note = new Note(record.assets(), record.metadata(), recipient);
+    } else if (allowNodeNote) {
+      // Checked to be this creator's PSWAP note, on RPC clients of the read's own: this client is not called.
+      const read = await readPswapOrderNote(noteId, accountId);
+      assertLive('after the node note read');
+      if (read.kind === 'spent') throw new Error(`PSWAP cancel order note ${noteId} is already consumed on chain`);
+      if (read.kind === 'absent') {
+        throw new Error(`PSWAP cancel order note ${noteId} is not a public order note of account ${accountId}`);
+      }
+      note = read.note;
+    } else {
+      throw new Error(`PSWAP cancel output note ${noteId} is not tracked`);
     }
-    const note = new Note(record.assets(), record.metadata(), recipient);
     if (note.id().toString() !== noteId) {
       throw new Error(`PSWAP cancel output note ${noteId} did not reconstruct to the tracked note id`);
     }
 
+    const creator = walletAccountIdToSdk(accountId);
     const request = await this.innerClientAccess()._withInnerWebClient(inner =>
       inner.newPswapCancelTransactionRequest(note, creator)
     );

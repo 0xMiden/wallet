@@ -190,10 +190,10 @@ export class MidenWindowObject extends EventEmitter<MidenWalletEvents> implement
    * Not supported by this wallet.
    *
    * `createAccount` has been on the published `MidenWallet` interface since
-   * adapter 0.13.2, but no Miden wallet provider implements it: the extension,
-   * the mobile injection script and the Tauri provider all lack it, and there
-   * is no `CREATE_ACCOUNT_REQUEST` in `MidenDAppMessageType`. Before this the
-   * method was simply absent, so a dApp calling it got
+   * adapter 0.13.2, but no Miden wallet provider implements it, and there is
+   * no `CREATE_ACCOUNT_REQUEST` in `MidenDAppMessageType`. The extension and
+   * the mobile injection script reject it with this message; the Tauri
+   * provider lacks the method, so a dApp there still gets
    * `TypeError: wallet.createAccount is not a function`.
    *
    * Rejecting with a named error is not a fix — it is a clearer failure. The

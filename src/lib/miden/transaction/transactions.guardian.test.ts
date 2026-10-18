@@ -8180,7 +8180,10 @@ describe('generateTransaction — Guardian routing', () => {
       await firstCycle;
 
       expect(multisigService.createCustomProposal).not.toHaveBeenCalled();
-      expect(multisigService.createPswapCancelProposal).toHaveBeenCalledWith('zero-fill-tip', expect.any(Function));
+      // The swap row is not a recovered order, so its rebuild reads no note from the node (#1487).
+      expect(multisigService.createPswapCancelProposal).toHaveBeenCalledWith('zero-fill-tip', expect.any(Function), {
+        allowNodeNote: false
+      });
       const requeued = txStore.find(r => r.id === txId)!;
       expect(requeued.status).toBe(ITransactionStatus.Queued);
       // Persisted before the proposal, so the row always holds the request any proposal of it was made from.
@@ -8207,6 +8210,77 @@ describe('generateTransaction — Guardian routing', () => {
       expect(multisigService.createCustomProposal).not.toHaveBeenCalled();
       expect(multisigService.createConsumeNotesProposal).not.toHaveBeenCalled();
       expect(mockBuildColdMultisigService).not.toHaveBeenCalled();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  // A Guardian-recovered order's tip is a note this device never tracked: only its reclaim may read it on the node.
+  it('Guardian PSWAP reclaim of a recovered order lets its rebuild read the order note from the node (#1487)', async () => {
+    jest.useFakeTimers();
+    try {
+      const txId = 'consume-guardian-recovered-reclaim';
+      const conflict = { status: 409, body: 'ConflictPendingDelta' };
+      const multisigService = {
+        guardianEndpoint: 'https://old.guardian',
+        priorCandidateState: jest.fn(async (_nonce: number) => 'settled'),
+        createConsumeNotesProposal: jest.fn(),
+        createCustomProposal: jest.fn(),
+        createRebasedCustomProposal: jest.fn(),
+        createPswapCancelProposal: jest.fn(async () => {
+          throw conflict;
+        }),
+        signAndCreateTransactionRequest: jest.fn(),
+        sync: jest.fn(async () => {})
+      };
+      mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+      mockGetMidenClient.mockResolvedValue({
+        getAccount: jest.fn(async () => undefined),
+        syncState: jest.fn(async () => {}),
+        client: makeClientApi(makeResult())
+      });
+      txStore.push({
+        id: 'recovered-swap',
+        type: 'swap',
+        accountId: 'guardian-acc',
+        status: ITransactionStatus.Completed,
+        initiatedAt: 1,
+        amount: 70n,
+        outputNoteIds: ['order-note'],
+        restoredFromBackup: true,
+        recovered: true,
+        recovery: {
+          outputNotes: [
+            { id: 'order-note', swap: { orderId: '42', requestedAsset: { faucetId: 'requested', amount: '30' } } }
+          ]
+        },
+        extraInputs: { orderId: '42', requestedAmount: 30n, autoConsume: false, expiresAt: 5, expiryTriggeredAt: 5 }
+      });
+      const row = {
+        id: txId,
+        type: 'consume',
+        accountId: 'guardian-acc',
+        status: ITransactionStatus.Queued,
+        noteId: 'order-note',
+        noteIds: ['order-note'],
+        requestBytes: new Uint8Array([7]),
+        extraInputs: { swapOrderTxId: 'recovered-swap', swapSettleKind: 'reclaim' },
+        delegateTransaction: false
+      };
+      txStore.push({ ...row });
+
+      const cycle = generateTransaction(
+        { ...row } as never,
+        jest.fn(async () => new Uint8Array([1])),
+        false,
+        makeGuardianProvider(true)
+      );
+      await jest.runAllTimersAsync();
+      await cycle;
+
+      expect(multisigService.createPswapCancelProposal).toHaveBeenCalledWith('order-note', expect.any(Function), {
+        allowNodeNote: true
+      });
     } finally {
       jest.useRealTimers();
     }
