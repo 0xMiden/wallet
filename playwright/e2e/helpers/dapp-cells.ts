@@ -38,8 +38,41 @@ export interface DappError {
   causeMessage?: string;
 }
 
+export interface BalanceReadSnapshot {
+  account: string | null;
+  stamp: number;
+  cached: boolean;
+  read:
+    | 'diagnostics unavailable'
+    | {
+        inFlight: boolean;
+        fused: boolean;
+        fuseUntilMs: number | null;
+        network: string;
+        lock: { label: string; pauseCount: number; normalCeilingMs: number } | null;
+      };
+}
+
+export interface BalanceReadDiagnostics {
+  observedAccount: string;
+  initialStamp: number;
+  finalStamp: number;
+  initial: BalanceReadSnapshot;
+  final: BalanceReadSnapshot;
+  attempts: Array<{
+    number: number;
+    startedAt: number;
+    durationMs: number;
+    outcome: string;
+    before: BalanceReadSnapshot;
+    after?: BalanceReadSnapshot;
+    error?: string;
+  }>;
+}
+
 /** What a cell saw, recorded before it asserts, so a known-bug signature can match the failure. */
 export interface FailureEvidence {
+  balanceRead?: BalanceReadDiagnostics;
   stage?: string;
   rowStatus?: number;
   rowError?: string;
@@ -77,6 +110,14 @@ export interface FailureEvidence {
   stepDurationsMs?: Record<string, number>;
   /** A raw recipient claim rejected after this cell ended, observed when the next quiesce joined it. */
   recipientClaimError?: string;
+}
+
+const errorEvidence = new WeakMap<Error, FailureEvidence>();
+
+/** Keeps observations outside capped error text without replacing the original error or its class. */
+export function withFailureEvidence<T extends Error>(error: T, evidence: FailureEvidence): T {
+  errorEvidence.set(error, evidence);
+  return error;
 }
 
 /** A check that failed without stopping the cell, so one run can record a soft and a hard known bug. */
@@ -430,6 +471,11 @@ export class DappCellRunner<S> {
       });
     } catch (error) {
       hardError = error;
+      let link: unknown = error;
+      for (let depth = 0; depth < 8 && link instanceof Error; depth += 1) {
+        Object.assign(evidence, errorEvidence.get(link));
+        link = link.cause;
+      }
     } finally {
       try {
         await this.options.hooks.restore(cell);

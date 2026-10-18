@@ -1,7 +1,12 @@
 /**
  * @jest-environment node
  */
-import { describeFailure } from './dapp-cells';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
+import { CellDeadlineExceeded, DappCellRunner, deadlineIn, type JourneyRecord } from './dapp-cells';
+import { registryOf } from './dapp-known-bugs';
 import { accountRows, readRows, rowUnits, waitForQueueDrained, type MobileWallet } from './dapp-mobile-wallet';
 import { TxStatus, type TransactionRowSnapshot } from './history';
 import { CURRENT_ACCOUNT_ROWS_JS, stashAndPoll } from './mobile-store-reads';
@@ -128,6 +133,40 @@ describe('the balance rows', () => {
     return { win, state, readState, fetches: () => fetches };
   }
 
+  async function recordedRead(win: Record<string, unknown>, wrap = false) {
+    const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'balance-read-record-'));
+    const runner = new DappCellRunner({
+      outDir,
+      surface: 'android',
+      part: 'balance-read',
+      axis: 'offchain',
+      journey: 'W',
+      testTitle: 'balance read',
+      declared: ['W1'],
+      registry: registryOf([]),
+      hooks: { quiesce: async () => undefined, restore: async () => undefined }
+    });
+    try {
+      const record = await runner.run({
+        id: 'W1',
+        budget: 'write',
+        run: async ({ deadline }) => {
+          try {
+            await accountRows(walletOver(win), deadline);
+          } catch (error) {
+            if (wrap) throw new Error('vault check failed: ' + String(error), { cause: error });
+            throw error;
+          }
+        }
+      });
+      const written: JourneyRecord = JSON.parse(fs.readFileSync(runner.file, 'utf8'));
+      expect(written.cells).toEqual([record]);
+      return written.cells[0];
+    } finally {
+      fs.rmSync(outDir, { recursive: true, force: true });
+    }
+  }
+
   it('asks the store again until a balance read of the current account has landed', async () => {
     jest.useFakeTimers();
     const store = storeLandingOn(2);
@@ -142,44 +181,118 @@ describe('the balance rows', () => {
     expect(store.fetches()).toBe(2);
   });
 
-  it('reports never-landing reads with the observed account, stamps, durations and skip state', async () => {
+  it('persists all 60 realistic attempts through the runner while bounding the dominant-reason error', async () => {
     jest.useFakeTimers();
+    jest.setSystemTime(1_792_274_400_000);
     const store = storeLandingOn(Infinity);
-    const account = `mtst1${'a'.repeat(59)}`;
-    store.state.currentAccount = { publicKey: account };
-    store.state.balances[account] = store.state.balances.acct ?? [];
-    store.state.balancesLastFetched[account] = 1_000;
-    store.win.__TEST_BALANCE_READ_STATE__ = () => ({
-      inFlight: store.fetches() % 3 === 0,
-      fused: store.fetches() % 3 === 1,
-      fuseUntilMs: store.fetches() % 3 === 1 ? 99_999 : null,
-      network: 'testnet:rpc',
-      lock: store.fetches() % 3 === 2 ? { label: 'idle-sync', pauseCount: 0, normalCeilingMs: 120_000 } : null
+    const account = 'a'.repeat(64);
+    const initialStamp = Date.now() - 30_000;
+    store.state.currentAccount.publicKey = account;
+    store.state.balances[account] = store.state.balances.acct;
+    store.state.balancesLastFetched[account] = initialStamp;
+    const labels = [
+      'idle-sync',
+      'local-prove',
+      'syncState',
+      'balances',
+      'getAccount',
+      'consume-notes',
+      'background-sync'
+    ];
+    const readAt = (attempt: number) => ({
+      inFlight: attempt % 6 === 0,
+      fused: attempt % 6 === 1,
+      fuseUntilMs: attempt % 6 === 1 ? 1_792_274_700_000 : null,
+      network: 'testnet:https://rpc.testnet.miden.io',
+      lock: { label: labels[attempt % labels.length], pauseCount: attempt % 2, normalCeilingMs: 120_000 }
     });
-    const failure = accountRows(walletOver(store.win)).then(
-      () => 'unexpected stale rows',
-      (error: unknown) => (error instanceof Error ? error.message : String(error))
-    );
+    store.win.__TEST_BALANCE_READ_STATE__ = () => readAt(store.fetches());
+    const fetch = store.state.fetchBalances;
+    store.state.fetchBalances = async pk => {
+      await fetch(pk);
+      await new Promise(resolve => setTimeout(resolve, 10));
+    };
+    const result = recordedRead(store.win, true);
     await jest.advanceTimersByTimeAsync(70_000);
-    const message = await failure;
-    expect(message).toContain(`no balance read of ${account} landed within 60000 ms`);
-    expect(message).toContain(`"observedAccount":"${account}","initialStamp":1000,"finalStamp":1000`);
-    expect(message).toContain(`"account":"${account}","stamp":1000,"cached":true`);
-    expect(message).toContain('"outcomeKey":["landed","in-flight","fused","lock-busy"');
-    expect(message).toContain('"fuseUntilMs":99999');
-    expect(message).toContain('"label":"idle-sync"');
-    expect(message).toContain('"durationMs":[0');
-    const persisted = describeFailure(new Error(message));
-    expect(persisted.length).toBeLessThan(2_000);
-    const diagnostics: unknown = JSON.parse(persisted.split('; balanceRead=')[1] ?? 'null');
-    expect(diagnostics).toMatchObject({
-      attempts: {
-        durationMs: Array.from({ length: 60 }, () => 0),
-        outcome: Array.from({ length: 60 }, (_, index) => (index % 3) + 1),
-        state: Array.from({ length: 60 }, (_, index) => index % 3)
-      }
+    const record = await result;
+    expect(record?.verdict).toBe('fail-new');
+    expect(record?.error?.length).toBeLessThan(2_000);
+    expect(record?.error).toContain('no balance read of ' + account + ' landed within 60000 ms');
+    expect(record?.error).toContain('account=' + account + ', initialStamp=' + initialStamp);
+    expect(record?.error).toContain('finalStamp=' + initialStamp + ', attempts=60, dominant=lock-busy');
+    expect(record?.evidence?.balanceRead).toEqual({
+      observedAccount: account,
+      initialStamp,
+      finalStamp: initialStamp,
+      initial: { account, stamp: initialStamp, cached: true, read: readAt(0) },
+      final: { account, stamp: initialStamp, cached: true, read: readAt(60) },
+      attempts: Array.from({ length: 60 }, (_, index) => ({
+        number: index + 1,
+        startedAt: 1_792_274_400_000 + index * 1_010,
+        durationMs: 10,
+        outcome: index % 6 === 0 ? 'in-flight' : index % 6 === 1 ? 'fused' : 'lock-busy',
+        before: { account, stamp: initialStamp, cached: true, read: readAt(index) },
+        after: { account, stamp: initialStamp, cached: true, read: readAt(index + 1) }
+      }))
     });
     expect(store.state.balances[account]).toEqual([expect.objectContaining({ balance: 9 })]);
+  });
+
+  it.each(['missing', 'throwing', 'unserializable', 'malformed'])(
+    'lands fresh rows when the diagnostic hook is %s',
+    async hook => {
+      jest.useFakeTimers();
+      const store = storeLandingOn(2);
+      delete store.win.__TEST_BALANCE_READ_STATE__;
+      if (hook === 'throwing')
+        store.win.__TEST_BALANCE_READ_STATE__ = () => {
+          throw new Error('diagnostics broke');
+        };
+      if (hook === 'unserializable') store.win.__TEST_BALANCE_READ_STATE__ = () => 1n;
+      if (hook === 'malformed') store.win.__TEST_BALANCE_READ_STATE__ = () => null;
+      await Promise.all([
+        expect(accountRows(walletOver(store.win))).resolves.toEqual({
+          account: 'acct',
+          displayFaucetId: null,
+          rows: [{ tokenId: 'mtst1tst', symbol: 'TST', decimals: 8, balance: 5 }]
+        }),
+        jest.advanceTimersByTimeAsync(5_000)
+      ]);
+      expect(store.fetches()).toBe(2);
+    }
+  );
+
+  it('records diagnostics unavailable without accepting a missing-hook stale read', async () => {
+    jest.useFakeTimers();
+    const store = storeLandingOn(Infinity);
+    delete store.win.__TEST_BALANCE_READ_STATE__;
+    const result = recordedRead(store.win);
+    await jest.advanceTimersByTimeAsync(70_000);
+    const record = await result;
+    expect(record?.verdict).toBe('fail-new');
+    expect(record?.error).toContain(
+      'Error: stashAndPoll(__dapp_balances): no balance read of acct landed within 60000 ms'
+    );
+    expect(record?.error).toContain('attempts=60, dominant=diagnostics unavailable');
+    expect(record?.error?.length).toBeLessThan(2_000);
+    const diagnostics = record?.evidence?.balanceRead;
+    expect(diagnostics?.initial.read).toBe('diagnostics unavailable');
+    expect(diagnostics?.final.read).toBe('diagnostics unavailable');
+    expect(diagnostics?.attempts).toHaveLength(60);
+    expect(diagnostics?.attempts.map(attempt => attempt.outcome)).toEqual(Array(60).fill('diagnostics unavailable'));
+    expect(store.state.balances.acct).toEqual([expect.objectContaining({ balance: 9 })]);
+  });
+
+  it('preserves the cell deadline error class without the diagnostic hook', async () => {
+    jest.useFakeTimers();
+    const store = storeLandingOn(Infinity);
+    delete store.win.__TEST_BALANCE_READ_STATE__;
+    const failure = accountRows(walletOver(store.win), deadlineIn(1_000, 'balance-read')).catch(
+      (error: unknown) => error
+    );
+    await jest.advanceTimersByTimeAsync(2_000);
+    expect(await failure).toBeInstanceOf(CellDeadlineExceeded);
+    await jest.advanceTimersByTimeAsync(60_000);
   });
 
   it('accepts an already in-flight read only once its stamp advances and its fresh rows land', async () => {
@@ -210,18 +323,17 @@ describe('the balance rows', () => {
       store.readState.lock = { label: 'balances', pauseCount: 0, normalCeilingMs: 120_000 };
       return new Promise<void>(() => undefined);
     };
-    const failure = accountRows(walletOver(store.win)).then(
-      () => 'unexpected stale rows',
-      (error: unknown) => (error instanceof Error ? error.message : String(error))
-    );
+    const result = recordedRead(store.win);
     await jest.advanceTimersByTimeAsync(70_000);
-    const message = await failure;
-    expect(message).toContain('no balance read of acct landed within 60000 ms');
-    expect(message).toContain('"initialStamp":1000,"finalStamp":1000');
-    expect(message).toContain('"outcome":[6]');
-    expect(message).toContain('"durationMs":[60000]');
-    expect(message).toContain('"inFlight":true');
-    expect(message).toContain('"label":"balances"');
+    const record = await result;
+    expect(record?.error).toContain('no balance read of acct landed within 60000 ms');
+    expect(record?.error).toContain('initialStamp=1000, finalStamp=1000, attempts=1, dominant=pending');
+    expect(record?.evidence?.balanceRead).toMatchObject({
+      initialStamp: 1_000,
+      finalStamp: 1_000,
+      attempts: [{ outcome: 'pending', durationMs: 60_000 }],
+      final: { read: { inFlight: true, lock: { label: 'balances' } } }
+    });
   });
 
   it('rejects an account change during a read even when the original account gets a fresh stamp', async () => {

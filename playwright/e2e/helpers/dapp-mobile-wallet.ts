@@ -1,6 +1,6 @@
 import { toBaseUnits } from './balance-truth';
 import { buildPendingSampleScript, type PendingSample } from './claim-drain';
-import { HarnessFault, type Deadline } from './dapp-cells';
+import { HarnessFault, withFailureEvidence, type BalanceReadDiagnostics, type Deadline } from './dapp-cells';
 import {
   describeTransactionRow,
   readTransactionRowsInPage,
@@ -118,20 +118,32 @@ const BALANCE_LANDING_MS = 60_000;
  * again each second until `balancesLastFetched` moves.
  */
 export async function accountRows(wallet: MobileWallet, deadline?: Deadline): Promise<CurrentAccountRows> {
-  const account = await stashAndPoll<string>(
+  const result = await stashAndPoll<{ account: string } | { error: string; diagnostics: BalanceReadDiagnostics }>(
     evalOf(wallet, deadline),
     '__dapp_balances',
     `(async function () { ${STORE}
       var pk = st.currentAccount && st.currentAccount.publicKey;
       if (!pk) throw new Error('the store has no current account');
-      if (typeof window.__TEST_BALANCE_READ_STATE__ !== 'function')
-        throw new Error('the E2E balance read state hook is missing');
+      var readState = function () {
+        try {
+          var hook = window.__TEST_BALANCE_READ_STATE__;
+          if (typeof hook !== 'function') return 'diagnostics unavailable';
+          var read = JSON.parse(JSON.stringify(hook(pk)));
+          if (!read || typeof read.inFlight !== 'boolean' || typeof read.fused !== 'boolean' ||
+              typeof read.network !== 'string' ||
+              (read.fuseUntilMs !== null && typeof read.fuseUntilMs !== 'number') ||
+              (read.lock !== null && (!read.lock || typeof read.lock.label !== 'string' ||
+                typeof read.lock.pauseCount !== 'number' || typeof read.lock.normalCeilingMs !== 'number')))
+            return 'diagnostics unavailable';
+          return read;
+        } catch (_) { return 'diagnostics unavailable'; }
+      };
       var stamp = function () { return (s.getState().balancesLastFetched || {})[pk] || 0; };
       var state = function () {
         var now = s.getState();
         return { account: (now.currentAccount && now.currentAccount.publicKey) || null,
           stamp: stamp(), cached: (now.balances || {})[pk] !== undefined,
-          read: window.__TEST_BALANCE_READ_STATE__(pk) };
+          read: readState() };
       };
       var checkAccount = function () {
         var current = state().account;
@@ -155,6 +167,7 @@ export async function accountRows(wallet: MobileWallet, deadline?: Deadline): Pr
             var now = s.getState(); await now.fetchBalances(pk, now.assetsMetadata);
             attempt.after = state();
             attempt.outcome = stamp() > before ? 'landed' :
+              attempt.before.read === 'diagnostics unavailable' ? 'diagnostics unavailable' :
               attempt.before.read.inFlight ? 'in-flight' : attempt.before.read.fused ? 'fused' :
               attempt.before.read.lock !== null && attempt.before.cached ? 'lock-busy' : 'returned-without-stamp';
           } catch (error) {
@@ -168,27 +181,33 @@ export async function accountRows(wallet: MobileWallet, deadline?: Deadline): Pr
           await new Promise(function (resolve) { setTimeout(resolve, Math.min(1000, until - Date.now())); });
         }
       })();
-      try { return await Promise.race([work, timeout]); }
+      try { return { account: await Promise.race([work, timeout]) }; }
       catch (error) {
-        // Cell errors stop at 2,000 characters; columns and shared states retain every attempt.
-        var outcomeKey = ['landed', 'in-flight', 'fused', 'lock-busy', 'returned-without-stamp', 'rejected', 'pending'];
-        var states = []; var stateIds = []; var outcomes = []; var durations = [];
+        var counts = Object.create(null);
         attempts.forEach(function (attempt) {
-          var read = JSON.stringify(attempt.before.read);
-          var id = states.findIndex(function (value) { return JSON.stringify(value) === read; });
-          if (id < 0) { id = states.length; states.push(attempt.before.read); }
-          stateIds.push(id); outcomes.push(outcomeKey.indexOf(attempt.outcome));
-          durations.push(attempt.outcome === 'pending' ? Date.now() - attempt.startedAt : attempt.durationMs);
+          if (attempt.outcome === 'pending') attempt.durationMs = Date.now() - attempt.startedAt;
+          counts[attempt.outcome] = (counts[attempt.outcome] || 0) + 1;
         });
-        throw new Error(String((error && error.message) || error) + '; balanceRead=' + JSON.stringify({
-          observedAccount: pk, initialStamp: before, finalStamp: stamp(), initial: initial, final: state(),
-          attempts: { durationMs: durations, outcome: outcomes, state: stateIds, outcomeKey: outcomeKey }, states: states
-        }));
+        var dominant = Object.keys(counts).sort(function (a, b) { return counts[b] - counts[a]; })[0] || 'none';
+        return {
+          error: String((error && error.message) || error).slice(0, 1000) +
+            '; balance read account=' + pk.slice(0, 128) + ', initialStamp=' + before +
+            ', finalStamp=' + stamp() + ', attempts=' + attempts.length + ', dominant=' + dominant,
+          diagnostics: { observedAccount: pk, initialStamp: before, finalStamp: stamp(),
+            initial: initial, final: state(),
+            attempts: attempts.map(function (attempt) { return Object.assign({}, attempt); }) }
+        };
       } finally { stopped = true; clearTimeout(timer); }
     })()`,
     // Past the page's own deadline, so its error names the account rather than the poll timing out.
     BALANCE_LANDING_MS + 5_000
   );
+  if ('error' in result) {
+    throw withFailureEvidence(new Error('stashAndPoll(__dapp_balances): ' + result.error), {
+      balanceRead: result.diagnostics
+    });
+  }
+  const account = result.account;
   const view = await evalOf(wallet, deadline)<CurrentAccountRows | null>(CURRENT_ACCOUNT_ROWS_JS);
   if (view === null || view.account !== account) {
     throw new Error(`current account changed from ${account} to ${view?.account ?? 'none'} after balance read`);

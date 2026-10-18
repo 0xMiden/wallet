@@ -61,3 +61,8 @@
 - When a shared footer spacing contract changes, search all consumer tests for the prior class before final full gates. A stale onboarding-wrapper assertion can cost a second crypto-heavy full run even when the rendered geometry is correct.
 
 - A quiet redirected test log does not prove that no suites have run. Use completed summary counts and process evidence; do not label the runner as stuck before its first suite from missing PASS lines.
+
+# Task 12 balance-read diagnostics
+
+- Store complete diagnostic traces in structured runner evidence. Test the actual written record with realistic state sizes instead of assuming compact error text survives truncation.
+- Optional diagnostic hooks must never gate the underlying read. Audit indirect callers and preserve existing failure classes when adding observations.

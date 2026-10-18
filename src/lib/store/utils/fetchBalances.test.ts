@@ -1092,23 +1092,30 @@ describe('the read-only E2E balance read state', () => {
   });
 
   it('reports the address in flight, lit fuse and paused lock without changing them', () => {
-    fetchingAddresses.add('acct');
-    currentHold = { label: 'idle-sync', pauseCount: 1, normalCeilingMs: 120_000 };
-    for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; i++) noteSyncWatchdogEviction('balances');
-    const until = syncFuseUntilMs('balances');
-    const calls = mockGetAccount.mock.calls.length;
-    const expected = {
-      inFlight: true,
-      fused: true,
-      fuseUntilMs: until,
-      network: expect.stringMatching(/^mainnet:/),
-      lock: { label: 'idle-sync', pauseCount: 1, normalCeilingMs: 120_000 }
-    };
-    expect(balanceReadStateForTest('acct')).toEqual(expected);
-    expect(balanceReadStateForTest('other')).toEqual({ ...expected, inFlight: false });
-    expect(fetchingAddresses.has('acct')).toBe(true);
-    expect(syncFuseUntilMs('balances')).toBe(until);
-    expect(currentHold).toEqual(expected.lock);
-    expect(mockGetAccount).toHaveBeenCalledTimes(calls);
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      fetchingAddresses.add('acct');
+      currentHold = { label: 'idle-sync', pauseCount: 1, normalCeilingMs: 120_000 };
+      for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; i++) noteSyncWatchdogEviction('balances');
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("consecutive watchdog evictions of 'balances'"));
+      const until = syncFuseUntilMs('balances');
+      const calls = mockGetAccount.mock.calls.length;
+      const expected = {
+        inFlight: true,
+        fused: true,
+        fuseUntilMs: until,
+        network: expect.stringMatching(/^mainnet:/),
+        lock: { label: 'idle-sync', pauseCount: 1, normalCeilingMs: 120_000 }
+      };
+      expect(balanceReadStateForTest('acct')).toEqual(expected);
+      expect(balanceReadStateForTest('other')).toEqual({ ...expected, inFlight: false });
+      expect(fetchingAddresses.has('acct')).toBe(true);
+      expect(syncFuseUntilMs('balances')).toBe(until);
+      expect(currentHold).toEqual(expected.lock);
+      expect(mockGetAccount).toHaveBeenCalledTimes(calls);
+    } finally {
+      warn.mockRestore();
+    }
   });
 });

@@ -427,3 +427,13 @@ Report only fixed transaction/stage/route categories, shipped dependency version
 Independent review found stale authentication diagnostics after retry and pending reports surviving stop/re-enable boundaries. Retry diagnostics are cleared per attempt, and both capture and transport consent awaits reject stopped reporting generations. Re-review found no remaining actionable findings.
 
 Validation: 934 tests across 34 focused Jest suites and 29 native SDK tests pass. Type checking, full ESLint, i18n and E2E harness lint, native prover pin validation and the background build pass; the expected background artifact exists. Wire regressions reject raw failure data and prove both consent races. The optional whole-repository noncoverage run was stopped while exercising unchanged password derivation; full-suite testing and the unchanged 95% coverage thresholds remain CI gates. No local coverage was run.
+
+# Task 12 Android rework - Fix round 1
+
+- [x] Verify review findings and preserve registry commit c70f835cf.
+- [x] Persist full balance-read evidence and keep diagnostics optional.
+- [x] Capture the fuse warning and audit all balance-reader callers.
+- [x] Run named mutation and static checks and prepare one fix commit.
+- [x] Append the fix report with CI and live verification assigned to the controller.
+
+Delivery is recorded in the Task 12c1 report. The single fix push waits for the base PR Tests Test job to finish.
