@@ -4,9 +4,9 @@
 
 **Goal:** Sites can sign users in with Bread. Bread gives each account one login key per site, derived from the account's EVM key and the site's registrable domain, so the same seed phrase brings the same login back after a restore, on every device and in every Bread app. On phones, Bread's in-app browser also gets a secure sign-in sheet, so a site can run Google or Apple sign-in, which both refuse embedded web views.
 
-**Architecture:** A pure module derives a secp256k1 scalar with HKDF-SHA256 from the account's root key and the registrable domain that `tldts` reads from the request's real origin. The vault resolves the root (the stored EVM key; for an account created before Bread stored EVM keys, the EVM key from its seed phrase; for a single private-key import, that key), builds an ECDSA `AuthSecretKey` from the scalar, and returns its commitment or a signature. Two new dApp messages reach the background from every Bread app, and the signature is approved through the existing signature confirmation in a login variant that names the site. The extension, mobile and desktop `window.midenWallet` gain two methods. The sheet is `window.bread.auth.open(url)` in the in-app browser's document-start script, backed by ASWebAuthenticationSession on iOS and a Custom Tab on Android, and it returns at Bread's fixed callback address. Bread's desktop window gains an empty `window.bread`, so a site can tell it runs inside Bread.
+**Architecture:** A pure module derives a secp256k1 scalar with HKDF-SHA256 from the account's root key and the registrable domain that `tldts` reads from the request's real origin. The vault resolves the root (the stored EVM key, or for an account created before Bread stored EVM keys, the EVM key from its seed phrase; a single private-key import has no root and is refused), builds an ECDSA `AuthSecretKey` from the scalar, and returns its commitment or its signature over the login message, a Poseidon2 hash of the `Bread login v1` tag and the page's word. Two new dApp messages reach the background from every Bread app, and the signature is approved through the existing signature confirmation in a login variant that names the site. The extension, mobile and desktop `window.midenWallet` gain two methods. The sheet is `window.bread.auth.open(url)` in the in-app browser's document-start script, backed by ASWebAuthenticationSession on iOS and a Custom Tab on Android, and it returns at Bread's fixed callback address, which must name the calling page's origin. Bread's desktop window gains an empty `window.bread`, so a site can tell it runs inside Bread.
 
-**Tech Stack:** TypeScript, React, `@miden-sdk/miden-sdk` 0.17.3 (`AuthSecretKey`, `Word`), `@noble/hashes` (HKDF-SHA256), `tldts` 7, `viem` (EVM key derivation), Swift (AuthenticationServices), Java (`androidx.browser` Custom Tabs), Capacitor, Jest, Robolectric, XCTest, Playwright.
+**Tech Stack:** TypeScript, React, `@miden-sdk/miden-sdk` 0.17.4 (`AuthSecretKey`, `Word`, `Felt`, `FeltArray`, `Poseidon2`), `@noble/hashes` (HKDF-SHA256), `tldts` 7, `viem` (EVM key derivation), Swift (AuthenticationServices), Java (`androidx.browser` Custom Tabs), Capacitor, Jest, Robolectric, XCTest, Playwright.
 
 **Pull requests:** two, independent of each other.
 - **PR A, the login key** (Tasks A1 to A6), branch `wiktor/dapp-login-key`. It goes first: a site's Bread sign-in depends on it, and every Bread app needs it.
@@ -24,32 +24,32 @@ signLoginBytes(data: Uint8Array, kind: 'word'): Promise<{ signature: Uint8Array 
 ```
 
 - `loginKey` is the 32-byte commitment of the connected account's login key for the page's registrable domain, in the same form as the account key commitment that `connect` returns as `publicKey`.
-- `signature` is a serialized SDK signature: 66 bytes, `[0x01, r(32), s(32), v(1)]`, recoverable ECDSA over secp256k1 with Keccak, the bytes `signBytes` returns for an ECDSA account key.
+- `signature` is a serialized SDK signature: 66 bytes, `[0x01, r(32), s(32), v(1)]`, recoverable ECDSA over secp256k1 with Keccak, the bytes `signBytes` returns for an ECDSA account key. It signs the login message M = `Poseidon2.hashElements([T0, T1, T2, T3, W0, W1, W2, W3])`, never the word W itself. W0..W3 are the word's four field elements in its own order, `Word.deserialize(data).toFelts()`; T0..T3 are the ASCII bytes of `Bread login v1` packed little-endian, four bytes per element, the last zero-padded: T0 = 0x61657242, T1 = 0x6f6c2064, T2 = 0x206e6967, T3 = 0x00003176. A site checks a login signature against M computed from its own word, never against the word.
 - Neither method takes a domain or an origin. Bread reads the domain from the page's real origin: the extension's content-script `MessageEvent.origin`, the in-app browser's page URL, the desktop window's URL.
-- Both reject with an error whose message contains `LOGIN_KEY_UNAVAILABLE` when the account's root key isn't on this device. On the extension that error is a `MidenWalletError`, which is not an `Error` instance, so sites read its `message` and never test `instanceof Error`. Bread never derives a login key from any other key.
+- Both reject with an error whose message contains `LOGIN_KEY_UNAVAILABLE` when the account's root key isn't on this device, and always for a single private-key import, which has no login key. On every provider that error is a `MidenWalletError`, which is not an `Error` instance, so sites read its `message` and never test `instanceof Error`. Bread never derives a login key from any other key.
 - A Bread without the login key has neither method. Sites detect the methods, never a version.
 - One key per account and site: `https://example.com` and `https://www.example.com` share one; `alpha.github.io` and `beta.github.io` don't (the Public Suffix List's private section counts). A host with no registrable domain, such as `localhost` or an IP address, uses the whole host. Pages that aren't https are refused, except on loopback hosts.
-- The login key signs only 32-byte words. It is never added to an account's signers, so its signatures can't authorize a transaction or a key change. The EVM key itself never signs anything for a page. The user approves every login signature in Bread.
+- The login key signs only login messages, each a tagged hash of a page's 32-byte word, never the word itself, so a page chooses the word but not what the key signs. It is never added to an account's signers, so its signatures can't authorize a transaction or a key change. The EVM key itself never signs anything for a page. The user approves every login signature in Bread.
 
 ### Sign-in sheet (PR B), Bread mobile only
 
 ```ts
 const result = await window.bread.auth.open(url);
-// { url: string }      when the flow reaches Bread's callback address
+// { url: string }      when the flow reaches Bread's callback address naming the page's origin
 // { cancelled: true }  when the user closes the sheet
 ```
 
 - `window.bread` becomes `{ version: 1, presentation, auth }`, with `auth = { version: 1, open }`. Sites detect `auth` by its presence.
 - Only the main frame can call it, and only with an https URL on the calling page's own origin.
 - One sheet at a time; a second call while one is open is refused.
-- Bread's callback address is `com.miden.wallet.auth://callback`. Bread resolves `{ url }` only while its own sheet is open and only for that address, and forwards the URL untouched. It reads, stores and logs nothing from it. On Android, Bread takes the callback out of the intent before any Capacitor plugin sees it.
+- Bread's callback address is `com.miden.wallet.auth://callback`. Bread resolves `{ url }` only while its own sheet is open, only for that address, and only when its query names the calling page's origin in exactly one `origin` parameter; otherwise it rejects with `AUTH_ORIGIN_MISMATCH` and the page never gets the URL. It forwards the URL untouched, reads nothing from it but `origin`, and stores and logs nothing from it. On Android, Bread takes the callback out of the intent before any Capacitor plugin sees it.
 - The page stays loaded throughout.
 - iOS uses a non-ephemeral ASWebAuthenticationSession, so Safari's existing Google or Apple sign-in is reused; iOS shows its own "'Bread' Wants to Use '<domain>' to Sign In" prompt. Android opens a Custom Tab with no prompt; the callback returns to the same Bread task and closes the tab.
-- Bread's desktop app gets an empty, frozen `window.bread`, with no `version`, `presentation` or `auth`, so a site can tell it runs inside Bread while the published `window.bread?.version === 1` checks keep skipping presentation there. The extension gets nothing.
+- Bread's desktop app gets an empty, frozen `window.bread`, with no `version`, `presentation` or `auth`, so a site can tell it runs inside Bread while the published `window.bread?.version === 1` checks keep skipping presentation there. It is writable and configurable, so a page's own top-level `bread` replaces it. The extension gets nothing.
 
 ## Global Constraints
 
-- Follow `AGENTS.md` and `CLAUDE.md`. Every account Bread creates is a Guardian account; the code below also handles the other kinds Bread still holds (single private-key imports, older non-Guardian HD accounts).
+- Follow `AGENTS.md` and `CLAUDE.md`. Every account Bread creates is a Guardian account; the code below also handles older non-Guardian HD accounts. A single private-key import, which Bread can still hold, has no login key and is refused with `LOGIN_KEY_UNAVAILABLE`.
 - One worktree per PR, each branched from `origin/main`. Rebase onto `origin/main` before opening a PR; a PR's translation job may push `chore: update translation files` to its branch, so pull before the next push.
 - Tests and builds run in CI, never locally: `pr.yml` (lint, types, Jest, coverage of at least 95% on every axis, i18n, mock E2E), `pr-compile-surfaces.yml` (Android build and unit tests, desktop build and `cargo check`, iOS build and `AppTests`), `pr-e2e-local.yml` (local Chrome E2E) and `changelog.yml`. Light checks that build nothing (a formatter or linter on the changed files) are fine locally.
 - CI runs per batch, not per task, about four runs per PR: the PR opens as a draft once its first batch is committed, the next batch pushes once, and review fixes push together. Each task writes its tests before its code. A regression test for a bug found along the way gets its own red push first.
@@ -64,15 +64,15 @@ const result = await window.bread.auth.open(url);
 ## Review Focus
 
 1. **A page tries to choose its domain.** Extra `domain` or `origin` fields in a request change nothing. Test: `ignores a domain or origin in the request` (A3).
-2. **The account's root key isn't on this device.** Expect a refusal containing `LOGIN_KEY_UNAVAILABLE` before any prompt, on every Bread app. Tests: `refuses without the root key` (A2), `refuses without a prompt when the account has no root key` (A3), the provider refusal tests (A5).
+2. **The account's root key isn't on this device.** Expect a refusal containing `LOGIN_KEY_UNAVAILABLE` before any prompt, on every Bread app. Tests: `refuses without the root key` and `refuses a single-key import, never reading its key as a root` (A2), `refuses without a prompt when the account has no root key` (A3), the provider refusal tests (A5).
 3. **A wallet created before Bread stored EVM keys, seed phrase on the device.** Expect the same login key a restore of that seed gives, and nothing written. Test: `derives an older account's EVM key from its seed phrase without saving it` (A2).
 4. **A restore, a key-QR device and a device whose seed phrase was removed.** Expect one login key. Tests in A2.
 5. **A hot-key rotation.** Expect the login key unchanged. Test: `stays the same after a hot key rotation` (A2).
-6. **A login signature over transaction inputs.** Refused. Test: `refuses a login signature over anything but a 32-byte word` (A3).
+6. **A login signature over transaction inputs.** Refused, and an approved login signature covers only the login message, never the page's word, so no word a page picks turns it into a transaction signature. Tests: `refuses a login signature over anything but a 32-byte word` (A3), `signs Poseidon2 of the login tag and the word, never the word itself` (A2).
 7. **Domains:** `www` and the bare domain share a key, private-suffix sites don't, plain http is refused outside loopback. Tests in A1.
-8. **The sheet:** an iframe, a cross-origin or non-https URL, and a second open are refused; cancel on the sheet and on iOS's prompt resolves `{ cancelled: true }`; the Android return closes the tab with the page still loaded. Tests in B1 to B3, and the device checks in B5.
-9. **The Android callback** never reaches a Capacitor plugin and nothing logs it; a pause alone never cancels a sign-in. Tests: `callbackIntentResolvesTheUrlUntouched`, `consumeStripsACallbackWithNoSheet`, `aPauseAloneKeepsTheSheet` and `mainActivityConsumesCallbacksBeforeTheBridge` (B3).
-10. **Desktop:** `window.bread` is empty and frozen, so the published `version === 1` snippet still skips presentation there. Test: `marks the top document with an empty, frozen window.bread` (B4).
+8. **The sheet:** an iframe, a cross-origin or non-https URL, and a second open are refused; cancel on the sheet and on iOS's prompt resolves `{ cancelled: true }`; a callback that doesn't name the opening page's origin in exactly one `origin` parameter rejects `AUTH_ORIGIN_MISMATCH` and never reaches the page; the Android return closes the tab with the page still loaded. Tests in B1 to B3 (`testCallbackMustNameTheOpeningPage`, `aCallbackMustNameTheOpeningPageOnce`, `theCallbackMustNameTheOpeningPage`), and the device checks in B5.
+9. **The Android callback** never reaches a Capacitor plugin and nothing logs it; Bread resuming without a callback cancels the sign-in, with or without a stop first. Tests: `callbackIntentResolvesTheUrlUntouched`, `consumeStripsACallbackWithNoSheet`, `aResumeWithoutAStopCancels`, `aTabClosedBeforeTheStopRepliesCancelled` and `mainActivityConsumesCallbacksBeforeTheBridge` (B3).
+10. **Desktop:** `window.bread` is empty and frozen, so the published `version === 1` snippet still skips presentation there, and a page's own top-level `bread` replaces it. Tests: `marks the top document with an empty, frozen window.bread` and `lets a page's own top-level bread win` (B4).
 
 ---
 
@@ -90,7 +90,7 @@ Batch A1 is Tasks A1 and A2: rebase onto `origin/main`, push, and open PR A as a
 
 **Interfaces:**
 ```ts
-export type LoginKeySource = 'evm' | 'auth';
+export type LoginKeySource = 'evm'; // the info layout names it, so it is frozen with v1
 export function loginKeyDomain(origin: string): string;
 export function deriveLoginKeyScalar(
   root: Uint8Array,
@@ -119,8 +119,6 @@ it('gives each domain its own scalar')
   // EVM_A, 'evm', 'example.com' === '6242d05d8449dc0f6ea438cf0c8f127390e6fa3927320a675575daceedbe80ff'
 it('gives each root its own scalar')
   // EVM_B, 'evm', 'example.org' === 'db78b03edcac22ab6005d12304cf939d2166682409c3fff5fac11e5be04a3cee'
-it('separates EVM roots from single-key roots')
-  // EVM_A, 'auth', 'example.org' === '13e56d3c6b31646c46723c78ae86c4ec7b079a2ce4759d0425104e57f8dbf4f2'
 it('uses the whole host where there is no registrable domain')
   // EVM_A, 'evm', 'localhost' === 'dfdd85ac20ee8139d9092849f1c4f7263bf5e563961c77fc2bd13d9a1f8cf699';
   // loginKeyDomain: 'http://localhost:5198' -> 'localhost', 'http://127.0.0.1:5198' -> '127.0.0.1', 'http://[::1]:3000' -> '[::1]'
@@ -143,22 +141,20 @@ The pinned values were computed with plain HKDF-SHA256 (RFC 5869) from the rules
 ### Task A2: The vault resolves the root key and signs with the login key
 
 **Files:**
-- Modify: `src/lib/miden/back/vault.ts` (new public methods after `signData`, line 2219; they use `deriveEvmKeyPair` at line 2705, `accEvmSecretKeyStrgKey` at line 203, `mnemonicStrgKey` at line 194, `accAuthSecretKeyStrgKey` at line 196, `fetchSeedPhraseStatus`, and `deserializeHotSecretKey` from `lib/miden/guardian/hot-key-import`)
+- Modify: `src/lib/miden/back/vault.ts` (new public methods after `signData`, line 2219; they use `deriveEvmKeyPair` at line 2705, `accEvmSecretKeyStrgKey` at line 203, `mnemonicStrgKey` at line 194, `fetchSeedPhraseStatus`, `deserializeHotSecretKey` from `lib/miden/guardian/hot-key-import`, and `Felt`, `FeltArray` and `Poseidon2` from `@miden-sdk/miden-sdk/lazy`)
 - Test: create `src/lib/miden/back/vault.login-key.test.ts` (harness as in `vault.evm.test.ts` and `vault.gaps.test.ts`)
 
 **Interfaces:**
 ```ts
 // Vault
-async loginKeyCommitment(accountId: string, connectedCommitment: string, domain: string): Promise<string>; // base64, 32 bytes
-async signWithLoginKey(accountId: string, connectedCommitment: string, domain: string, word: string): Promise<string>; // word: base64 of 32 bytes; returns base64 of 66 bytes
+async loginKeyCommitment(accountId: string, domain: string): Promise<string>; // base64, 32 bytes
+async signWithLoginKey(accountId: string, domain: string, word: string): Promise<string>; // word: base64 of 32 bytes; signs its login message; returns base64 of 66 bytes
 ```
-- `connectedCommitment` is the session's stored account key commitment (base64, as connect returned it). It is read only to find a single-key import's secret.
 - The root, resolved in this order:
   1. `account.evmAddress` is set and its leaf is stored: source `evm`, the 32-byte leaf.
   2. `account.hdIndex >= 0` and the seed phrase is stored: source `evm`, `deriveEvmKeyPair(mnemonic, account.type, account.hdIndex)`, held in memory only. Nothing is persisted and the account record is untouched. When `account.evmAddress` is set, the derived address must equal it, or the request is refused. This covers accounts created before Bread stored EVM keys, which a restore of the same seed phrase gives the same key. Seed removal already refuses while any such account lacks its stored key (`vault.ts:378-383`), so these devices keep their seed phrase.
-  3. Not a Guardian account, `hdIndex < 0` and no `evmAddress` (a single private-key import): source `auth`, the stored serialized `AuthSecretKey` at `accAuthSecretKeyStrgKey(<hex of connectedCommitment>)`.
-  4. Anything else, or a lookup that finds nothing: refuse with a `PublicError` whose message starts with `LOGIN_KEY_UNAVAILABLE:` (a `PublicError`, so `withError` keeps the message). Never fall back to the hot key, the cold key or any other key.
-- The scalar from `deriveLoginKeyScalar(root, source, domain)` becomes `deserializeHotSecretKey(<hex of scalar>)`, an ECDSA `AuthSecretKey`. The commitment is `publicKey().toCommitment().serialize()`; the signature is `sign(Word.deserialize(<32 bytes>)).serialize()`. Every WASM handle is freed in `finally`, and the root and scalar buffers are zeroed after use.
+  3. Anything else, a single private-key import included, or a lookup that finds nothing: refuse with a `PublicError` whose message starts with `LOGIN_KEY_UNAVAILABLE:` (a `PublicError`, so `withError` keeps the message). Never fall back to the hot key, the cold key, an imported key or any other key.
+- The scalar from `deriveLoginKeyScalar(root, 'evm', domain)` becomes `deserializeHotSecretKey(<hex of scalar>)`, an ECDSA `AuthSecretKey`. The commitment is `publicKey().toCommitment().serialize()`; the signature is `sign(M).serialize()`, where M = `Poseidon2.hashElements(new FeltArray([new Felt(T0), ..., new Felt(T3), ...Word.deserialize(<32 bytes>).toFelts()]))`, the login message in the contract above. Every WASM handle is freed in `finally` (the binding consumes each `Felt` into the array and the array into the hash), and the root and scalar buffers are zeroed after use.
 
 - [ ] **Step 1: Write the failing tests:**
 ```ts
@@ -174,11 +170,11 @@ it('refuses an account whose seed phrase gives another EVM key')
   // evmAddress set, leaf missing, the mnemonic derives a different address: LOGIN_KEY_UNAVAILABLE
 it('refuses without the root key')
   // Guardian account, no evmAddress, no seed phrase: LOGIN_KEY_UNAVAILABLE; neither the hot nor the cold key was decrypted
-it('derives a single-key import from that key, the same after reimporting')
-  // importAccountFromPrivateKey in two fresh vaults: same commitment, different from every EVM-derived one
+it('refuses a single-key import, never reading its key as a root')
+  // importAccountFromPrivateKey in a fresh vault: loginKeyCommitment and signWithLoginKey reject with LOGIN_KEY_UNAVAILABLE; the imported key is never read and nothing is derived
 it("never matches one of the account's signing keys")      // differs from the Guardian account's hot and cold key commitments
-it('signs a word with a 66-byte ECDSA signature that verifies against the login key')
-  // byte 0 is 0x01; the signature verifies under the login key's public key (SDK verify, or playwright/e2e/helpers/signature-recovery.ts)
+it('signs Poseidon2 of the login tag and the word, never the word itself')
+  // the word 0x00..0x1f: one hash over [T0..T3, W0..W3], in that order; 66 bytes, byte 0 is 0x01; the signature verifies under the login key over the hash's result, and not over the word
 it('stays the same after a hot key rotation')               // a new hotPublicKey on the account record: same commitment
 it('gives each domain its own key')                         // 'example.com' gives another commitment
 it('gives each account its own key')                        // account 1 of the same mnemonic gives another commitment
@@ -205,7 +201,7 @@ interface MidenDAppLoginSignRequest { type: LoginSignRequest; sourceAccountId: s
 interface MidenDAppLoginSignResponse { type: LoginSignResponse; signature: string } // base64, 66 bytes
 ```
 - Both handlers: `sourceAccountId` is required, else `INVALID_PARAMS`; `getDApp(origin, sourceAccountId)`, else `NOT_GRANTED`; `assertRequestAccountIsCurrent(dApp.accountId)`; `domain = loginKeyDomain(origin)`, from the `origin` argument only. Every other request field is ignored.
-- `requestLoginKey`: no prompt. A locked wallet follows `requestGuardianInfo`: `runPrepare`, then `prepareAfterUnlock` on mobile and desktop, `requestUnlockOnly` on the extension. The vault call passes `dApp.publicKey` as `connectedCommitment`.
+- `requestLoginKey`: no prompt. A locked wallet follows `requestGuardianInfo`: `runPrepare`, then `prepareAfterUnlock` on mobile and desktop, `requestUnlockOnly` on the extension. The vault call takes the stored session's account and the page's domain; nothing comes from the request.
 - `requestLoginSign`:
   - `kind` must be `'word'` and the payload must decode to 32 bytes, else `INVALID_PARAMS`.
   - While the wallet is unlocked, resolve the root before any prompt (`loginKeyCommitment`), so a missing root refuses with `LOGIN_KEY_UNAVAILABLE` and no prompt.
@@ -215,7 +211,7 @@ interface MidenDAppLoginSignResponse { type: LoginSignResponse; signature: strin
 - [ ] **Step 1: Write the failing tests:**
 ```ts
 it("answers the login key for the session's account and the page's domain")
-  // origin https://www.example.org: loginKeyCommitment(accountId, dApp.publicKey, 'example.org'); LOGIN_KEY_RESPONSE
+  // origin https://www.example.org: loginKeyCommitment(accountId, 'example.org'); LOGIN_KEY_RESPONSE
 it('ignores a domain or origin in the request')
   // request with domain 'evil.example' and origin 'https://evil.example': still 'example.org'
 it('refuses a page without a session')                     // NOT_GRANTED; vault untouched
@@ -273,7 +269,7 @@ it('titles an in-app login request with the domain') // confirmation-store: 'log
 **Interfaces:** the contract above, on all three providers:
 - `requestLoginKey()` sends `{ type: 'LOGIN_KEY_REQUEST', sourceAccountId: this.address }` and decodes `loginKey` from base64 into a real `Uint8Array`, as connect decodes `publicKey`.
 - `signLoginBytes(data, kind)` sends `{ type: 'LOGIN_SIGN_REQUEST', sourceAccountId: this.address, payload: <base64 of data>, kind }` and decodes `signature`.
-- Refusals keep the background's message, so `LOGIN_KEY_UNAVAILABLE` stays in it: the extension's `createError` copies the message into a `MidenWalletError`, not an `Error`; the in-app script rejects with `new Error(error)`; desktop does the same.
+- Refusals keep the background's message, so `LOGIN_KEY_UNAVAILABLE` stays in it: the extension's `createError` copies the message into a `MidenWalletError`, not an `Error`, and the in-app and desktop scripts reject with the same classes.
 - The conformance suite's `KNOWN_GAPS` stay as they are: these are additions to the adapter's interface.
 
 - [ ] **Step 1: Write the failing tests:**
@@ -286,7 +282,7 @@ it('keeps LOGIN_KEY_UNAVAILABLE in the error message')  // an error response 'LO
 // injection-script.test.ts
 it('gives the in-app provider the login key methods')  // both are functions
 it('returns the login key as a Uint8Array')            // native response {loginKey: base64}: Uint8Array of 32
-it('rejects with the refusal code as text')            // native error 'LOGIN_KEY_UNAVAILABLE: ...': Error message contains it
+it('rejects a refusal with the extension error class and message') // native error 'LOGIN_KEY_UNAVAILABLE: ...': a MidenWalletError with that message
 // dapp-injection.test.ts
 it('gives the desktop provider the login key methods') // the same request shapes and decoding over the desktop bridge
 ```
@@ -310,7 +306,7 @@ it('gives the desktop provider the login key methods') // the same request shape
 // signLoginWord(word): approved with LoginSign_AcceptButton through answerPrompt, naming the dApp's origin; 66 bytes starting with 1;
 // while that popup is open (whileOpen), its title names the page's domain, exactly "Sign in to localhost" for dApp one,
 // since localhost, the fixture's host, has no registrable domain and loginKeyDomain gives the whole host;
-// the signature recovers to a key whose commitment is the login key (playwright/e2e/helpers/signature-recovery.ts, then verifySignature, as G1)
+// the page hashes the login message from its word as a site does; the signature recovers over that message to a key whose commitment is the login key (playwright/e2e/helpers/signature-recovery.ts, then verifySignature, as G1), and does not verify over the word itself
 // L2: a declined login signature rejects
 // signLoginWord declined with LoginSign_RejectButton: refusal('NotGrantedMidenWalletError', 'NOT_GRANTED')
 ```
@@ -331,7 +327,7 @@ Line numbers below are from `def2b853f`; if `main` has moved, find the line by t
 
 **Page API**
 - `window.bread = Object.freeze({ version: 1, presentation, auth })`, with `auth = Object.freeze({ version: 1, open(url) })`. `auth` exists only when the native `breadAuth` transport does; the top-level version stays 1.
-- `open(url)` resolves to a frozen `{ url: string }` or a frozen `{ cancelled: true }`, or rejects with an `Error` whose message is exactly one of `AUTH_NOT_MAIN_FRAME`, `AUTH_INSECURE_PAGE`, `AUTH_INVALID_URL`, `AUTH_BUSY`, `AUTH_UNAVAILABLE`, `AUTH_FAILED`.
+- `open(url)` resolves to a frozen `{ url: string }` or a frozen `{ cancelled: true }`, or rejects with an `Error` whose message is exactly one of `AUTH_NOT_MAIN_FRAME`, `AUTH_INSECURE_PAGE`, `AUTH_INVALID_URL`, `AUTH_BUSY`, `AUTH_UNAVAILABLE`, `AUTH_ORIGIN_MISMATCH`, `AUTH_FAILED`.
 
 **iOS wire:** the page calls `window.webkit.messageHandlers.breadAuth.postMessage({ url })`, which returns a Promise. Native replies exactly once: `replyHandler(["url": s], nil)`, `replyHandler(["cancelled": true], nil)` or `replyHandler(nil, "AUTH_...")`.
 
@@ -343,7 +339,8 @@ Line numbers below are from `def2b853f`; if `main` has moved, find the line by t
 3. The URL rule, else `AUTH_INVALID_URL`.
 4. No sheet open anywhere in the app, else `AUTH_BUSY`.
 5. Presentable now: the browser is visible, not parked or closing, and the app is in the foreground, else `AUTH_UNAVAILABLE`. A session that can't start or present is also `AUTH_UNAVAILABLE`.
-6. Any other failure is `AUTH_FAILED`.
+6. A callback that fails the origin rule is `AUTH_ORIGIN_MISMATCH`.
+7. Any other failure is `AUTH_FAILED`.
 
 **URL rule.** All of these hold, checked by hand in this order; any failure is `AUTH_INVALID_URL`:
 - A string of 1 to 4096 UTF-16 units.
@@ -352,7 +349,9 @@ Line numbers below are from `def2b853f`; if `main` has moved, find the line by t
 - The sheet opens exactly the caller's string or refuses it, so after the authority the path, query and fragment must be valid RFC 3986, checked by hand with no platform parser: every `%` is followed by two ASCII hex digits, there is no `[` or `]`, and there is at most one `#`. iOS also refuses when `URL(string:)` does not return the string unchanged.
 - Relative URLs are refused, never resolved.
 
-**Callback rule.** The URL starts with `com.miden.wallet.auth://callback` (ASCII case-insensitive) and ends there or continues with `?` or `#`; any path, such as `callback/`, fails with `AUTH_FAILED`. It resolves only while that platform's sheet is open and is forwarded byte for byte: native never parses its query, stores it or logs it.
+**Callback rule.** The URL starts with `com.miden.wallet.auth://callback` (ASCII case-insensitive) and ends there or continues with `?` or `#`; any path, such as `callback/`, fails with `AUTH_FAILED`. It resolves only while that platform's sheet is open and only when it passes the origin rule, and it is forwarded byte for byte: native reads nothing from its query but `origin`, and never stores or logs it.
+
+**Origin rule.** Native remembers the calling page's origin from the open request. The callback's query is the text after the first `?` that comes before the first `#` (a `#` before any `?` means there is no query); it splits on `&`, a field's name is the text before its first `=` (the whole field, with an empty value, when it has none), and names are compared as written, never decoded. Exactly one field is named `origin`, and its value, percent-decoded once as UTF-8, is `https://` followed by the page's authority as the URL rule compares it: the page host, ignoring ASCII case, then `:` and the port only when the page's port isn't 443 (`:443` is also accepted on a 443 page), and nothing after it. A value whose escapes don't decode as UTF-8 matches nothing. A missing, repeated or different `origin` is `AUTH_ORIGIN_MISMATCH`, and the page never gets the callback URL. iOS checks in `BreadAuthController.complete`, Android in `BreadAuthState.callback`, before the controller's `finish`. Why: a page can open a URL on its own origin that redirects into another site's flow, and `Sec-Fetch-Site` stays `none` through those redirects, so only the `origin` the site's server writes, from its own configuration, tells Bread whose flow ended.
 
 ### Task B1: window.bread.auth in the mobile page script
 
@@ -362,7 +361,7 @@ Line numbers below are from `def2b853f`; if `main` has moved, find the line by t
   - Inside `PRESENTATION_SCRIPT`, capture the auth transports next to the presentation transports (lines 21-24).
   - Add the auth helpers after `__breadPresentationUpdate` (ends line 97).
   - Line 99 defines `window.bread` with `auth` when it exists. Line 98 (`presentation`) is unchanged.
-- Modify: `CHANGELOG.md`, PR B's mobile entry under the open `## X.Y.Z (TBD)`, Features: `- [FEATURE][mobile] Sites in Bread's in-app browser can run Google or Apple sign-in in a secure sign-in sheet: window.bread.auth.open(url) opens the system sign-in sheet on iOS and a Custom Tab on Android for an https page on its own origin, one sheet at a time, and resolves when the flow reaches Bread's callback address.`
+- Modify: `CHANGELOG.md`, PR B's mobile entry under the open `## X.Y.Z (TBD)`, Features: `- [FEATURE][mobile] Sites in Bread's in-app browser can run Google or Apple sign-in in a secure sign-in sheet: window.bread.auth.open(url) opens the system sign-in sheet on iOS and a Custom Tab on Android for an https page on its own origin, one sheet at a time, and resolves when the flow reaches Bread's callback address naming that page's origin (otherwise it rejects with AUTH_ORIGIN_MISMATCH).`
 - Test: `src/lib/dapp-browser/presentation-script.test.ts`
 
 **Interfaces:**
@@ -375,7 +374,7 @@ Line numbers below are from `def2b853f`; if `main` has moved, find the line by t
   - A fast path, not a security boundary: a non-string `url` or one over 4096 characters rejects `AUTH_INVALID_URL` without posting.
   - No timeout and no count cap, unlike `request()` at lines 40-58: a sign-in can take minutes, and native answers every extra call with `AUTH_BUSY` straight away.
   - Android replies are matched by `token + '_auth_' + n`, using the document token from line 29. The listener is `androidAuth.addEventListener('message', ...)`, or `androidAuth.onmessage` when `addEventListener` is missing, and it ignores non-JSON, non-object, unknown and already-settled ids.
-- `authError(e)` keeps a message that is one of the six codes and turns anything else into `AUTH_FAILED`. `authResult(reply)` gives a frozen `{ cancelled: true }` for `cancelled === true`, a frozen `{ url }` for a string `url`, and throws `AUTH_FAILED` otherwise.
+- `authError(e)` keeps a message that is one of the seven codes and turns anything else into `AUTH_FAILED`. `authResult(reply)` gives a frozen `{ cancelled: true }` for `cancelled === true`, a frozen `{ url }` for a string `url`, and throws `AUTH_FAILED` otherwise.
 
 - [ ] **Step 1: Write the failing tests.** First give `page()` (lines 21-38) a third parameter, `auth = false`. On iOS it adds `webkit.messageHandlers.breadAuth`, whose `postMessage` records the body and returns a promise the test settles. On Android it adds `breadAuth = { postMessage, addEventListener }` and a `nativeReply(reply: AuthReply | string)` helper that sends `{ data }` to the captured listener. Widen `PageWindow` (lines 4-20) with `breadAuth` and `bread.auth`, without `any` or `as`.
 ```ts
@@ -383,7 +382,7 @@ it('adds a frozen auth API beside presentation when the auth transport exists') 
 it('omits auth when only the presentation transport exists')   // 'auth' in win.bread is false; presentation.ready() still posts
 it('iOS: posts {url} once and resolves a frozen {url} untouched') // 'com.miden.wallet.auth://callback?login=a%2Fb&x=1', frozen
 it('iOS: resolves a frozen {cancelled: true}')
-it.each(SIX_CODES)('rejects with the native code %s on both transports') // iOS Error(code) and Android {id, error: code}
+it.each(SEVEN_CODES)('rejects with the native code %s on both transports') // iOS Error(code) and Android {id, error: code}
 it('maps an unknown native error or a malformed reply to AUTH_FAILED') // Error('boom'), {} and {url: 1}
 it('rejects a non-string or over-long url locally as AUTH_INVALID_URL') // open(1) and 4097 characters post nothing; 4096 posts
 it('Android: correlates out-of-order replies by document-scoped id') // ids match /^[0-9a-f]{32}_auth_[12]$/
@@ -391,11 +390,11 @@ it('Android: ignores malformed, unknown and repeated replies')   // invalid JSON
 it('keeps a sign-in pending past the presentation timeout')      // pending after jest.advanceTimersByTime(600000); a later reply resolves it
 it('turns a throwing transport into a rejected promise')         // a throwing Android postMessage rejects AUTH_FAILED; a later reply is ignored
 // extend 'preserves the document token and frozen API on reinjection' (lines 84-97): win.bread.auth is the same object
-// extend 'exposes nothing in ordinary browsers or child frames' (lines 155-164): both auth transports present and win.top = {}: no win.bread, nothing posted
+// extend 'exposes nothing in ordinary browsers or child frames' (lines 155-164): an iOS child frame and an Android child frame with its auth transport, win.top = {}: no win.bread, nothing posted, no auth listener attached
 ```
 - [ ] **Step 2: Implement** inside the template string, after line 97:
 ```js
-const AUTH_ERRORS = ['AUTH_NOT_MAIN_FRAME', 'AUTH_INSECURE_PAGE', 'AUTH_INVALID_URL', 'AUTH_BUSY', 'AUTH_UNAVAILABLE', 'AUTH_FAILED'];
+const AUTH_ERRORS = ['AUTH_NOT_MAIN_FRAME', 'AUTH_INSECURE_PAGE', 'AUTH_INVALID_URL', 'AUTH_BUSY', 'AUTH_UNAVAILABLE', 'AUTH_ORIGIN_MISMATCH', 'AUTH_FAILED'];
 const authPending = new Map();
 let authSequence = 0;
 function authError(error) {
@@ -473,7 +472,7 @@ The logic lives in `BreadAuthController.swift`, not in `WKWebViewController` or 
 ```swift
 enum BreadAuthError: String, Error {
     case notMainFrame = "AUTH_NOT_MAIN_FRAME", insecurePage = "AUTH_INSECURE_PAGE", invalidURL = "AUTH_INVALID_URL",
-         busy = "AUTH_BUSY", unavailable = "AUTH_UNAVAILABLE", failed = "AUTH_FAILED"
+         busy = "AUTH_BUSY", unavailable = "AUTH_UNAVAILABLE", originMismatch = "AUTH_ORIGIN_MISMATCH", failed = "AUTH_FAILED"
 }
 struct BreadAuthPageOrigin { let scheme: String; let host: String; let port: Int }   // from WKSecurityOrigin; port 0 is the default
 final class BreadAuthState {
@@ -485,6 +484,7 @@ final class BreadAuthState {
     func end(_ ticket: Int)              // a stale ticket changes nothing
     static func validate(mainFrame: Bool, page: BreadAuthPageOrigin, url: Any?) -> Result<URL, BreadAuthError>
     static func isCallback(_ url: String) -> Bool
+    static func namesOrigin(_ callback: String, page: BreadAuthPageOrigin) -> Bool // the origin rule
 }
 protocol BreadAuthWebSession: AnyObject {
     var presentationContextProvider: ASWebAuthenticationPresentationContextProviding? { get set }
@@ -508,7 +508,8 @@ An open sheet ends with exactly one reply and `end(ticket)`:
 
 | Event | Reply |
 | --- | --- |
-| Completion with a callback URL that passes `isCallback` | `["url": callbackURL.absoluteString]` |
+| Completion with a callback URL that passes `isCallback` and `namesOrigin` for the page that opened the sheet | `["url": callbackURL.absoluteString]` |
+| Completion with a callback URL that passes `isCallback` but not `namesOrigin` | `AUTH_ORIGIN_MISMATCH` |
 | Completion with any other callback URL | `AUTH_FAILED` |
 | `.canceledLogin` (includes Cancel on the system prompt) | `["cancelled": true]` |
 | `.presentationContextNotProvided` or `.presentationContextInvalid` | `AUTH_UNAVAILABLE` |
@@ -529,8 +530,12 @@ testCallbackAddressIsExactWithAnyQuery        // accepts ...://callback, ...call
                                               // rejects ...://callbacks, ...://callback/, ...://callback/x, ...://other, com.miden.wallet://callback
 testOneSheetAcrossTheApp                      // a second begin() is nil; end(stale) keeps it busy; end(current) frees it
 testOpenStartsANonEphemeralSessionForTheCallbackScheme // the exact url and com.miden.wallet.auth; not ephemeral; provider is the controller; start() once; no reply yet
-testCallbackResolvesTheUrlUntouched           // com.miden.wallet.auth://callback?login=a%2Fb&x=1 replies ["url": that string] once and frees the slot
+testCallbackResolvesTheUrlUntouched           // com.miden.wallet.auth://callback?origin=https%3A%2F%2Fgame.example&login=a%2Fb&x=1 replies ["url": that string] once and frees the slot
 testForeignCallbackFails                      // com.miden.wallet.auth://other: AUTH_FAILED
+testCallbackMustNameTheOpeningPage            // page (https, game.example, 0): no origin, two, another host, :8443, a trailing / or dot, http, HTTPS, user@,
+                                              // an empty or bare origin, Origin, %6Frigin, a bare origin before a valid one, origin only after # or in #?:
+                                              // AUTH_ORIGIN_MISMATCH, no URL, slot freed; GAME.example after another field, an unencoded value and :443
+                                              // with a fragment resolve; on a :8443 page the default port is a mismatch and %3A8443 resolves
 testCanceledLoginResolvesCancelled            // ASWebAuthenticationSessionError(.canceledLogin): ["cancelled": true]
 testPresentationErrorsAreUnavailableAndOtherErrorsFail
 testStartFailureIsUnavailableAndFreesTheSlot  // start() false: AUTH_UNAVAILABLE; the next open starts a session
@@ -572,7 +577,7 @@ func handle(body: Any, mainFrame: Bool, page: BreadAuthPageOrigin, reply: @escap
     guard let ticket = Self.state.begin() else { reply(nil, BreadAuthError.busy.rawValue); return }
     guard canPresent() else { Self.state.end(ticket); reply(nil, BreadAuthError.unavailable.rawValue); return }
     let session = Self.makeSession(url, BreadAuthState.callbackScheme) { [weak self] callback, error in
-        DispatchQueue.main.async { self?.complete(ticket, callback: callback, error: error) }
+        DispatchQueue.main.async { self?.complete(ticket, page: page, callback: callback, error: error) }
     }
     session.presentationContextProvider = self
     session.prefersEphemeralWebBrowserSession = false
@@ -580,9 +585,9 @@ func handle(body: Any, mainFrame: Bool, page: BreadAuthPageOrigin, reply: @escap
     if !session.start() { finish(ticket, nil, BreadAuthError.unavailable.rawValue) }
 }
 ```
-  - `complete` maps outcomes per the table. `finish(ticket, value, error)` returns unless `self.ticket == ticket`, then clears `ticket`, `reply` and `session`, calls `Self.state.end(ticket)`, and calls the saved reply once. `close()` finishes with `["cancelled": true]`, then calls `cancel()` on the session it kept. `deinit { close() }`.
+  - `complete` maps outcomes per the table, checking `namesOrigin` against the page captured when the sheet opened. `finish(ticket, value, error)` returns unless `self.ticket == ticket`, then clears `ticket`, `reply` and `session`, calls `Self.state.end(ticket)`, and calls the saved reply once. `close()` finishes with `["cancelled": true]`, then calls `cancel()` on the session it kept. `deinit { close() }`.
   - `canPresent` defaults to `{ [weak owner] in guard let owner, owner.managedClose?.closing != true, let window = owner.viewIfLoaded?.window else { return false }; return !window.isHidden && UIApplication.shared.applicationState == .active }` (`managedClose` is the weak property at line 133).
-  - `validate` follows the URL rule by hand, with no parser: after the main-frame and page checks it tests the length in UTF-16 units, the character set, `authorityMatches` (the authority as written against `page.host` and `page.port == 0 ? 443 : page.port`) and `restIsValid` (the path, query and fragment). Only then does it call `URL(string: text)`, and it refuses unless the result's `absoluteString == text`, so the session gets exactly the caller's string. `isCallback` is a string prefix check per the callback rule.
+  - `validate` follows the URL rule by hand, with no parser: after the main-frame and page checks it tests the length in UTF-16 units, the character set, `authorityMatches` (the authority as written against `page.host` and `page.port == 0 ? 443 : page.port`) and `restIsValid` (the path, query and fragment). Only then does it call `URL(string: text)`, and it refuses unless the result's `absoluteString == text`, so the session gets exactly the caller's string. `isCallback` is a string prefix check per the callback rule, and `namesOrigin` applies the origin rule by hand: it splits the query itself, as Android does (`URLComponents.queryItems` would decode names), decodes the one value with `removingPercentEncoding` and reuses `authorityMatches`.
   - `WeakScriptMessageReplyHandler` mirrors `WeakScriptMessageHandler` (`WKWebViewController.swift` lines 3467-3478), except that a nil delegate gets `replyHandler(nil, "AUTH_UNAVAILABLE")`: WebKit needs exactly one reply per message.
   - Swift 5 language mode (tools 5.9, `SWIFT_VERSION = 5.0`, no warnings-as-errors): keep the classes plain like `BreadPresentationController`. Concurrency mismatches against the iOS 26 SDK show up as warnings, and the iOS 15 initializer `init(url:callbackURLScheme:completionHandler:)`, deprecated from 17.4, only warns.
 - [ ] **Step 3: CI**, with batch B1: `pr-compile-surfaces.yml` job `ios` ("Compile iOS"): "Build App scheme" and "Run iOS unit tests" (`-only-testing:AppTests`, which also runs `BreadPresentationTests`, guarding the shared registration and cleanup). Also `pr.yml` and `changelog.yml`. `packages/dapp-browser/ios/Tests/run.sh` runs in no workflow, so no tests go there. Expected: PASS.
@@ -599,7 +604,7 @@ func handle(body: Any, mainFrame: Bool, page: BreadAuthPageOrigin, reply: @escap
 - Modify: `packages/dapp-browser/android/src/main/java/ee/forgr/capacitor_inappbrowser/InAppBrowserPlugin.java`
   - `BreadAuthController.hostResumed();` as the first statement of `handleOnResume()` (line 1195).
   - A new `@Override protected void handleOnStop() { super.handleOnStop(); BreadAuthController.hostStopped(); }` (Capacitor 8.4.0 `Plugin.handleOnStop`, `Plugin.java` line 995).
-  - `handleOnPause()` is unchanged: a pause alone (a system dialog, a permission prompt, split screen) never touches the sheet. A Custom Tab stops Bread's activity; a dialog only pauses it.
+  - `handleOnPause()` is unchanged. The tab covers Bread until it closes, and Android resumes Bread without a stop when the tab closes before the stop arrives, so any resume without a callback ends the sheet; a stop only makes `refusal()` answer `AUTH_UNAVAILABLE`.
 - Modify: `packages/dapp-browser/android/src/main/AndroidManifest.xml`: the `<queries>` element (lines 2-8) gains `<intent><action android:name="android.support.customtabs.action.CustomTabsService" /></intent>`, which `CustomTabsClient.getPackageName` needs on Android 11+. The manifest merge dedupes it if `androidx.browser` declares it too.
 - Modify: `android/app/src/main/AndroidManifest.xml`: inside `.MainActivity` (line 30, `singleTask` at line 33), after the `com.miden.wallet` filter (lines 42-49):
 ```xml
@@ -626,16 +631,18 @@ final class BreadAuthState {
     static final String CALLBACK_ADDRESS = "com.miden.wallet.auth://callback";
     static final int MAX_URL_LENGTH = 4096;
     static final String NOT_MAIN_FRAME = "AUTH_NOT_MAIN_FRAME", INSECURE_PAGE = "AUTH_INSECURE_PAGE",
-        INVALID_URL = "AUTH_INVALID_URL", BUSY = "AUTH_BUSY", UNAVAILABLE = "AUTH_UNAVAILABLE", FAILED = "AUTH_FAILED";
-    enum Phase { IDLE, LAUNCHING, AWAY }
-    enum Outcome { NONE, RESOLVED, CANCELLED, FAILED }
+        INVALID_URL = "AUTH_INVALID_URL", BUSY = "AUTH_BUSY", UNAVAILABLE = "AUTH_UNAVAILABLE",
+        ORIGIN_MISMATCH = "AUTH_ORIGIN_MISMATCH", FAILED = "AUTH_FAILED";
+    enum Phase { IDLE, LAUNCHING }
+    enum Outcome { NONE, RESOLVED, CANCELLED, FAILED, MISMATCH }
     static String rejection(boolean mainFrame, String pageScheme, String pageHost, int pagePort, Object url); // null when valid
     static boolean isCallback(String url);
+    static boolean namesOrigin(String url, String pageHost, int pagePort); // the origin rule; a port of -1 is 443
     String refusal();               // BUSY unless IDLE; UNAVAILABLE while the host is stopped; else null
-    long begin();                   // IDLE to LAUNCHING; returns the ticket
-    void stopped();                 // the host stopped: LAUNCHING to AWAY
-    Outcome resumed();              // the host resumed: AWAY to IDLE is CANCELLED; LAUNCHING stays (a pause alone); else NONE
-    Outcome callback(String url);   // IDLE gives NONE; otherwise to IDLE, RESOLVED if isCallback(url) else FAILED
+    long begin(String pageHost, int pagePort); // IDLE to LAUNCHING; remembers the opening page; returns the ticket
+    void stopped();                 // the host stopped: refusal() is AUTH_UNAVAILABLE until resumed(); the phase stays
+    Outcome resumed();              // the host resumed: LAUNCHING to IDLE is CANCELLED, with or without a stop first; IDLE is NONE
+    Outcome callback(String url);   // IDLE gives NONE; otherwise to IDLE: FAILED unless isCallback(url), else RESOLVED if namesOrigin for the opening page, else MISMATCH
     void release(long ticket);      // the owner closed or the launch failed; a stale ticket changes nothing
     Phase phase();
 }
@@ -647,7 +654,7 @@ final class BreadAuthController {
     void close();                   // removeWebMessageListener(webView, "breadAuth"); frees an owned sheet; drops its reply
     static void hostStopped();
     static void hostResumed();      // CANCELLED replies {"id","cancelled":true}
-    static void hostCallback(String url); // RESOLVED replies {"id","url"}; FAILED replies {"id","error":"AUTH_FAILED"}
+    static void hostCallback(String url); // RESOLVED replies {"id","url"}; MISMATCH replies {"id","error":"AUTH_ORIGIN_MISMATCH"}; FAILED replies {"id","error":"AUTH_FAILED"}
 }
 public final class BreadAuthCallbacks {
     // A VIEW intent whose data has the scheme com.miden.wallet.auth (ASCII case-insensitive): hands the data string to the
@@ -656,6 +663,7 @@ public final class BreadAuthCallbacks {
 }
 ```
 - `rejection` follows the URL rule by hand, with no parser: after the main-frame and page checks it tests the length, the character set, `authorityMatches` (the authority as written against the page host and `pagePort < 0 ? 443 : pagePort`) and `restIsValid` (the path, query and fragment). The launch passes the caller's string through as written: `Uri.parse(url)` keeps the string as given.
+- `namesOrigin` applies the origin rule by hand, splitting the query itself, as iOS does, so both decide every input alike; it decodes the one value with `URLDecoder.decode(value, "UTF-8")`, where a malformed escape matches nothing, and reuses `authorityMatches` with `pagePort < 0 ? 443 : pagePort`.
 - The listener is `WebViewCompat.addWebMessageListener(webView, "breadAuth", Collections.singleton("*"), (view, message, origin, mainFrame, reply) -> { if (message.getType() == WebMessageCompat.TYPE_STRING) receive(message.getData(), origin, mainFrame, reply); })`; `origin` is the native source origin. It checks the type first and ignores any other message with no reply (test `binaryMessageIsIgnored`): `getData()` throws for an ArrayBuffer message, which any frame may post, and a binary message has no `id` to reply to.
 - The Custom Tab: `new CustomTabsIntent.Builder().build()` with no session (the plugin's shared `CustomTabsSession` callback, lines 1214-1232, fires `browserPageLoaded` into JS), `tab.intent.setPackage(pkg)` with `pkg = CustomTabsClient.getPackageName(owner.activity, browsers)` over the packages from `queryIntentActivities(new Intent(ACTION_VIEW, Uri.parse("http://")), MATCH_ALL)`, launched with `tab.launchUrl(owner.activity, Uri.parse(url))`. An Activity context means no `FLAG_ACTIVITY_NEW_TASK`, so the tab opens in Bread's task. No `FLAG_ACTIVITY_NO_HISTORY`, so switching to a password manager or a 2FA app doesn't end the flow. A null `pkg` or `ActivityNotFoundException` gives `AUTH_UNAVAILABLE`; any other `RuntimeException` gives `AUTH_FAILED`.
 - The return: the browser fires the VIEW intent; `singleTask` clears the tab above `MainActivity` and delivers `onNewIntent`, where `BreadAuthCallbacks.consume` resolves the sheet. Android delivers `onNewIntent` before `onResume`, so `hostResumed` is then quiet. Closing the tab with X or Back resumes Bread after a stop with no callback, and `hostResumed` replies cancelled.
@@ -669,12 +677,16 @@ urlMustBeAbsoluteSameOriginHttps             // null, an Integer, "", relative, 
                                              // non-ASCII, 4097 characters: AUTH_INVALID_URL; https://GAME.example:443/a?b#c and 4096
                                              // characters on page (https, game.example, -1): null
 callbackAddressIsExactWithAnyQuery           // the same accept and reject table as the iOS test
-oneSheetAtATime                              // after begin(), refusal() is AUTH_BUSY; release(stale) keeps it; release(current) frees it
+oneSheetAtATime                              // after begin(page), refusal() is AUTH_BUSY; release(stale) keeps it; release(current) frees it
 stoppedHostRefusesUnavailable                // stopped() with no sheet: refusal() is AUTH_UNAVAILABLE until resumed()
-resumeAfterStopWithoutCallbackCancels        // begin, stopped, resumed: CANCELLED and IDLE; a later callback is NONE
-aPauseAloneKeepsTheSheet                     // begin, resumed with no stop: NONE, still LAUNCHING; then callback(valid): RESOLVED
+resumeAfterStopWithoutCallbackCancels        // begin, stopped (still LAUNCHING), resumed: CANCELLED and IDLE; a later callback is NONE
+aResumeWithoutAStopCancels                   // begin, resumed with no stop: CANCELLED and IDLE; a later callback is NONE; refusal() is null
 callbackBeforeResumeResolvesAndResumeIsQuiet // begin, stopped, callback(valid): RESOLVED; resumed: NONE
 foreignCallbackWhileOpenFails                // callback("com.miden.wallet.auth://callback/x"): FAILED, slot freed
+aCallbackMustNameTheOpeningPageOnce          // after begin("game.example", -1): no origin, two, another host, :8443, a trailing /, http, HTTPS, a trailing dot,
+                                             // user@, %zz, an empty or bare origin, Origin, %6Frigin, a bare origin before a valid one, origin only after # or
+                                             // in #?: MISMATCH and IDLE; GAME.Example after another field, an unencoded value, :443 with a fragment and an
+                                             // upper-case scheme: RESOLVED; after begin("game.example", 8443) only %3A8443 resolves
 callbackWithoutSheetIsIgnored                // callback(valid) while IDLE: NONE
 // BreadAuthControllerTest (Robolectric, @Config(sdk = 34)): the static mocks of BreadPresentationControllerTest lines 66-91,
 // capturing listeners by name into a map (the existing messageListener is last-wins); JavaScriptReplyProxy is a Mockito mock,
@@ -688,14 +700,17 @@ insecurePageRepliesInsecurePage              // origin http://fixture.example: A
 crossOriginUrlRepliesInvalidUrl              // https://other.example/ from https://fixture.example: AUTH_INVALID_URL
 launchesSessionlessCustomTabInTheHostTask    // next started activity: VIEW, the exact url, package com.android.chrome, no
                                              // FLAG_ACTIVITY_NEW_TASK, no FLAG_ACTIVITY_NO_HISTORY, null CustomTabsIntent.EXTRA_SESSION binder
-callbackIntentResolvesTheUrlUntouched        // hostStopped, then BreadAuthCallbacks.consume(VIEW com.miden.wallet.auth://callback?login=a%2Fb&x=1):
+callbackIntentResolvesTheUrlUntouched        // hostStopped, then BreadAuthCallbacks.consume(VIEW com.miden.wallet.auth://callback?origin=https%3A%2F%2Ffixture.example&login=a%2Fb&x=1):
                                              // replies {id: "a", url: <that exact string>}; the returned intent keeps its action and has no data;
                                              // hostResumed sends nothing more
+theCallbackMustNameTheOpeningPage            // page https://fixture.example:8443: a callback naming https://fixture.example replies {id: "a", error: "AUTH_ORIGIN_MISMATCH"}
+                                             // and frees the sheet; the next open's callback naming :8443 replies {id: "b", url: <that string>}
 consumeLeavesOtherIntentsAlone               // MAIN, VIEW com.miden.wallet://wc?uri=x, VIEW without data: the same object back, nothing sent
 consumeStripsACallbackWithNoSheet            // no open sheet (a cold start after process death): a copy without data, nothing sent
 resumeAfterStopRepliesCancelled              // hostStopped then hostResumed: {id: "a", cancelled: true} once
-pluginStopAndResumeReachTheSheet             // InAppBrowserPlugin's handleOnStop() then handleOnResume() cancel the open sheet
-                                             // (construct the plugin as the existing plugin tests do if the resume body needs a bridge)
+aTabClosedBeforeTheStopRepliesCancelled      // hostResumed with no hostStopped (the tab closed before Android stopped Bread): {id: "a", cancelled: true} once; a new open launches a tab
+pluginStopAndResumeReachTheSheet             // after handleOnStop() an open replies AUTH_UNAVAILABLE and starts nothing; after handleOnResume() the next
+                                             // open launches a tab, and handleOnStop() then handleOnResume() reply {id: "b", cancelled: true}
 secondOpenRepliesBusy                        // from the same or another dialog: AUTH_BUSY; the first stays open
 noCustomTabsBrowserRepliesUnavailable        // no browser registered: AUTH_UNAVAILABLE, slot freed
 hiddenDialogRepliesUnavailable               // presentable false: AUTH_UNAVAILABLE, no activity started
@@ -737,7 +752,7 @@ private void receive(String raw, Uri origin, boolean mainFrame, JavaScriptReplyP
     String browser = code == null ? customTabsPackage(owner.activity) : null;
     if (code == null && browser == null) code = BreadAuthState.UNAVAILABLE;
     if (code != null) { send(proxy, id, "error", code); return; }
-    ticket = state.begin(); reply = proxy; requestId = id; active = this;
+    ticket = state.begin(origin.getHost(), origin.getPort()); reply = proxy; requestId = id; active = this;
     try {
         CustomTabsIntent tab = new CustomTabsIntent.Builder().build();
         tab.intent.setPackage(browser);
@@ -746,7 +761,7 @@ private void receive(String raw, Uri origin, boolean mainFrame, JavaScriptReplyP
     catch (RuntimeException e) { finish("error", BreadAuthState.FAILED); }
 }
 ```
-  - The static hooks route to `active`, the one controller that owns the open sheet. `hostCallback(url)` calls `state.callback(url)`: RESOLVED gives `active.finish("url", url)`, FAILED gives `active.finish("error", FAILED)`. `finish` sends `new JSONObject().put("id", id).put(key, value).toString()` on the saved proxy, clears `active` and calls `state.release(ticket)`.
+  - The static hooks route to `active`, the one controller that owns the open sheet. `hostCallback(url)` calls `state.callback(url)`: RESOLVED gives `active.finish("url", url)`, MISMATCH gives `active.finish("error", ORIGIN_MISMATCH)`, FAILED gives `active.finish("error", FAILED)`. `finish` sends `new JSONObject().put("id", id).put(key, value).toString()` on the saved proxy, clears `active` and calls `state.release(ticket)`.
   - `BreadAuthCallbacks.consume(intent)`: return `intent` unless it is `ACTION_VIEW` with a data string whose scheme is `com.miden.wallet.auth` (ASCII case-insensitive, compared on the text before the first `:`); otherwise call `BreadAuthController.hostCallback(data)` and return `new Intent(intent).setData(null)`.
   - `MainActivity`:
 ```java
@@ -771,28 +786,30 @@ protected void onNewIntent(Intent intent) {
 
 **Files:**
 - Modify: `src-tauri/scripts/dapp-injection.js`: define the marker right after the `__midenInjected` guard (lines 46-48), before `pendingRequests` (line 51). It runs synchronously at document start, so a site's first script sees it, while the wallet API waits for `DOMContentLoaded` when there is no body (lines 558-571). The top-frame return at line 44 already keeps it out of sub-frames, including WebView2's.
-- Modify: `docs/dapp-fullscreen.md`: lines 16 and 53, `if (window.bread?.version === 1) {` becomes `if (window.bread?.presentation) {`; line 21 adds: "Bread's desktop app defines an empty, frozen `window.bread`, so detect each capability by its presence."
-- Modify: `CHANGELOG.md`, Features: `- [FEATURE][desktop] The desktop dApp window defines an empty, frozen window.bread, so a site can tell it runs inside Bread. It has no presentation or auth.`
+- Modify: `docs/dapp-fullscreen.md`: lines 16 and 53, `if (window.bread?.version === 1) {` becomes `if (window.bread?.presentation) {`; line 21 adds: "Bread's desktop app defines an empty, frozen `window.bread`, so detect each capability by its presence." It also says: "On desktop the marker is writable and configurable, so a page's own top-level `bread` replaces it."
+- Modify: `CHANGELOG.md`, Features: `- [FEATURE][desktop] The desktop dApp window defines an empty, frozen window.bread, so a site can tell it runs inside Bread. It has no presentation or auth, and a page's own top-level bread replaces it.`
 - Test: `src/lib/desktop/dapp-injection.test.ts`
 
 **Interfaces:**
-- `window.bread` is an own property that is non-writable, non-enumerable and non-configurable, the same descriptor as mobile's (`presentation-script.ts` line 99). Its value is `Object.freeze({})`: no `version`, no `presentation`, no `auth`. The published `window.bread?.version === 1` checks therefore keep skipping presentation on desktop.
+- `window.bread` is an own property that is writable, non-enumerable and configurable, so a page's own top-level `bread` (declared with `let`, `const`, `class`, `function` or `var`, or assigned) replaces it instead of throwing or being ignored; mobile's descriptor (`presentation-script.ts` line 99) stays non-writable and non-configurable. Its value is `Object.freeze({})`: no `version`, no `presentation`, no `auth`. The published `window.bread?.version === 1` checks therefore keep skipping presentation on desktop.
 - The extension gets nothing.
 
 - [ ] **Step 1: Write the failing tests.** Extract `run(win)` from `load()` (the `new Function(...)` call at lines 46-53) so a window can be evaluated twice, add `loadFrame()` (a JSDOM at `https://dapp.example/` with an `iframe`, `__MIDEN_BRIDGE_TOKEN__` set on its `contentWindow`, and `run` there), and add `bread?: object` to `DappWindow` (lines 26-30).
 ```ts
 it('marks the top document with an empty, frozen window.bread')   // Object.keys(win.bread) is []; frozen; no version, presentation or auth
 it('defines window.bread synchronously even when the wallet API waits for DOMContentLoaded') // body removed before run: bread yes, midenWallet not yet
-it('keeps window.bread non-writable and non-configurable')       // descriptor {writable: false, enumerable: false, configurable: false};
-                                                                 // Reflect.set and Reflect.deleteProperty return false
+it('keeps window.bread a non-enumerable, writable and configurable marker') // descriptor {value: {}, writable: true, enumerable: false, configurable: true}
+it.each(DECLARATIONS)("lets a page's own top-level bread win: %s")         // let, const, class, function, var, a sloppy and a strict assignment, and
+                                                                           // window.bread =, each run as a classic script: the page reads its own value
 it('defines nothing in a sub-frame')                              // after loadFrame(): no bread, no midenWallet
 it('keeps the same marker when the script runs again')            // a second run(win) doesn't throw; win.bread is the same object
 ```
 - [ ] **Step 2: Implement** after line 48:
 ```js
 // Desktop has neither presentation nor auth; a page detects Bread by window.bread and each capability by its presence.
+// Writable and configurable, so a page's own top-level `bread` replaces the marker instead of throwing or being ignored.
 try {
-  Object.defineProperty(window, 'bread', { value: Object.freeze({}) });
+  Object.defineProperty(window, 'bread', { value: Object.freeze({}), writable: true, configurable: true });
 } catch (e) {
   // A page-defined non-configurable `bread` keeps its value; the wallet bridge still installs.
 }
@@ -806,29 +823,33 @@ try {
 **Files:**
 - Create: `docs/dapp-sign-in.md`, a sibling of `dapp-fullscreen.md`, covering:
   - The API with presence detection: `if (window.bread?.auth) { const result = await window.bread.auth.open(url); }`; the two result shapes; reading the handle with `new URL(result.url).searchParams.get('login')` or `'login_error'`.
-  - The six codes, one line each, in the check order.
+  - The seven codes, one line each, in the check order.
   - The page rules: the main frame, an https page, an absolute same-origin https URL of at most 4096 characters, one sheet across the app, the browser visible and in the foreground.
-  - The callback: a navigation inside the sheet to `com.miden.wallet.auth://callback` ends the flow, whether a redirect, a refresh or a link the user taps. Bread resolves only while its own sheet is open and only for that address, forwards the URL untouched, and reads, stores and logs nothing from it. Recommend ending the flow with a small no-store page that refreshes to `com.miden.wallet.auth://callback?login=<handle>` (or `?login_error=<code>`) and also shows a "Return to Bread" link to the same address, because Chrome on Android may refuse a redirect to an app that no tap started, as after Apple's script-submitted form post.
-  - The site's security duty: on Android any installed app can send that address while a sheet is open, so redeem a handle only together with a secret the page kept in memory and committed to in its auth URL (a PKCE-style challenge), single use and short-lived.
-  - Platforms: iOS shows its consent prompt, the sheet shares Safari's cookies, and Cancel on the prompt or the sheet gives `{ cancelled: true }`. Android opens a Custom Tab in Bread's task, sharing the browser's cookies; closing the tab gives `{ cancelled: true }`. Desktop: `window.bread` is empty. Extension: nothing.
-  - Native integration: the `breadAuth` transports and the reply shapes from the shared rules.
+  - The callback: a navigation inside the sheet to `com.miden.wallet.auth://callback` ends the flow, whether a redirect, a refresh or a link the user taps. Bread resolves only while its own sheet is open, only for that address, and only when the callback names the page in exactly one `origin` parameter, per the origin rule; otherwise `AUTH_ORIGIN_MISMATCH`, and the page never gets the URL. It forwards the URL untouched, reads nothing from it but `origin`, and stores and logs nothing from it. Recommend ending the flow with a small no-store page that refreshes to `com.miden.wallet.auth://callback?origin=<origin>&login=<handle>` (or `login_error=<code>` in place of `login`) and also shows a "Return to Bread" link to the same address, because Chrome on Android may refuse a redirect to an app that no tap started, as after Apple's script-submitted form post. The server writes the exact origin of its own pages, percent-encoded, as `location.origin` gives it, from its own configuration and never from anything the request supplies.
+  - The site's security duty: on Android the callback address is a custom scheme that any installed app can also register, so another app may receive the real callback, and any app can send that address while a sheet is open. Redeem a handle only together with a secret the page kept in memory and committed to in its auth URL (a PKCE-style challenge), single use and short-lived.
+  - The origin's duty: another site's page in Bread can open a URL on its own origin that redirects into the site's flow with a challenge of its own, and `Sec-Fetch-Site` stays `none` through those redirects, so the secret can't tell; the `origin` the server writes into the callback, from its own configuration, is what keeps the handle from that page.
+  - Platforms: iOS shows its consent prompt, the sheet shares Safari's cookies, and Cancel on the prompt or the sheet gives `{ cancelled: true }`. Android opens a Custom Tab in Bread's task, sharing the browser's cookies; closing the tab gives `{ cancelled: true }`. Desktop: `window.bread` is empty, and a page's own top-level `bread` replaces it. Extension: nothing.
+  - Native integration: the `breadAuth` transports, the reply shapes and the origin rule from the shared rules.
 - Modify: `docs/dapp-fullscreen.md`: line 21, a sentence pointing to `dapp-sign-in.md` for `window.bread.auth`; line 60, a sentence saying the `breadPresentation` option also installs the `breadAuth` transport.
 - No new CHANGELOG line: PR B's entries come with B1, B3 and B4, and B5 only appends `See [the sign-in guide](docs/dapp-sign-in.md).` to B1's mobile entry.
 
 - [ ] **Step 1: Write the device checks.** On a build of this branch, with a fixture site at an https origin that has Google and Apple buttons, a cross-origin iframe and a button that opens twice:
-  - iPhone, Google: the system prompt names the site's host; after Continue and sign-in the promise resolves `{ url }` with `?login=`, and the page is still loaded.
+  - iPhone, Google: the system prompt names the site's host; after Continue and sign-in the promise resolves `{ url }` with `origin` naming the page and `login`, and the page is still loaded.
   - iPhone, Apple: the same, through Apple's form post.
   - iPhone, Cancel on the system prompt, and Cancel inside the sheet: `{ cancelled: true }`.
   - iPhone, a fullscreen site and a browser-mode site: the sheet is usable and typing works in both; note how it looks inside the slot in browser mode.
   - iPhone, VoiceOver on: the sheet is reachable and Cancel can be activated.
   - Android, Google: the Custom Tab opens over the site; on success the tab closes by itself, Bread returns in the same task (Recents shows one Bread task) with the page still loaded, and the promise resolves `{ url }`.
   - Android, Apple: the same; note whether Bread came back by itself or the site's "Return to Bread" link was needed.
-  - Android, close the tab with X or Back: `{ cancelled: true }`, the page still loaded.
+  - Android, close the tab with X or Back, once after its page loads and once while it is still loading: `{ cancelled: true }` both times, the page still loaded, and the next open isn't `AUTH_BUSY`.
   - Android, switch to a 2FA or password app mid-flow and come back through Recents: the flow continues.
   - Android, a permission prompt or system dialog over Bread just before the tab appears: the flow continues.
   - Android, tap Bread's launcher icon mid-flow: note whether the tab stays on top (the flow continues) or is gone (`{ cancelled: true }`).
+  - Android, Chrome: minimize the tab to picture-in-picture mid-flow, restore it and finish: note whether the promise resolved `{ url }` or had already resolved `{ cancelled: true }`.
+  - Android, the first Custom Tab after installing or resetting the browser, and a default browser other than Chrome: the flow continues to `{ url }`, not an early `{ cancelled: true }`.
   - Both, a second open while the sheet is up, from the same page and from another parked dApp: `AUTH_BUSY`.
   - Both, an iframe or an http page calling: `AUTH_NOT_MAIN_FRAME` or `AUTH_INSECURE_PAGE`.
+  - Both, a page on a second origin that opens its own URL redirecting into the fixture site's sign-in: after sign-in it gets `AUTH_ORIGIN_MISMATCH`, never `{ url }`.
   - Both, a parked or hidden dApp calling: `AUTH_UNAVAILABLE`, and no sheet over the wallet.
   - iPhone, closing the dApp while the sheet is open: the sheet closes, and a new sign-in works.
   - Android, `adb shell am kill com.miden.wallet` while the tab is open, then finish signing in: Bread starts without crashing and nothing resolves.
@@ -841,9 +862,9 @@ try {
 
 1. **Chrome's external-protocol rule.** Chrome may refuse a redirect to a custom scheme that no tap started, as after Apple's script-submitted form post. Sites end the flow with a page that refreshes and offers a "Return to Bread" link (B5); the device checks try Google and Apple on Android.
 2. **Process death on Android while the tab is open.** The callback cold-starts Bread with no site, no sheet and nothing to resolve; `MainActivity` takes the data out of the intent, and the user signs in again.
-3. **Lifecycle order.** B3 relies on `onNewIntent` arriving before `onResume`, which Android documents. A pause alone never cancels; a stop then a resume without a callback does.
+3. **Lifecycle order.** B3 relies on `onNewIntent` arriving before `onResume`, which Android documents. Any resume without a callback cancels, with or without a stop first, because the tab covers Bread in Bread's task until it closes; a browser that shows a translucent screen of its own before the tab could let Bread resume early and cancel (a B5 device check).
 4. **The dialog surviving the tab.** On pause, non-fullscreen dialogs hide with `super.hide()` and show again on resume; fullscreen ones stay covered. The site's state, audio and timers survive, and the reply lands after the dialog is visible.
-5. **Callback injection on Android.** Any installed app can send the callback while a sheet is open. Sites bind the handle to their in-memory secret (B5). iOS is immune: the scheme isn't registered, and the session completes only from its own browser.
+5. **Callback injection and interception on Android.** Any installed app can send the callback while a sheet is open, and an app that registers the same scheme may receive the real callback instead of Bread. Sites bind the handle to their in-memory secret (B5), which makes both harmless to a site that follows the guide. iOS is immune: the scheme isn't registered, and the session completes only from its own browser.
 6. **Frames and direct calls.** `"*"` rules put `window.breadAuth` in every Android frame, `.page` handlers are visible to iOS iframes, and a page can call the transport directly. The native checks are the only authority; B2 and B3 test the main frame, the origin and the URL.
 7. **iOS replies exactly once** on every exit: validation, busy, unavailable, a failed start, each completion, `close()`, `deinit`, and the weak wrapper with a dead delegate.
 8. **iOS resign-active during the consent prompt.** `BreadPresentationController` pauses its readiness budget and `InAppBrowserPlugin` adds its privacy screen (lines 1144-1180) under the sheet: look for flicker or a stuck cover after Continue or Cancel.
@@ -852,3 +873,4 @@ try {
 11. **Test harness order.** `BreadPresentationControllerTest` captures listeners last-wins (line 78), so auth registers before presentation, and the install list at line 1507 changes in the same commit.
 12. **Crash reports.** No native or JS reporter records an intent, a URL or console output carrying the callback.
 13. **iOS 26 SDK concurrency annotations.** The SDK marks the reply handler `@MainActor @Sendable`; in Swift 5 mode a mismatch should only warn. If `Compile iOS` errors, match the SDK's signature exactly.
+14. **Another site's page starting the flow.** A page can open a URL on its own origin that redirects into another site's sign-in with its own challenge, and `Sec-Fetch-Site` stays `none` through the redirects, so the site's server can't tell. The origin rule closes it: the callback must name the opening page, so that page gets `AUTH_ORIGIN_MISMATCH`. It relies on the site's server writing its own origin from its configuration, never from the request, as the guide says.
