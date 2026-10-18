@@ -1179,6 +1179,119 @@ describe('the network fee', () => {
     ]);
   });
 
+  it('a late writer refusal after the note left the live list leaves no card', async () => {
+    const { ClaimFeeRefusedError } = jest.requireActual<typeof import('lib/miden/transaction/claim-fee')>(
+      'lib/miden/transaction/claim-fee'
+    );
+    mockBalances.data = [nativeRow(1)];
+    const failQueue = deferQueueFailure(mockQueue);
+    const { result, rerender, unmount } = renderHook(() => useActivityClaims());
+    let accepting: Promise<void> = Promise.resolve();
+    act(() => {
+      accepting = result.current.accept(note);
+    });
+    expect(result.current.items[0]?.status).toBe('claiming');
+
+    mockClaim.safeClaimableNotes = [];
+    rerender();
+    await act(async () => {
+      failQueue(new ClaimFeeRefusedError());
+      await accepting;
+    });
+
+    expect(result.current.items).toEqual([]);
+    unmount();
+    const remounted = renderHook(() => useActivityClaims());
+    expect(remounted.result.current.items).toEqual([]);
+    remounted.unmount();
+  });
+
+  it('a late writer refusal after a refresh marked the note unavailable keeps it unavailable', async () => {
+    const { ClaimFeeRefusedError } = jest.requireActual<typeof import('lib/miden/transaction/claim-fee')>(
+      'lib/miden/transaction/claim-fee'
+    );
+    mockBalances.isLoading = true;
+    const failQueue = deferQueueFailure(mockQueue);
+    const { result, rerender } = renderHook(() => useActivityClaims());
+    let accepting: Promise<void> = Promise.resolve();
+    act(() => {
+      accepting = result.current.accept(note);
+    });
+    expect(result.current.items[0]?.status).toBe('claiming');
+
+    mockClaim.invalidNoteIds = new Set([note.id]);
+    mockBalances.data = [nativeRow(1)];
+    mockBalances.isLoading = false;
+    rerender();
+    await act(async () => {
+      failQueue(new ClaimFeeRefusedError());
+      await accepting;
+    });
+
+    expect(result.current.items).toHaveLength(1);
+    expect(result.current.items[0]?.status).toBe('unavailable');
+  });
+
+  it('late Accept All refusals after the notes left the live list leave no cards', async () => {
+    const { ClaimFeeRefusedError } = jest.requireActual<typeof import('lib/miden/transaction/claim-fee')>(
+      'lib/miden/transaction/claim-fee'
+    );
+    const refused = { ...note, id: 'refused' };
+    const admitted = { ...note, id: 'admitted' };
+    mockClaim.safeClaimableNotes = [refused, admitted];
+    mockBalances.data = [nativeRow(1)];
+    const queueResult = {
+      committedId: 'tx-admitted',
+      coveringTxIdByNoteId: new Map([[admitted.id, 'tx-admitted']]),
+      feeRefusedNoteIds: [refused.id]
+    };
+    let releaseQueue: (queued: typeof queueResult) => void = () => {};
+    mockQueueMany.mockImplementationOnce(
+      () =>
+        new Promise<typeof queueResult>(resolve => {
+          releaseQueue = resolve;
+        })
+    );
+    const partial = renderHook(() => useActivityClaims());
+    let accepting: Promise<void> = Promise.resolve();
+    act(() => {
+      accepting = partial.result.current.acceptMany([refused, admitted]);
+    });
+    await settleDeliverySenders();
+    mockClaim.safeClaimableNotes = [admitted];
+    partial.rerender();
+    await act(async () => {
+      releaseQueue(queueResult);
+      await accepting;
+    });
+
+    expect(partial.result.current.items.find(item => item.note.id === refused.id)).toBeUndefined();
+    expect(partial.result.current.items.find(item => item.note.id === admitted.id)).toMatchObject({
+      status: 'claiming',
+      txId: 'tx-admitted'
+    });
+    partial.unmount();
+
+    __resetActivityClaimsForTest();
+    const other = { ...note, id: 'note-two' };
+    mockClaim.safeClaimableNotes = [note, other];
+    const failQueue = deferQueueFailure(mockQueueMany);
+    const allRefused = renderHook(() => useActivityClaims());
+    act(() => {
+      accepting = allRefused.result.current.acceptMany([note, other]);
+    });
+    await settleDeliverySenders();
+    mockClaim.safeClaimableNotes = [];
+    allRefused.rerender();
+    await act(async () => {
+      failQueue(new ClaimFeeRefusedError());
+      await accepting;
+    });
+
+    expect(allRefused.result.current.items).toEqual([]);
+    allRefused.unmount();
+  });
+
   it('a writer fee refusal survives a view remount until a live refresh', async () => {
     const { ClaimFeeRefusedError } = jest.requireActual<typeof import('lib/miden/transaction/initiate')>(
       'lib/miden/transaction/initiate'
