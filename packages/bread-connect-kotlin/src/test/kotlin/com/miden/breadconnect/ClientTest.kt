@@ -320,18 +320,26 @@ class ClientTest {
     }
 
     @Test
-    fun aSessionThatCannotBeReadAsTheAnswerArrivesEndsTheRequestAtOnce() = runTest {
+    fun aLinkThatCannotBeAuthenticatedWhileTheSessionCannotBeReadIsDropped() = runTest {
         val failing = FailingStorage()
         val client = connectedWith(failing)
         val signing = async { runCatching { client.request(json("""{"type":"SIGN_REQUEST"}""")) } }
         runCurrent()
+        val (request) = bread.openRequest(opener.opened[1])
+        val forged = BreadConnectLinks.writeLink(
+            callback,
+            Envelope.Response(request.id, bread.session, Base64Url.encode(ByteArray(12)), Base64Url.encode(ByteArray(16))),
+        )
         failing.failingRead = BreadConnect.SESSION_KEY
 
+        assertTrue(client.handle(forged))
+        runCurrent()
+        assertTrue(signing.isActive)
+
+        failing.failingRead = null
         val answer = bread.answerRequest(opener.opened[1], json("""{"response":{"type":"SIGN_RESPONSE","signature":"c2ln"}}"""))
         assertTrue(client.handle(answer))
-
-        val error = signing.await().exceptionOrNull() as BreadConnectException
-        assertEquals(BreadConnectException.Code.Bread(ProtocolErrorCode.INTERNAL_ERROR), error.code)
+        assertEquals("SIGN_RESPONSE", signing.await().getOrThrow()["type"].string)
     }
 
     @Test

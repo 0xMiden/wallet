@@ -178,8 +178,8 @@ export class AppSwitchTransport {
       let session: StoredSession | null;
       try {
         session = this.session();
-      } catch (error) {
-        this.settle(new BreadConnectError('INTERNAL_ERROR', `The session could not be read: ${String(error)}`));
+      } catch {
+        // Without the session the link cannot be authenticated, and only an authenticated answer settles a request.
         return;
       }
       if (!session || session.session !== pending.session) return;

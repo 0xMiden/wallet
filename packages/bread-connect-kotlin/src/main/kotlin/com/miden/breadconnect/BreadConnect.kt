@@ -145,16 +145,14 @@ class BreadConnect(
                             val kept = runCatching {
                                 storage.write(SESSION_KEY, encodeSession(StoredSession(session, pending.request, answer.response)))
                             }
-                            settle(null, kept.fold({ Result.success(answer.response) }, { storageFailure("kept", it) }))
+                            settle(null, kept.fold({ Result.success(answer.response) }, { storageFailure(it) }))
                         }
                         is ConnectAnswer.Error -> settle(null, failure(answer.error))
                     }
                 }
                 envelope is Envelope.Response && pending is Pending.Request && envelope.id == pending.id -> {
-                    val read = runCatching { session }.getOrElse {
-                        settle(null, storageFailure("read", it))
-                        return true
-                    }
+                    // Without the session the link cannot be authenticated, and only an authenticated answer settles a request.
+                    val read = runCatching { session }.getOrElse { return true }
                     val stored = read?.takeIf { it.session.session == pending.session } ?: return true
                     val answer = try {
                         BreadConnectProtocol.readResponse(envelope, stored.session)
@@ -244,8 +242,8 @@ class BreadConnect(
 
     private fun failure(error: ProtocolError) = failure(BreadConnectException.Code.Bread(error.code), error.message)
 
-    private fun storageFailure(action: String, error: Throwable) =
-        failure(ProtocolError(ProtocolErrorCode.INTERNAL_ERROR, "The session could not be $action: $error"))
+    private fun storageFailure(error: Throwable) =
+        failure(ProtocolError(ProtocolErrorCode.INTERNAL_ERROR, "The session could not be kept: $error"))
 
     private fun failure(code: BreadConnectException.Code, message: String): Result<JsonObject> =
         Result.failure(BreadConnectException(code, message))

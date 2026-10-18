@@ -325,15 +325,25 @@ describe('AppSwitchTransport', () => {
       h.transport.stop();
     });
 
-    it('ends a request with INTERNAL_ERROR when its session cannot be read as the answer arrives', async () => {
+    it('drops a link it cannot authenticate while its session cannot be read, and takes the answer once it can', async () => {
       const storage = new FailingStorage();
       const h = await connected(fakeBread(approve), storage);
       const answer = h.transport.request({ type: 'SIGN_REQUEST' });
       await flush();
+      const reply = h.bread.open(h.opened[1]!);
+      const read = readLink(reply, CALLBACK);
+      if (read?.kind !== 'envelope' || read.envelope.type !== 'response') throw new Error('no response');
+      const { sealed } = read.envelope;
+      const forged = writeLink(CALLBACK, {
+        ...read.envelope,
+        sealed: `${sealed.startsWith('A') ? 'B' : 'A'}${sealed.slice(1)}`
+      });
       storage.failing.add('get bread-connect:session');
-      deliver(h, h.bread.open(h.opened[1]!));
-      expect(await settled(answer)).toBe('rejected');
-      await expect(answer).rejects.toMatchObject({ code: 'INTERNAL_ERROR' });
+      deliver(h, forged);
+      expect(await settled(answer)).toBe('pending');
+      storage.failing.delete('get bread-connect:session');
+      deliver(h, reply);
+      await expect(answer).resolves.toEqual({ type: 'SIGN_RESPONSE', signature: 'c2ln' });
       h.transport.stop();
     });
 
