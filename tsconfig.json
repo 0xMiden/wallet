@@ -30,6 +30,12 @@
   // discarded the timeouts #675 added and went unnoticed through every CI run
   // until it produced an undiagnosable E2E failure on main. TS1117 makes that a
   // hard error; this line is what makes TS look.
-  "include": ["src", "playwright/**/*.ts", "playwright*.config.ts"],
+  "include": [
+    "src",
+    "packages/bread-connect/src",
+    "packages/bread-connect-capacitor/src",
+    "playwright/**/*.ts",
+    "playwright*.config.ts"
+  ],
   "exclude": ["**/node_modules/**", "node_modules"]
 }
