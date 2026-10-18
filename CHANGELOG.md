@@ -12,6 +12,7 @@
 
 ### Fixes
 
+- [FIX][mobile] The in-app-browser provider exposes `createAccount()`, which rejects with the extension's explicit unsupported-operation error (#1543).
 - [FIX][all] A dApp that imported a details-only note file or a bare Note can list it with `requestPrivateNotes` by the id `importPrivateNote` returned for it: the List filter looks an id that is no note id up as the note's details commitment and lists that note, if this account can consume it, under its own note id (#1536).
 - [FIX][all] An expired or cancelled Swap order with no fills reclaims its original public order note through the Guardian-compatible, fee-aware cancellation path, instead of leaving the offered funds locked because the order never produced a consumable input note. The receipt keeps zero-fill reclaims at 0%, shows returning funds instead of matching during cancellation, and Activity labels the original offer and placement time rather than presenting an unreceived quote as funds received (#1476).
 - [FIX][all] Max on a USDCx bridge-out holds back the burn's real cost, measured by a dry run of the burn, so a full-balance burn no longer fails with a vault shortfall when it costs more than the static fee reserve; Max and Continue wait until that cost is measured, and an amount above it cannot reach review.
