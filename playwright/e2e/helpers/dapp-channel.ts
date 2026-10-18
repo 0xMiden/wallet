@@ -1,4 +1,5 @@
 import { CellDeadlineExceeded, InfrastructureFault, type Deadline } from './dapp-cells';
+import { beforeMobileDeadline } from './mobile-store-reads';
 import type { DappCommandName, DappInput, DappOutput } from '../test-dapp/protocol';
 
 /**
@@ -81,7 +82,9 @@ export async function callOn<K extends DappCommandName>(
   for (let attempt = 1; ; attempt += 1) {
     const startedAt = Date.now();
     try {
-      return await deadline.race(askOnce(channel, command, input, deadline), `dApp ${channel.label} ${command}`);
+      return await beforeMobileDeadline(deadline, `dApp ${channel.label} ${command}`, () =>
+        askOnce(channel, command, input, deadline)
+      );
     } catch (error) {
       if (error instanceof CellDeadlineExceeded && failed !== undefined) {
         throw new ChainUnavailable(`${failed.message} (after ${attempt} attempts, the deadline cut the last)`);

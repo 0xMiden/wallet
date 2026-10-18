@@ -86,8 +86,7 @@ export function nativeAssetOf(
 export async function beforeMobileDeadline<T>(
   deadline: Deadline | undefined,
   what: string,
-  start: () => Promise<T>,
-  bounded = false
+  start: () => Promise<T>
 ): Promise<T> {
   const check = (): void => {
     if (deadline !== undefined && deadline.remainingMs() <= 0) {
@@ -96,7 +95,7 @@ export async function beforeMobileDeadline<T>(
   };
   check();
   const work = start();
-  const value = await (deadline === undefined || bounded ? work : deadline.race(work, what));
+  const value = await (deadline === undefined ? work : deadline.race(work, what));
   check();
   return value;
 }

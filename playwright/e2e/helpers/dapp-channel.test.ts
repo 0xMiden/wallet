@@ -28,6 +28,13 @@ const nodeDown = () =>
   new ChainUnavailable('dApp A/one syncHeight: ChainUnavailableError: syncChain: TypeError: Failed to fetch');
 
 describe('callOn', () => {
+  it('sends no command when the deadline has already expired', async () => {
+    const { channel, asked } = channelAnswering([{ height: 7 }]);
+    const deadline = deadlineIn(0, 'expired cell');
+    await expect(callOn(channel, 'syncHeight', {}, deadline)).rejects.toBeInstanceOf(CellDeadlineExceeded);
+    expect(asked).toEqual([]);
+  });
+
   it('asks once, with no timeout, when no deadline is given', async () => {
     const { channel, asked } = channelAnswering([{ height: 7 }]);
     await expect(callOn(channel, 'syncHeight', {})).resolves.toEqual({ height: 7 });
