@@ -130,10 +130,20 @@ export function useActivityClaims() {
     [claim.safeClaimableNotes, balances, nativeFaucetId, feeGateBaseFee, balancesLoading]
   );
   slotOf(key).feeSnapshot = feeSnapshot;
-  const waitingForFee = (note: ClaimableNoteWithMetadata, startedAt: FeeSnapshot): ClaimAttempt =>
-    sameFeeSnapshot(startedAt, slotOf(key).feeSnapshot ?? feeSnapshot)
-      ? { note, status: 'pending', cannotPayFee: true, feeRefusedAt: startedAt }
-      : { note, status: 'pending' };
+  // A refusal judged on a snapshot the live data has since replaced says nothing about the note now, so the live
+  // state decides, a note that is gone included.
+  const settleFeeRefusal = (
+    next: Map<string, ClaimAttempt>,
+    note: ClaimableNoteWithMetadata,
+    startedAt: FeeSnapshot
+  ): Map<string, ClaimAttempt> => {
+    if (sameFeeSnapshot(startedAt, slotOf(key).feeSnapshot ?? feeSnapshot)) {
+      next.set(note.id, { note, status: 'pending', cannotPayFee: true, feeRefusedAt: startedAt });
+    } else {
+      next.delete(note.id);
+    }
+    return next;
+  };
 
   // A writer refusal survives its own render, but a fresh live snapshot must let the fee pre-gate decide again.
   useEffect(() => {
@@ -313,7 +323,7 @@ export function useActivityClaims() {
       setAttempts(previous => new Map(previous).set(note.id, { note, status: 'claiming', txId }));
     } catch (error) {
       if (error instanceof ClaimFeeRefusedError) {
-        setAttempts(previous => new Map(previous).set(note.id, waitingForFee(note, startedAt)));
+        setAttempts(previous => settleFeeRefusal(new Map(previous), note, startedAt));
         return;
       }
       setAttempts(previous => new Map(previous).set(note.id, { note, status: 'failed' }));
@@ -392,12 +402,9 @@ export function useActivityClaims() {
         setAttempts(previous => {
           const next = new Map(previous);
           for (const note of groupNotes) {
-            next.set(
-              note.id,
-              feeRefused.has(note.id)
-                ? waitingForFee(note, startedAt)
-                : { note, status: 'claiming', txId: coveringTxIdByNoteId.get(note.id) ?? committedId }
-            );
+            if (feeRefused.has(note.id)) settleFeeRefusal(next, note, startedAt);
+            else
+              next.set(note.id, { note, status: 'claiming', txId: coveringTxIdByNoteId.get(note.id) ?? committedId });
           }
           return next;
         });
@@ -405,7 +412,7 @@ export function useActivityClaims() {
         if (error instanceof ClaimFeeRefusedError) {
           setAttempts(previous => {
             const next = new Map(previous);
-            for (const note of groupNotes) next.set(note.id, waitingForFee(note, startedAt));
+            for (const note of groupNotes) settleFeeRefusal(next, note, startedAt);
             return next;
           });
           continue;
