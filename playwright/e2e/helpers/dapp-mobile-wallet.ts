@@ -1,6 +1,13 @@
 import { toBaseUnits } from './balance-truth';
 import { buildPendingSampleScript, type PendingSample } from './claim-drain';
-import { HarnessFault, withFailureEvidence, type BalanceReadDiagnostics, type Deadline } from './dapp-cells';
+import {
+  CellDeadlineExceeded,
+  deadlineIn,
+  HarnessFault,
+  withFailureEvidence,
+  type BalanceReadDiagnostics,
+  type Deadline
+} from './dapp-cells';
 import {
   describeTransactionRow,
   readTransactionRowsInPage,
@@ -75,13 +82,34 @@ export function currentGuardianEndpoint(wallet: MobileWallet): Promise<string> {
 }
 
 export async function selectAccount(wallet: MobileWallet, address: string, deadline?: Deadline): Promise<void> {
-  const selected = await stashAndPoll<string>(
-    evalOf(wallet, deadline),
-    '__dapp_select',
-    `(async function () { ${STORE} await st.updateCurrentAccount(${JSON.stringify(address)}); ` +
-      `var a = s.getState().currentAccount; return a ? a.publicKey : ''; })()`
-  );
-  if (selected !== address) throw new Error(`selectAccount selected ${selected || 'no account'} instead of ${address}`);
+  const startedAt = Date.now();
+  const bound = deadline ?? deadlineIn(30_000, 'selectAccount');
+  let selected: string | null = null;
+  const select = (): Promise<string> =>
+    beforeMobileDeadline(bound, 'account selection update', () =>
+      stashAndPoll<string>(
+        evalOf(wallet, bound),
+        '__dapp_select',
+        `(async function () { ${STORE} await st.updateCurrentAccount(${JSON.stringify(address)}); ` +
+          `var a = s.getState().currentAccount; return a ? a.publicKey : ''; })()`,
+        bound.remainingMs()
+      )
+    );
+  try {
+    selected = await select();
+    while (selected !== address) {
+      await beforeMobileDeadline(bound, 'account selection convergence', () => sleep(250));
+      selected = await currentAccount(wallet, bound);
+      if (selected !== address) selected = await select();
+    }
+  } catch (error) {
+    if (!(error instanceof CellDeadlineExceeded)) throw error;
+    const failure = new CellDeadlineExceeded(
+      `selectAccount selected ${selected || 'no account'} instead of ${address} after ${Date.now() - startedAt} ms: ${error.message}`
+    );
+    failure.cause = error;
+    throw failure;
+  }
 }
 
 export async function selectAccountIfNeeded(wallet: MobileWallet, address: string, deadline?: Deadline): Promise<void> {

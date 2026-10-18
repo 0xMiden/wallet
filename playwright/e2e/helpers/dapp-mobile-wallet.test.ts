@@ -7,7 +7,14 @@ import path from 'node:path';
 
 import { CellDeadlineExceeded, DappCellRunner, deadlineIn, type JourneyRecord } from './dapp-cells';
 import { registryOf } from './dapp-known-bugs';
-import { accountRows, readRows, rowUnits, waitForQueueDrained, type MobileWallet } from './dapp-mobile-wallet';
+import {
+  accountRows,
+  readRows,
+  rowUnits,
+  selectAccount,
+  waitForQueueDrained,
+  type MobileWallet
+} from './dapp-mobile-wallet';
 import { TxStatus, type TransactionRowSnapshot } from './history';
 import { CURRENT_ACCOUNT_ROWS_JS, stashAndPoll } from './mobile-store-reads';
 import { db } from '../../../src/lib/miden/repo';
@@ -81,6 +88,84 @@ describe('stashAndPoll', () => {
     await expect(stashAndPoll(evalJs, '__t', 'new Promise(function () {})', 50)).rejects.toThrow(
       'timed out after 50ms'
     );
+  });
+});
+
+describe('account selection convergence', () => {
+  beforeEach(() => {
+    jest.useFakeTimers({ now: 0 });
+  });
+  afterEach(() => {
+    jest.clearAllTimers();
+    jest.useRealTimers();
+  });
+
+  function selection(land: (address: string, attempt: number) => void) {
+    const accounts = [
+      { publicKey: 'second', name: 'Same' },
+      { publicKey: 'primary', name: 'Same' }
+    ];
+    const state = {
+      accounts,
+      currentAccount: { publicKey: 'primary' },
+      updateCurrentAccount: jest.fn(async (address: string): Promise<void> => {
+        land(address, state.updateCurrentAccount.mock.calls.length);
+      })
+    };
+    return { state, wallet: walletOver({ __TEST_STORE__: { getState: () => state } }) };
+  }
+
+  it('waits for delayed exact-key success with reversed accounts and duplicate names', async () => {
+    const { state, wallet } = selection(address => {
+      setTimeout(() => {
+        state.currentAccount = { publicKey: address };
+      }, 100);
+    });
+    const selected = selectAccount(wallet, 'second', deadlineIn(2_000, 'M1'));
+    await jest.advanceTimersByTimeAsync(1_000);
+    await expect(selected).resolves.toBeUndefined();
+    expect(state.currentAccount.publicKey).toBe('second');
+    expect(state.updateCurrentAccount).toHaveBeenCalledTimes(1);
+    expect(state.updateCurrentAccount).toHaveBeenCalledWith('second');
+  });
+
+  it('reissues selection when a fresh store read still reports the old account', async () => {
+    const { state, wallet } = selection((address, attempt) => {
+      if (attempt === 2) state.currentAccount = { publicKey: address };
+    });
+    const selected = selectAccount(wallet, 'second', deadlineIn(2_000, 'M1'));
+    await jest.advanceTimersByTimeAsync(1_500);
+    await expect(selected).resolves.toBeUndefined();
+    expect(state.updateCurrentAccount.mock.calls).toEqual([['second'], ['second']]);
+  });
+
+  it('fails a permanent mismatch within the bound with both keys and elapsed time', async () => {
+    const { wallet } = selection(() => undefined);
+    const started = Date.now();
+    let endedAt = -1;
+    const outcome = selectAccount(wallet, 'second', deadlineIn(1_200, 'M1')).catch((error: unknown) => {
+      endedAt = Date.now();
+      return error;
+    });
+    await jest.advanceTimersByTimeAsync(1_200);
+    await expect(outcome).resolves.toBeInstanceOf(CellDeadlineExceeded);
+    await expect(outcome).resolves.toMatchObject({
+      message: expect.stringContaining('selected primary instead of second after 1200 ms')
+    });
+    expect(endedAt - started).toBe(1_200);
+  });
+
+  it('races the polling wait through the supplied cell deadline and stops issuing commands', async () => {
+    const { state, wallet } = selection(() => undefined);
+    const deadline = deadlineIn(700, 'M1');
+    const raced = jest.spyOn(deadline, 'race');
+    const outcome = selectAccount(wallet, 'second', deadline).catch((error: unknown) => error);
+    await jest.advanceTimersByTimeAsync(700);
+    await expect(outcome).resolves.toBeInstanceOf(CellDeadlineExceeded);
+    expect(raced).toHaveBeenCalledWith(expect.any(Promise), 'account selection convergence');
+    const calls = state.updateCurrentAccount.mock.calls.length;
+    await jest.advanceTimersByTimeAsync(2_000);
+    expect(state.updateCurrentAccount).toHaveBeenCalledTimes(calls);
   });
 });
 
