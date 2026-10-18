@@ -116,7 +116,7 @@ Bread finishes a transaction request (`TRANSACTION_REQUEST`, `SEND_TRANSACTION_R
 - For `connect`: shows the callback origin and the app's name, and asks the user exactly as for a website's connection request.
 - For `request`: answers an unknown session with an unsealed `SESSION_NOT_FOUND` to the envelope's callback. For a known session it answers only to the callback the session was made with, refuses a request id it has already answered (`DUPLICATE_REQUEST`) and a stale `sentAt` (`REQUEST_EXPIRED`), and asks the user exactly as for the same request from a website with the session's origin. Bread asks about one request at a time across apps and websites, so it checks `sentAt` again when the request's turn comes; an answer therefore starts within 10 minutes of `sentAt`, well inside the app's 30-minute wait.
 - Opens the callback with the answer only in an app the callback's domain verifies: on iOS with `universalLinksOnly`, and on Android by package, in an installed app that handles the link and whose signing certificate the callback domain's `assetlinks.json` names. Never a browser, a chooser, or an app the user picked as the domain's default. When no app takes the link, or the domain's `assetlinks.json` cannot be read, Bread tells the user and drops the session it made for the answer. A permission the user granted stays, as it does for a website, until the user removes it in Bread.
-- Keeps a session until the user removes the app's permission in Bread or it goes unused for 30 days.
+- Keeps a session until the user removes the app's permission in Bread or it goes unused for 30 days, and keeps at most the 5 most recently used sessions of each origin.
 
 ## What the app does
 

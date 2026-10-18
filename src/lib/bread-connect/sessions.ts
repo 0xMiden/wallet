@@ -11,6 +11,8 @@ import { getStorageProvider } from 'lib/platform/storage-adapter';
 import { BREAD_CONNECT_SESSIONS_KEY as STORAGE_KEY } from './revoke';
 // A replayed link older than this fails the age check, so its id need not be remembered any longer.
 const ANSWERED_MS = REQUEST_MAX_AGE_MS + REQUEST_MAX_CLOCK_AHEAD_MS;
+// Every answer reads and writes all the sessions, so an app that connects again and again must not grow them.
+const SESSIONS_PER_ORIGIN = 5;
 
 export interface StoredSession extends WalletSession {
   usedAt: number;
@@ -62,8 +64,13 @@ export async function findSession(id: string, now: number): Promise<StoredSessio
   return null;
 }
 
+/** Keeps the session with at most four others of its origin, the most recently used. */
 export async function keepSession(session: WalletSession, now: number): Promise<void> {
   const sessions = await readSessions(now);
+  const others = Object.values(sessions)
+    .filter(kept => kept.origin === session.origin && kept.session !== session.session)
+    .sort((a, b) => b.usedAt - a.usedAt);
+  for (const dropped of others.slice(SESSIONS_PER_ORIGIN - 1)) delete sessions[dropped.session];
   sessions[session.session] = { ...session, usedAt: now, answered: [] };
   await writeSessions(sessions);
 }
