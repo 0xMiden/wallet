@@ -72,29 +72,32 @@ describe('PasscodeDots', () => {
 
   // Asserts the animation itself, not the `data-shake` flag computed beside it: every assertion
   // above reads that flag, and deleting `animate` left all of them green. Framer runs in jsdom, so
-  // the row's transform genuinely moves while it shakes.
-  it('actually shakes on a rejected code, and again on the next one', async () => {
+  // the row's transform genuinely moves while it shakes. Framer's frames run on
+  // requestAnimationFrame and performance.now, which the fake clock drives: on the real clock a
+  // loaded runner fired the 50 ms read after the whole shake had come to rest.
+  it('actually shakes on a rejected code, and again on the next one', () => {
     mockReduce = false;
+    jest.useFakeTimers();
     const wait = (ms: number) =>
-      act(async () => {
-        await new Promise(resolve => setTimeout(resolve, ms));
+      act(() => {
+        jest.advanceTimersByTime(ms);
       });
     const row = () => screen.getByTestId('passcode-dots');
     const { rerender } = render(<PasscodeDots filled={0} length={6} errorKey={0} />);
     expect(row().style.transform).toBe('');
 
     rerender(<PasscodeDots filled={0} length={6} errorKey={1} />);
-    await wait(50);
+    wait(50);
     expect(row().style.transform).toMatch(/translateX\(-?[1-9]/);
 
-    await wait(900); // let the first shake come to rest
+    wait(900); // let the first shake come to rest
     expect(row().style.transform).toBe('none');
 
     // The SECOND rejected code must shake too. Framer does nothing when it is handed the same
     // target again, so it is the remount on `key={errorKey}` that replays the shake - without it,
     // only the first wrong code would ever move.
     rerender(<PasscodeDots filled={0} length={6} errorKey={2} />);
-    await wait(50);
+    wait(50);
     expect(row().style.transform).toMatch(/translateX\(-?[1-9]/);
   });
 });
