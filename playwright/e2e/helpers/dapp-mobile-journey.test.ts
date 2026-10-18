@@ -650,7 +650,7 @@ describe('mobile journey hooks and setup', () => {
     await jest.advanceTimersByTimeAsync(700);
     await expect(outcome).resolves.toBeInstanceOf(CellDeadlineExceeded);
     const atExpiry = updates.length;
-    expect(atExpiry).toBeGreaterThan(0);
+    expect(updates.at(0)).toEqual({ address: 'mtst1a', at: 0 });
     expect(updates.every(update => update.address === 'mtst1a' && update.at < 700)).toBe(true);
     state.currentAccount.publicKey = 'mtst1a';
     await restore();
