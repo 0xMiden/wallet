@@ -255,13 +255,17 @@ describe('a request link', () => {
   });
 
   it.each([
-    ['refuses', () => Promise.reject(new Error('NOT_GRANTED')), { code: 'NOT_GRANTED', message: 'NOT_GRANTED' }],
+    [
+      'refuses',
+      () => Promise.reject(new Error('NOT_GRANTED')),
+      { code: 'TRANSACTION_TIMEOUT', message: 'NOT_GRANTED' }
+    ],
     [
       'answers nothing',
       () => Promise.resolve(undefined),
-      { code: 'INTERNAL_ERROR', message: 'Bread could not complete the request' }
+      { code: 'TRANSACTION_TIMEOUT', message: "Bread could not learn the transaction's outcome" }
     ]
-  ])('answers an internal outcome when the wait %s', async (_name, wait, error) => {
+  ])('answers an unknown outcome when the wait %s', async (_name, wait, error) => {
     const session = await connected();
     const { link } = sendRequest(session, SEND_REQUEST, NOW);
     mockProcessDApp

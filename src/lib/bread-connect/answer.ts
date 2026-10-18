@@ -73,6 +73,7 @@ function problem(code: ErrorCode, message: string): ProtocolError {
 const INTERNAL = problem('INTERNAL_ERROR', 'Bread could not complete the request');
 const TOO_LONG = problem('INTERNAL_ERROR', "Bread's answer is longer than a link carries");
 const OUTCOME_TOO_LONG = problem('TRANSACTION_TIMEOUT', "The transaction's outcome is longer than a link carries");
+const OUTCOME_UNKNOWN = problem('TRANSACTION_TIMEOUT', "Bread could not learn the transaction's outcome");
 
 function refusal(error: unknown): ProtocolError {
   const code = error instanceof Error ? error.message : '';
@@ -187,13 +188,14 @@ async function outcome(origin: string, txId: string): Promise<TransactionOutcome
   try {
     const waited = await processDApp(origin, { type: MidenDAppMessageType.WaitForTransactionRequest, txId });
     const output = waited && 'transactionOutput' in waited ? waited.transactionOutput : undefined;
-    if (!output) return { error: INTERNAL };
+    if (!output) return { error: OUTCOME_UNKNOWN };
     if (!('errorMessage' in output)) return { output };
     const row = await getTransactionById(txId).catch(() => undefined);
     // A Completed row ends the wait in an error when it landed without a result Bread can return: not a failure.
     const failed = row === undefined || row.status === ITransactionStatus.Failed;
     return { error: problem(failed ? 'TRANSACTION_FAILED' : 'TRANSACTION_TIMEOUT', output.errorMessage) };
   } catch (error) {
-    return { error: refusal(error) };
+    // The transaction was sent: a wait refused after it, such as for a permission removed meanwhile, is no failure.
+    return { error: problem('TRANSACTION_TIMEOUT', refusal(error).message) };
   }
 }
