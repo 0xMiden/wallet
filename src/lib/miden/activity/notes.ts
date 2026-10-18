@@ -562,10 +562,11 @@ export const importAllNotes = async () => {
             // code 400/404" fallback) is carved OUT of the transient set (#788
             // follow-up, F-235): retrying the same bytes cannot change a 400, so it
             // takes the bounded poison-style cap instead of a day of lock-held
-            // retries. It cannot shadow a poison/abort eviction: those errors carry
-            // closed wallet-authored messages with no HTTP status in them.
-            const permanentRejection = isPermanentHttpRejection(e);
-            const transient = !permanentRejection && (isLikelyNetworkError(e) || pipelineKillIn(e) !== undefined);
+            // retries. A kill is decided first, so a wrapper whose own text names a status
+            // cannot shadow the abandonment in its cause.
+            const killed = pipelineKillIn(e) !== undefined;
+            const permanentRejection = !killed && isPermanentHttpRejection(e);
+            const transient = killed || (!permanentRejection && isLikelyNetworkError(e));
             const poisonAttempts = (note.poisonAttempts ?? 0) + (transient ? 0 : 1);
             // The transient give-up needs BOTH the wall-clock budget and a plausible number
             // of attempts to have been spent. The budget alone is a single wall-clock
