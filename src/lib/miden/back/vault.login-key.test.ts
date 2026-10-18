@@ -4,8 +4,8 @@
  * and the scalar.
  *
  * The SDK is a stand-in on noble's secp256k1: its keys and its `[0x01, r, s, v]` signatures over keccak256 of the
- * word are real ECDSA, and only the commitment is a stand-in hash of the public key. Most tests start from a Guardian
- * wallet spawned from the Hardhat/Anvil test mnemonic, whose account 0 EVM key is m/44'/60'/2'/0/0.
+ * word they sign are real ECDSA, while the commitment and Poseidon2 are stand-in hashes. Most tests start from a
+ * Guardian wallet spawned from the Hardhat/Anvil test mnemonic, whose account 0 EVM key is m/44'/60'/2'/0/0.
  */
 
 import { AuthSecretKey, PublicKey } from '@miden-sdk/miden-sdk/lazy';
@@ -53,6 +53,8 @@ jest.mock('lib/platform/storage-adapter', () => ({
 
 // Every handle the stand-in SDK has handed out and not yet freed.
 const mockLiveHandles = new Set<object>();
+// Every Poseidon2 hash the stand-in SDK computed: the elements it was given, in order, and the digest it returned.
+const mockHashes: { elements: bigint[]; digest: Uint8Array }[] = [];
 jest.mock('@miden-sdk/miden-sdk/lazy', () => {
   const base = jest.requireActual('../../../../__mocks__/wasmMock.js');
   const { secp256k1: curve } = jest.requireActual<typeof import('@noble/curves/secp256k1')>('@noble/curves/secp256k1');
@@ -69,7 +71,18 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
       }
     });
   };
-  const word = (bytes: Uint8Array) => handle({ serialize: () => Uint8Array.from(bytes) });
+  const felt = (value: bigint) => {
+    if (value < 0n || value >= FELT_MODULUS) throw new Error('not a field element');
+    return handle({ asInt: () => value });
+  };
+  const word = (bytes: Uint8Array) =>
+    handle({
+      serialize: () => Uint8Array.from(bytes),
+      toFelts: () => {
+        const limbs = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+        return [0, 8, 16, 24].map(at => felt(limbs.getBigUint64(at, true)));
+      }
+    });
   const publicKey = (point: Uint8Array) =>
     handle({
       serialize: () => Uint8Array.from([ECDSA, ...point]),
@@ -106,6 +119,27 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
           throw new Error('not a word');
         }
         return word(bytes);
+      }
+    },
+    Felt: function Felt(value: bigint) {
+      return felt(value);
+    },
+    // Like the browser binding, the array takes its elements, and a hash takes the array.
+    FeltArray: function FeltArray(elements: { asInt: () => bigint }[]) {
+      for (const element of elements) mockLiveHandles.delete(element);
+      return handle({ elements });
+    },
+    Poseidon2: {
+      hashElements: (array: { elements: { asInt: () => bigint }[] }) => {
+        mockLiveHandles.delete(array);
+        const elements = array.elements.map(element => element.asInt());
+        const bytes = new Uint8Array(8 * elements.length);
+        const limbs = new DataView(bytes.buffer);
+        elements.forEach((element, i) => limbs.setBigUint64(8 * i, element, true));
+        // Any fixed function of the elements stands in for Poseidon2.
+        const digest = hash(bytes);
+        mockHashes.push({ elements, digest });
+        return word(digest);
       }
     },
     AccountBuilder: class {
@@ -340,10 +374,11 @@ async function seedVault(accounts: WalletAccount[]): Promise<Vault> {
   return new Vault(vaultKey);
 }
 
-/** Forget earlier derivations and handles, so `expectCleanedUp` sees only the next vault call's. */
+/** Forget earlier derivations, hashes and handles, so a test sees only the next vault call's. */
 function forgetKeyMaterial() {
   jest.mocked(deriveLoginKeyScalar).mockClear();
   mockLiveHandles.clear();
+  mockHashes.length = 0;
 }
 
 /** The vault call since `forgetKeyMaterial` derived one login key, zeroed its root and scalar and freed every handle. */
@@ -525,23 +560,39 @@ describe('Vault login keys', () => {
     expect(loginKey).not.toBe(publicKeyCommitment(account.coldPublicKey!));
   });
 
-  it('signs a word with a 66-byte ECDSA signature that verifies against the login key', async () => {
-    const word = new Uint8Array(32).fill(7);
+  it('signs Poseidon2 of the login tag and the word, never the word itself', async () => {
+    // The protocol's vector word, the bytes 0x00 to 0x1f.
+    const word = Uint8Array.from({ length: 32 }, (_, i) => i);
     const loginPublicKey = secp256k1.getPublicKey(deriveLoginKeyScalar(guardianEvmKey(0), 'evm', DOMAIN), true);
     forgetKeyMaterial();
 
     const signature = b64ToU8(await vault.signWithLoginKey(account.publicKey, connected, DOMAIN, u8ToB64(word)));
     expectCleanedUp();
 
+    // One hash: `Bread login v1` as four little-endian elements, the last zero-padded, then the word's four limbs.
+    expect(mockHashes.map(({ elements }) => elements)).toEqual([
+      [
+        0x61657242n,
+        0x6f6c2064n,
+        0x206e6967n,
+        0x00003176n,
+        0x0706050403020100n,
+        0x0f0e0d0c0b0a0908n,
+        0x1716151413121110n,
+        0x1f1e1d1c1b1a1918n
+      ]
+    ]);
     expect(signature).toHaveLength(66);
     expect(signature[0]).toBe(0x01);
-    // The recovery playwright/e2e/helpers/signature-recovery.ts runs, on bytes noble accepts under jsdom.
-    const digest = keccak_256(word);
+    // The recovery playwright/e2e/helpers/signature-recovery.ts runs, on bytes noble accepts under jsdom: the key
+    // signed the hash's result, and not the word.
+    const digest = keccak_256(mockHashes[0]!.digest);
     const recovered = secp256k1.Signature.fromCompact(signature.subarray(1, 65))
       .addRecoveryBit(signature[65]!)
       .recoverPublicKey(digest);
     expect(recovered.toRawBytes(true)).toEqual(loginPublicKey);
     expect(secp256k1.verify(signature.subarray(1, 65), digest, loginPublicKey)).toBe(true);
+    expect(secp256k1.verify(signature.subarray(1, 65), keccak_256(word), loginPublicKey)).toBe(false);
     // The key that signed is the one whose commitment a site gets as its login key.
     expect(commitmentB64(PublicKey.deserialize(Uint8Array.from([0x01, ...loginPublicKey])))).toBe(
       await vault.loginKeyCommitment(account.publicKey, connected, DOMAIN)
