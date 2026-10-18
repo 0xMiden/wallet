@@ -283,7 +283,7 @@ public class BreadAuthControllerTest {
             new Intent(Intent.ACTION_VIEW, Uri.parse("com.miden.wallet://wc?uri=x")), new Intent(Intent.ACTION_VIEW),
         }) assertSame(intent, BreadAuthCallbacks.consume(intent));
         verifyNoInteractions(proxy);
-        assertEquals(BreadAuthState.Phase.AWAY, BreadAuthController.state.phase());
+        assertEquals(BreadAuthState.Phase.LAUNCHING, BreadAuthController.state.phase());
     }
 
     @Test public void consumeStripsACallbackWithNoSheet() throws Exception {
@@ -325,14 +325,19 @@ public class BreadAuthControllerTest {
 
     @Test public void pluginStopAndResumeReachTheSheet() throws Exception {
         registerChrome();
-        JavaScriptReplyProxy proxy = post(open(), PAGE, true, request("a", SIGN_IN));
+        WebViewDialog dialog = open();
         InAppBrowserPlugin plugin = spy(new InAppBrowserPlugin());
         doReturn(activity).when(plugin).getContext();
         plugin.handleOnStop();
-        assertEquals(BreadAuthState.Phase.AWAY, BreadAuthController.state.phase());
+        assertReply(post(dialog, PAGE, true, request("a", SIGN_IN)), "a", "error", BreadAuthState.UNAVAILABLE);
+        assertNull(shadowOf(activity).getNextStartedActivity());
+        plugin.handleOnResume();
+        JavaScriptReplyProxy proxy = post(dialog, PAGE, true, request("b", SIGN_IN));
+        assertNotNull(shadowOf(activity).getNextStartedActivity());
+        plugin.handleOnStop();
         verifyNoInteractions(proxy);
         plugin.handleOnResume();
-        assertReply(proxy, "a", "cancelled", true);
+        assertReply(proxy, "b", "cancelled", true);
     }
 
     @Test public void secondOpenRepliesBusy() throws Exception {

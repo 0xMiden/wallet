@@ -6,7 +6,7 @@ final class BreadAuthState {
     static final int MAX_URL_LENGTH = 4096;
     static final String NOT_MAIN_FRAME = "AUTH_NOT_MAIN_FRAME", INSECURE_PAGE = "AUTH_INSECURE_PAGE",
         INVALID_URL = "AUTH_INVALID_URL", BUSY = "AUTH_BUSY", UNAVAILABLE = "AUTH_UNAVAILABLE", FAILED = "AUTH_FAILED";
-    enum Phase { IDLE, LAUNCHING, AWAY }
+    enum Phase { IDLE, LAUNCHING }
     enum Outcome { NONE, RESOLVED, CANCELLED, FAILED }
 
     private Phase phase = Phase.IDLE;
@@ -92,14 +92,12 @@ final class BreadAuthState {
     }
     long begin() { phase = Phase.LAUNCHING; return ++ticket; }
 
-    // Only a stop moves a launch away: a pause alone (a system dialog, a permission prompt) keeps it.
-    void stopped() {
-        hostStopped = true;
-        if (phase == Phase.LAUNCHING) phase = Phase.AWAY;
-    }
+    void stopped() { hostStopped = true; }
+    // The tab covers Bread until it closes, and Android resumes Bread without a stop when the tab closes before the stop
+    // arrives, so any resume without a callback ends the sheet.
     Outcome resumed() {
         hostStopped = false;
-        if (phase != Phase.AWAY) return Outcome.NONE;
+        if (phase == Phase.IDLE) return Outcome.NONE;
         phase = Phase.IDLE;
         return Outcome.CANCELLED;
     }

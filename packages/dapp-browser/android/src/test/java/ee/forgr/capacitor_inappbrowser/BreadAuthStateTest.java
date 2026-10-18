@@ -108,19 +108,10 @@ public class BreadAuthStateTest {
         BreadAuthState state = new BreadAuthState();
         state.begin();
         state.stopped();
-        assertEquals(BreadAuthState.Phase.AWAY, state.phase());
+        assertEquals(BreadAuthState.Phase.LAUNCHING, state.phase());
         assertEquals(BreadAuthState.Outcome.CANCELLED, state.resumed());
         assertEquals(BreadAuthState.Phase.IDLE, state.phase());
         assertEquals(BreadAuthState.Outcome.NONE, state.callback(CALLBACK));
-    }
-
-    @Test public void aPauseAloneKeepsTheSheet() {
-        BreadAuthState state = new BreadAuthState();
-        state.begin();
-        assertEquals(BreadAuthState.Outcome.NONE, state.resumed());
-        assertEquals(BreadAuthState.Phase.LAUNCHING, state.phase());
-        assertEquals(BreadAuthState.Outcome.RESOLVED, state.callback(CALLBACK));
-        assertEquals(BreadAuthState.Phase.IDLE, state.phase());
     }
 
     @Test public void aResumeWithoutAStopCancels() {
