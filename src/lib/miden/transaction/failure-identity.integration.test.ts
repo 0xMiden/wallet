@@ -8,6 +8,7 @@ import { captureCrash } from 'lib/telemetry/crash';
 
 import {
   cancelStaleQueuedTransactions,
+  cancelTransaction,
   cancelTransactionAfterPipelineStopped,
   markTransactionUnconfirmed,
   MAX_QUEUED_AGE
@@ -327,6 +328,75 @@ describe('an unknown submit outcome at the Unconfirmed write', () => {
     expect(captured()[0]?.message).toContain(
       '; submit_outcome_unknown; grpc unavailable; app hidden during submit unavailable; submit leg unavailable. '
     );
+  });
+});
+
+describe('an unknown failure at the Failed write', () => {
+  const SUBMITTED_AT_MS = 1_800_000_000_000;
+  let clock: jest.SpyInstance;
+
+  const submitting = (): ITransaction => ({
+    id: 'tx-1',
+    type: 'execute',
+    accountId: ACCOUNT,
+    status: ITransactionStatus.GeneratingTransaction,
+    initiatedAt: SUBMITTED_AT_MS / 1000 - 30,
+    stage: 'submitting',
+    stageTimestamps: { submitting: SUBMITTED_AT_MS },
+    delegateTransaction: true,
+    displayIcon: 'DEFAULT'
+  });
+
+  beforeEach(() => {
+    jest.mocked(isMobile).mockReturnValue(false);
+    clock = jest.spyOn(Date, 'now').mockReturnValue(SUBMITTED_AT_MS + 9_500);
+  });
+
+  afterEach(() => {
+    clock.mockRestore();
+  });
+
+  it('off mobile, measures the committed submit stamp to the cancel before its first await', async () => {
+    const pickedUp: ITransaction = { ...submitting(), stage: 'sending', stageTimestamps: undefined };
+    await Repo.transactions.put(submitting());
+    const advanceDuringWrite = () => {
+      clock.mockReturnValue(SUBMITTED_AT_MS + 20_000);
+    };
+    const advanceDuringRead = (row: ITransaction) => {
+      clock.mockReturnValue(SUBMITTED_AT_MS + 12_000);
+      return row;
+    };
+    Repo.transactions.hook('reading', advanceDuringRead);
+    Repo.transactions.hook('updating', advanceDuringWrite);
+    try {
+      expect(await cancelTransaction(pickedUp, new Error('opaque detail'))).toBe(true);
+    } finally {
+      Repo.transactions.hook('reading').unsubscribe(advanceDuringRead);
+      Repo.transactions.hook('updating').unsubscribe(advanceDuringWrite);
+    }
+    const [report, ...rest] = captured();
+    expect(rest).toEqual([]);
+    expect(report?.message).toContain(
+      '; point pipeline; unknown; thrown error; app hidden during submit unavailable; submit leg 9_to_11s. authentication'
+    );
+    expect(report?.message).toContain('Transaction failed: tx_dapp; stage submitting;');
+    expect(report?.level).toBe('error');
+    expect((await Repo.transactions.get('tx-1'))?.status).toBe(ITransactionStatus.Failed);
+    expectNoTransactionData(report?.message ?? '');
+  });
+
+  it('off mobile, reports an unavailable submit leg when the committed row has no submit stamp', async () => {
+    const row: ITransaction = { ...submitting(), stageTimestamps: undefined };
+    await Repo.transactions.put(row);
+    expect(await cancelTransaction(submitting(), new Error('opaque detail'))).toBe(true);
+    const [report, ...rest] = captured();
+    expect(rest).toEqual([]);
+    expect(report?.message).toContain(
+      '; point pipeline; unknown; thrown error; app hidden during submit unavailable; submit leg unavailable. authentication'
+    );
+    expect(report?.level).toBe('error');
+    expect((await Repo.transactions.get('tx-1'))?.status).toBe(ITransactionStatus.Failed);
+    expectNoTransactionData(report?.message ?? '');
   });
 });
 
