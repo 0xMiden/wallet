@@ -108,13 +108,22 @@ describe('the mobile legs of the dApp E2E workflow', () => {
     expect(android).toMatch(/timeout-minutes: \$\{\{ github\.event_name == 'workflow_dispatch' && 190 \|\| 145 \}\}/);
   });
 
-  it('keeps the Android image e2e-dapp-browser.yml uses (C-R16)', () => {
+  it('pins PL1 to a gated-presentation image while the dApp browser suite stays on Android 34 (C-P32)', () => {
     const browser = readFileSync(resolve(__dirname, '../../../.github/workflows/e2e-dapp-browser.yml'), 'utf8');
     const images = (text: string): string[] => [
-      ...new Set(text.match(/system-images;android-\d+;[a-z_]+;x86_64/g) ?? [])
+      ...new Set(text.match(/system-images;android-\d+(?:\.\d+)?;[a-z_]+;x86_64/g) ?? [])
     ];
-    expect(images(android)).toEqual(['system-images;android-34;default;x86_64']);
-    expect(images(browser)).toEqual(images(android));
+    expect(images(android)).toEqual(['system-images;android-37.0;google_apis;x86_64']);
+    expect(images(browser)).toEqual(['system-images;android-34;default;x86_64']);
+    expect(android).toContain('E2E_ANDROID_BASE_AVD: Pixel_API_37');
+    expect(android).toContain('--name "$E2E_ANDROID_BASE_AVD"');
+    expect(android).toContain('grep -qx "$E2E_ANDROID_BASE_AVD"');
+    // Older SDK tools write android-0 for dotted API levels, even when the image download succeeds.
+    expect(android).toContain("cmdline-tools-version: '15859902'");
+    expect(android).toContain('packages: platform-tools');
+    expect(android).toContain('ls -l /dev/kvm');
+    const emulator = readFileSync(resolve(__dirname, '../android/helpers/emulator-control.ts'), 'utf8');
+    expect(emulator).toContain("const BASE_AVD = process.env.E2E_ANDROID_BASE_AVD ?? 'Pixel_API_34';");
   });
 
   it('assigns every in-app browser spec to the mobile leg of its platform', () => {

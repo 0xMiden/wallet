@@ -55,7 +55,7 @@ const DEVICE_PAIR_AVD_B = 'miden_e2e_B';
 // the most stable emulator + system image combination today; API 36 emulators
 // have a known activity-resolution bug that makes `am start` fail on freshly
 // installed APKs (see investigation notes in the wiktor/mt-wasm-mobile branch).
-const BASE_AVD = 'Pixel_API_34';
+const BASE_AVD = process.env.E2E_ANDROID_BASE_AVD ?? 'Pixel_API_34';
 
 /**
  * Boot budget. 120s was tuned on a 10-core M-series host, where a cold arm64

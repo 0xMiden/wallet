@@ -367,6 +367,7 @@ jobs:
       # One AVD directory for avdmanager, the emulator and the harness: each resolves its own home otherwise, and on
       # the runner they disagreed, so a created AVD listed as nothing (e2e-android.yml).
       ANDROID_AVD_HOME: ${{ github.workspace }}/.android-avd
+      E2E_ANDROID_BASE_AVD: Pixel_API_37
     steps:
       - uses: actions/checkout@v4
       # KVM is what makes the emulator usable rather than merely present.
@@ -387,25 +388,26 @@ jobs:
       # The action's default packages include the retired 'tools' package, which sdkmanager no longer finds.
       - uses: android-actions/setup-android@v3
         with:
+          cmdline-tools-version: '15859902'
           packages: platform-tools
       - name: Install SDK packages
-        # e2e-dapp-browser.yml's image (C-R16). Its WebView 113 may run only the presentation fallback, which each leg
-        # records, so the coverage a leg reports names the path that ran. A newer image is a separate decision.
+        # Native presentation needs NAVIGATION_LISTENER_V1 (WebView 143+). PL1 uses its own newer image;
+        # the presentation probe remains the live proof that this leg takes the gated path (C-P32).
         run: |
           sdkmanager --install "platform-tools" "emulator" \
-            "platforms;android-34" "system-images;android-34;default;x86_64"
-      # The harness derives its pair from this base, so the name matches BASE_AVD in emulator-control.ts. The list
+            "platforms;android-37.0" "system-images;android-37.0;google_apis;x86_64"
+      # The harness derives its pair from E2E_ANDROID_BASE_AVD; other Android suites retain their own base. The list
       # check fails here, not minutes later in the global setup, when the emulator cannot see what avdmanager wrote.
       - name: Create base AVD
         run: |
           mkdir -p "$ANDROID_AVD_HOME"
           echo no | avdmanager create avd \
-            --name Pixel_API_34 \
-            --package "system-images;android-34;default;x86_64" \
+            --name "$E2E_ANDROID_BASE_AVD" \
+            --package "system-images;android-37.0;google_apis;x86_64" \
             --device pixel_6 \
             --force
-          "$ANDROID_HOME/emulator/emulator" -list-avds | grep -qx 'Pixel_API_34' || {
-            echo "::error::avdmanager created Pixel_API_34 but 'emulator -list-avds' does not list it" >&2
+          "$ANDROID_HOME/emulator/emulator" -list-avds | grep -qx "$E2E_ANDROID_BASE_AVD" || {
+            echo "::error::avdmanager created $E2E_ANDROID_BASE_AVD but 'emulator -list-avds' does not list it" >&2
             exit 1
           }
       # No ~/.cargo/bin cache step here: on Linux its key would be shared with the Chrome legs' other runner image.
