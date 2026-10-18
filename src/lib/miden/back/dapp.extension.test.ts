@@ -294,7 +294,9 @@ beforeEach(() => {
     }
   ]);
   // No record has a consume request's id as its details commitment unless a test says so (#1389).
-  _g.__dappExtTest.midenClient.getDetailsCommitmentMatches = jest.fn().mockResolvedValue({ notes: [], uncommitted: 0 });
+  _g.__dappExtTest.midenClient.getDetailsCommitmentMatches = jest
+    .fn()
+    .mockResolvedValue([{ notes: [], uncommitted: 0 }]);
   _g.__dappExtTest.intercomListeners.length = 0;
   for (const k of Object.keys(_g.__dappExtTest.storage)) delete _g.__dappExtTest.storage[k];
   _g.__dappExtTest.storage[STORAGE_KEY] = { 'https://miden.xyz': [SESSION] };
@@ -2649,7 +2651,7 @@ describe('requestConsumeTransaction by the id importPrivateNote returned, in ext
     };
     _g.__dappExtTest.midenClient.getDetailsCommitmentMatches = jest
       .fn()
-      .mockResolvedValue({ notes: [importedNote], uncommitted: 0 });
+      .mockResolvedValue([{ notes: [importedNote], uncommitted: 0 }]);
     _g.__dappExtTest.midenClient.importNoteBytes = jest.fn().mockResolvedValue(COMMITMENT);
     try {
       await expect(
@@ -2683,7 +2685,7 @@ describe('requestConsumeTransaction by the id importPrivateNote returned, in ext
   it('opens on the note the commitment names and consumes it by its own note id', async () => {
     _g.__dappExtTest.midenClient.getDetailsCommitmentMatches = jest
       .fn()
-      .mockResolvedValue({ notes: [importedNote], uncommitted: 0 });
+      .mockResolvedValue([{ notes: [importedNote], uncommitted: 0 }]);
 
     const res = await driveConfirmation(
       () => dapp.requestConsumeTransaction('https://miden.xyz', request),
@@ -2714,7 +2716,7 @@ describe('requestConsumeTransaction by the id importPrivateNote returned, in ext
       { notes: [], uncommitted: 1 },
       { notes: [importedNote], uncommitted: 0 }
     ]) {
-      _g.__dappExtTest.midenClient.getDetailsCommitmentMatches = jest.fn().mockResolvedValue(match);
+      _g.__dappExtTest.midenClient.getDetailsCommitmentMatches = jest.fn().mockResolvedValue([match]);
       await expect(dapp.requestConsumeTransaction('https://miden.xyz', request)).rejects.toEqual(refusal);
     }
     expect(extensionBrowser.windows.create).not.toHaveBeenCalled();

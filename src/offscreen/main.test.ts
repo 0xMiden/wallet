@@ -395,12 +395,14 @@ function resetControl() {
     clientGetInputNoteDetails: jest.fn(async (_q: unknown) => [
       { noteId: '0xabc', senderAccountId: 'mtst1qsender', assets: [], noteType: 0, nullifier: '0xn', state: 2 }
     ]),
-    clientGetDetailsCommitmentMatches: jest.fn(async (_commitment: string) => ({
-      notes: [
-        { noteId: '0xreal', senderAccountId: 'mtst1qsender', assets: [], noteType: 0, nullifier: '0xn', state: 2 }
-      ],
-      uncommitted: 1
-    })),
+    clientGetDetailsCommitmentMatches: jest.fn(async (_commitments: string[]) => [
+      {
+        notes: [
+          { noteId: '0xreal', senderAccountId: 'mtst1qsender', assets: [], noteType: 0, nullifier: '0xn', state: 2 }
+        ],
+        uncommitted: 1
+      }
+    ]),
     clientGetTransactionCommitState: jest.fn(async (_txId: string) => 'committed'),
     // Slice-4 consumable-note DTOs on the offscreen-owned client.
     clientGetConsumableNoteDtos: jest.fn(async (_id: string) => [
@@ -1122,7 +1124,7 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
   it.each([
     ['exportNote', 'clientExportNote', ['note-x', 'Details'], undefined, 'in offscreen'],
     ['getInputNoteDetails', 'clientGetInputNoteDetails', [{ ids: ['0xabc'] }], undefined, 'in offscreen'],
-    ['getDetailsCommitmentMatches', 'clientGetDetailsCommitmentMatches', ['0xcommitment'], undefined, 'in offscreen'],
+    ['getDetailsCommitmentMatches', 'clientGetDetailsCommitmentMatches', [['0xcommitment']], undefined, 'in offscreen'],
     // The consumability read names each of its checks; the dispatch forwards that step into its own label.
     [
       'getConsumableNotes',
@@ -2252,21 +2254,23 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     await loadModule();
     const sendResponse = jest.fn();
     capturedListener!(
-      callReq({ method: 'getDetailsCommitmentMatches', argsB64: [encodeArg('0xcommitment')] }),
+      callReq({ method: 'getDetailsCommitmentMatches', argsB64: [encodeArg(['0xcommitment'])] }),
       {},
       sendResponse
     );
     await flush();
 
-    expect(G.__off.clientGetDetailsCommitmentMatches).toHaveBeenCalledWith('0xcommitment', expect.any(Function));
+    expect(G.__off.clientGetDetailsCommitmentMatches).toHaveBeenCalledWith(['0xcommitment'], expect.any(Function));
     const resp = sendResponse.mock.calls[0][0];
     expect(resp.ok).toBe(true);
-    expect(JSON.parse(Buffer.from(resp.resultB64, 'base64').toString('utf8'))).toEqual({
-      notes: [
-        { noteId: '0xreal', senderAccountId: 'mtst1qsender', assets: [], noteType: 0, nullifier: '0xn', state: 2 }
-      ],
-      uncommitted: 1
-    });
+    expect(JSON.parse(Buffer.from(resp.resultB64, 'base64').toString('utf8'))).toEqual([
+      {
+        notes: [
+          { noteId: '0xreal', senderAccountId: 'mtst1qsender', assets: [], noteType: 0, nullifier: '0xn', state: 2 }
+        ],
+        uncommitted: 1
+      }
+    ]);
   });
 
   // The read the send/swap retry guard is built on. It has to actually run in

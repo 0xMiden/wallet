@@ -193,7 +193,7 @@ const storedNote = {
 };
 const mockGetInputNoteDetails = jest.fn(async (..._args: unknown[]): Promise<unknown[]> => [storedNote]);
 const NO_COMMITMENT_MATCH = { notes: [], uncommitted: 0 };
-const mockGetDetailsCommitmentMatches = jest.fn(async (..._args: unknown[]): Promise<unknown> => NO_COMMITMENT_MATCH);
+const mockGetDetailsCommitmentMatches = jest.fn(async (..._args: unknown[]): Promise<unknown> => [NO_COMMITMENT_MATCH]);
 const mockGetConsumableNoteDtos = jest.fn(async (..._args: unknown[]): Promise<unknown[]> => []);
 const mockRetireWasmClientForCaughtTrap = jest.fn();
 jest.mock('../sdk/miden-client', () => ({
@@ -953,7 +953,7 @@ describe('requestConsumeTransaction by the id importPrivateNote returned (#1389)
     mockGetInputNoteDetails.mockReset();
     mockGetInputNoteDetails.mockResolvedValue([storedNote]);
     mockGetDetailsCommitmentMatches.mockReset();
-    mockGetDetailsCommitmentMatches.mockResolvedValue(NO_COMMITMENT_MATCH);
+    mockGetDetailsCommitmentMatches.mockResolvedValue([NO_COMMITMENT_MATCH]);
     mockGetConsumableNoteDtos.mockReset();
     mockGetConsumableNoteDtos.mockResolvedValue([]);
   });
@@ -1016,7 +1016,7 @@ describe('requestConsumeTransaction by the id importPrivateNote returned (#1389)
         throw new Error('not a Note');
       }
     };
-    mockGetDetailsCommitmentMatches.mockResolvedValue({ notes: [importedNote], uncommitted: 0 });
+    mockGetDetailsCommitmentMatches.mockResolvedValue([{ notes: [importedNote], uncommitted: 0 }]);
     mockGetConsumableNoteDtos.mockResolvedValue(consumable(importedNote.noteId));
     mockImportNoteBytes.mockResolvedValue(COMMITMENT);
     try {
@@ -1044,7 +1044,7 @@ describe('requestConsumeTransaction by the id importPrivateNote returned (#1389)
     'after the details-commitment read',
     'inside the consumable-notes read'
   ])('refuses a stale hold %s before any sheet or consume', async where => {
-    mockGetDetailsCommitmentMatches.mockResolvedValue({ notes: [importedNote], uncommitted: 0 });
+    mockGetDetailsCommitmentMatches.mockResolvedValue([{ notes: [importedNote], uncommitted: 0 }]);
     mockGetConsumableNoteDtos.mockResolvedValue(consumable(importedNote.noteId));
     if (where === 'after the note-preview read') {
       mockGetInputNoteDetails.mockImplementationOnce(async () => {
@@ -1054,14 +1054,14 @@ describe('requestConsumeTransaction by the id importPrivateNote returned (#1389)
     } else if (where === 'after the details-commitment read') {
       mockGetDetailsCommitmentMatches.mockImplementationOnce(async () => {
         currentWasmHold = null;
-        return { notes: [importedNote], uncommitted: 0 };
+        return [{ notes: [importedNote], uncommitted: 0 }];
       });
     } else if (where.startsWith('inside the details-commitment')) {
       mockGetDetailsCommitmentMatches.mockImplementationOnce(async (...args: unknown[]) => {
         currentWasmHold = null;
         const assertLive = args[1];
         if (typeof assertLive === 'function') assertLive();
-        return { notes: [importedNote], uncommitted: 0 };
+        return [{ notes: [importedNote], uncommitted: 0 }];
       });
     } else {
       mockGetConsumableNoteDtos.mockImplementationOnce(async (...args: unknown[]) => {
@@ -1091,7 +1091,7 @@ describe('requestConsumeTransaction by the id importPrivateNote returned (#1389)
   });
 
   it('shows the note the commitment names and consumes it by its own note id', async () => {
-    mockGetDetailsCommitmentMatches.mockResolvedValueOnce({ notes: [importedNote], uncommitted: 0 });
+    mockGetDetailsCommitmentMatches.mockResolvedValueOnce([{ notes: [importedNote], uncommitted: 0 }]);
     mockGetConsumableNoteDtos.mockResolvedValueOnce(consumable('0xother-note', '0xreal-note'));
 
     await expect(consumeByCommitment()).resolves.toEqual({
@@ -1099,7 +1099,7 @@ describe('requestConsumeTransaction by the id importPrivateNote returned (#1389)
       transactionId: 'tx-imported'
     });
 
-    expect(mockGetDetailsCommitmentMatches).toHaveBeenCalledWith(COMMITMENT, expect.any(Function));
+    expect(mockGetDetailsCommitmentMatches).toHaveBeenCalledWith([COMMITMENT], expect.any(Function));
     expect(mockGetConsumableNoteDtos).toHaveBeenCalledWith('miden-account-1', expect.any(Function));
     const sheet = mockRequestConfirmation.mock.calls[0]![0] as { transactionMessages: string[] };
     expect(sheet.transactionMessages).toContain('Amount, +4500000');
@@ -1122,7 +1122,7 @@ describe('requestConsumeTransaction by the id importPrivateNote returned (#1389)
       { notes: [], uncommitted: 1 },
       { notes: [importedNote], uncommitted: 0 }
     ]) {
-      mockGetDetailsCommitmentMatches.mockResolvedValueOnce(match);
+      mockGetDetailsCommitmentMatches.mockResolvedValueOnce([match]);
       await expect(consumeByCommitment()).rejects.toEqual(refusal);
     }
     expect(mockRequestConfirmation).not.toHaveBeenCalled();
@@ -1130,7 +1130,7 @@ describe('requestConsumeTransaction by the id importPrivateNote returned (#1389)
   });
 
   it('refuses a commitment that names only a note of another account, as one it cannot resolve', async () => {
-    mockGetDetailsCommitmentMatches.mockResolvedValueOnce({ notes: [importedNote], uncommitted: 0 });
+    mockGetDetailsCommitmentMatches.mockResolvedValueOnce([{ notes: [importedNote], uncommitted: 0 }]);
     mockGetConsumableNoteDtos.mockResolvedValueOnce(consumable('0xother-note'));
 
     await expect(consumeByCommitment()).rejects.toThrow(`Note ${COMMITMENT} could not be resolved`);
@@ -1140,7 +1140,7 @@ describe('requestConsumeTransaction by the id importPrivateNote returned (#1389)
 
   it('refuses a commitment that names two notes this account can consume', async () => {
     const twin = { ...importedNote, noteId: '0xtwin-note' };
-    mockGetDetailsCommitmentMatches.mockResolvedValueOnce({ notes: [importedNote, twin], uncommitted: 0 });
+    mockGetDetailsCommitmentMatches.mockResolvedValueOnce([{ notes: [importedNote, twin], uncommitted: 0 }]);
     mockGetConsumableNoteDtos.mockResolvedValueOnce(consumable('0xreal-note', '0xtwin-note'));
 
     await expect(consumeByCommitment()).rejects.toThrow(
@@ -1629,7 +1629,7 @@ describe('requestPrivateNotes by the id importPrivateNote returned (#1536)', () 
     mockGetInputNoteDetails.mockReset();
     mockGetInputNoteDetails.mockResolvedValue([storedNote]);
     mockGetDetailsCommitmentMatches.mockReset();
-    mockGetDetailsCommitmentMatches.mockResolvedValue(NO_COMMITMENT_MATCH);
+    mockGetDetailsCommitmentMatches.mockResolvedValue([NO_COMMITMENT_MATCH]);
     mockGetConsumableNoteDtos.mockReset();
     mockGetConsumableNoteDtos.mockResolvedValue([]);
   });

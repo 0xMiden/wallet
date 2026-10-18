@@ -228,7 +228,7 @@ export type FungibleAssetDetails = {
   faucetId: string;
 };
 
-/** What {@link MidenClientInterface.getDetailsCommitmentMatches} finds for one details commitment. */
+/** What {@link MidenClientInterface.getDetailsCommitmentMatches} finds for each details commitment. */
 export type DetailsCommitmentMatches = {
   /** The matching records that have metadata, and so a note id. */
   notes: InputNoteDetails[];
@@ -1478,19 +1478,25 @@ export class MidenClientInterface {
   }
 
   /**
-   * The records whose details commitment is `commitment`, the id {@link importNoteBytes} returns for a details-only
-   * file (#1389). The store has no lookup by it that the SDK exposes, so every record is listed and hashed.
+   * The records for each commitment, the id {@link importNoteBytes} returns for a details-only file (#1389).
+   * Results follow the requested order. The SDK exposes no lookup by it, so every record is listed and hashed once.
    */
   async getDetailsCommitmentMatches(
-    commitment: string,
+    commitments: string[],
     assertLive: AssertLive = noAssertLive
-  ): Promise<DetailsCommitmentMatches> {
+  ): Promise<DetailsCommitmentMatches[]> {
     const records = await this.client.notes.list();
     assertLive();
-    const wanted = normalizedCommitment(commitment);
-    const matching = records.filter(record => noteDetailsCommitment(record.details()) === wanted);
-    const notes = matching.flatMap(reduceInputNoteDetails);
-    return { notes, uncommitted: matching.length - notes.length };
+    const byCommitment = new Map<string, InputNoteRecord[]>();
+    for (const record of records) {
+      const commitment = noteDetailsCommitment(record.details());
+      byCommitment.set(commitment, [...(byCommitment.get(commitment) ?? []), record]);
+    }
+    return commitments.map(commitment => {
+      const matching = byCommitment.get(normalizedCommitment(commitment)) ?? [];
+      const notes = matching.flatMap(reduceInputNoteDetails);
+      return { notes, uncommitted: matching.length - notes.length };
+    });
   }
 
   async syncState(assertLive: AssertLive = noAssertLive) {

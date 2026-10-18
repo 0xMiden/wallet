@@ -3254,7 +3254,7 @@ async function noteOfDetailsCommitment(
   accountId: string,
   hold: WasmLockHold
 ): Promise<DetailsCommitmentMatches['notes'][number] | undefined> {
-  const { notes } = await midenClientProxy.getDetailsCommitmentMatches(commitment, () =>
+  const [{ notes } = { notes: [] }] = await midenClientProxy.getDetailsCommitmentMatches([commitment], () =>
     assertWasmHoldCurrent(hold, 'inside the details-commitment read, before the record reach-through')
   );
   if (notes.length > 0) {

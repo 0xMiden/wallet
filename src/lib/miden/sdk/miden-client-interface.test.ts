@@ -635,12 +635,14 @@ describe('MidenClientInterface', () => {
       ]);
       const assertLive = jest.fn();
 
-      const matches = await client.getDetailsCommitmentMatches('0xABC1', assertLive);
+      const matches = await client.getDetailsCommitmentMatches(['0xABC1'], assertLive);
 
       expect(fakeMidenClient.notes.list).toHaveBeenCalledWith();
       expect(assertLive).toHaveBeenCalledTimes(1);
-      expect(matches.uncommitted).toBe(1);
-      expect(matches.notes).toEqual([expect.objectContaining({ noteId: '0xcommitted', nullifier: 'nf-0xcommitted' })]);
+      expect(matches[0]?.uncommitted).toBe(1);
+      expect(matches[0]?.notes).toEqual([
+        expect.objectContaining({ noteId: '0xcommitted', nullifier: 'nf-0xcommitted' })
+      ]);
     });
 
     it('answers each commitment from one listing, in the order asked', async () => {
@@ -669,7 +671,7 @@ describe('MidenClientInterface', () => {
       const { client } = await clientListing([listed]);
 
       await expect(
-        client.getDetailsCommitmentMatches('0xabc1', () => {
+        client.getDetailsCommitmentMatches(['0xabc1'], () => {
           throw new Error('evicted');
         })
       ).rejects.toThrow('evicted');
