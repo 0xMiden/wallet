@@ -998,13 +998,7 @@ async function getPrivateNoteDetails(
     });
     return privateNotes;
   } catch (e) {
-    // A kill (a lock-recovery eviction, an offscreen abort or a terminated
-    // client) is a retryable internal failure, not a parameter problem
-    // (issue #775); a locked wallet gets an Unlock step from the caller (#1414).
-    const kill = pipelineKillIn(e);
-    if (kill !== undefined) throw kill;
-    if (isWalletLockedError(e)) throw e;
-    throw new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`);
+    throw dappReadFailure(e);
   }
 }
 
@@ -1104,13 +1098,7 @@ async function getConsumableNotes(accountId: string): Promise<InputNoteDetails[]
     });
     return consumableNotes;
   } catch (e) {
-    // A kill (a lock-recovery eviction, an offscreen abort or a terminated
-    // client) is a retryable internal failure, not a parameter problem
-    // (issue #775); a locked wallet gets an Unlock step from the caller (#1414).
-    const kill = pipelineKillIn(e);
-    if (kill !== undefined) throw kill;
-    if (isWalletLockedError(e)) throw e;
-    throw new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`);
+    throw dappReadFailure(e);
   }
 }
 
@@ -1192,13 +1180,7 @@ async function getAssets(accountId: string): Promise<Asset[]> {
 
     return assets;
   } catch (e) {
-    // A kill (a lock-recovery eviction, an offscreen abort or a terminated
-    // client) is a retryable internal failure, not a parameter problem
-    // (issue #775); a locked wallet gets an Unlock step from the caller (#1414).
-    const kill = pipelineKillIn(e);
-    if (kill !== undefined) throw kill;
-    if (isWalletLockedError(e)) throw e;
-    throw new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`);
+    throw dappReadFailure(e);
   }
 }
 
@@ -1686,6 +1668,16 @@ const dappRequestFailure = (error: unknown): unknown => {
   return new Error(`${MidenDAppErrorType.InvalidParams}: ${error}`);
 };
 
+// A kill (a lock-recovery eviction, an offscreen abort or a terminated
+// client) is a retryable internal failure, not a parameter problem
+// (issue #775); a locked wallet gets an Unlock step from the caller (#1414).
+const dappReadFailure = (error: unknown): unknown => {
+  const kill = pipelineKillIn(error);
+  if (kill !== undefined) return kill;
+  if (isWalletLockedError(error)) return error;
+  return new Error(`${MidenDAppErrorType.InvalidParams}: ${error}`);
+};
+
 const dappWriteFailure = (error: unknown): unknown => {
   // A queued id outranks a kill anywhere in the chain: retrying the write could send it twice.
   for (const link of causeChain(error)) {
@@ -2142,10 +2134,7 @@ const generatePromisifyTransaction = async (
     try {
       declaredMessages = await withUnlocked(async () => formatCustomTransactionPreview(customTransaction));
     } catch (e) {
-      const kill = pipelineKillIn(e);
-      if (kill !== undefined) throw kill;
-      if (isWalletLockedError(e)) throw e;
-      throw new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`);
+      throw dappReadFailure(e);
     }
     // The effects go in front of the user BEFORE either sheet is raised, because the mobile/desktop
     // sheet cannot ask for them itself - see `formatSimulatedCustomEffects`. Hoisted above the
@@ -2634,10 +2623,7 @@ const generatePromisifyConsumeTransaction = async (
         formatConsumeTransactionPreview(req.transaction, carried, req.sourcePublicKey)
       );
     } catch (e) {
-      const kill = pipelineKillIn(e);
-      if (kill !== undefined) throw kill;
-      if (isWalletLockedError(e)) throw e;
-      throw new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`);
+      throw dappReadFailure(e);
     }
   };
   const prepared = await prepareOrReject(prepare, reject);
