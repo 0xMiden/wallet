@@ -1,4 +1,5 @@
 import {
+  ANSWER_WAIT_MS,
   AppConnection,
   AppSession,
   ConnectAnswer,
@@ -8,7 +9,6 @@ import {
   ProtocolError,
   readLink,
   readResponse,
-  REQUEST_MAX_AGE_MS,
   RequestAnswer,
   sendRequest,
   startConnect,
@@ -198,7 +198,7 @@ export class AppSwitchTransport {
     const answer = new Promise<DAppMessage>((resolve, reject) => {
       const timer = setTimeout(
         () => this.settle(new BreadConnectError('TIMEOUT', 'Bread did not answer in time')),
-        REQUEST_MAX_AGE_MS
+        ANSWER_WAIT_MS
       );
       this.waiter = { pending, resolve, reject, timer };
     });
@@ -232,7 +232,7 @@ export class AppSwitchTransport {
 
   private storedPending(): Pending | null {
     const stored = readJson(this.options.storage, PENDING_KEY);
-    if (!isPending(stored) || this.now() - stored.sentAt > REQUEST_MAX_AGE_MS) return null;
+    if (!isPending(stored) || this.now() - stored.sentAt > ANSWER_WAIT_MS) return null;
     return stored;
   }
 

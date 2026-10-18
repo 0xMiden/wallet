@@ -22,6 +22,11 @@ export const REQUEST_MAX_CLOCK_AHEAD_MS = 60 * 1000;
 export const SESSION_IDLE_MS = 30 * 24 * 60 * 60 * 1000;
 /** Bread waits this long for a transaction's outcome before answering TRANSACTION_TIMEOUT. */
 export const TRANSACTION_WAIT_MS = 5 * 60 * 1000;
+/**
+ * An app waits this long for an answer, and keeps the request it waits on for an answer that relaunches it: Bread
+ * starts answering up to REQUEST_MAX_AGE_MS after sentAt, then waits for the user and for a transaction's outcome.
+ */
+export const ANSWER_WAIT_MS = 30 * 60 * 1000;
 
 export const ID_BYTES = 16;
 export const KEY_BYTES = 32;

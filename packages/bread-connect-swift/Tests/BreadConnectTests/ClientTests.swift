@@ -186,14 +186,29 @@ final class ClientTests: XCTestCase {
         await assertThrows(.cancelled) { _ = try await connecting.value }
     }
 
-    func testAStoredRequestOlderThanBreadAcceptsIsDropped() async throws {
+    func testARelaunchAfterTheTenMinutesBreadAcceptsTheRequestForStillCompletesTheConnection() async throws {
         let first = try client()
         opener.onOpen = nil
         let connecting = Task { try await first.connect(appName: "Where Legends Grow") }
         try await waitFor("the connect to open Bread") { !opener.opened.isEmpty }
         let late = try bread.answerConnect(opener.opened[0], answer: ["response": .object(permission)])
 
-        now = now.addingTimeInterval(BreadConnect.requestMaxAge + 1)
+        now = now.addingTimeInterval(10 * 60 + 1)
+        let relaunched = try client()
+        XCTAssertTrue(relaunched.handle(late))
+        XCTAssertEqual(relaunched.session?.permission, permission)
+        first.cancelPending()
+        await assertThrows(.cancelled) { _ = try await connecting.value }
+    }
+
+    func testAStoredRequestOlderThanTheClientWaitsIsDropped() async throws {
+        let first = try client()
+        opener.onOpen = nil
+        let connecting = Task { try await first.connect(appName: "Where Legends Grow") }
+        try await waitFor("the connect to open Bread") { !opener.opened.isEmpty }
+        let late = try bread.answerConnect(opener.opened[0], answer: ["response": .object(permission)])
+
+        now = now.addingTimeInterval(BreadConnect.answerWait + 1)
         let relaunched = try client()
         XCTAssertTrue(relaunched.handle(late))
         XCTAssertNil(relaunched.session)

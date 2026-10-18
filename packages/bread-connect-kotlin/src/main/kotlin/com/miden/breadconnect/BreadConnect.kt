@@ -183,7 +183,7 @@ class BreadConnect(
             this.waiter = waiter
         }
         try {
-            return withTimeout(REQUEST_MAX_AGE_MS) {
+            return withTimeout(ANSWER_WAIT_MS) {
                 val opened = try {
                     opener.open(link)
                 } catch (e: CancellationException) {
@@ -216,7 +216,7 @@ class BreadConnect(
     }
 
     private fun storedPending(): Pending? =
-        storage.read(PENDING_KEY)?.let(::decodePending)?.takeIf { clock() - it.sentAt <= REQUEST_MAX_AGE_MS }
+        storage.read(PENDING_KEY)?.let(::decodePending)?.takeIf { clock() - it.sentAt <= ANSWER_WAIT_MS }
 
     private fun storedOutcomes(): List<JsonObject> =
         (storage.read(OUTCOMES_KEY)?.let(::parseJson) as? JsonArray)?.mapNotNull { it.obj }.orEmpty()
@@ -311,8 +311,11 @@ class BreadConnect(
     }
 
     companion object {
-        /** Bread refuses a request sent longer ago than this. */
-        const val REQUEST_MAX_AGE_MS = 10 * 60 * 1000L
+        /**
+         * How long the client waits for Bread's answer and keeps the request it waits on: Bread starts answering up to
+         * 10 minutes after the request was sent, then waits for the user and for a transaction's outcome.
+         */
+        const val ANSWER_WAIT_MS = 30 * 60 * 1000L
         internal const val SESSION_KEY = "bread-connect:session"
         internal const val PENDING_KEY = "bread-connect:pending"
         internal const val OUTCOMES_KEY = "bread-connect:outcomes"

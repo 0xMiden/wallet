@@ -176,20 +176,32 @@ class ClientTest {
     }
 
     @Test
-    fun breadNotAnsweringInTenMinutesEndsTheRequest() = runTest {
+    fun breadNotAnsweringInThirtyMinutesEndsTheRequest() = runTest {
         val client = client()
         val connecting = async { runCatching { client.connect("Where Legends Grow") } }
         runCurrent()
         assertNotNull(storage.items[BreadConnect.PENDING_KEY])
 
-        advanceTimeBy(BreadConnect.REQUEST_MAX_AGE_MS + 1)
+        advanceTimeBy(BreadConnect.ANSWER_WAIT_MS + 1)
 
         assertEquals(BreadConnectException.Code.Timeout, (connecting.await().exceptionOrNull() as BreadConnectException).code)
         assertNull(storage.items[BreadConnect.PENDING_KEY])
     }
 
     @Test
-    fun anOpenerThatNeverReturnsStillEndsTheRequestInTenMinutes() = runTest {
+    fun breadAnsweringAfterTheTenMinutesItAcceptsTheRequestForStillCompletesIt() = runTest {
+        val client = client()
+        val connecting = async { client.connect("Where Legends Grow") }
+        runCurrent()
+
+        advanceTimeBy(10 * 60 * 1000L + 1)
+        assertTrue(client.handle(bread.answerConnect(opener.opened[0], json("""{"response":$permission}"""))))
+
+        assertEquals(permission, connecting.await())
+    }
+
+    @Test
+    fun anOpenerThatNeverReturnsStillEndsTheRequestInThirtyMinutes() = runTest {
         val client = BreadConnect(
             callback,
             storage,
@@ -200,7 +212,7 @@ class ClientTest {
         val connecting = async { runCatching { client.connect("Where Legends Grow") } }
         runCurrent()
 
-        advanceTimeBy(BreadConnect.REQUEST_MAX_AGE_MS + 1)
+        advanceTimeBy(BreadConnect.ANSWER_WAIT_MS + 1)
 
         assertEquals(BreadConnectException.Code.Timeout, (connecting.await().exceptionOrNull() as BreadConnectException).code)
         assertNull(storage.items[BreadConnect.PENDING_KEY])
@@ -236,13 +248,29 @@ class ClientTest {
     }
 
     @Test
-    fun aStoredRequestOlderThanBreadAcceptsIsDropped() = runTest {
+    fun aRelaunchAfterTheTenMinutesBreadAcceptsTheRequestForStillCompletesTheConnection() = runTest {
         val first = client()
         val connecting = async { runCatching { first.connect("Where Legends Grow") } }
         runCurrent()
         val late = bread.answerConnect(opener.opened[0], json("""{"response":$permission}"""))
 
-        now += BreadConnect.REQUEST_MAX_AGE_MS + 1
+        now += 10 * 60 * 1000L + 1
+        val relaunched = client()
+        assertTrue(relaunched.handle(late))
+
+        assertEquals(permission, relaunched.session?.permission)
+        first.cancelPending()
+        assertEquals(BreadConnectException.Code.Cancelled, (connecting.await().exceptionOrNull() as BreadConnectException).code)
+    }
+
+    @Test
+    fun aStoredRequestOlderThanTheClientWaitsIsDropped() = runTest {
+        val first = client()
+        val connecting = async { runCatching { first.connect("Where Legends Grow") } }
+        runCurrent()
+        val late = bread.answerConnect(opener.opened[0], json("""{"response":$permission}"""))
+
+        now += BreadConnect.ANSWER_WAIT_MS + 1
         val relaunched = client()
         assertTrue(relaunched.handle(late))
 

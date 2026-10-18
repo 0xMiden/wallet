@@ -123,7 +123,8 @@ Bread finishes a transaction request (`TRANSACTION_REQUEST`, `SEND_TRANSACTION_R
 - Opens Bread's link through verified-link routing only: on iOS with `universalLinksOnly`, and on Android in the `com.miden.wallet` package whose signing certificate it checks.
 - When Bread is not installed, opens Bread's page in the App Store (`https://apps.apple.com/app/id6789341854`) or in Google Play (`market://details?id=com.miden.wallet`, else `https://play.google.com/store/apps/details?id=com.miden.wallet`).
 - Accepts an answer only for a request it sent and has not settled, and drops everything else.
-- Keeps its session (session id, keys and the approved account) and any pending request in its private storage, so an answer that relaunches the app after the system stopped it still lands.
+- Waits 30 minutes for the answer to a request, because Bread may start answering up to 10 minutes after `sentAt` and then waits for the user's approval and, for a transaction, for its outcome.
+- Keeps its session (session id, keys and the approved account) and any pending request in its private storage for that long, so an answer that relaunches the app after the system stopped it still lands.
 
 ## When Bread's link opens in a browser
 

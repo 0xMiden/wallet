@@ -1,4 +1,5 @@
 import {
+  ANSWER_WAIT_MS,
   answerConnect,
   answerRequest,
   BREAD_REQUEST_URL,
@@ -187,8 +188,17 @@ describe('AppSwitchTransport', () => {
     jest.useFakeTimers();
     const h = harness();
     const failure = h.transport.connect(PERMISSION_REQUEST).catch((error: unknown) => error);
-    await jest.advanceTimersByTimeAsync(REQUEST_MAX_AGE_MS);
+    await jest.advanceTimersByTimeAsync(ANSWER_WAIT_MS);
     await expect(failure).resolves.toMatchObject({ code: 'TIMEOUT' });
+  });
+
+  it('still takes an answer after the ten minutes Bread accepts the request for', async () => {
+    jest.useFakeTimers();
+    const h = harness();
+    const answer = h.transport.connect(PERMISSION_REQUEST);
+    await jest.advanceTimersByTimeAsync(REQUEST_MAX_AGE_MS + 1);
+    h.deliver(fakeBread(approve).open(h.opened[0]!));
+    await expect(answer).resolves.toEqual(PERMISSION_RESPONSE);
   });
 
   it("drops links that are not Bread's answer to the waiting request", async () => {
@@ -278,13 +288,29 @@ describe('AppSwitchTransport', () => {
     before.transport.stop();
   });
 
-  it('ignores a stored request older than Bread accepts, and a launch link it cannot read', async () => {
+  it('completes a connection from a relaunch that comes after the ten minutes Bread accepts the request for', async () => {
     const bread = fakeBread(approve);
     const before = harness();
     void before.transport.connect(PERMISSION_REQUEST).catch(() => undefined);
     await flush();
     const reply = bread.open(before.opened[0]!);
     before.clock.now += REQUEST_MAX_AGE_MS + 1;
+    const relaunched = new AppSwitchTransport({
+      ...before.options,
+      links: { launchUrl: async () => reply, onUrl: () => () => undefined }
+    });
+    await relaunched.start();
+    expect(relaunched.session()).toMatchObject({ permission: PERMISSION_RESPONSE });
+    before.transport.stop();
+  });
+
+  it('ignores a stored request older than the app waits for, and a launch link it cannot read', async () => {
+    const bread = fakeBread(approve);
+    const before = harness();
+    void before.transport.connect(PERMISSION_REQUEST).catch(() => undefined);
+    await flush();
+    const reply = bread.open(before.opened[0]!);
+    before.clock.now += ANSWER_WAIT_MS + 1;
     const stale = new AppSwitchTransport({
       ...before.options,
       links: { launchUrl: async () => reply, onUrl: () => () => undefined }

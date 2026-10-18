@@ -46,8 +46,9 @@ public final class BreadConnect {
     static let pendingKey = "bread-connect:pending"
     static let outcomesKey = "bread-connect:outcomes"
     static let outcomeLimit = 20
-    /// Bread refuses a request sent longer ago than this.
-    public static let requestMaxAge: TimeInterval = 10 * 60
+    /// How long the client waits for Bread's answer and keeps the request it waits on: Bread starts answering up to
+    /// 10 minutes after the request was sent, then waits for the user and for a transaction's outcome.
+    public static let answerWait: TimeInterval = 30 * 60
 
     /// The app's https callback; its apple-app-site-association gives the link to the app.
     public let callback: String
@@ -190,7 +191,7 @@ public final class BreadConnect {
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 let timeout = Task { @MainActor [weak self] in
-                    try? await Task.sleep(nanoseconds: UInt64(Self.requestMaxAge * 1_000_000_000))
+                    try? await Task.sleep(nanoseconds: UInt64(Self.answerWait * 1_000_000_000))
                     guard !Task.isCancelled else { return }
                     self?.settle(token: token, .failure(BreadConnectError(.timeout, "Bread did not answer in time")))
                 }
@@ -222,7 +223,7 @@ public final class BreadConnect {
 
     private func storedPending() -> Pending? {
         guard let pending = storage.read(Self.pendingKey).flatMap(Self.decodePending),
-            Double(millis() - pending.sentAt) <= Self.requestMaxAge * 1000
+            Double(millis() - pending.sentAt) <= Self.answerWait * 1000
         else { return nil }
         return pending
     }
