@@ -89,6 +89,22 @@ describe('canonical account-id parses', () => {
   });
 
   it.each([
+    ['(Address.fromBech32(x)).accountId();', ['Address.fromBech32(...)']],
+    ['Address.fromBech32(x)!.accountId();', ['Address.fromBech32(...)']],
+    ['(Address.fromBech32(x) as Address).accountId();', ['Address.fromBech32(...)']],
+    ['const a = Address.fromBech32(x);', ['Address.fromBech32(...)']],
+    ['(Address.fromBech32(x));', ['Address.fromBech32(...)']],
+    ["AccountId['fromBech32'](x);", ["AccountId['fromBech32'](...)"]],
+    ['const parse = Address.fromBech32; parse(x).accountId();', ['Address.fromBech32']],
+    ['const { fromBech32 } = AccountId; fromBech32(x);', ['fromBech32', 'fromBech32(...)']],
+    ["sdk['accountIdStringToSdk'](x);", ['accountIdStringToSdk']],
+    ['Address.fromBech32(address);', []],
+    ['try { Address.fromBech32(address); } catch {}', []]
+  ])('reports every reference by name in %s', (code, labels) => {
+    expect(bech32OnlyParses('src/new-parser.ts', code)).toEqual(labels.map(label => `src/new-parser.ts: ${label}`));
+  });
+
+  it.each([
     ['src/lib/epoch/bridge.ts', 'normalizeMidenIdToHex'],
     ['src/lib/epoch/earn-withdraw-policy.ts', 'canonicalMidenId'],
     ['src/lib/miden/sdk/miden-client-interface.ts', 'resolveAccountId']
