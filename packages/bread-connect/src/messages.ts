@@ -280,7 +280,8 @@ function requireBytes(text: string, length?: number): Uint8Array {
 
 function checkedLink(base: string, envelope: Envelope): string {
   const link = writeLink(base, envelope);
-  if (link.length - link.indexOf('&m=') - 3 > MAX_MESSAGE_LENGTH) {
+  // The message starts after the base, whose path may hold "&m=" too.
+  if (link.length - link.indexOf('&m=', base.length) - 3 > MAX_MESSAGE_LENGTH) {
     throw new ProtocolMessageError('The message is longer than its receiver reads');
   }
   return link;

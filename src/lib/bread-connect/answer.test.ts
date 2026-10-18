@@ -89,7 +89,7 @@ function requestAnswer(answer: BreadConnectAnswer, session: AppSession): Request
   return readResponse(read.envelope, session);
 }
 
-const messageLength = (link: string) => link.length - link.indexOf('&m=') - 3;
+const messageLength = (link: string) => link.length - link.indexOf('&m=', CALLBACK.length) - 3;
 
 function unsealedError(answer: BreadConnectAnswer | null) {
   const read = answer && readLink(answer.link, answer.callback);
@@ -255,7 +255,11 @@ describe('a request link', () => {
   });
 
   it.each([
-    ['refuses', () => Promise.reject(new Error('NOT_GRANTED')), { code: 'TRANSACTION_TIMEOUT', message: 'NOT_GRANTED' }],
+    [
+      'refuses',
+      () => Promise.reject(new Error('NOT_GRANTED')),
+      { code: 'TRANSACTION_TIMEOUT', message: 'NOT_GRANTED' }
+    ],
     [
       'answers nothing',
       () => Promise.resolve(undefined),

@@ -358,6 +358,16 @@ describe('the rules', () => {
     expect(() => answerConnect({ ...connect, appPublicKey: 'AAAA' }, answer)).toThrow(ProtocolMessageError);
   });
 
+  it('measures a message from the end of its base, whatever the callback path holds', () => {
+    const base = `https://game.example/a&m=${'x'.repeat(300)}`;
+    const prefix = `${base}#v=1&m=`;
+    const empty = errorLink(base, { code: 'INTERNAL_ERROR', message: '' }).length - prefix.length;
+    const message = 'y'.repeat(Math.floor(((MAX_MESSAGE_LENGTH - 100 - empty) * 3) / 4));
+    const link = errorLink(base, { code: 'INTERNAL_ERROR', message });
+    expect(link.length - prefix.length).toBeLessThanOrEqual(MAX_MESSAGE_LENGTH);
+    expect(envelopeOf(link, base)).toEqual({ type: 'error', error: { code: 'INTERNAL_ERROR', message } });
+  });
+
   it('writes an unsealed error with and without a request id', () => {
     const error = { code: 'SESSION_NOT_FOUND' as const, message: 'gone' };
     expect(envelopeOf(errorLink(CALLBACK, error, vectors.id), CALLBACK)).toEqual({
