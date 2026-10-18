@@ -133,6 +133,13 @@ final class VectorTests: XCTestCase {
         }
     }
 
+    func testCallbacksReadAsTheVectorsSay() {
+        for vector in Vectors.list("callbacks") {
+            let callback = vector["callback"]!.stringValue!
+            XCTAssertEqual(BreadConnectLinks.callbackOrigin(callback), vector["origin"]!.stringValue, callback)
+        }
+    }
+
     func testTheAppRefusesEnvelopesThatDoNotOpen() {
         for vector in Vectors.list("unopenable") where vector["role"]?.stringValue == "app" {
             let name = vector["name"]!.stringValue!

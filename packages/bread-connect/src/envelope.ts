@@ -80,22 +80,36 @@ export type ReadLink =
   | { kind: 'envelope'; envelope: Envelope }
   | { kind: 'unsupported-version' | 'invalid'; callback?: string; id?: string };
 
-const IPV4 = /^\d{1,3}(\.\d{1,3}){3}$/;
+const HOST_LABEL = /^[a-z0-9-]+$/;
+const NUMERIC_LABEL = /^(?:[0-9]+|0x[0-9a-f]*)$/;
+const PATH = /^(?:[A-Za-z0-9\-._~!$&'()*+,;=:@/]|%[0-9A-Fa-f]{2})*$/;
 
-/** The origin of a callback that follows the protocol's rules, else null. */
+/**
+ * The origin of a callback that follows the protocol's rules, else null: a canonical https link on a named host,
+ * with a path and no port, credentials, query or fragment, by the grammar the Swift and Kotlin clients also apply.
+ */
 export function callbackOrigin(callback: string): string | null {
-  if (callback.length > MAX_CALLBACK_LENGTH || callback.includes('?') || callback.includes('#')) return null;
-  let url: URL;
+  if (callback.length > MAX_CALLBACK_LENGTH || !callback.startsWith('https://')) return null;
+  const rest = callback.slice('https://'.length);
+  const slash = rest.indexOf('/');
+  if (slash < 0) return null;
+  const host = rest.slice(0, slash);
+  const labels = host.split('.');
+  if (labels.length < 2 || !labels.every(label => HOST_LABEL.test(label))) return null;
+  if (NUMERIC_LABEL.test(labels[labels.length - 1] ?? '') || host.endsWith('.localhost')) return null;
+  const path = rest.slice(slash);
+  if (!PATH.test(path)) return null;
+  for (const segment of path.split('/')) {
+    const dots = segment.toLowerCase().replace(/%2e/g, '.');
+    if (dots === '.' || dots === '..') return null;
+  }
+  // Bread reads the callback with this engine's URL parser too, which refuses some hosts the grammar allows, such as
+  // a malformed xn-- label.
   try {
-    url = new URL(callback);
+    return new URL(callback).href === callback ? `https://${host}` : null;
   } catch {
     return null;
   }
-  if (url.href !== callback || url.protocol !== 'https:' || url.username || url.password || url.port) return null;
-  const host = url.hostname;
-  if (host.startsWith('[') || IPV4.test(host) || !host.includes('.') || host.endsWith('.')) return null;
-  if (host.endsWith('.localhost')) return null;
-  return url.origin;
 }
 
 export function isErrorCode(code: unknown): code is ErrorCode {

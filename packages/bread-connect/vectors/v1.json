@@ -264,5 +264,155 @@
         "sealed": "FHBLC935L5u0yVFhWM-GblcbEceUBYWCnOVwJ0SJrh3D_TT31mufpFKaRnUB118ieQ8T9kyZur4dj8S_jfislVlPgJw_EhO4bUkhEzQ05zMFUKpRK7Q2ccQ2HT1XRzAqiJApicNe-o1ZsWwf5Xkd6rfdZebv4voJNFq133C3w1NZj089HawMgCxQyKJ2y27T2hCe6R92cpRt8jaLPlfLEZJAt-BaH3OwChRpyidPb8wkm-1njJ2z3Flo2HEepYEAwqaF7IvhN7bUxAuKwGIrtCpXORupu31f92EcnvYOWFyQpF5G54kdxFtZslbXJNSCoRTZ2Ogjp5k9JRgweVZQ"
       }
     }
+  ],
+  "callbacks": [
+    {
+      "callback": "https://wherelegendsgrow.com/bread",
+      "origin": "https://wherelegendsgrow.com"
+    },
+    {
+      "callback": "https://xn--bcher-kva.example/a/B%20c/",
+      "origin": "https://xn--bcher-kva.example"
+    },
+    {
+      "callback": "https://game.example/",
+      "origin": "https://game.example"
+    },
+    {
+      "callback": "https://a-1.game.example/x;y=1/@z:~/(a)!$&'*+,",
+      "origin": "https://a-1.game.example"
+    },
+    {
+      "callback": "https://wherelegendsgrow.com/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "origin": "https://wherelegendsgrow.com"
+    },
+    {
+      "callback": "https://wherelegendsgrow.com",
+      "origin": null
+    },
+    {
+      "callback": "https://WhereLegendsGrow.com/bread",
+      "origin": null
+    },
+    {
+      "callback": "https://wherelegendsgrow.com:8443/bread",
+      "origin": null
+    },
+    {
+      "callback": "https://user@wherelegendsgrow.com/bread",
+      "origin": null
+    },
+    {
+      "callback": "https://user:pass@wherelegendsgrow.com/bread",
+      "origin": null
+    },
+    {
+      "callback": "https://127.0.0.1/bread",
+      "origin": null
+    },
+    {
+      "callback": "https://1.2.3/bread",
+      "origin": null
+    },
+    {
+      "callback": "https://0x7f.1/bread",
+      "origin": null
+    },
+    {
+      "callback": "https://[::1]/bread",
+      "origin": null
+    },
+    {
+      "callback": "https://localhost/bread",
+      "origin": null
+    },
+    {
+      "callback": "https://game.localhost/bread",
+      "origin": null
+    },
+    {
+      "callback": "https://wherelegendsgrow.com./bread",
+      "origin": null
+    },
+    {
+      "callback": "https://wherelegendsgrow..com/bread",
+      "origin": null
+    },
+    {
+      "callback": "https://.wherelegendsgrow.com/bread",
+      "origin": null
+    },
+    {
+      "callback": "https://my_game.example/bread",
+      "origin": null
+    },
+    {
+      "callback": "https://game$.example/bread",
+      "origin": null
+    },
+    {
+      "callback": "https://wherelegendsgrow.com/bread#x",
+      "origin": null
+    },
+    {
+      "callback": "https://wherelegendsgrow.com/bread?x=1",
+      "origin": null
+    },
+    {
+      "callback": "https://wherelegendsgrow.com/./bread",
+      "origin": null
+    },
+    {
+      "callback": "https://wherelegendsgrow.com/a/../bread",
+      "origin": null
+    },
+    {
+      "callback": "https://wherelegendsgrow.com/a/%2E%2e/bread",
+      "origin": null
+    },
+    {
+      "callback": "https://wherelegendsgrow.com/a\\bread",
+      "origin": null
+    },
+    {
+      "callback": "https://wherelegendsgrow.com/br ead",
+      "origin": null
+    },
+    {
+      "callback": "https://wherelegendsgrow.com/bréad",
+      "origin": null
+    },
+    {
+      "callback": "https://wherelegendsgrow.com/a|b",
+      "origin": null
+    },
+    {
+      "callback": "https://wherelegendsgrow.com/[x]",
+      "origin": null
+    },
+    {
+      "callback": "https://wherelegendsgrow.com/bread%zz",
+      "origin": null
+    },
+    {
+      "callback": "https://wherelegendsgrow.com/bread%2",
+      "origin": null
+    },
+    {
+      "callback": "https://bücher.example/bread",
+      "origin": null
+    },
+    {
+      "callback": "http://wherelegendsgrow.com/bread",
+      "origin": null
+    },
+    {
+      "callback": "not a link",
+      "origin": null
+    },
+    {
+      "callback": "https://wherelegendsgrow.com/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "origin": null
+    }
   ]
 }

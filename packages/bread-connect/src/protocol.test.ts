@@ -1,7 +1,7 @@
 import { gcm } from '@noble/ciphers/aes';
 
 import { fromBase64Url, toBase64Url } from './base64url.js';
-import { BREAD_REQUEST_URL, MAX_CALLBACK_LENGTH, MAX_MESSAGE_LENGTH } from './constants.js';
+import { BREAD_REQUEST_URL, MAX_MESSAGE_LENGTH } from './constants.js';
 import {
   additionalData,
   decodeBytes,
@@ -213,6 +213,13 @@ describe('the v1 vectors', () => {
     expect(readLink(entry.link, entry.base)).toEqual(entry.read);
   });
 
+  it.each(vectors.callbacks.map(entry => [entry.callback.slice(0, 60), entry] as const))(
+    'reads the callback %s as its vector says',
+    (_, entry) => {
+      expect(callbackOrigin(entry.callback)).toBe(entry.origin);
+    }
+  );
+
   it.each(vectors.unopenable.map(entry => [entry.name, entry] as const))('refuses to open the %s', (_, entry) => {
     const envelope = parseEnvelope(entry.envelope);
     const attempt = () => {
@@ -291,29 +298,6 @@ describe('a round trip with fresh keys', () => {
 });
 
 describe('the rules', () => {
-  it('takes only a canonical https callback on a named host', () => {
-    expect(callbackOrigin(CALLBACK)).toBe('https://wherelegendsgrow.com');
-    for (const callback of [
-      'https://wherelegendsgrow.com',
-      'https://WhereLegendsGrow.com/bread',
-      'https://wherelegendsgrow.com:8443/bread',
-      'https://user@wherelegendsgrow.com/bread',
-      'https://user:pass@wherelegendsgrow.com/bread',
-      'https://127.0.0.1/bread',
-      'https://[::1]/bread',
-      'https://localhost/bread',
-      'https://game.localhost/bread',
-      'https://wherelegendsgrow.com./bread',
-      'https://wherelegendsgrow.com/bread#x',
-      'https://wherelegendsgrow.com/bread?x=1',
-      'http://wherelegendsgrow.com/bread',
-      'not a link',
-      `https://wherelegendsgrow.com/${'b'.repeat(MAX_CALLBACK_LENGTH)}`
-    ]) {
-      expect(callbackOrigin(callback)).toBeNull();
-    }
-  });
-
   it('refuses to start a connection that breaks the rules', () => {
     expect(() => startConnect('http://game.example/bread', { type: 'PERMISSION_REQUEST' })).toThrow(
       ProtocolMessageError

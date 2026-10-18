@@ -148,6 +148,14 @@ class VectorTest {
     }
 
     @Test
+    fun callbacksReadAsTheVectorsSay() {
+        for (vector in Vectors.list("callbacks")) {
+            val callback = vector["callback"].string!!
+            assertEquals(callback, vector["origin"].string, BreadConnectLinks.callbackOrigin(callback))
+        }
+    }
+
+    @Test
     fun theAppRefusesEnvelopesThatDoNotOpen() {
         for (vector in Vectors.list("unopenable").filter { it["role"].string == "app" }) {
             when (val envelope = Envelope.from(vector["envelope"])) {

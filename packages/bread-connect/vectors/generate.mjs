@@ -198,6 +198,50 @@ const invalid = [
   }
 ];
 
+// Callbacks with the origin every implementation reads from them; a null origin is a callback each refuses.
+const longPath = 'b'.repeat(512 - 'https://wherelegendsgrow.com/'.length);
+const callbacks = [
+  { callback, origin: 'https://wherelegendsgrow.com' },
+  { callback: 'https://xn--bcher-kva.example/a/B%20c/', origin: 'https://xn--bcher-kva.example' },
+  { callback: 'https://game.example/', origin: 'https://game.example' },
+  { callback: "https://a-1.game.example/x;y=1/@z:~/(a)!$&'*+,", origin: 'https://a-1.game.example' },
+  { callback: `https://wherelegendsgrow.com/${longPath}`, origin: 'https://wherelegendsgrow.com' },
+  ...[
+    'https://wherelegendsgrow.com',
+    'https://WhereLegendsGrow.com/bread',
+    'https://wherelegendsgrow.com:8443/bread',
+    'https://user@wherelegendsgrow.com/bread',
+    'https://user:pass@wherelegendsgrow.com/bread',
+    'https://127.0.0.1/bread',
+    'https://1.2.3/bread',
+    'https://0x7f.1/bread',
+    'https://[::1]/bread',
+    'https://localhost/bread',
+    'https://game.localhost/bread',
+    'https://wherelegendsgrow.com./bread',
+    'https://wherelegendsgrow..com/bread',
+    'https://.wherelegendsgrow.com/bread',
+    'https://my_game.example/bread',
+    'https://game$.example/bread',
+    'https://wherelegendsgrow.com/bread#x',
+    'https://wherelegendsgrow.com/bread?x=1',
+    'https://wherelegendsgrow.com/./bread',
+    'https://wherelegendsgrow.com/a/../bread',
+    'https://wherelegendsgrow.com/a/%2E%2e/bread',
+    'https://wherelegendsgrow.com/a\\bread',
+    'https://wherelegendsgrow.com/br ead',
+    'https://wherelegendsgrow.com/bréad',
+    'https://wherelegendsgrow.com/a|b',
+    'https://wherelegendsgrow.com/[x]',
+    'https://wherelegendsgrow.com/bread%zz',
+    'https://wherelegendsgrow.com/bread%2',
+    'https://bücher.example/bread',
+    'http://wherelegendsgrow.com/bread',
+    'not a link',
+    `https://wherelegendsgrow.com/${longPath}b`
+  ].map(refused => ({ callback: refused, origin: null }))
+];
+
 // Envelopes that read but must not open: the receiver refuses each.
 const unopenable = [
   {
@@ -229,7 +273,8 @@ const vectors = {
   sentAt,
   messages,
   invalid,
-  unopenable
+  unopenable,
+  callbacks
 };
 
 writeFileSync(new URL('./v1.json', import.meta.url), `${JSON.stringify(vectors, null, 2)}\n`);

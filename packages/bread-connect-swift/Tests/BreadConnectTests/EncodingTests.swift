@@ -52,40 +52,6 @@ final class EncodingTests: XCTestCase {
         XCTAssertNil(Base64URL.decode("AAAA", count: 2))
     }
 
-    func testOnlyCanonicalHTTPSCallbacksOnNamedHostsPass() {
-        XCTAssertEqual(BreadConnectLinks.callbackOrigin("https://wherelegendsgrow.com/bread"), "https://wherelegendsgrow.com")
-        XCTAssertEqual(BreadConnectLinks.callbackOrigin("https://xn--bcher-kva.example/a/B%20c/"), "https://xn--bcher-kva.example")
-        for callback in [
-            "https://wherelegendsgrow.com",
-            "https://WhereLegendsGrow.com/bread",
-            "https://wherelegendsgrow.com:8443/bread",
-            "https://user@wherelegendsgrow.com/bread",
-            "https://user:pass@wherelegendsgrow.com/bread",
-            "https://127.0.0.1/bread",
-            "https://1.2.3/bread",
-            "https://0x7f.1/bread",
-            "https://[::1]/bread",
-            "https://localhost/bread",
-            "https://game.localhost/bread",
-            "https://wherelegendsgrow.com./bread",
-            "https://wherelegendsgrow..com/bread",
-            "https://wherelegendsgrow.com/bread#x",
-            "https://wherelegendsgrow.com/bread?x=1",
-            "https://wherelegendsgrow.com/a/../bread",
-            "https://wherelegendsgrow.com/a/%2E%2e/bread",
-            "https://wherelegendsgrow.com/a\\bread",
-            "https://wherelegendsgrow.com/br ead",
-            "https://wherelegendsgrow.com/bréad",
-            "https://wherelegendsgrow.com/bread%zz",
-            "https://bücher.example/bread",
-            "http://wherelegendsgrow.com/bread",
-            "not a link",
-            "https://wherelegendsgrow.com/" + String(repeating: "b", count: BreadConnectLinks.maxCallbackLength)
-        ] {
-            XCTAssertNil(BreadConnectLinks.callbackOrigin(callback), callback)
-        }
-    }
-
     func testStartConnectRefusesACallbackOrRequestThatBreaksTheRules() {
         XCTAssertThrowsError(
             try BreadConnectProtocol.startConnect(callback: "http://game.example/bread", request: ["type": "PERMISSION_REQUEST"]))

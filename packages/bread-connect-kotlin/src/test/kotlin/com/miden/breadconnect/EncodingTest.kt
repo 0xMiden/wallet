@@ -57,44 +57,6 @@ class EncodingTest {
     }
 
     @Test
-    fun onlyCanonicalHttpsCallbacksOnNamedHostsPass() {
-        assertEquals("https://wherelegendsgrow.com", BreadConnectLinks.callbackOrigin("https://wherelegendsgrow.com/bread"))
-        assertEquals(
-            "https://xn--bcher-kva.example",
-            BreadConnectLinks.callbackOrigin("https://xn--bcher-kva.example/a/B%20c/"),
-        )
-        for (callback in listOf(
-            "https://wherelegendsgrow.com",
-            "https://WhereLegendsGrow.com/bread",
-            "https://wherelegendsgrow.com:8443/bread",
-            "https://user@wherelegendsgrow.com/bread",
-            "https://user:pass@wherelegendsgrow.com/bread",
-            "https://127.0.0.1/bread",
-            "https://1.2.3/bread",
-            "https://0x7f.1/bread",
-            "https://[::1]/bread",
-            "https://localhost/bread",
-            "https://game.localhost/bread",
-            "https://wherelegendsgrow.com./bread",
-            "https://wherelegendsgrow..com/bread",
-            "https://wherelegendsgrow.com/bread#x",
-            "https://wherelegendsgrow.com/bread?x=1",
-            "https://wherelegendsgrow.com/a/../bread",
-            "https://wherelegendsgrow.com/a/%2E%2e/bread",
-            "https://wherelegendsgrow.com/a\\bread",
-            "https://wherelegendsgrow.com/br ead",
-            "https://wherelegendsgrow.com/bréad",
-            "https://wherelegendsgrow.com/bread%zz",
-            "https://bücher.example/bread",
-            "http://wherelegendsgrow.com/bread",
-            "not a link",
-            "https://wherelegendsgrow.com/" + "b".repeat(BreadConnectLinks.MAX_CALLBACK_LENGTH),
-        )) {
-            assertNull(callback, BreadConnectLinks.callbackOrigin(callback))
-        }
-    }
-
-    @Test
     fun startConnectRefusesACallbackOrRequestThatBreaksTheRules() {
         assertThrows(ProtocolException::class.java) {
             BreadConnectProtocol.startConnect("http://game.example/bread", json("""{"type":"PERMISSION_REQUEST"}"""))
