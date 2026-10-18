@@ -127,9 +127,11 @@ const TERM_ENDINGS: Record<string, string[]> = {
   pl: ['a', 'u', 'owi', 'em', 'ie', 'y', 'i', 'owie', 'ów', 'om', 'ami', 'ach'],
   pt: ['s']
 };
-// Native words containing a term, matched as whole words without regard to case.
+// Native words containing a term, matched as whole words without regard to case in unwrapped text.
+// DeepL's tagged terms have no native-word exemption: "A<x>note</x>" is glue even where "Anote" is a verb.
 const TERM_NATIVE_WORDS: Record<string, string[]> = {
   de: ['knoten', 'knotens'],
+  es: ['anote', 'anoten', 'anotes', 'anotemos'],
   fr: [
     'notent',
     'noter',
@@ -151,39 +153,46 @@ const TERM_NATIVE_WORDS: Record<string, string[]> = {
 
 const termFamily = (term: string): string => term.toLowerCase().replace(/s$/, '');
 
+function protectedTermFamilies(english: string): Set<string> {
+  const families = new Set<string>();
+  for (const m of english.matchAll(PROTECT_REGEX)) {
+    if (TECHNICAL_TERM_VARIANTS.includes(m[0])) families.add(termFamily(m[0]));
+  }
+  return families;
+}
+
+function findGluedWord(text: string, start: number, term: string, endings: string[]): string | undefined {
+  const isGlueLetter = (i: number): boolean => i >= 0 && i < text.length && GLUE_LETTER.test(text[i]);
+  const end = start + term.length;
+  let after = end;
+  while (isGlueLetter(after)) after++;
+  const ending = text.slice(end, after);
+  // Every term starts with a consonant, and no shipped language elides before one ("L’note" is "La note").
+  const elided = APOSTROPHE.test(text[start - 1] ?? '') && isGlueLetter(start - 2);
+  const gluedAfter = ending !== '' && (/s$/i.test(term) || !endings.includes(ending));
+  if (!isGlueLetter(start - 1) && !elided && !gluedAfter) return undefined;
+  let from = elided ? start - 1 : start;
+  while (isGlueLetter(from - 1)) from--;
+  return text.slice(from, after);
+}
+
 // The words of `translation` that embed a term `english` protects. An embedded match is glue unless the
 // whole word is a known native word in that language. Clean occurrences elsewhere never exempt glue,
-// and a translation may replace a repeated term with a pronoun.
+// and a translation may replace a repeated term with a pronoun. Fresh translations also check DeepL's tags.
 // `language` is a locale directory or a DeepL code ("pt", "pt-BR").
 function findGluedTerms(translation: string, english: string, language: string): string[] {
-  const protectedFamilies = new Set<string>();
-  for (const m of english.matchAll(PROTECT_REGEX)) {
-    if (!TECHNICAL_TERM_VARIANTS.includes(m[0])) continue;
-    protectedFamilies.add(termFamily(m[0]));
-  }
+  const protectedFamilies = protectedTermFamilies(english);
   const locale = language.split(/[-_]/)[0].toLowerCase();
   const endings = TERM_ENDINGS[locale] ?? [];
   const nativeWords = TERM_NATIVE_WORDS[locale] ?? [];
   const text = translation.replace(PLACEHOLDER_REGEX, placeholder => '$'.repeat(placeholder.length));
-  const isGlueLetter = (i: number): boolean => i >= 0 && i < text.length && GLUE_LETTER.test(text[i]);
   const glued: string[] = [];
   for (const m of text.matchAll(ANY_TERM_REGEX)) {
     const term = m[0];
     const family = termFamily(term);
     if (!protectedFamilies.has(family)) continue;
-    const start = m.index;
-    const end = start + term.length;
-    let after = end;
-    while (isGlueLetter(after)) after++;
-    const ending = text.slice(end, after);
-    // Every term starts with a consonant, and no shipped language elides before one ("L’note" is "La note").
-    const elided = APOSTROPHE.test(text[start - 1] ?? '') && isGlueLetter(start - 2);
-    const gluedAfter = ending !== '' && (/s$/i.test(term) || !endings.includes(ending));
-    if (!isGlueLetter(start - 1) && !elided && !gluedAfter) continue;
-    let from = elided ? start - 1 : start;
-    while (isGlueLetter(from - 1)) from--;
-    const word = translation.slice(from, after);
-    if (!nativeWords.includes(word.toLowerCase())) glued.push(word);
+    const word = findGluedWord(text, m.index, term, endings);
+    if (word !== undefined && !nativeWords.includes(word.toLowerCase())) glued.push(word);
   }
   return glued;
 }
@@ -219,8 +228,8 @@ function fromDeepLXml(translated: string): string {
   return xmlUnescape(translated.replace(/<\/?x\s*>/g, ''));
 }
 
-// Translate an array of English source strings into `targetCode`, preserving technical
-// terms and $placeholder$ variables. Order of the returned array matches the input.
+// Translate English strings into `targetCode`, keeping DeepL's <x> tags for translatedEntry to check
+// before unwrapping technical terms and $placeholder$ variables. The returned order matches the input.
 async function translateBatch(sources: string[], targetCode: string): Promise<string[]> {
   if (sources.length === 0) return [];
   const out: string[] = [];
@@ -232,7 +241,7 @@ async function translateBatch(sources: string[], targetCode: string): Promise<st
       outlineDetection: false,
       context: DEEPL_CONTEXT,
     });
-    for (const r of results) out.push(fromDeepLXml(r.text));
+    for (const r of results) out.push(r.text);
   }
   return out;
 }
@@ -267,12 +276,22 @@ function buildEntry(message: string, englishMessage: string): any {
 // bundle and translateWithDiff translates it again on the next run.
 const UNTRANSLATED = '(untranslated)';
 
-// The entry written for a fresh DeepL translation. One that glues a protected term to a word is never
-// written: the entry keeps the English under UNTRANSLATED until a later run gets it clean or a hand fix
-// lands. No retry in the same run, since DeepL repeats the glue for the same request.
+// Check each protected term's DeepL tag without native-word exemptions and the unwrapped text with
+// findGluedTerms. Only clean text is written, without tags; otherwise keep English under UNTRANSLATED
+// until a later run gets it clean or a hand fix lands. No same-run retry: DeepL repeats the same glue.
 function translatedEntry(key: string, translation: string, english: string, language: string) {
-  const glued = findGluedTerms(translation, english, language);
-  if (glued.length === 0) return buildEntry(translation, english);
+  const unwrapped = fromDeepLXml(translation);
+  const protectedFamilies = protectedTermFamilies(english);
+  const endings = TERM_ENDINGS[language.split(/[-_]/)[0].toLowerCase()] ?? [];
+  const glued = findGluedTerms(unwrapped, english, language);
+  for (const m of translation.matchAll(/<x\s*>([\s\S]*?)<\/x\s*>/g)) {
+    const term = xmlUnescape(m[1]);
+    if (!TECHNICAL_TERM_VARIANTS.includes(term) || !protectedFamilies.has(termFamily(term))) continue;
+    const start = fromDeepLXml(translation.slice(0, m.index)).length;
+    const word = findGluedWord(unwrapped, start, term, endings);
+    if (word !== undefined && !glued.includes(word)) glued.push(word);
+  }
+  if (glued.length === 0) return buildEntry(unwrapped, english);
   // A GitHub Actions annotation, so the rejection shows on the pull request, not only in the job log.
   console.log(
     `::warning title=Rejected translation::${language} ${key} glues ${glued.join(', ')}; keeping the English.`

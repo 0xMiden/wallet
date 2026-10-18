@@ -8,15 +8,25 @@
 import fs from 'fs';
 import path from 'path';
 
-type Entry = { message: string; englishSource: string; placeholders?: Record<string, { content: string }> };
+type Entry = {
+  message: string;
+  englishSource: string;
+  rejectedSource?: string;
+  placeholders?: Record<string, { content: string }>;
+};
 type Generator = {
   findGluedTerms: (translation: string, english: string, language: string) => string[];
   translatedEntry: (key: string, translation: string, english: string, language: string) => Entry;
+  translationEntryToKeep: (english: string, existingItem?: Entry) => Entry | undefined;
 };
 
 // generateLanguageFiles.ts is a CommonJS script (module.exports), so it has no ES exports to import.
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const { findGluedTerms, translatedEntry }: Generator = require('../../../utility/generateLanguageFiles');
+const {
+  findGluedTerms,
+  translatedEntry,
+  translationEntryToKeep
+}: Generator = require('../../../utility/generateLanguageFiles');
 
 const LOCALES_DIR = path.resolve(__dirname, '../../../public/_locales');
 const LOCALES = fs.readdirSync(LOCALES_DIR).filter(dir => fs.existsSync(path.join(LOCALES_DIR, dir, 'messages.json')));
@@ -168,6 +178,18 @@ describe('findGluedTerms', () => {
 });
 
 describe('translatedEntry', () => {
+  it('records the English source that caused a rejection', () => {
+    const log = jest.spyOn(console, 'log').mockImplementation(() => undefined);
+    try {
+      expect(translatedEntry('gluedKey', 'A<x>note</x> é pública.', 'The note is public.', 'pt')).toMatchObject({
+        englishSource: '(untranslated)',
+        rejectedSource: 'The note is public.'
+      });
+    } finally {
+      log.mockRestore();
+    }
+  });
+
   it('writes a clean translation with its English source and placeholders', () => {
     expect(translatedEntry('usdcxStepBurned', 'Сожжено в $network$', 'Burned on $network$', 'ru')).toEqual({
       message: 'Сожжено в $network$',
@@ -240,6 +262,60 @@ describe('translatedEntry', () => {
     } finally {
       log.mockRestore();
     }
+  });
+});
+
+describe('translationEntryToKeep', () => {
+  it('copies a rejected entry without translating unchanged English or warning again', () => {
+    const rejected = {
+      message: 'The note is public.',
+      englishSource: '(untranslated)',
+      rejectedSource: 'The note is public.'
+    };
+    const log = jest.spyOn(console, 'log').mockImplementation(() => undefined);
+    try {
+      expect(translationEntryToKeep('The note is public.', rejected)).toEqual(rejected);
+      expect(log).not.toHaveBeenCalled();
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it('queues a rejected entry when its English changes', () => {
+    expect(
+      translationEntryToKeep('The note is private.', {
+        message: 'The note is public.',
+        englishSource: '(untranslated)',
+        rejectedSource: 'The note is public.'
+      })
+    ).toBeUndefined();
+  });
+
+  it('queues a missing entry', () => {
+    expect(translationEntryToKeep('The note is public.', undefined)).toBeUndefined();
+  });
+
+  it('queues an entry with a stale English source', () => {
+    expect(
+      translationEntryToKeep('The note is private.', {
+        message: 'La note est publique.',
+        englishSource: 'The note is public.'
+      })
+    ).toBeUndefined();
+  });
+
+  it('copies a current entry and refreshes placeholders without changing the stored entry', () => {
+    const current = {
+      message: 'La note vaut $amount$.',
+      englishSource: 'The note is worth $amount$.',
+      placeholders: { amount: { content: '$2' } }
+    };
+    expect(translationEntryToKeep('The note is worth $amount$.', current)).toEqual({
+      message: 'La note vaut $amount$.',
+      englishSource: 'The note is worth $amount$.',
+      placeholders: { amount: { content: '$1' } }
+    });
+    expect(current.placeholders).toEqual({ amount: { content: '$2' } });
   });
 });
 
