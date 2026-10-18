@@ -427,6 +427,24 @@
         return { signature: base64ToUint8Array(res.signature) };
       }
 
+      async requestLoginKey() {
+        const res = await request({
+          type: 'LOGIN_KEY_REQUEST',
+          sourceAccountId: this.address,
+        });
+        return { loginKey: base64ToUint8Array(res.loginKey) };
+      }
+
+      async signLoginBytes(data, kind) {
+        const res = await request({
+          type: 'LOGIN_SIGN_REQUEST',
+          sourceAccountId: this.address,
+          payload: uint8ArrayToBase64(data),
+          kind,
+        });
+        return { signature: base64ToUint8Array(res.signature) };
+      }
+
       async requestAssets() {
         const res = await request({
           type: 'ASSETS_REQUEST',

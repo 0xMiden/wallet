@@ -828,6 +828,68 @@ function u8ToB64Local(u8: Uint8Array): string {
   return btoa(binary);
 }
 
+describe('login key', () => {
+  it('gives the in-app provider the login key methods', () => {
+    const win = makeWindow();
+    inject(win);
+    expect(typeof win.midenWallet.requestLoginKey).toBe('function');
+    expect(typeof win.midenWallet.signLoginBytes).toBe('function');
+  });
+
+  it('returns the login key as a Uint8Array', async () => {
+    const win = await connectedWallet();
+    const loginKey = Uint8Array.from({ length: 32 }, (_, i) => i);
+    const promise = win.midenWallet.requestLoginKey();
+    const msg = lastMessage(win);
+    expect(msg.payload).toEqual({ type: 'LOGIN_KEY_REQUEST', sourceAccountId: '0xabc' });
+    respond(win, msg.reqId, {
+      type: 'MIDEN_PAGE_RESPONSE',
+      payload: { type: 'LOGIN_KEY_RESPONSE', loginKey: u8ToB64Local(loginKey) }
+    });
+    const res = await promise;
+    expect(res.loginKey).toBeInstanceOf(Uint8Array);
+    expect(res.loginKey).toHaveLength(32);
+    expect(Array.from(res.loginKey)).toEqual(Array.from(loginKey));
+  });
+
+  it('signs login bytes as base64 with the kind', async () => {
+    const win = await connectedWallet();
+    const data = Uint8Array.from({ length: 32 }, (_, i) => 255 - i);
+    const signature = Uint8Array.from({ length: 66 }, (_, i) => i);
+    const promise = win.midenWallet.signLoginBytes(data, 'word');
+    const msg = lastMessage(win);
+    expect(msg.payload).toEqual({
+      type: 'LOGIN_SIGN_REQUEST',
+      sourceAccountId: '0xabc',
+      payload: u8ToB64Local(data),
+      kind: 'word'
+    });
+    respond(win, msg.reqId, {
+      type: 'MIDEN_PAGE_RESPONSE',
+      payload: { type: 'LOGIN_SIGN_RESPONSE', signature: u8ToB64Local(signature) }
+    });
+    const res = await promise;
+    expect(res.signature).toBeInstanceOf(Uint8Array);
+    expect(res.signature).toHaveLength(66);
+    expect(Array.from(res.signature)).toEqual(Array.from(signature));
+  });
+
+  it('rejects with the refusal code as text', async () => {
+    const win = await connectedWallet();
+    const refusal = "LOGIN_KEY_UNAVAILABLE: this account's root key is not on this device";
+    const refuse = () =>
+      respond(win, lastMessage(win).reqId, { type: 'MIDEN_PAGE_ERROR_RESPONSE', payload: null, error: refusal });
+
+    const keyRequest = win.midenWallet.requestLoginKey();
+    refuse();
+    await expect(keyRequest).rejects.toThrow('LOGIN_KEY_UNAVAILABLE');
+
+    const signRequest = win.midenWallet.signLoginBytes(new Uint8Array(32), 'word');
+    refuse();
+    await expect(signRequest).rejects.toThrow('LOGIN_KEY_UNAVAILABLE');
+  });
+});
+
 describe('account switch (#174)', () => {
   // The host names the network by id in the connect answer and by RPC URL in the poll answer
   // (lib/miden/back/dapp.ts), so these tests connect the way the product does.
