@@ -268,9 +268,13 @@ async function openPopup(start: () => Promise<unknown>) {
   };
 }
 
+// `windows.create` as the polyfill mock made it, put back before each test: `clearAllMocks` keeps once-queued results.
+const createWindow = jest.mocked(extensionBrowser.windows.create).getMockImplementation();
+
 beforeEach(() => {
   _resetLockedPromptCooldownsForTest();
   jest.clearAllMocks();
+  jest.mocked(extensionBrowser.windows.create).mockReset().mockImplementation(createWindow);
   mockIsExtension = false;
   mockWalletStatus = WalletStatus.Ready;
   mockStoreListeners.clear();
@@ -405,7 +409,6 @@ describe('both login key messages', () => {
     const create = jest.mocked(extensionBrowser.windows.create);
     const noWindow = new Error('No window could be opened');
     const failure = `${MidenDAppErrorType.InvalidParams}: Error: No window could be opened`;
-    // One rejection queued per call, so a failed assertion leaves none behind for a later test's popup.
     create.mockRejectedValueOnce(noWindow);
     await expect(dapp.requestLoginKey(ORIGIN, keyRequest())).rejects.toThrow(new Error(failure));
     create.mockRejectedValueOnce(noWindow);
