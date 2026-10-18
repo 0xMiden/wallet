@@ -48,6 +48,21 @@ func bytes(_ value: JSONValue) -> Data { Base64URL.decode(value.stringValue!)! }
 /// `count` bytes counting up from `from`, as the vector generator makes ids and nonces.
 func counting(from: Int, count: Int) -> Data { Data((0..<count).map { UInt8((from + $0) & 255) }) }
 
+struct WaitTimedOut: Error {}
+
+/// Yields until `condition` holds, so a test that never gets there fails with `what` instead of spinning forever.
+@MainActor
+func waitFor(_ what: String, file: StaticString = #filePath, line: UInt = #line, _ condition: () -> Bool) async throws {
+    let deadline = Date().addingTimeInterval(5)
+    while !condition() {
+        guard Date() < deadline else {
+            XCTFail("Timed out waiting for \(what)", file: file, line: line)
+            throw WaitTimedOut()
+        }
+        await Task.yield()
+    }
+}
+
 final class MemoryStorage: BreadConnectStorage {
     var items: [String: Data] = [:]
 

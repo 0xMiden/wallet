@@ -37,7 +37,9 @@ final class ClientTests: XCTestCase {
     private func connected() async throws -> BreadConnect {
         let client = try client()
         answer(with: client) { [bread, permission] in try bread.answerConnect($0, answer: ["response": .object(permission)]) }
-        _ = try await client.connect(appName: "Where Legends Grow")
+        let connecting = Task { try await client.connect(appName: "Where Legends Grow") }
+        try await waitFor("the connect to open Bread") { !opener.opened.isEmpty }
+        _ = try await connecting.value
         return client
     }
 
@@ -126,7 +128,7 @@ final class ClientTests: XCTestCase {
         let client = try await connected()
         opener.onOpen = nil
         let first = Task { try await client.request(["type": "SIGN_REQUEST"]) }
-        while opener.opened.count < 2 { await Task.yield() }
+        try await waitFor("the request to open Bread") { opener.opened.count >= 2 }
 
         let second = Task { try await client.request(["type": "SIGN_REQUEST"]) }
         await assertThrows(.superseded) { _ = try await first.value }
@@ -149,7 +151,7 @@ final class ClientTests: XCTestCase {
         let client = try await connected()
         answer(with: client) { [bread] _ in bread.error(id: Base64URL.encode(counting(from: 9, count: 16)), code: .notFound, message: "No") }
         let request = Task { try await client.request(["type": "SIGN_REQUEST"]) }
-        while opener.opened.count < 2 { await Task.yield() }
+        try await waitFor("the request to open Bread") { opener.opened.count >= 2 }
         for _ in 0..<10 { await Task.yield() }
 
         client.cancelPending()
@@ -160,7 +162,7 @@ final class ClientTests: XCTestCase {
     func testCancellingTheCallerEndsTheRequest() async throws {
         let client = try client()
         let connecting = Task { try await client.connect(appName: "Where Legends Grow") }
-        while opener.opened.isEmpty { await Task.yield() }
+        try await waitFor("the connect to open Bread") { !opener.opened.isEmpty }
         XCTAssertNotNil(storage.items[BreadConnect.pendingKey])
 
         connecting.cancel()
@@ -172,7 +174,7 @@ final class ClientTests: XCTestCase {
     func testAnAnswerThatRelaunchesTheAppStillCompletesTheConnection() async throws {
         let first = try client()
         let connecting = Task { try await first.connect(appName: "Where Legends Grow") }
-        while opener.opened.isEmpty { await Task.yield() }
+        try await waitFor("the connect to open Bread") { !opener.opened.isEmpty }
         let answer = try bread.answerConnect(opener.opened[0], answer: ["response": .object(permission)])
 
         let relaunched = try client()
@@ -188,7 +190,7 @@ final class ClientTests: XCTestCase {
         let first = try client()
         opener.onOpen = nil
         let connecting = Task { try await first.connect(appName: "Where Legends Grow") }
-        while opener.opened.isEmpty { await Task.yield() }
+        try await waitFor("the connect to open Bread") { !opener.opened.isEmpty }
         let late = try bread.answerConnect(opener.opened[0], answer: ["response": .object(permission)])
 
         now = now.addingTimeInterval(BreadConnect.requestMaxAge + 1)
