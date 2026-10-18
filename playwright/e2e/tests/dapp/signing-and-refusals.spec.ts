@@ -208,7 +208,8 @@ function signingCells(j: Journey): Record<string, DappCellImpl> {
           ctx
         );
         const signed = unwrap(result, 'signLoginBytes(word)', ctx);
-        expect(Buffer.from(signed.signatureB64, 'base64')).toHaveLength(66);
+        // A length compared as a number: toHaveLength would print the signature's bytes on a failure.
+        expect(Buffer.from(signed.signatureB64, 'base64').length).toBe(66);
         expect(signed.schemeTag).toBe(ECDSA_SCHEME_TAG);
         expect(
           await callDapp(
@@ -235,6 +236,8 @@ function signingCells(j: Journey): Record<string, DappCellImpl> {
           { kind: 'loginSign', decision: 'decline', origin: dapp.origin },
           ctx
         );
+        // `ok` first: a decline the wallet signed anyway must fail without printing the signature or the word.
+        expect(result.ok, 'the declined login signature was answered').toBe(false);
         expect(result).toEqual(refusal('NotGrantedMidenWalletError', 'NOT_GRANTED'));
       }
     }

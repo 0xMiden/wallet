@@ -260,7 +260,9 @@ export async function answerPrompt<T>(
   if ('result' in first) {
     ctx.evidence.popupOpened = false;
     if (failedOutcome(first.result)) ctx.evidence.dappError = first.result.error;
-    throw new Error(`expected a ${plan.kind} popup, but the request settled first: ${JSON.stringify(first.result)}`);
+    // An accepted answer can carry a signature and the word it signed, so only a refusal is printed.
+    const settled = failedOutcome(first.result) ? JSON.stringify(first.result) : 'an accepted answer';
+    throw new Error(`expected a ${plan.kind} popup, but the request settled first: ${settled}`);
   }
   const popup = first.popup;
   ctx.evidence.popupOpened = true;
