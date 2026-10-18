@@ -4430,6 +4430,53 @@
     "message": "{count} dApps ouvertes",
     "englishSource": "{count} open dApps"
   },
+  "openLinkTitle": {
+    "message": "Ouvrir $host$ ?",
+    "englishSource": "Open $host$?",
+    "placeholders": {
+      "host": {
+        "content": "$1"
+      }
+    }
+  },
+  "openLinkDescription": {
+    "message": "Ce site n’est pas répertorié dans Explore, et n’importe qui peut créer un lien vers celui-ci. Ne l’ouvrez que si vous faites confiance à ce site.",
+    "englishSource": "This site is not listed in Explore, and anyone can make a link to it. Only open it if you trust this site."
+  },
+  "openLinkAction": {
+    "message": "Ouvrir",
+    "englishSource": "Open"
+  },
+  "breadConnectWaitingTitle": {
+    "message": "Finalisation de la transaction",
+    "englishSource": "Finishing the transaction"
+  },
+  "breadConnectWaitingDescription": {
+    "message": "Gardez Bread ouvert : il vous ramènera sur $host$ une fois la transaction terminée.",
+    "englishSource": "Keep Bread open: it takes you back to $host$ once the transaction is done.",
+    "placeholders": {
+      "host": {
+        "content": "$1"
+      }
+    }
+  },
+  "breadConnectUnreturnedTitle": {
+    "message": "Impossible d’ouvrir $host$",
+    "englishSource": "Couldn't open $host$",
+    "placeholders": {
+      "host": {
+        "content": "$1"
+      }
+    }
+  },
+  "breadConnectUnreturnedDescription": {
+    "message": "Bread a répondu, mais l’application à l’origine de la demande ne s’est pas ouverte. Ouvrez-la vous-même pour continuer.",
+    "englishSource": "Bread answered, but the app that asked didn't open. Open it yourself to continue."
+  },
+  "breadConnectUnreturnedTransactionDescription": {
+    "message": "La transaction a tout de même été envoyée. Vérifiez son résultat dans Bread avant de réessayer dans l’application.",
+    "englishSource": "The transaction was still sent. Check its result in Bread before you try again in the app."
+  },
   "approve": {
     "message": "Approuver",
     "englishSource": "Approve"

@@ -1348,7 +1348,7 @@ describe('requestTransaction — mobile error branches', () => {
           payload: {
             address: 'miden-account-1',
             recipientAddress: 'bob',
-            transactionRequest: 'base64req'
+            transactionRequest: 'YmFzZTY0cmVx'
           }
         }
       } as never)
@@ -1455,7 +1455,7 @@ describe('startDappBackgroundProcessing error handling', () => {
         payload: {
           address: 'miden-account-1',
           recipientAddress: 'bob',
-          transactionRequest: 'base64req'
+          transactionRequest: 'YmFzZTY0cmVx'
         }
       }
     } as never);
@@ -1472,7 +1472,7 @@ describe('startDappBackgroundProcessing error handling', () => {
         payload: {
           address: 'miden-account-1',
           recipientAddress: 'bob',
-          transactionRequest: 'base64req'
+          transactionRequest: 'YmFzZTY0cmVx'
         }
       }
     } as never);
@@ -1743,6 +1743,54 @@ describe('removeDApp', () => {
     const result = await dapp.removeDApp('https://nonexistent.xyz', 'miden-account-1');
     expect(result).toBeDefined();
   });
+
+  it('ends every Bread Connect session kept for the origin, so a later grant cannot bring one back', async () => {
+    const other = { session: 'session-2', origin: 'https://other.xyz' };
+    storageState.bread_connect_sessions = {
+      'session-1': { session: 'session-1', origin: 'https://miden.xyz' },
+      'session-2': other,
+      broken: 7,
+      empty: null
+    };
+
+    await dapp.removeDApp('https://miden.xyz', 'miden-account-1');
+    expect(storageState.bread_connect_sessions).toEqual({ 'session-2': other, broken: 7, empty: null });
+
+    await dapp.removeDApp('https://nonexistent.xyz', 'miden-account-1');
+    expect(storageState.bread_connect_sessions).toEqual({ 'session-2': other, broken: 7, empty: null });
+  });
+
+  it('keeps the permission when the Bread Connect sessions cannot be ended, so no session outlives it', async () => {
+    const sessions = { 'session-1': { session: 'session-1', origin: 'https://miden.xyz' } };
+    Object.defineProperty(storageState, 'bread_connect_sessions', {
+      configurable: true,
+      enumerable: true,
+      get: () => sessions,
+      set: () => {
+        throw new Error('disk full');
+      }
+    });
+
+    await expect(dapp.removeDApp('https://miden.xyz', 'miden-account-1')).rejects.toThrow('disk full');
+
+    expect((await dapp.getAllDApps())['https://miden.xyz']).toEqual([SESSION]);
+  });
+
+  it.each([
+    ['absent', undefined],
+    ['null', null],
+    ['a string', 'sessions']
+  ])(
+    'removes the permission when the Bread Connect session store is %s, and leaves the store as it was',
+    async (_n, value) => {
+      storageState.bread_connect_sessions = value;
+
+      await dapp.removeDApp('https://miden.xyz', 'miden-account-1');
+
+      expect((await dapp.getAllDApps())['https://miden.xyz']).toEqual([]);
+      expect(storageState.bread_connect_sessions).toBe(value);
+    }
+  );
 });
 
 // ── requestSign — input validation branches ─────────────────────
@@ -2161,7 +2209,7 @@ describe('requestTransaction - custom spending-limit gate', () => {
       type: MidenDAppMessageType.TransactionRequest,
       sourcePublicKey: 'miden-account-1',
       transaction: {
-        payload: { address: 'miden-account-1', recipientAddress: 'bob', transactionRequest: 'base64req' }
+        payload: { address: 'miden-account-1', recipientAddress: 'bob', transactionRequest: 'YmFzZTY0cmVx' }
       }
     }) as never;
   const viewMoving = (assets: { faucetId: string; amount: bigint }[]) => ({
@@ -2391,7 +2439,7 @@ describe('requests for an account that is not the current one (#1419)', () => {
     currentAccountPublicKey = ACCOUNT_A;
   });
 
-  const customPayload = { address: ACCOUNT_A, recipientAddress: 'bob', transactionRequest: 'base64req' };
+  const customPayload = { address: ACCOUNT_A, recipientAddress: 'bob', transactionRequest: 'YmFzZTY0cmVx' };
   const consumeTx = { noteId: 'note-1', faucetId: 'faucet-1', noteType: 'Private', amount: '50' };
 
   const requests: Record<string, (permission?: string) => Promise<unknown>> = {
@@ -2619,7 +2667,7 @@ describe('a locked wallet (#1414)', () => {
         type: MidenDAppMessageType.TransactionRequest,
         sourcePublicKey: 'miden-account-1',
         transaction: {
-          payload: { address: 'miden-account-1', recipientAddress: 'bob', transactionRequest: 'base64req' }
+          payload: { address: 'miden-account-1', recipientAddress: 'bob', transactionRequest: 'YmFzZTY0cmVx' }
         }
       } as never),
     consume: () =>

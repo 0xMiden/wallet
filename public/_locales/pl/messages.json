@@ -4430,6 +4430,53 @@
     "message": "{count} otwartych aplikacji dApp",
     "englishSource": "{count} open dApps"
   },
+  "openLinkTitle": {
+    "message": "Otworzyć $host$?",
+    "englishSource": "Open $host$?",
+    "placeholders": {
+      "host": {
+        "content": "$1"
+      }
+    }
+  },
+  "openLinkDescription": {
+    "message": "Ta strona nie figuruje w sekcji „Explore”, a każdy może umieścić do niej link. Otwórz ją tylko wtedy, gdy ufasz tej stronie.",
+    "englishSource": "This site is not listed in Explore, and anyone can make a link to it. Only open it if you trust this site."
+  },
+  "openLinkAction": {
+    "message": "Otwórz",
+    "englishSource": "Open"
+  },
+  "breadConnectWaitingTitle": {
+    "message": "Kończenie transakcji",
+    "englishSource": "Finishing the transaction"
+  },
+  "breadConnectWaitingDescription": {
+    "message": "Nie zamykaj Bread: po zakończeniu transakcji wrócisz do $host$.",
+    "englishSource": "Keep Bread open: it takes you back to $host$ once the transaction is done.",
+    "placeholders": {
+      "host": {
+        "content": "$1"
+      }
+    }
+  },
+  "breadConnectUnreturnedTitle": {
+    "message": "Nie udało się otworzyć $host$",
+    "englishSource": "Couldn't open $host$",
+    "placeholders": {
+      "host": {
+        "content": "$1"
+      }
+    }
+  },
+  "breadConnectUnreturnedDescription": {
+    "message": "Bread odpowiedział, ale aplikacja, która wysłała prośbę, się nie otworzyła. Otwórz ją samodzielnie, aby kontynuować.",
+    "englishSource": "Bread answered, but the app that asked didn't open. Open it yourself to continue."
+  },
+  "breadConnectUnreturnedTransactionDescription": {
+    "message": "Transakcja i tak została wysłana. Sprawdź jej wynik w Bread, zanim spróbujesz ponownie w aplikacji.",
+    "englishSource": "The transaction was still sent. Check its result in Bread before you try again in the app."
+  },
   "approve": {
     "message": "Zatwierdź",
     "englishSource": "Approve"

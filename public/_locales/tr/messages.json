@@ -4430,6 +4430,53 @@
     "message": "{count} açık dApp",
     "englishSource": "{count} open dApps"
   },
+  "openLinkTitle": {
+    "message": "$host$'yi aç?",
+    "englishSource": "Open $host$?",
+    "placeholders": {
+      "host": {
+        "content": "$1"
+      }
+    }
+  },
+  "openLinkDescription": {
+    "message": "Bu site Explore'da listelenmemiştir ve herkes bu siteye bağlantı verebilir. Yalnızca bu siteye güveniyorsanız açın.",
+    "englishSource": "This site is not listed in Explore, and anyone can make a link to it. Only open it if you trust this site."
+  },
+  "openLinkAction": {
+    "message": "Aç",
+    "englishSource": "Open"
+  },
+  "breadConnectWaitingTitle": {
+    "message": "İşlem tamamlanıyor",
+    "englishSource": "Finishing the transaction"
+  },
+  "breadConnectWaitingDescription": {
+    "message": "Bread'i açık tutun: işlem tamamlandığında sizi $host$ adresine geri götürür.",
+    "englishSource": "Keep Bread open: it takes you back to $host$ once the transaction is done.",
+    "placeholders": {
+      "host": {
+        "content": "$1"
+      }
+    }
+  },
+  "breadConnectUnreturnedTitle": {
+    "message": "$host$ açılamadı",
+    "englishSource": "Couldn't open $host$",
+    "placeholders": {
+      "host": {
+        "content": "$1"
+      }
+    }
+  },
+  "breadConnectUnreturnedDescription": {
+    "message": "Bread yanıt verdi, ancak isteği gönderen uygulama açılmadı. Devam etmek için uygulamayı kendiniz açın.",
+    "englishSource": "Bread answered, but the app that asked didn't open. Open it yourself to continue."
+  },
+  "breadConnectUnreturnedTransactionDescription": {
+    "message": "İşlem yine de gönderildi. Uygulamada yeniden denemeden önce sonucunu Bread'de kontrol edin.",
+    "englishSource": "The transaction was still sent. Check its result in Bread before you try again in the app."
+  },
   "approve": {
     "message": "Onayla",
     "englishSource": "Approve"

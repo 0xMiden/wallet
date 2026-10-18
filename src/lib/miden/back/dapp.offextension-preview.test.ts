@@ -23,6 +23,7 @@
  */
 
 import { MidenDAppErrorType, MidenDAppMessageType } from 'lib/adapter/types';
+import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 
 // ── Mocks ──────────────────────────────────────────────────────────
 // Mirrors the scaffold in `dapp.send-preview.test.ts`; `dapp.ts` pulls in the
@@ -155,6 +156,7 @@ const originalSdk = {
   SigningInputs: sdk.SigningInputs,
   SigningInputsType: sdk.SigningInputsType,
   TransactionRequest: sdk.TransactionRequest,
+  MidenClient: sdk.MidenClient,
   Note: sdk.Note,
   NoteFile: sdk.NoteFile
 };
@@ -343,11 +345,88 @@ describe('dApp custom-transaction approval shows the asset movement of the reque
     expect(rows.some(row => row.startsWith('Recipient (declared by the site), '))).toBe(true);
   });
 
-  it('says so when the request bytes cannot be decoded, rather than showing an assetless sheet', async () => {
+  it('rejects request bytes that cannot be deserialized before showing a confirmation sheet', async () => {
     sdk.TransactionRequest = {
       deserialize: () => {
         throw new Error('not a transaction request');
       }
+    };
+
+    await expect(
+      requestTransaction(DAPP_ORIGIN, customRequest('mtst1qqqqqqqqqqqqqqqqqqqqqqqqqqqsavings'), 'session-1')
+    ).rejects.toThrow(MidenDAppErrorType.InvalidParams);
+
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+  });
+
+  it('answers a kill during the request decode with the kill, not INVALID_PARAMS', async () => {
+    const kill = new WasmClientPoisonedError('watchdog', new Error('decode parked'));
+    sdk.TransactionRequest = {
+      deserialize: () => {
+        throw new Error('decode wrapper', { cause: kill });
+      }
+    };
+
+    await expect(
+      requestTransaction(DAPP_ORIGIN, customRequest('mtst1qqqqqqqqqqqqqqqqqqqqqqqqqqqsavings'), 'session-1')
+    ).rejects.toBe(kill);
+
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+  });
+
+  it('waits for the SDK to load before decoding the request', async () => {
+    let loaded = false;
+    let finishLoading = (): void => undefined;
+    const loading = new Promise<void>(resolve => {
+      finishLoading = () => {
+        loaded = true;
+        resolve();
+      };
+    });
+    const ready = jest.fn(() => loading);
+    sdk.MidenClient = { ready };
+    // A cold realm cannot decode until the SDK has loaded.
+    const deserialize = jest.fn(() => {
+      if (!loaded) throw new Error('the SDK has not loaded');
+      return { expectedOutputOwnNotes: () => [] };
+    });
+    sdk.TransactionRequest = { deserialize };
+
+    const answer = requestTransaction(
+      DAPP_ORIGIN,
+      customRequest('mtst1qqqqqqqqqqqqqqqqqqqqqqqqqqqsavings'),
+      'session-1'
+    );
+    for (let i = 0; i < 10; i++) await new Promise(resolve => setTimeout(resolve, 0));
+    expect(ready).toHaveBeenCalled();
+    expect(deserialize).not.toHaveBeenCalled();
+
+    finishLoading();
+    await expect(answer).rejects.toThrow(DECLINED);
+    expect(mockRequestConfirmation).toHaveBeenCalledTimes(1);
+  });
+
+  it('answers a WASM startup failure with its own error, not INVALID_PARAMS', async () => {
+    const startupFailure = new Error('wasm failed to start');
+    sdk.MidenClient = { ready: () => Promise.reject(startupFailure) };
+    const deserialize = jest.fn(() => ({ expectedOutputOwnNotes: () => [] }));
+    sdk.TransactionRequest = { deserialize };
+
+    await expect(
+      requestTransaction(DAPP_ORIGIN, customRequest('mtst1qqqqqqqqqqqqqqqqqqqqqqqqqqqsavings'), 'session-1')
+    ).rejects.toBe(startupFailure);
+
+    expect(deserialize).not.toHaveBeenCalled();
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+  });
+
+  it('keeps the opaque warning when a valid request cannot be summarized', async () => {
+    sdk.TransactionRequest = {
+      deserialize: () => ({
+        expectedOutputOwnNotes: () => {
+          throw new Error('summary unavailable');
+        }
+      })
     };
 
     await expect(
@@ -357,6 +436,55 @@ describe('dApp custom-transaction approval shows the asset movement of the reque
     expect(sheetRows()).toContain(
       'Warning, the wallet could not decode this transaction request — it cannot show what it does'
     );
+  });
+
+  it('refuses a request whose summary traps before showing a confirmation sheet (F-001)', async () => {
+    sdk.TransactionRequest = {
+      deserialize: () => ({
+        expectedOutputOwnNotes: () => {
+          throw new WebAssembly.RuntimeError('unreachable');
+        }
+      })
+    };
+
+    await expect(
+      requestTransaction(DAPP_ORIGIN, customRequest('mtst1qqqqqqqqqqqqqqqqqqqqqqqqqqqsavings'), 'session-1')
+    ).rejects.toThrow(MidenDAppErrorType.InvalidParams);
+
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+  });
+
+  it('refuses a request whose carried note decode traps before showing a confirmation sheet (F-001)', async () => {
+    sdk.TransactionRequest = { deserialize: () => ({ expectedOutputOwnNotes: () => [] }) };
+    sdk.NoteFile = {
+      deserialize: () => {
+        throw new WebAssembly.RuntimeError('unreachable');
+      }
+    };
+    sdk.Note = { deserialize: () => noteCarrying([fungibleAsset('faucet-usdc', 4000000n)]) };
+
+    await expect(
+      requestTransaction(
+        DAPP_ORIGIN,
+        {
+          type: MidenDAppMessageType.TransactionRequest,
+          sourcePublicKey: 'miden-account-1',
+          transaction: {
+            type: 'custom',
+            payload: {
+              address: 'miden-account-1',
+              transactionRequest: 'dHhieXRlcw==',
+              recipientAddress: '',
+              inputNoteIds: [],
+              importNotes: ['bm90ZQ==']
+            }
+          }
+        } as unknown as Parameters<typeof requestTransaction>[1],
+        'session-1'
+      )
+    ).rejects.toThrow(MidenDAppErrorType.InvalidParams);
+
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
   });
 
   it('reports the incoming assets of the notes the request carries', async () => {

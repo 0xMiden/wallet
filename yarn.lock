@@ -2543,6 +2543,10 @@
     semver "^7.5.4"
     uuid "^9.0.1"
 
+"@miden-sdk/bread-connect@link:./packages/bread-connect":
+  version "0.0.0"
+  uid ""
+
 "@miden-sdk/miden-sdk@0.17.3", "@miden-sdk/miden-sdk@0.17.4":
   version "0.17.4"
   resolved "https://registry.yarnpkg.com/@miden-sdk/miden-sdk/-/miden-sdk-0.17.4.tgz#e9fc4af7131bca67c3a37673c0f504190aca8f71"

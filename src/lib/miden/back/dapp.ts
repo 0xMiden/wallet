@@ -5,6 +5,7 @@ import {
   NoteType,
   SigningInputs,
   SigningInputsType,
+  TransactionRequest,
   type NoteQuery,
   type TransactionSummary
 } from '@miden-sdk/miden-sdk/lazy';
@@ -21,7 +22,7 @@ import { nanoid } from 'nanoid';
 import type { Runtime, Windows } from 'webextension-polyfill';
 
 import {
-  declaredRequestToView,
+  declaredTransactionRequestToView,
   netOutflowByFaucet,
   simulatedBytesToView,
   summaryToView,
@@ -61,6 +62,7 @@ import {
   MidenDAppWaitForTxRequest,
   MidenDAppWaitForTxResponse
 } from 'lib/adapter/types';
+import { endOriginSessions } from 'lib/bread-connect/revoke';
 import {
   dappConfirmationStore,
   type DAppConfirmationRequest,
@@ -104,6 +106,7 @@ import {
   MidenMessageType,
   MidenRequest
 } from 'lib/miden/types';
+import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { getNativeAssetId, getVerificationBaseFee } from 'lib/miden-chain/native-asset';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
@@ -1831,9 +1834,11 @@ const dappWriteFailure = (error: unknown): unknown => {
   // A queued id outranks a kill anywhere in the chain: retrying the write could send it twice.
   for (const link of causeChain(error)) {
     if (link instanceof TransactionQueuedError) {
+      // Bread Connect reads the queued id from this cause, never from the message.
       return new Error(
         `${MidenDAppErrorType.OutcomeUnknown}: transaction ${link.transactionId} may already be queued; ` +
-          'wait for it before sending again'
+          'wait for it before sending again',
+        { cause: link }
       );
     }
   }
@@ -2296,10 +2301,31 @@ const generatePromisifyTransaction = async (
     return;
   }
 
+  // Reject malformed bytes before any unlock prompt; WASM startup failures keep their original error. The decode and
+  // its summary share one hold, so a trap in either reaches the lock, which retires the client before the refusal.
+  await ensureSdkWasmReady();
+  let declared: TxAssetView | undefined;
+  try {
+    declared = await withWasmClientLock(async () => {
+      const request = TransactionRequest.deserialize(b64ToU8(customTransaction.transactionRequest));
+      try {
+        return declaredTransactionRequestToView(request, customTransaction.importNotes ?? [], { rethrowTraps: true });
+      } catch (e) {
+        if (e instanceof WebAssembly.RuntimeError) throw e;
+        console.error('[DApp] Could not decode the custom transaction request for the approval sheet:', e);
+        return undefined;
+      }
+    });
+  } catch (e) {
+    // A kill during the decode says nothing about the bytes, so it answers retryable, as the other previews do.
+    reject(dappReadFailure(e));
+    return;
+  }
+
   const prepare = async () => {
     let declaredMessages: string[];
     try {
-      declaredMessages = await withUnlocked(async () => formatCustomTransactionPreview(customTransaction));
+      declaredMessages = await withUnlocked(async () => formatCustomTransactionPreview(customTransaction, declared));
     } catch (e) {
       throw dappReadFailure(e);
     }
@@ -3012,6 +3038,9 @@ export async function setDApp(origin: string, permissions: MidenDAppSession) {
 }
 
 export async function removeDApp(origin: string, accountId: string) {
+  // A native app's Bread Connect session lives under its origin; left in place, the origin's next grant revives it.
+  // It ends first, so a failure keeps the permission rather than a session that outlives it.
+  await endOriginSessions(origin);
   const { [origin]: permissionsToRemove, ...restDApps } = await getAllDApps();
   const newPermissions = permissionsToRemove?.filter(session => session.accountId !== accountId) ?? [];
   await setDApps({ ...restDApps, [origin]: newPermissions });
@@ -3661,26 +3690,23 @@ async function formatSignPreview(req: MidenDAppSignRequest): Promise<string[]> {
  * (`CustomTransactionContent`: the simulated summary, falling back to
  * `declaredRequestToView`), so the same static decode is rendered here as rows.
  *
- * `declaredRequestToView` is an offline decode of the request the wallet will
- * execute — no dry run, so it is labelled unverified, exactly as the extension
+ * `declared` is that offline decode of the request the wallet will execute,
+ * built in the caller's WASM hold (undefined when it could not be summarised).
+ * There is no dry run, so it is labelled unverified, exactly as the extension
  * labels its declared view. `recipientAddress` stays dApp-declared and is
  * labelled as such: it is not derived from the request bytes and nothing
  * downstream checks it.
  */
-async function formatCustomTransactionPreview(payload: MidenCustomTransaction): Promise<string[]> {
+async function formatCustomTransactionPreview(
+  payload: MidenCustomTransaction,
+  declared: TxAssetView | undefined
+): Promise<string[]> {
   const messages = [
     'This dApp is requesting a custom transaction,',
     'please ensure you know the details of the transaction before proceeding.',
     // Executing account first, for the same reason as the send preview.
     `From, ${truncateAddress(payload.address)}`
   ];
-
-  let declared: TxAssetView | undefined;
-  try {
-    declared = declaredRequestToView(payload.transactionRequest, payload.importNotes ?? []);
-  } catch (e) {
-    console.error('[DApp] Could not decode the custom transaction request for the approval sheet:', e);
-  }
 
   if (declared) {
     messages.push('Declared by the site, the wallet has not verified these amounts');

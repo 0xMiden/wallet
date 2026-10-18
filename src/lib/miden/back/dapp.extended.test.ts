@@ -1100,7 +1100,7 @@ describe('requestTransaction', () => {
       dapp.requestTransaction('https://miden.xyz', {
         type: MidenDAppMessageType.TransactionRequest,
         sourcePublicKey: 'miden-account-1',
-        transaction: { payload: { address: 'a', recipientAddress: 'b', transactionRequest: 'c' } }
+        transaction: { payload: { address: 'a', recipientAddress: 'b', transactionRequest: 'Yw==' } }
       } as never)
     ).rejects.toThrow(MidenDAppErrorType.NotGranted);
   });
@@ -1110,7 +1110,7 @@ describe('requestTransaction', () => {
       dapp.requestTransaction('https://miden.xyz', {
         type: MidenDAppMessageType.TransactionRequest,
         sourcePublicKey: 'different-account',
-        transaction: { payload: { address: 'a', recipientAddress: 'b', transactionRequest: 'c' } }
+        transaction: { payload: { address: 'a', recipientAddress: 'b', transactionRequest: 'Yw==' } }
       } as never)
     ).rejects.toThrow();
   });
@@ -1124,7 +1124,7 @@ describe('requestTransaction', () => {
         payload: {
           address: 'miden-account-1',
           recipientAddress: 'bob',
-          transactionRequest: 'base64req'
+          transactionRequest: 'YmFzZTY0cmVx'
         }
       }
     } as never);
@@ -1143,7 +1143,7 @@ describe('requestTransaction', () => {
           payload: {
             address: 'miden-account-1',
             recipientAddress: 'bob',
-            transactionRequest: 'base64req'
+            transactionRequest: 'YmFzZTY0cmVx'
           }
         }
       } as never)
@@ -1319,7 +1319,7 @@ describe.each(['send', 'custom'])('a non-extension %s preview kill (#1378)', kin
         : dapp.requestTransaction('https://miden.xyz', {
             type: MidenDAppMessageType.TransactionRequest,
             sourcePublicKey: 'miden-account-1',
-            transaction: { payload: { address: 'miden-account-1', transactionRequest: 'base64req' } }
+            transaction: { payload: { address: 'miden-account-1', transactionRequest: 'YmFzZTY0cmVx' } }
           } as never);
 
     await expect(answer).rejects.toBe(kill);
@@ -1368,11 +1368,14 @@ describe.each(['send', 'custom'])('an approved non-extension %s failure (#1378)'
             type: MidenDAppMessageType.TransactionRequest,
             sourcePublicKey: 'miden-account-1',
             transaction: {
-              payload: { address: 'miden-account-1', recipientAddress: 'bob', transactionRequest: 'base64req' }
+              payload: { address: 'miden-account-1', recipientAddress: 'bob', transactionRequest: 'YmFzZTY0cmVx' }
             }
           } as never);
 
     await expect(answer).rejects.toEqual(new Error(message));
+    await expect(answer.catch((error: Error) => error.cause)).resolves.toBe(
+      message === queuedMessage ? queued : undefined
+    );
     expect(mockRequestConfirmation).toHaveBeenCalledTimes(1);
     expect(initiate).toHaveBeenCalledTimes(1);
     expect(mockStartTransactionProcessing).toHaveBeenCalledTimes(kind === 'custom' ? queuedCustomStarts : 0);
@@ -1407,7 +1410,7 @@ describe('approved non-extension custom carried-note failures (#1378)', () => {
         type: MidenDAppMessageType.TransactionRequest,
         sourcePublicKey: 'miden-account-1',
         transaction: {
-          payload: { address: 'miden-account-1', transactionRequest: 'base64req', importNotes: CARRIED_NOTES }
+          payload: { address: 'miden-account-1', transactionRequest: 'YmFzZTY0cmVx', importNotes: CARRIED_NOTES }
         }
       } as never)
     ).rejects.toEqual(new Error(message));
@@ -1875,7 +1878,7 @@ describe("a non-extension write carries the resolver's delegate flag", () => {
         payload: {
           address: 'miden-account-1',
           recipientAddress: 'bob',
-          transactionRequest: 'base64req'
+          transactionRequest: 'YmFzZTY0cmVx'
         }
       }
     } as never);
