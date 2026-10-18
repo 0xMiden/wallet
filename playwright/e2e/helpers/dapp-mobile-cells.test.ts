@@ -351,6 +351,50 @@ describe('mobile cell assertions', () => {
     expect(expectNoNewMobileRows).toHaveBeenCalledTimes(1);
   });
 
+  it.each([
+    { declineMs: 100_000, error: expect.objectContaining({ message: expect.stringContaining('119000') }) },
+    { declineMs: 120_000, error: undefined }
+  ])(
+    'measures a $declineMs ms R7-custom decline after a 20 s build from the request alone',
+    async ({ declineMs, error }) => {
+      jest.useFakeTimers({ now: 0 });
+      const f = fixture('R7-custom', {
+        name: 'WalletTransactionError',
+        causeName: 'NotGrantedMidenWalletError',
+        message: 'NOT_GRANTED'
+      });
+      const original = f.send.getMockImplementation();
+      if (original === undefined) throw new Error('no fixture channel');
+      let submittedAt = -1;
+      f.send.mockImplementation(async command => {
+        if (command === 'buildCustom') await new Promise(resolve => setTimeout(resolve, 20_000));
+        if (command === 'submitCustom') {
+          submittedAt = Date.now();
+          await new Promise(resolve => setTimeout(resolve, declineMs));
+        }
+        return original(command);
+      });
+      jest.mocked(answerSheet).mockImplementation(async (_host, start) => {
+        const sentAt = Date.now();
+        const result = await start();
+        return {
+          result,
+          sheet: { origin: f.j.dapp.origin, messages: [], approveEnabled: true, sentAt, seenAt: submittedAt },
+          answeredAt: Date.now()
+        };
+      });
+      const cell = mobileCells(f.j)['R7-custom'];
+      if (cell === undefined) throw new Error('missing R7-custom');
+      const outcome = cell
+        .run({ ...f.ctx, deadline: deadlineIn(160_000, 'R7-custom') })
+        .catch((failure: unknown) => failure);
+      await jest.advanceTimersByTimeAsync(150_000);
+      await expect(outcome).resolves.toEqual(error);
+      expect(submittedAt).toBe(20_000);
+      expect(f.ctx.evidence.stepDurationsMs?.declineFromRequest).toBe(declineMs);
+    }
+  );
+
   const effects = [
     pinned.sheet.simulatedEffects,
     `${pinned.sheet.leaves}, -5 TST`,

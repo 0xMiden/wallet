@@ -206,7 +206,9 @@ export function mobileCells(j: MobileJourney): Record<string, MobileCellImpl> {
   // R7: nothing is pressed; the wallet declines after 120 s like the extension's popup (spec 3.6, D8, #1474).
   const unanswered = (
     state: Partial<MobileCellState>,
-    start: (ctx: CellContext) => Promise<Outcome<unknown>>,
+    start:
+      | ((ctx: CellContext) => Promise<Outcome<unknown>>)
+      | { prepare: (ctx: CellContext) => Promise<() => Promise<Outcome<unknown>>> },
     expected: ExpectedRefusal
   ): MobileCellImpl => ({
     budget: 'long',
@@ -214,7 +216,8 @@ export function mobileCells(j: MobileJourney): Record<string, MobileCellImpl> {
     run: async ctx => {
       const owner = await beforeMobileDeadline(ctx.deadline, 'the row owner', () => rowOwner(j));
       const since = await captureRowWindow(owner.wallet, ctx);
-      const { result, sheet, answeredAt } = await answerSheet(j.dapp, () => start(ctx), { decision: 'none' }, ctx);
+      const request = typeof start === 'function' ? () => start(ctx) : await start.prepare(ctx);
+      const { result, sheet, answeredAt } = await answerSheet(j.dapp, request, { decision: 'none' }, ctx);
       ctx.evidence.stepDurationsMs = {
         ...ctx.evidence.stepDurationsMs,
         declineFromRequest: answeredAt - sheet.sentAt,
@@ -658,13 +661,16 @@ export function mobileCells(j: MobileJourney): Record<string, MobileCellImpl> {
     ),
     'R7-custom': unanswered(
       {},
-      async ctx => {
-        const built = await j.call('buildCustom', { shape: 'p2id', outputs: [toB(tst(1))] }, ctx.deadline);
-        return j.call(
-          'submitCustom',
-          { requestId: built.requestId, recipientAddress: j.addressB, importNotes: false },
-          ctx.deadline
-        );
+      {
+        prepare: async ctx => {
+          const built = await j.call('buildCustom', { shape: 'p2id', outputs: [toB(tst(1))] }, ctx.deadline);
+          return () =>
+            j.call(
+              'submitCustom',
+              { requestId: built.requestId, recipientAddress: j.addressB, importNotes: false },
+              ctx.deadline
+            );
+        }
       },
       NOT_GRANTED_WRAPPED
     )
