@@ -928,6 +928,10 @@ function noteFilterTypeToQuery(filterType: NoteFilterTypes, noteIds?: string[]):
  * account and is withheld — but it can never over-report across accounts, which is
  * the property the user consented to. Intersecting also covers a caller that names
  * another account's note ids explicitly via `req.noteIds`.
+ *
+ * With the List filter, an id matching no note id is looked up as the details
+ * commitment `importPrivateNote` returns (#1536). Matches use the same
+ * consumability scope and are listed under their own note ids, once per note.
  */
 async function getPrivateNoteDetails(
   accountId: string,
@@ -942,12 +946,35 @@ async function getPrivateNoteDetails(
         const allNotes = await midenClientProxy.getInputNoteDetails(query, () =>
           assertWasmHoldCurrent(hold, 'inside the private-note read, before the record reach-through')
         );
-        // Between the two reads: an eviction during the note-details read hands
-        // the mutex to a successor without stopping this callback, and the
-        // consumability read below would then run inside a client somebody else
-        // is inside. Both reads return plain DTOs, so this is the only WASM
-        // transition left to guard.
+        // An eviction hands the mutex to a successor without stopping this callback,
+        // so every subsequent client read must first prove this hold is still current.
         assertWasmHoldCurrent(hold, 'after the private-note read');
+        const listed = notefilterType === NoteFilterTypes.List ? (noteIds ?? []) : [];
+        const found = new Set(allNotes.map(note => normalizedCommitment(note.noteId)));
+        const unmatched = [...new Set(listed.filter(id => !found.has(normalizedCommitment(id))))];
+        const byCommitment =
+          unmatched.length === 0
+            ? []
+            : (
+                await midenClientProxy.getDetailsCommitmentMatches(unmatched, () =>
+                  assertWasmHoldCurrent(
+                    hold,
+                    'inside the private-note details-commitment read, before the record reach-through'
+                  )
+                )
+              ).flatMap(match => match.notes);
+        if (unmatched.length > 0) assertWasmHoldCurrent(hold, 'after the private-note details-commitment read');
+        const candidates = [...allNotes, ...byCommitment.filter(note => !found.has(normalizedCommitment(note.noteId)))];
+        const seen = new Set<string>();
+        const uniqueCandidates =
+          notefilterType === NoteFilterTypes.List
+            ? candidates.filter(note => {
+                const id = normalizedCommitment(note.noteId);
+                if (seen.has(id)) return false;
+                seen.add(id);
+                return true;
+              })
+            : candidates;
         const ownNoteIds = new Set(
           (
             await midenClientProxy.getConsumableNotes(accountId, step =>
@@ -956,7 +983,7 @@ async function getPrivateNoteDetails(
           ).flatMap(note => (note.noteId ? [note.noteId] : []))
         );
         // `restriction` is the wallet's own consume guard, not note data the user agreed to share.
-        return allNotes
+        return uniqueCandidates
           .filter(note => note.noteType === NoteType.Private && ownNoteIds.has(note.noteId))
           .map(({ restriction: _restriction, ...note }) => note);
       });
