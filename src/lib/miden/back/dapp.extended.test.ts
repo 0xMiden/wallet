@@ -177,6 +177,8 @@ jest.mock('../sdk/miden-client', () => ({
     getAccount: (id: string) => (globalThis as any).__dappTestMockGetAccount(id),
     getOutputNotes: (id: string) => (globalThis as any).__dappTestMockGetOutputNotes(id),
     getInputNoteDetails: (q: unknown) => (globalThis as any).__dappTestMockGetInputNoteDetails(q),
+    // No record has a consume request's id as its details commitment here (#1389).
+    getDetailsCommitmentMatches: async () => ({ notes: [], uncommitted: 0 }),
     getConsumableNoteDtos: (...a: unknown[]) => (globalThis as any).__dappTestMockGetConsumableNotes(...a),
     importNoteBytes: (b: Uint8Array) => (globalThis as any).__dappTestMockImportNoteBytes(b),
     syncState: () => (globalThis as any).__dappTestMockSyncState(),

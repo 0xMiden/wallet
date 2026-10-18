@@ -594,6 +594,68 @@ describe('MidenClientInterface', () => {
     expect(details[0]?.noteId).toBe('note-2');
   });
 
+  // The id `importNoteBytes` returns for a details-only file is no note id, so the store cannot look it up (#1389).
+  describe('getDetailsCommitmentMatches', () => {
+    // `details()` carries the commitment the stubbed hash answers for it; a record with no id has no metadata yet.
+    const record = (commitment: string, noteId?: string) => ({
+      id: () => (noteId ? { toString: () => noteId } : undefined),
+      nullifier: () => (noteId ? `nf-${noteId}` : undefined),
+      metadata: () => (noteId ? { noteType: () => 'type', sender: () => 'sender' } : undefined),
+      state: () => 'state',
+      details: jest.fn(() => ({ commitment, assets: () => ({ fungibleAssets: () => [] }) }))
+    });
+
+    const clientListing = async (records: ReturnType<typeof record>[]) => {
+      const fakeMidenClient = buildFakeMidenClient();
+      fakeMidenClient.notes.list = jest.fn(async (): Promise<any[]> => records);
+      jest.doMock('./note-details-commitment', () => ({
+        ...jest.requireActual('./note-details-commitment'),
+        noteDetailsCommitment: (details: { commitment: string }) => details.commitment
+      }));
+      jest.doMock('./helpers', () => ({
+        getBech32AddressFromAccountId: (id: any) => String(id),
+        walletAccountIdToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+        accountRefToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+        canonicalWalletAccountId: (id: string) => `sdk-${id.split('_')[0] ?? id}`,
+        buildSendTransactionRequest: jest.fn(() => ({ kind: 'request', serialize: () => new Uint8Array([1]) }))
+      }));
+      jest.doMock('lib/miden/activity/connectivity-state', () => ({
+        markConnectivityIssue: jest.fn(),
+        clearConnectivityIssue: jest.fn()
+      }));
+      const { MidenClientInterface } = await import('./miden-client-interface');
+      return { fakeMidenClient, client: MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet') };
+    };
+
+    it('answers the committed records with the commitment, in any spelling, and counts the uncommitted ones', async () => {
+      const { fakeMidenClient, client } = await clientListing([
+        record('abc1', '0xcommitted'),
+        record('abc1'),
+        record('other', '0xunrelated')
+      ]);
+      const assertLive = jest.fn();
+
+      const matches = await client.getDetailsCommitmentMatches('0xABC1', assertLive);
+
+      expect(fakeMidenClient.notes.list).toHaveBeenCalledWith();
+      expect(assertLive).toHaveBeenCalledTimes(1);
+      expect(matches.uncommitted).toBe(1);
+      expect(matches.notes).toEqual([expect.objectContaining({ noteId: '0xcommitted', nullifier: 'nf-0xcommitted' })]);
+    });
+
+    it('reads no record once the listing comes back to a hold that is no longer current', async () => {
+      const listed = record('abc1', '0xcommitted');
+      const { client } = await clientListing([listed]);
+
+      await expect(
+        client.getDetailsCommitmentMatches('0xabc1', () => {
+          throw new Error('evicted');
+        })
+      ).rejects.toThrow('evicted');
+      expect(listed.details).not.toHaveBeenCalled();
+    });
+  });
+
   it('imports wallet from bytes', async () => {
     const fakeMidenClient = buildFakeMidenClient();
 
