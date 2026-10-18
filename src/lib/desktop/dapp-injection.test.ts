@@ -150,14 +150,19 @@ it('marks the top document with an empty, frozen window.bread', () => {
   expect(['version', 'presentation', 'auth'].filter(key => key in bread)).toEqual([]);
 });
 
-it('defines window.bread synchronously even when the wallet API waits for DOMContentLoaded', () => {
+it('defines window.bread synchronously even when the wallet API waits for DOMContentLoaded', async () => {
   const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'https://dapp.example/' });
   const win = dom.window as unknown as DappWindow;
   // A document-start script runs before the parser has made a body.
-  win.document.body.remove();
+  const body = win.document.body;
+  body.remove();
   run(win);
   expect(win.bread).toEqual({});
   expect('midenWallet' in win).toBe(false);
+  const loaded = new Promise(resolve => win.document.addEventListener('DOMContentLoaded', resolve));
+  win.document.documentElement.append(body);
+  await loaded;
+  expect(win.midenWallet).toBeDefined();
 });
 
 it('keeps window.bread non-writable and non-configurable', () => {
