@@ -86,8 +86,10 @@ final class BreadAuthTests: XCTestCase {
 
     func testValidationRejectsUrlsOutsideThePageOrigin() {
         let urls: [Any?] = [nil, NSNumber(value: 42), "", "/auth", "//game.example/auth", "http://game.example/auth",
-                            "HTTPS://game.example/auth", "https://other.example/auth", "https://g%61me.example/auth",
-                            "https://game.example:444/auth", "https://user@game.example/auth",
+                            "HTTPS://game.example/auth", "https:game.example/auth", "https:/game.example/auth",
+                            "https:///game.example/auth", "https://other.example/auth", "https://game.example./auth",
+                            "https://game.example:444/auth", "https://game.example:8443/auth", "https://game.example:/auth",
+                            "https://game.example:0443/auth", "https://user@game.example/auth",
                             "https://other.example\\@game.example/auth", "https://game.example/a b",
                             "https://g\u{E4}me.example/auth", longURL(length: 4097)]
         for url in urls {
@@ -96,12 +98,28 @@ final class BreadAuthTests: XCTestCase {
     }
 
     func testValidationAcceptsSameOriginWithDefaultPortAndHostCase() {
-        for url in ["https://GAME.example:443/auth?x=1#y", longURL(length: 4096)] {
+        for url in ["https://GAME.example:443/auth?x=1#y", "https://GAME.example/auth", "https://game.example:443/auth",
+                    "https://game.example", "https://game.example?x=1", "https://game.example#x", longURL(length: 4096)] {
             XCTAssertEqual(try BreadAuthState.validate(mainFrame: true, page: page, url: url).get().absoluteString, url)
         }
+    }
+
+    func testValidationNeedsANonDefaultPagePortWritten() {
         let custom = BreadAuthPageOrigin(scheme: "https", host: "game.example", port: 8443)
         XCTAssertEqual(try BreadAuthState.validate(mainFrame: true, page: custom, url: "https://game.example:8443/auth").get().absoluteString,
                        "https://game.example:8443/auth")
+        for url in ["https://game.example/auth", "https://game.example:443/auth"] {
+            XCTAssertEqual(failure(page: custom, url: url), .invalidURL, url)
+        }
+    }
+
+    func testValidationComparesTheHostAsWritten() {
+        for host in ["xn--gme-sna.example", "my_game.example"] {
+            let url = "https://\(host)/auth"
+            let named = BreadAuthPageOrigin(scheme: "https", host: host, port: 0)
+            XCTAssertEqual(try BreadAuthState.validate(mainFrame: true, page: named, url: url).get().absoluteString, url, host)
+        }
+        XCTAssertEqual(failure(url: "https://g%61me.example/auth"), .invalidURL)
     }
 
     func testCallbackAddressIsExactWithAnyQuery() {

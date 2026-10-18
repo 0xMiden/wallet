@@ -36,23 +36,27 @@ final class BreadAuthState {
         // WKSecurityOrigin reports the scheme's default port as 0.
         let pagePort = page.port == 0 ? 443 : page.port
         guard let text = url as? String, (1...maxURLLength).contains(text.utf16.count),
-              text.utf16.allSatisfy({ urlCharacters.contains($0) }),
-              let components = URLComponents(string: text), components.scheme == "https",
-              // Not `host`: it undoes percent-encoding, which would let an encoded host match.
-              let host = components.percentEncodedHost, !host.isEmpty, components.user == nil, components.password == nil,
-              asciiLowercased(host) == asciiLowercased(page.host), (components.port ?? 443) == pagePort,
+              text.utf16.allSatisfy({ urlCharacters.contains($0) }), authorityMatches(text, host: page.host, port: pagePort),
               let valid = URL(string: text) else { return .failure(.invalidURL) }
         return .success(valid)
     }
 
     static func isCallback(_ url: String) -> Bool {
-        let address = asciiLowercased(url)
+        let address = asciiLowercased(url.utf8)
         guard address.starts(with: callbackAddress.utf8) else { return false }
         let next = address.dropFirst(callbackAddress.utf8.count).first
         return next == nil || next == UInt8(ascii: "?") || next == UInt8(ascii: "#")
     }
 
-    private static func asciiLowercased(_ text: String) -> [UInt8] {
-        text.utf8.map { (UInt8(ascii: "A")...UInt8(ascii: "Z")).contains($0) ? $0 + 32 : $0 }
+    // The authority is compared as written: platform URL parsers decode some hosts and refuse others.
+    private static func authorityMatches(_ text: String, host: String, port: Int) -> Bool {
+        let https = "https://".utf8
+        guard text.utf8.starts(with: https) else { return false }
+        let authority = asciiLowercased(text.utf8.dropFirst(https.count).prefix { !"/?#".utf8.contains($0) })
+        return authority == asciiLowercased("\(host):\(port)".utf8) || (port == 443 && authority == asciiLowercased(host.utf8))
+    }
+
+    private static func asciiLowercased<Bytes: Sequence>(_ bytes: Bytes) -> [UInt8] where Bytes.Element == UInt8 {
+        bytes.map { (UInt8(ascii: "A")...UInt8(ascii: "Z")).contains($0) ? $0 + 32 : $0 }
     }
 }
