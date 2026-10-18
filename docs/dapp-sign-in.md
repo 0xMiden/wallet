@@ -65,7 +65,7 @@ The server writes the handle in place of `HANDLE`. Make the handle, and any `log
 
 ## Binding the handle to the page
 
-On Android, any installed app can send Bread the callback address while a sheet is open, and Bread can't tell it from the real one. So a handle alone must never sign anyone in. Before calling `open`, keep a secret in the page's memory and put only its hash in the auth URL, like a PKCE challenge. The server stores that challenge with the flow and redeems a handle only together with the secret whose hash started it; each handle is single use and short-lived. A handle sent by another app then belongs to a flow the page never started, and a leaked handle is useless without the secret, which goes only from the page to your server.
+On Android, the callback address is a custom scheme that any installed app can also register, so another app may receive the real callback instead of Bread, and any app can send Bread the callback address while a sheet is open, which Bread can't tell from the real one. So the callback URL isn't private, and a handle alone must never sign anyone in. Before calling `open`, keep a secret in the page's memory and put only its hash in the auth URL, like a PKCE challenge. The server stores that challenge with the flow and redeems a handle only together with the secret whose hash started it; each handle is single use and short-lived. A handle sent by another app then belongs to a flow the page never started, and a handle another app received is useless without the secret, which goes only from the page to your server.
 
 ```js
 const hex = bytes => Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
