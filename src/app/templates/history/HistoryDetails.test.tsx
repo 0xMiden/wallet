@@ -2520,7 +2520,8 @@ describe('HistoryDetails', () => {
     });
 
     it('offers no claim route on a recovered order whose tip was reclaimed after a partial fill', async () => {
-      // The fixture above, where a local row shows the route; a recovered row stays out of automation.
+      // The fixture above, where a local row shows the route; a recovered row stays out of automation. It is not an
+      // open recovered order, so its receipt reads no tracking entry and offers the route on an unknown fill.
       mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
       seedTracking({
         orderId: '42',
@@ -2536,7 +2537,7 @@ describe('HistoryDetails', () => {
 
       await renderAndLoad();
 
-      expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe('swapAmountProgress_400_1000_ ETH');
+      expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe('swapAmountProgress_-_1000_ ETH');
       expect(screen.queryByText('swapOpenPendingNotes')).not.toBeInTheDocument();
     });
 
