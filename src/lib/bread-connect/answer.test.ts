@@ -119,16 +119,21 @@ describe('a connect link', () => {
     expect(connectedAnswer(answer!, connection).answer).toEqual({ response: PERMISSION_RESPONSE });
   });
 
-  it('keeps the session only once the app has the answer', async () => {
+  it('keeps the session only when asked, and drops that session alone', async () => {
+    mockProcessDApp.mockResolvedValue(PERMISSION_RESPONSE);
+    const earlier = startConnect(CALLBACK, PERMISSION_REQUEST);
+    const earlierAnswer = await answerRequestLink(earlier.link, { now: NOW });
+    await earlierAnswer?.keep?.();
+    const kept = connectedAnswer(earlierAnswer!, earlier.connection).session.session;
     const { link, connection } = startConnect(CALLBACK, PERMISSION_REQUEST);
-    mockProcessDApp.mockResolvedValueOnce(PERMISSION_RESPONSE);
     const answer = await answerRequestLink(link, { now: NOW });
-    expect(mockStore.size).toBe(0);
+    expect(Object.keys(mockStore.get('bread_connect_sessions') as object)).toEqual([kept]);
 
     await answer?.keep?.();
 
     const { session } = connectedAnswer(answer!, connection);
     expect(mockStore.get('bread_connect_sessions')).toEqual({
+      [kept]: expect.objectContaining({ session: kept }),
       [session.session]: expect.objectContaining({
         session: session.session,
         callback: CALLBACK,
@@ -136,6 +141,10 @@ describe('a connect link', () => {
         answered: []
       })
     });
+
+    await answer?.drop?.();
+
+    expect(Object.keys(mockStore.get('bread_connect_sessions') as object)).toEqual([kept]);
   });
 
   it.each([
@@ -158,6 +167,7 @@ describe('a connect link', () => {
 
     expect(connectedAnswer(answer!, connection).answer).toEqual({ error });
     expect(answer?.keep).toBeUndefined();
+    expect(answer?.drop).toBeUndefined();
   });
 
   it('answers an empty response as an internal error', async () => {

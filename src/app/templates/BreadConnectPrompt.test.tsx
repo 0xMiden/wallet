@@ -110,9 +110,10 @@ beforeEach(() => {
   mockPathname = '/';
 });
 
-it('answers a held link once the wallet is open, opens the callback with the answer and keeps what it asks', async () => {
+it('answers a held link once the wallet is open, keeps what it asks, then opens the callback with the answer', async () => {
   const keep = jest.fn(() => Promise.resolve());
-  mockAnswer.mockResolvedValue({ link: `${CALLBACK}#answer`, callback: CALLBACK, keep });
+  const drop = jest.fn(() => Promise.resolve());
+  mockAnswer.mockResolvedValue({ link: `${CALLBACK}#answer`, callback: CALLBACK, keep, drop });
   mockWallet = { locked: true, ready: true, hydrated: true };
   const link = requestLink();
   act(() => acceptRequestLink(link));
@@ -127,6 +128,8 @@ it('answers a held link once the wallet is open, opens the callback with the ans
   expect(mockAnswer).toHaveBeenCalledWith(link, { onTransactionSent: expect.any(Function) });
   expect(mockOpenCallback).toHaveBeenCalledWith(`${CALLBACK}#answer`);
   expect(keep).toHaveBeenCalled();
+  expect(keep.mock.invocationCallOrder[0]).toBeLessThan(mockOpenCallback.mock.invocationCallOrder[0]!);
+  expect(drop).not.toHaveBeenCalled();
   expect(nextRequestLink()).toBeNull();
   expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
 });
@@ -182,16 +185,18 @@ it('shows that Bread is finishing an approved transaction until it answers', asy
 it.each([
   ['an answer', {}, 'breadConnectUnreturnedDescription'],
   ['a transaction it sent', { sentTransaction: true }, 'breadConnectUnreturnedTransactionDescription']
-])('says so when no app takes %s, and keeps nothing', async (_name, extra, description) => {
+])('says so when no app takes %s, and drops what it kept', async (_name, extra, description) => {
   const keep = jest.fn(() => Promise.resolve());
-  mockAnswer.mockResolvedValue({ link: `${CALLBACK}#answer`, callback: CALLBACK, keep, ...extra });
+  const drop = jest.fn(() => Promise.resolve());
+  mockAnswer.mockResolvedValue({ link: `${CALLBACK}#answer`, callback: CALLBACK, keep, drop, ...extra });
   mockOpenCallback.mockResolvedValue(false);
   act(() => acceptRequestLink(requestLink()));
 
   render(<BreadConnectPrompt />);
   await settle();
 
-  expect(keep).not.toHaveBeenCalled();
+  expect(keep.mock.invocationCallOrder[0]).toBeLessThan(mockOpenCallback.mock.invocationCallOrder[0]!);
+  expect(drop.mock.invocationCallOrder[0]).toBeGreaterThan(mockOpenCallback.mock.invocationCallOrder[0]!);
   expect(screen.getByRole('heading')).toHaveTextContent('breadConnectUnreturnedTitle:game.example');
   expect(screen.getByRole('alertdialog')).toHaveTextContent(`${description}:game.example`);
 

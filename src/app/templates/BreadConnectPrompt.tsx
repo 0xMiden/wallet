@@ -62,10 +62,9 @@ export const BreadConnectPrompt: FC = () => {
         });
         if (!answer) return;
         setNotice(null);
-        if (await openCallback(answer.link)) {
-          await answer.keep?.();
-          return;
-        }
+        await answer.keep?.();
+        if (await openCallback(answer.link)) return;
+        await answer.drop?.();
         const host = new URL(answer.callback).host;
         setNotice({ kind: answer.sentTransaction ? 'unreturned-transaction' : 'unreturned', host });
       } catch (error) {

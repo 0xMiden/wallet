@@ -68,6 +68,13 @@ export async function keepSession(session: WalletSession, now: number): Promise<
   await writeSessions(sessions);
 }
 
+/** Forgets a session Bread kept for an answer no app took. */
+export async function dropSession(id: string, now: number): Promise<void> {
+  const sessions = await readSessions(now);
+  delete sessions[id];
+  await writeSessions(sessions);
+}
+
 export function hasAnswered(session: StoredSession, requestId: string, now: number): boolean {
   return session.answered.some(answered => answered.id === requestId && now - answered.at <= ANSWERED_MS);
 }

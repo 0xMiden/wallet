@@ -17,7 +17,7 @@ jest.mock('lib/platform/storage-adapter', () => ({
 
 import { REQUEST_MAX_AGE_MS, REQUEST_MAX_CLOCK_AHEAD_MS, SESSION_IDLE_MS } from '@miden-sdk/bread-connect';
 
-import { findSession, hasAnswered, keepSession, recordAnswered, type StoredSession } from './sessions';
+import { dropSession, findSession, hasAnswered, keepSession, recordAnswered, type StoredSession } from './sessions';
 
 const KEY = 'bread_connect_sessions';
 const NOW = 1_800_000_000_000;
@@ -68,6 +68,17 @@ describe('findSession', () => {
     await keepSession(SESSION, NOW + SESSION_IDLE_MS + 1);
 
     expect(Object.keys(mockStore.get(KEY) as object)).toEqual([SESSION.session]);
+  });
+});
+
+describe('dropSession', () => {
+  it('forgets only the session it names', async () => {
+    await keepSession({ ...SESSION, session: 'other' }, NOW);
+    await keepSession(SESSION, NOW);
+
+    await dropSession(SESSION.session, NOW);
+
+    expect(Object.keys(mockStore.get(KEY) as object)).toEqual(['other']);
   });
 });
 

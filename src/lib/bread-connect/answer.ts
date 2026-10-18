@@ -23,15 +23,17 @@ import { processDApp } from 'lib/miden/back/actions';
 import { isLiveTransaction, ITransactionStatus } from 'lib/miden/db/types';
 import { getTransactionById } from 'lib/miden/transaction/get';
 
-import { findSession, hasAnswered, keepSession, recordAnswered } from './sessions';
+import { dropSession, findSession, hasAnswered, keepSession, recordAnswered } from './sessions';
 
 export interface BreadConnectAnswer {
   /** The app's link that carries the answer. */
   link: string;
   /** The app's callback, whose host Bread names when no app takes the link. */
   callback: string;
-  /** What Bread keeps once the app has the answer, and only then. */
+  /** What Bread keeps for the answer, written before the app opens so it is there when the app first uses it. */
   keep?: () => Promise<void>;
+  /** Removes what `keep` wrote, when no app takes the link. */
+  drop?: () => Promise<void>;
   /** The user approved a transaction, so it was sent whether or not the app gets the answer. */
   sentTransaction?: boolean;
 }
@@ -108,7 +110,9 @@ async function connect(envelope: ConnectEnvelope, now: number): Promise<BreadCon
   return {
     link,
     callback: envelope.callback,
-    ...('response' in answer ? { keep: () => keepSession(session, now) } : {})
+    ...('response' in answer
+      ? { keep: () => keepSession(session, now), drop: () => dropSession(session.session, now) }
+      : {})
   };
 }
 
