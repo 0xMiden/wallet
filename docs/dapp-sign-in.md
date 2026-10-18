@@ -15,7 +15,7 @@ if (window.bread?.auth) {
 
 `open(url)` resolves to a frozen `{ url: string }` when the flow reaches Bread's callback address, with `url` set to the callback URL untouched, or to a frozen `{ cancelled: true }` when the user closes the sheet. It has no timeout, since a sign-in can take minutes. Bread never reads the callback's query, so its parameter names are yours; this guide puts a login handle in `login` and an error code in `login_error`.
 
-`window.bread.auth` is frozen and exists only in the main document of a supported native Bread WebView on iOS or Android. Detect it by its presence: `window.bread.version` stays 1 with or without it.
+`window.bread.auth` is a frozen `{ version: 1, open(url) }` and exists only in the main document of a supported native Bread WebView on iOS or Android. Detect it by its presence: `window.bread.version` stays 1 with or without it.
 
 ## Errors
 
@@ -34,11 +34,11 @@ Call `open` from the main document of an https page. `window.bread` isn't define
 
 `url` must be an absolute https URL on the page's own origin:
 
-- It has 1 to 4096 characters, each from the RFC 3986 set `A-Z a-z 0-9 - . _ ~ : / ? # [ ] @ ! $ & ' ( ) * + , ; = %`. Percent-encode anything else, such as a space, a backslash or a non-ASCII character.
-- Its scheme is exactly lowercase `https`: `HTTPS://` is refused.
-- Its host is written exactly as the page's own host, apart from ASCII letter case. A percent-encoded host never matches, and a site on an internationalized domain writes the punycode (`xn--`) form, which is what its page origin reports.
-- Its port is the page's port, where an absent port means 443.
-- It has no userinfo, such as `user@`, before the host.
+- It has 1 to 4096 characters, each from the RFC 3986 set `A-Z a-z 0-9 - . _ ~ : / ? # [ ] @ ! $ & ' ( ) * + , ; = %`. Percent-encode anything else in the path, query or fragment, such as a space, a backslash or a non-ASCII character.
+- It starts with exactly `https://`, in lowercase: `HTTPS://` is refused.
+- Next comes the page's host, written as the page's origin reports it, apart from ASCII letter case. For an internationalized domain, that is the punycode (`xn--`) form.
+- Then, only if the page uses a port other than 443, comes `:` and that port as the page's origin shows it, such as `:8443`. Writing `:443` on a page that uses 443 is also accepted.
+- Nothing else comes between `https://` and the first `/`, `?` or `#`, or the end of the URL: no user name, no percent-encoding and no trailing dot.
 - It isn't relative: Bread refuses a relative URL and never resolves it.
 
 The rules cover only the URL you pass; inside the sheet, the flow can redirect to Google or Apple as usual. Building the URL from `location.origin` gets the origin right, and `URLSearchParams` keeps the query inside the allowed characters, as the example under "Binding the handle to the page" does.
@@ -60,7 +60,7 @@ End the flow with a small page, served with `Cache-Control: no-store`, that refr
 <a href="com.miden.wallet.auth://callback?login=HANDLE">Return to Bread</a>
 ```
 
-The server writes the handle in place of `HANDLE`.
+The server writes the handle in place of `HANDLE`. Make the handle, and any `login_error` code, a URL-safe token such as hex or base64url: it goes into the URL and the HTML as it is, and `searchParams.get` turns `+` into a space and decodes `%xx` escapes, so a standard base64 handle containing `+` would not redeem.
 
 ## Binding the handle to the page
 
@@ -84,7 +84,7 @@ if (handle) {
 }
 ```
 
-The server accepts `/auth/redeem` only when the handle is unused and recent, and the hex SHA-256 of `verifier` equals the challenge its flow started with.
+The server accepts `/auth/redeem` only when the handle is unused and recent, and the hex SHA-256 of `verifier` equals the challenge its flow started with. The sheet shares no cookies with the page: on both platforms Bread's in-app browser keeps its own cookie store, so a session cookie set inside the sheet never reaches the page, which signs in only by redeeming the handle.
 
 ## Platforms
 
