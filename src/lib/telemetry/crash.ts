@@ -178,6 +178,7 @@ type ReportableFrame = {
   colno?: number;
 };
 const capturedFrames = new WeakMap<Error, ReportableFrame[]>();
+const capturedClosedNames = new WeakMap<Error, ReadonlySet<string>>();
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -213,9 +214,10 @@ function restoreDiagnostics(event: Record<string, unknown>, reportable: Error, d
  * treated as contaminated, and a crash report is worth far less than the risk.
  */
 export function scrubEvent<T>(event: T, hint?: { originalException?: unknown }): T | null {
-  if (containsSeedMaterialDeep(event, WORDLIST)) return null;
-  redactInPlace(event, WORDLIST);
   const original = hint?.originalException;
+  const closedNames = original instanceof Error ? capturedClosedNames.get(original) : undefined;
+  if (containsSeedMaterialDeep(event, WORDLIST, closedNames)) return null;
+  redactInPlace(event, WORDLIST, closedNames);
   const diagnostics = original instanceof Error ? capturedDiagnostics.get(original) : undefined;
   if (diagnostics !== undefined && original instanceof Error && isRecord(event))
     restoreDiagnostics(event, original, diagnostics);
@@ -307,11 +309,17 @@ export function stopCrashReporting(): void {
 /** A failure's own name, message and stack, read once so that every reader of one capture sees the same text. */
 type ErrorFields = Pick<Error, 'name' | 'message' | 'stack'>;
 
-function rebuildError(error: Error, seen: Set<Error>, depth: number, fields: ErrorFields = error): Error {
+function rebuildError(
+  error: Error,
+  seen: Set<Error>,
+  depth: number,
+  closedNames?: ReadonlySet<string>,
+  fields: ErrorFields = error
+): Error {
   seen.add(error);
   const { name, message, stack } = fields;
-  const safeName = redactText(name, WORDLIST);
-  const safeMessage = redactMessage(message, WORDLIST) ?? REDACTED;
+  const safeName = redactText(name, WORDLIST, closedNames);
+  const safeMessage = redactMessage(message, WORDLIST, closedNames) ?? REDACTED;
   const frames = framesAfterHeader(name, message, stack);
   const reportable = new Error(safeMessage);
   reportable.name = safeName;
@@ -337,7 +345,7 @@ function rebuildError(error: Error, seen: Set<Error>, depth: number, fields: Err
     /* Ignore hostile cause accessors. */
   }
   if (cause instanceof Error && depth < 3 && !seen.has(cause)) {
-    reportable.cause = rebuildError(cause, seen, depth + 1);
+    reportable.cause = rebuildError(cause, seen, depth + 1, closedNames);
   }
   return reportable;
 }
@@ -357,7 +365,12 @@ function rebuildRelayError(failure: ErrorFields, message: string): Error {
 export function captureCrash(
   error: unknown,
   source: CrashSource = 'manual',
-  options: { initializeIfNeeded?: boolean; level?: 'error' | 'warning' } = {}
+  options: {
+    initializeIfNeeded?: boolean;
+    level?: 'error' | 'warning';
+    /** The reporter's own closed identifiers, which the recovery-phrase guard reads as non-wordlist words if whole. */
+    closedNames?: ReadonlySet<string>;
+  } = {}
 ): void {
   try {
     if (!(error instanceof Error)) return;
@@ -368,7 +381,8 @@ export function captureCrash(
     if (relay?.report === false) return;
     const reportable = relay?.report
       ? rebuildRelayError(fields, relay.message)
-      : rebuildError(error, new Set(), 0, fields);
+      : rebuildError(error, new Set(), 0, options.closedNames, fields);
+    if (options.closedNames !== undefined) capturedClosedNames.set(reportable, options.closedNames);
     capturedDiagnostics.set(reportable, {
       ...snapshotCrashDiagnostics(error),
       ...resolveTelemetryContext(),
