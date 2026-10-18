@@ -1668,6 +1668,18 @@ describe('requestPrivateNotes by the id importPrivateNote returned (#1536)', () 
     expect(mockGetDetailsCommitmentMatches).toHaveBeenCalledWith(['0xcommit', '0xsecond'], expect.any(Function));
   });
 
+  it.each([
+    ['another account holds', [{ ...importedNote, noteId: 'foreign' }]],
+    ['nobody holds', []]
+  ])('takes the same lookup path for an id %s', async (_label, byId) => {
+    mockGetInputNoteDetails.mockResolvedValueOnce(byId);
+    mockGetDetailsCommitmentMatches.mockResolvedValueOnce([NO_COMMITMENT_MATCH]);
+
+    await expect(requestList(['0xforeign'])).resolves.toMatchObject({ privateNotes: [] });
+    expect(mockGetDetailsCommitmentMatches).toHaveBeenCalledTimes(1);
+    expect(mockGetDetailsCommitmentMatches).toHaveBeenCalledWith(['0xforeign'], expect.any(Function));
+  });
+
   it('withholds a commitment match that only another account can consume', async () => {
     mockGetConsumableNoteDtos.mockResolvedValueOnce([{ noteId: 'other-account-note' }]);
 
