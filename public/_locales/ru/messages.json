@@ -3954,6 +3954,24 @@
     "message": "Просит вас поставить подпись",
     "englishSource": "Requests your signature"
   },
+  "confirmLoginSignature": {
+    "message": "Войдите на сайт $domain$",
+    "englishSource": "Sign in to $domain$",
+    "placeholders": {
+      "domain": {
+        "content": "$1"
+      }
+    }
+  },
+  "loginSignatureNote": {
+    "message": "Подписывайте транзакции с помощью ключа, созданного исключительно для $domain$. С его помощью нельзя переводить средства или вносить изменения в ваш аккаунт.",
+    "englishSource": "Bread signs with a key made only for $domain$. It can't move funds or change your account.",
+    "placeholders": {
+      "domain": {
+        "content": "$1"
+      }
+    }
+  },
   "requestAssets": {
     "message": "Запросить ресурсы",
     "englishSource": "Request Assets"
@@ -4439,6 +4457,15 @@
   "dappSignRequest": {
     "message": "Это приложение требует, чтобы вы подписывали данные с помощью своего кошелька",
     "englishSource": "This app wants you to sign data with your wallet"
+  },
+  "dappLoginSignRequest": {
+    "message": "Этот сайт предлагает вам войти на $domain$ с помощью Bread",
+    "englishSource": "This site wants you to sign in to $domain$ with Bread",
+    "placeholders": {
+      "domain": {
+        "content": "$1"
+      }
+    }
   },
   "dappImportNoteRequest": {
     "message": "Это приложение хочет импортировать частный файл note в ваш кошелек",
