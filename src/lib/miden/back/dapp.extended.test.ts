@@ -1384,6 +1384,7 @@ describe('approved non-extension custom carried-note failures (#1378)', () => {
   const queued = new TransactionQueuedError('tx-1', { cause: new Error('note queue unavailable') });
 
   const CARRIED_NOTES = ['bm90ZS0x', 'bm90ZS0y'];
+  const CARRIED_NOTE_IDS = ['note-1', 'note-2'];
   const runCustomFailure = async (error: Error, message: string, queuedRow: boolean, check: () => void) => {
     mockRequestCustomTransaction.mockRejectedValueOnce(error);
     if (queuedRow) mockStartTransactionProcessing.mockResolvedValueOnce(undefined);
@@ -1410,6 +1411,7 @@ describe('approved non-extension custom carried-note failures (#1378)', () => {
       // The dry run derives the same ids with a second argument; the release derives them with the notes alone.
       expect(noteQuarantine.importedNoteIds).toHaveBeenCalledWith(CARRIED_NOTES);
       expect(noteQuarantine.releaseNoteIds).toHaveBeenCalledTimes(1);
+      expect(noteQuarantine.releaseNoteIds).toHaveBeenCalledWith(CARRIED_NOTE_IDS);
     });
   });
 
