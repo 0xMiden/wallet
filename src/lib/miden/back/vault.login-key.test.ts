@@ -18,6 +18,7 @@ import { mnemonicToAccount } from 'viem/accounts';
 import { deserializeHotSecretKey } from 'lib/miden/guardian/hot-key-import';
 import { deriveLoginKeyScalar, type LoginKeySource } from 'lib/miden/login-key/derive';
 import * as Passworder from 'lib/miden/passworder';
+import { MidenDAppSession } from 'lib/miden/types';
 import { b64ToU8, bytesToHex, u8ToB64 } from 'lib/shared/helpers';
 import { WalletAccount } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
@@ -590,6 +591,18 @@ describe('Vault login keys', () => {
     const [imported] = await fresh.importAccountFromPrivateKey(IMPORTED_SECRET_KEY);
     // The session's commitment names a key this wallet does not store.
     await expect(fresh.loginKeyCommitment(imported!.publicKey, connected, DOMAIN)).rejects.toThrow(
+      LOGIN_KEY_UNAVAILABLE
+    );
+  });
+
+  it('refuses a single-key import whose session has no key commitment', async () => {
+    clearStore();
+    const fresh = await seedVault([]);
+    const [imported] = await fresh.importAccountFromPrivateKey(IMPORTED_SECRET_KEY);
+    // A session an older version stored, read back from storage: it has no commitment, whatever its type says.
+    const { publicKey }: Pick<MidenDAppSession, 'publicKey'> = JSON.parse('{}');
+
+    await expect(fresh.loginKeyCommitment(imported!.publicKey, publicKey, DOMAIN)).rejects.toThrow(
       LOGIN_KEY_UNAVAILABLE
     );
   });
