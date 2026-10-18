@@ -950,21 +950,28 @@ async function getPrivateNoteDetails(
         // so every subsequent client read must first prove this hold is still current.
         assertWasmHoldCurrent(hold, 'after the private-note read');
         const listed = notefilterType === NoteFilterTypes.List ? (noteIds ?? []) : [];
-        const found = new Set(allNotes.map(note => normalizedCommitment(note.noteId)));
-        const unmatched = [...new Set(listed.filter(id => !found.has(normalizedCommitment(id))))];
+        // Every listed id is looked up as a commitment too, found by the id read or not, so an id another account
+        // holds takes the same path as one nobody holds and the timing tells a dApp nothing about other accounts.
+        const asked = new Set<string>();
+        const commitments = listed.filter(id => {
+          const key = normalizedCommitment(id);
+          if (asked.has(key)) return false;
+          asked.add(key);
+          return true;
+        });
         const byCommitment =
-          unmatched.length === 0
+          commitments.length === 0
             ? []
             : (
-                await midenClientProxy.getDetailsCommitmentMatches(unmatched, () =>
+                await midenClientProxy.getDetailsCommitmentMatches(commitments, () =>
                   assertWasmHoldCurrent(
                     hold,
                     'inside the private-note details-commitment read, before the record reach-through'
                   )
                 )
               ).flatMap(match => match.notes);
-        if (unmatched.length > 0) assertWasmHoldCurrent(hold, 'after the private-note details-commitment read');
-        const candidates = [...allNotes, ...byCommitment.filter(note => !found.has(normalizedCommitment(note.noteId)))];
+        if (commitments.length > 0) assertWasmHoldCurrent(hold, 'after the private-note details-commitment read');
+        const candidates = [...allNotes, ...byCommitment];
         const seen = new Set<string>();
         const uniqueCandidates =
           notefilterType === NoteFilterTypes.List

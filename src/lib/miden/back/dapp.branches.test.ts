@@ -1645,12 +1645,12 @@ describe('requestPrivateNotes by the id importPrivateNote returned (#1536)', () 
     expect(mockRequestConfirmation).not.toHaveBeenCalled();
   });
 
-  it('looks up only unmatched ids in one batch when note ids and commitments are mixed', async () => {
+  it('looks up every id in one batch when note ids and commitments are mixed', async () => {
     mockGetInputNoteDetails.mockResolvedValueOnce([firstNote]);
 
     await expect(requestList(['n1', '0xcommit'])).resolves.toMatchObject({ privateNotes: [firstNote, importedNote] });
     expect(mockGetDetailsCommitmentMatches).toHaveBeenCalledTimes(1);
-    expect(mockGetDetailsCommitmentMatches).toHaveBeenCalledWith(['0xcommit'], expect.any(Function));
+    expect(mockGetDetailsCommitmentMatches).toHaveBeenCalledWith(['n1', '0xcommit'], expect.any(Function));
   });
 
   it('resolves several commitments in a single batch and lists all of their notes', async () => {
@@ -1701,14 +1701,14 @@ describe('requestPrivateNotes by the id importPrivateNote returned (#1536)', () 
     mockGetInputNoteDetails.mockResolvedValueOnce([importedNote]);
 
     await expect(requestList(['n9', '0xcommit'])).resolves.toMatchObject({ privateNotes: [importedNote] });
-    expect(mockGetDetailsCommitmentMatches).toHaveBeenCalledWith(['0xcommit'], expect.any(Function));
+    expect(mockGetDetailsCommitmentMatches).toHaveBeenCalledWith(['n9', '0xcommit'], expect.any(Function));
   });
 
-  it('lists repeated note ids once without a commitment lookup', async () => {
+  it('lists repeated note ids once and looks the id up once', async () => {
     mockGetInputNoteDetails.mockResolvedValueOnce([importedNote, importedNote]);
 
     await expect(requestList(['n9', 'n9'])).resolves.toMatchObject({ privateNotes: [importedNote] });
-    expect(mockGetDetailsCommitmentMatches).not.toHaveBeenCalled();
+    expect(mockGetDetailsCommitmentMatches).toHaveBeenCalledWith(['n9'], expect.any(Function));
   });
 
   it('looks up a repeated commitment once and deduplicates notes across batch entries', async () => {
@@ -1723,11 +1723,12 @@ describe('requestPrivateNotes by the id importPrivateNote returned (#1536)', () 
     expect(mockGetDetailsCommitmentMatches).toHaveBeenCalledWith(['0xcommit', '0xsecond'], expect.any(Function));
   });
 
-  it.each(['0xN1', 'N1'])('recognizes the note id spelling %s before considering commitments', async requestedId => {
+  it.each(['0xN1', 'N1'])('recognizes the note id spelling %s and lists its note once', async requestedId => {
     mockGetInputNoteDetails.mockResolvedValueOnce([firstNote]);
+    mockGetDetailsCommitmentMatches.mockResolvedValueOnce([NO_COMMITMENT_MATCH]);
 
     await expect(requestList([requestedId])).resolves.toMatchObject({ privateNotes: [firstNote] });
-    expect(mockGetDetailsCommitmentMatches).not.toHaveBeenCalled();
+    expect(mockGetDetailsCommitmentMatches).toHaveBeenCalledWith([requestedId], expect.any(Function));
   });
 
   it('deduplicates note id spellings across the id and commitment reads', async () => {
@@ -1738,7 +1739,7 @@ describe('requestPrivateNotes by the id importPrivateNote returned (#1536)', () 
     mockGetConsumableNoteDtos.mockResolvedValueOnce([{ noteId: 'n9' }, { noteId: '0xN9' }]);
 
     await expect(requestList(['n9', '0xcommit'])).resolves.toMatchObject({ privateNotes: [importedNote] });
-    expect(mockGetDetailsCommitmentMatches).toHaveBeenCalledWith(['0xcommit'], expect.any(Function));
+    expect(mockGetDetailsCommitmentMatches).toHaveBeenCalledWith(['n9', '0xcommit'], expect.any(Function));
   });
 
   it('withholds public commitment matches and removes the private consume restriction', async () => {
