@@ -129,8 +129,11 @@ export function captureMobileBaseline(
     );
     const since = await captureRowWindow(side.wallet, ctx);
     const vault = await stableVault(side.wallet, [...new Set([...faucetIds, side.j.native.tokenId])], ctx);
-    const chain = await beforeMobileDeadline(ctx.deadline, 'the baseline account on chain', () =>
-      side.j.call('chainAccount', { accountId: side.accountIdHex }, ctx.deadline)
+    const chain = await beforeMobileDeadline(
+      ctx.deadline,
+      'the baseline account on chain',
+      () => side.j.call('chainAccount', { accountId: side.accountIdHex }, ctx.deadline),
+      true
     );
     return { ...since, vault, commitmentHex: chain.found ? (chain.commitmentHex ?? null) : null };
   });
@@ -295,8 +298,11 @@ export async function expectMobileWriteToTheEnd(
   }
   // 1. The dApp's view; a wait that outlives the cell still records where the row stopped.
   const waited = await timed(ctx, 'dappView', () =>
-    beforeMobileDeadline(ctx.deadline, 'the dApp transaction view', () =>
-      side.j.call('waitForTransaction', { txId: write.txId }, ctx.deadline)
+    beforeMobileDeadline(
+      ctx.deadline,
+      'the dApp transaction view',
+      () => side.j.call('waitForTransaction', { txId: write.txId }, ctx.deadline),
+      true
     ).catch(async (error: unknown) => {
       if (ctx.deadline.remainingMs() > 0 && !(error instanceof HarnessFault)) await recordRow(side, write.txId, ctx);
       throw error;
@@ -323,8 +329,11 @@ export async function expectMobileWriteToTheEnd(
     for (const [expected, actual] of pairs) {
       const onChain = await pollUntil(
         () =>
-          beforeMobileDeadline(ctx.deadline, 'the chain note', () =>
-            side.j.call('chainNote', { noteId: actual.noteId }, ctx.deadline)
+          beforeMobileDeadline(
+            ctx.deadline,
+            'the chain note',
+            () => side.j.call('chainNote', { noteId: actual.noteId }, ctx.deadline),
+            true
           ),
         note => note.found,
         `note ${actual.noteId} on chain`,
@@ -360,8 +369,11 @@ export async function expectMobileWriteToTheEnd(
       for (const nullifierHex of write.consumedNullifiers) {
         await pollUntil(
           () =>
-            beforeMobileDeadline(ctx.deadline, 'the chain nullifier', () =>
-              side.j.call('chainNullifier', { nullifierHex }, ctx.deadline)
+            beforeMobileDeadline(
+              ctx.deadline,
+              'the chain nullifier',
+              () => side.j.call('chainNullifier', { nullifierHex }, ctx.deadline),
+              true
             ),
           spent => spent.committedAt !== null,
           `nullifier ${nullifierHex} committed`,
@@ -371,8 +383,11 @@ export async function expectMobileWriteToTheEnd(
       }
       return pollUntil(
         () =>
-          beforeMobileDeadline(ctx.deadline, 'the account on chain', () =>
-            side.j.call('chainAccount', { accountId: side.accountIdHex }, ctx.deadline)
+          beforeMobileDeadline(
+            ctx.deadline,
+            'the account on chain',
+            () => side.j.call('chainAccount', { accountId: side.accountIdHex }, ctx.deadline),
+            true
           ),
         account => account.found && account.commitmentHex !== baseline.commitmentHex,
         'account commitment moved on chain',
@@ -469,8 +484,11 @@ export async function expectFailedAfterEnqueueMobile(
   expect(row?.stage).toBe(expected.stage);
   expect(`${row?.error ?? ''} ${row?.rawError ?? ''}`).toContain(expected.error);
   expect(
-    await beforeMobileDeadline(ctx.deadline, 'the dApp failed transaction view', () =>
-      side.j.call('waitForTransaction', { txId }, ctx.deadline)
+    await beforeMobileDeadline(
+      ctx.deadline,
+      'the dApp failed transaction view',
+      () => side.j.call('waitForTransaction', { txId }, ctx.deadline),
+      true
     )
   ).toEqual({
     ok: false,

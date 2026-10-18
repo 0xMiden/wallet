@@ -15,7 +15,7 @@ import {
   type CellContext,
   type Deadline
 } from './dapp-cells';
-import { callOn } from './dapp-channel';
+import { callOn, ChainUnavailable } from './dapp-channel';
 import { registryOf } from './dapp-known-bugs';
 import type { MobileCellState, MobileJourney } from './dapp-mobile-journey';
 import { readRows, waitForQueueDrained, type MobileWallet } from './dapp-mobile-wallet';
@@ -318,6 +318,31 @@ describe('mobile write read boundaries', () => {
     await expect(outcome).resolves.toEqual(
       expect.objectContaining({ message: expect.stringContaining('transaction store is missing') })
     );
+  });
+
+  it('keeps a node failure as ChainUnavailable when a bounded baseline chain read reaches the deadline', async () => {
+    const { side } = await fixture();
+    const send = side.dapp.channel.send;
+    let attempts = 0;
+    side.dapp.channel.send = async command => {
+      if (command === 'chainAccount') {
+        attempts += 1;
+        if (attempts === 1) throw new ChainUnavailable('the node failed the baseline account read');
+        return new Promise(() => undefined);
+      }
+      return send(command);
+    };
+    jest.useFakeTimers();
+    const ctx: CellContext = {
+      deadline: deadlineIn(12_000, 'baseline chain read'),
+      evidence: {},
+      softFail: () => undefined
+    };
+    const outcome = captureMobileBaseline(side, ['tst'], ctx).catch((error: unknown) => error);
+    await jest.advanceTimersByTimeAsync(12_000);
+    await expect(outcome).resolves.toBeInstanceOf(ChainUnavailable);
+    await expect(outcome).resolves.toHaveProperty('message', expect.stringContaining('deadline cut the last'));
+    expect(attempts).toBe(2);
   });
 
   it('expires during baseline account selection without issuing another device command', async () => {
