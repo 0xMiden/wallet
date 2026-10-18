@@ -1280,7 +1280,7 @@ describe('requestTransaction — mobile error branches', () => {
           payload: {
             address: 'miden-account-1',
             recipientAddress: 'bob',
-            transactionRequest: 'base64req'
+            transactionRequest: 'YmFzZTY0cmVx'
           }
         }
       } as never)
@@ -1387,7 +1387,7 @@ describe('startDappBackgroundProcessing error handling', () => {
         payload: {
           address: 'miden-account-1',
           recipientAddress: 'bob',
-          transactionRequest: 'base64req'
+          transactionRequest: 'YmFzZTY0cmVx'
         }
       }
     } as never);
@@ -1404,7 +1404,7 @@ describe('startDappBackgroundProcessing error handling', () => {
         payload: {
           address: 'miden-account-1',
           recipientAddress: 'bob',
-          transactionRequest: 'base64req'
+          transactionRequest: 'YmFzZTY0cmVx'
         }
       }
     } as never);
@@ -2093,7 +2093,7 @@ describe('requestTransaction - custom spending-limit gate', () => {
       type: MidenDAppMessageType.TransactionRequest,
       sourcePublicKey: 'miden-account-1',
       transaction: {
-        payload: { address: 'miden-account-1', recipientAddress: 'bob', transactionRequest: 'base64req' }
+        payload: { address: 'miden-account-1', recipientAddress: 'bob', transactionRequest: 'YmFzZTY0cmVx' }
       }
     }) as never;
   const viewMoving = (assets: { faucetId: string; amount: bigint }[]) => ({
@@ -2323,7 +2323,7 @@ describe('requests for an account that is not the current one (#1419)', () => {
     currentAccountPublicKey = ACCOUNT_A;
   });
 
-  const customPayload = { address: ACCOUNT_A, recipientAddress: 'bob', transactionRequest: 'base64req' };
+  const customPayload = { address: ACCOUNT_A, recipientAddress: 'bob', transactionRequest: 'YmFzZTY0cmVx' };
   const consumeTx = { noteId: 'note-1', faucetId: 'faucet-1', noteType: 'Private', amount: '50' };
 
   const requests: Record<string, (permission?: string) => Promise<unknown>> = {
@@ -2551,7 +2551,7 @@ describe('a locked wallet (#1414)', () => {
         type: MidenDAppMessageType.TransactionRequest,
         sourcePublicKey: 'miden-account-1',
         transaction: {
-          payload: { address: 'miden-account-1', recipientAddress: 'bob', transactionRequest: 'base64req' }
+          payload: { address: 'miden-account-1', recipientAddress: 'bob', transactionRequest: 'YmFzZTY0cmVx' }
         }
       } as never),
     consume: () =>

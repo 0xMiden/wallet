@@ -51,15 +51,6 @@ export const KNOWN_BUGS: readonly KnownBug[] = [
         : evidence.adapterAddress === evidence.previousAddress)
   },
   {
-    id: 'K11',
-    title: 'A custom request whose transactionRequest cannot be deserialized opens a popup instead of being refused',
-    tracking: '0xMiden/wallet#1418 (open)',
-    cells: on(['R3-customUndecodable'], BOTH),
-    // The preview swallows the deserialize failure (src/lib/miden/back/dapp.ts:2920-2931) and the popup says it could
-    // not decode the request, so the refusal check sees a confirm page open.
-    signature: ({ source, evidence }) => source === 'hard' && evidence.popupOpened === true
-  },
-  {
     id: 'K12',
     title: "adapter-react exports MidenFi's own WalletContext, so it reads no state under WalletProvider",
     tracking: '0xMiden/web-sdk#484 (open)',

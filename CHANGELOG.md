@@ -15,6 +15,7 @@
 
 ### Fixes
 
+- [FIX][all] A dApp custom transaction whose request bytes are malformed is rejected before an approval screen opens, instead of asking the user to approve a transaction the wallet cannot execute (#1418).
 - [FIX][all] dApp previews, signing and consumes report a killed wallet client as a retryable failure; approved sends and custom transactions answer OUTCOME_UNKNOWN with the queued transaction id when available, so the dApp checks before sending again (#1378).
 - [FIX][ci] The PasscodeDots shake test runs a 30-second shake and waits for the row to move, instead of reading it 50 ms into the real 0.42-second shake, which a loaded coverage runner could pause past.
 - [FIX][mobile][desktop] The in-app-browser and desktop dApp providers reject a wallet refusal with the extension's error classes (`NotGrantedMidenWalletError`, `InvalidParamsMidenWalletError`, `NotFoundMidenWalletError`, else `MidenWalletError`) and its message, not a plain `Error` (#1542).

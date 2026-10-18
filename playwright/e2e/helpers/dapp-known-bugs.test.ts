@@ -84,15 +84,6 @@ describe('known-bug registry', () => {
     expect(KNOWN_BUGS.filter(entry => entry.cells.N4 !== undefined).map(entry => entry.id)).toEqual([]);
   });
 
-  it('K11 matches an undecodable custom request that opened a popup, and not a refusal or a deadline', () => {
-    expect(bug('K11').cells).toEqual({ 'R3-customUndecodable': ['offchain', 'guardian'] });
-    expect(bug('K11').signature(hard('R3-customUndecodable', { popupOpened: true }))).toBe(true);
-    expect(bug('K11').signature(soft('R3-customUndecodable', { popupOpened: true }))).toBe(false);
-    const refused = { name: 'InvalidParamsMidenWalletError', message: 'INVALID_PARAMS: Error: unexpected end of file' };
-    expect(bug('K11').signature(hard('R3-customUndecodable', { popupOpened: false, dappError: refused }))).toBe(false);
-    expect(bug('K11').signature(hard('R3-customUndecodable', {}, 'CellDeadlineExceeded: dApp one raw'))).toBe(false);
-  });
-
   it('K12 matches a WalletContext export that holds no state while useWallet() sees the connect', () => {
     expect(bug('K12').tracking).toContain('0xMiden/web-sdk#484');
     expect(bug('K12').cells).toEqual({ WP9: ['offchain', 'guardian'] });
