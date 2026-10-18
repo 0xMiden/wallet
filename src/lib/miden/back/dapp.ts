@@ -2246,6 +2246,10 @@ const generatePromisifyTransaction = async (
         transactionId
       } as any);
     } catch (e) {
+      if ([...causeChain(e)].some(link => link instanceof TransactionQueuedError)) {
+        await releaseNoteIds(importedNoteIds(customTransaction.importNotes));
+        startDappBackgroundProcessing();
+      }
       reject(dappWriteFailure(e));
     }
     return;
@@ -2308,6 +2312,10 @@ const generatePromisifyTransaction = async (
               transactionId
             } as any);
           } catch (e) {
+            if ([...causeChain(e)].some(link => link instanceof TransactionQueuedError)) {
+              await releaseNoteIds(importedNoteIds(customTransaction.importNotes));
+              startDappBackgroundProcessing();
+            }
             reject(dappWriteFailure(e));
           }
         } else {
