@@ -9,7 +9,7 @@ import {
 } from '@sentry/browser';
 
 import { englishWordlist } from '@miden/hd-key';
-import { isTelemetryEnabledAsync } from 'lib/settings/helpers';
+import { isCrashReportingEnabledAsync } from 'lib/settings/helpers';
 
 import { resolveTelemetryContext } from './context';
 import { getCrashBuildIdentity, type CrashBuildIdentity } from './crash-build';
@@ -25,7 +25,8 @@ import {
 } from './relay-diagnostics';
 
 /**
- * Consent-gated crash reporting.
+ * Crash reporting gated only by the browser's data-collection permission,
+ * independently of the wallet's usage-data choice.
  *
  * Three deliberate departures from the way Sentry is normally set up, each one
  * a constraint of shipping inside an MV3 extension that holds keys:
@@ -252,7 +253,7 @@ export function initCrashReporting(options: { listenToGlobals?: boolean } = {}):
       dsn: process.env.SENTRY_DSN ?? '',
       transport: options =>
         makeFetchTransport(options, async (...args) => {
-          if (!(await isTelemetryEnabledAsync()) || generation !== reportingGeneration)
+          if (!(await isCrashReportingEnabledAsync()) || generation !== reportingGeneration)
             return new Response('', { status: 200 });
           return globalThis.fetch(...args);
         }),
@@ -278,9 +279,8 @@ export function initCrashReporting(options: { listenToGlobals?: boolean } = {}):
 }
 
 /**
- * Stop reporting and discard what is buffered. Called when consent is
- * withdrawn, so turning the setting off stops a crash that is already in
- * flight rather than merely stopping the next one.
+ * Stop reporting and discard what is buffered. The generation check also
+ * invalidates captures and transport sends waiting on browser permission.
  */
 export function stopCrashReporting(): void {
   const closing = client;
@@ -374,7 +374,7 @@ export function captureCrash(
 ): void {
   try {
     if (!(error instanceof Error)) return;
-    // Snapshot before consent's await: later handling may mutate the original failure, and the relay verdict and the
+    // Snapshot before permission's await: later handling may mutate the original failure, and the relay verdict and the
     // report have to describe the same text.
     const fields: ErrorFields = { name: error.name, message: error.message, stack: error.stack };
     const relay = classifyRelayFailure(error, fields.message);
@@ -399,7 +399,7 @@ export function captureCrash(
     const generation = reportingGeneration;
     void (async () => {
       try {
-        if (!(await isTelemetryEnabledAsync())) return;
+        if (!(await isCrashReportingEnabledAsync())) return;
         if (generation !== reportingGeneration) return;
         if (options.initializeIfNeeded && client === null) initCrashReporting({ listenToGlobals: false });
         const target = scope;

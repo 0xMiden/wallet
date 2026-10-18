@@ -29,7 +29,7 @@ import { sendEvent } from './sink';
  * - Nothing sold or shared with data brokers — `no analytics, tracking, or
  *   advertising SDK`, at all three dependency levels.
  * - No persistent user identifier — `no persistent identifier`.
- * - Off by default and opt-in — `telemetry is off until the user turns it on`.
+ * - Usage sharing is off by default and opt-in; crash reports are independent.
  * - One product-event egress point and one crash egress point — `no stray
  *   egress`, alongside `egress-boundary.test.ts`.
  *
@@ -1262,7 +1262,7 @@ describe('no stray egress', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Promise: telemetry is off by default and opt-in.
+// Promise: usage sharing is opt-in and crash reporting is independent.
 // ---------------------------------------------------------------------------
 
 /**
@@ -1320,7 +1320,7 @@ async function flushEgress(): Promise<void> {
   for (let i = 0; i < 4; i++) await new Promise(resolve => setTimeout(resolve, 5));
 }
 
-describe('telemetry is off until the user turns it on', () => {
+describe('usage sharing is opt-in and crash reporting is independent', () => {
   beforeEach(async () => {
     requests.length = 0;
     process.env.APTABASE_APP_KEY = APTABASE_APP_KEY;
@@ -1342,7 +1342,7 @@ describe('telemetry is off until the user turns it on', () => {
     expect(DEFAULT_TELEMETRY).toBe(false);
   });
 
-  it('sends nothing at either egress point on a fresh install', async () => {
+  it('reports crashes without sending usage events on a fresh install', async () => {
     // Nothing is mocked here. `egress-boundary.test.ts` substitutes the consent
     // gate to drive both sides of it; this runs the real settings module
     // against empty storage, which is the state a wallet is actually in the
@@ -1356,10 +1356,23 @@ describe('telemetry is off until the user turns it on', () => {
     );
     await flushEgress();
 
-    expect(requests).toEqual([]);
+    expect(requests).not.toContain(INGEST_URL);
+    expect(requests.filter(isSentryRequest).length).toBeGreaterThan(0);
   });
 
-  it('sends at both once consent is stored, so the silence above is the gate and not a broken driver', async () => {
+  it('keeps crash reporting enabled after usage sharing is explicitly disabled', async () => {
+    await getStorageProvider().set({ [TELEMETRY_STORAGE_KEY]: false });
+
+    initCrashReporting();
+    captureCrash(new Error('rpc endpoint returned status'));
+    await sendEvent({ phase: 'started', flow: 'open', flowId: 'opted-out', runId: 'run' }, resolveTelemetryContext());
+    await flushEgress();
+
+    expect(requests).not.toContain(INGEST_URL);
+    expect(requests.filter(isSentryRequest).length).toBeGreaterThan(0);
+  });
+
+  it('adds usage events once usage consent is stored', async () => {
     // Written straight to the store the background reads rather than through
     // `setTelemetrySetting`, whose mirror write is fire-and-forget: the point
     // here is the gate, not the timing of the mirror.

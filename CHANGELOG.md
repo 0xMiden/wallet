@@ -66,6 +66,7 @@
 
 ### Changes
 
+- [CHANGE][all] Crash reports are sent for every user, scrubbed of sensitive data and with no identifier for the user or the device, and the Share usage data choice now covers product events only; the onboarding and Settings copy, the privacy policy and the store declarations say so.
 - [CHANGE][all] Web SDK 0.17.4: every call that writes the chain MMR, not only the syncs, holds the store's Web Lock, so two clients on one store (the extension's service worker, offscreen document and pages) can no longer interleave a note import with a sync and leave a block header that fails every later sync and import (#1493); the browser store is kept across SDK upgrades instead of being reset on a minor version change; and a note index past the transaction's notes throws a catchable error instead of aborting the WASM module.
 - [CHANGE][ci] Activity regression tests cover every USDCx burn phase in compact and full history rows, a received bridge-in's completed state, and the burn, source-chain and CCTP fields passed into history entries (#1435).
 - [CHANGE][ci] Local E2E also runs a wallet on an endpoint override stored through Developer Settings, on a build that reads stored overrides (every other E2E build ignores them): the override reaches the localnet node through `http://127.0.0.1:57291`, which the SDK keeps in another store than the build default, and a mint must reach the note list and the balance before and after a restart, which fails while the offscreen document runs on the build's network (#1482, #1485).

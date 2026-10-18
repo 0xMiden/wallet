@@ -5,19 +5,19 @@ permalink: /privacy/
 
 # Bread Wallet by Miden — Privacy Policy
 
-_Last updated: 2026-09-28_
+_Last updated: 2026-10-19_
 
 Bread Wallet by Miden ("the App") is a non-custodial cryptocurrency wallet for the Miden blockchain, published by Miden.
 
 ## Data we collect
 
-The App collects nothing about you unless you turn on **Share usage data**, which is **off by default**. If you never turn it on, the App sends us nothing — no product events, no crash reports.
+The App sends **crash reports** so we can fix what breaks. They are described under "Crash reports" below: the error and where it happened in the code, scrubbed of sensitive data before sending, with no identifier for you or your device. Everything else is collected only if you turn on **Share usage data**. If you never turn it on, the App sends no product events.
 
-You are asked once, after you create or import a wallet, and you can say no. Whatever you choose then, you can change it at any time in **Settings → General → Help improve Wallet**. Turning it off stops sending: the setting is checked before every single send, so nothing that was waiting gets sent later.
+You are asked once, after you create or import a wallet, and you can say no. Whatever you choose then, you can change it at any time in **Settings → General → Help improve Wallet**. Turning it off stops sending usage data: the setting is checked before every single send, so nothing that was waiting gets sent later. Crash reports are sent whether this setting is on or off.
 
-**On Firefox, there is a second switch, and both have to be on.** Firefox asks separately whether the extension may collect technical and interaction data — at install time, and afterwards under `about:addons` → Permissions and data. The App reads Firefox's answer as well as its own setting and sends only when both say yes. Turning either one off is enough to stop it. Other browsers have no equivalent switch, so there the App's own setting is the only one.
+**On Firefox, Firefox's own switch also applies.** Firefox asks whether an extension may collect technical and interaction data, and where it has said no, the App sends neither crash reports nor usage data. Other browsers and the mobile and desktop apps have no equivalent switch.
 
-Everything below describes what is sent **only while that setting is on**.
+Usage data, below, is sent **only while that setting is on**. Crash reports are sent either way.
 
 ### Usage data
 
@@ -54,7 +54,7 @@ Three more things travel with each message as part of the technical envelope our
 
 ### Crash reports
 
-Handled transaction failures are also reported when sharing is enabled, including failures after submission and transactions whose network outcome remains unknown. These reports contain only fixed transaction, stage and execution-route categories, bundled software versions, the network the App was on, known public protocol error identities, the fixed failure reasons, refusal codes and claim origins listed below, and authentication-code compatibility, preparation, layout and commitment-match categories calculated locally. They never include the transaction request, an account or transaction identifier, addresses, amounts, signatures, salts, commitments or dApp URLs. Unknown assertion numbers and raw failure text are not sent. Historical rows imported from a backup do not generate new failure reports.
+Handled transaction failures are also reported, including failures after submission and transactions whose network outcome remains unknown. These reports contain only fixed transaction, stage and execution-route categories, bundled software versions, the network the App was on, known public protocol error identities, the fixed failure reasons, refusal codes and claim origins listed below, and authentication-code compatibility, preparation, layout and commitment-match categories calculated locally. They never include the transaction request, an account or transaction identifier, addresses, amounts, signatures, salts, commitments or dApp URLs. Unknown assertion numbers and raw failure text are not sent. Historical rows imported from a backup do not generate new failure reports.
 
 A failure report can also say why the transaction failed, using only these fixed values:
 
@@ -78,7 +78,7 @@ A failed inbound bridge, a deposit from another network into Miden, also carries
 
 - **An inbound bridge that failed**: the route the deposit took, `epoch` (Fast), `agglayer` or `usdcx`, and `other` for any other; the step at which it failed, one of `provider_unavailable` (no wallet connection to sign with, or an amount that is not valid), `precheck_route` (the route was not set up to take the deposit), `precheck_balance` (the balance did not cover the deposit, or could not be read), `precheck_session_chain` (the connected wallet had not approved the network, or did not switch to it), `precheck_allowance` (the amount the bridge may spend could not be read), `precheck_domain` (Miden's registration with the bridge could not be confirmed), `precheck_quote` (no fee quote for the transfer), `wallet_approve` (the wallet's approval of the spend), `approve_receipt` (that approval on its network), `wallet_deposit` (the wallet's deposit), `deposit_receipt` (that deposit on its network), `epoch_solve` (the Fast deposit), `epoch_execute` (the rest of the Fast deposit's preparation), `reconciler_receipt` (a later check of the deposit on its network), `submission_interrupted` (the App closed before the deposit was recorded), `epoch_intent_failed` (the Fast route reported the transfer failed), `usdcx_mismatch_domain`, `usdcx_mismatch_token`, `usdcx_mismatch_recipient` or `usdcx_mismatch_amount` (Circle attested the deposit to another network, token, account or amount), or `delivery_timed_out` (the transfer did not arrive in time), and `other` when the App names none; and what the other network's wallet or its software answered, read from its fixed wording or error type: `user_rejected` (you or your wallet declined), `session_deleted` (the wallet connection was closed), `no_session` (no wallet was connected), `request_expired` (the wallet did not answer in time), `insufficient_funds` (the account could not pay for the transaction), `reverted` (the network refused the transaction), `timeout` (a request to the network ran out of time), `http_` followed by the HTTP status a server answered with, as its number, when it is a whole number from 100 to 599, and `http_other` when it is not, `unknown_rpc_error` (the wallet answered with an error it gave no code for), `other` for any other answer, and `none` when there was no answer at all. The answer's own words, the wallet's message, addresses, amounts and server addresses are never sent.
 
-When the setting is on, a crash sends the error type, the error's message, and the stack trace — the list of code locations the error passed through — plus the app version. Where one error was caused by another, each error in that chain is included. Text is scrubbed before it leaves your device: addresses, amounts, long hex values, credentials in URLs, and values under names like `password` or `seed` are replaced with `[redacted]`. A message that scrubs down to nothing useful is dropped rather than sent as a row of markers, and if anything in the report looks like a recovery phrase, the whole report is thrown away rather than sent.
+A crash sends the error type, the error's message, and the stack trace — the list of code locations the error passed through — plus the app version. Where one error was caused by another, each error in that chain is included. Text is scrubbed before it leaves your device: addresses, amounts, long hex values, credentials in URLs, and values under names like `password` or `seed` are replaced with `[redacted]`. A message that scrubs down to nothing useful is dropped rather than sent as a row of markers, and if anything in the report looks like a recovery phrase, the whole report is thrown away rather than sent.
 
 Every crash report also names the network the App was on: `mainnet`, `testnet`, `devnet`, or `localnet`.
 
@@ -142,7 +142,7 @@ Everything the App stores about *your wallet* — your keys, accounts, balances,
 
 ## What scrubbing can and cannot promise
 
-The scrubbing described under "Crash reports" is thorough but it is a filter, not a guarantee, and you should know its limits before deciding to turn the setting on.
+The scrubbing described under "Crash reports" is thorough but it is a filter, not a guarantee, and you should know its limits: crash reports are sent whether or not you share usage data.
 
 It works by recognising what secrets look like. That is reliable for the things that have a recognisable shape: a Miden address, a long hex value, a run of digits, a credential in a URL, or any value stored under a name like `password`. Three kinds of thing can get past it:
 
@@ -154,7 +154,7 @@ None of them is a known leak. No part of the App puts a recovery phrase or a pas
 
 ## Who processes this data
 
-Only if the setting is on:
+Crash reports are sent either way; usage data only if the setting is on:
 
 | Data | Processor | Where |
 |---|---|---|
@@ -194,7 +194,7 @@ It also downloads public data. Miden's verified-token list and update notices co
 
 Three features send the service behind them only what that feature needs. Requesting test tokens sends your account address and the amount to the Miden faucet (`faucet-api.testnet.miden.io`). Tracking a bridge transfer sends its destination address to the bridge's status service (`miden-testnet-bridge.dev.eu-north-3.gateway.fm`). A swap quote sends the two tokens and their amounts to the swap-quote service (`35-175-40-181.sslip.io`), never your address.
 
-If **Share usage data** is on, the App also reaches the two processors named above. If it is off, it does not contact them at all.
+The App reaches Sentry to send crash reports. If **Share usage data** is on, it also reaches Aptabase; if it is off, it does not contact Aptabase at all.
 
 Apart from those token logos and Explore icons, and the site icons the dApp browser on mobile fetches from Google's favicon service, the App loads no fonts, scripts, or images from third-party servers. Everything else it needs to draw itself ships inside the App.
 

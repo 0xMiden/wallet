@@ -28,7 +28,6 @@ import { MidenProvider, request } from 'lib/miden/front';
 import { isDesktop as checkIsDesktop, isExtension, isMobile as checkIsMobile } from 'lib/platform';
 import { PropsWithChildren } from 'lib/props-with-children';
 import { initBridgeConfig } from 'lib/remote-config/runtime';
-import { isTelemetryEnabled } from 'lib/settings/helpers';
 import { WalletMessageType } from 'lib/shared/types';
 import { clearLegacyAnalyticsStorage } from 'lib/telemetry';
 // Deep import: the barrel deliberately does not re-export `crash`, so that
@@ -74,10 +73,9 @@ const App: FC<AppProps> = ({ env }) => {
     // the transport only carries an event to the worker, which applies the same
     // consent check every other event passes through.
     setOperationTransport(event => request({ type: WalletMessageType.ReportTelemetryEventRequest, event }).then());
-    // Consent-gated: with no client constructed, there is nothing to leak from
-    // if a later check is ever missed. `captureCrash` re-reads consent before
-    // every send, so this is the outer of two gates, not the only one.
-    if (isTelemetryEnabled()) initCrashReporting();
+    // Crash reports are independent of usage sharing. Capture and transport
+    // still check the browser's data-collection permission before sending.
+    initCrashReporting();
     // Display prices and the other synchronous readers use the bridge config snapshot, so every page realm loads it at
     // boot instead of whenever a bridge screen mounts, then follows every change of the effective network through
     // `followEffectiveNetwork`. The first load also starts this realm's poll. It never rejects.
