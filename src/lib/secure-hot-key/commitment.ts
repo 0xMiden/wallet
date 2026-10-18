@@ -45,8 +45,12 @@ export function sameCommitment(a: string, b: string): boolean {
  * the identical 32 bytes (verified against @miden-sdk/miden-sdk: `toHex()` sans
  * prefix is byte-for-byte `serialize()`), so normalizing to bytes is what makes
  * them comparable rather than merely similar.
+ *
+ * A missing value denotes none too: a session stored by an older version can
+ * lack its commitment, whatever its type says.
  */
-export function commitmentToHex(value: string): string | undefined {
+export function commitmentToHex(value: string | undefined): string | undefined {
+  if (typeof value !== 'string') return undefined;
   const unprefixed = value.startsWith('0x') || value.startsWith('0X') ? value.slice(2) : value;
   if (/^[0-9a-fA-F]{64}$/.test(unprefixed)) {
     return unprefixed.toLowerCase();
