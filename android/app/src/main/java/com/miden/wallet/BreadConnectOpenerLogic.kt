@@ -5,6 +5,7 @@ import java.io.IOException
 import java.net.HttpURLConnection
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 /// An app a domain's assetlinks.json lets handle every link on that domain.
 class AssetLinkTarget(val packageName: String, val fingerprints: List<ByteArray>)
@@ -59,7 +60,15 @@ object BreadConnectOpenerLogic {
         deadlineMs: Long,
         watchdog: ScheduledExecutorService,
     ): ByteArray? {
-        val cutOff = watchdog.schedule(Runnable { connection.disconnect() }, deadlineMs, TimeUnit.MILLISECONDS)
+        val expired = AtomicBoolean(false)
+        val cutOff = watchdog.schedule(
+            Runnable {
+                expired.set(true)
+                connection.disconnect()
+            },
+            deadlineMs,
+            TimeUnit.MILLISECONDS,
+        )
         try {
             if (connection.responseCode != HttpURLConnection.HTTP_OK) return null
             val body = ByteArrayOutputStream()
@@ -72,8 +81,8 @@ object BreadConnectOpenerLogic {
                     if (body.size() > maxBytes) return null
                 }
             }
-            // A disconnect can end the stream early instead of failing the read.
-            return if (cutOff.isDone) null else body.toByteArray()
+            // A disconnect can end the stream early instead of failing the read, before its task has returned.
+            return if (expired.get()) null else body.toByteArray()
         } catch (e: IOException) {
             return null
         } finally {
