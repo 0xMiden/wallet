@@ -523,7 +523,7 @@ export class DappCellRunner<S> {
   }
 
   /** Stamps the leg's coverage label on the record, so the judge shows which path a mobile leg measured. */
-  recordCoverage(coverage: LegCoverage): void {
+  recordCoverage(coverage: LegCoverage | undefined): void {
     this.coverage = coverage;
     this.flush();
   }

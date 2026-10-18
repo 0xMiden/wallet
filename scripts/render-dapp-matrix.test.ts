@@ -6,6 +6,8 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
+import { coverageOf } from '../playwright/e2e/helpers/dapp-mobile-journey';
+
 const script = resolve(__dirname, 'render-dapp-matrix.mjs');
 const TITLE = 'dApp custom requests - guardian account';
 const IOS_TITLE = 'dApp in the in-app browser on iOS - guardian account';
@@ -254,6 +256,38 @@ describe('render-dapp-matrix', () => {
     );
     expect(run.status).toBe(1);
     expect(run.stderr).toContain(`${IOS_TITLE}: no presentation path recorded`);
+  });
+
+  it('fails the gate when a mobile journey presentation event never arrived', () => {
+    const run = gate(
+      records([{ id: 'S1', verdict: 'pass' }], {
+        surface: 'android',
+        title: ANDROID_TITLE,
+        coverage: coverageOf(null)
+      }),
+      results([ANDROID_TITLE])
+    );
+    expect(run.status).toBe(1);
+    expect(run.stderr).toContain(`${ANDROID_TITLE}: no presentation path recorded`);
+  });
+
+  it('passes the gate for an observed unknown presentation answer', () => {
+    const run = gate(
+      records([{ id: 'S1', verdict: 'pass' }], {
+        surface: 'android',
+        title: ANDROID_TITLE,
+        coverage: coverageOf({
+          key: 'A/one',
+          kind: 'presentation',
+          at: 1,
+          receivedAt: 2,
+          visibility: 'visible',
+          data: { path: 'unexpected', detail: 'an observed answer' }
+        })
+      }),
+      results([ANDROID_TITLE])
+    );
+    expect([run.status, run.stderr]).toEqual([0, '']);
   });
 
   it('passes the gate on a labelled mobile leg whose cells passed', () => {

@@ -282,9 +282,12 @@ describe('the leg coverage label', () => {
     expect(coverageOf(event({ path: presentationPath, detail }))).toEqual({ presentationPath, detail });
   });
 
-  it('labels an unknown answer and a missing one as other, saying what came', () => {
+  it('labels an observed unknown answer as other, saying what came', () => {
     expect(coverageOf(event({ path: 'something', detail: 'x' }))).toEqual({ presentationPath: 'other', detail: 'x' });
-    expect(coverageOf(null)).toEqual({ presentationPath: 'other', detail: 'no presentation answer within 35000 ms' });
+  });
+
+  it('leaves coverage unset when the presentation event never arrived', () => {
+    expect(coverageOf(null)).toBeUndefined();
   });
 });
 

@@ -229,9 +229,8 @@ export async function sheetBlock(rpcUrl: string, sheet: SeenSheet, ctx: CellCont
 }
 
 /** The leg's coverage label from dApp one's presentation event (C-R16). */
-export function coverageOf(event: PageEvent | null): LegCoverage {
-  if (event === null)
-    return { presentationPath: 'other', detail: `no presentation answer within ${PRESENTATION_MS} ms` };
+export function coverageOf(event: PageEvent | null): LegCoverage | undefined {
+  if (event === null) return undefined;
   const reported = event.data.path;
   const detail = event.data.detail;
   return {
