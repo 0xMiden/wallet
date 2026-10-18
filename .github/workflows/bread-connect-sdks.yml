@@ -19,6 +19,8 @@ on:
 
 permissions:
   contents: read
+  # The linked-PR injections list a dispatched branch's open pull request and read its description.
+  pull-requests: read
 
 concurrency:
   group: bread-connect-sdks-${{ github.event.pull_request.number || github.ref }}
@@ -28,11 +30,16 @@ jobs:
   packages:
     name: JS packages
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # 20 for the job, and 30 for building a linked web-sdk PR from source.
+    timeout-minutes: 50
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
+      - name: Inject linked web-sdk PR
+        uses: ./.github/actions/inject-linked-web-sdk-pr
+      - name: Inject linked guardian PR
+        uses: ./.github/actions/inject-linked-guardian-pr
       # The install's postinstall builds packages/bread-connect, which the adapter builds against.
       - name: Run Install
         uses: ./.github/actions/yarn-install
