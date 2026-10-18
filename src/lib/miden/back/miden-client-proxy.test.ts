@@ -133,7 +133,7 @@ function resetControl() {
     inlineIsOutputNoteConsumed: jest.fn(async () => false),
     inlineExportNote: jest.fn(async () => new Uint8Array([1, 2, 3])),
     inlineGetInputNoteDetails: jest.fn(async () => [{ __inlineDetail: true }]),
-    inlineGetDetailsCommitmentMatches: jest.fn(async () => ({ notes: [{ __inlineDetail: true }], uncommitted: 1 })),
+    inlineGetDetailsCommitmentMatches: jest.fn(async () => [{ notes: [{ __inlineDetail: true }], uncommitted: 1 }]),
     inlineGetConsumableNoteDtos: jest.fn(async () => [{ __inlineConsumable: true }]),
     inlineBuildPswapCancelRequest: jest.fn(async () => new Uint8Array([20, 14, 7, 6])),
     inlineConsumeNoteId: jest.fn(async () => ({ __inlineTxResult: true })),
@@ -950,25 +950,91 @@ describe('MidenClientProxy — slice-3 reads: getInputNoteDetails (plain-DTO rou
 
 // The records a details commitment names, read where the store lives (#1389).
 describe('MidenClientProxy - getDetailsCommitmentMatches', () => {
+  it('forwards a batch inline with its liveness check and preserves entry order', async () => {
+    const { midenClientProxy } = await loadProxy(false);
+    const assertLive = jest.fn();
+    const dto = [
+      { notes: [{ noteId: 'n9' }], uncommitted: 0 },
+      { notes: [], uncommitted: 1 }
+    ];
+    G.__px.inlineGetDetailsCommitmentMatches.mockResolvedValueOnce(dto);
+
+    await expect(
+      midenClientProxy.getDetailsCommitmentMatches(['0xcommitment', '0xother'], ['n9', 'n10'], assertLive)
+    ).resolves.toEqual(dto);
+
+    expect(G.__px.inlineGetDetailsCommitmentMatches).toHaveBeenCalledWith(
+      ['0xcommitment', '0xother'],
+      ['n9', 'n10'],
+      assertLive
+    );
+    expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('forwards a batch offscreen and decodes each result in order', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    const dto = [
+      { notes: [{ noteId: 'n9' }], uncommitted: 0 },
+      { notes: [], uncommitted: 1 }
+    ];
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: { op_id: string }) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: Buffer.from(JSON.stringify(dto)).toString('base64'),
+      durationMs: 1
+    }));
+
+    const pending = midenClientProxy.getDetailsCommitmentMatches(['0xcommitment', '0xother'], ['n9', 'n10']);
+    await flush();
+    fireReady();
+
+    await expect(pending).resolves.toEqual(dto);
+    expect(fakeChrome.runtime.sendMessage.mock.calls[0][0].argsB64).toEqual([
+      's:["0xcommitment","0xother"]',
+      's:["n9","n10"]'
+    ]);
+  });
+
+  it('returns one empty entry per requested commitment for a null offscreen reply', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: { op_id: string }) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: null,
+      durationMs: 1
+    }));
+
+    const pending = midenClientProxy.getDetailsCommitmentMatches(['0xcommitment', '0xother'], []);
+    await flush();
+    fireReady();
+
+    await expect(pending).resolves.toEqual([
+      { notes: [], uncommitted: 0 },
+      { notes: [], uncommitted: 0 }
+    ]);
+  });
+
   it('flag OFF goes inline, forwarding the commitment and the caller check', async () => {
     const { midenClientProxy } = await loadProxy(false);
     const assertLive = jest.fn();
 
-    const matches = await midenClientProxy.getDetailsCommitmentMatches('0xcommitment', assertLive);
+    const matches = await midenClientProxy.getDetailsCommitmentMatches(['0xcommitment'], ['n9'], assertLive);
 
-    expect(G.__px.inlineGetDetailsCommitmentMatches).toHaveBeenCalledWith('0xcommitment', assertLive);
-    expect(matches).toEqual({ notes: [{ __inlineDetail: true }], uncommitted: 1 });
+    expect(G.__px.inlineGetDetailsCommitmentMatches).toHaveBeenCalledWith(['0xcommitment'], ['n9'], assertLive);
+    expect(matches).toEqual([{ notes: [{ __inlineDetail: true }], uncommitted: 1 }]);
     expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
   });
 
   it('flag ON asks the offscreen client and parses the DTO it answers', async () => {
     const { midenClientProxy } = await loadProxy(true);
-    const dto = {
-      notes: [
-        { noteId: '0xreal', senderAccountId: 'mtst1qsender', assets: [], noteType: 0, nullifier: '0xn', state: 2 }
-      ],
-      uncommitted: 1
-    };
+    const dto = [
+      {
+        notes: [
+          { noteId: '0xreal', senderAccountId: 'mtst1qsender', assets: [], noteType: 0, nullifier: '0xn', state: 2 }
+        ],
+        uncommitted: 1
+      }
+    ];
     fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
       ok: true,
       op_id: env.op_id,
@@ -976,7 +1042,7 @@ describe('MidenClientProxy - getDetailsCommitmentMatches', () => {
       durationMs: 3
     }));
 
-    const p = midenClientProxy.getDetailsCommitmentMatches('0xcommitment', jest.fn());
+    const p = midenClientProxy.getDetailsCommitmentMatches(['0xcommitment'], ['0xreal'], jest.fn());
     await flush();
     fireReady();
     const matches = await p;
@@ -984,7 +1050,7 @@ describe('MidenClientProxy - getDetailsCommitmentMatches', () => {
     expect(G.__px.inlineGetDetailsCommitmentMatches).not.toHaveBeenCalled();
     const env = fakeChrome.runtime.sendMessage.mock.calls[0][0];
     expect(env.method).toBe('getDetailsCommitmentMatches');
-    expect(env.argsB64).toEqual(['s:"0xcommitment"']);
+    expect(env.argsB64).toEqual(['s:["0xcommitment"]', 's:["0xreal"]']);
     expect(matches).toEqual(dto);
   });
 
@@ -997,11 +1063,11 @@ describe('MidenClientProxy - getDetailsCommitmentMatches', () => {
       durationMs: 1
     }));
 
-    const p = midenClientProxy.getDetailsCommitmentMatches('0xcommitment');
+    const p = midenClientProxy.getDetailsCommitmentMatches(['0xcommitment'], []);
     await flush();
     fireReady();
 
-    await expect(p).resolves.toEqual({ notes: [], uncommitted: 0 });
+    await expect(p).resolves.toEqual([{ notes: [], uncommitted: 0 }]);
   });
 });
 

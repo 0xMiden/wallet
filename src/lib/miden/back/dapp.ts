@@ -928,6 +928,10 @@ function noteFilterTypeToQuery(filterType: NoteFilterTypes, noteIds?: string[]):
  * account and is withheld — but it can never over-report across accounts, which is
  * the property the user consented to. Intersecting also covers a caller that names
  * another account's note ids explicitly via `req.noteIds`.
+ *
+ * With the List filter, every requested id is also looked up as the details
+ * commitment `importPrivateNote` returns (#1536), hashing only this account's
+ * consumable notes. Matches are listed under their own note ids, once per note.
  */
 async function getPrivateNoteDetails(
   accountId: string,
@@ -942,12 +946,19 @@ async function getPrivateNoteDetails(
         const allNotes = await midenClientProxy.getInputNoteDetails(query, () =>
           assertWasmHoldCurrent(hold, 'inside the private-note read, before the record reach-through')
         );
-        // Between the two reads: an eviction during the note-details read hands
-        // the mutex to a successor without stopping this callback, and the
-        // consumability read below would then run inside a client somebody else
-        // is inside. Both reads return plain DTOs, so this is the only WASM
-        // transition left to guard.
+        // An eviction hands the mutex to a successor without stopping this callback,
+        // so every subsequent client read must first prove this hold is still current.
         assertWasmHoldCurrent(hold, 'after the private-note read');
+        const listed = notefilterType === NoteFilterTypes.List ? (noteIds ?? []) : [];
+        // Every listed id is looked up as a commitment too, found by the id read or not, so an id another account
+        // holds takes the same path as one nobody holds and the timing tells a dApp nothing about other accounts.
+        const asked = new Set<string>();
+        const commitments = listed.filter(id => {
+          const key = normalizedCommitment(id);
+          if (asked.has(key)) return false;
+          asked.add(key);
+          return true;
+        });
         const ownNoteIds = new Set(
           (
             await midenClientProxy.getConsumableNotes(accountId, step =>
@@ -955,8 +966,31 @@ async function getPrivateNoteDetails(
             )
           ).flatMap(note => (note.noteId ? [note.noteId] : []))
         );
+        if (commitments.length > 0) assertWasmHoldCurrent(hold, 'after the consumable-notes read');
+        const byCommitment =
+          commitments.length === 0
+            ? []
+            : (
+                await midenClientProxy.getDetailsCommitmentMatches(commitments, [...ownNoteIds], () =>
+                  assertWasmHoldCurrent(
+                    hold,
+                    'inside the private-note details-commitment read, before the record reach-through'
+                  )
+                )
+              ).flatMap(match => match.notes);
+        const candidates = [...allNotes, ...byCommitment];
+        const seen = new Set<string>();
+        const uniqueCandidates =
+          notefilterType === NoteFilterTypes.List
+            ? candidates.filter(note => {
+                const id = normalizedCommitment(note.noteId);
+                if (seen.has(id)) return false;
+                seen.add(id);
+                return true;
+              })
+            : candidates;
         // `restriction` is the wallet's own consume guard, not note data the user agreed to share.
-        return allNotes
+        return uniqueCandidates
           .filter(note => note.noteType === NoteType.Private && ownNoteIds.has(note.noteId))
           .map(({ restriction: _restriction, ...note }) => note);
       });
@@ -3246,23 +3280,23 @@ async function resolveConsumeNote(
 /**
  * The note of this account whose details commitment is `commitment`: the id `importPrivateNote` returns for a
  * details-only note file or a bare Note, which no record has as its note id (#1389). Only a note this account can
- * consume counts, the same attribution {@link getPrivateNoteDetails} uses, so the id never resolves to another
- * account's note. An uncommitted match remains unresolved until a wallet sync supplies its metadata.
+ * consume is listed and hashed, the same attribution {@link getPrivateNoteDetails} uses, so the id never resolves
+ * to another account's note. An uncommitted match remains unresolved until a wallet sync supplies its metadata.
  */
 async function noteOfDetailsCommitment(
   commitment: string,
   accountId: string,
   hold: WasmLockHold
 ): Promise<DetailsCommitmentMatches['notes'][number] | undefined> {
-  const { notes } = await midenClientProxy.getDetailsCommitmentMatches(commitment, () =>
+  const consumable = await midenClientProxy.getConsumableNotes(accountId, step =>
+    assertWasmHoldCurrent(hold, 'inside the details-commitment consumable-notes read', step)
+  );
+  assertWasmHoldCurrent(hold, 'after the details-commitment consumable-notes read');
+  const own = new Set(consumable.flatMap(note => (note.noteId ? [note.noteId] : [])));
+  const [{ notes } = { notes: [] }] = await midenClientProxy.getDetailsCommitmentMatches([commitment], [...own], () =>
     assertWasmHoldCurrent(hold, 'inside the details-commitment read, before the record reach-through')
   );
   if (notes.length > 0) {
-    assertWasmHoldCurrent(hold, 'after the details-commitment read');
-    const consumable = await midenClientProxy.getConsumableNotes(accountId, step =>
-      assertWasmHoldCurrent(hold, 'inside the details-commitment consumable-notes read', step)
-    );
-    const own = new Set(consumable.map(note => note.noteId));
     const [note, ...more] = notes.filter(candidate => own.has(candidate.noteId));
     if (more.length > 0) {
       throw new Error(`Note ${commitment} names more than one note this account can consume - refusing to preview it`);

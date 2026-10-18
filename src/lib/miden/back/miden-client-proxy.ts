@@ -1194,16 +1194,22 @@ export const midenClientProxy = {
   },
 
   /**
-   * The records a details commitment names (#1389), as plain DTOs in the realm that owns the store, the same way as
-   * {@link getInputNoteDetails}. `assertLive` goes to the inline branch only, for the reason given there.
+   * The candidate records for each details commitment (#1389), as plain DTOs in the realm that owns the store,
+   * scoped by candidate note ids like {@link getInputNoteDetails}. `assertLive` goes to the inline branch only.
    */
-  async getDetailsCommitmentMatches(commitment: string, assertLive?: AssertLive): Promise<DetailsCommitmentMatches> {
+  async getDetailsCommitmentMatches(
+    commitments: string[],
+    candidateIds: string[],
+    assertLive?: AssertLive
+  ): Promise<DetailsCommitmentMatches[]> {
     if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
-      return (await getMidenClient()).getDetailsCommitmentMatches(commitment, assertLive);
+      return (await getMidenClient()).getDetailsCommitmentMatches(commitments, candidateIds, assertLive);
     }
-    const resultB64 = await this.call('getDetailsCommitmentMatches', [commitment], { deadlineMs: READ_DEADLINE_MS });
-    if (resultB64 == null) return { notes: [], uncommitted: 0 };
-    const matches: DetailsCommitmentMatches = JSON.parse(new TextDecoder().decode(b64ToBytes(resultB64)));
+    const resultB64 = await this.call('getDetailsCommitmentMatches', [commitments, candidateIds], {
+      deadlineMs: READ_DEADLINE_MS
+    });
+    if (resultB64 == null) return commitments.map(() => ({ notes: [], uncommitted: 0 }));
+    const matches: DetailsCommitmentMatches[] = JSON.parse(new TextDecoder().decode(b64ToBytes(resultB64)));
     return matches;
   },
 

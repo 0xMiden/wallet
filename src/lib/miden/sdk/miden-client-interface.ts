@@ -229,11 +229,11 @@ export type FungibleAssetDetails = {
   faucetId: string;
 };
 
-/** What {@link MidenClientInterface.getDetailsCommitmentMatches} finds for one details commitment. */
+/** What {@link MidenClientInterface.getDetailsCommitmentMatches} finds among the candidates for each commitment. */
 export type DetailsCommitmentMatches = {
-  /** The matching records that have metadata, and so a note id. */
+  /** The matching candidate records that reduce to note details. */
   notes: InputNoteDetails[];
-  /** The matching records with no metadata yet: imported from details alone, and not committed by a sync. */
+  /** The matching candidates that cannot yet be reduced: imported from details alone, not committed by a sync. */
   uncommitted: number;
 };
 
@@ -1487,19 +1487,27 @@ export class MidenClientInterface {
   }
 
   /**
-   * The records whose details commitment is `commitment`, the id {@link importNoteBytes} returns for a details-only
-   * file (#1389). The store has no lookup by it that the SDK exposes, so every record is listed and hashed.
+   * The records for each commitment, the id {@link importNoteBytes} returns for a details-only file (#1389).
+   * Results follow the requested order. Only candidate note ids are listed and hashed, once per record.
+   * No records are listed when the candidate ids are empty.
    */
   async getDetailsCommitmentMatches(
-    commitment: string,
+    commitments: string[],
+    candidateIds: string[],
     assertLive: AssertLive = noAssertLive
-  ): Promise<DetailsCommitmentMatches> {
-    const records = await this.client.notes.list();
+  ): Promise<DetailsCommitmentMatches[]> {
+    const records = candidateIds.length === 0 ? [] : await this.client.notes.list({ ids: candidateIds });
     assertLive();
-    const wanted = normalizedCommitment(commitment);
-    const matching = records.filter(record => noteDetailsCommitment(record.details()) === wanted);
-    const notes = matching.flatMap(reduceInputNoteDetails);
-    return { notes, uncommitted: matching.length - notes.length };
+    const byCommitment = new Map<string, InputNoteRecord[]>();
+    for (const record of records) {
+      const commitment = noteDetailsCommitment(record.details());
+      byCommitment.set(commitment, [...(byCommitment.get(commitment) ?? []), record]);
+    }
+    return commitments.map(commitment => {
+      const matching = byCommitment.get(normalizedCommitment(commitment)) ?? [];
+      const notes = matching.flatMap(reduceInputNoteDetails);
+      return { notes, uncommitted: matching.length - notes.length };
+    });
   }
 
   async syncState(assertLive: AssertLive = noAssertLive) {
