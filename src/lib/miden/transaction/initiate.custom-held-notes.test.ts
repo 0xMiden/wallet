@@ -81,7 +81,9 @@ describe('requestCustomTransaction records the notes the row will consume', () =
 
     const rows = await Repo.transactions.toArray();
     expect(rows).toHaveLength(1);
-    expect(error.transactionId).toBe(rows[0].id);
+    const [row] = rows;
+    if (row === undefined) throw new Error('Expected one persisted transaction');
+    expect(error.transactionId).toBe(row.id);
     expect(error.cause).toBe(queueError);
   });
 });

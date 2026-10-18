@@ -252,6 +252,7 @@ jest.mock('nanoid', () => {
 
 import * as dapp from './dapp';
 import { _resetLockedPromptCooldownsForTest, WALLET_LOCKED_REFUSAL } from './dapp-locked';
+import { OperationAbortedError } from './offscreen-codec';
 
 const UNLOCKED_CONTEXT = { vault: { signData: mockSignData } };
 
@@ -571,6 +572,53 @@ describe('requestConsumeTransaction — mobile error branches', () => {
     amount: '50'
   };
 
+  const poison = new WasmClientPoisonedError('watchdog', new Error('read parked'));
+  const abort = new OperationAbortedError('op-1378', 'deadline');
+  const terminated = new Error('Client terminated');
+  const webTerminated = new Error('WebClient terminated');
+  const killCases: ReadonlyArray<[string, Error, Error]> = [
+    ['a watchdog eviction', poison, poison],
+    ['an offscreen abort', abort, abort],
+    ['a terminated client', terminated, terminated],
+    ['a terminated web client', webTerminated, webTerminated],
+    ['a cause-wrapped poison', new Error('INVALID_PARAMS: preview wrapper', { cause: poison }), poison]
+  ];
+
+  it.each(killCases)('passes through %s from the consume preview read', async (_label, error, kill) => {
+    mockGetInputNoteDetails.mockRejectedValueOnce(error);
+
+    await expect(
+      dapp.requestConsumeTransaction('https://miden.xyz', {
+        type: MidenDAppMessageType.ConsumeRequest,
+        sourcePublicKey: 'miden-account-1',
+        transaction: validTx
+      } as never)
+    ).rejects.toBe(kill);
+    expect(mockGetInputNoteDetails).toHaveBeenCalledTimes(1);
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+    expect(mockInitiateConsumeTransactionFromId).not.toHaveBeenCalled();
+  });
+
+  it.each(killCases)('passes through %s from the carried-note decode lock', async (_label, error, kill) => {
+    const lock = jest.requireMock('../sdk/miden-client');
+    const decodeLock = jest.spyOn(lock, 'withWasmClientLock').mockRejectedValueOnce(error);
+    try {
+      await expect(
+        dapp.requestConsumeTransaction('https://miden.xyz', {
+          type: MidenDAppMessageType.ConsumeRequest,
+          sourcePublicKey: 'miden-account-1',
+          transaction: { ...validTx, noteBytes: 'c29tZW5vdGVieXRlcw==' }
+        } as never)
+      ).rejects.toBe(kill);
+      expect(decodeLock).toHaveBeenCalledTimes(1);
+      expect(mockGetInputNoteDetails).not.toHaveBeenCalled();
+      expect(mockRequestConfirmation).not.toHaveBeenCalled();
+      expect(mockInitiateConsumeTransactionFromId).not.toHaveBeenCalled();
+    } finally {
+      decodeLock.mockRestore();
+    }
+  });
+
   it('rejects when consume preview fails (getTokenMetadata throws)', async () => {
     mockGetTokenMetadata.mockRejectedValueOnce(new Error('metadata-fail'));
     await expect(
@@ -853,6 +901,27 @@ describe('requestConsumeTransaction — mobile error branches', () => {
         await expect(consumeWithBytes()).rejects.toBe(kill);
         expect(mockImportNoteBytes).not.toHaveBeenCalled();
       });
+
+      it('passes a cause-wrapped kill through the fallback decode after approval', async () => {
+        const kill = new WasmClientPoisonedError('watchdog', new Error('fallback decode parked'));
+        const error = new Error('INVALID_PARAMS: decode wrapper', { cause: kill });
+        const lock = jest.requireMock('../sdk/miden-client');
+        const originalLock = lock.withWasmClientLock;
+        const decodeLock = jest.spyOn(lock, 'withWasmClientLock');
+        mockRequestConfirmation.mockImplementationOnce(async () => {
+          decodeLock.mockImplementationOnce(originalLock).mockRejectedValueOnce(error);
+          return { confirmed: true, delegate: true };
+        });
+
+        try {
+          await expect(consumeWithBytes()).rejects.toBe(kill);
+          expect(mockRequestConfirmation).toHaveBeenCalledTimes(1);
+          expect(mockImportNoteBytes).not.toHaveBeenCalled();
+          expect(mockInitiateConsumeTransactionFromId).not.toHaveBeenCalled();
+        } finally {
+          decodeLock.mockRestore();
+        }
+      });
     });
 
     it('refuses a carried note another transaction holds rather than answer with that transaction', async () => {
@@ -877,6 +946,15 @@ describe('requestConsumeTransaction — mobile error branches', () => {
     it('rejects with the kill itself, not InvalidParams, when the import is evicted', async () => {
       const kill = new WasmClientPoisonedError('watchdog', new Error('import parked'));
       mockImportNoteBytes.mockRejectedValueOnce(kill);
+
+      await expect(consumeWithBytes()).rejects.toBe(kill);
+      expect(mockQueueNoteImport).toHaveBeenCalledWith(noteBytes);
+      expect(mockInitiateConsumeTransactionFromId).not.toHaveBeenCalled();
+    });
+
+    it('queues carried bytes and passes through the inner kill when their approved import fails', async () => {
+      const kill = new WasmClientPoisonedError('watchdog', new Error('import parked'));
+      mockImportNoteBytes.mockRejectedValueOnce(new Error('INVALID_PARAMS: import wrapper', { cause: kill }));
 
       await expect(consumeWithBytes()).rejects.toBe(kill);
       expect(mockQueueNoteImport).toHaveBeenCalledWith(noteBytes);
@@ -1220,6 +1298,22 @@ describe('requestSendTransaction — mobile error branches', () => {
     noteType: 'Private',
     amount: '100'
   };
+
+  it('passes a cause-wrapped spending-limit read kill through before approval', async () => {
+    const kill = new WasmClientPoisonedError('watchdog', new Error('policy read parked'));
+    mockAssessOutgoingSpendingLimitDetails.mockRejectedValueOnce(new Error('NOT_GRANTED', { cause: kill }));
+
+    await expect(
+      dapp.requestSendTransaction('https://miden.xyz', {
+        type: MidenDAppMessageType.SendTransactionRequest,
+        sourcePublicKey: 'miden-account-1',
+        transaction: validTx
+      } as never)
+    ).rejects.toBe(kill);
+    expect(mockAssessOutgoingSpendingLimitDetails).toHaveBeenCalledTimes(1);
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+    expect(mockInitiateSendTransaction).not.toHaveBeenCalled();
+  });
 
   it('rejects when format preview throws', async () => {
     mockWithUnlocked.mockRejectedValueOnce(new Error('preview-fail'));

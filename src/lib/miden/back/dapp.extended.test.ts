@@ -17,6 +17,7 @@ import PQueue from 'p-queue';
 
 import { MidenDAppMessageType, MidenDAppErrorType } from 'lib/adapter/types';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
+import { TransactionQueuedError } from 'lib/miden/transaction/initiate';
 import { DEFAULT_DELEGATE_PROOF } from 'lib/settings/constants';
 import { WalletStatus } from 'lib/shared/types';
 
@@ -234,6 +235,7 @@ jest.mock('@miden-sdk/miden-wallet-adapter-base', () => ({
 
 import * as dapp from './dapp';
 import { _resetLockedPromptCooldownsForTest, WALLET_LOCKED_REFUSAL } from './dapp-locked';
+import { OperationAbortedError } from './offscreen-codec';
 
 const UNLOCKED_CONTEXT = { vault: { signData: jest.fn(async () => 'fake-sig-base64') } };
 
@@ -303,6 +305,34 @@ beforeEach(() => {
 // ── requestSign ────────────────────────────────────────────────────
 
 describe('requestSign', () => {
+  const poison = new WasmClientPoisonedError('watchdog', new Error('sign parked'));
+  const abort = new OperationAbortedError('op-1378', 'deadline');
+  const terminated = new Error('Client terminated');
+  const webTerminated = new Error('WebClient terminated');
+
+  it.each<[string, Error, Error]>([
+    ['a watchdog eviction', poison, poison],
+    ['an offscreen abort', abort, abort],
+    ['a terminated client', terminated, terminated],
+    ['a terminated web client', webTerminated, webTerminated],
+    ['a cause-wrapped poison', new Error('NOT_GRANTED: sign wrapper', { cause: poison }), poison]
+  ])('passes through %s from vault.signData after approval', async (_label, error, kill) => {
+    const signData = jest.fn().mockRejectedValueOnce(error);
+    mockWithUnlocked.mockImplementation(async (fn: (ctx: unknown) => unknown) => fn({ vault: { signData } }));
+
+    await expect(
+      dapp.requestSign('https://miden.xyz', {
+        type: MidenDAppMessageType.SignRequest,
+        sourcePublicKey: 'miden-account-1',
+        sourceAccountId: 'miden-account-1',
+        payload: 'aGVsbG8=',
+        kind: 'word'
+      })
+    ).rejects.toBe(kill);
+    expect(mockRequestConfirmation).toHaveBeenCalledTimes(1);
+    expect(signData).toHaveBeenCalledTimes(1);
+  });
+
   it('throws InvalidParams when sourcePublicKey is missing', async () => {
     await expect(
       dapp.requestSign('https://miden.xyz', {
@@ -996,6 +1026,22 @@ describe('requestAssets', () => {
 // ── requestImportPrivateNote ───────────────────────────────────────
 
 describe('requestImportPrivateNote', () => {
+  it('queues an approved import with a cause-wrapped poison and rejects with the inner kill', async () => {
+    const kill = new WasmClientPoisonedError('watchdog', new Error('note import parked'));
+    mockImportNoteBytes.mockRejectedValueOnce(new Error('INVALID_PARAMS: import wrapper', { cause: kill }));
+    mockQueueNoteImport.mockResolvedValueOnce(undefined);
+
+    await expect(
+      dapp.requestImportPrivateNote('https://miden.xyz', {
+        type: MidenDAppMessageType.ImportPrivateNoteRequest,
+        sourcePublicKey: 'miden-account-1',
+        note: 'aGVsbG8='
+      })
+    ).rejects.toBe(kill);
+    expect(mockRequestConfirmation).toHaveBeenCalledTimes(1);
+    expect(mockQueueNoteImport).toHaveBeenCalledWith('aGVsbG8=');
+  });
+
   it('throws InvalidParams when sourcePublicKey is missing', async () => {
     await expect(
       dapp.requestImportPrivateNote('https://miden.xyz', {
@@ -1239,6 +1285,87 @@ describe('requestTransaction', () => {
 });
 
 // ── requestSendTransaction ─────────────────────────────────────────
+
+describe.each(['send', 'custom'])('a non-extension %s preview kill (#1378)', kind => {
+  it.each([false, true])('preserves the inner kill with a cause wrapper: %s', async wrapped => {
+    const kill = new WasmClientPoisonedError('watchdog', new Error('preview parked'));
+    const error = wrapped ? new Error('INVALID_PARAMS: preview wrapper', { cause: kill }) : kill;
+    mockWithUnlocked.mockRejectedValueOnce(error);
+
+    const answer =
+      kind === 'send'
+        ? dapp.requestSendTransaction('https://miden.xyz', {
+            type: MidenDAppMessageType.SendTransactionRequest,
+            sourcePublicKey: 'miden-account-1',
+            transaction: {
+              senderAddress: 'miden-account-1',
+              recipientAddress: 'bob',
+              faucetId: 'faucet-1',
+              noteType: 'Private',
+              amount: '100'
+            }
+          } as never)
+        : dapp.requestTransaction('https://miden.xyz', {
+            type: MidenDAppMessageType.TransactionRequest,
+            sourcePublicKey: 'miden-account-1',
+            transaction: { payload: { address: 'miden-account-1', transactionRequest: 'base64req' } }
+          } as never);
+
+    await expect(answer).rejects.toBe(kill);
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+    expect(mockInitiateSendTransaction).not.toHaveBeenCalled();
+    expect(mockRequestCustomTransaction).not.toHaveBeenCalled();
+  });
+});
+
+describe.each(['send', 'custom'])('an approved non-extension %s failure (#1378)', kind => {
+  const queuedMessage = 'OUTCOME_UNKNOWN: transaction tx-1 may already be queued; wait for it before sending again';
+  const killMessage =
+    'OUTCOME_UNKNOWN: the wallet could not confirm whether the transaction was queued; check before sending again';
+  const poison = new WasmClientPoisonedError('watchdog', new Error('write parked'));
+  const queued = new TransactionQueuedError('tx-1', { cause: poison });
+
+  it.each<[string, Error, string]>([
+    ['a queued transaction', queued, queuedMessage],
+    ['a cause-wrapped queued transaction', new Error('NOT_GRANTED', { cause: queued }), queuedMessage],
+    ['a kill carrying a queued transaction', new WasmClientPoisonedError('watchdog', queued), queuedMessage],
+    ['a watchdog eviction', poison, killMessage],
+    ['an offscreen abort', new OperationAbortedError('op-1378', 'deadline'), killMessage],
+    ['a terminated client', new Error('Client terminated'), killMessage],
+    ['a terminated web client', new Error('WebClient terminated'), killMessage],
+    ['a cause-wrapped poison', new Error('NOT_GRANTED', { cause: poison }), killMessage],
+    ['an authorization refusal', new Error(MidenDAppErrorType.NotGranted), 'NOT_GRANTED']
+  ])('reports %s with the exact outcome message', async (_label, error, message) => {
+    const initiate = kind === 'send' ? mockInitiateSendTransaction : mockRequestCustomTransaction;
+    initiate.mockRejectedValueOnce(error);
+
+    const answer =
+      kind === 'send'
+        ? dapp.requestSendTransaction('https://miden.xyz', {
+            type: MidenDAppMessageType.SendTransactionRequest,
+            sourcePublicKey: 'miden-account-1',
+            transaction: {
+              senderAddress: 'miden-account-1',
+              recipientAddress: 'bob',
+              faucetId: 'faucet-1',
+              noteType: 'Private',
+              amount: '100'
+            }
+          } as never)
+        : dapp.requestTransaction('https://miden.xyz', {
+            type: MidenDAppMessageType.TransactionRequest,
+            sourcePublicKey: 'miden-account-1',
+            transaction: {
+              payload: { address: 'miden-account-1', recipientAddress: 'bob', transactionRequest: 'base64req' }
+            }
+          } as never);
+
+    await expect(answer).rejects.toEqual(new Error(message));
+    expect(mockRequestConfirmation).toHaveBeenCalledTimes(1);
+    expect(initiate).toHaveBeenCalledTimes(1);
+    expect(mockStartTransactionProcessing).not.toHaveBeenCalled();
+  });
+});
 
 describe('requestSendTransaction', () => {
   const validTx = {
@@ -1949,6 +2076,41 @@ describe('requestPermission (mobile)', () => {
 // ── Watchdog eviction mid-flow (#788 follow-up) ────────────────────
 
 describe('a watchdog eviction mid-read abandons the dApp flow instead of double-borrowing', () => {
+  it.each(['assets', 'consumable notes', 'private notes'])('%s returns a cause-wrapped kill link', async kind => {
+    storageState[STORAGE_KEY] = {
+      'https://miden.xyz': [{ ...SESSION, privateDataPermission: 'AUTO', allowedPrivateData: 65535 }]
+    };
+    const kill = new WasmClientPoisonedError('watchdog', new Error('read parked'));
+    const read =
+      kind === 'assets'
+        ? mockGetAccount
+        : kind === 'consumable notes'
+          ? mockGetConsumableNotes
+          : mockGetInputNoteDetails;
+    read.mockRejectedValueOnce(new Error('NOT_FOUND: read wrapper', { cause: kill }));
+
+    const answer =
+      kind === 'assets'
+        ? dapp.requestAssets('https://miden.xyz', {
+            type: MidenDAppMessageType.AssetsRequest,
+            sourcePublicKey: 'miden-account-1'
+          })
+        : kind === 'consumable notes'
+          ? dapp.requestConsumableNotes('https://miden.xyz', {
+              type: MidenDAppMessageType.ConsumableNotesRequest,
+              sourcePublicKey: 'miden-account-1'
+            })
+          : dapp.requestPrivateNotes('https://miden.xyz', {
+              type: MidenDAppMessageType.PrivateNotesRequest,
+              sourcePublicKey: 'miden-account-1',
+              notefilterType: NoteFilterTypes.All
+            });
+
+    await expect(answer).rejects.toBe(kill);
+    expect(read).toHaveBeenCalledTimes(1);
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+  });
+
   // Each test revokes hold ownership from INSIDE the parking client call — the
   // moment the real watchdog hands the mutex to a successor — and pins that the
   // next WASM step never runs (that call would be a second borrow of a client

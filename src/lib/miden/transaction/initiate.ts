@@ -64,6 +64,17 @@ export class ClaimInsertRefusedError extends Error {
   }
 }
 
+/** A custom transaction inserted before a carried-note import failed; callers must retain its queued id. */
+export class TransactionQueuedError extends Error {
+  readonly transactionId: string;
+
+  constructor(transactionId: string, options: { cause: unknown }) {
+    super(`Transaction ${transactionId} is queued but its carried notes could not be queued`, options);
+    this.name = 'TransactionQueuedError';
+    this.transactionId = transactionId;
+  }
+}
+
 export const requestCustomTransaction = async (
   accountId: string,
   transactionRequestBytes: string,
