@@ -118,22 +118,81 @@ const BALANCE_LANDING_MS = 60_000;
  * again each second until `balancesLastFetched` moves.
  */
 export async function accountRows(wallet: MobileWallet, deadline?: Deadline): Promise<CurrentAccountRows> {
-  await stashAndPoll<boolean>(
+  const account = await stashAndPoll<string>(
     evalOf(wallet, deadline),
     '__dapp_balances',
-    `(async function () { ${STORE} var pk = st.currentAccount && st.currentAccount.publicKey; ` +
-      `if (!pk) throw new Error('the store has no current account'); ` +
-      `var stamp = function () { return (s.getState().balancesLastFetched || {})[pk] || 0; }; ` +
-      `var before = stamp(); var until = Date.now() + ${BALANCE_LANDING_MS}; ` +
-      `for (;;) { var now = s.getState(); await now.fetchBalances(pk, now.assetsMetadata); ` +
-      `if (stamp() > before) return true; ` +
-      `if (Date.now() >= until) throw new Error('no balance read of ' + pk + ' landed within ${BALANCE_LANDING_MS} ms'); ` +
-      `await new Promise(function (resolve) { setTimeout(resolve, 1000); }); } })()`,
+    `(async function () { ${STORE}
+      var pk = st.currentAccount && st.currentAccount.publicKey;
+      if (!pk) throw new Error('the store has no current account');
+      if (typeof window.__TEST_BALANCE_READ_STATE__ !== 'function')
+        throw new Error('the E2E balance read state hook is missing');
+      var stamp = function () { return (s.getState().balancesLastFetched || {})[pk] || 0; };
+      var state = function () {
+        var now = s.getState();
+        return { account: (now.currentAccount && now.currentAccount.publicKey) || null,
+          stamp: stamp(), cached: (now.balances || {})[pk] !== undefined,
+          read: window.__TEST_BALANCE_READ_STATE__(pk) };
+      };
+      var checkAccount = function () {
+        var current = state().account;
+        if (current !== pk) throw new Error('current account changed from ' + pk + ' to ' +
+          (current || 'none') + ' during balance read');
+      };
+      var before = stamp(); var initial = state(); var attempts = [];
+      var until = Date.now() + ${BALANCE_LANDING_MS}; var stopped = false; var timer;
+      var timeoutMessage = 'no balance read of ' + pk + ' landed within ${BALANCE_LANDING_MS} ms';
+      var timeout = new Promise(function (_, reject) {
+        timer = setTimeout(function () { reject(new Error(timeoutMessage)); }, ${BALANCE_LANDING_MS});
+      });
+      var work = (async function () {
+        for (;;) {
+          if (stopped) return pk;
+          checkAccount();
+          if (Date.now() >= until) throw new Error(timeoutMessage);
+          var attempt = { number: attempts.length + 1, startedAt: Date.now(), outcome: 'pending', before: state() };
+          attempts.push(attempt);
+          try {
+            var now = s.getState(); await now.fetchBalances(pk, now.assetsMetadata);
+            attempt.after = state();
+            attempt.outcome = stamp() > before ? 'landed' :
+              attempt.before.read.inFlight ? 'in-flight' : attempt.before.read.fused ? 'fused' :
+              attempt.before.read.lock !== null && attempt.before.cached ? 'lock-busy' : 'returned-without-stamp';
+          } catch (error) {
+            attempt.outcome = 'rejected'; attempt.error = String((error && error.message) || error);
+            attempt.after = state(); throw error;
+          } finally { attempt.durationMs = Date.now() - attempt.startedAt; }
+          if (stopped) return pk;
+          checkAccount();
+          if (Date.now() >= until) throw new Error(timeoutMessage);
+          if (stamp() > before) return pk;
+          await new Promise(function (resolve) { setTimeout(resolve, Math.min(1000, until - Date.now())); });
+        }
+      })();
+      try { return await Promise.race([work, timeout]); }
+      catch (error) {
+        // Cell errors stop at 2,000 characters; columns and shared states retain every attempt.
+        var outcomeKey = ['landed', 'in-flight', 'fused', 'lock-busy', 'returned-without-stamp', 'rejected', 'pending'];
+        var states = []; var stateIds = []; var outcomes = []; var durations = [];
+        attempts.forEach(function (attempt) {
+          var read = JSON.stringify(attempt.before.read);
+          var id = states.findIndex(function (value) { return JSON.stringify(value) === read; });
+          if (id < 0) { id = states.length; states.push(attempt.before.read); }
+          stateIds.push(id); outcomes.push(outcomeKey.indexOf(attempt.outcome));
+          durations.push(attempt.outcome === 'pending' ? Date.now() - attempt.startedAt : attempt.durationMs);
+        });
+        throw new Error(String((error && error.message) || error) + '; balanceRead=' + JSON.stringify({
+          observedAccount: pk, initialStamp: before, finalStamp: stamp(), initial: initial, final: state(),
+          attempts: { durationMs: durations, outcome: outcomes, state: stateIds, outcomeKey: outcomeKey }, states: states
+        }));
+      } finally { stopped = true; clearTimeout(timer); }
+    })()`,
     // Past the page's own deadline, so its error names the account rather than the poll timing out.
     BALANCE_LANDING_MS + 5_000
   );
   const view = await evalOf(wallet, deadline)<CurrentAccountRows | null>(CURRENT_ACCOUNT_ROWS_JS);
-  if (view === null) throw new Error('the store has no current account');
+  if (view === null || view.account !== account) {
+    throw new Error(`current account changed from ${account} to ${view?.account ?? 'none'} after balance read`);
+  }
   return view;
 }
 
