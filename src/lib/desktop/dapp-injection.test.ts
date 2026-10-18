@@ -603,7 +603,7 @@ describe('login key', () => {
     expect(Array.from(sig)).toEqual(Array.from(signature));
   });
 
-  it('rejects with the refusal code as text', async () => {
+  it('rejects a refusal with the extension error class and message', async () => {
     const h = await connected();
     const refusal = "LOGIN_KEY_UNAVAILABLE: this account's root key is not on this device";
     const refuse = () =>
@@ -613,10 +613,10 @@ describe('login key', () => {
 
     const keyRequest = h.win.midenWallet.requestLoginKey();
     refuse();
-    await expect(keyRequest).rejects.toThrow('LOGIN_KEY_UNAVAILABLE');
+    await expect(keyRequest).rejects.toMatchObject({ name: new MidenWalletError().name, message: refusal });
 
     const signRequest = h.win.midenWallet.signLoginBytes(new Uint8Array(32), 'word');
     refuse();
-    await expect(signRequest).rejects.toThrow('LOGIN_KEY_UNAVAILABLE');
+    await expect(signRequest).rejects.toMatchObject({ name: new MidenWalletError().name, message: refusal });
   });
 });
