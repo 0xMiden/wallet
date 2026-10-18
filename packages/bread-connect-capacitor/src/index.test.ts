@@ -1,4 +1,6 @@
 import { PrivateDataPermission, WalletAdapterNetwork } from '@miden-sdk/miden-wallet-adapter-base';
+import { readFileSync } from 'fs';
+import { join } from 'path';
 
 import { BreadConnectWallet, capacitorLinks, installBreadConnect, openWithPlugin } from './index.js';
 
@@ -97,5 +99,25 @@ describe('openWithPlugin', () => {
     await expect(openWithPlugin('https://bread.miden.xyz/request#v=1&m=x')).resolves.toBe(true);
     expect(mockOpenWallet).toHaveBeenCalledWith({ url: 'https://bread.miden.xyz/request#v=1&m=x' });
     await expect(openWithPlugin('https://bread.miden.xyz/request#v=1&m=x')).resolves.toBe(false);
+  });
+});
+
+describe('the native package an app installs', () => {
+  // Capacitor's CLI adds the plugin to an iOS app under its own name for the npm package: the app's CapApp-SPM
+  // manifest asks for a Swift package and library of that name, and its Podfile for a pod of that name.
+  const { fixName } = jest.requireActual<{ fixName(name: string): string }>('@capacitor/cli/dist/plugin');
+  const read = (file: string) => readFileSync(join(__dirname, '..', file), 'utf8');
+  const manifest: { name: string; files: string[] } = JSON.parse(read('package.json'));
+  const name = fixName(manifest.name);
+
+  it('names its Swift package and its library as the Capacitor CLI does', () => {
+    const swift = read('Package.swift');
+    expect(swift.match(/Package\(\s*name: "([^"]+)"/)?.[1]).toBe(name);
+    expect([...swift.matchAll(/\.library\(\s*name: "([^"]+)"/g)].map(match => match[1])).toEqual([name]);
+  });
+
+  it('ships its podspec under the name the Capacitor CLI gives the pod', () => {
+    expect(manifest.files).toContain(`${name}.podspec`);
+    expect(read(`${name}.podspec`)).toContain(`s.name = '${name}'`);
   });
 });

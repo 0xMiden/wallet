@@ -20,7 +20,7 @@
     "android/src/main/",
     "android/build.gradle",
     "Package.swift",
-    "MidenBreadConnect.podspec"
+    "MidenSdkBreadConnectCapacitor.podspec"
   ],
   "scripts": {
     "build": "tsc --project tsconfig.json",

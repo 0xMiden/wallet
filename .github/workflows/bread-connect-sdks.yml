@@ -93,7 +93,7 @@ jobs:
         working-directory: packages/bread-connect-capacitor
         run: |
           xcodebuild build \
-            -scheme MidenBreadConnect \
+            -scheme MidenSdkBreadConnectCapacitor \
             -sdk iphonesimulator \
             -destination 'generic/platform=iOS Simulator' \
             CODE_SIGNING_ALLOWED=NO

@@ -2,11 +2,11 @@
 import PackageDescription
 
 let package = Package(
-    name: "MidenBreadConnect",
+    name: "MidenSdkBreadConnectCapacitor",
     platforms: [.iOS(.v15)],
     products: [
         .library(
-            name: "MidenBreadConnect",
+            name: "MidenSdkBreadConnectCapacitor",
             targets: ["BreadConnectPlugin"])
     ],
     dependencies: [
