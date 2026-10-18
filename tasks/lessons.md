@@ -66,3 +66,5 @@
 
 - Store complete diagnostic traces in structured runner evidence. Test the actual written record with realistic state sizes instead of assuming compact error text survives truncation.
 - Optional diagnostic hooks must never gate the underlying read. Audit indirect callers and preserve existing failure classes when adding observations.
+
+- With noUncheckedIndexedAccess, every Record and array lookup can be undefined even in a populated fixture. Narrow the value before assigning it to a required element type; a passing Jest run does not verify this TypeScript constraint.

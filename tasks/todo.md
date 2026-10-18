@@ -437,3 +437,10 @@ Validation: 934 tests across 34 focused Jest suites and 29 native SDK tests pass
 - [x] Append the fix report with CI and live verification assigned to the controller.
 
 Delivery is recorded in the Task 12c1 report. The single fix push waits for the base PR Tests Test job to finish.
+
+# Task 12 Android rework - Fix round 2
+
+- [x] Preserve the latest wrapper-check commit and narrow the cached fixture rows explicitly.
+- [x] Re-read every TypeScript line changed in fb81fca58, aeb1388bb and this fix against its types.
+- [x] Run the reader test file once and the scoped static checks.
+- [x] Record the fix report and prepare one commit; gate the single push on the base Test job.

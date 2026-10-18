@@ -188,7 +188,9 @@ describe('the balance rows', () => {
     const account = 'a'.repeat(64);
     const initialStamp = Date.now() - 30_000;
     store.state.currentAccount.publicKey = account;
-    store.state.balances[account] = store.state.balances.acct;
+    const cachedRows = store.state.balances.acct;
+    if (cachedRows === undefined) throw new Error('the fixture has no cached balance rows');
+    store.state.balances[account] = cachedRows;
     store.state.balancesLastFetched[account] = initialStamp;
     const labels = [
       'idle-sync',
