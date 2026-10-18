@@ -181,7 +181,7 @@ final class BreadAuthTests: XCTestCase {
         let log = ReplyLog()
         openSheet(auth, log)
         let session = try XCTUnwrap(sessions.first)
-        let callback = "com.miden.wallet.auth://callback?login=a%2Fb&x=1"
+        let callback = "com.miden.wallet.auth://callback?origin=https%3A%2F%2Fgame.example&login=a%2Fb&x=1"
         await respond(session, callback: callback)
         XCTAssertEqual(log.entries.count, 1)
         XCTAssertEqual(log.entries.first?.value as? [String: String], ["url": callback])
@@ -199,6 +199,45 @@ final class BreadAuthTests: XCTestCase {
         XCTAssertNil(log.entries.first?.value)
         XCTAssertEqual(log.entries.first?.error, "AUTH_FAILED")
         XCTAssertNil(BreadAuthController.state.openTicket)
+    }
+
+    func testCallbackMustNameTheOpeningPage() async throws {
+        let auth = presentable()
+        let address = "com.miden.wallet.auth://callback"
+        for rest in ["?login=a", "?origin=https%3A%2F%2Fgame.example&origin=https%3A%2F%2Fgame.example",
+                     "?origin=https%3A%2F%2Fother.example", "?origin=https%3A%2F%2Fgame.example%3A8443",
+                     "?origin=https%3A%2F%2Fgame.example%2F", "?origin=http%3A%2F%2Fgame.example",
+                     "?origin=HTTPS%3A%2F%2Fgame.example", "?origin=https%3A%2F%2Fgame.example.",
+                     "?origin=https%3A%2F%2Fuser%40game.example", "?origin=", "?origin",
+                     "?Origin=https%3A%2F%2Fgame.example", "?%6Frigin=https%3A%2F%2Fgame.example",
+                     "?origin&origin=https%3A%2F%2Fgame.example", "#origin=https%3A%2F%2Fgame.example",
+                     "?x=1#&origin=https%3A%2F%2Fgame.example", "#?origin=https%3A%2F%2Fgame.example"] {
+            let log = ReplyLog()
+            openSheet(auth, log)
+            let session = try XCTUnwrap(sessions.last)
+            await respond(session, callback: address + rest)
+            XCTAssertEqual(log.entries.count, 1, rest)
+            XCTAssertNil(log.entries.first?.value, rest)
+            XCTAssertEqual(log.entries.first?.error, "AUTH_ORIGIN_MISMATCH", rest)
+            XCTAssertNil(BreadAuthController.state.openTicket, rest)
+        }
+        for rest in ["?login=a&origin=https%3A%2F%2FGAME.example", "?origin=https://game.example",
+                     "?origin=https%3A%2F%2Fgame.example%3A443#f"] {
+            let log = ReplyLog()
+            openSheet(auth, log)
+            let session = try XCTUnwrap(sessions.last)
+            await respond(session, callback: address + rest)
+            XCTAssertEqual(log.entries.first?.value as? [String: String], ["url": address + rest], rest)
+        }
+        let custom = BreadAuthPageOrigin(scheme: "https", host: "game.example", port: 8443)
+        for (rest, named) in [("?origin=https%3A%2F%2Fgame.example", false), ("?origin=https%3A%2F%2Fgame.example%3A8443", true)] {
+            let log = ReplyLog()
+            auth.handle(body: ["url": "https://game.example:8443/auth"], mainFrame: true, page: custom, reply: log.record)
+            let session = try XCTUnwrap(sessions.last)
+            await respond(session, callback: address + rest)
+            XCTAssertEqual(log.entries.first?.value as? [String: String], named ? ["url": address + rest] : nil, rest)
+            XCTAssertEqual(log.entries.first?.error, named ? nil : "AUTH_ORIGIN_MISMATCH", rest)
+        }
     }
 
     func testCanceledLoginResolvesCancelled() async throws {
@@ -399,7 +438,7 @@ final class BreadAuthTests: XCTestCase {
         let reopened = try await eventually { self.sessions.count == 2 }
         XCTAssertTrue(reopened)
         let callbackSession = try XCTUnwrap(sessions.last)
-        let callback = "com.miden.wallet.auth://callback?login=a%2Fb&x=1"
+        let callback = "com.miden.wallet.auth://callback?origin=https%3A%2F%2Fexample.test&login=a%2Fb&x=1"
         await respond(callbackSession, callback: callback)
         let resolved = try await eventually {
             (try? await webView.callAsyncJavaScript("const r = window.__authResult; return !!r && typeof r.url === 'string' && r.url === expected;",

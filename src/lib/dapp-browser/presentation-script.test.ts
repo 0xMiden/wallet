@@ -373,6 +373,7 @@ const AUTH_ERRORS = [
   'AUTH_INVALID_URL',
   'AUTH_BUSY',
   'AUTH_UNAVAILABLE',
+  'AUTH_ORIGIN_MISMATCH',
   'AUTH_FAILED'
 ];
 const SIGN_IN_URL = 'https://dapp.example/sign-in';

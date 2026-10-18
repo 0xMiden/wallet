@@ -45,7 +45,7 @@ import static org.robolectric.Shadows.shadowOf;
 public class BreadAuthControllerTest {
     private static final String PAGE = "https://fixture.example";
     private static final String SIGN_IN = "https://fixture.example/auth?state=s";
-    private static final String CALLBACK = "com.miden.wallet.auth://callback?login=a%2Fb&x=1";
+    private static final String CALLBACK = "com.miden.wallet.auth://callback?origin=https%3A%2F%2Ffixture.example&login=a%2Fb&x=1";
     private Activity activity;
     private MockedStatic<WebViewFeature> features;
     private MockedStatic<WebViewCompat> webkit;
@@ -272,6 +272,26 @@ public class BreadAuthControllerTest {
         BreadAuthController.hostResumed();
         assertReply(proxy, "a", "error", BreadAuthState.FAILED);
         assertEquals(BreadAuthState.Phase.IDLE, BreadAuthController.state.phase());
+    }
+
+    @Test public void theCallbackMustNameTheOpeningPage() throws Exception {
+        registerChrome();
+        WebViewDialog dialog = open();
+        String page = "https://fixture.example:8443";
+        JavaScriptReplyProxy other = post(dialog, page, true, request("a", page + "/auth"));
+        assertNotNull(shadowOf(activity).getNextStartedActivity());
+        BreadAuthController.hostStopped();
+        BreadAuthCallbacks.consume(new Intent(Intent.ACTION_VIEW, Uri.parse("com.miden.wallet.auth://callback?origin=https%3A%2F%2Ffixture.example&login=a")));
+        BreadAuthController.hostResumed();
+        assertReply(other, "a", "error", "AUTH_ORIGIN_MISMATCH");
+        assertEquals(BreadAuthState.Phase.IDLE, BreadAuthController.state.phase());
+        JavaScriptReplyProxy own = post(dialog, page, true, request("b", page + "/auth"));
+        assertNotNull(shadowOf(activity).getNextStartedActivity());
+        BreadAuthController.hostStopped();
+        String callback = "com.miden.wallet.auth://callback?origin=https%3A%2F%2Ffixture.example%3A8443&login=a";
+        BreadAuthCallbacks.consume(new Intent(Intent.ACTION_VIEW, Uri.parse(callback)));
+        BreadAuthController.hostResumed();
+        assertReply(own, "b", "url", callback);
     }
 
     @Test public void consumeLeavesOtherIntentsAlone() throws Exception {

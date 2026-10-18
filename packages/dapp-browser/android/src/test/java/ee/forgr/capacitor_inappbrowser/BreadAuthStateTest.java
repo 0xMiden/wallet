@@ -4,7 +4,7 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 public class BreadAuthStateTest {
-    private static final String CALLBACK = "com.miden.wallet.auth://callback?login=a%2Fb&x=1";
+    private static final String CALLBACK = "com.miden.wallet.auth://callback?origin=https%3A%2F%2Fgame.example&login=a%2Fb&x=1";
 
     private static String rejection(Object url) {
         return BreadAuthState.rejection(true, "https", "game.example", -1, url);
@@ -138,6 +138,31 @@ public class BreadAuthStateTest {
         assertEquals(BreadAuthState.Outcome.FAILED, state.callback("com.miden.wallet.auth://callback/x"));
         assertEquals(BreadAuthState.Phase.IDLE, state.phase());
         assertNull(state.refusal());
+    }
+
+    @Test public void aCallbackMustNameTheOpeningPageOnce() {
+        String address = "com.miden.wallet.auth://callback";
+        for (String rest : new String[] {
+            "?login=a", "?origin=https%3A%2F%2Fgame.example&origin=https%3A%2F%2Fgame.example", "?origin=https%3A%2F%2Fother.example",
+            "?origin=https%3A%2F%2Fgame.example%3A8443", "?origin=https%3A%2F%2Fgame.example%2F", "?origin=http%3A%2F%2Fgame.example",
+            "?origin=HTTPS%3A%2F%2Fgame.example", "?origin=https%3A%2F%2Fgame.example.", "?origin=https%3A%2F%2Fuser%40game.example",
+            "?origin=https%3A%2F%2Fgame.example%zz", "?origin=", "?origin", "?Origin=https%3A%2F%2Fgame.example",
+            "?%6Frigin=https%3A%2F%2Fgame.example", "?origin&origin=https%3A%2F%2Fgame.example",
+            "#origin=https%3A%2F%2Fgame.example", "?x=1#&origin=https%3A%2F%2Fgame.example", "#?origin=https%3A%2F%2Fgame.example",
+        }) {
+            BreadAuthState state = new BreadAuthState();
+            state.begin();
+            assertNotEquals(rest, BreadAuthState.Outcome.RESOLVED, state.callback(address + rest));
+            assertEquals(rest, BreadAuthState.Phase.IDLE, state.phase());
+        }
+        for (String callback : new String[] {
+            address + "?login=a&origin=https%3A%2F%2FGAME.Example", address + "?origin=https://game.example",
+            address + "?origin=https%3A%2F%2Fgame.example%3A443#f", "COM.MIDEN.WALLET.AUTH://callback?origin=https%3A%2F%2Fgame.example",
+        }) {
+            BreadAuthState state = new BreadAuthState();
+            state.begin();
+            assertEquals(callback, BreadAuthState.Outcome.RESOLVED, state.callback(callback));
+        }
     }
 
     @Test public void callbackWithoutSheetIsIgnored() {
