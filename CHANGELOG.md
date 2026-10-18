@@ -12,6 +12,7 @@
 
 ### Fixes
 
+- [FIX][ci] The PasscodeDots shake test runs a 30-second shake and waits for the row to move, instead of reading it 50 ms into the real 0.42-second shake, which a loaded coverage runner could pause past.
 - [FIX][mobile][desktop] The in-app-browser and desktop dApp providers reject a wallet refusal with the extension's error classes (`NotGrantedMidenWalletError`, `InvalidParamsMidenWalletError`, `NotFoundMidenWalletError`, else `MidenWalletError`) and its message, not a plain `Error` (#1542).
 - [FIX][all] A transaction-failure crash report for an unknown submit outcome also says how long the submit took, as one of four fixed buckets, so a client-side request timeout can be told from a deadline the node returned (Sentry BREAD-WALLET-V and -X). Only the bucket is sent, never the duration in milliseconds, and the privacy policy lists every value.
 - [FIX][mobile] The in-app-browser provider exposes `createAccount()`, which rejects with the extension's explicit unsupported-operation error (#1543).
