@@ -23,7 +23,40 @@
  * synchronously still resolves normally.
  */
 
+import {
+  InvalidParamsMidenWalletError,
+  MidenWalletError,
+  NotFoundMidenWalletError,
+  NotGrantedMidenWalletError
+} from 'lib/adapter/client';
+
 import { INJECTION_SCRIPT } from './injection-script';
+
+const REFUSALS: [string, { error?: unknown; payload?: unknown }, string, string][] = [
+  ['NOT_GRANTED', { error: 'NOT_GRANTED' }, new NotGrantedMidenWalletError().name, 'NOT_GRANTED'],
+  [
+    'an INVALID_PARAMS message',
+    { error: 'INVALID_PARAMS: Error: noteType is required' },
+    new InvalidParamsMidenWalletError().name,
+    'INVALID_PARAMS: Error: noteType is required'
+  ],
+  ['NOT_FOUND', { error: 'NOT_FOUND' }, new NotFoundMidenWalletError().name, 'NOT_FOUND'],
+  [
+    'NETWORK_NOT_GRANTED',
+    { error: 'NETWORK_NOT_GRANTED' },
+    new NotGrantedMidenWalletError().name,
+    'NETWORK_NOT_GRANTED'
+  ],
+  ['another message', { error: 'boom' }, new MidenWalletError().name, 'boom'],
+  [
+    'an object payload',
+    { payload: { message: 'INVALID_PARAMS: bad' } },
+    new InvalidParamsMidenWalletError().name,
+    'INVALID_PARAMS: bad'
+  ],
+  ['an array payload', { payload: ['NOT_GRANTED'] }, new NotGrantedMidenWalletError().name, 'NOT_GRANTED'],
+  ['no error and no payload', {}, new MidenWalletError().name, 'Unknown error']
+];
 
 // ---------------------------------------------------------------------------
 // Harness
@@ -398,6 +431,14 @@ describe('request timeout', () => {
 // ---------------------------------------------------------------------------
 
 describe('__midenWalletResponse', () => {
+  it.each(REFUSALS)('rejects %s with the extension error class and message', async (_, body, name, message) => {
+    const win = makeWindow();
+    inject(win);
+    const promise = win.midenWallet.requestAssets();
+    respond(win, lastMessage(win).reqId, { type: 'MIDEN_PAGE_ERROR_RESPONSE', ...body });
+    await expect(promise).rejects.toMatchObject({ name, message });
+  });
+
   it('resolves the matching pending request from a JSON string', async () => {
     const win = makeWindow();
     inject(win);
