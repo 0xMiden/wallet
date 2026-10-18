@@ -3,17 +3,17 @@ name: Bread Connect SDKs
 # The Swift and Kotlin SDKs that let native apps use Bread as their wallet, and the
 # Capacitor adapter's native plugin, are not part of any wallet surface, so no other
 # workflow builds them. Every SDK checks itself against
-# packages/bread-connect/vectors, so a change to the vectors runs them all.
+# packages/bread-connect/vectors, so a change to the vectors runs them all. The two
+# JS packages are built and packed as they would be published, and kept as an
+# artifact for apps that install them before they reach npm.
 
 on:
   pull_request:
     paths:
-      - 'packages/bread-connect/vectors/**'
+      - 'packages/bread-connect/**'
+      - 'packages/bread-connect-capacitor/**'
       - 'packages/bread-connect-swift/**'
       - 'packages/bread-connect-kotlin/**'
-      - 'packages/bread-connect-capacitor/ios/**'
-      - 'packages/bread-connect-capacitor/android/**'
-      - 'packages/bread-connect-capacitor/Package.swift'
       - '.github/workflows/bread-connect-sdks.yml'
   workflow_dispatch:
 
@@ -25,6 +25,30 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  packages:
+    name: JS packages
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      # The install's postinstall builds packages/bread-connect, which the adapter builds against.
+      - name: Run Install
+        uses: ./.github/actions/yarn-install
+      - name: Build the Capacitor adapter
+        run: yarn tsc --project packages/bread-connect-capacitor/tsconfig.json
+      - name: Pack both packages
+        run: |
+          mkdir packs
+          npm pack ./packages/bread-connect --pack-destination packs
+          npm pack ./packages/bread-connect-capacitor --pack-destination packs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bread-connect-packages
+          path: packs/*.tgz
+          if-no-files-found: error
+
   swift:
     name: Swift SDK
     # Matches the iOS build in build-mobile.yml, which needs the iOS 26 SDK.
