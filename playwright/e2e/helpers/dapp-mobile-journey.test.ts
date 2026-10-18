@@ -200,14 +200,20 @@ describe('the held sheet block', () => {
 
 function deferred<T>() {
   let release: ((value: T) => void) | undefined;
-  const promise = new Promise<T>(resolve => {
+  let fail: ((reason: unknown) => void) | undefined;
+  const promise = new Promise<T>((resolve, reject) => {
     release = resolve;
+    fail = reject;
   });
   return {
     promise,
     resolve: (value: T) => {
       if (release === undefined) throw new Error('deferred promise has no resolver');
       release(value);
+    },
+    reject: (reason: unknown) => {
+      if (fail === undefined) throw new Error('deferred promise has no rejecter');
+      fail(reason);
     }
   };
 }
