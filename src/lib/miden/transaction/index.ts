@@ -144,7 +144,6 @@ import {
 import { GUARDIAN_EXPIRATION_DELTA_BLOCKS, isPrivateNoteType } from '../helpers';
 import { applyAfterSubmit } from '../sdk/apply-after-submit';
 import {
-  accountIdStringToSdk,
   accountRefToSdk,
   buildPswapCreateRequest,
   buildSendTransactionRequest,
@@ -3548,7 +3547,7 @@ const generateGuardianTransaction = async (
           // offscreen client the key comes from the realm that will EXECUTE the
           // request. The proxy read is unlocked by design and this scope already
           // holds the client lock, which is what that contract requires.
-          const creatorAccount = await midenClientProxy.getAccount(accountIdStringToSdk(swapTx.accountId).toString());
+          const creatorAccount = await midenClientProxy.getAccount(walletAccountIdToSdk(swapTx.accountId).toString());
           // An eviction during the read ABANDONS this callback without stopping
           // it: the creator Account is a borrow of a client a successor now
           // owns, and reaching for the realm's reader below would queue this dead
@@ -3562,10 +3561,10 @@ const generateGuardianTransaction = async (
           const client = await getRealmReaderClient();
           assertWasmHoldCurrent(hold, 'PSWAP request build: after the reader build');
           const tr = await client.newPswapCreateTransactionRequest(
-            accountIdStringToSdk(swapTx.accountId),
-            accountIdStringToSdk(swapTx.faucetId),
+            walletAccountIdToSdk(swapTx.accountId),
+            accountRefToSdk(swapTx.faucetId),
             swapTx.amount,
-            accountIdStringToSdk(swapTx.extraInputs.requestedFaucetId),
+            accountRefToSdk(swapTx.extraInputs.requestedFaucetId),
             swapTx.extraInputs.requestedAmount,
             NoteType.Public,
             NoteType.Public
@@ -3576,7 +3575,7 @@ const generateGuardianTransaction = async (
           assertWasmHoldCurrent(hold, 'PSWAP request build: after the request build');
           const baseBuilder = await feeAwareRequestBuilder(
             (await getMidenClient()).client,
-            accountIdStringToSdk(swapTx.accountId).toString(),
+            walletAccountIdToSdk(swapTx.accountId).toString(),
             swapFeeSalt
           );
           assertWasmHoldCurrent(hold, 'PSWAP request build: after the fee-aware builder');
