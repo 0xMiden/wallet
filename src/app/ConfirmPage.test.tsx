@@ -84,6 +84,11 @@ jest.mock('lib/woozie', () => ({
   useLocation: jest.fn()
 }));
 
+const mockClipboardWrite = jest.fn();
+jest.mock('@capacitor/clipboard', () => ({
+  Clipboard: { write: (...args: unknown[]) => mockClipboardWrite(...args) }
+}));
+
 // Layout/boundary wrappers: render children so `ConfirmDAppForm` mounts.
 jest.mock('app/layouts/ContentContainer', () => ({
   __esModule: true,
@@ -1116,6 +1121,73 @@ describe('sign payload — signingInputs', () => {
     expect(screen.getByText('opaqueSignatureWarning')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'rawValue' }));
     expect(screen.getByText('signBlindCommitment')).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// loginSign payload: a sign-in with the account's login key for one site
+// ---------------------------------------------------------------------------
+
+describe('loginSign payload', () => {
+  const LOGIN_ACCOUNT_ID = 'mtst1azcw08rget79fqp8ymr0zqkv5v4lj3s7_qruqqypuyph';
+  const loginPayload = () => ({
+    type: 'loginSign',
+    ...baseFields('https://example.org'),
+    domain: 'example.org',
+    accountId: LOGIN_ACCOUNT_ID
+  });
+
+  beforeEach(() => {
+    t.mockImplementation((key: string, values?: Record<string, string>) =>
+      values ? `${key}:${Object.values(values).join(',')}` : key
+    );
+  });
+
+  it("shows a login approval with the site's domain", () => {
+    setPayload(loginPayload());
+    render(<ConfirmPage />);
+
+    expect(screen.getByRole('heading', { name: 'confirmLoginSignature:example.org' })).toBeInTheDocument();
+    expect(screen.getByText('loginSignatureNote:example.org')).toBeInTheDocument();
+    // The account the request names, stacked and in full, not the one selected in the wallet.
+    expect(screen.getByTestId('confirm-login-account')).toHaveClass('flex-col');
+    expect(screen.getByText(LOGIN_ACCOUNT_ID)).toBeInTheDocument();
+    expect(screen.queryByText(ACCOUNT.publicKey)).not.toBeInTheDocument();
+    expect(screen.queryByText('payload')).not.toBeInTheDocument();
+    expect(screen.queryByText('opaqueSignatureWarning')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('alert')).not.toBeInTheDocument();
+  });
+
+  it('copies the full signing account from its row', async () => {
+    setPayload(loginPayload());
+    render(<ConfirmPage />);
+
+    const copy = screen.getByTestId('confirm-login-account-copy');
+    expect(screen.getByTestId('confirm-login-account')).toContainElement(copy);
+    await act(async () => {
+      fireEvent.click(copy);
+    });
+
+    expect(mockClipboardWrite).toHaveBeenCalledWith({ string: LOGIN_ACCOUNT_ID });
+  });
+
+  it('approves and declines through the signature confirmation', async () => {
+    ctx.confirmDAppSign.mockResolvedValue(undefined);
+    setPayload(loginPayload());
+
+    const approval = render(<ConfirmPage />);
+    await act(async () => {
+      fireEvent.click(screen.getByTestId(ConfirmPageSelectors.LoginSign_AcceptButton));
+    });
+    await waitFor(() => expect(ctx.confirmDAppSign).toHaveBeenCalledWith('req-1', true));
+    approval.unmount();
+
+    render(<ConfirmPage />);
+    await act(async () => {
+      fireEvent.click(screen.getByTestId(ConfirmPageSelectors.LoginSign_RejectButton));
+    });
+    await waitFor(() => expect(ctx.confirmDAppSign).toHaveBeenCalledWith('req-1', false));
+    expect(ctx.confirmDAppSign).toHaveBeenCalledTimes(2);
   });
 });
 

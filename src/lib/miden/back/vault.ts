@@ -3,8 +3,11 @@ import {
   AccountComponent,
   AccountStorageMode,
   AuthSecretKey,
+  Felt,
+  FeltArray,
   type GetKeyCallback,
   getWasmOrThrow,
+  Poseidon2,
   SigningInputs,
   Word,
   PublicKey
@@ -15,6 +18,7 @@ import type { Hex } from 'viem';
 import { mnemonicToAccount, privateKeyToAccount } from 'viem/accounts';
 
 import { generateMnemonic, validateMnemonic } from '@miden/hd-key';
+import { MidenDAppErrorType } from 'lib/adapter/types';
 import { getMessage } from 'lib/i18n';
 import { isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
 import { getAccountsWriteQueue } from 'lib/miden/back/accounts-write-queue';
@@ -31,6 +35,7 @@ import {
 } from 'lib/miden/back/safe-storage';
 import { ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import { encodePrivateKeyPair, parsePrivateKeyPair } from 'lib/miden/guardian/private-key-pair';
+import { deriveLoginKeyScalar } from 'lib/miden/login-key/derive';
 import * as Passworder from 'lib/miden/passworder';
 import * as Repo from 'lib/miden/repo';
 import { clearStorage, SETUP_WIPE_KEPT_KEYS } from 'lib/miden/reset';
@@ -2284,6 +2289,112 @@ export class Vault {
     return u8ToB64(fullSignature);
   }
 
+  /**
+   * The commitment of `accountId`'s login key for `domain`: base64 of 32 bytes, as `connect` returns the account key
+   * commitment.
+   */
+  async loginKeyCommitment(accountId: string, domain: string): Promise<string> {
+    return withError('Failed to derive the login key', () =>
+      this.withLoginKey(accountId, domain, secretKey => {
+        const publicKey = secretKey.publicKey();
+        try {
+          const commitment = publicKey.toCommitment();
+          try {
+            return u8ToB64(commitment.serialize());
+          } finally {
+            commitment.free();
+          }
+        } finally {
+          publicKey.free();
+        }
+      })
+    );
+  }
+
+  /**
+   * Sign the login message for `word`, base64 of a 32-byte word, with `accountId`'s login key for `domain`: Poseidon2
+   * of the login tag and the word, never the word itself. Returns base64 of the 66-byte signature `[0x01, r, s, v]`.
+   */
+  async signWithLoginKey(accountId: string, domain: string, word: string): Promise<string> {
+    return withError('Failed to sign with the login key', async () => {
+      const wordBytes = loginWordBytes(word);
+      return this.withLoginKey(accountId, domain, secretKey => {
+        let loginWord: Word;
+        try {
+          loginWord = Word.deserialize(wordBytes);
+        } catch {
+          // Not the SDK's error: `withError` logs it, and it can quote the word.
+          throw notAWordToSign();
+        }
+        let message: Word;
+        try {
+          message = loginMessage(loginWord);
+        } finally {
+          loginWord.free();
+        }
+        try {
+          const signature = secretKey.sign(message);
+          try {
+            return u8ToB64(signature.serialize());
+          } finally {
+            signature.free();
+          }
+        } finally {
+          message.free();
+        }
+      });
+    });
+  }
+
+  /**
+   * Run `use` on `accountId`'s login key for `domain`, the ECDSA key whose scalar `deriveLoginKeyScalar` derives from
+   * the account's root key. The key is freed, and the root and the scalar zeroed, before this settles.
+   */
+  private async withLoginKey<T>(accountId: string, domain: string, use: (secretKey: AuthSecretKey) => T): Promise<T> {
+    const root = await this.loginKeyRoot(accountId);
+    try {
+      // Nothing on this path has loaded the WASM module: on the extension the service worker holds no client.
+      const [{ deserializeHotSecretKey }] = await Promise.all([import('../guardian/hot-key-import'), getWasmOrThrow()]);
+      const scalar = deriveLoginKeyScalar(root, 'evm', domain);
+      try {
+        const secretKey = deserializeHotSecretKey(bytesToHex(scalar));
+        try {
+          return use(secretKey);
+        } finally {
+          secretKey.free();
+        }
+      } finally {
+        scalar.fill(0);
+      }
+    } finally {
+      root.fill(0);
+    }
+  }
+
+  /**
+   * The root key of `accountId`'s login keys, as bytes the caller zeroes: the stored EVM key, or the EVM key derived
+   * from the seed phrase for an account from before EVM keys were stored. Anything else, a single private-key import
+   * included, is refused, never served by another of the wallet's keys.
+   */
+  private async loginKeyRoot(accountId: string): Promise<Uint8Array> {
+    const account = (await this.fetchAccounts()).find(acc => sameWalletAccountId(acc.publicKey, accountId));
+    if (!account) throw loginKeyUnavailable();
+    const evmStorageKey = account.evmAddress && accEvmSecretKeyStrgKey(account.evmAddress.toLowerCase());
+    if (evmStorageKey && (await isStored(evmStorageKey))) {
+      return decodeLoginKeyRoot(await fetchAndDecryptOne<Hex>(evmStorageKey, this.vaultKey));
+    }
+    if (account.hdIndex >= 0 && (await this.fetchSeedPhraseStatus()) === 'stored') {
+      // In memory only: an older account's record and stored keys stay as they are.
+      const mnemonic = await fetchAndDecryptOne<string>(mnemonicStrgKey, this.vaultKey);
+      const evmKey = deriveEvmKeyPair(mnemonic, account.type, account.hdIndex);
+      if (account.evmAddress && evmKey.address.toLowerCase() !== account.evmAddress.toLowerCase()) {
+        throw loginKeyUnavailable();
+      }
+      return decodeLoginKeyRoot(evmKey.privateKeyHex);
+    }
+    throw loginKeyUnavailable();
+  }
+
   async signTransaction(publicKey: string, signingInputs: string): Promise<string> {
     const secretKey = await fetchAndDecryptOne<string>(accAuthSecretKeyStrgKey(publicKey), this.vaultKey);
     let secretKeyBytes = new Uint8Array(Buffer.from(secretKey, 'hex'));
@@ -2691,8 +2802,9 @@ function isValidHex(s: string): boolean {
 }
 
 /**
- * One-time derivation of the wallet's EVM identity for a Miden HD account,
- * at account creation / restore. BIP-44 Ethereum path
+ * Derivation of the wallet's EVM identity for a Miden HD account, at account
+ * creation / restore, or in memory for the login key of an account from before
+ * EVM keys were stored. BIP-44 Ethereum path
  * m/44'/60'/{walletTypeIndex}'/0/{hdIndex}, deliberately independent of the
  * SLIP-0010 Miden branch used by `deriveClientSeed` (coin type 60 vs Miden's), so
  * the Miden and EVM key families can never collide. The walletTypeIndex segment
@@ -2700,7 +2812,7 @@ function isValidHex(s: string): boolean {
  * without it an OnChain and an OffChain account at the same bucket index would
  * derive the SAME EVM key/address — commingling Epoch positions and breaking
  * public/private account isolation. Nothing key-bearing escapes except the
- * returned pair, which callers persist encrypted and drop.
+ * returned pair, which callers persist encrypted or hold in memory, and drop.
  */
 function deriveEvmKeyPair(
   mnemonic: string,
@@ -2713,6 +2825,52 @@ function deriveEvmKeyPair(
     throw new PublicError('EVM key derivation failed');
   }
   return { address: hdAccount.address, privateKeyHex: toHex(privateKey) };
+}
+
+/**
+ * The EVM key `hex` encodes, with or without `0x`, as login key root bytes the caller zeroes after use; the decoding
+ * buffer is zeroed here. Refused unless the hex is exactly 32 whole bytes: decoding anything else truncates it, and a
+ * short or empty root still derives a key.
+ */
+function decodeLoginKeyRoot(hex: string): Uint8Array {
+  const unprefixed = hex.startsWith('0x') ? hex.slice(2) : hex;
+  if (!isValidHex(unprefixed) || unprefixed.length !== 64) throw loginKeyUnavailable();
+  const decoded = Buffer.from(unprefixed, 'hex');
+  const root = new Uint8Array(decoded);
+  decoded.fill(0);
+  return root;
+}
+
+/** The 32 bytes `word` encodes in base64, refused before any key is read when it encodes anything else. */
+function loginWordBytes(word: string): Uint8Array {
+  let bytes: Uint8Array;
+  try {
+    bytes = b64ToU8(word);
+  } catch {
+    throw notAWordToSign();
+  }
+  if (bytes.length !== 32) throw notAWordToSign();
+  return bytes;
+}
+
+// `Bread login v1` in ASCII, four bytes to a field element, little-endian, the last zero-padded. Sites hash the same
+// tag to check a login signature, so it never changes within v1.
+const LOGIN_MESSAGE_TAG = [0x61657242n, 0x6f6c2064n, 0x206e6967n, 0x00003176n];
+
+/** The message a login key signs for `word`: Poseidon2 of the login tag's elements, then the word's, in order. */
+function loginMessage(word: Word): Word {
+  // The browser binding takes each element into the array, and the array into the hash.
+  return Poseidon2.hashElements(new FeltArray([...LOGIN_MESSAGE_TAG.map(value => new Felt(value)), ...word.toFelts()]));
+}
+
+/** A login key refusal. The site reads its message, so it names no key, commitment or domain. */
+function loginKeyUnavailable(): PublicError {
+  return new PublicError(`${MidenDAppErrorType.LoginKeyUnavailable}: this account's root key is not on this device`);
+}
+
+/** A refusal of a word to sign with a login key. It never quotes the word. */
+function notAWordToSign(): PublicError {
+  return new PublicError(`${MidenDAppErrorType.InvalidParams}: not a word to sign`);
 }
 
 function createStorageKey(id: StorageEntity) {
