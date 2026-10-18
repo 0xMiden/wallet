@@ -17,13 +17,6 @@ import * as Repo from 'lib/miden/repo';
 import { getNativeAssetId, getVerificationBaseFee } from 'lib/miden-chain/native-asset';
 import { reportOperation } from 'lib/telemetry/report-operation';
 
-import { midenClientProxy } from '../back/miden-client-proxy';
-import { IBridgeClaimStatus, ITransactionStatus, Transaction } from '../db/types';
-import { __resetSyncFuseStateForTests, isSyncFused, noteSyncParked } from '../front/sync-fuse';
-import { WASM_LOCK_SYNC_WATCHDOG_MS } from '../sdk/wasm-client-poison';
-import { type ConsumableNote, NoteTypeEnum } from '../types';
-import * as ClaimFee from './claim-fee';
-import { initiateConsumeTransactionFromId, queueConsumeNotes } from './initiate';
 import {
   cancelTransaction,
   claimBridgeSubmit,
@@ -43,6 +36,13 @@ import {
   waitForConsumeTx,
   waitForTransactionCompletion
 } from './index';
+import { midenClientProxy } from '../back/miden-client-proxy';
+import { IBridgeClaimStatus, ITransactionStatus, Transaction } from '../db/types';
+import { __resetSyncFuseStateForTests, isSyncFused, noteSyncParked } from '../front/sync-fuse';
+import { WASM_LOCK_SYNC_WATCHDOG_MS } from '../sdk/wasm-client-poison';
+import { type ConsumableNote, NoteTypeEnum } from '../types';
+import * as ClaimFee from './claim-fee';
+import { initiateConsumeTransactionFromId, queueConsumeNotes } from './initiate';
 
 // The mocked `lib/miden/repo` reconstructs a fresh `modify` jest.fn() per
 // `.where()` call, so call-count on `where` itself is what proves a promotion
