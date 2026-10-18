@@ -138,6 +138,7 @@ const ACCEPTED_FORMS: [string, string, string, string][] = [
     'Die Verbrennungsrichtlinie des USDCx-faucets kann nicht gelesen werden.'
   ],
   ['a native word the English does not protect', 'fr', 'Write down your recovery phrase.', 'Notez votre phrase.'],
+  ['an unlisted Polish word when English protects no term', 'pl', 'Open the notebook', 'Otwórz notesik'],
   ['a native German word', 'de', 'Cannot reach the Miden node', 'Der Knoten „Miden“ ist nicht erreichbar'],
   [
     'a native German word beside a protected term',
