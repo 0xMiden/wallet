@@ -52,7 +52,16 @@ const mockClaim = {
   retriableNoteIds: new Set<string>()
 };
 
-jest.mock('./useClaimNotes', () => ({ useClaimNotes: () => mockClaim }));
+jest.mock('./useClaimNotes', () => ({
+  useClaimNotes: () => {
+    const { useMemo } = jest.requireActual<typeof import('react')>('react');
+    const safeClaimableNotes = useMemo(
+      () => mockClaim.safeClaimableNotes.filter(note => note != null),
+      [mockClaim.safeClaimableNotes]
+    );
+    return { ...mockClaim, safeClaimableNotes };
+  }
+}));
 // The real reporter runs; telemetry records how each note_handle flow ended.
 const mockReported: Array<'ok' | 'failed' | 'cancelled'> = [];
 jest.mock('lib/telemetry', () => ({
@@ -992,6 +1001,42 @@ describe('the network fee', () => {
     }
   });
 
+  it('a writer fee refusal survives a view remount until a live refresh', async () => {
+    const { ClaimFeeRefusedError } = jest.requireActual<typeof import('lib/miden/transaction/initiate')>(
+      'lib/miden/transaction/initiate'
+    );
+    mockBalances.data = [nativeRow(1)];
+    mockQueue.mockRejectedValueOnce(new ClaimFeeRefusedError());
+    const list = renderHook(() => useActivityClaims());
+    expect(list.result.current.items[0]?.cannotPayFee).toBe(false);
+    await act(async () => {
+      await list.result.current.accept(note);
+    });
+    expect(list.result.current.items[0]).toMatchObject({ status: 'pending', cannotPayFee: true });
+    expect(list.result.current.items[0]?.txId).toBeUndefined();
+
+    list.unmount();
+    const groups = renderHook(() => useActivityClaims());
+    expect(groups.result.current.items[0]).toMatchObject({ status: 'pending', cannotPayFee: true });
+    expect(groups.result.current.items[0]?.txId).toBeUndefined();
+    await act(async () => {
+      await groups.result.current.accept(note);
+    });
+    expect(mockQueue).toHaveBeenCalledTimes(1);
+    expect(mockStart).not.toHaveBeenCalled();
+    expect(mockRequest).not.toHaveBeenCalled();
+
+    mockBalances.data = [nativeRow(2)];
+    groups.rerender();
+    expect(groups.result.current.items[0]).toMatchObject({ status: 'pending', cannotPayFee: false });
+    expect(groups.result.current.items[0]?.txId).toBeUndefined();
+    await act(async () => {
+      await groups.result.current.accept(note);
+    });
+    expect(groups.result.current.items[0]).toMatchObject({ status: 'claiming', txId: 'tx-one' });
+    groups.unmount();
+  });
+
   it('Accept All applies partial fee refusals per note and continues', async () => {
     const { ClaimFeeRefusedError } = jest.requireActual<typeof import('lib/miden/transaction/initiate')>(
       'lib/miden/transaction/initiate'
@@ -1050,7 +1095,7 @@ describe('the network fee', () => {
       expect(mockStart).toHaveBeenCalledTimes(1);
       expect(log).not.toHaveBeenCalled();
 
-      mockClaim.safeClaimableNotes = [...mockClaim.safeClaimableNotes];
+      mockClaim.safeClaimableNotes = mockClaim.safeClaimableNotes.map(note => ({ ...note, receivedAt: 123 }));
       rerender();
       expect(result.current.items.find(item => item.note.id === refused.id)).toMatchObject({
         status: 'pending',
