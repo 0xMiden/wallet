@@ -247,13 +247,17 @@ export function declaredRequestToView(requestB64: string, importNotes: string[] 
  * bytes while still treating a failure to summarize a valid request as an
  * opaque transaction that the user may review.
  */
-export function declaredTransactionRequestToView(request: TransactionRequest, importNotes: string[] = []): TxAssetView {
+export function declaredTransactionRequestToView(
+  request: TransactionRequest,
+  importNotes: string[] = [],
+  options: NoteDecodeOptions = {}
+): TxAssetView {
   const outputNotes = request.expectedOutputOwnNotes();
 
   return {
     account: undefined,
     outgoing: outputNotes.flatMap(n => noteAssets(n)),
-    incoming: importNotes.flatMap(b64 => importedNoteAssets(b64)),
+    incoming: importNotes.flatMap(b64 => importedNoteAssets(b64, options)),
     // Only counts the carried `importNotes`; it may undercount notes consumed
     // from the wallet's own store (referenced by inputNoteIds, not carried
     // here as full note bytes). This is the explicitly-unverified "declared"

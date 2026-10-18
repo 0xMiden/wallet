@@ -2119,11 +2119,21 @@ const generatePromisifyTransaction = async (
     return;
   }
 
-  // Reject malformed bytes before any unlock prompt; WASM startup failures keep their original error.
+  // Reject malformed bytes before any unlock prompt; WASM startup failures keep their original error. The decode and
+  // its summary share one hold, so a trap in either reaches the lock, which retires the client before the refusal.
   await ensureSdkWasmReady();
-  let decodedRequest: TransactionRequest;
+  let declared: TxAssetView | undefined;
   try {
-    decodedRequest = TransactionRequest.deserialize(b64ToU8(customTransaction.transactionRequest));
+    declared = await withWasmClientLock(async () => {
+      const request = TransactionRequest.deserialize(b64ToU8(customTransaction.transactionRequest));
+      try {
+        return declaredTransactionRequestToView(request, customTransaction.importNotes ?? [], { rethrowTraps: true });
+      } catch (e) {
+        if (e instanceof WebAssembly.RuntimeError) throw e;
+        console.error('[DApp] Could not decode the custom transaction request for the approval sheet:', e);
+        return undefined;
+      }
+    });
   } catch (e) {
     reject(new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`));
     return;
@@ -2132,9 +2142,7 @@ const generatePromisifyTransaction = async (
   const prepare = async () => {
     let declaredMessages: string[];
     try {
-      declaredMessages = await withUnlocked(async () =>
-        formatCustomTransactionPreview(customTransaction, decodedRequest)
-      );
+      declaredMessages = await withUnlocked(async () => formatCustomTransactionPreview(customTransaction, declared));
     } catch (e) {
       if (isWalletLockedError(e)) throw e;
       throw new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`);
@@ -3490,15 +3498,16 @@ async function formatSignPreview(req: MidenDAppSignRequest): Promise<string[]> {
  * (`CustomTransactionContent`: the simulated summary, falling back to
  * `declaredRequestToView`), so the same static decode is rendered here as rows.
  *
- * `declaredRequestToView` is an offline decode of the request the wallet will
- * execute — no dry run, so it is labelled unverified, exactly as the extension
+ * `declared` is that offline decode of the request the wallet will execute,
+ * built in the caller's WASM hold (undefined when it could not be summarised).
+ * There is no dry run, so it is labelled unverified, exactly as the extension
  * labels its declared view. `recipientAddress` stays dApp-declared and is
  * labelled as such: it is not derived from the request bytes and nothing
  * downstream checks it.
  */
 async function formatCustomTransactionPreview(
   payload: MidenCustomTransaction,
-  request: TransactionRequest
+  declared: TxAssetView | undefined
 ): Promise<string[]> {
   const messages = [
     'This dApp is requesting a custom transaction,',
@@ -3506,13 +3515,6 @@ async function formatCustomTransactionPreview(
     // Executing account first, for the same reason as the send preview.
     `From, ${truncateAddress(payload.address)}`
   ];
-
-  let declared: TxAssetView | undefined;
-  try {
-    declared = declaredTransactionRequestToView(request, payload.importNotes ?? []);
-  } catch (e) {
-    console.error('[DApp] Could not decode the custom transaction request for the approval sheet:', e);
-  }
 
   if (declared) {
     messages.push('Declared by the site, the wallet has not verified these amounts');
