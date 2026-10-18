@@ -78,6 +78,16 @@ jest.mock('lib/miden/back/store', () => ({
   withUnlocked: (fn: (ctx: unknown) => unknown) => mockWithUnlocked(fn)
 }));
 
+// Passthrough wrappers, so a test can count the carried-note quarantine release while every other test keeps the real
+// module (its exports are not configurable, so they cannot be spied on).
+jest.mock('lib/miden/note-quarantine', () => {
+  const actual = jest.requireActual('lib/miden/note-quarantine');
+  return {
+    ...actual,
+    importedNoteIds: jest.fn(actual.importedNoteIds),
+    releaseNoteIds: jest.fn(actual.releaseNoteIds)
+  };
+});
 jest.mock('lib/miden/transaction', () => ({
   initiateSendTransaction: jest.fn().mockResolvedValue('tx-send-1'),
   requestCustomTransaction: jest.fn().mockResolvedValue('tx-custom-1'),
@@ -1128,66 +1138,47 @@ describe('Full confirmation cycles in extension mode', () => {
     const queuedMessage = 'OUTCOME_UNKNOWN: transaction tx-1 may already be queued; wait for it before sending again';
     const queued = new TransactionQueuedError('tx-1', { cause: new Error('note queue unavailable') });
 
-    type Spies = {
-      importNotes: string[];
-      noteIds: string[];
-      importedIds: jest.SpyInstance;
-      releaseNotes: jest.SpyInstance;
-    };
-    const runCustomFailure = async (
-      error: Error,
-      message: string,
-      queuedRow: boolean,
-      check: (spies: Spies) => void
-    ) => {
-      const importNotes = ['bm90ZS0x', 'bm90ZS0y'];
-      const noteIds = ['carried-note-1', 'carried-note-2'];
-      const importedIds = jest.spyOn(noteQuarantine, 'importedNoteIds').mockReturnValue(noteIds);
-      const releaseNotes = jest.spyOn(noteQuarantine, 'releaseNoteIds').mockResolvedValue(undefined);
+    const CARRIED_NOTES = ['bm90ZS0x', 'bm90ZS0y'];
+    const runCustomFailure = async (error: Error, message: string, queuedRow: boolean, check: () => void) => {
       jest.mocked(requestCustomTransaction).mockRejectedValueOnce(error);
       if (queuedRow) jest.mocked(startTransactionProcessing).mockResolvedValueOnce(undefined);
-      try {
-        await expect(
-          driveConfirmation(
-            () =>
-              dapp.requestTransaction('https://miden.xyz', {
-                type: MidenDAppMessageType.TransactionRequest,
-                sourcePublicKey: 'miden-account-1',
-                transaction: {
-                  payload: { address: 'miden-account-1', transactionRequest: 'b64req', importNotes }
-                }
-              } as never),
-            MidenMessageType.DAppTransactionConfirmationRequest,
-            { confirmed: true, delegate: false }
-          )
-        ).rejects.toEqual(new Error(message));
-        expect(requestCustomTransaction).toHaveBeenCalledTimes(1);
-        expect(_g.__dappExtTest.lastConfirmResponse).toEqual({
-          type: MidenMessageType.DAppTransactionConfirmationResponse
-        });
-        check({ importNotes, noteIds, importedIds, releaseNotes });
-      } finally {
-        importedIds.mockRestore();
-        releaseNotes.mockRestore();
-      }
+      await expect(
+        driveConfirmation(
+          () =>
+            dapp.requestTransaction('https://miden.xyz', {
+              type: MidenDAppMessageType.TransactionRequest,
+              sourcePublicKey: 'miden-account-1',
+              transaction: {
+                payload: { address: 'miden-account-1', transactionRequest: 'b64req', importNotes: CARRIED_NOTES }
+              }
+            } as never),
+          MidenMessageType.DAppTransactionConfirmationRequest,
+          { confirmed: true, delegate: false }
+        )
+      ).rejects.toEqual(new Error(message));
+      expect(requestCustomTransaction).toHaveBeenCalledTimes(1);
+      expect(_g.__dappExtTest.lastConfirmResponse).toEqual({
+        type: MidenMessageType.DAppTransactionConfirmationResponse
+      });
+      check();
     };
 
     it.each<[string, Error]>([
       ['a queued row', queued],
       ['a cause-wrapped queued row', new Error('custom wrapper', { cause: queued })]
     ])('starts processing and releases the carried notes after %s', async (_label, error) => {
-      await runCustomFailure(error, queuedMessage, true, ({ importNotes, noteIds, importedIds, releaseNotes }) => {
+      await runCustomFailure(error, queuedMessage, true, () => {
         expect(startTransactionProcessing).toHaveBeenCalledTimes(1);
-        expect(importedIds).toHaveBeenCalledWith(importNotes);
-        expect(releaseNotes).toHaveBeenCalledTimes(1);
-        expect(releaseNotes).toHaveBeenCalledWith(noteIds);
+        // The dry run derives the same ids with a second argument; the release derives them with the notes alone.
+        expect(noteQuarantine.importedNoteIds).toHaveBeenCalledWith(CARRIED_NOTES);
+        expect(noteQuarantine.releaseNoteIds).toHaveBeenCalledTimes(1);
       });
     });
 
     it('starts nothing and keeps the carried notes quarantined after a NOT_GRANTED refusal', async () => {
-      await runCustomFailure(new Error(MidenDAppErrorType.NotGranted), 'NOT_GRANTED', false, ({ releaseNotes }) => {
+      await runCustomFailure(new Error(MidenDAppErrorType.NotGranted), 'NOT_GRANTED', false, () => {
         expect(startTransactionProcessing).not.toHaveBeenCalled();
-        expect(releaseNotes).not.toHaveBeenCalled();
+        expect(noteQuarantine.releaseNoteIds).not.toHaveBeenCalled();
       });
     });
   });
