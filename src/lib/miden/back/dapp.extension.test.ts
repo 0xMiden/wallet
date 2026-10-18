@@ -2459,6 +2459,88 @@ describe('a request that prompts, made while the wallet is locked (#1414)', () =
     }
   });
 
+  describe('a custom request whose decode or summary traps (F-001)', () => {
+    const startCustom = () =>
+      dapp.requestTransaction(LOCKED_ORIGIN, {
+        type: MidenDAppMessageType.TransactionRequest,
+        sourcePublicKey: 'miden-account-1',
+        transaction: {
+          type: 'custom',
+          payload: { address: 'miden-account-1', recipientAddress: 'bob', transactionRequest: 'cmVxdWVzdA==' }
+        }
+      } as never);
+
+    const withRequest = async (deserialize: () => unknown, run: () => Promise<void>) => {
+      const sdk: Record<string, unknown> = require('@miden-sdk/miden-sdk/lazy');
+      const originalRequest = sdk.TransactionRequest;
+      sdk.TransactionRequest = { deserialize };
+      try {
+        await run();
+      } finally {
+        closeConfirmWindow();
+        unlockWallet();
+        sdk.TransactionRequest = originalRequest;
+      }
+    };
+
+    it('retires the client when the request decode traps, and refuses before any popup', async () => {
+      const trap = new WebAssembly.RuntimeError('unreachable');
+      await withRequest(
+        () => {
+          throw trap;
+        },
+        async () => {
+          lockWallet();
+          const outcome = settle(startCustom());
+          await new Promise(resolve => setTimeout(resolve, 0));
+
+          expect(extensionBrowser.windows.create).not.toHaveBeenCalled();
+          await expect(outcome).resolves.toEqual({ ok: false, message: expect.stringMatching(/^INVALID_PARAMS: /) });
+          expect(mockRetireWasmClientForCaughtTrap).toHaveBeenCalledWith(expect.anything(), trap);
+        }
+      );
+    });
+
+    it('retires the client when the declared summary traps, and refuses before any popup', async () => {
+      const trap = new WebAssembly.RuntimeError('unreachable');
+      await withRequest(
+        () => ({
+          expectedOutputOwnNotes: () => {
+            throw trap;
+          }
+        }),
+        async () => {
+          lockWallet();
+          const outcome = settle(startCustom());
+          await new Promise(resolve => setTimeout(resolve, 0));
+
+          expect(extensionBrowser.windows.create).not.toHaveBeenCalled();
+          await expect(outcome).resolves.toEqual({ ok: false, message: expect.stringMatching(/^INVALID_PARAMS: /) });
+          expect(mockRetireWasmClientForCaughtTrap).toHaveBeenCalledWith(expect.anything(), trap);
+        }
+      );
+    });
+
+    it('keeps the opaque warning, and retires nothing, when the summary fails without a trap', async () => {
+      await withRequest(
+        () => ({
+          expectedOutputOwnNotes: () => {
+            throw new Error('cannot summarise');
+          }
+        }),
+        async () => {
+          lockWallet();
+          const popup = await openPopup(startCustom);
+          unlockWallet();
+          const payload = await popup.getPayload();
+
+          expect(JSON.stringify(payload)).toContain('Warning, the wallet could not decode this transaction request');
+          expect(mockRetireWasmClientForCaughtTrap).not.toHaveBeenCalled();
+        }
+      );
+    });
+  });
+
   it.each(kinds)('$name: opens the popup with no read, reads only for the payload after the unlock', async kind => {
     lockWallet();
     const popup = await openPopup(kind.start);

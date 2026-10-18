@@ -375,6 +375,55 @@ describe('dApp custom-transaction approval shows the asset movement of the reque
     );
   });
 
+  it('refuses a request whose summary traps before showing a confirmation sheet (F-001)', async () => {
+    sdk.TransactionRequest = {
+      deserialize: () => ({
+        expectedOutputOwnNotes: () => {
+          throw new WebAssembly.RuntimeError('unreachable');
+        }
+      })
+    };
+
+    await expect(
+      requestTransaction(DAPP_ORIGIN, customRequest('mtst1qqqqqqqqqqqqqqqqqqqqqqqqqqqsavings'), 'session-1')
+    ).rejects.toThrow(MidenDAppErrorType.InvalidParams);
+
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+  });
+
+  it('refuses a request whose carried note decode traps before showing a confirmation sheet (F-001)', async () => {
+    sdk.TransactionRequest = { deserialize: () => ({ expectedOutputOwnNotes: () => [] }) };
+    sdk.NoteFile = {
+      deserialize: () => {
+        throw new WebAssembly.RuntimeError('unreachable');
+      }
+    };
+    sdk.Note = { deserialize: () => noteCarrying([fungibleAsset('faucet-usdc', 4000000n)]) };
+
+    await expect(
+      requestTransaction(
+        DAPP_ORIGIN,
+        {
+          type: MidenDAppMessageType.TransactionRequest,
+          sourcePublicKey: 'miden-account-1',
+          transaction: {
+            type: 'custom',
+            payload: {
+              address: 'miden-account-1',
+              transactionRequest: 'dHhieXRlcw==',
+              recipientAddress: '',
+              inputNoteIds: [],
+              importNotes: ['bm90ZQ==']
+            }
+          }
+        } as unknown as Parameters<typeof requestTransaction>[1],
+        'session-1'
+      )
+    ).rejects.toThrow(MidenDAppErrorType.InvalidParams);
+
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+  });
+
   it('reports the incoming assets of the notes the request carries', async () => {
     sdk.TransactionRequest = { deserialize: () => ({ expectedOutputOwnNotes: () => [] }) };
     sdk.NoteFile = {
