@@ -5924,7 +5924,7 @@
     "englishSource": "No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers."
   },
   "helpImproveWalletCrashReports": {
-    "message": "Absturzberichte werden in jedem Fall gesendet, damit wir Abstürze beheben können: Der Fehler und die Stelle im Code, an der er aufgetreten ist, werden übermittelt – bereinigt, um sensible Daten zu entfernen, und ohne Identifikationsmerkmale für Sie oder Ihr Gerät.",
+    "message": "Absturzberichte werden in jedem Fall gesendet, damit wir Abstürze beheben können: Der Fehler und die Stelle im Code, an der er aufgetreten ist, werden übermittelt, bereinigt um sensible Daten und ohne Identifikationsmerkmale für Sie oder Ihr Gerät.",
     "englishSource": "Crash reports are sent either way, so we can fix crashes: the error and where it happened in the code, scrubbed to remove sensitive data, with no identifier for you or your device."
   },
   "helpImproveWalletChangeAnyTime": {

@@ -1316,7 +1316,7 @@
   "helpImproveWalletPrivateDescription": "Never your keys, recovery phrase, password, addresses, balances, amounts, or transaction contents.",
   "helpImproveWalletNoTrackingTitle": "No ads, no tracking",
   "helpImproveWalletNoTrackingDescription": "No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers.",
-  "helpImproveWalletCrashReports": "Absturzberichte werden in jedem Fall gesendet, damit wir Abstürze beheben können: Der Fehler und die Stelle im Code, an der er aufgetreten ist, werden übermittelt – bereinigt, um sensible Daten zu entfernen, und ohne Identifikationsmerkmale für Sie oder Ihr Gerät.",
+  "helpImproveWalletCrashReports": "Absturzberichte werden in jedem Fall gesendet, damit wir Abstürze beheben können: Der Fehler und die Stelle im Code, an der er aufgetreten ist, werden übermittelt, bereinigt um sensible Daten und ohne Identifikationsmerkmale für Sie oder Ihr Gerät.",
   "helpImproveWalletChangeAnyTime": "You can change this any time in Settings.",
   "activityAcceptTransfer": "Überweisung akzeptieren",
   "activityDateUnavailable": "Datum nicht verfügbar",
