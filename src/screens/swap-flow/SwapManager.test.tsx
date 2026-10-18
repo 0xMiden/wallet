@@ -67,9 +67,21 @@ const mockQuoteNow = jest.fn();
 const mockUseAccount = jest.fn(() => mockAccountReturn);
 const mockUseAllBalances = jest.fn((_pk: string, _md: Record<string, unknown>) => mockAllBalancesReturn);
 const mockUseAllTokensBaseMetadata = jest.fn(() => mockMetadata);
-const mockAccountIdStringToSdk = jest.fn((s: string) => s);
+const mockParseBech32 = (id: string) => {
+  if (id.includes('_') || /^0x/i.test(id)) throw new Error(`Invalid bech32 account: ${id}`);
+  return { toString: () => id };
+};
+const mockAccountIdStringToSdk = jest.fn(mockParseBech32);
+const mockAccountRefToSdk = (id: string) => {
+  const ref = id.split('_')[0] ?? id;
+  const parsed = /^0x/i.test(ref) ? ref.toLowerCase() : ref;
+  return { toString: () => parsed };
+};
 // As the SDK's re-encode does, an id already in the fake bech32 form maps to itself.
-const mockFakeBech32 = (s: string) => (s.startsWith('bech32-') ? s : `bech32-${s}`);
+const mockFakeBech32 = (id: { toString(): string }) => {
+  const s = id.toString();
+  return s.startsWith('bech32-') ? s : `bech32-${s}`;
+};
 const mockGetBech32 = jest.fn(mockFakeBech32);
 const mockConfirmSensitive = jest.fn().mockResolvedValue(true);
 const mockStringToBigInt = jest.fn((str: string, _decimals: number) => BigInt(Math.trunc(Number(str) || 0)));
@@ -281,8 +293,9 @@ jest.mock('lib/miden/front', () => ({
 
 jest.mock('lib/miden/sdk/helpers', () => ({
   accountIdStringToSdk: (s: string) => mockAccountIdStringToSdk(s),
-  accountRefToSdk: (s: string) => mockAccountIdStringToSdk(s),
-  getBech32AddressFromAccountId: (a: string) => mockGetBech32(a)
+  accountRefToSdk: (s: string) => mockAccountRefToSdk(s),
+  walletAccountIdToSdk: (s: string) => mockAccountRefToSdk(s),
+  getBech32AddressFromAccountId: (a: { toString(): string }) => mockGetBech32(a)
 }));
 
 jest.mock('lib/biometric', () => ({
@@ -424,7 +437,7 @@ beforeEach(() => {
   mockGetSwapTokens.mockImplementation(() => [mockTokenA, mockTokenB, mockTokenC]);
   mockSolverPairs = undefined;
   mockGetBech32.mockImplementation(mockFakeBech32);
-  mockAccountIdStringToSdk.mockImplementation((s: string) => s);
+  mockAccountIdStringToSdk.mockImplementation(mockParseBech32);
   mockConfirmSensitive.mockResolvedValue(true);
   mockStringToBigInt.mockImplementation((str: string, _decimals: number) => BigInt(Math.trunc(Number(str) || 0)));
   mockInitiateSwap.mockResolvedValue('tx-1');
@@ -540,6 +553,20 @@ describe('SwapFlow / SwapManager', () => {
   });
 
   describe('offer balance resolution', () => {
+    it('matches a hex offer faucet by its canonical bech32 balance key', () => {
+      const offer = { ...mockTokenA, faucetId: '0Xabc' };
+      mockGetSwapTokens.mockReturnValue([offer, mockTokenB]);
+      mockBalanceData = [
+        { tokenId: 'bech32-0xabc', balance: 42 },
+        { tokenId: '0Xabc', balance: 7 }
+      ];
+      mockAllBalancesReturn = { data: mockBalanceData };
+
+      renderFlow();
+
+      expect(screen.getByTestId('sa-offer-balance')).toHaveTextContent('42');
+    });
+
     it('matches the balance by the bech32-normalized faucet key', () => {
       mockBalanceData = [{ tokenId: 'bech32-faucet-A', balance: 100 }];
       mockAllBalancesReturn = { data: mockBalanceData };

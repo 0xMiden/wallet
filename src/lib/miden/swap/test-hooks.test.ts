@@ -37,6 +37,10 @@ const record = (orderId: number, id: string) => ({
 });
 
 let lists: any[][] = [];
+const getBalance = jest.fn((_faucet: { toString(): string }) => {
+  requireHeld('vault.getBalance');
+  return 5n;
+});
 const fakeClient = {
   syncState: jest.fn(async () => requireHeld('syncState')),
   exportNote: jest.fn(async (_id: string, _type: unknown, assertLive?: (step?: string) => void) => {
@@ -50,10 +54,7 @@ const fakeClient = {
       vault: () => {
         requireHeld('vault');
         return {
-          getBalance: () => {
-            requireHeld('vault.getBalance');
-            return 5n;
-          },
+          getBalance,
           fungibleAssets: () => []
         };
       }
@@ -121,7 +122,21 @@ jest.mock('lib/miden/sdk/miden-client', () => ({
   }
 }));
 jest.mock('lib/miden/sdk/miden-client-interface', () => ({ remoteProver: () => undefined }));
-jest.mock('lib/miden/sdk/helpers', () => ({ accountIdStringToSdk: (s: string) => ({ toString: () => s }) }));
+jest.mock('lib/miden/sdk/helpers', () => {
+  const canonical = (id: string) => {
+    const ref = id.split('_')[0] ?? id;
+    const parsed = /^0x/i.test(ref) ? ref.toLowerCase() : ref;
+    return { toString: () => parsed };
+  };
+  return {
+    accountIdStringToSdk: (id: string) => {
+      if (id.includes('_') || /^0x/i.test(id)) throw new Error(`Invalid bech32 account: ${id}`);
+      return { toString: () => id };
+    },
+    accountRefToSdk: canonical,
+    walletAccountIdToSdk: canonical
+  };
+});
 jest.mock('./tokens', () => ({ _setSwapTokensForTest: jest.fn() }));
 jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   buildSwapTag: () => ({ asU32: () => 7 }),
@@ -146,6 +161,17 @@ beforeEach(() => {
 });
 
 describe('E2E swap hooks under the realm client lock (#878)', () => {
+  it('reads the vault balance with the parsed 0X faucet id', async () => {
+    await expect(g.__TEST_TOKEN_BALANCE__({ accountId: 'acc', faucetId: '0Xabc' })).resolves.toEqual({
+      ok: true,
+      balance: '5'
+    });
+    expect(getBalance).toHaveBeenCalledTimes(1);
+    expect(getBalance.mock.calls[0][0].toString()).toBe('0xabc');
+    expect(held.labels).toEqual(['pswap-token-balance']);
+    expect(held.count).toBe(0);
+  });
+
   it('the read hooks run their call and every read of what it returned inside one labelled hold', async () => {
     await expect(g.__TEST_PSWAP_ORDER_INFO__()).resolves.toMatchObject({ ok: true });
     await expect(g.__TEST_INSPECT_SENT_NOTE__('sent-1')).resolves.toMatchObject({ ok: true, isPublic: true });
