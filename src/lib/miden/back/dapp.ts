@@ -35,6 +35,10 @@ import {
   MidenDAppGetCurrentPermissionResponse,
   MidenDAppGuardianInfoRequest,
   MidenDAppGuardianInfoResponse,
+  MidenDAppLoginKeyRequest,
+  MidenDAppLoginKeyResponse,
+  MidenDAppLoginSignRequest,
+  MidenDAppLoginSignResponse,
   MidenDAppMessageType,
   MidenDAppPermissionRequest,
   MidenDAppPermissionResponse,
@@ -68,6 +72,7 @@ import { Vault } from 'lib/miden/back/vault';
 import { FEE_RESERVE_MULTIPLE } from 'lib/miden/fees/spendable';
 import { guardianProviderFromEndpoint, resolveGuardianEndpoint } from 'lib/miden/guardian/account';
 import { dappGuardianSyncStatus } from 'lib/miden/guardian/sync-guard';
+import { loginKeyDomain } from 'lib/miden/login-key/derive';
 import { MIDEN_METADATA } from 'lib/miden/metadata';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { getAssetSymbol, getTokenMetadata } from 'lib/miden/metadata/utils';
@@ -630,7 +635,9 @@ async function confirmOnNonExtension(
   networkRpc: string,
   detailMessages: string[],
   sessionId: string | undefined,
-  deadline: number | undefined
+  deadline: number | undefined,
+  // A login approval names the site's domain and the account it signs in to.
+  login?: { domain: string; accountId: string }
 ): Promise<boolean> {
   const result = await requestConfirmationWithWatchdog(deadline, {
     id: nanoid(),
@@ -644,7 +651,8 @@ async function confirmOnNonExtension(
     allowedPrivateData: dApp.allowedPrivateData,
     existingPermission: true,
     transactionMessages: detailMessages,
-    sourcePublicKey: dApp.accountId
+    sourcePublicKey: dApp.accountId,
+    ...login
   });
   return result.confirmed;
 }
@@ -838,6 +846,134 @@ const generatePromisifySign = async (
     }
   });
 };
+
+/**
+ * A login signature: once the user approves, the account's login key for the page's domain signs a 32-byte word. The
+ * key signs nothing else, so a login signature can never authorize a transaction.
+ */
+export async function requestLoginSign(
+  origin: string,
+  req: MidenDAppLoginSignRequest,
+  // Routes the mobile and desktop prompt to the requesting session, as requestSign's does.
+  sessionId?: string
+): Promise<MidenDAppLoginSignResponse> {
+  const { dApp, domain } = await loginKeySession(origin, req?.sourceAccountId);
+  if (req.kind !== 'word' || !isLoginWord(req.payload)) {
+    throw new Error(`${MidenDAppErrorType.InvalidParams}: a login signature signs only a 32-byte word`);
+  }
+
+  // `.catch(reject)`, as requestSign's: a throw of its own would otherwise leave the dApp's promise unsettled.
+  return new Promise((resolve, reject) => {
+    generatePromisifyLoginSign(resolve, reject, origin, dApp, req, domain, sessionId).catch(reject);
+  });
+}
+
+const generatePromisifyLoginSign = async (
+  resolve: (value: MidenDAppLoginSignResponse) => void,
+  reject: (reason: unknown) => void,
+  origin: string,
+  dApp: MidenDAppSession,
+  req: MidenDAppLoginSignRequest,
+  domain: string,
+  sessionId?: string
+) => {
+  const networkRpc = await getNetworkRPC(dApp.network);
+  const checkRootKey = sessionLoginKey(dApp, domain);
+  const sign = async (): Promise<MidenDAppLoginSignResponse> => {
+    // The entry gate ran before the prompt; the session or the current account may have changed since (#1419).
+    await assertDappSendStillAuthorized(origin, req.sourceAccountId, dApp.accountId);
+    const signature = await withUnlocked(({ vault }) =>
+      vault.signWithLoginKey(dApp.accountId, dApp.publicKey, domain, req.payload)
+    );
+    return { type: MidenDAppMessageType.LoginSignResponse, signature };
+  };
+
+  if (!isExtension()) {
+    try {
+      // The sheet cannot unlock, and posted while locked it would sit over the lock screen.
+      const waits: UnlockWaits = {};
+      if (isStoreLocked() && !(await waitForUnlockOnNonExtension(origin, waits))) {
+        reject(lockedRefusal());
+        return;
+      }
+      // Unlocked from here, so a device without the account's root key is refused before the sheet opens.
+      await checkRootKey();
+      const login = { domain, accountId: dApp.accountId };
+      if (!(await confirmOnNonExtension('loginSign', origin, dApp, networkRpc, [], sessionId, waits.deadline, login))) {
+        reject(new Error(MidenDAppErrorType.NotGranted));
+        return;
+      }
+      resolve(await sign());
+    } catch (e) {
+      reject(loginKeyFailure(e));
+    }
+    return;
+  }
+
+  // The popup unlocks a locked wallet and then shows the approval, so only an unlocked wallet has its root key checked
+  // before the popup; a locked one without it is refused the same way when the approval signs.
+  if ((await prepareOrReject(checkRootKey, error => reject(loginKeyFailure(error)))) === undefined) return;
+  const id = nanoid();
+  await requestConfirm({
+    id,
+    payload: { type: 'loginSign', origin, networkRpc, appMeta: dApp.appMeta, domain, accountId: dApp.accountId },
+    onDecline: () => {
+      reject(new Error(MidenDAppErrorType.NotGranted));
+    },
+    handleIntercomRequest: async (confirmReq, decline) => {
+      if (confirmReq?.type !== MidenMessageType.DAppSignConfirmationRequest || confirmReq.id !== id) {
+        return undefined;
+      }
+      if (confirmReq.confirmed) {
+        try {
+          resolve(await sign());
+        } catch (e) {
+          reject(loginKeyFailure(e));
+        }
+      } else {
+        decline();
+      }
+      return { type: MidenMessageType.DAppSignConfirmationResponse };
+    }
+  });
+};
+
+// The session a login key request acts for, and the domain whose key it uses. The domain is read from `origin`, the
+// page's real origin, never from the request, so a page reaches only its own site's key.
+async function loginKeySession(
+  origin: string,
+  sourceAccountId: string | undefined
+): Promise<{ dApp: MidenDAppSession; domain: string }> {
+  if (!sourceAccountId) {
+    throw new Error(MidenDAppErrorType.InvalidParams);
+  }
+  const dApp = await getDApp(origin, sourceAccountId);
+  if (!dApp) {
+    throw new Error(MidenDAppErrorType.NotGranted);
+  }
+  await assertRequestAccountIsCurrent(dApp.accountId);
+  return { dApp, domain: loginKeyDomain(origin) };
+}
+
+// The account and the commitment its key is found by both come from the one stored session, never from the request.
+const sessionLoginKey = (dApp: MidenDAppSession, domain: string) => () =>
+  withUnlocked(({ vault }) => vault.loginKeyCommitment(dApp.accountId, dApp.publicKey, domain));
+
+function isLoginWord(payload: unknown): boolean {
+  if (typeof payload !== 'string') return false;
+  try {
+    return b64ToU8(payload).length === 32;
+  } catch {
+    return false;
+  }
+}
+
+// A device without the account's root key is refused with LOGIN_KEY_UNAVAILABLE leading the message, so a page can
+// tell it from a malformed request.
+const loginKeyFailure = (error: unknown): Error =>
+  error instanceof Error && error.message.startsWith(`${MidenDAppErrorType.LoginKeyUnavailable}:`)
+    ? error
+    : dappRequestFailure(error);
 
 export async function requestPrivateNotes(
   origin: string,
@@ -1222,6 +1358,34 @@ async function getGuardianInfoData(accountId: string): Promise<GuardianInfo> {
       guardianProvider: guardianProviderFromEndpoint(guardianEndpoint || null),
       guardianSyncStatus: dappGuardianSyncStatus(account)
     };
+  });
+}
+
+// Answers without a prompt, as requestGuardianInfo does: the commitment signs nothing, and every login signature is
+// approved in the wallet. Locked, it needs the unlock all the same, since the vault holds the root key.
+export async function requestLoginKey(
+  origin: string,
+  req: MidenDAppLoginKeyRequest
+): Promise<MidenDAppLoginKeyResponse> {
+  const { dApp, domain } = await loginKeySession(origin, req?.sourceAccountId);
+  const prepare = sessionLoginKey(dApp, domain);
+  const prepared = await runPrepare(prepare);
+  if (!prepared.locked) {
+    return { type: MidenDAppMessageType.LoginKeyResponse, loginKey: prepared.value };
+  }
+  if (!isExtension()) {
+    const loginKey = await prepareAfterUnlock(origin, req.sourceAccountId, dApp.accountId, prepare);
+    return { type: MidenDAppMessageType.LoginKeyResponse, loginKey };
+  }
+  return new Promise<MidenDAppLoginKeyResponse>((resolve, reject) => {
+    requestUnlockOnly(
+      origin,
+      dApp,
+      req.sourceAccountId,
+      prepare,
+      loginKey => resolve({ type: MidenDAppMessageType.LoginKeyResponse, loginKey }),
+      reject
+    ).catch(reject);
   });
 }
 
