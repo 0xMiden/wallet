@@ -2,7 +2,12 @@ import { GUARDIAN_ERROR_CODES } from '@openzeppelin/guardian-client';
 
 import { isOperationAbortedError } from 'lib/miden/back/offscreen-codec';
 import type { ITransactionStage, ITransactionType } from 'lib/miden/db/types';
-import { errorMessageParts, isIndefiniteSubmitOutcomeError } from 'lib/miden/sdk/sdk-error-code';
+import {
+  causeChain,
+  errorMessageParts,
+  isClientTerminatedError,
+  isIndefiniteSubmitOutcomeError
+} from 'lib/miden/sdk/sdk-error-code';
 import { isWasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { isDesktop } from 'lib/platform';
 import { isHotKeyFailure } from 'lib/secure-hot-key/failure';
@@ -136,6 +141,70 @@ export const SUBMIT_LEG_BUCKETS: readonly ['under_9s', '9_to_11s', 'over_11s', '
   'over_11s',
   'unavailable'
 ];
+
+export const THROWN_CLASSES: readonly [
+  'wasm_runtime_error',
+  'type_error',
+  'range_error',
+  'reference_error',
+  'syntax_error',
+  'error',
+  'string',
+  'non_error',
+  'none'
+] = [
+  'wasm_runtime_error',
+  'type_error',
+  'range_error',
+  'reference_error',
+  'syntax_error',
+  'error',
+  'string',
+  'non_error',
+  'none'
+];
+
+type ThrownClass = (typeof THROWN_CLASSES)[number];
+
+const THROWN_CLASS_BY_NAME = new Map<unknown, ThrownClass>([
+  ['RuntimeError', 'wasm_runtime_error'],
+  ['TypeError', 'type_error'],
+  ['RangeError', 'range_error'],
+  ['ReferenceError', 'reference_error'],
+  ['SyntaxError', 'syntax_error']
+]);
+
+// The chain the pipeline's kill classifier walks, cut at a length no real error reaches: that walk stops at a kill,
+// so a cause accessor that keeps returning new links past one would otherwise hang this report.
+const REPORTED_CAUSE_LINKS = 64;
+
+function* reportedCauseChain(error: unknown): Generator<unknown, void, undefined> {
+  let links = 0;
+  for (const link of causeChain(error)) {
+    yield link;
+    if (++links === REPORTED_CAUSE_LINKS) return;
+  }
+}
+
+// The deepest link: a wrapper must not hide the original throw, such as the WASM trap the lock rethrows raw, nor a
+// value thrown as a cause.
+function thrownClass(error: unknown): ThrownClass {
+  let link: unknown;
+  for (const cause of reportedCauseChain(error)) if (cause !== undefined && cause !== null) link = cause;
+  try {
+    if (link instanceof Error) {
+      try {
+        return THROWN_CLASS_BY_NAME.get(link.name) ?? 'error';
+      } catch {
+        return 'error';
+      }
+    }
+  } catch {
+    // A revoked Proxy throws from instanceof, and a throw out of here would lose the whole report.
+    return 'non_error';
+  }
+  return typeof link === 'string' ? 'string' : link === undefined ? 'none' : 'non_error';
+}
 
 export const PIPELINE_KILLS = [
   'offscreen_aborted_deadline',
@@ -503,6 +572,16 @@ function submitRequestFailure(error: unknown): { endpoint: string; kind: string 
 const grpcStatusOf = (kind: string | undefined) =>
   kind === undefined ? undefined : SUBMIT_GRPC_TEXT.find(([, text]) => kind.startsWith(text));
 
+function submitContextIdentity(hiddenDuringSubmit: boolean | undefined, submitLegMs: number | undefined): string {
+  const hidden: (typeof SUBMIT_HIDDEN_ANSWERS)[number] =
+    hiddenDuringSubmit === undefined ? 'unavailable' : hiddenDuringSubmit ? 'yes' : 'no';
+  let bucket: (typeof SUBMIT_LEG_BUCKETS)[number] = 'unavailable';
+  if (submitLegMs !== undefined && Number.isFinite(submitLegMs) && submitLegMs >= 0) {
+    bucket = submitLegMs < 9000 ? 'under_9s' : submitLegMs <= 11000 ? '9_to_11s' : 'over_11s';
+  }
+  return `app hidden during submit ${hidden}; submit leg ${bucket}`;
+}
+
 function submitOutcomeIdentity(
   error: unknown,
   hiddenDuringSubmit: boolean | undefined,
@@ -510,13 +589,7 @@ function submitOutcomeIdentity(
 ): string {
   const matched = grpcStatusOf(submitRequestFailure(error)?.kind)?.[0];
   const status = SUBMIT_UNKNOWN_OUTCOME_STATUSES.find(listed => listed === matched) ?? 'other';
-  const hidden: (typeof SUBMIT_HIDDEN_ANSWERS)[number] =
-    hiddenDuringSubmit === undefined ? 'unavailable' : hiddenDuringSubmit ? 'yes' : 'no';
-  let bucket: (typeof SUBMIT_LEG_BUCKETS)[number] = 'unavailable';
-  if (submitLegMs !== undefined && Number.isFinite(submitLegMs) && submitLegMs >= 0) {
-    bucket = submitLegMs < 9000 ? 'under_9s' : submitLegMs <= 11000 ? '9_to_11s' : 'over_11s';
-  }
-  return `${coined('submit_outcome_unknown')}; grpc ${status}; app hidden during submit ${hidden}; submit leg ${bucket}`;
+  return `${coined('submit_outcome_unknown')}; grpc ${status}; ${submitContextIdentity(hiddenDuringSubmit, submitLegMs)}`;
 }
 
 function submitRefusalIdentity(refusal: { endpoint: string; kind: string }): string {
@@ -550,11 +623,18 @@ function failureIdentity(failure: TransactionFailure): string {
   if (refusal !== undefined) return submitRefusalIdentity(refusal);
   if (protocol !== undefined) return protocol;
   if (/advice stack read failed/i.test(message)) return coined('advice_stack_read_failed');
-  if (/WebClient terminated/.test(message)) return coined('client_terminated');
+  if ([...reportedCauseChain(error)].some(isClientTerminatedError) || /WebClient terminated/.test(message)) {
+    return coined('client_terminated');
+  }
   if (/failed to execute transaction/i.test(message)) {
     return `${coined('transaction_execution_failed')}; cause ${executionCause(error)}`;
   }
-  return classifyError(error);
+  const category = classifyError(error);
+  if (category !== 'unknown') return category;
+  const identity = `unknown; thrown ${thrownClass(error)}`;
+  return failure.stage === 'submitting'
+    ? `${identity}; ${submitContextIdentity(failure.hiddenDuringSubmit, failure.submitLegMs)}`
+    : identity;
 }
 
 // Every value the report's text interpolates, each of which crash scrubbing reads as one non-wordlist word where it
@@ -570,6 +650,7 @@ const CLOSED_NAMES: ReadonlySet<string> = new Set<string>([
   ...SUBMIT_NODE_ERRORS,
   ...SUBMIT_HIDDEN_ANSWERS,
   ...SUBMIT_LEG_BUCKETS,
+  ...THROWN_CLASSES,
   ...PIPELINE_KILLS,
   ...EXECUTION_CAUSES,
   ...SIGNING_STEPS,

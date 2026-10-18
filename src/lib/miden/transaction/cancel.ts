@@ -150,6 +150,7 @@ export const cancelTransaction = async (
   // still follow `error`.
   reportedReason?: TransactionFailureReason
 ) => {
+  const returnedAtMs = Date.now();
   // Refuse to downgrade a finalized transaction. A late error fired AFTER
   // completeXxxTransaction has already marked the tx Completed (most often
   // a transient guardian-canonicalization sync error) would otherwise flip
@@ -228,7 +229,9 @@ export const cancelTransaction = async (
       diagnostics: committed.failureDiagnostics,
       entryPoint: committed.consumeEntryPoint,
       reason: reportedReason ?? reportedWalletReason(error),
-      error
+      error,
+      hiddenDuringSubmit: hiddenDuringSubmit(committed, returnedAtMs),
+      submitLegMs: submitLegMs(committed, returnedAtMs)
     });
   }
 
