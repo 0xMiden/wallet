@@ -5,7 +5,7 @@ import type { SwapOrderTracking } from 'lib/miden/transaction/get';
 import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
 import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 
-import { isOpenRecoveredOrder, type RecoveredSwapOrderRef } from './recovered-order';
+import { isOpenRecoveredOrder, recordedRecoveredSwapTip, type RecoveredSwapOrderRef } from './recovered-order';
 
 export type RecoveredOrderTracking = { kind: 'open'; tracking: SwapOrderTracking } | { kind: 'closed' };
 
@@ -37,7 +37,8 @@ export async function trackRecoveredSwapOrders(
     if (read.kind === 'open') {
       const newTip = read.depth > 0 && read.noteId !== order.tipNoteId;
       const tip = newTip ? read : undefined;
-      if (!(await recordOpenRecoveredSwapOrder(order.txId, readOn, tip, order.provisionalClosure === true))) continue;
+      if (!(await recordOpenRecoveredSwapOrder(order.txId, readOn, read.depth, tip, order.provisionalClosure === true)))
+        continue;
       results.set(order.orderId, {
         kind: 'open',
         tracking: {
@@ -60,20 +61,24 @@ export async function trackRecoveredSwapOrders(
 
 /**
  * Confirm that an open read still holds on a row that is still an open recovered order, and record what it showed:
- * the remainder its Cancel returns, if new, and no settledAt or reclaimedAt, since on an open row neither was recorded
- * by a finished read. True only when the row is still such an order and `readOn`, the node the read ran on, is still
- * the effective one, checked in the modify that writes: a row a finished read closed meanwhile (the refused-cancel
- * check, another realm) reports no open order, so no reader shows it open (#1487).
+ * the remainder its Cancel returns, if new, and no settledAt or reclaimedAt. Its depth must be at least the row's
+ * validated recorded remainder's depth (0 with none), checked in the modify that writes: a shallower read changes
+ * nothing, clears no provisional stamp and returns false. True only when the row is still such an order and `readOn`,
+ * the node the read ran on, is still effective: a row a finished read closed meanwhile reports no open order (#1487).
  */
 async function recordOpenRecoveredSwapOrder(
   txId: string,
   readOn: string,
+  depth: number,
   tip: { noteId: string; depth: number; offeredAmount: bigint } | undefined,
   clearsClosure: boolean
 ): Promise<boolean> {
   let confirmed = false;
   await Repo.transactions.where({ id: txId }).modify(row => {
-    confirmed = getEffectiveRpcUrl() === readOn && isOpenRecoveredOrder(row);
+    confirmed =
+      getEffectiveRpcUrl() === readOn &&
+      isOpenRecoveredOrder(row) &&
+      depth >= (recordedRecoveredSwapTip(row)?.depth ?? 0);
     // `false`, not a bare return - dexie re-puts the deep clone for any other value.
     if (!confirmed || (!tip && !clearsClosure)) return false;
     const { settledAt: _settledAt, reclaimedAt: _reclaimedAt, ...extraInputs } = row.extraInputs ?? {};

@@ -1,4 +1,9 @@
-import { type ISwapExtraInputs, type ITransaction, ITransactionStatus } from 'lib/miden/db/types';
+import {
+  type IRecoveredSwapTip,
+  type ISwapExtraInputs,
+  type ITransaction,
+  ITransactionStatus
+} from 'lib/miden/db/types';
 
 /**
  * A swap order rebuilt by Guardian history recovery. Recovery writes Auto accept off and no expiry, and this device's
@@ -45,6 +50,18 @@ export function recoveredOrderNoteId(tx: ITransaction): string | undefined {
   return candidates.length === 1 && note && tx.outputNoteIds?.includes(note.id) ? note.id : undefined;
 }
 
+/** A malformed stored remainder falls back to the order note and counts as depth 0 when confirming an open read. */
+export function recordedRecoveredSwapTip(tx: ITransaction): IRecoveredSwapTip | undefined {
+  const recorded = swapExtraOf(tx).recoveredTip;
+  return recorded != null &&
+    typeof recorded.noteId === 'string' &&
+    Number.isSafeInteger(recorded.depth) &&
+    recorded.depth > 0 &&
+    typeof recorded.remainingOffered === 'bigint'
+    ? recorded
+    : undefined;
+}
+
 /**
  * The recovered order while its lineage has not closed it: no recorded close and no spent order note. A settledAt or
  * reclaimedAt with no record is the pre-fix recovery reconcile's, so the order is still tracked and its next read
@@ -64,16 +81,7 @@ export function recoveredSwapOrderRef(tx: ITransaction): RecoveredSwapOrderRef |
     return undefined;
   const noteId = recoveredOrderNoteId(tx);
   if (noteId === undefined) return undefined;
-  // Stored data, so checked: a malformed record falls back to the order note, which a later read corrects.
-  const recorded = extra.recoveredTip;
-  const tip =
-    recorded != null &&
-    typeof recorded.noteId === 'string' &&
-    Number.isSafeInteger(recorded.depth) &&
-    recorded.depth > 0 &&
-    typeof recorded.remainingOffered === 'bigint'
-      ? recorded
-      : undefined;
+  const tip = recordedRecoveredSwapTip(tx);
   return {
     txId: tx.id,
     accountId: tx.accountId,
