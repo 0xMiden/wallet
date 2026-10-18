@@ -13,7 +13,8 @@ import {
   HarnessFault,
   InfrastructureFault,
   type CellContext,
-  type Deadline
+  type Deadline,
+  type JourneyRecord
 } from './dapp-cells';
 import { ChainUnavailable, type DappChannel } from './dapp-channel';
 import {
@@ -498,7 +499,20 @@ describe('mobile journey hooks and setup', () => {
   });
 
   async function pendingRecipientClaim(quiesceMs: number) {
-    const { journey, hooks } = await prepare();
+    const { DappCellRunner: ActualRunner } = jest.requireActual<typeof import('./dapp-cells')>('./dapp-cells');
+    jest.mocked(DappCellRunner).mockImplementationOnce(
+      options =>
+        new ActualRunner({
+          ...options,
+          outDir: path.join(directory, 'claim-records'),
+          declared: ['W1', 'W4', 'X1'],
+          registry: registryOf([]),
+          budgets: { write: 5_000 },
+          quiesceBudgetMs: quiesceMs
+        })
+    );
+    const { journey } = await prepare();
+    const runner = journey.runner;
     const raw = deferred<void>();
     const claim = jest.mocked(journey.walletB.claimAllNotes);
     claim.mockClear();
@@ -536,20 +550,6 @@ describe('mobile journey hooks and setup', () => {
       }
       return { status: 'ok', value, enqueuedAt: 1, deliveredAt: 2, receivedAt: 3 };
     });
-    const { DappCellRunner: ActualRunner } = jest.requireActual<typeof import('./dapp-cells')>('./dapp-cells');
-    const runner = new ActualRunner({
-      surface: 'ios',
-      axis: 'offchain',
-      journey: 'PL',
-      part: 'unit',
-      testTitle: 'claim lifetime',
-      outDir: path.join(directory, 'claim-records'),
-      declared: ['W1', 'W4', 'X1'],
-      registry: registryOf([]),
-      hooks,
-      budgets: { write: 5_000 },
-      quiesceBudgetMs: quiesceMs
-    });
     jest.useFakeTimers();
     const first = runner.run({
       id: 'W1',
@@ -566,11 +566,12 @@ describe('mobile journey hooks and setup', () => {
     });
     await jest.advanceTimersByTimeAsync(5_000);
     expect((await first).verdict).toBe('fail-new');
-    expect(journey.recipientClaim).toBe(raw.promise);
+    expect(journey.recipientClaim).toEqual({ cellId: 'W1', promise: raw.promise });
     return { journey, runner, raw, claim };
   }
 
   it('joins an expired cell raw claim before reading B or starting another claim in the next quiesce', async () => {
+    const warning = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
     const { journey, runner, raw, claim } = await pendingRecipientClaim(20_000);
     jest.mocked(pendingTransfers).mockResolvedValueOnce(1).mockResolvedValueOnce(0);
     const next = runner.run({ id: 'W4', budget: 'read', run: async () => undefined });
@@ -583,6 +584,33 @@ describe('mobile journey hooks and setup', () => {
     expect(pendingTransfers).toHaveBeenCalledTimes(2);
     expect(claim).toHaveBeenCalledTimes(2);
     expect(journey.recipientClaim).toBeUndefined();
+    const written: JourneyRecord = JSON.parse(fs.readFileSync(runner.file, 'utf8'));
+    expect(written.cells.some(cell => cell.evidence?.recipientClaimError !== undefined)).toBe(false);
+    expect(warning).not.toHaveBeenCalled();
+  });
+
+  it('records a rejected prior claim against its originating cell without changing the next verdict', async () => {
+    const warning = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const { journey, runner, raw } = await pendingRecipientClaim(20_000);
+    const next = runner.run({ id: 'W4', budget: 'read', run: async () => undefined });
+    await jest.advanceTimersByTimeAsync(1_000);
+    raw.reject(new Error('recipient claim failed after the cell expired'));
+    await jest.advanceTimersByTimeAsync(0);
+    expect((await next).verdict).toBe('pass');
+    expect(journey.recipientClaim).toBeUndefined();
+    const written: JourneyRecord = JSON.parse(fs.readFileSync(runner.file, 'utf8'));
+    const origin = written.cells.find(cell => cell.id === 'W1');
+    expect(origin?.verdict).toBe('fail-new');
+    expect(origin?.evidence?.recipientClaimError).toBe('Error: recipient claim failed after the cell expired');
+    expect(origin?.error).toContain(
+      'late recipient claim from W1: Error: recipient claim failed after the cell expired'
+    );
+    expect(origin?.error).toContain('outlived the cell budget');
+    expect(written.cells.find(cell => cell.id === 'W4')).toEqual(expect.objectContaining({ verdict: 'pass' }));
+    expect(written.cells.find(cell => cell.id === 'W4')?.evidence?.recipientClaimError).toBeUndefined();
+    expect(warning).toHaveBeenCalledWith(
+      expect.stringContaining('W1: Error: recipient claim failed after the cell expired')
+    );
   });
 
   it('blocks the leg when the raw claim cannot join within the next quiesce budget', async () => {
@@ -597,7 +625,7 @@ describe('mobile journey hooks and setup', () => {
     expect(run).not.toHaveBeenCalled();
     expect(pendingTransfers).not.toHaveBeenCalled();
     expect(claim).toHaveBeenCalledTimes(1);
-    expect(journey.recipientClaim).toBe(raw.promise);
+    expect(journey.recipientClaim).toEqual({ cellId: 'W1', promise: raw.promise });
   });
 
   it('attempts disconnect, revocation and primary selection after denial rejects', async () => {

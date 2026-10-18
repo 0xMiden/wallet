@@ -262,7 +262,7 @@ async function expectReceivedByB(j: MobileJourney, amount: bigint, ctx: CellCont
     )[token] ?? 0n;
   await beforeMobileDeadline(ctx.deadline, "wallet B's claim", () => {
     const claim = j.walletB.claimAllNotes(ctx.deadline.remainingMs(), [j.cliFaucetId]);
-    j.recipientClaim = claim;
+    j.recipientClaim = { cellId: ctx.deadline.label, promise: claim };
     return claim;
   });
   j.recipientClaim = undefined;

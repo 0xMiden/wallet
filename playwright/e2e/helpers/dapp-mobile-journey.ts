@@ -134,7 +134,7 @@ export interface MobileJourney {
   readonly walletA: MobileWallet;
   readonly walletB: MobileWallet;
   /** A raw claim can outlive its cell's race; the next quiesce joins it before driving B. */
-  recipientClaim?: Promise<void>;
+  recipientClaim?: { cellId: string; promise: Promise<void> };
   readonly env: EnvironmentConfig;
   readonly network: string;
   readonly runner: DappCellRunner<Partial<MobileCellState>>;
@@ -629,7 +629,13 @@ async function quiesce(
 ): Promise<void> {
   const claim = j.recipientClaim;
   if (claim !== undefined) {
-    await beforeDeadline(deadline, "wallet B's previous claim", () => claim.catch(() => undefined));
+    await beforeDeadline(deadline, "wallet B's previous claim", () =>
+      claim.promise.catch((error: unknown) => {
+        j.runner.recordRecipientClaimFailure(claim.cellId, error);
+        // eslint-disable-next-line no-console
+        console.warn(`[dapp ${j.surface}] late recipient claim from ${claim.cellId}: ${describeFailure(error)}`);
+      })
+    );
     j.recipientClaim = undefined;
   }
   const state: MobileCellState = { account: 'primary', session: 'upon-request', ...cell.state };

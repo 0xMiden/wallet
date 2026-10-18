@@ -75,6 +75,8 @@ export interface FailureEvidence {
   conformanceFailed?: string[];
   /** A mobile write's steps in ms (dapp-mobile-writes.ts), so its budget is resized from a run, not guessed (C-P9). */
   stepDurationsMs?: Record<string, number>;
+  /** A raw recipient claim rejected after this cell ended, observed when the next quiesce joined it. */
+  recipientClaimError?: string;
 }
 
 /** A check that failed without stopping the cell, so one run can record a soft and a hard known bug. */
@@ -471,6 +473,18 @@ export class DappCellRunner<S> {
   recordCoverage(coverage: LegCoverage): void {
     this.coverage = coverage;
     this.flush();
+  }
+
+  /** Enriches the originating cell's record without making its late claim failure the next cell's verdict. */
+  recordRecipientClaimFailure(cellId: string, error: unknown): void {
+    const record = this.records.get(cellId);
+    if (record === undefined) throw new HarnessFault(`recipient claim originated in undeclared cell ${cellId}`);
+    const detail = describeFailure(error);
+    this.save({
+      ...record,
+      evidence: { ...record.evidence, recipientClaimError: detail },
+      error: [`late recipient claim from ${cellId}: ${detail}`, record.error].filter(Boolean).join(' | ')
+    });
   }
 
   /**
