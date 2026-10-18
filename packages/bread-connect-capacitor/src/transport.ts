@@ -15,7 +15,7 @@ import {
   TransactionOutcome
 } from '@miden-sdk/bread-connect';
 
-import { KeyValueStorage, readJson, writeJson } from './storage';
+import { KeyValueStorage, readJson, writeJson } from './storage.js';
 
 const SESSION_KEY = 'bread-connect:session';
 const PENDING_KEY = 'bread-connect:pending';

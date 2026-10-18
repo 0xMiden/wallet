@@ -1,5 +1,5 @@
-import { fromBase64Url, toBase64Url } from './base64url';
-import { ID_BYTES, KEY_BYTES, MAX_CALLBACK_LENGTH, MAX_MESSAGE_LENGTH, NONCE_BYTES, TAG_BYTES } from './constants';
+import { fromBase64Url, toBase64Url } from './base64url.js';
+import { ID_BYTES, KEY_BYTES, MAX_CALLBACK_LENGTH, MAX_MESSAGE_LENGTH, NONCE_BYTES, TAG_BYTES } from './constants.js';
 
 export const ERROR_CODES = [
   'NOT_GRANTED',

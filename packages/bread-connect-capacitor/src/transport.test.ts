@@ -13,8 +13,8 @@ import {
   writeLink
 } from '@miden-sdk/bread-connect';
 
-import { KeyValueStorage } from './storage';
-import { AppSwitchTransport, BreadConnectError, LinkSource } from './transport';
+import { KeyValueStorage } from './storage.js';
+import { AppSwitchTransport, BreadConnectError, LinkSource } from './transport.js';
 
 const CALLBACK = 'https://game.example/bread';
 const PERMISSION_REQUEST: DAppMessage = { type: 'PERMISSION_REQUEST', appMeta: { name: 'Game' }, network: 'testnet' };

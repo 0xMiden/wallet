@@ -1,5 +1,5 @@
-export * from './constants';
-export { fromBase64Url, toBase64Url } from './base64url';
+export * from './constants.js';
+export { fromBase64Url, toBase64Url } from './base64url.js';
 export {
   additionalData,
   decodeBytes,
@@ -10,9 +10,9 @@ export {
   ProtocolCryptoError,
   publicKeyOf,
   seal
-} from './crypto';
-export type { KeyPair, SessionKeys } from './crypto';
-export { callbackOrigin, ERROR_CODES, isErrorCode, isRecord, parseEnvelope, readLink, writeLink } from './envelope';
+} from './crypto.js';
+export type { KeyPair, SessionKeys } from './crypto.js';
+export { callbackOrigin, ERROR_CODES, isErrorCode, isRecord, parseEnvelope, readLink, writeLink } from './envelope.js';
 export type {
   ConnectEnvelope,
   ConnectedEnvelope,
@@ -24,7 +24,7 @@ export type {
   ReadLink,
   RequestEnvelope,
   ResponseEnvelope
-} from './envelope';
+} from './envelope.js';
 export {
   answerConnect,
   answerRequest,
@@ -35,7 +35,7 @@ export {
   readResponse,
   sendRequest,
   startConnect
-} from './messages';
+} from './messages.js';
 export type {
   AppConnection,
   AppSession,
@@ -44,4 +44,4 @@ export type {
   RequestAnswer,
   TransactionOutcome,
   WalletSession
-} from './messages';
+} from './messages.js';

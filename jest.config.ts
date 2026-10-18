@@ -139,6 +139,9 @@ export default {
     // `link:` symlink and its built `dist/` instead.
     '^@miden/hd-key$': '<rootDir>/packages/hd-key/src/index.ts',
     '^@miden-sdk/bread-connect$': '<rootDir>/packages/bread-connect/src/index.ts',
+    // The Bread Connect packages publish ES modules, so their sources import each other with the `.js` extension
+    // Node needs. Without it the bare path still finds the `.ts` source, or a real `.js` file of that name.
+    '^(\\.{1,2}/.*)\\.js$': '$1',
     '^@reown/appkit/react$': '<rootDir>/__mocks__/reownAppKitReact.ts',
     '^@reown/appkit/networks$': '<rootDir>/__mocks__/reownAppKitNetworks.ts',
     '^@reown/appkit-adapter-wagmi$': '<rootDir>/__mocks__/reownWagmiAdapter.ts',

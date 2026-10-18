@@ -43,6 +43,19 @@ jobs:
           mkdir packs
           npm pack ./packages/bread-connect --pack-destination packs
           npm pack ./packages/bread-connect-capacitor --pack-destination packs
+      # Apps' test runners load dependencies with Node's own ES module loader, which needs every relative import's
+      # extension. The adapter cannot be loaded this way, since the wallet adapter it extends publishes only a bundler entry.
+      - name: Load the protocol package in Node
+        run: |
+          app="$(mktemp -d)"
+          cp packs/miden-sdk-bread-connect-[0-9]*.tgz "$app/"
+          cd "$app"
+          npm init -y >/dev/null
+          npm install --no-audit --no-fund ./miden-sdk-bread-connect-[0-9]*.tgz
+          node --input-type=module -e "
+            import { callbackOrigin } from '@miden-sdk/bread-connect';
+            if (callbackOrigin('https://example.com/bread') !== 'https://example.com') process.exit(1);
+          "
       - uses: actions/upload-artifact@v4
         with:
           name: bread-connect-packages

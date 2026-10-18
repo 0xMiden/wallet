@@ -1,6 +1,6 @@
 import { PrivateDataPermission, WalletAdapterNetwork } from '@miden-sdk/miden-wallet-adapter-base';
 
-import { BreadConnectWallet, capacitorLinks, installBreadConnect, openWithPlugin } from './index';
+import { BreadConnectWallet, capacitorLinks, installBreadConnect, openWithPlugin } from './index.js';
 
 const mockOpenWallet = jest.fn();
 const mockGetLaunchUrl = jest.fn();

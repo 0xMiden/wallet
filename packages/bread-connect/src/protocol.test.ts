@@ -1,7 +1,7 @@
 import { gcm } from '@noble/ciphers/aes';
 
-import { fromBase64Url, toBase64Url } from './base64url';
-import { BREAD_REQUEST_URL, MAX_CALLBACK_LENGTH, MAX_MESSAGE_LENGTH } from './constants';
+import { fromBase64Url, toBase64Url } from './base64url.js';
+import { BREAD_REQUEST_URL, MAX_CALLBACK_LENGTH, MAX_MESSAGE_LENGTH } from './constants.js';
 import {
   additionalData,
   decodeBytes,
@@ -12,7 +12,7 @@ import {
   ProtocolCryptoError,
   publicKeyOf,
   seal
-} from './crypto';
+} from './crypto.js';
 import {
   callbackOrigin,
   ConnectedEnvelope,
@@ -23,7 +23,7 @@ import {
   RequestEnvelope,
   ResponseEnvelope,
   writeLink
-} from './envelope';
+} from './envelope.js';
 import {
   answerConnect,
   answerRequest,
@@ -37,7 +37,7 @@ import {
   sendRequest,
   startConnect,
   WalletSession
-} from './messages';
+} from './messages.js';
 import vectors from '../vectors/v1.json';
 
 const CALLBACK = vectors.callback;

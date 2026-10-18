@@ -11,9 +11,9 @@ import {
 
 import { DAppMessage } from '@miden-sdk/bread-connect';
 
-import { KeyValueStorage } from './storage';
-import { AppSwitchTransport, BreadConnectError, StoredSession } from './transport';
-import { BreadConnectWallet } from './wallet';
+import { KeyValueStorage } from './storage.js';
+import { AppSwitchTransport, BreadConnectError, StoredSession } from './transport.js';
+import { BreadConnectWallet } from './wallet.js';
 
 const PERMISSION: DAppMessage = {
   type: 'PERMISSION_RESPONSE',

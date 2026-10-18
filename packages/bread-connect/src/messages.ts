@@ -1,4 +1,4 @@
-import { BREAD_REQUEST_URL, KEY_BYTES, MAX_MESSAGE_LENGTH, NONCE_BYTES } from './constants';
+import { BREAD_REQUEST_URL, KEY_BYTES, MAX_MESSAGE_LENGTH, NONCE_BYTES } from './constants.js';
 import {
   additionalData,
   decodeBytes,
@@ -10,7 +10,7 @@ import {
   randomNonce,
   seal,
   SessionKeys
-} from './crypto';
+} from './crypto.js';
 import {
   callbackOrigin,
   ConnectEnvelope,
@@ -22,7 +22,7 @@ import {
   RequestEnvelope,
   ResponseEnvelope,
   writeLink
-} from './envelope';
+} from './envelope.js';
 
 export class ProtocolMessageError extends Error {
   name = 'ProtocolMessageError';

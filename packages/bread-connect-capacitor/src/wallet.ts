@@ -18,7 +18,7 @@ import type { MidenWallet, MidenWalletEvents } from '@miden-sdk/miden-wallet-ada
 
 import { DAppMessage, isRecord } from '@miden-sdk/bread-connect';
 
-import { AppSwitchTransport, BreadConnectError } from './transport';
+import { AppSwitchTransport, BreadConnectError } from './transport.js';
 
 /**
  * The `window.midenWallet` a Capacitor app installs, so the stock Miden wallet adapter talks to Bread through app

@@ -2,17 +2,17 @@ import { App } from '@capacitor/app';
 
 import { callbackOrigin } from '@miden-sdk/bread-connect';
 
-import { BreadConnectNative } from './plugin';
-import { KeyValueStorage } from './storage';
-import { AppSwitchTransport, LinkSource } from './transport';
-import { BreadConnectWallet } from './wallet';
+import { BreadConnectNative } from './plugin.js';
+import { KeyValueStorage } from './storage.js';
+import { AppSwitchTransport, LinkSource } from './transport.js';
+import { BreadConnectWallet } from './wallet.js';
 
-export { BreadConnectNative } from './plugin';
-export type { BreadConnectPlugin } from './plugin';
-export type { KeyValueStorage } from './storage';
-export { AppSwitchTransport, BreadConnectError } from './transport';
-export type { BreadConnectErrorCode, LinkSource, StoredSession, TransportOptions } from './transport';
-export { BreadConnectWallet } from './wallet';
+export { BreadConnectNative } from './plugin.js';
+export type { BreadConnectPlugin } from './plugin.js';
+export type { KeyValueStorage } from './storage.js';
+export { AppSwitchTransport, BreadConnectError } from './transport.js';
+export type { BreadConnectErrorCode, LinkSource, StoredSession, TransportOptions } from './transport.js';
+export { BreadConnectWallet } from './wallet.js';
 
 export interface BreadConnectOptions {
   /**

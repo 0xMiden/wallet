@@ -4,8 +4,8 @@ import { hkdf } from '@noble/hashes/hkdf';
 import { sha256 } from '@noble/hashes/sha2';
 import { concatBytes, randomBytes, utf8ToBytes } from '@noble/hashes/utils';
 
-import { fromBase64Url, toBase64Url } from './base64url';
-import { ID_BYTES, KEY_BYTES, NONCE_BYTES } from './constants';
+import { fromBase64Url, toBase64Url } from './base64url.js';
+import { ID_BYTES, KEY_BYTES, NONCE_BYTES } from './constants.js';
 
 const SALT = utf8ToBytes('bread-connect/v1');
 const INFO = utf8ToBytes('session');
