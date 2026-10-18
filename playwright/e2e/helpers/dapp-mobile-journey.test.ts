@@ -1239,6 +1239,11 @@ describe('mobile journey hooks and setup', () => {
     await expect(prepare()).rejects.toBeInstanceOf(ChainUnavailable);
   });
 
+  it('accepts a completed 200 node call with a newly allowed SDK header', async () => {
+    fetchLog = [nodeCall(200, { headers: [['x-sdk-trace', 'value']] })];
+    await expect(prepare()).resolves.toHaveProperty('journey');
+  });
+
   it('keeps a disallowed header as a harness fault even after a successful retry', async () => {
     fetchLog = [nodeCall(503, { headers: [['x-bad-header', 'value']] }), nodeCall(200, { at: 3, completedAt: 4 })];
     await expect(prepare()).rejects.toBeInstanceOf(HarnessFault);

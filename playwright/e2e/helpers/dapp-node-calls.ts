@@ -26,7 +26,7 @@ export interface NodeCallSummary {
   requests: number;
   failed: Array<{ url: string; status: number | null; error: string | null }>;
   preflightHeaderNames: string[];
-  /** Header names the page's calls need preflighted that the node does not allow. */
+  /** Header names on failed calls that the recorded CORS policy does not allow. */
   disallowed: string[];
 }
 
@@ -58,13 +58,13 @@ export function summarizeNodeCalls(log: readonly FetchLogEntry[], rpcUrl: string
   const origin = new URL(rpcUrl).origin;
   const calls = log.filter(item => item.url.startsWith(`${origin}/`));
   const names = [...new Set(calls.flatMap(preflightHeaderNames))].sort();
+  const failed = calls.filter(item => item.error !== null || (item.status !== null && item.status >= 400));
+  const failedNames = [...new Set(failed.flatMap(preflightHeaderNames))].sort();
   return {
     requests: calls.length,
-    failed: calls
-      .filter(item => item.error !== null || (item.status !== null && item.status >= 400))
-      .map(item => ({ url: item.url, status: item.status, error: item.error })),
+    failed: failed.map(item => ({ url: item.url, status: item.status, error: item.error })),
     preflightHeaderNames: names,
-    disallowed: names.filter(name => !NODE_ALLOWED_HEADERS.includes(name))
+    disallowed: failedNames.filter(name => !NODE_ALLOWED_HEADERS.includes(name))
   };
 }
 

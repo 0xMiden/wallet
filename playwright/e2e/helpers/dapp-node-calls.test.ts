@@ -51,9 +51,18 @@ describe('the page node-call guard', () => {
     expect(nodeCallProblems(summarizeNodeCalls([call(GRPC)], RPC))).toEqual([]);
   });
 
-  it('names a header the node does not allow', () => {
-    const problems = nodeCallProblems(summarizeNodeCalls([call([...GRPC, ['x-sdk-trace', '1']])], RPC));
-    expect(problems).toEqual(["the page sends x-sdk-trace, which the node's CORS answer does not allow"]);
+  it('accepts a 200 call with a header outside the preflight allowlist', () => {
+    expect(nodeCallProblems(summarizeNodeCalls([call([...GRPC, ['x-sdk-trace', '1']])], RPC))).toEqual([]);
+  });
+
+  it('explains a failed call with a header outside the preflight allowlist as a page/CORS fault', () => {
+    const problems = nodeCallProblems(
+      summarizeNodeCalls([call([...GRPC, ['x-sdk-trace', '1']], { status: null, error: 'Failed to fetch' })], RPC)
+    );
+    expect(problems).toEqual([
+      `${RPC}/miden.node.v1.NodeService/GetBlockHeaderByNumber Failed to fetch`,
+      "the page sends x-sdk-trace, which the node's CORS answer does not allow"
+    ]);
   });
 
   it('fails a call the browser rejected, which is how a refused preflight shows, and a page with no calls', () => {
