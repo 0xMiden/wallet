@@ -305,6 +305,11 @@ const hiddenDuringSubmit = (row: ITransaction, returnedAtMs: number): boolean | 
   return hiddenMsBetween(submittedAtMs, returnedAtMs) > 0;
 };
 
+const submitLegMs = (row: ITransaction, returnedAtMs: number): number | undefined => {
+  const submittedAtMs = row.stageTimestamps?.submitting;
+  return submittedAtMs === undefined ? undefined : returnedAtMs - submittedAtMs;
+};
+
 /**
  * Enter `Unconfirmed` (#1081): the submit came back without a definite outcome, so the row waits for the node's
  * verdict instead of failing. One `modify`, applied only while the row is still GeneratingTransaction (the race
@@ -362,7 +367,8 @@ export const markTransactionUnconfirmed = async (tx: ITransaction, error: unknow
       entryPoint: committed.consumeEntryPoint,
       error,
       outcome: 'unconfirmed',
-      hiddenDuringSubmit: hiddenDuringSubmit(committed, returnedAtMs)
+      hiddenDuringSubmit: hiddenDuringSubmit(committed, returnedAtMs),
+      submitLegMs: submitLegMs(committed, returnedAtMs)
     });
   }
   notifyBackgroundTransactionNotConfirmed();
