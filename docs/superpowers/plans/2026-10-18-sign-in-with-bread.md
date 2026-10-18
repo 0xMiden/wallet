@@ -339,11 +339,11 @@ Line numbers below are from `def2b853f`; if `main` has moved, find the line by t
 5. Presentable now: the browser is visible, not parked or closing, and the app is in the foreground, else `AUTH_UNAVAILABLE`. A session that can't start or present is also `AUTH_UNAVAILABLE`.
 6. Any other failure is `AUTH_FAILED`.
 
-**URL rule.** All of these hold:
+**URL rule.** All of these hold, checked by hand in this order; any failure is `AUTH_INVALID_URL`:
 - A string of 1 to 4096 UTF-16 units.
-- Every character is in the RFC 3986 set `A-Z a-z 0-9 - . _ ~ : / ? # [ ] @ ! $ & ' ( ) * + , ; = %`. This drops backslashes, spaces and non-ASCII, so our parser and the browser's can't disagree.
-- Scheme `https` with a non-empty host, and no userinfo.
-- The host equals the page's host, ignoring ASCII case, on the same effective port: an absent port means 443, and iOS `WKSecurityOrigin.port == 0` and Android `Uri.getPort() == -1` mean the default.
+- Every character is in the RFC 3986 set `A-Z a-z 0-9 - . _ ~ : / ? # [ ] @ ! $ & ' ( ) * + , ; = %`. This drops backslashes, spaces and non-ASCII, so every later check reads plain ASCII.
+- The authority is compared as written, never as a platform parser reads the host: the URL starts with exactly `https://`; its authority is the text after `https://` up to the first `/`, `?` or `#`, or the end; it must equal, ignoring ASCII case, the page host + `:` + the page's effective port, or the bare page host when that port is 443. Userinfo, percent-encoding, a trailing dot the page host doesn't have, an empty or zero-padded port, an empty authority and `https:host` or `https:/host` simply fail. iOS `WKSecurityOrigin.port == 0` and Android `Uri.getPort() == -1` mean the default port, 443.
+- The sheet opens exactly the caller's string or refuses it, so after the authority the path, query and fragment must be valid RFC 3986, checked by hand with no platform parser: every `%` is followed by two ASCII hex digits, there is no `[` or `]`, and there is at most one `#`. iOS also refuses when `URL(string:)` does not return the string unchanged.
 - Relative URLs are refused, never resolved.
 
 **Callback rule.** The URL starts with `com.miden.wallet.auth://callback` (ASCII case-insensitive) and ends there or continues with `?` or `#`; any path, such as `callback/`, fails with `AUTH_FAILED`. It resolves only while that platform's sheet is open and is forwarded byte for byte: native never parses its query, stores it or logs it.
@@ -576,7 +576,7 @@ func handle(body: Any, mainFrame: Bool, page: BreadAuthPageOrigin, reply: @escap
 ```
   - `complete` maps outcomes per the table. `finish(ticket, value, error)` returns unless `self.ticket == ticket`, then clears `ticket`, `reply` and `session`, calls `Self.state.end(ticket)`, and calls the saved reply once. `close()` finishes with `["cancelled": true]`, then calls `cancel()` on the session it kept. `deinit { close() }`.
   - `canPresent` defaults to `{ [weak owner] in guard let owner, owner.managedClose?.closing != true, let window = owner.viewIfLoaded?.window else { return false }; return !window.isHidden && UIApplication.shared.applicationState == .active }` (`managedClose` is the weak property at line 133).
-  - `validate` follows the URL rule, using `URLComponents(string:)` after the character check and comparing `components.port ?? 443` with `page.port == 0 ? 443 : page.port`. `isCallback` is a string prefix check per the callback rule.
+  - `validate` follows the URL rule by hand, with no parser: after the main-frame and page checks it tests the length in UTF-16 units, the character set, `authorityMatches` (the authority as written against `page.host` and `page.port == 0 ? 443 : page.port`) and `restIsValid` (the path, query and fragment). Only then does it call `URL(string: text)`, and it refuses unless the result's `absoluteString == text`, so the session gets exactly the caller's string. `isCallback` is a string prefix check per the callback rule.
   - `WeakScriptMessageReplyHandler` mirrors `WeakScriptMessageHandler` (`WKWebViewController.swift` lines 3467-3478), except that a nil delegate gets `replyHandler(nil, "AUTH_UNAVAILABLE")`: WebKit needs exactly one reply per message.
   - Swift 5 language mode (tools 5.9, `SWIFT_VERSION = 5.0`, no warnings-as-errors): keep the classes plain like `BreadPresentationController`. Concurrency mismatches against the iOS 26 SDK show up as warnings, and the iOS 15 initializer `init(url:callbackURLScheme:completionHandler:)`, deprecated from 17.4, only warns.
 - [ ] **Step 3: CI**, with batch B1: `pr-compile-surfaces.yml` job `ios` ("Compile iOS"): "Build App scheme" and "Run iOS unit tests" (`-only-testing:AppTests`, which also runs `BreadPresentationTests`, guarding the shared registration and cleanup). Also `pr.yml` and `changelog.yml`. `packages/dapp-browser/ios/Tests/run.sh` runs in no workflow, so no tests go there. Expected: PASS.
@@ -605,6 +605,7 @@ func handle(body: Any, mainFrame: Bool, page: BreadAuthPageOrigin, reply: @escap
 </intent-filter>
 ```
 - Modify: `android/app/src/main/java/com/miden/wallet/MainActivity.java`: the callback leaves the intent before Capacitor's Bridge sees it (see below).
+- Modify: `packages/dapp-browser/android/src/main/java/ee/forgr/capacitor_inappbrowser/BreadPresentationController.java`: the existing `breadPresentation` listener gets the same `message.getType() == WebMessageCompat.TYPE_STRING` guard as `breadAuth`'s (test `binaryMessageIsIgnoredWithoutAReply` in `BreadPresentationControllerTest`), a fix outside the feature with its own `CHANGELOG.md` line under Fixes: `- [FIX][android] A site in Bread's in-app browser that posts binary data to Bread's page bridge no longer crashes the wallet: the bridge ignores any message that isn't text.`
 - Modify: `packages/dapp-browser/android/src/test/java/ee/forgr/capacitor_inappbrowser/BreadPresentationControllerTest.java`: in `supportedInstallsBothTransportsBeforeFirstNavigation` (lines 1505-1510), the expected list at line 1507 becomes `List.of("listener:breadAuth", "listener:breadPresentation", "script:window.bread={version:1}")`, and the test is renamed `supportedInstallsEveryTransportBeforeFirstNavigation`. `unsupported()` (line 1470) stays green, because auth needs the same two WebView features.
 - Test: create `BreadAuthStateTest.java` and `BreadAuthControllerTest.java` in `packages/dapp-browser/android/src/test/java/ee/forgr/capacitor_inappbrowser/`, and `android/app/src/test/java/com/miden/wallet/BreadAuthManifestTest.kt`.
 
@@ -648,8 +649,8 @@ public final class BreadAuthCallbacks {
     public static Intent consume(Intent intent);
 }
 ```
-- `rejection` parses with `java.net.URI` after the length and character checks, rejects `getRawUserInfo() != null`, and compares ports as `port < 0 ? 443 : port`.
-- The listener is `WebViewCompat.addWebMessageListener(webView, "breadAuth", Collections.singleton("*"), (view, message, origin, mainFrame, reply) -> receive(message.getData(), origin, mainFrame, reply))`; `origin` is the native source origin.
+- `rejection` follows the URL rule by hand, with no parser: after the main-frame and page checks it tests the length, the character set, `authorityMatches` (the authority as written against the page host and `pagePort < 0 ? 443 : pagePort`) and `restIsValid` (the path, query and fragment). The launch passes the caller's string through as written: `Uri.parse(url)` keeps the string as given.
+- The listener is `WebViewCompat.addWebMessageListener(webView, "breadAuth", Collections.singleton("*"), (view, message, origin, mainFrame, reply) -> { if (message.getType() == WebMessageCompat.TYPE_STRING) receive(message.getData(), origin, mainFrame, reply); })`; `origin` is the native source origin. It checks the type first and ignores any other message with no reply (test `binaryMessageIsIgnored`): `getData()` throws for an ArrayBuffer message, which any frame may post, and a binary message has no `id` to reply to.
 - The Custom Tab: `new CustomTabsIntent.Builder().build()` with no session (the plugin's shared `CustomTabsSession` callback, lines 1214-1232, fires `browserPageLoaded` into JS), `tab.intent.setPackage(pkg)` with `pkg = CustomTabsClient.getPackageName(owner.activity, browsers)` over the packages from `queryIntentActivities(new Intent(ACTION_VIEW, Uri.parse("http://")), MATCH_ALL)`, launched with `tab.launchUrl(owner.activity, Uri.parse(url))`. An Activity context means no `FLAG_ACTIVITY_NEW_TASK`, so the tab opens in Bread's task. No `FLAG_ACTIVITY_NO_HISTORY`, so switching to a password manager or a 2FA app doesn't end the flow. A null `pkg` or `ActivityNotFoundException` gives `AUTH_UNAVAILABLE`; any other `RuntimeException` gives `AUTH_FAILED`.
 - The return: the browser fires the VIEW intent; `singleTask` clears the tab above `MainActivity` and delivers `onNewIntent`, where `BreadAuthCallbacks.consume` resolves the sheet. Android delivers `onNewIntent` before `onResume`, so `hostResumed` is then quiet. Closing the tab with X or Back resumes Bread after a stop with no callback, and `hostResumed` replies cancelled.
 
@@ -716,8 +717,13 @@ if (_options.getBreadPresentation() != null) {
 ```java
 private void receive(String raw, Uri origin, boolean mainFrame, JavaScriptReplyProxy proxy) {
     String id; Object url;
-    try { JSONObject m = new JSONObject(raw); id = m.getString("id"); url = m.opt("url"); }
-    catch (JSONException | NullPointerException e) { return; }
+    try {
+        JSONObject m = new JSONObject(raw);
+        // getString would turn a number or an object into an id the page script never sent.
+        Object value = m.opt("id");
+        if (!(value instanceof String)) return;
+        id = (String) value; url = m.opt("url");
+    } catch (JSONException | NullPointerException e) { return; }
     if (id.isEmpty() || id.length() > 128) return;
     String code = BreadAuthState.rejection(mainFrame, origin.getScheme(), origin.getHost(), origin.getPort(), url);
     if (code == null) code = state.refusal();
@@ -801,7 +807,7 @@ try {
   - Platforms: iOS shows its consent prompt, the sheet shares Safari's cookies, and Cancel on the prompt or the sheet gives `{ cancelled: true }`. Android opens a Custom Tab in Bread's task, sharing the browser's cookies; closing the tab gives `{ cancelled: true }`. Desktop: `window.bread` is empty. Extension: nothing.
   - Native integration: the `breadAuth` transports and the reply shapes from the shared rules.
 - Modify: `docs/dapp-fullscreen.md`: line 21, a sentence pointing to `dapp-sign-in.md` for `window.bread.auth`; line 60, a sentence saying the `breadPresentation` option also installs the `breadAuth` transport.
-- No CHANGELOG line: PR B's entries came with B1 and B4.
+- No new CHANGELOG line: PR B's entries come with B1, B3 and B4, and B5 only appends `See [the sign-in guide](docs/dapp-sign-in.md).` to B1's mobile entry.
 
 - [ ] **Step 1: Write the device checks.** On a build of this branch, with a fixture site at an https origin that has Google and Apple buttons, a cross-origin iframe and a button that opens twice:
   - iPhone, Google: the system prompt names the site's host; after Continue and sign-in the promise resolves `{ url }` with `?login=`, and the page is still loaded.
