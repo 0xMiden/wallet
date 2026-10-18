@@ -23,6 +23,7 @@
  */
 
 import { MidenDAppErrorType, MidenDAppMessageType } from 'lib/adapter/types';
+import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 
 // ── Mocks ──────────────────────────────────────────────────────────
 // Mirrors the scaffold in `dapp.send-preview.test.ts`; `dapp.ts` pulls in the
@@ -353,6 +354,21 @@ describe('dApp custom-transaction approval shows the asset movement of the reque
     await expect(
       requestTransaction(DAPP_ORIGIN, customRequest('mtst1qqqqqqqqqqqqqqqqqqqqqqqqqqqsavings'), 'session-1')
     ).rejects.toThrow(MidenDAppErrorType.InvalidParams);
+
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+  });
+
+  it('answers a kill during the request decode with the kill, not INVALID_PARAMS', async () => {
+    const kill = new WasmClientPoisonedError('watchdog', new Error('decode parked'));
+    sdk.TransactionRequest = {
+      deserialize: () => {
+        throw new Error('decode wrapper', { cause: kill });
+      }
+    };
+
+    await expect(
+      requestTransaction(DAPP_ORIGIN, customRequest('mtst1qqqqqqqqqqqqqqqqqqqqqqqqqqqsavings'), 'session-1')
+    ).rejects.toBe(kill);
 
     expect(mockRequestConfirmation).not.toHaveBeenCalled();
   });
