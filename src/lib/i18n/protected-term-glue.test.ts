@@ -144,6 +144,7 @@ const ACCEPTED_FORMS: [string, string, string, string][] = [
   ],
   ['a native Portuguese word beside a protected term', 'pt', 'Write down the note ID', 'Anote o ID da note'],
   ['a native Portuguese word with a DeepL code', 'pt-BR', 'Write down the note ID', 'Anote o ID da note'],
+  ['a native Spanish word beside a protected term', 'es', 'Write down the note ID', 'Anote el ID de la note'],
   ['Japanese around a term', 'ja', 'What is a Guardian?', 'Guardianとは何ですか？'],
   ['Chinese before a term', 'zh_CN', 'Choose your Guardian', '选择您的Guardian'],
   ['a Korean particle', 'ko', 'Choose your Guardian', 'Guardian를 선택하세요']
@@ -173,6 +174,47 @@ describe('translatedEntry', () => {
       englishSource: 'Burned on $network$',
       placeholders: { network: { content: '$1' } }
     });
+  });
+
+  it('rejects a tagged term glued into a native word', () => {
+    const log = jest.spyOn(console, 'log').mockImplementation(() => undefined);
+    try {
+      const entry = translatedEntry('gluedKey', 'A<x>note</x> é pública.', 'The note is public.', 'pt');
+      expect(entry).toEqual({ message: 'The note is public.', englishSource: '(untranslated)' });
+      expect(entry.message).not.toMatch(/<\/?x\s*>/);
+      expect(log).toHaveBeenCalledTimes(1);
+      expect(log.mock.calls[0]?.[0]).toBe(
+        '::warning title=Rejected translation::pt gluedKey glues Anote; keeping the English.'
+      );
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it('writes a native Spanish word beside a clean tagged term without tags', () => {
+    expect(translatedEntry('noteId', 'Anote el ID de la <x>note</x>', 'Write down the note ID', 'es')).toEqual({
+      message: 'Anote el ID de la note',
+      englishSource: 'Write down the note ID'
+    });
+  });
+
+  it('checks a glued tagged span even beside a clean tagged term', () => {
+    const log = jest.spyOn(console, 'log').mockImplementation(() => undefined);
+    try {
+      const entry = translatedEntry(
+        'gluedKey',
+        'A <x>note</x> e A<x>note</x> são públicas.',
+        'The note and the note are public.',
+        'pt'
+      );
+      expect(entry).toEqual({ message: 'The note and the note are public.', englishSource: '(untranslated)' });
+      expect(log).toHaveBeenCalledTimes(1);
+      expect(log.mock.calls[0]?.[0]).toBe(
+        '::warning title=Rejected translation::pt gluedKey glues Anote; keeping the English.'
+      );
+    } finally {
+      log.mockRestore();
+    }
   });
 
   it('keeps the English, queued for the next run, instead of a glued translation and flags the key on the checks', () => {
