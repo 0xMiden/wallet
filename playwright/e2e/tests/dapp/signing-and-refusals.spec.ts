@@ -203,7 +203,7 @@ function signingCells(j: Journey): Record<string, DappCellImpl> {
         expect(again).toEqual(first);
         expect(Buffer.from(first.loginKeyB64, 'base64')).toHaveLength(32);
         expect(first.loginKeyHex).not.toBe(me.publicKeyHex);
-        // Loopback hosts have no registrable domain, so `loginKeyDomain` gives the fixture's whole host.
+        // `localhost`, the fixture's host, has no registrable domain, so `loginKeyDomain` gives the whole host.
         const domain = new URL(dapp.origin).hostname;
         const namesDomain = async (popup: Page) => {
           await expect(popup.getByRole('heading', { name: LOGIN_TITLE })).toHaveText(`${LOGIN_TITLE}${domain}`);
