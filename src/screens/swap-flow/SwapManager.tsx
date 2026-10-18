@@ -17,7 +17,7 @@ import { probeHardwareProtector } from 'lib/miden/back/protector-probe';
 import { IConsumedAssetTotal } from 'lib/miden/db/types';
 import { hasNoFeeAsset, maxSendableNative } from 'lib/miden/fees/spendable';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
-import { accountIdStringToSdk, getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
+import { accountRefToSdk, getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
 import {
   isSpendingLimitPriceUnavailable,
   SpendingLimitAuthorization,
@@ -287,7 +287,7 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
   // raw id if the SDK isn't ready yet (matched below as a second key).
   const offerBalanceKey = useMemo(() => {
     try {
-      return getBech32AddressFromAccountId(accountIdStringToSdk(offerToken.faucetId));
+      return getBech32AddressFromAccountId(accountRefToSdk(offerToken.faucetId));
     } catch {
       return offerToken.faucetId;
     }
