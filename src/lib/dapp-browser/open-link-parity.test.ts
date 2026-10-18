@@ -1,4 +1,5 @@
 /* eslint-disable import/first */
+import { BREAD_REQUEST_URL } from '@miden-sdk/bread-connect';
 import fs from 'fs';
 import path from 'path';
 
@@ -32,12 +33,14 @@ describe('open link declarations', () => {
     expect(captures(entitlements, /<string>applinks:([^<]+)<\/string>/g)).toEqual([OPEN_LINK_HOST]);
   });
 
-  it('has Android verify exactly the link host and path', () => {
+  it("has Android verify exactly the link host's open and Bread Connect request paths", () => {
+    const request = new URL(BREAD_REQUEST_URL);
+    expect(request.host).toBe(OPEN_LINK_HOST);
     expect(verifiedFilters).toHaveLength(1);
     const [filter = ''] = verifiedFilters;
-    expect(captures(filter, /android:scheme="([^"]+)"/g)).toEqual(['https']);
-    expect(captures(filter, /android:host="([^"]+)"/g)).toEqual([OPEN_LINK_HOST]);
-    expect(captures(filter, /android:path="([^"]+)"/g)).toEqual(['/open']);
+    expect(captures(filter, /android:scheme="([^"]+)"/g)).toEqual(['https', 'https']);
+    expect(captures(filter, /android:host="([^"]+)"/g)).toEqual([OPEN_LINK_HOST, OPEN_LINK_HOST]);
+    expect(captures(filter, /android:path="([^"]+)"/g)).toEqual(['/open', request.pathname]);
   });
 
   it('has both Android link filters take the link a browser hands over', () => {
