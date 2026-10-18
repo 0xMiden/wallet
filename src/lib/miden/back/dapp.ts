@@ -62,6 +62,7 @@ import {
   MidenDAppWaitForTxRequest,
   MidenDAppWaitForTxResponse
 } from 'lib/adapter/types';
+import { endOriginSessions } from 'lib/bread-connect/revoke';
 import {
   dappConfirmationStore,
   type DAppConfirmationRequest,
@@ -1831,9 +1832,11 @@ const dappWriteFailure = (error: unknown): unknown => {
   // A queued id outranks a kill anywhere in the chain: retrying the write could send it twice.
   for (const link of causeChain(error)) {
     if (link instanceof TransactionQueuedError) {
+      // Bread Connect reads the queued id from this cause, never from the message.
       return new Error(
         `${MidenDAppErrorType.OutcomeUnknown}: transaction ${link.transactionId} may already be queued; ` +
-          'wait for it before sending again'
+          'wait for it before sending again',
+        { cause: link }
       );
     }
   }
@@ -3033,6 +3036,9 @@ export async function setDApp(origin: string, permissions: MidenDAppSession) {
 }
 
 export async function removeDApp(origin: string, accountId: string) {
+  // A native app's Bread Connect session lives under its origin; left in place, the origin's next grant revives it.
+  // It ends first, so a failure keeps the permission rather than a session that outlives it.
+  await endOriginSessions(origin);
   const { [origin]: permissionsToRemove, ...restDApps } = await getAllDApps();
   const newPermissions = permissionsToRemove?.filter(session => session.accountId !== accountId) ?? [];
   await setDApps({ ...restDApps, [origin]: newPermissions });

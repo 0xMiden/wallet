@@ -19,6 +19,10 @@ export default {
     'src/**/*.{ts,tsx,mjs}',
     'packages/hd-key/src/**/*.ts',
     '!packages/hd-key/src/**/*.test.ts',
+    'packages/bread-connect/src/**/*.ts',
+    '!packages/bread-connect/src/**/*.test.ts',
+    'packages/bread-connect-capacitor/src/**/*.ts',
+    '!packages/bread-connect-capacitor/src/**/*.test.ts',
     '!src/**/*.d.ts',
     '!src/**/*.d.mts',
     '!src/**/*.test.{ts,tsx}',
@@ -134,6 +138,10 @@ export default {
     // tests need no build step; the app bundles resolve it through the
     // `link:` symlink and its built `dist/` instead.
     '^@miden/hd-key$': '<rootDir>/packages/hd-key/src/index.ts',
+    '^@miden-sdk/bread-connect$': '<rootDir>/packages/bread-connect/src/index.ts',
+    // The Bread Connect packages publish ES modules, so their sources import each other with the `.js` extension
+    // Node needs. Without it the bare path still finds the `.ts` source, or a real `.js` file of that name.
+    '^(\\.{1,2}/.*)\\.js$': '$1',
     '^@reown/appkit/react$': '<rootDir>/__mocks__/reownAppKitReact.ts',
     '^@reown/appkit/networks$': '<rootDir>/__mocks__/reownAppKitNetworks.ts',
     '^@reown/appkit-adapter-wagmi$': '<rootDir>/__mocks__/reownWagmiAdapter.ts',

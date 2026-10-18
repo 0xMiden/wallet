@@ -1373,6 +1373,9 @@ describe.each(['send', 'custom'])('an approved non-extension %s failure (#1378)'
           } as never);
 
     await expect(answer).rejects.toEqual(new Error(message));
+    await expect(answer.catch((error: Error) => error.cause)).resolves.toBe(
+      message === queuedMessage ? queued : undefined
+    );
     expect(mockRequestConfirmation).toHaveBeenCalledTimes(1);
     expect(initiate).toHaveBeenCalledTimes(1);
     expect(mockStartTransactionProcessing).toHaveBeenCalledTimes(kind === 'custom' ? queuedCustomStarts : 0);

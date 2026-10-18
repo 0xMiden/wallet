@@ -210,6 +210,14 @@ jest.mock('app/templates/HotKeyRotationGate', () => ({
   HotKeyRotationGate: () => null
 }));
 
+jest.mock('app/templates/OpenLinkPrompt', () => ({
+  OpenLinkPrompt: () => <div data-testid="open-link-prompt" />
+}));
+
+jest.mock('app/templates/BreadConnectPrompt', () => ({
+  BreadConnectPrompt: () => <div data-testid="bread-connect-prompt" />
+}));
+
 jest.mock('components/ConnectivityIssueBanner', () => ({
   ExtensionMessageListener: () => <div data-testid="extension-message-listener" />
 }));
@@ -285,6 +293,7 @@ describe('app/App', () => {
       expect(queryByTestId('mobile-back-bridge')).not.toBeInTheDocument();
       expect(queryByTestId('external-page-failed-notice')).not.toBeInTheDocument();
       expect(queryByTestId('dapp-browser-provider')).not.toBeInTheDocument();
+      expect(queryByTestId('open-link-prompt')).not.toBeInTheDocument();
       expect(queryByTestId('confirm-page')).not.toBeInTheDocument();
       expect(queryByTestId('desktop-dapp-handler')).not.toBeInTheDocument();
     });
@@ -317,6 +326,8 @@ describe('app/App', () => {
       // PageRouter lives INSIDE the dApp browser host on mobile.
       expect(dappHost).toContainElement(getByTestId('page-router'));
       expect(dappHost).toContainElement(getByTestId('update-notification-provider'));
+      // Opening a link's page needs the dApp browser.
+      expect(dappHost).toContainElement(getByTestId('open-link-prompt'));
 
       // Mobile back bridge is mounted; extension prompt is not.
       expect(getByTestId('mobile-back-bridge')).toBeInTheDocument();

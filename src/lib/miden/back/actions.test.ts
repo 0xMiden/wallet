@@ -20,6 +20,7 @@ import { sendEvent } from 'lib/telemetry/sink';
 import { WalletType } from 'screens/onboarding/types';
 
 import {
+  DAppQueueDeadlineError,
   getFrontState,
   lock,
   unlock,
@@ -2154,6 +2155,44 @@ describe('actions', () => {
 
       expect(requestSign).toHaveBeenCalledWith('https://example.com', req, undefined);
       expect(result).toEqual({ signature: '0x123' });
+    });
+
+    it('refuses a queued request whose start deadline has passed, before it asks the user', async () => {
+      const { requestSign } = jest.requireMock('./dapp');
+      requestSign.mockClear();
+      const req = { type: MidenDAppMessageType.SignRequest, payload: 'data' };
+
+      await expect(processDApp('https://example.com', req as any, undefined, Date.now() - 1)).rejects.toBeInstanceOf(
+        DAppQueueDeadlineError
+      );
+      expect(requestSign).not.toHaveBeenCalled();
+    });
+
+    it('checks the start deadline when the request reaches the front of the queue', async () => {
+      const { requestPermission, requestSign } = jest.requireMock('./dapp');
+      requestSign.mockClear().mockResolvedValueOnce({ signature: '0x123' });
+      let release: (value: unknown) => void = () => undefined;
+      requestPermission.mockImplementationOnce(() => new Promise(resolve => (release = resolve)));
+      const sign = { type: MidenDAppMessageType.SignRequest, payload: 'data' };
+      const now = jest.spyOn(Date, 'now').mockReturnValue(1_000);
+      try {
+        const ahead = processDApp('https://other.example', { type: MidenDAppMessageType.PermissionRequest } as any);
+        const onTime = processDApp('https://example.com', sign as any, undefined, 5_000);
+        const late = processDApp('https://example.com', sign as any, undefined, 2_000);
+        await new Promise(resolve => setTimeout(resolve, 0));
+        expect(requestPermission).toHaveBeenCalled();
+        expect(requestSign).not.toHaveBeenCalled();
+
+        now.mockReturnValue(3_000);
+        release({ approved: true });
+
+        await expect(ahead).resolves.toEqual({ approved: true });
+        await expect(onTime).resolves.toEqual({ signature: '0x123' });
+        await expect(late).rejects.toBeInstanceOf(DAppQueueDeadlineError);
+        expect(requestSign).toHaveBeenCalledTimes(1);
+      } finally {
+        now.mockRestore();
+      }
     });
 
     it('returns undefined for unknown request type', async () => {
