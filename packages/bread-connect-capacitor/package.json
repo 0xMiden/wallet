@@ -1,0 +1,49 @@
+{
+  "name": "@miden-sdk/bread-connect-capacitor",
+  "version": "0.1.0",
+  "description": "Use Bread as the wallet of a Capacitor app: Connect and every request switch to Bread and back.",
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/index.js",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "sideEffects": false,
+  "files": [
+    "dist/",
+    "ios/Sources/",
+    "android/src/main/",
+    "android/build.gradle",
+    "Package.swift",
+    "MidenBreadConnect.podspec"
+  ],
+  "scripts": {
+    "build": "tsc --project tsconfig.json",
+    "clean": "rimraf ./dist"
+  },
+  "dependencies": {
+    "@miden-sdk/bread-connect": "^0.1.0"
+  },
+  "peerDependencies": {
+    "@capacitor/app": ">=8.0.0",
+    "@capacitor/core": ">=8.0.0",
+    "@miden-sdk/miden-wallet-adapter-base": ">=0.17.0",
+    "@miden-sdk/miden-wallet-adapter-miden": ">=0.17.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.5"
+  },
+  "capacitor": {
+    "ios": {
+      "src": "ios"
+    },
+    "android": {
+      "src": "android"
+    }
+  }
+}
