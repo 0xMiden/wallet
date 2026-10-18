@@ -1120,14 +1120,16 @@ describe('requestConsumeTransaction by the id importPrivateNote returned (#1389)
       return consumable(importedNote.noteId);
     });
 
-    const pending = consumeByCommitment();
-    await expect(pending).rejects.toBeInstanceOf(WasmClientPoisonedError);
-    await expect(pending).rejects.toMatchObject({
-      cause: expect.objectContaining({
-        message: 'operation abandoned after the details-commitment consumable-notes read'
-      })
-    });
-    expect(mockGetDetailsCommitmentMatches).not.toHaveBeenCalled();
+    const lock: { assertWasmHoldCurrent(hold: object | null, label: string): void } =
+      jest.requireMock('../sdk/miden-client');
+    const check = jest.spyOn(lock, 'assertWasmHoldCurrent');
+    try {
+      await expect(consumeByCommitment()).rejects.toThrow('WASM client poisoned');
+      expect(check).toHaveBeenLastCalledWith(expect.anything(), 'after the details-commitment consumable-notes read');
+      expect(mockGetDetailsCommitmentMatches).not.toHaveBeenCalled();
+    } finally {
+      check.mockRestore();
+    }
   });
 
   it('gives unknown, uncommitted and other-account ids exactly the same sync guidance', async () => {
