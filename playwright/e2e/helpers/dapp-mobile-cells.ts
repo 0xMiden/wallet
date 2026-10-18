@@ -6,6 +6,7 @@ import { pollUntil } from './dapp-assertions';
 import { HarnessFault, type CellContext } from './dapp-cells';
 import { assetMap, canonicalAddress, normalizeHex } from './dapp-gates';
 import { FUND_A, tst } from './dapp-journey';
+import { REFUSAL_WRAPPERS } from './dapp-known-bugs';
 import {
   AUTO_DECLINE_MS,
   HELD_R7,
@@ -52,12 +53,12 @@ interface ExpectedRefusal {
   causeName?: string;
 }
 const CONNECT_DECLINED: ExpectedRefusal = {
-  name: 'WalletConnectionError',
+  name: REFUSAL_WRAPPERS.connect,
   message: 'NOT_GRANTED',
   causeName: 'NotGrantedMidenWalletError'
 };
 const NOT_GRANTED_WRAPPED: ExpectedRefusal = {
-  name: 'WalletTransactionError',
+  name: REFUSAL_WRAPPERS.transaction,
   message: 'NOT_GRANTED',
   causeName: 'NotGrantedMidenWalletError'
 };

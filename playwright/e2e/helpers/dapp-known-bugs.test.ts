@@ -174,8 +174,8 @@ describe('known-bug registry', () => {
 
   it("K15 matches the mobile provider's plain Error with the expected text, by cause under the adapter and by name raw", () => {
     const k15 = bug('K15');
-    const wrapped = (causeName: string, message = 'NOT_GRANTED') => ({
-      name: 'WalletConnectionError',
+    const wrapped = (name: string, causeName: string, message = 'NOT_GRANTED') => ({
+      name,
       message,
       causeName,
       causeMessage: message
@@ -197,28 +197,28 @@ describe('known-bug registry', () => {
         ].map(id => [id, ON_MOBILE])
       )
     );
-    for (const cell of ['S3', 'R1-send', 'R1-custom', 'R7-connect', 'R7-send', 'R7-consume', 'R7-custom']) {
-      expect(k15.signature(soft(cell, { dappError: wrapped('Error') }))).toBe(true);
-      expect(k15.signature(soft(cell, { dappError: wrapped('NotGrantedMidenWalletError') }))).toBe(false);
+    const wrappers: readonly [string, string][] = [
+      ['S3', 'WalletConnectionError'],
+      ['R1-send', 'WalletTransactionError'],
+      ['R1-custom', 'WalletTransactionError'],
+      ['R7-connect', 'WalletConnectionError'],
+      ['R7-send', 'WalletTransactionError'],
+      ['R7-consume', 'WalletTransactionError'],
+      ['R7-custom', 'WalletTransactionError']
+    ];
+    for (const [cell, name] of wrappers) {
+      expect(k15.signature(soft(cell, { dappError: wrapped(name, 'Error') }))).toBe(true);
+      expect(k15.signature(soft(cell, { dappError: wrapped(name, 'NotGrantedMidenWalletError') }))).toBe(false);
     }
-    expect(k15.signature(soft('S6', { dappError: { name: 'Error', message: 'NOT_GRANTED' } }))).toBe(true);
-    expect(
-      k15.signature(
-        soft('R3-noteType', {
-          dappError: { name: 'Error', message: 'INVALID_PARAMS: Error: noteType is required' }
-        })
-      )
-    ).toBe(true);
-    expect(
-      k15.signature(
-        soft('R3-customPayload', {
-          dappError: {
-            name: 'Error',
-            message: 'INVALID_PARAMS: Error: INVALID_PARAMS: Invalid CustomTransaction payload'
-          }
-        })
-      )
-    ).toBe(true);
+    const rawRefusals: Readonly<Record<string, string>> = {
+      S6: 'NOT_GRANTED',
+      'R3-noteType': 'INVALID_PARAMS: Error: noteType is required',
+      'R3-customPayload': 'INVALID_PARAMS: Error: INVALID_PARAMS: Invalid CustomTransaction payload'
+    };
+    for (const [cell, message] of Object.entries(rawRefusals)) {
+      expect(k15.signature(soft(cell, { dappError: { name: 'Error', message } }))).toBe(true);
+      expect(k15.signature(soft(cell, { dappError: { name: 'Error', message, causeName: 'Error' } }))).toBe(false);
+    }
     expect(
       k15.signature(
         soft('R3-customUndecodable', { dappError: { name: 'Error', message: 'INVALID_PARAMS: Error: eof' } })
@@ -236,6 +236,21 @@ describe('known-bug registry', () => {
         .bugsFor('S6', 'extension', 'offchain')
         .map(entry => entry.id)
     ).not.toContain('K15');
+  });
+
+  it('K15 leaves an R1-send refusal with the wrong adapter wrapper as fail-new', () => {
+    const dappError = { name: 'WalletTransactionError', message: 'NOT_GRANTED', causeName: 'Error' };
+    const judge = (name: string) =>
+      judgeCell({
+        cellId: 'R1-send',
+        surface: 'ios',
+        axis: 'guardian',
+        registry: registryOf(KNOWN_BUGS),
+        evidence: { dappError: { ...dappError, name } },
+        softFailures: [{ check: 'refusal-class', detail: 'plain Error' }]
+      });
+    expect(judge('WalletTransactionError').verdict).toBe('fail-known');
+    expect(judge('WalletConnectionError').verdict).toBe('fail-new');
   });
 
   it('K15 leaves a hard failure or a wrong message as fail-new', () => {

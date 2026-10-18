@@ -46,6 +46,10 @@ const on = (
 ): Record<string, readonly CellPlacement[]> =>
   Object.fromEntries(ids.map(id => [id, surfaces.flatMap(surface => axes.map(axis => ({ axis, surface })))]));
 
+// Shared with the cell assertions so K15 cannot hide a different adapter wrapper class.
+// Keeping runtime imports JSON-only lets the mobile cells share these names without loading their journey here.
+export const REFUSAL_WRAPPERS = { connect: 'WalletConnectionError', transaction: 'WalletTransactionError' };
+
 const MOBILE_CREATE_ACCOUNT_ISSUE = 1543;
 const MOBILE_CREATE_ACCOUNT_RUN = '39090853726';
 // K15: each candidate cell's refusal text as the extension cell expects it (dapp-mobile-cells.ts), which the mobile
@@ -63,7 +67,15 @@ const PLAIN_ERROR_TEXT: Readonly<Record<string, string | RegExp>> = {
   'R7-consume': 'NOT_GRANTED',
   'R7-custom': 'NOT_GRANTED'
 };
-const ADAPTER_WRAPPED = new Set(['S3', 'R1-send', 'R1-custom', 'R7-connect', 'R7-send', 'R7-consume', 'R7-custom']);
+const ADAPTER_WRAPPED: Readonly<Record<string, string>> = {
+  S3: REFUSAL_WRAPPERS.connect,
+  'R1-send': REFUSAL_WRAPPERS.transaction,
+  'R1-custom': REFUSAL_WRAPPERS.transaction,
+  'R7-connect': REFUSAL_WRAPPERS.connect,
+  'R7-send': REFUSAL_WRAPPERS.transaction,
+  'R7-consume': REFUSAL_WRAPPERS.transaction,
+  'R7-custom': REFUSAL_WRAPPERS.transaction
+};
 const MOBILE_PLAIN_ERROR_ISSUE = 1542;
 const MOBILE_PLAIN_ERROR_RUN = '39090853726';
 
@@ -161,7 +173,11 @@ export const KNOWN_BUGS: readonly KnownBug[] = [
       // C-P15 keeps class parity soft so a later row, session or decline-timing failure stays unexplained.
       if (source !== 'soft' || error === undefined || text === undefined) return false;
       const said = typeof text === 'string' ? error.message === text : text.test(error.message);
-      return said && (ADAPTER_WRAPPED.has(cellId) ? error.causeName === 'Error' : error.name === 'Error');
+      const wrappedName = ADAPTER_WRAPPED[cellId];
+      const name = wrappedName ?? 'Error';
+      // Raw provider errors have no cause; an unexpected wrapper or cause is a separate regression.
+      const causeName = wrappedName === undefined ? undefined : 'Error';
+      return said && error.name === name && error.causeName === causeName;
     }
   }
 ];
