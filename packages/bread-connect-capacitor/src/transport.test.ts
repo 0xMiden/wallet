@@ -290,6 +290,20 @@ describe('AppSwitchTransport', () => {
     await expect(second).rejects.toMatchObject({ code: 'CANCELLED' });
   });
 
+  it('connects again after a cancel', async () => {
+    const h = harness();
+    const cancelled = h.transport.connect(PERMISSION_REQUEST);
+    await flush();
+    h.transport.cancelPending();
+    await expect(cancelled).rejects.toMatchObject({ code: 'CANCELLED' });
+
+    const answer = h.transport.connect(PERMISSION_REQUEST);
+    await flush();
+    h.deliver(fakeBread(approve).open(h.opened[1]!));
+    await expect(answer).resolves.toEqual(PERMISSION_RESPONSE);
+    h.transport.stop();
+  });
+
   it('gives up when Bread does not answer in time', async () => {
     jest.useFakeTimers();
     const h = harness();

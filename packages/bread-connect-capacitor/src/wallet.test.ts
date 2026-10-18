@@ -365,6 +365,30 @@ describe('BreadConnectWallet', () => {
     }
   });
 
+  it('keeps no account for a connect the app disconnects once Bread has answered', async () => {
+    const { connect, wallet } = setup();
+    let answer: (response: DAppMessage) => void = () => undefined;
+    connect.mockReturnValueOnce(new Promise<DAppMessage>(resolve => (answer = resolve)));
+
+    const settled = wallet.connect(PrivateDataPermission.UponRequest, WalletAdapterNetwork.Testnet).then(
+      () => 'connected',
+      (error: unknown) => error
+    );
+    await flush();
+    answer(PERMISSION);
+    await wallet.disconnect();
+
+    expect(await settled).toBeInstanceOf(WalletError);
+    expect(wallet.address).toBeUndefined();
+  });
+
+  it('connects again after a disconnect', async () => {
+    const { wallet } = await connected();
+    await wallet.disconnect();
+    await wallet.connect(PrivateDataPermission.UponRequest, WalletAdapterNetwork.Testnet);
+    expect(wallet.address).toBe('mtst1account');
+  });
+
   it('reads the answer that relaunched the app before it looks up a transaction outcome', async () => {
     const storage = new MemoryStorage();
     const connecting = await sentBefore(storage, transport => transport.connect(PERMISSION_REQUEST));

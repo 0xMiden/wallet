@@ -258,6 +258,19 @@ describe('startRequestLinkCapture', () => {
     }
   });
 
+  it('holds no taken link again after the system stops the app, which empties the taken record', async () => {
+    const { link } = connectLink();
+    acceptRequestLink(link);
+    expect(takeRequestLink()).toBe(link);
+
+    sessionStorage.clear();
+    __resetRequestLinksForTest();
+    startRequestLinkCapture();
+    await flushPromises();
+
+    expect(nextRequestLink()).toBeNull();
+  });
+
   it('warns when the listener or the launch link fails', async () => {
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
     try {
