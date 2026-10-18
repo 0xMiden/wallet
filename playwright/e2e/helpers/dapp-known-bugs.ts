@@ -65,18 +65,12 @@ export const KNOWN_BUGS: readonly KnownBug[] = [
   },
   {
     id: 'K10',
-    title: 'A note imported details-only or bare cannot be consumed or listed by the id its import returned',
-    tracking: '0xMiden/wallet#1389 (open)',
-    cells: on(['W5b', 'W5c', 'N4'], BOTH),
-    // The consume preview and the private-note list both look the returned details commitment up as a note id
-    // (`src/lib/miden/back/dapp.ts:2732-2739` and `:909, 953`), so a consume is refused before any popup.
-    signature: ({ cellId, source, evidence }) =>
-      source === 'hard' &&
-      (cellId === 'N4'
-        ? evidence.returnedIdUnlisted === true
-        : evidence.popupOpened === false &&
-          (evidence.dappError?.message ?? '').includes('INVALID_PARAMS') &&
-          (evidence.dappError?.message ?? '').includes('could not be resolved'))
+    title: 'A note imported details-only or bare is not listed by the id its import returned',
+    tracking: '0xMiden/wallet#1536 (the private-note list by the id an import returned)',
+    cells: on(['N4'], BOTH),
+    // The private-note list looks the returned details commitment up as a note id (`getPrivateNoteDetails` in
+    // `src/lib/miden/back/dapp.ts`); a consume by it resolves the commitment to its note (W5b, W5c).
+    signature: ({ source, evidence }) => source === 'hard' && evidence.returnedIdUnlisted === true
   },
   {
     id: 'K11',

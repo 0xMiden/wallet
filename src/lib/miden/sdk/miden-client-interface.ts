@@ -84,6 +84,7 @@ import {
   type WasmLockHold
 } from './miden-client';
 import { buildNativeProverCallback } from './native-prover-mobile';
+import { normalizedCommitment, noteDetailsCommitment } from './note-details-commitment';
 import { beginProveAttempt } from './prove-telemetry';
 import {
   isApplyAfterSubmitError,
@@ -226,6 +227,46 @@ export type FungibleAssetDetails = {
   amount: string;
   faucetId: string;
 };
+
+/** What {@link MidenClientInterface.getDetailsCommitmentMatches} finds for one details commitment. */
+export type DetailsCommitmentMatches = {
+  /** The matching records that have metadata, and so a note id. */
+  notes: InputNoteDetails[];
+  /** The matching records with no metadata yet: imported from details alone, and not committed by a sync. */
+  uncommitted: number;
+};
+
+function reduceInputNoteDetails(note: InputNoteRecord): InputNoteDetails[] {
+  // A partial (metadata-less) record has no note ID, and, since 0.15
+  // nullifiers fold in metadata, no nullifier either. It cannot be
+  // displayed or consumed, so skip it until sync completes it.
+  const noteId = note.id();
+  const nullifier = note.nullifier();
+  if (!noteId || !nullifier) {
+    return [];
+  }
+  const assets = note
+    .details()
+    .assets()
+    .fungibleAssets()
+    .map(asset => ({
+      amount: asset.amount().toString(),
+      faucetId: getBech32AddressFromAccountId(asset.faucetId())
+    }));
+  const noteMet = note.metadata();
+  const restriction = noteConsumeRestriction(note);
+  return [
+    {
+      noteId: noteId.toString(),
+      noteType: noteMet?.noteType(),
+      senderAccountId: noteMet ? getBech32AddressFromAccountId(noteMet.sender()) : undefined,
+      nullifier,
+      state: note.state(),
+      assets,
+      ...(restriction !== undefined && { restriction })
+    }
+  ];
+}
 
 /**
  * What the local store knows about a submitted transaction's fate. Only
@@ -1035,7 +1076,8 @@ export class MidenClientInterface {
    * the details commitment for a details-only file. The wallet's
    * `deserializeNoteFileOrNote` wraps raw `Note` bytes into the details variant
    * (`NoteFile.fromExpectedNote`), so for that path the returned hex is a
-   * details commitment, not a note ID.
+   * details commitment, not a note ID. A dApp's `requestConsume` accepts it
+   * once a sync has committed the note ({@link getDetailsCommitmentMatches}, #1389).
    */
   async importNoteBytes(noteBytes: Uint8Array, hold: WasmLockHold): Promise<string> {
     try {
@@ -1432,37 +1474,23 @@ export class MidenClientInterface {
   async getInputNoteDetails(query?: NoteQuery, assertLive: AssertLive = noAssertLive): Promise<InputNoteDetails[]> {
     const allInputNotes = await this.client.notes.list(query);
     assertLive();
-    return allInputNotes.flatMap(note => {
-      // A partial (metadata-less) record has no note ID — and, since 0.15
-      // nullifiers fold in metadata, no nullifier either. It cannot be
-      // displayed or consumed, so skip it until sync completes it.
-      const noteId = note.id();
-      const nullifier = note.nullifier();
-      if (!noteId || !nullifier) {
-        return [];
-      }
-      const assets = note
-        .details()
-        .assets()
-        .fungibleAssets()
-        .map(asset => ({
-          amount: asset.amount().toString(),
-          faucetId: getBech32AddressFromAccountId(asset.faucetId())
-        }));
-      const noteMet = note.metadata();
-      const restriction = noteConsumeRestriction(note);
-      return [
-        {
-          noteId: noteId.toString(),
-          noteType: noteMet?.noteType(),
-          senderAccountId: noteMet ? getBech32AddressFromAccountId(noteMet.sender()) : undefined,
-          nullifier,
-          state: note.state(),
-          assets,
-          ...(restriction !== undefined && { restriction })
-        }
-      ];
-    });
+    return allInputNotes.flatMap(reduceInputNoteDetails);
+  }
+
+  /**
+   * The records whose details commitment is `commitment`, the id {@link importNoteBytes} returns for a details-only
+   * file (#1389). The store has no lookup by it that the SDK exposes, so every record is listed and hashed.
+   */
+  async getDetailsCommitmentMatches(
+    commitment: string,
+    assertLive: AssertLive = noAssertLive
+  ): Promise<DetailsCommitmentMatches> {
+    const records = await this.client.notes.list();
+    assertLive();
+    const wanted = normalizedCommitment(commitment);
+    const matching = records.filter(record => noteDetailsCommitment(record.details()) === wanted);
+    const notes = matching.flatMap(reduceInputNoteDetails);
+    return { notes, uncommitted: matching.length - notes.length };
   }
 
   async syncState(assertLive: AssertLive = noAssertLive) {
