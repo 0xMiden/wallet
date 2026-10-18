@@ -95,7 +95,7 @@ function parseNotes(
       recallableAtMs: note.recallableAtMs,
       standardPayment: note.standardPayment,
       // The claim fee gate cannot see the other assets, one of which may pay the fee.
-      carriesMoreAssets: note.assets.length > 1 || undefined
+      carriesMoreAssets: note.assets.length > 1
     });
   }
 

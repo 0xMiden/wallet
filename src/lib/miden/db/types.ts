@@ -153,6 +153,8 @@ export interface IConsumedNote {
   faucetId: string;
   /** Base units of the note's first fungible asset; absent when the claimable note carried no amount. */
   amount?: bigint;
+  /** Whether the queued note carried other assets; absent means its full asset list is unknown. */
+  carriesMoreAssets?: boolean;
 }
 
 /**
@@ -1219,6 +1221,7 @@ export class ConsumeTransaction implements ITransaction {
       id: note.id,
       senderAddress: note.senderAddress,
       faucetId: note.faucetId,
+      carriesMoreAssets: note.carriesMoreAssets,
       ...(note.amount === '' ? {} : { amount: BigInt(note.amount) })
     }));
     this.status = ITransactionStatus.Queued;

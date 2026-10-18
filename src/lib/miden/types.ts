@@ -38,7 +38,7 @@ export interface ConsumableNote {
   recallableAtMs?: number;
   /** The note is a standard P2ID or P2IDE payment; absent reads as not. */
   standardPayment?: boolean;
-  /** The note holds fungible assets beyond the one `faucetId` and `amount` describe; absent reads as not. */
+  /** Assets beyond the listed one; the queue treats absence as unknown full asset knowledge. */
   carriesMoreAssets?: boolean;
   /** Note inclusion time, in Unix seconds. */
   receivedAt?: number;

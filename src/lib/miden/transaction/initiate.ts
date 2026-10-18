@@ -1,4 +1,10 @@
-import { isWorthClaiming, totalClaimableAmount } from 'lib/miden/fees/spendable';
+import { getMessage } from 'lib/i18n';
+import {
+  ClaimFeeNote,
+  claimFeeShortfallsBaseUnits,
+  isWorthClaiming,
+  totalClaimableAmount
+} from 'lib/miden/fees/spendable';
 import { getOrCreateMultisigService, type GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
 import { resolveGuardianEndpoint } from 'lib/miden/guardian/account';
 import { GuardianRotationInProgressError } from 'lib/miden/guardian/rotation-in-progress';
@@ -48,6 +54,7 @@ import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
 import { queueOutgoingTransaction, spendsOf } from '../spending-limits/queue';
 import { SpendingLimitAuthorization } from '../spending-limits/types';
 import { ConsumableNote, NoteTypeEnum, NoteType as NoteTypeString } from '../types';
+import { ClaimFeeContext, claimFeeNotes, getClaimFeeAhead, readClaimFeeContext } from './claim-fee';
 import { EARN_DEPOSIT_MISSING_REQUEST_ERROR, NOTE_HELD_BY_ANOTHER_TRANSACTION_ERROR } from './constants';
 import { getNoteHoldingTransactions } from './get';
 import { hotKeyRotationLockName, isLiveRotationRow } from './rotation-funding';
@@ -61,6 +68,13 @@ export class ClaimInsertRefusedError extends Error {
   constructor() {
     super('Claim not queued: its caller can no longer sign it');
     this.name = 'ClaimInsertRefusedError';
+  }
+}
+
+export class ClaimFeeRefusedError extends Error {
+  constructor() {
+    super(getMessage('insufficientFeeAsset'));
+    this.name = 'ClaimFeeRefusedError';
   }
 }
 
@@ -205,6 +219,7 @@ export interface ConsumeNotesQueueResult {
   committedId: string;
   /** The row each note joined, or the live, Completed, note-holding or Failed row that kept it out. */
   coveringTxIdByNoteId: Map<string, string>;
+  feeRefusedNoteIds: string[];
 }
 
 /**
@@ -245,7 +260,8 @@ export const queueConsumeNotes = async (
   isolateNotesWithFailedBatch?: boolean,
   verificationBaseFee?: number | null,
   entryPoint?: ConsumeEntryPoint,
-  canSign?: () => boolean
+  canSign?: () => boolean,
+  feeContext?: ClaimFeeContext
 ): Promise<ConsumeNotesQueueResult> =>
   queueConsumeRows(
     accountId,
@@ -258,7 +274,8 @@ export const queueConsumeNotes = async (
     undefined,
     undefined,
     entryPoint,
-    canSign
+    canSign,
+    feeContext
   );
 
 /**
@@ -500,11 +517,15 @@ const queueConsumeRows = async (
   // The service worker's own claims only, which nobody signs while the vault is locked. Asked right before each row
   // is written, after every await of the call, so a lock that landed meanwhile queues nothing: a refusal throws
   // `ClaimInsertRefusedError`, which aborts this Dexie transaction and rolls back the rows the call already wrote.
-  canSign?: () => boolean
+  canSign?: () => boolean,
+  feeContext?: ClaimFeeContext,
+  feeNotesById?: ReadonlyMap<string, readonly ClaimFeeNote[]>
 ): Promise<ConsumeNotesQueueResult> => {
   if (notes.length === 0) {
     throw new Error('initiateConsumeNotesTransaction requires at least one note');
   }
+
+  const context = feeContext ?? (await readClaimFeeContext(accountId));
 
   return await Repo.db.transaction('rw', Repo.transactions, async () => {
     const queueable: ConsumableNote[] = [];
@@ -622,14 +643,33 @@ const queueConsumeRows = async (
     }
 
     if (queueable.length === 0 && isolate.length === 0) {
-      return { committedId: blockingId!, coveringTxIdByNoteId };
+      return { committedId: blockingId!, coveringTxIdByNoteId, feeRefusedNoteIds: [] };
     }
 
+    const ahead = await getClaimFeeAhead(accountId);
+    const feeRefusedNoteIds: string[] = [];
     const createdIds: string[] = [];
     // No await between the check and the write it guards.
-    const insert = async (row: ConsumeTransaction): Promise<void> => {
+    const insert = async (rowNotes: ConsumableNote[]): Promise<void> => {
+      const feeNotes = claimFeeNotes(rowNotes, feeNotesById);
+      const [shortfall] = claimFeeShortfallsBaseUnits(
+        [feeNotes],
+        ahead,
+        context.vaultFeeAsset,
+        context.nativeAssetId,
+        context.verificationBaseFee
+      );
+      if (shortfall) {
+        feeRefusedNoteIds.push(...rowNotes.map(note => note.id));
+        return;
+      }
+      const row = newRow(rowNotes);
       if (canSign && !canSign()) throw new ClaimInsertRefusedError();
       await Repo.transactions.add(row);
+      createdIds.push(row.id);
+      for (const note of rowNotes) coveringTxIdByNoteId.set(note.id, row.id);
+      // Keep the original facts: no earlier row's fee is charged against a later row.
+      ahead.push(...feeNotes);
     };
     const newRow = (rowNotes: ConsumableNote[]): ConsumeTransaction => {
       const row = Object.assign(new ConsumeTransaction(accountId, rowNotes, delegateTransaction), {
@@ -645,18 +685,14 @@ const queueConsumeRows = async (
     // single-note row is exactly what `initiateConsumeTransaction` produces, so an
     // isolated note rejoins the ordinary per-note lifecycle.
     for (const note of isolate) {
-      const isolatedRow = newRow([note]);
-      await insert(isolatedRow);
-      createdIds.push(isolatedRow.id);
-      coveringTxIdByNoteId.set(note.id, isolatedRow.id);
+      await insert([note]);
     }
     if (queueable.length > 0) {
-      const dbTransaction = newRow(queueable);
-      await insert(dbTransaction);
-      createdIds.push(dbTransaction.id);
-      for (const queued of queueable) coveringTxIdByNoteId.set(queued.id, dbTransaction.id);
+      await insert(queueable);
     }
-    return { committedId: createdIds[0]!, coveringTxIdByNoteId };
+    const committedId = createdIds[0] ?? blockingId;
+    if (committedId === null) throw new ClaimFeeRefusedError();
+    return { committedId, coveringTxIdByNoteId, feeRefusedNoteIds };
   });
 };
 
