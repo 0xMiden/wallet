@@ -5,6 +5,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.currentTime
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeoutOrNull
@@ -158,6 +159,28 @@ class ClientTest {
         assertEquals(BreadConnectException.Code.Superseded, (first.await().exceptionOrNull() as BreadConnectException).code)
         client.cancelPending()
         assertEquals(BreadConnectException.Code.Cancelled, (second.await().exceptionOrNull() as BreadConnectException).code)
+    }
+
+    @Test
+    fun aRequestWhoseOpenerHasNotReturnedStillEndsOnACancelOrANewerRequest() = runTest {
+        val opening = object : BreadOpener {
+            override suspend fun open(link: String): Boolean = awaitCancellation()
+        }
+        val client = BreadConnect(callback, storage, opening) { now }
+
+        val cancelled = async { runCatching { client.connect("Where Legends Grow") } }
+        runCurrent()
+        client.cancelPending()
+        assertEquals(BreadConnectException.Code.Cancelled, (cancelled.await().exceptionOrNull() as BreadConnectException).code)
+
+        val first = async { runCatching { client.connect("Where Legends Grow") } }
+        runCurrent()
+        val second = async { runCatching { client.connect("Where Legends Grow") } }
+        runCurrent()
+        assertEquals(BreadConnectException.Code.Superseded, (first.await().exceptionOrNull() as BreadConnectException).code)
+        client.cancelPending()
+        assertEquals(BreadConnectException.Code.Cancelled, (second.await().exceptionOrNull() as BreadConnectException).code)
+        assertEquals(0L, currentTime)
     }
 
     @Test
