@@ -26,7 +26,7 @@ signLoginBytes(data: Uint8Array, kind: 'word'): Promise<{ signature: Uint8Array 
 - `loginKey` is the 32-byte commitment of the connected account's login key for the page's registrable domain, in the same form as the account key commitment that `connect` returns as `publicKey`.
 - `signature` is a serialized SDK signature: 66 bytes, `[0x01, r(32), s(32), v(1)]`, recoverable ECDSA over secp256k1 with Keccak, the bytes `signBytes` returns for an ECDSA account key.
 - Neither method takes a domain or an origin. Bread reads the domain from the page's real origin: the extension's content-script `MessageEvent.origin`, the in-app browser's page URL, the desktop window's URL.
-- Both reject with an `Error` whose message contains `LOGIN_KEY_UNAVAILABLE` when the account's root key isn't on this device. Bread never derives a login key from any other key.
+- Both reject with an error whose message contains `LOGIN_KEY_UNAVAILABLE` when the account's root key isn't on this device. On the extension that error is a `MidenWalletError`, which is not an `Error` instance, so sites read its `message` and never test `instanceof Error`. Bread never derives a login key from any other key.
 - A Bread without the login key has neither method. Sites detect the methods, never a version.
 - One key per account and site: `https://example.com` and `https://www.example.com` share one; `alpha.github.io` and `beta.github.io` don't (the Public Suffix List's private section counts). A host with no registrable domain, such as `localhost` or an IP address, uses the whole host. Pages that aren't https are refused, except on loopback hosts.
 - The login key signs only 32-byte words. It is never added to an account's signers, so its signatures can't authorize a transaction or a key change. The EVM key itself never signs anything for a page. The user approves every login signature in Bread.
@@ -273,7 +273,7 @@ it('titles an in-app login request with the domain') // confirmation-store: 'log
 **Interfaces:** the contract above, on all three providers:
 - `requestLoginKey()` sends `{ type: 'LOGIN_KEY_REQUEST', sourceAccountId: this.address }` and decodes `loginKey` from base64 into a real `Uint8Array`, as connect decodes `publicKey`.
 - `signLoginBytes(data, kind)` sends `{ type: 'LOGIN_SIGN_REQUEST', sourceAccountId: this.address, payload: <base64 of data>, kind }` and decodes `signature`.
-- Refusals keep the background's message, so `LOGIN_KEY_UNAVAILABLE` stays in it: the extension's `createError` copies the message; the in-app script rejects with `new Error(error)`; desktop does the same.
+- Refusals keep the background's message, so `LOGIN_KEY_UNAVAILABLE` stays in it: the extension's `createError` copies the message into a `MidenWalletError`, not an `Error`; the in-app script rejects with `new Error(error)`; desktop does the same.
 - The conformance suite's `KNOWN_GAPS` stay as they are: these are additions to the adapter's interface.
 
 - [ ] **Step 1: Write the failing tests:**
