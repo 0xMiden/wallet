@@ -1043,7 +1043,7 @@ describe('requestTransaction', () => {
       dapp.requestTransaction('https://miden.xyz', {
         type: MidenDAppMessageType.TransactionRequest,
         sourcePublicKey: 'miden-account-1',
-        transaction: { payload: { address: 'a', recipientAddress: 'b', transactionRequest: 'c' } }
+        transaction: { payload: { address: 'a', recipientAddress: 'b', transactionRequest: 'Yw==' } }
       } as never)
     ).rejects.toThrow(MidenDAppErrorType.NotGranted);
   });
@@ -1053,7 +1053,7 @@ describe('requestTransaction', () => {
       dapp.requestTransaction('https://miden.xyz', {
         type: MidenDAppMessageType.TransactionRequest,
         sourcePublicKey: 'different-account',
-        transaction: { payload: { address: 'a', recipientAddress: 'b', transactionRequest: 'c' } }
+        transaction: { payload: { address: 'a', recipientAddress: 'b', transactionRequest: 'Yw==' } }
       } as never)
     ).rejects.toThrow();
   });
@@ -1067,7 +1067,7 @@ describe('requestTransaction', () => {
         payload: {
           address: 'miden-account-1',
           recipientAddress: 'bob',
-          transactionRequest: 'base64req'
+          transactionRequest: 'YmFzZTY0cmVx'
         }
       }
     } as never);
@@ -1086,7 +1086,7 @@ describe('requestTransaction', () => {
           payload: {
             address: 'miden-account-1',
             recipientAddress: 'bob',
-            transactionRequest: 'base64req'
+            transactionRequest: 'YmFzZTY0cmVx'
           }
         }
       } as never)
@@ -1678,7 +1678,7 @@ describe("a non-extension write carries the resolver's delegate flag", () => {
         payload: {
           address: 'miden-account-1',
           recipientAddress: 'bob',
-          transactionRequest: 'base64req'
+          transactionRequest: 'YmFzZTY0cmVx'
         }
       }
     } as never);
