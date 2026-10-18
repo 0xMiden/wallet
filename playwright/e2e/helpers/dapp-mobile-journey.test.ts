@@ -46,11 +46,16 @@ import {
   createAccount,
   foregroundOrigin,
   nativeAsset,
+  pendingTransfers,
+  readRows,
   removeDappSession,
   selectAccountIfNeeded,
+  vaultOf,
   type MobileWallet
 } from './dapp-mobile-wallet';
+import { expectMobileWriteToTheEnd } from './dapp-mobile-writes';
 import { nodeHeight, waitForNodeHeight, type FetchLogEntry } from './dapp-node-calls';
+import { TxStatus } from './history';
 import { MidenCli } from './miden-cli';
 import { publicFaucetAccountId } from './public-faucet';
 import type { DappLabel } from './test-dapp-server';
@@ -60,10 +65,13 @@ import { TestStepRunner } from '../harness/test-step';
 import { TimelineRecorder } from '../harness/timeline-recorder';
 import type { ConnectedView } from '../test-dapp/protocol';
 
-jest.mock('@playwright/test', () => ({
-  expect: Object.assign(jest.fn(), { any: jest.fn() }),
-  test: { info: () => ({ title: 'mobile journey unit', testId: 'mobile-journey-unit' }) }
-}));
+jest.mock('@playwright/test', () => {
+  const jestExpect = expect;
+  return {
+    expect: Object.assign((value: unknown) => jestExpect(value), { any: jestExpect.any }),
+    test: { info: () => ({ title: 'mobile journey unit', testId: 'mobile-journey-unit' }) }
+  };
+});
 jest.mock('./dapp-cells', () => ({
   ...jest.requireActual<typeof import('./dapp-cells')>('./dapp-cells'),
   infraAborted: () => null,
@@ -82,6 +90,7 @@ jest.mock('./dapp-mobile-wallet', () => ({
   openDappUrl: jest.fn(),
   pendingTransfers: jest.fn(async () => 0),
   readRows: jest.fn(async () => []),
+  vaultOf: jest.fn(),
   removeDappSession: jest.fn(async () => undefined),
   selectAccountIfNeeded: jest.fn(async () => undefined),
   waitForQueueDrained: jest.fn(async () => undefined)
@@ -435,6 +444,7 @@ describe('mobile journey hooks and setup', () => {
           { id: 'S1', budget: 'read', state: { session: wanted, account }, run: async () => undefined },
           deadline
         ),
+      hooks: options.hooks,
       restore: () => options.hooks.restore({ id: 'R7-send', budget: 'long', run: async () => undefined })
     };
   }
@@ -485,6 +495,109 @@ describe('mobile journey hooks and setup', () => {
     created.resolve('mtst1second');
     await jest.advanceTimersByTimeAsync(0);
     expect(selectAccountIfNeeded).not.toHaveBeenCalled();
+  });
+
+  async function pendingRecipientClaim(quiesceMs: number) {
+    const { journey, hooks } = await prepare();
+    const raw = deferred<void>();
+    const claim = jest.mocked(journey.walletB.claimAllNotes);
+    claim.mockClear();
+    claim.mockReturnValueOnce(raw.promise).mockResolvedValue(undefined);
+    jest.mocked(pendingTransfers).mockClear();
+    const hash = `0x${'a'.repeat(64)}`;
+    jest
+      .mocked(readRows)
+      .mockResolvedValue([
+        { id: 'write', accountId: 'mtst1a', status: TxStatus.Completed, transactionId: hash, feeAmount: '0' }
+      ]);
+    jest.mocked(vaultOf).mockResolvedValue({ tst: 100n, native: 100n });
+    const send = jest.mocked(journey.server.send).getMockImplementation();
+    if (send === undefined) throw new Error('no command transport');
+    jest.mocked(journey.server.send).mockImplementation(async (device, dapp, command, input, timeoutMs) => {
+      let value: unknown;
+      switch (command) {
+        case 'waitForTransaction':
+          value = {
+            ok: true,
+            value: {
+              txHash: hash,
+              outputNotes: [{ noteId: '0xabc', noteType: 'public', bytesB64: '', isSameSdkNote: true, script: 'p2id' }]
+            }
+          };
+          break;
+        case 'chainNote':
+          value = { found: true, senderHex: '0xaaa', noteType: 'public', blockNum: 1 };
+          break;
+        case 'chainAccount':
+          value = { found: true, commitmentHex: 'new' };
+          break;
+        default:
+          return send(device, dapp, command, input, timeoutMs);
+      }
+      return { status: 'ok', value, enqueuedAt: 1, deliveredAt: 2, receivedAt: 3 };
+    });
+    const { DappCellRunner: ActualRunner } = jest.requireActual<typeof import('./dapp-cells')>('./dapp-cells');
+    const runner = new ActualRunner({
+      surface: 'ios',
+      axis: 'offchain',
+      journey: 'PL',
+      part: 'unit',
+      testTitle: 'claim lifetime',
+      outDir: path.join(directory, 'claim-records'),
+      declared: ['W1', 'W4', 'X1'],
+      registry: registryOf([]),
+      hooks,
+      budgets: { write: 5_000 },
+      quiesceBudgetMs: quiesceMs
+    });
+    jest.useFakeTimers();
+    const first = runner.run({
+      id: 'W1',
+      budget: 'write',
+      run: async ctx => {
+        await expectMobileWriteToTheEnd(
+          { j: journey, wallet: journey.walletA, dapp: journey.dapp, account: 'mtst1a', accountIdHex: '0xaaa' },
+          { rowIds: [], capturedAtSec: 0, vault: { tst: 100n, native: 100n }, commitmentHex: 'old' },
+          { txId: 'write', outputNotes: [{ noteType: 'public', toB: 1n }], consumedNullifiers: [] },
+          {},
+          ctx
+        );
+      }
+    });
+    await jest.advanceTimersByTimeAsync(5_000);
+    expect((await first).verdict).toBe('fail-new');
+    expect(journey.recipientClaim).toBe(raw.promise);
+    return { journey, runner, raw, claim };
+  }
+
+  it('joins an expired cell raw claim before reading B or starting another claim in the next quiesce', async () => {
+    const { journey, runner, raw, claim } = await pendingRecipientClaim(20_000);
+    jest.mocked(pendingTransfers).mockResolvedValueOnce(1).mockResolvedValueOnce(0);
+    const next = runner.run({ id: 'W4', budget: 'read', run: async () => undefined });
+    await jest.advanceTimersByTimeAsync(1_000);
+    expect(pendingTransfers).not.toHaveBeenCalled();
+    expect(claim).toHaveBeenCalledTimes(1);
+    raw.resolve();
+    await jest.advanceTimersByTimeAsync(0);
+    expect((await next).verdict).toBe('pass');
+    expect(pendingTransfers).toHaveBeenCalledTimes(2);
+    expect(claim).toHaveBeenCalledTimes(2);
+    expect(journey.recipientClaim).toBeUndefined();
+  });
+
+  it('blocks the leg when the raw claim cannot join within the next quiesce budget', async () => {
+    const { journey, runner, raw, claim } = await pendingRecipientClaim(20_000);
+    const run = jest.fn(async () => undefined);
+    const next = runner.run({ id: 'W4', budget: 'read', run });
+    await jest.advanceTimersByTimeAsync(20_000);
+    const record = await next;
+    expect(record.verdict).toBe('blocked-state');
+    expect(record.error).toContain("wallet B's previous claim");
+    expect((await runner.run({ id: 'X1', budget: 'read', run })).verdict).toBe('blocked-state');
+    expect(run).not.toHaveBeenCalled();
+    expect(pendingTransfers).not.toHaveBeenCalled();
+    expect(claim).toHaveBeenCalledTimes(1);
+    expect(journey.recipientClaim).toBe(raw.promise);
   });
 
   it('attempts disconnect, revocation and primary selection after denial rejects', async () => {

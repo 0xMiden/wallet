@@ -133,6 +133,8 @@ export interface MobileJourney {
   readonly axis: MobileDappAxis;
   readonly walletA: MobileWallet;
   readonly walletB: MobileWallet;
+  /** A raw claim can outlive its cell's race; the next quiesce joins it before driving B. */
+  recipientClaim?: Promise<void>;
   readonly env: EnvironmentConfig;
   readonly network: string;
   readonly runner: DappCellRunner<Partial<MobileCellState>>;
@@ -625,6 +627,11 @@ async function quiesce(
   deadline: Deadline,
   previous?: CellRecord
 ): Promise<void> {
+  const claim = j.recipientClaim;
+  if (claim !== undefined) {
+    await beforeDeadline(deadline, "wallet B's previous claim", () => claim.catch(() => undefined));
+    j.recipientClaim = undefined;
+  }
   const state: MobileCellState = { account: 'primary', session: 'upon-request', ...cell.state };
   await beforeDeadline(deadline, 'sheet denial', () => denyOpenSheet(j.walletA));
   const front = await beforeDeadline(deadline, 'foreground origin', () => foregroundOrigin(j.walletA));

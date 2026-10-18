@@ -1,5 +1,6 @@
 import { toBaseUnits } from './balance-truth';
 import { buildPendingSampleScript, type PendingSample } from './claim-drain';
+import { HarnessFault, type Deadline } from './dapp-cells';
 import {
   describeTransactionRow,
   readTransactionRowsInPage,
@@ -8,6 +9,7 @@ import {
   type TransactionRowsQuery
 } from './history';
 import {
+  beforeMobileDeadline,
   CURRENT_ACCOUNT_ROWS_JS,
   NATIVE_ASSET_CACHE_EXPR,
   nativeAssetOf,
@@ -38,12 +40,30 @@ export interface MobileWallet extends DappDriverTarget {
 const sleep = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms));
 const STORE = `var s = window.__TEST_STORE__; if (!s) throw new Error('the E2E store hook is missing'); var st = s.getState();`;
 const evalOf =
-  (wallet: Pick<DappDriverTarget, 'evalJs'>) =>
-  (js: string): Promise<unknown> =>
-    wallet.evalJs(js);
+  (wallet: Pick<DappDriverTarget, 'evalJs'>, deadline?: Deadline) =>
+  <T = unknown>(js: string): Promise<T> =>
+    beforeMobileDeadline(deadline, 'the mobile wallet read', () =>
+      wallet.evalJs<T>(js).catch((error: unknown) => {
+        // These originate in the evaluate transport; timeouts can also mean the wallet's main thread is blocked.
+        const message = error instanceof Error ? error.message : '';
+        if (
+          /^(?:Remote debugger is not connected|RPC socket is not connected\.|The RPC client is not connected\.|Remote debugger error with code '[^']+':|CDP Runtime\.evaluate:|WebSocket is not open: readyState \d+ \((?:CONNECTING|CLOSING|CLOSED)\)|WebSocket was closed before the connection was established)/.test(
+            message
+          )
+        ) {
+          const fault = new HarnessFault(`the mobile wallet evaluate transport failed: ${message}`);
+          fault.cause = error;
+          throw fault;
+        }
+        throw error;
+      })
+    );
 
-export function currentAccount(wallet: MobileWallet): Promise<string | null> {
-  return wallet.evalJs<string | null>(
+export function currentAccount(wallet: MobileWallet, deadline?: Deadline): Promise<string | null> {
+  return evalOf(
+    wallet,
+    deadline
+  )<string | null>(
     'var s = window.__TEST_STORE__; var a = s && s.getState().currentAccount; return a ? a.publicKey : null;'
   );
 }
@@ -54,9 +74,9 @@ export function currentGuardianEndpoint(wallet: MobileWallet): Promise<string> {
   );
 }
 
-export async function selectAccount(wallet: MobileWallet, address: string): Promise<void> {
+export async function selectAccount(wallet: MobileWallet, address: string, deadline?: Deadline): Promise<void> {
   const selected = await stashAndPoll<string>(
-    evalOf(wallet),
+    evalOf(wallet, deadline),
     '__dapp_select',
     `(async function () { ${STORE} await st.updateCurrentAccount(${JSON.stringify(address)}); ` +
       `var a = s.getState().currentAccount; return a ? a.publicKey : ''; })()`
@@ -64,8 +84,8 @@ export async function selectAccount(wallet: MobileWallet, address: string): Prom
   if (selected !== address) throw new Error(`selectAccount selected ${selected || 'no account'} instead of ${address}`);
 }
 
-export async function selectAccountIfNeeded(wallet: MobileWallet, address: string): Promise<void> {
-  if ((await currentAccount(wallet)) !== address) await selectAccount(wallet, address);
+export async function selectAccountIfNeeded(wallet: MobileWallet, address: string, deadline?: Deadline): Promise<void> {
+  if ((await currentAccount(wallet, deadline)) !== address) await selectAccount(wallet, address, deadline);
 }
 
 /** A new account through the store's own createAccount, as the Chrome page object makes one; a Guardian one registers first. */
@@ -97,9 +117,9 @@ const BALANCE_LANDING_MS = 60_000;
  * syncs). The store skips a read while one is in flight, the lock is busy or the balance fuse is lit, so this asks
  * again each second until `balancesLastFetched` moves.
  */
-export async function accountRows(wallet: MobileWallet): Promise<CurrentAccountRows> {
+export async function accountRows(wallet: MobileWallet, deadline?: Deadline): Promise<CurrentAccountRows> {
   await stashAndPoll<boolean>(
-    evalOf(wallet),
+    evalOf(wallet, deadline),
     '__dapp_balances',
     `(async function () { ${STORE} var pk = st.currentAccount && st.currentAccount.publicKey; ` +
       `if (!pk) throw new Error('the store has no current account'); ` +
@@ -112,7 +132,7 @@ export async function accountRows(wallet: MobileWallet): Promise<CurrentAccountR
     // Past the page's own deadline, so its error names the account rather than the poll timing out.
     BALANCE_LANDING_MS + 5_000
   );
-  const view = await wallet.evalJs<CurrentAccountRows | null>(CURRENT_ACCOUNT_ROWS_JS);
+  const view = await evalOf(wallet, deadline)<CurrentAccountRows | null>(CURRENT_ACCOUNT_ROWS_JS);
   if (view === null) throw new Error('the store has no current account');
   return view;
 }
@@ -124,8 +144,12 @@ export function rowUnits(row: CurrentAccountRows['rows'][number]): bigint {
 }
 
 /** Base units of each of `faucetIds` in the current account, 0 for one it holds none of. */
-export async function vaultOf(wallet: MobileWallet, faucetIds: readonly string[]): Promise<Record<string, bigint>> {
-  const { rows } = await accountRows(wallet);
+export async function vaultOf(
+  wallet: MobileWallet,
+  faucetIds: readonly string[],
+  deadline?: Deadline
+): Promise<Record<string, bigint>> {
+  const { rows } = await accountRows(wallet, deadline);
   return Object.fromEntries(
     faucetIds.map(id => [id, rows.filter(row => row.tokenId === id).reduce((sum, row) => sum + rowUnits(row), 0n)])
   );
@@ -158,17 +182,18 @@ export async function nativeAsset(wallet: MobileWallet, timeoutMs: number): Prom
 }
 
 /** Every transaction row, read from IndexedDB with history.ts's own projection, as the iOS page object reads them. */
-export async function readRows(wallet: MobileWallet): Promise<TransactionRowSnapshot[]> {
+export async function readRows(wallet: MobileWallet, deadline?: Deadline): Promise<TransactionRowSnapshot[]> {
   const query: TransactionRowsQuery = { dbName: TX_DB, storeName: TX_STORE };
   const rows = await ridingOut(() =>
     stashAndPoll<TransactionRowSnapshot[] | null>(
-      evalOf(wallet),
+      evalOf(wallet, deadline),
       '__dapp_rows',
       `(${readTransactionRowsInPage.toString()})(${JSON.stringify(query)})`,
       60_000
     )
   );
-  return rows ?? [];
+  if (rows === null) throw new HarnessFault('the mobile transaction store is missing');
+  return rows;
 }
 
 // Rows still in flight: an Unconfirmed one waits for the node's verdict and can still land (#1081).

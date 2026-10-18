@@ -1,3 +1,4 @@
+import { CellDeadlineExceeded, type Deadline } from './dapp-cells';
 import { NATIVE_ASSET_FEE_CACHE, NATIVE_ASSET_ID_CACHE } from '../../../src/lib/miden-chain/native-asset-cache-keys';
 
 /**
@@ -79,6 +80,25 @@ export function nativeAssetOf(
     );
   }
   return { tokenId, symbol: row.symbol, decimals: row.decimals, baseFee };
+}
+
+/** Starts no command after the deadline, and rejects late success even when an overdue timer has not run yet. */
+export async function beforeMobileDeadline<T>(
+  deadline: Deadline | undefined,
+  what: string,
+  start: () => Promise<T>,
+  bounded = false
+): Promise<T> {
+  const check = (): void => {
+    if (deadline !== undefined && deadline.remainingMs() <= 0) {
+      throw new CellDeadlineExceeded(`${deadline.label}: ${what} outlived the cell budget`);
+    }
+  };
+  check();
+  const work = start();
+  const value = await (deadline === undefined || bounded ? work : deadline.race(work, what));
+  check();
+  return value;
 }
 
 export type EvalJs = (js: string) => Promise<unknown>;

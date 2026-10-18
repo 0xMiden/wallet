@@ -2,11 +2,12 @@ import { expect } from '@playwright/test';
 import { isDeepStrictEqual } from 'node:util';
 
 import { pollUntil } from './dapp-assertions';
-import { HarnessFault, InfrastructureFault, type CellContext } from './dapp-cells';
+import { CellDeadlineExceeded, HarnessFault, InfrastructureFault, type CellContext } from './dapp-cells';
 import { canonicalAddress, isForeignConsume, normalizeHex } from './dapp-gates';
 import type { MobileDapp, MobileJourney } from './dapp-mobile-journey';
 import { readRows, selectAccountIfNeeded, vaultOf, type MobileWallet } from './dapp-mobile-wallet';
 import { describeTransactionRow, TxStatus, type TransactionRowSnapshot } from './history';
+import { beforeMobileDeadline } from './mobile-store-reads';
 import { TOKEN } from './money-path';
 import { unwrap } from './test-dapp';
 import type { NoteTypeName, OutputNoteView } from '../test-dapp/protocol';
@@ -83,9 +84,10 @@ export async function mobileSideOf(j: MobileJourney): Promise<MobileSide> {
   };
 }
 
-export async function captureRowWindow(wallet: MobileWallet): Promise<RowWindow> {
+export async function captureRowWindow(wallet: MobileWallet, ctx?: CellContext): Promise<RowWindow> {
   const capturedAtSec = Math.floor(Date.now() / 1000);
-  return { rowIds: (await readRows(wallet)).map(row => row.id), capturedAtSec };
+  const rows = await beforeMobileDeadline(ctx?.deadline, 'the baseline rows', () => readRows(wallet, ctx?.deadline));
+  return { rowIds: rows.map(row => row.id), capturedAtSec };
 }
 
 /** The vault once two reads a sync apart agree, so every transaction completed before the first read is in it. */
@@ -94,10 +96,12 @@ export async function stableVault(
   ids: readonly string[],
   ctx: CellContext
 ): Promise<Record<string, bigint>> {
-  let last = await ctx.deadline.race(vaultOf(wallet, ids), 'the vault');
+  let last = await beforeMobileDeadline(ctx.deadline, 'the vault', () => vaultOf(wallet, ids, ctx.deadline));
   for (;;) {
-    await sleep(SYNC_APART_MS);
-    const next = await ctx.deadline.race(vaultOf(wallet, ids), 'the vault a sync later');
+    await beforeMobileDeadline(ctx.deadline, 'one wallet sync', () => sleep(SYNC_APART_MS));
+    const next = await beforeMobileDeadline(ctx.deadline, 'the vault a sync later', () =>
+      vaultOf(wallet, ids, ctx.deadline)
+    );
     if (isDeepStrictEqual(next, last)) return next;
     last = next;
   }
@@ -120,16 +124,26 @@ export function captureMobileBaseline(
   ctx: CellContext
 ): Promise<MobileBaseline> {
   return timed(ctx, 'baseline', async () => {
-    await selectAccountIfNeeded(side.wallet, side.account);
-    const since = await captureRowWindow(side.wallet);
+    await beforeMobileDeadline(ctx.deadline, 'account selection', () =>
+      selectAccountIfNeeded(side.wallet, side.account, ctx.deadline)
+    );
+    const since = await captureRowWindow(side.wallet, ctx);
     const vault = await stableVault(side.wallet, [...new Set([...faucetIds, side.j.native.tokenId])], ctx);
-    const chain = await side.j.call('chainAccount', { accountId: side.accountIdHex }, ctx.deadline);
+    const chain = await beforeMobileDeadline(
+      ctx.deadline,
+      'the baseline account on chain',
+      () => side.j.call('chainAccount', { accountId: side.accountIdHex }, ctx.deadline),
+      true
+    );
     return { ...since, vault, commitmentHex: chain.found ? (chain.commitmentHex ?? null) : null };
   });
 }
 
 async function recordRow(owner: RowOwner, txId: string, ctx: CellContext): Promise<TransactionRowSnapshot | null> {
-  const row = (await readRows(owner.wallet)).find(entry => entry.id === txId) ?? null;
+  const rows = await beforeMobileDeadline(ctx.deadline, 'the diagnostic rows', () =>
+    readRows(owner.wallet, ctx.deadline)
+  );
+  const row = rows.find(entry => entry.id === txId) ?? null;
   ctx.evidence.rowStatus = row?.status;
   ctx.evidence.stage = row?.stage;
   const text = [row?.error, row?.rawError].filter((part): part is string => typeof part === 'string').join(' | ');
@@ -190,9 +204,12 @@ async function thirdPartyMoveFault(
   owner: RowOwner,
   since: RowWindow,
   expected: readonly string[],
-  failure: unknown
+  failure: unknown,
+  ctx: CellContext
 ): Promise<InfrastructureFault | null> {
-  const rows = await readRows(owner.wallet);
+  const rows = await beforeMobileDeadline(ctx.deadline, 'rows after the vault failure', () =>
+    readRows(owner.wallet, ctx.deadline)
+  );
   const senders = owner.j.senders();
   const moved = rows.filter(
     entry =>
@@ -215,12 +232,21 @@ async function unlessAThirdPartyMovedIt(
   owner: RowOwner,
   since: RowWindow,
   expected: readonly string[],
+  ctx: CellContext,
   check: () => Promise<void>
 ): Promise<void> {
   try {
     await check();
   } catch (error) {
-    throw (await thirdPartyMoveFault(owner, since, expected, error)) ?? error;
+    if (error instanceof CellDeadlineExceeded || error instanceof HarnessFault || ctx.deadline.remainingMs() <= 0)
+      throw error;
+    let fault: InfrastructureFault | null = null;
+    try {
+      fault = await thirdPartyMoveFault(owner, since, expected, error, ctx);
+    } catch (diagnostic) {
+      if (!(diagnostic instanceof CellDeadlineExceeded)) throw diagnostic;
+    }
+    throw fault ?? error;
   }
 }
 
@@ -228,11 +254,26 @@ async function unlessAThirdPartyMovedIt(
 async function expectReceivedByB(j: MobileJourney, amount: bigint, ctx: CellContext): Promise<void> {
   if (amount === 0n) return;
   const token = j.tokenFaucetId;
-  const before = (await vaultOf(j.walletB, [token]))[token] ?? 0n;
-  await ctx.deadline.race(j.walletB.claimAllNotes(ctx.deadline.remainingMs(), [j.cliFaucetId]), "wallet B's claim");
+  const before =
+    (
+      await beforeMobileDeadline(ctx.deadline, "wallet B's baseline vault", () =>
+        vaultOf(j.walletB, [token], ctx.deadline)
+      )
+    )[token] ?? 0n;
+  await beforeMobileDeadline(ctx.deadline, "wallet B's claim", () => {
+    const claim = j.walletB.claimAllNotes(ctx.deadline.remainingMs(), [j.cliFaucetId]);
+    j.recipientClaim = claim;
+    return claim;
+  });
+  j.recipientClaim = undefined;
   const want = (before + amount).toString();
   await pollUntil(
-    async () => ((await vaultOf(j.walletB, [token]))[token] ?? 0n).toString(),
+    async () =>
+      (
+        (await beforeMobileDeadline(ctx.deadline, "wallet B's vault", () => vaultOf(j.walletB, [token], ctx.deadline)))[
+          token
+        ] ?? 0n
+      ).toString(),
     held => held === want,
     `wallet B's ${TOKEN} at ${want}`,
     ctx,
@@ -254,8 +295,13 @@ export async function expectMobileWriteToTheEnd(
 ): Promise<MobileWriteResult> {
   // 1. The dApp's view; a wait that outlives the cell still records where the row stopped.
   const waited = await timed(ctx, 'dappView', () =>
-    side.j.call('waitForTransaction', { txId: write.txId }, ctx.deadline).catch(async (error: unknown) => {
-      await recordRow(side, write.txId, ctx);
+    beforeMobileDeadline(
+      ctx.deadline,
+      'the dApp transaction view',
+      () => side.j.call('waitForTransaction', { txId: write.txId }, ctx.deadline),
+      true
+    ).catch(async (error: unknown) => {
+      if (ctx.deadline.remainingMs() > 0 && !(error instanceof HarnessFault)) await recordRow(side, write.txId, ctx);
       throw error;
     })
   );
@@ -278,7 +324,13 @@ export async function expectMobileWriteToTheEnd(
   await timed(ctx, 'notesOnChain', async () => {
     for (const [expected, actual] of pairs) {
       const onChain = await pollUntil(
-        () => side.j.call('chainNote', { noteId: actual.noteId }, ctx.deadline),
+        () =>
+          beforeMobileDeadline(
+            ctx.deadline,
+            'the chain note',
+            () => side.j.call('chainNote', { noteId: actual.noteId }, ctx.deadline),
+            true
+          ),
         note => note.found,
         `note ${actual.noteId} on chain`,
         ctx,
@@ -294,8 +346,7 @@ export async function expectMobileWriteToTheEnd(
     }
   });
 
-  // 4. The recipient: B's claim, a prove on its own device, starts now and overlaps steps 5-7. It is settled before any
-  // failure of theirs is rethrown, so the restore and the next quiesce never claim on B while it still runs.
+  // B proves beside steps 5-7; if its raw claim outlives this cell, the next quiesce must join it before driving B.
   const toB = pairs.reduce((sum, [expected]) => sum + (expected.toB ?? 0n), 0n);
   const received = timed(ctx, 'recipient', () => expectReceivedByB(side.j, toB, ctx));
   void received.catch(() => undefined);
@@ -313,7 +364,13 @@ export async function expectMobileWriteToTheEnd(
     const chain = await timed(ctx, 'accountOnChain', async () => {
       for (const nullifierHex of write.consumedNullifiers) {
         await pollUntil(
-          () => side.j.call('chainNullifier', { nullifierHex }, ctx.deadline),
+          () =>
+            beforeMobileDeadline(
+              ctx.deadline,
+              'the chain nullifier',
+              () => side.j.call('chainNullifier', { nullifierHex }, ctx.deadline),
+              true
+            ),
           spent => spent.committedAt !== null,
           `nullifier ${nullifierHex} committed`,
           ctx,
@@ -321,7 +378,13 @@ export async function expectMobileWriteToTheEnd(
         );
       }
       return pollUntil(
-        () => side.j.call('chainAccount', { accountId: side.accountIdHex }, ctx.deadline),
+        () =>
+          beforeMobileDeadline(
+            ctx.deadline,
+            'the account on chain',
+            () => side.j.call('chainAccount', { accountId: side.accountIdHex }, ctx.deadline),
+            true
+          ),
         account => account.found && account.commitmentHex !== baseline.commitmentHex,
         'account commitment moved on chain',
         ctx,
@@ -330,17 +393,23 @@ export async function expectMobileWriteToTheEnd(
     });
     // 6. Guardian only: the operator holds what the chain holds (dapp-mobile-axis.ts).
     await timed(ctx, 'guardianSettle', () =>
-      ctx.deadline.race(
-        side.j.axis.settle(side.wallet, side.account, chain.commitmentHex ?? null, ctx.deadline),
-        'Guardian settle'
+      beforeMobileDeadline(ctx.deadline, 'Guardian settle', () =>
+        side.j.axis.settle(side.wallet, side.account, chain.commitmentHex ?? null, ctx.deadline)
       )
     );
     // 7. Balances, exact; the fee comes off the native asset.
-    await selectAccountIfNeeded(side.wallet, side.account);
+    await beforeMobileDeadline(ctx.deadline, 'account selection', () =>
+      selectAccountIfNeeded(side.wallet, side.account, ctx.deadline)
+    );
     await timed(ctx, 'vault', () =>
-      unlessAThirdPartyMovedIt(side, baseline, [write.txId], async () => {
+      unlessAThirdPartyMovedIt(side, baseline, [write.txId], ctx, async () => {
         await pollUntil(
-          async () => units(await vaultOf(side.wallet, ids)),
+          async () =>
+            units(
+              await beforeMobileDeadline(ctx.deadline, 'the vault after the write', () =>
+                vaultOf(side.wallet, ids, ctx.deadline)
+              )
+            ),
           vault => isDeepStrictEqual(vault, units(expectedVault)),
           `the vault at ${JSON.stringify(units(expectedVault))}`,
           ctx,
@@ -357,18 +426,35 @@ export async function expectMobileWriteToTheEnd(
 
   // 8. Nothing else ran: the vault holds a sync later, and the account ran no other row.
   await timed(ctx, 'nothingElse', async () => {
-    await unlessAThirdPartyMovedIt(side, baseline, [write.txId], async () => {
-      await sleep(SYNC_APART_MS);
-      expect(units(await vaultOf(side.wallet, ids)), 'the vault a sync after the write').toEqual(units(expectedVault));
+    await unlessAThirdPartyMovedIt(side, baseline, [write.txId], ctx, async () => {
+      await beforeMobileDeadline(ctx.deadline, 'one wallet sync', () => sleep(SYNC_APART_MS));
+      expect(
+        units(
+          await beforeMobileDeadline(ctx.deadline, 'the vault a sync after the write', () =>
+            vaultOf(side.wallet, ids, ctx.deadline)
+          )
+        ),
+        'the vault a sync after the write'
+      ).toEqual(units(expectedVault));
     });
-    const others = ownRowsBesides(side.account, side.j.senders(), baseline, [write.txId], await readRows(side.wallet));
+    const rows = await beforeMobileDeadline(ctx.deadline, 'rows after the write', () =>
+      readRows(side.wallet, ctx.deadline)
+    );
+    const others = ownRowsBesides(side.account, side.j.senders(), baseline, [write.txId], rows);
     expect(others.map(describeTransactionRow), 'rows the account ran besides this write').toEqual([]);
   });
   return { txHash: value.txHash, outputNotes: value.outputNotes, feeAmount, row: row ?? { id: write.txId } };
 }
 
-export async function expectNoNewMobileRows(owner: RowOwner, since: RowWindow): Promise<void> {
-  const added = ownRowsBesides(owner.account, owner.j.senders(), since, [], await readRows(owner.wallet));
+export async function expectNoNewMobileRows(owner: RowOwner, since: RowWindow, ctx?: CellContext): Promise<void> {
+  const rows = await beforeMobileDeadline(ctx?.deadline, 'rows after the refusal', () =>
+    readRows(owner.wallet, ctx?.deadline)
+  );
+  expect(
+    since.rowIds.filter(id => !rows.some(row => row.id === id)),
+    'baseline rows missing after the refusal'
+  ).toEqual([]);
+  const added = ownRowsBesides(owner.account, owner.j.senders(), since, [], rows);
   expect(added.map(describeTransactionRow), 'rows a refused request added').toEqual([]);
 }
 
@@ -381,7 +467,10 @@ export async function expectFailedAfterEnqueueMobile(
   ctx: CellContext
 ): Promise<void> {
   await pollUntil(
-    async () => (await readRows(side.wallet)).find(row => row.id === txId) ?? null,
+    async () =>
+      (
+        await beforeMobileDeadline(ctx.deadline, 'the failed write rows', () => readRows(side.wallet, ctx.deadline))
+      ).find(row => row.id === txId) ?? null,
     row => row?.status === TxStatus.Failed || row?.status === TxStatus.Completed,
     `row ${txId} terminal`,
     ctx
@@ -390,11 +479,18 @@ export async function expectFailedAfterEnqueueMobile(
   expect(row?.status, row === null ? 'row missing' : describeTransactionRow(row)).toBe(TxStatus.Failed);
   expect(row?.stage).toBe(expected.stage);
   expect(`${row?.error ?? ''} ${row?.rawError ?? ''}`).toContain(expected.error);
-  expect(await side.j.call('waitForTransaction', { txId }, ctx.deadline)).toEqual({
+  expect(
+    await beforeMobileDeadline(
+      ctx.deadline,
+      'the dApp failed transaction view',
+      () => side.j.call('waitForTransaction', { txId }, ctx.deadline),
+      true
+    )
+  ).toEqual({
     ok: false,
     error: { name: 'WalletTransactionError', message: row?.error ?? '' }
   });
-  await unlessAThirdPartyMovedIt(side, baseline, [txId], async () => {
+  await unlessAThirdPartyMovedIt(side, baseline, [txId], ctx, async () => {
     expect(
       units(await stableVault(side.wallet, Object.keys(baseline.vault), ctx)),
       'the vault after the failed write'
