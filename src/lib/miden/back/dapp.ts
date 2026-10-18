@@ -2312,7 +2312,8 @@ const generatePromisifyTransaction = async (
       }
     });
   } catch (e) {
-    reject(new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`));
+    // A kill during the decode says nothing about the bytes, so it answers retryable, as the other previews do.
+    reject(dappReadFailure(e));
     return;
   }
 
