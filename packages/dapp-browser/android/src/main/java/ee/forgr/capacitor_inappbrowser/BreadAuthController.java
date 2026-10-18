@@ -10,6 +10,7 @@ import android.webkit.WebView;
 import androidx.browser.customtabs.CustomTabsClient;
 import androidx.browser.customtabs.CustomTabsIntent;
 import androidx.webkit.JavaScriptReplyProxy;
+import androidx.webkit.WebMessageCompat;
 import androidx.webkit.WebViewCompat;
 import androidx.webkit.WebViewFeature;
 import java.util.ArrayList;
@@ -41,8 +42,10 @@ final class BreadAuthController {
         if (!WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)
             || !WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) return;
         installed = true;
-        WebViewCompat.addWebMessageListener(webView, "breadAuth", Collections.singleton("*"),
-            (view, message, origin, mainFrame, reply) -> receive(message.getData(), origin, mainFrame, reply));
+        WebViewCompat.addWebMessageListener(webView, "breadAuth", Collections.singleton("*"), (view, message, origin, mainFrame, reply) -> {
+            // getData() throws for an ArrayBuffer, and a binary message has no id to reply to.
+            if (message.getType() == WebMessageCompat.TYPE_STRING) receive(message.getData(), origin, mainFrame, reply);
+        });
     }
 
     private void receive(String raw, Uri origin, boolean mainFrame, JavaScriptReplyProxy proxy) {

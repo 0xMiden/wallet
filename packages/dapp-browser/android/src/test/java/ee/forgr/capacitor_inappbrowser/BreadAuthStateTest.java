@@ -29,15 +29,34 @@ public class BreadAuthStateTest {
 
     @Test public void urlMustBeAbsoluteSameOriginHttps() {
         Object[] invalid = {
-            null, 42, "", "/auth", "//game.example/auth", "http://game.example/auth", "https://other.example/auth",
-            "https://game.example:444/auth", "https://user@game.example/auth", "https://game.example\\@other.example/auth",
-            "https://game.example/a b", "https://g\u00e4me.example/auth", url(4097),
-            "HTTPS://game.example/auth", "https://g%61me.example/auth",
+            null, 42, "", "/auth", "//game.example/auth", "http://game.example/auth",
+            "HTTPS://game.example/auth", "https:game.example/auth", "https:/game.example/auth",
+            "https:///game.example/auth", "https://other.example/auth", "https://game.example./auth",
+            "https://game.example:444/auth", "https://game.example:8443/auth", "https://game.example:/auth",
+            "https://game.example:0443/auth", "https://user@game.example/auth",
+            "https://other.example\\@game.example/auth", "https://game.example/a b",
+            "https://g\u00e4me.example/auth", url(4097),
         };
         for (Object url : invalid) assertEquals(String.valueOf(url), BreadAuthState.INVALID_URL, rejection(url));
-        assertNull(rejection("https://GAME.example:443/a?b#c"));
         assertEquals(4096, url(4096).length());
-        assertNull(rejection(url(4096)));
+        for (String url : new String[] {
+            "https://GAME.example:443/a?b#c", "https://GAME.example:443/auth?x=1#y", "https://GAME.example/auth",
+            "https://game.example:443/auth", "https://game.example", "https://game.example?x=1", "https://game.example#x", url(4096),
+        }) assertNull(url, rejection(url));
+    }
+
+    @Test public void aNonDefaultPagePortMustBeWritten() {
+        assertNull(BreadAuthState.rejection(true, "https", "game.example", 8443, "https://game.example:8443/auth"));
+        for (String url : new String[] {"https://game.example/auth", "https://game.example:443/auth"}) {
+            assertEquals(url, BreadAuthState.INVALID_URL, BreadAuthState.rejection(true, "https", "game.example", 8443, url));
+        }
+    }
+
+    @Test public void theHostIsComparedAsWritten() {
+        for (String host : new String[] {"xn--gme-sna.example", "my_game.example"}) {
+            assertNull(host, BreadAuthState.rejection(true, "https", host, -1, "https://" + host + "/auth"));
+        }
+        assertEquals(BreadAuthState.INVALID_URL, rejection("https://g%61me.example/auth"));
     }
 
     @Test public void callbackAddressIsExactWithAnyQuery() {
@@ -73,6 +92,13 @@ public class BreadAuthStateTest {
         assertEquals(BreadAuthState.Phase.IDLE, state.phase());
         assertEquals(BreadAuthState.Outcome.NONE, state.resumed());
         assertNull(state.refusal());
+    }
+
+    @Test public void anOpenSheetIsBusyBeforeTheStoppedHostIsUnavailable() {
+        BreadAuthState state = new BreadAuthState();
+        state.begin();
+        state.stopped();
+        assertEquals(BreadAuthState.BUSY, state.refusal());
     }
 
     @Test public void resumeAfterStopWithoutCallbackCancels() {

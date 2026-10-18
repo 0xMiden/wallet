@@ -1465,6 +1465,16 @@ public class BreadPresentationControllerTest {
         dialog.dismiss(); verify(callbacks, times(1)).closeEvent(any());
     }
 
+    @Test public void binaryMessageIsIgnoredWithoutAReply() {
+        features.when(() -> WebViewFeature.isFeatureSupported(WebViewFeature.NAVIGATION_LISTENER_V1)).thenReturn(false);
+        open(true, true, "default");
+        String before = shadowOf(webView).getLastEvaluatedJavascript();
+        messageListener.onPostMessage(webView, new WebMessageCompat(new byte[] {1}), Uri.parse(options.getUrl()), true, null);
+        assertEquals(before, shadowOf(webView).getLastEvaluatedJavascript());
+        message("ready", "fallback");
+        assertTrue(shadowOf(webView).getLastEvaluatedJavascript().contains("\"ok\":false"));
+    }
+
     private void unsupported(boolean documentStart, boolean listener) {
         open(documentStart, listener, "default");
         assertTrue(installed.isEmpty());

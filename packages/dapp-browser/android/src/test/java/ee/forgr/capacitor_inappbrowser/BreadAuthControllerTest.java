@@ -1,10 +1,12 @@
 package ee.forgr.capacitor_inappbrowser;
 
 import android.app.Activity;
+import android.content.ActivityNotFoundException;
 import android.content.ComponentName;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.net.Uri;
+import android.os.Bundle;
 import android.webkit.WebView;
 import androidx.browser.customtabs.CustomTabsIntent;
 import androidx.browser.customtabs.CustomTabsService;
@@ -112,10 +114,20 @@ public class BreadAuthControllerTest {
     }
 
     private JavaScriptReplyProxy post(WebViewDialog dialog, String origin, boolean mainFrame, String body) {
+        return post(dialog, origin, mainFrame, new WebMessageCompat(body));
+    }
+
+    private JavaScriptReplyProxy post(WebViewDialog dialog, String origin, boolean mainFrame, WebMessageCompat message) {
         JavaScriptReplyProxy proxy = mock(JavaScriptReplyProxy.class);
         WebView webView = ReflectionHelpers.getField(dialog, "_webView");
-        authListeners.get(dialog).onPostMessage(webView, new WebMessageCompat(body), Uri.parse(origin), mainFrame, proxy);
+        authListeners.get(dialog).onPostMessage(webView, message, Uri.parse(origin), mainFrame, proxy);
         return proxy;
+    }
+
+    private void failLaunches(WebViewDialog dialog, RuntimeException failure) {
+        Activity host = spy(activity);
+        doThrow(failure).when(host).startActivity(any(Intent.class), nullable(Bundle.class));
+        dialog.activity = host;
     }
 
     private static String request(String id, String url) {
@@ -186,6 +198,30 @@ public class BreadAuthControllerTest {
         assertNull(shadowOf(activity).getNextStartedActivity());
     }
 
+    @Test public void binaryMessageIsIgnored() throws Exception {
+        registerChrome();
+        JavaScriptReplyProxy proxy = post(open(), PAGE, true, new WebMessageCompat(new byte[] {1}));
+        verifyNoInteractions(proxy);
+        assertNull(shadowOf(activity).getNextStartedActivity());
+        assertEquals(BreadAuthState.Phase.IDLE, BreadAuthController.state.phase());
+    }
+
+    @Test public void idMustBeANonEmptyStringOfAtMost128Characters() throws Exception {
+        registerChrome();
+        WebViewDialog dialog = open();
+        String longest = new String(new char[128]).replace('\0', 'i');
+        for (String body : new String[] {
+            "{\"id\":42,\"url\":" + JSONObject.quote(SIGN_IN) + "}", request("", SIGN_IN), request(longest + "i", SIGN_IN),
+        }) verifyNoInteractions(post(dialog, PAGE, true, body));
+        assertNull(shadowOf(activity).getNextStartedActivity());
+        assertEquals(BreadAuthState.Phase.IDLE, BreadAuthController.state.phase());
+        JavaScriptReplyProxy proxy = post(dialog, PAGE, true, request(longest, SIGN_IN));
+        assertNotNull(shadowOf(activity).getNextStartedActivity());
+        BreadAuthController.hostStopped();
+        BreadAuthController.hostResumed();
+        assertReply(proxy, longest, "cancelled", true);
+    }
+
     @Test public void launchesSessionlessCustomTabInTheHostTask() throws Exception {
         registerChrome();
         JavaScriptReplyProxy proxy = post(open(), PAGE, true, request("a", SIGN_IN));
@@ -212,6 +248,16 @@ public class BreadAuthControllerTest {
         assertNull(consumed.getData());
         BreadAuthController.hostResumed();
         assertReply(proxy, "a", "url", CALLBACK);
+        assertEquals(BreadAuthState.Phase.IDLE, BreadAuthController.state.phase());
+    }
+
+    @Test public void callbackWithAPathRepliesFailed() throws Exception {
+        registerChrome();
+        JavaScriptReplyProxy proxy = post(open(), PAGE, true, request("a", SIGN_IN));
+        BreadAuthController.hostStopped();
+        assertNull(BreadAuthCallbacks.consume(new Intent(Intent.ACTION_VIEW, Uri.parse("com.miden.wallet.auth://callback/x"))).getData());
+        BreadAuthController.hostResumed();
+        assertReply(proxy, "a", "error", BreadAuthState.FAILED);
         assertEquals(BreadAuthState.Phase.IDLE, BreadAuthController.state.phase());
     }
 
@@ -280,6 +326,30 @@ public class BreadAuthControllerTest {
         assertReply(sheet, "a", "cancelled", true);
     }
 
+    @Test public void anOpenSheetStillRepliesInvalidUrlBeforeBusy() throws Exception {
+        registerChrome();
+        WebViewDialog dialog = open();
+        JavaScriptReplyProxy sheet = post(dialog, PAGE, true, request("a", SIGN_IN));
+        assertNotNull(shadowOf(activity).getNextStartedActivity());
+        JavaScriptReplyProxy proxy = post(dialog, PAGE, true, request("b", "https://other.example/"));
+        assertReply(proxy, "b", "error", BreadAuthState.INVALID_URL);
+        verifyNoInteractions(sheet);
+        assertEquals(BreadAuthState.Phase.LAUNCHING, BreadAuthController.state.phase());
+    }
+
+    @Test public void anOpenSheetRepliesBusyBeforeAHiddenDialogIsUnavailable() throws Exception {
+        registerChrome();
+        JavaScriptReplyProxy sheet = post(open(), PAGE, true, request("a", SIGN_IN));
+        assertNotNull(shadowOf(activity).getNextStartedActivity());
+        WebViewDialog hidden = open(false);
+        hidden.hide();
+        assertFalse(hidden.isShowing());
+        JavaScriptReplyProxy proxy = post(hidden, PAGE, true, request("b", SIGN_IN));
+        assertReply(proxy, "b", "error", BreadAuthState.BUSY);
+        verifyNoInteractions(sheet);
+        assertEquals(BreadAuthState.Phase.LAUNCHING, BreadAuthController.state.phase());
+    }
+
     @Test public void noCustomTabsBrowserRepliesUnavailable() throws Exception {
         WebViewDialog dialog = open();
         JavaScriptReplyProxy proxy = post(dialog, PAGE, true, request("a", SIGN_IN));
@@ -289,6 +359,26 @@ public class BreadAuthControllerTest {
         registerChrome();
         post(dialog, PAGE, true, request("b", SIGN_IN));
         assertNotNull(shadowOf(activity).getNextStartedActivity());
+    }
+
+    @Test public void missingBrowserActivityRepliesUnavailableAndFreesTheSlot() throws Exception {
+        registerChrome();
+        WebViewDialog dialog = open();
+        failLaunches(dialog, new ActivityNotFoundException());
+        JavaScriptReplyProxy proxy = post(dialog, PAGE, true, request("a", SIGN_IN));
+        assertReply(proxy, "a", "error", BreadAuthState.UNAVAILABLE);
+        assertEquals(BreadAuthState.Phase.IDLE, BreadAuthController.state.phase());
+        assertNull(BreadAuthController.state.refusal());
+    }
+
+    @Test public void anyOtherLaunchFailureRepliesFailed() throws Exception {
+        registerChrome();
+        WebViewDialog dialog = open();
+        failLaunches(dialog, new SecurityException());
+        JavaScriptReplyProxy proxy = post(dialog, PAGE, true, request("a", SIGN_IN));
+        assertReply(proxy, "a", "error", BreadAuthState.FAILED);
+        assertEquals(BreadAuthState.Phase.IDLE, BreadAuthController.state.phase());
+        assertNull(BreadAuthController.state.refusal());
     }
 
     @Test public void hiddenDialogRepliesUnavailable() throws Exception {
@@ -318,5 +408,17 @@ public class BreadAuthControllerTest {
         assertNotNull(shadowOf(activity).getNextStartedActivity());
         verifyNoInteractions(next);
         assertEquals(BreadAuthState.Phase.LAUNCHING, BreadAuthController.state.phase());
+    }
+
+    @Test public void closingAnotherDialogKeepsTheSheet() throws Exception {
+        registerChrome();
+        JavaScriptReplyProxy sheet = post(open(), PAGE, true, request("a", SIGN_IN));
+        assertNotNull(shadowOf(activity).getNextStartedActivity());
+        open().forceClose();
+        assertEquals(BreadAuthState.Phase.LAUNCHING, BreadAuthController.state.phase());
+        verifyNoInteractions(sheet);
+        BreadAuthController.hostStopped();
+        BreadAuthCallbacks.consume(new Intent(Intent.ACTION_VIEW, Uri.parse(CALLBACK)));
+        assertReply(sheet, "a", "url", CALLBACK);
     }
 }

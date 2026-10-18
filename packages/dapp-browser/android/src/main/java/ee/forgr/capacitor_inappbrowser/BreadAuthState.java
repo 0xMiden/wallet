@@ -1,8 +1,5 @@
 package ee.forgr.capacitor_inappbrowser;
 
-import java.net.URI;
-import java.net.URISyntaxException;
-
 final class BreadAuthState {
     static final String CALLBACK_SCHEME = "com.miden.wallet.auth";
     static final String CALLBACK_ADDRESS = "com.miden.wallet.auth://callback";
@@ -23,13 +20,21 @@ final class BreadAuthState {
         String text = (String) url;
         if (text.isEmpty() || text.length() > MAX_URL_LENGTH) return INVALID_URL;
         for (int i = 0; i < text.length(); i++) if (!allowed(text.charAt(i))) return INVALID_URL;
-        URI uri;
-        try { uri = new URI(text); } catch (URISyntaxException e) { return INVALID_URL; }
-        String host = uri.getHost();
-        if (!"https".equals(uri.getScheme()) || host == null || host.isEmpty() || uri.getRawUserInfo() != null) return INVALID_URL;
-        if (host.length() != pageHost.length() || !startsWithIgnoringAsciiCase(host, pageHost)) return INVALID_URL;
-        int port = uri.getPort();
-        return (port < 0 ? 443 : port) == (pagePort < 0 ? 443 : pagePort) ? null : INVALID_URL;
+        return authorityMatches(text, pageHost, pagePort < 0 ? 443 : pagePort) ? null : INVALID_URL;
+    }
+
+    // The authority is compared as written: platform URL parsers decode some hosts and refuse others.
+    private static boolean authorityMatches(String text, String host, int port) {
+        String https = "https://";
+        if (!text.startsWith(https)) return false;
+        int end = https.length();
+        while (end < text.length() && "/?#".indexOf(text.charAt(end)) < 0) end++;
+        String authority = text.substring(https.length(), end);
+        return equalsIgnoringAsciiCase(authority, host + ":" + port) || (port == 443 && equalsIgnoringAsciiCase(authority, host));
+    }
+
+    private static boolean equalsIgnoringAsciiCase(String text, String other) {
+        return text.length() == other.length() && startsWithIgnoringAsciiCase(text, other);
     }
 
     static boolean isCallback(String url) {
