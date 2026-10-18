@@ -79,7 +79,9 @@ class BreadConnect(
         }
     }
 
-    val session: StoredSession? get() = storage.read(SESSION_KEY)?.let(::decodeSession)
+    /** The stored session, unless it was made for another callback: Bread answers in it only there. */
+    val session: StoredSession?
+        get() = storage.read(SESSION_KEY)?.let(::decodeSession)?.takeIf { it.session.callback == callback }
 
     fun forgetSession() = storage.write(SESSION_KEY, null)
 

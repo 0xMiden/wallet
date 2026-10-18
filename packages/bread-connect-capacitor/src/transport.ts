@@ -106,9 +106,10 @@ export class AppSwitchTransport {
     this.cancelPending();
   }
 
+  /** The stored session, unless it was made for another callback: Bread answers in it only there. */
   session(): StoredSession | null {
     const stored = readJson(this.options.storage, SESSION_KEY);
-    return isStoredSession(stored) ? stored : null;
+    return isStoredSession(stored) && stored.callback === this.options.callback ? stored : null;
   }
 
   forgetSession(): void {

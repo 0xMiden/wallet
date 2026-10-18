@@ -96,7 +96,10 @@ public final class BreadConnect {
         self.now = now
     }
 
-    public var session: StoredSession? { storage.read(Self.sessionKey).flatMap(Self.decodeSession) }
+    /// The stored session, unless it was made for another callback: Bread answers in it only there.
+    public var session: StoredSession? {
+        storage.read(Self.sessionKey).flatMap(Self.decodeSession).flatMap { $0.session.callback == callback ? $0 : nil }
+    }
 
     public func forgetSession() throws { try storage.write(Self.sessionKey, nil) }
 
