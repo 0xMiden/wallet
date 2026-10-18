@@ -15,6 +15,11 @@ import { KeyValueStorage } from './storage.js';
 import { AppSwitchTransport, BreadConnectError, StoredSession } from './transport.js';
 import { BreadConnectWallet } from './wallet.js';
 
+// The root manual mock of the adapter base has none of the classes the wallet extends and throws.
+jest.mock('@miden-sdk/miden-wallet-adapter-base', () =>
+  jest.requireActual('../../../node_modules/@miden-sdk/miden-wallet-adapter-base/dist/index.js')
+);
+
 const PERMISSION: DAppMessage = {
   type: 'PERMISSION_RESPONSE',
   accountId: 'mtst1account',

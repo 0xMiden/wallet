@@ -6,6 +6,11 @@ const mockOpenWallet = jest.fn();
 const mockGetLaunchUrl = jest.fn();
 const mockAddListener = jest.fn();
 
+// The root manual mock of the adapter base has none of the classes the wallet extends and throws.
+jest.mock('@miden-sdk/miden-wallet-adapter-base', () =>
+  jest.requireActual('../../../node_modules/@miden-sdk/miden-wallet-adapter-base/dist/index.js')
+);
+
 jest.mock('@capacitor/core', () => ({
   registerPlugin: () => ({ openWallet: (options: unknown) => mockOpenWallet(options) })
 }));
