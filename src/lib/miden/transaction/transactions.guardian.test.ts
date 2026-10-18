@@ -350,11 +350,18 @@ var mockBuildSendTransactionRequest = jest.fn((): { serialize: () => Uint8Array 
 var mockBuildPswapCreateRequest = jest.fn((): { serialize: () => Uint8Array } => ({
   serialize: () => new Uint8Array()
 }));
+function mockParseAccountRef(id: string) {
+  const ref = id.split('_')[0] ?? id;
+  const parsed = /^0x/i.test(ref) ? ref.toLowerCase() : ref;
+  return { toString: () => `sdk-${parsed}` };
+}
 jest.mock('lib/miden/sdk/helpers', () => ({
-  accountIdStringToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
-  accountRefToSdk: (ref: string) => ({ toString: () => `sdk-${ref}` }),
-  // Mirrors the real helper: strips the composite `<address>_<suffix>` form.
-  walletAccountIdToSdk: (id: string) => ({ toString: () => `sdk-${id.split('_')[0] ?? id}` }),
+  accountIdStringToSdk: (id: string) => {
+    if (id.includes('_') || /^0x/i.test(id)) throw new Error(`Invalid bech32 account: ${id}`);
+    return { toString: () => `sdk-${id}` };
+  },
+  accountRefToSdk: (ref: string) => mockParseAccountRef(ref),
+  walletAccountIdToSdk: (id: string) => mockParseAccountRef(id),
   canonicalWalletAccountId: (id: string) => id.split('_')[0] ?? id,
   sameWalletAccountId: (a: string, b: string) => (a.split('_')[0] ?? a) === (b.split('_')[0] ?? b),
   // The salt only has to be a stable handle here: `resolveAuthArg` is mocked too, so
@@ -2052,13 +2059,13 @@ describe('generateTransaction — Guardian routing', () => {
     const result = makeResult();
     const rebuiltBytes = new Uint8Array([11, 12, 13]);
     const rebasedBytes = new Uint8Array([111, 112, 113]);
-    const transaction = Object.assign(new Transaction('guardian-acc', new Uint8Array()), {
+    const transaction = Object.assign(new Transaction('mtst1creator_qruqqypuyph', new Uint8Array()), {
       id: txId,
       type: 'swap',
       amount: 1000n,
-      faucetId: 'offered-faucet',
+      faucetId: '0xoffer',
       requestBytes: undefined,
-      extraInputs: { requestedFaucetId: 'requested-faucet', requestedAmount: 500n },
+      extraInputs: { requestedFaucetId: '0Xrequested', requestedAmount: 500n },
       delegateTransaction: false
     });
     txStore.push({ ...transaction, status: ITransactionStatus.Queued });
@@ -2069,7 +2076,14 @@ describe('generateTransaction — Guardian routing', () => {
 
     // The reference request the SDK builder returns, to be rewritten.
     const reference = { kind: 'reference-request', serialize: () => new Uint8Array([99]) };
-    const newPswapCreateTransactionRequest = jest.fn(async () => reference);
+    const newPswapCreateTransactionRequest = jest.fn(
+      async (
+        _creator: { toString(): string },
+        _offered: { toString(): string },
+        _amount: bigint,
+        _requested: { toString(): string }
+      ) => reference
+    );
     mockGetRealmReaderClient.mockResolvedValue({ newPswapCreateTransactionRequest });
 
     // Records what the row held at the moment of proposing, so the freeze is pinned as
@@ -2101,24 +2115,31 @@ describe('generateTransaction — Guardian routing', () => {
     );
 
     // The creator's vault, by canonical id, handed to the rewrite verbatim.
-    expect(getAccount).toHaveBeenCalledWith('sdk-guardian-acc');
+    expect(getAccount).toHaveBeenCalledWith('sdk-mtst1creator');
     // The fee auth rides on the builder the request STARTS from; there is no setter for it on a
     // finished request, so a swap not built from the fee-aware builder can never acquire it.
     expect(mockBuildPswapCreateRequest).toHaveBeenCalledWith(
       creatorAccount,
       reference,
-      'offered-faucet',
+      '0xoffer',
       1000n,
       180,
       FEE_AWARE_BUILDER
     );
-    expect(client.feeAwareTransactionRequestBuilder).toHaveBeenCalledWith('sdk-guardian-acc', {
+    expect(client.feeAwareTransactionRequestBuilder).toHaveBeenCalledWith('sdk-mtst1creator', {
       feeConversionSalt: 'SALT'
     });
     // One builder call: each draws a fresh serial number, which IS the order id,
     // so building one request to inspect and another to propose would register a
     // different order than the one the wallet tracks.
     expect(newPswapCreateTransactionRequest).toHaveBeenCalledTimes(1);
+    expect(
+      newPswapCreateTransactionRequest.mock.calls.map(([creator, offered, , requested]) => [
+        creator.toString(),
+        offered.toString(),
+        requested.toString()
+      ])
+    ).toEqual([['sdk-mtst1creator', 'sdk-0xoffer', 'sdk-0xrequested']]);
     // And the REWRITTEN bytes are what get frozen and proposed, which is the whole point. The
     // proposal rebases them onto the current sync height, and the rebased bytes replace
     // the frozen ones, since those are what signAndCreateTransactionRequest replays.

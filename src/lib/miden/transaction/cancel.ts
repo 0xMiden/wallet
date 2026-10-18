@@ -150,6 +150,7 @@ export const cancelTransaction = async (
   // still follow `error`.
   reportedReason?: TransactionFailureReason
 ) => {
+  const returnedAtMs = Date.now();
   // Refuse to downgrade a finalized transaction. A late error fired AFTER
   // completeXxxTransaction has already marked the tx Completed (most often
   // a transient guardian-canonicalization sync error) would otherwise flip
@@ -228,7 +229,9 @@ export const cancelTransaction = async (
       diagnostics: committed.failureDiagnostics,
       entryPoint: committed.consumeEntryPoint,
       reason: reportedReason ?? reportedWalletReason(error),
-      error
+      error,
+      hiddenDuringSubmit: hiddenDuringSubmit(committed, returnedAtMs),
+      submitLegMs: submitLegMs(committed, returnedAtMs)
     });
   }
 
@@ -305,6 +308,11 @@ const hiddenDuringSubmit = (row: ITransaction, returnedAtMs: number): boolean | 
   return hiddenMsBetween(submittedAtMs, returnedAtMs) > 0;
 };
 
+const submitLegMs = (row: ITransaction, returnedAtMs: number): number | undefined => {
+  const submittedAtMs = row.stageTimestamps?.submitting;
+  return submittedAtMs === undefined ? undefined : returnedAtMs - submittedAtMs;
+};
+
 /**
  * Enter `Unconfirmed` (#1081): the submit came back without a definite outcome, so the row waits for the node's
  * verdict instead of failing. One `modify`, applied only while the row is still GeneratingTransaction (the race
@@ -362,7 +370,8 @@ export const markTransactionUnconfirmed = async (tx: ITransaction, error: unknow
       entryPoint: committed.consumeEntryPoint,
       error,
       outcome: 'unconfirmed',
-      hiddenDuringSubmit: hiddenDuringSubmit(committed, returnedAtMs)
+      hiddenDuringSubmit: hiddenDuringSubmit(committed, returnedAtMs),
+      submitLegMs: submitLegMs(committed, returnedAtMs)
     });
   }
   notifyBackgroundTransactionNotConfirmed();

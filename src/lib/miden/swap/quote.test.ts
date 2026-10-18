@@ -19,10 +19,21 @@ import {
 import { TEST_TOKEN_IETH, TEST_TOKEN_IUSDT } from './testing/registry';
 
 jest.mock('lib/remote-config/runtime', () => ({ getBridgeConfigSnapshot: jest.fn() }));
-// The service takes hex ids; the SDK stand-in hands the registry's string back as is.
-jest.mock('lib/miden/sdk/helpers', () => ({
-  accountIdStringToSdk: (id: string) => ({ toString: () => `hex:${id}` })
-}));
+jest.mock('lib/miden/sdk/helpers', () => {
+  const canonical = (id: string) => {
+    const ref = id.split('_')[0] ?? id;
+    const parsed = /^0x/i.test(ref) ? ref.toLowerCase() : ref;
+    return { toString: () => `hex:${parsed}` };
+  };
+  return {
+    accountIdStringToSdk: (id: string) => {
+      if (id.includes('_') || /^0x/i.test(id)) throw new Error(`Invalid bech32 account: ${id}`);
+      return { toString: () => `hex:${id}` };
+    },
+    accountRefToSdk: canonical,
+    walletAccountIdToSdk: canonical
+  };
+});
 
 const mockSnapshot = jest.mocked(getBridgeConfigSnapshot);
 
@@ -192,6 +203,16 @@ describe('swapEtaBlocksSubmit', () => {
 });
 
 describe('getSwapPairPrice', () => {
+  it('sends a registry faucet with a 0X prefix as the parsed hex id', async () => {
+    const { calls } = installFetch([() => ({ status: 200, body: IETH_IUSDT_PRICE })]);
+    await expect(getSwapPairPrice({ ...TEST_TOKEN_IETH, faucetId: '0Xabc' }, TEST_TOKEN_IUSDT)).resolves.toEqual(
+      IETH_IUSDT_PRICE
+    );
+    const url = new URL(calls[0]?.url ?? '');
+    expect(url.searchParams.get('offered_faucet')).toBe('hex:0xabc');
+    expect(url.searchParams.get('requested_faucet')).toBe(`hex:${TEST_TOKEN_IUSDT.faucetId}`);
+  });
+
   it('asks the quote service the document names for the pair, in hex', async () => {
     const { calls } = installFetch([() => ({ status: 200, body: IETH_IUSDT_PRICE })]);
     await expect(getSwapPairPrice(TEST_TOKEN_IETH, TEST_TOKEN_IUSDT)).resolves.toEqual(IETH_IUSDT_PRICE);

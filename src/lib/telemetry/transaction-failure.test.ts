@@ -35,6 +35,7 @@ import {
   SUBMIT_ENDPOINTS,
   SUBMIT_GRPC_STATUSES,
   SUBMIT_HIDDEN_ANSWERS,
+  SUBMIT_LEG_BUCKETS,
   SUBMIT_NODE_ERRORS,
   SUBMIT_UNKNOWN_OUTCOME_STATUSES,
   type TransactionFailure
@@ -64,6 +65,18 @@ const capturedMessage = (index: number): string => {
 };
 
 const REPO_ROOT = join(__dirname, '..', '..', '..');
+
+const THROWN_CLASS_VALUES = [
+  'wasm_runtime_error',
+  'type_error',
+  'range_error',
+  'reference_error',
+  'syntax_error',
+  'error',
+  'string',
+  'non_error',
+  'none'
+] as const;
 
 // Jest maps @openzeppelin/guardian-client to a stub, so this builds the shape its GuardianHttpError has: the code
 // normalized to the published list (null otherwise), the wire code verbatim, both null without a JSON envelope.
@@ -135,6 +148,8 @@ it('hands crash scrubbing every closed name a report can carry, and nothing else
     SUBMIT_ENDPOINTS,
     SUBMIT_NODE_ERRORS,
     SUBMIT_HIDDEN_ANSWERS,
+    ['under_9s', '9_to_11s', 'over_11s', 'unavailable'],
+    THROWN_CLASS_VALUES,
     PIPELINE_KILLS,
     EXECUTION_CAUSES,
     SIGNING_STEPS,
@@ -560,6 +575,204 @@ const submitOutcomeUnknown = (kind: string) =>
       `submit_proven_transaction: ${kind}`
   );
 
+// `cause` wrapped in `times` Errors, the outermost last.
+const wrapIn = (cause: unknown, times: number): unknown =>
+  times === 0 ? cause : wrapIn(new Error('opaque detail', { cause }), times - 1);
+
+describe('a failure with no named identity', () => {
+  it.each<[string, () => unknown, string]>([
+    [
+      'a wrapped WASM trap',
+      () => new Error('opaque detail', { cause: new WebAssembly.RuntimeError('opaque trap') }),
+      'wasm_runtime_error'
+    ],
+    [
+      'a WASM trap five wrappers deep',
+      () => wrapIn(new WebAssembly.RuntimeError('opaque trap'), 5),
+      'wasm_runtime_error'
+    ],
+    ['a string under a wrapper', () => new Error('opaque detail', { cause: 'opaque cause' }), 'string'],
+    ['a number under a wrapper', () => new Error('opaque detail', { cause: 42 }), 'non_error'],
+    ['an Error whose cause is undefined', () => new Error('opaque detail', { cause: undefined }), 'error'],
+    ['a type error', () => new TypeError('opaque detail'), 'type_error'],
+    ['a range error', () => new RangeError('opaque detail'), 'range_error'],
+    ['a reference error', () => new ReferenceError('opaque detail'), 'reference_error'],
+    ['a syntax error', () => new SyntaxError('opaque detail'), 'syntax_error'],
+    ['an Error', () => new Error('opaque detail'), 'error'],
+    ['a string', () => 'opaque detail', 'string'],
+    ['undefined', () => undefined, 'none'],
+    ['null', () => null, 'none'],
+    ['an object', () => ({}), 'non_error'],
+    ['a number', () => 42, 'non_error'],
+    ['an unlisted name', () => Object.assign(new Error('opaque detail'), { name: 'constructor' }), 'error'],
+    [
+      'a throwing name accessor',
+      () =>
+        Object.defineProperty(new Error('opaque detail'), 'name', {
+          get: () => {
+            throw new Error('hostile accessor');
+          }
+        }),
+      'error'
+    ],
+    [
+      'a throwing cause accessor',
+      () =>
+        Object.defineProperty(new TypeError('opaque detail'), 'cause', {
+          get: () => {
+            throw new Error('hostile accessor');
+          }
+        }),
+      'type_error'
+    ]
+  ])('names the thrown class for %s without sending its text', async (_name, error, thrown) => {
+    reportTransactionFailure({ type: 'execute', stage: 'executing', error: error() });
+    const message = await reportedMessage();
+    expect(message).toContain(`; point pipeline; unknown; thrown ${thrown}. authentication`);
+    expect(message).not.toContain('opaque');
+    expect(message).not.toContain('constructor');
+    expect(message).not.toContain('hostile accessor');
+  });
+
+  it.each([
+    [true, 'yes'],
+    [false, 'no'],
+    [undefined, 'unavailable']
+  ] as const)('at submitting, includes the hidden answer %s and submit leg', async (hiddenDuringSubmit, answer) => {
+    reportTransactionFailure({
+      type: 'execute',
+      stage: 'submitting',
+      error: new Error('opaque detail'),
+      hiddenDuringSubmit,
+      submitLegMs: 9500
+    });
+    expect(await reportedMessage()).toContain(
+      `; point pipeline; unknown; thrown error; app hidden during submit ${answer}; submit leg 9_to_11s. authentication`
+    );
+  });
+
+  it.each<[number | undefined, string]>([
+    [0, 'under_9s'],
+    [8999, 'under_9s'],
+    [9000, '9_to_11s'],
+    [11000, '9_to_11s'],
+    [11001, 'over_11s'],
+    [undefined, 'unavailable'],
+    [-1, 'unavailable'],
+    [NaN, 'unavailable'],
+    [Infinity, 'unavailable'],
+    [-Infinity, 'unavailable']
+  ])('at submitting, reports %s ms as %s without sending the duration', async (submitLegMs, bucket) => {
+    reportTransactionFailure({ type: 'send', stage: 'submitting', error: new Error('opaque detail'), submitLegMs });
+    const message = await reportedMessage();
+    expect(message).toContain(
+      `; unknown; thrown error; app hidden during submit unavailable; submit leg ${bucket}. authentication`
+    );
+    expect(message).not.toMatch(/submitLegMs|\b(?:8999|9000|11000|11001|NaN|Infinity)\b/);
+  });
+
+  it.each([...TRANSACTION_STAGES.filter(stage => stage !== 'submitting'), undefined])(
+    'at %s, stops after the thrown class even with submit measurements',
+    async stage => {
+      reportTransactionFailure({
+        type: 'execute',
+        stage,
+        error: new Error('opaque detail'),
+        hiddenDuringSubmit: true,
+        submitLegMs: 9500
+      });
+      const message = await reportedMessage();
+      expect(message).toContain('; point pipeline; unknown; thrown error. authentication');
+      expect(message).not.toContain('app hidden during submit');
+      expect(message).not.toContain('submit leg');
+    }
+  );
+
+  it('enriches only unknown, keeping timeout and wallet identities unchanged at submitting', async () => {
+    for (const fields of [
+      { error: new Error('opaque detail') },
+      { error: new Error('request timed out') },
+      { reason: 'user_cancelled', error: new TypeError('opaque detail') }
+    ] as const) {
+      reportTransactionFailure({
+        type: 'send',
+        stage: 'submitting',
+        hiddenDuringSubmit: false,
+        submitLegMs: 9500,
+        ...fields
+      });
+    }
+    await settle();
+    expect(capturedMessage(0)).toContain(
+      '; unknown; thrown error; app hidden during submit no; submit leg 9_to_11s. authentication'
+    );
+    expect(capturedMessage(1)).toContain('; point pipeline; timeout. authentication');
+    expect(capturedMessage(2)).toContain('; point pipeline; user_cancelled. authentication');
+  });
+});
+
+it.each([
+  ['exact', () => new Error('Client terminated')],
+  ['wrapped', () => new Error('Transaction failed', { cause: new Error('Client terminated') })],
+  ['five-wrappers-deep', () => wrapIn(new Error('Client terminated'), 5)]
+] as const)('names an %s Client terminated as client_terminated', async (_name, error) => {
+  reportTransactionFailure({
+    type: 'execute',
+    stage: 'submitting',
+    error: error(),
+    hiddenDuringSubmit: false,
+    submitLegMs: 9500
+  });
+  expect(await reportedMessage()).toContain('; point pipeline; client_terminated. authentication');
+});
+
+it('reads a bounded stretch of a cause chain whose accessor keeps returning new links', async () => {
+  let reads = 0;
+  // Stops itself after 10000 reads so an unbounded walk ends too and the read count can say what it did.
+  const endless = (): object => ({
+    get cause() {
+      reads += 1;
+      return reads < 10000 ? endless() : undefined;
+    }
+  });
+  // Four wrappers keep the eviction past the kill identity's four links, and the pipeline's kill check stops at it.
+  const error = wrapIn(new WasmClientPoisonedError('watchdog', endless()), 4);
+  reportTransactionFailure({ type: 'execute', stage: 'executing', error });
+  expect(await reportedMessage()).toContain('; point pipeline; unknown; thrown non_error. authentication');
+  expect(reads).toBeLessThan(200);
+});
+
+it.each<[string, () => object]>([
+  [
+    'a revoked Proxy',
+    () => {
+      const { proxy, revoke } = Proxy.revocable({}, {});
+      revoke();
+      return proxy;
+    }
+  ],
+  [
+    'a Proxy whose prototype read throws',
+    () =>
+      new Proxy(
+        {},
+        {
+          getPrototypeOf: () => {
+            throw new Error('hostile trap');
+          }
+        }
+      )
+  ]
+])('still reports a failure whose cause is %s, as a thrown non_error', async (_name, cause) => {
+  reportTransactionFailure({
+    type: 'execute',
+    stage: 'executing',
+    error: new Error('opaque detail', { cause: cause() })
+  });
+  await settle();
+  expect(capturedMessage(0)).toContain('; point pipeline; unknown; thrown non_error. authentication');
+});
+
 describe('an unknown submit outcome', () => {
   it('sends a status outside the unknown-outcome list as other', async () => {
     reportTransactionFailure({
@@ -570,7 +783,9 @@ describe('an unknown submit outcome', () => {
       error: submitOutcomeUnknown(`resource not found: ${ACCOUNT_HEX}`)
     });
     const message = await reportedMessage();
-    expect(message).toContain('; submit_outcome_unknown; grpc other; app hidden during submit no. ');
+    expect(message).toContain(
+      '; submit_outcome_unknown; grpc other; app hidden during submit no; submit leg unavailable. '
+    );
     expect(message).not.toContain('not_found');
   });
 
@@ -596,7 +811,7 @@ describe('an unknown submit outcome', () => {
     });
     const message = await reportedMessage();
     expect(message).toContain(
-      `; point pipeline; submit_outcome_unknown; grpc ${status}; app hidden during submit no. authentication`
+      `; point pipeline; submit_outcome_unknown; grpc ${status}; app hidden during submit no; submit leg unavailable. authentication`
     );
     expectNoTransactionData(message);
   });
@@ -616,7 +831,36 @@ describe('an unknown submit outcome', () => {
       })
     });
     const message = await reportedMessage();
-    expect(message).toContain(`; submit_outcome_unknown; grpc unavailable; app hidden during submit ${answer}. `);
+    expect(message).toContain(
+      `; submit_outcome_unknown; grpc unavailable; app hidden during submit ${answer}; submit leg unavailable. `
+    );
+    expectNoTransactionData(message);
+  });
+
+  it.each<[number | undefined, string]>([
+    [0, 'under_9s'],
+    [8999, 'under_9s'],
+    [9000, '9_to_11s'],
+    [11000, '9_to_11s'],
+    [11001, 'over_11s'],
+    [undefined, 'unavailable'],
+    [-1, 'unavailable'],
+    [NaN, 'unavailable'],
+    [Infinity, 'unavailable'],
+    [-Infinity, 'unavailable']
+  ])('reports a submit leg of %s ms as %s without sending the duration', async (submitLegMs, bucket) => {
+    reportTransactionFailure({
+      type: 'send',
+      stage: 'submitting',
+      outcome: 'unconfirmed',
+      submitLegMs,
+      error: submitOutcomeUnknown('request to Miden node timed out; the node may be under heavy load')
+    });
+    const message = await reportedMessage();
+    expect(message).toContain(
+      `; submit_outcome_unknown; grpc deadline_exceeded; app hidden during submit unavailable; submit leg ${bucket}. `
+    );
+    expect(message).not.toMatch(/submitLegMs|\b(?:8999|9000|11000|11001|NaN|Infinity)\b/);
     expectNoTransactionData(message);
   });
 });
@@ -728,7 +972,9 @@ describe('a submit the node refused', () => {
       error: submitOutcomeUnknown('operation was cancelled')
     });
     const message = await reportedMessage();
-    expect(message).toContain('; submit_outcome_unknown; grpc cancelled; app hidden during submit unavailable. ');
+    expect(message).toContain(
+      '; submit_outcome_unknown; grpc cancelled; app hidden during submit unavailable; submit leg unavailable. '
+    );
     expect(message).not.toContain('submit_rejected');
   });
 });
@@ -1229,6 +1475,7 @@ const GUARDIAN_CODES = 'It also carries';
 const DEVICE_KEY = 'A device key refusal';
 const DEVICE_KEY_CODES = 'when it is one of';
 const UNKNOWN_OUTCOME = 'A submit with no definite answer';
+const SUBMIT_LEG = '; and how long the submit took';
 const REFUSED = 'A submit the network refused';
 const EXECUTION = 'What the transaction software said went wrong';
 const EXECUTION_CAUSE_LIST = 'its own fixed wording names';
@@ -1237,6 +1484,8 @@ const NO_MESSAGE = 'A check that fails with no message';
 const OUTSIDE_SOURCES = 'and one whose number';
 const ENGINE = 'Two failures the transaction engine names itself';
 const BROAD = 'A broad category';
+const THROWN = 'With `unknown`';
+const UNKNOWN_SUBMIT = 'When the transaction was being submitted';
 const CLAIM_ORIGIN = 'A failed claim of an incoming transfer also says what queued the claim';
 
 // Each identity the reporter coins, with the text that documents it.
@@ -1279,8 +1528,9 @@ const POLICY_ROWS: readonly PolicyRow[] = [
   [
     'hidden-during-submit answer',
     () => SUBMIT_HIDDEN_ANSWERS,
-    () => policyText(UNKNOWN_OUTCOME, 'and whether the App')
+    () => policyText(UNKNOWN_OUTCOME, 'and whether the App', SUBMIT_LEG)
   ],
+  ['submit leg bucket', () => SUBMIT_LEG_BUCKETS, () => policyText(UNKNOWN_OUTCOME, SUBMIT_LEG)],
   ['refused endpoint', () => SUBMIT_ENDPOINTS, () => policyText(REFUSED, 'It names', '; the kind of answer')],
   [
     'refused gRPC status',
@@ -1292,7 +1542,16 @@ const POLICY_ROWS: readonly PolicyRow[] = [
   ['execution cause', () => EXECUTION_CAUSES, () => policyText(EXECUTION, EXECUTION_CAUSE_LIST, COINED_ASSERTIONS)],
   ['signing step', () => SIGNING_STEPS, () => policyText('The signing step')],
   ['confirming step', () => CONFIRMING_STEPS, () => policyText('The confirming step')],
-  ['broad category', () => TELEMETRY_ERROR_KINDS, () => policyText(BROAD)],
+  ['broad category', () => TELEMETRY_ERROR_KINDS, () => policyText(BROAD, undefined, THROWN)],
+  [
+    'thrown class',
+    () => {
+      const values: unknown = Reflect.get(jest.requireActual('./transaction-failure'), 'THROWN_CLASSES');
+      expect(values).toEqual(THROWN_CLASS_VALUES);
+      return THROWN_CLASS_VALUES;
+    },
+    () => policyText(BROAD, THROWN, UNKNOWN_SUBMIT)
+  ],
   ['claim entry point', () => [...CONSUME_ENTRY_POINTS, 'other'], () => policyParagraph(CLAIM_ORIGIN)],
   ...Object.entries(IDENTITY_TEXT).map(
     ([identity, text]): PolicyRow => [`reported identity ${identity}`, () => [identity], text]
@@ -1398,6 +1657,13 @@ describe('every identity the reporter coins sits in a documented list', () => {
     expect(documentedIdentity(reported)).toBe(true);
   });
 
+  it('the broad category unknown also documents the thrown class', async () => {
+    reportTransactionFailure({ type: 'send', stage: 'sending', error: new Error('something odd happened') });
+    const message = await reportedMessage();
+    expect(message).toContain('; point pipeline; unknown; thrown error. authentication');
+    expect(documentedIdentity(reportedIdentity(message))).toBe(true);
+  });
+
   it('drives every broad category', () => {
     expect(BROAD_CATEGORY_ERRORS.map(([kind]) => kind).sort()).toEqual([...(TELEMETRY_ERROR_KINDS ?? [])].sort());
   });
@@ -1448,7 +1714,7 @@ it('does not title a refused EVM deposit on a bridged receive as a proving failu
   });
   await settle();
   const error = jest.mocked(captureCrash).mock.calls[0]![0] as Error;
-  expect(error.message).toContain('point bridge_receive_settlement; unknown.');
+  expect(error.message).toContain('point bridge_receive_settlement; unknown; thrown string.');
 });
 
 it('never makes a telemetry failure escape into the transaction', async () => {

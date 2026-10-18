@@ -1,7 +1,7 @@
 import { buildSwapTag, NoteScript, NoteType } from '@miden-sdk/miden-sdk/lazy';
 
 import { NoteExportType } from 'lib/miden/sdk/constants';
-import { accountIdStringToSdk } from 'lib/miden/sdk/helpers';
+import { accountRefToSdk } from 'lib/miden/sdk/helpers';
 import { assertWasmHoldCurrent, getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { remoteProver } from 'lib/miden/sdk/miden-client-interface';
 import { isWasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
@@ -369,7 +369,7 @@ export function installSwapConsumeHooks(): void {
           assertWasmHoldCurrent(hold, 'pswap-token-balance before the account read');
           if (!account) return { ok: true, balance: '0' };
           const vault = account.vault();
-          const faucet = accountIdStringToSdk(a.faucetId);
+          const faucet = accountRefToSdk(a.faucetId);
           let bal: bigint;
           try {
             bal = vault.getBalance(faucet);
