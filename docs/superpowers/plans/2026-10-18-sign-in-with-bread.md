@@ -297,20 +297,26 @@ it('gives the desktop provider the login key methods') // the same request shape
 ### Task A6: A real extension signs in with its login key
 
 **Files:**
-- Create: `playwright/e2e/tests/dapp/login-key.spec.ts`, beside `signing-and-refusals.spec.ts`
-- Modify: the dApp fixture page those specs drive, if it needs controls for the new methods (find with `rg -ln "signBytes" playwright/e2e`)
+- Modify: `playwright/e2e/helpers/dapp-matrix.ts` (`L1` and `L2` in `DAPP_JOURNEY_CELLS.R`, after `G4`)
+- Modify: `playwright/e2e/tests/dapp/signing-and-refusals.spec.ts` (the two cells, beside `G1` and `G3`, which they mirror)
+- Modify: `playwright/e2e/test-dapp/protocol.ts` and `playwright/e2e/test-dapp/test-dapp.ts` (commands `loginKey` and `signLoginWord`, which call `window.midenWallet` directly because the published adapter has neither method; a provider without the method throws a `HarnessCheckError`)
+- Modify: `playwright/e2e/helpers/confirm-actions.ts` (a `loginSign` kind with `ConfirmPage/LoginSign/AcceptButton` and `ConfirmPage/LoginSign/RejectButton`)
+- No new `login-key.spec.ts`: the dApp workflow runs every test as a journey of cells, and its judge fails a test that writes no cell records, so the round trip is two more cells of the signing journey, R.
 
 **Interfaces:**
 ```ts
-test('a site gets one login key and a verifiable login signature')
-// connect; requestLoginKey twice: the same 32 bytes, different from connect's publicKey;
-// signLoginBytes(word, 'word'): approve with LoginSign_AcceptButton; 66 bytes starting with 1;
-// the signature recovers to a key whose commitment is the login key (playwright/e2e/helpers/signature-recovery.ts)
-test('a declined login signature rejects')                // LoginSign_RejectButton: the page's promise rejects
+// L1: a site gets one login key and a verifiable login signature
+// loginKey twice, each without a prompt (expectNoPrompt): the same 32 bytes, different from connect's publicKeyHex;
+// signLoginWord(word): approved with LoginSign_AcceptButton through answerPrompt, naming the dApp's origin; 66 bytes starting with 1;
+// while that popup is open (whileOpen), its title names the page's domain, exactly "Sign in to localhost" for dApp one,
+// since localhost, the fixture's host, has no registrable domain and loginKeyDomain gives the whole host;
+// the signature recovers to a key whose commitment is the login key (playwright/e2e/helpers/signature-recovery.ts, then verifySignature, as G1)
+// L2: a declined login signature rejects
+// signLoginWord declined with LoginSign_RejectButton: refusal('NotGrantedMidenWalletError', 'NOT_GRANTED')
 ```
-- [ ] **Step 1: Write the tests** above.
-- [ ] **Step 2: Wire** any fixture controls they need.
-- [ ] **Step 3: CI**, with batch A2: the workflow that runs `playwright.dapp.config.ts` (check `pr-e2e-local.yml` first; if no PR workflow runs it, dispatch the one that does on this branch). Expected: PASS.
+- [ ] **Step 1: Write the cells** above.
+- [ ] **Step 2: Wire** the fixture commands and the `loginSign` confirm kind.
+- [ ] **Step 3: CI**, with batch A2: no pull request workflow runs `playwright.dapp.config.ts`, so dispatch `e2e-dapp.yml` on this branch with `part: core`, since R is in core. Expected: PASS, with `L1` and `L2` passing on both axes.
 - [ ] **Step 4: Commit:** `git commit -S -m "Test a login key round trip in the extension"`
 
 ---
