@@ -12,7 +12,6 @@ import {
   infraAborted,
   InfrastructureFault,
   isInfrastructureFailure,
-  ranClean,
   type CellContext,
   type CellRecord,
   type CellSpec,
@@ -27,7 +26,7 @@ import {
   type DeviceKey,
   type PageEvent
 } from './dapp-command-server';
-import { canonicalAddress, normalizeHex } from './dapp-gates';
+import { canonicalAddress, isJourneySender, normalizeHex } from './dapp-gates';
 import { ASSETS_AND_NOTES, FUND_A, FUND_B, setupContext, tst } from './dapp-journey';
 import { knownBugRegistry } from './dapp-known-bugs';
 import { cellIdsFor } from './dapp-matrix';
@@ -40,7 +39,7 @@ import {
   foregroundOrigin,
   nativeAsset,
   openDappUrl,
-  pendingTransfers,
+  pendingNotes,
   readRows,
   removeDappSession,
   rowUnits,
@@ -100,8 +99,6 @@ const FUND_SETTLE_MS = 120_000;
 const RECIPIENT_SETTLE_MS = 60_000;
 const RECIPIENT_JOIN_MARGIN_MS = 1_000;
 const RESTORE_STEP_MS = 30_000;
-/** Cells that pay B: after one that ran clean, a transfer still pending at B is a payment no write accounted for. */
-const PAYS_B = new Set(['W1', 'X1']);
 /** Cells after which A's Guardian account may still be settling with its operator. */
 const WRITES_A = new Set(['W1', 'W4', 'X1', 'R5']);
 
@@ -156,6 +153,8 @@ export interface MobileJourney {
   readonly providerAtBoot: boolean;
   /** Values one cell leaves for a later one, by name. */
   readonly memo: Map<string, string>;
+  /** Every expected or observed journey output, including setup's produced and held notes. */
+  readonly outputNoteIds: Set<string>;
   /** Everyone the journey may receive a note from: A's accounts, B, the CLI faucet, the public faucet. */
   senders(): readonly string[];
   account(slot: MobileSlot, deadline?: Deadline): Promise<string>;
@@ -595,6 +594,7 @@ export async function startMobileJourney(input: MobileJourneyInput): Promise<Mob
       produced,
       providerAtBoot: opened.providerAtBoot,
       memo: new Map(),
+      outputNoteIds: new Set([produced.noteId, held.w4.noteId, held.r7.noteId].map(normalizeHex)),
       senders: () => [...accounts.values(), addressB, cliFaucetId, tokenFaucetId, publicFaucetId],
       account: async (slot, deadline) => {
         const known = accounts.get(slot);
@@ -660,7 +660,7 @@ async function quiesce(
     )
   );
   if (previous !== undefined && WRITES_A.has(previous.id)) await settlePrimary(j, deadline);
-  if (previous !== undefined) await quiesceRecipient(j, previous, deadline);
+  if (previous !== undefined) await quiesceRecipient(j, cell.id, previous, deadline);
   await establishSession(j, account, state.session, deadline);
 }
 
@@ -677,25 +677,36 @@ async function settlePrimary(j: MobileJourney, deadline: Deadline): Promise<void
 }
 
 /**
- * Wallet B's Pending list after every cell, as phase 1 reads B's pending notes. A cell that paid B and ran clean claimed
- * every note it sent, so a transfer still pending after one is a payment no write accounted for; the mobile list names
- * no sender, so after any other cell a pending transfer is claimed. One still pending after that claim fails the quiesce.
+ * Journey outputs must have been claimed by their write. Foreign transfers can arrive after a clean receipt; keep
+ * their provenance in the record without claiming them or accepting an unexplained journey payment.
  */
-async function quiesceRecipient(j: MobileJourney, previous: CellRecord, deadline: Deadline): Promise<void> {
+async function quiesceRecipient(
+  j: MobileJourney,
+  cellId: string,
+  previous: CellRecord,
+  deadline: Deadline
+): Promise<void> {
   const pending = await beforeDeadline(deadline, "wallet B's Pending list", () =>
-    pendingTransfers(j.walletB, Math.min(RECIPIENT_SETTLE_MS, deadline.remainingMs()))
+    pendingNotes(
+      j.walletB,
+      j.addressB,
+      j.env.rpcUrl,
+      j.network,
+      Math.min(RECIPIENT_SETTLE_MS, deadline.remainingMs()),
+      deadline
+    )
   );
-  if (pending === 0) return;
-  if (PAYS_B.has(previous.id) && ranClean(previous)) {
-    throw new Error(`wallet B lists ${pending} pending transfer(s) no write accounted for after ${previous.id} passed`);
+  const known = (noteId: string): boolean => j.outputNoteIds.has(normalizeHex(noteId));
+  const owned = pending.filter(note => known(note.noteId) || isJourneySender(note.sender, j.senders()));
+  const foreign = pending.filter(note => !owned.includes(note));
+  j.runner.recordForeignPendingNotes(cellId, foreign);
+  if (owned.length > 0) {
+    const outputs = owned.map(note => ({
+      ...note,
+      accounting: known(note.noteId) ? 'still-pending output' : 'unaccounted journey output'
+    }));
+    throw new Error(`wallet B has pending journey notes after ${previous.id}: ${JSON.stringify(outputs)}`);
   }
-  await beforeDeadline(deadline, "wallet B's claim", () =>
-    j.walletB.claimAllNotes(deadline.remainingMs(), [j.cliFaucetId])
-  );
-  const left = await beforeDeadline(deadline, "wallet B's list after its claim", () =>
-    pendingTransfers(j.walletB, Math.min(RECIPIENT_SETTLE_MS, deadline.remainingMs()))
-  );
-  if (left > 0) throw new Error(`wallet B still lists ${left} pending transfer(s) after its claim`);
 }
 
 async function establishSession(

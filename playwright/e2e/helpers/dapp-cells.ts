@@ -159,7 +159,15 @@ export interface JourneyRecord {
   journey: JourneyId;
   testTitle: string;
   coverage?: LegCoverage;
+  foreignPendingNotes?: Array<{ beforeCellId: string; notes: PendingNoteSnapshot[] }>;
   cells: CellRecord[];
+}
+
+export interface PendingNoteSnapshot {
+  noteId: string;
+  sender: string;
+  faucet: string;
+  amount: string;
 }
 
 /** The harness itself broke (a page script threw, a cell was never declared): never a wallet verdict or a known bug. */
@@ -401,6 +409,7 @@ export class DappCellRunner<S> {
   private blockedState: string | undefined;
   private lastRan: CellRecord | undefined;
   private coverage: LegCoverage | undefined;
+  private readonly foreignPendingNotes: NonNullable<JourneyRecord['foreignPendingNotes']> = [];
   private readonly now: () => number;
 
   constructor(private readonly options: RunnerOptions<S>) {
@@ -521,6 +530,13 @@ export class DappCellRunner<S> {
     this.flush();
   }
 
+  /** Keeps foreign pending transfers in the journey record without changing any cell's verdict. */
+  recordForeignPendingNotes(beforeCellId: string, notes: PendingNoteSnapshot[]): void {
+    if (notes.length === 0) return;
+    this.foreignPendingNotes.push({ beforeCellId, notes });
+    this.flush();
+  }
+
   /** Enriches the originating cell's record without making its late claim failure the next cell's verdict. */
   recordRecipientClaimFailure(cellId: string, error: unknown): void {
     const record = this.records.get(cellId);
@@ -588,6 +604,7 @@ export class DappCellRunner<S> {
       journey,
       testTitle,
       ...(this.coverage === undefined ? {} : { coverage: this.coverage }),
+      ...(this.foreignPendingNotes.length === 0 ? {} : { foreignPendingNotes: this.foreignPendingNotes }),
       cells: [...this.records.values()]
     };
     // Written whole, then renamed into place, so no reader ever sees a half-written file.

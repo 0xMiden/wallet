@@ -6,7 +6,8 @@ import {
   HarnessFault,
   withFailureEvidence,
   type BalanceReadDiagnostics,
-  type Deadline
+  type Deadline,
+  type PendingNoteSnapshot
 } from './dapp-cells';
 import {
   describeTransactionRow,
@@ -352,21 +353,59 @@ export function guardianOperatorView(
   );
 }
 
-/**
- * Transfers the Activity tab's Pending list shows, once two reads a sync apart agree and nothing loads. Mobile keeps no
- * pending-notes field in the store (claim-drain.ts), so the list is the subject.
- */
-export async function pendingTransfers(wallet: MobileWallet, timeoutMs: number): Promise<number> {
-  await wallet.navigateTo(ACTIVITY_PENDING_PATH);
-  const deadline = Date.now() + timeoutMs;
-  let last: PendingSample | null = null;
+/** Joins the visible Pending cards by id to the claimable-notes cache that their hook publishes. */
+export async function pendingNotes(
+  wallet: MobileWallet,
+  account: string,
+  rpcUrl: string,
+  network: string,
+  timeoutMs: number,
+  deadline?: Deadline
+): Promise<PendingNoteSnapshot[]> {
+  const bound = deadlineIn(Math.min(timeoutMs, deadline?.remainingMs() ?? timeoutMs), 'pending note provenance');
+  await beforeMobileDeadline(bound, 'open Pending', () => wallet.navigateTo(ACTIVITY_PENDING_PATH));
+  const key = `claimable_notes:v1:${rpcUrl}|${network}:${account}`;
+  let last: { sample: PendingSample; notes: PendingNoteSnapshot[] | null } | null = null;
   for (;;) {
-    const sample = await wallet.evalJs<PendingSample>(buildPendingSampleScript());
-    if (sample.onPending && !sample.loading && last !== null && last.rows === sample.rows) return sample.rows;
-    last = sample.onPending && !sample.loading ? sample : null;
-    if (Date.now() > deadline)
-      throw new Error(`the Pending list never settled within ${timeoutMs} ms: ${JSON.stringify(sample)}`);
-    await sleep(3_000);
+    const next = await beforeMobileDeadline(bound, 'read pending note provenance', () =>
+      stashAndPoll<{ sample: PendingSample; notes: PendingNoteSnapshot[] | null }>(
+        evalOf(wallet, bound),
+        '__dapp_pending',
+        `(async function () {
+          ${STORE}
+          var checkAccount = function () {
+            var a = s.getState().currentAccount;
+            if (!a || a.publicKey !== ${JSON.stringify(account)}) throw new Error('Pending account changed');
+          };
+          checkAccount();
+          var sample = (function () { ${buildPendingSampleScript()} })();
+          var ids = Array.from(document.querySelectorAll('[data-testid="pending-activity-row"]'),
+            function (row) { return row.getAttribute('data-entry-key'); });
+          if (!sample.onPending || sample.loading) return { sample: sample, notes: null };
+          if (ids.length === 0) return { sample: sample, notes: [] };
+          var P = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Preferences;
+          if (!P) throw new Error('no Capacitor Preferences plugin');
+          var stored = (await P.get({ key: ${JSON.stringify(key)} })).value;
+          checkAccount();
+          var cache = stored === null ? [] : JSON.parse(stored);
+          if (!Array.isArray(cache)) throw new Error('the claimable-notes cache is not an array');
+          var notes = ids.map(function (id) {
+            var note = cache.find(function (n) { return n && n.id === id; });
+            if (!note || typeof id !== 'string' || !id || typeof note.senderAddress !== 'string' ||
+                typeof note.faucetId !== 'string' || !note.faucetId ||
+                typeof note.amount !== 'string' || !/^\\d+$/.test(note.amount)) return null;
+            return { noteId: id, sender: note.senderAddress, faucet: note.faucetId, amount: note.amount };
+          });
+          if (notes.some(function (note) { return note === null; })) return { sample: sample, notes: null };
+          notes.sort(function (a, b) { return a.noteId.localeCompare(b.noteId); });
+          return { sample: sample, notes: notes };
+        })()`,
+        bound.remainingMs()
+      )
+    );
+    if (next.notes !== null && last !== null && JSON.stringify(next) === JSON.stringify(last)) return next.notes;
+    last = next.notes === null ? null : next;
+    await beforeMobileDeadline(bound, 'one pending note sync', () => sleep(3_000));
   }
 }
 

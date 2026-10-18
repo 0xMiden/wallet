@@ -232,6 +232,7 @@ describe('mobile cell assertions', () => {
       produced: { noteId: '', bytesB64: '', nullifierHex: '', amount: 0n },
       providerAtBoot: false,
       memo: new Map(),
+      outputNoteIds: new Set(),
       senders: () => ['mtst1a', 'mtst1b'],
       account: async () => 'mtst1a',
       call: (command, input, deadline, callOptions) => callOn(channel, command, input, deadline, callOptions)

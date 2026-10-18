@@ -293,6 +293,9 @@ export async function expectMobileWriteToTheEnd(
   vaultDelta: Readonly<Record<string, bigint>>,
   ctx: CellContext
 ): Promise<MobileWriteResult> {
+  for (const note of write.outputNotes) {
+    if (note.noteId !== undefined) side.j.outputNoteIds.add(normalizeHex(note.noteId));
+  }
   // 1. The dApp's view; a wait that outlives the cell still records where the row stopped.
   const waited = await timed(ctx, 'dappView', () =>
     beforeMobileDeadline(
@@ -319,6 +322,7 @@ export async function expectMobileWriteToTheEnd(
   expect(row?.status, row === null ? 'row missing' : describeTransactionRow(row)).toBe(TxStatus.Completed);
   expect(row?.transactionId).toBe(value.txHash);
   const pairs = pairNotes(write.outputNotes, value.outputNotes);
+  for (const [, actual] of pairs) side.j.outputNoteIds.add(normalizeHex(actual.noteId));
 
   // 3. The notes on chain, through the page's own RpcClient, independent of the wallet.
   await timed(ctx, 'notesOnChain', async () => {

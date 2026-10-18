@@ -233,6 +233,7 @@ describe('mobile write read boundaries', () => {
       produced: { noteId: '', bytesB64: '', nullifierHex: '', amount: 0n },
       providerAtBoot: true,
       memo: new Map(),
+      outputNoteIds: new Set(),
       senders: () => ['mtst1a', 'mtst1b'],
       account: async () => 'mtst1a',
       call: (command, input, deadline, options) => callOn(channel, command, input, deadline, options)
@@ -250,6 +251,50 @@ describe('mobile write read boundaries', () => {
   it('allows an existing fresh empty transaction store', async () => {
     const { side } = await fixture([]);
     await expect(expectNoNewMobileRows(side, { rowIds: [], capturedAtSec: 0 })).resolves.toBeUndefined();
+  });
+
+  it('retains known output ids when the transaction view stalls before its receipt', async () => {
+    const { side, baseline } = await fixture();
+    side.dapp.channel.send = async () => new Promise(() => undefined);
+    jest.useFakeTimers();
+    const outcome = expectMobileWriteToTheEnd(
+      side,
+      baseline,
+      { txId: 'write', outputNotes: [{ noteId: '0xABC', noteType: 'public', toB: 5n }], consumedNullifiers: [] },
+      {},
+      { deadline: deadlineIn(100, 'X1'), evidence: {}, softFail: () => undefined }
+    ).catch((error: unknown) => error);
+    await jest.advanceTimersByTimeAsync(100);
+    await expect(outcome).resolves.toBeInstanceOf(CellDeadlineExceeded);
+    expect([...side.j.outputNoteIds]).toEqual(['abc']);
+  });
+
+  it('remembers the actual id of a wallet-built output for later pending accounting', async () => {
+    const { side, baseline } = await fixture();
+    const send = side.dapp.channel.send;
+    side.dapp.channel.send = async (command, input, timeout) => {
+      if (command === 'waitForTransaction')
+        return {
+          ok: true,
+          value: {
+            txHash: hash,
+            outputNotes: [{ noteId: '0xABC', noteType: 'public', bytesB64: '', isSameSdkNote: true, script: 'p2id' }]
+          }
+        };
+      if (command === 'chainNote') return { found: true, senderHex: '0xaaa', noteType: 'public' };
+      return send(command, input, timeout);
+    };
+    jest.useFakeTimers();
+    const outcome = expectMobileWriteToTheEnd(
+      side,
+      baseline,
+      { txId: 'write', outputNotes: [{ noteType: 'public' }], consumedNullifiers: [] },
+      {},
+      { deadline: deadlineIn(10_000, 'W1'), evidence: {}, softFail: () => undefined }
+    );
+    await jest.advanceTimersByTimeAsync(5_000);
+    await expect(outcome).resolves.toMatchObject({ txHash: hash });
+    expect([...side.j.outputNoteIds]).toEqual(['abc']);
   });
 
   it('rejects a missing transaction store through the no-new-rows assertion', async () => {
