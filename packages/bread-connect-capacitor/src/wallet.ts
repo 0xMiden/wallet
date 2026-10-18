@@ -39,7 +39,10 @@ export class BreadConnectWallet extends EventEmitter<MidenWalletEvents> implemen
     super();
   }
 
-  /** Resolves without switching to Bread when the stored session answered the same request. */
+  /**
+   * Resolves without switching to Bread when the stored session answered the same request and Bread has refused
+   * nothing in it since; after a refusal it asks Bread, whose current account may have changed.
+   */
   async connect(
     privateDataPermission: PrivateDataPermission,
     network: WalletAdapterNetwork,
@@ -57,7 +60,9 @@ export class BreadConnectWallet extends EventEmitter<MidenWalletEvents> implemen
     await this.transport.start();
     const stored = this.transport.session();
     const response =
-      stored && sameRequest(stored.request, request) ? stored.permission : await this.transport.connect(request);
+      stored && !stored.recheck && sameRequest(stored.request, request)
+        ? stored.permission
+        : await this.transport.connect(request);
     expectType(response, 'PERMISSION_RESPONSE');
     const publicKey = fromBase64(stringField(response, 'publicKey'));
     this.address = stringField(response, 'accountId');

@@ -162,6 +162,14 @@ describe('BreadConnectWallet', () => {
     expect(connect).toHaveBeenCalledTimes(1);
   });
 
+  it('asks Bread again once Bread has refused a request in the stored session, as after an account switch', async () => {
+    const { transport, connect, wallet } = setup();
+    jest.spyOn(transport, 'session').mockReturnValue({ ...storedSession(PERMISSION_REQUEST), recheck: true });
+    await wallet.connect(PrivateDataPermission.UponRequest, WalletAdapterNetwork.Testnet);
+    expect(connect).toHaveBeenCalledWith(PERMISSION_REQUEST);
+    expect(wallet.address).toBe('mtst1account');
+  });
+
   it('refuses a permission answer of the wrong type or shape', async () => {
     const { connect, wallet } = setup();
     const connectWallet = () => wallet.connect(PrivateDataPermission.UponRequest, WalletAdapterNetwork.Testnet);

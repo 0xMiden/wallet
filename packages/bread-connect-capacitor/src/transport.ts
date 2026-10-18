@@ -43,6 +43,8 @@ export interface TransportOptions {
 export interface StoredSession extends AppSession {
   request: DAppMessage;
   permission: DAppMessage;
+  /** Bread has since refused a request in the session, as it does every request once the user switches accounts. */
+  recheck?: boolean;
 }
 
 type Pending =
@@ -191,6 +193,13 @@ export class AppSwitchTransport {
         answer = readResponse(envelope, session);
       } catch {
         return;
+      }
+      if ('error' in answer && answer.error.code === 'NOT_GRANTED' && !session.recheck) {
+        try {
+          writeJson(this.options.storage, SESSION_KEY, { ...session, recheck: true });
+        } catch {
+          // Unmarked, the session keeps answering the app's connect, as it did before the refusal.
+        }
       }
       const transactionId = 'response' in answer ? answer.response.transactionId : undefined;
       if ('response' in answer && answer.transaction && typeof transactionId === 'string') {

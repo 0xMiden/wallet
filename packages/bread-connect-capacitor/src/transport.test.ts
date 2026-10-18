@@ -189,6 +189,45 @@ describe('AppSwitchTransport', () => {
     expect(h.transport.session()).toBeNull();
   });
 
+  it('marks the session for a recheck once Bread refuses a request in it with NOT_GRANTED', async () => {
+    let code: 'INVALID_PARAMS' | 'NOT_GRANTED' = 'INVALID_PARAMS';
+    const h = await connected(
+      fakeBread(request =>
+        request.type === 'PERMISSION_REQUEST' ? approve(request) : { error: { code, message: 'refused' } }
+      )
+    );
+    const invalid = h.transport.request({ type: 'SIGN_REQUEST' });
+    await flush();
+    h.deliver(h.bread.open(h.opened[1]!));
+    await expect(invalid).rejects.toMatchObject({ code: 'INVALID_PARAMS' });
+    expect(h.transport.session()?.recheck).toBeUndefined();
+
+    code = 'NOT_GRANTED';
+    const refused = h.transport.request({ type: 'SIGN_REQUEST' });
+    await flush();
+    h.deliver(h.bread.open(h.opened[2]!));
+    await expect(refused).rejects.toMatchObject({ code: 'NOT_GRANTED' });
+    expect(h.transport.session()).toMatchObject({ permission: PERMISSION_RESPONSE, recheck: true });
+    h.transport.stop();
+  });
+
+  it('settles a refusal it cannot mark on the session', async () => {
+    const storage = new FailingStorage();
+    const h = await connected(
+      fakeBread(request =>
+        request.type === 'PERMISSION_REQUEST' ? approve(request) : { error: { code: 'NOT_GRANTED', message: 'no' } }
+      ),
+      storage
+    );
+    storage.failing.add('set bread-connect:session');
+    const refused = h.transport.request({ type: 'SIGN_REQUEST' });
+    await flush();
+    h.deliver(h.bread.open(h.opened[1]!));
+    await expect(refused).rejects.toMatchObject({ code: 'NOT_GRANTED' });
+    expect(h.transport.session()?.recheck).toBeUndefined();
+    h.transport.stop();
+  });
+
   it('rejects when Bread is not installed or cannot be opened', async () => {
     const missing = harness({ installed: false });
     await expect(missing.transport.connect(PERMISSION_REQUEST)).rejects.toMatchObject({ code: 'NOT_INSTALLED' });
