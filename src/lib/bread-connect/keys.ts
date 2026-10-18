@@ -3,3 +3,5 @@
 // already taken outlive a reload.
 export const BREAD_CONNECT_TAKEN_KEY = 'bread-connect:taken';
 export const BREAD_CONNECT_SESSION_KEYS: readonly string[] = [BREAD_CONNECT_TAKEN_KEY];
+// In localStorage, so the request links Bread holds until it can answer them outlive the system stopping the app.
+export const BREAD_CONNECT_QUEUE_KEY = 'bread-connect:queue';

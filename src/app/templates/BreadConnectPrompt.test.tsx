@@ -106,6 +106,7 @@ async function settle(): Promise<void> {
 
 beforeEach(() => {
   sessionStorage.clear();
+  localStorage.clear();
   __resetRequestLinksForTest();
   mockPark.mockClear();
   mockForeground = null;

@@ -1,4 +1,4 @@
-import { BREAD_CONNECT_SESSION_KEYS } from 'lib/bread-connect/keys';
+import { BREAD_CONNECT_QUEUE_KEY, BREAD_CONNECT_SESSION_KEYS } from 'lib/bread-connect/keys';
 import { OPEN_LINK_SESSION_KEYS } from 'lib/dapp-browser/open-link-keys';
 import { EXPLORE_CONFIG_FLOOR_KEY } from 'lib/explore-config/floor-key';
 import { rereadStorageCache } from 'lib/miden/front/storage';
@@ -153,6 +153,9 @@ export async function clearStorage(clearDb: boolean = true, keep: readonly strin
 export async function resetStorageDestructive({
   keepEndpointOverride = true
 }: { keepEndpointOverride?: boolean } = {}) {
+  // The reload after it would hold again the request links Bread held for the wallet it removes. On desktop the
+  // key-value clear empties localStorage, and the extension's service worker has none.
+  if (isMobile()) localStorage.removeItem(BREAD_CONNECT_QUEUE_KEY);
   await clearPlatformKeyValueStorage(keepEndpointOverride ? PRESERVED_STORAGE_KEYS : DEVELOPER_RESET_KEPT_KEYS);
   try {
     await Repo.db.delete();

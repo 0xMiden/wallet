@@ -1,8 +1,14 @@
 import { App } from '@capacitor/app';
 
-import { BREAD_REQUEST_SCHEME_URL, BREAD_REQUEST_URL, readLink } from '@miden-sdk/bread-connect';
+import {
+  BREAD_REQUEST_SCHEME_URL,
+  BREAD_REQUEST_URL,
+  isRecord,
+  readLink,
+  REQUEST_MAX_AGE_MS
+} from '@miden-sdk/bread-connect';
 
-import { BREAD_CONNECT_TAKEN_KEY } from './keys';
+import { BREAD_CONNECT_QUEUE_KEY, BREAD_CONNECT_TAKEN_KEY } from './keys';
 
 const TAKEN_LIMIT = 200;
 const QUEUE_LIMIT = 10;
@@ -42,7 +48,13 @@ function rememberTaken(id: string): void {
   }
 }
 
-let queue: { id: string; link: string }[] = [];
+interface HeldLink {
+  id: string;
+  link: string;
+  at: number;
+}
+
+let queue: HeldLink[] = [];
 let capturing = false;
 const listeners = new Set<() => void>();
 
@@ -50,12 +62,44 @@ function notify(): void {
   for (const listener of listeners) listener();
 }
 
+function storeQueue(): void {
+  try {
+    if (queue.length === 0) localStorage.removeItem(BREAD_CONNECT_QUEUE_KEY);
+    else localStorage.setItem(BREAD_CONNECT_QUEUE_KEY, JSON.stringify(queue));
+  } catch {
+    // Without storage the held links last only until the system stops the app.
+  }
+}
+
+/** The links held before the app restarted that Bread can still answer: none taken, none past a request's age. */
+function storedQueue(now: number): HeldLink[] {
+  let stored: unknown;
+  try {
+    stored = JSON.parse(localStorage.getItem(BREAD_CONNECT_QUEUE_KEY) ?? '[]');
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(stored)) return [];
+  const taken = takenIds();
+  return stored.filter(
+    (held): held is HeldLink =>
+      isRecord(held) &&
+      typeof held.id === 'string' &&
+      typeof held.link === 'string' &&
+      typeof held.at === 'number' &&
+      now - held.at <= REQUEST_MAX_AGE_MS &&
+      !taken.includes(held.id) &&
+      requestLinkId(held.link) === held.id
+  );
+}
+
 /** Hold a request link until the wallet can answer it. Each request id is taken once per app session. */
 export function acceptRequestLink(link: string): void {
   const canonical = canonicalRequestLink(link);
   const id = requestLinkId(canonical);
   if (id === null || queue.some(held => held.id === id) || takenIds().includes(id)) return;
-  queue = [...queue, { id, link: canonical }].slice(-QUEUE_LIMIT);
+  queue = [...queue, { id, link: canonical, at: Date.now() }].slice(-QUEUE_LIMIT);
+  storeQueue();
   notify();
 }
 
@@ -76,14 +120,22 @@ export function takeRequestLink(): string | null {
   if (!first) return null;
   queue = rest;
   rememberTaken(first.id);
+  storeQueue();
   notify();
   return first.link;
 }
 
-/** Start listening for request links, including the one that launched the app. Idempotent. */
+/**
+ * Start listening for request links, including the one that launched the app, and hold again the links held when
+ * the system stopped the app, as it may while the user unlocks or sets up the wallet. Idempotent.
+ */
 export function startRequestLinkCapture(): void {
   if (capturing) return;
   capturing = true;
+  const restored = storedQueue(Date.now()).filter(held => !queue.some(live => live.id === held.id));
+  queue = [...restored, ...queue].slice(-QUEUE_LIMIT);
+  storeQueue();
+  if (restored.length > 0) notify();
   App.addListener('appUrlOpen', ({ url }) => acceptRequestLink(url)).catch(error => {
     console.warn('[bread-connect] appUrlOpen listener failed:', error);
   });
