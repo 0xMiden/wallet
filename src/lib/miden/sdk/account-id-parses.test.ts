@@ -1,12 +1,13 @@
 /**
- * Outside `src/lib/miden/sdk/helpers.ts`, the production-source scan flags the identifier
- * `accountIdStringToSdk` and every `<receiver>.fromBech32(...)` call, whatever the receiver, except
- * the validation form: a receiver that is the identifier `Address`, with no `.accountId` read on the
- * result (#1384). Three functions are allowlisted by path and name, the nearest enclosing function
- * declaration or the variable an arrow or function expression initializes: normalizeMidenIdToHex in
- * `src/lib/epoch/bridge.ts`, canonicalMidenId in `src/lib/epoch/earn-withdraw-policy.ts` and
- * resolveAccountId in `src/lib/miden/sdk/miden-client-interface.ts`. These parsers already handle hex
- * and composite ids before their bech32 arm.
+ * Outside `src/lib/miden/sdk/helpers.ts`, the production-source scan flags every reference by name to
+ * `accountIdStringToSdk` or `fromBech32`: an identifier with that text (a property, binding, import or call name)
+ * or a string literal with that text (a computed access), whatever the receiver or wrapper (#1384). The one
+ * exemption is the validation form, `Address.fromBech32(x)` called as a statement of its own with its result
+ * discarded. Three functions are allowlisted by path and name, the nearest enclosing function declaration or the
+ * variable an arrow or function expression initializes: normalizeMidenIdToHex in `src/lib/epoch/bridge.ts`,
+ * canonicalMidenId in `src/lib/epoch/earn-withdraw-policy.ts` and resolveAccountId in
+ * `src/lib/miden/sdk/miden-client-interface.ts`. These parsers already handle hex and composite ids before their
+ * bech32 arm. A name built at runtime is out of the scan's reach.
  */
 import fs from 'fs';
 import path from 'path';
@@ -24,6 +25,8 @@ const ALLOWED = new Set([
 ]);
 
 const repoPath = (file: string): string => path.relative(ROOT, file).split(path.sep).join('/');
+
+const NAMES = new Set(['accountIdStringToSdk', 'fromBech32']);
 
 function enclosingFunction(node: ts.Node): string | undefined {
   for (let current = node.parent; current; current = current.parent) {
@@ -43,21 +46,25 @@ function bech32OnlyParses(fileName: string, text: string): string[] {
   if (fileName === HELPERS) return [];
   const source = ts.createSourceFile(fileName, text, ts.ScriptTarget.Latest, true);
   const found: string[] = [];
-  const flag = (node: ts.Node, label: string): void => {
-    if (!ALLOWED.has(`${fileName}#${enclosingFunction(node)}`)) found.push(`${fileName}: ${label}`);
-  };
   const visit = (node: ts.Node): void => {
-    if (ts.isIdentifier(node) && node.text === 'accountIdStringToSdk') flag(node, 'accountIdStringToSdk');
-    if (
-      ts.isCallExpression(node) &&
-      ts.isPropertyAccessExpression(node.expression) &&
-      node.expression.name.text === 'fromBech32'
-    ) {
-      const receiver = node.expression.expression;
-      const readsAccountId = ts.isPropertyAccessExpression(node.parent) && node.parent.name.text === 'accountId';
-      if (readsAccountId) flag(node, `${node.expression.getText()}(...).accountId()`);
-      else if (!(ts.isIdentifier(receiver) && receiver.text === 'Address')) {
-        flag(node, `${node.expression.getText()}(...)`);
+    const name = ts.isIdentifier(node) || ts.isStringLiteralLike(node) ? node.text : undefined;
+    if (name !== undefined && NAMES.has(name) && !ALLOWED.has(`${fileName}#${enclosingFunction(node)}`)) {
+      const use =
+        ts.isPropertyAccessExpression(node.parent) || ts.isElementAccessExpression(node.parent) ? node.parent : node;
+      const call = ts.isCallExpression(use.parent) && use.parent.expression === use ? use.parent : undefined;
+      const validation =
+        call !== undefined &&
+        ts.isExpressionStatement(call.parent) &&
+        ts.isPropertyAccessExpression(use) &&
+        ts.isIdentifier(use.expression) &&
+        use.expression.text === 'Address';
+      const readsAccountId =
+        call !== undefined && ts.isPropertyAccessExpression(call.parent) && call.parent.name.text === 'accountId';
+      if (name === 'accountIdStringToSdk') found.push(`${fileName}: accountIdStringToSdk`);
+      else if (!validation) {
+        found.push(
+          `${fileName}: ${call ? `${use.getText()}(...)${readsAccountId ? '.accountId()' : ''}` : use.getText()}`
+        );
       }
     }
     ts.forEachChild(node, visit);
