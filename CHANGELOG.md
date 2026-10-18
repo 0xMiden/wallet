@@ -12,6 +12,7 @@
 
 ### Fixes
 
+- [FIX][ci] The PasscodeDots shake test steps the animation on the fake clock instead of waiting on real time, so a loaded coverage runner no longer reads the row after the shake has ended.
 - [FIX][mobile] The in-app-browser provider exposes `createAccount()`, which rejects with the extension's explicit unsupported-operation error (#1543).
 - [FIX][all] A dApp that imported a details-only note file or a bare Note can list it with `requestPrivateNotes` by the id `importPrivateNote` returned for it: the List filter looks an id that is no note id up as the note's details commitment and lists that note, if this account can consume it, under its own note id (#1536).
 - [FIX][all] Guardian swaps and faucet lookups accept composite account ids with any routing suffix and hex faucet ids with either prefix case (#1384).
