@@ -396,6 +396,7 @@ jobs:
         run: |
           sdkmanager --install "platform-tools" "emulator" \
             "platforms;android-37.0" "system-images;android-37.0;google_apis;x86_64"
+          "$ANDROID_HOME/emulator/emulator" -accel-check
       # The harness derives its pair from E2E_ANDROID_BASE_AVD; other Android suites retain their own base. The list
       # check fails here, not minutes later in the global setup, when the emulator cannot see what avdmanager wrote.
       - name: Create base AVD
@@ -474,8 +475,14 @@ jobs:
       - name: Collect emulator logs
         if: steps.run.outcome != 'success'
         run: |
+          nproc
+          free -m
+          vmstat 1 3
           adb devices || true
           for serial in emulator-5554 emulator-5556; do
+            timeout 15s adb -s "$serial" shell getprop | grep -E '\[(sys.boot_completed|init.svc.bootanim|ro.boot.debug.sf.nobootanimation|debug.sf.nobootanimation)\]' || true
+            timeout 15s adb -s "$serial" shell pm path android || true
+            timeout 15s adb -s "$serial" shell dumpsys webviewupdate || true
             echo "::group::$serial app process"
             adb -s "$serial" shell ps -A 2>/dev/null | grep -i miden || echo "  NO MIDEN PROCESS (app not running)"
             echo "::endgroup::"

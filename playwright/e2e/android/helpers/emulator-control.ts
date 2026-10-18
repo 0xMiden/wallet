@@ -51,10 +51,10 @@ const PAIR_FILE = path.join(ROOT_DIR, 'test-results-android', '.device-pair.json
 
 const DEVICE_PAIR_AVD_A = 'miden_e2e_A';
 const DEVICE_PAIR_AVD_B = 'miden_e2e_B';
-// Base AVDs cloned to produce the pair. Pixel_API_34 chosen because API 34 is
-// the most stable emulator + system image combination today; API 36 emulators
-// have a known activity-resolution bug that makes `am start` fail on freshly
-// installed APKs (see investigation notes in the wiktor/mt-wasm-mobile branch).
+// Other Android suites keep their API 34 base. PL1 overrides it with the newer
+// image needed for native gated presentation; both clone the selected base.
+// Read readiness from each device rather than assuming the image's animation
+// service runs: the launch below explicitly disables boot animation.
 const BASE_AVD = process.env.E2E_ANDROID_BASE_AVD ?? 'Pixel_API_34';
 
 /**
@@ -145,30 +145,69 @@ export class EmulatorControl {
    */
   async ensureBooted(serial: string): Promise<void> {
     const start = Date.now();
-    // Phase 1: sys.boot_completed flips to 1 — userland is up enough for adb shell.
-    while (Date.now() - start < BOOT_TIMEOUT_MS) {
-      try {
-        const { stdout } = await adb(['-s', serial, 'shell', 'getprop', 'sys.boot_completed']);
-        if (stdout.trim() === '1') break;
-      } catch {
-        // device not reachable yet — keep polling
+    const readShell = async (args: string[]): Promise<string> => {
+      const remaining = BOOT_TIMEOUT_MS - (Date.now() - start);
+      if (remaining <= 0) throw new Error('boot budget exhausted before ' + args.join(' '));
+      const { stdout } = await adb(['-s', serial, 'shell', ...args], Math.min(ADB_TIMEOUT_MS, remaining));
+      return stdout.trim();
+    };
+    const waitForPhase = async (
+      phase: string,
+      read: () => Promise<{ ready: boolean; last: string }>
+    ): Promise<void> => {
+      let last = 'not observed';
+      while (Date.now() - start < BOOT_TIMEOUT_MS) {
+        try {
+          const observed = await read();
+          last = observed.last;
+          if (observed.ready && Date.now() - start < BOOT_TIMEOUT_MS) {
+            console.log(`[emulator] ${serial}: ${phase} ready after ${Date.now() - start}ms; ${last}`);
+            return;
+          }
+        } catch (error) {
+          last = 'adb error: ' + describeAdbError(error);
+        }
+        await sleep(Math.min(BOOT_POLL_MS, Math.max(0, BOOT_TIMEOUT_MS - (Date.now() - start))));
       }
-      await sleep(BOOT_POLL_MS);
-    }
-    if (Date.now() - start >= BOOT_TIMEOUT_MS) {
-      throw new Error(`Emulator ${serial} did not reach boot_completed within ${BOOT_TIMEOUT_MS}ms`);
-    }
-    // Phase 2: boot animation stops. Fires after sys.boot_completed.
-    while (Date.now() - start < BOOT_TIMEOUT_MS) {
-      try {
-        const { stdout } = await adb(['-s', serial, 'shell', 'getprop', 'init.svc.bootanim']);
-        if (stdout.trim() === 'stopped') break;
-      } catch {
-        // ignore
-      }
-      await sleep(BOOT_POLL_MS);
-    }
-    // Phase 3: GMS persistent process is up and steady. On cold boots GMS
+      // A failed phase must stop here, including on AOSP where the later GMS check would otherwise return success.
+      throw new Error(
+        `Emulator ${serial} readiness phase ${phase} failed within ${BOOT_TIMEOUT_MS}ms ` +
+          `(elapsed=${Date.now() - start}ms); last=${last}`
+      );
+    };
+    console.log(`[emulator] ${serial}: readiness started at ${new Date(start).toISOString()}`);
+    await waitForPhase('boot-completed', async () => {
+      const value = await readShell(['getprop', 'sys.boot_completed']);
+      return { ready: value === '1', last: 'sys.boot_completed=' + JSON.stringify(value) };
+    });
+    await waitForPhase('animation', async () => {
+      const animation = await readShell(['getprop', 'init.svc.bootanim']);
+      if (animation === 'stopped') return { ready: true, last: 'init.svc.bootanim="stopped"' };
+      // The kernel's androidboot flag becomes ro.boot.*; never infer disabled animation from missing output alone.
+      const bootDisabled = await readShell(['getprop', 'ro.boot.debug.sf.nobootanimation']);
+      const runtimeDisabled =
+        bootDisabled === '1' ? 'not read' : await readShell(['getprop', 'debug.sf.nobootanimation']);
+      return {
+        ready: animation === '' && (bootDisabled === '1' || runtimeDisabled === '1'),
+        last:
+          `init.svc.bootanim=${JSON.stringify(animation)}; ro.boot.debug.sf.nobootanimation=${JSON.stringify(bootDisabled)}; ` +
+          `debug.sf.nobootanimation=${JSON.stringify(runtimeDisabled)}`
+      };
+    });
+    // A missing GMS package is meaningful only after the package manager has answered a framework-package query.
+    let hasGms = false;
+    await waitForPhase('package-manager', async () => {
+      const framework = await readShell(['pm', 'path', 'android']);
+      if (!framework.startsWith('package:/'))
+        return { ready: false, last: 'pm path android=' + JSON.stringify(framework) };
+      const packages = await readShell(['pm', 'list', 'packages', 'com.google.android.gms']);
+      hasGms = packages.split(/\r?\n/).some(line => line.trim() === 'package:com.google.android.gms');
+      return {
+        ready: true,
+        last: 'pm path android=' + JSON.stringify(framework) + '; GMS packages=' + JSON.stringify(packages)
+      };
+    });
+    // Phase 4: GMS persistent process is up and steady. On cold boots GMS
     // can crash within the first ~30s after boot_completed, taking down any
     // app that bound to its FontsProvider (we saw com.miden.wallet killed
     // this way during a rerun). Poll until it's been seen running for 5
@@ -180,27 +219,29 @@ export class EmulatorControl {
     // moment the workflow switched images. The wait exists to dodge a GMS crash
     // taking the app with it; with no GMS there is neither a process to wait for
     // nor a crash to dodge.
-    if (!(await deviceHasPackage(serial, 'com.google.android.gms'))) {
-      console.log(`[emulator] ${serial}: no Play Services on this image — skipping the GMS settle wait`);
+    if (!hasGms) {
+      console.log(`[emulator] ${serial}: no Play Services on this image - skipping the GMS settle wait`);
       return;
     }
     const GMS_STABLE_MS = 5_000;
     let gmsRunningSince: number | null = null;
-    while (Date.now() - start < BOOT_TIMEOUT_MS) {
+    await waitForPhase('gms-settle', async () => {
       try {
-        const { stdout } = await adb(['-s', serial, 'shell', 'pgrep', '-f', 'com.google.android.gms.persistent']);
-        if (stdout.trim().length > 0) {
+        const value = await readShell(['pgrep', '-f', 'com.google.android.gms.persistent']);
+        if (value.length > 0) {
           if (gmsRunningSince === null) gmsRunningSince = Date.now();
-          if (Date.now() - gmsRunningSince >= GMS_STABLE_MS) return;
         } else {
           gmsRunningSince = null;
         }
-      } catch {
+        return {
+          ready: gmsRunningSince !== null && Date.now() - gmsRunningSince >= GMS_STABLE_MS,
+          last: 'com.google.android.gms.persistent=' + JSON.stringify(value)
+        };
+      } catch (error) {
         gmsRunningSince = null;
+        throw error;
       }
-      await sleep(BOOT_POLL_MS);
-    }
-    throw new Error(`Emulator ${serial} did not stabilize within ${BOOT_TIMEOUT_MS}ms`);
+    });
   }
 
   async install(serial: string, apkPath: string, packageName?: string): Promise<void> {
@@ -408,16 +449,6 @@ function avdIsUsable(avdHome: string, avd: string): boolean {
   return (
     fs.existsSync(path.join(avdHome, `${avd}.ini`)) && fs.existsSync(path.join(avdHome, `${avd}.avd`, 'config.ini'))
   );
-}
-
-/** Is `pkg` installed on this device? Used to skip GMS-only wait steps on AOSP images. */
-async function deviceHasPackage(serial: string, pkg: string): Promise<boolean> {
-  try {
-    const { stdout } = await adb(['-s', serial, 'shell', 'pm', 'list', 'packages', pkg]);
-    return stdout.includes(pkg);
-  } catch {
-    return false;
-  }
 }
 
 async function ensureAvdsExist(): Promise<void> {
