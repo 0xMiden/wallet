@@ -58,6 +58,8 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
   const { sha256: hash } = jest.requireActual<typeof import('@noble/hashes/sha2')>('@noble/hashes/sha2');
   const { keccak_256: keccak } = jest.requireActual<typeof import('@noble/hashes/sha3')>('@noble/hashes/sha3');
   const ECDSA = 0x01;
+  // Miden's field modulus: a serialized word is four little-endian felts, each below it.
+  const FELT_MODULUS = 0xffffffff00000001n;
   const handle = <T extends object>(value: T) => {
     mockLiveHandles.add(value);
     return Object.assign(value, {
@@ -98,7 +100,10 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
     PublicKey: { deserialize: (bytes: Uint8Array) => publicKey(bytes.slice(1)) },
     Word: {
       deserialize: (bytes: Uint8Array) => {
-        if (bytes.length !== 32) throw new Error('a word is 32 bytes');
+        const limbs = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+        if (bytes.length !== 32 || [0, 8, 16, 24].some(at => limbs.getBigUint64(at, true) >= FELT_MODULUS)) {
+          throw new Error('not a word');
+        }
         return word(bytes);
       }
     },
@@ -258,6 +263,7 @@ const EVM_KEY_1 = '59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b786
 const IMPORTED_SECRET_KEY = `01${EVM_KEY_1}`;
 const DOMAIN = 'example.org';
 const LOGIN_KEY_UNAVAILABLE = /^LOGIN_KEY_UNAVAILABLE: /;
+const NOT_A_WORD = /^INVALID_PARAMS: not a word to sign$/;
 
 const VAULT_PREFIX = 'vault';
 const ck = (id: string) => `${VAULT_PREFIX}_${id}`;
@@ -430,11 +436,33 @@ describe('Vault login keys', () => {
     expect(await vault.fetchAccounts()).toEqual(accounts);
   });
 
+  it('derives a missing EVM key from the seed phrase when the address matches in any letter case', async () => {
+    const loginKey = await vault.loginKeyCommitment(account.publicKey, connected, DOMAIN);
+    // The seed phrase gives the checksummed address, and the record holds it in lowercase.
+    expect(account.evmAddress).not.toBe(account.evmAddress!.toLowerCase());
+    await saveAccounts([{ ...account, evmAddress: account.evmAddress!.toLowerCase() }]);
+    await removeMany([keys.accEvmSecretKey(account.evmAddress!)]);
+
+    expect(await vault.loginKeyCommitment(account.publicKey, connected, DOMAIN)).toBe(loginKey);
+  });
+
   it('refuses an account whose seed phrase gives another EVM key', async () => {
     // The OnChain account 0 address, whose key is not stored: the seed phrase gives this account another one.
     await saveAccounts([{ ...account, evmAddress: EVM_ADDR_0 }]);
 
     await expect(vault.loginKeyCommitment(account.publicKey, connected, DOMAIN)).rejects.toThrow(LOGIN_KEY_UNAVAILABLE);
+  });
+
+  it.each([
+    { label: 'empty', leaf: '' },
+    { label: 'of odd length', leaf: `0x${'ab'.repeat(31)}a` },
+    { label: 'not hex', leaf: `0x${'ab'.repeat(31)}zz` },
+    { label: '31 bytes', leaf: `0x${'ab'.repeat(31)}` }
+  ])('refuses a stored EVM key that is $label, deriving nothing', async ({ leaf }) => {
+    await encryptAndSaveMany([[keys.accEvmSecretKey(account.evmAddress!), leaf]], baseVaultKey);
+
+    await expect(vault.loginKeyCommitment(account.publicKey, connected, DOMAIN)).rejects.toThrow(LOGIN_KEY_UNAVAILABLE);
+    expect(deriveLoginKeyScalar).not.toHaveBeenCalled();
   });
 
   it('refuses without the root key', async () => {
@@ -452,6 +480,24 @@ describe('Vault login keys', () => {
     expect(mockStorageReads).not.toContain(await wrapped(keys.accColdSecretKey(account.coldPublicKey!)));
     expect(mockStorageReads).not.toContain(await wrapped(keys.accAuthSecretKey(bytesToHex(b64ToU8(connected)))));
     expect(mockStorageReads).not.toContain(await wrapped(keys.accAuthSecretKey(bytesToHex(b64ToU8(coldCommitment)))));
+  });
+
+  it.each<{ label: string; overrides: Partial<WalletAccount> }>([
+    { label: 'a Guardian account', overrides: { hdIndex: -1, evmAddress: undefined } },
+    { label: 'an HD account', overrides: { type: WalletType.OnChain, evmAddress: undefined } },
+    {
+      label: 'an account with an EVM address',
+      overrides: { type: WalletType.OnChain, hdIndex: -1, evmAddress: EVM_ADDR_0 }
+    }
+  ])("refuses $label even when the session's commitment names a stored key", async ({ overrides }) => {
+    // Each record fails one condition of a single-key import. The wallet's cold key is stored under the commitment
+    // the session names.
+    await saveAccounts([{ ...account, ...overrides }]);
+    await removeMany([keys.mnemonic]);
+
+    await expect(
+      vault.loginKeyCommitment(account.publicKey, publicKeyCommitment(account.coldPublicKey!), DOMAIN)
+    ).rejects.toThrow(LOGIN_KEY_UNAVAILABLE);
   });
 
   it('derives a single-key import from that key, the same after reimporting', async () => {
@@ -548,12 +594,25 @@ describe('Vault login keys', () => {
     );
   });
 
-  it('refuses a word that is not 32 bytes, still freeing the key and zeroing its buffers', async () => {
-    forgetKeyMaterial();
-
+  it('refuses a word that is not base64 of 32 bytes before reading a key', async () => {
     await expect(
       vault.signWithLoginKey(account.publicKey, connected, DOMAIN, u8ToB64(new Uint8Array(31)))
-    ).rejects.toThrow('Invalid word to sign');
+    ).rejects.toThrow(NOT_A_WORD);
+    await expect(vault.signWithLoginKey(account.publicKey, connected, DOMAIN, 'not base64!')).rejects.toThrow(
+      NOT_A_WORD
+    );
+    // Nothing was read, so nothing was decrypted.
+    expect(mockStorageReads).toEqual([]);
+    expect(deriveLoginKeyScalar).not.toHaveBeenCalled();
+  });
+
+  it('refuses a word the SDK cannot read, still freeing the key and zeroing its buffers', async () => {
+    forgetKeyMaterial();
+
+    // 32 bytes, but every limb is above the field modulus.
+    await expect(
+      vault.signWithLoginKey(account.publicKey, connected, DOMAIN, u8ToB64(new Uint8Array(32).fill(0xff)))
+    ).rejects.toThrow(NOT_A_WORD);
     expectCleanedUp();
   });
 });

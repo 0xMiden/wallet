@@ -2319,14 +2319,15 @@ export class Vault {
     domain: string,
     word: string
   ): Promise<string> {
-    return withError('Failed to sign with the login key', () =>
-      this.withLoginKey(accountId, connectedCommitment, domain, secretKey => {
+    return withError('Failed to sign with the login key', async () => {
+      const wordBytes = loginWordBytes(word);
+      return this.withLoginKey(accountId, connectedCommitment, domain, secretKey => {
         let message: Word;
         try {
-          message = Word.deserialize(b64ToU8(word));
+          message = Word.deserialize(wordBytes);
         } catch {
           // Not the SDK's error: `withError` logs it, and it can quote the word.
-          throw new PublicError('Invalid word to sign');
+          throw notAWordToSign();
         }
         try {
           const signature = secretKey.sign(message);
@@ -2338,8 +2339,8 @@ export class Vault {
         } finally {
           message.free();
         }
-      })
-    );
+      });
+    });
   }
 
   /**
@@ -2385,7 +2386,7 @@ export class Vault {
     if (!account) throw loginKeyUnavailable();
     const evmStorageKey = account.evmAddress && accEvmSecretKeyStrgKey(account.evmAddress.toLowerCase());
     if (evmStorageKey && (await isStored(evmStorageKey))) {
-      return { root: secretBytes(await fetchAndDecryptOne<Hex>(evmStorageKey, this.vaultKey)), source: 'evm' };
+      return decodeLoginKeyRoot(await fetchAndDecryptOne<Hex>(evmStorageKey, this.vaultKey), 'evm');
     }
     if (account.hdIndex >= 0 && (await this.fetchSeedPhraseStatus()) === 'stored') {
       // In memory only: an older account's record and stored keys stay as they are.
@@ -2394,7 +2395,7 @@ export class Vault {
       if (account.evmAddress && evmKey.address.toLowerCase() !== account.evmAddress.toLowerCase()) {
         throw loginKeyUnavailable();
       }
-      return { root: secretBytes(evmKey.privateKeyHex), source: 'evm' };
+      return decodeLoginKeyRoot(evmKey.privateKeyHex, 'evm');
     }
     // A Guardian account's entries under `accAuthSecretKeyStrgKey` are its hot and cold keys, never a root.
     const commitment =
@@ -2403,7 +2404,7 @@ export class Vault {
         : undefined;
     if (commitment && (await isStored(accAuthSecretKeyStrgKey(commitment)))) {
       const secretKeyHex = await fetchAndDecryptOne<string>(accAuthSecretKeyStrgKey(commitment), this.vaultKey);
-      return { root: secretBytes(secretKeyHex), source: 'auth' };
+      return decodeLoginKeyRoot(secretKeyHex, 'auth');
     }
     throw loginKeyUnavailable();
   }
@@ -2840,17 +2841,40 @@ function deriveEvmKeyPair(
   return { address: hdAccount.address, privateKeyHex: toHex(privateKey) };
 }
 
-/** `hex`, with or without `0x`, as bytes the caller zeroes after use; the decoding buffer is zeroed here. */
-function secretBytes(hex: string): Uint8Array {
-  const decoded = Buffer.from(hex.startsWith('0x') ? hex.slice(2) : hex, 'hex');
-  const bytes = new Uint8Array(decoded);
+/**
+ * The login key root `hex` encodes, with or without `0x`, as bytes the caller zeroes after use; the decoding buffer
+ * is zeroed here. Refused unless the hex is non-empty whole bytes, and 32 bytes for an EVM key: decoding anything else
+ * truncates it, and a short or empty root still derives a key.
+ */
+function decodeLoginKeyRoot(hex: string, source: LoginKeySource): { root: Uint8Array; source: LoginKeySource } {
+  const unprefixed = hex.startsWith('0x') ? hex.slice(2) : hex;
+  if (!isValidHex(unprefixed) || (source === 'evm' && unprefixed.length !== 64)) throw loginKeyUnavailable();
+  const decoded = Buffer.from(unprefixed, 'hex');
+  const root = new Uint8Array(decoded);
   decoded.fill(0);
+  return { root, source };
+}
+
+/** The 32 bytes `word` encodes in base64, refused before any key is read when it encodes anything else. */
+function loginWordBytes(word: string): Uint8Array {
+  let bytes: Uint8Array;
+  try {
+    bytes = b64ToU8(word);
+  } catch {
+    throw notAWordToSign();
+  }
+  if (bytes.length !== 32) throw notAWordToSign();
   return bytes;
 }
 
 /** A login key refusal. The site reads its message, so it names no key, commitment or domain. */
 function loginKeyUnavailable(): PublicError {
   return new PublicError(`${MidenDAppErrorType.LoginKeyUnavailable}: this account's root key is not on this device`);
+}
+
+/** A refusal of a word to sign with a login key. It never quotes the word. */
+function notAWordToSign(): PublicError {
+  return new PublicError(`${MidenDAppErrorType.InvalidParams}: not a word to sign`);
 }
 
 function createStorageKey(id: StorageEntity) {
