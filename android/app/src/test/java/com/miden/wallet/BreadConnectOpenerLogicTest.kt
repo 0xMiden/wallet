@@ -46,4 +46,35 @@ class BreadConnectOpenerLogicTest {
         assertNull(BreadConnectOpenerLogic.target(all, "android_app", "", listOf(print)))
         assertNull(BreadConnectOpenerLogic.target(all, "android_app", "com.example.game", listOf("AB:CD")))
     }
+
+    private val other = ByteArray(32) { 1.toByte() }
+    private val signedWith = mapOf("com.example.lacks" to bytes, "com.example.game" to bytes, "com.example.later" to bytes)
+    private val handlers = setOf("com.example.other", "com.example.game", "com.example.later")
+
+    private fun verified(vararg targets: AssetLinkTarget) = BreadConnectOpenerLogic.verifiedPackage(
+        targets.toList(),
+        { name, fingerprint -> signedWith[name]?.contentEquals(fingerprint) == true },
+        { name -> name in handlers },
+    )
+
+    @Test
+    fun `hands the link to the first named app signed with a certificate its statement lists that handles it`() {
+        assertEquals(
+            "com.example.game",
+            verified(
+                AssetLinkTarget("com.example.other", listOf(bytes)),
+                AssetLinkTarget("com.example.lacks", listOf(bytes)),
+                AssetLinkTarget("com.example.game", listOf(other, bytes)),
+                AssetLinkTarget("com.example.later", listOf(bytes)),
+            ),
+        )
+    }
+
+    @Test
+    fun `hands the link to no app signed with another certificate or not handling it`() {
+        assertNull(verified(AssetLinkTarget("com.example.game", listOf(other))))
+        assertNull(verified(AssetLinkTarget("com.example.other", listOf(bytes))))
+        assertNull(verified(AssetLinkTarget("com.example.lacks", listOf(bytes))))
+        assertNull(verified())
+    }
 }

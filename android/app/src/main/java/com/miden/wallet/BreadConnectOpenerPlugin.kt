@@ -4,7 +4,6 @@ import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
-import android.os.Build
 import com.getcapacitor.JSObject
 import com.getcapacitor.Plugin
 import com.getcapacitor.PluginCall
@@ -17,9 +16,9 @@ import java.net.URL
 import java.util.concurrent.Executors
 
 /// Opens an app's Bread Connect callback with Bread's answer only in the app the callback's domain verified, never
-/// in a browser. Android 11 and later route it to the link's verified default handler alone; Android 9 and 10, which
-/// lack those flags, only to an installed app that handles the link and is signed with a certificate the domain's
-/// assetlinks.json names.
+/// in a browser: by package, in an installed app that handles the link and is signed with a certificate the domain's
+/// assetlinks.json names, on every Android version. The system's default handler is not enough, because from
+/// Android 11 it is also an app the user picked for the domain.
 @CapacitorPlugin(name = "BreadConnectOpener")
 class BreadConnectOpenerPlugin : Plugin() {
     companion object {
@@ -35,11 +34,6 @@ class BreadConnectOpenerPlugin : Plugin() {
         val host = uri?.host
         if (uri == null || uri.scheme != "https" || host.isNullOrEmpty()) {
             return call.reject("The callback must be an https link")
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            val flags = Intent.FLAG_ACTIVITY_REQUIRE_NON_BROWSER or Intent.FLAG_ACTIVITY_REQUIRE_DEFAULT
-            call.resolve(opened(start(view(uri).addFlags(flags))))
-            return
         }
         executor.execute {
             val target = runCatching { verifiedPackage(uri, host) }.getOrNull()
@@ -64,11 +58,13 @@ class BreadConnectOpenerPlugin : Plugin() {
 
     private fun verifiedPackage(uri: Uri, host: String): String? {
         val packages = context.packageManager
-        return assetLinkTargets(host).firstOrNull { target ->
-            target.fingerprints.any {
-                packages.hasSigningCertificate(target.packageName, it, PackageManager.CERT_INPUT_SHA256)
-            } && packages.queryIntentActivities(view(uri).setPackage(target.packageName), 0).isNotEmpty()
-        }?.packageName
+        return BreadConnectOpenerLogic.verifiedPackage(
+            assetLinkTargets(host),
+            { packageName, fingerprint ->
+                packages.hasSigningCertificate(packageName, fingerprint, PackageManager.CERT_INPUT_SHA256)
+            },
+            { packageName -> packages.queryIntentActivities(view(uri).setPackage(packageName), 0).isNotEmpty() },
+        )
     }
 
     private fun assetLinkTargets(host: String): List<AssetLinkTarget> {

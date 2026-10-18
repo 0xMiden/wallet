@@ -56,6 +56,26 @@ describe('open link declarations', () => {
     }
   });
 
+  // Bread opens a Bread Connect answer only in an app whose certificate the callback domain's assetlinks.json names,
+  // and from Android 11 it can read another app's certificate only for an app its queries make visible.
+  it('lets Android show Bread every app that takes https links', () => {
+    const intents = captures(manifest, /<queries>([\s\S]*?)<\/queries>/g).flatMap(queries =>
+      captures(queries, /<intent>([\s\S]*?)<\/intent>/g)
+    );
+
+    expect(
+      intents.map(intent => ({
+        actions: captures(intent, /<action android:name="([^"]+)"/g),
+        categories: captures(intent, /<category android:name="([^"]+)"/g),
+        schemes: captures(intent, /android:scheme="([^"]+)"/g)
+      }))
+    ).toContainEqual({
+      actions: ['android.intent.action.VIEW'],
+      categories: ['android.intent.category.BROWSABLE'],
+      schemes: ['https']
+    });
+  });
+
   it('parses links at the link host and at every custom scheme the apps declare', () => {
     const plistSchemes = captures(
       read('ios/App/App/Info.plist'),
