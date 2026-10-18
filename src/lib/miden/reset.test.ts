@@ -454,29 +454,42 @@ describe('the desktop wipe announcement', () => {
 });
 
 describe('clearClientStorage', () => {
-  it('keeps the kept keys in their desktop form, removes every other localStorage key, and clears sessionStorage', async () => {
+  it("keeps the kept keys in their desktop form, removes every other localStorage key, and every sessionStorage key but open-link's records", async () => {
     localStorage.setItem('miden_wallet_endpoint_overrides', '{"rpcUrl":"https://rpc.custom"}');
     localStorage.setItem('miden_wallet_vault_key', 'v');
     localStorage.setItem('ui_cache', 'u');
+    sessionStorage.setItem('open-link:taken', '["com.miden.wallet://open?url=https%3A%2F%2Flive.example%2F"]');
+    sessionStorage.setItem('open-link:pending', 'https://bread.miden.xyz/open#url=https%3A%2F%2Fheld.example%2F');
+    sessionStorage.setItem('open-link:launch', 'https://bread.miden.xyz/open#url=https%3A%2F%2Flaunch.example%2F');
     sessionStorage.setItem('draft', 'd');
 
     await clearClientStorage();
 
     expect(Object.keys(localStorage)).toEqual(['miden_wallet_endpoint_overrides']);
-    expect(sessionStorage.length).toBe(0);
+    expect(sessionStorage.getItem('open-link:taken')).toBe(
+      '["com.miden.wallet://open?url=https%3A%2F%2Flive.example%2F"]'
+    );
+    expect(sessionStorage.getItem('open-link:pending')).toBe(
+      'https://bread.miden.xyz/open#url=https%3A%2F%2Fheld.example%2F'
+    );
+    expect(sessionStorage.getItem('open-link:launch')).toBe(
+      'https://bread.miden.xyz/open#url=https%3A%2F%2Flaunch.example%2F'
+    );
+    expect(sessionStorage.getItem('draft')).toBeNull();
   });
 
-  it('re-reads the storage cache after the localStorage removals and the sessionStorage clear (#1177)', async () => {
+  it('re-reads the storage cache after the localStorage and sessionStorage removals (#1177)', async () => {
     localStorage.setItem('miden_wallet_vault_key', 'v');
+    sessionStorage.setItem('draft', 'd');
     const removeItem = jest.spyOn(Storage.prototype, 'removeItem');
     const clear = jest.spyOn(Storage.prototype, 'clear');
     try {
       await clearClientStorage();
 
-      expect(removeItem).toHaveBeenCalledTimes(1);
-      expect(clear).toHaveBeenCalledTimes(1);
+      expect(removeItem).toHaveBeenCalledTimes(2);
+      expect(clear).not.toHaveBeenCalled();
       expect(mockReread).toHaveBeenCalledTimes(1);
-      const wipedAt = Math.max(...removeItem.mock.invocationCallOrder, ...clear.mock.invocationCallOrder);
+      const wipedAt = Math.max(...removeItem.mock.invocationCallOrder);
       expect(mockReread.mock.invocationCallOrder[0]!).toBeGreaterThan(wipedAt);
     } finally {
       removeItem.mockRestore();

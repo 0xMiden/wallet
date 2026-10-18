@@ -174,6 +174,10 @@ describe('runtime locale bundles (the files src/i18n.ts actually renders from)',
     expect(loadFlat('es').close).toBe('Cerrar');
   });
 
+  it('renders the Turkish "Open" action of the open-link prompt as Aç in the bundle the UI reads', () => {
+    expect(loadFlat('tr').openLinkAction).toBe('Aç');
+  });
+
   it('calls the 12-word backup the recovery phrase in every English source value', () => {
     // The product term is "recovery phrase": it restores the keys, while the
     // Guardian backs up the account state recovery needs.
