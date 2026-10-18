@@ -852,8 +852,9 @@ const generatePromisifySign = async (
 };
 
 /**
- * A login signature: once the user approves, the account's login key for the page's domain signs a 32-byte word. The
- * key signs nothing else, so a login signature can never authorize a transaction.
+ * A login signature: once the user approves, the account's login key for the page's domain signs the login message,
+ * Poseidon2 of the login tag and the page's 32-byte word, never the word itself. The page chooses the word but not the
+ * message the key signs, so it cannot make a login signature authorize a transaction.
  */
 export async function requestLoginSign(
   origin: string,

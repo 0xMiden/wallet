@@ -10,6 +10,7 @@ import {
   AuthSecretKey,
   Endpoint,
   Felt,
+  FeltArray,
   FungibleAsset,
   InputNote,
   MidenClient,
@@ -25,6 +26,7 @@ import {
   NoteFilterTypes,
   NoteId,
   NoteType,
+  Poseidon2,
   PublicKey,
   RpcClient,
   Signature,
@@ -161,6 +163,15 @@ function answerBytes(answer: unknown, key: 'loginKey' | 'signature'): Uint8Array
   const bytes: unknown = typeof answer === 'object' && answer !== null ? Reflect.get(answer, key) : undefined;
   if (!(bytes instanceof Uint8Array)) throw new Error(`the wallet answered without ${key} bytes`);
   return bytes;
+}
+// The login message a site checks a login signature against: Poseidon2 of `Bread login v1` in ASCII, four bytes to an
+// element, little-endian, the last zero-padded, then the word's four elements.
+function loginMessage(word: Word): Word {
+  const tag = new Uint8Array(16);
+  tag.set(new TextEncoder().encode('Bread login v1'));
+  const view = new DataView(tag.buffer);
+  const tagElements = [0, 4, 8, 12].map(at => new Felt(BigInt(view.getUint32(at, true))));
+  return Poseidon2.hashElements(new FeltArray([...tagElements, ...word.toFelts()]));
 }
 // Chain reads bypass the dApp's client store as well as the wallet: the chain's view of a write is checked on its own.
 const rpc = (): RpcClient => new RpcClient(new Endpoint(state.rpcUrl));
@@ -716,7 +727,8 @@ const handlers: Partial<DappHandlers> = {
       return { loginKeyB64: u8ToB64(loginKey), loginKeyHex: Word.deserialize(loginKey).toHex() };
     }),
 
-  // As signWord: the login key signs only words, so the signed message is the word itself.
+  // The login key signs the login message hashed from the word, never the word, so that is the message the driver
+  // recovers the key from.
   signLoginWord: ({ wordHex }) =>
     outcome(async () => {
       const payload = Word.fromHex(wordHex).serialize();
@@ -725,7 +737,7 @@ const handlers: Partial<DappHandlers> = {
         signatureB64: u8ToB64(signature),
         schemeTag: signature[0] ?? -1,
         payloadB64: u8ToB64(payload),
-        messageB64: u8ToB64(payload)
+        messageB64: u8ToB64(loginMessage(Word.deserialize(payload)).serialize())
       };
     }),
 

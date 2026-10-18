@@ -3,8 +3,11 @@ import {
   AccountComponent,
   AccountStorageMode,
   AuthSecretKey,
+  Felt,
+  FeltArray,
   type GetKeyCallback,
   getWasmOrThrow,
+  Poseidon2,
   SigningInputs,
   Word,
   PublicKey
@@ -2310,8 +2313,8 @@ export class Vault {
   }
 
   /**
-   * Sign `word`, base64 of a 32-byte word, with `accountId`'s login key for `domain`. Returns base64 of the 66-byte
-   * signature `[0x01, r, s, v]`.
+   * Sign the login message for `word`, base64 of a 32-byte word, with `accountId`'s login key for `domain`: Poseidon2
+   * of the login tag and the word, never the word itself. Returns base64 of the 66-byte signature `[0x01, r, s, v]`.
    */
   async signWithLoginKey(
     accountId: string,
@@ -2322,12 +2325,18 @@ export class Vault {
     return withError('Failed to sign with the login key', async () => {
       const wordBytes = loginWordBytes(word);
       return this.withLoginKey(accountId, connectedCommitment, domain, secretKey => {
-        let message: Word;
+        let loginWord: Word;
         try {
-          message = Word.deserialize(wordBytes);
+          loginWord = Word.deserialize(wordBytes);
         } catch {
           // Not the SDK's error: `withError` logs it, and it can quote the word.
           throw notAWordToSign();
+        }
+        let message: Word;
+        try {
+          message = loginMessage(loginWord);
+        } finally {
+          loginWord.free();
         }
         try {
           const signature = secretKey.sign(message);
@@ -2865,6 +2874,16 @@ function loginWordBytes(word: string): Uint8Array {
   }
   if (bytes.length !== 32) throw notAWordToSign();
   return bytes;
+}
+
+// `Bread login v1` in ASCII, four bytes to a field element, little-endian, the last zero-padded. Sites hash the same
+// tag to check a login signature, so it never changes within v1.
+const LOGIN_MESSAGE_TAG = [0x61657242n, 0x6f6c2064n, 0x206e6967n, 0x00003176n];
+
+/** The message a login key signs for `word`: Poseidon2 of the login tag's elements, then the word's, in order. */
+function loginMessage(word: Word): Word {
+  // The browser binding takes each element into the array, and the array into the hash.
+  return Poseidon2.hashElements(new FeltArray([...LOGIN_MESSAGE_TAG.map(value => new Felt(value)), ...word.toFelts()]));
 }
 
 /** A login key refusal. The site reads its message, so it names no key, commitment or domain. */

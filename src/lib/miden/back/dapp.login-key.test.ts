@@ -1,8 +1,9 @@
 /* eslint-disable import/first */
 /**
  * Tests for `requestLoginKey` and `requestLoginSign`: a connected page gets its own site's login key without a prompt,
- * and a login signature over a 32-byte word once the user approves. The vault is a stub and the domain comes from the
- * real `loginKeyDomain`. Requests run on mobile, and as the extension where the two platforms differ.
+ * and once the user approves, a login signature over the login message for its 32-byte word. The vault is a stub and
+ * the domain comes from the real `loginKeyDomain`. Requests run on mobile, and as the extension where the two
+ * platforms differ.
  */
 
 import extensionBrowser from 'webextension-polyfill';

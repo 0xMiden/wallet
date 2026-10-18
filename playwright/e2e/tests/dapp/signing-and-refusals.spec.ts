@@ -218,19 +218,17 @@ function signingCells(j: Journey): Record<string, DappCellImpl> {
         // A length compared as a number: toHaveLength would print the signature's bytes on a failure.
         expect(Buffer.from(signed.signatureB64, 'base64').length).toBe(66);
         expect(signed.schemeTag).toBe(ECDSA_SCHEME_TAG);
-        expect(
-          await callDapp(
+        const publicKeyB64 = recoverEcdsaPublicKey(signed.signatureB64, signed.messageB64);
+        const verify = (payloadB64: string) =>
+          callDapp(
             dapp,
             'verifySignature',
-            {
-              kind: 'word',
-              payloadB64: signed.payloadB64,
-              signatureB64: signed.signatureB64,
-              publicKeyB64: recoverEcdsaPublicKey(signed.signatureB64, signed.messageB64)
-            },
+            { kind: 'word', payloadB64, signatureB64: signed.signatureB64, publicKeyB64 },
             ctx.deadline
-          )
-        ).toEqual({ verifies: true, commitmentHex: first.loginKeyHex });
+          );
+        // The key signed the login message the page hashed from its word, as a site checks it, and not the word.
+        expect(await verify(signed.messageB64)).toEqual({ verifies: true, commitmentHex: first.loginKeyHex });
+        expect(await verify(signed.payloadB64)).toEqual({ verifies: false, commitmentHex: first.loginKeyHex });
       }
     },
     // A declined login signature rejects. No adapter wraps these calls, so the provider's own class reaches the dApp.
