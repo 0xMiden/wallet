@@ -101,14 +101,15 @@ An error is `{ "code": <code>, "message": <text for logs> }`. The codes are Brea
 | `REQUEST_EXPIRED` | `sentAt` is more than 10 minutes old, or more than 1 minute ahead of Bread's clock, when Bread reads the request or when its turn comes in Bread's queue. |
 | `SESSION_NOT_FOUND` | Bread has no session with this id. Unsealed. |
 | `UNSUPPORTED_VERSION` | `v` is not 1. Unsealed. |
-| `TRANSACTION_FAILED`, `TRANSACTION_TIMEOUT` | Only in a transaction outcome. |
+| `TRANSACTION_FAILED` | Only in a transaction outcome. |
+| `TRANSACTION_TIMEOUT` | In a transaction outcome, or as a transaction request's error when Bread cannot tell whether it sent the transaction. |
 | `INTERNAL_ERROR` | Anything else. |
 
 ## Methods
 
 A `request` envelope carries one of these `MidenDAppRequest` types: `SIGN_REQUEST`, `TRANSACTION_REQUEST`, `SEND_TRANSACTION_REQUEST`, `CONSUME_REQUEST`, `PRIVATE_NOTES_REQUEST`, `ASSETS_REQUEST`, `CONSUMABLE_NOTES_REQUEST`, `IMPORT_PRIVATE_NOTE_REQUEST` and `GUARDIAN_INFO_REQUEST`. `PERMISSION_REQUEST` travels only in `connect`. The app answers `GET_CURRENT_PERMISSION_REQUEST` from its session, and a disconnect only forgets the session in the app; the user removes the app's permission in Bread.
 
-Bread finishes a transaction request (`TRANSACTION_REQUEST`, `SEND_TRANSACTION_REQUEST`, `CONSUME_REQUEST`) before it switches back: once the user approves, Bread proves and submits the transaction while it stays open, because a phone suspends a background app within seconds. The answer carries the transaction id and its outcome, which is what `waitForTransaction` returns, so the app answers `WAIT_FOR_TRANSACTION_REQUEST` for that transaction without switching to Bread again. `TRANSACTION_FAILED` means the transaction failed. An outcome Bread cannot return is `TRANSACTION_TIMEOUT`: one it did not learn within 5 minutes or could not wait for, a transaction whose record Bread cannot read, and a transaction that landed without a result Bread can send. So an app never takes a transaction that may have landed for one that failed.
+Bread finishes a transaction request (`TRANSACTION_REQUEST`, `SEND_TRANSACTION_REQUEST`, `CONSUME_REQUEST`) before it switches back: once the user approves, Bread proves and submits the transaction while it stays open, because a phone suspends a background app within seconds. The answer carries the transaction id and its outcome, which is what `waitForTransaction` returns, so the app answers `WAIT_FOR_TRANSACTION_REQUEST` for that transaction without switching to Bread again. `TRANSACTION_FAILED` means the transaction failed. An outcome Bread cannot return is `TRANSACTION_TIMEOUT`: one it did not learn within 5 minutes or could not wait for, a transaction whose record Bread cannot read, and a transaction that landed without a result Bread can send. When the user approved a transaction but Bread cannot tell whether it was sent, Bread answers the transaction id with a `TRANSACTION_TIMEOUT` outcome, or a `TRANSACTION_TIMEOUT` error when it has no id. So an app never takes a transaction that may have landed for one that failed.
 
 ## What Bread does
 

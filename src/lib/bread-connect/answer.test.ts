@@ -350,6 +350,19 @@ describe('a request link', () => {
     }
   );
 
+  it('answers a transaction request refused with something other than an error as an internal error', async () => {
+    const session = await connected();
+    const { link } = sendRequest(session, SEND_REQUEST, NOW);
+    mockProcessDApp.mockRejectedValueOnce('OUTCOME_UNKNOWN');
+
+    const answer = await answerRequestLink(link, { now: NOW });
+
+    expect(answer?.sentTransaction).toBeUndefined();
+    expect(requestAnswer(answer!, session)).toEqual({
+      error: { code: 'INTERNAL_ERROR', message: 'Bread could not complete the request' }
+    });
+  });
+
   it('answers a transaction the wallet cannot tell was sent with a sealed timeout, marked as sent', async () => {
     const session = await connected();
     const { link } = sendRequest(session, SEND_REQUEST, NOW);

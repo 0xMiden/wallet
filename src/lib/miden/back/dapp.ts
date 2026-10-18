@@ -1830,9 +1830,11 @@ const dappWriteFailure = (error: unknown): unknown => {
   // A queued id outranks a kill anywhere in the chain: retrying the write could send it twice.
   for (const link of causeChain(error)) {
     if (link instanceof TransactionQueuedError) {
+      // Bread Connect reads the queued id from this cause, never from the message.
       return new Error(
         `${MidenDAppErrorType.OutcomeUnknown}: transaction ${link.transactionId} may already be queued; ` +
-          'wait for it before sending again'
+          'wait for it before sending again',
+        { cause: link }
       );
     }
   }

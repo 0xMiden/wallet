@@ -8,6 +8,7 @@ import {
   type DAppMessage,
   type ErrorCode,
   errorLink,
+  isErrorCode,
   openRequest,
   type OpenedRequest,
   type ProtocolError,
@@ -24,6 +25,7 @@ import { MidenDAppErrorType, MidenDAppMessageType, type MidenDAppRequest } from 
 import { DAppQueueDeadlineError, processDApp } from 'lib/miden/back/actions';
 import { ITransactionStatus } from 'lib/miden/db/types';
 import { getTransactionById } from 'lib/miden/transaction/get';
+import { TransactionQueuedError } from 'lib/miden/transaction/initiate';
 
 import { dropSession, findSession, hasAnswered, keepSession, recordAnswered } from './sessions';
 
@@ -58,10 +60,11 @@ const METHODS = new Set<string>([
   MidenDAppMessageType.GuardianInfoRequest
 ]);
 
-const TRANSACTIONS = new Set<string>([
-  MidenDAppMessageType.TransactionRequest,
-  MidenDAppMessageType.SendTransactionRequest,
-  MidenDAppMessageType.ConsumeRequest
+/** The transaction requests, each with the type of the response that carries its transaction id. */
+const TRANSACTIONS = new Map<string, string>([
+  [MidenDAppMessageType.TransactionRequest, MidenDAppMessageType.TransactionResponse],
+  [MidenDAppMessageType.SendTransactionRequest, MidenDAppMessageType.SendTransactionResponse],
+  [MidenDAppMessageType.ConsumeRequest, MidenDAppMessageType.ConsumeResponse]
 ]);
 
 const DAPP_ERRORS = new Set<string>(Object.values(MidenDAppErrorType));
@@ -74,11 +77,18 @@ const INTERNAL = problem('INTERNAL_ERROR', 'Bread could not complete the request
 const TOO_LONG = problem('INTERNAL_ERROR', "Bread's answer is longer than a link carries");
 const OUTCOME_TOO_LONG = problem('TRANSACTION_TIMEOUT', "The transaction's outcome is longer than a link carries");
 const OUTCOME_UNKNOWN = problem('TRANSACTION_TIMEOUT', "Bread could not learn the transaction's outcome");
+const SENT_UNKNOWN = problem('TRANSACTION_TIMEOUT', 'Bread could not tell whether the transaction was sent');
 const QUEUED_TOO_LONG = problem('REQUEST_EXPIRED', 'The request waited too long behind other requests in Bread');
 
+/** The code a wallet error starts with: the wallet may put details after it, following a colon. */
+function walletCode(error: unknown): string {
+  return error instanceof Error ? error.message.replace(/:[\s\S]*/, '') : '';
+}
+
+/** The wallet's code alone, never its text, and only a code the protocol has. */
 function refusal(error: unknown): ProtocolError {
-  const code = error instanceof Error ? error.message : '';
-  return DAPP_ERRORS.has(code) ? problem(code as ErrorCode, code) : INTERNAL;
+  const code = walletCode(error);
+  return DAPP_ERRORS.has(code) && isErrorCode(code) ? problem(code, code) : INTERNAL;
 }
 
 /** What Bread sends back for a request link, or null when it drops the link. */
@@ -163,7 +173,20 @@ async function request(
     if (!answered) return reply({ error: INTERNAL });
     response = answered as unknown as DAppMessage;
   } catch (error) {
-    return reply({ error: error instanceof DAppQueueDeadlineError ? QUEUED_TOO_LONG : refusal(error) });
+    if (error instanceof DAppQueueDeadlineError) return reply({ error: QUEUED_TOO_LONG });
+    const responseType = TRANSACTIONS.get(request.type);
+    if (responseType && error instanceof Error && walletCode(error) === MidenDAppErrorType.OutcomeUnknown) {
+      // The transaction may have landed, so the app must not read this as a failure and send it again.
+      const queued = error.cause instanceof TransactionQueuedError ? error.cause : undefined;
+      const answer: RequestAnswer = queued
+        ? {
+            response: { type: responseType, transactionId: queued.transactionId },
+            transaction: { error: OUTCOME_UNKNOWN }
+          }
+        : { error: SENT_UNKNOWN };
+      return { ...reply(answer), sentTransaction: true };
+    }
+    return reply({ error: refusal(error) });
   }
   if (!TRANSACTIONS.has(request.type)) return reply({ response });
   const transactionId = response.transactionId;
