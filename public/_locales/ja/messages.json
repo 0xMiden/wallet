@@ -4429,6 +4429,36 @@
     "message": "開く",
     "englishSource": "Open"
   },
+  "breadConnectWaitingTitle": {
+    "message": "トランザクションを完了しています",
+    "englishSource": "Finishing the transaction"
+  },
+  "breadConnectWaitingDescription": {
+    "message": "Bread を開いたままにしてください。トランザクションが完了すると $host$ に戻ります。",
+    "englishSource": "Keep Bread open: it takes you back to $host$ once the transaction is done.",
+    "placeholders": {
+      "host": {
+        "content": "$1"
+      }
+    }
+  },
+  "breadConnectUnreturnedTitle": {
+    "message": "$host$ を開けませんでした",
+    "englishSource": "Couldn't open $host$",
+    "placeholders": {
+      "host": {
+        "content": "$1"
+      }
+    }
+  },
+  "breadConnectUnreturnedDescription": {
+    "message": "Bread は応答しましたが、リクエスト元のアプリが開きませんでした。続けるには、そのアプリをご自身で開いてください。",
+    "englishSource": "Bread answered, but the app that asked didn't open. Open it yourself to continue."
+  },
+  "breadConnectUnreturnedTransactionDescription": {
+    "message": "トランザクションは送信済みです。アプリで再試行する前に、Bread で結果を確認してください。",
+    "englishSource": "The transaction was still sent. Check its result in Bread before you try again in the app."
+  },
   "approve": {
     "message": "承認する",
     "englishSource": "Approve"

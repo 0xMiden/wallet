@@ -4429,6 +4429,36 @@
     "message": "Відкрити",
     "englishSource": "Open"
   },
+  "breadConnectWaitingTitle": {
+    "message": "Завершення транзакції",
+    "englishSource": "Finishing the transaction"
+  },
+  "breadConnectWaitingDescription": {
+    "message": "Не закривайте Bread: коли транзакцію буде завершено, ви повернетеся до $host$.",
+    "englishSource": "Keep Bread open: it takes you back to $host$ once the transaction is done.",
+    "placeholders": {
+      "host": {
+        "content": "$1"
+      }
+    }
+  },
+  "breadConnectUnreturnedTitle": {
+    "message": "Не вдалося відкрити $host$",
+    "englishSource": "Couldn't open $host$",
+    "placeholders": {
+      "host": {
+        "content": "$1"
+      }
+    }
+  },
+  "breadConnectUnreturnedDescription": {
+    "message": "Bread відповів, але застосунок, який надіслав запит, не відкрився. Відкрийте його самостійно, щоб продовжити.",
+    "englishSource": "Bread answered, but the app that asked didn't open. Open it yourself to continue."
+  },
+  "breadConnectUnreturnedTransactionDescription": {
+    "message": "Транзакцію все одно надіслано. Перевірте її результат у Bread, перш ніж повторювати спробу в застосунку.",
+    "englishSource": "The transaction was still sent. Check its result in Bread before you try again in the app."
+  },
   "approve": {
     "message": "Затвердити",
     "englishSource": "Approve"

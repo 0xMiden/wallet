@@ -18,6 +18,7 @@ import PageRouter from 'app/PageRouter';
 import { DappBrowserProvider } from 'app/providers/DappBrowserProvider';
 import { GuardianRecoveryProvider } from 'app/providers/GuardianRecoveryProvider';
 import { UpdateNotificationProvider } from 'app/providers/UpdateNotificationProvider';
+import { BreadConnectPrompt } from 'app/templates/BreadConnectPrompt';
 import { HotKeyRotationGate } from 'app/templates/HotKeyRotationGate';
 import { OpenLinkPrompt } from 'app/templates/OpenLinkPrompt';
 import { PinExtensionPrompt } from 'app/templates/PinExtensionPrompt';
@@ -104,6 +105,7 @@ const App: FC<AppProps> = ({ env }) => {
                           <HotKeyRotationGate />
                           <GuardianRecoveryProvider />
                           <OpenLinkPrompt />
+                          <BreadConnectPrompt />
                           <PageRouter />
                         </UpdateNotificationProvider>
                       </DappBrowserProvider>

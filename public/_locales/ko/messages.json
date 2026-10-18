@@ -4429,6 +4429,36 @@
     "message": "열기",
     "englishSource": "Open"
   },
+  "breadConnectWaitingTitle": {
+    "message": "트랜잭션 완료 중",
+    "englishSource": "Finishing the transaction"
+  },
+  "breadConnectWaitingDescription": {
+    "message": "Bread를 열어 두십시오. 트랜잭션이 완료되면 $host$(으)로 돌아갑니다.",
+    "englishSource": "Keep Bread open: it takes you back to $host$ once the transaction is done.",
+    "placeholders": {
+      "host": {
+        "content": "$1"
+      }
+    }
+  },
+  "breadConnectUnreturnedTitle": {
+    "message": "$host$을(를) 열 수 없습니다",
+    "englishSource": "Couldn't open $host$",
+    "placeholders": {
+      "host": {
+        "content": "$1"
+      }
+    }
+  },
+  "breadConnectUnreturnedDescription": {
+    "message": "Bread가 응답했지만 요청한 앱이 열리지 않았습니다. 계속하려면 앱을 직접 여십시오.",
+    "englishSource": "Bread answered, but the app that asked didn't open. Open it yourself to continue."
+  },
+  "breadConnectUnreturnedTransactionDescription": {
+    "message": "트랜잭션은 이미 전송되었습니다. 앱에서 다시 시도하기 전에 Bread에서 결과를 확인하십시오.",
+    "englishSource": "The transaction was still sent. Check its result in Bread before you try again in the app."
+  },
   "approve": {
     "message": "승인",
     "englishSource": "Approve"

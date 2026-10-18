@@ -454,13 +454,14 @@ describe('the desktop wipe announcement', () => {
 });
 
 describe('clearClientStorage', () => {
-  it("keeps the kept keys in their desktop form, removes every other localStorage key, and every sessionStorage key but open-link's records", async () => {
+  it("keeps the kept keys in their desktop form, removes every other localStorage key, and every sessionStorage key but open-link's and Bread Connect's records", async () => {
     localStorage.setItem('miden_wallet_endpoint_overrides', '{"rpcUrl":"https://rpc.custom"}');
     localStorage.setItem('miden_wallet_vault_key', 'v');
     localStorage.setItem('ui_cache', 'u');
     sessionStorage.setItem('open-link:taken', '["com.miden.wallet://open?url=https%3A%2F%2Flive.example%2F"]');
     sessionStorage.setItem('open-link:pending', 'https://bread.miden.xyz/open#url=https%3A%2F%2Fheld.example%2F');
     sessionStorage.setItem('open-link:launch', 'https://bread.miden.xyz/open#url=https%3A%2F%2Flaunch.example%2F');
+    sessionStorage.setItem('bread-connect:taken', '["AAAAAAAAAAAAAAAAAAAAAA"]');
     sessionStorage.setItem('draft', 'd');
 
     await clearClientStorage();
@@ -475,6 +476,7 @@ describe('clearClientStorage', () => {
     expect(sessionStorage.getItem('open-link:launch')).toBe(
       'https://bread.miden.xyz/open#url=https%3A%2F%2Flaunch.example%2F'
     );
+    expect(sessionStorage.getItem('bread-connect:taken')).toBe('["AAAAAAAAAAAAAAAAAAAAAA"]');
     expect(sessionStorage.getItem('draft')).toBeNull();
   });
 

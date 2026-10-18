@@ -207,6 +207,10 @@ jest.mock('app/templates/OpenLinkPrompt', () => ({
   OpenLinkPrompt: () => <div data-testid="open-link-prompt" />
 }));
 
+jest.mock('app/templates/BreadConnectPrompt', () => ({
+  BreadConnectPrompt: () => <div data-testid="bread-connect-prompt" />
+}));
+
 jest.mock('components/ConnectivityIssueBanner', () => ({
   ExtensionMessageListener: () => <div data-testid="extension-message-listener" />
 }));

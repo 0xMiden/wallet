@@ -4429,6 +4429,36 @@
     "message": "Открыть",
     "englishSource": "Open"
   },
+  "breadConnectWaitingTitle": {
+    "message": "Завершение транзакции",
+    "englishSource": "Finishing the transaction"
+  },
+  "breadConnectWaitingDescription": {
+    "message": "Не закрывайте Bread: когда транзакция завершится, вы вернётесь в $host$.",
+    "englishSource": "Keep Bread open: it takes you back to $host$ once the transaction is done.",
+    "placeholders": {
+      "host": {
+        "content": "$1"
+      }
+    }
+  },
+  "breadConnectUnreturnedTitle": {
+    "message": "Не удалось открыть $host$",
+    "englishSource": "Couldn't open $host$",
+    "placeholders": {
+      "host": {
+        "content": "$1"
+      }
+    }
+  },
+  "breadConnectUnreturnedDescription": {
+    "message": "Bread ответил, но приложение, отправившее запрос, не открылось. Откройте его сами, чтобы продолжить.",
+    "englishSource": "Bread answered, but the app that asked didn't open. Open it yourself to continue."
+  },
+  "breadConnectUnreturnedTransactionDescription": {
+    "message": "Транзакция всё равно отправлена. Проверьте её результат в Bread, прежде чем повторять попытку в приложении.",
+    "englishSource": "The transaction was still sent. Check its result in Bread before you try again in the app."
+  },
   "approve": {
     "message": "Утвердить",
     "englishSource": "Approve"

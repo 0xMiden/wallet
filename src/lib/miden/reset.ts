@@ -1,3 +1,4 @@
+import { BREAD_CONNECT_SESSION_KEYS } from 'lib/bread-connect/keys';
 import { OPEN_LINK_SESSION_KEYS } from 'lib/dapp-browser/open-link-keys';
 import { EXPLORE_CONFIG_FLOOR_KEY } from 'lib/explore-config/floor-key';
 import { rereadStorageCache } from 'lib/miden/front/storage';
@@ -168,11 +169,12 @@ export async function resetStorageDestructive({
 // The recovery page's own wipe. On desktop localStorage is also the key-value store, so it keeps
 // what a wallet-setup reset keeps, and re-reads the cache as every other wipe does; on the extension
 // and mobile those names are not in it, and the re-read finds nothing changed. sessionStorage keeps
-// open-link's records, because the platform keeps reporting the launch link for the rest of the app session.
+// open-link's and Bread Connect's records, because the platform keeps reporting the launch link for the rest of the
+// app session.
 export async function clearClientStorage(): Promise<void> {
   try {
     removeLocalStorageExcept(PRESERVED_STORAGE_KEYS);
-    removeSessionStorageExcept(OPEN_LINK_SESSION_KEYS);
+    removeSessionStorageExcept([...OPEN_LINK_SESSION_KEYS, ...BREAD_CONNECT_SESSION_KEYS]);
   } finally {
     await rereadStorageCache();
     // localStorage was cleared in this document, which gets no storage event for it (activity-read caches it).
