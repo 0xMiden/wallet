@@ -193,8 +193,9 @@ async function outcome(origin: string, txId: string): Promise<TransactionOutcome
     if (!output) return { error: OUTCOME_UNKNOWN };
     if (!('errorMessage' in output)) return { output };
     const row = await getTransactionById(txId).catch(() => undefined);
-    // A Completed row ends the wait in an error when it landed without a result Bread can return: not a failure.
-    const failed = row === undefined || row.status === ITransactionStatus.Failed;
+    // Without its row Bread cannot tell whether the transaction landed, and a Completed row ends the wait in an
+    // error when it landed without a result Bread can return: neither is a failure.
+    const failed = row?.status === ITransactionStatus.Failed;
     return { error: problem(failed ? 'TRANSACTION_FAILED' : 'TRANSACTION_TIMEOUT', output.errorMessage) };
   } catch (error) {
     // The transaction was sent: a wait refused after it, such as for a permission removed meanwhile, is no failure.
