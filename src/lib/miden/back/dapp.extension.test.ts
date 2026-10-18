@@ -16,7 +16,10 @@ import { WalletAdapterNetwork } from '@miden-sdk/miden-wallet-adapter-base';
 import extensionBrowser, { type Windows } from 'webextension-polyfill';
 
 import { MidenDAppConsumeRequest, MidenDAppMessageType, MidenDAppErrorType } from 'lib/adapter/types';
+import { startTransactionProcessing } from 'lib/miden/back/transaction-processor';
+import * as noteQuarantine from 'lib/miden/note-quarantine';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
+import { requestCustomTransaction } from 'lib/miden/transaction';
 import { TransactionQueuedError } from 'lib/miden/transaction/initiate';
 import { MidenMessageType } from 'lib/miden/types';
 import { WalletStatus } from 'lib/shared/types';
@@ -1118,6 +1121,54 @@ describe('Full confirmation cycles in extension mode', () => {
       expect(_g.__dappExtTest.lastConfirmResponse).toEqual({
         type: MidenMessageType.DAppTransactionConfirmationResponse
       });
+    });
+  });
+
+  describe('approved extension custom carried-note failures (#1378)', () => {
+    const queuedMessage = 'OUTCOME_UNKNOWN: transaction tx-1 may already be queued; wait for it before sending again';
+    const queued = new TransactionQueuedError('tx-1', { cause: new Error('note queue unavailable') });
+
+    it.each<[string, Error, string, number]>([
+      ['a queued row', queued, queuedMessage, 1],
+      ['a cause-wrapped queued row', new Error('custom wrapper', { cause: queued }), queuedMessage, 1],
+      ['a NOT_GRANTED refusal', new Error(MidenDAppErrorType.NotGranted), 'NOT_GRANTED', 0]
+    ])('follows up only a queued row after %s', async (_label, error, message, followUps) => {
+      const importNotes = ['bm90ZS0x', 'bm90ZS0y'];
+      const noteIds = ['carried-note-1', 'carried-note-2'];
+      const importedIds = jest.spyOn(noteQuarantine, 'importedNoteIds').mockReturnValue(noteIds);
+      const releaseNotes = jest.spyOn(noteQuarantine, 'releaseNoteIds').mockResolvedValue(undefined);
+      jest.mocked(requestCustomTransaction).mockRejectedValueOnce(error);
+      if (followUps > 0) jest.mocked(startTransactionProcessing).mockResolvedValueOnce(undefined);
+
+      try {
+        await expect(
+          driveConfirmation(
+            () =>
+              dapp.requestTransaction('https://miden.xyz', {
+                type: MidenDAppMessageType.TransactionRequest,
+                sourcePublicKey: 'miden-account-1',
+                transaction: {
+                  payload: { address: 'miden-account-1', transactionRequest: 'b64req', importNotes }
+                }
+              } as never),
+            MidenMessageType.DAppTransactionConfirmationRequest,
+            { confirmed: true, delegate: false }
+          )
+        ).rejects.toEqual(new Error(message));
+        expect(requestCustomTransaction).toHaveBeenCalledTimes(1);
+        expect(startTransactionProcessing).toHaveBeenCalledTimes(followUps);
+        expect(releaseNotes).toHaveBeenCalledTimes(followUps);
+        if (followUps > 0) {
+          expect(importedIds).toHaveBeenCalledWith(importNotes);
+          expect(releaseNotes).toHaveBeenCalledWith(noteIds);
+        }
+        expect(_g.__dappExtTest.lastConfirmResponse).toEqual({
+          type: MidenMessageType.DAppTransactionConfirmationResponse
+        });
+      } finally {
+        importedIds.mockRestore();
+        releaseNotes.mockRestore();
+      }
     });
   });
 

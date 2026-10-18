@@ -16,6 +16,7 @@ import { WalletAdapterNetwork } from '@miden-sdk/miden-wallet-adapter-base';
 import PQueue from 'p-queue';
 
 import { MidenDAppMessageType, MidenDAppErrorType } from 'lib/adapter/types';
+import * as noteQuarantine from 'lib/miden/note-quarantine';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { TransactionQueuedError } from 'lib/miden/transaction/initiate';
 import { DEFAULT_DELEGATE_PROOF } from 'lib/settings/constants';
@@ -1325,19 +1326,20 @@ describe.each(['send', 'custom'])('an approved non-extension %s failure (#1378)'
   const poison = new WasmClientPoisonedError('watchdog', new Error('write parked'));
   const queued = new TransactionQueuedError('tx-1', { cause: poison });
 
-  it.each<[string, Error, string]>([
-    ['a queued transaction', queued, queuedMessage],
-    ['a cause-wrapped queued transaction', new Error('NOT_GRANTED', { cause: queued }), queuedMessage],
-    ['a kill carrying a queued transaction', new WasmClientPoisonedError('watchdog', queued), queuedMessage],
-    ['a watchdog eviction', poison, killMessage],
-    ['an offscreen abort', new OperationAbortedError('op-1378', 'deadline'), killMessage],
-    ['a terminated client', new Error('Client terminated'), killMessage],
-    ['a terminated web client', new Error('WebClient terminated'), killMessage],
-    ['a cause-wrapped poison', new Error('NOT_GRANTED', { cause: poison }), killMessage],
-    ['an authorization refusal', new Error(MidenDAppErrorType.NotGranted), 'NOT_GRANTED']
-  ])('reports %s with the exact outcome message', async (_label, error, message) => {
+  it.each<[string, Error, string, number]>([
+    ['a queued transaction', queued, queuedMessage, 1],
+    ['a cause-wrapped queued transaction', new Error('NOT_GRANTED', { cause: queued }), queuedMessage, 1],
+    ['a kill carrying a queued transaction', new WasmClientPoisonedError('watchdog', queued), queuedMessage, 1],
+    ['a watchdog eviction', poison, killMessage, 0],
+    ['an offscreen abort', new OperationAbortedError('op-1378', 'deadline'), killMessage, 0],
+    ['a terminated client', new Error('Client terminated'), killMessage, 0],
+    ['a terminated web client', new Error('WebClient terminated'), killMessage, 0],
+    ['a cause-wrapped poison', new Error('NOT_GRANTED', { cause: poison }), killMessage, 0],
+    ['an authorization refusal', new Error(MidenDAppErrorType.NotGranted), 'NOT_GRANTED', 0]
+  ])('reports %s with the exact outcome message', async (_label, error, message, queuedCustomStarts) => {
     const initiate = kind === 'send' ? mockInitiateSendTransaction : mockRequestCustomTransaction;
     initiate.mockRejectedValueOnce(error);
+    if (kind === 'custom' && queuedCustomStarts > 0) mockStartTransactionProcessing.mockResolvedValueOnce(undefined);
 
     const answer =
       kind === 'send'
@@ -1363,7 +1365,48 @@ describe.each(['send', 'custom'])('an approved non-extension %s failure (#1378)'
     await expect(answer).rejects.toEqual(new Error(message));
     expect(mockRequestConfirmation).toHaveBeenCalledTimes(1);
     expect(initiate).toHaveBeenCalledTimes(1);
-    expect(mockStartTransactionProcessing).not.toHaveBeenCalled();
+    expect(mockStartTransactionProcessing).toHaveBeenCalledTimes(kind === 'custom' ? queuedCustomStarts : 0);
+  });
+});
+
+describe('approved non-extension custom carried-note failures (#1378)', () => {
+  const queuedMessage = 'OUTCOME_UNKNOWN: transaction tx-1 may already be queued; wait for it before sending again';
+  const queued = new TransactionQueuedError('tx-1', { cause: new Error('note queue unavailable') });
+
+  it.each<[string, Error, string, number]>([
+    ['a queued row', queued, queuedMessage, 1],
+    ['a cause-wrapped queued row', new Error('custom wrapper', { cause: queued }), queuedMessage, 1],
+    ['a NOT_GRANTED refusal', new Error(MidenDAppErrorType.NotGranted), 'NOT_GRANTED', 0]
+  ])('follows up only a queued row after %s', async (_label, error, message, followUps) => {
+    const importNotes = ['bm90ZS0x', 'bm90ZS0y'];
+    const noteIds = ['carried-note-1', 'carried-note-2'];
+    const importedIds = jest.spyOn(noteQuarantine, 'importedNoteIds').mockReturnValue(noteIds);
+    const releaseNotes = jest.spyOn(noteQuarantine, 'releaseNoteIds').mockResolvedValue(undefined);
+    mockRequestCustomTransaction.mockRejectedValueOnce(error);
+    if (followUps > 0) mockStartTransactionProcessing.mockResolvedValueOnce(undefined);
+
+    try {
+      await expect(
+        dapp.requestTransaction('https://miden.xyz', {
+          type: MidenDAppMessageType.TransactionRequest,
+          sourcePublicKey: 'miden-account-1',
+          transaction: {
+            payload: { address: 'miden-account-1', transactionRequest: 'base64req', importNotes }
+          }
+        } as never)
+      ).rejects.toEqual(new Error(message));
+      expect(mockRequestConfirmation).toHaveBeenCalledTimes(1);
+      expect(mockRequestCustomTransaction).toHaveBeenCalledTimes(1);
+      expect(mockStartTransactionProcessing).toHaveBeenCalledTimes(followUps);
+      expect(releaseNotes).toHaveBeenCalledTimes(followUps);
+      if (followUps > 0) {
+        expect(importedIds).toHaveBeenCalledWith(importNotes);
+        expect(releaseNotes).toHaveBeenCalledWith(noteIds);
+      }
+    } finally {
+      importedIds.mockRestore();
+      releaseNotes.mockRestore();
+    }
   });
 });
 

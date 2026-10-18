@@ -477,6 +477,23 @@ describe('importAllNotes', () => {
     expect(_g.__notesTest.store['miden-note-import-deadletter']).toBeUndefined();
   });
 
+  it.each([0, 2])('keeps a cause-wrapped poison transient with %s prior poison attempts', async poisonAttempts => {
+    _g.__notesTest.store['miden-notes-pending-import'] = [{ bytes: 'aGVsbG8=', attempts: 0, poisonAttempts }];
+    const poison = new WasmClientPoisonedError('watchdog', new Error('note import parked'));
+    _g.__notesTest.midenClient.importNoteBytes.mockRejectedValue(new Error('import wrapper', { cause: poison }));
+
+    jest.useFakeTimers();
+    const pass = importAllNotes();
+    await jest.advanceTimersByTimeAsync(2100);
+    await pass;
+    jest.useRealTimers();
+
+    expect(_g.__notesTest.store['miden-notes-pending-import']).toEqual([
+      expect.objectContaining({ bytes: 'aGVsbG8=', poisonAttempts })
+    ]);
+    expect(_g.__notesTest.store['miden-note-import-deadletter']).toBeUndefined();
+  });
+
   it('treats an import a terminated client refused as transient, never spending the poison cap', async () => {
     // The client was replaced under the import, which says nothing about the note's bytes, and
     // the text matches no network token, so only the kill check keeps it off the poison cap.
