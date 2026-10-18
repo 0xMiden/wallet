@@ -127,29 +127,50 @@ const TERM_ENDINGS: Record<string, string[]> = {
   pl: ['a', 'u', 'owi', 'em', 'ie', 'y', 'i', 'owie', 'ów', 'om', 'ami', 'ach'],
   pt: ['s']
 };
+// Native words containing a term, matched as whole words without regard to case.
+const TERM_NATIVE_WORDS: Record<string, string[]> = {
+  de: ['knoten', 'knotens'],
+  fr: [
+    'notent',
+    'noter',
+    'notera',
+    'noterai',
+    'noteraient',
+    'noterais',
+    'noterait',
+    'noteras',
+    'noterez',
+    'noteriez',
+    'noterions',
+    'noterons',
+    'noteront',
+    'notez'
+  ],
+  pt: ['anote', 'anotei', 'anoteis', 'anotem', 'anotemos', 'anotes']
+};
 
 const termFamily = (term: string): string => term.toLowerCase().replace(/s$/, '');
 
-// The words of `translation` that embed a term `english` protects. An embedded match counts as glue only
-// when the translation has fewer clean occurrences of its family (whole words or allowed endings) than
-// the English protects. Enough clean occurrences leave native words such as "Notez" and "Knoten" alone.
+// The words of `translation` that embed a term `english` protects. An embedded match is glue unless the
+// whole word is a known native word in that language. Clean occurrences elsewhere never exempt glue,
+// and a translation may replace a repeated term with a pronoun.
 // `language` is a locale directory or a DeepL code ("pt", "pt-BR").
 function findGluedTerms(translation: string, english: string, language: string): string[] {
-  const protectedCounts = new Map<string, number>();
+  const protectedFamilies = new Set<string>();
   for (const m of english.matchAll(PROTECT_REGEX)) {
     if (!TECHNICAL_TERM_VARIANTS.includes(m[0])) continue;
-    const family = termFamily(m[0]);
-    protectedCounts.set(family, (protectedCounts.get(family) ?? 0) + 1);
+    protectedFamilies.add(termFamily(m[0]));
   }
-  const endings = TERM_ENDINGS[language.split(/[-_]/)[0].toLowerCase()] ?? [];
+  const locale = language.split(/[-_]/)[0].toLowerCase();
+  const endings = TERM_ENDINGS[locale] ?? [];
+  const nativeWords = TERM_NATIVE_WORDS[locale] ?? [];
   const text = translation.replace(PLACEHOLDER_REGEX, placeholder => '$'.repeat(placeholder.length));
   const isGlueLetter = (i: number): boolean => i >= 0 && i < text.length && GLUE_LETTER.test(text[i]);
-  const cleanCounts = new Map<string, number>();
-  const glued: { family: string; word: string }[] = [];
+  const glued: string[] = [];
   for (const m of text.matchAll(ANY_TERM_REGEX)) {
     const term = m[0];
     const family = termFamily(term);
-    if (!protectedCounts.has(family)) continue;
+    if (!protectedFamilies.has(family)) continue;
     const start = m.index;
     const end = start + term.length;
     let after = end;
@@ -158,17 +179,13 @@ function findGluedTerms(translation: string, english: string, language: string):
     // Every term starts with a consonant, and no shipped language elides before one ("L’note" is "La note").
     const elided = APOSTROPHE.test(text[start - 1] ?? '') && isGlueLetter(start - 2);
     const gluedAfter = ending !== '' && (/s$/i.test(term) || !endings.includes(ending));
-    if (!isGlueLetter(start - 1) && !elided && !gluedAfter) {
-      cleanCounts.set(family, (cleanCounts.get(family) ?? 0) + 1);
-      continue;
-    }
+    if (!isGlueLetter(start - 1) && !elided && !gluedAfter) continue;
     let from = elided ? start - 1 : start;
     while (isGlueLetter(from - 1)) from--;
-    glued.push({ family, word: translation.slice(from, after) });
+    const word = translation.slice(from, after);
+    if (!nativeWords.includes(word.toLowerCase())) glued.push(word);
   }
-  return glued
-    .filter(({ family }) => (cleanCounts.get(family) ?? 0) < (protectedCounts.get(family) ?? 0))
-    .map(({ word }) => word);
+  return glued;
 }
 
 function xmlEscape(s: string): string {
