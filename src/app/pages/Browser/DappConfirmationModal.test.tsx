@@ -938,21 +938,22 @@ describe('DappConfirmationModal - a login signature', () => {
     expect(screen.queryByText('Kind, word')).not.toBeInTheDocument();
   });
 
+  // Approve reports the account the sheet shows, not the wallet's selected one.
   it.each([
-    ['Approve', /approve/i, true],
-    ['Deny', /deny/i, false]
-  ] as const)('settles a login from %s, with no biometric prompt', (_label, name, confirmed) => {
+    ['Approve', /approve/i, { confirmed: true, accountPublicKey: LOGIN_ACCOUNT_ID }],
+    ['Deny', /deny/i, { confirmed: false }]
+  ] as const)('settles a login from %s, with no biometric prompt', (_label, name, result) => {
     const onResolve = jest.fn();
     render(<DappConfirmationModal request={loginRequest()} accountId={FULL_ACCOUNT_ID} onResolve={onResolve} />);
 
     fireEvent.click(screen.getByRole('button', { name }));
 
     expect(onResolve).toHaveBeenCalledTimes(1);
-    expect(onResolve).toHaveBeenCalledWith(expect.objectContaining({ confirmed }), 'req-1');
+    expect(onResolve).toHaveBeenCalledWith(expect.objectContaining(result), 'req-1');
     expect(confirmMock).not.toHaveBeenCalled();
   });
 
-  it('cannot approve a login that names no account', () => {
+  it('cannot approve a login that names no account, and Deny still settles it', () => {
     const onResolve = jest.fn();
     render(
       <DappConfirmationModal
@@ -966,5 +967,29 @@ describe('DappConfirmationModal - a login signature', () => {
     expect(screen.getByRole('button', { name: /approve/i })).toBeDisabled();
     fireEvent.click(screen.getByRole('button', { name: /approve/i }));
     expect(onResolve).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: /deny/i }));
+    expect(onResolve).toHaveBeenCalledTimes(1);
+    expect(onResolve).toHaveBeenCalledWith({ confirmed: false }, 'req-1');
+  });
+
+  it('cannot approve a login that names no site, and Deny still settles it', () => {
+    const onResolve = jest.fn();
+    render(
+      <DappConfirmationModal
+        request={loginRequest({ domain: undefined })}
+        accountId={FULL_ACCOUNT_ID}
+        onResolve={onResolve}
+      />
+    );
+
+    expect(screen.getByText(truncateAddress(LOGIN_ACCOUNT_ID))).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /approve/i })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: /approve/i }));
+    expect(onResolve).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: /deny/i }));
+    expect(onResolve).toHaveBeenCalledTimes(1);
+    expect(onResolve).toHaveBeenCalledWith({ confirmed: false }, 'req-1');
   });
 });

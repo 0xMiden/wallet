@@ -29,6 +29,7 @@ import {
   DAppConfirmationRequest,
   DAppConfirmationResult
 } from 'lib/dapp-browser/confirmation-store';
+import { truncateAddress } from 'utils/string';
 
 import DesktopDappConfirmationModal, {
   DesktopDappConfirmationModal as NamedDesktopDappConfirmationModal
@@ -267,6 +268,7 @@ describe('DesktopDappConfirmationModal', () => {
 
     expect(screen.getByText('dappLoginSignRequest')).toBeInTheDocument();
     expect(screen.getByText('loginSignatureNote')).toBeInTheDocument();
+    expect(screen.getByText(truncateAddress(FULL_KEY))).toBeInTheDocument();
 
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: button }));

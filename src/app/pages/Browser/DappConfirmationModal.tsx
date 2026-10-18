@@ -47,15 +47,22 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
   // prompt line differs.
   const isTransaction = isDetailsConfirmation(request.type);
   const transactionMessages = request.transactionMessages ?? [];
-  // A login signs with the login key of the account its request names, which the panel shows.
+  // A login signs with the login key of the account its request names, which the panel shows and the
+  // approval reports.
   const shownAccountId = request.type === 'loginSign' ? request.accountId : accountId;
   const transactionAccountMatches =
     request.type !== 'transaction' ||
     (accountId !== null &&
       request.sourcePublicKey !== undefined &&
       sameWalletAccountId(accountId, request.sourcePublicKey));
+  // Naming the site is the point of a login approval, so a login that names no site fails closed
+  // exactly like one that names no account.
   const canApprove =
-    request.type === 'transaction' ? transactionAccountMatches : isTransaction || Boolean(shownAccountId);
+    request.type === 'transaction'
+      ? transactionAccountMatches
+      : request.type === 'loginSign'
+        ? Boolean(request.domain && request.accountId)
+        : isTransaction || Boolean(accountId);
 
   // Private-data scope of a connect request. `Auto` + a non-empty
   // `allowedPrivateData` is STANDING access: the private-notes /
@@ -137,7 +144,7 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
     onResolve(
       {
         confirmed: true,
-        accountPublicKey: accountId ?? undefined,
+        accountPublicKey: shownAccountId ?? undefined,
         // Standing access is granted only on an explicit affirmative gesture.
         // Approving without ticking the box downgrades to `UponRequest` (each
         // read prompts) instead of silently honouring what the dApp asked for.

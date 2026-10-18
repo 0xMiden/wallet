@@ -12,7 +12,6 @@ import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useRetryableSWR } from 'lib/swr';
 import { snapshotCrashDiagnostics } from 'lib/telemetry/crash-diagnostics';
 import { useLocation } from 'lib/woozie';
-import { truncateAddress } from 'utils/string';
 
 import { declaredRequestToView, summaryBytesToView } from './confirm/decode';
 import { TransactionAssetView } from './confirm/TransactionAssetView';
@@ -83,6 +82,11 @@ jest.mock('lib/swr', () => ({
 
 jest.mock('lib/woozie', () => ({
   useLocation: jest.fn()
+}));
+
+const mockClipboardWrite = jest.fn();
+jest.mock('@capacitor/clipboard', () => ({
+  Clipboard: { write: (...args: unknown[]) => mockClipboardWrite(...args) }
 }));
 
 // Layout/boundary wrappers: render children so `ConfirmDAppForm` mounts.
@@ -1145,11 +1149,26 @@ describe('loginSign payload', () => {
 
     expect(screen.getByRole('heading', { name: 'confirmLoginSignature:example.org' })).toBeInTheDocument();
     expect(screen.getByText('loginSignatureNote:example.org')).toBeInTheDocument();
-    // The account the request names, not the one selected in the wallet.
-    expect(screen.getByText(truncateAddress(LOGIN_ACCOUNT_ID))).toBeInTheDocument();
-    expect(screen.queryByText(truncateAddress(ACCOUNT.publicKey))).not.toBeInTheDocument();
+    // The account the request names, stacked and in full, not the one selected in the wallet.
+    expect(screen.getByTestId('confirm-login-account')).toHaveClass('flex-col');
+    expect(screen.getByText(LOGIN_ACCOUNT_ID)).toBeInTheDocument();
+    expect(screen.queryByText(ACCOUNT.publicKey)).not.toBeInTheDocument();
+    expect(screen.queryByText('payload')).not.toBeInTheDocument();
     expect(screen.queryByText('opaqueSignatureWarning')).not.toBeInTheDocument();
     expect(screen.queryByTestId('alert')).not.toBeInTheDocument();
+  });
+
+  it('copies the full signing account from its row', async () => {
+    setPayload(loginPayload());
+    render(<ConfirmPage />);
+
+    const copy = screen.getByTestId('confirm-login-account-copy');
+    expect(screen.getByTestId('confirm-login-account')).toContainElement(copy);
+    await act(async () => {
+      fireEvent.click(copy);
+    });
+
+    expect(mockClipboardWrite).toHaveBeenCalledWith({ string: LOGIN_ACCOUNT_ID });
   });
 
   it('approves and declines through the signature confirmation', async () => {
