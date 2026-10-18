@@ -35,7 +35,7 @@ import {
 } from 'lib/miden/back/safe-storage';
 import { ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import { encodePrivateKeyPair, parsePrivateKeyPair } from 'lib/miden/guardian/private-key-pair';
-import { deriveLoginKeyScalar, type LoginKeySource } from 'lib/miden/login-key/derive';
+import { deriveLoginKeyScalar } from 'lib/miden/login-key/derive';
 import * as Passworder from 'lib/miden/passworder';
 import * as Repo from 'lib/miden/repo';
 import { clearStorage, SETUP_WIPE_KEPT_KEYS } from 'lib/miden/reset';
@@ -2291,12 +2291,11 @@ export class Vault {
 
   /**
    * The commitment of `accountId`'s login key for `domain`: base64 of 32 bytes, as `connect` returns the account key
-   * commitment. `connectedCommitment` is that account key commitment as the session stored it, read only to find a
-   * single private-key import's key.
+   * commitment.
    */
-  async loginKeyCommitment(accountId: string, connectedCommitment: string, domain: string): Promise<string> {
+  async loginKeyCommitment(accountId: string, domain: string): Promise<string> {
     return withError('Failed to derive the login key', () =>
-      this.withLoginKey(accountId, connectedCommitment, domain, secretKey => {
+      this.withLoginKey(accountId, domain, secretKey => {
         const publicKey = secretKey.publicKey();
         try {
           const commitment = publicKey.toCommitment();
@@ -2316,15 +2315,10 @@ export class Vault {
    * Sign the login message for `word`, base64 of a 32-byte word, with `accountId`'s login key for `domain`: Poseidon2
    * of the login tag and the word, never the word itself. Returns base64 of the 66-byte signature `[0x01, r, s, v]`.
    */
-  async signWithLoginKey(
-    accountId: string,
-    connectedCommitment: string,
-    domain: string,
-    word: string
-  ): Promise<string> {
+  async signWithLoginKey(accountId: string, domain: string, word: string): Promise<string> {
     return withError('Failed to sign with the login key', async () => {
       const wordBytes = loginWordBytes(word);
-      return this.withLoginKey(accountId, connectedCommitment, domain, secretKey => {
+      return this.withLoginKey(accountId, domain, secretKey => {
         let loginWord: Word;
         try {
           loginWord = Word.deserialize(wordBytes);
@@ -2356,17 +2350,12 @@ export class Vault {
    * Run `use` on `accountId`'s login key for `domain`, the ECDSA key whose scalar `deriveLoginKeyScalar` derives from
    * the account's root key. The key is freed, and the root and the scalar zeroed, before this settles.
    */
-  private async withLoginKey<T>(
-    accountId: string,
-    connectedCommitment: string,
-    domain: string,
-    use: (secretKey: AuthSecretKey) => T
-  ): Promise<T> {
-    const { root, source } = await this.loginKeyRoot(accountId, connectedCommitment);
+  private async withLoginKey<T>(accountId: string, domain: string, use: (secretKey: AuthSecretKey) => T): Promise<T> {
+    const root = await this.loginKeyRoot(accountId);
     try {
       // Nothing on this path has loaded the WASM module: on the extension the service worker holds no client.
       const [{ deserializeHotSecretKey }] = await Promise.all([import('../guardian/hot-key-import'), getWasmOrThrow()]);
-      const scalar = deriveLoginKeyScalar(root, source, domain);
+      const scalar = deriveLoginKeyScalar(root, 'evm', domain);
       try {
         const secretKey = deserializeHotSecretKey(bytesToHex(scalar));
         try {
@@ -2383,19 +2372,16 @@ export class Vault {
   }
 
   /**
-   * The root key of `accountId`'s login keys, as bytes the caller zeroes. In order: the stored EVM key; the EVM key
-   * derived from the seed phrase, for an account from before EVM keys were stored; a single private-key import's own
-   * key. Anything else is refused, never served by another of the wallet's keys.
+   * The root key of `accountId`'s login keys, as bytes the caller zeroes: the stored EVM key, or the EVM key derived
+   * from the seed phrase for an account from before EVM keys were stored. Anything else, a single private-key import
+   * included, is refused, never served by another of the wallet's keys.
    */
-  private async loginKeyRoot(
-    accountId: string,
-    connectedCommitment: string
-  ): Promise<{ root: Uint8Array; source: LoginKeySource }> {
+  private async loginKeyRoot(accountId: string): Promise<Uint8Array> {
     const account = (await this.fetchAccounts()).find(acc => sameWalletAccountId(acc.publicKey, accountId));
     if (!account) throw loginKeyUnavailable();
     const evmStorageKey = account.evmAddress && accEvmSecretKeyStrgKey(account.evmAddress.toLowerCase());
     if (evmStorageKey && (await isStored(evmStorageKey))) {
-      return decodeLoginKeyRoot(await fetchAndDecryptOne<Hex>(evmStorageKey, this.vaultKey), 'evm');
+      return decodeLoginKeyRoot(await fetchAndDecryptOne<Hex>(evmStorageKey, this.vaultKey));
     }
     if (account.hdIndex >= 0 && (await this.fetchSeedPhraseStatus()) === 'stored') {
       // In memory only: an older account's record and stored keys stay as they are.
@@ -2404,16 +2390,7 @@ export class Vault {
       if (account.evmAddress && evmKey.address.toLowerCase() !== account.evmAddress.toLowerCase()) {
         throw loginKeyUnavailable();
       }
-      return decodeLoginKeyRoot(evmKey.privateKeyHex, 'evm');
-    }
-    // A Guardian account's entries under `accAuthSecretKeyStrgKey` are its hot and cold keys, never a root.
-    const commitment =
-      account.type !== WalletType.Guardian && account.hdIndex < 0 && !account.evmAddress
-        ? commitmentToHex(connectedCommitment)
-        : undefined;
-    if (commitment && (await isStored(accAuthSecretKeyStrgKey(commitment)))) {
-      const secretKeyHex = await fetchAndDecryptOne<string>(accAuthSecretKeyStrgKey(commitment), this.vaultKey);
-      return decodeLoginKeyRoot(secretKeyHex, 'auth');
+      return decodeLoginKeyRoot(evmKey.privateKeyHex);
     }
     throw loginKeyUnavailable();
   }
@@ -2851,17 +2828,17 @@ function deriveEvmKeyPair(
 }
 
 /**
- * The login key root `hex` encodes, with or without `0x`, as bytes the caller zeroes after use; the decoding buffer
- * is zeroed here. Refused unless the hex is non-empty whole bytes, and 32 bytes for an EVM key: decoding anything else
- * truncates it, and a short or empty root still derives a key.
+ * The EVM key `hex` encodes, with or without `0x`, as login key root bytes the caller zeroes after use; the decoding
+ * buffer is zeroed here. Refused unless the hex is exactly 32 whole bytes: decoding anything else truncates it, and a
+ * short or empty root still derives a key.
  */
-function decodeLoginKeyRoot(hex: string, source: LoginKeySource): { root: Uint8Array; source: LoginKeySource } {
+function decodeLoginKeyRoot(hex: string): Uint8Array {
   const unprefixed = hex.startsWith('0x') ? hex.slice(2) : hex;
-  if (!isValidHex(unprefixed) || (source === 'evm' && unprefixed.length !== 64)) throw loginKeyUnavailable();
+  if (!isValidHex(unprefixed) || unprefixed.length !== 64) throw loginKeyUnavailable();
   const decoded = Buffer.from(unprefixed, 'hex');
   const root = new Uint8Array(decoded);
   decoded.fill(0);
-  return { root, source };
+  return root;
 }
 
 /** The 32 bytes `word` encodes in base64, refused before any key is read when it encodes anything else. */

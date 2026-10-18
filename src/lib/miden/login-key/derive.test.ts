@@ -29,12 +29,6 @@ describe('login key derivation', () => {
     );
   });
 
-  it('separates EVM roots from single-key roots', () => {
-    expect(scalarHex(EVM_A, 'auth', 'example.org')).toBe(
-      '13e56d3c6b31646c46723c78ae86c4ec7b079a2ce4759d0425104e57f8dbf4f2'
-    );
-  });
-
   it('uses the whole host where there is no registrable domain', () => {
     expect(scalarHex(EVM_A, 'evm', 'localhost')).toBe(
       'dfdd85ac20ee8139d9092849f1c4f7263bf5e563961c77fc2bd13d9a1f8cf699'

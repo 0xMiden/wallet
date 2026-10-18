@@ -295,7 +295,7 @@ describe('requestLoginKey', () => {
       type: MidenDAppMessageType.LoginKeyResponse,
       loginKey: LOGIN_KEY
     });
-    expect(mockLoginKeyCommitment).toHaveBeenCalledWith(ACCOUNT, SESSION_KEY, DOMAIN);
+    expect(mockLoginKeyCommitment).toHaveBeenCalledWith(ACCOUNT, DOMAIN);
     expect(mockRequestConfirmation).not.toHaveBeenCalled();
 
     mockIsExtension = true;
@@ -331,17 +331,19 @@ describe('requestLoginKey', () => {
       value: { type: MidenDAppMessageType.LoginKeyResponse, loginKey: LOGIN_KEY }
     });
     expect(mockLoginKeyCommitment.mock.calls).toEqual([
-      [ACCOUNT, SESSION_KEY, DOMAIN],
-      [ACCOUNT, SESSION_KEY, DOMAIN]
+      [ACCOUNT, DOMAIN],
+      [ACCOUNT, DOMAIN]
     ]);
   });
 
-  it("passes a session's missing public key through, and keeps the vault's refusal", async () => {
-    // A session stored by an older version may lack it; the vault then refuses rather than guess a key.
+  it('answers a session an older version stored without its public key', async () => {
+    // A login key never reads the session's public key, so a session that lacks it gets one all the same.
     connect(ORIGIN, { publicKey: undefined });
-    mockLoginKeyCommitment.mockRejectedValue(new Error(UNAVAILABLE));
-    await expect(dapp.requestLoginKey(ORIGIN, keyRequest())).rejects.toThrow(new Error(UNAVAILABLE));
-    expect(mockLoginKeyCommitment).toHaveBeenCalledWith(ACCOUNT, undefined, DOMAIN);
+    await expect(dapp.requestLoginKey(ORIGIN, keyRequest())).resolves.toEqual({
+      type: MidenDAppMessageType.LoginKeyResponse,
+      loginKey: LOGIN_KEY
+    });
+    expect(mockLoginKeyCommitment).toHaveBeenCalledWith(ACCOUNT, DOMAIN);
   });
 });
 
@@ -355,11 +357,11 @@ describe('both login key messages', () => {
       expect.objectContaining({ signature: SIGNATURE })
     );
     expect(mockLoginKeyCommitment.mock.calls).toEqual([
-      [ACCOUNT, SESSION_KEY, DOMAIN],
-      [ACCOUNT, SESSION_KEY, DOMAIN]
+      [ACCOUNT, DOMAIN],
+      [ACCOUNT, DOMAIN]
     ]);
     expect(mockRequestConfirmation).toHaveBeenCalledWith(expect.objectContaining({ origin: ORIGIN, domain: DOMAIN }));
-    expect(mockSignWithLoginKey).toHaveBeenCalledWith(ACCOUNT, SESSION_KEY, DOMAIN, WORD);
+    expect(mockSignWithLoginKey).toHaveBeenCalledWith(ACCOUNT, DOMAIN, WORD);
   });
 
   it('refuses a page without a session', async () => {
@@ -523,7 +525,7 @@ describe('requestLoginSign', () => {
     expect(firstCall(mockLoginKeyCommitment.mock.invocationCallOrder)).toBeLessThan(
       firstCall(mockRequestConfirmation.mock.invocationCallOrder)
     );
-    expect(mockSignWithLoginKey).toHaveBeenCalledWith(ACCOUNT, SESSION_KEY, DOMAIN, WORD);
+    expect(mockSignWithLoginKey).toHaveBeenCalledWith(ACCOUNT, DOMAIN, WORD);
 
     // The extension: its confirm popup.
     mockLoginKeyCommitment.mockClear();
@@ -552,7 +554,7 @@ describe('requestLoginSign', () => {
       ok: true,
       value: { type: MidenDAppMessageType.LoginSignResponse, signature: SIGNATURE }
     });
-    expect(mockSignWithLoginKey).toHaveBeenCalledWith(ACCOUNT, SESSION_KEY, DOMAIN, WORD);
+    expect(mockSignWithLoginKey).toHaveBeenCalledWith(ACCOUNT, DOMAIN, WORD);
   });
 
   it('refuses on decline', async () => {
@@ -607,7 +609,7 @@ describe('requestLoginSign', () => {
       ok: true,
       value: { type: MidenDAppMessageType.LoginSignResponse, signature: SIGNATURE }
     });
-    expect(mockSignWithLoginKey).toHaveBeenCalledWith(ACCOUNT, SESSION_KEY, DOMAIN, WORD);
+    expect(mockSignWithLoginKey).toHaveBeenCalledWith(ACCOUNT, DOMAIN, WORD);
   });
 
   it('refuses a locked extension without the root key after the unlock, before any approval', async () => {
@@ -620,7 +622,7 @@ describe('requestLoginSign', () => {
     // The popup asks for its approval once unlocked: the root check refuses instead of serving one.
     await expect(settle(popup.getPayload())).resolves.toEqual({ ok: false, message: UNAVAILABLE });
     await expect(popup.outcome).resolves.toEqual({ ok: false, message: UNAVAILABLE });
-    expect(mockLoginKeyCommitment).toHaveBeenCalledWith(ACCOUNT, SESSION_KEY, DOMAIN);
+    expect(mockLoginKeyCommitment).toHaveBeenCalledWith(ACCOUNT, DOMAIN);
     expect(mockIntercomListeners).toHaveLength(0);
     expect(mockSignWithLoginKey).not.toHaveBeenCalled();
   });

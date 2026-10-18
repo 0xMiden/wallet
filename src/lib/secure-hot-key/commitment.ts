@@ -46,8 +46,8 @@ export function sameCommitment(a: string, b: string): boolean {
  * prefix is byte-for-byte `serialize()`), so normalizing to bytes is what makes
  * them comparable rather than merely similar.
  *
- * A missing value denotes none too: a session stored by an older version can
- * lack its commitment, whatever its type says.
+ * A missing value denotes none too: a page's request can lack the key it
+ * names, whatever its type says.
  */
 export function commitmentToHex(value: string | undefined): string | undefined {
   if (typeof value !== 'string') return undefined;

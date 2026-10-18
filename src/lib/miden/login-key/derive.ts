@@ -5,8 +5,8 @@ import { parse } from 'tldts';
 
 import { MidenDAppErrorType } from 'lib/adapter/types';
 
-/** The kind of root a login key comes from: an account's EVM key, or the key of a single private-key import. */
-export type LoginKeySource = 'evm' | 'auth';
+/** The kind of root a login key comes from: an account's EVM key. The info layout names it, so it is frozen with v1. */
+export type LoginKeySource = 'evm';
 
 // The salt is frozen once released, as are the info layout, the counter rule, the secure-page rule and the domain rule
 // below: changing any of them changes every account's login key on every site. The domain rule reads the

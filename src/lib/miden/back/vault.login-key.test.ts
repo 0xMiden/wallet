@@ -18,7 +18,6 @@ import { mnemonicToAccount } from 'viem/accounts';
 import { deserializeHotSecretKey } from 'lib/miden/guardian/hot-key-import';
 import { deriveLoginKeyScalar, type LoginKeySource } from 'lib/miden/login-key/derive';
 import * as Passworder from 'lib/miden/passworder';
-import { MidenDAppSession } from 'lib/miden/types';
 import { b64ToU8, bytesToHex, u8ToB64 } from 'lib/shared/helpers';
 import { WalletAccount } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
@@ -423,7 +422,7 @@ describe('Vault login keys', () => {
     );
     mockStorageReads.length = 0;
 
-    expect(await vault.loginKeyCommitment(account.publicKey, connected, DOMAIN)).toBe(
+    expect(await vault.loginKeyCommitment(account.publicKey, DOMAIN)).toBe(
       expectedCommitment(guardianEvmKey(0), 'evm')
     );
     // The stored key served it: the seed phrase was not read.
@@ -431,16 +430,16 @@ describe('Vault login keys', () => {
   });
 
   it('gives a restored wallet the same login key', async () => {
-    const loginKey = await vault.loginKeyCommitment(account.publicKey, connected, DOMAIN);
+    const loginKey = await vault.loginKeyCommitment(account.publicKey, DOMAIN);
 
     const restored = await Vault.spawn(WalletType.Guardian, 'pw', TEST_MNEMONIC, true);
     const [recovered] = await restored.fetchAccounts();
     expect(recovered).toMatchObject({ publicKey: account.publicKey, requiresHotKeyRotation: true });
-    expect(await restored.loginKeyCommitment(account.publicKey, connected, DOMAIN)).toBe(loginKey);
+    expect(await restored.loginKeyCommitment(account.publicKey, DOMAIN)).toBe(loginKey);
   });
 
   it('gives a key-QR device the same login key', async () => {
-    const loginKey = await vault.loginKeyCommitment(account.publicKey, connected, DOMAIN);
+    const loginKey = await vault.loginKeyCommitment(account.publicKey, DOMAIN);
     const keyPair = await Vault.revealHotKey(account.publicKey, 'pw');
     mockRecoverGuardianAccountByHotKey.mockResolvedValueOnce([
       { accountId: account.publicKey, hotPublicKey: account.hotPublicKey! }
@@ -448,45 +447,45 @@ describe('Vault login keys', () => {
 
     const device = await Vault.spawnFromHotKey('pw', keyPair);
     expect(await device.fetchSeedPhraseStatus()).toBe('unavailable');
-    expect(await device.loginKeyCommitment(account.publicKey, connected, DOMAIN)).toBe(loginKey);
+    expect(await device.loginKeyCommitment(account.publicKey, DOMAIN)).toBe(loginKey);
   });
 
   it('keeps the login key after the seed phrase is removed', async () => {
-    const loginKey = await vault.loginKeyCommitment(account.publicKey, connected, DOMAIN);
+    const loginKey = await vault.loginKeyCommitment(account.publicKey, DOMAIN);
 
     await vault.removeSeedPhrase();
     expect(await vault.fetchSeedPhraseStatus()).toBe('removed');
-    expect(await vault.loginKeyCommitment(account.publicKey, connected, DOMAIN)).toBe(loginKey);
+    expect(await vault.loginKeyCommitment(account.publicKey, DOMAIN)).toBe(loginKey);
   });
 
   it("derives an older account's EVM key from its seed phrase without saving it", async () => {
-    const loginKey = await vault.loginKeyCommitment(account.publicKey, connected, DOMAIN);
+    const loginKey = await vault.loginKeyCommitment(account.publicKey, DOMAIN);
     // An account from before EVM keys were stored: no address on its record and no stored EVM key.
     await saveAccounts([{ ...account, evmAddress: undefined }]);
     await removeMany([keys.accEvmSecretKey(account.evmAddress!)]);
     const accounts = await vault.fetchAccounts();
     const stored = { ...memoryStore };
 
-    expect(await vault.loginKeyCommitment(account.publicKey, connected, DOMAIN)).toBe(loginKey);
+    expect(await vault.loginKeyCommitment(account.publicKey, DOMAIN)).toBe(loginKey);
     expect(memoryStore).toEqual(stored);
     expect(await vault.fetchAccounts()).toEqual(accounts);
   });
 
   it('derives a missing EVM key from the seed phrase when the address matches in any letter case', async () => {
-    const loginKey = await vault.loginKeyCommitment(account.publicKey, connected, DOMAIN);
+    const loginKey = await vault.loginKeyCommitment(account.publicKey, DOMAIN);
     // The seed phrase gives the checksummed address, and the record holds it in lowercase.
     expect(account.evmAddress).not.toBe(account.evmAddress!.toLowerCase());
     await saveAccounts([{ ...account, evmAddress: account.evmAddress!.toLowerCase() }]);
     await removeMany([keys.accEvmSecretKey(account.evmAddress!)]);
 
-    expect(await vault.loginKeyCommitment(account.publicKey, connected, DOMAIN)).toBe(loginKey);
+    expect(await vault.loginKeyCommitment(account.publicKey, DOMAIN)).toBe(loginKey);
   });
 
   it('refuses an account whose seed phrase gives another EVM key', async () => {
     // The OnChain account 0 address, whose key is not stored: the seed phrase gives this account another one.
     await saveAccounts([{ ...account, evmAddress: EVM_ADDR_0 }]);
 
-    await expect(vault.loginKeyCommitment(account.publicKey, connected, DOMAIN)).rejects.toThrow(LOGIN_KEY_UNAVAILABLE);
+    await expect(vault.loginKeyCommitment(account.publicKey, DOMAIN)).rejects.toThrow(LOGIN_KEY_UNAVAILABLE);
   });
 
   it.each([
@@ -497,7 +496,7 @@ describe('Vault login keys', () => {
   ])('refuses a stored EVM key that is $label, deriving nothing', async ({ leaf }) => {
     await encryptAndSaveMany([[keys.accEvmSecretKey(account.evmAddress!), leaf]], baseVaultKey);
 
-    await expect(vault.loginKeyCommitment(account.publicKey, connected, DOMAIN)).rejects.toThrow(LOGIN_KEY_UNAVAILABLE);
+    await expect(vault.loginKeyCommitment(account.publicKey, DOMAIN)).rejects.toThrow(LOGIN_KEY_UNAVAILABLE);
     expect(deriveLoginKeyScalar).not.toHaveBeenCalled();
   });
 
@@ -507,33 +506,12 @@ describe('Vault login keys', () => {
     const coldCommitment = publicKeyCommitment(account.coldPublicKey!);
     mockStorageReads.length = 0;
 
-    await expect(vault.loginKeyCommitment(account.publicKey, connected, DOMAIN)).rejects.toThrow(LOGIN_KEY_UNAVAILABLE);
-    await expect(vault.loginKeyCommitment(account.publicKey, coldCommitment, DOMAIN)).rejects.toThrow(
-      LOGIN_KEY_UNAVAILABLE
-    );
+    await expect(vault.loginKeyCommitment(account.publicKey, DOMAIN)).rejects.toThrow(LOGIN_KEY_UNAVAILABLE);
     // None of the account's signing keys was read, by public key or by commitment.
     expect(mockStorageReads).not.toContain(await wrapped(keys.accAuthSecretKey(account.hotPublicKey!)));
     expect(mockStorageReads).not.toContain(await wrapped(keys.accColdSecretKey(account.coldPublicKey!)));
     expect(mockStorageReads).not.toContain(await wrapped(keys.accAuthSecretKey(bytesToHex(b64ToU8(connected)))));
     expect(mockStorageReads).not.toContain(await wrapped(keys.accAuthSecretKey(bytesToHex(b64ToU8(coldCommitment)))));
-  });
-
-  it.each<{ label: string; overrides: Partial<WalletAccount> }>([
-    { label: 'a Guardian account', overrides: { hdIndex: -1, evmAddress: undefined } },
-    { label: 'an HD account', overrides: { type: WalletType.OnChain, evmAddress: undefined } },
-    {
-      label: 'an account with an EVM address',
-      overrides: { type: WalletType.OnChain, hdIndex: -1, evmAddress: EVM_ADDR_0 }
-    }
-  ])("refuses $label even when the session's commitment names a stored key", async ({ overrides }) => {
-    // Each record fails one condition of a single-key import. The wallet's cold key is stored under the commitment
-    // the session names.
-    await saveAccounts([{ ...account, ...overrides }]);
-    await removeMany([keys.mnemonic]);
-
-    await expect(
-      vault.loginKeyCommitment(account.publicKey, publicKeyCommitment(account.coldPublicKey!), DOMAIN)
-    ).rejects.toThrow(LOGIN_KEY_UNAVAILABLE);
   });
 
   it('refuses a single-key import, never reading its key as a root', async () => {
@@ -546,18 +524,16 @@ describe('Vault login keys', () => {
     expect(Object.keys(memoryStore)).toContain(importedKey);
     mockStorageReads.length = 0;
 
-    await expect(fresh.loginKeyCommitment(imported!.publicKey, importedCommitment, DOMAIN)).rejects.toThrow(
-      LOGIN_KEY_UNAVAILABLE
-    );
+    await expect(fresh.loginKeyCommitment(imported!.publicKey, DOMAIN)).rejects.toThrow(LOGIN_KEY_UNAVAILABLE);
     await expect(
-      fresh.signWithLoginKey(imported!.publicKey, importedCommitment, DOMAIN, u8ToB64(new Uint8Array(32).fill(7)))
+      fresh.signWithLoginKey(imported!.publicKey, DOMAIN, u8ToB64(new Uint8Array(32).fill(7)))
     ).rejects.toThrow(LOGIN_KEY_UNAVAILABLE);
     expect(mockStorageReads).not.toContain(importedKey);
     expect(deriveLoginKeyScalar).not.toHaveBeenCalled();
   });
 
   it("never matches one of the account's signing keys", async () => {
-    const loginKey = await vault.loginKeyCommitment(account.publicKey, connected, DOMAIN);
+    const loginKey = await vault.loginKeyCommitment(account.publicKey, DOMAIN);
 
     expect(loginKey).not.toBe(connected);
     expect(loginKey).not.toBe(publicKeyCommitment(account.coldPublicKey!));
@@ -569,7 +545,7 @@ describe('Vault login keys', () => {
     const loginPublicKey = secp256k1.getPublicKey(deriveLoginKeyScalar(guardianEvmKey(0), 'evm', DOMAIN), true);
     forgetKeyMaterial();
 
-    const signature = b64ToU8(await vault.signWithLoginKey(account.publicKey, connected, DOMAIN, u8ToB64(word)));
+    const signature = b64ToU8(await vault.signWithLoginKey(account.publicKey, DOMAIN, u8ToB64(word)));
     expectCleanedUp();
 
     // One hash: `Bread login v1` as four little-endian elements, the last zero-padded, then the word's four limbs.
@@ -598,76 +574,46 @@ describe('Vault login keys', () => {
     expect(secp256k1.verify(signature.subarray(1, 65), keccak_256(word), loginPublicKey)).toBe(false);
     // The key that signed is the one whose commitment a site gets as its login key.
     expect(commitmentB64(PublicKey.deserialize(Uint8Array.from([0x01, ...loginPublicKey])))).toBe(
-      await vault.loginKeyCommitment(account.publicKey, connected, DOMAIN)
+      await vault.loginKeyCommitment(account.publicKey, DOMAIN)
     );
   });
 
   it('stays the same after a hot key rotation', async () => {
-    const loginKey = await vault.loginKeyCommitment(account.publicKey, connected, DOMAIN);
+    const loginKey = await vault.loginKeyCommitment(account.publicKey, DOMAIN);
     const newHotKey = AuthSecretKey.ecdsaWithRNG(new Uint8Array(32).fill(9));
     const newHotPublicKey = publicKeyHex(newHotKey);
 
     await vault.persistNewHotKey(newHotPublicKey, bytesToHex(newHotKey.serialize()));
     await vault.swapHotKey(account.publicKey, newHotPublicKey);
     expect((await vault.fetchAccounts())[0]!.hotPublicKey).toBe(newHotPublicKey);
-    expect(await vault.loginKeyCommitment(account.publicKey, publicKeyCommitment(newHotPublicKey), DOMAIN)).toBe(
-      loginKey
-    );
+    expect(await vault.loginKeyCommitment(account.publicKey, DOMAIN)).toBe(loginKey);
   });
 
   it('gives each domain its own key', async () => {
-    const otherSite = await vault.loginKeyCommitment(account.publicKey, connected, 'example.com');
+    const otherSite = await vault.loginKeyCommitment(account.publicKey, 'example.com');
 
     expect(otherSite).toBe(expectedCommitment(guardianEvmKey(0), 'evm', 'example.com'));
-    expect(otherSite).not.toBe(await vault.loginKeyCommitment(account.publicKey, connected, DOMAIN));
+    expect(otherSite).not.toBe(await vault.loginKeyCommitment(account.publicKey, DOMAIN));
   });
 
   it('gives each account its own key', async () => {
     const accounts = await vault.createHDAccount(WalletType.Guardian);
     const second = accounts.find(acc => acc.hdIndex === 1)!;
-    const secondLoginKey = await vault.loginKeyCommitment(
-      second.publicKey,
-      publicKeyCommitment(second.hotPublicKey!),
-      DOMAIN
-    );
+    const secondLoginKey = await vault.loginKeyCommitment(second.publicKey, DOMAIN);
 
     expect(secondLoginKey).toBe(expectedCommitment(guardianEvmKey(1), 'evm'));
-    expect(secondLoginKey).not.toBe(await vault.loginKeyCommitment(account.publicKey, connected, DOMAIN));
+    expect(secondLoginKey).not.toBe(await vault.loginKeyCommitment(account.publicKey, DOMAIN));
   });
 
-  it('refuses an account or an imported key this wallet does not hold', async () => {
-    await expect(vault.loginKeyCommitment('guardian-unknown', connected, DOMAIN)).rejects.toThrow(
-      LOGIN_KEY_UNAVAILABLE
-    );
-
-    clearStore();
-    const fresh = await seedVault([]);
-    const [imported] = await fresh.importAccountFromPrivateKey(IMPORTED_SECRET_KEY);
-    // The session's commitment names a key this wallet does not store.
-    await expect(fresh.loginKeyCommitment(imported!.publicKey, connected, DOMAIN)).rejects.toThrow(
-      LOGIN_KEY_UNAVAILABLE
-    );
-  });
-
-  it('refuses a single-key import whose session has no key commitment', async () => {
-    clearStore();
-    const fresh = await seedVault([]);
-    const [imported] = await fresh.importAccountFromPrivateKey(IMPORTED_SECRET_KEY);
-    // A session an older version stored, read back from storage: it has no commitment, whatever its type says.
-    const { publicKey }: Pick<MidenDAppSession, 'publicKey'> = JSON.parse('{}');
-
-    await expect(fresh.loginKeyCommitment(imported!.publicKey, publicKey, DOMAIN)).rejects.toThrow(
-      LOGIN_KEY_UNAVAILABLE
-    );
+  it('refuses an account this wallet does not hold', async () => {
+    await expect(vault.loginKeyCommitment('guardian-unknown', DOMAIN)).rejects.toThrow(LOGIN_KEY_UNAVAILABLE);
   });
 
   it('refuses a word that is not base64 of 32 bytes before reading a key', async () => {
-    await expect(
-      vault.signWithLoginKey(account.publicKey, connected, DOMAIN, u8ToB64(new Uint8Array(31)))
-    ).rejects.toThrow(NOT_A_WORD);
-    await expect(vault.signWithLoginKey(account.publicKey, connected, DOMAIN, 'not base64!')).rejects.toThrow(
+    await expect(vault.signWithLoginKey(account.publicKey, DOMAIN, u8ToB64(new Uint8Array(31)))).rejects.toThrow(
       NOT_A_WORD
     );
+    await expect(vault.signWithLoginKey(account.publicKey, DOMAIN, 'not base64!')).rejects.toThrow(NOT_A_WORD);
     // Nothing was read, so nothing was decrypted.
     expect(mockStorageReads).toEqual([]);
     expect(deriveLoginKeyScalar).not.toHaveBeenCalled();
@@ -678,7 +624,7 @@ describe('Vault login keys', () => {
 
     // 32 bytes, but every limb is above the field modulus.
     await expect(
-      vault.signWithLoginKey(account.publicKey, connected, DOMAIN, u8ToB64(new Uint8Array(32).fill(0xff)))
+      vault.signWithLoginKey(account.publicKey, DOMAIN, u8ToB64(new Uint8Array(32).fill(0xff)))
     ).rejects.toThrow(NOT_A_WORD);
     expectCleanedUp();
   });

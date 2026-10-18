@@ -890,9 +890,7 @@ const generatePromisifyLoginSign = async (
   const sign = async (): Promise<MidenDAppLoginSignResponse> => {
     // The entry gate ran before the prompt; the session or the current account may have changed since (#1419).
     await assertDappSendStillAuthorized(origin, req.sourceAccountId, dApp.accountId);
-    const signature = await withUnlocked(({ vault }) =>
-      vault.signWithLoginKey(dApp.accountId, dApp.publicKey, domain, req.payload)
-    );
+    const signature = await withUnlocked(({ vault }) => vault.signWithLoginKey(dApp.accountId, domain, req.payload));
     return { type: MidenDAppMessageType.LoginSignResponse, signature };
   };
 
@@ -965,9 +963,9 @@ async function loginKeySession(
   return { dApp, domain: loginKeyDomain(origin) };
 }
 
-// The account and the commitment its key is found by both come from the one stored session, never from the request.
+// The account comes from the stored session, never from the request.
 const sessionLoginKey = (dApp: MidenDAppSession, domain: string) => () =>
-  withUnlocked(({ vault }) => vault.loginKeyCommitment(dApp.accountId, dApp.publicKey, domain));
+  withUnlocked(({ vault }) => vault.loginKeyCommitment(dApp.accountId, domain));
 
 function isLoginWord(payload: unknown): boolean {
   if (typeof payload !== 'string') return false;
