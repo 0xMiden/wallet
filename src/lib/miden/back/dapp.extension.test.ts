@@ -825,6 +825,7 @@ describe('requestPrivateNotes — extension flow', () => {
     const p = dapp.requestPrivateNotes('https://miden.xyz', {
       type: MidenDAppMessageType.PrivateNotesRequest,
       sourcePublicKey: 'miden-account-1',
+      notefilterType: NoteFilterTypes.List,
       noteIds: ['n1']
     } as never);
     await new Promise(r => setTimeout(r, 0));
@@ -843,6 +844,7 @@ describe('requestPrivateNotes — extension flow', () => {
     const res = await dapp.requestPrivateNotes('https://miden.xyz', {
       type: MidenDAppMessageType.PrivateNotesRequest,
       sourcePublicKey: 'miden-account-1',
+      notefilterType: NoteFilterTypes.List,
       noteIds: ['n1']
     } as never);
     expect(res.type).toBe(MidenDAppMessageType.PrivateNotesResponse);
@@ -850,16 +852,6 @@ describe('requestPrivateNotes — extension flow', () => {
 });
 
 describe('requestPrivateNotes by an import id - extension Auto flow (#1536)', () => {
-  // The shared SDK mock omits these filters; complete it only for this suite.
-  beforeAll(() => {
-    Object.assign(NoteFilterTypes, { List: 'List', Unverified: 'Unverified' });
-  });
-
-  afterAll(() => {
-    Reflect.deleteProperty(NoteFilterTypes, 'List');
-    Reflect.deleteProperty(NoteFilterTypes, 'Unverified');
-  });
-
   const importedNote = {
     noteId: 'n9',
     noteType: NoteType.Private,
@@ -868,11 +860,11 @@ describe('requestPrivateNotes by an import id - extension Auto flow (#1536)', ()
     state: 0,
     assets: []
   };
-  const requestList = () =>
+  const requestList = (notefilterType: NoteFilterTypes) =>
     dapp.requestPrivateNotes('https://miden.xyz', {
       type: MidenDAppMessageType.PrivateNotesRequest,
       sourcePublicKey: 'miden-account-1',
-      notefilterType: NoteFilterTypes.List,
+      notefilterType,
       noteIds: ['0xcommit']
     });
 
@@ -892,7 +884,7 @@ describe('requestPrivateNotes by an import id - extension Auto flow (#1536)', ()
   });
 
   it('lists by the returned commitment under the real note id without a prompt', async () => {
-    await expect(requestList()).resolves.toEqual({
+    await expect(requestList(NoteFilterTypes.List)).resolves.toEqual({
       type: MidenDAppMessageType.PrivateNotesResponse,
       privateNotes: [importedNote]
     });
@@ -911,13 +903,16 @@ describe('requestPrivateNotes by an import id - extension Auto flow (#1536)', ()
       }
     );
 
-    const pending = requestList();
+    const pending = requestList(NoteFilterTypes.List);
     await expect(pending).rejects.toBeInstanceOf(WasmClientPoisonedError);
     await expect(pending).rejects.toMatchObject({
       cause: expect.objectContaining({ message: `operation abandoned ${where}` })
     });
     await expect(pending).rejects.not.toThrow(MidenDAppErrorType.InvalidParams);
-    expect(_g.__dappExtTest.midenClient.getConsumableNoteDtos).not.toHaveBeenCalled();
+    expect(_g.__dappExtTest.midenClient.getConsumableNoteDtos).toHaveBeenCalledWith(
+      'miden-account-1',
+      expect.any(Function)
+    );
     expect(extensionBrowser.windows.create).not.toHaveBeenCalled();
   });
 
@@ -926,8 +921,13 @@ describe('requestPrivateNotes by an import id - extension Auto flow (#1536)', ()
       .fn()
       .mockRejectedValue(new Error('store unavailable'));
 
-    await expect(requestList()).rejects.toThrow(`${MidenDAppErrorType.InvalidParams}: Error: store unavailable`);
-    expect(_g.__dappExtTest.midenClient.getConsumableNoteDtos).not.toHaveBeenCalled();
+    await expect(requestList(NoteFilterTypes.List)).rejects.toThrow(
+      `${MidenDAppErrorType.InvalidParams}: Error: store unavailable`
+    );
+    expect(_g.__dappExtTest.midenClient.getConsumableNoteDtos).toHaveBeenCalledWith(
+      'miden-account-1',
+      expect.any(Function)
+    );
   });
 });
 
@@ -1106,6 +1106,7 @@ describe('Full confirmation cycles in extension mode', () => {
         dapp.requestPrivateNotes('https://miden.xyz', {
           type: MidenDAppMessageType.PrivateNotesRequest,
           sourcePublicKey: 'miden-account-1',
+          notefilterType: NoteFilterTypes.List,
           noteIds: ['n1']
         } as never),
       MidenMessageType.DAppPrivateNotesConfirmationRequest
@@ -1121,6 +1122,7 @@ describe('Full confirmation cycles in extension mode', () => {
           dapp.requestPrivateNotes('https://miden.xyz', {
             type: MidenDAppMessageType.PrivateNotesRequest,
             sourcePublicKey: 'miden-account-1',
+            notefilterType: NoteFilterTypes.List,
             noteIds: ['n1']
           } as never),
         MidenMessageType.DAppPrivateNotesConfirmationRequest,
@@ -1400,6 +1402,7 @@ describe('Full confirmation cycles in extension mode', () => {
           dapp.requestPrivateNotes('https://miden.xyz', {
             type: MidenDAppMessageType.PrivateNotesRequest,
             sourcePublicKey: 'miden-account-1',
+            notefilterType: NoteFilterTypes.List,
             noteIds: ['n1']
           } as never),
         MidenMessageType.DAppPrivateNotesConfirmationRequest,
@@ -2103,6 +2106,7 @@ describe('a prompted request approved after the current account changed (#1419, 
         dapp.requestPrivateNotes(ORIGIN, {
           type: MidenDAppMessageType.PrivateNotesRequest,
           sourcePublicKey: 'miden-account-1',
+          notefilterType: NoteFilterTypes.List,
           noteIds: ['note-1']
         } as never),
       MidenMessageType.DAppPrivateNotesConfirmationRequest,
@@ -2345,6 +2349,7 @@ describe('a request that prompts, made while the wallet is locked (#1414)', () =
         dapp.requestPrivateNotes(LOCKED_ORIGIN, {
           type: MidenDAppMessageType.PrivateNotesRequest,
           sourcePublicKey: 'miden-account-1',
+          notefilterType: NoteFilterTypes.List,
           noteIds: ['note-1']
         } as never),
       reads: () => _g.__dappExtTest.midenClient.getInputNoteDetails.mock.calls.length,
@@ -2752,6 +2757,7 @@ describe('a request that never prompts while unlocked, made while the wallet is 
         dapp.requestPrivateNotes(LOCKED_ORIGIN, {
           type: MidenDAppMessageType.PrivateNotesRequest,
           sourcePublicKey: 'miden-account-1',
+          notefilterType: NoteFilterTypes.List,
           noteIds: ['note-1']
         } as never),
       reads: () => _g.__dappExtTest.midenClient.getInputNoteDetails.mock.calls.length,

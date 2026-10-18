@@ -1124,7 +1124,13 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
   it.each([
     ['exportNote', 'clientExportNote', ['note-x', 'Details'], undefined, 'in offscreen'],
     ['getInputNoteDetails', 'clientGetInputNoteDetails', [{ ids: ['0xabc'] }], undefined, 'in offscreen'],
-    ['getDetailsCommitmentMatches', 'clientGetDetailsCommitmentMatches', [['0xcommitment']], undefined, 'in offscreen'],
+    [
+      'getDetailsCommitmentMatches',
+      'clientGetDetailsCommitmentMatches',
+      [['0xcommitment'], ['0xreal']],
+      undefined,
+      'in offscreen'
+    ],
     // The consumability read names each of its checks; the dispatch forwards that step into its own label.
     [
       'getConsumableNotes',
@@ -1156,6 +1162,8 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
         sendResponse
       );
       await flush();
+
+      expect(G.__off[clientFn]).toHaveBeenCalledWith(...args, expect.any(Function));
 
       // While the hold is still ours the check is silent — the falsifier for the
       // throw below, which would otherwise pass against a callback that always
@@ -2235,7 +2243,10 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     G.__off.clientGetDetailsCommitmentMatches.mockResolvedValueOnce(dto);
     const sendResponse = jest.fn();
     capturedListener!(
-      callReq({ method: 'getDetailsCommitmentMatches', argsB64: [encodeArg(['0xcommitment', '0xother'])] }),
+      callReq({
+        method: 'getDetailsCommitmentMatches',
+        argsB64: [encodeArg(['0xcommitment', '0xother']), encodeArg(['n9', 'n10'])]
+      }),
       {},
       sendResponse
     );
@@ -2243,6 +2254,7 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
 
     expect(G.__off.clientGetDetailsCommitmentMatches).toHaveBeenCalledWith(
       ['0xcommitment', '0xother'],
+      ['n9', 'n10'],
       expect.any(Function)
     );
     const resp = sendResponse.mock.calls[0][0];
@@ -2254,13 +2266,17 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     await loadModule();
     const sendResponse = jest.fn();
     capturedListener!(
-      callReq({ method: 'getDetailsCommitmentMatches', argsB64: [encodeArg(['0xcommitment'])] }),
+      callReq({ method: 'getDetailsCommitmentMatches', argsB64: [encodeArg(['0xcommitment']), encodeArg(['0xreal'])] }),
       {},
       sendResponse
     );
     await flush();
 
-    expect(G.__off.clientGetDetailsCommitmentMatches).toHaveBeenCalledWith(['0xcommitment'], expect.any(Function));
+    expect(G.__off.clientGetDetailsCommitmentMatches).toHaveBeenCalledWith(
+      ['0xcommitment'],
+      ['0xreal'],
+      expect.any(Function)
+    );
     const resp = sendResponse.mock.calls[0][0];
     expect(resp.ok).toBe(true);
     expect(JSON.parse(Buffer.from(resp.resultB64, 'base64').toString('utf8'))).toEqual([

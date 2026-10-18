@@ -1379,6 +1379,7 @@ describe('requestPrivateNotes account scoping', () => {
       notefilterType: 'List'
     } as never);
 
+    expect(mockGetInputNoteDetails).toHaveBeenCalledWith({ ids: ['note-of-account-1', 'note-of-account-2'] });
     expect(res).toEqual({
       type: MidenDAppMessageType.PrivateNotesResponse,
       privateNotes: [CONNECTED_ACCOUNT_NOTE]

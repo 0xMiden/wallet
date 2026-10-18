@@ -637,7 +637,7 @@ describe('MidenClientInterface', () => {
 
       const matches = await client.getDetailsCommitmentMatches(['0xABC1'], assertLive);
 
-      expect(fakeMidenClient.notes.list).toHaveBeenCalledWith();
+      expect(fakeMidenClient.notes.list).toHaveBeenCalledWith({ ids: ['0xcommitted', '0xpending'] });
       expect(assertLive).toHaveBeenCalledTimes(1);
       expect(matches[0]?.uncommitted).toBe(1);
       expect(matches[0]?.notes).toEqual([
@@ -646,7 +646,12 @@ describe('MidenClientInterface', () => {
     });
 
     it('answers each commitment from one listing, in the order asked', async () => {
-      const records = [record('abc1', '0xone'), record('def2', '0xtwo'), record('abc1', '0xthree')];
+      const records = [
+        record('abc1', '0xone'),
+        record('def2', '0xtwo'),
+        record('abc1', '0xthree'),
+        record('abc1', '0xoutside')
+      ];
       const { fakeMidenClient, client } = await clientListing(records);
 
       const matches = await client.getDetailsCommitmentMatches(['0xDEF2', '0xabc1', '0xnone'], jest.fn());

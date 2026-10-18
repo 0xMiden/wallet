@@ -963,7 +963,11 @@ describe('MidenClientProxy - getDetailsCommitmentMatches', () => {
       midenClientProxy.getDetailsCommitmentMatches(['0xcommitment', '0xother'], assertLive)
     ).resolves.toEqual(dto);
 
-    expect(G.__px.inlineGetDetailsCommitmentMatches).toHaveBeenCalledWith(['0xcommitment', '0xother'], assertLive);
+    expect(G.__px.inlineGetDetailsCommitmentMatches).toHaveBeenCalledWith(
+      ['0xcommitment', '0xother'],
+      ['n9', 'n10'],
+      assertLive
+    );
     expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
   });
 
@@ -985,7 +989,10 @@ describe('MidenClientProxy - getDetailsCommitmentMatches', () => {
     fireReady();
 
     await expect(pending).resolves.toEqual(dto);
-    expect(fakeChrome.runtime.sendMessage.mock.calls[0][0].argsB64).toEqual(['s:["0xcommitment","0xother"]']);
+    expect(fakeChrome.runtime.sendMessage.mock.calls[0][0].argsB64).toEqual([
+      's:["0xcommitment","0xother"]',
+      's:["n9","n10"]'
+    ]);
   });
 
   it('returns one empty entry per requested commitment for a null offscreen reply', async () => {
@@ -1013,7 +1020,7 @@ describe('MidenClientProxy - getDetailsCommitmentMatches', () => {
 
     const matches = await midenClientProxy.getDetailsCommitmentMatches(['0xcommitment'], assertLive);
 
-    expect(G.__px.inlineGetDetailsCommitmentMatches).toHaveBeenCalledWith(['0xcommitment'], assertLive);
+    expect(G.__px.inlineGetDetailsCommitmentMatches).toHaveBeenCalledWith(['0xcommitment'], ['n9'], assertLive);
     expect(matches).toEqual([{ notes: [{ __inlineDetail: true }], uncommitted: 1 }]);
     expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
   });
@@ -1043,7 +1050,7 @@ describe('MidenClientProxy - getDetailsCommitmentMatches', () => {
     expect(G.__px.inlineGetDetailsCommitmentMatches).not.toHaveBeenCalled();
     const env = fakeChrome.runtime.sendMessage.mock.calls[0][0];
     expect(env.method).toBe('getDetailsCommitmentMatches');
-    expect(env.argsB64).toEqual(['s:["0xcommitment"]']);
+    expect(env.argsB64).toEqual(['s:["0xcommitment"]', 's:["0xreal"]']);
     expect(matches).toEqual(dto);
   });
 
