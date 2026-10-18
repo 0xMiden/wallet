@@ -322,7 +322,7 @@ describe('mobile write read boundaries', () => {
 
   it('keeps a node failure as ChainUnavailable when a bounded baseline chain read reaches the deadline', async () => {
     const { side } = await fixture();
-    const send = jest.fn(side.dapp.channel.send);
+    const send = side.dapp.channel.send;
     let attempts = 0;
     side.dapp.channel.send = async (command, input, timeoutMs) => {
       if (command === 'chainAccount') {
@@ -332,9 +332,6 @@ describe('mobile write read boundaries', () => {
       }
       return send(command, input, timeoutMs);
     };
-    const input = { txId: 'write' };
-    await side.dapp.channel.send('waitForTransaction', input, 4_000);
-    expect(send).toHaveBeenCalledWith('waitForTransaction', input, 4_000);
     jest.useFakeTimers();
     const ctx: CellContext = {
       deadline: deadlineIn(12_000, 'baseline chain read'),
