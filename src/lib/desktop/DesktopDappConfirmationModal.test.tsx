@@ -123,6 +123,8 @@ jest.mock('components/SpendingLimitChallenge', () => {
 });
 
 const FULL_KEY = 'mtst1apsnkg6x57mhxyrq09aavyq08yu5dy4p_qr7qqq9wr6w';
+// The account a login names, not the selected one (FULL_KEY), so the panel is seen to show the request's.
+const LOGIN_ACCOUNT_KEY = 'mtst1azcw08rget79fqp8ymr0zqkv5v4lj3s7_qruqqypuyph';
 
 function buildRequest(overrides: Partial<DAppConfirmationRequest> = {}): DAppConfirmationRequest {
   return {
@@ -261,14 +263,16 @@ describe('DesktopDappConfirmationModal', () => {
         origin: 'https://example.org',
         appMeta: { name: 'example.org' },
         domain: 'example.org',
-        accountId: FULL_KEY
+        accountId: LOGIN_ACCOUNT_KEY
       })
     );
     await flush();
 
     expect(screen.getByText('dappLoginSignRequest')).toBeInTheDocument();
     expect(screen.getByText('loginSignatureNote')).toBeInTheDocument();
-    expect(screen.getByText(truncateAddress(FULL_KEY))).toBeInTheDocument();
+    // The shared panel truncates every account it shows.
+    expect(screen.getByText(truncateAddress(LOGIN_ACCOUNT_KEY))).toBeInTheDocument();
+    expect(screen.queryByText(truncateAddress(FULL_KEY))).not.toBeInTheDocument();
 
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: button }));
