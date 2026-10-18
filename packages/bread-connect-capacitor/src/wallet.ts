@@ -53,6 +53,8 @@ export class BreadConnectWallet extends EventEmitter<MidenWalletEvents> implemen
       network,
       ...(allowedPrivateData === undefined ? {} : { allowedPrivateData })
     };
+    // Bread's answer may be the link that launched the app, so it is read before the stored session.
+    await this.transport.start();
     const stored = this.transport.session();
     const response =
       stored && sameRequest(stored.request, request) ? stored.permission : await this.transport.connect(request);
@@ -144,6 +146,7 @@ export class BreadConnectWallet extends EventEmitter<MidenWalletEvents> implemen
 
   /** Bread proves and submits a transaction before it answers, so the outcome came with the answer. */
   async waitForTransaction(txId: string): Promise<WalletTransactionOutput> {
+    await this.transport.start();
     const outcome = this.transport.transactionOutcome(txId);
     if (!outcome) throw new WalletError('Bread reported no outcome for this transaction to this app');
     if ('error' in outcome) throw new BreadConnectError(outcome.error.code, outcome.error.message);

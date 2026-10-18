@@ -9,7 +9,7 @@ import {
   WalletError
 } from '@miden-sdk/miden-wallet-adapter-base';
 
-import { DAppMessage } from '@miden-sdk/bread-connect';
+import { answerConnect, answerRequest, BREAD_REQUEST_URL, DAppMessage, readLink } from '@miden-sdk/bread-connect';
 
 import { KeyValueStorage } from './storage.js';
 import { AppSwitchTransport, BreadConnectError, StoredSession } from './transport.js';
@@ -89,6 +89,43 @@ function storedSession(request: DAppMessage): StoredSession {
     request,
     permission: PERMISSION
   };
+}
+
+const CALLBACK = 'https://game.example/bread';
+const flush = () => new Promise(resolve => setTimeout(resolve, 0));
+
+/** A transport on `storage` that sends one message and returns the link it opened Bread with. */
+async function sentBefore(storage: KeyValueStorage, send: (transport: AppSwitchTransport) => Promise<unknown>) {
+  const opened: string[] = [];
+  const transport = new AppSwitchTransport({
+    callback: CALLBACK,
+    storage,
+    links: { launchUrl: async () => undefined, onUrl: () => () => undefined },
+    openWallet: async link => {
+      opened.push(link);
+      return true;
+    }
+  });
+  void send(transport).catch(() => undefined);
+  await flush();
+  const read = readLink(opened[0]!, BREAD_REQUEST_URL);
+  if (read?.kind !== 'envelope') throw new Error('Bread was not opened');
+  return { transport, envelope: read.envelope };
+}
+
+/** The app relaunched on `storage` by a link that arrives only when the test delivers it. */
+function relaunched(storage: KeyValueStorage) {
+  let deliver: (url: string) => void = () => undefined;
+  const launch = new Promise<string>(resolve => (deliver = resolve));
+  const openWallet = jest.fn(async () => true);
+  const transport = new AppSwitchTransport({
+    callback: CALLBACK,
+    storage,
+    links: { launchUrl: () => launch, onUrl: () => () => undefined },
+    openWallet
+  });
+  void transport.start();
+  return { transport, openWallet, deliver, wallet: new BreadConnectWallet(transport, 'Game') };
 }
 
 describe('BreadConnectWallet', () => {
@@ -273,6 +310,57 @@ describe('BreadConnectWallet', () => {
     await expect(wallet.waitForTransaction('tx')).rejects.toThrow('transaction output');
     outcome.mockReturnValueOnce(undefined);
     await expect(wallet.waitForTransaction('tx')).rejects.toBeInstanceOf(WalletError);
+  });
+
+  it('reads the answer that relaunched the app before it decides to connect again', async () => {
+    const storage = new MemoryStorage();
+    const before = await sentBefore(storage, transport => transport.connect(PERMISSION_REQUEST));
+    if (before.envelope.type !== 'connect') throw new Error('not a connect');
+    const after = relaunched(storage);
+
+    const connecting = after.wallet.connect(PrivateDataPermission.UponRequest, WalletAdapterNetwork.Testnet);
+    after.deliver(answerConnect(before.envelope, { response: PERMISSION }).link);
+    const settled = connecting.then(
+      () => 'connected',
+      (error: unknown) => error
+    );
+    await flush();
+
+    try {
+      expect(after.openWallet).not.toHaveBeenCalled();
+      expect(await settled).toBe('connected');
+      expect(after.wallet.address).toBe('mtst1account');
+    } finally {
+      after.transport.stop();
+      before.transport.stop();
+    }
+  });
+
+  it('reads the answer that relaunched the app before it looks up a transaction outcome', async () => {
+    const storage = new MemoryStorage();
+    const connecting = await sentBefore(storage, transport => transport.connect(PERMISSION_REQUEST));
+    if (connecting.envelope.type !== 'connect') throw new Error('not a connect');
+    const approved = answerConnect(connecting.envelope, { response: PERMISSION });
+    connecting.transport.receive(approved.link);
+    const sending = await sentBefore(storage, transport => transport.request({ type: 'SEND_TRANSACTION_REQUEST' }));
+    if (sending.envelope.type !== 'request') throw new Error('not a request');
+    const after = relaunched(storage);
+
+    const waiting = after.wallet.waitForTransaction('tx-1');
+    after.deliver(
+      answerRequest(sending.envelope, approved.session, {
+        response: { type: 'SEND_TRANSACTION_RESPONSE', transactionId: 'tx-1' },
+        transaction: { output: { txHash: '0xabc', outputNotes: [] } }
+      })
+    );
+
+    try {
+      await expect(waiting).resolves.toEqual({ txHash: '0xabc', outputNotes: [] });
+    } finally {
+      after.transport.stop();
+      sending.transport.stop();
+      connecting.transport.stop();
+    }
   });
 
   it('does not create accounts', async () => {
