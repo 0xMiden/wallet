@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { CellDeadlineExceeded, DappCellRunner, deadlineIn, type JourneyRecord } from './dapp-cells';
+import { CellDeadlineExceeded, DappCellRunner, deadlineIn, HarnessFault, type JourneyRecord } from './dapp-cells';
 import { registryOf } from './dapp-known-bugs';
 import {
   accountRows,
@@ -482,6 +482,29 @@ describe('the transaction rows', () => {
 });
 
 describe('the queue drain', () => {
+  it('rethrows the last transport fault when every queue read lost its transport', async () => {
+    jest.useFakeTimers();
+    const fault = new HarnessFault('the mobile wallet evaluate transport failed: Remote debugger is not connected');
+    const outcome = waitForQueueDrained(async () => {
+      throw fault;
+    }, 2_500).catch((error: unknown) => error);
+    await jest.advanceTimersByTimeAsync(3_000);
+    await expect(outcome).resolves.toBe(fault);
+  });
+
+  it('keeps a queue timeout after a successful read followed by transport faults', async () => {
+    jest.useFakeTimers();
+    let reads = 0;
+    const outcome = waitForQueueDrained(async () => {
+      reads += 1;
+      if (reads > 1) throw new HarnessFault('transport lost');
+      return [{ id: 'queued', status: TxStatus.Queued }];
+    }, 2_500).catch((error: unknown) => error);
+    await jest.advanceTimersByTimeAsync(3_000);
+    await expect(outcome).resolves.not.toBeInstanceOf(HarnessFault);
+    await expect(outcome).resolves.toHaveProperty('message', expect.stringContaining('queue did not drain'));
+  });
+
   afterEach(() => {
     jest.useRealTimers();
   });

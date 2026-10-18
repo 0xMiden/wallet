@@ -131,6 +131,35 @@ afterEach(() => {
 });
 
 describe('the approval sheet over the wallet webview', () => {
+  it.each(['answerSheet', 'approveSheetIfShown', 'expectNoSheet'])(
+    'classifies an evaluator disconnect after the first read in %s as HarnessFault',
+    async action => {
+      jest.useFakeTimers();
+      let reads = 0;
+      const disconnected: SheetHost = {
+        ...hostFor(),
+        wallet: {
+          evalJs: async <T>(js: string): Promise<T> => {
+            reads += 1;
+            if (reads > 1) throw new Error('Remote debugger is not connected');
+            return wallet.evalJs<T>(js);
+          }
+        }
+      };
+      const start = (): Promise<never> => new Promise(() => undefined);
+      const ctx = contextFor(1_000);
+      const pending =
+        action === 'answerSheet'
+          ? answerSheet(disconnected, start, { decision: 'approve' }, ctx)
+          : action === 'approveSheetIfShown'
+            ? approveSheetIfShown(disconnected, start, ctx)
+            : expectNoSheet(disconnected, start, ctx);
+      const outcome = pending.catch((error: unknown) => error);
+      await jest.advanceTimersByTimeAsync(1_000);
+      await expect(outcome).resolves.toBeInstanceOf(HarnessFault);
+    }
+  );
+
   it('reads the origin, the message lines in order and whether Approve is enabled', async () => {
     renderSheet({ messages: ['Simulated effects:', 'Notes created, 1'] });
     await expect(readSheet(wallet)).resolves.toEqual({

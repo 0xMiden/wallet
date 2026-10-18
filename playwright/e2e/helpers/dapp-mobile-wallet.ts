@@ -47,7 +47,7 @@ export interface MobileWallet extends DappDriverTarget {
 
 const sleep = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms));
 const STORE = `var s = window.__TEST_STORE__; if (!s) throw new Error('the E2E store hook is missing'); var st = s.getState();`;
-const evalOf =
+export const evalOf =
   (wallet: Pick<DappDriverTarget, 'evalJs'>, deadline?: Deadline) =>
   <T = unknown>(js: string): Promise<T> =>
     beforeMobileDeadline(deadline, 'the mobile wallet read', () =>
@@ -77,7 +77,7 @@ export function currentAccount(wallet: MobileWallet, deadline?: Deadline): Promi
 }
 
 export function currentGuardianEndpoint(wallet: MobileWallet): Promise<string> {
-  return wallet.evalJs<string>(
+  return evalOf(wallet)<string>(
     "var s = window.__TEST_STORE__; var a = s && s.getState().currentAccount; return (a && a.guardianEndpoint) || '';"
   );
 }
@@ -319,17 +319,23 @@ export async function waitForQueueDrained(
   let stable = 0;
   let inFlight: TransactionRowSnapshot[] = [];
   let failure: string | null = null;
+  let onlyTransportFailures = true;
+  let lastTransportFault: HarnessFault | undefined;
   for (;;) {
     try {
       inFlight = (await read()).filter(row => row.status !== undefined && IN_FLIGHT.has(row.status));
+      onlyTransportFailures = false;
       stable = inFlight.length === 0 ? stable + 1 : 0;
     } catch (error) {
       // A failed read proves nothing about the queue, so the clean reads start again.
+      if (error instanceof HarnessFault) lastTransportFault = error;
+      else onlyTransportFailures = false;
       failure = error instanceof Error ? error.message : String(error);
       stable = 0;
     }
     if (stable >= DRAIN_STABLE_READS) return;
     if (Date.now() >= deadline) {
+      if (onlyTransportFailures && lastTransportFault !== undefined) throw lastTransportFault;
       const left = inFlight.map(describeTransactionRow).join('; ') || 'nothing, but not three reads in a row';
       const failed = failure === null ? '' : `; the last failed read: ${failure}`;
       throw new Error(`the queue did not drain within ${timeoutMs} ms: ${left}${failed}`);
@@ -421,7 +427,7 @@ export interface BrowserState {
 
 /** DappBrowserProvider's read-only hook; the JSON round trip drops its function members. */
 export function browserState(wallet: MobileWallet): Promise<BrowserState | null> {
-  return wallet.evalJs<BrowserState | null>(
+  return evalOf(wallet)<BrowserState | null>(
     'return window.__TEST_DAPP_BROWSER__ ? JSON.parse(JSON.stringify(window.__TEST_DAPP_BROWSER__)) : null;'
   );
 }
@@ -436,7 +442,7 @@ export async function foregroundOrigin(wallet: MobileWallet): Promise<string | n
 export async function openDappUrl(wallet: MobileWallet, url: string): Promise<void> {
   const origin = new URL(url).origin;
   await wallet.navigateTo('/browser');
-  const searchOpen = await wallet.evalJs<boolean>(
+  const searchOpen = await evalOf(wallet)<boolean>(
     'return !!document.querySelector(\'[data-testid="dapp-hero-search"]\');'
   );
   if (!searchOpen) {
@@ -444,7 +450,7 @@ export async function openDappUrl(wallet: MobileWallet, url: string): Promise<vo
     await wallet.click('[data-testid="explore-search-toggle"]');
   }
   await wallet.waitFor('[data-testid="dapp-hero-search"]', { timeoutMs: 30_000 });
-  await wallet.evalJs(
+  await evalOf(wallet)(
     `var el = document.querySelector('[data-testid="dapp-hero-search"]'); if (!el) return false; ` +
       `var setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set; ` +
       `setter.call(el, ${JSON.stringify(url)}); el.dispatchEvent(new Event('input', { bubbles: true })); ` +

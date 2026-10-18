@@ -2,6 +2,7 @@ import { expect } from '@playwright/test';
 
 import { CellDeadlineExceeded, HarnessFault, type CellContext, type Deadline } from './dapp-cells';
 import { callOn, type DappChannel } from './dapp-channel';
+import { evalOf } from './dapp-mobile-wallet';
 import type { DappDriverTarget } from '../harness/dapp-browser-driver';
 import type { DappError } from '../test-dapp/protocol';
 
@@ -108,6 +109,7 @@ function until<T>(
         if (done(last)) return last;
         lastError = undefined;
       } catch (error) {
+        if (error instanceof HarnessFault) throw error;
         lastError = error;
       }
       if (Date.now() >= endsAt) {
@@ -121,7 +123,7 @@ function until<T>(
 }
 
 export function readSheet(wallet: SheetWallet): Promise<SheetView | null> {
-  return wallet.evalJs<SheetView | null>(READ);
+  return evalOf(wallet)<SheetView | null>(READ);
 }
 
 export async function waitForSheetClosed(wallet: SheetWallet, timeoutMs: number, deadline?: Deadline): Promise<number> {
@@ -145,7 +147,7 @@ export async function pressSheet(
   const id = action === 'approve' ? SHEET_IDS.approve : SHEET_IDS.deny;
   await until(
     `${action} on the approval sheet`,
-    () => wallet.evalJs<string>(press(id)),
+    () => evalOf(wallet)<string>(press(id)),
     state => state === 'clicked',
     timeoutMs,
     deadline
@@ -156,7 +158,7 @@ export async function pressSheet(
 export async function tickStandingAccess(wallet: SheetWallet, deadline?: Deadline): Promise<void> {
   await until(
     'the standing private-data box ticked',
-    () => wallet.evalJs<string>(TICK),
+    () => evalOf(wallet)<string>(TICK),
     state => state === 'ticked',
     PRESS_MS,
     deadline
@@ -189,6 +191,7 @@ function watchForSheet(wallet: SheetWallet): SheetWatch {
         sheet = await readSheet(wallet);
         lastError = undefined;
       } catch (error) {
+        if (error instanceof HarnessFault) throw error;
         lastError = error;
       }
       if (sheet !== null) return { ...sheet, seenAt: Date.now() };
@@ -211,7 +214,7 @@ async function noEarlierSheet(wallet: SheetWallet, ctx: CellContext): Promise<vo
   try {
     await waitForSheetClosed(wallet, SHEET_CLOSE_MS, ctx.deadline);
   } catch (error) {
-    if (error instanceof CellDeadlineExceeded) throw error;
+    if (error instanceof CellDeadlineExceeded || error instanceof HarnessFault) throw error;
     throw new HarnessFault(
       `an earlier approval sheet is still open after ${SHEET_CLOSE_MS} ms, so the next one could not be told apart`
     );
@@ -371,7 +374,7 @@ export async function expectNoSheet<T>(
   options: { refusal?: boolean } = {}
 ): Promise<T> {
   await noEarlierSheet(host.wallet, ctx);
-  await ctx.deadline.race(host.wallet.evalJs<boolean>(ARM_LATCH), 'arming the sheet latch');
+  await ctx.deadline.race(evalOf(host.wallet)<boolean>(ARM_LATCH), 'arming the sheet latch');
   const run = options.refusal === true ? () => withinOneBlock(host, start, ctx) : start;
   const watch = watchForSheet(host.wallet);
   let settled: { value: T } | { sheet: SheetView };
@@ -392,7 +395,7 @@ export async function expectNoSheet<T>(
     );
   }
   const latched = await ctx.deadline.race(
-    host.wallet.evalJs<number | null | 'lost'>(TAKE_LATCH),
+    evalOf(host.wallet)<number | null | 'lost'>(TAKE_LATCH),
     'reading the sheet latch'
   );
   if (latched === 'lost') {
