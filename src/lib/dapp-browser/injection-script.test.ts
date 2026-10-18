@@ -23,7 +23,54 @@
  * synchronously still resolves normally.
  */
 
+import {
+  InvalidParamsMidenWalletError,
+  MidenWalletError,
+  NotFoundMidenWalletError,
+  NotGrantedMidenWalletError
+} from 'lib/adapter/client';
+
 import { INJECTION_SCRIPT } from './injection-script';
+
+const REFUSALS: [string, { error?: unknown; payload?: unknown }, string, string][] = [
+  ['NOT_GRANTED', { error: 'NOT_GRANTED' }, new NotGrantedMidenWalletError().name, 'NOT_GRANTED'],
+  [
+    'an INVALID_PARAMS message',
+    { error: 'INVALID_PARAMS: Error: noteType is required' },
+    new InvalidParamsMidenWalletError().name,
+    'INVALID_PARAMS: Error: noteType is required'
+  ],
+  ['NOT_FOUND', { error: 'NOT_FOUND' }, new NotFoundMidenWalletError().name, 'NOT_FOUND'],
+  [
+    'NETWORK_NOT_GRANTED',
+    { error: 'NETWORK_NOT_GRANTED' },
+    new NotGrantedMidenWalletError().name,
+    'NETWORK_NOT_GRANTED'
+  ],
+  ['another message', { error: 'boom' }, new MidenWalletError().name, 'boom'],
+  [
+    'an object payload',
+    { payload: { message: 'INVALID_PARAMS: bad' } },
+    new InvalidParamsMidenWalletError().name,
+    'INVALID_PARAMS: bad'
+  ],
+  ['an array payload', { payload: ['NOT_GRANTED'] }, new NotGrantedMidenWalletError().name, 'NOT_GRANTED'],
+  ['an object payload with no message', { payload: {} }, new MidenWalletError().name, new MidenWalletError().message],
+  ['a non-string error', { error: 42 }, new MidenWalletError().name, new MidenWalletError().message],
+  [
+    'NOT_FOUND over INVALID_PARAMS',
+    { error: 'INVALID_PARAMS: NOT_FOUND' },
+    new NotFoundMidenWalletError().name,
+    'INVALID_PARAMS: NOT_FOUND'
+  ],
+  [
+    'NOT_GRANTED over the other codes',
+    { error: 'INVALID_PARAMS: NOT_FOUND: NOT_GRANTED' },
+    new NotGrantedMidenWalletError().name,
+    'INVALID_PARAMS: NOT_FOUND: NOT_GRANTED'
+  ],
+  ['no error and no payload', {}, new MidenWalletError().name, 'Unknown error']
+];
 
 // ---------------------------------------------------------------------------
 // Harness
@@ -398,6 +445,14 @@ describe('request timeout', () => {
 // ---------------------------------------------------------------------------
 
 describe('__midenWalletResponse', () => {
+  it.each(REFUSALS)('rejects %s with the extension error class and message', async (_, body, name, message) => {
+    const win = makeWindow();
+    inject(win);
+    const promise = win.midenWallet.requestAssets();
+    respond(win, lastMessage(win).reqId, { type: 'MIDEN_PAGE_ERROR_RESPONSE', ...body });
+    await expect(promise).rejects.toMatchObject({ name, message });
+  });
+
   it('resolves the matching pending request from a JSON string', async () => {
     const win = makeWindow();
     inject(win);
@@ -420,7 +475,7 @@ describe('__midenWalletResponse', () => {
     const promise = win.midenWallet.requestAssets();
     const { reqId } = lastMessage(win);
     respond(win, reqId, { type: 'MIDEN_PAGE_ERROR_RESPONSE', error: 'boom' });
-    await expect(promise).rejects.toThrow('boom');
+    await expect(promise).rejects.toMatchObject({ message: 'boom' });
   });
 
   it('rejects when an error field is present regardless of type', async () => {
@@ -429,7 +484,7 @@ describe('__midenWalletResponse', () => {
     const promise = win.midenWallet.requestAssets();
     const { reqId } = lastMessage(win);
     respond(win, reqId, { type: 'MIDEN_PAGE_RESPONSE', error: 'nope' });
-    await expect(promise).rejects.toThrow('nope');
+    await expect(promise).rejects.toMatchObject({ message: 'nope' });
   });
 
   it('falls back to payload as the error message when error is absent', async () => {
@@ -438,7 +493,7 @@ describe('__midenWalletResponse', () => {
     const promise = win.midenWallet.requestAssets();
     const { reqId } = lastMessage(win);
     respond(win, reqId, { type: 'MIDEN_PAGE_ERROR_RESPONSE', payload: 'payload-as-message' });
-    await expect(promise).rejects.toThrow('payload-as-message');
+    await expect(promise).rejects.toMatchObject({ message: 'payload-as-message' });
   });
 
   it('falls back to "Unknown error" when neither error nor payload is present', async () => {
@@ -447,7 +502,7 @@ describe('__midenWalletResponse', () => {
     const promise = win.midenWallet.requestAssets();
     const { reqId } = lastMessage(win);
     respond(win, reqId, { type: 'MIDEN_PAGE_ERROR_RESPONSE' });
-    await expect(promise).rejects.toThrow('Unknown error');
+    await expect(promise).rejects.toMatchObject({ message: 'Unknown error' });
   });
 
   it('ignores a response whose reqId is unknown', async () => {
@@ -1152,7 +1207,7 @@ describe('account switch (#174)', () => {
         win.midenWallet.on('disconnect', onDisconnect);
         const disconnecting = win.midenWallet.disconnect();
         settle(win);
-        await expect(disconnecting).rejects.toThrow(error);
+        await expect(disconnecting).rejects.toMatchObject({ message: error });
         expect([win.midenWallet.address, win.midenWallet.publicKey, win.midenWallet.permission]).toEqual([
           undefined,
           undefined,
@@ -1175,7 +1230,7 @@ describe('account switch (#174)', () => {
       answerDisconnect(win, lastMessage(win).reqId);
       await disconnecting;
       refuseDisconnect(win, lastMessage(win).reqId);
-      await expect(again[0]).rejects.toThrow('NOT_FOUND');
+      await expect(again[0]).rejects.toMatchObject({ message: 'NOT_FOUND' });
       await flush();
       expect(onDisconnect).toHaveBeenCalledTimes(1);
       expect(disconnects(win)).toHaveLength(2);
@@ -1188,7 +1243,7 @@ describe('account switch (#174)', () => {
       await answerPoll(win, null);
       const disconnecting = win.midenWallet.disconnect();
       refuseDisconnect(win, lastMessage(win).reqId);
-      await expect(disconnecting).rejects.toThrow('NOT_FOUND');
+      await expect(disconnecting).rejects.toMatchObject({ message: 'NOT_FOUND' });
       expect(onDisconnect).not.toHaveBeenCalled();
       jest.advanceTimersByTime(60000);
       expect(polls(win)).toHaveLength(1);
@@ -1202,7 +1257,7 @@ describe('account switch (#174)', () => {
       });
       const disconnecting = win.midenWallet.disconnect();
       refuseDisconnect(win, lastMessage(win).reqId);
-      await expect(disconnecting).rejects.toThrow('NOT_FOUND');
+      await expect(disconnecting).rejects.toMatchObject({ message: 'NOT_FOUND' });
       expect(win.midenWallet.address).toBeUndefined();
       error.mockRestore();
     });
@@ -1217,7 +1272,7 @@ describe('account switch (#174)', () => {
       answerDisconnect(win, firstReq!);
       await first;
       refuseDisconnect(win, secondReq!);
-      await expect(second).rejects.toThrow('NOT_FOUND');
+      await expect(second).rejects.toMatchObject({ message: 'NOT_FOUND' });
       expect(onDisconnect).toHaveBeenCalledTimes(1);
     });
 

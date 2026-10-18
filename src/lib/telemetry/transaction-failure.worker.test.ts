@@ -120,10 +120,13 @@ it('sends an unknown submit outcome as a warning and only a final failure as an 
   await settle();
   expect(captured).toHaveLength(2);
   const [unconfirmed, failed] = captured;
-  expect(unconfirmed).toContain('submit_outcome_unknown; grpc unknown; app hidden during submit yes');
+  expect(unconfirmed).toContain(
+    'submit_outcome_unknown; grpc unknown; app hidden during submit yes; submit leg unavailable. '
+  );
   expect(unconfirmed).toContain('"level":"warning"');
   expect(unconfirmed).not.toContain('"level":"error"');
   expect(failed).toContain('point node_verdict; never_committed; rule superseded');
+  expect(failed).not.toContain('submit leg');
   expect(failed).toContain('"level":"error"');
   expect(failed).not.toContain('"level":"warning"');
   for (const leak of [transactionId, 'Load failed', 'never went through'])

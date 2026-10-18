@@ -8,8 +8,55 @@ import fs from 'fs';
 import { JSDOM } from 'jsdom';
 import path from 'path';
 
+import {
+  InvalidParamsMidenWalletError,
+  MidenWalletError,
+  NotFoundMidenWalletError,
+  NotGrantedMidenWalletError
+} from 'lib/adapter/client';
+
 const SOURCE = fs.readFileSync(path.join(__dirname, '../../../src-tauri/scripts/dapp-injection.js'), 'utf8');
 const PREFIX = 'https://miden-wallet-request/';
+
+const REFUSALS: [string, { error?: unknown; payload?: unknown }, string, string][] = [
+  ['NOT_GRANTED', { error: 'NOT_GRANTED' }, new NotGrantedMidenWalletError().name, 'NOT_GRANTED'],
+  [
+    'an INVALID_PARAMS message',
+    { error: 'INVALID_PARAMS: Error: noteType is required' },
+    new InvalidParamsMidenWalletError().name,
+    'INVALID_PARAMS: Error: noteType is required'
+  ],
+  ['NOT_FOUND', { error: 'NOT_FOUND' }, new NotFoundMidenWalletError().name, 'NOT_FOUND'],
+  [
+    'NETWORK_NOT_GRANTED',
+    { error: 'NETWORK_NOT_GRANTED' },
+    new NotGrantedMidenWalletError().name,
+    'NETWORK_NOT_GRANTED'
+  ],
+  ['another message', { error: 'boom' }, new MidenWalletError().name, 'boom'],
+  [
+    'an object payload',
+    { payload: { message: 'INVALID_PARAMS: bad' } },
+    new InvalidParamsMidenWalletError().name,
+    'INVALID_PARAMS: bad'
+  ],
+  ['an array payload', { payload: ['NOT_GRANTED'] }, new NotGrantedMidenWalletError().name, 'NOT_GRANTED'],
+  ['an object payload with no message', { payload: {} }, new MidenWalletError().name, new MidenWalletError().message],
+  ['a non-string error', { error: 42 }, new MidenWalletError().name, new MidenWalletError().message],
+  [
+    'NOT_FOUND over INVALID_PARAMS',
+    { error: 'INVALID_PARAMS: NOT_FOUND' },
+    new NotFoundMidenWalletError().name,
+    'INVALID_PARAMS: NOT_FOUND'
+  ],
+  [
+    'NOT_GRANTED over the other codes',
+    { error: 'INVALID_PARAMS: NOT_FOUND: NOT_GRANTED' },
+    new NotGrantedMidenWalletError().name,
+    'INVALID_PARAMS: NOT_FOUND: NOT_GRANTED'
+  ],
+  ['no error and no payload', {}, new MidenWalletError().name, 'Unknown error']
+];
 
 type Wallet = {
   address?: string;
@@ -105,6 +152,13 @@ afterEach(() => {
 
 it('loads the real script and installs the wallet', () => {
   expect(load().win.midenWallet.connect).toBeInstanceOf(Function);
+});
+
+it.each(REFUSALS)('rejects %s with the extension error class and message', async (_, body, name, message) => {
+  const h = load();
+  const promise = h.win.midenWallet.requestAssets();
+  h.win.__midenWalletResponse(JSON.stringify({ type: 'MIDEN_PAGE_ERROR_RESPONSE', reqId: h.last().reqId, ...body }));
+  await expect(promise).rejects.toMatchObject({ name, message });
 });
 
 // #1416: the wallet can answer after a same-origin reload, into a document whose own first request is pending.
@@ -305,7 +359,7 @@ describe('a disconnect ends the connection (#1227)', () => {
       h.win.midenWallet.on('accountChange', spy);
       const disconnecting = h.win.midenWallet.disconnect();
       settle(h);
-      await expect(disconnecting).rejects.toThrow(error);
+      await expect(disconnecting).rejects.toMatchObject({ message: error });
       const w = h.win.midenWallet;
       expect([w.address, w.publicKey, w.permission]).toEqual([undefined, undefined, undefined]);
       expect(spy.mock.calls).toEqual([[null]]);
@@ -326,7 +380,7 @@ describe('a disconnect ends the connection (#1227)', () => {
     h.answer(h.last().reqId, { type: 'DISCONNECT_RESPONSE' });
     await disconnecting;
     refuse(h, h.last().reqId);
-    await expect(again[0]).rejects.toThrow('NOT_FOUND');
+    await expect(again[0]).rejects.toMatchObject({ message: 'NOT_FOUND' });
     await flush();
     expect(spy.mock.calls).toEqual([[null]]);
     expect(disconnects(h)).toHaveLength(2);
@@ -342,7 +396,7 @@ describe('a disconnect ends the connection (#1227)', () => {
     w.on('accountChange', spy);
     await answerPoll(h, null);
     refuse(h, h.last().reqId);
-    await expect(again[0]).rejects.toThrow('NOT_FOUND');
+    await expect(again[0]).rejects.toMatchObject({ message: 'NOT_FOUND' });
     await flush();
     expect(spy.mock.calls).toEqual([[null]]);
     expect(disconnects(h)).toHaveLength(1);
@@ -355,7 +409,7 @@ describe('a disconnect ends the connection (#1227)', () => {
     });
     const disconnecting = h.win.midenWallet.disconnect();
     refuse(h, h.last().reqId);
-    await expect(disconnecting).rejects.toThrow('NOT_FOUND');
+    await expect(disconnecting).rejects.toMatchObject({ message: 'NOT_FOUND' });
     expect(h.win.midenWallet.address).toBeUndefined();
   });
 
@@ -369,7 +423,7 @@ describe('a disconnect ends the connection (#1227)', () => {
     h.answer(firstReq!, { type: 'DISCONNECT_RESPONSE' });
     await first;
     refuse(h, secondReq!);
-    await expect(second).rejects.toThrow('NOT_FOUND');
+    await expect(second).rejects.toMatchObject({ message: 'NOT_FOUND' });
     expect(spy.mock.calls).toEqual([[null]]);
   });
 
