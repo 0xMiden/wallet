@@ -20,8 +20,9 @@ final class ClientTests: XCTestCase {
         now = Date(timeIntervalSince1970: 1_792_000_000)
     }
 
-    private func client() throws -> BreadConnect {
-        try BreadConnect(callback: callback, storage: storage, opener: opener, now: { [unowned self] in self.now })
+    private func client(storage: BreadConnectStorage? = nil) throws -> BreadConnect {
+        try BreadConnect(
+            callback: callback, storage: storage ?? self.storage, opener: opener, now: { [unowned self] in self.now })
     }
 
     /// Answers each link the client opens with `answer`, as Bread does once the user decides.
@@ -34,8 +35,8 @@ final class ClientTests: XCTestCase {
         }
     }
 
-    private func connected() async throws -> BreadConnect {
-        let client = try client()
+    private func connected(storage: BreadConnectStorage? = nil) async throws -> BreadConnect {
+        let client = try client(storage: storage)
         answer(with: client) { [bread, permission] in try bread.answerConnect($0, answer: ["response": .object(permission)]) }
         let connecting = Task { try await client.connect(appName: "Where Legends Grow") }
         try await waitFor("the connect to open Bread") { !opener.opened.isEmpty }
@@ -145,6 +146,75 @@ final class ClientTests: XCTestCase {
 
         await assertThrows(.bread(.sessionNotFound)) { _ = try await client.request(["type": "SIGN_REQUEST"]) }
         XCTAssertNil(client.session)
+    }
+
+    func testASessionThatCannotBeKeptEndsTheConnect() async throws {
+        let failing = FailingStorage()
+        failing.failingWrite = BreadConnect.sessionKey
+        let client = try client(storage: failing)
+        answer(with: client) { [bread, permission] in try bread.answerConnect($0, answer: ["response": .object(permission)]) }
+
+        await assertThrows(.bread(.internalError)) { _ = try await client.connect(appName: "Where Legends Grow") }
+        XCTAssertNil(client.session)
+    }
+
+    func testARequestWhoseRecordCannotBeKeptFailsBeforeBreadOpens() async throws {
+        let failing = FailingStorage()
+        let client = try await connected(storage: failing)
+        failing.failingWrite = BreadConnect.pendingKey
+
+        do {
+            _ = try await client.request(["type": "SIGN_REQUEST"])
+            XCTFail("The request went ahead without its record")
+        } catch {
+            XCTAssertTrue(error is FailingStorage.Unavailable, "Unexpected \(error)")
+        }
+        XCTAssertEqual(opener.opened.count, 1)
+    }
+
+    func testAnOutcomeThatCannotBeKeptStillAnswersTheRequest() async throws {
+        let failing = FailingStorage()
+        let client = try await connected(storage: failing)
+        failing.failingWrite = BreadConnect.outcomesKey
+        answer(with: client) { [bread] in
+            try bread.answerRequest(
+                $0,
+                answer: [
+                    "response": ["type": "SEND_TRANSACTION_RESPONSE", "transactionId": "tx-1"],
+                    "transaction": ["output": ["txHash": "0x5f"]]
+                ])
+        }
+
+        let response = try await client.request(["type": "SEND_TRANSACTION_REQUEST"])
+
+        XCTAssertEqual(response["transactionId"]?.stringValue, "tx-1")
+        XCTAssertNil(client.transactionOutcome("tx-1"))
+    }
+
+    func testAPendingRecordThatCannotBeClearedStillSettlesTheAnswer() async throws {
+        let failing = FailingStorage()
+        let client = try await connected(storage: failing)
+        failing.failingRemoval = BreadConnect.pendingKey
+        answer(with: client) { [bread] in
+            try bread.answerRequest($0, answer: ["response": ["type": "SIGN_RESPONSE", "signature": "c2ln"]])
+        }
+
+        let response = try await client.request(["type": "SIGN_REQUEST"])
+
+        XCTAssertEqual(response, ["type": "SIGN_RESPONSE", "signature": "c2ln"])
+    }
+
+    func testASessionThatCannotBeForgottenStillSettlesBreadsSessionNotFound() async throws {
+        let failing = FailingStorage()
+        let client = try await connected(storage: failing)
+        failing.failingRemoval = BreadConnect.sessionKey
+        answer(with: client) { [bread] link in
+            let (envelope, _, _) = try bread.openRequest(link)
+            return bread.error(id: envelope.id, code: .sessionNotFound, message: "Bread has no such session")
+        }
+
+        await assertThrows(.bread(.sessionNotFound)) { _ = try await client.request(["type": "SIGN_REQUEST"]) }
+        XCTAssertNotNil(client.session)
     }
 
     func testAnAnswerToAnotherRequestIsIgnored() async throws {

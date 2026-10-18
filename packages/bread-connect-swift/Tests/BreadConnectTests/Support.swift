@@ -71,6 +71,22 @@ final class MemoryStorage: BreadConnectStorage {
     func write(_ key: String, _ value: Data?) { items[key] = value }
 }
 
+/// A store that throws for one key, as a Keychain without the app's entitlement does.
+final class FailingStorage: BreadConnectStorage {
+    struct Unavailable: Error {}
+
+    var items: [String: Data] = [:]
+    var failingWrite: String?
+    var failingRemoval: String?
+
+    func read(_ key: String) -> Data? { items[key] }
+
+    func write(_ key: String, _ value: Data?) throws {
+        if key == (value == nil ? failingRemoval : failingWrite) { throw Unavailable() }
+        items[key] = value
+    }
+}
+
 final class FakeOpener: BreadOpener {
     var installed = true
     var opened: [URL] = []

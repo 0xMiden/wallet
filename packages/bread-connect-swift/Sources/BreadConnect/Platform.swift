@@ -5,6 +5,11 @@ import Security
     import UIKit
 #endif
 
+/// A Keychain call failed with `status`, such as `errSecMissingEntitlement` in an app without keychain access.
+public struct KeychainError: Error, Equatable, Sendable {
+    public let status: OSStatus
+}
+
 /// Keeps the client's records in the Keychain, readable after the first unlock and never synced to another device.
 public final class KeychainStorage: BreadConnectStorage {
     private let service: String
@@ -22,13 +27,15 @@ public final class KeychainStorage: BreadConnectStorage {
         return result as? Data
     }
 
-    public func write(_ key: String, _ value: Data?) {
-        SecItemDelete(item(key) as CFDictionary)
+    public func write(_ key: String, _ value: Data?) throws {
+        let removed = SecItemDelete(item(key) as CFDictionary)
+        guard removed == errSecSuccess || removed == errSecItemNotFound else { throw KeychainError(status: removed) }
         guard let value else { return }
         var added = item(key)
         added[kSecValueData as String] = value
         added[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        SecItemAdd(added as CFDictionary, nil)
+        let status = SecItemAdd(added as CFDictionary, nil)
+        guard status == errSecSuccess else { throw KeychainError(status: status) }
     }
 
     private func item(_ key: String) -> [String: Any] {

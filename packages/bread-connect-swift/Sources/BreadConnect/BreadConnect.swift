@@ -3,7 +3,8 @@ import Foundation
 /// Where the client keeps the session, the waiting request and transaction outcomes across launches.
 public protocol BreadConnectStorage: AnyObject {
     func read(_ key: String) -> Data?
-    func write(_ key: String, _ value: Data?)
+    /// Throws when the record could not be written or removed; a connect whose session cannot be kept fails.
+    func write(_ key: String, _ value: Data?) throws
 }
 
 /// Opens Bread's link in Bread only; false when Bread is not installed and its store page opened instead.
@@ -97,7 +98,7 @@ public final class BreadConnect {
 
     public var session: StoredSession? { storage.read(Self.sessionKey).flatMap(Self.decodeSession) }
 
-    public func forgetSession() { storage.write(Self.sessionKey, nil) }
+    public func forgetSession() throws { try storage.write(Self.sessionKey, nil) }
 
     /// The outcome Bread reported with a transaction's answer, when this app sent it.
     public func transactionOutcome(_ transactionId: String) -> TransactionOutcome? {
@@ -154,9 +155,14 @@ public final class BreadConnect {
             }
             switch finished.answer {
             case .response(let permission):
-                storage.write(
-                    Self.sessionKey,
-                    Self.encodeSession(StoredSession(session: finished.session, request: request, permission: permission)))
+                do {
+                    try storage.write(
+                        Self.sessionKey,
+                        Self.encodeSession(StoredSession(session: finished.session, request: request, permission: permission)))
+                } catch {
+                    settle(.failure(BreadConnectError(.bread(.internalError), "The session could not be kept: \(error)")))
+                    return true
+                }
                 settle(.success(permission))
             case .error(let error):
                 settle(.failure(BreadConnectError(.bread(error.code), error.message)))
@@ -168,14 +174,16 @@ public final class BreadConnect {
             switch answer {
             case .response(let message, let transaction):
                 if let transaction, let transactionId = message["transactionId"]?.stringValue {
-                    recordOutcome(transactionId, transaction)
+                    // The caller still gets the answer and its transaction id; only transactionOutcome goes without it.
+                    try? recordOutcome(transactionId, transaction)
                 }
                 settle(.success(message))
             case .error(let error):
                 settle(.failure(BreadConnectError(.bread(error.code), error.message)))
             }
         case (.error(let envelope), _) where envelope.id != nil && envelope.id == pending.id:
-            if envelope.error.code == .sessionNotFound { forgetSession() }
+            // Kept, the dead session draws the same answer from Bread on the app's next request.
+            if envelope.error.code == .sessionNotFound { try? forgetSession() }
             settle(.failure(BreadConnectError(.bread(envelope.error.code), envelope.error.message)))
         default:
             break
@@ -188,7 +196,7 @@ public final class BreadConnect {
         guard let url = URL(string: link) else {
             throw BreadConnectError(.bread(.internalError), "Bread's link could not be made")
         }
-        storage.write(Self.pendingKey, Self.encodePending(pending))
+        try storage.write(Self.pendingKey, Self.encodePending(pending))
         let token = UUID()
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
@@ -216,7 +224,8 @@ public final class BreadConnect {
     /// Ends the waiting request, if any, and forgets it; with a token, only when that request is still waiting.
     private func settle(token: UUID? = nil, _ result: Result<JSONObject, Error>) {
         if let token, waiter?.token != token { return }
-        storage.write(Self.pendingKey, nil)
+        // Left behind, the record only lets a late answer to its request land after a relaunch.
+        try? storage.write(Self.pendingKey, nil)
         guard let waiter else { return }
         self.waiter = nil
         settledID = waiter.pending.id
@@ -238,7 +247,7 @@ public final class BreadConnect {
         return entries.compactMap(\.objectValue)
     }
 
-    private func recordOutcome(_ transactionId: String, _ outcome: TransactionOutcome) {
+    private func recordOutcome(_ transactionId: String, _ outcome: TransactionOutcome) throws {
         let outcomeJSON: JSONValue
         switch outcome {
         case .output(let output): outcomeJSON = ["output": output]
@@ -246,7 +255,7 @@ public final class BreadConnect {
         }
         let kept = storedOutcomes().filter { $0["transactionId"]?.stringValue != transactionId }
         let entries = (kept + [["transactionId": .string(transactionId), "outcome": outcomeJSON]]).suffix(Self.outcomeLimit)
-        storage.write(Self.outcomesKey, Data(JSONValue.array(entries.map(JSONValue.object)).serialized().utf8))
+        try storage.write(Self.outcomesKey, Data(JSONValue.array(entries.map(JSONValue.object)).serialized().utf8))
     }
 
     private func millis() -> Int64 { Int64((now().timeIntervalSince1970 * 1000).rounded(.down)) }
