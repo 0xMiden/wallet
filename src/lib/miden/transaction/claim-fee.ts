@@ -79,7 +79,9 @@ export function claimFeeNotes(
   });
 }
 
-export function persistedClaimFeeNotes(row: Pick<ITransaction, 'noteId' | 'noteIds' | 'consumedNotes'>): ClaimFeeNote[] {
+export function persistedClaimFeeNotes(
+  row: Pick<ITransaction, 'noteId' | 'noteIds' | 'consumedNotes'>
+): ClaimFeeNote[] {
   const records = new Map(row.consumedNotes?.map(note => [note.id, note]));
   const ids = new Set([...(row.noteIds ?? []), ...(row.noteId !== undefined ? [row.noteId] : [])]);
   // Missing records are possible funding, including a legacy row with no note identifiers.

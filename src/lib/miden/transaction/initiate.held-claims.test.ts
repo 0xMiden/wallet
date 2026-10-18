@@ -20,7 +20,10 @@ jest.mock('lib/miden-chain/native-asset', () => ({
   getVerificationBaseFee: async () => null
 }));
 jest.mock('../back/miden-client-proxy', () => ({
-  midenClientProxy: { getInputNoteSummary: async () => ({ noteType: undefined, assets: null }), getAccount: async () => null }
+  midenClientProxy: {
+    getInputNoteSummary: async () => ({ noteType: undefined, assets: null }),
+    getAccount: async () => null
+  }
 }));
 jest.mock('../activity/notes', () => ({ queueNoteImport: jest.fn() }));
 
