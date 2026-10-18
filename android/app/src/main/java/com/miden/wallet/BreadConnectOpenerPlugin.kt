@@ -10,7 +10,6 @@ import com.getcapacitor.PluginCall
 import com.getcapacitor.PluginMethod
 import com.getcapacitor.annotation.CapacitorPlugin
 import org.json.JSONArray
-import java.io.ByteArrayOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.concurrent.Executors
@@ -24,9 +23,11 @@ class BreadConnectOpenerPlugin : Plugin() {
     companion object {
         private const val ASSET_LINKS_MAX_BYTES = 256 * 1024
         private const val TIMEOUT_MS = 5_000
+        private const val DEADLINE_MS = 10_000L
     }
 
     private val executor = Executors.newSingleThreadExecutor()
+    private val watchdog = Executors.newSingleThreadScheduledExecutor()
 
     @PluginMethod
     fun openCallback(call: PluginCall) {
@@ -72,31 +73,18 @@ class BreadConnectOpenerPlugin : Plugin() {
         connection.connectTimeout = TIMEOUT_MS
         connection.readTimeout = TIMEOUT_MS
         connection.instanceFollowRedirects = false
-        try {
-            if (connection.responseCode != HttpURLConnection.HTTP_OK) return emptyList()
-            val body = ByteArrayOutputStream()
-            val chunk = ByteArray(8192)
-            connection.inputStream.use { stream ->
-                while (true) {
-                    val read = stream.read(chunk)
-                    if (read < 0) break
-                    body.write(chunk, 0, read)
-                    if (body.size() > ASSET_LINKS_MAX_BYTES) return emptyList()
-                }
-            }
-            val statements = JSONArray(body.toString(Charsets.UTF_8.name()))
-            return (0 until statements.length()).mapNotNull { index ->
-                val statement = statements.optJSONObject(index) ?: return@mapNotNull null
-                val target = statement.optJSONObject("target") ?: return@mapNotNull null
-                BreadConnectOpenerLogic.target(
-                    strings(statement.optJSONArray("relation")),
-                    target.optString("namespace").ifEmpty { null },
-                    target.optString("package_name").ifEmpty { null },
-                    strings(target.optJSONArray("sha256_cert_fingerprints")),
-                )
-            }
-        } finally {
-            connection.disconnect()
+        val body = BreadConnectOpenerLogic.readBody(connection, ASSET_LINKS_MAX_BYTES, DEADLINE_MS, watchdog)
+            ?: return emptyList()
+        val statements = JSONArray(String(body, Charsets.UTF_8))
+        return (0 until statements.length()).mapNotNull { index ->
+            val statement = statements.optJSONObject(index) ?: return@mapNotNull null
+            val target = statement.optJSONObject("target") ?: return@mapNotNull null
+            BreadConnectOpenerLogic.target(
+                strings(statement.optJSONArray("relation")),
+                target.optString("namespace").ifEmpty { null },
+                target.optString("package_name").ifEmpty { null },
+                strings(target.optJSONArray("sha256_cert_fingerprints")),
+            )
         }
     }
 

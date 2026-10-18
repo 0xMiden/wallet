@@ -1,5 +1,11 @@
 package com.miden.wallet
 
+import java.io.ByteArrayOutputStream
+import java.io.IOException
+import java.net.HttpURLConnection
+import java.util.concurrent.ScheduledExecutorService
+import java.util.concurrent.TimeUnit
+
 /// An app a domain's assetlinks.json lets handle every link on that domain.
 class AssetLinkTarget(val packageName: String, val fingerprints: List<ByteArray>)
 
@@ -42,4 +48,37 @@ object BreadConnectOpenerLogic {
     ): String? = targets.firstOrNull { target ->
         target.fingerprints.any { isSignedWith(target.packageName, it) } && handlesLink(target.packageName)
     }?.packageName
+
+    /// The body of a 200 answer on `connection`, at most `maxBytes` long, else null. `deadlineMs` bounds the whole
+    /// read, status line and headers included: the read timeout bounds only each wait, so a server that sends a byte
+    /// inside every one could otherwise hold the answer for as long as it likes.
+    @JvmStatic
+    fun readBody(
+        connection: HttpURLConnection,
+        maxBytes: Int,
+        deadlineMs: Long,
+        watchdog: ScheduledExecutorService,
+    ): ByteArray? {
+        val cutOff = watchdog.schedule(Runnable { connection.disconnect() }, deadlineMs, TimeUnit.MILLISECONDS)
+        try {
+            if (connection.responseCode != HttpURLConnection.HTTP_OK) return null
+            val body = ByteArrayOutputStream()
+            val chunk = ByteArray(8192)
+            connection.inputStream.use { stream ->
+                while (true) {
+                    val read = stream.read(chunk)
+                    if (read < 0) break
+                    body.write(chunk, 0, read)
+                    if (body.size() > maxBytes) return null
+                }
+            }
+            // A disconnect can end the stream early instead of failing the read.
+            return if (cutOff.isDone) null else body.toByteArray()
+        } catch (e: IOException) {
+            return null
+        } finally {
+            cutOff.cancel(false)
+            connection.disconnect()
+        }
+    }
 }

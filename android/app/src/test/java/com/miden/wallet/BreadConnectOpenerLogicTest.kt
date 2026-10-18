@@ -3,7 +3,16 @@ package com.miden.wallet
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.IOException
+import java.io.OutputStream
+import java.net.HttpURLConnection
+import java.net.InetAddress
+import java.net.ServerSocket
+import java.net.URL
+import java.util.concurrent.Executors
+import kotlin.concurrent.thread
 
 class BreadConnectOpenerLogicTest {
     private val print = (0 until 32).joinToString(":") { "%02X".format(it * 7) }
@@ -48,7 +57,8 @@ class BreadConnectOpenerLogicTest {
     }
 
     private val other = ByteArray(32) { 1.toByte() }
-    private val signedWith = mapOf("com.example.lacks" to bytes, "com.example.game" to bytes, "com.example.later" to bytes)
+    private val signedWith =
+        mapOf("com.example.lacks" to bytes, "com.example.game" to bytes, "com.example.later" to bytes)
     private val handlers = setOf("com.example.other", "com.example.game", "com.example.later")
 
     private fun verified(vararg targets: AssetLinkTarget) = BreadConnectOpenerLogic.verifiedPackage(
@@ -76,5 +86,69 @@ class BreadConnectOpenerLogicTest {
         assertNull(verified(AssetLinkTarget("com.example.other", listOf(bytes))))
         assertNull(verified(AssetLinkTarget("com.example.lacks", listOf(bytes))))
         assertNull(verified())
+    }
+
+    private val watchdog = Executors.newSingleThreadScheduledExecutor { task -> Thread(task).apply { isDaemon = true } }
+
+    /// A one-request HTTP server on the loopback address that answers with `respond`.
+    private fun serve(respond: (OutputStream) -> Unit): URL {
+        val server = ServerSocket(0, 1, InetAddress.getLoopbackAddress())
+        thread(isDaemon = true) {
+            server.use {
+                it.accept().use { socket ->
+                    val request = socket.getInputStream().bufferedReader()
+                    while (request.readLine()?.isNotEmpty() == true) continue
+                    try {
+                        respond(socket.getOutputStream())
+                    } catch (e: IOException) {
+                        // The reader hung up.
+                    }
+                }
+            }
+        }
+        return URL("http://127.0.0.1:${server.localPort}/.well-known/assetlinks.json")
+    }
+
+    private fun read(url: URL, maxBytes: Int = 64): ByteArray? {
+        val connection = url.openConnection() as HttpURLConnection
+        connection.connectTimeout = 500
+        connection.readTimeout = 500
+        return BreadConnectOpenerLogic.readBody(connection, maxBytes, 1_000, watchdog)
+    }
+
+    private fun drip(out: OutputStream, text: String) {
+        for (byte in text.toByteArray()) {
+            out.write(byte.toInt())
+            out.flush()
+            Thread.sleep(100)
+        }
+    }
+
+    @Test
+    fun `reads a whole answer and refuses one over the cap`() {
+        val ok = "HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n"
+        val answer = "[{\"relation\":[]}]"
+        assertEquals(answer, read(serve { it.write("$ok$answer".toByteArray()) })?.let { String(it) })
+        assertNull(read(serve { it.write("$ok${"[".repeat(65)}".toByteArray()) }))
+        assertNull(read(serve { it.write("HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n[]".toByteArray()) }))
+    }
+
+    @Test(timeout = 10_000)
+    fun `gives up at the deadline on a body sent a byte inside every read timeout`() {
+        val url = serve {
+            it.write("HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n".toByteArray())
+            while (true) drip(it, "[")
+        }
+        val started = System.nanoTime()
+        assertNull(read(url, maxBytes = 1_000_000))
+        assertTrue(System.nanoTime() - started < 3_000_000_000L)
+    }
+
+    @Test(timeout = 10_000)
+    fun `gives up at the deadline on headers sent a byte inside every read timeout`() {
+        val url = serve { drip(it, "HTTP/1.1 200 OK\r\nX-Slow: ${"a".repeat(1000)}\r\n\r\n[]") }
+        val started = System.nanoTime()
+        assertNull(read(url))
+        assertTrue(System.nanoTime() - started < 3_000_000_000L)
     }
 }
