@@ -15,6 +15,7 @@ import type { Hex } from 'viem';
 import { mnemonicToAccount, privateKeyToAccount } from 'viem/accounts';
 
 import { generateMnemonic, validateMnemonic } from '@miden/hd-key';
+import { MidenDAppErrorType } from 'lib/adapter/types';
 import { getMessage } from 'lib/i18n';
 import { isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
 import { getAccountsWriteQueue } from 'lib/miden/back/accounts-write-queue';
@@ -31,6 +32,7 @@ import {
 } from 'lib/miden/back/safe-storage';
 import { ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import { encodePrivateKeyPair, parsePrivateKeyPair } from 'lib/miden/guardian/private-key-pair';
+import { deriveLoginKeyScalar, type LoginKeySource } from 'lib/miden/login-key/derive';
 import * as Passworder from 'lib/miden/passworder';
 import * as Repo from 'lib/miden/repo';
 import { clearStorage, SETUP_WIPE_KEPT_KEYS } from 'lib/miden/reset';
@@ -2284,6 +2286,128 @@ export class Vault {
     return u8ToB64(fullSignature);
   }
 
+  /**
+   * The commitment of `accountId`'s login key for `domain`: base64 of 32 bytes, as `connect` returns the account key
+   * commitment. `connectedCommitment` is that account key commitment as the session stored it, read only to find a
+   * single private-key import's key.
+   */
+  async loginKeyCommitment(accountId: string, connectedCommitment: string, domain: string): Promise<string> {
+    return withError('Failed to derive the login key', () =>
+      this.withLoginKey(accountId, connectedCommitment, domain, secretKey => {
+        const publicKey = secretKey.publicKey();
+        try {
+          const commitment = publicKey.toCommitment();
+          try {
+            return u8ToB64(commitment.serialize());
+          } finally {
+            commitment.free();
+          }
+        } finally {
+          publicKey.free();
+        }
+      })
+    );
+  }
+
+  /**
+   * Sign `word`, base64 of a 32-byte word, with `accountId`'s login key for `domain`. Returns base64 of the 66-byte
+   * signature `[0x01, r, s, v]`.
+   */
+  async signWithLoginKey(
+    accountId: string,
+    connectedCommitment: string,
+    domain: string,
+    word: string
+  ): Promise<string> {
+    return withError('Failed to sign with the login key', () =>
+      this.withLoginKey(accountId, connectedCommitment, domain, secretKey => {
+        let message: Word;
+        try {
+          message = Word.deserialize(b64ToU8(word));
+        } catch {
+          // Not the SDK's error: `withError` logs it, and it can quote the word.
+          throw new PublicError('Invalid word to sign');
+        }
+        try {
+          const signature = secretKey.sign(message);
+          try {
+            return u8ToB64(signature.serialize());
+          } finally {
+            signature.free();
+          }
+        } finally {
+          message.free();
+        }
+      })
+    );
+  }
+
+  /**
+   * Run `use` on `accountId`'s login key for `domain`, the ECDSA key whose scalar `deriveLoginKeyScalar` derives from
+   * the account's root key. The key is freed, and the root and the scalar zeroed, before this settles.
+   */
+  private async withLoginKey<T>(
+    accountId: string,
+    connectedCommitment: string,
+    domain: string,
+    use: (secretKey: AuthSecretKey) => T
+  ): Promise<T> {
+    const { root, source } = await this.loginKeyRoot(accountId, connectedCommitment);
+    try {
+      // Nothing on this path has loaded the WASM module: on the extension the service worker holds no client.
+      const [{ deserializeHotSecretKey }] = await Promise.all([import('../guardian/hot-key-import'), getWasmOrThrow()]);
+      const scalar = deriveLoginKeyScalar(root, source, domain);
+      try {
+        const secretKey = deserializeHotSecretKey(bytesToHex(scalar));
+        try {
+          return use(secretKey);
+        } finally {
+          secretKey.free();
+        }
+      } finally {
+        scalar.fill(0);
+      }
+    } finally {
+      root.fill(0);
+    }
+  }
+
+  /**
+   * The root key of `accountId`'s login keys, as bytes the caller zeroes. In order: the stored EVM key; the EVM key
+   * derived from the seed phrase, for an account from before EVM keys were stored; a single private-key import's own
+   * key. Anything else is refused, never served by another of the wallet's keys.
+   */
+  private async loginKeyRoot(
+    accountId: string,
+    connectedCommitment: string
+  ): Promise<{ root: Uint8Array; source: LoginKeySource }> {
+    const account = (await this.fetchAccounts()).find(acc => sameWalletAccountId(acc.publicKey, accountId));
+    if (!account) throw loginKeyUnavailable();
+    const evmStorageKey = account.evmAddress && accEvmSecretKeyStrgKey(account.evmAddress.toLowerCase());
+    if (evmStorageKey && (await isStored(evmStorageKey))) {
+      return { root: secretBytes(await fetchAndDecryptOne<Hex>(evmStorageKey, this.vaultKey)), source: 'evm' };
+    }
+    if (account.hdIndex >= 0 && (await this.fetchSeedPhraseStatus()) === 'stored') {
+      // In memory only: an older account's record and stored keys stay as they are.
+      const mnemonic = await fetchAndDecryptOne<string>(mnemonicStrgKey, this.vaultKey);
+      const evmKey = deriveEvmKeyPair(mnemonic, account.type, account.hdIndex);
+      if (account.evmAddress && evmKey.address.toLowerCase() !== account.evmAddress.toLowerCase()) {
+        throw loginKeyUnavailable();
+      }
+      return { root: secretBytes(evmKey.privateKeyHex), source: 'evm' };
+    }
+    // A Guardian account's entries under `accAuthSecretKeyStrgKey` are its hot and cold keys, never a root.
+    const commitment =
+      account.type !== WalletType.Guardian && account.hdIndex < 0 && !account.evmAddress
+        ? commitmentToHex(connectedCommitment)
+        : undefined;
+    if (commitment && (await isStored(accAuthSecretKeyStrgKey(commitment)))) {
+      const secretKeyHex = await fetchAndDecryptOne<string>(accAuthSecretKeyStrgKey(commitment), this.vaultKey);
+      return { root: secretBytes(secretKeyHex), source: 'auth' };
+    }
+    throw loginKeyUnavailable();
+  }
+
   async signTransaction(publicKey: string, signingInputs: string): Promise<string> {
     const secretKey = await fetchAndDecryptOne<string>(accAuthSecretKeyStrgKey(publicKey), this.vaultKey);
     let secretKeyBytes = new Uint8Array(Buffer.from(secretKey, 'hex'));
@@ -2691,8 +2815,9 @@ function isValidHex(s: string): boolean {
 }
 
 /**
- * One-time derivation of the wallet's EVM identity for a Miden HD account,
- * at account creation / restore. BIP-44 Ethereum path
+ * Derivation of the wallet's EVM identity for a Miden HD account, at account
+ * creation / restore, or in memory for the login key of an account from before
+ * EVM keys were stored. BIP-44 Ethereum path
  * m/44'/60'/{walletTypeIndex}'/0/{hdIndex}, deliberately independent of the
  * SLIP-0010 Miden branch used by `deriveClientSeed` (coin type 60 vs Miden's), so
  * the Miden and EVM key families can never collide. The walletTypeIndex segment
@@ -2700,7 +2825,7 @@ function isValidHex(s: string): boolean {
  * without it an OnChain and an OffChain account at the same bucket index would
  * derive the SAME EVM key/address — commingling Epoch positions and breaking
  * public/private account isolation. Nothing key-bearing escapes except the
- * returned pair, which callers persist encrypted and drop.
+ * returned pair, which callers persist encrypted or hold in memory, and drop.
  */
 function deriveEvmKeyPair(
   mnemonic: string,
@@ -2713,6 +2838,19 @@ function deriveEvmKeyPair(
     throw new PublicError('EVM key derivation failed');
   }
   return { address: hdAccount.address, privateKeyHex: toHex(privateKey) };
+}
+
+/** `hex`, with or without `0x`, as bytes the caller zeroes after use; the decoding buffer is zeroed here. */
+function secretBytes(hex: string): Uint8Array {
+  const decoded = Buffer.from(hex.startsWith('0x') ? hex.slice(2) : hex, 'hex');
+  const bytes = new Uint8Array(decoded);
+  decoded.fill(0);
+  return bytes;
+}
+
+/** A login key refusal. The site reads its message, so it names no key, commitment or domain. */
+function loginKeyUnavailable(): PublicError {
+  return new PublicError(`${MidenDAppErrorType.LoginKeyUnavailable}: this account's root key is not on this device`);
 }
 
 function createStorageKey(id: StorageEntity) {
