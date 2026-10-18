@@ -200,6 +200,8 @@ class BreadConnect(
                 coroutineScope {
                     // Beside the wait, so a cancel or a newer request ends this request while the opener has not returned.
                     val opening = launch {
+                        // The cancel below runs only once the settled wait resumes, which can come after this starts.
+                        if (synchronized(lock) { this@BreadConnect.waiter !== waiter }) return@launch
                         val opened = try {
                             opener.open(link)
                         } catch (e: CancellationException) {

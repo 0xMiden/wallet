@@ -65,6 +65,7 @@ public final class BreadConnect {
         let pending: Pending
         let continuation: CheckedContinuation<JSONObject, Error>
         let timeout: Task<Void, Never>
+        let opening: Task<Void, Never>
     }
 
     private enum Pending {
@@ -208,14 +209,17 @@ public final class BreadConnect {
                     guard !Task.isCancelled else { return }
                     self?.settle(token: token, .failure(BreadConnectError(.timeout, "Bread did not answer in time")))
                 }
-                waiter = Waiter(token: token, pending: pending, continuation: continuation, timeout: timeout)
-                Task { @MainActor [weak self, opener = self.opener] in
+                // Settling cancels this, so a request superseded or cancelled before it runs never opens Bread.
+                let opening = Task { @MainActor [weak self, opener = self.opener] in
+                    guard !Task.isCancelled else { return }
                     if await !opener.open(url) {
                         self?.settle(
                             token: token,
                             .failure(BreadConnectError(.notInstalled, "Bread is not installed; its store page is open")))
                     }
                 }
+                waiter = Waiter(
+                    token: token, pending: pending, continuation: continuation, timeout: timeout, opening: opening)
             }
         } onCancel: {
             Task { @MainActor [weak self] in
@@ -233,6 +237,7 @@ public final class BreadConnect {
         self.waiter = nil
         settledID = waiter.pending.id
         waiter.timeout.cancel()
+        waiter.opening.cancel()
         waiter.continuation.resume(with: result)
     }
 
