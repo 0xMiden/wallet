@@ -55,6 +55,7 @@
                 <category android:name="android.intent.category.BROWSABLE" />
 
                 <data android:scheme="https" android:host="bread.miden.xyz" android:path="/open" />
+                <data android:scheme="https" android:host="bread.miden.xyz" android:path="/request" />
             </intent-filter>
 
         </activity>
