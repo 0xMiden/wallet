@@ -351,13 +351,19 @@ async function commit(request) {
   await client.sync();
 }
 
-test('the transported bare request fails but wallet-enriched bytes commit with both signatures', async () => {
+test('a transported bare request binds each execution height, but wallet-enriched bytes commit a block later', async () => {
   const bare = bareBuilder().withFeeConversionSalt(salt()).build();
-  await assert.rejects(client.transactions.executeRequest(accountId, bare), /advice stack read failed/);
   const bareBytes = bare.serialize();
   const prepared = enrichOwnOutputRequest(sdk.TransactionRequest.deserialize(bareBytes), await feeBuilder(), bareBytes);
-  const transported = sdk.TransactionRequest.deserialize(prepared.serialize());
-  const tx = await client.transactions.executeRequest(accountId, await sign(transported));
+  const signedBare = await sign(sdk.TransactionRequest.deserialize(bareBytes));
+  const signedPrepared = await sign(sdk.TransactionRequest.deserialize(prepared.serialize()));
+  await client.proveBlock();
+  await client.sync();
+  await assert.rejects(
+    client.transactions.executeRequest(accountId, signedBare),
+    /transaction is unauthorized with summary/
+  );
+  const tx = await client.transactions.executeRequest(accountId, signedPrepared);
   assert.deepEqual(tx.result.executedTransaction().outputNotes().notes()[0].intoFull().serialize(), note.serialize());
   const proof = await tx.prove();
   const submission = await proof.submit();

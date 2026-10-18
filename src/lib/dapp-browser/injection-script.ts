@@ -402,6 +402,28 @@ export const INJECTION_SCRIPT = `
       return { signature: b64ToU8(res.signature) };
     }
 
+    async requestLoginKey() {
+      const res = await request({
+        type: 'LOGIN_KEY_REQUEST',
+        sourceAccountId: this.address
+      });
+
+      return { loginKey: b64ToU8(res.loginKey) };
+    }
+
+    async signLoginBytes(data, kind) {
+      const messageAsB64 = u8ToB64(data);
+
+      const res = await request({
+        type: 'LOGIN_SIGN_REQUEST',
+        sourceAccountId: this.address,
+        payload: messageAsB64,
+        kind
+      });
+
+      return { signature: b64ToU8(res.signature) };
+    }
+
     async importPrivateNote(note) {
       const noteAsB64 = u8ToB64(note);
 

@@ -3954,6 +3954,24 @@
     "message": "İmzanızı rica eder",
     "englishSource": "Requests your signature"
   },
+  "confirmLoginSignature": {
+    "message": "$domain$ adresinde oturum açın",
+    "englishSource": "Sign in to $domain$",
+    "placeholders": {
+      "domain": {
+        "content": "$1"
+      }
+    }
+  },
+  "loginSignatureNote": {
+    "message": "Bread, yalnızca $domain$ için oluşturulmuş bir anahtarla oturum açar. Bu anahtarla fon transferi yapamaz veya hesabınızda değişiklik yapamazsınız.",
+    "englishSource": "Bread signs with a key made only for $domain$. It can't move funds or change your account.",
+    "placeholders": {
+      "domain": {
+        "content": "$1"
+      }
+    }
+  },
   "requestAssets": {
     "message": "Varlıkları İste",
     "englishSource": "Request Assets"
@@ -4439,6 +4457,15 @@
   "dappSignRequest": {
     "message": "Bu uygulama, verileri cüzdanınızla imzalamanızı istemektedir",
     "englishSource": "This app wants you to sign data with your wallet"
+  },
+  "dappLoginSignRequest": {
+    "message": "Bu site, Bread ile $domain$ adresinde oturum açmanızı istemektedir.",
+    "englishSource": "This site wants you to sign in to $domain$ with Bread",
+    "placeholders": {
+      "domain": {
+        "content": "$1"
+      }
+    }
   },
   "dappImportNoteRequest": {
     "message": "Bu uygulama, özel bir note adresini cüzdanınıza aktarmak istiyor",

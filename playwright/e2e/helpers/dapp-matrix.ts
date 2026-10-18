@@ -71,6 +71,8 @@ export const DAPP_JOURNEY_CELLS: Record<JourneyId, CellList> = {
     'G2c',
     'G3',
     'G4',
+    'L1',
+    'L2',
     'R1-send',
     'R1-consume',
     'R1-custom',

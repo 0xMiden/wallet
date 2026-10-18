@@ -65,6 +65,8 @@ type Wallet = {
   connect: (...args: unknown[]) => Promise<unknown>;
   disconnect: () => Promise<unknown>;
   requestAssets: () => Promise<unknown>;
+  requestLoginKey: () => Promise<{ loginKey: Uint8Array }>;
+  signLoginBytes: (data: Uint8Array, kind: 'word') => Promise<{ signature: Uint8Array }>;
   on: (event: string, cb: (data: unknown) => void) => () => void;
   off: (event: string, cb: (data: unknown) => void) => void;
   emit: (event: string, data: unknown) => void;
@@ -568,5 +570,53 @@ describe('an emission visits the listeners registered when it began (#1241)', ()
     } finally {
       error.mockRestore();
     }
+  });
+});
+
+describe('login key', () => {
+  const b64 = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes));
+
+  it('gives the desktop provider the login key methods', async () => {
+    const h = await connected();
+    const loginKey = Uint8Array.from({ length: 32 }, (_, i) => i);
+    const keyRequest = h.win.midenWallet.requestLoginKey();
+    expect(h.last().payload).toEqual({ type: 'LOGIN_KEY_REQUEST', sourceAccountId: '0xabc' });
+    h.answer(h.last().reqId, { type: 'LOGIN_KEY_RESPONSE', loginKey: b64(loginKey) });
+    const key = (await keyRequest).loginKey;
+    expect(key).toBeInstanceOf(Uint8Array);
+    expect(key).toHaveLength(32);
+    expect(Array.from(key)).toEqual(Array.from(loginKey));
+
+    const data = Uint8Array.from({ length: 32 }, (_, i) => 255 - i);
+    const signature = Uint8Array.from({ length: 66 }, (_, i) => i);
+    const signRequest = h.win.midenWallet.signLoginBytes(data, 'word');
+    expect(h.last().payload).toEqual({
+      type: 'LOGIN_SIGN_REQUEST',
+      sourceAccountId: '0xabc',
+      payload: b64(data),
+      kind: 'word'
+    });
+    h.answer(h.last().reqId, { type: 'LOGIN_SIGN_RESPONSE', signature: b64(signature) });
+    const sig = (await signRequest).signature;
+    expect(sig).toBeInstanceOf(Uint8Array);
+    expect(sig).toHaveLength(66);
+    expect(Array.from(sig)).toEqual(Array.from(signature));
+  });
+
+  it('rejects a refusal with the extension error class and message', async () => {
+    const h = await connected();
+    const refusal = "LOGIN_KEY_UNAVAILABLE: this account's root key is not on this device";
+    const refuse = () =>
+      h.win.__midenWalletResponse(
+        JSON.stringify({ type: 'MIDEN_PAGE_ERROR_RESPONSE', error: refusal, reqId: h.last().reqId })
+      );
+
+    const keyRequest = h.win.midenWallet.requestLoginKey();
+    refuse();
+    await expect(keyRequest).rejects.toMatchObject({ name: new MidenWalletError().name, message: refusal });
+
+    const signRequest = h.win.midenWallet.signLoginBytes(new Uint8Array(32), 'word');
+    refuse();
+    await expect(signRequest).rejects.toMatchObject({ name: new MidenWalletError().name, message: refusal });
   });
 });

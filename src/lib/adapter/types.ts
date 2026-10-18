@@ -29,7 +29,9 @@ export type MidenDAppRequest =
   | MidenDAppImportPrivateNoteRequest
   | MidenDAppConsumableNotesRequest
   | MidenDAppWaitForTxRequest
-  | MidenDAppGuardianInfoRequest;
+  | MidenDAppGuardianInfoRequest
+  | MidenDAppLoginKeyRequest
+  | MidenDAppLoginSignRequest;
 
 export type MidenDAppResponse =
   | MidenDAppGetCurrentPermissionResponse
@@ -44,7 +46,9 @@ export type MidenDAppResponse =
   | MidenDAppImportPrivateNoteResponse
   | MidenDAppConsumableNotesResponse
   | MidenDAppWaitForTxResponse
-  | MidenDAppGuardianInfoResponse;
+  | MidenDAppGuardianInfoResponse
+  | MidenDAppLoginKeyResponse
+  | MidenDAppLoginSignResponse;
 
 export interface MidenDAppMessageBase {
   type: MidenDAppMessageType;
@@ -76,7 +80,11 @@ export enum MidenDAppMessageType {
   WaitForTransactionRequest = 'WAIT_FOR_TRANSACTION_REQUEST',
   WaitForTransactionResponse = 'WAIT_FOR_TRANSACTION_RESPONSE',
   GuardianInfoRequest = 'GUARDIAN_INFO_REQUEST',
-  GuardianInfoResponse = 'GUARDIAN_INFO_RESPONSE'
+  GuardianInfoResponse = 'GUARDIAN_INFO_RESPONSE',
+  LoginKeyRequest = 'LOGIN_KEY_REQUEST',
+  LoginKeyResponse = 'LOGIN_KEY_RESPONSE',
+  LoginSignRequest = 'LOGIN_SIGN_REQUEST',
+  LoginSignResponse = 'LOGIN_SIGN_RESPONSE'
 }
 
 /**
@@ -176,6 +184,31 @@ export interface MidenDAppSignResponse extends MidenDAppMessageBase {
   signature: string;
 }
 
+export interface MidenDAppLoginKeyRequest extends MidenDAppMessageBase {
+  type: MidenDAppMessageType.LoginKeyRequest;
+  sourceAccountId: string;
+}
+
+export interface MidenDAppLoginKeyResponse extends MidenDAppMessageBase {
+  type: MidenDAppMessageType.LoginKeyResponse;
+  // Base64 of the 32-byte commitment to the account's login key for the page's domain.
+  loginKey: string;
+}
+
+export interface MidenDAppLoginSignRequest extends MidenDAppMessageBase {
+  type: MidenDAppMessageType.LoginSignRequest;
+  sourceAccountId: string;
+  // Base64 of the page's 32-byte word. The login key signs the login message hashed from it, never the word.
+  payload: string;
+  kind: 'word';
+}
+
+export interface MidenDAppLoginSignResponse extends MidenDAppMessageBase {
+  type: MidenDAppMessageType.LoginSignResponse;
+  // Base64 of the 66-byte signature.
+  signature: string;
+}
+
 export interface MidenDAppAssetsRequest extends MidenDAppMessageBase {
   type: MidenDAppMessageType.AssetsRequest;
   sourcePublicKey: string;
@@ -235,7 +268,8 @@ export enum MidenDAppErrorType {
   NotFound = 'NOT_FOUND',
   InvalidParams = 'INVALID_PARAMS',
   OutcomeUnknown = 'OUTCOME_UNKNOWN',
-  NetworkNotGranted = 'NETWORK_NOT_GRANTED'
+  NetworkNotGranted = 'NETWORK_NOT_GRANTED',
+  LoginKeyUnavailable = 'LOGIN_KEY_UNAVAILABLE'
 }
 
 /**

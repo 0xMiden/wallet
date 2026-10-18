@@ -129,7 +129,7 @@ export interface SignatureView {
   schemeTag: number;
   /** The signed payload as the wallet received it (word bytes, or serialized SigningInputs). */
   payloadB64: string;
-  /** The 32 word bytes the key signed: the word itself, or the SigningInputs commitment. */
+  /** The 32 word bytes the key signed: the word itself, the SigningInputs commitment, or a login message. */
   messageB64: string;
 }
 export interface SelfTestView {
@@ -137,6 +137,12 @@ export interface SelfTestView {
   signatureB64: string;
   payloadB64: string;
   messageB64: string;
+}
+export interface LoginKeyView {
+  /** The bytes `requestLoginKey` returned. */
+  loginKeyB64: string;
+  /** The commitment in the form `publicKeyHex` and `verifySignature`'s `commitmentHex` take, so the three compare. */
+  loginKeyHex: string;
 }
 export type RawArg = string | number | boolean | null | { bytesB64: string } | RawArg[] | { [key: string]: RawArg };
 export type RawCall =
@@ -225,6 +231,9 @@ export interface DappCommands {
     };
     output: Outcome<SignatureView>;
   };
+  /** The two login key calls go to `window.midenWallet` directly: the published adapter has neither method. */
+  loginKey: { input: Empty; output: Outcome<LoginKeyView> };
+  signLoginWord: { input: { wordHex: string }; output: Outcome<SignatureView> };
   verifySignature: {
     input: { kind: 'word' | 'signingInputs'; payloadB64: string; signatureB64: string; publicKeyB64: string };
     output: { verifies: boolean; commitmentHex: string };

@@ -99,6 +99,8 @@ import {
   requestImportPrivateNote,
   requestConsumableNotes,
   requestGuardianInfo,
+  requestLoginKey,
+  requestLoginSign,
   waitForTransaction
 } from './dapp';
 
@@ -1015,8 +1017,10 @@ export async function processDApp(
   }
   // This dumps the full request payload (addresses, amounts, note ids,
   // transaction payload). Gated behind DEBUG_DAPP_BRIDGE so release
-  // builds don't leak transaction data to os_log / logcat.
-  dappDebug('[processDApp] Full request:', JSON.stringify(req));
+  // builds don't leak transaction data to os_log / logcat. A login
+  // signature's word is left out even then.
+  const dumped = req?.type === MidenDAppMessageType.LoginSignRequest ? { ...req, payload: '[redacted]' } : req;
+  dappDebug('[processDApp] Full request:', JSON.stringify(dumped));
   switch (req?.type) {
     case MidenDAppMessageType.GetCurrentPermissionRequest:
       return withInited(() => getCurrentPermission(origin));
@@ -1042,11 +1046,17 @@ export async function processDApp(
     case MidenDAppMessageType.SignRequest:
       return withInited(() => getDappQueue().add(() => requestSign(origin, req, sessionId)));
 
+    case MidenDAppMessageType.LoginSignRequest:
+      return withInited(() => getDappQueue().add(() => requestLoginSign(origin, req, sessionId)));
+
     case MidenDAppMessageType.AssetsRequest:
       return withInited(() => getDappQueue().add(() => requestAssets(origin, req, sessionId)));
 
     case MidenDAppMessageType.GuardianInfoRequest:
       return withInited(() => getDappQueue().add(() => requestGuardianInfo(origin, req)));
+
+    case MidenDAppMessageType.LoginKeyRequest:
+      return withInited(() => getDappQueue().add(() => requestLoginKey(origin, req)));
 
     case MidenDAppMessageType.ImportPrivateNoteRequest:
       return withInited(() => getDappQueue().add(() => requestImportPrivateNote(origin, req, sessionId)));
