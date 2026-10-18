@@ -79,10 +79,16 @@ function responseOf(link: string, base = CALLBACK): ResponseEnvelope {
   return envelope;
 }
 
-function vector(name: string) {
+type Vector = (typeof vectors.messages)[number];
+
+function vector(name: string): Vector {
   const found = vectors.messages.find(entry => entry.name === name);
   if (!found) throw new Error(`no vector named ${name}`);
   return found;
+}
+
+function isSealed(entry: Vector): entry is Vector & { plaintext: string; additionalData: string } {
+  return typeof entry.plaintext === 'string' && typeof entry.additionalData === 'string';
 }
 
 const connection: AppConnection = {
@@ -159,7 +165,7 @@ describe('the v1 vectors', () => {
     }
   );
 
-  it.each(vectors.messages.flatMap(entry => ('plaintext' in entry ? [[entry.name, entry] as const] : [])))(
+  it.each(vectors.messages.filter(isSealed).map(entry => [entry.name, entry] as const))(
     'seals the %s payload to the vector bytes and opens it',
     (_, entry) => {
       const envelope = envelopeOf(entry.link, entry.base);
@@ -176,9 +182,10 @@ describe('the v1 vectors', () => {
 
   it('opens the approved and the refused connection', () => {
     const approved = vector('connected');
+    if (!isSealed(approved)) throw new Error('the connected vector is not sealed');
     expect(finishConnect(connectedOf(approved.link), connection)).toEqual({
       session: appSession,
-      answer: 'plaintext' in approved ? JSON.parse(approved.plaintext) : undefined
+      answer: JSON.parse(approved.plaintext)
     });
     const refused = finishConnect(connectedOf(vector('connected, refused').link), connection);
     expect(refused.answer).toEqual({ error: { code: 'NOT_GRANTED', message: 'The user declined' } });

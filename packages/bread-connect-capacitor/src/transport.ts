@@ -257,7 +257,10 @@ function isDAppMessage(value: unknown): value is DAppMessage {
   return isRecord(value) && typeof value.type === 'string';
 }
 
-function isStrings<K extends string>(value: Record<string, unknown>, keys: readonly K[]): value is Record<K, string> {
+function isStrings<T extends Record<string, unknown>, K extends string>(
+  value: T,
+  keys: readonly K[]
+): value is T & Record<K, string> {
   return keys.every(key => typeof value[key] === 'string');
 }
 
