@@ -306,8 +306,10 @@ it('gives the desktop provider the login key methods') // the same request shape
 **Interfaces:**
 ```ts
 // L1: a site gets one login key and a verifiable login signature
-// loginKey twice: the same 32 bytes, different from connect's publicKeyHex;
+// loginKey twice, each without a prompt (expectNoPrompt): the same 32 bytes, different from connect's publicKeyHex;
 // signLoginWord(word): approved with LoginSign_AcceptButton through answerPrompt, naming the dApp's origin; 66 bytes starting with 1;
+// while that popup is open (whileOpen), its title names the page's domain, exactly "Sign in to localhost" for dApp one,
+// since a loopback host has no registrable domain and loginKeyDomain gives the whole host;
 // the signature recovers to a key whose commitment is the login key (playwright/e2e/helpers/signature-recovery.ts, then verifySignature, as G1)
 // L2: a declined login signature rejects
 // signLoginWord declined with LoginSign_RejectButton: refusal('NotGrantedMidenWalletError', 'NOT_GRANTED')
