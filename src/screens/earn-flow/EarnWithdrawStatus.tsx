@@ -15,6 +15,7 @@ import { IEarnWithdrawExtraInputs } from 'lib/miden/db/types';
 import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { useWalletStore } from 'lib/store';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import { cn } from 'lib/ui/util';
 import { navigate } from 'lib/woozie';
 import { TransactionHeroIcon } from 'screens/generating-transaction/components';
@@ -44,6 +45,17 @@ interface EarnWithdrawStatusProps {
 export const EarnWithdrawStatus: React.FC<EarnWithdrawStatusProps> = ({ txId }) => {
   const { t } = useTranslation();
   const { row, loaded } = useTransactionRow(txId);
+  // The spinner is not a nonfailed row: the first database result may already be a persisted failure.
+  const firstLoadedFailed = useRef<boolean>();
+  if (loaded && row && firstLoadedFailed.current === undefined) {
+    firstLoadedFailed.current = row.extraInputs.phase === 'failed';
+  }
+  useUserVisibleError(
+    loaded && row?.extraInputs.phase === 'failed' && firstLoadedFailed.current === false
+      ? 'raw_earn_withdraw_failed'
+      : null,
+    'status_screen'
+  );
   const { mutate } = useSWRConfig();
   const refreshedReceipt = useRef<string>();
   const receiptId = row?.extraInputs?.phase === 'received' ? row.id : undefined;

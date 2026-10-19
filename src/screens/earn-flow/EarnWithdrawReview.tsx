@@ -13,6 +13,7 @@ import { gaslessEarnWithdrawalToMiden } from 'lib/epoch';
 import { quoteEarnWithdrawal, type EarnWithdrawalQuote } from 'lib/epoch/earn-withdraw-quote';
 import { withdrawalAmount, withdrawalAmountError } from 'lib/epoch/withdraw-amount';
 import { useAccount } from 'lib/miden/front';
+import { isUserErrorId, UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 import { goBack, navigate, Redirect, useLocation } from 'lib/woozie';
 import { truncateAddress } from 'utils/string';
 
@@ -98,7 +99,10 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
   }, [amount, reviewed, account.publicKey, account.evmAddress, validation, refresh]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [submitErrorId, setSubmitErrorId] = useState<UserErrorId | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
+  // A submit failure also invalidates its quote; the submit notice owns that failure report.
+  const validationMessageId = !submitError ? (validation ?? quoteError) : undefined;
 
   // Every submission carries a quote, so an unquoted full-balance withdrawal has no way in.
   if (requested === null) return <Redirect to={`/earn/positions/${encodeURIComponent(positionId)}/withdraw`} />;
@@ -129,6 +133,7 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
     if (submitting.current || isSubmitting || position.stale || validation || !quote) return;
     if (!account.evmAddress || account.evmAddress.toLowerCase() !== position.owner.toLowerCase()) {
       setSubmitError(t('earnWithdrawNotOwned'));
+      setSubmitErrorId('earnWithdrawNotOwned');
       return;
     }
     submitting.current = true;
@@ -153,6 +158,13 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
       // generating screen renders the failed phase; this only surfaces
       // pre-row validation errors.
       setSubmitError(e instanceof Error ? t(e.message) : t('earnGaslessWithdrawalFailed'));
+      setSubmitErrorId(
+        e instanceof Error
+          ? isUserErrorId(e.message)
+            ? e.message
+            : 'raw_earn_withdraw_submit_failed'
+          : 'earnGaslessWithdrawalFailed'
+      );
       setQuote(undefined);
       setQuoteError('earnWithdrawRefresh');
     } finally {
@@ -178,7 +190,7 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
           (loadFailed && !found) || pending ? undefined : (
             <>
               {submitError && (
-                <Notice tone="negative" role="alert" data-testid="earn-withdraw-review-error">
+                <Notice errorId={submitErrorId} tone="negative" role="alert" data-testid="earn-withdraw-review-error">
                   {submitError}
                 </Notice>
               )}
@@ -222,7 +234,11 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
 
             {/* Keep the financial choices visible. Exact amounts and route context stay available in Details. */}
             {(validation || quoteError) && (
-              <Notice tone="negative" role="alert">
+              <Notice
+                errorId={isUserErrorId(validationMessageId) ? validationMessageId : null}
+                tone="negative"
+                role="alert"
+              >
                 {t(validation ?? quoteError!, { decimals: position.decimals })}
               </Notice>
             )}

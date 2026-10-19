@@ -112,11 +112,21 @@ const EarnDepositAmount: FC<EarnDepositAmountProps> = ({ vaultId }) => {
       <EarnFlowHeader subject={found} />
 
       {loadFailed && !found ? (
-        <EarnLoadError onRetry={refetch} message={t('earnVaultLoadError')} className="mt-10 px-4" />
+        <EarnLoadError
+          onRetry={refetch}
+          message={t('earnVaultLoadError')}
+          errorId="earnVaultLoadError"
+          className="mt-10 px-4"
+        />
       ) : pending ? null : (
         <>
           {loadFailed && (
-            <EarnLoadError onRetry={refetch} message={t('earnVaultLoadError')} className="shrink-0 px-4 pt-4" />
+            <EarnLoadError
+              onRetry={refetch}
+              message={t('earnVaultLoadError')}
+              errorId="earnVaultLoadError"
+              className="shrink-0 px-4 pt-4"
+            />
           )}
           <FeatureUnavailableNotice availability={earnDeposit} className="mx-4 mt-4 shrink-0" />
           {/* One reason at a time: a deposit that is down already says why Continue is dead. */}
@@ -141,6 +151,7 @@ const EarnDepositAmount: FC<EarnDepositAmountProps> = ({ vaultId }) => {
               // in-balance amount and a disabled button with no explanation — the
               // send and swap flows both name the same condition. `SelectAmount`
               // translates the key itself, so pass the key rather than the text.
+              errorId="insufficientFeeAsset"
               error={feeAssetMissing ? 'insufficientFeeAsset' : undefined}
               onAmountChange={setAmount}
               onSelectToken={() => undefined}

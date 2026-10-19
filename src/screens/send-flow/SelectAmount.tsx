@@ -14,6 +14,7 @@ import { Avatar } from 'components/ui/Avatar';
 import { adaptiveFormatterFor } from 'lib/i18n/numbers';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
+import { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 import { PRIMARY_HEX } from 'utils/brand-colors';
 
 import { balanceFormatterFor } from './amount-format';
@@ -29,6 +30,7 @@ export interface SelectAmountProps {
   amount: string;
   isValidAmount: boolean;
   error?: string;
+  errorId?: UserErrorId | null;
   /**
    * Keep the field's invalid (red) state for `error` but leave its message to the caller, which
    * draws it elsewhere (the swap's fee notice sits under the token, with its own action).
@@ -103,6 +105,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
   amount,
   isValidAmount,
   error,
+  errorId,
   hideErrorText = false,
   label,
   confirmTitle,
@@ -267,6 +270,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
       label={label ?? (title ? undefined : t('selectAmount'))}
       value={amount}
       invalid={!!error}
+      errorId={hideErrorText ? null : errorId}
       error={!hideErrorText && error && (amount || error !== 'invalidAmount') ? t(error) : undefined}
       // The helper (available balance) is controlled by `showBalanceHelper`, not
       // by `embedded`: the swap "You Pay" field is embedded but must still show
