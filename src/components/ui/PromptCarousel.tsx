@@ -16,6 +16,8 @@ import { animate, motion, PanInfo, useMotionValue } from 'framer-motion';
 import { springs } from 'lib/animation';
 import { hapticSelection } from 'lib/mobile/haptics';
 
+import { PromptSlideActiveContext } from './prompt-slide-active';
+
 export interface PromptCarouselProps {
   /**
    * Each child becomes a slide. Falsy children (e.g. a banner component that
@@ -231,7 +233,7 @@ export const PromptCarousel: FC<PromptCarouselProps> = ({ children, className })
               style={{ width: width || '100%' }}
               onFocus={() => handleSlideFocus(i)}
             >
-              {slide}
+              <PromptSlideActiveContext.Provider value={i === activeIndex}>{slide}</PromptSlideActiveContext.Provider>
             </div>
           ))}
         </motion.div>
