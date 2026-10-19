@@ -37,14 +37,23 @@ test.describe('AppKit external-wallet picker', () => {
       await extensionContext.route(url => url.pathname === '/appkit/v1/config', async route => {
         await route.fulfill({ json: dashboardConfig });
       });
+      const allowedOrigins = { allowedOrigins: [`chrome-extension://${extensionId}`] };
+      await extensionContext.route(url => url.pathname === '/projects/v1/origins', async route => {
+        await route.fulfill({ json: allowedOrigins });
+      });
       const page = await extensionContext.newPage();
       await page.addInitScript(value => localStorage.setItem('theme_setting', value), theme);
       const configResponsePromise = page.waitForResponse(
         response => new URL(response.url()).pathname === '/appkit/v1/config'
       );
+      const originsResponsePromise = page.waitForResponse(
+        response => new URL(response.url()).pathname === '/projects/v1/origins'
+      );
       await page.goto(`chrome-extension://${extensionId}/fullpage.html`, { waitUntil: 'domcontentloaded' });
       const configResponse = await configResponsePromise;
       expect(await configResponse.json()).toEqual(dashboardConfig);
+      const originsResponse = await originsResponsePromise;
+      expect(await originsResponse.json()).toEqual(allowedOrigins);
       await expect(page.getByTestId('onboarding-welcome')).toBeVisible({ timeout: 30_000 });
       await page.evaluate(async () => {
         await customElements.whenDefined('appkit-connect-button');
@@ -55,6 +64,7 @@ test.describe('AppKit external-wallet picker', () => {
       await page.locator('appkit-connect-button').getByRole('button').click();
       const modal = page.locator('w3m-modal');
       await expect(modal.locator('w3m-connect-view')).toBeVisible();
+      await expect(modal.getByText('Invalid App Configuration', { exact: true })).toHaveCount(0);
       const walletConnect = modal.getByTestId('wallet-selector-walletconnect');
       await expect(walletConnect).toBeVisible();
       await expect(walletConnect.getByRole('button')).toBeEnabled();
