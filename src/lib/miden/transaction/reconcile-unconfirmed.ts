@@ -258,6 +258,8 @@ async function writeNeverCommitted(rowId: string, judgement: RowJudgement, nowSe
       delegateTransaction: failed.delegateTransaction,
       diagnostics: failed.failureDiagnostics,
       entryPoint: failed.consumeEntryPoint,
+      lastDeferral: failed.lastDeferral,
+      feeAdmission: failed.feeAdmission,
       reason: 'never_committed',
       neverCommittedRule: judgement.neverCommittedBy,
       alreadyReported,

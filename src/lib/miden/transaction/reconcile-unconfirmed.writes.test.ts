@@ -318,6 +318,63 @@ describe('the never-committed write (#1081)', () => {
     expect(report).toHaveBeenCalledTimes(1);
   });
 
+  it('reports a never-committed consume row with its stored deferral and fee admission', async () => {
+    await Repo.transactions.put(
+      unconfirmed({
+        type: 'consume',
+        consumeEntryPoint: 'auto_consume',
+        lastDeferral: 'guardian_rate_limited',
+        feeAdmission: 'known_sufficient',
+        submitEvidence: [entry({ outputNoteIds: [], nullifiers: [hex(30)] })]
+      })
+    );
+
+    const outcome = await judgeAndWrite('tx-1', context(node({ blockNum: 750, commitment: INITIAL })));
+
+    expect(outcome.kind).toBe('never-committed');
+    expect((await read())?.status).toBe(ITransactionStatus.Failed);
+    const report = jest.requireMock('lib/telemetry/transaction-failure').reportTransactionFailure;
+    expect(report).toHaveBeenCalledTimes(1);
+    expect(report).toHaveBeenCalledWith(
+      expect.objectContaining({
+        point: 'node_verdict',
+        type: 'consume',
+        entryPoint: 'auto_consume',
+        lastDeferral: 'guardian_rate_limited',
+        feeAdmission: 'known_sufficient',
+        reason: 'never_committed'
+      })
+    );
+  });
+
+  it('reports a legacy never-committed consume row without a deferral or fee admission', async () => {
+    await Repo.transactions.put(
+      unconfirmed({
+        type: 'consume',
+        submitEvidence: [entry({ outputNoteIds: [], nullifiers: [hex(30)] })]
+      })
+    );
+
+    const outcome = await judgeAndWrite('tx-1', context(node({ blockNum: 750, commitment: INITIAL })));
+
+    expect(outcome.kind).toBe('never-committed');
+    const row = await read();
+    expect(row?.status).toBe(ITransactionStatus.Failed);
+    expect(row?.lastDeferral).toBeUndefined();
+    expect(row?.feeAdmission).toBeUndefined();
+    const report = jest.requireMock('lib/telemetry/transaction-failure').reportTransactionFailure;
+    expect(report).toHaveBeenCalledTimes(1);
+    expect(report).toHaveBeenCalledWith(
+      expect.objectContaining({
+        point: 'node_verdict',
+        type: 'consume',
+        lastDeferral: undefined,
+        feeAdmission: undefined,
+        reason: 'never_committed'
+      })
+    );
+  });
+
   it('stores the rule that proved an attempt dead beside its verdict, and none beside another result', () => {
     const judgement: RowJudgement = {
       rowId: 'tx-1',
