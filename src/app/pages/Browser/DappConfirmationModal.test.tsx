@@ -1,5 +1,7 @@
 import React, { useLayoutEffect } from 'react';
 
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
+
 import { PrivateDataPermission, AllowedPrivateData } from '@miden-sdk/miden-wallet-adapter-base';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
@@ -18,6 +20,8 @@ import { DELEGATE_PROOF_STORAGE_KEY } from 'lib/settings/constants';
 import { truncateAddress } from 'utils/string';
 
 import { DappConfirmationModal } from './DappConfirmationModal';
+
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
 
 // The wallet-adapter package ships as ESM and is not transformed by jest, so the
 // repo-level manual mock (`__mocks__/@miden-sdk/miden-wallet-adapter-base.ts`)
@@ -474,6 +478,10 @@ describe('DappConfirmationModal - dApp transaction biometric confirmation', () =
     expect(onResolve).not.toHaveBeenCalled();
     expect(consoleSpy).toHaveBeenCalledWith(expect.any(Error));
     expect(screen.getByTestId('dapp-approval-error')).toHaveTextContent('protector check failed');
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 1050));
+    });
+    expect(reportUserVisibleError).toHaveBeenCalledWith('raw_dapp_approval_failed', 'inline');
 
     confirmMock.mockResolvedValue(true);
     await act(async () => {

@@ -5,8 +5,11 @@ import { act } from 'react-dom/test-utils';
 
 import { PROTECTOR_PROBE_DEADLINE_MS } from 'app/hooks/useHardwareProtector';
 import { SeedPhraseStatus } from 'lib/shared/types';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
 import RevealSecret from './RevealSecret';
+
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
 
 // The private-key reveal names its account in a real ListRow. It used to be an
 // AccountBanner rendered without an `account` prop, which crashed on
@@ -584,6 +587,10 @@ describe('RevealSecret', () => {
       await new Promise(res => setTimeout(res, 350));
     });
 
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 1050));
+    });
+    expect(reportUserVisibleError).toHaveBeenCalledWith('raw_secret_reveal_failed', 'field');
     expect(mockRevealPrivateKey).toHaveBeenCalled();
     expect(mockSetSecret).not.toHaveBeenCalled();
   });

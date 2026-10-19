@@ -8,8 +8,11 @@ import { act } from 'react-dom/test-utils';
 import { PROTECTOR_PROBE_DEADLINE_MS } from 'app/hooks/useHardwareProtector';
 import { initMobileBackHandler } from 'lib/mobile/back-handler';
 import { SeedPhraseStatus } from 'lib/shared/types';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
 import RevealSeedPhrase from './RevealSeedPhrase';
+
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
 
 let mockSeedStatus: SeedPhraseStatus = 'stored';
 jest.mock('lib/store', () => ({
@@ -1069,6 +1072,10 @@ describe('RevealSeedPhrase', () => {
     expect(mockSetSecret).not.toHaveBeenCalledWith(expect.stringContaining('alpha'));
     // The shared negative Notice carries the message, in place of the Alert atom.
     expect(container.querySelector('[data-tone="negative"] [data-slot="body"]')!.textContent).toBe('biometric failed');
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 1050));
+    });
+    expect(reportUserVisibleError).toHaveBeenCalledWith('raw_seed_reveal_failed', 'notice');
     // BOTH at zero is the discriminating assertion. A count of 1 could not tell the
     // fix from the bug: the catch and the auto-close effect each wanted out, so
     // removing one merely promoted the other and the total stayed 1.
@@ -1337,6 +1344,10 @@ describe('RevealSeedPhrase', () => {
     expect(mockRevealMnemonic).toHaveBeenCalledWith('bad-password');
     expect(mockSetSecret).not.toHaveBeenCalledWith('alpha beta gamma delta');
     expect(container.querySelector('[data-testid="error-caption"]')!.textContent).toBe('wrong password');
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 1050));
+    });
+    expect(reportUserVisibleError).toHaveBeenCalledWith('raw_seed_reveal_failed', 'field');
     // The drawer must stay open on the same auth branch - a submit error is not an exit.
     expect(container.querySelector('[data-testid="drawer"]')!.getAttribute('data-open')).toBe('true');
     expect(container.querySelector('[data-testid="reveal-seed-auth"]')).toBeTruthy();

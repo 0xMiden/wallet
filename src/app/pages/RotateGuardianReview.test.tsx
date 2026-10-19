@@ -4,8 +4,11 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 
 import { PROTECTOR_PROBE_DEADLINE_MS } from 'app/hooks/useHardwareProtector';
 import { checkBiometricAvailability } from 'lib/biometric';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
 import RotateGuardianReview from './RotateGuardianReview';
+
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
 
 const mockCheckBiometricAvailability = checkBiometricAvailability as jest.Mock;
 
@@ -727,6 +730,10 @@ it('shows a serialized error message rather than stringifying the object', async
   fireEvent.click(confirm);
 
   await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('the node refused the request'));
+  await act(async () => {
+    await new Promise(resolve => setTimeout(resolve, 1050));
+  });
+  expect(reportUserVisibleError).toHaveBeenCalledWith('raw_guardian_switch_failed', 'notice');
 });
 
 it('allows a retry after a hang, which created no row', async () => {

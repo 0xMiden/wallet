@@ -4,8 +4,11 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 
 import { PROTECTOR_PROBE_DEADLINE_MS } from 'app/hooks/useHardwareProtector';
 import { SubPageHeaderProvider } from 'components/ui/SubPageLayout';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
 import ExportAccountFile from './ExportAccountFile';
+
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
 
 const messages = {
   exportAccountFileWarningTitle: 'This file controls your funds',
@@ -522,6 +525,10 @@ it('reports export failures and does not claim the file was saved', async () => 
   fireEvent.click(screen.getByRole('button', { name: messages.saveAccountFile }));
 
   expect(await screen.findByText('Export failed')).toBeInTheDocument();
+  await act(async () => {
+    await new Promise(resolve => setTimeout(resolve, 1050));
+  });
+  expect(reportUserVisibleError).toHaveBeenCalledWith('raw_account_export_failed', 'notice');
   expect(screen.queryByText(messages.accountFileDownloadStarted)).not.toBeInTheDocument();
   expect(screen.queryByText(messages.accountFileShareSuccess)).not.toBeInTheDocument();
   expect(global.URL.createObjectURL).not.toHaveBeenCalled();
