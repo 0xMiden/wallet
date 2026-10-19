@@ -6,6 +6,7 @@ import { gaslessEarnWithdrawalToMiden } from 'lib/epoch';
 import { withdrawalAmount } from 'lib/epoch/withdraw-amount';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 import { goBack, navigate } from 'lib/woozie';
 
 import { EARN_PLACEHOLDER } from './earn-mapping';
@@ -299,6 +300,21 @@ describe('EarnWithdrawReview', () => {
     expect(gaslessEarnWithdrawalToMiden).not.toHaveBeenCalled();
   });
 
+  it('reports user-visible error: rejects a position not owned by the current wallet account', async () => {
+    jest.useFakeTimers();
+    jest.mocked(reportUserVisibleError).mockClear();
+    mockAccount.evmAddress = '0x2222222222222222222222222222222222222222';
+    render(<EarnWithdrawReview positionId="position-1" />);
+    await confirmEnabled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'withdraw' }));
+
+    expect(await screen.findByText('earnWithdrawNotOwned')).toBeInTheDocument();
+    expect(gaslessEarnWithdrawalToMiden).not.toHaveBeenCalled();
+    act(() => jest.advanceTimersByTime(1000));
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['earnWithdrawNotOwned', 'notice']]);
+  });
+
   it('handles an account without a derived EVM address', async () => {
     mockAccount.evmAddress = undefined;
     render(<EarnWithdrawReview positionId="position-1" />);
@@ -323,6 +339,21 @@ describe('EarnWithdrawReview', () => {
     await confirmEnabled();
   });
 
+  it('reports user-visible error: surfaces SDK errors and restores the CTA once the amount is quoted again', async () => {
+    jest.useFakeTimers();
+    jest.mocked(reportUserVisibleError).mockClear();
+    jest.mocked(gaslessEarnWithdrawalToMiden).mockRejectedValue(new Error('intent unavailable'));
+    render(<EarnWithdrawReview positionId="position-1" />);
+    await confirmEnabled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'withdraw' }));
+
+    expect(await screen.findByText('intent unavailable')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'withdraw' })).toBeDisabled();
+    act(() => jest.advanceTimersByTime(1000));
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['raw_earn_withdraw_submit_failed', 'notice']]);
+  });
+
   it('uses the fallback message for non-Error failures', async () => {
     jest.mocked(gaslessEarnWithdrawalToMiden).mockRejectedValue('failed');
     render(<EarnWithdrawReview positionId="position-1" />);
@@ -331,6 +362,20 @@ describe('EarnWithdrawReview', () => {
     fireEvent.click(screen.getByRole('button', { name: 'withdraw' }));
 
     expect(await screen.findByText('earnGaslessWithdrawalFailed')).toBeInTheDocument();
+  });
+
+  it('reports user-visible error: uses the fallback message for non-Error failures', async () => {
+    jest.useFakeTimers();
+    jest.mocked(reportUserVisibleError).mockClear();
+    jest.mocked(gaslessEarnWithdrawalToMiden).mockRejectedValue('failed');
+    render(<EarnWithdrawReview positionId="position-1" />);
+    await confirmEnabled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'withdraw' }));
+
+    expect(await screen.findByText('earnGaslessWithdrawalFailed')).toBeInTheDocument();
+    act(() => jest.advanceTimersByTime(1000));
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['earnGaslessWithdrawalFailed', 'notice']]);
   });
 
   // Double-tapping the CTA must not submit two redemption intents.
@@ -402,6 +447,20 @@ describe('EarnWithdrawReview after a failed load', () => {
     expect(mockRefetch).toHaveBeenCalledTimes(1);
   });
 
+  it('reports user-visible error: says the load failed, with Retry, instead of offering to withdraw a placeholder position', () => {
+    jest.useFakeTimers();
+    jest.mocked(reportUserVisibleError).mockClear();
+    mockLoadState = { isLoading: false, error: 'boom' };
+    render(<EarnWithdrawReview positionId="unknown" />);
+
+    expect(screen.getByRole('alert')).toHaveTextContent('earnPositionsLoadError');
+    expect(screen.queryByRole('button', { name: 'withdraw' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'retry' }));
+    expect(mockRefetch).toHaveBeenCalledTimes(1);
+    act(() => jest.advanceTimersByTime(1000));
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['earnPositionsLoadError', 'notice']]);
+  });
+
   it('keeps the failure said while a retry is out, and names only the route in the header', () => {
     mockLoadState = { isLoading: false, error: 'boom' };
     render(<EarnWithdrawReview positionId="unknown" />);
@@ -418,6 +477,19 @@ describe('EarnWithdrawReview after a failed load', () => {
     expect(screen.queryByRole('alert')).toBeNull();
     expect(screen.queryByRole('button', { name: 'withdraw' })).toBeNull();
     expect(screen.queryByText('youReceive')).toBeNull();
+  });
+
+  it('reports user-visible error: draws nothing it has not loaded during a first load with no error', () => {
+    jest.useFakeTimers();
+    jest.mocked(reportUserVisibleError).mockClear();
+    mockLoadState = { isLoading: true };
+    render(<EarnWithdrawReview positionId="unknown" />);
+
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'withdraw' })).toBeNull();
+    expect(screen.queryByText('youReceive')).toBeNull();
+    act(() => jest.advanceTimersByTime(1000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
   });
 
   it('keeps a position it already has, under the notice', async () => {
@@ -488,6 +560,44 @@ describe('EarnWithdrawReview with no position to name', () => {
 });
 
 describe('selected withdrawal review', () => {
+  it('reports user-visible recognized SDK error by its translation key', async () => {
+    jest.useFakeTimers();
+    jest.mocked(reportUserVisibleError).mockClear();
+    jest.mocked(gaslessEarnWithdrawalToMiden).mockRejectedValueOnce(new Error('earnWithdrawNotOwned'));
+    render(<EarnWithdrawReview positionId="position-1" />);
+    await confirmEnabled();
+    fireEvent.click(screen.getByRole('button', { name: 'withdraw' }));
+    await screen.findByText('earnWithdrawNotOwned');
+    act(() => jest.advanceTimersByTime(1000));
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['earnWithdrawNotOwned', 'notice']]);
+  });
+
+  it.each([
+    ['0', 'earnWithdrawPositive'],
+    ['43', 'earnWithdrawAboveAvailable'],
+    ['1.0000001', 'earnWithdrawPrecision']
+  ])('reports user-visible review validation %s', (amount, id) => {
+    jest.useFakeTimers();
+    jest.mocked(reportUserVisibleError).mockClear();
+    mockSearch = `?amount=${amount}`;
+    render(<EarnWithdrawReview positionId="position-1" />);
+    expect(screen.getByRole('alert')).toHaveTextContent(id);
+    act(() => jest.advanceTimersByTime(1000));
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([[id, 'notice']]);
+  });
+  it.each(['earnWithdrawRefresh', 'earnWithdrawQuoteUnavailable'])(
+    'reports user-visible quote failure %s',
+    async id => {
+      jest.useFakeTimers();
+      jest.mocked(reportUserVisibleError).mockClear();
+      jest.mocked(quotes.quoteEarnWithdrawal).mockRejectedValueOnce(new Error(id));
+      render(<EarnWithdrawReview positionId="position-1" />);
+      await screen.findByText(id);
+      act(() => jest.advanceTimersByTime(1000));
+      expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([[id, 'notice']]);
+    }
+  );
+
   beforeEach(() => {
     mockSearch = '?amount=1.000001';
     mockPositions = [position];
@@ -664,3 +774,7 @@ describe('selected withdrawal review', () => {
     expect(within(screen.getByTestId('earn-withdraw-details')).getByText('1.000001 USDC')).toBeInTheDocument();
   });
 });
+
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
+
+afterEach(() => jest.useRealTimers());
