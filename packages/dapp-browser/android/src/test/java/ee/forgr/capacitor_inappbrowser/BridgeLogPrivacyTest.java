@@ -1,23 +1,38 @@
 package ee.forgr.capacitor_inappbrowser;
 
 import android.app.Activity;
+import android.content.pm.ApplicationInfo;
+import android.net.Uri;
+import android.util.Log;
+import android.webkit.GeolocationPermissions;
+import android.webkit.HttpAuthHandler;
+import android.webkit.WebChromeClient;
+import android.webkit.WebResourceRequest;
 import android.webkit.WebView;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.webkit.WebViewCompat;
+import androidx.webkit.WebViewFeature;
 import com.getcapacitor.Bridge;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.PluginCall;
+import java.io.ByteArrayOutputStream;
+import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.MockedConstruction;
+import org.mockito.MockedStatic;
 import org.robolectric.Robolectric;
 import org.robolectric.RobolectricTestRunner;
 import org.robolectric.annotation.Config;
 import org.robolectric.shadows.ShadowLog;
+import org.robolectric.util.ReflectionHelpers;
 import static org.junit.Assert.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
+import static org.robolectric.Shadows.shadowOf;
 
 @RunWith(RobolectricTestRunner.class)
 @Config(sdk = 34)
@@ -29,15 +44,22 @@ public class BridgeLogPrivacyTest {
     private WebViewDialog dialog;
     private WebViewCallbacks callbacks;
     private MockedConstruction<WebViewDialog> dialogs;
+    private WebViewDialog realDialog;
+    private MockedStatic<WebViewFeature> features;
+    private MockedStatic<WebViewCompat> webkit;
+    private ApplicationInfo applicationInfo;
+    private int originalFlags;
 
     @Before public void setUp() {
         activity = Robolectric.buildActivity(Activity.class).setup().visible().get();
         activity.setTheme(androidx.appcompat.R.style.Theme_AppCompat_Light_NoActionBar);
+        applicationInfo = activity.getApplication().getApplicationInfo();
+        originalFlags = applicationInfo.flags;
         plugin = spy(new RecordingPlugin());
         AppCompatActivity pluginActivity = mock(AppCompatActivity.class);
         doAnswer(call -> { ((Runnable) call.getArgument(0)).run(); return null; }).when(pluginActivity).runOnUiThread(any());
         doReturn(pluginActivity).when(plugin).getActivity();
-        doReturn(activity).when(plugin).getContext();
+        doReturn(activity.getApplication()).when(plugin).getContext();
         Bridge bridge = mock(Bridge.class);
         doReturn(bridge).when(plugin).getBridge();
         when(bridge.getWebView()).thenReturn(new WebView(activity));
@@ -61,6 +83,12 @@ public class BridgeLogPrivacyTest {
     @After public void tearDown() {
         WebViewRegistry.getShared().remove(INSTANCE_ID);
         if (dialogs != null) dialogs.close();
+        if (realDialog != null) realDialog.forceClose();
+        if (webkit != null) webkit.close();
+        if (features != null) features.close();
+        shadowOf(activity.getApplication()).checkActivities(false);
+        applicationInfo.flags = originalFlags;
+        plugin.load();
         activity.finish();
         ShadowLog.clear();
     }
@@ -101,6 +129,136 @@ public class BridgeLogPrivacyTest {
         verify(call).reject("No event data provided");
         verify(call, never()).resolve();
         verify(dialog, never()).postMessageToJS(any());
+    }
+
+    @Test public void releaseNavigationContentStaysOutOfLogsAfterDebugLoad() {
+        loadLogging(true);
+        loadLogging(false);
+        WebView webView = openRealDialog(new Options());
+        ShadowLog.clear();
+        assertFalse(navigate(webView, "https://fixture.example/" + MARKER + "?token=" + MARKER));
+        assertNoMarkerInLogs();
+    }
+
+    @Test public void malformedIntentContentStaysOutOfReleaseLogs() {
+        loadLogging(false);
+        WebView webView = openRealDialog(new Options());
+        ShadowLog.clear();
+        assertTrue(navigate(webView, "intent://fixture.example/" + MARKER + "?token=" + MARKER
+            + "#Intent;scheme=https;X.token=" + MARKER + ";end"));
+        assertNoHandlerWarning("URISyntaxException");
+        assertNoMarkerInLogs();
+    }
+
+    @Test public void missingCustomSchemeHandlerContentStaysOutOfReleaseLogs() {
+        loadLogging(false);
+        WebView webView = openRealDialog(new Options());
+        shadowOf(activity.getApplication()).checkActivities(true);
+        ShadowLog.clear();
+        assertTrue(navigate(webView, "bread-no-handler://fixture.example/" + MARKER + "?token=" + MARKER));
+        assertNoHandlerWarning("ActivityNotFoundException");
+        assertNoMarkerInLogs();
+    }
+
+    @Test public void geolocationOriginStaysOutOfReleaseLogs() {
+        loadLogging(false);
+        WebView webView = openRealDialog(new Options());
+        String origin = "https://" + MARKER + ".example";
+        GeolocationPermissions.Callback callback = mock(GeolocationPermissions.Callback.class);
+        ShadowLog.clear();
+        shadowOf(webView).getWebChromeClient().onGeolocationPermissionsShowPrompt(origin, callback);
+        verify(callback).invoke(origin, true, false);
+        assertNoMarkerInLogs();
+    }
+
+    @Test public void fileChooserAcceptTypeStaysOutOfReleaseLogs() {
+        loadLogging(false);
+        WebView webView = openRealDialog(new Options());
+        WebChromeClient.FileChooserParams params = mock(WebChromeClient.FileChooserParams.class);
+        when(params.getAcceptTypes()).thenReturn(new String[] { "application/" + MARKER });
+        when(params.getMode()).thenReturn(WebChromeClient.FileChooserParams.MODE_OPEN);
+        ShadowLog.clear();
+        assertTrue(shadowOf(webView).getWebChromeClient().onShowFileChooser(webView, ignored -> {}, params));
+        assertNoMarkerInLogs();
+    }
+
+    @Test public void httpAuthPageUrlStaysOutOfReleaseLogsAndSystemErr() {
+        loadLogging(false);
+        Options options = new Options();
+        options.setCredentials(new JSObject().put("username", "fixture-user").put("password", "fixture-password"));
+        WebView webView = openRealDialog(options);
+        String pageUrl = "https://fixture.example/page?token={" + MARKER + "}";
+        webView.loadUrl(pageUrl);
+        assertEquals(pageUrl, webView.getUrl());
+        HttpAuthHandler handler = mock(HttpAuthHandler.class);
+        ByteArrayOutputStream errors = new ByteArrayOutputStream();
+        PrintStream originalErr = System.err;
+        ShadowLog.clear();
+        try (PrintStream capturedErr = new PrintStream(errors, true, StandardCharsets.UTF_8)) {
+            System.setErr(capturedErr);
+            shadowOf(webView).getWebViewClient().onReceivedHttpAuthRequest(webView, handler, "fixture.example", "fixture");
+        } finally {
+            System.setErr(originalErr);
+        }
+        verify(handler, never()).proceed(anyString(), anyString());
+        assertFalse("Page URL in System.err", errors.toString(StandardCharsets.UTF_8).contains(MARKER));
+        assertNoMarkerInLogs();
+        assertTrue("Invalid page URI must emit a sanitized warning", ShadowLog.getLogs().stream()
+            .anyMatch(log -> log.type == Log.WARN && "InAppBrowser".equals(log.tag)
+                && "Invalid HTTP auth page URI: URISyntaxException".equals(log.msg) && log.throwable == null));
+    }
+
+    @Test public void debugNavigationStillLogsPageContent() {
+        loadLogging(false);
+        loadLogging(true);
+        WebView webView = openRealDialog(new Options());
+        ShadowLog.clear();
+        assertFalse(navigate(webView, "https://fixture.example/" + MARKER + "?token=" + MARKER));
+        assertTrue("Debug navigation must retain diagnostics", ShadowLog.getLogs().stream()
+            .anyMatch(log -> log.type == Log.DEBUG && log.msg != null && log.msg.contains(MARKER)));
+    }
+
+    private void loadLogging(boolean debuggable) {
+        if (debuggable) applicationInfo.flags |= ApplicationInfo.FLAG_DEBUGGABLE;
+        else applicationInfo.flags &= ~ApplicationInfo.FLAG_DEBUGGABLE;
+        plugin.load();
+    }
+
+    private WebView openRealDialog(Options options) {
+        dialogs.close();
+        dialogs = null;
+        features = mockStatic(WebViewFeature.class);
+        webkit = mockStatic(WebViewCompat.class);
+        if (options.getUrl() == null) options.setUrl("https://fixture.example/first");
+        options.setToolbarType("default");
+        options.setBackgroundColor("white");
+        options.setPluginCall(mock(PluginCall.class));
+        options.setCallbacks(mock(WebViewCallbacks.class));
+        realDialog = new WebViewDialog(activity, androidx.appcompat.R.style.Theme_AppCompat_Light_NoActionBar,
+            options, null, new WebView(activity));
+        realDialog.activity = activity;
+        realDialog.presentWebView();
+        return ReflectionHelpers.getField(realDialog, "_webView");
+    }
+
+    private static boolean navigate(WebView webView, String url) {
+        WebResourceRequest request = mock(WebResourceRequest.class);
+        when(request.getUrl()).thenReturn(Uri.parse(url));
+        when(request.isForMainFrame()).thenReturn(true);
+        return shadowOf(webView).getWebViewClient().shouldOverrideUrlLoading(webView, request);
+    }
+
+    private static void assertNoHandlerWarning(String exceptionClass) {
+        ShadowLog.LogItem warning = null;
+        for (ShadowLog.LogItem log : ShadowLog.getLogs()) {
+            if (log.type != Log.WARN || !"InAppBrowser".equals(log.tag)
+                || log.msg == null || !log.msg.startsWith("No handler for external URL")) continue;
+            assertNull("One no-handler warning", warning);
+            warning = log;
+        }
+        assertNotNull("No-handler path must emit a warning", warning);
+        assertNull("No-handler warning must not carry a throwable", warning.throwable);
+        assertEquals("No handler for external URL: " + exceptionClass, warning.msg);
     }
 
     private JSObject receivedMessage() {
