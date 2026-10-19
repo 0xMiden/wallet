@@ -45,6 +45,7 @@ import {
 import { withRequestTimeout } from 'lib/remote-json';
 import { WalletAccount } from 'lib/shared/types';
 import { type BridgeReceiveFailureStep, walletRaised } from 'lib/telemetry/bridge-receive-failure';
+import type { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 import {
   CIRCLE_USDC_DECIMALS,
   CIRCLE_USDC_SYMBOL,
@@ -80,7 +81,7 @@ import {
   unwrapNativeResult
 } from 'lib/walletconnect/native';
 import { EvmTransactionRevertedError, readEvmErc20Allowance, waitForEvmReceipt } from 'lib/walletconnect/receipt';
-import { nativeSigningErrorMessage } from 'lib/walletconnect/signing-error';
+import { nativeSigningErrorId, nativeSigningErrorMessage } from 'lib/walletconnect/signing-error';
 import { BridgeNetwork, getBridgeNetworkByChainId } from 'screens/send-flow/bridge-networks';
 import { Route as RouteStep } from 'screens/send-flow/Route';
 import { BridgeRoute, UITokenWithPendingBalance } from 'screens/send-flow/types';
@@ -119,6 +120,22 @@ interface BridgeBalance {
   formatted: string;
   loading: boolean;
   error: string | null;
+  errorId?: UserErrorId;
+}
+
+interface DepositError {
+  text: string;
+  id: UserErrorId;
+}
+
+class DepositBalanceError extends Error {
+  constructor(
+    readonly id: 'bridgeDepositBalanceReadFailed' | 'bridgeDepositBalanceTooLow',
+    message: string,
+    options?: ErrorOptions
+  ) {
+    super(message, options);
+  }
 }
 
 interface EvmBridgeDepositScreenProps {
@@ -357,7 +374,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   const [confirmSettled, setConfirmSettled] = useState(0);
 
   const [slowStatus, setSlowStatus] = useState<SlowBridgeStatus>('idle');
-  const [slowError, setSlowError] = useState<string | null>(null);
+  const [slowError, setSlowError] = useState<DepositError | null>(null);
   // Reached only through handleTokenSelect, which refuses under the confirm lock first.
   const clearTokenState = useCallback(() => {
     resetEpoch();
@@ -548,7 +565,13 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       })
       .catch(err => {
         if (cancelled) return;
-        setUsdcBalance({ value: null, formatted: '0', loading: false, error: errorMessage(err) });
+        setUsdcBalance({
+          value: null,
+          formatted: '0',
+          loading: false,
+          error: errorMessage(err),
+          errorId: 'raw_bridge_balance_failed'
+        });
       });
 
     return () => {
@@ -578,7 +601,13 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       })
       .catch(err => {
         if (cancelled) return;
-        setCircleUsdcBalance({ value: null, formatted: '0', loading: false, error: errorMessage(err) });
+        setCircleUsdcBalance({
+          value: null,
+          formatted: '0',
+          loading: false,
+          error: errorMessage(err),
+          errorId: 'raw_bridge_balance_failed'
+        });
       });
 
     return () => {
@@ -602,7 +631,13 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       })
       .catch(err => {
         if (cancelled) return;
-        setEthBalance({ value: null, formatted: '0', loading: false, error: errorMessage(err) });
+        setEthBalance({
+          value: null,
+          formatted: '0',
+          loading: false,
+          error: errorMessage(err),
+          errorId: 'raw_bridge_balance_failed'
+        });
       });
 
     return () => {
@@ -748,7 +783,13 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     (chainId: number, readBalance: () => Promise<bigint>): Promise<bigint> =>
       readBalance().catch((cause: unknown) => {
         const network = getChain(chainId)?.name ?? '';
-        throw walletRaised(new Error(t('bridgeDepositBalanceReadFailed', { token: tokenLabel, network }), { cause }));
+        throw walletRaised(
+          new DepositBalanceError(
+            'bridgeDepositBalanceReadFailed',
+            t('bridgeDepositBalanceReadFailed', { token: tokenLabel, network }),
+            { cause }
+          )
+        );
       }),
     [t, tokenLabel]
   );
@@ -760,7 +801,8 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       if (balance < spend) {
         const network = getChain(chainId)?.name ?? '';
         throw walletRaised(
-          new Error(
+          new DepositBalanceError(
+            'bridgeDepositBalanceTooLow',
             t('bridgeDepositBalanceTooLow', { balance: formatBalance(balance, decimals), token: tokenLabel, network })
           )
         );
@@ -770,8 +812,11 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   );
 
   // Every other failure keeps the screen's own wording.
-  const depositErrorMessage = useCallback(
-    (err: unknown): string => nativeSigningErrorMessage(err, t, errorMessage),
+  const depositError = useCallback(
+    (err: unknown): DepositError => ({
+      text: nativeSigningErrorMessage(err, t, errorMessage),
+      id: nativeSigningErrorId(err) ?? (err instanceof DepositBalanceError ? err.id : 'raw_bridge_deposit_failed')
+    }),
     [t]
   );
   // The route step holds an amount its displayed fee takes past the balance in the words the deposit refuses it with.
@@ -787,24 +832,31 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     [t, tokenLabel, usdcxSource]
   );
   // The USDCx refusals that stop a deposit before any wallet prompt get their own words.
-  const usdcxDepositErrorMessage = useCallback(
-    (err: unknown): string => {
-      if (isUsdcxDomainNotRegisteredError(err)) return t('usdcxDomainNotRegistered');
-      if (isUsdcxForwardQuoteUnavailableError(err)) return t('usdcxForwardQuoteUnavailable');
-      if (isUsdcxExecutorBalanceTooLowError(err)) return usdcxFeeAboveBalanceMessage(err);
-      return depositErrorMessage(err);
+  const usdcxDepositError = useCallback(
+    (err: unknown): DepositError => {
+      if (isUsdcxDomainNotRegisteredError(err)) {
+        return { id: 'usdcxDomainNotRegistered', text: t('usdcxDomainNotRegistered') };
+      }
+      if (isUsdcxForwardQuoteUnavailableError(err)) {
+        return { id: 'usdcxForwardQuoteUnavailable', text: t('usdcxForwardQuoteUnavailable') };
+      }
+      if (isUsdcxExecutorBalanceTooLowError(err)) {
+        return { id: 'usdcxDepositFeeAboveBalance', text: usdcxFeeAboveBalanceMessage(err) };
+      }
+      return depositError(err);
     },
-    [t, depositErrorMessage, usdcxFeeAboveBalanceMessage]
+    [t, depositError, usdcxFeeAboveBalanceMessage]
   );
 
   const handleSlowBridge = useCallback(
     async (trackingTxId: string) => {
       if (!isValidAmount(amount) || (!nativeReownAvailable && !walletProvider)) {
         const message = 'The connected EVM wallet provider is unavailable.';
-        setSlowError(message);
+        setSlowError({ text: message, id: 'raw_bridge_deposit_failed' });
         setSlowStatus('failed');
         await updateBridgedReceivePhase(trackingTxId, 'failed', {
           error: message,
+          errorId: 'raw_bridge_deposit_failed',
           failure: { step: 'provider_unavailable' }
         });
         return;
@@ -951,12 +1003,13 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         setSlowStatus('submitted');
       } catch (err) {
         console.error('[EvmBridgeDepositScreen] Agglayer bridge failed', err);
-        const message = depositErrorMessage(err);
+        const failure = depositError(err);
         setAwaitingNextConfirmation(false);
-        setSlowError(message);
+        setSlowError(failure);
         setSlowStatus('failed');
         await updateBridgedReceivePhase(trackingTxId, 'failed', {
-          error: message,
+          error: failure.text,
+          errorId: failure.id,
           failure: { step, cause: err }
         }).catch(() => undefined);
       }
@@ -965,7 +1018,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       agglayerRecovery,
       agglayerChainId,
       amount,
-      depositErrorMessage,
+      depositError,
       ensureBalanceCovers,
       evmAddress,
       evmUsdc,
@@ -983,10 +1036,11 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     async (trackingTxId: string) => {
       if (!isValidAmount(amount) || (!nativeReownAvailable && !walletProvider)) {
         const message = 'The connected EVM wallet provider is unavailable.';
-        setSlowError(message);
+        setSlowError({ text: message, id: 'raw_bridge_deposit_failed' });
         setSlowStatus('failed');
         await updateBridgedReceivePhase(trackingTxId, 'failed', {
           error: message,
+          errorId: 'raw_bridge_deposit_failed',
           failure: { step: 'provider_unavailable' }
         });
         return;
@@ -1169,11 +1223,12 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
           return;
         }
         console.error('[EvmBridgeDepositScreen] USDCx bridge failed', err);
-        const message = usdcxDepositErrorMessage(err);
-        setSlowError(message);
+        const failure = usdcxDepositError(err);
+        setSlowError(failure);
         setSlowStatus('failed');
         await updateBridgedReceivePhase(trackingTxId, 'failed', {
-          error: message,
+          error: failure.text,
+          errorId: failure.id,
           failure: { step: usdcxFailureStep(err, step), cause: err }
         }).catch(() => undefined);
       }
@@ -1186,7 +1241,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       nativeReownAvailable,
       readBalanceOrFail,
       switchChainAsync,
-      usdcxDepositErrorMessage,
+      usdcxDepositError,
       usdcxSource,
       walletProvider,
       writeContract
@@ -1220,24 +1275,17 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         if (nativeReownAvailable) await prepareNativeSessionChain(evmUsdc.chainId);
       } catch (err) {
         console.error('[EvmBridgeDepositScreen] Fast bridge failed', err);
-        const message = depositErrorMessage(err);
+        const failure = depositError(err);
         await updateBridgedReceivePhase(trackingTxId, 'failed', {
-          error: message,
+          error: failure.text,
+          errorId: failure.id,
           failure: { step, cause: err }
         }).catch(() => undefined);
         return;
       }
       await executeEVMToMiden(trackingTxId);
     },
-    [
-      depositErrorMessage,
-      ensureBalanceCovers,
-      evmAddress,
-      evmUsdc,
-      executeEVMToMiden,
-      nativeReownAvailable,
-      quotedTokenIn
-    ]
+    [depositError, ensureBalanceCovers, evmAddress, evmUsdc, executeEVMToMiden, nativeReownAvailable, quotedTokenIn]
   );
 
   const setupToken: UITokenWithPendingBalance = useMemo(() => {
@@ -1393,7 +1441,14 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       return undefined;
     }
   }, [epochQuote?.quoteResult.tokenIn, epochQuote?.quoteResult.tokenOut, midenUsdc, usdcDecimals]);
-  const error = route === 'epoch' && epochFlow === 'evm-to-miden' ? epochError : slowError;
+  const displayedError: DepositError | null =
+    route === 'epoch' && epochFlow === 'evm-to-miden'
+      ? epochError == null
+        ? null
+        : { text: epochError, id: 'raw_bridge_deposit_failed' }
+      : slowError;
+  const error = displayedError?.text;
+  const errorId = displayedError?.id;
 
   // Output the recipient receives on Miden, exact, as the tracking row stores it. Every route
   // receives what was typed: Fast asks the reverse quote for `minTokenOut` (pinned to the typed
@@ -1577,7 +1632,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       navigateTo(ReceiveStep.ShowBridgePageStatus);
     } catch (err) {
       console.error('[EvmBridgeDepositScreen] bridge row creation failed', err);
-      setSlowError(errorMessage(err));
+      setSlowError({ text: errorMessage(err), id: 'raw_bridge_deposit_submit_failed' });
       confirming.current = false;
       setConfirmSettled(count => count + 1);
     } finally {
@@ -1640,6 +1695,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
               canConfirm={reviewCanConfirm}
               confirmLabel={reviewConfirmLabel}
               error={error ?? usdcxFeeHoldNotice}
+              errorId={error != null ? errorId : usdcxFeeHoldNotice ? 'usdcxDepositFeeAboveBalance' : null}
               onConfirm={handleConfirm}
               onBack={goBack}
             />
@@ -1694,6 +1750,9 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
               error={
                 amountExceedsBalance ? 'amountMustBeLessThanBalance' : (error ?? selectedBalance.error ?? undefined)
               }
+              errorId={
+                amountExceedsBalance ? 'amountMustBeLessThanBalance' : error != null ? errorId : selectedBalance.errorId
+              }
               evmAddress={evmAddress}
               onAmountChange={handleAmountChange}
               onSelectToken={handleOpenTokenDrawer}
@@ -1712,6 +1771,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       bridgeTxId,
       reviewAmount,
       error,
+      errorId,
       evmAddress,
       midenAccount.name,
       epochStatus,
@@ -1744,6 +1804,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       onClose,
       setupToken,
       selectedBalance.error,
+      selectedBalance.errorId,
       setupReady,
       slowAvailability,
       tokenSymbol,

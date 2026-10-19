@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
@@ -18,6 +18,8 @@ import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { evmUsdcLabel, midenTokenLabel } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { useWalletStore } from 'lib/store';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
+import { isUserErrorId } from 'lib/telemetry/user-visible-error-contract';
 import { isUsdcxExecutorSource } from 'lib/usdcx/constant';
 import { DEFAULT_CHAIN_ID, evmExplorerUrl, getChain } from 'lib/walletconnect/config';
 import { TransactionHeroIcon } from 'screens/generating-transaction/components';
@@ -132,8 +134,26 @@ export const EvmBridgeDepositStatus: React.FC<EvmBridgeDepositStatusProps> = ({
   const bridgeConfig = useBridgeConfigSnapshot({ load: false });
 
   const inputs: IBridgedReceiveExtraInputs | undefined = row?.extraInputs;
+  const firstLoadedRow = useRef<{ txId: string; failed?: boolean }>({ txId });
+  if (firstLoadedRow.current.txId !== txId) firstLoadedRow.current = { txId };
+  const matchingRow = loaded && row?.id === txId && inputs !== undefined;
+  if (matchingRow && firstLoadedRow.current.failed === undefined) {
+    firstLoadedRow.current.failed = inputs.phase === 'failed';
+  }
+  const failureId =
+    inputs?.error == null
+      ? 'transactionErrorDescription'
+      : inputs.error
+        ? isUserErrorId(inputs.errorId)
+          ? inputs.errorId
+          : 'raw_bridge_deposit_failed'
+        : null;
+  useUserVisibleError(
+    matchingRow && inputs.phase === 'failed' && firstLoadedRow.current.failed === false ? failureId : null,
+    'status_screen'
+  );
 
-  if (!loaded || !row || inputs === undefined)
+  if (!loaded || !row || row.id !== txId || inputs === undefined)
     return (
       <div className="flex h-8 justify-center pt-5">
         <Spinner />
