@@ -18,6 +18,7 @@ import DisableOutlinesForClick from 'app/a11y/DisableOutlinesForClick';
 import Dialogs from 'app/layouts/Dialogs';
 import { getMessage } from 'lib/i18n';
 import { resetStorageDestructive } from 'lib/miden/reset';
+import { hasExtensionRuntime, reloadInPlace } from 'lib/platform';
 import { AlertFn, ConfirmFn, DialogsProvider, useAlert, useConfirm } from 'lib/ui/dialog';
 
 // Disable animations for extension
@@ -93,13 +94,16 @@ async function handleReset(customAlert: AlertFn, confirm: ConfirmFn) {
     // that cannot start. The key-value clear comes first, so a partial wipe leaves no vault. The reload does
     // not depend on the page staying open at any point: the tab can close during the wipe or the report, and
     // nothing after that await runs then, so pagehide, armed before the wipe, reloads too, and whichever comes
-    // first is the one reload.
+    // first is the one reload. A page an extension reload or update left without a runtime cannot reload the
+    // extension, so it reloads in place.
     let reloaded = false;
+    const viaRuntime = hasExtensionRuntime();
     const reloadOnce = () => {
-      browser.runtime.reload();
+      if (viaRuntime) browser.runtime.reload();
+      else reloadInPlace();
       reloaded = true;
     };
-    window.addEventListener('pagehide', reloadOnce, { once: true });
+    if (viaRuntime) window.addEventListener('pagehide', reloadOnce, { once: true });
     try {
       try {
         await resetStorageDestructive();

@@ -10,7 +10,7 @@
 
 import { MidenDAppMessageType, MidenDAppErrorType } from 'lib/adapter/types';
 import { MidenMessageType } from 'lib/miden/types';
-import { WalletStatus } from 'lib/shared/types';
+import { WalletMessageType, WalletStatus } from 'lib/shared/types';
 
 const _g = globalThis as any;
 _g.__dappConfInternals = {
@@ -317,6 +317,262 @@ describe('requestConfirm intercom handler — unknown port', () => {
     // Clean up by auto-declining
     jest.advanceTimersByTime(121_000);
     p.catch(() => {});
+  });
+});
+
+describe('requestConfirm runs an approval once (#1584)', () => {
+  const { requestCustomTransaction } = jest.requireMock('lib/miden/transaction');
+
+  afterEach(() => {
+    requestCustomTransaction.mockReset().mockResolvedValue('tx-2');
+  });
+
+  const openTransaction = async () => {
+    const answer = dapp.requestTransaction('https://test.xyz', {
+      type: MidenDAppMessageType.TransactionRequest,
+      sourcePublicKey: 'a1',
+      transaction: {
+        payload: { address: 'a1', recipientAddress: 'bob', transactionRequest: 'b64req', importNotes: [] }
+      }
+    } as never);
+    answer.catch(() => undefined);
+    await jest.advanceTimersByTimeAsync(0);
+    const browser = jest.requireMock('webextension-polyfill').default;
+    const id: string = browser.windows.create.mock.calls.at(-1)?.[0]?.url.match(/id=([^&]+)/)?.[1];
+    const listener = _g.__dappConfInternals.intercomListeners.at(-1);
+    const port = { id: 'confirm-port' };
+    await listener({ type: MidenMessageType.DAppGetPayloadRequest, id: [id] }, port);
+    const confirmation = {
+      type: MidenMessageType.DAppTransactionConfirmationRequest,
+      id,
+      confirmed: true,
+      delegate: false
+    };
+    return { answer, listener, port, confirmation };
+  };
+
+  it('runs the action once when the popup confirms twice while it runs', async () => {
+    let release: (transactionId: string) => void = () => undefined;
+    requestCustomTransaction.mockReturnValueOnce(
+      new Promise<string>(resolve => {
+        release = resolve;
+      })
+    );
+    const { answer, listener, port, confirmation } = await openTransaction();
+
+    const first = listener(confirmation, port);
+    await jest.advanceTimersByTimeAsync(0);
+    const second = listener(confirmation, port);
+    release('tx-2');
+
+    expect(await first).toEqual({ type: MidenMessageType.DAppTransactionConfirmationResponse });
+    expect(await second).toEqual({ type: MidenMessageType.DAppTransactionConfirmationResponse });
+    expect(requestCustomTransaction).toHaveBeenCalledTimes(1);
+    await expect(answer).resolves.toEqual(expect.objectContaining({ transactionId: 'tx-2' }));
+  });
+
+  const holdTransaction = () => {
+    let release: (transactionId: string) => void = () => undefined;
+    requestCustomTransaction.mockReturnValueOnce(
+      new Promise<string>(resolve => {
+        release = resolve;
+      })
+    );
+    return (transactionId: string) => release(transactionId);
+  };
+
+  it('gives a Deny sent while the action runs that action answer and refuses nothing', async () => {
+    const release = holdTransaction();
+    const { answer, listener, port, confirmation } = await openTransaction();
+
+    const first = listener(confirmation, port);
+    await jest.advanceTimersByTimeAsync(0);
+    const deny = listener({ ...confirmation, confirmed: false }, port);
+    release('tx-2');
+
+    expect(await deny).toEqual({ type: MidenMessageType.DAppTransactionConfirmationResponse });
+    expect(await first).toEqual({ type: MidenMessageType.DAppTransactionConfirmationResponse });
+    await expect(answer).resolves.toEqual(expect.objectContaining({ transactionId: 'tx-2' }));
+  });
+
+  it('lets another request from the popup reach its own handler while the action runs', async () => {
+    const release = holdTransaction();
+    const { answer, listener, port, confirmation } = await openTransaction();
+
+    const first = listener(confirmation, port);
+    await jest.advanceTimersByTimeAsync(0);
+    await expect(listener({ type: WalletMessageType.SyncRequest }, port)).resolves.toBeUndefined();
+    release('tx-2');
+
+    expect(await first).toEqual({ type: MidenMessageType.DAppTransactionConfirmationResponse });
+    expect(requestCustomTransaction).toHaveBeenCalledTimes(1);
+    await expect(answer).resolves.toEqual(expect.objectContaining({ transactionId: 'tx-2' }));
+  });
+
+  it('keeps the auto-decline waiting for a running action, which then answers the dApp', async () => {
+    const release = holdTransaction();
+    const { answer, listener, port, confirmation } = await openTransaction();
+
+    const first = listener(confirmation, port);
+    await jest.advanceTimersByTimeAsync(121_000);
+    release('tx-2');
+
+    expect(await first).toEqual({ type: MidenMessageType.DAppTransactionConfirmationResponse });
+    await expect(answer).resolves.toEqual(expect.objectContaining({ transactionId: 'tx-2' }));
+  });
+
+  it('keeps a closed window waiting for a running action, which then answers the dApp', async () => {
+    const release = holdTransaction();
+    const { answer, listener, port, confirmation } = await openTransaction();
+
+    const first = listener(confirmation, port);
+    await jest.advanceTimersByTimeAsync(0);
+    for (const removed of _g.__dappConfInternals.onRemovedListeners) removed(888);
+    release('tx-2');
+
+    expect(await first).toEqual({ type: MidenMessageType.DAppTransactionConfirmationResponse });
+    await expect(answer).resolves.toEqual(expect.objectContaining({ transactionId: 'tx-2' }));
+  });
+
+  it('answers that the outcome is unknown at the cap while the action still runs', async () => {
+    holdTransaction();
+    const { answer, listener, port, confirmation } = await openTransaction();
+
+    void listener(confirmation, port);
+    await jest.advanceTimersByTimeAsync(241_000);
+
+    await expect(answer).rejects.toThrow(/^OUTCOME_UNKNOWN: /);
+  });
+
+  it('declines once a running answer that a closed window waited for ends without answering', async () => {
+    const { answer, listener, port, confirmation } = await openTransaction();
+
+    // A sign confirmation of this approval is an answer the transaction handler gives nothing for.
+    const empty = listener(
+      { type: MidenMessageType.DAppSignConfirmationRequest, id: confirmation.id, confirmed: true },
+      port
+    );
+    for (const removed of _g.__dappConfInternals.onRemovedListeners) removed(888);
+
+    await expect(empty).resolves.toBeUndefined();
+    await expect(answer).rejects.toThrow(MidenDAppErrorType.NotGranted);
+    expect(requestCustomTransaction).not.toHaveBeenCalled();
+  });
+
+  it('handles a later confirmation after a handler answered nothing', async () => {
+    const { answer, listener, port, confirmation } = await openTransaction();
+
+    // A sign confirmation is no answer to a transaction approval: the handler returns nothing for it.
+    await expect(
+      listener({ type: MidenMessageType.DAppSignConfirmationRequest, id: confirmation.id, confirmed: true }, port)
+    ).resolves.toBeUndefined();
+    await expect(listener(confirmation, port)).resolves.toEqual({
+      type: MidenMessageType.DAppTransactionConfirmationResponse
+    });
+
+    expect(requestCustomTransaction).toHaveBeenCalledTimes(1);
+    await expect(answer).resolves.toEqual(expect.objectContaining({ transactionId: 'tx-2' }));
+  });
+
+  const openPermission = async (origin: string) => {
+    const answer = dapp.requestPermission(
+      origin,
+      {
+        type: MidenDAppMessageType.PermissionRequest,
+        appMeta: { name: 'App', url: origin },
+        force: false,
+        network: 'testnet',
+        privateDataPermission: 'UPON_REQUEST',
+        allowedPrivateData: 0
+      } as never,
+      'session-1584'
+    );
+    answer.catch(() => undefined);
+    await jest.advanceTimersByTimeAsync(0);
+    const browser = jest.requireMock('webextension-polyfill').default;
+    const id: string = browser.windows.create.mock.calls.at(-1)?.[0]?.url.match(/id=([^&]+)/)?.[1];
+    const listener = _g.__dappConfInternals.intercomListeners.at(-1);
+    const port = { id: 'perm-port' };
+    await listener({ type: MidenMessageType.DAppGetPayloadRequest, id: [id] }, port);
+    const confirmation = {
+      type: MidenMessageType.DAppPermConfirmationRequest,
+      id,
+      confirmed: true,
+      accountPublicKey: 'a1',
+      privateDataPermission: 'UPON_REQUEST'
+    };
+    return { answer, listener, port, confirmation };
+  };
+
+  it('runs the action again for a confirmation after one whose action rejected', async () => {
+    const { withUnlocked } = jest.requireMock('lib/miden/back/store');
+    const { answer, listener, port, confirmation } = await openPermission('https://retry-1584.xyz');
+
+    withUnlocked
+      .mockImplementationOnce(async () => {
+        throw new Error('read failed');
+      })
+      .mockImplementationOnce(async () => 'pk-1584');
+    await expect(listener(confirmation, port)).rejects.toThrow('read failed');
+    await expect(listener(confirmation, port)).resolves.toEqual({
+      type: MidenMessageType.DAppPermConfirmationResponse
+    });
+
+    await expect(answer).resolves.toEqual(expect.objectContaining({ accountId: 'a1', publicKey: 'pk-1584' }));
+  });
+
+  it('declines a connect at once when its window closes while the read runs (#1471)', async () => {
+    const { withUnlocked } = jest.requireMock('lib/miden/back/store');
+    let release: (publicKey: string) => void = () => undefined;
+    const { answer, listener, port, confirmation } = await openPermission('https://closed-1584.xyz');
+
+    withUnlocked.mockImplementationOnce(
+      () =>
+        new Promise<string>(resolve => {
+          release = resolve;
+        })
+    );
+    const first = listener(confirmation, port);
+    await jest.advanceTimersByTimeAsync(0);
+    for (const removed of _g.__dappConfInternals.onRemovedListeners) removed(888);
+
+    await expect(answer).rejects.toThrow(MidenDAppErrorType.NotGranted);
+    release('pk-1584');
+    await expect(first).resolves.toEqual({ type: MidenMessageType.DAppPermConfirmationResponse });
+    expect(_g.__dappConfInternals.storage[STORAGE_KEY]?.['https://closed-1584.xyz']).toBeUndefined();
+  });
+
+  it('applies a Deny sent while a connect read runs, and the read then saves nothing (#1471)', async () => {
+    const { withUnlocked } = jest.requireMock('lib/miden/back/store');
+    let release: (publicKey: string) => void = () => undefined;
+    const { answer, listener, port, confirmation } = await openPermission('https://deny-1584.xyz');
+
+    withUnlocked.mockImplementationOnce(
+      () =>
+        new Promise<string>(resolve => {
+          release = resolve;
+        })
+    );
+    const first = listener(confirmation, port);
+    await jest.advanceTimersByTimeAsync(0);
+    const deny = listener({ ...confirmation, confirmed: false, accountPublicKey: '' }, port);
+
+    await expect(deny).resolves.toEqual({ type: MidenMessageType.DAppPermConfirmationResponse });
+    await expect(answer).rejects.toThrow(MidenDAppErrorType.NotGranted);
+    release('pk-1584');
+    await expect(first).resolves.toEqual({ type: MidenMessageType.DAppPermConfirmationResponse });
+    expect(_g.__dappConfInternals.storage[STORAGE_KEY]?.['https://deny-1584.xyz']).toBeUndefined();
+  });
+
+  it('ignores a confirmation after the approval was answered', async () => {
+    const { listener, port, confirmation } = await openTransaction();
+
+    await expect(listener(confirmation, port)).resolves.toEqual({
+      type: MidenMessageType.DAppTransactionConfirmationResponse
+    });
+    await expect(listener(confirmation, port)).resolves.toBeUndefined();
+
+    expect(requestCustomTransaction).toHaveBeenCalledTimes(1);
   });
 });
 

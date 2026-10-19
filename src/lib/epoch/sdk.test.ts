@@ -39,6 +39,21 @@ describe('ensureEpochSmartAccount', () => {
     mockConvertToSmartAccount.mockReset();
   });
 
+  it('uses the supplied guarded SDK for smart-account setup', async () => {
+    const guarded = {
+      getWalletGaslessStatus: jest
+        .fn()
+        .mockResolvedValueOnce({ delegation: 'none' })
+        .mockResolvedValueOnce({ delegation: 'epoch' }),
+      convertToSmartAccount: jest.fn().mockRejectedValueOnce(new Error('earnWithdrawRefresh'))
+    };
+    await expect(
+      ensureEpochSmartAccount('miden-account', EVM_ADDRESS, guarded as unknown as EpochIntentSDK)
+    ).rejects.toThrow('earnWithdrawRefresh');
+    expect(guarded.convertToSmartAccount).toHaveBeenCalledTimes(1);
+    expect(mockConvertToSmartAccount).not.toHaveBeenCalled();
+  });
+
   it('is idempotent when the Epoch delegation is already active', async () => {
     mockGetWalletGaslessStatus.mockResolvedValue({ delegation: 'epoch', canRelayDeposit: false });
 

@@ -31,7 +31,7 @@ import {
 } from 'lib/miden-chain/effective-endpoints';
 import { EndpointHealthKind, useEndpointHealth } from 'lib/miden-chain/endpoint-health';
 import { hapticMedium } from 'lib/mobile/haptics';
-import { isExtension } from 'lib/platform';
+import { hasExtensionRuntime, isExtension, reloadInPlace } from 'lib/platform';
 import { followEffectiveNetwork } from 'lib/remote-config/runtime';
 import { reloadEndpointOverridesInSW, selectIsIdle, useWalletStore } from 'lib/store';
 import { useAlert, useConfirm } from 'lib/ui/dialog';
@@ -282,9 +282,10 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
     // wipe, so nothing is wiped without its reload armed. Dynamic import: `webextension-polyfill` throws at
     // module-evaluation time when `chrome.runtime.id` is absent, so it must not be a top-level import - this
     // screen is statically imported by PageRouter and evaluates on every platform (desktop has no vite alias for
-    // it, unlike mobile). Mirrors src/lib/miden/reset.ts.
+    // it, unlike mobile). Mirrors src/lib/miden/reset.ts. A page an extension reload or update left without a runtime
+    // cannot reload the extension, so it reloads in place.
     let reloadOnce: (() => void) | undefined;
-    if (isExtension()) {
+    if (hasExtensionRuntime()) {
       try {
         const browser = (await import('webextension-polyfill')).default;
         reloadOnce = () => {
@@ -323,8 +324,9 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
           // it. A listener reload that threw left the flag down, so this one retries and reports.
           if (!reloaded) reloadOnce();
         } else {
-          // mobile/desktop: no background worker to resync with, just reload in place.
-          window.location.reload();
+          // mobile/desktop, or an extension page that lost its runtime: no background worker to resync with,
+          // just reload in place.
+          reloadInPlace();
         }
       } catch (err) {
         // No reload started, so the closed handles and the in-memory override outlive the wipe:

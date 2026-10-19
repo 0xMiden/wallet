@@ -328,6 +328,100 @@ beforeEach(() => {
   mockImportNoteBytes.mockResolvedValue('note-1');
 });
 
+describe('coded refusals (#1583)', () => {
+  const handlers: ReadonlyArray<[string, (error: unknown) => Promise<unknown>]> = [
+    [
+      'request',
+      error => {
+        mockImportNoteBytes.mockRejectedValueOnce(error);
+        return dapp.requestImportPrivateNote('https://miden.xyz', {
+          type: MidenDAppMessageType.ImportPrivateNoteRequest,
+          sourcePublicKey: 'miden-account-1',
+          note: 'c29tZW5vdGVieXRlcw=='
+        });
+      }
+    ],
+    [
+      'read',
+      error => {
+        mockGetInputNoteDetails.mockRejectedValueOnce(error);
+        return dapp.requestPrivateNotes('https://miden.xyz', {
+          type: MidenDAppMessageType.PrivateNotesRequest,
+          sourcePublicKey: 'miden-account-1',
+          notefilterType: NoteFilterTypes.Committed
+        });
+      }
+    ],
+    [
+      'carried-note decode',
+      error => {
+        const lock = jest.requireMock<typeof import('../sdk/miden-client')>('../sdk/miden-client');
+        const decodeLock = jest.spyOn(lock, 'withWasmClientLock').mockRejectedValueOnce(error);
+        return dapp
+          .requestConsumeTransaction('https://miden.xyz', {
+            type: MidenDAppMessageType.ConsumeRequest,
+            sourcePublicKey: 'miden-account-1',
+            transaction: {
+              noteId: 'note-1',
+              noteBytes: 'c29tZW5vdGVieXRlcw==',
+              faucetId: 'faucet-1',
+              noteType: 'private',
+              amount: 50
+            }
+          })
+          .finally(() => decodeLock.mockRestore());
+      }
+    ]
+  ];
+  const uncoded: ReadonlyArray<[unknown, string]> = [
+    [new Error('node said NOT_FOUND'), 'INVALID_PARAMS: Error: node said NOT_FOUND'],
+    [new Error('NOT_FOUND_LATER'), 'INVALID_PARAMS: Error: NOT_FOUND_LATER'],
+    ['NOT_FOUND', 'INVALID_PARAMS: NOT_FOUND'],
+    [{ message: 'NOT_FOUND' }, 'INVALID_PARAMS: [object Object]']
+  ];
+
+  beforeEach(() => {
+    mockQueueNoteImport.mockResolvedValue(undefined);
+  });
+
+  describe.each(handlers)('%s', (_name, request) => {
+    it.each(['NOT_FOUND', 'LOGIN_KEY_UNAVAILABLE: no key', 'INVALID_PARAMS: bad'])(
+      'preserves the error and exact message for %s',
+      async message => {
+        const error = new Error(message);
+        const pending = request(error);
+
+        await expect(pending).rejects.toThrow(new Error(message));
+        await expect(pending).rejects.toBe(error);
+      }
+    );
+
+    it.each(uncoded)('wraps the uncoded value %s once', async (error, message) => {
+      await expect(request(error)).rejects.toThrow(new Error(message));
+    });
+
+    it('returns the kill ahead of a coded and locked wrapper', async () => {
+      const kill = new WasmClientPoisonedError('watchdog', new Error('read parked'));
+      const error = Object.assign(new Error('NOT_FOUND', { cause: kill }), { reason: 'locked' });
+
+      await expect(request(error)).rejects.toBe(kill);
+    });
+  });
+
+  it('returns the request lock refusal ahead of a coded message', async () => {
+    const error = Object.assign(new Error('LOGIN_KEY_UNAVAILABLE: no key'), { reason: 'locked' });
+    mockImportNoteBytes.mockRejectedValueOnce(error);
+
+    await expect(
+      dapp.requestImportPrivateNote('https://miden.xyz', {
+        type: MidenDAppMessageType.ImportPrivateNoteRequest,
+        sourcePublicKey: 'miden-account-1',
+        note: 'c29tZW5vdGVieXRlcw=='
+      })
+    ).rejects.toThrow(new Error('NOT_GRANTED: Wallet is locked'));
+  });
+});
+
 // ─── requestPermission (mobile paths) ──────────────────────────────
 
 describe('requestPermission — mobile branches', () => {
@@ -2771,11 +2865,7 @@ describe('a locked wallet (#1414)', () => {
         sourcePublicKey: 'miden-account-1',
         transaction: { payload: { address: 'miden-account-1', recipientAddress: 'bob' } }
       } as never)
-    ).rejects.toThrow(
-      new Error(
-        `${MidenDAppErrorType.InvalidParams}: Error: ${MidenDAppErrorType.InvalidParams}: Invalid CustomTransaction payload`
-      )
-    );
+    ).rejects.toThrow(new Error(`${MidenDAppErrorType.InvalidParams}: Invalid CustomTransaction payload`));
     expect(mockRequestConfirmation).not.toHaveBeenCalled();
   });
 

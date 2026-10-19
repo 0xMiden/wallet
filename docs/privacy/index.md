@@ -9,6 +9,14 @@ _Last updated: 2026-10-19_
 
 Bread Wallet by Miden ("the App") is a non-custodial cryptocurrency wallet for the Miden blockchain, published by Miden.
 
+## Who we are
+
+The App is published by Whiteharbor Technologies, a Cayman Islands exempted company (company number 417615), c/o Ogier Global (Cayman) Limited, 89 Nexus Way, Camana Bay, Grand Cayman, KY1-9009, Cayman Islands ("Miden", "we"). Miden is the controller of the personal data described in this policy. For anything about your data, write to privacy@miden.team.
+
+<!-- TODO before publication: confirm whether an EU or UK representative under GDPR Article 27 is required. If one is appointed, add their name and address here. -->
+
+This policy covers two different kinds of data. The first is **telemetry**: crash reports and optional usage data the App sends to us. The sections from "Data we collect" to "What scrubbing can and cannot promise" describe it, and the short version is that it carries no identifier for you. The second is **data that leaves the App to make it work**: what the Miden network, your Guardian Operator, and the providers behind swaps, bridges, Earn and fiat on-ramp and off-ramp receive. The section "Data that leaves the App for reasons other than telemetry" describes that. The statements about telemetry are not statements about the second kind.
+
 ## Data we collect
 
 The App sends **crash reports** so we can fix what breaks. They are described under "Crash reports" below: the error and where it happened in the code, scrubbed of sensitive data before sending, with no identifier for you or your device. Everything else is collected only if you turn on **Share usage data**. If you never turn it on, the App sends no product events.
@@ -67,12 +75,15 @@ A failure report can also say why the transaction failed, using only these fixed
 - **What the transaction software said went wrong**, when it could not build or run a transaction: `transaction_execution_failed` with the `cause` its own fixed wording names, one of `request_note_consumed` (a transfer being claimed was already claimed), `request_note_processing` (another transaction was already claiming it), `request_note_unauthenticated` (a transfer could not be proven to exist on the network), `request_duplicate_note` (the same transfer was included twice), `request_empty` (the transaction would change nothing), `request_fee_conversion` (the network fee could not be arranged for the account), `request_other` (any other problem with the request), `recency_check` (the App's copy of the network was too old), `account_locked` (the account's state may be out of date), `account_data_not_found` (the account's data was missing on the device), `output_mismatch` (the transaction did not produce the transfers it was asked to), `data_store`, `store` or `rpc` (reading the device's records or the network failed), `fetch_inputs`, `block_after_reference`, `account_not_in_store`, `block_not_in_store` or `fetch_asset_witness` (gathering what the transaction needed failed), `foreign_account_not_anchored` or `note_past_reference_block` (something the transaction used was newer than the network state it was built on), `kernel_program` (the transaction's program failed), `summary_block_unknown`, `summary_expiration_mismatch` or `summary_commitment_mismatch` (what the signers approve did not match the transaction), `signature_failed` (a signature could not be made), `executor_other` (any other failure while running it) or `other`. A check in the transaction's program that fails is named by the public name the transaction software the App ships gives it, read from the sources of the protocol, its standard components, its core library and its AggLayer bridge: the name of the error the check raises or, for a check whose message is written where it is made, the component and the words of that message. A check that fails with no message is sent as `kernel_assertion_without_message`, or as `kernel_u32_assertion_without_message` when it is a range check, and one whose number none of those sources publishes as `kernel_assertion_outside_shipped_sources`, or as `kernel_u32_assertion_outside_shipped_sources` when it is a range check.
 - **The signing step**, when the transaction failed while it was being signed: `creating_proposal` (preparing it for the guardian), `signing_proposal` (signing what was prepared) or `signing_locally` (signing on this device alone).
 - **The confirming step**, when the transaction failed after it was submitted: `confirming` (waiting for the network to include it), `delivering` (handing a private transfer over for its recipient), `registering_guardian` (registering the account with the guardian it moved to), `guardian_syncing` (bringing the account's guardian up to date, or finishing the transaction after that update failed) or `guardian_synced` (finishing the transaction after the guardian was brought up to date).
+- **The last deferral** of a failed claim: `wallet_locked` (the App was locked), `preflight_sync_failed` (the App could not bring its network state up to date before claiming), `guardian_backpressure` (the guardian needed the App to wait before sending more work), `delegated_prover_failed` (the proving service could not finish), `guardian_rate_limited` (the guardian asked the App to slow down), `guardian_unreachable` (the guardian could not be reached), or `guardian_unauthorized` (the guardian did not authorize the request). `none` means no deferral was recorded, including claims queued before the App recorded this; any unlisted value is sent as `other`. Only the fixed reason is sent, never an identifier, amount, time or the failure's text.
+- **The claim fee check's admission** of a failed claim: `native_id_unknown` (the network's own token could not be identified), `fee_unknown` (the fee could not be determined), `balance_unknown` (the account's balance could not be read), `ahead_assets_unknown` (the assets of claims ahead in the queue could not be determined), `ahead_native` (a claim ahead in the queue held the network's own token), `note_assets_unknown` (the assets or native-token amount of this incoming transfer could not be determined), or `known_sufficient` (the known funds covered the fee). `unrecorded` means no admission reason was recorded, including claims queued before the App recorded this; any unlisted value is sent as `other`. Only the fixed reason is sent, never an identifier, fee, balance, amount or time.
+- **The stuck-transaction check**, on a transaction it cancelled: `missing_start` (the transaction had no recorded start) or `past_limit` (it passed the App's waiting limit); and `started_here` (this app session started an attempt for it) or `not_started_here` (this app session had not started an attempt for it). Either value is sent as `unavailable` when it was not recorded or is outside its list. These are fixed categories, never an identifier, timestamp or elapsed time, and they carry no amount or other transaction value. An attempt started here is not proof it is still running.
 - **Two failures the transaction engine names itself**: `advice_stack_read_failed` (the transaction's program asked for data it was not given) and `client_terminated` (the transaction engine was shut down while the transaction was using it).
 - **A broad category**, when nothing above names the failure: one of `network`, `rpc`, `proving`, `validation`, `storage`, `auth`, `timeout` or `unknown`, chosen on the device by reading the failure's text, which is never sent. With `unknown`, the report also says what kind of value was thrown: `wasm_runtime_error` (the transaction engine's WebAssembly code stopped with a runtime error), `type_error` (a value was used in a way its type does not allow), `range_error` (a value was outside its allowed range), `reference_error` (the code referred to something not defined), `syntax_error` (the code could not be parsed), `error` (any other error), `string` (text was thrown instead of an error), `non_error` (another kind of value was thrown), or `none` (no value was supplied). When the transaction was being submitted, it also carries the same background answer and submit-duration bucket listed under "A submit with no definite answer" above. Only these fixed values are sent, never the thrown value, its name or text, or the duration in milliseconds.
 
 None of these carries the text of the refusal, the guardian's response, or the address of the server that sent it.
 
-A failed claim of an incoming transfer also says what queued the claim, using only these fixed values: `auto_consume` (the App claimed the transfer on its own), `claim` (you accepted one transfer), `claim_all` (you accepted several transfers at once), `dapp` (a connected site asked to claim it), `bridge_reclaim` (you took back the funds of a failed bridge transfer), `swap_settlement` (the App settled one of your swaps), or `rotation_funding` (the App claimed it to activate the account's everyday key). A claim queued any other way, or before the App recorded this, is sent as `other`. It never names the transfer, the site or the account.
+A failed claim of an incoming transfer also says what queued the claim, using only these fixed values: `auto_consume` (the App claimed the transfer on its own), `claim` (you accepted one transfer), `claim_all` (you accepted several transfers at once), `dapp` (a connected site asked to claim it), `bridge_reclaim` (you took back the funds of a failed bridge transfer), `swap_settlement` (the App settled one of your swaps), or `rotation_funding` (the App claimed it to activate the account's everyday key). A claim queued before the App recorded this is sent as `unrecorded`; any unlisted value is sent as `other`. It never names the transfer, the site or the account.
 
 A failed inbound bridge, a deposit from another network into Miden, also carries these fixed values:
 
@@ -169,8 +180,10 @@ Both are configured to delete data after 90 days, to store no IP addresses, and 
 
 For transparency about how the App functions on your device (this is not data we receive or have access to):
 
-- Your wallet's recovery phrase, private keys, account names, transaction history, and balances are generated and held **only** on your device, encrypted at rest using your device's secure enclave (Android Keystore / iOS Secure Enclave) when biometric protection is enabled.
-- This information never leaves your device unless **you** explicitly export it via the in-app "Encrypted Wallet File" export.
+- Your Recovery Phrase and your Everyday Key are generated and held **only** on your device, encrypted at rest using your device's secure enclave (Android Keystore / iOS Secure Enclave) when biometric protection is enabled. They never leave your device. You can copy your Recovery Phrase, and you can download it and remove it from the device; what you do with that copy is up to you.
+- Your account state (your accounts' data, balances and history) is held on your device. If you use a Guardian, an encrypted copy is also held by your Guardian Operator; see "Your Guardian Operator" below. The App does not currently offer an export of your account state.
+
+<!-- TODO: when the account-state export ships, describe it here and in the Terms (section 3.3). Until then, do not reintroduce the "Encrypted Wallet File" sentence; the feature has no user interface. -->
 
 ## Biometric authentication (Face ID, Touch ID, Fingerprint)
 
@@ -186,7 +199,49 @@ Biometric matching is performed entirely by your device's operating system insid
 - **Storage:** No biometric data is stored by the App. Your biometric templates remain solely under your operating system's control in secure hardware.
 - **Retention / deletion:** The App retains no biometric data. You manage your enrolled biometrics in your device's system settings. Disabling biometric unlock in the App, or uninstalling the App, removes the App's on-device unlock key and has no effect on and no access to your OS-level biometric enrollment.
 
+## Data that leaves the App for reasons other than telemetry
+
+Everything in this section is data the App must send for a feature to work. None of it is telemetry, none of it is optional once you use the feature, and most of it is received by someone other than us.
+
+### The Miden network and its operator
+
+To transact, the App sends transaction proofs and related data to the Miden network through its RPC endpoint and the note transport service. Miden is designed to support private transaction execution. However, during the network's current operating period Miden, as the network operator, has visibility into transaction data, including data associated with private accounts and private notes, for network-integrity, compliance and legal purposes. This is a property of the network in its current phase, not of the App; it applies whatever wallet you use.
+
+<!-- TODO: confirm with protocol engineering whether the operator sees this data directly or holds it encrypted with the ability to decrypt, and state the expected duration (e.g. "for the partner mainnet phase"). Align the wording with Terms section 12.1. -->
+
+We retain compliance-related records, including block, unblock and legal-process records, for at least five years, and may disclose information where required by law or lawful process. Data written to the blockchain itself is permanent and cannot be deleted by anyone, including us.
+
+### Your Guardian Operator
+
+If you enable a Guardian, your Guardian Operator receives and stores: an encrypted copy of your account state; the transaction summaries it is asked to acknowledge, and whether it acknowledged them; and the technical data needed to run the service. It does not receive your Recovery Phrase or your Everyday Key. Your Guardian Operator is a separate party from us unless the App tells you otherwise, and it handles this data under its own privacy notice.
+
+<!-- TODO: name the default Guardian Operator for partner mainnet, say whether it is Miden, an affiliate or an independent operator, and link its privacy notice. If the operator collects any identity or compliance data (e.g. for compliance zones), say so here. -->
+
+### Fiat on-ramp and off-ramp (Transak)
+
+Buying crypto with fiat and selling crypto for fiat in the App is provided by Transak through a widget. When you use it you open an account with Transak and deal with Transak directly. Transak verifies your identity before you can transact and collects identity documents, bank details and other personal data for that purpose, under [Transak's privacy policy](https://transak.com/privacy-policy). We do not receive your identity documents or bank details.
+
+<!-- TODO: state exactly what, if anything, the App receives back from Transak (e.g. an order status, a transaction id) and whether any Transak identifier is stored in the App. -->
+
+### Swaps and bridges
+
+A swap is filled by a third-party solver, and a bridge transfer is processed by a third-party bridge operator and the other network. Each of them sees the transaction it processes: the assets, the amounts and the addresses involved. Before that, the App requests quotes: a swap quote sends the two tokens and their amounts to the swap-quote service, never your address, and tracking a bridge transfer sends its destination address to the bridge's status service (both named under "Network traffic").
+
+<!-- TODO: name the operators of the swap-quote service, the bridge status service and the solver network, and note whether any of them is Miden. -->
+
+### Earn
+
+<!-- TODO: describe what the Earn feature sends and to whom (the Earn Provider and its privacy notice). -->
+
+### Geographic restrictions
+
+The App asks for no location permission and reads no location sensor. The App and the Miden network are, however, not available from comprehensively sanctioned jurisdictions. To apply that restriction, the IP address of a request is checked against the country it comes from, at the application level and at the network's sequencer endpoint. The IP address is used for that check and for the ordinary operation of the connection.
+
+<!-- TODO: confirm whether IP addresses are logged for geoblocking or compliance purposes and for how long; if they are, say so here and in the retention section. -->
+
 ## Network traffic
+
+<!-- TODO before partner mainnet: replace the testnet hostnames below with the partner mainnet hostnames. -->
 
 The App connects to the public Miden blockchain RPC endpoint (`rpc.testnet.miden.io`) and the Miden note transport service (`transport.miden.io`) to send and receive on-chain transactions. These requests contain only data needed to interact with the blockchain (transaction payloads, public account state) - never your private keys or recovery phrase.
 
@@ -208,7 +263,42 @@ The App requests the following Android permissions:
 
 ## Children
 
-The App is not directed at children under 13. We do not knowingly collect any information from children.
+The App is not directed at anyone under 18, and our Terms of Service require users to be at least 18. We do not knowingly collect any information from children.
+
+## Why we process data, and on what legal basis
+
+| Purpose | Data | Legal basis (GDPR Article 6) |
+|---|---|---|
+| Running the App and submitting your transactions | Transaction data sent to the network, Guardian data | Performance of our contract with you (the Terms of Service) |
+| Fixing crashes | Crash reports | Our legitimate interest in keeping the App working |
+| Understanding where people get stuck | Usage data | Your consent, which you give by turning on "Share usage data" and can withdraw at any time in the same place |
+| Sanctions compliance, geographic restrictions, record-keeping, responding to lawful requests | IP country check, block and unblock records, legal-process records | Compliance with legal obligations, and our legitimate interest in operating a lawful network |
+
+## How long we keep data
+
+- Usage data and crash reports: 90 days, then deleted automatically (see "Identifiers").
+- Compliance records (block, unblock and legal-process records): at least five years.
+- Data held by your Guardian Operator: as set out in its privacy notice.
+- Data written to the blockchain: permanent.
+
+<!-- TODO: add retention for any IP or geoblocking logs if they exist. -->
+
+## Where data goes
+
+Crash reports and usage data are processed in the European Union (see "Who processes this data"). Your Guardian Operator and Transak may be located outside the European Union and the United Kingdom.
+
+<!-- TODO: state the transfer mechanism for any recipient outside the EU and UK (e.g. standard contractual clauses, or an adequacy decision), once the Guardian Operator is named. -->
+
+## Your rights
+
+If you are in the European Union, the European Economic Area or the United Kingdom, you have the right to access the personal data we hold about you, to have it corrected or erased, to restrict or object to its processing, to receive it in a portable format, and to withdraw consent where processing rests on consent. You also have the right to complain to a data protection supervisory authority, in particular in the country where you live.
+
+Two limits follow from how the App is built, and we would rather state them than imply otherwise:
+
+- We cannot find, and therefore cannot access, correct or erase, your usage data or crash reports, because they carry no identifier that links them to you (see "What that means for deleting your data"). They are deleted automatically after 90 days.
+- Data written to the blockchain cannot be erased by anyone. Erasure requests can only apply to records we hold off-chain.
+
+To exercise a right, write to privacy@miden.team.
 
 ## Changes
 

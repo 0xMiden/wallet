@@ -217,7 +217,7 @@ public class BreadAuthControllerTest {
         assertEquals(BreadAuthState.Phase.IDLE, BreadAuthController.state.phase());
         JavaScriptReplyProxy proxy = post(dialog, PAGE, true, request(longest, SIGN_IN));
         assertNotNull(shadowOf(activity).getNextStartedActivity());
-        BreadAuthController.hostStopped();
+        BreadAuthController.hostPaused();
         BreadAuthController.hostResumed();
         assertReply(proxy, longest, "cancelled", true);
     }
@@ -253,7 +253,7 @@ public class BreadAuthControllerTest {
     @Test public void callbackIntentResolvesTheUrlUntouched() throws Exception {
         registerChrome();
         JavaScriptReplyProxy proxy = post(open(), PAGE, true, request("a", SIGN_IN));
-        BreadAuthController.hostStopped();
+        BreadAuthController.hostPaused();
         Intent callback = new Intent(Intent.ACTION_VIEW, Uri.parse(CALLBACK));
         Intent consumed = BreadAuthCallbacks.consume(callback);
         assertNotSame(callback, consumed);
@@ -267,7 +267,7 @@ public class BreadAuthControllerTest {
     @Test public void callbackWithAPathRepliesFailed() throws Exception {
         registerChrome();
         JavaScriptReplyProxy proxy = post(open(), PAGE, true, request("a", SIGN_IN));
-        BreadAuthController.hostStopped();
+        BreadAuthController.hostPaused();
         assertNull(BreadAuthCallbacks.consume(new Intent(Intent.ACTION_VIEW, Uri.parse("com.miden.wallet.auth://callback/x"))).getData());
         BreadAuthController.hostResumed();
         assertReply(proxy, "a", "error", BreadAuthState.FAILED);
@@ -280,14 +280,14 @@ public class BreadAuthControllerTest {
         String page = "https://fixture.example:8443";
         JavaScriptReplyProxy other = post(dialog, page, true, request("a", page + "/auth"));
         assertNotNull(shadowOf(activity).getNextStartedActivity());
-        BreadAuthController.hostStopped();
+        BreadAuthController.hostPaused();
         BreadAuthCallbacks.consume(new Intent(Intent.ACTION_VIEW, Uri.parse("com.miden.wallet.auth://callback?origin=https%3A%2F%2Ffixture.example&login=a")));
         BreadAuthController.hostResumed();
         assertReply(other, "a", "error", "AUTH_ORIGIN_MISMATCH");
         assertEquals(BreadAuthState.Phase.IDLE, BreadAuthController.state.phase());
         JavaScriptReplyProxy own = post(dialog, page, true, request("b", page + "/auth"));
         assertNotNull(shadowOf(activity).getNextStartedActivity());
-        BreadAuthController.hostStopped();
+        BreadAuthController.hostPaused();
         String callback = "com.miden.wallet.auth://callback?origin=https%3A%2F%2Ffixture.example%3A8443&login=a";
         BreadAuthCallbacks.consume(new Intent(Intent.ACTION_VIEW, Uri.parse(callback)));
         BreadAuthController.hostResumed();
@@ -297,7 +297,7 @@ public class BreadAuthControllerTest {
     @Test public void consumeLeavesOtherIntentsAlone() throws Exception {
         registerChrome();
         JavaScriptReplyProxy proxy = post(open(), PAGE, true, request("a", SIGN_IN));
-        BreadAuthController.hostStopped();
+        BreadAuthController.hostPaused();
         for (Intent intent : new Intent[] {
             new Intent(Intent.ACTION_MAIN), new Intent(Intent.ACTION_MAIN, Uri.parse(CALLBACK)),
             new Intent(Intent.ACTION_VIEW, Uri.parse("com.miden.wallet://wc?uri=x")), new Intent(Intent.ACTION_VIEW),
@@ -315,7 +315,7 @@ public class BreadAuthControllerTest {
         assertEquals(BreadAuthState.Phase.IDLE, BreadAuthController.state.phase());
         registerChrome();
         JavaScriptReplyProxy ended = post(open(), PAGE, true, request("a", SIGN_IN));
-        BreadAuthController.hostStopped();
+        BreadAuthController.hostPaused();
         BreadAuthController.hostResumed();
         assertNull(BreadAuthCallbacks.consume(new Intent(Intent.ACTION_VIEW, Uri.parse(CALLBACK))).getData());
         assertReply(ended, "a", "cancelled", true);
@@ -324,7 +324,7 @@ public class BreadAuthControllerTest {
     @Test public void resumeAfterStopRepliesCancelled() throws Exception {
         registerChrome();
         JavaScriptReplyProxy proxy = post(open(), PAGE, true, request("a", SIGN_IN));
-        BreadAuthController.hostStopped();
+        BreadAuthController.hostPaused();
         BreadAuthController.hostResumed();
         BreadAuthController.hostResumed();
         assertReply(proxy, "a", "cancelled", true);
@@ -343,18 +343,19 @@ public class BreadAuthControllerTest {
         assertNotNull(shadowOf(activity).getNextStartedActivity());
     }
 
-    @Test public void pluginStopAndResumeReachTheSheet() throws Exception {
+    @Test public void pluginPauseAndResumeReachTheSheet() throws Exception {
         registerChrome();
         WebViewDialog dialog = open();
         InAppBrowserPlugin plugin = spy(new InAppBrowserPlugin());
         doReturn(activity).when(plugin).getContext();
-        plugin.handleOnStop();
+        plugin.handleOnResume();
+        plugin.handleOnPause();
         assertReply(post(dialog, PAGE, true, request("a", SIGN_IN)), "a", "error", BreadAuthState.UNAVAILABLE);
         assertNull(shadowOf(activity).getNextStartedActivity());
         plugin.handleOnResume();
         JavaScriptReplyProxy proxy = post(dialog, PAGE, true, request("b", SIGN_IN));
         assertNotNull(shadowOf(activity).getNextStartedActivity());
-        plugin.handleOnStop();
+        plugin.handleOnPause();
         verifyNoInteractions(proxy);
         plugin.handleOnResume();
         assertReply(proxy, "b", "cancelled", true);
@@ -371,7 +372,7 @@ public class BreadAuthControllerTest {
         assertReply(other, "c", "error", BreadAuthState.BUSY);
         assertNull(shadowOf(activity).getNextStartedActivity());
         verifyNoInteractions(sheet);
-        BreadAuthController.hostStopped();
+        BreadAuthController.hostPaused();
         BreadAuthController.hostResumed();
         assertReply(sheet, "a", "cancelled", true);
     }
@@ -447,7 +448,7 @@ public class BreadAuthControllerTest {
         WebViewDialog dialog = open();
         JavaScriptReplyProxy proxy = post(dialog, PAGE, true, request("a", SIGN_IN));
         assertNotNull(shadowOf(activity).getNextStartedActivity());
-        BreadAuthController.hostStopped();
+        BreadAuthController.hostPaused();
         dialog.forceClose();
         webkit.verify(() -> WebViewCompat.removeWebMessageListener(any(WebView.class), eq("breadAuth")));
         assertEquals(BreadAuthState.Phase.IDLE, BreadAuthController.state.phase());
@@ -467,7 +468,7 @@ public class BreadAuthControllerTest {
         open().forceClose();
         assertEquals(BreadAuthState.Phase.LAUNCHING, BreadAuthController.state.phase());
         verifyNoInteractions(sheet);
-        BreadAuthController.hostStopped();
+        BreadAuthController.hostPaused();
         BreadAuthCallbacks.consume(new Intent(Intent.ACTION_VIEW, Uri.parse(CALLBACK)));
         assertReply(sheet, "a", "url", CALLBACK);
     }
