@@ -31,16 +31,20 @@ test.describe('AppKit external-wallet picker', () => {
       extensionContext,
       extensionId
     }, testInfo) => {
-      let configRequests = 0;
+      const dashboardConfig = {
+        features: [{ id: 'social_login', isEnabled: true, config: ['email', 'google', 'github'] }]
+      };
       await extensionContext.route(url => url.pathname === '/appkit/v1/config', async route => {
-        configRequests += 1;
-        await route.fulfill({
-          json: { features: [{ id: 'social_login', isEnabled: true, config: ['email', 'google', 'github'] }] }
-        });
+        await route.fulfill({ json: dashboardConfig });
       });
       const page = await extensionContext.newPage();
       await page.addInitScript(value => localStorage.setItem('theme_setting', value), theme);
+      const configResponsePromise = page.waitForResponse(
+        response => new URL(response.url()).pathname === '/appkit/v1/config'
+      );
       await page.goto(`chrome-extension://${extensionId}/fullpage.html`, { waitUntil: 'domcontentloaded' });
+      const configResponse = await configResponsePromise;
+      expect(await configResponse.json()).toEqual(dashboardConfig);
       await expect(page.getByTestId('onboarding-welcome')).toBeVisible({ timeout: 30_000 });
       await page.evaluate(async () => {
         await customElements.whenDefined('appkit-connect-button');
@@ -51,7 +55,6 @@ test.describe('AppKit external-wallet picker', () => {
       await page.locator('appkit-connect-button').getByRole('button').click();
       const modal = page.locator('w3m-modal');
       await expect(modal.locator('w3m-connect-view')).toBeVisible();
-      await expect.poll(() => configRequests).toBeGreaterThan(0);
       const walletConnect = modal.getByTestId('wallet-selector-walletconnect');
       await expect(walletConnect).toBeVisible();
       await expect(walletConnect.getByRole('button')).toBeEnabled();

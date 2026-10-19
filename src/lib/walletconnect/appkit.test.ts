@@ -31,6 +31,10 @@ describe('external-wallet picker', () => {
     expect(options?.features?.socials).toBe(false);
   });
 
+  it('offers only external-wallet methods even when the dashboard enables authentication', () => {
+    expect(options?.features?.connectMethodsOrder).toEqual(['wallet']);
+  });
+
   it.each(['enableWallets', 'enableWalletConnect', 'enableInjected', 'enableEIP6963', 'enableCoinbase'] as const)(
     'keeps external-wallet connections available through %s',
     flag => {
