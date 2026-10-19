@@ -1,7 +1,5 @@
 import React, { useLayoutEffect } from 'react';
 
-import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
-
 import { PrivateDataPermission, AllowedPrivateData } from '@miden-sdk/miden-wallet-adapter-base';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
@@ -17,6 +15,7 @@ import { probeHardwareProtector } from 'lib/miden/back/protector-probe';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { DELEGATE_PROOF_STORAGE_KEY } from 'lib/settings/constants';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 import { truncateAddress } from 'utils/string';
 
 import { DappConfirmationModal } from './DappConfirmationModal';
