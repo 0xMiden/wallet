@@ -1,7 +1,7 @@
 import { registerPlugin } from '@capacitor/core';
 
 import { isAndroid, isIOS } from 'lib/platform';
-import { bridgeReceiveIdentity, bridgeReceiveLibraryError } from 'lib/telemetry/bridge-receive-failure';
+import { bridgeReceiveIdentity, bridgeReceiveLibraryError, walletRaised } from 'lib/telemetry/bridge-receive-failure';
 
 import { type NativeFeeFields, readNativeFeeFields } from './fees';
 import {
@@ -318,6 +318,31 @@ describe('Android native request failures', () => {
     expect(bridgeReceiveLibraryError(wrapped)).toBe('user_rejected');
     expect(bridgeReceiveIdentity({ route: 'usdcx', step: 'wallet_deposit', cause: wrapped })).toBe(
       bridgeReceiveIdentity({ route: 'usdcx', step: 'wallet_deposit', cause: original })
+    );
+    expect(readReownNativeFailure(wrapped)).toEqual(expectedSnapshot);
+  });
+
+  it.each(['request', 'sendTransaction'])('preserves the original sixteen-visit budget for %s', async method => {
+    let cause: unknown = { code: 4001 };
+    for (let index = 0; index < 6; index++) cause = new Error('opaque cause', { cause });
+    for (let index = 0; index < 8; index++) cause = walletRaised(new Error('wallet wording', { cause }));
+    const original = Object.freeze(Object.assign(new Error('wallet wording', { cause }), { code: nativeFailureCode }));
+    expect(bridgeReceiveLibraryError(original)).toBe('user_rejected');
+    const rawMethod = method === 'request' ? rawNativeRequest : rawNativeSend;
+    rawMethod.mockRejectedValueOnce(original);
+
+    const pending =
+      method === 'request'
+        ? NativeReown.request({ chainId: 1, method: 'personal_sign', params: [] })
+        : NativeReown.sendTransaction({ chainId: 1, to: '0xto' });
+    const { error: wrapped } = await rejectionOf(pending);
+    if (!(wrapped instanceof Error)) throw new Error('Expected an Error wrapper');
+
+    expect(wrapped).not.toBe(original);
+    expect(wrapped.cause).toBe(original);
+    expect(bridgeReceiveLibraryError(wrapped)).toBe('user_rejected');
+    expect(bridgeReceiveIdentity({ route: 'usdcx', step: 'wallet_approve', cause: wrapped })).toBe(
+      bridgeReceiveIdentity({ route: 'usdcx', step: 'wallet_approve', cause: original })
     );
     expect(readReownNativeFailure(wrapped)).toEqual(expectedSnapshot);
   });
