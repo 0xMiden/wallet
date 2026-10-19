@@ -876,7 +876,7 @@ export async function requestLoginSign(
   // requestLoginKey maps its failures, so a popup that fails to open reads the same from both.
   return new Promise((resolve, reject) => {
     generatePromisifyLoginSign(resolve, reject, origin, dApp, req, domain, sessionId).catch(error =>
-      reject(loginKeyFailure(error))
+      reject(dappRequestFailure(error))
     );
   });
 }
@@ -916,18 +916,18 @@ const generatePromisifyLoginSign = async (
       }
       resolve(await sign());
     } catch (e) {
-      reject(loginKeyFailure(e));
+      reject(dappRequestFailure(e));
     }
     return;
   }
 
   // A locked wallet's popup builds its payload once unlocked, so the root key is checked before the approval shows
   // either way: before the popup while unlocked, and after the popup's unlock while locked.
-  const prepared = await prepareOrReject(checkRootKey, error => reject(loginKeyFailure(error)));
+  const prepared = await prepareOrReject(checkRootKey, error => reject(dappRequestFailure(error)));
   if (prepared === undefined) return;
   const sheet = sheetFor(prepared, origin, req.sourceAccountId, dApp.accountId, checkRootKey);
   const id = nanoid();
-  await requestConfirmFor(origin, sheet, error => reject(loginKeyFailure(error)), {
+  await requestConfirmFor(origin, sheet, error => reject(dappRequestFailure(error)), {
     id,
     payload: async () => {
       await sheet.data();
@@ -941,7 +941,7 @@ const generatePromisifyLoginSign = async (
         try {
           resolve(await sign());
         } catch (e) {
-          reject(loginKeyFailure(e));
+          reject(dappRequestFailure(e));
         }
       } else {
         decline();
@@ -983,11 +983,6 @@ function isLoginWord(payload: unknown): boolean {
 
 const hasDAppErrorCode = (message: string): boolean =>
   Object.values(MidenDAppErrorType).some(code => message === code || message.startsWith(`${code}:`));
-
-// A refusal already in the dApp's terms keeps its message, so its code leads it once: LOGIN_KEY_UNAVAILABLE stays
-// apart from a malformed request, and the vault's own INVALID_PARAMS is not wrapped in another.
-const loginKeyFailure = (error: unknown): unknown =>
-  error instanceof Error && hasDAppErrorCode(error.message) ? error : dappRequestFailure(error);
 
 export async function requestPrivateNotes(
   origin: string,
@@ -1395,7 +1390,7 @@ export async function requestLoginKey(
     const loginKey = await prepareWithoutPrompt(origin, dApp, req.sourceAccountId, prepare);
     return { type: MidenDAppMessageType.LoginKeyResponse, loginKey };
   } catch (error) {
-    throw loginKeyFailure(error);
+    throw dappRequestFailure(error);
   }
 }
 
@@ -1815,8 +1810,7 @@ const dappRequestFailure = (error: unknown): unknown => {
   if (error instanceof ClaimFeeRefusedError) return error;
   // A lock that lands after approval is not a malformed request (#1414).
   if (isWalletLockedError(error)) return lockedRefusal();
-  if (error instanceof Error && error.message === MidenDAppErrorType.NotGranted) return error;
-  if (error instanceof Error && error.message.startsWith(`${MidenDAppErrorType.NotGranted}:`)) return error;
+  if (error instanceof Error && hasDAppErrorCode(error.message)) return error;
   return new Error(`${MidenDAppErrorType.InvalidParams}: ${error}`);
 };
 
@@ -1827,6 +1821,7 @@ const dappReadFailure = (error: unknown): unknown => {
   const kill = pipelineKillIn(error);
   if (kill !== undefined) return kill;
   if (isWalletLockedError(error)) return error;
+  if (error instanceof Error && hasDAppErrorCode(error.message)) return error;
   return new Error(`${MidenDAppErrorType.InvalidParams}: ${error}`);
 };
 
@@ -2290,14 +2285,10 @@ const generatePromisifyTransaction = async (
   const networkRpc = await getNetworkRPC(dApp.network);
   const customTransaction = req.transaction.payload as MidenCustomTransaction;
 
-  // Checked before the gate, so a malformed payload is reported as one while the wallet is locked. The text keeps the
-  // double prefix it had when this check threw inside the preview's catch; the E2E cell R3-customPayload pins it.
+  // Checked before the gate, so a malformed payload is reported as one while the wallet is locked; the E2E cell
+  // R3-customPayload pins the text.
   if (!customTransaction.address || !customTransaction.transactionRequest) {
-    reject(
-      new Error(
-        `${MidenDAppErrorType.InvalidParams}: Error: ${MidenDAppErrorType.InvalidParams}: Invalid CustomTransaction payload`
-      )
-    );
+    reject(new Error(`${MidenDAppErrorType.InvalidParams}: Invalid CustomTransaction payload`));
     return;
   }
 
@@ -2815,7 +2806,10 @@ const generatePromisifyConsumeTransaction = async (
   try {
     carried = await decodeCarriedConsumeNoteLocked(req.transaction);
   } catch (e) {
-    reject(pipelineKillIn(e) ?? new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`));
+    reject(
+      pipelineKillIn(e) ??
+        (e instanceof Error && hasDAppErrorCode(e.message) ? e : new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`))
+    );
     return;
   }
   const prepare = async () => {
