@@ -20,6 +20,26 @@ jest.mock('lib/remote-config/runtime', () => ({
 
 const networks: AppKitNetwork[] = jest.mocked(createAppKit).mock.calls[0]?.[0].networks ?? [];
 
+describe('external-wallet picker', () => {
+  const options = jest.mocked(createAppKit).mock.calls[0]?.[0];
+
+  it('disables embedded email sign-in explicitly', () => {
+    expect(options?.features?.email).toBe(false);
+  });
+
+  it('disables embedded social sign-in explicitly', () => {
+    expect(options?.features?.socials).toBe(false);
+  });
+
+  it.each(['enableWallets', 'enableWalletConnect', 'enableInjected', 'enableEIP6963', 'enableCoinbase'] as const)(
+    'keeps external-wallet connections available through %s',
+    flag => {
+      expect(options).toBeDefined();
+      expect(options?.[flag]).not.toBe(false);
+    }
+  );
+});
+
 function nestedObjects(value: object): object[] {
   return Object.values(value).flatMap(entry =>
     typeof entry === 'object' && entry !== null ? [entry, ...nestedObjects(entry)] : []
