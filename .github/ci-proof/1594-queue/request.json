@@ -1,0 +1,385 @@
+{
+  "schema_version": 1,
+  "source_commit": "a0a6b027cfc6c07c727c330c425ab6dbc2784590",
+  "source_tree": "375d982a705bb1241bbb8d214071d5e04c414188",
+  "target": "src/lib/miden/back/actions.ts",
+  "test": "src/lib/miden/back/actions.test.ts",
+  "source_sha256": "f73af9220afca0c1b3d35c69766c0201a3c32ee89383e06b0cbc8c388aa1087a",
+  "files": [
+    {
+      "path": ".babelrc",
+      "sha256": "a102ca6ae2d8c526b730a6107fafe1f50706671eb3b40af51d01af74a9254a3b",
+      "git_blob": "f03baa9fbd53283d74ebaa80db63fc29a4ceeb52",
+      "mode": "100644"
+    },
+    {
+      "path": ".github/workflows/pr.yml",
+      "sha256": "6a1bb0e16fd89ae58b0372b39f541843d72a0d6877a162a69057aad2a4587e10",
+      "git_blob": "5fa5bfe061c3871922b26ee0c9c426e0351ae66b",
+      "mode": "100644"
+    },
+    {
+      "path": ".gitignore",
+      "sha256": "fcffa5189ff2f4eafe9b59c55fe2b00e64d310fdec0221a0f9962a76dfb61e89",
+      "git_blob": "a118198ae2ed1220e0627f5b6c2a28e2f3bda10b",
+      "mode": "100644"
+    },
+    {
+      "path": "__mocks__/@miden-sdk/miden-wallet-adapter-base.ts",
+      "sha256": "f47896dad58875946e2d5c854ad2ad69dcc8d6db9e24ffdb45982f48e9c6302e",
+      "git_blob": "61d7e9d07108a66e9d076c64b15882d35f32f223",
+      "mode": "100644"
+    },
+    {
+      "path": "__mocks__/@openzeppelin/guardian-client.ts",
+      "sha256": "d374369ee20aae00bd32d9bb5d0a51eef67475930acc52e473501907519e8d5a",
+      "git_blob": "1a0aeb26c73a3f78d7956fdb4880963c760fc5ac",
+      "mode": "100644"
+    },
+    {
+      "path": "__mocks__/@openzeppelin/miden-multisig-client.ts",
+      "sha256": "53cb1bb7e65a5d27b107a27b0080ac9714b7be0801a04007692b4c78ec3979ac",
+      "git_blob": "92c8a3d862dbf2f55bdf5ffa73278bd11db76199",
+      "mode": "100644"
+    },
+    {
+      "path": "__mocks__/app/hooks/useGasToken.ts",
+      "sha256": "a678a30b1e072e591f7881760d0a634bf8dfbc537662ca666e59241fc0c887c3",
+      "git_blob": "1f5966ef7e2efe646ba087456a85cfc7ad62cf04",
+      "mode": "100644"
+    },
+    {
+      "path": "__mocks__/app/hooks/useMidenFaucetId.ts",
+      "sha256": "c60fc69966a0b07ffcf85cf1d7ff97834b48478950f0b26f5b12a6b93768ce8e",
+      "git_blob": "a8b79b7ba634fb10b9d16a504f78e967ca9d8219",
+      "mode": "100644"
+    },
+    {
+      "path": "__mocks__/fileMock.js",
+      "sha256": "e3a48bb2614b52adeca63cfd096bce33eb8c465777057cf9d811749d15640ba5",
+      "git_blob": "86059f36292497436f0fdbd0fb673f6ea9535159",
+      "mode": "100644"
+    },
+    {
+      "path": "__mocks__/lib/amp/amp-interface.ts",
+      "sha256": "0f05d3132e5920bed8dfb0662a8e4a9b3671ecaf8a76350b216cdbe798847385",
+      "git_blob": "81ec449b9e031f35661122dd7abbd6637b254ac9",
+      "mode": "100644"
+    },
+    {
+      "path": "__mocks__/lib/i18n/numbers.ts",
+      "sha256": "19e54ae19bc1917b51dd94086b2d1f824358ec5e46811afe886c90a468bdd3ec",
+      "git_blob": "c10486eb74971f735150e189b786c42885800256",
+      "mode": "100644"
+    },
+    {
+      "path": "__mocks__/lib/miden/back/dapp.ts",
+      "sha256": "13f8321d96455c4af329747699be11f130c91c80b53197ea09336a6b1270f5a2",
+      "git_blob": "5333f2c1017f563c278588cb1c6e44344bdb657b",
+      "mode": "100644"
+    },
+    {
+      "path": "__mocks__/lib/miden/back/vault.ts",
+      "sha256": "ec4612339b136d75aa40e01299385c546f3406a3901ee2d50fd2be2eacbd6eb5",
+      "git_blob": "0b923fb8bc4aad9cc6aa568547221c07a4114fff",
+      "mode": "100644"
+    },
+    {
+      "path": "__mocks__/lib/miden/sdk/miden-client-interface.ts",
+      "sha256": "eb2027f2de1d487c5e78ccd9e6733a0b2da67203bc686b56ae9b4d173125c600",
+      "git_blob": "d49ed7c654ce70cc7cda04f0a0dc588048a137a9",
+      "mode": "100644"
+    },
+    {
+      "path": "__mocks__/lib/miden/sdk/miden-client.ts",
+      "sha256": "fd75b60d9975a2ebba52d245d9ab74087ab735159b44abc89ca5742942c3bd82",
+      "git_blob": "04c195d77011805ca2525fff816f02e6407e584f",
+      "mode": "100644"
+    },
+    {
+      "path": "__mocks__/nanoid.ts",
+      "sha256": "52238e5c35341052fae2ba8f9e3f71fed3caa27d0ae90f72b74c64ca58930e73",
+      "git_blob": "0d4b493fbec56b0e692077b62d43cb3d7b686184",
+      "mode": "100644"
+    },
+    {
+      "path": "__mocks__/reownAppKitNetworks.ts",
+      "sha256": "9319acd4680ba45c55bd2c88dc000453c62db93fe4b56bba6a881318363e0079",
+      "git_blob": "da22285b58072c8d188038bbe2097405f93bf9bc",
+      "mode": "100644"
+    },
+    {
+      "path": "__mocks__/reownAppKitReact.ts",
+      "sha256": "aa0cb01488e3f90ae035e70c47866a92805aa5d101225a622317695480982c7b",
+      "git_blob": "0a0a99da7fcaee8da8bb5aabc18e434abc20e071",
+      "mode": "100644"
+    },
+    {
+      "path": "__mocks__/reownWagmiAdapter.ts",
+      "sha256": "69462dd65f802ddf61185ecd366f1122f36d9df71758efb1beeccd80f0f5847d",
+      "git_blob": "00e23a2c5ba4451fc915d52000e8ca89c1664674",
+      "mode": "100644"
+    },
+    {
+      "path": "__mocks__/styleMock.ts",
+      "sha256": "450f0af4f4c1ecc4c7180f2e364c8a59bfed69dd350fb6b47bce8641c2a37786",
+      "git_blob": "ff8b4c56321a3362fc00224b01800f62466f9a1f",
+      "mode": "100644"
+    },
+    {
+      "path": "__mocks__/svgMock.js",
+      "sha256": "60baa36ccdf8d0dec19e8ad428b78ec8765960b8048c5f536087c4d00025392d",
+      "git_blob": "ff8a7dd9f66a5fe8aae4c3888c9e669ea86bc595",
+      "mode": "100644"
+    },
+    {
+      "path": "__mocks__/svgRawMock.js",
+      "sha256": "7bb180dd4c9dc69ea44b25502a022c00e0651e941f641b79c7b1cb1438f968cb",
+      "git_blob": "7a13dc341c3ac760129ddcd34c88bb1db383ce39",
+      "mode": "100644"
+    },
+    {
+      "path": "__mocks__/svgUrlMock.js",
+      "sha256": "24a5d978a38849472f8735f554338df41922438f6a96d4fccd8df29c5834e9d6",
+      "git_blob": "7f6b33936f6e453f54c89186b4c7add59d64b531",
+      "mode": "100644"
+    },
+    {
+      "path": "__mocks__/utils/string.ts",
+      "sha256": "e52c393052509c19ee195eabb175f5ee3de1a15b4ca7098005725b9d4c63f0fc",
+      "git_blob": "a89212ca135f18cff13d659c6e43f35cd344a609",
+      "mode": "100644"
+    },
+    {
+      "path": "__mocks__/wagmi.ts",
+      "sha256": "14af0b02462e7c5641a7a63e3ac60c998d273258cb03d0646f68a32337688c88",
+      "git_blob": "758f99e04a214085446767edc6e0c3c7487a85c9",
+      "mode": "100644"
+    },
+    {
+      "path": "__mocks__/wagmiCore.ts",
+      "sha256": "3e04cc45ddb4c7da01771e23c7a609132dc450583e13fa2166747b777698ffd4",
+      "git_blob": "96735336e839e19f517b01632bc07a9ba8178928",
+      "mode": "100644"
+    },
+    {
+      "path": "__mocks__/wasmMock.js",
+      "sha256": "57ea69910c305958333b7efc1f98dcf610187cb501c47d3b03f69dd6b29fdc66",
+      "git_blob": "394afab472dbfe3205fe4e67c6463e0894f7d438",
+      "mode": "100644"
+    },
+    {
+      "path": "__mocks__/webextension-polyfill.ts",
+      "sha256": "c8aea13b9a03558f62e33ba9364ec561ca63641a7d201da9854eeae43ef9e9c2",
+      "git_blob": "064f808ac099d0cf33630fa015312159e322a51d",
+      "mode": "100644"
+    },
+    {
+      "path": "jest.config.ts",
+      "sha256": "73a3951b600a8514cbe91fa7e1be098cc3ae0948c470f2649e8686b192e559a6",
+      "git_blob": "f4ca64f9b388d86da39def01c886bbfbba9f65d0",
+      "mode": "100644"
+    },
+    {
+      "path": "jest.setup.js",
+      "sha256": "247ac76bd2045c08af6596611277cab6283dc19a8254e03d06a275892c2018e0",
+      "git_blob": "7f77082c2e8d6fc30afb430325be3ce305c43ef5",
+      "mode": "100644"
+    },
+    {
+      "path": "package.json",
+      "sha256": "9af7cd256a41b9ad42604d8ab62a0859a3218b9b53cd74f8291fcc9075681d1d",
+      "git_blob": "332d885a84ec8e98281342a594c8460cee635697",
+      "mode": "100644"
+    },
+    {
+      "path": "packages/bread-connect/package.json",
+      "sha256": "1506ae7bebf3ca4828d3fec0708bc3c6064a7c63554e94578afe07f581dccb7e",
+      "git_blob": "57535a44481d962123ac46a5379914bda45b9bb5",
+      "mode": "100644"
+    },
+    {
+      "path": "packages/bread-connect/tsconfig.json",
+      "sha256": "9252403dd9a4e657740b2b298a79add1ad98a752380747c5570b48b0419011d9",
+      "git_blob": "f650e26ade0ad6324211fc63b8ecb785b6f2fd93",
+      "mode": "100644"
+    },
+    {
+      "path": "packages/hd-key/tsconfig.json",
+      "sha256": "93f8c2acc4550841f10c3e98572c7751f15fce489bd50a368d4fbe809a1a42a2",
+      "git_blob": "855e2a1921abf00822c838b472afd2aebae1c863",
+      "mode": "100644"
+    },
+    {
+      "path": "patches/@capacitor+keyboard+8.0.5.patch",
+      "sha256": "c06289c287b5259ae99082b13c4e182718175f575adf861c7069962f4b1bb4fa",
+      "git_blob": "f177ef1e99fcf8c62a0f729fcbd2bbed49fe6f5a",
+      "mode": "100644"
+    },
+    {
+      "path": "patches/@epoch-protocol+epoch-intents-sdk+1.0.39.patch",
+      "sha256": "096341e87644f0e5ab2820ae16bb1fcefb5ecf5691eaa388ad09d87018ba883f",
+      "git_blob": "ae3b4e7083e9ff3f7ab402bd57e38dd474066fbf",
+      "mode": "100644"
+    },
+    {
+      "path": "patches/@openzeppelin+guardian-client+0.18.1.patch",
+      "sha256": "79fd3d37da4119f743257d55cb764824852beed9ee95066cb7716ad98a27d8d1",
+      "git_blob": "7e43b5e050958ebc97e57e8e3d4da1edac6335b3",
+      "mode": "100644"
+    },
+    {
+      "path": "patches/README.md",
+      "sha256": "896319ec18f12522faffaf32ea861fdd53f6b2ce87013e8ad2f9b3ec1f8f4635",
+      "git_blob": "e3e446d7ede124247ae515c11895e35093717fe7",
+      "mode": "100644"
+    },
+    {
+      "path": "patches/eslint-plugin-import+2.32.0.patch",
+      "sha256": "1066d3e6ab4b436235e05e4192c9abdbdce82cc78f1f98081b1b6a5733d3fb9d",
+      "git_blob": "572501be2b9fdf54bb9fefacb73cdb5daee8a9c5",
+      "mode": "100644"
+    },
+    {
+      "path": "patches/eslint-plugin-react+7.27.1.patch",
+      "sha256": "9a97779f7d55a0674d6e957c29c532d1e6fccc69d8f042362fa74c88624e03a6",
+      "git_blob": "81c8208338acb7e8ffa61f3826fc06c5f6f200e6",
+      "mode": "100644"
+    },
+    {
+      "path": "patches/inspect-cli-cdp-fix.patch",
+      "sha256": "b910815033779c74eb71533b41b5062454907385a43f82a3c320982b59347615",
+      "git_blob": "e792768ff73e40a833c732eac78111731794b24d",
+      "mode": "100644"
+    },
+    {
+      "path": "patches/vaul+1.1.2.patch",
+      "sha256": "4be330298b3f7c17f7b63fcedd94688c11d5a34f7d52cb7cd04348d3379f99bf",
+      "git_blob": "4cf3097c71cccbb6e22ae8603a3ccc937a923e8d",
+      "mode": "100644"
+    },
+    {
+      "path": "src/app/env.ts",
+      "sha256": "e99cf1bcb64ed2ef1d9400a60380d653bae2ae7a2630b987ef3d0880784395eb",
+      "git_blob": "684e9a6044d41a3b78c1cd91af0ee9bda74b1b7b",
+      "mode": "100644"
+    },
+    {
+      "path": "src/lib/adapter/types.ts",
+      "sha256": "8147aad292d72dbf9af067a8033e8a03c407551dc7d8ef9217a2d3ae424b1bcc",
+      "git_blob": "eb2971f858f4da0c8fbfa07897b4cf83cdfccba6",
+      "mode": "100644"
+    },
+    {
+      "path": "src/lib/miden/back/accounts-write-queue.ts",
+      "sha256": "2a6c259722ec95d81a6b3a0916e72f36257515f3fd545fccb9b971c7f44072b3",
+      "git_blob": "ce5254743473664e2cdf32e8e6001ab2c84f2cea",
+      "mode": "100644"
+    },
+    {
+      "path": "src/lib/miden/back/actions.test.ts",
+      "sha256": "76581c7a12ee65bf36f88b995de9f4f3b48968b0e55aca50ada7f89bd6595424",
+      "git_blob": "a706ae8bd19cc47ce535caf98680d614595f3fbb",
+      "mode": "100644"
+    },
+    {
+      "path": "src/lib/miden/back/actions.ts",
+      "sha256": "f73af9220afca0c1b3d35c69766c0201a3c32ee89383e06b0cbc8c388aa1087a",
+      "git_blob": "ff59b7f89dd1a7b9e3d809e633e755e3e2e4f3f9",
+      "mode": "100644"
+    },
+    {
+      "path": "src/lib/miden/back/dapp.ts",
+      "sha256": "ee0b8e9ea61a38f6994da1ad5ea7c43a7838f720f512044639e17329783a8a2b",
+      "git_blob": "d48bc415392d47ac99413acc923e6e45a955f880",
+      "mode": "100644"
+    },
+    {
+      "path": "src/lib/miden/back/defaults.ts",
+      "sha256": "279fe82eb014ea292b9a68bd725b35ba248d4980c819949ed38b0ab6fb12b722",
+      "git_blob": "a266b1d80a2b2cb7c6a28f02b39754720c77e4e8",
+      "mode": "100644"
+    },
+    {
+      "path": "tsconfig-utility.json",
+      "sha256": "a3363a62439b5c1f79849e763697184a3d568cfab0d41c88bc542bb5e2fb400a",
+      "git_blob": "9ee2179f41a096f39c86147f1692bcfaac863147",
+      "mode": "100644"
+    },
+    {
+      "path": "tsconfig.json",
+      "sha256": "fa684612fc11e0419496cc3c08f0a35983f1c0b3cacc191a0a6a4a1e3b218efe",
+      "git_blob": "0d431024b44e5a2c81cacb32eda3420cda552380",
+      "mode": "100644"
+    },
+    {
+      "path": "yarn.lock",
+      "sha256": "8606e15d58682739313e004734d42f34a2ad715148e00f28c2de63596349941d",
+      "git_blob": "7ef858c017ee1a46cf824603651785e0626fd2bb",
+      "mode": "100644"
+    }
+  ],
+  "target_cases": [
+    "actions processDApp checks the queue-start deadline for LOGIN_KEY_REQUEST after waiting behind another request",
+    "actions processDApp checks the queue-start deadline for LOGIN_SIGN_REQUEST after waiting behind another request"
+  ],
+  "target_pattern": "^actions processDApp checks the queue-start deadline for LOGIN_(?:KEY|SIGN)_REQUEST after waiting behind another request$",
+  "full_inventory": "Observe all full-file runtime assertion identities in fixed control, save/hash that inventory before mutations and require exact inventory/status success in restored full-file control. No static full test count is asserted.",
+  "positive_prediction": "Full named actions.test.ts executes without failures, skips/pending/todo or runtime errors; restored control matches the entire observed inventory. Tests remain unchanged and no coverage runs.",
+  "mutations": [
+    {
+      "id": "restore-login-key-raw-arm",
+      "old": "return queued(() => requestLoginKey(origin, req));",
+      "new": "return withInited(() => getDappQueue().add(() => requestLoginKey(origin, req)));",
+      "failed_case": "actions processDApp checks the queue-start deadline for LOGIN_KEY_REQUEST after waiting behind another request",
+      "assertion_line": 2241,
+      "matcher_text": "expect(received).toEqual(expected)",
+      "failure_patterns": [
+        "^-\\s+\"reason\": Any<DAppQueueDeadlineError>,?\\s*$",
+        "^-\\s+\"status\": \"rejected\",?\\s*$",
+        "^\\+\\s+\"status\": \"fulfilled\",?\\s*$",
+        "^\\+\\s+\"type\": \"LOGIN_KEY_RESPONSE\",?\\s*$",
+        "^\\+\\s+\"loginKey\": \"AQID\",?\\s*$"
+      ],
+      "prediction": "Only the key case fails its late-result toEqual assertion: fulfilled LOGIN_KEY_RESPONSE/loginKey AQID instead of rejected DAppQueueDeadlineError. The signing case passes; on-time and held controls precede this failure. No claim that later handler-count assertions ran.",
+      "source_sha256": "157eb4d091b64a2d760e3825263317ac7509db4c422f9d2bd31330b5f3dfde13"
+    },
+    {
+      "id": "restore-login-sign-raw-arm",
+      "old": "return queued(() => requestLoginSign(origin, req, sessionId));",
+      "new": "return withInited(() => getDappQueue().add(() => requestLoginSign(origin, req, sessionId)));",
+      "failed_case": "actions processDApp checks the queue-start deadline for LOGIN_SIGN_REQUEST after waiting behind another request",
+      "assertion_line": 2241,
+      "matcher_text": "expect(received).toEqual(expected)",
+      "failure_patterns": [
+        "^-\\s+\"reason\": Any<DAppQueueDeadlineError>,?\\s*$",
+        "^-\\s+\"status\": \"rejected\",?\\s*$",
+        "^\\+\\s+\"status\": \"fulfilled\",?\\s*$",
+        "^\\+\\s+\"type\": \"LOGIN_SIGN_RESPONSE\",?\\s*$",
+        "^\\+\\s+\"signature\": \"BAUG\",?\\s*$"
+      ],
+      "prediction": "Only the signing case fails its late-result toEqual assertion: fulfilled LOGIN_SIGN_RESPONSE/signature BAUG instead of rejected DAppQueueDeadlineError. The key case passes; signing sessionId is preserved. No claim that later handler-count assertions ran.",
+      "source_sha256": "f15892a8e8757fe5f821fa8c525835996a1febd1855315217343e348e4e463fc"
+    },
+    {
+      "id": "omit-login-sign-session",
+      "old": "return queued(() => requestLoginSign(origin, req, sessionId));",
+      "new": "return queued(() => requestLoginSign(origin, req));",
+      "failed_case": "actions processDApp checks the queue-start deadline for LOGIN_SIGN_REQUEST after waiting behind another request",
+      "assertion_line": 2244,
+      "matcher_text": ".toHaveBeenCalledWith(...expected)",
+      "failure_patterns": [
+        "Number of calls:\\s*1\\b"
+      ],
+      "prediction": "Only the signing case fails the unconditional toHaveBeenCalledWith expectation: expected session-7 is absent from Received arguments while origin/request match, and Number of calls is1. The key case passes; signing deadline, held/on-time results and call count pass before this assertion.",
+      "source_sha256": "79b18c1bd6147a4949a57e8ec043de63cf2b552be431d309604502c893d9dfbd"
+    }
+  ],
+  "limits": [
+    "Whole tracked source is pinned by source commit/tree and checked with full tracked diffs at every checkpoint, with additional explicit source/test/config/mock/patch/lockfile hashes",
+    "Mutants execute only the two exact target cases; non-target pending or absent entries are recorded as intentionally excluded/not covered",
+    "Jest assertion class/name, matcher, expected-versus-received cause and exact source assertion line must match",
+    "Setup/compiler/type/timeout/wrong failure/target skip gives no proof credit",
+    "Proof does not mark F2 fixed or replace current-head CI/final Council"
+  ]
+}
