@@ -113,7 +113,7 @@ describe('dApp login signature note', () => {
     ja: /取引|トランザクション/,
     ko: /거래|트랜잭션/,
     pl: /transakc/i,
-    pt: /transac/i,
+    pt: /transa[cç]/i,
     ru: /транзакц/i,
     tr: /işlem/i,
     uk: /транзакц/i,
@@ -135,6 +135,29 @@ describe('dApp login signature note', () => {
     }
     return notes;
   };
+
+  // Each pattern must catch its locale's own wording for signing transactions, and not a sign-in note.
+  const SIGNS_TRANSACTIONS: Record<string, string> = {
+    de: 'Bread signiert Transaktionen',
+    en: 'Bread signs transactions',
+    en_GB: 'Bread signs transactions',
+    es: 'Bread firma transacciones',
+    fr: 'Bread signe des transactions',
+    ja: 'Breadは取引に署名します',
+    ko: 'Bread는 거래에 서명합니다',
+    pl: 'Bread podpisuje transakcje',
+    pt: 'Bread assina transações',
+    ru: 'Bread подписывает транзакции',
+    tr: 'Bread işlemleri imzalar',
+    uk: 'Bread підписує транзакції',
+    zh_CN: 'Bread 签署交易',
+    zh_TW: 'Bread 簽署交易'
+  };
+
+  it.each(Object.keys(TRANSACTION_WORD))('matches the %s wording for signing transactions', locale => {
+    expect(SIGNS_TRANSACTIONS[locale]).toMatch(TRANSACTION_WORD[locale]!);
+    expect(note).not.toMatch(TRANSACTION_WORD[locale]!);
+  });
 
   it('names the sign-in message as what Bread signs', () => {
     expect(note).toBeDefined();
