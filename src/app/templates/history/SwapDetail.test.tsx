@@ -685,6 +685,7 @@ const LiveSwapCancel = () => {
       offerCancelOrder
       isCancellingOrder={actions.isCancellingOrder}
       cancelOrderError={actions.cancelOrderError}
+      cancelOrderErrorId={actions.cancelOrderErrorId}
       onCancelOrder={actions.onCancelOrder}
     />
   );
