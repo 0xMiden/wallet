@@ -102,14 +102,52 @@ describe('dApp login signature note', () => {
     "Bread signs with a key made only for $domain$. It can't move funds or change your account.";
   const note = enJson[LOGIN_KEY];
 
-  it('names the sign-in message as what Bread signs, never a transaction', () => {
+  // Each locale's word for a transaction: the defect lived in the translations (ru and uk said the key signs
+  // transactions), so the guard reads what every locale ships, not only the English source.
+  const TRANSACTION_WORD: Record<string, RegExp> = {
+    de: /Transaktion/i,
+    en: /transaction/i,
+    en_GB: /transaction/i,
+    es: /transac/i,
+    fr: /transac/i,
+    ja: /取引|トランザクション/,
+    ko: /거래|트랜잭션/,
+    pl: /transakc/i,
+    pt: /transac/i,
+    ru: /транзакц/i,
+    tr: /işlem/i,
+    uk: /транзакц/i,
+    zh_CN: /交易/,
+    zh_TW: /交易/
+  };
+  const readJson = (file: string): Record<string, unknown> =>
+    JSON.parse(fs.readFileSync(path.join(LOCALES_DIR, file), 'utf8'));
+  const shippedNotes = (locale: string): string[] => {
+    const notes: string[] = [];
+    const entry = readJson(`${locale}/messages.json`)[LOGIN_KEY];
+    if (typeof entry === 'object' && entry !== null && 'message' in entry && typeof entry.message === 'string') {
+      notes.push(entry.message);
+    }
+    const flatFile = `${locale}/${locale}.json`;
+    if (fs.existsSync(path.join(LOCALES_DIR, flatFile))) {
+      const flat = readJson(flatFile)[LOGIN_KEY];
+      if (typeof flat === 'string') notes.push(flat);
+    }
+    return notes;
+  };
+
+  it('names the sign-in message as what Bread signs', () => {
     expect(note).toBeDefined();
     expect(note).toContain('sign-in message');
-    expect(note).not.toMatch(/transaction/i);
   });
 
-  it('keeps the site placeholder', () => {
-    expect(note).toContain('$domain$');
+  it.each(Object.keys(TRANSACTION_WORD))('never says the %s note signs transactions, and keeps the site', locale => {
+    const notes = shippedNotes(locale);
+    expect(notes.length).toBeGreaterThan(0);
+    for (const shipped of notes) {
+      expect(shipped).toContain('$domain$');
+      expect(shipped).not.toMatch(TRANSACTION_WORD[locale]!);
+    }
   });
 
   it('keeps en/en.json and en/messages.json in sync so the translation bot re-translates', () => {
@@ -119,12 +157,10 @@ describe('dApp login signature note', () => {
     expect(entry!.englishSource).toBe(note);
   });
 
-  it('leaves no English bundle with the retired note', () => {
-    for (const locale of ['en', 'en_GB']) {
-      const flat: Record<string, string> = JSON.parse(
-        fs.readFileSync(path.join(LOCALES_DIR, locale, `${locale}.json`), 'utf8')
-      );
-      expect(flat[LOGIN_KEY]).not.toBe(RETIRED_LOGIN_NOTE);
-    }
+  it('ships no en_GB note with the retired wording', () => {
+    // en_GB ships through its messages.json; the flat bundle drops a stale key, so it alone would pass on a miss.
+    const notes = shippedNotes('en_GB');
+    expect(notes.length).toBeGreaterThan(0);
+    for (const shipped of notes) expect(shipped).not.toBe(RETIRED_LOGIN_NOTE);
   });
 });
