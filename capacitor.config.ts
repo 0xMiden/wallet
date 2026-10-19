@@ -17,6 +17,7 @@ const config: CapacitorConfig = {
     // need cross-origin isolation in the WebView.
     androidScheme: 'http',
     cleartext: true,
+    // Android only: AppViewController drops it on iOS.
     errorPath: 'webview-error.html',
     ...(isLiveReload ? { appStartPath: '/mobile.html' } : {})
   },
