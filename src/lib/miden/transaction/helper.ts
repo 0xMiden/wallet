@@ -257,6 +257,7 @@ export const updateTransactionStatus = async <K extends keyof ITransaction>(
       diagnostics: failed.failureDiagnostics,
       entryPoint: failed.consumeEntryPoint,
       lastDeferral: failed.lastDeferral,
+      feeAdmission: failed.feeAdmission,
       error: failureTextOf(otherValues) ?? failed.rawError ?? failed.error
     });
   }

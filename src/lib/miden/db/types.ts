@@ -4,6 +4,7 @@ import { v4 as uuid } from 'uuid';
 import type { ClaimFeeNote } from 'lib/miden/fees/spendable';
 import type { AgglayerRecoveryConfig } from 'lib/remote-config/schema';
 import type {
+  ClaimFeeAdmission,
   ConsumeDeferralCause,
   ConsumeEntryPoint,
   TransactionFailureDiagnostics
@@ -705,6 +706,8 @@ export interface ITransaction {
   consumeEntryPoint?: ConsumeEntryPoint;
   /** Most recent automatic requeue cause. Survives pickups; explicit Retry clears it. Not indexed. */
   lastDeferral?: ConsumeDeferralCause;
+  /** Consume fee gate's last admission reason. Survives pickups; explicit Retry replaces it. Not indexed. */
+  feeAdmission?: ClaimFeeAdmission;
   /**
    * Execute (dApp custom) only: per-faucet value LEAVING the account, taken from the approval-time
    * dry run that the confirmation sheet already renders.
@@ -1172,6 +1175,8 @@ export class ConsumeTransaction implements ITransaction {
   consumeEntryPoint?: ConsumeEntryPoint;
   /** See `ITransaction.lastDeferral`. */
   lastDeferral?: ConsumeDeferralCause;
+  /** See `ITransaction.feeAdmission`. */
+  feeAdmission?: ClaimFeeAdmission;
   /** See `ITransaction.dappOrigins`. */
   dappOrigins?: string[];
   transactionId?: string;

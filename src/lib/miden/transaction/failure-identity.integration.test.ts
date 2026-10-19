@@ -466,7 +466,7 @@ describe('a pre-flight sync killed by the offscreen deadline', () => {
   });
 });
 
-describe('the committed last deferral', () => {
+describe('the committed claim queue identity', () => {
   it.each<{ label: string; fail: (row: ITransaction) => Promise<unknown> }>([
     { label: 'cancel', fail: row => cancelTransaction(row, new Error('opaque detail')) },
     { label: 'unconfirmed', fail: row => markTransactionUnconfirmed(row, new Error('opaque detail')) },
@@ -474,7 +474,7 @@ describe('the committed last deferral', () => {
       label: 'status update',
       fail: row => updateTransactionStatus(row.id, ITransactionStatus.Failed, { error: 'opaque detail' })
     }
-  ])('reports the stored cause through $label from a pickup that predates it', async ({ fail }) => {
+  ])('reports the stored deferral and admission through $label from a pickup that predates them', async ({ fail }) => {
     const pickedUp: ITransaction = {
       id: 'tx-1',
       type: 'consume',
@@ -484,13 +484,18 @@ describe('the committed last deferral', () => {
       stage: 'submitting',
       displayIcon: 'RECEIVE'
     };
-    await Repo.transactions.put({ ...pickedUp, lastDeferral: 'guardian_rate_limited' });
+    await Repo.transactions.put({
+      ...pickedUp,
+      lastDeferral: 'guardian_rate_limited',
+      feeAdmission: 'balance_unknown'
+    });
 
     await fail(pickedUp);
 
     const [report, ...rest] = captured();
     expect(rest).toEqual([]);
     expect(report?.message).toContain('; last deferral guardian_rate_limited;');
+    expect(report?.message).toContain('; claim fee admission balance_unknown;');
     expectNoTransactionData(report?.message ?? '');
   });
 });
