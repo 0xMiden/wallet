@@ -10,6 +10,7 @@
 
 - [FIX][android] An Android WebView older than 98 (Android System WebView, or Chrome on Android 9), which cannot run the wallet, now opens a page that sends the user to update it from Google Play, instead of an error screen Bread can never leave (#1597, #1598).
 - [FIX][android] The sign-in sheet's callback check keeps a literal `+` in the `origin` value, as iOS does, instead of reading it as a space (#1576).
+- [FIX][extension] A wallet page left open across an extension reload or update reloads itself as soon as the extension's runtime is gone, so it comes back as a page of the updated extension, instead of crashing when it opens Explore and reporting `Extension context invalidated` every 10 seconds; until it reloads it keeps behaving as the extension, its polls stop, and a reset started on it reloads the page in place (#1592, #1593).
 - [FIX][android] The sign-in sheet answers `AUTH_UNAVAILABLE` while Bread is paused, as on iOS, instead of opening while another app's dialog covers Bread (#1577).
 
 ## 1.17.5 (2026-10-19)

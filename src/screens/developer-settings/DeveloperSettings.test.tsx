@@ -27,8 +27,13 @@ jest.mock('lib/mobile/haptics', () => ({
 // `isExtension` gates which reload path handleReset takes; a mutable flag lets
 // tests drive both branches.
 const mockIsExtension = { value: false };
+const mockReloadInPlace = jest.fn();
+// False on an extension page an extension reload or update orphaned.
+const mockHasExtensionRuntime = { value: true };
 jest.mock('lib/platform', () => ({
   isExtension: () => mockIsExtension.value,
+  hasExtensionRuntime: () => mockIsExtension.value && mockHasExtensionRuntime.value,
+  reloadInPlace: () => mockReloadInPlace(),
   // The pinned footer's slide (useSlideOnReflow) reads this to decide whether to animate at all.
   isMobile: () => false
 }));
@@ -247,8 +252,10 @@ beforeEach(() => {
     service.mockReset().mockResolvedValue(undefined);
   }
   runtimeReload.mockReset();
+  mockReloadInPlace.mockReset();
   mockHealthStatus.value = 'idle';
   mockIsExtension.value = false;
+  mockHasExtensionRuntime.value = true;
   mockWalletState.status = WalletStatus.Idle;
   mockTestNetworkKey = 'testnet';
   mockClearBalances.mockReset();
@@ -811,6 +818,7 @@ describe('DeveloperSettings', () => {
     // A clean (non-throwing) completion that never took the extension branch, and
     // never fell back to an in-app navigate, is the observable proxy for that call.
     expect(runtimeReload).not.toHaveBeenCalled();
+    expect(mockReloadInPlace).toHaveBeenCalledTimes(1);
     expect(mockNavigate).not.toHaveBeenCalled();
   });
 
@@ -820,10 +828,24 @@ describe('DeveloperSettings', () => {
     fireEvent.click(screen.getByTestId('dev-endpoints-reset'));
 
     await waitFor(() => expect(runtimeReload).toHaveBeenCalledTimes(1));
+    expect(mockReloadInPlace).not.toHaveBeenCalled();
     expect(resetStorageDestructive).toHaveBeenCalledTimes(1);
     expect(resetStorageDestructive).toHaveBeenCalledWith({ keepEndpointOverride: false });
     expect(clearEndpointOverride).not.toHaveBeenCalled();
     expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it('reloads in place on an extension page that has lost its runtime, which cannot reload the extension', async () => {
+    mockIsExtension.value = true;
+    mockHasExtensionRuntime.value = false;
+    render(<DeveloperSettings readOnly />);
+    fireEvent.click(screen.getByTestId('dev-endpoints-reset'));
+
+    await waitFor(() => expect(resetStorageDestructive).toHaveBeenCalledTimes(1));
+    await act(async () => {});
+    expect(runtimeReload).not.toHaveBeenCalled();
+    expect(mockReloadInPlace).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId('dev-endpoints-error')).not.toBeInTheDocument();
   });
 
   // The key-value clear comes first, so a partial wipe leaves no vault. The delete closes every storage handle;

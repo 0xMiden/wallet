@@ -64,6 +64,15 @@ jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
 }));
 
+// False on an options page an extension reload or update orphaned.
+const mockHasExtensionRuntime = { value: true };
+const mockReloadInPlace = jest.fn();
+jest.mock('lib/platform', () => ({
+  ...jest.requireActual('lib/platform'),
+  hasExtensionRuntime: () => mockHasExtensionRuntime.value,
+  reloadInPlace: () => mockReloadInPlace()
+}));
+
 const reloadMock = browser.runtime.reload as jest.Mock;
 
 /**
@@ -85,6 +94,8 @@ beforeEach(() => {
   mockAlert.mockReset();
   mockResetStorage.mockReset();
   reloadMock.mockReset();
+  mockReloadInPlace.mockReset();
+  mockHasExtensionRuntime.value = true;
 });
 
 // Here rather than at the end of a test, so a failing assertion cannot leave a spy in place.
@@ -130,6 +141,7 @@ describe('src/options.tsx', () => {
 
     await waitFor(() => expect(mockResetStorage).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(reloadMock).toHaveBeenCalledTimes(1));
+    expect(mockReloadInPlace).not.toHaveBeenCalled();
     expect(mockAlert).not.toHaveBeenCalled();
   });
 
@@ -163,6 +175,29 @@ describe('src/options.tsx', () => {
     await waitFor(() => expect(reloadMock).toHaveBeenCalledTimes(1));
     expect(mockAlert.mock.invocationCallOrder[0]!).toBeLessThan(reloadMock.mock.invocationCallOrder[0]!);
     expect(warn).toHaveBeenCalledWith(expect.any(String), wipeError);
+  });
+
+  it('reloads the page in place when an extension reload or update has taken its runtime away', async () => {
+    mockHasExtensionRuntime.value = false;
+    mockConfirm.mockResolvedValue(true);
+    mockResetStorage.mockImplementation(async () => {
+      window.dispatchEvent(new Event('pagehide'));
+    });
+    const addListener = jest.spyOn(window, 'addEventListener');
+
+    await act(async () => {
+      fireEvent.click(getResetButton());
+    });
+    await waitFor(() => expect(mockResetStorage).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
+
+    expect(reloadMock).not.toHaveBeenCalled();
+    expect(mockReloadInPlace).toHaveBeenCalledTimes(1);
+    expect(mockAlert).not.toHaveBeenCalled();
+    // No runtime to reload, so no pagehide reload is armed either.
+    expect(addListener.mock.calls.map(([type]) => type)).not.toContain('pagehide');
   });
 
   // Closing the Options tab runs nothing after the await it is in, the wipe's or the alert's, and the service
