@@ -115,7 +115,8 @@ describe('dApp login signature note', () => {
     pl: /transakc/i,
     pt: /transa[cç]/i,
     ru: /транзакц/i,
-    tr: /işlem/i,
+    // "İşlem" is also Turkish for a process, as in "oturum açma işlemi" (the sign-in process).
+    tr: /(?<!(?:açma|giriş) )işlem/i,
     uk: /транзакц/i,
     zh_CN: /交易/,
     zh_TW: /交易/
@@ -136,7 +137,7 @@ describe('dApp login signature note', () => {
     return notes;
   };
 
-  // Each pattern must catch its locale's own wording for signing transactions, and not a sign-in note.
+  // Each pattern must catch its locale's own wording for signing transactions, and none of its sign-in wordings.
   const SIGNS_TRANSACTIONS: Record<string, string> = {
     de: 'Bread signiert Transaktionen',
     en: 'Bread signs transactions',
@@ -154,10 +155,34 @@ describe('dApp login signature note', () => {
     zh_TW: 'Bread 簽署交易'
   };
 
-  it.each(Object.keys(TRANSACTION_WORD))('matches the %s wording for signing transactions', locale => {
-    expect(SIGNS_TRANSACTIONS[locale]).toMatch(TRANSACTION_WORD[locale]!);
-    expect(note).not.toMatch(TRANSACTION_WORD[locale]!);
-  });
+  const SIGNS_IN: Record<string, string[]> = {
+    de: ['Bread signiert diese Anmeldenachricht mit einem Schlüssel, der nur für $domain$ erstellt wurde'],
+    en: [note!],
+    en_GB: [note!],
+    es: ['Bread firma este mensaje de inicio de sesión con una clave creada solo para $domain$'],
+    fr: ['Bread signe ce message de connexion avec une clé créée uniquement pour $domain$'],
+    ja: ['Breadはこのサインインメッセージに、$domain$専用に作成された鍵で署名します'],
+    ko: ['Bread는 이 로그인 메시지에 $domain$ 전용 키로 서명합니다'],
+    pl: ['Bread podpisuje tę wiadomość logowania kluczem utworzonym tylko dla $domain$'],
+    pt: ['A Bread assina esta mensagem de início de sessão com uma chave criada só para $domain$'],
+    ru: ['Bread подписывает это сообщение для входа ключом, созданным только для $domain$'],
+    tr: [
+      'Bread, bu oturum açma mesajını yalnızca $domain$ için oluşturulmuş bir anahtarla imzalar',
+      'Bread, oturum açma işlemi için yalnızca $domain$ için oluşturulmuş bir anahtarla imza atar'
+    ],
+    uk: ['Bread підписує це повідомлення для входу ключем, створеним лише для $domain$'],
+    zh_CN: ['Bread 使用专为 $domain$ 生成的密钥签署此登录消息'],
+    zh_TW: ['Bread 使用專為 $domain$ 打造的金鑰簽署此登入訊息']
+  };
+
+  it.each(Object.keys(TRANSACTION_WORD))(
+    'tells the %s wording for signing transactions from its sign-in wording',
+    locale => {
+      expect(SIGNS_TRANSACTIONS[locale]).toMatch(TRANSACTION_WORD[locale]!);
+      expect(SIGNS_IN[locale]!.length).toBeGreaterThan(0);
+      for (const signIn of SIGNS_IN[locale]!) expect(signIn).not.toMatch(TRANSACTION_WORD[locale]!);
+    }
+  );
 
   it('names the sign-in message as what Bread signs', () => {
     expect(note).toBeDefined();
