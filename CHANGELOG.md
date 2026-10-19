@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.17.6 (TBD)
+
+### Fixes
+
+- [FIX][mobile] A cancelled Bread Connect request no longer opens Bread. Swift stops an opener already queued when the caller's own task is cancelled, and Kotlin opens Bread only while that request is still the one waiting, so a cancel from another thread cannot land between the check and the open, including while an opener is already in progress (#1589).
+
 ## 1.17.5 (2026-10-19)
 
 ### Features
@@ -17,7 +23,6 @@
 
 ### Fixes
 
-- [FIX][mobile] A cancelled Bread Connect request no longer opens Bread. Swift stops an opener already queued when the caller's own task is cancelled, and Kotlin opens Bread only while that request is still the one waiting, so a cancel from another thread cannot land between the check and the open, including while an opener is already in progress (#1589).
 - [FIX][all] A dApp custom transaction whose request bytes are malformed is rejected before an approval screen opens, instead of asking the user to approve a transaction the wallet cannot execute (#1418).
 - [FIX][all] dApp previews, signing and consumes report a killed wallet client as a retryable failure; approved sends and custom transactions answer OUTCOME_UNKNOWN with the queued transaction id when available, so the dApp checks before sending again (#1378).
 - [FIX][ci] The PasscodeDots shake test runs a 30-second shake and waits for the row to move, instead of reading it 50 ms into the real 0.42-second shake, which a loaded coverage runner could pause past.
