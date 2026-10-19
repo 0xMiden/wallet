@@ -1530,5 +1530,13 @@
   "bridgeRankValueDescription": "そのほとんどは、プロバイダーの手数料を差し引いた後の金額です。",
   "bridgeRankCostDescription": "ガス代を含む、最低限のブリッジおよびネットワークコスト。",
   "bridgeRankTimeDescription": "最短到着予定時刻。",
-  "bridgeEstimatedCost": "推定費用"
+  "bridgeEstimatedCost": "推定費用",
+  "webViewUpdateTitle": "Android System WebViewの更新",
+  "webViewUpdateBody": "Bread には、アプリ内でウェブページを表示する Android のコンポーネントである Android System WebView の新しいバージョンが必要です。Google Play から更新してから、Bread を再度開いてください。",
+  "webViewUpdateAction": "Google Playを開く",
+  "webViewUpdateChromeTitle": "Chromeを更新",
+  "webViewUpdateChromeBody": "Bread を利用するには、このバージョンの Android ではアプリ内でウェブページを表示する、新しいバージョンの Chrome が必要です。Google Play からアップデートした後、Bread を再度開いてください。",
+  "webViewStartFailedTitle": "Breadは開始できませんでした",
+  "webViewStartFailedBody": "何らかの理由でBreadの読み込みが中断されました。もう一度試すか、Breadを閉じてから再度開いてください。",
+  "webViewStartFailedAction": "もう一度試してください"
 }

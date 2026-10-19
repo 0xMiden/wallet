@@ -6914,5 +6914,37 @@
   "bridgeEstimatedCost": {
     "message": "예상 비용",
     "englishSource": "Est. cost"
+  },
+  "webViewUpdateTitle": {
+    "message": "Android System WebView 업데이트",
+    "englishSource": "Update Android System WebView"
+  },
+  "webViewUpdateBody": {
+    "message": "Bread를 사용하려면 앱 내에서 웹 페이지를 표시하는 안드로이드의 구성 요소인 Android System WebView의 최신 버전이 필요합니다. Google Play에서 업데이트한 후 Bread를 다시 실행하세요.",
+    "englishSource": "Bread needs a newer version of Android System WebView, the part of Android that shows web pages in apps. Update it from Google Play, then open Bread again."
+  },
+  "webViewUpdateAction": {
+    "message": "Google Play 열기",
+    "englishSource": "Open Google Play"
+  },
+  "webViewUpdateChromeTitle": {
+    "message": "Chrome 업데이트",
+    "englishSource": "Update Chrome"
+  },
+  "webViewUpdateChromeBody": {
+    "message": "Bread를 사용하려면 이 버전의 Android에서 웹 페이지를 앱 형태로 표시하는 최신 버전의 Chrome이 필요합니다. Google Play에서 업데이트한 후 Bread를 다시 실행하세요.",
+    "englishSource": "Bread needs a newer version of Chrome, which shows web pages in apps on this version of Android. Update it from Google Play, then open Bread again."
+  },
+  "webViewStartFailedTitle": {
+    "message": "Bread는 시작할 수 없었습니다",
+    "englishSource": "Bread couldn't start"
+  },
+  "webViewStartFailedBody": {
+    "message": "Bread가 로드되는 도중 문제가 발생했습니다. 다시 시도하거나, Bread를 닫았다가 다시 열어보세요.",
+    "englishSource": "Something stopped Bread from loading. Try again, or close Bread and open it again."
+  },
+  "webViewStartFailedAction": {
+    "message": "다시 시도해 보세요",
+    "englishSource": "Try again"
   }
 }
