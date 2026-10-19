@@ -17,6 +17,7 @@ import { enterSendFlow, settleSendFlow } from 'screens/send-flow/send-telemetry'
 
 import { resolveTelemetryContext } from './context';
 import { captureCrash, initCrashReporting, stopCrashReporting } from './crash';
+import { getCrashBuildIdentity } from './crash-build';
 import { annotateCrash } from './crash-diagnostics';
 import { encodingVariantsOf } from './egress-guard';
 import { __resetRelayDiagnosticsForTest, recordRelaySurface } from './relay-diagnostics';
@@ -33,6 +34,7 @@ import {
   TelemetryResult,
   TelemetryStep
 } from './types';
+import { USER_ERROR_SURFACES, _resetUserVisibleErrorLimitsForTest, reportUserVisibleError } from './user-visible-error';
 import packageJson from '../../../package.json';
 
 jest.mock('./crash-artifacts', () => ({
@@ -1541,6 +1543,100 @@ describe('crash-report egress', () => {
 
     const hosts = new Set(captured.map(entry => new URL(entry.url).host));
     expect(hosts).toEqual(new Set(['o0.ingest.de.sentry.io']));
+  });
+});
+
+describe('user-visible error reports', () => {
+  beforeEach(() => {
+    _resetUserVisibleErrorLimitsForTest();
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it('puts only the closed id and surface on the wire', async () => {
+    consentOn();
+    reportUserVisibleError('usdcxFaucetUnavailable', 'review');
+    await flushEgress();
+
+    expect(captured).toHaveLength(1);
+    const event = parsePayload(captured[0]?.body.split('\n')[2] ?? '');
+    expect(objectAt(event, 'exception').values).toEqual([
+      expect.objectContaining({
+        type: 'WalletUserVisibleError',
+        value: 'User-visible error: usdcxFaucetUnavailable; surface review',
+        stacktrace: { frames: [] },
+        mechanism: expect.objectContaining({ handled: true })
+      })
+    ]);
+    expect(event.level).toBe('warning');
+    expect(event.tags).toEqual({
+      network: 'testnet',
+      'user_error.id': 'usdcxFaucetUnavailable',
+      'user_error.surface': 'review'
+    });
+    expect(event.fingerprint).toEqual(['WalletUserVisibleError', 'usdcxFaucetUnavailable', 'review']);
+    expect(objectAt(objectAt(event, 'extra'), 'walletDiagnostics')).toEqual({
+      ...resolveTelemetryContext(),
+      ...getCrashBuildIdentity(),
+      userErrorId: 'usdcxFaucetUnavailable',
+      userErrorSurface: 'review'
+    });
+    expect(wireText()).not.toContain('"filename"');
+    expect(wireText()).not.toContain('"cause"');
+    expect(leaksIn(wireText())).toEqual([]);
+  });
+
+  it('preserves every closed surface through crash scrubbing', async () => {
+    consentOn();
+    for (const surface of USER_ERROR_SURFACES) {
+      reportUserVisibleError('usdcxFaucetUnavailable', surface);
+      await flushEgress();
+    }
+    expect(captured).toHaveLength(12);
+    for (const [index, surface] of USER_ERROR_SURFACES.entries()) {
+      const event = parsePayload(captured[index]?.body.split('\n')[2] ?? '');
+      expect(objectAt(event, 'tags')['user_error.surface']).toBe(surface);
+      expect(event.fingerprint).toEqual(['WalletUserVisibleError', 'usdcxFaucetUnavailable', surface]);
+    }
+    expect(leaksIn(wireText())).toEqual([]);
+  });
+
+  it('retains a repeated report after the minute instead of letting Sentry deduplicate it', async () => {
+    consentOn();
+    const clock = jest.spyOn(Date, 'now').mockReturnValue(0);
+    reportUserVisibleError('usdcxFaucetUnavailable', 'review');
+    await flushEgress();
+    clock.mockReturnValue(59_999);
+    reportUserVisibleError('usdcxFaucetUnavailable', 'review');
+    await flushEgress();
+    expect(captured).toHaveLength(1);
+    clock.mockReturnValue(60_000);
+    reportUserVisibleError('usdcxFaucetUnavailable', 'review');
+    await flushEgress();
+    expect(captured).toHaveLength(2);
+  });
+
+  it('drops raw text containing an address, amount and recovery phrase before capture', async () => {
+    consentOn();
+    const report: unknown = reportUserVisibleError;
+    if (typeof report !== 'function') throw new Error('Missing reporter');
+    report(`Unable to send ${POISON.amount} to ${POISON.addressTestnet}: ${PHRASE_12}`, 'review');
+    report('usdcxFaucetUnavailable', `toast ${POISON.addressTestnet}`);
+    await flushEgress();
+    expect(captured).toHaveLength(0);
+    reportUserVisibleError('usdcxFaucetUnavailable', 'review');
+    await flushEgress();
+    expect(captured).toHaveLength(1);
+    expect(leaksIn(wireText())).toEqual([]);
+  });
+
+  it('sends nothing without crash-report permission', async () => {
+    consentOff();
+    reportUserVisibleError('usdcxFaucetUnavailable', 'review');
+    await flushEgress();
+    expect(captured).toEqual([]);
   });
 });
 

@@ -4,6 +4,7 @@
 
 ### Features
 
+- [FEATURE][all] Every error message the wallet shows is reported to the team as a crash report naming only which message it was and where, never its text (#1616).
 - [FEATURE][all] Choose an Earn withdrawal amount or Max, review the native payout and minimum received, and before submitting the selected amount check that the quote is current and the available balance still covers that amount, which accrual may have raised or a withdrawal elsewhere lowered (#1491).
 
 ### Fixes

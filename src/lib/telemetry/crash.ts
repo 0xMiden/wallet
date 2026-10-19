@@ -120,8 +120,13 @@ function buildIntegrations() {
   const dedupe = dedupeIntegration();
   const processEvent = dedupe.processEvent;
   dedupe.processEvent = (event, hint, activeClient) => {
-    // Guarded terminal writes already deduplicate no-ops; separate failed attempts must each be counted.
-    if (event.exception?.values?.some(value => value.type === 'WalletTransactionFailure')) return event;
+    // Terminal writes and user-visible reports apply their own limits; each accepted report must be counted.
+    if (
+      event.exception?.values?.some(
+        value => value.type === 'WalletTransactionFailure' || value.type === 'WalletUserVisibleError'
+      )
+    )
+      return event;
     // A relay report is sent once per failure bucket of its window, and repeats the last one's text and frames.
     const original = hint.originalException;
     if (original instanceof Error && capturedDiagnostics.get(original)?.service === RELAY_SERVICE) return event;
@@ -191,8 +196,17 @@ function restoreDiagnostics(event: Record<string, unknown>, reportable: Error, d
   event.tags = {
     ...(isRecord(event.tags) ? event.tags : {}),
     network: diagnostics.network,
-    ...(diagnostics.service === undefined ? {} : { service: diagnostics.service })
+    ...(diagnostics.service === undefined ? {} : { service: diagnostics.service }),
+    ...(diagnostics.userErrorId === undefined ? {} : { 'user_error.id': diagnostics.userErrorId }),
+    ...(diagnostics.userErrorSurface === undefined ? {} : { 'user_error.surface': diagnostics.userErrorSurface })
   };
+  if (
+    reportable.name === 'WalletUserVisibleError' &&
+    diagnostics.userErrorId !== undefined &&
+    diagnostics.userErrorSurface !== undefined
+  ) {
+    event.fingerprint = ['WalletUserVisibleError', diagnostics.userErrorId, diagnostics.userErrorSurface];
+  }
   const exception = event.exception;
   if (!isRecord(exception) || !Array.isArray(exception.values)) return;
   let link: unknown = reportable;

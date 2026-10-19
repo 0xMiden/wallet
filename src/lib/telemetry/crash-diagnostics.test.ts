@@ -2,8 +2,29 @@ import { MidenMessageType } from 'lib/miden/types';
 import { WalletMessageType } from 'lib/shared/types';
 
 import { annotateCrash, snapshotCrashDiagnostics } from './crash-diagnostics';
+import { USER_ERROR_SURFACES } from './user-visible-error';
 
 describe('source-bound crash diagnostics', () => {
+  it('accepts the closed user-visible error id and every display surface', () => {
+    for (const userErrorSurface of USER_ERROR_SURFACES) {
+      const error = new Error('failure');
+      annotateCrash(error, { userErrorId: 'usdcxFaucetUnavailable', userErrorSurface });
+      expect(snapshotCrashDiagnostics(error)).toEqual({ userErrorId: 'usdcxFaucetUnavailable', userErrorSurface });
+    }
+  });
+
+  it('drops user-visible error text and unlisted surfaces independently', () => {
+    const error = new Error('failure');
+    annotateCrash(error, { userErrorId: 'Unable to read 0x12ab', userErrorSurface: 'review' });
+    expect(snapshotCrashDiagnostics(error)).toEqual({ userErrorSurface: 'review' });
+    const other = new Error('failure');
+    annotateCrash(other, { userErrorId: 'usdcxFaucetUnavailable', userErrorSurface: 'toast' });
+    expect(snapshotCrashDiagnostics(other)).toEqual({ userErrorId: 'usdcxFaucetUnavailable' });
+    const invalid = new Error('failure');
+    annotateCrash(invalid, { userErrorId: { toString: () => 'usdcxFaucetUnavailable' }, userErrorSurface: null });
+    expect(snapshotCrashDiagnostics(invalid)).toEqual({});
+  });
+
   it('keeps diagnostics on the exact failure rather than the latest operation', () => {
     const first = new Error('first');
     const second = new Error('second');
