@@ -469,6 +469,8 @@ export interface IEarnWithdrawPreparedExecution extends PreparedExecution {
  * prove/submit — the row is a tracking-only record whose lifecycle lives in `phase`.
  */
 export interface IEarnWithdrawExtraInputs {
+  /** Reviewed delivery floor for amount-selected withdrawals; source retries must not lower it. */
+  reviewedMinimumReceivedAtomic?: string;
   epochAllocatorUrl?: string;
   underlyingAddress?: string;
   /** 0x EVM address that owned the redeemed lending position (intent sponsor). */
