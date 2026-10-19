@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { Icon, IconName } from 'app/icons/v2';
 import { Notice, type NoticeVariant } from 'components/ui/Notice';
 import type { FeatureAvailability } from 'lib/remote-config/availability';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 
 export interface FeatureUnavailableNoticeProps {
   availability: FeatureAvailability;
@@ -29,6 +30,7 @@ export function FeatureUnavailableNotice({
   'data-testid': dataTestId = 'feature-unavailable-notice'
 }: FeatureUnavailableNoticeProps): JSX.Element | null {
   const { t } = useTranslation();
+  useUserVisibleError(availability.state === 'unavailable' ? 'bridgeFeatureUnavailableBody' : null, 'notice');
   if (availability.state !== 'unavailable') return null;
   return (
     <Notice

@@ -12,6 +12,8 @@ import { hapticLight } from 'lib/mobile/haptics';
 import { isExtension } from 'lib/platform';
 import { WalletMessageType } from 'lib/shared/types';
 import { getIntercom, useWalletStore } from 'lib/store';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
+import { UserErrorId } from 'lib/telemetry/user-visible-error';
 import { navigate } from 'lib/woozie';
 
 export interface ConnectivityIssueBannerProps {
@@ -33,6 +35,7 @@ interface BannerView {
   iconColor: string;
   titleKey: string;
   bodyKey: string;
+  errorId?: UserErrorId;
   /** When set, render a retry CTA with this label. */
   ctaKey?: string;
 }
@@ -72,6 +75,7 @@ const VIEWS: Record<BannerCategory, BannerView> = {
     iconColor: '#FEA644',
     titleKey: 'connectivityNetworkTitle',
     bodyKey: 'connectivityNetworkBody',
+    errorId: 'connectivityNetworkBody',
     ctaKey: 'connectivityRetry'
   },
   node: {
@@ -80,6 +84,7 @@ const VIEWS: Record<BannerCategory, BannerView> = {
     iconColor: '#FEA644',
     titleKey: 'connectivityNodeTitle',
     bodyKey: 'connectivityNodeBody',
+    errorId: 'connectivityNodeBody',
     ctaKey: 'connectivityRetrySync'
   },
   guardian: {
@@ -88,6 +93,7 @@ const VIEWS: Record<BannerCategory, BannerView> = {
     iconColor: '#FEA644',
     titleKey: 'connectivityGuardianTitle',
     bodyKey: 'connectivityGuardianBody',
+    errorId: 'connectivityGuardianBody',
     // Routes to Rotate Guardian rather than retrying: the flag only arms after
     // the sync loop has already retried past its threshold, and the direct
     // on-chain switch fallback makes the rotation work while the operator is
@@ -158,6 +164,7 @@ const ConnectivityIssueBannerBody: FC<ConnectivityIssueBannerProps> = ({ classNa
     [guardianDismissed, guardianOutage, state]
   );
   const view = active ? VIEWS[active] : null;
+  useUserVisibleError(view?.errorId, 'inline');
 
   const onCta = useCallback(() => {
     hapticLight();
