@@ -22,6 +22,7 @@ import { isSwapEnabled } from 'lib/feature-flags';
 import { useMidenContext } from 'lib/miden/front';
 import { hasTelemetryChoice } from 'lib/settings/helpers';
 import * as Woozie from 'lib/woozie';
+import BuyStatus from 'screens/buy-status/BuyStatus';
 import { ADDRESS_BOOK_PATH } from 'screens/contacts/contact-paths';
 import { ContactDetailPage } from 'screens/contacts/ContactDetailPage';
 import { NewContactPage } from 'screens/contacts/NewContactPage';
@@ -35,6 +36,7 @@ import EarnWithdrawAmount from 'screens/earn-flow/EarnWithdrawAmount';
 import EarnWithdrawReview from 'screens/earn-flow/EarnWithdrawReview';
 import EarnWithdrawStatus from 'screens/earn-flow/EarnWithdrawStatus';
 import { GeneratingTransactionPage } from 'screens/generating-transaction/GeneratingTransaction';
+import SellStatus from 'screens/sell-status/SellStatus';
 import { ReviewTransaction } from 'screens/send-flow/ReviewTransaction';
 import { SendFlow } from 'screens/send-flow/SendManager';
 import { SwapFlow } from 'screens/swap-flow/SwapManager';
@@ -45,6 +47,7 @@ import { ActivityGroupPage } from './pages/ActivityGroup';
 import AllHistory from './pages/AllHistory';
 import BridgeDeposit from './pages/BridgeDeposit';
 import Browser from './pages/Browser';
+import Cash from './pages/Cash';
 import ForgotPassword from './pages/ForgotPassword/ForgotPassword';
 import ForgotPasswordInfo from './pages/ForgotPassword/ForgotPasswordInfo';
 import ResetRequired from './pages/ResetRequired';
@@ -194,6 +197,23 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
         <AllHistory programId={programId} />
       </TabLayout>
     ))
+  ],
+  // Buy or sell USDCx, opened from the buttons under the balance card.
+  [
+    '/cash/:action',
+    onlyReady(({ action }) => {
+      switch (action) {
+        case 'buy':
+        case 'sell':
+          return (
+            <FullScreenPage key={`cash-${action}`} entrance="slide">
+              <Cash action={action} />
+            </FullScreenPage>
+          );
+        default:
+          return Woozie.Router.SKIP;
+      }
+    })
   ],
   // One activity group's own page: the feed narrowed to that counterparty or category. `:id` is
   // the counterparty's address and is absent for a category group (`/activity/group/swap`).
@@ -400,6 +420,23 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
     onlyReady(({ txId }) => (
       <FullScreenPage>
         <EarnWithdrawStatus txId={txId!} />
+      </FullScreenPage>
+    ))
+  ],
+  [
+    '/buy-status/:txId',
+    onlyReady(({ txId }) => (
+      <FullScreenPage>
+        <BuyStatus txId={txId!} />
+      </FullScreenPage>
+    ))
+  ],
+  // The progress of one fiat sale, by the id of its tracking row. Registered like `/buy-status/:txId`.
+  [
+    '/sell-status/:txId',
+    onlyReady(({ txId }) => (
+      <FullScreenPage>
+        <SellStatus txId={txId!} />
       </FullScreenPage>
     ))
   ],

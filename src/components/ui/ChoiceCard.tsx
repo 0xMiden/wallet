@@ -11,6 +11,7 @@ import { cn } from 'lib/ui/util';
 import { CheckboxIndicator } from './Checkbox';
 import { radioGroupKeyTarget } from './radio-group-keys';
 import { SelectionCheck } from './SelectionCheck';
+import { outlineSurfaceClassName } from './surfaces';
 
 /** `data-*` attributes forwarded to an option's `button`, e.g. an E2E hook keyed on its value. */
 export type ChoiceCardDataAttributes = Partial<Record<`data-${string}`, string>>;
@@ -51,6 +52,7 @@ export interface ChoiceCardGroupProps<T extends string = string> {
    * acts at once (a sheet that closes on it), so arrowing past an option does not choose it.
    */
   arrowKeys?: 'select' | 'focus';
+  surface?: 'fill' | 'outline';
   'aria-label'?: string;
   'aria-labelledby'?: string;
   /** Layout only (margins). */
@@ -60,7 +62,7 @@ export interface ChoiceCardGroupProps<T extends string = string> {
 
 const card = cva(
   [
-    'group flex h-full w-full min-h-18 items-center gap-3 rounded-2xl bg-fill px-4 py-3 text-left',
+    'group flex h-full w-full min-h-18 items-center gap-3 rounded-2xl px-4 py-3 text-left',
     'select-none transition-[background-color,box-shadow] duration-150 ease-hover motion-reduce:transition-none',
     // The selection is the inset ring, so focus draws outside the card instead of fighting it.
     'outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-primary/30',
@@ -69,12 +71,16 @@ const card = cva(
   {
     variants: {
       layout: { row: '', detail: 'flex-col items-stretch' },
+      surface: {
+        fill: 'bg-fill',
+        outline: outlineSurfaceClassName
+      },
       selected: {
         true: 'ring-2 ring-inset ring-accent-primary',
         false: 'hover:bg-fill-pressed active:bg-fill-pressed disabled:hover:bg-fill disabled:active:bg-fill'
       }
     },
-    defaultVariants: { selected: false, layout: 'row' }
+    defaultVariants: { selected: false, layout: 'row', surface: 'fill' }
   }
 );
 
@@ -92,9 +98,10 @@ interface OptionProps<T extends string> {
   accent?: FlowAccent;
   focusable: boolean;
   onSelect: (id: T) => void;
+  surface?: 'fill' | 'outline';
 }
 
-function ChoiceCardOption<T extends string>({ item, selected, accent, focusable, onSelect }: OptionProps<T>) {
+function ChoiceCardOption<T extends string>({ item, selected, accent, focusable, onSelect, surface }: OptionProps<T>) {
   const motionTokens = useTabBarMotion();
   const pop = useTabIconPop(selected);
   const id = useId();
@@ -165,7 +172,7 @@ function ChoiceCardOption<T extends string>({ item, selected, accent, focusable,
       onClick={() => onSelect(item.id)}
       {...(item.disabled ? {} : motionTokens.press)}
       className={cn(
-        card({ selected, layout: item.details ? 'detail' : 'row' }),
+        card({ selected, layout: item.details ? 'detail' : 'row', surface }),
         selected && accent && FLOW_RING[accent]
       )}
     >
@@ -208,6 +215,7 @@ export function ChoiceCardGroup<T extends string>({
   onChange,
   onReselect,
   arrowKeys = 'select',
+  surface,
   'aria-label': ariaLabel,
   'aria-labelledby': ariaLabelledBy,
   className,
@@ -280,6 +288,7 @@ export function ChoiceCardGroup<T extends string>({
           selected={index === selectedIndex}
           focusable={index === focusIndex}
           onSelect={select}
+          surface={surface}
         />
       ))}
     </div>

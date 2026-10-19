@@ -32,13 +32,17 @@ import {
   bridgeInRowDisplay,
   bridgeRowDisplay,
   bridgeBadgeStatusOf,
+  buyStatusOf,
   isUsdcxBridgeEntry,
   earnDepositSettlementOf,
   formatMoneyAmount,
   isBridgeInEntry,
+  isBuyEntry,
   isEarnWithdrawEntry,
   isFaucetRequest,
-  isReceiveEntry
+  isReceiveEntry,
+  isSellEntry,
+  sellStatusOf
 } from './transactionUtils';
 
 type HistoryViewProps = {
@@ -181,6 +185,52 @@ function buildRowProps(
             },
       // Each withdraw phase is a status of its own: Redeeming, Delivering, Received, Failed.
       status: phase
+    };
+  }
+
+  // Buy row: "Buy USDC" / "20 USD via Transak", the token amount when the provider has reported
+  // it, and a chip from the order phase. The row is born Completed, so its status tells nothing.
+  if (!entry.isCancelled && isBuyEntry(entry)) {
+    const status = buyStatusOf(entry);
+    const failed = status === 'failed';
+    const symbol = entry.buyTokenSymbol ?? entry.token;
+    return {
+      icon: failed ? (
+        <FailedCrossIcon className="w-3.5 h-3.5" />
+      ) : (
+        <Icon name={IconName.Cash} size="sm" className="text-pure-white" />
+      ),
+      iconBg: failed ? 'bg-status-negative' : 'bg-tx-received',
+      title: t('buyRowTitle', { symbol: symbol ?? '' }),
+      subtitle: t('buyRowSubtitle', { amount: entry.buyFiatAmount ?? '', currency: 'USD' }),
+      amount:
+        failed || entry.buyTokenAmount === undefined
+          ? undefined
+          : { value: `+${entry.buyTokenAmount}`, symbol, direction: 'positive' as const },
+      status
+    };
+  }
+
+  // Sell row: "Sell TRNSK" / "100 TRNSK via Transak", the amount that leaves the wallet, and a chip
+  // from the sale phase. The row is born Completed, so its status tells nothing.
+  if (!entry.isCancelled && isSellEntry(entry)) {
+    const status = sellStatusOf(entry);
+    const failed = status === 'failed';
+    const symbol = entry.sellTokenSymbol ?? entry.token;
+    return {
+      icon: failed ? (
+        <FailedCrossIcon className="w-3.5 h-3.5" />
+      ) : (
+        <Icon name={IconName.Cash} size="sm" className="text-pure-white" />
+      ),
+      iconBg: failed ? 'bg-status-negative' : 'bg-tx-sent',
+      title: t('sellRowTitle', { symbol: symbol ?? '' }),
+      subtitle: t('sellRowSubtitle', { amount: entry.sellAmount ?? '', symbol: symbol ?? '' }),
+      amount:
+        failed || entry.sellAmount === undefined
+          ? undefined
+          : { value: `-${entry.sellAmount}`, symbol, direction: 'negative' as const },
+      status
     };
   }
 
@@ -710,7 +760,9 @@ const HistoryView = memo<HistoryViewProps>(
                         entry.txId
                           ? () => {
                               markActivityRead(historyEntryUnreadKey(entry), entry.timestamp);
-                              navigate(`/history-details/${entry.txId}`);
+                              // A sale opens its status page: the progress is there, not in the details.
+                              const page = isSellEntry(entry) ? 'sell-status' : 'history-details';
+                              navigate(`/${page}/${entry.txId}`);
                             }
                           : undefined
                       }

@@ -24,17 +24,21 @@ import { midenClientProxy } from '../back/miden-client-proxy';
 import {
   BridgedReceiveTransaction,
   BridgedSendTransaction,
+  BuyTransaction,
   ConsumeTransaction,
   EarnDepositTransaction,
   EarnWithdrawTransaction,
   IBridgedSendNoteParams,
   IBridgeProvider,
   IConsumedAssetTotal,
+  ISellExtraInputs,
+  ISellOrderLink,
   isLiveTransaction,
   ITransaction,
   ITransactionStatus,
   IUsdcxBurn,
   ReplaceHotKeyTransaction,
+  SellTransaction,
   SendTransaction,
   SwapTransaction,
   SwitchGuardianTransaction,
@@ -894,7 +898,8 @@ export const initiateBridgedSendTransaction = async (
   agglayerExitTxHash?: string,
   usdcxBurn?: IUsdcxBurn,
   agglayerRoute?: AgglayerRecoveryConfig,
-  epochAllocatorUrl?: string
+  epochAllocatorUrl?: string,
+  sellOrder?: ISellOrderLink
 ): Promise<string> => {
   const dbTransaction = new BridgedSendTransaction(
     accountId,
@@ -918,6 +923,8 @@ export const initiateBridgedSendTransaction = async (
     dbTransaction.extraInputs.usdcxBurn = usdcxBurn;
     dbTransaction.noteType = NoteTypeEnum.Public;
   }
+  // In the row before it is queued: the order id is then in the store with the bridge-out, never after it.
+  if (sellOrder !== undefined) dbTransaction.extraInputs.sellOrder = sellOrder;
   await queueOutgoingTransaction(dbTransaction, spendsOf(dbTransaction), spendingLimitAuthorization);
 
   return dbTransaction.id;
@@ -1032,6 +1039,40 @@ export const initiateBridgedReceiveTransaction = async (args: {
       dbTransaction.extraInputs.usdcxSource?.midenDomain ?? getUsdcxRemoteDomain();
   }
   await Repo.transactions.add({ ...dbTransaction, badgeNetwork: badgeNetwork() });
+  return dbTransaction.id;
+};
+
+/**
+ * Insert a tracking-only fiat buy row for a backend order. The call is idempotent per order id: a second call for
+ * the same order and account returns the id of the row that exists.
+ */
+export const initiateBuyTransaction = async (
+  accountId: string,
+  input: { orderId: string; fiatAmount: string; tokenSymbol: string }
+): Promise<string> => {
+  const existing = await Repo.transactions
+    .filter(tx => tx.type === 'buy' && tx.extraInputs?.orderId === input.orderId && tx.accountId === accountId)
+    .first();
+  if (existing) return existing.id;
+  const dbTransaction = new BuyTransaction(accountId, input);
+  await Repo.transactions.add(dbTransaction);
+  return dbTransaction.id;
+};
+
+/**
+ * Insert a tracking-only fiat sell row for a backend order. The call is idempotent per order id: a second call for
+ * the same order and account returns the id of the row that exists.
+ */
+export const initiateSellTransaction = async (
+  accountId: string,
+  input: Omit<ISellExtraInputs, 'provider' | 'phase' | 'phaseTimestamps' | 'failure' | 'error'>
+): Promise<string> => {
+  const existing = await Repo.transactions
+    .filter(tx => tx.type === 'sell' && tx.extraInputs?.orderId === input.orderId && tx.accountId === accountId)
+    .first();
+  if (existing) return existing.id;
+  const dbTransaction = new SellTransaction(accountId, input);
+  await Repo.transactions.add(dbTransaction);
   return dbTransaction.id;
 };
 

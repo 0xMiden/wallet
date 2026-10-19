@@ -110,7 +110,9 @@ export type ITransactionType =
   | 'switch-guardian'
   | 'replace-hot-key'
   | 'swap'
-  | 'update-procedure-threshold';
+  | 'update-procedure-threshold'
+  | 'buy'
+  | 'sell';
 
 /** Each type's own display icon, as its class constructor below sets it: what a row shows when it is not failed. */
 export const ICON_BY_TYPE: Readonly<Record<ITransactionType, ITransactionIcon>> = {
@@ -124,7 +126,9 @@ export const ICON_BY_TYPE: Readonly<Record<ITransactionType, ITransactionIcon>> 
   'switch-guardian': 'DEFAULT',
   'replace-hot-key': 'DEFAULT',
   swap: 'SWAP',
-  'update-procedure-threshold': 'DEFAULT'
+  'update-procedure-threshold': 'DEFAULT',
+  buy: 'RECEIVE',
+  sell: 'SEND'
 };
 
 /**
@@ -145,6 +149,155 @@ export type IBridgeProvider = 'epoch' | 'agglayer' | 'usdcx';
 
 /** Lifecycle of a tracking-only EVM → Miden bridge row. */
 export type IBridgedReceivePhase = 'submitting' | 'delivering' | 'ready' | 'received' | 'failed';
+
+/**
+ * Lifecycle of a tracked fiat buy row. The order is the display order of the
+ * progress steps. `failed` can follow any phase before `completed`.
+ */
+export type IBuyPhase =
+  | 'payment'
+  | 'funds-arriving'
+  | 'bridge-sent'
+  | 'bridging'
+  | 'consuming'
+  | 'completed'
+  | 'failed';
+
+/** The forward order of the buy phases. `failed` is not in it. */
+export const BUY_PHASES: readonly IBuyPhase[] = [
+  'payment',
+  'funds-arriving',
+  'bridge-sent',
+  'bridging',
+  'consuming',
+  'completed'
+];
+
+/** Metadata persisted on a tracked fiat buy row. */
+export interface IBuyExtraInputs {
+  /** The backend order id. It is also the Transak `partnerOrderId`. */
+  orderId: string;
+  provider: 'transak';
+  /** Fiat amount that the user typed, as a decimal string. */
+  fiatAmount: string;
+  fiatCurrency: 'USD';
+  /** Symbol of the token that the provider delivers on Ethereum. */
+  tokenSymbol: string;
+  /** Delivered token amount, in base units. */
+  tokenAmount?: string;
+  tokenDecimals?: number;
+  /** Sepolia transaction that sent the signed bridge batch. */
+  relayTxHash?: string;
+  /** Miden-side claim of the Agglayer deposit. */
+  claimTxHash?: string;
+  midenNoteId?: string;
+  /** Local `consume` row that claims the bridged note. */
+  consumeTxId?: string;
+  phase: IBuyPhase;
+  /** First time the row reached each phase, in Unix milliseconds. */
+  phaseTimestamps: Partial<Record<IBuyPhase, number>>;
+  error?: string;
+}
+
+/**
+ * Lifecycle of a tracked fiat sell row. The order is the display order of the progress steps, and each phase is the
+ * step that is in progress. `failed` can follow any phase before `completed`.
+ *   - submitting  : the bridge-out transaction is queued or in progress on Miden
+ *   - bridging    : the bridge-out is on Miden; the Agglayer exit is not claimed on Ethereum yet
+ *   - on-ethereum : the exit is claimed, so the token is at the account's EVM address; the backend relay is next
+ *   - sent        : the backend sent the signed transfer to Transak's deposit address
+ *   - received    : Transak has the payment and prepares the payout
+ *   - completed   : Transak completed the payout
+ */
+export type ISellPhase = 'submitting' | 'bridging' | 'on-ethereum' | 'sent' | 'received' | 'completed' | 'failed';
+
+/** The forward order of the sell phases. `failed` is not in it. */
+export const SELL_PHASES: readonly ISellPhase[] = [
+  'submitting',
+  'bridging',
+  'on-ethereum',
+  'sent',
+  'received',
+  'completed'
+];
+
+/**
+ * Why a sell row failed. The status page gives each cause its own text.
+ *   - bridge-failed / bridge-missing : the bridge-out transaction failed on Miden, or its row is gone
+ *   - order-*                        : the backend order ended before the relay was mined
+ *   - transak-*                      : Transak ended its order (after the deposit, only `transakStatus` shows this)
+ *   - timeout                        : the sale did not finish in `SELL_ORDER_MAX_AGE_MS`
+ *   - restored                       : the row came from a backup file and cannot be verified
+ */
+export type ISellFailure =
+  | 'bridge-failed'
+  | 'bridge-missing'
+  | 'order-failed'
+  | 'order-expired'
+  | 'order-cancelled'
+  | 'transak-failed'
+  | 'transak-cancelled'
+  | 'transak-expired'
+  | 'transak-refunded'
+  | 'timeout'
+  | 'restored';
+
+/** Where the wallet read Transak's deposit: the widget's `TRANSAK_WALLET_REDIRECTION` event, or its page. */
+export type ISellDepositSource = 'event' | 'page';
+
+/**
+ * The sale that an Agglayer bridge-out belongs to, stored on the `bridged-send` row in the same write that queues
+ * it. The backend order id is the key that stops a second bridge-out for one order, and the other fields let the
+ * watcher make the `sell` row again if the app stopped between the two writes.
+ */
+export interface ISellOrderLink {
+  /** The backend order id. It is also the Transak `partnerOrderId`. */
+  orderId: string;
+  /** The amount that Transak asked for, as a decimal string. */
+  cryptoAmount: string;
+  /** Symbol and decimals of the Miden token that the bridge-out sends. */
+  tokenSymbol: string;
+  tokenDecimals: number;
+  /** Transak's deposit address on Ethereum. */
+  depositAddress: string;
+  depositSource: ISellDepositSource;
+  /** Unix seconds at which Transak expires the unpaid order, when the backend gave it. */
+  autoExpiresAt?: number;
+}
+
+/** Metadata persisted on a tracked fiat sell row. */
+export interface ISellExtraInputs extends ISellOrderLink {
+  provider: 'transak';
+  /** Miden faucet (bech32) of the token that the bridge-out sends. */
+  faucetId: string;
+  /** The amount in the base units of that faucet, as a decimal string. */
+  tokenAmount: string;
+  /** The account's own EVM address: the destination of the bridge-out, and the source of the relay. */
+  evmAddress: string;
+  /** Local `bridged-send` row of the bridge-out. */
+  bridgeTxId: string;
+  /** The Agglayer indexer's `tx_hash` of the exit of that row. */
+  bridgeExitTxHash?: string;
+  /** Miden transaction id of the bridge-out, when the row has it. */
+  bridgeTransactionId?: string;
+  /** Ethereum transaction that claimed the exit, when the indexer gives it. */
+  claimTxHash?: string;
+  /** Sepolia transaction that sent the signed transfer to Transak. */
+  relayTxHash?: string;
+  /** The last Transak order status that the backend gave. */
+  transakStatus?: string;
+  /**
+   * Page deposits only: the result of the click on the "Yes, I have paid" button of the widget. Absent while the
+   * click is not due, and when no widget was open at the time of the click.
+   */
+  paidClicked?: boolean;
+  phase: ISellPhase;
+  /** First time the row reached each phase, in Unix milliseconds. */
+  phaseTimestamps: Partial<Record<ISellPhase, number>>;
+  failure?: ISellFailure;
+  /** The detail text of the failure, from the backend or from the bridge-out row. Not localized. */
+  error?: string;
+}
 
 /** One faucet's summed amount inside a batch consume. */
 export interface IConsumedAssetTotal {
@@ -369,6 +522,8 @@ export interface IBridgedSendExtraInputs {
   agglayerExitUnfiled?: true;
   /** agglayer: `deposit_cnt` of the bound exit deposit, pinned once the indexer first reports it. */
   agglayerDepositCnt?: number;
+  /** agglayer: the fiat sale that this bridge-out pays for. Set in the write that queues the row. */
+  sellOrder?: ISellOrderLink;
   /** epoch: solver/intent hash (informational). */
   evmTxHash?: string;
   /**
@@ -542,6 +697,8 @@ export interface IBridgeInInfo {
   earnWithdrawTxId?: string;
   /** Tracking-only `bridged-receive` row this consumed note completes. */
   bridgeReceiveTxId?: string;
+  /** Tracking-only `buy` row this consumed note completes. */
+  buyTxId?: string;
 }
 
 /** `extraInputs` shape for a `consume` row that claimed a bridged-in note. */
@@ -1665,6 +1822,83 @@ export class BridgedReceiveTransaction implements ITransaction {
       outputAmount,
       outputSymbol,
       phase: 'submitting'
+    };
+  }
+}
+
+/**
+ * Tracking-only fiat buy row. It is born Completed so the Miden prove/submit
+ * FIFO never sees it; `extraInputs.phase` owns its live state.
+ */
+export class BuyTransaction implements ITransaction {
+  id: string;
+  type: ITransactionType;
+  accountId: string;
+  status: ITransactionStatus;
+  initiatedAt: number;
+  completedAt: number;
+  displayMessage: string;
+  displayIcon: ITransactionIcon;
+  extraInputs: IBuyExtraInputs;
+
+  constructor(accountId: string, extraInputs: Pick<IBuyExtraInputs, 'orderId' | 'fiatAmount' | 'tokenSymbol'>) {
+    const nowMs = Date.now();
+    const now = Math.floor(nowMs / 1000);
+    this.id = uuid();
+    this.type = 'buy';
+    this.accountId = accountId;
+    this.status = ITransactionStatus.Completed;
+    this.initiatedAt = now;
+    this.completedAt = now;
+    this.displayMessage = 'Buying';
+    this.displayIcon = 'RECEIVE';
+    this.extraInputs = {
+      orderId: extraInputs.orderId,
+      provider: 'transak',
+      fiatAmount: extraInputs.fiatAmount,
+      fiatCurrency: 'USD',
+      tokenSymbol: extraInputs.tokenSymbol,
+      phase: 'payment',
+      phaseTimestamps: { payment: nowMs }
+    };
+  }
+}
+
+/**
+ * Tracking-only fiat sell row. It is born Completed so the Miden prove/submit FIFO never sees it;
+ * `extraInputs.phase` owns its live state. The value moves in the `bridged-send` row that `bridgeTxId` names, so
+ * this row has no top-level `amount` or `faucetId`: a reader that sums rows must not count the sale twice.
+ */
+export class SellTransaction implements ITransaction {
+  id: string;
+  type: ITransactionType;
+  accountId: string;
+  status: ITransactionStatus;
+  initiatedAt: number;
+  completedAt: number;
+  displayMessage: string;
+  displayIcon: ITransactionIcon;
+  extraInputs: ISellExtraInputs;
+
+  constructor(
+    accountId: string,
+    extraInputs: Omit<ISellExtraInputs, 'provider' | 'phase' | 'phaseTimestamps' | 'failure' | 'error'>
+  ) {
+    const nowMs = Date.now();
+    const now = Math.floor(nowMs / 1000);
+    this.id = uuid();
+    this.type = 'sell';
+    this.accountId = accountId;
+    this.status = ITransactionStatus.Completed;
+    this.initiatedAt = now;
+    this.completedAt = now;
+    this.displayMessage = 'Selling';
+    this.displayIcon = 'SEND';
+    this.extraInputs = {
+      ...extraInputs,
+      provider: 'transak',
+      phase: 'submitting',
+      phaseTimestamps: { submitting: nowMs }
     };
   }
 }

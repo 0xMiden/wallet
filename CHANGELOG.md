@@ -8,7 +8,23 @@
 
 ### Features
 
+- [FEATURE][all] The bridge config reads the document's `onramp` section: the EVM chain the fiat on-ramp and off-ramp relay run on and the Calibur contract they sign for (address, runtime bytecode hash, EIP-712 domain name and version, batch TTL), exposed through `selectOnramp` and `getOnramp`. The buy and sell signers and the batch builder take the chain, the Calibur address, the signing domain and the batch TTL from it instead of compiled constants, and refuse an order that names others.
+- [FEATURE][all] Add Buy and Sell buttons under the balance card that open USDCx amount entry with a decimal numpad and a Stripe/Transak provider-selection step. On mobile, Buy with Transak opens a Transak checkout locked to the account's Ethereum address and closes it if the destination does not match; Sell, Buy on the extension and desktop, and Stripe stay a preview.
+- [FEATURE][mobile] A Transak buy is now tracked: closing the checkout opens a Buy status screen with a progress bar and six timed steps (payment, funds on Ethereum, bridge transaction sent with its Etherscan link, bridging, claiming on Miden, completed), and the order shows in Activity with a phase-driven status chip and a "View progress" link.
+- [FEATURE][mobile] Sell USDCx through Transak: the backend gains `POST /transak/sell/challenge` and `POST /transak/sell/session`, which open a SELL session for USDC on Ethereum with the amount and the source wallet locked, and sells join the `orders` table with a `side`. The worker follows each sell on the Transak feed and API, records the deposit address and expiry Transak names, and relays a signed transfer of the full amount of TRNSK on Sepolia to that address once the account's EVM address holds it, while Transak awaits the payment. The sell widget opens with `walletRedirection`, names the deposit in its `TRANSAK_WALLET_REDIRECTION` event (its deposit page is the fallback) and is closed by the wallet, which shows an approve card with the token really sold, the backend check of the address and Transak's deadline. On Confirm the wallet signs that transfer under its own Calibur nonce key and then bridges the Agglayer TRNSK out of Miden to the account's own EVM address, one bridge-out per backend order. A persisted `sell` row tracks the sale in Activity and on `/sell-status/:txId` through its phases (bridge transaction on Miden, bridging, funds on Ethereum, sent to Transak, payment received, payout completed, or a named failure), advanced by a watcher from the backend order and the Agglayer indexer. The widget event guard checks a sell by its token, network and amount and names the failing field on a mismatch.
+- [CHANGE][backend] The `orders` table gains `side`, `deposit_address`, `deposit_amount` and `auto_expires_at`, and `fiat_amount` is `amount`. The schema needs a new database file.
 - [FEATURE][all] Choose an Earn withdrawal amount or Max, review the native payout and minimum received, and before submitting the selected amount check that the quote is current and the available balance still covers that amount, which accrual may have raised or a withdrawal elsewhere lowered (#1491).
+
+### Changes
+
+- [CHANGE][extension] Remove Buy and Sell from the extension: the buttons under the balance card are hidden and `/cash/:action` goes home, because the flow runs only through the Transak widget.
+- [CHANGE][backend] Move the per-IP rate limits from the server to an nginx reverse proxy (`backend/nginx.conf`) that also terminates TLS, installed with `make generate-nginx-conf DOMAIN=<domain>`. The server has no rate limit of its own.
+- [CHANGE][backend] Read the Agglayer bridge address, the Miden network ID and the exit-root flag from `backend/config.json`, so a change needs a container restart and no image build.
+- [CHORE][docs] Require explicit maintainer approval before any agent changes backend schemas or APIs.
+- [CHANGE][backend] Separate relay records from orders and save relay results and order states in one database transaction. Recreate the backend database for the new schema.
+- [CHANGE][backend] Read buy token addresses and decimals from a chain map instead of storing them per order. Recreate the backend database for the new schema.
+- [CHANGE][backend] Add Docker Compose with persistent storage, prevent two servers from using the same database, and wait for active work during shutdown.
+- [FIX][backend] Store relays before broadcast for cancellation and restart safety, reconcile Transak settlement amounts, add trusted proxy configuration and request timeouts, and block production purchases while the bridge uses testnet.
 
 ### Fixes
 

@@ -109,9 +109,11 @@ export function accentForTransactionType(type: ITransactionType | undefined): Fl
   switch (type) {
     case 'send':
     case 'bridged-send':
+    case 'sell':
       return 'send';
     case 'consume':
     case 'bridged-receive':
+    case 'buy':
       return 'receive';
     case 'earn-deposit':
     case 'earn-withdraw':

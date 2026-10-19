@@ -1698,6 +1698,564 @@
     "message": "Importe",
     "englishSource": "Amount"
   },
+  "cash": {
+    "message": "Efectivo",
+    "englishSource": "Cash"
+  },
+  "cashBuy": {
+    "message": "Comprar",
+    "englishSource": "Buy"
+  },
+  "cashSell": {
+    "message": "Vender",
+    "englishSource": "Sell"
+  },
+  "cashAction": {
+    "message": "Comprar o vender",
+    "englishSource": "Buy or sell"
+  },
+  "cashPayAmount": {
+    "message": "Usted paga",
+    "englishSource": "You pay"
+  },
+  "cashSellAmount": {
+    "message": "Vendes",
+    "englishSource": "You sell"
+  },
+  "cashChooseProvider": {
+    "message": "Elige proveedor",
+    "englishSource": "Choose provider"
+  },
+  "cashBuyingUsdc": {
+    "message": "Comprar USDCx",
+    "englishSource": "Buy USDCx"
+  },
+  "cashSellingUsdc": {
+    "message": "Vender USDCx",
+    "englishSource": "Sell USDCx"
+  },
+  "cashProviderPayMethods": {
+    "message": "Tarjeta o transferencia bancaria",
+    "englishSource": "Card or bank transfer"
+  },
+  "cashProviderPayout": {
+    "message": "Transferencia bancaria",
+    "englishSource": "Bank transfer"
+  },
+  "cashProviderPreview": {
+    "message": "Vista previa del proveedor: el proceso de pago aún no está conectado.",
+    "englishSource": "Provider preview — checkout is not connected yet."
+  },
+  "cashComingSoon": {
+    "message": "Próximamente",
+    "englishSource": "Coming soon"
+  },
+  "cashContinueWithProvider": {
+    "message": "Continuar con $provider$",
+    "englishSource": "Continue with $provider$",
+    "placeholders": {
+      "provider": {
+        "content": "$1"
+      }
+    }
+  },
+  "cashNoEvmAddress": {
+    "message": "Esta cuenta no tiene dirección de Ethereum, por lo que no puede comprar USDCx. Utiliza una cuenta creada en este monedero.",
+    "englishSource": "This account has no Ethereum address, so it cannot buy USDCx. Use an account created in this wallet."
+  },
+  "cashNoEvmAddressSell": {
+    "message": "Esta cuenta no tiene dirección de Ethereum, por lo que no puede vender USDCx. Utiliza una cuenta creada en este monedero.",
+    "englishSource": "This account has no Ethereum address, so it cannot sell USDCx. Use an account created in this wallet."
+  },
+  "cashBackendMissing": {
+    "message": "La función de pago no está disponible en esta versión.",
+    "englishSource": "Checkout is not available in this build."
+  },
+  "cashCheckoutError": {
+    "message": "No se ha podido iniciar el proceso de pago. Inténtalo de nuevo.",
+    "englishSource": "Could not start the checkout. Try again."
+  },
+  "cashCheckoutMismatch": {
+    "message": "Los datos de pago no coincidían con tu pedido, por lo que no se ha podido completar el proceso de pago. Inténtalo de nuevo.",
+    "englishSource": "The checkout details did not match your order, so the checkout did not open. Try again."
+  },
+  "cashCheckoutClosed": {
+    "message": "Caja cerrada",
+    "englishSource": "Checkout closed"
+  },
+  "cashCheckoutAddressMismatch": {
+    "message": "La transacción se cerró porque la dirección de destino no coincidía con tu monedero. No se realizó ningún pago desde esta pantalla.",
+    "englishSource": "The checkout was closed because its destination address did not match your wallet. No payment was made from this screen."
+  },
+  "cashCheckoutSellMismatch": {
+    "message": "La compra se ha cancelado porque su pedido no coincidía con su venta. No se ha enviado nada desde esta pantalla.",
+    "englishSource": "The checkout was closed because its order did not match your sale. Nothing was sent from this screen."
+  },
+  "cashSellDepositAddress": {
+    "message": "Dirección de depósito de Transak",
+    "englishSource": "Transak deposit address"
+  },
+  "cashSellBackendChecking": {
+    "message": "Comprobando la dirección con el backend…",
+    "englishSource": "Checking the address with the backend…"
+  },
+  "cashSellBackendVerified": {
+    "message": "Dirección verificada por el backend",
+    "englishSource": "Address verified by backend"
+  },
+  "cashSellBackendMismatch": {
+    "message": "El backend ha indicado una dirección diferente. No continúes.",
+    "englishSource": "Backend named a different address. Do not continue."
+  },
+  "cashSellTokenChecking": {
+    "message": "Comprobando tu saldo de $symbol$…",
+    "englishSource": "Checking your $symbol$ balance…",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "cashSellTokenReady": {
+    "message": "Primero se realiza el puente de Miden a Ethereum. Esto tarda unos 30 minutos.",
+    "englishSource": "Bridged from Miden to Ethereum first. This takes about 30 minutes."
+  },
+  "cashSellBlockedNoToken": {
+    "message": "Esta cuenta no tiene $symbol$ que el puente acepte, por lo que la venta no puede iniciarse.",
+    "englishSource": "This account has no $symbol$ that the bridge accepts, so the sale cannot start.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "cashSellBlockedAmbiguous": {
+    "message": "Hay más de un token $symbol$ en esta cuenta, por lo que la cartera no puede elegir cuál vender.",
+    "englishSource": "More than one $symbol$ token is in this account, so the wallet cannot choose the one to sell.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "cashSellBlockedUnknownScale": {
+    "message": "Se desconocen los decimales de $symbol$, por lo que la cartera no puede calcular el importe.",
+    "englishSource": "The decimals of $symbol$ are not known, so the wallet cannot calculate the amount.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "cashSellBlockedNotRegistered": {
+    "message": "El puente no conecta este token $symbol$ con el token que recibe Transak.",
+    "englishSource": "The bridge does not connect this $symbol$ token to the token that Transak receives.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "cashSellBlockedAmount": {
+    "message": "El puente no puede enviar esta cantidad exacta de $symbol$. Vende una cantidad con menos decimales.",
+    "englishSource": "The bridge cannot send this exact amount of $symbol$. Sell an amount with fewer decimals.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "cashSellBlockedBalance": {
+    "message": "Tu saldo de $symbol$ es inferior al importe de la venta.",
+    "englishSource": "Your $symbol$ balance is less than the amount of the sale.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "cashSellBlockedUnavailable": {
+    "message": "La cartera no ha podido leer el puente. Inténtalo de nuevo más tarde.",
+    "englishSource": "The wallet could not read the bridge. Try again later."
+  },
+  "cashSellDeadline": {
+    "message": "Transak retiene esta orden hasta las $time$.",
+    "englishSource": "Transak holds this order until $time$.",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "cashSellShortOfTime": {
+    "message": "El puente tarda unos 30 minutos, por lo que esta orden puede caducar antes de que lleguen tus tokens. A continuación, los tokens permanecen en tu dirección de Ethereum.",
+    "englishSource": "The bridge takes about 30 minutes, so this order can expire before your tokens arrive. The tokens then stay at your Ethereum address."
+  },
+  "cashSellBackToTransak": {
+    "message": "Volver a Transak",
+    "englishSource": "Back to Transak"
+  },
+  "cashSellUnreadableTitle": {
+    "message": "No se han encontrado los detalles de la transferencia",
+    "englishSource": "Transfer details not found"
+  },
+  "cashSellUnreadable": {
+    "message": "La cartera no pudo leer la dirección de depósito ni el importe de la página de Transak.",
+    "englishSource": "The wallet could not read the deposit address and amount from the Transak page."
+  },
+  "cashSellSendTitle": {
+    "message": "Vender $amount$ $symbol$ a través de Transak",
+    "englishSource": "Sell $amount$ $symbol$ through Transak",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "cashSellStartingTitle": {
+    "message": "Inicio de la venta de $amount$ $symbol$",
+    "englishSource": "Starting the sale of $amount$ $symbol$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "cashSellStarting": {
+    "message": "Firmar la transferencia y enviar la transacción de puente…",
+    "englishSource": "Signing the transfer and sending the bridge transaction…"
+  },
+  "cashSellToAddress": {
+    "message": "A $address$",
+    "englishSource": "To $address$",
+    "placeholders": {
+      "address": {
+        "content": "$1"
+      }
+    }
+  },
+  "cashSellFailedTitle": {
+    "message": "Venta no iniciada",
+    "englishSource": "Sale not started"
+  },
+  "cashSellRefused": {
+    "message": "El monedero se ha negado a firmar el relé: $reason$",
+    "englishSource": "The wallet refused to sign the relay: $reason$",
+    "placeholders": {
+      "reason": {
+        "content": "$1"
+      }
+    }
+  },
+  "cashSellOrderFailed": {
+    "message": "La orden ha fallado.",
+    "englishSource": "The order failed."
+  },
+  "cashSellOrderExpired": {
+    "message": "La orden ha caducado.",
+    "englishSource": "The order expired."
+  },
+  "cashSellOrderCancelled": {
+    "message": "La orden se ha cancelado.",
+    "englishSource": "The order was cancelled."
+  },
+  "cashSellTimeout": {
+    "message": "La orden no ha avanzado en el tiempo. Comprueba su estado en Transak.",
+    "englishSource": "The order did not move forward in time. Check its status in Transak."
+  },
+  "cashSellBridgeNotStarted": {
+    "message": "La transacción de puente no se ha podido iniciar. No han salido tokens de tu cuenta.",
+    "englishSource": "The bridge transaction could not start. No tokens left your account."
+  },
+  "cashSellUnexpected": {
+    "message": "La venta no pudo iniciarse. Ningún token salió de tu cuenta.",
+    "englishSource": "The sale could not start. No tokens left your account."
+  },
+  "cashSellRelayTransaction": {
+    "message": "Transacción de retransmisión",
+    "englishSource": "Relay transaction"
+  },
+  "cashSellTapPaid": {
+    "message": "Pulsa «Sí, he pagado» en la página de Transak para finalizar la venta.",
+    "englishSource": "Tap \"Yes, I have paid\" on the Transak page to finish the sale."
+  },
+  "sellStatusHeader": {
+    "message": "Vender",
+    "englishSource": "Sell"
+  },
+  "sellStatusProgressTitle": {
+    "message": "Venta en curso",
+    "englishSource": "Sale in progress"
+  },
+  "sellStatusCompletedTitle": {
+    "message": "Venta completada",
+    "englishSource": "Sale complete"
+  },
+  "sellStatusFailedTitle": {
+    "message": "Venta fallida",
+    "englishSource": "Sale failed"
+  },
+  "sellStatusProgressDescription": {
+    "message": "Puedes salir de esta pantalla. El monedero sigue realizando un seguimiento de tu venta en «Actividad».",
+    "englishSource": "You can leave this screen. The wallet keeps tracking your sale in Activity."
+  },
+  "sellStatusCompletedDescription": {
+    "message": "Transak ha completado tu pago.",
+    "englishSource": "Transak completed your payout."
+  },
+  "sellStatusFailedDescription": {
+    "message": "La venta no se completó.",
+    "englishSource": "The sale did not complete."
+  },
+  "sellStepSubmitting": {
+    "message": "Envío de la transacción de puente en Miden",
+    "englishSource": "Sending the bridge transaction on Miden"
+  },
+  "sellStepBridging": {
+    "message": "Conexión con Ethereum",
+    "englishSource": "Bridging to Ethereum"
+  },
+  "sellStepOnEthereum": {
+    "message": "Fondos en Ethereum",
+    "englishSource": "Funds on Ethereum"
+  },
+  "sellStepSent": {
+    "message": "Enviado a Transak",
+    "englishSource": "Sent to Transak"
+  },
+  "sellStepReceived": {
+    "message": "Pago recibido por Transak",
+    "englishSource": "Payment received by Transak"
+  },
+  "sellStepCompleted": {
+    "message": "Pago completado",
+    "englishSource": "Payout completed"
+  },
+  "sellFailureBridge": {
+    "message": "La transacción de puente ha fallado en Miden.",
+    "englishSource": "The bridge transaction failed on Miden."
+  },
+  "sellFailureBridgeMissing": {
+    "message": "La cartera no ha podido encontrar la transacción de puente de esta venta.",
+    "englishSource": "The wallet could not find the bridge transaction of this sale."
+  },
+  "sellFailureOrderFailed": {
+    "message": "La orden falló antes de la transferencia a Transak.",
+    "englishSource": "The order failed before the transfer to Transak."
+  },
+  "sellFailureOrderExpired": {
+    "message": "La orden caducó antes de que tus tokens pudieran llegar a Transak. Los tokens transferidos permanecen en tu dirección de Ethereum.",
+    "englishSource": "The order expired before your tokens could go to Transak. The bridged tokens stay at your Ethereum address."
+  },
+  "sellFailureExpired": {
+    "message": "Transak informó de que la orden había caducado.",
+    "englishSource": "Transak reported that the order expired."
+  },
+  "sellFailureCancelled": {
+    "message": "La orden de Transak se ha cancelado.",
+    "englishSource": "The Transak order was cancelled."
+  },
+  "sellFailureTransakFailed": {
+    "message": "Transak informó de que la orden había fallado.",
+    "englishSource": "Transak reported that the order failed."
+  },
+  "sellFailureTransakRefunded": {
+    "message": "Transak reembolsó la orden.",
+    "englishSource": "Transak refunded the order."
+  },
+  "sellFailureTimeout": {
+    "message": "La venta no se completó en un plazo de 7 días.",
+    "englishSource": "The sale did not finish within 7 days."
+  },
+  "sellFailureRestored": {
+    "message": "Esta venta procedía de una copia de seguridad, por lo que la cartera no pudo verificarla.",
+    "englishSource": "This sale came from a backup, so the wallet could not verify it."
+  },
+  "sellFundsOnMiden": {
+    "message": "Ningún token ha salido de tu cuenta de Miden.",
+    "englishSource": "No tokens left your Miden account."
+  },
+  "sellFundsOnEthereum": {
+    "message": "Los tokens puenteados no se envían a Transak. Permanecen en tu dirección de Ethereum.",
+    "englishSource": "The bridged tokens are not sent to Transak. They stay at your Ethereum address."
+  },
+  "sellFundsAtTransak": {
+    "message": "Transak tiene tus tokens. Ponte en contacto con el servicio de asistencia de Transak indicando tu ID de orden.",
+    "englishSource": "Transak has your tokens. Contact Transak support with your order ID."
+  },
+  "sellDetailAmount": {
+    "message": "Importe",
+    "englishSource": "Amount"
+  },
+  "sellDetailDeadline": {
+    "message": "Plazo de Transak",
+    "englishSource": "Transak deadline"
+  },
+  "sellDetailDeadlineHint": {
+    "message": "Tus tokens deben estar en Ethereum antes de esa fecha.",
+    "englishSource": "Your tokens must be on Ethereum before this time."
+  },
+  "sellDetailEvmAddress": {
+    "message": "Tu dirección de Ethereum",
+    "englishSource": "Your Ethereum address"
+  },
+  "sellDetailBridgeTransaction": {
+    "message": "Transacción de puente",
+    "englishSource": "Bridge transaction"
+  },
+  "sellDetailTransakStatus": {
+    "message": "Estado de la transacción",
+    "englishSource": "Transak status"
+  },
+  "sellDetailOrderId": {
+    "message": "ID de la orden",
+    "englishSource": "Order ID"
+  },
+  "sellRowTitle": {
+    "message": "Vender $symbol$",
+    "englishSource": "Sell $symbol$",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "sellRowSubtitle": {
+    "message": "$amount$ $symbol$ a través de Transak",
+    "englishSource": "$amount$ $symbol$ via Transak",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "buyStatusHeader": {
+    "message": "Comprar",
+    "englishSource": "Buy"
+  },
+  "buyStatusProgressTitle": {
+    "message": "Comprar USDC",
+    "englishSource": "Buying USDC"
+  },
+  "buyStatusCompletedTitle": {
+    "message": "Compra completada",
+    "englishSource": "Purchase complete"
+  },
+  "buyStatusFailedTitle": {
+    "message": "Compra fallida",
+    "englishSource": "Purchase failed"
+  },
+  "buyStatusProgressDescription": {
+    "message": "Puedes salir de esta pantalla. El monedero sigue realizando un seguimiento de tu orden en «Actividad».",
+    "englishSource": "You can leave this screen. The wallet keeps tracking your order in Activity."
+  },
+  "buyStatusCompletedDescription": {
+    "message": "Tu USDC ha llegado a tu cuenta de Miden.",
+    "englishSource": "Your USDC arrived in your Miden account."
+  },
+  "buyStatusFailedDescription": {
+    "message": "La orden no se ha completado. Si has realizado el pago, ponte en contacto con el servicio de asistencia de Transak indicando tu orden.",
+    "englishSource": "The order did not complete. If you paid, contact Transak support with your order."
+  },
+  "buyStatusFiatAmount": {
+    "message": "$amount$ $currency$",
+    "englishSource": "$amount$ $currency$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "currency": {
+        "content": "$2"
+      }
+    }
+  },
+  "buyStatusProgressLabel": {
+    "message": "Progreso de la orden",
+    "englishSource": "Order progress"
+  },
+  "buyStatusStepOf": {
+    "message": "Paso $current$ de $total$",
+    "englishSource": "Step $current$ of $total$",
+    "placeholders": {
+      "current": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      }
+    }
+  },
+  "buyStepPayment": {
+    "message": "Pago",
+    "englishSource": "Payment"
+  },
+  "buyStepFundsArriving": {
+    "message": "Fondos que llegan a Ethereum",
+    "englishSource": "Funds arriving on Ethereum"
+  },
+  "buyStepBridgeSent": {
+    "message": "Transacción de puente enviada",
+    "englishSource": "Bridge transaction sent"
+  },
+  "buyStepBridging": {
+    "message": "Conexión con Miden",
+    "englishSource": "Bridging to Miden"
+  },
+  "buyStepConsuming": {
+    "message": "Reclamaciones en Miden",
+    "englishSource": "Claiming on Miden"
+  },
+  "buyStepCompleted": {
+    "message": "Completado",
+    "englishSource": "Completed"
+  },
+  "buyStepDurationMin": {
+    "message": "$minutes$ min",
+    "englishSource": "$minutes$ min",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
+  "buyViewProgress": {
+    "message": "Ver progreso",
+    "englishSource": "View progress"
+  },
+  "buyRowTitle": {
+    "message": "Comprar $symbol$",
+    "englishSource": "Buy $symbol$",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "buyRowSubtitle": {
+    "message": "$amount$ $currency$ a través de Transak",
+    "englishSource": "$amount$ $currency$ via Transak",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "currency": {
+        "content": "$2"
+      }
+    }
+  },
+  "decimalSeparator": {
+    "message": "Punto decimal",
+    "englishSource": "Decimal point"
+  },
   "mainAssetBalanceIsZero": {
     "message": "Tu saldo de créditos Miden (activo principal) es cero. Se necesitan créditos Miden para pagar la tasa.",
     "englishSource": "Your Miden credits (main asset) balance is zero. Miden credits are required for the fee."

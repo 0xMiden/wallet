@@ -117,6 +117,22 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
 
+        // Miden patch: a windowed instance (Architecture A) is already on
+        // screen as the root of its own UIWindow. `isPresentAfterPageLoad`
+        // (which `preShowScript` requires) reaches this call when the page
+        // load ends; a modal present of a window's root view controller
+        // throws. The Transak sell widget opens this way.
+        var isWindowed = false
+        WebViewRegistry.shared.forEach { _, instance in
+            if instance.navigationController === navigationController && instance.containerWindow != nil {
+                isWindowed = true
+            }
+        }
+        if isWindowed {
+            self.currentPluginCall?.resolve()
+            return
+        }
+
         self.bridge?.viewController?.present(navigationController, animated: isAnimated, completion: {
             self.currentPluginCall?.resolve()
         })
@@ -1329,10 +1345,13 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
                 window.isHidden = !visible
             } else {
                 // Legacy modal path: hide the navigation controller's view.
-                // Not ideal (the modal stays presented but content invisible)
-                // but no caller exercises this branch — multi-instance is only
-                // used by the Architecture A code path.
+                // The modal stays presented, so UIKit's presentation
+                // container still covers the screen and takes every touch.
+                // Turn its interaction off while hidden, so that taps reach
+                // the Capacitor host below (the Transak sell overlay uses
+                // this branch).
                 instance.navigationController.view.isHidden = !visible
+                instance.navigationController.presentationController?.containerView?.isUserInteractionEnabled = visible
             }
             call.resolve()
         }

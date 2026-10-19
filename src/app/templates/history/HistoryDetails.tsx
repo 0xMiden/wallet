@@ -80,12 +80,18 @@ import {
   bridgeInRowDisplay,
   bridgeRowDisplay,
   bridgeBadgeStatusOf,
+  buyHistoryFieldsOf,
+  buyStatusOf,
   earnWithdrawAmountFields,
   earnWithdrawShowsSource,
   formatDate,
   formatMoneyAmount,
   isBridgeInEntry,
+  isBuyEntry,
+  isSellEntry,
   labelHistoryEntry,
+  sellHistoryFieldsOf,
+  sellStatusOf,
   swapSettlementOf
 } from './transactionUtils';
 import { useSwapSettlementNotes } from './useSwapSettlementNotes';
@@ -376,7 +382,11 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         const earnWithdrawFields = earnWithdrawExtra
           ? earnWithdrawAmountFields(earnWithdrawExtra, tx.amount, tokenMetadata)
           : undefined;
+        const buyFields = buyHistoryFieldsOf(tx);
+        const sellFields = sellHistoryFieldsOf(tx);
         const historyEntry: IHistoryEntry = {
+          ...buyFields,
+          ...sellFields,
           address: tx.accountId,
           restoredFromBackup: tx.restoredFromBackup === true,
           key: `completed-${tx.id}`,
@@ -784,6 +794,12 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                     status={entry.isUnconfirmed ? 'unconfirmed' : bridgeBadgeStatusOf(entry)}
                     data-testid="history-status-pill"
                   />
+                ) : isBuyEntry(entry) ? (
+                  // A buy row is born Completed: the pill tracks the order phase instead.
+                  <StatusBadge size="md" live status={buyStatusOf(entry)} data-testid="history-status-pill" />
+                ) : isSellEntry(entry) ? (
+                  // A sell row is born Completed too: the pill tracks the sale phase.
+                  <StatusBadge size="md" live status={sellStatusOf(entry)} data-testid="history-status-pill" />
                 ) : isEarnWithdraw && earnWithdraw ? (
                   // Not-confirmed wins over the withdraw phase for the same reason (#1250 F-024).
                   <StatusBadge
@@ -1247,6 +1263,30 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
             <Button
               title={t('recoverySeedRequiredTitle')}
               onClick={() => navigate(`/generating-transaction/${encodeURIComponent(transaction.id)}`)}
+            />
+          </div>
+        )}
+
+        {entry && isBuyEntry(entry) && transaction && (
+          <div className="shrink-0 pt-3 pb-4">
+            <Button
+              data-testid="history-buy-view-progress"
+              variant={ButtonVariant.Secondary}
+              title={t('buyViewProgress')}
+              onClick={() => navigate(`/buy-status/${encodeURIComponent(transaction.id)}`)}
+              className="max-w-none"
+            />
+          </div>
+        )}
+
+        {entry && isSellEntry(entry) && transaction && (
+          <div className="shrink-0 pt-3 pb-4">
+            <Button
+              data-testid="history-sell-view-progress"
+              variant={ButtonVariant.Secondary}
+              title={t('buyViewProgress')}
+              onClick={() => navigate(`/sell-status/${encodeURIComponent(transaction.id)}`)}
+              className="max-w-none"
             />
           </div>
         )}
