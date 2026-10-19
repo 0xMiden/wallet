@@ -108,6 +108,10 @@ final class BreadAuthController {
         if (launcher != null) launcher.close();
     }
 
+    static boolean authTabInFlight() {
+        return active != null && active.launchPath == LaunchPath.AUTH_TAB && active.reply != null;
+    }
+
     static void hostPaused() { state.paused(); }
 
     static void hostResumed() {

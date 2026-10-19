@@ -5,6 +5,8 @@ import android.content.Intent;
 public final class BreadAuthCallbacks {
     private BreadAuthCallbacks() {}
 
+    public static boolean forwardsToHost() { return !BreadAuthController.authTabInFlight(); }
+
     // A VIEW intent whose data has the scheme com.miden.wallet.auth (ASCII case-insensitive): hands the data string to the
     // open sheet, if any, and returns a copy without data. Any other intent comes back unchanged, as the same object.
     public static Intent consume(Intent intent) {
