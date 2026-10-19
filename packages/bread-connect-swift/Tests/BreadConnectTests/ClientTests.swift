@@ -112,7 +112,7 @@ final class ClientTests: XCTestCase {
             seen = try bread.openRequest(link).request
             let type = seen?["type"]?.stringValue == "LOGIN_KEY_REQUEST" ? "LOGIN_KEY_RESPONSE" : "LOGIN_SIGN_RESPONSE"
             let field = type == "LOGIN_KEY_RESPONSE" ? "loginKey" : "signature"
-            return try bread.answerRequest(link, answer: ["response": ["type": type, field: "AQID"]])
+            return try bread.answerRequest(link, answer: ["response": ["type": .string(type), field: "AQID"]])
         }
 
         let key = try await client.requestLoginKey()

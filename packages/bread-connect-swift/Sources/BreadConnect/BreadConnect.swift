@@ -142,15 +142,15 @@ public final class BreadConnect {
 
     /// The account's login key for the callback's domain, as Bread's own provider returns it.
     public func requestLoginKey() async throws -> Data {
-        let response = try await request(["type": "LOGIN_KEY_REQUEST", "sourceAccountId": try connectedAccountId()])
+        let response = try await request(["type": "LOGIN_KEY_REQUEST", "sourceAccountId": .string(try connectedAccountId())])
         return try standardBase64(response, type: "LOGIN_KEY_RESPONSE", field: "loginKey")
     }
 
     /// A signature by that key over the login message for `data`. The kind is only `word`.
     public func signLoginBytes(_ data: Data) async throws -> Data {
         let response = try await request([
-            "type": "LOGIN_SIGN_REQUEST", "sourceAccountId": try connectedAccountId(),
-            "payload": data.base64EncodedString(), "kind": "word"
+            "type": "LOGIN_SIGN_REQUEST", "sourceAccountId": .string(try connectedAccountId()),
+            "payload": .string(data.base64EncodedString()), "kind": "word"
         ])
         return try standardBase64(response, type: "LOGIN_SIGN_RESPONSE", field: "signature")
     }
