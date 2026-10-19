@@ -560,6 +560,78 @@ describe('EarnWithdrawReview with no position to name', () => {
 });
 
 describe('selected withdrawal review', () => {
+  it('reports a new balance validation after a submit failure remains visible, with its own full dwell', async () => {
+    jest.useFakeTimers();
+    jest.mocked(gaslessEarnWithdrawalToMiden).mockRejectedValueOnce(new Error('intent unavailable 123.45 0xprivate'));
+    const view = render(<EarnWithdrawReview positionId="position-1" />);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(screen.getByRole('button', { name: 'withdraw' })).toBeEnabled();
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'withdraw' }));
+    });
+    expect(screen.getByTestId('earn-withdraw-review-error')).toHaveTextContent('intent unavailable 123.45 0xprivate');
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    act(() => jest.advanceTimersByTime(999));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    act(() => jest.advanceTimersByTime(1));
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['raw_earn_withdraw_submit_failed', 'notice']]);
+
+    mockPositions = [{ ...position, withdrawable: '0.5' }];
+    view.rerender(<EarnWithdrawReview positionId="position-1" />);
+    expect(screen.getByText('earnWithdrawAboveAvailable')).toBeInTheDocument();
+    expect(screen.getByTestId('earn-withdraw-review-error')).toHaveTextContent('intent unavailable 123.45 0xprivate');
+    act(() => jest.advanceTimersByTime(999));
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['raw_earn_withdraw_submit_failed', 'notice']]);
+    act(() => jest.advanceTimersByTime(1));
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([
+      ['raw_earn_withdraw_submit_failed', 'notice'],
+      ['earnWithdrawAboveAvailable', 'notice']
+    ]);
+    view.rerender(<EarnWithdrawReview positionId="position-1" />);
+    act(() => jest.advanceTimersByTime(1000));
+    expect(reportUserVisibleError).toHaveBeenCalledTimes(2);
+  });
+
+  it('reports an independent quote failure after balance recovery while the submit failure remains visible', async () => {
+    jest.useFakeTimers();
+    jest.mocked(gaslessEarnWithdrawalToMiden).mockRejectedValueOnce(new Error('intent unavailable 123.45 0xprivate'));
+    const view = render(<EarnWithdrawReview positionId="position-1" />);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(screen.getByRole('button', { name: 'withdraw' })).toBeEnabled();
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'withdraw' }));
+    });
+    act(() => jest.advanceTimersByTime(1000));
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['raw_earn_withdraw_submit_failed', 'notice']]);
+
+    mockPositions = [{ ...position, withdrawable: '0.5' }];
+    view.rerender(<EarnWithdrawReview positionId="position-1" />);
+    expect(screen.getByText('earnWithdrawAboveAvailable')).toBeInTheDocument();
+    jest.mocked(quotes.quoteEarnWithdrawal).mockRejectedValueOnce(new Error('quote unavailable 987.65 0xprivate'));
+    mockPositions = [{ ...position, withdrawable: '40' }];
+    await act(async () => {
+      view.rerender(<EarnWithdrawReview positionId="position-1" />);
+    });
+    expect(quotes.quoteEarnWithdrawal).toHaveBeenCalledTimes(2);
+    expect(quotes.quoteEarnWithdrawal).toHaveBeenLastCalledWith(
+      expect.objectContaining({ position: expect.objectContaining({ withdrawable: '40' }) })
+    );
+    expect(screen.queryByText('earnWithdrawAboveAvailable')).not.toBeInTheDocument();
+    expect(screen.getByText('earnWithdrawQuoteUnavailable')).toBeInTheDocument();
+    expect(screen.getByTestId('earn-withdraw-review-error')).toHaveTextContent('intent unavailable 123.45 0xprivate');
+    act(() => jest.advanceTimersByTime(999));
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['raw_earn_withdraw_submit_failed', 'notice']]);
+    act(() => jest.advanceTimersByTime(1));
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([
+      ['raw_earn_withdraw_submit_failed', 'notice'],
+      ['earnWithdrawQuoteUnavailable', 'notice']
+    ]);
+  });
+
   it('reports user-visible recognized SDK error by its translation key', async () => {
     jest.useFakeTimers();
     jest.mocked(reportUserVisibleError).mockClear();
