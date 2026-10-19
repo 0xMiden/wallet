@@ -18,6 +18,8 @@ const critical = [
   'src/lib/usdcx/burn.ts',
   'src/lib/miden-chain/rpc-timeout.ts',
   'src/lib/usdcx/withdrawal.ts',
+  'src/lib/remote-config/use-feature-availability.ts',
+  'src/lib/remote-config/availability.ts',
   'src/components/ui/DetailCard.tsx',
   'src/app/layouts/FullScreenPage.tsx',
   'src/app/a11y/AwaitFonts.tsx',
@@ -32,7 +34,14 @@ export default defineConfig({
     {
       name: 'minimum-visual-rpc-boundary',
       enforce: 'pre',
-      resolveId(id, importer) {
+      async resolveId(id, importer) {
+        if (importer && (id.endsWith('/runtime') || id.endsWith('/runtime.ts'))) {
+          const resolved = await this.resolve(id, importer, { skipSelf: true });
+          if (resolved?.id.split('?')[0] === resolve(root, 'src/lib/remote-config/runtime.ts')) {
+            controlled.push({ imported: id, importer });
+            return own('state.ts');
+          }
+        }
         if (
           (id === './rpc-client' && importer?.split('?')[0] === resolve(root, 'src/lib/usdcx/burn.ts')) ||
           id === 'lib/usdcx/rpc-client'
@@ -51,6 +60,9 @@ export default defineConfig({
       },
       generateBundle() {
         const modules = [...this.getModuleIds()].map(id => id.split('?')[0]);
+        if (modules.includes(resolve(root, 'src/lib/remote-config/runtime.ts'))) {
+          throw new Error('Uncontrolled remote-config runtime escaped the fixture boundary');
+        }
         for (const name of critical) {
           if (!modules.includes(resolve(root, name))) throw new Error(`Missing real production module: ${name}`);
         }
