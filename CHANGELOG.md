@@ -8,7 +8,7 @@
 - [FIX][android] The sign-in sheet's callback check keeps a literal `+` in the `origin` value, as iOS does, instead of reading it as a space (#1576).
 - [FIX][extension] A wallet page left open across an extension reload or update reloads itself as soon as the extension's runtime is gone, so it comes back as a page of the updated extension, instead of crashing when it opens Explore and reporting `Extension context invalidated` every 10 seconds; until it reloads it keeps behaving as the extension, its polls stop, and a reset started on it reloads the page in place (#1592, #1593).
 - [FIX][android] The sign-in sheet answers `AUTH_UNAVAILABLE` while Bread is paused, as on iOS, instead of opening while another app's dialog covers Bread (#1577).
-- [FIX][all] An approval's action runs once however many times its window confirms it while the action is still running, instead of running again for a second confirmation (#1584).
+- [FIX][extension] An approval's action runs once however many times its window confirms it while the action runs. For a transaction, a Deny, the auto-decline or a closed window while it is being queued waits for it, and an approval that times out first answers that the outcome is unknown, so a dApp is never told a transaction was declined while it still goes out (#1584).
 
 ## 1.17.5 (2026-10-19)
 
