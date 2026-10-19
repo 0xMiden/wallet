@@ -895,7 +895,7 @@
   "confirmSignature": "İmzayı Onayla",
   "requestsYourSignature": "İmzanızı rica eder",
   "confirmLoginSignature": "$domain$ adresinde oturum açın",
-  "loginSignatureNote": "Bread, yalnızca $domain$ için oluşturulmuş bir anahtarla oturum açar. Bu anahtarla fon transferi yapamaz veya hesabınızda değişiklik yapamazsınız.",
+  "loginSignatureNote": "Bread, bu oturum açma mesajını yalnızca $domain$ için oluşturulmuş bir anahtarla imzalar. Bu anahtar, fon transferi yapamaz veya hesabınızda değişiklik yapamaz.",
   "requestAssets": "Varlıkları İste",
   "requestsAssets": "Varlıkları ister",
   "requestImportPrivateNote": "Özel Note dosyasını içe aktarma isteği",
