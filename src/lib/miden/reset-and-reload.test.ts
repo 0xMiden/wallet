@@ -4,8 +4,11 @@ import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { ResetAndReloadError, resetWalletAndReload } from './reset-and-reload';
 
 const mockIsExtension = { value: false };
+// False on an extension page an extension reload or update orphaned.
+const mockHasExtensionRuntime = { value: true };
 jest.mock('lib/platform', () => ({
-  isExtension: () => mockIsExtension.value
+  isExtension: () => mockIsExtension.value,
+  hasExtensionRuntime: () => mockIsExtension.value && mockHasExtensionRuntime.value
 }));
 
 // `browser.runtime.reload` is spy-able; `window.location.reload` is a non-configurable jsdom getter
@@ -37,6 +40,7 @@ describe('resetWalletAndReload', () => {
 
   beforeEach(() => {
     mockIsExtension.value = false;
+    mockHasExtensionRuntime.value = true;
     runtimeReload.mockReset();
     resetStorageDestructive.mockReset();
     resetStorageDestructive.mockResolvedValue(undefined);
@@ -51,6 +55,19 @@ describe('resetWalletAndReload', () => {
     expect(resetStorageDestructive).toHaveBeenCalledTimes(1);
     expect(runtimeReload).not.toHaveBeenCalled();
     expect(onWipeError).not.toHaveBeenCalled();
+  });
+
+  it('reloads in place on an extension page that has lost its runtime, which cannot reload the extension', async () => {
+    mockIsExtension.value = true;
+    mockHasExtensionRuntime.value = false;
+    resetStorageDestructive.mockImplementationOnce(async () => {
+      window.dispatchEvent(new Event('pagehide'));
+    });
+
+    await expect(resetWalletAndReload(onWipeError)).resolves.toBeUndefined();
+
+    expect(resetStorageDestructive).toHaveBeenCalledTimes(1);
+    expect(runtimeReload).not.toHaveBeenCalled();
   });
 
   it('sets mainnet after the wipe and before reload', async () => {

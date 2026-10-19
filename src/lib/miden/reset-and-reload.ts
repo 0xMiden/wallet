@@ -2,7 +2,7 @@ import { carryMainnetAccessCode } from 'lib/carried-mainnet-code';
 import { resetStorageDestructive } from 'lib/miden/reset';
 import { applyEndpointOverride, buildNetworkChoiceOverride } from 'lib/miden-chain/effective-endpoints';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
-import { isExtension } from 'lib/platform';
+import { hasExtensionRuntime } from 'lib/platform';
 
 /**
  * The step of a reset that did not finish. `prepare`: nothing was wiped. `wipe`: the wipe rejected,
@@ -30,7 +30,8 @@ export class ResetAndReloadError extends Error {
  * kept until this function's own reload has been attempted; the extension reloads once either way. The
  * polyfill is fetched first, since a `pagehide` listener cannot wait for an import, and a fetch that
  * fails stops the reset before the wipe. Off the extension there is no background worker to resync
- * with, so the page reloads in place.
+ * with, so the page reloads in place, as does an extension page an extension reload or update left
+ * without a runtime to reload.
  *
  * `onWipeError` runs when the wipe rejects, before the reload. Throws `ResetAndReloadError` for the
  * `prepare` and `reload` steps. `accessCode`, a mainnet code the node accepted before the switch, is
@@ -44,7 +45,7 @@ export async function resetWalletAndReload(
   // Set by whichever extension reload runs first, the pagehide listener's or the one below, so it runs once.
   let reloaded = false;
   let reloadOnce: (() => void) | undefined;
-  if (isExtension()) {
+  if (hasExtensionRuntime()) {
     try {
       // Dynamic import: `webextension-polyfill` throws at module-evaluation time when `chrome.runtime.id` is
       // absent, and this module is bundled for every platform.

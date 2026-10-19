@@ -31,7 +31,7 @@ import {
 } from 'lib/miden-chain/effective-endpoints';
 import { EndpointHealthKind, useEndpointHealth } from 'lib/miden-chain/endpoint-health';
 import { hapticMedium } from 'lib/mobile/haptics';
-import { isExtension } from 'lib/platform';
+import { hasExtensionRuntime, isExtension } from 'lib/platform';
 import { followEffectiveNetwork } from 'lib/remote-config/runtime';
 import { reloadEndpointOverridesInSW, selectIsIdle, useWalletStore } from 'lib/store';
 import { useAlert, useConfirm } from 'lib/ui/dialog';
@@ -282,9 +282,10 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
     // wipe, so nothing is wiped without its reload armed. Dynamic import: `webextension-polyfill` throws at
     // module-evaluation time when `chrome.runtime.id` is absent, so it must not be a top-level import - this
     // screen is statically imported by PageRouter and evaluates on every platform (desktop has no vite alias for
-    // it, unlike mobile). Mirrors src/lib/miden/reset.ts.
+    // it, unlike mobile). Mirrors src/lib/miden/reset.ts. A page an extension reload or update left without a runtime
+    // cannot reload the extension, so it reloads in place.
     let reloadOnce: (() => void) | undefined;
-    if (isExtension()) {
+    if (hasExtensionRuntime()) {
       try {
         const browser = (await import('webextension-polyfill')).default;
         reloadOnce = () => {

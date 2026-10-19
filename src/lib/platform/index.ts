@@ -38,18 +38,24 @@ export function isCapacitor(): boolean {
 }
 
 /**
- * Detects if running in a browser extension context
+ * Detects a live extension runtime, whose APIs can still be called. An open extension page loses it when the
+ * extension is reloaded or updated, while it stays an extension page (`isExtension`).
  */
-export function isExtension(): boolean {
+export function hasExtensionRuntime(): boolean {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const g = globalThis as any;
   // Check for Firefox (browser.runtime.id) or Chrome (chrome.runtime.id)
-  const browserRuntime = g.browser?.runtime?.id;
-  const chromeRuntime = g.chrome?.runtime?.id;
+  return !!(g.browser?.runtime?.id || g.chrome?.runtime?.id);
+}
+
+/**
+ * Detects if running in a browser extension context
+ */
+export function isExtension(): boolean {
   // An extension reload or update leaves an open extension page with no runtime id but its own URL, and that page
   // must keep taking the extension's branches (#1592).
-  const protocol = g.location?.protocol;
-  return !!(browserRuntime || chromeRuntime) || protocol === 'chrome-extension:' || protocol === 'moz-extension:';
+  const protocol = globalThis.location?.protocol;
+  return hasExtensionRuntime() || protocol === 'chrome-extension:' || protocol === 'moz-extension:';
 }
 
 /**
