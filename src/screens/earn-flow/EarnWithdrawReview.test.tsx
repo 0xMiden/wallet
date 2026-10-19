@@ -560,6 +560,30 @@ describe('EarnWithdrawReview with no position to name', () => {
 });
 
 describe('selected withdrawal review', () => {
+  it('reports the visible quote refresh when an empty submit error leaves no owning submit notice', async () => {
+    jest.useFakeTimers();
+    jest.mocked(gaslessEarnWithdrawalToMiden).mockRejectedValueOnce(new Error(''));
+    const view = render(<EarnWithdrawReview positionId="position-1" />);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(screen.getByRole('button', { name: 'withdraw' })).toBeEnabled();
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'withdraw' }));
+    });
+    expect(gaslessEarnWithdrawalToMiden).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId('earn-withdraw-review-error')).not.toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent('earnWithdrawRefresh');
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    act(() => jest.advanceTimersByTime(999));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    act(() => jest.advanceTimersByTime(1));
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['earnWithdrawRefresh', 'notice']]);
+    view.rerender(<EarnWithdrawReview positionId="position-1" />);
+    act(() => jest.advanceTimersByTime(1000));
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['earnWithdrawRefresh', 'notice']]);
+  });
+
   it('reports a new balance validation after a submit failure remains visible, with its own full dwell', async () => {
     jest.useFakeTimers();
     jest.mocked(gaslessEarnWithdrawalToMiden).mockRejectedValueOnce(new Error('intent unavailable 123.45 0xprivate'));
