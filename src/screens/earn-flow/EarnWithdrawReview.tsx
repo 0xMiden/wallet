@@ -26,7 +26,10 @@ interface EarnWithdrawReviewProps {
   positionId: string;
 }
 
-/** Whether two reads of a position agree on every value its withdrawal quote reviews. */
+/**
+ * Whether two reads of a position agree on every value its withdrawal quote reviews. The available balance is not
+ * one: the submit check needs only that it still covers the reviewed amount, which the amount check reads live.
+ */
 const sameReviewedPosition = (a: EarnPosition | undefined, b: EarnPosition | undefined) =>
   a === b ||
   (a !== undefined &&
@@ -36,7 +39,6 @@ const sameReviewedPosition = (a: EarnPosition | undefined, b: EarnPosition | und
     a.marketUid === b.marketUid &&
     a.underlyingAddress === b.underlyingAddress &&
     a.decimals === b.decimals &&
-    a.withdrawable === b.withdrawable &&
     a.stale === b.stale);
 
 /** Review the selected amount against its quote. A URL without an amount goes back to the amount step. */

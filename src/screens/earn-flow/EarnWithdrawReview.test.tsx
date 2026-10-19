@@ -604,18 +604,18 @@ describe('selected withdrawal review', () => {
     expect(gaslessEarnWithdrawalToMiden).toHaveBeenCalledTimes(1);
     expect(screen.getByRole('button', { name: 'withdrawing' })).toBeDisabled();
   });
-  it('drops the reviewed quote when availability changes but still covers the amount', async () => {
+  it('keeps the reviewed quote when availability changes but still covers the amount', async () => {
     const view = render(<EarnWithdrawReview positionId="position-1" />);
     await waitFor(() => expect(screen.getByRole('button', { name: 'withdraw' })).toBeEnabled());
-    // 40 still covers 1.000001, so the amount check passes and only the dropped quote can disable Withdraw.
+    // A new quote would never settle, so only a kept one leaves Withdraw enabled; 40 still covers 1.000001.
     jest.mocked(quotes.quoteEarnWithdrawal).mockImplementation(() => new Promise(() => undefined));
-    const moved = { ...position, withdrawable: '40' };
-    mockPositions = [moved];
+    mockPositions = [{ ...position, withdrawable: '40' }];
     view.rerender(<EarnWithdrawReview positionId="position-1" />);
-    expect(screen.getByRole('button', { name: 'withdraw' })).toBeDisabled();
-    expect(quotes.quoteEarnWithdrawal).toHaveBeenLastCalledWith(
-      expect.objectContaining({ position: moved, amount: '1.000001' })
-    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(screen.getByRole('button', { name: 'withdraw' })).toBeEnabled();
+    expect(quotes.quoteEarnWithdrawal).toHaveBeenCalledTimes(1);
   });
   it('keeps the reviewed quote when a positions refresh rebuilds the position with the same values', async () => {
     const view = render(<EarnWithdrawReview positionId="position-1" />);

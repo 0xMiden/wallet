@@ -101,10 +101,32 @@ it.each(unusableMetadata)('refuses a successful quote when the native asset has 
   jest.mocked(getNativeAssetMetadata).mockResolvedValue(metadata);
   await expect(quoteEarnWithdrawal(args, sdk)).rejects.toThrow(new Error('earnWithdrawQuoteUnavailable'));
 });
-it('requires refresh on expiry, changed availability, payout identity or failed position read', async () => {
+const withWithdrawable = (withdrawable: string) => {
+  const read = jest.mocked(fetchEarnPositions).getMockImplementation();
+  if (!read) throw new Error('the positions read has no implementation');
+  jest.mocked(fetchEarnPositions).mockImplementationOnce(async request => {
+    const fresh = await read(request);
+    return { ...fresh, positions: fresh.positions.map(p => ({ ...p, withdrawable })) };
+  });
+};
+it.each([
+  ['rose', '40'],
+  ['fell but still covers the reviewed amount', '2'],
+  ['equals the reviewed amount', '1.000000000000000001']
+])('keeps a review whose availability %s', async (_case, withdrawable) => {
+  const q = await quoteEarnWithdrawal(args, sdk);
+  withWithdrawable(withdrawable);
+  await expect(assertWithdrawalReviewCurrent(q)).resolves.toBeUndefined();
+});
+it('requires refresh once availability falls below the reviewed amount', async () => {
+  const q = await quoteEarnWithdrawal(args, sdk);
+  withWithdrawable('1');
+  await expect(assertWithdrawalReviewCurrent(q)).rejects.toThrow('earnWithdrawRefresh');
+});
+it('requires refresh on expiry, a malformed reviewed amount, payout identity or failed position read', async () => {
   const q = await quoteEarnWithdrawal(args, sdk);
   await expect(assertWithdrawalReviewCurrent({ ...q, expiresAt: 0 })).rejects.toThrow('earnWithdrawRefresh');
-  await expect(assertWithdrawalReviewCurrent({ ...q, availableAtomic: '1' })).rejects.toThrow('earnWithdrawRefresh');
+  await expect(assertWithdrawalReviewCurrent({ ...q, amountAtomic: '1e18' })).rejects.toThrow('earnWithdrawRefresh');
   jest.mocked(getNativeAssetId).mockResolvedValueOnce('different');
   await expect(assertWithdrawalReviewCurrent(q)).rejects.toThrow('earnWithdrawRefresh');
   jest.mocked(fetchEarnPositions).mockResolvedValueOnce({

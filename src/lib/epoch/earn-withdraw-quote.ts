@@ -142,7 +142,7 @@ export function assertWithdrawalReviewContext(quote: EarnWithdrawalQuote): void 
     throw new Error('earnWithdrawRefresh');
 }
 
-/** Fresh read before any signing; a changed balance requires another review even when still sufficient. */
+/** Fresh read before any signing; the balance may have moved, as long as it still covers the reviewed amount. */
 export async function assertWithdrawalReviewCurrent(quote: EarnWithdrawalQuote): Promise<void> {
   assertWithdrawalReviewContext(quote);
   if (normalizeMidenIdToHex(await getNativeAssetId()) !== normalizeMidenIdToHex(quote.destinationFaucetId))
@@ -158,7 +158,8 @@ export async function assertWithdrawalReviewCurrent(quote: EarnWithdrawalQuote):
     !position ||
     position.decimals !== quote.position.decimals ||
     position.underlyingAddress.toLowerCase() !== quote.position.underlyingAddress.toLowerCase() ||
-    withdrawalAmount(position.withdrawable, position.decimals)?.toString() !== quote.availableAtomic
+    !/^\d+$/.test(quote.amountAtomic) ||
+    (withdrawalAmount(position.withdrawable, position.decimals) ?? -1n) < BigInt(quote.amountAtomic)
   )
     throw new Error('earnWithdrawRefresh');
   assertWithdrawalReviewContext(quote);
