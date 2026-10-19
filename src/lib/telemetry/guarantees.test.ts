@@ -347,7 +347,10 @@ describe('the guard reads the tree it claims to read', () => {
   it('extracts package names it knows are present, so a broken parser cannot read as a clean tree', () => {
     expect(declaredPackages()).toContain('@sentry/browser');
     expect(lockfilePackages().has('@sentry/browser')).toBe(true);
-    expect([...(importedPackages().get('@sentry/browser') ?? [])]).toEqual(['src/lib/telemetry/crash.ts']);
+    expect([...(importedPackages().get('@sentry/browser') ?? [])]).toEqual([
+      'src/lib/telemetry/crash.test.ts',
+      'src/lib/telemetry/crash.ts'
+    ]);
   });
 });
 
@@ -1110,6 +1113,7 @@ describe('the background service worker never imports the telemetry barrel', () 
     // every realm that starts the SDK, the worker among them.
     // `bridge-receive-failure.ts` imports nothing either: the transaction-failure
     // reporter reads it to name a failed inbound bridge's route, step and error.
+    // `crash-diagnostics.ts` uses the worker-safe user-visible error allowlists to validate diagnostics.
     expect([...backgroundGraph().modules].filter(module => module.startsWith('src/lib/telemetry/')).sort()).toEqual([
       'src/lib/telemetry/aptabase.ts',
       'src/lib/telemetry/bridge-receive-failure.ts',
@@ -1132,6 +1136,7 @@ describe('the background service worker never imports the telemetry barrel', () 
       'src/lib/telemetry/transaction-failure.ts',
       'src/lib/telemetry/transaction-operation.ts',
       'src/lib/telemetry/types.ts',
+      'src/lib/telemetry/user-visible-error.ts',
       'src/lib/telemetry/wasm-startup.ts'
     ]);
   });
