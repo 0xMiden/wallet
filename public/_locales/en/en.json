@@ -1530,5 +1530,11 @@
   "bridgeRankValueDescription": "Most received after provider fees.",
   "bridgeRankCostDescription": "Lowest bridge and network cost, including gas.",
   "bridgeRankTimeDescription": "Shortest estimated arrival time.",
-  "bridgeEstimatedCost": "Est. cost"
+  "bridgeEstimatedCost": "Est. cost",
+  "webViewUpdateTitle": "Update Android System WebView",
+  "webViewUpdateBody": "Bread needs a newer version of Android System WebView, the part of Android that shows web pages in apps. Update it from Google Play, then open Bread again.",
+  "webViewUpdateAction": "Open Google Play",
+  "webViewStartFailedTitle": "Bread couldn't start",
+  "webViewStartFailedBody": "Something stopped Bread from loading. Try again, or close Bread and open it again.",
+  "webViewStartFailedAction": "Try again"
 }

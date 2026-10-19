@@ -17,7 +17,11 @@ const config: CapacitorConfig = {
     // need cross-origin isolation in the WebView.
     androidScheme: 'http',
     cleartext: true,
+    errorPath: 'webview-error.html',
     ...(isLiveReload ? { appStartPath: '/mobile.html' } : {})
+  },
+  android: {
+    minWebViewVersion: 98
   },
   plugins: {
     Preferences: {
