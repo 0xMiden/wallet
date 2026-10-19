@@ -1,6 +1,5 @@
 package com.miden.breadconnect
 
-import java.util.Base64
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.coroutineScope
@@ -13,6 +12,8 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
+import org.bouncycastle.util.encoders.Base64
+import org.bouncycastle.util.encoders.DecoderException
 
 /** Where the client keeps the session, the waiting request and transaction outcomes across launches. */
 interface BreadConnectStorage {
@@ -143,7 +144,7 @@ class BreadConnect(
             buildJsonObject {
                 put("type", "LOGIN_SIGN_REQUEST")
                 put("sourceAccountId", connectedAccountId())
-                put("payload", Base64.getEncoder().encodeToString(data))
+                put("payload", Base64.toBase64String(data))
                 put("kind", "word")
             },
         )
@@ -158,15 +159,16 @@ class BreadConnect(
 
     private fun standardBase64(response: JsonObject, type: String, field: String): ByteArray {
         val text = response[field].string
-        if (response["type"].string != type || text == null) {
+        if (response["type"].string != type || text == null || !STANDARD_BASE64.matches(text)) {
             throw BreadConnectException(
                 BreadConnectException.Code.Bread(ProtocolErrorCode.INTERNAL_ERROR),
                 "Bread's answer has no well-formed $field",
             )
         }
         return try {
-            Base64.getDecoder().decode(text)
-        } catch (_: IllegalArgumentException) {
+            val padded = if (text.endsWith('=')) text else text.padEnd((text.length + 3) / 4 * 4, '=')
+            Base64.decode(padded)
+        } catch (_: DecoderException) {
             throw BreadConnectException(
                 BreadConnectException.Code.Bread(ProtocolErrorCode.INTERNAL_ERROR),
                 "Bread's answer has no well-formed $field",
@@ -398,5 +400,6 @@ class BreadConnect(
         internal const val PENDING_KEY = "bread-connect:pending"
         internal const val OUTCOMES_KEY = "bread-connect:outcomes"
         private const val OUTCOME_LIMIT = 20
+        private val STANDARD_BASE64 = Regex("[A-Za-z0-9+/]*={0,2}")
     }
 }
