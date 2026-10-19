@@ -4,9 +4,10 @@
 import { type Hex } from 'viem';
 
 import { buildVaultEvmWalletClient } from 'lib/epoch/evm-account';
+import { TEST_CALIBUR_ADDRESS as CALIBUR_SEPOLIA_ADDRESS } from 'lib/epoch/testing/bridge-config';
 
 import { BackendOrder, BuyOrderPrepare, postBuySignature } from './buy-api';
-import { CALIBUR_SEPOLIA_ADDRESS, OFFRAMP_NONCE_KEY, ONRAMP_NONCE_KEY, sellBatchTypedData } from './buy-batch';
+import { OFFRAMP_NONCE_KEY, ONRAMP_NONCE_KEY, sellBatchTypedData } from './buy-batch';
 import {
   SELL_RELAY_TOKEN,
   SellSignRefusal,
@@ -19,6 +20,13 @@ import {
 
 const mockSignTypedData = jest.fn();
 const mockSignAuthorization = jest.fn();
+
+// The chain and the Calibur contract come from the bridge config's on-ramp section.
+jest.mock('lib/remote-config/values', () =>
+  jest
+    .requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
+    .remoteConfigValuesMock()
+);
 
 jest.mock('lib/epoch/evm-account', () => ({
   buildVaultEvmWalletClient: jest.fn((_publicKey: string, address: string) => ({

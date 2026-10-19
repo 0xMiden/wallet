@@ -5,22 +5,18 @@
  * value against what it saw itself, builds the batch with `buy-batch.ts` and signs that. It never signs calldata
  * or a digest from the API. The deposit address the wallet trusts is the one the Transak page showed the user; a
  * backend that names another address is refused. A hacked backend can therefore at most make the wallet sign a
- * transfer of the expected amount to the address the user saw, through the pinned Calibur code.
+ * transfer of the expected amount to the address the user saw, through the Calibur code the bridge config names
+ * (`getOnramp`).
  */
-import { isAddress, isAddressEqual, parseUnits, type Address, type Hex } from 'viem';
+import { getAddress, isAddress, isAddressEqual, parseUnits, type Address, type Hex } from 'viem';
 
 import { TRNSK_DECIMALS, TRNSK_SEPOLIA_ADDRESS, TRNSK_SYMBOL } from 'lib/agglayer/constant';
 import { buildVaultEvmWalletClient } from 'lib/epoch/evm-account';
+import type { OnrampConfig } from 'lib/remote-config/schema';
+import { getOnramp } from 'lib/remote-config/values';
 
 import { BackendOrder, BuyAuthorization, BuyOrderPrepare, BuyOrderState, postBuySignature } from './buy-api';
-import {
-  BUY_BATCH_TTL_SECONDS,
-  CALIBUR_SEPOLIA_ADDRESS,
-  OFFRAMP_NONCE_KEY,
-  SEPOLIA_CHAIN_ID,
-  SellBatchInput,
-  sellBatchTypedData
-} from './buy-batch';
+import { OFFRAMP_NONCE_KEY, SellBatchInput, sellBatchTypedData } from './buy-batch';
 
 /** Clock skew that the deadline check accepts, in seconds. */
 const DEADLINE_SKEW_SECONDS = 60;
@@ -99,17 +95,24 @@ export function sellRelayTokenAmount(cryptoAmount: string): bigint {
 }
 
 /**
- * Check every backend value against the local account, what the Transak page showed and the pinned constants.
- * Return the batch input to sign, or throw `SellSignRefusedError`.
+ * Check every backend value against the local account, what the Transak page showed and the bridge config's on-ramp
+ * section. Return the batch input to sign and the section it was checked against, or throw `SellSignRefusedError`.
+ * Throws `BridgeConfigUnavailableError` while no accepted document names an on-ramp; the caller tries again later.
  */
-export function validateSellPrepare(input: SignSellOrderInput): { prepare: BuyOrderPrepare; batch: SellBatchInput } {
+export function validateSellPrepare(input: SignSellOrderInput): {
+  prepare: BuyOrderPrepare;
+  batch: SellBatchInput;
+  onramp: OnrampConfig;
+} {
   const { account, order } = input;
   const prepare = order.prepare;
   if (!prepare) return refuse('no-prepare', 'Order has no signing values');
   if (order.side !== 'sell') refuse('side', 'Order is not a sell');
 
-  if (prepare.chainId !== SEPOLIA_CHAIN_ID) refuse('chain', 'Order is not on Sepolia');
-  if (!isAddressEqual(prepare.calibur, CALIBUR_SEPOLIA_ADDRESS)) refuse('calibur', 'Order names another Calibur');
+  const onramp = getOnramp();
+  const { calibur } = onramp;
+  if (prepare.chainId !== onramp.chainId) refuse('chain', 'Order is not on the on-ramp chain');
+  if (!isAddressEqual(prepare.calibur, calibur.address)) refuse('calibur', 'Order names another Calibur');
 
   const evmAddress = account.evmAddress;
   if (!isAddress(evmAddress, { strict: false }) || !isAddressEqual(prepare.evmAddress, evmAddress)) {
@@ -140,12 +143,12 @@ export function validateSellPrepare(input: SignSellOrderInput): { prepare: BuyOr
   const batchNonce = BigInt(prepare.batchNonce);
   if (batchNonce >> 64n !== OFFRAMP_NONCE_KEY) refuse('nonce-key', 'Order nonce is not in the off-ramp key');
 
-  if (prepare.salt.slice(-40).toLowerCase() !== CALIBUR_SEPOLIA_ADDRESS.slice(2).toLowerCase()) {
+  if (prepare.salt.slice(-40).toLowerCase() !== calibur.address.slice(2)) {
     refuse('salt', 'Order salt names another Calibur implementation');
   }
 
   const now = input.nowSeconds ?? Math.floor(Date.now() / 1000);
-  const latest = Math.min(now + BUY_BATCH_TTL_SECONDS, order.autoExpiresAt ?? Number.MAX_SAFE_INTEGER);
+  const latest = Math.min(now + calibur.batchTtlSeconds, order.autoExpiresAt ?? Number.MAX_SAFE_INTEGER);
   if (prepare.deadline <= now || prepare.deadline > latest + DEADLINE_SKEW_SECONDS) {
     refuse('deadline', 'Order deadline is not valid');
   }
@@ -166,13 +169,14 @@ export function validateSellPrepare(input: SignSellOrderInput): { prepare: BuyOr
       salt: prepare.salt,
       executor: prepare.executor,
       deadline: BigInt(prepare.deadline)
-    }
+    },
+    onramp
   };
 }
 
 /** Validate, sign and post the transfer batch of one sell order. Return the new backend state. */
 export async function signSellOrder(input: SignSellOrderInput): Promise<BuyOrderState> {
-  const { prepare, batch } = validateSellPrepare(input);
+  const { prepare, batch, onramp } = validateSellPrepare(input);
   const client = buildVaultEvmWalletClient(input.account.publicKey, batch.evmAddress);
   const signer = client.account;
   if (!signer) return refuse('signer', 'EVM signing account unavailable');
@@ -181,17 +185,18 @@ export async function signSellOrder(input: SignSellOrderInput): Promise<BuyOrder
 
   let authorization: BuyAuthorization | undefined;
   if (prepare.needsAuthorization) {
+    // Checksummed, as the vault's EVM client and the backend's authorization body carry it.
+    const calibur: Address = getAddress(onramp.calibur.address);
     const signed = await client.signAuthorization({
       account: signer,
-      contractAddress: CALIBUR_SEPOLIA_ADDRESS,
-      chainId: SEPOLIA_CHAIN_ID,
+      contractAddress: calibur,
+      chainId: onramp.chainId,
       nonce: prepare.authorizationNonce
     });
     if (signed.yParity === undefined) return refuse('signer', 'Authorization signature has no parity');
-    const calibur: Address = CALIBUR_SEPOLIA_ADDRESS;
     authorization = {
       address: calibur,
-      chainId: SEPOLIA_CHAIN_ID,
+      chainId: onramp.chainId,
       nonce: prepare.authorizationNonce,
       r: signed.r,
       s: signed.s,

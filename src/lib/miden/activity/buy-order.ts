@@ -22,6 +22,7 @@ import * as Repo from 'lib/miden/repo';
 import { BuyApiError, BuyOrder, getBuyOrder } from 'lib/onramp/buy-api';
 import { midenAccountHexToEvmAddress, midenAccountIdToHex } from 'lib/onramp/buy-batch';
 import { BuySignRefusedError, signBuyOrder } from 'lib/onramp/buy-signer';
+import { initBridgeConfig } from 'lib/remote-config/runtime';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { WalletStatus } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
@@ -117,6 +118,8 @@ async function signIfAsked(row: ITransaction, inputs: IBuyExtraInputs, order: Bu
 
   signedBatches.add(key);
   try {
+    // The signer reads the on-ramp section of the bridge config, and this poll runs with no user action.
+    await initBridgeConfig();
     const state = await signBuyOrder({
       account: {
         publicKey: account.publicKey,

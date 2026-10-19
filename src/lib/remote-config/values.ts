@@ -5,7 +5,12 @@ import { walletRaised } from 'lib/telemetry/bridge-receive-failure';
 import type { BridgeToken, DerivedChainConfig, Probe, TokenMetadata } from './derive';
 import { getE2eOverrides, type MidenUsdc } from './e2e-overrides';
 import { type BridgeConfigSnapshot, getBridgeConfigSnapshot } from './runtime';
-import { type AgglayerRecoveryConfig, epochCollateralFaucetId, type SupportedEvmChainConfig } from './schema';
+import {
+  type AgglayerRecoveryConfig,
+  epochCollateralFaucetId,
+  type OnrampConfig,
+  type SupportedEvmChainConfig
+} from './schema';
 import type { SwapPairs } from './swap-pairs';
 
 /** Thrown by a `get*` getter while the accepted document or its derivation cannot supply the value. */
@@ -104,6 +109,14 @@ export function selectInviteOnlyOnboarding(s: BridgeConfigSnapshot): boolean | n
 }
 
 /**
+ * The fiat on-ramp and off-ramp relay the document names: the chain it runs on and the Calibur contract the wallet
+ * signs for, addresses lowercase. Null when the document names none, or no document is accepted yet.
+ */
+export function selectOnramp(s: BridgeConfigSnapshot): OnrampConfig | null {
+  return s.config?.onramp ?? null;
+}
+
+/**
  * The registered token whose origin is native ETH on network 0: its faucet mints bridged ETH and sends its deliveries,
  * each a deposit of `w` wei arriving as `floor(w / 10^scale)` of the faucet's units.
  */
@@ -177,6 +190,11 @@ export function findEpochUsdcAddress(chainId: number): string | null {
 
 export function getEarnMarket(): EarnMarket {
   return getValue('Earn market', selectEarnMarket);
+}
+
+/** The on-ramp relay's chain and Calibur contract. A buy or sell signs nothing while the document names none. */
+export function getOnramp(): OnrampConfig {
+  return getValue('onramp', selectOnramp);
 }
 
 export function getAgglayerMidenBridge(chainId?: number): string {

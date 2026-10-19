@@ -20,6 +20,7 @@ import {
   getEvmUsdc,
   getEvmUsdcAddress,
   getMidenUsdc,
+  getOnramp,
   selectEarnMarket,
   selectEvmUsdc,
   selectInviteOnlyOnboarding,
@@ -28,8 +29,20 @@ import {
   selectAgglayerRecoveryConfig,
   selectNativeEthFaucet,
   selectNativeEthFaucets,
-  selectNativeEthToken
+  selectNativeEthToken,
+  selectOnramp
 } from './values';
+
+const ONRAMP: BridgeConfig['onramp'] = {
+  chainId: 11155111,
+  calibur: {
+    address: '0x00000cabfc76478c1537dd418ab00967cbbe4ae6',
+    runtimeHash: '0xd8f2157116f6901840d009511732cb247c1ced614af48351f1c1e5d52deea1eb',
+    domainName: 'Calibur',
+    domainVersion: '1.0.0',
+    batchTtlSeconds: 86_400
+  }
+};
 
 jest.mock('./runtime', () => ({ getBridgeConfigSnapshot: jest.fn() }));
 
@@ -258,6 +271,12 @@ describe('selectors', () => {
     expect(selectMidenUsdc(snapshot())?.faucetId).toBe('0x537c15a622074e91188aa894456c52');
   });
 
+  it('select the on-ramp relay the document names, and null when it names none', () => {
+    expect(selectOnramp(snapshot({ ...CONFIG, onramp: ONRAMP }))).toStrictEqual(ONRAMP);
+    expect(selectOnramp(snapshot())).toBeNull();
+    expect(selectOnramp(EMPTY)).toBeNull();
+  });
+
   it('select the Welcome variant the document sets, and null when it sets none', () => {
     expect(selectInviteOnlyOnboarding(snapshot({ ...CONFIG, onboarding: { inviteOnly: true } }))).toBe(true);
     expect(selectInviteOnlyOnboarding(snapshot({ ...CONFIG, onboarding: { inviteOnly: false } }))).toBe(false);
@@ -314,10 +333,18 @@ describe('getters', () => {
     getAgglayerRollupId,
     getAgglayerEvmNetworkId,
     getAgglayerBridgeOut,
-    getAgglayerDeposit
+    getAgglayerDeposit,
+    getOnramp
   ])('%p throws while there is no accepted document', get => {
     jest.mocked(getBridgeConfigSnapshot).mockReturnValue(EMPTY);
     expect(() => get()).toThrow(BridgeConfigUnavailableError);
+  });
+
+  it('name the on-ramp relay only while the document names one', () => {
+    jest.mocked(getBridgeConfigSnapshot).mockReturnValue(snapshot({ ...CONFIG, onramp: ONRAMP }));
+    expect(getOnramp()).toStrictEqual(ONRAMP);
+    jest.mocked(getBridgeConfigSnapshot).mockReturnValue(snapshot());
+    expect(() => getOnramp()).toThrow(BridgeConfigUnavailableError);
   });
 
   it('name the EVM USDC from the document alone while its read has not succeeded', () => {

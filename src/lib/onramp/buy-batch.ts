@@ -12,6 +12,8 @@ import {
   type TypedData
 } from 'viem';
 
+import { getOnramp } from 'lib/remote-config/values';
+
 /**
  * The Calibur signed batch for a fiat buy: approve the Agglayer bridge, then bridge the token to the Miden account.
  *
@@ -19,18 +21,16 @@ import {
  * `backend/src/chain-testnet/agglayer.ts` (its calls). The two packages do not share code. If you change the
  * batch, the types or the domain, change the twin at the same time, else the backend refuses every signature.
  * The golden digest in `buy-batch.test.ts` and in the backend test must stay equal.
+ *
+ * The chain and the Calibur contract (its address, EIP-712 domain and batch TTL) come from the bridge config's
+ * `onramp` section (`getOnramp`), never from the API: the backend only echoes them, and the signers refuse an
+ * order that names others.
  */
 
-export const SEPOLIA_CHAIN_ID = 11155111;
-
-// Uniswap Calibur v1.1.0 on Sepolia. The wallet never takes this address from the API.
-export const CALIBUR_SEPOLIA_ADDRESS: Address = '0x00000cAbFc76478C1537dd418aB00967cBbE4AE6';
 /** The Calibur nonce key of the on-ramp. The batch nonce is `key << 64 | sequence`. */
 export const ONRAMP_NONCE_KEY = BigInt(keccak256(stringToHex('miden.onramp'))) >> 64n;
 /** The Calibur nonce key of the off-ramp. Its own key, so a sell and a buy of one address never share a sequence. */
 export const OFFRAMP_NONCE_KEY = BigInt(keccak256(stringToHex('miden.offramp'))) >> 64n;
-/** A signed batch stays valid for this number of seconds. */
-export const BUY_BATCH_TTL_SECONDS = 86_400;
 
 // The Agglayer bridge on Sepolia and the Agglayer network ID of Miden testnet (not an EVM chain ID).
 export const AGGLAYER_BRIDGE_ADDRESS: Address = '0x528e26b25a34a4a5d0dbda1d57d318153d2ed582';
@@ -75,6 +75,15 @@ const batchTypes = {
 } satisfies TypedData;
 
 export const MIDEN_ACCOUNT_HEX_PATTERN = /^0x[0-9a-fA-F]{30}$/;
+
+/**
+ * The EIP-712 domain of a batch: the config's Calibur domain on the on-ramp chain, verified by the account itself.
+ * The salt is the one the account's `eip712Domain()` reports; the signers check that it names the config's Calibur.
+ */
+function caliburDomain(evmAddress: Address, salt: Hex) {
+  const { chainId, calibur } = getOnramp();
+  return { name: calibur.domainName, version: calibur.domainVersion, chainId, verifyingContract: evmAddress, salt };
+}
 
 /**
  * The hex account ID (lower case, `0x` + 30 hex) of a bech32 Miden address. The backend challenge and the batch
@@ -159,13 +168,7 @@ export function buildBuyBatch(input: BuyBatchInput) {
 export function buyBatchTypedData(input: BuyBatchInput) {
   const primaryType: 'SignedBatchedCall' = 'SignedBatchedCall';
   return {
-    domain: {
-      name: 'Calibur',
-      version: '1.0.0',
-      chainId: SEPOLIA_CHAIN_ID,
-      verifyingContract: input.evmAddress,
-      salt: input.salt
-    },
+    domain: caliburDomain(input.evmAddress, input.salt),
     types: batchTypes,
     primaryType,
     message: buildBuyBatch(input)
@@ -230,13 +233,7 @@ export function buildSellBatch(input: SellBatchInput) {
 export function sellBatchTypedData(input: SellBatchInput) {
   const primaryType: 'SignedBatchedCall' = 'SignedBatchedCall';
   return {
-    domain: {
-      name: 'Calibur',
-      version: '1.0.0',
-      chainId: SEPOLIA_CHAIN_ID,
-      verifyingContract: input.evmAddress,
-      salt: input.salt
-    },
+    domain: caliburDomain(input.evmAddress, input.salt),
     types: batchTypes,
     primaryType,
     message: buildSellBatch(input)

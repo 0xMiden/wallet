@@ -1,16 +1,26 @@
 /**
  * @jest-environment node
  */
-import { type Hex } from 'viem';
+import { type Address, type Hex } from 'viem';
 
 import { buildVaultEvmWalletClient } from 'lib/epoch/evm-account';
+import { TEST_CALIBUR_ADDRESS as CALIBUR_SEPOLIA_ADDRESS } from 'lib/epoch/testing/bridge-config';
+import { BridgeConfigUnavailableError, getOnramp } from 'lib/remote-config/values';
 
 import { BuyOrder, BuyOrderPrepare, postBuySignature } from './buy-api';
-import { CALIBUR_SEPOLIA_ADDRESS, ONRAMP_NONCE_KEY, buyBatchTypedData } from './buy-batch';
+import { ONRAMP_NONCE_KEY, buyBatchTypedData } from './buy-batch';
 import { BuySignRefusal, BuySignRefusedError, SignBuyOrderInput, signBuyOrder, validateBuyPrepare } from './buy-signer';
 
 const mockSignTypedData = jest.fn();
 const mockSignAuthorization = jest.fn();
+
+// The chain and the Calibur contract come from the bridge config's on-ramp section.
+jest.mock('lib/remote-config/values', () => ({
+  ...jest.requireActual('lib/remote-config/values'),
+  ...jest
+    .requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
+    .remoteConfigValuesMock()
+}));
 
 jest.mock('lib/epoch/evm-account', () => ({
   buildVaultEvmWalletClient: jest.fn((_publicKey: string, address: string) => ({
@@ -135,6 +145,28 @@ describe('validateBuyPrepare', () => {
   it('refuses an account with no valid EVM address', () => {
     const input = inputWith(orderWith());
     expect(refusalOf({ ...input, account: { ...input.account, evmAddress: 'not-an-address' } })).toBe('evm-address');
+  });
+
+  it('checks the chain, the Calibur address and the TTL against the on-ramp section', () => {
+    const onramp = jest.mocked(getOnramp)();
+    const other: Address = '0x3333333333333333333333333333333333333333';
+    jest.mocked(getOnramp).mockReturnValue({
+      chainId: 1,
+      calibur: { ...onramp.calibur, address: other, batchTtlSeconds: 600 }
+    });
+    expect(refusalOf(inputWith(orderWith()))).toBe('chain');
+    const salt: Hex = `0x${'0'.repeat(24)}${'33'.repeat(20)}`;
+    const moved = { chainId: 1, calibur: other, salt, deadline: NOW + 600 };
+    expect(refusalOf(inputWith(orderWith(moved)))).toBeUndefined();
+    expect(refusalOf(inputWith(orderWith({ ...moved, deadline: NOW + 661 })))).toBe('deadline');
+    jest.mocked(getOnramp).mockReturnValue(onramp);
+  });
+
+  it('signs nothing while the document names no on-ramp', () => {
+    jest.mocked(getOnramp).mockImplementationOnce(() => {
+      throw new BridgeConfigUnavailableError('onramp');
+    });
+    expect(() => validateBuyPrepare(inputWith(orderWith()))).toThrow(BridgeConfigUnavailableError);
   });
 });
 

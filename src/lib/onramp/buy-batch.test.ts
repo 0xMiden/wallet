@@ -3,6 +3,9 @@
  */
 import { decodeFunctionData } from 'viem';
 
+import { TEST_ONRAMP } from 'lib/epoch/testing/bridge-config';
+import { getOnramp } from 'lib/remote-config/values';
+
 import {
   AGGLAYER_BRIDGE_ADDRESS,
   BRIDGE_ASSET_ABI,
@@ -18,6 +21,13 @@ import {
   midenAccountHexToEvmAddress,
   sellBatchDigest
 } from './buy-batch';
+
+// The chain and the Calibur domain come from the bridge config's on-ramp section.
+jest.mock('lib/remote-config/values', () =>
+  jest
+    .requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
+    .remoteConfigValuesMock()
+);
 
 const GOLDEN_INPUT: BuyBatchInput = {
   evmAddress: '0x1111111111111111111111111111111111111111',
@@ -68,6 +78,15 @@ describe('buy batch', () => {
       verifyingContract: GOLDEN_INPUT.evmAddress,
       salt: GOLDEN_INPUT.salt
     });
+  });
+
+  it('takes the domain name, version and chain from the on-ramp section', () => {
+    jest.mocked(getOnramp).mockReturnValueOnce({
+      chainId: 1,
+      calibur: { ...TEST_ONRAMP.calibur, domainName: 'Other', domainVersion: '2.0.0' }
+    });
+    expect(buyBatchTypedData(GOLDEN_INPUT).domain).toMatchObject({ name: 'Other', version: '2.0.0', chainId: 1 });
+    expect(buyBatchDigest(GOLDEN_INPUT)).toBe(GOLDEN_DIGEST);
   });
 
   it('refuses a Miden account id that is not 15 bytes', () => {
