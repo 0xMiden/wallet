@@ -208,6 +208,19 @@ describe('runLockUpChecks', () => {
     expect(mockSendMessage).toHaveBeenCalledWith('wakeup');
   });
 
+  it('stops its timer once an extension reload or update orphans the page', async () => {
+    await runLockUpChecks();
+    mockSet.mockClear();
+    mockGetViews.mockImplementation(() => {
+      throw new Error('Extension context invalidated.');
+    });
+    await jest.advanceTimersByTimeAsync(CHECK_PAGES_EXIST);
+    const reads = mockGetViews.mock.calls.length;
+    await jest.advanceTimersByTimeAsync(CHECK_PAGES_EXIST * 3);
+    expect(mockGetViews).toHaveBeenCalledTimes(reads);
+    expect(mockSet).not.toHaveBeenCalled();
+  });
+
   it('still writes the closure time when the wake-up message fails', async () => {
     mockSendMessage.mockRejectedValue(new Error('wakeup failed'));
 
