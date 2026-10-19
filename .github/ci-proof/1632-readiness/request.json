@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "source_commit": "811686e46ebf8c60cec9d020b68e342dfb3904c0",
+  "source_tree": "624c6e460072ef49c61fb538388a18c20b6eb20e",
+  "test_path": "src/lib/miden/metadata/fetch.test.ts",
+  "production_path": "src/lib/miden/metadata/fetch.ts",
+  "exact_test_name": "metadata/fetch uncached chain failures waits for SDK readiness before parsing and requesting a proof",
+  "old_test": "fetch.test.old.ts",
+  "new_test": "fetch.test.f001.ts",
+  "combined_test": "fetch.test.proposed.ts",
+  "normal_production": "fetch.production.normal.ts",
+  "mutant_production": "fetch.production.mutant.ts",
+  "production_mutation": {
+    "from": "    await ensureSdkWasmReady();",
+    "to": "    ensureSdkWasmReady();",
+    "occurrences": 1
+  },
+  "expected_failure": {
+    "arm": "new-mutant",
+    "assertion": "expect(mockRpcClient).not.toHaveBeenCalled()",
+    "messages": [
+      "Expected number of calls: 0",
+      "Received number of calls: 1"
+    ],
+    "line": 680
+  },
+  "plan_manifest_sha256": "39e928e12e54188edab68683fdc26b39475797a8b84c04c919f34c1b049bab08",
+  "plan_sha256": "830a6fa606a855f2fc0574f242d6a831cc61b0325df5518200b75c9f9320a251",
+  "files": {
+    "README.md": "e6ff5924b0af1361f2ad12fb9a3f03d1301a47ad2099b06c00256d846dc90743",
+    "f001-readiness.patch": "c96699467a2eb26d4cb39890ab45004d37035c0b7156a84ce8e7eaeaa11ea9c6",
+    "f002-description.patch": "41b1ae9b0427806764f7b7237f79937aa86a8733a2bedcaf1bc89bbf89bba9fe",
+    "fetch.production.mutant.ts": "68f34e670678eb52d6a53736b9112bd0d1a315f6304d98930ab6a1c8dfb81508",
+    "fetch.production.normal.ts": "a9c3f4523906d604c971ab0e56051bee60f6f106e0fae8d86f1cc2323900516b",
+    "fetch.test.f001.ts": "de48292b159e3ab04946db95a526ee31f996c2d798c211e4c9699914cb6e0210",
+    "fetch.test.old.ts": "bee242de5b4c8ba237c1ba480d0f676def4c381da4855102d140f2e4f1f087c4",
+    "fetch.test.proposed.ts": "5a1d9844d44d862a0cb713934f4f7b68efab4ee5a953f264a9eca8e21352b878",
+    "matrix.mjs": "750f86758066e82fa4597c740956ff902a21a973c99e0650bd28ee483b6783e8",
+    "temporary-production-mutant.patch": "09dc491e0561224cdd88b6148a4296dbb5017991b6d6bf47531f40a942418055",
+    "test-fixes.patch": "36bf438971de794ad0986bb335e1c47bea8d6a665adcb26862ab268c1fb788c3"
+  }
+}

@@ -1,0 +1,81 @@
+name: Metadata readiness sensitivity proof
+
+on:
+  push:
+    branches: [ci/1632-readiness-proof]
+
+permissions:
+  contents: read
+
+jobs:
+  readiness-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout proof transport
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Preserve proof inputs outside checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/wallet1632-readiness"
+          cp .github/ci-proof/1632-readiness/* "$RUNNER_TEMP/wallet1632-readiness/"
+          cp .github/workflows/proof-metadata-readiness.yml "$RUNNER_TEMP/wallet1632-readiness/"
+          cd "$RUNNER_TEMP/wallet1632-readiness"
+          sha256sum ./* > transport-sha256.txt
+          printf '%s\n' "$GITHUB_SHA" > transport-commit.txt
+      - name: Checkout reviewed source
+        uses: actions/checkout@v4
+        with:
+          ref: 811686e46ebf8c60cec9d020b68e342dfb3904c0
+          persist-credentials: false
+      - name: Set up Node22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Decode exact proof patches
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/wallet1632-readiness"
+          for patch in f001-readiness f002-description test-fixes temporary-production-mutant; do
+            base64 --decode "$patch.patch.b64" > "$patch.patch"
+          done
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { createHash } from 'node:crypto';
+          import { readFileSync } from 'node:fs';
+          const request = JSON.parse(readFileSync('request.json', 'utf8'));
+          for (const [name, expected] of Object.entries(request.files)) {
+            if (!name.endsWith('.patch')) continue;
+            const actual = createHash('sha256').update(readFileSync(name)).digest('hex');
+            assert.equal(actual, expected, `Decoded patch hash mismatch: ${name}`);
+          }
+          NODE
+      - name: Install reviewed dependencies
+        uses: ./.github/actions/yarn-install
+      - name: Reject dependency manifest drift
+        shell: bash
+        run: git diff --exit-code -- package.json yarn.lock
+      - name: Derive exact proof bytes in CI
+        shell: bash
+        run: node "$RUNNER_TEMP/wallet1632-readiness/bootstrap.mjs" "$GITHUB_WORKSPACE"
+      - name: Run approved sensitivity matrix
+        shell: bash
+        run: node "$RUNNER_TEMP/wallet1632-readiness/matrix.mjs" "$GITHUB_WORKSPACE"
+      - name: Upload proof evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: metadata-readiness-proof-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/wallet1632-readiness/results/
+            ${{ runner.temp }}/wallet1632-readiness/request.json
+            ${{ runner.temp }}/wallet1632-readiness/*hash*.json
+            ${{ runner.temp }}/wallet1632-readiness/transport-sha256.txt
+            ${{ runner.temp }}/wallet1632-readiness/transport-commit.txt
+          if-no-files-found: error
+          retention-days: 14
