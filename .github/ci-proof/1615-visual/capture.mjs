@@ -133,9 +133,18 @@ try {
         ...window.__MINIMUM_VISUAL__.snapshot(),
         submitClicks: window.__MINIMUM_SUBMIT_CLICKS__,
         sdkReady: window.__MINIMUM_SDK_READY__,
+        documentTimeOrigin: performance.timeOrigin,
         path: location.hash.split('?')[0],
         dark: document.documentElement.classList.contains('dark')
       }));
+    const navigateFresh = async target => {
+      const previousTimeOrigin = await page.evaluate(() => performance.timeOrigin);
+      await page.goto(target, { waitUntil: 'networkidle' });
+      await page.reload({ waitUntil: 'networkidle' });
+      const nextTimeOrigin = await page.evaluate(() => performance.timeOrigin);
+      assert.notEqual(nextTimeOrigin, previousTimeOrigin, 'Fresh mount retained the previous document');
+      commands.push({ operation: 'fresh_document_reload', target, previousTimeOrigin, nextTimeOrigin, verified: true });
+    };
     const row = () => page.getByText('Minimum burn', { exact: true }).locator('..');
     const submit = () => page.getByTestId('send-review-submit');
     const assertState = async (name, minimum, error, states) => {
@@ -203,14 +212,20 @@ try {
     assert.match(fontState.body, /Inter/);
     fonts.push({ theme, ...fontState });
     await capture('pending-floor', 5, undefined, ['pending']);
+    const pendingTimeOrigin = captures.at(-1).reader.documentTimeOrigin;
     await page.evaluate(() => window.__MINIMUM_VISUAL__.resolveEight());
     await capture('resolved-minimum', 8, 'Send at least 8 USDCx.', ['resolved']);
+    assert.equal(
+      captures.at(-1).reader.documentTimeOrigin,
+      pendingTimeOrigin,
+      'Pending and resolved reads used different documents'
+    );
     const warningsBeforeFallback = warnings.length;
-    await page.goto(href('6', 'reject'), { waitUntil: 'networkidle' });
+    await navigateFresh(href('6', 'reject'));
     await page.waitForFunction(() => window.__MINIMUM_VISUAL__?.snapshot().attempts.length === 2);
     await expect.poll(() => warnings.length).toBe(warningsBeforeFallback + 1);
     await capture('rejected-fallback', 5, undefined, ['rejected', 'rejected']);
-    await page.goto(href('4'), { waitUntil: 'networkidle' });
+    await navigateFresh(href('4'));
     await page.waitForFunction(() => window.__MINIMUM_VISUAL__?.snapshot().attempts.length === 1);
     await assertState('below-wallet-floor', 5, 'Send at least 5 USDCx.', ['pending']);
     await context.close();
