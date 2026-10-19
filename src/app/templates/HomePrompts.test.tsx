@@ -11,6 +11,7 @@ import {
 } from 'lib/epoch/testing/bridge-config';
 import { SharedEarnLocks } from 'lib/epoch/testing/earn-locks';
 import {
+  clearGuardianNoteRecoveryProgress,
   fetchGuardianNoteRecoveryProgress,
   GUARDIAN_NOTE_RECOVERY_PROGRESS_STALE_MS,
   reportGuardianNoteRecoveryProgress
@@ -91,71 +92,97 @@ jest.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, values?: { amount?: string; count?: number; seconds?: string }) => {
       const value = values?.amount ?? values?.count ?? values?.seconds;
-      return value === undefined ? key : `${key}:${value}`;
+      const text =
+        mockRealTelemetryDisplays &&
+        [
+          'faucetRateLimited',
+          'faucetRateLimitedWait',
+          'faucetOverCap',
+          'guardianHistoryFailed',
+          'guardianHistoryPartial',
+          'hotKeyRotationPromptBody',
+          'hotKeyHardwareErrorPromptBody'
+        ].includes(key)
+          ? `Visible ${key}`
+          : key;
+      return value === undefined ? text : `${text}:${value}`;
     }
   })
 }));
 
-jest.mock('components/ui', () => ({
-  PromptCarousel: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  PromptCard: ({
-    title,
-    body,
-    bodyValue,
-    hero,
-    onClick,
-    actionLabel,
-    onAction,
-    actionDisabled,
-    status,
-    onDismiss,
-    variant,
-    icon
-  }: {
-    title: string;
-    body?: string;
-    bodyValue?: string;
-    hero?: { icon: string; label: string; subLabel?: string; tone: string };
-    onClick?: () => void;
-    actionLabel?: string;
-    onAction?: () => void;
-    actionDisabled?: boolean;
-    status?: string;
-    onDismiss?: () => void;
-    variant?: string;
-    icon?: string;
-  }) => (
-    <section
-      data-testid="prompt-card"
-      data-title={title}
-      data-status={status}
-      data-variant={variant}
-      data-icon={icon}
-      data-hero={hero?.label}
-      data-hero-sub={hero?.subLabel}
-      // The real PromptCard renders no action button at all without onClick, but
-      // this double always renders one - so tests must read actionability here,
-      // or a removed readiness gate still passes behind fundWallet's own guard.
-      data-actionable={onClick ? 'true' : 'false'}
-    >
-      <button type="button" onClick={onClick}>
-        {title}
-      </button>
-      {body && <p>{body}</p>}
-      {bodyValue && <p data-testid="prompt-card-value">{bodyValue}</p>}
-      {actionLabel && (
-        <button type="button" onClick={onAction} disabled={actionDisabled}>
-          {actionLabel}
+let mockRealTelemetryDisplays = false;
+jest.mock('components/ui', () => {
+  const legacy = {
+    PromptCarousel: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+    PromptCard: ({
+      title,
+      body,
+      bodyValue,
+      hero,
+      onClick,
+      actionLabel,
+      onAction,
+      actionDisabled,
+      status,
+      onDismiss,
+      variant,
+      icon
+    }: {
+      title: string;
+      body?: string;
+      bodyValue?: string;
+      hero?: { icon: string; label: string; subLabel?: string; tone: string };
+      onClick?: () => void;
+      actionLabel?: string;
+      onAction?: () => void;
+      actionDisabled?: boolean;
+      status?: string;
+      onDismiss?: () => void;
+      variant?: string;
+      icon?: string;
+    }) => (
+      <section
+        data-testid="prompt-card"
+        data-title={title}
+        data-status={status}
+        data-variant={variant}
+        data-icon={icon}
+        data-hero={hero?.label}
+        data-hero-sub={hero?.subLabel}
+        // The real PromptCard renders no action button at all without onClick, but
+        // this double always renders one - so tests must read actionability here,
+        // or a removed readiness gate still passes behind fundWallet's own guard.
+        data-actionable={onClick ? 'true' : 'false'}
+      >
+        <button type="button" onClick={onClick}>
+          {title}
         </button>
-      )}
-      {onDismiss && (
-        <button type="button" onClick={onDismiss} aria-label={`dismiss-${title}`}>
-          dismiss
-        </button>
-      )}
-    </section>
-  )
-}));
+        {body && <p>{body}</p>}
+        {bodyValue && <p data-testid="prompt-card-value">{bodyValue}</p>}
+        {actionLabel && (
+          <button type="button" onClick={onAction} disabled={actionDisabled}>
+            {actionLabel}
+          </button>
+        )}
+        {onDismiss && (
+          <button type="button" onClick={onDismiss} aria-label={`dismiss-${title}`}>
+            dismiss
+          </button>
+        )}
+      </section>
+    )
+  };
+  return {
+    ...legacy,
+    PromptCard: (props: React.ComponentProps<typeof import('components/ui/PromptCard').PromptCard>) =>
+      mockRealTelemetryDisplays
+        ? React.createElement(
+            jest.requireActual<typeof import('components/ui/PromptCard')>('components/ui/PromptCard').PromptCard,
+            props
+          )
+        : React.createElement(legacy.PromptCard, props)
+  };
+});
 
 const mockHiddenNotes = { ids: new Set<string>(), loaded: true, failed: false };
 jest.mock('app/hooks/useActivityHiddenNotes', () => ({
@@ -217,7 +244,7 @@ jest.mock('lib/miden/activity', () => ({
 }));
 jest.mock('lib/miden/front/guardian-sync', () => ({ zustandProvider: { tag: 'zustand-provider' } }));
 jest.mock('lib/settings/helpers', () => ({ isDelegateProofEnabled: () => true }));
-jest.mock('lib/platform', () => ({ isExtension: () => false }));
+jest.mock('lib/platform', () => ({ isExtension: () => false, isMobile: () => false }));
 
 // The banner has its own suite; here only whether Home mounts it matters.
 jest.mock('app/templates/GuardianNeedsUrlBanner', () => ({
@@ -4424,9 +4451,183 @@ describe('HomePrompts', () => {
       }
     );
   });
+  describe('user-visible real home prompt errors', () => {
+    const settleTelemetry = () =>
+      act(async () => {
+        for (let tick = 0; tick < 40; tick++) {
+          await Promise.resolve();
+        }
+      });
+    const renderTelemetryHome = (who: WalletAccount = account) => (
+      <HomePrompts
+        account={who}
+        balances={zeroBalance}
+        balancesLoading={false}
+        claimableNotes={[]}
+        fundingNotes={[]}
+        tokenPrices={{}}
+      />
+    );
+    beforeEach(async () => {
+      await clearGuardianNoteRecoveryProgress(account.publicKey);
+      mockRealTelemetryDisplays = true;
+      mockUseWalletPromptStorage.mockReturnValue(makePromptState());
+      mockInitiateReplaceHotKeyTransaction.mockReset().mockResolvedValue('synthetic-rotation');
+      jest.useFakeTimers({ doNotFake: ['nextTick', 'queueMicrotask', 'setImmediate'] });
+    });
+    afterEach(() => {
+      mockRealTelemetryDisplays = false;
+      jest.useRealTimers();
+    });
+
+    it.each([
+      [
+        new Error('private faucet amount 42 at https://synthetic.invalid'),
+        'private faucet amount 42 at https://synthetic.invalid',
+        'raw_home_faucet_failed'
+      ],
+      [new FaucetRateLimitedError('private refusal', null), 'Visible faucetRateLimited', 'faucetRateLimited'],
+      [new FaucetRateLimitedError('private refusal', 15), 'Visible faucetRateLimitedWait:15', 'faucetRateLimitedWait'],
+      [new FaucetAmountOverCapError('private cap', 42n), 'Visible faucetOverCap', 'faucetOverCap']
+    ])('reports a real faucet PromptCard failure using its producer identity, branch %#', async (failure, text, id) => {
+      mockFaucet.mockRejectedValueOnce(failure);
+      render(renderTelemetryHome());
+      await settleTelemetry();
+      fireEvent.click(screen.getByRole('button', { name: /faucetPromptTitle/ }));
+      await settleTelemetry();
+      expect(screen.getByText(text)).toBeInTheDocument();
+      expect(screen.getByRole('status', { name: 'failed' })).toBeInTheDocument();
+      await expectErrorAfterDwell(id, 'prompt');
+    });
+
+    it.each([
+      [
+        WalletPromptType.HotKeyRotationNeeded,
+        'hotKeyRotationPromptAction',
+        'Visible hotKeyRotationPromptBody',
+        'hotKeyRotationPromptBody'
+      ],
+      [
+        WalletPromptType.HotKeyHardwareUnavailable,
+        'hotKeyHardwareErrorPromptAction',
+        'Visible hotKeyHardwareErrorPromptBody',
+        'hotKeyHardwareErrorPromptBody'
+      ]
+    ])('reports the real action failure PromptCard for %s', async (type, action, text, id) => {
+      mockUseWalletPromptStorage.mockReturnValue(
+        makePromptState({ isPromptPending: (candidate: WalletPromptType) => candidate === type })
+      );
+      if (type === WalletPromptType.HotKeyRotationNeeded)
+        mockInitiateReplaceHotKeyTransaction.mockRejectedValueOnce(new Error('private rotation cause'));
+      if (type === WalletPromptType.HotKeyHardwareUnavailable)
+        mockClipboardWrite.mockRejectedValueOnce(new Error('private clipboard cause'));
+      render(
+        <HomePrompts
+          account={account}
+          balances={fundedBalance}
+          balancesLoading={false}
+          claimableNotes={[]}
+          fundingNotes={[]}
+          tokenPrices={{}}
+        />
+      );
+      await settleTelemetry();
+      fireEvent.click(screen.getByRole('button', { name: action }));
+      await settleTelemetry();
+      expect(screen.getByText(text)).toBeInTheDocument();
+      expect(screen.getByRole('status', { name: 'failed' })).toBeInTheDocument();
+      await expectErrorAfterDwell(id, 'prompt');
+    });
+
+    it.each([
+      ['history-failed', 'guardianHistoryFailed', 'Visible guardianHistoryFailed'],
+      ['history-partial', 'guardianHistoryPartial', 'Visible guardianHistoryPartial:2']
+    ] as const)('reports the actual recovery prompt failure body for %s', async (step, id, text) => {
+      const recovering: WalletAccount = { ...account, guardianNoteRecoveryPending: true };
+      render(renderTelemetryHome(recovering));
+      await settleTelemetry();
+      await act(async () => {
+        await reportGuardianNoteRecoveryProgress({
+          accountId: account.publicKey,
+          step,
+          restored: 2,
+          sourcesClean: true
+        });
+      });
+      await act(async () => {
+        jest.advanceTimersByTime(2000);
+      });
+      await settleTelemetry();
+      expect(screen.getByText(text)).toBeInTheDocument();
+      await expectErrorAfterDwell(id, 'prompt');
+    });
+
+    it.each(['retry', 'unmount', 'account switch'])(
+      'clears a short faucet failure on %s without a report',
+      async control => {
+        mockFaucet.mockRejectedValueOnce(new Error('short faucet failure'));
+        const view = render(renderTelemetryHome());
+        await settleTelemetry();
+        fireEvent.click(screen.getByRole('button', { name: /faucetPromptTitle/ }));
+        await settleTelemetry();
+        expect(screen.getByText('short faucet failure')).toBeInTheDocument();
+        await act(async () => {
+          jest.advanceTimersByTime(999);
+        });
+        if (control === 'retry') {
+          fireEvent.click(screen.getByRole('button', { name: /faucetPromptTitle/ }));
+          await settleTelemetry();
+        } else if (control === 'account switch') {
+          view.rerender(renderTelemetryHome(accountB));
+          await settleTelemetry();
+        } else view.unmount();
+        expect(screen.queryByText('short faucet failure')).not.toBeInTheDocument();
+        await act(async () => {
+          jest.advanceTimersByTime(2000);
+        });
+        expect(mockReportUserVisibleError.mock.calls).toEqual([]);
+      }
+    );
+
+    it('keeps idle safety prompts, loading funding and a successful faucet request silent', async () => {
+      render(renderTelemetryHome());
+      await settleTelemetry();
+      await act(async () => {
+        jest.advanceTimersByTime(1500);
+      });
+      fireEvent.click(screen.getByRole('button', { name: /faucetPromptTitle/ }));
+      await settleTelemetry();
+      expect(screen.getByText('faucetPromptFunding')).toBeInTheDocument();
+      await act(async () => {
+        jest.advanceTimersByTime(2000);
+      });
+      expect(mockReportUserVisibleError.mock.calls).toEqual([]);
+    });
+  });
 });
 
 beforeEach(() => {
   mockLegacyFeeIdentity = undefined;
   mockBridgeSnapshot = undefined;
 });
+
+const mockReportUserVisibleError = jest.fn();
+jest.mock('lib/telemetry/user-visible-error', () => ({
+  ...jest.requireActual('lib/telemetry/user-visible-error'),
+  reportUserVisibleError: (...args: unknown[]) => mockReportUserVisibleError(...args)
+}));
+
+const expectErrorAfterDwell = async (id: string, surface: string) => {
+  await act(async () => {
+    jest.advanceTimersByTime(999);
+  });
+  expect(mockReportUserVisibleError.mock.calls).toEqual([]);
+  await act(async () => {
+    jest.advanceTimersByTime(1);
+  });
+  expect(mockReportUserVisibleError.mock.calls).toEqual([[id, surface]]);
+  await act(async () => {
+    jest.advanceTimersByTime(1000);
+  });
+  expect(mockReportUserVisibleError.mock.calls).toEqual([[id, surface]]);
+};
