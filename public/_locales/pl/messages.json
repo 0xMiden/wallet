@@ -6914,5 +6914,37 @@
   "bridgeEstimatedCost": {
     "message": "Szacunkowy koszt",
     "englishSource": "Est. cost"
+  },
+  "webViewUpdateTitle": {
+    "message": "Aktualizacja Android System WebView",
+    "englishSource": "Update Android System WebView"
+  },
+  "webViewUpdateBody": {
+    "message": "Aplikacja Bread wymaga nowszej wersji Android System WebView, komponentu systemu Android odpowiedzialnego za wyświetlanie stron internetowych w aplikacjach. Zaktualizuj ją w Google Play, a następnie ponownie uruchom aplikację Bread.",
+    "englishSource": "Bread needs a newer version of Android System WebView, the part of Android that shows web pages in apps. Update it from Google Play, then open Bread again."
+  },
+  "webViewUpdateAction": {
+    "message": "Otwórz Google Play",
+    "englishSource": "Open Google Play"
+  },
+  "webViewUpdateChromeTitle": {
+    "message": "Zaktualizuj przeglądarkę Chrome",
+    "englishSource": "Update Chrome"
+  },
+  "webViewUpdateChromeBody": {
+    "message": "Aplikacja Bread wymaga nowszej wersji przeglądarki Chrome, która wyświetla strony internetowe w aplikacjach w tej wersji systemu Android. Zaktualizuj ją w Google Play, a następnie ponownie uruchom aplikację Bread.",
+    "englishSource": "Bread needs a newer version of Chrome, which shows web pages in apps on this version of Android. Update it from Google Play, then open Bread again."
+  },
+  "webViewStartFailedTitle": {
+    "message": "Bread nie mógł rozpocząć działalności",
+    "englishSource": "Bread couldn't start"
+  },
+  "webViewStartFailedBody": {
+    "message": "Coś uniemożliwiło załadowanie aplikacji Bread. Spróbuj ponownie lub zamknij aplikację Bread i uruchom ją ponownie.",
+    "englishSource": "Something stopped Bread from loading. Try again, or close Bread and open it again."
+  },
+  "webViewStartFailedAction": {
+    "message": "Spróbuj ponownie",
+    "englishSource": "Try again"
   }
 }

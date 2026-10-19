@@ -1530,5 +1530,13 @@
   "bridgeRankValueDescription": "大部分款項將於扣除服務商手續費後到帳。",
   "bridgeRankCostDescription": "最低的跨鏈與網路成本，包含 gas 費用。",
   "bridgeRankTimeDescription": "預計最短抵達時間。",
-  "bridgeEstimatedCost": "預估成本"
+  "bridgeEstimatedCost": "預估成本",
+  "webViewUpdateTitle": "更新 Android 系統 WebView",
+  "webViewUpdateBody": "Bread 需要更新版本的 Android System WebView（這是 Android 系統中負責在應用程式內顯示網頁的組件）。請透過 Google Play 進行更新，然後重新開啟 Bread。",
+  "webViewUpdateAction": "開啟 Google Play",
+  "webViewUpdateChromeTitle": "更新 Chrome",
+  "webViewUpdateChromeBody": "Bread 需要較新版本的 Chrome，因為此版本的 Android 系統會將網頁顯示在應用程式中。請從 Google Play 更新瀏覽器，然後重新開啟 Bread。",
+  "webViewStartFailedTitle": "Bread 無法啟動",
+  "webViewStartFailedBody": "發生了某種狀況導致 Bread 無法載入。請重新嘗試，或關閉 Bread 後再次開啟。",
+  "webViewStartFailedAction": "請重新嘗試"
 }
