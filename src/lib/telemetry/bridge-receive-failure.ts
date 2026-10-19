@@ -43,10 +43,14 @@ export interface BridgeReceiveFailure extends Partial<BridgeReceiveFailureSource
 // A registered symbol rather than a module-local set: every copy of this module in a realm reads the same mark, and a
 // failure's write and its report run in one realm.
 const WALLET_RAISED = Symbol.for('miden.bridge-receive.wallet-raised');
+const ORIGINAL_REJECTIONS = new WeakMap<object, object>();
 
 /** Marks an error raised in the wallet's own words, never an answer's: the report reads only the answer it wraps. */
-export function walletRaised<E extends Error>(error: E): E {
+export function walletRaised<E extends Error>(error: E, originalRejection?: object): E {
   Object.defineProperty(error, WALLET_RAISED, { value: true });
+  // A display-only wrapper must leave its original rejection's bounded traversal unchanged.
+  if (originalRejection !== undefined)
+    ORIGINAL_REJECTIONS.set(error, ORIGINAL_REJECTIONS.get(originalRejection) ?? originalRejection);
   return error;
 }
 
@@ -130,7 +134,9 @@ function linksOf(error: unknown): Link[] {
   const chain: Link[] = [];
   const seen = new Set<unknown>();
   let current = error;
-  while (chain.length < MAX_LINKS && seen.size < MAX_VISITS && !seen.has(current)) {
+  while (chain.length < MAX_LINKS && seen.size < MAX_VISITS) {
+    if (typeof current === 'object' && current !== null) current = ORIGINAL_REJECTIONS.get(current) ?? current;
+    if (seen.has(current)) break;
     seen.add(current);
     if (typeof current === 'string') {
       if (current !== '') chain.push({ text: current.slice(0, TEXT_LIMIT) });
