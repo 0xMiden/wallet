@@ -353,8 +353,8 @@ class ClientTest {
         val client = BreadConnect(callback, MemoryStorage(), opener) { now }
         // One thread, so the waiting call cannot cancel the opener until the opener leaves this function.
         val serial = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
+        val connect = async(serial) { runCatching { client.connect("Where Legends Grow") } }
         try {
-            val connect = async(serial) { runCatching { client.connect("Where Legends Grow") } }
             assertTrue(inside.await(5, TimeUnit.SECONDS))
 
             client.cancelPending()
@@ -364,6 +364,8 @@ class ClientTest {
             assertEquals(BreadConnectException.Code.Cancelled, (error as? BreadConnectException)?.code)
             assertFalse(opened.get())
         } finally {
+            connect.cancel()
+            release.countDown()
             serial.close()
         }
     }
