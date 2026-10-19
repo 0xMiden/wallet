@@ -302,10 +302,7 @@ describe('metadata/fetch', () => {
       expect(result.name).toBe('TEST');
     });
 
-    it.each([
-      ['absent', undefined],
-      ['empty', '']
-    ])('leaves the description out when the faucet description is %s', async () => {
+    it('leaves the description out when the faucet description is empty', async () => {
       mockIsMidenAsset.mockReturnValue(false);
       mockFromBech32.mockReturnValue({ accountId: () => parsedId('account-id-123') });
       mockGetAccountProof.mockResolvedValue(metadataProof(8765514n, 8n, TEST_NAME_BYTES, [0]));
@@ -665,13 +662,19 @@ describe('metadata/fetch', () => {
 
     it('waits for SDK readiness before parsing and requesting a proof', async () => {
       let release!: () => void;
-      jest.mocked(ensureSdkWasmReady).mockReturnValue(
-        new Promise<void>(resolve => {
+      let entered!: () => void;
+      const readinessEntered = new Promise<void>(resolve => {
+        entered = resolve;
+      });
+      jest.mocked(ensureSdkWasmReady).mockImplementation(() => {
+        entered();
+        return new Promise<void>(resolve => {
           release = resolve;
-        })
-      );
+        });
+      });
       const pending = fetchTokenMetadata('wait-for-wasm');
-      await Promise.resolve();
+      await readinessEntered;
+      expect(mockRpcClient).not.toHaveBeenCalled();
       expect(mockGetAccountProof).not.toHaveBeenCalled();
       expect(mockFromBech32).not.toHaveBeenCalled();
       release();
