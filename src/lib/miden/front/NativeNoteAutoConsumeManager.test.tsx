@@ -5,7 +5,8 @@ import { act, render, waitFor } from '@testing-library/react';
 import { NativeNoteAutoConsumeManager } from './NativeNoteAutoConsumeManager';
 
 const mockInitiateConsume = jest.fn(
-  async (_account: string, _note: { id: string }, _delegate?: boolean): Promise<string> => 'consume-tx'
+  async (_account: string, _note: { id: string }, _delegate?: boolean, ..._rest: unknown[]): Promise<string> =>
+    'consume-tx'
 );
 const mockStartBg = jest.fn();
 const mockGetUncompleted = jest.fn(async (..._args: unknown[]): Promise<unknown[]> => [{ id: 'tx' }]);
@@ -24,10 +25,19 @@ jest.mock('lib/miden/assets', () => ({
     mockLegacyFeeIdentity === undefined ? mockGetFaucetIdSetting() : Promise.resolve(mockLegacyFeeIdentity)
 }));
 let mockBaseFee: number | null = 0;
+// Runs as the tick reads the fee; a test lands the lock here, after the tick decided to claim.
+let mockOnFeeRead: () => void = () => undefined;
 jest.mock('lib/miden-chain/native-asset', () => ({
   getNativeAssetId: () => mockGetFaucetIdSetting(),
-  getVerificationBaseFee: () => Promise.resolve(mockBaseFee)
+  getVerificationBaseFee: () => {
+    mockOnFeeRead();
+    return Promise.resolve(mockBaseFee);
+  }
 }));
+
+// The wallet store's lock state, as the claim guard reads it.
+let mockWalletReady = true;
+jest.mock('lib/store', () => ({ isWalletReadyNow: () => mockWalletReady }));
 
 let mockExtension = false;
 jest.mock('lib/platform', () => ({ isExtension: () => mockExtension }));
@@ -76,6 +86,61 @@ describe('NativeNoteAutoConsumeManager', () => {
     mockCurrentAccount = { publicKey: 'pk-1' };
     mockGetFaucetIdSetting.mockResolvedValue('native-faucet');
     mockGetUncompleted.mockResolvedValue([{ id: 'tx' }]);
+    mockInitiateConsumeBatch.mockImplementation(async () => 'batch-tx');
+    mockInitiateConsume.mockImplementation(async () => 'consume-tx');
+    mockOnFeeRead = () => undefined;
+    mockWalletReady = true;
+  });
+
+  // The claim queue's contract, pinned on real rows in initiate.batch-isolation.test.ts: a guard that answers no at
+  // the write refuses it. Returns the note ids of every row written.
+  const guardCheckingQueue = (): string[][] => {
+    const written: string[][] = [];
+    const write = (noteIds: string[], canSign: unknown): string => {
+      if (typeof canSign === 'function' && !canSign()) throw new Error('Claim not queued');
+      written.push(noteIds);
+      return 'tx';
+    };
+    mockInitiateConsumeBatch.mockImplementation(async (...args: any[]) =>
+      write(
+        args[1].map((n: { id: string }) => n.id),
+        args[7]
+      )
+    );
+    mockInitiateConsume.mockImplementation(async (...args: any[]) => write([args[1].id], args[5]));
+    return written;
+  };
+
+  it('queues no claim, runs no per-note fallback and starts nothing when the lock lands after the fee read', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const written = guardCheckingQueue();
+    mockOnFeeRead = () => {
+      mockWalletReady = false;
+    };
+    mockClaimable = [note('a'), note('b')];
+
+    render(<NativeNoteAutoConsumeManager />);
+    await waitFor(() => expect(mockInitiateConsumeBatch).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 20));
+    });
+
+    expect(written).toEqual([]);
+    expect(mockInitiateConsume).not.toHaveBeenCalled();
+    expect(mockGetUncompleted).not.toHaveBeenCalled();
+    expect(mockStartBg).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it('queues the batch and starts processing on a tick the wallet stays unlocked through', async () => {
+    const written = guardCheckingQueue();
+    mockClaimable = [note('a'), note('b')];
+
+    render(<NativeNoteAutoConsumeManager />);
+
+    await waitFor(() => expect(mockStartBg).toHaveBeenCalledTimes(1));
+    expect(written).toEqual([['a', 'b']]);
+    expect(mockInitiateConsume).not.toHaveBeenCalled();
   });
 
   it('fee identity: auto-consumes actual native notes and leaves the legacy display faucet manual', async () => {
@@ -133,6 +198,49 @@ describe('NativeNoteAutoConsumeManager', () => {
 
     await waitFor(() => expect(mockInitiateConsume.mock.calls.length).toBe(2));
     expect(new Set(mockInitiateConsume.mock.calls.map(c => c[1].id))).toEqual(new Set(['a', 'b']));
+    // Batched or one per note, every row is queued as auto-consume.
+    expect(mockInitiateConsumeBatch.mock.calls[0]![6]).toBe('auto_consume');
+    expect(mockInitiateConsume.mock.calls.map(c => c[4])).toEqual(['auto_consume', 'auto_consume']);
+  });
+
+  it('fee-refused native batch has no single-note fallback or processing kick', async () => {
+    const { ClaimFeeRefusedError } =
+      jest.requireActual<typeof import('../transaction/initiate')>('../transaction/initiate');
+    mockClaimable = [note('a'), note('b')];
+    mockInitiateConsumeBatch.mockRejectedValueOnce(new ClaimFeeRefusedError());
+
+    const view = render(<NativeNoteAutoConsumeManager />);
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 20));
+    });
+
+    expect(mockInitiateConsumeBatch).toHaveBeenCalledTimes(1);
+    expect(mockInitiateConsume).not.toHaveBeenCalled();
+    expect(mockGetUncompleted).not.toHaveBeenCalled();
+    expect(mockStartBg).not.toHaveBeenCalled();
+    expect(mockClearNoteReceived).not.toHaveBeenCalled();
+    expect(mockClaimable).toEqual([note('a'), note('b')]);
+    view.unmount();
+
+    mockInitiateConsumeBatch.mockRejectedValueOnce(new Error('batch enqueue failed'));
+    mockInitiateConsume
+      .mockRejectedValueOnce(new ClaimFeeRefusedError())
+      .mockRejectedValueOnce(new ClaimFeeRefusedError());
+    const fallback = render(<NativeNoteAutoConsumeManager />);
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 20));
+    });
+    expect(mockInitiateConsume).toHaveBeenCalledTimes(2);
+    expect(mockStartBg).not.toHaveBeenCalled();
+    expect(mockClearNoteReceived).not.toHaveBeenCalled();
+    fallback.unmount();
+
+    mockInitiateConsumeBatch.mockRejectedValueOnce(new Error('batch enqueue failed'));
+    mockInitiateConsume.mockRejectedValueOnce(new ClaimFeeRefusedError());
+    render(<NativeNoteAutoConsumeManager />);
+    await waitFor(() => expect(mockStartBg).toHaveBeenCalledTimes(1));
+    expect(mockInitiateConsume).toHaveBeenCalledTimes(4);
+    expect(mockClearNoteReceived).toHaveBeenCalledTimes(1);
   });
 
   it('does not auto-consume a native backlog worth less than the fee to claim it', async () => {

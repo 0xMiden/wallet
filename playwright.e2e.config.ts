@@ -19,8 +19,23 @@ export default defineConfig({
   // allocator (testnet-only), so they run via playwright.bridge.config.ts on a
   // dedicated job, not the general blockchain/localhost runs. Earn specs need
   // fake Epoch allocator/positions services + a local Anvil, so they run via
-  // playwright.earn.config.ts on the dedicated earn job, not here.
-  testIgnore: ['**/guardian-*.spec.ts', '**/swap/**', '**/bridge/**', '**/earn/**', '**/resilience/**'],
+  // playwright.earn.config.ts on the dedicated earn job, not here. dApp specs
+  // need a Guardian on one axis and run via playwright.dapp.config.ts. USDCx
+  // live specs spend public testnet funds and run only through the `yarn
+  // e2e:real` runner (playwright.usdcx.config.ts), which E2E USDCx calls after
+  // every push to main. Stored-override specs need a build that reads stored
+  // endpoint overrides, which this suite's build ignores, so they run via
+  // playwright.stored-override.config.ts on a second build.
+  testIgnore: [
+    '**/guardian-*.spec.ts',
+    '**/swap/**',
+    '**/bridge/**',
+    '**/earn/**',
+    '**/resilience/**',
+    '**/dapp/**',
+    '**/usdcx/**',
+    '**/stored-override/**'
+  ],
   timeout: 300_000, // 5 min per test (blockchain ops are slow)
   expect: {
     timeout: 60_000

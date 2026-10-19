@@ -14,7 +14,6 @@ import HomePrompts from 'app/templates/HomePrompts';
 import { AssetRow } from 'components/AssetRow';
 import { ConnectivityIssueBanner } from 'components/ConnectivityIssueBanner';
 import { Loader } from 'components/Loader';
-import { NetworkModePill } from 'components/NetworkModePill';
 import {
   AccountsDrawer,
   AnimatedNumber,
@@ -39,6 +38,7 @@ import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { priceSymbolFor, tokenQuote } from 'lib/miden/swap/tokens';
+import { ClaimFeeRefusedError } from 'lib/miden/transaction/claim-fee';
 import { hapticLight } from 'lib/mobile/haptics';
 import { clearNoteReceivedNotification } from 'lib/mobile/native-notifications';
 import { isExtension, isMobile } from 'lib/platform';
@@ -48,7 +48,7 @@ import { midenTokenLabel } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { isAutoConsumeEnabled, isDelegateProofEnabled } from 'lib/settings/helpers';
 import { WalletAccount } from 'lib/shared/types';
-import { useWalletStore } from 'lib/store';
+import { isWalletReadyNow, useWalletStore } from 'lib/store';
 import type { PendingNoteValue } from 'lib/wallet-prompts';
 import { navigate } from 'lib/woozie';
 import { isHexAddress } from 'utils/miden';
@@ -81,6 +81,7 @@ const Explore: FC = () => {
     mutate: mutateBalances
   } = useAllBalances(account.publicKey, allTokensBaseMetadata);
   const tokenPrices = useWalletStore(s => s.tokenPrices);
+  const bridgeConfig = useBridgeConfigSnapshot({ load: false });
 
   const {
     data: claimableNotes,
@@ -142,9 +143,12 @@ const Explore: FC = () => {
     // against the others -- leaving it per-note meant the batching those two do was
     // defeated in the common case.
     //
-    // Poison-note isolation is the LAST argument, not this catch: an un-consumable note
+    // Poison-note isolation is the `true` argument, not this catch: an un-consumable note
     // fails at generation time, long after this queue write returned, so the catch here
-    // only ever sees a DB error. See `initiateConsumeNotesTransaction`.
+    // sees enqueue errors, not execution failures. See `initiateConsumeNotesTransaction`.
+    //
+    // The queue asks `isWalletReadyNow` right before each row it writes, so a lock that lands meanwhile queues
+    // nothing. A lock refuses every note alike, so it ends the pass: no per-note fallback, no processing request.
     try {
       await initiateConsumeNotesTransaction(
         account.publicKey,
@@ -152,17 +156,39 @@ const Explore: FC = () => {
         isDelegatedProvingEnabled,
         false,
         true,
-        verificationBaseFee
+        verificationBaseFee,
+        'auto_consume',
+        isWalletReadyNow
       );
     } catch (batchErr) {
+      if (batchErr instanceof ClaimFeeRefusedError) {
+        console.debug('[native-auto-consume] batch waiting for fee funding', batchErr);
+        return;
+      }
+      if (!isWalletReadyNow()) return;
       console.warn('[native-auto-consume] batch enqueue failed, falling back to per-note enqueue', batchErr);
+      let feeRefusedNotes = 0;
       for (const note of notesToClaim) {
         try {
-          await initiateConsumeTransaction(account.publicKey, note, isDelegatedProvingEnabled);
+          await initiateConsumeTransaction(
+            account.publicKey,
+            note,
+            isDelegatedProvingEnabled,
+            false,
+            'auto_consume',
+            isWalletReadyNow
+          );
         } catch (noteErr) {
+          if (noteErr instanceof ClaimFeeRefusedError) {
+            console.debug('[native-auto-consume] note waiting for fee funding', note.id, noteErr);
+            feeRefusedNotes += 1;
+            continue;
+          }
+          if (!isWalletReadyNow()) return;
           console.warn('[native-auto-consume] enqueue failed for note', note.id, noteErr);
         }
       }
+      if (feeRefusedNotes === notesToClaim.length) return;
     }
     // The wallet is now auto-claiming these notes, so the "click to claim"
     // notification is stale — dismiss it so it doesn't linger (#459).
@@ -198,6 +224,8 @@ const Explore: FC = () => {
   }, [address]);
 
   const { sortedTokens, hiddenTokens } = useMemo(() => {
+    // Pricing helpers read the runtime singleton; its snapshot invalidates cached values.
+    void bridgeConfig;
     // A token with no price, or whose balance was scaled by guessed decimals, ranks as worth
     // nothing, never as its token count at $1 a unit.
     const fiatValues = new Map(
@@ -220,17 +248,16 @@ const Explore: FC = () => {
       sortedTokens: sorted.filter(token => !isHidden(token.tokenId)),
       hiddenTokens: sorted.filter(token => isHidden(token.tokenId))
     };
-  }, [allTokenBalances, isHidden, midenFaucetId, tokenPrices]);
+  }, [allTokenBalances, isHidden, midenFaucetId, tokenPrices, bridgeConfig]);
 
   // The price symbols of the tokens the Balance total sums, so the card waits on the feed only
   // while one of them is a symbol the feed lists (`pricesLoaded`).
-  const totalPriceSymbols = useMemo(
-    () =>
-      allTokenBalances
-        .filter(token => token.balance > 0 && !isHidden(token.tokenId) && hasKnownScale(token.metadata))
-        .map(token => priceSymbolFor(token.tokenId, token.metadata.symbol)),
-    [allTokenBalances, isHidden]
-  );
+  const totalPriceSymbols = useMemo(() => {
+    void bridgeConfig;
+    return allTokenBalances
+      .filter(token => token.balance > 0 && !isHidden(token.tokenId) && hasKnownScale(token.metadata))
+      .map(token => priceSymbolFor(token.tokenId, token.metadata.symbol));
+  }, [allTokenBalances, isHidden, bridgeConfig]);
 
   const refreshExplore = useCallback(async () => {
     if (isRefreshing) return;
@@ -335,8 +362,6 @@ const Explore: FC = () => {
           className={`relative flex flex-col gap-3 bg-app-bg px-4 pt-3 pb-24 ${isPulling ? '' : 'transition-transform duration-200 ease-out'}`}
           style={{ transform: `translateY(${pullDistance}px)` }}
         >
-          <NetworkModePill />
-
           <HomeOverview
             address={address}
             tokenPrices={tokenPrices}
@@ -462,7 +487,7 @@ const HomeOverview: FC<HomeOverviewProps> = ({
         tokenPrices={tokenPrices}
       />
 
-      <div className="flex items-center justify-between pt-2">
+      <div className="-mb-1.5 flex items-center justify-between pt-2">
         <span id={assetsHeadingId} className="font-heading text-2xl font-extrabold text-text-primary-token">
           {t('assets')}
         </span>

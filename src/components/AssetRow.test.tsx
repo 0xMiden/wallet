@@ -8,7 +8,8 @@ import {
   TEST_MIDEN_USDC_FAUCET
 } from 'lib/epoch/testing/bridge-config';
 import type { TokenBalanceData } from 'lib/miden/front';
-import { TOKEN_IBTC, TOKEN_IETH } from 'lib/miden/swap/tokens';
+import { TEST_SWAP_TOKENS, TEST_TOKEN_IBTC, TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
+import { _setSwapTokensForTest } from 'lib/miden/swap/tokens';
 import {
   getNativeAssetIdSync,
   getNativeAssetMetadataSync,
@@ -20,6 +21,10 @@ import { hasUnquotedDefaultPrice } from 'lib/prices/unquoted-default';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 
 import AssetRowDefault, { AssetRow } from './AssetRow';
+
+// The testnet document's swap registry (IETH priced at ETH), in place of the one the wallet used to compile in.
+beforeAll(() => _setSwapTokensForTest(TEST_SWAP_TOKENS));
+afterAll(() => _setSwapTokensForTest(undefined));
 
 // --- Mock the leaf UI dependencies so we can assert the exact props AssetRow
 // wires through to them, keeping the test focused on AssetRow's own logic.
@@ -115,7 +120,7 @@ let tokenPrices: TokenPrices;
 function makeAsset(overrides: Partial<{ symbol: string; name: string; balance: number }> = {}): TokenBalanceData {
   const { symbol = 'BTC', name = 'Bitcoin', balance = 2 } = overrides;
   return {
-    tokenId: TOKEN_IBTC.faucetId,
+    tokenId: TEST_TOKEN_IBTC.faucetId,
     tokenSlug: 'slug-1',
     metadata: { symbol, name } as TokenBalanceData['metadata'],
     balance,
@@ -248,7 +253,7 @@ describe('AssetRow', () => {
 
   it('values IETH, its 24h move and its sparkline at ETH, the symbol the feed quotes it under', () => {
     tokenPrices = { ETH: priceInfo({ price: 3000, percentageChange24h: 1.5 }) };
-    const ieth = { ...makeAsset({ symbol: 'IETH', name: 'IETH', balance: 0.3 }), tokenId: TOKEN_IETH.faucetId };
+    const ieth = { ...makeAsset({ symbol: 'IETH', name: 'IETH', balance: 0.3 }), tokenId: TEST_TOKEN_IETH.faucetId };
 
     render(<AssetRow asset={ieth} tokenPrices={tokenPrices} />);
 
@@ -475,14 +480,14 @@ describe('AssetRow', () => {
   });
 });
 
-it('shows a native fixed quote without rendering market movement or a chart', () => {
+it('shows a native fixed quote with a flat line and a flat move, fetching no market series', () => {
   jest.mocked(getNativeAssetIdSync).mockReturnValue('native-stable');
   jest.mocked(getSdkSyncedNativeAssetIdSync).mockReturnValue('native-stable');
   jest.mocked(getNativeAssetMetadataSync).mockReturnValue({ symbol: 'USDCX', decimals: 6 });
   const asset = { ...makeAsset({ symbol: 'USDCX', name: 'USDCX', balance: 2 }), tokenId: 'native-stable' };
   render(<AssetRow asset={asset} tokenPrices={{}} />);
   expect(screen.getByTestId('row-price')).toHaveTextContent('$2.00');
-  expect(screen.queryByTestId('row-delta')).toBeNull();
-  expect(screen.queryByTestId('sparkline')).toBeNull();
+  expect(screen.getByTestId('row-delta')).toHaveTextContent('+0.00%');
+  expect(screen.getByTestId('sparkline')).toBeInTheDocument();
   expect(mockUseTokenSparkline).toHaveBeenCalledWith('', '1D');
 });

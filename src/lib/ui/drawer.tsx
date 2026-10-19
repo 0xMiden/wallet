@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { createContext, useCallback, useContext } from 'react';
+import { createContext, useCallback, useContext, useLayoutEffect, useRef } from 'react';
 
 import { useTranslation } from 'react-i18next';
 import { Drawer as VaulDrawer } from 'vaul';
@@ -13,6 +13,7 @@ import { useCloseOnBack } from 'lib/mobile/useCloseOnBack';
 import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 import { isExtension } from 'lib/platform';
 
+import { HOST_MODAL_LAYER, useImperativeModalFocus } from './host-modal';
 import { cn } from './util';
 
 interface DrawerContextValue {
@@ -23,6 +24,8 @@ interface DrawerContextValue {
 const DrawerContext = createContext<DrawerContextValue>({ open: false, onClose: () => {} });
 
 interface DrawerProps {
+  /** A sheet opened inside an existing Drawer uses Vaul's coordinated nested root. */
+  nested?: boolean;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
   children: React.ReactNode;
@@ -60,7 +63,10 @@ function CloseOnBack({ close }: { close: () => void }) {
   return null;
 }
 
+export const useIsInDrawer = () => useContext(DrawerContext).open;
+
 function Drawer({
+  nested = false,
   open = false,
   onOpenChange,
   children,
@@ -69,6 +75,7 @@ function Drawer({
   noBodyStyles,
   closeOnBack = true
 }: DrawerProps) {
+  const Root = nested ? VaulDrawer.NestedRoot : VaulDrawer.Root;
   const onClose = useCallback(() => onOpenChange?.(false), [onOpenChange]);
   // Keep the bottom tab navbar hidden while any drawer is open.
   useHideNavbarWhileOpen(open);
@@ -76,8 +83,9 @@ function Drawer({
   return (
     <DrawerContext.Provider value={{ open, onClose }}>
       {open && dismissible !== false && closeOnBack && <CloseOnBack close={onClose} />}
-      <VaulDrawer.Root
+      <Root
         open={open}
+        autoFocus
         onOpenChange={onOpenChange}
         shouldScaleBackground={isExtension()}
         direction="bottom"
@@ -85,7 +93,7 @@ function Drawer({
         noBodyStyles={noBodyStyles}
       >
         {children}
-      </VaulDrawer.Root>
+      </Root>
     </DrawerContext.Provider>
   );
 }
@@ -107,6 +115,22 @@ interface DrawerContentProps extends Omit<
   hideHandle?: boolean;
 }
 
+/**
+ * Rendered inside a closed sheet, which stays on the page only through its exit animation. Its
+ * capture listener records each press there before Radix's bubble-phase one holds it as outside, and
+ * it is a layout effect so no press between the closing commit and a passive flush goes unrecorded.
+ */
+function ClosingPressRecorder({ pressRef }: { pressRef: React.MutableRefObject<PointerEvent | null> }) {
+  useLayoutEffect(() => {
+    const record = (event: PointerEvent) => {
+      pressRef.current = event;
+    };
+    document.addEventListener('pointerdown', record, true);
+    return () => document.removeEventListener('pointerdown', record, true);
+  }, [pressRef]);
+  return null;
+}
+
 function DrawerContent({
   className,
   overlayClassName,
@@ -114,9 +138,17 @@ function DrawerContent({
   hideHandle = true,
   forceMount,
   style,
+  onPointerDownOutside,
+  onOpenAutoFocus,
+  onCloseAutoFocus,
   ...props
 }: DrawerContentProps) {
   const { open } = useContext(DrawerContext);
+  const focus = useImperativeModalFocus();
+  // Radix holds a press outside the sheet until its click, and a closing sheet still holds one: when
+  // that click reopens this sheet (the swap's two pills share one picker), the held dismissal closes it
+  // again. A press that began while the sheet was closed is never a press outside the open sheet.
+  const closingPress = useRef<PointerEvent | null>(null);
   // Once dismissed, the sheet and its `fixed inset-0` overlay stay mounted through the 500ms exit and
   // would swallow the tap aimed at what they uncover, so they stop taking pointer events. It must be an
   // inline style spread last: Radix writes inline `pointer-events: auto` on the overlay and on the
@@ -129,13 +161,25 @@ function DrawerContent({
           blur over it only smears whatever is underneath. */}
       <VaulDrawer.Overlay
         style={{ ...sheetMotionVars, ...inertWhileClosing }}
-        className={cn('fixed inset-0 z-50 bg-scrim', overlayClassName)}
+        className={cn('fixed inset-0 bg-scrim', HOST_MODAL_LAYER, overlayClassName)}
       />
       <VaulDrawer.Content
         data-slot="drawer-content"
         aria-describedby={undefined}
         // The tab-bar springs, as the `linear()` curves `main.css` reads off these elements.
         style={{ ...sheetMotionVars, ...style, ...inertWhileClosing }}
+        onOpenAutoFocus={event => {
+          focus.remember();
+          onOpenAutoFocus?.(event);
+        }}
+        onCloseAutoFocus={event => {
+          onCloseAutoFocus?.(event);
+          if (!event.defaultPrevented) focus.restore(event);
+        }}
+        onPointerDownOutside={event => {
+          onPointerDownOutside?.(event);
+          if (event.detail.originalEvent === closingPress.current) event.preventDefault();
+        }}
         className={cn(
           // pb: the sheet is fixed to the viewport bottom, so body's safe-area /
           // keyboard padding (mobile.html) doesn't reach it — pad past the
@@ -144,12 +188,14 @@ function DrawerContent({
           // (env() and the var are 0 on extension/Android). The padding snaps:
           // only the transform transitions, so main.css's sheet spring, which
           // lands on every transitioned property, never animates the inset.
-          'fixed inset-x-0 bottom-0 z-50 flex max-h-[80vh] flex-col rounded-t-[28px] bg-page text-body-sm outline-none',
+          'fixed inset-x-0 bottom-0 flex max-h-[80vh] flex-col rounded-t-[28px] bg-page text-body-sm outline-none',
           'pb-[max(env(safe-area-inset-bottom),var(--keyboard-height,0px))] transition-transform',
+          HOST_MODAL_LAYER,
           className
         )}
         {...props}
       >
+        {!open && <ClosingPressRecorder pressRef={closingPress} />}
         {!hideHandle && (
           <div className="flex cursor-grab items-center justify-center pt-6 pb-2 active:cursor-grabbing">
             <VaulDrawer.Handle className="h-[5px] w-9 shrink-0 rounded-full bg-fill-pressed opacity-100" />

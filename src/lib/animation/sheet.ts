@@ -40,15 +40,16 @@ function curve(transition: Parameters<typeof springToLinearEasing>[0]): SheetCur
 }
 
 /**
- * Both curves come from the tab bar, so a sheet feels like switching tabs. `open` is the highlight
- * spring (`tabSwitch`): ~350ms with one visible 7% overshoot past the resting edge, which vaul's
- * `::after` skirt covers. `close` is the icon-pop spring (`tabIconPop`): ~225ms and effectively
- * flat, so dismissing is quick and does not wobble on its way out. The drag-release snap-back uses
- * `open`, since that is the sheet returning to rest.
+ * Both curves come from the tab bar, so a sheet feels like switching tabs, at 1.25 times the
+ * duration because a sheet travels farther. `open` is the highlight spring's shape (`sheetOpen`):
+ * ~440ms with one visible 7% overshoot past the resting edge, which vaul's `::after` skirt covers.
+ * `close` is the icon-pop spring's shape (`sheetClose`): ~280ms and effectively flat, so dismissing
+ * is quick and does not wobble on its way out. The drag-release snap-back uses `open`, since that is
+ * the sheet returning to rest.
  */
 export const sheetMotion = {
-  open: curve(springs.tabSwitch),
-  close: curve(springs.tabIconPop)
+  open: curve(springs.sheetOpen),
+  close: curve(springs.sheetClose)
 };
 
 /**

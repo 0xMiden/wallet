@@ -1,16 +1,23 @@
 // Light mocks so importing cancel.ts doesn't pull in Dexie / the WASM client proxy.
 import { OperationAbortedError } from 'lib/miden/back/offscreen-codec';
 import { GuardianSwitchDiscardedError, GuardianWriteDiscardedError } from 'lib/miden/guardian/direct-switch';
+import { ApplyAfterSubmitError } from 'lib/miden/sdk/sdk-error-code';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 
 import { cancelTransaction, cancelTransactionAfterPipelineStopped, isTransactionStuck } from './cancel';
-import { TRANSACTION_STUCK_ERROR, USER_CANCELLED_TRANSACTION_REASON } from './constants';
-import { clearCancelledInFlight, markCancelledInFlight, markMayHaveSubmitted } from './helper';
+import {
+  CLAIM_VAULT_SHORTFALL_ERROR,
+  TRANSACTION_STUCK_ERROR,
+  TRANSACTION_VAULT_SHORTFALL_ERROR,
+  USER_CANCELLED_TRANSACTION_REASON
+} from './constants';
+import { clearCancelledInFlight, markCancelledInFlight, markMayHaveSubmitted, recordKillEnd } from './helper';
 import {
   notifyBackgroundTransactionFailed,
   notifyBackgroundTransactionNotConfirmed
 } from '../back/background-notification';
-import { ITransactionStatus, Transaction } from '../db/types';
+import { ConsumeTransaction, ITransactionStatus, Transaction } from '../db/types';
+import { NoteTypeEnum } from '../types';
 
 // A table of rows keyed by id, enough for cancelTransaction's read and its guarded modify.
 const mockRows = new Map<string, Record<string, unknown>>();
@@ -246,6 +253,21 @@ describe('cancelTransactionAfterPipelineStopped with a kill wrapped in another e
     expect(markCancelledInFlight).toHaveBeenCalledWith('tx-1');
   });
 
+  it('records that a send may have submitted when a terminated client is the cause, as for an abort', async () => {
+    await cancelTransactionAfterPipelineStopped(sendRow(), wrap(new Error('WebClient terminated')));
+
+    expect(recordKillEnd).toHaveBeenCalledWith('tx-1', undefined);
+    expect(markMayHaveSubmitted).toHaveBeenCalledWith('tx-1');
+    expect(markCancelledInFlight).not.toHaveBeenCalled();
+  });
+
+  it('keeps a landed write out of the kill route when a terminated client failed its local apply', async () => {
+    await cancelTransactionAfterPipelineStopped(sendRow(), new ApplyAfterSubmitError(new Error('Client terminated')));
+
+    expect(recordKillEnd).not.toHaveBeenCalled();
+    expect(markMayHaveSubmitted).not.toHaveBeenCalled();
+  });
+
   it('records no crossing for a wrapped kill of a row that never built a write', async () => {
     const preWrite = sendRow({ status: ITransactionStatus.Queued, stage: 'syncing', processingStartedAt: undefined });
 
@@ -254,5 +276,59 @@ describe('cancelTransactionAfterPipelineStopped with a kill wrapped in another e
     expect(markMayHaveSubmitted).not.toHaveBeenCalled();
     expect(markCancelledInFlight).not.toHaveBeenCalled();
     expect(clearCancelledInFlight).toHaveBeenCalledWith('tx-1');
+  });
+});
+
+// A claim has no amount sent, so its shortfall stores the claim copy whatever scripts its notes run.
+describe('cancelTransactionAfterPipelineStopped storing a vault shortfall', () => {
+  const shortfall = new Error('assertion failed with error code: 644413868907058392');
+  const failingRow = (fields: Record<string, unknown>): Transaction => {
+    const row = {
+      ...fields,
+      id: 'tx-1',
+      accountId: 'acc-1',
+      status: ITransactionStatus.GeneratingTransaction,
+      stage: 'creating-proposal',
+      processingStartedAt: 1,
+      initiatedAt: 0
+    };
+    mockRows.set('tx-1', row);
+    return row as unknown as Transaction;
+  };
+  const standardPayment = {
+    id: 'note-1',
+    faucetId: 'faucet-1',
+    amount: '10',
+    senderAddress: 'sender-1',
+    isBeingClaimed: false,
+    type: NoteTypeEnum.Public,
+    standardPayment: true
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockRows.clear();
+    mockRaceRow = undefined;
+  });
+
+  it.each([
+    ['queued by id or by a dApp, which carries no note verdicts', () => ({ type: 'consume' })],
+    ['of standard payments', () => ({ ...new ConsumeTransaction('acc-1', [standardPayment]) })]
+  ])('stores the claim copy on a claim %s', async (_label, fields) => {
+    await cancelTransactionAfterPipelineStopped(failingRow(fields()), shortfall);
+
+    const row = mockRows.get('tx-1');
+    expect(row?.error).not.toContain('amount sent');
+    expect(row?.error).toBe(CLAIM_VAULT_SHORTFALL_ERROR);
+    expect(row?.rawError).toBe(`Error: ${shortfall.message}`);
+    expect(row?.status).toBe(ITransactionStatus.Failed);
+    expect(notifyBackgroundTransactionFailed).toHaveBeenCalledTimes(1);
+    expect(notifyBackgroundTransactionNotConfirmed).not.toHaveBeenCalled();
+  });
+
+  it('keeps the generic copy on a send, which withdraws the amount sent as well as the fee', async () => {
+    await cancelTransactionAfterPipelineStopped(failingRow({ type: 'send' }), shortfall);
+
+    expect(mockRows.get('tx-1')?.error).toBe(TRANSACTION_VAULT_SHORTFALL_ERROR);
   });
 });

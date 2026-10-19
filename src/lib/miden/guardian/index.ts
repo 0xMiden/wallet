@@ -6,8 +6,7 @@ import {
   MultisigClient,
   GuardianHttpClient,
   buildUpdateSignersTransactionRequest,
-  chainAnchorToBase64,
-  executeForSummary,
+  executeForSummaryAtTip,
   type ProposalMetadata,
   type TransactionProposal,
   type Proposal
@@ -32,18 +31,21 @@ import {
 import { registerGuardianOrigin, withGuardianProbe } from './native-http';
 import { GUARDIAN_RETRY_MAX_ATTEMPTS, guardianRegisterBackoffMs, NEW_GUARDIAN_PUBKEY_TIMEOUT_MS } from './serialize';
 import { WalletSigner, type SignWordFunction } from './signer';
+import { requireRequestBoundBlockNum } from './tip-execution';
 import { midenClientProxy } from '../back/miden-client-proxy';
-import { freeChainAnchor } from '../sdk/chain-anchor';
 import { accountRefToSdk, feeAwareRequestBuilder, randomFeeSalt } from '../sdk/helpers';
 import {
   assertWasmHoldCurrent,
   getCurrentWasmLockHold,
   getMidenClient,
+  retireWasmClientForCaughtTrap,
   withWasmClientLock,
   type WasmClientLockOptions,
   type WasmLockHold
 } from '../sdk/miden-client';
-import { isGuardianCanonicalizationError } from '../sdk/sdk-error-code';
+import type { PswapCancelRequestOptions } from '../sdk/miden-client-interface';
+import { isGuardianCanonicalizationError, isPipelineKillLink, someInCauseChain } from '../sdk/sdk-error-code';
+import { syncAndRecordFeeFaucet } from '../sdk/sync-and-record-fee-faucet';
 import {
   WASM_LOCK_SYNC_WATCHDOG_MS,
   WasmClientPoisonedError,
@@ -65,6 +67,32 @@ export const isGuardianAuthRejection = (err: unknown): boolean => {
   const code = 'code' in err ? err.code : undefined;
   return status === 401 || code === 'authentication_failed' || code === 'signer_not_authorized';
 };
+
+/**
+ * The chain sync a proposal runs right before it is built failed. That is the node's answer, never
+ * evidence about the Guardian, so callers must not route it to the direct on-chain switch. The message
+ * carries the cause's, so message-based outage classifiers still read it as an outage.
+ */
+export class ProposalChainSyncError extends Error {
+  constructor(cause: unknown) {
+    super(`chain sync before the proposal failed: ${cause instanceof Error ? cause.message : String(cause)}`, {
+      cause
+    });
+    this.name = 'ProposalChainSyncError';
+  }
+}
+
+export function isProposalChainSyncError(err: unknown): boolean {
+  return someInCauseChain(err, link => link instanceof ProposalChainSyncError);
+}
+
+/**
+ * Where one proposal attempt's hold stands, for a caller whose own deadline can stop awaiting it: `syncing` is set while
+ * its chain sync runs, so a rejection then (a deadline or an eviction) came from inside the sync. A caller that stops
+ * awaiting the attempt sets `abandoned` in whatever phase it is, and from then on the hold starts no sync and makes no
+ * proposal.
+ */
+export type ProposalSyncPhase = { syncing: boolean; abandoned: boolean };
 
 /**
  * `reRegisterCurrentStateOnGuardian` refused to push (#1233): this device's copy of the account is
@@ -380,7 +408,7 @@ export class MultisigService {
     amount: bigint,
     noteType: NoteType
   ): Promise<Proposal> {
-    return withWasmClientLock(() =>
+    return this.withChainSyncedHold('send proposal', () =>
       this.multisig.createP2idProposal(
         accountRefToSdk(recipientId).toString(),
         accountRefToSdk(faucetId).toString(),
@@ -394,7 +422,7 @@ export class MultisigService {
    * Create a consume notes transaction proposal.
    */
   async createConsumeNotesProposal(noteIds: string[]): Promise<Proposal> {
-    return withWasmClientLock(() => this.multisig.createConsumeNotesProposal(noteIds));
+    return this.withChainSyncedHold('consume proposal', () => this.multisig.createConsumeNotesProposal(noteIds));
   }
 
   /** Current on-chain threshold for `procedure`, or undefined if none is set. */
@@ -427,8 +455,8 @@ export class MultisigService {
 
   /** Create a proposal that sets `procedure`'s signature threshold to `threshold`. */
   async createUpdateProcedureThresholdProposal(procedure: string, threshold: number): Promise<Proposal> {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return withWasmClientLock(() =>
+    return this.withChainSyncedHold('procedure-threshold proposal', () =>
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (this.multisig as any).createUpdateProcedureThresholdProposal(procedure, threshold)
     );
   }
@@ -447,7 +475,9 @@ export class MultisigService {
    * with a built-in type — so the default must be snake_case, not `'custom transaction'`.
    */
   async createCustomProposal(requestBytes: Uint8Array, proposalType: string = 'custom_transaction'): Promise<Proposal> {
-    return await withWasmClientLock(() => this.multisig.createCustomProposal(requestBytes, proposalType));
+    return await this.withChainSyncedHold('custom proposal', () =>
+      this.multisig.createCustomProposal(requestBytes, proposalType)
+    );
   }
 
   /**
@@ -455,11 +485,11 @@ export class MultisigService {
    * height first. Returns the bytes the proposal was made from; the caller persists them, since
    * custom execution has to rebuild from exactly those.
    *
-   * A guarded request's auth args bind the sync height at BUILD, and the proposal's anchor is
-   * the sync height at CAPTURE. The kernel authenticates the bound block only when the two
-   * agree, so persisted bytes proposed after any sync (a 409 retry, a restart, a slow round
-   * trip) failed with "transaction summary binds block N, which the transaction does not
-   * authenticate". Rebuilding in the same lock hold as the capture closes that gap.
+   * A guarded request's auth args bind the sync height at BUILD, the proposal records that
+   * block as `boundBlockNum`, and the request declares it, so every executor reproduces the
+   * summary at its own tip. Rebuilding in the same lock hold as the proposal binds the block the
+   * proposal is made at, not the one persisted bytes were built at before a sync (a 409 retry,
+   * a restart, a slow round trip).
    *
    * Only for requests whose whole content is their own output notes (the wallet's sends,
    * swaps and collateral notes): nothing else survives the rebuild, and a dApp's request is
@@ -474,15 +504,43 @@ export class MultisigService {
     proposalType: string,
     approvalExpirationDelta?: number
   ): Promise<{ proposal: Proposal; requestBytes: Uint8Array }> {
-    return await withWasmClientLock(async hold => {
-      const client = (await getMidenClient()).client;
-      assertWasmHoldCurrent(hold, 'rebased custom proposal: after the client build');
+    return await this.withChainSyncedHold('rebased custom proposal', async (hold, client) => {
       const notes = TransactionRequest.deserialize(requestBytes).expectedOutputOwnNotes();
       const builder = await feeAwareRequestBuilder(client, this.accountId, randomFeeSalt(), approvalExpirationDelta);
       assertWasmHoldCurrent(hold, 'rebased custom proposal: after the fee-aware builder');
       const rebased = builder.withOwnOutputNotes(new NoteArray(notes)).build().serialize();
       const proposal = await this.multisig.createCustomProposal(rebased, proposalType);
       return { proposal, requestBytes: rebased };
+    });
+  }
+
+  /**
+   * Propose the creator's cancel of a zero-fill PSWAP order, built in the proposal's own chain-synced hold so the
+   * request binds the height the proposal is made at. `persistRequest` stores the bytes before the proposal exists,
+   * so the row always holds the request a proposal of it was made from, and signing reads them from there.
+   *
+   * Never `createRebasedCustomProposal`: its rebuild keeps only own output notes, and this request's content is the
+   * tip it consumes.
+   *
+   * `allowNodeNote` is the order's own eligibility: only a recovered order's reclaim names a note this client never
+   * tracked, which the build then reads on the node (#1487).
+   */
+  async createPswapCancelProposal(
+    noteId: string,
+    persistRequest: (requestBytes: Uint8Array) => Promise<void>,
+    { allowNodeNote = false }: PswapCancelRequestOptions = {}
+  ): Promise<Proposal> {
+    return await this.withChainSyncedHold('PSWAP cancel proposal', async hold => {
+      const requestBytes = await midenClientProxy.buildPswapCancelRequest(
+        this.accountId,
+        noteId,
+        step => assertWasmHoldCurrent(hold, 'PSWAP cancel proposal: inside the cancel-request build', step),
+        { allowNodeNote }
+      );
+      assertWasmHoldCurrent(hold, 'PSWAP cancel proposal: after the cancel-request build');
+      await persistRequest(requestBytes);
+      assertWasmHoldCurrent(hold, 'PSWAP cancel proposal: after persisting the request');
+      return this.multisig.createCustomProposal(requestBytes, 'custom_transaction');
     });
   }
 
@@ -792,7 +850,8 @@ export class MultisigService {
    * after the on-chain switch commits.
    */
   async createSwitchGuardianProposal(
-    newGuardianEndpoint: string
+    newGuardianEndpoint: string,
+    syncPhase?: ProposalSyncPhase
   ): Promise<{ proposal: Proposal; newEndpoint: string }> {
     try {
       // Not yet known to be a Guardian: on mobile its origin routes through native HTTP only while it is checked.
@@ -812,8 +871,10 @@ export class MultisigService {
       });
       // `createSwitchGuardianProposal` already creates and returns the proposal;
       // calling `createProposal` again would duplicate it (nonce collision).
-      const proposal = await withWasmClientLock(() =>
-        this.multisig.createSwitchGuardianProposal(newGuardianEndpoint, commitment)
+      const proposal = await this.withChainSyncedHold(
+        'switch-guardian proposal',
+        () => this.multisig.createSwitchGuardianProposal(newGuardianEndpoint, commitment),
+        syncPhase
       );
       return { proposal, newEndpoint: newGuardianEndpoint };
     } catch (error) {
@@ -851,7 +912,7 @@ export class MultisigService {
     // After the sync on purpose: the adopt refreshes the loaded config from the adopted account.
     const targetThreshold = this.multisig.threshold;
 
-    const { summaryBase64, saltHex, chainAnchor } = await withWasmClientLock(
+    const { summaryBase64, saltHex, boundBlockNum } = await withWasmClientLock(
       async hold => {
         const webClient = (await getMidenClient()).client;
         // An eviction ABANDONS this callback rather than cancelling it, so every
@@ -870,35 +931,24 @@ export class MultisigService {
           // multisig auth args are committed for. That account id is what selects the
           // fee-aware builder: without it the request carries no fee conversion info
           // and `fee::pay_fee` aborts with ERR_FEE_CONVERSION_INFO_MISSING. The bound
-          // block defaults to the sync height, the block the summary anchor below
-          // names and a rebuild pins.
+          // block defaults to the sync height; the proposal records it as
+          // `boundBlockNum` and a rebuild pins it.
           {
             accountId: this.accountId,
             signatureScheme: 'ecdsa'
           }
         );
         assertWasmHoldCurrent(hold, 'replace-hot-key: after the update-signers request build');
-        // The anchor names the block the auth args bind. Re-execution at a later
-        // tip reproduces the summary when the request declares that bound block.
-        const { summary, anchor } = await executeForSummary(webClient, this.accountId, request);
-        // The live anchor's only job is to be serialized onto the proposal; once
-        // the wire form exists, release the WASM object (it holds a partial
-        // blockchain) instead of leaving it to the finalizer - the same
-        // serialize-then-free every multisig-client proposal creator does (#784).
-        try {
-          // Inside the try on purpose: summary/salt/anchor are borrows of the
-          // client's RefCell, so touching them past an eviction IS the double
-          // borrow - but the anchor release must still run on this throw
-          // (freeChainAnchor swallows a disposed-object failure).
-          assertWasmHoldCurrent(hold, 'replace-hot-key: after the summary execution');
-          return {
-            summaryBase64: u8ToB64(summary.serialize()),
-            saltHex: salt.toHex(),
-            chainAnchor: chainAnchorToBase64(anchor)
-          };
-        } finally {
-          freeChainAnchor(anchor);
-        }
+        const boundBlockNum = requireRequestBoundBlockNum(request, this.accountId, 'update-signers');
+        const summary = await executeForSummaryAtTip(webClient, this.accountId, request);
+        // `summary` and `salt` are borrows of the client's RefCell, so touching them
+        // past an eviction IS the double borrow.
+        assertWasmHoldCurrent(hold, 'replace-hot-key: after the summary execution');
+        return {
+          summaryBase64: u8ToB64(summary.serialize()),
+          saltHex: salt.toHex(),
+          boundBlockNum
+        };
       },
       { label: 'replace-hot-key-build' }
     );
@@ -907,7 +957,7 @@ export class MultisigService {
       targetThreshold,
       targetSignerCommitments,
       saltHex,
-      chainAnchor,
+      boundBlockNum,
       requiredSignatures: this.multisig.getEffectiveThreshold('add_signer'),
       description: 'Replace device (hot) signer'
     };
@@ -915,6 +965,50 @@ export class MultisigService {
     const proposal = await this.multisig.createProposal(Date.now(), summaryBase64, metadata);
     console.log('Created replace-hot-key proposal:', proposal.id);
     return proposal;
+  }
+
+  /**
+   * A proposal's summary executes at the store's sync height and loads the fee faucet as a foreign
+   * account there; the node serves account state only 50 blocks back, so a height left stale by a
+   * 409 retry loop or a paused WebView fails `before_foreign_load` (#1442). So every proposal takes
+   * its hold here and syncs in it, right before `body` builds on the client it is handed.
+   */
+  private withChainSyncedHold<T>(
+    label: string,
+    body: (hold: WasmLockHold, client: MidenClient) => Promise<T>,
+    phase?: ProposalSyncPhase
+  ): Promise<T> {
+    // Nobody awaits an abandoned attempt, and a delta it pushed would make a later coordinated switch 409 and cancel.
+    const assertNotAbandoned = (when: string) => {
+      if (phase?.abandoned) throw new Error(`${label}: abandoned by its caller ${when}`);
+    };
+    return withWasmClientLock(async hold => {
+      assertNotAbandoned('while it waited for the hold');
+      const { client } = await getMidenClient();
+      assertWasmHoldCurrent(hold, `${label}: before the chain sync`);
+      assertNotAbandoned('during the client build');
+      if (phase) phase.syncing = true;
+      try {
+        await syncAndRecordFeeFaucet(
+          client,
+          () => client.syncChain(),
+          () => assertWasmHoldCurrent(hold, `${label}: chain sync`)
+        );
+      } catch (error) {
+        // A caught trap is retired in its own hold and rethrown raw: neither it nor a killed pipeline is the
+        // node's answer. Only a plain sync failure is tagged, never body's errors.
+        if (error instanceof WebAssembly.RuntimeError) {
+          retireWasmClientForCaughtTrap(hold, error);
+          throw error;
+        }
+        if (isPipelineKillLink(error)) throw error;
+        throw new ProposalChainSyncError(error);
+      } finally {
+        if (phase) phase.syncing = false;
+      }
+      assertNotAbandoned('during the chain sync');
+      return body(hold, client);
+    });
   }
 
   /**

@@ -124,7 +124,7 @@ const GUARDIAN_FAULT_PATHS: readonly GuardianFaultPath[] = ['pubkey', 'configure
  * used by the switch tests (`guardianUrlB`, absent on single-operator networks
  * like devnet). On the localhost stack these are the two containers
  * (:3000 / :3001); on devnet/testnet they are the real operator origins
- * (e.g. guardian.openzeppelin.com / guardian-testnet.kodax.com). Fault
+ * (e.g. guardian-testnet.openzeppelin.com / guardian-testnet.kodax.com). Fault
  * matching is keyed on these so the specs exercise the real guardians on
  * live networks, not just the local containers.
  */

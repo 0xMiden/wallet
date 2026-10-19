@@ -15,6 +15,13 @@ import { hashAuthorization } from 'viem/utils';
 import { SignEvmOperation } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
 
+/** New user-initiated reviews must still belong to the selected, unlocked account at signing time. */
+export function assertVaultEvmAccountCurrent(midenAccountPublicKey: string, evmAddress: string): void {
+  const account = useWalletStore.getState().currentAccount;
+  if (account?.publicKey !== midenAccountPublicKey || account.evmAddress?.toLowerCase() !== evmAddress.toLowerCase())
+    throw new Error('earnWithdrawRefresh');
+}
+
 /**
  * Viem WalletClient whose account is the wallet-derived EVM identity of the
  * given Miden account (`WalletAccount.evmAddress`). Every signing callback
@@ -32,8 +39,15 @@ import { useWalletStore } from 'lib/store';
  * (`withdrawToken` / `initateDepositWithdrawal` / `disableForcedWithdrawal`
  * all do `walletClient.writeContract` from the position-owner address).
  */
-export function buildVaultEvmWalletClient(midenAccountPublicKey: string, evmAddress: `0x${string}`): WalletClient {
-  const signEvm = (operation: SignEvmOperation) => useWalletStore.getState().signEvm(midenAccountPublicKey, operation);
+export function buildVaultEvmWalletClient(
+  midenAccountPublicKey: string,
+  evmAddress: `0x${string}`,
+  beforeSign?: () => void
+): WalletClient {
+  const signEvm = (operation: SignEvmOperation) => {
+    beforeSign?.();
+    return useWalletStore.getState().signEvm(midenAccountPublicKey, operation);
+  };
 
   const account = toAccount({
     address: evmAddress,

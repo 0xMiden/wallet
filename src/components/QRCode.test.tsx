@@ -68,11 +68,8 @@ const showsCode = (instance: MockInstance) =>
   isShown(instance.container) && instance.container!.querySelector(`[data-qr-marker="${instance.marker}"]`) !== null;
 const drawnSvg = () => new Blob(['<svg/>'], { type: 'image/svg+xml' });
 
-// The Miden logo is imported as `../../public/misc/brand/new-bread.svg?url`,
-// which resolves through jest's `\.svg\?url$` mapper to the shared file stub.
-// The virtual mock (mirrors src/app/atoms/Logo.test.tsx) is kept to hand the
-// import a distinct, assertable value.
-jest.mock('../../public/misc/brand/new-bread.svg?url', () => 'miden-logo-url-stub', { virtual: true });
+// The Miden logo is imported as `../../public/misc/brand/new-bread.svg?url`, which jest's `\.svg\?url$` mapper
+// resolves to 'svg-url-stub'.
 
 const ADDRESS = 'mtst1aplqzwh6s4gvcyzsvx726y6xvsgt5qv5qruqqypuyph';
 
@@ -123,7 +120,7 @@ describe('QRCode', () => {
         height: 256,
         margin: 6,
         data: `miden:${ADDRESS}`,
-        image: 'miden-logo-url-stub',
+        image: 'svg-url-stub',
         qrOptions: { errorCorrectionLevel: 'H' },
         imageOptions: { crossOrigin: 'anonymous', margin: 6, imageSize: 0.35, hideBackgroundDots: true },
         dotsOptions: { type: 'dots' },

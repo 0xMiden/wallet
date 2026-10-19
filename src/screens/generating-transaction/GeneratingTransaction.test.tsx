@@ -9,8 +9,13 @@ import { WalletType } from 'screens/onboarding/types';
 
 import { GeneratingTransaction, GeneratingTransactionPage } from './GeneratingTransaction';
 
+let mockFeeCopy = 'worker-fee-copy';
+jest.mock('lib/i18n', () => ({
+  ...jest.requireActual('lib/i18n'),
+  getMessage: (key: string) => (key === 'insufficientFeeAsset' ? mockFeeCopy : key)
+}));
 jest.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key: string) => key })
+  useTranslation: () => ({ t: (key: string) => (key === 'insufficientFeeAsset' ? mockFeeCopy : key) })
 }));
 
 jest.mock('lib/platform', () => ({
@@ -28,15 +33,24 @@ jest.mock('components/Button', () => ({
     onClick,
     variant,
     accent,
+    disabled,
     className
   }: {
     children?: React.ReactNode;
     onClick?: () => void;
     variant?: string;
     accent?: string;
+    disabled?: boolean;
     className?: string;
   }) => (
-    <button type="button" data-variant={variant} data-accent={accent} className={className} onClick={onClick}>
+    <button
+      type="button"
+      data-variant={variant}
+      data-accent={accent}
+      className={className}
+      disabled={disabled}
+      onClick={onClick}
+    >
       {children}
     </button>
   ),
@@ -393,6 +407,39 @@ describe('GeneratingTransactionPage container effects', () => {
     act(() => root.unmount());
   });
 
+  it('fee refusal uses localized fee copy and leaves the current view open', async () => {
+    const { ClaimFeeRefusedError } = jest.requireActual<typeof import('lib/miden/transaction/initiate')>(
+      'lib/miden/transaction/initiate'
+    );
+    mockFeeCopy = 'worker-fee-copy';
+    const refusal = new ClaimFeeRefusedError();
+    mockFeeCopy = 'localized-fee-copy';
+    mockRowState = { row: makeTx({ status: 3, type: 'consume', displayIcon: 'RECEIVE' }), loaded: true };
+    requeueFailedTransactionMock.mockRejectedValueOnce(refusal);
+    const log = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
+    try {
+      const retryButton = Array.from(container.querySelectorAll('button')).find(
+        button => button.textContent === 'retry'
+      );
+      expect(retryButton).toBeTruthy();
+      await act(async () => {
+        retryButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      });
+
+      expect(container.textContent).toContain('localized-fee-copy');
+      expect(container.textContent).not.toContain(refusal.message);
+      expect(navigateMock).not.toHaveBeenCalled();
+      expect(requestSWTransactionProcessingMock).not.toHaveBeenCalled();
+      expect(retryButton).not.toBeDisabled();
+      expect(log).not.toHaveBeenCalled();
+    } finally {
+      act(() => root.unmount());
+      mockFeeCopy = 'worker-fee-copy';
+      log.mockRestore();
+    }
+  });
+
   it('shows Retry on a failed requeueable tx and requeues + kicks processing on click (#483)', async () => {
     isRequeueableTransactionMock.mockReturnValue(true);
     mockRowState = { row: makeTx({ status: 3, type: 'swap' }), loaded: true };
@@ -588,6 +635,23 @@ describe('GeneratingTransactionPage container effects', () => {
         el.getAttribute('data-state')
       ])
     );
+
+  // A private send's commit wait and relay are a step of their own after the Guardian sync (#1492), so a row
+  // failed during either carries its cross there, past a finished sync.
+  it.each(['confirming', 'delivering'])('marks a private send failed at %s on its delivery step', async stage => {
+    mockRowState = { row: makeTx({ status: 3, stage, noteType: 'private', error: 'boom' }), loaded: true };
+
+    const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
+
+    expect(stepStates(container)).toEqual({
+      'guardian-approving': 'complete',
+      'generating-proof': 'complete',
+      submitting: 'complete',
+      'syncing-guardian': 'complete',
+      'delivering-note': 'failed'
+    });
+    act(() => root.unmount());
+  });
 
   // The same rule Activity and the rotation gate apply (#1250): a row whose outcome is unknown
   // is not titled failed, and its classifier copy is not shown as the reason. Neither row holds an
@@ -969,6 +1033,171 @@ describe('GeneratingTransaction stage + state rendering', () => {
     expect(rows[0]?.textContent).toContain('transactionStepGuardianApproved');
     expect(container.textContent).toContain('generatingTransactionDescription');
     expect(container.textContent).not.toContain('guardianBusy');
+    act(() => root.unmount());
+  });
+
+  // The commit wait and relay of a private send ran under "Syncing with Guardian", which read as a 5 s Guardian
+  // sync (#1492). They are a step of their own, and the sync finishing ticks the sync step only.
+  it.each(['guardian-synced', 'confirming', 'delivering'])(
+    'shows a private Guardian send at %s on its delivery step, past a finished Guardian sync (#1492)',
+    async stage => {
+      const { container, root } = await renderInto(
+        <GeneratingTransaction
+          isGuardian={true}
+          onDoneClick={() => {}}
+          transactionComplete={false}
+          activeStage={stage as any}
+          activeType="send"
+          activeTransaction={makeTx({ stage, noteType: 'private' }) as never}
+        />
+      );
+      const rows = Array.from(container.querySelectorAll('[data-transaction-step]'));
+
+      expect(rows.map(row => row.getAttribute('data-transaction-step'))).toEqual([
+        'guardian-approving',
+        'generating-proof',
+        'submitting',
+        'syncing-guardian',
+        'delivering-note'
+      ]);
+      expect(rows.map(row => row.getAttribute('data-state'))).toEqual([
+        'complete',
+        'complete',
+        'complete',
+        'complete',
+        'active'
+      ]);
+      expect(rows[4]?.textContent).toContain('transactionStepDeliveringNote');
+      act(() => root.unmount());
+    }
+  );
+
+  it('times both the Guardian sync and the delivery of a completed private send', async () => {
+    const { container, root } = await renderInto(
+      <GeneratingTransaction
+        isGuardian={true}
+        onDoneClick={() => {}}
+        transactionComplete
+        activeType="send"
+        activeTransaction={
+          makeTx({
+            status: ITransactionStatus.Completed,
+            stage: 'complete',
+            noteType: 'private',
+            stageTimestamps: { 'guardian-syncing': 2_600, confirming: 2_950, complete: 8_300 }
+          }) as never
+        }
+      />
+    );
+    const rows = Array.from(container.querySelectorAll('[data-transaction-step]'));
+
+    expect(rows).toHaveLength(5);
+    expect(rows[3]?.textContent).toContain('transactionStepDurationSec');
+    expect(rows[4]?.textContent).toContain('transactionStepDurationSec');
+    act(() => root.unmount());
+  });
+
+  it('keeps a public Guardian send on the four steps, with the Guardian sync last', async () => {
+    const { container, root } = await renderInto(
+      <GeneratingTransaction
+        isGuardian={true}
+        onDoneClick={() => {}}
+        transactionComplete={false}
+        activeStage="guardian-syncing"
+        activeType="send"
+        activeTransaction={makeTx({ stage: 'guardian-syncing', noteType: 'public' }) as never}
+      />
+    );
+    const rows = Array.from(container.querySelectorAll('[data-transaction-step]'));
+
+    expect(rows.map(row => row.getAttribute('data-transaction-step'))).toEqual([
+      'guardian-approving',
+      'generating-proof',
+      'submitting',
+      'syncing-guardian'
+    ]);
+    expect(rows.map(row => row.getAttribute('data-state'))).toEqual(['complete', 'complete', 'complete', 'active']);
+    act(() => root.unmount());
+  });
+
+  // An execute with private outputs waits for the commit and relays its notes after the Guardian sync too, and its
+  // stamps say so when the best-effort delivery record was not written.
+  it.each([undefined, 'pending'])(
+    'shows a Guardian execute row at confirming on its delivery step (noteDelivery %s)',
+    async noteDelivery => {
+      const { container, root } = await renderInto(
+        <GeneratingTransaction
+          isGuardian={true}
+          onDoneClick={() => {}}
+          transactionComplete={false}
+          activeStage="confirming"
+          activeType="execute"
+          activeTransaction={
+            makeTx({ type: 'execute', stage: 'confirming', stageTimestamps: { confirming: 1 }, noteDelivery }) as never
+          }
+        />
+      );
+      const rows = Array.from(container.querySelectorAll('[data-transaction-step]'));
+
+      expect(rows.map(row => row.getAttribute('data-transaction-step'))).toEqual([
+        'guardian-approving',
+        'generating-proof',
+        'submitting',
+        'syncing-guardian',
+        'delivering-note'
+      ]);
+      expect(rows.map(row => row.getAttribute('data-state'))).toEqual([
+        'complete',
+        'complete',
+        'complete',
+        'complete',
+        'active'
+      ]);
+      act(() => root.unmount());
+    }
+  );
+
+  // A rotation waits for its own commit at 'confirming' and relays nothing, so that wait stays its last step.
+  it('keeps a replace-hot-key row waiting for its commit on the four steps', async () => {
+    const { container, root } = await renderInto(
+      <GeneratingTransaction
+        isGuardian={true}
+        onDoneClick={() => {}}
+        transactionComplete={false}
+        activeStage="confirming"
+        activeType="replace-hot-key"
+        activeTransaction={
+          makeTx({ type: 'replace-hot-key', stage: 'confirming', stageTimestamps: { confirming: 1 } }) as never
+        }
+      />
+    );
+    const rows = Array.from(container.querySelectorAll('[data-transaction-step]'));
+
+    expect(rows.map(row => row.getAttribute('data-transaction-step'))).toEqual([
+      'guardian-approving',
+      'generating-proof',
+      'submitting',
+      'syncing-guardian'
+    ]);
+    expect(rows.map(row => row.getAttribute('data-state'))).toEqual(['complete', 'complete', 'complete', 'active']);
+    act(() => root.unmount());
+  });
+
+  it.each(['confirming', 'delivering'])('keeps a standard row at %s on its last step', async stage => {
+    const { container, root } = await renderInto(
+      <GeneratingTransaction
+        onDoneClick={() => {}}
+        transactionComplete={false}
+        isGuardian={false}
+        activeStage={stage as any}
+        activeType="send"
+        activeTransaction={makeTx({ stage, noteType: 'private' }) as never}
+      />
+    );
+    const rows = Array.from(container.querySelectorAll('[data-transaction-step]'));
+
+    expect(rows.map(r => r.getAttribute('data-transaction-step'))).toEqual(['generating-proof', 'submitting']);
+    expect(rows.map(r => r.getAttribute('data-state'))).toEqual(['complete', 'active']);
     act(() => root.unmount());
   });
 

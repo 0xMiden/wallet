@@ -5,13 +5,21 @@ import BigNumber from 'bignumber.js';
 
 import { resetHiddenTokens, useHiddenTokens } from 'app/hooks/useHiddenTokens';
 import {
+  publishMockBridgeSnapshot,
   TEST_BRIDGE_CONFIG_SNAPSHOT,
   TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET,
-  TEST_NATIVE_ETH_FAUCET as MIDEN_AGGLAYER_FAUCET_ID
+  TEST_NATIVE_ETH_FAUCET as MIDEN_AGGLAYER_FAUCET_ID,
+  testSnapshotWithSwapPairs
 } from 'lib/epoch/testing/bridge-config';
 import { deferred } from 'lib/epoch/testing/earn-locks';
 import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
-import { TOKEN_IBTC, TOKEN_IETH } from 'lib/miden/swap/tokens';
+import {
+  TEST_SWAP_TOKENS,
+  TEST_TOKEN_IBTC,
+  TEST_TOKEN_IETH,
+  testSwapPairsToken
+} from 'lib/miden/swap/testing/registry';
+import { _setSwapTokensForTest } from 'lib/miden/swap/tokens';
 import { hapticLight } from 'lib/mobile/haptics';
 import { hasUnquotedDefaultPrice } from 'lib/prices/unquoted-default';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
@@ -20,6 +28,10 @@ import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 // used for real so the redirect branch reflects production behaviour.
 
 import Explore from './Explore';
+
+// The testnet document's swap registry (IETH priced at ETH), in place of the one the wallet used to compile in.
+beforeAll(() => _setSwapTokensForTest(TEST_SWAP_TOKENS));
+afterAll(() => _setSwapTokensForTest(undefined));
 
 // The figures under test follow the default rule, no figure without a quote; pinned here against
 // Developer Settings' nominal $1 switch (lib/prices/unquoted-default). The nominal case flips it.
@@ -71,6 +83,9 @@ const mockSignTransaction = jest.fn();
 const mockMutateBalances = jest.fn();
 const mockMutateClaimableNotes = jest.fn();
 const mockInitiateConsumeTransaction = jest.fn();
+// The suite's batch enqueue fails, so the page falls back to one claim per note, which the per-note assertions follow;
+// a test that sets its own implementation gets the batch path.
+const mockInitiateConsumeNotesTransaction = jest.fn();
 const mockRequestSWTransactionProcessing = jest.fn();
 const mockStartBackgroundTransactionProcessing = jest.fn();
 const mockNavigate = jest.fn();
@@ -144,11 +159,6 @@ jest.mock('components/AssetRow', () => ({
 
 jest.mock('components/ConnectivityIssueBanner', () => ({
   ConnectivityIssueBanner: () => <div data-testid="connectivity-banner" />
-}));
-
-// The pill has its own suite; here it only has to sit above the balance card.
-jest.mock('components/NetworkModePill', () => ({
-  NetworkModePill: () => <div data-testid="network-mode-pill" />
 }));
 
 jest.mock('components/Loader', () => ({
@@ -231,6 +241,7 @@ jest.mock('lib/i18n/numbers', () => ({
 }));
 
 jest.mock('lib/miden/activity', () => ({
+  initiateConsumeNotesTransaction: (...args: any[]) => mockInitiateConsumeNotesTransaction(...args),
   initiateConsumeTransaction: (...args: any[]) => mockInitiateConsumeTransaction(...args),
   requestSWTransactionProcessing: (...args: any[]) => mockRequestSWTransactionProcessing(...args),
   startBackgroundTransactionProcessing: (...args: any[]) => mockStartBackgroundTransactionProcessing(...args)
@@ -292,7 +303,10 @@ jest.mock('lib/settings/helpers', () => ({
   isDelegateProofEnabled: () => mockDelegateProof
 }));
 
+// The wallet store's lock state, as the claim guard reads it.
+let mockWalletReady = true;
 jest.mock('lib/store', () => ({
+  isWalletReadyNow: () => mockWalletReady,
   useWalletStore: (selector: (s: any) => unknown) => selector({ tokenPrices: mockTokenPrices })
 }));
 
@@ -362,6 +376,8 @@ describe('Explore', () => {
       return Promise.resolve();
     });
     mockInitiateConsumeTransaction.mockResolvedValue(undefined);
+    mockInitiateConsumeNotesTransaction.mockRejectedValue(new Error('batch enqueue failed'));
+    mockWalletReady = true;
     mockMutateBalances.mockResolvedValue(undefined);
     mockMutateClaimableNotes.mockResolvedValue(undefined);
     consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
@@ -372,6 +388,63 @@ describe('Explore', () => {
   });
 
   describe('base rendering', () => {
+    it('reorders stable balances when the configured price symbols change', async () => {
+      _setSwapTokensForTest(undefined);
+      mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+      mockAllBalances = [
+        makeToken(TEST_TOKEN_IETH.faucetId, TEST_TOKEN_IETH.symbol, 'Ether', 1),
+        makeToken(TEST_TOKEN_IBTC.faucetId, TEST_TOKEN_IBTC.symbol, 'Bitcoin', 1)
+      ];
+      mockTokenPrices = {
+        ETH: { price: 100, change24h: 0, percentageChange24h: 0 },
+        BTC: { price: 50, change24h: 0, percentageChange24h: 0 }
+      };
+      const listedIds = () => screen.getAllByTestId('asset-row').map(row => row.getAttribute('data-token'));
+      try {
+        await renderExplore();
+        expect(listedIds()).toEqual([TEST_TOKEN_IETH.faucetId, TEST_TOKEN_IBTC.faucetId]);
+
+        act(() => {
+          mockBridgeSnapshot = testSnapshotWithSwapPairs({
+            tokens: [
+              testSwapPairsToken({ ...TEST_TOKEN_IETH, priceSymbol: 'BTC' }),
+              testSwapPairsToken({ ...TEST_TOKEN_IBTC, priceSymbol: 'ETH' })
+            ],
+            pairs: []
+          });
+          publishMockBridgeSnapshot();
+        });
+        expect(listedIds()).toEqual([TEST_TOKEN_IBTC.faucetId, TEST_TOKEN_IETH.faucetId]);
+      } finally {
+        _setSwapTokensForTest(TEST_SWAP_TOKENS);
+      }
+    });
+
+    it('updates price readiness on a config-only change with an unchanged empty feed', async () => {
+      _setSwapTokensForTest(undefined);
+      mockedHasUnquotedDefaultPrice.mockReturnValue(true);
+      mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+      mockAllBalances = [makeToken(TEST_TOKEN_IETH.faucetId, TEST_TOKEN_IETH.symbol, 'Ether', 1)];
+      mockTokenPrices = {};
+      mockPortfolioTotal = new BigNumber(100);
+      try {
+        await renderExplore();
+        expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^\u2014$/);
+
+        act(() => {
+          mockBridgeSnapshot = testSnapshotWithSwapPairs({
+            tokens: [testSwapPairsToken({ ...TEST_TOKEN_IETH, priceSymbol: undefined })],
+            pairs: []
+          });
+          publishMockBridgeSnapshot();
+        });
+        expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^100$/);
+      } finally {
+        mockedHasUnquotedDefaultPrice.mockReturnValue(false);
+        _setSwapTokensForTest(TEST_SWAP_TOKENS);
+      }
+    });
+
     it('renders the page shell, banner, balance card, prompts and asset rows', async () => {
       mockAllBalances = [
         makeToken('faucet-native', 'MIDEN', 'Miden'),
@@ -386,11 +459,6 @@ describe('Explore', () => {
       expect(screen.getByTestId('explore-page')).toBeInTheDocument();
       expect(screen.getByTestId('connectivity-banner')).toBeInTheDocument();
       expect(screen.getByTestId('balance-card')).toBeInTheDocument();
-      // The test network is named above the card, the first thing on Home.
-      expect(
-        screen.getByTestId('network-mode-pill').compareDocumentPosition(screen.getByTestId('balance-card')) &
-          Node.DOCUMENT_POSITION_FOLLOWING
-      ).toBeTruthy();
       // amount is `toLocalFormat(balance)` with no symbol (the card's unit says USD), and account
       // fields flow through.
       expect(screen.getByTestId('balance-amount')).toHaveTextContent('0');
@@ -510,7 +578,7 @@ describe('Explore', () => {
       mockedHasUnquotedDefaultPrice.mockReturnValue(true);
       mockAllBalances = [
         makeToken('faucet-native', 'MIDEN', 'Miden', 100),
-        makeToken(TOKEN_IETH.faucetId, 'IETH', 'IETH', 0.1)
+        makeToken(TEST_TOKEN_IETH.faucetId, 'IETH', 'IETH', 0.1)
       ];
       mockTokenPrices = {};
       mockPortfolioTotal = new BigNumber(100);
@@ -541,9 +609,9 @@ describe('Explore', () => {
       it('does not hold back the total when it is hidden', async () => {
         mockAllBalances = [
           makeToken('faucet-native', 'MIDEN', 'Miden', 100),
-          makeToken(TOKEN_IETH.faucetId, 'IETH', 'IETH', 0.1)
+          makeToken(TEST_TOKEN_IETH.faucetId, 'IETH', 'IETH', 0.1)
         ];
-        mockStoredHiddenTokens = [TOKEN_IETH.faucetId];
+        mockStoredHiddenTokens = [TEST_TOKEN_IETH.faucetId];
 
         await renderBeforeAnyPrice();
 
@@ -554,7 +622,7 @@ describe('Explore', () => {
       it('does not hold back the total when its balance is zero', async () => {
         mockAllBalances = [
           makeToken('faucet-native', 'MIDEN', 'Miden', 100),
-          makeToken(TOKEN_IETH.faucetId, 'IETH', 'IETH', 0)
+          makeToken(TEST_TOKEN_IETH.faucetId, 'IETH', 'IETH', 0)
         ];
 
         await renderBeforeAnyPrice();
@@ -566,7 +634,7 @@ describe('Explore', () => {
         mockAllBalances = [
           makeToken('faucet-native', 'MIDEN', 'Miden', 100),
           {
-            tokenId: TOKEN_IETH.faucetId,
+            tokenId: TEST_TOKEN_IETH.faucetId,
             balance: 0.1,
             metadata: { symbol: 'IETH', name: 'IETH', scaleIsUnknown: true }
           }
@@ -591,7 +659,7 @@ describe('Explore', () => {
       mockAllBalances = [
         makeToken('faucet-native', 'MIDEN', 'Miden', 100),
         makeToken(MIDEN_AGGLAYER_FAUCET_ID, 'ETH', 'Ethereum', 1),
-        makeToken(TOKEN_IBTC.faucetId, 'BTC', 'Bitcoin', 2)
+        makeToken(TEST_TOKEN_IBTC.faucetId, 'BTC', 'Bitcoin', 2)
       ];
       mockTokenPrices = {
         MIDEN: { price: 1, change24h: 0, percentageChange24h: 0 },
@@ -602,7 +670,7 @@ describe('Explore', () => {
       await renderExplore();
 
       const tokens = screen.getAllByTestId('asset-row').map(row => row.getAttribute('data-token'));
-      expect(tokens).toEqual(['faucet-native', TOKEN_IBTC.faucetId, MIDEN_AGGLAYER_FAUCET_ID]);
+      expect(tokens).toEqual(['faucet-native', TEST_TOKEN_IBTC.faucetId, MIDEN_AGGLAYER_FAUCET_ID]);
     });
 
     it('orders by the price-symbol value, IETH at ETH, and puts tokens with no price after every priced one', async () => {
@@ -610,7 +678,7 @@ describe('Explore', () => {
         makeToken('faucet-native', 'MIDEN', 'Miden', 100),
         makeToken('t-other', 'OTH', 'Other', 1000),
         makeToken(MIDEN_AGGLAYER_FAUCET_ID, 'ETH', 'Ethereum', 1),
-        makeToken(TOKEN_IETH.faucetId, 'IETH', 'IETH', 0.1)
+        makeToken(TEST_TOKEN_IETH.faucetId, 'IETH', 'IETH', 0.1)
       ];
       mockTokenPrices = { ETH: { price: 3000, change24h: 0, percentageChange24h: 0 } };
 
@@ -618,7 +686,7 @@ describe('Explore', () => {
 
       // ETH 1 * 3000 = 3000, IETH 0.1 * 3000 (its ETH quote) = 300, OTH has no quote at all.
       const tokens = screen.getAllByTestId('asset-row').map(row => row.getAttribute('data-token'));
-      expect(tokens).toEqual(['faucet-native', MIDEN_AGGLAYER_FAUCET_ID, TOKEN_IETH.faucetId, 't-other']);
+      expect(tokens).toEqual(['faucet-native', MIDEN_AGGLAYER_FAUCET_ID, TEST_TOKEN_IETH.faucetId, 't-other']);
     });
 
     it('ranks a token whose scale is unknown as worth nothing, even when its symbol is quoted', async () => {
@@ -628,7 +696,7 @@ describe('Explore', () => {
         // The placeholder's guessed decimals make this balance meaningless; at the ETH quote it
         // would outrank everything by a factor of a million.
         {
-          tokenId: TOKEN_IETH.faucetId,
+          tokenId: TEST_TOKEN_IETH.faucetId,
           balance: 1_000_000,
           metadata: { symbol: 'ETH', name: 'Unknown', scaleIsUnknown: true }
         }
@@ -638,7 +706,7 @@ describe('Explore', () => {
       await renderExplore();
 
       const tokens = screen.getAllByTestId('asset-row').map(row => row.getAttribute('data-token'));
-      expect(tokens).toEqual(['faucet-native', MIDEN_AGGLAYER_FAUCET_ID, TOKEN_IETH.faucetId]);
+      expect(tokens).toEqual(['faucet-native', MIDEN_AGGLAYER_FAUCET_ID, TEST_TOKEN_IETH.faucetId]);
     });
 
     it('renders with no asset rows when balances are undefined (destructuring default)', async () => {
@@ -1336,7 +1404,10 @@ describe('Explore', () => {
       expect(mockInitiateConsumeTransaction).toHaveBeenCalledWith(
         'mtst1account',
         expect.objectContaining({ id: 'actual-note' }),
-        expect.any(Boolean)
+        expect.any(Boolean),
+        false,
+        'auto_consume',
+        expect.any(Function)
       );
       expect(mockInitiateConsumeTransaction).toHaveBeenCalledTimes(1);
       expect(screen.getByTestId('home-prompts')).toHaveAttribute('data-note-count', '1');
@@ -1359,7 +1430,10 @@ describe('Explore', () => {
       expect(mockInitiateConsumeTransaction).toHaveBeenCalledWith(
         'mtst1account',
         expect.objectContaining({ id: 'n1' }),
-        true // isDelegatedProvingEnabled
+        true, // isDelegatedProvingEnabled
+        false,
+        'auto_consume',
+        expect.any(Function)
       );
       expect(mockMutateClaimableNotes).toHaveBeenCalled();
       expect(mockRequestSWTransactionProcessing).toHaveBeenCalledTimes(1);
@@ -1402,7 +1476,10 @@ describe('Explore', () => {
       expect(mockInitiateConsumeTransaction).toHaveBeenCalledWith(
         'mtst1account',
         expect.objectContaining({ id: 'n1' }),
-        false
+        false,
+        false,
+        'auto_consume',
+        expect.any(Function)
       );
       expect(mockRequestSWTransactionProcessing).not.toHaveBeenCalled();
       expect(mockStartBackgroundTransactionProcessing).toHaveBeenCalledTimes(1);
@@ -1425,6 +1502,71 @@ describe('Explore', () => {
       expect(mockMutateClaimableNotes).not.toHaveBeenCalled();
       expect(mockRequestSWTransactionProcessing).not.toHaveBeenCalled();
       expect(mockStartBackgroundTransactionProcessing).not.toHaveBeenCalled();
+    });
+
+    it('writes no row and runs no fallback when the lock lands during the batch enqueue', async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+      mockAutoConsume = true;
+      mockPlatform.isExtension = true;
+      mockClaimableNotes = [makeNote('n1', 'faucet-native', false), makeNote('n2', 'faucet-native', false)];
+      const written: string[][] = [];
+      // The claim queue's contract, pinned on real rows in initiate.batch-isolation.test.ts: the lock lands while it
+      // reads, and a guard that answers no at the write refuses it.
+      mockInitiateConsumeNotesTransaction.mockImplementation(async (...args: any[]) => {
+        mockWalletReady = false;
+        const canSign = args[7];
+        if (typeof canSign === 'function' && !canSign()) throw new Error('Claim not queued');
+        written.push(args[1].map((n: { id: string }) => n.id));
+        return 'batch-tx';
+      });
+
+      await renderExplore();
+
+      expect(mockInitiateConsumeNotesTransaction).toHaveBeenCalledTimes(1);
+      expect(written).toEqual([]);
+      expect(mockInitiateConsumeTransaction).not.toHaveBeenCalled();
+      expect(mockRequestSWTransactionProcessing).not.toHaveBeenCalled();
+      expect(mockStartBackgroundTransactionProcessing).not.toHaveBeenCalled();
+      warn.mockRestore();
+    });
+
+    it('fee-refused native batch has no single-note fallback or processing kick', async () => {
+      const { ClaimFeeRefusedError } = jest.requireActual<typeof import('lib/miden/transaction/initiate')>(
+        'lib/miden/transaction/initiate'
+      );
+      mockAutoConsume = true;
+      mockPlatform.isExtension = true;
+      mockClaimableNotes = [makeNote('n1', 'faucet-native', false), makeNote('n2', 'faucet-native', false)];
+      mockInitiateConsumeNotesTransaction.mockRejectedValueOnce(new ClaimFeeRefusedError());
+
+      const view = await renderExplore();
+
+      expect(mockInitiateConsumeNotesTransaction).toHaveBeenCalledTimes(1);
+      expect(mockInitiateConsumeTransaction).not.toHaveBeenCalled();
+      expect(mockRequestSWTransactionProcessing).not.toHaveBeenCalled();
+      expect(mockStartBackgroundTransactionProcessing).not.toHaveBeenCalled();
+      expect(mockClearNoteReceivedNotification).not.toHaveBeenCalled();
+      expect(mockMutateClaimableNotes).not.toHaveBeenCalled();
+      expect(mockClaimableNotes.map((item: { id: string }) => item.id)).toEqual(['n1', 'n2']);
+      view.unmount();
+
+      mockInitiateConsumeNotesTransaction.mockRejectedValueOnce(new Error('batch enqueue failed'));
+      mockInitiateConsumeTransaction
+        .mockRejectedValueOnce(new ClaimFeeRefusedError())
+        .mockRejectedValueOnce(new ClaimFeeRefusedError());
+      const fallback = await renderExplore();
+      expect(mockInitiateConsumeTransaction).toHaveBeenCalledTimes(2);
+      expect(mockRequestSWTransactionProcessing).not.toHaveBeenCalled();
+      expect(mockClearNoteReceivedNotification).not.toHaveBeenCalled();
+      expect(mockMutateClaimableNotes).not.toHaveBeenCalled();
+      fallback.unmount();
+
+      mockInitiateConsumeNotesTransaction.mockRejectedValueOnce(new Error('batch enqueue failed'));
+      mockInitiateConsumeTransaction.mockRejectedValueOnce(new ClaimFeeRefusedError());
+      await renderExplore();
+      expect(mockInitiateConsumeTransaction).toHaveBeenCalledTimes(4);
+      expect(mockRequestSWTransactionProcessing).toHaveBeenCalledTimes(1);
+      expect(mockClearNoteReceivedNotification).toHaveBeenCalledTimes(1);
     });
 
     it('consumes multiple matching notes in one pass', async () => {

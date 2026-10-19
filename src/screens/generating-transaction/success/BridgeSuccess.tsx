@@ -44,14 +44,18 @@ export const BridgeSuccess: FC<BridgeSuccessProps> = ({
   const recipient = destinationAddress ? truncateAddress(destinationAddress, false, 8, 8) : undefined;
   const isUsdcx = bridgedInputs.provider === 'usdcx';
   const burnPhase = bridgedInputs.usdcxBurn?.phase;
-  const burnTitle =
-    burnPhase === 'confirmed'
-      ? 'usdcxBurnConfirmed'
-      : burnPhase === 'discarded'
-        ? 'usdcxBurnDiscarded'
-        : burnPhase === 'consuming'
-          ? 'usdcxBurnConsuming'
-          : 'usdcxBurnSubmitted';
+  const burnTitle = (() => {
+    switch (burnPhase) {
+      case 'confirmed':
+        return bridgedInputs.usdcxBurn?.destinationBalanceConfirmed ? 'confirmed' : 'usdcxBurnConfirmed';
+      case 'discarded':
+        return 'usdcxBurnDiscarded';
+      case 'consuming':
+        return 'usdcxBurnConsuming';
+      default:
+        return 'usdcxBurnSubmitted';
+    }
+  })();
 
   const rows = useMemo(
     () =>
@@ -86,7 +90,7 @@ export const BridgeSuccess: FC<BridgeSuccessProps> = ({
           that names the transaction, and the badge's default names a plain send. */}
       <SuccessSummaryPill lhs={amountText} rhs={recipient} fillForArrow={TRANSACTION_COLORS.bridge} />
       <ReceiptRows rows={rows} className="mt-6" />
-      {isUsdcx && <p className="mt-4 text-caption text-muted">{t('usdcxBurnTestNotice')}</p>}
+      {isUsdcx && <p className="mt-4 text-caption text-muted">{t('usdcxWithdrawalNotice')}</p>}
     </TransactionSuccessLayout>
   );
 };

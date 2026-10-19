@@ -35,7 +35,11 @@ async function buildSdk(address: `0x${string}`, apiBaseUrl: string, chainOverrid
  * Caches one instance per (address, flow) so repeated calls in a single
  * session don't rebuild. Resets via `resetEpochSdk()` (called on WC disconnect).
  */
-export async function getEpochSdk(opts?: { forMidenFlow?: boolean }): Promise<EpochIntentSDK | null> {
+export async function getEpochSdk(opts?: {
+  forMidenFlow?: boolean;
+  chainId?: number;
+  allocatorUrl?: string;
+}): Promise<EpochIntentSDK | null> {
   const { address } = await getEvmConnection();
   if (!address) {
     // WC disconnected — invalidate any SDK still pointing at a now-stale
@@ -45,17 +49,13 @@ export async function getEpochSdk(opts?: { forMidenFlow?: boolean }): Promise<Ep
     return null;
   }
   await initBridgeConfig();
-  const apiBaseUrl = getEpochAllocatorUrl();
-  const chainId = opts?.forMidenFlow ? MIDEN_DESTINATION_CHAIN_ID : sepolia.id;
+  const apiBaseUrl = opts?.allocatorUrl ?? getEpochAllocatorUrl();
+  const chainId = opts?.forMidenFlow ? MIDEN_DESTINATION_CHAIN_ID : (opts?.chainId ?? sepolia.id);
   const slot = opts?.forMidenFlow ? midenCache : defaultCache;
   if (slot && slot.address === address && slot.chainId === chainId && slot.apiBaseUrl === apiBaseUrl) {
     return slot.sdk;
   }
-  const sdk = await buildSdk(
-    address as `0x${string}`,
-    apiBaseUrl,
-    opts?.forMidenFlow ? MIDEN_DESTINATION_CHAIN_ID : undefined
-  );
+  const sdk = await buildSdk(address as `0x${string}`, apiBaseUrl, chainId);
   const entry: SdkCache = { address, chainId, apiBaseUrl, sdk };
   if (opts?.forMidenFlow) {
     midenCache = entry;
@@ -72,9 +72,12 @@ export async function getEpochSdk(opts?: { forMidenFlow?: boolean }): Promise<Ep
  * Used by the send-flow Fast route (quote + send) so the user only supplies the
  * recipient address. Caches one instance per destination.
  */
-export async function getEpochReadOnlySdk(destinationAddress: `0x${string}`): Promise<EpochIntentSDK> {
+export async function getEpochReadOnlySdk(
+  destinationAddress: `0x${string}`,
+  savedAllocatorUrl?: string
+): Promise<EpochIntentSDK> {
   await initBridgeConfig();
-  const apiBaseUrl = getEpochAllocatorUrl();
+  const apiBaseUrl = savedAllocatorUrl ?? getEpochAllocatorUrl();
   const chainId = MIDEN_DESTINATION_CHAIN_ID;
   const cached = readOnlyCache;
   if (cached?.address === destinationAddress && cached.chainId === chainId && cached.apiBaseUrl === apiBaseUrl) {
@@ -120,9 +123,10 @@ export async function getEpochSigningSdk(
  */
 export async function ensureEpochSmartAccount(
   midenAccountPublicKey: string,
-  evmAddress: `0x${string}`
+  evmAddress: `0x${string}`,
+  guardedSdk?: EpochIntentSDK
 ): Promise<EpochIntentSDK> {
-  const sdk = await getEpochSigningSdk(midenAccountPublicKey, evmAddress);
+  const sdk = guardedSdk ?? (await getEpochSigningSdk(midenAccountPublicKey, evmAddress));
   const status = await sdk.getWalletGaslessStatus(sepolia.id);
 
   if (status.delegation === 'epoch') {

@@ -9,7 +9,7 @@ import {
 import { readGuardianHistoryGeneration } from 'lib/miden/guardian/history-storage';
 import { canonicalWalletAccountId } from 'lib/miden/sdk/helpers';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
-import { getAllUncompletedTransactions } from 'lib/miden/transaction/get';
+import { getAllUncompletedTransactions, isRotationAwaitingFunding } from 'lib/miden/transaction/get';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import type { WalletAccount } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
@@ -29,7 +29,10 @@ import { GuardianHistoryFeeUnavailableError } from '../guardian/history-errors';
 
 // The orchestrator's own decisions are what these tests are about — the gating,
 // the queue and the terminal flag write — so every source it drives is stubbed.
-jest.mock('lib/miden/transaction/get', () => ({ getAllUncompletedTransactions: jest.fn() }));
+jest.mock('lib/miden/transaction/get', () => ({
+  getAllUncompletedTransactions: jest.fn(),
+  isRotationAwaitingFunding: jest.fn()
+}));
 jest.mock('./sync-manager', () => ({ doSync: jest.fn() }));
 jest.mock('./miden-client-proxy', () => ({
   midenClientProxy: {
@@ -80,14 +83,10 @@ jest.mock('lib/miden-chain/constants', () => {
   const actual = jest.requireActual('lib/miden-chain/constants');
   return {
     ...actual,
-    MIDEN_GUARDIAN_ENDPOINTS: new Map(
-      Object.values(actual.MIDEN_NETWORK_NAME).map(network => [
-        network,
-        ['https://builtin.test', 'https://guardian.test']
-      ])
-    )
+    getGuardianEndpointsForNetwork: () => ['https://builtin.test', 'https://guardian.test']
   };
 });
+jest.mock('lib/remote-config/runtime', () => ({ initBridgeConfig: async () => undefined }));
 jest.mock('lib/guardian-note-recovery-progress', () => ({
   reportGuardianNoteRecoveryProgress: jest.fn(),
   clearGuardianNoteRecoveryProgress: jest.fn(),
@@ -110,6 +109,7 @@ jest.mock('./guardian-history-recovery', () => ({
 }));
 
 const mockUncompleted = jest.mocked(getAllUncompletedTransactions);
+const mockAwaitingFunding = jest.mocked(isRotationAwaitingFunding);
 const mockGetState = jest.mocked(store.getState);
 const mockAccountsUpdated = jest.mocked(accountsUpdated);
 const mockClearProgress = jest.mocked(clearGuardianNoteRecoveryProgress);
@@ -224,6 +224,7 @@ beforeEach(() => {
   guardianOffersProposalNotes(0);
   unlocked();
   mockUncompleted.mockResolvedValue([]);
+  mockAwaitingFunding.mockResolvedValue(false);
   mockFetchProgress.mockResolvedValue(null);
   mockReadGeneration.mockResolvedValue('gen-1');
   mockFeeScope = 'rpc-a|testnet';
@@ -246,7 +247,10 @@ describe('maybeStartGuardianRecovery gating', () => {
   });
 
   it('waits for the mandatory hot-key rotation to land', async () => {
-    await expect(maybeStartGuardianRecovery(pendingAccount({ requiresHotKeyRotation: true }))).resolves.toBe(false);
+    const account = pendingAccount({ requiresHotKeyRotation: true });
+    await expect(maybeStartGuardianRecovery(account)).resolves.toBe(false);
+    await drainDetachedRun();
+    expect(mockAwaitingFunding).toHaveBeenCalledWith(account.publicKey);
     expect(mockProxy.drainPrivateNoteTransport).not.toHaveBeenCalled();
   });
 
@@ -280,6 +284,106 @@ describe('maybeStartGuardianRecovery gating', () => {
     ]);
 
     expect([first, second].filter(Boolean)).toHaveLength(1);
+  });
+});
+
+// The rotation pays its fee from the vault, and an empty vault waits for notes that only this pass finds (#805).
+describe('notes before a rotation that waits for funds', () => {
+  // As written: the progress writer stamps `updatedAt` itself.
+  const historyCheckpoint = (accountId: string, historyGeneration = 'gen-1'): GuardianNoteRecoveryProgress => ({
+    accountId,
+    step: 'history',
+    operator: 'https://guardian.test',
+    sourcesClean: true,
+    historyGeneration
+  });
+
+  it('runs the notes pass, keeps the flag and leaves history for after the rotation', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold', requiresHotKeyRotation: true });
+    mockAwaitingFunding.mockResolvedValue(true);
+    mockProxy.resolveRecoveryScanRange.mockResolvedValue({ startBlock: 0, latestBlock: 100 } as never);
+
+    await expect(maybeStartGuardianRecovery(account)).resolves.toBe(true);
+    await drainDetachedRun();
+
+    expect(mockProxy.drainPrivateNoteTransport).toHaveBeenCalledTimes(1);
+    expect(mockProxy.recoverPublicNotesRange).toHaveBeenCalledTimes(1);
+    expect(mockDoSync).toHaveBeenCalledWith(true);
+    expect(recoverGuardianHistory).not.toHaveBeenCalled();
+    expect(setPendingFlag).not.toHaveBeenCalled();
+    expect(mockReportProgress).toHaveBeenLastCalledWith(historyCheckpoint(account.publicKey));
+  });
+
+  it('does not run the notes pass again before the rotation, and runs history once it lands', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold', requiresHotKeyRotation: true });
+    mockAwaitingFunding.mockResolvedValue(true);
+    await maybeStartGuardianRecovery(account);
+    await drainDetachedRun();
+    mockFetchProgress.mockResolvedValue(historyCheckpoint(account.publicKey));
+    jest.mocked(recoverGuardianHistory).mockClear();
+    mockProxy.recoverPublicNotesRange.mockClear();
+
+    // The checkpoint says the notes pass is done, so the rotation-pending account is refused.
+    await expect(maybeStartGuardianRecovery(account)).resolves.toBe(false);
+
+    // The rotation landed: the released reservation lets the pass start and resume at history.
+    await expect(maybeStartGuardianRecovery({ ...account, requiresHotKeyRotation: false })).resolves.toBe(true);
+    await drainDetachedRun();
+
+    expect(mockProxy.recoverPublicNotesRange).not.toHaveBeenCalled();
+    expect(recoverGuardianHistory).toHaveBeenCalledTimes(1);
+    expect(setPendingFlag).toHaveBeenCalledWith(account.publicKey, false);
+  });
+
+  it('runs the notes pass again when the checkpoint belongs to a replaced wallet', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold', requiresHotKeyRotation: true });
+    mockAwaitingFunding.mockResolvedValue(true);
+    mockFetchProgress.mockResolvedValue(historyCheckpoint(account.publicKey, 'gen-0'));
+
+    await expect(maybeStartGuardianRecovery(account)).resolves.toBe(true);
+  });
+
+  it('still waits while any transaction is in flight', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold', requiresHotKeyRotation: true });
+    mockAwaitingFunding.mockResolvedValue(true);
+    mockUncompleted.mockResolvedValue([{ id: 'funding-claim' }] as never);
+
+    await expect(maybeStartGuardianRecovery(account)).resolves.toBe(false);
+    await drainDetachedRun();
+
+    expect(mockProxy.drainPrivateNoteTransport).not.toHaveBeenCalled();
+  });
+
+  it('yields to the funding claim that its own imports let the gate queue', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold', requiresHotKeyRotation: true });
+    mockAwaitingFunding.mockResolvedValue(true);
+    mockProxy.resolveRecoveryScanRange.mockResolvedValue({ startBlock: 0, latestBlock: 400_000 } as never);
+    mockProxy.recoverPublicNotesRange.mockImplementationOnce(async () => {
+      mockUncompleted.mockResolvedValue([{ id: 'funding-claim' }] as never);
+      return { imported: 1, failures: 0, saturated: false } as never;
+    });
+
+    await maybeStartGuardianRecovery(account);
+    await drainDetachedRun();
+
+    expect(mockProxy.recoverPublicNotesRange).toHaveBeenCalledTimes(1);
+    expect(mockReportProgress.mock.calls.map(([progress]) => progress.step)).not.toContain('history');
+    // The deferral releases the reservation, so the pass resumes once the claim is done.
+    mockUncompleted.mockResolvedValue([]);
+    await expect(maybeStartGuardianRecovery(account)).resolves.toBe(true);
+  });
+
+  it('keeps the flag and writes no history checkpoint when a notes source fails', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold', requiresHotKeyRotation: true });
+    mockAwaitingFunding.mockResolvedValue(true);
+    mockProxy.drainPrivateNoteTransport.mockRejectedValueOnce(new Error('transport down'));
+
+    await maybeStartGuardianRecovery(account);
+    await drainDetachedRun();
+
+    expect(recoverGuardianHistory).not.toHaveBeenCalled();
+    expect(setPendingFlag).not.toHaveBeenCalled();
+    expect(mockReportProgress.mock.calls.map(([progress]) => progress.step)).not.toContain('history');
   });
 });
 
@@ -412,6 +516,35 @@ describe('detached recovery run', () => {
     expect(setPendingFlag).not.toHaveBeenCalled();
     // Re-offerable straight away rather than waiting for the next backend start.
     await expect(maybeStartGuardianRecovery(account)).resolves.toBe(true);
+  });
+
+  it('treats a terminated client during the Guardian client setup as a deferral', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold' });
+    mockProxy.getAccount.mockRejectedValue(new Error('WebClient terminated'));
+
+    await maybeStartGuardianRecovery(account);
+    await drainDetachedRun();
+
+    expect(setPendingFlag).not.toHaveBeenCalled();
+    await expect(maybeStartGuardianRecovery(account)).resolves.toBe(true);
+  });
+
+  it('defers the pass on a terminated client from the proposal import, counting no source failure', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold' });
+    guardianOffersProposalNotes(1);
+    mockProxy.importRecoveryNoteBytes.mockRejectedValue(new Error('WebClient terminated'));
+
+    await expect(recoverPendingNotes(account, 'gen-1')).resolves.toMatchObject({ deferred: true, sourceFailures: 0 });
+    expect(mockProxy.importRecoveryNoteBytes).toHaveBeenCalledTimes(1);
+  });
+
+  it('defers the pass on a terminated client from the public backfill, counting no source failure', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold' });
+    mockProxy.resolveRecoveryScanRange.mockResolvedValue({ startBlock: 0, latestBlock: 10 });
+    mockProxy.recoverPublicNotesRange.mockRejectedValue(new Error('WebClient terminated'));
+
+    await expect(recoverPendingNotes(account, 'gen-1')).resolves.toMatchObject({ deferred: true, sourceFailures: 0 });
+    expect(mockProxy.recoverPublicNotesRange).toHaveBeenCalledTimes(1);
   });
 
   it('treats an evicted Guardian client setup as a deferral, not a source failure (F-054)', async () => {

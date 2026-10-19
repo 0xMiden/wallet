@@ -1,15 +1,18 @@
 // The leaf, never lib/miden/swap/tokens: the metadata overrides read these labels (see faucet-ids.ts).
-import { IETH_FAUCET_ID, normalizedFaucetId } from 'lib/miden/swap/faucet-ids';
+import { normalizedFaucetId } from 'lib/miden/swap/faucet-ids';
 import { getTestNetworkNameKey } from 'lib/miden-chain/effective-endpoints';
 
 import type { BridgeConfigSnapshot } from './runtime';
-import { selectMidenUsdcFaucetId } from './values';
+import { selectMidenUsdcFaucetId, selectSwapTokenFaucetId } from './values';
 
 /** What testnet calls the bridge's own USDC, on Sepolia and on Miden alike (#1247). A token name: never translated. */
 export const TEST_EPOCH_USDC_LABEL = 'Test Epoch USDC';
 
 /** What testnet calls the swap registry's iETH, a test asset that is not ETH (#477). A token name: never translated. */
 export const TEST_IETH_LABEL = 'Test iETH';
+
+/** The ticker the swap solver lists testnet's iETH under; its faucet is whatever the solver says. */
+export const IETH_SYMBOL = 'IETH';
 
 /** The copy a token page and an info sheet show for a token: what it is, and where its swaps execute. */
 export interface TestnetTokenInfo {
@@ -23,11 +26,11 @@ interface TestnetToken {
   info?: TestnetTokenInfo;
 }
 
-// The tokens testnet names whatever the bridge config says; one with info is described as well as named.
-function staticTestnetTokens(): TestnetToken[] {
+// The swap token testnet describes as well as names: the solver's IETH token, at whatever faucet it lists.
+function describedTestnetTokens(s: BridgeConfigSnapshot): TestnetToken[] {
   return [
     {
-      faucetId: IETH_FAUCET_ID,
+      faucetId: selectSwapTokenFaucetId(s, IETH_SYMBOL),
       label: TEST_IETH_LABEL,
       info: { descriptionKey: 'testIethDescription', executionKey: 'testIethExecution' }
     }
@@ -36,7 +39,7 @@ function staticTestnetTokens(): TestnetToken[] {
 
 // Each Miden token testnet shows under a name of the wallet's own; another token is one more entry.
 function testnetMidenTokens(s: BridgeConfigSnapshot): TestnetToken[] {
-  return [{ faucetId: selectMidenUsdcFaucetId(s), label: TEST_EPOCH_USDC_LABEL }, ...staticTestnetTokens()];
+  return [{ faucetId: selectMidenUsdcFaucetId(s), label: TEST_EPOCH_USDC_LABEL }, ...describedTestnetTokens(s)];
 }
 
 function testnetTokenFor(tokens: TestnetToken[], faucetId: string | undefined): TestnetToken | undefined {
@@ -61,9 +64,15 @@ export function midenTokenLabelFor(snapshot: BridgeConfigSnapshot, faucetId: str
   return testnetTokenFor(testnetMidenTokens(snapshot), faucetId)?.label ?? null;
 }
 
-/** On testnet, the info of the entry for `faucetId` (iETH's, #477); null for any other token and off testnet. */
-export function testnetTokenInfo(faucetId: string | undefined): TestnetTokenInfo | null {
-  return testnetTokenFor(staticTestnetTokens(), faucetId)?.info ?? null;
+/**
+ * On testnet, the info of the entry for `faucetId` (iETH's, #477) once `snapshot` names it; null for any other
+ * token and off testnet.
+ */
+export function testnetTokenInfo(
+  snapshot: BridgeConfigSnapshot,
+  faucetId: string | undefined
+): TestnetTokenInfo | null {
+  return testnetTokenFor(describedTestnetTokens(snapshot), faucetId)?.info ?? null;
 }
 
 /**
@@ -71,5 +80,8 @@ export function testnetTokenInfo(faucetId: string | undefined): TestnetTokenInfo
  * label whenever the document names an EVM USDC, whether or not the token's Sepolia read has succeeded; else `symbol`.
  */
 export function evmUsdcLabel(snapshot: BridgeConfigSnapshot, symbol: string): string {
-  return getTestNetworkNameKey() === 'testnet' && snapshot.config?.epoch.evmUsdc ? TEST_EPOCH_USDC_LABEL : symbol;
+  return getTestNetworkNameKey() === 'testnet' &&
+    Object.values(snapshot.config?.supportedEvmChains ?? {}).some(chain => chain.bridges.epoch?.tokens.USDC)
+    ? TEST_EPOCH_USDC_LABEL
+    : symbol;
 }

@@ -1,4 +1,6 @@
-import { ITransactionStatus, Transaction } from '../db/types';
+import { captureCrash } from 'lib/telemetry/crash';
+
+import { ITransaction, ITransactionStatus, Transaction } from '../db/types';
 import { hasErrorBeforeSubmit } from '../sdk/sdk-error-code';
 import { queueOutgoingTransaction } from '../spending-limits/queue';
 import { SpendingLimitAuthorization } from '../spending-limits/types';
@@ -23,6 +25,7 @@ import {
   initiateConsumeTransactionFromId,
   initiateUpdateProcedureThresholdTransaction,
   cancelStuckTransactions,
+  markStartedInThisRealm,
   cancelStaleQueuedTransactions,
   failInterruptedTransactions,
   SESSION_STARTED_AT,
@@ -35,11 +38,14 @@ import {
   RETRY_COOLDOWN_SEC,
   MAX_RETRY_BACKOFF_SEC,
   TRANSACTION_STUCK_ERROR,
+  TRANSACTION_ENGINE_RECOVERED_ERROR,
   TRANSACTION_EXPIRED_ERROR,
   TRANSACTION_INTERRUPTED_ERROR,
   TRANSACTION_FORCE_CANCELLED_ERROR,
   INVALID_NOTE_ERROR
 } from './index';
+
+jest.mock('lib/telemetry/crash', () => ({ captureCrash: jest.fn() }));
 
 jest.mock('../spending-limits/queue', () => ({
   spendsOf: (transaction: { faucetId: string; amount: bigint }) => [
@@ -50,6 +56,15 @@ jest.mock('../spending-limits/queue', () => ({
     await repo.transactions.add(transaction);
   })
 }));
+
+const AGGLAYER_RECOVERY: import('lib/remote-config/schema').AgglayerRecoveryConfig = {
+  chainId: 11155111,
+  contractAddress: '0x528e26b25a34a4a5d0dbda1d57d318153d2ed582',
+  midenBridgeId: '0x187cabbc404359d16be94954ca9879',
+  indexerUrl: 'https://bridge.test/api',
+  rollupId: 86,
+  evmNetworkId: 0
+};
 
 const mockQueueOutgoingTransaction = jest.mocked(queueOutgoingTransaction);
 
@@ -101,6 +116,7 @@ const mockGetMidenClient = jest.fn((): any => ({
 jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-client'));
 jest.mock('../sdk/miden-client', () => ({
   getMidenClient: () => mockGetMidenClient(),
+  getCurrentWasmLockHold: () => null,
   withWasmClientLock: jest.fn((fn: () => Promise<any>) => fn())
 }));
 
@@ -499,10 +515,9 @@ describe('transactions utilities', () => {
 
     it('refuses a PRIVATE send when no note transport is configured, before anything is queued', async () => {
       // Mainnet has no entry in MIDEN_NOTE_TRANSPORT_LAYER_ENDPOINTS, so the client
-      // is built with no transport — and `relay_private_note` resolves the transport
-      // API before it writes its retry outbox, so such a send would land on chain,
-      // reach nobody, and leave no retry record. Refusing here is what keeps the
-      // assets in the account: nothing has been queued, proved or submitted yet.
+      // is built with no transport, every relay fails and no retry can do better:
+      // such a send would land on chain and reach nobody. Refusing here is what keeps
+      // the assets in the account: nothing has been queued, proved or submitted yet.
       (globalThis as { __ntlConfigured?: boolean }).__ntlConfigured = false;
       mockTransactionsAdd.mockResolvedValueOnce(undefined);
 
@@ -597,10 +612,22 @@ describe('transactions utilities', () => {
     });
 
     it('routes swap through the atomic outgoing queue with its authorization', async () => {
-      await initiateSwapTransaction('account-a', 'faucet-a', 10n, 'faucet-b', 5n, undefined, 120, true, authorization);
+      await initiateSwapTransaction(
+        'account-a',
+        'faucet-a',
+        10n,
+        'faucet-b',
+        5n,
+        undefined,
+        120,
+        true,
+        5,
+        authorization
+      );
 
       expect(mockQueueOutgoingTransaction).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'swap' }),
+        // The slippage the ask was built with rides on the row: it sets the order's fill target.
+        expect.objectContaining({ type: 'swap', extraInputs: expect.objectContaining({ slippageBps: 5 }) }),
         // The spend list is its own argument, never written onto a single-asset row: the policy
         // checks `spentAssetTotals` first and would then ignore the row's own faucet and amount.
         [{ faucetId: expect.any(String), amount: expect.any(BigInt) }],
@@ -619,7 +646,10 @@ describe('transactions utilities', () => {
         undefined,
         undefined,
         undefined,
-        authorization
+        authorization,
+        undefined,
+        undefined,
+        AGGLAYER_RECOVERY
       );
 
       expect(mockQueueOutgoingTransaction).toHaveBeenCalledWith(
@@ -690,13 +720,19 @@ describe('transactions utilities', () => {
         true,
         undefined,
         undefined,
-        '0xexit'
+        '0xexit',
+        undefined,
+        AGGLAYER_RECOVERY
       );
 
       expect(mockQueueOutgoingTransaction).toHaveBeenCalledWith(
         expect.objectContaining({
           type: 'bridged-send',
-          extraInputs: expect.objectContaining({ claimStatus: 'pending', agglayerExitTxHash: '0xexit' })
+          extraInputs: expect.objectContaining({
+            claimStatus: 'pending',
+            agglayerExitTxHash: '0xexit',
+            agglayerRoute: AGGLAYER_RECOVERY
+          })
         }),
         [{ faucetId: 'faucet-a', amount: 10n }],
         undefined
@@ -750,7 +786,19 @@ describe('transactions utilities', () => {
     );
   });
 
+  // The consume dedup reads the account's note-holding rows (`getNoteHoldingTransactions`) before its per-note
+  // lookups; these suites hold none. A test's own `mockReturnValueOnce` still comes first.
+  const noNoteHoldingRows = () => {
+    beforeEach(() => {
+      mockTransactionsFilter.mockReturnValue({ toArray: jest.fn().mockResolvedValue([]) });
+    });
+    afterEach(() => {
+      mockTransactionsFilter.mockReturnValue(undefined);
+    });
+  };
+
   describe('initiateConsumeTransaction', () => {
+    noNoteHoldingRows();
     const note = {
       id: 'note-123',
       faucetId: 'faucet',
@@ -762,19 +810,22 @@ describe('transactions utilities', () => {
 
     // The dedup reads two indexes per note: scalar `noteId` (legacy/single
     // rows) and multi-entry `noteIds` (batch rows). Tests feed legacy rows
-    // through the scalar query; batch rows can be supplied separately.
+    // through the scalar query; batch rows can be supplied separately. The writer reads them twice: in its
+    // read-only pre-pass (may any note be written, or can the fee read be skipped) and in its write transaction.
     const mockDedupQuery = (rows: any[], batchRows: any[] = []) => {
-      mockTransactionsWhere
-        .mockReturnValueOnce({
-          equals: jest.fn().mockReturnValueOnce({
-            toArray: jest.fn().mockResolvedValueOnce(rows)
+      for (let pass = 0; pass < 2; pass++) {
+        mockTransactionsWhere
+          .mockReturnValueOnce({
+            equals: jest.fn().mockReturnValueOnce({
+              toArray: jest.fn().mockResolvedValueOnce(rows)
+            })
           })
-        })
-        .mockReturnValueOnce({
-          equals: jest.fn().mockReturnValueOnce({
-            toArray: jest.fn().mockResolvedValueOnce(batchRows)
-          })
-        });
+          .mockReturnValueOnce({
+            equals: jest.fn().mockReturnValueOnce({
+              toArray: jest.fn().mockResolvedValueOnce(batchRows)
+            })
+          });
+      }
     };
 
     it('creates consume transaction when none exists', async () => {
@@ -1182,22 +1233,28 @@ describe('transactions utilities', () => {
   });
 
   describe('initiateConsumeTransactionFromId', () => {
+    noNoteHoldingRows();
     it('creates consume transaction from note id', async () => {
       mockGetInputNote.mockReturnValueOnce({
-        metadata: () => ({ noteType: () => 'public' })
+        metadata: () => ({ noteType: () => 'public' }),
+        details: () => {
+          throw new Error('note details unavailable');
+        }
       });
-      // Scalar `noteId` query + multi-entry `noteIds` query (batch rows).
-      mockTransactionsWhere
-        .mockReturnValueOnce({
-          equals: jest.fn().mockReturnValueOnce({
-            toArray: jest.fn().mockResolvedValueOnce([])
+      // Scalar `noteId` query + multi-entry `noteIds` query (batch rows), read by the pre-pass and the write.
+      for (let pass = 0; pass < 2; pass++) {
+        mockTransactionsWhere
+          .mockReturnValueOnce({
+            equals: jest.fn().mockReturnValueOnce({
+              toArray: jest.fn().mockResolvedValueOnce([])
+            })
           })
-        })
-        .mockReturnValueOnce({
-          equals: jest.fn().mockReturnValueOnce({
-            toArray: jest.fn().mockResolvedValueOnce([])
-          })
-        });
+          .mockReturnValueOnce({
+            equals: jest.fn().mockReturnValueOnce({
+              toArray: jest.fn().mockResolvedValueOnce([])
+            })
+          });
+      }
       mockTransactionsAdd.mockResolvedValueOnce(undefined);
 
       const result = await initiateConsumeTransactionFromId('account-1', 'note-456');
@@ -1285,6 +1342,72 @@ describe('transactions utilities', () => {
       await cancelStuckTransactions();
 
       expect(appliedWrites(mockModify)).toBe(1);
+    });
+
+    it('reports missing_start and not_started_here when reaping a row without a start stamp', async () => {
+      const crashedTx: ITransaction = {
+        id: 'reaped-missing-start-not-started-here',
+        type: 'consume',
+        accountId: 'account-1',
+        status: ITransactionStatus.GeneratingTransaction,
+        initiatedAt: 100,
+        displayIcon: 'RECEIVE',
+        stage: 'signing-proposal'
+      };
+      const dbTx: ITransaction = { ...crashedTx };
+      mockTransactionsFilter.mockReturnValueOnce({ toArray: jest.fn().mockResolvedValueOnce([crashedTx]) });
+      mockTransactionsWhere.mockReturnValue({
+        first: jest.fn().mockResolvedValue(dbTx),
+        modify: jest.fn(async (fn: (tx: ITransaction) => unknown) => fn(dbTx))
+      });
+
+      await cancelStuckTransactions();
+
+      expect(dbTx.status).toBe(ITransactionStatus.Failed);
+      expect(captureCrash).toHaveBeenCalledTimes(1);
+      expect(captureCrash).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'WalletTransactionFailure',
+          message: expect.stringContaining('; reap age missing_start; reaped attempt not_started_here')
+        }),
+        'manual',
+        expect.anything()
+      );
+    });
+
+    it('reports past_limit and started_here when reaping an aged row this realm started', async () => {
+      const nowInSeconds = Math.floor(Date.now() / 1000);
+      const stuckTx: ITransaction = {
+        id: 'reaped-past-limit-started-here',
+        type: 'consume',
+        accountId: 'account-1',
+        status: ITransactionStatus.GeneratingTransaction,
+        initiatedAt: 100,
+        processingStartedAt: nowInSeconds - MAX_WAIT_BEFORE_CANCEL - 10,
+        attemptId: 'reaped-started-here-attempt',
+        displayIcon: 'RECEIVE',
+        stage: 'signing-proposal'
+      };
+      markStartedInThisRealm(stuckTx.id);
+      const dbTx: ITransaction = { ...stuckTx };
+      mockTransactionsFilter.mockReturnValueOnce({ toArray: jest.fn().mockResolvedValueOnce([stuckTx]) });
+      mockTransactionsWhere.mockReturnValue({
+        first: jest.fn().mockResolvedValue(dbTx),
+        modify: jest.fn(async (fn: (tx: ITransaction) => unknown) => fn(dbTx))
+      });
+
+      await cancelStuckTransactions();
+
+      expect(dbTx.status).toBe(ITransactionStatus.Failed);
+      expect(captureCrash).toHaveBeenCalledTimes(1);
+      expect(captureCrash).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'WalletTransactionFailure',
+          message: expect.stringContaining('; reap age past_limit; reaped attempt started_here')
+        }),
+        'manual',
+        expect.anything()
+      );
     });
 
     /** Runs cancelStuckTransactions against one send row stamped a second beyond the threshold ahead of a pinned clock; returns the row as written. */
@@ -2228,6 +2351,86 @@ describe('Transaction resilience: network outage recovery (isolated)', () => {
     expect(tx9.status).toBe(ITransactionStatus.Queued);
     expect(tx9.stage).toBe('syncing');
     expect(tx9.requestBytes).toBe(earnBytes);
+
+    // ---- Phase 10: a pre-flight sync on a terminated client is deferred like any other ----
+    // The SDK refused the call or stopped the worker running it, so unlike an eviction or an abort
+    // nothing of it runs on, and at 'syncing' nothing was built.
+    networkUp = true;
+    mockSyncState.mockRejectedValueOnce(new Error('WebClient terminated'));
+    const terminatedRequeueStartedAt = Math.floor(Date.now() / 1000);
+    txStore.push({
+      id: 'tx-10',
+      type: 'send',
+      accountId: 'acc-1',
+      status: ITransactionStatus.Queued,
+      initiatedAt: Date.now(),
+      displayIcon: 'DEFAULT',
+      displayMessage: 'Sending',
+      requestBytes: undefined
+    });
+
+    const result10 = await generateTransactionsLoop(signCallback, false, guardianProvider);
+
+    expect(result10).toBe(false);
+    const tx10 = txStore.find(t => t.id === 'tx-10');
+    const terminatedRequeueFinishedAt = Math.floor(Date.now() / 1000);
+    expect(tx10.status).toBe(ITransactionStatus.Queued);
+    expect(tx10.stage).toBe('syncing');
+    expect(tx10.nextEligibleAt).toBeGreaterThanOrEqual(terminatedRequeueStartedAt + 30);
+    expect(tx10.nextEligibleAt).toBeLessThanOrEqual(terminatedRequeueFinishedAt + 30);
+    expect(tx10.mayHaveSubmitted).toBeFalsy();
+
+    // ---- Phase 11: past the flip, a terminated client is a kill ----
+    mockNewTransaction.mockRejectedValueOnce(new Error('send failed', { cause: new Error('Client terminated') }));
+    txStore.push({
+      id: 'tx-11',
+      type: 'execute',
+      accountId: 'acc-1',
+      status: ITransactionStatus.Queued,
+      initiatedAt: Date.now(),
+      displayIcon: 'DEFAULT',
+      displayMessage: 'Executing',
+      requestBytes: new Uint8Array([11])
+    });
+
+    const result11 = await generateTransactionsLoop(signCallback, false, guardianProvider);
+
+    expect(result11).toBe(false);
+    const tx11 = txStore.find(t => t.id === 'tx-11');
+    expect(tx11.status).toBe(ITransactionStatus.Failed);
+    expect(tx11.nextEligibleAt).toBeUndefined();
+    expect(tx11.error).toBe(TRANSACTION_ENGINE_RECOVERED_ERROR);
+
+    // ---- Phases 12-15: a kill that may still be running is never deferred, wrapped or mixed ----
+    // A terminated client next to an eviction is still an eviction, and next to an indefinite outcome
+    // the submit was reached, so only a chain whose one kill is a terminated client is deferred.
+    const indefiniteOutcome =
+      `submission of transaction 0x${'ab'.repeat(32)} came back without a definite outcome, ` +
+      'so the node may or may not have accepted it; nothing was recorded locally';
+    const neverDeferred: Array<[string, Error]> = [
+      ['tx-12', new Error('sync failed', { cause: new WasmClientPoisonedError('watchdog') })],
+      ['tx-13', new Error('WebClient terminated', { cause: new WasmClientPoisonedError('watchdog') })],
+      ['tx-14', new WasmClientPoisonedError('realm-error', new Error('WebClient terminated'))],
+      ['tx-15', new Error(indefiniteOutcome, { cause: new Error('Client terminated') })]
+    ];
+    for (const [id, syncError] of neverDeferred) {
+      mockSyncState.mockRejectedValueOnce(syncError);
+      txStore.push({
+        id,
+        type: 'send',
+        accountId: 'acc-1',
+        status: ITransactionStatus.Queued,
+        initiatedAt: Date.now(),
+        displayIcon: 'DEFAULT',
+        displayMessage: 'Sending',
+        requestBytes: undefined
+      });
+
+      expect(await generateTransactionsLoop(signCallback, false, guardianProvider)).toBe(false);
+      const row = txStore.find(t => t.id === id);
+      expect({ id, status: row.status }).toEqual({ id, status: ITransactionStatus.Failed });
+      expect(row.nextEligibleAt).toBeUndefined();
+    }
   });
 });
 

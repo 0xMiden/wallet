@@ -1,8 +1,7 @@
 import React from 'react';
 
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { createEvent, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
-import { TabRootHeader } from 'components/ui/TabRootHeader';
 import { getCurrentLocale } from 'lib/i18n/core';
 import { hapticLight } from 'lib/mobile/haptics';
 import { SeedPhraseStatus } from 'lib/shared/types';
@@ -369,43 +368,66 @@ describe('Settings page — root menu (non-guardian)', () => {
     expect(screen.queryByTestId('row-recoveryPhrase')).not.toBeInTheDocument();
   });
 
+  describe('the version line', () => {
+    // The count reads the event's own time stamp; React falls back to Date.now() for a zero one.
+    const tapVersionAt = (timeStamp: number) => {
+      const line = screen.getByText('settingsVersion');
+      const event = createEvent.click(line);
+      Object.defineProperty(event, 'timeStamp', { value: timeStamp });
+      fireEvent(line, event);
+    };
+    const tapVersion = (times: number, start: number, gap: number) => {
+      for (let i = 0; i < times; i++) tapVersionAt(start + i * gap);
+    };
+
+    it('opens Developer Settings after seven taps, each within two seconds of the one before', () => {
+      render(<Settings tabSlug={null} />);
+      tapVersion(7, 10_000, 2_000);
+      expect(navigate).toHaveBeenCalledWith('/developer-settings');
+    });
+
+    it('opens nothing after six taps', () => {
+      render(<Settings tabSlug={null} />);
+      tapVersion(6, 10_000, 300);
+      expect(navigate).not.toHaveBeenCalled();
+    });
+
+    it('opens nothing when the seventh tap comes more than two seconds after the sixth', () => {
+      render(<Settings tabSlug={null} />);
+      tapVersion(6, 10_000, 300);
+      tapVersionAt(10_000 + 5 * 300 + 2_001);
+      expect(navigate).not.toHaveBeenCalled();
+    });
+
+    it('looks and reads as plain text: no style, role or focus stop of a control', () => {
+      render(<Settings tabSlug={null} />);
+      const line = screen.getByText('settingsVersion');
+      expect(line.tagName).toBe('P');
+      expect(line).toHaveAttribute('class', 'px-1 text-caption text-muted');
+      expect(line).not.toHaveAttribute('role');
+      expect(line).not.toHaveAttribute('tabindex');
+    });
+  });
+
   it('renders the settings header and version footer', () => {
     render(<Settings tabSlug={null} />);
 
-    // The root wears the same TabRootHeader as Activity and Explore — a plain
-    // heading, not the sub-page PageHeader.
-    const heading = screen.getByRole('heading', { level: 1, name: 'settings' });
-    expect(heading).toBeInTheDocument();
-    // ...ending in the same inset rule, not a hairline.
-    const header = heading.closest('header')!;
-    expect(header).not.toHaveClass('border-b');
-    expect(header.nextElementSibling).toHaveClass('mx-4', 'h-1', 'rounded-full', 'bg-fill');
-    expect(screen.queryByTestId('nav-header')).toBeNull();
+    expect(screen.getByTestId('nav-title')).toHaveTextContent('settings');
+    expect(screen.getByTestId('nav-header')).toBeInTheDocument();
     expect(screen.getByText('settingsVersion')).toBeInTheDocument();
   });
 
-  // The Settings half of the tab-root parity check; Activity's and Explore's is
-  // `TabRootHeaderParity.test.tsx`, which compares against this same reference band.
-  it('draws the shared tab-root band, class for class, with no filter row of its own', () => {
-    const reference = render(<TabRootHeader title="settings" />);
-    const referenceHeader = reference.container.querySelector('header')!.className;
-    reference.unmount();
-
-    const { container } = render(<Settings tabSlug={null} />);
-
-    expect(container.querySelector('header')!.className).toBe(referenceHeader);
-    // The same 4px rule, and the same 8px under it, as Activity and Explore — from the shared
-    // header, not from the page.
-    expect(container.querySelector('header + div')).toHaveClass('mx-4', 'mb-2', 'h-1', 'rounded-full', 'bg-fill');
-    // Settings does not filter, so the band is the title row alone.
+  it('uses a pushed-page header with no filter row', () => {
+    render(<Settings tabSlug={null} />);
+    expect(screen.getAllByTestId('nav-header')).toHaveLength(1);
     expect(screen.queryByRole('radiogroup')).toBeNull();
   });
 
-  it('gives the root no back affordance, since it is a tab destination', () => {
+  it('returns from Settings to Me when there is no history', () => {
+    mockHistoryPosition = 0;
     render(<Settings tabSlug={null} />);
-
-    expect(screen.queryByTestId('nav-back')).toBeNull();
-    expect(mockNavigate).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId('nav-back'));
+    expect(mockNavigate).toHaveBeenCalledWith('/me', 'replace');
   });
 
   it('renders all four group headings', () => {
@@ -584,7 +606,7 @@ describe('Settings page — root menu (non-guardian)', () => {
 
     expect(mockOpenExternalUrl).toHaveBeenCalledTimes(1);
     expect(mockOpenExternalUrl).toHaveBeenCalledWith({
-      url: 'https://miden-feedback-v2.miden-feedback-relay.workers.dev/',
+      url: 'https://cmuv78o9w003x5ebpyha3cf6p.zapier.app/page',
       title: 'Send feedback'
     });
   });
@@ -717,15 +739,9 @@ describe('Settings page — root menu (non-guardian)', () => {
     expect(screen.getByTestId('nav-header')).toHaveAttribute('data-focus-title', 'false');
   });
 
-  it('leaves focus alone on the settings list itself', () => {
+  it('announces Settings when pushed from the profile', () => {
     render(<Settings tabSlug={null} />);
-
-    // Arriving from the wallet home, not from within Settings — stealing focus
-    // here would fight the navigation the user already made. The root's
-    // TabHeader has no focus-on-mount behaviour at all, so there is nothing to
-    // steal it.
-    expect(screen.queryByTestId('nav-header')).toBeNull();
-    expect(document.activeElement).toBe(document.body);
+    expect(screen.getByTestId('nav-header')).toHaveAttribute('data-focus-title', 'true');
   });
 
   it('re-announces on a sibling-to-sibling move, where only the title changes', () => {
@@ -1022,15 +1038,26 @@ describe('Settings page — developer endpoints row', () => {
 });
 
 describe('Settings page — mobile body attribute effects', () => {
-  it('marks the body edge-to-edge on the root view and clears it on unmount', () => {
+  it('embeds the unchanged settings groups without a second header or hiding tab navigation', () => {
+    mockIsMobile = true;
+    render(<Settings embedded />);
+    expect(screen.getByTestId('profile-settings-menu')).toBeInTheDocument();
+    expect(screen.queryByTestId('nav-title')).not.toBeInTheDocument();
+    for (const title of ['generalSettings', 'addressBook', 'language', 'keys', 'advancedSettings', 'privacyPolicy']) {
+      expect(screen.getByTestId(`row-${title}`)).toBeInTheDocument();
+    }
+    expect(document.body.hasAttribute('data-drawer-open')).toBe(false);
+  });
+  it('keeps Settings in the pushed-page frame and releases dApp trays on unmount', () => {
     mockIsMobile = true;
     const { unmount } = render(<Settings tabSlug={null} />);
 
-    expect(document.body.hasAttribute('data-edge-to-edge')).toBe(true);
-    expect(document.body.hasAttribute('data-drawer-open')).toBe(false);
+    expect(document.body.hasAttribute('data-edge-to-edge')).toBe(false);
+    expect(document.body.hasAttribute('data-drawer-open')).toBe(true);
 
     unmount();
     expect(document.body.hasAttribute('data-edge-to-edge')).toBe(false);
+    expect(document.body.hasAttribute('data-drawer-open')).toBe(false);
   });
 
   it('does not mark the body edge-to-edge when an active tab is open', () => {
@@ -1050,13 +1077,13 @@ describe('Settings page — mobile body attribute effects', () => {
     expect(document.body.hasAttribute('data-drawer-open')).toBe(false);
   });
 
-  it('does not park dApp trays on the root when the recovery phrase row is tapped', () => {
+  it('keeps dApp trays parked while leaving the root for a settings page', () => {
     mockIsMobile = true;
     render(<Settings tabSlug={null} />);
 
     fireEvent.click(screen.getByTestId('row-recoveryPhrase'));
 
-    expect(document.body.hasAttribute('data-drawer-open')).toBe(false);
+    expect(document.body.hasAttribute('data-drawer-open')).toBe(true);
   });
 
   it('does not touch body attributes on non-mobile platforms', () => {

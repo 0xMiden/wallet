@@ -9,14 +9,24 @@ import { inVerdictTurn } from 'lib/miden/front/storage';
 import * as Repo from 'lib/miden/repo';
 import { monotonicNowMs } from 'lib/miden/sync-backoff';
 import { getStorageProvider, type StorageProvider } from 'lib/platform/storage-adapter';
+import { reportTransactionFailure } from 'lib/telemetry/transaction-failure';
 
 import { TRANSACTION_NEVER_COMMITTED_ERROR } from './constants';
-import { applyVerifiedLanding, reportVerifiedLanding, verifiedLandingRowFields } from './helper';
-import { accountOthers, deferralHolds, judgeSubmitEvidence, RowJudgement } from './reconcile-judge';
+import {
+  applyVerifiedLanding,
+  countNoteDeliveryWrite,
+  landedValueRowFields,
+  reportVerifiedLanding,
+  storedNoteIds,
+  verifiedLandingRowFields
+} from './helper';
+import { accountOthers, deferralHolds, judgeSubmitEvidence, LandingProof, RowJudgement } from './reconcile-judge';
 import { createNodeReads, NodeReads, observedCadenceMs } from './reconcile-reads';
 import { awaitingVerdict, evidenceKey, isCheckable, nowSeconds } from './verdict-rules';
+import { adoptLandedConsume } from '../activity/bridge-in';
 import { ISubmitEvidence, ITransaction, ITransactionStatus } from '../db/types';
 import { sameWalletAccountId } from '../sdk/helpers';
+import { normalizeHex } from '../sdk/submit-evidence';
 
 export { judgeSubmitEvidence } from './reconcile-judge';
 
@@ -46,13 +56,14 @@ const accountEvidenceKey = (rows: readonly ITransaction[]): string =>
       .map(other => [other.id, evidenceKey(other.submitEvidence)])
   );
 
-/** `entries` with the verdicts and the network marks this judgement decided; never the seen fields. */
+/** `entries` with the verdicts, their rules and the network marks this judgement decided; never the seen fields. */
 export const applyEntryWrites = (entries: readonly ISubmitEvidence[], judgement: RowJudgement): ISubmitEvidence[] =>
   entries.map(entry => {
     const judged = judgement.entries.find(candidate => candidate.attemptId === entry.attemptId);
     if (judged === undefined) return entry;
     const next: ISubmitEvidence = { ...entry };
     if (judged.result === 'never-committed' || judged.result === 'unresolvable') next.verdict = judged.result;
+    if (judged.neverCommittedBy !== undefined) next.neverCommittedBy = judged.neverCommittedBy;
     if (typeof judged.otherNetworkSince === 'number') next.otherNetworkSince = judged.otherNetworkSince;
     if (judged.otherNetworkSince === null) delete next.otherNetworkSince;
     return next;
@@ -106,16 +117,86 @@ async function networkStillMatches(node: NodeReads, entries: readonly ISubmitEvi
   return true;
 }
 
+/** The notes recorded by the attempts that submitted `transactionId`: none when none did, or two disagree. */
+const notesOfTransaction = (row: Pick<ITransaction, 'submitEvidence'>, transactionId: string): string[] => {
+  const recorded = (row.submitEvidence ?? [])
+    .filter(entry => entry.transactionId === transactionId && entry.outputNoteIds !== undefined)
+    .map(entry => storedNoteIds(entry.outputNoteIds));
+  const key = (noteIds: string[]) => JSON.stringify(noteIds.map(normalizeHex).sort());
+  const [first] = recorded;
+  return first !== undefined && recorded.every(noteIds => key(noteIds) === key(first)) ? first : [];
+};
+
+/**
+ * The note a landed send owes, at the root where `completeSendTransaction` records it and the delivery sweep reads it
+ * (#1473): every note of the attempt the landing binds, else the note a note landing was proven by (attempts replaying
+ * one request share it), else none. Never an execute's: its evidence names neither its private notes nor their owner.
+ * A root holding only those notes is the landed attempt's own record and stays as written; one another attempt
+ * recorded is replaced. A row whose relay recorded the notes it owes in `relayNoteIds`, which the sweep reads before
+ * the root, gets none. Undefined when the landing records no target. Retry's landing on the transaction the node
+ * verified binds that id and has no proof.
+ */
+const landedDeliveryTarget = (
+  row: ITransaction,
+  landing: { boundTransactionId?: string; proof?: LandingProof }
+): string[] | undefined => {
+  if (row.type !== 'send' || row.noteDelivery === undefined || row.relayNoteIds != null) return undefined;
+  const proven =
+    landing.boundTransactionId !== undefined
+      ? notesOfTransaction(row, landing.boundTransactionId)
+      : landing.proof?.kind === 'note'
+        ? [landing.proof.noteId]
+        : [];
+  if (proven.length === 0) return undefined;
+  const own = new Set(proven.map(normalizeHex));
+  const root = storedNoteIds(row.outputNoteIds);
+  return root.length > 0 && root.every(noteId => own.has(normalizeHex(noteId))) ? undefined : proven;
+};
+
+/**
+ * Record on `row`, which already carries the landing's completed fields, the delivery target the landing owes
+ * ({@link landedDeliveryTarget}), and return it; undefined, with the row left as it is, when there is none. Both
+ * landings record theirs here: the reconciler's and Retry's on the transaction the node verified.
+ */
+export const recordLandedDeliveryTarget = (
+  row: ITransaction,
+  landing: { boundTransactionId?: string; proof?: LandingProof }
+): string[] | undefined => {
+  const target = landedDeliveryTarget(row, landing);
+  if (target === undefined) return undefined;
+  const replacesNotes = storedNoteIds(row.outputNoteIds).length > 0;
+  row.outputNoteIds = target;
+  // Its completion records a note at the root before relaying it, so this one was never pushed: its delivery window
+  // opens now, and the attempts, the next push and the stopped mark of the target it replaces are not its own.
+  row.completedAt = nowSeconds();
+  delete row.relayAttempts;
+  delete row.nextRelayAt;
+  delete row.relayRetriesStopped;
+  // Nor is the outcome the sweep recorded for another attempt's notes. On an empty root a recorded outcome is the
+  // relay's own (#1233) and stays.
+  if (replacesNotes) {
+    row.noteDelivery = 'undelivered';
+    row.displayMessage = landedValueRowFields(row).displayMessage;
+    delete row.relayVerifyPushes;
+    delete row.relayOutageDeferred;
+    delete row.relayAckedNoteIds;
+    delete row.relayDeadNoteIds;
+  }
+  return target;
+};
+
 /**
  * The landed write: one rw transaction that re-reads every row of the account, the target's included. If any entry
  * differs from what the judgement read, or the deferral now holds the landing, it writes nothing and the next pass
- * judges again from the fresh rows.
+ * judges again from the fresh rows. One that records a delivery target is a delivery write, counted once it commits,
+ * so an idle sweep looks again.
  */
 async function writeLanding(rowId: string, judgement: RowJudgement, accountKey: string): Promise<boolean> {
   const landing = judgement.landed;
   const landedEntry = judgement.judgedEntries.find(entry => entry.attemptId === landing?.attemptId);
   if (landing === undefined || landedEntry === undefined) return false;
   let landed: ITransaction | undefined;
+  let addedTarget: string[] | undefined;
   await Repo.db.transaction('rw', Repo.transactions, async () => {
     const fresh = await Repo.transactions.where({ id: rowId }).first();
     if (
@@ -131,25 +212,33 @@ async function writeLanding(rowId: string, judgement: RowJudgement, accountKey: 
       ...(landing.boundTransactionId === undefined ? {} : { transactionId: landing.boundTransactionId }),
       completedAt: fresh.completedAt
     });
+    const target = recordLandedDeliveryTarget(fresh, landing);
     await Repo.transactions.put(fresh);
     landed = fresh;
+    addedTarget = target;
   });
   if (landed === undefined) return false;
+  if (addedTarget !== undefined) countNoteDeliveryWrite();
   reportVerifiedLanding(landed);
+  if (landed.type === 'consume') await adoptLandedConsume(landed.id);
   return true;
 }
 
 /**
  * Every entry provable and dead, or retired before its submit: the row is marked safe to retry. Guarded on the status
- * and the entries' evidence (the seen fields aside), so a late stamp voids it. No report and no notice: Activity shows
- * a verdict that can arrive long after.
+ * and the entries' evidence (the seen fields aside), so a late stamp voids it. Sentry records the definitive failure;
+ * no product event or notice is raised for a verdict that can arrive long after.
  */
 async function writeNeverCommitted(rowId: string, judgement: RowJudgement, nowSec: number): Promise<boolean> {
   const baseline = evidenceKey(judgement.judgedEntries);
   let wrote = false;
+  let failed: ITransaction | undefined;
+  // A row already Failed was reported when it failed; only an Unconfirmed row's verdict is a failure of its own.
+  let alreadyReported = false;
   await Repo.transactions.where({ id: rowId }).modify(fresh => {
     if (fresh.status !== ITransactionStatus.Unconfirmed && fresh.status !== ITransactionStatus.Failed) return false;
     if (fresh.neverCommittedAt !== undefined || evidenceKey(fresh.submitEvidence) !== baseline) return false;
+    alreadyReported = fresh.status === ITransactionStatus.Failed;
     fresh.submitEvidence = applyEntryWrites(fresh.submitEvidence ?? [], judgement);
     fresh.rawError = fresh.rawError ?? fresh.error;
     fresh.status = ITransactionStatus.Failed;
@@ -157,9 +246,26 @@ async function writeNeverCommitted(rowId: string, judgement: RowJudgement, nowSe
     fresh.displayMessage = 'Failed';
     fresh.displayIcon = 'FAILED';
     fresh.neverCommittedAt = nowSec;
+    failed = { ...fresh };
     wrote = true;
     return undefined;
   });
+  if (failed !== undefined && !failed.restoredFromBackup) {
+    reportTransactionFailure({
+      point: 'node_verdict',
+      type: failed.type,
+      stage: failed.stage,
+      delegateTransaction: failed.delegateTransaction,
+      diagnostics: failed.failureDiagnostics,
+      entryPoint: failed.consumeEntryPoint,
+      lastDeferral: failed.lastDeferral,
+      feeAdmission: failed.feeAdmission,
+      reason: 'never_committed',
+      neverCommittedRule: judgement.neverCommittedBy,
+      alreadyReported,
+      error: TRANSACTION_NEVER_COMMITTED_ERROR
+    });
+  }
   return wrote;
 }
 

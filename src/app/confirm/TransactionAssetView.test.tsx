@@ -4,6 +4,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import { fetchTokenMetadata } from 'lib/miden/metadata/fetch';
 
+import type { TxAssetView } from './decode';
 import { TransactionAssetView } from './TransactionAssetView';
 
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (k: string) => k }) }));
@@ -204,4 +205,26 @@ it('withholds the quantity when the metadata lookup fails outright', async () =>
     />
   );
   await waitFor(() => expect(screen.getByText('? unknown')).toBeInTheDocument());
+});
+
+it('exposes its mode and the output-note count to E2E', async () => {
+  const { rerender } = render(<TransactionAssetView view={view as any} mode="verified" />);
+  await waitFor(() => expect(screen.getByText('10/6 miZK')).toBeInTheDocument());
+  expect(screen.getByTestId('tx-asset-view')).toHaveAttribute('data-mode', 'verified');
+  expect(screen.getByTestId('tx-output-notes-created')).toHaveTextContent('2');
+  rerender(<TransactionAssetView view={view as any} mode="declared" />);
+  expect(screen.getByTestId('tx-asset-view')).toHaveAttribute('data-mode', 'declared');
+});
+
+it('exposes the storage-changed value to E2E, in verified mode only', async () => {
+  const verifiedView: TxAssetView = view;
+  const { rerender } = render(<TransactionAssetView view={verifiedView} mode="verified" />);
+  await waitFor(() => expect(screen.getByText('10/6 miZK')).toBeInTheDocument());
+  expect(screen.getByTestId('tx-storage-changed')).toHaveAttribute('data-changed', 'false');
+  expect(screen.getByTestId('tx-storage-changed')).toHaveTextContent(/^no$/);
+  rerender(<TransactionAssetView view={{ ...verifiedView, storageChanged: true }} mode="verified" />);
+  expect(screen.getByTestId('tx-storage-changed')).toHaveAttribute('data-changed', 'true');
+  expect(screen.getByTestId('tx-storage-changed')).toHaveTextContent(/^yes$/);
+  rerender(<TransactionAssetView view={verifiedView} mode="declared" />);
+  expect(screen.queryByTestId('tx-storage-changed')).not.toBeInTheDocument();
 });

@@ -1,7 +1,5 @@
 import { useEffect, useState } from 'react';
 
-import { withWasmClientLock } from 'lib/miden/sdk/miden-client';
-
 import { readUsdcxMinimumBurn } from './burn';
 
 /** Review preflight; submission reads again so a policy change cannot bypass validation. */
@@ -13,7 +11,7 @@ export function useBurnPreflight(enabled: boolean) {
     let disposed = false;
     setMinimum(undefined);
     setError(undefined);
-    withWasmClientLock(hold => readUsdcxMinimumBurn(hold)).then(
+    readUsdcxMinimumBurn().then(
       value => {
         if (!disposed) setMinimum(value);
       },

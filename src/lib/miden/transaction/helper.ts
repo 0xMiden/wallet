@@ -1,10 +1,13 @@
 import { TransactionResult } from '@miden-sdk/miden-sdk/lazy';
 import { liveQuery } from 'dexie';
 
+import { createIntercomClient, type IIntercomClient } from 'lib/intercom/client';
 import * as Repo from 'lib/miden/repo';
 import { u8ToB64 } from 'lib/shared/helpers';
+import { WalletMessageType } from 'lib/shared/types';
 import { classifyError } from 'lib/telemetry/classify';
 import { reportOperation } from 'lib/telemetry/report-operation';
+import { reportTransactionFailure } from 'lib/telemetry/transaction-failure';
 import { elapsedMsSince, operationOfType, stepOfStage } from 'lib/telemetry/transaction-operation';
 
 import { type SignCallbackReason } from './sign-callback';
@@ -26,6 +29,7 @@ import {
 } from '../db/types';
 import { isPrivateNoteType } from '../helpers';
 import { errorMessageParts, isPoisonedPipeline, type LandedTransaction } from '../sdk/sdk-error-code';
+import { normalizeHex } from '../sdk/submit-evidence';
 
 // Re-export the sign-callback classification from its leaf home (issue #260,
 // slice 5). It moved to `./sign-callback` to break a `helper ↔ proxy` import
@@ -72,12 +76,11 @@ export { isGuardianCanonicalizationError } from '../sdk/sdk-error-code';
  * round-trip: measured over a 300-send devnet run at ~4.5% with a sub-second
  * proposal→execute window, rising to ~35% past 1.7s under sustained load.
  *
- * That mechanism is closable, and closing it is in review as #786: the execute is
- * pinned to the proposal's own `ChainAnchor`, so a client whose sync height has
- * advanced still reproduces the summary. Once it lands, a match here stops
- * meaning "a block landed mid-flow" and starts meaning some other divergence
- * between the two computations of the summary — a proposal carrying no anchor
- * included. Widen the wording here, not the predicate, when that happens.
+ * That mechanism is closed: the summary binds the block its auth args name (the
+ * proposal's `boundBlockNum`), the request declares it, and both leaves execute
+ * at the tip after `prepareGuardianTipExecution`, so a client whose sync height
+ * has advanced still reproduces the summary. A match here means some other
+ * divergence between the two computations of the summary.
  *
  * BOTH halves are required, and the execution half is the load-bearing one: it
  * is what lets callers conclude the transaction never reached the chain, since
@@ -187,6 +190,7 @@ export const updateTransactionStatus = async <K extends keyof ITransaction>(
   // the success path clears either. The row then completes wearing a FAILED
   // icon and an expiry message, on a send that actually went through.
   let finalized = false;
+  let failed: ITransaction | undefined;
   await Repo.transactions.where({ id: id }).modify(t => {
     if (hasLeftQueue(t)) {
       finalized = true;
@@ -194,12 +198,16 @@ export const updateTransactionStatus = async <K extends keyof ITransaction>(
     }
     // Snapshot the stamps accumulated DURING the run, before the assign below
     // can overwrite them with a stale forwarded copy (see the Completed branch).
+    if (status === ITransactionStatus.Failed) failed = { ...t };
     const runStageTimestamps = t.stageTimestamps;
     // A completion hands over the whole pick-time row, which predates every crossing and verdict written during the
     // run; only their own writers change these (#1081).
     const storedEvidence = t.submitEvidence;
     const storedNeverCommittedAt = t.neverCommittedAt;
     Object.assign(t, otherValues);
+    if (Object.prototype.hasOwnProperty.call(otherValues, 'failureDiagnostics') && t.failureDiagnostics === undefined) {
+      delete t.failureDiagnostics;
+    }
     if (storedEvidence === undefined) delete t.submitEvidence;
     else t.submitEvidence = storedEvidence;
     if (storedNeverCommittedAt === undefined) delete t.neverCommittedAt;
@@ -240,6 +248,19 @@ export const updateTransactionStatus = async <K extends keyof ITransaction>(
     return undefined;
   });
   if (finalized) throw new Error('Transaction already in a finalized state');
+  if (failed !== undefined && !failed.restoredFromBackup) {
+    reportTransactionFailure({
+      point: 'pipeline',
+      type: failed.type,
+      stage: failed.stage,
+      delegateTransaction: failed.delegateTransaction,
+      diagnostics: failed.failureDiagnostics,
+      entryPoint: failed.consumeEntryPoint,
+      lastDeferral: failed.lastDeferral,
+      feeAdmission: failed.feeAdmission,
+      error: failureTextOf(otherValues) ?? failed.rawError ?? failed.error
+    });
+  }
 
   // Both terminal outcomes, from the one place a row can reach either through
   // this function.
@@ -359,6 +380,19 @@ export const setTransactionStage = async (
   });
 };
 
+/**
+ * {@link setTransactionStage} for a stamp written after the transaction was submitted. Such a stamp is display state:
+ * a failed write is logged and never aborts the work it labels (a commit wait, a relay, the Guardian sync or the
+ * completion), and never sends a transaction that is on chain down a failure path. Never throws.
+ */
+export const stampPostSubmitStage = async (id: string, stage: ITransactionStage): Promise<void> => {
+  try {
+    await setTransactionStage(id, stage);
+  } catch (error) {
+    console.warn(`Could not stamp the ${stage} stage`, { txId: id, error });
+  }
+};
+
 const UNDELIVERED_SEPARATOR = ' - ';
 // 1.16.2 and earlier joined the wording with an em dash, and the sweep still delivers those rows.
 const LEGACY_UNDELIVERED_SEPARATOR = ' \u2014 ';
@@ -377,11 +411,32 @@ export const undeliveredDisplayMessage = (base: string, notes?: number): string 
   undeliveredLabel(base, notes, UNDELIVERED_SEPARATOR);
 
 /**
+ * A stored note id list as a list of strings. The store can hold anything here (`importDb` fills it from
+ * a user-supplied file), so a value that is not a list reads as empty and an element that is not a string
+ * is dropped; a well-formed list comes back as it is.
+ */
+export const storedNoteIds = (value: unknown): string[] =>
+  Array.isArray(value) ? value.filter((noteId): noteId is string => typeof noteId === 'string') : [];
+
+/**
  * The private notes a row owes the relay, which its single `noteDelivery` covers. A send's one output
  * note is its private note; a custom row records them apart from its public notes in `relayNoteIds`.
  */
 export const relayNoteIdsOf = (row: Pick<ITransaction, 'relayNoteIds' | 'outputNoteIds'>): string[] =>
-  row.relayNoteIds ?? row.outputNoteIds ?? [];
+  storedNoteIds(row.relayNoteIds ?? row.outputNoteIds);
+
+/**
+ * Whether `row` owes exactly the notes `owed`, compared as sets of normalized ids. A writer that read the row before
+ * an await checks this inside its write: a landing may have replaced the delivery target meanwhile (#1473).
+ */
+export const owesNoteIds = (
+  row: Pick<ITransaction, 'relayNoteIds' | 'outputNoteIds'>,
+  owed: readonly string[]
+): boolean => {
+  const held = new Set(relayNoteIdsOf(row).map(normalizeHex));
+  const expected = new Set(owed.map(normalizeHex));
+  return held.size === expected.size && [...expected].every(noteId => held.has(noteId));
+};
 
 /**
  * The account a row's private notes were relayed to. A send's recipient is its `secondaryAccountId`; a custom
@@ -392,29 +447,111 @@ export const relayRecipientOf = (
   row: Pick<ITransaction, 'relayNoteIds' | 'relayRecipientId' | 'secondaryAccountId'>
 ): string | undefined => (row.relayNoteIds ? row.relayRecipientId : row.secondaryAccountId);
 
-/** `label`'s base when {@link undeliveredDisplayMessage} built it, now or before 1.16.3, else `label` unchanged. */
-const withoutUndeliveredWording = (label: string): string => {
+/**
+ * `label`'s base and note count when {@link undeliveredDisplayMessage} built it, now or before 1.16.3, else
+ * `undefined`. `notes` is `undefined` for "the private note".
+ */
+const parseUndeliveredWording = (label: string): { base: string; notes: number | undefined } | undefined => {
   for (const separator of [UNDELIVERED_SEPARATOR, LEGACY_UNDELIVERED_SEPARATOR]) {
     const at = label.lastIndexOf(separator);
     if (at < 0) continue;
     const base = label.slice(0, at);
     const count = Number(label.slice(at + separator.length).split(' ', 1)[0]);
     // Rebuilding and comparing makes this the exact inverse, so no near miss loses its text.
-    if ([undefined, 1, count].some(notes => undeliveredLabel(base, notes, separator) === label)) return base;
+    for (const notes of [undefined, 1, count]) {
+      if (undeliveredLabel(base, notes, separator) === label) return { base, notes };
+    }
   }
-  return label;
+  return undefined;
+};
+
+/**
+ * The owed notes the transport has acknowledged, or `undefined` when the row does not say. A row written before
+ * acknowledgements were recorded says so only through its state: `relayed` meant every owed note was acknowledged.
+ */
+export const relayAckedNoteIdsOf = (
+  row: Pick<ITransaction, 'relayAckedNoteIds' | 'relayNoteIds' | 'outputNoteIds' | 'noteDelivery'>
+): string[] | undefined => {
+  if (row.relayAckedNoteIds != null) return storedNoteIds(row.relayAckedNoteIds);
+  return row.noteDelivery === 'relayed' ? relayNoteIdsOf(row) : undefined;
+};
+
+/** How many owed notes the transport has not acknowledged, or `undefined` when the row does not say. */
+const unacknowledgedNotesOf = (
+  row: Pick<ITransaction, 'relayAckedNoteIds' | 'relayNoteIds' | 'outputNoteIds' | 'noteDelivery'>
+): number | undefined => {
+  if (row.noteDelivery === 'confirmed') return 0;
+  const acked = relayAckedNoteIdsOf(row);
+  return acked === undefined ? undefined : relayNoteIdsOf(row).filter(noteId => !acked.includes(noteId)).length;
+};
+
+/**
+ * The row's label with its undelivered wording brought in line with the owed notes still unacknowledged: dropped
+ * at none, recounted otherwise. Never added, and kept as written when the row does not say how many.
+ */
+const relabelForDelivery = (row: ITransaction, label: string): string => {
+  const wording = parseUndeliveredWording(label);
+  if (!wording) return label;
+  const unacknowledged = unacknowledgedNotesOf(row);
+  if (unacknowledged === undefined) return label;
+  if (unacknowledged === 0) return wording.base;
+  // A send's one note reads "the private note"; a custom row, which records `relayNoteIds`, counts them, and so
+  // does any label that already counted.
+  const counted = row.relayNoteIds !== undefined || wording.notes !== undefined || unacknowledged > 1;
+  const notes = counted ? unacknowledged : undefined;
+  return notes === wording.notes ? label : undeliveredDisplayMessage(wording.base, notes);
+};
+
+let noteDeliveryWrites = 0;
+
+/**
+ * How many delivery writes this realm has made or been told of. The delivery sweep skips its query while nothing
+ * is due, and a write it did not make itself (a new send owing a relay) is what tells it to look
+ * again before then.
+ */
+export const noteDeliveryWriteCount = (): number => noteDeliveryWrites;
+
+/**
+ * An extension page, as against the extension's background, where `isExtension()` holds too and which Firefox runs as
+ * a page with a `window`: the build names each bundle (`WALLET_BUILD_TARGET`, as crash reports read it).
+ */
+const inExtensionPage = (): boolean => process.env.WALLET_BUILD_TARGET === 'extension';
+
+let workerIntercom: IIntercomClient | undefined;
+
+/**
+ * Count a delivery write, once it has landed, so a sweep that reads the new count cannot have queried before the
+ * write. {@link recordNoteDelivery} calls it, and so does any other write that gives the sweep a note to push.
+ *
+ * On the extension the sweep runs in the background, which never reads a page's count, so a page's write also tells
+ * the background, which counts it as its own. The signal is never awaited and carries nothing: one that does not
+ * arrive leaves the sweep to its idle window, an hour at most, and cannot fail the write it reports.
+ */
+export const countNoteDeliveryWrite = (): void => {
+  noteDeliveryWrites++;
+  try {
+    if (!inExtensionPage()) return;
+    workerIntercom ??= createIntercomClient();
+    workerIntercom.request({ type: WalletMessageType.NoteDeliveryWrittenRequest }).catch(() => undefined);
+  } catch {
+    // The write landed; only the wake is lost.
+  }
+};
+
+/** `held`, read as stored ids, plus each of `added` it lacks, in order. */
+const withIds = (held: string[] | undefined, added: string[]): string[] => {
+  const kept = storedNoteIds(held);
+  return [...kept, ...added.filter((noteId, at) => !kept.includes(noteId) && added.indexOf(noteId) === at)];
 };
 
 /**
  * Record the delivery state of this row's private output note, plus the evidence
  * needed to reason about it after the fact.
  *
- * The point is ordering. The SDK's retry outbox is written from inside the Rust
- * relay and only after it resolves the transport API, so any failure upstream of
- * that write leaves nothing queued anywhere — and the wallet, having written
- * nothing of its own until the terminal status, could not tell an interrupted
- * relay from a delivered one. Stamping `'pending'` with the landed transaction id
- * and note id BEFORE the attempt is what makes those two distinguishable.
+ * The point is ordering. The SDK keeps no record of a relay it could not make, so
+ * stamping `'pending'` with the landed transaction id and note id BEFORE the attempt
+ * is what tells an interrupted relay apart from a delivered one, and what the
+ * delivery sweep (`note-delivery-sweep.ts`) retries from.
  *
  * Deliberately NOT guarded on terminal status, unlike {@link setTransactionStage}.
  * That guard is right for a stage, which is display state describing the attempt
@@ -427,23 +564,45 @@ const withoutUndeliveredWording = (label: string): string => {
  * the worst of both, since a later retry then cannot tell the send already
  * happened. `status` is the thing that must not move here, and this never touches
  * it.
+ *
+ * `ackedNoteIds` and `deadNoteIds` are added to what the row already holds, never
+ * replace it: each relay of a custom row persists its own acknowledgement as it
+ * lands, for the same reason.
+ *
+ * With `expectedOwed` it writes only while the row still owes exactly those notes
+ * ({@link owesNoteIds}), and counts as a delivery write only when it wrote: the
+ * delivery sweep passes the notes it read before its awaits.
  */
 export const recordNoteDelivery = async (
   id: string,
   noteDelivery: INoteDeliveryState,
-  evidence?: { transactionId?: string; outputNoteIds?: string[] }
+  evidence?: {
+    transactionId?: string;
+    outputNoteIds?: string[];
+    relayNoteIds?: string[];
+    relayRecipientId?: string;
+    ackedNoteIds?: string[];
+    deadNoteIds?: string[];
+  },
+  expectedOwed?: readonly string[]
 ) => {
+  let wrote = expectedOwed === undefined;
   await Repo.transactions.where({ id }).modify(tx => {
+    if (expectedOwed !== undefined && !owesNoteIds(tx, expectedOwed)) return false;
+    wrote = true;
     tx.noteDelivery = noteDelivery;
     if (evidence?.transactionId) tx.transactionId = evidence.transactionId;
     if (evidence?.outputNoteIds?.length) tx.outputNoteIds = evidence.outputNoteIds;
-    // History renders the label, not `noteDelivery`, so a delivered note retires its warning there too, but only
-    // on a row owing at most one private note: the row's single state cannot speak for several.
-    const delivered = noteDelivery === 'relayed' || noteDelivery === 'confirmed';
-    if (delivered && relayNoteIdsOf(tx).length <= 1 && tx.displayMessage) {
-      tx.displayMessage = withoutUndeliveredWording(tx.displayMessage);
-    }
+    if (evidence?.relayNoteIds) tx.relayNoteIds = evidence.relayNoteIds;
+    if (evidence?.relayRecipientId) tx.relayRecipientId = evidence.relayRecipientId;
+    if (evidence?.ackedNoteIds?.length) tx.relayAckedNoteIds = withIds(tx.relayAckedNoteIds, evidence.ackedNoteIds);
+    if (evidence?.deadNoteIds?.length) tx.relayDeadNoteIds = withIds(tx.relayDeadNoteIds, evidence.deadNoteIds);
+    // History renders the label, not `noteDelivery`, so a note the transport took retires its share of the warning
+    // there too.
+    if (tx.displayMessage) tx.displayMessage = relabelForDelivery(tx, tx.displayMessage);
+    return undefined;
   });
+  if (wrote) countNoteDeliveryWrite();
 };
 
 /**
@@ -495,10 +654,25 @@ export const landedTransactionIdFields = (landed: LandedWithoutResult | undefine
  * An execute's private notes are relayed only by `completeCustomTransaction`, so the same holds for
  * the `privateOutputNotes` its failure counted. Without a count (a refusal, Retry, an unreadable
  * transaction) the recipient its request named says notes were owed, and an 'undelivered' the row
- * already recorded is kept under a label that says so.
+ * already recorded is kept under a label that says so, counting the owed notes the transport did not
+ * acknowledge when the row records which it did.
+ *
+ * None of these rows is ever re-pushed: an apply that failed left the output notes out of this client's
+ * store, so `sendPrivateOutput` has nothing to resend, and the row carries no note id to resend by. The
+ * delivery sweep leaves such a row inert.
  */
 export const landedValueRowFields = (
-  tx: Pick<ITransaction, 'type' | 'noteType' | 'accountId' | 'secondaryAccountId' | 'noteDelivery'>,
+  tx: Pick<
+    ITransaction,
+    | 'type'
+    | 'noteType'
+    | 'accountId'
+    | 'secondaryAccountId'
+    | 'noteDelivery'
+    | 'relayNoteIds'
+    | 'relayAckedNoteIds'
+    | 'outputNoteIds'
+  >,
   privateOutputNotes?: number
 ): { displayMessage: string; noteDelivery?: 'undelivered' } => {
   const displayMessage = applyLandedDisplayMessage(tx);
@@ -506,7 +680,9 @@ export const landedValueRowFields = (
     const owed =
       tx.noteDelivery === 'undelivered' ||
       (privateOutputNotes === undefined ? Boolean(tx.secondaryAccountId) : privateOutputNotes > 0);
-    const notes = privateOutputNotes !== undefined && privateOutputNotes > 0 ? privateOutputNotes : undefined;
+    // Only a custom row's relay records `relayNoteIds`, and with them which notes the transport took.
+    const count = privateOutputNotes ?? (tx.relayNoteIds ? unacknowledgedNotesOf(tx) : undefined);
+    const notes = count !== undefined && count > 0 ? count : undefined;
     return owed
       ? { displayMessage: undeliveredDisplayMessage(displayMessage, notes), noteDelivery: 'undelivered' }
       : { displayMessage };
@@ -531,7 +707,17 @@ export const landedValueRowFields = (
  * Pass the row as the write finds it: the sweep or a cancelled pipeline can record an outcome during the node check.
  */
 export const verifiedLandingRowFields = (
-  tx: Pick<ITransaction, 'type' | 'noteType' | 'accountId' | 'secondaryAccountId' | 'noteDelivery'>
+  tx: Pick<
+    ITransaction,
+    | 'type'
+    | 'noteType'
+    | 'accountId'
+    | 'secondaryAccountId'
+    | 'noteDelivery'
+    | 'relayNoteIds'
+    | 'relayAckedNoteIds'
+    | 'outputNoteIds'
+  >
 ): { displayMessage: string; displayIcon: ITransactionIcon; noteDelivery?: 'undelivered' } => ({
   // A Failed row carries the failed icon, which Activity draws for any status.
   displayIcon: ICON_BY_TYPE[tx.type],

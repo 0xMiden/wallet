@@ -59,12 +59,6 @@ class ReownPlugin : Plugin(), AppKit.ModalDelegate, CoreClient.CoreDelegate {
 
     @PluginMethod
     fun configure(call: PluginCall) {
-        if (configured) {
-            notifyStateChanged()
-            call.resolve()
-            return
-        }
-
         val projectId = call.getString("projectId") ?: DEFAULT_PROJECT_ID
         if (projectId.isBlank()) {
             call.reject("Missing WalletConnect projectId")
@@ -75,8 +69,16 @@ class ReownPlugin : Plugin(), AppKit.ModalDelegate, CoreClient.CoreDelegate {
         val universalRedirect = call.getString("universalRedirect")
         val linkMode = (call.getBoolean("linkMode") ?: false) && !universalRedirect.isNullOrBlank()
         val methods = stringArray(call, "methods", listOf("eth_sendTransaction", "personal_sign", "eth_signTypedData"))
+        // Methods proposed as optional only (wallet_addEthereumChain, wallet_switchEthereumChain): a wallet
+        // that does not support them still pairs.
+        val optionalMethods = stringArray(call, "optionalMethods", emptyList())
         val events = stringArray(call, "events", listOf("chainChanged", "accountsChanged"))
         val chainIds = intArray(call, "chainIds", listOf(DEFAULT_CHAIN_ID))
+        if (configured) {
+            finishConfigure(call, chainIds, methods, optionalMethods, events)
+            return
+        }
+
 
         val metadata = Core.Model.AppMetaData(
             name = call.getString("appName") ?: "Bread Wallet",
@@ -109,11 +111,11 @@ class ReownPlugin : Plugin(), AppKit.ModalDelegate, CoreClient.CoreDelegate {
             AppKit.initialize(
                 init = Modal.Params.Init(core = CoreClient, coinbaseEnabled = false),
                 onSuccess = {
-                    finishConfigure(call, chainIds, methods, events)
+                    finishConfigure(call, chainIds, methods, optionalMethods, events)
                 },
                 onError = { error ->
                     if (error.throwable::class.java.simpleName.contains("AlreadyInitialized")) {
-                        finishConfigure(call, chainIds, methods, events)
+                        finishConfigure(call, chainIds, methods, optionalMethods, events)
                     } else {
                         Log.e(TAG, "AppKit initialization error: ${error.throwable.message}", error.throwable)
                         call.reject(error.throwable.message ?: "Failed to initialize native WalletConnect")
@@ -370,8 +372,14 @@ class ReownPlugin : Plugin(), AppKit.ModalDelegate, CoreClient.CoreDelegate {
         Log.d(TAG, "Pairing state: ${pairingState.isPairingState}")
     }
 
-    private fun finishConfigure(call: PluginCall, chainIds: List<Int>, methods: List<String>, events: List<String>) {
-        AppKit.setChains(chainIds.map { chainFor(it, methods, events) })
+    private fun finishConfigure(
+        call: PluginCall,
+        chainIds: List<Int>,
+        methods: List<String>,
+        optionalMethods: List<String>,
+        events: List<String>
+    ) {
+        AppKit.setChains(chainIds.map { chainFor(it, methods, optionalMethods, events, chainMetadata(call, it)) })
         AppKit.setDelegate(this)
         configured = true
 
@@ -466,6 +474,7 @@ class ReownPlugin : Plugin(), AppKit.ModalDelegate, CoreClient.CoreDelegate {
         if (session is Session.WalletConnectSession) {
             payload.put("topic", session.topic)
             payload.put("walletName", session.metaData?.name)
+            payload.put("chainIds", approvedChainIds(session))
             selectedSessionTopic = session.topic
         }
 
@@ -490,6 +499,7 @@ class ReownPlugin : Plugin(), AppKit.ModalDelegate, CoreClient.CoreDelegate {
             payload.put("accounts", sessionAccounts(session))
             payload.put("address", firstAddress(session))
             firstChainReference(session)?.toIntOrNull()?.let { payload.put("chainId", it) }
+            payload.put("chainIds", approvedChainIds(session))
             payload.put("walletName", session.metaData?.name)
             sessions.put(payload)
         }
@@ -540,21 +550,52 @@ class ReownPlugin : Plugin(), AppKit.ModalDelegate, CoreClient.CoreDelegate {
         return null
     }
 
-    private fun chainFor(chainId: Int, methods: List<String>, events: List<String>): Modal.Model.Chain {
+    // The distinct EVM chain ids that the session approved, in namespace order.
+    // The wallet uses this list to refuse a request on a chain that the session
+    // did not approve (the Sign SDK otherwise fails with "Invalid permissions for call.").
+    private fun approvedChainIds(session: Session.WalletConnectSession): JSArray {
+        val chainIds = JSArray()
+        session.namespaces.values
+            .flatMap { it.accounts }
+            .mapNotNull { account ->
+                val parts = account.split(":")
+                if (parts.size == 3 && parts[0] == "eip155") parts[1].toIntOrNull() else null
+            }
+            .distinct()
+            .forEach { chainIds.put(it) }
+        return chainIds
+    }
+
+    private fun chainMetadata(call: PluginCall, chainId: Int): JSONObject? {
+        val chains = call.data.optJSONArray("chains") ?: return null
+        return (0 until chains.length())
+            .mapNotNull { chains.optJSONObject(it) }
+            .firstOrNull { it.optInt("id") == chainId }
+    }
+
+    private fun chainFor(
+        chainId: Int,
+        methods: List<String>,
+        optionalMethods: List<String>,
+        events: List<String>,
+        metadata: JSONObject?,
+    ): Modal.Model.Chain {
+        val currency = metadata?.optJSONObject("nativeCurrency")
         return Modal.Model.Chain(
-            chainName = if (chainId == DEFAULT_CHAIN_ID) "Sepolia" else "EVM $chainId",
+            chainName = metadata?.optString("name") ?: "EVM $chainId",
             chainNamespace = "eip155",
             chainReference = chainId.toString(),
             requiredMethods = methods,
-            optionalMethods = methods,
+            // The optional-only methods never join requiredMethods.
+            optionalMethods = (methods + optionalMethods).distinct(),
             events = events,
-            token = if (chainId == DEFAULT_CHAIN_ID) {
-                Modal.Model.Token("Sepolia Ether", "SepoliaETH", 18)
-            } else {
-                Modal.Model.Token("Ether", "ETH", 18)
-            },
-            rpcUrl = null,
-            blockExplorerUrl = if (chainId == DEFAULT_CHAIN_ID) "https://sepolia.etherscan.io" else null
+            token = Modal.Model.Token(
+                currency?.optString("name") ?: "Ether",
+                currency?.optString("symbol") ?: "ETH",
+                currency?.optInt("decimals", 18) ?: 18,
+            ),
+            rpcUrl = metadata?.optString("rpcUrl"),
+            blockExplorerUrl = metadata?.optString("explorer"),
         )
     }
 

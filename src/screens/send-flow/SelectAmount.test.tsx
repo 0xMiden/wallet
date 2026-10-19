@@ -88,9 +88,7 @@ jest.mock('app/icons/v2', () => ({
   IconName: { ChevronDown: 'chevron-down', ChevronRightLucide: 'chevron-right', Globe: 'Globe' }
 }));
 
-// The AmountInput mock forwards every prop we care about and exposes buttons
-// that invoke `onValueChange` with the different value/values shapes the source
-// coalesces over (`values?.formatted || value || ''`).
+// Callback fixtures separate canonical amounts from localized display text.
 type OnValueChange = (value: string | undefined, name?: string, values?: { formatted?: string }) => void;
 
 jest.mock('components/AmountInput', () => ({
@@ -126,7 +124,7 @@ jest.mock('components/AmountInput', () => ({
       {helper !== undefined && <div data-testid="ai-helper">{helper}</div>}
       <div data-testid="ai-token-selector">{tokenSelector}</div>
       <div data-testid="ai-value">{value}</div>
-      <button data-testid="ai-change-formatted" onClick={() => onValueChange?.('rawF', 'n', { formatted: '987.65' })} />
+      <button data-testid="ai-change-formatted" onClick={() => onValueChange?.('1.5', 'n', { formatted: '۱.۵' })} />
       <button data-testid="ai-change-value" onClick={() => onValueChange?.('rawVal', 'n', { formatted: '' })} />
       <button data-testid="ai-change-value-novalues" onClick={() => onValueChange?.('rawVal2', 'n', undefined)} />
       <button data-testid="ai-change-empty" onClick={() => onValueChange?.(undefined, 'n', undefined)} />
@@ -295,6 +293,16 @@ describe('SelectAmount', () => {
       });
     });
 
+    it.each([true, false])(
+      'shows a balance whose read is still pending as loading, with no figure or fiat estimate (scale known: %s)',
+      scaleIsKnown => {
+        renderComponent({ token: { ...baseToken({ scaleIsKnown }), balance: null } });
+        const helper = screen.getByTestId('ai-helper');
+        expect(helper).toHaveTextContent(/^loading$/);
+        expect(helper).not.toHaveTextContent('approxFiatValue');
+      }
+    );
+
     it('hides the balance helper when showBalanceHelper is false', () => {
       renderComponent({ showBalanceHelper: false });
       expect(screen.getByTestId('ai-helper')).not.toHaveTextContent('available');
@@ -439,12 +447,12 @@ describe('SelectAmount', () => {
     });
   });
 
-  describe('amount change coalescing', () => {
-    it('prefers the formatted value from the currency-input values object', () => {
+  describe('canonical amount changes', () => {
+    it('stores the canonical value when the formatted value uses Persian digits', () => {
       const onAmountChange = jest.fn();
       renderComponent({ onAmountChange });
       fireEvent.click(screen.getByTestId('ai-change-formatted'));
-      expect(onAmountChange).toHaveBeenCalledWith('987.65');
+      expect(onAmountChange).toHaveBeenCalledWith('1.5');
     });
 
     it('falls back to the raw value when formatted is empty', () => {

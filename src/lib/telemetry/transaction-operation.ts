@@ -118,6 +118,17 @@ export function stepOfStage(stage: ITransactionStage | undefined): TelemetryStep
   return STEP_BY_STAGE[stage];
 }
 
+/** Every name `operationOfType` returns. */
+export const TRANSACTION_OPERATIONS: readonly TelemetryOperation[] = [
+  ...new Set(Object.values(OPERATION_BY_TYPE)),
+  'tx_other'
+];
+
+/** Every name `stepOfStage` returns. */
+export const TRANSACTION_STEPS: readonly TelemetryStep[] = [
+  ...new Set(Object.values(STEP_BY_STAGE).flatMap(step => (step === undefined ? [] : [step])))
+];
+
 /**
  * Milliseconds from a row's `initiatedAt` until now, or `undefined` if the row
  * never recorded a start.

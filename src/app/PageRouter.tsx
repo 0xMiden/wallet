@@ -9,11 +9,15 @@ import MobilePageLayers from 'app/layouts/MobilePageLayers';
 import TabLayout from 'app/layouts/TabLayout';
 import Explore from 'app/pages/Explore';
 import HelpImproveWalletPrompt from 'app/pages/HelpImproveWallet';
+import Me from 'app/pages/Me';
+import MyBadges from 'app/pages/MyBadges';
 import OpenSidePanel from 'app/pages/OpenSidePanel';
 import { Receive } from 'app/pages/Receive';
 import Settings from 'app/pages/Settings';
 import Unlock, { useRetireLockoutOnReady } from 'app/pages/Unlock';
 import Welcome from 'app/pages/Welcome';
+import { MainnetCountdownBanner } from 'components/MainnetCountdownBanner';
+import { OUTSIDE_WALLET_SHELL_ROUTES } from 'lib/extension/side-panel-handoff';
 import { isSwapEnabled } from 'lib/feature-flags';
 import { useMidenContext } from 'lib/miden/front';
 import { hasTelemetryChoice } from 'lib/settings/helpers';
@@ -28,6 +32,7 @@ import EarnDepositReview from 'screens/earn-flow/EarnDepositReview';
 import EarnPositionDetail from 'screens/earn-flow/EarnPositionDetail';
 import EarnPositions from 'screens/earn-flow/EarnPositions';
 import EarnVaultDetail from 'screens/earn-flow/EarnVaultDetail';
+import EarnWithdrawAmount from 'screens/earn-flow/EarnWithdrawAmount';
 import EarnWithdrawReview from 'screens/earn-flow/EarnWithdrawReview';
 import EarnWithdrawStatus from 'screens/earn-flow/EarnWithdrawStatus';
 import { GeneratingTransactionPage } from 'screens/generating-transaction/GeneratingTransaction';
@@ -128,10 +133,12 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
   // `*` catch-all below - an onlyReady-wrapped route would never resolve while ctx.ready is
   // false. Deliberately NOT wrapped in onlyReady (see that helper below). Still defers to Unlock
   // when locked: an existing, locked wallet always takes priority over this hidden debug screen.
+  // It also waits for the backend state: until then the status reads Idle even for an existing
+  // wallet, and the screen would open its no-wallet edit mode.
   [
     '/developer-settings',
     (_p, ctx) =>
-      ctx.locked ? (
+      ctx.locked || !ctx.hydrated ? (
         Woozie.Router.SKIP
       ) : (
         <FullScreenPage>
@@ -230,16 +237,34 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
       </FullScreenPage>
     ))
   ],
-  // The Settings ROOT is a primary tab destination, so it renders in TabLayout
-  // with the persistent footer. Exact-matched and placed ahead of the generic
-  // route below, which keeps serving every `/settings/<slug>` sub-page in
-  // FullScreenPage — drilling in and backing out is unchanged.
+  // Me is the personal tab. Its badge collection is a pushed page so the profile
+  // remains mounted underneath and the tab bar cannot cover the catalog.
+  [
+    '/me/badges',
+    onlyReady(() => (
+      <FullScreenPage entrance="slide">
+        <MyBadges />
+      </FullScreenPage>
+    ))
+  ],
+  [
+    '/me',
+    onlyReady(() => (
+      <TabLayout>
+        <Me />
+      </TabLayout>
+    ))
+  ],
+  // Me embeds the settings groups; this standalone root is a pushed page for the
+  // links that still open it (the accounts drawer, a sub-page's fallback back).
+  // Exact-matched and placed ahead of the generic route below, which keeps every
+  // `/settings/<slug>` flow unchanged.
   [
     '/settings',
     onlyReady((_p, ctx) => (
-      <TabLayout>
+      <FullScreenPage entrance="slide">
         <Settings rootScrollTop={ctx.settingsScrollTop} />
-      </TabLayout>
+      </FullScreenPage>
     ))
   ],
   [
@@ -416,6 +441,14 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
     ))
   ],
   [
+    '/earn/positions/:positionId/withdraw',
+    onlyReady(({ positionId }) => (
+      <FullScreenPage>
+        <EarnWithdrawAmount positionId={positionId!} />
+      </FullScreenPage>
+    ))
+  ],
+  [
     '/earn/positions/:positionId/withdraw/review',
     onlyReady(({ positionId }) => (
       <FullScreenPage>
@@ -528,18 +561,28 @@ const PageRouter: FC = () => {
     React.isValidElement<FullScreenPageProps>(page) &&
     page.type === FullScreenPage &&
     (page.props.entrance ?? defaultPageEntrance()) === 'slide';
-  const layered =
-    !ctx.ready || ctx.locked || !ctx.hydrated ? (
-      page
-    ) : (
-      <MobilePageLayers pageKey={tabPage ? 'tabs' : pathname} slide={slide} location={location}>
-        {page}
-      </MobilePageLayers>
-    );
+  const walletOpen = ctx.ready && !ctx.locked && ctx.hydrated;
+  // The banner follows the router's own root view (not locked, hydrated, ready, and not holding for
+  // onboarding to finish) and stays off the onboarding and recovery routes.
+  const showCountdown = resolveRootView(ctx) === 'app' && !OUTSIDE_WALLET_SHELL_ROUTES.has(pathname);
+  const layered = !walletOpen ? (
+    page
+  ) : (
+    <MobilePageLayers pageKey={tabPage ? 'tabs' : pathname} slide={slide} location={location}>
+      {page}
+    </MobilePageLayers>
+  );
 
-  // The wallet names its test network in a pill above Home's balance card (NetworkModePill), not in
-  // a banner above every page; the page takes the full height.
-  return <div className="relative flex h-full min-h-0 w-full flex-col">{layered}</div>;
+  // The mainnet countdown sits above every page of the open wallet, over the layer stack and so
+  // over Home's action bar, and never over Unlock or onboarding. The layer stack fills the height
+  // left under it. The test network itself is named on the screens that commit value
+  // (NetworkModeBanner), not here.
+  return (
+    <div className="relative flex h-full min-h-0 w-full flex-col">
+      {showCountdown && <MainnetCountdownBanner />}
+      <div className="relative min-h-0 flex-1">{layered}</div>
+    </div>
+  );
 };
 
 export default PageRouter;

@@ -9,15 +9,18 @@ import AwaitI18N from 'app/a11y/AwaitI18N';
 import BootAnimation from 'app/a11y/BootAnimation';
 import DisableOutlinesForClick from 'app/a11y/DisableOutlinesForClick';
 import RootSuspenseFallback from 'app/a11y/RootSuspenseFallback';
-import { AppEnvProvider } from 'app/env';
+import { AppEnvProvider, WindowType } from 'app/env';
 import ErrorBoundary from 'app/ErrorBoundary';
+import { ExternalPageFailedNotice } from 'app/ExternalPageFailedNotice';
 import Dialogs from 'app/layouts/Dialogs';
 import { MobileBackBridge } from 'app/MobileBackBridge';
 import PageRouter from 'app/PageRouter';
 import { DappBrowserProvider } from 'app/providers/DappBrowserProvider';
 import { GuardianRecoveryProvider } from 'app/providers/GuardianRecoveryProvider';
 import { UpdateNotificationProvider } from 'app/providers/UpdateNotificationProvider';
+import { BreadConnectPrompt } from 'app/templates/BreadConnectPrompt';
 import { HotKeyRotationGate } from 'app/templates/HotKeyRotationGate';
+import { OpenLinkPrompt } from 'app/templates/OpenLinkPrompt';
 import { PinExtensionPrompt } from 'app/templates/PinExtensionPrompt';
 import { ScreenKeyPublisher } from 'app/templates/ScreenKeyPublisher';
 import { ExtensionMessageListener } from 'components/ConnectivityIssueBanner';
@@ -25,12 +28,12 @@ import { MidenProvider, request } from 'lib/miden/front';
 import { isDesktop as checkIsDesktop, isExtension, isMobile as checkIsMobile } from 'lib/platform';
 import { PropsWithChildren } from 'lib/props-with-children';
 import { initBridgeConfig } from 'lib/remote-config/runtime';
-import { isTelemetryEnabled } from 'lib/settings/helpers';
 import { WalletMessageType } from 'lib/shared/types';
 import { clearLegacyAnalyticsStorage } from 'lib/telemetry';
 // Deep import: the barrel deliberately does not re-export `crash`, so that
 // `@sentry/browser` stays out of the many chunks that only want `beginFlow`.
 import { initCrashReporting } from 'lib/telemetry/crash';
+import { recordRelaySurface, type RelaySurface } from 'lib/telemetry/relay-diagnostics';
 import { setOperationTransport } from 'lib/telemetry/report-operation';
 import { DialogsProvider } from 'lib/ui/dialog';
 import { AppKitProvider } from 'lib/walletconnect/appkit';
@@ -47,7 +50,18 @@ interface AppProps extends Partial<PropsWithChildren> {
   env: ComponentProps<typeof AppEnvProvider>;
 }
 
+// Mobile and desktop render the full page too; the report's platform and build target tell them apart.
+const RELAY_SURFACE: Record<WindowType, RelaySurface> = {
+  [WindowType.Popup]: 'popup',
+  [WindowType.FullPage]: 'fullpage',
+  [WindowType.SidePanel]: 'sidepanel'
+};
+
 const App: FC<AppProps> = ({ env }) => {
+  useEffect(() => {
+    recordRelaySurface(env.confirmWindow ? 'confirm' : RELAY_SURFACE[env.windowType]);
+  }, [env.windowType, env.confirmWindow]);
+
   useEffect(() => {
     // Unconditional: the dormant `localStorage['analytics']` identifier from the
     // removed analytics scaffold is data held with no basis, so it goes whether
@@ -59,10 +73,9 @@ const App: FC<AppProps> = ({ env }) => {
     // the transport only carries an event to the worker, which applies the same
     // consent check every other event passes through.
     setOperationTransport(event => request({ type: WalletMessageType.ReportTelemetryEventRequest, event }).then());
-    // Consent-gated: with no client constructed, there is nothing to leak from
-    // if a later check is ever missed. `captureCrash` re-reads consent before
-    // every send, so this is the outer of two gates, not the only one.
-    if (isTelemetryEnabled()) initCrashReporting();
+    // Crash reports are independent of usage sharing. Capture and transport
+    // still check the browser's data-collection permission before sending.
+    initCrashReporting();
     // Display prices and the other synchronous readers use the bridge config snapshot, so every page realm loads it at
     // boot instead of whenever a bridge screen mounts, then follows every change of the effective network through
     // `followEffectiveNetwork`. The first load also starts this realm's poll. It never rejects.
@@ -101,6 +114,8 @@ const App: FC<AppProps> = ({ env }) => {
                         <UpdateNotificationProvider>
                           <HotKeyRotationGate />
                           <GuardianRecoveryProvider />
+                          <OpenLinkPrompt />
+                          <BreadConnectPrompt />
                           <PageRouter />
                         </UpdateNotificationProvider>
                       </DappBrowserProvider>
@@ -139,6 +154,7 @@ const AppProvider: FC<AppProps> = ({ children, env }) => {
         <ScreenKeyPublisher />
         {isExtension() && <PinExtensionPrompt />}
         {checkIsMobile() && <MobileBackBridge />}
+        {checkIsMobile() && <ExternalPageFailedNotice />}
         {checkIsDesktop() && (
           <Suspense fallback={null}>
             <DesktopDappHandler />

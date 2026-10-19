@@ -7,7 +7,7 @@ import { getQuarantinedNoteIds } from 'lib/miden/note-quarantine';
 import { getBlockTimestamps } from 'lib/miden-chain/block-timestamps';
 import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
-import { isExtension, isIOS } from 'lib/platform';
+import { hasExtensionRuntime, isExtension, isIOS } from 'lib/platform';
 import { SerializedConsumableNote, SyncData, WalletMessageType } from 'lib/shared/types';
 import { faucetMetadataOf, getIntercom, useWalletStore } from 'lib/store';
 import { useRetryableSWR } from 'lib/swr';
@@ -18,10 +18,10 @@ import { AssetMetadata } from '../metadata';
 import { claimingTxIdByNoteId } from './claiming-tx-map';
 import { onNotesRefresh } from './note-refresh';
 import { fetchFromStorage, putToStorage } from './storage';
-import { isSyncFused, noteNonEvictionSyncFailure, noteSyncSuccess, noteSyncWatchdogEviction } from './sync-fuse';
+import { isSyncFused, noteProbeFailure, noteSyncSuccess } from './sync-fuse';
 import type { ConsumableNoteDto } from '../sdk/consumable-notes';
 import { assertWasmHoldCurrent, runWhenClientIdle, withWasmClientLock } from '../sdk/miden-client';
-import { isSyncWatchdogEviction, WASM_LOCK_SYNC_WATCHDOG_MS } from '../sdk/wasm-client-poison';
+import { WASM_LOCK_SYNC_WATCHDOG_MS } from '../sdk/wasm-client-poison';
 import { classifySwapOrderNotes } from '../swap/classification';
 import { ConsumableNote, NoteTypeEnum, SwapOrderNoteMetadata } from '../types';
 import { useTokensMetadata } from './assets';
@@ -51,6 +51,7 @@ type ParsedNote = {
   swapOrder?: SwapOrderNoteMetadata;
   recallableAtMs?: number;
   standardPayment?: boolean;
+  carriesMoreAssets?: boolean;
   /** Block that includes the note; its timestamp becomes `receivedAt` once the note read is done. */
   blockNum?: number;
   /** Note inclusion time, in Unix seconds. */
@@ -92,7 +93,9 @@ function parseNotes(
       swapOrder: swapOrders.get(noteId),
       blockNum: note.blockNum,
       recallableAtMs: note.recallableAtMs,
-      standardPayment: note.standardPayment
+      standardPayment: note.standardPayment,
+      // The claim fee gate cannot see the other assets, one of which may pay the fee.
+      carriesMoreAssets: note.assets.length > 1
     });
   }
 
@@ -148,7 +151,8 @@ function attachMetadataToNotes(
       swapOrder: n.swapOrder,
       receivedAt: n.receivedAt,
       recallableAtMs: n.recallableAtMs,
-      standardPayment: n.standardPayment
+      standardPayment: n.standardPayment,
+      carriesMoreAssets: n.carriesMoreAssets
     }));
 }
 
@@ -199,8 +203,7 @@ async function fetchNotesFromLocalClient(
     // Keyed on 'claimable-notes' rather than shared, because a healthy chain sync says
     // nothing about a note read whose call is parked, and a single counter let either
     // fact erase the other.
-    if (isSyncWatchdogEviction(e)) noteSyncWatchdogEviction('claimable-notes');
-    else noteNonEvictionSyncFailure('claimable-notes');
+    noteProbeFailure('claimable-notes', e);
     debugInfoRef.current = {
       ...debugInfoRef.current,
       error: `getConsumableNotes failed: ${e}`,
@@ -209,6 +212,13 @@ async function fetchNotesFromLocalClient(
     throw e;
   }
 
+  // Notes the pre-confirm dry-run imported to simulate a not-yet-approved custom transaction, hidden from the
+  // claimable UI until the user confirms (or forever, if they cancel). See note-quarantine.ts.
+  //
+  // Read BEFORE the holding rows, as the service worker does: a confirm queues the dApp transaction holding the
+  // note and only then releases the quarantine, so in this order a confirm landing between the reads leaves the note
+  // hidden or held. The other order could see it released and not yet held, and auto-consume would count it.
+  const quarantined = await getQuarantinedNoteIds();
   const uncompletedTxs = await getNoteHoldingTransactions(publicAddress);
   const notesBeingClaimed = claimingTxIdByNoteId(uncompletedTxs);
 
@@ -231,8 +241,7 @@ async function fetchNotesFromLocalClient(
   } catch (e) {
     // Same ledger as the read above: this is the second hold of one probe, and an
     // eviction here is the same parked client with the same per-lap cost.
-    if (isSyncWatchdogEviction(e)) noteSyncWatchdogEviction('claimable-notes');
-    else noteNonEvictionSyncFailure('claimable-notes');
+    noteProbeFailure('claimable-notes', e);
     throw e;
   }
 
@@ -242,16 +251,11 @@ async function fetchNotesFromLocalClient(
   // evidence that hold was accumulating, which is how a fuse becomes unreachable.
   noteSyncSuccess('claimable-notes');
 
-  // Notes the pre-confirm dry-run imported to simulate a not-yet-approved
-  // custom transaction — hidden from the claimable UI until the user
-  // confirms (or forever, if they cancel). See note-quarantine.ts.
-  //
   // NOTE: `parseNotes`'s 2nd arg (`notesBeingClaimed`) only flags matching
   // notes as `isBeingClaimed` — it does NOT remove them from the result, so
   // it cannot be reused to hide quarantined notes. We instead filter the
   // parsed result by id (parseNotes derives ids the same way, via
   // `note.id()?.toString()`, so the ids match exactly).
-  const quarantined = await getQuarantinedNoteIds();
   const parsed = parseNotes(rawNotes, notesBeingClaimed, swapOrders);
   const visible = quarantined.size === 0 ? parsed : parsed.filter(n => !quarantined.has(n.id));
   // Display dates come from block headers, read now that both holds have released the client.
@@ -459,6 +463,8 @@ function useExtensionClaimableNotes(publicAddress: string, enabled: boolean) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const g = globalThis as any;
     if (!g.chrome?.storage?.local) return;
+    // An extension reload or update orphans this page and its extension APIs throw from then on (#1593).
+    if (!hasExtensionRuntime()) return;
 
     // A read that lands after this effect ended belongs to a visit that is over.
     let active = true;
@@ -499,7 +505,13 @@ function useExtensionClaimableNotes(publicAddress: string, enabled: boolean) {
     poll();
 
     // Then poll every 3s (aligned with useSyncTrigger's SyncRequest interval)
-    const timer = setInterval(poll, 3_000);
+    const timer = setInterval(() => {
+      if (!hasExtensionRuntime()) {
+        clearInterval(timer);
+        return;
+      }
+      poll();
+    }, 3_000);
     return () => {
       active = false;
       clearInterval(timer);
@@ -585,7 +597,8 @@ function useExtensionClaimableNotes(publicAddress: string, enabled: boolean) {
           swapOrder: n.swapOrder ? { ...n.swapOrder, autoConsume: n.swapOrder.autoConsume ?? true } : undefined,
           receivedAt: n.receivedAt,
           recallableAtMs: n.recallableAtMs,
-          standardPayment: n.standardPayment
+          standardPayment: n.standardPayment,
+          carriesMoreAssets: n.carriesMoreAssets
         }))
     );
   }, [enabled, extensionNotes, claimingRead, boundGeneration, assetsMetadata, tokenMetadataOverrides]);

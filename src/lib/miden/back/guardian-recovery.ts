@@ -12,8 +12,9 @@ import { registerGuardianOrigin } from 'lib/miden/guardian/native-http';
 import { WalletSigner } from 'lib/miden/guardian/signer';
 import { canonicalWalletAccountId } from 'lib/miden/sdk/helpers';
 import { withWasmClientLock } from 'lib/miden/sdk/miden-client';
+import { isPipelineKillLink } from 'lib/miden/sdk/sdk-error-code';
 import { isWasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
-import { getAllUncompletedTransactions } from 'lib/miden/transaction/get';
+import { getAllUncompletedTransactions, isRotationAwaitingFunding } from 'lib/miden/transaction/get';
 import { b64ToU8 } from 'lib/shared/helpers';
 import { WalletAccount } from 'lib/shared/types';
 
@@ -24,13 +25,14 @@ import {
   terminalGuardianHistoryGeneration
 } from './guardian-history-recovery';
 import { midenClientProxy } from './miden-client-proxy';
-import { OperationAbortedError } from './offscreen-codec';
 import { accountsUpdated, store } from './store';
 import { doSync } from './sync-manager';
 import type { Vault } from './vault';
 
 // Guardian exposes canonical deltas through getDeltaHistory. Recover history
-// after pending notes and the required device-key rotation.
+// after pending notes and the required device-key rotation. The notes pass
+// can run before the rotation when the rotation waits for funds, because only
+// this pass finds the notes that can pay for it.
 
 export interface GuardianPendingNoteRecoveryResult {
   proposalNotes: number;
@@ -94,10 +96,11 @@ function isWalletLocked(): boolean {
  *
  * An eviction of the op's lock hold is the same abandonment, whether it comes
  * from the inline path's own hold or is rehydrated from the offscreen realm by
- * the proxy.
+ * the proxy. So is a call on a terminated client: the next offer runs on its
+ * successor.
  */
 function isAbortedOp(error: unknown): boolean {
-  return error instanceof OperationAbortedError || isWasmClientPoisonedError(error);
+  return isPipelineKillLink(error);
 }
 
 /** Defers the pass for an aborted op, recording whether the abort was an eviction. */
@@ -707,7 +710,9 @@ interface KeptReservation {
  * A reservation is released again only where the run never really got its
  * turn (a refused start, a rejected eligibility query, or a wallet lock), since
  * those are transient and should be retried within this same backend lifetime,
- * and where a flag write does not land, for the next offer. A kept one with
+ * where a flag write does not land, for the next offer, and after a clean notes
+ * pass whose history waits for the key rotation, so the history pass can start
+ * in this backend lifetime once the rotation lands. A kept one with
  * `failed` set is released by the next lock (`releaseGuardianRecoveriesOnLock`),
  * so the provider offers it again; a run queued or in flight yields to the lock
  * through `shouldYield` on its own.
@@ -764,12 +769,15 @@ let recoveryQueue: Promise<void> = Promise.resolve();
  * lives in the frontend (GuardianRecoveryProvider), which retries until this
  * returns true.
  *
+ * One exception: a rotation that waits for funds starts the notes pass (see
+ * `notesPassDueBeforeRotation`). The same transaction check applies to it.
+ *
  * Returns true when the recovery was started (it then runs detached), false
  * when the account is ineligible or busy right now.
  */
 export async function maybeStartGuardianRecovery(account: WalletAccount): Promise<boolean> {
   if (!account.guardianNoteRecoveryPending) return false;
-  if (account.requiresHotKeyRotation) return false;
+  if (account.requiresHotKeyRotation && !(await notesPassDueBeforeRotation(account))) return false;
   const held = reservations.get(account.publicKey);
   if (held === null) return false;
   if (held !== undefined) {
@@ -840,6 +848,27 @@ function keepReservation(publicKey: string, kept: KeptReservation): void {
 }
 
 /**
+ * Whether a rotation-pending account may run its notes pass before the rotation.
+ *
+ * The rotation pays its fee from the vault. When the vault is empty, the gate
+ * waits for native notes in the live claimable list and claims them. Notes that
+ * were committed before the recovery reach that list only through this pass, so
+ * a strict "rotation first" rule deadlocks: the rotation waits for funds, the
+ * funds wait for this pass, and this pass waits for the rotation. So when the
+ * rotation waits for funds (the gate shows its funding panel), the notes pass
+ * runs. History still waits for the rotation (see `runDetachedRecovery`).
+ *
+ * A clean notes pass leaves a history checkpoint of this wallet's generation.
+ * When one exists the notes pass is done, and only the rotation unblocks the
+ * rest, so this returns false and the account is not run again until then.
+ */
+async function notesPassDueBeforeRotation(account: WalletAccount): Promise<boolean> {
+  if (!(await isRotationAwaitingFunding(account.publicKey))) return false;
+  const progress = await fetchGuardianNoteRecoveryProgress(account.publicKey);
+  return resumePointFor(account, progress, await readGuardianHistoryGeneration())?.step !== 'history';
+}
+
+/**
  * No transaction queued or generating on ANY account — they all share the one
  * WASM/offscreen client, and a transaction's short-deadline reads queued
  * behind the recovery get deadline-killed.
@@ -898,6 +927,23 @@ async function runDetachedRecovery(account: WalletAccount): Promise<void> {
         `[GuardianRecovery] Keeping recovery pending for ${account.publicKey}: ` +
           `${result.sourceFailures} source(s) failed; will retry on the next unlock or backend start`
       );
+      return;
+    }
+    // A rotation-pending account ran this pass only because its rotation waits
+    // for funds. History waits for the rotation, so the flag stays set. The
+    // history checkpoint makes the next pass skip to history, and it stops new
+    // notes passes until then. The release lets the provider start that pass
+    // once the rotation lands.
+    if (account.requiresHotKeyRotation) {
+      await reportGuardianNoteRecoveryProgress({
+        accountId: account.publicKey,
+        step: 'history',
+        operator: resolveGuardianEndpoint(account),
+        sourcesClean: true,
+        historyGeneration: generation
+      });
+      reservations.delete(account.publicKey);
+      console.log(`[GuardianRecovery] Notes recovered for ${account.publicKey}; history waits for the key rotation`);
       return;
     }
     // History shares the seed-restore flag: the flag clears once every Guardian

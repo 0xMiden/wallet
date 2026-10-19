@@ -310,14 +310,8 @@ describe('completeSendTransaction', () => {
   it('records undelivered and qualifies the message when the private-note relay fails', async () => {
     // The row stays Completed — the assets have left the account, so Failed would be
     // untrue and would offer a Retry that spends a second time — but it must not
-    // read as an unqualified success.
-    //
-    // This previously asserted a bare 'Sent' on the premise that "the SDK persists
-    // the relay payload to its durable outbox before calling transport, so eventual
-    // delivery is the SDK's responsibility". Rust writes that outbox entry INSIDE
-    // the relay, after resolving the transport API, so every failure upstream of
-    // that point queues nothing — and the wallet cannot tell which side of it a
-    // rejection came from. So the pessimistic state is recorded.
+    // read as an unqualified success. The SDK does not re-send a failed relay, so
+    // the row is what tells the user, and what the delivery sweep retries from.
     const tx = makeSendTx({ noteType: NoteTypeEnum.Private });
     txStore.push({ ...tx });
     mockSendPrivateNote.mockRejectedValueOnce(new Error('transport-down'));
@@ -356,11 +350,10 @@ describe('completeSendTransaction', () => {
   });
 
   it('records the relay as OWED before attempting it, with the landed tx id and note', async () => {
-    // The ordering is the fix, not an implementation detail: the SDK's outbox is
-    // written from inside the relay, so between submit and that write there was no
-    // durable statement anywhere that a note was owed. An interruption in that
-    // window was indistinguishable from a delivered note. Observed from inside the
-    // relay call, which is the only place the intermediate state is visible.
+    // The ordering is the fix, not an implementation detail: the SDK keeps no record
+    // of a relay it could not make, so without this stamp an interruption between
+    // submit and the outcome would read like a delivered note. Observed from inside
+    // the relay call, which is the only place the intermediate state is visible.
     const tx = makeSendTx({ noteType: NoteTypeEnum.Private });
     txStore.push({ ...tx });
     const helpers = require('../helpers');
@@ -383,13 +376,123 @@ describe('completeSendTransaction', () => {
     }
   });
 
+  // 'confirming' is the commit wait and 'delivering' the relay, so the screen can say which one the user waits
+  // on; stamping 'delivering' before the wait booked the wait under the relay and announced the two in reverse
+  // (#1492).
+  it('stamps confirming for the commit wait and delivering only once the relay starts', async () => {
+    const tx = makeSendTx({ noteType: NoteTypeEnum.Private });
+    txStore.push({ ...tx });
+    const snapshot = () => ({ ...txStore[0]!, stageTimestamps: { ...txStore[0]!.stageTimestamps } });
+    let rowDuringWait: ITransaction | undefined;
+    let rowDuringRelay: ITransaction | undefined;
+    mockWaitForTransactionCommit.mockImplementationOnce(async () => {
+      rowDuringWait = snapshot();
+    });
+    mockSendPrivateNote.mockImplementationOnce(async () => {
+      rowDuringRelay = snapshot();
+    });
+    const fullNote = { id: () => ({ toString: () => 'note-out-1' }), serialize: () => new Uint8Array([1]) };
+
+    await completeSendTransaction(tx, makeResult({ intoFullReturns: fullNote }));
+
+    expect(rowDuringWait!.stage).toBe('confirming');
+    expect(rowDuringWait!.stageTimestamps?.delivering).toBeUndefined();
+    // The owed relay is still on record before the wait.
+    expect(rowDuringWait!.noteDelivery).toBe('pending');
+    expect(rowDuringRelay!.stage).toBe('delivering');
+    expect(txStore[0]!.noteDelivery).toBe('relayed');
+  });
+
+  it('still relays the note when the delivering stamp cannot be written', async () => {
+    const tx = makeSendTx({ noteType: NoteTypeEnum.Private });
+    txStore.push({ ...tx });
+    const where = jest.requireMock('lib/miden/repo').transactions.where as jest.Mock;
+    const realWhere = where.getMockImplementation()!;
+    // Fails the write that would stamp 'delivering', judged on a copy of the row, and counts the commit waits run by
+    // then, so the case fails on an unguarded stamp and on one written before the wait.
+    let waitsBeforeFailure: number | undefined;
+    where.mockImplementation((query: any) => {
+      const real = realWhere(query);
+      if (typeof query === 'string') return real;
+      return {
+        ...real,
+        modify: async (fn: (row: any) => unknown) => {
+          const row = txStore.find(t => t.id === query.id);
+          if (waitsBeforeFailure === undefined && row) {
+            const after = { ...row, stageTimestamps: { ...row.stageTimestamps } };
+            fn(after);
+            if (after.stage === 'delivering' && row.stage !== 'delivering') {
+              waitsBeforeFailure = mockWaitForTransactionCommit.mock.calls.length;
+              throw new Error('dexie write failed');
+            }
+          }
+          return real.modify(fn);
+        }
+      };
+    });
+    const fullNote = { id: () => ({ toString: () => 'note-out-1' }), serialize: () => new Uint8Array([1]) };
+
+    try {
+      await completeSendTransaction(tx, makeResult({ intoFullReturns: fullNote }));
+    } finally {
+      where.mockImplementation(realWhere);
+    }
+
+    expect(waitsBeforeFailure).toBe(1);
+    expect(txStore[0]!.stageTimestamps?.delivering).toBeUndefined();
+    expect(mockSendPrivateNote).toHaveBeenCalled();
+    expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
+    expect(txStore[0]!.noteDelivery).toBe('relayed');
+  });
+
+  // The relay hands over the inclusion proof only the commit wait produces, so a lost display stamp must not skip
+  // the wait.
+  it('still waits for the commit and relays the note when the confirming stamp cannot be written', async () => {
+    const tx = makeSendTx({ noteType: NoteTypeEnum.Private });
+    txStore.push({ ...tx });
+    const where = jest.requireMock('lib/miden/repo').transactions.where as jest.Mock;
+    const realWhere = where.getMockImplementation()!;
+    // The first row write after the pending record is the confirming stamp.
+    let pendingRecorded = false;
+    let failNextWrite = false;
+    where.mockImplementation((query: any) => {
+      const real = realWhere(query);
+      return {
+        ...real,
+        modify: async (fn: (row: any) => unknown) => {
+          if (failNextWrite) {
+            failNextWrite = false;
+            throw new Error('dexie write failed');
+          }
+          const written = await real.modify(fn);
+          if (!pendingRecorded && txStore[0]!.noteDelivery === 'pending') {
+            pendingRecorded = true;
+            failNextWrite = true;
+          }
+          return written;
+        }
+      };
+    });
+    const fullNote = { id: () => ({ toString: () => 'note-out-1' }), serialize: () => new Uint8Array([1]) };
+
+    try {
+      await completeSendTransaction(tx, makeResult({ intoFullReturns: fullNote }));
+    } finally {
+      where.mockImplementation(realWhere);
+    }
+
+    expect(mockWaitForTransactionCommit).toHaveBeenCalledTimes(1);
+    expect(mockSendPrivateNote).toHaveBeenCalled();
+    expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
+    expect(txStore[0]!.noteDelivery).toBe('relayed');
+    // The failed write was the confirming stamp; the delivering stamp after the wait still landed.
+    expect(txStore[0]!.stageTimestamps?.confirming).toBeUndefined();
+    expect(txStore[0]!.stageTimestamps?.delivering).toBeDefined();
+  });
+
   it('records undelivered when the WASM client lock cannot be acquired during a private send', async () => {
     // A lock failure on this path means the relay never ran, so the note was never
-    // handed to anyone. This previously asserted a bare 'Sent' on the grounds that
-    // "lock acquisition failures are non-fatal: the on-chain tx is the source of
-    // truth and the SDK's outbox + sync_state will reconcile" — but with no relay
-    // there is no outbox entry to reconcile FROM, so that reported the exact silent
-    // loss being hunted.
+    // handed to anyone, and only the row's state lets the delivery sweep retry it.
     const tx = makeSendTx({ noteType: NoteTypeEnum.Private });
     txStore.push({ ...tx });
     const helpers = require('../helpers');
@@ -1361,6 +1464,7 @@ describe('generateTransactionsLoop error paths', () => {
       type: 'send',
       status: ITransactionStatus.Queued,
       initiatedAt: Math.floor(Date.now() / 1000),
+      lastDeferral: 'preflight_sync_failed',
       accountId: 'acc-1'
     });
 
@@ -1373,6 +1477,7 @@ describe('generateTransactionsLoop error paths', () => {
     // account until the stuck reaper Failed it (30 min desktop / 2 min mobile).
     expect(txStore[0]!.status).toBe(ITransactionStatus.Queued);
     expect(txStore[0]!.processingStartedAt).toBeUndefined();
+    expect(txStore[0]!.lastDeferral).toBe('wallet_locked');
     // Backed off so a still-locked wallet doesn't re-attempt every ~5s poll.
     expect(txStore[0]!.nextEligibleAt).toBeGreaterThan(Math.floor(Date.now() / 1000));
     // The in-progress set is empty, so the very next loop pass can pick up

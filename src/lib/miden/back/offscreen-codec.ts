@@ -14,6 +14,7 @@
 // imports below are TYPE-ONLY — erased at compile time, so they pull no module
 // into either bundle and the zero-runtime-dependency rule still holds.
 
+import type { EndpointState } from '../../miden-chain/effective-endpoints';
 import type { ConnectivityCategory } from '../activity/connectivity-state';
 import type { ITransactionStage, SubmitEvidenceFields } from '../db/types';
 import type { LandedTransaction } from '../sdk/sdk-error-code';
@@ -132,7 +133,9 @@ export const OFFSCREEN_PROVE_MARKER = 'OFFSCREEN_PROVE_MARKER' as const;
  *
  * `argsB64` carries the positional arguments, each encoded with
  * {@link encodeArg} (binary → base64 bytes, scalar → JSON). `deadline_ms` is
- * the per-op deadline the SW enforces; `null` means "no deadline".
+ * the per-op deadline the SW enforces; `null` means "no deadline". `endpoints`
+ * is the SW's endpoint state when the call is sent: this realm has no extension
+ * storage, so it runs every call on the network the call names (#1482).
  */
 export interface OffscreenCallRequest {
   target: typeof OFFSCREEN_TARGET;
@@ -141,6 +144,7 @@ export interface OffscreenCallRequest {
   method: string;
   argsB64: string[];
   deadline_ms: number | null;
+  endpoints: EndpointState;
 }
 
 /**
@@ -183,22 +187,26 @@ export type OffscreenCallResponse =
     };
 
 /**
- * SW → offscreen endpoint-override reload request. Carries no payload: the
- * override lives in extension storage, which BOTH realms read, so the message is
- * a pure "go re-read it" nudge rather than a copy of the new value.
+ * SW → offscreen endpoint reload request. The offscreen realm cannot read
+ * extension storage, so every reload carries the SW's endpoint state: the realm
+ * adopts it and drops its client singleton, even when the state is unchanged
+ * (seed removal sends one only to discard the client).
  */
 export interface OffscreenReloadEndpointsRequest {
   target: typeof OFFSCREEN_TARGET;
   type: typeof OFFSCREEN_RELOAD_ENDPOINTS;
+  endpoints: EndpointState;
 }
 
 /**
  * offscreen → SW acknowledgement of {@link OffscreenReloadEndpointsRequest},
- * delivered via `sendResponse`. `ok: true` means the realm re-read the override
- * and dropped its client singleton. As with an {@link OffscreenCallResponse}, a
- * response of `undefined` on the wire (doc closed/reaped) is not part of this
- * type — the SW treats a missing/failed ack as "not acknowledged" and moves on,
- * since a reaped document's replacement hydrates the override on its own.
+ * delivered via `sendResponse`. `ok: true` means the realm adopted the state and
+ * dropped its client singleton; `ok: false` means it adopted nothing and kept its
+ * client (a reload with no state, or one it could not read). As with an
+ * {@link OffscreenCallResponse}, a response of `undefined` on the wire (doc
+ * closed/reaped) is not part of this type: the SW treats a missing/failed ack as
+ * "not acknowledged" and moves on, since a reaped document's replacement gets the
+ * state with its first call.
  */
 export type OffscreenReloadEndpointsResponse = { ok: true } | { ok: false; error: string };
 
@@ -374,15 +382,16 @@ export function encodeArg(value: unknown): string {
  *
  * Worth naming for this op specifically: the dispatch table erases its entries
  * to `(client, ...args: any[])`, so a dropped or reordered slot compiles
- * cleanly, and dropping the anchor slot silently reinstates the unanchored
- * execute that #784 exists to remove — a regression that shows up only once
- * the chain advances mid-round-trip.
+ * cleanly. The last slot carries a proposal metadata's base64 anchor and stays
+ * for wire compatibility only: nothing reads it, because the leaf executes at
+ * the tip against the block the request's auth args bind.
  *
  * The two optional slots are `| null`, not `| undefined`: the packer always
  * sends four elements and {@link encodeArg} maps an absent value to JSON
  * `null`, so a PACKED slot never arrives as `undefined`. A short envelope still
- * leaves the tail `undefined` — only hand-built test envelopes do that today —
- * which is why both receivers select on truthiness rather than on `null`.
+ * leaves the tail `undefined` (only hand-built test envelopes do that today),
+ * which is why the leaf tests `delegateTransaction` for truthiness rather than
+ * for `null`. The anchor slot has no receiver.
  *
  * `trBytes` MUST stay a top-level element — {@link encodeArg} only recognizes a
  * `Uint8Array` at the top level, and a nested one would be JSON-mangled,

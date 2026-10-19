@@ -18,7 +18,7 @@ import { formatAmount } from 'lib/shared/format';
 import HashChip from '../HashChip';
 import { DetailSection } from './DetailSection';
 import { IHistoryEntry } from './IHistoryEntry';
-import { deliveredRequestedToken } from './swapReceipt';
+import { deliveredRequestedToken, isPartialSwapFill } from './swapReceipt';
 import { TransactionFailureCard } from './TransactionFailureCard';
 import TransactionIcon from './TransactionIcon';
 import { ExternalLinkValue, StatusPill } from './TransactionStatus';
@@ -44,6 +44,8 @@ interface SwapDetailProps {
   requestedFaucetId?: string;
   /** Undefined = unknown, which is not the same statement as zero. */
   filledAmount?: bigint;
+  /** The slippage the ask was built with: a fill that reached its target is not partial. */
+  slippageBps?: number;
   orderState: SwapOrderState | null;
   trackingLoading: boolean;
   /**
@@ -71,8 +73,6 @@ interface SwapDetailProps {
    * of what the receipt knows could contradict the status line above it.
    */
   offerCancelOrder: boolean;
-  /** The expiry has lapsed and the tip has not come back yet - `reclaimPending`. */
-  reclaimPending: boolean;
   isCancellingOrder: boolean;
   cancelOrderError: string | null;
   onCancelOrder: () => void;
@@ -182,7 +182,7 @@ const SwapNoteRow = memo(function SwapNoteRow({
             <p className="font-heading text-base font-semibold text-text-primary-token">{t('reclaimed')}</p>
             {consumedAt && (
               <p className="mt-1 text-sm font-semibold text-text-tertiary-token">
-                {t('swapConsumedAt', { time: consumedAt })}
+                {t('swapReturnedAt', { time: consumedAt })}
               </p>
             )}
           </div>
@@ -256,6 +256,7 @@ export const SwapDetail: FC<SwapDetailProps> = ({
   requestedSymbol,
   requestedFaucetId,
   filledAmount,
+  slippageBps,
   orderState,
   trackingLoading,
   settledTransactions,
@@ -265,7 +266,6 @@ export const SwapDetail: FC<SwapDetailProps> = ({
   showActions,
   onOpenPendingNotes,
   offerCancelOrder,
-  reclaimPending,
   isCancellingOrder,
   cancelOrderError,
   onCancelOrder
@@ -286,23 +286,26 @@ export const SwapDetail: FC<SwapDetailProps> = ({
   const progressKnown = percentage !== undefined;
   // Derived here rather than passed in: it is a statement about these two props,
   // and as a third prop a caller could contradict them - asserting a partial
-  // fill on a receipt whose progress line reads "- of 1000".
-  const isPartialFill =
-    filledAmount !== undefined && requestedAmount !== undefined && filledAmount > 0n && filledAmount < requestedAmount;
+  // fill on a receipt whose progress line reads "- of 1000". It is the receipt's
+  // rule, so an order that reached its slippage target reads Filled here too.
+  const isPartialFill = isPartialSwapFill(requestedAmount, filledAmount, slippageBps);
   const formattedOffered = entry.amount === undefined ? '-' : entry.amount.toString();
   const formattedRequested =
     requestedAmount === undefined || !requestedScaleIsKnown ? '-' : formatAmount(requestedAmount, requestedDecimals);
   const formattedFilled =
     filledAmount === undefined || !requestedScaleIsKnown ? '-' : formatAmount(filledAmount, requestedDecimals);
   const requestedSuffix = requestedSymbol ? ` ${requestedSymbol}` : '';
-  const showPendingRow = orderState === 'active' || (orderState === null && trackingLoading);
+  // The settlement stamp the Activity list reads (`swapSettlementOf`), never the expiry clock, so one order cannot
+  // read Pending there and Returning funds here.
+  const reclaiming = entry.swapSettlement === 'reclaiming';
+  const showPendingRow = !reclaiming && (orderState === 'active' || (orderState === null && trackingLoading));
   const showClaimRoute = showActions && onOpenPendingNotes !== undefined;
   // The footer is drawn only when it has something in it. The three order-side
   // states are mutually exclusive with the page's own Cancel/Retry footer
   // (`HistoryDetails`), which needs a Queued or a Failed row: an order can only
   // be open once its place-order transaction has COMPLETED, so the two bars are
   // never both filled.
-  const showFooter = showClaimRoute || offerCancelOrder || reclaimPending || cancelOrderError !== null;
+  const showFooter = showClaimRoute || offerCancelOrder || reclaiming || cancelOrderError !== null;
   const consumeTransactions = [...settledTransactions, ...reclaimedTransactions];
   const hasSettlementRows = settledTransactions.length > 0 || reclaimedTransactions.length > 0;
 
@@ -395,58 +398,62 @@ export const SwapDetail: FC<SwapDetailProps> = ({
           </div>
 
           <StatusBadge
-            status={orderStatusOf(orderState, trackingLoading, isPartialFill)}
+            status={reclaiming ? 'reclaiming' : orderStatusOf(orderState, trackingLoading, isPartialFill)}
             live
             className="mt-1"
             data-testid="swap-order-status"
           />
         </section>
 
-        <section className="mt-6" aria-labelledby="swap-notes-label">
-          <div
-            id="swap-notes-label"
-            className="inline-flex rounded-full bg-fill px-2.5 py-1 font-heading text-sm font-bold leading-4 text-text-secondary-token"
-          >
-            {t('swapNotesBundled')}
-          </div>
+        {(!reclaiming || hasSettlementRows) && (
+          <section className="mt-6" aria-labelledby="swap-notes-label">
+            <div
+              id="swap-notes-label"
+              className="inline-flex rounded-full bg-fill px-2.5 py-1 font-heading text-sm font-bold leading-4 text-text-secondary-token"
+            >
+              {t('swapActivityTitle')}
+            </div>
 
-          <div className="mt-2 border-y border-rule-default">
-            {settledTransactions.length > 0 && (
-              <div data-testid="swap-settled-notes">
-                {settledTransactions.map((transaction, index) => (
-                  <SwapNoteRow
-                    key={transaction.id}
-                    number={index + 1}
-                    kind="settled"
-                    transaction={transaction}
-                    requestedDecimals={requestedDecimals}
-                    requestedScaleIsKnown={requestedScaleIsKnown}
-                    requestedSymbol={requestedSymbol}
-                    requestedFaucetId={requestedFaucetId}
-                  />
-                ))}
-              </div>
-            )}
-            {reclaimedTransactions.length > 0 && (
-              <div data-testid="swap-reclaimed-notes">
-                {reclaimedTransactions.map(transaction => (
-                  <SwapNoteRow key={transaction.id} kind="reclaimed" transaction={transaction} />
-                ))}
-              </div>
-            )}
-            {showPendingRow && <SwapNoteRow kind="pending" />}
-            {/* Only claimable while the fill is actually known. With no lineage
+            <div className="mt-2 border-y border-rule-default">
+              {settledTransactions.length > 0 && (
+                <div data-testid="swap-settled-notes">
+                  {settledTransactions.map((transaction, index) => (
+                    <SwapNoteRow
+                      key={transaction.id}
+                      number={index + 1}
+                      kind="settled"
+                      transaction={transaction}
+                      requestedDecimals={requestedDecimals}
+                      requestedScaleIsKnown={requestedScaleIsKnown}
+                      requestedSymbol={requestedSymbol}
+                      requestedFaucetId={requestedFaucetId}
+                    />
+                  ))}
+                </div>
+              )}
+              {reclaimedTransactions.length > 0 && (
+                <div data-testid="swap-reclaimed-notes">
+                  {reclaimedTransactions.map(transaction => (
+                    <SwapNoteRow key={transaction.id} kind="reclaimed" transaction={transaction} />
+                  ))}
+                </div>
+              )}
+              {showPendingRow && <SwapNoteRow kind="pending" />}
+              {/* Only claimable while the fill is actually known. With no lineage
                 and no settlement rows - a restored wallet, or consumes that
                 predate settlement tagging - "nothing has been bundled yet" is
                 an assertion the receipt cannot support, and is plainly false
                 for an order that settled before the wallet was restored. The
                 status line above already reads "Not available"; adding a
                 confident denial underneath it is worse than saying nothing. */}
-            {!showPendingRow && !hasSettlementRows && progressKnown && (
-              <p className="py-6 text-center text-sm font-medium text-text-tertiary-token">{t('swapNoBundledNotes')}</p>
-            )}
-          </div>
-        </section>
+              {!showPendingRow && !hasSettlementRows && progressKnown && (
+                <p className="py-6 text-center text-sm font-medium text-text-tertiary-token">
+                  {t('swapNoBundledNotes')}
+                </p>
+              )}
+            </div>
+          </section>
+        )}
 
         {(entry.status === ITransactionStatus.Failed || entry.status === ITransactionStatus.Unconfirmed) &&
           entry.errorMessage && (
@@ -526,9 +533,9 @@ export const SwapDetail: FC<SwapDetailProps> = ({
             </Notice>
           )}
           {/* Not an error and not a button: the wallet owes this account its tip
-              back and will take it on the next settlement tick, so the honest
-              thing to show is what is happening, with nothing to tap. */}
-          {reclaimPending && (
+              back and settlement has started taking it, so the honest thing to
+              show is what is happening, with nothing to tap. */}
+          {reclaiming && (
             <Notice tone="warning" role="status" data-testid="swap-cancel-order-pending">
               {t('swapCancelOrderPending')}
             </Notice>

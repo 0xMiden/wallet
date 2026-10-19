@@ -26,6 +26,7 @@ import { ITransactionStatus } from 'lib/miden/db/types';
 import { useMidenContext } from 'lib/miden/front';
 import { reconcileUnconfirmedInApp, zustandProvider } from 'lib/miden/front/guardian-sync';
 import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
+import { ClaimFeeRefusedError } from 'lib/miden/transaction/claim-fee';
 import { getExplorerTxUrl } from 'lib/miden-chain/constants';
 import { openExternalUrl } from 'lib/mobile/external-browser';
 import { isExtension } from 'lib/platform';
@@ -43,7 +44,8 @@ import {
   getStepDurationsMs,
   getTransactionStepState,
   isDirectGuardianSwitch,
-  isUnconfirmedGuardianSwitch
+  isUnconfirmedGuardianSwitch,
+  waitsToDeliverNote
 } from './helper';
 import { TransactionSuccess } from './TransactionSuccess';
 import { TransactionSummaryBadge, useTransactionSummaryBadgeContent } from './TransactionSummaryBadge';
@@ -162,8 +164,12 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
         await requeueFailedTransaction(active.id, acknowledged === undefined ? {} : { acknowledged });
         requestSWTransactionProcessing();
       } catch (error) {
-        console.error('[GeneratingTransaction] Failed to retry transaction:', error);
-        setRetryError(error instanceof Error ? error.message : t('smthWentWrong'));
+        if (error instanceof ClaimFeeRefusedError) {
+          setRetryError(t('insufficientFeeAsset'));
+        } else {
+          console.error('[GeneratingTransaction] Failed to retry transaction:', error);
+          setRetryError(error instanceof Error ? error.message : t('smthWentWrong'));
+        }
         // Not a dead end: the wallet cannot tell whether this send landed, but the
         // user can see it in their balance. Offer that as an explicit second step
         // rather than leaving a Retry button that throws the same error forever.
@@ -312,7 +318,11 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
   // the careful receipt replaces it.
   const commitUnconfirmed =
     isUnconfirmedGuardianSwitch(activeTransaction) || isUnconfirmedGuardianSwitch(completedTransaction);
-  const steps = useMemo(() => stepsForFlow(isGuardian, signedLocally), [isGuardian, signedLocally]);
+  const deliversNote = waitsToDeliverNote(activeTransaction ?? completedTransaction);
+  const steps = useMemo(
+    () => stepsForFlow(isGuardian, signedLocally, deliversNote),
+    [isGuardian, signedLocally, deliversNote]
+  );
   // A row whose outcome is unknown reads as not confirmed here too, by the rule Activity reads (#1250, #1081): no
   // failed title, and no classifier copy that claims the send did not land.
   const failedRow = activeTransaction ?? completedTransaction;

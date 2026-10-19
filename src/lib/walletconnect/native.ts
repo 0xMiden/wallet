@@ -2,6 +2,10 @@ import type { PluginListenerHandle } from '@capacitor/core';
 import { registerPlugin } from '@capacitor/core';
 
 import { isAndroid, isIOS } from 'lib/platform';
+import { walletRaised } from 'lib/telemetry/bridge-receive-failure';
+
+import { getChain, type EvmChain } from './config';
+import { readNativeFeeFields } from './fees';
 
 export interface ReownConfigureOptions {
   projectId: string;
@@ -14,7 +18,10 @@ export interface ReownConfigureOptions {
   universalRedirect?: string;
   linkMode?: boolean;
   chainIds: number[];
+  chains?: EvmChain[];
   methods?: string[];
+  /** Methods the proposal offers as optional only. A wallet that does not support them still pairs. */
+  optionalMethods?: string[];
   events?: string[];
 }
 
@@ -25,6 +32,11 @@ export interface ReownState {
   address?: string;
   accounts: string[];
   chainId?: number;
+  /**
+   * The distinct EVM chain ids that the connected session approved. A native build older than
+   * this field omits it, and a state with no session omits it too.
+   */
+  chainIds?: number[];
   walletName?: string;
   socketStatus?: string;
 }
@@ -34,6 +46,8 @@ export interface ReownSession {
   address?: string;
   accounts: string[];
   chainId?: number;
+  /** The distinct EVM chain ids that this session approved. An older native build omits it. */
+  chainIds?: number[];
   walletName?: string;
 }
 
@@ -97,6 +111,166 @@ export const NativeReown = registerPlugin<ReownPlugin>('Reown');
 
 export function isNativeReownAvailable(): boolean {
   return isIOS() || isAndroid();
+}
+
+/**
+ * The connected WalletConnect session did not approve the chain of a request. The Sign SDK
+ * refuses such a request with the opaque "Invalid permissions for call.", so the wallet refuses
+ * it first with this error. This occurs when the session was paired before the wallet proposed
+ * the chain.
+ */
+export class NativeSessionChainNotApprovedError extends Error {
+  readonly chainId: number;
+  readonly networkName: string;
+
+  constructor(chainId: number, networkName: string) {
+    super(`The connected WalletConnect session did not approve ${networkName} (eip155:${chainId}).`);
+    this.name = 'NativeSessionChainNotApprovedError';
+    this.chainId = chainId;
+    this.networkName = networkName;
+    walletRaised(this);
+  }
+}
+
+/** The name the wallet gives an EVM chain in messages. */
+export function nativeChainName(chainId: number): string {
+  return getChain(chainId)?.name ?? `eip155:${chainId}`;
+}
+
+/**
+ * Throws `NativeSessionChainNotApprovedError` when there is no session (a session deleted before
+ * or during the wait reports neither `connected` nor a topic) or when the session's approved
+ * chains do not include `chainId`. A connected state without `chainIds` comes from an older
+ * native build that does not report them: it passes, and the request goes to the Sign SDK as before.
+ */
+export function assertNativeSessionChain(state: ReownState, chainId: number, networkName: string): void {
+  if (!state.connected || !state.topic) {
+    throw new NativeSessionChainNotApprovedError(chainId, networkName);
+  }
+  if (Array.isArray(state.chainIds) && !state.chainIds.includes(chainId)) {
+    throw new NativeSessionChainNotApprovedError(chainId, networkName);
+  }
+}
+
+/** How long `ensureNativeSessionChain` waits for the session update after the wallet added a chain. */
+const NATIVE_SESSION_CHAIN_WAIT_MS = 5000;
+// The iOS plugin sends no `stateChanged` for a session update, so the wait also re-reads the state.
+const NATIVE_SESSION_CHAIN_POLL_MS = 500;
+
+function sessionApproves(state: ReownState, chainId: number): boolean {
+  return Array.isArray(state.chainIds) && state.chainIds.includes(chainId);
+}
+
+async function readNativeState(fallback: ReownState): Promise<ReownState> {
+  try {
+    return await NativeReown.getState();
+  } catch (err) {
+    console.warn('[NativeReown] could not read the state again after the chain request', err);
+    return fallback;
+  }
+}
+
+/**
+ * A wallet can answer the switch before its session update arrives. Resolves with the first state
+ * that approves `chainId`, from a `stateChanged` event or a re-read, or with the last state read
+ * once `NATIVE_SESSION_CHAIN_WAIT_MS` has passed, whichever comes first.
+ */
+async function waitForSessionChain(state: ReownState, chainId: number): Promise<ReownState> {
+  let latest = state;
+  let finish: () => void = () => undefined;
+  const finished = new Promise<void>(resolve => {
+    finish = () => resolve();
+  });
+  const observe = (next: ReownState) => {
+    // A slower re-read that lacks the chain does not replace a state that approved it.
+    if (sessionApproves(latest, chainId)) return;
+    latest = next;
+    if (sessionApproves(next, chainId)) finish();
+  };
+
+  let listener: PluginListenerHandle | undefined;
+  try {
+    listener = await NativeReown.addListener('stateChanged', observe);
+  } catch (err) {
+    console.warn('[NativeReown] could not listen for the session update', err);
+  }
+
+  let polling = true;
+  let poll: ReturnType<typeof setTimeout> | undefined;
+  const reread = async () => {
+    observe(await readNativeState(latest));
+    if (polling) poll = setTimeout(() => void reread(), NATIVE_SESSION_CHAIN_POLL_MS);
+  };
+  const deadline = setTimeout(finish, NATIVE_SESSION_CHAIN_WAIT_MS);
+  try {
+    void reread();
+    await finished;
+    return latest;
+  } finally {
+    polling = false;
+    clearTimeout(poll);
+    clearTimeout(deadline);
+    await listener?.remove().catch((err: unknown) => {
+      console.warn('[NativeReown] could not remove the session update listener', err);
+    });
+  }
+}
+
+/**
+ * Best effort: when the session did not approve `chainId`, asks the connected wallet to add the
+ * chain (`wallet_addEthereumChain`) and to switch to it (`wallet_switchEthereumChain`), then waits
+ * up to `NATIVE_SESSION_CHAIN_WAIT_MS` for the session to approve it. Both requests go on a chain
+ * that the session did approve. A wallet that does not support these methods, or a user who
+ * declines, rejects the request: the rejection is not thrown, the state is read again without
+ * waiting, and the caller's guard then refuses the request with the reconnect message. Each call
+ * sends each request once at most and never retries.
+ */
+export async function ensureNativeSessionChain(state: ReownState, chainId: number): Promise<ReownState> {
+  const approved = state.chainIds;
+  if (!Array.isArray(approved) || approved.includes(chainId)) return state;
+  const chain = getChain(chainId);
+  const requestChainId = state.chainId !== undefined && approved.includes(state.chainId) ? state.chainId : approved[0];
+  // The public RPC: `rpcUrl` can be the WalletConnect proxy, which carries our project id. A chain without one
+  // cannot be added, so the caller's guard refuses it.
+  if (!chain || !chain.publicRpcUrl || requestChainId === undefined) return state;
+
+  const hexChainId = `0x${chainId.toString(16)}`;
+  try {
+    await NativeReown.request({
+      topic: state.topic,
+      chainId: requestChainId,
+      method: 'wallet_addEthereumChain',
+      params: [
+        {
+          chainId: hexChainId,
+          chainName: chain.name,
+          rpcUrls: [chain.publicRpcUrl],
+          nativeCurrency: chain.nativeCurrency,
+          ...(chain.explorer ? { blockExplorerUrls: [chain.explorer] } : {})
+        }
+      ]
+    });
+    await NativeReown.request({
+      topic: state.topic,
+      chainId: requestChainId,
+      method: 'wallet_switchEthereumChain',
+      params: [{ chainId: hexChainId }]
+    });
+  } catch (err) {
+    console.warn(`[NativeReown] could not add or switch to eip155:${chainId}`, err);
+    return readNativeState(state);
+  }
+  return waitForSessionChain(state, chainId);
+}
+
+/**
+ * Makes sure that the connected session approved `chainId` before the wallet signs on it: reads
+ * the state, tries to add and switch to a missing chain, then applies the guard. Call it before
+ * the first wallet prompt of a signing flow.
+ */
+export async function prepareNativeSessionChain(chainId: number): Promise<void> {
+  const state = await ensureNativeSessionChain(await NativeReown.getState(), chainId);
+  assertNativeSessionChain(state, chainId, nativeChainName(chainId));
 }
 
 export interface NativeReownProviderOptions {
@@ -172,35 +346,60 @@ async function rpcRead(rpcUrl: string, method: string, params: unknown): Promise
  * wallet vs. RPC traffic on web.
  */
 export function buildNativeReownProvider({ chainId, address, rpcUrl }: NativeReownProviderOptions) {
+  let selectedChainId = chainId;
+  let selectedRpcUrl = rpcUrl;
   const request = async ({ method, params }: { method: string; params?: unknown }): Promise<unknown> => {
     switch (method) {
       case 'eth_accounts':
       case 'eth_requestAccounts':
         return [address];
       case 'eth_chainId':
-        return `0x${chainId.toString(16)}`;
+        return `0x${selectedChainId.toString(16)}`;
+      case 'wallet_switchEthereumChain': {
+        const target = Array.isArray(params) ? params[0] : undefined;
+        if (!target || typeof target !== 'object') throw new Error('A destination chain is required');
+        const hexId = txField(target, 'chainId');
+        const chain = getChain(Number(hexId));
+        if (!chain) throw new Error('The destination chain is not supported');
+        // Native requests carry their chain ID. Select the same chain for reads and sends.
+        selectedChainId = chain.id;
+        selectedRpcUrl = chain.rpcUrl;
+        return null;
+      }
       case 'eth_sendTransaction': {
         const tx = Array.isArray(params) && typeof params[0] === 'object' && params[0] !== null ? params[0] : undefined;
         if (!tx) throw new Error('eth_sendTransaction requires a transaction object');
+        // The provider is the one place where the provider path applies the session-chain guard.
+        // Only the provider knows the chain it signs on, and every caller that signs through it
+        // (the Epoch wallet client of the Fast deposit, the Agglayer claim through
+        // `useEvmWalletProvider`) gets the same check before its wallet prompt. The deposit screen
+        // also checks before it starts the Fast deposit, so that it can show the localized message
+        // before the Epoch SDK starts; this check is the backstop for every provider caller.
+        await prepareNativeSessionChain(selectedChainId);
         const { hash } = await NativeReown.sendTransaction({
-          chainId,
+          chainId: selectedChainId,
           from: txField(tx, 'from') ?? address,
           to: txField(tx, 'to') ?? '',
           value: txField(tx, 'value'),
           data: txField(tx, 'data'),
           gas: txField(tx, 'gas'),
           gasPrice: txField(tx, 'gasPrice'),
-          maxFeePerGas: txField(tx, 'maxFeePerGas'),
-          maxPriorityFeePerGas: txField(tx, 'maxPriorityFeePerGas')
+          // A caller that set no fee gets fields with headroom (`readNativeFeeFields`): the wallet's own
+          // estimate can fall under a base fee that rose during the prompt, and the node then rejects it.
+          // A caller that set any fee field keeps exactly what it set.
+          ...(txField(tx, 'gasPrice') || txField(tx, 'maxFeePerGas') || txField(tx, 'maxPriorityFeePerGas')
+            ? { maxFeePerGas: txField(tx, 'maxFeePerGas'), maxPriorityFeePerGas: txField(tx, 'maxPriorityFeePerGas') }
+            : await readNativeFeeFields(selectedChainId))
         });
         return unwrapNativeResult(hash);
       }
       default:
         if (NATIVE_SIGN_METHODS.has(method)) {
-          const { result } = await NativeReown.request({ chainId, method, params });
+          await prepareNativeSessionChain(selectedChainId);
+          const { result } = await NativeReown.request({ chainId: selectedChainId, method, params });
           return unwrapNativeResult(result);
         }
-        return rpcRead(rpcUrl, method, params);
+        return rpcRead(selectedRpcUrl, method, params);
     }
   };
 

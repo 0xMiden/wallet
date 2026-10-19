@@ -10,8 +10,11 @@ import {
 import type * as FaucetIdSettingModule from 'lib/miden/assets/faucet-id-setting';
 import { DEFAULT_TOKEN_METADATA } from 'lib/miden/metadata/defaults';
 import { getNativeDisplayMetadataSync } from 'lib/miden/metadata/native';
-import { TOKEN_IETH } from 'lib/miden/swap/tokens';
+import { TEST_SWAP_TOKENS, TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
+import { _setSwapTokensForTest } from 'lib/miden/swap/tokens';
 import { MidenMessageType } from 'lib/miden/types';
+import type * as EffectiveEndpointsModule from 'lib/miden-chain/effective-endpoints';
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { CARD_COLOR_STORAGE_KEY, NOMINAL_UNQUOTED_PRICE_STORAGE_KEY } from 'lib/settings/constants';
 import { setNominalUnquotedPriceSetting } from 'lib/settings/nominal-price';
@@ -30,6 +33,10 @@ import {
 } from './index';
 import { fetchingAddresses } from './utils/fetchBalances';
 import type * as FetchBalancesModule from './utils/fetchBalances';
+
+// The testnet document's swap registry (IETH priced at ETH), in place of the one the wallet used to compile in.
+beforeAll(() => _setSwapTokensForTest(TEST_SWAP_TOKENS));
+afterAll(() => _setSwapTokensForTest(undefined));
 
 // A balance read a case holds open. Every other case reads through the real module, which is
 // reached lazily: the module is part of an import cycle, so its exports are not ready at mock time.
@@ -78,6 +85,17 @@ jest.mock('lib/miden-chain/native-asset', () => ({
   ...jest.requireActual('lib/miden-chain/native-asset'),
   getNativeAssetIdSync: () => mockNativeAssetId
 }));
+
+// The effective network a case moves while a read is out, as a Developer Settings save does.
+let mockEffectiveNetwork: { name: MIDEN_NETWORK_NAME; rpcUrl: string } | undefined;
+jest.mock('lib/miden-chain/effective-endpoints', () => {
+  const actual = jest.requireActual<typeof EffectiveEndpointsModule>('lib/miden-chain/effective-endpoints');
+  return {
+    ...actual,
+    getEffectiveNetworkName: () => mockEffectiveNetwork?.name ?? actual.getEffectiveNetworkName(),
+    getEffectiveRpcUrl: () => mockEffectiveNetwork?.rpcUrl ?? actual.getEffectiveRpcUrl()
+  };
+});
 
 // Mock the intercom module
 const mockRequest = jest.fn();
@@ -702,7 +720,9 @@ describe('useWalletStore', () => {
     });
 
     it("keeps testnet iETH's own metadata under an override stored for it, since the wallet names it itself (#477)", async () => {
-      const IETH = TOKEN_IETH.faucetId;
+      // The document lists IETH, which testnet names itself.
+      mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+      const IETH = TEST_TOKEN_IETH.faucetId;
       const ieth = { name: 'iETH', symbol: 'IETH', decimals: 8 };
       useWalletStore.getState().setAssetsMetadata({ [IETH]: ieth });
 
@@ -1504,6 +1524,20 @@ describe('useWalletStore', () => {
       });
     });
 
+    it('confirmDAppUnlock sends correct request', async () => {
+      mockRequest.mockResolvedValueOnce({
+        type: MidenMessageType.DAppUnlockConfirmationResponse
+      });
+
+      const { confirmDAppUnlock } = useWalletStore.getState();
+      await confirmDAppUnlock('req-id');
+
+      expect(mockRequest).toHaveBeenCalledWith({
+        type: MidenMessageType.DAppUnlockConfirmationRequest,
+        id: 'req-id'
+      });
+    });
+
     it('confirmDAppImportPrivateNote sends correct request', async () => {
       mockRequest.mockResolvedValueOnce({
         type: MidenMessageType.DAppImportPrivateNoteConfirmationResponse
@@ -1575,6 +1609,47 @@ describe('useWalletStore', () => {
       expect(mockRequest).toHaveBeenCalledWith({
         type: MidenMessageType.DAppRemoveSessionRequest,
         origin: 'https://example.com'
+      });
+    });
+  });
+
+  describe('USDCx burn fee estimate', () => {
+    it('asks for the account and chain and decodes the reserve as a bigint', async () => {
+      mockRequest.mockResolvedValueOnce({
+        type: WalletMessageType.EstimateUsdcxBurnFeeResponse,
+        outcome: 'measured',
+        feeReserve: '9007199254740993'
+      });
+
+      await expect(useWalletStore.getState().estimateUsdcxBurnFee('mm1account', 5042002)).resolves.toEqual({
+        outcome: 'measured',
+        reserve: 9007199254740993n
+      });
+      expect(mockRequest).toHaveBeenCalledWith({
+        type: WalletMessageType.EstimateUsdcxBurnFeeRequest,
+        accountPublicKey: 'mm1account',
+        destinationChainId: 5042002
+      });
+    });
+
+    it('decodes a measured zero as a measurement', async () => {
+      mockRequest.mockResolvedValueOnce({
+        type: WalletMessageType.EstimateUsdcxBurnFeeResponse,
+        outcome: 'measured',
+        feeReserve: '0'
+      });
+
+      await expect(useWalletStore.getState().estimateUsdcxBurnFee('mm1account', 5042002)).resolves.toStrictEqual({
+        outcome: 'measured',
+        reserve: 0n
+      });
+    });
+
+    it.each<'busy' | 'failed'>(['busy', 'failed'])('decodes %s as itself, with no reserve', async outcome => {
+      mockRequest.mockResolvedValueOnce({ type: WalletMessageType.EstimateUsdcxBurnFeeResponse, outcome });
+
+      await expect(useWalletStore.getState().estimateUsdcxBurnFee('mm1account', 5042002)).resolves.toStrictEqual({
+        outcome
       });
     });
   });
@@ -1910,6 +1985,31 @@ describe('useWalletStore', () => {
       expect(useWalletStore.getState().balancesLoading['addr-1']).toBe(false);
     });
 
+    it("clearBalances drops every address's balances, loading flag and last fetch, and nothing else", () => {
+      const row = { tokenId: 'asset-1', tokenSlug: 'A', metadata: { decimals: 6, symbol: 'A' } as any, balance: 1 };
+      useWalletStore.setState({
+        balances: { 'addr-1': [row as any], 'addr-2': [row as any] },
+        balancesLoading: { 'addr-1': false, 'addr-2': true },
+        balancesLastFetched: { 'addr-1': 1, 'addr-2': 2 },
+        assetsMetadata: { 'asset-1': row.metadata },
+        tokenPrices: { A: { price: 2, change24h: 0, percentageChange24h: 0 } } as any,
+        accounts: [{ publicKey: 'addr-1', name: 'One' } as any]
+      });
+      const { balances, balancesLoading, balancesLastFetched, ...others } = useWalletStore.getState();
+
+      useWalletStore.getState().clearBalances();
+
+      const after = useWalletStore.getState();
+      expect(after.balances).toEqual({});
+      expect(after.balancesLoading).toEqual({});
+      expect(after.balancesLastFetched).toEqual({});
+      const { balances: _b, balancesLoading: _l, balancesLastFetched: _f, ...othersAfter } = after;
+      expect(othersAfter).toEqual(others);
+      expect(othersAfter.assetsMetadata).toBe(others.assetsMetadata);
+      expect(othersAfter.tokenPrices).toBe(others.tokenPrices);
+      expect(othersAfter.accounts).toBe(others.accounts);
+    });
+
     it('setAssetsMetadata merges new metadata', () => {
       useWalletStore.getState().setAssetsMetadata({ 'asset-1': { decimals: 6, symbol: 'A' } as any });
       expect(useWalletStore.getState().assetsMetadata['asset-1']).toBeDefined();
@@ -2002,6 +2102,76 @@ describe('useWalletStore', () => {
       } finally {
         fetchingAddresses.clear();
       }
+    });
+
+    describe('a read that resolves after the effective network changed', () => {
+      const FAUCET = 'mtst1faucet';
+      const faucetMetadata = { name: 'Faucet Token', symbol: 'FCT', decimals: 8 };
+      const row = (balance: number) => ({
+        tokenId: FAUCET,
+        tokenSlug: 'FCT',
+        metadata: faucetMetadata,
+        balance,
+        fiatPrice: 0,
+        change24h: 0
+      });
+      const earlier = [row(1)];
+      let started: Promise<FetchBalancesModule.FetchBalancesOptions | undefined>;
+      let landRead: (rows: unknown[]) => void = () => {};
+
+      beforeEach(() => {
+        __resetFaucetAssetsMetadataForTest();
+        useWalletStore.setState({
+          balances: { 'addr-1': earlier },
+          balancesLoading: {},
+          balancesLastFetched: {},
+          assetsMetadata: {},
+          tokenMetadataOverrides: {}
+        });
+        let markStarted: (options?: FetchBalancesModule.FetchBalancesOptions) => void = () => {};
+        started = new Promise(resolve => {
+          markStarted = resolve;
+        });
+        mockHeldBalanceRead = options => {
+          markStarted(options);
+          return new Promise(resolve => {
+            landRead = resolve;
+          });
+        };
+      });
+
+      afterEach(() => {
+        mockHeldBalanceRead = null;
+        mockEffectiveNetwork = undefined;
+      });
+
+      it("leaves the address's balances as they were, and keeps the metadata the read wrote", async () => {
+        const read = useWalletStore.getState().fetchBalances('addr-1', {});
+        const options = await started;
+        if (!options?.setAssetsMetadata) throw new Error('the read never handed over its options');
+        options.setAssetsMetadata({ [FAUCET]: faucetMetadata });
+        mockEffectiveNetwork = { name: MIDEN_NETWORK_NAME.DEVNET, rpcUrl: 'https://rpc.devnet.miden.io' };
+        landRead([row(7)]);
+        await read;
+
+        const state = useWalletStore.getState();
+        expect(state.balances['addr-1']).toBe(earlier);
+        expect(state.balancesLoading['addr-1']).toBeUndefined();
+        expect(state.balancesLastFetched['addr-1']).toBeUndefined();
+        expect(state.assetsMetadata[FAUCET]).toEqual(faucetMetadata);
+        expect(fetchingAddresses.has('addr-1')).toBe(false);
+      });
+
+      it('lands a read on an unchanged network', async () => {
+        const read = useWalletStore.getState().fetchBalances('addr-1', {});
+        await started;
+        landRead([row(7)]);
+        await read;
+
+        const state = useWalletStore.getState();
+        expect(state.balances['addr-1']).toEqual([row(7)]);
+        expect(state.balancesLoading['addr-1']).toBe(false);
+      });
     });
   });
 

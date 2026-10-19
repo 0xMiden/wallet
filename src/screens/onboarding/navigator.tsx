@@ -1,21 +1,22 @@
 import React, { FC, useCallback, useEffect, useState } from 'react';
 
 import { AnimatePresence, useReducedMotion } from 'framer-motion';
-import { useTranslation } from 'react-i18next';
 
 import { PageHeader } from 'components/PageHeader';
 import { ProgressIndicator } from 'components/ProgressIndicator';
 import { pageSlideEntrance, usePreset } from 'lib/animation';
 import type { DecryptedWalletFile } from 'lib/miden/backup-file';
 import { getEffectiveAllowNoGuardian } from 'lib/miden-chain/effective-endpoints';
+import type { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { isMobile } from 'lib/platform';
 import { cn } from 'lib/ui/util';
 
-import { ChooseGuardianScreen } from './common/ChooseGuardian';
 import { ChooseProtectionScreen } from './common/ChooseProtection';
 import { ConfirmationScreen } from './common/Confirmation';
 import { CreatePasswordScreen } from './common/CreatePassword';
-import { MEET_GUARDIAN_POINTS, MeetGuardianScreen } from './common/MeetGuardian';
+import { GuardianIntroScreen } from './common/GuardianIntro';
+import { MainnetAccessScreen } from './common/MainnetAccess';
+import { MeetGuardianScreen } from './common/MeetGuardian';
 import { NetworkNoticeScreen } from './common/NetworkNotice';
 import { OnboardingStepLayer } from './common/OnboardingStepLayer';
 import { SetupBiometricScreen } from './common/SetupBiometric';
@@ -34,7 +35,6 @@ import {
   EMPTY_MEET_GUARDIAN_PROGRESS,
   GuardianProbeState,
   ImportType,
-  NO_GUARDIAN_ID,
   OnboardingAction,
   OnboardingStep,
   OnboardingType,
@@ -42,6 +42,12 @@ import {
 } from './types';
 
 export interface OnboardingFlowProps {
+  inviteOnly?: boolean;
+  onUnlockInviteOnly?: () => void;
+  /** Welcome offers recovery only (ForgotPassword on an invite-only network). */
+  recoverOnly?: boolean;
+  /** The node refused the access code a registration carried; the code step says so. */
+  mainnetAccessRejected?: boolean;
   wordslist: readonly string[];
   seedPhrase: string[] | null;
   onboardingType: OnboardingType | null;
@@ -67,6 +73,11 @@ export interface OnboardingFlowProps {
    * recovery-method screen fall back to its classic manual picker.
    */
   guardianProbe?: GuardianProbeState;
+  /**
+   * The network a recovery restores into, whose Guardian operators the recovery-method step offers. Omitted => the
+   * effective network.
+   */
+  guardianNetwork?: MIDEN_NETWORK_NAME;
   /** Side panel handoff (Chrome): wallet is being registered (created or restored) in the background. */
   confirmCreating?: boolean;
   /**
@@ -88,9 +99,9 @@ const STEP_TO_PROGRESS: Partial<Record<OnboardingStep, number>> = {
   [OnboardingStep.ChooseProtection]: 1,
   [OnboardingStep.SetupPasscode]: 2,
   [OnboardingStep.SetupBiometric]: 2,
-  // One decision, two screens: the picker is a detail of the guardian step, not a step after it.
-  [OnboardingStep.MeetGuardian]: 3,
-  [OnboardingStep.ChooseGuardian]: 3,
+  // The guardian decision takes two segments: what a Guardian is, then who it is.
+  [OnboardingStep.GuardianIntro]: 3,
+  [OnboardingStep.MeetGuardian]: 4,
   [OnboardingStep.SelectImportType]: 1,
   // This change inserts the import-type choice at tier 1, so seed entry moves to
   // tier 2 and the key-paste step, its sibling, moves with it.
@@ -132,6 +143,10 @@ const Header: React.FC<{
 );
 
 export const OnboardingFlow: FC<OnboardingFlowProps> = ({
+  inviteOnly,
+  onUnlockInviteOnly,
+  recoverOnly,
+  mainnetAccessRejected = false,
   wordslist,
   seedPhrase,
   onboardingType,
@@ -145,13 +160,13 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
   guardianLookupFailure = null,
   recoveryError = null,
   guardianProbe,
+  guardianNetwork,
   confirmCreating = false,
   importViaKey = false,
   canGoBack = true,
   onBiometricChange,
   onAction
 }) => {
-  const { t } = useTranslation();
   const reduceMotion = useReducedMotion();
   const [navigationDirection, setNavigationDirection] = useState<'forward' | 'backward'>('forward');
 
@@ -163,8 +178,8 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
     setProgressOverride(null);
   }, [step]);
 
-  // Meet your Guardian is left for the picker and come back to, so its ticks and locked operator live
-  // here for the whole create attempt. An attempt ends on Welcome, and a new seed is a new attempt.
+  // Meet your Guardian is left for the intro or the next step and come back to, so its locked operator
+  // lives here for the whole create attempt. An attempt ends on Welcome, and a new seed is a new attempt.
   const [meetGuardianProgress, setMeetGuardianProgress] = useState(EMPTY_MEET_GUARDIAN_PROGRESS);
   useEffect(() => {
     if (step === OnboardingStep.Welcome) setMeetGuardianProgress(EMPTY_MEET_GUARDIAN_PROGRESS);
@@ -178,12 +193,20 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
   const protectionChoiceSkipped = onboardingType === OnboardingType.Create && (!isMobile() || skipProtectionChoice);
   // In that shortened create flow the password screen replaces passcode setup,
   // so it sits at the protection-step position rather than its import-flow one.
+  // The create flow's two guardian screens make it one segment longer than the import flow, whose
+  // confirmation stays its fourth; the create flow's confirmation is its fifth.
+  const isCreate = onboardingType === OnboardingType.Create;
   const baseStep =
     step === OnboardingStep.CreatePassword && protectionChoiceSkipped
       ? (STEP_TO_PROGRESS[OnboardingStep.SetupPasscode] ?? null)
-      : (STEP_TO_PROGRESS[step] ?? null);
+      : step === OnboardingStep.Confirmation && isCreate
+        ? 5
+        : // On mobile the create flow reaches the password only after the guardian (biometric without hardware).
+          step === OnboardingStep.CreatePassword && isCreate
+          ? 4
+          : (STEP_TO_PROGRESS[step] ?? null);
   const rawProgress = progressOverride ?? baseStep;
-  const totalSteps = protectionChoiceSkipped ? 3 : 4;
+  const totalSteps = (protectionChoiceSkipped ? 3 : 4) + (isCreate ? 1 : 0);
   const currentProgress = protectionChoiceSkipped && rawProgress !== null ? rawProgress - 1 : rawProgress;
 
   const onForwardAction = useCallback(
@@ -200,8 +223,13 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
   }, [onAction]);
 
   const renderStep = useCallback(() => {
-    const onWelcomeAction = (action: 'select-wallet-type' | 'select-import-type') => {
+    const onWelcomeAction = (action: 'mainnet-access' | 'select-wallet-type' | 'select-import-type') => {
       switch (action) {
+        case 'mainnet-access':
+          onForwardAction?.({
+            id: 'mainnet-access'
+          });
+          break;
         case 'select-wallet-type':
           onForwardAction?.({
             id: 'choose-protection'
@@ -218,6 +246,7 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
     };
 
     const onNetworkNoticeSubmit = () => onForwardAction?.({ id: 'network-notice-acknowledge' });
+    const onMainnetAccessGranted = (code: string) => onForwardAction?.({ id: 'mainnet-access-granted', payload: code });
 
     const onSelectImportTypeSubmit = (payload: ImportType) => {
       if (payload === ImportType.SeedPhrase) {
@@ -264,35 +293,19 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
     const onBiometricSwitchToPasscode = () => onForwardAction?.({ id: 'setup-passcode' });
     const onChooseGuardianSubmit = (payload: { guardianId: string; guardianEndpoint: string }) =>
       onForwardAction?.({ id: 'choose-guardian-submit', payload });
-    // Back from the next step lands on Meet your Guardian, so its card must show what the picker submitted.
-    // The picker, which Change opens on the card's operator, goes on only as Meet's Continue could: once
-    // Meet's three facts are ticked, since otherwise it would skip them, and with an operator that has
-    // answered online (`requireOnline`). Before the facts are ticked it returns to Meet, whose card shows the
-    // pick and whose Continue waits for the facts, so its own Continue reads Select. A no-guardian pick is
-    // not recorded and would be dropped there, so the picker withholds it until then; Meet's own link offers
-    // it once the facts are ticked. A pick is the user's own when it changed the card's operator or the picker
-    // reports it explicit (a card activated there, the card's own included); only an untouched Continue on Meet's
-    // auto-pick stays Meet's. The picker reopens on the user's own pick as theirs (`initialPicked`), so its
-    // fallback to the first online operator, which covers Meet's auto-pick only, never substitutes it.
-    const meetFactsTicked = MEET_GUARDIAN_POINTS.every(point => meetGuardianProgress.checked[point.id]);
-    const onPickerSubmit = (
-      payload: { guardianId: string; guardianEndpoint: string },
-      pick?: { explicit: boolean }
-    ) => {
-      if (payload.guardianId !== NO_GUARDIAN_ID) {
-        setMeetGuardianProgress(prev =>
-          prev.chosenId === payload.guardianId && !pick?.explicit
-            ? prev
-            : { ...prev, chosenId: payload.guardianId, pickedByUser: true }
-        );
-      }
-      if (meetFactsTicked) onChooseGuardianSubmit(payload);
-      else onBack();
-    };
 
     switch (step) {
       case OnboardingStep.Welcome:
-        return <WelcomeScreen onSubmit={onWelcomeAction} />;
+        return (
+          <WelcomeScreen
+            inviteOnly={inviteOnly}
+            onUnlockInviteOnly={onUnlockInviteOnly}
+            recoverOnly={recoverOnly}
+            onSubmit={onWelcomeAction}
+          />
+        );
+      case OnboardingStep.MainnetAccess:
+        return <MainnetAccessScreen rejected={mainnetAccessRejected} onSubmit={onMainnetAccessGranted} />;
       case OnboardingStep.NetworkNotice:
         return <NetworkNoticeScreen onSubmit={onNetworkNoticeSubmit} />;
       case OnboardingStep.ChooseProtection:
@@ -308,25 +321,15 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
         return (
           <SetupBiometricScreen onContinue={onSetupBiometricSubmit} onSwitchToPasscode={onBiometricSwitchToPasscode} />
         );
+      case OnboardingStep.GuardianIntro:
+        return <GuardianIntroScreen onContinue={() => onForwardAction?.({ id: 'guardian-intro-submit' })} />;
       case OnboardingStep.MeetGuardian:
         return (
           <MeetGuardianScreen
             progress={meetGuardianProgress}
             onProgressChange={setMeetGuardianProgress}
             onSubmit={onChooseGuardianSubmit}
-            onChooseDifferent={() => onForwardAction?.({ id: 'choose-guardian' })}
             showNoGuardianOption={getEffectiveAllowNoGuardian()}
-          />
-        );
-      case OnboardingStep.ChooseGuardian:
-        return (
-          <ChooseGuardianScreen
-            onSubmit={onPickerSubmit}
-            requireOnline
-            initialId={meetGuardianProgress.chosenId}
-            initialPicked={meetGuardianProgress.pickedByUser}
-            submitLabel={meetFactsTicked ? undefined : t('select')}
-            showNoGuardianOption={meetFactsTicked && getEffectiveAllowNoGuardian()}
           />
         );
       case OnboardingStep.BackupSeedPhrase:
@@ -369,6 +372,7 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
             error={guardianLookupFailure}
             probe={guardianProbe}
             guardianOnly={importViaKey}
+            network={guardianNetwork}
             onRetryProbe={guardianProbe ? () => onForwardAction?.({ id: 'retry-guardian-probe' }) : undefined}
             onSubmit={payload => onForwardAction?.({ id: 'import-select-recovery-method', payload })}
           />
@@ -393,12 +397,14 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
         return <></>;
     }
   }, [
-    t,
+    inviteOnly,
+    onUnlockInviteOnly,
+    recoverOnly,
+    mainnetAccessRejected,
     step,
     meetGuardianProgress,
     isLoading,
     onForwardAction,
-    onBack,
     seedPhrase,
     wordslist,
     useBiometric,
@@ -411,6 +417,7 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
     // Without this the recovery-method screen keeps rendering the first probe
     // state it saw and freezes on "detecting your guardian".
     guardianProbe,
+    guardianNetwork,
     confirmCreating,
     importViaKey,
     onboardingType

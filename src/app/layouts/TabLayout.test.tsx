@@ -93,7 +93,7 @@ jest.mock('app/icons/v2', () => ({
     Home: 'Home',
     Explore: 'Explore',
     Activity: 'Activity',
-    Settings: 'Settings',
+    User: 'User',
     Wallet: 'Wallet',
     Send: 'Send',
     Receive: 'Receive',
@@ -225,17 +225,14 @@ describe('TabLayout — active tab derivation (activeTabFromPath)', () => {
     expect(screen.getByTestId('bottom-nav')).toHaveAttribute('data-active', 'activity');
   });
 
-  it('maps /settings to the settings tab', () => {
-    mockLocation.pathname = '/settings';
+  it('maps /me to the me tab', () => {
+    mockLocation.pathname = '/me';
     renderLayout();
-    expect(screen.getByTestId('bottom-nav')).toHaveAttribute('data-active', 'settings');
+    expect(screen.getByTestId('bottom-nav')).toHaveAttribute('data-active', 'me');
   });
 
-  it('maps only the bare /settings root, since sub-pages never mount this shell', () => {
-    // `/settings/<slug>` renders in FullScreenPage, so it cannot reach
-    // activeTabFromPath at all — asserting a settings tab for it would be
-    // testing a state the app cannot produce.
-    mockLocation.pathname = '/settings/general-settings';
+  it('does not treat a pushed Me page as the tab root', () => {
+    mockLocation.pathname = '/me/badges';
     renderLayout();
     expect(screen.getByTestId('bottom-nav')).toHaveAttribute('data-active', 'home');
   });
@@ -325,36 +322,37 @@ describe('TabLayout — tabs list composition', () => {
     expect(screen.getByTestId('nav-home')).toBeInTheDocument();
     expect(screen.getByTestId('nav-explore')).toBeInTheDocument();
     expect(screen.getByTestId('nav-activity')).toBeInTheDocument();
-    expect(screen.getByTestId('nav-settings')).toBeInTheDocument();
+    expect(screen.getByTestId('nav-me')).toBeInTheDocument();
   });
 
-  it('drops the Explore tab on the extension (3 tabs)', () => {
+  // Explore opens its dApps in new browser tabs there (BrowserScreen).
+  it('includes the Explore tab on the extension too', () => {
     mockPlatform.isExtension = true;
     renderLayout();
-    expect(screen.getByTestId('nav-home')).toBeInTheDocument();
-    expect(screen.queryByTestId('nav-explore')).toBeNull();
-    expect(screen.getByTestId('nav-activity')).toBeInTheDocument();
-    expect(screen.getByTestId('nav-settings')).toBeInTheDocument();
+    const ids = Array.from(screen.getByTestId('bottom-nav').querySelectorAll('[data-testid^="nav-"]')).map(el =>
+      el.getAttribute('data-testid')
+    );
+    expect(ids).toEqual(['nav-home', 'nav-explore', 'nav-activity', 'nav-me', 'nav-unknown']);
   });
 
-  it('orders Settings last, after Activity', () => {
+  it('orders Me last, after Activity', () => {
     mockPlatform.isExtension = false;
     renderLayout();
     const ids = Array.from(screen.getByTestId('bottom-nav').querySelectorAll('[data-testid^="nav-"]')).map(el =>
       el.getAttribute('data-testid')
     );
-    expect(ids).toEqual(['nav-home', 'nav-explore', 'nav-activity', 'nav-settings', 'nav-unknown']);
+    expect(ids).toEqual(['nav-home', 'nav-explore', 'nav-activity', 'nav-me', 'nav-unknown']);
   });
 
   it('localizes every tab label', () => {
     // The `react-i18next` stub echoes the key, so a hardcoded English literal
-    // would show up here as 'Home'/'Settings' rather than 'home'/'settings'.
+    // would show up here as 'Home'/'Me' rather than 'home'/'me'.
     mockPlatform.isExtension = false;
     renderLayout();
     expect(screen.getByTestId('nav-home')).toHaveTextContent('home');
     expect(screen.getByTestId('nav-explore')).toHaveTextContent('explore');
     expect(screen.getByTestId('nav-activity')).toHaveTextContent('activity');
-    expect(screen.getByTestId('nav-settings')).toHaveTextContent('settings');
+    expect(screen.getByTestId('nav-me')).toHaveTextContent('profile');
   });
 
   it('localizes every action segment label, overview as home', () => {
@@ -449,18 +447,18 @@ describe('TabLayout — tab change handling (handleTabChange)', () => {
     expect(mockHaptic).not.toHaveBeenCalled();
   });
 
-  it('navigates to /settings and fires haptics when tapping the Settings tab', () => {
+  it('navigates to /me and fires haptics when tapping the Me tab', () => {
     mockLocation.pathname = '/';
     renderLayout();
-    fireEvent.click(screen.getByTestId('nav-settings'));
+    fireEvent.click(screen.getByTestId('nav-me'));
     expect(mockHaptic).toHaveBeenCalledTimes(1);
-    expect(mockNavigate).toHaveBeenCalledWith('/settings');
+    expect(mockNavigate).toHaveBeenCalledWith('/me');
   });
 
-  it('is a silent no-op when re-tapping Settings while already on /settings', () => {
-    mockLocation.pathname = '/settings';
+  it('is a silent no-op when re-tapping Me while already on /me', () => {
+    mockLocation.pathname = '/me';
     renderLayout();
-    fireEvent.click(screen.getByTestId('nav-settings'));
+    fireEvent.click(screen.getByTestId('nav-me'));
     expect(mockNavigate).not.toHaveBeenCalled();
     expect(mockHaptic).not.toHaveBeenCalled();
   });
@@ -761,7 +759,7 @@ describe('TabLayout - the root declares the tab bar cushion for its own subtree'
 
   it('still collapses the cushion to 1rem while the bar is hidden', () => {
     expect(readCss()).toMatch(
-      /body\[data-hide-navbar\] \[data-navbar-cushion='true'\]\s*\{\s*padding-bottom:\s*1rem;\s*\}/
+      /body\[data-hide-navbar\] \[data-navbar-cushion='true'\]\s*\{\s*padding-bottom:\s*calc\(1rem \+ var\(--wallet-control-safe-bottom, 0px\)\);\s*\}/
     );
   });
 });
@@ -864,7 +862,7 @@ describe('TabLayout — mount fade and tab panes', () => {
     ['/browser', 'explore'],
     ['/history', 'activity'],
     ['/history/program-1', 'activity'],
-    ['/settings', 'settings']
+    ['/me', 'me']
   ])('renders %s in a visible, interactive %s pane', (pathname, tab) => {
     mockLocation.pathname = pathname;
     renderLayout(<div data-testid="routed-content" />);
@@ -882,17 +880,17 @@ describe('TabLayout — mount fade and tab panes', () => {
     const { rerender } = renderLayout(<Probe name="activity" />);
     expect(screen.getByTestId('probe-activity')).toHaveTextContent('on screen');
 
-    mockLocation.pathname = '/settings';
-    rerender(<TabLayout>{<Probe name="settings" />}</TabLayout>);
+    mockLocation.pathname = '/me';
+    rerender(<TabLayout>{<Probe name="me" />}</TabLayout>);
     expect(screen.getByTestId('probe-activity')).toHaveTextContent('off screen');
-    expect(screen.getByTestId('probe-settings')).toHaveTextContent('on screen');
+    expect(screen.getByTestId('probe-me')).toHaveTextContent('on screen');
 
     rerender(
       <PageActiveContext.Provider value={false}>
-        <TabLayout>{<Probe name="settings" />}</TabLayout>
+        <TabLayout>{<Probe name="me" />}</TabLayout>
       </PageActiveContext.Provider>
     );
-    expect(screen.getByTestId('probe-settings')).toHaveTextContent('off screen');
+    expect(screen.getByTestId('probe-me')).toHaveTextContent('off screen');
   });
 
   // The Home pane is not rebuilt while hidden, so the bar keeps its old segment until the commit that

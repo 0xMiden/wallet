@@ -1,0 +1,553 @@
+// The report sites with the real reporter: only the Sentry boundary is mocked, so each assertion reads the text that
+// would leave the device.
+import * as Repo from 'lib/miden/repo';
+import { __resetBackgroundTimeForTest, initBackgroundTimeTracking } from 'lib/mobile/background-time';
+import { installHiddenDocument, type HiddenDocument } from 'lib/mobile/testing/hidden-document';
+import { isMobile } from 'lib/platform';
+import { captureCrash } from 'lib/telemetry/crash';
+
+import {
+  cancelStaleQueuedTransactions,
+  cancelTransaction,
+  cancelTransactionAfterPipelineStopped,
+  markTransactionUnconfirmed,
+  MAX_QUEUED_AGE
+} from './cancel';
+import { resolveUnconfirmedSwitch } from './complete';
+import { updateTransactionStatus } from './helper';
+import { AccountState, NodeReads } from './reconcile-reads';
+import { judgeAndWrite } from './reconcile-unconfirmed';
+import { OperationAbortedError } from '../back/offscreen-codec';
+import { ISubmitEvidence, ITransaction, ITransactionStatus } from '../db/types';
+
+jest.mock('lib/telemetry/crash', () => ({ captureCrash: jest.fn() }));
+jest.mock('lib/telemetry/report-operation', () => ({ reportOperation: jest.fn() }));
+jest.mock('../back/background-notification', () => ({
+  notifyBackgroundTransactionFailed: jest.fn(),
+  notifyBackgroundTransactionNotConfirmed: jest.fn()
+}));
+jest.mock('../back/miden-client-proxy', () => ({ midenClientProxy: {} }));
+jest.mock('../sdk/miden-client', () => ({
+  ...jest.requireActual('../sdk/miden-client'),
+  withWasmClientLock: async (fn: (hold: object) => unknown) => fn({}),
+  assertWasmHoldCurrent: () => {}
+}));
+jest.mock('../sdk/helpers', () => ({
+  ...jest.requireActual('../sdk/helpers'),
+  sameWalletAccountId: (a: string, b: string) => a.split('_')[0] === b.split('_')[0]
+}));
+jest.mock('lib/platform', () => ({ ...jest.requireActual('lib/platform'), isMobile: jest.fn(() => false) }));
+
+const NOW = Math.floor(Date.now() / 1000);
+const hex = (n: number) => `0x${n.toString(16).padStart(64, '0')}`;
+const HEADER = hex(1);
+const TRANSACTION = hex(2);
+const INITIAL = hex(10);
+const FINAL = hex(11);
+const OTHER = hex(12);
+const NOTE = hex(20);
+const NULLIFIER = hex(30);
+const ACCOUNT = 'mtst1aqsjql4cyylvpu2d2cwpxumpvvw5depe';
+
+const captured = () =>
+  jest.mocked(captureCrash).mock.calls.map(([error, , options]) => ({
+    message: (error as Error).message,
+    level: options?.level
+  }));
+
+const expectNoTransactionData = (message: string) => {
+  for (const leak of ['0x', ACCOUNT, 'Load failed', 'never went through', 'discarded this guardian switch']) {
+    expect(message).not.toContain(leak);
+  }
+};
+
+beforeEach(async () => {
+  jest.clearAllMocks();
+  await Repo.transactions.clear();
+});
+
+describe('the never-committed verdicts', () => {
+  const evidence = (overrides: Partial<ISubmitEvidence> = {}): ISubmitEvidence => ({
+    attemptId: 'a1',
+    capturedAt: NOW - 60,
+    source: 'stage',
+    transactionId: TRANSACTION,
+    initialCommitment: INITIAL,
+    finalCommitment: FINAL,
+    initialNonce: '5',
+    outputNoteIds: [],
+    nullifiers: [NULLIFIER],
+    refBlock: 100,
+    refBlockCommitment: HEADER,
+    ...overrides
+  });
+
+  const claim = (entry: ISubmitEvidence): ITransaction => ({
+    id: 'tx-1',
+    type: 'consume',
+    accountId: `${ACCOUNT}_s`,
+    status: ITransactionStatus.Unconfirmed,
+    initiatedAt: NOW - 120,
+    completedAt: NOW - 100,
+    error: `submission of transaction ${TRANSACTION} came back without a definite outcome`,
+    mayHaveSubmitted: true,
+    displayIcon: 'RECEIVE',
+    stage: 'submitting',
+    delegateTransaction: true,
+    noteId: NOTE,
+    submitEvidence: [entry]
+  });
+
+  const reads = (tip: AccountState, spentAt?: number): NodeReads => ({
+    blockCommitment: async () => HEADER,
+    account: async (_id, atBlock) =>
+      atBlock === undefined ? { ok: true, state: tip } : { ok: false, pruned: true, timedOut: false },
+    noteInclusions: async () => new Map(),
+    nullifierHeight: async () => spentAt ?? null
+  });
+
+  it.each([
+    ['expired', evidence({ expirationBlock: 700 }), reads({ blockNum: 750, commitment: INITIAL })],
+    ['superseded', evidence(), reads({ blockNum: 150, commitment: OTHER, nonce: '6' })],
+    ['spent_elsewhere', evidence(), reads({ blockNum: 160, commitment: INITIAL }, 150)]
+  ])(
+    'reports a claim proven never committed by the %s check as that, not as its own copy',
+    async (rule, entry, node) => {
+      await Repo.transactions.put(claim(entry));
+      const outcome = await judgeAndWrite('tx-1', { node, nowSec: NOW, cadenceMs: 3_000 });
+      expect(outcome.kind).toBe('never-committed');
+      const [report, ...rest] = captured();
+      expect(rest).toEqual([]);
+      expect(report?.message).toContain(`; point node_verdict; never_committed; rule ${rule}. authentication`);
+      expect(report?.message).not.toContain('; network.');
+      expect(report?.level).toBe('error');
+      expectNoTransactionData(report?.message ?? '');
+    }
+  );
+
+  it('reports the verdict on a claim the pipeline already failed and reported at warning, so it is one error', async () => {
+    const submitted: ITransaction = { ...claim(evidence()), status: ITransactionStatus.GeneratingTransaction };
+    await Repo.transactions.put(submitted);
+    await cancelTransactionAfterPipelineStopped(
+      submitted,
+      new Error(
+        'failed to submit proven transaction: RPC error: grpc request failed for submit_proven_transaction: invalid ' +
+          `request parameters (transaction conflicts with current state: ${INITIAL})`
+      )
+    );
+    expect((await Repo.transactions.get('tx-1'))?.status).toBe(ITransactionStatus.Failed);
+    const outcome = await judgeAndWrite('tx-1', {
+      node: reads({ blockNum: 150, commitment: OTHER, nonce: '6' }),
+      nowSec: NOW,
+      cadenceMs: 3_000
+    });
+    expect(outcome.kind).toBe('never-committed');
+    const [pipeline, verdict, ...rest] = captured();
+    expect(rest).toEqual([]);
+    expect(pipeline?.message).toContain('Transaction failed: tx_receive; stage submitting;');
+    expect(pipeline?.message).toContain('; point pipeline; ');
+    expect(pipeline?.level).toBe('error');
+    expect(verdict?.message).toContain('Transaction failed: tx_receive; stage submitting;');
+    expect(verdict?.message).toContain('; point node_verdict; never_committed; rule superseded. authentication');
+    expect(verdict?.level).toBe('warning');
+    expectNoTransactionData(`${pipeline?.message} ${verdict?.message}`);
+  });
+
+  it('reports a Guardian switch the node discarded as never committed, not as its own copy', async () => {
+    await Repo.transactions.put({
+      id: 'tx-1',
+      type: 'switch-guardian',
+      accountId: ACCOUNT,
+      status: ITransactionStatus.Completed,
+      initiatedAt: NOW - 120,
+      displayIcon: 'DEFAULT',
+      stage: 'confirming',
+      extraInputs: { commitUnconfirmed: true }
+    });
+    await resolveUnconfirmedSwitch('tx-1', false);
+    const [report, ...rest] = captured();
+    expect(rest).toEqual([]);
+    expect(report?.message).toContain('; point guardian_node_verdict; never_committed. authentication');
+    expect(report?.level).toBe('error');
+    expectNoTransactionData(report?.message ?? '');
+  });
+});
+
+describe('an unknown submit outcome at the Unconfirmed write', () => {
+  const SUBMITTED_AT_MS = 1_800_000_000_000;
+  let doc: HiddenDocument;
+  let clock: jest.SpyInstance;
+
+  const unavailable = () =>
+    new Error(
+      `failed to submit proven transaction: submission of transaction ${TRANSACTION} came back without a definite ` +
+        'outcome, so the node may or may not have accepted it; nothing was recorded locally: grpc request failed for ' +
+        'submit_proven_transaction: Miden node is unavailable; check that the node is running and reachable: ' +
+        'TypeError: Load failed'
+    );
+
+  const submitting = (): ITransaction => ({
+    id: 'tx-1',
+    type: 'consume',
+    accountId: ACCOUNT,
+    status: ITransactionStatus.GeneratingTransaction,
+    initiatedAt: SUBMITTED_AT_MS / 1000 - 30,
+    processingStartedAt: SUBMITTED_AT_MS / 1000 - 20,
+    attemptId: 'a1',
+    stage: 'submitting',
+    stageTimestamps: { sending: SUBMITTED_AT_MS - 20_000, submitting: SUBMITTED_AT_MS },
+    delegateTransaction: true,
+    displayIcon: 'RECEIVE'
+  });
+
+  beforeEach(() => {
+    __resetBackgroundTimeForTest();
+    doc = installHiddenDocument();
+    clock = jest.spyOn(Date, 'now').mockReturnValue(SUBMITTED_AT_MS);
+  });
+
+  afterEach(() => {
+    clock.mockRestore();
+    doc.restore();
+    __resetBackgroundTimeForTest();
+    jest.mocked(isMobile).mockReturnValue(false);
+  });
+
+  it.each([
+    ['backgrounded during the submit', true, 'yes'],
+    ['in the foreground throughout', false, 'no']
+  ])('on mobile, says the app was %s, at warning', async (_name, backgrounded, answer) => {
+    jest.mocked(isMobile).mockReturnValue(true);
+    initBackgroundTimeTracking();
+    if (backgrounded) {
+      clock.mockReturnValue(SUBMITTED_AT_MS + 1_000);
+      doc.setHidden(true);
+      clock.mockReturnValue(SUBMITTED_AT_MS + 4_000);
+      doc.setHidden(false);
+    }
+    clock.mockReturnValue(SUBMITTED_AT_MS + 5_000);
+    await Repo.transactions.put(submitting());
+    await markTransactionUnconfirmed(submitting(), unavailable());
+    const [report, ...rest] = captured();
+    expect(rest).toEqual([]);
+    expect(report?.message).toContain(
+      `Transaction unconfirmed: tx_receive; stage submitting; realm unknown; proving preference delegated;`
+    );
+    expect(report?.message).toContain(
+      `; point pipeline; submit_outcome_unknown; grpc unavailable; app hidden during submit ${answer}; submit leg under_9s. authentication`
+    );
+    expect(report?.level).toBe('warning');
+    expectNoTransactionData(report?.message ?? '');
+  });
+
+  it('counts a hidden stretch shorter than a second inside the submit', async () => {
+    jest.mocked(isMobile).mockReturnValue(true);
+    initBackgroundTimeTracking();
+    clock.mockReturnValue(SUBMITTED_AT_MS + 200);
+    doc.setHidden(true);
+    clock.mockReturnValue(SUBMITTED_AT_MS + 700);
+    doc.setHidden(false);
+    clock.mockReturnValue(SUBMITTED_AT_MS + 1_000);
+    await Repo.transactions.put(submitting());
+    await markTransactionUnconfirmed(submitting(), unavailable());
+    expect(captured()[0]?.message).toContain('; app hidden during submit yes; submit leg under_9s. ');
+  });
+
+  it('does not count a hide that starts only once the submit has returned', async () => {
+    jest.mocked(isMobile).mockReturnValue(true);
+    initBackgroundTimeTracking();
+    await Repo.transactions.put(submitting());
+    // The app goes to the background while the Unconfirmed write is in flight, and stays there past the report.
+    const hideDuringWrite = () => {
+      clock.mockReturnValue(SUBMITTED_AT_MS + 5_000);
+      doc.setHidden(true);
+      clock.mockReturnValue(SUBMITTED_AT_MS + 8_000);
+    };
+    Repo.transactions.hook('updating', hideDuringWrite);
+    try {
+      clock.mockReturnValue(SUBMITTED_AT_MS + 4_000);
+      await markTransactionUnconfirmed(submitting(), unavailable());
+    } finally {
+      Repo.transactions.hook('updating').unsubscribe(hideDuringWrite);
+    }
+    expect((await Repo.transactions.get('tx-1'))?.status).toBe(ITransactionStatus.Unconfirmed);
+    expect(captured()[0]?.message).toContain('; app hidden during submit no; submit leg under_9s. ');
+  });
+
+  it('a hidden stretch that ended before the submit is not one during it', async () => {
+    jest.mocked(isMobile).mockReturnValue(true);
+    initBackgroundTimeTracking();
+    clock.mockReturnValue(SUBMITTED_AT_MS - 10_000);
+    doc.setHidden(true);
+    clock.mockReturnValue(SUBMITTED_AT_MS - 2_000);
+    doc.setHidden(false);
+    clock.mockReturnValue(SUBMITTED_AT_MS + 5_000);
+    await Repo.transactions.put(submitting());
+    await markTransactionUnconfirmed(submitting(), unavailable());
+    expect(captured()[0]?.message).toContain('; app hidden during submit no; submit leg under_9s. ');
+  });
+
+  it('off mobile, or with no submit stamp, cannot say', async () => {
+    await Repo.transactions.put(submitting());
+    await markTransactionUnconfirmed(submitting(), unavailable());
+    jest.mocked(isMobile).mockReturnValue(true);
+    await Repo.transactions.put({ ...submitting(), id: 'tx-2', stageTimestamps: undefined });
+    await markTransactionUnconfirmed({ ...submitting(), id: 'tx-2' }, unavailable());
+    const reports = captured();
+    expect(reports).toHaveLength(2);
+    for (const [index, report] of reports.entries()) {
+      const bucket = index === 0 ? 'under_9s' : 'unavailable';
+      expect(report.message).toContain(
+        `; submit_outcome_unknown; grpc unavailable; app hidden during submit unavailable; submit leg ${bucket}. `
+      );
+    }
+  });
+
+  it('off mobile, measures the committed submit stamp to the return before the write', async () => {
+    const pickedUp: ITransaction = { ...submitting(), stage: 'sending', stageTimestamps: undefined };
+    await Repo.transactions.put(submitting());
+    const advanceDuringWrite = () => {
+      clock.mockReturnValue(SUBMITTED_AT_MS + 20_000);
+    };
+    Repo.transactions.hook('updating', advanceDuringWrite);
+    try {
+      clock.mockReturnValue(SUBMITTED_AT_MS + 9_500);
+      await markTransactionUnconfirmed(pickedUp, unavailable());
+    } finally {
+      Repo.transactions.hook('updating').unsubscribe(advanceDuringWrite);
+    }
+    expect(captured()[0]?.message).toContain(
+      '; submit_outcome_unknown; grpc unavailable; app hidden during submit unavailable; submit leg 9_to_11s. '
+    );
+  });
+
+  it('off mobile, reports an unavailable submit leg when the committed row has no submit stamp', async () => {
+    const row: ITransaction = { ...submitting(), stageTimestamps: undefined };
+    await Repo.transactions.put(row);
+    clock.mockReturnValue(SUBMITTED_AT_MS + 9_500);
+    await markTransactionUnconfirmed(submitting(), unavailable());
+    expect(captured()[0]?.message).toContain(
+      '; submit_outcome_unknown; grpc unavailable; app hidden during submit unavailable; submit leg unavailable. '
+    );
+  });
+});
+
+describe('an unknown failure at the Failed write', () => {
+  const SUBMITTED_AT_MS = 1_800_000_000_000;
+  let clock: jest.SpyInstance;
+
+  const submitting = (): ITransaction => ({
+    id: 'tx-1',
+    type: 'execute',
+    accountId: ACCOUNT,
+    status: ITransactionStatus.GeneratingTransaction,
+    initiatedAt: SUBMITTED_AT_MS / 1000 - 30,
+    stage: 'submitting',
+    stageTimestamps: { submitting: SUBMITTED_AT_MS },
+    delegateTransaction: true,
+    displayIcon: 'DEFAULT'
+  });
+
+  beforeEach(() => {
+    jest.mocked(isMobile).mockReturnValue(false);
+    clock = jest.spyOn(Date, 'now').mockReturnValue(SUBMITTED_AT_MS + 9_500);
+  });
+
+  afterEach(() => {
+    clock.mockRestore();
+  });
+
+  it('off mobile, measures the committed submit stamp to the cancel before its first await', async () => {
+    const pickedUp: ITransaction = { ...submitting(), stage: 'sending', stageTimestamps: undefined };
+    await Repo.transactions.put(submitting());
+    const advanceDuringWrite = () => {
+      clock.mockReturnValue(SUBMITTED_AT_MS + 20_000);
+    };
+    const advanceDuringRead = (row: ITransaction) => {
+      clock.mockReturnValue(SUBMITTED_AT_MS + 12_000);
+      return row;
+    };
+    Repo.transactions.hook('reading', advanceDuringRead);
+    Repo.transactions.hook('updating', advanceDuringWrite);
+    try {
+      expect(await cancelTransaction(pickedUp, new Error('opaque detail'))).toBe(true);
+    } finally {
+      Repo.transactions.hook('reading').unsubscribe(advanceDuringRead);
+      Repo.transactions.hook('updating').unsubscribe(advanceDuringWrite);
+    }
+    const [report, ...rest] = captured();
+    expect(rest).toEqual([]);
+    expect(report?.message).toContain(
+      '; point pipeline; unknown; thrown error; app hidden during submit unavailable; submit leg 9_to_11s. authentication'
+    );
+    expect(report?.message).toContain('Transaction failed: tx_dapp; stage submitting;');
+    expect(report?.level).toBe('error');
+    expect((await Repo.transactions.get('tx-1'))?.status).toBe(ITransactionStatus.Failed);
+    expectNoTransactionData(report?.message ?? '');
+  });
+
+  it('off mobile, reports an unavailable submit leg when the committed row has no submit stamp', async () => {
+    const row: ITransaction = { ...submitting(), stageTimestamps: undefined };
+    await Repo.transactions.put(row);
+    expect(await cancelTransaction(submitting(), new Error('opaque detail'))).toBe(true);
+    const [report, ...rest] = captured();
+    expect(rest).toEqual([]);
+    expect(report?.message).toContain(
+      '; point pipeline; unknown; thrown error; app hidden during submit unavailable; submit leg unavailable. authentication'
+    );
+    expect(report?.level).toBe('error');
+    expect((await Repo.transactions.get('tx-1'))?.status).toBe(ITransactionStatus.Failed);
+    expectNoTransactionData(report?.message ?? '');
+  });
+
+  describe('on mobile', () => {
+    let doc: HiddenDocument;
+
+    beforeEach(() => {
+      __resetBackgroundTimeForTest();
+      doc = installHiddenDocument();
+      clock.mockReturnValue(SUBMITTED_AT_MS);
+      jest.mocked(isMobile).mockReturnValue(true);
+      initBackgroundTimeTracking();
+    });
+
+    afterEach(() => {
+      doc.restore();
+      __resetBackgroundTimeForTest();
+      jest.mocked(isMobile).mockReturnValue(false);
+    });
+
+    it.each([
+      ['backgrounded during the submit', true, 'yes'],
+      ['in the foreground throughout', false, 'no']
+    ])('says the app was %s', async (_name, backgrounded, answer) => {
+      if (backgrounded) {
+        clock.mockReturnValue(SUBMITTED_AT_MS + 1_000);
+        doc.setHidden(true);
+        clock.mockReturnValue(SUBMITTED_AT_MS + 4_000);
+        doc.setHidden(false);
+      }
+      clock.mockReturnValue(SUBMITTED_AT_MS + 5_000);
+      await Repo.transactions.put(submitting());
+      expect(await cancelTransaction(submitting(), new Error('opaque detail'))).toBe(true);
+      const [report, ...rest] = captured();
+      expect(rest).toEqual([]);
+      expect(report?.message).toContain(
+        `; point pipeline; unknown; thrown error; app hidden during submit ${answer}; submit leg under_9s. authentication`
+      );
+      expectNoTransactionData(report?.message ?? '');
+    });
+  });
+});
+
+describe('a pre-flight sync killed by the offscreen deadline', () => {
+  it('names the kill and its reason, at error', async () => {
+    const row: ITransaction = {
+      id: 'tx-1',
+      type: 'consume',
+      accountId: ACCOUNT,
+      status: ITransactionStatus.Queued,
+      initiatedAt: NOW - 30,
+      stage: 'syncing',
+      delegateTransaction: true,
+      displayIcon: 'RECEIVE'
+    };
+    await Repo.transactions.put(row);
+    await cancelTransactionAfterPipelineStopped(
+      row,
+      new OperationAbortedError('3f2c8a9e-1b4d-4c6e-9a7b-2d5e8f0c1a3b', 'deadline')
+    );
+    const [report, ...rest] = captured();
+    expect(rest).toEqual([]);
+    expect(report?.message).toContain('Transaction failed: tx_receive; stage syncing; realm unknown;');
+    expect(report?.message).toContain('; point pipeline; offscreen_aborted_deadline. authentication');
+    expect(report?.message).not.toContain('3f2c8a9e');
+    expect(report?.level).toBe('error');
+  });
+});
+
+describe('the committed claim queue identity', () => {
+  it.each<{ label: string; fail: (row: ITransaction) => Promise<unknown> }>([
+    { label: 'cancel', fail: row => cancelTransaction(row, new Error('opaque detail')) },
+    { label: 'unconfirmed', fail: row => markTransactionUnconfirmed(row, new Error('opaque detail')) },
+    {
+      label: 'status update',
+      fail: row => updateTransactionStatus(row.id, ITransactionStatus.Failed, { error: 'opaque detail' })
+    }
+  ])('reports the stored deferral and admission through $label from a pickup that predates them', async ({ fail }) => {
+    const pickedUp: ITransaction = {
+      id: 'tx-1',
+      type: 'consume',
+      accountId: ACCOUNT,
+      status: ITransactionStatus.GeneratingTransaction,
+      initiatedAt: NOW - 120,
+      stage: 'submitting',
+      displayIcon: 'RECEIVE'
+    };
+    await Repo.transactions.put({
+      ...pickedUp,
+      lastDeferral: 'guardian_rate_limited',
+      feeAdmission: 'balance_unknown'
+    });
+
+    await fail(pickedUp);
+
+    const [report, ...rest] = captured();
+    expect(rest).toEqual([]);
+    expect(report?.message).toContain('; last deferral guardian_rate_limited;');
+    expect(report?.message).toContain('; claim fee admission balance_unknown;');
+    expectNoTransactionData(report?.message ?? '');
+  });
+});
+
+// BREAD-WALLET-R: claims queued behind one blocked row expired together, and each was filed as an error.
+describe('the queue expiry', () => {
+  const queued = (id: string, stage?: ITransaction['stage']): ITransaction => ({
+    id,
+    type: 'consume',
+    accountId: ACCOUNT,
+    status: ITransactionStatus.Queued,
+    initiatedAt: NOW - MAX_QUEUED_AGE - 60,
+    delegateTransaction: true,
+    displayIcon: 'RECEIVE',
+    noteId: NOTE,
+    ...(stage === undefined ? {} : { stage })
+  });
+
+  it('reports the last locked-wallet deferral when a requeued consume expires', async () => {
+    await Repo.transactions.put({ ...queued('tx-locked', 'syncing'), lastDeferral: 'wallet_locked' });
+
+    await cancelStaleQueuedTransactions();
+
+    const [report, ...rest] = captured();
+    expect(rest).toEqual([]);
+    expect(report?.message).toContain('; last deferral wallet_locked;');
+    expect(report?.message).toContain('; point pipeline; queued_expired.');
+    expect((await Repo.transactions.get('tx-locked'))?.status).toBe(ITransactionStatus.Failed);
+    expectNoTransactionData(report?.message ?? '');
+  });
+
+  it('reports claims the loop never started at warning, and a requeued Guardian claim that had started at error', async () => {
+    await Repo.transactions.bulkPut([queued('tx-1'), queued('tx-2'), queued('tx-3', 'creating-proposal')]);
+    await cancelStaleQueuedTransactions();
+    const reports = captured();
+    expect(reports).toHaveLength(3);
+    const neverStarted = reports.filter(({ message }) => message.includes('tx_receive; stage unknown; realm unknown;'));
+    const started = reports.filter(({ message }) =>
+      message.includes('tx_receive; stage signing; signing step creating_proposal; realm unknown;')
+    );
+    expect(neverStarted.map(({ level }) => level)).toEqual(['warning', 'warning']);
+    expect(started.map(({ level }) => level)).toEqual(['error']);
+    for (const { message } of reports) {
+      expect(message).toMatch(/^Transaction failed: /);
+      expect(message).toContain('; point pipeline; queued_expired. authentication');
+      expectNoTransactionData(message);
+    }
+    const rows = await Repo.transactions.bulkGet(['tx-1', 'tx-2', 'tx-3']);
+    expect(rows.map(row => row?.status)).toEqual([
+      ITransactionStatus.Failed,
+      ITransactionStatus.Failed,
+      ITransactionStatus.Failed
+    ]);
+  });
+});

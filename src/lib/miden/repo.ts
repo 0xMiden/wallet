@@ -208,6 +208,42 @@ function defineSchema(target: Dexie): void {
     [Table.SpendingLimits]: SPENDING_LIMITS_V19_STORE
   });
 
+  // v3 - the private-note delivery sweep is the only retry once the SDK stopped re-sending a failed
+  // note (0.17.2). A row that spent the old four-attempt budget within the new 72-hour retry window
+  // (`RETRY_WINDOW_SECONDS` in the sweep, a literal here because the sweep imports this module) gets
+  // the new schedule once: `relayAttempts` back to 1 and `nextRelayAt` cleared, so the sweep arms it
+  // from its send. A `relayed` row needs nothing (it is due its verification pushes as it is), nor
+  // does one with attempts left, and a restored row is never pushed. Stores unchanged.
+  target
+    .version(3)
+    .stores({
+      [Table.Transactions]: TRANSACTIONS_V2_STORE,
+      [Table.SpendingLimits]: SPENDING_LIMITS_V19_STORE
+    })
+    .upgrade(async (tx: Transaction) => {
+      const now = Math.floor(Date.now() / 1000);
+      await tx.db
+        .table<ITransaction, string>(Table.Transactions)
+        .where('noteDelivery')
+        .anyOf('pending', 'undelivered')
+        .modify(t => {
+          const sentAt = t.completedAt ?? t.initiatedAt ?? 0;
+          // `false` on the declining path, for the same reason as v1.3 above.
+          if (t.restoredFromBackup || (t.relayAttempts ?? 1) < 4 || now - sentAt >= 72 * 60 * 60) return false;
+          t.relayAttempts = 1;
+          delete t.nextRelayAt;
+          return undefined;
+        });
+    });
+
+  // v3.1 - only newly queued Mainnet rows can supply badge evidence. The compound index lets the badge
+  // issuer read just the Completed rows of the types a badge is built from, without scanning old history
+  // (and its large result blobs) for private achievements; no legacy backfill.
+  target.version(3.1).stores({
+    [Table.Transactions]: indexes(TRANSACTIONS_V2_STORE, '[badgeNetwork+status+type]'),
+    [Table.SpendingLimits]: SPENDING_LIMITS_V19_STORE
+  });
+
   // Every new transaction row is inserted with add or bulkAdd, so the placeable-`initiatedAt` check
   // (#1007) sits on `add` alone. It is a middleware, not a `creating` hook, because any hook routes
   // every put, so every `.modify()` and `.update()`, through a read of the rows it replaces.
@@ -515,7 +551,8 @@ export async function exportDb(): Promise<string> {
   const dump: { [tableName: string]: unknown[] } = {};
   await db.transaction('r', transactions, async () => {
     const rawTransactions = await transactions.toArray();
-    const serializableTransactions = rawTransactions.map(({ amount, ...rest }) => ({
+    // `dappOrigins` stays out: a backup must not record which dApps the user used (#1416).
+    const serializableTransactions = rawTransactions.map(({ amount, dappOrigins: _dappOrigins, ...rest }) => ({
       ...mapValues(rest, toSerializable),
       // `amount` keeps its plain-string shape so files stay readable by builds
       // that predate the tag; `fromSerializable` accepts either form.
@@ -526,14 +563,42 @@ export async function exportDb(): Promise<string> {
   return JSON.stringify(dump);
 }
 
+/**
+ * A dump's swap Cancel stamp (`expiryTriggeredAt`) is dropped. On a Guardian-recovered order it is the permission
+ * settlement acts on to return the order, which only this wallet's own Cancel may give (#1487); on any other restored
+ * row nothing reads it. A recovered order also drops what else this wallet's own tracking and Cancel wrote on it (the
+ * expiry, which recovery never writes, the remainder and checkpoint tracking found, and the lineage-close records
+ * `lineageClosedAt` and `orderNoteSpentAt`): with only the stamp gone, the lapsed expiry left the order showing its
+ * return as pending with no Cancel, and nothing would ever act on it, and a kept record closed the order with no read
+ * of the node. It imports open, a settledAt or reclaimedAt on it provisional until its next lineage read, and its
+ * Cancel is offered again.
+ */
+const CANCEL_STAMP = new Set(['expiryTriggeredAt']);
+const RECOVERED_ORDER_LOCAL_STATE = new Set([
+  'expiryTriggeredAt',
+  'expiresAt',
+  'recoveredTip',
+  'recoveredCheckpoint',
+  'lineageClosedAt',
+  'orderNoteSpentAt'
+]);
+
+const importedExtraInputs = (extraInputs: unknown, recovered: boolean): unknown => {
+  if (typeof extraInputs !== 'object' || extraInputs === null || Array.isArray(extraInputs)) return extraInputs;
+  const dropped = recovered ? RECOVERED_ORDER_LOCAL_STATE : CANCEL_STAMP;
+  return Object.fromEntries(Object.entries(extraInputs).filter(([key]) => !dropped.has(key)));
+};
+
 export async function importDb(dump: string): Promise<void> {
   const data = JSON.parse(dump);
 
   if (data[Table.Transactions]) {
     const transactionsToImport = data[Table.Transactions].map((tx: object) => {
-      const { amount, ...rest } = mapValues(tx, fromSerializable);
+      // A dump's `dappOrigins` is dropped too: no restored row is ever waitable by a dApp.
+      const { amount, dappOrigins: _dappOrigins, extraInputs, ...rest } = mapValues(tx, fromSerializable);
       const imported = {
         ...rest,
+        ...(extraInputs !== undefined && { extraInputs: importedExtraInputs(extraInputs, rest.recovered === true) }),
         ...(isBigIntSource(amount) && { amount: BigInt(amount) })
       };
       return neutralizeUnfinishedTransaction(imported);

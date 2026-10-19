@@ -8,7 +8,6 @@ import { useTranslation } from 'react-i18next';
 import { Icon, IconName } from 'app/icons/v2';
 import { HomeGroupPaneBody } from 'app/layouts/HomeGroupPane';
 import { usePageActive } from 'app/layouts/page-active';
-import EvmConnectModal from 'app/templates/EvmConnectModal';
 import { FeatureUnavailableNotice, isFeatureBlocked } from 'components/FeatureUnavailable';
 import { ACCENT_CLASSES } from 'components/flow/accent';
 import { NetworkChip } from 'components/NetworkChip';
@@ -21,11 +20,11 @@ import { resolveTransition, tabBarMotion } from 'lib/animation';
 import { getTestNetworkNameKey } from 'lib/miden-chain/effective-endpoints';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
+import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { useClipboardCopy } from 'lib/ui/useClipboardCopy';
 import { usePrimaryPress } from 'lib/ui/usePrimaryPress';
 import { cn } from 'lib/ui/util';
 import { useBridgeInAvailability } from 'lib/usdcx/use-bridge-in-availability';
-import { useEvmWalletConnection } from 'lib/walletconnect/useEvmWalletConnection';
 import { truncateAddress } from 'utils/string';
 
 interface AddressTabProps {
@@ -64,7 +63,8 @@ const blobToBase64 = (blob: Blob): Promise<string> =>
 interface ReceiveActionTileProps {
   icon: IconName;
   title: string;
-  caption: string;
+  /** A second line under the title; a tile with none draws only its title. */
+  caption?: string;
   onClick: () => void;
   /** Greyed out, and takes no tap, while what it opens cannot start. */
   disabled?: boolean;
@@ -104,9 +104,11 @@ const ReceiveActionTile: React.FC<ReceiveActionTileProps> = ({
           <span data-slot="title" className="truncate text-row-title text-ink">
             {title}
           </span>
-          <span data-slot="caption" className="truncate text-caption font-semibold text-muted">
-            {caption}
-          </span>
+          {caption !== undefined && (
+            <span data-slot="caption" className="truncate text-caption font-semibold text-muted">
+              {caption}
+            </span>
+          )}
         </span>
       </button>
     </Card>
@@ -120,8 +122,6 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
   // The share fallback copies through the same hook as the page's copy control: one clipboard
   // path, and it catches a rejected write.
   const { copy: copyAddress } = useClipboardCopy(address);
-  const [evmOpen, setEvmOpen] = useState(false);
-  const { address: evmAddress, connected: evmConnected } = useEvmWalletConnection();
   const qrRef = useRef<QRCodeHandle>(null);
 
   // The logo easter egg. Receive stays mounted when it is left for another Home page or another tab,
@@ -158,25 +158,6 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
     const index = QR_PALETTE_CYCLE.indexOf(committedPalette);
     if (index !== -1) committedPaletteStepRef.current = index;
   }, []);
-
-  const openBridgeDeposit = useCallback(() => {
-    onBridgeDeposit();
-  }, [onBridgeDeposit]);
-
-  // The action tile fires the tap haptic for both actions.
-  const handleOpenEvm = useCallback(() => {
-    if (evmConnected && evmAddress) {
-      openBridgeDeposit();
-      return;
-    }
-    setEvmOpen(true);
-  }, [evmAddress, evmConnected, openBridgeDeposit]);
-
-  useEffect(() => {
-    if (!evmOpen || !evmConnected || !evmAddress) return;
-    setEvmOpen(false);
-    openBridgeDeposit();
-  }, [evmAddress, evmConnected, evmOpen, openBridgeDeposit]);
 
   // The shared text names the network (#875) so a pasted address never loses
   // its context. The QR image carries the same caption (see `caption` below).
@@ -230,6 +211,15 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
 
   // Cross Chain opens every bridge-in route, so it stays enabled while one of them can start.
   const crossChain = useBridgeInAvailability();
+  // A network whose document configures no bridge-in route (mainnet's) has no Cross Chain, and no outage to report
+  // either. With no accepted document nothing says what the network configures, so the tile stays, greyed, over its
+  // notice.
+  const hasDocument = useBridgeConfigSnapshot().config !== null;
+  const crossChainOnNetwork = !(
+    hasDocument &&
+    crossChain.state === 'unavailable' &&
+    crossChain.reason === 'not-configured'
+  );
 
   return (
     // The shared home-group pane body (HomeGroupPane): the page margin, the top offset (`visual`:
@@ -323,17 +313,18 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
             {/* Drawn on every platform. The extension once hid it because the Reown relay closed its
                 socket (code 3000): the page's placeholder Buffer encoded the relay token from zero
                 bytes. public/globals.js no longer installs one. */}
-            <ReceiveActionTile
-              icon={IconName.CrossChain}
-              title={t('crossChain')}
-              // Name the actual source test network, not a bare "Testnet" (#875).
-              caption={t('crossChainFromNetwork', { network: t('ethereumSepolia') })}
-              onClick={handleOpenEvm}
-              disabled={isFeatureBlocked(crossChain)}
-              data-testid="receive-cross-chain"
-            />
+            {crossChainOnNetwork && (
+              <ReceiveActionTile
+                icon={IconName.CrossChain}
+                title={t('crossChain')}
+                // No source named here: the bridge screen lists the chains the remote config offers.
+                onClick={onBridgeDeposit}
+                disabled={isFeatureBlocked(crossChain)}
+                data-testid="receive-cross-chain"
+              />
+            )}
           </div>
-          <FeatureUnavailableNotice availability={crossChain} variant="inline" />
+          {crossChainOnNetwork && <FeatureUnavailableNotice availability={crossChain} variant="inline" />}
           {/* The funds-safety warning (#875), last: the page reads code → address → actions, and
               this qualifies all of it. A caption with the warning glyph, not a tinted block —
               between the address and the actions it split the page in two. */}
@@ -348,7 +339,6 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
             </Notice>
           )}
         </div>
-        <EvmConnectModal open={evmOpen} onOpenChange={setEvmOpen} />
       </div>
     </HomeGroupPaneBody>
   );

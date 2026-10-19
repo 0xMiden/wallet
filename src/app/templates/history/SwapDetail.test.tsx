@@ -4,7 +4,7 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 
 import type { SwapSettlementTransaction } from 'lib/miden/activity';
 import { ITransactionStatus } from 'lib/miden/db/types';
-import { TOKEN_IETH } from 'lib/miden/swap/tokens';
+import { TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
 
 import type { IHistoryEntry } from './IHistoryEntry';
 import { SwapDetail } from './SwapDetail';
@@ -91,7 +91,9 @@ jest.mock('./TransactionStatus', () => ({
       {displayValue}
     </a>
   ),
-  StatusPill: () => <div data-testid="status-pill" />
+  StatusPill: ({ swapSettlement }: { swapSettlement?: string }) => (
+    <div data-testid="status-pill" data-swap-settlement={String(swapSettlement)} />
+  )
 }));
 
 jest.mock('./TransactionIcon', () => ({
@@ -111,6 +113,10 @@ jest.mock('./transactionUtils', () => ({
 }));
 
 // iETH's (i) is a testnet thing; pin the network rather than lean on the build default.
+// The testnet document, whose swap tokens name the iETH faucet the labels and the (i) read.
+jest.mock('lib/remote-config/use-feature-availability', () => ({
+  useBridgeConfigSnapshot: () => jest.requireActual('lib/epoch/testing/bridge-config').TEST_BRIDGE_CONFIG_SNAPSHOT
+}));
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
   ...jest.requireActual('lib/miden-chain/effective-endpoints'),
   getTestNetworkNameKey: () => 'testnet'
@@ -159,7 +165,6 @@ const renderDetail = (over: Partial<React.ComponentProps<typeof SwapDetail>> = {
       fromAccount={<span>me</span>}
       showActions={false}
       offerCancelOrder={false}
-      reclaimPending={false}
       isCancellingOrder={false}
       cancelOrderError={null}
       onCancelOrder={mockCancelOrder}
@@ -211,8 +216,8 @@ describe('SwapDetail faucet ids', () => {
 
 describe('SwapDetail token info', () => {
   it.each([
-    ['requested', { requestedFaucetId: TOKEN_IETH.faucetId, requestedSymbol: 'Test iETH' }],
-    ['offered', { entry: { ...entry, faucetId: TOKEN_IETH.faucetId, token: 'Test iETH' } }]
+    ['requested', { requestedFaucetId: TEST_TOKEN_IETH.faucetId, requestedSymbol: 'Test iETH' }],
+    ['offered', { entry: { ...entry, faucetId: TEST_TOKEN_IETH.faucetId, token: 'Test iETH' } }]
   ])('puts one (i) in the hero beside testnet iETH as the %s token (#477)', (_side, over) => {
     renderDetail(over);
 
@@ -228,8 +233,8 @@ describe('SwapDetail token info', () => {
   });
 
   it.each([
-    ['requested', { requestedFaucetId: TOKEN_IETH.faucetId, requestedSymbol: 'Test iETH' }, '1000@8Test iETH'],
-    ['offered', { entry: { ...entry, faucetId: TOKEN_IETH.faucetId, token: 'Test iETH' } }, '500Test iETH']
+    ['requested', { requestedFaucetId: TEST_TOKEN_IETH.faucetId, requestedSymbol: 'Test iETH' }, '1000@8Test iETH'],
+    ['offered', { entry: { ...entry, faucetId: TEST_TOKEN_IETH.faucetId, token: 'Test iETH' } }, '500Test iETH']
   ])("keeps the %s side's amount, name and (i) in one unit the hero wraps between (#477)", (_side, over, unitText) => {
     renderDetail(over);
 
@@ -341,6 +346,14 @@ describe('SwapDetail status line', () => {
     // Tone asserted alongside the label: a reclaimed order rendered in the
     // positive colour reads as a success at a glance, whatever the words say.
     expect(status()).toHaveClass(tone);
+  });
+
+  it('reads Filled once the slippage target arrived, not Partially filled', () => {
+    // 1000 requested at 100 bps: the target is ceil(1000 × 0.99) = 990.
+    renderDetail({ orderState: 'filled', requestedAmount: 1000n, filledAmount: 990n, slippageBps: 100 });
+
+    expect(status().textContent).toBe('orderStatusFilled');
+    expect(status()).toHaveClass('bg-positive-tint');
   });
 
   it('distinguishes a lineage still loading from one that never answered', () => {
@@ -557,14 +570,42 @@ describe('SwapDetail cancelling a live order', () => {
     expect(screen.getByTestId('swap-cancel-order-button')).toBeDisabled();
   });
 
-  it('replaces the button with the reclaim notice once the expiry has lapsed', () => {
-    // Nothing to tap: the wallet owes this account its tip back and will take it
-    // on the next settlement tick. A button there would restate a decision that
-    // has already been made.
-    renderDetail({ offerCancelOrder: false, reclaimPending: true });
+  it('replaces the button with the reclaim notice once settlement has stamped the expiry', () => {
+    // Nothing to tap: the wallet owes this account its tip back and is taking it.
+    // A button there would restate a decision that has already been made.
+    renderDetail({ entry: { ...entry, swapSettlement: 'reclaiming' }, offerCancelOrder: false });
 
     expect(screen.getByTestId('swap-cancel-order-pending')).toHaveTextContent('swapCancelOrderPending');
     expect(screen.queryByTestId('swap-cancel-order-button')).not.toBeInTheDocument();
+    expect(screen.getByTestId('status-pill')).toHaveAttribute('data-swap-settlement', 'reclaiming');
+    expect(screen.getByTestId('swap-order-status')).toHaveTextContent('swapReclaiming');
+    expect(screen.queryByText('swapMatchingDex')).not.toBeInTheDocument();
+    expect(screen.queryByText('swapOpenFill')).not.toBeInTheDocument();
+    expect(screen.queryByText('swapActivityTitle')).not.toBeInTheDocument();
+  });
+
+  it('reads an order settlement has not stamped as pending in every place', () => {
+    // The list reads the same stamp, so the receipt never says Returning funds while the list says Pending.
+    renderDetail({ entry: { ...entry, swapSettlement: 'pending' }, filledAmount: 0n });
+
+    expect(screen.getByTestId('status-pill')).toHaveAttribute('data-swap-settlement', 'pending');
+    expect(screen.getByTestId('swap-order-status')).toHaveTextContent('orderStatusActive');
+    expect(screen.getByText('swapMatchingDex')).toBeInTheDocument();
+    expect(screen.getByText('swapActivityTitle')).toBeInTheDocument();
+    expect(screen.queryByTestId('swap-cancel-order-pending')).not.toBeInTheDocument();
+  });
+
+  it('renders a reclaimed zero-fill as zero percent, not an accepted fill', () => {
+    renderDetail({
+      orderState: 'reclaimed',
+      filledAmount: 0n,
+      reclaimedTransactions: [{ id: 'return', noteIds: ['original-output'], completedAt: 1_700_000_100 }]
+    });
+    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '0');
+    expect(screen.getByTestId('swap-order-amount-filled')).toHaveTextContent('swapAmountProgress_0@');
+    expect(screen.getByTestId('swap-reclaimed-notes')).toHaveTextContent('swapReturnedAt_');
+    expect(screen.getByTestId('swap-reclaimed-notes')).not.toHaveTextContent('swapConsumedAt_');
+    expect(screen.queryByText('swapMatchingDex')).not.toBeInTheDocument();
   });
 
   it('surfaces a failed cancel as a notice, keeping the button available to retry', () => {

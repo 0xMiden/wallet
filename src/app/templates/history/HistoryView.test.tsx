@@ -1,6 +1,7 @@
 import React from 'react';
 
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { format } from 'date-fns';
 
 import { PageActiveContext, TabActiveContext } from 'app/layouts/page-active';
 import { springs, tabBarSwap } from 'lib/animation';
@@ -532,6 +533,82 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
     expect(mockT).toHaveBeenCalledWith('bridgeRowTitle', { from: 'Test Epoch USDC', to: 'Test Epoch USDC' });
   });
 
+  it.each([
+    ['pending', undefined, 'burnPending'],
+    ['consuming', undefined, 'burnConsuming'],
+    ['confirmed', undefined, 'burnConfirmed'],
+    ['confirmed', { balance: '1000000', blockNumber: '42' }, 'confirmed'],
+    ['discarded', undefined, 'burnDiscarded']
+  ] as const)(
+    'renders a USDCx %s burn with its dedicated title and status',
+    (phase, destinationBalanceConfirmed, status) => {
+      mockBridgeRowDisplay.mockReturnValue({
+        inSymbol: 'USDCx',
+        outSymbol: 'USDC',
+        inLabel: 'Miden USDCx',
+        outLabel: 'Sepolia USDC',
+        outAmount: '10',
+        providerLabel: 'USDCx',
+        network: 'Sepolia',
+        status: 'pending'
+      });
+
+      render(
+        <HistoryView
+          {...baseProps}
+          entries={[
+            makeEntry({
+              key: `usdcx-${phase}-${status}`,
+              txType: 'bridged-send',
+              bridgeProvider: 'usdcx',
+              usdcxBurn: {
+                noteId: 'burn-note',
+                destinationDomain: 0,
+                phase,
+                destinationBalanceConfirmed
+              }
+            })
+          ]}
+          fullHistory
+        />
+      );
+
+      const row = rowByTitle('usdcxBurnTitle');
+      expect(row).toHaveAttribute('data-status', status);
+    }
+  );
+
+  it('marks a received USDCx bridge-in row completed', () => {
+    jest.mocked(isBridgeInEntry).mockReturnValue(true);
+    jest.mocked(bridgeInRowDisplay).mockReturnValue({
+      inSymbol: 'USDC',
+      outSymbol: 'USDCx',
+      inLabel: 'Sepolia USDC',
+      outLabel: 'Miden USDCx',
+      outAmount: '10',
+      providerLabel: 'USDCx',
+      network: 'Miden',
+      status: 'confirmed'
+    });
+
+    render(
+      <HistoryView
+        {...baseProps}
+        entries={[
+          makeEntry({
+            key: 'usdcx-received',
+            txType: 'bridged-receive',
+            bridgeInProvider: 'usdcx',
+            bridgeInPhase: 'received'
+          })
+        ]}
+        fullHistory
+      />
+    );
+
+    expect(screen.getByTestId('activity-row')).toHaveAttribute('data-status', 'completed');
+  });
+
   // One render exercising every icon/title/subtitle/amount/status branch.
   const entries: IHistoryEntry[] = [
     // --- Day A group (first group → gets pt-4; set + push + push) ---
@@ -980,7 +1057,7 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
     const row = rowByTitle('swap MDN → ETH');
     expect(iconNameIn(row)).toBe('Convert');
     expect(row).toHaveAttribute('data-iconbg', 'bg-tx-swap');
-    expect(row).toHaveAttribute('data-subtitle', 'viaInProtocolDex');
+    expect(row).toHaveAttribute('data-subtitle', 'swapPlacedAt');
     expect(row).toHaveAttribute('data-amount-value', '0.5');
     expect(row).toHaveAttribute('data-amount-symbol', 'ETH');
     expect(row).toHaveAttribute('data-amount-direction', 'neutral');
@@ -1031,7 +1108,7 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
     renderFull();
     const row = rowByTitle('swap fallback');
     expect(iconNameIn(row)).toBe('Convert');
-    expect(row).toHaveAttribute('data-subtitle', 'viaInProtocolDex');
+    expect(row).toHaveAttribute('data-subtitle', 'swapPlacedAt');
     expect(row).toHaveAttribute('data-amount-value', '3');
     expect(row).toHaveAttribute('data-amount-direction', 'neutral');
   });
@@ -1039,7 +1116,7 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
   it('falls back to message for a swap missing the offered token', () => {
     renderFull();
     const row = rowByTitle('swap notoken');
-    expect(row).toHaveAttribute('data-subtitle', 'viaInProtocolDex');
+    expect(row).toHaveAttribute('data-subtitle', 'swapPlacedAt');
     // No entry.amount and no requestedAmount → no amount at all.
     expect(row).toHaveAttribute('data-amount-value', '');
   });
@@ -1547,9 +1624,45 @@ describe('HistoryView Guardian switch audit trail', () => {
 
 // A completed swap row is the one trace of the whole order, so its badge follows settlement.
 describe('HistoryView swap settlement status', () => {
+  it('keeps distinct orders distinct without presenting the unreceived quote as money received', () => {
+    const base = makeEntry({
+      txType: 'swap',
+      token: 'USDCX',
+      amount: '10',
+      requestedToken: 'IUSDT',
+      requestedAmount: '99',
+      swapSettlement: 'reclaimed'
+    });
+    render(
+      <HistoryView
+        {...baseProps}
+        entries={[
+          { ...base, key: 'expiry-order', timestamp: 1_792_130_261 },
+          { ...base, key: 'cancel-order', timestamp: 1_792_130_629 }
+        ]}
+        fullHistory
+      />
+    );
+    const rows = screen.getAllByTestId('activity-row');
+    expect(rows).toHaveLength(2);
+    for (const row of rows) {
+      expect(row).toHaveAttribute('data-amount-value', 'swapOfferedAmount');
+      expect(row).toHaveAttribute('data-amount-symbol', 'USDCX');
+      expect(row).toHaveAttribute('data-amount-direction', 'neutral');
+    }
+    // The identity translator renders every subtitle as the bare key, so each row's own time is read off the call.
+    const expiryPlacedAt = format(new Date(1_792_130_261 * 1000), 'HH:mm');
+    const cancelPlacedAt = format(new Date(1_792_130_629 * 1000), 'HH:mm');
+    expect(expiryPlacedAt).not.toBe(cancelPlacedAt);
+    expect(mockT).toHaveBeenCalledWith('swapPlacedAt', { time: expiryPlacedAt });
+    expect(mockT).toHaveBeenCalledWith('swapPlacedAt', { time: cancelPlacedAt });
+    expect(mockT).toHaveBeenCalledWith('swapOfferedAmount', { amount: '10' });
+  });
+
   it.each([
     ['pending', 'pending'],
     ['reclaimed', 'reclaimed'],
+    ['reclaiming', 'reclaiming'],
     [undefined, 'confirmed']
   ] as const)('reads %s settlement as the %s status', (swapSettlement, status) => {
     const entry = makeEntry({

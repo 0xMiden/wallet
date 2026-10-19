@@ -11,6 +11,9 @@ import type { TransactionSuccessLayoutProps } from 'screens/generating-transacti
 
 import { EarnWithdrawStatus } from './EarnWithdrawStatus';
 
+const mockMutate = jest.fn().mockResolvedValue(undefined);
+jest.mock('swr', () => ({ useSWRConfig: () => ({ mutate: mockMutate }) }));
+
 let mockRowState: { row?: ITransaction; loaded: boolean } = { row: undefined, loaded: false };
 let mockSuccessProps: TransactionSuccessLayoutProps | undefined;
 let mockAssetsMetadata: Record<string, AssetMetadata> = {};
@@ -211,6 +214,16 @@ describe('EarnWithdrawStatus', () => {
     expect(navigate).toHaveBeenCalledWith('/');
   });
 
+  // #1469, as on the bridge screen this one mirrors: a raw error's unbreakable token must wrap inside
+  // the centred column instead of widening it past the page margin.
+  it('wraps a recorded error with an unbreakable token', () => {
+    const error = `execution reverted: 0x${'ab'.repeat(100)}`;
+    mockRowState = { row: makeRow(makeInputs({ phase: 'failed', error })), loaded: true };
+    render(<EarnWithdrawStatus txId="withdraw-1" />);
+
+    expect(screen.getByText(error)).toHaveClass('w-full', 'wrap-anywhere', 'select-text');
+  });
+
   it('falls back to the generic transaction error for an unstamped failure', () => {
     mockRowState = { row: makeRow(makeInputs({ phase: 'failed' })), loaded: true };
     render(<EarnWithdrawStatus txId="withdraw-1" />);
@@ -344,4 +357,20 @@ describe('EarnWithdrawStatus', () => {
 
     expect(screen.getByTestId('summary-badge').textContent).toBe('42.25 USDC → Miden');
   });
+});
+
+it('invalidates only this account positions after the actual withdrawal receipt', () => {
+  jest.clearAllMocks();
+  mockRowState = { row: makeRow(makeInputs({ phase: 'delivering' })), loaded: true };
+  const view = render(<EarnWithdrawStatus txId="withdraw-1" />);
+  expect(mockMutate).not.toHaveBeenCalled();
+  mockRowState = { row: makeRow(makeInputs({ phase: 'received' })), loaded: true };
+  view.rerender(<EarnWithdrawStatus txId="withdraw-1" />);
+  expect(mockMutate).toHaveBeenCalledTimes(1);
+  const matches = mockMutate.mock.calls[0]?.[0];
+  expect(matches(['earn-positions', 'miden-account', 'owner'])).toBe(true);
+  expect(matches(['earn-positions', 'another-account', 'owner'])).toBe(false);
+  expect(matches(['balance', 'miden-account'])).toBe(false);
+  view.rerender(<EarnWithdrawStatus txId="withdraw-1" />);
+  expect(mockMutate).toHaveBeenCalledTimes(1);
 });

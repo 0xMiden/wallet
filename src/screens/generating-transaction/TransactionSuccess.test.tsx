@@ -379,7 +379,7 @@ describe('TransactionSuccess', () => {
     );
     try {
       expect(container.textContent).toContain('usdcxBurnSubmitted');
-      expect(container.textContent).toContain('usdcxBurnTestNotice');
+      expect(container.textContent).toContain('usdcxWithdrawalNotice');
       expect(container.textContent).not.toContain('Payment Sent!');
       transaction.extraInputs.usdcxBurn.phase = 'confirmed';
       await act(async () => {
@@ -387,6 +387,12 @@ describe('TransactionSuccess', () => {
       });
       expect(container.textContent).toContain('usdcxBurnConfirmed');
       expect(container.textContent).not.toContain('usdcxBurnSubmitted');
+      transaction.extraInputs.usdcxBurn.destinationBalanceConfirmed = { balance: '1000000', blockNumber: '101' };
+      await act(async () => {
+        root.render(<TransactionSuccess transaction={transaction} onDoneClick={() => {}} />);
+      });
+      expect(container.textContent).toContain('confirmed');
+      expect(container.textContent).not.toContain('usdcxBurnConfirmed');
     } finally {
       act(() => root.unmount());
     }
@@ -436,7 +442,7 @@ describe('TransactionSuccess', () => {
         transaction={baseTransaction({
           type: 'switch-guardian',
           extraInputs: {
-            previousGuardianEndpoint: 'https://guardian.openzeppelin.com',
+            previousGuardianEndpoint: 'https://guardian-testnet.openzeppelin.com',
             newGuardianEndpoint: 'https://guardian-testnet.kodax.com'
           }
         })}
@@ -448,7 +454,7 @@ describe('TransactionSuccess', () => {
     // operators in its previous → new transition line (the mocked display-name
     // helper renders `guardian(<endpoint>)`).
     expect(container.textContent).toContain('guardianSwitchSuccessTitle');
-    expect(container.textContent).toContain('guardian(https://guardian.openzeppelin.com)');
+    expect(container.textContent).toContain('guardian(https://guardian-testnet.openzeppelin.com)');
     expect(container.textContent).toContain('guardian(https://guardian-testnet.kodax.com)');
     // NOT the generic SendSuccess fallback.
     expect(container.textContent).not.toContain('Transaction Complete!');

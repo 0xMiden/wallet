@@ -4,8 +4,10 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 
 import { IconName } from 'app/icons/v2';
 import {
+  publishMockBridgeSnapshot,
   TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET,
-  TEST_NATIVE_ETH_FAUCET as MIDEN_AGGLAYER_FAUCET_ID
+  TEST_NATIVE_ETH_FAUCET as MIDEN_AGGLAYER_FAUCET_ID,
+  testSnapshotWithSwapPairs
 } from 'lib/epoch/testing/bridge-config';
 import { SharedEarnLocks } from 'lib/epoch/testing/earn-locks';
 import {
@@ -14,8 +16,14 @@ import {
   reportGuardianNoteRecoveryProgress
 } from 'lib/guardian-note-recovery-progress';
 import type { TokenBalanceData } from 'lib/miden/front';
-import { _setSwapTokensForTest, SWAP_TOKENS } from 'lib/miden/swap/tokens';
-import { FaucetOutcomeUnknownError } from 'lib/miden-chain/faucet-api';
+import { TEST_SWAP_TOKENS, TEST_TOKEN_IETH, testSwapPairsToken } from 'lib/miden/swap/testing/registry';
+import { _setSwapTokensForTest } from 'lib/miden/swap/tokens';
+import {
+  FaucetAmountOverCapError,
+  FaucetOutcomeUnknownError,
+  FaucetRateLimitedError
+} from 'lib/miden-chain/faucet-api';
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import type { WalletAccount } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
 import type { FaucetFundingMarker, PendingNoteValue } from 'lib/wallet-prompts';
@@ -62,13 +70,27 @@ const mockUnresolvedRefusal = (address: string, marker: FaucetFundingMarker, rep
 };
 
 let mockBaseFee: number | null = 0;
+// The effective network's own answer unless a case puts the wallet on a network with no faucet.
+let mockFaucetConfigured: boolean | undefined;
+jest.mock('lib/miden-chain/effective-endpoints', () => {
+  const actual = jest.requireActual<typeof import('lib/miden-chain/effective-endpoints')>(
+    'lib/miden-chain/effective-endpoints'
+  );
+  return { ...actual, isFaucetConfigured: () => mockFaucetConfigured ?? actual.isFaucetConfigured() };
+});
 // The bridged price entries the testnet config names (the manual mock beside the module).
 jest.mock('lib/miden/swap/bridge-price-allowlist');
+let mockBridgeSnapshot: BridgeConfigSnapshot | undefined;
+jest.mock('lib/remote-config/runtime', () =>
+  jest
+    .requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
+    .remoteConfigRuntimeMock(() => mockBridgeSnapshot)
+);
 jest.mock('app/hooks/useVerificationBaseFee', () => ({ __esModule: true, default: () => mockBaseFee }));
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string, values?: { amount?: string; count?: number }) => {
-      const value = values?.amount ?? values?.count;
+    t: (key: string, values?: { amount?: string; count?: number; seconds?: string }) => {
+      const value = values?.amount ?? values?.count ?? values?.seconds;
       return value === undefined ? key : `${key}:${value}`;
     }
   })
@@ -277,6 +299,12 @@ const tokenPrices = {
   USDC: { price: 1, change24h: 0, percentageChange24h: 0 }
 };
 
+const iethPriceSnapshot = (priceSymbol?: string): BridgeConfigSnapshot =>
+  testSnapshotWithSwapPairs({
+    tokens: [testSwapPairsToken({ ...TEST_TOKEN_IETH, priceSymbol })],
+    pairs: []
+  });
+
 // The faucet prompt's status is per account, so its writes are asserted with the
 // account they belong to rather than through the wallet-wide prompt spies.
 const mockSetFaucetStatus = jest.fn();
@@ -296,6 +324,7 @@ const makePromptState = ({ storage, ...overrides }: { storage?: object } & Recor
 describe('HomePrompts', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockFaucetConfigured = undefined;
     // The hidden (declined) set is module-scoped state, so a test that declines something must
     // not leave it declined for the next one.
     mockHiddenNotes.ids = new Set<string>();
@@ -383,6 +412,48 @@ describe('HomePrompts', () => {
       'verifySeedPhrasePromptTitle'
     ]);
     expect(mockSetFaucetStatus).toHaveBeenCalledWith('accountA', WalletPromptStatus.Pending);
+  });
+
+  // Mainnet has no faucet: the card would send the mainnet address to another network's faucet.
+  describe('on a network with or without a faucet', () => {
+    const renderFeeBroke = () =>
+      render(
+        <HomePrompts
+          account={account}
+          balances={[{ tokenId: NATIVE_FAUCET_ID, balance: 0 }] as TokenBalanceData[]}
+          balancesLoading={false}
+          claimableNotes={[]}
+          fundingNotes={[]}
+          tokenPrices={{}}
+        />
+      );
+    beforeEach(() => {
+      mockBaseFee = 7;
+      mockUseWalletPromptStorage.mockReturnValue(makePromptState());
+    });
+    afterEach(() => {
+      mockBaseFee = 0;
+    });
+
+    it('offers no Fund card and requests nothing where the network has no faucet (mainnet)', async () => {
+      mockFaucetConfigured = false;
+      renderFeeBroke();
+      await act(async () => {});
+
+      expect(screen.getByText('verifySeedPhrasePromptTitle')).toBeInTheDocument();
+      expect(screen.queryByText('faucetPromptTitle')).not.toBeInTheDocument();
+      expect(mockFaucet).not.toHaveBeenCalled();
+    });
+
+    it("offers the Fund card and requests on the build's network, which has one (testnet)", async () => {
+      renderFeeBroke();
+      const faucetCard = screen.getAllByTestId('prompt-card')[0]!;
+      await act(async () => {});
+
+      expect(faucetCard).toHaveAttribute('data-title', 'faucetPromptTitle');
+      fireEvent.click(within(faucetCard).getByRole('button', { name: 'faucetPromptTitle' }));
+      await waitFor(() => expect(mockFaucet).toHaveBeenCalledTimes(1));
+    });
   });
 
   it('re-offers a dismissed faucet prompt once the account can no longer pay a fee', () => {
@@ -713,7 +784,7 @@ describe('HomePrompts', () => {
     // The registry entry a future allowlist listing of the native asset would add.
     _setSwapTokensForTest([
       { symbol: 'MIDEN', faucetId: NATIVE_FAUCET_ID, decimals: 6, logoSymbol: 'MIDEN', priceSymbol: 'MIDEN' },
-      ...SWAP_TOKENS
+      ...TEST_SWAP_TOKENS
     ]);
     try {
       mockUseWalletPromptStorage.mockReturnValue(makePromptState());
@@ -740,6 +811,61 @@ describe('HomePrompts', () => {
       await waitFor(() => expect(faucetCard).toHaveAttribute('data-hero', 'faucetPromptFunded'));
       expect(faucetCard).toHaveAttribute('data-hero-sub', 'faucetPromptFundedSub:$2.50');
     } finally {
+      _setSwapTokensForTest(undefined);
+    }
+  });
+
+  it('revalues the funded hero on config-only price changes and removes an unavailable total', async () => {
+    _setSwapTokensForTest(undefined);
+    mockBridgeSnapshot = iethPriceSnapshot('ETH');
+    mockLegacyFeeIdentity = TEST_TOKEN_IETH.faucetId;
+    mockUseWalletPromptStorage.mockReturnValue(makePromptState());
+    const prices = {
+      ETH: { price: 2, change24h: 0, percentageChange24h: 0 },
+      BTC: { price: 4, change24h: 0, percentageChange24h: 0 }
+    };
+    const notes: PendingNoteValue[] = [
+      {
+        id: 'configured-mint',
+        amount: '125000000',
+        faucetId: TEST_TOKEN_IETH.faucetId,
+        metadata: { symbol: TEST_TOKEN_IETH.symbol, name: 'Ether', decimals: TEST_TOKEN_IETH.decimals }
+      }
+    ];
+    const renderWith = (currentNotes: PendingNoteValue[]) => (
+      <HomePrompts
+        account={account}
+        balances={zeroBalance}
+        balancesLoading={false}
+        claimableNotes={currentNotes}
+        fundingNotes={currentNotes}
+        tokenPrices={prices}
+      />
+    );
+    const view = render(renderWith([]));
+    const faucetCard = screen.getAllByTestId('prompt-card')[0]!;
+    await act(async () => {});
+    fireEvent.click(within(faucetCard).getByRole('button', { name: 'faucetPromptTitle' }));
+    await waitFor(() => expect(faucetCard).toHaveAttribute('data-hero', 'faucetPromptFunding'));
+    jest.useFakeTimers();
+    try {
+      view.rerender(renderWith(notes));
+      await waitFor(() => expect(faucetCard).toHaveAttribute('data-hero', 'faucetPromptFunded'));
+      expect(faucetCard).toHaveAttribute('data-hero-sub', 'faucetPromptFundedSub:$2.50');
+
+      act(() => {
+        mockBridgeSnapshot = iethPriceSnapshot('BTC');
+        publishMockBridgeSnapshot();
+      });
+      expect(faucetCard).toHaveAttribute('data-hero-sub', 'faucetPromptFundedSub:$5.00');
+
+      act(() => {
+        mockBridgeSnapshot = iethPriceSnapshot();
+        publishMockBridgeSnapshot();
+      });
+      expect(faucetCard).toHaveAttribute('data-hero-sub', 'faucetPromptFundedSubGeneric');
+    } finally {
+      jest.useRealTimers();
       _setSwapTokensForTest(undefined);
     }
   });
@@ -1719,6 +1845,78 @@ describe('HomePrompts', () => {
     await waitFor(() => expect(mockFaucet).toHaveBeenCalledTimes(2));
     // Retrying clears the previous error from the card.
     expect(faucetCard).not.toHaveTextContent('rate limited');
+  });
+
+  describe('a faucet refusal the user can act on', () => {
+    const RATE_LIMITED = 'Faucet token request failed with status 429: Account is rate limited for 25 more seconds.';
+    const OVER_CAP =
+      'Faucet PoW request failed with status 400: requested amount 100000000 exceeds the maximum claimable amount of 10000000';
+
+    const renderFaucetCard = async () => {
+      render(
+        <HomePrompts
+          account={account}
+          balances={zeroBalance}
+          balancesLoading={false}
+          claimableNotes={[]}
+          fundingNotes={[]}
+          tokenPrices={{}}
+        />
+      );
+      await act(async () => {});
+      return screen.getAllByTestId('prompt-card')[0]!;
+    };
+    const tapFund = async (card: HTMLElement) => {
+      fireEvent.click(within(card).getByRole('button', { name: 'faucetPromptTitle' }));
+      await waitFor(() => expect(card).toHaveAttribute('data-status', 'failure'));
+    };
+
+    beforeEach(() => {
+      jest.spyOn(console, 'error').mockImplementation(() => undefined);
+      mockUseWalletPromptStorage.mockReturnValue(makePromptState());
+    });
+
+    it.each([
+      { seconds: 25, copy: 'faucetRateLimitedWait:25' },
+      { seconds: 1, copy: 'faucetRateLimited' },
+      { seconds: 0, copy: 'faucetRateLimited' },
+      { seconds: null, copy: 'faucetRateLimited' }
+    ])('says a rate limit of $seconds seconds in plain words, never the raw reply', async ({ seconds, copy }) => {
+      mockFaucet.mockRejectedValueOnce(new FaucetRateLimitedError(RATE_LIMITED, seconds));
+      const card = await renderFaucetCard();
+
+      await tapFund(card);
+
+      expect(within(card).getByText(copy)).toBeInTheDocument();
+      expect(card).not.toHaveTextContent('rate limited for');
+    });
+
+    it('says an amount over the faucet cap in plain words', async () => {
+      mockFaucet.mockRejectedValueOnce(new FaucetAmountOverCapError(OVER_CAP, 10_000_000n));
+      const card = await renderFaucetCard();
+
+      await tapFund(card);
+
+      expect(within(card).getByText('faucetOverCap')).toBeInTheDocument();
+      expect(card).not.toHaveTextContent('maximum claimable');
+    });
+
+    it('says the same when the card re-attaches to a request the faucet refuses', async () => {
+      let rejectInFlight!: (error: Error) => void;
+      mockGetInFlightFaucetRequest.mockReturnValue(
+        new Promise<void>((_resolve, reject) => {
+          rejectInFlight = reject;
+        })
+      );
+      const card = await renderFaucetCard();
+
+      await act(async () => {
+        rejectInFlight(new FaucetRateLimitedError(RATE_LIMITED, 25));
+      });
+
+      await waitFor(() => expect(card).toHaveAttribute('data-status', 'failure'));
+      expect(within(card).getByText('faucetRateLimitedWait:25')).toBeInTheDocument();
+    });
   });
 
   it('still completes the prompt when the account is switched during the Funded beat', async () => {
@@ -3586,6 +3784,53 @@ describe('HomePrompts', () => {
     expect(jest.requireMock('lib/woozie').navigate).toHaveBeenCalledWith('/history?filter=pending&view=list');
   });
 
+  it('revalues stable pending notes on config-only price changes and removes an unavailable total', async () => {
+    _setSwapTokensForTest(undefined);
+    mockBridgeSnapshot = iethPriceSnapshot('ETH');
+    mockUseWalletPromptStorage.mockReturnValue(makePromptState());
+    const notes: PendingNoteValue[] = [
+      {
+        id: 'configured-pending',
+        amount: '125000000',
+        faucetId: TEST_TOKEN_IETH.faucetId,
+        metadata: { symbol: TEST_TOKEN_IETH.symbol, name: 'Ether', decimals: TEST_TOKEN_IETH.decimals }
+      }
+    ];
+    const prices = {
+      ETH: { price: 2, change24h: 0, percentageChange24h: 0 },
+      BTC: { price: 4, change24h: 0, percentageChange24h: 0 }
+    };
+    try {
+      render(
+        <HomePrompts
+          account={account}
+          balances={fundedBalance}
+          balancesLoading={false}
+          claimableNotes={notes}
+          fundingNotes={notes}
+          tokenPrices={prices}
+        />
+      );
+      await act(async () => {});
+      expect(screen.getByTestId('prompt-card-value')).toHaveTextContent('$2.50');
+
+      act(() => {
+        mockBridgeSnapshot = iethPriceSnapshot('BTC');
+        publishMockBridgeSnapshot();
+      });
+      expect(screen.getByTestId('prompt-card-value')).toHaveTextContent('$5.00');
+
+      act(() => {
+        mockBridgeSnapshot = iethPriceSnapshot();
+        publishMockBridgeSnapshot();
+      });
+      expect(screen.queryByTestId('prompt-card-value')).not.toBeInTheDocument();
+      expect(screen.getByText('pendingNotesPromptBodyReview:1')).toBeInTheDocument();
+    } finally {
+      _setSwapTokensForTest(undefined);
+    }
+  });
+
   // Money waiting to be accepted takes the Receive tint and glyph, apart from the notices; the seed
   // reminder keeps its warning tint under a shield.
   it('draws pending notes as a receive card and seed verification under a shield', () => {
@@ -4183,4 +4428,5 @@ describe('HomePrompts', () => {
 
 beforeEach(() => {
   mockLegacyFeeIdentity = undefined;
+  mockBridgeSnapshot = undefined;
 });

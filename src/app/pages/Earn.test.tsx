@@ -144,12 +144,42 @@ describe('Earn page', () => {
 
   it('shows a retryable load error, not "no positions", when a load failed with nothing to show', () => {
     const refetch = jest.fn();
-    mockUseEarnPositions.mockReturnValue({ summary, positions: [], vaults, isLoading: false, error: 'boom', refetch });
+    mockUseEarnPositions.mockReturnValue({
+      summary,
+      positions: [],
+      vaults,
+      isLoading: false,
+      error: 'boom',
+      notOnNetwork: false,
+      refetch
+    });
     render(<Earn />);
     expect(screen.queryByTestId('earn-positions-empty')).toBeNull();
     expect(screen.getByRole('alert')).toHaveTextContent('earnPositionsLoadError');
     fireEvent.click(screen.getByRole('button', { name: 'retry' }));
     expect(refetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('says Earn is not on this network, with no error, retry, summary or See all, where the network has none', () => {
+    mockUseEarnPositions.mockReturnValue({
+      summary,
+      positions: [],
+      vaults: [],
+      isLoading: false,
+      error: 'The bridge config has no usable epoch.positionsUrl.',
+      loadError: 'The bridge config has no usable epoch.positionsUrl.',
+      notOnNetwork: true,
+      refetch: jest.fn()
+    });
+    render(<Earn />);
+    expect(screen.getByTestId('earn-unavailable')).toHaveTextContent('earnUnavailableOnNetwork');
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'retry' })).toBeNull();
+    expect(screen.queryByTestId('earn-summary-panel')).toBeNull();
+    expect(screen.queryByTestId('earn-see-all')).toBeNull();
+    expect(screen.queryByTestId('earn-positions-empty')).toBeNull();
+    // The page is still named, so the tab reads the same to assistive tech.
+    expect(screen.getByTestId('earn-title')).toHaveTextContent('earnTitle');
   });
 
   it('says a per-owner positions failure too, which is not a request failure', () => {
@@ -394,4 +424,13 @@ describe('Earn page', () => {
 
     expect(within(vaultsSection()).getAllByRole('button')).toHaveLength(vaults.length);
   });
+});
+
+it('lists the Testnet native funding asset while keeping the vault underlying separate', () => {
+  const vault = { ...vaults[0]!, fundingAsset: 'USDCx' };
+  mockUseEarnPositions.mockReturnValue({ ...EARN_DATA, vaults: [vault] });
+  render(<Earn />);
+  const row = screen.getByTestId(`earn-vault-row-${vault.id}`);
+  expect(row).toHaveTextContent('earnVaultAssetOnNetwork:USDCx,Miden');
+  expect(row).not.toHaveTextContent(`earnVaultAssetOnNetwork:${vault.asset},${vault.network}`);
 });

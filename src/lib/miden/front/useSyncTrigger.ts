@@ -15,6 +15,7 @@ import {
   MAX_SYNC_BACKOFF_MS,
   monotonicNowMs
 } from 'lib/miden/sync-backoff';
+import { sweepNoteDeliveries } from 'lib/miden/transaction/note-delivery-sweep';
 import { runTrimTick } from 'lib/miden/transaction/trim-result-bytes';
 import { isExtension } from 'lib/platform';
 import { WalletMessageType, WalletStatus } from 'lib/shared/types';
@@ -257,7 +258,12 @@ export function useSyncTrigger() {
             // Settle transactions whose submit outcome was unknown (#1081), fired and forgotten: node reads, and
             // for each kept Guardian candidate it releases, a short WASM-lock read to build the cold service, a
             // bounded Guardian abandon and up to 60 s of polling. Only after a sync that ran, like the resets above.
-            if (synced) void reconcileUnconfirmedInApp();
+            // The private-note delivery sweep rides along for the same reason, and because nothing else here
+            // re-sends a note whose relay failed. It runs one pass at a time and does no query while nothing is due.
+            if (synced) {
+              void reconcileUnconfirmedInApp();
+              void sweepNoteDeliveries();
+            }
 
             const guardianAccountKeys = useWalletStore
               .getState()

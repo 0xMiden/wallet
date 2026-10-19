@@ -58,7 +58,10 @@ const DEEPL_CONTEXT =
   '(a mnemonic): use the term wallets in that language usually use for it. "Guardian switch" ' +
   '(and "switch" in a sentence about the Guardian) means replacing the account\'s Guardian ' +
   'co-signing service with another one: translate it as a change or replacement of the ' +
-  'Guardian, never as a network or hardware switch, a toggle, a device or a key.';
+  'Guardian, never as a network or hardware switch, a toggle, a device or a key. "Burn" ' +
+  '(and "burned") means destroying tokens so they leave circulation, never imprinting, ' +
+  'recording or setting on fire. "Fill" (and "filled", "unfilled") means a swap order being ' +
+  'matched by a counterparty, never filling in a form or field.';
 
 const root = path.resolve(__dirname, '..');
 // Use en.json as source of truth (flat format), not messages.json (Chrome extension format)
@@ -105,6 +108,95 @@ const PROTECT_REGEX = new RegExp(
   'g',
 );
 
+// DeepL has put an <x> tag against a neighbouring word or also translated the word beside it, and
+// unwrapping left the two fused ("L’note", "notess", "Notnote", "dfaucet", #1399).
+const ANY_TERM_REGEX = new RegExp(TECHNICAL_TERM_VARIANTS.join('|'), 'g');
+const PLACEHOLDER_REGEX = /\$[a-zA-Z_][a-zA-Z0-9_]*\$/g;
+// Japanese and Chinese write no spaces and Korean attaches particles to the noun, so their letters may
+// touch a term.
+const GLUE_LETTER =
+  /^(?![\p{Script_Extensions=Han}\p{Script_Extensions=Hiragana}\p{Script_Extensions=Katakana}\p{Script_Extensions=Hangul}])[\p{L}\p{M}]$/u;
+const APOSTROPHE = /^['’ʼ]$/;
+// Endings a language attaches straight to a singular loanword ("blockchains", "Guardiana", "fauceta").
+// Any other letters after a term, and any after a plural one ("notess"), are glue.
+const TERM_ENDINGS: Record<string, string[]> = {
+  de: ['s'],
+  en: ['s'],
+  es: ['s', 'es'],
+  fr: ['s'],
+  pl: ['a', 'u', 'owi', 'em', 'ie', 'y', 'i', 'owie', 'ów', 'om', 'ami', 'ach'],
+  pt: ['s']
+};
+// Native words containing a term, matched as whole words without regard to case in unwrapped text.
+// DeepL's tagged terms have no native-word exemption: "A<x>note</x>" is glue even where "Anote" is a verb.
+const TERM_NATIVE_WORDS: Record<string, string[]> = {
+  de: ['knoten', 'knotens'],
+  es: ['anote', 'anoten', 'anotes', 'anotemos'],
+  fr: [
+    'notent',
+    'noter',
+    'notera',
+    'noterai',
+    'noteraient',
+    'noterais',
+    'noterait',
+    'noteras',
+    'noterez',
+    'noteriez',
+    'noterions',
+    'noterons',
+    'noteront',
+    'notez'
+  ],
+  pt: ['anote', 'anotei', 'anoteis', 'anotem', 'anotemos', 'anotes']
+};
+
+const termFamily = (term: string): string => term.toLowerCase().replace(/s$/, '');
+
+function protectedTermFamilies(english: string): Set<string> {
+  const families = new Set<string>();
+  for (const m of english.matchAll(PROTECT_REGEX)) {
+    if (TECHNICAL_TERM_VARIANTS.includes(m[0])) families.add(termFamily(m[0]));
+  }
+  return families;
+}
+
+function findGluedWord(text: string, start: number, term: string, endings: string[]): string | undefined {
+  const isGlueLetter = (i: number): boolean => i >= 0 && i < text.length && GLUE_LETTER.test(text[i]);
+  const end = start + term.length;
+  let after = end;
+  while (isGlueLetter(after)) after++;
+  const ending = text.slice(end, after);
+  // Every term starts with a consonant, and no shipped language elides before one ("L’note" is "La note").
+  const elided = APOSTROPHE.test(text[start - 1] ?? '') && isGlueLetter(start - 2);
+  const gluedAfter = ending !== '' && (/s$/i.test(term) || !endings.includes(ending));
+  if (!isGlueLetter(start - 1) && !elided && !gluedAfter) return undefined;
+  let from = elided ? start - 1 : start;
+  while (isGlueLetter(from - 1)) from--;
+  return text.slice(from, after);
+}
+
+// The words of `translation` that embed a term `english` protects. An embedded match is glue unless the
+// whole word is a known native word in that language. Clean occurrences elsewhere never exempt glue,
+// and a translation may replace a repeated term with a pronoun. Fresh translations also check DeepL's tags.
+// `language` is a locale directory or a DeepL code ("pt", "pt-BR").
+function findGluedTerms(translation: string, english: string, language: string): string[] {
+  const protectedFamilies = protectedTermFamilies(english);
+  const locale = language.split(/[-_]/)[0].toLowerCase();
+  const endings = TERM_ENDINGS[locale] ?? [];
+  const nativeWords = TERM_NATIVE_WORDS[locale] ?? [];
+  const text = translation.replace(PLACEHOLDER_REGEX, placeholder => '$'.repeat(placeholder.length));
+  const glued: string[] = [];
+  for (const m of text.matchAll(ANY_TERM_REGEX)) {
+    const term = m[0];
+    const family = termFamily(term);
+    if (!protectedFamilies.has(family)) continue;
+    const word = findGluedWord(text, m.index, term, endings);
+    if (word !== undefined && !nativeWords.includes(word.toLowerCase())) glued.push(word);
+  }
+  return glued;
+}
+
 function xmlEscape(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
@@ -136,8 +228,8 @@ function fromDeepLXml(translated: string): string {
   return xmlUnescape(translated.replace(/<\/?x\s*>/g, ''));
 }
 
-// Translate an array of English source strings into `targetCode`, preserving technical
-// terms and $placeholder$ variables. Order of the returned array matches the input.
+// Translate English strings into `targetCode`, keeping DeepL's <x> tags for translatedEntry to check
+// before unwrapping technical terms and $placeholder$ variables. The returned order matches the input.
 async function translateBatch(sources: string[], targetCode: string): Promise<string[]> {
   if (sources.length === 0) return [];
   const out: string[] = [];
@@ -149,7 +241,7 @@ async function translateBatch(sources: string[], targetCode: string): Promise<st
       outlineDetection: false,
       context: DEEPL_CONTEXT,
     });
-    for (const r of results) out.push(fromDeepLXml(r.text));
+    for (const r of results) out.push(r.text);
   }
   return out;
 }
@@ -180,6 +272,33 @@ function buildEntry(message: string, englishMessage: string): any {
   return entry;
 }
 
+// The marker of an entry whose message is the English text: format-locales.js leaves it out of the flat
+// bundle. Rejections also record rejectedSource so unchanged English is not sent again.
+const UNTRANSLATED = '(untranslated)';
+
+// Check each protected term's DeepL tag without native-word exemptions and the unwrapped text with
+// findGluedTerms. Rejected text keeps English under UNTRANSLATED and stays out of the flat bundle; send it
+// again only when its English changes or its entry is deleted. Clean text is written without tags.
+function translatedEntry(key: string, translation: string, english: string, language: string) {
+  const unwrapped = fromDeepLXml(translation);
+  const protectedFamilies = protectedTermFamilies(english);
+  const endings = TERM_ENDINGS[language.split(/[-_]/)[0].toLowerCase()] ?? [];
+  const glued = findGluedTerms(unwrapped, english, language);
+  for (const m of translation.matchAll(/<x\s*>([\s\S]*?)<\/x\s*>/g)) {
+    const term = xmlUnescape(m[1]);
+    if (!TECHNICAL_TERM_VARIANTS.includes(term) || !protectedFamilies.has(termFamily(term))) continue;
+    const start = fromDeepLXml(translation.slice(0, m.index)).length;
+    const word = findGluedWord(unwrapped, start, term, endings);
+    if (word !== undefined && !glued.includes(word)) glued.push(word);
+  }
+  if (glued.length === 0) return buildEntry(unwrapped, english);
+  // A GitHub Actions annotation, so the rejection shows on the pull request, not only in the job log.
+  console.log(
+    `::warning title=Rejected translation::${language} ${key} glues ${glued.join(', ')}; keeping the English.`
+  );
+  return { ...buildEntry(english, english), englishSource: UNTRANSLATED, rejectedSource: english };
+}
+
 // Translate every key of en.json into `code`, writing a throwaway tmp file (does not
 // touch the real locale). Used by the `-c <code>` mode.
 async function translateFile(code: string) {
@@ -191,10 +310,39 @@ async function translateFile(code: string) {
 
   const newFile: any = {};
   keys.forEach((key, i) => {
-    newFile[key] = buildEntry(translations[i], englishFile[key]);
+    newFile[key] = translatedEntry(key, translations[i], englishFile[key], code);
   });
 
   fs.writeFileSync(path.join(root, 'utility/tmp-messages.json'), JSON.stringify(newFile, null, 2));
+}
+
+type TranslationEntry = {
+  message: string;
+  englishSource?: string;
+  rejectedSource?: string;
+  placeholders?: Record<string, { content: string }>;
+};
+
+function translationEntryToKeep(englishMessage: string, existingItem?: TranslationEntry): TranslationEntry | undefined {
+  const placeholders = generateChromePlaceholders(englishMessage);
+  if (!existingItem) {
+    return undefined;
+  } else if (!existingItem.englishSource) {
+    // Existing translation without englishSource - keep it, add the source (one-time migration)
+    const entry: any = { ...existingItem, englishSource: englishMessage };
+    if (placeholders) entry.placeholders = placeholders;
+    return entry;
+  } else if (
+    existingItem.englishSource !== englishMessage &&
+    !(existingItem.englishSource === UNTRANSLATED && existingItem.rejectedSource === englishMessage)
+  ) {
+    return undefined;
+  } else {
+    // Current or rejected against unchanged English - copy through, refreshing placeholders
+    const entry: any = { ...existingItem };
+    if (placeholders) entry.placeholders = placeholders;
+    return entry;
+  }
 }
 
 // Regenerate a locale's messages.json from en.json, translating only what changed:
@@ -213,25 +361,11 @@ async function translateWithDiff(fileName: string, code: string, replaceFile: bo
   const toTranslate: { key: string; english: string }[] = [];
   for (const key in englishFile) {
     const englishMessage = englishFile[key]; // en.json is flat: "key": "value"
-    const existingItem = existingFile[key];
-    const placeholders = generateChromePlaceholders(englishMessage);
-
-    if (!existingItem) {
-      // Missing translation - queue it
-      toTranslate.push({ key, english: englishMessage });
-    } else if (!existingItem.englishSource) {
-      // Existing translation without englishSource - keep it, add the source (one-time migration)
-      const entry: any = { ...existingItem, englishSource: englishMessage };
-      if (placeholders) entry.placeholders = placeholders;
+    const entry = translationEntryToKeep(englishMessage, existingFile[key]);
+    if (entry) {
       newFile[key] = entry;
-    } else if (existingItem.englishSource !== englishMessage) {
-      // English source has changed - queue a re-translation
-      toTranslate.push({ key, english: englishMessage });
     } else {
-      // Up to date - copy through, refreshing placeholders
-      const entry: any = { ...existingItem };
-      if (placeholders) entry.placeholders = placeholders;
-      newFile[key] = entry;
+      toTranslate.push({ key, english: englishMessage });
     }
   }
 
@@ -243,7 +377,7 @@ async function translateWithDiff(fileName: string, code: string, replaceFile: bo
       code,
     );
     toTranslate.forEach((t, i) => {
-      newFile[t.key] = buildEntry(translations[i], t.english);
+      newFile[t.key] = translatedEntry(t.key, translations[i], t.english, code);
     });
   }
 
@@ -338,8 +472,17 @@ async function fixAllPotentialErrors() {
   }
 }
 
-// Export the pure, side-effect-free helpers for unit testing (no API calls).
-module.exports = { toDeepLXml, fromDeepLXml, PROTECT_REGEX, generateChromePlaceholders, LOCALE_TO_DEEPL };
+// Export the helpers for unit testing (no API calls; translatedEntry logs a rejection).
+module.exports = {
+  toDeepLXml,
+  fromDeepLXml,
+  PROTECT_REGEX,
+  generateChromePlaceholders,
+  LOCALE_TO_DEEPL,
+  findGluedTerms,
+  translatedEntry,
+  translationEntryToKeep
+};
 
 // CLI entry point — only when run directly (`ts-node generateLanguageFiles.ts`), never
 // when required by a test.

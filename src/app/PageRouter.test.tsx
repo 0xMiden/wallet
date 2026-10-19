@@ -126,7 +126,12 @@ jest.mock('app/layouts/TabLayout', () => ({
 jest.mock('components/NetworkModeBanner', () => ({
   NetworkModeBanner: () => <div data-testid="network-mode-banner" />
 }));
+jest.mock('components/MainnetCountdownBanner', () => ({
+  MainnetCountdownBanner: () => <div data-testid="mainnet-countdown-banner" />
+}));
 jest.mock('app/pages/Explore', () => ({ __esModule: true, default: () => <div data-testid="explore" /> }));
+jest.mock('app/pages/Me', () => ({ __esModule: true, default: () => <div data-testid="me" /> }));
+jest.mock('app/pages/MyBadges', () => ({ __esModule: true, default: () => <div data-testid="my-badges" /> }));
 jest.mock('app/pages/OpenSidePanel', () => ({
   __esModule: true,
   default: () => <div data-testid="open-side-panel" />
@@ -283,8 +288,9 @@ beforeEach(() => {
 });
 
 describe('app/PageRouter — no network banner', () => {
-  // The wallet names its test network in a pill above Home's balance card (NetworkModePill); only the
-  // dApp confirm window keeps the full-width banner.
+  // The wallet names its test network in a banner above Home's action bar, which TabLayout draws
+  // (mocked here), and on the screens that commit value (NetworkModeBanner). The router itself draws
+  // no network banner.
   it('renders no banner above a routed page', () => {
     renderAt('/', { ready: true, hydrated: true });
     expect(screen.getByTestId('explore')).toBeInTheDocument();
@@ -294,6 +300,55 @@ describe('app/PageRouter — no network banner', () => {
   it('renders no banner above pre-ready screens either', () => {
     renderAt('/reset-required');
     expect(screen.queryByTestId('network-mode-banner')).not.toBeInTheDocument();
+  });
+});
+
+describe('app/PageRouter — mainnet countdown banner', () => {
+  // The banner sits above the whole layer stack of the open wallet (so above Home's action bar), on
+  // tab pages and pushed pages alike, and never over Unlock, loading or onboarding.
+  it('sits above a routed tab page', () => {
+    renderAt('/', ready);
+    const banner = screen.getByTestId('mainnet-countdown-banner');
+    expect(
+      banner.compareDocumentPosition(screen.getByTestId('explore')) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+  });
+
+  it('stays above a pushed page', () => {
+    renderAt('/settings/general', ready);
+    expect(screen.getByTestId('mainnet-countdown-banner')).toBeInTheDocument();
+  });
+
+  it.each([
+    ['locked', '/', { ready: true, locked: true, hydrated: true }],
+    ['not yet hydrated', '/', { ready: true, hydrated: false }],
+    ['pre-ready', '/reset-required', {}]
+  ])('renders nothing while the wallet is %s', (_label, pathname, ctx) => {
+    renderAt(pathname, ctx);
+    expect(screen.queryByTestId('mainnet-countdown-banner')).not.toBeInTheDocument();
+  });
+
+  it('is absent while onboarding is finishing, and present once it is released', () => {
+    const mark = markOnboardingFinishing();
+    try {
+      renderAt('/', ready);
+      expect(screen.queryByTestId('mainnet-countdown-banner')).not.toBeInTheDocument();
+    } finally {
+      act(() => mark.release());
+    }
+    expect(screen.getByTestId('mainnet-countdown-banner')).toBeInTheDocument();
+  });
+
+  it.each([
+    '/help-improve-wallet',
+    '/finish-side-panel',
+    '/forgot-password',
+    '/forgot-password-info',
+    '/reset-required',
+    '/reset-wallet'
+  ])('is absent at %s even with the wallet ready', pathname => {
+    renderAt(pathname, ready);
+    expect(screen.queryByTestId('mainnet-countdown-banner')).not.toBeInTheDocument();
   });
 });
 
@@ -422,6 +477,14 @@ describe('app/PageRouter — pre-ready / special routes', () => {
     expect(screen.getByTestId('unlock')).toBeInTheDocument();
     expect(screen.queryByTestId('developer-settings')).not.toBeInTheDocument();
   });
+
+  // Before the backend answers, the status is the initial Idle even when a wallet exists, and the
+  // screen would open its no-wallet edit mode for that wallet.
+  it('/developer-settings waits on the loading spinner until the backend state has arrived', () => {
+    renderAt('/developer-settings', { locked: false, ready: false, hydrated: false });
+    expect(screen.getByTestId('root-suspense-fallback')).toBeInTheDocument();
+    expect(screen.queryByTestId('developer-settings')).not.toBeInTheDocument();
+  });
 });
 
 describe('app/PageRouter — the `*` catch-all (resolveRootView)', () => {
@@ -500,7 +563,7 @@ describe('app/PageRouter — ready tab & full-screen routes', () => {
     expect(tabs).not.toBeNull();
 
     // A tab change swaps panes inside the one tabs layer, never the layer itself.
-    mockLocation.pathname = '/settings';
+    mockLocation.pathname = '/me';
     rerender(<PageRouter />);
     expect(container.querySelectorAll('[data-page-layer]')).toHaveLength(1);
     expect(container.querySelector('[data-page-layer]')).toBe(tabs);
@@ -524,13 +587,24 @@ describe('app/PageRouter — ready tab & full-screen routes', () => {
     expect(el).toHaveAttribute('data-tab-slug', 'general');
   });
 
-  // The Settings root is a primary tab destination, so it gets the persistent
-  // footer; its sub-pages keep the FullScreenPage drill-in asserted above.
-  it('/settings renders Settings with no tab slug inside TabLayout', () => {
+  it('/me renders the profile inside TabLayout', () => {
+    renderAt('/me', ready);
+    expect(screen.getByTestId('tab-layout')).toContainElement(screen.getByTestId('me'));
+    expect(screen.queryByTestId('full-screen-page')).not.toBeInTheDocument();
+  });
+
+  it('/me/badges pushes the badge collection over the profile', () => {
+    renderAt('/me/badges', ready);
+    expect(screen.getByTestId('full-screen-page')).toContainElement(screen.getByTestId('my-badges'));
+    expect(screen.getByTestId('full-screen-page')).toHaveAttribute('data-entrance', 'slide');
+  });
+
+  it('/settings renders Settings with no tab slug inside FullScreenPage', () => {
     renderAt('/settings', ready);
     const el = screen.getByTestId('settings');
-    expect(screen.getByTestId('tab-layout')).toContainElement(el);
-    expect(screen.queryByTestId('full-screen-page')).not.toBeInTheDocument();
+    expect(screen.getByTestId('full-screen-page')).toContainElement(el);
+    expect(screen.getByTestId('full-screen-page')).toHaveAttribute('data-entrance', 'slide');
+    expect(screen.queryByTestId('tab-layout')).not.toBeInTheDocument();
     expect(el).toHaveAttribute('data-tab-slug', '');
   });
 

@@ -1505,6 +1505,98 @@ describe('History', () => {
   });
 });
 
+describe('History USDCx entry plumbing', () => {
+  it('threads burn and bridged-receive state onto completed and pending entries', async () => {
+    const completedBurn = {
+      noteId: 'completed-burn-note',
+      destinationDomain: 0,
+      phase: 'confirmed',
+      destinationBalanceConfirmed: { balance: '1000000', blockNumber: '42' }
+    } as const;
+    const pendingBurn = {
+      noteId: 'pending-burn-note',
+      destinationDomain: 0,
+      phase: 'pending'
+    } as const;
+    const cctp = { sourceDomain: 6, executeTxHash: '0xexecute', forwardState: 'COMPLETE' } as const;
+
+    mockGetCompletedTransactions.mockImplementation(async (_addr: string, offset?: number) =>
+      offset === undefined
+        ? [
+            {
+              id: 'COMPLETED-BURN',
+              status: STATUS.Completed,
+              displayMessage: 'Burning',
+              displayIcon: 'SEND',
+              type: 'bridged-send',
+              completedAt: 3000,
+              extraInputs: {
+                provider: 'usdcx',
+                destinationAddress: '0xdestination',
+                destinationNetwork: 11155111,
+                sourceFaucetId: 'usdcx-faucet',
+                claimStatus: 'not-applicable',
+                usdcxBurn: completedBurn
+              }
+            },
+            {
+              id: 'USDCX-RECEIVE',
+              status: STATUS.Completed,
+              displayMessage: 'Received',
+              displayIcon: 'RECEIVE',
+              type: 'bridged-receive',
+              completedAt: 2000,
+              extraInputs: {
+                provider: 'usdcx',
+                sourceAddress: '0xsource',
+                sourceChainId: 84532,
+                sourceAmount: '10',
+                sourceSymbol: 'USDC',
+                evmTxHash: '0xdeposit',
+                phase: 'received',
+                cctp,
+                outputAmount: '10',
+                outputSymbol: 'USDCx',
+                midenNoteId: 'received-note'
+              }
+            }
+          ]
+        : []
+    );
+    mockGetUncompletedTransactions.mockResolvedValue([
+      {
+        id: 'PENDING-BURN',
+        status: STATUS.GeneratingTransaction,
+        displayMessage: 'Burning',
+        type: 'bridged-send',
+        initiatedAt: 1000,
+        extraInputs: {
+          provider: 'usdcx',
+          destinationAddress: '0xdestination',
+          destinationNetwork: 11155111,
+          sourceFaucetId: 'usdcx-faucet',
+          claimStatus: 'not-applicable',
+          usdcxBurn: pendingBurn
+        }
+      }
+    ]);
+
+    await renderHistory();
+    await waitFor(() => expect(mockHistoryViewProps.entries).toHaveLength(3));
+
+    const entry = (key: string) =>
+      mockHistoryViewProps.entries.find((candidate: { key: string }) => candidate.key === key);
+    expect(entry('completed-COMPLETED-BURN').usdcxBurn).toEqual(completedBurn);
+    expect(entry('pending-PENDING-BURN').usdcxBurn).toEqual(pendingBurn);
+    expect(entry('completed-USDCX-RECEIVE')).toMatchObject({
+      bridgeInProvider: 'usdcx',
+      bridgeInSourceChainId: 84532,
+      bridgeInCctp: cctp,
+      bridgeInPhase: 'received'
+    });
+  });
+});
+
 // A batch claim's secondary assets are rendered on the row, so they have to
 // reach the entry and be reachable by search — otherwise typing a symbol the
 // user can see hides the very row showing it.

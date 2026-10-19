@@ -18,7 +18,7 @@ import { join } from 'node:path';
 
 const DEFAULT_CIRCLE_URL = 'https://xreserve-api-testnet.circle.com';
 const DEFAULT_MIDEN_RPC_URL = 'https://rpc.testnet.miden.io';
-// Circle's remote-domain id for Miden: USDCX_MIDEN_REMOTE_DOMAIN in src/lib/usdcx/constant.ts.
+// Circle's remote-domain id for Miden: USDCX_REMOTE_DOMAIN in src/lib/usdcx/constant.ts.
 const DEFAULT_REMOTE_DOMAIN = '10007';
 const LOG_TAIL_CHARS = 4000;
 

@@ -7,12 +7,20 @@ import {
   TEST_BRIDGE_CONFIG_SNAPSHOT,
   TEST_MIDEN_USDC_FAUCET
 } from 'lib/epoch/testing/bridge-config';
-import { TOKEN_IBTC, TOKEN_IETH } from 'lib/miden/swap/tokens';
+import { TEST_SWAP_TOKENS, TEST_TOKEN_IBTC, TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
+import { _setSwapTokensForTest } from 'lib/miden/swap/tokens';
 import { hasUnquotedDefaultPrice } from 'lib/prices/unquoted-default';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
+import { isUsdcxWithdrawalAvailable } from 'lib/usdcx/withdrawal';
 
 import { SelectTokenDrawer } from './SelectToken';
 import { UIToken } from './types';
+
+// The testnet document's swap registry (IETH priced at ETH), in place of the one the wallet used to compile in.
+beforeAll(() => _setSwapTokensForTest(TEST_SWAP_TOKENS));
+afterAll(() => _setSwapTokensForTest(undefined));
+
+jest.mock('lib/usdcx/withdrawal', () => ({ isUsdcxWithdrawalAvailable: jest.fn(() => false) }));
 
 // `react-i18next` pulls in the full i18n runtime; stub `useTranslation` so
 // `t(key)` echoes the key back and we can assert against the raw keys.
@@ -34,6 +42,10 @@ jest.mock('lib/remote-config/runtime', () =>
 afterEach(() => {
   mockBridgeSnapshot = undefined;
 });
+
+// The discovered native asset; none until a case discovers one.
+let mockNativeFaucetId: string | null = null;
+jest.mock('app/hooks/useNativeFeeFaucetId', () => ({ __esModule: true, default: () => mockNativeFaucetId }));
 
 // `lib/miden/front` is the WASM-backed data barrel. Stub the three hooks the
 // component consumes so we can drive account / balances / metadata by hand.
@@ -131,7 +143,7 @@ type Balance = {
 };
 
 const BTC: Balance = {
-  tokenId: TOKEN_IBTC.faucetId,
+  tokenId: TEST_TOKEN_IBTC.faucetId,
   metadata: { symbol: 'BTC', name: 'Bitcoin', decimals: 8 },
   balance: 1.5,
   fiatPrice: 50000
@@ -160,7 +172,7 @@ const MIDEN: Balance = {
 
 // A swap test token that stands for ETH, held under its registry faucet id.
 const IETH: Balance = {
-  tokenId: TOKEN_IETH.faucetId,
+  tokenId: TEST_TOKEN_IETH.faucetId,
   metadata: { symbol: 'IETH', decimals: 8 },
   balance: 2,
   fiatPrice: 0
@@ -181,6 +193,8 @@ const search = () => screen.getByTestId('send-token-search') as HTMLInputElement
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+  mockNativeFaucetId = null;
   mockUseAccount.mockReturnValue({ publicKey: 'pk-abc' });
   mockUseAllTokensBaseMetadata.mockReturnValue({});
   mockUseAllBalances.mockReturnValue({ data: [] });
@@ -193,6 +207,31 @@ afterEach(() => {
 });
 
 describe('SelectTokenDrawer', () => {
+  it('disables other tokens when the destination requires USDCx', () => {
+    const usdcx = { ...MIDEN, metadata: { ...MIDEN.metadata, symbol: 'USDCx' } };
+    jest.mocked(isUsdcxWithdrawalAvailable).mockImplementation(id => id === usdcx.tokenId);
+    setBalances([BTC, usdcx]);
+    const { onSelect, onOpenChange, rerender } = renderDrawer({ usdcxOnly: true });
+    expect(screen.getByTestId('send-token-BTC')).toBeDisabled();
+    fireEvent.click(screen.getByTestId('send-token-BTC'));
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(onOpenChange).not.toHaveBeenCalled();
+    expect(screen.getByTestId('send-token-USDCx')).toBeEnabled();
+    fireEvent.click(screen.getByTestId('send-token-USDCx'));
+    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: usdcx.tokenId }));
+    rerender(<SelectTokenDrawer open onOpenChange={onOpenChange} onSelect={onSelect} usdcxOnly={false} />);
+    expect(screen.getByTestId('send-token-BTC')).toBeEnabled();
+  });
+
+  it('says why the other tokens are disabled when the destination requires USDCx', () => {
+    setBalances([BTC]);
+    const { onOpenChange, onSelect, rerender } = renderDrawer({ usdcxOnly: true });
+    expect(screen.getByText('sendUsdcxOnlyDestination')).toBeInTheDocument();
+
+    rerender(<SelectTokenDrawer open onOpenChange={onOpenChange} onSelect={onSelect} usdcxOnly={false} />);
+    expect(screen.queryByText('sendUsdcxOnlyDestination')).not.toBeInTheDocument();
+  });
+
   it("leaves mobile back to SendManager's handler, which closes the sheet", () => {
     renderDrawer();
     expect(mockDrawerCloseOnBack).toBe(false);
@@ -313,7 +352,7 @@ describe('SelectTokenDrawer', () => {
     fireEvent.click(screen.getByTestId('send-token-BTC'));
 
     const expected: UIToken = {
-      id: TOKEN_IBTC.faucetId,
+      id: TEST_TOKEN_IBTC.faucetId,
       name: 'BTC',
       decimals: 8,
       balance: 1.5,
@@ -401,7 +440,7 @@ describe('SelectTokenDrawer', () => {
     const row = screen.getByTestId('send-token-IETH');
     expect(within(row).getByText('$6.00')).toBeInTheDocument();
     fireEvent.click(row);
-    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: TOKEN_IETH.faucetId, fiatPrice: 3 }));
+    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: TEST_TOKEN_IETH.faucetId, fiatPrice: 3 }));
   });
 
   it('stacks the rows unboxed at 72px, divided by a hairline like the home assets list', () => {
@@ -417,43 +456,58 @@ describe('SelectTokenDrawer', () => {
   });
 });
 
-describe('SelectTokenDrawer testnet bridge USDC label', () => {
-  const BRIDGE_USDC: Balance = {
+describe('SelectTokenDrawer Testnet Epoch USDC sunset', () => {
+  const LEGACY = {
     tokenId: TEST_MIDEN_USDC_FAUCET,
     metadata: { symbol: 'USDC', name: 'USDC', decimals: 6 },
     balance: 3,
     fiatPrice: 1
   };
-
-  it('names the row by the testnet label, keeps its USDC logo and hands the amount step the chain symbol', () => {
+  it('removes the legacy faucet from new send choices while keeping other assets', () => {
     mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
-    setBalances([BRIDGE_USDC]);
-    const { onSelect } = renderDrawer();
-
-    const row = screen.getByTestId('send-token-USDC');
-    expect(within(row).getByText('Test Epoch USDC')).toBeInTheDocument();
-    expect(within(row).getByText('3.00 Test Epoch USDC')).toBeInTheDocument();
-    expect(within(row).getByTestId('token-logo')).toHaveAttribute('data-symbol', 'USDC');
-
-    fireEvent.click(row);
-    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: TEST_MIDEN_USDC_FAUCET, name: 'USDC' }));
-  });
-
-  it('finds the row by its label', () => {
-    mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
-    setBalances([BRIDGE_USDC, BTC]);
+    setBalances([LEGACY, BTC]);
     renderDrawer();
-
+    expect(screen.queryByTestId('send-token-USDC')).not.toBeInTheDocument();
+    expect(screen.getByTestId('send-token-BTC')).toBeInTheDocument();
+  });
+  it('cannot bring the retired faucet back through search', () => {
+    mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+    setBalances([LEGACY]);
+    renderDrawer();
     fireEvent.change(search(), { target: { value: 'epoch' } });
-
-    expect(screen.getByTestId('send-token-USDC')).toBeInTheDocument();
-    expect(screen.queryByTestId('send-token-BTC')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('send-token-USDC')).not.toBeInTheDocument();
   });
-
-  it('finds the row by its label once the bridge config publishes under a search already typed', () => {
-    setBalances([BRIDGE_USDC, BTC]);
+  it('holds legacy choices while config loads and after it arrives', () => {
+    mockBridgeSnapshot = { ...TEST_BRIDGE_CONFIG_SNAPSHOT, config: null, derived: null, status: 'loading' };
+    setBalances([LEGACY]);
     renderDrawer();
-    fireEvent.change(search(), { target: { value: 'test epoch' } });
+    expect(screen.queryByTestId('send-token-USDC')).not.toBeInTheDocument();
+    act(() => {
+      mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+      publishMockBridgeSnapshot();
+    });
+    expect(screen.queryByTestId('send-token-USDC')).not.toBeInTheDocument();
+  });
+  it('lists the native USDCx and holds the legacy row while no document has arrived', () => {
+    const native = {
+      tokenId: '0x4cbdcaffe75f0a317482224dae6436',
+      metadata: { symbol: 'USDCX', name: 'USDCx', decimals: 6 },
+      balance: 7,
+      fiatPrice: 1
+    };
+    mockBridgeSnapshot = { ...TEST_BRIDGE_CONFIG_SNAPSHOT, config: null, derived: null, status: 'loading' };
+    mockNativeFaucetId = native.tokenId;
+    setBalances([LEGACY, native]);
+    renderDrawer();
+    expect(screen.getByTestId('send-token-USDCX')).toBeInTheDocument();
+    expect(screen.queryByTestId('send-token-USDC')).not.toBeInTheDocument();
+  });
+  it('says why it holds a token back until the document arrives, and drops a retired one silently', () => {
+    mockBridgeSnapshot = { ...TEST_BRIDGE_CONFIG_SNAPSHOT, config: null, derived: null, status: 'loading' };
+    mockNativeFaucetId = MIDEN.tokenId;
+    setBalances([LEGACY]);
+    renderDrawer();
+    expect(screen.getByTestId('send-picker-held-notice')).toHaveTextContent('sendTokenAvailabilityChecking');
     expect(screen.queryByTestId('send-token-USDC')).not.toBeInTheDocument();
 
     act(() => {
@@ -461,8 +515,13 @@ describe('SelectTokenDrawer testnet bridge USDC label', () => {
       publishMockBridgeSnapshot();
     });
 
-    const row = screen.getByTestId('send-token-USDC');
-    expect(within(row).getByText('Test Epoch USDC')).toBeInTheDocument();
-    expect(screen.queryByTestId('send-token-BTC')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('send-picker-held-notice')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('send-token-USDC')).not.toBeInTheDocument();
+  });
+  it('leaves the same asset available off Testnet', () => {
+    mockBridgeSnapshot = { ...TEST_BRIDGE_CONFIG_SNAPSHOT, network: 'devnet' };
+    setBalances([LEGACY]);
+    renderDrawer();
+    expect(screen.getByTestId('send-token-USDC')).toBeInTheDocument();
   });
 });

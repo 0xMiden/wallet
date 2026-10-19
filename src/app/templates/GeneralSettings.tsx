@@ -22,9 +22,7 @@ import {
   setTelemetrySetting
 } from 'lib/settings/helpers';
 import { setTheme } from 'lib/settings/theme';
-// Deep imports rather than the `lib/telemetry` barrel: the barrel would pull
-// `@sentry/browser` and the bip39 wordlist into the settings chunk.
-import { initCrashReporting, stopCrashReporting } from 'lib/telemetry/crash';
+// Deep import to keep unrelated telemetry modules out of the settings chunk.
 import { dropQueue } from 'lib/telemetry/sink';
 
 import { GeneralSettingsSelectors } from './GeneralSettings.selectors';
@@ -77,11 +75,10 @@ const GeneralSettings: FC = () => {
   const handleTelemetryChange = useCallback(async (evt: React.ChangeEvent<HTMLInputElement>) => {
     const nextEnabled = evt.target.checked;
 
-    // Stop-sharing first. Both are needed and neither is sufficient: the queue
+    // Stop usage sharing first. Both are needed and neither is sufficient: the queue
     // holds payloads already built, the mirror is what gates the next one.
     if (!nextEnabled) {
       dropQueue();
-      stopCrashReporting();
     }
 
     // Reflected at once so the switch never lags the tap, and the write awaited
@@ -91,8 +88,6 @@ const GeneralSettings: FC = () => {
     // is past this handler's reach. See `setTelemetrySetting`.
     setTelemetryEnabled(nextEnabled);
     await setTelemetrySetting(nextEnabled);
-
-    if (nextEnabled) initCrashReporting();
   }, []);
 
   return (

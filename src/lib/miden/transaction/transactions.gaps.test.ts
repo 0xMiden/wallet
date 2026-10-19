@@ -666,6 +666,120 @@ describe('completeCustomTransaction private-note delivery', () => {
     expect(mockWaitForCommit).not.toHaveBeenCalled();
     expect(txStore[0]!.noteDelivery).toBeUndefined();
   });
+
+  const pushExecuteRow = () =>
+    txStore.push({
+      id: 'tx-stages',
+      type: 'execute',
+      accountId: 'acc-1',
+      secondaryAccountId: 'recipient',
+      status: ITransactionStatus.GeneratingTransaction,
+      initiatedAt: 100
+    });
+
+  const snapshot = () => ({ ...txStore[0]!, stageTimestamps: { ...txStore[0]!.stageTimestamps } });
+
+  // Fails the first row write `matches` picks, judged on a copy of the row with the write applied, once, and records
+  // how many commit waits had run by then.
+  const failWriteOnce = (matches: (before: any, after: any) => boolean) => {
+    const where = jest.requireMock('lib/miden/repo').transactions.where as jest.Mock;
+    const realWhere = where.getMockImplementation()!;
+    const outcome: { failed: boolean; waitsBefore?: number } = { failed: false };
+    where.mockImplementation((arg: any) => {
+      const real = realWhere(arg);
+      if (typeof arg === 'string') return real;
+      return {
+        ...real,
+        modify: async (fn: (row: any) => unknown) => {
+          const row = txStore.find(t => t.id === arg.id);
+          if (!outcome.failed && row) {
+            const after = { ...row, stageTimestamps: { ...row.stageTimestamps } };
+            fn(after);
+            if (matches(row, after)) {
+              outcome.failed = true;
+              outcome.waitsBefore = mockWaitForCommit.mock.calls.length;
+              throw new Error('dexie write failed');
+            }
+          }
+          return real.modify(fn);
+        }
+      };
+    });
+    return { outcome, restore: () => where.mockImplementation(realWhere) };
+  };
+
+  // Like a private send, an execute's private notes wait for the commit and are relayed after the Guardian sync, so
+  // the row says which of the two it is waiting on (#1492).
+  it('stamps confirming for the commit wait and delivering for the relays', async () => {
+    pushExecuteRow();
+    let rowDuringWait: any;
+    let rowDuringRelay: any;
+    mockWaitForCommit.mockImplementationOnce(async () => {
+      rowDuringWait = snapshot();
+    });
+    mockSendPrivateNote.mockImplementationOnce(async () => {
+      rowDuringRelay = snapshot();
+    });
+
+    await completeCustomTransaction(txStore[0]!, makeResultWith([privateNote('a')]));
+
+    expect(rowDuringWait.stage).toBe('confirming');
+    expect(rowDuringWait.stageTimestamps.delivering).toBeUndefined();
+    expect(rowDuringWait.noteDelivery).toBe('pending');
+    expect(rowDuringRelay.stage).toBe('delivering');
+    expect(txStore[0]!.noteDelivery).toBe('relayed');
+  });
+
+  // Display state only: the relay needs the proof the commit wait produces, and the notes are owed either way. The
+  // wait count at the failed write pins each stamp to its side of the wait.
+  it.each([
+    ['confirming', 0],
+    ['delivering', 1]
+  ])('still waits for the commit and relays when the %s stamp cannot be written', async (stage, waitsBefore) => {
+    pushExecuteRow();
+    const failing = failWriteOnce((before, after) => after.stage === stage && before.stage !== stage);
+
+    try {
+      await completeCustomTransaction(txStore[0]!, makeResultWith([privateNote('a'), privateNote('b')]));
+    } finally {
+      failing.restore();
+    }
+
+    expect(failing.outcome.failed).toBe(true);
+    expect(failing.outcome.waitsBefore).toBe(waitsBefore);
+    expect(txStore[0]!.stageTimestamps?.[stage]).toBeUndefined();
+    expect(mockWaitForCommit).toHaveBeenCalledTimes(1);
+    expect(mockSendPrivateNote).toHaveBeenCalledTimes(2);
+    expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
+    expect(txStore[0]!.noteDelivery).toBe('relayed');
+  });
+
+  // The screen reads the stamps when the best-effort delivery record is missing, so they cannot depend on it.
+  it('stamps both stages when the pending delivery record cannot be written', async () => {
+    pushExecuteRow();
+    const failing = failWriteOnce(
+      (before, after) => after.noteDelivery === 'pending' && before.noteDelivery !== 'pending'
+    );
+    let rowDuringWait: any;
+    let rowDuringRelay: any;
+    mockWaitForCommit.mockImplementationOnce(async () => {
+      rowDuringWait = snapshot();
+    });
+    mockSendPrivateNote.mockImplementationOnce(async () => {
+      rowDuringRelay = snapshot();
+    });
+
+    try {
+      await completeCustomTransaction(txStore[0]!, makeResultWith([privateNote('a')]));
+    } finally {
+      failing.restore();
+    }
+
+    expect(failing.outcome.failed).toBe(true);
+    expect(rowDuringWait.noteDelivery).toBeUndefined();
+    expect(rowDuringWait.stage).toBe('confirming');
+    expect(rowDuringRelay.stage).toBe('delivering');
+  });
 });
 
 describe('a custom transaction that strands a private note says so', () => {
@@ -763,17 +877,8 @@ describe('a custom transaction that strands a private note says so', () => {
     expect(row.displayMessage).not.toContain('could not be delivered');
   });
 
-  // A relay throw IS treated as undelivered, and this case used to assert the
-  // opposite on the premise that the note is already in the client's store by the
-  // time the transport is called, so the SDK's retry outbox would deliver it.
-  //
-  // That premise does not survive contact with where the outbox is written. Rust
-  // writes the entry INSIDE the relay and only after it has resolved the transport
-  // API, so every failure upstream of that write queues nothing while throwing
-  // exactly like a mid-transport timeout that DID queue: transport not configured,
-  // a realm torn down before the op ran, and — new under 0.16 — `sendPrivateOutput`
-  // failing to resolve the note by id in this client's store. The two are
-  // indistinguishable from here, so the row records the pessimistic one:
+  // A relay throw IS treated as undelivered: the SDK does not re-send a failed
+  // relay, so the row's state is what the delivery sweep retries from, and
   // over-reporting a note that arrives anyway costs a stale warning, while
   // under-reporting costs the funds.
   it('flags a relay that threw, because the transport may never have received it', async () => {

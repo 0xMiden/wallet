@@ -17,6 +17,7 @@ import { DEFAULT_TOKEN_METADATA } from 'lib/miden/metadata';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import type { AssetMetadata } from 'lib/miden/metadata/types';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
+import { isOpenRecoveredOrder } from 'lib/miden/swap/recovered-order';
 import { getSwapTokenByFaucetId } from 'lib/miden/swap/tokens';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
@@ -182,7 +183,7 @@ export const isCompletedTransaction = (message: string): boolean => {
 /**
  * Settlement state for a completed swap order, driving the swap row's status
  * chip and the receipt's hero pill; `undefined` renders Confirmed. Pending only
- * for auto-consumed orders that carry an explicit expiry (stamped since
+ * for an open Guardian-recovered order, and for auto-consumed orders that carry an explicit expiry (stamped since
  * settlement shipped) and have no settlement stamp yet — settled, legacy, and
  * manual-claim orders all fall through to Confirmed. A settledAt stamp wins over
  * reclaimedAt (a batch containing payback notes delivered funds even if the
@@ -191,11 +192,19 @@ export const isCompletedTransaction = (message: string): boolean => {
  * Shared by the list and the detail screen so one order cannot read "Pending"
  * in the list and "Confirmed" on its own receipt.
  */
-export const swapSettlementOf = (tx: ITransaction): 'pending' | 'reclaimed' | undefined => {
+export const swapSettlementOf = (tx: ITransaction): IHistoryEntry['swapSettlement'] => {
   if (tx.type !== 'swap' || tx.status !== ITransactionStatus.Completed) return undefined;
   const extra = tx.extraInputs ?? {};
+  // Recovery writes Auto accept off and no expiry, so a recovered order reads open while its lineage has not closed
+  // it, which is what the placing device shows (#1487), and Returning funds once this wallet's Cancel stamped it. Read
+  // before the stamps: a settledAt or reclaimedAt no lineage read recorded is provisional.
+  if (isOpenRecoveredOrder(tx)) return extra.expiryTriggeredAt != null ? 'reclaiming' : 'pending';
   if (extra.settledAt != null) return undefined;
   if (extra.reclaimedAt != null) return 'reclaimed';
+  if (tx.recovered === true) return undefined;
+  // Returning funds only for an order settlement acts on: it never settles a restored row, so that stamp stays put.
+  if (extra.expiryTriggeredAt != null && extra.autoConsume !== false && extra.orderId != null && !tx.restoredFromBackup)
+    return 'reclaiming';
   if (extra.autoConsume !== false && extra.orderId != null && extra.expiresAt != null) return 'pending';
   return undefined;
 };
@@ -278,7 +287,7 @@ export const bridgeStatusOf = (entry: IHistoryEntry): BridgeStatus => {
   }
   if (entry.txType === 'consume' && entry.bridgeInProvider) return 'confirmed';
   if (entry.bridgeProvider === 'usdcx') {
-    if (entry.usdcxBurn?.phase === 'confirmed') return 'confirmed';
+    if (entry.usdcxBurn?.phase === 'confirmed' && entry.usdcxBurn.destinationBalanceConfirmed) return 'confirmed';
     if (entry.usdcxBurn?.phase === 'discarded') return 'failed';
     return 'pending';
   }
@@ -308,7 +317,7 @@ export function bridgeBadgeStatusOf(entry: IHistoryEntry): Status {
   if (entry.bridgeProvider !== 'usdcx' || entry.txType !== 'bridged-send') return bridgeStatusOf(entry);
   switch (entry.usdcxBurn?.phase) {
     case 'confirmed':
-      return 'burnConfirmed';
+      return entry.usdcxBurn.destinationBalanceConfirmed ? 'confirmed' : 'burnConfirmed';
     case 'discarded':
       return 'burnDiscarded';
     case 'consuming':

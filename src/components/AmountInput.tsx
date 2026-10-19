@@ -7,6 +7,7 @@ import { Icon, IconName } from 'app/icons/v2';
 import { ACCENT_CLASSES, FlowAccent } from 'components/flow/accent';
 import { ClearFieldButton } from 'components/ui/ClearFieldButton';
 import { Skeleton } from 'components/ui/Skeleton';
+import { getCurrentLocale } from 'lib/i18n/core';
 import { clearFieldValue } from 'lib/ui/clear-field';
 
 /**
@@ -29,7 +30,7 @@ export function amountTextSize(value?: string): string {
  */
 export const amountCaptionClassName = 'font-heading text-2xl font-bold text-gray leading-none';
 export function amountFigureClassName(value?: string): string {
-  return classNames('font-heading font-bold leading-none', amountTextSize(value));
+  return classNames('font-heading font-extrabold leading-none', amountTextSize(value));
 }
 
 /**
@@ -80,6 +81,12 @@ export function normalizeDecimalInput(rawValue: string): string {
 
 export interface AmountInputProps {
   value?: string;
+  /** Exact-token flows can opt into their own precision validation instead of the send default. */
+  decimalsLimit?: number;
+  maxLength?: number;
+  allowNegativeValue?: boolean;
+  /** Disable blur callbacks when the displayed value is a compact view of an exact selection. */
+  formatValueOnBlur?: boolean;
   onValueChange?: (value: string | undefined, name?: string, values?: CurrencyInputOnChangeValues) => void;
   placeholder?: string;
   /** Small heading above the amount (e.g. "Select Amount"), optionally a node with a network pill. */
@@ -101,8 +108,6 @@ export interface AmountInputProps {
   showDivider?: boolean;
   autoFocus?: boolean;
   inputMode?: React.HTMLAttributes<HTMLInputElement>['inputMode'];
-  decimalsLimit?: number;
-  maxLength?: number;
   /**
    * The figure's type scale. `default` is the send and swap figure, which steps down with `amountTextSize`.
    * `hero` and `compact` take the named display styles and step by the glyphs on screen, prefix included.
@@ -131,6 +136,10 @@ export interface AmountInputProps {
  */
 export const AmountInput: React.FC<AmountInputProps> = ({
   value,
+  decimalsLimit = 6,
+  maxLength = 16,
+  allowNegativeValue = false,
+  formatValueOnBlur = true,
   onValueChange,
   placeholder = '0.00',
   label,
@@ -142,8 +151,6 @@ export const AmountInput: React.FC<AmountInputProps> = ({
   showDivider = true,
   autoFocus,
   inputMode,
-  decimalsLimit = 6,
-  maxLength = 16,
   size = 'default',
   disabled,
   loading,
@@ -172,6 +179,7 @@ export const AmountInput: React.FC<AmountInputProps> = ({
       placeholder={placeholder}
       transformRawValue={normalizeDecimalInput}
       disableGroupSeparators
+      intlConfig={{ locale: getCurrentLocale().replace('_', '-'), numberingSystem: 'latn' }}
       // `disableGroupSeparators` only stops grouping in the *display*; the
       // library still derives a group separator from the ambient locale and
       // strips it from the raw input on every keystroke. On a `.`-group
@@ -182,7 +190,8 @@ export const AmountInput: React.FC<AmountInputProps> = ({
       groupSeparator=" "
       decimalSeparator="."
       decimalsLimit={decimalsLimit}
-      allowNegativeValue={false}
+      allowNegativeValue={allowNegativeValue}
+      formatValueOnBlur={formatValueOnBlur}
       maxLength={maxLength}
       inputMode={inputMode}
       enterKeyHint="done"

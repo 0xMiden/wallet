@@ -3,6 +3,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { promisify } from 'util';
 
+import { capNativeScreenshot } from '../../harness/cap-native-screenshot';
+
 const execFileAsync = promisify(execFile);
 
 const ROOT_DIR = path.resolve(__dirname, '../../../..');
@@ -169,9 +171,11 @@ export class SimulatorControl {
     }
   }
 
-  async screenshot(udid: string, outPath: string): Promise<void> {
+  /** `timeoutMs` kills the `simctl io` child at that bound instead of the default simctl one. */
+  async screenshot(udid: string, outPath: string, opts: { timeoutMs?: number } = {}): Promise<void> {
     fs.mkdirSync(path.dirname(outPath), { recursive: true });
-    await execSimctl(['io', udid, 'screenshot', outPath]);
+    await execSimctl(['io', udid, 'screenshot', outPath], opts.timeoutMs);
+    await capNativeScreenshot(outPath);
   }
 
   /**
@@ -288,8 +292,11 @@ const SIMCTL_TIMEOUT_MS = 180_000;
  * specific type to trigger recoverSimSubsystem rather than failing outright.
  */
 export class SimctlTimeoutError extends Error {
-  constructor(public readonly command: string) {
-    super(`simctl timed out after ${SIMCTL_TIMEOUT_MS}ms: simctl ${command}`);
+  constructor(
+    public readonly command: string,
+    timeoutMs = SIMCTL_TIMEOUT_MS
+  ) {
+    super(`simctl timed out after ${timeoutMs}ms: simctl ${command}`);
     this.name = 'SimctlTimeoutError';
   }
 }
@@ -298,13 +305,13 @@ export function isSimctlTimeoutError(err: unknown): err is SimctlTimeoutError {
   return err instanceof SimctlTimeoutError;
 }
 
-async function execSimctl(args: string[]): Promise<{ stdout: string; stderr: string }> {
+async function execSimctl(args: string[], timeoutMs = SIMCTL_TIMEOUT_MS): Promise<{ stdout: string; stderr: string }> {
   try {
-    return await execFileAsync('xcrun', ['simctl', ...args], { timeout: SIMCTL_TIMEOUT_MS });
+    return await execFileAsync('xcrun', ['simctl', ...args], { timeout: timeoutMs });
   } catch (err) {
     const e = err as Error & { killed?: boolean; signal?: string };
     if (e.killed || e.signal === 'SIGTERM') {
-      throw new SimctlTimeoutError(args.join(' '));
+      throw new SimctlTimeoutError(args.join(' '), timeoutMs);
     }
     throw err;
   }

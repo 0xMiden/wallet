@@ -1,5 +1,6 @@
 import type { TokenBalanceData } from 'lib/miden/front/balance';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
+import type { ClaimFeeAdmission } from 'lib/telemetry/transaction-failure';
 
 /**
  * Whether a transaction is certain to fail because the account cannot cover the
@@ -39,15 +40,25 @@ export function hasNoFeeAsset(
   if (verificationBaseFee === null || verificationBaseFee <= 0) {
     return false;
   }
+  const held = feeAssetHeld(balances, nativeAssetId);
+  return held !== null && held < verificationBaseFee;
+}
+
+/**
+ * The fee asset the vault holds, in the asset's smallest unit, or `null` when that cannot be
+ * stated: an unknown native asset, a native row that has not arrived, or an unknown scale. A row at
+ * or below zero is 0 whatever its scale.
+ */
+function feeAssetHeld(balances: readonly TokenBalanceData[], nativeAssetId: string | undefined | null): number | null {
   if (!nativeAssetId) {
-    return false;
+    return null;
   }
   const native = balances.find(balance => balance.tokenId === nativeAssetId);
   if (native === undefined) {
-    return false;
+    return null;
   }
   if (native.balance <= 0) {
-    return true;
+    return 0;
   }
   // `balance` is decimal-scaled for display, `verificationBaseFee` is in the
   // asset's smallest unit -- the same mismatch `maxSendableNative` converts for.
@@ -57,14 +68,113 @@ export function hasNoFeeAsset(
   // `hasKnownScale` is the load-bearing half of that test, not a duplicate of it:
   // `DEFAULT_TOKEN_METADATA` carries `decimals: 6` with `scaleIsUnknown: true`,
   // so a placeholder record passes the `typeof` test with an INVENTED scale and
-  // would block the form on arithmetic nobody stated. Both balance builders
+  // would block on arithmetic nobody stated. Both balance builders
   // hard-wire `MIDEN_METADATA` for the native row today, so this is a latent
   // shape rather than a live one -- which is exactly when it is cheap to close.
   const decimals = native.metadata?.decimals;
   if (typeof decimals !== 'number' || !Number.isFinite(decimals) || !hasKnownScale(native.metadata)) {
-    return false;
+    return null;
   }
-  return native.balance * 10 ** decimals < verificationBaseFee;
+  return native.balance * 10 ** decimals;
+}
+
+/** What the claim fee check reads from a note. */
+export interface ClaimFeeNote {
+  faucetId: string;
+  /** The listed asset's amount, in its smallest unit. */
+  amount: string;
+  /** The note holds fungible assets beyond the listed one. */
+  carriesMoreAssets?: boolean;
+  /** The note's full asset list is not known. */
+  assetsUnknown?: boolean;
+}
+
+/** Activity's decimal-scaled balances adapted to the shared base-unit claim fee rule. */
+export function claimFeeShortfalls(
+  transactions: ReadonlyArray<readonly ClaimFeeNote[]>,
+  ahead: readonly ClaimFeeNote[],
+  balances: readonly TokenBalanceData[],
+  nativeAssetId: string | undefined | null,
+  verificationBaseFee: number | null
+): boolean[] {
+  const held = feeAssetHeld(balances, nativeAssetId);
+  const vaultFeeAsset = held !== null && Number.isFinite(held) ? BigInt(Math.round(held)) : null;
+  return claimFeeShortfallsBaseUnits(transactions, ahead, vaultFeeAsset, nativeAssetId, verificationBaseFee);
+}
+
+/**
+ * For each consume transaction of a claim, whether it is certain to fail because the account cannot pay its network
+ * fee. `ahead` holds every note that may be consumed before these transactions, in any order: the claims already
+ * queued, and in Accept All the groups it queued before.
+ *
+ * Unlike a send, a claim can pay for itself. The kernel runs every input note's script before the epilogue's auth
+ * procedure withdraws the fee from the vault, so the fee asset a consumed note carries is already there to pay it: a
+ * new wallet pays for claiming its first USDCX out of that very note. So a transaction is refused only when the
+ * vault's fee asset plus what its own notes carry is below one base fee, `hasNoFeeAsset`'s LOWER bound, because this
+ * asks the same question, whether failure is certain, and no note ahead carries the fee asset.
+ *
+ * Nothing ahead is simulated. Which row the queue runs first turns on state the list cannot see (cooldowns, recovery
+ * holds, deduplication), so any fee asset ahead may land first and admits every transaction, and the fees paid ahead
+ * are not charged: a claim they leave unable to pay fails at signing, as it would without this check. Each transaction
+ * is judged alone, so none of them funds another; a caller queueing them one by one adds each queued one to `ahead`.
+ *
+ * Fails OPEN, refusing nothing, when the fee, native asset or vault holding is unknown or a note ahead holds assets
+ * the list does not show (any of them may be the fee asset), and admits a transaction whose own notes hold such
+ * assets or whose fee-asset amount does not parse.
+ */
+export function claimFeeShortfallsBaseUnits(
+  transactions: readonly (readonly ClaimFeeNote[])[],
+  ahead: readonly ClaimFeeNote[],
+  vaultFeeAsset: bigint | null,
+  nativeAssetId: string | undefined | null,
+  verificationBaseFee: number | null
+): boolean[] {
+  return claimFeeDecisions(transactions, ahead, vaultFeeAsset, nativeAssetId, verificationBaseFee).map(
+    decision => decision.shortfall
+  );
+}
+
+/** The fee check's first admission reason for each row; a refused row carries no admission. */
+export function claimFeeDecisions(
+  transactions: readonly (readonly ClaimFeeNote[])[],
+  ahead: readonly ClaimFeeNote[],
+  vaultFeeAsset: bigint | null,
+  nativeAssetId: string | undefined | null,
+  verificationBaseFee: number | null
+): { shortfall: boolean; admission?: ClaimFeeAdmission }[] {
+  const admitAll = (admission: ClaimFeeAdmission) => transactions.map(() => ({ shortfall: false, admission }));
+  if (!nativeAssetId) {
+    return admitAll('native_id_unknown');
+  }
+  if (verificationBaseFee === null || !Number.isFinite(verificationBaseFee) || verificationBaseFee <= 0) {
+    return admitAll('fee_unknown');
+  }
+  if (vaultFeeAsset === null) {
+    return admitAll('balance_unknown');
+  }
+  const hasUnknownAssets = (note: ClaimFeeNote) =>
+    note.assetsUnknown || note.carriesMoreAssets || !note.faucetId.trim() || !note.amount.trim();
+  if (ahead.some(hasUnknownAssets)) {
+    return admitAll('ahead_assets_unknown');
+  }
+  if (ahead.some(note => note.faucetId === nativeAssetId)) {
+    return admitAll('ahead_native');
+  }
+  // A whole-unit budget is below a fractional fee exactly when it is below its ceiling.
+  const fee = BigInt(Math.ceil(verificationBaseFee));
+  return transactions.map(notes => {
+    let available = vaultFeeAsset;
+    for (const note of notes) {
+      if (hasUnknownAssets(note)) return { shortfall: false, admission: 'note_assets_unknown' };
+      if (note.faucetId !== nativeAssetId) continue;
+      try {
+        available += BigInt(note.amount);
+      } catch {
+        return { shortfall: false, admission: 'note_assets_unknown' };
+      }
+    }
+    return available < fee ? { shortfall: true } : { shortfall: false, admission: 'known_sufficient' };
+  });
 }
 
 /**
@@ -161,7 +271,7 @@ export function isWorthClaiming(
 }
 
 /**
- * Sum of note amounts, in the asset's smallest unit — the value to hand
+ * Sum of note amounts, in the asset's smallest unit - the value to hand
  * `isWorthClaiming` when these notes will be claimed as ONE transaction.
  *
  * Shared by the three unattended auto-consumers so they cannot drift on how the batch

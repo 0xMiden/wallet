@@ -62,6 +62,10 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
   const g = globalThis as any;
   const mod: any = {
     getWasmOrThrow: (...a: any[]) => g.__off.getWasmOrThrow(...a),
+    Address: {
+      fromAccountId: (accountId: { canonical: string }) => ({ toBech32: () => accountId.canonical })
+    },
+    NetworkId: { testnet: () => 'testnet' },
     WebClient: class {
       constructor() {
         g.__off.webClientCtorCount++;
@@ -79,11 +83,6 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
     // raw bytes that crossed the boundary.
     Note: {
       deserialize: (...a: any[]) => g.__off.deserializeNote(...a)
-    },
-    // #784: the guardianPipeline DISPATCH decodes the crossed wire-form anchor
-    // back into a ChainAnchor before pinning executeRequest to it.
-    ChainAnchor: {
-      deserialize: (...a: any[]) => g.__off.deserializeChainAnchor(...a)
     },
     TransactionProver: {
       deserialize: (...a: any[]) => g.__off.deserializeProver(...a),
@@ -222,6 +221,13 @@ jest.mock('lib/miden/sdk/miden-client', () => {
   return {
     getMidenClient: (...a: any[]) => g.__off.getMidenClient(...a),
     withWasmClientLock,
+    tryWithWasmClientLock: async <T>(
+      op: (hold: object) => Promise<T>,
+      options?: unknown
+    ): Promise<{ ran: false } | { ran: true; value: T }> => {
+      if (locked) return { ran: false };
+      return { ran: true, value: await withWasmClientLock(op, options) };
+    },
     lockOptionsSeen,
     withWasmLockWatchdogPaused: async <T>(op: () => Promise<T>): Promise<T> => op(),
     yieldWasmClientLock,
@@ -251,14 +257,16 @@ jest.mock('lib/miden/sdk/miden-client', () => {
 // worker-prove helper sees this file's holds (#945).
 jest.mock('../lib/miden/sdk/miden-client', () => jest.requireMock('lib/miden/sdk/miden-client'));
 
-// The endpoint-override cache is module-scoped, i.e. PER REALM, so the offscreen
-// doc hydrates it itself at init and re-hydrates it on the SW's
-// OFFSCREEN_RELOAD_ENDPOINTS nudge. Delegate to a control fn so a test can observe
-// the call count and — where the ORDERING against client creation is what's under
-// test — hold the load open with a deferred promise.
-jest.mock('lib/miden-chain/effective-endpoints', () => {
+// An offscreen document has no chrome.storage, so every storage call rejects here as it does
+// in the real realm. The REAL effective-endpoints module runs on top of it: a stub of it hid
+// #1482, where this realm silently ran on the build's network.
+jest.mock('lib/platform/storage-adapter', () => {
   const g = globalThis as any;
-  return { loadEndpointOverrides: (...a: any[]) => g.__off.loadEndpointOverrides(...a) };
+  const refuse = async () => {
+    g.__off.storageCalls++;
+    throw new TypeError("Cannot read properties of undefined (reading 'local')");
+  };
+  return { getStorageProvider: () => ({ get: refuse, set: refuse, remove: refuse }) };
 });
 
 // Slice 5: the offscreen doc creates its client via `MidenClientInterface.create`
@@ -281,7 +289,15 @@ jest.mock('lib/miden/sdk/miden-client-interface', () => {
     MidenClientInterface: {
       create: (opts: any) => {
         g.__off.createOptions.push(opts);
-        g.__off.order.push('create');
+        // What `create` bakes into the client, read from this realm's effective-endpoints.
+        const endpoints = jest.requireActual('lib/miden-chain/effective-endpoints');
+        g.__off.createEndpoints.push({
+          network: endpoints.getEffectiveNetworkName(),
+          rpcUrl: endpoints.getEffectiveRpcUrl(),
+          proverUrl: endpoints.getEffectiveProverUrl(),
+          noteTransportUrl: endpoints.getEffectiveNoteTransportUrl(),
+          feeFaucetId: endpoints.getEffectiveFeeFaucetId()
+        });
         return g.__off.getMidenClient(opts);
       }
     },
@@ -295,6 +311,11 @@ jest.mock('lib/miden/sdk/miden-client-interface', () => {
     }
   };
 });
+
+// The dry run's request preparation, which reads the account through the client, answered per test.
+jest.mock('lib/miden/sdk/custom-request', () => ({
+  prepareCustomRequestBytes: (...a: any[]) => (globalThis as any).__off.prepareCustomRequestBytes(...a)
+}));
 
 // #945: every local prove in this document goes to the prove worker client, which
 // is replaced here by a fake transport. The default proof bytes are [1, 2, 3].
@@ -324,6 +345,9 @@ jest.mock('./prove-worker-client', () => ({
   }
 }));
 
+// What a service worker on the build's own network sends with every call (#1482).
+const SW_ENDPOINTS = { override: null, feeFaucetId: undefined };
+
 let capturedListener: Listener | undefined;
 let logSpy: jest.SpyInstance;
 let warnSpy: jest.SpyInstance;
@@ -331,16 +355,10 @@ let errorSpy: jest.SpyInstance;
 
 function resetControl() {
   G.__off = {
-    // Ordered log of the realm-startup steps whose SEQUENCE is load-bearing: the
-    // endpoint-override load must precede both the WASM init and any client create,
-    // because the client BAKES the effective endpoints in at creation time.
-    order: [] as string[],
-    loadEndpointOverrides: jest.fn(async () => {
-      (globalThis as any).__off.order.push('loadEndpointOverrides');
-    }),
-    getWasmOrThrow: jest.fn(async () => {
-      (globalThis as any).__off.order.push('getWasmOrThrow');
-    }),
+    storageCalls: 0,
+    // One entry per client build: the effective endpoints at the moment `create` ran.
+    createEndpoints: [] as any[],
+    getWasmOrThrow: jest.fn(async () => {}),
     hasInitThreadPool: true,
     initThreadPool: jest.fn(async () => {}),
     webClientCtorCount: 0,
@@ -349,13 +367,12 @@ function resetControl() {
     // guardianPipeline hands to executeRequest. Echo the bytes so the test can
     // assert the co-signed request crossed intact.
     deserializeTxRequest: jest.fn((b: Uint8Array) => ({ __trFromBytes: Array.from(b), authArg: () => undefined })),
+    // The dry run's request preparation; the bytes pass through unless a test holds or changes them.
+    prepareCustomRequestBytes: jest.fn(async (_client: unknown, _account: string, bytes: Uint8Array) => bytes),
     // Slice 7b: Note.deserialize(noteBytes) → a live-Note handle the sendPrivateNote
     // DISPATCH hands to the client. Echo the bytes so the test can assert the note
     // crossed intact.
     deserializeNote: jest.fn((b: Uint8Array) => ({ __noteFromBytes: Array.from(b) })),
-    // #784: ChainAnchor.deserialize(anchorBytes) → the anchor the guardianPipeline
-    // DISPATCH pins executeRequest to. Echoes the bytes; free() is a per-test spy.
-    deserializeChainAnchor: jest.fn((b: Uint8Array) => ({ __anchorFromBytes: Array.from(b), free: jest.fn() })),
     deserializeProver: jest.fn(async (d: string) => ({ __fromDescriptor: d })),
     newLocalProver: jest.fn(() => ({ __local: true })),
     // The explicit REMOTE prover the guardian pipeline hands a delegated prove, so
@@ -389,6 +406,14 @@ function resetControl() {
     clientGetInputNoteDetails: jest.fn(async (_q: unknown) => [
       { noteId: '0xabc', senderAccountId: 'mtst1qsender', assets: [], noteType: 0, nullifier: '0xn', state: 2 }
     ]),
+    clientGetDetailsCommitmentMatches: jest.fn(async (_commitments: string[]) => [
+      {
+        notes: [
+          { noteId: '0xreal', senderAccountId: 'mtst1qsender', assets: [], noteType: 0, nullifier: '0xn', state: 2 }
+        ],
+        uncommitted: 1
+      }
+    ]),
     clientGetTransactionCommitState: jest.fn(async (_txId: string) => 'committed'),
     // Slice-4 consumable-note DTOs on the offscreen-owned client.
     clientGetConsumableNoteDtos: jest.fn(async (_id: string) => [
@@ -402,6 +427,9 @@ function resetControl() {
         swapAttachment: null
       }
     ]),
+    clientBuildPswapCancelRequest: jest.fn(
+      async (_accountId: string, _noteId: string) => new Uint8Array([20, 14, 7, 6])
+    ),
     // Slice-5 consume: the offscreen-owned client's consumeNoteId returns a
     // TransactionResult-like object exposing serialize() (the offscreen DISPATCH
     // ships the serialized bytes back).
@@ -427,7 +455,12 @@ function resetControl() {
       remainingOffered: () => 10n,
       remainingRequested: () => 20n
     })),
-    clientGetInputNote: jest.fn(async (_id: string) => ({ metadata: () => ({ noteType: () => 1 }) })),
+    clientGetInputNote: jest.fn(async (_id: string) => ({
+      metadata: () => ({ noteType: () => 1 }),
+      details: () => {
+        throw new Error('note details unavailable');
+      }
+    })),
     clientImportNoteBytes: jest.fn(async (_bytes: Uint8Array) => '0ximportedid'),
     clientDrainPrivateNoteTransport: jest.fn(async () => {}),
     clientDecodeGuardianHistory: jest.fn(async (_encoded: string) => ({
@@ -536,8 +569,10 @@ function resetControl() {
         waitForTransactionCommit: (...a: any[]) => (globalThis as any).__off.clientWaitForTransactionCommit(...a),
         exportNote: (...a: any[]) => (globalThis as any).__off.clientExportNote(...a),
         getInputNoteDetails: (...a: any[]) => (globalThis as any).__off.clientGetInputNoteDetails(...a),
+        getDetailsCommitmentMatches: (...a: any[]) => (globalThis as any).__off.clientGetDetailsCommitmentMatches(...a),
         getTransactionCommitState: (...a: any[]) => (globalThis as any).__off.clientGetTransactionCommitState(...a),
         getConsumableNoteDtos: (...a: any[]) => (globalThis as any).__off.clientGetConsumableNoteDtos(...a),
+        buildPswapCancelRequest: (...a: any[]) => (globalThis as any).__off.clientBuildPswapCancelRequest(...a),
         consumeNoteId: (...a: any[]) => (globalThis as any).__off.clientConsumeNoteId(...a),
         sendTransaction: (...a: any[]) => (globalThis as any).__off.clientSendTransaction(...a),
         swapTransaction: (...a: any[]) => (globalThis as any).__off.clientSwapTransaction(...a),
@@ -689,19 +724,11 @@ describe('offscreen/main — startup / init()', () => {
     expect(mockProveTransport.prove).toHaveBeenCalledWith(request, undefined);
   });
 
-  // The endpoint-override cache lives in module scope, so it is PER REALM: the SW's
-  // own load never reaches this document, and without one every getEffective*Url() /
-  // getEffectiveNetworkName() here would answer the build default — wrong node for
-  // every write/sync, and a bech32 prefix that disagrees with the SW's.
-  it('hydrates the endpoint override FIRST, before the WASM/thread-pool init', async () => {
+  // This realm has no extension storage: the network arrives with each call (#1482).
+  it('boots without a storage read', async () => {
     await loadModule();
-
-    expect(G.__off.loadEndpointOverrides).toHaveBeenCalledTimes(1);
-    // Ordering, not just presence: the load has to complete before anything in this
-    // realm can read an endpoint or encode an id.
-    expect(G.__off.order[0]).toBe('loadEndpointOverrides');
-    expect(G.__off.order).toContain('getWasmOrThrow');
-    expect(G.__off.order.indexOf('loadEndpointOverrides')).toBeLessThan(G.__off.order.indexOf('getWasmOrThrow'));
+    expect(G.__off.getWasmOrThrow).toHaveBeenCalledTimes(1);
+    expect(G.__off.storageCalls).toBe(0);
   });
 
   it('warns when crossOriginIsolated is false (SAB unavailable)', async () => {
@@ -960,6 +987,7 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     op_id: 'op-abc',
     deadline_ms: 1000,
     argsB64: [],
+    endpoints: SW_ENDPOINTS,
     ...extra
   });
 
@@ -1098,10 +1126,10 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(resp.errorName).toBe('WasmClientPoisonedError');
   });
 
-  // The same guard for the three reads whose reach-through happens one frame
+  // The same guard for the reads whose reach-through happens one frame
   // deeper, INSIDE `MidenClientInterface`, where the dispatch cannot place a
   // check either side of it: `exportNote` serializes the live export result,
-  // `getInputNoteDetails` reduces live records, and `getConsumableNoteDtos`
+  // `getInputNoteDetails` and `getDetailsCommitmentMatches` reduce live records, and `getConsumableNoteDtos`
   // makes a second shared-client call (`getSyncHeight`) after the listing's
   // await. Each is handed a liveness callback, and these dispatches used to be
   // marked `_context` — the reach-through was simply unguarded.
@@ -1112,6 +1140,13 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
   it.each([
     ['exportNote', 'clientExportNote', ['note-x', 'Details'], undefined, 'in offscreen'],
     ['getInputNoteDetails', 'clientGetInputNoteDetails', [{ ids: ['0xabc'] }], undefined, 'in offscreen'],
+    [
+      'getDetailsCommitmentMatches',
+      'clientGetDetailsCommitmentMatches',
+      [['0xcommitment'], ['0xreal']],
+      undefined,
+      'in offscreen'
+    ],
     // The consumability read names each of its checks; the dispatch forwards that step into its own label.
     [
       'getConsumableNotes',
@@ -1143,6 +1178,8 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
         sendResponse
       );
       await flush();
+
+      expect(G.__off[clientFn]).toHaveBeenCalledWith(...args, expect.any(Function));
 
       // While the hold is still ours the check is silent — the falsifier for the
       // throw below, which would otherwise pass against a callback that always
@@ -1352,6 +1389,64 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(r2.mock.calls[0][0].ok).toBe(true);
   });
 
+  it('a try-lock account read answers busy while the offscreen mutex is held, and the account when it is free', async () => {
+    await loadModule();
+    const miden = await import('lib/miden/sdk/miden-client');
+    let releaseHolder!: () => void;
+    const held = miden.withWasmClientLock(
+      () =>
+        new Promise<void>(resolve => {
+          releaseHolder = resolve;
+        })
+    );
+    await flush();
+    const busyResponse = jest.fn();
+    capturedListener!(
+      callReq({ op_id: 'fee-busy', method: 'tryGetAccount', argsB64: [encodeArg('fee-account')] }),
+      {},
+      busyResponse
+    );
+    await flush();
+    const repliesWhileHeld = busyResponse.mock.calls.map(([reply]) => reply);
+    const wasHeld = miden.isWasmClientBusy();
+    const accountReadsWhileHeld = G.__off.clientGetAccount.mock.calls.length;
+    const clientBuildsWhileHeld = G.__off.getMidenClient.mock.calls.length;
+    releaseHolder();
+    await held;
+    await flush();
+
+    expect(repliesWhileHeld).toEqual([
+      expect.objectContaining({
+        ok: true,
+        op_id: 'fee-busy',
+        resultB64: Buffer.from(JSON.stringify({ ran: false })).toString('base64')
+      })
+    ]);
+    expect(wasHeld).toBe(true);
+    expect(accountReadsWhileHeld).toBe(0);
+    expect(clientBuildsWhileHeld).toBe(0);
+
+    const freeResponse = jest.fn();
+    capturedListener!(
+      callReq({ op_id: 'fee-free', method: 'tryGetAccount', argsB64: [encodeArg('fee-account')] }),
+      {},
+      freeResponse
+    );
+    await flush();
+
+    expect(freeResponse).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ok: true,
+        op_id: 'fee-free',
+        resultB64: Buffer.from(
+          JSON.stringify({ ran: true, accountB64: Buffer.from([10, 20, 30]).toString('base64') })
+        ).toString('base64')
+      })
+    );
+    expect(G.__off.clientGetAccount).toHaveBeenCalledWith('fee-account');
+    expect(miden.isWasmClientBusy()).toBe(false);
+  });
+
   it('bounds a syncState dispatch at the sync ceiling, and leaves the writes on the default (#777)', async () => {
     // The service worker's 30s `withTimeout` bounds its OWN promise, not this hold.
     // A node that accepts SyncChainMmr and never answers held this realm's mutex — the
@@ -1478,16 +1573,49 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
         sendResponse
       );
 
-      // Advance through the 5s inter-poll sleeps until the commit is observed.
+      // Advance through the 1 s inter-poll sleeps until the commit is observed.
       for (let i = 0; i < 6 && sendResponse.mock.calls.length === 0; i++) {
         // eslint-disable-next-line no-await-in-loop
-        await jest.advanceTimersByTimeAsync(5_000);
+        await jest.advanceTimersByTimeAsync(1_000);
       }
 
       expect(G.__off.clientTransactionsList).toHaveBeenCalledTimes(3);
       const resp = sendResponse.mock.calls[0][0];
       expect(resp.ok).toBe(true);
       expect(resp.resultB64).toBeNull();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  // The first check runs straight after submit, before any block, so a 5 s sleep ended nearly every wait on its
+  // second check, about 5 s in, however soon the block came (#1492).
+  it('commit-wait checks again one second after a pending check (#1492)', async () => {
+    await loadModule();
+    jest.useFakeTimers();
+    try {
+      G.__off.clientTransactionsList = jest
+        .fn()
+        .mockResolvedValueOnce([G.__off.pendingStatus])
+        .mockResolvedValue([G.__off.committedStatus]);
+
+      const sendResponse = jest.fn();
+      capturedListener!(
+        callReq({ method: 'waitForTransactionCommit', argsB64: [encodeArg('0xtxid')] }),
+        {},
+        sendResponse
+      );
+      for (let i = 0; i < 6; i++) await jest.advanceTimersByTimeAsync(0);
+      expect(G.__off.clientTransactionsList).toHaveBeenCalledTimes(1);
+
+      await jest.advanceTimersByTimeAsync(999);
+      expect(G.__off.clientTransactionsList).toHaveBeenCalledTimes(1);
+
+      await jest.advanceTimersByTimeAsync(1);
+      for (let i = 0; i < 6; i++) await jest.advanceTimersByTimeAsync(0);
+      expect(G.__off.clientTransactionsList).toHaveBeenCalledTimes(2);
+      expect(sendResponse).toHaveBeenCalledTimes(1);
+      expect(sendResponse.mock.calls[0][0]).toMatchObject({ ok: true, resultB64: null });
     } finally {
       jest.useRealTimers();
     }
@@ -1523,10 +1651,10 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
         sendResponse
       );
 
-      // 60s / 5s = 12 sleeps before the timeout check throws.
-      for (let i = 0; i < 15 && sendResponse.mock.calls.length === 0; i++) {
+      // 60 s / 1 s = 60 sleeps before the timeout check throws.
+      for (let i = 0; i < 65 && sendResponse.mock.calls.length === 0; i++) {
         // eslint-disable-next-line no-await-in-loop
-        await jest.advanceTimersByTimeAsync(5_000);
+        await jest.advanceTimersByTimeAsync(1_000);
       }
 
       const resp = sendResponse.mock.calls[0][0];
@@ -1574,7 +1702,7 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
 
       // Let op1 commit and finish so nothing is left dangling.
       G.__off.clientTransactionsList = jest.fn(async () => [G.__off.committedStatus]);
-      await jest.advanceTimersByTimeAsync(5_000);
+      await jest.advanceTimersByTimeAsync(1_000);
       expect(r1).toHaveBeenCalledTimes(1);
       expect(r1.mock.calls[0][0].ok).toBe(true);
     } finally {
@@ -1635,7 +1763,7 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
       // global on completion). Advance into op1's next sleep, then drive a sign
       // directly: it must carry op1's id — proof the invariant was restored. Without
       // the re-assert the ambient id would be null here and this sign would throw.
-      await jest.advanceTimersByTimeAsync(5_000);
+      await jest.advanceTimersByTimeAsync(1_000);
       await jest.advanceTimersByTimeAsync(0);
       const signCb = G.__off.createOptions[0].signCallback;
       await signCb(new Uint8Array([8]), new Uint8Array([8]));
@@ -1652,7 +1780,7 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
   it('an EVICTED commit-wait stops re-asserting its op_id, so the live successor keeps its own (#775)', async () => {
     // The mirror image of follow-up #2, and the reason that re-assert is
     // conditional. The eviction rejects the SW-side caller but does not stop this
-    // loop — the corpse keeps polling every 5 s for up to a minute. Re-asserting
+    // loop - the corpse keeps polling every second for up to a minute. Re-asserting
     // unconditionally means each of those polls stamps a dead op's id over
     // whoever is genuinely running, and the ambient id is what tags a reverse-IPC
     // sign. The SW pauses the WRITE DEADLINE of the op a sign is tagged with, so
@@ -1797,7 +1925,7 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
       await jest.advanceTimersByTimeAsync(30_000);
 
       // The corpse ran its parked poll to completion and then stopped: no further
-      // laps, at 5 s apiece across 30 s.
+      // laps, at a second apiece across 30 s.
       expect(polls).toBe(1);
       expect(G.__off.clientSyncChain.mock.calls.length).toBe(syncsBefore);
       expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('abandoning a confirmation poll'));
@@ -1999,7 +2127,7 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
       });
 
       // Second lap: takes the rebuild branch and parks there.
-      await jest.advanceTimersByTimeAsync(5_000);
+      await jest.advanceTimersByTimeAsync(1_000);
       expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('rebuilding and continuing'));
 
       // Evicted while the rebuild is in flight, then the rebuild succeeds.
@@ -2180,6 +2308,61 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     ]);
   });
 
+  it('dispatches a commitment batch and JSON-encodes the ordered DTO entries', async () => {
+    await loadModule();
+    const dto = [
+      { notes: [{ noteId: 'n9' }], uncommitted: 0 },
+      { notes: [], uncommitted: 1 }
+    ];
+    G.__off.clientGetDetailsCommitmentMatches.mockResolvedValueOnce(dto);
+    const sendResponse = jest.fn();
+    capturedListener!(
+      callReq({
+        method: 'getDetailsCommitmentMatches',
+        argsB64: [encodeArg(['0xcommitment', '0xother']), encodeArg(['n9', 'n10'])]
+      }),
+      {},
+      sendResponse
+    );
+    await flush();
+
+    expect(G.__off.clientGetDetailsCommitmentMatches).toHaveBeenCalledWith(
+      ['0xcommitment', '0xother'],
+      ['n9', 'n10'],
+      expect.any(Function)
+    );
+    const resp = sendResponse.mock.calls[0][0];
+    expect(resp.ok).toBe(true);
+    expect(JSON.parse(Buffer.from(resp.resultB64, 'base64').toString('utf8'))).toEqual(dto);
+  });
+
+  it('dispatches getDetailsCommitmentMatches and JSON-encodes its plain DTO (#1389)', async () => {
+    await loadModule();
+    const sendResponse = jest.fn();
+    capturedListener!(
+      callReq({ method: 'getDetailsCommitmentMatches', argsB64: [encodeArg(['0xcommitment']), encodeArg(['0xreal'])] }),
+      {},
+      sendResponse
+    );
+    await flush();
+
+    expect(G.__off.clientGetDetailsCommitmentMatches).toHaveBeenCalledWith(
+      ['0xcommitment'],
+      ['0xreal'],
+      expect.any(Function)
+    );
+    const resp = sendResponse.mock.calls[0][0];
+    expect(resp.ok).toBe(true);
+    expect(JSON.parse(Buffer.from(resp.resultB64, 'base64').toString('utf8'))).toEqual([
+      {
+        notes: [
+          { noteId: '0xreal', senderAccountId: 'mtst1qsender', assets: [], noteType: 0, nullifier: '0xn', state: 2 }
+        ],
+        uncommitted: 1
+      }
+    ]);
+  });
+
   // The read the send/swap retry guard is built on. It has to actually run in
   // this realm: the SW-side proxy previously answered a hardcoded 'not-found'
   // for the flag-on path, which `verifySendLanded` reads as "cannot prove it
@@ -2235,6 +2418,58 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
         swapAttachment: null
       }
     ]);
+  });
+
+  it('dispatches buildPswapCancelRequest and returns the fee-aware request bytes verbatim', async () => {
+    await loadModule();
+    const sendResponse = jest.fn();
+    const ret = capturedListener!(
+      callReq({
+        method: 'buildPswapCancelRequest',
+        argsB64: [encodeArg('mtst1qqaccount'), encodeArg('0xtip')]
+      }),
+      {},
+      sendResponse
+    );
+    expect(ret).toBe(true);
+    await flush();
+
+    // A request without the flag builds as a live order does, with it false (#1487).
+    expect(G.__off.clientBuildPswapCancelRequest).toHaveBeenCalledWith(
+      'mtst1qqaccount',
+      '0xtip',
+      expect.any(Function),
+      {
+        allowNodeNote: false
+      }
+    );
+    const resp = sendResponse.mock.calls[0][0];
+    expect(resp.ok).toBe(true);
+    expect(Buffer.from(resp.resultB64, 'base64')).toEqual(Buffer.from([20, 14, 7, 6]));
+  });
+
+  it('dispatches a node-note buildPswapCancelRequest with its option', async () => {
+    await loadModule();
+    const sendResponse = jest.fn();
+    capturedListener!(
+      callReq({
+        method: 'buildPswapCancelRequest',
+        argsB64: [encodeArg('mtst1qqaccount'), encodeArg('0xtip'), encodeArg(true)]
+      }),
+      {},
+      sendResponse
+    );
+    await flush();
+
+    expect(G.__off.clientBuildPswapCancelRequest).toHaveBeenCalledWith(
+      'mtst1qqaccount',
+      '0xtip',
+      expect.any(Function),
+      {
+        allowNodeNote: true
+      }
+    );
+    expect(sendResponse.mock.calls[0][0].ok).toBe(true);
   });
 
   // ─── Slice 7a: deferred reach-through reads ─────────────────────────────────
@@ -2482,7 +2717,7 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(G.__off.clientGetInputNote).toHaveBeenCalledWith('0xn');
     const resp = sendResponse.mock.calls[0][0];
     expect(resp.ok).toBe(true);
-    expect(JSON.parse(Buffer.from(resp.resultB64, 'base64').toString('utf8'))).toEqual({ noteType: 1 });
+    expect(JSON.parse(Buffer.from(resp.resultB64, 'base64').toString('utf8'))).toMatchObject({ noteType: 1 });
   });
 
   it('dispatches getInputNoteSummary → returns resultB64:null for a not-found note', async () => {
@@ -2497,20 +2732,45 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(resp.resultB64).toBeNull();
   });
 
-  it('getInputNoteSummary: refuses to reduce the live record after an eviction (#788)', async () => {
-    // Same shape as the lineage guard: the InputNoteRecord is a borrow of the
-    // shared client, and the reduction's `metadata()` reach-through after an
-    // eviction would double-borrow alongside the successor.
+  it('offscreen summary carries fee assets and rejects stale reduction', async () => {
     await loadModule();
+    const nativeId = 'native-faucet';
+    const tokenId = 'token-faucet';
+    const details = jest.fn(() => ({
+      assets: () => ({
+        fungibleAssets: () => [
+          { faucetId: () => ({ canonical: nativeId }), amount: () => 10000n },
+          { faucetId: () => ({ canonical: tokenId }), amount: () => 7n }
+        ]
+      })
+    }));
+    G.__off.clientGetInputNote.mockResolvedValue({ metadata: () => ({ noteType: () => 1 }), details });
+    const liveResponse = jest.fn();
+    capturedListener!(callReq({ method: 'getInputNoteSummary', argsB64: [encodeArg('0xn')] }), {}, liveResponse);
+    await flush();
+
+    expect(G.__off.clientGetInputNote).toHaveBeenCalledTimes(1);
+    expect(liveResponse.mock.calls[0][0].ok).toBe(true);
+    const summary = JSON.parse(Buffer.from(liveResponse.mock.calls[0][0].resultB64, 'base64').toString('utf8'));
+    expect(summary).toEqual({
+      noteType: 1,
+      assets: [
+        { faucetId: nativeId, amount: '10000' },
+        { faucetId: tokenId, amount: '7' }
+      ]
+    });
+    expect(details).toHaveBeenCalledTimes(1);
+
     const miden: any = await import('lib/miden/sdk/miden-client');
-    const metadataSpy = jest.fn(() => ({ noteType: () => 1 }));
+    const staleRecord = { metadata: jest.fn(() => ({ noteType: () => 1 })), details };
+    staleRecord.details.mockClear();
     let releaseNote!: () => void;
     const parkedNote = new Promise<void>(resolve => {
       releaseNote = resolve;
     });
     G.__off.clientGetInputNote = jest.fn(async () => {
       await parkedNote;
-      return { metadata: metadataSpy };
+      return staleRecord;
     });
 
     const sendResponse = jest.fn();
@@ -2525,7 +2785,8 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     releaseNote();
     await flush();
 
-    expect(metadataSpy).not.toHaveBeenCalled();
+    expect(staleRecord.metadata).not.toHaveBeenCalled();
+    expect(staleRecord.details).not.toHaveBeenCalled();
     const resp = sendResponse.mock.calls[0][0];
     expect(resp.ok).toBe(false);
     expect(resp.errorName).toBe('WasmClientPoisonedError');
@@ -2734,6 +2995,129 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(resp.errorName).toBe('WasmClientPoisonedError');
   });
 
+  describe('dryRunTransaction (the USDCx burn fee probe)', () => {
+    const REQUEST = new Uint8Array([1, 2, 3]);
+    const dryRunReq = (op_id = 'op-dry-run') =>
+      callReq({ op_id, method: 'dryRunTransaction', argsB64: [encodeArg('0xaccount'), encodeArg(REQUEST)] });
+    const decoded = (resp: { resultB64: string }) => JSON.parse(Buffer.from(resp.resultB64, 'base64').toString('utf8'));
+
+    it("executes the request on this document's client with no sync and no note import", async () => {
+      await loadModule();
+      const { executeForSummaryAtTip } = await import('@openzeppelin/miden-multisig-client');
+      const sendResponse = jest.fn();
+
+      capturedListener!(dryRunReq(), {}, sendResponse);
+      await flush();
+
+      const resp = sendResponse.mock.calls[0][0];
+      expect(resp.ok).toBe(true);
+      // The multisig mock's summary serializes to [0xab].
+      expect(decoded(resp)).toEqual({ summaryBytes: Buffer.from([0xab]).toString('base64') });
+      const client = await G.__off.getMidenClient.mock.results[0].value;
+      expect(G.__off.prepareCustomRequestBytes).toHaveBeenCalledWith(
+        client.client,
+        '0xaccount',
+        REQUEST,
+        expect.objectContaining({ mock: 'wasm-lock-hold' })
+      );
+      expect(executeForSummaryAtTip).toHaveBeenCalledWith(client.client, '0xaccount', {
+        __trFromBytes: [1, 2, 3],
+        authArg: expect.any(Function)
+      });
+      expect(G.__off.clientSyncState).not.toHaveBeenCalled();
+      expect(G.__off.clientSyncChain).not.toHaveBeenCalled();
+      expect(G.__off.clientImportNoteBytes).not.toHaveBeenCalled();
+    });
+
+    it('executes locally when the account is already fully authorized, still submitting nothing', async () => {
+      await loadModule();
+      const { executeForSummaryAtTip } = await import('@openzeppelin/miden-multisig-client');
+      jest
+        .mocked(executeForSummaryAtTip)
+        .mockRejectedValueOnce(new Error('TRANSACTION_ALREADY_AUTHORIZED: already fully authorized'));
+      const sendResponse = jest.fn();
+
+      capturedListener!(dryRunReq(), {}, sendResponse);
+      await flush();
+
+      const resp = sendResponse.mock.calls[0][0];
+      expect(resp.ok).toBe(true);
+      expect(decoded(resp)).toEqual({ executedBytes: Buffer.from([55, 66, 77]).toString('base64') });
+      expect(G.__off.guardianExecuteRequest).toHaveBeenCalledWith('0xaccount', {
+        __trFromBytes: [1, 2, 3],
+        authArg: expect.any(Function)
+      });
+      expect(G.__off.guardianSubmitted).toBe(false);
+    });
+
+    it.each([
+      ['no signer for the account', 'storage error: Failed to get secret key from IndexedDB'],
+      ['no fee faucet for the network', 'no fee faucet is known for network `mlcl`']
+    ])('executes locally when the summary fails with %s, still submitting nothing', async (_kind, message) => {
+      await loadModule();
+      const { executeForSummaryAtTip } = await import('@openzeppelin/miden-multisig-client');
+      jest.mocked(executeForSummaryAtTip).mockRejectedValueOnce(new Error(message));
+      const sendResponse = jest.fn();
+
+      capturedListener!(dryRunReq(), {}, sendResponse);
+      await flush();
+
+      const resp = sendResponse.mock.calls[0][0];
+      expect(resp.ok).toBe(true);
+      expect(decoded(resp)).toEqual({ executedBytes: Buffer.from([55, 66, 77]).toString('base64') });
+      expect(G.__off.guardianExecuteRequest).toHaveBeenCalledWith('0xaccount', {
+        __trFromBytes: [1, 2, 3],
+        authArg: expect.any(Function)
+      });
+      expect(G.__off.guardianSubmitted).toBe(false);
+    });
+
+    it.each([
+      ['an execution failure', () => new Error('the kernel assertion failed')],
+      ['a trap', () => new WebAssembly.RuntimeError('unreachable')]
+    ])('reports %s as it stands, with no local retry', async (_kind, failure) => {
+      await loadModule();
+      const { executeForSummaryAtTip } = await import('@openzeppelin/miden-multisig-client');
+      const error = failure();
+      jest.mocked(executeForSummaryAtTip).mockRejectedValueOnce(error);
+      const sendResponse = jest.fn();
+
+      capturedListener!(dryRunReq(), {}, sendResponse);
+      await flush();
+
+      const resp = sendResponse.mock.calls[0][0];
+      expect(resp.ok).toBe(false);
+      expect(resp.error).toBe(error.message);
+      expect(G.__off.guardianExecuteRequest).not.toHaveBeenCalled();
+    });
+
+    it('refuses to execute once an eviction took its hold during the request preparation', async () => {
+      await loadModule();
+      const miden: any = await import('lib/miden/sdk/miden-client');
+      const { executeForSummaryAtTip } = await import('@openzeppelin/miden-multisig-client');
+      let releasePreparation: (() => void) | undefined;
+      G.__off.prepareCustomRequestBytes = jest.fn(async (_client: unknown, _account: string, bytes: Uint8Array) => {
+        await new Promise<void>(resolve => {
+          releasePreparation = resolve;
+        });
+        return bytes;
+      });
+      const sendResponse = jest.fn();
+
+      capturedListener!(dryRunReq('op-dry-run-evicted'), {}, sendResponse);
+      await flush();
+      miden.__evictHolder();
+      releasePreparation?.();
+      await flush();
+
+      expect(executeForSummaryAtTip).not.toHaveBeenCalled();
+      expect(G.__off.deserializeTxRequest).not.toHaveBeenCalled();
+      const resp = sendResponse.mock.calls[0][0];
+      expect(resp.ok).toBe(false);
+      expect(resp.errorName).toBe('WasmClientPoisonedError');
+    });
+  });
+
   it('getInputNoteDetails maps a JSON-null query arg back to undefined for the SDK', async () => {
     await loadModule();
     const sendResponse = jest.fn();
@@ -2745,47 +3129,19 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(sendResponse.mock.calls[0][0].ok).toBe(true);
   });
 
-  it('dispatches sendPrivateNote → re-hydrates the note from bytes and relays it on THIS client (void result)', async () => {
+  // Both relays run on the SW client (`midenClientProxy`), so this realm no longer answers them.
+  it.each([
+    ['sendPrivateNote', [encodeArg(new Uint8Array([0xde, 0xad])), encodeArg('mtst1qrecipient')]],
+    ['relayPrivateNoteById', [encodeArg('0xnote'), encodeArg('mtst1qrecipient')]]
+  ])('answers %s as an unknown method, relaying nothing', async (method, argsB64) => {
     await loadModule();
     const sendResponse = jest.fn();
-    const noteBytes = new Uint8Array([0xde, 0xad, 0xbe, 0xef]);
-    capturedListener!(
-      callReq({ method: 'sendPrivateNote', argsB64: [encodeArg(noteBytes), encodeArg('mtst1qrecipient')] }),
-      {},
-      sendResponse
-    );
+    capturedListener!(callReq({ method, argsB64 }), {}, sendResponse);
     await flush();
 
-    // The raw note bytes crossed intact and were re-hydrated via Note.deserialize...
-    expect(G.__off.deserializeNote).toHaveBeenCalledTimes(1);
-    expect(Array.from(G.__off.deserializeNote.mock.calls[0][0])).toEqual([0xde, 0xad, 0xbe, 0xef]);
-    // ...then relayed on THIS (offscreen) client with the re-hydrated note + recipient.
-    expect(G.__off.clientSendPrivateNote).toHaveBeenCalledTimes(1);
-    expect(G.__off.clientSendPrivateNote.mock.calls[0][0]).toEqual({ __noteFromBytes: [0xde, 0xad, 0xbe, 0xef] });
-    expect(G.__off.clientSendPrivateNote.mock.calls[0][1]).toBe('mtst1qrecipient');
-    const resp = sendResponse.mock.calls[0][0];
-    expect(resp.ok).toBe(true);
-    // A relay — nothing to serialize back.
-    expect(resp.resultB64).toBeNull();
-  });
-
-  it('dispatches relayPrivateNoteById → re-pushes on THIS client with no note bytes to re-hydrate', async () => {
-    await loadModule();
-    const sendResponse = jest.fn();
-    capturedListener!(
-      callReq({ method: 'relayPrivateNoteById', argsB64: [encodeArg('0xnote'), encodeArg('mtst1qrecipient')] }),
-      {},
-      sendResponse
-    );
-    await flush();
-
-    // The sweep runs long after the sending session, so it carries ids only — the
-    // note is resolved from THIS realm's store, which is where it was applied.
-    expect(G.__off.deserializeNote).not.toHaveBeenCalled();
-    expect(G.__off.clientRelayPrivateNoteById).toHaveBeenCalledWith('0xnote', 'mtst1qrecipient');
-    const resp = sendResponse.mock.calls[0][0];
-    expect(resp.ok).toBe(true);
-    expect(resp.resultB64).toBeNull();
+    expect(sendResponse.mock.calls[0][0]).toMatchObject({ ok: false, errorCode: 'UNKNOWN_METHOD' });
+    expect(G.__off.clientSendPrivateNote).not.toHaveBeenCalled();
+    expect(G.__off.clientRelayPrivateNoteById).not.toHaveBeenCalled();
   });
 
   it('dispatches isOutputNoteConsumed → returns the receipt as bytes', async () => {
@@ -3660,7 +4016,6 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
 
     expect(response.mock.calls[0][0].ok).toBe(true);
     expect(G.__off.guardianExecuteRequest).toHaveBeenCalledWith('acc', request);
-    expect(G.__off.deserializeChainAnchor).not.toHaveBeenCalled();
     const syncOrder = G.__off.clientSyncChain.mock.invocationCallOrder[0];
     const heightOrder = G.__off.clientGetSyncHeight.mock.invocationCallOrder[0];
     const executeOrder = G.__off.guardianExecuteRequest.mock.invocationCallOrder[0];
@@ -4444,102 +4799,182 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
   });
 });
 
-// --- OFFSCREEN_RELOAD_ENDPOINTS: developer endpoint overrides in this realm ---
+// --- The network this realm runs on comes from the service worker (#1482) ---
 //
-// The SW nudges this realm when the saved override changes, because BOTH the
-// override cache and the client singleton are module-scoped — the SW's own
-// loadEndpointOverrides() + resetMidenClient() reach only the SW realm, while
-// flag-on it is the client HERE that talks to the node.
-describe('offscreen/main — OFFSCREEN_RELOAD_ENDPOINTS (endpoint overrides)', () => {
+// An offscreen document has no chrome.storage, so it cannot load the endpoint override
+// the way the SW and the page do. The SW sends its endpoint state with every call and
+// with OFFSCREEN_RELOAD_ENDPOINTS; these run on the REAL effective-endpoints module, with
+// every storage call rejecting as it does in the real document.
+describe('offscreen/main - the network comes from the service worker (#1482)', () => {
+  // The realm's own effective-endpoints, which everything here but the client reads too
+  // (bech32 prefixes, the native-asset scope). Required lazily: loading it pulls the SDK mock,
+  // which reads the per-test control object.
+  const realm = () => jest.requireActual('lib/miden-chain/effective-endpoints');
+  const mainnet = () => ({ override: realm().buildNetworkChoiceOverride('mainnet'), feeFaucetId: '0xmainfee' });
+  const custom = () => ({
+    override: { ...realm().buildDefaultOverrideFor('devnet'), rpcUrl: 'https://custom.example/rpc' },
+    feeFaucetId: '0xcustomfee'
+  });
+  const MAINNET_BUILD = {
+    network: 'mainnet',
+    rpcUrl: 'https://rpc.cedar.miden.io',
+    proverUrl: 'https://tx-prover.cedar.miden.io',
+    noteTransportUrl: 'https://transport.cedar.miden.io',
+    feeFaucetId: '0xmainfee'
+  };
+
+  const callReq = (endpoints: unknown, op_id = 'op-network') => ({
+    target: 'offscreen',
+    type: 'OFFSCREEN_CALL',
+    op_id,
+    method: 'getAccount',
+    deadline_ms: 1000,
+    argsB64: [encodeArg('acc')],
+    endpoints
+  });
+  const call = async (endpoints: unknown, op_id?: string) => {
+    const reply = jest.fn();
+    capturedListener!(callReq(endpoints, op_id), {}, reply);
+    await flush();
+    return reply.mock.calls[0]?.[0];
+  };
+  const reload = async (endpoints?: unknown) => {
+    const ack = jest.fn();
+    const ret = capturedListener!(
+      { target: 'offscreen', type: 'OFFSCREEN_RELOAD_ENDPOINTS', ...(endpoints ? { endpoints } : {}) },
+      {},
+      ack
+    );
+    expect(ret).toBe(true);
+    await flush();
+    return ack.mock.calls[0]?.[0];
+  };
+
+  it('builds the client on the network the call carries, though this realm cannot read storage', async () => {
+    await loadModule();
+    expect((await call(mainnet())).ok).toBe(true);
+
+    expect(G.__off.createEndpoints).toEqual([MAINNET_BUILD]);
+    expect(realm().getEffectiveNetworkName()).toBe('mainnet');
+    expect(G.__off.storageCalls).toBe(0);
+  });
+
+  it('refuses a call that carries no network state, and builds no client', async () => {
+    await loadModule();
+    const { endpoints: _none, ...bare } = callReq(undefined);
+    const reply = jest.fn();
+    capturedListener!(bare, {}, reply);
+    await flush();
+
+    expect(reply).toHaveBeenCalledTimes(1);
+    expect(reply.mock.calls[0][0]).toMatchObject({ ok: false, op_id: 'op-network', errorBeforeSubmit: true });
+    expect(reply.mock.calls[0][0].error).toContain("call 'getAccount' carries no network state");
+    expect(G.__off.createOptions).toHaveLength(0);
+    expect(G.__off.clientGetAccount).not.toHaveBeenCalled();
+  });
+
+  it('rebuilds the client when a call carries another state, and reuses it for the same one', async () => {
+    await loadModule();
+    expect((await call(mainnet(), 'op-1')).ok).toBe(true);
+    // An equal state in a fresh object, as every message delivers it.
+    expect((await call(mainnet(), 'op-2')).ok).toBe(true);
+    expect(G.__off.createEndpoints).toEqual([MAINNET_BUILD]);
+
+    expect((await call(custom(), 'op-3')).ok).toBe(true);
+    expect(G.__off.createEndpoints).toHaveLength(2);
+    expect(G.__off.createEndpoints[1]).toMatchObject({
+      network: 'devnet',
+      rpcUrl: 'https://custom.example/rpc',
+      feeFaucetId: '0xcustomfee'
+    });
+  });
+
+  // Adopted on receipt, so the service worker's latest message wins in send order even on a cold document.
+  it('a reload sent after a call wins when the call arrived while init was still pending', async () => {
+    let finishInit!: () => void;
+    G.__off.getWasmOrThrow = jest.fn(
+      () =>
+        new Promise<void>(resolve => {
+          finishInit = resolve;
+        })
+    );
+    await loadModule();
+    const reply = jest.fn();
+    capturedListener!(callReq(mainnet()), {}, reply);
+    await flush();
+    expect(await reload(custom())).toEqual({ ok: true });
+
+    finishInit();
+    await flush();
+    expect(reply.mock.calls[0]?.[0]?.ok).toBe(true);
+    expect(G.__off.createEndpoints).toEqual([
+      expect.objectContaining({ rpcUrl: 'https://custom.example/rpc', feeFaucetId: '0xcustomfee' })
+    ]);
+  });
+
+  it('a reload with state adopts it and drops the client', async () => {
+    await loadModule();
+    expect((await call(mainnet())).ok).toBe(true);
+
+    expect(await reload(custom())).toEqual({ ok: true });
+    expect(realm().getEffectiveRpcUrl()).toBe('https://custom.example/rpc');
+    expect(realm().getEffectiveFeeFaucetId()).toBe('0xcustomfee');
+    expect(G.__off.createEndpoints).toHaveLength(1);
+    expect((await call(custom())).ok).toBe(true);
+    expect(G.__off.createEndpoints).toHaveLength(2);
+    expect(G.__off.createEndpoints[1].rpcUrl).toBe('https://custom.example/rpc');
+
+    // The same state again still drops the client it was just rebuilt on: seed removal discards it this way.
+    expect(await reload(custom())).toEqual({ ok: true });
+    expect((await call(custom())).ok).toBe(true);
+    expect(G.__off.createEndpoints).toHaveLength(3);
+    expect(G.__off.createEndpoints[2].rpcUrl).toBe('https://custom.example/rpc');
+  });
+
+  it('refuses a reload without state, keeping the adopted state and the client', async () => {
+    await loadModule();
+    expect((await call(custom())).ok).toBe(true);
+
+    const ack = await reload();
+    expect(ack).toMatchObject({ ok: false });
+    expect(ack.error).toContain('carries no network state');
+    expect(realm().getEffectiveRpcUrl()).toBe('https://custom.example/rpc');
+    expect((await call(custom())).ok).toBe(true);
+    expect(G.__off.createEndpoints).toHaveLength(1);
+  });
+
+  it('a reload is answered ok:false, never dropped, when adopting its state throws', async () => {
+    await loadModule();
+    expect((await call(custom())).ok).toBe(true);
+    const unreadable = {
+      override: Object.defineProperty({ ...custom().override }, 'rpcUrl', {
+        enumerable: true,
+        get() {
+          throw new Error('unreadable state');
+        }
+      }),
+      feeFaucetId: '0xcustomfee'
+    };
+
+    expect(await reload(unreadable)).toEqual({ ok: false, error: 'unreadable state' });
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('endpoint reload failed'), expect.any(Error));
+  });
+});
+
+// The SW sends OFFSCREEN_RELOAD_ENDPOINTS, carrying its endpoint state, when the saved override
+// changes and when seed removal discards the client: its own resetMidenClient() reaches only the
+// SW realm, while flag-on it is the client HERE that talks to the node.
+describe('offscreen/main - OFFSCREEN_RELOAD_ENDPOINTS (endpoint overrides)', () => {
   const callReq = (extra: Record<string, unknown>) => ({
     target: 'offscreen',
     type: 'OFFSCREEN_CALL',
     op_id: 'op-endpoints',
     deadline_ms: 1000,
     argsB64: [],
+    endpoints: SW_ENDPOINTS,
     ...extra
   });
-  const reloadReq = { target: 'offscreen', type: 'OFFSCREEN_RELOAD_ENDPOINTS' };
-
-  it('holds client creation until the override load resolves (the client bakes the endpoints in)', async () => {
-    // A load that never settles until we release it: if the client were created
-    // without awaiting it, it would bind to the build-default endpoints.
-    let releaseLoad!: () => void;
-    G.__off.loadEndpointOverrides = jest.fn(
-      () =>
-        new Promise<void>(resolve => {
-          releaseLoad = () => {
-            G.__off.order.push('loadEndpointOverrides');
-            resolve();
-          };
-        })
-    );
-
-    await loadModule();
-    // init() itself is parked on the load — the WASM init hasn't even started.
-    expect(G.__off.getWasmOrThrow).not.toHaveBeenCalled();
-
-    const sendResponse = jest.fn();
-    capturedListener!(callReq({ method: 'getAccount', argsB64: [encodeArg('mtst1qqaccount')] }), {}, sendResponse);
-    await flush();
-    expect(G.__off.createOptions).toHaveLength(0);
-
-    releaseLoad();
-    await flush();
-
-    expect(G.__off.createOptions).toHaveLength(1);
-    expect(G.__off.order.indexOf('loadEndpointOverrides')).toBeLessThan(G.__off.order.indexOf('create'));
-    expect(sendResponse.mock.calls[0][0].ok).toBe(true);
-    // Memoized: init() and getOrCreateClient() awaited the SAME storage read.
-    expect(G.__off.loadEndpointOverrides).toHaveBeenCalledTimes(1);
-  });
-
-  it('re-reads the override and drops the client, so the NEXT call rebuilds against it', async () => {
-    await loadModule();
-
-    const r1 = jest.fn();
-    capturedListener!(callReq({ method: 'getAccount', argsB64: [encodeArg('a')] }), {}, r1);
-    await flush();
-    expect(r1.mock.calls[0][0].ok).toBe(true);
-    expect(G.__off.createOptions).toHaveLength(1);
-    expect(G.__off.loadEndpointOverrides).toHaveBeenCalledTimes(1);
-
-    // Hold the RELOAD's read open so the rebuild ordering is observable. init() is
-    // long settled by now, so nothing but getOrCreateClient's own await can gate the
-    // second create.
-    let releaseReload!: () => void;
-    G.__off.loadEndpointOverrides.mockImplementationOnce(
-      () =>
-        new Promise<void>(resolve => {
-          releaseReload = () => resolve();
-        })
-    );
-
-    const ack = jest.fn();
-    const ret = capturedListener!(reloadReq, {}, ack);
-    // Async response promised, like the other two message families.
-    expect(ret).toBe(true);
-    await flush();
-    expect(G.__off.loadEndpointOverrides).toHaveBeenCalledTimes(2);
-    expect(ack).not.toHaveBeenCalled();
-
-    // A call racing the in-flight reload must NOT get a client built on the
-    // pre-reload endpoints.
-    const r2 = jest.fn();
-    capturedListener!(callReq({ method: 'getAccount', argsB64: [encodeArg('b')] }), {}, r2);
-    await flush();
-    expect(G.__off.createOptions).toHaveLength(1);
-
-    releaseReload();
-    await flush();
-
-    expect(ack).toHaveBeenCalledWith({ ok: true });
-    // The dropped singleton was rebuilt — with the same slice-5 create options.
-    expect(G.__off.createOptions).toHaveLength(2);
-    expect(G.__off.createOptions[1].useWorker).toBe(false);
-    expect(typeof G.__off.createOptions[1].signCallback).toBe('function');
-    expect(r2.mock.calls[0][0].ok).toBe(true);
-  });
+  const reloadReq = { target: 'offscreen', type: 'OFFSCREEN_RELOAD_ENDPOINTS', endpoints: SW_ENDPOINTS };
 
   it('leaves an in-flight write untouched — it finishes on the client it already captured', async () => {
     await loadModule();
@@ -4581,28 +5016,6 @@ describe('offscreen/main — OFFSCREEN_RELOAD_ENDPOINTS (endpoint overrides)', (
     expect(resp.ok).toBe(true);
     expect(Array.from(Buffer.from(resp.resultB64, 'base64'))).toEqual([77, 88, 99]);
   });
-
-  it('answers ok:false (never drops the response) when the reload throws, and stays usable', async () => {
-    await loadModule();
-    G.__off.loadEndpointOverrides.mockImplementationOnce(() => Promise.reject(new Error('storage exploded')));
-
-    const ack = jest.fn();
-    capturedListener!(reloadReq, {}, ack);
-    await flush();
-
-    expect(ack).toHaveBeenCalledWith({ ok: false, error: 'storage exploded' });
-    expect(errorSpy).toHaveBeenCalledWith(
-      expect.stringContaining('endpoint-override reload failed'),
-      expect.any(Error)
-    );
-
-    // The failed read must not poison the memo — the next call still gets a client.
-    const r = jest.fn();
-    capturedListener!(callReq({ method: 'getAccount', argsB64: [encodeArg('a')] }), {}, r);
-    await flush();
-    expect(r.mock.calls[0][0].ok).toBe(true);
-    expect(G.__off.createOptions).toHaveLength(1);
-  });
 });
 
 // --- Lock recovery in THIS realm (issue #775) -------------------------------
@@ -4622,6 +5035,7 @@ describe('offscreen/main — WASM lock recovery hook', () => {
     op_id: 'op-1',
     method: 'getAccount',
     argsB64: [encodeArg('acc')],
+    endpoints: SW_ENDPOINTS,
     ...extra
   });
 
@@ -5113,6 +5527,7 @@ describe('offscreen/main — E2E prove markers (#718)', () => {
     op_id: 'op-markers',
     deadline_ms: 1000,
     argsB64: [],
+    endpoints: SW_ENDPOINTS,
     ...extra
   });
 
@@ -5188,7 +5603,7 @@ describe('offscreen/main — E2E prove markers (#718)', () => {
     });
   });
 
-  it('records tip execution without decoding a historical anchor', async () => {
+  it('records tip execution after preparing the current tip', async () => {
     await withE2EFlag('true', async () => {
       await loadModule();
       const posted = capturePosts();
@@ -5202,7 +5617,9 @@ describe('offscreen/main — E2E prove markers (#718)', () => {
       );
       await flush();
 
-      expect(G.__off.deserializeChainAnchor).not.toHaveBeenCalled();
+      expect(G.__off.clientSyncChain.mock.invocationCallOrder[0]).toBeLessThan(
+        G.__off.guardianExecuteRequest.mock.invocationCallOrder[0]
+      );
       expect(markerLines(posted).some(l => l.includes('guardianPipeline calling executeRequest at current tip'))).toBe(
         true
       );
@@ -5216,10 +5633,8 @@ describe('offscreen/main — E2E prove markers (#718)', () => {
       capturedListener!(
         callReq({
           method: 'guardianPipeline',
-          // ANCHORED, so this covers the #784 markers too. With a 3-slot
-          // envelope the anchor-conditional decode marker is never reached, and
-          // an anchor breadcrumb that skipped the flag gate would ship its
-          // trail to production with every assertion here still green.
+          // Four slots, the shape the SW packer always sends; the leaf reads
+          // nothing from the 4th.
           argsB64: [encodeArg('acc'), encodeArg(new Uint8Array([9])), encodeArg(false), encodeArg('BwcH')]
         }),
         {},
@@ -5309,7 +5724,8 @@ describe('offscreen fee identity transport', () => {
         op_id,
         method: 'getSyncHeight',
         argsB64: [encodeArg(true)],
-        deadlineMs: null
+        deadlineMs: null,
+        endpoints: SW_ENDPOINTS
       });
       capturedListener!(request('parked-fee-ipc'), {}, first);
       await jest.advanceTimersByTimeAsync(14_999);
@@ -5353,7 +5769,8 @@ describe('offscreen fee identity transport', () => {
           op_id: 'fee-identity-transport',
           method,
           argsB64,
-          deadlineMs: null
+          deadlineMs: null,
+          endpoints: SW_ENDPOINTS
         },
         {},
         reply

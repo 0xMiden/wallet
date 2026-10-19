@@ -41,7 +41,8 @@ export async function processInProcessRequest(req: WalletRequest, label: string)
         req.password,
         req.mnemonic,
         req.ownMnemonic,
-        req.guardianEndpoint
+        req.guardianEndpoint,
+        req.accessCode
       );
       return { type: WalletMessageType.NewWalletResponse };
 
@@ -344,6 +345,9 @@ export async function processInProcessRequest(req: WalletRequest, label: string)
     // undefined, no throw, no failing test). See back/main.ts for the SW's own routing.
     case WalletMessageType.ReportTelemetryEventRequest:
       return Actions.handleReportTelemetryEvent(req);
+
+    case WalletMessageType.EstimateUsdcxBurnFeeRequest:
+      return Actions.estimateUsdcxBurnFee(req);
 
     default:
       console.warn(`${label}: Unknown request type`, req?.type);

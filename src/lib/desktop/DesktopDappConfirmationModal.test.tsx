@@ -29,6 +29,7 @@ import {
   DAppConfirmationRequest,
   DAppConfirmationResult
 } from 'lib/dapp-browser/confirmation-store';
+import { truncateAddress } from 'utils/string';
 
 import DesktopDappConfirmationModal, {
   DesktopDappConfirmationModal as NamedDesktopDappConfirmationModal
@@ -57,7 +58,8 @@ jest.mock('@miden-sdk/miden-wallet-adapter-base', () => ({
 const mockIsDesktop: jest.Mock = jest.fn(() => true);
 jest.mock('lib/platform', () => ({
   isDesktop: () => mockIsDesktop(),
-  isMobile: () => false
+  isMobile: () => false,
+  isExtension: () => false
 }));
 
 // ── lib/store — selector-based wallet store stub ───────────────────
@@ -100,18 +102,29 @@ jest.mock('app/icons/v2', () => ({
   IconName: {}
 }));
 
-jest.mock('components/SpendingLimitChallenge', () => ({
-  SpendingLimitChallenge: (props: any) => (
-    <div data-testid="spending-limit-challenge">
-      <span>{props.assessment.revision}</span>
-      <button type="button" onClick={() => props.onResult({ id: 'ui-only-authorization' })}>
-        authenticate-limit
-      </button>
-    </div>
-  )
-}));
+jest.mock('components/SpendingLimitChallenge', () => {
+  const { Drawer, DrawerContent, DrawerTitle } = jest.requireActual('lib/ui/drawer');
+  return {
+    SpendingLimitChallenge: (props: {
+      assessment: { revision: string };
+      onResult: (authorization: { id: string } | undefined) => void;
+    }) => (
+      <Drawer open onOpenChange={(open: boolean) => !open && props.onResult(undefined)}>
+        <DrawerContent data-testid="spending-limit-challenge">
+          <DrawerTitle>Challenge</DrawerTitle>
+          <span>{props.assessment.revision}</span>
+          <button type="button" onClick={() => props.onResult({ id: 'ui-only-authorization' })}>
+            authenticate-limit
+          </button>
+        </DrawerContent>
+      </Drawer>
+    )
+  };
+});
 
 const FULL_KEY = 'mtst1apsnkg6x57mhxyrq09aavyq08yu5dy4p_qr7qqq9wr6w';
+// The account a login names, not the selected one (FULL_KEY), so the panel is seen to show the request's.
+const LOGIN_ACCOUNT_KEY = 'mtst1azcw08rget79fqp8ymr0zqkv5v4lj3s7_qruqqypuyph';
 
 function buildRequest(overrides: Partial<DAppConfirmationRequest> = {}): DAppConfirmationRequest {
   return {
@@ -126,6 +139,27 @@ function buildRequest(overrides: Partial<DAppConfirmationRequest> = {}): DAppCon
     existingPermission: false,
     ...overrides
   } as DAppConfirmationRequest;
+}
+
+function buildLimitedRequest(): DAppConfirmationRequest {
+  return buildRequest({
+    type: 'transaction',
+    sourcePublicKey: FULL_KEY,
+    transactionMessages: ['Send 5 MIDEN'],
+    spendingLimitAssessment: {
+      accountId: FULL_KEY,
+      usdAmount: 5_000_000n,
+      revision: 'revision-1',
+      assessedAt: 100,
+      breach: {
+        spent: 8_000_000n,
+        proposedTotal: 13_000_000n,
+        limit: 10_000_000n,
+        overBy: 3_000_000n,
+        resetAt: 200
+      }
+    }
+  });
 }
 
 /** Push a request into the REAL store and expose its eventual resolution. */
@@ -218,6 +252,37 @@ describe('DesktopDappConfirmationModal', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
+  it.each([
+    ['approve', true],
+    ['deny', false]
+  ] as const)('shows a login approval in the wallet window and settles it from %s', async (button, confirmed) => {
+    render(<DesktopDappConfirmationModal />);
+    const result = pushRequest(
+      buildRequest({
+        type: 'loginSign',
+        origin: 'https://example.org',
+        appMeta: { name: 'example.org' },
+        domain: 'example.org',
+        accountId: LOGIN_ACCOUNT_KEY
+      })
+    );
+    await flush();
+
+    expect(screen.getByText('dappLoginSignRequest')).toBeInTheDocument();
+    expect(screen.getByText('loginSignatureNote')).toBeInTheDocument();
+    // The shared panel truncates every account it shows.
+    expect(screen.getByText(truncateAddress(LOGIN_ACCOUNT_KEY))).toBeInTheDocument();
+    expect(screen.queryByText(truncateAddress(FULL_KEY))).not.toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: button }));
+    });
+    await flush();
+
+    expect(result.get()).toMatchObject({ confirmed });
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
   it('keeps a newer request on screen when Deny lands on the request it replaced', async () => {
     render(<DesktopDappConfirmationModal />);
     const first = pushRequest(buildRequest({ id: 'req-1', origin: 'https://first.test' }));
@@ -246,26 +311,7 @@ describe('DesktopDappConfirmationModal', () => {
 
   it('keeps an over-limit desktop send pending until strict authentication succeeds', async () => {
     render(<DesktopDappConfirmationModal />);
-    const result = pushRequest(
-      buildRequest({
-        type: 'transaction',
-        sourcePublicKey: FULL_KEY,
-        transactionMessages: ['Send 5 MIDEN'],
-        spendingLimitAssessment: {
-          accountId: FULL_KEY,
-          usdAmount: 5_000_000n,
-          revision: 'revision-1',
-          assessedAt: 100,
-          breach: {
-            spent: 8_000_000n,
-            proposedTotal: 13_000_000n,
-            limit: 10_000_000n,
-            overBy: 3_000_000n,
-            resetAt: 200
-          }
-        }
-      })
-    );
+    const result = pushRequest(buildLimitedRequest());
     await flush();
 
     fireEvent.click(screen.getByRole('button', { name: 'confirm' }));
@@ -277,6 +323,33 @@ describe('DesktopDappConfirmationModal', () => {
 
     expect(result.get()).toMatchObject({ confirmed: true, spendingLimitAuthenticated: true });
     expect(result.get()).not.toHaveProperty('spendingLimitAuthorization');
+  });
+
+  it('makes the nested strict-authentication dialog the accessible top modal', async () => {
+    render(<DesktopDappConfirmationModal />);
+    const result = pushRequest(buildLimitedRequest());
+    await flush();
+
+    fireEvent.click(screen.getByRole('button', { name: 'confirm' }));
+
+    const challenge = screen.getByRole('dialog', { name: 'Challenge' });
+    expect(screen.getAllByRole('dialog')).toEqual([challenge]);
+    expect(challenge).toContainElement(screen.getByRole('button', { name: 'authenticate-limit' }));
+    expect(result.get()).toBeUndefined();
+  });
+
+  it('hides the underlying Confirm control while strict authentication is active', async () => {
+    render(<DesktopDappConfirmationModal />);
+    const result = pushRequest(buildLimitedRequest());
+    await flush();
+    const confirm = screen.getByRole('button', { name: 'confirm' });
+
+    fireEvent.click(confirm);
+
+    expect(screen.getByTestId('spending-limit-challenge')).toHaveTextContent('revision-1');
+    expect(confirm).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'confirm' })).not.toBeInTheDocument();
+    expect(result.get()).toBeUndefined();
   });
 
   it('raises the wallet window once per request, since it sits behind the dApp window', async () => {

@@ -103,7 +103,13 @@ function harness() {
     return 1;
   });
   jest.mocked(Repo.transactions.where).mockImplementation(jest.fn().mockReturnValue({ first, modify }));
-  jest.mocked(Repo.transactions.filter).mockImplementation(jest.fn().mockReturnValue({ toArray: async () => [row] }));
+  // A new submission creates this row, so no withdrawal from its position is in flight before it does.
+  let created = false;
+  jest.mocked(Repo.transactions.filter).mockImplementation(
+    jest.fn().mockImplementation((predicate: (tx: ITransaction) => boolean) => ({
+      toArray: async () => (created ? [row] : []).filter(predicate)
+    }))
+  );
   const sharedLocks = new SharedEarnLocks();
   const locks = createEarnSubmissionLocks({ getLocks: () => sharedLocks });
   const initiateRow: typeof initiateEarnWithdrawTransaction = async (
@@ -117,6 +123,7 @@ function harness() {
     attemptId,
     startedAt
   ) => {
+    created = true;
     row.extraInputs.submissionAttemptId = attemptId;
     row.extraInputs.attemptStartedAt = startedAt;
     return row.id;
@@ -535,12 +542,16 @@ it('retries only the selected prepared request and direct source resubmission st
   const h = preparedHarness();
   h.row.extraInputs.phase = 'failed';
   h.row.extraInputs.submissionState = 'accepted';
+  h.row.extraInputs.epochAllocatorUrl = 'https://allocator.saved';
   const before = { ...h.row.extraInputs };
   const initiatedAt = h.row.initiatedAt;
   await resubmitEarnWithdrawal(h.row.id, h.deps);
   expect(h.executeActions).not.toHaveBeenCalled();
   await retryEarnWithdrawal(h.row.id, { ...h.deps, getSdk: async () => h.sdk });
   await retryEarnWithdrawal(h.row.id, { ...h.deps, getSdk: async () => h.sdk });
+  expect(h.deps.startDeliveryPoll).toHaveBeenCalledWith(
+    expect.objectContaining({ bridgeInfo: expect.objectContaining({ epochAllocatorUrl: 'https://allocator.saved' }) })
+  );
   expect(h.retryIntentSolve).toHaveBeenCalledTimes(1);
   expect(h.retryIntentSolve).toHaveBeenCalledWith(JSON.parse(preparedExecution().allocations[1]!.requestJson));
   expect(h.row.extraInputs).toEqual({ ...before, phase: 'redeeming', error: undefined });

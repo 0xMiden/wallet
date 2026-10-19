@@ -5,11 +5,17 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 
 import { expectDomainNeverClipped } from 'components/ui/dapp-origin-test-utils';
 import { confirmSensitiveAction } from 'lib/biometric';
-import { dappConfirmationStore, type DAppConfirmationRequest } from 'lib/dapp-browser/confirmation-store';
+import {
+  dappConfirmationStore,
+  type DAppConfirmationRequest,
+  type DAppLoginSignConfirmationRequest
+} from 'lib/dapp-browser/confirmation-store';
 import { useDappConfirmation } from 'lib/dapp-browser/use-dapp-confirmation';
 import { probeHardwareProtector } from 'lib/miden/back/protector-probe';
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { DELEGATE_PROOF_STORAGE_KEY } from 'lib/settings/constants';
+import { truncateAddress } from 'utils/string';
 
 import { DappConfirmationModal } from './DappConfirmationModal';
 
@@ -26,8 +32,20 @@ jest.mock('@miden-sdk/miden-wallet-adapter-base', () => ({
 }));
 
 jest.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (k: string) => k })
+  // Interpolated values follow the key, so a line that names its networks can be read.
+  useTranslation: () => ({
+    t: (k: string, values?: Record<string, string>) => (values ? `${k}:${Object.values(values).join(',')}` : k)
+  })
 }));
+
+// The build's network unless a case puts the wallet on another.
+let mockWalletNetwork: MIDEN_NETWORK_NAME | undefined;
+jest.mock('lib/miden-chain/effective-endpoints', () => {
+  const actual = jest.requireActual<typeof import('lib/miden-chain/effective-endpoints')>(
+    'lib/miden-chain/effective-endpoints'
+  );
+  return { ...actual, getEffectiveNetworkName: () => mockWalletNetwork ?? actual.getEffectiveNetworkName() };
+});
 
 jest.mock('lib/animation', () => ({
   useSprings: () => ({ overlay: {}, modal: {}, reduceMotion: false })
@@ -64,19 +82,25 @@ jest.mock('app/icons/v2', () => ({
   IconName: {}
 }));
 
-jest.mock('components/SpendingLimitChallenge', () => ({
-  SpendingLimitChallenge: (props: any) => (
-    <div data-testid="spending-limit-challenge">
-      <span>{props.assessment.revision}</span>
-      <button type="button" onClick={() => props.onResult({ id: 'ui-only-authorization' })}>
-        authenticate-limit
-      </button>
-      <button type="button" onClick={() => props.onResult(undefined)}>
-        cancel-limit
-      </button>
-    </div>
-  )
-}));
+jest.mock('components/SpendingLimitChallenge', () => {
+  const { Drawer, DrawerContent, DrawerTitle } = jest.requireActual('lib/ui/drawer');
+  return {
+    SpendingLimitChallenge: (props: any) => (
+      <Drawer open onOpenChange={(open: boolean) => !open && props.onResult(undefined)}>
+        <DrawerContent data-testid="spending-limit-challenge">
+          <DrawerTitle>Challenge</DrawerTitle>
+          <span>{props.assessment.revision}</span>
+          <button type="button" onClick={() => props.onResult({ id: 'ui-only-authorization' })}>
+            authenticate-limit
+          </button>
+          <button type="button" onClick={() => props.onResult(undefined)}>
+            cancel-limit
+          </button>
+        </DrawerContent>
+      </Drawer>
+    )
+  };
+});
 
 const FULL_ACCOUNT_ID = 'mtst1apsnkg6x57mhxyrq09aavyq08yu5dy4p_qr7qqq9wr6w';
 
@@ -752,6 +776,34 @@ describe('DappConfirmationModal - resolving through the store', () => {
   });
 });
 
+describe('DappConfirmationModal - a connect asked again after its key read failed (#1471)', () => {
+  const askedAgain = (previousAttemptError: string) => Object.assign(buildRequest(), { previousAttemptError });
+
+  it.each([
+    ["the read's error", 'Account not found', 'Account not found'],
+    ['a generic error for a read with no message', '', 'smthWentWrong']
+  ])('shows %s, and its Retry approves the request', (_label, previousAttemptError, shown) => {
+    const onResolve = jest.fn();
+    render(
+      <DappConfirmationModal
+        request={askedAgain(previousAttemptError)}
+        accountId={FULL_ACCOUNT_ID}
+        onResolve={onResolve}
+      />
+    );
+
+    expect(screen.getByTestId('dapp-approval-error')).toHaveTextContent(shown);
+    expect(screen.queryByRole('button', { name: 'approve' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'retry' }));
+
+    expect(onResolve).toHaveBeenCalledTimes(1);
+    expect(onResolve).toHaveBeenCalledWith(
+      expect.objectContaining({ confirmed: true, accountPublicKey: FULL_ACCOUNT_ID }),
+      'req-1'
+    );
+  });
+});
+
 describe('DappConfirmationModal origin', () => {
   const LONG_ORIGIN = 'https://login.secure.account-verify.wallet.example.co.uk';
 
@@ -769,9 +821,7 @@ describe('DappConfirmationModal origin', () => {
     const domain = within(shown).getByTestId('dapp-origin-domain');
     expect(domain).toHaveTextContent(/^example\.co\.uk$/);
     expect(within(shown).getByTestId('dapp-origin-lead')).toHaveClass('truncate');
-    // The row directly wrapping DappOrigin, not the modal card: the card's own
-    // overflow-hidden is an unrelated rounded-corner clip (no fixed height, so it
-    // never clips text) and would otherwise make this guard fail on every render.
+    // Check the title row: the card's rounded-corner clip also contains the scrollable request body.
     expectDomainNeverClipped(domain, shown.parentElement!);
   });
 
@@ -804,5 +854,146 @@ describe('DappConfirmationModal origin', () => {
     expect(screen.getByRole('heading', { level: 2 }).textContent).toBe('https://evil.io');
     expect(screen.getByRole('dialog')).toHaveAccessibleName(/evil\.io/);
     expect(screen.getByRole('dialog')).not.toHaveAccessibleName(/example\.co\.uk/);
+  });
+});
+
+describe('DappConfirmationModal network', () => {
+  afterEach(() => {
+    mockWalletNetwork = undefined;
+  });
+
+  // dApps on the adapter's defaults claim testnet, so the claim is no guide to where the request runs.
+  it.each<[string, DAppConfirmationRequest]>([
+    ['connect', buildRequest({ network: 'testnet' })],
+    ['send', { ...plainTransactionRequest(), network: 'testnet' }]
+  ])("names the wallet's own network on the %s sheet, not the dApp's claim", (_kind, request) => {
+    mockWalletNetwork = MIDEN_NETWORK_NAME.MAINNET;
+    render(<DappConfirmationModal request={request} accountId={FULL_ACCOUNT_ID} onResolve={jest.fn()} />);
+
+    expect(screen.getByTestId('dapp-confirmation-network')).toHaveTextContent(/^mainnet$/);
+  });
+
+  it('warns on a connect that claims another network, naming both', () => {
+    mockWalletNetwork = MIDEN_NETWORK_NAME.MAINNET;
+    render(
+      <DappConfirmationModal
+        request={buildRequest({ network: 'testnet' })}
+        accountId={FULL_ACCOUNT_ID}
+        onResolve={jest.fn()}
+      />
+    );
+
+    expect(screen.getByTestId('dapp-network-mismatch')).toHaveTextContent('dappNetworkMismatch:testnet,mainnet');
+  });
+
+  it('keeps the warning to the connect sheet', () => {
+    mockWalletNetwork = MIDEN_NETWORK_NAME.MAINNET;
+    render(
+      <DappConfirmationModal
+        request={{ ...plainTransactionRequest(), network: 'testnet' }}
+        accountId={FULL_ACCOUNT_ID}
+        onResolve={jest.fn()}
+      />
+    );
+
+    expect(screen.getByTestId('dapp-confirmation-network')).toBeInTheDocument();
+    expect(screen.queryByTestId('dapp-network-mismatch')).not.toBeInTheDocument();
+  });
+
+  it.each<[string, string | undefined]>([
+    ['claims the network the wallet is on', MIDEN_NETWORK_NAME.MAINNET],
+    ['claims no network', undefined]
+  ])('does not warn when the dApp %s', (_label, network) => {
+    mockWalletNetwork = MIDEN_NETWORK_NAME.MAINNET;
+    render(
+      <DappConfirmationModal request={buildRequest({ network })} accountId={FULL_ACCOUNT_ID} onResolve={jest.fn()} />
+    );
+
+    expect(screen.queryByTestId('dapp-network-mismatch')).not.toBeInTheDocument();
+  });
+});
+
+describe('DappConfirmationModal - a login signature', () => {
+  const LOGIN_ACCOUNT_ID = 'mtst1azcw08rget79fqp8ymr0zqkv5v4lj3s7_qruqqypuyph';
+  const OPAQUE_ROW = 'Warning, this site asked you to sign a value the wallet cannot decode.';
+  const loginRequest = (overrides: Partial<DAppLoginSignConfirmationRequest> = {}) =>
+    buildRequest({
+      type: 'loginSign',
+      origin: 'https://example.org',
+      appMeta: { name: 'example.org' },
+      domain: 'example.org',
+      accountId: LOGIN_ACCOUNT_ID,
+      transactionMessages: ['Kind, word', OPAQUE_ROW],
+      ...overrides
+    });
+
+  beforeEach(() => {
+    confirmMock.mockReset();
+  });
+
+  it("names the site and shows the request's account, with no detail rows", () => {
+    render(<DappConfirmationModal request={loginRequest()} accountId={FULL_ACCOUNT_ID} onResolve={jest.fn()} />);
+
+    expect(screen.getByText('dappLoginSignRequest:example.org')).toBeInTheDocument();
+    expect(screen.getByText('loginSignatureNote:example.org')).toBeInTheDocument();
+    expect(screen.getByText(truncateAddress(LOGIN_ACCOUNT_ID))).toBeInTheDocument();
+    expect(screen.queryByText(truncateAddress(FULL_ACCOUNT_ID))).not.toBeInTheDocument();
+    expect(screen.queryByText(OPAQUE_ROW)).not.toBeInTheDocument();
+    expect(screen.queryByText('Kind, word')).not.toBeInTheDocument();
+  });
+
+  // Approve reports the account the sheet shows, not the wallet's selected one.
+  it.each([
+    ['Approve', /approve/i, { confirmed: true, accountPublicKey: LOGIN_ACCOUNT_ID }],
+    ['Deny', /deny/i, { confirmed: false }]
+  ] as const)('settles a login from %s, with no biometric prompt', (_label, name, result) => {
+    const onResolve = jest.fn();
+    render(<DappConfirmationModal request={loginRequest()} accountId={FULL_ACCOUNT_ID} onResolve={onResolve} />);
+
+    fireEvent.click(screen.getByRole('button', { name }));
+
+    expect(onResolve).toHaveBeenCalledTimes(1);
+    expect(onResolve).toHaveBeenCalledWith(expect.objectContaining(result), 'req-1');
+    expect(confirmMock).not.toHaveBeenCalled();
+  });
+
+  it('cannot approve a login that names no account, and Deny still settles it', () => {
+    const onResolve = jest.fn();
+    render(
+      <DappConfirmationModal
+        request={loginRequest({ accountId: undefined })}
+        accountId={FULL_ACCOUNT_ID}
+        onResolve={onResolve}
+      />
+    );
+
+    expect(screen.getByText('noAccountSelected')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /approve/i })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: /approve/i }));
+    expect(onResolve).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: /deny/i }));
+    expect(onResolve).toHaveBeenCalledTimes(1);
+    expect(onResolve).toHaveBeenCalledWith({ confirmed: false }, 'req-1');
+  });
+
+  it('cannot approve a login that names no site, and Deny still settles it', () => {
+    const onResolve = jest.fn();
+    render(
+      <DappConfirmationModal
+        request={loginRequest({ domain: undefined })}
+        accountId={FULL_ACCOUNT_ID}
+        onResolve={onResolve}
+      />
+    );
+
+    expect(screen.getByText(truncateAddress(LOGIN_ACCOUNT_ID))).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /approve/i })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: /approve/i }));
+    expect(onResolve).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: /deny/i }));
+    expect(onResolve).toHaveBeenCalledTimes(1);
+    expect(onResolve).toHaveBeenCalledWith({ confirmed: false }, 'req-1');
   });
 });

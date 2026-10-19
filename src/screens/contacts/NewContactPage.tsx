@@ -21,7 +21,7 @@ import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isMobile } from 'lib/platform';
 import { isScanAvailable, scanQRCode } from 'lib/qr';
 import useIsMounted from 'lib/ui/useIsMounted';
-import { BridgeNetworkId, DEFAULT_BRIDGE_NETWORK } from 'screens/send-flow/bridge-networks';
+import { BridgeNetworkId, defaultBridgeNetwork } from 'screens/send-flow/bridge-networks';
 import { NetworkField } from 'screens/send-flow/NetworkField';
 import { ScanQrDrawer } from 'screens/send-flow/ScanQrDrawer';
 import { detectAddressChain, isValidRecipientAddress } from 'utils/miden';
@@ -47,7 +47,7 @@ export const NewContactPage: React.FC = () => {
   // does not flash on every keystroke of an address still being typed.
   const [addressTouched, setAddressTouched] = useState(false);
   const [name, setName] = useState('');
-  const [network, setNetwork] = useState<BridgeNetworkId>(DEFAULT_BRIDGE_NETWORK.id);
+  const [network, setNetwork] = useState<BridgeNetworkId>(() => defaultBridgeNetwork().id);
   const [scanError, setScanError] = useState<string>();
   const [pasteError, setPasteError] = useState<string>();
   const [saveError, setSaveError] = useState<string>();

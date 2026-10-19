@@ -50,6 +50,24 @@ describe('a row proven landed takes its type`s icon (#1081)', () => {
     expect(verifiedLandingRowFields({ type: 'swap', accountId: 'acct' })).toMatchObject({ displayIcon: 'SWAP' });
   });
 
+  // A relay that ran before the row was failed recorded which notes the transport took; re-deriving the label must
+  // not forget them.
+  it('verifiedLandingRowFields counts only the notes the transport did not acknowledge', () => {
+    expect(
+      verifiedLandingRowFields({
+        type: 'execute',
+        accountId: 'acct',
+        secondaryAccountId: 'recipient',
+        noteDelivery: 'undelivered',
+        relayNoteIds: ['0xa', '0xb'],
+        relayAckedNoteIds: ['0xb']
+      })
+    ).toMatchObject({
+      displayMessage: 'Executed - a private note could not be delivered',
+      noteDelivery: 'undelivered'
+    });
+  });
+
   it('the landed write replaces a Failed row`s icon when its caller passes none', async () => {
     await Repo.transactions.put(
       unconfirmed({ type: 'consume', status: ITransactionStatus.Failed, displayIcon: 'FAILED' })

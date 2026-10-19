@@ -162,10 +162,17 @@ export function withInited<T>(factory: (state: StoreState) => T) {
  * that cached state to a dApp.
  */
 export function assertUnlocked(state: StoreState): asserts state is UnlockedStoreState {
+  if (isUnlocked(state)) return;
   assertInited(state);
-  if (!state.vault || state.status !== WalletStatus.Ready) {
-    throw Object.assign(new PublicError('Wallet is locked'), { reason: 'locked' as const });
-  }
+  throw Object.assign(new PublicError('Wallet is locked'), { reason: 'locked' as const });
+}
+
+/**
+ * The one definition of an unlocked store: initialized, Ready and holding a vault. `assertUnlocked` throws exactly
+ * when this is false, so a worker gate that asks it can never let through a claim signing would refuse.
+ */
+export function isUnlocked(state: StoreState): state is UnlockedStoreState {
+  return state.inited && !!state.vault && state.status === WalletStatus.Ready;
 }
 
 export function assertInited(state: StoreState) {

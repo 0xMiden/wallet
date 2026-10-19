@@ -9,6 +9,8 @@ concurrency:
   cancel-in-progress: true
 permissions:
   contents: read
+  # The linked-PR injections list a dispatched branch's open pull request and read its description.
+  pull-requests: read
 jobs:
   # Hermetic, per-PR guardian bridge-OUT coverage. The standard-account bridge
   # suite (pr-e2e / playwright.bridge.config.ts) runs on real testnet and only
@@ -22,13 +24,18 @@ jobs:
     # Full suite only when the base is main or next; bridge-guardian-e2e-gate
     # below reports the required name under the same rule (#1071).
     if: github.event_name != 'pull_request' || github.event.pull_request.base.ref == 'main' || github.event.pull_request.base.ref == 'next'
-    # x64-8x. The suite was green on arm64-2x when it installed the published SDK.
-    # A linked web-sdk build compiles miden-client-web on the runner, and the 2x ARM
-    # runner was cancelled three times in that crate at about 30 min. The same build
-    # finishes in about 10 min on the 8x runner guardian lifecycle uses.
-    runs-on: warp-ubuntu-latest-x64-8x
-    # 120 rather than 60/75: while this branch carries `Client PR:` / `Web SDK PR:` /
-    # `Guardian PR:` markers, the suite builds the miden-client CLI and the node from
+    # WarpBuild when a job can compile linked dependencies. The wallet PR body carries
+    # `Web SDK PR:` and `Guardian PR:`; `Client PR:` and `Protocol PR:` live on the
+    # linked web-sdk PR's body and ride on `Web SDK PR:`. The runner comes from the
+    # event payload while the injections read the live body, so after adding or
+    # removing a marker push a commit (or close and reopen) rather than re-running.
+    runs-on: >-
+      ${{ (github.event_name == 'workflow_dispatch' ||
+           contains(github.event.pull_request.body, 'Web SDK PR:') ||
+           contains(github.event.pull_request.body, 'Guardian PR:')) &&
+          'warp-ubuntu-latest-x64-8x' || 'ubuntu-24.04' }}
+    # 120 rather than 60/75: while the PR carries `Web SDK PR:` / `Guardian PR:` markers
+    # (or its linked web-sdk PR carries `Client PR:` / `Protocol PR:`), the suite builds the miden-client CLI and the node from
     # source. That is a cold cargo build the pin-keyed cache cannot serve until one run
     # finishes and populates ~/.cargo/bin — and every run was timing out first, so the
     # cache stayed empty and every run stayed cold. Observed: 15 min for the wallet build
@@ -206,10 +213,10 @@ jobs:
   # reports no required name; a push, or a close and reopen, is what gets a
   # retargeted pull request its required names from its own pull_request run.
   # A by-hand workflow_dispatch run reports the required name on the branch
-  # head, against published packages, with no linked-PR injection: the inject
-  # actions exit on any event but pull_request. Branch protection accepts
-  # that check for a pull request at the same commit, which is the spec's
-  # by-hand escape hatch.
+  # head, built against the linked PRs that the branch's open pull request
+  # names, as its pull_request run is (none on main or next). Branch
+  # protection accepts that check for a pull request at the same commit,
+  # which is the spec's by-hand escape hatch.
   bridge-guardian-e2e-gate:
     name: ${{ (github.event_name != 'pull_request' || github.event.pull_request.base.ref == 'main' || github.event.pull_request.base.ref == 'next') && 'bridge-guardian-e2e-gate' || 'bridge-guardian-e2e-gate (stacked)' }}
     needs: [bridge-guardian-e2e]

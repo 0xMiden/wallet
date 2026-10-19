@@ -1,6 +1,9 @@
-import { DEFAULT_NETWORK, MIDEN_FAUCET_API_ENDPOINTS } from './constants';
+import { MIDEN_NETWORK_NAME } from './constants';
+import { applyEndpointOverride, buildNetworkChoiceOverride, clearEndpointOverride } from './effective-endpoints';
 import {
+  FaucetAmountOverCapError,
   FaucetOutcomeUnknownError,
+  FaucetRateLimitedError,
   faucetFetch,
   getFaucetApiUrl,
   getPowChallenge,
@@ -11,6 +14,24 @@ import {
 import { spawnFaucetPowWorker } from './spawn-faucet-pow-worker';
 
 jest.mock('./spawn-faucet-pow-worker', () => ({ spawnFaucetPowWorker: jest.fn() }));
+
+// Holds the endpoint override, so a case can put the wallet on mainnet the way onboarding does.
+const mockStorage = new Map<string, unknown>();
+jest.mock('lib/platform/storage-adapter', () => ({
+  getStorageProvider: () => ({
+    get: async (keys: string[]) => {
+      const out: Record<string, unknown> = {};
+      for (const key of keys) if (mockStorage.has(key)) out[key] = mockStorage.get(key);
+      return out;
+    },
+    set: async (items: Record<string, unknown>) => {
+      for (const [key, value] of Object.entries(items)) mockStorage.set(key, value);
+    },
+    remove: async (keys: string[]) => {
+      for (const key of keys) mockStorage.delete(key);
+    }
+  })
+}));
 
 class TestPowWorker extends EventTarget {
   terminate = jest.fn();
@@ -98,9 +119,12 @@ describe('faucet-api', () => {
       expect(getFaucetApiUrl('localnet')).toBe('http://localhost:8000');
     });
 
-    it('falls back to the default network endpoint for unknown networks', () => {
-      expect(getFaucetApiUrl('unknown-network')).toBe(MIDEN_FAUCET_API_ENDPOINTS.get(DEFAULT_NETWORK));
-    });
+    it.each<[string]>([[MIDEN_NETWORK_NAME.MAINNET], ['unknown-network']])(
+      'resolves no endpoint for %s, never another network faucet',
+      networkId => {
+        expect(getFaucetApiUrl(networkId)).toBeUndefined();
+      }
+    );
   });
 
   describe('getPowChallenge', () => {
@@ -444,8 +468,9 @@ describe('faucet-api', () => {
   });
 
   describe('requestTokens', () => {
-    it('requests a public note with the solved challenge', async () => {
-      fetchMock.mockResolvedValue(jsonResponse({ tx_id: '0xtx', note_id: '0xnote' }));
+    it('requests the grant with the solved challenge and reads back its note id alone', async () => {
+      // Faucet 0.17.0 dropped `is_private_note` (every grant is public) and answers with `note_id` only.
+      fetchMock.mockResolvedValue(jsonResponse({ note_id: '0xnote' }));
 
       const result = await requestTokens(
         'https://faucet-api.example',
@@ -457,7 +482,6 @@ describe('faucet-api', () => {
 
       const expectedParams = new URLSearchParams({
         account_id: 'mtst1testaddress',
-        is_private_note: 'false',
         asset_amount: '100000000',
         challenge: CHALLENGE_HEX,
         nonce: '42'
@@ -466,7 +490,7 @@ describe('faucet-api', () => {
         `https://faucet-api.example/get_tokens?${expectedParams}`,
         expect.objectContaining({ signal: expect.any(AbortSignal) })
       );
-      expect(result).toEqual({ txId: '0xtx', noteId: '0xnote' });
+      expect(result).toStrictEqual({ noteId: '0xnote' });
     });
 
     it('forwards the abort signal to the fetch', async () => {
@@ -775,7 +799,69 @@ describe('faucet-api', () => {
     });
   });
 
+  describe('a refusal the user can act on', () => {
+    const calls: Array<[string, () => Promise<unknown>]> = [
+      ['Faucet PoW request', () => getPowChallenge('https://faucet-api.example', 'mtst1testaddress', 100_000_000n)],
+      [
+        'Faucet token request',
+        () => requestTokens('https://faucet-api.example', 'mtst1testaddress', 100_000_000n, CHALLENGE_HEX, 42)
+      ]
+    ];
+
+    it.each(calls)('%s types a rate limit, with the wait its body names', async (label, call) => {
+      fetchMock.mockResolvedValue(errorResponse(429, 'Account is rate limited for 25 more seconds.'));
+
+      const error = await call().catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(FaucetRateLimitedError);
+      expect(error).toMatchObject({
+        message: `${label} failed with status 429: Account is rate limited for 25 more seconds.`,
+        retryAfterSeconds: 25
+      });
+    });
+
+    it.each(calls)('%s types a rate limit whose body names no wait', async (_label, call) => {
+      fetchMock.mockResolvedValue(errorResponse(429, 'Too many requests'));
+
+      await expect(call()).rejects.toMatchObject({ name: 'FaucetRateLimitedError', retryAfterSeconds: null });
+    });
+
+    it.each(calls)('%s types an amount over the cap, with the cap the faucet names', async (label, call) => {
+      const detail = 'requested amount 100000000 exceeds the maximum claimable amount of 10000000';
+      fetchMock.mockResolvedValue(errorResponse(400, detail));
+
+      const error = await call().catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(FaucetAmountOverCapError);
+      expect(error).toMatchObject({ message: `${label} failed with status 400: ${detail}`, cap: 10_000_000n });
+      expect(error).not.toBeInstanceOf(FaucetOutcomeUnknownError);
+    });
+
+    it.each(calls)('%s keeps any other refusal a plain error', async (_label, call) => {
+      fetchMock.mockResolvedValue(errorResponse(400, 'Please enter a valid recipient address'));
+
+      const error = await call().catch((e: unknown) => e);
+
+      expect(Object.getPrototypeOf(error)).toBe(Error.prototype);
+    });
+  });
+
   describe('mintFromMidenFaucet', () => {
+    it('sends nothing on a wallet whose network has no faucet (mainnet)', async () => {
+      await applyEndpointOverride(buildNetworkChoiceOverride(MIDEN_NETWORK_NAME.MAINNET));
+      try {
+        const onBeforeSubmit = jest.fn();
+        await expect(mintFromMidenFaucet('mm1mainnetaddress', undefined, undefined, onBeforeSubmit)).rejects.toThrow(
+          'No faucet'
+        );
+        expect(fetchMock).not.toHaveBeenCalled();
+        expect(spawnWorkerMock).not.toHaveBeenCalled();
+        expect(onBeforeSubmit).not.toHaveBeenCalled();
+      } finally {
+        await clearEndpointOverride();
+      }
+    });
+
     it.each([10000, 100000000])('uses advertised base_amount %i unchanged for challenge and mint', async baseAmount => {
       fetchMock.mockImplementation(async (url: string) => {
         if (url.endsWith('/get_metadata'))
@@ -859,11 +945,11 @@ describe('faucet-api', () => {
       const tokensUrl = new URL(fetchMock.mock.calls[1][0]);
       expect(`${tokensUrl.origin}${tokensUrl.pathname}`).toBe(`${baseUrl}/get_tokens`);
       expect(tokensUrl.searchParams.get('account_id')).toBe('mtst1testaddress');
-      expect(tokensUrl.searchParams.get('is_private_note')).toBe('false');
+      expect(tokensUrl.searchParams.has('is_private_note')).toBe(false);
       expect(tokensUrl.searchParams.get('asset_amount')).toBe('100000000');
       expect(tokensUrl.searchParams.get('challenge')).toBe(CHALLENGE_HEX);
       expect(tokensUrl.searchParams.get('nonce')).toMatch(/^\d+$/);
-      expect(result).toEqual({ txId: '0xtx', noteId: '0xnote' });
+      expect(result).toStrictEqual({ noteId: '0xnote' });
     });
 
     it('sends the token request only once onBeforeSubmit has finished, and never when it fails', async () => {
@@ -940,6 +1026,159 @@ describe('faucet-api', () => {
       expect(onBeforeSubmit).not.toHaveBeenCalled();
       expect(fetchMock).toHaveBeenCalledTimes(1);
       expect(fetchMock.mock.calls[0][0]).toContain('/pow');
+    });
+  });
+
+  describe('the grant amount and the cap retry', () => {
+    const ADDRESS = 'mtst1testaddress';
+    // Faucet 0.17.1 (testnet) offers token amounts; 0.17.0 (devnet) does not.
+    const TESTNET_METADATA = {
+      version: '0.17.1',
+      decimals: 6,
+      base_amount: 100_000_000,
+      token_amounts: [1, 10, 100]
+    };
+    const DEVNET_METADATA = { version: '0.17.0', decimals: 6, base_amount: 100_000_000 };
+    const overCap = (requested: bigint, cap: bigint) =>
+      `requested amount ${requested} exceeds the maximum claimable amount of ${cap}`;
+    const requests = (path: string) =>
+      fetchMock.mock.calls.map(([url]) => new URL(url)).filter(url => url.pathname === path);
+    const powAmounts = () => requests('/pow').map(url => url.searchParams.get('amount'));
+    const grantAmounts = () => requests('/get_tokens').map(url => url.searchParams.get('asset_amount'));
+
+    /** Answers the metadata, then each /pow and /get_tokens from its own queue, OK once a queue is empty. */
+    function serveFaucet(metadata: unknown, queued: { pow?: MockResponse[]; tokens?: MockResponse[] } = {}) {
+      const pow = [...(queued.pow ?? [])];
+      const tokens = [...(queued.tokens ?? [])];
+      fetchMock.mockImplementation(async (url: string) => {
+        const { pathname } = new URL(url);
+        if (pathname === '/get_metadata') return jsonResponse(metadata);
+        if (pathname === '/pow') return pow.shift() ?? jsonResponse({ challenge: CHALLENGE_HEX, target: 2 ** 64 });
+        return tokens.shift() ?? jsonResponse({ note_id: '0xnote' });
+      });
+    }
+
+    describe('mintFromMidenFaucet', () => {
+      it('asks for the largest token amount the faucet offers, in base units', async () => {
+        serveFaucet({ ...TESTNET_METADATA, token_amounts: [1, 10] });
+
+        await mintFromMidenFaucet(ADDRESS);
+
+        expect(powAmounts()).toEqual(['10000000']);
+        expect(grantAmounts()).toEqual(['10000000']);
+      });
+
+      it('asks for an offered token amount when base_amount is malformed', async () => {
+        serveFaucet({ decimals: 6, base_amount: 'x', token_amounts: [5] });
+
+        await mintFromMidenFaucet(ADDRESS);
+
+        expect(powAmounts()).toEqual(['5000000']);
+      });
+
+      it('asks once more at the cap a challenge refusal names, from a fresh challenge (testnet)', async () => {
+        serveFaucet(TESTNET_METADATA, { pow: [errorResponse(400, overCap(100_000_000n, 10_000_000n))] });
+        const onBeforeSubmit = jest.fn(async () => undefined);
+
+        await expect(mintFromMidenFaucet(ADDRESS, undefined, undefined, onBeforeSubmit)).resolves.toStrictEqual({
+          noteId: '0xnote'
+        });
+
+        expect(powAmounts()).toEqual(['100000000', '10000000']);
+        expect(grantAmounts()).toEqual(['10000000']);
+        expect(spawnWorkerMock).toHaveBeenCalledTimes(1);
+        expect(onBeforeSubmit).toHaveBeenCalledTimes(1);
+      });
+
+      it('asks once more at the cap a token refusal names, solving a new challenge (devnet)', async () => {
+        serveFaucet(DEVNET_METADATA, { tokens: [errorResponse(400, overCap(100_000_000n, 10_000_000n))] });
+        const onBeforeSubmit = jest.fn(async () => undefined);
+        const onMayMint = jest.fn();
+
+        await mintFromMidenFaucet(ADDRESS, undefined, undefined, onBeforeSubmit, onMayMint);
+
+        expect(powAmounts()).toEqual(['100000000', '10000000']);
+        expect(grantAmounts()).toEqual(['100000000', '10000000']);
+        expect(spawnWorkerMock).toHaveBeenCalledTimes(2);
+        expect(onBeforeSubmit).toHaveBeenCalledTimes(2);
+        // Refused (nothing minting), then the retry goes out and is accepted.
+        expect(onMayMint.mock.calls).toEqual([[true], [false], [true], [true]]);
+      });
+
+      it('asks at most twice, whatever the second refusal names', async () => {
+        serveFaucet(TESTNET_METADATA, {
+          pow: [
+            errorResponse(400, overCap(100_000_000n, 10_000_000n)),
+            errorResponse(400, overCap(10_000_000n, 1_000_000n))
+          ]
+        });
+
+        const error = await mintFromMidenFaucet(ADDRESS).catch((e: unknown) => e);
+
+        expect(error).toBeInstanceOf(FaucetAmountOverCapError);
+        expect(error).toMatchObject({ cap: 1_000_000n });
+        expect(powAmounts()).toEqual(['100000000', '10000000']);
+      });
+
+      it('surfaces a rate limit on the retry as the faucet sent it, and asks no third time', async () => {
+        serveFaucet(DEVNET_METADATA, {
+          tokens: [
+            errorResponse(400, overCap(100_000_000n, 10_000_000n)),
+            errorResponse(429, 'Account is rate limited for 25 more seconds.')
+          ]
+        });
+        const onMayMint = jest.fn();
+
+        const minting = mintFromMidenFaucet(ADDRESS, undefined, undefined, undefined, onMayMint);
+        const error = await minting.catch((e: unknown) => e);
+
+        expect(error).toBeInstanceOf(FaucetRateLimitedError);
+        expect(error).toMatchObject({ retryAfterSeconds: 25 });
+        expect(grantAmounts()).toEqual(['100000000', '10000000']);
+        // Both refusals say nothing is minting, so the card may offer the request again.
+        expect(onMayMint.mock.calls).toEqual([[true], [false], [true], [false]]);
+      });
+
+      it.each([
+        ['the cap equals the request', overCap(100_000_000n, 100_000_000n)],
+        ['the cap is above the request', overCap(100_000_000n, 1_000_000_000n)],
+        ['the cap is zero', overCap(100_000_000n, 0n)],
+        ['the refusal names no cap', 'requested amount 100000000 exceeds the maximum claimable amount'],
+        ['the refusal is about something else', 'Please enter a valid recipient address']
+      ])('asks only once when %s', async (_case, detail) => {
+        serveFaucet(TESTNET_METADATA, { pow: [errorResponse(400, detail)] });
+
+        await expect(mintFromMidenFaucet(ADDRESS)).rejects.toThrow(
+          `Faucet PoW request failed with status 400: ${detail}`
+        );
+
+        expect(powAmounts()).toEqual(['100000000']);
+      });
+
+      it('asks only once for an amount the caller chose', async () => {
+        serveFaucet(TESTNET_METADATA, { pow: [errorResponse(400, overCap(100_000_000n, 10_000_000n))] });
+
+        await expect(mintFromMidenFaucet(ADDRESS, 100_000_000n)).rejects.toBeInstanceOf(FaucetAmountOverCapError);
+
+        expect(powAmounts()).toEqual(['100000000']);
+        expect(requests('/get_metadata')).toHaveLength(0);
+      });
+
+      it('sends no second challenge when the caller aborts on an over-cap refusal', async () => {
+        const controller = new AbortController();
+        const reason = new Error('Faucet request timed out');
+        fetchMock.mockImplementation(async (url: string) => {
+          if (new URL(url).pathname === '/get_metadata') return jsonResponse(TESTNET_METADATA);
+          // The request's timeout fires while the refusal is on its way back.
+          controller.abort(reason);
+          return errorResponse(400, overCap(100_000_000n, 10_000_000n));
+        });
+
+        await expect(mintFromMidenFaucet(ADDRESS, undefined, controller.signal)).rejects.toBe(reason);
+
+        expect(powAmounts()).toEqual(['100000000']);
+        expect(spawnWorkerMock).not.toHaveBeenCalled();
+      });
     });
   });
 });

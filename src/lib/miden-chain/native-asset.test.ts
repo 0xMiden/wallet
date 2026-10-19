@@ -21,6 +21,12 @@ _g.__nativeAssetTest = {
 };
 
 jest.mock('@miden-sdk/miden-sdk', () => ({
+  AccountId: {
+    fromHex: (id: string) => {
+      if (!id.startsWith('0x')) throw new Error(`Invalid hex account: ${id}`);
+      return { _id: id.toLowerCase(), toString: () => id.toLowerCase() };
+    }
+  },
   RpcClient: class {
     async getBlockHeaderByNumber(_: any) {
       const g = (globalThis as any).__nativeAssetTest;
@@ -58,10 +64,23 @@ jest.mock('lib/miden/front/storage', () => ({
   putToStorage: (key: string, value: any) => (globalThis as any).__nativeAssetTest.putToStorage(key, value)
 }));
 
-jest.mock('lib/miden/sdk/helpers', () => ({
-  getBech32AddressFromAccountId: jest.fn((accountId: any) => `bech32-${accountId?._id ?? accountId}`),
-  accountIdStringToSdk: jest.fn((id: string) => ({ _id: id }))
-}));
+jest.mock('lib/miden/sdk/helpers', () => {
+  const bech32Only = (id: string) => {
+    if (id.includes('_') || /^0x/i.test(id)) throw new Error(`Invalid bech32 account: ${id}`);
+    return { _id: id, toString: () => id };
+  };
+  const canonical = (id: string) => {
+    const ref = id.split('_')[0] ?? id;
+    const parsed = /^0x/i.test(ref) ? ref.toLowerCase() : ref;
+    return { _id: parsed, toString: () => parsed };
+  };
+  return {
+    getBech32AddressFromAccountId: jest.fn((accountId: any) => `bech32-${accountId?._id ?? accountId}`),
+    accountIdStringToSdk: jest.fn(bech32Only),
+    accountRefToSdk: jest.fn(canonical),
+    walletAccountIdToSdk: jest.fn(canonical)
+  };
+});
 
 jest.mock('lib/miden/metadata', () => ({
   fetchChainTokenMetadata: (...args: any[]) => (globalThis as any).__nativeAssetTest.fetchChainTokenMetadata(...args)
@@ -110,6 +129,13 @@ beforeEach(async () => {
 });
 
 describe('native-asset module', () => {
+  it('canonicalizes a 0X native faucet to the same bech32 id as 0x', async () => {
+    // The first read of a fresh cache, so canonicalId sees the 0X id rather than a cached one.
+    _g.__nativeAssetTest.feeFaucetId = '0XABC';
+    await expect(getNativeAssetId()).resolves.toBe('bech32-0xabc');
+    expect(getNativeAssetIdSync()).toBe('bech32-0xabc');
+  });
+
   it('reads the verification base fee from the same block-header fetch as the faucet id', async () => {
     _g.__nativeAssetTest.rpcHeader = {
       feeFaucetId: () => ({ _id: 'native-acc' }),

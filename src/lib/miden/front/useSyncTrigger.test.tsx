@@ -123,6 +123,11 @@ jest.mock('./guardian-sync', () => ({
   reconcileUnconfirmedInApp: () => mockReconcile()
 }));
 
+const mockSweep = jest.fn(async () => {});
+jest.mock('lib/miden/transaction/note-delivery-sweep', () => ({
+  sweepNoteDeliveries: () => mockSweep()
+}));
+
 const mockMarkConnectivityIssue = jest.fn();
 const mockClearReachabilityIssues = jest.fn();
 jest.mock('lib/miden/activity/connectivity-state', () => ({
@@ -335,6 +340,35 @@ describe('useSyncTrigger', () => {
     await flush();
     expect(mockSyncState).toHaveBeenCalledTimes(1);
     expect(mockReconcile).not.toHaveBeenCalled();
+    unmount();
+  });
+
+  // The SDK does not re-send a private note whose relay failed, and off the extension nothing
+  // but this loop would ever run the sweep that does.
+  it('mobile/desktop: runs the private-note delivery sweep after a successful sync', async () => {
+    const { unmount } = render(<HookHost />);
+    await waitFor(() => expect(mockSweep).toHaveBeenCalled());
+    unmount();
+  });
+
+  it('mobile/desktop: does not run the private-note delivery sweep after a failed sync', async () => {
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    mockSyncState.mockRejectedValueOnce(new Error('offline'));
+    const { unmount } = render(<HookHost />);
+    await waitFor(() => expect(storeState.setSyncStatus).toHaveBeenCalledWith(false));
+    await flush();
+    expect(mockSyncState).toHaveBeenCalledTimes(1);
+    expect(mockSweep).not.toHaveBeenCalled();
+    unmount();
+  });
+
+  it('mobile/desktop: does not run the private-note delivery sweep when no client was there to sync', async () => {
+    mockGetMidenClient.mockResolvedValueOnce(null as never);
+    const { unmount } = render(<HookHost />);
+    await waitFor(() => expect(storeState.setSyncStatus).toHaveBeenCalledWith(false));
+    await flush();
+    expect(mockSyncState).not.toHaveBeenCalled();
+    expect(mockSweep).not.toHaveBeenCalled();
     unmount();
   });
 

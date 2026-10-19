@@ -1,6 +1,8 @@
 import Dexie, { DBCore, Middleware } from 'dexie';
 
-import { ITransaction, ITransactionStatus } from './db/types';
+import { deriveSwapReceipt } from 'app/templates/history/swapReceipt';
+
+import { ISwapExtraInputs, ITransaction, ITransactionStatus } from './db/types';
 import {
   createSchemaFor,
   db,
@@ -10,9 +12,11 @@ import {
   transactions,
   Table,
   TRANSACTIONS_V17_STORE,
+  TRANSACTIONS_V2_STORE,
   SPENDING_LIMITS_V17_STORE,
   SPENDING_LIMITS_V19_STORE
 } from './repo';
+import { isOpenRecoveredOrder, isRecoveredReturnOrder, recoveredSwapOrderRef } from './swap/recovered-order';
 import { isRequeueableTransaction } from './transaction/retry';
 import { NoteTypeEnum } from './types';
 
@@ -423,6 +427,235 @@ describe('miden repo export/import', () => {
     expect(isRequeueableTransaction(restored!)).toBe(false);
   });
 
+  // A backup must not record which dApps the user used, and a restored row is never waitable by one (#1416). Asserted
+  // on the dump itself: import drops the field too, so a round trip passes even when the export keeps it.
+  it('leaves dappOrigins out of the dump', async () => {
+    await transactions.bulkAdd([
+      {
+        id: 'dapp-row',
+        type: 'send',
+        status: ITransactionStatus.Completed,
+        accountId: 'acc1',
+        initiatedAt: 5,
+        completedAt: 6,
+        displayIcon: 'SEND',
+        dappOrigins: ['https://dapp.example']
+      }
+    ]);
+
+    const [dumped] = JSON.parse(await exportDb())[Table.Transactions];
+    expect(dumped.id).toBe('dapp-row');
+    expect(dumped).not.toHaveProperty('dappOrigins');
+  });
+
+  it('drops a dappOrigins the dump supplies', async () => {
+    const dump = JSON.stringify({
+      [Table.Transactions]: [
+        {
+          id: 'planted',
+          type: 'send',
+          status: ITransactionStatus.Completed,
+          accountId: 'acc1',
+          initiatedAt: 1,
+          completedAt: 2,
+          displayIcon: 'SEND',
+          dappOrigins: ['https://dapp.example']
+        }
+      ]
+    });
+
+    await importDb(dump);
+
+    const [restored] = await transactions.toArray();
+    expect(restored!.restoredFromBackup).toBe(true);
+    expect(restored).not.toHaveProperty('dappOrigins');
+  });
+
+  // On a Guardian-recovered order the Cancel stamp is the permission settlement acts on to return the order, and only
+  // this wallet's own Cancel may give it (#1487). A restored row's stamp is read nowhere else.
+  it("drops a dump's swap Cancel stamp and keeps the rest of the order", async () => {
+    const dump = JSON.stringify({
+      [Table.Transactions]: [
+        {
+          id: 'local-order',
+          type: 'swap',
+          status: ITransactionStatus.Completed,
+          accountId: 'acc1',
+          initiatedAt: 1,
+          completedAt: 2,
+          displayIcon: 'DEFAULT',
+          extraInputs: { orderId: '42', autoConsume: true, expiresAt: 150, expiryTriggeredAt: 150 }
+        }
+      ]
+    });
+
+    await importDb(dump);
+
+    const [restored] = await transactions.toArray();
+    expect(restored!.extraInputs).toEqual({ orderId: '42', autoConsume: true, expiresAt: 150 });
+  });
+
+  const recoveredOrderRow = (extraInputs: Partial<ISwapExtraInputs>): ITransaction => ({
+    id: 'recovered-order',
+    type: 'swap',
+    status: ITransactionStatus.Completed,
+    accountId: 'acc1',
+    initiatedAt: 1,
+    completedAt: 2,
+    displayIcon: 'DEFAULT',
+    amount: 70n,
+    outputNoteIds: ['order-note'],
+    restoredFromBackup: true,
+    recovered: true,
+    recovery: {
+      version: 5,
+      network: 'testnet',
+      operators: [],
+      nonce: 2,
+      inputNotes: [],
+      outputNotes: [
+        {
+          id: 'order-note',
+          assets: [],
+          visibility: 'public',
+          swap: { orderId: '42', requestedAsset: { faucetId: 'requested', amount: '30' } }
+        }
+      ],
+      completeness: 'decoded',
+      reclaimed: false
+    },
+    extraInputs: {
+      orderId: '42',
+      requestedFaucetId: 'requested',
+      requestedAmount: 30n,
+      autoConsume: false,
+      ...extraInputs
+    }
+  });
+
+  // A backup cut between a recovered order's Cancel and its reclaim carries the stamp and the expiry that Cancel
+  // moved to the press (recovery writes none). Dropping only the stamp left the expiry lapsed, so the importing device
+  // showed the return as pending, offered no Cancel and never acted on it. The import returns the order to open.
+  it('imports a cancelled recovered order open again, with Cancel on offer', async () => {
+    const recoveredOrder = recoveredOrderRow({
+      expiresAt: 150,
+      expiryTriggeredAt: 150,
+      recoveredTip: { noteId: 'remainder-note', depth: 1, remainingOffered: 20n }
+    });
+    await transactions.bulkAdd([recoveredOrder]);
+    const backup = await exportDb();
+    await transactions.clear();
+
+    await importDb(backup);
+
+    const [restored] = await transactions.toArray();
+    expect(restored!.extraInputs).toEqual({
+      orderId: '42',
+      requestedFaucetId: 'requested',
+      requestedAmount: 30n,
+      autoConsume: false
+    });
+    expect(isOpenRecoveredOrder(restored!)).toBe(true);
+    expect(isRecoveredReturnOrder(restored!)).toBe(false);
+    const receipt = deriveSwapReceipt({
+      requestedAmount: 30n,
+      tracking: { orderId: '42', state: 'active', currentDepth: 0, remainingOffered: 70n, remainingRequested: 30n },
+      settlement: null,
+      autoConsume: false,
+      recovered: true,
+      expiresAt: restored!.extraInputs.expiresAt ?? null
+    });
+    expect(receipt.offerCancel).toBe(true);
+  });
+
+  it('imports a recovered order without its recorded lineage checkpoint', async () => {
+    await transactions.bulkAdd([
+      recoveredOrderRow({ recoveredCheckpoint: { noteId: 'spent-remainder-16', depth: 16 } })
+    ]);
+    const backup = await exportDb();
+    await transactions.clear();
+
+    await importDb(backup);
+
+    const [restored] = await transactions.toArray();
+    expect(restored!.extraInputs?.recoveredCheckpoint).toBeUndefined();
+    expect(recoveredSwapOrderRef(restored!)).toEqual(expect.objectContaining({ tipNoteId: 'order-note', tipDepth: 0 }));
+  });
+
+  // `lineageClosedAt` is what makes a recovered order's closure final, so a backup carrying it closed an order its node
+  // may still hold open, with no read of the node (#1487).
+  it('imports a recovered order without its lineage close record, tracked until its next read', async () => {
+    await transactions.bulkAdd([recoveredOrderRow({ settledAt: 160, lineageClosedAt: 160 })]);
+    const backup = await exportDb();
+    await transactions.clear();
+
+    await importDb(backup);
+
+    const [restored] = await transactions.toArray();
+    expect(restored!.extraInputs).toEqual({
+      orderId: '42',
+      requestedFaucetId: 'requested',
+      requestedAmount: 30n,
+      autoConsume: false,
+      settledAt: 160
+    });
+    expect(recoveredSwapOrderRef(restored!)).toEqual(
+      expect.objectContaining({ txId: 'recovered-order', provisionalClosure: true })
+    );
+  });
+
+  // A spent order note closes a recovered order as finally as `lineageClosedAt` does, so it is dropped with it (#1487).
+  it('imports a recovered order without its spent-note close, tracked until its next read', async () => {
+    await transactions.bulkAdd([recoveredOrderRow({ orderNoteSpentAt: 160, lineageClosedAt: 160 })]);
+    const backup = await exportDb();
+    await transactions.clear();
+
+    await importDb(backup);
+
+    const [restored] = await transactions.toArray();
+    expect(restored!.extraInputs).toEqual({
+      orderId: '42',
+      requestedFaucetId: 'requested',
+      requestedAmount: 30n,
+      autoConsume: false
+    });
+    expect(recoveredSwapOrderRef(restored!)).toEqual(expect.objectContaining({ txId: 'recovered-order' }));
+  });
+
+  it('keeps the expiry of a restored swap that recovery did not rebuild', async () => {
+    const dump = JSON.stringify({
+      [Table.Transactions]: [
+        {
+          id: 'file-order',
+          type: 'swap',
+          status: ITransactionStatus.Completed,
+          accountId: 'acc1',
+          initiatedAt: 1,
+          completedAt: 2,
+          displayIcon: 'DEFAULT',
+          extraInputs: {
+            orderId: '42',
+            expiresAt: 150,
+            settledAt: 160,
+            lineageClosedAt: 160,
+            recoveredTip: { noteId: 'kept', depth: 1 }
+          }
+        }
+      ]
+    });
+
+    await importDb(dump);
+
+    const [restored] = await transactions.toArray();
+    expect(restored!.extraInputs).toEqual({
+      orderId: '42',
+      expiresAt: 150,
+      settledAt: 160,
+      lineageClosedAt: 160,
+      recoveredTip: { noteId: 'kept', depth: 1 }
+    });
+  });
+
   // The status test is an allow-list of the terminal values, so a dump is free
   // to carry a status no consumer recognises. Such a row is invisible in every
   // history view (all of them compare with `===`) while still holding its id.
@@ -583,10 +816,10 @@ describe('spending limits schema', () => {
     await transactions.clear();
   });
 
-  it('keys spending limits by account alone on schema version 2', () => {
+  it('keys spending limits by account alone on schema version 3.1', () => {
     const schema = spendingLimits.schema;
 
-    expect(db.verno).toBe(2);
+    expect(db.verno).toBe(3.1);
     expect(schema.primKey.keyPath).toBe('accountId');
     expect(schema.indexes.map(index => index.name)).toEqual(expect.arrayContaining(['revision']));
   });
@@ -764,7 +997,7 @@ describe('schema migration (1.7 -> 2, 1.9 -> 2)', () => {
     const upgraded = createSchemaFor(name);
 
     await expect(upgraded.open()).resolves.toBeDefined();
-    expect(upgraded.verno).toBe(2);
+    expect(upgraded.verno).toBe(3.1);
     expect(upgraded.table(Table.SpendingLimits).schema.primKey.keyPath).toBe('accountId');
     expect(upgraded.table(Table.Transactions).schema.indexes.map(index => index.name)).toContain('type');
     await expect(upgraded.table(Table.SpendingLimits).count()).resolves.toBe(0);
@@ -793,7 +1026,7 @@ describe('schema migration (1.7 -> 2, 1.9 -> 2)', () => {
   // Every 1.16.2 install takes this step. The shipped 1.9 shape is pinned to literals for the same
   // reason as 1.7 above: it can never change in users' IndexedDB. The 1.7 case cannot see a later
   // step that clears `spendingLimits`, because it expects that table empty.
-  it('upgrades a populated 1.9 database to 2, keeping its spending limit and indexing type', async () => {
+  it('upgrades a populated 1.9 database through 2, keeping its spending limit and indexing type', async () => {
     const name = `schema-migration-v19-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const seed = new Dexie(name);
     seed.version(1.9).stores({
@@ -815,7 +1048,7 @@ describe('schema migration (1.7 -> 2, 1.9 -> 2)', () => {
 
     const upgraded = createSchemaFor(name);
     await upgraded.open();
-    expect(upgraded.verno).toBe(2);
+    expect(upgraded.verno).toBe(3.1);
     await expect(upgraded.table(Table.SpendingLimits).get('account-a')).resolves.toMatchObject({
       revision: 'rev-1',
       limit: '100'
@@ -833,6 +1066,71 @@ describe('schema migration (1.7 -> 2, 1.9 -> 2)', () => {
 });
 
 describe('writing a transaction row', () => {
+  it('upgrades a populated v3 store without losing transaction blobs or spending limits', async () => {
+    const name = `badge-index-upgrade-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const seed = new Dexie(name);
+    seed
+      .version(3)
+      .stores({ [Table.Transactions]: TRANSACTIONS_V2_STORE, [Table.SpendingLimits]: SPENDING_LIMITS_V19_STORE });
+    await seed.open();
+    const legacy: ITransaction = {
+      id: 'legacy-badge-upgrade',
+      accountId: 'account-a',
+      type: 'send',
+      status: ITransactionStatus.Completed,
+      initiatedAt: 1,
+      displayIcon: 'SEND',
+      resultBytes: new Uint8Array([1, 2, 3])
+    };
+    await seed.table(Table.Transactions).add(legacy);
+    await seed
+      .table(Table.SpendingLimits)
+      .add({ accountId: 'account-a', limit: '20', revision: 'old', createdAt: 1, updatedAt: 1 });
+    seed.close();
+    const upgraded = createSchemaFor(name);
+    try {
+      await upgraded.open();
+      expect(upgraded.verno).toBe(3.1);
+      expect(await upgraded.table(Table.Transactions).get(legacy.id)).toEqual(legacy);
+      expect(
+        await upgraded
+          .table(Table.Transactions)
+          .where('[badgeNetwork+status+type]')
+          .equals(['mainnet', ITransactionStatus.Completed, 'send'])
+          .count()
+      ).toBe(0);
+      expect(await upgraded.table(Table.SpendingLimits).get('account-a')).toMatchObject({
+        limit: '20',
+        revision: 'old'
+      });
+    } finally {
+      upgraded.close();
+      await Dexie.delete(name);
+    }
+  });
+  it('indexes only explicitly stamped badge evidence and leaves legacy history intact', async () => {
+    await transactions.clear();
+    const old: ITransaction = {
+      id: 'badge-legacy',
+      type: 'send',
+      accountId: 'account-a',
+      initiatedAt: 1,
+      status: ITransactionStatus.Completed,
+      displayIcon: 'SEND'
+    };
+    await transactions.bulkAdd([
+      old,
+      { ...old, id: 'badge-testnet', badgeNetwork: 'testnet' },
+      { ...old, id: 'badge-mainnet', badgeNetwork: 'mainnet' }
+    ]);
+    expect(
+      await transactions
+        .where('[badgeNetwork+status+type]')
+        .equals(['mainnet', ITransactionStatus.Completed, 'send'])
+        .primaryKeys()
+    ).toEqual(['badge-mainnet']);
+    expect(await transactions.get('badge-legacy')).toEqual(old);
+  });
   it.each([
     ['missing', undefined],
     ['NaN', Number.NaN],

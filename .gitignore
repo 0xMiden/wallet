@@ -106,3 +106,6 @@ backend/.env
 backend/data
 backend/dist
 backend/backups
+# Built output of the Bread Connect packages (the protocol one is rebuilt by postinstall)
+/packages/bread-connect/dist
+/packages/bread-connect-capacitor/dist

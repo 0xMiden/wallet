@@ -9,6 +9,7 @@ import {
   type ConnectivityCategory
 } from 'lib/miden/activity/connectivity-state';
 import * as Actions from 'lib/miden/back/actions';
+import { APPROVAL_CONFIRMATION_TYPES } from 'lib/miden/back/approval-confirmation';
 import { intercom } from 'lib/miden/back/defaults';
 import {
   handleOffscreenSignRequest,
@@ -17,7 +18,6 @@ import {
   midenClientProxy,
   reloadOffscreenEndpointOverrides
 } from 'lib/miden/back/miden-client-proxy';
-import { isOperationAbortedError } from 'lib/miden/back/offscreen-codec';
 import {
   OFFSCREEN_CONNECTIVITY_EVENT,
   OFFSCREEN_OP_STARTED,
@@ -34,8 +34,9 @@ import { store, toFront } from 'lib/miden/back/store';
 import { doSync, resetSyncBackoffForEndpointChange } from 'lib/miden/back/sync-manager';
 import { startTransactionProcessing, swSignCallback } from 'lib/miden/back/transaction-processor';
 import { clearSyncFuseForEndpointChange } from 'lib/miden/front/sync-fuse';
+import { pipelineKillIn } from 'lib/miden/sdk/sdk-error-code';
 import { parseSubmitEvidence } from 'lib/miden/sdk/submit-evidence';
-import { isWasmClientPoisonedError, WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
+import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { retireGuardianWritesForEndpointChange } from 'lib/miden/sync-backoff';
 import { loadEndpointOverrides } from 'lib/miden-chain/effective-endpoints';
 import {
@@ -56,6 +57,7 @@ import {
   resetMidenClient,
   withWasmClientLock
 } from '../sdk/miden-client';
+import { countNoteDeliveryWrite } from '../transaction/helper';
 import { MidenMessageType } from '../types';
 
 // frontStore is initialized lazily inside start() because with Vite's TLA stripping,
@@ -73,6 +75,7 @@ export async function start() {
   });
   // Registered first so no message is missed; it dispatches only once startupHydration settles.
   intercom.onRequest(dispatchWhenHydrated);
+  intercom.onNotFound(confirmationRequestNotFound);
   registerOffscreenSignHandler();
 
   // The connectivity snapshot is in-memory and therefore empty on every MV3 wake,
@@ -375,6 +378,18 @@ function registerOffscreenSignHandler(): void {
   });
 }
 
+// What an approval window asks for; one that no live handler answered is an approval this worker no longer holds.
+const CONFIRMATION_REQUEST_TYPES: ReadonlySet<unknown> = new Set([
+  MidenMessageType.DAppGetPayloadRequest,
+  MidenMessageType.DAppSimulateTransactionRequest,
+  ...APPROVAL_CONFIRMATION_TYPES
+]);
+
+function confirmationRequestNotFound(req: unknown): Error | undefined {
+  const type: unknown = typeof req === 'object' && req !== null && 'type' in req ? req.type : undefined;
+  return CONFIRMATION_REQUEST_TYPES.has(type) ? Actions.confirmationNotFound(req) : undefined;
+}
+
 async function dispatchWhenHydrated(req: WalletRequest, port: Runtime.Port): Promise<WalletResponse | void> {
   await startupHydration;
   return processRequest(req, port);
@@ -392,6 +407,11 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
       // Fire-and-forget — start processing asynchronously
       startTransactionProcessing().catch(err => console.error('[TransactionProcessor] Error:', err));
       return { type: WalletMessageType.ProcessTransactionsResponse };
+    case WalletMessageType.NoteDeliveryWrittenRequest:
+      // Counted, never a cleared idle finding: a running pass took its count before its query and writes that finding
+      // back when it ends, so only a count past the one it took makes the next sweep query.
+      countNoteDeliveryWrite();
+      return { type: WalletMessageType.NoteDeliveryWrittenResponse };
     case WalletMessageType.ReloadEndpointOverridesRequest:
       // Re-hydrate the override cache in THIS (service-worker) realm, then invalidate
       // every client that baked the old endpoints in at creation time. All three steps
@@ -465,15 +485,15 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
         // Don't lose the note on a transient blip (resilience gap 1): queue the
         // bytes for the background import loop (wall-clock retry + dead-letter)
         // before surfacing the error, so a manual import isn't lost to one blip.
-        // Both abandonment shapes count, not just a network blip. A watchdog eviction
-        // and an offscreen deadline kill say the same thing this queue exists for —
-        // "we do not know whether this landed" — and neither matches
-        // `isLikelyNetworkError`, whose tokens are transport text: the poison message
+        // Every kill shape counts anywhere in the cause chain, not just a network blip.
+        // A watchdog eviction, an offscreen deadline kill and a terminated client say the same thing this queue
+        // exists for, "we do not know whether this landed", and `isLikelyNetworkError`
+        // cannot be relied on for any of them, since its tokens are transport text: the poison message
         // is closed wallet-authored text. So an eviction took the not-transient path
         // and dropped the bytes from the one mechanism built to preserve them, which
         // for a private note can be the only copy of the funds it carries. Matches
         // the queue's own classifier (`notes.ts`, `transient`).
-        if (isLikelyNetworkError(e) || isWasmClientPoisonedError(e) || isOperationAbortedError(e)) {
+        if (isLikelyNetworkError(e) || pipelineKillIn(e) !== undefined) {
           // Logged rather than swallowed: the throw below reports the IMPORT
           // failure, which says nothing about whether the background retry was
           // actually armed. Losing both silently is what made this look like a
@@ -513,6 +533,8 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
     }
     case WalletMessageType.ReportTelemetryEventRequest:
       return Actions.handleReportTelemetryEvent(req);
+    case WalletMessageType.EstimateUsdcxBurnFeeRequest:
+      return Actions.estimateUsdcxBurnFee(req);
     case WalletMessageType.GetStateRequest:
       const state = await Actions.getFrontState();
       return {
@@ -527,7 +549,8 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
           req.password,
           req.mnemonic,
           req.ownMnemonic,
-          req.guardianEndpoint
+          req.guardianEndpoint,
+          req.accessCode
         );
         console.log('[processRequest] registerNewWallet completed successfully');
       } catch (err: unknown) {

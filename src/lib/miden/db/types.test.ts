@@ -103,6 +103,21 @@ describe('transaction models', () => {
       expect(tx.amount).toBe(12n);
     });
 
+    // A consume that lands without a transaction result adopts its bridge deliveries from these alone.
+    it('keeps the sender, faucet and amount of every note, in batch order', () => {
+      const tx = new ConsumeTransaction('acc', [
+        note({ id: 'n1', senderAddress: 'faucet-sender', faucetId: 'faucet-a', amount: '10' }),
+        note({ id: 'n2', senderAddress: 'wallet-sender', faucetId: 'faucet-b', amount: '3' }),
+        note({ id: 'n3', senderAddress: 'faucet-sender', faucetId: 'faucet-a', amount: '' })
+      ]);
+
+      expect(tx.consumedNotes).toEqual([
+        { id: 'n1', senderAddress: 'faucet-sender', faucetId: 'faucet-a', amount: 10n },
+        { id: 'n2', senderAddress: 'wallet-sender', faucetId: 'faucet-b', amount: 3n },
+        { id: 'n3', senderAddress: 'faucet-sender', faucetId: 'faucet-a' }
+      ]);
+    });
+
     it('omits assetTotals entirely when no note carries an identifiable asset', () => {
       const tx = new ConsumeTransaction('acc', [note({ id: 'n1', faucetId: '', amount: '4' })]);
 

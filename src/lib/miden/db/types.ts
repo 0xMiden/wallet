@@ -1,6 +1,16 @@
 import type { PreparedExecution } from '@epoch-protocol/epoch-intents-sdk';
 import { v4 as uuid } from 'uuid';
 
+import type { ClaimFeeNote } from 'lib/miden/fees/spendable';
+import type { AgglayerRecoveryConfig } from 'lib/remote-config/schema';
+import type {
+  ClaimFeeAdmission,
+  ConsumeDeferralCause,
+  ConsumeEntryPoint,
+  TransactionFailureDiagnostics
+} from 'lib/telemetry/transaction-failure';
+import type { UsdcxSourceChain } from 'lib/usdcx/constant';
+
 import type { GuardianHistoryRecovery } from '../guardian/history';
 import { ConsumableNote, NoteType } from '../types';
 
@@ -33,6 +43,9 @@ export const hasLeftQueue = (row: Pick<ITransaction, 'status'>): boolean =>
 
 export type SubmitEvidenceSource = 'stage' | 'pin' | 'kill' | 'out-of-band' | 'end' | 'error-text';
 
+/** Which never-committed row of the verdict table proved an attempt dead: row 4, row 5 or row 6. */
+export type NeverCommittedBy = 'expired' | 'superseded' | 'spent_elsewhere';
+
 /** One attempt that may have crossed its submit (#1081). Keyed by attemptId. */
 export interface ISubmitEvidence {
   attemptId: string;
@@ -54,6 +67,7 @@ export interface ISubmitEvidence {
   landingSeenAtBlock?: number; // the block a landing judgement rested on; set once by row 1 or 3, a row 2 record may be replaced
   landingSeenBy?: 1 | 2 | 3; // the verdict row whose judgement wrote landingSeenAtBlock
   verdict?: 'never-committed' | 'unresolvable'; // sticky
+  neverCommittedBy?: NeverCommittedBy; // written with a never-committed verdict; absent on one written before it existed
   endedBy?: 'kill' | 'out-of-band'; // how the attempt ended outside its pipeline; set once
   endedAt?: number; // unix seconds, with endedBy
   preSubmitEnd?: true; // the leaf's tag proved the attempt ended before its submit call
@@ -291,11 +305,57 @@ export interface IConsumedAssetTotal {
   amount: bigint;
 }
 
+/** One note a consume claimed, as it was queued. */
+export interface IConsumedNote {
+  id: string;
+  senderAddress: string;
+  faucetId: string;
+  /** Base units of the note's first fungible asset; absent when the claimable note carried no amount. */
+  amount?: bigint;
+  /** Whether the queued note carried other assets; absent means its full asset list is unknown. */
+  carriesMoreAssets?: boolean;
+  /** Full fungible assets used by the fee gate, independent of the row's display fields. */
+  feeAssets?: { faucetId: string; amount: bigint }[];
+}
+
+/**
+ * The CCTP leg of a USDCx deposit from a chain with no xReserve (Base, Arbitrum): the burn on the source
+ * chain mints to Circle's executor on Arc, which deposits into Arc's xReserve. Circle's forwarder does not
+ * execute such messages yet, so the wallet keeps the attested message until the user executes it on Arc.
+ */
+export interface IUsdcxCctpLeg {
+  /** Circle's domain of the source chain, the key of its Iris messages. */
+  sourceDomain: number;
+  /** The attested CCTP message and Circle's signature, kept once Iris reports them. */
+  message?: string;
+  attestation?: string;
+  /** The Arc transaction that executed the message, which is the xReserve deposit Circle attests. */
+  executeTxHash?: string;
+  /** Unix seconds the current `executeTxHash` was saved, from either side. */
+  executeSavedAt?: number;
+  /** An Arc execute that stayed unmined past the stall window: never adopted again, still asked about. */
+  stalledExecuteTxHash?: string;
+  /** An Arc execute, the wallet's or Circle's forward, that reverted; never adopted again as the execute. */
+  revertedExecuteTxHash?: string;
+  /** Unix seconds the last revert reopened the leg, stamped by its writer: the leg's week runs from here. */
+  revertedAt?: number;
+  /** Whether the burn paid Circle's forward fee, so Circle executes on Arc; absent on rows before the fee flow. */
+  forwarded?: boolean;
+  /** The quoted fee the burn paid on top of the amount, in source USDC base units. */
+  forwardFee?: string;
+  /** The forwarding service's last reported state for the message. */
+  forwardState?: string;
+}
+
 /** Metadata persisted on a tracking-only EVM → Miden bridge row. */
 export interface IBridgedReceiveExtraInputs {
+  agglayerRoute?: AgglayerRecoveryConfig;
+  epochAllocatorUrl?: string;
   provider: IBridgeProvider;
   /** EVM source chain; absent on legacy Sepolia rows. */
   sourceChainId?: number;
+  usdcxSource?: UsdcxSourceChain;
+  usdcxMidenDomain?: number;
   /** Connected EVM account that funded the bridge. */
   sourceAddress: string;
   /** Human-readable source-chain input, retained even if the Miden output differs. */
@@ -311,7 +371,16 @@ export interface IBridgedReceiveExtraInputs {
   evmTxHash?: string;
   intentNonce?: string;
   midenNoteId?: string;
+  /** usdcx: the CCTP leg of an executor-route deposit; absent on a direct xReserve deposit. */
+  cctp?: IUsdcxCctpLeg;
   error?: string;
+  /**
+   * usdcx: the xReserve `remoteRecipient` bytes32 the wallet signed (0x + 64 lowercase hex), written at the deposit's
+   * first phase write. Absent on rows written before this field and on E2E hook rows.
+   */
+  usdcxRemoteRecipient?: string;
+  /** Unix seconds at which the row first reached `ready`. Written once, never cleared, and kept through `failed`. */
+  readyAt?: number;
 }
 
 /** Audit metadata for a Guardian operator switch. `previousGuardianEndpoint`
@@ -409,7 +478,13 @@ export type IBridgeClaimStatus = 'not-applicable' | 'pending' | 'ready' | 'claim
 export interface IUsdcxBurn {
   noteId: string;
   destinationDomain: number;
+  destinationUsdc?: `0x${string}`;
+  payoutFeeAllowance?: string;
   phase: 'pending' | 'consuming' | 'confirmed' | 'discarded';
+  /** USDC balance saved before the burn is queued, in six-decimal base units. */
+  destinationBalanceBefore?: { balance: string; blockNumber: string };
+  /** Destination balance that met the expected increase after burn confirmation. */
+  destinationBalanceConfirmed?: { balance: string; blockNumber: string };
   attemptCount?: number;
   lastAttemptBlockNum?: number;
   lastError?: string;
@@ -417,6 +492,8 @@ export interface IUsdcxBurn {
 
 /** `extraInputs` shape for a `BridgedSendTransaction`. */
 export interface IBridgedSendExtraInputs {
+  agglayerRoute?: AgglayerRecoveryConfig;
+  epochAllocatorUrl?: string;
   provider: IBridgeProvider;
   usdcxBurn?: IUsdcxBurn;
   /** 0x EVM recipient. */
@@ -501,6 +578,7 @@ export interface IBridgedSendExtraInputs {
  * address is the position owner / intent sponsor.
  */
 export interface IEarnDepositExtraInputs {
+  epochAllocatorUrl?: string;
   /** 0x EVM address that owns the resulting lending position (intent sponsor). */
   evmRecipient: string;
   /** Epoch market identifier (`PROTOCOL:chainId:token`) the deposit targets. */
@@ -551,6 +629,10 @@ export interface IEarnWithdrawPreparedExecution extends PreparedExecution {
  * prove/submit — the row is a tracking-only record whose lifecycle lives in `phase`.
  */
 export interface IEarnWithdrawExtraInputs {
+  /** Reviewed delivery floor for amount-selected withdrawals; source retries must not lower it. */
+  reviewedMinimumReceivedAtomic?: string;
+  epochAllocatorUrl?: string;
+  underlyingAddress?: string;
   /** 0x EVM address that owned the redeemed lending position (intent sponsor). */
   evmOwner: string;
   /** Epoch market identifier (`PROTOCOL:chainId:token`) the withdrawal redeemed. */
@@ -600,6 +682,8 @@ export interface IBridgeInInfo {
   intentNonce?: string;
   intentOwner?: string;
   earnWithdrawAttemptId?: string;
+  /** epoch: the allocator the intent's row saved, which its note-id poll asks; absent on an older registration. */
+  epochAllocatorUrl?: string;
   /** EVM-side deposit/fill tx hash, when known. */
   evmTxHash?: string;
   /** Miden-side note id the bridge-in resolved to, copied on by `applyBridgeInInfoForNotes`. */
@@ -633,6 +717,8 @@ export interface IConsumeSwapSettleExtraInputs {
   /** Payback claim on fill vs. expiry-driven reclaim of the remaining tip. */
   swapSettleKind: 'settle' | 'reclaim';
 }
+
+export type IConsumeExtraInputs = Partial<IConsumeBridgeInExtraInputs> & Partial<IConsumeSwapSettleExtraInputs>;
 
 /**
  * Sub-phase of a transaction while `status === GeneratingTransaction` (or
@@ -706,9 +792,8 @@ export type ITransactionStage = (typeof TRANSACTION_STAGES)[number];
  *                     indistinguishable from a successful one.
  *   - `relayed`     - the transport is believed to HOLD the note: it acknowledged
  *                     the push, which it also does for a note it already stores
- *                     (the SDK fetch boundary turns that duplicate into an ACK,
- *                     `sdk/note-relay-fetch.mjs`). Deliberately not
- *                     terminal, for two separate reasons. An empty
+ *                     (the 0.17 transport answers a duplicate as it does a new
+ *                     note). Deliberately not terminal, for two separate reasons. An empty
  *                     `SendNoteResponse` means acceptance is not proof of storage, so
  *                     the row stays eligible for the re-push sweep, which tests
  *                     exactly that. And even a genuinely stored note can be
@@ -722,11 +807,10 @@ export type ITransactionStage = (typeof TRANSACTION_STAGES)[number];
  *                     proof of delivery available: the recipient cannot consume a
  *                     private note without having received its body, so the
  *                     nullifier is the receipt. Terminal.
- *   - `undelivered` — the relay was attempted and did not succeed. Not necessarily
- *                     permanent (the SDK's own outbox may still retry it, and that
- *                     retry replays the ORIGINAL block hint, so it stays correct
- *                     however late it runs) — but it may equally mean nothing was
- *                     ever queued, so it is surfaced rather than assumed benign.
+ *   - `undelivered` - the relay was attempted and did not succeed. Not necessarily
+ *                     permanent: the SDK does not re-send it, but the delivery
+ *                     sweep does (`note-delivery-sweep.ts`), and a push the
+ *                     transport acknowledges moves the row to `relayed`.
  */
 export type INoteDeliveryState = 'pending' | 'relayed' | 'confirmed' | 'undelivered';
 
@@ -740,14 +824,16 @@ export interface IRequeueStreak {
 }
 
 export interface ITransaction {
+  /** Origin network stamped at queue time for private badge evidence. Legacy/imported rows cannot earn credit. */
+  badgeNetwork?: string;
   /**
    * Set on a row rebuilt from a Guardian operator's retained history, and the
    * only field that means so; `recovery` is the data such a row, or a local row
    * it matched, carries. History and HistoryDetails key the recovered title and
    * icon and the suppressed bridge, swap and earn-settlement UI on it, and the
    * history merge replaces or merges only rows carrying it. `restoredFromBackup`,
-   * set with it, is what keeps the processing loop, retry and the delivery
-   * sweep away from such a row.
+   * set with it, is what keeps the processing loop and retry away from such a
+   * row, and the delivery sweep to receipt checks.
    */
   recovered?: boolean;
   recovery?: GuardianHistoryRecovery;
@@ -764,12 +850,23 @@ export interface ITransaction {
   noteType?: NoteType;
   /** Consume only: per-faucet totals of a batch claim (see `ConsumeTransaction`). */
   assetTotals?: IConsumedAssetTotal[];
+  /** Consume only: each claimed note's facts, as queued (see `ConsumeTransaction`). Not indexed. */
+  consumedNotes?: IConsumedNote[];
   /**
    * Consume only: queued by the everyday-key rotation gate to fund the rotation's fee
    * (#805). Generation signs such a row with the recovery key after proving every note
    * native; any other consume for a rotation-pending account is refused. Not indexed.
    */
   rotationFunding?: true;
+  /**
+   * Consume only: the entry point that queued the row, stamped when it is created and named by a failed claim's crash
+   * report. Absent on rows queued before it and on rows no queue call made (recovered history). Not indexed.
+   */
+  consumeEntryPoint?: ConsumeEntryPoint;
+  /** Most recent automatic requeue cause. Survives pickups; explicit Retry clears it. Not indexed. */
+  lastDeferral?: ConsumeDeferralCause;
+  /** Consume fee gate's last admission reason. Survives pickups; explicit Retry replaces it. Not indexed. */
+  feeAdmission?: ClaimFeeAdmission;
   /**
    * Execute (dApp custom) only: per-faucet value LEAVING the account, taken from the approval-time
    * dry run that the confirmation sheet already renders.
@@ -827,11 +924,40 @@ export interface ITransaction {
   displayMessage?: string;
   displayIcon: ITransactionIcon;
   inputNoteIds?: string[];
+  /**
+   * Written on a dApp custom (`execute`) row only, which completion may re-type: every note the transaction will
+   * consume, recorded when it is queued, the notes it carries (`importNotes`) included. While the row is live or
+   * awaiting its verdict, and for a grace window after it completes, these are held out of auto-consume and refused by
+   * the claim dedup (`isNoteHoldingRow`). Kept apart from `inputNoteIds`, the dApp's own list, which completion
+   * overwrites with the executed inputs and history recovery matches rows on. Absent on rows queued before it existed,
+   * which hold nothing.
+   */
+  heldNoteIds?: string[];
+  /**
+   * The dApp origins this wallet answered with this row's id, exactly as `processDApp` received them: the origin that
+   * created it, and any origin whose consume request the dedup answered with it. Only these may wait on the row's
+   * result, and only while they hold a session on its account (`waitForTransaction`, #1416). Absent on every row the
+   * wallet made itself and on rows written before it existed, which no dApp may wait on. Not indexed; backups neither
+   * carry nor restore it.
+   */
+  dappOrigins?: string[];
   outputNoteIds?: string[];
   /** The private output notes a custom row owes the relay, all of which its `noteDelivery` covers; see `relayNoteIdsOf`. */
   relayNoteIds?: string[];
   /** The account a custom row's private notes were relayed to, kept apart from `secondaryAccountId`; see `relayRecipientOf`. */
   relayRecipientId?: string;
+  /**
+   * The owed private notes the transport has acknowledged, each added as its relay or re-push is acknowledged. The
+   * undelivered label counts the owed notes missing from it. Absent on a row written before acknowledgements were
+   * recorded, or with none yet; there `noteDelivery` decides, and `relayed` counts as every owed note acknowledged.
+   */
+  relayAckedNoteIds?: string[];
+  /**
+   * Owed private notes that can never be pushed: no relayable note could be built from them when the row completed, or
+   * a push found no relayable copy in this client's store. The sweep never pushes them again, and a row whose every
+   * owed note is here has nothing to push at all.
+   */
+  relayDeadNoteIds?: string[];
   extraInputs?: any;
   /** User-facing failure reason (possibly a friendly rewrite — see `rawError`). */
   error?: string;
@@ -858,6 +984,8 @@ export interface ITransaction {
    * `status`, and is stale once `status` reaches `Completed`/`Failed`.
    */
   stage?: ITransactionStage;
+  /** Closed authentication categories only; request values never enter a report. */
+  failureDiagnostics?: TransactionFailureDiagnostics;
   /**
    * Wall-clock (ms since epoch) of the first time each processing stage was
    * entered, recorded by `setTransactionStage` (plus a synthetic `complete`
@@ -925,32 +1053,46 @@ export interface ITransaction {
    * Delivery state of this row's private output note — see
    * {@link INoteDeliveryState}. Absent for public sends and non-relaying types.
    *
-   * This is the wallet's OWN record that a relay is owed. It previously had none:
-   * durability was delegated entirely to the SDK's retry outbox, which Rust writes
-   * from inside the relay call and only after it has resolved the transport API.
-   * Every failure upstream of that write therefore queued nothing while throwing
-   * exactly like a mid-transport timeout that DID queue — and under 0.16 there is a
-   * new member of that class, since `notes.sendPrivateOutput` first resolves the
-   * note by id from the calling client's store and rejects with `No output note
-   * found for the given id` if it is not there as an applied output note.
+   * This is the wallet's OWN record that a relay is owed, and the only one: the
+   * SDK does not re-send a private note whose relay failed, so the delivery sweep
+   * (`note-delivery-sweep.ts`) retries from this row.
    */
   noteDelivery?: INoteDeliveryState;
   /**
-   * How many times this row's private note has been handed to the transport,
-   * counting the first attempt. Bounds the re-push sweep so a note nobody ever
-   * consumes cannot be re-pushed forever.
+   * How many times the sweep has pushed this row's private notes, counting the
+   * original relay. Indexes the retry schedule and caps it (`MAX_RELAY_ATTEMPTS`);
+   * the schedule itself ends 72 hours after the send.
    */
   relayAttempts?: number;
   /**
-   * Earliest time (unix seconds) the sweep may re-push this row's private note.
+   * Earliest time (unix seconds) the sweep next looks at this row: its next push,
+   * or its next receipt check once pushes are over.
    *
-   * Spread wide on purpose. Stamped from the clock at write time rather than from
-   * when the sweep began, except for the first arming, which is measured from the
-   * original relay (`completedAt`) so a row first seen long afterwards does not have
-   * to serve the wait twice. See `note-delivery-sweep.ts` for what each re-push
-   * outcome does and does not prove.
+   * Stamped from the clock at write time rather than from when the sweep began,
+   * except for the first arming, which is measured from the original relay
+   * (`completedAt`) so a row first seen long afterwards does not have to serve the
+   * wait twice. See `note-delivery-sweep.ts` for what each push outcome does and
+   * does not prove.
    */
   nextRelayAt?: number;
+  /**
+   * Verification steps completed since every live owed note was acknowledged, two at most. A step counts once every
+   * note it set out to push was acknowledged or found dead, one left short is repeated on the retry backoff, and no
+   * step is pushed past the retry bounds (72 hours after the send, or `MAX_RELAY_ATTEMPTS`).
+   */
+  relayVerifyPushes?: number;
+  /**
+   * Set when an outage stopped the sweep's pushes with this row due: its push failed as an outage, or the pass
+   * stopped before it. The first push that succeeds in a later pass makes the row due at once, and the push that
+   * follows clears it.
+   */
+  relayOutageDeferred?: true;
+  /**
+   * Set once the sweep will not push this row again while some owed note never reached the transport: its retries
+   * ran out, every unacknowledged note is dead, it was restored from a backup, or it has nothing to push. Receipt
+   * checks go on. The history card reads it to stop promising automatic retries.
+   */
+  relayRetriesStopped?: true;
   /**
    * Sticky: set once some attempt on this row reached a point from which a
    * chain submit cannot be ruled out, and never unset. Guards the cached
@@ -1062,6 +1204,10 @@ export class Transaction implements ITransaction {
   transactionId?: string;
   requestBytes?: Uint8Array;
   inputNoteIds?: string[];
+  /** See `ITransaction.heldNoteIds`. */
+  heldNoteIds?: string[];
+  /** See `ITransaction.dappOrigins`. */
+  dappOrigins?: string[];
   outputNoteIds?: string[];
   /** Per-faucet value leaving the account. See `ITransaction.spentAssetTotals`. */
   spentAssetTotals?: IConsumedAssetTotal[];
@@ -1118,6 +1264,8 @@ export class SendTransaction implements ITransaction {
   displayMessage?: string;
   displayIcon: ITransactionIcon;
   delegateTransaction?: boolean;
+  /** See `ITransaction.dappOrigins`. */
+  dappOrigins?: string[];
   extraInputs: { recallBlocks?: number } = {
     recallBlocks: undefined
   };
@@ -1174,8 +1322,22 @@ export class ConsumeTransaction implements ITransaction {
    * to recompute from.
    */
   assetTotals?: IConsumedAssetTotal[];
+  /**
+   * Each claimed note's sender, faucet and amount, as queued. A consume that completes without a transaction result,
+   * through a landing the node proved, has nothing else to adopt its bridge deliveries by. Absent on rows queued
+   * before it.
+   */
+  consumedNotes?: IConsumedNote[];
   /** See `ITransaction.rotationFunding`. */
   rotationFunding?: true;
+  /** See `ITransaction.consumeEntryPoint`. */
+  consumeEntryPoint?: ConsumeEntryPoint;
+  /** See `ITransaction.lastDeferral`. */
+  lastDeferral?: ConsumeDeferralCause;
+  /** See `ITransaction.feeAdmission`. */
+  feeAdmission?: ClaimFeeAdmission;
+  /** See `ITransaction.dappOrigins`. */
+  dappOrigins?: string[];
   transactionId?: string;
   status: ITransactionStatus;
   initiatedAt: number;
@@ -1186,13 +1348,22 @@ export class ConsumeTransaction implements ITransaction {
   displayMessage?: string;
   displayIcon: ITransactionIcon;
   delegateTransaction?: boolean;
+  /** Pre-built request for a creator-owned PSWAP output-note reclaim. */
+  requestBytes?: Uint8Array;
+  /** Present for swap settlement rows; other consume rows leave it absent. */
+  extraInputs?: IConsumeExtraInputs;
 
   // There is deliberately no background/user-initiated distinction here anymore:
   // it only existed so Guardian auto-consume could be cold-signed while the iOS
   // hot key was Face-ID-gated (`.userPresence`). Hot signing is silent again, so
   // every consume signs the same way. Old persisted rows may still carry a stray
   // `background` property; it's ignored.
-  constructor(accountId: string, notes: ConsumableNote | ConsumableNote[], delegateTransaction?: boolean) {
+  constructor(
+    accountId: string,
+    notes: ConsumableNote | ConsumableNote[],
+    delegateTransaction?: boolean,
+    feeNotesById?: ReadonlyMap<string, readonly ClaimFeeNote[]>
+  ) {
     const list = Array.isArray(notes) ? notes : [notes];
     const first = list[0];
     if (!first) {
@@ -1226,6 +1397,30 @@ export class ConsumeTransaction implements ITransaction {
       total => total.faucetId !== ''
     );
     this.assetTotals = identifiedTotals.length > 0 ? identifiedTotals : undefined;
+    this.consumedNotes = list.map(note => {
+      const feeNotes = feeNotesById?.get(note.id);
+      let feeAssets: IConsumedNote['feeAssets'];
+      if (
+        feeNotes !== undefined &&
+        feeNotes.every(
+          fact => !fact.assetsUnknown && !fact.carriesMoreAssets && fact.faucetId.trim() && fact.amount.trim()
+        )
+      ) {
+        try {
+          feeAssets = feeNotes.map(fact => ({ faucetId: fact.faucetId, amount: BigInt(fact.amount) }));
+        } catch {
+          // Unparseable facts must stay unknown to later fee checks.
+        }
+      }
+      return {
+        id: note.id,
+        senderAddress: note.senderAddress,
+        faucetId: note.faucetId,
+        carriesMoreAssets: note.carriesMoreAssets,
+        ...(note.amount === '' ? {} : { amount: BigInt(note.amount) }),
+        ...(feeAssets === undefined ? {} : { feeAssets })
+      };
+    });
     this.status = ITransactionStatus.Queued;
     this.initiatedAt = Math.floor(Date.now() / 1000); // seconds
     this.queuedSeq = nextQueuedSeq();
@@ -1253,10 +1448,45 @@ export interface ISwapExtraInputs {
   expiresAt?: number;
   expiryTriggeredAt?: number;
   autoConsume?: boolean;
+  /**
+   * The slippage, in basis points, the wallet built the ask with. The receipt reads the order as
+   * filled once `requestedAmount × (1 − slippage)` arrives (`swapFillTarget`); settlement still
+   * reclaims what is left at expiry. Absent for a user-typed ask and for older orders: those count
+   * only a full fill.
+   */
+  slippageBps?: number;
   /** Stamped when a payback-claim settlement consume completes. */
   settledAt?: number;
   /** Stamped when an expiry-reclaim settlement consume completes. */
   reclaimedAt?: number;
+  /**
+   * Stamped on a Guardian-recovered order when the node shows its order note spent and no consume of this wallet
+   * explains it: a fill, or a reclaim made elsewhere. It closes the order, which then reads Confirmed (#1487).
+   */
+  orderNoteSpentAt?: number;
+  /**
+   * Stamped on a Guardian-recovered order with its closing stamp once the node's lineage read finished. A settledAt or
+   * reclaimedAt without it is the pre-fix recovery reconcile's, written from a linked payout or reclaim with no
+   * lineage read, so it is provisional until the next read decides (#1487).
+   */
+  lineageClosedAt?: number;
+  /**
+   * The open remainder a partial fill left of a Guardian-recovered order, as the node's lineage showed it: the note
+   * its Cancel returns, since the order note is spent (#1487).
+   */
+  recoveredTip?: IRecoveredSwapTip;
+  /** The last spent tip a bounded lineage read reached, for the next read to resume from, never for Cancel. */
+  recoveredCheckpoint?: IRecoveredSwapCheckpoint;
+}
+
+export interface IRecoveredSwapCheckpoint {
+  noteId: string;
+  /** The fill round that created it, 1 for the first remainder. */
+  depth: number;
+}
+
+export interface IRecoveredSwapTip extends IRecoveredSwapCheckpoint {
+  remainingOffered: bigint;
 }
 
 /**
@@ -1301,14 +1531,21 @@ export class SwapTransaction implements ITransaction {
     requestedAmount: bigint,
     delegateTransaction?: boolean,
     expirySeconds: number = 120,
-    autoConsume: boolean = true
+    autoConsume: boolean = true,
+    slippageBps?: number
   ) {
     this.id = uuid();
     this.type = 'swap';
     this.accountId = accountId;
     this.faucetId = offeredFaucetId;
     this.amount = offeredAmount;
-    this.extraInputs = { requestedFaucetId, requestedAmount, expirySeconds, autoConsume };
+    this.extraInputs = {
+      requestedFaucetId,
+      requestedAmount,
+      expirySeconds,
+      autoConsume,
+      ...(slippageBps === undefined ? {} : { slippageBps })
+    };
     this.status = ITransactionStatus.Queued;
     this.initiatedAt = Math.floor(Date.now() / 1000); // seconds
     this.queuedSeq = nextQueuedSeq();

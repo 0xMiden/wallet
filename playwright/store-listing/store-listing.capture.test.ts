@@ -91,6 +91,16 @@ describe('store listing capture plan', () => {
     );
   });
 
+  // The create flow lists the operators only in Choose your Guardian's provider sheet.
+  it('captures every guardian scene once the provider sheet is open', () => {
+    const scenes = capturePlan.filter(entry => entry.sceneId === 'guardian');
+    expect(scenes.map(entry => [entry.platform, entry.ready.testId])).toEqual([
+      ['appStore', 'meet-guardian-provider-sheet'],
+      ['playStore', 'meet-guardian-provider-sheet'],
+      ['chromeWebStore', 'meet-guardian-provider-sheet']
+    ]);
+  });
+
   it('waits for the final wallet balance state before dependent captures', () => {
     const walletEntries = capturePlan.filter(
       item => item.sceneId === 'wallet-keys' || item.sceneId === 'chrome-side-panel'

@@ -40,19 +40,15 @@ jest.mock('screens/onboarding/common/ChooseGuardian', () => ({
     error
   }: {
     onSubmit: (payload: { guardianId: string; guardianEndpoint: string }) => void;
-    onBack?: () => void;
-    currentEndpoint?: string;
+    onBack: () => void;
+    currentEndpoint: string;
     allowCustomEndpoint?: boolean;
     error?: string | null;
   }) => (
     <div data-testid="choose-guardian" data-current={currentEndpoint} data-allow-custom={String(allowCustomEndpoint)}>
-      {/* Stands in for the picker's page mode: given onBack it draws the shared
-        header, the back button beside the one h1. */}
-      {onBack && (
-        <button type="button" onClick={onBack}>
-          back
-        </button>
-      )}
+      <button type="button" onClick={onBack}>
+        back
+      </button>
       <h1>Choose your Guardian</h1>
       {error ? <span role="alert">{error}</span> : null}
       <button

@@ -66,9 +66,8 @@ test.describe('Bridge-IN deposit (AggLayer/ETH, full real UI)', () => {
   test.beforeAll(async () => {
     anvil = await AnvilInstance.start({ port: ANVIL_PORT, chainId: CHAIN_ID });
     await installAggLayerBridge(anvil.rpcUrl);
-    // The deposit screen defaults to USDC and reads its balance on mount; without
-    // a contract at the USDC address the eth_call returns "0x" and viem throws,
-    // breaking the amount screen before we can switch to ETH.
+    // A read of the bridge's USDC (epoch.evmUsdc) at an address with no contract returns "0x" and viem throws. The
+    // screen opens on Circle USDC and reads this one only when USDC is picked; the stand-in keeps that read sound.
     await installMockUsdc(anvil.rpcUrl);
   });
 
@@ -133,7 +132,7 @@ test.describe('Bridge-IN deposit (AggLayer/ETH, full real UI)', () => {
         expect(decoded.functionName).toBe('bridgeAsset');
         const [destNetwork, destAddress, amount, tokenArg] = decoded.args;
         const expectedAmount = parseUnits(DEPOSIT_ETH, 18);
-        expect(destNetwork, 'destinationNetwork = the testnet rollup id').toBe(86);
+        expect(destNetwork, 'destinationNetwork = the testnet rollup id').toBe(73);
         expect(tokenArg, 'token = native ETH').toBe(zeroAddress);
         expect(amount, 'bridged amount').toBe(expectedAmount);
         expect(destAddress, 'recipient is a real 20-byte address').toMatch(/^0x[0-9a-fA-F]{40}$/);

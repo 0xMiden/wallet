@@ -50,8 +50,9 @@ import { EcdsaSigner } from '@openzeppelin/miden-multisig-client';
 import { Buffer } from 'buffer';
 
 import { probeGuardianOrigin } from 'lib/miden/guardian/native-http';
-import { DEFAULT_NETWORK, getGuardianOptionsForNetwork } from 'lib/miden-chain/constants';
+import { getGuardianOptionsForNetwork } from 'lib/miden-chain/constants';
 import type { MIDEN_NETWORK_NAME, ResolvedGuardianOption } from 'lib/miden-chain/constants';
+import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { sameGuardianEndpoint, sanitizeGuardianUrl } from 'lib/settings/helpers';
 
 /** One operator that answered the probe with at least one account. */
@@ -93,6 +94,10 @@ export interface GuardianDiscoveryResult {
 }
 
 export interface GuardianDiscoveryOptions {
+  /**
+   * The network whose operators to probe. Defaults to the effective network, never the build's: a release build is a
+   * testnet or devnet build, and mainnet is a stored choice.
+   */
   network?: MIDEN_NETWORK_NAME;
   /** Override the endpoint set (tests / custom operator lists). */
   endpoints?: string[];
@@ -373,7 +378,7 @@ async function runPooled<TItem, TResult>(
 }
 
 function resolveTargets(options: GuardianDiscoveryOptions): ProbeTarget[] {
-  const known = getGuardianOptionsForNetwork(options.network ?? DEFAULT_NETWORK);
+  const known = getGuardianOptionsForNetwork(options.network ?? getEffectiveNetworkName());
   if (!options.endpoints) {
     return known.map(option => ({ endpoint: sanitizeGuardianUrl(option.endpoint), option }));
   }
@@ -454,7 +459,7 @@ async function probeTargets(
   const { maxHdIndex = GUARDIAN_PROBE_MAX_HD_INDEX, timeoutMs = GUARDIAN_PROBE_TIMEOUT_MS, signal } = options;
   const probedEndpoints = targets.map(target => target.endpoint);
   console.info('[guardian/discover] Probing guardians', {
-    network: options.network ?? DEFAULT_NETWORK,
+    network: options.network ?? getEffectiveNetworkName(),
     endpoints: probedEndpoints,
     hdIndices: maxHdIndex,
     timeoutMs,

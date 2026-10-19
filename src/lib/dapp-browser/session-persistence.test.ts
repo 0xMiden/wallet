@@ -259,3 +259,70 @@ describe('toPersisted / fromPersisted round-trip', () => {
     expect(rehydrated.openedAt).toBe(1000);
   });
 });
+
+describe('ordered persistence mutations', () => {
+  it('deletes after an outstanding write and preserves concurrent unrelated sessions', async () => {
+    store[STORAGE_KEY] = JSON.stringify([makePersisted('keep')]);
+    let release: () => void = () => {
+      throw new Error('write has not started');
+    };
+    let started: () => void = () => {};
+    const gate = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    const writing = new Promise<void>(resolve => {
+      started = resolve;
+    });
+    mockSet.mockImplementationOnce(async ({ key, value }) => {
+      started();
+      await gate;
+      store[key] = value;
+    });
+    const park = upsertPersistedSession(makePersisted('closed'));
+    await writing;
+    const other = upsertPersistedSession(makePersisted('other'));
+    const close = removePersistedSession('closed');
+    await new Promise(resolve => setTimeout(resolve, 0));
+    release();
+    await Promise.all([park, other, close]);
+    expect((await loadPersistedSessions()).map(s => s.id).sort()).toEqual(['keep', 'other']);
+  });
+
+  it('serializes concurrent read-modify-write operations on the shared list', async () => {
+    await Promise.all([upsertPersistedSession(makePersisted('a')), upsertPersistedSession(makePersisted('b'))]);
+    expect((await loadPersistedSessions()).map(s => s.id).sort()).toEqual(['a', 'b']);
+  });
+
+  it('runs reset after an outstanding direct list save', async () => {
+    let release: () => void = () => {
+      throw new Error('save has not started');
+    };
+    let started: () => void = () => {};
+    const gate = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    const writing = new Promise<void>(resolve => {
+      started = resolve;
+    });
+    mockSet.mockImplementationOnce(async ({ key, value }) => {
+      started();
+      await gate;
+      store[key] = value;
+    });
+    const save = savePersistedSessions([makePersisted('closed')]);
+    await writing;
+    const reset = clearAllPersistedSessions();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    release();
+    await Promise.all([save, reset]);
+    expect(store[STORAGE_KEY]).toBeUndefined();
+  });
+
+  it('repairs a corrupt list inside upsert without recursively waiting on its queue', async () => {
+    store[STORAGE_KEY] = '{"not":"an array"}';
+    const warning = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    await upsertPersistedSession(makePersisted('a'));
+    expect((await loadPersistedSessions()).map(s => s.id)).toEqual(['a']);
+    warning.mockRestore();
+  });
+});

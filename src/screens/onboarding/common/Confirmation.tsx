@@ -146,7 +146,8 @@ export const ConfirmationScreen: React.FC<ConfirmationScreenProps> = ({
         )}
 
         {hasFailure && (
-          <Notice tone="negative" role="alert" className="text-left">
+          // E2E drivers read a failed attempt here. Retry keeps the submit id, which passImportConfirmation relies on.
+          <Notice tone="negative" role="alert" className="text-left" data-testid="onboarding-confirmation-failed">
             <span className="flex flex-col gap-1">
               {hasRecoveryError && (
                 <span className="select-text" data-testid="onboarding-recovery-error">

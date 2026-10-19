@@ -35,6 +35,9 @@ _g.__cnTest = {
 
 jest.mock('lib/platform', () => ({
   isExtension: () => (globalThis as any).__cnTest?.isExtension ?? false,
+  // False on an extension page an extension reload or update orphaned.
+  hasExtensionRuntime: () =>
+    ((globalThis as any).__cnTest?.isExtension ?? false) && ((globalThis as any).__cnTest?.hasExtensionRuntime ?? true),
   isIOS: () => (globalThis as any).__cnTest?.isIOS ?? false
 }));
 
@@ -101,6 +104,12 @@ jest.mock('../sdk/miden-client', () => ({
   getCurrentWasmLockHold: () => (globalThis as any).__cnTest.currentHold ?? null,
   withWasmClientLock: async (fn: (hold: object) => Promise<any>, options?: any) => {
     lockOptionsSeen.push(options);
+    // One hold, picked by its label, rejects instead of running.
+    const reject = (globalThis as any).__cnTest.rejectHold;
+    if (reject && reject.label === options?.label) {
+      (globalThis as any).__cnTest.rejectHold = undefined;
+      throw reject.error;
+    }
     const hold = { id: `cn-hold-${lockOptionsSeen.length}` };
     (globalThis as any).__cnTest.currentHold = hold;
     try {
@@ -193,7 +202,8 @@ jest.mock('./assets', () => ({
   })
 }));
 
-import { __resetClaimableNotesCacheForTests, useClaimableNotes } from './claimable-notes';
+import { selectAutoConsumeBatch } from './auto-managed-notes';
+import { __resetClaimableNotesCacheForTests, ClaimableNoteWithMetadata, useClaimableNotes } from './claimable-notes';
 
 // A test can leave a fetch in flight (RTL unmounts the hook, the promise chain keeps
 // going). Such a straggler still writes the module-level last-known-list cache, so it
@@ -204,6 +214,7 @@ afterEach(async () => {
 });
 
 beforeEach(() => {
+  _g.__cnTest.rejectHold = undefined;
   _g.__cnTest.kv = {};
   _g.__cnTest.puts = 0;
   _g.__cnTest.putOverride = undefined;
@@ -213,6 +224,7 @@ beforeEach(() => {
   __resetClaimableNotesCacheForTests();
   _g.__cnTest.isExtension = false;
   _g.__cnTest.isIOS = false;
+  _g.__cnTest.hasExtensionRuntime = true;
   _g.__cnTest.storage = {};
   _g.__cnTest.consumableNotes = [];
   _g.__cnTest.uncompletedTxs = [];
@@ -301,6 +313,25 @@ describe('useClaimableNotes (extension mode)', () => {
 
     await waitFor(() => expect(result.current.data?.[0]?.isBeingClaimed).toBe(true));
     expect(result.current.data?.[0]?.claimingTxId).toBe('tx-held');
+  });
+
+  it('gates a native note a live dApp transaction will consume, so auto-consume leaves it out', async () => {
+    _g.__cnTest.walletState.extensionClaimableNotes = [
+      {
+        id: 'carried',
+        faucetId: 'miden-faucet',
+        amountBaseUnits: '100000000',
+        senderAddress: 's1',
+        noteType: 'public',
+        metadata: { decimals: 6, symbol: 'MIDEN', name: 'Miden' }
+      }
+    ];
+    _g.__cnTest.uncompletedTxs = [{ id: 'tx-dapp', type: 'execute', status: 0, heldNoteIds: ['carried'] }];
+
+    const { result } = renderHook(() => useClaimableNotes('pk-1'));
+
+    await waitFor(() => expect(result.current.data?.[0]?.claimingTxId).toBe('tx-dapp'));
+    expect(selectAutoConsumeBatch(result.current.data ?? [], 'miden-faucet', null)).toEqual([]);
   });
 
   it('keeps the previous gate when the consume-row read fails', async () => {
@@ -525,6 +556,26 @@ describe('useClaimableNotes (extension mode)', () => {
     expect(result.current.data?.[0]?.id).toBe('n1');
   });
 
+  it('keeps whether a synced note carries more assets than the one it shows', () => {
+    const synced = (id: string, carriesMoreAssets?: boolean) => ({
+      id,
+      faucetId: 'f1',
+      amountBaseUnits: '100',
+      senderAddress: 's1',
+      noteType: 'public',
+      metadata: { decimals: 6, symbol: 'TOK', name: 'Token' },
+      carriesMoreAssets
+    });
+    _g.__cnTest.walletState.extensionClaimableNotes = [synced('a', true), synced('b')];
+
+    const { result } = renderHook(() => useClaimableNotes('pk-1'));
+
+    expect(result.current.data?.map(note => [note.id, note.carriesMoreAssets])).toEqual([
+      ['a', true],
+      ['b', undefined]
+    ]);
+  });
+
   it('keeps whether a synced note is a standard payment, which the rotation gate claims by (#805)', () => {
     const synced = (id: string, standardPayment?: boolean) => ({
       id,
@@ -698,6 +749,35 @@ describe('useClaimableNotes (extension mode)', () => {
     ];
     const { result } = renderHook(() => useClaimableNotes('pk-1'));
     expect(result.current.data?.[0]?.type).toBe('unknown');
+  });
+
+  describe('on a page an extension reload or update orphaned', () => {
+    beforeEach(() => jest.useFakeTimers());
+    afterEach(() => jest.useRealTimers());
+
+    it('stops reading extension storage once the runtime is gone', async () => {
+      renderHook(() => useClaimableNotes('A'));
+      const get = _g.chrome.storage.local.get as jest.Mock;
+      const reads = get.mock.calls.length;
+      expect(reads).toBeGreaterThan(0);
+
+      _g.__cnTest.hasExtensionRuntime = false;
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(9_000);
+      });
+      expect(get).toHaveBeenCalledTimes(reads);
+    });
+
+    it('never reads extension storage when it mounts after the runtime is gone', () => {
+      _g.__cnTest.hasExtensionRuntime = false;
+      const get = jest.fn(() => {
+        throw new Error('Extension context invalidated.');
+      });
+      _g.chrome.storage.local.get = get;
+
+      expect(() => renderHook(() => useClaimableNotes('A'))).not.toThrow();
+      expect(get).not.toHaveBeenCalled();
+    });
   });
 
   it('serves cached notes only for the matching account (account-scoped poll)', () => {
@@ -952,6 +1032,35 @@ describe('useClaimableNotes (local mode — mobile/desktop)', () => {
     expect(_g.__cnTest.lastFetchData.map((n: any) => n.id)).toEqual(['visible-note']);
   });
 
+  it('never shows a carried note unheld when a dApp confirm lands between the quarantine and holding reads', async () => {
+    // The confirm queues the dApp transaction holding the note, then releases its quarantine. Whichever of the two
+    // reads runs first sees the state before it and the other the state after.
+    let confirmed = false;
+    const readThenConfirm = <T,>(before: T, after: T) => ({
+      configurable: true,
+      get: () => {
+        const value = confirmed ? after : before;
+        confirmed = true;
+        return value;
+      }
+    });
+    const holder = { id: 'tx-dapp', type: 'execute', status: 0, heldNoteIds: ['carried'] };
+    Object.defineProperty(_g.__cnTest, 'quarantined', readThenConfirm(new Set(['carried']), new Set()));
+    Object.defineProperty(_g.__cnTest, 'uncompletedTxs', readThenConfirm([], [holder]));
+    try {
+      _g.__cnTest.consumableNotes = [makeMockNote({ id: 'carried', amount: '100000000' })];
+      renderHook(() => useClaimableNotes('pk-1'));
+      await _g.__cnTest.lastFetchPromise;
+      const notes: ClaimableNoteWithMetadata[] = _g.__cnTest.lastFetchData;
+      const carried = notes.find(note => note.id === 'carried');
+      expect(carried === undefined || carried.isBeingClaimed).toBe(true);
+      expect(selectAutoConsumeBatch(notes, 'miden-faucet', null)).toEqual([]);
+    } finally {
+      Object.defineProperty(_g.__cnTest, 'quarantined', { value: new Set(), writable: true, configurable: true });
+      Object.defineProperty(_g.__cnTest, 'uncompletedTxs', { value: [], writable: true, configurable: true });
+    }
+  });
+
   it('uses the in-progress consume transactions to mark notes as being claimed', async () => {
     _g.__cnTest.consumableNotes = [makeMockNote({ id: 'note-being-claimed' })];
     _g.__cnTest.uncompletedTxs = [{ type: 'consume', noteId: 'note-being-claimed' }];
@@ -1177,6 +1286,24 @@ describe('useClaimableNotes (local mode — mobile/desktop)', () => {
     __resetSyncFuseStateForTests();
   });
 
+  // A trap in either hold abandons the probe without learning anything about the node.
+  it.each(['claimable-notes', 'claimable-notes-swap-lineage'])(
+    'books a realm-error eviction of the %s hold as abandoned, never erasing eviction evidence',
+    async label => {
+      __resetSyncFuseStateForTests();
+      for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS - 1; i++) noteSyncWatchdogEviction('claimable-notes');
+      _g.__cnTest.rejectHold = { label, error: new WasmClientPoisonedError('realm-error') };
+
+      renderHook(() => useClaimableNotes('pk-1'));
+      await _g.__cnTest.lastFetchPromise;
+      noteSyncWatchdogEviction('claimable-notes');
+
+      expect(lockOptionsSeen.map(options => options?.label)).toContain(label);
+      expect(isSyncFused('claimable-notes')).toBe(true);
+      __resetSyncFuseStateForTests();
+    }
+  );
+
   it('exposes debugInfo only on iOS', () => {
     _g.__cnTest.isIOS = true;
     const { result } = renderHook(() => useClaimableNotes('pk-1'));
@@ -1297,6 +1424,28 @@ describe('useClaimableNotes (local mode — mobile/desktop)', () => {
       Object.fromEntries((notes ?? []).map(note => [note.id, note.standardPayment]));
     expect(flags(result.current.data)).toEqual({ standard: true, custom: false });
     await waitFor(() => expect(flags(_g.__cnTest.kv[CACHE_KEY])).toEqual({ standard: true, custom: false }));
+  });
+
+  it('live single-asset notes preserve explicit asset knowledge', async () => {
+    // The claim fee gate fails open on such a note: one of the hidden assets may pay the fee.
+    _g.__cnTest.consumableNotes = [
+      {
+        ...makeMockNote({ id: 'multi' }),
+        assets: [
+          { faucetId: 'miden-faucet', amount: '100' },
+          { faucetId: 'token-faucet', amount: '5' }
+        ]
+      },
+      makeMockNote({ id: 'single' })
+    ];
+    const { result, rerender } = renderHook(() => useClaimableNotes('pk-1'));
+    await _g.__cnTest.lastFetchPromise;
+    rerender();
+
+    const flags = Object.fromEntries((result.current.data ?? []).map(note => [note.id, note.carriesMoreAssets]));
+    expect(flags).toEqual({ multi: true, single: false });
+    expect(result.current.data?.find(note => note.id === 'single')).toMatchObject({ carriesMoreAssets: false });
+    expect(result.current.data?.find(note => note.id === 'multi')).toMatchObject({ carriesMoreAssets: true });
   });
 
   it('replaces the cached list with the live result and rewrites the cache', async () => {

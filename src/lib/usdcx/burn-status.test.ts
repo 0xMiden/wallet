@@ -1,14 +1,28 @@
 import { ITransaction, ITransactionStatus, IBridgedSendExtraInputs } from 'lib/miden/db/types';
+import { RpcTimeoutError } from 'lib/miden-chain/rpc-timeout';
 
 import { burnPhaseFromStatus, pollUsdcxBurn } from './burn-status';
 
+jest.mock('lib/remote-config/runtime', () => ({
+  getBridgeConfigSnapshot: () =>
+    jest
+      .requireActual<typeof import('lib/remote-config/testing/fixture')>('lib/remote-config/testing/fixture')
+      .testBridgeSnapshot()
+}));
+
 let stored: ITransaction;
+const mockGetNetworkNoteStatus = jest.fn();
+const mockFree = jest.fn();
+jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
+  NoteId: { fromHex: (id: string) => id },
+  RpcClient: jest.fn(() => ({ getNetworkNoteStatus: mockGetNetworkNoteStatus, free: mockFree }))
+}));
 jest.mock('lib/miden/repo', () => ({
   transactions: { where: () => ({ modify: async (fn: (row: ITransaction) => void) => fn(stored) }) }
 }));
-jest.mock('lib/miden/sdk/miden-client', () => ({}));
-jest.mock('lib/miden-chain/constants', () => ({}));
-jest.mock('lib/miden-chain/effective-endpoints', () => ({ getEffectiveNetworkName: () => 'testnet' }));
+jest.mock('lib/miden-chain/constants', () => ({ getRpcEndpoint: () => 'https://rpc.example' }));
+let mockNetworkName = 'testnet';
+jest.mock('lib/miden-chain/effective-endpoints', () => ({ getEffectiveNetworkName: () => mockNetworkName }));
 
 function row(phase: 'pending' | 'consuming' | 'confirmed' | 'discarded' = 'pending'): ITransaction {
   const extraInputs: IBridgedSendExtraInputs = {
@@ -31,7 +45,53 @@ function row(phase: 'pending' | 'consuming' | 'confirmed' | 'discarded' = 'pendi
 }
 
 beforeEach(() => {
+  jest.clearAllMocks();
+  mockNetworkName = 'testnet';
   stored = row();
+});
+
+// A testnet-only gate left every mainnet withdrawal at "Awaiting burn" after the faucet had consumed its note.
+it('polls a mainnet burn like a testnet one', async () => {
+  mockNetworkName = 'mainnet';
+  mockGetNetworkNoteStatus.mockResolvedValueOnce({ status: 'NullifierCommitted', attemptCount: 1 });
+  await pollUsdcxBurn(stored);
+  expect(mockGetNetworkNoteStatus).toHaveBeenCalledWith('burn-note');
+  expect(stored.extraInputs.usdcxBurn.phase).toBe('confirmed');
+});
+
+it('reads burn status through its own RPC client and frees it', async () => {
+  mockGetNetworkNoteStatus.mockResolvedValueOnce({ status: 'NullifierCommitted', attemptCount: 1 });
+  await pollUsdcxBurn(stored);
+  expect(mockGetNetworkNoteStatus).toHaveBeenCalledWith('burn-note');
+  expect(stored.extraInputs.usdcxBurn.phase).toBe('confirmed');
+  expect(mockFree).toHaveBeenCalledTimes(1);
+});
+
+// A node that accepts the connection and never answers must not hold the watcher pass: the read times out,
+// the pass settles, and the client is freed only once its call settles.
+it('times out a status read that never answers and leaves the row pending', async () => {
+  jest.useFakeTimers();
+  try {
+    mockGetNetworkNoteStatus.mockReturnValueOnce(new Promise(() => {}));
+    const outcome = pollUsdcxBurn(stored).then(
+      () => 'resolved',
+      (error: unknown) => error
+    );
+    await jest.advanceTimersByTimeAsync(15_000);
+    expect(await outcome).toBeInstanceOf(RpcTimeoutError);
+    expect(mockGetNetworkNoteStatus).toHaveBeenCalledTimes(1);
+    expect(stored.extraInputs.usdcxBurn.phase).toBe('pending');
+    expect(mockFree).not.toHaveBeenCalled();
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
+it('frees the RPC client after a failed request and leaves the row pending', async () => {
+  mockGetNetworkNoteStatus.mockRejectedValueOnce(new Error('timeout'));
+  await expect(pollUsdcxBurn(stored)).rejects.toThrow('timeout');
+  expect(stored.extraInputs.usdcxBurn.phase).toBe('pending');
+  expect(mockFree).toHaveBeenCalledTimes(1);
 });
 
 it.each([
@@ -72,6 +132,17 @@ it.each(['confirmed', 'discarded'])('does not overwrite %s with a stale response
     return { status: 'Pending', attemptCount: 0 };
   });
   expect(stored.extraInputs.usdcxBurn.phase).toBe(terminal);
+});
+
+// The unconfirmed reconciler completes a burn with no result bytes or fee; its burn identity is all the poll reads.
+it('advances a burn the unconfirmed reconciler landed', async () => {
+  stored = {
+    ...row(),
+    displayMessage: 'Bridged to EVM',
+    submitEvidence: [{ attemptId: 'a1', capturedAt: 1, source: 'stage' }]
+  };
+  await pollUsdcxBurn(stored, async () => ({ status: 'NullifierCommitted', attemptCount: 1 }));
+  expect(stored.extraInputs.usdcxBurn.phase).toBe('confirmed');
 });
 
 it('does not poll restored, unsubmitted, or terminal rows', async () => {

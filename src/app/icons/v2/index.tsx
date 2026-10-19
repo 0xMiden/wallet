@@ -20,6 +20,11 @@ import { ReactComponent as ArrowUpDown } from './arrow-up-down.svg';
 import { ReactComponent as ArrowUp } from './arrow-up.svg';
 import { ReactComponent as BackArrow } from './back-arrow.svg';
 import { ReactComponent as Backspace } from './backspace.svg';
+import { ReactComponent as BadgeDeposit } from './badge-deposit.svg';
+import { ReactComponent as BadgeReceive } from './badge-receive.svg';
+import { ReactComponent as BadgeRecovery } from './badge-recovery.svg';
+import { ReactComponent as BadgeSend } from './badge-send.svg';
+import { ReactComponent as BadgeSwap } from './badge-swap.svg';
 import { ReactComponent as Bin } from './bin.svg';
 import { ReactComponent as Calendar } from './calendar.svg';
 import { ReactComponent as Cash } from './cash.svg';
@@ -79,6 +84,8 @@ import { ReactComponent as MidenLogoWhite } from './miden-logo-white.svg';
 import { ReactComponent as MidenLogo } from './miden-logo.svg';
 import { ReactComponent as More } from './more.svg';
 import { ReactComponent as PendingNotes } from './pending-notes.svg';
+import { ReactComponent as ProfileApps } from './profile-apps.svg';
+import { ReactComponent as ProfileBadge } from './profile-badge.svg';
 import { ReactComponent as QrScan } from './qr-scan.svg';
 import { ReactComponent as Receive } from './receive-new.svg';
 import { ReactComponent as Refresh } from './refresh.svg';
@@ -108,6 +115,13 @@ import { ReactComponent as Fingerprint } from '../onboarding/fingerprint.svg';
 const isDevnet = DEFAULT_NETWORK === MIDEN_NETWORK_NAME.DEVNET;
 
 export enum IconName {
+  BadgeDeposit = 'badge-deposit',
+  BadgeReceive = 'badge-receive',
+  BadgeSend = 'badge-send',
+  BadgeSwap = 'badge-swap',
+  BadgeRecovery = 'badge-recovery',
+  ProfileApps = 'profile-apps',
+  ProfileBadge = 'profile-badge',
   Activity = 'activity',
   AddCircle = 'add-circle',
   Add = 'add',
@@ -218,6 +232,20 @@ export interface IconProps extends React.SVGAttributes<SVGElement> {
 
 const IconSwitch = (props: IconProps) => {
   switch (props.name) {
+    case IconName.BadgeDeposit:
+      return <BadgeDeposit {...props} />;
+    case IconName.BadgeReceive:
+      return <BadgeReceive {...props} />;
+    case IconName.BadgeSend:
+      return <BadgeSend {...props} />;
+    case IconName.BadgeSwap:
+      return <BadgeSwap {...props} />;
+    case IconName.BadgeRecovery:
+      return <BadgeRecovery {...props} />;
+    case IconName.ProfileApps:
+      return <ProfileApps {...props} />;
+    case IconName.ProfileBadge:
+      return <ProfileBadge {...props} />;
     case IconName.Activity:
       return <Activity {...props} />;
     case IconName.AddCircle:

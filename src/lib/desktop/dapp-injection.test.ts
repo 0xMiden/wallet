@@ -7,9 +7,57 @@
 import fs from 'fs';
 import { JSDOM } from 'jsdom';
 import path from 'path';
+import vm from 'vm';
+
+import {
+  InvalidParamsMidenWalletError,
+  MidenWalletError,
+  NotFoundMidenWalletError,
+  NotGrantedMidenWalletError
+} from 'lib/adapter/client';
 
 const SOURCE = fs.readFileSync(path.join(__dirname, '../../../src-tauri/scripts/dapp-injection.js'), 'utf8');
 const PREFIX = 'https://miden-wallet-request/';
+
+const REFUSALS: [string, { error?: unknown; payload?: unknown }, string, string][] = [
+  ['NOT_GRANTED', { error: 'NOT_GRANTED' }, new NotGrantedMidenWalletError().name, 'NOT_GRANTED'],
+  [
+    'an INVALID_PARAMS message',
+    { error: 'INVALID_PARAMS: Error: noteType is required' },
+    new InvalidParamsMidenWalletError().name,
+    'INVALID_PARAMS: Error: noteType is required'
+  ],
+  ['NOT_FOUND', { error: 'NOT_FOUND' }, new NotFoundMidenWalletError().name, 'NOT_FOUND'],
+  [
+    'NETWORK_NOT_GRANTED',
+    { error: 'NETWORK_NOT_GRANTED' },
+    new NotGrantedMidenWalletError().name,
+    'NETWORK_NOT_GRANTED'
+  ],
+  ['another message', { error: 'boom' }, new MidenWalletError().name, 'boom'],
+  [
+    'an object payload',
+    { payload: { message: 'INVALID_PARAMS: bad' } },
+    new InvalidParamsMidenWalletError().name,
+    'INVALID_PARAMS: bad'
+  ],
+  ['an array payload', { payload: ['NOT_GRANTED'] }, new NotGrantedMidenWalletError().name, 'NOT_GRANTED'],
+  ['an object payload with no message', { payload: {} }, new MidenWalletError().name, new MidenWalletError().message],
+  ['a non-string error', { error: 42 }, new MidenWalletError().name, new MidenWalletError().message],
+  [
+    'NOT_FOUND over INVALID_PARAMS',
+    { error: 'INVALID_PARAMS: NOT_FOUND' },
+    new NotFoundMidenWalletError().name,
+    'INVALID_PARAMS: NOT_FOUND'
+  ],
+  [
+    'NOT_GRANTED over the other codes',
+    { error: 'INVALID_PARAMS: NOT_FOUND: NOT_GRANTED' },
+    new NotGrantedMidenWalletError().name,
+    'INVALID_PARAMS: NOT_FOUND: NOT_GRANTED'
+  ],
+  ['no error and no payload', {}, new MidenWalletError().name, 'Unknown error']
+];
 
 type Wallet = {
   address?: string;
@@ -17,6 +65,9 @@ type Wallet = {
   permission?: unknown;
   connect: (...args: unknown[]) => Promise<unknown>;
   disconnect: () => Promise<unknown>;
+  requestAssets: () => Promise<unknown>;
+  requestLoginKey: () => Promise<{ loginKey: Uint8Array }>;
+  signLoginBytes: (data: Uint8Array, kind: 'word') => Promise<{ signature: Uint8Array }>;
   on: (event: string, cb: (data: unknown) => void) => () => void;
   off: (event: string, cb: (data: unknown) => void) => void;
   emit: (event: string, data: unknown) => void;
@@ -24,9 +75,21 @@ type Wallet = {
 type Sent = { payload: { type: string }; reqId: string };
 type DappWindow = Window & {
   midenWallet: Wallet;
+  bread?: object;
   __midenWalletResponse: (r: string) => void;
   __MIDEN_BRIDGE_TOKEN__?: string;
 };
+
+function run(win: DappWindow) {
+  // eslint-disable-next-line no-new-func
+  new Function('window', 'document', 'globalThis', 'setTimeout', 'clearTimeout', SOURCE)(
+    win,
+    win.document,
+    win,
+    setTimeout,
+    clearTimeout
+  );
+}
 
 function load() {
   const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'https://dapp.example/' });
@@ -42,19 +105,23 @@ function load() {
     return append(node);
   };
   win.__MIDEN_BRIDGE_TOKEN__ = 'token';
-  // eslint-disable-next-line no-new-func
-  new Function('window', 'document', 'globalThis', 'setTimeout', 'clearTimeout', SOURCE)(
-    win,
-    win.document,
-    win,
-    setTimeout,
-    clearTimeout
-  );
+  run(win);
   const answer = (reqId: string, payload: unknown) =>
     win.__midenWalletResponse(JSON.stringify({ type: 'MIDEN_PAGE_RESPONSE', payload, reqId }));
   const polls = () => sent.filter(m => m.payload?.type === 'GET_CURRENT_PERMISSION_REQUEST');
   const last = () => sent[sent.length - 1]!;
   return { win, sent, answer, polls, last };
+}
+
+// WebView2 runs the script in sub-frames too.
+function loadFrame() {
+  const dom = new JSDOM('<!doctype html><html><body><iframe></iframe></body></html>', {
+    url: 'https://dapp.example/'
+  });
+  const frame = dom.window.document.querySelector('iframe')!.contentWindow as DappWindow;
+  frame.__MIDEN_BRIDGE_TOKEN__ = 'token';
+  run(frame);
+  return frame;
 }
 
 // The connect response names the network by id and the poll by RPC URL, as the real host does.
@@ -102,6 +169,115 @@ afterEach(() => {
 
 it('loads the real script and installs the wallet', () => {
   expect(load().win.midenWallet.connect).toBeInstanceOf(Function);
+});
+
+it.each(REFUSALS)('rejects %s with the extension error class and message', async (_, body, name, message) => {
+  const h = load();
+  const promise = h.win.midenWallet.requestAssets();
+  h.win.__midenWalletResponse(JSON.stringify({ type: 'MIDEN_PAGE_ERROR_RESPONSE', reqId: h.last().reqId, ...body }));
+  await expect(promise).rejects.toMatchObject({ name, message });
+});
+
+// #1416: the wallet can answer after a same-origin reload, into a document whose own first request is pending.
+it("numbers each document's requests under its own prefix, so a late answer for the previous one resolves nothing", async () => {
+  const previous = load();
+  void previous.win.midenWallet.requestAssets();
+  const current = load();
+  const settled = jest.fn();
+  const pending = current.win.midenWallet.requestAssets();
+  pending.then(settled, settled);
+  const previousId = previous.last().reqId;
+  const currentId = current.last().reqId;
+  expect(previousId).toMatch(/^req_[0-9a-f]{16}_1$/);
+  expect(currentId).toMatch(/^req_[0-9a-f]{16}_1$/);
+  expect(currentId).not.toBe(previousId);
+
+  expect(() => current.answer(previousId, { assets: ['previous'] })).not.toThrow();
+  await flush();
+  expect(settled).not.toHaveBeenCalled();
+
+  current.answer(currentId, { assets: ['current'] });
+  await expect(pending).resolves.toEqual({ assets: ['current'] });
+});
+
+it('marks the top document with an empty, frozen window.bread', () => {
+  const bread = load().win.bread!;
+  expect(Object.keys(bread)).toEqual([]);
+  expect(Object.isFrozen(bread)).toBe(true);
+  expect(['version', 'presentation', 'auth'].filter(key => key in bread)).toEqual([]);
+});
+
+it('defines window.bread synchronously even when the wallet API waits for DOMContentLoaded', async () => {
+  const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'https://dapp.example/' });
+  const win = dom.window as unknown as DappWindow;
+  // A document-start script runs before the parser has made a body.
+  const body = win.document.body;
+  body.remove();
+  run(win);
+  expect(win.bread).toEqual({});
+  expect('midenWallet' in win).toBe(false);
+  const loaded = new Promise(resolve => win.document.addEventListener('DOMContentLoaded', resolve));
+  win.document.documentElement.append(body);
+  await loaded;
+  expect(win.midenWallet).toBeDefined();
+});
+
+it('keeps window.bread a non-enumerable, writable and configurable marker', () => {
+  const { win } = load();
+  expect(Object.getOwnPropertyDescriptor(win, 'bread')).toEqual({
+    value: {},
+    writable: true,
+    enumerable: false,
+    configurable: true
+  });
+});
+
+it.each([
+  ['let bread = "page";', 'bread'],
+  ['const bread = "page";', 'bread'],
+  ['class bread { static who = "page"; }', 'bread.who'],
+  ['function bread() { return "page"; }', 'bread()'],
+  ['var bread = "page";', 'bread'],
+  ['bread = "page";', 'bread'],
+  ['"use strict"; bread = "page";', 'bread'],
+  ['window.bread = "page";', 'window.bread']
+])("lets a page's own top-level bread win: %s", (declaration, read) => {
+  const dom = new JSDOM('<!doctype html><html><body></body></html>', {
+    url: 'https://dapp.example/',
+    runScripts: 'outside-only'
+  });
+  const win = dom.window as unknown as DappWindow;
+  win.__MIDEN_BRIDGE_TOKEN__ = 'token';
+  run(win);
+  expect(win.bread).toEqual({});
+  // A page's code runs as a classic Script, the only kind whose top-level let, const and class reach the global scope.
+  const script = (code: string) => new vm.Script(code).runInContext(dom.getInternalVMContext());
+  script(declaration);
+  expect(script(read)).toBe('page');
+});
+
+it('defines nothing in a sub-frame', () => {
+  const frame = loadFrame();
+  expect(frame.__MIDEN_BRIDGE_TOKEN__).toBeUndefined();
+  expect('bread' in frame).toBe(false);
+  expect('midenWallet' in frame).toBe(false);
+});
+
+it('keeps the same marker when the script runs again', () => {
+  const { win } = load();
+  const marker = win.bread;
+  expect(marker).toBeDefined();
+  expect(() => run(win)).not.toThrow();
+  expect(win.bread).toBe(marker);
+});
+
+it('leaves an earlier non-configurable window.bread in place and still installs the wallet API', () => {
+  const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'https://dapp.example/' });
+  const win = dom.window as unknown as DappWindow;
+  Object.defineProperty(win, 'bread', { value: 'page' });
+  run(win);
+  expect(win.bread).toBe('page');
+  expect(win.midenWallet).toBeDefined();
 });
 
 describe('account switch (#174)', () => {
@@ -280,7 +456,7 @@ describe('a disconnect ends the connection (#1227)', () => {
       h.win.midenWallet.on('accountChange', spy);
       const disconnecting = h.win.midenWallet.disconnect();
       settle(h);
-      await expect(disconnecting).rejects.toThrow(error);
+      await expect(disconnecting).rejects.toMatchObject({ message: error });
       const w = h.win.midenWallet;
       expect([w.address, w.publicKey, w.permission]).toEqual([undefined, undefined, undefined]);
       expect(spy.mock.calls).toEqual([[null]]);
@@ -301,7 +477,7 @@ describe('a disconnect ends the connection (#1227)', () => {
     h.answer(h.last().reqId, { type: 'DISCONNECT_RESPONSE' });
     await disconnecting;
     refuse(h, h.last().reqId);
-    await expect(again[0]).rejects.toThrow('NOT_FOUND');
+    await expect(again[0]).rejects.toMatchObject({ message: 'NOT_FOUND' });
     await flush();
     expect(spy.mock.calls).toEqual([[null]]);
     expect(disconnects(h)).toHaveLength(2);
@@ -317,7 +493,7 @@ describe('a disconnect ends the connection (#1227)', () => {
     w.on('accountChange', spy);
     await answerPoll(h, null);
     refuse(h, h.last().reqId);
-    await expect(again[0]).rejects.toThrow('NOT_FOUND');
+    await expect(again[0]).rejects.toMatchObject({ message: 'NOT_FOUND' });
     await flush();
     expect(spy.mock.calls).toEqual([[null]]);
     expect(disconnects(h)).toHaveLength(1);
@@ -330,7 +506,7 @@ describe('a disconnect ends the connection (#1227)', () => {
     });
     const disconnecting = h.win.midenWallet.disconnect();
     refuse(h, h.last().reqId);
-    await expect(disconnecting).rejects.toThrow('NOT_FOUND');
+    await expect(disconnecting).rejects.toMatchObject({ message: 'NOT_FOUND' });
     expect(h.win.midenWallet.address).toBeUndefined();
   });
 
@@ -344,7 +520,7 @@ describe('a disconnect ends the connection (#1227)', () => {
     h.answer(firstReq!, { type: 'DISCONNECT_RESPONSE' });
     await first;
     refuse(h, secondReq!);
-    await expect(second).rejects.toThrow('NOT_FOUND');
+    await expect(second).rejects.toMatchObject({ message: 'NOT_FOUND' });
     expect(spy.mock.calls).toEqual([[null]]);
   });
 
@@ -491,5 +667,53 @@ describe('an emission visits the listeners registered when it began (#1241)', ()
     } finally {
       error.mockRestore();
     }
+  });
+});
+
+describe('login key', () => {
+  const b64 = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes));
+
+  it('gives the desktop provider the login key methods', async () => {
+    const h = await connected();
+    const loginKey = Uint8Array.from({ length: 32 }, (_, i) => i);
+    const keyRequest = h.win.midenWallet.requestLoginKey();
+    expect(h.last().payload).toEqual({ type: 'LOGIN_KEY_REQUEST', sourceAccountId: '0xabc' });
+    h.answer(h.last().reqId, { type: 'LOGIN_KEY_RESPONSE', loginKey: b64(loginKey) });
+    const key = (await keyRequest).loginKey;
+    expect(key).toBeInstanceOf(Uint8Array);
+    expect(key).toHaveLength(32);
+    expect(Array.from(key)).toEqual(Array.from(loginKey));
+
+    const data = Uint8Array.from({ length: 32 }, (_, i) => 255 - i);
+    const signature = Uint8Array.from({ length: 66 }, (_, i) => i);
+    const signRequest = h.win.midenWallet.signLoginBytes(data, 'word');
+    expect(h.last().payload).toEqual({
+      type: 'LOGIN_SIGN_REQUEST',
+      sourceAccountId: '0xabc',
+      payload: b64(data),
+      kind: 'word'
+    });
+    h.answer(h.last().reqId, { type: 'LOGIN_SIGN_RESPONSE', signature: b64(signature) });
+    const sig = (await signRequest).signature;
+    expect(sig).toBeInstanceOf(Uint8Array);
+    expect(sig).toHaveLength(66);
+    expect(Array.from(sig)).toEqual(Array.from(signature));
+  });
+
+  it('rejects a refusal with the extension error class and message', async () => {
+    const h = await connected();
+    const refusal = "LOGIN_KEY_UNAVAILABLE: this account's root key is not on this device";
+    const refuse = () =>
+      h.win.__midenWalletResponse(
+        JSON.stringify({ type: 'MIDEN_PAGE_ERROR_RESPONSE', error: refusal, reqId: h.last().reqId })
+      );
+
+    const keyRequest = h.win.midenWallet.requestLoginKey();
+    refuse();
+    await expect(keyRequest).rejects.toMatchObject({ name: new MidenWalletError().name, message: refusal });
+
+    const signRequest = h.win.midenWallet.signLoginBytes(new Uint8Array(32), 'word');
+    refuse();
+    await expect(signRequest).rejects.toMatchObject({ name: new MidenWalletError().name, message: refusal });
   });
 });

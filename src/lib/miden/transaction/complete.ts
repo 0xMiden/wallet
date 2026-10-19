@@ -25,8 +25,10 @@ import {
 } from 'lib/miden/guardian/post-switch-state';
 import { rotationVerdict } from 'lib/miden/guardian/rotation-verdict';
 import * as Repo from 'lib/miden/repo';
+import type { BridgeReceiveFailureSource } from 'lib/telemetry/bridge-receive-failure';
 import { classifyError } from 'lib/telemetry/classify';
 import { reportOperation } from 'lib/telemetry/report-operation';
+import { reportTransactionFailure } from 'lib/telemetry/transaction-failure';
 import { elapsedMsSince, operationOfType, stepOfStage } from 'lib/telemetry/transaction-operation';
 
 import {
@@ -36,17 +38,12 @@ import {
   recordNoteDelivery,
   reportVerifiedLanding,
   setTransactionStage,
+  stampPostSubmitStage,
   undeliveredDisplayMessage,
   updateTransactionStatus
 } from './helper';
 import { ensureGuardianProcedureThresholds } from './initiate';
-import {
-  applyBridgeInInfoForNotes,
-  applyBridgeInToConsumeRow,
-  takeAgglayerBridgeInInfo,
-  takeBuyBridgeInInfo,
-  takeUsdcxBridgeInInfo
-} from '../activity/bridge-in';
+import { adoptBridgeDeliveries } from '../activity/bridge-in';
 import { feeFieldsFromResult, splitExecutedOutputNotes } from '../activity/fee';
 import { interpretTransactionResult } from '../activity/helpers';
 import { compareAccountIds } from '../activity/utils';
@@ -56,7 +53,6 @@ import {
   EarnDepositTransaction,
   BUY_PHASES,
   IBridgeClaimStatus,
-  IBridgeInInfo,
   IBridgedReceiveExtraInputs,
   IBuyExtraInputs,
   IBuyPhase,
@@ -84,6 +80,7 @@ import { isPrivateNoteType, toNoteTypeString } from '../helpers';
 import { getBech32AddressFromAccountId, sameWalletAccountId } from '../sdk/helpers';
 import { assertWasmHoldCurrent, withWasmClientLock } from '../sdk/miden-client';
 import { isPoisonedPipeline } from '../sdk/sdk-error-code';
+import { isRecoveredSwapOrder } from '../swap/recovered-order';
 import { NoteTypeEnum } from '../types';
 
 export const completeCustomTransaction = async (transaction: ITransaction, result: TransactionResult) => {
@@ -94,10 +91,10 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
   // counterparty. Consistent with `extractFullNote` and `completeSwapTransaction`.
   const { userNotes: outputNotes } = splitExecutedOutputNotes(executedTx);
 
-  // Every private note this transaction produced. Collected first so the relays
-  // below are a flat sequence: the commit wait then happens ONCE, after them,
-  // rather than once per note inside the loop.
-  const notesToRelay: Note[] = [];
+  // Every private note this transaction produced, with the id it is owed under. Collected
+  // first so the relays below are a flat sequence: the commit wait then happens ONCE,
+  // after them, rather than once per note inside the loop.
+  const notesToRelay: { noteId: string; fullNote: Note }[] = [];
 
   // How many of this transaction's private notes cannot be shown to have reached
   // the transport. Counted across BOTH phases — conversion and relay — because a
@@ -113,46 +110,65 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
   const relayNoteIds: string[] = [];
   // Read before `interpretTransactionResult`, which puts the input note's sender in `secondaryAccountId` on a consume.
   const relayRecipientId = transaction.secondaryAccountId;
+  // Owed notes no relay can ever carry.
+  const relayDeadNoteIds: string[] = [];
 
   for (const note of outputNotes) {
     // Only care about private notes
     if (toNoteTypeString(note.metadata().noteType()) !== NoteTypeEnum.Private) {
       continue;
     }
-    relayNoteIds.push(note.id().toString());
+    const noteId = note.id().toString();
+    relayNoteIds.push(noteId);
 
     if (!transaction.secondaryAccountId) {
       // The recipient is supplied by the requesting site and is optional, so a
       // custom request that emits a private note without naming one lands here.
+      // The row then has no recipient, which leaves it inert for the delivery
+      // sweep: there is no one to re-push its notes to.
       console.error('Missing recipient account id for private note', { txId: transaction.id });
       undeliveredNotes++;
       continue;
     }
 
-    // intoFull() can throw or return undefined
+    // intoFull() can throw or return undefined. Either way the note is recorded dead:
+    // the sweep re-pushes by id from the same output note record, and a note that
+    // yields no relayable note here yields none there, so pushing it would only
+    // spend attempts.
     try {
       const maybeFullNote = note.intoFull();
       if (!maybeFullNote) {
         console.error('intoFull() returned undefined for output note', { txId: transaction.id });
         undeliveredNotes++;
+        relayDeadNoteIds.push(noteId);
         continue;
       }
-      notesToRelay.push(maybeFullNote);
+      notesToRelay.push({ noteId, fullNote: maybeFullNote });
     } catch (error) {
       console.error('Failed to convert output note into full note', { txId: transaction.id, error });
       undeliveredNotes++;
+      relayDeadNoteIds.push(noteId);
       continue;
     }
   }
+
+  // What the sweep needs to re-push this row's notes if the pipeline stops before its
+  // terminal write: which notes, to whom, and which of them no push can carry.
+  const relayEvidence = () => ({
+    transactionId: executedTx.id().toHex(),
+    relayNoteIds,
+    relayRecipientId,
+    deadNoteIds: relayDeadNoteIds
+  });
 
   let noteDelivery: INoteDeliveryState | undefined;
 
   if (notesToRelay.length > 0) {
     // Record the debt before incurring it, for the same reason the send path does:
-    // the SDK's outbox is written from inside the relay, so nothing upstream of that
-    // point leaves any durable trace that a note is owed.
+    // the SDK keeps no record of a relay it could not make, so this row is the only
+    // durable trace that a note is owed, and what the delivery sweep retries from.
     try {
-      await recordNoteDelivery(transaction.id, 'pending', { transactionId: executedTx.id().toHex() });
+      await recordNoteDelivery(transaction.id, 'pending', relayEvidence());
     } catch (error) {
       console.warn('Could not record the pending note delivery', { txId: transaction.id, error });
     }
@@ -165,10 +181,14 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
     // note over: the proof does not exist yet. One wait covers every note,
     // because they share the transaction id.
     //
-    // Relays route through `midenClientProxy` (issue #260, slice 7b): under the flag
-    // the write ran offscreen, so each note is an APPLIED OUTPUT note of the
-    // OFFSCREEN client's store, and `sendPrivateOutput` resolves it by id out of
-    // that store, so the relay runs there, not on the dormant SW client.
+    // The wait routes through `midenClientProxy` (issue #260, slice 7b), so under the
+    // flag it runs on the offscreen client that applied the transaction. The relays
+    // run on the SW client (see `midenClientProxy.sendPrivateNote`), whose store
+    // holds the output notes the offscreen client applied.
+    //
+    // The stamps are display state, as on the send path: they let the screen name the wait and the relay (#1492),
+    // and a failed one must not skip either.
+    await stampPostSubmitStage(transaction.id, 'confirming');
     try {
       await midenClientProxy.waitForTransactionCommit(executedTx.id().toHex());
     } catch (error) {
@@ -178,7 +198,9 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
       });
     }
 
-    for (const fullNote of notesToRelay) {
+    await stampPostSubmitStage(transaction.id, 'delivering');
+
+    for (const { noteId, fullNote } of notesToRelay) {
       try {
         await midenClientProxy.sendPrivateNote(fullNote, transaction.secondaryAccountId!);
       } catch (error) {
@@ -190,6 +212,14 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
           errorMessage: error instanceof Error ? error.message : String(error)
         });
         undeliveredNotes++;
+        continue;
+      }
+      // Persisted per relay: the terminal write below throws on a row Cancel or the
+      // stuck-row reaper finalized while the relays ran.
+      try {
+        await recordNoteDelivery(transaction.id, 'pending', { ackedNoteIds: [noteId] });
+      } catch (error) {
+        console.warn('Could not record the note acknowledgement', { txId: transaction.id, noteId, error });
       }
     }
 
@@ -206,7 +236,7 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
     // Private notes existed but none could be turned into a relayable note.
     noteDelivery = 'undelivered';
     try {
-      await recordNoteDelivery(transaction.id, noteDelivery, { transactionId: executedTx.id().toHex() });
+      await recordNoteDelivery(transaction.id, noteDelivery, relayEvidence());
     } catch (error) {
       console.warn('Could not record the note delivery outcome', { txId: transaction.id, error });
     }
@@ -296,29 +326,25 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
     resultBytes: result.serialize()
   });
 
-  // Best-effort bridge-in tagging: if this consume claimed a note parked by an
-  // EVM→Miden intent (plain bridge deposit OR a Smart Withdraw delivery), tag the
-  // row as "Bridged from EVM". A bridge-in with a `bridgeReceiveTxId` also flips
-  // that tracking row to `received`; one with an `earnWithdrawTxId` flips the
-  // linked Smart Withdraw row instead, with the actual consumed amount. Must never
+  // A note parked by an EVM→Miden intent, or minted for a tracked deposit, settles its bridge row. Each executed
+  // note goes over by its own first asset: the per-faucet totals above are no single delivery's amount. Must never
   // fail the consume itself.
   try {
-    const consumedNoteIds = inputNotes.map(inputNote => inputNote.note().id().toString());
-    const applied = await applyBridgeInInfoForNotes(consumedNoteIds, info => applyBridgeInToConsumeRow(id, info));
-    // A batch's per-faucet total is no single delivery's amount, so only a one-note consume is paired by amount.
-    if (!applied && inputNotes.length === 1) {
-      const accountId = dbTransaction?.accountId ?? '';
-      // A consume that the buy watcher queued carries its link from queue time. Other consumes of a bought note
-      // (a manual claim) are matched to the buy row by account, faucet and amount.
-      const queuedInfo: IBridgeInInfo | undefined = dbTransaction?.extraInputs?.bridgeIn;
-      // A note the USDCx faucet minted for an xReserve deposit is otherwise an ordinary faucet receive.
-      const info =
-        (queuedInfo?.buyTxId ? queuedInfo : undefined) ??
-        (await takeAgglayerBridgeInInfo({ accountId, senderAccountId: sender, amount })) ??
-        (await takeUsdcxBridgeInInfo({ accountId, senderAccountId: sender, faucetId, amount })) ??
-        (await takeBuyBridgeInInfo({ accountId, faucetId, amount }));
-      if (info) await applyBridgeInToConsumeRow(id, { ...info, midenNoteId: consumedNoteIds[0] });
-    }
+    await adoptBridgeDeliveries(
+      id,
+      inputNotes.map(inputNote => {
+        const executed = inputNote.note();
+        const noteAsset = executed.assets().fungibleAssets()[0];
+        // A note with no fungible asset can only be a registry delivery, which pairs by id alone.
+        if (!noteAsset) return { id: executed.id().toString(), senderAddress: '', faucetId: '' };
+        return {
+          id: executed.id().toString(),
+          senderAddress: getBech32AddressFromAccountId(executed.metadata().sender()),
+          faucetId: getBech32AddressFromAccountId(noteAsset.faucetId()),
+          amount: noteAsset.amount()
+        };
+      })
+    );
   } catch (err) {
     console.warn('[bridge-in] consume tagging failed (non-fatal)', err);
   }
@@ -335,7 +361,7 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
       const stampedAt = Math.floor(Date.now() / 1000);
       await Repo.transactions.where({ id: settle.swapOrderTxId }).modify(tx => {
         // `false`, not a bare return - dexie re-puts the deep clone for any other value.
-        if (tx.type !== 'swap') return false;
+        if (tx.type !== 'swap' || isRecoveredSwapOrder(tx)) return false;
         tx.extraInputs = {
           ...(tx.extraInputs ?? {}),
           ...(settle.swapSettleKind === 'reclaim' ? { reclaimedAt: stampedAt } : { settledAt: stampedAt })
@@ -1070,18 +1096,14 @@ export const completeSendTransaction = async (tx: SendTransaction, result: Trans
   let noteDelivery: INoteDeliveryState | undefined;
 
   if (isPrivateSend && note && noteId) {
-    await setTransactionStage(tx.id, 'delivering');
-
     // Record that a relay is OWED before attempting it, together with the landed
     // transaction id and the note it produced.
     //
-    // The ordering is the whole point. The SDK's retry outbox is written INSIDE the
-    // Rust relay and only after it resolves the transport API, so every failure
-    // upstream of that write queues nothing — and the wallet used to write nothing
-    // of its own either until the terminal "Sent". Between submit and that write
-    // there was no durable statement anywhere that a note was owed to anyone, so an
-    // interrupted relay was indistinguishable from a delivered one. Now the worst
-    // case is a row left at `pending`, which is at least a question someone can ask.
+    // The ordering is the whole point. The SDK keeps no record of a relay it could
+    // not make, so without this stamp nothing between submit and the terminal write
+    // would say a note is owed to anyone, and an interrupted relay would read like a
+    // delivered one. The worst case is a row left at `pending`, which the delivery
+    // sweep (`note-delivery-sweep.ts`) picks up and retries.
     try {
       await recordNoteDelivery(tx.id, 'pending', { transactionId: executedTx.id().toHex(), outputNoteIds });
     } catch (error) {
@@ -1090,35 +1112,34 @@ export const completeSendTransaction = async (tx: SendTransaction, result: Trans
       console.warn('Could not record the pending note delivery', { txId: tx.id, noteId, error });
     }
 
+    // Display state, like the delivering stamp below: a failed stamp must not skip the wait.
+    await stampPostSubmitStage(tx.id, 'confirming');
+
     try {
       // The proof rc.5's transport verifies exists only after this commit wait
-      // syncs past the block. Both the wait and the relay route through
-      // `midenClientProxy` (issue #260, slice 7b) so they run on the client that
-      // created the note: the offscreen client when the flag is on, whose store
-      // holds the output note `sendPrivateOutput` reads.
-      await setTransactionStage(tx.id, 'confirming');
+      // syncs past the block. The wait routes through `midenClientProxy` (issue
+      // #260, slice 7b) and runs on the client that applied the transaction; the
+      // relay runs on the SW client, whose store holds that output note too.
       await midenClientProxy.waitForTransactionCommit(executedTx.id().toHex());
     } catch (error) {
       console.warn('Commit wait failed during private send; the relay may find no proof', { txId: tx.id, error });
     }
 
+    // After the wait, so 'confirming' covers the wait and 'delivering' only the relay, and the screen names the
+    // one the user is waiting on (#1492). Display state only: a failed stamp must not cost the recipient the note.
+    await stampPostSubmitStage(tx.id, 'delivering');
+
     try {
       await midenClientProxy.sendPrivateNote(note, tx.secondaryAccountId);
       noteDelivery = 'relayed';
     } catch (error) {
-      // This used to log "SDK outbox will retry on next sync" and fall through to a
-      // clean "Sent". That premise does not hold for the failures that arrive here.
-      // Rust writes the outbox entry inside the relay, after resolving the transport
-      // API, so everything upstream of that point queues nothing while throwing
-      // exactly like a mid-transport timeout that DID queue: transport not
-      // configured, a realm torn down before the op ran, and — new under 0.16 —
-      // `sendPrivateOutput` failing to resolve the note by id in this client's store
-      // (`No output note found for the given id`), which is the whole relay refusing
-      // before it starts.
-      //
-      // The two are indistinguishable from here, so record the pessimistic one.
-      // Over-reporting a note that arrives anyway costs a stale warning;
-      // under-reporting costs the funds.
+      // The SDK does not re-send a private note whose relay failed, whatever the
+      // failure: a transport that is down or not configured, a realm torn down before
+      // the op ran, or `sendPrivateOutput` not finding the note in this client's store
+      // (`No output note found for the given id`). So the row says undelivered, and
+      // the delivery sweep (`note-delivery-sweep.ts`) retries from it. Over-reporting
+      // a note that arrives anyway costs a stale warning; under-reporting costs the
+      // funds.
       console.error('Private-note relay failed; note may be undelivered', {
         txId: tx.id,
         noteId,
@@ -1133,13 +1154,16 @@ export const completeSendTransaction = async (tx: SendTransaction, result: Trans
     // this row was failed from outside its pipeline — Cancel, or the stuck-row
     // reaper — that terminal write throws on the finalized row and the relay's
     // outcome would be lost with it. This is the same reason `recordNoteDelivery`
-    // carries no terminal guard.
+    // carries no terminal guard. It is guarded on the note relayed instead, as every sweep write after an await is: a
+    // landing can replace the delivery target while the relay runs (#1473), and this outcome is not the new note's.
     try {
-      await recordNoteDelivery(tx.id, noteDelivery);
+      const ackedNoteIds = noteDelivery === 'relayed' ? [noteId] : [];
+      await recordNoteDelivery(tx.id, noteDelivery, { ackedNoteIds }, [noteId]);
     } catch (error) {
       console.warn('Could not record the note delivery outcome', { txId: tx.id, noteId, noteDelivery, error });
     }
   } else if (isPrivateSend && (!note || !noteId)) {
+    // No output note id to re-push by, so the delivery sweep leaves this row inert.
     console.error('Missing full note for private send', { txId: tx.id });
     await updateTransactionStatus(tx.id, ITransactionStatus.Failed, {
       displayMessage: 'Send failed: note unavailable',
@@ -1472,6 +1496,17 @@ export const updateEarnWithdrawPhase = async (
     return undefined;
   });
 
+  if (settled !== undefined && phase === 'failed' && !settled.restoredFromBackup) {
+    reportTransactionFailure({
+      point: 'earn_settlement',
+      type: settled.type,
+      stage: settled.stage,
+      delegateTransaction: settled.delegateTransaction,
+      diagnostics: settled.failureDiagnostics,
+      error: extra?.error ?? settled.rawError ?? settled.error
+    });
+  }
+
   // Reported from here because there is nowhere else it could be. This row is
   // `Completed` in the database from birth and its real outcome lives in
   // `extraInputs.phase`, so it never makes a terminal write through
@@ -1517,28 +1552,71 @@ export const updateBridgedReceivePhase = async (
   extra?: Partial<
     Pick<
       IBridgedReceiveExtraInputs,
-      'evmTxHash' | 'intentNonce' | 'midenNoteId' | 'outputAmount' | 'outputSymbol' | 'error'
+      | 'evmTxHash'
+      | 'intentNonce'
+      | 'midenNoteId'
+      | 'outputAmount'
+      | 'outputSymbol'
+      | 'cctp'
+      | 'error'
+      | 'usdcxRemoteRecipient'
+      | 'epochAllocatorUrl'
     >
-  >,
-  received?: { amount: bigint; faucetId: string; transactionId?: string }
+  > & {
+    /** What failed the row, read only by its crash report and never stored: a cause can carry addresses and amounts. */
+    failure?: BridgeReceiveFailureSource;
+  },
+  received?: { amount: bigint; faucetId: string; transactionId?: string },
+  // The reconciler's adoption of Circle's forward lands only on a leg with no execute hash, so it never replaces a
+  // manual execute; the wallet's own execute always lands, and the reconciler reopens on whichever held hash reverts.
+  { onlyIfNoExecuteHash = false }: { onlyIfNoExecuteHash?: boolean } = {}
 ) => {
+  const { failure: source, ...details }: NonNullable<typeof extra> = extra ?? {};
   let settled: ITransaction | undefined;
+  let failed: ITransaction | undefined;
   await Repo.transactions.where({ id }).modify(tx => {
     const inputs: IBridgedReceiveExtraInputs | undefined = tx.extraInputs;
     if (!canMoveBridgedReceivePhase(inputs?.phase, phase)) return;
+    // A reopen clears only the Arc execute it saw revert or stall: a newer execute saved meanwhile, with its proof,
+    // stands.
+    const reopened = extra?.cctp?.revertedExecuteTxHash ?? extra?.cctp?.stalledExecuteTxHash;
+    if (reopened !== undefined && inputs?.cctp?.executeTxHash !== reopened) return;
+    if (onlyIfNoExecuteHash && inputs?.cctp?.executeTxHash !== undefined) return;
+    const nowSec = Math.floor(Date.now() / 1000);
+    // The CCTP leg is written a field at a time (the burn's domain, then the attestation, then the
+    // execute hash), so a write merges into what the row holds instead of replacing it.
+    const merged = extra?.cctp ? { ...inputs?.cctp, ...extra.cctp } : inputs?.cctp;
+    const savedHash = extra?.cctp?.executeTxHash;
+    const cctp = merged && {
+      ...merged,
+      // The stall window runs from when the current hash was saved.
+      ...(savedHash !== undefined && savedHash !== inputs?.cctp?.executeTxHash ? { executeSavedAt: nowSec } : {}),
+      // A revert drops the message that kept the leg from timing out, so its week runs from here.
+      ...(extra?.cctp?.revertedExecuteTxHash === undefined ? {} : { revertedAt: nowSec })
+    };
     // Unlike the earn-withdraw writer there is no monotonic guard here, so the
     // only thing keeping one bridge from reporting twice is comparing against
     // the phase already on the row. `ready` and `received` are both terminal —
     // the note exists and is claimable, then it is claimed — so a row can pass
     // through both and must report on the first.
     const fromPhase = inputs?.phase;
+    if (phase === 'failed' && fromPhase !== 'failed') failed = tx;
     if (
       (fromPhase === undefined || !BRIDGED_RECEIVE_SETTLED_PHASES.has(fromPhase)) &&
       BRIDGED_RECEIVE_SETTLED_PHASES.has(phase)
     ) {
       settled = tx;
     }
-    tx.extraInputs = { ...inputs, phase, ...(extra ?? {}) };
+    // Once, so a row that later times out still says Circle attested it: only such a row takes a late mint. A row that
+    // was ready before the stamp existed takes it as it moves on.
+    const readyAt = inputs?.readyAt ?? (phase === 'ready' || fromPhase === 'ready' ? nowSec : undefined);
+    tx.extraInputs = {
+      ...inputs,
+      phase,
+      ...details,
+      ...(cctp ? { cctp } : {}),
+      ...(readyAt === undefined ? {} : { readyAt })
+    };
     if (received) {
       tx.amount = received.amount;
       tx.faucetId = received.faucetId;
@@ -1547,6 +1625,19 @@ export const updateBridgedReceivePhase = async (
     }
     if (phase === 'failed' && extra?.error) tx.error = extra.error;
   });
+
+  if (failed !== undefined && !failed.restoredFromBackup) {
+    const inputs: IBridgedReceiveExtraInputs | undefined = failed.extraInputs;
+    reportTransactionFailure({
+      point: 'bridge_receive_settlement',
+      type: failed.type,
+      stage: failed.stage,
+      delegateTransaction: failed.delegateTransaction,
+      diagnostics: failed.failureDiagnostics,
+      error: extra?.error ?? failed.rawError ?? failed.error,
+      bridgeReceive: { route: inputs?.provider, step: source?.step, cause: source?.cause }
+    });
+  }
 
   // Same reason as the earn-withdraw writer above: this row is `Completed` from
   // birth and carries its real outcome in `extraInputs.phase`, so it never makes
@@ -1862,7 +1953,9 @@ export const resolveUnconfirmedSwitch = async (id: string, landed: boolean): Pro
     });
     return;
   }
+  let failed: ITransaction | undefined;
   await Repo.transactions.where({ id }).modify(tx => {
+    if (rotationVerdict(tx)?.kind !== 'submitted-unconfirmed') return false;
     tx.status = ITransactionStatus.Failed;
     tx.displayMessage = 'Guardian switch discarded';
     // Plain prose, like every other `tx.error` (the field carries thrown-error
@@ -1879,7 +1972,20 @@ export const resolveUnconfirmedSwitch = async (id: string, landed: boolean): Pro
     // "completed with no evidence either way", and the node has now answered.
     // The row's terminal status carries the outcome from here.
     tx.extraInputs = { ...tx.extraInputs, commitUnconfirmed: false };
+    failed = { ...tx };
+    return undefined;
   });
+  if (failed !== undefined && !failed.restoredFromBackup) {
+    reportTransactionFailure({
+      point: 'guardian_node_verdict',
+      type: failed.type,
+      stage: failed.stage,
+      delegateTransaction: failed.delegateTransaction,
+      diagnostics: failed.failureDiagnostics,
+      reason: 'never_committed',
+      error: failed.error
+    });
+  }
 };
 
 /**
@@ -1958,6 +2064,16 @@ export const markBridgedSendFailed = async (id: string, error: string) => {
     return undefined;
   });
   if (demoted === undefined) return;
+  if (!demoted.restoredFromBackup) {
+    reportTransactionFailure({
+      point: 'bridge_send_settlement',
+      type: demoted.type,
+      stage: demoted.stage,
+      delegateTransaction: demoted.delegateTransaction,
+      diagnostics: demoted.failureDiagnostics,
+      error
+    });
+  }
 
   console.error(
     committed

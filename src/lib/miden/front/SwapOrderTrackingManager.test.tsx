@@ -23,12 +23,20 @@ const mockTrackSwapOrders = jest.fn<Promise<Map<string, SwapOrderTracking> | nul
 jest.mock('../transaction/get', () => ({
   trackSwapOrders: () => mockTrackSwapOrders()
 }));
+const mockTrackRecoveredSwapOrders = jest.fn();
+jest.mock('../swap/recovered-order-tracking', () => ({
+  trackRecoveredSwapOrders: (...args: unknown[]) => mockTrackRecoveredSwapOrders(...args)
+}));
 
 interface RowExtraInputs {
   orderId?: string | bigint;
   swapOrderTxId?: string;
   swapSettleKind?: 'settled' | 'reclaimed';
   expiresAt?: number;
+  requestedAmount?: bigint;
+  autoConsume?: boolean;
+  settledAt?: number;
+  lineageClosedAt?: number;
 }
 
 interface Row {
@@ -36,6 +44,11 @@ interface Row {
   type: string;
   status: number;
   restoredFromBackup?: boolean;
+  recovered?: boolean;
+  accountId?: string;
+  amount?: bigint;
+  outputNoteIds?: string[];
+  recovery?: { outputNotes: Array<{ id: string; swap?: { orderId: string; requestedAsset?: unknown } }> };
   extraInputs?: RowExtraInputs;
 }
 let mockRows: Row[] = [];
@@ -63,6 +76,32 @@ const settlementConsume = (swapOrderTxId: string): Row => ({
   status: COMPLETED,
   extraInputs: { swapOrderTxId, swapSettleKind: 'settled' }
 });
+
+// A Guardian-recovered order: this device's SDK never tracked it, so only the node can say it is open (#1487).
+const recoveredRow = (orderId: string, extraInputs: RowExtraInputs = {}): Row => ({
+  id: `recovered-${orderId}`,
+  type: 'swap',
+  status: COMPLETED,
+  accountId: 'account',
+  amount: 70n,
+  outputNoteIds: [`note-${orderId}`],
+  restoredFromBackup: true,
+  recovered: true,
+  recovery: {
+    outputNotes: [{ id: `note-${orderId}`, swap: { orderId, requestedAsset: { faucetId: 'requested', amount: '30' } } }]
+  },
+  extraInputs: { orderId, requestedAmount: 30n, autoConsume: false, ...extraInputs }
+});
+
+const recoveredTracking = (orderId: string): SwapOrderTracking => ({
+  orderId,
+  state: 'active',
+  currentDepth: 0,
+  remainingOffered: 70n,
+  remainingRequested: 30n
+});
+
+const openOnNode = (orderId: string) => new Map([[orderId, { kind: 'open', tracking: recoveredTracking(orderId) }]]);
 
 const activeTracking = (orderId: string): SwapOrderTracking => ({
   orderId,
@@ -103,6 +142,7 @@ describe('SwapOrderTrackingManager', () => {
     mockRows = [];
     mockReadRows.mockImplementation(async predicate => mockRows.filter(predicate));
     mockTrackSwapOrders.mockResolvedValue(new Map());
+    mockTrackRecoveredSwapOrders.mockResolvedValue(new Map());
   });
 
   afterEach(() => {
@@ -390,6 +430,17 @@ describe('SwapOrderTrackingManager', () => {
     expect(useSwapOrderTrackingStore.getState().entries).toEqual({});
   });
 
+  // A trap abandons the read without learning anything about the node.
+  it('keeps unlit eviction evidence on a realm-error eviction', async () => {
+    mockRows = [swapRow(9n)];
+    for (let i = 0; i < 3; i += 1) noteSyncWatchdogEviction('swap-order-tracking');
+    mockTrackSwapOrders.mockRejectedValue(new WasmClientPoisonedError('realm-error'));
+    render(<SwapOrderTrackingManager />);
+    await settleMount();
+    noteSyncWatchdogEviction('swap-order-tracking');
+    expect(isSyncFused('swap-order-tracking')).toBe(true);
+  });
+
   it('clears unlit eviction evidence on ordinary read failures', async () => {
     mockRows = [swapRow(9n)];
     for (let i = 0; i < 3; i += 1) noteSyncWatchdogEviction('swap-order-tracking');
@@ -398,5 +449,165 @@ describe('SwapOrderTrackingManager', () => {
     await settleMount();
     noteSyncWatchdogEviction('swap-order-tracking');
     expect(isSyncFused('swap-order-tracking')).toBe(false);
+  });
+  describe('recovered orders', () => {
+    it('tracks an open recovered order from the node, and checks it again every 30 seconds', async () => {
+      mockRows = [recoveredRow('7')];
+      mockTrackRecoveredSwapOrders.mockResolvedValue(openOnNode('7'));
+      render(<SwapOrderTrackingManager />);
+      await settleMount();
+
+      expect(mockTrackRecoveredSwapOrders).toHaveBeenCalledWith([
+        {
+          txId: 'recovered-7',
+          accountId: 'account',
+          orderId: '7',
+          noteId: 'note-7',
+          offeredAmount: 70n,
+          requestedAmount: 30n,
+          tipNoteId: 'note-7',
+          tipDepth: 0,
+          tipOfferedAmount: 70n
+        }
+      ]);
+      expect(mockTrackSwapOrders).not.toHaveBeenCalled();
+      expect(useSwapOrderTrackingStore.getState().entries['7']).toEqual({
+        tracking: recoveredTracking('7'),
+        loading: false
+      });
+      await step(29_999);
+      expect(mockTrackRecoveredSwapOrders).toHaveBeenCalledTimes(1);
+      await step(1);
+      expect(mockTrackRecoveredSwapOrders).toHaveBeenCalledTimes(2);
+    });
+
+    it('stops tracking a recovered order once it closes, and drops its open lineage', async () => {
+      mockRows = [recoveredRow('7')];
+      mockTrackRecoveredSwapOrders.mockResolvedValueOnce(openOnNode('7'));
+      mockTrackRecoveredSwapOrders.mockResolvedValue(new Map([['7', { kind: 'closed' }]]));
+      render(<SwapOrderTrackingManager />);
+      await settleMount();
+      await step(30_000);
+
+      expect(useSwapOrderTrackingStore.getState().entries['7']).toEqual({ tracking: null, loading: false });
+      expect(getSwapOrderSchedule('7').terminal).toBe(true);
+      await step(60_000);
+      expect(mockTrackRecoveredSwapOrders).toHaveBeenCalledTimes(2);
+    });
+
+    it('backs an unresolved recovered order off like any other, keeping what it last knew', async () => {
+      mockRows = [recoveredRow('7')];
+      mockTrackRecoveredSwapOrders.mockResolvedValueOnce(openOnNode('7'));
+      mockTrackRecoveredSwapOrders.mockResolvedValue(new Map());
+      render(<SwapOrderTrackingManager />);
+      await settleMount();
+      await step(30_000);
+
+      expect(getSwapOrderSchedule('7').unresolved).toBe(1);
+      expect(useSwapOrderTrackingStore.getState().entries['7']).toEqual({
+        tracking: recoveredTracking('7'),
+        loading: false
+      });
+      await step(2000);
+      expect(mockTrackRecoveredSwapOrders).toHaveBeenCalledTimes(3);
+    });
+
+    it('reads a failed node pass as unresolved', async () => {
+      mockRows = [recoveredRow('7')];
+      mockTrackRecoveredSwapOrders.mockRejectedValue(new Error('wasm unavailable'));
+      render(<SwapOrderTrackingManager />);
+      await settleMount();
+
+      expect(useSwapOrderTrackingStore.getState().entries['7']).toEqual({ tracking: null, loading: false });
+      expect(getSwapOrderSchedule('7').unresolved).toBe(1);
+    });
+
+    it('reads the lineage, not the node, for an order a local row also carries', async () => {
+      mockRows = [recoveredRow('9'), swapRow(9n)];
+      render(<SwapOrderTrackingManager />);
+      await settleMount();
+
+      expect(mockTrackSwapOrders).toHaveBeenCalledTimes(1);
+      expect(mockTrackRecoveredSwapOrders).not.toHaveBeenCalled();
+    });
+
+    // The live poll waits on the WASM lock, which a recovered check never takes (#1487).
+    it('publishes a recovered order while the live poll is still out, and starts no second live poll', async () => {
+      mockRows = [recoveredRow('7'), swapRow(9n)];
+      const pending = deferred<Map<string, SwapOrderTracking> | null>();
+      mockTrackSwapOrders.mockReturnValue(pending.promise);
+      mockTrackRecoveredSwapOrders.mockResolvedValue(openOnNode('7'));
+      render(<SwapOrderTrackingManager />);
+      await settleMount();
+
+      expect(useSwapOrderTrackingStore.getState().entries['7']).toEqual({
+        tracking: recoveredTracking('7'),
+        loading: false
+      });
+      await step(6000);
+      expect(mockTrackSwapOrders).toHaveBeenCalledTimes(1);
+
+      pending.resolve(snapshot(activeTracking('9')));
+      await settleMount();
+      expect(useSwapOrderTrackingStore.getState().entries['9']).toEqual({
+        tracking: activeTracking('9'),
+        loading: false
+      });
+      await step(2000);
+      expect(mockTrackSwapOrders).toHaveBeenCalledTimes(2);
+    });
+
+    it('keeps the live poll on its 2s watch while a recovered check is out, and starts no second check', async () => {
+      mockRows = [recoveredRow('7'), swapRow(9n)];
+      const pending = deferred<Map<string, unknown>>();
+      mockTrackRecoveredSwapOrders.mockReturnValue(pending.promise);
+      mockTrackSwapOrders.mockResolvedValue(snapshot(activeTracking('9')));
+      render(<SwapOrderTrackingManager />);
+      await settleMount();
+      await step(6000);
+
+      expect(mockTrackSwapOrders).toHaveBeenCalledTimes(4);
+      expect(mockTrackRecoveredSwapOrders).toHaveBeenCalledTimes(1);
+
+      pending.resolve(openOnNode('7'));
+      await settleMount();
+      expect(useSwapOrderTrackingStore.getState().entries['7']).toEqual({
+        tracking: recoveredTracking('7'),
+        loading: false
+      });
+    });
+
+    it('keeps tracking recovered orders from the node while the lineage probe is fused', async () => {
+      for (let i = 0; i < 4; i += 1) noteSyncWatchdogEviction('swap-order-tracking');
+      mockRows = [recoveredRow('7'), swapRow(9n)];
+      mockTrackRecoveredSwapOrders.mockResolvedValue(openOnNode('7'));
+      render(<SwapOrderTrackingManager />);
+      await settleMount();
+
+      expect(isSyncFused('swap-order-tracking')).toBe(true);
+      expect(mockTrackSwapOrders).not.toHaveBeenCalled();
+      expect(mockTrackRecoveredSwapOrders).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not poll a recovered order its lineage closed settled', async () => {
+      mockRows = [recoveredRow('7', { settledAt: 200, lineageClosedAt: 200 })];
+      render(<SwapOrderTrackingManager />);
+      await settleMount();
+
+      expect(mockTrackRecoveredSwapOrders).not.toHaveBeenCalled();
+      expect(mockTrackSwapOrders).not.toHaveBeenCalled();
+    });
+
+    // The pre-fix recovery reconcile stamped it from a linked payout with no lineage read (#1487).
+    it('polls a recovered order whose settlement stamp no lineage read recorded', async () => {
+      mockRows = [recoveredRow('7', { settledAt: 200 })];
+      mockTrackRecoveredSwapOrders.mockResolvedValue(openOnNode('7'));
+      render(<SwapOrderTrackingManager />);
+      await settleMount();
+
+      expect(mockTrackRecoveredSwapOrders).toHaveBeenCalledWith([
+        expect.objectContaining({ txId: 'recovered-7', provisionalClosure: true })
+      ]);
+    });
   });
 });

@@ -2,13 +2,14 @@ import { GuardianHttpClient, GuardianHttpError, type HistoryPage } from '@openze
 import Dexie from 'dexie';
 
 import { reportGuardianNoteRecoveryProgress } from 'lib/guardian-note-recovery-progress';
-import { MIDEN_GUARDIAN_ENDPOINTS } from 'lib/miden-chain/constants';
+import { getGuardianEndpointsForNetwork } from 'lib/miden-chain/constants';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { cacheScope } from 'lib/miden-chain/native-asset';
+import { initBridgeConfig } from 'lib/remote-config/runtime';
+import { sameGuardianEndpoint } from 'lib/settings/helpers';
 import type { WalletAccount } from 'lib/shared/types';
 
 import { midenClientProxy } from './miden-client-proxy';
-import { OperationAbortedError } from './offscreen-codec';
 import { type ITransaction, ITransactionStatus } from '../db/types';
 import { resolveGuardianEndpoint } from '../guardian/account';
 import { withTimeout } from '../guardian/discover';
@@ -31,17 +32,52 @@ import {
 } from '../guardian/history-storage';
 import { db, transactions } from '../repo';
 import { canonicalWalletAccountId } from '../sdk/helpers';
+import { isPipelineKillLink } from '../sdk/sdk-error-code';
 import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 class HistoryInterrupted extends Error {}
 
-// An eviction or an offscreen abort of a summary or local result-commitment decode the pass was not interrupted for.
-// It says the decode did not finish, not that the bytes failed a check, so the source is filed 'network' and never
-// spends the invalid-data cap.
+const isOwnOperator = (ownOperators: string[], operator: string) =>
+  ownOperators.some(own => sameGuardianEndpoint(own, operator));
+
+// An upgrade replaces the stored row with what recovery derives, and recovery derives no settlement stamp, so a
+// recovered swap row keeps its stamps, Cancel expiry, spent-note stamp, remainder, checkpoint and lineage-close
+// record (#1487). A stamp without that record stays provisional.
+function withStoredSettlementStamps(record: ITransaction, stored: ITransaction): ITransaction {
+  if (record.type !== 'swap' || stored.type !== 'swap') return record;
+  const {
+    settledAt,
+    reclaimedAt,
+    expiryTriggeredAt,
+    expiresAt,
+    orderNoteSpentAt,
+    recoveredTip,
+    recoveredCheckpoint,
+    lineageClosedAt
+  } = stored.extraInputs ?? {};
+  return {
+    ...record,
+    extraInputs: {
+      ...record.extraInputs,
+      ...(settledAt != null ? { settledAt } : {}),
+      ...(reclaimedAt != null ? { reclaimedAt } : {}),
+      ...(expiryTriggeredAt != null ? { expiryTriggeredAt } : {}),
+      ...(expiresAt != null ? { expiresAt } : {}),
+      ...(orderNoteSpentAt != null ? { orderNoteSpentAt } : {}),
+      ...(recoveredTip != null ? { recoveredTip } : {}),
+      ...(recoveredCheckpoint != null ? { recoveredCheckpoint } : {}),
+      ...(lineageClosedAt != null ? { lineageClosedAt } : {})
+    }
+  };
+}
+
+// An eviction, an offscreen abort or a terminated client of a summary or local result-commitment decode the pass was
+// not interrupted for. It says the decode did not finish, not that the bytes failed a check, so the source is filed
+// 'network' and never spends the invalid-data cap.
 class HistoryDecodeAborted extends Error {
   constructor(
     readonly session: number,
-    cause: Error
+    cause: unknown
   ) {
     super('Guardian history decode was aborted', { cause });
   }
@@ -222,7 +258,10 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
       if (typeof value === 'string') previous.push(value);
     }
   }
-  const operators = normalizeHistoryOperators([current, ...(MIDEN_GUARDIAN_ENDPOINTS.get(network) ?? []), ...previous]);
+  // The network's operators are the config document's list, so the stored document is in memory before the read: a
+  // pass that ran first would ask the bundled list, and an operator the document removed with it.
+  await initBridgeConfig();
+  const operators = normalizeHistoryOperators([current, ...getGuardianEndpointsForNetwork(network), ...previous]);
   const ownOperators = normalizeHistoryOperators([current, ...previous]);
   // Every write of this pass relies on this: reportHistory carries no guard of its own.
   const interrupted = async () => {
@@ -294,7 +333,7 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
         continue;
       }
       if (unsupportedHistorySources.has(id) && checkpoint.failure === 'unsupported') {
-        if (ownOperators.includes(operator)) sourceFailures++;
+        if (isOwnOperator(ownOperators, operator)) sourceFailures++;
         else deferredSources++;
         continue;
       }
@@ -309,7 +348,7 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
       if (
         deferredFailureHistorySources.has(id) &&
         checkpoint.failure !== undefined &&
-        !ownOperators.includes(operator)
+        !isOwnOperator(ownOperators, operator)
       ) {
         deferredSources++;
         continue;
@@ -349,7 +388,7 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
             // Asked once per session up to MAX_UNSUPPORTED_HISTORY_PASSES: an operator the account may never have
             // used is a deferred source and then completes empty, while one it used is a failed source and then a
             // terminal one, which ends recovery once the pass has read the other operators.
-            const own = ownOperators.includes(operator);
+            const own = isOwnOperator(ownOperators, operator);
             const unsupportedPasses = (checkpoint.unsupportedPasses ?? 0) + 1;
             const exhausted = unsupportedPasses >= MAX_UNSUPPORTED_HISTORY_PASSES;
             checkpoint = { ...checkpoint, failure: 'unsupported', unsupportedPasses, completed: exhausted && !own };
@@ -406,7 +445,7 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
             const decodeSession = unsupportedHistorySession;
             decodeScope = cacheScope();
             const summary = await midenClientProxy.decodeGuardianHistory(encoded).catch(async (error: unknown) => {
-              if (!(isWasmClientPoisonedError(error) || error instanceof OperationAbortedError)) throw error;
+              if (!isPipelineKillLink(error)) throw error;
               if (await interrupted()) throw error;
               throw new HistoryDecodeAborted(decodeSession, error);
             });
@@ -430,7 +469,7 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
             try {
               commitments.set(row.id, await midenClientProxy.getGuardianResultCommitment(row.resultBytes));
             } catch (error) {
-              if (error instanceof OperationAbortedError || isWasmClientPoisonedError(error)) {
+              if (isPipelineKillLink(error)) {
                 if (await interrupted()) throw error;
                 throw new HistoryDecodeAborted(commitmentSession, error);
               }
@@ -470,7 +509,11 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
                       record.recovery?.completeness === 'decoded' &&
                       (match.recovery.completeness === 'partial' || match.recovery.version < GUARDIAN_HISTORY_VERSION)
                     ) {
-                      const upgraded = { ...record, id: match.id, recovery: { ...record.recovery, operators } };
+                      const upgraded = {
+                        ...withStoredSettlementStamps(record, match),
+                        id: match.id,
+                        recovery: { ...record.recovery, operators }
+                      };
                       await transactions.put(upgraded);
                       Object.assign(match, upgraded);
                     } else {
@@ -525,12 +568,7 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
         }
       } catch (thrown) {
         const error = thrown instanceof HistoryRequestFailed ? thrown.cause : thrown;
-        if (
-          error instanceof HistoryInterrupted ||
-          error instanceof OperationAbortedError ||
-          isWasmClientPoisonedError(error)
-        )
-          throw error;
+        if (error instanceof HistoryInterrupted || isPipelineKillLink(error)) throw error;
         if (error instanceof GuardianHistoryFeeUnavailableError) {
           if (await interrupted()) throw new HistoryInterrupted();
           const stopped = await saveGuardianHistoryCheckpoint(context.generation, {
@@ -542,7 +580,7 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
           return { deferred: false, sourceFailures: sourceFailures + 1, restored, failed: true, deferredSources };
         }
         const failure = error instanceof Error ? classifyHistoryFailure(error) : 'invalid-data';
-        if (failure !== 'invalid-data' && !ownOperators.includes(operator)) {
+        if (failure !== 'invalid-data' && !isOwnOperator(ownOperators, operator)) {
           // Each class spends only its own count, once: a failed request its deferredFailurePasses, in the session its
           // attempt was issued in, and an aborted decode its abortedDecodePasses, only if it began in this session. A
           // failure neither carries, such as a failed fee lookup on the wallet's own node, defers the source uncounted.
@@ -595,7 +633,7 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
     // Reported apart from a yield: an evicted run keeps its reservation until the next backend start, as for notes.
     if (isWasmClientPoisonedError(error))
       return { deferred: true, evicted: true, sourceFailures, restored, deferredSources };
-    if (error instanceof HistoryInterrupted || error instanceof OperationAbortedError) {
+    if (error instanceof HistoryInterrupted || isPipelineKillLink(error)) {
       return { deferred: true, sourceFailures, restored, deferredSources };
     }
     throw error;

@@ -1,12 +1,16 @@
 import { OperationAbortedError } from 'lib/miden/back/offscreen-codec';
+import { ProposalChainSyncError } from 'lib/miden/guardian';
 import { GUARDIAN_REQUEST_TIMEOUT_MS, GuardianRequestTimeoutError } from 'lib/miden/guardian/native-http';
-import { SubmitCrossingUnrecordedError } from 'lib/miden/sdk/sdk-error-code';
+import { ApplyAfterSubmitError, SubmitCrossingUnrecordedError } from 'lib/miden/sdk/sdk-error-code';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 
 import {
+  deterministicKernelFailureCopy,
+  ERR_FEE_CONVERSION_INFO_COMMITMENT_MISMATCH_CODE,
   formatRawTransactionError,
   GUARDIAN_UNREACHABLE_ERROR,
   INVALID_NOTE_ERROR,
+  isFeeConversionCommitmentMismatchError,
   isGuardianOutage,
   isOutcomeUnconfirmed,
   isProverProcedureMismatch,
@@ -19,6 +23,7 @@ import {
   ROTATION_PENDING_CONSUME_ERROR,
   RotationGateConsumeRefusal,
   SUBMIT_CROSSING_UNRECORDED_ERROR,
+  TRANSACTION_FEE_COMMITMENT_MISMATCH_ERROR,
   TRANSACTION_FEE_CONVERSION_INFO_MISSING_ERROR,
   TRANSACTION_FORCE_CANCELLED_ERROR,
   TRANSACTION_INTERRUPTED_ERROR,
@@ -97,7 +102,11 @@ describe('resolveTransactionErrorMessage', () => {
     // picked up — and there the hedge is a falsehood that costs something real: it tells
     // the user to go check their activity and wait, on a row whose Retry is safe. The
     // extension reaches this on a routine non-critical `deadline-no-kill`.
-    for (const error of [new WasmClientPoisonedError('watchdog'), new OperationAbortedError('op-1', 'deadline')]) {
+    for (const error of [
+      new WasmClientPoisonedError('watchdog'),
+      new OperationAbortedError('op-1', 'deadline'),
+      new Error('WebClient terminated')
+    ]) {
       expect(resolveTransactionErrorMessage(error, 'syncing', false, true)).toBe(
         TRANSACTION_ENGINE_RECOVERED_PRE_WRITE_ERROR
       );
@@ -123,6 +132,16 @@ describe('resolveTransactionErrorMessage', () => {
     expect(resolveTransactionErrorMessage(aborted, 'proving', true)).not.toBe(REMOTE_PROVER_FAILED_ERROR);
     expect(resolveTransactionErrorMessage(aborted, 'proving', false)).not.toBe(LOCAL_PROVER_FAILED_ERROR);
     expect(resolveTransactionErrorMessage(aborted, 'sending', true)).toBe(TRANSACTION_ENGINE_RECOVERED_ERROR);
+  });
+
+  it('hedges the same way for a terminated client, and leaves the landed shape to its own copy', () => {
+    for (const message of ['Client terminated', 'WebClient terminated']) {
+      const wrapped = new Error('send failed', { cause: new Error(message) });
+      expect(resolveTransactionErrorMessage(wrapped, 'proving', true)).toBe(TRANSACTION_ENGINE_RECOVERED_ERROR);
+      expect(resolveTransactionErrorMessage(wrapped, 'sending', false)).toBe(TRANSACTION_ENGINE_RECOVERED_ERROR);
+    }
+    const landed = new ApplyAfterSubmitError(new Error('Client terminated'));
+    expect(resolveTransactionErrorMessage(landed, 'sending', true)).not.toBe(TRANSACTION_ENGINE_RECOVERED_ERROR);
   });
 
   it('hedges the same way for a kill wrapped in another error (#1313)', () => {
@@ -250,6 +269,59 @@ describe('fee failures', () => {
     const message = resolveTransactionErrorMessage(err);
     expect(message).not.toMatch(/receive some miden/i);
     expect(message).not.toMatch(/not enough/i);
+  });
+});
+
+describe('a dApp request whose own fee commitment does not verify (#1475)', () => {
+  // What the extension stored for #1475: the offscreen wrapper, the SDK chain and the kernel's ANSI marks.
+  const reported = new Error(
+    "Offscreen call 'newTransaction' failed: failed to execute transaction: transaction execution failed: " +
+      'failed to execute transaction kernel program: \x1b[31mx\x1b[0m assertion failed with error code: ' +
+      '15404814807981965102'
+  );
+
+  it('names the dApp request instead of the hashed kernel code', () => {
+    expect(resolveTransactionErrorMessage(reported, 'sending')).toBe(TRANSACTION_FEE_COMMITMENT_MISMATCH_ERROR);
+  });
+
+  it('is the code of the masm message', () => {
+    expect(ERR_FEE_CONVERSION_INFO_COMMITMENT_MISMATCH_CODE).toBe('15404814807981965102');
+    expect(isFeeConversionCommitmentMismatchError('assertion failed with error code: 15404814807981965102')).toBe(true);
+  });
+
+  it('does not read a longer number that contains the code', () => {
+    expect(isFeeConversionCommitmentMismatchError('error code: 115404814807981965102')).toBe(false);
+    expect(isFeeConversionCommitmentMismatchError('error code: 154048148079819651021')).toBe(false);
+  });
+
+  it('says a retry fails the same way and does not blame the balance', () => {
+    expect(TRANSACTION_FEE_COMMITMENT_MISMATCH_ERROR).toMatch(/dApp/);
+    expect(TRANSACTION_FEE_COMMITMENT_MISMATCH_ERROR).toMatch(/nothing was submitted/);
+    expect(TRANSACTION_FEE_COMMITMENT_MISMATCH_ERROR).toMatch(/fail the same way/);
+    expect(TRANSACTION_FEE_COMMITMENT_MISMATCH_ERROR).not.toMatch(/balance|receive some/i);
+  });
+
+  it('leaves the missing-info code its own copy', () => {
+    const missing = new Error('assertion failed with error code: 14712559985122731094');
+    expect(resolveTransactionErrorMessage(missing)).toBe(TRANSACTION_FEE_CONVERSION_INFO_MISSING_ERROR);
+  });
+});
+
+// The dApp consent sheet reads a failed dry run through this helper, so it must give exactly the Failed row's copy.
+describe('deterministicKernelFailureCopy', () => {
+  it.each([
+    ['14712559985122731094', TRANSACTION_FEE_CONVERSION_INFO_MISSING_ERROR],
+    ['15404814807981965102', TRANSACTION_FEE_COMMITMENT_MISMATCH_ERROR],
+    ['644413868907058392', TRANSACTION_VAULT_SHORTFALL_ERROR]
+  ])('agrees with the classifier for code %s', (code, copy) => {
+    const raw = `failed to execute transaction kernel program: assertion failed with error code: ${code}`;
+    expect(deterministicKernelFailureCopy(raw)).toBe(copy);
+    expect(resolveTransactionErrorMessage(new Error(raw), 'sending')).toBe(copy);
+  });
+
+  it('names nothing for text without a code the classifier names', () => {
+    expect(deterministicKernelFailureCopy('assertion failed with error code: 9876543210')).toBeUndefined();
+    expect(deterministicKernelFailureCopy('note not found')).toBeUndefined();
   });
 });
 
@@ -508,6 +580,12 @@ describe('RotationGateConsumeRefusal', () => {
   });
 });
 
+describe('a failed proposal chain sync as an outage (#1442)', () => {
+  it('reads as an outage, so a value-moving row requeues', () => {
+    expect(isGuardianOutage(new ProposalChainSyncError(new TypeError('Failed to fetch')))).toBe(true);
+  });
+});
+
 describe('a Guardian request timeout as an outage (#1313)', () => {
   const timeout = () =>
     new GuardianRequestTimeoutError('https://guardian.test/delta/proposal', GUARDIAN_REQUEST_TIMEOUT_MS);
@@ -523,10 +601,13 @@ describe('a Guardian request timeout as an outage (#1313)', () => {
     // A requeue would re-broadcast a write that may have submitted, and the copy would say it was not sent.
     const poisoned = new WasmClientPoisonedError('realm-error', timeout());
     const aborted = Object.assign(new OperationAbortedError('op-1', 'deadline'), { cause: timeout() });
+    const terminated = Object.assign(new Error('WebClient terminated'), { cause: timeout() });
     expect(isGuardianOutage(poisoned)).toBe(false);
     expect(isGuardianOutage(aborted)).toBe(false);
+    expect(isGuardianOutage(terminated)).toBe(false);
     expect(isGuardianOutage(wrap(poisoned))).toBe(false);
     expect(isGuardianOutage(wrap(aborted))).toBe(false);
+    expect(isGuardianOutage(wrap(terminated))).toBe(false);
   });
 
   it('never reads a wrapped kill as an outage, even with no timeout in its chain', () => {

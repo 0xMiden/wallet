@@ -448,6 +448,36 @@ describe('ActivityRow', () => {
     expect(screen.getByTestId('row-title')).toHaveClass('truncate');
     expect(screen.getByTestId('row-subtitle')).toHaveClass('truncate');
   });
+
+  // jsdom does not lay out, so these pin the classes that keep a long amount line inside the row (#1490):
+  // the amount column never shrinks and is capped at half the row, so a short amount or badge keeps its
+  // width, and a long line clips to one line inside the cap with an ellipsis drawn in ink (a button's
+  // default text colour is near-black on the dark card).
+  it.each<[string, NonNullable<React.ComponentProps<typeof ActivityRow>['amount']>]>([
+    ['a 30-digit amount', { value: '+123456789012345678901234567890', symbol: 'MIDEN', direction: 'positive' }],
+    ['a 40-character token symbol', { value: '+5', symbol: 'T'.repeat(40), direction: 'positive' }],
+    [
+      'a batch claim of many assets',
+      {
+        value: '+20',
+        symbol: 'AAA',
+        direction: 'positive',
+        extra: Array.from({ length: 6 }, (_, i) => ({ key: `faucet-${i}`, value: `+${i + 1}`, symbol: `T${i}` }))
+      }
+    ]
+  ])('keeps %s inside the row, beside its title and status', (_, amount) => {
+    renderRow({ testId: 'row', status: 'pending', amount });
+
+    expect(screen.getByTestId('row-title')).toHaveTextContent('Sent MIDEN');
+    const line = screen.getByTestId('row-amount');
+    const status = screen.getByTestId('row-status');
+    expect(line).toHaveClass('truncate', 'max-w-full', 'text-ink');
+    expect(line).not.toContainElement(status);
+    const column = line.parentElement;
+    expect(column).toContainElement(status);
+    expect(column).toHaveClass('shrink-0', 'max-w-1/2');
+    expect(column).not.toHaveClass('min-w-0');
+  });
 });
 
 // The same guard through a real row: this suite renders the real ActivityRow and the real badge,

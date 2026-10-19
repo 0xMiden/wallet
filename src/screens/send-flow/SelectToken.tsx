@@ -3,25 +3,31 @@ import React, { useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useHiddenTokens } from 'app/hooks/useHiddenTokens';
+import useNativeFeeFaucetId from 'app/hooks/useNativeFeeFaucetId';
+import { Icon, IconName } from 'app/icons/v2';
 import { TokenLogo } from 'components/TokenLogo';
 import { AnimatedNumber } from 'components/ui/AnimatedNumber';
 import { AssetListItem } from 'components/ui/AssetListItem';
+import { Notice } from 'components/ui/Notice';
 import { SearchInput } from 'components/ui/SearchInput';
 import { adaptiveFormatterFor } from 'lib/i18n/numbers';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { priceSymbolFor } from 'lib/miden/swap/tokens';
 import { listedFiatValue } from 'lib/prices';
+import { isNewTransferTokenHeld, isRetiredTransferToken } from 'lib/remote-config/token-availability';
 import { midenTokenLabel } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { useWalletStore } from 'lib/store';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
+import { isUsdcxWithdrawalAvailable } from 'lib/usdcx/withdrawal';
 
 import { UIToken } from './types';
 import { uiTokenFromBalance } from './ui-token';
 
 export interface SelectTokenDrawerProps {
   open: boolean;
+  usdcxOnly?: boolean;
   onOpenChange: (open: boolean) => void;
   onSelect: (token: UIToken) => void;
 }
@@ -36,19 +42,27 @@ export interface SelectTokenDrawerProps {
  * over its balance and the fiat value on the right — the same shape the swap
  * picker draws, so the two sheets read as one list.
  */
-export const SelectTokenDrawer: React.FC<SelectTokenDrawerProps> = ({ open, onOpenChange, onSelect }) => {
+export const SelectTokenDrawer: React.FC<SelectTokenDrawerProps> = ({
+  open,
+  onOpenChange,
+  onSelect,
+  usdcxOnly = false
+}) => {
   const { t } = useTranslation();
   const { publicKey } = useAccount();
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
   const { data: balanceData = [] } = useAllBalances(publicKey, allTokensBaseMetadata);
   const tokenPrices = useWalletStore(s => s.tokenPrices);
   const { isHidden } = useHiddenTokens(publicKey);
-  const bridgeConfig = useBridgeConfigSnapshot({ load: false });
+  const bridgeConfig = useBridgeConfigSnapshot();
+  const nativeFaucetId = useNativeFeeFaucetId();
   const [searchQuery, setSearchQuery] = useState('');
 
   const filteredBalances = useMemo(() => {
     // Hidden from Home, hidden here; the token's own page still sends it, preselected by id.
-    const visible = balanceData.filter(b => !isHidden(b.tokenId));
+    const visible = balanceData.filter(
+      b => !isHidden(b.tokenId) && !isNewTransferTokenHeld(bridgeConfig, b.tokenId, nativeFaucetId)
+    );
     if (!searchQuery.trim()) return visible;
     const query = searchQuery.toLowerCase();
     return visible.filter(
@@ -57,7 +71,14 @@ export const SelectTokenDrawer: React.FC<SelectTokenDrawerProps> = ({ open, onOp
         b.metadata.name?.toLowerCase().includes(query) ||
         midenTokenLabel(bridgeConfig, b.tokenId, b.metadata.symbol).toLowerCase().includes(query)
     );
-  }, [balanceData, bridgeConfig, isHidden, searchQuery]);
+  }, [balanceData, bridgeConfig, nativeFaucetId, isHidden, searchQuery]);
+  // A row held until the document arrives is left out with a reason; a retired one is left out silently.
+  const holdsPendingToken = balanceData.some(
+    b =>
+      !isHidden(b.tokenId) &&
+      isNewTransferTokenHeld(bridgeConfig, b.tokenId, nativeFaucetId) &&
+      !isRetiredTransferToken(bridgeConfig, b.tokenId, nativeFaucetId)
+  );
 
   const onSelectToken = useCallback(
     (token: UIToken) => {
@@ -83,6 +104,17 @@ export const SelectTokenDrawer: React.FC<SelectTokenDrawerProps> = ({ open, onOp
             data-testid="send-token-search"
             className="shrink-0"
           />
+          {usdcxOnly && <p className="shrink-0 pt-3 text-caption text-muted">{t('sendUsdcxOnlyDestination')}</p>}
+          {holdsPendingToken && (
+            <Notice
+              tone="warning"
+              icon={<Icon name={IconName.Information} size="xs" fill="currentColor" />}
+              className="mt-3 shrink-0"
+              data-testid="send-picker-held-notice"
+            >
+              {t('sendTokenAvailabilityChecking')}
+            </Notice>
+          )}
           <div className="no-scrollbar min-h-0 overflow-y-auto pt-5">
             <div className="flex flex-col divide-y divide-rule-default">
               {filteredBalances.map(b => {
@@ -96,6 +128,7 @@ export const SelectTokenDrawer: React.FC<SelectTokenDrawerProps> = ({ open, onOp
                 return (
                   <AssetListItem
                     key={b.tokenId}
+                    disabled={usdcxOnly && !isUsdcxWithdrawalAvailable(b.tokenId)}
                     icon={<TokenLogo symbol={b.metadata.symbol} faucetId={b.tokenId} />}
                     name={name}
                     amount={

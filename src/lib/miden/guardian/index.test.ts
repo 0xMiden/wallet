@@ -18,9 +18,12 @@ import { OUTGOING_GUARDIAN_DEADLINE_MS } from './discover';
 import {
   GuardianReRegisterRefusedError,
   isGuardianAuthRejection,
+  isProposalChainSyncError,
   MultisigService,
   POST_COMMIT_GUARDIAN_TIMEOUT_MS,
-  PRIOR_CANDIDATE_CHECK_TIMEOUT_MS
+  PRIOR_CANDIDATE_CHECK_TIMEOUT_MS,
+  ProposalChainSyncError,
+  type ProposalSyncPhase
 } from './index';
 import { GUARDIAN_REGISTER_RETRY_MAX_DELAY_MS, NEW_GUARDIAN_PUBKEY_TIMEOUT_MS } from './serialize';
 import { withWasmClientLock, type WasmClientLockOptions } from '../sdk/miden-client';
@@ -74,13 +77,34 @@ jest.mock('../sdk/helpers', () => ({
   randomFeeSalt: () => mockFeeSalt
 }));
 
+// Records which hold each chain sync ran under, and drives the raw client's `syncChain`.
+const syncHoldsSeen: Array<object | null> = [];
+const mockSyncAndRecordFeeFaucet = jest.fn(
+  async (_client: unknown, sync: () => Promise<unknown>, assertLive: () => void = () => {}) => {
+    syncHoldsSeen.push(currentWasmHold);
+    const summary = await sync();
+    assertLive();
+    return summary;
+  }
+);
+jest.mock('../sdk/sync-and-record-fee-faucet', () => ({
+  syncAndRecordFeeFaucet: (...args: Parameters<typeof mockSyncAndRecordFeeFaucet>) =>
+    mockSyncAndRecordFeeFaucet(...args)
+}));
+
 const mockGetAccount = jest.fn();
 const mockAccountInspectorFromAccount = jest.fn();
 const mockSyncState = jest.fn(async () => {});
-const mockRawWebClient = { kind: 'raw-web-client' };
+const callOrder: string[] = [];
+const mockSyncChain = jest.fn(async () => {
+  callOrder.push('syncChain');
+});
+const mockRawWebClient = { kind: 'raw-web-client', syncChain: () => mockSyncChain() };
+const mockBuildPswapCancelRequest = jest.fn();
 const mockMidenClient = {
   getAccount: (...args: unknown[]) => mockGetAccount(...args),
   syncState: () => mockSyncState(),
+  buildPswapCancelRequest: (...args: unknown[]) => mockBuildPswapCancelRequest(...args),
   client: mockRawWebClient
 };
 // The slice-2 offscreen client proxy reads getAccount through the `lib/...` alias
@@ -97,7 +121,10 @@ let wasmLockTail: Promise<void> = Promise.resolve();
 let evictDuringClientBuild = false;
 // Runs before a hold begins: the time a caller spends queued for the mutex.
 let beforeWasmHold: (() => void) | undefined;
+// Runs inside a hold's client build.
+let duringClientBuild: (() => void) | undefined;
 const wasmLockOptionsSeen: unknown[] = [];
+const mockRetireWasmClientForCaughtTrap = jest.fn();
 jest.mock('../sdk/miden-client', () => {
   // The real error class, so the code under test's poison classifiers see the
   // same shape production throws.
@@ -105,6 +132,7 @@ jest.mock('../sdk/miden-client', () => {
   return {
     getMidenClient: async () => {
       if (evictDuringClientBuild) currentWasmHold = null;
+      duringClientBuild?.();
       return mockMidenClient;
     },
     // Models hold OWNERSHIP: the code under test re-checks it after the client build, so a
@@ -117,6 +145,7 @@ jest.mock('../sdk/miden-client', () => {
       if (hold !== null && currentWasmHold === hold) return;
       throw new PoisonError('watchdog', new Error(`operation abandoned ${where}`));
     },
+    retireWasmClientForCaughtTrap: (...a: unknown[]) => mockRetireWasmClientForCaughtTrap(...a),
     withWasmClientLock: async <T>(fn: (hold: object) => Promise<T>, options?: unknown) => {
       wasmLockOptionsSeen.push(options);
       const previous = wasmLockTail;
@@ -169,13 +198,10 @@ const mockBuildUpdateSignersTransactionRequest = jest.fn(async (..._args: unknow
   request: { kind: 'request' },
   salt: { toHex: () => 'salt-hex' }
 }));
-// `free` on the default anchor so the ordinary cases exercise a successful
-// release rather than `freeChainAnchor`'s swallow-and-warn branch.
-const mockExecuteForSummary = jest.fn(async (..._args: unknown[]) => ({
-  summary: { serialize: () => new Uint8Array([0xab]) },
-  anchor: { kind: 'anchor', free: jest.fn() }
+const mockExecuteForSummaryAtTip = jest.fn(async (..._args: unknown[]) => ({
+  serialize: () => new Uint8Array([0xab])
 }));
-const mockChainAnchorToBase64 = jest.fn((_anchor: unknown) => 'anchor-b64');
+const mockRequestBoundBlockNum = jest.fn((_request: unknown): number | undefined => 4242);
 
 jest.mock('@openzeppelin/miden-multisig-client', () => ({
   GuardianHttpClient: jest.fn().mockImplementation(() => ({
@@ -189,8 +215,8 @@ jest.mock('@openzeppelin/miden-multisig-client', () => ({
     load: (...a: unknown[]) => multisigClientConfig.load(...a)
   })),
   buildUpdateSignersTransactionRequest: (...a: unknown[]) => mockBuildUpdateSignersTransactionRequest(...a),
-  executeForSummary: (...a: unknown[]) => mockExecuteForSummary(...a),
-  chainAnchorToBase64: (a: unknown) => mockChainAnchorToBase64(a),
+  executeForSummaryAtTip: (...a: unknown[]) => mockExecuteForSummaryAtTip(...a),
+  requestBoundBlockNum: (a: unknown) => mockRequestBoundBlockNum(a),
   AccountInspector: { fromAccount: (...a: unknown[]) => mockAccountInspectorFromAccount(...a) }
 }));
 
@@ -340,6 +366,9 @@ describe('MultisigService', () => {
     currentWasmHold = null;
     wasmLockTail = Promise.resolve();
     evictDuringClientBuild = false;
+    duringClientBuild = undefined;
+    callOrder.length = 0;
+    syncHoldsSeen.length = 0;
     mockTransactionRequestDeserialize.mockReset();
     mockFetchFromStorage.mockResolvedValue('https://stored.guardian.test');
     // Default: AccountInspector reads an empty signer set unless a test overrides it.
@@ -504,6 +533,30 @@ describe('MultisigService', () => {
         expect(result.requestBytes).toBe(rebasedBytes);
       });
 
+      it('syncs the chain in the same hold before rebuilding, so the request binds the fresh height (#1442)', async () => {
+        const { service, builder } = arrange();
+        mockFeeAwareRequestBuilder.mockImplementationOnce(async () => {
+          callOrder.push('feeAwareRequestBuilder');
+          holdsSeen.builder = currentWasmHold;
+          return builder;
+        });
+
+        await service.createRebasedCustomProposal(originalBytes, 'swap');
+
+        expect(callOrder.slice(0, 2)).toEqual(['syncChain', 'feeAwareRequestBuilder']);
+        expect(syncHoldsSeen[0]).toBe(holdsSeen.builder);
+      });
+
+      it('rebuilds and proposes nothing when the chain sync fails (#1442)', async () => {
+        const { service, createCustomFn } = arrange();
+        mockSyncChain.mockRejectedValueOnce(new Error('node unreachable'));
+
+        await expect(service.createRebasedCustomProposal(originalBytes, 'swap')).rejects.toThrow('node unreachable');
+
+        expect(mockFeeAwareRequestBuilder).not.toHaveBeenCalled();
+        expect(createCustomFn).not.toHaveBeenCalled();
+      });
+
       // The rebuild drops the request's own expiration delta, so a Guardian expiration has to be the approval
       // expiration the fee-aware builder binds to the bound block (#1081).
       it('hands the approval expiration it is given to the fee-aware builder', async () => {
@@ -555,6 +608,106 @@ describe('MultisigService', () => {
         expect(mockFeeAwareRequestBuilder).not.toHaveBeenCalled();
         expect(createCustomFn).not.toHaveBeenCalled();
       });
+    });
+  });
+
+  describe('createPswapCancelProposal', () => {
+    const cancelBytes = new Uint8Array([4, 4, 7]);
+
+    // Each step records the hold it ran under: the cancel has to be built at the height the proposal is made at.
+    let holdsSeen: Record<string, object | null>;
+    const arrange = () => {
+      holdsSeen = {};
+      mockBuildPswapCancelRequest.mockImplementation(
+        async (_accountId: string, _noteId: string, assertLive: (step: string) => void) => {
+          callOrder.push('buildPswapCancelRequest');
+          holdsSeen.build = currentWasmHold;
+          assertLive('after the output-note listing');
+          return cancelBytes;
+        }
+      );
+      const persistRequest = jest.fn(async (_requestBytes: Uint8Array) => {
+        callOrder.push('persistRequest');
+        holdsSeen.persist = currentWasmHold;
+      });
+      const createCustomFn = jest.fn(async () => {
+        callOrder.push('createCustomProposal');
+        holdsSeen.propose = currentWasmHold;
+        return { kind: 'custom', id: 'cancel-proposal' };
+      });
+      const service = new MultisigService(
+        makeMultisig({ createCustomProposal: createCustomFn }) as never,
+        {} as never,
+        'https://x'
+      );
+      return { service, persistRequest, createCustomFn };
+    };
+
+    it('builds the cancel after the chain sync, persists it, then proposes exactly those bytes in one hold', async () => {
+      const { service, persistRequest, createCustomFn } = arrange();
+      wasmLockOptionsSeen.length = 0;
+
+      const proposal = await service.createPswapCancelProposal('zero-fill-tip', persistRequest);
+
+      // A live order's note never comes from the node (#1487).
+      expect(mockBuildPswapCancelRequest).toHaveBeenCalledWith('acc-id', 'zero-fill-tip', expect.any(Function), {
+        allowNodeNote: false
+      });
+      expect(persistRequest).toHaveBeenCalledWith(cancelBytes);
+      expect(createCustomFn).toHaveBeenCalledWith(cancelBytes, 'custom_transaction');
+      expect(callOrder).toEqual(['syncChain', 'buildPswapCancelRequest', 'persistRequest', 'createCustomProposal']);
+      expect(wasmLockOptionsSeen).toHaveLength(1);
+      expect(holdsSeen.build).toBe(syncHoldsSeen[0]);
+      expect(holdsSeen.persist).toBe(syncHoldsSeen[0]);
+      expect(holdsSeen.propose).toBe(syncHoldsSeen[0]);
+      expect(proposal).toEqual({ kind: 'custom', id: 'cancel-proposal' });
+    });
+
+    it("lets a recovered order's rebuild read its note from the node, as its own eligibility says", async () => {
+      const { service, persistRequest } = arrange();
+
+      await service.createPswapCancelProposal('remainder-tip', persistRequest, { allowNodeNote: true });
+
+      expect(mockBuildPswapCancelRequest).toHaveBeenCalledWith('acc-id', 'remainder-tip', expect.any(Function), {
+        allowNodeNote: true
+      });
+    });
+
+    it('builds and proposes nothing when the chain sync fails', async () => {
+      const { service, persistRequest, createCustomFn } = arrange();
+      mockSyncChain.mockRejectedValueOnce(new Error('node unreachable'));
+
+      await expect(service.createPswapCancelProposal('zero-fill-tip', persistRequest)).rejects.toThrow(
+        'node unreachable'
+      );
+      expect(mockBuildPswapCancelRequest).not.toHaveBeenCalled();
+      expect(persistRequest).not.toHaveBeenCalled();
+      expect(createCustomFn).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['inside the build', 'build'],
+      ['while the request is persisted', 'persist']
+    ])('proposes nothing when the hold is evicted %s', async (_label, step) => {
+      const { service, persistRequest, createCustomFn } = arrange();
+      if (step === 'build') {
+        mockBuildPswapCancelRequest.mockImplementationOnce(
+          async (_accountId: string, _noteId: string, assertLive: (at: string) => void) => {
+            currentWasmHold = null;
+            assertLive('after the output-note listing');
+            return cancelBytes;
+          }
+        );
+      } else {
+        persistRequest.mockImplementationOnce(async () => {
+          currentWasmHold = null;
+        });
+      }
+
+      await expect(service.createPswapCancelProposal('zero-fill-tip', persistRequest)).rejects.toMatchObject({
+        name: 'WasmClientPoisonedError'
+      });
+      expect(createCustomFn).not.toHaveBeenCalled();
     });
   });
 
@@ -2064,6 +2217,285 @@ describe('MultisigService', () => {
     });
   });
 
+  describe('proposal creation syncs the chain first (#1442)', () => {
+    const NEW_GUARDIAN_COMMITMENT = `0x${'ab'.repeat(32)}`;
+
+    beforeEach(() => {
+      resetMockProbes();
+    });
+
+    let multisigHold: object | null = null;
+
+    const switchService = () => {
+      const createSwitchGuardianProposal = jest.fn(async () => {
+        callOrder.push('createSwitchGuardianProposal');
+        multisigHold = currentWasmHold;
+        expect(currentWasmHold).not.toBeNull();
+        return { nonce: 7, txSummary: 'txs-b64', metadata: { proposalType: 'switch-guardian' } };
+      });
+      const multisig = makeMultisig({ createSwitchGuardianProposal });
+      return {
+        service: new MultisigService(multisig as never, {} as never, 'https://old'),
+        createSwitchGuardianProposal
+      };
+    };
+
+    it('syncs the chain in the same hold, before the switch proposal executes its summary', async () => {
+      const { service } = switchService();
+      let holdDuringProbe: object | null = {};
+      guardianConfig.getPubkey.mockImplementationOnce(async () => {
+        holdDuringProbe = currentWasmHold;
+        return { commitment: NEW_GUARDIAN_COMMITMENT, pubkey: 'new-pubkey' };
+      });
+
+      await service.createSwitchGuardianProposal('https://new');
+
+      expect(callOrder).toEqual(['syncChain', 'createSwitchGuardianProposal']);
+      expect(syncHoldsSeen).toHaveLength(1);
+      expect(syncHoldsSeen[0]).not.toBeNull();
+      expect(syncHoldsSeen[0]).toBe(multisigHold);
+      // The new Guardian's pubkey probe stays outside the WASM hold.
+      expect(holdDuringProbe).toBeNull();
+    });
+
+    it('syncs again on every call, so a 409 retry builds on a fresh height', async () => {
+      const { service } = switchService();
+      guardianConfig.getPubkey.mockResolvedValueOnce({ commitment: NEW_GUARDIAN_COMMITMENT, pubkey: 'p' });
+      guardianConfig.getPubkey.mockResolvedValueOnce({ commitment: NEW_GUARDIAN_COMMITMENT, pubkey: 'p' });
+
+      await service.createSwitchGuardianProposal('https://new');
+      await service.createSwitchGuardianProposal('https://new');
+
+      expect(callOrder).toEqual([
+        'syncChain',
+        'createSwitchGuardianProposal',
+        'syncChain',
+        'createSwitchGuardianProposal'
+      ]);
+    });
+
+    it('makes no switch proposal when the sync fails', async () => {
+      const { service, createSwitchGuardianProposal } = switchService();
+      guardianConfig.getPubkey.mockResolvedValueOnce({ commitment: NEW_GUARDIAN_COMMITMENT, pubkey: 'p' });
+      mockSyncChain.mockRejectedValueOnce(new Error('node unreachable'));
+
+      await expect(service.createSwitchGuardianProposal('https://new')).rejects.toThrow('node unreachable');
+      expect(createSwitchGuardianProposal).not.toHaveBeenCalled();
+    });
+
+    it('wraps a sync failure in ProposalChainSyncError, keeping the cause and its message', async () => {
+      const { service } = switchService();
+      guardianConfig.getPubkey.mockResolvedValueOnce({ commitment: NEW_GUARDIAN_COMMITMENT, pubkey: 'p' });
+      const cause = new Error('node unreachable');
+      mockSyncChain.mockRejectedValueOnce(cause);
+
+      const error: unknown = await service.createSwitchGuardianProposal('https://new').catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(ProposalChainSyncError);
+      expect(isProposalChainSyncError(error)).toBe(true);
+      expect(error).toMatchObject({ message: expect.stringContaining('node unreachable'), cause });
+    });
+
+    it('refuses as evicted when the hold is lost during the sync', async () => {
+      const { service, createSwitchGuardianProposal } = switchService();
+      guardianConfig.getPubkey.mockResolvedValueOnce({ commitment: NEW_GUARDIAN_COMMITMENT, pubkey: 'p' });
+      mockSyncChain.mockImplementationOnce(async () => {
+        currentWasmHold = null;
+      });
+
+      const error: unknown = await service.createSwitchGuardianProposal('https://new').catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(WasmClientPoisonedError);
+      expect(isProposalChainSyncError(error)).toBe(false);
+      expect(createSwitchGuardianProposal).not.toHaveBeenCalled();
+    });
+
+    // A trap rewrapped before it is retired never reaches the lock as a trap, so its client would stay in the slot.
+    it('retires a trap from the sync and rethrows it raw, never as a chain sync failure', async () => {
+      const { service, createSwitchGuardianProposal } = switchService();
+      guardianConfig.getPubkey.mockResolvedValueOnce({ commitment: NEW_GUARDIAN_COMMITMENT, pubkey: 'p' });
+      const trap = new WebAssembly.RuntimeError('unreachable');
+      mockSyncChain.mockRejectedValueOnce(trap);
+
+      const error: unknown = await service.createSwitchGuardianProposal('https://new').catch((e: unknown) => e);
+
+      expect(error).toBe(trap);
+      expect(isProposalChainSyncError(error)).toBe(false);
+      expect(syncHoldsSeen[0]).not.toBeNull();
+      expect(mockRetireWasmClientForCaughtTrap).toHaveBeenCalledWith(syncHoldsSeen[0], trap);
+      expect(createSwitchGuardianProposal).not.toHaveBeenCalled();
+    });
+
+    // The caller's deadline gave up while the hold synced, so nobody awaits a proposal pushed after the sync.
+    it('pushes no switch proposal once its caller abandoned the hold during the sync', async () => {
+      const { service, createSwitchGuardianProposal } = switchService();
+      guardianConfig.getPubkey.mockResolvedValueOnce({ commitment: NEW_GUARDIAN_COMMITMENT, pubkey: 'p' });
+      const phase: ProposalSyncPhase = { syncing: false, abandoned: false };
+      const syncingSeen: boolean[] = [];
+      mockSyncChain.mockImplementationOnce(async () => {
+        syncingSeen.push(phase.syncing);
+        phase.abandoned = true;
+      });
+
+      await expect(service.createSwitchGuardianProposal('https://new', phase)).rejects.toThrow(
+        'switch-guardian proposal'
+      );
+
+      expect(createSwitchGuardianProposal).not.toHaveBeenCalled();
+      expect(syncingSeen).toEqual([true]);
+      expect(phase.syncing).toBe(false);
+    });
+
+    it('neither syncs nor proposes once its caller abandoned the hold while it was queued', async () => {
+      const { service, createSwitchGuardianProposal } = switchService();
+      guardianConfig.getPubkey.mockResolvedValueOnce({ commitment: NEW_GUARDIAN_COMMITMENT, pubkey: 'p' });
+      const phase: ProposalSyncPhase = { syncing: false, abandoned: true };
+      let clientBuilds = 0;
+      duringClientBuild = () => {
+        clientBuilds += 1;
+      };
+
+      await expect(service.createSwitchGuardianProposal('https://new', phase)).rejects.toThrow(
+        'switch-guardian proposal'
+      );
+
+      expect(mockSyncChain).not.toHaveBeenCalled();
+      expect(createSwitchGuardianProposal).not.toHaveBeenCalled();
+      // The after-build check alone would also stop the sync; only the admission check skips the client build.
+      expect(clientBuilds).toBe(0);
+    });
+
+    it('neither syncs nor proposes once its caller abandoned the hold during the client build', async () => {
+      const { service, createSwitchGuardianProposal } = switchService();
+      guardianConfig.getPubkey.mockResolvedValueOnce({ commitment: NEW_GUARDIAN_COMMITMENT, pubkey: 'p' });
+      const phase: ProposalSyncPhase = { syncing: false, abandoned: false };
+      duringClientBuild = () => {
+        phase.abandoned = true;
+      };
+
+      await expect(service.createSwitchGuardianProposal('https://new', phase)).rejects.toThrow(
+        'switch-guardian proposal'
+      );
+
+      expect(mockSyncChain).not.toHaveBeenCalled();
+      expect(createSwitchGuardianProposal).not.toHaveBeenCalled();
+    });
+
+    it('clears the syncing flag when the sync fails', async () => {
+      const { service } = switchService();
+      guardianConfig.getPubkey.mockResolvedValueOnce({ commitment: NEW_GUARDIAN_COMMITMENT, pubkey: 'p' });
+      const phase: ProposalSyncPhase = { syncing: false, abandoned: false };
+      mockSyncChain.mockRejectedValueOnce(new Error('node unreachable'));
+
+      await expect(service.createSwitchGuardianProposal('https://new', phase)).rejects.toThrow('node unreachable');
+
+      expect(phase).toEqual({ syncing: false, abandoned: false });
+    });
+
+    it('syncs the chain in the same hold before the procedure-threshold proposal', async () => {
+      let multisigHold: object | null = null;
+      const createUpdateProcedureThresholdProposal = jest.fn(async () => {
+        callOrder.push('createUpdateProcedureThresholdProposal');
+        multisigHold = currentWasmHold;
+        return { kind: 'threshold' };
+      });
+      const multisig = makeMultisig({ createUpdateProcedureThresholdProposal });
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+
+      await service.createUpdateProcedureThresholdProposal('send', 2);
+
+      expect(callOrder).toEqual(['syncChain', 'createUpdateProcedureThresholdProposal']);
+      expect(syncHoldsSeen[0]).not.toBeNull();
+      expect(syncHoldsSeen[0]).toBe(multisigHold);
+    });
+
+    it('makes no procedure-threshold proposal when the sync fails', async () => {
+      const createUpdateProcedureThresholdProposal = jest.fn(async () => ({ kind: 'threshold' }));
+      const service = new MultisigService(
+        makeMultisig({ createUpdateProcedureThresholdProposal }) as never,
+        {} as never,
+        'https://x'
+      );
+      mockSyncChain.mockRejectedValueOnce(new Error('node unreachable'));
+
+      await expect(service.createUpdateProcedureThresholdProposal('send', 2)).rejects.toThrow('node unreachable');
+      expect(createUpdateProcedureThresholdProposal).not.toHaveBeenCalled();
+    });
+    const wrapperCases: Array<[string, string, (s: MultisigService) => Promise<unknown>]> = [
+      ['createSendProposal', 'createP2idProposal', s => s.createSendProposal('rec', 'fauc', 5n, 'Public' as never)],
+      ['createConsumeNotesProposal', 'createConsumeNotesProposal', s => s.createConsumeNotesProposal(['note-a'])],
+      ['createCustomProposal', 'createCustomProposal', s => s.createCustomProposal(new Uint8Array([1]))]
+    ];
+
+    it.each(wrapperCases)(
+      '%s syncs the chain in the same hold before the multisig call',
+      async (_name, multisigMethod, call) => {
+        let multisigHold: object | null = null;
+        const multisigCall = jest.fn(async () => {
+          callOrder.push(multisigMethod);
+          multisigHold = currentWasmHold;
+          return { kind: multisigMethod };
+        });
+        const service = new MultisigService(
+          makeMultisig({ [multisigMethod]: multisigCall }) as never,
+          {} as never,
+          'https://x'
+        );
+
+        await call(service);
+
+        expect(callOrder).toEqual(['syncChain', multisigMethod]);
+        expect(syncHoldsSeen[0]).not.toBeNull();
+        expect(syncHoldsSeen[0]).toBe(multisigHold);
+      }
+    );
+
+    it.each(wrapperCases)('%s makes no proposal when the sync fails', async (_name, multisigMethod, call) => {
+      const multisigCall = jest.fn(async () => ({ kind: multisigMethod }));
+      const service = new MultisigService(
+        makeMultisig({ [multisigMethod]: multisigCall }) as never,
+        {} as never,
+        'https://x'
+      );
+      mockSyncChain.mockRejectedValueOnce(new Error('node unreachable'));
+
+      await expect(call(service)).rejects.toThrow('node unreachable');
+      expect(multisigCall).not.toHaveBeenCalled();
+    });
+
+    // Only the sync is tagged: a 409 the proposal itself answers must reach withGuardianConflictRetry as it is.
+    it.each<[string, string, (s: MultisigService) => Promise<unknown>]>([
+      ...wrapperCases,
+      [
+        'createSwitchGuardianProposal',
+        'createSwitchGuardianProposal',
+        s => {
+          guardianConfig.getPubkey.mockResolvedValueOnce({ commitment: NEW_GUARDIAN_COMMITMENT, pubkey: 'p' });
+          return s.createSwitchGuardianProposal('https://new');
+        }
+      ]
+    ])('%s passes the multisig call rejection through unwrapped', async (_name, multisigMethod, call) => {
+      const conflict = Object.assign(new Error('GUARDIAN HTTP error 409: Conflict'), {
+        status: 409,
+        code: 'conflict_pending_delta'
+      });
+      const multisigCall = jest.fn(async () => {
+        throw conflict;
+      });
+      const service = new MultisigService(
+        makeMultisig({ [multisigMethod]: multisigCall }) as never,
+        {} as never,
+        'https://x'
+      );
+
+      const error: unknown = await call(service).catch((e: unknown) => e);
+
+      expect(multisigCall).toHaveBeenCalledTimes(1);
+      expect(error).toBe(conflict);
+      expect(isProposalChainSyncError(error)).toBe(false);
+    });
+  });
+
   describe('signProposal pass-through', () => {
     it('forwards signProposal to the wrapped Multisig and does not finalize the proposal', async () => {
       const multisig = makeMultisig();
@@ -2131,9 +2563,18 @@ describe('MultisigService', () => {
       const account = { id: () => ({ toString: () => 'acc-id' }) } as never;
 
       mockGetSignerDetailsFromAccount.mockResolvedValueOnce({ commitment: 'coldcommitnoprefix' });
+      const builtRequest = { kind: 'request' };
+      mockBuildUpdateSignersTransactionRequest.mockResolvedValueOnce({
+        request: builtRequest,
+        salt: { toHex: () => 'salt-hex' }
+      });
+      // Only the built request binds a block, so reading any other object leaves the proposal unbound.
+      mockRequestBoundBlockNum.mockImplementationOnce(request => (request === builtRequest ? 4242 : undefined));
 
       const result = await service.createReplaceHotKeyProposal(account, '0xnewhotcommit');
 
+      expect(mockRequestBoundBlockNum).toHaveBeenCalledTimes(1);
+      expect(mockRequestBoundBlockNum.mock.calls[0]?.[0]).toBe(builtRequest);
       expect(mockGetSignerDetailsFromAccount).toHaveBeenCalledWith(account, true);
       // Order preservation: newHot at index 0, cold at index 1.
       expect(mockBuildUpdateSignersTransactionRequest).toHaveBeenCalledWith(
@@ -2147,11 +2588,8 @@ describe('MultisigService', () => {
           signatureScheme: 'ecdsa'
         }
       );
-      expect(mockExecuteForSummary).toHaveBeenCalledWith(expect.anything(), 'acc-id', { kind: 'request' });
-      // The anchor from execution has to be serialized onto the proposal: the
-      // multisig client refuses to execute a proposal whose metadata carries no
-      // chainAnchor, so dropping it strands the proposal permanently.
-      expect(mockChainAnchorToBase64).toHaveBeenCalledWith(expect.objectContaining({ kind: 'anchor' }));
+      expect(mockRequestBoundBlockNum).toHaveBeenCalledWith({ kind: 'request' });
+      expect(mockExecuteForSummaryAtTip).toHaveBeenCalledWith(expect.anything(), 'acc-id', { kind: 'request' });
       // Proposal label is cosmetic; on-chain effect is dictated by targetSignerCommitments.
       expect(multisig.createProposal).toHaveBeenCalledWith(
         expect.any(Number),
@@ -2161,132 +2599,16 @@ describe('MultisigService', () => {
           targetThreshold: 1,
           targetSignerCommitments: ['0xnewhotcommit', '0xcoldcommitnoprefix'],
           saltHex: 'salt-hex',
-          chainAnchor: 'anchor-b64'
+          boundBlockNum: 4242
         })
       );
+      expect(multisig.createProposal).toHaveBeenNthCalledWith(
+        1,
+        expect.anything(),
+        expect.anything(),
+        expect.not.objectContaining({ chainAnchor: expect.anything() })
+      );
       expect(result).toEqual({ kind: 'custom', id: 'proposal-id' });
-    });
-
-    // #784 follow-up: the captured anchor is a WASM object holding a partial
-    // blockchain. Its only job here is to be serialized onto the proposal —
-    // once `chainAnchorToBase64` has the wire form, the live object must be
-    // released, like every SDK-side producer does.
-    //
-    // The stub models the ONE way that release can go wrong: wasm-bindgen's
-    // `free()` zeroes `__wbg_ptr`, so a later `serialize()` hands a null pointer
-    // to rust. Asserting only "free was called" would hold just as well for a
-    // free that ran FIRST, i.e. for a use-after-free on every hot-key rotation.
-    //
-    // `freeThrows` models the other half: wasm-bindgen's generated `free()` has
-    // no null-pointer guard, so a disposed module (a #775 lock eviction) makes
-    // it throw for real. That throw lands in a `finally`, so only
-    // `freeChainAnchor`'s swallow keeps it from replacing whatever the block
-    // was already carrying — a successful rotation included.
-    const makeTrackedAnchor = (freeThrows = false): { kind: string; freed: boolean; free: jest.Mock } => {
-      const anchor = {
-        kind: 'anchor',
-        freed: false,
-        free: jest.fn(() => {
-          anchor.freed = true;
-          if (freeThrows) throw new Error('null pointer passed to rust');
-        })
-      };
-      return anchor;
-    };
-    const rejectSerializingAFreedAnchor = (): void => {
-      mockChainAnchorToBase64.mockImplementationOnce(a => {
-        if ((a as { freed?: boolean }).freed) throw new Error('null pointer passed to rust');
-        return 'anchor-b64';
-      });
-    };
-
-    it('frees the captured chain anchor only AFTER it is serialized onto the proposal', async () => {
-      const multisig = makeMultisig({ threshold: 1 });
-      const service = new MultisigService(multisig as never, {} as never, 'https://x');
-      const account = { id: () => ({ toString: () => 'acc-id' }) } as never;
-
-      const anchor = makeTrackedAnchor();
-      rejectSerializingAFreedAnchor();
-      mockExecuteForSummary.mockResolvedValueOnce({
-        summary: { serialize: () => new Uint8Array([0xab]) },
-        anchor
-      });
-      mockGetSignerDetailsFromAccount.mockResolvedValueOnce({ commitment: 'coldcommit' });
-
-      await service.createReplaceHotKeyProposal(account, '0xnewhotcommit');
-
-      expect(mockChainAnchorToBase64).toHaveBeenCalledWith(anchor);
-      expect(anchor.free).toHaveBeenCalledTimes(1);
-      // What proves the ordering is the ABSENCE of the stub's null-pointer
-      // throw above; this is belt-and-braces that the wire form still lands on
-      // the proposal (also covered by the main creation test).
-      expect(multisig.createProposal).toHaveBeenCalledWith(
-        expect.any(Number),
-        expect.any(String),
-        expect.objectContaining({ chainAnchor: 'anchor-b64' })
-      );
-    });
-
-    // The `finally` half. Upstream's plainer serialize-then-free would leak here,
-    // which is the whole reason this call site does not copy it. The anchor's
-    // `free()` throws too, so the assertion below is load-bearing for the
-    // swallow: a raw `anchor.free()` here would surface the null-pointer error
-    // in place of the real one.
-    it('frees the captured chain anchor even when building the wire payload throws', async () => {
-      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
-      const multisig = makeMultisig({ threshold: 1 });
-      const service = new MultisigService(multisig as never, {} as never, 'https://x');
-      const account = { id: () => ({ toString: () => 'acc-id' }) } as never;
-
-      const anchor = makeTrackedAnchor(true);
-      mockExecuteForSummary.mockResolvedValueOnce({
-        summary: {
-          serialize: () => {
-            throw new Error('summary serialize failed');
-          }
-        },
-        anchor
-      });
-      mockGetSignerDetailsFromAccount.mockResolvedValueOnce({ commitment: 'coldcommit' });
-
-      // Releasing the anchor must not replace the reason the proposal failed.
-      await expect(service.createReplaceHotKeyProposal(account, '0xnewhotcommit')).rejects.toThrow(
-        'summary serialize failed'
-      );
-
-      expect(anchor.free).toHaveBeenCalledTimes(1);
-      expect(multisig.createProposal).not.toHaveBeenCalled();
-      warn.mockRestore();
-    });
-
-    // The expensive direction of the same guard: here there is no in-flight
-    // error for the free to replace, so an unswallowed throw would INVENT one
-    // and fail a rotation that had already succeeded - after the caller minted
-    // a Secure Enclave / StrongBox key for it. Reclaiming a few hundred
-    // kilobytes is not worth that.
-    it('completes the rotation even when releasing the anchor fails', async () => {
-      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
-      const multisig = makeMultisig({ threshold: 1 });
-      const service = new MultisigService(multisig as never, {} as never, 'https://x');
-      const account = { id: () => ({ toString: () => 'acc-id' }) } as never;
-
-      const anchor = makeTrackedAnchor(true);
-      mockExecuteForSummary.mockResolvedValueOnce({
-        summary: { serialize: () => new Uint8Array([0xab]) },
-        anchor
-      });
-      mockGetSignerDetailsFromAccount.mockResolvedValueOnce({ commitment: 'coldcommit' });
-
-      const result = await service.createReplaceHotKeyProposal(account, '0xnewhotcommit');
-
-      expect(anchor.free).toHaveBeenCalledTimes(1);
-      expect(result).toEqual({ kind: 'custom', id: 'proposal-id' });
-      expect(multisig.createProposal).toHaveBeenCalledWith(
-        expect.any(Number),
-        expect.any(String),
-        expect.objectContaining({ chainAnchor: 'anchor-b64' })
-      );
-      warn.mockRestore();
     });
 
     // #788 follow-up: an eviction ABANDONS this flow rather than cancelling it —
@@ -2309,7 +2631,7 @@ describe('MultisigService', () => {
         name: 'WasmClientPoisonedError'
       });
       expect(mockBuildUpdateSignersTransactionRequest).not.toHaveBeenCalled();
-      expect(mockExecuteForSummary).not.toHaveBeenCalled();
+      expect(mockExecuteForSummaryAtTip).not.toHaveBeenCalled();
       expect(multisig.createProposal).not.toHaveBeenCalled();
 
       // Falsifier: with the hold intact the same rotation goes through.
@@ -2332,32 +2654,26 @@ describe('MultisigService', () => {
       await expect(service.createReplaceHotKeyProposal(account, '0xnewhotcommit')).rejects.toMatchObject({
         name: 'WasmClientPoisonedError'
       });
-      expect(mockExecuteForSummary).not.toHaveBeenCalled();
+      expect(mockExecuteForSummaryAtTip).not.toHaveBeenCalled();
       expect(multisig.createProposal).not.toHaveBeenCalled();
     });
 
-    it('stops before serializing — but still frees the anchor — when the hold is evicted during execution', async () => {
+    it('stops before serializing when the hold is evicted during execution', async () => {
       const multisig = makeMultisig({ threshold: 1 });
       const service = new MultisigService(multisig as never, {} as never, 'https://x');
       const account = { id: () => ({ toString: () => 'acc-id' }) } as never;
       seedReplaceHotKeyCollaborators();
       const summarySerialize = jest.fn(() => new Uint8Array([0xab]));
-      const anchor = { kind: 'anchor', free: jest.fn() };
-      mockExecuteForSummary.mockImplementationOnce(async () => {
+      mockExecuteForSummaryAtTip.mockImplementationOnce(async () => {
         currentWasmHold = null;
-        return { summary: { serialize: summarySerialize }, anchor };
+        return { serialize: summarySerialize };
       });
 
       await expect(service.createReplaceHotKeyProposal(account, '0xnewhotcommit')).rejects.toMatchObject({
         name: 'WasmClientPoisonedError'
       });
-      // The summary, salt, and anchor are borrows of the client a successor now
-      // owns — none of them may be touched past the eviction...
+      // The summary and salt are borrows of the client a successor now owns.
       expect(summarySerialize).not.toHaveBeenCalled();
-      expect(mockChainAnchorToBase64).not.toHaveBeenCalled();
-      // ...but the release still runs (freeChainAnchor swallows a disposed-object
-      // throw), so the anchor's partial blockchain is not left to the finalizer.
-      expect(anchor.free).toHaveBeenCalledTimes(1);
       expect(multisig.createProposal).not.toHaveBeenCalled();
     });
 
@@ -2456,6 +2772,22 @@ describe('MultisigService', () => {
       await expect(service.createReplaceHotKeyProposal(account, '0xnewhotcommit')).rejects.toBe(unreachable);
 
       expect(mockBuildUpdateSignersTransactionRequest).not.toHaveBeenCalled();
+      expect(multisig.createProposal).not.toHaveBeenCalled();
+    });
+
+    // The Guardian's verifier refuses a proposal with no bound block only after the push.
+    it('refuses a request that carries no multisig auth args before executing it or pushing a proposal', async () => {
+      const multisig = makeMultisig({ threshold: 1 });
+      const { service, account } = await initRotationService(multisig);
+      mockGetSignerDetailsFromAccount.mockResolvedValueOnce({ commitment: 'coldcommit' });
+      mockRequestBoundBlockNum.mockReturnValueOnce(undefined);
+
+      await expect(service.createReplaceHotKeyProposal(account, '0xnewhotcommit')).rejects.toMatchObject({
+        name: 'UnboundGuardianRequestError',
+        message: 'Guardian account acc-id: the update-signers request carries no multisig auth args'
+      });
+
+      expect(mockExecuteForSummaryAtTip).not.toHaveBeenCalled();
       expect(multisig.createProposal).not.toHaveBeenCalled();
     });
   });

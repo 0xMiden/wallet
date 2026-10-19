@@ -3,6 +3,7 @@ import {
   IBridgeProvider,
   IBridgedReceivePhase,
   IBuyPhase,
+  IUsdcxCctpLeg,
   IEarnDepositExtraInputs,
   IEarnWithdrawPhase,
   INoteDeliveryState,
@@ -15,6 +16,8 @@ import {
 } from 'lib/miden/db/types';
 import type { RotationVerdictKind } from 'lib/miden/guardian/rotation-verdict';
 import type { NotConfirmedHintKey } from 'lib/miden/transaction/verdict-rules';
+import type { AgglayerRecoveryConfig } from 'lib/remote-config/schema';
+import type { UsdcxSourceChain } from 'lib/usdcx/constant';
 
 /** A formatted secondary asset on a batch-consume row. */
 export interface IHistoryExtraAmount {
@@ -60,13 +63,20 @@ export interface IHistoryEntry {
   /** Which not-confirmed hint the detail page shows (`notConfirmedHintKey`, #1081); set by the detail page only. */
   notConfirmedHint?: NotConfirmedHintKey;
   /**
-   * `tx.noteDelivery` — whether this send's private note reached the transport
+   * `tx.noteDelivery` - whether this send's private note reached the transport
    * layer. Read by the detail page to warn that a transaction which SUCCEEDED on
    * chain may still not be spendable by its recipient, since a private note is
    * unreachable without its relayed body. Absent for public sends and for rows
    * written before the field existed.
    */
   noteDelivery?: INoteDeliveryState;
+  /**
+   * The delivery sweep will not push this row's notes again: `tx.relayRetriesStopped`,
+   * a row restored from a backup (never pushed), or a send past the retry window
+   * (which the sweep may never revisit to set the flag). The detail page then stops
+   * promising automatic retries and points to the transaction ID instead.
+   */
+  relayRetriesStopped?: boolean;
   /**
    * `tx.processingStartedAt` — stamped atomically with the Queued →
    * GeneratingTransaction transition. The detail page's Retry gate reads it as
@@ -105,7 +115,7 @@ export interface IHistoryEntry {
    * status chip. Absent (rendered Confirmed) once settled, and for legacy /
    * manual-claim orders.
    */
-  swapSettlement?: 'pending' | 'reclaimed';
+  swapSettlement?: 'pending' | 'reclaimed' | 'reclaiming';
   secondaryAddress?: string;
   cancel?: () => Promise<void>;
   explorerLink?: string;
@@ -140,6 +150,8 @@ export interface IHistoryEntry {
   usdcxBurn?: IUsdcxBurn;
   bridgeDestinationAddress?: string;
   bridgeDestinationNetwork?: number;
+  bridgeAgglayerRoute?: AgglayerRecoveryConfig;
+  bridgeEpochAllocatorUrl?: string;
   bridgeClaimStatus?: IBridgeClaimStatus;
   // Epoch (Fast) route: quoted destination output + intent-status tracking.
   bridgeOutputAmount?: string;
@@ -178,10 +190,13 @@ export interface IHistoryEntry {
   bridgeInProvider?: IBridgeProvider;
   bridgeInSourceAddress?: string;
   bridgeInSourceChainId?: number;
+  bridgeInSourceConfig?: UsdcxSourceChain;
   bridgeInSourceAmount?: string;
   bridgeInSourceSymbol?: string;
   bridgeInEvmTxHash?: string;
   bridgeInPhase?: IBridgedReceivePhase;
+  /** usdcx: the CCTP leg of an executor-route deposit, which Activity lets the user execute on Arc. */
+  bridgeInCctp?: IUsdcxCctpLeg;
   bridgeInOutputAmount?: string;
   bridgeInOutputSymbol?: string;
   bridgeInMidenNoteId?: string;

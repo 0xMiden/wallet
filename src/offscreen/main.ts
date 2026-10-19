@@ -25,11 +25,11 @@
 //             | { ok: false, error: string }
 //   OFFSCREEN_CALL (issue #260 — generalized WASM-client method dispatch):
 //     request:  { target: "offscreen", type: "OFFSCREEN_CALL", op_id, method,
-//                 argsB64: string[], deadline_ms: number | null }
+//                 argsB64: string[], deadline_ms: number | null, endpoints }
 //     response: { ok: true, op_id, resultB64: string | null, durationMs }
 //             | { ok: false, op_id, error: string, errorCode?: string }
-//   OFFSCREEN_RELOAD_ENDPOINTS (developer endpoint overrides):
-//     request:  { target: "offscreen", type: "OFFSCREEN_RELOAD_ENDPOINTS" }
+//   OFFSCREEN_RELOAD_ENDPOINTS (an endpoint change, or a client discard):
+//     request:  { target: "offscreen", type: "OFFSCREEN_RELOAD_ENDPOINTS", endpoints }
 //     response: { ok: true } | { ok: false, error: string }
 //   See src/lib/miden/back/offscreen-codec.ts for the shared wire format, which
 //   also defines the REVERSE (offscreen → SW) families this realm posts: the sign
@@ -64,6 +64,7 @@ import {
   type OffscreenCallRequest,
   type OffscreenConnectivityEvent,
   type OffscreenOpStarted,
+  type OffscreenReloadEndpointsRequest,
   type OffscreenReloadEndpointsResponse,
   type OffscreenSignResponse,
   type OffscreenStageEvent
@@ -77,6 +78,8 @@ import type {
 } from 'lib/miden/db/types';
 import { prepareGuardianTipExecution } from 'lib/miden/guardian/tip-execution';
 import { applyAfterSubmit } from 'lib/miden/sdk/apply-after-submit';
+import { COMMIT_WAIT_POLL_INTERVAL_MS } from 'lib/miden/sdk/constants';
+import { dryRunRequest } from 'lib/miden/sdk/dry-run-request';
 import { collectInputNoteDetails } from 'lib/miden/sdk/input-note-detail';
 import { reduceInputNoteSummary } from 'lib/miden/sdk/input-note-summary';
 import {
@@ -90,6 +93,7 @@ import {
   assertWasmHoldCurrent,
   getCurrentWasmLockHold,
   onWasmClientPoisoned,
+  tryWithWasmClientLock,
   withWasmClientLock,
   yieldWasmClientLock
 } from 'lib/miden/sdk/miden-client';
@@ -110,7 +114,7 @@ import {
   wasmClientGeneration,
   WasmClientPoisonedError
 } from 'lib/miden/sdk/wasm-client-poison';
-import { loadEndpointOverrides } from 'lib/miden-chain/effective-endpoints';
+import { adoptEndpointState, sameEndpointState, type EndpointState } from 'lib/miden-chain/effective-endpoints';
 import { setNativeAssetPublisher } from 'lib/miden-chain/native-asset';
 import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
 import { reportProve, setOperationTransport } from 'lib/telemetry/report-operation';
@@ -231,37 +235,15 @@ setNativeAssetPublisher(async (id, scope) => {
   }
 });
 
-// --- Developer endpoint overrides in THIS realm -----------------------------
+// --- The network THIS realm runs on (#1482) ---------------------------------
 //
-// `loadEndpointOverrides()` is the ONLY writer of the override cache in
-// `lib/miden-chain/effective-endpoints`, and that cache is module-scoped — i.e.
-// per realm. The service worker loads it at its own boot (`lib/miden/back/main.ts`)
-// and the page realm at provider mount, but neither reaches here, so without this
-// load every `getEffective*Url()` / `getEffectiveNetworkName()` in the offscreen
-// document answers the BUILD DEFAULT no matter what the user saved. Two things
-// break at once when the offscreen client is enabled (`MIDEN_USE_OFFSCREEN_CLIENT`,
-// which `vite.background.config.ts` defaults ON for the service worker):
-//   1. WRONG NODE. `MidenClientInterface.create` BAKES rpcUrl / proverUrl /
-//      noteTransportUrl into the client, and flag-on that client runs every
-//      send/consume/swap/newTransaction, every syncState, note import/export and
-//      the private-note relay — so a wallet configured on a custom dev-settings
-//      network would do all of its real work against the default node.
-//   2. SPLIT BECH32 PREFIX. `getNetworkId()` reads the network NAME, which an
-//      override can change independently of the RPC URL (the localnet preset uses
-//      the `mlcl` HRP), so ids encoded here would carry a different prefix than the
-//      ids the SW encodes, and SW-side comparisons between the two could never match.
-//
-// Memoized so the storage read happens once per realm. The memo is deliberately a
-// NEVER-REJECTING shadow of the load: it is awaited on the client-creation path, and
-// a permanently-rejected slot there would fail every later `getOrCreateClient()`.
-// (`loadEndpointOverrides` already swallows its own storage errors, so the catch only covers
-// the unexpected.)
-let endpointOverridesPromise: Promise<void> | null = null;
-
-function ensureEndpointOverrides(): Promise<void> {
-  if (!endpointOverridesPromise) endpointOverridesPromise = loadEndpointOverrides().catch(() => {});
-  return endpointOverridesPromise;
-}
+// This realm has no chrome.storage, so it cannot load the endpoint override the way
+// the SW and the page do, and every `getEffective*()` here would answer the BUILD
+// DEFAULT: the client's node, the bech32 prefix, the native-asset scope. The SW sends
+// its endpoint state with every OFFSCREEN_CALL (and with OFFSCREEN_RELOAD_ENDPOINTS),
+// `adoptEndpoints` installs it, and a call that carries none is refused rather than
+// run on the build's network.
+let adoptedEndpoints: EndpointState | undefined;
 
 // Telemetry reported from THIS realm has to be forwarded, and nothing else would
 // do it. `report-operation.ts` sends directly when it is the worker and uses an
@@ -291,14 +273,6 @@ installLocalProveTransport(proveWorker);
 let initPromise: Promise<void> | null = null;
 
 async function init() {
-  // Hydrate the endpoint override FIRST, mirroring the service worker's own boot
-  // order (load, then everything else): `ensureInit()` is awaited at the top of
-  // every inbound message handler, so completing the load here orders it ahead of
-  // anything in this realm that could build a client or encode an account id.
-  // `getOrCreateClient()` awaits the same memoized load again at the creation site
-  // itself, so the ordering does not depend on that call chain staying intact.
-  await ensureEndpointOverrides();
-
   // Force WASM init (lazy entry doesn't auto-load) so the wasm-bindgen `wasm`
   // namespace is populated and `initThreadPool` can call into it.
   // getWasmOrThrow → ensureWasm → loadWasm → import('Cargo-*.js') + __wbg_init
@@ -401,7 +375,7 @@ type SignLiveness = { poisoned: boolean };
 /**
  * Liveness of the most recently CREATED client — the one to mark on poison.
  *
- * Deliberately not "the one in `clientPromise`": `reloadEndpointOverrides()`
+ * Deliberately not "the one in `clientPromise`": an endpoint change
  * clears that slot without touching this, so between a reload and the next
  * `getOrCreateClient()` this names a client no longer installed. That is still
  * the right target, because it is the client any in-flight dispatch is running
@@ -576,6 +550,14 @@ async function stepBeforeSubmit<T>(step: () => Promise<T>): Promise<T> {
 }
 
 const DISPATCH: Record<string, DispatchFn> = {
+  tryGetAccount: async (context, client, accountId: string) => {
+    const account = await client.getAccount(accountId);
+    assertWasmHoldCurrent(context.hold, 'in offscreen tryGetAccount before serializing the account');
+    return new TextEncoder().encode(
+      JSON.stringify({ ran: true, accountB64: account ? bytesToB64(account.serialize()) : null })
+    );
+  },
+
   getAccount: async (context, client, accountId: string) => {
     const account = await client.getAccount(accountId);
     // The Account is a borrow of the shared client's RefCell, not a snapshot — if
@@ -630,6 +612,14 @@ const DISPATCH: Record<string, DispatchFn> = {
     return new TextEncoder().encode(JSON.stringify(details));
   },
 
+  // Only the candidate records for each details commitment (#1389) are hashed and reduced here.
+  getDetailsCommitmentMatches: async (context, client, commitments: string[], candidateIds: string[]) => {
+    const matches = await client.getDetailsCommitmentMatches(commitments, candidateIds, () =>
+      assertWasmHoldCurrent(context.hold, 'in offscreen getDetailsCommitmentMatches before reducing the records')
+    );
+    return new TextEncoder().encode(JSON.stringify(matches));
+  },
+
   // Node-authoritative commit state of one tx id, backing the send/swap
   // idempotent-retry guard. A plain string union, so JSON like the DTO reads
   // above. Its absence here was not neutral: the SW-side stub returned
@@ -659,6 +649,18 @@ const DISPATCH: Record<string, DispatchFn> = {
     );
     return new TextEncoder().encode(JSON.stringify(dtos));
   },
+
+  // Fee-aware depth-0 PSWAP reclaim request. The full output-note record exists
+  // only in the creator's canonical realm; return the serialized request, never
+  // a live note or request object. The third argument lets the build read the
+  // note on the node when no record exists, as for a recovered order (#1487).
+  buildPswapCancelRequest: async (context, client, accountId: string, noteId: string, allowNodeNote?: boolean) =>
+    client.buildPswapCancelRequest(
+      accountId,
+      noteId,
+      step => assertWasmHoldCurrent(context.hold, 'in offscreen buildPswapCancelRequest', step),
+      { allowNodeNote: allowNodeNote === true }
+    ),
 
   // Deferred reach-through READS moved offscreen (issue #260, slice 7a). Each reads
   // the OFFSCREEN client's canonical synced state — the whole point, since flag-on
@@ -705,14 +707,11 @@ const DISPATCH: Record<string, DispatchFn> = {
     return new TextEncoder().encode(JSON.stringify(records.map(reducePswapLineage)));
   },
 
-  // A to-be-consumed note's summary, reduced in-realm to a minimal JSON DTO carrying
-  // just the note's `noteType`. Returns null (→ resultB64 null) for a not-found note,
-  // distinct from a found record whose `noteType` is undefined (the JSON `{}`).
+  // Note type and fee assets cross as JSON; null means not found, while a found
+  // note whose assets cannot be read carries assets:null so the fee gate admits it.
   getInputNoteSummary: async (context, client, noteId: string) => {
     const record = await client.getInputNote(noteId);
-    // Same shape as the lineage read above: the record's `metadata()`
-    // reach-through is a borrow of the shared client, refused once the hold is
-    // stale (#788).
+    // A displaced hold cannot authorize metadata or asset reads on this record (#788).
     assertWasmHoldCurrent(context.hold, 'in offscreen getInputNoteSummary before reducing the record');
     const dto = reduceInputNoteSummary(record);
     return dto ? new TextEncoder().encode(JSON.stringify(dto)) : null;
@@ -741,6 +740,14 @@ const DISPATCH: Record<string, DispatchFn> = {
       return record;
     }, noteIds);
     return new TextEncoder().encode(JSON.stringify(details));
+  },
+
+  // The USDCx burn fee probe: execute one request for its effects, with no sync and no note import, on the client
+  // that owns the synced state. `dryRunRequest` re-checks this dispatch's hold after every await; the summary or the
+  // executed result crosses back as plain base64 strings in JSON.
+  dryRunTransaction: async (context, client, accountIdHex: string, requestBytes: Uint8Array) => {
+    const result = await dryRunRequest(client, accountIdHex, requestBytes, context.hold);
+    return new TextEncoder().encode(JSON.stringify(result));
   },
 
   // Import serialized note bytes into THIS (offscreen) client's store — a store
@@ -786,33 +793,10 @@ const DISPATCH: Record<string, DispatchFn> = {
     return new TextEncoder().encode(JSON.stringify(result));
   },
 
-  // Relay a just-created PRIVATE note to the transport layer (issue #260, slice 7b).
-  // Under the flag the send ran here, so the note is an APPLIED OUTPUT note of THIS
-  // (offscreen) client's store, which is what makes the relay belong here.
-  // `sendPrivateNote` calls `notes.sendPrivateOutput({ noteId })`, which
-  // resolves the note by id from the calling client's store and reads the
-  // inclusion proof sync stored once that client has synced past the commitment.
-  // On the dormant SW client that lookup simply fails. The live `Note` can't cross postMessage, so it arrived as
-  // `Note.serialize()` raw bytes and is re-hydrated here purely to read its id back.
-  // A transport relay — no prove / sign — so a void result (nothing to
-  // re-hydrate); the SW-side caller only awaits it.
-  sendPrivateNote: async (_context, client, noteBytes: Uint8Array, to: string) => {
-    const note = (sdk as any).Note.deserialize(noteBytes);
-    await client.sendPrivateNote(note, to);
-    return null;
-  },
-
-  // Re-push of an already-relayed private note, by id (see `relayPrivateNoteById`).
-  // Belongs here for the same reason as `sendPrivateNote`: the output note lives in
-  // THIS realm's store, so the id lookup and the stored inclusion proof
-  // only resolve here. No note bytes to carry. The sweep has only the row.
-  relayPrivateNoteById: async (_context, client, noteId: string, to: string) => {
-    await client.relayPrivateNoteById(noteId, to);
-    return null;
-  },
-
-  // Delivery receipt read for the sweep. Same store-ownership argument; returns the
-  // boolean as UTF-8 bytes because the op channel carries bytes, not values.
+  // Delivery receipt read for the sweep, routed here as reads are under the flag. The
+  // relays themselves run on the SW client (`midenClientProxy.sendPrivateNote`), whose
+  // store holds the output notes this client applied. Returns the boolean as UTF-8
+  // bytes because the op channel carries bytes, not values.
   isOutputNoteConsumed: async (_context, client, noteId: string) => {
     const consumed = await client.isOutputNoteConsumed(noteId);
     return new TextEncoder().encode(consumed ? 'true' : 'false');
@@ -1178,7 +1162,7 @@ const DISPATCH: Record<string, DispatchFn> = {
     // not cancelled by the eviction, so it would do that on every poll.
     const { hold } = context;
     const timeout = 60_000;
-    const interval = 5_000;
+    const interval = COMMIT_WAIT_POLL_INTERVAL_MS;
     const start = Date.now();
     for (;;) {
       // Stop if this loop can no longer poll safely. Two ways in: this dispatch was
@@ -1315,7 +1299,7 @@ let clientPromise: Promise<MidenClientInterface> | null = null;
  * because this is where the writes and proves run.
  *
  * Clearing the slot is all that is needed to keep future callers off it —
- * deliberately no `free()`, for the reason `reloadEndpointOverrides` documents
+ * deliberately no `free()`, for the reason `adoptEndpoints` documents
  * below: a dispatch that yielded the mutex resumes on its captured reference,
  * and terminating under it would fail an op that may still be healthy. The
  * displaced client goes with the realm when the document closes.
@@ -1350,6 +1334,8 @@ onWasmClientPoisoned(() => {
 });
 function getOrCreateClient(): Promise<MidenClientInterface> {
   if (!clientPromise) {
+    // Fail closed: a client built before any state arrived would run on the build's network.
+    if (!adoptedEndpoints) return Promise.reject(new Error('no network state adopted from the service worker'));
     // Created with two Slice-5 overrides vs. the SW's plain singleton:
     //   - `signCallback: offscreenSignViaSW` — the reverse-IPC keystore stub, so
     //     a write op's mid-execute signing reaches the SW-resident vault (§2).
@@ -1361,13 +1347,9 @@ function getOrCreateClient(): Promise<MidenClientInterface> {
     //     useWorker:false"). `false` pins the client to THIS doc's WASM instance,
     //     whose rayon pool `init()` brought up; local proving is the one step that
     //     leaves it, for the prove worker (#945).
-    // The endpoint override is awaited HERE, not only in `init()`: `create` reads
-    // `getEffectiveRpcUrl()` / `getEffectiveProverUrl()` / `getEffectiveNoteTransportUrl()`
-    // and bakes them into the client for its whole lifetime, so the load has to be
-    // ordered ahead of it at the creation site rather than at a distant caller. It is
-    // the SAME memoized load `init()` already awaited (one storage read), except
-    // after a reload — where it is the NEW load, which is precisely what makes the
-    // rebuilt client pick the new endpoints up.
+    // `create` reads `getEffectiveRpcUrl()` / `getEffectiveProverUrl()` /
+    // `getEffectiveNoteTransportUrl()` and bakes them into the client for its whole
+    // lifetime, which is why `adoptEndpoints` drops this slot on a changed state.
     // S1: null the cached promise if the create rejects (e.g. a transient RPC
     // genesis fetch failure) so the NEXT OFFSCREEN_CALL retries within this same
     // doc — otherwise a one-off failure would stick until the next kill/reopen.
@@ -1380,13 +1362,10 @@ function getOrCreateClient(): Promise<MidenClientInterface> {
     currentSignLiveness = liveness;
     const startedGeneration = wasmClientGeneration();
     recordProveTiming('getOrCreateClient: creating the offscreen client');
-    const created: Promise<MidenClientInterface> = ensureEndpointOverrides()
-      .then(() =>
-        MidenClientInterface.create({
-          signCallback: makeOffscreenSignViaSW(liveness),
-          useWorker: false
-        })
-      )
+    const created: Promise<MidenClientInterface> = MidenClientInterface.create({
+      signCallback: makeOffscreenSignViaSW(liveness),
+      useWorker: false
+    })
       .then(client => {
         recordProveTiming('getOrCreateClient: client created');
         // A poisoning that lands while this create is in flight nulls the memo
@@ -1412,10 +1391,11 @@ function getOrCreateClient(): Promise<MidenClientInterface> {
 }
 
 /**
- * Re-read the saved developer endpoint override and drop the client singleton, so
- * the NEXT `getOrCreateClient()` rebuilds against the new endpoints. Driven by the
- * SW's `OFFSCREEN_RELOAD_ENDPOINTS` control message when the user saves a new
- * override — the SW's own `resetMidenClient()` reaches only the SW realm.
+ * Adopt the SW's endpoint state and, when it differs from the adopted one, drop the
+ * client singleton, so the NEXT `getOrCreateClient()` rebuilds against the new
+ * endpoints. Driven by the state every OFFSCREEN_CALL carries and by the SW's
+ * `OFFSCREEN_RELOAD_ENDPOINTS`; the SW's own `resetMidenClient()` reaches only the
+ * SW realm.
  *
  * It deliberately touches NOTHING in flight, which is what makes it safe to run at
  * any moment, including mid-write:
@@ -1431,15 +1411,11 @@ function getOrCreateClient(): Promise<MidenClientInterface> {
  * that op. The displaced client is released with the rest of the realm when the
  * document closes.
  */
-function reloadEndpointOverrides(): Promise<void> {
-  const load = loadEndpointOverrides();
-  // Both assignments before any await, so a `getOrCreateClient()` that interleaves
-  // sees the cleared slot AND the fresh load — never one without the other. The memo
-  // takes the never-rejecting shadow (see `ensureEndpointOverrides`) while the RAW
-  // load is what's returned, so the caller can still report a failed reload.
-  endpointOverridesPromise = load.catch(() => {});
+function adoptEndpoints(state: EndpointState): void {
+  if (adoptedEndpoints !== undefined && sameEndpointState(adoptedEndpoints, state)) return;
+  adoptEndpointState(state);
+  adoptedEndpoints = state;
   clientPromise = null;
-  return load;
 }
 
 async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown) => void): Promise<void> {
@@ -1454,6 +1430,18 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
   // dispatch-time backstop is a flat 5 minutes either way.
   recordProveTiming(`call '${msg?.method}' op=${msg?.op_id} entered`);
   try {
+    // On receipt, before any await: a reload that arrives while this call waits on a cold
+    // init is newer, and adopting after the await would let this older state win.
+    if (!msg.endpoints) {
+      sendResponse({
+        ok: false,
+        op_id: msg.op_id,
+        error: `offscreen call '${msg.method}' carries no network state from the service worker`,
+        errorBeforeSubmit: true
+      });
+      return;
+    }
+    adoptEndpoints(msg.endpoints);
     await stepBeforeSubmit(ensureInit);
     const dispatch = DISPATCH[msg.method];
     if (!dispatch) {
@@ -1485,7 +1473,7 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
     // writes are legitimately long (they sign and prove) and have their own deadlines.
     const lockOptions =
       msg.method === 'syncState' ? { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'offscreen-sync' } : undefined;
-    const resultBytes = await withWasmClientLock(async hold => {
+    const execute = async (hold: WasmLockHold) => {
       // Resolved INSIDE the lock, deliberately. Reading the slot before queueing
       // would pin this op to the client that was current when it arrived — and
       // the ops most likely to be queued are the ones waiting behind the holder
@@ -1548,7 +1536,17 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
         if (currentOpId === msg.op_id) currentOpId = null;
         recordProveTiming(`call '${msg.method}' dispatch settled; releasing WASM mutex`);
       }
-    }, lockOptions);
+    };
+    let resultBytes: Uint8Array | null;
+    if (msg.method === 'tryGetAccount') {
+      const read = await tryWithWasmClientLock(execute, {
+        watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS,
+        label: 'claim-fee'
+      });
+      resultBytes = read.ran ? read.value : new TextEncoder().encode(JSON.stringify({ ran: false }));
+    } else {
+      resultBytes = await withWasmClientLock(execute, lockOptions);
+    }
     sendResponse({
       ok: true,
       op_id: msg.op_id,
@@ -1673,18 +1671,28 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg?.type === OFFSCREEN_RELOAD_ENDPOINTS) {
     (async () => {
       try {
-        // NOT gated on `ensureInit()`, unlike the two families above: re-reading a
-        // storage key and clearing a module slot need neither the WASM instance nor
-        // the rayon pool, and waiting on a cold start would just delay the answer the
-        // SW is holding the user's "Save" on.
-        await reloadEndpointOverrides();
+        // NOT gated on `ensureInit()`, unlike the two families above: adopting a state
+        // and clearing a module slot need neither the WASM instance nor the rayon pool,
+        // and waiting on a cold start would just delay the answer the SW is holding the
+        // user's "Save" on.
+        const request: OffscreenReloadEndpointsRequest = msg;
+        if (!request.endpoints) {
+          const refused: OffscreenReloadEndpointsResponse = {
+            ok: false,
+            error: 'endpoint reload carries no network state from the service worker'
+          };
+          sendResponse(refused);
+          return;
+        }
+        adoptEndpoints(request.endpoints);
+        // Dropped even when the state did not change: seed removal sends this only to discard the client.
+        clientPromise = null;
         const response: OffscreenReloadEndpointsResponse = { ok: true };
         sendResponse(response);
       } catch (err) {
-        // `loadEndpointOverrides` swallows its own storage errors, so reaching here means
-        // something unexpected. Answer ok:false rather than dropping the response, which would
-        // leave the SW's await hanging.
-        console.error(`${TAG} endpoint-override reload failed:`, err);
+        // Adopting does no I/O, so reaching here means a malformed state. Answer ok:false
+        // rather than dropping the response, which would leave the SW's await hanging.
+        console.error(`${TAG} endpoint reload failed:`, err);
         const response: OffscreenReloadEndpointsResponse = {
           ok: false,
           error: String((err as { message?: string })?.message ?? err)

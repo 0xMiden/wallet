@@ -1,19 +1,29 @@
-import { decodeFunctionData, encodeFunctionData, isHash, parseUnits } from 'viem';
+import fs from 'fs';
+import path from 'path';
+import { decodeFunctionData, isHash, parseUnits } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 
-import { fetchXReserveAttestations, findAttestationForDomain } from '../../../../src/lib/usdcx/attestation';
-import {
-  CIRCLE_USDC_DECIMALS,
-  ERC20_BALANCE_OF_ABI,
-  getUsdcxContracts,
-  USDCX_DEPOSIT_HOOK_DATA,
-  USDCX_DEPOSIT_MAX_FEE,
-  USDCX_REMOTE_DOMAIN,
-  XRESERVE_ABI
-} from '../../../../src/lib/usdcx/constant';
+import { fetchXReserveAttestations, findAttestationForDomain } from '../../../../src/lib/usdcx/attestation-protocol';
+import { CIRCLE_USDC_DECIMALS, XRESERVE_ABI } from '../../../../src/lib/usdcx/protocol';
+import { midenAccountHexToXReserveRecipient } from '../../../../src/lib/usdcx/recipient';
 import { ARC_TESTNET } from '../../../../src/lib/walletconnect/config';
+import { arcEndpoints, arcHost, readArcUsdc, readXReserveDomainState, type ArcReadDeps } from '../../helpers/arc-usdcx';
+import { parseBridgeReceiveState } from '../../helpers/bridge';
+import { describeTransactionRow, TxStatus } from '../../helpers/history';
+import { USDCX_REMOTE_DOMAIN, getUsdcxXReserveSource } from '../../helpers/usdcx-config';
+import { CLAIM_COST_FEE_MULTIPLE, GAS_RESERVE_UNITS, isWorthClaiming } from '../../helpers/usdcx-constants';
+import type { PayoutKey } from '../../helpers/usdcx-legs';
+import { accountHex } from '../../helpers/usdcx-miden';
 import { readUsdcxRelayerEnv, UsdcxRelayer } from '../../helpers/usdcx-relayer';
+import { exactlyOne, namedSteps, newRunEvidence, PhaseTimeline, pollUntil } from '../../helpers/usdcx-run';
 import { expect, test } from '../fixtures/two-simulators';
+import {
+  assertHostedGuardianAccount,
+  burnBackToDepositKey,
+  evidenceBody,
+  noteIdsOf,
+  settleLedger
+} from '../helpers/usdcx-live';
 import { WcCounterparty, type WcRequestLog } from '../helpers/wc-counterparty';
 
 /**
@@ -27,18 +37,28 @@ import { WcCounterparty, type WcRequestLog } from '../helpers/wc-counterparty';
  *   5. The deposit relayer reads the attestation and submits the mint note to the
  *      USDCx faucet. By default this is the deployed relayer. The faucet does not
  *      look at who sent a mint note, so the spec needs no relayer of its own.
- *   6. The faucet mints, and the wallet claims the note.
+ *   6. The faucet mints, and the wallet claims the note on its own: USDCx is testnet's native asset,
+ *      which the wallet auto-claims, so it never waits in Pending. The wallet is a Guardian account, so
+ *      the claim is a consume the hosted testnet Guardian co-signs, and the spec checks the account's
+ *      auth structure afterwards.
+ *   7. Only then the burn: the wallet takes USDCx from the public faucet and burns 1 USDCx through Send, to
+ *      Arc Testnet, back to the funded key's own address. The run fails unless Circle pays that key within 10
+ *      minutes of the faucet consuming the burn (one GatewayMinter AttestationUsed log that carries the burn note id
+ *      and adds exactly its value to the key's balance, read right before the burn) and the wallet confirms the
+ *      payout itself: the row's destination balance, then the History pill.
  *
- * The run spends real Arc Testnet USDC (the deposit and the gas).
+ * The run spends public faucet USDCx and real Arc Testnet USDC (the deposit and the gas). At the default 0.01 USDC
+ * deposit the payout of about 0.98 USDC more than refills that, so the funded key needs no top-up
+ * (playwright/e2e/docs/e2e-architecture.md, section 8).
  *
  * Environment:
  *   USDCX_LIVE_EVM_PRIVATE_KEY        required: funded Arc Testnet key (USDC is the gas token too)
- *   USDCX_LIVE_DEPOSIT_AMOUNT         optional, in USDC; default 1
- *   USDCX_FAUCET_ACCOUNT_ID           optional: the USDCx faucet, for the claim step
+ *   USDCX_LIVE_DEPOSIT_AMOUNT         optional, in USDC; default 0.01
  *
  * To test a relayer build before it is deployed, set these too and the spec starts
- * that relayer as a local process (all are then required, with the faucet id):
+ * that relayer as a local process (all are then required):
  *   USDCX_RELAYER_ACCOUNT_ID          funded Miden account that creates the mint notes
+ *   USDCX_FAUCET_ACCOUNT_ID           the USDCx faucet Circle's Miden domain mints from
  *   USDCX_RELAYER_DATA_DIR            holds `keystore/` with that account's key
  *   USDCX_CIRCLE_ATTESTER_PUBLIC_KEY  the key Circle signs deposit attestations with
  * The spec skips when a required variable is unset, and names it.
@@ -46,10 +66,17 @@ import { WcCounterparty, type WcRequestLog } from '../helpers/wc-counterparty';
  * Build the app WITHOUT `E2E_EVM_RPC_URL`, so its Arc reads go to the real RPC.
  */
 
-// `DomainDepositsPaused(uint32)`: Circle paused deposits for a remote domain on xReserve.
-const DOMAIN_DEPOSITS_PAUSED_SELECTOR = '0x14e2708f';
 const ATTESTATION_TIMEOUT_MS = 20 * 60_000;
 const MINT_AND_CLAIM_TIMEOUT_MS = 15 * 60_000;
+// #1405: a fast round trip can go from submitting straight to received, so ready is recorded, never required.
+const DEPOSIT_PHASES = ['submitting', 'delivering', 'ready', 'received'];
+/** Deposit-leg step budgets: each a small multiple of the slowest spike run or CI run 38109117552. */
+const BUDGET = {
+  // spike 0.2 s for the cache, plus the oracle's account-hex read and a store that lands after Ready
+  nativeAsset: 90_000,
+  // CI 5.2 s for the old balance step (run 38109117552), plus the rows and the Home wait
+  depositVault: 120_000
+};
 
 const evmPrivateKey = (process.env.USDCX_LIVE_EVM_PRIVATE_KEY ?? '').trim();
 const relayerEnv = readUsdcxRelayerEnv();
@@ -62,26 +89,10 @@ const missingEnv = [
   ...(evmPrivateKey ? [] : ['USDCX_LIVE_EVM_PRIVATE_KEY']),
   ...(wantsLocalRelayer ? relayerEnv.missing : [])
 ];
-// Optional: lets the claim step show a faucet whose metadata the wallet has not read yet.
-const faucetAccountId = (process.env.USDCX_FAUCET_ACCOUNT_ID ?? '').trim();
-const depositAmount = (process.env.USDCX_LIVE_DEPOSIT_AMOUNT ?? '').trim() || '1';
+const depositAmount = (process.env.USDCX_LIVE_DEPOSIT_AMOUNT ?? '').trim() || '0.01';
 const depositUnits = parseUnits(depositAmount, CIRCLE_USDC_DECIMALS);
 const arcRpcUrl = ARC_TESTNET.rpcUrls.default.http[0];
-const { usdc: arcUsdc, xReserve } = getUsdcxContracts(ARC_TESTNET.id);
-
-interface EthCallResult {
-  result?: string;
-  error?: { message?: string; data?: string };
-}
-
-async function arcEthCall(call: { from?: string; to: string; data: string }): Promise<EthCallResult> {
-  const response = await fetch(arcRpcUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_call', params: [call, 'latest'] })
-  });
-  return (await response.json()) as EthCallResult;
-}
+const { usdc: arcUsdc, xReserve, attestationApi } = getUsdcxXReserveSource(ARC_TESTNET.id);
 
 test.describe('Bridge-IN deposit (Circle xReserve/USDC, live testnets)', () => {
   test.describe.configure({ mode: 'serial' });
@@ -102,10 +113,11 @@ test.describe('Bridge-IN deposit (Circle xReserve/USDC, live testnets)', () => {
     await relayer?.stop();
   });
 
-  test('deposit USDC via the real UI, Circle attests, the relayer mints, the wallet claims', async ({
+  test('deposit USDC through the UI and claim it, then burn USDCx back to the deposit key and Circle pays it', async ({
     walletA,
     walletB,
-    steps
+    steps,
+    envConfig
   }) => {
     // Undefined when the deployed relayer mints; the checks below then have nothing to watch.
     const localRelayer = relayer;
@@ -117,59 +129,65 @@ test.describe('Bridge-IN deposit (Circle xReserve/USDC, live testnets)', () => {
     const evmAddress = privateKeyToAccount(evmPrivateKey as `0x${string}`).address;
     let depositHash: `0x${string}`;
     let bridgeTxId: string;
+    let addressA = '';
+    const step = namedSteps(steps);
+    const arc: ArcReadDeps = { endpoints: arcEndpoints(process.env.E2E_ARC_RPC_URL) };
+    const evidence = newRunEvidence('usdcx-live-ios');
+    // evidenceJson refuses to write any of these.
+    const secrets: string[] = [evmPrivateKey];
+    const depositPhases = new PhaseTimeline('deposit row', DEPOSIT_PHASES);
 
     const sentTo = (address: string) => (r: WcRequestLog) =>
       r.method === 'eth_sendTransaction' &&
       (r.params as Array<Record<string, string>>)[0]?.to?.toLowerCase() === address.toLowerCase();
+    // A failed CDP read (an inspector reattach) is retried, as expect.poll did; a failed row fails at once.
+    const depositPhase = async (): Promise<string | undefined> => {
+      const raw = await walletA.getBridgeReceiveState(bridgeTxId).catch(() => undefined);
+      if (raw === undefined) return undefined;
+      const state = parseBridgeReceiveState(raw);
+      depositPhases.record(state.phase, Date.now());
+      if (state.phase === 'failed') {
+        throw new Error(`the deposit row failed: ${state.error ?? state.displayMessage ?? 'no error recorded'}`);
+      }
+      return state.phase;
+    };
 
     await steps.step('preflight_arc', async () => {
       // Fail here, with the cause, instead of after the wallet prompts for a deposit that cannot pass.
-      const balance = await arcEthCall({
-        to: arcUsdc,
-        data: encodeFunctionData({ abi: ERC20_BALANCE_OF_ABI, functionName: 'balanceOf', args: [evmAddress] })
-      });
-      expect(BigInt(balance.result ?? '0x0'), `Arc USDC balance of ${evmAddress}`).toBeGreaterThan(depositUnits);
-
-      const registered = await arcEthCall({
-        to: xReserve,
-        data: encodeFunctionData({
-          abi: XRESERVE_ABI,
-          functionName: 'isRemoteDomainRegistered',
-          args: [USDCX_REMOTE_DOMAIN]
-        })
-      });
-      expect(BigInt(registered.result ?? '0x0'), 'the Miden domain is registered on xReserve').toBe(1n);
-
-      // A simulated deposit. Without an allowance it can revert for that reason, which is
-      // not a blocker; only the pause error is decisive here.
-      const simulated = await arcEthCall({
-        from: evmAddress,
-        to: xReserve,
-        data: encodeFunctionData({
-          abi: XRESERVE_ABI,
-          functionName: 'depositToRemote',
-          args: [
-            depositUnits,
-            USDCX_REMOTE_DOMAIN,
-            `0x${'00'.repeat(16)}${'11'.repeat(15)}00`,
-            arcUsdc,
-            USDCX_DEPOSIT_MAX_FEE,
-            USDCX_DEPOSIT_HOOK_DATA
-          ]
-        })
-      });
+      const balance = await readArcUsdc(evmAddress, arc);
+      expect(balance, `Arc USDC of ${evmAddress}: the deposit plus its approve and deposit gas`).toBeGreaterThanOrEqual(
+        depositUnits + GAS_RESERVE_UNITS
+      );
+      // Withdrawals are checked before the burn, not here: a pause there must not hide this leg's result.
+      const state = await readXReserveDomainState(arc);
       expect(
-        simulated.error?.data?.startsWith(DOMAIN_DEPOSITS_PAUSED_SELECTOR) ?? false,
-        `Circle has paused xReserve deposits for domain ${USDCX_REMOTE_DOMAIN}`
-      ).toBe(false);
+        { registered: state.registered, paused: state.paused, depositsPaused: state.depositsPaused },
+        `xReserve domain ${USDCX_REMOTE_DOMAIN}, read on ${arcHost(state.endpoint)}`
+      ).toEqual({ registered: true, paused: false, depositsPaused: false });
     });
 
     await steps.step('create_wallet', async () => {
-      await walletA.createNewWallet();
-      await walletB.createNewWallet(); // fixture requires both sims up
+      ({ address: addressA } = await walletA.createGuardianWallet());
+      await walletB.createNewWallet(); // fixture requires both sims up; B takes no part
     });
 
     try {
+      // Inside the try, so a failure here still writes the evidence.
+      const { native, recipient } = await step('native_asset', BUDGET.nativeAsset, async () => {
+        evidence.ids.wallet = addressA;
+        const read = await walletA.nativeAsset();
+        // The wallet claims a mint unattended only above base fee x 30, and a dispatch sets the amount: a smaller
+        // deposit would sit unclaimed until relayer_mints_and_wallet_claims gave up 15 min later.
+        if (!isWorthClaiming(depositUnits, read.baseFee)) {
+          throw new Error(
+            `USDCX_LIVE_DEPOSIT_AMOUNT ${depositAmount} (${depositUnits} base units) does not exceed the wallet's ` +
+              `unattended claim floor, base fee ${read.baseFee} x ${CLAIM_COST_FEE_MULTIPLE}`
+          );
+        }
+        // The deposit's remoteRecipient for this account, as the faucet decodes it.
+        return { native: read, recipient: midenAccountHexToXReserveRecipient(await accountHex(addressA)) };
+      });
+      evidence.ids.native = native.tokenId;
       await steps.step('connect_evm', async () => {
         await cp.connectWithRetry(
           () => walletA.reownConnectUri(),
@@ -178,8 +196,8 @@ test.describe('Bridge-IN deposit (Circle xReserve/USDC, live testnets)', () => {
       });
 
       await steps.step('deposit_via_ui', async () => {
-        // The screen opens on the bridge's own USDC. Circle's USDC is the token xReserve
-        // takes, and it has one route.
+        // The screen opens on Circle's USDC, the token xReserve takes, and it has one
+        // route; the pick names the token the deposit needs.
         await walletA.openBridgeDeposit();
         await walletA.selectBridgeToken('CIRCLE_USDC');
         await walletA.enterBridgeAmount(depositAmount);
@@ -206,23 +224,36 @@ test.describe('Bridge-IN deposit (Circle xReserve/USDC, live testnets)', () => {
         if (decoded.functionName !== 'depositToRemote') {
           throw new Error(`expected depositToRemote, got ${decoded.functionName}`);
         }
-        const [value, remoteDomain, , localToken] = decoded.args;
+        const [value, remoteDomain, remoteRecipient, localToken, maxFee, hookData] = decoded.args;
         expect(value, 'deposit amount').toBe(depositUnits);
         expect(remoteDomain, 'remote domain = Miden').toBe(USDCX_REMOTE_DOMAIN);
         expect(localToken.toLowerCase(), 'deposited token = Arc USDC').toBe(arcUsdc.toLowerCase());
+        // The faucet mints to remoteRecipient, so a wrong one strands the deposit; the wallet pays no fee and no hook.
+        expect(
+          { remoteRecipient: remoteRecipient.toLowerCase(), maxFee, hookData },
+          'the recipient, maxFee and hookData the counterparty signed'
+        ).toEqual({ remoteRecipient: recipient, maxFee: 0n, hookData: '0x' });
+        evidence.hashes.deposit = depositHash;
       });
 
       await steps.step('row_reaches_delivering', async () => {
-        // The wallet waits for the real Arc receipt before it moves the row.
+        // The wallet waits for the real Arc receipt before it moves the row. Circle, the relayer and the auto-claim can
+        // all finish before that receipt is read, and the phase only moves forward, so the row may go from
+        // `submitting` straight to `received`; any phase from `delivering` on means the deposit left Arc.
         const row = await walletA.latestBridgeReceive('usdcx');
         expect(row, 'bridged-receive row created by the UI').not.toBeNull();
         bridgeTxId = row!.id;
-        await expect
-          .poll(async () => (await walletA.getBridgeReceiveState(bridgeTxId)).phase, {
-            timeout: 180_000,
-            intervals: [3000]
-          })
-          .toBe('delivering');
+        evidence.ids.depositRow = bridgeTxId;
+        depositPhases.record(row!.phase, Date.now());
+        await pollUntil(
+          'the deposit row leaving submitting',
+          depositPhase,
+          phase => phase !== undefined && phase !== 'submitting',
+          { timeoutMs: 180_000, intervalMs: 3_000 }
+        );
+        // The deposit screen wrote the recipient it signed for at the row's first phase write.
+        const state = parseBridgeReceiveState(await walletA.getBridgeReceiveState(bridgeTxId));
+        expect(state.usdcxRemoteRecipient, "the deposit row's xReserve recipient").toBe(recipient);
       });
 
       await steps.step('circle_attests_deposit', async () => {
@@ -230,7 +261,9 @@ test.describe('Bridge-IN deposit (Circle xReserve/USDC, live testnets)', () => {
           .poll(
             async () => {
               localRelayer?.assertRunning();
-              const attestations = await fetchXReserveAttestations(depositHash).catch(() => []);
+              const attestations = await fetchXReserveAttestations(depositHash, { baseUrl: attestationApi }).catch(
+                () => []
+              );
               return findAttestationForDomain(attestations, USDCX_REMOTE_DOMAIN) !== undefined;
             },
             { timeout: ATTESTATION_TIMEOUT_MS, intervals: [15_000] }
@@ -239,25 +272,86 @@ test.describe('Bridge-IN deposit (Circle xReserve/USDC, live testnets)', () => {
       });
 
       await steps.step('relayer_mints_and_wallet_claims', async () => {
-        // The relayer submits the mint note, the faucet consumes it in a later block,
-        // and the minted note then shows in the wallet's Pending list.
-        localRelayer?.assertRunning();
-        await walletA.claimAllNotes(MINT_AND_CLAIM_TIMEOUT_MS, faucetAccountId ? [faucetAccountId] : []);
+        // The relayer submits the mint note and the faucet consumes it in a later block. The wallet auto-claims the
+        // minted USDCx (testnet's native asset) and moves this deposit's row to `received` only once the consume it
+        // matched to the deposit has completed.
+        await pollUntil(
+          'the relayer mint and the wallet claim',
+          async () => {
+            localRelayer?.assertRunning();
+            return depositPhase();
+          },
+          phase => phase === 'received',
+          { timeoutMs: MINT_AND_CLAIM_TIMEOUT_MS, intervalMs: 5_000 }
+        );
+        depositPhases.assertMonotone();
+        evidence.phases.deposit = depositPhases.samples();
       });
 
-      await steps.step('assert_balance', async () => {
-        // A new wallet starts at zero, and the claim pays its fee in USDCx out of the
-        // deposit. The fee is not a fixed number, so the lower bound is half the deposit:
-        // a mint of the wrong amount, or no mint, fails it.
-        const deposited = Number(depositAmount);
-        const balance = await walletA.waitForBalanceAbove(deposited / 2, 180_000, undefined, 'USDCX');
-        expect(balance, 'no more than the deposit').toBeLessThanOrEqual(deposited);
+      const depositVault = await step('deposit_vault', BUDGET.depositVault, async () => {
+        const state = parseBridgeReceiveState(await walletA.getBridgeReceiveState(bridgeTxId));
+        const claim = exactlyOne(
+          (await walletA.readTransactionRows({ type: 'consume' })).filter(row => row.status === TxStatus.Completed),
+          'Completed consume on the fresh wallet, the claim of the minted note',
+          describeTransactionRow
+        );
+        expect(
+          state.midenNoteId === undefined || noteIdsOf(claim).includes(state.midenNoteId.toLowerCase()),
+          `the claim ${claim.id} consumed the mint note ${state.midenNoteId} the deposit row names`
+        ).toBe(true);
+        // A new wallet starts at zero, so the vault is the mint less the fee the claim's row recorded.
+        const settled = await settleLedger(walletA, native, {
+          name: 'f2',
+          before: 0n,
+          credit: depositUnits,
+          debits: 0n,
+          row: claim
+        });
+        evidence.ids.mintNote = state.midenNoteId ?? 'not recorded';
+        evidence.ids.mintConsume = claim.id;
+        evidence.fees.push(settled.fee);
+        return settled.vault;
+      });
+      evidence.notes.push(`vault after the claim ${depositVault}`);
+
+      // The identity is read here, after the deposit leg, so a Guardian endpoint glitch cannot stop that leg running.
+      const identity = await assertHostedGuardianAccount(step, walletA, {
+        address: addressA,
+        guardianUrl: envConfig.guardianUrl,
+        evidence
+      });
+
+      // R20: the burn pays the deposit key back, so each run refills what its deposit leg spent. It comes last: Circle's
+      // Arc payouts have run hours late, and this order lets one redden the run only after the deposit leg passed.
+      const depositKey: PayoutKey = {
+        key: { address: evmAddress, privateKey: `0x${evmPrivateKey.replace(/^0x/i, '')}` },
+        role: 'deposit',
+        label: `deposit key ${evmAddress} (USDCX_LIVE_EVM_PRIVATE_KEY), which Circle pays,`
+      };
+      await burnBackToDepositKey({
+        step,
+        wallet: walletA,
+        address: addressA,
+        native,
+        envConfig,
+        identity,
+        vaultBefore: depositVault,
+        arc,
+        depositKey,
+        evidence,
+        secrets,
+        screenshotDir: path.join(steps.outputDir, 'usdcx-burn')
       });
     } finally {
       if (localRelayer) {
         await test.info().attach('usdcx-relayer-log', { body: localRelayer.logs, contentType: 'text/plain' });
       }
       await cp.stop();
+      // In the run's artifact directory, which the job uploads (test-results-ios/).
+      const evidencePath = path.join(steps.outputDir, 'usdcx-live-ios-evidence.json');
+      fs.mkdirSync(steps.outputDir, { recursive: true });
+      fs.writeFileSync(evidencePath, evidenceBody(evidence, secrets));
+      await test.info().attach('usdcx-live-ios-evidence.json', { path: evidencePath, contentType: 'application/json' });
     }
   });
 });

@@ -3,6 +3,7 @@
 // kind the service-worker bundle has deadlocked on before (back/transaction-processor.ts).
 import {
   IBridgedSendExtraInputs,
+  isLiveTransaction,
   ISubmitEvidence,
   ITransaction,
   ITransactionStatus,
@@ -11,7 +12,7 @@ import {
   SubmitEvidenceSource
 } from '../db/types';
 
-/** Retry's types (`REQUEUEABLE_TYPES` in retry.ts); a bridged-send only on the Agglayer route. */
+/** Retry's types (`REQUEUEABLE_TYPES` in retry.ts); a bridged-send only on the Agglayer and USDCx routes. */
 const VERDICT_TYPES: ReadonlySet<ITransactionType> = new Set<ITransactionType>([
   'send',
   'consume',
@@ -44,7 +45,8 @@ export const canAwaitVerdict = (
   if (tx.restoredFromBackup === true || tx.rotationFunding === true) return false;
   if (tx.type !== 'bridged-send') return true;
   const extra: IBridgedSendExtraInputs | undefined = tx.extraInputs;
-  return extra?.provider === 'agglayer';
+  // Nothing awaits an Agglayer or USDCx burn's row, and its note lands on its own once submitted.
+  return extra?.provider === 'agglayer' || extra?.provider === 'usdcx';
 };
 
 export type ProvableEvidence = ISubmitEvidence &
@@ -96,6 +98,43 @@ export const awaitingVerdict = (row: VerdictRow, nowSec: number = nowSeconds()):
  */
 export const holdsNotes = (row: VerdictRow, nowSec?: number): boolean =>
   row.type === 'consume' && awaitingVerdict(row, nowSec);
+
+/**
+ * How long a completed dApp transaction still holds its notes, counted from `completedAt` (seconds). The note list
+ * shows a consumed note until a sync reads its nullifier, which a completion with no local apply leaves to a later
+ * lap; this spans ten 30 s service-worker laps. A note the dApp named but did not consume is claimable after it, which
+ * is why the hold, unlike a completed claim's, does not last forever. A landed verdict keeps the `completedAt` of the
+ * row leaving the queue, so a late one finds the window already spent.
+ */
+export const COMPLETED_HOLD_GRACE_SEC = 5 * 60;
+
+/**
+ * A row keeping its notes from every other consume (`getNoteHoldingTransactions`): a claim or a dApp transaction that
+ * is live or that the reconciler will still judge, or a dApp transaction inside `COMPLETED_HOLD_GRACE_SEC` of its
+ * completion. Wider than `holdsNotes`, which also decides what the claim cards offer to retry, and a dApp transaction
+ * is retried from History, not from there.
+ */
+export const isNoteHoldingRow = (
+  row: VerdictRow & Pick<ITransaction, 'heldNoteIds' | 'completedAt'>,
+  nowSec: number = nowSeconds()
+): boolean => {
+  if ((row.type === 'consume' || row.type === 'execute') && (isLiveTransaction(row) || awaitingVerdict(row, nowSec))) {
+    return true;
+  }
+  // Recognised by its recorded notes, not its type: completion re-types an input-only one as a consume.
+  return (
+    row.heldNoteIds !== undefined &&
+    row.status === ITransactionStatus.Completed &&
+    row.completedAt !== undefined &&
+    nowSec - row.completedAt < COMPLETED_HOLD_GRACE_SEC
+  );
+};
+
+/** The notes a note-holding row holds: a claim's own, and whatever a dApp transaction recorded when it was queued. */
+export const heldNoteIdsOf = (row: Pick<ITransaction, 'type' | 'noteId' | 'noteIds' | 'heldNoteIds'>): string[] => {
+  const claimed = row.type === 'consume' ? (row.noteIds ?? (row.noteId != null ? [row.noteId] : [])) : [];
+  return row.heldNoteIds === undefined ? claimed : [...new Set([...claimed, ...row.heldNoteIds])];
+};
 
 /** The hold's complement for claims: a Failed or Unconfirmed consume whose notes a fresh claim may take. */
 export const isFailedClaim = (row: VerdictRow, nowSec?: number): boolean =>
@@ -252,7 +291,7 @@ const canonicalEntry = (entry: ISubmitEvidence): unknown[] => [
 /**
  * The entries' evidence as one comparable string, the seen fields aside (`initialSeenAtBlock`, `landingSeenAtBlock`,
  * `landingSeenBy`): only the verdict lock's holder writes those, so recording a seen block never voids its own next
- * write (#1081).
+ * write (#1081). `neverCommittedBy` is aside too: it only names why a verdict the key already holds was reached.
  */
 export const evidenceKey = (entries: readonly ISubmitEvidence[] | undefined): string =>
   JSON.stringify((entries ?? []).map(canonicalEntry));

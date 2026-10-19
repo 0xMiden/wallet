@@ -3,12 +3,14 @@ import React, { KeyboardEvent, ReactNode, useId, useRef } from 'react';
 import { cva } from 'class-variance-authority';
 import { motion } from 'framer-motion';
 
+import { FlowAccent } from 'components/flow/accent';
 import { useTabBarMotion, useTabIconPop } from 'lib/animation';
 import { hapticSelection } from 'lib/mobile/haptics';
 import { cn } from 'lib/ui/util';
 
 import { CheckboxIndicator } from './Checkbox';
 import { radioGroupKeyTarget } from './radio-group-keys';
+import { SelectionCheck } from './SelectionCheck';
 import { outlineSurfaceClassName } from './surfaces';
 
 /** `data-*` attributes forwarded to an option's `button`, e.g. an E2E hook keyed on its value. */
@@ -20,6 +22,8 @@ export interface ChoiceCardItem<T extends string = string> {
   title: ReactNode;
   /** The `text-caption` line under the title: a description, or a meta line such as "Operated by X · US". */
   subtitle?: ReactNode;
+  /** Full-width comparison content below the option header. */
+  details?: ReactNode;
   /** Leading visual: a 48px logo tile or an icon circle. Anything drawn on the card sits on `page`. */
   leading?: ReactNode;
   /** After the title: a `Pill` ("Current") or a `StatusBadge` ("Offline"). */
@@ -34,12 +38,20 @@ export interface ChoiceCardItem<T extends string = string> {
 
 export interface ChoiceCardGroupProps<T extends string = string> {
   items: readonly ChoiceCardItem<T>[];
+  /** Optional flow color for selection; omitted keeps the standard brand treatment. */
+  accent?: FlowAccent;
   /** The chosen option, or `null` when none is (every option offline, a choice made elsewhere). */
   value: T | null;
   /** Called once per real change: never for a tap on the option that is already chosen. */
   onChange: (id: T) => void;
   /** Called instead of `onChange` when a tap or key activates the option that is already chosen. */
   onReselect?: (id: T) => void;
+  /**
+   * What the arrow keys and Home/End do. `select` (the default) moves focus and the choice together;
+   * `focus` moves focus alone and leaves the choice to a tap, Enter or Space, for a group whose choice
+   * acts at once (a sheet that closes on it), so arrowing past an option does not choose it.
+   */
+  arrowKeys?: 'select' | 'focus';
   surface?: 'fill' | 'outline';
   'aria-label'?: string;
   'aria-labelledby'?: string;
@@ -58,6 +70,7 @@ const card = cva(
   ],
   {
     variants: {
+      layout: { row: '', detail: 'flex-col items-stretch' },
       surface: {
         fill: 'bg-fill',
         outline: outlineSurfaceClassName
@@ -67,49 +80,43 @@ const card = cva(
         false: 'hover:bg-fill-pressed active:bg-fill-pressed disabled:hover:bg-fill disabled:active:bg-fill'
       }
     },
-    defaultVariants: { selected: false, surface: 'fill' }
+    defaultVariants: { selected: false, layout: 'row', surface: 'fill' }
   }
 );
+
+const FLOW_RING: Record<FlowAccent, string> = {
+  brand: 'ring-accent-primary',
+  receive: 'ring-accent-receive',
+  send: 'ring-accent-send',
+  earn: 'ring-accent-earn',
+  swap: 'ring-accent-swap'
+};
 
 interface OptionProps<T extends string> {
   item: ChoiceCardItem<T>;
   selected: boolean;
+  accent?: FlowAccent;
   focusable: boolean;
   onSelect: (id: T) => void;
   surface?: 'fill' | 'outline';
 }
 
-function ChoiceCardOption<T extends string>({ item, selected, focusable, onSelect, surface }: OptionProps<T>) {
+function ChoiceCardOption<T extends string>({ item, selected, accent, focusable, onSelect, surface }: OptionProps<T>) {
   const motionTokens = useTabBarMotion();
   const pop = useTabIconPop(selected);
   const id = useId();
   const titleId = `${id}-title`;
   const badgeId = `${id}-badge`;
   const subtitleId = `${id}-subtitle`;
+  const detailsId = `${id}-details`;
   // Named by the title alone; the badge and the subtitle describe it, so a reader hears
   // "Gateway, radio, checked" before the meta line rather than one run-on name.
-  const describedBy = [item.badge ? badgeId : null, item.subtitle ? subtitleId : null].filter(Boolean).join(' ');
+  const describedBy = [item.badge ? badgeId : null, item.subtitle ? subtitleId : null, item.details ? detailsId : null]
+    .filter(Boolean)
+    .join(' ');
 
-  return (
-    <motion.button
-      type="button"
-      role="radio"
-      aria-checked={selected}
-      aria-label={item['aria-label']}
-      aria-labelledby={item['aria-label'] ? undefined : titleId}
-      aria-describedby={describedBy || undefined}
-      tabIndex={focusable ? 0 : -1}
-      disabled={item.disabled}
-      // The caller's own hooks go on first, so what the GROUP reports cannot be forged: `data-state`
-      // is written after them. `data-testid` still falls back to a caller that supplies it only
-      // through `data`, rather than being blanked by an undefined prop that shadows the spread.
-      {...item.data}
-      data-testid={item['data-testid'] ?? item.data?.['data-testid']}
-      data-state={selected ? 'checked' : 'unchecked'}
-      onClick={() => onSelect(item.id)}
-      {...(item.disabled ? {} : motionTokens.press)}
-      className={card({ selected, surface })}
-    >
+  const content = (
+    <>
       {item.leading && (
         <span aria-hidden="true" className="flex shrink-0 items-center group-disabled:opacity-50">
           {item.leading}
@@ -141,8 +148,44 @@ function ChoiceCardOption<T extends string>({ item, selected, focusable, onSelec
         onAnimationComplete={pop.onAnimationComplete}
         className="flex shrink-0"
       >
-        <CheckboxIndicator checked={selected} />
+        {selected && accent ? <SelectionCheck accent={accent} /> : <CheckboxIndicator checked={selected} />}
       </motion.span>
+    </>
+  );
+
+  return (
+    <motion.button
+      type="button"
+      role="radio"
+      aria-checked={selected}
+      aria-label={item['aria-label']}
+      aria-labelledby={item['aria-label'] ? undefined : titleId}
+      aria-describedby={describedBy || undefined}
+      tabIndex={focusable ? 0 : -1}
+      disabled={item.disabled}
+      // The caller's own hooks go on first, so what the GROUP reports cannot be forged: `data-state`
+      // is written after them. `data-testid` still falls back to a caller that supplies it only
+      // through `data`, rather than being blanked by an undefined prop that shadows the spread.
+      {...item.data}
+      data-testid={item['data-testid'] ?? item.data?.['data-testid']}
+      data-state={selected ? 'checked' : 'unchecked'}
+      onClick={() => onSelect(item.id)}
+      {...(item.disabled ? {} : motionTokens.press)}
+      className={cn(
+        card({ selected, layout: item.details ? 'detail' : 'row', surface }),
+        selected && accent && FLOW_RING[accent]
+      )}
+    >
+      {item.details ? (
+        <>
+          <span className="flex w-full items-center gap-3">{content}</span>
+          <span id={detailsId} className="w-full">
+            {item.details}
+          </span>
+        </>
+      ) : (
+        content
+      )}
     </motion.button>
   );
 }
@@ -158,17 +201,20 @@ function ChoiceCardOption<T extends string>({ item, selected, focusable, onSelec
  * `radioGroupKeyTarget`, answer the same way:
  * a `radiogroup` of `radio`s, a `value` naming a disabled option reported as no selection, only the
  * chosen (or first choosable) option in the tab order, arrow keys and Home/End moving focus and the
- * choice together (the first arrow landing on the first option with nothing chosen and nothing focused), one
- * selection haptic per real change and none for a tap on the chosen card, a press that dips on the
- * tab-bar spring and a check that pops as it lands. Under reduced motion nothing scales or pops.
+ * choice together (the first arrow landing on the first option with nothing chosen and nothing focused;
+ * focus alone under `arrowKeys="focus"`), one selection haptic per real change and none for a tap on the
+ * chosen card, a press that dips on the tab-bar spring and a check that pops as it lands. Under reduced
+ * motion nothing scales or pops.
  * One split, by design: with every option disabled the twin, disabled as a whole, still shows its
  * value, while a card group with nothing to choose shows nothing chosen.
  */
 export function ChoiceCardGroup<T extends string>({
   items,
+  accent,
   value,
   onChange,
   onReselect,
+  arrowKeys = 'select',
   surface,
   'aria-label': ariaLabel,
   'aria-labelledby': ariaLabelledBy,
@@ -218,7 +264,7 @@ export function ChoiceCardGroup<T extends string>({
     const target = enabled[to];
     if (!target) return;
     buttonAt(target.index)?.focus();
-    select(target.item.id);
+    if (arrowKeys === 'select') select(target.item.id);
   };
 
   return (
@@ -238,6 +284,7 @@ export function ChoiceCardGroup<T extends string>({
         <ChoiceCardOption
           key={item.id}
           item={item}
+          accent={accent}
           selected={index === selectedIndex}
           focusable={index === focusIndex}
           onSelect={select}

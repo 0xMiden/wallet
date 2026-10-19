@@ -90,7 +90,7 @@ export const TransactionAssetView: React.FC<TransactionAssetViewProps> = ({ view
   const isVerified = mode === 'verified';
 
   return (
-    <div className="flex flex-col items-center justify-center">
+    <div className="flex flex-col items-center justify-center" data-testid="tx-asset-view" data-mode={mode}>
       {mode === 'declared' && (
         <span className="text-text-muted text-xs mb-2 self-start">{t('declaredBySiteVerifying')}</span>
       )}
@@ -170,7 +170,7 @@ export const TransactionAssetView: React.FC<TransactionAssetViewProps> = ({ view
         </div>
         <div className="flex flex-row w-full items-center justify-between pb-1">
           <span className="text-text-muted">{t('outputNotesCreated')}</span>
-          <span>{view.outputNotesCreated}</span>
+          <span data-testid="tx-output-notes-created">{view.outputNotesCreated}</span>
         </div>
         {/*
           A cost the user pays, so it is shown rather than merely subtracted. It sits here, in
@@ -190,12 +190,14 @@ export const TransactionAssetView: React.FC<TransactionAssetViewProps> = ({ view
           <div className="flex flex-row w-full items-center justify-between">
             <span className="text-text-muted">{t('storageChanged')}</span>
             {view.storageChanged ? (
-              <div className="flex flex-row items-center gap-x-2">
+              <div className="flex flex-row items-center gap-x-2" data-testid="tx-storage-changed" data-changed="true">
                 <Icon name={IconName.WarningFill} fill="orange" size="md" />
                 <span>{t('yes')}</span>
               </div>
             ) : (
-              <span>{t('no')}</span>
+              <span data-testid="tx-storage-changed" data-changed="false">
+                {t('no')}
+              </span>
             )}
           </div>
         )}

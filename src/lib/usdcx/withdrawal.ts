@@ -1,13 +1,18 @@
 import { hexToBytes, isAddress, padHex } from 'viem';
 
 import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
-import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
+import { featureAvailability } from 'lib/remote-config/availability';
+import { getBridgeConfigSnapshot } from 'lib/remote-config/runtime';
 
-import { USDCX_WITHDRAWAL_DESTINATION } from './constant';
+import { usdcxDestinations, usdcxPayoutFeeShortfall } from './constant';
 
 export class UsdcxBurnError extends Error {
-  constructor(readonly translationKey: string) {
+  /** `values` fills the copy's placeholders, such as the fee allowance a burn must exceed. */
+  constructor(
+    readonly translationKey: string,
+    readonly values?: Record<string, string>
+  ) {
     super(translationKey);
     this.name = 'UsdcxBurnError';
   }
@@ -28,8 +33,13 @@ export function isUsdcxFaucet(faucetId: string | undefined): boolean {
   return !!faucetId && !!usdcxFaucetId && sameWalletAccountId(faucetId, usdcxFaucetId);
 }
 
+/** Whether the effective network offers USDCx withdrawals at all, before any token is chosen: testnet only. */
+export function isUsdcxWithdrawalNetwork(): boolean {
+  return featureAvailability('usdcxWithdrawal', getBridgeConfigSnapshot()).state === 'available';
+}
+
 export function isUsdcxWithdrawalAvailable(faucetId: string | undefined): boolean {
-  return getEffectiveNetworkName() === 'testnet' && isUsdcxFaucet(faucetId);
+  return isUsdcxWithdrawalNetwork() && isUsdcxFaucet(faucetId);
 }
 
 /**
@@ -53,10 +63,25 @@ export function encodeBurnWithdrawal(destinationAddress: string, destinationDoma
   ];
 }
 
+/**
+ * Whether `destinationChainId` is a destination a burn can pay out to on the effective network:
+ * a `usdcxDestinations` entry, which holds only chains of the effective network's family (testnet chains on
+ * testnet), whose withdrawal is available.
+ */
+export function isUsdcxDestinationChain(destinationChainId: number): boolean {
+  const entry = usdcxDestinations().get(destinationChainId);
+  return (
+    !!entry &&
+    featureAvailability('usdcxWithdrawal', getBridgeConfigSnapshot(), undefined, destinationChainId).state ===
+      'available'
+  );
+}
+
 export function validateUsdcxWithdrawal(faucetId: string, destinationChainId: number, amount: bigint): void {
   if (!isUsdcxWithdrawalAvailable(faucetId)) throw new UsdcxBurnError('usdcxUnsupportedFaucet');
-  if (destinationChainId !== USDCX_WITHDRAWAL_DESTINATION.chainId) {
-    throw new UsdcxBurnError('usdcxInvalidDestination');
-  }
+  if (!isUsdcxDestinationChain(destinationChainId)) throw new UsdcxBurnError('usdcxInvalidDestination');
   if (amount <= 0n) throw new UsdcxBurnError('usdcxInvalidAmount');
+  // Circle takes its fee from the payout, so a burn its fee allowance takes whole may pay out nothing.
+  const shortfall = usdcxPayoutFeeShortfall(destinationChainId, amount);
+  if (shortfall) throw new UsdcxBurnError('usdcxSendMoreThanPayoutFee', shortfall);
 }

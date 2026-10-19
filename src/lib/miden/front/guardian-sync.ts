@@ -57,6 +57,7 @@ import {
   isSyncFused,
   noteNonEvictionSyncFailure,
   noteAbandonedSyncProbe,
+  noteProbeFailure,
   noteSyncParked,
   noteSyncSuccess,
   noteSyncWatchdogEviction,
@@ -72,34 +73,6 @@ import {
   isWasmClientPoisonedError,
   WASM_LOCK_SYNC_WATCHDOG_MS
 } from '../sdk/wasm-client-poison';
-
-/**
- * Book one failed probe against `key`, splitting on the only question the fuse asks.
- *
- * TWO DIFFERENT PREDICATES for two different decisions, and collapsing them into one
- * is the mistake this helper exists to make impossible. The BREAK wants any poison at
- * all, because what makes continuing unsafe is that the mutex is already a
- * successor's - equally true of a trap. The FUSE wants watchdog evictions only: its
- * claim is "the node took our request and never answered, so replacing the client
- * cannot reach it", and a `realm-error` trap's client is replaced in milliseconds, so
- * it proves nothing about a parked node. Booked on the wide predicate, four traps
- * silenced a healthy operator for half an hour.
- *
- * The other half of the contract is that a non-eviction failure must be REPORTED, not
- * skipped: while unlit it withdraws the evidence (so a producer that only ever adds
- * would fuse permanently on the first four evictions of its life), and while lit it
- * re-arms the deadline (so "one probe per 30 min until one SUCCEEDS" holds).
- */
-function noteGuardianProbeFailure(key: SyncFuseKey, error: unknown): void {
-  if (isSyncWatchdogEviction(error)) noteSyncWatchdogEviction(key);
-  // THREE OUTCOMES, NOT TWO. A poison that is not a watchdog eviction is a realm
-  // trap: the probe was abandoned without learning anything about the node, so it
-  // must not zero the eviction evidence the way a returned failure does. Sent to
-  // the non-eviction note, it erased the very count the loop-terminating `break`s
-  // depend on - see `noteAbandonedSyncProbe` for why that left them unbounded.
-  else if (isWasmClientPoisonedError(error)) noteAbandonedSyncProbe(key);
-  else noteNonEvictionSyncFailure(key);
-}
 
 /**
  * Default GuardianAccountProvider backed by the Zustand store. Frontend-only —
@@ -1155,7 +1128,7 @@ async function runPendingRotationRecheck(
     // trys, leaving a dynamic import and a Dexie read - but a reporting gap in the
     // arm that catches "anything else" is exactly where a future failure shape would
     // land silently.
-    if (poisoned) noteGuardianProbeFailure(fuseKey, e);
+    if (poisoned) noteProbeFailure(fuseKey, e);
     // AND SO DOES AN ORDINARY ONE, which the poison gate above withheld. The
     // comment beside it already named this gap - "a reporting gap in the arm that
     // catches anything else is exactly where a future failure shape would land
@@ -1343,7 +1316,7 @@ async function attemptMissingRegistrationSelfHeal(account: WalletAccount, fuseKe
     snapshot = await readSnapshot();
   } catch (snapshotError) {
     if (isWasmClientPoisonedError(snapshotError)) {
-      noteGuardianProbeFailure(fuseKey, snapshotError);
+      noteProbeFailure(fuseKey, snapshotError);
       console.warn(
         `[Guardian Sync] the WASM client was evicted reading ${account.publicKey} for the missing-registration ` +
           `self-heal; abandoning the rest of this pass:`,
@@ -1563,7 +1536,7 @@ async function attemptMissingRegistrationSelfHeal(account: WalletAccount, fuseKe
       pushAttempt.settle(registrationAttempted ? 'charged' : 'refunded');
       // Booked here, where the error is in hand: only this frame can tell a
       // parked node from a trap, and the caller's break skips its own feed.
-      noteGuardianProbeFailure(fuseKey, e);
+      noteProbeFailure(fuseKey, e);
       console.warn(
         `[Guardian Sync] the WASM client was evicted while registering ${account.publicKey} on ${endpoint} - ` +
           `the attempt is abandoned, not cancelled, so it counts:`,
@@ -1983,7 +1956,7 @@ async function attemptColdReRegisterSelfHeal(
       // which is true of a watchdog eviction and false of a trap - whose client
       // is replaced in milliseconds. Reported from the caller on the wide
       // predicate, four traps fused a healthy operator for half an hour.
-      noteGuardianProbeFailure(fuseKey, e);
+      noteProbeFailure(fuseKey, e);
       console.warn(
         `[Guardian Sync] the WASM client was evicted while cold re-registering ${account.publicKey} - ` +
           `the attempt is abandoned, not cancelled:`,
@@ -2373,7 +2346,7 @@ async function runGuardianAccountsSync(generation: number): Promise<void> {
           // repeats every tick while the account looks fine on screen. Swallowed
           // without a word, the one signal that recovery is not running was gone.
           driftError = error;
-          noteGuardianProbeFailure(driftKey, error);
+          noteProbeFailure(driftKey, error);
           console.warn(`[Guardian Sync] drift reconciliation failed for ${account.publicKey}:`, error);
         });
     }
@@ -2523,7 +2496,7 @@ async function runGuardianAccountsSync(generation: number): Promise<void> {
         // Split on the reason, not merely on the class: a trap's client is replaced
         // in milliseconds, so it is not evidence that this operator parked us, and
         // booking it as such fused a healthy endpoint.
-        noteGuardianProbeFailure(fuseKey, error);
+        noteProbeFailure(fuseKey, error);
         console.error(
           `[Guardian Sync] the WASM client was evicted syncing ${account.publicKey}; abandoning the rest of ` +
             `this pass rather than borrowing a client another flow now owns:`,

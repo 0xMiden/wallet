@@ -104,7 +104,7 @@ function mobileEntries(platform: 'appStore' | 'playStore', slug: 'app-store' | '
     ['wallet-keys', 'deterministic-fixture-home', 'explore-page'],
     ['send-privacy', 'deterministic-fixture-send-private', 'dapp-confirmation-title'],
     ['receive', 'deterministic-fixture-receive', 'receive-page'],
-    ['guardian', 'deterministic-fixture-guardian-picker', 'onboarding-choose-guardian']
+    ['guardian', 'deterministic-fixture-guardian-picker', 'meet-guardian-provider-sheet']
   ] as const;
 
   return shared.map(([sceneId, fixtureState, testId]) =>
@@ -178,7 +178,7 @@ export const capturePlan: CapturePlanEntry[] = [
     fixtureState: 'deterministic-fixture-guardian-picker',
     entrypoint: 'fullpage.html',
     outputPath: 'store-listing/raw/chrome-web-store/guardian.png',
-    ready: { testId: 'onboarding-choose-guardian', hiddenTestIds: [] }
+    ready: { testId: 'meet-guardian-provider-sheet', hiddenTestIds: [] }
   }),
   entry('chromeWebStore', {
     sceneId: 'chrome-connect',

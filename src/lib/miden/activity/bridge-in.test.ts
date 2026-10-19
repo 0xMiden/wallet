@@ -1,9 +1,14 @@
 import { accountRefToSdk } from 'lib/miden/sdk/helpers';
-import { initBridgeConfig } from 'lib/remote-config/runtime';
-import { selectNativeEthFaucet, selectNativeEthToken } from 'lib/remote-config/values';
+import type { BridgeToken, DerivedChainConfig } from 'lib/remote-config/derive';
+import { type BridgeConfigSnapshot, initBridgeConfig } from 'lib/remote-config/runtime';
+import type { AgglayerRecoveryConfig, SupportedEvmChainConfig } from 'lib/remote-config/schema';
+import { testBridgeSnapshot } from 'lib/remote-config/testing/fixture';
+import { selectNativeEthToken } from 'lib/remote-config/values';
 
 import {
   agglayerDeliveredAmount,
+  agglayerDeliverySenders,
+  isAgglayerBridgeDelivery,
   findPendingBridgeInByEarnWithdrawTxId,
   registerPendingBridgeIn,
   resolveBridgeInNoteId,
@@ -41,24 +46,62 @@ const mockModify = jest.fn(async (mutate: (row: ITransaction) => void, index: un
 jest.mock('lib/agglayer/constant', () => ({ AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL: 'ETH' }));
 // The delivery sender is the registry's native-ETH faucet (hex); the consume reads its sender in bech32. The bridge
 // registers that faucet with scale 10: a deposit of w wei arrives as floor(w / 10^10) (#1326).
+const nativeEth = (midenFaucetId: string, scale: number): BridgeToken => ({
+  midenFaucetId,
+  originToken: '0x0000000000000000000000000000000000000000',
+  originNetwork: 0,
+  scale
+});
+const registryReads = (tokens: BridgeToken[]): DerivedChainConfig => ({
+  agglayer: {
+    rollupId: { state: 'ok', value: 86 },
+    tokens: { state: 'ok', value: tokens },
+    evmNetworkId: { state: 'ok', value: 0 },
+    l1BridgeCode: { state: 'ok', value: true }
+  },
+  epoch: { evmUsdc: { state: 'skipped' } }
+});
+// The published testnet document, its AggLayer route on Sepolia, with the registry read on each listed chain.
+const snapshotWith = (
+  registries: Record<number, BridgeToken[]>,
+  extraChains: Record<string, SupportedEvmChainConfig> = {}
+): BridgeConfigSnapshot => {
+  const published = testBridgeSnapshot();
+  const config = published.config;
+  if (!config) throw new Error('The test document is missing');
+  return {
+    ...published,
+    config: { ...config, supportedEvmChains: { ...config.supportedEvmChains, ...extraChains } },
+    derived: {
+      network: 'testnet',
+      version: config.version,
+      derivedAt: 0,
+      chains: Object.fromEntries(Object.entries(registries).map(([id, tokens]) => [id, registryReads(tokens)])),
+      agglayer: { indexer: { state: 'ok', value: true } },
+      epoch: { allocator: { state: 'skipped' }, market: { state: 'skipped' }, midenUsdcFaucet: { state: 'skipped' } }
+    }
+  };
+};
+let mockSnapshot: BridgeConfigSnapshot;
 jest.mock('lib/remote-config/runtime', () => ({
-  getBridgeConfigSnapshot: jest.fn(() => ({})),
+  getBridgeConfigSnapshot: jest.fn(() => mockSnapshot),
   initBridgeConfig: jest.fn(async () => ({}))
 }));
-jest.mock('lib/remote-config/values', () => ({
-  selectNativeEthFaucet: jest.fn(() => '0xagg'),
-  selectNativeEthToken: jest.fn(() => ({
-    midenFaucetId: '0xagg',
-    originToken: '0x0000000000000000000000000000000000000000',
-    originNetwork: 0,
-    scale: 10
-  }))
-}));
+// The real selectors, the registry read wrapped so a case can stand in for it.
+jest.mock('lib/remote-config/values', () => {
+  const actual = jest.requireActual<typeof import('lib/remote-config/values')>('lib/remote-config/values');
+  return {
+    ...actual,
+    selectNativeEthToken: jest.fn(actual.selectNativeEthToken)
+  };
+});
 // As the SDK parses ids: one text per account whichever form names it, and not the text the registry names the faucet
 // in, so only a match that converts both sides finds the sender.
 const mockAccountText: Record<string, string> = {
   'agg-sender': 'agg-account',
   '0xagg': 'agg-account',
+  'base-sender': 'base-account',
+  '0xbase': 'base-account',
   'usdcx-faucet-bech32': 'usdcx-faucet-account',
   '0xusdcx': 'usdcx-faucet-account'
 };
@@ -68,6 +111,15 @@ jest.mock('lib/miden/sdk/helpers', () => ({
     return { toString: () => mockAccountText[ref] ?? `${ref}-account` };
   },
   sameWalletAccountId: (a: string, b: string) => (mockAccountText[a] ?? a) === (mockAccountText[b] ?? b)
+}));
+// The note-id poll's Epoch SDK names the allocator it was built for, so a case can answer per allocator.
+const mockGetEpochReadOnlySdk = jest.fn(async (_address: string, _saved?: string) => ({ allocatorUrl: '' }));
+jest.mock('lib/epoch/sdk', () => ({
+  getEpochReadOnlySdk: (address: string, saved?: string) => mockGetEpochReadOnlySdk(address, saved)
+}));
+const mockReadIntentStatus = jest.fn(async (_sdk: { allocatorUrl: string }): Promise<unknown[]> => []);
+jest.mock('lib/epoch/intent-status', () => ({
+  readEpochIntentStatus: (sdk: { allocatorUrl: string }) => mockReadIntentStatus(sdk)
 }));
 // USDCx is the chain's native asset: the wallet discovers the faucet id, here in hex.
 const mockGetNativeAssetId = jest.fn(async () => '0xusdcx');
@@ -89,10 +141,14 @@ jest.mock('lib/miden/repo', () => ({
       })),
       // `where({ id })` for the modify path; `where('noteIds').equals(id)` for the lookup.
       modify: (mutate: (row: ITransaction) => void) => mockModify(mutate, index),
-      equals: jest.fn((noteId: string) => ({
+      // `where('noteIds').equals(id)` for the note lookup; `where('type').equals(type)` for the bridge-in matchers.
+      equals: jest.fn((value: string) => ({
         filter: jest.fn((predicate: (tx: any) => boolean) => ({
           first: jest.fn(async () =>
-            mockNoteIdRows.filter(row => row.noteIds?.includes(noteId)).find(row => predicate(row))
+            mockNoteIdRows.filter(row => row.noteIds?.includes(value)).find(row => predicate(row))
+          ),
+          toArray: jest.fn(async () =>
+            index === 'type' ? mockTransactions.filter(tx => tx.type === value && predicate(tx)) : []
           )
         }))
       })),
@@ -102,10 +158,8 @@ jest.mock('lib/miden/repo', () => ({
           : undefined
       ),
       index
-    })),
-    filter: jest.fn((predicate: (tx: any) => boolean) => ({
-      toArray: jest.fn(async () => mockTransactions.filter(predicate))
     }))
+    // No table-level `filter`: the matchers read bridged-receive rows through the `type` index, never the whole table.
   }
 }));
 
@@ -114,6 +168,7 @@ const EVM_OWNER = '0x1111111111111111111111111111111111111111';
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockSnapshot = snapshotWith({ 11155111: [nativeEth('0xagg', 10)] });
   for (const key of Object.keys(mockStore)) delete mockStore[key];
   mockTransactions.splice(0);
   mockNoteIdRows.splice(0);
@@ -160,6 +215,17 @@ describe('resolveBridgeInNoteId', () => {
     expect(mockModify).not.toHaveBeenCalled();
     expect(mockStore[REGISTRY_KEY]).toHaveLength(1);
   });
+
+  // A batch row is no single delivery's receipt: tagged, it would hide itself and the other notes it claimed.
+  it('drops a resolved intent without tagging or relabelling the batch row it names', async () => {
+    mockNoteIdRows.push(consumeRow({ noteIds: [NOTE_ID, 'note-other'] }));
+    await registerPendingBridgeIn(EVM_OWNER, 'N1', info);
+
+    await resolveBridgeInNoteId(EVM_OWNER, 'N1', NOTE_ID);
+
+    expect(mockModify).not.toHaveBeenCalled();
+    expect(mockStore[REGISTRY_KEY]).toEqual([]);
+  });
 });
 
 // The registry scale the mock above names for the native-ETH faucet.
@@ -175,6 +241,14 @@ describe('takeAgglayerBridgeInInfo', () => {
   afterEach(() => nowSpy.mockRestore());
 
   it('reads the delivery sender only once this realm has hydrated the bridge config', async () => {
+    mockTransactions.push({
+      id: 'row',
+      type: 'bridged-receive',
+      accountId: 'miden-account',
+      amount: 5n * SCALE,
+      initiatedAt: 1,
+      extraInputs: { provider: 'agglayer', phase: 'delivering', sourceAmount: '5', sourceSymbol: 'ETH' }
+    });
     let hydrated: () => void = () => undefined;
     jest.mocked(initBridgeConfig).mockImplementationOnce(
       () =>
@@ -183,13 +257,12 @@ describe('takeAgglayerBridgeInInfo', () => {
             resolve({ network: 'testnet', status: 'ready', config: null, derived: null, lastFetch: null });
         })
     );
-    jest.mocked(selectNativeEthFaucet).mockClear();
     const taken = takeAgglayerBridgeInInfo({ accountId: 'miden-account', senderAccountId: 'agg-sender', amount: 5n });
     await new Promise(resolve => setTimeout(resolve, 0));
-    expect(selectNativeEthFaucet).not.toHaveBeenCalled();
+    expect(selectNativeEthToken).not.toHaveBeenCalled();
     hydrated();
-    await expect(taken).resolves.toBeUndefined();
-    expect(selectNativeEthFaucet).toHaveBeenCalled();
+    await expect(taken).resolves.toMatchObject({ bridgeReceiveTxId: 'row' });
+    expect(selectNativeEthToken).toHaveBeenCalled();
   });
 
   it('matches sender, recipient and amount and selects the oldest pending row', async () => {
@@ -339,7 +412,8 @@ describe('takeAgglayerBridgeInInfo', () => {
   });
 
   it('matches nothing while the bridge config names no native-ETH faucet', async () => {
-    jest.mocked(selectNativeEthFaucet).mockReturnValueOnce(null);
+    mockSnapshot = snapshotWith({ 11155111: [] });
+    expect(isAgglayerBridgeDelivery('agg-sender')).toBe(false);
     mockTransactions.push({
       id: 'row',
       type: 'bridged-receive',
@@ -375,6 +449,77 @@ describe('takeAgglayerBridgeInInfo', () => {
       // An empty override clears it, so no later case inherits it.
       setAgglayerSenderForE2E('');
     }
+  });
+
+  describe('on more than one AggLayer chain', () => {
+    const BASE_ROUTE: AgglayerRecoveryConfig = {
+      chainId: 84532,
+      contractAddress: '0x528e26b25a34a4a5d0dbda1d57d318153d2ed582',
+      midenBridgeId: '0x187cabbc404359d16be94954ca9879',
+      indexerUrl: 'https://indexer.test/api',
+      rollupId: 86,
+      evmNetworkId: 6
+    };
+    const baseSepolia: SupportedEvmChainConfig = {
+      chainId: 84532,
+      bridges: {
+        agglayer: {
+          depositEnabled: true,
+          withdrawalEnabled: true,
+          contractAddress: BASE_ROUTE.contractAddress,
+          midenBridgeId: BASE_ROUTE.midenBridgeId
+        }
+      }
+    };
+    const ethRow = (id: string, agglayerRoute: AgglayerRecoveryConfig, amount: bigint) => ({
+      id,
+      type: 'bridged-receive',
+      accountId: 'miden-account',
+      amount,
+      initiatedAt: 1,
+      extraInputs: { provider: 'agglayer', phase: 'delivering', sourceAmount: '5', sourceSymbol: 'ETH', agglayerRoute }
+    });
+
+    it('recognises a delivery from any listed chain and settles the row made on that chain at its scale', async () => {
+      mockSnapshot = snapshotWith(
+        { 11155111: [nativeEth('0xagg', 10)], 84532: [nativeEth('0xbase', 8)] },
+        { 'base-sepolia': baseSepolia }
+      );
+      expect(isAgglayerBridgeDelivery('base-sender')).toBe(true);
+      mockTransactions.push(ethRow('base', BASE_ROUTE, 5n * 10n ** 8n));
+
+      await expect(
+        takeAgglayerBridgeInInfo({ accountId: 'miden-account', senderAccountId: 'base-sender', amount: 5n })
+      ).resolves.toMatchObject({ bridgeReceiveTxId: 'base' });
+    });
+
+    it('settles a row by the faucet and scale it saved after the document drops its chain', async () => {
+      const saved = { ...BASE_ROUTE, nativeEthFaucetId: '0xbase', nativeEthScale: 8 };
+      mockTransactions.push(ethRow('saved', saved, 5n * 10n ** 8n));
+
+      await expect(
+        takeAgglayerBridgeInInfo({ accountId: 'miden-account', senderAccountId: 'agg-sender', amount: 5n })
+      ).resolves.toBeUndefined();
+      await expect(
+        takeAgglayerBridgeInInfo({ accountId: 'miden-account', senderAccountId: 'base-sender', amount: 5n })
+      ).resolves.toMatchObject({ bridgeReceiveTxId: 'saved' });
+    });
+
+    it('recognises a delivery from the faucet an open row saved after the document drops its chain', async () => {
+      const saved = { ...BASE_ROUTE, nativeEthFaucetId: '0xbase', nativeEthScale: 8 };
+      const settled = ethRow('settled', saved, 5n);
+      settled.extraInputs.phase = 'received';
+      mockTransactions.push(settled, { ...ethRow('restored', saved, 5n), restoredFromBackup: true });
+      expect((await agglayerDeliverySenders())('base-sender')).toBe(false);
+
+      mockTransactions.push(ethRow('open', saved, 5n));
+      const isDelivery = await agglayerDeliverySenders();
+
+      expect(isAgglayerBridgeDelivery('base-sender')).toBe(false);
+      expect(isDelivery('base-sender')).toBe(true);
+      expect(isDelivery('agg-sender')).toBe(true);
+      expect(isDelivery('usdcx-faucet-bech32')).toBe(false);
+    });
   });
 
   it('floors a tracked wei amount at the scale it is given', () => {
@@ -573,10 +718,10 @@ describe('takeUsdcxBridgeInInfo', () => {
   // The mint: the USDCx faucet sends a note of its own asset. The consume reads both ids in bech32.
   const mint = { accountId: 'miden-account', senderAccountId: 'usdcx-faucet-bech32', faucetId: 'usdcx-faucet-bech32' };
 
-  it('matches the faucet, the account and the amount and selects the oldest broadcast deposit', async () => {
+  it('matches the faucet, the account and the amount and selects the oldest attested deposit', async () => {
     mockTransactions.push(
       tracker({ id: 'newer', accountId: 'miden-account_tag', initiatedAt: 2 }),
-      tracker({ id: 'older' }, { phase: 'delivering' })
+      tracker({ id: 'older' }, { phase: 'ready' })
     );
 
     await expect(takeUsdcxBridgeInInfo({ ...mint, amount: 5_000_000n })).resolves.toEqual({
@@ -585,6 +730,27 @@ describe('takeUsdcxBridgeInInfo', () => {
       sourceSymbol: 'USDC',
       evmTxHash: DEPOSIT_HASH,
       bridgeReceiveTxId: 'older'
+    });
+  });
+
+  // The mint follows the deposit's attestation: an older deposit still waiting on its own leg (a burn the
+  // user never executed on Arc) must not take the note of the deposit Circle attested after it.
+  it('prefers a deposit Circle attested over an older one still delivering', async () => {
+    mockTransactions.push(
+      tracker({ id: 'older-unexecuted' }, { phase: 'delivering' }),
+      tracker({ id: 'attested', initiatedAt: 2 }, { phase: 'ready' })
+    );
+
+    await expect(takeUsdcxBridgeInInfo({ ...mint, amount: 5_000_000n })).resolves.toMatchObject({
+      bridgeReceiveTxId: 'attested'
+    });
+  });
+
+  it('falls back to a delivering deposit when none is attested yet', async () => {
+    mockTransactions.push(tracker({ id: 'delivering' }, { phase: 'delivering' }));
+
+    await expect(takeUsdcxBridgeInInfo({ ...mint, amount: 5_000_000n })).resolves.toMatchObject({
+      bridgeReceiveTxId: 'delivering'
     });
   });
 
@@ -608,6 +774,76 @@ describe('takeUsdcxBridgeInInfo', () => {
     mockTransactions.push(tracker());
 
     await expect(takeUsdcxBridgeInInfo({ ...mint, ...overrides, amount: 5_000_000n })).resolves.toBeUndefined();
+  });
+
+  // A row is live for as long as the reconciler tracks it, which can be well past its deposit's first week.
+  const EXECUTE_HASH = `0x${'7'.repeat(64)}`;
+  it.each<[string, Record<string, unknown>]>([
+    ['became ready this week', { phase: 'ready', readyAt: 9 }],
+    [
+      'saved its Arc execute this week',
+      {
+        phase: 'delivering',
+        sourceChainId: 84532,
+        cctp: { sourceDomain: 6, executeTxHash: EXECUTE_HASH, executeSavedAt: 9 }
+      }
+    ],
+    [
+      'holds a message to execute',
+      { phase: 'delivering', sourceChainId: 84532, cctp: { sourceDomain: 6, message: '0x1234', attestation: '0xabcd' } }
+    ],
+    [
+      'had its Arc execute revert this week',
+      {
+        phase: 'delivering',
+        sourceChainId: 84532,
+        cctp: { sourceDomain: 6, forwarded: false, revertedExecuteTxHash: EXECUTE_HASH, revertedAt: 9 }
+      }
+    ]
+  ])('takes the mint of an old deposit that %s', async (_label, extraInputs) => {
+    mockTransactions.push(tracker({ id: 'old', initiatedAt: -10 * 24 * 60 * 60 }, extraInputs));
+
+    await expect(takeUsdcxBridgeInInfo({ ...mint, amount: 5_000_000n })).resolves.toMatchObject({
+      bridgeReceiveTxId: 'old'
+    });
+  });
+
+  // A mint that arrives after its ready row timed out still lands it, after any live deposit of the same amount.
+  describe('a deposit that timed out after Circle attested it', () => {
+    const timedOut = (overrides: Record<string, unknown> = {}, extraInputs: Record<string, unknown> = {}) =>
+      tracker(
+        { initiatedAt: -9 * 24 * 60 * 60, ...overrides },
+        { phase: 'failed', readyAt: -8 * 24 * 60 * 60, error: 'Bridge delivery timed out.', ...extraInputs }
+      );
+
+    it('takes the late mint, past the delivery window', async () => {
+      mockTransactions.push(timedOut({ id: 'timed-out' }));
+
+      await expect(takeUsdcxBridgeInInfo({ ...mint, amount: 5_000_000n })).resolves.toMatchObject({
+        bridgeReceiveTxId: 'timed-out'
+      });
+    });
+
+    it('yields to a live deposit of the same amount, even one still delivering', async () => {
+      mockTransactions.push(
+        timedOut({ id: 'timed-out' }),
+        tracker({ id: 'live', initiatedAt: 5 }, { phase: 'delivering' })
+      );
+
+      await expect(takeUsdcxBridgeInInfo({ ...mint, amount: 5_000_000n })).resolves.toMatchObject({
+        bridgeReceiveTxId: 'live'
+      });
+    });
+
+    it.each([
+      ['timed out before Circle attested it', timedOut({}, { readyAt: undefined })],
+      ['failed for another reason', timedOut({}, { error: 'Circle attested this deposit to a different amount.' })],
+      ['was restored from a backup', timedOut({ restoredFromBackup: true })]
+    ])('leaves a failed deposit that %s', async (_label, row) => {
+      mockTransactions.push(row);
+
+      await expect(takeUsdcxBridgeInInfo({ ...mint, amount: 5_000_000n })).resolves.toBeUndefined();
+    });
   });
 
   it.each([
@@ -670,6 +906,63 @@ describe('applyBridgeInInfoForNotes', () => {
     (mockStore[REGISTRY_KEY] as Array<{ midenNoteId?: string }>)[0]!.midenNoteId = 'note-abc';
 
     expect(await applyBridgeInInfoForNotes(['note-other'], async () => {})).toBe(false);
+  });
+
+  describe('while the document names another allocator than the intent saved', () => {
+    const SAVED_ALLOCATOR = 'https://allocator.saved';
+    beforeEach(() => {
+      mockGetEpochReadOnlySdk.mockImplementation(async (_address, saved) => ({
+        allocatorUrl: saved ?? 'https://allocator.document'
+      }));
+      mockReadIntentStatus.mockImplementation(async sdk =>
+        sdk.allocatorUrl === SAVED_ALLOCATOR ? [{ midenNoteId: 'note-abc' }] : []
+      );
+    });
+    afterEach(() => {
+      mockGetEpochReadOnlySdk.mockImplementation(async () => ({ allocatorUrl: '' }));
+      mockReadIntentStatus.mockImplementation(async () => []);
+    });
+
+    it.each<[string, IBridgeInInfo]>([
+      ['a bridge deposit', { provider: 'epoch', bridgeReceiveTxId: 'TX1', epochAllocatorUrl: SAVED_ALLOCATOR }],
+      [
+        'an Earn withdrawal',
+        { provider: 'epoch', earnWithdrawTxId: 'W1', earnWithdrawAttemptId: 'A1', epochAllocatorUrl: SAVED_ALLOCATOR }
+      ]
+    ])('polls %s through the allocator it saved', async (_kind, info) => {
+      await registerPendingBridgeIn(EVM_OWNER, 'NONCE1', info);
+
+      let result: IBridgeInInfo | undefined;
+      const applied = await applyBridgeInInfoForNotes(['note-abc'], async matched => {
+        result = matched;
+      });
+
+      expect(mockGetEpochReadOnlySdk).toHaveBeenCalledWith(EVM_OWNER, SAVED_ALLOCATOR);
+      expect(applied).toBe(true);
+      expect(result).toMatchObject({ midenNoteId: 'note-abc', epochAllocatorUrl: SAVED_ALLOCATOR });
+    });
+
+    it('gives an intent registered without an allocator the one its tracking row saved, and keeps a saved one', async () => {
+      await registerPendingBridgeIn(EVM_OWNER, 'NONCE1', { provider: 'epoch', bridgeReceiveTxId: 'TX1' });
+      await registerPendingBridgeIn(EVM_OWNER, 'NONCE1', {
+        provider: 'epoch',
+        bridgeReceiveTxId: 'TX1',
+        epochAllocatorUrl: SAVED_ALLOCATOR
+      });
+      await registerPendingBridgeIn(EVM_OWNER, 'NONCE1', {
+        provider: 'epoch',
+        bridgeReceiveTxId: 'TX1',
+        epochAllocatorUrl: 'https://allocator.other'
+      });
+
+      let result: IBridgeInInfo | undefined;
+      await applyBridgeInInfoForNotes(['note-abc'], async matched => {
+        result = matched;
+      });
+
+      expect(mockGetEpochReadOnlySdk).toHaveBeenCalledWith(EVM_OWNER, SAVED_ALLOCATOR);
+      expect(result).toMatchObject({ midenNoteId: 'note-abc', epochAllocatorUrl: SAVED_ALLOCATOR });
+    });
   });
 });
 
