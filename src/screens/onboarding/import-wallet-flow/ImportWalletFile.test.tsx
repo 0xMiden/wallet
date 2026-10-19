@@ -38,6 +38,7 @@ import { ImportWalletFileScreen } from './ImportWalletFile';
  */
 
 let mockRealTelemetrySurfaces = false;
+let mockAlertTranslations: Record<string, string> = {};
 
 // ---------------------------------------------------------------------------
 // Mutable control state (read lazily inside mock-factory closures).
@@ -75,7 +76,7 @@ let mockEffectiveNetwork = 'testnet';
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, opts?: { importedCount?: string }) =>
-      opts?.importedCount !== undefined ? `${key}:${opts.importedCount}` : key
+      opts?.importedCount !== undefined ? `${key}:${opts.importedCount}` : (mockAlertTranslations[key] ?? key)
   })
 }));
 
@@ -1262,5 +1263,70 @@ describe('user-visible error reporting', () => {
     expect(screen.getByText('enterDecryptionPassword')).toBeInTheDocument();
     dwellForError();
     expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+});
+
+describe('imperative import-file error alerts', () => {
+  beforeEach(() => {
+    mockRealTelemetrySurfaces = true;
+    mockAlertTranslations = {
+      encryptedWalletFileJsonOnly: 'Choose a .JSON wallet file.',
+      encryptedWalletFileTooLarge:
+        'That file is too large to be an encrypted wallet file. Choose the file you exported from this wallet.',
+      encryptedWalletFileMalformed: 'This wallet file is invalid or damaged.',
+      encryptedWalletFileReadFailed: 'The wallet file could not be read. Choose it again.',
+      encryptedWalletFileSelectOne: 'Choose a wallet file to continue.'
+    };
+  });
+  afterEach(() => {
+    mockRealTelemetrySurfaces = false;
+    mockAlertTranslations = {};
+  });
+
+  it.each([
+    ['encryptedWalletFileJsonOnly', 'Choose a .JSON wallet file.'],
+    [
+      'encryptedWalletFileTooLarge',
+      'That file is too large to be an encrypted wallet file. Choose the file you exported from this wallet.'
+    ],
+    ['encryptedWalletFileMalformed', 'This wallet file is invalid or damaged.'],
+    ['encryptedWalletFileReadFailed', 'The wallet file could not be read. Choose it again.'],
+    ['encryptedWalletFileSelectOne', 'Choose a wallet file to continue.']
+  ])('reports %s from its real browser alert producer', (id, text) => {
+    const { container } = renderScreen();
+    alertSpy.mockImplementation(() => {
+      expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([]);
+    });
+    if (id === 'encryptedWalletFileJsonOnly') uploadViaInput(container, 'wallet.txt');
+    if (id === 'encryptedWalletFileTooLarge') uploadViaInput(container, 'wallet.json', undefined, 64 * 1024 * 1024 + 1);
+    if (id === 'encryptedWalletFileMalformed')
+      uploadViaInput(container, 'wallet.json', { mode: 'load', content: privateErrorFixture });
+    if (id === 'encryptedWalletFileReadFailed') uploadViaInput(container, 'wallet.json', { mode: 'error' });
+    if (id === 'encryptedWalletFileSelectOne') {
+      Object.defineProperty(getFileInput(container), 'files', { value: [], configurable: true });
+      fireEvent.change(getFileInput(container));
+    }
+    expect(alertSpy.mock.calls).toEqual([[text]]);
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([[id, 'browser_alert']]);
+  });
+
+  it('keeps successful file selection and clearing quiet', () => {
+    const { container } = renderScreen();
+    uploadViaInput(container, 'wallet.json', { mode: 'load', content: VALID_WALLET_JSON });
+    expect(screen.getByText('wallet.json')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'clear' }));
+    expect(getFileInput(container)).toBeInTheDocument();
+    expect(alertSpy.mock.calls).toEqual([]);
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([]);
+  });
+
+  it('keeps a superseded read failure quiet', async () => {
+    const { container } = renderScreen();
+    uploadViaInput(container, 'retired.json', { mode: 'error', deferred: true });
+    uploadViaInput(container, 'current.json', { mode: 'load', content: VALID_WALLET_JSON });
+    await act(async () => pendingReads.forEach(settle => settle()));
+    expect(screen.getByText('current.json')).toBeInTheDocument();
+    expect(alertSpy.mock.calls).toEqual([]);
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([]);
   });
 });

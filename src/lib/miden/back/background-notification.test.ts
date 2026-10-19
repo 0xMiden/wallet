@@ -1,4 +1,5 @@
 import { isExtension } from 'lib/platform';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
 import {
   notifyBackgroundTransactionFailed,
@@ -7,6 +8,7 @@ import {
 } from './background-notification';
 import { getIntercom } from './defaults';
 
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
 jest.mock('lib/platform', () => ({ isExtension: jest.fn() }));
 jest.mock('./defaults', () => ({ getIntercom: jest.fn() }));
 // getMessage returns '' so the English `|| fallback` copy is exercised.
@@ -142,5 +144,145 @@ describe('notifyBackgroundTransactionNotConfirmed', () => {
 
     expect(() => notifyBackgroundTransactionNotConfirmed()).not.toThrow();
     expect(notificationsCreate).not.toHaveBeenCalled();
+  });
+});
+
+describe('delivered background transaction error reporting', () => {
+  const variants = [
+    {
+      name: 'failed',
+      notify: notifyBackgroundTransactionFailed,
+      id: 'transactionFailedNotificationBody',
+      notificationId: 'miden-transaction-failed',
+      title: 'Transaction failed',
+      body: "A transaction couldn't be completed. Open the wallet to review."
+    },
+    {
+      name: 'unconfirmed',
+      notify: notifyBackgroundTransactionNotConfirmed,
+      id: 'transactionNotConfirmedNotificationBody',
+      notificationId: 'miden-transaction-not-confirmed',
+      title: 'Transaction not confirmed',
+      body: 'The wallet could not confirm whether a transaction went through. Open the wallet before you try again.'
+    }
+  ];
+  type NotificationPlatform = {
+    registration?: { showNotification: jest.Mock };
+    chrome: {
+      runtime: { getURL: (path: string) => string; lastError?: { message: string } };
+      notifications?: { create: jest.Mock };
+    };
+  };
+  const platform = globalThis as unknown as NotificationPlatform;
+  let warnSpy: jest.SpyInstance;
+
+  beforeEach(() => {
+    mockIsExtension.mockReturnValue(true);
+    mockGetIntercom.mockReturnValue({ hasClients: () => false });
+    notificationsCreate.mockReset();
+    warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+  });
+  afterEach(() => {
+    warnSpy.mockRestore();
+    delete platform.registration;
+  });
+
+  describe.each(variants)('$name notification', ({ notify, id, notificationId, title, body }) => {
+    it('reports exactly once after Chrome confirms delivery with the original copy', () => {
+      notify();
+      expect(notificationsCreate.mock.calls).toEqual([
+        [
+          notificationId,
+          { type: 'basic', iconUrl: 'misc/logo-white-bg-128.png', title, message: body, requireInteraction: true },
+          expect.any(Function)
+        ]
+      ]);
+      expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([]);
+      const delivered = notificationsCreate.mock.calls[0][2] as (createdId: string) => void;
+      delivered(notificationId);
+      expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([[id, 'os_notification']]);
+    });
+
+    it('reports only after the service-worker delivery promise resolves', async () => {
+      let resolveDelivery!: () => void;
+      const delivery = new Promise<void>(resolve => {
+        resolveDelivery = resolve;
+      });
+      const showNotification = jest.fn().mockReturnValue(delivery);
+      platform.registration = { showNotification };
+      notify();
+      expect(showNotification.mock.calls).toEqual([
+        [title, { body, icon: 'misc/logo-white-bg-128.png', requireInteraction: true }]
+      ]);
+      expect(notificationsCreate).not.toHaveBeenCalled();
+      expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([]);
+      resolveDelivery();
+      await delivery;
+      await Promise.resolve();
+      expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([[id, 'os_notification']]);
+    });
+
+    it('keeps an undelivered Chrome notification quiet', () => {
+      notify();
+      expect(notificationsCreate).toHaveBeenCalledTimes(1);
+      expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([]);
+    });
+
+    it('keeps a Chrome delivery error quiet and preserves its diagnostic', () => {
+      notify();
+      const error = { message: 'private notification transport detail 0x1234 amount 42' };
+      platform.chrome.runtime.lastError = error;
+      const completed = notificationsCreate.mock.calls[0][2] as (createdId: string) => void;
+      completed('');
+      expect(warnSpy).toHaveBeenCalledWith('[background-notification] chrome.notifications error:', error.message);
+      expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([]);
+    });
+
+    it('keeps a rejected service-worker delivery quiet', async () => {
+      const error = new Error('private notification rejection 0x1234 amount 42');
+      const delivery = Promise.reject(error);
+      // The platform rejection is observed even on the uninstrumented baseline.
+      void delivery.catch(() => undefined);
+      platform.registration = { showNotification: jest.fn().mockReturnValue(delivery) };
+      expect(() => notify()).not.toThrow();
+      await delivery.catch(() => undefined);
+      await Promise.resolve();
+      expect(notificationsCreate).not.toHaveBeenCalled();
+      expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([]);
+    });
+
+    it('keeps a synchronously rejected delivery quiet without escaping the caller', () => {
+      const error = new Error('platform unavailable');
+      notificationsCreate.mockImplementationOnce(() => {
+        throw error;
+      });
+      expect(() => notify()).not.toThrow();
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('[background-notification]'), error);
+      expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([]);
+    });
+
+    it('keeps off-extension and attached-client gates quiet', () => {
+      mockIsExtension.mockReturnValue(false);
+      notify();
+      mockIsExtension.mockReturnValue(true);
+      mockGetIntercom.mockReturnValue({ hasClients: () => true });
+      notify();
+      expect(notificationsCreate).not.toHaveBeenCalled();
+      expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([]);
+    });
+
+    it('keeps missing OS notification transports quiet', () => {
+      delete platform.chrome.notifications;
+      notify();
+      expect(notificationsCreate).not.toHaveBeenCalled();
+      expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([]);
+    });
+  });
+
+  it('keeps non-error notification copy quiet even after delivery', () => {
+    showBackgroundNotification('Received a note', 'Informational success', 'miden-received-note');
+    const completed = notificationsCreate.mock.calls[0][2] as (createdId: string) => void;
+    completed('miden-received-note');
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([]);
   });
 });
