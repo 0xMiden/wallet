@@ -32,6 +32,8 @@ const base: { nativeOrigin: 'publish_error'; requestAge: 'unknown'; published: '
   requestAge: 'unknown',
   published: 'unobserved'
 };
+// Each rejected envelope differs from this valid one only in its prefix or trailing text.
+const validCode = 'REOWN_NATIVE_REQUEST_FAILURE:' + JSON.stringify(base);
 type WalletSnapshot = {
   nativeOrigin: 'wallet_error';
   walletResponseCode: 'internal_error' | 'other';
@@ -95,7 +97,8 @@ it('requires exact prefix and mandatory enums', () => {
     expect(validateReownNativeFailure(value)).toBeUndefined();
   }
   expect(decodeReownNativeFailureCode('REOWN_NATIVE_REQUEST_FAILURE:{')).toBeUndefined();
-  expect(decodeReownNativeFailureCode('prefix REOWN_NATIVE_REQUEST_FAILURE:{}')).toBeUndefined();
+  expect(decodeReownNativeFailureCode(validCode)).toEqual(base);
+  expect(decodeReownNativeFailureCode('prefix ' + validCode)).toBeUndefined();
 });
 
 it.each([
@@ -132,12 +135,13 @@ it.each([
   [],
   '',
   'REOWN_NATIVE_REQUEST_FAILURE',
-  'reown_native_request_failure:{}',
-  ' REOWN_NATIVE_REQUEST_FAILURE:{}',
+  'reown_native_request_failure:' + JSON.stringify(base),
+  ' ' + validCode,
+  'REOWN_NATIVE_REQUEST_FAILURE' + JSON.stringify(base),
   'REOWN_NATIVE_REQUEST_FAILURE:null',
   'REOWN_NATIVE_REQUEST_FAILURE:[]',
   'REOWN_NATIVE_REQUEST_FAILURE:"publish_error"',
-  'REOWN_NATIVE_REQUEST_FAILURE:{} trailing'
+  validCode + ' trailing'
 ])('requires exact prefix and mandatory enums for code %p', code => {
   const { decodeReownNativeFailureCode } = jest.requireActual<BoundaryModule>('./native-request-failure');
   expect(decodeReownNativeFailureCode(code)).toBeUndefined();
