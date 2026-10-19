@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
+import { ModuleKind, ScriptTarget, transpileModule } from 'typescript';
 
 import { getStorageProvider } from 'lib/platform/storage-adapter';
 import { DEFAULT_TELEMETRY, TELEMETRY_STORAGE_KEY } from 'lib/settings/constants';
@@ -1028,36 +1029,49 @@ function resolveSpecifier(specifier: string, fromFile: string): string | null {
   return null;
 }
 
-interface BackgroundGraph {
+interface RuntimeGraph {
   modules: ReadonlySet<string>;
   /** Module → a module that imports it, so a failure names the route in rather than just the file. */
   importedBy: ReadonlyMap<string, string>;
 }
 
-let cachedGraph: BackgroundGraph | undefined;
-/** Everything the MV3 service worker pulls in, following runtime imports only. */
-function backgroundGraph(): BackgroundGraph {
-  if (cachedGraph === undefined) {
-    const modules = new Set<string>();
-    const importedBy = new Map<string, string>();
-    const pending = [BACKGROUND_ENTRY];
+function runtimeGraph(
+  entry: string,
+  options: { stubbedModules?: ReadonlySet<string>; eraseTypes?: boolean } = {}
+): RuntimeGraph {
+  const modules = new Set<string>();
+  const importedBy = new Map<string, string>();
+  const pending = [entry];
 
-    while (pending.length > 0) {
-      const current = pending.pop();
-      if (current === undefined || modules.has(current)) continue;
-      modules.add(current);
-      if (!/\.(ts|tsx|js)$/.test(current)) continue;
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (current === undefined || modules.has(current)) continue;
+    modules.add(current);
+    if (!/\.(ts|tsx|js)$/.test(current)) continue;
 
-      for (const specifier of specifiersOf(readFileSync(resolve(REPO_ROOT, current), 'utf8'))) {
-        if (specifier.typeOnly) continue;
-        const resolved = resolveSpecifier(specifier.value, current);
-        if (resolved === null) continue;
-        if (!importedBy.has(resolved)) importedBy.set(resolved, current);
-        if (!modules.has(resolved)) pending.push(resolved);
-      }
+    const source = readFileSync(resolve(REPO_ROOT, current), 'utf8');
+    const runtimeSource = options.eraseTypes
+      ? transpileModule(source, {
+          fileName: current,
+          compilerOptions: { module: ModuleKind.ESNext, target: ScriptTarget.ES2022 }
+        }).outputText
+      : source;
+    for (const specifier of specifiersOf(runtimeSource)) {
+      if (specifier.typeOnly) continue;
+      const resolved = resolveSpecifier(specifier.value, current);
+      if (resolved !== null && options.stubbedModules?.has(resolved)) continue;
+      const dependency = resolved ?? specifier.value;
+      if (!importedBy.has(dependency)) importedBy.set(dependency, current);
+      if (resolved !== null && !modules.has(resolved)) pending.push(resolved);
     }
-    cachedGraph = { modules, importedBy };
   }
+  return { modules, importedBy };
+}
+
+let cachedGraph: RuntimeGraph | undefined;
+/** Everything the MV3 service worker pulls in, following runtime imports only. */
+function backgroundGraph(): RuntimeGraph {
+  cachedGraph ??= runtimeGraph(BACKGROUND_ENTRY);
   return cachedGraph;
 }
 
@@ -1144,6 +1158,47 @@ describe('the background service worker never imports the telemetry barrel', () 
   it('keeps the relay diagnostics import-free, so App and AppKit feed them without loading the crash client', () => {
     const source = readFileSync(resolve(REPO_ROOT, 'src/lib/telemetry/relay-diagnostics.ts'), 'utf8');
     expect(specifiersOf(source)).toEqual([]);
+  });
+});
+
+const CONTENT_SCRIPT_ENTRY = 'src/contentScript.ts';
+// vite.contentScripts.config.ts replaces these adapters before inlining dynamic imports.
+const CONTENT_SCRIPT_STUBS = new Set(['src/lib/intercom/mobile-adapter.ts', 'src/lib/intercom/desktop-adapter.ts']);
+
+describe('the classic content script loads diagnostics without the crash or SDK runtimes', () => {
+  it('follows the real intercom path while excluding build-stubbed adapters and erased type imports', () => {
+    const graph = runtimeGraph(CONTENT_SCRIPT_ENTRY, { stubbedModules: CONTENT_SCRIPT_STUBS, eraseTypes: true });
+    expect([...graph.modules]).toEqual(
+      expect.arrayContaining([
+        CONTENT_SCRIPT_ENTRY,
+        'src/lib/intercom/client.ts',
+        'src/lib/intercom/helpers.ts',
+        'src/lib/telemetry/crash-diagnostics.ts',
+        'src/lib/telemetry/wasm-startup.ts'
+      ])
+    );
+    expect(graph.importedBy.get('webextension-polyfill')).toBeDefined();
+
+    const forbidden = [...graph.importedBy.keys()].filter(
+      dependency =>
+        dependency === 'src/lib/telemetry/user-visible-error.ts' ||
+        dependency === 'src/lib/telemetry/crash.ts' ||
+        /^@sentry\//.test(dependency) ||
+        /^@miden-sdk\/miden-sdk(?:\/|$)/.test(dependency)
+    );
+    expect(
+      forbidden.sort().map(dependency => {
+        const path = [dependency];
+        const seen = new Set(path);
+        let importer = graph.importedBy.get(dependency);
+        while (importer !== undefined && !seen.has(importer)) {
+          path.unshift(importer);
+          seen.add(importer);
+          importer = graph.importedBy.get(importer);
+        }
+        return path.join(' -> ');
+      })
+    ).toEqual([]);
   });
 });
 

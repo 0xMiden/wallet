@@ -5,6 +5,34 @@ import { annotateCrash, snapshotCrashDiagnostics } from './crash-diagnostics';
 import { USER_ERROR_SURFACES } from './user-visible-error';
 
 describe('source-bound crash diagnostics', () => {
+  it('loads and validates user-error diagnostics without loading a reporter or crash client', () => {
+    const forbiddenDependencies = ['./user-visible-error', './crash'];
+    for (const dependency of forbiddenDependencies) {
+      jest.doMock(dependency, () => {
+        throw new Error(`diagnostics loaded forbidden runtime ${dependency}`);
+      });
+    }
+
+    try {
+      let snapshot: unknown;
+      expect(() =>
+        jest.isolateModules(() => {
+          const diagnostics = jest.requireActual<typeof import('./crash-diagnostics')>('./crash-diagnostics');
+          const error = new Error('failure');
+          diagnostics.annotateCrash(error, {
+            userErrorId: 'usdcxFaucetUnavailable',
+            userErrorSurface: 'review',
+            message: 'private failure text'
+          });
+          snapshot = diagnostics.snapshotCrashDiagnostics(error);
+        })
+      ).not.toThrow();
+      expect(snapshot).toEqual({ userErrorId: 'usdcxFaucetUnavailable', userErrorSurface: 'review' });
+    } finally {
+      for (const dependency of forbiddenDependencies) jest.dontMock(dependency);
+    }
+  });
+
   it('accepts the closed user-visible error id and every display surface', () => {
     for (const userErrorSurface of USER_ERROR_SURFACES) {
       const error = new Error('failure');
