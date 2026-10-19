@@ -115,8 +115,8 @@ describe('dApp login signature note', () => {
     pl: /transakc/i,
     pt: /transa[cç]/i,
     ru: /транзакц/i,
-    // "İşlem" is also Turkish for a process, as in "oturum açma işlemi" (the sign-in process).
-    tr: /(?<!(?:açma|giriş) )işlem/i,
+    // "İşlem" is also Turkish for a process, as in "oturum açma işlemi" (the sign-in process). /i does not fold İ to i.
+    tr: /(?<!(?:açma|giriş) )[iİ]şlem/i,
     uk: /транзакц/i,
     zh_CN: /交易/,
     zh_TW: /交易/
@@ -138,21 +138,21 @@ describe('dApp login signature note', () => {
   };
 
   // Each pattern must catch its locale's own wording for signing transactions, and none of its sign-in wordings.
-  const SIGNS_TRANSACTIONS: Record<string, string> = {
-    de: 'Bread signiert Transaktionen',
-    en: 'Bread signs transactions',
-    en_GB: 'Bread signs transactions',
-    es: 'Bread firma transacciones',
-    fr: 'Bread signe des transactions',
-    ja: 'Breadは取引に署名します',
-    ko: 'Bread는 거래에 서명합니다',
-    pl: 'Bread podpisuje transakcje',
-    pt: 'Bread assina transações',
-    ru: 'Bread подписывает транзакции',
-    tr: 'Bread işlemleri imzalar',
-    uk: 'Bread підписує транзакції',
-    zh_CN: 'Bread 签署交易',
-    zh_TW: 'Bread 簽署交易'
+  const SIGNS_TRANSACTIONS: Record<string, string[]> = {
+    de: ['Bread signiert Transaktionen'],
+    en: ['Bread signs transactions'],
+    en_GB: ['Bread signs transactions'],
+    es: ['Bread firma transacciones'],
+    fr: ['Bread signe des transactions'],
+    ja: ['Breadは取引に署名します'],
+    ko: ['Bread는 거래에 서명합니다'],
+    pl: ['Bread podpisuje transakcje'],
+    pt: ['Bread assina transações'],
+    ru: ['Bread подписывает транзакции'],
+    tr: ['Bread işlemleri imzalar', 'İşlemleri $domain$ için oluşturulmuş bir anahtarla Bread imzalar'],
+    uk: ['Bread підписує транзакції'],
+    zh_CN: ['Bread 签署交易'],
+    zh_TW: ['Bread 簽署交易']
   };
 
   const SIGNS_IN: Record<string, string[]> = {
@@ -178,7 +178,8 @@ describe('dApp login signature note', () => {
   it.each(Object.keys(TRANSACTION_WORD))(
     'tells the %s wording for signing transactions from its sign-in wording',
     locale => {
-      expect(SIGNS_TRANSACTIONS[locale]).toMatch(TRANSACTION_WORD[locale]!);
+      expect(SIGNS_TRANSACTIONS[locale]!.length).toBeGreaterThan(0);
+      for (const signs of SIGNS_TRANSACTIONS[locale]!) expect(signs).toMatch(TRANSACTION_WORD[locale]!);
       expect(SIGNS_IN[locale]!.length).toBeGreaterThan(0);
       for (const signIn of SIGNS_IN[locale]!) expect(signIn).not.toMatch(TRANSACTION_WORD[locale]!);
     }
