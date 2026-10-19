@@ -3107,6 +3107,7 @@ async function requestConfirm({
   const browser = await getBrowser();
 
   let closing = false;
+  let answering = false;
   const openedAt = Date.now();
   let payloadServed = false;
   let timeout: ReturnType<typeof setTimeout> | undefined;
@@ -3174,7 +3175,15 @@ async function requestConfirm({
 
     if (knownPort !== port) return;
 
-    const result = await handleIntercomRequest(req, onDecline);
+    // Every approval flow shares this guard so repeated popup confirmations cannot rerun an action in flight.
+    if (answering || closing) return;
+    answering = true;
+    let result: unknown;
+    try {
+      result = await handleIntercomRequest(req, onDecline);
+    } finally {
+      answering = false;
+    }
     if (result) {
       close('answered');
       return result;
