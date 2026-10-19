@@ -61,9 +61,8 @@ jest.mock('lib/lock-up/run-checks', () => ({}));
 jest.mock('lib/props-with-children', () => ({}));
 
 // ---------------------------------------------------------------------------
-// Telemetry startup — the legacy-identifier cleanup and the consent-gated
-// crash reporter. Mocked so the assertions are about whether App calls them and
-// under what consent, not about Sentry or localStorage internals.
+// Telemetry startup: legacy-identifier cleanup and crash reporting are independent
+// of the usage-data choice. Mock clients to assert the startup wiring.
 // ---------------------------------------------------------------------------
 jest.mock('lib/telemetry', () => ({
   clearLegacyAnalyticsStorage: jest.fn()
@@ -91,6 +90,7 @@ jest.mock('lib/remote-config/runtime', () => ({
 // `getThemeSetting` is here only because the (unmocked) AppKit provider reads it
 // at module scope; mocking this module wholesale would otherwise break it.
 jest.mock('lib/settings/helpers', () => ({
+  ...jest.requireActual<typeof import('lib/settings/helpers')>('lib/settings/helpers'),
   getThemeSetting: jest.fn(() => 'system'),
   isTelemetryEnabled: jest.fn(() => false)
 }));
@@ -158,6 +158,10 @@ jest.mock('app/providers/UpdateNotificationProvider', () => ({
   UpdateNotificationProvider: ({ children }: { children?: React.ReactNode }) => (
     <div data-testid="update-notification-provider">{children}</div>
   )
+}));
+
+jest.mock('app/providers/GuardianRecoveryProvider', () => ({
+  GuardianRecoveryProvider: () => null
 }));
 
 // ---------------------------------------------------------------------------
@@ -404,19 +408,17 @@ describe('app/App', () => {
       expect(mockClearLegacyAnalyticsStorage).toHaveBeenCalledTimes(1);
     });
 
-    it('does NOT start crash reporting when consent has not been given', () => {
+    it('starts crash reporting when usage sharing is disabled', () => {
       mockIsTelemetryEnabled.mockReturnValue(false);
 
       renderApp({ windowType: 'FullPage', confirmWindow: false });
 
-      expect(mockIsTelemetryEnabled).toHaveBeenCalled();
-      expect(mockInitCrashReporting).not.toHaveBeenCalled();
-      // The cleanup still runs, so a green cleanup assertion cannot be what is
-      // making this pass.
+      expect(mockIsTelemetryEnabled).not.toHaveBeenCalled();
+      expect(mockInitCrashReporting).toHaveBeenCalledTimes(1);
       expect(mockClearLegacyAnalyticsStorage).toHaveBeenCalledTimes(1);
     });
 
-    it('starts crash reporting when consent has been given', () => {
+    it('starts crash reporting when usage sharing is enabled', () => {
       mockIsTelemetryEnabled.mockReturnValue(true);
 
       renderApp({ windowType: 'FullPage', confirmWindow: false });
@@ -425,7 +427,7 @@ describe('app/App', () => {
     });
 
     it('starts crash reporting once per mount, not once per render', () => {
-      mockIsTelemetryEnabled.mockReturnValue(true);
+      mockIsTelemetryEnabled.mockReturnValue(false);
 
       const { rerender } = renderApp({ windowType: 'FullPage', confirmWindow: false });
       rerender(<App env={{ windowType: 'FullPage', confirmWindow: false } as any} />);
@@ -434,8 +436,8 @@ describe('app/App', () => {
       expect(mockClearLegacyAnalyticsStorage).toHaveBeenCalledTimes(1);
     });
 
-    it('runs the startup wiring on the confirm-window surface too', () => {
-      mockIsTelemetryEnabled.mockReturnValue(true);
+    it('starts crash reporting on the confirm-window surface with usage sharing disabled', () => {
+      mockIsTelemetryEnabled.mockReturnValue(false);
 
       renderApp({ windowType: 'FullPage', confirmWindow: true });
 

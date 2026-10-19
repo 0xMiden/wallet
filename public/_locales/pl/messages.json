@@ -5884,8 +5884,8 @@
     "englishSource": "Help improve Wallet"
   },
   "helpImproveWalletDescription": {
-    "message": "Podaj, z jakich części portfela korzystasz, gdzie napotykasz trudności, ogólne kategorie błędów, wersję aplikacji oraz platformę, z której korzystasz, abyśmy mogli naprawić to, co nie działa. Jeśli aplikacja ulegnie awarii, wysyła również raport o awarii zawierający błąd i miejsce jego wystąpienia w kodzie, z którego przed wysłaniem usunięto dane wrażliwe. Nigdy nie udostępniamy Twoich kluczy, frazy odzyskiwania, hasła, adresów, sald, kwot ani treści transakcji. Nie śledzimy Twojej aktywności w innych aplikacjach ani na stronach internetowych, nie wykorzystujemy danych do celów reklamowych ani nie sprzedajemy ich ani nie udostępniamy brokerom danych. Możesz zmienić te ustawienia w dowolnym momencie.",
-    "englishSource": "Shares which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform, so we can fix what's breaking. If the app crashes, it also sends a crash report with the error and where it happened in the code, scrubbed to remove sensitive data before sending. Never your keys, recovery phrase, password, addresses, balances, amounts, or transaction contents. No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers. You can change this any time."
+    "message": "Podaj, z jakich części Portfela korzystasz, gdzie napotykasz trudności, ogólne kategorie błędów, wersję aplikacji oraz platformę, z której korzystasz, abyśmy mogli naprawić to, co nie działa. Nigdy nie podawaj swoich kluczy, frazy odzyskiwania, hasła, adresów, sald, kwot ani treści transakcji. Nie śledzimy Twojej aktywności w innych aplikacjach ani na stronach internetowych, nie wykorzystujemy żadnych danych do celów reklamowych, a także nie sprzedajemy ani nie udostępniamy danych brokerom danych. Raporty o awariach są wysyłane w każdym przypadku: zawierają opis błędu i miejsce jego wystąpienia w kodzie, po usunięciu danych wrażliwych, bez identyfikatorów dotyczących Ciebie ani Twojego urządzenia. Możesz to zmienić w dowolnym momencie.",
+    "englishSource": "Shares which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform, so we can fix what's breaking. Never your keys, recovery phrase, password, addresses, balances, amounts, or transaction contents. No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers. Crash reports are sent either way: the error and where it happened in the code, scrubbed to remove sensitive data, with no identifier for you or your device. You can change this any time."
   },
   "helpImproveWalletAccept": {
     "message": "Udostępnij dane dotyczące użytkowania",
@@ -5904,8 +5904,8 @@
     "englishSource": "Only what helps us fix bugs"
   },
   "helpImproveWalletSharedDescription": {
-    "message": "Which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform. If the app crashes, a crash report with the error and where it happened in the code, scrubbed to remove sensitive data before sending.",
-    "englishSource": "Which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform. If the app crashes, a crash report with the error and where it happened in the code, scrubbed to remove sensitive data before sending."
+    "message": "Z jakich części portfela korzystasz, gdzie napotykasz trudności, ogólne kategorie błędów, wersję aplikacji oraz platformę, z której korzystasz.",
+    "englishSource": "Which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform."
   },
   "helpImproveWalletPrivateTitle": {
     "message": "Your wallet stays private",
@@ -5922,6 +5922,10 @@
   "helpImproveWalletNoTrackingDescription": {
     "message": "No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers.",
     "englishSource": "No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers."
+  },
+  "helpImproveWalletCrashReports": {
+    "message": "Raporty o awariach są wysyłane niezależnie od tego, w jaki sposób doszło do awarii, abyśmy mogli je naprawić: zawierają one informację o błędzie i miejscu jego wystąpienia w kodzie, po usunięciu danych wrażliwych, bez identyfikatora użytkownika ani urządzenia.",
+    "englishSource": "Crash reports are sent either way, so we can fix crashes: the error and where it happened in the code, scrubbed to remove sensitive data, with no identifier for you or your device."
   },
   "helpImproveWalletChangeAnyTime": {
     "message": "You can change this any time in Settings.",
