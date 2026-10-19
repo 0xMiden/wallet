@@ -17,6 +17,11 @@ const IOS = 'Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/
 const EN: Record<string, string> = JSON.parse(
   fs.readFileSync(path.join(PUBLIC_DIR, '_locales', 'en', 'en.json'), 'utf8')
 );
+function en(key: string): string {
+  const message = EN[key];
+  if (message === undefined) throw new Error(`en.json has no ${key}`);
+  return message;
+}
 const MIN_WEBVIEW = config.android?.minWebViewVersion ?? 0;
 const LOCALE_DIRECTORIES = fs
   .readdirSync(path.join(PUBLIC_DIR, '_locales'))
@@ -91,9 +96,9 @@ describe('WebView error page', () => {
   });
 
   it('ships the start-failed copy of en.json as its static text', () => {
-    expect(document.getElementById('title')).toHaveTextContent(EN.webViewStartFailedTitle);
-    expect(document.getElementById('body')).toHaveTextContent(EN.webViewStartFailedBody);
-    expect(document.getElementById('action')).toHaveTextContent(EN.webViewStartFailedAction);
+    expect(document.getElementById('title')).toHaveTextContent(en('webViewStartFailedTitle'));
+    expect(document.getElementById('body')).toHaveTextContent(en('webViewStartFailedBody'));
+    expect(document.getElementById('action')).toHaveTextContent(en('webViewStartFailedAction'));
   });
 
   it.each(LOCALE_DIRECTORIES)('requests the shipped %s locale for its own language tag', directory => {
@@ -111,18 +116,18 @@ describe('WebView error page', () => {
   it('sends Chrome 92 to the WebView update listing when the locale request fails', () => {
     load(OLD_ANDROID, 'en-US');
 
-    expect(document.getElementById('title')).toHaveTextContent(EN.webViewUpdateTitle);
-    expect(document.getElementById('body')).toHaveTextContent(EN.webViewUpdateBody);
-    expect(document.getElementById('action')).toHaveTextContent(EN.webViewUpdateAction);
+    expect(document.getElementById('title')).toHaveTextContent(en('webViewUpdateTitle'));
+    expect(document.getElementById('body')).toHaveTextContent(en('webViewUpdateBody'));
+    expect(document.getElementById('action')).toHaveTextContent(en('webViewUpdateAction'));
     expect(document.getElementById('action')).toHaveAttribute('href', PLAY_URL);
   });
 
   it('sends Android 9, whose WebView is Chrome, to the Chrome update listing', () => {
     load(OLD_ANDROID_9, 'en-US');
 
-    expect(document.getElementById('title')).toHaveTextContent(EN.webViewUpdateChromeTitle);
-    expect(document.getElementById('body')).toHaveTextContent(EN.webViewUpdateChromeBody);
-    expect(document.getElementById('action')).toHaveTextContent(EN.webViewUpdateAction);
+    expect(document.getElementById('title')).toHaveTextContent(en('webViewUpdateChromeTitle'));
+    expect(document.getElementById('body')).toHaveTextContent(en('webViewUpdateChromeBody'));
+    expect(document.getElementById('action')).toHaveTextContent(en('webViewUpdateAction'));
     expect(document.getElementById('action')).toHaveAttribute('href', CHROME_PLAY_URL);
   });
 
@@ -131,7 +136,7 @@ describe('WebView error page', () => {
     userAgent => {
       load(userAgent, 'en-US');
 
-      expect(document.getElementById('title')).toHaveTextContent(EN.webViewUpdateTitle);
+      expect(document.getElementById('title')).toHaveTextContent(en('webViewUpdateTitle'));
       expect(document.getElementById('action')).toHaveAttribute('href', PLAY_URL);
     }
   );
@@ -157,15 +162,15 @@ describe('WebView error page', () => {
   it.each([NEW_ANDROID, IOS])('offers a startup retry for a supported or non-Chrome WebView: %s', userAgent => {
     load(userAgent, 'en-US');
 
-    expect(document.getElementById('title')).toHaveTextContent(EN.webViewStartFailedTitle);
-    expect(document.getElementById('body')).toHaveTextContent(EN.webViewStartFailedBody);
-    expect(document.getElementById('action')).toHaveTextContent(EN.webViewStartFailedAction);
+    expect(document.getElementById('title')).toHaveTextContent(en('webViewStartFailedTitle'));
+    expect(document.getElementById('body')).toHaveTextContent(en('webViewStartFailedBody'));
+    expect(document.getElementById('action')).toHaveTextContent(en('webViewStartFailedAction'));
     expect(document.getElementById('action')).toHaveAttribute('href', '/');
   });
 
   it.each([
-    { major: MIN_WEBVIEW - 1, title: EN.webViewUpdateTitle, href: PLAY_URL },
-    { major: MIN_WEBVIEW, title: EN.webViewStartFailedTitle, href: '/' }
+    { major: MIN_WEBVIEW - 1, title: en('webViewUpdateTitle'), href: PLAY_URL },
+    { major: MIN_WEBVIEW, title: en('webViewStartFailedTitle'), href: '/' }
   ])('enforces the minWebViewVersion boundary at Chrome $major', ({ major, title, href }) => {
     load(`Mozilla/5.0 (Linux; Android 10) Chrome/${major}.0.0.0 Mobile Safari/537.36`, 'en-US');
 
@@ -182,8 +187,8 @@ describe('WebView error page', () => {
     load(OLD_ANDROID, 'de-DE');
 
     expect(document.getElementById('title')).toHaveTextContent('Android System WebView aktualisieren');
-    expect(document.getElementById('body')).toHaveTextContent(EN.webViewUpdateBody);
-    expect(document.getElementById('action')).toHaveTextContent(EN.webViewUpdateAction);
+    expect(document.getElementById('body')).toHaveTextContent(en('webViewUpdateBody'));
+    expect(document.getElementById('action')).toHaveTextContent(en('webViewUpdateAction'));
     expect(document.getElementById('action')).toHaveAttribute('href', PLAY_URL);
   });
 
@@ -232,9 +237,9 @@ describe('WebView error page', () => {
 
     load(OLD_ANDROID, 'de-DE');
 
-    expect(document.getElementById('title')).toHaveTextContent(EN.webViewUpdateTitle);
-    expect(document.getElementById('body')).toHaveTextContent(EN.webViewUpdateBody);
-    expect(document.getElementById('action')).toHaveTextContent(EN.webViewUpdateAction);
+    expect(document.getElementById('title')).toHaveTextContent(en('webViewUpdateTitle'));
+    expect(document.getElementById('body')).toHaveTextContent(en('webViewUpdateBody'));
+    expect(document.getElementById('action')).toHaveTextContent(en('webViewUpdateAction'));
     expect(document.getElementById('action')).toHaveAttribute('href', PLAY_URL);
   });
 });
