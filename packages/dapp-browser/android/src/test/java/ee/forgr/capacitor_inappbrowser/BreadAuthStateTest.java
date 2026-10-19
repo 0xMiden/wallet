@@ -170,6 +170,11 @@ public class BreadAuthStateTest {
             custom.begin("game.example", 8443);
             assertEquals(rest, BreadAuthState.Outcome.MISMATCH, custom.callback(address + rest));
         }
+        BreadAuthState plus = new BreadAuthState();
+        for (String rest : new String[] {"?origin=https%3A%2F%2Fa+b.example", "?origin=https%3A%2F%2Fa%2Bb.example"}) {
+            plus.begin("a+b.example", -1);
+            assertEquals(rest, BreadAuthState.Outcome.RESOLVED, plus.callback(address + rest));
+        }
     }
 
     @Test public void callbackWithoutSheetIsIgnored() {

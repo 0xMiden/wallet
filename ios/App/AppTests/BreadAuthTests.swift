@@ -238,6 +238,14 @@ final class BreadAuthTests: XCTestCase {
             XCTAssertEqual(log.entries.first?.value as? [String: String], named ? ["url": address + rest] : nil, rest)
             XCTAssertEqual(log.entries.first?.error, named ? nil : "AUTH_ORIGIN_MISMATCH", rest)
         }
+        let plus = BreadAuthPageOrigin(scheme: "https", host: "a+b.example", port: 0)
+        for rest in ["?origin=https%3A%2F%2Fa+b.example", "?origin=https%3A%2F%2Fa%2Bb.example"] {
+            let log = ReplyLog()
+            auth.handle(body: ["url": "https://a+b.example/auth"], mainFrame: true, page: plus, reply: log.record)
+            let session = try XCTUnwrap(sessions.last)
+            await respond(session, callback: address + rest)
+            XCTAssertEqual(log.entries.first?.value as? [String: String], ["url": address + rest], rest)
+        }
     }
 
     func testCanceledLoginResolvesCancelled() async throws {
