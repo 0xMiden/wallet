@@ -124,14 +124,14 @@ export function errorChain(error: unknown): Error[] {
   return chain;
 }
 
-function storageDiagnosticsAt(error: Error): StorageCrashDiagnostics {
+function storageDiagnosticsAt(error: Error): StorageCrashDiagnostics | undefined {
   const seen = new Set<Error>();
   const visiting = new Set<Error>();
   let failureEntries = 0;
   const visit = (link: unknown, depth: number): StorageCrashDiagnostics | undefined => {
-    if (!(link instanceof Error) || depth > 3 || visiting.has(link)) return undefined;
+    if (!(link instanceof Error) || depth > 3 || visiting.has(link)) return {};
     seen.add(link);
-    if (seen.size > 32) return undefined;
+    if (seen.size > 32) return {};
     const explicit = diagnosticsByError.get(link);
     if (explicit?.storageOperation !== undefined) {
       return explicit.storageOwner === undefined
@@ -144,24 +144,24 @@ function storageDiagnosticsAt(error: Error): StorageCrashDiagnostics {
     let candidate: StorageCrashDiagnostics | undefined;
     if (inner !== undefined && inner !== null) {
       candidate = visit(inner, depth + 1);
-      if (candidate?.storageOperation === undefined) return undefined;
+      if (candidate?.storageOperation === undefined) return {};
     }
     if (failures !== undefined) {
-      if (!Array.isArray(failures)) return undefined;
+      if (!Array.isArray(failures)) return {};
       const length: unknown = failures.length;
-      if (typeof length !== 'number' || !Number.isInteger(length) || length <= 0 || length > 32) return undefined;
+      if (typeof length !== 'number' || !Number.isInteger(length) || length <= 0 || length > 32) return {};
       failureEntries += length;
       // Count entries even when several slots reference the same Error.
-      if (failureEntries > 32) return undefined;
+      if (failureEntries > 32) return {};
       for (let index = 0; index < length; index++) {
         const entry: unknown = failures[index];
         const promoted = visit(entry, depth + 1);
-        if (promoted?.storageOwner === undefined || promoted.storageOperation === undefined) return undefined;
+        if (promoted?.storageOwner === undefined || promoted.storageOperation === undefined) return {};
         if (
           candidate !== undefined &&
           (candidate.storageOwner !== promoted.storageOwner || candidate.storageOperation !== promoted.storageOperation)
         )
-          return undefined;
+          return {};
         candidate = promoted;
       }
     }
@@ -169,7 +169,8 @@ function storageDiagnosticsAt(error: Error): StorageCrashDiagnostics {
     return candidate;
   };
   try {
-    return visit(error, 0) ?? {};
+    // Undefined permits cause inheritance; an empty result rejects uncertain attribution.
+    return visit(error, 0);
   } catch {
     // Inaccessible fixed links make attribution uncertain, never the failure itself.
     return {};
@@ -182,8 +183,8 @@ export function snapshotCrashDiagnostics(error: unknown): CrashDiagnostics {
     const { storageOwner, storageOperation, ...other } = diagnosticsByError.get(link) ?? {};
     Object.assign(snapshot, other);
     const storage = storageDiagnosticsAt(link);
-    if (storage.storageOperation !== undefined) {
-      // An outer ownerless annotation must not inherit an inner owner.
+    if (storage !== undefined) {
+      // Rejected promotion and ownerless annotations must clear inherited storage fields.
       delete snapshot.storageOwner;
       delete snapshot.storageOperation;
       Object.assign(snapshot, storage);
