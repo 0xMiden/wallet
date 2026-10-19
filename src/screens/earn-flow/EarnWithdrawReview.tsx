@@ -26,14 +26,19 @@ interface EarnWithdrawReviewProps {
   positionId: string;
 }
 
+const coversAmount = (position: EarnPosition, amount: string) =>
+  withdrawalAmountError(amount, position.withdrawable, position.decimals) === undefined;
+
 /**
  * Whether two reads of a position agree on every value its withdrawal quote reviews. The available balance is not
- * one: the submit check needs only that it still covers the reviewed amount, which the amount check reads live.
+ * one: the submit check needs only that it still covers the reviewed amount. A kept read the balance has moved past,
+ * either way, is replaced, so the next quote is asked against a balance that agrees with the amount check.
  */
-const sameReviewedPosition = (a: EarnPosition | undefined, b: EarnPosition | undefined) =>
+const sameReviewedPosition = (a: EarnPosition | undefined, b: EarnPosition | undefined, amount: string) =>
   a === b ||
   (a !== undefined &&
     b !== undefined &&
+    coversAmount(a, amount) === coversAmount(b, amount) &&
     a.id === b.id &&
     a.owner === b.owner &&
     a.marketUid === b.marketUid &&
@@ -46,16 +51,16 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
   const { t } = useTranslation();
   const { positions, isLoading, error, refetch } = useEarnPositions();
   const found = useMemo(() => positions.find(item => item.id === positionId), [positions, positionId]);
+  const { search } = useLocation();
+  const requested = new URLSearchParams(search).get('amount');
+  const amount = requested ?? '';
   // Every positions refresh rebuilds the object, so the quote keeps the reviewed read until a reviewed value changes.
   const [reviewed, setReviewed] = useState(found);
-  if (!sameReviewedPosition(reviewed, found)) setReviewed(found);
+  if (!sameReviewedPosition(reviewed, found, amount)) setReviewed(found);
   const position = useMemo(() => found ?? placeholderPosition(), [found]);
   const { loadFailed, pending } = earnItemLoadState(found, { isLoading, error });
   const account = useAccount();
   const withdrawSymbol = found?.asset ?? 'USDC';
-  const { search } = useLocation();
-  const requested = new URLSearchParams(search).get('amount');
-  const amount = requested ?? '';
   const validation = withdrawalAmountError(amount, position.withdrawable, position.decimals);
   const [quote, setQuote] = useState<EarnWithdrawalQuote>();
   const [quoteError, setQuoteError] = useState<string>();

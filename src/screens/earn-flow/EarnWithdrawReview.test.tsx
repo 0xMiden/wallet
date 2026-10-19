@@ -617,6 +617,30 @@ describe('selected withdrawal review', () => {
     expect(screen.getByRole('button', { name: 'withdraw' })).toBeEnabled();
     expect(quotes.quoteEarnWithdrawal).toHaveBeenCalledTimes(1);
   });
+  it('keeps the reviewed quote when availability falls but still covers the amount', async () => {
+    const view = render(<EarnWithdrawReview positionId="position-1" />);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'withdraw' })).toBeEnabled());
+    jest.mocked(quotes.quoteEarnWithdrawal).mockImplementation(() => new Promise(() => undefined));
+    mockPositions = [{ ...position, withdrawable: '2' }];
+    view.rerender(<EarnWithdrawReview positionId="position-1" />);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(screen.getByRole('button', { name: 'withdraw' })).toBeEnabled();
+    expect(quotes.quoteEarnWithdrawal).toHaveBeenCalledTimes(1);
+  });
+  it('quotes against the new balance once availability rises from below the amount to cover it', async () => {
+    mockPositions = [{ ...position, withdrawable: '0.5' }];
+    const view = render(<EarnWithdrawReview positionId="position-1" />);
+    expect(screen.getByRole('button', { name: 'withdraw' })).toBeDisabled();
+    expect(quotes.quoteEarnWithdrawal).not.toHaveBeenCalled();
+    mockPositions = [{ ...position, withdrawable: '40' }];
+    view.rerender(<EarnWithdrawReview positionId="position-1" />);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'withdraw' })).toBeEnabled());
+    expect(quotes.quoteEarnWithdrawal).toHaveBeenLastCalledWith(
+      expect.objectContaining({ position: expect.objectContaining({ withdrawable: '40' }) })
+    );
+  });
   it('keeps the reviewed quote when a positions refresh rebuilds the position with the same values', async () => {
     const view = render(<EarnWithdrawReview positionId="position-1" />);
     await waitFor(() => expect(screen.getByRole('button', { name: 'withdraw' })).toBeEnabled());
