@@ -9,6 +9,7 @@ import {
   type ConnectivityCategory
 } from 'lib/miden/activity/connectivity-state';
 import * as Actions from 'lib/miden/back/actions';
+import { APPROVAL_CONFIRMATION_TYPES } from 'lib/miden/back/approval-confirmation';
 import { intercom } from 'lib/miden/back/defaults';
 import {
   handleOffscreenSignRequest,
@@ -381,14 +382,7 @@ function registerOffscreenSignHandler(): void {
 const CONFIRMATION_REQUEST_TYPES: ReadonlySet<unknown> = new Set([
   MidenMessageType.DAppGetPayloadRequest,
   MidenMessageType.DAppSimulateTransactionRequest,
-  MidenMessageType.DAppUnlockConfirmationRequest,
-  MidenMessageType.DAppPermConfirmationRequest,
-  MidenMessageType.DAppTransactionConfirmationRequest,
-  MidenMessageType.DAppPrivateNotesConfirmationRequest,
-  MidenMessageType.DAppSignConfirmationRequest,
-  MidenMessageType.DAppAssetsConfirmationRequest,
-  MidenMessageType.DAppImportPrivateNoteConfirmationRequest,
-  MidenMessageType.DAppConsumableNotesConfirmationRequest
+  ...APPROVAL_CONFIRMATION_TYPES
 ]);
 
 function confirmationRequestNotFound(req: unknown): Error | undefined {

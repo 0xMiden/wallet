@@ -70,6 +70,7 @@ import {
   type DAppLoginSignConfirmationRequest
 } from 'lib/dapp-browser/confirmation-store';
 import { formatBigInt } from 'lib/i18n/numbers';
+import { APPROVAL_CONFIRMATION_TYPES } from 'lib/miden/back/approval-confirmation';
 import { intercom } from 'lib/miden/back/defaults';
 import { Vault } from 'lib/miden/back/vault';
 import { FEE_RESERVE_MULTIPLE } from 'lib/miden/fees/spendable';
@@ -491,8 +492,8 @@ export async function generatePromisifyRequestPermission(
   // unhandled rejection in the worker.
   return new Promise((resolve, reject) => {
     const id = nanoid();
-    // Set once requestConfirm answers the dApp (auto-decline, window close, Cancel): a key read still running then
-    // saves no session and sends nothing (#1471).
+    // Set once requestConfirm answers the dApp with a refusal (a Cancel, or the cap reached while the read still runs):
+    // a key read still running then saves no session and sends nothing (#1471).
     let refused = false;
 
     requestConfirm({
@@ -1830,6 +1831,14 @@ const dappReadFailure = (error: unknown): unknown => {
   return new Error(`${MidenDAppErrorType.InvalidParams}: ${error}`);
 };
 
+// The answer when an approval's cap arrives while its approved action still runs: the action may yet queue the
+// transaction, so the dApp hears that the outcome is unknown, never a refusal (#1584).
+const actionOutlivedApproval = (): Error =>
+  new Error(
+    `${MidenDAppErrorType.OutcomeUnknown}: the approved transaction was still being prepared when the approval timed ` +
+      'out; check before sending again'
+  );
+
 const dappWriteFailure = (error: unknown): unknown => {
   // A queued id outranks a kill anywhere in the chain: retrying the write could send it twice.
   for (const link of causeChain(error)) {
@@ -2451,6 +2460,7 @@ const generatePromisifyTransaction = async (
   const sheet = sheetFor(prepared, origin, req.sourcePublicKey, customTransaction.address, prepare);
   await requestConfirmFor(origin, sheet, reject, {
     id,
+    onOwnedAnswerTimeout: () => reject(actionOutlivedApproval()),
     payload: async () => {
       const { transactionMessages, customLimit } = await sheet.data();
       return buildCustomTxConfirmPayload({
@@ -2711,6 +2721,7 @@ const generatePromisifySendTransaction = async (
   const sheet = sheetFor(prepared, origin, req.sourcePublicKey, senderAddress, prepare);
   await requestConfirmFor(origin, sheet, reject, {
     id,
+    onOwnedAnswerTimeout: () => reject(actionOutlivedApproval()),
     payload: async () => {
       const { transactionMessages, spendingLimitDetails } = await sheet.data();
       return {
@@ -2906,6 +2917,7 @@ const generatePromisifyConsumeTransaction = async (
   const sheet = sheetFor(prepared, origin, req.sourcePublicKey, dApp.accountId, prepare);
   await requestConfirmFor(origin, sheet, reject, {
     id,
+    onOwnedAnswerTimeout: () => reject(actionOutlivedApproval()),
     payload: async () => {
       const { noteId, messages } = await sheet.data();
       return {
@@ -3066,7 +3078,13 @@ type RequestConfirmParams = {
   onClose?: () => void;
   handleIntercomRequest: (req: MidenRequest, decline: () => void) => Promise<any>;
   handleSimulate?: (req: MidenRequest) => Promise<any>;
+  // Set by an approval whose action queues a transaction: once that action runs it owns the dApp's answer, and this
+  // is the answer if the cap arrives first, since the transaction may still be queued (#1584).
+  onOwnedAnswerTimeout?: () => void;
 };
+
+const isConfirmationOf = (req: MidenRequest, id: string): boolean =>
+  typeof req === 'object' && req !== null && APPROVAL_CONFIRMATION_TYPES.has(req.type) && 'id' in req && req.id === id;
 
 // The last state of each recent approval, so a request no handler answered can say which state it met. The ids stay
 // in this worker's memory; only the state crosses the port, as the Not Found error's code.
@@ -3099,7 +3117,8 @@ async function requestConfirm({
   onPayloadError,
   onClose,
   handleIntercomRequest,
-  handleSimulate
+  handleSimulate,
+  onOwnedAnswerTimeout
 }: RequestConfirmParams) {
   /* c8 ignore start */ if (!isExtension())
     throw new Error('DApp confirmation popup is only available in extension context'); /* c8 ignore stop */
@@ -3107,6 +3126,10 @@ async function requestConfirm({
   const browser = await getBrowser();
 
   let closing = false;
+  // The approval's running answer: a repeated confirmation the popup sends while it runs gets this same answer
+  // instead of running the action again (#1584).
+  let answer: Promise<unknown> | undefined;
+  let pendingDecline: 'expired' | 'window_closed' | undefined;
   const openedAt = Date.now();
   let payloadServed = false;
   let timeout: ReturnType<typeof setTimeout> | undefined;
@@ -3133,8 +3156,37 @@ async function requestConfirm({
   };
 
   const declineAndClose = (reason: 'expired' | 'window_closed') => {
+    // An action that may queue a transaction answers the dApp itself once it runs, so the auto-decline and a closed
+    // popup wait for it, within the cap. Every other approval keeps #1471's rule: a decline answers at once.
+    if (answer && onOwnedAnswerTimeout) {
+      if (capLeft() > 0) {
+        pendingDecline ??= reason;
+        restartTimeout(capLeft());
+        return;
+      }
+      onOwnedAnswerTimeout();
+      close('expired');
+      return;
+    }
     onDecline();
     close(reason);
+  };
+
+  const respond = async (req: MidenRequest): Promise<unknown> => {
+    const result = await handleIntercomRequest(req, onDecline);
+    if (result) close('answered');
+    return result;
+  };
+
+  const runAnswer = async (req: MidenRequest): Promise<unknown> => {
+    try {
+      return await respond(req);
+    } finally {
+      answer = undefined;
+      const declined = pendingDecline;
+      pendingDecline = undefined;
+      if (declined && !closing) declineAndClose(declined);
+    }
   };
 
   let knownPort: Runtime.Port | undefined;
@@ -3172,13 +3224,16 @@ async function requestConfirm({
       return await handleSimulate(req); // must NOT close() — the popup stays open
     }
 
-    if (knownPort !== port) return;
-
-    const result = await handleIntercomRequest(req, onDecline);
-    if (result) {
-      close('answered');
-      return result;
+    // Any other request from the popup falls through to its own handler.
+    if (knownPort !== port || closing || !isConfirmationOf(req, id)) return;
+    if (!answer) {
+      answer = runAnswer(req);
+      return answer;
     }
+    // While the action runs a confirmation shares its answer; a decline does too where the action owns the answer,
+    // and elsewhere is answered at once (#1471: a refused connect read then saves nothing).
+    if (onOwnedAnswerTimeout || !('confirmed' in req) || req.confirmed !== false) return answer;
+    return respond(req);
   });
 
   const isWin = (await browser.runtime.getPlatformInfo()).os === 'win';
