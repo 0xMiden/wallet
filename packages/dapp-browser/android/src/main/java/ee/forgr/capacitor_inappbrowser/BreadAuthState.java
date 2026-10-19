@@ -98,7 +98,8 @@ final class BreadAuthState {
 
     private static String percentDecoded(String text) {
         try {
-            return URLDecoder.decode(text, "UTF-8");
+            // URLDecoder uses form decoding and reads + as a space, unlike iOS's removingPercentEncoding.
+            return URLDecoder.decode(text.replace("+", "%2B"), "UTF-8");
         } catch (IllegalArgumentException | UnsupportedEncodingException e) {
             return null;
         }
