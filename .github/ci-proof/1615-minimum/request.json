@@ -1,0 +1,26 @@
+{
+  "source_commit": "072b3b805ab5f32e4f274790157d4ddd29b52c84",
+  "source_tree": "fcb29490602873b20fd85f983e4827e23c887ace",
+  "scope": "Historical checkpoint proof only; never current-head approval",
+  "patch_sha256": "e466708b80b2355876f656df9d8b85bd0724562329752bcceae559b76070d3a9",
+  "base_files": {
+    "src/lib/usdcx/use-burn-minimum.ts": "35c73d5d17d318b0e136327731e31475156a2e5035274b51aa24a3c44eaf132b",
+    "src/lib/usdcx/constant.ts": "85182f657d16e79211f5fcdd068ced83739994f751676c19a82b8a5150966b80",
+    "src/lib/usdcx/withdrawal.ts": "b4dbd6666d88d3b9983191e8e4fd79e37e0b4030f6b4cd6754ba3feb4e2eda26",
+    "playwright/e2e/helpers/usdcx-constants.ts": "b9f0389e95068e8564f16762d9c22048a98b54ebbf65895386349bfdcb20c594",
+    "playwright/e2e/helpers/usdcx-config.test.ts": "ce71df525f2252a2faa366df42030ae6213560405f260bbcaa810a080cdfefab",
+    "src/lib/usdcx/use-burn-minimum.test.ts": "3e1eea1b4140f743fbc97647642156b62e155dd9164902087df69f30534884f6",
+    "package.json": "9af7cd256a41b9ad42604d8ab62a0859a3218b9b53cd74f8291fcc9075681d1d",
+    "yarn.lock": "8606e15d58682739313e004734d42f34a2ad715148e00f28c2de63596349941d"
+  },
+  "patched_files": {
+    "playwright/e2e/helpers/usdcx-config.test.ts": "8927fff46b856044403eaefdc5908c32f4f99f16a07e3fcd952a1525f97a671b",
+    "src/lib/usdcx/use-burn-minimum.test.ts": "041c2c7635e8ccb8de5dd2efb25ea4dc3d8ccc04a80c6d5fd0b926f301f4944f"
+  },
+  "transport_files": {
+    "bootstrap.mjs": "96d570523e8e0e16fb411e1d0b422f1735c35161444a52dd9eae24ecb5b70d86",
+    "matrix.mjs": "f8319d7facd66a8dd4ab7420849bc01d2a8d5c10e105c29bbbcb15190c798c68",
+    "checkpoint.patch.b64": "e1bb5154fbd3460f0c6cb70dc4ffccc82882672d439a05512eaad9a355b58931",
+    "README.md": "0b89ad5f771c1c4fdf6e8c08d5c103536477e00f274b1b3f23112b00ab3a7d57"
+  }
+}

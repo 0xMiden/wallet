@@ -1,0 +1,57 @@
+name: USDCx archived minimum checkpoint proof
+
+on:
+  push:
+    branches: [ci/1615-minimum-proof]
+
+permissions:
+  contents: read
+
+jobs:
+  minimum-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout transport
+        uses: actions/checkout@v4
+        with:
+          path: transport
+          persist-credentials: false
+      - name: Preserve request outside source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/wallet1615-minimum"
+          cp transport/.github/ci-proof/1615-minimum/* "$RUNNER_TEMP/wallet1615-minimum/"
+          cp transport/.github/workflows/proof-usdcx-minimum.yml "$RUNNER_TEMP/wallet1615-minimum/"
+          cd "$RUNNER_TEMP/wallet1615-minimum"
+          sha256sum ./* > transport-sha256.txt
+          printf '%s\n' "$GITHUB_SHA" > transport-commit.txt
+      - name: Checkout exact archived source
+        uses: actions/checkout@v4
+        with:
+          ref: 072b3b805ab5f32e4f274790157d4ddd29b52c84
+          path: source
+          persist-credentials: false
+      - name: Set up Node22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verify and apply checkpoint
+        run: node "$RUNNER_TEMP/wallet1615-minimum/bootstrap.mjs" "$GITHUB_WORKSPACE/source"
+      - name: Install lockfile dependencies
+        working-directory: source
+        run: timeout 8m yarn install --frozen-lockfile --network-timeout 600000
+      - name: Reject manifest drift
+        working-directory: source
+        run: git diff --exit-code -- package.json yarn.lock
+      - name: Run exact expected-outcome matrix
+        run: node "$RUNNER_TEMP/wallet1615-minimum/matrix.mjs" "$GITHUB_WORKSPACE/source"
+      - name: Upload archived proof evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: usdcx-minimum-checkpoint-${{ github.sha }}
+          path: ${{ runner.temp }}/wallet1615-minimum/
+          if-no-files-found: error
+          retention-days: 14
