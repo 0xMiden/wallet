@@ -27,6 +27,12 @@ class ReownPluginWiringTest {
         error("Unbalanced body for $marker")
     }
 
+    // indexOf is -1 for a missing marker, which would pass any "before" comparison.
+    private fun assertOrder(text: String, vararg markers: String) {
+        val positions = markers.map { marker -> text.indexOf(marker).also { assertTrue("Missing $marker", it >= 0) } }
+        assertEquals(positions.sorted(), positions)
+    }
+
     private fun section(name: String): String {
         val declaration = Regex("\\bfun\\s+${Regex.escape(name)}\\s*\\(").find(source)
         assertTrue("Missing function $name", declaration != null)
@@ -38,25 +44,25 @@ class ReownPluginWiringTest {
         assertTrue(source.contains("private val observations: ReownRequestObservations = ReownRequestObservations(SystemClock::elapsedRealtime)"))
         val publisher = section("publishRequest")
         assertTrue(publisher.indexOf("observations.start(observation)") >= 0)
-        assertTrue(publisher.indexOf("observations.start(observation)") < publisher.indexOf("AppKit.request("))
-        assertTrue(publisher.indexOf("val request = Request(") < publisher.indexOf("observations.start(observation)"))
+        assertOrder(publisher, "observations.start(observation)", "AppKit.request(")
+        assertOrder(publisher, "val request = Request(", "observations.start(observation)")
         assertTrue(Regex("observations.start\\(observation\\)\\s+AppKit.request\\(").containsMatchIn(publisher))
 
         val publication = blockAfter(publisher, "is SentRequestResult.WalletConnect ->")
         val pendingInsertion = blockAfter(publication, "observations.published(observation)")
         assertTrue(pendingInsertion.contains("pendingRequests[sentRequest.requestId] = PendingRequest(call, resolvesHash, observation)"))
         assertEquals(1, Regex("pendingRequests\\[sentRequest.requestId] =").findAll(publication).count())
-        assertTrue(publication.indexOf("observations.published(observation)") < publication.indexOf("pendingRequests["))
+        assertOrder(publication, "observations.published(observation)", "pendingRequests[")
         assertTrue(source.contains("val observation: ReownRequestObservations.Context"))
 
         val walletSuccess = blockAfter(section("onSessionRequestResponse"), "is Modal.Model.JsonRpcResponse.JsonRpcResult ->")
         assertTrue(walletSuccess.contains("observations.succeed(pending.observation)"))
-        assertTrue(walletSuccess.indexOf("callResult.put(") < walletSuccess.indexOf("observations.succeed(pending.observation)"))
-        assertTrue(walletSuccess.indexOf("observations.succeed(pending.observation)") < walletSuccess.indexOf("pending.call.resolve("))
+        assertOrder(walletSuccess, "callResult.put(", "observations.succeed(pending.observation)")
+        assertOrder(walletSuccess, "observations.succeed(pending.observation)", "pending.call.resolve(")
         val coinbaseSuccess = blockAfter(publisher, "is SentRequestResult.Coinbase ->")
         assertTrue(coinbaseSuccess.contains("observations.succeed(observation)"))
-        assertTrue(coinbaseSuccess.indexOf("result.put(") < coinbaseSuccess.indexOf("observations.succeed(observation)"))
-        assertTrue(coinbaseSuccess.indexOf("observations.succeed(observation)") < coinbaseSuccess.indexOf("call.resolve("))
+        assertOrder(coinbaseSuccess, "result.put(", "observations.succeed(observation)")
+        assertOrder(coinbaseSuccess, "observations.succeed(observation)", "call.resolve(")
         assertFalse(walletSuccess.contains("rejectNativeRequest("))
         assertFalse(coinbaseSuccess.contains("rejectNativeRequest("))
 
@@ -135,8 +141,8 @@ class ReownPluginWiringTest {
         assertTrue(rejection.contains("observations.fail(observation, origin, walletCode) ?: return"))
         assertTrue(rejection.contains("pendingRequests.entries.removeIf { it.value.observation === observation }"))
         assertTrue(rejection.contains("call.reject(message, failure.toErrorCode())"))
-        assertTrue(rejection.indexOf("observations.fail(") < rejection.indexOf("pendingRequests.entries.removeIf"))
-        assertTrue(rejection.indexOf("pendingRequests.entries.removeIf") < rejection.indexOf("call.reject("))
+        assertOrder(rejection, "observations.fail(", "pendingRequests.entries.removeIf")
+        assertOrder(rejection, "pendingRequests.entries.removeIf", "call.reject(")
     }
 
     @Test
