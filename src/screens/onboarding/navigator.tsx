@@ -9,6 +9,7 @@ import type { DecryptedWalletFile } from 'lib/miden/backup-file';
 import { getEffectiveAllowNoGuardian } from 'lib/miden-chain/effective-endpoints';
 import type { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { isMobile } from 'lib/platform';
+import { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 import { cn } from 'lib/ui/util';
 
 import { ChooseProtectionScreen } from './common/ChooseProtection';
@@ -65,8 +66,10 @@ export interface OnboardingFlowProps {
   biometricError?: string | null;
   /** The last Guardian lookup failure's display text, or `null`. */
   guardianLookupFailure?: string | null;
+  guardianLookupFailureId?: UserErrorId | null;
   /** Registration/recovery failure text to surface on the confirmation step (#630). */
   recoveryError?: string | null;
+  recoveryErrorId?: UserErrorId | null;
   /**
    * Progress of the background guardian auto-detection probe (issue #418).
    * Left undefined by hosts that don't run the probe, which makes the import
@@ -158,7 +161,9 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
   biometricAttempts = 0,
   biometricError = null,
   guardianLookupFailure = null,
+  guardianLookupFailureId,
   recoveryError = null,
+  recoveryErrorId,
   guardianProbe,
   guardianNetwork,
   confirmCreating = false,
@@ -370,6 +375,7 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
         return (
           <ImportRecoveryMethodScreen
             error={guardianLookupFailure}
+            errorId={guardianLookupFailureId}
             probe={guardianProbe}
             guardianOnly={importViaKey}
             network={guardianNetwork}
@@ -386,6 +392,7 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
             biometricAttempts={biometricAttempts}
             biometricError={biometricError}
             recoveryError={recoveryError}
+            recoveryErrorId={recoveryErrorId}
             creating={confirmCreating}
             onboardingType={onboardingType ?? undefined}
             onSubmit={onConfirmSubmit}
@@ -413,7 +420,9 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
     biometricAttempts,
     biometricError,
     guardianLookupFailure,
+    guardianLookupFailureId,
     recoveryError,
+    recoveryErrorId,
     // Without this the recovery-method screen keeps rendering the first probe
     // state it saw and freezes on "detecting your guardian".
     guardianProbe,

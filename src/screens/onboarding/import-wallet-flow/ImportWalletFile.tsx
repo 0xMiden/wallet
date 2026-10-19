@@ -24,6 +24,7 @@ import { decrypt, decryptJson, deriveKey, generateKey } from 'lib/miden/password
 import { importDb } from 'lib/miden/repo';
 import { assertWasmHoldCurrent, getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
+import { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 import { ENCRYPTED_WALLET_FILE_PASSWORD_CHECK, EncryptedWalletFile } from 'screens/shared';
 
 import { OnboardingStepLayout } from '../common/OnboardingStepLayout';
@@ -315,6 +316,15 @@ export const ImportWalletFileScreen: React.FC<ImportWalletFileScreenProps> = ({ 
     walletFileRef.current?.click();
   };
 
+  const errorIds: Record<ImportError, UserErrorId> = {
+    'wrong-password': 'incorrectPassword',
+    malformed: 'encryptedWalletFileMalformed',
+    unsupported: 'encryptedWalletFileUnsupportedVersion',
+    'wrong-network': 'encryptedWalletFileWrongNetwork',
+    restore: 'encryptedWalletFileRestoreFailed'
+  };
+  const errorId = importError ? errorIds[importError] : null;
+
   const errorCaption =
     importError === 'wrong-password'
       ? t('incorrectPassword')
@@ -405,6 +415,7 @@ export const ImportWalletFileScreen: React.FC<ImportWalletFileScreenProps> = ({ 
             autoComplete="current-password"
             placeholder="********"
             error={errorCaption && errorCaption !== PASSWORD_ERROR_CAPTION ? errorCaption : undefined}
+            errorId={errorId}
           />
         )}
       </OnboardingStepLayout>

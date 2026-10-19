@@ -15,6 +15,7 @@ import { pingGuardianEndpointLatency } from 'lib/miden/guardian/availability';
 import { USER_ENDPOINT_CHECK_TIMEOUT_MS } from 'lib/miden/guardian/operator-map';
 import { isValidGuardianUrl, sameGuardianEndpoint, sanitizeGuardianUrl } from 'lib/settings/helpers';
 import type { GuardianOption } from 'lib/shared/types';
+import { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 
 import { guardianOperatorCard } from './guardian-operator-card';
 import { GuardianInfoDrawer } from './GuardianInfoDrawer';
@@ -50,6 +51,7 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
   const [isCustom, setIsCustom] = useState(false);
   const [customUrl, setCustomUrl] = useState('');
   const [customError, setCustomError] = useState<string | null>(null);
+  const [customErrorId, setCustomErrorId] = useState<UserErrorId | null>(null);
   const [checkingCustom, setCheckingCustom] = useState(false);
   // Numbers the custom-URL checks. Editing the URL, leaving custom mode, leaving the
   // page or unmounting advances it, so a verdict that lands later belongs to a URL no
@@ -138,6 +140,7 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
       const sanitized = sanitizeGuardianUrl(customUrl);
       if (!isValidGuardianUrl(sanitized)) {
         setCustomError(t('invalidUrl'));
+        setCustomErrorId('invalidUrl');
         return;
       }
       setCustomError(null);
@@ -151,6 +154,7 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
         setCheckingCustom(false);
         if (latency === null) {
           setCustomError(t('customGuardianUnreachable'));
+          setCustomErrorId('customGuardianUnreachable');
           return;
         }
         onSubmit?.({ guardianId: 'custom', guardianEndpoint: sanitized });
@@ -225,6 +229,7 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
               spellCheck={false}
               enterKeyHint="done"
               error={customError ?? undefined}
+              errorId={customErrorId}
               onKeyDown={event => {
                 if (event.key === 'Enter') {
                   event.currentTarget.blur();
@@ -245,7 +250,12 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
   const footer = (
     <>
       {error && (
-        <Notice tone="negative" role="alert" className="max-h-24 overflow-y-auto select-text break-words">
+        <Notice
+          errorId="raw_choose_guardian_submit_failed"
+          tone="negative"
+          role="alert"
+          className="max-h-24 overflow-y-auto select-text break-words"
+        >
           {error}
         </Notice>
       )}
