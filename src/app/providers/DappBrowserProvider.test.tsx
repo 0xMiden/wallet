@@ -73,6 +73,11 @@ jest.mock('@miden/dapp-browser', () => ({
   }
 }));
 
+const mockReportUserVisibleError = jest.fn();
+jest.mock('lib/telemetry/user-visible-error', () => ({
+  reportUserVisibleError: (...args: unknown[]) => mockReportUserVisibleError(...args)
+}));
+
 // ── isMobile must be true so the provider runs its full lifecycle ──
 const mockIsMobile = jest.fn(() => true);
 const mockIsIOS = jest.fn(() => false);
@@ -1666,5 +1671,143 @@ describe('native presentation lifecycle', () => {
       errorLabel: 'breadPresentationError',
       readinessTimeoutMs: 30000
     });
+  });
+});
+
+describe('native permission-denied toast reporting', () => {
+  type Listener = { callback: (payload: unknown) => unknown; remove: jest.Mock; active: boolean };
+  let listeners: Map<string, Listener[]>;
+
+  beforeEach(() => {
+    listeners = new Map();
+    mockReportUserVisibleError.mockClear();
+    mockAddListener.mockImplementation((event: string, callback: Listener['callback']) => {
+      const listener: Listener = {
+        callback,
+        active: true,
+        remove: jest.fn(() => {
+          listener.active = false;
+        })
+      };
+      listeners.set(event, [...(listeners.get(event) ?? []), listener]);
+      return Promise.resolve({ remove: listener.remove });
+    });
+  });
+
+  afterEach(() => {
+    mockAddListener.mockImplementation(() => Promise.resolve({ remove: jest.fn() }));
+  });
+
+  async function registered() {
+    await waitFor(() => expect(listeners.get('permissionDeniedToast') ?? []).toHaveLength(1));
+    return listeners.get('permissionDeniedToast')![0];
+  }
+
+  async function emit(event: string, payload: unknown) {
+    await act(async () => {
+      for (const listener of listeners.get(event) ?? []) {
+        if (listener.active) await listener.callback(payload);
+      }
+    });
+  }
+
+  it('reports exactly the fixed pair only after an empty native event arrives', async () => {
+    renderHook(() => useDappBrowser(), { wrapper });
+    await registered();
+    expect(mockReportUserVisibleError).not.toHaveBeenCalled();
+    await emit('permissionDeniedToast', {});
+    expect(mockReportUserVisibleError.mock.calls).toEqual([['raw_dapp_permission_denied', 'native_toast']]);
+  });
+
+  it('reports each native display once across rerenders without duplicate listeners', async () => {
+    const hook = renderHook(() => useDappBrowser(), { wrapper });
+    await registered();
+    hook.rerender();
+    hook.rerender();
+    expect(listeners.get('permissionDeniedToast') ?? []).toHaveLength(1);
+    await emit('permissionDeniedToast', {});
+    await emit('permissionDeniedToast', {});
+    expect(mockReportUserVisibleError.mock.calls).toEqual([
+      ['raw_dapp_permission_denied', 'native_toast'],
+      ['raw_dapp_permission_denied', 'native_toast']
+    ]);
+  });
+
+  it('removes the listener on unmount and leaves only the remounted provider active', async () => {
+    const first = renderHook(() => useDappBrowser(), { wrapper });
+    const old = await registered();
+    first.unmount();
+    expect(old.remove).toHaveBeenCalledTimes(1);
+    await emit('permissionDeniedToast', {});
+    expect(mockReportUserVisibleError).not.toHaveBeenCalled();
+    const second = renderHook(() => useDappBrowser(), { wrapper });
+    await waitFor(() => expect(listeners.get('permissionDeniedToast') ?? []).toHaveLength(2));
+    expect(listeners.get('permissionDeniedToast')!.filter(listener => listener.active)).toHaveLength(1);
+    await emit('permissionDeniedToast', {});
+    expect(mockReportUserVisibleError.mock.calls).toEqual([['raw_dapp_permission_denied', 'native_toast']]);
+    second.unmount();
+    await emit('permissionDeniedToast', {});
+    expect(mockReportUserVisibleError).toHaveBeenCalledTimes(1);
+  });
+
+  it('ignores callbacks delivered after provider disposal', async () => {
+    const hook = renderHook(() => useDappBrowser(), { wrapper });
+    const listener = await registered();
+    hook.unmount();
+    await act(async () => {
+      await listener.callback({});
+    });
+    expect(mockReportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it('removes a permission listener whose registration resolves after unmount', async () => {
+    const register = mockAddListener.getMockImplementation()!;
+    let finishRegistration: (() => void) | undefined;
+    mockAddListener.mockImplementation((event: string, callback: Listener['callback']) => {
+      const handle = register(event, callback);
+      if (event !== 'permissionDeniedToast') return handle;
+      return new Promise(resolve => {
+        finishRegistration = () => resolve(handle);
+      });
+    });
+    const hook = renderHook(() => useDappBrowser(), { wrapper });
+    const listener = await registered();
+    hook.unmount();
+    await act(async () => {
+      finishRegistration?.();
+    });
+    await waitFor(() => expect(listener.remove).toHaveBeenCalledTimes(1));
+    await emit('permissionDeniedToast', {});
+    expect(mockReportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it('forwards no raw payload fields or values to the final reporter boundary', async () => {
+    renderHook(() => useDappBrowser(), { wrapper });
+    await registered();
+    await emit('permissionDeniedToast', {
+      id: 'private-instance',
+      url: 'https://private.fixture.example/path?secret=value',
+      origin: 'https://private.fixture.example',
+      permission: 'private-permission',
+      message: 'private denial text',
+      errorId: 'raw_startup_init_failed',
+      surface: 'inline'
+    });
+    expect(mockReportUserVisibleError.mock.calls).toEqual([['raw_dapp_permission_denied', 'native_toast']]);
+  });
+
+  it('keeps unrelated successful native events silent', async () => {
+    renderHook(() => useDappBrowser(), { wrapper });
+    await waitFor(() => expect(listeners.get('closeEvent')).toHaveLength(1));
+    await emit('browserPageLoaded', { id: 'absent' });
+    await emit('urlChangeEvent', { id: 'absent', url: 'https://private.fixture.example' });
+    await emit('presentationChanged', {
+      id: 'absent',
+      display: 'browser',
+      policyResolved: true,
+      policyRevision: 1
+    });
+    await emit('closeEvent', { id: 'absent' });
+    expect(mockReportUserVisibleError).not.toHaveBeenCalled();
   });
 });
