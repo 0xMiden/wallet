@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.17.6 (TBD)
+
+### Fixes
+
+- [FIX][android] The sign-in sheet's callback check keeps a literal `+` in the `origin` value, as iOS does, instead of reading it as a space (#1576).
+
 ## 1.17.5 (2026-10-19)
 
 ### Features
