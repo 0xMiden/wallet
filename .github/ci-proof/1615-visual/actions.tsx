@@ -1,0 +1,27 @@
+import { forbidden } from './rpc';
+
+export const initiateB2AggBridge = () => forbidden('initiateB2AggBridge');
+export const initiateBridgedSendTransaction = () => forbidden('initiateBridgedSendTransaction');
+export const readUsdcxDestinationSnapshot = () => forbidden('readUsdcxDestinationSnapshot');
+export const bridgeEpochSend = () => forbidden('bridgeEpochSend');
+export const quoteEpochSendOutput = () => forbidden('quoteEpochSendOutput');
+export const initiateSendTransaction = () => forbidden('initiateSendTransaction');
+export const requestSWTransactionProcessing = () => forbidden('requestSWTransactionProcessing');
+export const probeHardwareProtector = () => forbidden('probeHardwareProtector');
+export const confirmSensitiveAction = () => forbidden('confirmSensitiveAction');
+export const isDelegateProofEnabled = () => false;
+export const classifyError = () => forbidden('classifyError');
+export const useMidenContext = () => ({ signTransaction: () => forbidden('signTransaction') });
+export const zustandProvider = { inhSignTransaction: () => forbidden('inhSignTransaction') };
+export const reportSendStep = () => undefined;
+export const settleSendFlow = () => undefined;
+export const enterSendFlow = () => forbidden('enterSendFlow');
+export const hapticLight = () => undefined;
+export const hapticMedium = () => undefined;
+export const hapticSelection = () => undefined;
+export const NetworkModeSheet = () => null;
+export const SpendingLimitChallenge = () => forbidden('SpendingLimitChallenge rendered');
+export const RecallCalendarDrawer = () => forbidden('RecallCalendarDrawer rendered');
+export const TransferTypeDrawer = () => forbidden('TransferTypeDrawer rendered');
+export const SECONDS_PER_BLOCK = 5;
+export const dateTimeToRecallBlocks = () => forbidden('dateTimeToRecallBlocks');

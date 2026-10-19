@@ -1,0 +1,75 @@
+name: USDCx minimum review visual proof
+
+on:
+  push:
+    branches: [ci/1615-minimum-visual]
+
+permissions:
+  contents: read
+
+jobs:
+  visual-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout transport
+        uses: actions/checkout@v4
+        with:
+          path: transport
+          persist-credentials: false
+      - name: Preserve visual and accepted candidate inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/wallet1615-visual/candidate-inputs" "$RUNNER_TEMP/wallet1615-visual/evidence"
+          cp transport/.github/ci-proof/1615-minimum/* "$RUNNER_TEMP/wallet1615-visual/candidate-inputs/"
+          cp transport/.github/workflows/proof-usdcx-minimum.yml "$RUNNER_TEMP/wallet1615-visual/candidate-inputs/"
+          cp -R transport/.github/ci-proof/1615-visual "$RUNNER_TEMP/wallet1615-visual/fixture-inputs"
+          cp transport/.github/workflows/proof-usdcx-visual.yml "$RUNNER_TEMP/wallet1615-visual/evidence/workflow.yml"
+      - name: Checkout exact candidate source
+        uses: actions/checkout@v4
+        with:
+          ref: 072b3b805ab5f32e4f274790157d4ddd29b52c84
+          path: source
+          persist-credentials: false
+      - name: Set up Node22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Apply unchanged accepted candidate patch
+        run: node "$RUNNER_TEMP/wallet1615-visual/candidate-inputs/candidate-bootstrap.mjs" "$GITHUB_WORKSPACE/source"
+      - name: Install lockfile dependencies
+        working-directory: source
+        run: timeout 8m yarn install --frozen-lockfile --network-timeout 600000
+      - name: Reject manifest drift
+        working-directory: source
+        run: git diff --exit-code -- package.json yarn.lock
+      - name: Install Chrome
+        uses: browser-actions/setup-chrome@v1
+      - name: Drop apt repositories this repo never installs from
+        uses: ./source/.github/actions/apt-drop-unused-repos
+      - name: Install Playwright Browsers
+        timeout-minutes: 12
+        working-directory: source
+        run: npx playwright install --with-deps chromium
+      - name: Prepare isolated production UI fixture
+        env:
+          VISUAL_EVIDENCE: ${{ runner.temp }}/wallet1615-visual/evidence
+        run: node "$RUNNER_TEMP/wallet1615-visual/fixture-inputs/prepare.mjs" "$GITHUB_WORKSPACE/source"
+      - name: Type-check exact candidate with isolated fixture
+        working-directory: source
+        run: yarn tsc --noEmit --incremental false --pretty false
+      - name: Build and capture production review states
+        env:
+          VISUAL_EVIDENCE: ${{ runner.temp }}/wallet1615-visual/evidence
+        run: node "$RUNNER_TEMP/wallet1615-visual/fixture-inputs/capture.mjs" "$GITHUB_WORKSPACE/source"
+      - name: Upload visual proof evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: usdcx-minimum-visual-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/wallet1615-visual/evidence/**
+            !${{ runner.temp }}/wallet1615-visual/evidence/bundle/**
+          if-no-files-found: error
+          retention-days: 14

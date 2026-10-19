@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "source_commit": "072b3b805ab5f32e4f274790157d4ddd29b52c84",
+  "source_tree": "fcb29490602873b20fd85f983e4827e23c887ace",
+  "candidate_tree": "b00e491e4459a5e7d71b0856e9481d65cabeedb2",
+  "patch_sha256": "62382a6c5d9cacfae1e41df5b0f0160a137f0bf947ab7cafbc5971d982a07146",
+  "accepted_candidate_transport": "26a36db664a8f97b4a50f19d4e65ff97403890ef",
+  "accepted_candidate_run": 39303326367,
+  "minimum_slot": "miden::standards::faucets::policies::burn::min_burn_amount::min_burn_amount",
+  "staged_fixture_files": [
+    "main.tsx",
+    "rpc.ts",
+    "state.ts",
+    "actions.tsx",
+    "constants.ts",
+    "ui.ts",
+    "vite.config.mts",
+    "index.html"
+  ],
+  "fixture_files": {
+    "README.md": "da7a441bf28ef0a79fda195ba48e229c954e3499c29177befe2ed6d557cabc4e",
+    "actions.tsx": "1cd31f4cbf6fc432c136761f6c1dbdcbee75bc8c569e3e194d4ce7833b09e28a",
+    "capture.mjs": "49464e8324bd2a951920f08151b6e8aba6529a0c6eb5280683ddf536004172dc",
+    "constants.ts": "5eaab5eefde07da993b92dec56f59b027b70e8beb5a1c8d67b5a74afd7045ac1",
+    "index.html": "dd31df35a354200af740d83a86d600fd6698b1fc49519bd91c2a64c04266b098",
+    "main.tsx": "a75f400141b207ea04403ce758b95c55545c3d33f4b8ff2556072627f6175810",
+    "prepare.mjs": "e2cb399a9c68331f4539580a2d8f6ea205a7b351c0be8eb2de7599b2be77f377",
+    "rpc.ts": "43b131bec83b8332c56a93f3d6ed3317496f100ea5769635e3f134582108ab14",
+    "state.ts": "1a83fd932a21dabdc4ce07a2d080ea17cf649adf5aca789ba44dbc62b29252fc",
+    "ui.ts": "db5db89003dd25231553f86b17e13178b13b1a0a60fe18d52eb37dd7c0912f6c",
+    "vite.config.mts": "454a7f43a1bfad3422f0f97c747cd3186162b5cf1d456f8cf872e9afa1e1d1ee"
+  },
+  "production_files": {
+    "src/screens/send-flow/ReviewTransaction.tsx": "8aeaaa48bb2e3e7eb88f27898aa98451193d5c0218b0a42fd649a27f66758d4a",
+    "src/lib/usdcx/use-burn-minimum.ts": "35c73d5d17d318b0e136327731e31475156a2e5035274b51aa24a3c44eaf132b",
+    "src/lib/usdcx/burn.ts": "0bba921b14fb9a47e84aea17f76e0d54d2f289deb089a9ff9855546169e2ff50",
+    "src/lib/miden-chain/rpc-timeout.ts": "e21e0f07a724386ee789ca5d850e58b4578213f454158a90b703d427d8ba55fc",
+    "src/lib/usdcx/withdrawal.ts": "b4dbd6666d88d3b9983191e8e4fd79e37e0b4030f6b4cd6754ba3feb4e2eda26",
+    "src/components/ui/DetailCard.tsx": "047da970400e7e48032660e3efb6b4902057144643074b1e563ea03296e20fe6",
+    "src/app/layouts/FullScreenPage.tsx": "931c8b27d9bfa3abf17838079c12933cdf4e9867ee5e123c8a488c995f5ca242",
+    "src/app/a11y/AwaitFonts.tsx": "08315c88db50a134972459b3b57db23d2cee3da478f661f62998607243c4b272",
+    "src/i18n.ts": "5113989903eef9186e3b63d2c67eeb30c0c4b09f86745bb94b1f9d8487940600",
+    "src/main.css": "dc93a02b3775ca9a48fb8a18438907bcd1735b026bdd79130f7678f4b97a125e"
+  },
+  "workflow_sha256": "e47ebc0def241564d1dffcee8835576463a9e1f8d7cdfd9e9a92b03440fb3225",
+  "scope": "Controlled RPC visual evidence only; no final-head, live-network, transaction, native-device, review or merge approval"
+}
