@@ -205,6 +205,8 @@ describe('BridgeDeposit (#875)', () => {
 it('reports a displayed wallet connection failure after 1000 ms without its text', async () => {
   jest.useFakeTimers();
   mockConnectionError = 'private connection failure';
+  mockConnection = { address: undefined, connected: false };
+  jest.mocked(reportUserVisibleError).mockClear();
   try {
     render(<BridgeDeposit />);
     expect(reportUserVisibleError).not.toHaveBeenCalled();
