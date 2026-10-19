@@ -56,7 +56,8 @@ async function retryFetchState(isCancelled: () => boolean): Promise<MidenState |
 function readSyncData(accountPublicKey: string, onData: (d: SyncData) => void): void {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const g = globalThis as any;
-  if (!g.chrome?.storage?.local) return;
+  // An extension reload or update orphans this page and its extension APIs throw from then on (#1593).
+  if (!g.chrome?.storage?.local || !hasExtensionRuntime()) return;
   g.chrome.storage.local.get('miden_sync_data', (result: any) => {
     const syncData: SyncData | undefined = result?.miden_sync_data;
     if (!syncData) return;

@@ -154,6 +154,24 @@ describe('useIntercomSync balance poll on a page an extension reload or update o
     expect(get).toHaveBeenCalledTimes(reads);
   });
 
+  it('skips the one-shot balance rehydrate when the runtime is gone by the time the state arrives', async () => {
+    intercom.request.mockResolvedValue({
+      ...readyResponse,
+      state: { ...readyResponse.state, currentAccount: { publicKey: 'A' } }
+    });
+    _g.__intSyncTest.hasExtensionRuntime = false;
+    get.mockImplementation(() => {
+      throw new Error('Extension context invalidated.');
+    });
+
+    renderHook(() => useIntercomSync());
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(1_500);
+    });
+
+    expect(get).not.toHaveBeenCalled();
+  });
+
   it('never reads extension storage when it mounts after the runtime is gone', () => {
     _g.__intSyncTest.hasExtensionRuntime = false;
     get.mockImplementation(() => {
