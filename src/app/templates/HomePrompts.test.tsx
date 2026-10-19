@@ -14,6 +14,7 @@ import {
   clearGuardianNoteRecoveryProgress,
   fetchGuardianNoteRecoveryProgress,
   GUARDIAN_NOTE_RECOVERY_PROGRESS_STALE_MS,
+  GUARDIAN_NOTE_RECOVERY_PROGRESS_STORAGE_KEY,
   reportGuardianNoteRecoveryProgress
 } from 'lib/guardian-note-recovery-progress';
 import type { TokenBalanceData } from 'lib/miden/front';
@@ -218,9 +219,15 @@ jest.mock('lib/wallet-prompts', () => {
 
 // Backs the real note-recovery progress module, whose record and dismissal the recovery card reads.
 const mockStorageValues = new Map<string, unknown>();
+let mockRecoveryProgressRead: ((snapshot: unknown) => Promise<unknown>) | null = null;
 jest.mock('lib/miden/front/storage', () => ({
   ...jest.requireActual('lib/miden/front/storage'),
-  fetchFromStorage: async (key: string) => mockStorageValues.get(key) ?? null,
+  fetchFromStorage: async (key: string) => {
+    const snapshot = mockStorageValues.get(key) ?? null;
+    return key === GUARDIAN_NOTE_RECOVERY_PROGRESS_STORAGE_KEY && mockRecoveryProgressRead
+      ? mockRecoveryProgressRead(snapshot)
+      : snapshot;
+  },
   putToStorage: async (key: string, value: unknown) => {
     mockStorageValues.set(key, value);
   }
@@ -4561,6 +4568,105 @@ describe('HomePrompts', () => {
       expect(screen.getByText(text)).toBeInTheDocument();
       await expectErrorAfterDwell(id, 'prompt');
     });
+
+    it.each<{ outcome: 'delayed' | 'rejected' }>([{ outcome: 'delayed' }, { outcome: 'rejected' }])(
+      'keeps a persisted recovery failure silent on A-to-B-to-A with a $outcome baseline read',
+      async ({ outcome }) => {
+        await clearGuardianNoteRecoveryProgress(accountB.publicKey);
+        const recoveringA: WalletAccount = { ...account, guardianNoteRecoveryPending: true };
+        const recoveringB: WalletAccount = { ...accountB, guardianNoteRecoveryPending: true };
+        const held: { releaseB?: () => void; releaseA?: () => void; rejectA?: (reason: Error) => void } = {};
+        const reads: Array<{ visit: string; ordinal: number; snapshot: unknown; status: string }> = [];
+        let visit = 'B';
+        let ordinal = 0;
+        const view = render(renderTelemetryHome(recoveringA));
+        try {
+          await settleTelemetry();
+          expect(await fetchGuardianNoteRecoveryProgress(account.publicKey)).toBeNull();
+          expect(screen.queryByText('Visible guardianHistoryFailed')).not.toBeInTheDocument();
+          await act(async () => {
+            await reportGuardianNoteRecoveryProgress({
+              accountId: account.publicKey,
+              step: 'history-failed',
+              restored: 0
+            });
+            jest.advanceTimersByTime(2000);
+          });
+          await settleTelemetry();
+          const storedFailure = await fetchGuardianNoteRecoveryProgress(account.publicKey);
+          expect(storedFailure).toMatchObject({ accountId: account.publicKey, step: 'history-failed', restored: 0 });
+          expect(screen.getByText('Visible guardianHistoryFailed')).toBeInTheDocument();
+          await act(async () => {
+            jest.advanceTimersByTime(999);
+          });
+          expect(mockReportUserVisibleError.mock.calls).toEqual([]);
+
+          mockRecoveryProgressRead = async snapshot => {
+            const read = { visit, ordinal: ++ordinal, snapshot, status: 'resolved' };
+            reads.push(read);
+            if (read.ordinal !== 2) return snapshot;
+            read.status = 'pending';
+            return new Promise<unknown>((resolve, reject) => {
+              const release = () => {
+                read.status = 'resolved';
+                resolve(snapshot);
+              };
+              if (read.visit === 'B') held.releaseB = release;
+              else {
+                held.releaseA = release;
+                held.rejectA = reason => {
+                  read.status = 'rejected';
+                  reject(reason);
+                };
+              }
+            });
+          };
+          view.rerender(renderTelemetryHome(recoveringB));
+          await settleTelemetry();
+          expect(reads.map(read => `${read.visit}:${read.ordinal}:${read.status}`)).toEqual([
+            'B:1:resolved',
+            'B:2:pending'
+          ]);
+          expect(screen.queryByText('Visible guardianHistoryFailed')).not.toBeInTheDocument();
+          visit = 'return-A';
+          ordinal = 0;
+          view.rerender(renderTelemetryHome(recoveringA));
+          await settleTelemetry();
+          expect(reads.map(read => `${read.visit}:${read.ordinal}:${read.status}`)).toEqual([
+            'B:1:resolved',
+            'B:2:pending',
+            'return-A:1:resolved',
+            'return-A:2:pending'
+          ]);
+          expect(reads[2]?.snapshot).toEqual({ [account.publicKey]: storedFailure });
+          expect(reads[3]?.snapshot).toEqual(reads[2]?.snapshot);
+          expect(screen.getByText('Visible guardianHistoryFailed')).toBeInTheDocument();
+          expect(typeof held.rejectA).toBe('function');
+          if (outcome === 'rejected') {
+            await act(async () => {
+              held.rejectA?.(new Error('synthetic baseline read unavailable'));
+            });
+            await settleTelemetry();
+          }
+          expect(reads[1]?.status).toBe('pending');
+          expect(reads[3]?.status).toBe(outcome === 'rejected' ? 'rejected' : 'pending');
+          await act(async () => {
+            jest.advanceTimersByTime(999);
+          });
+          expect(mockReportUserVisibleError.mock.calls).toEqual([]);
+          await act(async () => {
+            jest.advanceTimersByTime(2);
+          });
+          expect(screen.getByText('Visible guardianHistoryFailed')).toBeInTheDocument();
+          expect(mockReportUserVisibleError.mock.calls).toEqual([]);
+        } finally {
+          mockRecoveryProgressRead = null;
+          view.unmount();
+          held.releaseB?.();
+          held.releaseA?.();
+        }
+      }
+    );
 
     it.each(['retry', 'unmount', 'account switch'])(
       'clears a short faucet failure on %s without a report',
