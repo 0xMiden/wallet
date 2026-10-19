@@ -5,6 +5,7 @@
 ### Fixes
 
 - [FIX][android] The sign-in sheet's callback check keeps a literal `+` in the `origin` value, as iOS does, instead of reading it as a space (#1576).
+- [FIX][android] The sign-in sheet answers `AUTH_UNAVAILABLE` while Bread is paused, as on iOS, instead of opening while another app's dialog covers Bread (#1577).
 
 ## 1.17.5 (2026-10-19)
 
