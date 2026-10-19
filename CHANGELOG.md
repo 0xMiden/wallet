@@ -12,7 +12,7 @@
 
 ### Fixes
 
-- [FIX][all] The privacy policy describes readable Guardian state, conditional account exports, Earn requests, configured network services and Recovery Phrase actions, and removes claims about an absent fiat widget and Terms document.
+- [FIX][all] The privacy policy describes readable Guardian state, conditional account exports, Earn requests, delegated proving, configured network services and Recovery Phrase actions, and removes claims about an absent fiat widget and Terms document.
 - [FIX][android] In release builds the in-app browser no longer writes dApp requests, the wallet's answers, or page URLs, origins, hosts and scripts to the device log (#1582).
 - [FIX][android] An Android WebView older than 98 (Android System WebView, or Chrome on Android 9), which cannot run the wallet, now opens a page that sends the user to update it from Google Play, instead of an error screen Bread can never leave (#1597, #1598).
 - [FIX][android] The sign-in sheet's callback check keeps a literal `+` in the `origin` value, as iOS does, instead of reading it as a space (#1576).
