@@ -5,6 +5,7 @@
 ### Fixes
 
 - [FIX][mobile] A cancelled Bread Connect request no longer opens Bread. Swift stops an opener already queued when the caller's own task is cancelled, and Kotlin opens Bread only while that request is still the one waiting, so a cancel from another thread cannot land between the check and the open, including while an opener is already in progress (#1589).
+- [FIX][android] The sign-in sheet's callback check keeps a literal `+` in the `origin` value, as iOS does, instead of reading it as a space (#1576).
 
 ## 1.17.5 (2026-10-19)
 
