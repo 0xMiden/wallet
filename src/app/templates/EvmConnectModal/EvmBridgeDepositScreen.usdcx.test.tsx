@@ -1784,7 +1784,7 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
   });
 
   it.each((['prompt', 'receipt'] as const).flatMap(stage => [false, true].map(native => [stage, native] as const)))(
-    'fails the row at the approval %s when it fails (native=%s)',
+    'retainsTheApprovalRejectionAsFailureCause: %s (native=%s)',
     async (stage, native) => {
       mockNativeAvailable = native;
       const walletPrompt = native ? mockNativeSend : mockWriteContract;
@@ -1808,11 +1808,12 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
       await confirmDeposit();
 
       expect(walletPrompt).toHaveBeenCalledTimes(1);
-      expect(updateBridgedReceivePhase).toHaveBeenLastCalledWith(
-        'bridge-tx',
-        'failed',
-        failedAt(stage === 'prompt' ? 'wallet_approve' : 'approve_receipt', error.message)
-      );
+      expect(updateBridgedReceivePhase).toHaveBeenLastCalledWith('bridge-tx', 'failed', {
+        error: error.message,
+        failure: { step: stage === 'prompt' ? 'wallet_approve' : 'approve_receipt', cause: error }
+      });
+      const lastCall = jest.mocked(updateBridgedReceivePhase).mock.calls.at(-1);
+      expect(lastCall?.[2]?.failure?.cause).toBe(error);
     }
   );
 
