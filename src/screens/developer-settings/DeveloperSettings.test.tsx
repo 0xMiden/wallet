@@ -860,6 +860,22 @@ describe('DeveloperSettings', () => {
   // reports a reload that cannot start. The reload does not depend on the page staying open at any point: on the
   // extension, where closing the page leaves the service worker running, a caller arms a `pagehide` reload before
   // the wipe and keeps it until its own reload has been attempted, and the extension reloads once either way.
+  it('forwards resetDidNotFinish from the actual developer-settings wipe catch', async () => {
+    jest.spyOn(console, 'warn').mockImplementation();
+    resetStorageDestructive.mockRejectedValueOnce(new Error('private storage detail'));
+    render(<DeveloperSettings readOnly />);
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('dev-endpoints-reset'));
+    });
+
+    await waitFor(() => expect(mockReloadInPlace).toHaveBeenCalledTimes(1));
+    expect(resetStorageDestructive).toHaveBeenCalledWith({ keepEndpointOverride: false });
+    expect(alert.mock.calls).toEqual([
+      [{ title: 'error', children: 'resetDidNotFinish', errorId: 'resetDidNotFinish' }]
+    ]);
+  });
+
   it('says the reset did not finish, then reloads, when the wipe fails partway', async () => {
     jest.spyOn(console, 'warn').mockImplementation();
     mockIsExtension.value = true;
@@ -870,12 +886,18 @@ describe('DeveloperSettings', () => {
     fireEvent.click(screen.getByTestId('dev-endpoints-reset'));
 
     await waitFor(() => expect(alert).toHaveBeenCalledTimes(1));
-    expect(alert).toHaveBeenCalledWith({ title: 'error', children: 'resetDidNotFinish' });
-    // While the alert is open nothing reloads, and the reset stays pending.
-    expect(runtimeReload).not.toHaveBeenCalled();
-    expect(screen.getByTestId('dev-endpoints-reset')).toHaveAttribute('data-loading', 'true');
-
-    closeAlert();
+    try {
+      expect(alert).toHaveBeenCalledWith({
+        title: 'error',
+        children: 'resetDidNotFinish',
+        errorId: 'resetDidNotFinish'
+      });
+      // While the alert is open nothing reloads, and the reset stays pending.
+      expect(runtimeReload).not.toHaveBeenCalled();
+      expect(screen.getByTestId('dev-endpoints-reset')).toHaveAttribute('data-loading', 'true');
+    } finally {
+      await act(async () => closeAlert());
+    }
     await waitFor(() => expect(runtimeReload).toHaveBeenCalledTimes(1));
     expect(alert.mock.invocationCallOrder[0]!).toBeLessThan(runtimeReload.mock.invocationCallOrder[0]!);
     // The inline error is only for a reload that cannot start.
@@ -1085,10 +1107,16 @@ describe('DeveloperSettings', () => {
     fireEvent.click(screen.getByTestId('dev-endpoints-reset'));
 
     await waitFor(() => expect(alert).toHaveBeenCalledTimes(1));
-    expect(alert).toHaveBeenCalledWith({ title: 'error', children: 'resetDidNotFinish' });
-    expect(screen.getByTestId('dev-endpoints-reset')).toHaveAttribute('data-loading', 'true');
-
-    closeAlert();
+    try {
+      expect(alert).toHaveBeenCalledWith({
+        title: 'error',
+        children: 'resetDidNotFinish',
+        errorId: 'resetDidNotFinish'
+      });
+      expect(screen.getByTestId('dev-endpoints-reset')).toHaveAttribute('data-loading', 'true');
+    } finally {
+      await act(async () => closeAlert());
+    }
     await waitFor(() => expect(screen.getByTestId('dev-endpoints-reset')).toHaveAttribute('data-loading', 'false'));
     expect(runtimeReload).not.toHaveBeenCalled();
     // The inline error is only for a reload that cannot start.
