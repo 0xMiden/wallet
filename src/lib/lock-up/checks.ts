@@ -47,8 +47,16 @@ export async function runLockUpChecks(): Promise<void> {
   if (getOpenedMidenPagesN() > 0) {
     await updateClosureTimestamp();
   }
-  setInterval(async () => {
-    if (getOpenedMidenPagesN() > 0) {
+  const interval = setInterval(async () => {
+    let openPages: number;
+    try {
+      openPages = getOpenedMidenPagesN();
+    } catch {
+      // An extension reload or update orphans this page and its extension APIs throw from then on (#1593).
+      clearInterval(interval);
+      return;
+    }
+    if (openPages > 0) {
       try {
         // Waking the service worker is best-effort. Unguarded, a reject here
         // (worker still starting, or context orphaned by a reload) became an

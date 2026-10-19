@@ -46,7 +46,10 @@ export function isExtension(): boolean {
   // Check for Firefox (browser.runtime.id) or Chrome (chrome.runtime.id)
   const browserRuntime = g.browser?.runtime?.id;
   const chromeRuntime = g.chrome?.runtime?.id;
-  return !!(browserRuntime || chromeRuntime);
+  // An extension reload or update leaves an open extension page with no runtime id but its own URL, and that page
+  // must keep taking the extension's branches (#1592).
+  const protocol = g.location?.protocol;
+  return !!(browserRuntime || chromeRuntime) || protocol === 'chrome-extension:' || protocol === 'moz-extension:';
 }
 
 /**

@@ -5,6 +5,7 @@
 ### Fixes
 
 - [FIX][android] The sign-in sheet's callback check keeps a literal `+` in the `origin` value, as iOS does, instead of reading it as a space (#1576).
+- [FIX][extension] A wallet page left open across an extension reload or update keeps behaving as the extension and stops its lock-up timer, instead of crashing when it opens Explore and reporting `Extension context invalidated` every 10 seconds (#1592, #1593).
 
 ## 1.17.5 (2026-10-19)
 
