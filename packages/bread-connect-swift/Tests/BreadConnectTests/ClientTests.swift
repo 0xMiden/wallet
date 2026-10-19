@@ -173,12 +173,12 @@ final class ClientTests: XCTestCase {
 
     func testCancellingTheCallerBeforeItsOpenerRunsNeverOpensBread() async throws {
         let client = try client()
-        // Queued during the yield, and this resumes before that task runs, so the cancel lands behind it.
-        let caller = Task { try await client.connect(appName: "Where Legends Grow") }
-        await Task.yield()
-        caller.cancel()
+        var caller: Task<JSONObject, Error>?
+        // Cancel from the opener's own task, before it opens, so the schedule cannot run the open first.
+        client.beforeOpen = { caller?.cancel() }
+        caller = Task { try await client.connect(appName: "Where Legends Grow") }
 
-        await assertThrows(.cancelled) { _ = try await caller.value }
+        await assertThrows(.cancelled) { _ = try await caller?.value }
         for _ in 0..<10 { await Task.yield() }
 
         XCTAssertEqual(opener.opened.count, 0)

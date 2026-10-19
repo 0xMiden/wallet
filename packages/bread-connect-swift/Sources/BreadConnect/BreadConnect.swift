@@ -75,6 +75,8 @@ public final class BreadConnect {
     private let opener: BreadOpener
     private let now: () -> Date
     private var waiter: Waiter?
+    /// Invoked on the opener's task before it decides to open. Nil outside tests.
+    var beforeOpen: (@MainActor () -> Void)?
     /// The last request this client settled: a record of it left in storage takes no answer until a relaunch.
     private var settledID: String?
 
@@ -231,6 +233,7 @@ public final class BreadConnect {
                 // Settling cancels this. The gate is set at the cancel itself, because this task can already be
                 // queued ahead of the task that settles.
                 let opening = Task { @MainActor [weak self, opener = self.opener] in
+                    self?.beforeOpen?()
                     guard !Task.isCancelled, !gate.isStopped else { return }
                     if await !opener.open(url) {
                         self?.settle(
