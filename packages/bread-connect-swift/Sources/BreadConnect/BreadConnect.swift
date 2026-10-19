@@ -38,6 +38,24 @@ public struct StoredSession: Equatable, Sendable {
     public let permission: JSONObject
 }
 
+/// Set from a cancellation handler, which can run off the main actor, and read by the opener before it opens Bread.
+private final class OpenGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stopped = false
+
+    func stop() {
+        lock.lock()
+        stopped = true
+        lock.unlock()
+    }
+
+    var isStopped: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return stopped
+    }
+}
+
 /// Carries requests to Bread and its answers back through app switches, one request at a time: a new request
 /// replaces the one still waiting. The session and the waiting request are stored, so an answer that relaunches
 /// the app after the system stopped it still completes a connection and records a transaction's outcome.
@@ -202,6 +220,7 @@ public final class BreadConnect {
         }
         try storage.write(Self.pendingKey, Self.encodePending(pending))
         let token = UUID()
+        let gate = OpenGate()
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 let timeout = Task { @MainActor [weak self] in
@@ -209,9 +228,10 @@ public final class BreadConnect {
                     guard !Task.isCancelled else { return }
                     self?.settle(token: token, .failure(BreadConnectError(.timeout, "Bread did not answer in time")))
                 }
-                // Settling cancels this, so a request superseded or cancelled before it runs never opens Bread.
+                // Settling cancels this. The gate is set at the cancel itself, because this task can already be
+                // queued ahead of the task that settles.
                 let opening = Task { @MainActor [weak self, opener = self.opener] in
-                    guard !Task.isCancelled else { return }
+                    guard !Task.isCancelled, !gate.isStopped else { return }
                     if await !opener.open(url) {
                         self?.settle(
                             token: token,
@@ -222,6 +242,7 @@ public final class BreadConnect {
                     token: token, pending: pending, continuation: continuation, timeout: timeout, opening: opening)
             }
         } onCancel: {
+            gate.stop()
             Task { @MainActor [weak self] in
                 self?.settle(token: token, .failure(BreadConnectError(.cancelled, "The request to Bread was cancelled")))
             }

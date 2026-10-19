@@ -2,8 +2,10 @@ package com.miden.breadconnect
 
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -20,9 +22,24 @@ interface BreadConnectStorage {
     fun write(key: String, value: String?)
 }
 
-/** Opens Bread's link in Bread only; false when Bread is not installed and its store page opened instead. */
+/**
+ * Runs a block only while its request is still the one waiting. The block does not suspend, so a cancel on
+ * another thread cannot land between the check and the open.
+ */
+class OpenAttempt internal constructor(private val lock: Any, private val waiting: () -> Boolean) {
+    /** The block's result, or null when this request is no longer waiting. */
+    fun <T> run(block: () -> T): T? = synchronized(lock) {
+        if (!waiting()) null else block()
+    }
+}
+
+/**
+ * Opens Bread's link in Bread only. The actual open goes through [attempt], and work that waits stays outside it.
+ * Returns false when Bread is not installed and its store page opened instead. When [attempt] returns null the
+ * request is already settled, so return true without opening anything.
+ */
 interface BreadOpener {
-    suspend fun open(link: String): Boolean
+    suspend fun open(link: String, attempt: OpenAttempt): Boolean
 }
 
 class BreadConnectException(val code: Code, message: String) : Exception(message) {
@@ -59,13 +76,10 @@ class BreadConnect(
     private val lock = Any()
     private var waiter: Waiter? = null
 
-    /** Runs after the still-waiting check and before the open. Tests cancel from another thread here. */
-    internal var beforeOpen: (() -> Unit)? = null
-
     /** The last request this client settled: a record of it left in storage takes no answer until a relaunch. */
     private var settledId: String? = null
 
-    private class Waiter(val pending: Pending, val answer: CompletableDeferred<JsonObject>)
+    private class Waiter(val pending: Pending, val answer: CompletableDeferred<JsonObject>, var opening: Job? = null)
 
     private sealed class Pending {
         abstract val id: String
@@ -200,14 +214,13 @@ class BreadConnect(
         try {
             // Null is this deadline alone: a caller's own timeout arrives as a cancellation and propagates as one.
             val answer = withTimeoutOrNull(ANSWER_WAIT_MS) {
-                coroutineScope {
+                // The opener's own cancellation must not become the caller's answer; the deferred carries that.
+                supervisorScope {
                     // Beside the wait, so a cancel or a newer request ends this request while the opener has not returned.
-                    val opening = launch {
-                        // The cancel below runs only once the settled wait resumes, which can come after this starts.
-                        if (synchronized(lock) { this@BreadConnect.waiter !== waiter }) return@launch
-                        beforeOpen?.invoke()
+                    val opening = launch(start = CoroutineStart.LAZY) {
+                        val attempt = OpenAttempt(lock) { this@BreadConnect.waiter === waiter }
                         val opened = try {
-                            opener.open(link)
+                            opener.open(link, attempt)
                         } catch (e: CancellationException) {
                             throw e
                         } catch (e: Exception) {
@@ -216,6 +229,8 @@ class BreadConnect(
                         }
                         if (!opened) settle(waiter, failure(BreadConnectException.Code.NotInstalled, "Bread is not installed; its store page is open"))
                     }
+                    synchronized(lock) { waiter.opening = opening }
+                    opening.start()
                     try {
                         waiter.answer.await()
                     } finally {
@@ -241,6 +256,7 @@ class BreadConnect(
             val current = waiter ?: return
             waiter = null
             settledId = current.pending.id
+            current.opening?.cancel()
             result.fold({ current.answer.complete(it) }, { current.answer.completeExceptionally(it) })
         }
     }

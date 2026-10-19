@@ -172,7 +172,7 @@ class ClientTest {
     @Test
     fun aRequestWhoseOpenerHasNotReturnedStillEndsOnACancelOrANewerRequest() = runTest {
         val opening = object : BreadOpener {
-            override suspend fun open(link: String): Boolean = awaitCancellation()
+            override suspend fun open(link: String, attempt: OpenAttempt): Boolean = awaitCancellation()
         }
         val client = BreadConnect(callback, storage, opening) { now }
 
@@ -220,18 +220,16 @@ class ClientTest {
     @Test
     fun aCancelFromAnotherThreadBetweenTheCheckAndTheOpenNeverOpensBread() = runBlocking {
         val opened = AtomicBoolean(false)
+        lateinit var client: BreadConnect
         val opener = object : BreadOpener {
-            override suspend fun open(link: String): Boolean {
-                opened.set(true)
-                return true
+            override suspend fun open(link: String, attempt: OpenAttempt): Boolean {
+                val cancelling = Thread { client.cancelPending() }
+                cancelling.start()
+                cancelling.join()
+                return attempt.run { opened.set(true); true } ?: true
             }
         }
-        val client = BreadConnect(callback, MemoryStorage(), opener) { now }
-        client.beforeOpen = {
-            val cancelling = Thread { client.cancelPending() }
-            cancelling.start()
-            cancelling.join()
-        }
+        client = BreadConnect(callback, MemoryStorage(), opener) { now }
 
         val error = withTimeout(5_000) { runCatching { client.connect("Where Legends Grow") } }.exceptionOrNull()
         assertEquals(BreadConnectException.Code.Cancelled, (error as? BreadConnectException)?.code)
@@ -244,12 +242,11 @@ class ClientTest {
         val release = CountDownLatch(1)
         val opened = AtomicBoolean(false)
         val opener = object : BreadOpener {
-            override suspend fun open(link: String): Boolean {
+            override suspend fun open(link: String, attempt: OpenAttempt): Boolean {
                 inside.countDown()
                 release.await()
                 if (!isActive) return true
-                opened.set(true)
-                return true
+                return attempt.run { opened.set(true); true } ?: true
             }
         }
         val client = BreadConnect(callback, MemoryStorage(), opener) { now }
@@ -329,7 +326,7 @@ class ClientTest {
             callback,
             storage,
             object : BreadOpener {
-                override suspend fun open(link: String): Boolean = awaitCancellation()
+                override suspend fun open(link: String, attempt: OpenAttempt): Boolean = awaitCancellation()
             },
         ) { now }
         val connecting = async { runCatching { client.connect("Where Legends Grow") } }

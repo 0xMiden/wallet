@@ -25,10 +25,11 @@ class PackageOpener(
     private val context: Context,
     private val certificates: List<String> = BREAD_CERTIFICATES,
 ) : BreadOpener {
-    override suspend fun open(link: String): Boolean {
-        val opened = isBread() && start(link, BreadConnectLinks.BREAD_PACKAGE)
-        if (!opened && !start(BreadConnectLinks.PLAY_STORE_MARKET_URL, null)) {
-            start(BreadConnectLinks.PLAY_STORE_URL, null)
+    override suspend fun open(link: String, attempt: OpenAttempt): Boolean {
+        val opened = attempt.run { isBread() && start(link, BreadConnectLinks.BREAD_PACKAGE) } ?: return true
+        if (!opened) {
+            val market = attempt.run { start(BreadConnectLinks.PLAY_STORE_MARKET_URL, null) } ?: return true
+            if (!market) attempt.run { start(BreadConnectLinks.PLAY_STORE_URL, null) }
         }
         return opened
     }

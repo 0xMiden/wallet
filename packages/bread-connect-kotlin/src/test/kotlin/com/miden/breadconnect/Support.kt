@@ -53,10 +53,13 @@ class FakeOpener : BreadOpener {
     val opened = mutableListOf<String>()
     var onOpen: ((String) -> Unit)? = null
 
-    override suspend fun open(link: String): Boolean {
-        opened += link
+    override suspend fun open(link: String, attempt: OpenAttempt): Boolean {
+        val installedNow = attempt.run {
+            opened += link
+            installed
+        } ?: return true
         onOpen?.invoke(link)
-        return installed
+        return installedNow
     }
 }
 
