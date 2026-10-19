@@ -5,25 +5,33 @@ _g.__intSyncTest = {
   intercomMock: {
     request: jest.fn(),
     subscribe: jest.fn(() => () => {})
-  }
+  },
+  walletState: {},
+  hasExtensionRuntime: true
 };
 
-jest.mock('lib/store', () => ({
-  getIntercom: () => (globalThis as any).__intSyncTest.intercomMock,
-  useWalletStore: { getState: () => ({}) }
-}));
+jest.mock('lib/store', () => {
+  const useWalletStore = (selector: (state: unknown) => unknown) =>
+    selector((globalThis as any).__intSyncTest.walletState);
+  useWalletStore.getState = () => (globalThis as any).__intSyncTest.walletState;
+  return { getIntercom: () => (globalThis as any).__intSyncTest.intercomMock, useWalletStore };
+});
 
 jest.mock('lib/store/utils/updateBalancesFromSyncData', () => ({
   updateBalancesFromSyncData: jest.fn().mockResolvedValue(undefined)
 }));
 
 jest.mock('lib/platform', () => ({
-  isExtension: jest.fn(() => true)
+  isExtension: jest.fn(() => true),
+  // False on an extension page an extension reload or update orphaned.
+  hasExtensionRuntime: () => (globalThis as any).__intSyncTest.hasExtensionRuntime
 }));
+
+import { act, renderHook } from '@testing-library/react';
 
 import { WalletMessageType } from 'lib/shared/types';
 
-import { fetchStateFromBackend, retryFetchState } from './useIntercomSync';
+import { fetchStateFromBackend, retryFetchState, useIntercomSync } from './useIntercomSync';
 
 const intercom = _g.__intSyncTest.intercomMock;
 
@@ -108,5 +116,51 @@ describe('retryFetchState', () => {
     );
     expect(wedgedWarns).toHaveLength(1);
     warn.mockRestore();
+  });
+});
+
+describe('useIntercomSync balance poll on a page an extension reload or update orphaned', () => {
+  let get: jest.Mock;
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    intercom.request.mockResolvedValue(readyResponse);
+    _g.__intSyncTest.walletState = {
+      currentAccount: { publicKey: 'A' },
+      syncFromBackend: jest.fn(),
+      setSyncStatus: jest.fn()
+    };
+    _g.__intSyncTest.hasExtensionRuntime = true;
+    get = jest.fn((_key: string, cb: (result: unknown) => void) => cb({}));
+    _g.chrome = { storage: { local: { get } } };
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+    delete _g.chrome;
+    _g.__intSyncTest.walletState = {};
+    _g.__intSyncTest.hasExtensionRuntime = true;
+  });
+
+  it('stops reading extension storage once the runtime is gone', async () => {
+    renderHook(() => useIntercomSync());
+    const reads = get.mock.calls.length;
+    expect(reads).toBeGreaterThan(0);
+
+    _g.__intSyncTest.hasExtensionRuntime = false;
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(9_000);
+    });
+    expect(get).toHaveBeenCalledTimes(reads);
+  });
+
+  it('never reads extension storage when it mounts after the runtime is gone', () => {
+    _g.__intSyncTest.hasExtensionRuntime = false;
+    get.mockImplementation(() => {
+      throw new Error('Extension context invalidated.');
+    });
+
+    expect(() => renderHook(() => useIntercomSync())).not.toThrow();
+    expect(get).not.toHaveBeenCalled();
   });
 });
