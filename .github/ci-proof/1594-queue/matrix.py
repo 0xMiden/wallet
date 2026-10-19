@@ -113,12 +113,18 @@ def failure_cause(case, arm, destination):
     for pattern in arm['failure_patterns']:
         require(re.search(pattern, message, re.M | re.S) is not None, 'wrong assertion cause: ' + pattern)
     if arm['id'] == 'omit-login-sign-session':
-        expected = re.search(r'Expected:\s*(.*?)\n\s*Received:', message, re.S)
-        received = re.search(r'Received:\s*(.*?)\n\s*Number of calls:', message, re.S)
-        require(expected is not None and received is not None, 'missing argument comparison')
-        require('session-7' in expected.group(1) and 'session-7' not in received.group(1), 'wrong session argument failure')
+        comparison = re.search(r'^- Expected\n\+ Received\n\n(.*?)\n\nNumber of calls:', message, re.M | re.S)
+        require(comparison is not None, 'missing argument comparison')
+        lines = comparison.group(1).splitlines()
+        require(all(line.startswith(('  ', '- ', '+ ')) for line in lines), 'malformed argument diff')
+        require([line[2:] for line in lines if line.startswith('- ')] == ['"session-7",'], 'wrong removed argument')
+        require(not any(line.startswith('+ ') for line in lines), 'unexpected added argument')
+        require(sum(line.startswith('  ') for line in lines) == 2, 'wrong common argument count')
+        expected = '\n'.join(line[2:] for line in lines if not line.startswith('+ '))
+        received = '\n'.join(line[2:] for line in lines if not line.startswith('- '))
+        require('session-7' in expected and 'session-7' not in received, 'wrong session argument failure')
         for token in ['https://example.com', 'LOGIN_SIGN_REQUEST']:
-            require(token in expected.group(1) and token in received.group(1), 'wrong unchanged request argument')
+            require(token in expected and token in received, 'wrong unchanged request argument')
 
 
 def jest(destination, arm=None):
