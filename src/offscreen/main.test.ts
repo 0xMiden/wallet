@@ -62,6 +62,10 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
   const g = globalThis as any;
   const mod: any = {
     getWasmOrThrow: (...a: any[]) => g.__off.getWasmOrThrow(...a),
+    Address: {
+      fromAccountId: (accountId: { canonical: string }) => ({ toBech32: () => accountId.canonical })
+    },
+    NetworkId: { testnet: () => 'testnet' },
     WebClient: class {
       constructor() {
         g.__off.webClientCtorCount++;
@@ -217,6 +221,13 @@ jest.mock('lib/miden/sdk/miden-client', () => {
   return {
     getMidenClient: (...a: any[]) => g.__off.getMidenClient(...a),
     withWasmClientLock,
+    tryWithWasmClientLock: async <T>(
+      op: (hold: object) => Promise<T>,
+      options?: unknown
+    ): Promise<{ ran: false } | { ran: true; value: T }> => {
+      if (locked) return { ran: false };
+      return { ran: true, value: await withWasmClientLock(op, options) };
+    },
     lockOptionsSeen,
     withWasmLockWatchdogPaused: async <T>(op: () => Promise<T>): Promise<T> => op(),
     yieldWasmClientLock,
@@ -395,6 +406,14 @@ function resetControl() {
     clientGetInputNoteDetails: jest.fn(async (_q: unknown) => [
       { noteId: '0xabc', senderAccountId: 'mtst1qsender', assets: [], noteType: 0, nullifier: '0xn', state: 2 }
     ]),
+    clientGetDetailsCommitmentMatches: jest.fn(async (_commitments: string[]) => [
+      {
+        notes: [
+          { noteId: '0xreal', senderAccountId: 'mtst1qsender', assets: [], noteType: 0, nullifier: '0xn', state: 2 }
+        ],
+        uncommitted: 1
+      }
+    ]),
     clientGetTransactionCommitState: jest.fn(async (_txId: string) => 'committed'),
     // Slice-4 consumable-note DTOs on the offscreen-owned client.
     clientGetConsumableNoteDtos: jest.fn(async (_id: string) => [
@@ -436,7 +455,12 @@ function resetControl() {
       remainingOffered: () => 10n,
       remainingRequested: () => 20n
     })),
-    clientGetInputNote: jest.fn(async (_id: string) => ({ metadata: () => ({ noteType: () => 1 }) })),
+    clientGetInputNote: jest.fn(async (_id: string) => ({
+      metadata: () => ({ noteType: () => 1 }),
+      details: () => {
+        throw new Error('note details unavailable');
+      }
+    })),
     clientImportNoteBytes: jest.fn(async (_bytes: Uint8Array) => '0ximportedid'),
     clientDrainPrivateNoteTransport: jest.fn(async () => {}),
     clientDecodeGuardianHistory: jest.fn(async (_encoded: string) => ({
@@ -545,6 +569,7 @@ function resetControl() {
         waitForTransactionCommit: (...a: any[]) => (globalThis as any).__off.clientWaitForTransactionCommit(...a),
         exportNote: (...a: any[]) => (globalThis as any).__off.clientExportNote(...a),
         getInputNoteDetails: (...a: any[]) => (globalThis as any).__off.clientGetInputNoteDetails(...a),
+        getDetailsCommitmentMatches: (...a: any[]) => (globalThis as any).__off.clientGetDetailsCommitmentMatches(...a),
         getTransactionCommitState: (...a: any[]) => (globalThis as any).__off.clientGetTransactionCommitState(...a),
         getConsumableNoteDtos: (...a: any[]) => (globalThis as any).__off.clientGetConsumableNoteDtos(...a),
         buildPswapCancelRequest: (...a: any[]) => (globalThis as any).__off.clientBuildPswapCancelRequest(...a),
@@ -1101,10 +1126,10 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(resp.errorName).toBe('WasmClientPoisonedError');
   });
 
-  // The same guard for the three reads whose reach-through happens one frame
+  // The same guard for the reads whose reach-through happens one frame
   // deeper, INSIDE `MidenClientInterface`, where the dispatch cannot place a
   // check either side of it: `exportNote` serializes the live export result,
-  // `getInputNoteDetails` reduces live records, and `getConsumableNoteDtos`
+  // `getInputNoteDetails` and `getDetailsCommitmentMatches` reduce live records, and `getConsumableNoteDtos`
   // makes a second shared-client call (`getSyncHeight`) after the listing's
   // await. Each is handed a liveness callback, and these dispatches used to be
   // marked `_context` — the reach-through was simply unguarded.
@@ -1115,6 +1140,13 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
   it.each([
     ['exportNote', 'clientExportNote', ['note-x', 'Details'], undefined, 'in offscreen'],
     ['getInputNoteDetails', 'clientGetInputNoteDetails', [{ ids: ['0xabc'] }], undefined, 'in offscreen'],
+    [
+      'getDetailsCommitmentMatches',
+      'clientGetDetailsCommitmentMatches',
+      [['0xcommitment'], ['0xreal']],
+      undefined,
+      'in offscreen'
+    ],
     // The consumability read names each of its checks; the dispatch forwards that step into its own label.
     [
       'getConsumableNotes',
@@ -1146,6 +1178,8 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
         sendResponse
       );
       await flush();
+
+      expect(G.__off[clientFn]).toHaveBeenCalledWith(...args, expect.any(Function));
 
       // While the hold is still ours the check is silent — the falsifier for the
       // throw below, which would otherwise pass against a callback that always
@@ -1353,6 +1387,64 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(order).toEqual(['start:first', 'end:first', 'start:second', 'end:second']);
     expect(r1.mock.calls[0][0].ok).toBe(true);
     expect(r2.mock.calls[0][0].ok).toBe(true);
+  });
+
+  it('a try-lock account read answers busy while the offscreen mutex is held, and the account when it is free', async () => {
+    await loadModule();
+    const miden = await import('lib/miden/sdk/miden-client');
+    let releaseHolder!: () => void;
+    const held = miden.withWasmClientLock(
+      () =>
+        new Promise<void>(resolve => {
+          releaseHolder = resolve;
+        })
+    );
+    await flush();
+    const busyResponse = jest.fn();
+    capturedListener!(
+      callReq({ op_id: 'fee-busy', method: 'tryGetAccount', argsB64: [encodeArg('fee-account')] }),
+      {},
+      busyResponse
+    );
+    await flush();
+    const repliesWhileHeld = busyResponse.mock.calls.map(([reply]) => reply);
+    const wasHeld = miden.isWasmClientBusy();
+    const accountReadsWhileHeld = G.__off.clientGetAccount.mock.calls.length;
+    const clientBuildsWhileHeld = G.__off.getMidenClient.mock.calls.length;
+    releaseHolder();
+    await held;
+    await flush();
+
+    expect(repliesWhileHeld).toEqual([
+      expect.objectContaining({
+        ok: true,
+        op_id: 'fee-busy',
+        resultB64: Buffer.from(JSON.stringify({ ran: false })).toString('base64')
+      })
+    ]);
+    expect(wasHeld).toBe(true);
+    expect(accountReadsWhileHeld).toBe(0);
+    expect(clientBuildsWhileHeld).toBe(0);
+
+    const freeResponse = jest.fn();
+    capturedListener!(
+      callReq({ op_id: 'fee-free', method: 'tryGetAccount', argsB64: [encodeArg('fee-account')] }),
+      {},
+      freeResponse
+    );
+    await flush();
+
+    expect(freeResponse).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ok: true,
+        op_id: 'fee-free',
+        resultB64: Buffer.from(
+          JSON.stringify({ ran: true, accountB64: Buffer.from([10, 20, 30]).toString('base64') })
+        ).toString('base64')
+      })
+    );
+    expect(G.__off.clientGetAccount).toHaveBeenCalledWith('fee-account');
+    expect(miden.isWasmClientBusy()).toBe(false);
   });
 
   it('bounds a syncState dispatch at the sync ceiling, and leaves the writes on the default (#777)', async () => {
@@ -2216,6 +2308,61 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     ]);
   });
 
+  it('dispatches a commitment batch and JSON-encodes the ordered DTO entries', async () => {
+    await loadModule();
+    const dto = [
+      { notes: [{ noteId: 'n9' }], uncommitted: 0 },
+      { notes: [], uncommitted: 1 }
+    ];
+    G.__off.clientGetDetailsCommitmentMatches.mockResolvedValueOnce(dto);
+    const sendResponse = jest.fn();
+    capturedListener!(
+      callReq({
+        method: 'getDetailsCommitmentMatches',
+        argsB64: [encodeArg(['0xcommitment', '0xother']), encodeArg(['n9', 'n10'])]
+      }),
+      {},
+      sendResponse
+    );
+    await flush();
+
+    expect(G.__off.clientGetDetailsCommitmentMatches).toHaveBeenCalledWith(
+      ['0xcommitment', '0xother'],
+      ['n9', 'n10'],
+      expect.any(Function)
+    );
+    const resp = sendResponse.mock.calls[0][0];
+    expect(resp.ok).toBe(true);
+    expect(JSON.parse(Buffer.from(resp.resultB64, 'base64').toString('utf8'))).toEqual(dto);
+  });
+
+  it('dispatches getDetailsCommitmentMatches and JSON-encodes its plain DTO (#1389)', async () => {
+    await loadModule();
+    const sendResponse = jest.fn();
+    capturedListener!(
+      callReq({ method: 'getDetailsCommitmentMatches', argsB64: [encodeArg(['0xcommitment']), encodeArg(['0xreal'])] }),
+      {},
+      sendResponse
+    );
+    await flush();
+
+    expect(G.__off.clientGetDetailsCommitmentMatches).toHaveBeenCalledWith(
+      ['0xcommitment'],
+      ['0xreal'],
+      expect.any(Function)
+    );
+    const resp = sendResponse.mock.calls[0][0];
+    expect(resp.ok).toBe(true);
+    expect(JSON.parse(Buffer.from(resp.resultB64, 'base64').toString('utf8'))).toEqual([
+      {
+        notes: [
+          { noteId: '0xreal', senderAccountId: 'mtst1qsender', assets: [], noteType: 0, nullifier: '0xn', state: 2 }
+        ],
+        uncommitted: 1
+      }
+    ]);
+  });
+
   // The read the send/swap retry guard is built on. It has to actually run in
   // this realm: the SW-side proxy previously answered a hardcoded 'not-found'
   // for the flag-on path, which `verifySendLanded` reads as "cannot prove it
@@ -2287,10 +2434,42 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(ret).toBe(true);
     await flush();
 
-    expect(G.__off.clientBuildPswapCancelRequest).toHaveBeenCalledWith('mtst1qqaccount', '0xtip', expect.any(Function));
+    // A request without the flag builds as a live order does, with it false (#1487).
+    expect(G.__off.clientBuildPswapCancelRequest).toHaveBeenCalledWith(
+      'mtst1qqaccount',
+      '0xtip',
+      expect.any(Function),
+      {
+        allowNodeNote: false
+      }
+    );
     const resp = sendResponse.mock.calls[0][0];
     expect(resp.ok).toBe(true);
     expect(Buffer.from(resp.resultB64, 'base64')).toEqual(Buffer.from([20, 14, 7, 6]));
+  });
+
+  it('dispatches a node-note buildPswapCancelRequest with its option', async () => {
+    await loadModule();
+    const sendResponse = jest.fn();
+    capturedListener!(
+      callReq({
+        method: 'buildPswapCancelRequest',
+        argsB64: [encodeArg('mtst1qqaccount'), encodeArg('0xtip'), encodeArg(true)]
+      }),
+      {},
+      sendResponse
+    );
+    await flush();
+
+    expect(G.__off.clientBuildPswapCancelRequest).toHaveBeenCalledWith(
+      'mtst1qqaccount',
+      '0xtip',
+      expect.any(Function),
+      {
+        allowNodeNote: true
+      }
+    );
+    expect(sendResponse.mock.calls[0][0].ok).toBe(true);
   });
 
   // ─── Slice 7a: deferred reach-through reads ─────────────────────────────────
@@ -2538,7 +2717,7 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(G.__off.clientGetInputNote).toHaveBeenCalledWith('0xn');
     const resp = sendResponse.mock.calls[0][0];
     expect(resp.ok).toBe(true);
-    expect(JSON.parse(Buffer.from(resp.resultB64, 'base64').toString('utf8'))).toEqual({ noteType: 1 });
+    expect(JSON.parse(Buffer.from(resp.resultB64, 'base64').toString('utf8'))).toMatchObject({ noteType: 1 });
   });
 
   it('dispatches getInputNoteSummary → returns resultB64:null for a not-found note', async () => {
@@ -2553,20 +2732,45 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(resp.resultB64).toBeNull();
   });
 
-  it('getInputNoteSummary: refuses to reduce the live record after an eviction (#788)', async () => {
-    // Same shape as the lineage guard: the InputNoteRecord is a borrow of the
-    // shared client, and the reduction's `metadata()` reach-through after an
-    // eviction would double-borrow alongside the successor.
+  it('offscreen summary carries fee assets and rejects stale reduction', async () => {
     await loadModule();
+    const nativeId = 'native-faucet';
+    const tokenId = 'token-faucet';
+    const details = jest.fn(() => ({
+      assets: () => ({
+        fungibleAssets: () => [
+          { faucetId: () => ({ canonical: nativeId }), amount: () => 10000n },
+          { faucetId: () => ({ canonical: tokenId }), amount: () => 7n }
+        ]
+      })
+    }));
+    G.__off.clientGetInputNote.mockResolvedValue({ metadata: () => ({ noteType: () => 1 }), details });
+    const liveResponse = jest.fn();
+    capturedListener!(callReq({ method: 'getInputNoteSummary', argsB64: [encodeArg('0xn')] }), {}, liveResponse);
+    await flush();
+
+    expect(G.__off.clientGetInputNote).toHaveBeenCalledTimes(1);
+    expect(liveResponse.mock.calls[0][0].ok).toBe(true);
+    const summary = JSON.parse(Buffer.from(liveResponse.mock.calls[0][0].resultB64, 'base64').toString('utf8'));
+    expect(summary).toEqual({
+      noteType: 1,
+      assets: [
+        { faucetId: nativeId, amount: '10000' },
+        { faucetId: tokenId, amount: '7' }
+      ]
+    });
+    expect(details).toHaveBeenCalledTimes(1);
+
     const miden: any = await import('lib/miden/sdk/miden-client');
-    const metadataSpy = jest.fn(() => ({ noteType: () => 1 }));
+    const staleRecord = { metadata: jest.fn(() => ({ noteType: () => 1 })), details };
+    staleRecord.details.mockClear();
     let releaseNote!: () => void;
     const parkedNote = new Promise<void>(resolve => {
       releaseNote = resolve;
     });
     G.__off.clientGetInputNote = jest.fn(async () => {
       await parkedNote;
-      return { metadata: metadataSpy };
+      return staleRecord;
     });
 
     const sendResponse = jest.fn();
@@ -2581,7 +2785,8 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     releaseNote();
     await flush();
 
-    expect(metadataSpy).not.toHaveBeenCalled();
+    expect(staleRecord.metadata).not.toHaveBeenCalled();
+    expect(staleRecord.details).not.toHaveBeenCalled();
     const resp = sendResponse.mock.calls[0][0];
     expect(resp.ok).toBe(false);
     expect(resp.errorName).toBe('WasmClientPoisonedError');

@@ -1,0 +1,130 @@
+package com.miden.breadconnect
+
+import java.io.File
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+
+/** The shared vectors in packages/bread-connect/vectors, which every implementation checks itself against. */
+internal object Vectors {
+    val all: JsonObject by lazy { parseJson(File("../bread-connect/vectors/v1.json").readText()).obj!! }
+
+    fun string(key: String) = all[key].string!!
+
+    fun obj(key: String) = all[key].obj!!
+
+    fun list(key: String) = (all[key] as JsonArray).map { it.obj!! }
+
+    fun message(name: String) = list("messages").first { it["name"].string == name }
+
+    val app get() = ProtocolCrypto.KeyPair(bytes(obj("app")["secretKey"]), bytes(obj("app")["publicKey"]))
+
+    val connection get() =
+        AppConnection(string("id"), string("callback"), obj("app")["secretKey"].string!!, obj("app")["publicKey"].string!!)
+
+    val session get() = AppSession(
+        string("session"),
+        string("callback"),
+        obj("app")["secretKey"].string!!,
+        obj("app")["publicKey"].string!!,
+        obj("wallet")["publicKey"].string!!,
+    )
+}
+
+fun bytes(value: JsonElement?) = Base64Url.decode(value.string!!)!!
+
+/** [size] bytes counting up from [from], as the vector generator makes ids and nonces. */
+fun counting(from: Int, size: Int) = ByteArray(size) { ((from + it) and 255).toByte() }
+
+fun json(text: String) = parseJson(text).obj!!
+
+class MemoryStorage : BreadConnectStorage {
+    val items = mutableMapOf<String, String>()
+
+    override fun read(key: String) = items[key]
+
+    override fun write(key: String, value: String?) {
+        if (value == null) items.remove(key) else items[key] = value
+    }
+}
+
+class FakeOpener : BreadOpener {
+    var installed = true
+    val opened = mutableListOf<String>()
+    var onOpen: ((String) -> Unit)? = null
+
+    override suspend fun open(link: String): Boolean {
+        opened += link
+        onOpen?.invoke(link)
+        return installed
+    }
+}
+
+/** Bread's side of the protocol, for answering the client's links in tests. */
+class FakeBread {
+    var session = ""
+        private set
+    var callback = ""
+        private set
+    private var keys: ProtocolCrypto.SessionKeys? = null
+
+    /** Bread's answer to a connect link: [answer] is `{"response": …}` or `{"error": …}`. */
+    fun answerConnect(link: String, answer: JsonObject): String {
+        val connect = (BreadConnectLinks.readLink(link, BreadConnectLinks.REQUEST_URL) as ReadLink.Message).envelope as Envelope.Connect
+        val wallet = ProtocolCrypto.generateKeyPair()
+        val appPublicKey = Base64Url.decode(connect.appPublicKey)!!
+        val keys = ProtocolCrypto.deriveSessionKeys(wallet.secretKey, appPublicKey, appPublicKey, wallet.publicKey)
+        this.keys = keys
+        session = Base64Url.encode(ProtocolCrypto.randomBytes(16))
+        callback = connect.callback
+        val nonce = ProtocolCrypto.randomBytes(12)
+        val sealed = ProtocolCrypto.seal(
+            keys.walletKey,
+            nonce,
+            ProtocolCrypto.additionalData("connected", session, connect.id),
+            answer.serialized(),
+        )
+        val envelope = Envelope.Connected(
+            connect.id,
+            session,
+            Base64Url.encode(wallet.publicKey),
+            Base64Url.encode(nonce),
+            Base64Url.encode(sealed),
+        )
+        return BreadConnectLinks.writeLink(callback, envelope)
+    }
+
+    /** The request a link carries, opened with the session's app key. */
+    fun openRequest(link: String): Triple<Envelope.Request, JsonObject, Long> {
+        val envelope = (BreadConnectLinks.readLink(link, BreadConnectLinks.REQUEST_URL) as ReadLink.Message).envelope as Envelope.Request
+        val payload = BreadConnectProtocol.openPayload(
+            keys!!.appKey,
+            "request",
+            envelope.session,
+            envelope.id,
+            envelope.nonce,
+            envelope.sealed,
+        ).obj!!
+        return Triple(envelope, payload["request"].obj!!, payload["sentAt"].toString().toLong())
+    }
+
+    /** Bread's sealed answer to a request link: `{"response": …}`, with a `transaction` outcome or not, or `{"error": …}`. */
+    fun answerRequest(link: String, answer: JsonObject): String {
+        val (envelope) = openRequest(link)
+        val nonce = ProtocolCrypto.randomBytes(12)
+        val sealed = ProtocolCrypto.seal(
+            keys!!.walletKey,
+            nonce,
+            ProtocolCrypto.additionalData("response", session, envelope.id),
+            answer.serialized(),
+        )
+        return BreadConnectLinks.writeLink(
+            callback,
+            Envelope.Response(envelope.id, session, Base64Url.encode(nonce), Base64Url.encode(sealed)),
+        )
+    }
+
+    /** An unsealed error for a request id, as Bread sends when it holds no keys for the message. */
+    fun error(id: String?, code: ProtocolErrorCode, message: String): String =
+        BreadConnectLinks.writeLink(callback, Envelope.Error(id, ProtocolError(code, message)))
+}

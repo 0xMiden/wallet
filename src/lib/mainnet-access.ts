@@ -1,5 +1,6 @@
-import { AccountId, Address, Endpoint, MidenClient, RpcClient } from '@miden-sdk/miden-sdk/lazy';
+import { Endpoint, MidenClient, RpcClient } from '@miden-sdk/miden-sdk/lazy';
 
+import { walletAccountIdToSdk } from 'lib/miden/sdk/helpers';
 import { assertWasmHoldCurrent, getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { extractSdkErrorCode } from 'lib/miden/sdk/sdk-error-code';
 import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
@@ -56,11 +57,6 @@ export async function checkMainnetAccessCodeBeforeSwitch(code: string): Promise<
  */
 export const MAINNET_ACCESS_WATCHDOG_MS = 60_000;
 
-const toAccountId = (accountId: string) =>
-  accountId.startsWith('0x')
-    ? AccountId.fromHex(accountId)
-    : Address.fromBech32(accountId.split('_')[0] ?? accountId).accountId();
-
 /**
  * Whether the mainnet node already admits the account, as a recovered one must be, since only a
  * new wallet brings a code. Node and transport failures, a watchdog eviction among them, are thrown.
@@ -69,7 +65,7 @@ export async function isMainnetAccountAdmitted(accountId: string): Promise<boole
   await MidenClient.ready();
   return withWasmClientLock(
     async hold => {
-      const id = toAccountId(accountId);
+      const id = walletAccountIdToSdk(accountId);
       const { client } = await getMidenClient();
       assertWasmHoldCurrent(hold, 'in the mainnet admission read after the client build');
       const allowed = await client.accounts.isAllowed(id);
@@ -95,7 +91,7 @@ export async function redeemMainnetAccessCode(
   await MidenClient.ready();
   return withWasmClientLock(
     async hold => {
-      const accountId = toAccountId(target.accountId);
+      const accountId = walletAccountIdToSdk(target.accountId);
       if (getEffectiveRpcUrl() !== target.rpcUrl) throw new Error('Account registration RPC differs from wallet RPC');
       const { client } = await getMidenClient();
       // An evicted callback keeps running after its caller saw the eviction, so each await is

@@ -4,11 +4,14 @@ import { join, relative, resolve, sep } from 'node:path';
 
 import { useAppLifecycleTelemetry } from 'app/hooks/useAppLifecycleTelemetry';
 import { useFundTelemetry } from 'app/hooks/useFundTelemetry';
+import { deserializeInternalError } from 'lib/intercom/helpers';
 import { request } from 'lib/miden/front';
 import { reportNoteClaim } from 'lib/miden/front/claim-telemetry';
+import { MidenMessageType } from 'lib/miden/types';
+import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
-import { isTelemetryEnabledAsync } from 'lib/settings/helpers';
+import { isCrashReportingEnabledAsync, isTelemetryEnabledAsync } from 'lib/settings/helpers';
 import { WalletMessageType } from 'lib/shared/types';
 import { enterSendFlow, settleSendFlow } from 'screens/send-flow/send-telemetry';
 
@@ -16,6 +19,7 @@ import { resolveTelemetryContext } from './context';
 import { captureCrash, initCrashReporting, stopCrashReporting } from './crash';
 import { annotateCrash } from './crash-diagnostics';
 import { encodingVariantsOf } from './egress-guard';
+import { __resetRelayDiagnosticsForTest, recordRelaySurface } from './relay-diagnostics';
 import { beginFlow, classifyError } from './report-flow';
 import { __resetRunForTest } from './run';
 import { WIRE_KEYS } from './serialize';
@@ -66,6 +70,7 @@ jest.mock('lib/miden/front', () => ({ request: jest.fn() }));
 // a single test runs.
 jest.mock('lib/settings/helpers', () => ({
   ...jest.requireActual('lib/settings/helpers'),
+  isCrashReportingEnabledAsync: jest.fn(),
   isTelemetryEnabledAsync: jest.fn()
 }));
 
@@ -110,6 +115,13 @@ jest.mock('nanoid', () => {
   let issued = 0;
   return { nanoid: () => `flow-${++issued}` };
 });
+
+// The SDK's start, so a startup trap reaches the wire through `ensureSdkWasmReady`'s own catch.
+const mockSdkReady = jest.fn(async (): Promise<void> => undefined);
+jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
+  ...jest.requireActual<Record<string, unknown>>('@miden-sdk/miden-sdk/lazy'),
+  MidenClient: { ready: () => mockSdkReady() }
+}));
 
 // ---------------------------------------------------------------------------
 // The poison corpus.
@@ -611,8 +623,14 @@ async function driveEveryInstrumentedFlow(): Promise<void> {
 
 // ---------------------------------------------------------------------------
 
-const consentOn = () => jest.mocked(isTelemetryEnabledAsync).mockResolvedValue(true);
-const consentOff = () => jest.mocked(isTelemetryEnabledAsync).mockResolvedValue(false);
+const consentOn = () => {
+  jest.mocked(isCrashReportingEnabledAsync).mockResolvedValue(true);
+  jest.mocked(isTelemetryEnabledAsync).mockResolvedValue(true);
+};
+const consentOff = () => {
+  jest.mocked(isCrashReportingEnabledAsync).mockResolvedValue(false);
+  jest.mocked(isTelemetryEnabledAsync).mockResolvedValue(false);
+};
 
 let originalFetch: PropertyDescriptor | undefined;
 
@@ -1026,6 +1044,72 @@ describe('crash-report egress', () => {
     expect(leaksIn(wireText())).toEqual([]);
   });
 
+  // The text an Android Fast deposit stores when the wallet refuses: viem's flattened message, which names the RPC
+  // endpoint, the sender, the transaction and the amount, and hands over as its cause. Only the fixed values may cross
+  // the wire.
+  it('reports a failed inbound bridge by its route, step and library error, and nothing its text says', async () => {
+    consentOn();
+    const host = 'rpc.walletconnect.org';
+    const sender = `0x${'a1'.repeat(20)}`;
+    const amount = '1234.5678';
+    const stored = [
+      'An unknown RPC error occurred.',
+      '',
+      `URL: https://${host}/v1/?chainId=eip155:11155111&projectId=0123456789abcdef`,
+      'Request Arguments:',
+      `  from:   ${sender}`,
+      `  value:  ${amount} USDC`,
+      `  data:   ${POISON.privateKeyHex}`,
+      '',
+      'Details: User rejected the request.',
+      'Version: viem@2.55.4'
+    ].join('\n');
+
+    reportTransactionFailure({
+      type: 'bridged-receive',
+      point: 'bridge_receive_settlement',
+      error: stored,
+      bridgeReceive: { route: 'epoch', step: 'epoch_solve', cause: stored }
+    });
+    await flushEgress();
+
+    expect(captured).toHaveLength(1);
+    const values = captured
+      .flatMap(entry => entry.body.split('\n'))
+      .flatMap(line => {
+        try {
+          const item: unknown = JSON.parse(line);
+          const exception: unknown = typeof item === 'object' && item !== null ? Reflect.get(item, 'exception') : null;
+          const listed: unknown =
+            typeof exception === 'object' && exception !== null ? Reflect.get(exception, 'values') : null;
+          return Array.isArray(listed)
+            ? listed.map((value: unknown) => String(Reflect.get(Object(value), 'value')))
+            : [];
+        } catch {
+          return [];
+        }
+      });
+    expect(values).toEqual([
+      expect.stringMatching(
+        /^Transaction failed: tx_bridge; stage unknown; realm unknown; proving preference unknown; platform [a-z]+; point bridge_receive_settlement; rpc; via epoch; failed at epoch_solve; evm error user_rejected\. authentication preparation unavailable; layout unavailable; commitment match unavailable; account code unavailable\. SDK \d+\.\d+\.\d+; Guardian client \d+\.\d+\.\d+$/
+      )
+    ]);
+    for (const text of [
+      host,
+      'eip155',
+      '0123456789abcdef',
+      sender,
+      'a1a1',
+      amount,
+      'viem',
+      'User rejected',
+      'Request Arguments'
+    ]) {
+      expect(wireText()).not.toContain(text);
+    }
+    expect(leaksIn(wireText())).toEqual([]);
+  });
+
   it('retains each separate terminal failure even when their diagnostic facts match', async () => {
     consentOn();
     for (let attempt = 0; attempt < 2; attempt++) {
@@ -1185,6 +1269,168 @@ describe('crash-report egress', () => {
     expect(leaksIn(text)).toEqual([]);
   });
 
+  describe('closed values for a startup trap and an unanswered dApp approval', () => {
+    // Chrome's extension ids are 32 letters from a to p.
+    const EXTENSION_ORIGIN = 'chrome-extension://abcdefghijklmnopabcdefghijklmnop';
+    const CONFIRMATION_ID = 'V1StGXR8_Z5jdHi6B-myT';
+    const NOTE_ID = `0x${'a1b2c3d4e5f60718'.repeat(4)}`;
+    // The approval window's own address carries its confirmation id.
+    const CONFIRM_FRAME = `    at load (${EXTENSION_ORIGIN}/confirm.html#?id=${CONFIRMATION_ID}:1:2)`;
+
+    const restores: Array<() => void> = [];
+    const replace = (target: object, key: string, value: unknown) => {
+      const own = Object.getOwnPropertyDescriptor(target, key);
+      Object.defineProperty(target, key, { value, configurable: true, writable: true });
+      restores.push(() => {
+        if (own === undefined) Reflect.deleteProperty(target, key);
+        else Object.defineProperty(target, key, own);
+      });
+    };
+    afterEach(() => {
+      for (const restore of restores.splice(0).reverse()) restore();
+    });
+
+    const expectNothingIdentifying = (text: string) => {
+      expect(text).not.toMatch(/0x[0-9a-f]/i);
+      expect(text).not.toContain(CONFIRMATION_ID);
+      expect(text).not.toContain('chrome-extension://');
+      expect(leaksIn(text)).toEqual([]);
+    };
+
+    function startupTrap(): Error {
+      const trap = new WebAssembly.RuntimeError('unreachable');
+      const wasm = `${EXTENSION_ORIGIN}/static/wasm/miden_client_web.hMHvbzfs.wasm`;
+      trap.stack = [
+        'RuntimeError: unreachable',
+        `    at miden_client_web.wasm.__wbindgen_malloc (${wasm}:wasm-function[11015]:0x18e0a2c)`,
+        `    at miden_client_web.wasm.__wbindgen_start (${wasm}:wasm-function[10922]:0x18dc693)`,
+        `    at xl (${EXTENSION_ORIGIN}/chunks/Cargo-B2P22_Kp.CjbEv7yQ.js:9:24623)`,
+        CONFIRM_FRAME
+      ].join('\n');
+      trap.cause = new Error(`note ${NOTE_ID} could not be read`);
+      return trap;
+    }
+
+    async function captureStartupFailure(failure: Error): Promise<string> {
+      consentOn();
+      initCrashReporting();
+      mockSdkReady.mockRejectedValueOnce(failure);
+      const caught = await ensureSdkWasmReady().then(
+        () => undefined,
+        (error: unknown) => error
+      );
+      expect(caught).toBe(failure);
+      captureCrash(caught, 'onunhandledrejection');
+      await flushEgress();
+      expect(captured).toHaveLength(1);
+      return wireText();
+    }
+
+    it("names a startup trap's shared-memory probe and window count, and nothing that identifies it", async () => {
+      replace(globalThis, 'crossOriginIsolated', true);
+      replace(
+        WebAssembly,
+        'Memory',
+        jest.fn(() => ({
+          grow: () => {
+            throw new RangeError('WebAssembly.Memory.grow(): Maximum memory size exceeded');
+          }
+        }))
+      );
+      replace(chrome.extension, 'getViews', () => Array.from({ length: 5 }, () => globalThis));
+      const text = await captureStartupFailure(startupTrap());
+      expect(text).toContain('"sharedMemoryProbe":"refused"');
+      expect(text).toContain('"extensionViews":"4+"');
+      expect(text).toContain('"stage":"wasm_ready"');
+      expect(text).toContain('"type":"onunhandledrejection","handled":false');
+      expect(text).toContain('__wbindgen_malloc');
+      expect(text).not.toContain('wasm-function[');
+      expectNothingIdentifying(text);
+    });
+
+    it('names a shared memory that still grows beside a lone window', async () => {
+      replace(globalThis, 'crossOriginIsolated', true);
+      replace(
+        WebAssembly,
+        'Memory',
+        jest.fn(() => ({ grow: () => 1 }))
+      );
+      replace(chrome.extension, 'getViews', () => [globalThis]);
+      const text = await captureStartupFailure(startupTrap());
+      expect(text).toContain('"sharedMemoryProbe":"grew"');
+      expect(text).toContain('"extensionViews":"1"');
+      expectNothingIdentifying(text);
+    });
+
+    it('adds no memory evidence to a startup failure that is not a WebAssembly trap', async () => {
+      replace(globalThis, 'crossOriginIsolated', true);
+      replace(chrome.extension, 'getViews', () => [globalThis]);
+      const failure = new Error(`wasm fetch failed for note ${NOTE_ID}`);
+      failure.stack = [`Error: ${failure.message}`, CONFIRM_FRAME].join('\n');
+      const text = await captureStartupFailure(failure);
+      expect(text).toContain('"stage":"wasm_ready"');
+      expect(text).not.toContain('sharedMemoryProbe');
+      expect(text).not.toContain('extensionViews');
+      expectNothingIdentifying(text);
+    });
+
+    it("names the background's state for an unanswered dApp approval, and nothing that identifies it", async () => {
+      consentOn();
+      initCrashReporting();
+      // As the approval window's intercom client receives the background's Not Found.
+      const failure = deserializeInternalError([
+        'Not Found',
+        undefined,
+        'Error',
+        undefined,
+        { code: 'confirmation_unknown' }
+      ]);
+      failure.stack = [
+        'Error: Not Found',
+        `    at s (${EXTENSION_ORIGIN}/chunks/front.BXR4C5cr.js:1:41768)`,
+        CONFIRM_FRAME
+      ].join('\n');
+      failure.cause = new Error(`no handler for note ${NOTE_ID}`);
+      annotateCrash(failure, {
+        operation: 'intercom_request',
+        requestType: MidenMessageType.DAppGetPayloadRequest,
+        confirmationHandler: failure.code,
+        portReconnected: true,
+        confirmationId: CONFIRMATION_ID,
+        approval: NOTE_ID
+      });
+      captureCrash(failure, 'react');
+      // A code that is not exactly one of the background's names carries no state.
+      const hostileCodes = [
+        `0x${'ab'.repeat(32)}`,
+        `confirmation_unknown ${NOTE_ID}`,
+        `confirmation_${CONFIRMATION_ID}`
+      ];
+      hostileCodes.forEach((code, index) => {
+        const hostile = deserializeInternalError(['Not Found', undefined, 'Error', undefined, { code }]);
+        // Its own frame, so deduplication cannot drop it and pass this test for the wrong reason.
+        hostile.stack = `Error: Not Found\n    at attempt (capacitor://localhost/mobile.js:1:${index + 1})`;
+        annotateCrash(hostile, {
+          operation: 'intercom_request',
+          confirmationHandler: hostile.code,
+          portReconnected: 'true'
+        });
+        captureCrash(hostile, 'react');
+      });
+      await flushEgress();
+      const text = wireText();
+      expect(captured).toHaveLength(1 + hostileCodes.length);
+      expect(text).toContain('"confirmationHandler":"unknown"');
+      expect(text).toContain('"portReconnected":true');
+      expect(text).toContain(`"requestType":"${MidenMessageType.DAppGetPayloadRequest}"`);
+      expect(text.match(/"confirmationHandler"/g)).toHaveLength(1);
+      expect(text.match(/"portReconnected"/g)).toHaveLength(1);
+      expect(text).not.toContain('"confirmationId"');
+      expect(text).not.toContain('"approval"');
+      expectNothingIdentifying(text);
+    });
+  });
+
   it('replaces unknown URLs with a static filename while retaining scrubbed frame symbols', async () => {
     consentOn();
     initCrashReporting();
@@ -1268,9 +1514,9 @@ describe('crash-report egress', () => {
   });
 
   it('names the network the crash happened on, as a tag and in the diagnostics', async () => {
-    // Consent answers only once the network is back on the build's, so the report is sent from there.
+    // Browser permission answers once the network is back on the build's, so the report is sent from there.
     let allow = (_granted: boolean) => {};
-    jest.mocked(isTelemetryEnabledAsync).mockReturnValue(
+    jest.mocked(isCrashReportingEnabledAsync).mockReturnValue(
       new Promise<boolean>(resolve => {
         allow = resolve;
       })
@@ -1295,6 +1541,268 @@ describe('crash-report egress', () => {
 
     const hosts = new Set(captured.map(entry => new URL(entry.url).host));
     expect(hosts).toEqual(new Set(['o0.ingest.de.sentry.io']));
+  });
+});
+
+describe('WalletConnect relay failure reports', () => {
+  const PREFIX = 'WebSocket connection failed for host: ';
+  const PROJECT_ID = '3f8a2c1d9e7b6a5f4c3d2e1f0a9b8c7d';
+  // Shaped like the relay's JWT: header, claims and signature.
+  const RELAY_AUTH =
+    'eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJkaWQ6a2V5Ono2TWtvZFRQNTJ4Z3BZOHRGbXJhRmlqUTlCMXpjSGUxbXZxYlMifQ.bW9jay1zaWduYXR1cmUtbW9jay1zaWduYXR1cmU';
+  const TOPIC = `0x${'7c4a8d09ca3762af'.repeat(4)}`;
+
+  const relayFailure = (host = 'relay.walletconnect.org'): Error =>
+    new Error(`${PREFIX}wss://${host}?projectId=${PROJECT_ID}&auth=${RELAY_AUTH}`, {
+      cause: new Error(`Subscribing to ${TOPIC} failed, please try again`)
+    });
+
+  // Sentry's own report and trace ids are hex by design, so they are the one hex the wire may carry.
+  const withoutSentryIds = (text: string): string =>
+    text.replace(/"(?:event_id|trace_id|span_id|parent_span_id)":"[0-9a-f]+"/g, '');
+
+  /** The failure range of each report on the wire, in the order sent. */
+  const relayRanges = (): Array<string | undefined> =>
+    captured.map(entry => /"relayFailures":"([^"]+)"/.exec(entry.body)?.[1]);
+
+  /** The event item of a Sentry envelope: its header, the item's header, then the event. */
+  const sentryEvent = (entry: CapturedRequest | undefined): Record<string, unknown> =>
+    parsePayload(entry?.body.split('\n')[2] ?? '');
+
+  // Fields every crash report carries, whatever it is.
+  const EVERY_REPORT_KEYS = ['appVersion', 'platform', 'network', 'target', 'revision', 'dirty'];
+
+  const restores: Array<() => void> = [];
+  const replace = (target: object, key: string, value: unknown) => {
+    const own = Object.getOwnPropertyDescriptor(target, key);
+    Object.defineProperty(target, key, { value, configurable: true, writable: true });
+    restores.push(() => {
+      if (own === undefined) Reflect.deleteProperty(target, key);
+      else Object.defineProperty(target, key, own);
+    });
+  };
+
+  beforeEach(() => {
+    __resetRelayDiagnosticsForTest();
+    recordRelaySurface('confirm');
+  });
+
+  afterEach(() => {
+    for (const restore of restores.splice(0).reverse()) restore();
+  });
+
+  it('names the relay and only its closed context, at warning level, with none of the failure text', async () => {
+    consentOn();
+    initCrashReporting();
+    captureCrash(relayFailure(), 'onunhandledrejection');
+    await flushEgress();
+
+    expect(captured).toHaveLength(1);
+    const text = wireText();
+    expect(text).toContain('"service":"walletconnect_relay"');
+    expect(text).toContain('"level":"warning"');
+    expect(text).toContain('"surface":"confirm"');
+    expect(text).toContain('"relayFailures":"1"');
+    expect(text).toContain('"connectivity":"steady"');
+    expect(text).toContain('"type":"onunhandledrejection","handled":false');
+    expect(text).not.toMatch(/0x[0-9a-f]/i);
+    expect(withoutSentryIds(text)).not.toMatch(/[0-9a-f]{32,}/i);
+    expect(text).not.toContain('projectId');
+    expect(text).not.toContain(PROJECT_ID);
+    expect(text).not.toContain('eyJ');
+    expect(text).not.toContain('Subscribing');
+    expect(leaksIn(text)).toEqual([]);
+
+    const event = sentryEvent(captured[0]);
+    expect(objectAt(event, 'tags')).toEqual({
+      network: resolveTelemetryContext().network,
+      service: 'walletconnect_relay'
+    });
+    const diagnostics = objectAt(objectAt(event, 'extra'), 'walletDiagnostics');
+    expect(Object.fromEntries(Object.entries(diagnostics).filter(([key]) => !EVERY_REPORT_KEYS.includes(key)))).toEqual(
+      {
+        service: 'walletconnect_relay',
+        connectivity: 'steady',
+        visibility: 'visible',
+        surface: 'confirm',
+        relayTrigger: 'no_connect_modal',
+        relayEverConnected: false,
+        relayFailures: '1'
+      }
+    );
+    // The title the issue already has, and no cause.
+    expect(objectAt(event, 'exception').values).toEqual([
+      expect.objectContaining({ type: 'Error', value: `${PREFIX}wss://relay.walletconnect.org` })
+    ]);
+  });
+
+  it('names the report Error whatever the failure called itself, under the fixed text and its own frames', async () => {
+    consentOn();
+    initCrashReporting();
+    const failure = relayFailure();
+    failure.name = 'UpstreamRelayError';
+    failure.stack = `UpstreamRelayError: ${failure.message}\n    at openRelaySocket (capacitor://localhost/mobile.js:1:5000)`;
+    captureCrash(failure, 'onunhandledrejection');
+    await flushEgress();
+
+    expect(captured).toHaveLength(1);
+    const text = wireText();
+    expect(text).not.toContain('UpstreamRelayError');
+    expect(text).toContain('"filename":"app:///mobile.js","lineno":1,"colno":5000,"function":"openRelaySocket"');
+    expect(objectAt(sentryEvent(captured[0]), 'exception').values).toEqual([
+      expect.objectContaining({ type: 'Error', value: `${PREFIX}wss://relay.walletconnect.org` })
+    ]);
+  });
+
+  it('labels no host outside the relay allowlist, and leaves its level alone', async () => {
+    consentOn();
+    initCrashReporting();
+    captureCrash(new Error(`${PREFIX}wss://relay.example.invalid`), 'onunhandledrejection');
+    captureCrash(new Error(`${PREFIX}wss://relay.walletconnect.org.example.invalid`), 'onunhandledrejection');
+    await flushEgress();
+
+    expect(captured).toHaveLength(2);
+    const text = wireText();
+    expect(text.match(/"level":"error"/g)).toHaveLength(2);
+    expect(text).not.toContain('"level":"warning"');
+    expect(text).not.toContain('walletconnect_relay');
+    expect(text).not.toContain('relayFailures');
+  });
+
+  it('sends a stuck relay once per failure bucket: three reports for seven failures', async () => {
+    consentOn();
+    initCrashReporting();
+    for (let attempt = 0; attempt < 7; attempt++) captureCrash(relayFailure(), 'onunhandledrejection');
+    await flushEgress();
+
+    expect(captured).toHaveLength(3);
+    expect(captured.map(entry => /"relayFailures":"([^"]+)"/.exec(entry.body)?.[1]).sort()).toEqual(['1', '2-5', '6+']);
+  });
+
+  it('sends nothing while the device is offline, and still counts the failure', async () => {
+    consentOn();
+    initCrashReporting();
+    replace(navigator, 'onLine', false);
+    captureCrash(relayFailure(), 'onunhandledrejection');
+    await flushEgress();
+    expect(captured).toEqual([]);
+
+    restores.pop()?.();
+    captureCrash(relayFailure(), 'onunhandledrejection');
+    await flushEgress();
+    expect(captured).toHaveLength(1);
+    expect(wireText()).toContain('"relayFailures":"2-5"');
+  });
+
+  it('drops an offline failure before browser permission answers, and sends the next range', async () => {
+    consentOn();
+    initCrashReporting();
+    captureCrash(relayFailure(), 'onunhandledrejection');
+    await flushEgress();
+    expect(relayRanges()).toEqual(['1']);
+
+    let allow = (_granted: boolean) => {};
+    jest.mocked(isCrashReportingEnabledAsync).mockReturnValueOnce(
+      new Promise<boolean>(resolve => {
+        allow = resolve;
+      })
+    );
+    captureCrash(relayFailure(), 'onunhandledrejection');
+    replace(navigator, 'onLine', false);
+    allow(true);
+    await flushEgress();
+    expect(relayRanges()).toEqual(['1']);
+
+    restores.pop()?.();
+    captureCrash(relayFailure(), 'onunhandledrejection');
+    await flushEgress();
+    expect(relayRanges()).toEqual(['1', '2-5']);
+  });
+
+  it.each<[string, (capture: () => void) => void, () => void]>([
+    [
+      'browser permission is denied',
+      capture => {
+        jest.mocked(isCrashReportingEnabledAsync).mockResolvedValue(false);
+        capture();
+      },
+      consentOn
+    ],
+    [
+      'reporting stopped before its permission check answered',
+      capture => {
+        capture();
+        stopCrashReporting();
+      },
+      () => initCrashReporting()
+    ],
+    [
+      'there was no client to capture it',
+      capture => {
+        stopCrashReporting();
+        capture();
+      },
+      () => initCrashReporting()
+    ]
+  ])('sends nothing for a failure dropped because %s, and the range of the next one', async (_label, drop, restore) => {
+    consentOn();
+    initCrashReporting();
+    captureCrash(relayFailure(), 'onunhandledrejection');
+    await flushEgress();
+    drop(() => captureCrash(relayFailure(), 'onunhandledrejection'));
+    await flushEgress();
+    expect(relayRanges()).toEqual(['1']);
+
+    restore();
+    captureCrash(relayFailure(), 'onunhandledrejection');
+    await flushEgress();
+    expect(relayRanges()).toEqual(['1', '2-5']);
+  });
+
+  it('sends one report for two failures of one range captured before either is sent', async () => {
+    consentOn();
+    initCrashReporting();
+    captureCrash(relayFailure(), 'onunhandledrejection');
+    await flushEgress();
+    captureCrash(relayFailure(), 'onunhandledrejection');
+    captureCrash(relayFailure(), 'onunhandledrejection');
+    await flushEgress();
+    expect(relayRanges()).toEqual(['1', '2-5']);
+  });
+
+  it('counts an Error captured by every path as one failure, and a new Error with the same text as the next', async () => {
+    consentOn();
+    initCrashReporting();
+    const failure = relayFailure();
+    captureCrash(failure, 'onunhandledrejection');
+    captureCrash(failure, 'onerror');
+    captureCrash(failure, 'react');
+    captureCrash(failure);
+    await flushEgress();
+    expect(relayRanges()).toEqual(['1']);
+
+    captureCrash(relayFailure(), 'onunhandledrejection');
+    await flushEgress();
+    expect(relayRanges()).toEqual(['1', '2-5']);
+  });
+
+  it('names a network change the crash listeners saw in the 30 seconds before, and none once they stopped', async () => {
+    consentOn();
+    initCrashReporting();
+    globalThis.dispatchEvent(new Event('online'));
+    captureCrash(relayFailure(), 'onunhandledrejection');
+    await flushEgress();
+    expect(wireText()).toContain('"connectivity":"just_changed"');
+
+    stopCrashReporting();
+    __resetRelayDiagnosticsForTest();
+    globalThis.dispatchEvent(new Event('offline'));
+    initCrashReporting();
+    captured.length = 0;
+    captureCrash(relayFailure(), 'onunhandledrejection');
+    await flushEgress();
+    expect(captured).toHaveLength(1);
+    expect(wireText()).toContain('"connectivity":"steady"');
   });
 });
 
@@ -1341,16 +1849,18 @@ describe('the boundary is the only way out', () => {
 });
 
 describe('consent boundary', () => {
-  it('sends nothing at all — product events or crash reports — with consent off', async () => {
+  it('sends crash reports without product events when usage sharing is off', async () => {
     consentOff();
+    jest.mocked(isCrashReportingEnabledAsync).mockResolvedValue(true);
     initCrashReporting();
     captureCrash(poisonedError('send failed'));
     await driveEveryInstrumentedFlow();
 
-    expect(captured).toEqual([]);
+    expect(envelopes()).toEqual([]);
+    expect(captured.filter(entry => entry.url !== INGEST_URL).length).toBeGreaterThan(0);
   });
 
-  it('sends both once consent is granted, so the silence above is the gate and not a broken driver', async () => {
+  it('sends both when usage consent and browser permission are granted', async () => {
     consentOn();
     initCrashReporting();
     captureCrash(poisonedError('send failed'));
@@ -1360,7 +1870,8 @@ describe('consent boundary', () => {
     expect(captured.filter(entry => entry.url !== INGEST_URL).length).toBeGreaterThan(0);
   });
 
-  it('sends nothing when the consent check itself fails', async () => {
+  it('sends nothing when both permission and usage-consent checks fail', async () => {
+    jest.mocked(isCrashReportingEnabledAsync).mockRejectedValue(new Error('permissions unavailable'));
     jest.mocked(isTelemetryEnabledAsync).mockRejectedValue(new Error('storage unavailable'));
     initCrashReporting();
     captureCrash(poisonedError('send failed'));

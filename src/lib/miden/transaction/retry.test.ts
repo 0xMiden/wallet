@@ -6,19 +6,25 @@ import {
   TRANSACTION_STUCK_ERROR,
   USER_CANCELLED_TRANSACTION_REASON
 } from './constants';
+import { noteDeliveryWriteCount } from './helper';
+import { __resetNoteDeliverySweepForTests, MAX_RELAY_ATTEMPTS, sweepNoteDeliveries } from './note-delivery-sweep';
 import {
   UnverifiableSendRetryError,
   isCancellableTransaction,
   isRequeueableTransaction,
   requeueFailedTransaction
 } from './retry';
-import { ITransaction, ITransactionStatus } from '../db/types';
+import { midenClientProxy } from '../back/miden-client-proxy';
+import { ISubmitEvidence, ITransaction, ITransactionStatus } from '../db/types';
+import { NoteTypeEnum } from '../types';
 
 const mockTransactionsWhere = jest.fn();
+const mockTransactionsFilter = jest.fn();
 
 jest.mock('lib/miden/repo', () => ({
+  db: { transaction: (_mode: string, _table: unknown, callback: () => Promise<unknown>) => callback() },
   get transactions() {
-    return { where: mockTransactionsWhere };
+    return { where: mockTransactionsWhere, filter: mockTransactionsFilter };
   }
 }));
 
@@ -30,11 +36,27 @@ jest.mock('./cancel', () => ({
 
 jest.mock('../sdk/miden-client', () => ({
   getMidenClient: jest.fn(),
+  assertWasmHoldCurrent: jest.fn(),
+  tryWithWasmClientLock: async () => ({ ran: false }),
   withWasmClientLock: async (fn: () => unknown) => fn()
 }));
 
+jest.mock('lib/miden-chain/native-asset', () => ({
+  ...jest.requireActual('lib/miden-chain/native-asset'),
+  getNativeAssetId: async () => 'native-faucet',
+  getVerificationBaseFee: async () => 10000
+}));
+
 // These rows hold no checkable entry, so the tap-time proof never runs; mocked so this suite never builds a client.
-jest.mock('./reconcile-unconfirmed', () => ({ checkEvidenceForRetry: jest.fn() }));
+jest.mock('./reconcile-unconfirmed', () => ({
+  ...jest.requireActual('./reconcile-unconfirmed'),
+  checkEvidenceForRetry: jest.fn()
+}));
+
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  ...jest.requireActual('lib/miden-chain/effective-endpoints'),
+  isNoteTransportConfigured: () => true
+}));
 
 // Real module underneath. The landed-verdict branch used to be asserted purely
 // through `expect(mockUpdateTransactionStatus).toHaveBeenCalledWith(...)`, which
@@ -49,14 +71,18 @@ jest.mock('./helper', () => ({
   updateTransactionStatus: (...args: unknown[]) => mockUpdateTransactionStatus(...args)
 }));
 
-/** In-memory row + Dexie-shaped where().first()/where().modify() plumbing. */
+/** In-memory row + Dexie-shaped where().first()/where().modify()/where().anyOf().toArray() plumbing. */
 function wireRow(row: ITransaction | undefined) {
+  mockTransactionsFilter.mockImplementation((predicate: (tx: ITransaction) => boolean) => ({
+    toArray: jest.fn().mockResolvedValue(row && predicate(row) ? [row] : [])
+  }));
   mockTransactionsWhere.mockImplementation(() => ({
     first: jest.fn().mockResolvedValue(row),
     modify: jest.fn((fn: (tx: ITransaction) => void) => {
       if (row) fn(row);
       return Promise.resolve(row ? 1 : 0);
-    })
+    }),
+    anyOf: jest.fn().mockReturnValue({ toArray: jest.fn().mockResolvedValue(row ? [row] : []) })
   }));
 }
 
@@ -169,6 +195,190 @@ describe('requeueFailedTransaction — double-send idempotency guard', () => {
     wireRow(failedRow({ type: 'consume' }));
     await requeueFailedTransaction('tx-1');
     expect(mockVerifySendLanded).not.toHaveBeenCalled();
+  });
+});
+
+// Evidence the reconciler no longer judges leaves Retry the node check on the captured id, and only
+// `completeSendTransaction` records a send's note at the root, where the delivery sweep reads it (#1473).
+describe('requeueFailedTransaction - a send landed on its verified transaction owes that note', () => {
+  const NOTE = `0x${'ab'.repeat(32)}`;
+  const OTHER_NOTE = `0x${'cd'.repeat(32)}`;
+  const RECIPIENT = 'mtst1recipient';
+  const mockRelay = jest.fn<Promise<void>, [string, string]>();
+  const spies: { mockRestore: () => void }[] = [];
+
+  /** An attempt the reconciler gave up judging, so Retry's tap-time proof never runs. */
+  const unjudged = (overrides: Partial<ISubmitEvidence> = {}): ISubmitEvidence => ({
+    attemptId: 'a1',
+    capturedAt: 1150,
+    source: 'stage',
+    transactionId: 'abc123',
+    initialCommitment: '0x01',
+    finalCommitment: '0x02',
+    initialNonce: '5',
+    outputNoteIds: [NOTE],
+    nullifiers: [],
+    refBlock: 100,
+    refBlockCommitment: '0x03',
+    verdict: 'unresolvable',
+    ...overrides
+  });
+
+  const privateSend = (submitEvidence: ISubmitEvidence[]) =>
+    failedRow({
+      type: 'send',
+      transactionId: 'abc123',
+      noteType: NoteTypeEnum.Private,
+      secondaryAccountId: RECIPIENT,
+      submitEvidence
+    });
+
+  /** Two sweep passes, the second past the wait the first arms: the pushes the sweep made. */
+  const pushesAfterTheFirstWait = async (landedAt: number) => {
+    await sweepNoteDeliveries();
+    spies.push(jest.spyOn(Date, 'now').mockReturnValue((landedAt + 10 * 60) * 1000));
+    await sweepNoteDeliveries();
+    return mockRelay.mock.calls;
+  };
+
+  beforeEach(() => {
+    __resetNoteDeliverySweepForTests();
+    mockVerifySendLanded.mockResolvedValue('landed');
+    mockRelay.mockResolvedValue(undefined);
+    spies.push(
+      jest.spyOn(midenClientProxy, 'relayPrivateNoteById').mockImplementation((noteId, to) => mockRelay(noteId, to)),
+      jest.spyOn(midenClientProxy, 'isOutputNoteConsumed').mockResolvedValue(false),
+      jest.spyOn(console, 'info').mockImplementation(() => undefined)
+    );
+  });
+
+  afterEach(() => {
+    for (const spy of spies.splice(0)) spy.mockRestore();
+  });
+
+  it('records the note of the attempt that submitted it at the root, and the sweep pushes it to the recipient', async () => {
+    const row = privateSend([unjudged()]);
+    wireRow(row);
+    const writes = noteDeliveryWriteCount();
+    const landing = Math.floor(Date.now() / 1000);
+
+    await requeueFailedTransaction('tx-1');
+
+    expect(row).toMatchObject({
+      status: ITransactionStatus.Completed,
+      outputNoteIds: [NOTE],
+      noteDelivery: 'undelivered'
+    });
+    expect(row.completedAt).toBeGreaterThanOrEqual(landing);
+    expect(noteDeliveryWriteCount()).toBe(writes + 1);
+    expect(await pushesAfterTheFirstWait(row.completedAt ?? landing)).toEqual([[NOTE, RECIPIENT]]);
+  });
+
+  it('starts the note on a clean schedule, not the one the row kept while it had nothing to push', async () => {
+    const landing = Math.floor(Date.now() / 1000);
+    const row = privateSend([unjudged()]);
+    // The sweep saw the empty root as inert: its attempts ran out and it stopped retries for good.
+    Object.assign(row, {
+      noteDelivery: 'undelivered',
+      relayAttempts: MAX_RELAY_ATTEMPTS,
+      nextRelayAt: landing + 24 * 60 * 60,
+      relayRetriesStopped: true
+    });
+    wireRow(row);
+
+    await requeueFailedTransaction('tx-1');
+
+    expect(row).toMatchObject({ status: ITransactionStatus.Completed, outputNoteIds: [NOTE] });
+    expect(row).not.toHaveProperty('relayAttempts');
+    expect(row).not.toHaveProperty('nextRelayAt');
+    expect(row).not.toHaveProperty('relayRetriesStopped');
+    expect(await pushesAfterTheFirstWait(row.completedAt ?? landing)).toEqual([[NOTE, RECIPIENT]]);
+  });
+
+  /** An earlier attempt the node proved never committed, whose completion recorded its note at the root. */
+  const earlierAttempt = () =>
+    unjudged({ transactionId: 'def456', outputNoteIds: [OTHER_NOTE], verdict: 'never-committed' });
+
+  it("replaces the note an earlier attempt recorded at the root, and that note's outcome, with the verified attempt's", async () => {
+    const landing = Math.floor(Date.now() / 1000);
+    const row = privateSend([earlierAttempt(), unjudged({ attemptId: 'a2' })]);
+    Object.assign(row, {
+      outputNoteIds: [OTHER_NOTE],
+      noteDelivery: 'relayed',
+      displayMessage: 'Sent',
+      relayAckedNoteIds: [OTHER_NOTE],
+      relayDeadNoteIds: [OTHER_NOTE],
+      relayVerifyPushes: 1,
+      relayOutageDeferred: true,
+      relayAttempts: MAX_RELAY_ATTEMPTS,
+      nextRelayAt: landing + 24 * 60 * 60,
+      relayRetriesStopped: true
+    });
+    wireRow(row);
+    const writes = noteDeliveryWriteCount();
+
+    await requeueFailedTransaction('tx-1');
+
+    expect(row).toMatchObject({
+      status: ITransactionStatus.Completed,
+      outputNoteIds: [NOTE],
+      noteDelivery: 'undelivered',
+      displayMessage: 'Sent - the private note could not be delivered'
+    });
+    for (const field of [
+      'relayAckedNoteIds',
+      'relayDeadNoteIds',
+      'relayVerifyPushes',
+      'relayOutageDeferred',
+      'relayAttempts',
+      'nextRelayAt',
+      'relayRetriesStopped'
+    ]) {
+      expect(row).not.toHaveProperty(field);
+    }
+    expect(noteDeliveryWriteCount()).toBe(writes + 1);
+    expect(await pushesAfterTheFirstWait(row.completedAt ?? landing)).toEqual([[NOTE, RECIPIENT]]);
+  });
+
+  it("keeps the outcome and schedule of a root that already holds the verified attempt's note", async () => {
+    const landing = Math.floor(Date.now() / 1000);
+    const row = privateSend([earlierAttempt(), unjudged({ attemptId: 'a2' })]);
+    const recorded: Partial<ITransaction> = {
+      outputNoteIds: [NOTE],
+      noteDelivery: 'relayed',
+      displayMessage: 'Sent',
+      relayAckedNoteIds: [NOTE],
+      relayVerifyPushes: 1,
+      relayOutageDeferred: true,
+      relayAttempts: 2,
+      nextRelayAt: landing + 30 * 60
+    };
+    Object.assign(row, recorded);
+    wireRow(row);
+    const writes = noteDeliveryWriteCount();
+
+    await requeueFailedTransaction('tx-1');
+
+    expect(row).toMatchObject({ status: ITransactionStatus.Completed, ...recorded });
+    expect(noteDeliveryWriteCount()).toBe(writes);
+  });
+
+  it.each<[string, ISubmitEvidence[]]>([
+    ['no attempt names the verified transaction', [unjudged({ transactionId: 'def456' })]],
+    [
+      'the attempts that name it record different notes',
+      [unjudged(), unjudged({ attemptId: 'a2', outputNoteIds: [OTHER_NOTE] })]
+    ]
+  ])('records no target when %s, as before', async (_case, submitEvidence) => {
+    const row = privateSend(submitEvidence);
+    wireRow(row);
+    const writes = noteDeliveryWriteCount();
+
+    await requeueFailedTransaction('tx-1');
+
+    expect(row).toMatchObject({ status: ITransactionStatus.Completed, noteDelivery: 'undelivered' });
+    expect(row.outputNoteIds).toBeUndefined();
+    expect(noteDeliveryWriteCount()).toBe(writes);
   });
 });
 

@@ -546,6 +546,18 @@
     "message": "Falha ao abrir a posição",
     "englishSource": "Failed to open position"
   },
+  "earnCollateralLoading": {
+    "message": "Carregando os detalhes do token de depósito. Você poderá continuar assim que eles forem exibidos.",
+    "englishSource": "Loading the deposit token's details. You can continue once they arrive."
+  },
+  "earnCollateralUnavailable": {
+    "message": "O token de depósito não está disponível no momento, portanto, os depósitos estão suspensos. Tente novamente mais tarde.",
+    "englishSource": "The deposit token isn't available right now, so deposits are paused. Try again later."
+  },
+  "earnCollateralMismatch": {
+    "message": "Esta revisão foi preparada para um token de depósito diferente. Volte e insira o valor novamente.",
+    "englishSource": "This review was prepared for a different deposit token. Go back and enter the amount again."
+  },
   "earnTotalEarnedRewards": {
     "message": "Total ganho",
     "englishSource": "Total earned"
@@ -1021,6 +1033,10 @@
   "unknownTokenScale": {
     "message": "Não foi possível verificar as casas decimais deste token, portanto os valores não podem ser exibidos nem enviados.",
     "englishSource": "This token's decimals could not be verified, so amounts can't be shown or sent."
+  },
+  "sendTokenAvailabilityChecking": {
+    "message": "Verificando se este token pode ser enviado na Testnet. Você poderá enviá-lo assim que a verificação for concluída.",
+    "englishSource": "Checking whether this token can be sent on Testnet. You can send it once the check finishes."
   },
   "oops": {
     "message": "Opa!",
@@ -3883,7 +3899,7 @@
     "englishSource": "Unknown"
   },
   "inputNotesConsumed": {
-    "message": "noteses de entrada consumidos",
+    "message": "Notes de entrada consumidos",
     "englishSource": "Input notes consumed"
   },
   "outputNotesCreated": {
@@ -3937,6 +3953,24 @@
   "requestsYourSignature": {
     "message": "Solicita sua assinatura",
     "englishSource": "Requests your signature"
+  },
+  "confirmLoginSignature": {
+    "message": "Faça login em $domain$",
+    "englishSource": "Sign in to $domain$",
+    "placeholders": {
+      "domain": {
+        "content": "$1"
+      }
+    }
+  },
+  "loginSignatureNote": {
+    "message": "A Bread assina com uma chave criada exclusivamente para $domain$. Ela não pode movimentar fundos nem alterar sua conta.",
+    "englishSource": "Bread signs with a key made only for $domain$. It can't move funds or change your account.",
+    "placeholders": {
+      "domain": {
+        "content": "$1"
+      }
+    }
   },
   "requestAssets": {
     "message": "Solicitar recursos",
@@ -4396,6 +4430,53 @@
     "message": "{count} dApps abertas",
     "englishSource": "{count} open dApps"
   },
+  "openLinkTitle": {
+    "message": "Abrir $host$?",
+    "englishSource": "Open $host$?",
+    "placeholders": {
+      "host": {
+        "content": "$1"
+      }
+    }
+  },
+  "openLinkDescription": {
+    "message": "Este site não está listado no Explore, e qualquer pessoa pode criar um link para ele. Só o acesse se você confiar neste site.",
+    "englishSource": "This site is not listed in Explore, and anyone can make a link to it. Only open it if you trust this site."
+  },
+  "openLinkAction": {
+    "message": "Abrir",
+    "englishSource": "Open"
+  },
+  "breadConnectWaitingTitle": {
+    "message": "Finalizando a transação",
+    "englishSource": "Finishing the transaction"
+  },
+  "breadConnectWaitingDescription": {
+    "message": "Mantenha o Bread aberto: ele levará você de volta para $host$ quando a transação terminar.",
+    "englishSource": "Keep Bread open: it takes you back to $host$ once the transaction is done.",
+    "placeholders": {
+      "host": {
+        "content": "$1"
+      }
+    }
+  },
+  "breadConnectUnreturnedTitle": {
+    "message": "Não foi possível abrir $host$",
+    "englishSource": "Couldn't open $host$",
+    "placeholders": {
+      "host": {
+        "content": "$1"
+      }
+    }
+  },
+  "breadConnectUnreturnedDescription": {
+    "message": "O Bread respondeu, mas o app que fez o pedido não abriu. Abra-o você mesmo para continuar.",
+    "englishSource": "Bread answered, but the app that asked didn't open. Open it yourself to continue."
+  },
+  "breadConnectUnreturnedTransactionDescription": {
+    "message": "A transação foi enviada mesmo assim. Verifique o resultado no Bread antes de tentar novamente no app.",
+    "englishSource": "The transaction was still sent. Check its result in Bread before you try again in the app."
+  },
   "approve": {
     "message": "Aprovar",
     "englishSource": "Approve"
@@ -4423,6 +4504,15 @@
   "dappSignRequest": {
     "message": "Este aplicativo solicita que você assine os dados com sua carteira",
     "englishSource": "This app wants you to sign data with your wallet"
+  },
+  "dappLoginSignRequest": {
+    "message": "Este site deseja que você faça login em $domain$ com o Bread",
+    "englishSource": "This site wants you to sign in to $domain$ with Bread",
+    "placeholders": {
+      "domain": {
+        "content": "$1"
+      }
+    }
   },
   "dappImportNoteRequest": {
     "message": "Este aplicativo deseja importar uma chave privada note para sua carteira",
@@ -5647,7 +5737,7 @@
     "englishSource": "Write all words on paper in this order. Keep the paper in a safe place outside this device."
   },
   "removeSeedPhraseConfirmation": {
-    "message": "Isso remove a frase de recuperação e as chaves de recuperaçõGuardianes desta carteira neste dispositivo. Guarde seu backup em papel. Os backups feitos anteriormente não são excluídos.",
+    "message": "Isso remove a frase de recuperação e as chaves de recuperação do Guardian desta carteira neste dispositivo. Guarde seu backup em papel. Os backups feitos anteriormente não são excluídos.",
     "englishSource": "This removes the recovery phrase and Guardian recovery keys from this wallet on this device. Keep your paper backup. Previously made backups are not deleted."
   },
   "removeSeedPhraseConfirm": {
@@ -5794,8 +5884,8 @@
     "englishSource": "Help improve Wallet"
   },
   "helpImproveWalletDescription": {
-    "message": "Informe quais partes da Wallet você usa, onde você encontra dificuldades, categorias gerais de erros, a versão do aplicativo e sua plataforma, para que possamos corrigir o que está dando problema. Se o aplicativo travar, ele também envia um relatório de falha com o erro e onde ele ocorreu no código, com dados confidenciais removidos antes do envio. Nunca suas chaves, frase de recuperação, senha, endereços, saldos, valores ou conteúdo das transações. Não há rastreamento em outros aplicativos ou sites, nada é usado para publicidade e nada é vendido ou compartilhado com corretores de dados. Você pode alterar essas configurações a qualquer momento.",
-    "englishSource": "Shares which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform, so we can fix what's breaking. If the app crashes, it also sends a crash report with the error and where it happened in the code, scrubbed to remove sensitive data before sending. Never your keys, recovery phrase, password, addresses, balances, amounts, or transaction contents. No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers. You can change this any time."
+    "message": "Compartilhe quais partes da Wallet você usa, onde você encontra dificuldades, categorias gerais de erros, a versão do aplicativo e sua plataforma, para que possamos corrigir o que está dando problema. Nunca compartilhe suas chaves, frase de recuperação, senha, endereços, saldos, valores ou conteúdo das transações. Não há rastreamento em outros aplicativos ou sites, nada é usado para publicidade e nada é vendido ou compartilhado com corretores de dados. Relatórios de falhas são enviados de qualquer forma: o erro e onde ele ocorreu no código, com dados confidenciais removidos, sem nenhum identificador seu ou do seu dispositivo. Você pode alterar isso a qualquer momento.",
+    "englishSource": "Shares which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform, so we can fix what's breaking. Never your keys, recovery phrase, password, addresses, balances, amounts, or transaction contents. No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers. Crash reports are sent either way: the error and where it happened in the code, scrubbed to remove sensitive data, with no identifier for you or your device. You can change this any time."
   },
   "helpImproveWalletAccept": {
     "message": "Compartilhe dados de uso",
@@ -5814,8 +5904,8 @@
     "englishSource": "Only what helps us fix bugs"
   },
   "helpImproveWalletSharedDescription": {
-    "message": "Which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform. If the app crashes, a crash report with the error and where it happened in the code, scrubbed to remove sensitive data before sending.",
-    "englishSource": "Which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform. If the app crashes, a crash report with the error and where it happened in the code, scrubbed to remove sensitive data before sending."
+    "message": "Quais partes do Wallet você usa, onde você tem dificuldades, categorias gerais de erros, a versão do aplicativo e sua plataforma.",
+    "englishSource": "Which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform."
   },
   "helpImproveWalletPrivateTitle": {
     "message": "Your wallet stays private",
@@ -5832,6 +5922,10 @@
   "helpImproveWalletNoTrackingDescription": {
     "message": "No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers.",
     "englishSource": "No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers."
+  },
+  "helpImproveWalletCrashReports": {
+    "message": "Relatórios de falhas são enviados de qualquer forma, para que possamos corrigi-las: o erro e onde ele ocorreu no código, com dados confidenciais removidos, sem nenhum identificador seu ou do seu dispositivo.",
+    "englishSource": "Crash reports are sent either way, so we can fix crashes: the error and where it happened in the code, scrubbed to remove sensitive data, with no identifier for you or your device."
   },
   "helpImproveWalletChangeAnyTime": {
     "message": "You can change this any time in Settings.",
@@ -6918,5 +7012,37 @@
   "earnWithdrawInProgress": {
     "message": "Outra retirada desta posição ainda está em andamento. Aguarde até que ela seja concluída.",
     "englishSource": "Another withdrawal from this position is still in progress. Wait for it to finish."
+  },
+  "webViewUpdateTitle": {
+    "message": "Atualizar o Android System WebView",
+    "englishSource": "Update Android System WebView"
+  },
+  "webViewUpdateBody": {
+    "message": "O Bread precisa de uma versão mais recente do Android System WebView, a parte do Android que exibe páginas da web nos aplicativos. Atualize-o pelo Google Play e, em seguida, abra o Bread novamente.",
+    "englishSource": "Bread needs a newer version of Android System WebView, the part of Android that shows web pages in apps. Update it from Google Play, then open Bread again."
+  },
+  "webViewUpdateAction": {
+    "message": "Abrir o Google Play",
+    "englishSource": "Open Google Play"
+  },
+  "webViewUpdateChromeTitle": {
+    "message": "Atualizar o Chrome",
+    "englishSource": "Update Chrome"
+  },
+  "webViewUpdateChromeBody": {
+    "message": "O Bread precisa de uma versão mais recente do Chrome, que exibe páginas da web em aplicativos nesta versão do Android. Atualize-o no Google Play e, em seguida, abra o Bread novamente.",
+    "englishSource": "Bread needs a newer version of Chrome, which shows web pages in apps on this version of Android. Update it from Google Play, then open Bread again."
+  },
+  "webViewStartFailedTitle": {
+    "message": "O Bread não conseguiu iniciar",
+    "englishSource": "Bread couldn't start"
+  },
+  "webViewStartFailedBody": {
+    "message": "Algo impediu o Bread de carregar. Tente novamente ou feche o Bread e abra-o novamente.",
+    "englishSource": "Something stopped Bread from loading. Try again, or close Bread and open it again."
+  },
+  "webViewStartFailedAction": {
+    "message": "Tente novamente",
+    "englishSource": "Try again"
   }
 }

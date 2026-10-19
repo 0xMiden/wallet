@@ -167,6 +167,7 @@ describe('useEarnPositions', () => {
     expect(result.current.vaults[0]).toMatchObject({
       id: 'dummy-lending-11155111',
       protocol: 'Dummy Lending',
+      fundingAsset: 'USDCx',
       apy: '5.00%'
     });
     expect(result.current.summary).toMatchObject({

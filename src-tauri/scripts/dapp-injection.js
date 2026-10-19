@@ -47,6 +47,14 @@
   if (window.__midenInjected) return;
   window.__midenInjected = true;
 
+  // Desktop has neither presentation nor auth; a page detects Bread by window.bread and each capability by its presence.
+  // Writable and configurable, so a page's own top-level `bread` replaces the marker instead of throwing or being ignored.
+  try {
+    Object.defineProperty(window, 'bread', { value: Object.freeze({}), writable: true, configurable: true });
+  } catch (e) {
+    // An earlier non-configurable `bread`, from another injector, is left in place; the wallet bridge still installs.
+  }
+
   // Pending requests waiting for responses
   const pendingRequests = new Map();
   // Random per document: the wallet can answer after a same-origin reload, and the next document's requests must not
@@ -60,6 +68,56 @@
 
   // Debug: expose pendingRequests for troubleshooting
   window.__midenPendingRequests = pendingRequests;
+
+  // The extension's provider errors (lib/adapter/client.ts), so a refusal reads the same on every provider.
+  class MidenWalletError {
+    constructor() {
+      this.name = 'MidenWalletError';
+      this.message = 'An unknown error occured. Please try again or report it';
+    }
+  }
+  class NotGrantedMidenWalletError extends MidenWalletError {
+    constructor() {
+      super();
+      this.name = 'NotGrantedMidenWalletError';
+      this.message = 'Permission Not Granted';
+    }
+  }
+  class NotFoundMidenWalletError extends MidenWalletError {
+    constructor() {
+      super();
+      this.name = 'NotFoundMidenWalletError';
+      this.message = 'Account Not Found. Try connect again';
+    }
+  }
+  class InvalidParamsMidenWalletError extends MidenWalletError {
+    constructor() {
+      super();
+      this.name = 'InvalidParamsMidenWalletError';
+      this.message = 'Some of the parameters you provided are invalid';
+    }
+  }
+  function createError(value) {
+    const message = Array.isArray(value)
+      ? typeof value[0] === 'string'
+        ? value[0]
+        : String(value[0])
+      : typeof value === 'string'
+        ? value
+        : value && typeof value === 'object' && typeof value.message === 'string'
+          ? value.message
+          : undefined;
+    const has = code => value === code || (typeof message === 'string' && message.includes(code));
+    const error = has('NOT_GRANTED')
+      ? new NotGrantedMidenWalletError()
+      : has('NOT_FOUND')
+        ? new NotFoundMidenWalletError()
+        : has('INVALID_PARAMS')
+          ? new InvalidParamsMidenWalletError()
+          : new MidenWalletError();
+    if (message) error.message = message;
+    return error;
+  }
 
   // Function for Tauri to call to send responses
   window.__midenWalletResponse = function(responseStr) {
@@ -75,7 +133,7 @@
       pendingRequests.delete(reqId);
 
       if (type === 'MIDEN_PAGE_ERROR_RESPONSE' || error) {
-        pending.reject(new Error(error || payload || 'Unknown error'));
+        pending.reject(createError(error || payload || 'Unknown error'));
       } else {
         pending.resolve(payload);
       }
@@ -423,6 +481,24 @@
           sourcePublicKey: uint8ArrayToHex(this.publicKey),
           payload: uint8ArrayToBase64(data),
           kind: kind,
+        });
+        return { signature: base64ToUint8Array(res.signature) };
+      }
+
+      async requestLoginKey() {
+        const res = await request({
+          type: 'LOGIN_KEY_REQUEST',
+          sourceAccountId: this.address,
+        });
+        return { loginKey: base64ToUint8Array(res.loginKey) };
+      }
+
+      async signLoginBytes(data, kind) {
+        const res = await request({
+          type: 'LOGIN_SIGN_REQUEST',
+          sourceAccountId: this.address,
+          payload: uint8ArrayToBase64(data),
+          kind,
         });
         return { signature: base64ToUint8Array(res.signature) };
       }

@@ -42,6 +42,7 @@ const mockNavigate = jest.fn();
 
 jest.mock('lib/woozie', () => ({
   navigate: (...args: unknown[]) => mockNavigate(...args),
+  Redirect: ({ to }: { to: string }) => <div data-testid="redirect">{to}</div>,
   useLocation: () => mockLocation
 }));
 
@@ -76,6 +77,11 @@ jest.mock('lib/epoch', () => ({
 // The collateral comes from the bridge config: the testnet USDC faucet, at 6 decimals.
 const USDC = { faucetId: '0x537c15a622074e91188aa894456c52', symbol: 'USDC', decimals: 6 };
 let mockCollateral: typeof USDC | null = USDC;
+// What the collateral hook says while `mockCollateral` is null.
+let mockCollateralWait: 'loading' | 'unavailable' = 'loading';
+beforeEach(() => {
+  mockCollateralWait = 'loading';
+});
 jest.mock('lib/remote-config/use-feature-availability', () => ({ useBridgeConfigSnapshot: () => ({}) }));
 jest.mock('lib/remote-config/values', () => ({ selectMidenUsdc: () => mockCollateral }));
 
@@ -268,8 +274,10 @@ jest.mock('components/AmountInput', () => ({
 const mockOpenEarnPosition = openEarnPosition as jest.Mock;
 const mockConfirmSensitive = confirmSensitiveAction as jest.Mock;
 
-const renderReview = (vaultId: string, search = '') => {
-  mockLocation.search = search;
+// Bound, as the amount step links it, to the collateral the case mocks; only `unbound` names no faucet.
+const renderReview = (vaultId: string, search = '', { unbound = false } = {}) => {
+  const faucetId = unbound || search.includes('collateral=') ? undefined : mockCollateral?.faucetId;
+  mockLocation.search = faucetId ? `${search ? `${search}&` : '?'}collateral=${encodeURIComponent(faucetId)}` : search;
   return render(<EarnDepositReview vaultId={vaultId} />);
 };
 
@@ -430,11 +438,11 @@ describe('EarnDepositReview', () => {
 
     it('deposits nothing while the config names no collateral', async () => {
       mockCollateral = null;
-      renderReview('aave-usdc-ethereum-1', '?amount=1,000');
+      renderReview('aave-usdc-ethereum-1', `?amount=1,000&collateral=${USDC.faucetId}`);
 
       fireEvent.click(screen.getByTestId('open-position-btn'));
 
-      expect(await screen.findByText('earnFailedToOpenPosition')).toBeInTheDocument();
+      expect(screen.getByTestId('open-position-btn')).toBeDisabled();
       expect(mockOpenEarnPosition).not.toHaveBeenCalled();
     });
 
@@ -852,5 +860,75 @@ describe('EarnDepositReview after a failed load', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('earnVaultLoadError');
     expect(screen.getByRole('alert')).not.toHaveTextContent('earnPositionsLoadError');
     expect(screen.getByRole('button', { name: 'earnOpenPosition' })).toBeInTheDocument();
+  });
+});
+
+jest.mock('./useEarnCollateral', () => ({
+  useEarnCollateralState: () =>
+    mockCollateral ? { state: 'resolved', collateral: mockCollateral } : { state: mockCollateralWait, collateral: null }
+}));
+
+describe('native USDCx funding', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockAccount.evmAddress = '0xdeadbeef';
+    mockOpenEarnPosition.mockResolvedValue(undefined);
+    mockWalletStoreState.assessSpendingLimit.mockResolvedValue(undefined);
+    mockConfirmSensitive.mockResolvedValue(true);
+  });
+
+  it('shows USDCx and uses its exact faucet and atomic amount for a native deposit', async () => {
+    mockCollateral = { faucetId: '0x4cbdcaffe75f0a317482224dae6436', symbol: 'USDCx', decimals: 6 };
+    renderReview('aave-usdc-ethereum-1', '?amount=1.25&collateral=0x4cbdcaffe75f0a317482224dae6436');
+    expect(within(screen.getByTestId('earn-hero')).getByText('USDCx')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('open-position-btn'));
+    await waitFor(() =>
+      expect(mockOpenEarnPosition).toHaveBeenCalledWith(
+        expect.objectContaining({
+          amount: 1250000n,
+          collateral: { faucetId: '0x4cbdcaffe75f0a317482224dae6436', symbol: 'USDCx', decimals: 6 }
+        })
+      )
+    );
+  });
+
+  it('refuses review for an old collateral identity after the frontend switches to USDCx', () => {
+    mockCollateral = { faucetId: '0x4cbdcaffe75f0a317482224dae6436', symbol: 'USDCx', decimals: 6 };
+    renderReview('aave-usdc-ethereum-1', '?amount=1&collateral=0x5b043dcb48d5721106f7a1ceb2b804');
+    expect(screen.getByTestId('open-position-btn')).toBeDisabled();
+    expect(screen.getByTestId('earn-collateral-notice')).toHaveTextContent('earnCollateralMismatch');
+  });
+
+  it.each<['loading' | 'unavailable', string]>([
+    ['loading', 'earnCollateralLoading'],
+    ['unavailable', 'earnCollateralUnavailable']
+  ])('says why the deposit waits while the collateral is %s', async (wait, key) => {
+    mockCollateral = null;
+    mockCollateralWait = wait;
+    renderReview('aave-usdc-ethereum-1', '?amount=1.25&collateral=0x4cbdcaffe75f0a317482224dae6436');
+    expect(screen.getByTestId('open-position-btn')).toBeDisabled();
+    expect(screen.getByTestId('earn-collateral-notice')).toHaveTextContent(key);
+    fireEvent.click(screen.getByTestId('open-position-btn'));
+    await act(async () => {});
+    expect(mockOpenEarnPosition).not.toHaveBeenCalled();
+  });
+
+  it('sends a review link that names no faucet back to the amount step, depositing nothing', async () => {
+    mockCollateral = { faucetId: '0x4cbdcaffe75f0a317482224dae6436', symbol: 'USDCx', decimals: 6 };
+    renderReview('aave-usdc-ethereum-1', '?amount=1.25', { unbound: true });
+    expect(screen.getByTestId('redirect')).toHaveTextContent(/^\/earn\/vaults\/aave-usdc-ethereum-1\/deposit$/);
+    expect(screen.queryByTestId('open-position-btn')).toBeNull();
+    await act(async () => {});
+    expect(mockOpenEarnPosition).not.toHaveBeenCalled();
+  });
+
+  it('submits a review link that names the current faucet', async () => {
+    mockCollateral = { faucetId: '0x4cbdcaffe75f0a317482224dae6436', symbol: 'USDCx', decimals: 6 };
+    renderReview('aave-usdc-ethereum-1', '?amount=1.25');
+    expect(screen.queryByTestId('redirect')).toBeNull();
+    expect(screen.queryByTestId('earn-collateral-notice')).toBeNull();
+    fireEvent.click(screen.getByTestId('open-position-btn'));
+    await waitFor(() => expect(mockOpenEarnPosition).toHaveBeenCalledTimes(1));
+    expect(mockOpenEarnPosition.mock.calls[0]![0]).toMatchObject({ amount: 1_250_000n, collateral: mockCollateral });
   });
 });

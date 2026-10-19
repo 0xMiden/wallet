@@ -155,6 +155,17 @@ describe('vaultSlug', () => {
 });
 
 describe('mapEarnVault', () => {
+  it('lists native USDCx funding under the existing vault identity without relabelling old positions', () => {
+    expect(mapEarnVault(libVault(), 'USDCx')).toMatchObject({
+      id: 'dummy-lending-11155111',
+      asset: 'USDC',
+      fundingAsset: 'USDCx'
+    });
+    expect(mapEarnPosition(libPosition())).toMatchObject({
+      asset: 'USDC',
+      marketUid: 'DUMMY_LENDING:11155111:0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69'
+    });
+  });
   it('renders the dummy lender as Dummy Lending on USDC with the live APR', () => {
     const ui = mapEarnVault(libVault());
     expect(ui.protocol).toBe('Dummy Lending');

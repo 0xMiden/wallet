@@ -33,7 +33,9 @@ import {
 } from 'lib/miden/sdk/miden-client';
 import type {
   AssertLive,
+  DetailsCommitmentMatches,
   InputNoteDetails,
+  PswapCancelRequestOptions,
   RecoveryRangeResult,
   TransactionCommitState
 } from 'lib/miden/sdk/miden-client-interface';
@@ -131,6 +133,9 @@ export function runsWasmInThisRealm(): boolean {
  * this long is a wedge candidate; the deadline kill reclaims the realm.
  */
 const READ_DEADLINE_MS = 15_000;
+
+/** A cancel-request build that may read its order note on the node: the read deadline plus its two 5 s node reads. */
+const NODE_NOTE_CANCEL_DEADLINE_MS = READ_DEADLINE_MS + 10_000;
 
 /**
  * Per-op deadline (ms) for a `syncState`. Sync is legitimately slow on testnet
@@ -1004,6 +1009,28 @@ export const midenClientProxy = {
     return Account.deserialize(b64ToBytes(resultB64));
   },
 
+  /** A fee probe skips a busy offscreen mutex; inline reads remain under the caller's hold. */
+  async tryGetAccount(accountId: string): Promise<{ ran: false } | { ran: true; account: Account | null }> {
+    if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
+      const hold = getCurrentWasmLockHold();
+      const client = await getMidenClient();
+      if (hold) assertWasmHoldCurrent(hold, 'reading a claim fee account', 'after the client build');
+      return { ran: true, account: await client.getAccount(accountId) };
+    }
+    const resultB64 = await this.call('tryGetAccount', [accountId], { deadlineMs: READ_DEADLINE_MS });
+    const result = parseRecoveryResult('tryGetAccount', resultB64);
+    if (!result || typeof result !== 'object') throw new Error('tryGetAccount: malformed offscreen result');
+    const ran: unknown = Reflect.get(result, 'ran');
+    if (ran === false) return { ran: false };
+    const accountB64: unknown = Reflect.get(result, 'accountB64');
+    if (ran !== true || (accountB64 !== null && typeof accountB64 !== 'string')) {
+      throw new Error('tryGetAccount: malformed offscreen account');
+    }
+    if (accountB64 === null) return { ran: true, account: null };
+    await getWasmOrThrow();
+    return { ran: true, account: Account.deserialize(b64ToBytes(accountB64)) };
+  },
+
   /**
    * Sync local state against the node.
    *
@@ -1189,6 +1216,26 @@ export const midenClientProxy = {
   },
 
   /**
+   * The candidate records for each details commitment (#1389), as plain DTOs in the realm that owns the store,
+   * scoped by candidate note ids like {@link getInputNoteDetails}. `assertLive` goes to the inline branch only.
+   */
+  async getDetailsCommitmentMatches(
+    commitments: string[],
+    candidateIds: string[],
+    assertLive?: AssertLive
+  ): Promise<DetailsCommitmentMatches[]> {
+    if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
+      return (await getMidenClient()).getDetailsCommitmentMatches(commitments, candidateIds, assertLive);
+    }
+    const resultB64 = await this.call('getDetailsCommitmentMatches', [commitments, candidateIds], {
+      deadlineMs: READ_DEADLINE_MS
+    });
+    if (resultB64 == null) return commitments.map(() => ({ notes: [], uncommitted: 0 }));
+    const matches: DetailsCommitmentMatches[] = JSON.parse(new TextDecoder().decode(b64ToBytes(resultB64)));
+    return matches;
+  },
+
+  /**
    * Node-authoritative commit state of a tx by hex id (see
    * MidenClientInterface.getTransactionCommitState). Backs the send/swap
    * idempotent-retry guard so a Failed row whose submit actually landed is never
@@ -1259,12 +1306,17 @@ export const midenClientProxy = {
    * that owns the synchronized client; only the serialized request crosses the
    * offscreen boundary.
    */
-  async buildPswapCancelRequest(accountId: string, noteId: string, assertLive?: AssertLive): Promise<Uint8Array> {
+  async buildPswapCancelRequest(
+    accountId: string,
+    noteId: string,
+    assertLive?: AssertLive,
+    { allowNodeNote = false }: PswapCancelRequestOptions = {}
+  ): Promise<Uint8Array> {
     if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
-      return (await getMidenClient()).buildPswapCancelRequest(accountId, noteId, assertLive);
+      return (await getMidenClient()).buildPswapCancelRequest(accountId, noteId, assertLive, { allowNodeNote });
     }
-    const resultB64 = await this.call('buildPswapCancelRequest', [accountId, noteId], {
-      deadlineMs: READ_DEADLINE_MS
+    const resultB64 = await this.call('buildPswapCancelRequest', [accountId, noteId, allowNodeNote], {
+      deadlineMs: allowNodeNote ? NODE_NOTE_CANCEL_DEADLINE_MS : READ_DEADLINE_MS
     });
     if (resultB64 == null) {
       throw new Error('buildPswapCancelRequest: offscreen document returned no request bytes');
@@ -1355,23 +1407,29 @@ export const midenClientProxy = {
   /**
    * Read a to-be-consumed note's summary as a plain {@link InputNoteSummaryDto}
    * (issue #260, slice 7a). `getInputNote` returns a live `InputNoteRecord` the
-   * caller reaches through for `metadata()?.noteType()`; the record can't cross
-   * postMessage, so `reduceInputNoteSummary` reduces it to the one field the caller
-   * reads and only that crosses. `null` (not found) is preserved so the caller's
+   * caller needs for its note type and fee assets; the record can't cross
+   * postMessage, so `reduceInputNoteSummary` reduces it under the owning hold and
+   * only the JSON-safe facts cross. `null` (not found) is preserved so the caller's
    * "note not found" throw is unchanged.
    *
    * Flag off (default): the SW-inline client's `getInputNote` reduces here
-   * (behavior-preserving; caller owns the lock). Flag on: the OFFSCREEN client —
-   * which owns the imported/synced note — reduces, so the read can't miss a note the
+   * (caller owns the lock). Flag on: the OFFSCREEN client, which owns the
+   * imported/synced note, reduces, so the read can't miss a note the
    * dormant SW client never received.
    */
   async getInputNoteSummary(noteId: string): Promise<InputNoteSummaryDto | null> {
     if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
-      return reduceInputNoteSummary(await (await getMidenClient()).getInputNote(noteId));
+      const hold = getCurrentWasmLockHold();
+      const client = await getMidenClient();
+      if (hold) assertWasmHoldCurrent(hold, 'reading an input note summary');
+      const record = await client.getInputNote(noteId);
+      if (hold) assertWasmHoldCurrent(hold, 'reducing an input note summary');
+      return reduceInputNoteSummary(record);
     }
     const resultB64 = await this.call('getInputNoteSummary', [noteId], { deadlineMs: READ_DEADLINE_MS });
     if (resultB64 == null) return null;
-    return JSON.parse(new TextDecoder().decode(b64ToBytes(resultB64))) as InputNoteSummaryDto;
+    const summary: InputNoteSummaryDto = JSON.parse(new TextDecoder().decode(b64ToBytes(resultB64)));
+    return summary;
   },
 
   /**

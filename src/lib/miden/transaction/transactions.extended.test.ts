@@ -14,10 +14,9 @@
  */
 
 import * as Repo from 'lib/miden/repo';
+import { getNativeAssetId, getVerificationBaseFee } from 'lib/miden-chain/native-asset';
 import { reportOperation } from 'lib/telemetry/report-operation';
 
-import { IBridgeClaimStatus, ITransactionStatus, Transaction } from '../db/types';
-import { NoteTypeEnum } from '../types';
 import {
   cancelTransaction,
   claimBridgeSubmit,
@@ -37,6 +36,13 @@ import {
   waitForConsumeTx,
   waitForTransactionCompletion
 } from './index';
+import { midenClientProxy } from '../back/miden-client-proxy';
+import { IBridgeClaimStatus, ITransactionStatus, Transaction } from '../db/types';
+import { __resetSyncFuseStateForTests, isSyncFused, noteSyncParked } from '../front/sync-fuse';
+import { WASM_LOCK_SYNC_WATCHDOG_MS } from '../sdk/wasm-client-poison';
+import { type ConsumableNote, NoteTypeEnum } from '../types';
+import * as ClaimFee from './claim-fee';
+import { initiateConsumeTransactionFromId, queueConsumeNotes } from './initiate';
 
 // The mocked `lib/miden/repo` reconstructs a fresh `modify` jest.fn() per
 // `.where()` call, so call-count on `where` itself is what proves a promotion
@@ -50,6 +56,16 @@ jest.mock('lib/telemetry/report-operation', () => ({
   reportOperation: jest.fn()
 }));
 const mockedReportOperation = jest.mocked(reportOperation);
+
+jest.mock('./claim-fee', () => ({
+  ...jest.requireActual('./claim-fee'),
+  readClaimFeeContext: jest.fn(jest.requireActual('./claim-fee').readClaimFeeContext)
+}));
+jest.mock('lib/miden-chain/native-asset', () => ({
+  ...jest.requireActual('lib/miden-chain/native-asset'),
+  getNativeAssetId: jest.fn(jest.requireActual('lib/miden-chain/native-asset').getNativeAssetId),
+  getVerificationBaseFee: jest.fn(jest.requireActual('lib/miden-chain/native-asset').getVerificationBaseFee)
+}));
 
 // In-memory db so liveQuery has something to subscribe to.
 const _g = globalThis as any;
@@ -141,6 +157,10 @@ jest.mock('dexie', () => ({
 
 const mockGetInputNoteDetails = jest.fn();
 const mockSyncState = jest.fn().mockResolvedValue(undefined);
+let mockWasmLockBusy = false;
+const mockTryWithWasmClientLock = jest.fn(async (fn: () => Promise<unknown>, _options?: unknown) =>
+  mockWasmLockBusy ? { ran: false } : { ran: true, value: await fn() }
+);
 // The #260 offscreen client proxy reads (syncState/getInputNoteDetails) through
 // the `lib/...` alias of miden-client, which jest mocks separately from the
 // relative specifier below; delegate the alias to the same mock so the proxy's
@@ -151,6 +171,9 @@ jest.mock('../sdk/miden-client', () => ({
     syncState: mockSyncState,
     getInputNoteDetails: mockGetInputNoteDetails
   }),
+  getCurrentWasmLockHold: () => null,
+  assertWasmHoldCurrent: jest.fn(),
+  tryWithWasmClientLock: (fn: () => Promise<unknown>, options?: unknown) => mockTryWithWasmClientLock(fn, options),
   withWasmClientLock: async <T>(fn: () => Promise<T>) => fn()
 }));
 
@@ -214,6 +237,7 @@ installNavigatorLocksMock();
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockWasmLockBusy = false;
   txStore.length = 0;
   _g.__txExtTest.liveQueryCallbacks.length = 0;
   installNavigatorLocksMock();
@@ -1102,6 +1126,112 @@ describe('completeSendTransaction relay acknowledgement', () => {
 });
 
 describe('initiateConsumeTransactionFromId', () => {
+  it('a live from-id row with known token-only assets ahead does not admit a later token-only claim', async () => {
+    const context = jest.mocked(ClaimFee.readClaimFeeContext);
+    context.mockResolvedValue({ vaultFeeAsset: 10000n, nativeAssetId: 'native-faucet', verificationBaseFee: 10000 });
+    const summary = jest.spyOn(midenClientProxy, 'getInputNoteSummary').mockResolvedValue({
+      noteType: 0,
+      assets: [{ faucetId: 'token-faucet', amount: '7' }]
+    });
+    try {
+      const id = await initiateConsumeTransactionFromId('acc-1', 'from-id-token', false, true);
+      const stored = txStore.find(row => row.id === id);
+      expect(stored).toMatchObject({
+        faucetId: '',
+        amount: undefined,
+        secondaryAccountId: '',
+        consumedNotes: [{ id: 'from-id-token', faucetId: '', senderAddress: '' }]
+      });
+      context.mockResolvedValue({ vaultFeeAsset: 0n, nativeAssetId: 'native-faucet', verificationBaseFee: 10000 });
+      const later: ConsumableNote = {
+        id: 'later-token',
+        faucetId: 'token-faucet',
+        amount: '9',
+        senderAddress: 'sender',
+        isBeingClaimed: false,
+        type: NoteTypeEnum.Public,
+        carriesMoreAssets: false
+      };
+
+      await expect(queueConsumeNotes('acc-1', [later])).rejects.toBeInstanceOf(ClaimFee.ClaimFeeRefusedError);
+      expect(txStore).toHaveLength(1);
+      expect(Reflect.get(stored.consumedNotes[0], 'feeAssets')).toEqual([{ faucetId: 'token-faucet', amount: 7n }]);
+    } finally {
+      context.mockImplementation(jest.requireActual('./claim-fee').readClaimFeeContext);
+      summary.mockRestore();
+    }
+  });
+
+  it('from-id refuses known token-only assets but admits native and unknown assets without changing display fields', async () => {
+    const ACCOUNT = 'acc-1';
+    const nativeId = 'native-faucet';
+    const tokenId = 'token-faucet';
+    const context = jest.mocked(ClaimFee.readClaimFeeContext).mockResolvedValue({
+      vaultFeeAsset: 0n,
+      nativeAssetId: nativeId,
+      verificationBaseFee: 10000
+    });
+    const summary = jest.spyOn(midenClientProxy, 'getInputNoteSummary');
+    const { initiateConsumeTransactionFromId } = require('./index');
+    const tokenSummary = { noteType: 0, assets: [{ faucetId: tokenId, amount: '7' }] };
+    const nativeSummary = { noteType: 0, assets: [{ faucetId: nativeId, amount: '10000' }] };
+    const multiSummary = {
+      noteType: 0,
+      assets: [
+        { faucetId: tokenId, amount: '7' },
+        { faucetId: nativeId, amount: '10000' }
+      ]
+    };
+    const unknownSummary = { noteType: 0, assets: null };
+    const emptySummary = { noteType: 0, assets: [] };
+
+    try {
+      summary.mockResolvedValue(tokenSummary);
+      await expect(initiateConsumeTransactionFromId(ACCOUNT, 'token', false, true)).rejects.toMatchObject({
+        name: 'ClaimFeeRefusedError'
+      });
+      expect(txStore.filter(tx => tx.type === 'consume')).toEqual([]);
+
+      summary.mockResolvedValue(emptySummary);
+      await expect(initiateConsumeTransactionFromId(ACCOUNT, 'empty', false, true)).rejects.toMatchObject({
+        name: 'ClaimFeeRefusedError'
+      });
+      expect(txStore.filter(tx => tx.type === 'consume')).toEqual([]);
+
+      summary.mockResolvedValue(nativeSummary);
+      const nativeClaimId = await initiateConsumeTransactionFromId(ACCOUNT, 'native', false, true);
+      expect(txStore.find(tx => tx.id === nativeClaimId)).toMatchObject({ faucetId: '', amount: undefined });
+      expect(txStore.find(tx => tx.id === nativeClaimId)).toMatchObject({
+        secondaryAccountId: '',
+        assetTotals: undefined,
+        consumedNotes: [{ id: 'native', faucetId: '', senderAddress: '' }]
+      });
+      expect(txStore[0]?.consumedNotes[0]?.amount).toBeUndefined();
+
+      for (const [noteId, dto] of [
+        ['multi', multiSummary],
+        ['unknown', unknownSummary]
+      ] as const) {
+        // Each case starts without a possibly funding claim ahead.
+        txStore.length = 0;
+        summary.mockResolvedValue(dto);
+        const id = await initiateConsumeTransactionFromId(ACCOUNT, noteId, false, true);
+        expect(txStore).toHaveLength(1);
+        expect(txStore.find(tx => tx.id === id)).toMatchObject({
+          faucetId: '',
+          amount: undefined,
+          secondaryAccountId: '',
+          assetTotals: undefined,
+          consumedNotes: [{ id: noteId, faucetId: '', senderAddress: '' }]
+        });
+        expect(txStore[0]?.consumedNotes[0]?.amount).toBeUndefined();
+      }
+    } finally {
+      summary.mockRestore();
+      context.mockImplementation(jest.requireActual('./claim-fee').readClaimFeeContext);
+    }
+  });
+
   it('throws when the note is not found', async () => {
     const sdk = require('../sdk/miden-client');
     const orig = sdk.getMidenClient;
@@ -1118,7 +1248,10 @@ describe('initiateConsumeTransactionFromId', () => {
     const orig = sdk.getMidenClient;
     sdk.getMidenClient = async () => ({
       getInputNote: jest.fn(async () => ({
-        metadata: () => ({ noteType: () => 0 })
+        metadata: () => ({ noteType: () => 0 }),
+        details: () => {
+          throw new Error('note details unavailable');
+        }
       }))
     });
     const { initiateConsumeTransactionFromId } = require('./index');
@@ -1155,7 +1288,12 @@ describe('initiateConsumeTransactionFromId manual-retry gate', () => {
     const sdk = require('../sdk/miden-client');
     const orig = sdk.getMidenClient;
     sdk.getMidenClient = async () => ({
-      getInputNote: jest.fn(async () => ({ metadata: () => ({ noteType: () => 0 }) }))
+      getInputNote: jest.fn(async () => ({
+        metadata: () => ({ noteType: () => 0 }),
+        details: () => {
+          throw new Error('note details unavailable');
+        }
+      }))
     });
     try {
       return await run();
@@ -1887,5 +2025,113 @@ describe('completeSwapTransaction', () => {
 
     const row = txStore.find(t => t.id === 'swap-2')!;
     expect(row.extraInputs.expiresAt).toBe(row.completedAt + 120);
+  });
+});
+
+describe('consume queue fee probe', () => {
+  const tokenNote: ConsumableNote = {
+    id: 'probe-note',
+    faucetId: 'token-faucet',
+    amount: '7',
+    senderAddress: 'sender',
+    isBeingClaimed: false,
+    type: NoteTypeEnum.Public,
+    carriesMoreAssets: false
+  };
+  const nativeId = jest.mocked(getNativeAssetId);
+  const baseFee = jest.mocked(getVerificationBaseFee);
+
+  beforeEach(() => {
+    __resetSyncFuseStateForTests();
+    nativeId.mockResolvedValue('native-faucet');
+    baseFee.mockResolvedValue(10000);
+  });
+
+  afterEach(() => {
+    __resetSyncFuseStateForTests();
+    nativeId.mockImplementation(jest.requireActual('lib/miden-chain/native-asset').getNativeAssetId);
+    baseFee.mockImplementation(jest.requireActual('lib/miden-chain/native-asset').getVerificationBaseFee);
+  });
+
+  it.each([
+    ['queued consume', 'consume', ITransactionStatus.Queued],
+    ['generating consume', 'consume', ITransactionStatus.GeneratingTransaction],
+    ['completed consume', 'consume', ITransactionStatus.Completed],
+    ['backing-off consume', 'consume', ITransactionStatus.Failed],
+    ['dApp-held note', 'execute', ITransactionStatus.Queued]
+  ])('a queue call that can write nothing reads no fee context: %s', async (_label, type, status) => {
+    txStore.push({
+      id: 'covering-row',
+      accountId: 'acc-1',
+      type,
+      status,
+      initiatedAt: Math.floor(Date.now() / 1000),
+      completedAt: status === ITransactionStatus.Failed ? Math.floor(Date.now() / 1000) : undefined,
+      noteIds: type === 'consume' ? [tokenNote.id] : [],
+      heldNoteIds: type === 'execute' ? [tokenNote.id] : undefined
+    });
+    const context = jest.mocked(ClaimFee.readClaimFeeContext);
+    const getAccount = jest.spyOn(midenClientProxy, 'getAccount').mockResolvedValue(null);
+    try {
+      const result = await queueConsumeNotes('acc-1', [tokenNote]);
+
+      expect(result.committedId).toBe('covering-row');
+      expect(txStore).toHaveLength(1);
+      expect(getAccount).not.toHaveBeenCalled();
+      expect(context).not.toHaveBeenCalled();
+      expect(mockTryWithWasmClientLock).not.toHaveBeenCalled();
+    } finally {
+      getAccount.mockRestore();
+    }
+  });
+
+  it('a lit balances fuse skips the fee read and admits', async () => {
+    noteSyncParked('balances');
+    expect(isSyncFused('balances')).toBe(true);
+    const getAccount = jest.spyOn(midenClientProxy, 'getAccount').mockResolvedValue(null);
+    try {
+      const result = await queueConsumeNotes('acc-1', [tokenNote]);
+
+      expect(result.feeRefusedNoteIds).toEqual([]);
+      expect(txStore).toHaveLength(1);
+      expect(getAccount).not.toHaveBeenCalled();
+      expect(mockTryWithWasmClientLock).not.toHaveBeenCalled();
+      expect(isSyncFused('balances')).toBe(true);
+    } finally {
+      getAccount.mockRestore();
+    }
+  });
+
+  it('a busy offscreen document reads as an unknown vault without waiting', async () => {
+    let releaseAccount: () => void = () => {};
+    const heldAccount = new Promise<null>(resolve => {
+      releaseAccount = () => resolve(null);
+    });
+    const getAccount = jest.spyOn(midenClientProxy, 'getAccount').mockReturnValue(heldAccount);
+    const original = Object.getOwnPropertyDescriptor(midenClientProxy, 'tryGetAccount');
+    const tryGetAccount = jest.fn(async () => ({ ran: false }));
+    Object.defineProperty(midenClientProxy, 'tryGetAccount', { configurable: true, value: tryGetAccount });
+    const queuing = queueConsumeNotes('acc-1', [tokenNote]);
+    try {
+      const outcome = await Promise.race([
+        queuing.then(result => ({ state: 'queued', result })),
+        new Promise(resolve => setTimeout(() => resolve({ state: 'waiting' }), 0))
+      ]);
+
+      expect(outcome).toMatchObject({ state: 'queued', result: { feeRefusedNoteIds: [] } });
+      expect(txStore).toHaveLength(1);
+      expect(tryGetAccount).toHaveBeenCalledWith('acc-1');
+      expect(getAccount).not.toHaveBeenCalled();
+      expect(mockTryWithWasmClientLock).toHaveBeenCalledWith(expect.any(Function), {
+        watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS,
+        label: 'claim-fee'
+      });
+    } finally {
+      releaseAccount();
+      await queuing;
+      getAccount.mockRestore();
+      if (original) Object.defineProperty(midenClientProxy, 'tryGetAccount', original);
+      else Reflect.deleteProperty(midenClientProxy, 'tryGetAccount');
+    }
   });
 });

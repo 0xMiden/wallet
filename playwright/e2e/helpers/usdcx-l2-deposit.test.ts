@@ -22,8 +22,15 @@ import { privateKeyToAccount } from 'viem/accounts';
 
 import { ERC20_ABI } from './arc-usdcx';
 import arcVectors from './arc-usdcx.vectors.json';
-import { DEPOSIT_UNITS, L2_BRIDGE_IN_SOURCES, type L2BridgeInSource } from './usdcx-constants';
-import { l2KeyShortfall, l2Reads, readL2KeyFunds, submitL2Deposit } from './usdcx-l2-deposit';
+import {
+  ARBITRUM_SEPOLIA_PAYOUT,
+  BASE_SEPOLIA_PAYOUT,
+  DEPOSIT_UNITS,
+  ETHEREUM_SEPOLIA_PAYOUT,
+  L2_BRIDGE_IN_SOURCES,
+  type L2BridgeInSource
+} from './usdcx-constants';
+import { l2KeyShortfall, l2Reads, payoutKeyProblem, readL2KeyFunds, submitL2Deposit } from './usdcx-l2-deposit';
 import type { CctpBurnQuote } from '../../../src/lib/usdcx/cctp';
 import { buildDepositForBurnWithHookAndFeesArgs, buildExecutorBurnIntent } from '../../../src/lib/usdcx/executor';
 import { TOKEN_MESSENGER_WITH_FEES_ABI } from '../../../src/lib/usdcx/protocol';
@@ -546,7 +553,30 @@ describe('l2KeyShortfall', () => {
     );
   });
 
+  it("names the key's own refill when it has one", () => {
+    expect(
+      l2KeyShortfall({ ...enough, wei: 10n ** 16n, usdc: 40_000n, refill: 'a green iOS executor run pays it back' })
+    ).toMatch(/which its approve covers\); a green iOS executor run pays it back$/);
+  });
+
   it('asks for nothing when both suffice', () => {
     expect(l2KeyShortfall({ ...enough, wei: 10n ** 16n, usdc: 1_977_802n })).toBeUndefined();
+  });
+});
+
+describe('payoutKeyProblem', () => {
+  it("refuses a key with no Ethereum Sepolia USDC, naming Circle's fixed mint gas limit", () => {
+    expect(payoutKeyProblem(ETHEREUM_SEPOLIA_PAYOUT, DEPOSITOR, 0n)).toBe(
+      `${DEPOSITOR} holds no Ethereum Sepolia USDC, and Circle's forwarder cannot mint a payout to a recipient with no ` +
+        'USDC under its fixed gas limit: fund the key with any amount of Ethereum Sepolia USDC first'
+    );
+  });
+
+  it.each([
+    ['Ethereum Sepolia holding 1 base unit', ETHEREUM_SEPOLIA_PAYOUT, 1n],
+    ['Base Sepolia holding none', BASE_SEPOLIA_PAYOUT, 0n],
+    ['Arbitrum Sepolia holding none', ARBITRUM_SEPOLIA_PAYOUT, 0n]
+  ])('asks nothing of a key on %s', (_on, chain, usdc) => {
+    expect(payoutKeyProblem(chain, DEPOSITOR, usdc)).toBeUndefined();
   });
 });

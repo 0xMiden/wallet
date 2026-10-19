@@ -1,4 +1,9 @@
-import { isWorthClaiming, totalClaimableAmount } from 'lib/miden/fees/spendable';
+import {
+  ClaimFeeNote,
+  claimFeeShortfallsBaseUnits,
+  isWorthClaiming,
+  totalClaimableAmount
+} from 'lib/miden/fees/spendable';
 import { getOrCreateMultisigService, type GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
 import { resolveGuardianEndpoint } from 'lib/miden/guardian/account';
 import { GuardianRotationInProgressError } from 'lib/miden/guardian/rotation-in-progress';
@@ -13,6 +18,7 @@ import { getNativeAssetId } from 'lib/miden-chain/native-asset';
 import type { AgglayerRecoveryConfig } from 'lib/remote-config/schema';
 import { sameGuardianEndpoint } from 'lib/settings/helpers';
 import { WalletAccount } from 'lib/shared/types';
+import type { ConsumeEntryPoint } from 'lib/telemetry/transaction-failure';
 import { getUsdcxRemoteDomain, usdcxSourceChains } from 'lib/usdcx/constant';
 import type { UsdcxSourceChain } from 'lib/usdcx/constant';
 import { WalletType } from 'screens/onboarding/types';
@@ -47,13 +53,41 @@ import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
 import { queueOutgoingTransaction, spendsOf } from '../spending-limits/queue';
 import { SpendingLimitAuthorization } from '../spending-limits/types';
 import { ConsumableNote, NoteTypeEnum, NoteType as NoteTypeString } from '../types';
+import {
+  ClaimFeeContext,
+  ClaimFeeRefusedError,
+  claimFeeNotes,
+  getClaimFeeAhead,
+  readClaimFeeContext
+} from './claim-fee';
 import { EARN_DEPOSIT_MISSING_REQUEST_ERROR, NOTE_HELD_BY_ANOTHER_TRANSACTION_ERROR } from './constants';
 import { getNoteHoldingTransactions } from './get';
 import { hotKeyRotationLockName, isLiveRotationRow } from './rotation-funding';
 import { holdsNotes } from './verdict-rules';
 
+export { ClaimFeeRefusedError } from './claim-fee';
+
 // An override's preset name is not evidence of the chain it actually points to.
 const badgeNetwork = () => (getActiveOverride() === null ? getEffectiveNetworkName() : undefined);
+
+/** A worker claim refused at a row write because its caller can no longer sign it; the call's rows are rolled back. */
+export class ClaimInsertRefusedError extends Error {
+  constructor() {
+    super('Claim not queued: its caller can no longer sign it');
+    this.name = 'ClaimInsertRefusedError';
+  }
+}
+
+/** A custom transaction inserted before a carried-note import failed; callers must retain its queued id. */
+export class TransactionQueuedError extends Error {
+  readonly transactionId: string;
+
+  constructor(transactionId: string, options: { cause: unknown }) {
+    super(`Transaction ${transactionId} is queued but its carried notes could not be queued`, options);
+    this.name = 'TransactionQueuedError';
+    this.transactionId = transactionId;
+  }
+}
 
 export const requestCustomTransaction = async (
   accountId: string,
@@ -89,8 +123,12 @@ export const requestCustomTransaction = async (
   }
 
   if (importNotes) {
-    for (const noteBytes of importNotes) {
-      await queueNoteImport(noteBytes);
+    try {
+      for (const noteBytes of importNotes) {
+        await queueNoteImport(noteBytes);
+      }
+    } catch (cause) {
+      throw new TransactionQueuedError(transaction.id, { cause });
     }
   }
 
@@ -111,7 +149,8 @@ export const initiateConsumeTransactionFromId = async (
   // that id would let this dApp read another transaction's outcome and output notes, private ones included
   // (`waitForTransaction`), so only a claim may answer it, and the claim then lists the origin so the dApp may wait on
   // it. The wallet's own callers pass none and link the user to the holder instead.
-  dappOrigin?: string
+  dappOrigin?: string,
+  entryPoint?: ConsumeEntryPoint
 ): Promise<string> => {
   // Routed through `midenClientProxy.getInputNoteSummary` (issue #260, slice 7a):
   // flag-ON it reads the OFFSCREEN client that owns the note (the SW client is
@@ -129,6 +168,10 @@ export const initiateConsumeTransactionFromId = async (
     isBeingClaimed: false,
     type: summary.noteType !== undefined ? toNoteTypeString(summary.noteType) : 'unknown'
   };
+  const feeNotes: ClaimFeeNote[] =
+    summary.assets === null
+      ? [{ faucetId: '', amount: '', assetsUnknown: true }]
+      : summary.assets.map(asset => ({ ...asset, carriesMoreAssets: false }));
 
   const { committedId } = await queueConsumeRows(
     accountId,
@@ -138,7 +181,12 @@ export const initiateConsumeTransactionFromId = async (
     undefined,
     undefined,
     undefined,
-    dappOrigin
+    dappOrigin,
+    undefined,
+    entryPoint,
+    undefined,
+    undefined,
+    new Map([[noteId, feeNotes]])
   );
   if (dappOrigin !== undefined) await grantDappOrigin(committedId, dappOrigin);
   return committedId;
@@ -172,9 +220,20 @@ export const initiateConsumeTransaction = async (
   accountId: string,
   note: ConsumableNote,
   delegateTransaction?: boolean,
-  manualRetry?: boolean
+  manualRetry?: boolean,
+  entryPoint?: ConsumeEntryPoint,
+  canSign?: () => boolean
 ): Promise<string> => {
-  return initiateConsumeNotesTransaction(accountId, [note], delegateTransaction, manualRetry);
+  return initiateConsumeNotesTransaction(
+    accountId,
+    [note],
+    delegateTransaction,
+    manualRetry,
+    undefined,
+    undefined,
+    entryPoint,
+    canSign
+  );
 };
 
 /** What {@link queueConsumeNotes} committed: the row id callers link to, and the row covering each note. */
@@ -182,6 +241,7 @@ export interface ConsumeNotesQueueResult {
   committedId: string;
   /** The row each note joined, or the live, Completed, note-holding or Failed row that kept it out. */
   coveringTxIdByNoteId: Map<string, string>;
+  feeRefusedNoteIds: string[];
 }
 
 /**
@@ -220,7 +280,9 @@ export const queueConsumeNotes = async (
   delegateTransaction?: boolean,
   manualRetry?: boolean,
   isolateNotesWithFailedBatch?: boolean,
-  verificationBaseFee?: number | null
+  verificationBaseFee?: number | null,
+  entryPoint?: ConsumeEntryPoint,
+  canSign?: () => boolean
 ): Promise<ConsumeNotesQueueResult> =>
   queueConsumeRows(
     accountId,
@@ -228,7 +290,12 @@ export const queueConsumeNotes = async (
     delegateTransaction,
     manualRetry,
     isolateNotesWithFailedBatch,
-    verificationBaseFee
+    verificationBaseFee,
+    undefined,
+    undefined,
+    undefined,
+    entryPoint,
+    canSign
   );
 
 /**
@@ -243,7 +310,8 @@ export const initiatePswapReclaimTransaction = async (
   note: ConsumableNote,
   requestBytes: Uint8Array,
   swapOrderTxId: string,
-  delegateTransaction?: boolean
+  delegateTransaction?: boolean,
+  canSign?: () => boolean
 ): Promise<string> =>
   (
     await queueConsumeRows(
@@ -258,7 +326,9 @@ export const initiatePswapReclaimTransaction = async (
       row => {
         row.requestBytes = requestBytes;
         row.extraInputs = { swapOrderTxId, swapSettleKind: 'reclaim' };
-      }
+      },
+      'swap_settlement',
+      canSign
     )
   ).committedId;
 
@@ -267,6 +337,7 @@ export interface RotationFundingClaimOptions {
   delegate?: boolean;
   manualRetry?: boolean;
   verificationBaseFee?: number | null;
+  canSign?: () => boolean;
 }
 
 /**
@@ -315,7 +386,11 @@ export const initiateRotationFundingClaim = async (
     opts.manualRetry,
     true,
     opts.verificationBaseFee,
-    true
+    true,
+    undefined,
+    undefined,
+    'rotation_funding',
+    opts.canSign
   );
   return committedId;
 };
@@ -456,11 +531,35 @@ const queueConsumeRows = async (
   dappOrigin?: string,
   // Applied before insertion. Used by prepared request rows whose bytes and
   // routing metadata must become visible atomically with the queued row.
-  initializeRow?: (row: ConsumeTransaction) => void
+  initializeRow?: (row: ConsumeTransaction) => void,
+  // Stamped on every row this creates, in the same insert, so a failed claim's report can name it from the row.
+  entryPoint?: ConsumeEntryPoint,
+  // The service worker's own claims only, which nobody signs while the vault is locked. Asked right before each row
+  // is written, after every await of the call, so a lock that landed meanwhile queues nothing: a refusal throws
+  // `ClaimInsertRefusedError`, which aborts this Dexie transaction and rolls back the rows the call already wrote.
+  canSign?: () => boolean,
+  feeContext?: ClaimFeeContext,
+  feeNotesById?: ReadonlyMap<string, readonly ClaimFeeNote[]>
 ): Promise<ConsumeNotesQueueResult> => {
   if (notes.length === 0) {
     throw new Error('initiateConsumeNotesTransaction requires at least one note');
   }
+
+  // This pre-pass saves a WASM probe only; the rw transaction still decides what may be written.
+  const mayWrite = await Repo.db.transaction('r', Repo.transactions, async () => {
+    const heldNoteIds = new Set((await getNoteHoldingTransactions(accountId)).flatMap(row => row.heldNoteIds ?? []));
+    const nowSec = Math.floor(Date.now() / 1000);
+    for (const note of notes) {
+      const { liveOrCompleted, backingOff } = await noteClaimCoverage(accountId, note.id, nowSec, rotationFunding);
+      if (!liveOrCompleted && !heldNoteIds.has(note.id) && (manualRetry || !backingOff)) return true;
+    }
+    return false;
+  });
+  const context =
+    feeContext ??
+    (mayWrite
+      ? await readClaimFeeContext(accountId)
+      : { vaultFeeAsset: null, nativeAssetId: null, verificationBaseFee: null });
 
   return await Repo.db.transaction('rw', Repo.transactions, async () => {
     const queueable: ConsumableNote[] = [];
@@ -578,16 +677,41 @@ const queueConsumeRows = async (
     }
 
     if (queueable.length === 0 && isolate.length === 0) {
-      return { committedId: blockingId!, coveringTxIdByNoteId };
+      return { committedId: blockingId!, coveringTxIdByNoteId, feeRefusedNoteIds: [] };
     }
 
+    const ahead = await getClaimFeeAhead(accountId);
+    const feeRefusedNoteIds: string[] = [];
     const createdIds: string[] = [];
+    // No await between the check and the write it guards.
+    const insert = async (rowNotes: ConsumableNote[]): Promise<void> => {
+      const feeNotes = claimFeeNotes(rowNotes, feeNotesById);
+      const [shortfall] = claimFeeShortfallsBaseUnits(
+        [feeNotes],
+        ahead,
+        context.vaultFeeAsset,
+        context.nativeAssetId,
+        context.verificationBaseFee
+      );
+      if (shortfall) {
+        feeRefusedNoteIds.push(...rowNotes.map(note => note.id));
+        return;
+      }
+      const row = newRow(rowNotes);
+      if (canSign && !canSign()) throw new ClaimInsertRefusedError();
+      await Repo.transactions.add(row);
+      createdIds.push(row.id);
+      for (const note of rowNotes) coveringTxIdByNoteId.set(note.id, row.id);
+      // Keep the original facts: no earlier row's fee is charged against a later row.
+      ahead.push(...feeNotes);
+    };
     const newRow = (rowNotes: ConsumableNote[]): ConsumeTransaction => {
-      const row = Object.assign(new ConsumeTransaction(accountId, rowNotes, delegateTransaction), {
+      const row = Object.assign(new ConsumeTransaction(accountId, rowNotes, delegateTransaction, feeNotesById), {
         badgeNetwork: badgeNetwork()
       });
       if (rotationFunding) row.rotationFunding = true;
       if (dappOrigin !== undefined) row.dappOrigins = [dappOrigin];
+      if (entryPoint !== undefined) row.consumeEntryPoint = entryPoint;
       initializeRow?.(row);
       return row;
     };
@@ -595,18 +719,14 @@ const queueConsumeRows = async (
     // single-note row is exactly what `initiateConsumeTransaction` produces, so an
     // isolated note rejoins the ordinary per-note lifecycle.
     for (const note of isolate) {
-      const isolatedRow = newRow([note]);
-      await Repo.transactions.add(isolatedRow);
-      createdIds.push(isolatedRow.id);
-      coveringTxIdByNoteId.set(note.id, isolatedRow.id);
+      await insert([note]);
     }
     if (queueable.length > 0) {
-      const dbTransaction = newRow(queueable);
-      await Repo.transactions.add(dbTransaction);
-      createdIds.push(dbTransaction.id);
-      for (const queued of queueable) coveringTxIdByNoteId.set(queued.id, dbTransaction.id);
+      await insert(queueable);
     }
-    return { committedId: createdIds[0]!, coveringTxIdByNoteId };
+    const committedId = createdIds[0] ?? blockingId;
+    if (committedId === null) throw new ClaimFeeRefusedError();
+    return { committedId, coveringTxIdByNoteId, feeRefusedNoteIds };
   });
 };
 

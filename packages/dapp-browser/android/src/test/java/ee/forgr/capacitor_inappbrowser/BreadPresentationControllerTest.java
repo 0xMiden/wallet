@@ -1465,6 +1465,16 @@ public class BreadPresentationControllerTest {
         dialog.dismiss(); verify(callbacks, times(1)).closeEvent(any());
     }
 
+    @Test public void binaryMessageIsIgnoredWithoutAReply() {
+        features.when(() -> WebViewFeature.isFeatureSupported(WebViewFeature.NAVIGATION_LISTENER_V1)).thenReturn(false);
+        open(true, true, "default");
+        String before = shadowOf(webView).getLastEvaluatedJavascript();
+        messageListener.onPostMessage(webView, new WebMessageCompat(new byte[] {1}), Uri.parse(options.getUrl()), true, null);
+        assertEquals(before, shadowOf(webView).getLastEvaluatedJavascript());
+        message("ready", "fallback");
+        assertTrue(shadowOf(webView).getLastEvaluatedJavascript().contains("\"ok\":false"));
+    }
+
     private void unsupported(boolean documentStart, boolean listener) {
         open(documentStart, listener, "default");
         assertTrue(installed.isEmpty());
@@ -1502,9 +1512,9 @@ public class BreadPresentationControllerTest {
     @Test public void noMessageListenerFailsClosedWithoutBridgeOrPublicScript() { unsupported(true, false); }
     @Test public void neitherCapabilityFailsClosedWithoutBridgeOrPublicScript() { unsupported(false, false); }
 
-    @Test public void supportedInstallsBothTransportsBeforeFirstNavigation() {
+    @Test public void supportedInstallsEveryTransportBeforeFirstNavigation() {
         open(true, true, "default");
-        assertEquals(List.of("listener:breadPresentation", "script:window.bread={version:1}"), installed);
+        assertEquals(List.of("listener:breadAuth", "listener:breadPresentation", "script:window.bread={version:1}"), installed);
         assertEquals("https://fixture.example/first", shadowOf(webView).getLastLoadedUrl());
         assertEquals(BreadPresentationState.Phase.PREPARING, controller.state.phase());
     }

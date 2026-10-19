@@ -29,6 +29,7 @@ import {
   DAppConfirmationRequest,
   DAppConfirmationResult
 } from 'lib/dapp-browser/confirmation-store';
+import { truncateAddress } from 'utils/string';
 
 import DesktopDappConfirmationModal, {
   DesktopDappConfirmationModal as NamedDesktopDappConfirmationModal
@@ -122,6 +123,8 @@ jest.mock('components/SpendingLimitChallenge', () => {
 });
 
 const FULL_KEY = 'mtst1apsnkg6x57mhxyrq09aavyq08yu5dy4p_qr7qqq9wr6w';
+// The account a login names, not the selected one (FULL_KEY), so the panel is seen to show the request's.
+const LOGIN_ACCOUNT_KEY = 'mtst1azcw08rget79fqp8ymr0zqkv5v4lj3s7_qruqqypuyph';
 
 function buildRequest(overrides: Partial<DAppConfirmationRequest> = {}): DAppConfirmationRequest {
   return {
@@ -246,6 +249,37 @@ describe('DesktopDappConfirmationModal', () => {
     await flush();
 
     expect(result.get()).toEqual({ confirmed: false });
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ['approve', true],
+    ['deny', false]
+  ] as const)('shows a login approval in the wallet window and settles it from %s', async (button, confirmed) => {
+    render(<DesktopDappConfirmationModal />);
+    const result = pushRequest(
+      buildRequest({
+        type: 'loginSign',
+        origin: 'https://example.org',
+        appMeta: { name: 'example.org' },
+        domain: 'example.org',
+        accountId: LOGIN_ACCOUNT_KEY
+      })
+    );
+    await flush();
+
+    expect(screen.getByText('dappLoginSignRequest')).toBeInTheDocument();
+    expect(screen.getByText('loginSignatureNote')).toBeInTheDocument();
+    // The shared panel truncates every account it shows.
+    expect(screen.getByText(truncateAddress(LOGIN_ACCOUNT_KEY))).toBeInTheDocument();
+    expect(screen.queryByText(truncateAddress(FULL_KEY))).not.toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: button }));
+    });
+    await flush();
+
+    expect(result.get()).toMatchObject({ confirmed });
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 

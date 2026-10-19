@@ -25,7 +25,7 @@
     "englishSource": "Burn confirmed means USDCx was burned on Miden. Confirmed means the destination USDC balance increased. The note that burns the USDCx and the destination address are public. A published note cannot be reclaimed."
   },
   "usdcxBurnTestNotice": {
-    "message": "Ce test faucet brûle des USDCx sur Miden sans versement vers une destination. L’note de la destruction et l’adresse de destination sont publiques. Les notess de destruction publiées ne peuvent pas être récupérées.",
+    "message": "Ce faucet de test brûle des USDCx sur Miden sans versement vers une destination. La note de destruction et l’adresse de destination sont publiques. Les notes de destruction publiées ne peuvent pas être récupérées.",
     "englishSource": "This test faucet burns USDCx on Miden without a destination payout. The burn note and destination address are public. Published burn notes cannot be reclaimed."
   },
   "usdcxBurnPending": {
@@ -172,11 +172,11 @@
     }
   },
   "guardianHistoryFailed": {
-    "message": "La récupération de l’historique des transactions s’est interrompue car le réseau ou un opérateur d’Guardiane ne peut pas la fournir. La récupération ne sera pas relancée automatiquement.",
+    "message": "La récupération de l’historique des transactions s’est interrompue car le réseau ou un opérateur de Guardian ne peut pas la fournir. La récupération ne sera pas relancée automatiquement.",
     "englishSource": "Transaction history recovery stopped because the network or a Guardian operator cannot provide it. Recovery will not retry automatically."
   },
   "guardianHistoryPartial": {
-    "message": "$count$ Transactions restaurées. Certaines sources d'Guardians n'ont pas pu être lues. La récupération sera relancée lors du prochain déverrouillage du portefeuille.",
+    "message": "$count$ transactions restaurées. Certaines sources de Guardian n'ont pas pu être lues. La récupération sera relancée lors du prochain déverrouillage du portefeuille.",
     "englishSource": "$count$ transactions restored. Some Guardian sources could not be read. Recovery will retry when you next unlock the wallet.",
     "placeholders": {
       "count": {
@@ -546,6 +546,18 @@
     "message": "Échec de l'ouverture de la position",
     "englishSource": "Failed to open position"
   },
+  "earnCollateralLoading": {
+    "message": "Chargement des informations relatives au jeton de dépôt. Vous pourrez continuer dès qu’elles seront disponibles.",
+    "englishSource": "Loading the deposit token's details. You can continue once they arrive."
+  },
+  "earnCollateralUnavailable": {
+    "message": "Le jeton de dépôt n’est pas disponible pour le moment ; les dépôts sont donc suspendus. Veuillez réessayer plus tard.",
+    "englishSource": "The deposit token isn't available right now, so deposits are paused. Try again later."
+  },
+  "earnCollateralMismatch": {
+    "message": "Cette vérification a été préparée pour un jeton de dépôt différent. Revenez en arrière et saisissez à nouveau le montant.",
+    "englishSource": "This review was prepared for a different deposit token. Go back and enter the amount again."
+  },
   "earnTotalEarnedRewards": {
     "message": "Total gagné",
     "englishSource": "Total earned"
@@ -649,7 +661,7 @@
     "englishSource": "Bread"
   },
   "appDesc": {
-    "message": "Un portefeuille de navigateur pour l’blockchain Miden",
+    "message": "Un portefeuille de navigateur pour la blockchain Miden",
     "englishSource": "A browser wallet for the Miden blockchain"
   },
   "createAccount": {
@@ -1022,6 +1034,10 @@
     "message": "Les décimales de ce jeton n’ont pas pu être vérifiées ; par conséquent, les montants ne peuvent être ni affichés ni envoyés.",
     "englishSource": "This token's decimals could not be verified, so amounts can't be shown or sent."
   },
+  "sendTokenAvailabilityChecking": {
+    "message": "Vérification de la possibilité d’envoyer ce token sur le Testnet. Vous pourrez l’envoyer une fois la vérification terminée.",
+    "englishSource": "Checking whether this token can be sent on Testnet. You can send it once the check finishes."
+  },
   "oops": {
     "message": "Oups !",
     "englishSource": "Oops!"
@@ -1217,7 +1233,7 @@
     "englishSource": "Creating the proof for your transaction."
   },
   "transactionStageSwitching": {
-    "message": "Changement d’guardian",
+    "message": "Changement de guardian",
     "englishSource": "Switching guardian"
   },
   "transactionStageSwapping": {
@@ -2625,7 +2641,7 @@
     "englishSource": "I'd rather make a fully private account instead"
   },
   "learnMoreAboutGuardian": {
-    "message": "En savoir plus sur l’Guardian",
+    "message": "En savoir plus sur le Guardian",
     "englishSource": "Learn more about the Guardian"
   },
   "guardianOperatedBy": {
@@ -3242,11 +3258,11 @@
     "englishSource": "You can rotate your Guardian again at any time — keep your recovery phrase safe, it's required to do so."
   },
   "guardianSwitchAuthenticationDescription": {
-    "message": "Authentifiez-vous pour approuver ce changement d’Guardian.",
+    "message": "Authentifiez-vous pour approuver ce changement de Guardian.",
     "englishSource": "Authenticate to approve this Guardian switch."
   },
   "guardianAuthenticationUnavailable": {
-    "message": "L'authentification n'est pas disponible. Réessayez avant de changer d'Guardian.",
+    "message": "L'authentification n'est pas disponible. Réessayez avant de changer de Guardian.",
     "englishSource": "Authentication is unavailable. Try again before switching Guardian."
   },
   "walletKeyHot": {
@@ -3379,7 +3395,7 @@
     "englishSource": "Your guardian was switched and we couldn't identify the new operator. Enter its URL to reconnect."
   },
   "guardianUrlMismatch": {
-    "message": "Cet opérateur ne correspond pas à l’guardian sur la blockchain de votre compte.",
+    "message": "Cet opérateur ne correspond pas au guardian de votre compte sur la blockchain.",
     "englishSource": "That operator doesn't match your account's on-chain guardian."
   },
   "guardianUrlUnreachable": {
@@ -3863,11 +3879,11 @@
     "englishSource": "(invalid payload)"
   },
   "sharePrivateNoteDataForAccount": {
-    "message": "Partager toutes les données d'notes personnelles associées au compte",
+    "message": "Partager toutes les données des notes privées associées au compte",
     "englishSource": "Share all private note data for account"
   },
   "downloadPrivateNoteData": {
-    "message": "Télécharger les données relatives à l'Notee privée",
+    "message": "Télécharger les données de la Note privée",
     "englishSource": "Download Private Note Data"
   },
   "failedToParseSigningPayload": {
@@ -3883,11 +3899,11 @@
     "englishSource": "Unknown"
   },
   "inputNotesConsumed": {
-    "message": "notess d'entrée consommées",
+    "message": "Notes d'entrée consommées",
     "englishSource": "Input notes consumed"
   },
   "outputNotesCreated": {
-    "message": "notess de sortie créées",
+    "message": "Notes de sortie créées",
     "englishSource": "Output notes created"
   },
   "storageChanged": {
@@ -3923,11 +3939,11 @@
     "englishSource": "Requests to consume a note"
   },
   "requestPrivateNotes": {
-    "message": "Demande d'Notess confidentielles",
+    "message": "Demande de Notes confidentielles",
     "englishSource": "Request Private Notes"
   },
   "requestsPrivateNotes": {
-    "message": "Demande d'notess confidentielles",
+    "message": "Demande des notes confidentielles",
     "englishSource": "Requests private notes"
   },
   "confirmSignature": {
@@ -3938,6 +3954,24 @@
     "message": "Demande votre signature",
     "englishSource": "Requests your signature"
   },
+  "confirmLoginSignature": {
+    "message": "Connectez-vous à $domain$",
+    "englishSource": "Sign in to $domain$",
+    "placeholders": {
+      "domain": {
+        "content": "$1"
+      }
+    }
+  },
+  "loginSignatureNote": {
+    "message": "Bread utilise une clé générée exclusivement pour $domain$. Elle ne permet ni de transférer des fonds ni de modifier votre compte.",
+    "englishSource": "Bread signs with a key made only for $domain$. It can't move funds or change your account.",
+    "placeholders": {
+      "domain": {
+        "content": "$1"
+      }
+    }
+  },
   "requestAssets": {
     "message": "Demander des ressources",
     "englishSource": "Request Assets"
@@ -3947,7 +3981,7 @@
     "englishSource": "Requests assets"
   },
   "requestImportPrivateNote": {
-    "message": "Demande d'importation d'Notes confidentielles",
+    "message": "Demande d'importation d'une Note confidentielle",
     "englishSource": "Request Import Private Note"
   },
   "importPrivateNote": {
@@ -3955,11 +3989,11 @@
     "englishSource": "Import private note"
   },
   "requestConsumableNotes": {
-    "message": "Demande d'Notes sur les consommables",
+    "message": "Demande de Notes consommables",
     "englishSource": "Request Consumable Notes"
   },
   "requestsConsumableNotes": {
-    "message": "Demander des informations sur les consommnotes",
+    "message": "Demande des notes consommables",
     "englishSource": "Request consumable notes"
   },
   "review": {
@@ -4067,7 +4101,7 @@
     "englishSource": "Account Public Key"
   },
   "editMidenFaucetId": {
-    "message": "Modifier l'identifiant d'Faucetation de Miden",
+    "message": "Modifier l'identifiant du Faucet Miden",
     "englishSource": "Edit Miden Faucet ID"
   },
   "faucetId": {
@@ -4087,7 +4121,7 @@
     "englishSource": "Faucet IDs"
   },
   "setNewFaucetId": {
-    "message": "Définir un nouvel identifiant d'Faucet",
+    "message": "Définir un nouvel identifiant de Faucet",
     "englishSource": "Set new Faucet ID"
   },
   "setNewFaucetIdDescription": {
@@ -4396,6 +4430,53 @@
     "message": "{count} dApps ouvertes",
     "englishSource": "{count} open dApps"
   },
+  "openLinkTitle": {
+    "message": "Ouvrir $host$ ?",
+    "englishSource": "Open $host$?",
+    "placeholders": {
+      "host": {
+        "content": "$1"
+      }
+    }
+  },
+  "openLinkDescription": {
+    "message": "Ce site n’est pas répertorié dans Explore, et n’importe qui peut créer un lien vers celui-ci. Ne l’ouvrez que si vous faites confiance à ce site.",
+    "englishSource": "This site is not listed in Explore, and anyone can make a link to it. Only open it if you trust this site."
+  },
+  "openLinkAction": {
+    "message": "Ouvrir",
+    "englishSource": "Open"
+  },
+  "breadConnectWaitingTitle": {
+    "message": "Finalisation de la transaction",
+    "englishSource": "Finishing the transaction"
+  },
+  "breadConnectWaitingDescription": {
+    "message": "Gardez Bread ouvert : il vous ramènera sur $host$ une fois la transaction terminée.",
+    "englishSource": "Keep Bread open: it takes you back to $host$ once the transaction is done.",
+    "placeholders": {
+      "host": {
+        "content": "$1"
+      }
+    }
+  },
+  "breadConnectUnreturnedTitle": {
+    "message": "Impossible d’ouvrir $host$",
+    "englishSource": "Couldn't open $host$",
+    "placeholders": {
+      "host": {
+        "content": "$1"
+      }
+    }
+  },
+  "breadConnectUnreturnedDescription": {
+    "message": "Bread a répondu, mais l’application à l’origine de la demande ne s’est pas ouverte. Ouvrez-la vous-même pour continuer.",
+    "englishSource": "Bread answered, but the app that asked didn't open. Open it yourself to continue."
+  },
+  "breadConnectUnreturnedTransactionDescription": {
+    "message": "La transaction a tout de même été envoyée. Vérifiez son résultat dans Bread avant de réessayer dans l’application.",
+    "englishSource": "The transaction was still sent. Check its result in Bread before you try again in the app."
+  },
   "approve": {
     "message": "Approuver",
     "englishSource": "Approve"
@@ -4423,6 +4504,15 @@
   "dappSignRequest": {
     "message": "Cette application vous demande de signer des données avec votre portefeuille",
     "englishSource": "This app wants you to sign data with your wallet"
+  },
+  "dappLoginSignRequest": {
+    "message": "Ce site vous invite à vous connecter à $domain$ avec Bread",
+    "englishSource": "This site wants you to sign in to $domain$ with Bread",
+    "placeholders": {
+      "domain": {
+        "content": "$1"
+      }
+    }
   },
   "dappImportNoteRequest": {
     "message": "Cette application souhaite importer une clé privée note dans votre portefeuille",
@@ -5411,7 +5501,7 @@
     "englishSource": "Unverified"
   },
   "unverifiedTokenDescription": {
-    "message": "Ce jeton ne figure pas sur la liste des jetons vérifiés de Miden. N’importe qui peut créer un jeton sous n’importe quel nom ; vérifiez donc l’identifiant de l’faucete avant de lui accorder votre confiance.",
+    "message": "Ce jeton ne figure pas sur la liste des jetons vérifiés de Miden. N’importe qui peut créer un jeton sous n’importe quel nom ; vérifiez donc l’identifiant du faucet avant de lui accorder votre confiance.",
     "englishSource": "This token is not on Miden's verified token list. Anyone can create a token with any name, so check the faucet ID before you trust it."
   },
   "unverifiedTokenTitle": {
@@ -5639,7 +5729,7 @@
     "englishSource": "Remove recovery phrase"
   },
   "removeSeedPhraseDescription": {
-    "message": "Notez votre phrase de récupération avant de la supprimer. Les transactions quotidiennes continueront de fonctionner. Les modifications de l'Guardiant le remplacement quotidien de la clé vous obligeront à saisir la phrase de récupération.",
+    "message": "Notez votre phrase de récupération avant de la supprimer. Les transactions quotidiennes continueront de fonctionner. Les changements de Guardian et le remplacement de la clé quotidienne vous obligeront à saisir la phrase de récupération.",
     "englishSource": "Write down your recovery phrase before you remove it. Daily transactions will still work. Guardian changes and everyday key replacement will require you to enter the recovery phrase."
   },
   "removeSeedPhraseWriteDown": {
@@ -5647,7 +5737,7 @@
     "englishSource": "Write all words on paper in this order. Keep the paper in a safe place outside this device."
   },
   "removeSeedPhraseConfirmation": {
-    "message": "Cette opération supprime la phrase de récupération et les clés de récupération d’Guardians de ce portefeuille sur cet appareil. Conservez votre sauvegarde papier. Les sauvegardes effectuées précédemment ne sont pas supprimées.",
+    "message": "Cette opération supprime la phrase de récupération et les clés de récupération de Guardian de ce portefeuille sur cet appareil. Conservez votre sauvegarde papier. Les sauvegardes effectuées précédemment ne sont pas supprimées.",
     "englishSource": "This removes the recovery phrase and Guardian recovery keys from this wallet on this device. Keep your paper backup. Previously made backups are not deleted."
   },
   "removeSeedPhraseConfirm": {
@@ -5794,8 +5884,8 @@
     "englishSource": "Help improve Wallet"
   },
   "helpImproveWalletDescription": {
-    "message": "Indiquez-nous quelles parties du Wallet vous utilisez, où vous rencontrez des difficultés, les grandes catégories d’erreurs, la version de l’application et votre plateforme, afin que nous puissions corriger ce qui ne fonctionne pas. Si l’application plante, elle envoie également un rapport d’erreur indiquant le problème et l’emplacement de l’erreur dans le code, dont les données sensibles sont supprimées avant l’envoi. Jamais vos clés, votre phrase de récupération, votre mot de passe, vos adresses, vos soldes, vos montants ou le contenu de vos transactions. Aucun suivi sur d’autres applications ou sites, aucune utilisation à des fins publicitaires, et aucune vente ou partage avec des courtiers en données. Vous pouvez modifier ces paramètres à tout moment.",
-    "englishSource": "Shares which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform, so we can fix what's breaking. If the app crashes, it also sends a crash report with the error and where it happened in the code, scrubbed to remove sensitive data before sending. Never your keys, recovery phrase, password, addresses, balances, amounts, or transaction contents. No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers. You can change this any time."
+    "message": "Indiquez-nous quelles parties du Wallet vous utilisez, où vous rencontrez des difficultés, les grandes catégories d’erreurs, la version de l’application et votre plateforme, afin que nous puissions corriger ce qui ne fonctionne pas. Ne communiquez jamais vos clés, votre phrase de récupération, votre mot de passe, vos adresses, vos soldes, vos montants ou le contenu de vos transactions. Aucun suivi sur d’autres applications ou sites, aucune donnée utilisée à des fins publicitaires, et rien n’est vendu ni partagé avec des courtiers en données. Les rapports d’erreur sont envoyés dans tous les cas : l’erreur et son emplacement dans le code, expurgés pour supprimer les données sensibles, sans aucun identifiant vous concernant ou concernant votre appareil. Vous pouvez modifier ces paramètres à tout moment.",
+    "englishSource": "Shares which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform, so we can fix what's breaking. Never your keys, recovery phrase, password, addresses, balances, amounts, or transaction contents. No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers. Crash reports are sent either way: the error and where it happened in the code, scrubbed to remove sensitive data, with no identifier for you or your device. You can change this any time."
   },
   "helpImproveWalletAccept": {
     "message": "Partager les données d’utilisation",
@@ -5814,8 +5904,8 @@
     "englishSource": "Only what helps us fix bugs"
   },
   "helpImproveWalletSharedDescription": {
-    "message": "Which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform. If the app crashes, a crash report with the error and where it happened in the code, scrubbed to remove sensitive data before sending.",
-    "englishSource": "Which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform. If the app crashes, a crash report with the error and where it happened in the code, scrubbed to remove sensitive data before sending."
+    "message": "Précisez quelles fonctionnalités de Wallet vous utilisez, où vous rencontrez des difficultés, les grandes catégories d’erreurs, la version de l’application et votre plateforme.",
+    "englishSource": "Which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform."
   },
   "helpImproveWalletPrivateTitle": {
     "message": "Your wallet stays private",
@@ -5832,6 +5922,10 @@
   "helpImproveWalletNoTrackingDescription": {
     "message": "No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers.",
     "englishSource": "No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers."
+  },
+  "helpImproveWalletCrashReports": {
+    "message": "Les rapports d’erreur sont envoyés dans tous les cas, afin que nous puissions corriger les plantages : l’erreur et son emplacement dans le code, expurgés pour supprimer les données sensibles, sans aucun identifiant vous concernant ou concernant votre appareil.",
+    "englishSource": "Crash reports are sent either way, so we can fix crashes: the error and where it happened in the code, scrubbed to remove sensitive data, with no identifier for you or your device."
   },
   "helpImproveWalletChangeAnyTime": {
     "message": "You can change this any time in Settings.",
@@ -6141,7 +6235,7 @@
     "englishSource": "Funding your wallet"
   },
   "fundWalletLoadingBody": {
-    "message": "Demande de jetons auprès de l'faucet…",
+    "message": "Demande de jetons auprès du faucet…",
     "englishSource": "Requesting tokens from the faucet…"
   },
   "fundWalletSuccessTitle": {
@@ -6578,7 +6672,7 @@
     "englishSource": "Save"
   },
   "resetToFaucetValues": {
-    "message": "Réinitialisation aux valeurs d’faucet",
+    "message": "Réinitialiser aux valeurs du faucet",
     "englishSource": "Reset to faucet values"
   },
   "tokenMetadataEdited": {
@@ -6613,7 +6707,7 @@
     }
   },
   "tokenMetadataOverrideNotice": {
-    "message": "Ces valeurs ne modifient que la manière dont ce portefeuille affiche le jeton. L’faucete conserve ses propres valeurs. Les montants que vous envoyez utilisent les décimales que vous définissez ici.",
+    "message": "Ces valeurs ne modifient que la manière dont ce portefeuille affiche le jeton. Le faucet conserve ses propres valeurs. Les montants que vous envoyez utilisent les décimales que vous définissez ici.",
     "englishSource": "These values change only how this wallet shows the token. The faucet keeps its own values. Amounts you send use the decimals you set here."
   },
   "tokenMetadataSaveError": {
@@ -6918,5 +7012,37 @@
   "earnWithdrawInProgress": {
     "message": "Un autre retrait de cette position est toujours en cours. Attendez qu’il soit terminé.",
     "englishSource": "Another withdrawal from this position is still in progress. Wait for it to finish."
+  },
+  "webViewUpdateTitle": {
+    "message": "Mise à jour de la WebView du système Android",
+    "englishSource": "Update Android System WebView"
+  },
+  "webViewUpdateBody": {
+    "message": "Bread nécessite une version plus récente d’Android System WebView, la composante d’Android qui affiche les pages web dans les applications. Mettez-la à jour depuis Google Play, puis relancez Bread.",
+    "englishSource": "Bread needs a newer version of Android System WebView, the part of Android that shows web pages in apps. Update it from Google Play, then open Bread again."
+  },
+  "webViewUpdateAction": {
+    "message": "Ouvrir Google Play",
+    "englishSource": "Open Google Play"
+  },
+  "webViewUpdateChromeTitle": {
+    "message": "Mettre à jour Chrome",
+    "englishSource": "Update Chrome"
+  },
+  "webViewUpdateChromeBody": {
+    "message": "Bread nécessite une version plus récente de Chrome, qui affiche les pages web dans des applications sur cette version d’Android. Mettez-le à jour depuis Google Play, puis relancez Bread.",
+    "englishSource": "Bread needs a newer version of Chrome, which shows web pages in apps on this version of Android. Update it from Google Play, then open Bread again."
+  },
+  "webViewStartFailedTitle": {
+    "message": "Bread n’a pas pu démarrer",
+    "englishSource": "Bread couldn't start"
+  },
+  "webViewStartFailedBody": {
+    "message": "Un problème a empêché Bread de se charger. Réessayez, ou fermez Bread puis rouvrez-le.",
+    "englishSource": "Something stopped Bread from loading. Try again, or close Bread and open it again."
+  },
+  "webViewStartFailedAction": {
+    "message": "Réessayez",
+    "englishSource": "Try again"
   }
 }

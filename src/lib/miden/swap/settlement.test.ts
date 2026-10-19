@@ -1,10 +1,11 @@
 import { midenClientProxy } from 'lib/miden/back/miden-client-proxy';
-import { ITransactionStatus } from 'lib/miden/db/types';
+import { type ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 import { initiateConsumeNotesTransaction, initiatePswapReclaimTransaction } from 'lib/miden/transaction/initiate';
 import { NoteTypeEnum } from 'lib/miden/types';
 
 import {
+  __resetRecoveredBuildRetriesForTests,
   classifySwapOrderNotes,
   classifySwapSettlementSnapshot,
   reconcileSwapOrderNotes,
@@ -84,9 +85,18 @@ jest.mock('../sdk/helpers', () => ({
 // What queueConsumeRows' dedup and backoff say about a note; its rules are pinned with real rows in initiate's suite.
 const mockNoteClaimCoverage = jest.fn(async (..._args: unknown[]): Promise<Record<string, unknown>> => ({ rows: [] }));
 jest.mock('lib/miden/transaction/initiate', () => ({
+  get ClaimFeeRefusedError() {
+    return jest.requireActual('lib/miden/transaction/initiate').ClaimFeeRefusedError;
+  },
   initiateConsumeNotesTransaction: jest.fn(async () => 'consume-1'),
   initiatePswapReclaimTransaction: jest.fn(async () => 'consume-zero-fill'),
   noteClaimCoverage: (...args: unknown[]) => mockNoteClaimCoverage(...args)
+}));
+
+// The node check of a recovered order whose cancel was refused; its node reads are pinned in its own suite.
+const mockTrackRecoveredSwapOrders = jest.fn(async (..._args: unknown[]) => new Map());
+jest.mock('./recovered-order-tracking', () => ({
+  trackRecoveredSwapOrders: (...args: unknown[]) => mockTrackRecoveredSwapOrders(...args)
 }));
 
 // Keep realm transport at the boundary while the real classifier consumes the snapshot.
@@ -97,6 +107,10 @@ jest.mock('lib/miden/back/miden-client-proxy', () => ({
     buildPswapCancelRequest: jest.fn()
   }
 }));
+
+// The queue arguments a settlement consume passes after its delegate flag: none but the entry point that queued it,
+// and no claim guard.
+const SETTLES = [undefined, undefined, undefined, 'swap_settlement', undefined] as const;
 
 const tx = (overrides: Record<string, unknown> = {}) => ({
   id: 'swap-1',
@@ -278,14 +292,74 @@ describe('swap order note settlement', () => {
     await reconcileSwapOrderNotes('account-1', [tip, payback], false, 300);
 
     expect((initiateConsumeNotesTransaction as jest.Mock).mock.calls).toEqual([
-      ['account-1', [payback], false],
-      ['account-1', [tip], false]
+      ['account-1', [payback], false, ...SETTLES],
+      ['account-1', [tip], false, ...SETTLES]
     ]);
     expect(Repo.transactions.where).toHaveBeenNthCalledWith(1, { id: 'swap-1' });
     const expiryWriter = modify.mock.calls[0]![0] as unknown as (tx: Record<string, unknown>) => void;
     const swapRow: Record<string, unknown> = tx();
     expiryWriter(swapRow);
     expect(swapRow.extraInputs).toEqual(expect.objectContaining({ expiryTriggeredAt: 300 }));
+  });
+
+  it("in-process settlement hands the queue each note's first asset and whether it carries more", async () => {
+    jest.mocked(midenClientProxy.getConsumableNotes).mockResolvedValue([
+      {
+        ...note('token-payback', [999n, 77n, 1n, 0n]),
+        assets: [{ faucetId: 'requested-token', amount: '35' }]
+      },
+      {
+        ...note('two-asset-remainder'),
+        assets: [
+          { faucetId: 'offered-token', amount: '15' },
+          { faucetId: 'native-fee-token', amount: '5' }
+        ]
+      },
+      { ...note('assetless-payback', [999n, 77n, 2n, 0n]), assets: [] }
+    ]);
+    jest.mocked(midenClientProxy.getPswapLineages).mockResolvedValue([
+      {
+        orderId: '77',
+        currentTipNoteId: 'two-asset-remainder',
+        currentDepth: 2,
+        state: 0,
+        remainingOffered: '15',
+        remainingRequested: '15'
+      }
+    ]);
+
+    const result = await settleSwapOrders('account-1', false);
+
+    expect(jest.mocked(initiateConsumeNotesTransaction).mock.calls).toEqual([
+      [
+        'account-1',
+        [
+          expect.objectContaining({
+            id: 'token-payback',
+            faucetId: 'requested-token',
+            amount: '35',
+            carriesMoreAssets: false
+          }),
+          expect.objectContaining({ id: 'assetless-payback', faucetId: '', amount: '', carriesMoreAssets: false })
+        ],
+        false,
+        ...SETTLES
+      ],
+      [
+        'account-1',
+        [
+          expect.objectContaining({
+            id: 'two-asset-remainder',
+            faucetId: 'offered-token',
+            amount: '15',
+            carriesMoreAssets: true
+          })
+        ],
+        false,
+        ...SETTLES
+      ]
+    ]);
+    expect(result.managedNoteIds).toEqual(new Set(['token-payback', 'two-asset-remainder', 'assetless-payback']));
   });
 
   it('leaves partial-fill paybacks untouched while active and unexpired', async () => {
@@ -316,10 +390,12 @@ describe('swap order note settlement', () => {
 
     const result = await settleSwapOrders('account-1', true);
 
+    // A live order's note is never read from the node: the flag goes down false (#1487).
     expect(midenClientProxy.buildPswapCancelRequest).toHaveBeenCalledWith(
       'account-1',
       'zero-fill-tip',
-      expect.any(Function)
+      expect.any(Function),
+      { allowNodeNote: false }
     );
     expect(initiatePswapReclaimTransaction).toHaveBeenCalledWith(
       'account-1',
@@ -331,7 +407,8 @@ describe('swap order note settlement', () => {
       }),
       new Uint8Array([1, 4, 7, 6]),
       'swap-1',
-      true
+      true,
+      undefined
     );
     expect(initiateConsumeNotesTransaction).not.toHaveBeenCalled();
     expect(result).toEqual({
@@ -341,6 +418,37 @@ describe('swap order note settlement', () => {
     // The expiry intent is durable before the queue write.
     expect(modify.mock.invocationCallOrder[0]).toBeLessThan(
       (initiatePswapReclaimTransaction as jest.Mock).mock.invocationCallOrder[0]!
+    );
+  });
+
+  it('a zero-fill reclaim of a non-native token meets the fee gate as a known single asset', async () => {
+    toArray.mockResolvedValue([tx({ faucetId: 'non-native-offer', outputNoteIds: ['zero-fill-token-tip'] })]);
+    jest.mocked(midenClientProxy.getConsumableNotes).mockResolvedValue([]);
+    jest.mocked(midenClientProxy.getPswapLineages).mockResolvedValue([
+      {
+        orderId: '77',
+        currentTipNoteId: 'zero-fill-token-tip',
+        currentDepth: 0,
+        state: 0,
+        remainingOffered: '50',
+        remainingRequested: '50'
+      }
+    ]);
+
+    await settleSwapOrders('account-1', true);
+
+    expect(initiatePswapReclaimTransaction).toHaveBeenCalledWith(
+      'account-1',
+      expect.objectContaining({
+        id: 'zero-fill-token-tip',
+        faucetId: 'non-native-offer',
+        amount: '50',
+        carriesMoreAssets: false
+      }),
+      new Uint8Array([1, 4, 7, 6]),
+      'swap-1',
+      true,
+      undefined
     );
   });
 
@@ -481,7 +589,8 @@ describe('swap order note settlement', () => {
     expect(midenClientProxy.buildPswapCancelRequest).not.toHaveBeenCalledWith(
       'account-1',
       'second-tip',
-      expect.any(Function)
+      expect.any(Function),
+      expect.anything()
     );
     expect(console.warn).not.toHaveBeenCalled();
   });
@@ -540,7 +649,7 @@ describe('swap order note settlement', () => {
     await reconcileSwapOrderNotes('account-1', [consumable('tip', 'tip', 'filled'), payback0, payback1], false, 150);
 
     expect(initiateConsumeNotesTransaction).toHaveBeenCalledTimes(1);
-    expect(initiateConsumeNotesTransaction).toHaveBeenCalledWith('account-1', [payback0, payback1], false);
+    expect(initiateConsumeNotesTransaction).toHaveBeenCalledWith('account-1', [payback0, payback1], false, ...SETTLES);
   });
 
   it('falls back to the swap row delegate preference when no delegate flag is passed', async () => {
@@ -549,7 +658,7 @@ describe('swap order note settlement', () => {
 
     await reconcileSwapOrderNotes('account-1', [payback], undefined, 150);
 
-    expect(initiateConsumeNotesTransaction).toHaveBeenCalledWith('account-1', [payback], true);
+    expect(initiateConsumeNotesTransaction).toHaveBeenCalledWith('account-1', [payback], true, ...SETTLES);
   });
 
   it('persists expiry intent before queueing, and never batches the still-fillable tip with the paybacks', async () => {
@@ -568,8 +677,8 @@ describe('swap order note settlement', () => {
     // payback claim (funds already delivered to this account) for 5, 10, 20 …
     // minutes.
     expect((initiateConsumeNotesTransaction as jest.Mock).mock.calls).toEqual([
-      ['account-1', [payback], true],
-      ['account-1', [tip], true]
+      ['account-1', [payback], true, ...SETTLES],
+      ['account-1', [tip], true, ...SETTLES]
     ]);
     // Three writes: the expiry intent on the swap row, then one settlement tag
     // per queued consume row.
@@ -604,6 +713,60 @@ describe('swap order note settlement', () => {
     // The unfilled remainder is a reclaim — and now that it has its own row,
     // `getSwapSettlementNotes` no longer buckets it as a settled (received) note.
     expect(tagsWrittenBy(2)).toEqual({ swapOrderTxId: 'swap-1', swapSettleKind: 'reclaim' });
+  });
+
+  it('fee refusal skips one role batch and prepared reclaim without aborting later orders', async () => {
+    const { ClaimFeeRefusedError } = jest.requireActual<typeof import('lib/miden/transaction/initiate')>(
+      'lib/miden/transaction/initiate'
+    );
+    const orders = [
+      tx(),
+      tx({ id: 'swap-prepared', extraInputs: { ...tx().extraInputs, orderId: 88n } }),
+      tx({ id: 'swap-later', extraInputs: { ...tx().extraInputs, orderId: 99n } })
+    ];
+    toArray.mockResolvedValue(orders);
+    const later = consumable('later-payback', 'payback', 'filled');
+    later.swapOrder.orderId = '99';
+    jest
+      .mocked(initiateConsumeNotesTransaction)
+      .mockRejectedValueOnce(new ClaimFeeRefusedError())
+      .mockRejectedValueOnce(new ClaimFeeRefusedError())
+      .mockResolvedValueOnce('later-tx');
+    jest.mocked(initiatePswapReclaimTransaction).mockRejectedValueOnce(new ClaimFeeRefusedError());
+    const written: Array<{ id: string; extraInputs?: Record<string, unknown> }> = [];
+    modify.mockImplementation(async writer => {
+      const where: unknown = jest.mocked(Repo.transactions.where).mock.calls.at(-1)?.[0];
+      const id = typeof where === 'object' && where !== null && 'id' in where ? String(where.id) : '';
+      const row = orders.find(order => order.id === id) ?? { id, type: 'consume', extraInputs: {} };
+      if (typeof writer === 'function') writer(row);
+      written.push(row);
+      return 1;
+    });
+    try {
+      const result = await reconcileSwapOrderNotes(
+        'account-1',
+        [consumable('tip', 'tip'), consumable('payback', 'payback'), later],
+        true,
+        220,
+        undefined,
+        new Map([['88', { noteId: 'prepared-tip', requestBytes: new Uint8Array([1]) }]])
+      );
+
+      expect(result.queuedTransactionIds).toEqual(['later-tx']);
+      expect(result.managedNoteIds).toEqual(new Set(['tip', 'payback', 'later-payback', 'prepared-tip']));
+      expect(initiateConsumeNotesTransaction).toHaveBeenCalledTimes(3);
+      expect(initiatePswapReclaimTransaction).toHaveBeenCalledTimes(1);
+      expect(written.filter(row => row.id === 'later-tx')).toHaveLength(1);
+      expect(written.filter(row => row.id !== 'later-tx').every(row => row.id.startsWith('swap-'))).toBe(true);
+      for (const order of orders.slice(0, 2)) {
+        expect(order.extraInputs).toHaveProperty('expiryTriggeredAt', 220);
+        expect(order.extraInputs).not.toHaveProperty('settledAt');
+        expect(order.extraInputs).not.toHaveProperty('reclaimedAt');
+        expect(order.extraInputs).not.toHaveProperty('swapOrderTxId');
+      }
+    } finally {
+      modify.mockImplementation(async () => 1);
+    }
   });
 
   it('tags a fund-less expired batch (tip only) as reclaim', async () => {
@@ -679,7 +842,7 @@ describe('swap order note settlement', () => {
 
       await reconcileSwapOrderNotes('account-1', [payback], false, 150);
 
-      expect(initiateConsumeNotesTransaction).toHaveBeenCalledWith('account-1', [payback], false);
+      expect(initiateConsumeNotesTransaction).toHaveBeenCalledWith('account-1', [payback], false, ...SETTLES);
     });
   });
 
@@ -914,7 +1077,8 @@ describe('swap order note settlement', () => {
       expect(initiateConsumeNotesTransaction).toHaveBeenCalledWith(
         'account-1',
         [expect.objectContaining({ id: 'payback-88' })],
-        undefined
+        undefined,
+        ...SETTLES
       );
     });
 
@@ -1134,5 +1298,298 @@ describe('swap order note settlement', () => {
     const consumeRow = { type: 'consume', extraInputs: undefined as Record<string, unknown> | undefined };
     tagWriter(consumeRow);
     expect(consumeRow.extraInputs).toEqual({ swapOrderTxId: 'swap-1', swapSettleKind: 'settle' });
+  });
+  describe('a Guardian-recovered order returned on its Cancel (#1487)', () => {
+    // This device's SDK never tracked the order, so there is no lineage and no output-note record: the order note is
+    // the one the recovered record names, and only the node holds it.
+    const recoveredOrder = (extraInputs: Record<string, unknown> = {}) =>
+      tx({
+        id: 'recovered-swap',
+        restoredFromBackup: true,
+        recovered: true,
+        outputNoteIds: ['order-note'],
+        recovery: {
+          outputNotes: [
+            { id: 'order-note', swap: { orderId: '77', requestedAsset: { faucetId: 'requested', amount: '50' } } }
+          ]
+        },
+        extraInputs: {
+          requestedFaucetId: 'requested',
+          requestedAmount: 50n,
+          orderId: '77',
+          autoConsume: false,
+          expiresAt: 220,
+          expiryTriggeredAt: 220,
+          ...extraInputs
+        }
+      });
+
+    beforeEach(() => {
+      __resetRecoveredBuildRetriesForTests();
+      jest.mocked(midenClientProxy.getConsumableNotes).mockResolvedValue([]);
+    });
+
+    it('reclaims the order note from the node, past the Auto accept setting recovery wrote', async () => {
+      toArray.mockResolvedValue([recoveredOrder()]);
+
+      const result = await settleSwapOrders('account-1', true);
+
+      expect(midenClientProxy.buildPswapCancelRequest).toHaveBeenCalledWith(
+        'account-1',
+        'order-note',
+        expect.any(Function),
+        { allowNodeNote: true }
+      );
+      expect(initiatePswapReclaimTransaction).toHaveBeenCalledWith(
+        'account-1',
+        expect.objectContaining({
+          id: 'order-note',
+          faucetId: 'offer',
+          swapOrder: expect.objectContaining({ orderId: '77', depth: 0, role: 'tip' })
+        }),
+        new Uint8Array([1, 4, 7, 6]),
+        'recovered-swap',
+        true,
+        undefined
+      );
+      expect(result.queuedTransactionIds).toEqual(['consume-zero-fill']);
+    });
+
+    it('builds nothing for a recovered order this wallet was not asked to return', async () => {
+      toArray.mockResolvedValue([recoveredOrder({ expiresAt: undefined, expiryTriggeredAt: undefined })]);
+
+      await settleSwapOrders('account-1');
+
+      expect(midenClientProxy.buildPswapCancelRequest).not.toHaveBeenCalled();
+      expect(initiatePswapReclaimTransaction).not.toHaveBeenCalled();
+    });
+
+    it('builds nothing while the order note already has a reclaim of this wallet', async () => {
+      toArray.mockResolvedValue([recoveredOrder()]);
+      mockNoteClaimCoverage.mockResolvedValueOnce({ rows: [], liveOrCompleted: { id: 'reclaim-row' } });
+
+      await settleSwapOrders('account-1');
+
+      expect(mockNoteClaimCoverage).toHaveBeenCalledWith('account-1', 'order-note', expect.any(Number));
+      expect(midenClientProxy.buildPswapCancelRequest).not.toHaveBeenCalled();
+    });
+
+    // The service worker restarts often and forgets the wait, and only an open page closed a spent order, so a
+    // refused cancel was rebuilt for good. The realm that saw the refusal asks the node once its hold is released.
+    it("checks a refused recovered build's order on the node once the hold is released, and builds no more once closed", async () => {
+      jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+      toArray.mockResolvedValue([recoveredOrder()]);
+      jest.mocked(midenClientProxy.buildPswapCancelRequest).mockRejectedValue(new Error('already consumed on chain'));
+      let holdAtCheck: object | null | 'unchecked' = 'unchecked';
+      mockTrackRecoveredSwapOrders.mockImplementationOnce(async () => {
+        holdAtCheck = currentHold;
+        // The close it writes, as the next pass reads the row.
+        toArray.mockResolvedValue([recoveredOrder({ orderNoteSpentAt: 400 })]);
+        return new Map([['77', { kind: 'closed' }]]);
+      });
+
+      await settleSwapOrders('account-1');
+
+      expect(mockTrackRecoveredSwapOrders).toHaveBeenCalledWith([
+        expect.objectContaining({ txId: 'recovered-swap', noteId: 'order-note', tipNoteId: 'order-note' })
+      ]);
+      expect(holdAtCheck).toBeNull();
+      // Not the backoff: the closed order is out of settlement altogether.
+      __resetRecoveredBuildRetriesForTests();
+      await settleSwapOrders('account-1');
+      expect(midenClientProxy.buildPswapCancelRequest).toHaveBeenCalledTimes(1);
+      expect(mockTrackRecoveredSwapOrders).toHaveBeenCalledTimes(1);
+    });
+
+    it("leaves a live order's refused build to its next lap, asking the node nothing", async () => {
+      jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+      toArray.mockResolvedValue([tx({ outputNoteIds: ['zero-fill-tip'] })]);
+      jest.mocked(midenClientProxy.getPswapLineages).mockResolvedValue([
+        {
+          orderId: '77',
+          currentTipNoteId: 'zero-fill-tip',
+          currentDepth: 0,
+          state: 0,
+          remainingOffered: '50',
+          remainingRequested: '50'
+        }
+      ]);
+      jest.mocked(midenClientProxy.buildPswapCancelRequest).mockRejectedValueOnce(new Error('not tracked'));
+
+      await settleSwapOrders('account-1');
+
+      expect(midenClientProxy.buildPswapCancelRequest).toHaveBeenCalledTimes(1);
+      expect(mockTrackRecoveredSwapOrders).not.toHaveBeenCalled();
+    });
+
+    // A partial fill spent the order note; what is left on offer is the remainder the tracking recorded (#1487).
+    it('cancels the remainder a fill left, not the spent order note', async () => {
+      toArray.mockResolvedValue([
+        recoveredOrder({ recoveredTip: { noteId: 'remainder-1', depth: 1, remainingOffered: 20n } })
+      ]);
+
+      await settleSwapOrders('account-1', true);
+
+      expect(mockNoteClaimCoverage).toHaveBeenCalledWith('account-1', 'remainder-1', expect.any(Number));
+      expect(midenClientProxy.buildPswapCancelRequest).toHaveBeenCalledWith(
+        'account-1',
+        'remainder-1',
+        expect.any(Function),
+        { allowNodeNote: true }
+      );
+      expect(initiatePswapReclaimTransaction).toHaveBeenCalledWith(
+        'account-1',
+        expect.objectContaining({
+          id: 'remainder-1',
+          amount: '20',
+          swapOrder: expect.objectContaining({ orderId: '77', depth: 1, role: 'tip' })
+        }),
+        new Uint8Array([1, 4, 7, 6]),
+        'recovered-swap',
+        true,
+        undefined
+      );
+    });
+
+    // A partial fill's payout this wallet claimed is linked to the order while the remainder is still open on the node,
+    // and the stamp repair read that link as the order's settlement: closed, it lost its tracking and its Cancel.
+    it('stamps no close from a linked payout on a recovered order whose remainder its cancel could not build', async () => {
+      jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+      const order: ITransaction = {
+        id: 'recovered-swap',
+        type: 'swap',
+        accountId: 'account-1',
+        status: ITransactionStatus.Completed,
+        initiatedAt: 10,
+        completedAt: 100,
+        displayIcon: 'SWAP',
+        faucetId: 'offer',
+        amount: 70n,
+        outputNoteIds: ['order-note'],
+        restoredFromBackup: true,
+        recovered: true,
+        recovery: {
+          version: 1,
+          network: 'testnet',
+          operators: ['https://one'],
+          nonce: 2,
+          inputNotes: [],
+          outputNotes: [
+            {
+              id: 'order-note',
+              visibility: 'public',
+              assets: [{ faucetId: 'offer', amount: '70' }],
+              swap: { orderId: '77', requestedAsset: { faucetId: 'requested', amount: '30' } }
+            }
+          ],
+          completeness: 'decoded',
+          reclaimed: false
+        },
+        extraInputs: {
+          requestedFaucetId: 'requested',
+          requestedAmount: 30n,
+          orderId: '77',
+          autoConsume: false,
+          expiresAt: 220,
+          expiryTriggeredAt: 220,
+          // 70 for 30 filled 10 pays 23, leaving 47 for 20.
+          recoveredTip: { noteId: 'remainder-1', depth: 1, remainingOffered: 47n }
+        }
+      };
+      const payout: ITransaction = {
+        id: 'payout-claim',
+        type: 'consume',
+        accountId: 'account-1',
+        status: ITransactionStatus.Completed,
+        initiatedAt: 400,
+        completedAt: 500,
+        displayIcon: 'RECEIVE',
+        faucetId: 'requested',
+        amount: 10n,
+        extraInputs: { swapOrderTxId: 'recovered-swap', swapSettleKind: 'settle' }
+      };
+      const rows = [order, payout];
+      // Each scan returns what its own filter keeps, so the order list and the repair's consume read see the real rows.
+      toArray.mockImplementation(async () => {
+        const keep = jest.mocked(Repo.transactions.filter).mock.lastCall?.[0];
+        return keep ? rows.filter(keep) : [];
+      });
+      jest.mocked(midenClientProxy.buildPswapCancelRequest).mockRejectedValue(new Error('remainder not open'));
+
+      await settleSwapOrders('account-1');
+
+      expect(midenClientProxy.buildPswapCancelRequest).toHaveBeenCalledWith(
+        'account-1',
+        'remainder-1',
+        expect.any(Function),
+        { allowNodeNote: true }
+      );
+      expect(modify).not.toHaveBeenCalled();
+      expect(mockTrackRecoveredSwapOrders).toHaveBeenCalledWith([
+        expect.objectContaining({ txId: 'recovered-swap', tipNoteId: 'remainder-1', tipDepth: 1 })
+      ]);
+    });
+
+    it('waits 30, then 60 seconds after refused builds instead of reading the node on every lap', async () => {
+      jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+      toArray.mockResolvedValue([recoveredOrder()]);
+      jest.mocked(midenClientProxy.buildPswapCancelRequest).mockRejectedValue(new Error('already consumed on chain'));
+      const nowSpy = jest.spyOn(Date, 'now');
+      const lapAt = async (seconds: number) => {
+        nowSpy.mockReturnValue(seconds * 1000);
+        await settleSwapOrders('account-1');
+      };
+
+      try {
+        await lapAt(300);
+        await lapAt(329);
+        expect(midenClientProxy.buildPswapCancelRequest).toHaveBeenCalledTimes(1);
+        await lapAt(330);
+        await lapAt(389);
+        expect(midenClientProxy.buildPswapCancelRequest).toHaveBeenCalledTimes(2);
+        await lapAt(390);
+        expect(midenClientProxy.buildPswapCancelRequest).toHaveBeenCalledTimes(3);
+        expect(initiatePswapReclaimTransaction).not.toHaveBeenCalled();
+      } finally {
+        nowSpy.mockRestore();
+      }
+    });
+  });
+
+  it('settleSwapOrders hands its claim guard to every claim its pass queues', async () => {
+    // Order 77 expired with no fill, so it reclaims its tip; order 88 was filled, so it settles its payback.
+    toArray.mockResolvedValue([
+      tx({ outputNoteIds: ['zero-fill-tip'] }),
+      tx({ id: 'swap-2', extraInputs: { ...tx().extraInputs, orderId: 88n } })
+    ]);
+    jest
+      .mocked(midenClientProxy.getPswapLineages)
+      .mockResolvedValue([
+        zeroFillLineage('zero-fill-tip'),
+        { ...zeroFillLineage('tip-88'), orderId: '88', currentDepth: 1, state: 1 }
+      ]);
+    jest.mocked(midenClientProxy.getConsumableNotes).mockResolvedValue([note('payback-88', [999n, 88n, 1n, 0n])]);
+    const canSign = () => true;
+
+    await settleSwapOrders('account-1', false, canSign);
+
+    expect(initiatePswapReclaimTransaction).toHaveBeenCalledWith(
+      'account-1',
+      expect.objectContaining({ id: 'zero-fill-tip' }),
+      new Uint8Array([1, 4, 7, 6]),
+      'swap-1',
+      false,
+      canSign
+    );
+    expect(initiateConsumeNotesTransaction).toHaveBeenCalledWith(
+      'account-1',
+      [expect.objectContaining({ id: 'payback-88' })],
+      false,
+      undefined,
+      undefined,
+      undefined,
+      'swap_settlement',
+      canSign
+    );
   });
 });

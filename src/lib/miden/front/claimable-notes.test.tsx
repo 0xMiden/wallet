@@ -1393,7 +1393,7 @@ describe('useClaimableNotes (local mode — mobile/desktop)', () => {
     await waitFor(() => expect(flags(_g.__cnTest.kv[CACHE_KEY])).toEqual({ standard: true, custom: false }));
   });
 
-  it('flags a note that carries more fungible assets than the one it shows', async () => {
+  it('live single-asset notes preserve explicit asset knowledge', async () => {
     // The claim fee gate fails open on such a note: one of the hidden assets may pay the fee.
     _g.__cnTest.consumableNotes = [
       {
@@ -1410,7 +1410,9 @@ describe('useClaimableNotes (local mode — mobile/desktop)', () => {
     rerender();
 
     const flags = Object.fromEntries((result.current.data ?? []).map(note => [note.id, note.carriesMoreAssets]));
-    expect(flags).toEqual({ multi: true, single: undefined });
+    expect(flags).toEqual({ multi: true, single: false });
+    expect(result.current.data?.find(note => note.id === 'single')).toMatchObject({ carriesMoreAssets: false });
+    expect(result.current.data?.find(note => note.id === 'multi')).toMatchObject({ carriesMoreAssets: true });
   });
 
   it('replaces the cached list with the live result and rewrites the cache', async () => {

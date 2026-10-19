@@ -235,6 +235,58 @@ describe('mintFromPublicFaucet', () => {
     expect(urls).toHaveLength(6);
   });
 
+  // A target of 0 is unsatisfiable, so with a 50 ms deadline that solve runs out of time.
+  it('retries a grant from a fresh challenge when its proof of work runs out of time', async () => {
+    const urls = serve([
+      reply(200, { challenge: 'aa', target: 0 }),
+      reply(200, { challenge: 'bb', target: EASY_TARGET }),
+      reply(200, { tx_id: '0xtx', note_id: NOTE_ID })
+    ]);
+    const waits: number[] = [];
+
+    await expect(
+      mintFromPublicFaucet(
+        BASE,
+        ACCOUNT,
+        1n,
+        1_000,
+        async ms => {
+          waits.push(ms);
+        },
+        50
+      )
+    ).resolves.toEqual({ noteId: NOTE_ID });
+
+    expect(urls).toHaveLength(3);
+    expect(urls[2]).toContain('challenge=bb');
+    expect(waits).toEqual([1_000]);
+  });
+
+  it('gives up after three proofs of work run out of time and names the cause', async () => {
+    const urls = serve(['aa', 'bb', 'cc'].map(challenge => reply(200, { challenge, target: 0 })));
+    const waits: number[] = [];
+
+    const error = await mintFromPublicFaucet(
+      BASE,
+      ACCOUNT,
+      1n,
+      1_000,
+      async ms => {
+        waits.push(ms);
+      },
+      50
+    ).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(PublicFaucetError);
+    expect(error).toMatchObject({
+      message: expect.stringContaining('Public faucet PoW unsolved within 50ms (target=0)')
+    });
+    expect(isInfrastructureFailure(error)).toBe(true);
+    expect(urls.filter(url => url.includes('/pow?'))).toHaveLength(3);
+    expect(urls).toHaveLength(3);
+    expect(waits).toEqual([1_000, 2_000]);
+  });
+
   it('waits out a 429 for as long as the faucet asks, then retries from a fresh challenge', async () => {
     const urls = serve([
       reply(200, { challenge: 'aa', target: EASY_TARGET }),

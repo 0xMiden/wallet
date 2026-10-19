@@ -14,6 +14,19 @@ export interface PresentationResponse {
   error?: string;
 }
 
+/** Android's breadAuth wire. On iOS the page posts { url } and native settles the promise postMessage returns. */
+export interface AuthRequest {
+  id: string;
+  url: string;
+}
+
+export interface AuthReply {
+  id: string;
+  url?: string;
+  cancelled?: true;
+  error?: string;
+}
+
 /** Document-start API for the native Bread dApp WebView. */
 export const PRESENTATION_SCRIPT = `
 (function() {
@@ -22,6 +35,8 @@ export const PRESENTATION_SCRIPT = `
   const android = window.breadPresentation;
   const transport = ios || android;
   if (!transport || typeof transport.postMessage !== 'function') return;
+  const iosAuth = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.breadAuth;
+  const androidAuth = ios ? undefined : window.breadAuth;
 
   // Native provenance and navigation-generation checks remain the authority for this token.
   const random = new Uint32Array(4);
@@ -95,8 +110,59 @@ export const PRESENTATION_SCRIPT = `
     else root.removeAttribute('data-bread-control-bounds');
     document.dispatchEvent(new Event('breadpresentationchange'));
   } });
+  const AUTH_ERRORS = ['AUTH_NOT_MAIN_FRAME', 'AUTH_INSECURE_PAGE', 'AUTH_INVALID_URL', 'AUTH_BUSY', 'AUTH_UNAVAILABLE', 'AUTH_ORIGIN_MISMATCH', 'AUTH_FAILED'];
+  const authPending = new Map();
+  let authSequence = 0;
+  function authError(error) {
+    const code = typeof error === 'string' ? error : error && error.message;
+    return new Error(AUTH_ERRORS.includes(code) ? code : 'AUTH_FAILED');
+  }
+  function authResult(reply) {
+    if (reply && reply.cancelled === true) return Object.freeze({ cancelled: true });
+    if (reply && typeof reply.url === 'string') return Object.freeze({ url: reply.url });
+    throw new Error('AUTH_FAILED');
+  }
+  // No timeout or cap, unlike request(): a sign-in can take minutes, and native answers AUTH_BUSY at once while a sheet is open.
+  function openAuth(url) {
+    // Native checks the frame, the page origin and the URL; this only skips a post native would refuse.
+    if (typeof url !== 'string' || url.length > 4096) return Promise.reject(new Error('AUTH_INVALID_URL'));
+    if (iosAuth) {
+      try {
+        return Promise.resolve(iosAuth.postMessage({ url })).then(authResult, error => { throw authError(error); });
+      } catch (error) {
+        return Promise.reject(authError(error));
+      }
+    }
+    return new Promise((resolve, reject) => {
+      const id = token + '_auth_' + (++authSequence);
+      authPending.set(id, { resolve, reject });
+      try {
+        androidAuth.postMessage(JSON.stringify({ id, url }));
+      } catch (error) {
+        authPending.delete(id);
+        reject(authError(error));
+      }
+    });
+  }
+  function authMessage(event) {
+    let reply;
+    try { reply = JSON.parse(event.data); } catch (error) { return; }
+    const call = reply && typeof reply.id === 'string' ? authPending.get(reply.id) : undefined;
+    if (!call) return;
+    authPending.delete(reply.id);
+    if (typeof reply.error === 'string') { call.reject(authError(reply.error)); return; }
+    try { call.resolve(authResult(reply)); } catch (error) { call.reject(error); }
+  }
   const presentation = Object.freeze({ ready: () => request('ready'), close: () => request('close') });
-  Object.defineProperty(window, 'bread', { value: Object.freeze({ version: 1, presentation }) });
+  const authTransport = iosAuth || androidAuth;
+  const auth = authTransport && typeof authTransport.postMessage === 'function'
+    ? Object.freeze({ version: 1, open: url => openAuth(url) })
+    : undefined;
+  if (auth && androidAuth) {
+    if (typeof androidAuth.addEventListener === 'function') androidAuth.addEventListener('message', authMessage);
+    else androidAuth.onmessage = authMessage;
+  }
+  Object.defineProperty(window, 'bread', { value: Object.freeze(auth ? { version: 1, presentation, auth } : { version: 1, presentation }) });
 
   function metadata() {
     const head = document.head;

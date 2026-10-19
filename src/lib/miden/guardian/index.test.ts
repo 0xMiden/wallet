@@ -649,7 +649,10 @@ describe('MultisigService', () => {
 
       const proposal = await service.createPswapCancelProposal('zero-fill-tip', persistRequest);
 
-      expect(mockBuildPswapCancelRequest).toHaveBeenCalledWith('acc-id', 'zero-fill-tip', expect.any(Function));
+      // A live order's note never comes from the node (#1487).
+      expect(mockBuildPswapCancelRequest).toHaveBeenCalledWith('acc-id', 'zero-fill-tip', expect.any(Function), {
+        allowNodeNote: false
+      });
       expect(persistRequest).toHaveBeenCalledWith(cancelBytes);
       expect(createCustomFn).toHaveBeenCalledWith(cancelBytes, 'custom_transaction');
       expect(callOrder).toEqual(['syncChain', 'buildPswapCancelRequest', 'persistRequest', 'createCustomProposal']);
@@ -658,6 +661,16 @@ describe('MultisigService', () => {
       expect(holdsSeen.persist).toBe(syncHoldsSeen[0]);
       expect(holdsSeen.propose).toBe(syncHoldsSeen[0]);
       expect(proposal).toEqual({ kind: 'custom', id: 'cancel-proposal' });
+    });
+
+    it("lets a recovered order's rebuild read its note from the node, as its own eligibility says", async () => {
+      const { service, persistRequest } = arrange();
+
+      await service.createPswapCancelProposal('remainder-tip', persistRequest, { allowNodeNote: true });
+
+      expect(mockBuildPswapCancelRequest).toHaveBeenCalledWith('acc-id', 'remainder-tip', expect.any(Function), {
+        allowNodeNote: true
+      });
     });
 
     it('builds and proposes nothing when the chain sync fails', async () => {

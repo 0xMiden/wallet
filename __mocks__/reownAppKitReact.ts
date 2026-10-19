@@ -12,9 +12,12 @@ interface MockNetwork {
 export const createAppKit = jest.fn((options: { networks?: MockNetwork[] } = {}) => {
   let networks = [...(options.networks ?? [])];
   let active = networks[0];
+  const relayer = { connected: false, on: jest.fn() };
   return {
     setThemeMode: jest.fn(),
     ready: jest.fn(async () => {}),
+    subscribeState: jest.fn(() => () => {}),
+    getUniversalProvider: jest.fn(async () => ({ client: { core: { relayer } } })),
     getCaipNetworks: jest.fn(() => networks),
     getCaipNetwork: jest.fn(() => active),
     addNetwork: jest.fn((_namespace: string, network: MockNetwork) => {

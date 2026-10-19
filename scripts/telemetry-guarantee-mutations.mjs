@@ -440,8 +440,8 @@ dependencies { implementation 'com.google.firebase:firebase-analytics:22.1.0' }`
     edits: [
       {
         file: CRASH,
-        find: `export function captureCrash(error: unknown): void {`,
-        replace: `export function tagSession(id: string): void {\n  document.cookie = \`telemetry_session=\${id}\`;\n}\n\nexport function captureCrash(error: unknown): void {`
+        find: `export function captureCrash(`,
+        replace: `export function tagSession(id: string): void {\n  document.cookie = \`telemetry_session=\${id}\`;\n}\n\nexport function captureCrash(`
       }
     ]
   },
@@ -530,8 +530,8 @@ export function getUserId(): string {
     edits: [
       {
         file: BACK_MAIN,
-        find: `import { WalletMessageType, WalletRequest, WalletResponse } from 'lib/shared/types';`,
-        replace: `import { classifyError } from 'lib/telemetry';\nimport { WalletMessageType, WalletRequest, WalletResponse } from 'lib/shared/types';\nvoid classifyError;`
+        find: `import { ReportTelemetryEventRequest, WalletMessageType, WalletRequest, WalletResponse } from 'lib/shared/types';`,
+        replace: `import { classifyError } from 'lib/telemetry';\nimport { ReportTelemetryEventRequest, WalletMessageType, WalletRequest, WalletResponse } from 'lib/shared/types';\nvoid classifyError;`
       }
     ]
   },
@@ -574,16 +574,16 @@ export function getUserId(): string {
   },
 
   // -------------------------------------------------------------------------
-  // Off by default, opt-in.
+  // Usage data is opt-in; crash reports are independent of usage consent.
   // -------------------------------------------------------------------------
   {
     name: 'the default flipped on',
-    guards: 'defaults to off / sends nothing on a fresh install',
+    guards: 'usage data defaults to off / no usage events on a fresh install',
     edits: [{ file: CONSTANTS, find: `export const DEFAULT_TELEMETRY = false;`, replace: `export const DEFAULT_TELEMETRY = true;` }]
   },
   {
     name: 'the background read-miss failing OPEN while the constant stays false',
-    guards: 'sends nothing at either egress point on a fresh install',
+    guards: 'no usage events on a fresh install',
     // The constant assertion cannot see this one. Only running the real
     // settings module against empty storage can.
     edits: [
@@ -596,22 +596,34 @@ export function getUserId(): string {
   },
   {
     name: 'the consent gate removed from sendEvent',
-    guards: 'sends nothing at either egress point on a fresh install',
+    guards: 'no usage events on a fresh install',
     edits: [{ file: SINK, find: `    if (!(await isTelemetryEnabledAsync())) return;`, replace: `    await isTelemetryEnabledAsync();` }]
   },
   {
-    name: 'the consent gate removed from captureCrash',
-    guards: 'sends nothing at either egress point on a fresh install',
+    name: 'usage consent incorrectly required for crash reports',
+    guards: 'reports crashes without sending usage events on a fresh install',
     edits: [
-      { file: CRASH, find: `      if (!(await isTelemetryEnabledAsync())) return;`, replace: `      await isTelemetryEnabledAsync();` }
+      {
+        file: HELPERS,
+        find: `export function isCrashReportingEnabledAsync(): Promise<boolean> {
+  return isDataCollectionPermitted();
+}`,
+        replace: `export function isCrashReportingEnabledAsync(): Promise<boolean> {
+  return isTelemetryEnabledAsync();
+}`
+      }
     ]
   },
   {
-    name: 'both egress points silenced (anti-vacuity: the silence must be the gate)',
-    guards: 'sends at both once consent is stored',
+    name: 'both egress points silenced (anti-vacuity: crash reporting must remain active)',
+    guards: 'reports crashes without usage consent / adds usage events once consent is stored',
     edits: [
       { file: SINK, find: `    await transport(payload);`, replace: `    void transport;` },
-      { file: CRASH, find: `      target.captureException(reportable);`, replace: `      void target;\n      void reportable;` }
+      {
+        file: CRASH,
+        find: `        target.captureException(reportable, {`,
+        replace: `        if (false) target.captureException(reportable, {`
+      }
     ]
   },
 
@@ -671,8 +683,8 @@ export function getUserId(): string {
     edits: [
       {
         file: CRASH,
-        find: `export function captureCrash(error: unknown): void {`,
-        replace: `export const liveChannel = new WebSocket('wss://example.com/crashes');\n\nexport function captureCrash(error: unknown): void {`
+        find: `export function captureCrash(`,
+        replace: `export const liveChannel = new WebSocket('wss://example.com/crashes');\n\nexport function captureCrash(`
       }
     ]
   },

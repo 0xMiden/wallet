@@ -133,6 +133,7 @@ open class WKWebViewController: UIViewController, WKScriptMessageHandler {
     weak var managedClose: ManagedHostClose?
     var webViewForManagedClose: WKWebView? { webView }
     var breadPresentation: BreadPresentationController?
+    var breadAuth: BreadAuthController?
     private var breadNavigation: WKNavigation?
 
     override open var prefersStatusBarHidden: Bool { breadPresentation?.immersive ?? super.prefersStatusBarHidden }
@@ -677,6 +678,9 @@ open class WKWebViewController: UIViewController, WKScriptMessageHandler {
 
         let weakHandler = WeakScriptMessageHandler(self)
         if let options = breadOptions {
+            let auth = BreadAuthController(owner: self)
+            breadAuth = auth
+            userContentController.addScriptMessageHandler(WeakScriptMessageReplyHandler(auth), contentWorld: .page, name: "breadAuth")
             userContentController.add(weakHandler, name: "breadPresentation")
             userContentController.addUserScript(WKUserScript(source: options.script, injectionTime: .atDocumentStart, forMainFrameOnly: true))
         }
@@ -1140,6 +1144,7 @@ public extension WKWebViewController {
     }
 
     open func cleanupWebView() {
+        breadAuth?.close()
         breadPresentation?.close()
         guard let webView = self.webView else { return }
         webView.stopLoading()
@@ -1157,6 +1162,7 @@ public extension WKWebViewController {
             observersRegistered = false
         }
 
+        webView.configuration.userContentController.removeScriptMessageHandler(forName: "breadAuth", contentWorld: .page)
         webView.configuration.userContentController.removeScriptMessageHandler(forName: "breadPresentation")
         webView.configuration.userContentController.removeAllUserScripts()
         webView.configuration.userContentController.removeScriptMessageHandler(forName: "messageHandler")

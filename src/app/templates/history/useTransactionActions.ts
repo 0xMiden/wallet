@@ -15,6 +15,7 @@ import {
 } from 'lib/miden/activity';
 import { ITransaction } from 'lib/miden/db/types';
 import { cancelSwapOrder } from 'lib/miden/swap/cancel-order';
+import { ClaimFeeRefusedError } from 'lib/miden/transaction/claim-fee';
 import { useConfirm } from 'lib/ui/dialog';
 import { navigate } from 'lib/woozie';
 
@@ -100,8 +101,12 @@ export const useTransactionActions = (
           return;
         }
       } catch (error) {
-        console.error('[HistoryDetails] Failed to retry transaction:', error);
-        setRetryError(error instanceof Error ? error.message : t('smthWentWrong'));
+        if (error instanceof ClaimFeeRefusedError) {
+          setRetryError(t('insufficientFeeAsset'));
+        } else {
+          console.error('[HistoryDetails] Failed to retry transaction:', error);
+          setRetryError(error instanceof Error ? error.message : t('smthWentWrong'));
+        }
         setAcknowledgement(acknowledgementOf(error));
       } finally {
         setIsRetrying(false);

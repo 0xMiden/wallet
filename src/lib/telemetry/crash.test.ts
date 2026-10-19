@@ -1,6 +1,6 @@
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
-import { isTelemetryEnabledAsync } from 'lib/settings/helpers';
+import { isCrashReportingEnabledAsync, isTelemetryEnabledAsync } from 'lib/settings/helpers';
 
 import {
   CRASH_INTEGRATION_ALLOWLIST,
@@ -12,9 +12,14 @@ import {
 } from './crash';
 import { annotateCrash } from './crash-diagnostics';
 import { REDACTED } from './redact';
+import { __resetRelayDiagnosticsForTest } from './relay-diagnostics';
 import packageJson from '../../../package.json';
 
-jest.mock('lib/settings/helpers', () => ({ isTelemetryEnabledAsync: jest.fn() }));
+jest.mock('lib/settings/helpers', () => ({
+  ...jest.requireActual<typeof import('lib/settings/helpers')>('lib/settings/helpers'),
+  isCrashReportingEnabledAsync: jest.fn(),
+  isTelemetryEnabledAsync: jest.fn()
+}));
 jest.mock('lib/miden-chain/effective-endpoints', () => {
   const actual = jest.requireActual<typeof import('lib/miden-chain/effective-endpoints')>(
     'lib/miden-chain/effective-endpoints'
@@ -89,8 +94,35 @@ const capturedText = () =>
 
 const serializeError = (error: Error) => ({ name: error.name, message: error.message, stack: error.stack });
 
-const consentOn = () => jest.mocked(isTelemetryEnabledAsync).mockResolvedValue(true);
-const consentOff = () => jest.mocked(isTelemetryEnabledAsync).mockResolvedValue(false);
+const grantBrowserPermission = () => jest.mocked(isCrashReportingEnabledAsync).mockResolvedValue(true);
+const denyBrowserPermission = () => jest.mocked(isCrashReportingEnabledAsync).mockResolvedValue(false);
+
+/** An Error that counts each read of its own name, message and stack. */
+function countingFieldReads(message: string): { error: Error; reads: Record<'name' | 'message' | 'stack', number> } {
+  const error = new Error(message);
+  const reads = { name: 0, message: 0, stack: 0 };
+  Object.defineProperties(error, {
+    name: {
+      get() {
+        reads.name++;
+        return 'Error';
+      }
+    },
+    message: {
+      get() {
+        reads.message++;
+        return message;
+      }
+    },
+    stack: {
+      get() {
+        reads.stack++;
+        return `Error: ${message}\n    at source (capacitor://localhost/mobile.js:1:5000)`;
+      }
+    }
+  });
+  return { error, reads };
+}
 
 beforeEach(() => {
   process.env.SENTRY_DSN = 'https://publickey@o0.ingest.de.sentry.io/1';
@@ -98,6 +130,8 @@ beforeEach(() => {
   captured.length = 0;
   capturedHints.length = 0;
   constructorThrows = false;
+  jest.mocked(isTelemetryEnabledAsync).mockResolvedValue(false);
+  grantBrowserPermission();
 });
 
 afterEach(() => {
@@ -108,7 +142,7 @@ afterEach(() => {
 describe('integration selection', () => {
   it('does not resurrect a pending lazy report after reporting is stopped', async () => {
     let allow: (value: boolean) => void = () => {};
-    jest.mocked(isTelemetryEnabledAsync).mockImplementationOnce(
+    jest.mocked(isCrashReportingEnabledAsync).mockImplementationOnce(
       () =>
         new Promise(resolve => {
           allow = resolve;
@@ -123,7 +157,7 @@ describe('integration selection', () => {
   });
 
   it('initializes handled-only reporting without new global error listeners', async () => {
-    consentOn();
+    grantBrowserPermission();
     const listener = jest.spyOn(globalThis, 'addEventListener');
     captureCrash(new Error('handled transaction failed'), 'manual', { initializeIfNeeded: true });
     await flushMicrotasks();
@@ -132,7 +166,7 @@ describe('integration selection', () => {
     listener.mockRestore();
   });
   it('initializes once when a handled failure arrives without any frontend scope', async () => {
-    consentOn();
+    grantBrowserPermission();
     captureCrash(new Error('handled transaction failed'), 'manual', { initializeIfNeeded: true });
     await flushMicrotasks();
     captureCrash(new Error('another transaction failed'), 'manual', { initializeIfNeeded: true });
@@ -141,8 +175,8 @@ describe('integration selection', () => {
     expect(captured).toHaveLength(2);
   });
 
-  it('does not initialize a lazy crash client when consent is disabled', async () => {
-    consentOff();
+  it('does not initialize a lazy crash client when browser permission is denied', async () => {
+    denyBrowserPermission();
     captureCrash(new Error('handled transaction failed'), 'manual', { initializeIfNeeded: true });
     await flushMicrotasks();
     expect(clientOptions).toHaveLength(0);
@@ -223,7 +257,7 @@ describe('client construction', () => {
   });
 
   it('reports an uncaught global error through the handler it registered', async () => {
-    consentOn();
+    grantBrowserPermission();
     initCrashReporting();
     globalThis.dispatchEvent(new ErrorEvent('error', { error: new Error(`boom ${ADDRESS}`) }));
     await flushMicrotasks();
@@ -233,7 +267,7 @@ describe('client construction', () => {
   });
 
   it('reports an unhandled rejection through the handler it registered', async () => {
-    consentOn();
+    grantBrowserPermission();
     initCrashReporting();
     globalThis.dispatchEvent(Object.assign(new Event('unhandledrejection'), { reason: new Error(`boom ${ADDRESS}`) }));
     await flushMicrotasks();
@@ -243,7 +277,7 @@ describe('client construction', () => {
   });
 
   it('stops reporting global errors once crash reporting stops', async () => {
-    consentOn();
+    grantBrowserPermission();
     const add = jest.spyOn(globalThis, 'addEventListener');
     initCrashReporting();
     const handler = add.mock.calls.find(([type]) => type === 'error')?.[1] as EventListener;
@@ -275,9 +309,9 @@ describe('client construction', () => {
   });
 });
 
-describe('consent', () => {
-  it('sends nothing when consent is off', async () => {
-    consentOff();
+describe('browser permission and reporting lifecycle', () => {
+  it('sends nothing when browser permission is denied', async () => {
+    denyBrowserPermission();
     initCrashReporting();
     captureCrash(new Error('boom'));
     await flushMicrotasks();
@@ -285,63 +319,64 @@ describe('consent', () => {
   });
 
   it('sends nothing before the client exists', async () => {
-    consentOn();
+    grantBrowserPermission();
     captureCrash(new Error('boom'));
     await flushMicrotasks();
     expect(captured).toHaveLength(0);
   });
 
-  it('captures when consent is on', async () => {
-    consentOn();
+  it('captures with browser permission even when usage sharing is off', async () => {
+    grantBrowserPermission();
     initCrashReporting();
     captureCrash(new Error('boom'));
     await flushMicrotasks();
     expect(captured).toHaveLength(1);
     expect(capturedText()).toContain('boom');
+    expect(isTelemetryEnabledAsync).not.toHaveBeenCalled();
   });
 
-  it('discards a crash whose consent check resolves after consent is withdrawn', async () => {
-    let allowConsent = (_value: boolean) => {};
-    jest.mocked(isTelemetryEnabledAsync).mockReturnValue(
+  it('discards a crash whose permission check resolves after reporting stops', async () => {
+    let allowPermission = (_value: boolean) => {};
+    jest.mocked(isCrashReportingEnabledAsync).mockReturnValue(
       new Promise<boolean>(resolve => {
-        allowConsent = resolve;
+        allowPermission = resolve;
       })
     );
     initCrashReporting();
     captureCrash(new Error('boom'));
 
-    // Consent is withdrawn while the check is still in flight.
+    // Reporting stops while the browser permission check is still in flight.
     stopCrashReporting();
-    allowConsent(true);
+    allowPermission(true);
     await flushMicrotasks();
 
     expect(captured).toHaveLength(0);
   });
 
   it('does not resume an old pending report when reporting is enabled again', async () => {
-    let allowConsent = (_value: boolean) => {};
-    jest.mocked(isTelemetryEnabledAsync).mockReturnValue(
+    let allowPermission = (_value: boolean) => {};
+    jest.mocked(isCrashReportingEnabledAsync).mockReturnValue(
       new Promise<boolean>(resolve => {
-        allowConsent = resolve;
+        allowPermission = resolve;
       })
     );
     initCrashReporting();
     captureCrash(new Error('old pending failure'));
     stopCrashReporting();
     initCrashReporting();
-    allowConsent(true);
+    allowPermission(true);
     await flushMicrotasks();
     expect(captured).toEqual([]);
   });
 
-  it('closes the client so anything buffered is discarded on withdrawal', () => {
+  it('closes the client so anything buffered is discarded when reporting stops', () => {
     initCrashReporting();
     stopCrashReporting();
     expect(close).toHaveBeenCalledTimes(1);
   });
 
   it('ignores a non-Error throwable rather than serializing an unknown shape', async () => {
-    consentOn();
+    grantBrowserPermission();
     initCrashReporting();
     captureCrash({ secret: PHRASE_12 });
     captureCrash('a string');
@@ -349,9 +384,9 @@ describe('consent', () => {
     expect(captured).toHaveLength(0);
   });
 
-  it('never throws when the scope rejects the capture', async () => {
-    consentOn();
-    jest.mocked(isTelemetryEnabledAsync).mockRejectedValue(new Error('storage gone'));
+  it('never throws when reading browser permission fails', async () => {
+    grantBrowserPermission();
+    jest.mocked(isCrashReportingEnabledAsync).mockRejectedValue(new Error('permissions unavailable'));
     initCrashReporting();
     expect(() => captureCrash(new Error('boom'))).not.toThrow();
     await flushMicrotasks();
@@ -361,7 +396,7 @@ describe('consent', () => {
 
 describe('captureCrash scrubs before the event reaches Sentry', () => {
   beforeEach(() => {
-    consentOn();
+    grantBrowserPermission();
     initCrashReporting();
   });
 
@@ -588,11 +623,11 @@ describe('scrubEvent — the beforeSend hook', () => {
 });
 
 describe('diagnostic snapshots', () => {
-  it('captures scrubbed bounded cause chains synchronously before consent resolves', async () => {
-    let allowConsent = (_value: boolean) => {};
-    jest.mocked(isTelemetryEnabledAsync).mockReturnValue(
+  it('captures scrubbed bounded cause chains synchronously before browser permission resolves', async () => {
+    let allowPermission = (_value: boolean) => {};
+    jest.mocked(isCrashReportingEnabledAsync).mockReturnValue(
       new Promise<boolean>(resolve => {
-        allowConsent = resolve;
+        allowPermission = resolve;
       })
     );
     initCrashReporting();
@@ -603,7 +638,7 @@ describe('diagnostic snapshots', () => {
     error.message = 'changed after capture';
     cause.message = 'changed cause';
     annotateCrash(error, { stage: 'mock_create' });
-    allowConsent(true);
+    allowPermission(true);
     await flushMicrotasks();
     const reportable = captured[0];
     expect(reportable).toBeInstanceOf(Error);
@@ -626,7 +661,7 @@ describe('diagnostic snapshots', () => {
   });
 
   it('names the network the crash happened on, in the diagnostics and as a tag beside any other', async () => {
-    consentOn();
+    grantBrowserPermission();
     initCrashReporting();
     // Only the capture sees mainnet: the report is sent after a switch back, and still says where it happened.
     jest.mocked(getEffectiveNetworkName).mockReturnValueOnce(MIDEN_NETWORK_NAME.MAINNET);
@@ -638,38 +673,68 @@ describe('diagnostic snapshots', () => {
     expect(event.tags).toEqual({ kept: 'yes', network: 'mainnet' });
   });
 
-  it('reads each raw error field only once before asynchronous consent', async () => {
-    consentOn();
+  it('reads each raw error field only once before asynchronous browser permission', async () => {
+    grantBrowserPermission();
     initCrashReporting();
-    const error = new Error('body');
-    const reads = { name: 0, message: 0, stack: 0 };
-    Object.defineProperties(error, {
-      name: {
-        get() {
-          reads.name++;
-          return 'Error';
-        }
-      },
-      message: {
-        get() {
-          reads.message++;
-          return 'body';
-        }
-      },
-      stack: {
-        get() {
-          reads.stack++;
-          return 'Error: body\n    at source (capacitor://localhost/mobile.js:1:5000)';
-        }
-      }
-    });
+    const { error, reads } = countingFieldReads('body');
     captureCrash(error);
     await flushMicrotasks();
     expect(reads).toEqual({ name: 1, message: 1, stack: 1 });
   });
 
+  describe('reads each raw field of a relay failure only once, whether or not it is reported', () => {
+    const RELAY_FAILURE = 'WebSocket connection failed for host: wss://relay.walletconnect.org';
+
+    beforeEach(() => {
+      __resetRelayDiagnosticsForTest();
+      grantBrowserPermission();
+      initCrashReporting();
+    });
+
+    it('when it is reported', async () => {
+      const { error, reads } = countingFieldReads(RELAY_FAILURE);
+      captureCrash(error);
+      await flushMicrotasks();
+      expect(captured).toHaveLength(1);
+      expect(reads).toEqual({ name: 1, message: 1, stack: 1 });
+    });
+
+    it('when the same Error is captured again, and counts it once', async () => {
+      const { error, reads } = countingFieldReads(RELAY_FAILURE);
+      captureCrash(error);
+      await flushMicrotasks();
+      Object.assign(reads, { name: 0, message: 0, stack: 0 });
+      captureCrash(error);
+      await flushMicrotasks();
+      expect(captured).toHaveLength(1);
+      expect(reads).toEqual({ name: 1, message: 1, stack: 1 });
+    });
+
+    it('when a new Error falls in a range already reported', async () => {
+      captureCrash(new Error(RELAY_FAILURE));
+      await flushMicrotasks();
+      captureCrash(new Error(RELAY_FAILURE));
+      await flushMicrotasks();
+      const { error, reads } = countingFieldReads(RELAY_FAILURE);
+      captureCrash(error);
+      await flushMicrotasks();
+      expect(captured).toHaveLength(2);
+      expect(reads).toEqual({ name: 1, message: 1, stack: 1 });
+    });
+
+    it('when it is classified while offline', async () => {
+      const { error, reads } = countingFieldReads(RELAY_FAILURE);
+      const offline = jest.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+      captureCrash(error);
+      offline.mockRestore();
+      await flushMicrotasks();
+      expect(captured).toHaveLength(0);
+      expect(reads).toEqual({ name: 1, message: 1, stack: 1 });
+    });
+  });
+
   it('replaces SDK-created frames with the trusted empty frame snapshot', async () => {
-    consentOn();
+    grantBrowserPermission();
     initCrashReporting();
     jest.requireMock<{ defaultStackParser: jest.Mock }>('@sentry/browser').defaultStackParser.mockReturnValueOnce([]);
     const failure = new Error('message\n    at injected (https://unknown.example/path:7:777)');
@@ -686,7 +751,7 @@ describe('diagnostic snapshots', () => {
   });
 
   it('bounds causes to three links and terminates cyclic chains', async () => {
-    consentOn();
+    grantBrowserPermission();
     initCrashReporting();
     const fifth = new Error('fifth');
     const fourth = new Error('fourth', { cause: fifth });
@@ -714,7 +779,7 @@ describe('diagnostic snapshots', () => {
   });
 
   it('classifies uncaught errors and rejections accurately without global metadata', async () => {
-    consentOn();
+    grantBrowserPermission();
     initCrashReporting();
     globalThis.dispatchEvent(new ErrorEvent('error', { error: new Error('uncaught') }));
     globalThis.dispatchEvent(Object.assign(new Event('unhandledrejection'), { reason: new Error('rejected') }));

@@ -110,7 +110,13 @@ const mockAcknowledgementOf = jest.fn((..._a: unknown[]): { attemptId: string | 
 const mockCancelSwapOrder = jest.fn();
 const mockConfirm = jest.fn();
 
+let mockFeeCopy = 'worker-fee-copy';
+jest.mock('lib/i18n', () => ({
+  ...jest.requireActual('lib/i18n'),
+  getMessage: (key: string) => (key === 'insufficientFeeAsset' ? mockFeeCopy : key)
+}));
 const mockT = (key: string, opts?: Record<string, string | number | boolean | undefined>) => {
+  if (key === 'insufficientFeeAsset') return mockFeeCopy;
   const values = opts ? Object.values(opts) : [];
   return values.length > 0 ? `${key}_${values.join('_')}` : key;
 };
@@ -484,6 +490,7 @@ const sectionByTitle = (title: string) =>
   );
 
 beforeEach(() => {
+  mockFeeCopy = 'worker-fee-copy';
   jest.clearAllMocks();
   mockEarnCollateral = null;
   mockHistoryPosition = 1;
@@ -2520,7 +2527,8 @@ describe('HistoryDetails', () => {
     });
 
     it('offers no claim route on a recovered order whose tip was reclaimed after a partial fill', async () => {
-      // The fixture above, where a local row shows the route; a recovered row stays out of automation.
+      // The fixture above, where a local row shows the route; a recovered row stays out of automation. It is not an
+      // open recovered order, so its receipt reads no tracking entry and offers the route on an unknown fill.
       mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
       seedTracking({
         orderId: '42',
@@ -2536,7 +2544,7 @@ describe('HistoryDetails', () => {
 
       await renderAndLoad();
 
-      expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe('swapAmountProgress_400_1000_ ETH');
+      expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe('swapAmountProgress_-_1000_ ETH');
       expect(screen.queryByText('swapOpenPendingNotes')).not.toBeInTheDocument();
     });
 
@@ -3078,6 +3086,31 @@ describe('HistoryDetails', () => {
 
       expect(mockRequeueFailedTransaction).toHaveBeenLastCalledWith('tx-1', { acknowledged: { attemptId: 'a1' } });
       expect(mockNavigate).toHaveBeenCalledWith('/generating-transaction/tx-1');
+    });
+
+    it('fee refusal uses localized fee copy and leaves the current view open', async () => {
+      const { ClaimFeeRefusedError } = jest.requireActual<typeof import('lib/miden/transaction/initiate')>(
+        'lib/miden/transaction/initiate'
+      );
+      const refusal = new ClaimFeeRefusedError();
+      mockFeeCopy = 'localized-fee-copy';
+      setMockRow(failedSendTx({ type: 'consume', displayIcon: 'RECEIVE' }));
+      mockRequeueFailedTransaction.mockRejectedValueOnce(refusal);
+      const log = jest.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        await renderAndLoad();
+        fireEvent.click(screen.getByTestId('history-retry-button'));
+        await flush();
+
+        expect(screen.getByText('localized-fee-copy')).toBeInTheDocument();
+        expect(screen.queryByText(refusal.message)).not.toBeInTheDocument();
+        expect(mockNavigate).not.toHaveBeenCalled();
+        expect(mockRequestSWTransactionProcessing).not.toHaveBeenCalled();
+        expect(screen.getByTestId('history-retry-button')).not.toBeDisabled();
+        expect(log).not.toHaveBeenCalled();
+      } finally {
+        log.mockRestore();
+      }
     });
 
     it('does not offer it for an ordinary retry failure', async () => {
@@ -4488,5 +4521,179 @@ describe('HistoryDetails swap order actions', () => {
     await flush();
 
     expect(mockRequeueFailedTransaction).toHaveBeenLastCalledWith('tx-1', { acknowledged: { attemptId: 'a1' } });
+  });
+});
+
+describe('HistoryDetails Guardian-recovered swap order', () => {
+  // Recovery records Auto accept off and no expiry, and this device's SDK never tracked the order: the node's answer
+  // about its order note is the lineage, and Cancel swap is how its funds come back (#1487).
+  const recoveredOrderTx = (extra: Record<string, unknown> = {}): Tx => ({
+    ...baseSendTx,
+    id: 'tx-1',
+    type: 'swap',
+    amount: 70n,
+    faucetId: 'faucet-1',
+    outputNoteIds: ['order-note'],
+    transactionId: undefined,
+    displayMessage: undefined,
+    restoredFromBackup: true,
+    recovered: true,
+    recovery: {
+      version: 5,
+      network: 'testnet',
+      operators: [],
+      nonce: 2,
+      inputNotes: [],
+      outputNotes: [
+        {
+          id: 'order-note',
+          assets: [],
+          visibility: 'public',
+          swap: { orderId: '42', requestedAsset: { faucetId: 'req-faucet', amount: '1000' } }
+        }
+      ],
+      completeness: 'decoded',
+      reclaimed: false
+    },
+    extraInputs: {
+      orderId: '42',
+      requestedFaucetId: 'req-faucet',
+      requestedAmount: 1000n,
+      autoConsume: false,
+      ...extra
+    }
+  });
+
+  const openOnNode = () =>
+    seedTracking({ orderId: '42', state: 'active', currentDepth: 0, remainingOffered: 70n, remainingRequested: 1000n });
+
+  beforeEach(() => {
+    mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
+  });
+
+  it('reads an order the node shows open as Pending, with nothing filled and Cancel swap on offer', async () => {
+    openOnNode();
+    setMockRow(recoveredOrderTx());
+    await renderAndLoad();
+
+    expect(screen.getByTestId('status-pill')).toHaveAttribute('data-swap-settlement', 'pending');
+    expect(screen.getByTestId('swap-order-status')).toHaveTextContent('orderStatusActive');
+    expect(screen.getByTestId('swap-order-amount-filled')).toHaveTextContent('swapAmountProgress_0_1000_ ETH');
+    expect(screen.getByTestId('swap-cancel-order-button')).toBeInTheDocument();
+    expect(screen.queryByText('swapOpenPendingNotes')).not.toBeInTheDocument();
+  });
+
+  // A partial fill moved what is left on offer to a remainder; the node's answer is its lineage (#1487).
+  it('reads a partly filled recovered order as Pending and partially filled, with Cancel swap on offer', async () => {
+    seedTracking({ orderId: '42', state: 'active', currentDepth: 1, remainingOffered: 28n, remainingRequested: 400n });
+    setMockRow(recoveredOrderTx({ recoveredTip: { noteId: 'remainder-1', depth: 1, remainingOffered: 28n } }));
+    await renderAndLoad();
+
+    expect(screen.getByTestId('status-pill')).toHaveAttribute('data-swap-settlement', 'pending');
+    expect(screen.getByTestId('swap-order-status')).toHaveTextContent('orderStatusPartiallyFilled');
+    expect(screen.getByTestId('swap-order-amount-filled')).toHaveTextContent('swapAmountProgress_600_1000_ ETH');
+    expect(screen.getByTestId('swap-cancel-order-button')).toBeInTheDocument();
+  });
+
+  it('returns it through the confirmation sheet and the shared cancel', async () => {
+    openOnNode();
+    setMockRow(recoveredOrderTx());
+    await renderAndLoad();
+
+    fireEvent.click(screen.getByTestId('swap-cancel-order-button'));
+    await flush();
+
+    expect(mockConfirm).toHaveBeenCalledWith(expect.objectContaining({ destructive: true }));
+    expect(mockCancelSwapOrder).toHaveBeenCalledWith('tx-1');
+  });
+
+  it('shows the order as loading, with no button, until the node has answered', async () => {
+    setMockRow(recoveredOrderTx());
+    await renderAndLoad();
+
+    expect(screen.getByTestId('swap-order-status')).toHaveTextContent('loading');
+    expect(screen.queryByTestId('swap-cancel-order-button')).not.toBeInTheDocument();
+  });
+
+  it('reads Returning funds once its Cancel is stamped', async () => {
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    openOnNode();
+    setMockRow(recoveredOrderTx({ expiresAt: nowSeconds - 2, expiryTriggeredAt: nowSeconds - 2 }));
+    await renderAndLoad();
+
+    expect(screen.getByTestId('status-pill')).toHaveAttribute('data-swap-settlement', 'reclaiming');
+    expect(screen.getByTestId('swap-cancel-order-pending')).toBeInTheDocument();
+    expect(screen.queryByTestId('swap-cancel-order-button')).not.toBeInTheDocument();
+  });
+
+  it('offers nothing once the node showed the order note spent', async () => {
+    setMockRow(recoveredOrderTx({ orderNoteSpentAt: 1_700_000_100 }));
+    await renderAndLoad();
+
+    expect(screen.getByTestId('status-pill')).toHaveAttribute('data-swap-settlement', 'undefined');
+    expect(screen.getByTestId('swap-order-status')).toHaveTextContent('trackingUnavailable');
+    expect(screen.queryByTestId('swap-cancel-order-button')).not.toBeInTheDocument();
+  });
+
+  // The refused-Cancel check or another realm can close it while the store still holds the poll's last open entry.
+  it('reads no stale open entry once its lineage closed it', async () => {
+    openOnNode();
+    setMockRow(recoveredOrderTx({ orderNoteSpentAt: 1_700_000_100, lineageClosedAt: 1_700_000_100 }));
+    await renderAndLoad();
+
+    expect(screen.getByTestId('status-pill')).toHaveAttribute('data-swap-settlement', 'undefined');
+    expect(screen.getByTestId('swap-order-status')).toHaveTextContent('trackingUnavailable');
+    expect(screen.queryByTestId('swap-cancel-order-button')).not.toBeInTheDocument();
+  });
+
+  it('offers nothing once its lineage closed it settled', async () => {
+    setMockRow(recoveredOrderTx({ settledAt: 1_700_000_100, lineageClosedAt: 1_700_000_100 }));
+    await renderAndLoad();
+
+    expect(screen.getByTestId('status-pill')).toHaveAttribute('data-swap-settlement', 'undefined');
+    expect(screen.getByTestId('swap-order-status')).toHaveTextContent('trackingUnavailable');
+    expect(screen.queryByTestId('swap-cancel-order-button')).not.toBeInTheDocument();
+  });
+
+  // The pre-fix recovery reconcile stamped an order closed from a linked payout or reclaim with no lineage read (#1487).
+  it.each([
+    ['settledAt', { settledAt: 1_700_000_100 }],
+    ['reclaimedAt', { reclaimedAt: 1_700_000_100 }]
+  ])('reads an order whose %s no lineage read recorded as open, loading until the node answers', async (_l, stamp) => {
+    setMockRow(recoveredOrderTx(stamp));
+    await renderAndLoad();
+
+    expect(screen.getByTestId('status-pill')).toHaveAttribute('data-swap-settlement', 'pending');
+    expect(screen.getByTestId('swap-order-status')).toHaveTextContent('loading');
+    expect(screen.queryByTestId('swap-cancel-order-button')).not.toBeInTheDocument();
+  });
+
+  it('offers Cancel swap on such an order once the node shows it open', async () => {
+    openOnNode();
+    setMockRow(recoveredOrderTx({ settledAt: 1_700_000_100 }));
+    await renderAndLoad();
+
+    expect(screen.getByTestId('swap-order-status')).toHaveTextContent('orderStatusActive');
+    expect(screen.getByTestId('swap-cancel-order-button')).toBeInTheDocument();
+  });
+
+  // A linked payout may be a partial fill's while the remainder is still on offer: the lineage says it is open (#1487).
+  it('keeps Cancel swap on a partly filled recovered order whose payout this wallet claimed', async () => {
+    seedTracking({ orderId: '42', state: 'active', currentDepth: 1, remainingOffered: 28n, remainingRequested: 400n });
+    setMockRow(recoveredOrderTx({ recoveredTip: { noteId: 'remainder-1', depth: 1, remainingOffered: 28n } }));
+    setMockSettlementNotes({
+      settled: ['payback'],
+      reclaimed: [],
+      settledTransactions: [
+        { id: 'receive', noteIds: ['payback'], amount: 600n, faucetId: 'req-faucet', completedAt: 1_700_000_100 }
+      ],
+      reclaimedTransactions: []
+    });
+    await renderAndLoad();
+
+    expect(screen.getByTestId('status-pill')).toHaveAttribute('data-swap-settlement', 'pending');
+    expect(screen.getByTestId('swap-order-status')).toHaveTextContent('orderStatusPartiallyFilled');
+    expect(screen.getByTestId('swap-order-amount-filled')).toHaveTextContent('swapAmountProgress_600_1000_ ETH');
+    expect(screen.getByTestId('swap-cancel-order-button')).toBeInTheDocument();
   });
 });

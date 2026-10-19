@@ -546,6 +546,18 @@
     "message": "ポジションを開くことに失敗しました",
     "englishSource": "Failed to open position"
   },
+  "earnCollateralLoading": {
+    "message": "預入トークンの詳細を読み込んでいます。表示され次第、操作を続行できます。",
+    "englishSource": "Loading the deposit token's details. You can continue once they arrive."
+  },
+  "earnCollateralUnavailable": {
+    "message": "現在、預入トークンは利用できないため、預入は一時停止されています。後ほど再度お試しください。",
+    "englishSource": "The deposit token isn't available right now, so deposits are paused. Try again later."
+  },
+  "earnCollateralMismatch": {
+    "message": "このレビューは別の預金トークン向けに作成されたものです。戻って、金額を再度入力してください。",
+    "englishSource": "This review was prepared for a different deposit token. Go back and enter the amount again."
+  },
   "earnTotalEarnedRewards": {
     "message": "獲得総額",
     "englishSource": "Total earned"
@@ -1021,6 +1033,10 @@
   "unknownTokenScale": {
     "message": "このトークンの小数点以下の桁数は確認できなかったため、金額を表示したり送金したりすることはできません。",
     "englishSource": "This token's decimals could not be verified, so amounts can't be shown or sent."
+  },
+  "sendTokenAvailabilityChecking": {
+    "message": "このトークンがテストネットで送信可能かどうかを確認しています。確認が完了次第、送信できます。",
+    "englishSource": "Checking whether this token can be sent on Testnet. You can send it once the check finishes."
   },
   "oops": {
     "message": "おっと！",
@@ -3938,6 +3954,24 @@
     "message": "署名をお願いします",
     "englishSource": "Requests your signature"
   },
+  "confirmLoginSignature": {
+    "message": "$domain$ にログインする",
+    "englishSource": "Sign in to $domain$",
+    "placeholders": {
+      "domain": {
+        "content": "$1"
+      }
+    }
+  },
+  "loginSignatureNote": {
+    "message": "Breadは、$domain$専用に作成された鍵でのみ署名を行います。この鍵では、資金の移動やアカウントの変更を行うことはできません。",
+    "englishSource": "Bread signs with a key made only for $domain$. It can't move funds or change your account.",
+    "placeholders": {
+      "domain": {
+        "content": "$1"
+      }
+    }
+  },
   "requestAssets": {
     "message": "アセットのリクエスト",
     "englishSource": "Request Assets"
@@ -4396,6 +4430,53 @@
     "message": "{count}個の公開済みdApp",
     "englishSource": "{count} open dApps"
   },
+  "openLinkTitle": {
+    "message": "$host$を開きますか？",
+    "englishSource": "Open $host$?",
+    "placeholders": {
+      "host": {
+        "content": "$1"
+      }
+    }
+  },
+  "openLinkDescription": {
+    "message": "このサイトは「Explore」に掲載されておらず、誰でもリンクを張ることができます。このサイトを信頼できる場合にのみアクセスしてください。",
+    "englishSource": "This site is not listed in Explore, and anyone can make a link to it. Only open it if you trust this site."
+  },
+  "openLinkAction": {
+    "message": "開く",
+    "englishSource": "Open"
+  },
+  "breadConnectWaitingTitle": {
+    "message": "トランザクションを完了しています",
+    "englishSource": "Finishing the transaction"
+  },
+  "breadConnectWaitingDescription": {
+    "message": "Bread を開いたままにしてください。トランザクションが完了すると $host$ に戻ります。",
+    "englishSource": "Keep Bread open: it takes you back to $host$ once the transaction is done.",
+    "placeholders": {
+      "host": {
+        "content": "$1"
+      }
+    }
+  },
+  "breadConnectUnreturnedTitle": {
+    "message": "$host$ を開けませんでした",
+    "englishSource": "Couldn't open $host$",
+    "placeholders": {
+      "host": {
+        "content": "$1"
+      }
+    }
+  },
+  "breadConnectUnreturnedDescription": {
+    "message": "Bread は応答しましたが、リクエスト元のアプリが開きませんでした。続けるには、そのアプリをご自身で開いてください。",
+    "englishSource": "Bread answered, but the app that asked didn't open. Open it yourself to continue."
+  },
+  "breadConnectUnreturnedTransactionDescription": {
+    "message": "トランザクションは送信済みです。アプリで再試行する前に、Bread で結果を確認してください。",
+    "englishSource": "The transaction was still sent. Check its result in Bread before you try again in the app."
+  },
   "approve": {
     "message": "承認する",
     "englishSource": "Approve"
@@ -4423,6 +4504,15 @@
   "dappSignRequest": {
     "message": "このアプリでは、ウォレットを使用してデータに署名することを求めています",
     "englishSource": "This app wants you to sign data with your wallet"
+  },
+  "dappLoginSignRequest": {
+    "message": "当サイトでは、Breadを使用して$domain$にログインすることを推奨しています。",
+    "englishSource": "This site wants you to sign in to $domain$ with Bread",
+    "placeholders": {
+      "domain": {
+        "content": "$1"
+      }
+    }
   },
   "dappImportNoteRequest": {
     "message": "このアプリは、プライベートなnoteをあなたのウォレットにインポートしようとしています",
@@ -5794,8 +5884,8 @@
     "englishSource": "Help improve Wallet"
   },
   "helpImproveWalletDescription": {
-    "message": "Walletのどの機能を使用しているか、どこで操作が滞ったか、大まかなエラーの分類、アプリのバージョン、およびご利用のプラットフォームをお知らせください。そうすることで、不具合の原因を特定し修正することができます。アプリがクラッシュした場合は、エラー内容とコード内の発生箇所を含むクラッシュレポートも送信されます。送信前に機密データは削除されています。 鍵、リカバリーフレーズ、パスワード、アドレス、残高、金額、取引内容は一切送信されません。他のアプリやサイトでの追跡は行わず、広告目的で使用されることもなく、データブローカーへの販売や共有も行われません。これらの設定はいつでも変更可能です。",
-    "englishSource": "Shares which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform, so we can fix what's breaking. If the app crashes, it also sends a crash report with the error and where it happened in the code, scrubbed to remove sensitive data before sending. Never your keys, recovery phrase, password, addresses, balances, amounts, or transaction contents. No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers. You can change this any time."
+    "message": "ウォレットのどの部分を使用しているか、どこで問題が発生したか、大まかなエラーの分類、アプリのバージョン、およびご利用のプラットフォームを共有してください。そうすることで、不具合を修正できます。鍵、リカバリーフレーズ、パスワード、アドレス、残高、金額、または取引内容は絶対に共有しないでください。 他のアプリやサイトでの追跡は一切行わず、広告目的での利用も一切ありません。また、データブローカーへの販売や共有も一切行いません。クラッシュレポートは、エラー内容とコード内の発生箇所を、機密データを削除し、ユーザーやデバイスの識別子を一切含まない状態で送信されます。この設定はいつでも変更可能です。",
+    "englishSource": "Shares which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform, so we can fix what's breaking. Never your keys, recovery phrase, password, addresses, balances, amounts, or transaction contents. No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers. Crash reports are sent either way: the error and where it happened in the code, scrubbed to remove sensitive data, with no identifier for you or your device. You can change this any time."
   },
   "helpImproveWalletAccept": {
     "message": "利用状況データの共有",
@@ -5814,8 +5904,8 @@
     "englishSource": "Only what helps us fix bugs"
   },
   "helpImproveWalletSharedDescription": {
-    "message": "Which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform. If the app crashes, a crash report with the error and where it happened in the code, scrubbed to remove sensitive data before sending.",
-    "englishSource": "Which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform. If the app crashes, a crash report with the error and where it happened in the code, scrubbed to remove sensitive data before sending."
+    "message": "ウォレットのどの機能を使用しているか、どこで問題が発生しているか、エラーの大まかな分類、アプリのバージョン、およびご利用のプラットフォーム。",
+    "englishSource": "Which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform."
   },
   "helpImproveWalletPrivateTitle": {
     "message": "Your wallet stays private",
@@ -5832,6 +5922,10 @@
   "helpImproveWalletNoTrackingDescription": {
     "message": "No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers.",
     "englishSource": "No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers."
+  },
+  "helpImproveWalletCrashReports": {
+    "message": "クラッシュレポートは、クラッシュを修正するためにいずれの場合も送信されます。レポートには、エラー内容とコード内の発生箇所が含まれますが、機密データは削除され、ユーザーやデバイスの識別子は一切含まれません。",
+    "englishSource": "Crash reports are sent either way, so we can fix crashes: the error and where it happened in the code, scrubbed to remove sensitive data, with no identifier for you or your device."
   },
   "helpImproveWalletChangeAnyTime": {
     "message": "You can change this any time in Settings.",
@@ -6918,5 +7012,37 @@
   "earnWithdrawInProgress": {
     "message": "このポジションからの別の引き出しが現在進行中です。完了するまでお待ちください。",
     "englishSource": "Another withdrawal from this position is still in progress. Wait for it to finish."
+  },
+  "webViewUpdateTitle": {
+    "message": "Android System WebViewの更新",
+    "englishSource": "Update Android System WebView"
+  },
+  "webViewUpdateBody": {
+    "message": "Bread には、アプリ内でウェブページを表示する Android のコンポーネントである Android System WebView の新しいバージョンが必要です。Google Play から更新してから、Bread を再度開いてください。",
+    "englishSource": "Bread needs a newer version of Android System WebView, the part of Android that shows web pages in apps. Update it from Google Play, then open Bread again."
+  },
+  "webViewUpdateAction": {
+    "message": "Google Playを開く",
+    "englishSource": "Open Google Play"
+  },
+  "webViewUpdateChromeTitle": {
+    "message": "Chromeを更新",
+    "englishSource": "Update Chrome"
+  },
+  "webViewUpdateChromeBody": {
+    "message": "Bread を利用するには、このバージョンの Android ではアプリ内でウェブページを表示する、新しいバージョンの Chrome が必要です。Google Play からアップデートした後、Bread を再度開いてください。",
+    "englishSource": "Bread needs a newer version of Chrome, which shows web pages in apps on this version of Android. Update it from Google Play, then open Bread again."
+  },
+  "webViewStartFailedTitle": {
+    "message": "Breadは開始できませんでした",
+    "englishSource": "Bread couldn't start"
+  },
+  "webViewStartFailedBody": {
+    "message": "何らかの理由でBreadの読み込みが中断されました。もう一度試すか、Breadを閉じてから再度開いてください。",
+    "englishSource": "Something stopped Bread from loading. Try again, or close Bread and open it again."
+  },
+  "webViewStartFailedAction": {
+    "message": "もう一度試してください",
+    "englishSource": "Try again"
   }
 }

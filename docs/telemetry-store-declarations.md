@@ -1,7 +1,7 @@
 # Telemetry — store data-collection declarations
 
-Bread ships an optional, off-by-default **Share usage data** setting. Four
-storefronts each want that declared in their own vocabulary, and none of them
+Bread sends scrubbed crash reports from every user and asks each user whether
+to **Share usage data** (product events). Four storefronts each want that declared in their own vocabulary, and none of them
 uses the same words for it. This file holds the answers for all four so they
 stay consistent with each other and with the code.
 
@@ -217,9 +217,9 @@ Declare nothing else. In particular: no Identifiers (no user id, device id, or
 advertising identifier exists), no Financial Info, no Contact Info, no Location,
 no Sensitive Info, no Advertising Data.
 
-Answer **yes** to "collected but optional" where the form offers it. Apple's
-questionnaire asks what the app *can* collect, so both rows must be declared
-even though collection is off by default and requires opt-in.
+Crash Data is collected from every user. Product Interaction is collected only
+from users who chose **Share usage data**; Apple's questionnaire asks what the
+app *can* collect, so both rows are declared.
 
 **No App Tracking Transparency prompt.** `NSUserTrackingUsageDescription` is
 absent, and a test asserts it stays absent — nothing is tracked, so there is
@@ -247,15 +247,13 @@ allowed and dishonest ones are not.
 
 ## Google Play
 
-The paste-ready Data Safety answers live in
-[`STORE_LISTING.md`](../STORE_LISTING.md) under "Data Safety (Google Play)",
-which is the existing mechanism — they are not duplicated here, so there is one
-place to change them.
+The Data Safety form's answers, kept here with the other three storefronts:
 
-For orientation, the telemetry-relevant answers there are: **App activity → App
-interactions** and **App info and performance → Crash logs / Diagnostics**, each
-collected optionally, not shared, encrypted in transit, purpose Analytics and
-App functionality; **Device or other IDs: not collected**.
+The telemetry-relevant answers are: **App info and performance → Crash logs /
+Diagnostics**, collected from every user (required, users cannot turn it off),
+purpose App functionality; **App activity → App interactions**, collected
+optionally (the **Share usage data** choice), purpose Analytics; both not shared
+and encrypted in transit; **Device or other IDs: not collected**.
 
 **The data-deletion question.** Play asks whether users can request deletion of
 their data. Answered honestly and consistently with the no-identifier design:
@@ -273,15 +271,9 @@ does not compromise privacy, which is the distinction the sentence draws — but
 that should be somebody's decision, not a sentence that survived because nobody
 re-read it.
 
-## One inconsistency worth fixing, in the consent copy
+## The consent copy
 
-`helpImproveWalletDescription` in `public/_locales/en/en.json` describes the
-product events well ("which parts of Wallet you use, where you get stuck, broad
-error categories, the app version, and your platform") but never says **crash
-reports**, which the same single setting also turns on. Nothing it says is
-false, and "where you get stuck" is in the neighbourhood, but a user reading only
-that string would not know they were consenting to stack traces being sent.
-
-Not fixed here: changing that string means re-translating it across every locale
-in `public/_locales/`, and the wording is Product's call. Raised so it is a
-decision. The public policy is explicit about crash reports either way.
+The onboarding screen and the Settings footnote say that crash reports are sent
+either way (`helpImproveWalletCrashReports`, `helpImproveWalletDescription` in
+`public/_locales/en/en.json`), and the **Share usage data** choice covers the
+product events only, matching the public policy.

@@ -3,37 +3,17 @@ import { resolve } from 'path';
 
 import { isExtension } from 'lib/platform';
 import { TELEMETRY_STORAGE_KEY } from 'lib/settings/constants';
-import { isTelemetryEnabledAsync } from 'lib/settings/helpers';
+import { isCrashReportingEnabledAsync, isTelemetryEnabledAsync } from 'lib/settings/helpers';
 
 import { captureCrash, initCrashReporting, stopCrashReporting } from './crash';
 import { __setTransportForTest, dropQueue, sendEvent } from './sink';
 import { TelemetryWirePayload } from './types';
 
 /**
- * Firefox's browser-level data-collection consent, ANDed with the wallet's own
- * setting.
- *
- * Firefox 140+ asks the user — at install time, and again in `about:addons` →
- * Permissions and data — whether the extension may collect
- * `technicalAndInteraction` data. That is a second consent sitting beside
- * "Share usage data", and two consents that can disagree is a defect: a user
- * who declines at the Firefox prompt and then turns the wallet setting on must
- * not be collected from.
- *
- * The hard part is not the AND, it is telling **"this browser has no such
- * concept"** apart from **"this browser said no"**, because getting it backwards
- * fails silently in one of two directions:
- *
- * - Read an absent mechanism as a refusal, and telemetry dies everywhere —
- *   Chrome, iOS and Android included — with no error and no failing test.
- * - Read a refusal as an absent mechanism, and we collect from a user who
- *   explicitly declined, which is the whole thing this exists to prevent.
- *
- * So the matrix below is the point of this file, and every row is driven
- * against the REAL settings module and the REAL sink rather than a stubbed
- * consent gate. `egress-boundary.test.ts` substitutes `isTelemetryEnabledAsync`
- * wholesale to drive both sides of it, which is the right call there and would
- * make this file prove nothing.
+ * Firefox's browser-level permission applies to usage events and crash reports.
+ * Only usage events also require the wallet's "Share usage data" setting.
+ * The real settings module and senders distinguish an absent browser consent
+ * mechanism on Chrome/mobile from an explicit Firefox refusal.
  */
 
 const mockKvStore: Record<string, unknown> = {};
@@ -287,6 +267,29 @@ describe('isTelemetryEnabledAsync', () => {
   });
 });
 
+describe('isCrashReportingEnabledAsync', () => {
+  it('consults Firefox permission even when usage sharing is off', async () => {
+    walletSetting(false);
+    firefoxAnswers(false);
+
+    await expect(isCrashReportingEnabledAsync()).resolves.toBe(false);
+    expect(mockGetAll).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    { label: 'a different data type', answer: ['healthInfo'] },
+    { label: 'a string instead of an array', answer: CHECKED_PERMISSION },
+    { label: 'null instead of an absent answer', answer: null }
+  ])('refuses $label with usage sharing off', async ({ answer }) => {
+    walletSetting(false);
+    mockIsExtension.mockReturnValue(true);
+    mockGetAll.mockResolvedValue({ data_collection: answer });
+
+    await expect(isCrashReportingEnabledAsync()).resolves.toBe(false);
+    expect(mockGetAll).toHaveBeenCalledTimes(1);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // The gate and the manifest have to name the same permission.
 // ---------------------------------------------------------------------------
@@ -307,7 +310,7 @@ describe('the declared permission and the permission we check', () => {
 });
 
 // ---------------------------------------------------------------------------
-// The same gate governs crash reports, because there is only one gate.
+// Crash reports require browser permission independently of usage consent.
 // ---------------------------------------------------------------------------
 
 /**
@@ -326,7 +329,7 @@ const isSentryRequest = (url: string): boolean => {
   }
 };
 
-describe('the crash egress point uses the same gate', () => {
+describe('the crash egress point honours browser permission independently of usage consent', () => {
   const requests: string[] = [];
   let originalFetch: PropertyDescriptor | undefined;
 
@@ -362,7 +365,7 @@ describe('the crash egress point uses the same gate', () => {
     for (let i = 0; i < 4; i++) await new Promise(resolve => setTimeout(resolve, 5));
   };
 
-  it('reports a crash when both consents agree', async () => {
+  it('reports a crash when Firefox permission and usage consent are granted', async () => {
     // Positive control first, for the same reason as above.
     walletSetting(true);
     firefoxAnswers(true);
@@ -374,8 +377,8 @@ describe('the crash egress point uses the same gate', () => {
     expect(requests.filter(isSentryRequest).length).toBeGreaterThan(0);
   });
 
-  it('reports nothing when the browser denies, even with the wallet setting on', async () => {
-    walletSetting(true);
+  it.each([false, true])('reports nothing when Firefox denies and usage sharing is %s', async usageEnabled => {
+    walletSetting(usageEnabled);
     firefoxAnswers(false);
 
     initCrashReporting();
@@ -383,5 +386,120 @@ describe('the crash egress point uses the same gate', () => {
     await flush();
 
     expect(requests.filter(isSentryRequest)).toEqual([]);
+    expect(mockGetAll).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    { label: 'unset', enabled: undefined },
+    { label: 'off', enabled: false },
+    { label: 'on', enabled: true }
+  ])('reports on Chrome when usage sharing is $label', async ({ enabled }) => {
+    if (enabled !== undefined) walletSetting(enabled);
+    browserHasNoDataCollectionConcept();
+
+    initCrashReporting();
+    captureCrash(new Error('rpc endpoint returned status'));
+    await flush();
+
+    expect(requests.filter(isSentryRequest).length).toBeGreaterThan(0);
+    expect(mockGetAll).toHaveBeenCalledTimes(2);
+  });
+
+  it('reports on mobile with usage sharing off and no extension permission API', async () => {
+    walletSetting(false);
+    mockIsExtension.mockReturnValue(false);
+
+    initCrashReporting();
+    captureCrash(new Error('rpc endpoint returned status'));
+    await flush();
+
+    expect(requests.filter(isSentryRequest).length).toBeGreaterThan(0);
+    expect(mockGetAll).not.toHaveBeenCalled();
+  });
+
+  it('reports with Firefox permission while usage sharing is off', async () => {
+    walletSetting(false);
+    firefoxAnswers(true);
+
+    initCrashReporting();
+    captureCrash(new Error('rpc endpoint returned status'));
+    await flush();
+
+    expect(requests.filter(isSentryRequest).length).toBeGreaterThan(0);
+    expect(mockGetAll).toHaveBeenCalledTimes(2);
+  });
+
+  it('reports nothing if Firefox permission cannot be read while usage sharing is off', async () => {
+    walletSetting(false);
+    mockIsExtension.mockReturnValue(true);
+    mockGetAll.mockRejectedValue(new Error('permissions API unavailable'));
+
+    initCrashReporting();
+    captureCrash(new Error('rpc endpoint returned status'));
+    await flush();
+
+    expect(requests.filter(isSentryRequest)).toEqual([]);
+    expect(mockGetAll).toHaveBeenCalledTimes(1);
+  });
+
+  it('drops a crash if Firefox permission is revoked between capture and transport', async () => {
+    walletSetting(false);
+    firefoxAnswers(false);
+    mockGetAll.mockResolvedValueOnce({ data_collection: [CHECKED_PERMISSION] });
+
+    initCrashReporting();
+    captureCrash(new Error('rpc endpoint returned status'));
+    await flush();
+
+    expect(mockGetAll).toHaveBeenCalledTimes(2);
+    expect(requests.filter(isSentryRequest)).toEqual([]);
+  });
+
+  it('drops a crash if Firefox refuses a pending transport permission check', async () => {
+    walletSetting(false);
+    firefoxAnswers(true);
+    let answerTransport: (answer: { data_collection: string[] }) => void = () => {};
+    mockGetAll.mockResolvedValueOnce({ data_collection: [CHECKED_PERMISSION] }).mockImplementationOnce(
+      () =>
+        new Promise(resolve => {
+          answerTransport = resolve;
+        })
+    );
+
+    initCrashReporting();
+    captureCrash(new Error('rpc endpoint returned status'));
+    await flush();
+    expect(mockGetAll).toHaveBeenCalledTimes(2);
+    expect(requests.filter(isSentryRequest)).toEqual([]);
+
+    answerTransport({ data_collection: [] });
+    await flush();
+
+    expect(requests.filter(isSentryRequest)).toEqual([]);
+  });
+
+  it('keeps a crash in flight when usage sharing is disabled before transport', async () => {
+    walletSetting(true);
+    firefoxAnswers(true);
+    let allowCapture: (answer: { data_collection: string[] }) => void = () => {};
+    mockGetAll.mockImplementationOnce(
+      () =>
+        new Promise(resolve => {
+          allowCapture = resolve;
+        })
+    );
+
+    initCrashReporting();
+    captureCrash(new Error('rpc endpoint returned status'));
+    await flush();
+    expect(mockGetAll).toHaveBeenCalledTimes(1);
+    expect(requests.filter(isSentryRequest)).toEqual([]);
+
+    walletSetting(false);
+    allowCapture({ data_collection: [CHECKED_PERMISSION] });
+    await flush();
+
+    expect(mockGetAll).toHaveBeenCalledTimes(2);
+    expect(requests.filter(isSentryRequest).length).toBeGreaterThan(0);
   });
 });

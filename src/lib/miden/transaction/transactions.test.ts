@@ -111,6 +111,7 @@ const mockGetMidenClient = jest.fn((): any => ({
 jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-client'));
 jest.mock('../sdk/miden-client', () => ({
   getMidenClient: () => mockGetMidenClient(),
+  getCurrentWasmLockHold: () => null,
   withWasmClientLock: jest.fn((fn: () => Promise<any>) => fn())
 }));
 
@@ -804,19 +805,22 @@ describe('transactions utilities', () => {
 
     // The dedup reads two indexes per note: scalar `noteId` (legacy/single
     // rows) and multi-entry `noteIds` (batch rows). Tests feed legacy rows
-    // through the scalar query; batch rows can be supplied separately.
+    // through the scalar query; batch rows can be supplied separately. The writer reads them twice: in its
+    // read-only pre-pass (may any note be written, or can the fee read be skipped) and in its write transaction.
     const mockDedupQuery = (rows: any[], batchRows: any[] = []) => {
-      mockTransactionsWhere
-        .mockReturnValueOnce({
-          equals: jest.fn().mockReturnValueOnce({
-            toArray: jest.fn().mockResolvedValueOnce(rows)
+      for (let pass = 0; pass < 2; pass++) {
+        mockTransactionsWhere
+          .mockReturnValueOnce({
+            equals: jest.fn().mockReturnValueOnce({
+              toArray: jest.fn().mockResolvedValueOnce(rows)
+            })
           })
-        })
-        .mockReturnValueOnce({
-          equals: jest.fn().mockReturnValueOnce({
-            toArray: jest.fn().mockResolvedValueOnce(batchRows)
-          })
-        });
+          .mockReturnValueOnce({
+            equals: jest.fn().mockReturnValueOnce({
+              toArray: jest.fn().mockResolvedValueOnce(batchRows)
+            })
+          });
+      }
     };
 
     it('creates consume transaction when none exists', async () => {
@@ -1227,20 +1231,25 @@ describe('transactions utilities', () => {
     noNoteHoldingRows();
     it('creates consume transaction from note id', async () => {
       mockGetInputNote.mockReturnValueOnce({
-        metadata: () => ({ noteType: () => 'public' })
+        metadata: () => ({ noteType: () => 'public' }),
+        details: () => {
+          throw new Error('note details unavailable');
+        }
       });
-      // Scalar `noteId` query + multi-entry `noteIds` query (batch rows).
-      mockTransactionsWhere
-        .mockReturnValueOnce({
-          equals: jest.fn().mockReturnValueOnce({
-            toArray: jest.fn().mockResolvedValueOnce([])
+      // Scalar `noteId` query + multi-entry `noteIds` query (batch rows), read by the pre-pass and the write.
+      for (let pass = 0; pass < 2; pass++) {
+        mockTransactionsWhere
+          .mockReturnValueOnce({
+            equals: jest.fn().mockReturnValueOnce({
+              toArray: jest.fn().mockResolvedValueOnce([])
+            })
           })
-        })
-        .mockReturnValueOnce({
-          equals: jest.fn().mockReturnValueOnce({
-            toArray: jest.fn().mockResolvedValueOnce([])
-          })
-        });
+          .mockReturnValueOnce({
+            equals: jest.fn().mockReturnValueOnce({
+              toArray: jest.fn().mockResolvedValueOnce([])
+            })
+          });
+      }
       mockTransactionsAdd.mockResolvedValueOnce(undefined);
 
       const result = await initiateConsumeTransactionFromId('account-1', 'note-456');

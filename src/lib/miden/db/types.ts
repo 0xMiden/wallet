@@ -1,8 +1,9 @@
 import type { PreparedExecution } from '@epoch-protocol/epoch-intents-sdk';
 import { v4 as uuid } from 'uuid';
 
+import type { ClaimFeeNote } from 'lib/miden/fees/spendable';
 import type { AgglayerRecoveryConfig } from 'lib/remote-config/schema';
-import type { TransactionFailureDiagnostics } from 'lib/telemetry/transaction-failure';
+import type { ConsumeEntryPoint, TransactionFailureDiagnostics } from 'lib/telemetry/transaction-failure';
 import type { UsdcxSourceChain } from 'lib/usdcx/constant';
 
 import type { GuardianHistoryRecovery } from '../guardian/history';
@@ -37,6 +38,9 @@ export const hasLeftQueue = (row: Pick<ITransaction, 'status'>): boolean =>
 
 export type SubmitEvidenceSource = 'stage' | 'pin' | 'kill' | 'out-of-band' | 'end' | 'error-text';
 
+/** Which never-committed row of the verdict table proved an attempt dead: row 4, row 5 or row 6. */
+export type NeverCommittedBy = 'expired' | 'superseded' | 'spent_elsewhere';
+
 /** One attempt that may have crossed its submit (#1081). Keyed by attemptId. */
 export interface ISubmitEvidence {
   attemptId: string;
@@ -58,6 +62,7 @@ export interface ISubmitEvidence {
   landingSeenAtBlock?: number; // the block a landing judgement rested on; set once by row 1 or 3, a row 2 record may be replaced
   landingSeenBy?: 1 | 2 | 3; // the verdict row whose judgement wrote landingSeenAtBlock
   verdict?: 'never-committed' | 'unresolvable'; // sticky
+  neverCommittedBy?: NeverCommittedBy; // written with a never-committed verdict; absent on one written before it existed
   endedBy?: 'kill' | 'out-of-band'; // how the attempt ended outside its pipeline; set once
   endedAt?: number; // unix seconds, with endedBy
   preSubmitEnd?: true; // the leaf's tag proved the attempt ended before its submit call
@@ -149,6 +154,10 @@ export interface IConsumedNote {
   faucetId: string;
   /** Base units of the note's first fungible asset; absent when the claimable note carried no amount. */
   amount?: bigint;
+  /** Whether the queued note carried other assets; absent means its full asset list is unknown. */
+  carriesMoreAssets?: boolean;
+  /** Full fungible assets used by the fee gate, independent of the row's display fields. */
+  feeAssets?: { faucetId: string; amount: bigint }[];
 }
 
 /**
@@ -688,6 +697,11 @@ export interface ITransaction {
    */
   rotationFunding?: true;
   /**
+   * Consume only: the entry point that queued the row, stamped when it is created and named by a failed claim's crash
+   * report. Absent on rows queued before it and on rows no queue call made (recovered history). Not indexed.
+   */
+  consumeEntryPoint?: ConsumeEntryPoint;
+  /**
    * Execute (dApp custom) only: per-faucet value LEAVING the account, taken from the approval-time
    * dry run that the confirmation sheet already renders.
    *
@@ -1150,6 +1164,8 @@ export class ConsumeTransaction implements ITransaction {
   consumedNotes?: IConsumedNote[];
   /** See `ITransaction.rotationFunding`. */
   rotationFunding?: true;
+  /** See `ITransaction.consumeEntryPoint`. */
+  consumeEntryPoint?: ConsumeEntryPoint;
   /** See `ITransaction.dappOrigins`. */
   dappOrigins?: string[];
   transactionId?: string;
@@ -1172,7 +1188,12 @@ export class ConsumeTransaction implements ITransaction {
   // hot key was Face-ID-gated (`.userPresence`). Hot signing is silent again, so
   // every consume signs the same way. Old persisted rows may still carry a stray
   // `background` property; it's ignored.
-  constructor(accountId: string, notes: ConsumableNote | ConsumableNote[], delegateTransaction?: boolean) {
+  constructor(
+    accountId: string,
+    notes: ConsumableNote | ConsumableNote[],
+    delegateTransaction?: boolean,
+    feeNotesById?: ReadonlyMap<string, readonly ClaimFeeNote[]>
+  ) {
     const list = Array.isArray(notes) ? notes : [notes];
     const first = list[0];
     if (!first) {
@@ -1206,12 +1227,30 @@ export class ConsumeTransaction implements ITransaction {
       total => total.faucetId !== ''
     );
     this.assetTotals = identifiedTotals.length > 0 ? identifiedTotals : undefined;
-    this.consumedNotes = list.map(note => ({
-      id: note.id,
-      senderAddress: note.senderAddress,
-      faucetId: note.faucetId,
-      ...(note.amount === '' ? {} : { amount: BigInt(note.amount) })
-    }));
+    this.consumedNotes = list.map(note => {
+      const feeNotes = feeNotesById?.get(note.id);
+      let feeAssets: IConsumedNote['feeAssets'];
+      if (
+        feeNotes !== undefined &&
+        feeNotes.every(
+          fact => !fact.assetsUnknown && !fact.carriesMoreAssets && fact.faucetId.trim() && fact.amount.trim()
+        )
+      ) {
+        try {
+          feeAssets = feeNotes.map(fact => ({ faucetId: fact.faucetId, amount: BigInt(fact.amount) }));
+        } catch {
+          // Unparseable facts must stay unknown to later fee checks.
+        }
+      }
+      return {
+        id: note.id,
+        senderAddress: note.senderAddress,
+        faucetId: note.faucetId,
+        carriesMoreAssets: note.carriesMoreAssets,
+        ...(note.amount === '' ? {} : { amount: BigInt(note.amount) }),
+        ...(feeAssets === undefined ? {} : { feeAssets })
+      };
+    });
     this.status = ITransactionStatus.Queued;
     this.initiatedAt = Math.floor(Date.now() / 1000); // seconds
     this.queuedSeq = nextQueuedSeq();
@@ -1250,6 +1289,34 @@ export interface ISwapExtraInputs {
   settledAt?: number;
   /** Stamped when an expiry-reclaim settlement consume completes. */
   reclaimedAt?: number;
+  /**
+   * Stamped on a Guardian-recovered order when the node shows its order note spent and no consume of this wallet
+   * explains it: a fill, or a reclaim made elsewhere. It closes the order, which then reads Confirmed (#1487).
+   */
+  orderNoteSpentAt?: number;
+  /**
+   * Stamped on a Guardian-recovered order with its closing stamp once the node's lineage read finished. A settledAt or
+   * reclaimedAt without it is the pre-fix recovery reconcile's, written from a linked payout or reclaim with no
+   * lineage read, so it is provisional until the next read decides (#1487).
+   */
+  lineageClosedAt?: number;
+  /**
+   * The open remainder a partial fill left of a Guardian-recovered order, as the node's lineage showed it: the note
+   * its Cancel returns, since the order note is spent (#1487).
+   */
+  recoveredTip?: IRecoveredSwapTip;
+  /** The last spent tip a bounded lineage read reached, for the next read to resume from, never for Cancel. */
+  recoveredCheckpoint?: IRecoveredSwapCheckpoint;
+}
+
+export interface IRecoveredSwapCheckpoint {
+  noteId: string;
+  /** The fill round that created it, 1 for the first remainder. */
+  depth: number;
+}
+
+export interface IRecoveredSwapTip extends IRecoveredSwapCheckpoint {
+  remainingOffered: bigint;
 }
 
 /**

@@ -6,14 +6,13 @@ import type { SimulatorControl } from './simulator-control';
 import type { PromptSettlement } from './system-alerts';
 import { ACTIVITY_PENDING_PATH } from '../../../../src/app/pages/activity-paths';
 import { NATIVE_ASSET_FEE_CACHE, NATIVE_ASSET_ID_CACHE } from '../../../../src/lib/miden-chain/native-asset-cache-keys';
-import { ARC_TESTNET } from '../../../../src/lib/walletconnect/config';
 import type { TimelineRecorder } from '../../harness/timeline-recorder';
 import { buildBalanceTotalScript } from '../../helpers/balance-script';
 import { toBaseUnits } from '../../helpers/balance-truth';
 import {
   bridgedSendRowOf,
+  burnSubmitFailure,
   enText,
-  isArcSnapshotFailure,
   reviewQueryParam,
   USDCX_DESTINATION_CHIPS,
   usdcxPayoutRowsText,
@@ -23,12 +22,19 @@ import {
 import { claimFromPendingList } from '../../helpers/claim-drain';
 import { SEPOLIA_NETWORK } from '../../helpers/contact-network';
 import {
+  CONFIRMATION_SUBMIT,
+  CREATED_WALLET_STATE_JS,
+  pollCreatedWalletReady
+} from '../../helpers/created-wallet-ready';
+import {
   readTransactionRowsInPage,
   TxStatus,
   type TransactionRowSnapshot,
   type TransactionRowsQuery
 } from '../../helpers/history';
 import {
+  BRIDGE_DEPOSIT_LAYER,
+  BRIDGE_SOURCE_NETWORK_JS,
   OPEN_SHEET,
   scopedJs,
   SEND_FLOW,
@@ -39,7 +45,7 @@ import {
   type UsdcxRouteView
 } from '../../helpers/send-flow-scripts';
 import { dismissTelemetryConsent } from '../../helpers/telemetry-consent';
-import { ARC_CHAIN_ID } from '../../helpers/usdcx-constants';
+import { ARC_PAYOUT, type PayoutChain } from '../../helpers/usdcx-constants';
 import { burnFailureMessage } from '../../helpers/usdcx-guardian';
 import type { GuardianAuthInfo, WalletPage, SendTokensParams } from '../../helpers/wallet-page';
 
@@ -145,9 +151,32 @@ export function routeOf(href: string): string {
   return new URL(href).hash;
 }
 
+/** Whether the bridge From row's value names `name` exactly: "Sepolia" is part of "Base Sepolia". */
+export function networkRowNames(value: string | null, name: string): boolean {
+  return value === name;
+}
+
 /** `text` with every `?query` cut out: a serialized URL's query holds no `#`, `"` or whitespace, so the cut ends there. */
 function withoutUrlQueries(text: string): string {
   return text.replace(/\?[^\s#"]+/g, '');
+}
+
+interface EvalTally {
+  returned: number;
+  lastError?: unknown;
+}
+
+/**
+ * A poll none of whose evals returned never checked anything: a CDP session that died at attach failed this way as
+ * "did not appear", which sent the diagnosis to the app.
+ */
+function noEvalReturned(poll: string, target: string, timeoutMs: number, tally: EvalTally): Error {
+  const { lastError } = tally;
+  const last =
+    lastError === undefined
+      ? 'none'
+      : withoutUrlQueries(lastError instanceof Error ? lastError.message : String(lastError)).slice(0, 500);
+  return new Error(`${poll}: could not check ${target}: no CDP eval returned in ${timeoutMs}ms (last error: ${last})`);
 }
 
 const READ_ATTEMPTS = 3;
@@ -171,7 +200,6 @@ async function ridingOut<T>(read: () => Promise<T>): Promise<T> {
 
 // The review slides over the retained Send layer, whose route step holds the same payout rows and burn notice.
 const SEND_REVIEW = '[data-page-layer="/send/review"]';
-const ARC_CHIP = 'send-network-arc-testnet';
 // Mobile mounts the app as a full page, so the in-progress route is the -full variant.
 const GENERATING_ROUTE = /#\/generating-transaction(?:-full)?\/([^/?#]+)/;
 
@@ -232,12 +260,14 @@ function detailsLayer(rowId: string): string {
 }
 
 export interface UsdcxBurnViaSendOptions {
-  /** The Arc address Circle pays. Never a private key: appium-remote-debugger logs every eval body. */
+  /** The address Circle pays on the payout chain. Never a private key: appium-remote-debugger logs every eval body. */
   destAddress: `0x${string}`;
   /** As typed: a whole number, since the amount field follows the simulator's locale for decimals. */
   amount: string;
   nativeTokenId: string;
   nativeSymbol: string;
+  /** The chain Circle pays on; Arc Testnet when absent. */
+  payout?: PayoutChain;
   /** Where usdcx-route.png and the two review screenshots go. */
   screenshotDir: string;
   /** The step's abort signal (`namedSteps`): once it has fired, the driver never clicks submit. */
@@ -250,7 +280,7 @@ export interface UsdcxBurnSubmission {
   /** `location.hash` only (routeOf). */
   reviewRoute: string;
   generatingRoute: string;
-  /** Network sheet rows pressed when the address validated, before the Arc pick (R16 evidence). */
+  /** Network sheet rows pressed when the address validated, before the payout chain's pick (R16 evidence). */
   defaultPressed: string[];
 }
 
@@ -384,22 +414,6 @@ export class IosWalletPage implements WalletPage {
     }
   }
 
-  /** Create a `bridged-receive` tracking row; returns its txId. */
-  async createBridgeReceive(args: {
-    accountId: string;
-    amount: string;
-    faucetId: string;
-    provider: 'epoch' | 'agglayer';
-    sourceAddress: string;
-    sourceAmount: string;
-    sourceSymbol: string;
-    outputAmount?: string;
-    outputSymbol?: string;
-    evmTxHash: string;
-  }): Promise<string> {
-    return this.stashAndPoll<string>('__bi_create', `window.__TEST_CREATE_BRIDGE_RECEIVE__(${JSON.stringify(args)})`);
-  }
-
   /** Read a `bridged-receive` row's current phase/displayMessage for assertions. */
   async getBridgeReceiveState(txId: string): Promise<{
     found: boolean;
@@ -432,6 +446,7 @@ export class IosWalletPage implements WalletPage {
     faucetId: string;
     phase?: string;
     displayMessage?: string;
+    error?: string;
   } | null> {
     const arg = provider ? JSON.stringify(provider) : '';
     return this.stashAndPoll('__bi_latest', `window.__TEST_LATEST_BRIDGE_RECEIVE__(${arg})`);
@@ -447,20 +462,15 @@ export class IosWalletPage implements WalletPage {
    * DOM, and their Swap pane reuses the form's send-token-selector and send-amount-* test ids: an unscoped lookup
    * finds the hidden Swap controls first. The token drawer portals to <body>, so its rows stay unscoped.
    */
-  private static readonly BRIDGE_PAGE = '[data-page-layer="/bridge/deposit"]';
+  private static readonly BRIDGE_PAGE = BRIDGE_DEPOSIT_LAYER;
 
   /** Receive → "Cross Chain" → the deposit amount screen (requires EVM connected). */
   async openBridgeDeposit(): Promise<void> {
     await this.navigateTo('/receive');
     await this.waitFor('[data-testid="receive-page"]', { timeoutMs: 15_000 });
     await this.click('[data-testid="receive-cross-chain"]');
-    // The cross-chain tap reads the EVM `connected` state at click time. The
-    // native WC session is established (getState() reports connected), but that
-    // propagates to React via useNativeReown's async on-mount refresh — so a tap
-    // fired before it lands opens the (un-tappable native) connect modal instead
-    // of navigating. Fall back to the real /bridge/deposit route, which renders
-    // the deposit screen reactively once `connected` propagates: same
-    // destination, no tap-timing race.
+    // Cross Chain navigates to /bridge/deposit. Should the tap not land, navigating there directly reaches the same
+    // screen.
     try {
       await this.waitFor(`${IosWalletPage.BRIDGE_PAGE} [data-testid="send-token-selector"]`, { timeoutMs: 8_000 });
       return;
@@ -477,6 +487,22 @@ export class IosWalletPage implements WalletPage {
     await this.click(`[data-testid="bridge-token-${symbol}"]`);
   }
 
+  /**
+   * Open the network drawer from the amount step's From row and pick the source chain `slug` (bridge-networks.ts), then
+   * wait until the row names it: a Reown session that approves that chain alone refuses any other chain's prompt.
+   */
+  async selectBridgeNetwork(slug: string, name: string): Promise<void> {
+    await this.click(`${IosWalletPage.BRIDGE_PAGE} [data-testid="bridge-source-network"]`);
+    await this.waitFor(`[data-testid="bridge-network-${slug}"]`, { timeoutMs: 10_000 });
+    await this.click(`[data-testid="bridge-network-${slug}"]`);
+    await this.pollEval<string | null>(
+      `the bridge From row naming ${name}`,
+      BRIDGE_SOURCE_NETWORK_JS,
+      value => networkRowNames(value, name),
+      10_000
+    );
+  }
+
   /** Type the deposit amount and confirm to advance to the route step. */
   async enterBridgeAmount(amount: string): Promise<void> {
     await this.pollForSelector(`${IosWalletPage.BRIDGE_PAGE} [data-testid="send-amount-input"]`, 15_000);
@@ -491,12 +517,13 @@ export class IosWalletPage implements WalletPage {
   }
 
   /**
-   * Confirm the Circle xReserve route (USDC) and continue to review. The route
-   * step shows one card, already selected, so the step only confirms.
+   * Confirm the Circle USDC route and continue to review. The route step shows one card, already selected, so the step
+   * only confirms; Continue waits for the balance read and stays disabled while the amount, with any fee Circle has
+   * quoted, exceeds the balance.
    */
-  async confirmBridgeRouteUsdcx(): Promise<void> {
+  async confirmBridgeRouteUsdcx(timeoutMs = 15_000): Promise<void> {
     await this.waitFor('[data-testid="bridge-route-usdcx"]', { timeoutMs: 15_000 });
-    await this.clickWhenEnabled('[data-testid="bridge-route-confirm"]', 15_000);
+    await this.clickWhenEnabled('[data-testid="bridge-route-confirm"]', timeoutMs);
   }
 
   /** Confirm the deposit on the review step (runs handleConfirm → handleSlowBridge). */
@@ -616,19 +643,20 @@ export class IosWalletPage implements WalletPage {
   // ── USDCx burn through the Send UI (the live USDCx spec) ────────────────
 
   /**
-   * Burns the native USDCx to an Arc Testnet address through the real Send UI and returns once the wallet is on the
-   * generating page. Every read is scoped (SEND_FLOW, the network sheet, SEND_REVIEW). Checks on the way: exactly the
-   * four USDCx destinations in the network sheet, the closed field naming Arc, the route card, the payout rows and the
-   * notice on the route and the review, and the review's network and fee rows; a refusal is named from
-   * `review-error`, never left to a timeout. Nothing is submitted once `signal` has aborted (R26).
+   * Burns the native USDCx to an address on `opts.payout` (Arc Testnet by default) through the real Send UI and returns
+   * once the wallet is on the generating page. Every read is scoped (SEND_FLOW, the network sheet, SEND_REVIEW). Checks
+   * on the way: exactly the four USDCx destinations in the network sheet, the closed field naming the payout chain, the
+   * route card, the payout rows and the notice on the route and the review, and the review's network and fee rows; a
+   * refusal is named from `review-error`, never left to a timeout. Nothing is submitted once `signal` has aborted (R26).
    */
   async burnUsdcxViaSendFlow(opts: UsdcxBurnViaSendOptions): Promise<UsdcxBurnSubmission> {
+    const chain = opts.payout ?? ARC_PAYOUT;
     const symbol = opts.nativeSymbol.trim();
     if (symbol === '' || symbol.toUpperCase() === 'MIDEN') {
       throw new Error(`burnUsdcxViaSendFlow: "${opts.nativeSymbol}" cannot name USDCx, the asset a USDCx burn spends`);
     }
-    // Throws before any UI when the amount does not exceed Arc's payout fee allowance (R14a).
-    const payout = usdcxPayoutRowsText(ARC_CHAIN_ID, opts.amount);
+    // Throws before any UI when the amount does not exceed the payout chain's fee allowance (R14a).
+    const payout = usdcxPayoutRowsText(chain.chainId, opts.amount);
     const routeFees = enText('usdcxMidenFees', { symbol });
     const sponsorshipFee = enText('usdcxSponsorshipFee', { symbol });
     const notice = enText('usdcxWithdrawalNotice');
@@ -654,12 +682,12 @@ export class IosWalletPage implements WalletPage {
       15_000
     );
     const defaultPressed = (offered?.rows ?? []).filter(row => row.pressed === 'true').map(row => row.testId);
-    // A network kept from an earlier attempt overrides the default, so Arc is picked explicitly every time.
-    await this.click(`${OPEN_SHEET} [data-testid="${ARC_CHIP}"]`);
+    // A network kept from an earlier attempt overrides the default, so the payout chain is picked every time.
+    await this.click(`${OPEN_SHEET} [data-testid="send-network-${chain.reviewNetwork}"]`);
     await this.pollEval<SendNetworkView | null>(
-      'the closed network field naming Arc Testnet',
+      `the closed network field naming ${chain.networkName}`,
       SEND_NETWORK_JS,
-      view => view !== null && view.rows.length === 0 && view.summary === ARC_TESTNET.name,
+      view => view !== null && view.rows.length === 0 && view.summary === chain.networkName,
       15_000
     );
     await this.clickWhenEnabled(`${SEND_FLOW} [data-testid="send-recipient-confirm"]`, 30_000);
@@ -690,7 +718,11 @@ export class IosWalletPage implements WalletPage {
       view => view.hash.startsWith('#/send/review?') && view.submit,
       30_000
     );
-    const wanted: Record<string, string> = { network: 'arc-testnet', route: 'usdcx', tokenId: opts.nativeTokenId };
+    const wanted: Record<string, string> = {
+      network: chain.reviewNetwork,
+      route: 'usdcx',
+      tokenId: opts.nativeTokenId
+    };
     for (const [name, value] of Object.entries(wanted)) {
       const actual = reviewQueryParam(landing.href, name);
       if (actual !== value) {
@@ -702,7 +734,7 @@ export class IosWalletPage implements WalletPage {
       usdcxReviewJs(enText('network'), enText('networkFee')),
       view =>
         view !== null &&
-        view.network === ARC_TESTNET.name &&
+        view.network === chain.networkName &&
         view.networkFee === sponsorshipFee &&
         view.fee === payout.fee &&
         view.net === payout.net &&
@@ -744,12 +776,7 @@ export class IosWalletPage implements WalletPage {
       const fresh = (await this.readBridgedSendRows()).filter(
         row => row.extraInputs?.provider === 'usdcx' && !rowsBefore.has(row.id)
       );
-      const error = outcome.error ?? '';
-      throw new Error(
-        isArcSnapshotFailure(error, fresh.length)
-          ? `Arc RPC unavailable for the wallet's balance snapshot (burn.ts), infra: review-error "${error}"`
-          : `the review refused the burn: review-error "${error}", ${fresh.length} new usdcx rows`
-      );
+      throw new Error(burnSubmitFailure(chain, outcome.error ?? '', fresh.length));
     }
     return {
       rowId: decodeURIComponent(rowId),
@@ -803,19 +830,22 @@ export class IosWalletPage implements WalletPage {
     await this.waitFor(`${detailsLayer(rowId)} [data-testid="history-status-pill"]`, { timeoutMs: 30_000 });
   }
 
-  /** The open details page's status pill and every Arc explorer transaction link it renders. */
-  async transactionDetailsView(rowId: string): Promise<{ pill: string | null; arcTxLinks: string[] }> {
-    const prefix = `${ARC_TESTNET.blockExplorers.default.url}/tx/`;
+  /** The open details page's status pill and every transaction link it renders to `explorer`, Arc Testnet's by default. */
+  async transactionDetailsView(
+    rowId: string,
+    explorer: string = ARC_PAYOUT.explorer
+  ): Promise<{ pill: string | null; txLinks: string[] }> {
+    const prefix = `${explorer}/tx/`;
     const view = await ridingOut(() =>
-      this.cdp.eval<{ pill: string | null; arcTxLinks: string[] } | null>(
+      this.cdp.eval<{ pill: string | null; txLinks: string[] } | null>(
         `var root = document.querySelector(${JSON.stringify(detailsLayer(rowId))}); if (!root) return null; ` +
           `var pill = root.querySelector('[data-testid="history-status-pill"]'); ` +
           `return { pill: pill ? (pill.textContent || '').trim() : null, ` +
-          `arcTxLinks: Array.from(root.querySelectorAll('a[href]')).map(function (a) { return a.getAttribute('href') || ''; })` +
+          `txLinks: Array.from(root.querySelectorAll('a[href]')).map(function (a) { return a.getAttribute('href') || ''; })` +
           `.filter(function (h) { return h.indexOf(${JSON.stringify(prefix)}) === 0; }) };`
       )
     );
-    return view ?? { pill: null, arcTxLinks: [] };
+    return view ?? { pill: null, txLinks: [] };
   }
 
   /**
@@ -977,16 +1007,10 @@ export class IosWalletPage implements WalletPage {
 
     // Click "Open wallet" — this triggers register() which creates the vault.
     // The old "Get started" text is gone; the button is now keyed by testid.
-    await this.click('[data-testid="onboarding-confirmation-submit"]');
+    await this.click(CONFIRMATION_SUBMIT);
 
     // Wait for store status === Ready (numeric 2 in the Zustand enum).
-    await this.pollForCondition(
-      `var s = window.__TEST_STORE__; ` +
-        `if (!s) return false; ` +
-        `var st = s.getState(); ` +
-        `return st && (st.status === 2 || st.status === 'Ready') && !!st.currentAccount;`,
-      readyTimeoutMs
-    );
+    await this.waitForCreatedWalletReady(`IosWalletPage.createWalletViaBypass(${recovery})`, readyTimeoutMs);
 
     // Onboarding's last screen is now the one-time telemetry consent prompt, not
     // the wallet home — decline it so the caller gets a wallet it can navigate.
@@ -1009,6 +1033,16 @@ export class IosWalletPage implements WalletPage {
     // For created wallets the bypass synthesizes the seed phrase internally
     // (we don't read it back); for imported wallets the caller already has it.
     return { address, seedPhrase: seed ?? [] };
+  }
+
+  /** Waits for a created wallet to read Ready, pressing Confirmation's Retry once (see `pollCreatedWalletReady`). */
+  private async waitForCreatedWalletReady(label: string, timeoutMs: number): Promise<void> {
+    await pollCreatedWalletReady({
+      label,
+      timeoutMs,
+      poll: (ms, accept) => this.pollForCondition(CREATED_WALLET_STATE_JS, ms, accept),
+      pressRetry: () => this.click(CONFIRMATION_SUBMIT)
+    });
   }
 
   /**
@@ -1522,17 +1556,20 @@ export class IosWalletPage implements WalletPage {
     const wallStart = Date.now();
     let iterations = 0;
     let totalSleepMs = 0;
+    const tally: EvalTally = { returned: 0 };
     try {
       while (Date.now() - wallStart < timeoutMs) {
         iterations++;
         // Catch eval errors (page reload mid-poll, inspector reattach race).
-        const found = await this.cdp
-          .eval<boolean>(`return !!document.querySelector(${JSON.stringify(selector)});`)
-          .catch(() => false);
-        if (found) return;
+        const found = await this.tallied<boolean>(
+          `return !!document.querySelector(${JSON.stringify(selector)});`,
+          tally
+        );
+        if (found?.value) return;
         await sleep(POLL_INTERVAL_MS);
         totalSleepMs += POLL_INTERVAL_MS;
       }
+      if (tally.returned === 0) throw noEvalReturned('pollForSelector', selector, timeoutMs, tally);
       throw new Error(`pollForSelector: ${selector} did not appear within ${timeoutMs}ms`);
     } finally {
       this.pollStats.pollCount++;
@@ -1542,24 +1579,42 @@ export class IosWalletPage implements WalletPage {
     }
   }
 
-  private async pollForCondition(jsBody: string, timeoutMs: number): Promise<void> {
+  private async pollForCondition<T = boolean>(
+    jsBody: string,
+    timeoutMs: number,
+    accept: (value: T) => boolean | Promise<boolean> = Boolean
+  ): Promise<void> {
     const wallStart = Date.now();
     let iterations = 0;
     let totalSleepMs = 0;
+    const tally: EvalTally = { returned: 0 };
     try {
       while (Date.now() - wallStart < timeoutMs) {
         iterations++;
-        const ok = await this.cdp.eval<boolean>(jsBody).catch(() => false);
-        if (ok) return;
+        const read = await this.tallied<T>(jsBody, tally);
+        if (read && (await accept(read.value))) return;
         await sleep(POLL_INTERVAL_MS);
         totalSleepMs += POLL_INTERVAL_MS;
       }
+      if (tally.returned === 0) throw noEvalReturned('pollForCondition', jsBody.slice(0, 80), timeoutMs, tally);
       throw new Error(`pollForCondition: condition not met within ${timeoutMs}ms — ${jsBody.slice(0, 80)}`);
     } finally {
       this.pollStats.pollCount++;
       this.pollStats.pollIterations += iterations;
       this.pollStats.pollMs += Date.now() - wallStart;
       this.pollStats.pollSleepMs += totalSleepMs;
+    }
+  }
+
+  /** One poll read: a failed eval counts as not yet, and the tally keeps what a timeout must say about the session. */
+  private async tallied<T>(js: string, tally: EvalTally): Promise<{ value: T } | undefined> {
+    try {
+      const value = await this.cdp.eval<T>(js);
+      tally.returned++;
+      return { value };
+    } catch (error) {
+      tally.lastError = error;
+      return undefined;
     }
   }
 

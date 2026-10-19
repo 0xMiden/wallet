@@ -20,6 +20,7 @@ import { sendEvent } from 'lib/telemetry/sink';
 import { WalletType } from 'screens/onboarding/types';
 
 import {
+  DAppQueueDeadlineError,
   getFrontState,
   lock,
   unlock,
@@ -246,6 +247,8 @@ jest.mock('./dapp', () => ({
   requestImportPrivateNote: jest.fn(),
   requestConsumableNotes: jest.fn(),
   requestGuardianInfo: jest.fn(),
+  requestLoginKey: jest.fn(),
+  requestLoginSign: jest.fn(),
   waitForTransaction: jest.fn()
 }));
 
@@ -2154,6 +2157,44 @@ describe('actions', () => {
       expect(result).toEqual({ signature: '0x123' });
     });
 
+    it('refuses a queued request whose start deadline has passed, before it asks the user', async () => {
+      const { requestSign } = jest.requireMock('./dapp');
+      requestSign.mockClear();
+      const req = { type: MidenDAppMessageType.SignRequest, payload: 'data' };
+
+      await expect(processDApp('https://example.com', req as any, undefined, Date.now() - 1)).rejects.toBeInstanceOf(
+        DAppQueueDeadlineError
+      );
+      expect(requestSign).not.toHaveBeenCalled();
+    });
+
+    it('checks the start deadline when the request reaches the front of the queue', async () => {
+      const { requestPermission, requestSign } = jest.requireMock('./dapp');
+      requestSign.mockClear().mockResolvedValueOnce({ signature: '0x123' });
+      let release: (value: unknown) => void = () => undefined;
+      requestPermission.mockImplementationOnce(() => new Promise(resolve => (release = resolve)));
+      const sign = { type: MidenDAppMessageType.SignRequest, payload: 'data' };
+      const now = jest.spyOn(Date, 'now').mockReturnValue(1_000);
+      try {
+        const ahead = processDApp('https://other.example', { type: MidenDAppMessageType.PermissionRequest } as any);
+        const onTime = processDApp('https://example.com', sign as any, undefined, 5_000);
+        const late = processDApp('https://example.com', sign as any, undefined, 2_000);
+        await new Promise(resolve => setTimeout(resolve, 0));
+        expect(requestPermission).toHaveBeenCalled();
+        expect(requestSign).not.toHaveBeenCalled();
+
+        now.mockReturnValue(3_000);
+        release({ approved: true });
+
+        await expect(ahead).resolves.toEqual({ approved: true });
+        await expect(onTime).resolves.toEqual({ signature: '0x123' });
+        await expect(late).rejects.toBeInstanceOf(DAppQueueDeadlineError);
+        expect(requestSign).toHaveBeenCalledTimes(1);
+      } finally {
+        now.mockRestore();
+      }
+    });
+
     it('returns undefined for unknown request type', async () => {
       const result = await processDApp('https://example.com', { type: 'UNKNOWN' } as any);
 
@@ -2277,6 +2318,75 @@ describe('actions', () => {
       await processDApp('https://example.com', req as any, 'session-7');
 
       expect(handler).toHaveBeenCalledWith('https://example.com', req, 'session-7');
+    });
+
+    // Both wait their turn on the one dApp queue, as SIGN_REQUEST does, and the DApps Interaction switch refuses both.
+    it('routes both messages through processDApp', async () => {
+      const { requestSign, requestLoginKey, requestLoginSign } = jest.requireMock('./dapp');
+      let releaseQueue = () => {};
+      requestSign.mockReset().mockImplementationOnce(
+        () =>
+          new Promise<void>(resolve => {
+            releaseQueue = () => resolve();
+          })
+      );
+      requestLoginKey.mockReset().mockResolvedValueOnce({ loginKey: 'login-key' });
+      requestLoginSign.mockReset().mockResolvedValueOnce({ signature: 'login-signature' });
+      const keyReq = { type: MidenDAppMessageType.LoginKeyRequest, sourceAccountId: 'acc' };
+      const signInReq = {
+        type: MidenDAppMessageType.LoginSignRequest,
+        sourceAccountId: 'acc',
+        payload: 'word',
+        kind: 'word'
+      };
+
+      const held = processDApp('https://example.com', { type: MidenDAppMessageType.SignRequest } as any);
+      await new Promise(r => setTimeout(r, 0));
+      expect(requestSign).toHaveBeenCalledTimes(1);
+      const key = processDApp('https://example.com', keyReq as any);
+      const signIn = processDApp('https://example.com', signInReq as any, 'session-7');
+      try {
+        await new Promise(r => setTimeout(r, 0));
+        expect(requestLoginKey).not.toHaveBeenCalled();
+        expect(requestLoginSign).not.toHaveBeenCalled();
+      } finally {
+        // A failure above must not leave the shared queue held for the specs after this one.
+        releaseQueue();
+      }
+      await expect(key).resolves.toEqual({ loginKey: 'login-key' });
+      await expect(signIn).resolves.toEqual({ signature: 'login-signature' });
+      await held;
+      expect(requestLoginKey).toHaveBeenCalledWith('https://example.com', keyReq);
+      expect(requestLoginSign).toHaveBeenCalledWith('https://example.com', signInReq, 'session-7');
+
+      const browser = jest.requireMock('webextension-polyfill');
+      for (const req of [keyReq, signInReq]) {
+        browser.storage.local.get.mockResolvedValueOnce({ DAppEnabled: false });
+        await expect(processDApp('https://example.com', req as any)).rejects.toThrow('NOT_GRANTED');
+      }
+      expect(requestLoginKey).toHaveBeenCalledTimes(1);
+      expect(requestLoginSign).toHaveBeenCalledTimes(1);
+    });
+
+    it("leaves a login signature's word out of the debug dump", async () => {
+      const { dappDebug, requestLoginSign } = jest.requireMock('./dapp');
+      dappDebug.mockClear();
+      requestLoginSign.mockReset().mockResolvedValueOnce({ signature: 'login-signature' });
+      const signInReq = {
+        type: MidenDAppMessageType.LoginSignRequest,
+        sourceAccountId: 'acc',
+        payload: 'word-to-sign',
+        kind: 'word'
+      };
+
+      await processDApp('https://example.com', signInReq as any);
+      expect(dappDebug).toHaveBeenCalledWith(
+        '[processDApp] Full request:',
+        JSON.stringify({ ...signInReq, payload: '[redacted]' })
+      );
+      expect(JSON.stringify(dappDebug.mock.calls)).not.toContain('word-to-sign');
+      // The handler still gets the word.
+      expect(requestLoginSign).toHaveBeenCalledWith('https://example.com', signInReq, undefined);
     });
 
     // The Settings toggle used to be enforced only in the extension's PageRequest

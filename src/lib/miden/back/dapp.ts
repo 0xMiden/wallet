@@ -5,6 +5,7 @@ import {
   NoteType,
   SigningInputs,
   SigningInputsType,
+  TransactionRequest,
   type NoteQuery,
   type TransactionSummary
 } from '@miden-sdk/miden-sdk/lazy';
@@ -21,7 +22,7 @@ import { nanoid } from 'nanoid';
 import type { Runtime, Windows } from 'webextension-polyfill';
 
 import {
-  declaredRequestToView,
+  declaredTransactionRequestToView,
   netOutflowByFaucet,
   simulatedBytesToView,
   summaryToView,
@@ -35,6 +36,10 @@ import {
   MidenDAppGetCurrentPermissionResponse,
   MidenDAppGuardianInfoRequest,
   MidenDAppGuardianInfoResponse,
+  MidenDAppLoginKeyRequest,
+  MidenDAppLoginKeyResponse,
+  MidenDAppLoginSignRequest,
+  MidenDAppLoginSignResponse,
   MidenDAppMessageType,
   MidenDAppPermissionRequest,
   MidenDAppPermissionResponse,
@@ -57,10 +62,12 @@ import {
   MidenDAppWaitForTxRequest,
   MidenDAppWaitForTxResponse
 } from 'lib/adapter/types';
+import { endOriginSessions } from 'lib/bread-connect/revoke';
 import {
   dappConfirmationStore,
   type DAppConfirmationRequest,
-  type DAppConfirmationResult
+  type DAppConfirmationResult,
+  type DAppLoginSignConfirmationRequest
 } from 'lib/dapp-browser/confirmation-store';
 import { formatBigInt } from 'lib/i18n/numbers';
 import { intercom } from 'lib/miden/back/defaults';
@@ -68,6 +75,7 @@ import { Vault } from 'lib/miden/back/vault';
 import { FEE_RESERVE_MULTIPLE } from 'lib/miden/fees/spendable';
 import { guardianProviderFromEndpoint, resolveGuardianEndpoint } from 'lib/miden/guardian/account';
 import { dappGuardianSyncStatus } from 'lib/miden/guardian/sync-guard';
+import { loginKeyDomain } from 'lib/miden/login-key/derive';
 import { MIDEN_METADATA } from 'lib/miden/metadata';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { getAssetSymbol, getTokenMetadata } from 'lib/miden/metadata/utils';
@@ -98,6 +106,7 @@ import {
   MidenMessageType,
   MidenRequest
 } from 'lib/miden/types';
+import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { getNativeAssetId, getVerificationBaseFee } from 'lib/miden-chain/native-asset';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
@@ -107,12 +116,20 @@ import { commitmentToHex } from 'lib/secure-hot-key/commitment';
 import { DEFAULT_DELEGATE_PROOF } from 'lib/settings/constants';
 import { b64ToU8, bytesToHex, u8ToB64 } from 'lib/shared/helpers';
 import { GuardianInfo, WalletStatus } from 'lib/shared/types';
+import type { ConfirmationHandlerState } from 'lib/telemetry/crash-diagnostics';
 import { WalletType } from 'screens/onboarding/types';
 import { capitalizeFirstLetter, truncateAddress } from 'utils/string';
 
 import { queueNoteImport } from '../activity';
 import { isLikelyNetworkError } from '../activity/connectivity-classify';
-import { assertValidRecallBlocks, toNoteTypeString, toPersistedNoteType } from '../helpers';
+import {
+  assertValidRecallBlocks,
+  type ConsumeRestriction,
+  mayConsume,
+  noteConsumeRestriction,
+  toNoteTypeString,
+  toPersistedNoteType
+} from '../helpers';
 import {
   isStoreLocked,
   isWalletLockedError,
@@ -128,16 +145,21 @@ import { simulateCustomTransaction, type SimulateCustomTxResult } from './simula
 import { store, withUnlocked } from './store';
 import { startTransactionProcessing } from './transaction-processor';
 import { IConsumedAssetTotal, type ITransaction } from '../db/types';
-import { getBech32AddressFromAccountId, sameWalletAccountId } from '../sdk/helpers';
+import { accountRefToSdk, getBech32AddressFromAccountId, sameWalletAccountId } from '../sdk/helpers';
 import { assertWasmHoldCurrent, withWasmClientLock, type WasmLockHold } from '../sdk/miden-client';
+import type { DetailsCommitmentMatches } from '../sdk/miden-client-interface';
+import { normalizedCommitment, noteDetailsCommitment, type NoteDetailsParts } from '../sdk/note-details-commitment';
 import { resolvePublicKeyCommitments } from '../sdk/resolve-public-key-commitments';
-import { isPipelineKillLink } from '../sdk/sdk-error-code';
+import { causeChain, isPipelineKillLink, pipelineKillIn } from '../sdk/sdk-error-code';
 import {
   initiateSendTransaction,
   requestCustomTransaction,
   initiateConsumeTransactionFromId,
   waitForTransactionCompletion
 } from '../transaction';
+import { ClaimFeeRefusedError } from '../transaction/claim-fee';
+import { deterministicKernelFailureCopy } from '../transaction/constants';
+import { TransactionQueuedError } from '../transaction/initiate';
 
 /**
  * Starts background transaction processing using the unified SW
@@ -600,6 +622,12 @@ async function requestConfirmationWithWatchdog(
   }
 }
 
+// What `confirmOnNonExtension` asks for: a kind on its own, or a login's with the site's domain and the account it
+// signs in to, which only a login carries.
+type ConfirmationKind =
+  | Exclude<DAppConfirmationRequest['type'], 'loginSign'>
+  | Pick<DAppLoginSignConfirmationRequest, 'type' | 'domain' | 'accountId'>;
+
 /**
  * Raise a confirmation on the platforms that have no extension popup (mobile via
  * Capacitor, desktop via Tauri) and report whether the user approved.
@@ -613,7 +641,7 @@ async function requestConfirmationWithWatchdog(
  * injection script's 5-minute timeout reported the misleading "Request timeout".
  */
 async function confirmOnNonExtension(
-  type: DAppConfirmationRequest['type'],
+  kind: ConfirmationKind,
   origin: string,
   dApp: MidenDAppSession,
   networkRpc: string,
@@ -624,7 +652,6 @@ async function confirmOnNonExtension(
   const result = await requestConfirmationWithWatchdog(deadline, {
     id: nanoid(),
     sessionId,
-    type,
     origin,
     appMeta: dApp.appMeta,
     network: dApp.network,
@@ -633,7 +660,8 @@ async function confirmOnNonExtension(
     allowedPrivateData: dApp.allowedPrivateData,
     existingPermission: true,
     transactionMessages: detailMessages,
-    sourcePublicKey: dApp.accountId
+    sourcePublicKey: dApp.accountId,
+    ...(typeof kind === 'string' ? { type: kind } : kind)
   });
   return result.confirmed;
 }
@@ -785,13 +813,13 @@ const generatePromisifySign = async (
           // worse than approving and then declining.
           const authorized = await withUnlocked(() =>
             withWasmClientLock(hold => publicKeyBelongsToAccount(dApp.accountId, req.sourcePublicKey, hold))
-          ).catch((err: unknown) => (isPipelineKillLink(err) ? err : false));
+          ).catch((err: unknown) => pipelineKillIn(err) ?? false);
           if (authorized !== true) {
             // A kill (a lock-recovery eviction, an offscreen abort or a
             // terminated client, issue #775) is not an authorization verdict:
             // reject an APPROVED request with the real, retryable failure
             // rather than a false NotGranted.
-            reject(isPipelineKillLink(authorized) ? authorized : new Error(MidenDAppErrorType.NotGranted));
+            reject(pipelineKillIn(authorized) ?? new Error(MidenDAppErrorType.NotGranted));
             return {
               type: MidenMessageType.DAppSignConfirmationResponse
             };
@@ -827,6 +855,139 @@ const generatePromisifySign = async (
     }
   });
 };
+
+/**
+ * A login signature: once the user approves, the account's login key for the page's domain signs the login message,
+ * Poseidon2 of the login tag and the page's 32-byte word, never the word itself. The page chooses the word but not the
+ * message the key signs, so it cannot make a login signature authorize a transaction.
+ */
+export async function requestLoginSign(
+  origin: string,
+  req: MidenDAppLoginSignRequest,
+  // Routes the mobile and desktop prompt to the requesting session, as requestSign's does.
+  sessionId?: string
+): Promise<MidenDAppLoginSignResponse> {
+  const { dApp, domain } = await loginKeySession(origin, req?.sourceAccountId);
+  if (req.kind !== 'word' || !isLoginWord(req.payload)) {
+    throw new Error(`${MidenDAppErrorType.InvalidParams}: a login signature signs only a 32-byte word`);
+  }
+
+  // Caught, as requestSign's is, or a throw of its own would leave the dApp's promise unsettled. Mapped as
+  // requestLoginKey maps its failures, so a popup that fails to open reads the same from both.
+  return new Promise((resolve, reject) => {
+    generatePromisifyLoginSign(resolve, reject, origin, dApp, req, domain, sessionId).catch(error =>
+      reject(loginKeyFailure(error))
+    );
+  });
+}
+
+const generatePromisifyLoginSign = async (
+  resolve: (value: MidenDAppLoginSignResponse) => void,
+  reject: (reason: unknown) => void,
+  origin: string,
+  dApp: MidenDAppSession,
+  req: MidenDAppLoginSignRequest,
+  domain: string,
+  sessionId?: string
+) => {
+  const networkRpc = await getNetworkRPC(dApp.network);
+  const checkRootKey = sessionLoginKey(dApp, domain);
+  const sign = async (): Promise<MidenDAppLoginSignResponse> => {
+    // The entry gate ran before the prompt; the session or the current account may have changed since (#1419).
+    await assertDappSendStillAuthorized(origin, req.sourceAccountId, dApp.accountId);
+    const signature = await withUnlocked(({ vault }) => vault.signWithLoginKey(dApp.accountId, domain, req.payload));
+    return { type: MidenDAppMessageType.LoginSignResponse, signature };
+  };
+
+  if (!isExtension()) {
+    try {
+      // The sheet cannot unlock, and posted while locked it would sit over the lock screen.
+      const waits: UnlockWaits = {};
+      if (isStoreLocked() && !(await waitForUnlockOnNonExtension(origin, waits))) {
+        reject(lockedRefusal());
+        return;
+      }
+      // Unlocked from here, so a device without the account's root key is refused before the sheet opens.
+      await checkRootKey();
+      const login: ConfirmationKind = { type: 'loginSign', domain, accountId: dApp.accountId };
+      if (!(await confirmOnNonExtension(login, origin, dApp, networkRpc, [], sessionId, waits.deadline))) {
+        reject(new Error(MidenDAppErrorType.NotGranted));
+        return;
+      }
+      resolve(await sign());
+    } catch (e) {
+      reject(loginKeyFailure(e));
+    }
+    return;
+  }
+
+  // A locked wallet's popup builds its payload once unlocked, so the root key is checked before the approval shows
+  // either way: before the popup while unlocked, and after the popup's unlock while locked.
+  const prepared = await prepareOrReject(checkRootKey, error => reject(loginKeyFailure(error)));
+  if (prepared === undefined) return;
+  const sheet = sheetFor(prepared, origin, req.sourceAccountId, dApp.accountId, checkRootKey);
+  const id = nanoid();
+  await requestConfirmFor(origin, sheet, error => reject(loginKeyFailure(error)), {
+    id,
+    payload: async () => {
+      await sheet.data();
+      return { type: 'loginSign', origin, networkRpc, appMeta: dApp.appMeta, domain, accountId: dApp.accountId };
+    },
+    handleIntercomRequest: async (confirmReq, decline) => {
+      if (confirmReq?.type !== MidenMessageType.DAppSignConfirmationRequest || confirmReq.id !== id) {
+        return undefined;
+      }
+      if (confirmReq.confirmed) {
+        try {
+          resolve(await sign());
+        } catch (e) {
+          reject(loginKeyFailure(e));
+        }
+      } else {
+        decline();
+      }
+      return { type: MidenMessageType.DAppSignConfirmationResponse };
+    }
+  });
+};
+
+// The session a login key request acts for, and the domain whose key it uses. The domain is read from `origin`, the
+// page's real origin, never from the request, so a page reaches only its own site's key.
+async function loginKeySession(
+  origin: string,
+  sourceAccountId: string | undefined
+): Promise<{ dApp: MidenDAppSession; domain: string }> {
+  if (!sourceAccountId) {
+    throw new Error(MidenDAppErrorType.InvalidParams);
+  }
+  const dApp = await getDApp(origin, sourceAccountId);
+  if (!dApp) {
+    throw new Error(MidenDAppErrorType.NotGranted);
+  }
+  await assertRequestAccountIsCurrent(dApp.accountId);
+  return { dApp, domain: loginKeyDomain(origin) };
+}
+
+// The account comes from the stored session, never from the request.
+const sessionLoginKey = (dApp: MidenDAppSession, domain: string) => () =>
+  withUnlocked(({ vault }) => vault.loginKeyCommitment(dApp.accountId, domain));
+
+function isLoginWord(payload: unknown): boolean {
+  if (typeof payload !== 'string') return false;
+  try {
+    return b64ToU8(payload).length === 32;
+  } catch {
+    return false;
+  }
+}
+
+const hasDAppErrorCode = (message: string): boolean =>
+  Object.values(MidenDAppErrorType).some(code => message === code || message.startsWith(`${code}:`));
+
+// A refusal already in the dApp's terms keeps its message, so its code leads it once: LOGIN_KEY_UNAVAILABLE stays
+// apart from a malformed request, and the vault's own INVALID_PARAMS is not wrapped in another.
+const loginKeyFailure = (error: unknown): unknown =>
+  error instanceof Error && hasDAppErrorCode(error.message) ? error : dappRequestFailure(error);
 
 export async function requestPrivateNotes(
   origin: string,
@@ -917,6 +1078,10 @@ function noteFilterTypeToQuery(filterType: NoteFilterTypes, noteIds?: string[]):
  * account and is withheld — but it can never over-report across accounts, which is
  * the property the user consented to. Intersecting also covers a caller that names
  * another account's note ids explicitly via `req.noteIds`.
+ *
+ * With the List filter, every requested id is also looked up as the details
+ * commitment `importPrivateNote` returns (#1536), hashing only this account's
+ * consumable notes. Matches are listed under their own note ids, once per note.
  */
 async function getPrivateNoteDetails(
   accountId: string,
@@ -931,12 +1096,19 @@ async function getPrivateNoteDetails(
         const allNotes = await midenClientProxy.getInputNoteDetails(query, () =>
           assertWasmHoldCurrent(hold, 'inside the private-note read, before the record reach-through')
         );
-        // Between the two reads: an eviction during the note-details read hands
-        // the mutex to a successor without stopping this callback, and the
-        // consumability read below would then run inside a client somebody else
-        // is inside. Both reads return plain DTOs, so this is the only WASM
-        // transition left to guard.
+        // An eviction hands the mutex to a successor without stopping this callback,
+        // so every subsequent client read must first prove this hold is still current.
         assertWasmHoldCurrent(hold, 'after the private-note read');
+        const listed = notefilterType === NoteFilterTypes.List ? (noteIds ?? []) : [];
+        // Every listed id is looked up as a commitment too, found by the id read or not, so an id another account
+        // holds takes the same path as one nobody holds and the timing tells a dApp nothing about other accounts.
+        const asked = new Set<string>();
+        const commitments = listed.filter(id => {
+          const key = normalizedCommitment(id);
+          if (asked.has(key)) return false;
+          asked.add(key);
+          return true;
+        });
         const ownNoteIds = new Set(
           (
             await midenClientProxy.getConsumableNotes(accountId, step =>
@@ -944,16 +1116,38 @@ async function getPrivateNoteDetails(
             )
           ).flatMap(note => (note.noteId ? [note.noteId] : []))
         );
-        return allNotes.filter(note => note.noteType === NoteType.Private && ownNoteIds.has(note.noteId));
+        if (commitments.length > 0) assertWasmHoldCurrent(hold, 'after the consumable-notes read');
+        const byCommitment =
+          commitments.length === 0
+            ? []
+            : (
+                await midenClientProxy.getDetailsCommitmentMatches(commitments, [...ownNoteIds], () =>
+                  assertWasmHoldCurrent(
+                    hold,
+                    'inside the private-note details-commitment read, before the record reach-through'
+                  )
+                )
+              ).flatMap(match => match.notes);
+        const candidates = [...allNotes, ...byCommitment];
+        const seen = new Set<string>();
+        const uniqueCandidates =
+          notefilterType === NoteFilterTypes.List
+            ? candidates.filter(note => {
+                const id = normalizedCommitment(note.noteId);
+                if (seen.has(id)) return false;
+                seen.add(id);
+                return true;
+              })
+            : candidates;
+        // `restriction` is the wallet's own consume guard, not note data the user agreed to share.
+        return uniqueCandidates
+          .filter(note => note.noteType === NoteType.Private && ownNoteIds.has(note.noteId))
+          .map(({ restriction: _restriction, ...note }) => note);
       });
     });
     return privateNotes;
   } catch (e) {
-    // A kill (a lock-recovery eviction, an offscreen abort or a terminated
-    // client) is a retryable internal failure, not a parameter problem
-    // (issue #775); a locked wallet gets an Unlock step from the caller (#1414).
-    if (isPipelineKillLink(e) || isWalletLockedError(e)) throw e;
-    throw new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`);
+    throw dappReadFailure(e);
   }
 }
 
@@ -1053,11 +1247,7 @@ async function getConsumableNotes(accountId: string): Promise<InputNoteDetails[]
     });
     return consumableNotes;
   } catch (e) {
-    // A kill (a lock-recovery eviction, an offscreen abort or a terminated
-    // client) is a retryable internal failure, not a parameter problem
-    // (issue #775); a locked wallet gets an Unlock step from the caller (#1414).
-    if (isPipelineKillLink(e) || isWalletLockedError(e)) throw e;
-    throw new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`);
+    throw dappReadFailure(e);
   }
 }
 
@@ -1139,11 +1329,7 @@ async function getAssets(accountId: string): Promise<Asset[]> {
 
     return assets;
   } catch (e) {
-    // A kill (a lock-recovery eviction, an offscreen abort or a terminated
-    // client) is a retryable internal failure, not a parameter problem
-    // (issue #775); a locked wallet gets an Unlock step from the caller (#1414).
-    if (isPipelineKillLink(e) || isWalletLockedError(e)) throw e;
-    throw new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`);
+    throw dappReadFailure(e);
   }
 }
 
@@ -1163,25 +1349,10 @@ export async function requestGuardianInfo(
   }
   await assertRequestAccountIsCurrent(dApp.accountId);
 
-  const prepare = () => getGuardianInfoData(dApp.accountId);
-  const prepared = await runPrepare(prepare);
-  if (!prepared.locked) {
-    return { type: MidenDAppMessageType.GuardianInfoResponse, guardianInfo: prepared.value };
-  }
-  if (!isExtension()) {
-    const guardianInfo = await prepareAfterUnlock(origin, req.sourcePublicKey, dApp.accountId, prepare);
-    return { type: MidenDAppMessageType.GuardianInfoResponse, guardianInfo };
-  }
-  return new Promise<MidenDAppGuardianInfoResponse>((resolve, reject) => {
-    requestUnlockOnly(
-      origin,
-      dApp,
-      req.sourcePublicKey,
-      prepare,
-      guardianInfo => resolve({ type: MidenDAppMessageType.GuardianInfoResponse, guardianInfo }),
-      reject
-    ).catch(reject);
-  });
+  const guardianInfo = await prepareWithoutPrompt(origin, dApp, req.sourcePublicKey, () =>
+    getGuardianInfoData(dApp.accountId)
+  );
+  return { type: MidenDAppMessageType.GuardianInfoResponse, guardianInfo };
 }
 
 const NOT_GUARDIAN_INFO: GuardianInfo = {
@@ -1209,6 +1380,23 @@ async function getGuardianInfoData(accountId: string): Promise<GuardianInfo> {
       guardianSyncStatus: dappGuardianSyncStatus(account)
     };
   });
+}
+
+// Answers without a prompt, as requestGuardianInfo does: the commitment signs nothing, and every login signature is
+// approved in the wallet. Locked, it needs the unlock all the same, since the vault holds the root key.
+export async function requestLoginKey(
+  origin: string,
+  req: MidenDAppLoginKeyRequest
+): Promise<MidenDAppLoginKeyResponse> {
+  const { dApp, domain } = await loginKeySession(origin, req?.sourceAccountId);
+  const prepare = sessionLoginKey(dApp, domain);
+  // Mapped at this boundary, not in `prepare`: `runPrepare` must still see a lock as one.
+  try {
+    const loginKey = await prepareWithoutPrompt(origin, dApp, req.sourceAccountId, prepare);
+    return { type: MidenDAppMessageType.LoginKeyResponse, loginKey };
+  } catch (error) {
+    throw loginKeyFailure(error);
+  }
 }
 
 export async function requestImportPrivateNote(
@@ -1284,7 +1472,7 @@ async function importDAppPrivateNote(note: string): Promise<string> {
     // as a match today purely because its message contains 'aborted', which is a
     // coincidence of transport-text heuristics rather than a contract — so it is named
     // here too, and the clause stays load-bearing the moment that token list is re-tuned.
-    if (isLikelyNetworkError(e) || isPipelineKillLink(e)) {
+    if (isLikelyNetworkError(e) || pipelineKillIn(e) !== undefined) {
       await queueNoteImport(note).catch(queueError =>
         console.error('[importDAppPrivateNote] failed to queue the note for background retry', queueError)
       );
@@ -1294,49 +1482,28 @@ async function importDAppPrivateNote(note: string): Promise<string> {
 }
 
 /**
- * What a failed dApp note import is reported as.
- *
- * `InvalidParams` says "your bytes are bad", a verdict the dApp can act on by
- * not sending them again. A KILL is the opposite claim: the bytes were fine, the
- * import was stopped from outside (a lock-recovery eviction, an offscreen abort
- * or a terminated client), and it may even have landed. Flattening it into
- * `InvalidParams` told a dApp to give up on a note whose retry was the correct
- * move, and lost the one signal the kill exists to carry. Same rule the connect
- * path follows.
+ * Imports carried bytes checked against the request's id, which may be their note id or details commitment.
+ * The resolved store id is used to consume the note, never to validate the bytes. Unreadable bytes are not imported;
+ * the consume reads the note from the store or refuses it. A decode that traps rejects its WASM hold.
  */
-const importPrivateNoteFailure = (e: unknown): unknown => (isPipelineKillLink(e) ? e : dappRequestFailure(e));
-
-/**
- * Imports the note that an approved consume request carries, before the consume reads it
- * from the store (issue #1459).
- *
- * `initiateConsumeTransactionFromId` refuses a note that is not in the store, and it does
- * that before it writes a row. Thus a queued import is too late: the transaction loop
- * imports queued notes only for rows that already exist. A dApp-supplied private note is
- * not in the store until this import, so the dApp had to get a separate import approval
- * first. The consume sheet already showed this note, decoded from these bytes and checked
- * against `noteId`, so that second approval showed the user nothing new.
- *
- * `importDAppPrivateNote` queues the bytes when the import fails transiently or is killed,
- * so a failed consume does not lose the note.
- *
- * The bytes are checked by the id quarantine derives from them (a NoteFile's note id, else
- * a bare Note's id), never by the import's answer: for raw `Note` bytes that answer is a
- * details commitment, not a note id. Bytes that are neither a NoteFile nor a Note are not
- * imported; the consume then finds the note in the store or refuses it itself.
- */
-async function importConsumeNoteBytes(noteId: string, noteBytes: string): Promise<void> {
-  let carriedId: string | null = null;
-  try {
-    carriedId = noteIdFromBytes(b64ToU8(noteBytes));
-  } catch {
-    // Invalid base64 reads as unreadable bytes.
-  }
-  // Nothing readable to import: the consume reads the note from the store, as it did before bytes
-  // were carried, and refuses a note the store lacks.
-  if (carriedId === null) return;
-  if (carriedId !== noteId) {
-    throw new Error('noteBytes describe a different note than noteId - refusing to consume it');
+async function importConsumeNoteBytes(transaction: MidenConsumeTransaction): Promise<void> {
+  const { noteId, noteBytes } = transaction;
+  if (!noteBytes) return;
+  const carried = await decodeCarriedConsumeNoteLocked(transaction);
+  if (!carried) {
+    let carriedId: string | null = null;
+    try {
+      carriedId = await withWasmClientLock(async () => noteIdFromBytes(b64ToU8(noteBytes)));
+    } catch (e) {
+      const kill = pipelineKillIn(e);
+      if (kill !== undefined) throw kill;
+      if (e instanceof WebAssembly.RuntimeError) throw e;
+      // Invalid base64 reads as unreadable bytes.
+    }
+    if (carriedId === null) return;
+    if (carriedId !== noteId) {
+      throw new Error('noteBytes describe a different note than noteId - refusing to consume it');
+    }
   }
   await importDAppPrivateNote(noteBytes);
 }
@@ -1377,7 +1544,7 @@ export const generatePromisifyImportPrivateNote = async (
       const noteId = await importDAppPrivateNote(req.note);
       resolve({ type: MidenDAppMessageType.ImportPrivateNoteResponse, noteId });
     } catch (e) {
-      reject(importPrivateNoteFailure(e));
+      reject(dappRequestFailure(e));
     }
     return;
   }
@@ -1406,11 +1573,11 @@ export const generatePromisifyImportPrivateNote = async (
               type: MidenDAppMessageType.ImportPrivateNoteResponse,
               // Hex string: the note ID for metadata-bearing files, or the
               // details commitment for details-only imports (the common
-              // dApp `noteBytes` path).
+              // dApp `noteBytes` path). `requestConsume` accepts either (#1389).
               noteId
             });
           } catch (e) {
-            reject(importPrivateNoteFailure(e));
+            reject(dappRequestFailure(e));
           }
         } else {
           decline();
@@ -1512,7 +1679,12 @@ export function makeSimulateHandler(
             transactionRequest: tx.transactionRequest,
             importNotes: tx.importNotes
           });
-    return { type: MidenMessageType.DAppSimulateTransactionResponse, summaryBytes, executedBytes, error };
+    return {
+      type: MidenMessageType.DAppSimulateTransactionResponse,
+      summaryBytes,
+      executedBytes,
+      error: error === undefined ? undefined : dryRunFailureReason(error)
+    };
   };
 }
 
@@ -1577,13 +1749,10 @@ const customSpendingLimitState = async (
     const details = await assessOutgoingSpendingLimitDetails({ accountId, spends: outgoing });
     return { totals: outgoing, details: details?.assessment.breach === undefined ? undefined : details };
   } catch (error) {
-    // A value the wallet cannot establish is the same answer as a value it cannot see: an
-    // untrusted page does not get to spend against a cap nobody can check. Converted at this
-    // boundary - not left to propagate for `dappSendFailure` to map downstream - so no internal
-    // error text can ever reach an untrusted page even if some future caller's catch does not
-    // route through that mapper; `spendingLimitRetryError` keeps the wording identical to the
-    // send path's own mapping of the same condition.
-    if (isSpendingLimitPriceUnavailable(error)) throw spendingLimitRetryError();
+    // An untrusted page cannot spend against a cap the wallet cannot value, so ordinary price
+    // failures become the same retry refusal as the send path at this boundary. A kill must
+    // keep its cause chain for the caller's mapper to return the kill link instead.
+    if (pipelineKillIn(error) === undefined && isSpendingLimitPriceUnavailable(error)) throw spendingLimitRetryError();
     throw error;
   }
 };
@@ -1616,7 +1785,9 @@ const assertDappSendStillAuthorized = async (
   }
 };
 
-const dappSendFailure = (error: unknown): Error => {
+const dappSendFailure = (error: unknown): unknown => {
+  const kill = pipelineKillIn(error);
+  if (kill !== undefined) return kill;
   if (spendingLimitAssessmentFromError(error) !== undefined) {
     return spendingLimitRetryError();
   }
@@ -1633,13 +1804,51 @@ const dappSendFailure = (error: unknown): Error => {
   return dappRequestFailure(error);
 };
 
-// A refusal reaches the dApp as NOT_GRANTED; any other failure is reported as INVALID_PARAMS.
-const dappRequestFailure = (error: unknown): Error => {
+/**
+ * InvalidParams tells a dApp its bytes are bad and it should give up. A kill means the operation was stopped from
+ * outside and may even have landed, so retrying the note import is still correct, as on the connect path.
+ * Preserve the kill link's own message: a wrapper can carry a misleading parameter or permission code.
+ */
+const dappRequestFailure = (error: unknown): unknown => {
+  const kill = pipelineKillIn(error);
+  if (kill !== undefined) return kill;
+  if (error instanceof ClaimFeeRefusedError) return error;
   // A lock that lands after approval is not a malformed request (#1414).
   if (isWalletLockedError(error)) return lockedRefusal();
   if (error instanceof Error && error.message === MidenDAppErrorType.NotGranted) return error;
   if (error instanceof Error && error.message.startsWith(`${MidenDAppErrorType.NotGranted}:`)) return error;
   return new Error(`${MidenDAppErrorType.InvalidParams}: ${error}`);
+};
+
+// A kill (a lock-recovery eviction, an offscreen abort or a terminated
+// client) is a retryable internal failure, not a parameter problem
+// (issue #775); a locked wallet gets an Unlock step from the caller (#1414).
+const dappReadFailure = (error: unknown): unknown => {
+  const kill = pipelineKillIn(error);
+  if (kill !== undefined) return kill;
+  if (isWalletLockedError(error)) return error;
+  return new Error(`${MidenDAppErrorType.InvalidParams}: ${error}`);
+};
+
+const dappWriteFailure = (error: unknown): unknown => {
+  // A queued id outranks a kill anywhere in the chain: retrying the write could send it twice.
+  for (const link of causeChain(error)) {
+    if (link instanceof TransactionQueuedError) {
+      // Bread Connect reads the queued id from this cause, never from the message.
+      return new Error(
+        `${MidenDAppErrorType.OutcomeUnknown}: transaction ${link.transactionId} may already be queued; ` +
+          'wait for it before sending again',
+        { cause: link }
+      );
+    }
+  }
+  if (pipelineKillIn(error) !== undefined) {
+    return new Error(
+      `${MidenDAppErrorType.OutcomeUnknown}: the wallet could not confirm whether the transaction was queued; ` +
+        'check before sending again'
+    );
+  }
+  return dappSendFailure(error);
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null;
@@ -1898,6 +2107,24 @@ async function requestUnlockOnly<T>(
   });
 }
 
+/**
+ * `prepare`'s value for a request that never prompts: read at once while unlocked; locked, read after the app's own
+ * unlock on mobile and desktop, or after the extension's popup that only unlocks.
+ */
+async function prepareWithoutPrompt<T>(
+  origin: string,
+  dApp: MidenDAppSession,
+  sourcePublicKey: string,
+  prepare: () => Promise<T>
+): Promise<T> {
+  const prepared = await runPrepare(prepare);
+  if (!prepared.locked) return prepared.value;
+  if (!isExtension()) return prepareAfterUnlock(origin, sourcePublicKey, dApp.accountId, prepare);
+  return new Promise<T>((resolve, reject) => {
+    requestUnlockOnly(origin, dApp, sourcePublicKey, prepare, resolve, reject).catch(reject);
+  });
+}
+
 // One mobile or desktop request's unlock waits, and the sheet that follows them, share one deadline set by its first
 // wait: LOCKED_PROMPT_CAP_MS, the extension popup's cap over its whole life, so a wallet that locks again after each
 // unlock cannot hold the dApp queue past it. Unset while the request has never waited.
@@ -2074,13 +2301,33 @@ const generatePromisifyTransaction = async (
     return;
   }
 
+  // Reject malformed bytes before any unlock prompt; WASM startup failures keep their original error. The decode and
+  // its summary share one hold, so a trap in either reaches the lock, which retires the client before the refusal.
+  await ensureSdkWasmReady();
+  let declared: TxAssetView | undefined;
+  try {
+    declared = await withWasmClientLock(async () => {
+      const request = TransactionRequest.deserialize(b64ToU8(customTransaction.transactionRequest));
+      try {
+        return declaredTransactionRequestToView(request, customTransaction.importNotes ?? [], { rethrowTraps: true });
+      } catch (e) {
+        if (e instanceof WebAssembly.RuntimeError) throw e;
+        console.error('[DApp] Could not decode the custom transaction request for the approval sheet:', e);
+        return undefined;
+      }
+    });
+  } catch (e) {
+    // A kill during the decode says nothing about the bytes, so it answers retryable, as the other previews do.
+    reject(dappReadFailure(e));
+    return;
+  }
+
   const prepare = async () => {
     let declaredMessages: string[];
     try {
-      declaredMessages = await withUnlocked(async () => formatCustomTransactionPreview(customTransaction));
+      declaredMessages = await withUnlocked(async () => formatCustomTransactionPreview(customTransaction, declared));
     } catch (e) {
-      if (isWalletLockedError(e)) throw e;
-      throw new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`);
+      throw dappReadFailure(e);
     }
     // The effects go in front of the user BEFORE either sheet is raised, because the mobile/desktop
     // sheet cannot ask for them itself - see `formatSimulatedCustomEffects`. Hoisted above the
@@ -2192,7 +2439,11 @@ const generatePromisifyTransaction = async (
         transactionId
       } as any);
     } catch (e) {
-      reject(dappSendFailure(e));
+      if ([...causeChain(e)].some(link => link instanceof TransactionQueuedError)) {
+        await releaseNoteIds(importedNoteIds(customTransaction.importNotes));
+        startDappBackgroundProcessing();
+      }
+      reject(dappWriteFailure(e));
     }
     return;
   }
@@ -2254,7 +2505,11 @@ const generatePromisifyTransaction = async (
               transactionId
             } as any);
           } catch (e) {
-            reject(dappSendFailure(e));
+            if ([...causeChain(e)].some(link => link instanceof TransactionQueuedError)) {
+              await releaseNoteIds(importedNoteIds(customTransaction.importNotes));
+              startDappBackgroundProcessing();
+            }
+            reject(dappWriteFailure(e));
           }
         } else {
           decline();
@@ -2448,7 +2703,7 @@ const generatePromisifySendTransaction = async (
         transactionId
       } as any);
     } catch (e) {
-      reject(dappSendFailure(e));
+      reject(dappWriteFailure(e));
     }
     return;
   }
@@ -2503,7 +2758,7 @@ const generatePromisifySendTransaction = async (
               transactionId
             } as any);
           } catch (e) {
-            reject(dappSendFailure(e));
+            reject(dappWriteFailure(e));
           }
         } else {
           decline();
@@ -2558,17 +2813,18 @@ const generatePromisifyConsumeTransaction = async (
   // Bytes that describe another note are a malformed request, refused before the gate so a locked wallet says so too.
   let carried: ResolvedConsumeNote | null = null;
   try {
-    carried = decodeCarriedConsumeNote(req.transaction);
+    carried = await decodeCarriedConsumeNoteLocked(req.transaction);
   } catch (e) {
-    reject(new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`));
+    reject(pipelineKillIn(e) ?? new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`));
     return;
   }
   const prepare = async () => {
     try {
-      return await withUnlocked(async () => formatConsumeTransactionPreview(req.transaction, carried));
+      return await withUnlocked(async () =>
+        formatConsumeTransactionPreview(req.transaction, carried, req.sourcePublicKey)
+      );
     } catch (e) {
-      if (isWalletLockedError(e)) throw e;
-      throw new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`);
+      throw dappReadFailure(e);
     }
   };
   const prepared = await prepareOrReject(prepare, reject);
@@ -2588,7 +2844,7 @@ const generatePromisifyConsumeTransaction = async (
       waits
     );
     if (sheetData === undefined) return;
-    const transactionMessages = sheetData;
+    const { noteId, messages: transactionMessages } = sheetData;
 
     const result = await requestConfirmationWithWatchdog(waits.deadline, {
       id,
@@ -2614,9 +2870,9 @@ const generatePromisifyConsumeTransaction = async (
       const transactionId = await withUnlocked(async () => {
         // The same re-check send and custom perform: a consume approved for a stale session moves value too (#1415).
         await assertDappSendStillAuthorized(origin, req.sourcePublicKey, dApp.accountId);
-        const { noteId, noteBytes } = req.transaction;
+        const { noteBytes } = req.transaction;
         if (noteBytes) {
-          await importConsumeNoteBytes(noteId, noteBytes);
+          await importConsumeNoteBytes(req.transaction);
           // The import can run long; the account or session may have changed under it.
           await assertDappSendStillAuthorized(origin, req.sourcePublicKey, dApp.accountId);
         }
@@ -2631,7 +2887,8 @@ const generatePromisifyConsumeTransaction = async (
           noteId,
           delegateFromConfirmation(result),
           true,
-          origin
+          origin,
+          'dapp'
         );
       });
       startDappBackgroundProcessing();
@@ -2641,7 +2898,7 @@ const generatePromisifyConsumeTransaction = async (
       });
     } catch (e) {
       // A killed note import may have landed and the bytes are queued: not bad params.
-      reject(importPrivateNoteFailure(e));
+      reject(dappRequestFailure(e));
     }
     return;
   }
@@ -2649,15 +2906,18 @@ const generatePromisifyConsumeTransaction = async (
   const sheet = sheetFor(prepared, origin, req.sourcePublicKey, dApp.accountId, prepare);
   await requestConfirmFor(origin, sheet, reject, {
     id,
-    payload: async () => ({
-      type: 'consume',
-      origin,
-      networkRpc,
-      appMeta: dApp.appMeta,
-      sourcePublicKey: req.sourcePublicKey,
-      transactionMessages: await sheet.data(),
-      noteId: req.transaction.noteId
-    }),
+    payload: async () => {
+      const { noteId, messages } = await sheet.data();
+      return {
+        type: 'consume',
+        origin,
+        networkRpc,
+        appMeta: dApp.appMeta,
+        sourcePublicKey: req.sourcePublicKey,
+        transactionMessages: messages,
+        noteId
+      };
+    },
     handleIntercomRequest: async (confirmReq, decline) => {
       if (confirmReq?.type === MidenMessageType.DAppTransactionConfirmationRequest && confirmReq?.id === id) {
         if (confirmReq.confirmed) {
@@ -2665,9 +2925,11 @@ const generatePromisifyConsumeTransaction = async (
             const transactionId = await withUnlocked(async () => {
               // See the mobile/desktop arm: same post-approval re-check.
               await assertDappSendStillAuthorized(origin, req.sourcePublicKey, dApp.accountId);
-              const { noteId, noteBytes } = req.transaction;
+              // The note the popup showed, kept by the sheet: a details commitment resolved to its note id (#1389).
+              const { noteId } = await sheet.data();
+              const { noteBytes } = req.transaction;
               if (noteBytes) {
-                await importConsumeNoteBytes(noteId, noteBytes);
+                await importConsumeNoteBytes(req.transaction);
                 // See the mobile/desktop arm: the import can outlast the approval's check.
                 await assertDappSendStillAuthorized(origin, req.sourcePublicKey, dApp.accountId);
               }
@@ -2679,7 +2941,8 @@ const generatePromisifyConsumeTransaction = async (
                 noteId,
                 confirmReq.delegate,
                 true,
-                origin
+                origin,
+                'dapp'
               );
             });
             startDappBackgroundProcessing();
@@ -2689,7 +2952,7 @@ const generatePromisifyConsumeTransaction = async (
             });
           } catch (e) {
             // Same mapping as the non-extension branch above.
-            reject(importPrivateNoteFailure(e));
+            reject(dappRequestFailure(e));
           }
         } else {
           decline();
@@ -2775,6 +3038,9 @@ export async function setDApp(origin: string, permissions: MidenDAppSession) {
 }
 
 export async function removeDApp(origin: string, accountId: string) {
+  // A native app's Bread Connect session lives under its origin; left in place, the origin's next grant revives it.
+  // It ends first, so a failure keeps the permission rather than a session that outlives it.
+  await endOriginSessions(origin);
   const { [origin]: permissionsToRemove, ...restDApps } = await getAllDApps();
   const newPermissions = permissionsToRemove?.filter(session => session.accountId !== accountId) ?? [];
   await setDApps({ ...restDApps, [origin]: newPermissions });
@@ -2802,6 +3068,30 @@ type RequestConfirmParams = {
   handleSimulate?: (req: MidenRequest) => Promise<any>;
 };
 
+// The last state of each recent approval, so a request no handler answered can say which state it met. The ids stay
+// in this worker's memory; only the state crosses the port, as the Not Found error's code.
+type ConfirmationState = Exclude<ConfirmationHandlerState, 'unknown'>;
+const CONFIRMATION_STATES_KEPT = 64;
+const confirmationStates = new Map<string, ConfirmationState>();
+
+function recordConfirmationState(id: string, state: ConfirmationState): void {
+  confirmationStates.delete(id);
+  confirmationStates.set(id, state);
+  for (const oldest of confirmationStates.keys()) {
+    if (confirmationStates.size <= CONFIRMATION_STATES_KEPT) return;
+    confirmationStates.delete(oldest);
+  }
+}
+
+/** The "Not Found" for a confirmation request no handler answered, coded with the state its approval reached. */
+export function confirmationNotFound(req: unknown): Error & { code: string } {
+  const sent: unknown = typeof req === 'object' && req !== null && 'id' in req ? req.id : undefined;
+  // The payload request sends the popup's SWR key, an array holding the id.
+  const id: unknown = Array.isArray(sent) ? sent[0] : sent;
+  const state = typeof id === 'string' ? confirmationStates.get(id) : undefined;
+  return Object.assign(new Error('Not Found'), { code: `confirmation_${state ?? 'unknown'}` });
+}
+
 async function requestConfirm({
   id,
   payload,
@@ -2823,12 +3113,13 @@ async function requestConfirm({
   const stopTimeout = () => clearTimeout(timeout);
   const restartTimeout = (ms: number) => {
     stopTimeout();
-    timeout = setTimeout(declineAndClose, ms);
+    timeout = setTimeout(() => declineAndClose('expired'), ms);
   };
   const capLeft = () => LOCKED_PROMPT_CAP_MS - (Date.now() - openedAt);
-  const close = async () => {
+  const close = async (reason: Exclude<ConfirmationState, 'open'>) => {
     /* c8 ignore start */ if (closing) return; /* c8 ignore stop */
     closing = true;
+    recordConfirmationState(id, reason);
     // However the popup closes, a payload build still waiting for the unlock stops here (#1414).
     onClose?.();
 
@@ -2841,12 +3132,13 @@ async function requestConfirm({
     } catch (_err) {}
   };
 
-  const declineAndClose = () => {
+  const declineAndClose = (reason: 'expired' | 'window_closed') => {
     onDecline();
-    close();
+    close(reason);
   };
 
   let knownPort: Runtime.Port | undefined;
+  recordConfirmationState(id, 'open');
   const stopRequestListening = intercom.onRequest(async (req: MidenRequest, port) => {
     if (req?.type === MidenMessageType.DAppGetPayloadRequest && req.id[0] === id) {
       knownPort = port;
@@ -2859,7 +3151,7 @@ async function requestConfirm({
       } catch (error) {
         if (onPayloadError) onPayloadError(error);
         else onDecline();
-        close();
+        close('payload_failed');
         throw error;
       }
       if (!payloadServed && !closing) {
@@ -2884,7 +3176,7 @@ async function requestConfirm({
 
     const result = await handleIntercomRequest(req, onDecline);
     if (result) {
-      close();
+      close('answered');
       return result;
     }
   });
@@ -2914,7 +3206,7 @@ async function requestConfirm({
 
   const handleWinRemoved = (winId: number) => {
     if (winId === confirmWin?.id) {
-      declineAndClose();
+      declineAndClose('window_closed');
     }
   };
   browser.windows.onRemoved.addListener(handleWinRemoved);
@@ -3064,8 +3356,16 @@ async function formatSendTransactionPreview(transaction: SendTransaction): Promi
 
 /** The note a consume request will actually consume, as resolved by the wallet. */
 interface ResolvedConsumeNote {
+  noteId: string;
   assets: Asset[];
   noteType: string;
+  restriction?: ConsumeRestriction;
+}
+
+/** What a consume sheet shows, and the id of the note it shows, which is the note the approved consume spends. */
+interface ConsumePreview {
+  noteId: string;
+  messages: string[];
 }
 
 /**
@@ -3074,17 +3374,20 @@ interface ResolvedConsumeNote {
  * (see `noteIdFromBytes` in note-quarantine.ts). Returns the note's id alongside
  * its real assets and type, or null when neither format parses.
  */
-function decodeConsumeNoteBytes(noteBytesB64: string): (ResolvedConsumeNote & { noteId: string }) | null {
-  // Never throws: any unreadable byte string just means "the wallet could not
-  // decode this", and the caller falls back to reading the note from the store.
-  // Refusing the whole request here would break a legitimate dApp that carries a
-  // format this build cannot parse but whose note IS resolvable locally.
+function decodeConsumeNoteBytes(noteBytesB64: string): (ResolvedConsumeNote & { details: NoteDetailsParts }) | null {
+  // Never throws for bytes it cannot read: any unreadable byte string just means
+  // "the wallet could not decode this", and the caller falls back to reading the
+  // note from the store. Refusing the whole request here would break a legitimate
+  // dApp that carries a format this build cannot parse but whose note IS resolvable
+  // locally. A WebAssembly trap is no such string: it is rethrown for the caller's
+  // lock, which retires the client the aborted module belongs to.
   try {
     const bytes = b64ToU8(noteBytesB64);
     let note: Note | undefined;
     try {
       note = NoteFile.deserialize(bytes).note();
-    } catch {
+    } catch (error) {
+      if (error instanceof WebAssembly.RuntimeError) throw error;
       // Not a NoteFile — fall through to a bare Note.
     }
     if (!note) {
@@ -3093,7 +3396,9 @@ function decodeConsumeNoteBytes(noteBytesB64: string): (ResolvedConsumeNote & { 
     const metadata = note.metadata();
     return {
       noteId: note.id().toString(),
+      details: note,
       noteType: metadata ? toNoteTypeString(metadata.noteType()) : 'unknown',
+      restriction: noteConsumeRestriction(note),
       assets: note
         .assets()
         .fungibleAssets()
@@ -3102,68 +3407,132 @@ function decodeConsumeNoteBytes(noteBytesB64: string): (ResolvedConsumeNote & { 
           faucetId: getBech32AddressFromAccountId(asset.faucetId())
         }))
     };
-  } catch {
+  } catch (error) {
+    if (error instanceof WebAssembly.RuntimeError) throw error;
     return null;
   }
 }
 
 /**
- * The note that carried bytes describe, or null when there are none or they do not decode yet. Bytes that decode to
- * another note than `noteId` are refused: that note is not the one the consume reads.
+ * The note that carried bytes describe, or null when they do not decode. The request may name the note by its id or
+ * its details commitment; bytes matching neither are refused. The returned id is the note's own id for consumption.
  */
 function decodeCarriedConsumeNote(transaction: MidenConsumeTransaction): ResolvedConsumeNote | null {
   if (transaction.noteBytes) {
     const decoded = decodeConsumeNoteBytes(transaction.noteBytes);
     if (decoded) {
       if (decoded.noteId !== transaction.noteId) {
-        throw new Error('noteBytes describe a different note than noteId - refusing to preview it');
+        let commitment: string | undefined;
+        try {
+          commitment = noteDetailsCommitment(decoded.details);
+        } catch (error) {
+          if (error instanceof WebAssembly.RuntimeError) throw error;
+        }
+        if (commitment !== normalizedCommitment(transaction.noteId)) {
+          throw new Error('noteBytes describe a different note than noteId - refusing to preview it');
+        }
       }
-      return { assets: decoded.assets, noteType: decoded.noteType };
+      return {
+        noteId: decoded.noteId,
+        assets: decoded.assets,
+        noteType: decoded.noteType,
+        restriction: decoded.restriction
+      };
     }
   }
   return null;
 }
 
 /**
- * Ground truth for a consume request: what the note the wallet will consume
- * actually holds.
- *
- * Execution uses ONLY `transaction.noteId` — `initiateConsumeTransactionFromId`
- * loads the note from the store and explicitly blanks the request's declared
- * `faucetId`/`amount`/`senderAddress` (transaction/initiate.ts). So the
- * dApp-declared faucet, amount and note type provably cannot influence the
- * transaction, and rendering them on the approval screen shows the user numbers
- * with no causal relationship to what they are authorizing (e.g. "+500 USDC" over
- * an attacker's asset-less note). Resolve the note instead — from the carried
- * bytes when they are supplied (rejecting bytes whose id is not the id that will
- * be consumed), else from the local store — and refuse the request when it cannot
- * be resolved at all, rather than prompting with unverifiable numbers.
+ * {@link decodeCarriedConsumeNote} under the WASM lock: a decode that traps rejects the hold, so the lock retires the
+ * client before any later call can run on it, and the request is refused rather than read from the store.
  */
-async function resolveConsumeNote(transaction: MidenConsumeTransaction): Promise<ResolvedConsumeNote> {
-  const carried = decodeCarriedConsumeNote(transaction);
+async function decodeCarriedConsumeNoteLocked(
+  transaction: MidenConsumeTransaction
+): Promise<ResolvedConsumeNote | null> {
+  if (!transaction.noteBytes) return null;
+  return await withWasmClientLock(async () => decodeCarriedConsumeNote(transaction));
+}
+
+/**
+ * Ground truth for a consume sheet and its approved spend. Carried bytes are checked against the request's id,
+ * which may be their note id or details commitment. A note-id match keeps the request's id; a commitment match
+ * spends the resolved note's own id. Without decodable bytes, resolve from the store, scoped to this account for
+ * commitment matches. Refuse an unresolved note rather than show dApp-declared assets unrelated to the spend.
+ */
+async function resolveConsumeNote(
+  transaction: MidenConsumeTransaction,
+  accountId: string
+): Promise<ResolvedConsumeNote> {
+  const carried = await decodeCarriedConsumeNoteLocked(transaction);
   if (carried) return carried;
 
-  const [details] = await withWasmClientLock(async hold =>
-    midenClientProxy.getInputNoteDetails({ ids: [transaction.noteId] }, () =>
+  const resolved = await withWasmClientLock(async hold => {
+    const [byNoteId] = await midenClientProxy.getInputNoteDetails({ ids: [transaction.noteId] }, () =>
       assertWasmHoldCurrent(hold, 'inside the note-preview read, before the record reach-through')
-    )
-  );
-  if (!details) {
-    throw new Error(`Note ${transaction.noteId} could not be resolved — refusing to preview it`);
+    );
+    // A note found by its id is consumed by the id exactly as the request spells it.
+    if (byNoteId) return { details: byNoteId, noteId: transaction.noteId };
+    assertWasmHoldCurrent(hold, 'after the note-preview read');
+    const byCommitment = await noteOfDetailsCommitment(transaction.noteId, accountId, hold);
+    return byCommitment && { details: byCommitment, noteId: byCommitment.noteId };
+  });
+  if (!resolved) {
+    throw new Error(
+      `Note ${transaction.noteId} could not be resolved - an imported note resolves once the wallet has synced it`
+    );
   }
+  const { details, noteId } = resolved;
   return {
+    noteId,
     assets: details.assets,
-    noteType: details.noteType !== undefined ? toNoteTypeString(details.noteType) : 'unknown'
+    noteType: details.noteType !== undefined ? toNoteTypeString(details.noteType) : 'unknown',
+    restriction: details.restriction
   };
+}
+
+/**
+ * The note of this account whose details commitment is `commitment`: the id `importPrivateNote` returns for a
+ * details-only note file or a bare Note, which no record has as its note id (#1389). Only a note this account can
+ * consume is listed and hashed, the same attribution {@link getPrivateNoteDetails} uses, so the id never resolves
+ * to another account's note. An uncommitted match remains unresolved until a wallet sync supplies its metadata.
+ */
+async function noteOfDetailsCommitment(
+  commitment: string,
+  accountId: string,
+  hold: WasmLockHold
+): Promise<DetailsCommitmentMatches['notes'][number] | undefined> {
+  const consumable = await midenClientProxy.getConsumableNotes(accountId, step =>
+    assertWasmHoldCurrent(hold, 'inside the details-commitment consumable-notes read', step)
+  );
+  assertWasmHoldCurrent(hold, 'after the details-commitment consumable-notes read');
+  const own = new Set(consumable.flatMap(note => (note.noteId ? [note.noteId] : [])));
+  const [{ notes } = { notes: [] }] = await midenClientProxy.getDetailsCommitmentMatches([commitment], [...own], () =>
+    assertWasmHoldCurrent(hold, 'inside the details-commitment read, before the record reach-through')
+  );
+  if (notes.length > 0) {
+    const [note, ...more] = notes.filter(candidate => own.has(candidate.noteId));
+    if (more.length > 0) {
+      throw new Error(`Note ${commitment} names more than one note this account can consume - refusing to preview it`);
+    }
+    if (note) return note;
+  }
+  return undefined;
 }
 
 async function formatConsumeTransactionPreview(
   transaction: MidenConsumeTransaction,
   // Decoded before the gate; null makes this decode again, since a service worker that had not loaded the SDK
   // before the unlock could not read the bytes then.
-  carried: ResolvedConsumeNote | null
-): Promise<string[]> {
-  const { assets, noteType } = carried ?? (await resolveConsumeNote(transaction));
+  carried: ResolvedConsumeNote | null,
+  accountId: string
+): Promise<ConsumePreview> {
+  const { noteId, assets, noteType, restriction } = carried ?? (await resolveConsumeNote(transaction, accountId));
+  // Refused here, before the sheet: once approved, the consume would fail at execution with ERR_RECLAIM_DISABLED, and
+  // nothing before execution asks whether the account can consume the note.
+  if (!mayConsume(restriction, () => accountRefToSdk(accountId))) {
+    throw new Error('This account can never consume this note - refusing it');
+  }
   const headlineFaucet = assets[0]?.faucetId;
   const messages = [
     headlineFaucet
@@ -3181,7 +3550,7 @@ async function formatConsumeTransactionPreview(
   if (maxFee) {
     messages.push(`Network fee (max), ${maxFee}`);
   }
-  return messages;
+  return { noteId, messages };
 }
 
 /**
@@ -3321,26 +3690,23 @@ async function formatSignPreview(req: MidenDAppSignRequest): Promise<string[]> {
  * (`CustomTransactionContent`: the simulated summary, falling back to
  * `declaredRequestToView`), so the same static decode is rendered here as rows.
  *
- * `declaredRequestToView` is an offline decode of the request the wallet will
- * execute — no dry run, so it is labelled unverified, exactly as the extension
+ * `declared` is that offline decode of the request the wallet will execute,
+ * built in the caller's WASM hold (undefined when it could not be summarised).
+ * There is no dry run, so it is labelled unverified, exactly as the extension
  * labels its declared view. `recipientAddress` stays dApp-declared and is
  * labelled as such: it is not derived from the request bytes and nothing
  * downstream checks it.
  */
-async function formatCustomTransactionPreview(payload: MidenCustomTransaction): Promise<string[]> {
+async function formatCustomTransactionPreview(
+  payload: MidenCustomTransaction,
+  declared: TxAssetView | undefined
+): Promise<string[]> {
   const messages = [
     'This dApp is requesting a custom transaction,',
     'please ensure you know the details of the transaction before proceeding.',
     // Executing account first, for the same reason as the send preview.
     `From, ${truncateAddress(payload.address)}`
   ];
-
-  let declared: TxAssetView | undefined;
-  try {
-    declared = declaredRequestToView(payload.transactionRequest, payload.importNotes ?? []);
-  } catch (e) {
-    console.error('[DApp] Could not decode the custom transaction request for the approval sheet:', e);
-  }
 
   if (declared) {
     messages.push('Declared by the site, the wallet has not verified these amounts');
@@ -3469,7 +3835,15 @@ function consentReason(e: unknown): string {
   if (isPipelineKillLink(e)) {
     return 'the simulation was interrupted before it finished';
   }
-  return e instanceof Error ? e.message : String(e);
+  return dryRunFailureReason(e instanceof Error ? e.message : String(e));
+}
+
+/**
+ * A failed dry run's text as the wallet shows it or hands it on. The dry run executes the bytes the write would, so a
+ * kernel failure the Failed row would name reads through that row's copy rather than as its hashed code (#1475).
+ */
+function dryRunFailureReason(text: string): string {
+  return deterministicKernelFailureCopy(text) ?? text;
 }
 
 // Background-safe helpers (duplicated from UI without UI deps)

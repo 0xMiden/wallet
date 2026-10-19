@@ -28,7 +28,6 @@ import {
   type DepositedToRemoteEvent
 } from './arc-usdcx';
 import { realArcClock, USDCX_REMOTE_DOMAIN, type ArcClock, type L2BridgeInSource } from './usdcx-constants';
-import type { L2DepositSubmission } from './usdcx-l2-deposit';
 import { fetchCctpMessages, isCctpForwardFailed, type CctpMessage } from '../../../src/lib/usdcx/cctp';
 import { addressToBytes32 } from '../../../src/lib/usdcx/executor';
 import { GENERIC_EXECUTOR_ABI } from '../../../src/lib/usdcx/protocol';
@@ -124,6 +123,14 @@ export function sameBurnMessage(sent: Hex, attested: Hex): boolean {
   return masked(sent) === masked(attested);
 }
 
+/** What confirmL2Burn reads of a deposit: the endpoint that took it, the burn, its hook data and the fee it paid. */
+export interface L2BurnSubmission {
+  endpoint: string;
+  burnHash: Hash;
+  signed: { hookData: Hex };
+  burnQuote: { feeTotalAmount: bigint };
+}
+
 export interface L2BurnProof {
   sentMessage: Hex;
   fields: CctpMessageFields;
@@ -138,7 +145,7 @@ export interface L2BurnProof {
  * the amount and the hook data byte for byte), and a USDC debit of exactly the amount plus the quoted fee.
  */
 export async function confirmL2Burn(
-  submission: L2DepositSubmission,
+  submission: L2BurnSubmission,
   expected: { l2: L2BridgeInSource; units: bigint; depositor: Address },
   reads: ArcReadDeps
 ): Promise<L2BurnProof> {

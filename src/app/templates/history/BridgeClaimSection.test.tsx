@@ -9,9 +9,14 @@ import { NO_EXPLORER_CHAIN } from 'lib/walletconnect/testing/chains';
 import { BridgeClaimSection } from './BridgeClaimSection';
 import { IHistoryEntry } from './IHistoryEntry';
 
+let mockFeeCopy = 'worker-fee-copy';
+jest.mock('lib/i18n', () => ({
+  ...jest.requireActual('lib/i18n'),
+  getMessage: (key: string) => (key === 'insufficientFeeAsset' ? mockFeeCopy : key)
+}));
 // t(key) echoes `t:<key>` so we can assert which label branch rendered.
 jest.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key: string) => `t:${key}` })
+  useTranslation: () => ({ t: (key: string) => (key === 'insufficientFeeAsset' ? mockFeeCopy : `t:${key}`) })
 }));
 
 // Only ITransactionStatus (the enum) is used at runtime.
@@ -31,6 +36,8 @@ jest.mock('lib/epoch', () => ({
 }));
 
 const mockInitiateConsumeFromId = jest.fn(async (..._a: unknown[]) => 'reclaim-tx-1');
+// What the Reclaim button passes after the note id: delegate, manualRetry, no dApp origin, and what queued the row.
+const RECLAIMS = [false, true, undefined, 'bridge_reclaim'] as const;
 const mockRequestSWProcessing = jest.fn();
 const mockUpdateBridgeClaimStatus = jest.fn(async (..._a: unknown[]) => undefined);
 const mockPinAgglayerDeposit = jest.fn(async (..._a: unknown[]) => undefined);
@@ -173,6 +180,7 @@ const READY = { id: 'deposit-1', tx_hash: '0xexit', deposit_cnt: 5, ready_for_cl
 
 describe('BridgeClaimSection', () => {
   beforeEach(() => {
+    mockFeeCopy = 'worker-fee-copy';
     jest.clearAllMocks();
     // clearAllMocks keeps a queued *Once, so a block read a test never reaches would leak into the next.
     mockGetCurrentMidenBlock.mockReset().mockImplementation(async () => 0);
@@ -213,7 +221,7 @@ describe('BridgeClaimSection', () => {
       // 4th arg = manualRetry. The button only exists behind an explicit tap, so
       // auto-consume's exponential backoff must not swallow it and answer with a
       // previously-failed reclaim's row id.
-      await waitFor(() => expect(mockInitiateConsumeFromId).toHaveBeenCalledWith('acct-1', 'note-1', false, true));
+      await waitFor(() => expect(mockInitiateConsumeFromId).toHaveBeenCalledWith('acct-1', 'note-1', ...RECLAIMS));
       expect(mockRequestSWProcessing).not.toHaveBeenCalled(); // isExtension() mocked false
       expect(mockNavigate).toHaveBeenCalledWith('/generating-transaction-full/reclaim-tx-1');
     });
@@ -233,6 +241,30 @@ describe('BridgeClaimSection', () => {
       expect(await screen.findByText('reclaim boom')).toBeInTheDocument();
     });
 
+    it('fee refusal uses localized fee copy and leaves the current view open', async () => {
+      const { ClaimFeeRefusedError } = jest.requireActual<typeof import('lib/miden/transaction/initiate')>(
+        'lib/miden/transaction/initiate'
+      );
+      const refusal = new ClaimFeeRefusedError();
+      mockFeeCopy = 'localized-fee-copy';
+      mockGetCurrentMidenBlock.mockResolvedValueOnce(1200);
+      mockInitiateConsumeFromId.mockRejectedValueOnce(refusal);
+      const log = jest.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        renderSection({ entry: entry() });
+        fireEvent.click(await screen.findByText('t:reclaimFunds'));
+
+        expect(await screen.findByText('localized-fee-copy')).toBeInTheDocument();
+        expect(screen.queryByText(refusal.message)).not.toBeInTheDocument();
+        expect(mockNavigate).not.toHaveBeenCalled();
+        expect(mockRequestSWProcessing).not.toHaveBeenCalled();
+        expect(screen.getByText('t:reclaimFunds')).not.toBeDisabled();
+        expect(log).not.toHaveBeenCalled();
+      } finally {
+        log.mockRestore();
+      }
+    });
+
     it('offers Reclaim for an unconfirmed failed row from its stamped height and note id (#1250)', async () => {
       mockGetCurrentMidenBlock.mockResolvedValueOnce(1200); // >= 1000
       renderSection({
@@ -246,7 +278,7 @@ describe('BridgeClaimSection', () => {
       });
       fireEvent.click(await screen.findByText('t:reclaimFunds'));
       await waitFor(() =>
-        expect(mockInitiateConsumeFromId).toHaveBeenCalledWith('acct-1', 'note-stamped', false, true)
+        expect(mockInitiateConsumeFromId).toHaveBeenCalledWith('acct-1', 'note-stamped', ...RECLAIMS)
       );
     });
 
@@ -305,7 +337,7 @@ describe('BridgeClaimSection', () => {
       });
       fireEvent.click(await screen.findByText('t:reclaimFunds'));
       await waitFor(() =>
-        expect(mockInitiateConsumeFromId).toHaveBeenCalledWith('acct-1', 'note-stamped', false, true)
+        expect(mockInitiateConsumeFromId).toHaveBeenCalledWith('acct-1', 'note-stamped', ...RECLAIMS)
       );
     });
 
@@ -329,7 +361,7 @@ describe('BridgeClaimSection', () => {
       mockGetCurrentMidenBlock.mockResolvedValueOnce(1200); // >= 1000
       renderSection({ entry: entry({ bridgeReclaimNoteId: 'note-stamped' }) });
       fireEvent.click(await screen.findByText('t:reclaimFunds'));
-      await waitFor(() => expect(mockInitiateConsumeFromId).toHaveBeenCalledWith('acct-1', 'note-1', false, true));
+      await waitFor(() => expect(mockInitiateConsumeFromId).toHaveBeenCalledWith('acct-1', 'note-1', ...RECLAIMS));
     });
 
     describe('a completed bridge-out', () => {
@@ -342,7 +374,7 @@ describe('BridgeClaimSection', () => {
         mockGetCurrentMidenBlock.mockResolvedValueOnce(1200); // >= 1000
         renderSection({ entry: completed() });
         fireEvent.click(await screen.findByText('t:reclaimFunds'));
-        await waitFor(() => expect(mockInitiateConsumeFromId).toHaveBeenCalledWith('acct-1', 'note-1', false, true));
+        await waitFor(() => expect(mockInitiateConsumeFromId).toHaveBeenCalledWith('acct-1', 'note-1', ...RECLAIMS));
       });
 
       it('shows no countdown for a completed bridge-out whose intent is not recorded yet (#1250)', async () => {
@@ -364,7 +396,7 @@ describe('BridgeClaimSection', () => {
         mockGetCurrentMidenBlock.mockResolvedValueOnce(1200); // >= 1000
         renderSection({ entry: completed({ bridgeIntentNonce: 'user:1', bridgeEpochStatus: 'failed' }) });
         fireEvent.click(await screen.findByText('t:reclaimFunds'));
-        await waitFor(() => expect(mockInitiateConsumeFromId).toHaveBeenCalledWith('acct-1', 'note-1', false, true));
+        await waitFor(() => expect(mockInitiateConsumeFromId).toHaveBeenCalledWith('acct-1', 'note-1', ...RECLAIMS));
       });
 
       it('shows the countdown for a completed bridge-out whose fill failed (#1250)', async () => {

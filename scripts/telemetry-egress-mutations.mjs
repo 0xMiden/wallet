@@ -178,7 +178,7 @@ const MUTATIONS = [
   // --- consent gate + egress destination ---
   {
     name: 'the consent gate removed from sendEvent',
-    guards: 'nothing at all with consent off',
+    guards: 'no usage events with usage consent off',
     file: SINK,
     find: `    if (!(await isTelemetryEnabledAsync())) return;`,
     replace: `    await isTelemetryEnabledAsync();`
@@ -212,8 +212,8 @@ const MUTATIONS = [
     name: 'the ORIGINAL error captured instead of the rebuilt one',
     guards: 'crash: no forbidden value from the cause chain',
     file: CRASH,
-    find: `        target.captureException(reportable, { mechanism });`,
-    replace: `        target.captureException(error, { mechanism });`
+    find: `        target.captureException(reportable, {`,
+    replace: `        target.captureException(error, {`
   },
   {
     name: 'the poisoned cause chain kept on the rebuilt error',
@@ -226,7 +226,7 @@ const MUTATIONS = [
     name: 'the message scrubber neutered',
     guards: 'crash: no forbidden value',
     file: CRASH,
-    find: `  const safeMessage = redactMessage(message, WORDLIST) ?? REDACTED;`,
+    find: `  const safeMessage = redactMessage(message, WORDLIST, closedNames) ?? REDACTED;`,
     replace: `  const safeMessage = message;
   void redactMessage;
   void REDACTED;`
@@ -259,26 +259,30 @@ const MUTATIONS = [
     replace: `      beforeSend: (event: unknown) => event`,
     also: {
       file: CRASH,
-      find: `  const safeMessage = redactMessage(message, WORDLIST) ?? REDACTED;`,
+      find: `  const safeMessage = redactMessage(message, WORDLIST, closedNames) ?? REDACTED;`,
       replace: `  const safeMessage = message;
   void redactMessage;
   void REDACTED;`
     }
   },
   {
-    name: 'the consent gate removed from captureCrash',
-    guards: 'nothing at all with consent off',
+    name: 'the browser permission bypassed at crash capture and transport',
+    guards: 'no crash reports when browser permission is denied',
     file: CRASH,
-    find: `        if (!(await isTelemetryEnabledAsync())) return;`,
-    replace: `        await isTelemetryEnabledAsync();`
+    find: `        if (!(await isCrashReportingEnabledAsync())) return;`,
+    replace: `        await isCrashReportingEnabledAsync();`,
+    also: {
+      file: CRASH,
+      find: `          if (!(await isCrashReportingEnabledAsync()) || generation !== reportingGeneration)`,
+      replace: `          if (generation !== reportingGeneration)`
+    }
   },
   {
     name: 'crash reporting silenced entirely (anti-vacuity: no envelope is sent)',
     guards: 'crash: sends an envelope at all',
     file: CRASH,
-    find: `        target.captureException(reportable, { mechanism });`,
-    replace: `      void target;
-      void reportable;`
+    find: `        target.captureException(reportable, {`,
+    replace: `        if (false) target.captureException(reportable, {`
   },
   {
     name: 'the address pattern removed from the redactor',

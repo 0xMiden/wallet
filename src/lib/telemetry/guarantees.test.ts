@@ -29,7 +29,7 @@ import { sendEvent } from './sink';
  * - Nothing sold or shared with data brokers — `no analytics, tracking, or
  *   advertising SDK`, at all three dependency levels.
  * - No persistent user identifier — `no persistent identifier`.
- * - Off by default and opt-in — `telemetry is off until the user turns it on`.
+ * - Usage sharing is off by default and opt-in; crash reports are independent.
  * - One product-event egress point and one crash egress point — `no stray
  *   egress`, alongside `egress-boundary.test.ts`.
  *
@@ -1105,8 +1105,14 @@ describe('the background service worker never imports the telemetry barrel', () 
     // why `classify.ts` and `run.ts` exist apart from `report-flow.ts` rather
     // than inside it. If `lib/miden/front` or React ever appears in this graph,
     // the assertion above about the barrel is what will say so.
+    //
+    // `wasm-startup.ts` imports nothing: the SDK's startup catches read it in
+    // every realm that starts the SDK, the worker among them.
+    // `bridge-receive-failure.ts` imports nothing either: the transaction-failure
+    // reporter reads it to name a failed inbound bridge's route, step and error.
     expect([...backgroundGraph().modules].filter(module => module.startsWith('src/lib/telemetry/')).sort()).toEqual([
       'src/lib/telemetry/aptabase.ts',
+      'src/lib/telemetry/bridge-receive-failure.ts',
       'src/lib/telemetry/classify.ts',
       'src/lib/telemetry/context.ts',
       'src/lib/telemetry/crash-artifacts.ts',
@@ -1116,6 +1122,8 @@ describe('the background service worker never imports the telemetry barrel', () 
       'src/lib/telemetry/crash.ts',
       'src/lib/telemetry/protocol-assertions.json',
       'src/lib/telemetry/redact.ts',
+      // Imports nothing: `crash.ts` classifies relay failures with it, and the pages feed it without the crash client.
+      'src/lib/telemetry/relay-diagnostics.ts',
       'src/lib/telemetry/report-operation.ts',
       'src/lib/telemetry/run.ts',
       'src/lib/telemetry/sdk-observer.ts',
@@ -1123,8 +1131,14 @@ describe('the background service worker never imports the telemetry barrel', () 
       'src/lib/telemetry/sink.ts',
       'src/lib/telemetry/transaction-failure.ts',
       'src/lib/telemetry/transaction-operation.ts',
-      'src/lib/telemetry/types.ts'
+      'src/lib/telemetry/types.ts',
+      'src/lib/telemetry/wasm-startup.ts'
     ]);
+  });
+
+  it('keeps the relay diagnostics import-free, so App and AppKit feed them without loading the crash client', () => {
+    const source = readFileSync(resolve(REPO_ROOT, 'src/lib/telemetry/relay-diagnostics.ts'), 'utf8');
+    expect(specifiersOf(source)).toEqual([]);
   });
 });
 
@@ -1141,7 +1155,8 @@ const EGRESS_APIS: readonly Api[] = [
   { label: 'fetch()', pattern: /\bfetch\s*\(/ },
   { label: 'navigator.sendBeacon()', pattern: /\bsendBeacon\s*\(/ },
   { label: 'XMLHttpRequest', pattern: /\bXMLHttpRequest\b/ },
-  { label: 'WebSocket', pattern: /\bWebSocket\b/ },
+  // The relay classifier matches WalletConnect's fixed text for a failed relay socket, which opens nothing.
+  { label: 'WebSocket', pattern: /\bWebSocket\b(?! connection failed for host: )/ },
   { label: 'EventSource', pattern: /\bEventSource\b/ },
   { label: 'new Image()', pattern: /\bnew Image\s*\(/ },
   { label: 'axios', pattern: /\baxios\b/ }
@@ -1247,7 +1262,7 @@ describe('no stray egress', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Promise: telemetry is off by default and opt-in.
+// Promise: usage sharing is opt-in and crash reporting is independent.
 // ---------------------------------------------------------------------------
 
 /**
@@ -1305,7 +1320,7 @@ async function flushEgress(): Promise<void> {
   for (let i = 0; i < 4; i++) await new Promise(resolve => setTimeout(resolve, 5));
 }
 
-describe('telemetry is off until the user turns it on', () => {
+describe('usage sharing is opt-in and crash reporting is independent', () => {
   beforeEach(async () => {
     requests.length = 0;
     process.env.APTABASE_APP_KEY = APTABASE_APP_KEY;
@@ -1327,7 +1342,7 @@ describe('telemetry is off until the user turns it on', () => {
     expect(DEFAULT_TELEMETRY).toBe(false);
   });
 
-  it('sends nothing at either egress point on a fresh install', async () => {
+  it('reports crashes without sending usage events on a fresh install', async () => {
     // Nothing is mocked here. `egress-boundary.test.ts` substitutes the consent
     // gate to drive both sides of it; this runs the real settings module
     // against empty storage, which is the state a wallet is actually in the
@@ -1341,10 +1356,23 @@ describe('telemetry is off until the user turns it on', () => {
     );
     await flushEgress();
 
-    expect(requests).toEqual([]);
+    expect(requests).not.toContain(INGEST_URL);
+    expect(requests.filter(isSentryRequest).length).toBeGreaterThan(0);
   });
 
-  it('sends at both once consent is stored, so the silence above is the gate and not a broken driver', async () => {
+  it('keeps crash reporting enabled after usage sharing is explicitly disabled', async () => {
+    await getStorageProvider().set({ [TELEMETRY_STORAGE_KEY]: false });
+
+    initCrashReporting();
+    captureCrash(new Error('rpc endpoint returned status'));
+    await sendEvent({ phase: 'started', flow: 'open', flowId: 'opted-out', runId: 'run' }, resolveTelemetryContext());
+    await flushEgress();
+
+    expect(requests).not.toContain(INGEST_URL);
+    expect(requests.filter(isSentryRequest).length).toBeGreaterThan(0);
+  });
+
+  it('adds usage events once usage consent is stored', async () => {
     // Written straight to the store the background reads rather than through
     // `setTelemetrySetting`, whose mirror write is fire-and-forget: the point
     // here is the gate, not the timing of the mirror.

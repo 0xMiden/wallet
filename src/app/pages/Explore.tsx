@@ -36,6 +36,7 @@ import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { priceSymbolFor, tokenQuote } from 'lib/miden/swap/tokens';
+import { ClaimFeeRefusedError } from 'lib/miden/transaction/claim-fee';
 import { hapticLight } from 'lib/mobile/haptics';
 import { clearNoteReceivedNotification } from 'lib/mobile/native-notifications';
 import { isExtension, isMobile } from 'lib/platform';
@@ -45,7 +46,7 @@ import { midenTokenLabel } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { isAutoConsumeEnabled, isDelegateProofEnabled } from 'lib/settings/helpers';
 import { WalletAccount } from 'lib/shared/types';
-import { useWalletStore } from 'lib/store';
+import { isWalletReadyNow, useWalletStore } from 'lib/store';
 import type { PendingNoteValue } from 'lib/wallet-prompts';
 import { navigate } from 'lib/woozie';
 import { isHexAddress } from 'utils/miden';
@@ -140,9 +141,12 @@ const Explore: FC = () => {
     // against the others -- leaving it per-note meant the batching those two do was
     // defeated in the common case.
     //
-    // Poison-note isolation is the LAST argument, not this catch: an un-consumable note
+    // Poison-note isolation is the `true` argument, not this catch: an un-consumable note
     // fails at generation time, long after this queue write returned, so the catch here
-    // only ever sees a DB error. See `initiateConsumeNotesTransaction`.
+    // sees enqueue errors, not execution failures. See `initiateConsumeNotesTransaction`.
+    //
+    // The queue asks `isWalletReadyNow` right before each row it writes, so a lock that lands meanwhile queues
+    // nothing. A lock refuses every note alike, so it ends the pass: no per-note fallback, no processing request.
     try {
       await initiateConsumeNotesTransaction(
         account.publicKey,
@@ -150,17 +154,39 @@ const Explore: FC = () => {
         isDelegatedProvingEnabled,
         false,
         true,
-        verificationBaseFee
+        verificationBaseFee,
+        'auto_consume',
+        isWalletReadyNow
       );
     } catch (batchErr) {
+      if (batchErr instanceof ClaimFeeRefusedError) {
+        console.debug('[native-auto-consume] batch waiting for fee funding', batchErr);
+        return;
+      }
+      if (!isWalletReadyNow()) return;
       console.warn('[native-auto-consume] batch enqueue failed, falling back to per-note enqueue', batchErr);
+      let feeRefusedNotes = 0;
       for (const note of notesToClaim) {
         try {
-          await initiateConsumeTransaction(account.publicKey, note, isDelegatedProvingEnabled);
+          await initiateConsumeTransaction(
+            account.publicKey,
+            note,
+            isDelegatedProvingEnabled,
+            false,
+            'auto_consume',
+            isWalletReadyNow
+          );
         } catch (noteErr) {
+          if (noteErr instanceof ClaimFeeRefusedError) {
+            console.debug('[native-auto-consume] note waiting for fee funding', note.id, noteErr);
+            feeRefusedNotes += 1;
+            continue;
+          }
+          if (!isWalletReadyNow()) return;
           console.warn('[native-auto-consume] enqueue failed for note', note.id, noteErr);
         }
       }
+      if (feeRefusedNotes === notesToClaim.length) return;
     }
     // The wallet is now auto-claiming these notes, so the "click to claim"
     // notification is stale — dismiss it so it doesn't linger (#459).

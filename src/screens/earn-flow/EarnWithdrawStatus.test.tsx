@@ -214,6 +214,16 @@ describe('EarnWithdrawStatus', () => {
     expect(navigate).toHaveBeenCalledWith('/');
   });
 
+  // #1469, as on the bridge screen this one mirrors: a raw error's unbreakable token must wrap inside
+  // the centred column instead of widening it past the page margin.
+  it('wraps a recorded error with an unbreakable token', () => {
+    const error = `execution reverted: 0x${'ab'.repeat(100)}`;
+    mockRowState = { row: makeRow(makeInputs({ phase: 'failed', error })), loaded: true };
+    render(<EarnWithdrawStatus txId="withdraw-1" />);
+
+    expect(screen.getByText(error)).toHaveClass('w-full', 'wrap-anywhere', 'select-text');
+  });
+
   it('falls back to the generic transaction error for an unstamped failure', () => {
     mockRowState = { row: makeRow(makeInputs({ phase: 'failed' })), loaded: true };
     render(<EarnWithdrawStatus txId="withdraw-1" />);

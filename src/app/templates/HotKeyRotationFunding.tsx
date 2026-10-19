@@ -14,6 +14,7 @@ import { ConsumableNote } from 'lib/miden/types';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isExtension } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
+import { isWalletReadyNow } from 'lib/store';
 
 import { claimNoteIds, GateRow, RotationFundingReason, RotationFundingStatus } from './HotKeyRotationGate.selectors';
 
@@ -103,9 +104,12 @@ export function useRotationFundingClaim({
       if (running || !latest.current.active || current.batch.length === 0 || rows.some(isLiveTransaction)) return;
       running = true;
       try {
+        // Asked by the queue right before the claim row: a lock that lands meanwhile writes nothing and, through the
+        // catch, asks nothing of the service worker. A retry the user taps stays unguarded.
         await enqueueRotationFundingClaim(accountPublicKey, [...current.batch], {
           delegate: isDelegateProofEnabled(),
-          verificationBaseFee: fee
+          verificationBaseFee: fee,
+          canSign: isWalletReadyNow
         });
         if (isExtension()) requestSWTransactionProcessing();
       } catch (e) {

@@ -10,6 +10,7 @@ import {
   AuthSecretKey,
   Endpoint,
   Felt,
+  FeltArray,
   FungibleAsset,
   InputNote,
   MidenClient,
@@ -25,6 +26,7 @@ import {
   NoteFilterTypes,
   NoteId,
   NoteType,
+  Poseidon2,
   PublicKey,
   RpcClient,
   Signature,
@@ -147,6 +149,29 @@ function provider(): MidenWallet {
   const injected: MidenWallet | undefined = Reflect.get(window, 'midenWallet');
   if (injected === undefined) throw new HarnessCheckError('window.midenWallet is not injected');
   return injected;
+}
+// The published adapter has neither login key method, so the page calls them on the provider by name, as `raw` does.
+async function callProvider(method: 'requestLoginKey' | 'signLoginBytes', args: unknown[]): Promise<unknown> {
+  const injected = provider();
+  const call: unknown = Reflect.get(injected, method);
+  if (typeof call !== 'function') throw new HarnessCheckError(`the provider has no ${method}`);
+  return Reflect.apply(call, injected, args);
+}
+// The provider hands login bytes over as a Uint8Array; any other answer is the wallet's failure, so it comes back as
+// Outcome data rather than a harness fault.
+function answerBytes(answer: unknown, key: 'loginKey' | 'signature'): Uint8Array {
+  const bytes: unknown = typeof answer === 'object' && answer !== null ? Reflect.get(answer, key) : undefined;
+  if (!(bytes instanceof Uint8Array)) throw new Error(`the wallet answered without ${key} bytes`);
+  return bytes;
+}
+// The login message a site checks a login signature against: Poseidon2 of `Bread login v1` in ASCII, four bytes to an
+// element, little-endian, the last zero-padded, then the word's four elements.
+function loginMessage(word: Word): Word {
+  const tag = new Uint8Array(16);
+  tag.set(new TextEncoder().encode('Bread login v1'));
+  const view = new DataView(tag.buffer);
+  const tagElements = [0, 4, 8, 12].map(at => new Felt(BigInt(view.getUint32(at, true))));
+  return Poseidon2.hashElements(new FeltArray([...tagElements, ...word.toFelts()]));
 }
 // Chain reads bypass the dApp's client store as well as the wallet: the chain's view of a write is checked on its own.
 const rpc = (): RpcClient => new RpcClient(new Endpoint(state.rpcUrl));
@@ -330,7 +355,7 @@ const handlers: Partial<DappHandlers> = {
 
   consumableNotes: () => outcome(async () => (await state.adapter.requestConsumableNotes()).map(noteView)),
 
-  // The ids go to the wallet as given, so N4 can ask by the id an import returned (K10) as well as by the note's own.
+  // The ids go to the wallet as given, so N4 can ask by the id an import returned as well as by the note's own.
   privateNotes: ({ filter, noteIds }) =>
     outcome(async () => (await state.adapter.requestPrivateNotes(NoteFilterTypes[filter], noteIds)).map(noteView)),
 
@@ -456,9 +481,8 @@ const handlers: Partial<DappHandlers> = {
   },
 
   // Returns the id the wallet reports: the note id for a file with an inclusion proof, the details commitment for a
-  // details-only file or a bare note (dapp.ts:1502-1507). The spike found the wallet then refuses a consume by that
-  // commitment before any popup, while the same note consumes by its own id: a cell that consumes by the returned id
-  // (W5b, W5c) meets that refusal.
+  // details-only file or a bare note (dapp.ts:1502-1507). A consume by that commitment (W5b, W5c) consumes the note it
+  // names once a sync has committed it (#1389); N4 lists the same note by that returned id (#1536).
   importNote: ({ noteBytesB64 }) =>
     outcome(async () => ({ noteId: await state.adapter.importPrivateNote(b64ToU8(noteBytesB64)) })),
 
@@ -693,6 +717,27 @@ const handlers: Partial<DappHandlers> = {
         schemeTag: signature[0] ?? -1,
         payloadB64: u8ToB64(payload),
         messageB64: u8ToB64(message)
+      };
+    }),
+
+  // Read as afterConnect reads connect's key, so `loginKeyHex` compares with `publicKeyHex`.
+  loginKey: () =>
+    outcome(async () => {
+      const loginKey = answerBytes(await callProvider('requestLoginKey', []), 'loginKey');
+      return { loginKeyB64: u8ToB64(loginKey), loginKeyHex: Word.deserialize(loginKey).toHex() };
+    }),
+
+  // The login key signs the login message hashed from the word, never the word, so that is the message the driver
+  // recovers the key from.
+  signLoginWord: ({ wordHex }) =>
+    outcome(async () => {
+      const payload = Word.fromHex(wordHex).serialize();
+      const signature = answerBytes(await callProvider('signLoginBytes', [payload, 'word']), 'signature');
+      return {
+        signatureB64: u8ToB64(signature),
+        schemeTag: signature[0] ?? -1,
+        payloadB64: u8ToB64(payload),
+        messageB64: u8ToB64(loginMessage(Word.deserialize(payload)).serialize())
       };
     }),
 

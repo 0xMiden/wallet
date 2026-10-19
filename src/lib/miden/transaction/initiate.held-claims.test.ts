@@ -15,11 +15,26 @@ jest.mock('lib/miden-chain/effective-endpoints', () => ({
   isNoteTransportConfigured: () => false,
   getEffectiveNetworkName: () => 'testnet'
 }));
-jest.mock('../back/miden-client-proxy', () => ({ midenClientProxy: { getInputNoteSummary: async () => ({}) } }));
+jest.mock('lib/miden-chain/native-asset', () => ({
+  getNativeAssetId: async () => 'native-faucet',
+  getVerificationBaseFee: async () => null
+}));
+jest.mock('../back/miden-client-proxy', () => ({
+  midenClientProxy: {
+    getInputNoteSummary: async () => ({ noteType: undefined, assets: null }),
+    getAccount: async () => null
+  }
+}));
 jest.mock('../activity/notes', () => ({ queueNoteImport: jest.fn() }));
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const { initiateConsumeNotesTransaction, initiateConsumeTransactionFromId, queueConsumeNotes } = require('./initiate');
+const {
+  initiateConsumeNotesTransaction,
+  initiateConsumeTransaction,
+  initiateConsumeTransactionFromId,
+  initiatePswapReclaimTransaction,
+  queueConsumeNotes
+} = require('./initiate');
 
 const ACCOUNT = 'mtst1account';
 const hex = (n: number) => `0x${n.toString(16).padStart(64, '0')}`;
@@ -247,5 +262,37 @@ describe('the origins a dApp consume request lets wait on its answer (#1416)', (
     const batch = await initiateConsumeNotesTransaction(ACCOUNT, [note('n2')], false, true);
     expect(await origins(fromId)).toBeUndefined();
     expect(await origins(batch)).toBeUndefined();
+  });
+});
+
+// A failed claim's report names what queued its row, read from the row itself, so it is stamped where the row is made.
+describe('what queued a consume row', () => {
+  const stamp = async (id: string) => (await Repo.transactions.get(id))?.consumeEntryPoint;
+
+  it('stamps each row with the entry point its queue call names', async () => {
+    expect(await stamp(await initiateConsumeTransaction(ACCOUNT, note('a'), false, true, 'claim'))).toBe('claim');
+    const many = await queueConsumeNotes(
+      ACCOUNT,
+      [note('b'), note('c')],
+      false,
+      true,
+      undefined,
+      undefined,
+      'claim_all'
+    );
+    expect(await stamp(many.committedId)).toBe('claim_all');
+    const auto = await initiateConsumeNotesTransaction(ACCOUNT, [note('d')], false, false, true, null, 'auto_consume');
+    expect(await stamp(auto)).toBe('auto_consume');
+    expect(await stamp(await initiateConsumeTransactionFromId(ACCOUNT, 'e', false, true, ORIGIN, 'dapp'))).toBe('dapp');
+    const reclaim = await initiateConsumeTransactionFromId(ACCOUNT, 'f', false, true, undefined, 'bridge_reclaim');
+    expect(await stamp(reclaim)).toBe('bridge_reclaim');
+  });
+
+  it('stamps a zero-fill PSWAP reclaim as swap settlement, and a row queued without an entry point with none', async () => {
+    const reclaim = await initiatePswapReclaimTransaction(ACCOUNT, note('g'), new Uint8Array([1]), 'swap-row', false);
+    expect(await stamp(reclaim)).toBe('swap_settlement');
+    const unnamed = await initiateConsumeTransaction(ACCOUNT, note('h'), false, true);
+    expect(await Repo.transactions.get(unnamed)).toBeDefined();
+    expect(await stamp(unnamed)).toBeUndefined();
   });
 });

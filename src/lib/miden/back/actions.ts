@@ -99,6 +99,8 @@ import {
   requestImportPrivateNote,
   requestConsumableNotes,
   requestGuardianInfo,
+  requestLoginKey,
+  requestLoginSign,
   waitForTransaction
 } from './dapp';
 
@@ -110,6 +112,11 @@ let _dappQueue: PQueue | undefined;
 function getDappQueue() {
   if (!_dappQueue) _dappQueue = new PQueue({ concurrency: 1 });
   return _dappQueue;
+}
+
+/** A queued dApp request's turn came after the deadline its caller set, so the user was never asked. */
+export class DAppQueueDeadlineError extends Error {
+  name = 'DAppQueueDeadlineError';
 }
 
 // The accounts-list single-writer serializer, shared with the detached Guardian
@@ -970,6 +977,8 @@ export function getAuthSecretKey(key: string) {
   });
 }
 
+export { confirmationNotFound } from './dapp';
+
 export function getAllDAppSessions() {
   return getAllDApps();
 }
@@ -1001,11 +1010,17 @@ export function removeDAppSession(origin: string) {
  * so before this gate existed the toggle was inert on three of the four shipped
  * platforms. Throwing (rather than returning void) surfaces to the dApp as a
  * rejected request instead of a silent `null`.
+ *
+ * `startBy` (epoch ms) refuses a queued request whose turn comes later with
+ * `DAppQueueDeadlineError`, before it asks the user. The queue runs every
+ * origin's requests one at a time, so a Bread Connect request can wait behind
+ * other prompts until its app has stopped waiting for the answer.
  */
 export async function processDApp(
   origin: string,
   req: MidenDAppRequest,
-  sessionId?: string
+  sessionId?: string,
+  startBy?: number
 ): Promise<MidenDAppResponse | void> {
   dappDebug('[processDApp] Called with origin:', origin, 'sessionId:', sessionId, 'req type:', req?.type);
   if (!(await isDAppEnabled())) {
@@ -1013,44 +1028,61 @@ export async function processDApp(
   }
   // This dumps the full request payload (addresses, amounts, note ids,
   // transaction payload). Gated behind DEBUG_DAPP_BRIDGE so release
-  // builds don't leak transaction data to os_log / logcat.
-  dappDebug('[processDApp] Full request:', JSON.stringify(req));
+  // builds don't leak transaction data to os_log / logcat. A login
+  // signature's word is left out even then.
+  const dumped = req?.type === MidenDAppMessageType.LoginSignRequest ? { ...req, payload: '[redacted]' } : req;
+  dappDebug('[processDApp] Full request:', JSON.stringify(dumped));
+  const queued = <T>(handle: () => Promise<T>) =>
+    withInited(() =>
+      getDappQueue().add(() => {
+        if (startBy !== undefined && Date.now() > startBy) {
+          throw new DAppQueueDeadlineError('The request waited in the dApp queue past its deadline');
+        }
+        return handle();
+      })
+    );
   switch (req?.type) {
     case MidenDAppMessageType.GetCurrentPermissionRequest:
       return withInited(() => getCurrentPermission(origin));
 
     case MidenDAppMessageType.PermissionRequest:
-      return withInited(() => getDappQueue().add(() => requestPermission(origin, req, sessionId)));
+      return queued(() => requestPermission(origin, req, sessionId));
 
     case MidenDAppMessageType.DisconnectRequest:
-      return withInited(() => getDappQueue().add(() => requestDisconnect(origin, req)));
+      return queued(() => requestDisconnect(origin, req));
 
     case MidenDAppMessageType.TransactionRequest:
-      return withInited(() => getDappQueue().add(() => requestTransaction(origin, req, sessionId)));
+      return queued(() => requestTransaction(origin, req, sessionId));
 
     case MidenDAppMessageType.SendTransactionRequest:
-      return withInited(() => getDappQueue().add(() => requestSendTransaction(origin, req, sessionId)));
+      return queued(() => requestSendTransaction(origin, req, sessionId));
 
     case MidenDAppMessageType.ConsumeRequest:
-      return withInited(() => getDappQueue().add(() => requestConsumeTransaction(origin, req, sessionId)));
+      return queued(() => requestConsumeTransaction(origin, req, sessionId));
 
     case MidenDAppMessageType.PrivateNotesRequest:
-      return withInited(() => getDappQueue().add(() => requestPrivateNotes(origin, req, sessionId)));
+      return queued(() => requestPrivateNotes(origin, req, sessionId));
 
     case MidenDAppMessageType.SignRequest:
-      return withInited(() => getDappQueue().add(() => requestSign(origin, req, sessionId)));
+      return queued(() => requestSign(origin, req, sessionId));
+
+    case MidenDAppMessageType.LoginSignRequest:
+      return withInited(() => getDappQueue().add(() => requestLoginSign(origin, req, sessionId)));
 
     case MidenDAppMessageType.AssetsRequest:
-      return withInited(() => getDappQueue().add(() => requestAssets(origin, req, sessionId)));
+      return queued(() => requestAssets(origin, req, sessionId));
 
     case MidenDAppMessageType.GuardianInfoRequest:
-      return withInited(() => getDappQueue().add(() => requestGuardianInfo(origin, req)));
+      return queued(() => requestGuardianInfo(origin, req));
+
+    case MidenDAppMessageType.LoginKeyRequest:
+      return withInited(() => getDappQueue().add(() => requestLoginKey(origin, req)));
 
     case MidenDAppMessageType.ImportPrivateNoteRequest:
-      return withInited(() => getDappQueue().add(() => requestImportPrivateNote(origin, req, sessionId)));
+      return queued(() => requestImportPrivateNote(origin, req, sessionId));
 
     case MidenDAppMessageType.ConsumableNotesRequest:
-      return withInited(() => getDappQueue().add(() => requestConsumableNotes(origin, req, sessionId)));
+      return queued(() => requestConsumableNotes(origin, req, sessionId));
 
     case MidenDAppMessageType.WaitForTransactionRequest:
       // Off the dApp queue, which runs one request at a time: a wait lasts up to five minutes. Under `withInited` only,

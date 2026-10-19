@@ -8,12 +8,15 @@ import type { ExploreCatalog } from './schema';
 /**
  * The effective network's Explore catalog, re-rendering when a newer copy lands. The network is read on every render,
  * so a Developer Settings switch shows that network's catalog and loads its copy. Undefined while it is pending (the
- * network's floor not yet read), null when the network has no catalog.
+ * network's floor not yet read), null when the network has no catalog. With `load` false it only reads what is already
+ * loaded: it neither loads the network's copy nor starts Explore's refresh.
  */
-export function useExploreCatalog(): ExploreCatalog | null | undefined {
+export function useExploreCatalog(load = true): ExploreCatalog | null | undefined {
   const network = getEffectiveNetworkName();
   const catalog = useSyncExternalStore(subscribeExploreCatalog, getExploreCatalogSnapshot);
-  // Never rejects.
-  useEffect(() => void initExploreConfig(network), [network]);
+  useEffect(() => {
+    // Never rejects.
+    if (load) void initExploreConfig(network);
+  }, [network, load]);
   return catalog;
 }

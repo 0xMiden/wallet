@@ -1,8 +1,16 @@
 import { earnWithdrawalRetryKind } from 'lib/epoch/earn-withdraw-policy';
+import { claimFeeShortfallsBaseUnits } from 'lib/miden/fees/spendable';
 import { inVerdictTurn } from 'lib/miden/front/storage';
 import * as Repo from 'lib/miden/repo';
 
 import { pipelineMayStillBeRunning, verifySendLanded } from './cancel';
+import {
+  ClaimFeeContext,
+  ClaimFeeRefusedError,
+  getClaimFeeAhead,
+  persistedClaimFeeNotes,
+  readClaimFeeContext
+} from './claim-fee';
 import {
   guardianHoldRetryMessage,
   TRANSACTION_BEING_CHECKED_RETRY_ERROR,
@@ -10,9 +18,14 @@ import {
   TRANSACTION_RETRY_UNSAFE_ERROR,
   isSubmitOutcomeUnknown
 } from './constants';
-import { completeVerifiedLandedTransaction, verifiedLandingRowFields } from './helper';
+import {
+  applyVerifiedLanding,
+  completeVerifiedLandedTransaction,
+  countNoteDeliveryWrite,
+  verifiedLandingRowFields
+} from './helper';
 import { latestEndMayStillRun } from './reconcile-judge';
-import { checkEvidenceForRetry } from './reconcile-unconfirmed';
+import { checkEvidenceForRetry, recordLandedDeliveryTarget } from './reconcile-unconfirmed';
 import { awaitingVerdict, evidenceKey, isUnresolvedEntry, keptCandidateHoldUntil, nowSeconds } from './verdict-rules';
 import {
   IBridgeProvider,
@@ -417,13 +430,24 @@ const planRequeue = async (
     const verdict = await verifySendLanded(tx);
     if (verdict === 'landed') {
       // Completed as the landed catches complete a row (#1233). Only `completeSendTransaction`
-      // relays a private send's note, and with no delivery recorded that relay never ran. A row
-      // re-derived as undelivered with no output note to push is inert to the delivery sweep.
+      // relays a private send's note, and with no delivery recorded that relay never ran, so the
+      // note the verified transaction's attempt recorded becomes the delivery target by the
+      // reconciler's rule for a bound landing (#1473).
       const completedAt = Math.floor(Date.now() / 1000);
+      const verifiedId = tx.transactionId;
+      let target: string[] | undefined;
       // Not `updateTransactionStatus`: its terminal guard rejects the Failed row
       // this function is defined over, so this branch used to throw rather than
       // complete and the guard's only success path never once worked.
-      await completeVerifiedLandedTransaction(tx.id, fresh => ({ ...verifiedLandingRowFields(fresh), completedAt }));
+      await completeVerifiedLandedTransaction(tx.id, fresh => {
+        // `fresh` is the row this write stores. The landing is applied to it here, not returned, so the target is
+        // recorded on the completed row and nothing assigned after it can overwrite a replaced target's relabel.
+        applyVerifiedLanding(fresh, { ...verifiedLandingRowFields(fresh), completedAt });
+        target =
+          verifiedId === undefined ? undefined : recordLandedDeliveryTarget(fresh, { boundTransactionId: verifiedId });
+        return {};
+      });
+      if (target !== undefined) countNoteDeliveryWrite();
       return undefined;
     }
     // Not provably landed. For a row that executed, `'unknown'` means "we could
@@ -478,129 +502,152 @@ type RequeueWrite = 'written' | 'declined' | 'evidence-changed';
  * Unconfirmed, plus the entries' evidence against what Retry judged and wrote: pipeline stamps stay outside the lock,
  * so a stamp that lands after the judging read counts as a change.
  */
-const writeRequeue = async (txId: string, plan: RequeuePlan): Promise<RequeueWrite> => {
-  let result: RequeueWrite = 'declined';
-  await Repo.transactions.where({ id: txId }).modify((dbTx: ITransaction) => {
-    // Re-checked against what the plan was made from: a write outside the verdict lock (a completion, a pipeline's
-    // stamp) can move the row after Retry read it. `false`, so Dexie skips the put rather than re-writing the
-    // unchanged clone.
+const writeRequeue = async (txId: string, plan: RequeuePlan, feeContext?: ClaimFeeContext): Promise<RequeueWrite> =>
+  Repo.db.transaction('rw', Repo.transactions, async (): Promise<RequeueWrite> => {
+    const live = await Repo.transactions.where({ id: txId }).first();
     if (
-      (dbTx.status !== ITransactionStatus.Failed && dbTx.status !== ITransactionStatus.Unconfirmed) ||
-      dbTx.stage !== plan.failedStage
+      live === undefined ||
+      (live.status !== ITransactionStatus.Failed && live.status !== ITransactionStatus.Unconfirmed) ||
+      live.stage !== plan.failedStage
     ) {
-      return false;
+      return 'declined';
     }
-    if (evidenceKey(dbTx.submitEvidence) !== plan.baseline) {
-      result = 'evidence-changed';
-      return false;
+    if (evidenceKey(live.submitEvidence) !== plan.baseline) return 'evidence-changed';
+    if (live.type === 'consume' && feeContext !== undefined) {
+      const ahead = await getClaimFeeAhead(live.accountId, txId);
+      const [shortfall] = claimFeeShortfallsBaseUnits(
+        [persistedClaimFeeNotes(live)],
+        ahead,
+        feeContext.vaultFeeAsset,
+        feeContext.nativeAssetId,
+        feeContext.verificationBaseFee
+      );
+      // Throw before modify: Dexie must preserve the refusal class and every field of the failed row.
+      if (shortfall) throw new ClaimFeeRefusedError();
     }
-    // Cleared first, so the send branch below reads them as it always has.
-    if (plan.clearFlags) {
-      dbTx.mayHaveSubmitted = undefined;
-      dbTx.cancelledInFlightAt = undefined;
-    }
-    dbTx.status = ITransactionStatus.Queued;
-    dbTx.initiatedAt = Math.floor(Date.now() / 1000);
-    // Re-stamped with the timestamp, not left at the original. `initiatedAt` is
-    // whole SECONDS, so the processing loop breaks ties on `queuedSeq` - and a
-    // requeued row keeping its old (smaller) sequence would sort AHEAD of a
-    // transaction queued in the same second, which is the opposite of the FIFO
-    // order the tie-break exists to impose.
-    dbTx.queuedSeq = nextQueuedSeq();
-    dbTx.processingStartedAt = undefined;
-    dbTx.attemptId = undefined;
-    delete dbTx.failureDiagnostics;
-    dbTx.completedAt = undefined;
-    dbTx.stage = undefined;
-    // Clear the stage stamps with the stage. `setTransactionStage` is
-    // first-entry-wins (#524), so leaving the FAILED attempt's boundaries behind
-    // would make the retried attempt's steps render that attempt's durations -
-    // and only `complete` would be re-stamped. This matters now that the retry
-    // footer (#483) is reachable at all: #507 removed the receipt auto-close, so
-    // a failed receipt stays up until the user acts on it.
-    dbTx.stageTimestamps = undefined;
-    dbTx.nextEligibleAt = undefined;
-    // A deliberate retry earns a fresh unauthorized-retry budget. Carrying the
-    // spent deadline over would make the new attempt terminal on its FIRST
-    // unauthorized failure, so a row that had exhausted its budget would behave
-    // worse under Retry than an identical send the user initiated from scratch.
-    dbTx.unauthorizedRetryUntil = undefined;
-    // And a fresh guardian backoff: the retry's first requeue waits its arm's base cooldown, not one the failed
-    // attempts had doubled (#1223).
-    dbTx.requeueStreak = undefined;
-    // And the Guardian-busy mark, so the retried row does not open on a wait it is not in (#312).
-    dbTx.guardianBusy = undefined;
-    dbTx.error = undefined;
-    dbTx.rawError = undefined;
-    dbTx.displayMessage = undefined;
-    dbTx.displayIcon = ICON_BY_TYPE[dbTx.type];
-    // The safe marker belongs to the attempts it judged; the evidence stays, so an earlier attempt can still land.
-    dbTx.neverCommittedAt = undefined;
-    // A proven row's attempts are all dead, so its send bytes may be rebuilt like a pre-submit failure's.
-    const failedPreSubmit = plan.proven || (plan.failedStage !== undefined && PRE_SUBMIT_STAGES.has(plan.failedStage));
-    // A `send` row's cached bytes only exist for a GUARDIAN recallable send
-    // (`ensureGuardianRecallableSendRequestBytes`) - the non-guardian path
-    // rebuilds its request on every call and never reads `requestBytes`. Those
-    // bytes froze an absolute reclaim height and the outgoing asset as built at
-    // first attempt, so a retry has to rebuild them to stand any chance of
-    // succeeding. But they also pin the note id, which is the ONLY thing that
-    // makes the chain reject a duplicate - hence the gate; see
-    // `PRE_SUBMIT_STAGES` for what the stage does and does not prove.
-    //
-    // No other requeueable type may be cleared, whatever its stage. A swap's
-    // bytes must be reused byte-identically (the PSWAP flow requires it). A
-    // `bridged-send` carries a pre-built note whose attachment this builder
-    // cannot reproduce - the Epoch mandate binding, or the AggLayer B2AGG
-    // destination - and behind an Epoch row the intent is already spent, so the
-    // answer for a broken one is a new intent, not a fresh note.
-    //
-    // Scoped to `send` on both arms because `send` is the only type whose bytes
-    // this gate can drop; writing the flag onto a swap or bridged-send row would
-    // persist a signal nothing reads and imply a guard those types don't have.
-    if (dbTx.type === 'send') {
-      // Read off the LIVE row rather than the snapshot taken at the top of this
-      // function: `verifySendLanded` above makes a network round trip, and
-      // `markMayHaveSubmitted` writes that field and nothing else, so a crossing
-      // recorded during that window sails through the status/stage re-check
-      // untouched. Deciding from the snapshot would clear the bytes of a send
-      // that had just broadcast. IndexedDB serializes the two writes, so by the
-      // time this callback runs the flag is committed and visible.
-      const submitPossible =
-        dbTx.mayHaveSubmitted === true || pipelineMayStillBeRunning(dbTx.cancelledInFlightAt) || !failedPreSubmit;
-
-      if (!submitPossible) {
-        dbTx.requestBytes = undefined;
-      } else if (dbTx.requestBytes !== undefined && !failedPreSubmit) {
-        // Persist the STAGE's verdict before the stage is forgotten, so the next
-        // failure - which may land early and look pre-submit - still keeps these
-        // bytes. Two conditions, and both are load-bearing:
-        //
-        //   - only when bytes EXIST. The flag's whole job is to protect them,
-        //     and `mayHaveSubmitted` is permanent. Writing it to a byteless row
-        //     protects nothing and instead manufactures a crossing that never
-        //     happened, which the refusal above then reads as fact: a plain send
-        //     is never stage-narrowed (its pipeline stamps 'sending' once, at
-        //     pickup, and that is deliberately not pre-submit), so EVERY plain
-        //     send would earn the flag on its first requeue and be refused on
-        //     its second - the vault-slot failure this release fixes included.
-        //     Nothing is lost by the scoping: bytes are persisted to the row
-        //     before they are ever submitted (`ensureGuardianRecallableSend-
-        //     RequestBytes`), so a byteless attempt provably never broadcast.
-        //   - only from the STAGE. A live `cancelledInFlightAt` also makes a
-        //     submit possible, but it says "we don't know YET" and expires
-        //     saying so (see its docstring); it also survives the reset below on
-        //     its own, so it needs no persisting. Promoting it here would freeze
-        //     an unresolved maybe into a permanent yes and pin the request -
-        //     with it the frozen absolute reclaim height - for good, which is
-        //     the bricking this field was split in two to avoid.
-        dbTx.mayHaveSubmitted = true;
+    let result: RequeueWrite = 'declined';
+    await Repo.transactions.where({ id: txId }).modify((dbTx: ITransaction) => {
+      // Re-checked against what the plan was made from: a write outside the verdict lock (a completion, a pipeline's
+      // stamp) can move the row after Retry read it. `false`, so Dexie skips the put rather than re-writing the
+      // unchanged clone.
+      if (
+        (dbTx.status !== ITransactionStatus.Failed && dbTx.status !== ITransactionStatus.Unconfirmed) ||
+        dbTx.stage !== plan.failedStage
+      ) {
+        return false;
       }
-    }
-    result = 'written';
-    return undefined;
+      if (evidenceKey(dbTx.submitEvidence) !== plan.baseline) {
+        result = 'evidence-changed';
+        return false;
+      }
+      // Cleared first, so the send branch below reads them as it always has.
+      if (plan.clearFlags) {
+        dbTx.mayHaveSubmitted = undefined;
+        dbTx.cancelledInFlightAt = undefined;
+      }
+      dbTx.status = ITransactionStatus.Queued;
+      dbTx.initiatedAt = Math.floor(Date.now() / 1000);
+      // Re-stamped with the timestamp, not left at the original. `initiatedAt` is
+      // whole SECONDS, so the processing loop breaks ties on `queuedSeq` - and a
+      // requeued row keeping its old (smaller) sequence would sort AHEAD of a
+      // transaction queued in the same second, which is the opposite of the FIFO
+      // order the tie-break exists to impose.
+      dbTx.queuedSeq = nextQueuedSeq();
+      dbTx.processingStartedAt = undefined;
+      dbTx.attemptId = undefined;
+      delete dbTx.failureDiagnostics;
+      dbTx.completedAt = undefined;
+      dbTx.stage = undefined;
+      // Clear the stage stamps with the stage. `setTransactionStage` is
+      // first-entry-wins (#524), so leaving the FAILED attempt's boundaries behind
+      // would make the retried attempt's steps render that attempt's durations -
+      // and only `complete` would be re-stamped. This matters now that the retry
+      // footer (#483) is reachable at all: #507 removed the receipt auto-close, so
+      // a failed receipt stays up until the user acts on it.
+      dbTx.stageTimestamps = undefined;
+      dbTx.nextEligibleAt = undefined;
+      // A deliberate retry earns a fresh unauthorized-retry budget. Carrying the
+      // spent deadline over would make the new attempt terminal on its FIRST
+      // unauthorized failure, so a row that had exhausted its budget would behave
+      // worse under Retry than an identical send the user initiated from scratch.
+      dbTx.unauthorizedRetryUntil = undefined;
+      // And a fresh guardian backoff: the retry's first requeue waits its arm's base cooldown, not one the failed
+      // attempts had doubled (#1223).
+      dbTx.requeueStreak = undefined;
+      // And the Guardian-busy mark, so the retried row does not open on a wait it is not in (#312).
+      dbTx.guardianBusy = undefined;
+      dbTx.error = undefined;
+      dbTx.rawError = undefined;
+      dbTx.displayMessage = undefined;
+      dbTx.displayIcon = ICON_BY_TYPE[dbTx.type];
+      // The safe marker belongs to the attempts it judged; the evidence stays, so an earlier attempt can still land.
+      dbTx.neverCommittedAt = undefined;
+      // A proven row's attempts are all dead, so its send bytes may be rebuilt like a pre-submit failure's.
+      const failedPreSubmit =
+        plan.proven || (plan.failedStage !== undefined && PRE_SUBMIT_STAGES.has(plan.failedStage));
+      // A `send` row's cached bytes only exist for a GUARDIAN recallable send
+      // (`ensureGuardianRecallableSendRequestBytes`) - the non-guardian path
+      // rebuilds its request on every call and never reads `requestBytes`. Those
+      // bytes froze an absolute reclaim height and the outgoing asset as built at
+      // first attempt, so a retry has to rebuild them to stand any chance of
+      // succeeding. But they also pin the note id, which is the ONLY thing that
+      // makes the chain reject a duplicate - hence the gate; see
+      // `PRE_SUBMIT_STAGES` for what the stage does and does not prove.
+      //
+      // No other requeueable type may be cleared, whatever its stage. A swap's
+      // bytes must be reused byte-identically (the PSWAP flow requires it). A
+      // `bridged-send` carries a pre-built note whose attachment this builder
+      // cannot reproduce - the Epoch mandate binding, or the AggLayer B2AGG
+      // destination - and behind an Epoch row the intent is already spent, so the
+      // answer for a broken one is a new intent, not a fresh note.
+      //
+      // Scoped to `send` on both arms because `send` is the only type whose bytes
+      // this gate can drop; writing the flag onto a swap or bridged-send row would
+      // persist a signal nothing reads and imply a guard those types don't have.
+      if (dbTx.type === 'send') {
+        // Read off the LIVE row rather than the snapshot taken at the top of this
+        // function: `verifySendLanded` above makes a network round trip, and
+        // `markMayHaveSubmitted` writes that field and nothing else, so a crossing
+        // recorded during that window sails through the status/stage re-check
+        // untouched. Deciding from the snapshot would clear the bytes of a send
+        // that had just broadcast. IndexedDB serializes the two writes, so by the
+        // time this callback runs the flag is committed and visible.
+        const submitPossible =
+          dbTx.mayHaveSubmitted === true || pipelineMayStillBeRunning(dbTx.cancelledInFlightAt) || !failedPreSubmit;
+
+        if (!submitPossible) {
+          dbTx.requestBytes = undefined;
+        } else if (dbTx.requestBytes !== undefined && !failedPreSubmit) {
+          // Persist the STAGE's verdict before the stage is forgotten, so the next
+          // failure - which may land early and look pre-submit - still keeps these
+          // bytes. Two conditions, and both are load-bearing:
+          //
+          //   - only when bytes EXIST. The flag's whole job is to protect them,
+          //     and `mayHaveSubmitted` is permanent. Writing it to a byteless row
+          //     protects nothing and instead manufactures a crossing that never
+          //     happened, which the refusal above then reads as fact: a plain send
+          //     is never stage-narrowed (its pipeline stamps 'sending' once, at
+          //     pickup, and that is deliberately not pre-submit), so EVERY plain
+          //     send would earn the flag on its first requeue and be refused on
+          //     its second - the vault-slot failure this release fixes included.
+          //     Nothing is lost by the scoping: bytes are persisted to the row
+          //     before they are ever submitted (`ensureGuardianRecallableSend-
+          //     RequestBytes`), so a byteless attempt provably never broadcast.
+          //   - only from the STAGE. A live `cancelledInFlightAt` also makes a
+          //     submit possible, but it says "we don't know YET" and expires
+          //     saying so (see its docstring); it also survives the reset below on
+          //     its own, so it needs no persisting. Promoting it here would freeze
+          //     an unresolved maybe into a permanent yes and pin the request -
+          //     with it the frozen absolute reclaim height - for good, which is
+          //     the bricking this field was split in two to avoid.
+          dbTx.mayHaveSubmitted = true;
+        }
+      }
+      result = 'written';
+      return undefined;
+    });
+    return result;
   });
-  return result;
-};
 
 /** Steps 1 to 6 under the row's verdict lock, judged at most twice. */
 const retryUnderVerdictLock = async (txId: string, options: RetryOptions): Promise<void> => {
@@ -610,7 +657,8 @@ const retryUnderVerdictLock = async (txId: string, options: RetryOptions): Promi
     if (!tx) throw new Error(`Transaction ${txId} not found`);
     const plan = await planRequeue(tx, acknowledged);
     if (plan === undefined) return;
-    if ((await writeRequeue(txId, plan)) !== 'evidence-changed') return;
+    const feeContext = tx.type === 'consume' ? await readClaimFeeContext(tx.accountId) : undefined;
+    if ((await writeRequeue(txId, plan, feeContext)) !== 'evidence-changed') return;
     // The evidence the user answered for has changed: judge the fresh row once more, without their word.
     acknowledged = undefined;
   }

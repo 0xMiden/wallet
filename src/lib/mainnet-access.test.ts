@@ -15,8 +15,14 @@ const mockSync = jest.fn<Promise<void>, []>();
 const mockLockOptions = jest.fn<void, [unknown]>();
 const mockClientBuild = jest.fn<Promise<void>, []>();
 let mockLiveHold: object | undefined;
-const mockFromHex = jest.fn((id: string) => id);
-const mockFromBech32 = jest.fn((id: string) => id);
+const mockFromHex = jest.fn((id: string) => {
+  if (!id.startsWith('0x')) throw new Error(`Invalid hex account: ${id}`);
+  return id.toLowerCase();
+});
+const mockFromBech32 = jest.fn((id: string) => {
+  if (id.includes('_') || /^0x/i.test(id)) throw new Error(`Invalid bech32 account: ${id}`);
+  return id;
+});
 // Answers per node: the URL the RpcClient was built for, then the code.
 const mockIsValid = jest.fn<Promise<boolean>, [string, string]>();
 
@@ -203,6 +209,14 @@ describe('mainnet account admission', () => {
     jest.clearAllMocks();
     mockReady.mockResolvedValue();
     mockClientBuild.mockResolvedValue();
+  });
+
+  it('resolves an account with a 0X prefix before checking admission', async () => {
+    mockAllowed.mockResolvedValue(true);
+    await expect(isMainnetAccountAdmitted('0XABC')).resolves.toBe(true);
+    expect(mockFromHex).toHaveBeenCalledWith('0xABC');
+    expect(mockFromBech32).not.toHaveBeenCalled();
+    expect(mockAllowed).toHaveBeenCalledWith('0xabc');
   });
 
   it.each([true, false])('answers whether the node admits the account (%s), with no code', async allowed => {

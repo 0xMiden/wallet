@@ -1193,6 +1193,7 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
     }
 
     protected void handleOnResume() {
+        BreadAuthController.hostResumed();
         presentationAppForeground = true;
         for (java.util.Map.Entry<String, WebViewDialog> entry : WebViewRegistry.getShared().snapshot()) {
             entry.getValue().presentationForeground(true);
@@ -1204,6 +1205,7 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
     }
 
     protected void handleOnPause() {
+        BreadAuthController.hostPaused();
         presentationAppForeground = false;
         for (java.util.Map.Entry<String, WebViewDialog> entry : WebViewRegistry.getShared().snapshot()) {
             entry.getValue().presentationForeground(false);

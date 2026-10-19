@@ -48,7 +48,9 @@ module.exports = {
     Consumed: 'Consumed',
     Committed: 'Committed',
     Expected: 'Expected',
-    Processing: 'Processing'
+    Processing: 'Processing',
+    List: 'List',
+    Unverified: 'Unverified'
   },
   // AssetCallbackFlag enum — the flag `buildSendTransactionRequest` derives from
   // a vault key, and that `lib/agglayer/b2agg` sets explicitly.
@@ -61,6 +63,9 @@ module.exports = {
   NoteAssets: jest.fn(),
   NoteAttachment: jest.fn(),
   NoteArray: jest.fn(),
+  TransactionRequest: {
+    deserialize: jest.fn(() => ({ expectedOutputOwnNotes: () => [] }))
+  },
   TransactionRequestBuilder: jest.fn(),
   BasicFungibleFaucetComponent: jest.fn(),
   TransactionResult: jest.fn(),
@@ -78,6 +83,7 @@ module.exports = {
   // The lazy entry's WASM loader. Static classes above are usable only after it
   // resolves in production; the mock has no module to load, so it resolves empty.
   getWasmOrThrow: jest.fn(async () => ({})),
+  MidenClient: { ready: jest.fn(async () => undefined) },
   SigningInputs: jest.fn(),
   Word: Object.assign(jest.fn(), { fromHex: jest.fn(hex => ({ toHex: () => hex, toFelts: () => [] })) }),
   AccountInterface: jest.fn(),

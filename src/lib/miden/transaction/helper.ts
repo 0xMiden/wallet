@@ -1,8 +1,10 @@
 import { TransactionResult } from '@miden-sdk/miden-sdk/lazy';
 import { liveQuery } from 'dexie';
 
+import { createIntercomClient, type IIntercomClient } from 'lib/intercom/client';
 import * as Repo from 'lib/miden/repo';
 import { u8ToB64 } from 'lib/shared/helpers';
+import { WalletMessageType } from 'lib/shared/types';
 import { classifyError } from 'lib/telemetry/classify';
 import { reportOperation } from 'lib/telemetry/report-operation';
 import { reportTransactionFailure } from 'lib/telemetry/transaction-failure';
@@ -27,6 +29,7 @@ import {
 } from '../db/types';
 import { isPrivateNoteType } from '../helpers';
 import { errorMessageParts, isPoisonedPipeline, type LandedTransaction } from '../sdk/sdk-error-code';
+import { normalizeHex } from '../sdk/submit-evidence';
 
 // Re-export the sign-callback classification from its leaf home (issue #260,
 // slice 5). It moved to `./sign-callback` to break a `helper ↔ proxy` import
@@ -252,6 +255,7 @@ export const updateTransactionStatus = async <K extends keyof ITransaction>(
       stage: failed.stage,
       delegateTransaction: failed.delegateTransaction,
       diagnostics: failed.failureDiagnostics,
+      entryPoint: failed.consumeEntryPoint,
       error: failureTextOf(otherValues) ?? failed.rawError ?? failed.error
     });
   }
@@ -420,6 +424,19 @@ export const relayNoteIdsOf = (row: Pick<ITransaction, 'relayNoteIds' | 'outputN
   storedNoteIds(row.relayNoteIds ?? row.outputNoteIds);
 
 /**
+ * Whether `row` owes exactly the notes `owed`, compared as sets of normalized ids. A writer that read the row before
+ * an await checks this inside its write: a landing may have replaced the delivery target meanwhile (#1473).
+ */
+export const owesNoteIds = (
+  row: Pick<ITransaction, 'relayNoteIds' | 'outputNoteIds'>,
+  owed: readonly string[]
+): boolean => {
+  const held = new Set(relayNoteIdsOf(row).map(normalizeHex));
+  const expected = new Set(owed.map(normalizeHex));
+  return held.size === expected.size && [...expected].every(noteId => held.has(noteId));
+};
+
+/**
  * The account a row's private notes were relayed to. A send's recipient is its `secondaryAccountId`; a custom
  * row records it apart with its `relayNoteIds`, because reading its result as a consume puts the input note's
  * sender there instead. So a custom row whose dApp named no recipient has none, never that sender.
@@ -486,11 +503,38 @@ const relabelForDelivery = (row: ITransaction, label: string): string => {
 let noteDeliveryWrites = 0;
 
 /**
- * How many delivery writes this realm has made. The delivery sweep skips its query while nothing
+ * How many delivery writes this realm has made or been told of. The delivery sweep skips its query while nothing
  * is due, and a write it did not make itself (a new send owing a relay) is what tells it to look
  * again before then.
  */
 export const noteDeliveryWriteCount = (): number => noteDeliveryWrites;
+
+/**
+ * An extension page, as against the extension's background, where `isExtension()` holds too and which Firefox runs as
+ * a page with a `window`: the build names each bundle (`WALLET_BUILD_TARGET`, as crash reports read it).
+ */
+const inExtensionPage = (): boolean => process.env.WALLET_BUILD_TARGET === 'extension';
+
+let workerIntercom: IIntercomClient | undefined;
+
+/**
+ * Count a delivery write, once it has landed, so a sweep that reads the new count cannot have queried before the
+ * write. {@link recordNoteDelivery} calls it, and so does any other write that gives the sweep a note to push.
+ *
+ * On the extension the sweep runs in the background, which never reads a page's count, so a page's write also tells
+ * the background, which counts it as its own. The signal is never awaited and carries nothing: one that does not
+ * arrive leaves the sweep to its idle window, an hour at most, and cannot fail the write it reports.
+ */
+export const countNoteDeliveryWrite = (): void => {
+  noteDeliveryWrites++;
+  try {
+    if (!inExtensionPage()) return;
+    workerIntercom ??= createIntercomClient();
+    workerIntercom.request({ type: WalletMessageType.NoteDeliveryWrittenRequest }).catch(() => undefined);
+  } catch {
+    // The write landed; only the wake is lost.
+  }
+};
 
 /** `held`, read as stored ids, plus each of `added` it lacks, in order. */
 const withIds = (held: string[] | undefined, added: string[]): string[] => {
@@ -522,6 +566,10 @@ const withIds = (held: string[] | undefined, added: string[]): string[] => {
  * `ackedNoteIds` and `deadNoteIds` are added to what the row already holds, never
  * replace it: each relay of a custom row persists its own acknowledgement as it
  * lands, for the same reason.
+ *
+ * With `expectedOwed` it writes only while the row still owes exactly those notes
+ * ({@link owesNoteIds}), and counts as a delivery write only when it wrote: the
+ * delivery sweep passes the notes it read before its awaits.
  */
 export const recordNoteDelivery = async (
   id: string,
@@ -533,9 +581,13 @@ export const recordNoteDelivery = async (
     relayRecipientId?: string;
     ackedNoteIds?: string[];
     deadNoteIds?: string[];
-  }
+  },
+  expectedOwed?: readonly string[]
 ) => {
+  let wrote = expectedOwed === undefined;
   await Repo.transactions.where({ id }).modify(tx => {
+    if (expectedOwed !== undefined && !owesNoteIds(tx, expectedOwed)) return false;
+    wrote = true;
     tx.noteDelivery = noteDelivery;
     if (evidence?.transactionId) tx.transactionId = evidence.transactionId;
     if (evidence?.outputNoteIds?.length) tx.outputNoteIds = evidence.outputNoteIds;
@@ -546,9 +598,9 @@ export const recordNoteDelivery = async (
     // History renders the label, not `noteDelivery`, so a note the transport took retires its share of the warning
     // there too.
     if (tx.displayMessage) tx.displayMessage = relabelForDelivery(tx, tx.displayMessage);
+    return undefined;
   });
-  // Counted once the write has landed, so a sweep that reads the new count cannot have queried before the write.
-  noteDeliveryWrites++;
+  if (wrote) countNoteDeliveryWrite();
 };
 
 /**

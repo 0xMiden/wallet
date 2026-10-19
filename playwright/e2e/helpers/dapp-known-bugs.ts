@@ -51,30 +51,6 @@ export const KNOWN_BUGS: readonly KnownBug[] = [
         : evidence.adapterAddress === evidence.previousAddress)
   },
   {
-    id: 'K10',
-    title: 'A note imported details-only or bare cannot be consumed or listed by the id its import returned',
-    tracking: '0xMiden/wallet#1389 (open)',
-    cells: on(['W5b', 'W5c', 'N4'], BOTH),
-    // The consume preview and the private-note list both look the returned details commitment up as a note id
-    // (`src/lib/miden/back/dapp.ts:2732-2739` and `:909, 953`), so a consume is refused before any popup.
-    signature: ({ cellId, source, evidence }) =>
-      source === 'hard' &&
-      (cellId === 'N4'
-        ? evidence.returnedIdUnlisted === true
-        : evidence.popupOpened === false &&
-          (evidence.dappError?.message ?? '').includes('INVALID_PARAMS') &&
-          (evidence.dappError?.message ?? '').includes('could not be resolved'))
-  },
-  {
-    id: 'K11',
-    title: 'A custom request whose transactionRequest cannot be deserialized opens a popup instead of being refused',
-    tracking: '0xMiden/wallet#1418 (open)',
-    cells: on(['R3-customUndecodable'], BOTH),
-    // The preview swallows the deserialize failure (src/lib/miden/back/dapp.ts:2920-2931) and the popup says it could
-    // not decode the request, so the refusal check sees a confirm page open.
-    signature: ({ source, evidence }) => source === 'hard' && evidence.popupOpened === true
-  },
-  {
     id: 'K12',
     title: "adapter-react exports MidenFi's own WalletContext, so it reads no state under WalletProvider",
     tracking: '0xMiden/web-sdk#484 (open)',

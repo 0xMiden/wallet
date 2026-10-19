@@ -21,7 +21,13 @@ import {
   waitForReceipt,
   type ArcReadDeps
 } from './arc-usdcx';
-import { L2_BRIDGE_IN_GAS, USDCX_REMOTE_DOMAIN, type L2BridgeInSource } from './usdcx-constants';
+import {
+  ETHEREUM_SEPOLIA_PAYOUT,
+  L2_BRIDGE_IN_GAS,
+  USDCX_REMOTE_DOMAIN,
+  type L2BridgeInSource,
+  type PayoutChain
+} from './usdcx-constants';
 import type { IUsdcxCctpLeg } from '../../../src/lib/miden/db/types';
 import type { CctpBurnQuote } from '../../../src/lib/usdcx/cctp';
 import {
@@ -86,6 +92,8 @@ export function l2KeyShortfall(args: {
   usdc: bigint;
   units: bigint;
   fee: bigint;
+  /** How the key's USDC there is refilled; the harness key's is a green usdcx-burn-l2 run. */
+  refill?: string;
 }): string | undefined {
   const head = `top up the key on ${args.label}: ${args.address} holds`;
   const needWei = L2_BRIDGE_IN_GAS * args.maxFeePerGas;
@@ -100,11 +108,24 @@ export function l2KeyShortfall(args: {
     const usdc = (units: bigint) => formatUnits(units, CIRCLE_USDC_DECIMALS);
     return (
       `${head} ${usdc(args.usdc)} USDC, below the ${usdc(needUsdc)} USDC one bridge-in needs (the ${usdc(args.units)} ` +
-      `deposit and twice Circle's ${usdc(args.fee)} fee, which its approve covers); a green usdcx-burn-l2 run pays it ` +
-      'about 0.99 USDC there'
+      `deposit and twice Circle's ${usdc(args.fee)} fee, which its approve covers); ` +
+      (args.refill ?? 'a green usdcx-burn-l2 run pays it about 0.99 USDC there')
     );
   }
   return undefined;
+}
+
+/**
+ * Why Circle cannot pay a burn to `address` on `chain`, or undefined. On Ethereum Sepolia its forwarder sends
+ * gatewayMint with a fixed 250,000 gas limit, and a mint to an address that never held Sepolia USDC needs about
+ * 346,000, so it reverts on every retry (scripts/e2e-real.mjs probeSepoliaPayoutKey, 2026-10-16).
+ */
+export function payoutKeyProblem(chain: PayoutChain, address: Address, usdc: bigint): string | undefined {
+  if (chain.chainId !== ETHEREUM_SEPOLIA_PAYOUT.chainId || usdc > 0n) return undefined;
+  return (
+    `${address} holds no ${chain.label} USDC, and Circle's forwarder cannot mint a payout to a recipient with no ` +
+    `USDC under its fixed gas limit: fund the key with any amount of ${chain.label} USDC first`
+  );
 }
 
 export interface L2DepositSubmission {
