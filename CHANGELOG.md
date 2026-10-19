@@ -2,6 +2,10 @@
 
 ## 1.17.6 (TBD)
 
+### Changes
+
+- [CHANGE][all] The privacy policy names the publisher and data controller, separates telemetry from the data the Miden network, the Guardian Operator, Transak, swaps, bridges and Earn receive, states the legal basis and retention for each kind of data, the geographic restriction check, where data goes and your rights, and raises the age in the Children section to 18 to match the Terms of Service.
+
 ### Features
 
 - [FEATURE][all] Choose an Earn withdrawal amount or Max, review the native payout and minimum received, and before submitting the selected amount check that the quote is current and the available balance still covers that amount, which accrual may have raised or a withdrawal elsewhere lowered (#1491).
@@ -9,11 +13,15 @@
 ### Fixes
 
 - [FIX][android] Failed bridge-in crash reports distinguish native Reown rejection sites, wallet response codes, request age, publication and backgrounding using fixed values only; the privacy policy lists every value (#1608, #1609).
+- [FIX][android] In release builds the in-app browser no longer writes dApp requests, the wallet's answers, or page URLs, origins, hosts and scripts to the device log (#1582).
 - [FIX][android] An Android WebView older than 98 (Android System WebView, or Chrome on Android 9), which cannot run the wallet, now opens a page that sends the user to update it from Google Play, instead of an error screen Bread can never leave (#1597, #1598).
 - [FIX][android] The sign-in sheet's callback check keeps a literal `+` in the `origin` value, as iOS does, instead of reading it as a space (#1576).
 - [FIX][extension] A wallet page left open across an extension reload or update reloads itself as soon as the extension's runtime is gone, so it comes back as a page of the updated extension, instead of crashing when it opens Explore and reporting `Extension context invalidated` every 10 seconds; until it reloads it keeps behaving as the extension, its polls stop, and a reset started on it reloads the page in place (#1592, #1593).
 - [FIX][android] The sign-in sheet answers `AUTH_UNAVAILABLE` while Bread is paused, as on iOS, instead of opening while another app's dialog covers Bread (#1577).
+- [FIX][all] The login approval note says Bread signs this sign-in message, so its translations no longer say the login key signs transactions (#1580).
+- [FIX][extension] An approval's action runs once however many times its window confirms it while the action runs. For a transaction, a Deny, the auto-decline or a closed window while it is being queued waits for it, and an approval that times out first answers that the outcome is unknown, so a dApp is never told a transaction was declined while it still goes out (#1584).
 - [FIX][all] A failed claim's crash report also says whether its origin was recorded (`unrecorded` for a claim queued before the App recorded it), why it last waited in the queue, why the fee check let it through, and, when the stuck-transaction check cancelled it, whether it had started and whether this app session started it, in fixed values only (Sentry BREAD-WALLET-18, -19 and -1A). These values are part of the report's title, so these failures start new crash-report issues; the privacy policy lists every value.
+- [FIX][all] dApp refusals keep an existing error code and its details unchanged, instead of wrapping it in another `INVALID_PARAMS` error (#1583)
 
 ## 1.17.5 (2026-10-19)
 

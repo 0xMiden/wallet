@@ -895,7 +895,7 @@
   "confirmSignature": "Confirmer la signature",
   "requestsYourSignature": "Demande votre signature",
   "confirmLoginSignature": "Connectez-vous à $domain$",
-  "loginSignatureNote": "Bread utilise une clé générée exclusivement pour $domain$. Elle ne permet ni de transférer des fonds ni de modifier votre compte.",
+  "loginSignatureNote": "Bread signe ce message de connexion à l’aide d’une clé créée exclusivement pour $domain$. Il ne peut ni transférer des fonds ni modifier votre compte.",
   "requestAssets": "Demander des ressources",
   "requestsAssets": "Demande des ressources",
   "requestImportPrivateNote": "Demande d'importation d'une Note confidentielle",

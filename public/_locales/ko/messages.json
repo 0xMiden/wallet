@@ -3964,8 +3964,8 @@
     }
   },
   "loginSignatureNote": {
-    "message": "Bread는 $domain$ 전용 키로만 서명합니다. 이 키로는 자금을 이체하거나 계정을 변경할 수 없습니다.",
-    "englishSource": "Bread signs with a key made only for $domain$. It can't move funds or change your account.",
+    "message": "Bread는 $domain$ 전용으로 생성된 키를 사용하여 이 로그인 메시지에 서명합니다. 이 키로는 자금을 이체하거나 귀하의 계정을 변경할 수 없습니다.",
+    "englishSource": "Bread signs this sign-in message with a key made only for $domain$. It can't move funds or change your account.",
     "placeholders": {
       "domain": {
         "content": "$1"

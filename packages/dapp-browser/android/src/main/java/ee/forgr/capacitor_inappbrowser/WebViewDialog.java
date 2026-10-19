@@ -499,9 +499,9 @@ public class WebViewDialog extends Dialog {
 
                     // DEBUG: Log details about the file chooser request
                     Log.d("InAppBrowser", "onShowFileChooser called");
-                    Log.d("InAppBrowser", "Accept type: " + acceptType);
-                    Log.d("InAppBrowser", "Current URL: " + getUrl());
-                    Log.d("InAppBrowser", "Original URL: " + (webView.getOriginalUrl() != null ? webView.getOriginalUrl() : "null"));
+                    IabLog.d("InAppBrowser", "Accept type: " + acceptType);
+                    IabLog.d("InAppBrowser", "Current URL: " + getUrl());
+                    IabLog.d("InAppBrowser", "Original URL: " + (webView.getOriginalUrl() != null ? webView.getOriginalUrl() : "null"));
                     Log.d(
                         "InAppBrowser",
                         "Has camera permission: " +
@@ -591,7 +591,7 @@ public class WebViewDialog extends Dialog {
                             """;
 
                         webView.evaluateJavascript(js, (value) -> {
-                            Log.d("InAppBrowser", "Capture attribute JS result: " + value);
+                            IabLog.d("InAppBrowser", "Capture attribute JS result: " + value);
 
                             // If we already found capture in URL, use that directly
                             if (isCaptureInUrl) {
@@ -604,7 +604,7 @@ public class WebViewDialog extends Dialog {
                             if (value != null && value.length() > 2) {
                                 // Clean up the value (remove quotes)
                                 String captureValue = value.replace("\"", "");
-                                Log.d("InAppBrowser", "Found capture attribute: " + captureValue);
+                                IabLog.d("InAppBrowser", "Found capture attribute: " + captureValue);
 
                                 if (!captureValue.isEmpty()) {
                                     activity.runOnUiThread(() -> launchCamera(captureValue.equals("user")));
@@ -816,7 +816,7 @@ public class WebViewDialog extends Dialog {
                 // Handle geolocation permission requests
                 @Override
                 public void onGeolocationPermissionsShowPrompt(String origin, android.webkit.GeolocationPermissions.Callback callback) {
-                    Log.i("INAPPBROWSER", "onGeolocationPermissionsShowPrompt for origin: " + origin);
+                    IabLog.i("INAPPBROWSER", "onGeolocationPermissionsShowPrompt for origin: " + origin);
                     // Grant geolocation permission automatically for openWebView
                     // This allows websites to access location when opened with openWebView
                     callback.invoke(origin, true, false);
@@ -853,14 +853,14 @@ public class WebViewDialog extends Dialog {
                             WebView.HitTestResult result = view.getHitTestResult();
                             String data = result.getExtra();
                             if (data != null && !data.isEmpty()) {
-                                Log.d("InAppBrowser", "Opening target=_blank link externally: " + data);
+                                IabLog.d("InAppBrowser", "Opening target=_blank link externally: " + data);
                                 Intent browserIntent = new Intent(Intent.ACTION_VIEW, Uri.parse(data));
                                 browserIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                                 _webView.getContext().startActivity(browserIntent);
                                 return false;
                             }
                         } catch (Exception e) {
-                            Log.e("InAppBrowser", "Error opening external link: " + e.getMessage());
+                            Log.e("InAppBrowser", "Error opening external link: " + e.getClass().getSimpleName());
                         }
                     }
 
@@ -877,7 +877,7 @@ public class WebViewDialog extends Dialog {
                             new WebViewClient() {
                                 @Override
                                 public boolean shouldOverrideUrlLoading(WebView view, String url) {
-                                    Log.d("InAppBrowser", "Popup WebView loading URL: " + url);
+                                    IabLog.d("InAppBrowser", "Popup WebView loading URL: " + url);
 
                                     // Handle Google Pay result URLs or close conditions
                                     if (url.contains("google.com/pay") || url.contains("close") || url.contains("cancel")) {
@@ -1347,7 +1347,7 @@ public class WebViewDialog extends Dialog {
             _options.getPreShowScript()
         );
 
-        Log.i("InjectPreShowScript", String.format("PreShowScript script:\n%s", script));
+        IabLog.i("InjectPreShowScript", String.format("PreShowScript script:\n%s", script));
 
         preShowSemaphore = new Semaphore(0);
         activity.runOnUiThread(
@@ -1372,7 +1372,7 @@ public class WebViewDialog extends Dialog {
                 return;
             }
             if (preShowError != null && !preShowError.isEmpty()) {
-                Log.e("InjectPreShowScript", "Error within the user-provided preShowFunction: " + preShowError);
+                Log.e("InjectPreShowScript", "Error within the user-provided preShowFunction");
             }
         } catch (InterruptedException e) {
             Log.e("InjectPreShowScript", "Error when calling InjectPreShowScript: " + e.getMessage());
@@ -1418,7 +1418,7 @@ public class WebViewDialog extends Dialog {
             }
         }
 
-        Log.d("InAppBrowser", "File picker using MIME type: " + acceptType);
+        IabLog.d("InAppBrowser", "File picker using MIME type: " + acceptType);
         intent.setType(acceptType);
         intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, isMultiple);
 
@@ -1460,7 +1460,7 @@ public class WebViewDialog extends Dialog {
             }
         } catch (ActivityNotFoundException e) {
             // If no app can handle the specific MIME type, try with a more generic one
-            Log.e("InAppBrowser", "No app available for type: " + acceptType + ", trying with */*");
+            Log.e("InAppBrowser", "No app available for file type, trying with */*: " + e.getClass().getSimpleName());
             intent.setType("*/*");
             try {
                 if (activity instanceof androidx.activity.ComponentActivity) {
@@ -1525,11 +1525,11 @@ public class WebViewDialog extends Dialog {
             if (currentUrl != null && !currentUrl.equals("about:blank")) {
                 // Reload the current page
                 _webView.reload();
-                Log.d("InAppBrowser", "Reloading page: " + currentUrl);
+                IabLog.d("InAppBrowser", "Reloading page: " + currentUrl);
             } else if (_options != null && _options.getUrl() != null) {
                 // If webView URL is null but we have an initial URL, load that
                 setUrl(_options.getUrl());
-                Log.d("InAppBrowser", "Loading initial URL: " + _options.getUrl());
+                IabLog.d("InAppBrowser", "Loading initial URL: " + _options.getUrl());
             } else {
                 Log.w("InAppBrowser", "Cannot reload - no valid URL available");
             }
@@ -1724,11 +1724,11 @@ public class WebViewDialog extends Dialog {
                             if (currentUrl != null) {
                                 // Reload the current page
                                 _webView.reload();
-                                Log.d("InAppBrowser", "Reloading page: " + currentUrl);
+                                IabLog.d("InAppBrowser", "Reloading page: " + currentUrl);
                             } else if (_options.getUrl() != null) {
                                 // If webView URL is null but we have an initial URL, load that
                                 setUrl(_options.getUrl());
-                                Log.d("InAppBrowser", "Loading initial URL: " + _options.getUrl());
+                                IabLog.d("InAppBrowser", "Loading initial URL: " + _options.getUrl());
                             }
                         }
                     }
@@ -2181,7 +2181,7 @@ public class WebViewDialog extends Dialog {
                             }
                         }
                     } catch (URISyntaxException e) {
-                        Log.e("InAppBrowser", "Invalid URI in isUrlAuthorized: " + url, e);
+                        Log.e("InAppBrowser", "Invalid URI in isUrlAuthorized: " + e.getClass().getSimpleName());
                     }
                     return false;
                 }
@@ -2208,7 +2208,7 @@ public class WebViewDialog extends Dialog {
 
                     for (String blockPattern : blockedHosts) {
                         if (blockPattern != null && matchesBlockPattern(normalizedHost, blockPattern.toLowerCase())) {
-                            Log.d("InAppBrowser", "Blocked host detected: " + host);
+                            IabLog.d("InAppBrowser", "Blocked host detected: " + host);
                             return true;
                         }
                     }
@@ -2306,7 +2306,7 @@ public class WebViewDialog extends Dialog {
                     }
                     Context context = view.getContext();
                     String url = request.getUrl().toString();
-                    Log.d("InAppBrowser", "shouldOverrideUrlLoading: " + url);
+                    IabLog.d("InAppBrowser", "shouldOverrideUrlLoading: " + url);
 
                     boolean isNotHttpOrHttps = !url.startsWith("https://") && !url.startsWith("http://");
 
@@ -2322,19 +2322,19 @@ public class WebViewDialog extends Dialog {
                     List<String> authorizedLinks = _options.getAuthorizedAppLinks();
                     boolean urlAuthorized = isUrlAuthorized(url, authorizedLinks);
 
-                    Log.d("InAppBrowser", "authorizedLinks: " + authorizedLinks);
+                    IabLog.d("InAppBrowser", "authorizedLinks: " + authorizedLinks);
                     Log.d("InAppBrowser", "urlAuthorized: " + urlAuthorized);
 
                     if (urlAuthorized) {
                         try {
-                            Log.d("InAppBrowser", "Launching intent for authorized link: " + url);
+                            IabLog.d("InAppBrowser", "Launching intent for authorized link: " + url);
                             Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
                             intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                             context.startActivity(intent);
-                            Log.i("InAppBrowser", "Intent started for authorized link: " + url);
+                            IabLog.i("InAppBrowser", "Intent started for authorized link: " + url);
                             return true;
                         } catch (ActivityNotFoundException e) {
-                            Log.e("InAppBrowser", "No app found to handle this authorized link", e);
+                            Log.e("InAppBrowser", "No app found to handle this authorized link: " + e.getClass().getSimpleName());
                             return false;
                         }
                     }
@@ -2354,7 +2354,7 @@ public class WebViewDialog extends Dialog {
                             // Miden patch: no app handles this link. It stays blocked, but it is not a
                             // page load error: the page on screen did not fail, and callers close the
                             // page on that event.
-                            Log.w("InAppBrowser", "No handler for external URL: " + url, e);
+                            Log.w("InAppBrowser", "No handler for external URL: " + e.getClass().getSimpleName());
                             return true; // prevent WebView from attempting to load the custom scheme
                         }
                     }
@@ -2368,7 +2368,7 @@ public class WebViewDialog extends Dialog {
                             if (_options.getCallbacks() != null) {
                                 _options.getCallbacks().urlChangeEvent(url);
                             }
-                            Log.d("InAppBrowser", "Navigation blocked for URL: " + url);
+                            IabLog.d("InAppBrowser", "Navigation blocked for URL: " + url);
                             return true; // Block the navigation
                         }
                     }
@@ -2396,10 +2396,10 @@ public class WebViewDialog extends Dialog {
                     }
 
                     try {
-                        Log.i("InAppBrowser", "Host: " + request.getHost());
-                        Log.i("InAppBrowser", "Port: " + request.getPort());
-                        Log.i("InAppBrowser", "Principals: " + java.util.Arrays.toString(request.getPrincipals()));
-                        Log.i("InAppBrowser", "KeyTypes: " + java.util.Arrays.toString(request.getKeyTypes()));
+                        IabLog.i("InAppBrowser", "Host: " + request.getHost());
+                        IabLog.i("InAppBrowser", "Port: " + request.getPort());
+                        IabLog.i("InAppBrowser", "Principals: " + java.util.Arrays.toString(request.getPrincipals()));
+                        IabLog.i("InAppBrowser", "KeyTypes: " + java.util.Arrays.toString(request.getKeyTypes()));
 
                         KeyChain.choosePrivateKeyAlias(
                             activity,
@@ -2484,7 +2484,7 @@ public class WebViewDialog extends Dialog {
                         return null;
                     }
 
-                    Log.i("InAppBrowserProxy", String.format("Proxying request: %s", request.getUrl().toString()));
+                    IabLog.i("InAppBrowserProxy", String.format("Proxying request: %s", request.getUrl().toString()));
 
                     // We need to call a JS function
                     String requestId = randomRequestId();
@@ -2597,7 +2597,7 @@ public class WebViewDialog extends Dialog {
                             if (sourcePort == -1 && Objects.equals(sourceProtocol, "https")) sourcePort = 443;
                             else if (sourcePort == -1 && Objects.equals(sourceProtocol, "http")) sourcePort = 80;
                         } catch (URISyntaxException e) {
-                            e.printStackTrace();
+                            Log.w("InAppBrowser", "Invalid HTTP auth source URI: " + e.getClass().getSimpleName());
                         }
 
                         String protocol = "";
@@ -2609,7 +2609,7 @@ public class WebViewDialog extends Dialog {
                             if (port == -1 && Objects.equals(protocol, "https")) port = 443;
                             else if (port == -1 && Objects.equals(protocol, "http")) port = 80;
                         } catch (URISyntaxException e) {
-                            e.printStackTrace();
+                            Log.w("InAppBrowser", "Invalid HTTP auth page URI: " + e.getClass().getSimpleName());
                         }
 
                         if (Objects.equals(sourceHost, host) && Objects.equals(sourceProtocol, protocol) && sourcePort == port) {
