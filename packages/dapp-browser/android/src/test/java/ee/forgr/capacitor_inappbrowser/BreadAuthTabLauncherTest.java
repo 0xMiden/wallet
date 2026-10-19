@@ -2,7 +2,10 @@ package ee.forgr.capacitor_inappbrowser;
 
 import android.content.Intent;
 import android.net.Uri;
+import android.os.Bundle;
+import android.os.Looper;
 import androidx.activity.ComponentActivity;
+import androidx.activity.result.ActivityResultCallback;
 import androidx.activity.result.ActivityResultRegistry;
 import androidx.activity.result.contract.ActivityResultContract;
 import androidx.browser.auth.AuthTabIntent;
@@ -31,17 +34,34 @@ public class BreadAuthTabLauncherTest {
 
     @After public void tearDown() {
         for (BreadAuthTabLauncher launcher : launchers) launcher.close();
+        shadowOf(Looper.getMainLooper()).idle();
         for (ComponentActivity host : hosts) host.finish();
     }
 
     private BreadAuthTabLauncher newLauncher() {
-        BreadAuthTabLauncher launcher = new BreadAuthTabLauncher(registry, results::add);
+        return newLauncher(results::add);
+    }
+
+    private BreadAuthTabLauncher newLauncher(ActivityResultCallback<AuthTabIntent.AuthResult> callback) {
+        BreadAuthTabLauncher launcher = new BreadAuthTabLauncher(registry, callback);
         launchers.add(launcher);
         return launcher;
     }
 
     private void dispatch(int code, Intent data) {
         registry.dispatchResult(requestCode, code, data);
+    }
+
+    private Bundle savedState() {
+        Bundle saved = new Bundle();
+        registry.onSaveInstanceState(saved);
+        return saved;
+    }
+
+    private void assertRegistryEmpty() {
+        Bundle saved = savedState();
+        assertTrue("No pending result", saved.getBundle("KEY_COMPONENT_ACTIVITY_PENDING_RESULT").isEmpty());
+        assertTrue("No registered key", saved.getStringArrayList("KEY_COMPONENT_ACTIVITY_REGISTERED_KEYS").isEmpty());
     }
 
     private final class RecordingRegistry extends ActivityResultRegistry {
@@ -79,7 +99,7 @@ public class BreadAuthTabLauncherTest {
         }
     }
 
-    @Test public void closingUnregistersAndOldResultCannotReachANewLaunch() {
+    @Test public void closedResultCannotReachANewLaunch() {
         BreadAuthTabLauncher old = newLauncher();
         old.launch("com.android.chrome", "https://fixture.example/auth");
         int oldCode = requestCode;
@@ -87,11 +107,44 @@ public class BreadAuthTabLauncherTest {
         BreadAuthTabLauncher next = newLauncher();
         next.launch("com.android.chrome", "https://fixture.example/auth");
         assertNotEquals(oldCode, requestCode);
-        registry.dispatchResult(oldCode, AuthTabIntent.RESULT_OK, new Intent().setData(Uri.parse(CALLBACK)));
+        assertTrue(registry.dispatchResult(oldCode, AuthTabIntent.RESULT_OK, new Intent().setData(Uri.parse(CALLBACK))));
         assertTrue(results.isEmpty());
+        shadowOf(Looper.getMainLooper()).idle();
+        assertFalse(registry.dispatchResult(oldCode, AuthTabIntent.RESULT_CANCELED, null));
         dispatch(AuthTabIntent.RESULT_OK, new Intent().setData(Uri.parse(CALLBACK)));
         assertEquals(1, results.size());
         next.close();
+    }
+
+    @Test public void resultCallbackCanCloseWithoutLeavingARegisteredKey() {
+        BreadAuthTabLauncher launcher = newLauncher(result -> {
+            results.add(result);
+            launchers.get(0).close();
+        });
+        launcher.launch("com.android.chrome", "https://fixture.example/auth");
+        assertTrue(registry.dispatchResult(requestCode, AuthTabIntent.RESULT_OK, new Intent().setData(Uri.parse(CALLBACK))));
+        assertEquals(1, results.size());
+        shadowOf(Looper.getMainLooper()).idle();
+        assertRegistryEmpty();
+        assertFalse(registry.dispatchResult(requestCode, AuthTabIntent.RESULT_CANCELED, null));
+    }
+
+    @Test public void closingAnAwaitingLaunchDropsItsResultWithoutParkingIt() {
+        BreadAuthTabLauncher launcher = newLauncher();
+        launcher.launch("com.android.chrome", "https://fixture.example/auth");
+        launcher.close(); launcher.close();
+        assertTrue(registry.dispatchResult(requestCode, AuthTabIntent.RESULT_OK, new Intent().setData(Uri.parse(CALLBACK))));
+        assertTrue(results.isEmpty());
+        shadowOf(Looper.getMainLooper()).idle();
+        assertRegistryEmpty();
+        assertFalse(registry.dispatchResult(requestCode, AuthTabIntent.RESULT_CANCELED, null));
+    }
+
+    @Test public void closingBeforeLaunchUnregistersImmediately() {
+        BreadAuthTabLauncher launcher = newLauncher();
+        assertEquals(1, savedState().getStringArrayList("KEY_COMPONENT_ACTIVITY_REGISTERED_KEYS").size());
+        launcher.close();
+        assertRegistryEmpty();
     }
 
     @Test public void registersAndLaunchesAfterHostIsAlreadyResumed() {
