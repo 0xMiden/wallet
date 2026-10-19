@@ -5,9 +5,15 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { __resetSyncFuseStateForTests, isSyncFused, noteSyncWatchdogEviction } from 'lib/miden/front/sync-fuse';
 import { MAX_CONSECUTIVE_WATCHDOG_EVICTIONS } from 'lib/miden/sync-backoff';
 import { WalletStatus } from 'lib/shared/types';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 import { useAlert, useConfirm } from 'lib/ui/dialog';
 
 import DeveloperSettings from './DeveloperSettings';
+
+jest.mock('lib/telemetry/user-visible-error', () => ({
+  ...jest.requireActual('lib/telemetry/user-visible-error'),
+  reportUserVisibleError: jest.fn()
+}));
 
 // `react-i18next` pulls in the full i18n runtime; stub `useTranslation` so
 // `t(key)` echoes the key back and every rendered label is the raw key.
@@ -1246,4 +1252,68 @@ describe('DeveloperSettings module evaluation (desktop boot safety)', () => {
       require('./DeveloperSettings');
     }).not.toThrow();
   });
+});
+
+describe('user-visible error reporting', () => {
+  beforeEach(() => jest.useFakeTimers());
+  afterEach(() => jest.useRealTimers());
+
+  it.each(['save', 'reload', 'polyfill'])('reports the %s refusal using its known inline key', async operation => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    if (operation === 'save')
+      applyEndpointOverride.mockRejectedValueOnce(new Error('private endpoint https://private.invalid'));
+    if (operation === 'reload')
+      mockReloadInPlace.mockImplementationOnce(() => {
+        throw new Error('private reload');
+      });
+    if (operation === 'polyfill') {
+      mockIsExtension.value = true;
+      jest.resetModules();
+      jest.doMock('webextension-polyfill', () => {
+        throw new Error('private polyfill');
+      });
+    }
+    render(<DeveloperSettings readOnly={operation !== 'save'} />);
+    await act(async () => {
+      fireEvent.click(screen.getByTestId(operation === 'save' ? 'dev-endpoints-save' : 'dev-endpoints-reset'));
+    });
+    const id = operation === 'save' ? 'devEndpointSaveFailed' : 'resetDidNotFinish';
+    expect(screen.getByTestId('dev-endpoints-error')).toHaveTextContent(id);
+    act(() => jest.advanceTimersByTime(999));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    act(() => jest.advanceTimersByTime(1));
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([[id, 'inline']]);
+    act(() => jest.advanceTimersByTime(1000));
+    expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
+  });
+
+  it('cancels a save failure report when a new save clears the error', async () => {
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    applyEndpointOverride.mockRejectedValueOnce(new Error('private endpoint'));
+    render(<DeveloperSettings />);
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('dev-endpoints-save'));
+    });
+    expect(screen.getByTestId('dev-endpoints-error')).toHaveTextContent('devEndpointSaveFailed');
+    act(() => jest.advanceTimersByTime(999));
+    applyEndpointOverride.mockReturnValueOnce(new Promise(() => {}));
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('dev-endpoints-save'));
+    });
+    expect(screen.queryByTestId('dev-endpoints-error')).not.toBeInTheDocument();
+    act(() => jest.advanceTimersByTime(2000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it.each<HealthStatus>(['idle', 'pending', 'reachable', 'error'])(
+    'keeps the developer warning, helper fields and %s health note silent',
+    status => {
+      mockHealthStatus.value = status;
+      render(<DeveloperSettings />);
+      expect(screen.getByText('developerSettingsWarning')).toBeInTheDocument();
+      act(() => jest.advanceTimersByTime(2000));
+      expect(reportUserVisibleError).not.toHaveBeenCalled();
+    }
+  );
 });
