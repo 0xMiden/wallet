@@ -28,6 +28,7 @@
 
   function render(userAgent, language) {
     var chrome = /Chrome\/(\d+)/.exec(userAgent);
+    // capacitor.config.ts android.minWebViewVersion; the page test checks the two agree.
     var needsUpdate = chrome && parseInt(chrome[1], 10) < 98;
     // Capacitor checks the current WebView provider. Android 7 to 9 take Chrome whenever it is enabled; Android 10
     // and later always take Android System WebView.

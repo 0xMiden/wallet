@@ -12,9 +12,15 @@ const OLD_ANDROID_9 =
 const OLD_ANDROID = 'Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 Chrome/92.0.4515.159 Mobile Safari/537.36';
 const NEW_ANDROID = 'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/120.0.6099.230 Mobile Safari/537.36';
 const IOS = 'Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 Safari/604.1';
-const UPDATE_BODY =
-  'Bread needs a newer version of Android System WebView, the part of Android that shows web pages in apps. Update it from Google Play, then open Bread again.';
-const START_FAILED_BODY = 'Something stopped Bread from loading. Try again, or close Bread and open it again.';
+// The page cannot import the wallet's config, strings or locale list, so it keeps copies, and these cases compare each
+// copy with its source.
+const EN: Record<string, string> = JSON.parse(
+  fs.readFileSync(path.join(PUBLIC_DIR, '_locales', 'en', 'en.json'), 'utf8')
+);
+const MIN_WEBVIEW = config.android?.minWebViewVersion ?? 0;
+const LOCALE_DIRECTORIES = fs
+  .readdirSync(path.join(PUBLIC_DIR, '_locales'))
+  .filter(directory => fs.existsSync(path.join(PUBLIC_DIR, '_locales', directory, 'messages.json')));
 
 type LocaleResponse = { status: number; body: string };
 let localeResponses: Record<string, LocaleResponse>;
@@ -24,10 +30,12 @@ class LocaleRequest {
   responseText = '';
   onload: (() => void) | null = null;
   onerror: (() => void) | null = null;
+  static urls: string[] = [];
   private url = '';
 
   open(_method: string, url: string) {
     this.url = url;
+    LocaleRequest.urls.push(url);
   }
 
   send() {
@@ -58,6 +66,7 @@ describe('WebView error page', () => {
 
   beforeEach(() => {
     localeResponses = {};
+    LocaleRequest.urls = [];
     Object.defineProperty(window, 'XMLHttpRequest', {
       configurable: true,
       writable: true,
@@ -81,6 +90,18 @@ describe('WebView error page', () => {
     document.documentElement.lang = originalLanguage;
   });
 
+  it('ships the start-failed copy of en.json as its static text', () => {
+    expect(document.getElementById('title')).toHaveTextContent(EN.webViewStartFailedTitle);
+    expect(document.getElementById('body')).toHaveTextContent(EN.webViewStartFailedBody);
+    expect(document.getElementById('action')).toHaveTextContent(EN.webViewStartFailedAction);
+  });
+
+  it.each(LOCALE_DIRECTORIES)('requests the shipped %s locale for its own language tag', directory => {
+    load(OLD_ANDROID, directory.replace('_', '-'));
+
+    expect(LocaleRequest.urls).toEqual([`/_locales/${directory}/messages.json`]);
+  });
+
   it('renders once and leaves no renderer on the page', () => {
     load(OLD_ANDROID, 'en-US');
 
@@ -90,20 +111,18 @@ describe('WebView error page', () => {
   it('sends Chrome 92 to the WebView update listing when the locale request fails', () => {
     load(OLD_ANDROID, 'en-US');
 
-    expect(document.getElementById('title')).toHaveTextContent('Update Android System WebView');
-    expect(document.getElementById('body')).toHaveTextContent(UPDATE_BODY);
-    expect(document.getElementById('action')).toHaveTextContent('Open Google Play');
+    expect(document.getElementById('title')).toHaveTextContent(EN.webViewUpdateTitle);
+    expect(document.getElementById('body')).toHaveTextContent(EN.webViewUpdateBody);
+    expect(document.getElementById('action')).toHaveTextContent(EN.webViewUpdateAction);
     expect(document.getElementById('action')).toHaveAttribute('href', PLAY_URL);
   });
 
   it('sends Android 9, whose WebView is Chrome, to the Chrome update listing', () => {
     load(OLD_ANDROID_9, 'en-US');
 
-    expect(document.getElementById('title')).toHaveTextContent('Update Chrome');
-    expect(document.getElementById('body')).toHaveTextContent(
-      'Bread needs a newer version of Chrome, which shows web pages in apps on this version of Android. Update it from Google Play, then open Bread again.'
-    );
-    expect(document.getElementById('action')).toHaveTextContent('Open Google Play');
+    expect(document.getElementById('title')).toHaveTextContent(EN.webViewUpdateChromeTitle);
+    expect(document.getElementById('body')).toHaveTextContent(EN.webViewUpdateChromeBody);
+    expect(document.getElementById('action')).toHaveTextContent(EN.webViewUpdateAction);
     expect(document.getElementById('action')).toHaveAttribute('href', CHROME_PLAY_URL);
   });
 
@@ -112,7 +131,7 @@ describe('WebView error page', () => {
     userAgent => {
       load(userAgent, 'en-US');
 
-      expect(document.getElementById('title')).toHaveTextContent('Update Android System WebView');
+      expect(document.getElementById('title')).toHaveTextContent(EN.webViewUpdateTitle);
       expect(document.getElementById('action')).toHaveAttribute('href', PLAY_URL);
     }
   );
@@ -138,16 +157,16 @@ describe('WebView error page', () => {
   it.each([NEW_ANDROID, IOS])('offers a startup retry for a supported or non-Chrome WebView: %s', userAgent => {
     load(userAgent, 'en-US');
 
-    expect(document.getElementById('title')).toHaveTextContent("Bread couldn't start");
-    expect(document.getElementById('body')).toHaveTextContent(START_FAILED_BODY);
-    expect(document.getElementById('action')).toHaveTextContent('Try again');
+    expect(document.getElementById('title')).toHaveTextContent(EN.webViewStartFailedTitle);
+    expect(document.getElementById('body')).toHaveTextContent(EN.webViewStartFailedBody);
+    expect(document.getElementById('action')).toHaveTextContent(EN.webViewStartFailedAction);
     expect(document.getElementById('action')).toHaveAttribute('href', '/');
   });
 
   it.each([
-    { major: 97, title: 'Update Android System WebView', href: PLAY_URL },
-    { major: 98, title: "Bread couldn't start", href: '/' }
-  ])('enforces the version boundary at Chrome $major', ({ major, title, href }) => {
+    { major: MIN_WEBVIEW - 1, title: EN.webViewUpdateTitle, href: PLAY_URL },
+    { major: MIN_WEBVIEW, title: EN.webViewStartFailedTitle, href: '/' }
+  ])('enforces the minWebViewVersion boundary at Chrome $major', ({ major, title, href }) => {
     load(`Mozilla/5.0 (Linux; Android 10) Chrome/${major}.0.0.0 Mobile Safari/537.36`, 'en-US');
 
     expect(document.getElementById('title')).toHaveTextContent(title);
@@ -163,8 +182,8 @@ describe('WebView error page', () => {
     load(OLD_ANDROID, 'de-DE');
 
     expect(document.getElementById('title')).toHaveTextContent('Android System WebView aktualisieren');
-    expect(document.getElementById('body')).toHaveTextContent(UPDATE_BODY);
-    expect(document.getElementById('action')).toHaveTextContent('Open Google Play');
+    expect(document.getElementById('body')).toHaveTextContent(EN.webViewUpdateBody);
+    expect(document.getElementById('action')).toHaveTextContent(EN.webViewUpdateAction);
     expect(document.getElementById('action')).toHaveAttribute('href', PLAY_URL);
   });
 
@@ -213,9 +232,9 @@ describe('WebView error page', () => {
 
     load(OLD_ANDROID, 'de-DE');
 
-    expect(document.getElementById('title')).toHaveTextContent('Update Android System WebView');
-    expect(document.getElementById('body')).toHaveTextContent(UPDATE_BODY);
-    expect(document.getElementById('action')).toHaveTextContent('Open Google Play');
+    expect(document.getElementById('title')).toHaveTextContent(EN.webViewUpdateTitle);
+    expect(document.getElementById('body')).toHaveTextContent(EN.webViewUpdateBody);
+    expect(document.getElementById('action')).toHaveTextContent(EN.webViewUpdateAction);
     expect(document.getElementById('action')).toHaveAttribute('href', PLAY_URL);
   });
 });

@@ -21,6 +21,7 @@ const config: CapacitorConfig = {
     ...(isLiveReload ? { appStartPath: '/mobile.html' } : {})
   },
   android: {
+    // public/webview-error.js repeats this floor to choose its copy.
     minWebViewVersion: 98
   },
   plugins: {
