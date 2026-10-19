@@ -4,6 +4,7 @@ import android.Manifest;
 import android.app.Activity;
 import android.content.ComponentName;
 import android.content.Intent;
+import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.net.Uri;
@@ -75,6 +76,7 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
     @Override
     public void load() {
         super.load();
+        IabLog.setDebuggable((getContext().getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0);
         fileChooserLauncher = getActivity().registerForActivityResult(
             new ActivityResultContracts.StartActivityForResult(),
             this::handleFileChooserResult
@@ -538,7 +540,7 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
             );
         }
 
-        Log.i("DelCookies", String.format("Script to run:\n%s", scriptToRun));
+        IabLog.i("DelCookies", String.format("Script to run:\n%s", scriptToRun));
 
         this.getActivity().runOnUiThread(
             new Runnable() {
@@ -626,7 +628,7 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
             try {
                 options.setProxyRequestsPattern(Pattern.compile(proxyRequestsStr));
             } catch (PatternSyntaxException e) {
-                Log.e("WebViewDialog", String.format("Pattern '%s' is not a valid pattern", proxyRequestsStr));
+                Log.e("WebViewDialog", "Invalid proxy request pattern: " + e.getClass().getSimpleName());
             }
         }
 
@@ -864,7 +866,7 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
                     Log.w("InAppBrowserPlugin", "Error reading authorized app link at index " + i, e);
                 }
             }
-            Log.d("InAppBrowserPlugin", "Parsed authorized app links: " + authorizedLinks);
+            IabLog.d("InAppBrowserPlugin", "Parsed authorized app links: " + authorizedLinks);
             options.setAuthorizedAppLinks(authorizedLinks);
         } else {
             Log.d("InAppBrowserPlugin", "No authorized app links provided.");
@@ -883,7 +885,7 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
                     Log.w("InAppBrowserPlugin", "Error reading blocked host at index " + i, e);
                 }
             }
-            Log.d("InAppBrowserPlugin", "Parsed blocked hosts: " + blockedHosts);
+            IabLog.d("InAppBrowserPlugin", "Parsed blocked hosts: " + blockedHosts);
             options.setBlockedHosts(blockedHosts);
         } else {
             Log.d("InAppBrowserPlugin", "No blocked hosts provided.");
