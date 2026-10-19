@@ -3,12 +3,6 @@ import path from 'path';
 
 import config from '../../capacitor.config';
 
-declare global {
-  interface Window {
-    __webviewErrorRender?: (userAgent: string, language: string) => void;
-  }
-}
-
 const PUBLIC_DIR = path.resolve(__dirname, '../../public');
 const PLAY_URL = 'https://play.google.com/store/apps/details?id=com.google.android.webview';
 const OLD_ANDROID = 'Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 Chrome/92.0.4515.159 Mobile Safari/537.36';
@@ -44,11 +38,19 @@ class LocaleRequest {
   }
 }
 
+// The page renders once, from the navigator it loads under, so each case sets the navigator and then loads the script.
+function load(userAgent: string, language: string) {
+  Object.defineProperty(window.navigator, 'userAgent', { configurable: true, get: () => userAgent });
+  Object.defineProperty(window.navigator, 'language', { configurable: true, get: () => language });
+  const script = document.createElement('script');
+  script.textContent = fs.readFileSync(path.join(PUBLIC_DIR, 'webview-error.js'), 'utf8');
+  document.body.appendChild(script);
+}
+
 describe('WebView error page', () => {
   const originalXMLHttpRequest = window.XMLHttpRequest;
   const originalTitle = document.title;
   const originalLanguage = document.documentElement.lang;
-  let render: (userAgent: string, language: string) => void;
 
   beforeEach(() => {
     localeResponses = {};
@@ -59,12 +61,6 @@ describe('WebView error page', () => {
     });
     const html = fs.readFileSync(path.join(PUBLIC_DIR, 'webview-error.html'), 'utf8');
     document.body.innerHTML = new DOMParser().parseFromString(html, 'text/html').body.innerHTML;
-    const script = document.createElement('script');
-    script.textContent = fs.readFileSync(path.join(PUBLIC_DIR, 'webview-error.js'), 'utf8');
-    document.body.appendChild(script);
-    const loadedRender = window.__webviewErrorRender;
-    if (!loadedRender) throw new Error('The WebView error script did not expose render');
-    render = loadedRender;
   });
 
   afterEach(() => {
@@ -74,14 +70,21 @@ describe('WebView error page', () => {
       writable: true,
       value: originalXMLHttpRequest
     });
-    delete window.__webviewErrorRender;
+    delete (window.navigator as { userAgent?: string }).userAgent;
+    delete (window.navigator as { language?: string }).language;
     document.body.innerHTML = '';
     document.title = originalTitle;
     document.documentElement.lang = originalLanguage;
   });
 
+  it('renders once and leaves no renderer on the page', () => {
+    load(OLD_ANDROID, 'en-US');
+
+    expect((window as { __webviewErrorRender?: unknown }).__webviewErrorRender).toBeUndefined();
+  });
+
   it('sends Chrome 92 to the WebView update listing when the locale request fails', () => {
-    render(OLD_ANDROID, 'en-US');
+    load(OLD_ANDROID, 'en-US');
 
     expect(document.getElementById('title')).toHaveTextContent('Update Android System WebView');
     expect(document.getElementById('body')).toHaveTextContent(UPDATE_BODY);
@@ -90,7 +93,7 @@ describe('WebView error page', () => {
   });
 
   it.each([NEW_ANDROID, IOS])('offers a startup retry for a supported or non-Chrome WebView: %s', userAgent => {
-    render(userAgent, 'en-US');
+    load(userAgent, 'en-US');
 
     expect(document.getElementById('title')).toHaveTextContent("Bread couldn't start");
     expect(document.getElementById('body')).toHaveTextContent(START_FAILED_BODY);
@@ -102,7 +105,7 @@ describe('WebView error page', () => {
     { major: 97, title: 'Update Android System WebView', href: PLAY_URL },
     { major: 98, title: "Bread couldn't start", href: '/' }
   ])('enforces the version boundary at Chrome $major', ({ major, title, href }) => {
-    render(`Mozilla/5.0 (Linux; Android 10) Chrome/${major}.0.0.0 Mobile Safari/537.36`, 'en-US');
+    load(`Mozilla/5.0 (Linux; Android 10) Chrome/${major}.0.0.0 Mobile Safari/537.36`, 'en-US');
 
     expect(document.getElementById('title')).toHaveTextContent(title);
     expect(document.getElementById('action')).toHaveAttribute('href', href);
@@ -114,7 +117,7 @@ describe('WebView error page', () => {
       body: JSON.stringify({ webViewUpdateTitle: { message: 'Android System WebView aktualisieren' } })
     };
 
-    render(OLD_ANDROID, 'de-DE');
+    load(OLD_ANDROID, 'de-DE');
 
     expect(document.getElementById('title')).toHaveTextContent('Android System WebView aktualisieren');
     expect(document.getElementById('body')).toHaveTextContent(UPDATE_BODY);
@@ -134,7 +137,7 @@ describe('WebView error page', () => {
       body: JSON.stringify({ webViewUpdateTitle: { message: 'Localized update title' } })
     };
 
-    render(OLD_ANDROID, language);
+    load(OLD_ANDROID, language);
 
     expect(document.getElementById('title')).toHaveTextContent('Localized update title');
   });
@@ -149,30 +152,11 @@ describe('WebView error page', () => {
       })
     };
 
-    render(NEW_ANDROID, 'de-DE');
+    load(NEW_ANDROID, 'de-DE');
 
     expect(document.getElementById('title')).toHaveTextContent('Bread konnte nicht starten');
     expect(document.getElementById('body')).toHaveTextContent('Bread erneut starten.');
     expect(document.getElementById('action')).toHaveTextContent('Erneut versuchen');
-    expect(document.getElementById('action')).toHaveAttribute('href', '/');
-  });
-
-  it('ignores an earlier locale response after rendering a different recovery action', () => {
-    const requests: LocaleRequest[] = [];
-    jest.spyOn(LocaleRequest.prototype, 'send').mockImplementation(function (this: LocaleRequest) {
-      requests.push(this);
-    });
-
-    render(OLD_ANDROID, 'de-DE');
-    render(NEW_ANDROID, 'en-US');
-    const [earlier] = requests;
-    if (!earlier) throw new Error('The first render made no locale request');
-    earlier.status = 200;
-    earlier.responseText = JSON.stringify({ webViewUpdateTitle: { message: 'Outdated update title' } });
-    earlier.onload?.();
-
-    expect(document.getElementById('title')).toHaveTextContent("Bread couldn't start");
-    expect(document.getElementById('action')).toHaveTextContent('Try again');
     expect(document.getElementById('action')).toHaveAttribute('href', '/');
   });
 
@@ -184,7 +168,7 @@ describe('WebView error page', () => {
   ])('keeps English when a locale response is unusable: %j', response => {
     localeResponses['/_locales/de/messages.json'] = response;
 
-    render(OLD_ANDROID, 'de-DE');
+    load(OLD_ANDROID, 'de-DE');
 
     expect(document.getElementById('title')).toHaveTextContent('Update Android System WebView');
     expect(document.getElementById('body')).toHaveTextContent(UPDATE_BODY);

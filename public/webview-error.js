@@ -9,7 +9,6 @@
     webViewStartFailedBody: 'Something stopped Bread from loading. Try again, or close Bread and open it again.',
     webViewStartFailedAction: 'Try again'
   };
-  var renderVersion = 0;
 
   function localeDirectory(language) {
     var locale = (language || 'en').replace(/-/g, '_').toLowerCase();
@@ -25,7 +24,6 @@
   }
 
   function render(userAgent, language) {
-    var version = ++renderVersion;
     var chrome = /Chrome\/(\d+)/.exec(userAgent);
     var needsUpdate = chrome && parseInt(chrome[1], 10) < 98;
     var prefix = needsUpdate ? 'webViewUpdate' : 'webViewStartFailed';
@@ -55,7 +53,7 @@
       request.open('GET', '/_locales/' + directory + '/messages.json', true);
       request.timeout = 5000;
       request.onload = function () {
-        if (version !== renderVersion || request.status < 200 || request.status >= 300) return;
+        if (request.status < 200 || request.status >= 300) return;
         try {
           var messages = JSON.parse(request.responseText);
           apply(messages);
@@ -70,6 +68,5 @@
     }
   }
 
-  window.__webviewErrorRender = render;
   render(navigator.userAgent, navigator.language);
 })();
