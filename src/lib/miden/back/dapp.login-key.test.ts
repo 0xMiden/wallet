@@ -23,6 +23,8 @@ import { WalletStatus } from 'lib/shared/types';
 // Read through `isExtension()` while a request runs, so each test picks its platform.
 // eslint-disable-next-line no-var
 var mockIsExtension = false;
+// eslint-disable-next-line no-var
+var mockIsDesktop = false;
 
 const mockLoginKeyCommitment = jest.fn();
 const mockSignWithLoginKey = jest.fn();
@@ -64,8 +66,8 @@ jest.mock('lib/miden/back/transaction-processor', () => ({
 
 jest.mock('lib/platform', () => ({
   isExtension: () => mockIsExtension,
-  isDesktop: () => false,
-  isMobile: () => !mockIsExtension
+  isDesktop: () => mockIsDesktop,
+  isMobile: () => !mockIsExtension && !mockIsDesktop
 }));
 
 const mockStorageState: Record<string, unknown> = {};
@@ -277,6 +279,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   jest.mocked(extensionBrowser.windows.create).mockReset().mockImplementation(createWindow);
   mockIsExtension = false;
+  mockIsDesktop = false;
   mockWalletStatus = WalletStatus.Ready;
   mockStoreListeners.clear();
   mockIntercomListeners.length = 0;
@@ -627,19 +630,23 @@ describe('requestLoginSign', () => {
     expect(mockSignWithLoginKey).not.toHaveBeenCalled();
   });
 
-  it("passes the vault's refusal of a word on with its code once", async () => {
-    // 32 bytes, but no field elements: the check before the prompt passes them, and the vault refuses them.
-    const notFieldElements = signRequest({ payload: u8ToB64(new Uint8Array(32).fill(255)) });
-    const refusal = `${MidenDAppErrorType.InvalidParams}: not a word to sign`;
-    mockSignWithLoginKey.mockRejectedValue(new Error(refusal));
-    await expect(dapp.requestLoginSign(ORIGIN, notFieldElements)).rejects.toThrow(new Error(refusal));
+  it.each(['mobile', 'extension', 'desktop'])(
+    'refuses a payload that is not four field elements before the prompt on %s',
+    async platform => {
+      mockIsExtension = platform === 'extension';
+      mockIsDesktop = platform === 'desktop';
+      // A regressed extension gate must settle rather than wait for an unanswered popup.
+      jest.mocked(extensionBrowser.windows.create).mockRejectedValueOnce(new Error('unexpected login prompt'));
+      const notFieldElements = signRequest({ payload: u8ToB64(new Uint8Array(32).fill(0xff)) });
 
-    mockIsExtension = true;
-    const popup = await openPopup(() => dapp.requestLoginSign(ORIGIN, notFieldElements));
-    await popup.getPayload();
-    await popup.decide(MidenMessageType.DAppSignConfirmationRequest, { confirmed: true });
-    await expect(popup.outcome).resolves.toEqual({ ok: false, message: refusal });
-  });
+      await expect(dapp.requestLoginSign(ORIGIN, notFieldElements)).rejects.toThrow(new Error(NOT_A_WORD));
+      expect(mockRequestConfirmation).not.toHaveBeenCalled();
+      expect(extensionBrowser.windows.create).not.toHaveBeenCalled();
+      expect(mockIntercomListeners).toHaveLength(0);
+      expect(mockSignWithLoginKey).not.toHaveBeenCalled();
+      expect(mockLoginKeyCommitment).not.toHaveBeenCalled();
+    }
+  );
 
   it('refuses an approval once the page has been disconnected', async () => {
     // Mobile: the page disconnects while the sheet is open.
