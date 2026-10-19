@@ -1,0 +1,61 @@
+name: Bread Connect codec semantic proof
+
+on:
+  push:
+    branches: [ci/1594-codec-proof]
+
+permissions:
+  contents: read
+
+jobs:
+  codec-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout transport
+        uses: actions/checkout@v4
+        with:
+          path: transport
+          persist-credentials: false
+      - name: Preserve transport outside source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/wallet1594-codec"
+          cp transport/.github/ci-proof/1594-codec/* "$RUNNER_TEMP/wallet1594-codec/"
+          cp transport/.github/workflows/proof-bread-connect-codec.yml "$RUNNER_TEMP/wallet1594-codec/"
+          cd "$RUNNER_TEMP/wallet1594-codec"
+          sha256sum ./* > transport-sha256.txt
+          printf '%s\n' "$GITHUB_SHA" > transport-commit.txt
+      - name: Checkout exact fixed source
+        uses: actions/checkout@v4
+        with:
+          ref: cc47712a16601bbf31a226d71a2c224d60b1fc96
+          path: source
+          persist-credentials: false
+      - name: Set up Node22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Set up Java21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Set up Android
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+      - name: Run source-bound codec matrix
+        shell: bash
+        run: bash "$RUNNER_TEMP/wallet1594-codec/run.sh" "$GITHUB_WORKSPACE/source"
+      - name: Upload codec proof evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bread-connect-codec-proof-${{ github.sha }}
+          path: ${{ runner.temp }}/wallet1594-codec/
+          if-no-files-found: error
+          retention-days: 14

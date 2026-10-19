@@ -1,0 +1,346 @@
+{
+  "schema_version": 1,
+  "source_commit": "cc47712a16601bbf31a226d71a2c224d60b1fc96",
+  "source_tree": "a2106b1a6436f742f75ec523a217a7c78a3f99b0",
+  "target": "packages/bread-connect-kotlin/src/main/kotlin/com/miden/breadconnect/BreadConnect.kt",
+  "source_sha256": "b8144633e25a45442521a2a861e7214c7d72e04fa804322cd237cc0a3d021eeb",
+  "files": [
+    {
+      "path": ".github/workflows/bread-connect-sdks.yml",
+      "sha256": "949ff12932de0adaa0c336a890880018d8deb8d19cc81abe35a202d4a97d3a76",
+      "git_blob": "00dbce0bcf3738ab710f29cd8221f861e7eb0686",
+      "mode": "100644"
+    },
+    {
+      "path": "package.json",
+      "sha256": "9af7cd256a41b9ad42604d8ab62a0859a3218b9b53cd74f8291fcc9075681d1d",
+      "git_blob": "332d885a84ec8e98281342a594c8460cee635697",
+      "mode": "100644"
+    },
+    {
+      "path": "packages/bread-connect-kotlin/.gitignore",
+      "sha256": "41e80e31c6f46ccc0128d65d4e7a564ac83028b22b84948e3920b3c4c4e5f43c",
+      "git_blob": "b6a19e67c8e68c0962f96fc88c5c30d3bf569a60",
+      "mode": "100644"
+    },
+    {
+      "path": "packages/bread-connect-kotlin/build.gradle",
+      "sha256": "c359f51397bfcb7f74e90c816cdc40dc9b99135c1ebe8067a923117737874235",
+      "git_blob": "3c0c0938a9bb20b824ba3f2b6d9af9234d60c24e",
+      "mode": "100644"
+    },
+    {
+      "path": "packages/bread-connect-kotlin/gradle.properties",
+      "sha256": "fa078c27c9e4bde28a029d673875b028884505efa436b68cf60e1ac0be5b679b",
+      "git_blob": "e6961679fc95d6da9ab1dc56ee2e9d98ecbe6e63",
+      "mode": "100644"
+    },
+    {
+      "path": "packages/bread-connect-kotlin/gradle/wrapper/gradle-wrapper.jar",
+      "sha256": "7d3a4ac4de1c32b59bc6a4eb8ecb8e612ccd0cf1ae1e99f66902da64df296172",
+      "git_blob": "1b33c55baabb587c669f562ae36f953de2481846",
+      "mode": "100644"
+    },
+    {
+      "path": "packages/bread-connect-kotlin/gradle/wrapper/gradle-wrapper.properties",
+      "sha256": "9a479a85aa879bb55284fc16d0de5b81a745c3854f4e2d88c42e7debaf007435",
+      "git_blob": "7705927e949fdfbe2bfa90ef9d397e6057ccf104",
+      "mode": "100644"
+    },
+    {
+      "path": "packages/bread-connect-kotlin/gradlew",
+      "sha256": "b187b4c52e749f5760afdd6fadc31b2a98ad35fb249bf0dff03b72650f320409",
+      "git_blob": "23d15a9367071145e9c79bb4ddf879d1fbe78b5d",
+      "mode": "100755"
+    },
+    {
+      "path": "packages/bread-connect-kotlin/gradlew.bat",
+      "sha256": "94102713eb8fb22d032397924c0f38ab2da783ba60d07054339f1190a0c4e2cd",
+      "git_blob": "db3a6ac207e507b0bc1635a9f2c18d3b174e682e",
+      "mode": "100644"
+    },
+    {
+      "path": "packages/bread-connect-kotlin/settings.gradle",
+      "sha256": "6589eabd6e91c91587215d0c43970be6a3528befac36552402422b70be459d6f",
+      "git_blob": "9835deddd0f6fe5c9c0ea5df86ce17777b1d9904",
+      "mode": "100644"
+    },
+    {
+      "path": "packages/bread-connect-kotlin/src/main/AndroidManifest.xml",
+      "sha256": "40803dce28676f41864c59785c0436dbfcf9e6f2ad4c17a2593783afb8fa56b4",
+      "git_blob": "7326b7c791e397f5ac9a2644106218d47abbaca6",
+      "mode": "100644"
+    },
+    {
+      "path": "packages/bread-connect-kotlin/src/main/kotlin/com/miden/breadconnect/Android.kt",
+      "sha256": "01590fb9f9e308f5d49f5ce6475d5b5159ed71ba4c755ba168718b4add8dbc98",
+      "git_blob": "b532a9ae93e2311c10aa71bd12361101f4f46aff",
+      "mode": "100644"
+    },
+    {
+      "path": "packages/bread-connect-kotlin/src/main/kotlin/com/miden/breadconnect/BreadConnect.kt",
+      "sha256": "b8144633e25a45442521a2a861e7214c7d72e04fa804322cd237cc0a3d021eeb",
+      "git_blob": "9351c436fcd5506e82f2c767043fb762bcd5a20d",
+      "mode": "100644"
+    },
+    {
+      "path": "packages/bread-connect-kotlin/src/main/kotlin/com/miden/breadconnect/Encoding.kt",
+      "sha256": "57435f6c9f4b3b26a0a1a0205ddba9fec1555a8091cc0dbf2740d6dc3c739ef2",
+      "git_blob": "6bf74af6d98c6eeaf060411114340f73a7a0dc22",
+      "mode": "100644"
+    },
+    {
+      "path": "packages/bread-connect-kotlin/src/main/kotlin/com/miden/breadconnect/Envelope.kt",
+      "sha256": "598a4893e35e3bb49794e1c61ae5a0833b026f3e5ac62338816eb9e48e95198f",
+      "git_blob": "7b43cf88d2765491d5ed419c66b618e34e0af01c",
+      "mode": "100644"
+    },
+    {
+      "path": "packages/bread-connect-kotlin/src/main/kotlin/com/miden/breadconnect/Messages.kt",
+      "sha256": "ce6b3620992ebcbb911a213cb1d2ba67d88b60fbfa9b936575b13bdf61e84ef5",
+      "git_blob": "122177d06e679c6fe290dfdcfbe55edcbe79aa36",
+      "mode": "100644"
+    },
+    {
+      "path": "packages/bread-connect-kotlin/src/main/kotlin/com/miden/breadconnect/ProtocolCrypto.kt",
+      "sha256": "33a73a29e384764748094ee8a449b78cc701105d8966d0ccd7a83a1626adad4a",
+      "git_blob": "e31f280502d8cbd944a9ae173df88ebe189e71d9",
+      "mode": "100644"
+    },
+    {
+      "path": "packages/bread-connect-kotlin/src/test/kotlin/com/miden/breadconnect/ClientTest.kt",
+      "sha256": "320d3846acffaee3b12c3377f6c2181f030230a0d4a0c783ceb8e798efc6fb63",
+      "git_blob": "2d55fdcc2792b075771aa7ac26d037129e029278",
+      "mode": "100644"
+    },
+    {
+      "path": "packages/bread-connect-kotlin/src/test/kotlin/com/miden/breadconnect/EncodingTest.kt",
+      "sha256": "18faeacb4f646a30a17d0a1ac08cbe9cb578b63d7333f32d21333ad6326b19e2",
+      "git_blob": "b978c07c66e11af81ba52a833913ff9a51823b9e",
+      "mode": "100644"
+    },
+    {
+      "path": "packages/bread-connect-kotlin/src/test/kotlin/com/miden/breadconnect/Support.kt",
+      "sha256": "40f0bd9e0135fa87d19759f7fbe3c46a888df5a363b1b181f99ce710d7bb7f64",
+      "git_blob": "f81f97b2dfd7f29d583c798fa6d66adaa386c665",
+      "mode": "100644"
+    },
+    {
+      "path": "packages/bread-connect-kotlin/src/test/kotlin/com/miden/breadconnect/VectorTest.kt",
+      "sha256": "5c2c8d4e5f1fbb18a723dfc3808e158d8ed2d6c38dc56da76f145d0610b65302",
+      "git_blob": "423a80c0e17391c817711d943703e877a6c8c072",
+      "mode": "100644"
+    },
+    {
+      "path": "packages/bread-connect/vectors/generate.mjs",
+      "sha256": "a0ecaedfe7d7e13077a9a945b8b7de6e437d16e9d561c512986ec4a348293e82",
+      "git_blob": "aab0fa6d09fc7d1a40952338204666761c94ea8c",
+      "mode": "100644"
+    },
+    {
+      "path": "packages/bread-connect/vectors/v1.json",
+      "sha256": "aa3432f95b13f0c8b1a9d5fdcf4ef3e768706f815c785e0f985090104189b187",
+      "git_blob": "0b1dbed2cc801f2958c59255ced48268130820e4",
+      "mode": "100644"
+    },
+    {
+      "path": "src/lib/miden/back/actions.test.ts",
+      "sha256": "76581c7a12ee65bf36f88b995de9f4f3b48968b0e55aca50ada7f89bd6595424",
+      "git_blob": "a706ae8bd19cc47ce535caf98680d614595f3fbb",
+      "mode": "100644"
+    },
+    {
+      "path": "src/lib/miden/back/actions.ts",
+      "sha256": "cb9e059ccbbc65a1764b8b31f0238fc2af04dde71e4cdda68877504a26efda31",
+      "git_blob": "7594b0a898a1499c8a411303f69e5bcce65539c3",
+      "mode": "100644"
+    },
+    {
+      "path": "tsconfig.json",
+      "sha256": "fa684612fc11e0419496cc3c08f0a35983f1c0b3cacc191a0a6a4a1e3b218efe",
+      "git_blob": "0d431024b44e5a2c81cacb32eda3420cda552380",
+      "mode": "100644"
+    },
+    {
+      "path": "yarn.lock",
+      "sha256": "8606e15d58682739313e004734d42f34a2ad715148e00f28c2de63596349941d",
+      "git_blob": "7ef858c017ee1a46cf824603651785e0626fd2bb",
+      "mode": "100644"
+    }
+  ],
+  "junit_cases": [
+    "com.miden.breadconnect.ClientTest.connectOpensBreadAndKeepsTheSessionItApproves",
+    "com.miden.breadconnect.ClientTest.aSessionOpenedForAnotherCallbackIsNotRestored",
+    "com.miden.breadconnect.ClientTest.aRefusedConnectThrowsBreadsErrorAndKeepsNoSession",
+    "com.miden.breadconnect.ClientTest.aRequestReturnsBreadsResponse",
+    "com.miden.breadconnect.ClientTest.requestLoginKeyAndSignLoginBytesUseTheSessionAccount",
+    "com.miden.breadconnect.ClientTest.loginHelpersMapMalformedBase64ToInternalError",
+    "com.miden.breadconnect.ClientTest.loginHelpersAcceptBasicBase64PaddingAndEmptyData",
+    "com.miden.breadconnect.ClientTest.loginHelpersRejectWhitespaceInBase64Replies",
+    "com.miden.breadconnect.ClientTest.loginHelpersRejectMalformedBase64Padding",
+    "com.miden.breadconnect.ClientTest.aTransactionsOutcomeIsKept",
+    "com.miden.breadconnect.ClientTest.aRequestWithoutASessionIsRefused",
+    "com.miden.breadconnect.ClientTest.whenBreadIsNotInstalledTheStorePageOpensAndTheRequestEnds",
+    "com.miden.breadconnect.ClientTest.aNewRequestReplacesTheOneStillWaiting",
+    "com.miden.breadconnect.ClientTest.aRequestWhoseOpenerHasNotReturnedStillEndsOnACancelOrANewerRequest",
+    "com.miden.breadconnect.ClientTest.twoRequestsInOneTurnOpenBreadOnlyForTheNewer",
+    "com.miden.breadconnect.ClientTest.aRequestCancelledBeforeItsOpenerRunsNeverOpensBread",
+    "com.miden.breadconnect.ClientTest.aLostSessionIsForgotten",
+    "com.miden.breadconnect.ClientTest.anAnswerToAnotherRequestIsIgnored",
+    "com.miden.breadconnect.ClientTest.breadNotAnsweringInThirtyMinutesEndsTheRequest",
+    "com.miden.breadconnect.ClientTest.breadAnsweringAfterTheTenMinutesItAcceptsTheRequestForStillCompletesIt",
+    "com.miden.breadconnect.ClientTest.anOpenerThatNeverReturnsStillEndsTheRequestInThirtyMinutes",
+    "com.miden.breadconnect.ClientTest.cancellingTheCallerEndsTheRequest",
+    "com.miden.breadconnect.ClientTest.aCallersOwnTimeoutEndsTheRequestAsTheCallersCancellation",
+    "com.miden.breadconnect.ClientTest.anAnswerThatRelaunchesTheAppStillCompletesTheConnection",
+    "com.miden.breadconnect.ClientTest.aRelaunchAfterTheTenMinutesBreadAcceptsTheRequestForStillCompletesTheConnection",
+    "com.miden.breadconnect.ClientTest.aStoredRequestOlderThanTheClientWaitsIsDropped",
+    "com.miden.breadconnect.ClientTest.aSessionThatCannotBeKeptEndsTheConnectAtOnce",
+    "com.miden.breadconnect.ClientTest.aLinkThatCannotBeAuthenticatedWhileTheSessionCannotBeReadIsDropped",
+    "com.miden.breadconnect.ClientTest.anOutcomeThatCannotBeKeptStillAnswersTheRequest",
+    "com.miden.breadconnect.ClientTest.aPendingRecordThatCannotBeClearedStillSettlesTheAnswer",
+    "com.miden.breadconnect.ClientTest.aCancelledConnectWhosePendingRecordCannotBeRemovedTakesNoLateAnswer",
+    "com.miden.breadconnect.ClientTest.aSessionThatCannotBeForgottenStillSettlesBreadsSessionNotFound",
+    "com.miden.breadconnect.ClientTest.onlyLinksUnderTheCallbackAreBreads",
+    "com.miden.breadconnect.ClientTest.theClientRefusesACallbackThatBreaksTheRules",
+    "com.miden.breadconnect.EncodingTest.stringsSerializeAsJsonStringifyWritesThem",
+    "com.miden.breadconnect.EncodingTest.parsingKeepsKeyOrderAndNumberText",
+    "com.miden.breadconnect.EncodingTest.malformedJsonDoesNotParse",
+    "com.miden.breadconnect.EncodingTest.aBareLiteralIsNotAString",
+    "com.miden.breadconnect.EncodingTest.onlyWellFormedUtf8Decodes",
+    "com.miden.breadconnect.EncodingTest.base64UrlRoundTripsAndRefusesAnythingElse",
+    "com.miden.breadconnect.EncodingTest.startConnectRefusesACallbackOrRequestThatBreaksTheRules",
+    "com.miden.breadconnect.EncodingTest.aRequestTooLongForBreadIsRefused",
+    "com.miden.breadconnect.EncodingTest.fingerprintsReadWithOrWithoutColons",
+    "com.miden.breadconnect.VectorTest.keysAgreeWithRfc7748AndTheDerivedKeys",
+    "com.miden.breadconnect.VectorTest.everyMessageReadsAndWritesBackToItsLink",
+    "com.miden.breadconnect.VectorTest.sealedPayloadsOpenToTheirPlaintextAndSealBack",
+    "com.miden.breadconnect.VectorTest.startConnectWritesTheConnectLink",
+    "com.miden.breadconnect.VectorTest.finishConnectReadsTheApprovalAndTheRefusal",
+    "com.miden.breadconnect.VectorTest.sendRequestWritesTheRequestLinks",
+    "com.miden.breadconnect.VectorTest.readResponseReadsAnswersAndTransactionOutcomes",
+    "com.miden.breadconnect.VectorTest.theUnsealedErrorReads",
+    "com.miden.breadconnect.VectorTest.invalidLinksReadAsTheVectorsSay",
+    "com.miden.breadconnect.VectorTest.callbacksReadAsTheVectorsSay",
+    "com.miden.breadconnect.VectorTest.theAppRefusesEnvelopesThatDoNotOpen"
+  ],
+  "lint_text_report": "build/intermediates/lint_intermediate_text_report/debug/lintReportDebug/lint-results-debug.txt",
+  "positive_control_prediction": "Every pinned JVM test executes with no failures/errors/skips and complete case inventory; lintDebug returns0. Repeat on exact restored bytes after all mutant attempts.",
+  "mutations": [
+    {
+      "id": "encoder-api26",
+      "kind": "lint",
+      "old": "Base64.toBase64String(data)",
+      "new": "java.util.Base64.getEncoder().encodeToString(data)",
+      "diagnostics": [
+        "java.util.Base64#getEncoder",
+        "java.util.Base64.Encoder#encodeToString"
+      ],
+      "prediction": "Exactly two NewApi errors at the restored encoder call, API26/current min24; no other lint error or failed Gradle task.",
+      "source_sha256": "49470a0cbcf612b9e1b063485a9b0541d2153d74fe7e04cdbce215782358f1e8",
+      "new_line": "                put(\"payload\", java.util.Base64.getEncoder().encodeToString(data))"
+    },
+    {
+      "id": "decoder-api26",
+      "kind": "lint",
+      "old": "Base64.decode(padded)",
+      "new": "java.util.Base64.getDecoder().decode(padded)",
+      "diagnostics": [
+        "java.util.Base64#getDecoder",
+        "java.util.Base64.Decoder#decode"
+      ],
+      "prediction": "Exactly two NewApi errors at the restored decoder call, API26/current min24; no other lint error or failed Gradle task.",
+      "source_sha256": "e07a8097a6d3e831a7b3d3b70ba71327a71d6290f4fdad7620cc7b32019bbcb1",
+      "new_line": "            java.util.Base64.getDecoder().decode(padded)"
+    },
+    {
+      "id": "without-ascii-guard",
+      "kind": "junit",
+      "old": " || !STANDARD_BASE64.matches(text)",
+      "new": "",
+      "case": "com.miden.breadconnect.ClientTest.loginHelpersRejectWhitespaceInBase64Replies",
+      "failure": {
+        "type": "java.lang.AssertionError",
+        "message_contains": [
+          "Expected",
+          "INTERNAL_ERROR"
+        ],
+        "trace_contains": [
+          "ClientTest.assertFails"
+        ]
+      },
+      "prediction": "The named whitespace refusal case fails its Expected INTERNAL_ERROR assertion because BC accepts a whitespace-bearing reply. Leading-space AQ== is a concrete accepted mutant path after earlier short whitespace inputs may still fail due to normalization; the existing JUnit case, exception and stack are measured, not an invented per-fixture runtime label.",
+      "source_sha256": "0e03fccb825e3c91eafa29941a7853a416c0d13000fce456bdeb66eb06d3a8be"
+    },
+    {
+      "id": "without-missing-padding-normalization",
+      "kind": "junit",
+      "old": "val padded = if (text.endsWith('=')) text else text.padEnd((text.length + 3) / 4 * 4, '=')",
+      "new": "val padded = text",
+      "case": "com.miden.breadconnect.ClientTest.loginHelpersAcceptBasicBase64PaddingAndEmptyData",
+      "failure": {
+        "type": "com.miden.breadconnect.BreadConnectException",
+        "message_contains": [
+          "Bread's answer has no well-formed loginKey"
+        ],
+        "trace_contains": [
+          "BreadConnect.standardBase64",
+          "ClientTest"
+        ]
+      },
+      "prediction": "The named valid-input case fails with public BreadConnectException when unpadded AQ reaches BC without normalization, rather than returning [1]. AQI is the corresponding three-character-tail control; an empty/padded control failure is not the intended cause.",
+      "source_sha256": "f684e0236032953441a491028f4cd831f4cc77cb2fbf280f4a2d704c01163483"
+    },
+    {
+      "id": "repair-existing-malformed-padding",
+      "kind": "junit",
+      "old": "val padded = if (text.endsWith('=')) text else text.padEnd((text.length + 3) / 4 * 4, '=')",
+      "new": "val padded = text.padEnd((text.length + 3) / 4 * 4, '=')",
+      "case": "com.miden.breadconnect.ClientTest.loginHelpersRejectMalformedBase64Padding",
+      "failure": {
+        "type": "java.lang.AssertionError",
+        "message_contains": [
+          "Expected",
+          "INTERNAL_ERROR"
+        ],
+        "trace_contains": [
+          "ClientTest.assertFails"
+        ]
+      },
+      "prediction": "The named malformed-padding case fails its Expected INTERNAL_ERROR assertion: malformed AQ= is repaired into AQ== and accepted. A remains malformed; the real JUnit case/message/stack are recorded.",
+      "source_sha256": "e6c1a2b10b46eb44d05f8723338e7b89872cb64687fe4619bed9ed7e5e689f9e"
+    },
+    {
+      "id": "wrong-codec-exception-catch",
+      "kind": "junit",
+      "old": "catch (_: DecoderException)",
+      "new": "catch (_: IllegalArgumentException)",
+      "case": "com.miden.breadconnect.ClientTest.loginHelpersRejectMalformedBase64Padding",
+      "failure": {
+        "type": "org.bouncycastle.util.encoders.DecoderException",
+        "message_contains": [
+          "unable to decode base64 string"
+        ],
+        "trace_contains": [
+          "org.bouncycastle.util.encoders.Base64.decode",
+          "BreadConnect.standardBase64",
+          "ClientTest"
+        ]
+      },
+      "prediction": "The named malformed-padding case leaks raw DecoderException on A (or AQ=), instead of BreadConnectException INTERNAL_ERROR. These values pass the ASCII guard; %%% does not pin this catch.",
+      "source_sha256": "61c385dbb158b429317924cccfb31a03545325c911216e0402d931db2243d1f1"
+    }
+  ],
+  "pinned_dependency": {
+    "coordinate": "org.bouncycastle:bcprov-jdk18on:1.80",
+    "minSdk": 24,
+    "official_tag_commit": "5ce0d4d4536bcb622c1077a6b9157b02ad8adcc5",
+    "verified_source_jar_sha256": "29e8414b7a07060b07222bb786dd594d2e411de0d7723d2fac8adedb0801cbef"
+  },
+  "proof_limits": [
+    "No source finding closure or feature gate substitution",
+    "No F2 production mutation",
+    "Setup/compile/timeouts/wrong failures/skipped or absent cases earn no proof credit",
+    "Individual helper/encoded-value labels are not invented beyond actual JUnit report detail"
+  ]
+}
