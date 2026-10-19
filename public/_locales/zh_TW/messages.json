@@ -1698,6 +1698,564 @@
     "message": "金額",
     "englishSource": "Amount"
   },
+  "cash": {
+    "message": "現金",
+    "englishSource": "Cash"
+  },
+  "cashBuy": {
+    "message": "買入",
+    "englishSource": "Buy"
+  },
+  "cashSell": {
+    "message": "賣出",
+    "englishSource": "Sell"
+  },
+  "cashAction": {
+    "message": "買入或賣出",
+    "englishSource": "Buy or sell"
+  },
+  "cashPayAmount": {
+    "message": "您支付",
+    "englishSource": "You pay"
+  },
+  "cashSellAmount": {
+    "message": "您賣出",
+    "englishSource": "You sell"
+  },
+  "cashChooseProvider": {
+    "message": "選擇服務提供商",
+    "englishSource": "Choose provider"
+  },
+  "cashBuyingUsdc": {
+    "message": "購買 USDCx",
+    "englishSource": "Buy USDCx"
+  },
+  "cashSellingUsdc": {
+    "message": "賣出 USDCx",
+    "englishSource": "Sell USDCx"
+  },
+  "cashProviderPayMethods": {
+    "message": "卡片或銀行轉帳",
+    "englishSource": "Card or bank transfer"
+  },
+  "cashProviderPayout": {
+    "message": "銀行轉帳",
+    "englishSource": "Bank transfer"
+  },
+  "cashProviderPreview": {
+    "message": "供應商預覽 — 結帳功能尚未連接。",
+    "englishSource": "Provider preview — checkout is not connected yet."
+  },
+  "cashComingSoon": {
+    "message": "即將推出",
+    "englishSource": "Coming soon"
+  },
+  "cashContinueWithProvider": {
+    "message": "繼續使用 $provider$",
+    "englishSource": "Continue with $provider$",
+    "placeholders": {
+      "provider": {
+        "content": "$1"
+      }
+    }
+  },
+  "cashNoEvmAddress": {
+    "message": "此帳戶沒有以太坊地址，因此無法購買 USDCx。請使用在此錢包中建立的帳戶。",
+    "englishSource": "This account has no Ethereum address, so it cannot buy USDCx. Use an account created in this wallet."
+  },
+  "cashNoEvmAddressSell": {
+    "message": "此帳戶沒有以太坊地址，因此無法出售 USDCx。請使用在此錢包中建立的帳戶。",
+    "englishSource": "This account has no Ethereum address, so it cannot sell USDCx. Use an account created in this wallet."
+  },
+  "cashBackendMissing": {
+    "message": "此版本不支援結帳功能。",
+    "englishSource": "Checkout is not available in this build."
+  },
+  "cashCheckoutError": {
+    "message": "無法開始結帳。請重試。",
+    "englishSource": "Could not start the checkout. Try again."
+  },
+  "cashCheckoutMismatch": {
+    "message": "結帳詳情與您的訂單不符，因此結帳頁面未能開啟。請重新嘗試。",
+    "englishSource": "The checkout details did not match your order, so the checkout did not open. Try again."
+  },
+  "cashCheckoutClosed": {
+    "message": "結帳已關閉",
+    "englishSource": "Checkout closed"
+  },
+  "cashCheckoutAddressMismatch": {
+    "message": "結帳流程已關閉，因為其收款地址與您的錢包不符。此畫面並未進行任何付款。",
+    "englishSource": "The checkout was closed because its destination address did not match your wallet. No payment was made from this screen."
+  },
+  "cashCheckoutSellMismatch": {
+    "message": "結帳流程已關閉，因為該訂單與您的賣單不匹配。此畫面並未發送任何內容。",
+    "englishSource": "The checkout was closed because its order did not match your sale. Nothing was sent from this screen."
+  },
+  "cashSellDepositAddress": {
+    "message": "Transak 存款地址",
+    "englishSource": "Transak deposit address"
+  },
+  "cashSellBackendChecking": {
+    "message": "正在與後端核對地址……",
+    "englishSource": "Checking the address with the backend…"
+  },
+  "cashSellBackendVerified": {
+    "message": "地址已由後端驗證",
+    "englishSource": "Address verified by backend"
+  },
+  "cashSellBackendMismatch": {
+    "message": "後端指定了不同的地址。請勿繼續。",
+    "englishSource": "Backend named a different address. Do not continue."
+  },
+  "cashSellTokenChecking": {
+    "message": "正在查詢您的 $symbol$ 餘額……",
+    "englishSource": "Checking your $symbol$ balance…",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "cashSellTokenReady": {
+    "message": "首先從 Miden 橋接至以太坊。此過程約需 30 分鐘。",
+    "englishSource": "Bridged from Miden to Ethereum first. This takes about 30 minutes."
+  },
+  "cashSellBlockedNoToken": {
+    "message": "此帳戶沒有橋接器所接受的 $symbol$，因此無法開始出售。",
+    "englishSource": "This account has no $symbol$ that the bridge accepts, so the sale cannot start.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "cashSellBlockedAmbiguous": {
+    "message": "此帳戶中存有超過一個 $symbol$ 代幣，因此錢包無法選擇要出售的特定代幣。",
+    "englishSource": "More than one $symbol$ token is in this account, so the wallet cannot choose the one to sell.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "cashSellBlockedUnknownScale": {
+    "message": "$symbol$ 的小數位數未知，因此錢包無法計算該金額。",
+    "englishSource": "The decimals of $symbol$ are not known, so the wallet cannot calculate the amount.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "cashSellBlockedNotRegistered": {
+    "message": "該橋接機制並未將此 $symbol$ 代幣與 Transak 接收的代幣進行連結。",
+    "englishSource": "The bridge does not connect this $symbol$ token to the token that Transak receives.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "cashSellBlockedAmount": {
+    "message": "橋接器無法傳送此確切數額的 $symbol$。請出售小數位數較少的金額。",
+    "englishSource": "The bridge cannot send this exact amount of $symbol$. Sell an amount with fewer decimals.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "cashSellBlockedBalance": {
+    "message": "您的 $symbol$ 餘額低於出售金額。",
+    "englishSource": "Your $symbol$ balance is less than the amount of the sale.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "cashSellBlockedUnavailable": {
+    "message": "錢包無法讀取橋接器。請稍後重試。",
+    "englishSource": "The wallet could not read the bridge. Try again later."
+  },
+  "cashSellDeadline": {
+    "message": "Transak 將保留此訂單直至 $time$。",
+    "englishSource": "Transak holds this order until $time$.",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "cashSellShortOfTime": {
+    "message": "跨鏈橋接過程約需 30 分鐘，因此這筆訂單可能在您的代幣抵達前就已過期。屆時，代幣將存放在您的以太坊地址中。",
+    "englishSource": "The bridge takes about 30 minutes, so this order can expire before your tokens arrive. The tokens then stay at your Ethereum address."
+  },
+  "cashSellBackToTransak": {
+    "message": "返回 Transak",
+    "englishSource": "Back to Transak"
+  },
+  "cashSellUnreadableTitle": {
+    "message": "未找到轉帳詳情",
+    "englishSource": "Transfer details not found"
+  },
+  "cashSellUnreadable": {
+    "message": "錢包無法從 Transak 頁面讀取存款地址和金額。",
+    "englishSource": "The wallet could not read the deposit address and amount from the Transak page."
+  },
+  "cashSellSendTitle": {
+    "message": "透過 Transak 賣出 $amount$ $symbol$",
+    "englishSource": "Sell $amount$ $symbol$ through Transak",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "cashSellStartingTitle": {
+    "message": "開始出售 $amount$ $symbol$",
+    "englishSource": "Starting the sale of $amount$ $symbol$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "cashSellStarting": {
+    "message": "簽署轉帳並發送橋接交易……",
+    "englishSource": "Signing the transfer and sending the bridge transaction…"
+  },
+  "cashSellToAddress": {
+    "message": "發送至 $address$",
+    "englishSource": "To $address$",
+    "placeholders": {
+      "address": {
+        "content": "$1"
+      }
+    }
+  },
+  "cashSellFailedTitle": {
+    "message": "銷售尚未開始",
+    "englishSource": "Sale not started"
+  },
+  "cashSellRefused": {
+    "message": "錢包拒絕簽署中繼：$reason$",
+    "englishSource": "The wallet refused to sign the relay: $reason$",
+    "placeholders": {
+      "reason": {
+        "content": "$1"
+      }
+    }
+  },
+  "cashSellOrderFailed": {
+    "message": "該訂單失敗。",
+    "englishSource": "The order failed."
+  },
+  "cashSellOrderExpired": {
+    "message": "該訂單已過期。",
+    "englishSource": "The order expired."
+  },
+  "cashSellOrderCancelled": {
+    "message": "該訂單已被取消。",
+    "englishSource": "The order was cancelled."
+  },
+  "cashSellTimeout": {
+    "message": "該訂單並未在時間軸上向前推進。請在 Transak 中查看其狀態。",
+    "englishSource": "The order did not move forward in time. Check its status in Transak."
+  },
+  "cashSellBridgeNotStarted": {
+    "message": "橋接交易無法啟動。您的帳戶中沒有任何代幣被轉出。",
+    "englishSource": "The bridge transaction could not start. No tokens left your account."
+  },
+  "cashSellUnexpected": {
+    "message": "該筆交易無法開始。您的帳戶中沒有任何代幣被移出。",
+    "englishSource": "The sale could not start. No tokens left your account."
+  },
+  "cashSellRelayTransaction": {
+    "message": "中繼交易",
+    "englishSource": "Relay transaction"
+  },
+  "cashSellTapPaid": {
+    "message": "在 Transak 頁面點選「是，我已付款」以完成出售。",
+    "englishSource": "Tap \"Yes, I have paid\" on the Transak page to finish the sale."
+  },
+  "sellStatusHeader": {
+    "message": "賣出",
+    "englishSource": "Sell"
+  },
+  "sellStatusProgressTitle": {
+    "message": "交易進行中",
+    "englishSource": "Sale in progress"
+  },
+  "sellStatusCompletedTitle": {
+    "message": "交易完成",
+    "englishSource": "Sale complete"
+  },
+  "sellStatusFailedTitle": {
+    "message": "賣單失敗",
+    "englishSource": "Sale failed"
+  },
+  "sellStatusProgressDescription": {
+    "message": "您可以離開此畫面。錢包會持續在「活動」中追蹤您的賣出交易。",
+    "englishSource": "You can leave this screen. The wallet keeps tracking your sale in Activity."
+  },
+  "sellStatusCompletedDescription": {
+    "message": "Transak 已完成您的款項支付。",
+    "englishSource": "Transak completed your payout."
+  },
+  "sellStatusFailedDescription": {
+    "message": "該筆交易並未完成。",
+    "englishSource": "The sale did not complete."
+  },
+  "sellStepSubmitting": {
+    "message": "在 Miden 上發送橋接交易",
+    "englishSource": "Sending the bridge transaction on Miden"
+  },
+  "sellStepBridging": {
+    "message": "與以太坊的橋接",
+    "englishSource": "Bridging to Ethereum"
+  },
+  "sellStepOnEthereum": {
+    "message": "以太坊上的資金",
+    "englishSource": "Funds on Ethereum"
+  },
+  "sellStepSent": {
+    "message": "發送至 Transak",
+    "englishSource": "Sent to Transak"
+  },
+  "sellStepReceived": {
+    "message": "Transak 收到的付款",
+    "englishSource": "Payment received by Transak"
+  },
+  "sellStepCompleted": {
+    "message": "付款已完成",
+    "englishSource": "Payout completed"
+  },
+  "sellFailureBridge": {
+    "message": "Miden 上的橋接交易失敗。",
+    "englishSource": "The bridge transaction failed on Miden."
+  },
+  "sellFailureBridgeMissing": {
+    "message": "錢包無法找到此次出售的橋接交易。",
+    "englishSource": "The wallet could not find the bridge transaction of this sale."
+  },
+  "sellFailureOrderFailed": {
+    "message": "該訂單在轉移至 Transak 之前即已失敗。",
+    "englishSource": "The order failed before the transfer to Transak."
+  },
+  "sellFailureOrderExpired": {
+    "message": "在您的代幣送達 Transak 之前，該訂單已過期。已橋接的代幣仍保留在您的以太坊地址中。",
+    "englishSource": "The order expired before your tokens could go to Transak. The bridged tokens stay at your Ethereum address."
+  },
+  "sellFailureExpired": {
+    "message": "Transak 通報該訂單已過期。",
+    "englishSource": "Transak reported that the order expired."
+  },
+  "sellFailureCancelled": {
+    "message": "該筆 Transak 訂單已被取消。",
+    "englishSource": "The Transak order was cancelled."
+  },
+  "sellFailureTransakFailed": {
+    "message": "Transak 回報該訂單已失敗。",
+    "englishSource": "Transak reported that the order failed."
+  },
+  "sellFailureTransakRefunded": {
+    "message": "Transak 已退還該筆訂單。",
+    "englishSource": "Transak refunded the order."
+  },
+  "sellFailureTimeout": {
+    "message": "該筆交易未在 7 天內完成。",
+    "englishSource": "The sale did not finish within 7 days."
+  },
+  "sellFailureRestored": {
+    "message": "此次出售來自備份，因此錢包無法驗證該交易。",
+    "englishSource": "This sale came from a backup, so the wallet could not verify it."
+  },
+  "sellFundsOnMiden": {
+    "message": "沒有任何代幣離開您的 Miden 帳戶。",
+    "englishSource": "No tokens left your Miden account."
+  },
+  "sellFundsOnEthereum": {
+    "message": "橋接後的代幣並不會被傳送至 Transak，而是仍保留在您的以太坊地址中。",
+    "englishSource": "The bridged tokens are not sent to Transak. They stay at your Ethereum address."
+  },
+  "sellFundsAtTransak": {
+    "message": "您的代幣目前由 Transak 持有。請提供您的訂單編號並聯繫 Transak 客服。",
+    "englishSource": "Transak has your tokens. Contact Transak support with your order ID."
+  },
+  "sellDetailAmount": {
+    "message": "金額",
+    "englishSource": "Amount"
+  },
+  "sellDetailDeadline": {
+    "message": "Transak 截止期限",
+    "englishSource": "Transak deadline"
+  },
+  "sellDetailDeadlineHint": {
+    "message": "您的代幣必須在此時間之前已存放在以太坊上。",
+    "englishSource": "Your tokens must be on Ethereum before this time."
+  },
+  "sellDetailEvmAddress": {
+    "message": "您的以太坊地址",
+    "englishSource": "Your Ethereum address"
+  },
+  "sellDetailBridgeTransaction": {
+    "message": "橋接交易",
+    "englishSource": "Bridge transaction"
+  },
+  "sellDetailTransakStatus": {
+    "message": "交易狀態",
+    "englishSource": "Transak status"
+  },
+  "sellDetailOrderId": {
+    "message": "訂單編號",
+    "englishSource": "Order ID"
+  },
+  "sellRowTitle": {
+    "message": "賣出$symbol$",
+    "englishSource": "Sell $symbol$",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "sellRowSubtitle": {
+    "message": "$amount$ $symbol$ 透過 Transak",
+    "englishSource": "$amount$ $symbol$ via Transak",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "buyStatusHeader": {
+    "message": "買入",
+    "englishSource": "Buy"
+  },
+  "buyStatusProgressTitle": {
+    "message": "購買 USDC",
+    "englishSource": "Buying USDC"
+  },
+  "buyStatusCompletedTitle": {
+    "message": "購買完成",
+    "englishSource": "Purchase complete"
+  },
+  "buyStatusFailedTitle": {
+    "message": "購買失敗",
+    "englishSource": "Purchase failed"
+  },
+  "buyStatusProgressDescription": {
+    "message": "您可以離開此畫面。錢包會持續在「活動」中追蹤您的訂單。",
+    "englishSource": "You can leave this screen. The wallet keeps tracking your order in Activity."
+  },
+  "buyStatusCompletedDescription": {
+    "message": "您的 USDC 已存入您的 Miden 帳戶。",
+    "englishSource": "Your USDC arrived in your Miden account."
+  },
+  "buyStatusFailedDescription": {
+    "message": "該訂單未完成。若您已付款，請攜帶訂單資訊聯繫 Transak 客服。",
+    "englishSource": "The order did not complete. If you paid, contact Transak support with your order."
+  },
+  "buyStatusFiatAmount": {
+    "message": "$amount$ $currency$",
+    "englishSource": "$amount$ $currency$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "currency": {
+        "content": "$2"
+      }
+    }
+  },
+  "buyStatusProgressLabel": {
+    "message": "訂單進度",
+    "englishSource": "Order progress"
+  },
+  "buyStatusStepOf": {
+    "message": "$total$ 中的第 $current$ 步",
+    "englishSource": "Step $current$ of $total$",
+    "placeholders": {
+      "current": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      }
+    }
+  },
+  "buyStepPayment": {
+    "message": "付款",
+    "englishSource": "Payment"
+  },
+  "buyStepFundsArriving": {
+    "message": "流入以太坊的資金",
+    "englishSource": "Funds arriving on Ethereum"
+  },
+  "buyStepBridgeSent": {
+    "message": "橋接交易已發送",
+    "englishSource": "Bridge transaction sent"
+  },
+  "buyStepBridging": {
+    "message": "銜接至 Miden",
+    "englishSource": "Bridging to Miden"
+  },
+  "buyStepConsuming": {
+    "message": "在 Miden 上申領",
+    "englishSource": "Claiming on Miden"
+  },
+  "buyStepCompleted": {
+    "message": "已完成",
+    "englishSource": "Completed"
+  },
+  "buyStepDurationMin": {
+    "message": "$minutes$ 分鐘",
+    "englishSource": "$minutes$ min",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
+  "buyViewProgress": {
+    "message": "檢視進度",
+    "englishSource": "View progress"
+  },
+  "buyRowTitle": {
+    "message": "買入 $symbol$",
+    "englishSource": "Buy $symbol$",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "buyRowSubtitle": {
+    "message": "$amount$ $currency$ 透過 Transak",
+    "englishSource": "$amount$ $currency$ via Transak",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "currency": {
+        "content": "$2"
+      }
+    }
+  },
+  "decimalSeparator": {
+    "message": "小數點",
+    "englishSource": "Decimal point"
+  },
   "mainAssetBalanceIsZero": {
     "message": "您的 Miden 點數（主要資產）餘額為零。支付手續費需使用 Miden 點數。",
     "englishSource": "Your Miden credits (main asset) balance is zero. Miden credits are required for the fee."
