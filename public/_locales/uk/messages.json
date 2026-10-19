@@ -6927,6 +6927,14 @@
     "message": "Відкрити Google Play",
     "englishSource": "Open Google Play"
   },
+  "webViewUpdateChromeTitle": {
+    "message": "Оновлення Chrome",
+    "englishSource": "Update Chrome"
+  },
+  "webViewUpdateChromeBody": {
+    "message": "Для роботи Bread потрібна новіша версія Chrome, яка відображає веб-сторінки у додатках на цій версії Android. Оновіть її через Google Play, а потім знову відкрийте Bread.",
+    "englishSource": "Bread needs a newer version of Chrome, which shows web pages in apps on this version of Android. Update it from Google Play, then open Bread again."
+  },
   "webViewStartFailedTitle": {
     "message": "Bread не зміг запуститися",
     "englishSource": "Bread couldn't start"

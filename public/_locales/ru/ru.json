@@ -1534,6 +1534,8 @@
   "webViewUpdateTitle": "Обновление Android System WebView",
   "webViewUpdateBody": "Приложению Bread требуется более новая версия Android System WebView, компонента Android, отвечающего за отображение веб-страниц в приложениях. Обновите его через Google Play, а затем запустите Bread заново.",
   "webViewUpdateAction": "Открыть Google Play",
+  "webViewUpdateChromeTitle": "Обновите Chrome",
+  "webViewUpdateChromeBody": "Для работы Bread требуется более новая версия Chrome, которая отображает веб-страницы в приложениях на этой версии Android. Обновите браузер через Google Play, а затем снова запустите Bread.",
   "webViewStartFailedTitle": "Bread не смог запуститься",
   "webViewStartFailedBody": "Что-то помешало загрузке Bread. Попробуйте ещё раз или закройте Bread и откройте его снова.",
   "webViewStartFailedAction": "Попробуйте ещё раз"

@@ -1534,6 +1534,8 @@
   "webViewUpdateTitle": "Android System WebView'i güncelleyin",
   "webViewUpdateBody": "Bread, uygulamalarda web sayfalarını görüntüleyen Android bileşeni olan Android System WebView’in daha yeni bir sürümüne ihtiyaç duyar. Google Play’den güncelleyin, ardından Bread’i yeniden açın.",
   "webViewUpdateAction": "Google Play'i açın",
+  "webViewUpdateChromeTitle": "Chrome'u güncelleyin",
+  "webViewUpdateChromeBody": "Bread, bu Android sürümünde web sayfalarını uygulamalar içinde gösteren daha yeni bir Chrome sürümüne ihtiyaç duyar. Google Play'den güncelleyin, ardından Bread'i tekrar açın.",
   "webViewStartFailedTitle": "Bread başlayamadı",
   "webViewStartFailedBody": "Bread'in yüklenmesini engelleyen bir sorun var. Lütfen tekrar deneyin veya Bread'i kapatıp yeniden açın.",
   "webViewStartFailedAction": "Tekrar deneyin"
