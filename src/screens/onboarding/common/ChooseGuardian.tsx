@@ -35,6 +35,7 @@ export interface ChooseGuardianScreenProps {
   // footer - not in the scrolling body - so it is capped there and scrolls within its
   // own box rather than growing the footer and pushing Continue off screen (#463).
   error?: string | null;
+  errorId?: UserErrorId | null;
   // The pushed page's header back action.
   onBack: () => void;
 }
@@ -44,6 +45,7 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
   currentEndpoint,
   allowCustomEndpoint = false,
   error = null,
+  errorId = 'raw_choose_guardian_submit_failed',
   onBack
 }) => {
   const { t } = useTranslation();
@@ -251,7 +253,7 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
     <>
       {error && (
         <Notice
-          errorId="raw_choose_guardian_submit_failed"
+          errorId={errorId}
           tone="negative"
           role="alert"
           className="max-h-24 overflow-y-auto select-text break-words"
