@@ -101,6 +101,41 @@ it('reads past a cause the wallet raised itself to the answer it wraps', () => {
   expect(bridgeReceiveLibraryError(walletRaised(new Error(OWN_WORDS, { cause: rejection })))).toBe('user_rejected');
 });
 
+it('preserves eight original answers when each has a wallet-raised wrapper', () => {
+  let cause: unknown = walletRaised(new Error(OWN_WORDS, { cause: { code: 4001 } }));
+  for (let index = 0; index < 7; index++) {
+    cause = walletRaised(new Error(OWN_WORDS, { cause: new Error('opaque cause', { cause }) }));
+  }
+
+  expect(bridgeReceiveLibraryError(cause)).toBe('user_rejected');
+});
+
+it('does not classify a ninth original answer through a wallet-raised wrapper', () => {
+  let cause: unknown = { code: 4001 };
+  for (let index = 0; index < 8; index++) cause = new Error('opaque cause', { cause });
+
+  expect(bridgeReceiveLibraryError(walletRaised(new Error(OWN_WORDS, { cause })))).toBe('other');
+});
+
+it('bounds traversal of wallet-raised wrappers whose causes keep creating new objects', () => {
+  const nextCause = jest.fn((): Error => {
+    if (nextCause.mock.calls.length >= 32) throw new Error('Unbounded wrapper traversal');
+    return walletRaised(Object.defineProperty(new Error(OWN_WORDS), 'cause', { get: nextCause }));
+  });
+  const error = walletRaised(Object.defineProperty(new Error(OWN_WORDS), 'cause', { get: nextCause }));
+
+  expect(bridgeReceiveLibraryError(error)).toBe('none');
+  expect(nextCause.mock.calls.length).toBeGreaterThan(0);
+  expect(nextCause.mock.calls.length).toBeLessThan(32);
+});
+
+it('stops at a cause cycle made only of wallet-raised wrappers', () => {
+  const error = walletRaised(new Error(OWN_WORDS));
+  Object.assign(error, { cause: error });
+
+  expect(bridgeReceiveLibraryError(error)).toBe('none');
+});
+
 it('reports other for the same words when the wallet did not mark them as its own', () => {
   expect(bridgeReceiveLibraryError(new Error(OWN_WORDS))).toBe('other');
 });
