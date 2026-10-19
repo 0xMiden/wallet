@@ -72,12 +72,12 @@ describe('USDCx withdrawal encoding', () => {
   );
 
   it('requires the configured faucet, testnet, positive amount, and a testnet destination chain id', () => {
-    // 2 USDCx, since a burn must exceed its destination's payout fee allowance (1.5 USDC on Sepolia).
-    expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 5042002, 2_000_000n)).not.toThrow();
+    // 5 USDCx, the minimum burn.
+    expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 5042002, 5_000_000n)).not.toThrow();
     // Sepolia, Base Sepolia and Arbitrum Sepolia are direct-payout destinations of the burn.
-    expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 11155111, 2_000_000n)).not.toThrow();
-    expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 84532, 2_000_000n)).not.toThrow();
-    expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 421614, 2_000_000n)).not.toThrow();
+    expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 11155111, 5_000_000n)).not.toThrow();
+    expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 84532, 5_000_000n)).not.toThrow();
+    expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 421614, 5_000_000n)).not.toThrow();
     expect(() => validateUsdcxWithdrawal('another-faucet', 5042002, 1n)).toThrow('usdcxUnsupportedFaucet');
     // Mainnet destinations are configured but not offered while withdrawals are testnet-only.
     expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 1, 1n)).toThrow('usdcxInvalidDestination');
@@ -88,13 +88,24 @@ describe('USDCx withdrawal encoding', () => {
     network = 'testnet';
   });
 
+  it('refuses a burn below the minimum, naming it, and takes a larger faucet minimum', () => {
+    expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 5042002, 4_999_999n)).toThrow(
+      expect.objectContaining({ translationKey: 'usdcxBelowMinimumBurn', values: { amount: '5' } })
+    );
+    expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 5042002, 6_000_000n, 7_500_000n)).toThrow(
+      expect.objectContaining({ translationKey: 'usdcxBelowMinimumBurn', values: { amount: '7.5' } })
+    );
+    expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 5042002, 7_500_000n, 7_500_000n)).not.toThrow();
+  });
+
   // Circle takes its payout fee from the amount: a flat ~1.0035 USDC on Ethereum, against a 1.5 USDC allowance.
+  // Every allowance is below the 5 USDCx minimum, so a 1-unit minimum reaches this check.
   it('refuses a burn its destination fee allowance takes whole, naming the allowance and the chain', () => {
-    expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 11155111, 1_500_001n)).not.toThrow();
-    expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 5042002, 100_001n)).not.toThrow();
+    expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 11155111, 1_500_001n, 1n)).not.toThrow();
+    expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 5042002, 100_001n, 1n)).not.toThrow();
     let refusal: unknown;
     try {
-      validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 11155111, 1_500_000n);
+      validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 11155111, 1_500_000n, 1n);
     } catch (error) {
       refusal = error;
     }
@@ -103,7 +114,7 @@ describe('USDCx withdrawal encoding', () => {
       translationKey: 'usdcxSendMoreThanPayoutFee',
       values: { amount: '1.5', network: 'Sepolia' }
     });
-    expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 5042002, 100_000n)).toThrow(
+    expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 5042002, 100_000n, 1n)).toThrow(
       'usdcxSendMoreThanPayoutFee'
     );
   });

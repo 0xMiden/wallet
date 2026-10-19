@@ -52,11 +52,12 @@ let mockEpochQuote: { amount?: string; loading: boolean; error: null; symbol: st
   error: null,
   symbol: 'USDC'
 };
-let mockBurnPreflight = { minimum: 1n, loading: false, error: undefined };
+// 1 base unit, so the cases below exercise the other burn checks; the minimum's own cases set it.
+let mockBurnMinimum = 1n;
 // The native asset's chain metadata; null until a test discovers one, as before discovery.
 let mockNativeMetadata: { symbol: string; decimals: number } | null = null;
 jest.mock('lib/usdcx/burn', () => ({ initiateUsdcxBurn: jest.fn(async () => 'burn-tx') }));
-jest.mock('lib/usdcx/use-burn-preflight', () => ({ useBurnPreflight: () => mockBurnPreflight }));
+jest.mock('lib/usdcx/use-burn-minimum', () => ({ useBurnMinimum: () => mockBurnMinimum }));
 
 const mockWalletStoreState = {
   tokenPrices: { USDC: { price: 2 } } as Record<string, { price: number }>,
@@ -508,7 +509,7 @@ beforeEach(() => {
   mockBridgeAvailability = { state: 'available' };
   jest.resetAllMocks();
   jest.mocked(useFeatureAvailability).mockImplementation(() => mockBridgeAvailability);
-  mockBurnPreflight = { minimum: 1n, loading: false, error: undefined };
+  mockBurnMinimum = 1n;
   jest.mocked(initiateUsdcxBurn).mockResolvedValue('burn-tx');
   mockAuthorizationAccountOverride = undefined;
 
@@ -609,12 +610,20 @@ describe('USDCx burn review', () => {
     expect(initiateUsdcxBurn).not.toHaveBeenCalled();
   });
 
-  it('disables submission below the on-chain minimum', async () => {
-    mockBurnPreflight.minimum = 2_000_000n;
+  it('disables submission below the minimum burn, naming it', async () => {
+    mockBurnMinimum = 5_000_000n;
     render(<ReviewTransaction />);
     await flush();
+    expect(screen.getByText('5 USDCx')).toBeInTheDocument();
     expect(screen.getByTestId('send-review-submit')).toBeDisabled();
-    expect(screen.getByText('usdcxBelowMinimumBurn')).toBeInTheDocument();
+    expect(screen.getByTestId('review-error')).toHaveTextContent('usdcxBelowMinimumBurn|5');
+  });
+
+  it('accepts a burn at the minimum', async () => {
+    mockBurnMinimum = 1_000_001n;
+    render(<ReviewTransaction />);
+    await flush();
+    expect(screen.getByTestId('send-review-submit')).toBeEnabled();
   });
 
   it('rejects precision that would otherwise silently round', async () => {

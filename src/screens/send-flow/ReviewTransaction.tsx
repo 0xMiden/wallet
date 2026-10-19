@@ -51,8 +51,8 @@ import { useWalletStore } from 'lib/store';
 import { classifyError } from 'lib/telemetry';
 import { initiateUsdcxBurn } from 'lib/usdcx/burn';
 import { USDCX_DECIMALS, usdcxPayoutFeeShortfall } from 'lib/usdcx/constant';
-import { useBurnPreflight } from 'lib/usdcx/use-burn-preflight';
-import { isUsdcxWithdrawalAvailable, UsdcxBurnError } from 'lib/usdcx/withdrawal';
+import { useBurnMinimum } from 'lib/usdcx/use-burn-minimum';
+import { isUsdcxWithdrawalAvailable, UsdcxBurnError, usdcxMinimumBurnShortfall } from 'lib/usdcx/withdrawal';
 import { goBack, HistoryAction, navigate, Redirect, useLocation } from 'lib/woozie';
 import { detectAddressChain, isValidRecipientAddress } from 'utils/miden';
 
@@ -151,7 +151,7 @@ export const ReviewTransaction: React.FC = () => {
   const nativeSymbol = resolveDisplayMetadata(nativeFaucetId ?? undefined, assetsMetadata, nativeFaucetId).symbol;
 
   const isUsdcxBurn = isBridge && route === 'usdcx';
-  const burnPreflight = useBurnPreflight(isUsdcxBurn && isUsdcxWithdrawalAvailable(token?.id));
+  const burnMinimum = useBurnMinimum(isUsdcxBurn && isUsdcxWithdrawalAvailable(token?.id));
 
   const amountBaseUnits = useMemo(() => {
     if (!token || !amount) return undefined;
@@ -670,17 +670,17 @@ export const ReviewTransaction: React.FC = () => {
     isUsdcxBurn && bridgeNetworkObj && amountBaseUnits !== undefined
       ? usdcxPayoutFeeShortfall(bridgeNetworkObj.chainId, amountBaseUnits)
       : undefined;
+  const minimumBurnShortfall =
+    isUsdcxBurn && amountBaseUnits !== undefined ? usdcxMinimumBurnShortfall(amountBaseUnits, burnMinimum) : undefined;
   const burnValidationError = !isUsdcxBurn
     ? undefined
-    : burnPreflight.error
-      ? t(burnPreflight.error instanceof UsdcxBurnError ? burnPreflight.error.translationKey : 'usdcxFaucetUnavailable')
-      : amountBaseUnits === undefined || amountBaseUnits <= 0n
-        ? t('usdcxInvalidAmount')
-        : burnPreflight.minimum !== undefined && amountBaseUnits < burnPreflight.minimum
-          ? t('usdcxBelowMinimumBurn')
-          : payoutFeeShortfall
-            ? t('usdcxSendMoreThanPayoutFee', payoutFeeShortfall)
-            : undefined;
+    : amountBaseUnits === undefined || amountBaseUnits <= 0n
+      ? t('usdcxInvalidAmount')
+      : minimumBurnShortfall
+        ? t('usdcxBelowMinimumBurn', minimumBurnShortfall)
+        : payoutFeeShortfall
+          ? t('usdcxSendMoreThanPayoutFee', payoutFeeShortfall)
+          : undefined;
 
   const fiatValue =
     token && token.scaleIsKnown && token.fiatPrice > 0 ? parseFloat(amount) * token.fiatPrice : undefined;
@@ -717,11 +717,7 @@ export const ReviewTransaction: React.FC = () => {
               // CTA only to be refused reads as a wallet fault rather than a
               // deliberate refusal.
               disabled={
-                bridgeBlocked ||
-                tokenHeld ||
-                isSubmitting ||
-                scaleIsUnknown ||
-                (isUsdcxBurn && (burnPreflight.loading || !!burnValidationError))
+                bridgeBlocked || tokenHeld || isSubmitting || scaleIsUnknown || (isUsdcxBurn && !!burnValidationError)
               }
               data-testid="send-review-submit"
               className="w-full max-w-none"
@@ -778,11 +774,7 @@ export const ReviewTransaction: React.FC = () => {
               {isUsdcxBurn ? (
                 <>
                   <DetailRow label={t('usdcxMinimumBurn')}>
-                    {burnPreflight.minimum === undefined ? (
-                      <Skeleton className="h-6 w-28" />
-                    ) : (
-                      `${formatUnits(burnPreflight.minimum, USDCX_DECIMALS)} USDCx`
-                    )}
+                    {`${formatUnits(burnMinimum, USDCX_DECIMALS)} USDCx`}
                   </DetailRow>
                   <DetailRow label={t('networkFee')}>{t('usdcxSponsorshipFee', { symbol: nativeSymbol })}</DetailRow>
                   {bridgeNetworkObj && amountBaseUnits !== undefined && (
