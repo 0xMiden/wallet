@@ -185,6 +185,11 @@ public class BreadAuthControllerTest {
         ShadowActivity.IntentForResult launch = shadowOf(activity).getNextStartedActivityForResult();
         assertNotNull(launch);
         assertTrue(launch.intent.getBooleanExtra(AuthTabIntent.EXTRA_LAUNCH_AUTH_TAB, false));
+        // Robolectric logs every start in both queues: take this launch from the plain one too, so a later
+        // getNextStartedActivity() sees only what started after it.
+        Intent started = shadowOf(activity).getNextStartedActivity();
+        assertNotNull(started);
+        assertTrue(started.getBooleanExtra(AuthTabIntent.EXTRA_LAUNCH_AUTH_TAB, false));
         return launch;
     }
 
