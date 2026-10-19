@@ -4,6 +4,7 @@ import React from 'react';
 
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
+import { PromptCarousel } from 'components/ui/PromptCarousel';
 import { useWalletStore } from 'lib/store';
 import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 import { WalletType } from 'screens/onboarding/types';
@@ -222,5 +223,108 @@ describe('GuardianNeedsUrlBanner', () => {
 
     fireEvent.keyDown(input, { key: 'Enter' });
     expect(document.activeElement).not.toBe(input); // Enter: blurs
+  });
+
+  describe('carousel reporting visibility', () => {
+    let originalResizeObserver: typeof ResizeObserver;
+
+    beforeAll(() => {
+      originalResizeObserver = globalThis.ResizeObserver;
+      globalThis.ResizeObserver = class {
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      };
+    });
+
+    afterAll(() => {
+      globalThis.ResizeObserver = originalResizeObserver;
+    });
+
+    beforeEach(() => {
+      jest.useFakeTimers();
+      jest.mocked(reportUserVisibleError).mockClear();
+    });
+
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    const advance = async (milliseconds: number) => {
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(milliseconds);
+      });
+    };
+
+    const startRepair = () => {
+      let rejectApply: (error: Error) => void = () => undefined;
+      mockApply.mockReturnValueOnce(
+        new Promise<boolean>((_resolve, reject) => {
+          rejectApply = reject;
+        })
+      );
+      render(
+        <PromptCarousel>
+          <GuardianNeedsUrlBanner key="guardian" />
+          <div key="other">Another prompt</div>
+        </PromptCarousel>
+      );
+      fireEvent.change(getUrlInput(), { target: { value: 'https://mine.example.com' } });
+      fireEvent.click(screen.getByRole('button', { name: 'continue' }));
+      expect(mockApply).toHaveBeenCalledTimes(1);
+      return async () => {
+        await act(async () => {
+          rejectApply(new Error('private repair failure'));
+        });
+      };
+    };
+
+    const showPrompt = (number: number) => {
+      fireEvent.click(screen.getByRole('button', { name: `Show prompt ${number} of 2` }));
+    };
+
+    it('does not report a repair rejection while its real carousel slide is offstage', async () => {
+      const rejectRepair = startRepair();
+      showPrompt(2);
+      await rejectRepair();
+      expect(screen.getByRole('alert')).toHaveTextContent('private repair failure');
+
+      await advance(1000);
+
+      expect(reportUserVisibleError).not.toHaveBeenCalled();
+    });
+
+    it('requires a fresh 1000 ms after returning to a repair error that arrived offstage', async () => {
+      const rejectRepair = startRepair();
+      showPrompt(2);
+      await rejectRepair();
+      await advance(500);
+      expect(reportUserVisibleError).not.toHaveBeenCalled();
+
+      showPrompt(1);
+      await advance(999);
+      expect(reportUserVisibleError).not.toHaveBeenCalled();
+      await advance(1);
+      expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+      expect(reportUserVisibleError).toHaveBeenCalledWith('raw_guardian_url_save_failed', 'inline');
+    });
+
+    it('resets a partially elapsed reporting timer when paging away and back', async () => {
+      const rejectRepair = startRepair();
+      await rejectRepair();
+      await advance(600);
+      expect(reportUserVisibleError).not.toHaveBeenCalled();
+
+      showPrompt(2);
+      await advance(600);
+      expect(reportUserVisibleError).not.toHaveBeenCalled();
+
+      showPrompt(1);
+      await advance(999);
+      expect(reportUserVisibleError).not.toHaveBeenCalled();
+      await advance(1);
+      expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+      expect(reportUserVisibleError).toHaveBeenCalledWith('raw_guardian_url_save_failed', 'inline');
+    });
   });
 });
