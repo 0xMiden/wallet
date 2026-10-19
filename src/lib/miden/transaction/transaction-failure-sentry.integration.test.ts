@@ -3,9 +3,14 @@ import { captureCrash } from 'lib/telemetry/crash';
 import { reportTransactionFailure } from 'lib/telemetry/transaction-failure';
 
 import {
+  cancelStaleQueuedTransactions,
   cancelStuckTransactions,
   cancelTransaction,
+  markStartedInThisRealm,
   markTransactionUnconfirmed,
+  MAX_QUEUED_AGE,
+  MAX_WAIT_BEFORE_CANCEL,
+  SESSION_STARTED_AT,
   verifyStuckTransactionsFromNode
 } from './cancel';
 import {
@@ -497,5 +502,109 @@ describe('committed terminal transaction failure reports', () => {
     await Repo.transactions.put(phased('earn-withdraw', 'delivering'));
     await updateEarnWithdrawPhase('tx', 'received');
     expect(report).not.toHaveBeenCalled();
+  });
+});
+
+describe('closed queue facts without failure text', () => {
+  const accountId = 'mtst1aqsjql4cyylvpu2d2cwpxumpvvw5depe';
+  const commitment = `0x${'ab'.repeat(32)}`;
+  const amount = '1234567';
+  const privateText = [accountId, commitment, amount];
+  const error = new Error(`Claim failed for account ${accountId}, commitment ${commitment}, amount ${amount}`);
+
+  const useRealReporterWithPrivateError = () => {
+    const actual = jest.requireActual<typeof import('lib/telemetry/transaction-failure')>(
+      'lib/telemetry/transaction-failure'
+    );
+    report.mockImplementationOnce(failure => actual.reportTransactionFailure({ ...failure, error }));
+  };
+
+  const capturedFailure = () => {
+    const calls = jest.mocked(captureCrash).mock.calls;
+    expect(calls).toHaveLength(1);
+    const failure = calls[0]![0];
+    if (!(failure instanceof Error)) throw new Error('Expected a transaction failure Error');
+    expect(failure.name).toBe('WalletTransactionFailure');
+    const strings = JSON.stringify(calls, (_key: string, value: unknown): unknown =>
+      value instanceof Error
+        ? { ...value, name: value.name, message: value.message, stack: value.stack, cause: value.cause }
+        : value
+    );
+    return { message: failure.message, strings };
+  };
+
+  it("sends the claim's fixed queue facts and none of the failure's text", async () => {
+    useRealReporterWithPrivateError();
+    const claim = row({
+      id: 'queue-facts-expired-claim',
+      type: 'consume',
+      accountId,
+      status: ITransactionStatus.Queued,
+      initiatedAt: SESSION_STARTED_AT - MAX_QUEUED_AGE - 60,
+      stage: 'syncing',
+      consumeEntryPoint: undefined,
+      lastDeferral: 'wallet_locked',
+      feeAdmission: 'balance_unknown'
+    });
+    await Repo.transactions.put(claim);
+
+    await cancelStaleQueuedTransactions();
+
+    expect((await Repo.transactions.get(claim.id))?.status).toBe(ITransactionStatus.Failed);
+    expect(report).toHaveBeenCalledTimes(1);
+    expect(report).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'consume', reason: 'queued_expired', error: TRANSACTION_EXPIRED_ERROR })
+    );
+    const { message, strings } = capturedFailure();
+    expect(message).toContain(
+      '; queued by unrecorded; last deferral wallet_locked; claim fee admission balance_unknown; point pipeline;'
+    );
+    expect(message).toContain('; point pipeline; queued_expired.');
+    for (const text of privateText) {
+      expect(message).not.toContain(text);
+      expect(strings).not.toContain(text);
+    }
+  });
+
+  it("sends the stuck claim's fixed reap facts and none of the failure's text", async () => {
+    useRealReporterWithPrivateError();
+    const claim = row({
+      id: 'queue-facts-stuck-claim',
+      type: 'consume',
+      accountId,
+      stage: 'signing-proposal',
+      processingStartedAt: SESSION_STARTED_AT,
+      consumeEntryPoint: undefined,
+      lastDeferral: 'wallet_locked',
+      feeAdmission: 'balance_unknown'
+    });
+    await Repo.transactions.put(claim);
+    markStartedInThisRealm(claim.id);
+    const clock = jest.spyOn(Date, 'now').mockReturnValue((SESSION_STARTED_AT + MAX_WAIT_BEFORE_CANCEL + 1) * 1000);
+    try {
+      await cancelStuckTransactions();
+
+      expect((await Repo.transactions.get(claim.id))?.status).toBe(ITransactionStatus.Failed);
+      expect(report).toHaveBeenCalledTimes(1);
+      expect(report).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'consume',
+          reason: 'stuck_reaped',
+          reap: { age: 'past_limit', attempt: 'started_here' },
+          error: TRANSACTION_STUCK_ERROR
+        })
+      );
+      const { message, strings } = capturedFailure();
+      expect(message).toContain(
+        '; queued by unrecorded; last deferral wallet_locked; claim fee admission balance_unknown; reap age'
+      );
+      expect(message).toContain('; reap age past_limit; reaped attempt started_here; point pipeline; stuck_reaped.');
+      for (const text of privateText) {
+        expect(message).not.toContain(text);
+        expect(strings).not.toContain(text);
+      }
+    } finally {
+      clock.mockRestore();
+    }
   });
 });

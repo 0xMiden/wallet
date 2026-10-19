@@ -6,6 +6,7 @@
 
 - [FIX][android] The sign-in sheet's callback check keeps a literal `+` in the `origin` value, as iOS does, instead of reading it as a space (#1576).
 - [FIX][android] The sign-in sheet answers `AUTH_UNAVAILABLE` while Bread is paused, as on iOS, instead of opening while another app's dialog covers Bread (#1577).
+- [FIX][all] A failed claim's crash report also says whether its origin was recorded (`unrecorded` for a claim queued before the App recorded it), why it last waited in the queue, why the fee check let it through, and, when the stuck-transaction check cancelled it, whether it had started and whether this app session started it, in fixed values only (Sentry BREAD-WALLET-18, -19 and -1A). These values are part of the report's title, so these failures start new crash-report issues; the privacy policy lists every value.
 
 ## 1.17.5 (2026-10-19)
 
