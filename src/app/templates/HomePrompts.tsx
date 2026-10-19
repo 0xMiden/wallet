@@ -992,11 +992,15 @@ export const HomePrompts: FC<HomePromptsProps> = ({
   } | null>(null);
   useEffect(() => {
     let cancelled = false;
+    setRecoveryBaseline(null);
     fetchGuardianNoteRecoveryProgress(account.publicKey)
       .then(progress => {
         if (!cancelled) setRecoveryBaseline({ accountId: account.publicKey, progress });
       })
-      .catch(error => console.warn('[wallet-prompts] failed to read the recovery reporting baseline:', error));
+      .catch(error => {
+        if (!cancelled) setRecoveryBaseline(null);
+        console.warn('[wallet-prompts] failed to read the recovery reporting baseline:', error);
+      });
     return () => {
       cancelled = true;
     };
