@@ -23,15 +23,28 @@ it('makes no read while disabled', () => {
   expect(readUsdcxMinimumBurn).not.toHaveBeenCalled();
 });
 
-it('drops a read that lands after unmount', async () => {
-  let land: (value: bigint) => void = () => {};
-  jest.mocked(readUsdcxMinimumBurn).mockReturnValue(
-    new Promise(resolve => {
-      land = resolve;
-    })
-  );
-  const { result, unmount } = renderHook(() => useBurnMinimum(true));
-  unmount();
-  await act(async () => land(9_000_000n));
-  expect(result.current).toBe(5_000_000n);
+it('ignores a stale read after disabling and re-enabling', async () => {
+  let landPrevious: (value: bigint) => void = () => {};
+  let landCurrent: (value: bigint) => void = () => {};
+  jest
+    .mocked(readUsdcxMinimumBurn)
+    .mockReturnValueOnce(
+      new Promise(resolve => {
+        landPrevious = resolve;
+      })
+    )
+    .mockReturnValueOnce(
+      new Promise(resolve => {
+        landCurrent = resolve;
+      })
+    );
+  const { result, rerender } = renderHook(({ enabled }) => useBurnMinimum(enabled), {
+    initialProps: { enabled: true }
+  });
+  rerender({ enabled: false });
+  rerender({ enabled: true });
+  await act(async () => landCurrent(8_000_000n));
+  expect(result.current).toBe(8_000_000n);
+  await act(async () => landPrevious(9_000_000n));
+  expect(result.current).toBe(8_000_000n);
 });
