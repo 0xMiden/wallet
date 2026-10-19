@@ -316,6 +316,88 @@ describe('source-bound crash diagnostics', () => {
     expect(forbiddenReads).toBe(0);
   });
 
+  it.each<{ link: string; wrap: (cause: Error) => Error }>([
+    {
+      link: 'conflicting owners',
+      wrap: cause => {
+        const other = new Error('other owner');
+        annotateCrash(other, { storageOwner: 'wallet_limits', storageOperation: 'cursor' });
+        return Object.assign(new Error('aggregate', { cause }), { failures: [cause, other] });
+      }
+    },
+    {
+      link: 'conflicting operations',
+      wrap: cause => {
+        const other = new Error('other operation');
+        annotateCrash(other, { storageOwner: 'wallet_transactions', storageOperation: 'get' });
+        return Object.assign(new Error('aggregate', { cause }), { failures: [cause, other] });
+      }
+    },
+    ...['inner', 'failures'].map(field => ({
+      link: `throwing ${field} getter`,
+      wrap: (cause: Error): Error =>
+        Object.defineProperty(new Error('inaccessible link', { cause }), field, {
+          get() {
+            throw new Error('inaccessible link');
+          }
+        })
+    })),
+    {
+      link: 'throwing failure entry getter',
+      wrap: cause => {
+        const failures = [cause, cause];
+        Object.defineProperty(failures, '1', {
+          get() {
+            throw new Error('inaccessible entry');
+          }
+        });
+        return Object.assign(new Error('aggregate', { cause }), { failures });
+      }
+    },
+    {
+      link: 'oversized failure array',
+      wrap: cause =>
+        Object.assign(new Error('aggregate', { cause }), {
+          failures: Array.from({ length: 33 }, () => cause)
+        })
+    },
+    {
+      link: 'oversized Error graph',
+      wrap: cause =>
+        Object.assign(new Error('aggregate', { cause }), {
+          failures: Array.from({ length: 32 }, () => {
+            const failure = new Error('entry');
+            annotateCrash(failure, { storageOwner: 'wallet_transactions', storageOperation: 'cursor' });
+            return failure;
+          })
+        })
+    }
+  ])(
+    'clears inherited storage for $link while preserving other diagnostics and explicit outer precedence',
+    ({ wrap }) => {
+      const cause = new Error('cause');
+      annotateCrash(cause, {
+        storageOwner: 'wallet_transactions',
+        storageOperation: 'cursor',
+        operation: 'sdk_initialize',
+        stage: 'client_create',
+        workerMode: 'disabled'
+      });
+      const outer = wrap(cause);
+      annotateCrash(outer, { stage: 'wasm_ready' });
+      const other = { operation: 'sdk_initialize', stage: 'wasm_ready', workerMode: 'disabled' };
+      expect(snapshotCrashDiagnostics(outer)).toEqual(other);
+      annotateCrash(outer, { storageOwner: 'wallet_database', storageOperation: 'open' });
+      expect(snapshotCrashDiagnostics(outer)).toEqual({
+        ...other,
+        storageOwner: 'wallet_database',
+        storageOperation: 'open'
+      });
+      annotateCrash(outer, { storageOperation: 'open' });
+      expect(snapshotCrashDiagnostics(outer)).toEqual({ ...other, storageOperation: 'open' });
+    }
+  );
+
   it('returns detached storage snapshots', () => {
     const failure = new Error('failure');
     const pair = { storageOwner: 'wallet_transactions', storageOperation: 'get' };
