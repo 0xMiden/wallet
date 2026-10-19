@@ -121,20 +121,37 @@ class ClientTest {
             seen = opened.second
             val type = if (opened.second["type"].string == "LOGIN_KEY_REQUEST") "LOGIN_KEY_RESPONSE" else "LOGIN_SIGN_RESPONSE"
             val field = if (type == "LOGIN_KEY_RESPONSE") "loginKey" else "signature"
-            bread.answerRequest(link, json("""{"response":{"type":"$type","$field":"AQID"}}"""))
+            bread.answerRequest(link, json("""{"response":{"type":"$type","$field":"++//AA=="}}"""))
         }
 
-        assertArrayEquals(byteArrayOf(1, 2, 3), client.requestLoginKey())
+        assertArrayEquals(byteArrayOf(-5, -17, -1, 0), client.requestLoginKey())
         assertEquals(
             json("""{"type":"LOGIN_KEY_REQUEST","sourceAccountId":"mtst1qy35q7ar3h0cgyqqqx2gs3nzxrgu7hz5xz3"}"""),
             seen,
         )
 
-        assertArrayEquals(byteArrayOf(1, 2, 3), client.signLoginBytes(byteArrayOf(4, 5, 6)))
+        assertArrayEquals(byteArrayOf(-5, -17, -1, 0), client.signLoginBytes(byteArrayOf(-5, -17, -1, 0)))
         assertEquals(
-            json("""{"type":"LOGIN_SIGN_REQUEST","sourceAccountId":"mtst1qy35q7ar3h0cgyqqqx2gs3nzxrgu7hz5xz3","payload":"BAUG","kind":"word"}"""),
+            json("""{"type":"LOGIN_SIGN_REQUEST","sourceAccountId":"mtst1qy35q7ar3h0cgyqqqx2gs3nzxrgu7hz5xz3","payload":"++//AA==","kind":"word"}"""),
             seen,
         )
+    }
+
+    @Test
+    fun loginHelpersMapMalformedBase64ToInternalError() = runTest {
+        val client = connected()
+        client.answering { link ->
+            val request = bread.openRequest(link).second
+            val key = request["type"].string == "LOGIN_KEY_REQUEST"
+            val type = if (key) "LOGIN_KEY_RESPONSE" else "LOGIN_SIGN_RESPONSE"
+            val field = if (key) "loginKey" else "signature"
+            bread.answerRequest(link, json("""{"response":{"type":"$type","$field":"%%%"}}"""))
+        }
+
+        assertFails(BreadConnectException.Code.Bread(ProtocolErrorCode.INTERNAL_ERROR)) { client.requestLoginKey() }
+        assertFails(BreadConnectException.Code.Bread(ProtocolErrorCode.INTERNAL_ERROR)) {
+            client.signLoginBytes(byteArrayOf(0))
+        }
     }
 
     @Test

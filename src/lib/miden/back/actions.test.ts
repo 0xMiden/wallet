@@ -1,4 +1,4 @@
-import { MidenDAppMessageType } from 'lib/adapter/types';
+import { MidenDAppMessageType, type MidenDAppRequest } from 'lib/adapter/types';
 import { getMessage } from 'lib/i18n';
 import { getAccountsWriteQueue } from 'lib/miden/back/accounts-write-queue';
 import { PublicError } from 'lib/miden/back/defaults';
@@ -2194,6 +2194,65 @@ describe('actions', () => {
         now.mockRestore();
       }
     });
+
+    it.each([MidenDAppMessageType.LoginKeyRequest, MidenDAppMessageType.LoginSignRequest])(
+      'checks the queue-start deadline for %s after waiting behind another request',
+      async type => {
+        const { requestDisconnect, requestLoginKey, requestLoginSign } = jest.requireMock('./dapp');
+        const isKey = type === MidenDAppMessageType.LoginKeyRequest;
+        const handler = isKey ? requestLoginKey : requestLoginSign;
+        const response = isKey
+          ? { type: MidenDAppMessageType.LoginKeyResponse, loginKey: 'AQID' }
+          : { type: MidenDAppMessageType.LoginSignResponse, signature: 'BAUG' };
+        const request: MidenDAppRequest = isKey
+          ? { type: MidenDAppMessageType.LoginKeyRequest, sourceAccountId: 'acc' }
+          : {
+              type: MidenDAppMessageType.LoginSignRequest,
+              sourceAccountId: 'acc',
+              payload: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
+              kind: 'word'
+            };
+        handler.mockReset().mockResolvedValue(response);
+        let releaseQueue = () => {};
+        requestDisconnect.mockReset().mockImplementationOnce(
+          () =>
+            new Promise<void>(resolve => {
+              releaseQueue = resolve;
+            })
+        );
+        const now = jest.spyOn(Date, 'now').mockReturnValue(1_000);
+        const held = processDApp('https://other.example', { type: MidenDAppMessageType.DisconnectRequest });
+        let settled = Promise.allSettled([held]);
+        try {
+          await new Promise(resolve => setTimeout(resolve, 0));
+          expect(requestDisconnect).toHaveBeenCalledTimes(1);
+          const onTime = processDApp('https://example.com', request, 'session-7', 5_000);
+          const late = processDApp('https://example.com', request, 'session-7', 2_000);
+          settled = Promise.allSettled([held, onTime, late]);
+          await new Promise(resolve => setTimeout(resolve, 0));
+          expect(handler).not.toHaveBeenCalled();
+
+          now.mockReturnValue(3_000);
+          releaseQueue();
+
+          const results = await settled;
+          expect(results[0].status).toBe('fulfilled');
+          expect(results[1]).toEqual({ status: 'fulfilled', value: response });
+          expect(results[2]).toEqual({ status: 'rejected', reason: expect.any(DAppQueueDeadlineError) });
+          expect(handler).toHaveBeenCalledTimes(1);
+          if (isKey) {
+            expect(handler).toHaveBeenCalledWith('https://example.com', request);
+          } else {
+            expect(handler).toHaveBeenCalledWith('https://example.com', request, 'session-7');
+          }
+        } finally {
+          // A failed assertion must not leave the shared queue held for later tests.
+          releaseQueue();
+          await settled;
+          now.mockRestore();
+        }
+      }
+    );
 
     it('returns undefined for unknown request type', async () => {
       const result = await processDApp('https://example.com', { type: 'UNKNOWN' } as any);

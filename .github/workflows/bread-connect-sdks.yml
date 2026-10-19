@@ -115,6 +115,9 @@ jobs:
         with:
           packages: platform-tools
       - uses: gradle/actions/setup-gradle@v4
+      - name: Check Kotlin SDK API compatibility
+        working-directory: packages/bread-connect-kotlin
+        run: ./gradlew lintDebug --console=plain
       - name: Run the Kotlin SDK unit tests
         working-directory: packages/bread-connect-kotlin
         run: ./gradlew testDebugUnitTest --console=plain
