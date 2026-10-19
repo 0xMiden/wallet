@@ -1140,6 +1140,118 @@ describe('crash-report egress', () => {
     expect(leaksIn(wireText())).toEqual([]);
   });
 
+  describe('native request diagnostic omissions', () => {
+    const closedCode =
+      'REOWN_NATIVE_REQUEST_FAILURE:' +
+      JSON.stringify({
+        nativeOrigin: 'wallet_error',
+        walletResponseCode: 'internal_error',
+        requestAge: '120_to_300s',
+        published: 'confirmed',
+        backgrounded: 'yes'
+      });
+    const expectedDiagnostics = {
+      reownNativeOrigin: 'wallet_error',
+      reownWalletResponseCode: 'internal_error',
+      reownRequestAge: '120_to_300s',
+      reownPublished: 'confirmed',
+      reownBackgrounded: 'yes'
+    };
+    const expectedTags = {
+      reown_native_origin: 'wallet_error',
+      reown_wallet_response_code: 'internal_error',
+      reown_request_age: '120_to_300s',
+      reown_published: 'confirmed',
+      reown_backgrounded: 'yes'
+    };
+
+    function expectNoNativeDiagnostics(event: Record<string, unknown>): void {
+      const diagnostics = objectAt(objectAt(event, 'extra'), 'walletDiagnostics');
+      const tags = objectAt(event, 'tags');
+      for (const field of Object.keys(expectedDiagnostics)) expect(diagnostics).not.toHaveProperty(field);
+      for (const tag of Object.keys(expectedTags)) expect(tags).not.toHaveProperty(tag);
+    }
+
+    it.each(['ios', 'web', 'legacy code', 'invalid envelope', 'auxiliary native method', 'text-flattened cause'])(
+      'unsupportedNativePathsStillSendWithoutNativeDiagnostics: %s',
+      async path => {
+        consentOn();
+        jest.mocked(Capacitor.getPlatform).mockReturnValue(path === 'ios' || path === 'web' ? path : 'android');
+        const code =
+          path === 'legacy code'
+            ? 'LEGACY_REOWN_FAILURE'
+            : path === 'invalid envelope'
+              ? 'REOWN_NATIVE_REQUEST_FAILURE:{"nativeOrigin":"wallet_error","requestAge":123456,"published":"confirmed"}'
+              : closedCode;
+        const rawError = Object.assign(new Error('Request expired'), { code });
+        const rawMethod = path === 'auxiliary native method' ? rawReown.launchWallet : rawReown.sendTransaction;
+        jest.mocked(rawMethod).mockRejectedValueOnce(rawError);
+        let caught: unknown;
+        try {
+          if (path === 'auxiliary native method') await NativeReown.launchWallet();
+          else await NativeReown.sendTransaction({ chainId: 1, to: `0x${'a1'.repeat(20)}` });
+        } catch (rejection) {
+          caught = rejection;
+        }
+        expect(rawMethod).toHaveBeenCalledTimes(1);
+        expect(caught).toBe(rawError);
+        if (!(caught instanceof Error)) throw new Error('Expected a native rejection');
+        const cause = path === 'text-flattened cause' ? new Error(caught.message) : caught;
+        reportTransactionFailure({
+          type: 'bridged-receive',
+          point: 'bridge_receive_settlement',
+          bridgeReceive: { route: 'usdcx', step: 'wallet_approve', cause },
+          error: cause
+        });
+        await flushEgress();
+
+        expect(captured).toHaveLength(1);
+        const events = sentryEvents();
+        expect(events).toHaveLength(1);
+        const event = events[0];
+        if (event === undefined) throw new Error('Expected a Sentry event for an unsupported native path');
+        expect(JSON.stringify(objectAt(event, 'exception'))).toContain('WalletTransactionFailure');
+        expectNoNativeDiagnostics(event);
+        expect(leaksIn(wireText())).toEqual([]);
+      }
+    );
+
+    it('followingUnrelatedEventDoesNotInheritNativeDiagnostics', async () => {
+      consentOn();
+      jest.mocked(Capacitor.getPlatform).mockReturnValue('android');
+      const rawError = Object.assign(new Error('Request expired'), { code: closedCode });
+      jest.mocked(rawReown.sendTransaction).mockRejectedValueOnce(rawError);
+      let caught: unknown;
+      try {
+        await NativeReown.sendTransaction({ chainId: 1, to: `0x${'a1'.repeat(20)}` });
+      } catch (rejection) {
+        caught = rejection;
+      }
+      expect(rawReown.sendTransaction).toHaveBeenCalledTimes(1);
+      expect(caught).toBe(rawError);
+      reportTransactionFailure({
+        type: 'bridged-receive',
+        point: 'bridge_receive_settlement',
+        bridgeReceive: { route: 'usdcx', step: 'wallet_approve', cause: caught },
+        error: caught
+      });
+      await flushEgress();
+      reportTransactionFailure({ type: 'execute', stage: 'executing', error: 'advice stack read failed' });
+      await flushEgress();
+
+      expect(captured).toHaveLength(2);
+      const events = sentryEvents();
+      expect(events).toHaveLength(2);
+      const [native, unrelated] = events;
+      if (native === undefined || unrelated === undefined) throw new Error('Expected two Sentry events');
+      expect(objectAt(objectAt(native, 'extra'), 'walletDiagnostics')).toMatchObject(expectedDiagnostics);
+      expect(objectAt(native, 'tags')).toMatchObject(expectedTags);
+      expect(JSON.stringify(objectAt(unrelated, 'exception'))).toContain('WalletTransactionFailure');
+      expect(JSON.stringify(objectAt(unrelated, 'exception'))).toContain('advice_stack_read_failed');
+      expectNoNativeDiagnostics(unrelated);
+    });
+  });
+
   it('reports a handled offscreen assertion without raw transaction data or a frontend scope', async () => {
     consentOn();
     reportTransactionFailure({
