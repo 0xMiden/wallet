@@ -178,9 +178,9 @@ describe('a connect link', () => {
       { code: 'NETWORK_NOT_GRANTED', message: 'NETWORK_NOT_GRANTED' }
     ],
     [
-      'a wallet code the protocol lacks as an internal error',
-      new Error('LOGIN_KEY_UNAVAILABLE'),
-      { code: 'INTERNAL_ERROR', message: 'Bread could not complete the request' }
+      'a device with no root key for the account',
+      new Error('LOGIN_KEY_UNAVAILABLE: no valid login key'),
+      { code: 'LOGIN_KEY_UNAVAILABLE', message: 'LOGIN_KEY_UNAVAILABLE' }
     ],
     [
       'any other failure, without its text',
@@ -388,6 +388,11 @@ describe('a request link', () => {
       { code: 'INVALID_PARAMS', message: 'INVALID_PARAMS' }
     ],
     [
+      'a device with no root key for the account',
+      () => Promise.reject(new Error('LOGIN_KEY_UNAVAILABLE: no valid login key')),
+      { code: 'LOGIN_KEY_UNAVAILABLE', message: 'LOGIN_KEY_UNAVAILABLE' }
+    ],
+    [
       'unknown outcome, for a request that sends no transaction, as an internal error',
       () => Promise.reject(new Error('OUTCOME_UNKNOWN')),
       { code: 'INTERNAL_ERROR', message: 'Bread could not complete the request' }
@@ -495,6 +500,25 @@ describe('a request link', () => {
       const answer = await answerRequestLink(sendRequest(session, SIGN_REQUEST, sentAt).link, { now: NOW });
       expect(requestAnswer(answer!, session)).toEqual({ response: { type: 'SIGN_RESPONSE', signature: 'c2ln' } });
     }
+  });
+
+  it('forwards a login key request and a login signature to the wallet', async () => {
+    const session = await connected();
+    const keyRequest = { type: 'LOGIN_KEY_REQUEST', sourceAccountId: 'acc' };
+    mockProcessDApp.mockResolvedValueOnce({ type: 'LOGIN_KEY_RESPONSE', loginKey: 'AQID' });
+
+    const key = await answerRequestLink(sendRequest(session, keyRequest, NOW).link, { now: NOW });
+
+    expect(mockProcessDApp).toHaveBeenCalledWith(ORIGIN, keyRequest, undefined, NOW + REQUEST_MAX_AGE_MS);
+    expect(requestAnswer(key!, session)).toEqual({ response: { type: 'LOGIN_KEY_RESPONSE', loginKey: 'AQID' } });
+
+    const signRequest = { type: 'LOGIN_SIGN_REQUEST', sourceAccountId: 'acc', payload: 'AQID', kind: 'word' };
+    mockProcessDApp.mockResolvedValueOnce({ type: 'LOGIN_SIGN_RESPONSE', signature: 'BAUG' });
+
+    const signed = await answerRequestLink(sendRequest(session, signRequest, NOW).link, { now: NOW });
+
+    expect(mockProcessDApp).toHaveBeenLastCalledWith(ORIGIN, signRequest, undefined, NOW + REQUEST_MAX_AGE_MS);
+    expect(requestAnswer(signed!, session)).toEqual({ response: { type: 'LOGIN_SIGN_RESPONSE', signature: 'BAUG' } });
   });
 
   it.each([

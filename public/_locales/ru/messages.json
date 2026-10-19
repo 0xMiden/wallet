@@ -3964,8 +3964,8 @@
     }
   },
   "loginSignatureNote": {
-    "message": "Подписывайте транзакции с помощью ключа, созданного исключительно для $domain$. С его помощью нельзя переводить средства или вносить изменения в ваш аккаунт.",
-    "englishSource": "Bread signs with a key made only for $domain$. It can't move funds or change your account.",
+    "message": "Bread подписывает это сообщение о входе в систему ключом, созданным исключительно для $domain$. Он не может перемещать средства или вносить изменения в ваш аккаунт.",
+    "englishSource": "Bread signs this sign-in message with a key made only for $domain$. It can't move funds or change your account.",
     "placeholders": {
       "domain": {
         "content": "$1"

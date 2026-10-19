@@ -1067,7 +1067,7 @@ export async function processDApp(
       return queued(() => requestSign(origin, req, sessionId));
 
     case MidenDAppMessageType.LoginSignRequest:
-      return withInited(() => getDappQueue().add(() => requestLoginSign(origin, req, sessionId)));
+      return queued(() => requestLoginSign(origin, req, sessionId));
 
     case MidenDAppMessageType.AssetsRequest:
       return queued(() => requestAssets(origin, req, sessionId));
@@ -1076,7 +1076,7 @@ export async function processDApp(
       return queued(() => requestGuardianInfo(origin, req));
 
     case MidenDAppMessageType.LoginKeyRequest:
-      return withInited(() => getDappQueue().add(() => requestLoginKey(origin, req)));
+      return queued(() => requestLoginKey(origin, req));
 
     case MidenDAppMessageType.ImportPrivateNoteRequest:
       return queued(() => requestImportPrivateNote(origin, req, sessionId));

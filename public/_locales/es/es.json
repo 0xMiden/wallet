@@ -895,7 +895,7 @@
   "confirmSignature": "Confirmar firma",
   "requestsYourSignature": "Solicita tu firma",
   "confirmLoginSignature": "Inicia sesión en $domain$",
-  "loginSignatureNote": "Bread firma con una clave creada exclusivamente para $domain$. No puede mover fondos ni modificar tu cuenta.",
+  "loginSignatureNote": "Bread firma este mensaje de inicio de sesión con una clave creada exclusivamente para $domain$. No puede mover fondos ni modificar tu cuenta.",
   "requestAssets": "Solicitar recursos",
   "requestsAssets": "Solicita recursos",
   "requestImportPrivateNote": "Solicitar la importación de «Note» de forma privada",
