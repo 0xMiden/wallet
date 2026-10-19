@@ -1,6 +1,6 @@
 /**
  * What the live iOS USDCx specs share: the vault read on Home, the hosted Guardian check, the evidence file, and the
- * burn half, which burns 1 USDCx from a public faucet grant through Send back to the deposit key on the payout chain.
+ * burn half, which burns 5 USDCx from a public faucet grant through Send back to the deposit key on the payout chain.
  */
 import { expect } from '@playwright/test';
 import { formatUnits, isHex } from 'viem';
