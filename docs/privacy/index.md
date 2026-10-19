@@ -11,11 +11,9 @@ Bread Wallet by Miden ("the App") is a non-custodial cryptocurrency wallet for t
 
 ## Who we are
 
-The App is published by Whiteharbor Technologies, a Cayman Islands exempted company (company number 417615), c/o Ogier Global (Cayman) Limited, 89 Nexus Way, Camana Bay, Grand Cayman, KY1-9009, Cayman Islands ("Miden", "we"). Miden is the controller of the personal data described in this policy. For anything about your data, write to privacy@miden.team.
+The App is published by Whiteharbor Technologies, a Cayman Islands exempted company (company number 417615), c/o Ogier Global (Cayman) Limited, 89 Nexus Way, Camana Bay, Grand Cayman, KY1-9009, Cayman Islands ("Miden", "we"). Miden is the controller of the personal data it processes: telemetry, data sent to the Miden network it operates, and compliance records. Your Guardian Operator, solvers and bridge operators handle the data they receive under their own privacy notices. For anything about your data, write to privacy@miden.team.
 
-<!-- TODO before publication: confirm whether an EU or UK representative under GDPR Article 27 is required. If one is appointed, add their name and address here. -->
-
-This policy covers two different kinds of data. The first is **telemetry**: crash reports and optional usage data the App sends to us. The sections from "Data we collect" to "What scrubbing can and cannot promise" describe it, and the short version is that it carries no identifier for you. The second is **data that leaves the App to make it work**: what the Miden network, your Guardian Operator, and the providers behind swaps, bridges, Earn and fiat on-ramp and off-ramp receive. The section "Data that leaves the App for reasons other than telemetry" describes that. The statements about telemetry are not statements about the second kind.
+This policy covers two different kinds of data. The first is **telemetry**: crash reports and optional usage data the App sends to us. The sections from "Data we collect" to "What scrubbing can and cannot promise" describe it, and the short version is that it carries no identifier for you. The second is **data that leaves the App to make it work**: what the Miden network, your Guardian Operator, and the providers behind swaps, bridges and Earn receive. The section "Data that leaves the App for reasons other than telemetry" describes that. The statements about telemetry are not statements about the second kind.
 
 ## Data we collect
 
@@ -180,10 +178,8 @@ Both are configured to delete data after 90 days, to store no IP addresses, and 
 
 For transparency about how the App functions on your device (this is not data we receive or have access to):
 
-- Your Recovery Phrase and your Everyday Key are generated and held **only** on your device, encrypted at rest using your device's secure enclave (Android Keystore / iOS Secure Enclave) when biometric protection is enabled. They never leave your device. You can copy your Recovery Phrase, and you can download it and remove it from the device; what you do with that copy is up to you.
-- Your account state (your accounts' data, balances and history) is held on your device. If you use a Guardian, an encrypted copy is also held by your Guardian Operator; see "Your Guardian Operator" below. The App does not currently offer an export of your account state.
-
-<!-- TODO: when the account-state export ships, describe it here and in the Terms (section 3.3). Until then, do not reintroduce the "Encrypted Wallet File" sentence; the feature has no user interface. -->
+- Your Recovery Phrase and your Everyday Key are generated and held **only** on your device, encrypted at rest using your device's secure enclave (Android Keystore / iOS Secure Enclave) when biometric protection is enabled. The App does not transmit them to us. You can reveal and copy your Recovery Phrase, and you can remove it from the device; where you store or share a copy is up to you.
+- Your account state (your accounts' data, balances and history) is held on your device. If you use a Guardian, a copy is also held by your Guardian Operator in a form it can read; see "Your Guardian Operator" below. If your wallet holds an account that is not a Guardian account, you can export an **Encrypted Wallet File** from Settings or use **Export account file** in Advanced settings. The Encrypted Wallet File is encrypted with the file password you choose; an account file is not encrypted and gives anyone holding it access to that account's funds. The App creates these files on your device and sends them nowhere; where you save or share them is up to you. A wallet holding only Guardian accounts has no such export.
 
 ## Biometric authentication (Face ID, Touch ID, Fingerprint)
 
@@ -193,7 +189,7 @@ The App offers **optional** biometric unlock using your device's built-in authen
 
 Biometric matching is performed entirely by your device's operating system inside secure hardware (Apple's Secure Enclave / Android's hardware-backed keystore). Your biometric templates are created, stored, and managed solely by iOS/Android and are never made available to the App. When you unlock with biometrics, the App receives only a yes/no result indicating whether authentication succeeded — it never receives any biometric data itself.
 
-- **What we collect:** No face or fingerprint data. None is ever transmitted off your device; we operate no servers that could receive it.
+- **What we collect:** No face or fingerprint data. None is ever transmitted off your device or sent to any server.
 - **How it is used:** A successful biometric check causes your device's operating system to release a wallet-unlock key held in secure hardware, allowing the App to decrypt your local wallet without you typing your password. This happens entirely on-device.
 - **Sharing / third parties:** None. No biometric data exists in the App to share.
 - **Storage:** No biometric data is stored by the App. Your biometric templates remain solely under your operating system's control in secure hardware.
@@ -207,47 +203,35 @@ Everything in this section is data the App must send for a feature to work. None
 
 To transact, the App sends transaction proofs and related data to the Miden network through its RPC endpoint and the note transport service. Miden is designed to support private transaction execution. However, during the network's current operating period Miden, as the network operator, has visibility into transaction data, including data associated with private accounts and private notes, for network-integrity, compliance and legal purposes. This is a property of the network in its current phase, not of the App; it applies whatever wallet you use.
 
-<!-- TODO: confirm with protocol engineering whether the operator sees this data directly or holds it encrypted with the ability to decrypt, and state the expected duration (e.g. "for the partner mainnet phase"). Align the wording with Terms section 12.1. -->
-
 We retain compliance-related records, including block, unblock and legal-process records, for at least five years, and may disclose information where required by law or lawful process. Data written to the blockchain itself is permanent and cannot be deleted by anyone, including us.
 
 ### Your Guardian Operator
 
-If you enable a Guardian, your Guardian Operator receives and stores: an encrypted copy of your account state; the transaction summaries it is asked to acknowledge, and whether it acknowledged them; and the technical data needed to run the service. It does not receive your Recovery Phrase or your Everyday Key. Your Guardian Operator is a separate party from us unless the App tells you otherwise, and it handles this data under its own privacy notice.
-
-<!-- TODO: name the default Guardian Operator for partner mainnet, say whether it is Miden, an affiliate or an independent operator, and link its privacy notice. If the operator collects any identity or compliance data (e.g. for compliance zones), say so here. -->
-
-### Fiat on-ramp and off-ramp (Transak)
-
-Buying crypto with fiat and selling crypto for fiat in the App is provided by Transak through a widget. When you use it you open an account with Transak and deal with Transak directly. Transak verifies your identity before you can transact and collects identity documents, bank details and other personal data for that purpose, under [Transak's privacy policy](https://transak.com/privacy-policy). We do not receive your identity documents or bank details.
-
-<!-- TODO: state exactly what, if anything, the App receives back from Transak (e.g. an order status, a transaction id) and whether any Transak identifier is stored in the App. -->
+If you enable a Guardian, your Guardian Operator receives and stores: your account state (your accounts' data, balances and storage), in a form it can read; the transaction summaries it is asked to acknowledge, and whether it acknowledged them; and the technical data needed to run the service. It does not receive your Recovery Phrase or your Everyday Key. Your Guardian Operator is a separate party from us unless the App tells you otherwise, and it handles this data under its own privacy notice.
 
 ### Swaps and bridges
 
 A swap is filled by a third-party solver, and a bridge transfer is processed by a third-party bridge operator and the other network. Each of them sees the transaction it processes: the assets, the amounts and the addresses involved. Before that, the App requests quotes: a swap quote sends the two tokens and their amounts to the swap-quote service, never your address, and tracking a bridge transfer sends its destination address to the bridge's status service (both named under "Network traffic").
 
-<!-- TODO: name the operators of the swap-quote service, the bridge status service and the solver network, and note whether any of them is Miden. -->
-
 ### Earn
 
-<!-- TODO: describe what the Earn feature sends and to whom (the Earn Provider and its privacy notice). -->
+Earn uses Epoch's lending services. To read your positions, the App sends Epoch's positions service the EVM owner addresses you deposited for and the chain ids to query, not your Miden account id. If you have no such address, it requests the catalog with a zero address instead.
+
+To quote and make a deposit, the App sends Epoch's quote and intent service the deposit amount, the collateral token's Miden faucet id, your Miden source account, the EVM position-owner address, the destination chain and lending market, the underlying token and protocol identifier, and the collateral note's type, id and reclaim height. A withdrawal sends Epoch the EVM position-owner address, the lending market, underlying token and amount, the source and destination chains, the Miden recipient account and destination token's faucet id, and the transaction data and signatures needed to authorize it. These requests also carry the intent's identifiers, expiry and minimum output amount. Checking a deposit or withdrawal's status sends Epoch the EVM position-owner address and the intent nonce.
 
 ### Geographic restrictions
 
 The App asks for no location permission and reads no location sensor. The App and the Miden network are, however, not available from comprehensively sanctioned jurisdictions. To apply that restriction, the IP address of a request is checked against the country it comes from, at the application level and at the network's sequencer endpoint. The IP address is used for that check and for the ordinary operation of the connection.
 
-<!-- TODO: confirm whether IP addresses are logged for geoblocking or compliance purposes and for how long; if they are, say so here and in the retention section. -->
-
 ## Network traffic
 
-<!-- TODO before partner mainnet: replace the testnet hostnames below with the partner mainnet hostnames. -->
-
-The App connects to the public Miden blockchain RPC endpoint (`rpc.testnet.miden.io`) and the Miden note transport service (`transport.miden.io`) to send and receive on-chain transactions. These requests contain only data needed to interact with the blockchain (transaction payloads, public account state) - never your private keys or recovery phrase.
+The App connects to the Miden blockchain RPC endpoint and note transport service selected for the active network (mainnet, testnet, devnet or localnet), including configured endpoint overrides, to send and receive on-chain transactions. These requests contain only data needed to interact with the blockchain (transaction payloads, public account state) - never your private keys or recovery phrase.
 
 It also downloads public data. Miden's verified-token list and update notices come from GitHub (`raw.githubusercontent.com`) and carry nothing about you. The logos of listed tokens come from the same GitHub list, so GitHub sees which listed tokens' logos the App draws (the listed tokens you hold or open), never your account, address or balance. Explore's catalog of apps and their icons come from GitHub too, so GitHub sees which network's catalog and which of its icons the App requests, never your account, address or balance. Token prices and charts come from Binance (`api.binance.com`), which sees which tokens' prices the App requests (the priced tokens you hold or open), never your address, keys or balances.
 
-Three features send the service behind them only what that feature needs. Requesting test tokens sends your account address and the amount to the Miden faucet (`faucet-api.testnet.miden.io`). Tracking a bridge transfer sends its destination address to the bridge's status service (`miden-testnet-bridge.dev.eu-north-3.gateway.fm`). A swap quote sends the two tokens and their amounts to the swap-quote service (`35-175-40-181.sslip.io`), never your address.
+Each feature sends the service behind it only what that feature needs. Requesting test tokens sends your account address and the amount to the faucet service configured for the active network. A swap quote sends the two tokens and their amounts to the swap-quote service named in the network configuration, never your address.
+
+For bridges and Earn, the App connects to the AggLayer bridge status service, Epoch's quote, intent and positions services, and Circle's attestation services. AggLayer status requests send the destination address; Epoch requests send the quote, intent or position data for the feature (see "Swaps and bridges" and "Earn"), and Circle attestation requests send the source transaction hash and, for CCTP, the source domain. These services' addresses come from the network's configuration.
 
 The App reaches Sentry to send crash reports. If **Share usage data** is on, it also reaches Aptabase; if it is off, it does not contact Aptabase at all.
 
@@ -263,13 +247,13 @@ The App requests the following Android permissions:
 
 ## Children
 
-The App is not directed at anyone under 18, and our Terms of Service require users to be at least 18. We do not knowingly collect any information from children.
+The App is not directed at anyone under 18, and you must be at least 18 to use it. We do not knowingly collect any information from children.
 
 ## Why we process data, and on what legal basis
 
 | Purpose | Data | Legal basis (GDPR Article 6) |
 |---|---|---|
-| Running the App and submitting your transactions | Transaction data sent to the network, Guardian data | Performance of our contract with you (the Terms of Service) |
+| Running the App and submitting your transactions | Transaction data sent to the network, Guardian data | Performance of our contract with you to provide the App |
 | Fixing crashes | Crash reports | Our legitimate interest in keeping the App working |
 | Understanding where people get stuck | Usage data | Your consent, which you give by turning on "Share usage data" and can withdraw at any time in the same place |
 | Sanctions compliance, geographic restrictions, record-keeping, responding to lawful requests | IP country check, block and unblock records, legal-process records | Compliance with legal obligations, and our legitimate interest in operating a lawful network |
@@ -281,13 +265,9 @@ The App is not directed at anyone under 18, and our Terms of Service require use
 - Data held by your Guardian Operator: as set out in its privacy notice.
 - Data written to the blockchain: permanent.
 
-<!-- TODO: add retention for any IP or geoblocking logs if they exist. -->
-
 ## Where data goes
 
-Crash reports and usage data are processed in the European Union (see "Who processes this data"). Your Guardian Operator and Transak may be located outside the European Union and the United Kingdom.
-
-<!-- TODO: state the transfer mechanism for any recipient outside the EU and UK (e.g. standard contractual clauses, or an adequacy decision), once the Guardian Operator is named. -->
+Crash reports and usage data are processed in the European Union (see "Who processes this data"). Your Guardian Operator may be located outside the European Union and the United Kingdom.
 
 ## Your rights
 
