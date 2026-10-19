@@ -86,16 +86,17 @@
     "englishSource": "Enter a positive USDCx amount with at most six decimal places."
   },
   "usdcxBelowMinimumBurn": {
-    "message": "해당 금액은 faucet에서 정한 최소 소각 금액 미달입니다.",
-    "englishSource": "The amount is below the faucet's minimum burn amount."
-  },
-  "usdcxIncompatibleBurnScript": {
-    "message": "이 지갑의 소각 스크립트는 USDCx의 faucet와 일치하지 않습니다.",
-    "englishSource": "The wallet's burn script does not match the USDCx faucet."
+    "message": "최소 $amount$ USDCx를 전송하십시오.",
+    "englishSource": "Send at least $amount$ USDCx.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
   },
   "usdcxFaucetUnavailable": {
-    "message": "USDCx faucet의 소각 정책을 읽을 수 없습니다. 재검토를 요청하여 다시 시도해 주세요.",
-    "englishSource": "Unable to read the USDCx faucet's burn policy. Reopen review to try again."
+    "message": "USDCx faucet에 대해서는 아직 알려진 바가 없습니다. 검토를 다시 열어 재시도해 주십시오.",
+    "englishSource": "The USDCx faucet is not known yet. Reopen review to try again."
   },
   "usdcxSendMoreThanPayoutFee": {
     "message": "$amount$ 이상의 USDCx를 $network$로 전송하세요: Circle의 수수료는 지급 금액에서 공제됩니다.",
