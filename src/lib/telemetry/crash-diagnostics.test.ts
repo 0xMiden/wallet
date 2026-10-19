@@ -318,6 +318,35 @@ describe('source-bound crash diagnostics', () => {
 
   it.each<{ link: string; wrap: (cause: Error) => Error }>([
     {
+      link: 'aggregate member',
+      wrap: cause => Object.assign(new Error('aggregate', { cause }), { failures: [new Error('unannotated')] })
+    },
+    {
+      link: 'scalar .inner',
+      wrap: cause => Object.assign(new Error('scalar', { cause }), { inner: new Error('unannotated') })
+    }
+  ])('preserves inherited storage beside an unannotated $link', ({ wrap }) => {
+    const cause = new Error('cause');
+    annotateCrash(cause, {
+      storageOwner: 'wallet_transactions',
+      storageOperation: 'cursor',
+      operation: 'sdk_initialize',
+      stage: 'client_create',
+      workerMode: 'disabled'
+    });
+    const outer = wrap(cause);
+    annotateCrash(outer, { stage: 'wasm_ready' });
+    expect(snapshotCrashDiagnostics(outer)).toEqual({
+      storageOwner: 'wallet_transactions',
+      storageOperation: 'cursor',
+      operation: 'sdk_initialize',
+      stage: 'wasm_ready',
+      workerMode: 'disabled'
+    });
+  });
+
+  it.each<{ link: string; wrap: (cause: Error) => Error }>([
+    {
       link: 'conflicting owners',
       wrap: cause => {
         const other = new Error('other owner');
