@@ -8,6 +8,7 @@ import {
 } from 'lib/miden-chain/native-asset';
 
 import { DEFAULT_TOKEN_METADATA } from './defaults';
+import { FAUCET_PROOF_WORDS } from './faucet-proof.fixtures';
 import { fetchTokenMetadata, NotFoundTokenMetadata } from './fetch';
 import { getNativeDisplayMetadataSync } from './native';
 import type { ensureTokensMetadataSchema } from './storage';
@@ -27,11 +28,15 @@ jest.mock('lib/platform', () => ({
   isExtension: jest.fn(() => true)
 }));
 
-// Mock @miden-sdk/miden-sdk: RpcClient, Endpoint, Address, BasicFungibleFaucetComponent
+// Mock the public SDK RPC boundary while keeping the metadata reader real.
 const mockGetAccountDetails = jest.fn();
+const mockGetAccountProof = jest.fn();
+const mockSyncStorageMaps = jest.fn();
 const mockGetBlockHeaderByNumber = jest.fn();
 const mockRpcClient = jest.fn(() => ({
   getAccountDetails: mockGetAccountDetails,
+  getAccountProof: mockGetAccountProof,
+  syncStorageMaps: mockSyncStorageMaps,
   getBlockHeaderByNumber: mockGetBlockHeaderByNumber
 }));
 const mockFromBech32 = jest.fn();
@@ -104,6 +109,8 @@ describe('metadata/fetch', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockGetAccountDetails.mockReset();
+    mockGetAccountProof.mockReset();
+    mockSyncStorageMaps.mockReset();
     mockFromBech32.mockReset();
     mockFromAccountStorage.mockReset();
     mockFetchFromStorage.mockResolvedValue(null);
@@ -112,6 +119,63 @@ describe('metadata/fetch', () => {
   });
 
   describe('fetchTokenMetadata', () => {
+    it('reads proof metadata when an unrelated nonce map prevents full account loading', async () => {
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        mockIsMidenAsset.mockReturnValue(false);
+        const parsedAccountId = { toString: () => 'mtst1proof', isPublic: () => true };
+        mockFromBech32.mockReturnValue({ accountId: () => parsedAccountId });
+        mockGetAccountDetails.mockRejectedValue(
+          new Error('Full account reconstruction failed: unrelated nonce map has too many entries to return inline')
+        );
+        const slots = new Map(
+          Object.entries(FAUCET_PROOF_WORDS).map(([name, limbs]) => [
+            name,
+            { toU64s: () => BigUint64Array.from(limbs) }
+          ])
+        );
+        const getStorageMapEntries = jest.fn();
+        const getStorageMapSlotNames = jest.fn();
+        const vaultFungibleAssets = jest.fn();
+        mockGetAccountProof.mockResolvedValue({
+          accountId: () => parsedAccountId,
+          accountHeader: () => ({ id: () => parsedAccountId }),
+          getStorageSlotValue: (name: string) => slots.get(name),
+          numStorageSlots: () => slots.size,
+          getStorageMapEntries,
+          getStorageMapSlotNames,
+          vaultFungibleAssets
+        });
+
+        await expect(fetchTokenMetadata('mtst1proof_qruqqypuyph')).resolves.toStrictEqual({
+          symbol: 'TEST',
+          name: 'Proof Token',
+          decimals: 8,
+          description: 'Metadata without nonce map',
+          scaleIsUnknown: false
+        });
+        expect(mockGetAccountProof.mock.calls).toEqual([[parsedAccountId]]);
+        expect(mockFromBech32).toHaveBeenCalledWith('mtst1proof');
+        expect(mockGetAccountDetails).not.toHaveBeenCalled();
+        expect(mockFromAccountStorage).not.toHaveBeenCalled();
+        expect(mockSyncStorageMaps).not.toHaveBeenCalled();
+        expect(getStorageMapEntries).not.toHaveBeenCalled();
+        expect(getStorageMapSlotNames).not.toHaveBeenCalled();
+        expect(vaultFungibleAssets).not.toHaveBeenCalled();
+        expect(mockPutToStorage).toHaveBeenCalledWith('tokens_base_metadata', {
+          mtst1proof_qruqqypuyph: {
+            symbol: 'TEST',
+            name: 'Proof Token',
+            decimals: 8,
+            description: 'Metadata without nonce map',
+            scaleIsUnknown: false
+          }
+        });
+      } finally {
+        consoleErrorSpy.mockRestore();
+      }
+    });
+
     it.each([
       { assetId: '0xfaucet', parsed: '0xfaucet', bech32Calls: [], hexCalls: [['0xfaucet']] },
       {
