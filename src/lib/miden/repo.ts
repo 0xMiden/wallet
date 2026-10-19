@@ -337,7 +337,8 @@ function installWalletStorageDiagnostics(target: Dexie): void {
     create: down => {
       const transaction: DBCore['transaction'] = (...args) => {
         const [stores] = args;
-        const owner = stores.length === 1 ? (walletTableOwner(stores[0]) ?? 'wallet_database') : 'wallet_database';
+        const store = stores.length === 1 ? stores[0] : undefined;
+        const owner = store === undefined ? 'wallet_database' : (walletTableOwner(store) ?? 'wallet_database');
         try {
           return down.transaction(...args);
         } catch (error) {
