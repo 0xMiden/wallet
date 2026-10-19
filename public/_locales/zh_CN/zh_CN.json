@@ -894,7 +894,7 @@
   "confirmSignature": "确认签名",
   "requestsYourSignature": "请您签名",
   "confirmLoginSignature": "登录 $domain$",
-  "loginSignatureNote": "Bread 使用专为 $domain$ 生成的密钥进行签名。该密钥无法转移资金或更改您的账户。",
+  "loginSignatureNote": "Bread 使用专为 $domain$ 生成的密钥对这条登录消息进行签名。该密钥无法转移资金或更改您的账户。",
   "requestAssets": "请求资源",
   "requestsAssets": "请求资源",
   "requestImportPrivateNote": "请求导入私有Note",

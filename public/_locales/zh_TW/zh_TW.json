@@ -894,7 +894,7 @@
   "confirmSignature": "確認簽名",
   "requestsYourSignature": "請您簽名",
   "confirmLoginSignature": "登入 $domain$",
-  "loginSignatureNote": "Bread 使用專為 $domain$ 打造的金鑰進行簽署。該金鑰無法轉移資金或變更您的帳戶。",
+  "loginSignatureNote": "Bread 使用專為 $domain$ 生成的金鑰對此登入訊息進行簽名。此金鑰無法轉移資金或變更您的帳戶。",
   "requestAssets": "請求資產",
   "requestsAssets": "請求資產",
   "requestImportPrivateNote": "請求匯入私人 Note",

@@ -894,7 +894,7 @@
   "confirmSignature": "Confirm Signature",
   "requestsYourSignature": "Requests your signature",
   "confirmLoginSignature": "Sign in to $domain$",
-  "loginSignatureNote": "Bread signs with a key made only for $domain$. It can't move funds or change your account.",
+  "loginSignatureNote": "Bread signs this sign-in message with a key made only for $domain$. It can't move funds or change your account.",
   "requestAssets": "Request Assets",
   "requestsAssets": "Requests assets",
   "requestImportPrivateNote": "Request Import Private Note",

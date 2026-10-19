@@ -3965,8 +3965,8 @@
     }
   },
   "loginSignatureNote": {
-    "message": "Bread, yalnızca $domain$ için oluşturulmuş bir anahtarla oturum açar. Bu anahtarla fon transferi yapamaz veya hesabınızda değişiklik yapamazsınız.",
-    "englishSource": "Bread signs with a key made only for $domain$. It can't move funds or change your account.",
+    "message": "Bread, bu oturum açma mesajını yalnızca $domain$ için oluşturulmuş bir anahtarla imzalar. Bu anahtar, fon transferi yapamaz veya hesabınızda değişiklik yapamaz.",
+    "englishSource": "Bread signs this sign-in message with a key made only for $domain$. It can't move funds or change your account.",
     "placeholders": {
       "domain": {
         "content": "$1"

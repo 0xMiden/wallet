@@ -894,7 +894,7 @@
   "confirmSignature": "Unterschrift bestätigen",
   "requestsYourSignature": "Bittet um Ihre Unterschrift",
   "confirmLoginSignature": "Melden Sie sich bei $domain$ an",
-  "loginSignatureNote": "Bread signiert mit einem Schlüssel, der ausschließlich für $domain$ erstellt wurde. Damit können weder Gelder bewegt noch Änderungen an Ihrem Konto vorgenommen werden.",
+  "loginSignatureNote": "Bread signiert diese Anmeldemeldung mit einem Schlüssel, der ausschließlich für $domain$ erstellt wurde. Damit können weder Gelder bewegt noch Änderungen an Ihrem Konto vorgenommen werden.",
   "requestAssets": "Assets anfordern",
   "requestsAssets": "Ruft Assets ab",
   "requestImportPrivateNote": "Anfrage: Import privater Note",

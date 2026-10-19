@@ -3965,8 +3965,8 @@
     }
   },
   "loginSignatureNote": {
-    "message": "Bread utilise une clé générée exclusivement pour $domain$. Elle ne permet ni de transférer des fonds ni de modifier votre compte.",
-    "englishSource": "Bread signs with a key made only for $domain$. It can't move funds or change your account.",
+    "message": "Bread signe ce message de connexion à l’aide d’une clé créée exclusivement pour $domain$. Il ne peut ni transférer des fonds ni modifier votre compte.",
+    "englishSource": "Bread signs this sign-in message with a key made only for $domain$. It can't move funds or change your account.",
     "placeholders": {
       "domain": {
         "content": "$1"

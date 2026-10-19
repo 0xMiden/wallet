@@ -894,7 +894,7 @@
   "confirmSignature": "Confirmar assinatura",
   "requestsYourSignature": "Solicita sua assinatura",
   "confirmLoginSignature": "Faça login em $domain$",
-  "loginSignatureNote": "A Bread assina com uma chave criada exclusivamente para $domain$. Ela não pode movimentar fundos nem alterar sua conta.",
+  "loginSignatureNote": "A Bread assina esta mensagem de login com uma chave criada exclusivamente para $domain$. Ela não pode movimentar fundos nem alterar sua conta.",
   "requestAssets": "Solicitar recursos",
   "requestsAssets": "Solicita recursos",
   "requestImportPrivateNote": "Solicitar importação privada Note",

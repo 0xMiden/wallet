@@ -894,7 +894,7 @@
   "confirmSignature": "Підтвердити підпис",
   "requestsYourSignature": "Просить вас поставити підпис",
   "confirmLoginSignature": "Увійдіть на $domain$",
-  "loginSignatureNote": "Bread підписує транзакції за допомогою ключа, створеного виключно для $domain$. Він не може переказувати кошти або вносити зміни у ваш рахунок.",
+  "loginSignatureNote": "Bread підписує це повідомлення про вхід ключем, створеним виключно для $domain$. Він не може переказувати кошти або змінювати ваш рахунок.",
   "requestAssets": "Замовити матеріали",
   "requestsAssets": "Запитує ресурси",
   "requestImportPrivateNote": "Запит на імпорт приватних даних Note",
