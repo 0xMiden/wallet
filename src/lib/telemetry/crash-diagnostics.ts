@@ -1,7 +1,12 @@
 import { MidenMessageType } from 'lib/miden/types';
 import { WalletMessageType } from 'lib/shared/types';
 
-import { USER_ERROR_SURFACES, isUserErrorId, type UserErrorId, type UserErrorSurface } from './user-visible-error';
+import {
+  USER_ERROR_SURFACES,
+  isUserErrorId,
+  type UserErrorId,
+  type UserErrorSurface
+} from './user-visible-error-contract';
 import { EXTENSION_VIEW_COUNTS, SHARED_MEMORY_PROBES, type WasmStartupEvidence } from './wasm-startup';
 
 /** The background's state for a dApp approval no handler answered; its Not Found code is `confirmation_<state>`. */

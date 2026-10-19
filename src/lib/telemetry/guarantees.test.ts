@@ -1150,7 +1150,7 @@ describe('the background service worker never imports the telemetry barrel', () 
       'src/lib/telemetry/transaction-failure.ts',
       'src/lib/telemetry/transaction-operation.ts',
       'src/lib/telemetry/types.ts',
-      'src/lib/telemetry/user-visible-error.ts',
+      'src/lib/telemetry/user-visible-error-contract.ts',
       'src/lib/telemetry/wasm-startup.ts'
     ]);
   });
@@ -1174,6 +1174,7 @@ describe('the classic content script loads diagnostics without the crash or SDK 
         'src/lib/intercom/client.ts',
         'src/lib/intercom/helpers.ts',
         'src/lib/telemetry/crash-diagnostics.ts',
+        'src/lib/telemetry/user-visible-error-contract.ts',
         'src/lib/telemetry/wasm-startup.ts'
       ])
     );
