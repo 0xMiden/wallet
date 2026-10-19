@@ -8,6 +8,7 @@
 
 ### Fixes
 
+- [FIX][all] A sign-in request whose 32 bytes are not four field elements is refused with `INVALID_PARAMS` before the approval prompt, instead of after the user approves it (#1578).
 - [FIX][android] An Android WebView older than 98 (Android System WebView, or Chrome on Android 9), which cannot run the wallet, now opens a page that sends the user to update it from Google Play, instead of an error screen Bread can never leave (#1597, #1598).
 - [FIX][android] The sign-in sheet's callback check keeps a literal `+` in the `origin` value, as iOS does, instead of reading it as a space (#1576).
 - [FIX][extension] A wallet page left open across an extension reload or update reloads itself as soon as the extension's runtime is gone, so it comes back as a page of the updated extension, instead of crashing when it opens Explore and reporting `Extension context invalidated` every 10 seconds; until it reloads it keeps behaving as the extension, its polls stop, and a reset started on it reloads the page in place (#1592, #1593).

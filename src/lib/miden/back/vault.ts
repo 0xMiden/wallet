@@ -59,6 +59,7 @@ import {
 } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
+import { isFieldWord } from './login-word';
 import { midenClientProxy } from './miden-client-proxy';
 import {
   MNEMONIC_PATTERN,
@@ -2849,7 +2850,7 @@ function loginWordBytes(word: string): Uint8Array {
   } catch {
     throw notAWordToSign();
   }
-  if (bytes.length !== 32) throw notAWordToSign();
+  if (!isFieldWord(bytes)) throw notAWordToSign();
   return bytes;
 }
 
