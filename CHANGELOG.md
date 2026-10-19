@@ -4,7 +4,7 @@
 
 ### Fixes
 
-- [FIX][android] An Android System WebView older than 98, which cannot run the wallet, now opens a page that sends the user to update it from Google Play, instead of an error screen Bread can never leave (#1597, #1598).
+- [FIX][android] An Android WebView older than 98 (Android System WebView, or Chrome on Android 9), which cannot run the wallet, now opens a page that sends the user to update it from Google Play, instead of an error screen Bread can never leave (#1597, #1598).
 - [FIX][android] The sign-in sheet's callback check keeps a literal `+` in the `origin` value, as iOS does, instead of reading it as a space (#1576).
 
 ## 1.17.5 (2026-10-19)
