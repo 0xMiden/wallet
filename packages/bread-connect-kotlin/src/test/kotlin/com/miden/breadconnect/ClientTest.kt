@@ -10,6 +10,8 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -35,6 +37,18 @@ class ClientTest {
     /** Answers each link the client opens with [answer], as Bread does once the user decides. */
     private fun BreadConnect.answering(answer: (String) -> String) {
         opener.onOpen = { link -> handle(answer(link)) }
+    }
+
+    private fun BreadConnect.answerLoginBytes(encoded: String) {
+        answering { link ->
+            val request = bread.openRequest(link).second
+            val key = request["type"].string == "LOGIN_KEY_REQUEST"
+            val response = buildJsonObject {
+                put("type", if (key) "LOGIN_KEY_RESPONSE" else "LOGIN_SIGN_RESPONSE")
+                put(if (key) "loginKey" else "signature", encoded)
+            }
+            bread.answerRequest(link, buildJsonObject { put("response", response) })
+        }
     }
 
     private suspend fun connected(): BreadConnect {
@@ -151,6 +165,50 @@ class ClientTest {
         assertFails(BreadConnectException.Code.Bread(ProtocolErrorCode.INTERNAL_ERROR)) { client.requestLoginKey() }
         assertFails(BreadConnectException.Code.Bread(ProtocolErrorCode.INTERNAL_ERROR)) {
             client.signLoginBytes(byteArrayOf(0))
+        }
+    }
+
+    @Test
+    fun loginHelpersAcceptBasicBase64PaddingAndEmptyData() = runTest {
+        val client = connected()
+        val answers = listOf(
+            "" to byteArrayOf(),
+            "AQ==" to byteArrayOf(1),
+            "AQ" to byteArrayOf(1),
+            "AQI=" to byteArrayOf(1, 2),
+            "AQI" to byteArrayOf(1, 2),
+            "AQID" to byteArrayOf(1, 2, 3),
+            "++//AA" to byteArrayOf(-5, -17, -1, 0),
+            "AB==" to byteArrayOf(0),
+        )
+        for ((encoded, bytes) in answers) {
+            client.answerLoginBytes(encoded)
+            assertArrayEquals("login key for $encoded", bytes, client.requestLoginKey())
+            assertArrayEquals("login signature for $encoded", bytes, client.signLoginBytes(byteArrayOf(0)))
+        }
+    }
+
+    @Test
+    fun loginHelpersRejectWhitespaceInBase64Replies() = runTest {
+        val client = connected()
+        for (encoded in listOf(" ", "\t\r\n", " AQ==", "AQ== ", "A Q==", "A\tQ==", "AQ==\r\n")) {
+            client.answerLoginBytes(encoded)
+            assertFails(BreadConnectException.Code.Bread(ProtocolErrorCode.INTERNAL_ERROR)) { client.requestLoginKey() }
+            assertFails(BreadConnectException.Code.Bread(ProtocolErrorCode.INTERNAL_ERROR)) {
+                client.signLoginBytes(byteArrayOf(0))
+            }
+        }
+    }
+
+    @Test
+    fun loginHelpersRejectMalformedBase64Padding() = runTest {
+        val client = connected()
+        for (encoded in listOf("A", "AQ=", "AQ===", "A===", "=AQ=", "AQ==AA==", "AQI==")) {
+            client.answerLoginBytes(encoded)
+            assertFails(BreadConnectException.Code.Bread(ProtocolErrorCode.INTERNAL_ERROR)) { client.requestLoginKey() }
+            assertFails(BreadConnectException.Code.Bread(ProtocolErrorCode.INTERNAL_ERROR)) {
+                client.signLoginBytes(byteArrayOf(0))
+            }
         }
     }
 

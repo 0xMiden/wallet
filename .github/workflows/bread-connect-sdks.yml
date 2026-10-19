@@ -115,12 +115,17 @@ jobs:
         with:
           packages: platform-tools
       - uses: gradle/actions/setup-gradle@v4
-      - name: Check Kotlin SDK API compatibility
-        working-directory: packages/bread-connect-kotlin
-        run: ./gradlew lintDebug --console=plain
       - name: Run the Kotlin SDK unit tests
         working-directory: packages/bread-connect-kotlin
         run: ./gradlew testDebugUnitTest --console=plain
+      - name: Check Kotlin SDK API compatibility
+        id: kotlin_api_lint
+        working-directory: packages/bread-connect-kotlin
+        run: ./gradlew lintDebug --console=plain
+      - name: Show Kotlin SDK API compatibility failures
+        if: failure() && steps.kotlin_api_lint.outcome == 'failure'
+        working-directory: packages/bread-connect-kotlin
+        run: cat build/intermediates/lint_intermediate_text_report/debug/lintReportDebug/lint-results-debug.txt
       # The plugin compiles against @capacitor/android, which only an app's
       # node_modules provides, so a throwaway build fetches that one package at the
       # version the wallet uses.

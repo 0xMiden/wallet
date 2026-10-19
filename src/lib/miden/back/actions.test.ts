@@ -2240,11 +2240,8 @@ describe('actions', () => {
           expect(results[1]).toEqual({ status: 'fulfilled', value: response });
           expect(results[2]).toEqual({ status: 'rejected', reason: expect.any(DAppQueueDeadlineError) });
           expect(handler).toHaveBeenCalledTimes(1);
-          if (isKey) {
-            expect(handler).toHaveBeenCalledWith('https://example.com', request);
-          } else {
-            expect(handler).toHaveBeenCalledWith('https://example.com', request, 'session-7');
-          }
+          const expectedCall = isKey ? ['https://example.com', request] : ['https://example.com', request, 'session-7'];
+          expect(handler).toHaveBeenCalledWith(...expectedCall);
         } finally {
           // A failed assertion must not leave the shared queue held for later tests.
           releaseQueue();
