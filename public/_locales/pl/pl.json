@@ -895,7 +895,7 @@
   "confirmSignature": "Potwierdź podpis",
   "requestsYourSignature": "Prosi o Twój podpis",
   "confirmLoginSignature": "Zaloguj się na $domain$",
-  "loginSignatureNote": "Bread podpisuje się kluczem stworzonym wyłącznie dla $domain$. Nie może on przenosić środków ani wprowadzać zmian na koncie.",
+  "loginSignatureNote": "Bread podpisuje tę wiadomość logowania kluczem utworzonym wyłącznie dla $domain$. Nie może on przenosić środków ani wprowadzać zmian na Twoim koncie.",
   "requestAssets": "Poproś o materiały",
   "requestsAssets": "Pobiera zasoby",
   "requestImportPrivateNote": "Prośba o importowanie prywatnych plików Note",

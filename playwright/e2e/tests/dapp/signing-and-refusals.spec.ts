@@ -472,10 +472,7 @@ function refusalCells(j: Journey, fx: RefusalFixtures): Record<string, DappCellI
         call: 'requestTransaction',
         args: [{ type: 'custom', payload: { address: me.addressCanonical, recipientAddress: '' } }]
       }),
-      refusal(
-        'InvalidParamsMidenWalletError',
-        'INVALID_PARAMS: Error: INVALID_PARAMS: Invalid CustomTransaction payload'
-      )
+      refusal('InvalidParamsMidenWalletError', 'INVALID_PARAMS: Invalid CustomTransaction payload')
     ),
     // Malformed request bytes are rejected before any confirmation surface opens.
     'R3-customUndecodable': refusedBeforePrompt(

@@ -70,6 +70,7 @@ import {
   type DAppLoginSignConfirmationRequest
 } from 'lib/dapp-browser/confirmation-store';
 import { formatBigInt } from 'lib/i18n/numbers';
+import { APPROVAL_CONFIRMATION_TYPES } from 'lib/miden/back/approval-confirmation';
 import { intercom } from 'lib/miden/back/defaults';
 import { Vault } from 'lib/miden/back/vault';
 import { FEE_RESERVE_MULTIPLE } from 'lib/miden/fees/spendable';
@@ -492,8 +493,8 @@ export async function generatePromisifyRequestPermission(
   // unhandled rejection in the worker.
   return new Promise((resolve, reject) => {
     const id = nanoid();
-    // Set once requestConfirm answers the dApp (auto-decline, window close, Cancel): a key read still running then
-    // saves no session and sends nothing (#1471).
+    // Set once requestConfirm answers the dApp with a refusal (a Cancel, or the cap reached while the read still runs):
+    // a key read still running then saves no session and sends nothing (#1471).
     let refused = false;
 
     requestConfirm({
@@ -880,7 +881,7 @@ export async function requestLoginSign(
   // requestLoginKey maps its failures, so a popup that fails to open reads the same from both.
   return new Promise((resolve, reject) => {
     generatePromisifyLoginSign(resolve, reject, origin, dApp, req, domain, sessionId).catch(error =>
-      reject(loginKeyFailure(error))
+      reject(dappRequestFailure(error))
     );
   });
 }
@@ -920,18 +921,18 @@ const generatePromisifyLoginSign = async (
       }
       resolve(await sign());
     } catch (e) {
-      reject(loginKeyFailure(e));
+      reject(dappRequestFailure(e));
     }
     return;
   }
 
   // A locked wallet's popup builds its payload once unlocked, so the root key is checked before the approval shows
   // either way: before the popup while unlocked, and after the popup's unlock while locked.
-  const prepared = await prepareOrReject(checkRootKey, error => reject(loginKeyFailure(error)));
+  const prepared = await prepareOrReject(checkRootKey, error => reject(dappRequestFailure(error)));
   if (prepared === undefined) return;
   const sheet = sheetFor(prepared, origin, req.sourceAccountId, dApp.accountId, checkRootKey);
   const id = nanoid();
-  await requestConfirmFor(origin, sheet, error => reject(loginKeyFailure(error)), {
+  await requestConfirmFor(origin, sheet, error => reject(dappRequestFailure(error)), {
     id,
     payload: async () => {
       await sheet.data();
@@ -945,7 +946,7 @@ const generatePromisifyLoginSign = async (
         try {
           resolve(await sign());
         } catch (e) {
-          reject(loginKeyFailure(e));
+          reject(dappRequestFailure(e));
         }
       } else {
         decline();
@@ -987,11 +988,6 @@ function isLoginWord(payload: unknown): boolean {
 
 const hasDAppErrorCode = (message: string): boolean =>
   Object.values(MidenDAppErrorType).some(code => message === code || message.startsWith(`${code}:`));
-
-// A refusal already in the dApp's terms keeps its message, so its code leads it once: LOGIN_KEY_UNAVAILABLE stays
-// apart from a malformed request, and the vault's own INVALID_PARAMS is not wrapped in another.
-const loginKeyFailure = (error: unknown): unknown =>
-  error instanceof Error && hasDAppErrorCode(error.message) ? error : dappRequestFailure(error);
 
 export async function requestPrivateNotes(
   origin: string,
@@ -1399,7 +1395,7 @@ export async function requestLoginKey(
     const loginKey = await prepareWithoutPrompt(origin, dApp, req.sourceAccountId, prepare);
     return { type: MidenDAppMessageType.LoginKeyResponse, loginKey };
   } catch (error) {
-    throw loginKeyFailure(error);
+    throw dappRequestFailure(error);
   }
 }
 
@@ -1819,8 +1815,7 @@ const dappRequestFailure = (error: unknown): unknown => {
   if (error instanceof ClaimFeeRefusedError) return error;
   // A lock that lands after approval is not a malformed request (#1414).
   if (isWalletLockedError(error)) return lockedRefusal();
-  if (error instanceof Error && error.message === MidenDAppErrorType.NotGranted) return error;
-  if (error instanceof Error && error.message.startsWith(`${MidenDAppErrorType.NotGranted}:`)) return error;
+  if (error instanceof Error && hasDAppErrorCode(error.message)) return error;
   return new Error(`${MidenDAppErrorType.InvalidParams}: ${error}`);
 };
 
@@ -1831,8 +1826,17 @@ const dappReadFailure = (error: unknown): unknown => {
   const kill = pipelineKillIn(error);
   if (kill !== undefined) return kill;
   if (isWalletLockedError(error)) return error;
+  if (error instanceof Error && hasDAppErrorCode(error.message)) return error;
   return new Error(`${MidenDAppErrorType.InvalidParams}: ${error}`);
 };
+
+// The answer when an approval's cap arrives while its approved action still runs: the action may yet queue the
+// transaction, so the dApp hears that the outcome is unknown, never a refusal (#1584).
+const actionOutlivedApproval = (): Error =>
+  new Error(
+    `${MidenDAppErrorType.OutcomeUnknown}: the approved transaction was still being prepared when the approval timed ` +
+      'out; check before sending again'
+  );
 
 const dappWriteFailure = (error: unknown): unknown => {
   // A queued id outranks a kill anywhere in the chain: retrying the write could send it twice.
@@ -2294,14 +2298,10 @@ const generatePromisifyTransaction = async (
   const networkRpc = await getNetworkRPC(dApp.network);
   const customTransaction = req.transaction.payload as MidenCustomTransaction;
 
-  // Checked before the gate, so a malformed payload is reported as one while the wallet is locked. The text keeps the
-  // double prefix it had when this check threw inside the preview's catch; the E2E cell R3-customPayload pins it.
+  // Checked before the gate, so a malformed payload is reported as one while the wallet is locked; the E2E cell
+  // R3-customPayload pins the text.
   if (!customTransaction.address || !customTransaction.transactionRequest) {
-    reject(
-      new Error(
-        `${MidenDAppErrorType.InvalidParams}: Error: ${MidenDAppErrorType.InvalidParams}: Invalid CustomTransaction payload`
-      )
-    );
+    reject(new Error(`${MidenDAppErrorType.InvalidParams}: Invalid CustomTransaction payload`));
     return;
   }
 
@@ -2455,6 +2455,7 @@ const generatePromisifyTransaction = async (
   const sheet = sheetFor(prepared, origin, req.sourcePublicKey, customTransaction.address, prepare);
   await requestConfirmFor(origin, sheet, reject, {
     id,
+    onOwnedAnswerTimeout: () => reject(actionOutlivedApproval()),
     payload: async () => {
       const { transactionMessages, customLimit } = await sheet.data();
       return buildCustomTxConfirmPayload({
@@ -2715,6 +2716,7 @@ const generatePromisifySendTransaction = async (
   const sheet = sheetFor(prepared, origin, req.sourcePublicKey, senderAddress, prepare);
   await requestConfirmFor(origin, sheet, reject, {
     id,
+    onOwnedAnswerTimeout: () => reject(actionOutlivedApproval()),
     payload: async () => {
       const { transactionMessages, spendingLimitDetails } = await sheet.data();
       return {
@@ -2819,7 +2821,7 @@ const generatePromisifyConsumeTransaction = async (
   try {
     carried = await decodeCarriedConsumeNoteLocked(req.transaction);
   } catch (e) {
-    reject(pipelineKillIn(e) ?? new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`));
+    reject(dappReadFailure(e));
     return;
   }
   const prepare = async () => {
@@ -2910,6 +2912,7 @@ const generatePromisifyConsumeTransaction = async (
   const sheet = sheetFor(prepared, origin, req.sourcePublicKey, dApp.accountId, prepare);
   await requestConfirmFor(origin, sheet, reject, {
     id,
+    onOwnedAnswerTimeout: () => reject(actionOutlivedApproval()),
     payload: async () => {
       const { noteId, messages } = await sheet.data();
       return {
@@ -3070,7 +3073,13 @@ type RequestConfirmParams = {
   onClose?: () => void;
   handleIntercomRequest: (req: MidenRequest, decline: () => void) => Promise<any>;
   handleSimulate?: (req: MidenRequest) => Promise<any>;
+  // Set by an approval whose action queues a transaction: once that action runs it owns the dApp's answer, and this
+  // is the answer if the cap arrives first, since the transaction may still be queued (#1584).
+  onOwnedAnswerTimeout?: () => void;
 };
+
+const isConfirmationOf = (req: MidenRequest, id: string): boolean =>
+  typeof req === 'object' && req !== null && APPROVAL_CONFIRMATION_TYPES.has(req.type) && 'id' in req && req.id === id;
 
 // The last state of each recent approval, so a request no handler answered can say which state it met. The ids stay
 // in this worker's memory; only the state crosses the port, as the Not Found error's code.
@@ -3103,7 +3112,8 @@ async function requestConfirm({
   onPayloadError,
   onClose,
   handleIntercomRequest,
-  handleSimulate
+  handleSimulate,
+  onOwnedAnswerTimeout
 }: RequestConfirmParams) {
   /* c8 ignore start */ if (!isExtension())
     throw new Error('DApp confirmation popup is only available in extension context'); /* c8 ignore stop */
@@ -3111,6 +3121,10 @@ async function requestConfirm({
   const browser = await getBrowser();
 
   let closing = false;
+  // The approval's running answer: a repeated confirmation the popup sends while it runs gets this same answer
+  // instead of running the action again (#1584).
+  let answer: Promise<unknown> | undefined;
+  let pendingDecline: 'expired' | 'window_closed' | undefined;
   const openedAt = Date.now();
   let payloadServed = false;
   let timeout: ReturnType<typeof setTimeout> | undefined;
@@ -3137,8 +3151,37 @@ async function requestConfirm({
   };
 
   const declineAndClose = (reason: 'expired' | 'window_closed') => {
+    // An action that may queue a transaction answers the dApp itself once it runs, so the auto-decline and a closed
+    // popup wait for it, within the cap. Every other approval keeps #1471's rule: a decline answers at once.
+    if (answer && onOwnedAnswerTimeout) {
+      if (capLeft() > 0) {
+        pendingDecline ??= reason;
+        restartTimeout(capLeft());
+        return;
+      }
+      onOwnedAnswerTimeout();
+      close('expired');
+      return;
+    }
     onDecline();
     close(reason);
+  };
+
+  const respond = async (req: MidenRequest): Promise<unknown> => {
+    const result = await handleIntercomRequest(req, onDecline);
+    if (result) close('answered');
+    return result;
+  };
+
+  const runAnswer = async (req: MidenRequest): Promise<unknown> => {
+    try {
+      return await respond(req);
+    } finally {
+      answer = undefined;
+      const declined = pendingDecline;
+      pendingDecline = undefined;
+      if (declined && !closing) declineAndClose(declined);
+    }
   };
 
   let knownPort: Runtime.Port | undefined;
@@ -3176,13 +3219,16 @@ async function requestConfirm({
       return await handleSimulate(req); // must NOT close() — the popup stays open
     }
 
-    if (knownPort !== port) return;
-
-    const result = await handleIntercomRequest(req, onDecline);
-    if (result) {
-      close('answered');
-      return result;
+    // Any other request from the popup falls through to its own handler.
+    if (knownPort !== port || closing || !isConfirmationOf(req, id)) return;
+    if (!answer) {
+      answer = runAnswer(req);
+      return answer;
     }
+    // While the action runs a confirmation shares its answer; a decline does too where the action owns the answer,
+    // and elsewhere is answered at once (#1471: a refused connect read then saves nothing).
+    if (onOwnedAnswerTimeout || !('confirmed' in req) || req.confirmed !== false) return answer;
+    return respond(req);
   });
 
   const isWin = (await browser.runtime.getPlatformInfo()).os === 'win';
