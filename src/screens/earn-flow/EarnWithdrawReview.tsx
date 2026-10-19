@@ -103,8 +103,8 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitErrorId, setSubmitErrorId] = useState<UserErrorId | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
-  // Only the quote refresh caused by this submit belongs to the submit notice's report.
-  const validationMessageId = validation ?? (submitInvalidatedQuote ? undefined : quoteError);
+  // A submit-caused quote refresh shares its report only when the owning submit notice is visible.
+  const validationMessageId = validation ?? (submitInvalidatedQuote && submitError ? undefined : quoteError);
 
   // Every submission carries a quote, so an unquoted full-balance withdrawal has no way in.
   if (requested === null) return <Redirect to={`/earn/positions/${encodeURIComponent(positionId)}/withdraw`} />;
