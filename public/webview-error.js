@@ -5,6 +5,9 @@
     webViewUpdateBody:
       'Bread needs a newer version of Android System WebView, the part of Android that shows web pages in apps. Update it from Google Play, then open Bread again.',
     webViewUpdateAction: 'Open Google Play',
+    webViewUpdateChromeTitle: 'Update Chrome',
+    webViewUpdateChromeBody:
+      'Bread needs a newer version of Chrome, which shows web pages in apps on this version of Android. Update it from Google Play, then open Bread again.',
     webViewStartFailedTitle: "Bread couldn't start",
     webViewStartFailedBody: 'Something stopped Bread from loading. Try again, or close Bread and open it again.',
     webViewStartFailedAction: 'Try again'
@@ -26,12 +29,20 @@
   function render(userAgent, language) {
     var chrome = /Chrome\/(\d+)/.exec(userAgent);
     var needsUpdate = chrome && parseInt(chrome[1], 10) < 98;
-    var prefix = needsUpdate ? 'webViewUpdate' : 'webViewStartFailed';
+    // Capacitor checks the current WebView provider. Android 7 to 9 take Chrome whenever it is enabled; Android 10
+    // and later always take Android System WebView.
+    var android = /Android (\d+)/.exec(userAgent);
+    var chromeProvider = android && parseInt(android[1], 10) <= 9;
+    var keys = !needsUpdate
+      ? { title: 'webViewStartFailedTitle', body: 'webViewStartFailedBody', action: 'webViewStartFailedAction' }
+      : chromeProvider
+        ? { title: 'webViewUpdateChromeTitle', body: 'webViewUpdateChromeBody', action: 'webViewUpdateAction' }
+        : { title: 'webViewUpdateTitle', body: 'webViewUpdateBody', action: 'webViewUpdateAction' };
     var directory = localeDirectory(language);
 
     function apply(messages) {
       ['title', 'body', 'action'].forEach(function (id) {
-        var key = prefix + id.charAt(0).toUpperCase() + id.slice(1);
+        var key = keys[id];
         var entry = messages && messages[key];
         document.getElementById(id).textContent =
           entry && typeof entry.message === 'string' && entry.message ? entry.message : english[key];
@@ -45,7 +56,10 @@
       .getElementById('action')
       .setAttribute(
         'href',
-        needsUpdate ? 'https://play.google.com/store/apps/details?id=com.google.android.webview' : '/'
+        !needsUpdate
+          ? '/'
+          : 'https://play.google.com/store/apps/details?id=' +
+              (chromeProvider ? 'com.android.chrome' : 'com.google.android.webview')
       );
 
     try {

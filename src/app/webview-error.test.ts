@@ -5,6 +5,10 @@ import config from '../../capacitor.config';
 
 const PUBLIC_DIR = path.resolve(__dirname, '../../public');
 const PLAY_URL = 'https://play.google.com/store/apps/details?id=com.google.android.webview';
+const CHROME_PLAY_URL = 'https://play.google.com/store/apps/details?id=com.android.chrome';
+// Android 7 to 9 take Chrome as their WebView whenever it is enabled; Android 10 and later take Android System WebView.
+const OLD_ANDROID_9 =
+  'Mozilla/5.0 (Linux; Android 9; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/92.0.4515.159 Mobile Safari/537.36';
 const OLD_ANDROID = 'Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 Chrome/92.0.4515.159 Mobile Safari/537.36';
 const NEW_ANDROID = 'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/120.0.6099.230 Mobile Safari/537.36';
 const IOS = 'Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 Safari/604.1';
@@ -90,6 +94,45 @@ describe('WebView error page', () => {
     expect(document.getElementById('body')).toHaveTextContent(UPDATE_BODY);
     expect(document.getElementById('action')).toHaveTextContent('Open Google Play');
     expect(document.getElementById('action')).toHaveAttribute('href', PLAY_URL);
+  });
+
+  it('sends Android 9, whose WebView is Chrome, to the Chrome update listing', () => {
+    load(OLD_ANDROID_9, 'en-US');
+
+    expect(document.getElementById('title')).toHaveTextContent('Update Chrome');
+    expect(document.getElementById('body')).toHaveTextContent(
+      'Bread needs a newer version of Chrome, which shows web pages in apps on this version of Android. Update it from Google Play, then open Bread again.'
+    );
+    expect(document.getElementById('action')).toHaveTextContent('Open Google Play');
+    expect(document.getElementById('action')).toHaveAttribute('href', CHROME_PLAY_URL);
+  });
+
+  it.each([OLD_ANDROID, 'Mozilla/5.0 (Linux) AppleWebKit/537.36 Chrome/92.0.4515.159 Mobile Safari/537.36'])(
+    'keeps the WebView update listing on Android 10 and when no Android version is named: %s',
+    userAgent => {
+      load(userAgent, 'en-US');
+
+      expect(document.getElementById('title')).toHaveTextContent('Update Android System WebView');
+      expect(document.getElementById('action')).toHaveAttribute('href', PLAY_URL);
+    }
+  );
+
+  it('localizes the Chrome update copy', () => {
+    localeResponses['/_locales/de/messages.json'] = {
+      status: 200,
+      body: JSON.stringify({
+        webViewUpdateChromeTitle: { message: 'Chrome aktualisieren' },
+        webViewUpdateChromeBody: { message: 'Bread braucht ein neueres Chrome.' },
+        webViewUpdateAction: { message: 'Google Play öffnen' }
+      })
+    };
+
+    load(OLD_ANDROID_9, 'de-DE');
+
+    expect(document.getElementById('title')).toHaveTextContent('Chrome aktualisieren');
+    expect(document.getElementById('body')).toHaveTextContent('Bread braucht ein neueres Chrome.');
+    expect(document.getElementById('action')).toHaveTextContent('Google Play öffnen');
+    expect(document.getElementById('action')).toHaveAttribute('href', CHROME_PLAY_URL);
   });
 
   it.each([NEW_ANDROID, IOS])('offers a startup retry for a supported or non-Chrome WebView: %s', userAgent => {
