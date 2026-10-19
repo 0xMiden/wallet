@@ -73,6 +73,7 @@ interface Link {
 }
 
 const MAX_LINKS = 8;
+const MAX_VISITS = MAX_LINKS * 2;
 const TEXT_LIMIT = 16_384;
 
 const REVERTED_ERRORS = new Set<unknown>([
@@ -124,12 +125,12 @@ function readLink(source: object): Link {
 }
 
 // The cause chain, objects included: an EIP-1193 rejection's code sits on the provider's plain error object. A link the
-// wallet raised is no answer, so only what it wraps is read.
+// wallet raised is no answer, so only what it wraps is read. A separate visit cap bounds fresh-object causes.
 function linksOf(error: unknown): Link[] {
   const chain: Link[] = [];
   const seen = new Set<unknown>();
   let current = error;
-  while (seen.size < MAX_LINKS && !seen.has(current)) {
+  while (chain.length < MAX_LINKS && seen.size < MAX_VISITS && !seen.has(current)) {
     seen.add(current);
     if (typeof current === 'string') {
       if (current !== '') chain.push({ text: current.slice(0, TEXT_LIMIT) });

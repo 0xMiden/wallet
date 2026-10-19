@@ -130,6 +130,8 @@ function nativeRequestRejection(rejection: unknown): unknown {
     }
     // The classifier skips our display wrapper and reads the original wallet answer.
     const wrapped = walletRaised(new Error(message, { cause: rejection }));
+    const name: unknown = Reflect.get(rejection, 'name');
+    if (typeof name === 'string') wrapped.name = name;
     return markReownNativeFailure(wrapped, snapshot) ? wrapped : rejection;
   } catch {
     // Diagnostics must not replace a bridge rejection with an accessor's exception.
