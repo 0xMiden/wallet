@@ -2,8 +2,9 @@ import fs from 'fs';
 import path from 'path';
 
 /**
- * The Connect-approval sheet's private-data risk copy must describe the grant the
- * wallet actually issues.
+ * The dApp approval sheets' copy must describe what the wallet actually does. First, the
+ * Connect-approval sheet's private-data risk copy must describe the grant the wallet
+ * actually issues.
  *
  * `ConfirmPage` renders `confirmPrivateDataPermissionDescription` above a mandatory
  * "I understand the risk" checkbox whenever a dApp asks for Automatic private-data
@@ -88,5 +89,42 @@ describe('dApp private-data permission copy', () => {
   it('has no other English string claiming a wallet permission cannot be revoked', () => {
     const offenders = Object.entries(enJson).filter(([, value]) => /cannot be revoked/i.test(value));
     expect(offenders).toEqual([]);
+  });
+});
+
+/**
+ * The login approval's note must name what Bread signs. Without an object for "signs", DeepL rendered it in several
+ * locales as the login key signing transactions, which it cannot do (#1580).
+ */
+describe('dApp login signature note', () => {
+  const LOGIN_KEY = 'loginSignatureNote';
+  const RETIRED_LOGIN_NOTE =
+    "Bread signs with a key made only for $domain$. It can't move funds or change your account.";
+  const note = enJson[LOGIN_KEY];
+
+  it('names the sign-in message as what Bread signs, never a transaction', () => {
+    expect(note).toBeDefined();
+    expect(note).toContain('sign-in message');
+    expect(note).not.toMatch(/transaction/i);
+  });
+
+  it('keeps the site placeholder', () => {
+    expect(note).toContain('$domain$');
+  });
+
+  it('keeps en/en.json and en/messages.json in sync so the translation bot re-translates', () => {
+    const entry = enMessages[LOGIN_KEY];
+    expect(entry).toBeDefined();
+    expect(entry!.message).toBe(note);
+    expect(entry!.englishSource).toBe(note);
+  });
+
+  it('leaves no English bundle with the retired note', () => {
+    for (const locale of ['en', 'en_GB']) {
+      const flat: Record<string, string> = JSON.parse(
+        fs.readFileSync(path.join(LOCALES_DIR, locale, `${locale}.json`), 'utf8')
+      );
+      expect(flat[LOGIN_KEY]).not.toBe(RETIRED_LOGIN_NOTE);
+    }
   });
 });
