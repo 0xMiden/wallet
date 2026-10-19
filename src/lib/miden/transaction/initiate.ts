@@ -1,9 +1,4 @@
-import {
-  ClaimFeeNote,
-  claimFeeShortfallsBaseUnits,
-  isWorthClaiming,
-  totalClaimableAmount
-} from 'lib/miden/fees/spendable';
+import { ClaimFeeNote, claimFeeDecisions, isWorthClaiming, totalClaimableAmount } from 'lib/miden/fees/spendable';
 import { getOrCreateMultisigService, type GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
 import { resolveGuardianEndpoint } from 'lib/miden/guardian/account';
 import { GuardianRotationInProgressError } from 'lib/miden/guardian/rotation-in-progress';
@@ -686,18 +681,19 @@ const queueConsumeRows = async (
     // No await between the check and the write it guards.
     const insert = async (rowNotes: ConsumableNote[]): Promise<void> => {
       const feeNotes = claimFeeNotes(rowNotes, feeNotesById);
-      const [shortfall] = claimFeeShortfallsBaseUnits(
+      const [decision] = claimFeeDecisions(
         [feeNotes],
         ahead,
         context.vaultFeeAsset,
         context.nativeAssetId,
         context.verificationBaseFee
       );
-      if (shortfall) {
+      if (decision?.shortfall) {
         feeRefusedNoteIds.push(...rowNotes.map(note => note.id));
         return;
       }
       const row = newRow(rowNotes);
+      row.feeAdmission = decision?.admission;
       if (canSign && !canSign()) throw new ClaimInsertRefusedError();
       await Repo.transactions.add(row);
       createdIds.push(row.id);

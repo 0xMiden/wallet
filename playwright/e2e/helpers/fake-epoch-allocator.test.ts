@@ -14,7 +14,6 @@ import { getSimpleWitnessHash } from '@epoch-protocol/epoch-commons-sdk';
 import { request } from 'node:http';
 
 import { FakeEpochAllocator } from './fake-epoch-allocator';
-import { MOCK_USDC_ADDRESS } from '../ios/helpers/evm-doubles';
 
 /** Same fixed widths the SDK packs a 32-byte binding hash into (7+7+7+7+4). */
 const BINDING_FELT_BYTE_WIDTHS = [7, 7, 7, 7, 4];
@@ -223,10 +222,18 @@ describe('FakeEpochAllocator allocation recovery transport', () => {
     });
   });
 
-  it('quotes the EVM USDC at 18 decimals, as the Sepolia token answers', async () => {
+  it('quotes the posted input amount as tokenIn, in EVM USDC at 18 decimals as the Sepolia token answers', async () => {
+    for (const tokenInAmount of ['10000000000000000000', '1250000000000000000']) {
+      await expect(
+        allocatorRequest(allocator, '/checkIfDepositNeeded', { compact: { mandate: { tokenInAmount } } })
+      ).resolves.toMatchObject({
+        status: 200,
+        body: { tokenIn: tokenInAmount, tokenInDecimals: 18, tokenInSymbol: 'USDC' }
+      });
+    }
     await expect(allocatorRequest(allocator, '/checkIfDepositNeeded', {})).resolves.toMatchObject({
-      status: 200,
-      body: { tokenIn: MOCK_USDC_ADDRESS, tokenInDecimals: 18, tokenInSymbol: 'USDC' }
+      status: 400,
+      body: { success: false }
     });
   });
 

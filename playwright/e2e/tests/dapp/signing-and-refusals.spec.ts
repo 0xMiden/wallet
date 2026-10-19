@@ -61,9 +61,11 @@ import type { ConnectedView, RawArg } from '../../test-dapp/protocol';
 const WORD = `0x${'11'.repeat(32)}`;
 const OTHER_KEY = `0x${'22'.repeat(32)}`;
 const SUMMARY_AMOUNT = tst(0.5);
-// en.json:1084, rendered by OpaqueSignatureWarning (ConfirmPage.tsx:116-120) for Arbitrary and Blind inputs.
+// en.json's `opaqueSignatureTitle`, rendered by OpaqueSignatureWarning in ConfirmPage.tsx for Arbitrary and Blind
+// inputs.
 const OPAQUE_WARNING = 'Opaque signature request';
-// en.json:897 up to the domain it names: the login sheet's title (ConfirmPage.tsx:734), which has no test id.
+// en.json's `confirmLoginSignature` up to the domain it names: the `loginSign` title in ConfirmPage.tsx, which has no
+// test id.
 const LOGIN_TITLE = 'Sign in to ';
 
 async function connectedView(j: Journey, ctx: CellContext): Promise<ConnectedView> {
@@ -150,7 +152,8 @@ function signingCells(j: Journey): Record<string, DappCellImpl> {
     },
     G2a: signingInputsCell('arbitrary', opaque),
     // The twin's summary receives SUMMARY_AMOUNT and its fee headroom (guardian-request-builder.ts previewTwinSummary),
-    // so the verified view (ConfirmPage.tsx:342-348) lists a 0.5 TST row beside the native one (spike row 8).
+    // so the verified view (SigningInputsPayloadContent's TransactionSummary arm in ConfirmPage.tsx) lists a 0.5 TST
+    // row beside the native one (spike row 8).
     G2b: signingInputsCell('summary', async popup => {
       const verified = popup.locator('[data-testid="tx-asset-view"][data-mode="verified"]');
       await expect(verified).toBeVisible();
@@ -454,10 +457,7 @@ function refusalCells(j: Journey, fx: RefusalFixtures): Record<string, DappCellI
         call: 'requestTransaction',
         args: [{ type: 'custom', payload: { address: me.addressCanonical, recipientAddress: '' } }]
       }),
-      refusal(
-        'InvalidParamsMidenWalletError',
-        'INVALID_PARAMS: Error: INVALID_PARAMS: Invalid CustomTransaction payload'
-      )
+      refusal('InvalidParamsMidenWalletError', 'INVALID_PARAMS: Invalid CustomTransaction payload')
     ),
     // Malformed request bytes are rejected before any confirmation surface opens.
     'R3-customUndecodable': refusedBeforePrompt(

@@ -105,6 +105,32 @@ final class ClientTests: XCTestCase {
         XCTAssertEqual(seen, ["type": "SIGN_REQUEST", "payload": "aGVsbG8="])
     }
 
+    func testRequestLoginKeyAndSignLoginBytesUseTheSessionAccount() async throws {
+        let client = try await connected()
+        var seen: JSONObject?
+        answer(with: client) { [bread] link in
+            seen = try bread.openRequest(link).request
+            let type = seen?["type"]?.stringValue == "LOGIN_KEY_REQUEST" ? "LOGIN_KEY_RESPONSE" : "LOGIN_SIGN_RESPONSE"
+            let field = type == "LOGIN_KEY_RESPONSE" ? "loginKey" : "signature"
+            return try bread.answerRequest(link, answer: ["response": ["type": .string(type), field: "AQID"]])
+        }
+
+        let key = try await client.requestLoginKey()
+        XCTAssertEqual(key, Data([1, 2, 3]))
+        XCTAssertEqual(
+            seen,
+            ["type": "LOGIN_KEY_REQUEST", "sourceAccountId": "mtst1qy35q7ar3h0cgyqqqx2gs3nzxrgu7hz5xz3"])
+
+        let signature = try await client.signLoginBytes(Data([4, 5, 6]))
+        XCTAssertEqual(signature, Data([1, 2, 3]))
+        XCTAssertEqual(
+            seen,
+            [
+                "type": "LOGIN_SIGN_REQUEST", "sourceAccountId": "mtst1qy35q7ar3h0cgyqqqx2gs3nzxrgu7hz5xz3",
+                "payload": "BAUG", "kind": "word"
+            ])
+    }
+
     func testATransactionsOutcomeIsKept() async throws {
         let client = try await connected()
         answer(with: client) { [bread] in

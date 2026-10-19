@@ -437,7 +437,7 @@ describe('EarnPositionDetail', () => {
     expect(hapticLight).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole('button', { name: 'withdraw' }));
-    expect(mockNavigate).toHaveBeenLastCalledWith('/earn/positions/pos-flat/withdraw/review');
+    expect(mockNavigate).toHaveBeenLastCalledWith('/earn/positions/pos-flat/withdraw');
     expect(hapticLight).not.toHaveBeenCalled();
   });
 

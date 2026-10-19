@@ -5,6 +5,7 @@ public enum ProtocolErrorCode: String, CaseIterable, Sendable {
     case notFound = "NOT_FOUND"
     case invalidParams = "INVALID_PARAMS"
     case networkNotGranted = "NETWORK_NOT_GRANTED"
+    case loginKeyUnavailable = "LOGIN_KEY_UNAVAILABLE"
     case unsupportedMethod = "UNSUPPORTED_METHOD"
     case invalidRequest = "INVALID_REQUEST"
     case duplicateRequest = "DUPLICATE_REQUEST"

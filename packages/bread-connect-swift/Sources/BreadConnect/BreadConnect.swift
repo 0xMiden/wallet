@@ -160,6 +160,37 @@ public final class BreadConnect {
         return try await exchange(.request(id: id, session: session.session.session, sentAt: sentAt), link: link)
     }
 
+    /// The account's login key for the callback's domain, as Bread's own provider returns it.
+    public func requestLoginKey() async throws -> Data {
+        let response = try await request(["type": "LOGIN_KEY_REQUEST", "sourceAccountId": .string(try connectedAccountId())])
+        return try standardBase64(response, type: "LOGIN_KEY_RESPONSE", field: "loginKey")
+    }
+
+    /// A signature by that key over the login message for `data`. The kind is only `word`.
+    public func signLoginBytes(_ data: Data) async throws -> Data {
+        let response = try await request([
+            "type": "LOGIN_SIGN_REQUEST", "sourceAccountId": .string(try connectedAccountId()),
+            "payload": .string(data.base64EncodedString()), "kind": "word"
+        ])
+        return try standardBase64(response, type: "LOGIN_SIGN_RESPONSE", field: "signature")
+    }
+
+    private func connectedAccountId() throws -> String {
+        guard let accountId = session?.permission["accountId"]?.stringValue else {
+            throw BreadConnectError(.bread(.notGranted), "The app is not connected to Bread")
+        }
+        return accountId
+    }
+
+    private func standardBase64(_ response: JSONObject, type: String, field: String) throws -> Data {
+        guard response["type"]?.stringValue == type, let text = response[field]?.stringValue,
+            let data = Data(base64Encoded: text)
+        else {
+            throw BreadConnectError(.bread(.internalError), "Bread's answer has no well-formed \(field)")
+        }
+        return data
+    }
+
     /// Stops waiting for the answer to the request in flight.
     public func cancelPending() {
         settle(.failure(BreadConnectError(.cancelled, "The request to Bread was cancelled")))

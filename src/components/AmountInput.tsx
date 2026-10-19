@@ -65,6 +65,12 @@ export function normalizeDecimalInput(rawValue: string): string {
 
 export interface AmountInputProps {
   value?: string;
+  /** Exact-token flows can opt into their own precision validation instead of the send default. */
+  decimalsLimit?: number;
+  maxLength?: number;
+  allowNegativeValue?: boolean;
+  /** Disable blur callbacks when the displayed value is a compact view of an exact selection. */
+  formatValueOnBlur?: boolean;
   onValueChange?: (value: string | undefined, name?: string, values?: CurrencyInputOnChangeValues) => void;
   placeholder?: string;
   /** Small heading above the amount (e.g. "Select Amount"), optionally a node with a network pill. */
@@ -108,6 +114,10 @@ export interface AmountInputProps {
  */
 export const AmountInput: React.FC<AmountInputProps> = ({
   value,
+  decimalsLimit = 6,
+  maxLength = 16,
+  allowNegativeValue = false,
+  formatValueOnBlur = true,
   onValueChange,
   placeholder = '0.00',
   label,
@@ -151,9 +161,10 @@ export const AmountInput: React.FC<AmountInputProps> = ({
       // pin it to a space, which never collides with our "." decimal (#433).
       groupSeparator=" "
       decimalSeparator="."
-      decimalsLimit={6}
-      allowNegativeValue={false}
-      maxLength={16}
+      decimalsLimit={decimalsLimit}
+      allowNegativeValue={allowNegativeValue}
+      formatValueOnBlur={formatValueOnBlur}
+      maxLength={maxLength}
       enterKeyHint="done"
       autoFocus={autoFocus}
       disabled={disabled}

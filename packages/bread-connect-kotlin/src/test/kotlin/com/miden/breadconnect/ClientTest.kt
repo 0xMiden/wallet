@@ -18,6 +18,9 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -42,6 +45,18 @@ class ClientTest {
     /** Answers each link the client opens with [answer], as Bread does once the user decides. */
     private fun BreadConnect.answering(answer: (String) -> String) {
         opener.onOpen = { link -> handle(answer(link)) }
+    }
+
+    private fun BreadConnect.answerLoginBytes(encoded: String) {
+        answering { link ->
+            val request = bread.openRequest(link).second
+            val key = request["type"].string == "LOGIN_KEY_REQUEST"
+            val response = buildJsonObject {
+                put("type", if (key) "LOGIN_KEY_RESPONSE" else "LOGIN_SIGN_RESPONSE")
+                put(if (key) "loginKey" else "signature", encoded)
+            }
+            bread.answerRequest(link, buildJsonObject { put("response", response) })
+        }
     }
 
     private suspend fun connected(): BreadConnect {
@@ -117,6 +132,92 @@ class ClientTest {
         assertEquals(json("""{"type":"SIGN_RESPONSE","signature":"c2ln"}"""), response)
         assertEquals(json("""{"type":"SIGN_REQUEST","payload":"aGVsbG8="}"""), seen?.second)
         assertEquals(now, seen?.third)
+    }
+
+    @Test
+    fun requestLoginKeyAndSignLoginBytesUseTheSessionAccount() = runTest {
+        val client = connected()
+        var seen: JsonObject? = null
+        client.answering { link ->
+            val opened = bread.openRequest(link)
+            seen = opened.second
+            val type = if (opened.second["type"].string == "LOGIN_KEY_REQUEST") "LOGIN_KEY_RESPONSE" else "LOGIN_SIGN_RESPONSE"
+            val field = if (type == "LOGIN_KEY_RESPONSE") "loginKey" else "signature"
+            bread.answerRequest(link, json("""{"response":{"type":"$type","$field":"++//AA=="}}"""))
+        }
+
+        assertArrayEquals(byteArrayOf(-5, -17, -1, 0), client.requestLoginKey())
+        assertEquals(
+            json("""{"type":"LOGIN_KEY_REQUEST","sourceAccountId":"mtst1qy35q7ar3h0cgyqqqx2gs3nzxrgu7hz5xz3"}"""),
+            seen,
+        )
+
+        assertArrayEquals(byteArrayOf(-5, -17, -1, 0), client.signLoginBytes(byteArrayOf(-5, -17, -1, 0)))
+        assertEquals(
+            json("""{"type":"LOGIN_SIGN_REQUEST","sourceAccountId":"mtst1qy35q7ar3h0cgyqqqx2gs3nzxrgu7hz5xz3","payload":"++//AA==","kind":"word"}"""),
+            seen,
+        )
+    }
+
+    @Test
+    fun loginHelpersMapMalformedBase64ToInternalError() = runTest {
+        val client = connected()
+        client.answering { link ->
+            val request = bread.openRequest(link).second
+            val key = request["type"].string == "LOGIN_KEY_REQUEST"
+            val type = if (key) "LOGIN_KEY_RESPONSE" else "LOGIN_SIGN_RESPONSE"
+            val field = if (key) "loginKey" else "signature"
+            bread.answerRequest(link, json("""{"response":{"type":"$type","$field":"%%%"}}"""))
+        }
+
+        assertFails(BreadConnectException.Code.Bread(ProtocolErrorCode.INTERNAL_ERROR)) { client.requestLoginKey() }
+        assertFails(BreadConnectException.Code.Bread(ProtocolErrorCode.INTERNAL_ERROR)) {
+            client.signLoginBytes(byteArrayOf(0))
+        }
+    }
+
+    @Test
+    fun loginHelpersAcceptBasicBase64PaddingAndEmptyData() = runTest {
+        val client = connected()
+        val answers = listOf(
+            "" to byteArrayOf(),
+            "AQ==" to byteArrayOf(1),
+            "AQ" to byteArrayOf(1),
+            "AQI=" to byteArrayOf(1, 2),
+            "AQI" to byteArrayOf(1, 2),
+            "AQID" to byteArrayOf(1, 2, 3),
+            "++//AA" to byteArrayOf(-5, -17, -1, 0),
+            "AB==" to byteArrayOf(0),
+        )
+        for ((encoded, bytes) in answers) {
+            client.answerLoginBytes(encoded)
+            assertArrayEquals("login key for $encoded", bytes, client.requestLoginKey())
+            assertArrayEquals("login signature for $encoded", bytes, client.signLoginBytes(byteArrayOf(0)))
+        }
+    }
+
+    @Test
+    fun loginHelpersRejectWhitespaceInBase64Replies() = runTest {
+        val client = connected()
+        for (encoded in listOf(" ", "\t\r\n", " AQ==", "AQ== ", "A Q==", "A\tQ==", "AQ==\r\n")) {
+            client.answerLoginBytes(encoded)
+            assertFails(BreadConnectException.Code.Bread(ProtocolErrorCode.INTERNAL_ERROR)) { client.requestLoginKey() }
+            assertFails(BreadConnectException.Code.Bread(ProtocolErrorCode.INTERNAL_ERROR)) {
+                client.signLoginBytes(byteArrayOf(0))
+            }
+        }
+    }
+
+    @Test
+    fun loginHelpersRejectMalformedBase64Padding() = runTest {
+        val client = connected()
+        for (encoded in listOf("A", "AQ=", "AQ===", "A===", "=AQ=", "AQ==AA==", "AQI==")) {
+            client.answerLoginBytes(encoded)
+            assertFails(BreadConnectException.Code.Bread(ProtocolErrorCode.INTERNAL_ERROR)) { client.requestLoginKey() }
+            assertFails(BreadConnectException.Code.Bread(ProtocolErrorCode.INTERNAL_ERROR)) {
+                client.signLoginBytes(byteArrayOf(0))
+            }
+        }
     }
 
     @Test
