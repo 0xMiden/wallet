@@ -8,8 +8,11 @@ import { act } from 'react-dom/test-utils';
 import { PROTECTOR_PROBE_DEADLINE_MS } from 'app/hooks/useHardwareProtector';
 import { initMobileBackHandler } from 'lib/mobile/back-handler';
 import { SeedPhraseStatus } from 'lib/shared/types';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
 import RevealSeedPhrase from './RevealSeedPhrase';
+
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
 
 let mockSeedStatus: SeedPhraseStatus = 'stored';
 jest.mock('lib/store', () => ({
@@ -79,30 +82,47 @@ jest.mock('components/PageHeader', () => {
 
 // Mobile passcode-protected vaults render the numpad instead of a password
 // field. Mock exposes onChange/onSubmit + echoes error/isSubmitting props.
-jest.mock('components/PasscodeEntry', () => ({
-  PasscodeEntry: ({
-    onSubmit,
-    onChange,
-    error,
-    isSubmitting
-  }: {
-    onSubmit: (code: string) => void;
-    onChange: (code: string) => void;
-    error?: string | null;
-    isSubmitting?: boolean;
-  }) => (
-    <div>
-      <button data-testid="passcode-change" onClick={() => onChange('1')}>
-        passcode-change
-      </button>
-      <button data-testid="passcode-submit" onClick={() => onSubmit('123456')}>
-        passcode-submit
-      </button>
-      <span data-testid="passcode-error">{error ?? ''}</span>
-      <span data-testid="passcode-submitting">{String(Boolean(isSubmitting))}</span>
-    </div>
-  )
-}));
+let mockRenderActualPasscode = false;
+jest.mock('components/PasscodeEntry', () => {
+  const stub = {
+    PasscodeEntry: ({
+      onSubmit,
+      onChange,
+      error,
+      isSubmitting
+    }: {
+      onSubmit: (code: string) => void;
+      onChange: (code: string) => void;
+      error?: string | null;
+      isSubmitting?: boolean;
+    }) => (
+      <div>
+        <button data-testid="passcode-change" onClick={() => onChange('1')}>
+          passcode-change
+        </button>
+        <button data-testid="passcode-submit" onClick={() => onSubmit('123456')}>
+          passcode-submit
+        </button>
+        <span data-testid="passcode-error">{error ?? ''}</span>
+        <span data-testid="passcode-submitting">{String(Boolean(isSubmitting))}</span>
+      </div>
+    )
+  };
+  return {
+    PasscodeEntry: (
+      props: import('components/PasscodeEntry').PasscodeEntryProps & { onChange: (code: string) => void }
+    ) => {
+      const RealPasscodeEntry =
+        jest.requireActual<typeof import('components/PasscodeEntry')>('components/PasscodeEntry').PasscodeEntry;
+      return (
+        <>
+          <stub.PasscodeEntry {...props} />
+          {mockRenderActualPasscode && <RealPasscodeEntry {...props} />}
+        </>
+      );
+    }
+  };
+});
 
 // Drawer stub: like vaul's portal, it renders its content only while open. It
 // exposes buttons that fire onOpenChange with both `false` (close) and `true`
@@ -140,9 +160,7 @@ jest.mock('lib/miden/front', () => ({
   useMidenContext: () => ({ revealMnemonic: mockRevealMnemonic })
 }));
 
-jest.mock('lib/mobile/haptics', () => ({
-  hapticLight: () => mockHapticLight()
-}));
+jest.mock('lib/mobile/haptics', () => ({ hapticError: jest.fn(), hapticLight: () => mockHapticLight() }));
 
 jest.mock('lib/platform', () => ({
   isMobile: () => mockIsMobile,
@@ -202,6 +220,7 @@ describe('RevealSeedPhrase', () => {
   });
 
   beforeEach(() => {
+    mockRenderActualPasscode = false;
     jest.clearAllMocks();
     // Only read when the hardware probe REJECTS, which no other test makes it do.
     mockHasPasswordProtector.mockResolvedValue(false);
@@ -1069,6 +1088,10 @@ describe('RevealSeedPhrase', () => {
     expect(mockSetSecret).not.toHaveBeenCalledWith(expect.stringContaining('alpha'));
     // The shared negative Notice carries the message, in place of the Alert atom.
     expect(container.querySelector('[data-tone="negative"] [data-slot="body"]')!.textContent).toBe('biometric failed');
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 1050));
+    });
+    expect(reportUserVisibleError).toHaveBeenCalledWith('raw_seed_reveal_failed', 'notice');
     // BOTH at zero is the discriminating assertion. A count of 1 could not tell the
     // fix from the bug: the catch and the auto-close effect each wanted out, so
     // removing one merely promoted the other and the total stayed 1.
@@ -1337,6 +1360,10 @@ describe('RevealSeedPhrase', () => {
     expect(mockRevealMnemonic).toHaveBeenCalledWith('bad-password');
     expect(mockSetSecret).not.toHaveBeenCalledWith('alpha beta gamma delta');
     expect(container.querySelector('[data-testid="error-caption"]')!.textContent).toBe('wrong password');
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 1050));
+    });
+    expect(reportUserVisibleError).toHaveBeenCalledWith('raw_seed_reveal_failed', 'field');
     // The drawer must stay open on the same auth branch - a submit error is not an exit.
     expect(container.querySelector('[data-testid="drawer"]')!.getAttribute('data-open')).toBe('true');
     expect(container.querySelector('[data-testid="reveal-seed-auth"]')).toBeTruthy();
@@ -1415,6 +1442,7 @@ describe('RevealSeedPhrase', () => {
   });
 
   it('surfaces a passcode error in the numpad after a failed mobile unlock', async () => {
+    mockRenderActualPasscode = true;
     mockIsMobile = true;
     mockHasHardwareProtector.mockResolvedValue(false);
     mockRevealMnemonic.mockRejectedValue(new Error('wrong passcode'));
@@ -1429,6 +1457,10 @@ describe('RevealSeedPhrase', () => {
     expect(mockRevealMnemonic).toHaveBeenCalledWith('123456');
     expect(mockSetSecret).not.toHaveBeenCalledWith('alpha beta gamma delta');
     expect(container.querySelector('[data-testid="passcode-error"]')!.textContent).toBe('wrong passcode');
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 1050));
+    });
+    expect(reportUserVisibleError).toHaveBeenCalledWith('raw_seed_reveal_failed', 'passcode');
   });
 
   it('leaves the page exactly once when the revealed phrase auto-hides', async () => {

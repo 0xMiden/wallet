@@ -2,12 +2,15 @@ import '../../../test/jest-mocks';
 
 import React from 'react';
 
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import { useWalletStore } from 'lib/store';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 import { WalletType } from 'screens/onboarding/types';
 
 import { GuardianNeedsUrlBanner } from './GuardianNeedsUrlBanner';
+
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
 
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
@@ -142,6 +145,10 @@ describe('GuardianNeedsUrlBanner', () => {
     fireEvent.click(getSubmitButton());
 
     await waitFor(() => expect(screen.getByText('network down')).toBeInTheDocument());
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 1050));
+    });
+    expect(reportUserVisibleError).toHaveBeenCalledWith('raw_guardian_url_save_failed', 'inline');
   });
 
   it('surfaces a stringified message when a non-Error value is thrown', async () => {

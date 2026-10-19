@@ -11,12 +11,21 @@ import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useRetryableSWR } from 'lib/swr';
 import { snapshotCrashDiagnostics } from 'lib/telemetry/crash-diagnostics';
+import * as userVisibleErrors from 'lib/telemetry/user-visible-error';
 import { useLocation } from 'lib/woozie';
 
 import { declaredRequestToView, summaryBytesToView } from './confirm/decode';
 import { TransactionAssetView } from './confirm/TransactionAssetView';
 import ConfirmPage from './ConfirmPage';
 import { ConfirmPageSelectors } from './ConfirmPage.selectors';
+
+jest.mock('lib/telemetry/user-visible-error', () => ({
+  reportUserVisibleError: jest.fn(),
+  isUserErrorId: (value: unknown) => jest.requireActual('lib/telemetry/user-visible-error').isUserErrorId(value),
+  get USER_ERROR_SURFACES() {
+    return jest.requireActual('lib/telemetry/user-visible-error').USER_ERROR_SURFACES;
+  }
+}));
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -695,6 +704,10 @@ describe('connect payload', () => {
     });
 
     await waitFor(() => expect(screen.getByText('network boom')).toBeInTheDocument());
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 1050));
+    });
+    expect(userVisibleErrors.reportUserVisibleError).toHaveBeenCalledWith('raw_confirm_approval_failed', 'inline');
   });
 
   it('falls back to the generic error message when the thrown error has none', async () => {
@@ -817,11 +830,15 @@ describe('transaction payload', () => {
     await waitFor(() => expect(ctx.confirmDAppTransaction).toHaveBeenCalledWith('req-1', false, false));
   });
 
-  it('renders the payloadError instead of the derived content when present', () => {
+  it('renders the payloadError instead of the derived content when present', async () => {
     setPayload({ ...txPayload(), error: 'preview failed' });
     render(<ConfirmPage />);
 
     expect(screen.getByText('preview failed')).toBeInTheDocument();
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 1050));
+    });
+    expect(userVisibleErrors.reportUserVisibleError).toHaveBeenCalledWith('raw_confirm_payload_failed', 'inline');
   });
 });
 
@@ -935,7 +952,7 @@ describe('sign payload — word', () => {
     expect(screen.getByText('0xdeadbeefcafe')).toBeInTheDocument();
   });
 
-  it('logs and shows the invalid-payload copy under advanced details when deserialization throws', () => {
+  it('logs and shows the invalid-payload copy under advanced details when deserialization throws', async () => {
     mockWord.deserialize.mockImplementation(() => {
       throw new Error('bad word');
     });
@@ -946,8 +963,17 @@ describe('sign payload — word', () => {
     expect(screen.getByText('opaqueSignatureWarning')).toBeInTheDocument();
     expect(consoleErrorSpy).toHaveBeenCalled();
 
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 1050));
+    });
+    expect(userVisibleErrors.reportUserVisibleError).not.toHaveBeenCalled();
+
     fireEvent.click(screen.getByRole('button', { name: 'rawValue' }));
     expect(screen.getByText('invalidPayload')).toBeInTheDocument();
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 1050));
+    });
+    expect(userVisibleErrors.reportUserVisibleError).toHaveBeenCalledWith('invalidPayload', 'inline');
   });
 
   it('confirms the signature via confirmDAppSign', async () => {
@@ -1012,7 +1038,7 @@ describe('sign payload — signingInputs', () => {
     return { variantType: SigningInputsType.TransactionSummary, transactionSummaryPayload: () => ts };
   };
 
-  it('shows the parse-failure copy when SigningInputs.deserialize throws', () => {
+  it('shows the parse-failure copy when SigningInputs.deserialize throws', async () => {
     mockSigningInputs.deserialize.mockImplementation(() => {
       throw new Error('bad si');
     });
@@ -1020,6 +1046,10 @@ describe('sign payload — signingInputs', () => {
     render(<ConfirmPage />);
 
     expect(screen.getByText('failedToParseSigningPayload')).toBeInTheDocument();
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 1050));
+    });
+    expect(userVisibleErrors.reportUserVisibleError).toHaveBeenCalledWith('failedToParseSigningPayload', 'inline');
     expect(consoleErrorSpy).toHaveBeenCalled();
   });
 
@@ -1378,15 +1408,23 @@ describe('ConfirmPage custom transaction', () => {
     render(<ConfirmPage />);
 
     await waitFor(() => expect(screen.getByText('couldNotVerifyBySimulation')).toBeInTheDocument());
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 1050));
+    });
+    expect(userVisibleErrors.reportUserVisibleError).toHaveBeenCalledWith('couldNotVerifyBySimulation', 'inline');
     expect(screen.getByTestId('asset-view')).toHaveAttribute('data-mode', 'declared');
   });
 
-  it('shows could-not-decode when requestBytes is absent', () => {
+  it('shows could-not-decode when requestBytes is absent', async () => {
     (ctx as any).simulateCustomTransaction.mockResolvedValue({ error: 'x' });
     setPayload(customPayload({ requestBytes: undefined }));
     render(<ConfirmPage />);
 
     expect(screen.getByText('couldNotDecodeTransaction')).toBeInTheDocument();
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 1050));
+    });
+    expect(userVisibleErrors.reportUserVisibleError).toHaveBeenCalledWith('couldNotDecodeTransaction', 'inline');
   });
 
   it('logs and falls back to could-not-decode when declaredRequestToView throws and simulation also fails', async () => {
