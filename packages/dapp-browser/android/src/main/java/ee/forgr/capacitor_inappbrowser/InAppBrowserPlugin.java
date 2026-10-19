@@ -813,7 +813,7 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
                 @Override
                 public void javascriptCallback(String message) {
                     // Handle the message received from JavaScript
-                    Log.d("WebViewDialog", "Received message from JavaScript: " + message);
+                    Log.d("WebViewDialog", "Received message from JavaScript");
                     // Process the message as needed
                     try {
                         // Parse the received message as a JSON object
@@ -838,7 +838,8 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
                         // Notify listeners with the parsed message
                         notifyListeners("messageFromWebview", jsObject);
                     } catch (JSONException e) {
-                        Log.e("WebViewDialog", "Error parsing JSON message: " + e.getMessage());
+                        // JSON exception messages can include the bridge payload.
+                        Log.e("WebViewDialog", "Error parsing JSON message");
 
                         // If JSON parsing fails, send the raw message as a string
                         JSObject jsObject = new JSObject();
@@ -1022,13 +1023,12 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
             return;
         }
         JSObject eventData = call.getObject("detail");
-        // Log event data
         if (eventData == null) {
             call.reject("No event data provided");
             return;
         }
 
-        Log.d("InAppBrowserPlugin", "Event data: " + eventData.toString());
+        Log.d("InAppBrowserPlugin", "Sending message to JavaScript");
         this.getActivity().runOnUiThread(
             new Runnable() {
                 @Override
