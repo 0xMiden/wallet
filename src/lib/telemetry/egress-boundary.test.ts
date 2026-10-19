@@ -1,12 +1,15 @@
 import { act, renderHook } from '@testing-library/react';
+import Dexie from 'dexie';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
 
 import { useAppLifecycleTelemetry } from 'app/hooks/useAppLifecycleTelemetry';
 import { useFundTelemetry } from 'app/hooks/useFundTelemetry';
 import { deserializeInternalError } from 'lib/intercom/helpers';
+import { ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import { request } from 'lib/miden/front';
 import { reportNoteClaim } from 'lib/miden/front/claim-telemetry';
+import { createSchemaFor, Table } from 'lib/miden/repo';
 import { MidenMessageType } from 'lib/miden/types';
 import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
@@ -332,6 +335,84 @@ function parsePayload(text: string): Record<string, unknown> {
   const payload: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(parsed)) payload[key] = value;
   return payload;
+}
+
+function sentryEvents(): Record<string, unknown>[] {
+  const events: Record<string, unknown>[] = [];
+  for (const entry of captured) {
+    if (!new URL(entry.url).pathname.endsWith('/envelope/')) continue;
+    const lines = entry.body.split('\n');
+    for (let index = 1; index < lines.length; index += 2) {
+      const header = lines[index];
+      const payload = lines[index + 1];
+      if (header === undefined || payload === undefined) throw new Error('incomplete Sentry envelope item');
+      if (parsePayload(header).type === 'event') events.push(parsePayload(payload));
+    }
+  }
+  return events;
+}
+
+interface CursorFaultEvidence {
+  opened: number;
+  requestErrors: number;
+}
+
+async function withCursorRequestFailure(
+  target: Dexie,
+  failure: Error,
+  run: (evidence: CursorFaultEvidence) => Promise<void>
+): Promise<void> {
+  const evidence: CursorFaultEvidence = { opened: 0, requestErrors: 0 };
+  const backend = target.backendDB();
+  const restores: Array<() => void> = [];
+  const openCursor = IDBObjectStore.prototype.openCursor;
+  const spy = jest.spyOn(IDBObjectStore.prototype, 'openCursor').mockImplementation(function (
+    this: IDBObjectStore,
+    query?: IDBValidKey | IDBKeyRange | null,
+    direction?: IDBCursorDirection
+  ) {
+    const request = openCursor.call(this, query, direction);
+    if (this.transaction.db !== backend) return request;
+    const onSuccess = () => {
+      const cursor: unknown = request.result;
+      if (!(cursor instanceof IDBCursor)) throw new Error('fault fixture did not open a real cursor');
+      const iterate: unknown = Reflect.get(cursor, '_iterate');
+      if (typeof iterate !== 'function') throw new Error('fault fixture cannot find cursor iteration');
+      evidence.opened++;
+      const own = Object.getOwnPropertyDescriptor(cursor, '_iterate');
+      // fake-indexeddb schedules this private method for the next real request, after open has succeeded.
+      Object.defineProperty(cursor, '_iterate', {
+        configurable: true,
+        writable: true,
+        value: () => {
+          throw failure;
+        }
+      });
+      restores.push(() => {
+        if (own === undefined) Reflect.deleteProperty(cursor, '_iterate');
+        else Object.defineProperty(cursor, '_iterate', own);
+      });
+    };
+    const onError = () => {
+      if (evidence.opened === 0 || request.error !== failure) {
+        throw new Error('fault fixture did not observe the post-open request failure');
+      }
+      evidence.requestErrors++;
+    };
+    request.addEventListener('success', onSuccess);
+    request.addEventListener('error', onError);
+    restores.push(() => {
+      request.removeEventListener('success', onSuccess);
+      request.removeEventListener('error', onError);
+    });
+    return request;
+  });
+  try {
+    await run(evidence);
+  } finally {
+    for (const restore of restores.reverse()) restore();
+    spy.mockRestore();
+  }
 }
 
 /** Every Aptabase envelope that reached the wire, parsed. */
@@ -1226,6 +1307,237 @@ describe('crash-report egress', () => {
     expect(text).not.toContain('"payload"');
   });
 
+  describe('storage rejection egress', () => {
+    const poison = {
+      database: 'wire-poison-database-hazel',
+      firstPrimaryKey: 'wire-poison-primary-a',
+      secondPrimaryKey: 'wire-poison-primary-b',
+      indexedQueryKey: 'wire-poison-primary-',
+      accountId: 'wire-poison-account-opaque',
+      transactionId: HIGH_ENTROPY_POISON.transactionId,
+      noteId: HIGH_ENTROPY_POISON.noteId,
+      address: HIGH_ENTROPY_POISON.addressTestnet,
+      amount: '715326498217',
+      fieldName: 'wirePoisonOpaqueField',
+      fieldValue: 'wire-poison-row-field-value',
+      nestedFieldName: 'wirePoisonNestedField',
+      nestedFieldValue: 'wire-poison-nested-field-value',
+      errorCredential: 'wire-poison-credential',
+      causeCredential: 'wire-poison-cause',
+      invalidOwner: 'wire-poison-owner',
+      invalidOperation: 'wire-poison-operation'
+    };
+    let target: Dexie;
+    let injectedFailure: Error;
+    let visibility: PropertyDescriptor | undefined;
+
+    beforeEach(async () => {
+      visibility = Object.getOwnPropertyDescriptor(document, 'visibilityState');
+      Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
+      target = createSchemaFor(poison.database);
+      await target.open();
+      const rows: Array<ITransaction & Record<string, unknown>> = [poison.firstPrimaryKey, poison.secondPrimaryKey].map(
+        id => ({
+          id,
+          type: 'send',
+          accountId: poison.accountId,
+          transactionId: poison.transactionId,
+          noteId: poison.noteId,
+          secondaryAccountId: poison.address,
+          amount: BigInt(poison.amount),
+          status: ITransactionStatus.Queued,
+          initiatedAt: 1,
+          displayIcon: 'SEND',
+          [poison.fieldName]: poison.fieldValue,
+          extraInputs: { [poison.nestedFieldName]: poison.nestedFieldValue }
+        })
+      );
+      await target.table<ITransaction, string>(Table.Transactions).bulkAdd(rows);
+      // An existing Dexie class preserves this exact Error and its cause through request-error mapping.
+      injectedFailure = new Dexie.UnknownError('cursor request failed password=wire-poison-credential');
+      injectedFailure.cause = new Error('continuation failed password=wire-poison-cause');
+    });
+
+    afterEach(async () => {
+      stopCrashReporting();
+      target.close();
+      try {
+        await target.delete();
+      } finally {
+        if (visibility === undefined) Reflect.deleteProperty(document, 'visibilityState');
+        else Object.defineProperty(document, 'visibilityState', visibility);
+      }
+    });
+
+    function scanFailure(): Promise<unknown> {
+      // A filter forces cursor iteration instead of Dexie's getAll fast path; the range poisons an actual query key.
+      return target
+        .table<ITransaction, string>(Table.Transactions)
+        .where(':id')
+        .aboveOrEqual(poison.indexedQueryKey)
+        .filter(() => true)
+        .toArray()
+        .then(
+          () => undefined,
+          (failure: unknown) => failure
+        );
+    }
+
+    function expectNoStoragePoison(text: string): void {
+      for (const sentinel of Object.values(poison)) {
+        for (const variant of encodingVariantsOf(sentinel)) expect(text).not.toContain(variant);
+      }
+      expect(leaksIn(text)).toEqual([]);
+    }
+
+    function expectOriginalExceptions(event: Record<string, unknown>): void {
+      expect(objectAt(event, 'exception').values).toEqual([
+        expect.objectContaining({ type: 'Error', value: expect.stringContaining('continuation failed') }),
+        expect.objectContaining({ type: 'UnknownError', value: expect.stringContaining('cursor request failed') })
+      ]);
+      expect(event).not.toHaveProperty('title');
+      expect(event).not.toHaveProperty('message');
+      expect(event).not.toHaveProperty('fingerprint');
+      expect(JSON.stringify(objectAt(event, 'exception'))).not.toMatch(
+        /wallet_transactions|storageOwner|storageOperation/
+      );
+    }
+
+    it('sends only closed storage values from a real post-open cursor rejection', async () => {
+      consentOn();
+      initCrashReporting();
+      await withCursorRequestFailure(target, injectedFailure, async evidence => {
+        const publicFailure = await scanFailure();
+        if (!(publicFailure instanceof Error)) throw new Error('cursor scan did not reject with an Error');
+        globalThis.dispatchEvent(Object.assign(new Event('unhandledrejection'), { reason: publicFailure }));
+        await flushEgress();
+
+        expect(evidence.opened).toBeGreaterThan(0);
+        expect(evidence.requestErrors).toBe(1);
+        expect(publicFailure).toBe(injectedFailure);
+        expect(publicFailure.name).toBe('UnknownError');
+        expect(captured).toHaveLength(1);
+        expect(sentryEvents()).toHaveLength(1);
+        expect(wireText()).toContain('continuation failed');
+        expect(wireText()).toContain('"type":"onunhandledrejection","handled":false');
+        expect(wireText()).toContain('"pageVisibility":"hidden"');
+        expect(wireText()).toContain('"page_visibility":"hidden"');
+        expect(wireText()).toContain('"storageOwner":"wallet_transactions"');
+        expect(wireText()).toContain('"storageOperation":"cursor"');
+        expect(wireText()).toContain('"storage_owner":"wallet_transactions"');
+        expect(wireText()).toContain('"storage_operation":"cursor"');
+        expectNoStoragePoison(wireText());
+        const event = sentryEvents()[0];
+        if (event === undefined) throw new Error('missing cursor report');
+        expectOriginalExceptions(event);
+      });
+    });
+
+    it('keeps poisoned cursor contents and scrubbed credentials off the real wire', async () => {
+      consentOn();
+      initCrashReporting();
+      await withCursorRequestFailure(target, injectedFailure, async evidence => {
+        const publicFailure = await scanFailure();
+        expect(publicFailure).toBe(injectedFailure);
+        globalThis.dispatchEvent(Object.assign(new Event('unhandledrejection'), { reason: publicFailure }));
+        await flushEgress();
+        expect(evidence.opened).toBeGreaterThan(0);
+        expect(evidence.requestErrors).toBe(1);
+        expect(captured).toHaveLength(1);
+        const events = sentryEvents();
+        expect(events).toHaveLength(1);
+        const event = events[0];
+        if (event === undefined) throw new Error('missing cursor report');
+        expectOriginalExceptions(event);
+        expectNoStoragePoison(wireText());
+      });
+    });
+
+    it('sends nothing when the same cursor failure is consumed', async () => {
+      consentOn();
+      initCrashReporting();
+      await withCursorRequestFailure(target, injectedFailure, async evidence => {
+        expect(await scanFailure()).toBe(injectedFailure);
+        await flushEgress();
+        expect(evidence.opened).toBeGreaterThan(0);
+        expect(evidence.requestErrors).toBe(1);
+        expect(captured).toHaveLength(0);
+      });
+    });
+
+    it('sends nothing for a real cursor failure when consent is denied', async () => {
+      consentOff();
+      initCrashReporting();
+      await withCursorRequestFailure(target, injectedFailure, async evidence => {
+        const publicFailure = await scanFailure();
+        expect(publicFailure).toBe(injectedFailure);
+        globalThis.dispatchEvent(Object.assign(new Event('unhandledrejection'), { reason: publicFailure }));
+        await flushEgress();
+        expect(evidence.opened).toBeGreaterThan(0);
+        expect(evidence.requestErrors).toBe(1);
+        expect(captured).toHaveLength(0);
+      });
+    });
+
+    it('drops unlisted storage labels on the real wire', async () => {
+      consentOn();
+      initCrashReporting();
+      const publicFailure = new Error('unlisted storage annotation');
+      // This adversarial annotation is separate from every genuine cursor rejection above.
+      annotateCrash(publicFailure, { storageOwner: poison.invalidOwner, storageOperation: poison.invalidOperation });
+      globalThis.dispatchEvent(Object.assign(new Event('unhandledrejection'), { reason: publicFailure }));
+      await flushEgress();
+      expect(captured).toHaveLength(1);
+      const events = sentryEvents();
+      expect(events).toHaveLength(1);
+      const event = events[0];
+      if (event === undefined) throw new Error('missing adversarial report');
+      const diagnostics = objectAt(objectAt(event, 'extra'), 'walletDiagnostics');
+      expect(diagnostics).not.toHaveProperty('storageOwner');
+      expect(diagnostics).not.toHaveProperty('storageOperation');
+      expect(diagnostics.pageVisibility).toBe('hidden');
+      const tags = objectAt(event, 'tags');
+      expect(tags).not.toHaveProperty('storage_owner');
+      expect(tags).not.toHaveProperty('storage_operation');
+      expect(tags.page_visibility).toBe('hidden');
+      expectNoStoragePoison(wireText());
+    });
+
+    it("does not attach a cursor failure's storage labels to the next event", async () => {
+      consentOn();
+      initCrashReporting();
+      await withCursorRequestFailure(target, injectedFailure, async evidence => {
+        const publicFailure = await scanFailure();
+        expect(publicFailure).toBe(injectedFailure);
+        globalThis.dispatchEvent(Object.assign(new Event('unhandledrejection'), { reason: publicFailure }));
+        await flushEgress();
+        expect(evidence.opened).toBeGreaterThan(0);
+        expect(evidence.requestErrors).toBe(1);
+        Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
+        globalThis.dispatchEvent(
+          Object.assign(new Event('unhandledrejection'), { reason: new Error('unrelated storage control') })
+        );
+        await flushEgress();
+        expect(captured).toHaveLength(2);
+        const events = sentryEvents();
+        expect(events).toHaveLength(2);
+        const [first, second] = events;
+        if (first === undefined || second === undefined) throw new Error('missing sequential reports');
+        expect(objectAt(objectAt(first, 'extra'), 'walletDiagnostics').pageVisibility).toBe('hidden');
+        expect(objectAt(first, 'tags').page_visibility).toBe('hidden');
+        const diagnostics = objectAt(objectAt(second, 'extra'), 'walletDiagnostics');
+        expect(diagnostics).not.toHaveProperty('storageOwner');
+        expect(diagnostics).not.toHaveProperty('storageOperation');
+        expect(diagnostics.pageVisibility).toBe('visible');
+        const tags = objectAt(second, 'tags');
+        expect(tags).not.toHaveProperty('storage_owner');
+        expect(tags).not.toHaveProperty('storage_operation');
+        expect(tags.page_visibility).toBe('visible');
+        expectNoStoragePoison(wireText());
+      });
+    });
+  });
+
   it('retains exact validated local compiled positions and source build identity only', async () => {
     process.env.WALLET_BUILD_TARGET = 'mobile';
     process.env.WALLET_BUILD_REVISION = '0123456789abcdef0123456789abcdef01234567';
@@ -1528,7 +1840,7 @@ describe('crash-report egress', () => {
 
     const text = wireText();
     expect(captured.length).toBeGreaterThan(0);
-    expect(text).toContain('"tags":{"network":"mainnet"}');
+    expect(text).toContain('"tags":{"network":"mainnet","page_visibility":"visible"}');
     expect(text).toMatch(/"walletDiagnostics":\{[^}]*"network":"mainnet"/);
     expect(leaksIn(text)).toEqual([]);
   });
@@ -1616,6 +1928,7 @@ describe('WalletConnect relay failure reports', () => {
     const event = sentryEvent(captured[0]);
     expect(objectAt(event, 'tags')).toEqual({
       network: resolveTelemetryContext().network,
+      page_visibility: 'visible',
       service: 'walletconnect_relay'
     });
     const diagnostics = objectAt(objectAt(event, 'extra'), 'walletDiagnostics');
@@ -1623,6 +1936,7 @@ describe('WalletConnect relay failure reports', () => {
       {
         service: 'walletconnect_relay',
         connectivity: 'steady',
+        pageVisibility: 'visible',
         visibility: 'visible',
         surface: 'confirm',
         relayTrigger: 'no_connect_modal',
