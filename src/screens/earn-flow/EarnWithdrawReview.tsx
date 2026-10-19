@@ -65,6 +65,7 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
   const validation = withdrawalAmountError(amount, position.withdrawable, position.decimals);
   const [quote, setQuote] = useState<EarnWithdrawalQuote>();
   const [quoteError, setQuoteError] = useState<string>();
+  const [submitInvalidatedQuote, setSubmitInvalidatedQuote] = useState(false);
   const [refresh, setRefresh] = useState(0);
   const submitting = useRef(false);
   useEffect(() => {
@@ -72,6 +73,7 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
     let timer: ReturnType<typeof setTimeout> | undefined;
     setQuote(undefined);
     setQuoteError(undefined);
+    setSubmitInvalidatedQuote(false);
     if (reviewed && !reviewed.stale && !validation) {
       void quoteEarnWithdrawal({ position: reviewed, amount, accountId: account.publicKey })
         .then(next => {
@@ -101,8 +103,8 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitErrorId, setSubmitErrorId] = useState<UserErrorId | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
-  // A submit failure also invalidates its quote; the submit notice owns that failure report.
-  const validationMessageId = !submitError ? (validation ?? quoteError) : undefined;
+  // Only the quote refresh caused by this submit belongs to the submit notice's report.
+  const validationMessageId = validation ?? (submitInvalidatedQuote ? undefined : quoteError);
 
   // Every submission carries a quote, so an unquoted full-balance withdrawal has no way in.
   if (requested === null) return <Redirect to={`/earn/positions/${encodeURIComponent(positionId)}/withdraw`} />;
@@ -167,6 +169,7 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
       );
       setQuote(undefined);
       setQuoteError('earnWithdrawRefresh');
+      setSubmitInvalidatedQuote(true);
     } finally {
       submitting.current = false;
       setIsSubmitting(false);
