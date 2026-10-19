@@ -14,6 +14,7 @@
 - [FIX][android] The sign-in sheet answers `AUTH_UNAVAILABLE` while Bread is paused, as on iOS, instead of opening while another app's dialog covers Bread (#1577).
 - [FIX][extension] An approval's action runs once however many times its window confirms it while the action runs. For a transaction, a Deny, the auto-decline or a closed window while it is being queued waits for it, and an approval that times out first answers that the outcome is unknown, so a dApp is never told a transaction was declined while it still goes out (#1584).
 - [FIX][all] A failed claim's crash report also says whether its origin was recorded (`unrecorded` for a claim queued before the App recorded it), why it last waited in the queue, why the fee check let it through, and, when the stuck-transaction check cancelled it, whether it had started and whether this app session started it, in fixed values only (Sentry BREAD-WALLET-18, -19 and -1A). These values are part of the report's title, so these failures start new crash-report issues; the privacy policy lists every value.
+- [FIX][all] dApp refusals keep an existing error code and its details unchanged, instead of wrapping it in another `INVALID_PARAMS` error (#1583)
 
 ## 1.17.5 (2026-10-19)
 
