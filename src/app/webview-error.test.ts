@@ -165,9 +165,11 @@ describe('WebView error page', () => {
 
     render(OLD_ANDROID, 'de-DE');
     render(NEW_ANDROID, 'en-US');
-    requests[0].status = 200;
-    requests[0].responseText = JSON.stringify({ webViewUpdateTitle: { message: 'Outdated update title' } });
-    requests[0].onload?.();
+    const [earlier] = requests;
+    if (!earlier) throw new Error('The first render made no locale request');
+    earlier.status = 200;
+    earlier.responseText = JSON.stringify({ webViewUpdateTitle: { message: 'Outdated update title' } });
+    earlier.onload?.();
 
     expect(document.getElementById('title')).toHaveTextContent("Bread couldn't start");
     expect(document.getElementById('action')).toHaveTextContent('Try again');
