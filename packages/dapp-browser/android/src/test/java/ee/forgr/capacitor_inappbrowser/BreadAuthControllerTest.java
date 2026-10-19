@@ -525,8 +525,25 @@ public class BreadAuthControllerTest {
         assertReply(sheet, "a", "url", CALLBACK);
     }
 
+    private void assertForwardsCallbackToHost() {
+        Intent callback = new Intent(Intent.ACTION_VIEW, Uri.parse(CALLBACK))
+            .putExtra("marker", "callback").putExtra("attempt", 7).addFlags(Intent.FLAG_ACTIVITY_BROUGHT_TO_FRONT);
+        Intent forward = BreadAuthCallbacks.forwardIntent(activity, callback, ComponentActivity.class);
+        assertNotNull(forward);
+        assertNotSame(callback, forward);
+        assertEquals(new ComponentName(activity, ComponentActivity.class), forward.getComponent());
+        assertEquals(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_BROUGHT_TO_FRONT,
+            forward.getFlags());
+        assertEquals(Intent.ACTION_VIEW, forward.getAction());
+        assertEquals(CALLBACK, forward.getDataString());
+        assertEquals("callback", forward.getStringExtra("marker"));
+        assertEquals(7, forward.getIntExtra("attempt", 0));
+        assertNull(callback.getComponent());
+        assertEquals(Intent.FLAG_ACTIVITY_BROUGHT_TO_FRONT, callback.getFlags());
+    }
+
     @Test public void forwardsCallbacksToHostWhenIdle() {
-        assertTrue(BreadAuthCallbacks.forwardsToHost());
+        assertForwardsCallbackToHost();
     }
 
     @Test public void forwardsCallbacksToHostDuringCustomTab() throws Exception {
@@ -534,7 +551,7 @@ public class BreadAuthControllerTest {
         JavaScriptReplyProxy proxy = post(open(), PAGE, true, request("a", SIGN_IN));
         assertNotNull(shadowOf(activity).getNextStartedActivity());
         assertEquals(BreadAuthState.Phase.LAUNCHING, BreadAuthController.state.phase());
-        assertTrue(BreadAuthCallbacks.forwardsToHost());
+        assertForwardsCallbackToHost();
         verifyNoInteractions(proxy);
     }
 
@@ -542,12 +559,23 @@ public class BreadAuthControllerTest {
         registerChrome(); enableAuthTabs();
         JavaScriptReplyProxy proxy = post(open(), PAGE, true, request("a", SIGN_IN));
         ShadowActivity.IntentForResult launch = takeAuthLaunch();
-        assertFalse(BreadAuthCallbacks.forwardsToHost());
+        assertNull(BreadAuthCallbacks.forwardIntent(activity, new Intent(Intent.ACTION_VIEW, Uri.parse(CALLBACK)),
+            ComponentActivity.class));
         assertEquals(BreadAuthState.Phase.LAUNCHING, BreadAuthController.state.phase());
         verifyNoInteractions(proxy);
         deliver(launch, AuthTabIntent.RESULT_OK, CALLBACK);
         assertReply(proxy, "a", "url", CALLBACK);
-        assertTrue(BreadAuthCallbacks.forwardsToHost());
+        assertForwardsCallbackToHost();
+    }
+
+    @Test public void forwardsCallbacksToHostAfterAuthTabCloses() throws Exception {
+        registerChrome(); enableAuthTabs();
+        WebViewDialog dialog = open();
+        JavaScriptReplyProxy proxy = post(dialog, PAGE, true, request("a", SIGN_IN));
+        takeAuthLaunch();
+        dialog.forceClose();
+        assertForwardsCallbackToHost();
+        verifyNoInteractions(proxy);
     }
 
     @Test public void supportedResolvedBrowserUsesAuthTab() throws Exception {

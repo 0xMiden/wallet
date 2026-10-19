@@ -79,11 +79,12 @@ class BreadAuthManifestTest {
     fun callbackActivityChecksForwardingAndFinishes() {
         val source = File("src/main/java/com/miden/wallet/AuthCallbackActivity.java").readText()
         val onCreate = source.substringAfter("void onCreate(", "").substringBefore("\n    }")
-        assertTrue(onCreate.contains("BreadAuthCallbacks.forwardsToHost()"))
-        assertTrue(onCreate.contains("new Intent(getIntent()).setClass(this, MainActivity.class)"))
-        assertTrue(onCreate.contains("Intent.FLAG_ACTIVITY_CLEAR_TOP"))
-        assertTrue(onCreate.contains("Intent.FLAG_ACTIVITY_SINGLE_TOP"))
-        assertTrue(onCreate.contains("finish();"))
+        val forward = onCreate.indexOf("Intent forward = BreadAuthCallbacks.forwardIntent(this, getIntent(), MainActivity.class);")
+        val start = onCreate.indexOf("if (forward != null) startActivity(forward);")
+        assertTrue("the plugin decides whether to forward", forward >= 0)
+        assertTrue("only a non-null forwarding intent is started", start > forward)
+        assertEquals(1, Regex("\\bstartActivity\\(").findAll(onCreate).count())
+        assertTrue("the receiver finishes after either decision", onCreate.indexOf("finish();") > start)
     }
 
     @Test
