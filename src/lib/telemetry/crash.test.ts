@@ -29,7 +29,7 @@ jest.mock('lib/miden-chain/effective-endpoints', () => {
 
 interface ClientOptions {
   dsn?: string;
-  beforeSend?: (event: unknown) => unknown;
+  beforeSend?: (event: unknown, hint?: { originalException?: unknown }) => unknown;
   integrations?: { name: string }[];
   sendDefaultPii?: boolean;
   release?: string;
@@ -42,6 +42,8 @@ const captured: unknown[] = [];
 const capturedHints: unknown[] = [];
 const close = jest.fn();
 const setClient = jest.fn();
+const setTag = jest.fn();
+const setTags = jest.fn();
 let constructorThrows = false;
 
 jest.mock('@sentry/browser', () => ({
@@ -52,6 +54,8 @@ jest.mock('@sentry/browser', () => ({
   }),
   Scope: jest.fn(() => ({
     setClient,
+    setTag,
+    setTags,
     captureException: (error: unknown, hint: unknown) => {
       captured.push(error);
       capturedHints.push(hint);
@@ -623,6 +627,184 @@ describe('scrubEvent — the beforeSend hook', () => {
 });
 
 describe('diagnostic snapshots', () => {
+  it('snapshots storage and live page visibility before permission resolves', async () => {
+    let allowPermission = (_value: boolean) => {};
+    jest.mocked(isCrashReportingEnabledAsync).mockReturnValueOnce(
+      new Promise<boolean>(resolve => {
+        allowPermission = resolve;
+      })
+    );
+    initCrashReporting();
+    const descriptor = Object.getOwnPropertyDescriptor(document, 'visibilityState');
+    try {
+      Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
+      const error = Object.assign(new Error('cursor failed'), {
+        pageVisibility: 'visible',
+        storageDiagnostics: { pageVisibility: 'visible' }
+      });
+      annotateCrash(error, {
+        storageOwner: 'wallet_transactions',
+        storageOperation: 'cursor',
+        pageVisibility: 'visible'
+      });
+      captureCrash(error);
+      expect(captured).toHaveLength(0);
+      Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
+      annotateCrash(error, { storageOwner: 'wallet_limits', storageOperation: 'get', pageVisibility: 'unknown' });
+      captureCrash(new Error('later failure'));
+      allowPermission(true);
+      await flushMicrotasks();
+      expect(captured).toHaveLength(2);
+      const reportable = captured.find(error => error instanceof Error && error.message === 'cursor failed');
+      expect(reportable).toBeInstanceOf(Error);
+      const event: Record<string, unknown> = {
+        extra: { walletDiagnostics: { pageVisibility: 'visible' } }
+      };
+      scrubEvent(event, { originalException: reportable });
+      const extra = event.extra;
+      if (typeof extra !== 'object' || extra === null || !('walletDiagnostics' in extra))
+        throw new Error('missing diagnostics');
+      expect(extra.walletDiagnostics).toMatchObject({
+        storageOwner: 'wallet_transactions',
+        storageOperation: 'cursor',
+        pageVisibility: 'hidden'
+      });
+      const later: Record<string, unknown> = {};
+      scrubEvent(later, {
+        originalException: captured.find(error => error instanceof Error && error.message === 'later failure')
+      });
+      expect(later.tags).toEqual({ network: 'testnet', page_visibility: 'visible' });
+    } finally {
+      if (descriptor) Object.defineProperty(document, 'visibilityState', descriptor);
+      else Reflect.deleteProperty(document, 'visibilityState');
+    }
+  });
+
+  it('restores closed storage fields as per-event extra and tags', async () => {
+    initCrashReporting();
+    const descriptor = Object.getOwnPropertyDescriptor(document, 'visibilityState');
+    try {
+      Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
+      jest.mocked(getEffectiveNetworkName).mockReturnValueOnce(MIDEN_NETWORK_NAME.MAINNET);
+      const error = new Error('cursor failed');
+      annotateCrash(error, { storageOwner: 'wallet_transactions', storageOperation: 'cursor' });
+      captureCrash(error);
+      await flushMicrotasks();
+      const event: Record<string, unknown> = {
+        tags: { kept: 'yes' },
+        extra: { arbitrary: ADDRESS, walletDiagnostics: { pageVisibility: 'visible' } },
+        exception: { values: [{ type: 'Error' }] }
+      };
+      const beforeSend = clientOptions[0]?.beforeSend;
+      expect(beforeSend).toBe(scrubEvent);
+      expect(beforeSend?.(event, { originalException: captured[0] })).toBe(event);
+      expect(event.tags).toEqual({
+        kept: 'yes',
+        network: 'mainnet',
+        storage_owner: 'wallet_transactions',
+        storage_operation: 'cursor',
+        page_visibility: 'hidden'
+      });
+      expect(event.extra).toEqual({
+        walletDiagnostics: expect.objectContaining({
+          storageOwner: 'wallet_transactions',
+          storageOperation: 'cursor',
+          pageVisibility: 'hidden'
+        })
+      });
+      expect(JSON.stringify(event)).not.toContain(ADDRESS);
+    } finally {
+      if (descriptor) Object.defineProperty(document, 'visibilityState', descriptor);
+      else Reflect.deleteProperty(document, 'visibilityState');
+    }
+  });
+
+  it('keeps stackless global rejections unhandled with storage metadata', async () => {
+    initCrashReporting();
+    const error = new Error('cursor failed');
+    error.name = 'UnknownError';
+    error.stack = undefined;
+    annotateCrash(error, { storageOwner: 'wallet_transactions', storageOperation: 'cursor' });
+    globalThis.dispatchEvent(Object.assign(new Event('unhandledrejection'), { reason: error }));
+    await flushMicrotasks();
+    expect(captured).toHaveLength(1);
+    expect(capturedHints).toEqual([
+      expect.objectContaining({ mechanism: { type: 'onunhandledrejection', handled: false } })
+    ]);
+    const reportable = captured[0];
+    if (!(reportable instanceof Error)) throw new Error('missing error');
+    expect(serializeError(reportable)).toEqual({
+      name: 'UnknownError',
+      message: 'cursor failed',
+      stack: 'UnknownError: cursor failed'
+    });
+    const event: Record<string, unknown> = {};
+    clientOptions[0]?.beforeSend?.(event, { originalException: reportable });
+    expect(event.tags).toEqual({
+      network: 'testnet',
+      storage_owner: 'wallet_transactions',
+      storage_operation: 'cursor',
+      page_visibility: 'visible'
+    });
+    expect(event.extra).toEqual({
+      walletDiagnostics: expect.objectContaining({ storageOwner: 'wallet_transactions', storageOperation: 'cursor' })
+    });
+  });
+
+  it('does not inherit storage metadata or change grouping', async () => {
+    initCrashReporting();
+    const descriptor = Object.getOwnPropertyDescriptor(document, 'visibilityState');
+    try {
+      Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
+      const error = new Error('cursor failed');
+      error.name = 'UnknownError';
+      error.stack = 'UnknownError: cursor failed\n    at scan (capacitor://localhost/mobile.js:1:5000)';
+      captureCrash(error, 'onunhandledrejection', { level: 'warning' });
+      annotateCrash(error, { storageOwner: 'wallet_transactions', storageOperation: 'cursor' });
+      captureCrash(error, 'onunhandledrejection', { level: 'warning' });
+      Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
+      captureCrash(new Error('unrelated failure'));
+      await flushMicrotasks();
+      expect(captured).toHaveLength(3);
+      const [plain, annotated, unrelated] = captured;
+      if (!(plain instanceof Error) || !(annotated instanceof Error) || !(unrelated instanceof Error))
+        throw new Error('missing errors');
+      expect(serializeError(annotated)).toEqual(serializeError(plain));
+      expect(capturedHints[1]).toEqual(capturedHints[0]);
+      expect(capturedHints[1]).toEqual({
+        mechanism: { type: 'onunhandledrejection', handled: false },
+        captureContext: { level: 'warning' }
+      });
+      const events = [plain, annotated, unrelated].map(reportable => {
+        const event: Record<string, unknown> = {
+          message: reportable.message,
+          exception: { values: [{ type: reportable.name, value: reportable.message }] }
+        };
+        clientOptions[0]?.beforeSend?.(event, { originalException: reportable });
+        return event;
+      });
+      expect(events[1]).toMatchObject({ message: events[0]?.message, exception: events[0]?.exception });
+      expect(events.map(event => event.fingerprint)).toEqual([undefined, undefined, undefined]);
+      expect(events[1]?.tags).toEqual({
+        network: 'testnet',
+        storage_owner: 'wallet_transactions',
+        storage_operation: 'cursor',
+        page_visibility: 'hidden'
+      });
+      expect(events[2]?.tags).toEqual({ network: 'testnet', page_visibility: 'visible' });
+      expect(events[2]?.extra).toEqual({
+        walletDiagnostics: expect.objectContaining({ pageVisibility: 'visible' })
+      });
+      expect(JSON.stringify(events[2])).not.toMatch(/storageOwner|storageOperation|wallet_transactions|cursor/);
+      expect(unrelated.message).toBe('unrelated failure');
+      expect(setTag).not.toHaveBeenCalled();
+      expect(setTags).not.toHaveBeenCalled();
+    } finally {
+      if (descriptor) Object.defineProperty(document, 'visibilityState', descriptor);
+      else Reflect.deleteProperty(document, 'visibilityState');
+    }
+  });
+
   it('captures scrubbed bounded cause chains synchronously before browser permission resolves', async () => {
     let allowPermission = (_value: boolean) => {};
     jest.mocked(isCrashReportingEnabledAsync).mockReturnValue(
@@ -670,7 +852,7 @@ describe('diagnostic snapshots', () => {
     const event: Record<string, unknown> = { tags: { kept: 'yes' }, exception: { values: [{ type: 'Error' }] } };
     scrubEvent(event, { originalException: captured[0] });
     expect(event.extra).toEqual({ walletDiagnostics: expect.objectContaining({ network: 'mainnet' }) });
-    expect(event.tags).toEqual({ kept: 'yes', network: 'mainnet' });
+    expect(event.tags).toEqual({ kept: 'yes', network: 'mainnet', page_visibility: 'visible' });
   });
 
   it('reads each raw error field only once before asynchronous browser permission', async () => {
