@@ -27,6 +27,8 @@ import { b64ToU8 } from 'lib/shared/helpers';
 import { WalletAccount } from 'lib/shared/types';
 import { useRetryableSWR } from 'lib/swr';
 import { annotateCrash } from 'lib/telemetry/crash-diagnostics';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
+import { UserErrorId } from 'lib/telemetry/user-visible-error';
 import useSafeState from 'lib/ui/useSafeState';
 import { useLocation } from 'lib/woozie';
 import { truncateAddress, truncateHash } from 'utils/string';
@@ -115,12 +117,22 @@ function downloadBytes(filename: string, data: Uint8Array, mimeType = 'applicati
   }
 }
 
-const OpaqueSignatureWarning: React.FC<{ rawValue: string }> = ({ rawValue }) => {
+const SignatureRawValue: FC<{ value: string; errorId?: UserErrorId | null }> = ({ value, errorId }) => {
+  useUserVisibleError(errorId, 'inline');
+  return <>{value}</>;
+};
+
+const OpaqueSignatureWarning: React.FC<{ rawValue: string; errorId?: UserErrorId | null }> = ({
+  rawValue,
+  errorId
+}) => {
   const { t } = useTranslation();
   return (
     <>
       <Alert type="warn" title={t('opaqueSignatureTitle')} description={t('opaqueSignatureWarning')} className="my-2" />
-      <AdvancedDetails label={t('rawValue')}>{rawValue}</AdvancedDetails>
+      <AdvancedDetails label={t('rawValue')}>
+        <SignatureRawValue value={rawValue} errorId={errorId} />
+      </AdvancedDetails>
     </>
   );
 };
@@ -173,13 +185,15 @@ const PayloadContent: React.FC<PayloadContentProps> = ({ payload, error, account
       switch (payload.kind) {
         case 'word': {
           let wordHex = t('invalidPayload');
+          let wordErrorId: UserErrorId | null = null;
           try {
             const word = Word.deserialize(bytes);
             wordHex = word.toHex();
           } catch (e) {
+            wordErrorId = 'invalidPayload';
             console.error('Failed to deserialize payload for sign:', e);
           }
-          content = <OpaqueSignatureWarning rawValue={wordHex} />;
+          content = <OpaqueSignatureWarning rawValue={wordHex} errorId={wordErrorId} />;
           break;
         }
 
@@ -325,6 +339,8 @@ const PayloadContent: React.FC<PayloadContentProps> = ({ payload, error, account
       break;
   }
 
+  useUserVisibleError(error ? 'raw_confirm_payload_failed' : null, 'inline');
+
   return (
     <div className={classNames('w-full', 'flex flex-col')}>
       {/* A login shows the note and the signing account, never a payload, so it gets no payload heading. */}
@@ -351,6 +367,8 @@ const SigningInputsPayloadContent: React.FC<{ bytes: Uint8Array }> = ({ bytes })
       return null;
     }
   }, [bytes]);
+
+  useUserVisibleError(signingInputs ? null : 'failedToParseSigningPayload', 'inline');
 
   if (!signingInputs) {
     return <div className="text-md text-center my-6">{t('failedToParseSigningPayload')}</div>;
@@ -400,6 +418,10 @@ const CustomTransactionContent: React.FC<{
 
   const [verifiedView, setVerifiedView] = useState<TxAssetView | null>(null);
   const [simError, setSimError] = useState(false);
+  useUserVisibleError(
+    verifiedView ? null : declaredView ? (simError ? 'couldNotVerifyBySimulation' : null) : 'couldNotDecodeTransaction',
+    'inline'
+  );
 
   useEffect(() => {
     if (!payload.requestBytes) return;
@@ -582,6 +604,8 @@ const ConfirmDAppForm: FC = () => {
   );
 
   const [error, setError] = useSafeState<any>(null);
+  const [errorId, setErrorId] = useSafeState<UserErrorId | null>(null);
+  useUserVisibleError(error && payload.type !== 'unlock' ? errorId : null, 'inline');
   const [confirming, setConfirming] = useSafeState(false);
   const [declining, setDeclining] = useSafeState(false);
 
@@ -600,6 +624,7 @@ const ConfirmDAppForm: FC = () => {
       try {
         // An existing permission's consent was given when its session was saved, so its answer and Retry skip the box.
         if (confirmed && requirePrivateDataCheckbox && !isPrivateDataChecked && !autoApproved) {
+          setErrorId('confirmError');
           throw new Error(t('confirmError'));
         }
         await onConfirm(confirmed, spendingLimitAuthenticated);
@@ -613,9 +638,12 @@ const ConfirmDAppForm: FC = () => {
         // Human delay.
         await new Promise(res => setTimeout(res, 300));
         setError(err);
+        if (!confirmed || !requirePrivateDataCheckbox || isPrivateDataChecked || autoApproved) {
+          setErrorId(err?.message == null ? 'smthWentWrong' : 'raw_confirm_approval_failed');
+        }
       }
     },
-    [onConfirm, setError, requirePrivateDataCheckbox, isPrivateDataChecked, autoApproved, settleApproval, t]
+    [onConfirm, setError, setErrorId, requirePrivateDataCheckbox, isPrivateDataChecked, autoApproved, settleApproval, t]
   );
 
   // An unlock-only request has nothing to approve: once the user has unlocked, answer it.
