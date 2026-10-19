@@ -2,6 +2,10 @@
 
 ## 1.17.6 (TBD)
 
+### Changes
+
+- [CHANGE][all] The privacy policy names the publisher and data controller, separates telemetry from the data the Miden network, the Guardian Operator, Transak, swaps, bridges and Earn receive, states the legal basis and retention for each kind of data, the geographic restriction check, where data goes and your rights, and raises the age in the Children section to 18 to match the Terms of Service.
+
 ### Features
 
 - [FEATURE][all] Choose an Earn withdrawal amount or Max, review the native payout and minimum received, and before submitting the selected amount check that the quote is current and the available balance still covers that amount, which accrual may have raised or a withdrawal elsewhere lowered (#1491).
