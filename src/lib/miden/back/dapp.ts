@@ -2806,10 +2806,7 @@ const generatePromisifyConsumeTransaction = async (
   try {
     carried = await decodeCarriedConsumeNoteLocked(req.transaction);
   } catch (e) {
-    reject(
-      pipelineKillIn(e) ??
-        (e instanceof Error && hasDAppErrorCode(e.message) ? e : new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`))
-    );
+    reject(dappReadFailure(e));
     return;
   }
   const prepare = async () => {
