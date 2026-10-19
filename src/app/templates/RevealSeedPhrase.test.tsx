@@ -585,7 +585,17 @@ describe('RevealSeedPhrase', () => {
       expect(getByTestId<HTMLButtonElement>(container, 'protector-probe-retry').disabled).toBe(false);
       expect(getByTestId(container, 'protector-probe-error').textContent).toContain('couldNotCheckUnlockMethod');
       expect(buttonWithText(container, 'view')!.disabled).toBe(true);
-      // The deadline has fired and nothing re-armed it: the probe waits on its read alone.
+      // Only the notice's visibility dwell remains; the probe deadline must not re-arm.
+      expect(jest.getTimerCount()).toBe(1);
+      expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([]);
+      await act(async () => {
+        jest.advanceTimersByTime(999);
+      });
+      expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([]);
+      await act(async () => {
+        jest.advanceTimersByTime(1);
+      });
+      expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['couldNotCheckUnlockMethod', 'notice']]);
       expect(jest.getTimerCount()).toBe(0);
     } finally {
       jest.useRealTimers();
