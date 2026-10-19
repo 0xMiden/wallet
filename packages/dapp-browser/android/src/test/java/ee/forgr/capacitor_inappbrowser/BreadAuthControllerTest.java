@@ -343,18 +343,19 @@ public class BreadAuthControllerTest {
         assertNotNull(shadowOf(activity).getNextStartedActivity());
     }
 
-    @Test public void pluginStopAndResumeReachTheSheet() throws Exception {
+    @Test public void pluginPauseAndResumeReachTheSheet() throws Exception {
         registerChrome();
         WebViewDialog dialog = open();
         InAppBrowserPlugin plugin = spy(new InAppBrowserPlugin());
         doReturn(activity).when(plugin).getContext();
-        plugin.handleOnStop();
+        plugin.handleOnResume();
+        plugin.handleOnPause();
         assertReply(post(dialog, PAGE, true, request("a", SIGN_IN)), "a", "error", BreadAuthState.UNAVAILABLE);
         assertNull(shadowOf(activity).getNextStartedActivity());
         plugin.handleOnResume();
         JavaScriptReplyProxy proxy = post(dialog, PAGE, true, request("b", SIGN_IN));
         assertNotNull(shadowOf(activity).getNextStartedActivity());
-        plugin.handleOnStop();
+        plugin.handleOnPause();
         verifyNoInteractions(proxy);
         plugin.handleOnResume();
         assertReply(proxy, "b", "cancelled", true);
