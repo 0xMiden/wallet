@@ -1,6 +1,13 @@
 import * as Repo from 'lib/miden/repo';
+import { captureCrash } from 'lib/telemetry/crash';
+import { reportTransactionFailure } from 'lib/telemetry/transaction-failure';
 
-import { cancelTransaction, markTransactionUnconfirmed, verifyStuckTransactionsFromNode } from './cancel';
+import {
+  cancelStuckTransactions,
+  cancelTransaction,
+  markTransactionUnconfirmed,
+  verifyStuckTransactionsFromNode
+} from './cancel';
 import {
   markBridgedSendFailed,
   resolveUnconfirmedSwitch,
@@ -26,6 +33,7 @@ import { updateTransactionStatus } from './helper';
 import { ITransaction, ITransactionStatus } from '../db/types';
 
 jest.mock('lib/telemetry/transaction-failure', () => ({ reportTransactionFailure: jest.fn() }));
+jest.mock('lib/telemetry/crash', () => ({ captureCrash: jest.fn() }));
 jest.mock('lib/telemetry/report-operation', () => ({ reportOperation: jest.fn() }));
 jest.mock('../back/background-notification', () => ({
   notifyBackgroundTransactionFailed: jest.fn(),
@@ -42,7 +50,7 @@ jest.mock('../sdk/miden-client', () => ({
 }));
 jest.mock('lib/platform', () => ({ ...jest.requireActual('lib/platform'), isMobile: () => false }));
 
-const report = jest.requireMock('lib/telemetry/transaction-failure').reportTransactionFailure as jest.Mock;
+const report = jest.mocked(reportTransactionFailure);
 const row = (overrides: Partial<ITransaction> = {}): ITransaction => ({
   id: 'tx',
   type: 'execute',
@@ -108,7 +116,6 @@ describe('committed terminal transaction failure reports', () => {
   it.each([
     ['a user cancel', USER_CANCELLED_TRANSACTION_REASON, 'user_cancelled'],
     ['the startup sweep', TRANSACTION_INTERRUPTED_ON_STARTUP, 'interrupted_on_startup'],
-    ['the stuck reaper', TRANSACTION_STUCK_ERROR, 'stuck_reaped'],
     ['the queue expiry', TRANSACTION_EXPIRED_ERROR, 'queued_expired'],
     ['the node check of an unconsumed note', TRANSACTION_INTERRUPTED_ERROR, 'consume_not_landed'],
     ['the node check of an invalid note', INVALID_NOTE_ERROR, 'note_invalid'],
@@ -131,6 +138,40 @@ describe('committed terminal transaction failure reports', () => {
     expect(report).toHaveBeenCalledTimes(1);
     expect(report).toHaveBeenCalledWith(
       expect.objectContaining({ point: 'pipeline', type: 'consume', stage: 'signing-proposal', reason, error })
+    );
+  });
+
+  it('names the stuck reaper as the reason a claim failed at its signing proposal', async () => {
+    const actual = jest.requireActual<typeof import('lib/telemetry/transaction-failure')>(
+      'lib/telemetry/transaction-failure'
+    );
+    report.mockImplementationOnce(actual.reportTransactionFailure);
+    const claim = row({ type: 'consume', stage: 'signing-proposal' });
+    await Repo.transactions.put(claim);
+
+    await cancelStuckTransactions();
+
+    expect((await Repo.transactions.get(claim.id))?.status).toBe(ITransactionStatus.Failed);
+    expect(report).toHaveBeenCalledTimes(1);
+    expect(report).toHaveBeenCalledWith(
+      expect.objectContaining({
+        point: 'pipeline',
+        type: 'consume',
+        stage: 'signing-proposal',
+        reason: 'stuck_reaped',
+        error: TRANSACTION_STUCK_ERROR
+      })
+    );
+    expect(captureCrash).toHaveBeenCalledTimes(1);
+    expect(captureCrash).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: 'WalletTransactionFailure',
+        message: expect.stringContaining(
+          '; reap age missing_start; reaped attempt not_started_here; point pipeline; stuck_reaped'
+        )
+      }),
+      'manual',
+      expect.anything()
     );
   });
 
