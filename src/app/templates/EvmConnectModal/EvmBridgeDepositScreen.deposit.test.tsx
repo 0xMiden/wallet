@@ -507,7 +507,11 @@ const balanceTooLow = (balance: string, token: string) =>
   `bridgeDepositBalanceTooLow ${JSON.stringify({ balance, token, network: 'Sepolia' })}`;
 
 // The failure write the screen makes: the row's text, and the step and error its crash report names.
-const failedAt = (step: string, error: string) => ({ error, failure: { step, cause: expect.any(Error) } });
+const failedAt = (step: string, error: string, errorId = 'raw_bridge_deposit_failed') => ({
+  error,
+  errorId,
+  failure: { step, cause: expect.any(Error) }
+});
 /** The library error the crash report names for the cause the last failure write handed it. */
 const reportedEvmError = (): string =>
   bridgeReceiveLibraryError(
@@ -702,6 +706,7 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
     await waitFor(() =>
       expect(updateBridgedReceivePhase).toHaveBeenCalledWith('bridge-tx', 'failed', {
         error: 'The connected EVM wallet provider is unavailable.',
+        errorId: 'raw_bridge_deposit_failed',
         failure: { step: 'provider_unavailable' }
       })
     );
@@ -1878,7 +1883,11 @@ describe('EvmBridgeDepositScreen holds a deposit to the wallet balance', () => {
       expect(updateBridgedReceivePhase).toHaveBeenCalledWith(
         'bridge-tx',
         'failed',
-        failedAt('precheck_balance', balanceTooLow(token === 'ETH' ? '1.4999' : '10.6511', LABEL[token]))
+        failedAt(
+          'precheck_balance',
+          balanceTooLow(token === 'ETH' ? '1.4999' : '10.6511', LABEL[token]),
+          'bridgeDepositBalanceTooLow'
+        )
       );
       expect(reportedEvmError()).toBe('none');
     }
@@ -1900,7 +1909,8 @@ describe('EvmBridgeDepositScreen holds a deposit to the wallet balance', () => {
         'failed',
         failedAt(
           'precheck_balance',
-          `bridgeDepositBalanceReadFailed ${JSON.stringify({ token: LABEL[token], network: 'Sepolia' })}`
+          `bridgeDepositBalanceReadFailed ${JSON.stringify({ token: LABEL[token], network: 'Sepolia' })}`,
+          'bridgeDepositBalanceReadFailed'
         )
       );
     }
@@ -2076,7 +2086,7 @@ describe('EvmBridgeDepositScreen holds a deposit to the wallet balance', () => {
       expect(updateBridgedReceivePhase).toHaveBeenCalledWith(
         'bridge-tx',
         'failed',
-        failedAt('precheck_balance', balanceTooLow('10.6511', LABEL.USDC))
+        failedAt('precheck_balance', balanceTooLow('10.6511', LABEL.USDC), 'bridgeDepositBalanceTooLow')
       );
       expect(reportedEvmError()).toBe('none');
     }
@@ -2193,7 +2203,8 @@ describe('EvmBridgeDepositScreen holds a deposit to the wallet balance', () => {
           'failed',
           failedAt(
             'precheck_balance',
-            `bridgeDepositBalanceReadFailed ${JSON.stringify({ token: LABEL[token], network: 'Sepolia' })}`
+            `bridgeDepositBalanceReadFailed ${JSON.stringify({ token: LABEL[token], network: 'Sepolia' })}`,
+            'bridgeDepositBalanceReadFailed'
           )
         );
         expect(reportedEvmError()).toBe('timeout');
@@ -2270,7 +2281,7 @@ describe('EvmBridgeDepositScreen native session chain', () => {
     expect(updateBridgedReceivePhase).toHaveBeenCalledWith(
       'bridge-tx',
       'failed',
-      failedAt('precheck_session_chain', chainNotApproved('Sepolia'))
+      failedAt('precheck_session_chain', chainNotApproved('Sepolia'), 'evmChainNotApproved')
     );
     expect(await screen.findByTestId('deposit-status')).toBeInTheDocument();
   });
@@ -2288,7 +2299,7 @@ describe('EvmBridgeDepositScreen native session chain', () => {
     expect(updateBridgedReceivePhase).toHaveBeenCalledWith(
       'bridge-tx',
       'failed',
-      failedAt('precheck_session_chain', chainNotApproved('Sepolia'))
+      failedAt('precheck_session_chain', chainNotApproved('Sepolia'), 'evmChainNotApproved')
     );
   });
 
@@ -2306,7 +2317,7 @@ describe('EvmBridgeDepositScreen native session chain', () => {
     expect(updateBridgedReceivePhase).toHaveBeenCalledWith(
       'bridge-tx',
       'failed',
-      failedAt('precheck_session_chain', chainNotApproved('Sepolia'))
+      failedAt('precheck_session_chain', chainNotApproved('Sepolia'), 'evmChainNotApproved')
     );
     expect(await screen.findByTestId('deposit-status')).toBeInTheDocument();
   });
@@ -2341,7 +2352,7 @@ describe('EvmBridgeDepositScreen native session chain', () => {
     expect(updateBridgedReceivePhase).toHaveBeenCalledWith(
       'bridge-tx',
       'failed',
-      failedAt('precheck_session_chain', chainNotApproved('Base Sepolia'))
+      failedAt('precheck_session_chain', chainNotApproved('Base Sepolia'), 'evmChainNotApproved')
     );
   });
 

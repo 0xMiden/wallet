@@ -464,7 +464,11 @@ const depositScreen = (evmAddress = '0x1111111111111111111111111111111111111111'
 const renderScreen = () => render(depositScreen());
 
 // The failure write the screen makes: the row's text, and the step and error its crash report names.
-const failedAt = (step: string, error: string) => ({ error, failure: { step, cause: expect.any(Error) } });
+const failedAt = (step: string, error: string, errorId = 'raw_bridge_deposit_failed') => ({
+  error,
+  errorId,
+  failure: { step, cause: expect.any(Error) }
+});
 /** The library error the crash report names for the cause the last failure write handed it. */
 const reportedEvmError = (): string =>
   bridgeReceiveLibraryError(
@@ -810,7 +814,11 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
       'bridge-tx',
       failed ? 'failed' : 'submitting',
       failed
-        ? { error: error.message, failure: { step: broadcast ? 'deposit_receipt' : 'precheck_route', cause: error } }
+        ? {
+            error: error.message,
+            errorId: 'raw_bridge_deposit_failed',
+            failure: { step: broadcast ? 'deposit_receipt' : 'precheck_route', cause: error }
+          }
         : { evmTxHash: `0x${'2'.repeat(64)}` }
     );
   });
@@ -888,7 +896,11 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
     expect(updateBridgedReceivePhase).toHaveBeenCalledWith(
       'bridge-tx',
       'failed',
-      failedAt('precheck_session_chain', `evmChainNotApproved ${JSON.stringify({ network: 'Arc Testnet' })}`)
+      failedAt(
+        'precheck_session_chain',
+        `evmChainNotApproved ${JSON.stringify({ network: 'Arc Testnet' })}`,
+        'evmChainNotApproved'
+      )
     );
   });
 
@@ -1058,7 +1070,7 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
     expect(updateBridgedReceivePhase).toHaveBeenLastCalledWith(
       'bridge-tx',
       'failed',
-      failedAt('precheck_quote', 'usdcxForwardQuoteUnavailable')
+      failedAt('precheck_quote', 'usdcxForwardQuoteUnavailable', 'usdcxForwardQuoteUnavailable')
     );
   });
 
@@ -1145,7 +1157,7 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
     expect(updateBridgedReceivePhase).toHaveBeenLastCalledWith(
       'bridge-tx',
       'failed',
-      failedAt('precheck_balance', feeAboveBalance('1.52', 'Base Sepolia'))
+      failedAt('precheck_balance', feeAboveBalance('1.52', 'Base Sepolia'), 'usdcxDepositFeeAboveBalance')
     );
   });
 
@@ -1222,7 +1234,7 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
     expect(updateBridgedReceivePhase).toHaveBeenLastCalledWith(
       'bridge-tx',
       'failed',
-      failedAt('precheck_balance', feeAboveBalance('1.531907', 'Base Sepolia'))
+      failedAt('precheck_balance', feeAboveBalance('1.531907', 'Base Sepolia'), 'usdcxDepositFeeAboveBalance')
     );
   });
 
@@ -1247,7 +1259,8 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
       'failed',
       failedAt(
         'precheck_balance',
-        `bridgeDepositBalanceReadFailed ${JSON.stringify({ token: 'USDC', network: 'Base Sepolia' })}`
+        `bridgeDepositBalanceReadFailed ${JSON.stringify({ token: 'USDC', network: 'Base Sepolia' })}`,
+        'bridgeDepositBalanceReadFailed'
       )
     );
   });
@@ -1271,7 +1284,8 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
       'failed',
       failedAt(
         'precheck_balance',
-        `bridgeDepositBalanceReadFailed ${JSON.stringify({ token: 'USDC', network: 'Base Sepolia' })}`
+        `bridgeDepositBalanceReadFailed ${JSON.stringify({ token: 'USDC', network: 'Base Sepolia' })}`,
+        'bridgeDepositBalanceReadFailed'
       )
     );
   });
@@ -1680,7 +1694,8 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
         'failed',
         failedAt(
           'precheck_balance',
-          `bridgeDepositBalanceTooLow ${JSON.stringify({ balance: '1.4999', token: 'USDC', network })}`
+          `bridgeDepositBalanceTooLow ${JSON.stringify({ balance: '1.4999', token: 'USDC', network })}`,
+          'bridgeDepositBalanceTooLow'
         )
       );
       expect(reportedEvmError()).toBe('none');
@@ -1707,7 +1722,11 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
       expect(updateBridgedReceivePhase).toHaveBeenCalledWith(
         'bridge-tx',
         'failed',
-        failedAt('precheck_balance', `bridgeDepositBalanceReadFailed ${JSON.stringify({ token: 'USDC', network })}`)
+        failedAt(
+          'precheck_balance',
+          `bridgeDepositBalanceReadFailed ${JSON.stringify({ token: 'USDC', network })}`,
+          'bridgeDepositBalanceReadFailed'
+        )
       );
       expect(reportedEvmError()).toBe('timeout');
     }
@@ -1878,6 +1897,7 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
     await waitFor(() =>
       expect(updateBridgedReceivePhase).toHaveBeenCalledWith('bridge-tx', 'failed', {
         error: 'The connected EVM wallet provider is unavailable.',
+        errorId: 'raw_bridge_deposit_failed',
         failure: { step: 'provider_unavailable' }
       })
     );
