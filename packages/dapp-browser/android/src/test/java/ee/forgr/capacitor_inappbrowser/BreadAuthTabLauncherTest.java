@@ -1,5 +1,6 @@
 package ee.forgr.capacitor_inappbrowser;
 
+import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
@@ -65,12 +66,36 @@ public class BreadAuthTabLauncherTest {
     }
 
     private final class RecordingRegistry extends ActivityResultRegistry {
+        private RuntimeException failure;
+
         @Override public <I, O> void onLaunch(int requestCode, ActivityResultContract<I, O> contract, I input,
                 ActivityOptionsCompat options) {
             if (!(input instanceof Intent)) throw new AssertionError("Expected an Intent");
             launched = (Intent) input;
             BreadAuthTabLauncherTest.this.requestCode = requestCode;
+            if (failure != null) throw failure;
         }
+    }
+
+    private void assertFailedLaunchUnregisters(RuntimeException failure) {
+        registry.failure = failure;
+        BreadAuthTabLauncher launcher = newLauncher();
+        RuntimeException thrown = assertThrows(RuntimeException.class,
+            () -> launcher.launch("com.android.chrome", "https://fixture.example/auth"));
+        assertSame(failure, thrown);
+        assertNotNull(launched);
+        launcher.close();
+        assertRegistryEmpty();
+        assertFalse(registry.dispatchResult(requestCode, AuthTabIntent.RESULT_CANCELED, null));
+        assertTrue(results.isEmpty());
+    }
+
+    @Test public void activityNotFoundLaunchFailureUnregistersOnClose() {
+        assertFailedLaunchUnregisters(new ActivityNotFoundException());
+    }
+
+    @Test public void securityLaunchFailureUnregistersOnClose() {
+        assertFailedLaunchUnregisters(new SecurityException());
     }
 
     @Test public void launchesPinnedAuthTabWithExactUrlAndRedirectScheme() {

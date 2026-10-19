@@ -9,6 +9,7 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.webkit.WebView;
 import androidx.activity.ComponentActivity;
+import androidx.activity.result.ActivityResultCallback;
 import androidx.activity.result.ActivityResultRegistry;
 import androidx.browser.auth.AuthTabIntent;
 import androidx.browser.customtabs.CustomTabsClient;
@@ -196,6 +197,27 @@ public class BreadAuthControllerTest {
     private void deliver(ShadowActivity.IntentForResult launch, int code, String callback) {
         Intent data = callback == null ? null : new Intent().setData(Uri.parse(callback));
         ((ComponentActivity) activity).getActivityResultRegistry().dispatchResult(launch.requestCode, code, data);
+    }
+
+    private ActivityResultCallback<AuthTabIntent.AuthResult> authTabCallback(WebViewDialog dialog) {
+        BreadAuthController auth = ReflectionHelpers.getField(dialog, "auth");
+        BreadAuthTabLauncher launcher = ReflectionHelpers.getField(auth, "authTabLauncher");
+        // The registry and launcher each discard duplicates before the controller sees them.
+        ActivityResultCallback<AuthTabIntent.AuthResult> callback = ReflectionHelpers.getField(launcher, "callback");
+        assertNotNull(callback);
+        return callback;
+    }
+
+    private AuthTabIntent.AuthResult authTabResult(int code, String callback) {
+        // AndroidX keeps the result constructor package-private.
+        return ReflectionHelpers.callConstructor(AuthTabIntent.AuthResult.class,
+            ReflectionHelpers.ClassParameter.from(int.class, code),
+            ReflectionHelpers.ClassParameter.from(Uri.class, callback == null ? null : Uri.parse(callback)));
+    }
+
+    private void assertReplyReleased(WebViewDialog dialog) {
+        BreadAuthController auth = ReflectionHelpers.getField(dialog, "auth");
+        assertNull(ReflectionHelpers.getField(auth, "reply"));
     }
 
     private void registerOwnedDialog(WebViewDialog dialog) {
@@ -601,16 +623,19 @@ public class BreadAuthControllerTest {
 
     @Test public void schemeIntentCannotConsumeAuthTabAndResultSettlesOnlyOnce() throws Exception {
         registerChrome(); enableAuthTabs();
-        JavaScriptReplyProxy proxy = post(open(), PAGE, true, request("a", SIGN_IN));
+        WebViewDialog dialog = open();
+        JavaScriptReplyProxy proxy = post(dialog, PAGE, true, request("a", SIGN_IN));
         ShadowActivity.IntentForResult launch = takeAuthLaunch();
+        ActivityResultCallback<AuthTabIntent.AuthResult> callback = authTabCallback(dialog);
         Intent consumed = BreadAuthCallbacks.consume(new Intent(Intent.ACTION_VIEW, Uri.parse(CALLBACK)));
         assertNull(consumed.getData());
         assertEquals(BreadAuthState.Phase.LAUNCHING, BreadAuthController.state.phase());
         verifyNoInteractions(proxy);
         deliver(launch, AuthTabIntent.RESULT_OK, CALLBACK);
-        deliver(launch, AuthTabIntent.RESULT_CANCELED, null);
+        callback.onActivityResult(authTabResult(AuthTabIntent.RESULT_CANCELED, null));
         BreadAuthCallbacks.consume(new Intent(Intent.ACTION_VIEW, Uri.parse(CALLBACK)));
         assertReply(proxy, "a", "url", CALLBACK);
+        assertReplyReleased(dialog);
         assertEquals(BreadAuthState.Phase.IDLE, BreadAuthController.state.phase());
     }
 
@@ -708,14 +733,20 @@ public class BreadAuthControllerTest {
         WebViewDialog old = open();
         JavaScriptReplyProxy oldProxy = post(old, PAGE, true, request("a", SIGN_IN));
         ShadowActivity.IntentForResult oldLaunch = takeAuthLaunch();
+        ActivityResultCallback<AuthTabIntent.AuthResult> oldCallback = authTabCallback(old);
         old.forceClose();
-        JavaScriptReplyProxy nextProxy = post(open(), PAGE, true, request("b", SIGN_IN));
+        WebViewDialog next = open();
+        JavaScriptReplyProxy nextProxy = post(next, PAGE, true, request("b", SIGN_IN));
         ShadowActivity.IntentForResult nextLaunch = takeAuthLaunch();
+        ActivityResultCallback<AuthTabIntent.AuthResult> nextCallback = authTabCallback(next);
         deliver(oldLaunch, AuthTabIntent.RESULT_OK, CALLBACK);
+        oldCallback.onActivityResult(authTabResult(AuthTabIntent.RESULT_OK, CALLBACK));
         assertEquals(BreadAuthState.Phase.LAUNCHING, BreadAuthController.state.phase());
         verifyNoInteractions(oldProxy, nextProxy);
         deliver(nextLaunch, AuthTabIntent.RESULT_OK, CALLBACK);
+        nextCallback.onActivityResult(authTabResult(AuthTabIntent.RESULT_CANCELED, null));
         assertReply(nextProxy, "b", "url", CALLBACK);
+        assertReplyReleased(next);
         verifyNoInteractions(oldProxy);
     }
 
@@ -724,22 +755,53 @@ public class BreadAuthControllerTest {
         WebViewDialog old = open(); registerOwnedDialog(old);
         JavaScriptReplyProxy oldProxy = post(old, PAGE, true, request("a", SIGN_IN));
         ShadowActivity.IntentForResult oldLaunch = takeAuthLaunch();
+        ActivityResultCallback<AuthTabIntent.AuthResult> oldCallback = authTabCallback(old);
         Activity oldActivity = activity;
         ActivityResultRegistry oldRegistry = ((ComponentActivity) activity).getActivityResultRegistry();
         destroyPluginAndRecreateHost();
         assertNotSame(oldActivity, activity);
         assertEquals(BreadAuthState.Phase.IDLE, BreadAuthController.state.phase());
         registerChrome(); enableAuthTabs();
-        JavaScriptReplyProxy nextProxy = post(open(), PAGE, true, request("b", SIGN_IN));
+        WebViewDialog next = open();
+        JavaScriptReplyProxy nextProxy = post(next, PAGE, true, request("b", SIGN_IN));
         ShadowActivity.IntentForResult nextLaunch = takeAuthLaunch();
+        ActivityResultCallback<AuthTabIntent.AuthResult> nextCallback = authTabCallback(next);
         ActivityResultRegistry newRegistry = ((ComponentActivity) activity).getActivityResultRegistry();
         Intent data = new Intent().setData(Uri.parse(CALLBACK));
         oldRegistry.dispatchResult(oldLaunch.requestCode, AuthTabIntent.RESULT_OK, data);
         newRegistry.dispatchResult(oldLaunch.requestCode, AuthTabIntent.RESULT_OK, data);
+        oldCallback.onActivityResult(authTabResult(AuthTabIntent.RESULT_OK, CALLBACK));
         verifyNoInteractions(oldProxy, nextProxy);
         assertEquals(BreadAuthState.Phase.LAUNCHING, BreadAuthController.state.phase());
         deliver(nextLaunch, AuthTabIntent.RESULT_OK, CALLBACK);
+        nextCallback.onActivityResult(authTabResult(AuthTabIntent.RESULT_CANCELED, null));
         assertReply(nextProxy, "b", "url", CALLBACK);
+        assertReplyReleased(next);
+        verifyNoInteractions(oldProxy);
+    }
+
+    @Test public void oldAuthTabCallbackCannotSettleNextRequestOnTheSameDialog() throws Exception {
+        registerChrome(); enableAuthTabs();
+        WebViewDialog dialog = open();
+        JavaScriptReplyProxy firstProxy = post(dialog, PAGE, true, request("a", SIGN_IN));
+        ShadowActivity.IntentForResult firstLaunch = takeAuthLaunch();
+        ActivityResultCallback<AuthTabIntent.AuthResult> firstCallback = authTabCallback(dialog);
+        deliver(firstLaunch, AuthTabIntent.RESULT_OK, CALLBACK);
+        assertReply(firstProxy, "a", "url", CALLBACK);
+        assertReplyReleased(dialog);
+
+        JavaScriptReplyProxy nextProxy = post(dialog, PAGE, true, request("b", SIGN_IN));
+        ShadowActivity.IntentForResult nextLaunch = takeAuthLaunch();
+        ActivityResultCallback<AuthTabIntent.AuthResult> nextCallback = authTabCallback(dialog);
+        firstCallback.onActivityResult(authTabResult(AuthTabIntent.RESULT_OK, CALLBACK));
+        verifyNoInteractions(nextProxy);
+        assertEquals(BreadAuthState.Phase.LAUNCHING, BreadAuthController.state.phase());
+        deliver(nextLaunch, AuthTabIntent.RESULT_OK, CALLBACK);
+        nextCallback.onActivityResult(authTabResult(AuthTabIntent.RESULT_CANCELED, null));
+        assertReply(firstProxy, "a", "url", CALLBACK);
+        assertReply(nextProxy, "b", "url", CALLBACK);
+        assertReplyReleased(dialog);
+        assertEquals(BreadAuthState.Phase.IDLE, BreadAuthController.state.phase());
     }
 
     @Test public void probesAndPinsTheResolvedProviderRatherThanChrome() throws Exception {
