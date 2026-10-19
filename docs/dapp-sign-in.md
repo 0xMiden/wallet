@@ -45,7 +45,7 @@ Call `open` from the main document of an https page. `window.bread` isn't define
 
 The rules cover only the URL you pass; inside the sheet, the flow can redirect to Google or Apple as usual. Building the URL from `location.origin` gets the origin right, and `URLSearchParams` keeps the query inside the allowed characters, as the example under "Binding the handle to the page" does.
 
-Only one sheet can be open across the whole app: a second call while one is open, from any dApp, gets `AUTH_BUSY` at once. The page must be visible in Bread, not parked, hidden or closing, and Bread must be in the foreground; otherwise `open` rejects with `AUTH_UNAVAILABLE` and no sheet appears over the wallet.
+Only one sheet can be open across the whole app: a second call while one is open, from any dApp, gets `AUTH_BUSY` at once. The page must be visible in Bread, not parked, hidden or closing, and Bread must be in the foreground; otherwise `open` rejects with `AUTH_UNAVAILABLE` and no sheet appears over the wallet. On Android this means Bread's screen is active, so behind another app's dialog (such as a permission prompt) or while Bread is leaving the screen, `open` also rejects with `AUTH_UNAVAILABLE`.
 
 ## The callback
 

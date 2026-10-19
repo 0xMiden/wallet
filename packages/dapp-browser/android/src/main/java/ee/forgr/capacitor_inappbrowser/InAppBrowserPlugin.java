@@ -1205,17 +1205,12 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
     }
 
     protected void handleOnPause() {
+        BreadAuthController.hostPaused();
         presentationAppForeground = false;
         for (java.util.Map.Entry<String, WebViewDialog> entry : WebViewRegistry.getShared().snapshot()) {
             entry.getValue().presentationForeground(false);
         }
         getContext().unbindService(connection);
-    }
-
-    @Override
-    protected void handleOnStop() {
-        super.handleOnStop();
-        BreadAuthController.hostStopped();
     }
 
     public CustomTabsSession getCustomTabsSession() {

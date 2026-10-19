@@ -90,7 +90,7 @@ final class BreadAuthController {
         reply = null; requestId = null;
     }
 
-    static void hostStopped() { state.stopped(); }
+    static void hostPaused() { state.paused(); }
 
     static void hostResumed() {
         if (state.resumed() == BreadAuthState.Outcome.CANCELLED && active != null) active.finish("cancelled", true);

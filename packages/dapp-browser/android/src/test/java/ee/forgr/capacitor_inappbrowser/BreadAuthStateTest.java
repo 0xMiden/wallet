@@ -88,33 +88,33 @@ public class BreadAuthStateTest {
         assertEquals(BreadAuthState.Phase.IDLE, state.phase());
     }
 
-    @Test public void stoppedHostRefusesUnavailable() {
+    @Test public void pausedHostRefusesUnavailable() {
         BreadAuthState state = new BreadAuthState();
-        state.stopped();
+        state.paused();
         assertEquals(BreadAuthState.UNAVAILABLE, state.refusal());
         assertEquals(BreadAuthState.Phase.IDLE, state.phase());
         assertEquals(BreadAuthState.Outcome.NONE, state.resumed());
         assertNull(state.refusal());
     }
 
-    @Test public void anOpenSheetIsBusyBeforeTheStoppedHostIsUnavailable() {
+    @Test public void anOpenSheetIsBusyBeforeThePausedHostIsUnavailable() {
         BreadAuthState state = new BreadAuthState();
         state.begin("game.example", -1);
-        state.stopped();
+        state.paused();
         assertEquals(BreadAuthState.BUSY, state.refusal());
     }
 
-    @Test public void resumeAfterStopWithoutCallbackCancels() {
+    @Test public void resumeAfterPauseWithoutCallbackCancels() {
         BreadAuthState state = new BreadAuthState();
         state.begin("game.example", -1);
-        state.stopped();
+        state.paused();
         assertEquals(BreadAuthState.Phase.LAUNCHING, state.phase());
         assertEquals(BreadAuthState.Outcome.CANCELLED, state.resumed());
         assertEquals(BreadAuthState.Phase.IDLE, state.phase());
         assertEquals(BreadAuthState.Outcome.NONE, state.callback(CALLBACK));
     }
 
-    @Test public void aResumeWithoutAStopCancels() {
+    @Test public void aResumeWithoutAPauseCancels() {
         BreadAuthState state = new BreadAuthState();
         state.begin("game.example", -1);
         assertEquals(BreadAuthState.Outcome.CANCELLED, state.resumed());
@@ -126,7 +126,7 @@ public class BreadAuthStateTest {
     @Test public void callbackBeforeResumeResolvesAndResumeIsQuiet() {
         BreadAuthState state = new BreadAuthState();
         state.begin("game.example", -1);
-        state.stopped();
+        state.paused();
         assertEquals(BreadAuthState.Outcome.RESOLVED, state.callback(CALLBACK));
         assertEquals(BreadAuthState.Outcome.NONE, state.resumed());
         assertEquals(BreadAuthState.Phase.IDLE, state.phase());
