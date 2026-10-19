@@ -1464,6 +1464,7 @@ describe('generateTransactionsLoop error paths', () => {
       type: 'send',
       status: ITransactionStatus.Queued,
       initiatedAt: Math.floor(Date.now() / 1000),
+      lastDeferral: 'preflight_sync_failed',
       accountId: 'acc-1'
     });
 
@@ -1476,6 +1477,7 @@ describe('generateTransactionsLoop error paths', () => {
     // account until the stuck reaper Failed it (30 min desktop / 2 min mobile).
     expect(txStore[0]!.status).toBe(ITransactionStatus.Queued);
     expect(txStore[0]!.processingStartedAt).toBeUndefined();
+    expect(txStore[0]!.lastDeferral).toBe('wallet_locked');
     // Backed off so a still-locked wallet doesn't re-attempt every ~5s poll.
     expect(txStore[0]!.nextEligibleAt).toBeGreaterThan(Math.floor(Date.now() / 1000));
     // The in-progress set is empty, so the very next loop pass can pick up

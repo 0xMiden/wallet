@@ -103,7 +103,13 @@ function harness() {
     return 1;
   });
   jest.mocked(Repo.transactions.where).mockImplementation(jest.fn().mockReturnValue({ first, modify }));
-  jest.mocked(Repo.transactions.filter).mockImplementation(jest.fn().mockReturnValue({ toArray: async () => [row] }));
+  // A new submission creates this row, so no withdrawal from its position is in flight before it does.
+  let created = false;
+  jest.mocked(Repo.transactions.filter).mockImplementation(
+    jest.fn().mockImplementation((predicate: (tx: ITransaction) => boolean) => ({
+      toArray: async () => (created ? [row] : []).filter(predicate)
+    }))
+  );
   const sharedLocks = new SharedEarnLocks();
   const locks = createEarnSubmissionLocks({ getLocks: () => sharedLocks });
   const initiateRow: typeof initiateEarnWithdrawTransaction = async (
@@ -117,6 +123,7 @@ function harness() {
     attemptId,
     startedAt
   ) => {
+    created = true;
     row.extraInputs.submissionAttemptId = attemptId;
     row.extraInputs.attemptStartedAt = startedAt;
     return row.id;

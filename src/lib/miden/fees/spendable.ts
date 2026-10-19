@@ -1,5 +1,6 @@
 import type { TokenBalanceData } from 'lib/miden/front/balance';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
+import type { ClaimFeeAdmission } from 'lib/telemetry/transaction-failure';
 
 /**
  * Whether a transaction is certain to fail because the account cannot cover the
@@ -128,35 +129,51 @@ export function claimFeeShortfallsBaseUnits(
   nativeAssetId: string | undefined | null,
   verificationBaseFee: number | null
 ): boolean[] {
-  const refuseNone = transactions.map(() => false);
-  if (
-    vaultFeeAsset === null ||
-    !nativeAssetId ||
-    verificationBaseFee === null ||
-    !Number.isFinite(verificationBaseFee) ||
-    verificationBaseFee <= 0
-  ) {
-    return refuseNone;
+  return claimFeeDecisions(transactions, ahead, vaultFeeAsset, nativeAssetId, verificationBaseFee).map(
+    decision => decision.shortfall
+  );
+}
+
+/** The fee check's first admission reason for each row; a refused row carries no admission. */
+export function claimFeeDecisions(
+  transactions: readonly (readonly ClaimFeeNote[])[],
+  ahead: readonly ClaimFeeNote[],
+  vaultFeeAsset: bigint | null,
+  nativeAssetId: string | undefined | null,
+  verificationBaseFee: number | null
+): { shortfall: boolean; admission?: ClaimFeeAdmission }[] {
+  const admitAll = (admission: ClaimFeeAdmission) => transactions.map(() => ({ shortfall: false, admission }));
+  if (!nativeAssetId) {
+    return admitAll('native_id_unknown');
+  }
+  if (verificationBaseFee === null || !Number.isFinite(verificationBaseFee) || verificationBaseFee <= 0) {
+    return admitAll('fee_unknown');
+  }
+  if (vaultFeeAsset === null) {
+    return admitAll('balance_unknown');
   }
   const hasUnknownAssets = (note: ClaimFeeNote) =>
     note.assetsUnknown || note.carriesMoreAssets || !note.faucetId.trim() || !note.amount.trim();
-  if (ahead.some(note => hasUnknownAssets(note) || note.faucetId === nativeAssetId)) {
-    return refuseNone;
+  if (ahead.some(hasUnknownAssets)) {
+    return admitAll('ahead_assets_unknown');
+  }
+  if (ahead.some(note => note.faucetId === nativeAssetId)) {
+    return admitAll('ahead_native');
   }
   // A whole-unit budget is below a fractional fee exactly when it is below its ceiling.
   const fee = BigInt(Math.ceil(verificationBaseFee));
   return transactions.map(notes => {
     let available = vaultFeeAsset;
     for (const note of notes) {
-      if (hasUnknownAssets(note)) return false;
+      if (hasUnknownAssets(note)) return { shortfall: false, admission: 'note_assets_unknown' };
       if (note.faucetId !== nativeAssetId) continue;
       try {
         available += BigInt(note.amount);
       } catch {
-        return false;
+        return { shortfall: false, admission: 'note_assets_unknown' };
       }
     }
-    return available < fee;
+    return available < fee ? { shortfall: true } : { shortfall: false, admission: 'known_sufficient' };
   });
 }
 

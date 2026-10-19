@@ -3,7 +3,12 @@ import { v4 as uuid } from 'uuid';
 
 import type { ClaimFeeNote } from 'lib/miden/fees/spendable';
 import type { AgglayerRecoveryConfig } from 'lib/remote-config/schema';
-import type { ConsumeEntryPoint, TransactionFailureDiagnostics } from 'lib/telemetry/transaction-failure';
+import type {
+  ClaimFeeAdmission,
+  ConsumeDeferralCause,
+  ConsumeEntryPoint,
+  TransactionFailureDiagnostics
+} from 'lib/telemetry/transaction-failure';
 import type { UsdcxSourceChain } from 'lib/usdcx/constant';
 
 import type { GuardianHistoryRecovery } from '../guardian/history';
@@ -469,6 +474,8 @@ export interface IEarnWithdrawPreparedExecution extends PreparedExecution {
  * prove/submit — the row is a tracking-only record whose lifecycle lives in `phase`.
  */
 export interface IEarnWithdrawExtraInputs {
+  /** Reviewed delivery floor for amount-selected withdrawals; source retries must not lower it. */
+  reviewedMinimumReceivedAtomic?: string;
   epochAllocatorUrl?: string;
   underlyingAddress?: string;
   /** 0x EVM address that owned the redeemed lending position (intent sponsor). */
@@ -699,6 +706,10 @@ export interface ITransaction {
    * report. Absent on rows queued before it and on rows no queue call made (recovered history). Not indexed.
    */
   consumeEntryPoint?: ConsumeEntryPoint;
+  /** Most recent automatic requeue cause. Survives pickups; explicit Retry clears it. Not indexed. */
+  lastDeferral?: ConsumeDeferralCause;
+  /** Consume fee gate's last admission reason. Survives pickups; explicit Retry replaces it. Not indexed. */
+  feeAdmission?: ClaimFeeAdmission;
   /**
    * Execute (dApp custom) only: per-faucet value LEAVING the account, taken from the approval-time
    * dry run that the confirmation sheet already renders.
@@ -1164,6 +1175,10 @@ export class ConsumeTransaction implements ITransaction {
   rotationFunding?: true;
   /** See `ITransaction.consumeEntryPoint`. */
   consumeEntryPoint?: ConsumeEntryPoint;
+  /** See `ITransaction.lastDeferral`. */
+  lastDeferral?: ConsumeDeferralCause;
+  /** See `ITransaction.feeAdmission`. */
+  feeAdmission?: ClaimFeeAdmission;
   /** See `ITransaction.dappOrigins`. */
   dappOrigins?: string[];
   transactionId?: string;

@@ -123,9 +123,10 @@ export async function getEpochSigningSdk(
  */
 export async function ensureEpochSmartAccount(
   midenAccountPublicKey: string,
-  evmAddress: `0x${string}`
+  evmAddress: `0x${string}`,
+  guardedSdk?: EpochIntentSDK
 ): Promise<EpochIntentSDK> {
-  const sdk = await getEpochSigningSdk(midenAccountPublicKey, evmAddress);
+  const sdk = guardedSdk ?? (await getEpochSigningSdk(midenAccountPublicKey, evmAddress));
   const status = await sdk.getWalletGaslessStatus(sepolia.id);
 
   if (status.delegation === 'epoch') {

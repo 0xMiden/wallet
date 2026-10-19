@@ -1,5 +1,5 @@
 import { earnWithdrawalRetryKind } from 'lib/epoch/earn-withdraw-policy';
-import { claimFeeShortfallsBaseUnits } from 'lib/miden/fees/spendable';
+import { claimFeeDecisions } from 'lib/miden/fees/spendable';
 import { inVerdictTurn } from 'lib/miden/front/storage';
 import * as Repo from 'lib/miden/repo';
 
@@ -513,9 +513,10 @@ const writeRequeue = async (txId: string, plan: RequeuePlan, feeContext?: ClaimF
       return 'declined';
     }
     if (evidenceKey(live.submitEvidence) !== plan.baseline) return 'evidence-changed';
+    let decision: ReturnType<typeof claimFeeDecisions>[number] | undefined;
     if (live.type === 'consume' && feeContext !== undefined) {
       const ahead = await getClaimFeeAhead(live.accountId, txId);
-      const [shortfall] = claimFeeShortfallsBaseUnits(
+      [decision] = claimFeeDecisions(
         [persistedClaimFeeNotes(live)],
         ahead,
         feeContext.vaultFeeAsset,
@@ -523,7 +524,7 @@ const writeRequeue = async (txId: string, plan: RequeuePlan, feeContext?: ClaimF
         feeContext.verificationBaseFee
       );
       // Throw before modify: Dexie must preserve the refusal class and every field of the failed row.
-      if (shortfall) throw new ClaimFeeRefusedError();
+      if (decision?.shortfall) throw new ClaimFeeRefusedError();
     }
     let result: RequeueWrite = 'declined';
     await Repo.transactions.where({ id: txId }).modify((dbTx: ITransaction) => {
@@ -546,6 +547,7 @@ const writeRequeue = async (txId: string, plan: RequeuePlan, feeContext?: ClaimF
         dbTx.cancelledInFlightAt = undefined;
       }
       dbTx.status = ITransactionStatus.Queued;
+      if (decision !== undefined) dbTx.feeAdmission = decision.admission;
       dbTx.initiatedAt = Math.floor(Date.now() / 1000);
       // Re-stamped with the timestamp, not left at the original. `initiatedAt` is
       // whole SECONDS, so the processing loop breaks ties on `queuedSeq` - and a
@@ -574,6 +576,7 @@ const writeRequeue = async (txId: string, plan: RequeuePlan, feeContext?: ClaimF
       // And a fresh guardian backoff: the retry's first requeue waits its arm's base cooldown, not one the failed
       // attempts had doubled (#1223).
       dbTx.requeueStreak = undefined;
+      dbTx.lastDeferral = undefined;
       // And the Guardian-busy mark, so the retried row does not open on a wait it is not in (#312).
       dbTx.guardianBusy = undefined;
       dbTx.error = undefined;

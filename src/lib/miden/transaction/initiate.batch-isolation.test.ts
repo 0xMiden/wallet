@@ -516,6 +516,7 @@ describe('the consume writer fee gate', () => {
     const selfFunding = await enqueue([knownNative('native')]);
     expect(selfFunding).toMatchObject({ feeRefusedNoteIds: [] });
     expect(await Repo.transactions.get(selfFunding.committedId)).toMatchObject({
+      feeAdmission: 'known_sufficient',
       consumedNotes: [expect.objectContaining({ id: 'native', carriesMoreAssets: false })]
     });
 
@@ -526,6 +527,8 @@ describe('the consume writer fee gate', () => {
     const funded = await enqueue([native, token], true);
     const rows = await queuedRows();
     expect(rows).toHaveLength(2);
+    expect(rows.find(row => row.noteId === native.id)).toMatchObject({ feeAdmission: 'known_sufficient' });
+    expect(rows.find(row => row.noteId === token.id)).toMatchObject({ feeAdmission: 'ahead_native' });
     expect(funded).toMatchObject({
       committedId: rows.find(row => row.noteId === native.id)?.id,
       feeRefusedNoteIds: []
@@ -548,7 +551,7 @@ describe('the consume writer fee gate', () => {
       await enqueue([knownToken()]);
       expect(tryLock).toHaveBeenCalled();
       expect(mockProxyGetAccount).not.toHaveBeenCalled();
-      expect(await queuedRows()).toHaveLength(1);
+      expect(await queuedRows()).toEqual([expect.objectContaining({ feeAdmission: 'balance_unknown' })]);
 
       await Repo.transactions.clear();
       tryLock.mockClear();
@@ -556,7 +559,7 @@ describe('the consume writer fee gate', () => {
         await enqueue([knownToken()]);
         expect(tryLock).toHaveBeenCalled();
         expect(mockProxyGetAccount).not.toHaveBeenCalled();
-        expect(await queuedRows()).toHaveLength(1);
+        expect(await queuedRows()).toEqual([expect.objectContaining({ feeAdmission: 'balance_unknown' })]);
         expect(WasmClient.isWasmClientBusy()).toBe(true);
       });
     } finally {
