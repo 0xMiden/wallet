@@ -2,6 +2,10 @@
 
 ## 1.17.6 (TBD)
 
+### Changes
+
+- [CHANGE][all] The privacy policy names the publisher and data controller, separates telemetry from the data the Miden network, the Guardian Operator, Transak, swaps, bridges and Earn receive, states the legal basis and retention for each kind of data, the geographic restriction check, where data goes and your rights, and raises the age in the Children section to 18 to match the Terms of Service.
+
 ### Features
 
 - [FEATURE][all] Choose an Earn withdrawal amount or Max, review the native payout and minimum received, and before submitting the selected amount check that the quote is current and the available balance still covers that amount, which accrual may have raised or a withdrawal elsewhere lowered (#1491).
@@ -9,6 +13,7 @@
 ### Fixes
 
 - [FIX][all] A sign-in request whose 32 bytes are not four field elements is refused with `INVALID_PARAMS` before the approval prompt, instead of after the user approves it (#1578).
+- [FIX][android] In release builds the in-app browser no longer writes dApp requests, the wallet's answers, or page URLs, origins, hosts and scripts to the device log (#1582).
 - [FIX][android] An Android WebView older than 98 (Android System WebView, or Chrome on Android 9), which cannot run the wallet, now opens a page that sends the user to update it from Google Play, instead of an error screen Bread can never leave (#1597, #1598).
 - [FIX][android] The sign-in sheet's callback check keeps a literal `+` in the `origin` value, as iOS does, instead of reading it as a space (#1576).
 - [FIX][extension] A wallet page left open across an extension reload or update reloads itself as soon as the extension's runtime is gone, so it comes back as a page of the updated extension, instead of crashing when it opens Explore and reporting `Extension context invalidated` every 10 seconds; until it reloads it keeps behaving as the extension, its polls stop, and a reset started on it reloads the page in place (#1592, #1593).
