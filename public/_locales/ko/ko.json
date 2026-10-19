@@ -1530,5 +1530,11 @@
   "bridgeRankValueDescription": "대부분은 제공자 수수료를 공제한 후 수령됩니다.",
   "bridgeRankCostDescription": "가스 비용을 포함한 최저의 브리지 및 네트워크 비용.",
   "bridgeRankTimeDescription": "예상 도착 시간 중 가장 짧은 시간.",
-  "bridgeEstimatedCost": "예상 비용"
+  "bridgeEstimatedCost": "예상 비용",
+  "webViewUpdateTitle": "Android System WebView 업데이트",
+  "webViewUpdateBody": "Bread를 사용하려면 앱 내에서 웹 페이지를 표시하는 안드로이드의 구성 요소인 Android System WebView의 최신 버전이 필요합니다. Google Play에서 업데이트한 후 Bread를 다시 실행하세요.",
+  "webViewUpdateAction": "Google Play 열기",
+  "webViewStartFailedTitle": "Bread는 시작할 수 없었습니다",
+  "webViewStartFailedBody": "Bread가 로드되는 도중 문제가 발생했습니다. 다시 시도하거나, Bread를 닫았다가 다시 열어보세요.",
+  "webViewStartFailedAction": "다시 시도해 보세요"
 }

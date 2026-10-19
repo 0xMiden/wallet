@@ -1530,5 +1530,11 @@
   "bridgeRankValueDescription": "A maior parte é recebida após a dedução das taxas do provedor.",
   "bridgeRankCostDescription": "Menor custo de ponte e de rede, incluindo gas.",
   "bridgeRankTimeDescription": "Tempo estimado de chegada mais curto.",
-  "bridgeEstimatedCost": "Custo estimado"
+  "bridgeEstimatedCost": "Custo estimado",
+  "webViewUpdateTitle": "Atualizar o Android System WebView",
+  "webViewUpdateBody": "O Bread precisa de uma versão mais recente do Android System WebView, a parte do Android que exibe páginas da web nos aplicativos. Atualize-o pelo Google Play e, em seguida, abra o Bread novamente.",
+  "webViewUpdateAction": "Abrir o Google Play",
+  "webViewStartFailedTitle": "O Bread não conseguiu iniciar",
+  "webViewStartFailedBody": "Algo impediu o Bread de carregar. Tente novamente ou feche o Bread e abra-o novamente.",
+  "webViewStartFailedAction": "Tente novamente"
 }

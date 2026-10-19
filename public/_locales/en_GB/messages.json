@@ -6914,5 +6914,29 @@
   "bridgeEstimatedCost": {
     "message": "Est. cost",
     "englishSource": "Est. cost"
+  },
+  "webViewUpdateTitle": {
+    "message": "Update Android System WebView",
+    "englishSource": "Update Android System WebView"
+  },
+  "webViewUpdateBody": {
+    "message": "Bread needs a newer version of Android System WebView, the part of Android that shows web pages in apps. Update it from Google Play, then open Bread again.",
+    "englishSource": "Bread needs a newer version of Android System WebView, the part of Android that shows web pages in apps. Update it from Google Play, then open Bread again."
+  },
+  "webViewUpdateAction": {
+    "message": "Open Google Play",
+    "englishSource": "Open Google Play"
+  },
+  "webViewStartFailedTitle": {
+    "message": "Bread couldn't start",
+    "englishSource": "Bread couldn't start"
+  },
+  "webViewStartFailedBody": {
+    "message": "Something stopped Bread from loading. Try again, or close Bread and open it again.",
+    "englishSource": "Something stopped Bread from loading. Try again, or close Bread and open it again."
+  },
+  "webViewStartFailedAction": {
+    "message": "Try again",
+    "englishSource": "Try again"
   }
 }

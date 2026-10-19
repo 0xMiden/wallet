@@ -6914,5 +6914,29 @@
   "bridgeEstimatedCost": {
     "message": "預估成本",
     "englishSource": "Est. cost"
+  },
+  "webViewUpdateTitle": {
+    "message": "更新 Android 系統 WebView",
+    "englishSource": "Update Android System WebView"
+  },
+  "webViewUpdateBody": {
+    "message": "Bread 需要更新版本的 Android System WebView（這是 Android 系統中負責在應用程式內顯示網頁的組件）。請透過 Google Play 進行更新，然後重新開啟 Bread。",
+    "englishSource": "Bread needs a newer version of Android System WebView, the part of Android that shows web pages in apps. Update it from Google Play, then open Bread again."
+  },
+  "webViewUpdateAction": {
+    "message": "開啟 Google Play",
+    "englishSource": "Open Google Play"
+  },
+  "webViewStartFailedTitle": {
+    "message": "Bread 無法啟動",
+    "englishSource": "Bread couldn't start"
+  },
+  "webViewStartFailedBody": {
+    "message": "發生了某種狀況導致 Bread 無法載入。請重新嘗試，或關閉 Bread 後再次開啟。",
+    "englishSource": "Something stopped Bread from loading. Try again, or close Bread and open it again."
+  },
+  "webViewStartFailedAction": {
+    "message": "請重新嘗試",
+    "englishSource": "Try again"
   }
 }

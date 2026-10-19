@@ -6914,5 +6914,29 @@
   "bridgeEstimatedCost": {
     "message": "Орієнтовна вартість",
     "englishSource": "Est. cost"
+  },
+  "webViewUpdateTitle": {
+    "message": "Оновлення Android System WebView",
+    "englishSource": "Update Android System WebView"
+  },
+  "webViewUpdateBody": {
+    "message": "Bread потребує нової версії Android System WebView — компонента Android, який відображає веб-сторінки в додатках. Оновіть його через Google Play, а потім знову відкрийте Bread.",
+    "englishSource": "Bread needs a newer version of Android System WebView, the part of Android that shows web pages in apps. Update it from Google Play, then open Bread again."
+  },
+  "webViewUpdateAction": {
+    "message": "Відкрити Google Play",
+    "englishSource": "Open Google Play"
+  },
+  "webViewStartFailedTitle": {
+    "message": "Bread не зміг запуститися",
+    "englishSource": "Bread couldn't start"
+  },
+  "webViewStartFailedBody": {
+    "message": "Щось завадило завантаженню Bread. Спробуйте ще раз або закрийте Bread і відкрийте його знову.",
+    "englishSource": "Something stopped Bread from loading. Try again, or close Bread and open it again."
+  },
+  "webViewStartFailedAction": {
+    "message": "Спробуйте ще раз",
+    "englishSource": "Try again"
   }
 }

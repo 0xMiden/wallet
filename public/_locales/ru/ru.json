@@ -1530,5 +1530,11 @@
   "bridgeRankValueDescription": "Большая часть суммы поступает после удержания комиссии провайдера.",
   "bridgeRankCostDescription": "Минимальные затраты на мост и сеть, включая газ.",
   "bridgeRankTimeDescription": "Наименьшее предполагаемое время прибытия.",
-  "bridgeEstimatedCost": "Приблизительная стоимость"
+  "bridgeEstimatedCost": "Приблизительная стоимость",
+  "webViewUpdateTitle": "Обновление Android System WebView",
+  "webViewUpdateBody": "Приложению Bread требуется более новая версия Android System WebView — компонента Android, отвечающего за отображение веб-страниц в приложениях. Обновите его через Google Play, а затем запустите Bread заново.",
+  "webViewUpdateAction": "Открыть Google Play",
+  "webViewStartFailedTitle": "Bread не смог запуститься",
+  "webViewStartFailedBody": "Что-то помешало загрузке Bread. Попробуйте ещё раз или закройте Bread и откройте его снова.",
+  "webViewStartFailedAction": "Попробуйте ещё раз"
 }

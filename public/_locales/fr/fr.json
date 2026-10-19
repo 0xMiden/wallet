@@ -1530,5 +1530,11 @@
   "bridgeRankValueDescription": "La plupart des montants sont reçus après déduction des frais du prestataire.",
   "bridgeRankCostDescription": "Coût de pont et de réseau le plus bas, gaz compris.",
   "bridgeRankTimeDescription": "Délai d’arrivée estimé le plus court.",
-  "bridgeEstimatedCost": "Coût estimé"
+  "bridgeEstimatedCost": "Coût estimé",
+  "webViewUpdateTitle": "Mise à jour de la WebView du système Android",
+  "webViewUpdateBody": "Bread nécessite une version plus récente d’Android System WebView, la composante d’Android qui affiche les pages web dans les applications. Mettez-la à jour depuis Google Play, puis relancez Bread.",
+  "webViewUpdateAction": "Ouvrir Google Play",
+  "webViewStartFailedTitle": "Bread n’a pas pu démarrer",
+  "webViewStartFailedBody": "Un problème a empêché Bread de se charger. Réessayez, ou fermez Bread puis rouvrez-le.",
+  "webViewStartFailedAction": "Réessayez"
 }
