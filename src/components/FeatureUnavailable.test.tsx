@@ -1,13 +1,18 @@
 import React from 'react';
 
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 
 import type { FeatureAvailability } from 'lib/remote-config/availability';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
 import { FeatureUnavailableNotice, isFeatureBlocked } from './FeatureUnavailable';
 import en from '../../public/_locales/en/en.json';
 
-jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
+jest.mock('react-i18next', () => ({
+  useTranslation: () => ({
+    t: (key: string) => (['bridgeFeatureUnavailableBody'].includes(key) ? `Visible ${key}` : key)
+  })
+}));
 
 const AVAILABLE: FeatureAvailability = { state: 'available' };
 const LOADING: FeatureAvailability = { state: 'loading' };
@@ -43,4 +48,50 @@ it.each<[FeatureAvailability, boolean]>([
   [DOWN, true]
 ])('isFeatureBlocked(%o) is %s', (availability, blocked) => {
   expect(isFeatureBlocked(availability)).toBe(blocked);
+});
+
+jest.mock('lib/telemetry/user-visible-error', () => ({
+  ...jest.requireActual('lib/telemetry/user-visible-error'),
+  reportUserVisibleError: jest.fn()
+}));
+
+const mockReport = jest.mocked(reportUserVisibleError);
+
+describe('user-visible unavailable-feature errors', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    mockReport.mockClear();
+  });
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('reports bridgeFeatureUnavailableBody once for an unavailable service despite warning styling', () => {
+    const view = render(<FeatureUnavailableNotice availability={DOWN} />);
+    expect(screen.getByTestId('feature-unavailable-notice')).toHaveTextContent('Visible bridgeFeatureUnavailableBody');
+    act(() => jest.advanceTimersByTime(999));
+    expect(mockReport.mock.calls).toEqual([]);
+    act(() => jest.advanceTimersByTime(1));
+    expect(mockReport.mock.calls).toEqual([['bridgeFeatureUnavailableBody', 'notice']]);
+    view.rerender(<FeatureUnavailableNotice availability={{ ...DOWN, detail: 'another private cause' }} />);
+    act(() => jest.advanceTimersByTime(1000));
+    expect(mockReport.mock.calls).toEqual([['bridgeFeatureUnavailableBody', 'notice']]);
+  });
+
+  it.each([AVAILABLE, LOADING])('does not report hidden %o state', availability => {
+    const view = render(<FeatureUnavailableNotice availability={availability} />);
+    expect(view.container).toBeEmptyDOMElement();
+    act(() => jest.advanceTimersByTime(1000));
+    expect(mockReport.mock.calls).toEqual([]);
+  });
+
+  it.each([AVAILABLE, LOADING])('drops an unavailable episode cleared at 999 ms by %o', availability => {
+    const view = render(<FeatureUnavailableNotice availability={DOWN} />);
+    expect(screen.getByTestId('feature-unavailable-notice')).toBeInTheDocument();
+    act(() => jest.advanceTimersByTime(999));
+    view.rerender(<FeatureUnavailableNotice availability={availability} />);
+    expect(view.container).toBeEmptyDOMElement();
+    act(() => jest.advanceTimersByTime(1000));
+    expect(mockReport.mock.calls).toEqual([]);
+  });
 });
