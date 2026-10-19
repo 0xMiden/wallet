@@ -66,9 +66,11 @@ jest.mock('react-i18next', () => ({
 
 // False on an options page an extension reload or update orphaned.
 const mockHasExtensionRuntime = { value: true };
+const mockReloadInPlace = jest.fn();
 jest.mock('lib/platform', () => ({
   ...jest.requireActual('lib/platform'),
-  hasExtensionRuntime: () => mockHasExtensionRuntime.value
+  hasExtensionRuntime: () => mockHasExtensionRuntime.value,
+  reloadInPlace: () => mockReloadInPlace()
 }));
 
 const reloadMock = browser.runtime.reload as jest.Mock;
@@ -92,6 +94,7 @@ beforeEach(() => {
   mockAlert.mockReset();
   mockResetStorage.mockReset();
   reloadMock.mockReset();
+  mockReloadInPlace.mockReset();
   mockHasExtensionRuntime.value = true;
 });
 
@@ -138,6 +141,7 @@ describe('src/options.tsx', () => {
 
     await waitFor(() => expect(mockResetStorage).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(reloadMock).toHaveBeenCalledTimes(1));
+    expect(mockReloadInPlace).not.toHaveBeenCalled();
     expect(mockAlert).not.toHaveBeenCalled();
   });
 
@@ -190,6 +194,7 @@ describe('src/options.tsx', () => {
     });
 
     expect(reloadMock).not.toHaveBeenCalled();
+    expect(mockReloadInPlace).toHaveBeenCalledTimes(1);
     expect(mockAlert).not.toHaveBeenCalled();
     // No runtime to reload, so no pagehide reload is armed either.
     expect(addListener.mock.calls.map(([type]) => type)).not.toContain('pagehide');

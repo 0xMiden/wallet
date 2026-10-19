@@ -6,9 +6,11 @@ import { ResetAndReloadError, resetWalletAndReload } from './reset-and-reload';
 const mockIsExtension = { value: false };
 // False on an extension page an extension reload or update orphaned.
 const mockHasExtensionRuntime = { value: true };
+const mockReloadInPlace = jest.fn();
 jest.mock('lib/platform', () => ({
   isExtension: () => mockIsExtension.value,
-  hasExtensionRuntime: () => mockIsExtension.value && mockHasExtensionRuntime.value
+  hasExtensionRuntime: () => mockIsExtension.value && mockHasExtensionRuntime.value,
+  reloadInPlace: () => mockReloadInPlace()
 }));
 
 // `browser.runtime.reload` is spy-able; `window.location.reload` is a non-configurable jsdom getter
@@ -42,6 +44,7 @@ describe('resetWalletAndReload', () => {
     mockIsExtension.value = false;
     mockHasExtensionRuntime.value = true;
     runtimeReload.mockReset();
+    mockReloadInPlace.mockReset();
     resetStorageDestructive.mockReset();
     resetStorageDestructive.mockResolvedValue(undefined);
     onWipeError.mockClear();
@@ -54,6 +57,7 @@ describe('resetWalletAndReload', () => {
 
     expect(resetStorageDestructive).toHaveBeenCalledTimes(1);
     expect(runtimeReload).not.toHaveBeenCalled();
+    expect(mockReloadInPlace).toHaveBeenCalledTimes(1);
     expect(onWipeError).not.toHaveBeenCalled();
   });
 
@@ -68,6 +72,7 @@ describe('resetWalletAndReload', () => {
 
     expect(resetStorageDestructive).toHaveBeenCalledTimes(1);
     expect(runtimeReload).not.toHaveBeenCalled();
+    expect(mockReloadInPlace).toHaveBeenCalledTimes(1);
   });
 
   it('sets mainnet after the wipe and before reload', async () => {
@@ -84,6 +89,7 @@ describe('resetWalletAndReload', () => {
     });
     await resetWalletAndReload(onWipeError, MIDEN_NETWORK_NAME.MAINNET);
     expect(steps).toEqual(['wipe', 'network', 'reload']);
+    expect(mockReloadInPlace).not.toHaveBeenCalled();
     // The network choice alone: the build's current mainnet endpoints, never a copy pinned now.
     expect(mockApplyOverride).toHaveBeenCalledWith({
       rpcUrl: '',

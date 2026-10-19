@@ -48,6 +48,12 @@ export function hasExtensionRuntime(): boolean {
   return !!(g.browser?.runtime?.id || g.chrome?.runtime?.id);
 }
 
+/** Reloads this page in place. Its own function because jsdom's `location.reload` cannot be replaced, so tests mock it. */
+/* c8 ignore next 3 -- jsdom cannot observe a reload */
+export function reloadInPlace(): void {
+  window.location.reload();
+}
+
 /**
  * Detects if running in a browser extension context
  */

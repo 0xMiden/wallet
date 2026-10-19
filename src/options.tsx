@@ -18,7 +18,7 @@ import DisableOutlinesForClick from 'app/a11y/DisableOutlinesForClick';
 import Dialogs from 'app/layouts/Dialogs';
 import { getMessage } from 'lib/i18n';
 import { resetStorageDestructive } from 'lib/miden/reset';
-import { hasExtensionRuntime } from 'lib/platform';
+import { hasExtensionRuntime, reloadInPlace } from 'lib/platform';
 import { AlertFn, ConfirmFn, DialogsProvider, useAlert, useConfirm } from 'lib/ui/dialog';
 
 // Disable animations for extension
@@ -100,7 +100,7 @@ async function handleReset(customAlert: AlertFn, confirm: ConfirmFn) {
     const viaRuntime = hasExtensionRuntime();
     const reloadOnce = () => {
       if (viaRuntime) browser.runtime.reload();
-      else window.location.reload();
+      else reloadInPlace();
       reloaded = true;
     };
     if (viaRuntime) window.addEventListener('pagehide', reloadOnce, { once: true });

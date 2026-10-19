@@ -2,7 +2,7 @@ import { carryMainnetAccessCode } from 'lib/carried-mainnet-code';
 import { resetStorageDestructive } from 'lib/miden/reset';
 import { applyEndpointOverride, buildNetworkChoiceOverride } from 'lib/miden-chain/effective-endpoints';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
-import { hasExtensionRuntime } from 'lib/platform';
+import { hasExtensionRuntime, reloadInPlace } from 'lib/platform';
 
 /**
  * The step of a reset that did not finish. `prepare`: nothing was wiped. `wipe`: the wipe rejected,
@@ -77,7 +77,7 @@ export async function resetWalletAndReload(
         // A listener reload that threw left the flag down, so this one retries and reports.
         if (!reloaded) reloadOnce();
       } else {
-        window.location.reload();
+        reloadInPlace();
       }
     } catch (error) {
       throw new ResetAndReloadError('reload', error);
