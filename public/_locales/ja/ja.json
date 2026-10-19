@@ -895,7 +895,7 @@
   "confirmSignature": "署名の確認",
   "requestsYourSignature": "署名をお願いします",
   "confirmLoginSignature": "$domain$ にログインする",
-  "loginSignatureNote": "Breadは、$domain$専用に作成された鍵でのみ署名を行います。この鍵では、資金の移動やアカウントの変更を行うことはできません。",
+  "loginSignatureNote": "Breadは、$domain$専用に作成された鍵を使用して、このログインメッセージに署名します。この鍵では、資金の移動やアカウントの変更を行うことはできません。",
   "requestAssets": "アセットのリクエスト",
   "requestsAssets": "アセットをリクエストします",
   "requestImportPrivateNote": "Note のインポートをリクエスト",
