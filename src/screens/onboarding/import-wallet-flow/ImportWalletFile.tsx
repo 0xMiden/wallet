@@ -24,6 +24,7 @@ import { decrypt, decryptJson, deriveKey, generateKey } from 'lib/miden/password
 import { importDb } from 'lib/miden/repo';
 import { assertWasmHoldCurrent, getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
+import { alertUserError } from 'lib/telemetry/browser-alert';
 import { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 import { ENCRYPTED_WALLET_FILE_PASSWORD_CHECK, EncryptedWalletFile } from 'screens/shared';
 
@@ -266,14 +267,14 @@ export const ImportWalletFileScreen: React.FC<ImportWalletFileScreenProps> = ({ 
     const file = files?.[0];
     if (file) {
       if (!file.name.toLowerCase().endsWith('.json')) {
-        alert(t('encryptedWalletFileJsonOnly'));
+        alertUserError('encryptedWalletFileJsonOnly', t('encryptedWalletFileJsonOnly'));
         return;
       }
 
       // Decoding and parsing happen on the UI thread, so a file far larger than
       // any wallet backup is refused before it is read at all.
       if (file.size > MAX_WALLET_FILE_BYTES) {
-        alert(t('encryptedWalletFileTooLarge'));
+        alertUserError('encryptedWalletFileTooLarge', t('encryptedWalletFileTooLarge'));
         return;
       }
 
@@ -295,7 +296,7 @@ export const ImportWalletFileScreen: React.FC<ImportWalletFileScreenProps> = ({ 
           setImportError(undefined);
         } catch (e) {
           console.error(e);
-          alert(t('encryptedWalletFileMalformed'));
+          alertUserError('encryptedWalletFileMalformed', t('encryptedWalletFileMalformed'));
         }
       };
 
@@ -303,12 +304,12 @@ export const ImportWalletFileScreen: React.FC<ImportWalletFileScreenProps> = ({ 
         // Same retirement rule as onload above: a read the user has superseded or
         // walked away from must not interrupt whatever they are doing now.
         if (generation !== restoreGeneration.current) return;
-        alert(t('encryptedWalletFileReadFailed'));
+        alertUserError('encryptedWalletFileReadFailed', t('encryptedWalletFileReadFailed'));
       };
 
       reader.readAsArrayBuffer(file);
     } else {
-      alert(t('encryptedWalletFileSelectOne'));
+      alertUserError('encryptedWalletFileSelectOne', t('encryptedWalletFileSelectOne'));
     }
   };
 

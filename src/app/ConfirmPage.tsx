@@ -605,7 +605,6 @@ const ConfirmDAppForm: FC = () => {
 
   const [error, setError] = useSafeState<any>(null);
   const [errorId, setErrorId] = useSafeState<UserErrorId | null>(null);
-  useUserVisibleError(error && payload.type !== 'unlock' ? errorId : null, 'inline');
   const [confirming, setConfirming] = useSafeState(false);
   const [declining, setDeclining] = useSafeState(false);
 
@@ -844,6 +843,7 @@ const ConfirmDAppForm: FC = () => {
             closable
             onClose={handleErrorAlertClose}
             type="error"
+            errorId={errorId}
             title={t('error')}
             description={error?.message ?? t('smthWentWrong')}
             className="my-4"

@@ -315,7 +315,7 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
         // extension, where closing the page leaves the service worker running, a caller arms a `pagehide` reload before
         // the wipe and keeps it until its own reload has been attempted, and the extension reloads once either way.
         console.warn('[developer-settings] Could not wipe the wallet storage', err);
-        await customAlert({ title: t('error'), children: t('resetDidNotFinish') });
+        await customAlert({ errorId: 'resetDidNotFinish', title: t('error'), children: t('resetDidNotFinish') });
       }
       try {
         // Follows resetStorageDestructive's caller contract (src/lib/miden/reset.ts), as the options page's
