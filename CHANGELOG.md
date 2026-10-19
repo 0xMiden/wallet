@@ -2,15 +2,13 @@
 
 ## 1.17.6 (TBD)
 
-### Features
-
-- [FEATURE][mobile] Bread Connect answers `LOGIN_KEY_REQUEST` and `LOGIN_SIGN_REQUEST`, the same login key and login signature Bread's in-app browser gives a site. A device with no root key for the account answers `LOGIN_KEY_UNAVAILABLE`. The Capacitor adapter and the Swift and Kotlin clients expose `requestLoginKey` and `signLoginBytes`.
 ### Changes
 
 - [CHANGE][all] The privacy policy names the publisher and data controller, separates telemetry from the data the Miden network, the Guardian Operator, Transak, swaps, bridges and Earn receive, states the legal basis and retention for each kind of data, the geographic restriction check, where data goes and your rights, and raises the age in the Children section to 18 to match the Terms of Service.
 
 ### Features
 
+- [FEATURE][mobile] Bread Connect answers `LOGIN_KEY_REQUEST` and `LOGIN_SIGN_REQUEST`, the same login key and login signature Bread's in-app browser gives a site. A device with no root key for the account answers `LOGIN_KEY_UNAVAILABLE`. The Capacitor adapter and the Swift and Kotlin clients expose `requestLoginKey` and `signLoginBytes`.
 - [FEATURE][all] Choose an Earn withdrawal amount or Max, review the native payout and minimum received, and before submitting the selected amount check that the quote is current and the available balance still covers that amount, which accrual may have raised or a withdrawal elsewhere lowered (#1491).
 
 ### Fixes
