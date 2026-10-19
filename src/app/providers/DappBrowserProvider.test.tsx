@@ -1700,7 +1700,7 @@ describe('native permission-denied toast reporting', () => {
 
   async function registered() {
     await waitFor(() => expect(listeners.get('permissionDeniedToast') ?? []).toHaveLength(1));
-    return listeners.get('permissionDeniedToast')![0];
+    return listeners.get('permissionDeniedToast')![0]!;
   }
 
   async function emit(event: string, payload: unknown) {
