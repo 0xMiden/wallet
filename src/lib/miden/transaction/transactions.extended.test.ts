@@ -2094,6 +2094,7 @@ describe('consume queue fee probe', () => {
 
       expect(result.feeRefusedNoteIds).toEqual([]);
       expect(txStore).toHaveLength(1);
+      expect(txStore[0]).toMatchObject({ feeAdmission: 'balance_unknown' });
       expect(getAccount).not.toHaveBeenCalled();
       expect(mockTryWithWasmClientLock).not.toHaveBeenCalled();
       expect(isSyncFused('balances')).toBe(true);

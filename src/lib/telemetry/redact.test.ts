@@ -15,8 +15,12 @@ import {
   ACCOUNT_AUTH_CODES,
   AUTH_LAYOUTS,
   AUTH_PREPARATIONS,
+  CLAIM_FEE_ADMISSIONS,
   COMMITMENT_MATCHES,
+  CONSUME_DEFERRAL_CAUSES,
   FAILURE_POINTS,
+  REAP_AGES,
+  REAPED_ATTEMPT_ORIGINS,
   reportTransactionFailure,
   type TransactionFailure,
   type TransactionFailureDiagnostics
@@ -676,6 +680,50 @@ describe('a transaction-failure report', () => {
     }
     const reports = failures.map(reported);
     expect(reports.filter(report => scrubbed(report) !== report[0]).map(([message]) => message)).toEqual([]);
+  });
+
+  it('comes through crash scrubbing unchanged for every queue-failure closed value', () => {
+    const cases: [TransactionFailure, string][] = [];
+    for (const lastDeferral of CONSUME_DEFERRAL_CAUSES) {
+      cases.push([{ type: 'consume', lastDeferral }, `; last deferral ${lastDeferral};`]);
+    }
+    for (const feeAdmission of CLAIM_FEE_ADMISSIONS) {
+      cases.push([{ type: 'consume', feeAdmission }, `; claim fee admission ${feeAdmission};`]);
+    }
+    for (const age of REAP_AGES) {
+      for (const attempt of REAPED_ATTEMPT_ORIGINS) {
+        cases.push([
+          { type: 'consume', reason: 'stuck_reaped', reap: { age, attempt } },
+          `; reap age ${age}; reaped attempt ${attempt};`
+        ]);
+      }
+    }
+    for (const [failure, segment] of cases) {
+      const report = reported(failure);
+      expect(report[0]).toContain(segment);
+      expect(scrubbed(report)).toBe(report[0]);
+    }
+  });
+
+  it('comes through crash scrubbing unchanged for absent and unlisted queue-failure fields', () => {
+    const absent = reported({ type: 'consume', reason: 'stuck_reaped' });
+    expect(absent[0]).toContain(
+      '; queued by unrecorded; last deferral none; claim fee admission unrecorded; ' +
+        'reap age unavailable; reaped attempt unavailable; point pipeline;'
+    );
+    expect(scrubbed(absent)).toBe(absent[0]);
+
+    const failure: TransactionFailure = { type: 'consume', reason: 'stuck_reaped' };
+    Reflect.set(failure, 'entryPoint', 'nonsense');
+    Reflect.set(failure, 'lastDeferral', 'nonsense');
+    Reflect.set(failure, 'feeAdmission', 'nonsense');
+    Reflect.set(failure, 'reap', { age: 'nonsense', attempt: 'nonsense' });
+    const unlisted = reported(failure);
+    expect(unlisted[0]).toContain(
+      '; queued by other; last deferral other; claim fee admission other; ' +
+        'reap age unavailable; reaped attempt unavailable; point pipeline;'
+    );
+    expect(scrubbed(unlisted)).toBe(unlisted[0]);
   });
 
   it.each([
