@@ -37,6 +37,7 @@ jest.mock('lib/platform', () => ({
 // getter/setter GeneralSettings imports so we can drive initial state and
 // assert the persisted writes without touching real storage.
 jest.mock('lib/settings/helpers', () => ({
+  ...jest.requireActual<typeof import('lib/settings/helpers')>('lib/settings/helpers'),
   getThemeSetting: jest.fn(() => 'system'),
   isAutoConsumeEnabled: jest.fn(() => true),
   isDelegateProofEnabled: jest.fn(() => true),
@@ -45,19 +46,22 @@ jest.mock('lib/settings/helpers', () => ({
   setAutoConsumeSetting: jest.fn(),
   setDelegateProofSetting: jest.fn(),
   setHapticFeedbackSetting: jest.fn(),
-  setTelemetrySetting: jest.fn()
+  setTelemetrySetting: jest.fn(() => Promise.resolve())
 }));
 
-// The telemetry queue lives in the sink and the Sentry client in `crash`.
-// Withdrawing consent has to reach BOTH — stopping new events is not the same
-// as stopping the sharing already under way — so both are spied on directly.
+// The usage-data queue is withdrawn independently of the running crash reporter.
+let mockCrashReportingActive = false;
 jest.mock('lib/telemetry/sink', () => ({
   dropQueue: jest.fn()
 }));
 
 jest.mock('lib/telemetry/crash', () => ({
-  initCrashReporting: jest.fn(),
-  stopCrashReporting: jest.fn()
+  initCrashReporting: jest.fn(() => {
+    mockCrashReportingActive = true;
+  }),
+  stopCrashReporting: jest.fn(() => {
+    mockCrashReportingActive = false;
+  })
 }));
 
 // ListRow's routed branch imports the wallet Link, whose analytics barrel reaches
@@ -116,11 +120,8 @@ const mockSetHapticFeedbackSetting = setHapticFeedbackSetting as jest.Mock;
 const mockSetTelemetrySetting = setTelemetrySetting as jest.Mock;
 
 /**
- * The telemetry handler AWAITS the consent write before starting the crash
- * reporter, so the background cannot still read the old value while navigation
- * ends a flow. Anything after that await lands a microtask later. The mock must
- * therefore be thenable — a bare `jest.fn()` returning undefined would still be
- * awaitable, but keeping it a promise matches the real signature.
+ * The telemetry handler awaits the background usage-consent write. Let that
+ * promise settle before asserting the completed toggle change.
  */
 const flushConsentWrite = () => new Promise(resolve => setTimeout(resolve, 0));
 const mockDropQueue = dropQueue as jest.Mock;
@@ -130,6 +131,7 @@ const mockSetTheme = setTheme as jest.Mock;
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockCrashReportingActive = false;
   mockIsMobile.mockReturnValue(false);
   mockGetThemeSetting.mockReturnValue('system');
   mockIsAutoConsumeEnabled.mockReturnValue(true);
@@ -416,7 +418,9 @@ describe('GeneralSettings', () => {
       expect(mockStopCrashReporting).not.toHaveBeenCalled();
     });
 
-    it('turning it on persists the opt-in, starts crash reporting, and checks the toggle', async () => {
+    it('turning it on persists usage consent without restarting crash reporting', async () => {
+      initCrashReporting();
+      mockInitCrashReporting.mockClear();
       render(<GeneralSettings />);
       const toggle = screen.getByTestId(GeneralSettingsSelectors.TelemetryToggle);
 
@@ -427,31 +431,38 @@ describe('GeneralSettings', () => {
       // Exact argument: an inverted consent write is the bug the old logger
       // shipped, so `true` here is asserted rather than just "was called".
       expect(mockSetTelemetrySetting).toHaveBeenCalledWith(true);
-      expect(mockInitCrashReporting).toHaveBeenCalledTimes(1);
-      // Opting IN must not also tear down what it just started.
+      expect(mockInitCrashReporting).not.toHaveBeenCalled();
       expect(mockDropQueue).not.toHaveBeenCalled();
       expect(mockStopCrashReporting).not.toHaveBeenCalled();
+      expect(mockCrashReportingActive).toBe(true);
       expect(toggle).toBeChecked();
     });
 
-    it('turning it off persists the opt-out, drops the queue, stops crash reporting, and unchecks the toggle', () => {
+    it('turning it off drops queued usage before persisting refusal and keeps crash reporting active', async () => {
       mockIsTelemetryEnabled.mockReturnValue(true);
+      initCrashReporting();
+      mockInitCrashReporting.mockClear();
       render(<GeneralSettings />);
       const toggle = screen.getByTestId(GeneralSettingsSelectors.TelemetryToggle);
 
       fireEvent.click(toggle);
+      await flushConsentWrite();
 
       expect(mockSetTelemetrySetting).toHaveBeenCalledTimes(1);
       expect(mockSetTelemetrySetting).toHaveBeenCalledWith(false);
-      // Withdrawing consent stops sharing that is already under way, not just
-      // the next event: the pending queue goes, and so does the crash client.
       expect(mockDropQueue).toHaveBeenCalledTimes(1);
-      expect(mockStopCrashReporting).toHaveBeenCalledTimes(1);
+      expect(mockDropQueue.mock.invocationCallOrder[0]).toBeLessThan(
+        mockSetTelemetrySetting.mock.invocationCallOrder[0]!
+      );
+      expect(mockStopCrashReporting).not.toHaveBeenCalled();
       expect(mockInitCrashReporting).not.toHaveBeenCalled();
+      expect(mockCrashReportingActive).toBe(true);
       expect(toggle).not.toBeChecked();
     });
 
-    it('survives a full opt-in / opt-out round trip', async () => {
+    it('keeps crash reporting active through a full usage opt-in / opt-out round trip', async () => {
+      initCrashReporting();
+      mockInitCrashReporting.mockClear();
       render(<GeneralSettings />);
       const toggle = screen.getByTestId(GeneralSettingsSelectors.TelemetryToggle);
 
@@ -461,9 +472,10 @@ describe('GeneralSettings', () => {
       await flushConsentWrite();
 
       expect(mockSetTelemetrySetting.mock.calls).toEqual([[true], [false]]);
-      expect(mockInitCrashReporting).toHaveBeenCalledTimes(1);
+      expect(mockInitCrashReporting).not.toHaveBeenCalled();
       expect(mockDropQueue).toHaveBeenCalledTimes(1);
-      expect(mockStopCrashReporting).toHaveBeenCalledTimes(1);
+      expect(mockStopCrashReporting).not.toHaveBeenCalled();
+      expect(mockCrashReportingActive).toBe(true);
       expect(toggle).not.toBeChecked();
     });
   });

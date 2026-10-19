@@ -5884,8 +5884,8 @@
     "englishSource": "Help improve Wallet"
   },
   "helpImproveWalletDescription": {
-    "message": "请告知您使用了钱包的哪些功能、在何处遇到问题、错误的大致类别、应用版本以及您使用的平台，以便我们修复故障。如果应用崩溃，它还会发送一份崩溃报告，其中包含错误信息及代码中的发生位置，发送前会进行脱敏处理以删除敏感数据。 绝不会收集您的私钥、助记词、密码、地址、余额、金额或交易内容。不会跨其他应用或网站进行追踪，不会将任何信息用于广告，也不会将任何信息出售或分享给数据经纪商。您可以随时更改这些设置。",
-    "englishSource": "Shares which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform, so we can fix what's breaking. If the app crashes, it also sends a crash report with the error and where it happened in the code, scrubbed to remove sensitive data before sending. Never your keys, recovery phrase, password, addresses, balances, amounts, or transaction contents. No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers. You can change this any time."
+    "message": "请告知您使用的钱包功能、遇到问题的具体位置、错误的大致类别、应用版本以及您的操作系统，以便我们修复故障。切勿透露您的密钥、助记词、密码、地址、余额、金额或交易内容。 我们不会跨其他应用或网站进行追踪，不会将任何信息用于广告，也不会将任何信息出售或分享给数据经纪商。无论是否发生崩溃，系统都会发送崩溃报告：报告中包含错误信息及其在代码中的发生位置，这些信息均经过处理以删除敏感数据，且不包含您或您设备的任何标识符。您可以随时更改此设置。",
+    "englishSource": "Shares which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform, so we can fix what's breaking. Never your keys, recovery phrase, password, addresses, balances, amounts, or transaction contents. No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers. Crash reports are sent either way: the error and where it happened in the code, scrubbed to remove sensitive data, with no identifier for you or your device. You can change this any time."
   },
   "helpImproveWalletAccept": {
     "message": "分享使用数据",
@@ -5904,8 +5904,8 @@
     "englishSource": "Only what helps us fix bugs"
   },
   "helpImproveWalletSharedDescription": {
-    "message": "Which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform. If the app crashes, a crash report with the error and where it happened in the code, scrubbed to remove sensitive data before sending.",
-    "englishSource": "Which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform. If the app crashes, a crash report with the error and where it happened in the code, scrubbed to remove sensitive data before sending."
+    "message": "请说明您使用了钱包的哪些功能、在何处遇到困难、错误的大致类别、应用版本以及您使用的平台。",
+    "englishSource": "Which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform."
   },
   "helpImproveWalletPrivateTitle": {
     "message": "Your wallet stays private",
@@ -5922,6 +5922,10 @@
   "helpImproveWalletNoTrackingDescription": {
     "message": "No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers.",
     "englishSource": "No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers."
+  },
+  "helpImproveWalletCrashReports": {
+    "message": "无论哪种情况，系统都会发送崩溃报告，以便我们修复崩溃问题：报告中包含错误信息及其在代码中的发生位置，相关数据已经过处理以删除敏感信息，且不包含您或您设备的任何标识符。",
+    "englishSource": "Crash reports are sent either way, so we can fix crashes: the error and where it happened in the code, scrubbed to remove sensitive data, with no identifier for you or your device."
   },
   "helpImproveWalletChangeAnyTime": {
     "message": "You can change this any time in Settings.",

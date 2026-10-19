@@ -1,10 +1,12 @@
-import { isTelemetryEnabledAsync } from 'lib/settings/helpers';
+import { isCrashReportingEnabledAsync, isTelemetryEnabledAsync } from 'lib/settings/helpers';
 
 import { WIRE_KEYS } from './serialize';
 import { sendEvent, dropQueue, __setTransportForTest, __getQueueLengthForTest } from './sink';
 import { TelemetryContext, TelemetryEvent, TelemetryWirePayload } from './types';
 
 jest.mock('lib/settings/helpers', () => ({
+  ...jest.requireActual<typeof import('lib/settings/helpers')>('lib/settings/helpers'),
+  isCrashReportingEnabledAsync: jest.fn(),
   isTelemetryEnabledAsync: jest.fn()
 }));
 
@@ -31,14 +33,16 @@ describe('telemetry sink', () => {
     jest.resetAllMocks();
   });
 
-  it('sends nothing when consent is off', async () => {
+  it('sends no usage events when only crash reporting is enabled', async () => {
+    jest.mocked(isCrashReportingEnabledAsync).mockResolvedValue(true);
     jest.mocked(isTelemetryEnabledAsync).mockResolvedValue(false);
     await sendEvent(started, context);
     expect(sent).toEqual([]);
+    expect(isCrashReportingEnabledAsync).not.toHaveBeenCalled();
   });
 
   it('sends nothing when consent has never been given', async () => {
-    // Read-miss resolves false — a fresh install must be silent.
+    // Read-miss resolves false, so a fresh install sends no usage events.
     jest.mocked(isTelemetryEnabledAsync).mockResolvedValue(false);
     await sendEvent(started, context);
     expect(sent).toEqual([]);

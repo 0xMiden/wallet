@@ -20,6 +20,7 @@ import {
   sanitizeGuardianUrl,
   sameGuardianEndpoint,
   isAutoConsumeEnabledAsync,
+  isCrashReportingEnabledAsync,
   isDelegateProofEnabledAsync,
   mirrorBackgroundSettings,
   areBackgroundSettingsMirrored,
@@ -352,5 +353,27 @@ describe('telemetry consent setting', () => {
 
   it('resolves false from the background mirror on a read miss', async () => {
     await expect(isTelemetryEnabledAsync()).resolves.toBe(false);
+  });
+
+  it('permits crash reporting before a usage-sharing choice is stored', async () => {
+    await expect(isCrashReportingEnabledAsync()).resolves.toBe(true);
+    await expect(isTelemetryEnabledAsync()).resolves.toBe(false);
+  });
+
+  it('keeps crash reporting enabled after usage sharing is explicitly disabled', async () => {
+    await setTelemetrySetting(false);
+
+    await expect(isCrashReportingEnabledAsync()).resolves.toBe(true);
+    await expect(isTelemetryEnabledAsync()).resolves.toBe(false);
+  });
+
+  it('does not read the usage-sharing mirror to permit crash reporting', async () => {
+    mockStorageThrows = true;
+    try {
+      await expect(isCrashReportingEnabledAsync()).resolves.toBe(true);
+      await expect(isTelemetryEnabledAsync()).resolves.toBe(false);
+    } finally {
+      mockStorageThrows = false;
+    }
   });
 });
