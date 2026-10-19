@@ -18,6 +18,12 @@ describe('isFieldWord', () => {
     ).toBe(true);
   });
 
+  it('accepts a literal limb below the modulus only when read little-endian', () => {
+    const bytes = new Uint8Array(32);
+    bytes.set([0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x00]);
+    expect(isFieldWord(bytes)).toBe(true);
+  });
+
   it.each([0, 1, 2, 3])('refuses the modulus in limb %i', index => {
     const limbs = [0n, 0n, 0n, 0n];
     limbs[index] = 0xffffffff00000001n;

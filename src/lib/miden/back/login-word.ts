@@ -2,7 +2,7 @@
 export const FIELD_MODULUS = 0xffffffff00000001n;
 
 /**
- * Whether `bytes` is a serialized word: exactly 32 bytes whose four little-endian u64 elements are each a field element.
+ * Whether `bytes` is a serialized word: 32 bytes holding four little-endian u64s, each strictly below 0xffffffff00000001.
  * Plain JavaScript, so a request can be refused before any prompt or key read without loading WASM.
  */
 export function isFieldWord(bytes: Uint8Array): boolean {

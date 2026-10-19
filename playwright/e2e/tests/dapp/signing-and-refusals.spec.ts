@@ -58,7 +58,8 @@ import {
 } from '../../helpers/test-dapp';
 import type { ConnectedView, RawArg } from '../../test-dapp/protocol';
 
-const WORD = `0x${'11'.repeat(32)}`;
+// The first limb is below the modulus only in little-endian order; the real SDK must accept the wallet's gate.
+const WORD = `0xffffffffffffff00${'11'.repeat(24)}`;
 const OTHER_KEY = `0x${'22'.repeat(32)}`;
 const SUMMARY_AMOUNT = tst(0.5);
 // en.json's `opaqueSignatureTitle`, rendered by OpaqueSignatureWarning in ConfirmPage.tsx for Arbitrary and Blind
@@ -218,6 +219,7 @@ function signingCells(j: Journey): Record<string, DappCellImpl> {
           ctx
         );
         const signed = unwrap(result, 'signLoginBytes(word)', ctx);
+        expect(signed.payloadB64).toBe(Buffer.from(WORD.slice(2), 'hex').toString('base64'));
         // A length compared as a number: toHaveLength would print the signature's bytes on a failure.
         expect(Buffer.from(signed.signatureB64, 'base64').length).toBe(66);
         expect(signed.schemeTag).toBe(ECDSA_SCHEME_TAG);
@@ -232,6 +234,19 @@ function signingCells(j: Journey): Record<string, DappCellImpl> {
         // The key signed the login message the page hashed from its word, as a site checks it, and not the word.
         expect(await verify(signed.messageB64)).toEqual({ verifies: true, commitmentHex: first.loginKeyHex });
         expect(await verify(signed.payloadB64)).toEqual({ verifies: false, commitmentHex: first.loginKeyHex });
+        const modulusWord = Buffer.from(`01000000ffffffff${'00'.repeat(24)}`, 'hex').toString('base64');
+        const refused = await expectNoPrompt(
+          dapp,
+          () => callDapp(dapp, 'raw', { call: 'signLoginBytes', args: [bytesArg(modulusWord), 'word'] }, ctx.deadline),
+          ctx,
+          { refusal: true }
+        );
+        expect(refused).toEqual(
+          refusal(
+            'InvalidParamsMidenWalletError',
+            'INVALID_PARAMS: a login signature signs only a word: 32 bytes holding four little-endian field elements'
+          )
+        );
       }
     },
     // A declined login signature rejects. No adapter wraps these calls, so the provider's own class reaches the dApp.

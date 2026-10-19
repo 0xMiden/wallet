@@ -195,8 +195,9 @@ const WORD = u8ToB64(new Uint8Array(32).fill(7));
 const LOGIN_KEY = 'login-key-commitment';
 const SIGNATURE = 'login-signature';
 const UNAVAILABLE = `${MidenDAppErrorType.LoginKeyUnavailable}: this account's root key is not on this device`;
-const NOT_A_WORD = `${MidenDAppErrorType.InvalidParams}: a login signature signs only a 32-byte word`;
+const NOT_A_WORD = `${MidenDAppErrorType.InvalidParams}: a login signature signs only a word: 32 bytes holding four little-endian field elements`;
 const NOT_HTTPS = `${MidenDAppErrorType.InvalidParams}: login keys need an https page`;
+const VAULT_REFUSALS = [`${MidenDAppErrorType.InvalidParams}: not a word to sign`, UNAVAILABLE];
 
 function connect(origin: string, session: Record<string, unknown> = {}) {
   mockStorageState[STORAGE_KEY] = {
@@ -474,7 +475,7 @@ describe('both login key messages', () => {
 });
 
 describe('requestLoginSign', () => {
-  it('refuses a login signature over anything but a 32-byte word', async () => {
+  it('refuses a login signature over anything but four serialized field elements', async () => {
     const notWords = [
       { kind: 'signingInputs' },
       { kind: undefined },
@@ -647,6 +648,37 @@ describe('requestLoginSign', () => {
       expect(mockLoginKeyCommitment).not.toHaveBeenCalled();
     }
   );
+
+  it.each(['mobile', 'desktop'].flatMap(platform => VAULT_REFUSALS.map(message => ({ platform, message }))))(
+    "passes the vault's post-approval refusal through once on $platform: $message",
+    async ({ platform, message }) => {
+      mockIsDesktop = platform === 'desktop';
+      mockSignWithLoginKey.mockRejectedValue(new Error(message));
+
+      await expect(settle(dapp.requestLoginSign(ORIGIN, signRequest()))).resolves.toEqual({ ok: false, message });
+      expect(mockRequestConfirmation).toHaveBeenCalledTimes(1);
+      expect(firstCall(mockRequestConfirmation.mock.invocationCallOrder)).toBeLessThan(
+        firstCall(mockSignWithLoginKey.mock.invocationCallOrder)
+      );
+      expect(mockSignWithLoginKey).toHaveBeenCalledTimes(1);
+      expect(mockSignWithLoginKey).toHaveBeenCalledWith(ACCOUNT, DOMAIN, WORD);
+    }
+  );
+
+  it.each(VAULT_REFUSALS)("passes the vault's post-approval refusal through once on extension: %s", async message => {
+    mockIsExtension = true;
+    mockSignWithLoginKey.mockRejectedValue(new Error(message));
+    const popup = await openPopup(() => dapp.requestLoginSign(ORIGIN, signRequest()));
+    await popup.getPayload();
+    expect(mockSignWithLoginKey).not.toHaveBeenCalled();
+    await expect(popup.decide(MidenMessageType.DAppSignConfirmationRequest, { confirmed: true })).resolves.toEqual({
+      type: MidenMessageType.DAppSignConfirmationResponse
+    });
+    await expect(popup.outcome).resolves.toEqual({ ok: false, message });
+    expect(mockIntercomListeners).toHaveLength(0);
+    expect(mockSignWithLoginKey).toHaveBeenCalledTimes(1);
+    expect(mockSignWithLoginKey).toHaveBeenCalledWith(ACCOUNT, DOMAIN, WORD);
+  });
 
   it('refuses an approval once the page has been disconnected', async () => {
     // Mobile: the page disconnects while the sheet is open.

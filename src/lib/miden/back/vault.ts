@@ -2313,8 +2313,9 @@ export class Vault {
   }
 
   /**
-   * Sign the login message for `word`, base64 of a 32-byte word, with `accountId`'s login key for `domain`: Poseidon2
-   * of the login tag and the word, never the word itself. Returns base64 of the 66-byte signature `[0x01, r, s, v]`.
+   * Sign the login message for `word` with `accountId`'s login key for `domain`: Poseidon2 of the login tag and the
+   * word, never the word itself. `word` is base64 of 32 bytes holding four little-endian u64 field elements, each
+   * strictly below 0xffffffff00000001. Returns base64 of the 66-byte signature `[0x01, r, s, v]`.
    */
   async signWithLoginKey(accountId: string, domain: string, word: string): Promise<string> {
     return withError('Failed to sign with the login key', async () => {
@@ -2842,7 +2843,7 @@ function decodeLoginKeyRoot(hex: string): Uint8Array {
   return root;
 }
 
-/** The 32 bytes `word` encodes in base64, refused before any key is read when it encodes anything else. */
+/** Decode base64 of 32 bytes holding four little-endian u64s strictly below 0xffffffff00000001, before any key read. */
 function loginWordBytes(word: string): Uint8Array {
   let bytes: Uint8Array;
   try {
