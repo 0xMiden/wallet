@@ -1,9 +1,12 @@
-import { act, renderHook } from '@testing-library/react';
+import { createElement } from 'react';
+
+import { act, render, renderHook } from '@testing-library/react';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
 
 import { useAppLifecycleTelemetry } from 'app/hooks/useAppLifecycleTelemetry';
 import { useFundTelemetry } from 'app/hooks/useFundTelemetry';
+import { ErrorLine } from 'components/ui/ErrorLine';
 import { deserializeInternalError } from 'lib/intercom/helpers';
 import { request } from 'lib/miden/front';
 import { reportNoteClaim } from 'lib/miden/front/claim-telemetry';
@@ -1553,6 +1556,35 @@ describe('user-visible error reports', () => {
 
   afterEach(() => {
     jest.restoreAllMocks();
+  });
+
+  it('a raw display leaks none of its text', async () => {
+    consentOn();
+    jest.useFakeTimers();
+    try {
+      render(
+        createElement(
+          ErrorLine,
+          { errorId: 'raw_send_submit_failed' },
+          `Unable to send ${POISON.amount} to ${POISON.addressTestnet}: ${PHRASE_12}`
+        )
+      );
+      act(() => jest.advanceTimersByTime(1000));
+    } finally {
+      jest.useRealTimers();
+    }
+    await flushEgress();
+
+    expect(captured).toHaveLength(1);
+    const event = parsePayload(captured[0]?.body.split('\n')[2] ?? '');
+    expect(event.tags).toEqual({
+      network: 'testnet',
+      'user_error.id': 'raw_send_submit_failed',
+      'user_error.surface': 'inline'
+    });
+    expect(event.fingerprint).toEqual(['WalletUserVisibleError', 'raw_send_submit_failed', 'inline']);
+    expect(wireText()).toContain('raw_send_submit_failed');
+    expect(leaksIn(wireText())).toEqual([]);
   });
 
   it('puts only the closed id and surface on the wire', async () => {

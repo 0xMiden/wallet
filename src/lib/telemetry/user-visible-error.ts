@@ -33,7 +33,10 @@ export const USER_ERROR_SURFACES = Object.freeze<
 
 export type UserErrorSurface = (typeof USER_ERROR_SURFACES)[number];
 
-export const USER_ERROR_IDS = Object.freeze<readonly ['usdcxFaucetUnavailable']>(['usdcxFaucetUnavailable']);
+export const USER_ERROR_IDS = Object.freeze<readonly ['raw_send_submit_failed', 'usdcxFaucetUnavailable']>([
+  'raw_send_submit_failed',
+  'usdcxFaucetUnavailable'
+]);
 
 export type UserErrorId = (typeof USER_ERROR_IDS)[number];
 

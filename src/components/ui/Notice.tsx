@@ -2,6 +2,8 @@ import React from 'react';
 
 import { cva } from 'class-variance-authority';
 
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
+import { UserErrorId } from 'lib/telemetry/user-visible-error';
 import { cn } from 'lib/ui/util';
 
 /**
@@ -22,6 +24,8 @@ export type NoticeTone = 'neutral' | 'warning' | 'negative' | 'positive';
 export type NoticeVariant = 'block' | 'inline';
 
 export interface NoticeProps {
+  /** Identifies the displayed error for reporting; null marks a display that is not an error. */
+  errorId?: UserErrorId | null;
   /**
    * The body copy: one or two short lines. Optional, so a notice whose whole message is its
    * `title` — an explanation with nothing subordinate under it — renders as that one line rather
@@ -108,49 +112,53 @@ export const Notice: React.FC<NoticeProps> = ({
   title,
   icon,
   tone = 'neutral',
+  errorId,
   variant = 'block',
   role = 'note',
   className,
   id,
   'data-testid': dataTestId
-}) => (
-  <div
-    id={id}
-    role={role}
-    data-tone={tone}
-    data-variant={variant}
-    data-testid={dataTestId}
-    className={cn(noticeVariants({ variant }), variant === 'block' && noticeSurfaceVariants({ tone }), className)}
-  >
-    {icon && (
-      <span
-        aria-hidden="true"
-        data-slot="icon"
-        // 17px line box, 16px glyph: a 0.5px nudge centres it on the first line.
-        className={cn(
-          'mt-px flex h-4 w-4 shrink-0 items-center justify-center [&>svg]:h-full [&>svg]:w-full',
-          noticeInkVariants({ tone })
-        )}
-      >
-        {icon}
-      </span>
-    )}
-    <div className="flex min-w-0 flex-col gap-0.5">
-      {title && (
-        <span data-slot="title" className={cn('text-label', noticeInkVariants({ tone }))}>
-          {title}
-        </span>
-      )}
-      {/* Off a surface there is nothing for `ink` to carry, and a caption is meant to be quiet:
-          every inline tone takes `muted` (5.3:1 on `page`). */}
-      {children !== undefined && (
+}) => {
+  useUserVisibleError(tone === 'negative' ? errorId : null, 'notice');
+  return (
+    <div
+      id={id}
+      role={role}
+      data-tone={tone}
+      data-variant={variant}
+      data-testid={dataTestId}
+      className={cn(noticeVariants({ variant }), variant === 'block' && noticeSurfaceVariants({ tone }), className)}
+    >
+      {icon && (
         <span
-          data-slot="body"
-          className={variant === 'inline' ? 'text-caption text-muted' : noticeBodyVariants({ tone })}
+          aria-hidden="true"
+          data-slot="icon"
+          // 17px line box, 16px glyph: a 0.5px nudge centres it on the first line.
+          className={cn(
+            'mt-px flex h-4 w-4 shrink-0 items-center justify-center [&>svg]:h-full [&>svg]:w-full',
+            noticeInkVariants({ tone })
+          )}
         >
-          {children}
+          {icon}
         </span>
       )}
+      <div className="flex min-w-0 flex-col gap-0.5">
+        {title && (
+          <span data-slot="title" className={cn('text-label', noticeInkVariants({ tone }))}>
+            {title}
+          </span>
+        )}
+        {/* Off a surface there is nothing for `ink` to carry, and a caption is meant to be quiet:
+          every inline tone takes `muted` (5.3:1 on `page`). */}
+        {children !== undefined && (
+          <span
+            data-slot="body"
+            className={variant === 'inline' ? 'text-caption text-muted' : noticeBodyVariants({ tone })}
+          >
+            {children}
+          </span>
+        )}
+      </div>
     </div>
-  </div>
-);
+  );
+};
