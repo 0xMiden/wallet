@@ -10,6 +10,7 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonObject
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -109,6 +110,31 @@ class ClientTest {
         assertEquals(json("""{"type":"SIGN_RESPONSE","signature":"c2ln"}"""), response)
         assertEquals(json("""{"type":"SIGN_REQUEST","payload":"aGVsbG8="}"""), seen?.second)
         assertEquals(now, seen?.third)
+    }
+
+    @Test
+    fun requestLoginKeyAndSignLoginBytesUseTheSessionAccount() = runTest {
+        val client = connected()
+        var seen: JsonObject? = null
+        client.answering { link ->
+            val opened = bread.openRequest(link)
+            seen = opened.second
+            val type = if (opened.second["type"].string == "LOGIN_KEY_REQUEST") "LOGIN_KEY_RESPONSE" else "LOGIN_SIGN_RESPONSE"
+            val field = if (type == "LOGIN_KEY_RESPONSE") "loginKey" else "signature"
+            bread.answerRequest(link, json("""{"response":{"type":"$type","$field":"AQID"}}"""))
+        }
+
+        assertArrayEquals(byteArrayOf(1, 2, 3), client.requestLoginKey())
+        assertEquals(
+            json("""{"type":"LOGIN_KEY_REQUEST","sourceAccountId":"mtst1qy35q7ar3h0cgyqqqx2gs3nzxrgu7hz5xz3"}"""),
+            seen,
+        )
+
+        assertArrayEquals(byteArrayOf(1, 2, 3), client.signLoginBytes(byteArrayOf(4, 5, 6)))
+        assertEquals(
+            json("""{"type":"LOGIN_SIGN_REQUEST","sourceAccountId":"mtst1qy35q7ar3h0cgyqqqx2gs3nzxrgu7hz5xz3","payload":"BAUG","kind":"word"}"""),
+            seen,
+        )
     }
 
     @Test

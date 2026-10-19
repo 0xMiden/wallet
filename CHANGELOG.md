@@ -2,6 +2,10 @@
 
 ## 1.17.6 (TBD)
 
+### Features
+
+- [FEATURE][mobile] Bread Connect answers `LOGIN_KEY_REQUEST` and `LOGIN_SIGN_REQUEST`, the same login key and login signature Bread's in-app browser gives a site. A device with no root key for the account answers `LOGIN_KEY_UNAVAILABLE`. The Capacitor adapter and the Swift and Kotlin clients expose `requestLoginKey` and `signLoginBytes`.
+
 ### Fixes
 
 - [FIX][android] The sign-in sheet's callback check keeps a literal `+` in the `origin` value, as iOS does, instead of reading it as a space (#1576).

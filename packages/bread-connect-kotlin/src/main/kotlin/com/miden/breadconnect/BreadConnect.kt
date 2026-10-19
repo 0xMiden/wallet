@@ -1,5 +1,6 @@
 package com.miden.breadconnect
 
+import java.util.Base64
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.coroutineScope
@@ -123,6 +124,54 @@ class BreadConnect(
         val sentAt = clock()
         val (link, id) = BreadConnectProtocol.sendRequest(session.session, request, sentAt)
         return exchange(Pending.Request(id, session.session.session, sentAt), link)
+    }
+
+    /** The account's login key for the callback's domain, as Bread's own provider returns it. */
+    suspend fun requestLoginKey(): ByteArray {
+        val response = request(
+            buildJsonObject {
+                put("type", "LOGIN_KEY_REQUEST")
+                put("sourceAccountId", connectedAccountId())
+            },
+        )
+        return standardBase64(response, "LOGIN_KEY_RESPONSE", "loginKey")
+    }
+
+    /** A signature by that key over the login message for [data]. The kind is only `word`. */
+    suspend fun signLoginBytes(data: ByteArray): ByteArray {
+        val response = request(
+            buildJsonObject {
+                put("type", "LOGIN_SIGN_REQUEST")
+                put("sourceAccountId", connectedAccountId())
+                put("payload", Base64.getEncoder().encodeToString(data))
+                put("kind", "word")
+            },
+        )
+        return standardBase64(response, "LOGIN_SIGN_RESPONSE", "signature")
+    }
+
+    private fun connectedAccountId(): String = session?.permission?.get("accountId")?.string
+        ?: throw BreadConnectException(
+            BreadConnectException.Code.Bread(ProtocolErrorCode.NOT_GRANTED),
+            "The app is not connected to Bread",
+        )
+
+    private fun standardBase64(response: JsonObject, type: String, field: String): ByteArray {
+        val text = response[field].string
+        if (response["type"].string != type || text == null) {
+            throw BreadConnectException(
+                BreadConnectException.Code.Bread(ProtocolErrorCode.INTERNAL_ERROR),
+                "Bread's answer has no well-formed $field",
+            )
+        }
+        return try {
+            Base64.getDecoder().decode(text)
+        } catch (_: IllegalArgumentException) {
+            throw BreadConnectException(
+                BreadConnectException.Code.Bread(ProtocolErrorCode.INTERNAL_ERROR),
+                "Bread's answer has no well-formed $field",
+            )
+        }
     }
 
     /** Stops waiting for the answer to the request in flight. */
