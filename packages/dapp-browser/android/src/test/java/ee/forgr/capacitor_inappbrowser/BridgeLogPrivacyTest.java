@@ -10,7 +10,6 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-import org.mockito.ArgumentCaptor;
 import org.mockito.MockedConstruction;
 import org.robolectric.Robolectric;
 import org.robolectric.RobolectricTestRunner;
@@ -26,7 +25,7 @@ public class BridgeLogPrivacyTest {
     private static final String MARKER = "bread-log-marker-1582";
     private static final String INSTANCE_ID = "bridge-log-fixture";
     private Activity activity;
-    private InAppBrowserPlugin plugin;
+    private RecordingPlugin plugin;
     private WebViewDialog dialog;
     private WebViewCallbacks callbacks;
     private MockedConstruction<WebViewDialog> dialogs;
@@ -34,7 +33,7 @@ public class BridgeLogPrivacyTest {
     @Before public void setUp() {
         activity = Robolectric.buildActivity(Activity.class).setup().visible().get();
         activity.setTheme(androidx.appcompat.R.style.Theme_AppCompat_Light_NoActionBar);
-        plugin = spy(new InAppBrowserPlugin());
+        plugin = spy(new RecordingPlugin());
         AppCompatActivity pluginActivity = mock(AppCompatActivity.class);
         doAnswer(call -> { ((Runnable) call.getArgument(0)).run(); return null; }).when(pluginActivity).runOnUiThread(any());
         doReturn(pluginActivity).when(plugin).getActivity();
@@ -42,7 +41,6 @@ public class BridgeLogPrivacyTest {
         Bridge bridge = mock(Bridge.class);
         doReturn(bridge).when(plugin).getBridge();
         when(bridge.getWebView()).thenReturn(new WebView(activity));
-        doNothing().when(plugin).notifyListeners(anyString(), any(JSObject.class));
         dialogs = mockConstruction(WebViewDialog.class, (created, context) -> {
             Options options = (Options) context.arguments().get(2);
             callbacks = options.getCallbacks();
@@ -106,9 +104,34 @@ public class BridgeLogPrivacyTest {
     }
 
     private JSObject receivedMessage() {
-        ArgumentCaptor<JSObject> event = ArgumentCaptor.forClass(JSObject.class);
-        verify(plugin).notifyListeners(eq("messageFromWebview"), event.capture());
-        return event.getValue();
+        JSObject received = null;
+        for (RecordingPlugin.Event event : plugin.events) {
+            if (!"messageFromWebview".equals(event.name)) continue;
+            assertNull("one page message, one event", received);
+            received = event.data;
+        }
+        assertNotNull(received);
+        return received;
+    }
+
+    // Plugin.notifyListeners is protected in another package, so the test records events by overriding it.
+    public static class RecordingPlugin extends InAppBrowserPlugin {
+        static final class Event {
+            final String name;
+            final JSObject data;
+
+            Event(String name, JSObject data) {
+                this.name = name;
+                this.data = data;
+            }
+        }
+
+        final java.util.List<Event> events = new java.util.ArrayList<>();
+
+        @Override
+        protected void notifyListeners(String eventName, JSObject data) {
+            events.add(new Event(eventName, data));
+        }
     }
 
     private static void assertNoMarkerInLogs() {
