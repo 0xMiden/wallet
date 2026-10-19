@@ -2032,7 +2032,7 @@ describe('user-visible history load errors', () => {
             type: HistoryEntryType.PendingTransaction,
             status: 3,
             message: 'Transaction failed',
-            icon: 'FAILED'
+            transactionIcon: 'FAILED'
           })
         ]}
       />
