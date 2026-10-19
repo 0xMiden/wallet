@@ -1,4 +1,5 @@
 import { isMidenAsset } from 'lib/miden/assets';
+import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
 import {
   getNativeAssetMetadata,
   getNativeAssetMetadataSync,
@@ -8,7 +9,14 @@ import {
 } from 'lib/miden-chain/native-asset';
 
 import { DEFAULT_TOKEN_METADATA } from './defaults';
-import { FAUCET_PROOF_WORDS } from './faucet-proof.fixtures';
+import {
+  FAUCET_PROOF_WORDS,
+  FaucetProofWords,
+  rawFieldWords,
+  TEST_NAME_BYTES,
+  TEST_DESCRIPTION_BYTES,
+  MULTILINGUAL_NAME_BYTES
+} from './faucet-proof.fixtures';
 import { fetchTokenMetadata, NotFoundTokenMetadata } from './fetch';
 import { getNativeDisplayMetadataSync } from './native';
 import type { ensureTokensMetadataSchema } from './storage';
@@ -42,7 +50,7 @@ const mockRpcClient = jest.fn(() => ({
 const mockFromBech32 = jest.fn();
 const mockFromHex = jest.fn((id: string) => {
   if (!id.startsWith('0x')) throw new Error(`Invalid hex account: ${id}`);
-  return { toString: () => id.toLowerCase() };
+  return { toString: () => id.toLowerCase(), isPublic: () => true };
 });
 const mockFromAccountStorage = jest.fn();
 
@@ -95,14 +103,33 @@ jest.mock('./storage', () => ({
 
 const mockIsMidenAsset = isMidenAsset as unknown as jest.Mock;
 
-/** A stand-in for `BasicFungibleFaucetComponent`. An empty name is what a faucet without a name returns. */
-function faucetComponent(symbol: string, decimals: number, name = '', description?: string) {
+function parsedId(id: string, isPublic = true) {
+  return { toString: () => id, isPublic: () => isPublic };
+}
+
+function faucetProof(words: FaucetProofWords = FAUCET_PROOF_WORDS, hasHeader = true) {
   return {
-    decimals: () => decimals,
-    symbol: () => ({ toString: () => symbol }),
-    tokenName: () => name,
-    description: () => description
+    accountHeader: () => (hasHeader ? { id: () => parsedId('test-account') } : undefined),
+    getStorageSlotValue: (name: string) => {
+      const word = words[name];
+      return word && { toU64s: () => BigUint64Array.from(word) };
+    }
   };
+}
+
+function metadataProof(symbol = 8765514n, decimals = 8n, name = [0], description = [0]) {
+  return faucetProof({
+    ...FAUCET_PROOF_WORDS,
+    'miden::standards::faucets::fungible::token_config': [1000n, 1000000n, decimals, symbol],
+    ...rawFieldWords('token_name', name),
+    ...rawFieldWords('token_description', description)
+  });
+}
+
+function expectNoFullAccountRequests() {
+  expect(mockGetAccountDetails).not.toHaveBeenCalled();
+  expect(mockFromAccountStorage).not.toHaveBeenCalled();
+  expect(mockSyncStorageMaps).not.toHaveBeenCalled();
 }
 
 describe('metadata/fetch', () => {
@@ -113,10 +140,13 @@ describe('metadata/fetch', () => {
     mockSyncStorageMaps.mockReset();
     mockFromBech32.mockReset();
     mockFromAccountStorage.mockReset();
+    jest.mocked(ensureSdkWasmReady).mockReset().mockResolvedValue(undefined);
     mockFetchFromStorage.mockResolvedValue(null);
     mockPutToStorage.mockResolvedValue(undefined);
     mockEnsureTokensMetadataSchema.mockReset().mockResolvedValue(undefined);
   });
+
+  afterEach(expectNoFullAccountRequests);
 
   describe('fetchTokenMetadata', () => {
     it('reads proof metadata when an unrelated nonce map prevents full account loading', async () => {
@@ -188,16 +218,12 @@ describe('metadata/fetch', () => {
       'reads chain metadata for $assetId with the parsed account id',
       async ({ assetId, parsed, bech32Calls, hexCalls }) => {
         mockIsMidenAsset.mockReturnValue(false);
-        mockFromBech32.mockImplementation((id: string) => ({ accountId: () => ({ toString: () => id }) }));
-        mockGetAccountDetails.mockResolvedValue({
-          account: () => ({ storage: () => ({}) }),
-          isPublic: () => true
-        });
-        mockFromAccountStorage.mockReturnValue(faucetComponent('TEST', 8));
+        mockFromBech32.mockImplementation((id: string) => ({ accountId: () => parsedId(id) }));
+        mockGetAccountProof.mockResolvedValue(metadataProof());
 
         await expect(fetchTokenMetadata(assetId)).resolves.toMatchObject({ symbol: 'TEST', decimals: 8 });
-        expect(mockGetAccountDetails).toHaveBeenCalledTimes(1);
-        expect(mockGetAccountDetails.mock.calls[0][0].toString()).toBe(parsed);
+        expect(mockGetAccountProof).toHaveBeenCalledTimes(1);
+        expect(mockGetAccountProof.mock.calls[0][0].toString()).toBe(parsed);
         expect(mockFromHex.mock.calls).toEqual(hexCalls);
         expect(mockFromBech32.mock.calls).toEqual(bech32Calls);
       }
@@ -210,7 +236,7 @@ describe('metadata/fetch', () => {
 
       expect(result).toEqual(expect.objectContaining({ symbol: 'USDCX', decimals: 6, scaleIsUnknown: true }));
       // Should not call any RPC methods for miden asset
-      expect(mockGetAccountDetails).not.toHaveBeenCalled();
+      expect(mockGetAccountProof).not.toHaveBeenCalled();
     });
 
     it('returns cached metadata when available in storage', async () => {
@@ -221,7 +247,7 @@ describe('metadata/fetch', () => {
       const result = await fetchTokenMetadata('cached-asset');
 
       expect(result).toEqual(cachedMeta);
-      expect(mockGetAccountDetails).not.toHaveBeenCalled();
+      expect(mockGetAccountProof).not.toHaveBeenCalled();
     });
 
     it('runs the cache shape check before it reads the cache', async () => {
@@ -244,29 +270,22 @@ describe('metadata/fetch', () => {
     it('fetches metadata via RpcClient for non-miden assets', async () => {
       mockIsMidenAsset.mockReturnValue(false);
 
-      const mockAccountId = 'account-id-123';
+      const mockAccountId = parsedId('account-id-123');
       mockFromBech32.mockReturnValue({ accountId: () => mockAccountId });
 
-      const mockStorage = { slots: [] };
-      const mockUnderlyingAccount = { storage: () => mockStorage };
-      mockGetAccountDetails.mockResolvedValue({
-        account: () => mockUnderlyingAccount,
-        isPublic: () => true
-      });
-
-      mockFromAccountStorage.mockReturnValue(faucetComponent('TEST', 8, 'Test Token', 'A token for tests'));
+      mockGetAccountProof.mockResolvedValue(metadataProof(8765514n, 8n, TEST_NAME_BYTES, TEST_DESCRIPTION_BYTES));
 
       const result = await fetchTokenMetadata('test-asset-id');
 
       expect(mockFromBech32).toHaveBeenCalledWith('test-asset-id');
-      expect(mockGetAccountDetails).toHaveBeenCalledWith(mockAccountId);
-      expect(mockFromAccountStorage).toHaveBeenCalledWith(mockStorage);
+      expect(mockGetAccountProof).toHaveBeenCalledWith(mockAccountId);
+      expect(mockGetAccountDetails).not.toHaveBeenCalled();
       expect(result).toEqual({
         decimals: 8,
         symbol: 'TEST',
         name: 'Test Token',
         description: 'A token for tests',
-        // The faucet answered, so the scale is a fact — and saying so is what
+        // The faucet answered, so the scale is a fact - and saying so is what
         // stops the placeholder shape test from mistaking a token that happens
         // to look like the placeholder for one.
         scaleIsUnknown: false
@@ -275,12 +294,8 @@ describe('metadata/fetch', () => {
 
     it('uses the symbol as the name when the faucet name is empty', async () => {
       mockIsMidenAsset.mockReturnValue(false);
-      mockFromBech32.mockReturnValue({ accountId: () => 'account-id-123' });
-      mockGetAccountDetails.mockResolvedValue({
-        account: () => ({ storage: () => ({ slots: [] }) }),
-        isPublic: () => true
-      });
-      mockFromAccountStorage.mockReturnValue(faucetComponent('TEST', 8, ''));
+      mockFromBech32.mockReturnValue({ accountId: () => parsedId('account-id-123') });
+      mockGetAccountProof.mockResolvedValue(metadataProof());
 
       const result = await fetchTokenMetadata('test-asset-id');
 
@@ -290,14 +305,10 @@ describe('metadata/fetch', () => {
     it.each([
       ['absent', undefined],
       ['empty', '']
-    ])('leaves the description out when the faucet description is %s', async (_label, description) => {
+    ])('leaves the description out when the faucet description is %s', async () => {
       mockIsMidenAsset.mockReturnValue(false);
-      mockFromBech32.mockReturnValue({ accountId: () => 'account-id-123' });
-      mockGetAccountDetails.mockResolvedValue({
-        account: () => ({ storage: () => ({ slots: [] }) }),
-        isPublic: () => true
-      });
-      mockFromAccountStorage.mockReturnValue(faucetComponent('TEST', 8, 'Test Token', description));
+      mockFromBech32.mockReturnValue({ accountId: () => parsedId('account-id-123') });
+      mockGetAccountProof.mockResolvedValue(metadataProof(8765514n, 8n, TEST_NAME_BYTES, [0]));
 
       const result = await fetchTokenMetadata('test-asset-id');
 
@@ -312,18 +323,14 @@ describe('metadata/fetch', () => {
       mockPutToStorage.mockImplementation(async (_key: string, value: Record<string, AssetMetadata>) => {
         Object.assign(storedMetadata, value);
       });
-      mockFromBech32.mockReturnValue({ accountId: () => 'account-id-123' });
-      mockGetAccountDetails.mockResolvedValue({
-        account: () => ({ storage: () => ({ slots: [] }) }),
-        isPublic: () => true
-      });
-      mockFromAccountStorage.mockReturnValue(faucetComponent('TEST', 8));
+      mockFromBech32.mockReturnValue({ accountId: () => parsedId('account-id-123') });
+      mockGetAccountProof.mockResolvedValue(metadataProof());
 
       const first = await fetchTokenMetadata('test-asset-id');
       const second = await fetchTokenMetadata('test-asset-id');
 
       expect(second).toEqual(first);
-      expect(mockGetAccountDetails).toHaveBeenCalledTimes(1);
+      expect(mockGetAccountProof).toHaveBeenCalledTimes(1);
       expect(mockPutToStorage).toHaveBeenCalledWith('tokens_base_metadata', {
         'test-asset-id': first
       });
@@ -336,12 +343,10 @@ describe('metadata/fetch', () => {
       mockPutToStorage.mockImplementation(async (_key: string, value: Record<string, AssetMetadata>) => {
         storedMetadata = value;
       });
-      mockFromBech32.mockImplementation((assetId: string) => ({ accountId: () => assetId }));
-      mockGetAccountDetails.mockImplementation(async (accountId: string) => ({
-        account: () => ({ storage: () => accountId }),
-        isPublic: () => true
-      }));
-      mockFromAccountStorage.mockImplementation((accountId: string) => faucetComponent(accountId.toUpperCase(), 8));
+      mockFromBech32.mockImplementation((assetId: string) => ({ accountId: () => parsedId(assetId) }));
+      mockGetAccountProof.mockImplementation(async (accountId: ReturnType<typeof parsedId>) =>
+        metadataProof(accountId.toString() === 'asset-a' ? 1n : 27n)
+      );
 
       const [assetA, assetB] = await Promise.all([fetchTokenMetadata('asset-a'), fetchTokenMetadata('asset-b')]);
 
@@ -354,12 +359,8 @@ describe('metadata/fetch', () => {
 
     it('returns fetched metadata when persisting it fails', async () => {
       mockIsMidenAsset.mockReturnValue(false);
-      mockFromBech32.mockReturnValue({ accountId: () => 'account-id-123' });
-      mockGetAccountDetails.mockResolvedValue({
-        account: () => ({ storage: () => ({ slots: [] }) }),
-        isPublic: () => true
-      });
-      mockFromAccountStorage.mockReturnValue(faucetComponent('TEST', 8));
+      mockFromBech32.mockReturnValue({ accountId: () => parsedId('account-id-123') });
+      mockGetAccountProof.mockResolvedValue(metadataProof());
       mockPutToStorage.mockRejectedValue(new Error('storage unavailable'));
 
       await expect(fetchTokenMetadata('test-asset-id')).resolves.toMatchObject({
@@ -369,17 +370,11 @@ describe('metadata/fetch', () => {
       });
     });
 
-    it('returns DEFAULT_TOKEN_METADATA when faucet introspection throws (pre-0.15 faucet)', async () => {
+    it('returns DEFAULT_TOKEN_METADATA when standard slots are absent (pre-0.15 faucet)', async () => {
       const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
       mockIsMidenAsset.mockReturnValue(false);
-      mockFromBech32.mockReturnValue({ accountId: () => 'acc-id' });
-      mockGetAccountDetails.mockResolvedValue({
-        account: () => ({ storage: () => ({ slots: [] }) }),
-        isPublic: () => true
-      });
-      mockFromAccountStorage.mockImplementation(() => {
-        throw new Error('metadata slot unreadable');
-      });
+      mockFromBech32.mockReturnValue({ accountId: () => parsedId('acc-id') });
+      mockGetAccountProof.mockResolvedValue(faucetProof({}));
 
       const result = await fetchTokenMetadata('old-faucet-asset-id');
 
@@ -393,11 +388,8 @@ describe('metadata/fetch', () => {
 
     it('returns DEFAULT_TOKEN_METADATA when RPC returns no underlying account (private)', async () => {
       mockIsMidenAsset.mockReturnValue(false);
-      mockFromBech32.mockReturnValue({ accountId: () => 'acc-id' });
-      mockGetAccountDetails.mockResolvedValue({
-        account: () => null,
-        isPublic: () => false
-      });
+      mockFromBech32.mockReturnValue({ accountId: () => parsedId('acc-id', false) });
+      mockGetAccountProof.mockResolvedValue(faucetProof(FAUCET_PROOF_WORDS, false));
 
       const result = await fetchTokenMetadata('private-asset-id');
 
@@ -405,6 +397,9 @@ describe('metadata/fetch', () => {
       expect(mockPutToStorage).toHaveBeenCalledWith('tokens_base_metadata', {
         'private-asset-id': DEFAULT_TOKEN_METADATA
       });
+      mockFetchFromStorage.mockResolvedValue({ 'private-asset-id': DEFAULT_TOKEN_METADATA });
+      await expect(fetchTokenMetadata('private-asset-id')).resolves.toEqual(DEFAULT_TOKEN_METADATA);
+      expect(mockGetAccountProof).toHaveBeenCalledTimes(1);
     });
 
     it('does not cache a transient missing public account and retries on the next fetch', async () => {
@@ -415,24 +410,17 @@ describe('metadata/fetch', () => {
       mockPutToStorage.mockImplementation(async (_key: string, value: Record<string, AssetMetadata>) => {
         Object.assign(storedMetadata, value);
       });
-      mockFromBech32.mockReturnValue({ accountId: () => 'acc-id' });
-      mockGetAccountDetails
-        .mockResolvedValueOnce({
-          account: () => null,
-          isPublic: () => true
-        })
-        .mockResolvedValueOnce({
-          account: () => ({ storage: () => ({ slots: [] }) }),
-          isPublic: () => true
-        });
-      mockFromAccountStorage.mockReturnValue(faucetComponent('TEST', 8));
+      mockFromBech32.mockReturnValue({ accountId: () => parsedId('acc-id') });
+      mockGetAccountProof
+        .mockResolvedValueOnce(faucetProof(FAUCET_PROOF_WORDS, false))
+        .mockResolvedValueOnce(metadataProof());
 
       const first = await fetchTokenMetadata('public-missing-asset-id');
       const second = await fetchTokenMetadata('public-missing-asset-id');
 
       expect(first).toEqual(DEFAULT_TOKEN_METADATA);
       expect(second).toMatchObject({ decimals: 8, symbol: 'TEST', name: 'TEST' });
-      expect(mockGetAccountDetails).toHaveBeenCalledTimes(2);
+      expect(mockGetAccountProof).toHaveBeenCalledTimes(2);
       expect(mockPutToStorage).toHaveBeenCalledTimes(1);
       expect(mockPutToStorage).toHaveBeenCalledWith('tokens_base_metadata', {
         'public-missing-asset-id': second
@@ -448,8 +436,8 @@ describe('metadata/fetch', () => {
     it('throws NotFoundTokenMetadata when RPC call fails', async () => {
       const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
       mockIsMidenAsset.mockReturnValue(false);
-      mockFromBech32.mockReturnValue({ accountId: () => 'acc-id' });
-      mockGetAccountDetails.mockRejectedValue(new Error('RPC error'));
+      mockFromBech32.mockReturnValue({ accountId: () => parsedId('acc-id') });
+      mockGetAccountProof.mockRejectedValue(new Error('RPC error'));
 
       await expect(fetchTokenMetadata('rpc-fail-asset-id')).rejects.toThrow(NotFoundTokenMetadata);
       consoleErrorSpy.mockRestore();
@@ -465,6 +453,247 @@ describe('metadata/fetch', () => {
 
       await expect(fetchTokenMetadata('bad-asset-id')).rejects.toThrow(NotFoundTokenMetadata);
       consoleErrorSpy.mockRestore();
+    });
+  });
+
+  describe('standard proof acceptance boundaries', () => {
+    const config = 'miden::standards::faucets::fungible::token_config';
+    const expected = {
+      symbol: 'TEST',
+      name: 'Proof Token',
+      decimals: 8,
+      description: 'Metadata without nonce map',
+      scaleIsUnknown: false
+    };
+
+    beforeEach(() => {
+      mockIsMidenAsset.mockReturnValue(false);
+      mockFromBech32.mockImplementation((id: string) => ({ accountId: () => parsedId(id) }));
+    });
+
+    it.each<{ label: string; changes: FaucetProofWords; metadata: Partial<AssetMetadata> }>([
+      { label: 'decimals 12', changes: { [config]: [1000n, 1000000n, 12n, 8765514n] }, metadata: { decimals: 12 } },
+      { label: 'zero supply and max', changes: { [config]: [0n, 0n, 8n, 8765514n] }, metadata: {} },
+      {
+        label: 'inclusive amount maximum',
+        changes: { [config]: [9223372034707292160n, 9223372034707292160n, 8n, 8765514n] },
+        metadata: {}
+      },
+      { label: 'minimum symbol A', changes: { [config]: [0n, 0n, 8n, 1n] }, metadata: { symbol: 'A' } },
+      { label: 'leading A symbol AB', changes: { [config]: [0n, 0n, 8n, 28n] }, metadata: { symbol: 'AB' } },
+      {
+        label: '12 leading A characters',
+        changes: { [config]: [0n, 0n, 8n, 12n] },
+        metadata: { symbol: 'AAAAAAAAAAAA' }
+      },
+      {
+        label: 'maximum 12-character symbol',
+        changes: { [config]: [0n, 0n, 8n, 2481152873203736562n] },
+        metadata: { symbol: 'ZZZZZZZZZZZZ' }
+      },
+      {
+        label: '32-byte multilingual name',
+        changes: rawFieldWords('token_name', MULTILINGUAL_NAME_BYTES),
+        metadata: { name: '猫猫猫猫猫猫猫猫猫猫é' }
+      },
+      {
+        label: '195-byte description',
+        changes: rawFieldWords('token_description', [195, ...Array(195).fill(0x78)]),
+        metadata: { description: 'x'.repeat(195) }
+      },
+      {
+        label: 'BOM name',
+        changes: rawFieldWords('token_name', [4, 0xef, 0xbb, 0xbf, 0x78]),
+        metadata: { name: '\ufeffx' }
+      },
+      {
+        label: 'embedded zero name',
+        changes: rawFieldWords('token_name', [3, 0x41, 0, 0x42]),
+        metadata: { name: 'A\0B' }
+      },
+      {
+        label: 'nonzero unused bytes in used felt',
+        changes: { 'miden::standards::faucets::token_name_0': [0x00ffffffffff4101n, 0n, 0n, 0n] },
+        metadata: { name: 'A' }
+      },
+      {
+        label: 'nonzero unused tail felt',
+        changes: { 'miden::standards::faucets::token_name_1': [0n, 0n, 0n, 0x00ffffffffffffffn] },
+        metadata: {}
+      },
+      {
+        label: 'all boolean flags true',
+        changes: { 'miden::standards::faucets::mutability_config': [1n, 1n, 1n, 1n] },
+        metadata: {}
+      },
+      {
+        label: 'non-URL unused fields at capacity',
+        changes: {
+          ...rawFieldWords('logo_uri', [195, ...Array(195).fill(0x78)]),
+          ...rawFieldWords('external_link', [195, ...Array(195).fill(0x79)])
+        },
+        metadata: {}
+      }
+    ])('accepts $label', async ({ changes, metadata }) => {
+      mockGetAccountProof.mockResolvedValue(faucetProof({ ...FAUCET_PROOF_WORDS, ...changes }));
+
+      await expect(fetchTokenMetadata('boundary-asset')).resolves.toStrictEqual({ ...expected, ...metadata });
+      expect(mockGetAccountProof.mock.calls).toEqual([[expect.objectContaining({ isPublic: expect.any(Function) })]]);
+      expect(mockGetAccountDetails).not.toHaveBeenCalled();
+      expect(mockFromAccountStorage).not.toHaveBeenCalled();
+    });
+
+    it('accepts custom component storage without an isFaucet marker', async () => {
+      const accountId = { toString: () => 'custom-account', isPublic: () => true };
+      mockFromBech32.mockReturnValue({ accountId: () => accountId });
+      const proof = faucetProof();
+      expect('isFaucet' in accountId).toBe(false);
+      expect('isFaucet' in proof.accountHeader()!).toBe(false);
+      mockGetAccountProof.mockResolvedValue(proof);
+
+      await expect(fetchTokenMetadata('custom-component')).resolves.toStrictEqual(expected);
+    });
+  });
+
+  describe('invalid standard proof caching', () => {
+    const config = 'miden::standards::faucets::fungible::token_config';
+    let warn: jest.SpyInstance;
+
+    beforeEach(() => {
+      warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      mockIsMidenAsset.mockReturnValue(false);
+      mockFromBech32.mockImplementation((id: string) => ({ accountId: () => parsedId(id) }));
+    });
+
+    afterEach(() => warn.mockRestore());
+
+    async function expectCachedUnknown(words: FaucetProofWords) {
+      mockGetAccountProof.mockResolvedValue(faucetProof(words));
+      await expect(fetchTokenMetadata('invalid-asset')).resolves.toEqual(DEFAULT_TOKEN_METADATA);
+      expect(mockPutToStorage).toHaveBeenCalledWith('tokens_base_metadata', {
+        'invalid-asset': DEFAULT_TOKEN_METADATA
+      });
+      mockFetchFromStorage.mockResolvedValue({ 'invalid-asset': DEFAULT_TOKEN_METADATA });
+      await expect(fetchTokenMetadata('invalid-asset')).resolves.toEqual(DEFAULT_TOKEN_METADATA);
+      expect(mockGetAccountProof).toHaveBeenCalledTimes(1);
+      expect(mockGetAccountDetails).not.toHaveBeenCalled();
+      expect(warn).toHaveBeenCalled();
+    }
+
+    it.each(Object.keys(FAUCET_PROOF_WORDS))('requires slot %s', async slot => {
+      expect.hasAssertions();
+      const words = { ...FAUCET_PROOF_WORDS };
+      delete words[slot];
+      await expectCachedUnknown(words);
+    });
+
+    it.each<{ label: string; word: readonly [bigint, bigint, bigint, bigint] }>([
+      { label: 'decimals 13', word: [0n, 0n, 13n, 8765514n] },
+      { label: 'decimals above u8', word: [0n, 0n, 256n, 8765514n] },
+      { label: 'supply above amount maximum', word: [9223372034707292161n, 9223372034707292160n, 8n, 8765514n] },
+      { label: 'max supply above amount maximum', word: [0n, 9223372034707292161n, 8n, 8765514n] },
+      { label: 'supply greater than max', word: [1n, 0n, 8n, 8765514n] },
+      { label: 'zero symbol', word: [0n, 0n, 8n, 0n] },
+      { label: 'symbol above maximum', word: [0n, 0n, 8n, 2481152873203736563n] },
+      { label: 'symbol length zero', word: [0n, 0n, 8n, 26n] },
+      { label: 'symbol length 13', word: [0n, 0n, 8n, 13n] },
+      { label: 'symbol nonzero remainder', word: [0n, 0n, 8n, 677n] }
+    ])('caches unknown for $label', async ({ word }) => {
+      expect.hasAssertions();
+      await expectCachedUnknown({ ...FAUCET_PROOF_WORDS, [config]: word });
+    });
+
+    it.each(['token_name', 'token_description', 'logo_uri', 'external_link'])(
+      'rejects malformed UTF8 in %s',
+      async field => {
+        expect.hasAssertions();
+        await expectCachedUnknown({ ...FAUCET_PROOF_WORDS, ...rawFieldWords(field, [2, 0xc3, 0x28]) });
+      }
+    );
+
+    it.each(['token_name', 'token_description', 'logo_uri', 'external_link'])(
+      'rejects oversized byte length in %s',
+      async field => {
+        expect.hasAssertions();
+        const bytes = field === 'token_name' ? [33, ...Array(11).fill([0xe7, 0x8c, 0xab]).flat()] : [196];
+        await expectCachedUnknown({ ...FAUCET_PROOF_WORDS, ...rawFieldWords(field, bytes) });
+      }
+    );
+
+    it.each(
+      ['token_name', 'token_description', 'logo_uri', 'external_link'].flatMap(field =>
+        [false, true].map(unused => ({ field, unused }))
+      )
+    )('rejects high byte in $field unused=$unused', async ({ field, unused }) => {
+      expect.hasAssertions();
+      const index = unused ? (field === 'token_name' ? 1 : 6) : 0;
+      const slot = `miden::standards::faucets::${field}_${index}`;
+      const word: [bigint, bigint, bigint, bigint] = [...FAUCET_PROOF_WORDS[slot]!];
+      word[unused ? 3 : 0] |= 1n << 56n;
+      await expectCachedUnknown({ ...FAUCET_PROOF_WORDS, [slot]: word });
+    });
+
+    it.each([0, 1, 2, 3])('rejects nonboolean mutability flag %s', async index => {
+      expect.hasAssertions();
+      const word: [bigint, bigint, bigint, bigint] = [0n, 0n, 0n, 0n];
+      word[index] = 2n;
+      await expectCachedUnknown({ ...FAUCET_PROOF_WORDS, 'miden::standards::faucets::mutability_config': word });
+    });
+  });
+
+  describe('uncached chain failures', () => {
+    let error: jest.SpyInstance;
+    beforeEach(() => {
+      error = jest.spyOn(console, 'error').mockImplementation(() => {});
+      mockIsMidenAsset.mockReturnValue(false);
+      mockFromBech32.mockImplementation((id: string) => ({ accountId: () => parsedId(id) }));
+      mockGetAccountProof.mockResolvedValue(faucetProof());
+    });
+    afterEach(() => error.mockRestore());
+
+    it('does not construct RPC before SDK readiness and does not cache readiness rejection', async () => {
+      jest.mocked(ensureSdkWasmReady).mockImplementation(async () => {
+        expect(mockRpcClient).not.toHaveBeenCalled();
+        expect(mockFromBech32).not.toHaveBeenCalled();
+        throw new Error('WASM unavailable');
+      });
+      await expect(fetchTokenMetadata('not-ready')).rejects.toThrow(NotFoundTokenMetadata);
+      expect(mockRpcClient).not.toHaveBeenCalled();
+      expect(mockGetAccountProof).not.toHaveBeenCalled();
+      expect(mockPutToStorage).not.toHaveBeenCalled();
+    });
+
+    it('waits for SDK readiness before parsing and requesting a proof', async () => {
+      let release!: () => void;
+      jest.mocked(ensureSdkWasmReady).mockReturnValue(
+        new Promise<void>(resolve => {
+          release = resolve;
+        })
+      );
+      const pending = fetchTokenMetadata('wait-for-wasm');
+      await Promise.resolve();
+      expect(mockGetAccountProof).not.toHaveBeenCalled();
+      expect(mockFromBech32).not.toHaveBeenCalled();
+      release();
+      await expect(pending).resolves.toMatchObject({ symbol: 'TEST', decimals: 8, scaleIsUnknown: false });
+      expect(mockGetAccountProof).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not cache RPC rejection and retries the next fetch', async () => {
+      mockGetAccountProof.mockRejectedValueOnce(new Error('RPC unavailable'));
+      await expect(fetchTokenMetadata('retry-rpc')).rejects.toThrow(NotFoundTokenMetadata);
+      expect(mockPutToStorage).not.toHaveBeenCalled();
+      await expect(fetchTokenMetadata('retry-rpc')).resolves.toMatchObject({ symbol: 'TEST', decimals: 8 });
+      expect(mockGetAccountProof).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not request or cache a proof after invalid address parsing', async () => {
+      mockFromBech32.mockImplementation(() => {
+        throw new Error('Invalid address');
+      });
+      await expect(fetchTokenMetadata('invalid-address')).rejects.toThrow(NotFoundTokenMetadata);
+      expect(mockGetAccountProof).not.toHaveBeenCalled();
+      expect(mockPutToStorage).not.toHaveBeenCalled();
     });
   });
 
@@ -486,12 +715,8 @@ describe('metadata/fetch', () => {
       storage[proofKey] = nativeId;
       storage.tokens_base_metadata = { [foreignId]: foreignMetadata };
       mockIsMidenAsset.mockImplementation(jest.requireActual('lib/miden/assets/utils').isMidenAsset);
-      mockFromBech32.mockImplementation((id: string) => ({ accountId: () => id }));
-      mockGetAccountDetails.mockResolvedValue({
-        account: () => ({ storage: () => ({}) }),
-        isPublic: () => true
-      });
-      mockFromAccountStorage.mockReturnValue(faucetComponent('USDCX', 6));
+      mockFromBech32.mockImplementation((id: string) => ({ accountId: () => parsedId(id) }));
+      mockGetAccountProof.mockResolvedValue(metadataProof(245907771n, 6n));
       mockGetBlockHeaderByNumber.mockReset().mockResolvedValue({ verificationBaseFee: () => 7 });
     });
 
@@ -500,7 +725,7 @@ describe('metadata/fetch', () => {
     });
 
     it('preserves genuine chain MIDEN for the native alias', async () => {
-      mockFromAccountStorage.mockReturnValue(faucetComponent('MIDEN', 6));
+      mockGetAccountProof.mockResolvedValue(metadataProof(146288095n, 6n));
       await expect(getNativeAssetMetadata()).resolves.toEqual({ symbol: 'MIDEN', decimals: 6 });
       await expect(fetchTokenMetadata('miden')).resolves.toEqual(
         expect.objectContaining({ symbol: 'MIDEN', name: 'Miden', decimals: 6, scaleIsUnknown: false })
@@ -524,7 +749,7 @@ describe('metadata/fetch', () => {
           : undefined;
         const cachedNative = stale ? await fetchTokenMetadata(nativeId) : undefined;
         expect(cachedNative).toEqual(expectedCachedNative);
-        expect(mockGetAccountDetails).not.toHaveBeenCalled();
+        expect(mockGetAccountProof).not.toHaveBeenCalled();
 
         await expect(getNativeAssetMetadata()).resolves.toEqual({ symbol: 'USDCX', decimals: 6 });
         expect(getNativeAssetMetadataSync()).toEqual({ symbol: 'USDCX', decimals: 6 });
@@ -533,8 +758,9 @@ describe('metadata/fetch', () => {
         );
         expect(getSdkSyncedNativeAssetIdSync()).toBe(nativeId);
         expect(storage[nativeMetadataKey]).toEqual({ faucetId: nativeId, symbol: 'USDCX', decimals: 6 });
-        expect(mockGetAccountDetails).toHaveBeenCalledTimes(1);
-        expect(mockGetAccountDetails).toHaveBeenCalledWith(nativeId);
+        expect(mockGetAccountProof).toHaveBeenCalledTimes(1);
+        expect(mockGetAccountProof.mock.calls[0][0].toString()).toBe(nativeId);
+        expect(mockGetAccountDetails).not.toHaveBeenCalled();
         expect(getNativeDisplayMetadataSync(undefined, nativeId)).toMatchObject({
           symbol: 'USDCX',
           decimals: 6,
@@ -543,7 +769,7 @@ describe('metadata/fetch', () => {
         expect(getNativeDisplayMetadataSync(foreignMetadata, foreignId)).toEqual(foreignMetadata);
         expect(storage.tokens_base_metadata[foreignId]).toEqual(foreignMetadata);
         await expect(fetchTokenMetadata(foreignId)).resolves.toEqual(foreignMetadata);
-        expect(mockGetAccountDetails).toHaveBeenCalledTimes(1);
+        expect(mockGetAccountProof).toHaveBeenCalledTimes(1);
         await expect(getVerificationBaseFee()).resolves.toBe(7);
         expect(mockGetBlockHeaderByNumber).toHaveBeenCalledTimes(1);
       }
@@ -561,16 +787,14 @@ describe('metadata/fetch', () => {
             decimals: 8,
             scaleIsUnknown: false
           };
-          if (failure === 'RPC rejection') mockGetAccountDetails.mockRejectedValue(new Error('RPC unavailable'));
-          else
-            mockFromAccountStorage.mockImplementation(() => {
-              throw new Error('Unknown faucet interface');
-            });
+          if (failure === 'RPC rejection') mockGetAccountProof.mockRejectedValue(new Error('RPC unavailable'));
+          else mockGetAccountProof.mockResolvedValue(faucetProof({}));
           await expect(getNativeAssetMetadata()).resolves.toBeNull();
           expect(getNativeAssetMetadataSync()).toBeNull();
           expect(storage[nativeMetadataKey]).toBeNull();
           expect(getSdkSyncedNativeAssetIdSync()).toBe(nativeId);
-          expect(mockGetAccountDetails).toHaveBeenCalledWith(nativeId);
+          expect(mockGetAccountProof.mock.calls[0][0].toString()).toBe(nativeId);
+          expect(mockGetAccountDetails).not.toHaveBeenCalled();
           expect(storage.tokens_base_metadata[foreignId]).toEqual(foreignMetadata);
         } finally {
           warn.mockRestore();
