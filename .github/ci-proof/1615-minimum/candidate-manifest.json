@@ -1,0 +1,354 @@
+{
+  "schema": 1,
+  "created_utc": "2026-10-19T18:24:45+00:00",
+  "target": {
+    "repository": "0xMiden/wallet",
+    "pull_request": 1615,
+    "branch": "utk-usdcx-fixed-min-burn",
+    "upstream": "origin/utk-usdcx-fixed-min-burn",
+    "member_head_observed": "af5aee0a6b6fc9d67791ec82a4005fdfe73dc4d3",
+    "main_head_observed": "fcbd7911df71b787ecfc161df59ee94f08dd6433",
+    "remote_heads_observed_utc": "2026-10-19T18:23:53Z"
+  },
+  "source_commit": "072b3b805ab5f32e4f274790157d4ddd29b52c84",
+  "source_tree": "fcb29490602873b20fd85f983e4827e23c887ace",
+  "base_commit": "fcbd7911df71b787ecfc161df59ee94f08dd6433",
+  "base_tree": "fab264fbc00edc85ad6cfcc08478e2111148acaf",
+  "current_head": "e247ca8b6185ff00678e9408bc0143c4df4879a7",
+  "current_head_tree": "051e8f92789c8fe0cc650a5572ebaa904843d7ff",
+  "intended_candidate_tree": "b00e491e4459a5e7d71b0856e9481d65cabeedb2",
+  "private_index_patch_application_tree": "b00e491e4459a5e7d71b0856e9481d65cabeedb2",
+  "real_index_unchanged_and_unstaged": true,
+  "c001_commit": {
+    "sha": "e247ca8b6185ff00678e9408bc0143c4df4879a7",
+    "subject": "fix(rev): W1615-001 prove stale minimum cleanup",
+    "signature_verified": true,
+    "only_changed_path": "src/lib/usdcx/use-burn-minimum.test.ts"
+  },
+  "c002_status": "uncommitted candidate; focused green and both sensitivity arms pending CI",
+  "patch": {
+    "path": "candidate.patch",
+    "sha256": "62382a6c5d9cacfae1e41df5b0f0160a137f0bf947ab7cafbc5971d982a07146",
+    "bytes": 45440,
+    "applies_to_commit": "072b3b805ab5f32e4f274790157d4ddd29b52c84",
+    "includes_committed_c001": true,
+    "includes_uncommitted_c002": true,
+    "file_count": 19
+  },
+  "accepted_checkpoint_evidence": {
+    "run": 39300055230,
+    "job": 118222577910,
+    "transport": "586dbc201aa2567befb249df8fb5103bd40a4a59",
+    "source": "072b3b805ab5f32e4f274790157d4ddd29b52c84",
+    "checkpoint_patch_sha256": "e466708b80b2355876f656df9d8b85bd0724562329752bcceae559b76070d3a9",
+    "summary_sha256": "db81204d27e25a6412aa740535bd5ab31d07f30019e646f4084c6a2e359df4a4",
+    "acceptance_record": "../wallet1615-ci-proof/accepted.json",
+    "scope": "original test-only checkpoint and hook mutations; not post-fix or final-head approval"
+  },
+  "local_preflights": [
+    {
+      "check": "hook-only Jest",
+      "status": "passed",
+      "tests": 3,
+      "scope": "C001",
+      "runner": "ci-local",
+      "node": "22"
+    },
+    {
+      "check": "hook named-file ESLint",
+      "status": "passed",
+      "runner": "ci-local",
+      "node": "22"
+    },
+    {
+      "check": "TypeScript noEmit incremental false",
+      "status": "passed",
+      "runner": "ci-local",
+      "node": "22",
+      "elapsed_seconds": 25
+    },
+    {
+      "check": "Prettier scripts/e2e-real.mjs scripts/e2e-real.test.ts src/lib/usdcx/use-burn-minimum.test.ts",
+      "status": "passed with existing unknown import-order option warnings",
+      "runner": "ci-local",
+      "node": "22"
+    },
+    {
+      "check": "focused seven-file Jest",
+      "status": "unrun",
+      "exit": 75,
+      "reason": "starts a browser classification from playwright paths",
+      "runner": "ci-local",
+      "routed_to_ci": true
+    },
+    {
+      "check": "git diff --check original source",
+      "status": "passed"
+    }
+  ],
+  "focused_ci_files": [
+    "src/lib/usdcx/use-burn-minimum.test.ts",
+    "playwright/e2e/helpers/usdcx-config.test.ts",
+    "playwright/e2e/helpers/arc-usdcx.test.ts",
+    "playwright/e2e/helpers/bridge.test.ts",
+    "playwright/e2e/helpers/usdcx-run.test.ts",
+    "playwright/e2e/helpers/usdcx-l2-deposit.test.ts",
+    "scripts/e2e-real.test.ts"
+  ],
+  "sensitivity_predictions": [
+    {
+      "arm": "shared-default-1-with-sepolia-5",
+      "mutations": [
+        "BURN_UNITS=1000000n",
+        "ETHEREUM_SEPOLIA_PAYOUT explicit burnUnits=5000000n in this arm only"
+      ],
+      "scope": "usdcx-config.test.ts only",
+      "tests": 10,
+      "passed": 7,
+      "failed": 3,
+      "failing_destinations": [
+        "Arc Testnet",
+        "Base Sepolia",
+        "Arbitrum Sepolia"
+      ],
+      "assertion_line": 21,
+      "expected": "undefined",
+      "received": {
+        "amount": "5"
+      },
+      "module_import_must_succeed": true
+    },
+    {
+      "arm": "sepolia-2-with-default-5",
+      "mutations": [
+        "keep BURN_UNITS=USDCX_MIN_BURN",
+        "ETHEREUM_SEPOLIA_PAYOUT explicit burnUnits=2000000n"
+      ],
+      "scope": "usdcx-config.test.ts only",
+      "tests": 10,
+      "passed": 9,
+      "failed": 1,
+      "failing_destinations": [
+        "Sepolia"
+      ],
+      "assertion_line": 21,
+      "expected": "undefined",
+      "received": {
+        "amount": "5"
+      },
+      "module_import_must_succeed": true
+    }
+  ],
+  "protected_source_unchanged": [
+    "src/lib/usdcx/protocol.ts",
+    "src/lib/usdcx/withdrawal.ts",
+    "src/lib/usdcx/use-burn-minimum.ts",
+    "src/lib/usdcx/constant.ts",
+    "src/screens/send-flow/ReviewTransaction.tsx",
+    "jest.config.ts",
+    "scripts/merge-jest-coverage.mjs",
+    "package.json",
+    "yarn.lock",
+    "CHANGELOG.md"
+  ],
+  "workflow_noncomment_lines_unchanged": true,
+  "historical_superpowers_plans_unchanged": true,
+  "frozen_review_artifacts_edited": false,
+  "fresh_review_approval": false,
+  "full_current_head_ci_complete": false,
+  "visual_verification_complete": false,
+  "pushed": false,
+  "published": false,
+  "files": [
+    {
+      "path": ".github/workflows/e2e-usdcx-live.yml",
+      "cluster": "C002",
+      "status": "uncommitted",
+      "bytes": 24459,
+      "sha256": "d4455725b69746697bb1a397de5d7cb348b1148fcc7426181e3c68ea69f08632",
+      "source_blob": "a1925ac6ac62a58f37b0832854d2c427ed82c1d4",
+      "head_blob": "a1925ac6ac62a58f37b0832854d2c427ed82c1d4",
+      "candidate_blob": "a7b673cf9e1d0ee0d7bd485f6e5199ec052cdf9f"
+    },
+    {
+      "path": ".github/workflows/e2e-usdcx.yml",
+      "cluster": "C002",
+      "status": "uncommitted",
+      "bytes": 13961,
+      "sha256": "f11891032fcacea6394b5729475d6eb6f8015ee1e46e4205ef9506e799365be4",
+      "source_blob": "6a1c9626e8c112db3ae834fed014a0b6ce2ff466",
+      "head_blob": "6a1c9626e8c112db3ae834fed014a0b6ce2ff466",
+      "candidate_blob": "1950492a78f6ce36d59e2255597911c58744ff21"
+    },
+    {
+      "path": "playwright/e2e/docs/e2e-architecture.md",
+      "cluster": "C002",
+      "status": "uncommitted",
+      "bytes": 51131,
+      "sha256": "8ac27ce6730e1b14f0835b7ec01daf8cb19be950fd3526822fb8505767c1df38",
+      "source_blob": "f2bc5812c4837fc7a8c1d0570b5924530dc4d431",
+      "head_blob": "f2bc5812c4837fc7a8c1d0570b5924530dc4d431",
+      "candidate_blob": "800f20c52e584741dcfdb4d38c098c102b9053c1"
+    },
+    {
+      "path": "playwright/e2e/helpers/arc-usdcx.test.ts",
+      "cluster": "C002",
+      "status": "uncommitted",
+      "bytes": 99511,
+      "sha256": "141c60b49e5c3e8588b6912d78ce152d7e72e71403358d9db85e23b0d8ec9800",
+      "source_blob": "9f69afa8a3ff0575d28fa73cf8186c4d063f253c",
+      "head_blob": "9f69afa8a3ff0575d28fa73cf8186c4d063f253c",
+      "candidate_blob": "ec9ef95521e07bec23fbe2f60ff67c19fcf0baab"
+    },
+    {
+      "path": "playwright/e2e/helpers/bridge.test.ts",
+      "cluster": "C002",
+      "status": "uncommitted",
+      "bytes": 19339,
+      "sha256": "0ac976a60a77095ba3353bb5b14f2e8350ac05bc2151edc8a045cec669b55fdc",
+      "source_blob": "42a845591ac23bcac787259545cf5a0bc9087ff1",
+      "head_blob": "42a845591ac23bcac787259545cf5a0bc9087ff1",
+      "candidate_blob": "be635da1dba78c4c7b5cc5697b1e66c84c4737ed"
+    },
+    {
+      "path": "playwright/e2e/helpers/usdcx-config.test.ts",
+      "cluster": "C002",
+      "status": "uncommitted",
+      "bytes": 2426,
+      "sha256": "8927fff46b856044403eaefdc5908c32f4f99f16a07e3fcd952a1525f97a671b",
+      "source_blob": "d42c089b0a4a8c367f714fb5a3caa219d84b245b",
+      "head_blob": "d42c089b0a4a8c367f714fb5a3caa219d84b245b",
+      "candidate_blob": "d27da524c512204082678fc145d69bec02d5f3bc"
+    },
+    {
+      "path": "playwright/e2e/helpers/usdcx-constants.ts",
+      "cluster": "C002",
+      "status": "uncommitted",
+      "bytes": 12675,
+      "sha256": "c504ac1b35765929df3e811c6b12e2af8f8a1e8824168232d227be678418d0bf",
+      "source_blob": "0cbcc7ca1c9048b91fc3d0706e286e355e6cfbcf",
+      "head_blob": "0cbcc7ca1c9048b91fc3d0706e286e355e6cfbcf",
+      "candidate_blob": "99ce27d43e630a7e54b5aaa32a4305586e348593"
+    },
+    {
+      "path": "playwright/e2e/helpers/usdcx-l2-deposit.test.ts",
+      "cluster": "C002",
+      "status": "uncommitted",
+      "bytes": 24770,
+      "sha256": "47a28a5d7bf2981c9fcda0668d28c2fdedd4beeb5a1b9d7f50e47789381bffe5",
+      "source_blob": "3c6dd3f3195423b5dbf5074846d7f762097d38f9",
+      "head_blob": "3c6dd3f3195423b5dbf5074846d7f762097d38f9",
+      "candidate_blob": "d7108a476fd728ccb12933e9029e308bb67656c7"
+    },
+    {
+      "path": "playwright/e2e/helpers/usdcx-l2-deposit.ts",
+      "cluster": "C002",
+      "status": "uncommitted",
+      "bytes": 11926,
+      "sha256": "a2637aa91d8a7612b6f039316b59974a3266cb1cc28445a8e0cf6e35df5184b6",
+      "source_blob": "d416b1ef7e848e8c1183672abdb15f7790b90f09",
+      "head_blob": "d416b1ef7e848e8c1183672abdb15f7790b90f09",
+      "candidate_blob": "c723899114ee5619af5263203bd80701dde0c73d"
+    },
+    {
+      "path": "playwright/e2e/helpers/usdcx-legs.ts",
+      "cluster": "C002",
+      "status": "uncommitted",
+      "bytes": 35216,
+      "sha256": "e84f7d705badf6b880deaa8822b348ea31ed54f28237e46f5d54405158a8e0b6",
+      "source_blob": "9c63f9fa85abe1fb95d4b394ddb104ec83cfd24d",
+      "head_blob": "9c63f9fa85abe1fb95d4b394ddb104ec83cfd24d",
+      "candidate_blob": "d685e69749acce992400a8556f006cf621c02e42"
+    },
+    {
+      "path": "playwright/e2e/helpers/usdcx-run.test.ts",
+      "cluster": "C002",
+      "status": "uncommitted",
+      "bytes": 21809,
+      "sha256": "0938e809519e54e941824858299a1c07149a7b648a6206863f598b37d4d7339d",
+      "source_blob": "cf7a762e3ce4daa0eb15c6f03562a38dd73cf458",
+      "head_blob": "cf7a762e3ce4daa0eb15c6f03562a38dd73cf458",
+      "candidate_blob": "1ffe196c81619ae8e33fef65bcd83d3c780087f6"
+    },
+    {
+      "path": "playwright/e2e/ios/helpers/usdcx-live.ts",
+      "cluster": "C002",
+      "status": "uncommitted",
+      "bytes": 21325,
+      "sha256": "3e2a168d88e6c9c1c6f2ee5f04d6c3fc570516a1546127f2dfc1f3d23bfe0958",
+      "source_blob": "fa2380236a4f6a6353ffaa7f9a670a69d9fdec2c",
+      "head_blob": "fa2380236a4f6a6353ffaa7f9a670a69d9fdec2c",
+      "candidate_blob": "6a76e9632ed7bc522d553847133ee7385a99c7f8"
+    },
+    {
+      "path": "playwright/e2e/ios/tests/usdcx-live-deposit.ios.spec.ts",
+      "cluster": "C002",
+      "status": "uncommitted",
+      "bytes": 18396,
+      "sha256": "c50d358633031322af54b2a34e83cee91f5cc6df15804edf8754bd447b1d90b0",
+      "source_blob": "b7941a259961185c6778d3f4255e658fa421dac4",
+      "head_blob": "b7941a259961185c6778d3f4255e658fa421dac4",
+      "candidate_blob": "320205017a31b617060fcb48381a39924fcac8dd"
+    },
+    {
+      "path": "playwright/e2e/ios/tests/usdcx-live-executor-deposit.ios.spec.ts",
+      "cluster": "C002",
+      "status": "uncommitted",
+      "bytes": 26828,
+      "sha256": "1c00ae7618cf4693e83d22cd1c2645c5664e3ee79277573d64d6fad812a02e86",
+      "source_blob": "1315b4de1514bcc40b99d4036c15480bb47c30cc",
+      "head_blob": "1315b4de1514bcc40b99d4036c15480bb47c30cc",
+      "candidate_blob": "59d0acc199e5519eb72239de9f6deaeeb0243f5e"
+    },
+    {
+      "path": "playwright/e2e/tests/usdcx/usdcx-burn-l2.spec.ts",
+      "cluster": "C002",
+      "status": "uncommitted",
+      "bytes": 7685,
+      "sha256": "e8da4d7241e4a9f740cc17efb8c72e285cd3e75b6cdb6a58c9c28eeb089d4380",
+      "source_blob": "63e9081ec781638a243087ee186ebbf3d43b9ed1",
+      "head_blob": "63e9081ec781638a243087ee186ebbf3d43b9ed1",
+      "candidate_blob": "53d8ec1c221d1e02664d299f346507e92c99f38a"
+    },
+    {
+      "path": "playwright/e2e/tests/usdcx/usdcx-roundtrip.spec.ts",
+      "cluster": "C002",
+      "status": "uncommitted",
+      "bytes": 24845,
+      "sha256": "ea2b0930b645eaa3e522b70d625002de82005a835a6e967976955fac18931cf5",
+      "source_blob": "82527c3ae1d0c596c149b2100f13fd192dfda3f6",
+      "head_blob": "82527c3ae1d0c596c149b2100f13fd192dfda3f6",
+      "candidate_blob": "5e7e88e63a5b36f99828aae41575072202cdb506"
+    },
+    {
+      "path": "scripts/e2e-real.mjs",
+      "cluster": "C002",
+      "status": "uncommitted",
+      "bytes": 103028,
+      "sha256": "63e273f1ce353dcf6aaadc65570469115948cf4c296a20f568d49631c00b9b6c",
+      "source_blob": "cda86eb183144b84aa082b3befa29b5034c4002b",
+      "head_blob": "cda86eb183144b84aa082b3befa29b5034c4002b",
+      "candidate_blob": "ecc32289742e2eda58db3bd4140aa6e3e4b6d565"
+    },
+    {
+      "path": "scripts/e2e-real.test.ts",
+      "cluster": "C002",
+      "status": "uncommitted",
+      "bytes": 113688,
+      "sha256": "d85df1300ee37f0b587200494af3d4ae2f41c901bca35fca0e27a9ecc7ade45d",
+      "source_blob": "c3fa067c796514bbe508b22c4d0f950bc6395192",
+      "head_blob": "c3fa067c796514bbe508b22c4d0f950bc6395192",
+      "candidate_blob": "1221dffc2a32273f15059f3ad7aa803b514a9eb5"
+    },
+    {
+      "path": "src/lib/usdcx/use-burn-minimum.test.ts",
+      "cluster": "C001",
+      "status": "committed",
+      "bytes": 1649,
+      "sha256": "041c2c7635e8ccb8de5dd2efb25ea4dc3d8ccc04a80c6d5fd0b926f301f4944f",
+      "source_blob": "f2cb7a601619a90c11588e65cb8c656215d64af6",
+      "head_blob": "9ef3156e55ace08c1979955c9903912562cca600",
+      "candidate_blob": "9ef3156e55ace08c1979955c9903912562cca600"
+    }
+  ]
+}

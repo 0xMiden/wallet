@@ -1,4 +1,4 @@
-name: USDCx archived minimum checkpoint proof
+name: USDCx corrected minimum candidate proof
 
 on:
   push:
@@ -37,21 +37,29 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Verify and apply checkpoint
-        run: node "$RUNNER_TEMP/wallet1615-minimum/bootstrap.mjs" "$GITHUB_WORKSPACE/source"
+      - name: Verify and apply exact corrected candidate
+        run: node "$RUNNER_TEMP/wallet1615-minimum/candidate-bootstrap.mjs" "$GITHUB_WORKSPACE/source"
       - name: Install lockfile dependencies
         working-directory: source
         run: timeout 8m yarn install --frozen-lockfile --network-timeout 600000
       - name: Reject manifest drift
         working-directory: source
         run: git diff --exit-code -- package.json yarn.lock
+      - name: Check candidate TypeScript and named source lint
+        working-directory: source
+        run: |
+          set -euo pipefail
+          yarn tsc --noEmit --incremental false --pretty false
+          yarn eslint src/lib/usdcx/use-burn-minimum.test.ts --max-warnings 0
+          node scripts/lint-e2e-harness.mjs
+          yarn prettier --check scripts/e2e-real.mjs scripts/e2e-real.test.ts src/lib/usdcx/use-burn-minimum.test.ts
       - name: Run exact expected-outcome matrix
-        run: node "$RUNNER_TEMP/wallet1615-minimum/matrix.mjs" "$GITHUB_WORKSPACE/source"
-      - name: Upload archived proof evidence
+        run: node "$RUNNER_TEMP/wallet1615-minimum/candidate-matrix.mjs" "$GITHUB_WORKSPACE/source"
+      - name: Upload candidate proof evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: usdcx-minimum-checkpoint-${{ github.sha }}
+          name: usdcx-minimum-candidate-${{ github.sha }}
           path: ${{ runner.temp }}/wallet1615-minimum/
           if-no-files-found: error
           retention-days: 14
