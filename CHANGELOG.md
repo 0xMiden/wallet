@@ -12,6 +12,8 @@
 
 ### Fixes
 
+- [FIX][tests] The live iOS USDCx round trip deposits enough for a 2 USDCx return withdrawal. A public faucet outage no longer stops bridge-out coverage. A verified faucet grant raises the return amount to 3 USDCx; both paths check the payout and wallet confirmation.
+
 - [FIX][android] In release builds the in-app browser no longer writes dApp requests, the wallet's answers, or page URLs, origins, hosts and scripts to the device log (#1582).
 - [FIX][android] An Android WebView older than 98 (Android System WebView, or Chrome on Android 9), which cannot run the wallet, now opens a page that sends the user to update it from Google Play, instead of an error screen Bread can never leave (#1597, #1598).
 - [FIX][android] The sign-in sheet's callback check keeps a literal `+` in the `origin` value, as iOS does, instead of reading it as a space (#1576).

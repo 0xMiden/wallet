@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { decodeFunctionData, isHash, parseUnits } from 'viem';
+import { decodeFunctionData, formatUnits, isHash, parseUnits } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 
 import { fetchXReserveAttestations, findAttestationForDomain } from '../../../../src/lib/usdcx/attestation-protocol';
@@ -15,6 +15,7 @@ import { CLAIM_COST_FEE_MULTIPLE, GAS_RESERVE_UNITS, isWorthClaiming } from '../
 import type { PayoutKey } from '../../helpers/usdcx-legs';
 import { accountHex } from '../../helpers/usdcx-miden';
 import { readUsdcxRelayerEnv, UsdcxRelayer } from '../../helpers/usdcx-relayer';
+import { ROUNDTRIP_DEPOSIT_UNITS } from '../../helpers/usdcx-roundtrip-funding';
 import { exactlyOne, namedSteps, newRunEvidence, PhaseTimeline, pollUntil } from '../../helpers/usdcx-run';
 import { expect, test } from '../fixtures/two-simulators';
 import {
@@ -41,19 +42,18 @@ import { WcCounterparty, type WcRequestLog } from '../helpers/wc-counterparty';
  *      which the wallet auto-claims, so it never waits in Pending. The wallet is a Guardian account, so
  *      the claim is a consume the hosted testnet Guardian co-signs, and the spec checks the account's
  *      auth structure afterwards.
- *   7. Only then the burn: the wallet takes USDCx from the public faucet and burns 1 USDCx through Send, to
+ *   7. Only then the burn: the wallet burns 2 USDCx, or 3 after an optional faucet grant, through Send to
  *      Arc Testnet, back to the funded key's own address. The run fails unless Circle pays that key within 10
  *      minutes of the faucet consuming the burn (one GatewayMinter AttestationUsed log that carries the burn note id
  *      and adds exactly its value to the key's balance, read right before the burn) and the wallet confirms the
  *      payout itself: the row's destination balance, then the History pill.
  *
- * The run spends public faucet USDCx and real Arc Testnet USDC (the deposit and the gas). At the default 0.01 USDC
- * deposit the payout of about 0.98 USDC more than refills that, so the funded key needs no top-up
- * (playwright/e2e/docs/e2e-architecture.md, section 8).
+ * The default deposit is 2.2 USDC. A failed optional grant leaves enough for the return burn and fees.
+ * Without grants, repeated runs spend the fee reserve and payout fees from the EVM key.
  *
  * Environment:
  *   USDCX_LIVE_EVM_PRIVATE_KEY        required: funded Arc Testnet key (USDC is the gas token too)
- *   USDCX_LIVE_DEPOSIT_AMOUNT         optional, in USDC; default 0.01
+ *   USDCX_LIVE_DEPOSIT_AMOUNT         optional, in USDC; default 2.2
  *
  * To test a relayer build before it is deployed, set these too and the spec starts
  * that relayer as a local process (all are then required):
@@ -89,8 +89,12 @@ const missingEnv = [
   ...(evmPrivateKey ? [] : ['USDCX_LIVE_EVM_PRIVATE_KEY']),
   ...(wantsLocalRelayer ? relayerEnv.missing : [])
 ];
-const depositAmount = (process.env.USDCX_LIVE_DEPOSIT_AMOUNT ?? '').trim() || '0.01';
+const depositAmount =
+  (process.env.USDCX_LIVE_DEPOSIT_AMOUNT ?? '').trim() || formatUnits(ROUNDTRIP_DEPOSIT_UNITS, CIRCLE_USDC_DECIMALS);
 const depositUnits = parseUnits(depositAmount, CIRCLE_USDC_DECIMALS);
+if (depositUnits < ROUNDTRIP_DEPOSIT_UNITS) {
+  throw new Error('The full round trip needs a deposit of at least 2.2 USDC');
+}
 const arcRpcUrl = ARC_TESTNET.rpcUrls.default.http[0];
 const { usdc: arcUsdc, xReserve, attestationApi } = getUsdcxXReserveSource(ARC_TESTNET.id);
 
@@ -321,7 +325,7 @@ test.describe('Bridge-IN deposit (Circle xReserve/USDC, live testnets)', () => {
         evidence
       });
 
-      // R20: the burn pays the deposit key back, so each run refills what its deposit leg spent. It comes last: Circle's
+      // R20: the burn pays the deposit key back, after the deposit leg. It comes last: Circle's
       // Arc payouts have run hours late, and this order lets one redden the run only after the deposit leg passed.
       const depositKey: PayoutKey = {
         key: { address: evmAddress, privateKey: `0x${evmPrivateKey.replace(/^0x/i, '')}` },

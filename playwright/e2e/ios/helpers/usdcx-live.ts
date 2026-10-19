@@ -1,6 +1,6 @@
 /**
  * What the live iOS USDCx specs share: the vault read on Home, the hosted Guardian check, the evidence file, and the
- * burn half, which burns 1 USDCx from a public faucet grant through Send back to the deposit key on the payout chain.
+ * burn half, which sends the deposit back with an optional public faucet grant.
  */
 import { expect } from '@playwright/test';
 import { formatUnits, isHex } from 'viem';
@@ -9,7 +9,7 @@ import type { IosNativeAsset, IosWalletPage } from './ios-wallet-page';
 import { arcHost, readXReserveDomainState, type ArcReadDeps } from '../../helpers/arc-usdcx';
 import { enText } from '../../helpers/bridge';
 import { describeTransactionRow, TxStatus, type TransactionRowSnapshot } from '../../helpers/history';
-import { mintFromPublicFaucet, publicFaucetApiUrl } from '../../helpers/public-faucet';
+import { optionalPublicFaucetGrant, publicFaucetApiUrl } from '../../helpers/public-faucet';
 import { waitForPublicNoteCommitment } from '../../helpers/public-note-commitment';
 import {
   ARC_PAYOUT,
@@ -28,6 +28,7 @@ import {
 } from '../../helpers/usdcx-guardian';
 import { payoutLeg, waitForWalletPayoutConfirmation, type PayoutKey } from '../../helpers/usdcx-legs';
 import { accountHex, boundLandedFee, burnEvidence, burnOutputs, note, nullifier } from '../../helpers/usdcx-miden';
+import { roundtripBurnUnits } from '../../helpers/usdcx-roundtrip-funding';
 import {
   boundedTerm,
   burnCompletionPath,
@@ -55,8 +56,8 @@ export const BURN_BUDGET = {
   guardianAccount: 150_000,
   // each Arc read step outlasts a stall on every endpoint before the last one answers (R24)
   arcState: ARC_READ_STEP_BUDGET_MS,
-  // spike 1.5 s for PoW and submit; the faucet helper waits out 429s for up to 180 s, then the 120 s commitment
-  grant: 360_000,
+  // One optional request has a 30-second limit. A returned note must then commit.
+  grant: 180_000,
   // spike 18 s to Completed; floor: a Guardian co-signed consume proved locally on a CI simulator
   grantConsumed: 300_000,
   // the commit lands a block or two after the consume completed, then GUARDIAN_SETTLE_MS
@@ -203,7 +204,7 @@ export interface BurnHalf {
 }
 
 /**
- * The burn half of a live iOS run: one public faucet grant, then a burn through Send back to the deposit key on the
+ * The burn half of a live iOS run: an optional grant, then a burn through Send back to the deposit key on the
  * payout chain. It passes only once Circle paid the key exactly that burn within 10 minutes of the faucet's consume
  * (one AttestationUsed log carrying the burn note id, the key's whole rise above a read taken right before the burn)
  * and the wallet itself confirmed the payout: the row's destination balance, then the History pill.
@@ -229,9 +230,18 @@ export async function burnBackToDepositKey(ctx: BurnHalf): Promise<void> {
     return state;
   });
 
-  const grant = await step('grant', BURN_BUDGET.grant, async () => {
+  roundtripBurnUnits(ctx.vaultBefore, false);
+  const grant = await step('grant', BURN_BUDGET.grant, async signal => {
     // R19: one grant from the 10 USDCx tier; asking for no amount gets the largest, 100 USDCx.
-    const { noteId } = await mintFromPublicFaucet(faucetUrl, ctx.address, GRANT_UNITS);
+    const result = await optionalPublicFaucetGrant(faucetUrl, ctx.address, GRANT_UNITS, signal);
+    if (result.kind === 'unavailable') {
+      evidence.ids.faucetGrant = 'unavailable';
+      evidence.notes.push(`Optional faucet grant failed: ${result.reason}`);
+      console.warn(`Optional faucet grant failed; using the deposit: ${result.reason}`);
+      return undefined;
+    }
+    evidence.ids.faucetGrant = 'granted';
+    const { noteId } = result;
     if (!isHex(noteId)) throw new Error(`the public faucet answered note id ${noteId}`);
     await waitForPublicNoteCommitment(ctx.envConfig.rpcUrl, noteId, 120_000);
     const asset = exactlyOne(
@@ -246,55 +256,70 @@ export async function burnBackToDepositKey(ctx: BurnHalf): Promise<void> {
     expect(asset.amount, 'the faucet granted the tier it was asked for').toBe(GRANT_UNITS);
     return { noteId, units: asset.amount };
   });
-  evidence.ids.grantNote = grant.noteId;
+  let grantedVault = ctx.vaultBefore;
+  if (grant) {
+    evidence.ids.grantNote = grant.noteId;
 
-  const grantedVault = await step(
-    'grant_consumed',
-    BURN_BUDGET.grantConsumed,
-    async () => {
-      const claim = await pollUntil(
-        'the wallet auto-consuming the grant',
-        async () =>
-          (await wallet.readTransactionRows({ type: 'consume' })).find(row =>
-            noteIdsOf(row).includes(grant.noteId.toLowerCase())
-          ),
-        row => row?.status === TxStatus.Completed || row?.status === TxStatus.Failed,
-        { timeoutMs: BURN_BUDGET.grantConsumed - VAULT_MS - 30_000, intervalMs: 3_000, describe: () => where() }
-      );
-      if (claim?.status !== TxStatus.Completed) {
-        throw new Error(`the grant's consume failed: ${claim ? describeTransactionRow(claim) : 'no row'}`);
-      }
-      const settled = await settleLedger(wallet, native, {
-        name: 'f0',
-        before: ctx.vaultBefore,
-        credit: grant.units,
-        debits: 0n,
-        row: claim
-      });
-      evidence.ids.grantConsume = claim.id;
-      evidence.fees.push(settled.fee);
-      return settled.vault;
-    },
-    onGuardian
-  );
+    grantedVault = await step(
+      'grant_consumed',
+      BURN_BUDGET.grantConsumed,
+      async () => {
+        const claim = await pollUntil(
+          'the wallet auto-consuming the grant',
+          async () =>
+            (await wallet.readTransactionRows({ type: 'consume' })).find(row =>
+              noteIdsOf(row).includes(grant.noteId.toLowerCase())
+            ),
+          row => row?.status === TxStatus.Completed || row?.status === TxStatus.Failed,
+          { timeoutMs: BURN_BUDGET.grantConsumed - VAULT_MS - 30_000, intervalMs: 3_000, describe: () => where() }
+        );
+        if (claim?.status !== TxStatus.Completed) {
+          throw new Error(`the grant's consume failed: ${claim ? describeTransactionRow(claim) : 'no row'}`);
+        }
+        const settled = await settleLedger(wallet, native, {
+          name: 'f0',
+          before: ctx.vaultBefore,
+          credit: grant.units,
+          debits: 0n,
+          row: claim
+        });
+        evidence.ids.grantConsume = claim.id;
+        evidence.fees.push(settled.fee);
+        return settled.vault;
+      },
+      onGuardian
+    );
 
-  evidence.settleMs.grant = await step(
-    'settle_grant',
-    BURN_BUDGET.settle,
-    async () => {
-      const started = Date.now();
-      await pollUntil(
-        'the grant consume committing',
-        () => nullifier(ctx.envConfig.rpcUrl, grant.noteId),
-        read => read.committed,
-        { timeoutMs: BURN_BUDGET.settle - GUARDIAN_SETTLE_MS - 10_000, intervalMs: 3_000 }
-      );
-      await wallet.delay(GUARDIAN_SETTLE_MS);
-      assertNoGuardianOpInFlight(await wallet.readTransactionRows(), ctx.address);
-      return Date.now() - started;
-    },
-    onGuardian
-  );
+    evidence.settleMs.grant = await step(
+      'settle_grant',
+      BURN_BUDGET.settle,
+      async () => {
+        const started = Date.now();
+        await pollUntil(
+          'the grant consume committing',
+          () => nullifier(ctx.envConfig.rpcUrl, grant.noteId),
+          read => read.committed,
+          { timeoutMs: BURN_BUDGET.settle - GUARDIAN_SETTLE_MS - 10_000, intervalMs: 3_000 }
+        );
+        await wallet.delay(GUARDIAN_SETTLE_MS);
+        assertNoGuardianOpInFlight(await wallet.readTransactionRows(), ctx.address);
+        return Date.now() - started;
+      },
+      onGuardian
+    );
+  } else {
+    await step(
+      'settle_deposit',
+      BURN_BUDGET.settle,
+      async () => {
+        await wallet.delay(GUARDIAN_SETTLE_MS);
+        assertNoGuardianOpInFlight(await wallet.readTransactionRows(), ctx.address);
+      },
+      onGuardian
+    );
+  }
+  const burnUnits = roundtripBurnUnits(grantedVault, grant !== undefined);
+  evidence.ids.burnUnits = burnUnits.toString();
 
   // The leg reads the key right before the burn, after the deposit's own transactions were mined, and its payout gate
   // counts only what this burn adds above that read (R21, R22); the label names the key Circle pays in every failure.
@@ -313,7 +338,7 @@ export async function burnBackToDepositKey(ctx: BurnHalf): Promise<void> {
     signal =>
       wallet.burnUsdcxViaSendFlow({
         destAddress: key.address,
-        amount: formatUnits(chain.burnUnits, USDCX_DECIMALS),
+        amount: formatUnits(burnUnits, USDCX_DECIMALS),
         nativeTokenId: native.tokenId,
         nativeSymbol: native.symbol,
         payout: chain,
@@ -398,7 +423,7 @@ export async function burnBackToDepositKey(ctx: BurnHalf): Promise<void> {
         senderBech32: ctx.address,
         domain: chain.burnDomain,
         recipient: key.address,
-        amount: chain.burnUnits
+        amount: burnUnits
       });
       // A missing fee_schedule entry would read as a zero sponsorship and hide inside a bounded fee.
       if (oracle.sponsorshipUnits <= 0n) {
@@ -417,7 +442,7 @@ export async function burnBackToDepositKey(ctx: BurnHalf): Promise<void> {
           ['f1', outputs.fee.amount]
         ]);
         const want = ledgerLine([
-          ['N', chain.burnUnits],
+          ['N', burnUnits],
           ['s', oracle.sponsorshipUnits],
           ['f1', BigInt(burned.row.feeAmount ?? '-1')]
         ]);
@@ -430,14 +455,14 @@ export async function burnBackToDepositKey(ctx: BurnHalf): Promise<void> {
         name: 'f1',
         before: grantedVault,
         credit: 0n,
-        debits: chain.burnUnits + oracle.sponsorshipUnits,
+        debits: burnUnits + oracle.sponsorshipUnits,
         row: burned.row
       });
       evidence.fees.push(settled.fee, { name: 's', amount: oracle.sponsorshipUnits, kind: 'exact' });
       evidence.notes.push(
         `burn ledger ${ledgerLine([
           ['V1', grantedVault],
-          ['N', chain.burnUnits],
+          ['N', burnUnits],
           ['s', oracle.sponsorshipUnits],
           [settled.fee.name, settled.fee.amount],
           ['V2', settled.vault]

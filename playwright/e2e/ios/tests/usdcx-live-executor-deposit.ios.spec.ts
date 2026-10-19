@@ -25,7 +25,6 @@ import {
   ARC_READ_STEP_BUDGET_MS,
   ARC_USDC,
   CLAIM_COST_FEE_MULTIPLE,
-  DEPOSIT_UNITS,
   isWorthClaiming,
   L2_BRIDGE_IN_SOURCES,
   redactProjectId,
@@ -41,6 +40,7 @@ import {
 } from '../../helpers/usdcx-l2-deposit';
 import type { PayoutKey } from '../../helpers/usdcx-legs';
 import { accountHex, bareId, deriveUsdcxMintNoteId, waitForUsdcxMint } from '../../helpers/usdcx-miden';
+import { ROUNDTRIP_DEPOSIT_UNITS } from '../../helpers/usdcx-roundtrip-funding';
 import {
   errorText,
   exactlyOne,
@@ -72,7 +72,7 @@ import { WcCounterparty, type WcRequestLog } from '../helpers/wc-counterparty';
  *   4. Circle attests the burn and forwards it to Arc, its executor deposits into xReserve, Circle attests that
  *      deposit, the deployed relayer mints and the wallet claims the mint by itself.
  *   5. Only then the burn half: USDCx from a public faucet grant through Send back to the key's address on the source
- *      chain (2 USDCx to Ethereum Sepolia, 1 elsewhere), passing only once Circle paid that burn there and the wallet
+ *      chain (2 USDCx, or 3 after an optional faucet grant), passing only once Circle paid that burn there and the wallet
  *      reads Confirmed.
  * Each hop is gated with the extension suite's executor proofs (usdcx-in-l2.spec.ts). The run never executes on Arc:
  * the session approves no Arc chain, so the key cannot be asked to sign there.
@@ -160,7 +160,7 @@ for (const l2 of SOURCES) {
           label: chain.label,
           address,
           ...funds,
-          units: DEPOSIT_UNITS,
+          units: ROUNDTRIP_DEPOSIT_UNITS,
           fee: PREFLIGHT_FORWARD_FEE,
           refill: KEY_REFILL
         });
@@ -217,9 +217,9 @@ for (const l2 of SOURCES) {
           evidence.ids.wallet = addressA;
           evidence.ids.sourceChainId = String(chain.chainId);
           const read = await walletA.nativeAsset();
-          if (!isWorthClaiming(DEPOSIT_UNITS, read.baseFee)) {
+          if (!isWorthClaiming(ROUNDTRIP_DEPOSIT_UNITS, read.baseFee)) {
             throw new Error(
-              `the ${DEPOSIT_UNITS}-unit deposit does not exceed the wallet's unattended claim floor, base fee ` +
+              `the ${ROUNDTRIP_DEPOSIT_UNITS}-unit deposit does not exceed the wallet's unattended claim floor, base fee ` +
                 `${read.baseFee} x ${CLAIM_COST_FEE_MULTIPLE}`
             );
           }
@@ -251,12 +251,12 @@ for (const l2 of SOURCES) {
 
         const funded = await step('l2_key', BUDGET.l2Key, async () => {
           const funds = await readL2KeyFunds(evmAddress, reads);
-          const quote = await quoteL2Deposit(l2, { units: DEPOSIT_UNITS, recipient, depositor: evmAddress });
+          const quote = await quoteL2Deposit(l2, { units: ROUNDTRIP_DEPOSIT_UNITS, recipient, depositor: evmAddress });
           const shortfall = l2KeyShortfall({
             label: chain.label,
             address: evmAddress,
             ...funds,
-            units: DEPOSIT_UNITS,
+            units: ROUNDTRIP_DEPOSIT_UNITS,
             fee: quote.feeTotalAmount,
             refill: KEY_REFILL
           });
@@ -307,7 +307,7 @@ for (const l2 of SOURCES) {
           await walletA.openBridgeDeposit();
           await walletA.selectBridgeToken('CIRCLE_USDC');
           await walletA.selectBridgeNetwork(chain.reviewNetwork, chain.networkName);
-          await walletA.enterBridgeAmount(formatUnits(DEPOSIT_UNITS, CIRCLE_USDC_DECIMALS));
+          await walletA.enterBridgeAmount(formatUnits(ROUNDTRIP_DEPOSIT_UNITS, CIRCLE_USDC_DECIMALS));
           await walletA.confirmBridgeRouteUsdcx(60_000);
           await walletA.confirmBridgeDeposit();
         });
@@ -387,7 +387,7 @@ for (const l2 of SOURCES) {
         const requests = await step('deposit_requests', BUDGET.check, async () =>
           executorDepositRequests(counterparty.requests, {
             l2,
-            units: DEPOSIT_UNITS,
+            units: ROUNDTRIP_DEPOSIT_UNITS,
             recipient,
             depositor: evmAddress,
             recordedFee,
@@ -405,7 +405,7 @@ for (const l2 of SOURCES) {
               signed: { hookData: requests.burn.hookData },
               burnQuote: { feeTotalAmount: recordedFee }
             },
-            { l2, units: DEPOSIT_UNITS, depositor: evmAddress },
+            { l2, units: ROUNDTRIP_DEPOSIT_UNITS, depositor: evmAddress },
             reads
           )
         );
@@ -424,7 +424,7 @@ for (const l2 of SOURCES) {
             {
               l2,
               nonce: iris.nonce,
-              units: DEPOSIT_UNITS,
+              units: ROUNDTRIP_DEPOSIT_UNITS,
               remoteRecipient: recipient,
               remoteToken: xreserve.remoteToken
             },
@@ -457,7 +457,7 @@ for (const l2 of SOURCES) {
           const attestedAt = Date.now();
           // An executor deposit's depositor is the DepositFor handler, never the key (attestation-protocol.ts).
           const { intent, signer } = await assertDepositIntent(attestation, {
-            amount: DEPOSIT_UNITS,
+            amount: ROUNDTRIP_DEPOSIT_UNITS,
             remoteToken: xreserve.remoteToken,
             remoteRecipient: recipient,
             localToken: ARC_USDC,
@@ -466,7 +466,7 @@ for (const l2 of SOURCES) {
           const verdict = matchUsdcxDepositAttestation([attestation], {
             remoteRecipient: recipient,
             remoteToken: xreserve.remoteToken,
-            amount: DEPOSIT_UNITS,
+            amount: ROUNDTRIP_DEPOSIT_UNITS,
             remoteDomain: USDCX_REMOTE_DOMAIN
           });
           expect(verdict.kind, "the wallet's own matcher accepts Circle's attestation").toBe('attested');
@@ -480,7 +480,7 @@ for (const l2 of SOURCES) {
           const derived = await deriveUsdcxMintNoteId({
             faucetHex: ids.nativeHex,
             recipientHex: ids.accountHex,
-            units: DEPOSIT_UNITS,
+            units: ROUNDTRIP_DEPOSIT_UNITS,
             nonce: attested.intent.nonce
           });
           const read = await waitForUsdcxMint(envConfig.rpcUrl, {
@@ -503,7 +503,7 @@ for (const l2 of SOURCES) {
           ).toEqual({
             committed: true,
             sender: ids.nativeHex.toLowerCase(),
-            assets: [{ faucetHex: ids.nativeHex.toLowerCase(), amount: DEPOSIT_UNITS }]
+            assets: [{ faucetHex: ids.nativeHex.toLowerCase(), amount: ROUNDTRIP_DEPOSIT_UNITS }]
           });
           return derived;
         });
@@ -541,7 +541,7 @@ for (const l2 of SOURCES) {
             `deposit row ${bridgeTxId} and claim ${claim.id}`
           ).toEqual({
             rowNote: mintNoteId.toLowerCase(),
-            rowAmount: DEPOSIT_UNITS.toString(),
+            rowAmount: ROUNDTRIP_DEPOSIT_UNITS.toString(),
             claimNotes: [mintNoteId.toLowerCase()],
             displayMessage: 'Bridged from EVM',
             adoptedBy: bridgeTxId
@@ -550,7 +550,7 @@ for (const l2 of SOURCES) {
           const settled = await settleLedger(walletA, native, {
             name: 'f2',
             before: 0n,
-            credit: DEPOSIT_UNITS,
+            credit: ROUNDTRIP_DEPOSIT_UNITS,
             debits: 0n,
             row: claim
           });
@@ -567,7 +567,7 @@ for (const l2 of SOURCES) {
           evidence
         });
 
-        // The burn pays the key back on the source chain, so each green run refills the USDC its deposit spent there.
+        // The burn pays the key back on the source chain, after the deposit leg.
         const depositKey: PayoutKey = {
           key: { address: evmAddress, privateKey: keyHex },
           role: 'deposit',
