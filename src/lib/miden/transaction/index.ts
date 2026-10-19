@@ -58,6 +58,7 @@ import { generateHotKey, type GeneratedHotKey } from 'lib/secure-hot-key';
 import { commitmentFromPublicKeyHex } from 'lib/secure-hot-key/commitment';
 import { sameGuardianEndpoint } from 'lib/settings/helpers';
 import { reportProve } from 'lib/telemetry/report-operation';
+import type { ConsumeDeferralCause } from 'lib/telemetry/transaction-failure';
 import { logger } from 'shared/logger';
 
 import {
@@ -890,6 +891,7 @@ async function requeueTransactionForRetry(
   txType: ITransactionType,
   stage: ITransactionStage,
   cooldownSec: number,
+  cause: ConsumeDeferralCause,
   extraValues?: RequeueExtraValues
 ): Promise<{ initiatedAt: number | undefined; nextEligibleAt: number }> {
   // A guardian recallable `send` freezes an ABSOLUTE reclaim height (syncHeight +
@@ -966,6 +968,7 @@ async function requeueTransactionForRetry(
     attemptId: undefined,
     failureDiagnostics: undefined,
     stage,
+    lastDeferral: cause,
     // Reset the per-stage timing stamps: the row re-enters at `stage`, and the
     // stamps are first-entry-wins, so a stale original would make that step span
     // the whole cooldown plus every failed attempt in the generating-transaction
@@ -995,9 +998,10 @@ async function requeueWithWake(
   cooldownSec: number,
   signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>,
   guardianProvider: GuardianAccountProvider,
+  cause: ConsumeDeferralCause,
   extraValues?: RequeueExtraValues
 ): Promise<void> {
-  const requeued = await requeueTransactionForRetry(txId, txType, 'creating-proposal', cooldownSec, extraValues);
+  const requeued = await requeueTransactionForRetry(txId, txType, 'creating-proposal', cooldownSec, cause, extraValues);
   // The new chain's ceiling stands in for an unusable `initiatedAt`, as `hardExpiresAt` does on a re-arm.
   scheduleRequeueWake(
     txId,
@@ -1559,10 +1563,15 @@ const generateTransactionWithProvider = async (
         const requeueStreak = nextRequeueStreak(currentRow, 'guardian-pending-conflict');
         const cooldown = guardianRequeueBackoffSec(PENDING_CONFLICT_REQUEUE_COOLDOWN_SEC, requeueStreak.count);
         console.warn(`[Guardian] Guardian still settling the previous delta, requeueing in ${cooldown}s`, error);
-        await requeueWithWake(transaction.id, transaction.type, cooldown, signCallback, guardianProvider, {
-          requeueStreak,
-          guardianBusy: true
-        });
+        await requeueWithWake(
+          transaction.id,
+          transaction.type,
+          cooldown,
+          signCallback,
+          guardianProvider,
+          'guardian_backpressure',
+          { requeueStreak, guardianBusy: true }
+        );
         return;
       }
       // A DELEGATED prove step that failed at the 'proving' stage is a PRE-submit
@@ -1603,7 +1612,8 @@ const generateTransactionWithProvider = async (
           transaction.id,
           transaction.type,
           'creating-proposal',
-          PROVER_OUTAGE_REQUEUE_COOLDOWN_SEC
+          PROVER_OUTAGE_REQUEUE_COOLDOWN_SEC,
+          'delegated_prover_failed'
         );
         return;
       }
@@ -1653,9 +1663,14 @@ const generateTransactionWithProvider = async (
           requeueStreak.count
         );
         console.warn(`[Guardian] rate limited (429) pre-submit — requeueing in ${cooldown}s`, error);
-        await requeueTransactionForRetry(transaction.id, transaction.type, 'creating-proposal', cooldown, {
-          requeueStreak
-        });
+        await requeueTransactionForRetry(
+          transaction.id,
+          transaction.type,
+          'creating-proposal',
+          cooldown,
+          'guardian_rate_limited',
+          { requeueStreak }
+        );
         return;
       }
       // No usable answer (no HTTP response, a 5xx, or a non-JSON 2xx): the guardian, or the node the proposal stages
@@ -1668,9 +1683,15 @@ const generateTransactionWithProvider = async (
         const requeueStreak = nextRequeueStreak(currentRow, 'guardian-unreachable');
         const cooldown = guardianRequeueBackoffSec(GUARDIAN_UNREACHABLE_REQUEUE_COOLDOWN_SEC, requeueStreak.count);
         console.warn(`[Guardian] guardian unreachable pre-submit, requeueing in ${cooldown}s`, error);
-        await requeueWithWake(transaction.id, transaction.type, cooldown, signCallback, guardianProvider, {
-          requeueStreak
-        });
+        await requeueWithWake(
+          transaction.id,
+          transaction.type,
+          cooldown,
+          signCallback,
+          guardianProvider,
+          'guardian_unreachable',
+          { requeueStreak }
+        );
         return;
       }
       // The guardian co-signed a summary bound to state that had moved by the
@@ -1747,9 +1768,15 @@ const generateTransactionWithProvider = async (
             `${unauthorizedDeadline - nowSec}s of retry budget left`,
           error
         );
-        await requeueWithWake(transaction.id, transaction.type, cooldownSec, signCallback, guardianProvider, {
-          unauthorizedRetryUntil: unauthorizedDeadline
-        });
+        await requeueWithWake(
+          transaction.id,
+          transaction.type,
+          cooldownSec,
+          signCallback,
+          guardianProvider,
+          'guardian_unauthorized',
+          { unauthorizedRetryUntil: unauthorizedDeadline }
+        );
         return;
       }
       // Same error, retries exhausted. Said out loud because the two outcomes are
@@ -4366,7 +4393,8 @@ export const generateTransactionsLoop = async (
           nextTransaction.id,
           nextTransaction.type,
           'syncing',
-          SYNC_FAILURE_REQUEUE_COOLDOWN_SEC
+          SYNC_FAILURE_REQUEUE_COOLDOWN_SEC,
+          'preflight_sync_failed'
         );
       } catch (requeueError) {
         logger.warning('Failed to requeue transaction after pre-send sync failure', requeueError);
@@ -4389,7 +4417,8 @@ export const generateTransactionsLoop = async (
           nextTransaction.id,
           nextTransaction.type,
           'syncing',
-          LOCKED_REQUEUE_COOLDOWN_SEC
+          LOCKED_REQUEUE_COOLDOWN_SEC,
+          'wallet_locked'
         );
       } catch (requeueError) {
         logger.warning('Failed to requeue locked transaction', requeueError);

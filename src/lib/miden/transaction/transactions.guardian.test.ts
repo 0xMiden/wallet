@@ -4513,6 +4513,7 @@ describe('generateTransaction — Guardian routing', () => {
     expect(row.status).toBe(ITransactionStatus.Queued);
     expect(row.nextEligibleAt).toEqual(expect.any(Number));
     expect(row.stage).toBe('creating-proposal');
+    expect(row.lastDeferral).toBe('delegated_prover_failed');
     // initiatedAt must be preserved: cancelStaleQueuedTransactions measures the
     // MAX_QUEUED_AGE terminal cap from original creation, so resetting it would
     // make a persistent outage requeue forever.
@@ -4938,6 +4939,7 @@ describe('generateTransaction — Guardian routing', () => {
       const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
       expect(multisigService.createConsumeNotesProposal).toHaveBeenCalledTimes(1);
       expectBusyRequeue(row, { cooldownSec: 15, streak: 1 });
+      expect(row.lastDeferral).toBe('guardian_backpressure');
       expect(multisigService.signAndCreateTransactionRequest).not.toHaveBeenCalled();
     } finally {
       jest.useRealTimers();
@@ -5003,6 +5005,7 @@ describe('generateTransaction — Guardian routing', () => {
       // into milliseconds (row parks 12.5h out, never retried, reaped by MAX_QUEUED_AGE).
       expect(Number(row.nextEligibleAt)).toBeGreaterThanOrEqual(before + 45);
       expect(Number(row.nextEligibleAt)).toBeLessThan(before + 60);
+      expect(row.lastDeferral).toBe('guardian_rate_limited');
       expect(multisigService.signAndCreateTransactionRequest).not.toHaveBeenCalled();
     } finally {
       jest.useRealTimers();
@@ -5058,6 +5061,7 @@ describe('generateTransaction — Guardian routing', () => {
       const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
       expect(row.status).toBe(ITransactionStatus.Queued);
       expect(row.error).toBeUndefined();
+      expect(row.lastDeferral).toBe('guardian_unreachable');
       expect(Number(row.nextEligibleAt)).toBeGreaterThanOrEqual(before + 60);
       expect(Number(row.nextEligibleAt)).toBeLessThan(before + 75);
     } finally {
@@ -5733,7 +5737,12 @@ describe('generateTransaction — Guardian routing', () => {
     it('a busy row whose pre-send sync fails is requeued for the sync, no longer as busy', async () => {
       // This requeue runs before the pickup's GeneratingTransaction write, so only requeueTransactionForRetry's own
       // clear can end the busy mark here.
-      queueRow('busy-then-sync-failure', { ...SEND, guardianBusy: true, stage: 'creating-proposal' });
+      queueRow('busy-then-sync-failure', {
+        ...SEND,
+        guardianBusy: true,
+        stage: 'creating-proposal',
+        lastDeferral: 'guardian_backpressure'
+      });
       mockGetMidenClient.mockResolvedValue({
         getAccount: jest.fn(async () => undefined),
         syncState: jest.fn(async () => {
@@ -5752,6 +5761,7 @@ describe('generateTransaction — Guardian routing', () => {
       expect(requeued.status).toBe(ITransactionStatus.Queued);
       expect(requeued.stage).toBe('syncing');
       expect(requeued.guardianBusy).toBeUndefined();
+      expect(requeued.lastDeferral).toBe('preflight_sync_failed');
     });
 
     it('a rotation waits out its 409 in process, is never gated, and leaves its candidate for the next proposal', async () => {
@@ -7542,6 +7552,7 @@ describe('generateTransaction — Guardian routing', () => {
     expect(row.status).toBe(ITransactionStatus.Queued);
     expect(row.processingStartedAt).toBeUndefined();
     expect(typeof row.nextEligibleAt).toBe('number');
+    expect(row.lastDeferral).toBe('guardian_unauthorized');
     warnSpy.mockRestore();
   });
 
