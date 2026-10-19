@@ -6914,5 +6914,37 @@
   "bridgeEstimatedCost": {
     "message": "Coste estimado",
     "englishSource": "Est. cost"
+  },
+  "webViewUpdateTitle": {
+    "message": "Actualizar Android System WebView",
+    "englishSource": "Update Android System WebView"
+  },
+  "webViewUpdateBody": {
+    "message": "Bread necesita una versión más reciente de Android System WebView, el componente de Android que muestra las páginas web en las aplicaciones. Actualízalo desde Google Play y, a continuación, vuelve a abrir Bread.",
+    "englishSource": "Bread needs a newer version of Android System WebView, the part of Android that shows web pages in apps. Update it from Google Play, then open Bread again."
+  },
+  "webViewUpdateAction": {
+    "message": "Abrir Google Play",
+    "englishSource": "Open Google Play"
+  },
+  "webViewUpdateChromeTitle": {
+    "message": "Actualizar Chrome",
+    "englishSource": "Update Chrome"
+  },
+  "webViewUpdateChromeBody": {
+    "message": "Bread necesita una versión más reciente de Chrome, que muestra las páginas web en aplicaciones en esta versión de Android. Actualízalo desde Google Play y, a continuación, vuelve a abrir Bread.",
+    "englishSource": "Bread needs a newer version of Chrome, which shows web pages in apps on this version of Android. Update it from Google Play, then open Bread again."
+  },
+  "webViewStartFailedTitle": {
+    "message": "Bread no pudo ponerse en marcha",
+    "englishSource": "Bread couldn't start"
+  },
+  "webViewStartFailedBody": {
+    "message": "Algo ha impedido que Bread se cargue. Inténtalo de nuevo o cierra Bread y vuelve a abrirlo.",
+    "englishSource": "Something stopped Bread from loading. Try again, or close Bread and open it again."
+  },
+  "webViewStartFailedAction": {
+    "message": "Inténtalo de nuevo",
+    "englishSource": "Try again"
   }
 }

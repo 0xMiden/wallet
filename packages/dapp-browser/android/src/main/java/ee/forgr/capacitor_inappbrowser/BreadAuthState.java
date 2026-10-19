@@ -15,7 +15,7 @@ final class BreadAuthState {
 
     private Phase phase = Phase.IDLE;
     private long ticket;
-    private boolean hostStopped;
+    private boolean hostPaused;
     private String openerHost;
     private int openerPort;
 
@@ -123,15 +123,15 @@ final class BreadAuthState {
 
     String refusal() {
         if (phase != Phase.IDLE) return BUSY;
-        return hostStopped ? UNAVAILABLE : null;
+        return hostPaused ? UNAVAILABLE : null;
     }
     long begin(String pageHost, int pagePort) { phase = Phase.LAUNCHING; openerHost = pageHost; openerPort = pagePort; return ++ticket; }
 
-    void stopped() { hostStopped = true; }
+    void paused() { hostPaused = true; }
     // The tab covers Bread until it closes, and Android resumes Bread without a stop when the tab closes before the stop
     // arrives, so any resume without a callback ends the sheet.
     Outcome resumed() {
-        hostStopped = false;
+        hostPaused = false;
         if (phase == Phase.IDLE) return Outcome.NONE;
         phase = Phase.IDLE;
         return Outcome.CANCELLED;

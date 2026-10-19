@@ -6914,5 +6914,37 @@
   "bridgeEstimatedCost": {
     "message": "预估成本",
     "englishSource": "Est. cost"
+  },
+  "webViewUpdateTitle": {
+    "message": "更新 Android 系统 WebView",
+    "englishSource": "Update Android System WebView"
+  },
+  "webViewUpdateBody": {
+    "message": "Bread 需要更新版本的 Android System WebView（这是 Android 系统中用于在应用内显示网页的组件）。请通过 Google Play 进行更新，然后重新打开 Bread。",
+    "englishSource": "Bread needs a newer version of Android System WebView, the part of Android that shows web pages in apps. Update it from Google Play, then open Bread again."
+  },
+  "webViewUpdateAction": {
+    "message": "打开 Google Play",
+    "englishSource": "Open Google Play"
+  },
+  "webViewUpdateChromeTitle": {
+    "message": "更新 Chrome",
+    "englishSource": "Update Chrome"
+  },
+  "webViewUpdateChromeBody": {
+    "message": "Bread 需要更新版本的 Chrome 浏览器，因为该版本的 Android 系统会将网页显示为应用程序。请通过 Google Play 进行更新，然后重新打开 Bread。",
+    "englishSource": "Bread needs a newer version of Chrome, which shows web pages in apps on this version of Android. Update it from Google Play, then open Bread again."
+  },
+  "webViewStartFailedTitle": {
+    "message": "Bread 无法启动",
+    "englishSource": "Bread couldn't start"
+  },
+  "webViewStartFailedBody": {
+    "message": "Bread 加载时遇到问题。请重试，或关闭 Bread 后重新打开。",
+    "englishSource": "Something stopped Bread from loading. Try again, or close Bread and open it again."
+  },
+  "webViewStartFailedAction": {
+    "message": "请重试",
+    "englishSource": "Try again"
   }
 }

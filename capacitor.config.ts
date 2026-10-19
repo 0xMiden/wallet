@@ -1,4 +1,5 @@
 import type { CapacitorConfig } from '@capacitor/cli';
+import { KeyboardResize } from '@capacitor/keyboard';
 
 ///@ts-ignore
 const isLiveReload = process.argv.includes('--live-reload') || process.argv.includes('-l');
@@ -16,7 +17,13 @@ const config: CapacitorConfig = {
     // need cross-origin isolation in the WebView.
     androidScheme: 'http',
     cleartext: true,
+    // Android only: AppViewController drops it on iOS.
+    errorPath: 'webview-error.html',
     ...(isLiveReload ? { appStartPath: '/mobile.html' } : {})
+  },
+  android: {
+    // public/webview-error.js repeats this floor to choose its copy.
+    minWebViewVersion: 98
   },
   plugins: {
     Preferences: {
@@ -24,7 +31,7 @@ const config: CapacitorConfig = {
     },
     Keyboard: {
       // Prevent keyboard from pushing content - overlay instead
-      resize: 'none'
+      resize: KeyboardResize.None
       // The iOS accessory bar (Done + arrows) — the only way to dismiss the
       // number pad, which has no return key — is enabled at RUNTIME via
       // Keyboard.setAccessoryBarVisible() in lib/mobile/keyboard-inset.ts.
