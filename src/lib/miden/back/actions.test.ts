@@ -2236,7 +2236,7 @@ describe('actions', () => {
           releaseQueue();
 
           const results = await settled;
-          expect(results[0].status).toBe('fulfilled');
+          expect(results[0]?.status).toBe('fulfilled');
           expect(results[1]).toEqual({ status: 'fulfilled', value: response });
           expect(results[2]).toEqual({ status: 'rejected', reason: expect.any(DAppQueueDeadlineError) });
           expect(handler).toHaveBeenCalledTimes(1);
