@@ -525,6 +525,31 @@ public class BreadAuthControllerTest {
         assertReply(sheet, "a", "url", CALLBACK);
     }
 
+    @Test public void forwardsCallbacksToHostWhenIdle() {
+        assertTrue(BreadAuthCallbacks.forwardsToHost());
+    }
+
+    @Test public void forwardsCallbacksToHostDuringCustomTab() throws Exception {
+        registerChrome();
+        JavaScriptReplyProxy proxy = post(open(), PAGE, true, request("a", SIGN_IN));
+        assertNotNull(shadowOf(activity).getNextStartedActivity());
+        assertEquals(BreadAuthState.Phase.LAUNCHING, BreadAuthController.state.phase());
+        assertTrue(BreadAuthCallbacks.forwardsToHost());
+        verifyNoInteractions(proxy);
+    }
+
+    @Test public void doesNotForwardCallbacksToHostUntilAuthTabSettles() throws Exception {
+        registerChrome(); enableAuthTabs();
+        JavaScriptReplyProxy proxy = post(open(), PAGE, true, request("a", SIGN_IN));
+        ShadowActivity.IntentForResult launch = takeAuthLaunch();
+        assertFalse(BreadAuthCallbacks.forwardsToHost());
+        assertEquals(BreadAuthState.Phase.LAUNCHING, BreadAuthController.state.phase());
+        verifyNoInteractions(proxy);
+        deliver(launch, AuthTabIntent.RESULT_OK, CALLBACK);
+        assertReply(proxy, "a", "url", CALLBACK);
+        assertTrue(BreadAuthCallbacks.forwardsToHost());
+    }
+
     @Test public void supportedResolvedBrowserUsesAuthTab() throws Exception {
         registerChrome(); enableAuthTabs();
         JavaScriptReplyProxy proxy = post(open(), PAGE, true, request("a", SIGN_IN));

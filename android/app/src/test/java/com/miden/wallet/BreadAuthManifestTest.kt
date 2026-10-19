@@ -30,14 +30,16 @@ class BreadAuthManifestTest {
 
     private fun mainActivity(): Element = manifest().elements("activity").single { it.attribute("name") == ".MainActivity" }
 
+    private fun callbackActivity(): Element = manifest().elements("activity").single { it.attribute("name") == ".AuthCallbackActivity" }
+
     @Test
     fun mainActivityIsSingleTask() {
         assertEquals("singleTask", mainActivity().attribute("launchMode"))
     }
 
     @Test
-    fun mainActivityReceivesTheCallbackAddress() {
-        val filters = mainActivity().children("intent-filter").filter { filter ->
+    fun callbackActivityReceivesTheCallbackAddress() {
+        val filters = callbackActivity().children("intent-filter").filter { filter ->
             filter.children("data").any { it.attribute("scheme") == "com.miden.wallet.auth" }
         }
         assertEquals(1, filters.size)
@@ -53,6 +55,35 @@ class BreadAuthManifestTest {
         )
         val declared = manifest().elements("data").filter { it.attribute("scheme").equals("com.miden.wallet.auth", ignoreCase = true) }
         assertEquals(1, declared.size)
+    }
+
+    @Test
+    fun mainActivityDoesNotReceiveAuthCallbacks() {
+        assertFalse(mainActivity().children("intent-filter").any { filter ->
+            filter.children("data").any { it.attribute("scheme").equals("com.miden.wallet.auth", ignoreCase = true) }
+        })
+    }
+
+    @Test
+    fun callbackActivityDoesNotDisplayOrKeepHistory() {
+        val callback = callbackActivity()
+        assertEquals("true", callback.attribute("exported"))
+        assertEquals("@android:style/Theme.NoDisplay", callback.attribute("theme"))
+        assertEquals("true", callback.attribute("excludeFromRecents"))
+        assertEquals("true", callback.attribute("noHistory"))
+        assertTrue(callback.attribute("launchMode") in listOf("", "standard"))
+        assertEquals("", callback.attribute("taskAffinity"))
+    }
+
+    @Test
+    fun callbackActivityChecksForwardingAndFinishes() {
+        val source = File("src/main/java/com/miden/wallet/AuthCallbackActivity.java").readText()
+        val onCreate = source.substringAfter("void onCreate(", "").substringBefore("\n    }")
+        assertTrue(onCreate.contains("BreadAuthCallbacks.forwardsToHost()"))
+        assertTrue(onCreate.contains("new Intent(getIntent()).setClass(this, MainActivity.class)"))
+        assertTrue(onCreate.contains("Intent.FLAG_ACTIVITY_CLEAR_TOP"))
+        assertTrue(onCreate.contains("Intent.FLAG_ACTIVITY_SINGLE_TOP"))
+        assertTrue(onCreate.contains("finish();"))
     }
 
     @Test
