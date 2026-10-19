@@ -12,3 +12,5 @@ This temporary branch proves only the two-test checkpoint on source `072b3b805ab
 - No coverage, browser, RPC, funding, device or chain operation runs. Dependency install can run archived package lifecycle scripts, as in the existing dependency setup.
 
 Expected assertion locations: fixture line21 and hook line49. Any collection error, different test name, failure location, value, status or test count rejects this proof. Review and session notification must precede publication of this transport.
+
+Jest results pass through a CI-only processor that converts BigInt values in structured matcher details to tagged decimal objects before Jest writes JSON. Failure messages remain unchanged. Attempt1 reached the intended guard assertion but Jest failed to serialize its BigInt details; that failed evidence remains preserved.

@@ -48,7 +48,8 @@ try {
       }
       const output = join(results, `${arm.name}.json`);
       const run = spawnSync(process.execPath, [join(repo, 'node_modules/jest/bin/jest.js'), '--runTestsByPath', ...arm.files,
-        '--maxWorkers=2', '--coverage=false', '--watch=false', '--json', '--outputFile', output],
+        '--maxWorkers=2', '--coverage=false', '--watch=false', '--testResultsProcessor', join(bundle, 'results-processor.cjs'),
+        '--json', '--outputFile', output],
       { cwd: repo, env: { ...process.env, CI: 'true', FORCE_COLOR: '0' }, encoding: 'utf8', timeout: 120000, maxBuffer: 16 * 1024 * 1024 });
       writeFileSync(join(results, `${arm.name}.log`), `${run.stdout || ''}\n${run.stderr || ''}`);
       assert.ifError(run.error);
