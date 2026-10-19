@@ -14,6 +14,7 @@ import {
   MAX_QUEUED_AGE
 } from './cancel';
 import { resolveUnconfirmedSwitch } from './complete';
+import { updateTransactionStatus } from './helper';
 import { AccountState, NodeReads } from './reconcile-reads';
 import { judgeAndWrite } from './reconcile-unconfirmed';
 import { OperationAbortedError } from '../back/offscreen-codec';
@@ -465,6 +466,35 @@ describe('a pre-flight sync killed by the offscreen deadline', () => {
   });
 });
 
+describe('the committed last deferral', () => {
+  it.each<{ label: string; fail: (row: ITransaction) => Promise<unknown> }>([
+    { label: 'cancel', fail: row => cancelTransaction(row, new Error('opaque detail')) },
+    { label: 'unconfirmed', fail: row => markTransactionUnconfirmed(row, new Error('opaque detail')) },
+    {
+      label: 'status update',
+      fail: row => updateTransactionStatus(row.id, ITransactionStatus.Failed, { error: 'opaque detail' })
+    }
+  ])('reports the stored cause through $label from a pickup that predates it', async ({ fail }) => {
+    const pickedUp: ITransaction = {
+      id: 'tx-1',
+      type: 'consume',
+      accountId: ACCOUNT,
+      status: ITransactionStatus.GeneratingTransaction,
+      initiatedAt: NOW - 120,
+      stage: 'submitting',
+      displayIcon: 'RECEIVE'
+    };
+    await Repo.transactions.put({ ...pickedUp, lastDeferral: 'guardian_rate_limited' });
+
+    await fail(pickedUp);
+
+    const [report, ...rest] = captured();
+    expect(rest).toEqual([]);
+    expect(report?.message).toContain('; last deferral guardian_rate_limited;');
+    expectNoTransactionData(report?.message ?? '');
+  });
+});
+
 // BREAD-WALLET-R: claims queued behind one blocked row expired together, and each was filed as an error.
 describe('the queue expiry', () => {
   const queued = (id: string, stage?: ITransaction['stage']): ITransaction => ({
@@ -477,6 +507,19 @@ describe('the queue expiry', () => {
     displayIcon: 'RECEIVE',
     noteId: NOTE,
     ...(stage === undefined ? {} : { stage })
+  });
+
+  it('reports the last locked-wallet deferral when a requeued consume expires', async () => {
+    await Repo.transactions.put({ ...queued('tx-locked', 'syncing'), lastDeferral: 'wallet_locked' });
+
+    await cancelStaleQueuedTransactions();
+
+    const [report, ...rest] = captured();
+    expect(rest).toEqual([]);
+    expect(report?.message).toContain('; last deferral wallet_locked;');
+    expect(report?.message).toContain('; point pipeline; queued_expired.');
+    expect((await Repo.transactions.get('tx-locked'))?.status).toBe(ITransactionStatus.Failed);
+    expectNoTransactionData(report?.message ?? '');
   });
 
   it('reports claims the loop never started at warning, and a requeued Guardian claim that had started at error', async () => {

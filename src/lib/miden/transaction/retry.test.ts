@@ -103,6 +103,7 @@ function failedRow(overrides: Partial<ITransaction> = {}): ITransaction {
     nextEligibleAt: 99_999,
     unauthorizedRetryUntil: 99_999,
     requeueStreak: { arm: 'guardian-unreachable', count: 3 },
+    lastDeferral: 'guardian_unreachable',
     guardianBusy: true,
     error: 'Something broke',
     rawError: 'Error: something broke',
@@ -687,6 +688,7 @@ describe('requeueFailedTransaction', () => {
     expect(row.unauthorizedRetryUntil).toBeUndefined();
     // Or the guardian backoff the failed attempts built (#1223).
     expect(row.requeueStreak).toBeUndefined();
+    expect(row.lastDeferral).toBeUndefined();
     // Or the Guardian-busy mark, so the retried row does not open on a wait it is not in (#312).
     expect(row.guardianBusy).toBeUndefined();
     expect(row.error).toBeUndefined();

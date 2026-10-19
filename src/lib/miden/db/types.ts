@@ -3,7 +3,11 @@ import { v4 as uuid } from 'uuid';
 
 import type { ClaimFeeNote } from 'lib/miden/fees/spendable';
 import type { AgglayerRecoveryConfig } from 'lib/remote-config/schema';
-import type { ConsumeEntryPoint, TransactionFailureDiagnostics } from 'lib/telemetry/transaction-failure';
+import type {
+  ConsumeDeferralCause,
+  ConsumeEntryPoint,
+  TransactionFailureDiagnostics
+} from 'lib/telemetry/transaction-failure';
 import type { UsdcxSourceChain } from 'lib/usdcx/constant';
 
 import type { GuardianHistoryRecovery } from '../guardian/history';
@@ -699,6 +703,8 @@ export interface ITransaction {
    * report. Absent on rows queued before it and on rows no queue call made (recovered history). Not indexed.
    */
   consumeEntryPoint?: ConsumeEntryPoint;
+  /** Most recent automatic requeue cause. Survives pickups; explicit Retry clears it. Not indexed. */
+  lastDeferral?: ConsumeDeferralCause;
   /**
    * Execute (dApp custom) only: per-faucet value LEAVING the account, taken from the approval-time
    * dry run that the confirmation sheet already renders.
@@ -1164,6 +1170,8 @@ export class ConsumeTransaction implements ITransaction {
   rotationFunding?: true;
   /** See `ITransaction.consumeEntryPoint`. */
   consumeEntryPoint?: ConsumeEntryPoint;
+  /** See `ITransaction.lastDeferral`. */
+  lastDeferral?: ConsumeDeferralCause;
   /** See `ITransaction.dappOrigins`. */
   dappOrigins?: string[];
   transactionId?: string;

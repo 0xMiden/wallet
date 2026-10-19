@@ -256,6 +256,7 @@ export const updateTransactionStatus = async <K extends keyof ITransaction>(
       delegateTransaction: failed.delegateTransaction,
       diagnostics: failed.failureDiagnostics,
       entryPoint: failed.consumeEntryPoint,
+      lastDeferral: failed.lastDeferral,
       error: failureTextOf(otherValues) ?? failed.rawError ?? failed.error
     });
   }

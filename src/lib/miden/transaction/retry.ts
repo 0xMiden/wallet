@@ -574,6 +574,7 @@ const writeRequeue = async (txId: string, plan: RequeuePlan, feeContext?: ClaimF
       // And a fresh guardian backoff: the retry's first requeue waits its arm's base cooldown, not one the failed
       // attempts had doubled (#1223).
       dbTx.requeueStreak = undefined;
+      dbTx.lastDeferral = undefined;
       // And the Guardian-busy mark, so the retried row does not open on a wait it is not in (#312).
       dbTx.guardianBusy = undefined;
       dbTx.error = undefined;
