@@ -275,6 +275,39 @@ export const CONSUME_ENTRY_POINTS = [
 /** What queued a consume row, stamped on the row when it is created. */
 export type ConsumeEntryPoint = (typeof CONSUME_ENTRY_POINTS)[number];
 
+export const CONSUME_DEFERRAL_CAUSES = [
+  'wallet_locked',
+  'preflight_sync_failed',
+  'guardian_backpressure',
+  'delegated_prover_failed',
+  'guardian_rate_limited',
+  'guardian_unreachable',
+  'guardian_unauthorized'
+] as const;
+
+export type ConsumeDeferralCause = (typeof CONSUME_DEFERRAL_CAUSES)[number];
+
+export const CLAIM_FEE_ADMISSIONS = [
+  'native_id_unknown',
+  'fee_unknown',
+  'balance_unknown',
+  'ahead_assets_unknown',
+  'ahead_native',
+  'note_assets_unknown',
+  'known_sufficient'
+] as const;
+
+export type ClaimFeeAdmission = (typeof CLAIM_FEE_ADMISSIONS)[number];
+
+export const REAP_AGES = ['missing_start', 'past_limit'] as const;
+
+export const REAPED_ATTEMPT_ORIGINS = ['started_here', 'not_started_here'] as const;
+
+export interface ReapSnapshot {
+  age: (typeof REAP_AGES)[number];
+  attempt: (typeof REAPED_ATTEMPT_ORIGINS)[number];
+}
+
 export const FAILURE_POINTS = [
   'pipeline',
   'earn_settlement',
@@ -302,6 +335,9 @@ export interface TransactionFailure {
   delegateTransaction?: boolean;
   outcome?: (typeof FAILURE_OUTCOMES)[number];
   entryPoint?: ConsumeEntryPoint;
+  lastDeferral?: ConsumeDeferralCause;
+  feeAdmission?: ClaimFeeAdmission;
+  reap?: ReapSnapshot;
   /** Whether the app was hidden while its submit was in flight; undefined when the platform cannot tell. */
   hiddenDuringSubmit?: boolean;
   /** Milliseconds from the submit stamp to its return; undefined when the row has no submit stamp. */
@@ -656,6 +692,14 @@ const CLOSED_NAMES: ReadonlySet<string> = new Set<string>([
   ...SIGNING_STEPS,
   ...CONFIRMING_STEPS,
   ...CONSUME_ENTRY_POINTS,
+  ...CONSUME_DEFERRAL_CAUSES,
+  ...CLAIM_FEE_ADMISSIONS,
+  ...REAP_AGES,
+  ...REAPED_ATTEMPT_ORIGINS,
+  'none',
+  'unrecorded',
+  'unavailable',
+  'other',
   ...HOT_KEY_CODES,
   ...GUARDIAN_ERROR_CODES,
   ...TELEMETRY_ERROR_KINDS,
@@ -719,11 +763,36 @@ export function reportTransactionFailure(failure: TransactionFailure): void {
     const proving: (typeof PROVING_PREFERENCES)[number] =
       failure.delegateTransaction === true ? 'delegated' : failure.delegateTransaction === false ? 'local' : 'unknown';
     const bridge = failure.bridgeReceive === undefined ? '' : `; ${bridgeReceiveIdentity(failure.bridgeReceive)}`;
-    const queuedBy =
-      type === 'consume' ? `; queued by ${diagnostic<string>(failure.entryPoint, CONSUME_ENTRY_POINTS, 'other')}` : '';
+    const claim =
+      type === 'consume'
+        ? [
+            `; queued by ${diagnostic<string>(
+              failure.entryPoint,
+              CONSUME_ENTRY_POINTS,
+              failure.entryPoint === undefined ? 'unrecorded' : 'other'
+            )}`,
+            `; last deferral ${diagnostic<string>(
+              failure.lastDeferral,
+              CONSUME_DEFERRAL_CAUSES,
+              failure.lastDeferral === undefined ? 'none' : 'other'
+            )}`,
+            `; claim fee admission ${diagnostic<string>(
+              failure.feeAdmission,
+              CLAIM_FEE_ADMISSIONS,
+              failure.feeAdmission === undefined ? 'unrecorded' : 'other'
+            )}`
+          ].join('')
+        : '';
     const platform: (typeof FAILURE_PLATFORMS)[number] = isDesktop() ? 'desktop' : resolveTelemetryContext().platform;
     const reason =
       failure.reason === undefined ? undefined : diagnostic<string>(failure.reason, FAILURE_REASONS, 'other');
+    const reap =
+      reason === 'stuck_reaped'
+        ? [
+            `; reap age ${diagnostic<string>(failure.reap?.age, REAP_AGES, 'unavailable')}`,
+            `; reaped attempt ${diagnostic<string>(failure.reap?.attempt, REAPED_ATTEMPT_ORIGINS, 'unavailable')}`
+          ].join('')
+        : '';
     const identity =
       reason === undefined
         ? failureIdentity(failure)
@@ -732,7 +801,7 @@ export function reportTransactionFailure(failure: TransactionFailure): void {
           : reason;
     const report = new Error(
       [
-        `Transaction ${outcome}: ${operation}; stage ${stage}${signingStep === undefined ? '' : `; signing step ${signingStep}`}; realm ${realm}; proving preference ${proving}; platform ${platform}${queuedBy}; point ${point}; ${identity}${bridge}`,
+        `Transaction ${outcome}: ${operation}; stage ${stage}${signingStep === undefined ? '' : `; signing step ${signingStep}`}; realm ${realm}; proving preference ${proving}; platform ${platform}${claim}${reap}; point ${point}; ${identity}${bridge}`,
         `authentication preparation ${preparation}; layout ${layout}; commitment match ${match}; account code ${accountCode}`,
         `SDK ${softwareVersion(packageJson.dependencies['@miden-sdk/miden-sdk'])}; Guardian client ${softwareVersion(packageJson.dependencies['@openzeppelin/miden-multisig-client'])}`
       ].join('. ')

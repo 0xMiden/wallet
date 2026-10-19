@@ -16,8 +16,10 @@ import {
   ACCOUNT_AUTH_CODES,
   AUTH_LAYOUTS,
   AUTH_PREPARATIONS,
+  CLAIM_FEE_ADMISSIONS,
   COMMITMENT_MATCHES,
   CONFIRMING_STEPS,
+  CONSUME_DEFERRAL_CAUSES,
   CONSUME_ENTRY_POINTS,
   EXECUTION_CAUSES,
   EXECUTION_REALMS,
@@ -29,6 +31,8 @@ import {
   NEVER_COMMITTED_RULES,
   PIPELINE_KILLS,
   PROVING_PREFERENCES,
+  REAP_AGES,
+  REAPED_ATTEMPT_ORIGINS,
   REPORTED_IDENTITIES,
   reportTransactionFailure,
   SIGNING_STEPS,
@@ -155,6 +159,11 @@ it('hands crash scrubbing every closed name a report can carry, and nothing else
     SIGNING_STEPS,
     CONFIRMING_STEPS,
     CONSUME_ENTRY_POINTS,
+    CONSUME_DEFERRAL_CAUSES,
+    CLAIM_FEE_ADMISSIONS,
+    REAP_AGES,
+    REAPED_ATTEMPT_ORIGINS,
+    ['none', 'unrecorded', 'unavailable', 'other'],
     HOT_KEY_CODES,
     GUARDIAN_ERROR_CODES,
     TELEMETRY_ERROR_KINDS,
@@ -292,6 +301,8 @@ it('names what queued a failed claim by a fixed value, and no id, address or not
     stage: 'creating-proposal',
     delegateTransaction: true,
     entryPoint: 'claim_all',
+    lastDeferral: 'wallet_locked',
+    feeAdmission: 'known_sufficient',
     error: new Error(
       `failed to create consume proposal for account ${accountId}: failed to execute transaction: note ${noteId} ` +
         'failed: assertion failed with error code: 6980628190221363142'
@@ -299,7 +310,10 @@ it('names what queued a failed claim by a fixed value, and no id, address or not
   });
   const message = await reportedMessage();
   expect(message).toContain('tx_receive; stage signing;');
-  expect(message).toContain('; queued by claim_all; point pipeline; ERR_RECLAIM_DISABLED. ');
+  expect(message).toContain(
+    '; queued by claim_all; last deferral wallet_locked; claim fee admission known_sufficient; ' +
+      'point pipeline; ERR_RECLAIM_DISABLED. '
+  );
   for (const leak of [
     noteId,
     noteId.slice(2),
@@ -312,17 +326,132 @@ it('names what queued a failed claim by a fixed value, and no id, address or not
   }
 });
 
-it('sends what queued a claim as other when it is outside the list or unknown, and names it for no other type', async () => {
-  const poison = 'wallet-owner-password@example.org';
-  reportTransactionFailure({ type: 'consume', entryPoint: poison, error: 'failed' } as never);
-  reportTransactionFailure({ type: 'consume', error: 'failed' });
-  reportTransactionFailure({ type: 'send', entryPoint: 'claim', error: 'failed' } as never);
-  await settle();
-  const [unlisted, absent, send] = jest.mocked(captureCrash).mock.calls.map(([error]) => (error as Error).message);
-  expect(unlisted).toContain('; queued by other; point pipeline;');
-  expect(unlisted).not.toContain(poison);
-  expect(absent).toContain('; queued by other; point pipeline;');
-  expect(send).not.toContain('queued by');
+it.each([
+  [undefined, 'unrecorded'],
+  ['nonsense', 'other'],
+  ['wallet-owner-password@example.org', 'other'],
+  ['claim', 'claim']
+])('reports claim entry point %s as %s', async (entryPoint, expected) => {
+  const failure: TransactionFailure = { type: 'consume', error: 'failed' };
+  Reflect.set(failure, 'entryPoint', entryPoint);
+  reportTransactionFailure(failure);
+  const message = await reportedMessage();
+  expect(message).toContain(
+    `; queued by ${expected}; last deferral none; claim fee admission unrecorded; point pipeline;`
+  );
+  expect(message).not.toContain('nonsense');
+  expect(message).not.toContain('wallet-owner-password@example.org');
+});
+
+it.each([
+  [undefined, undefined, 'none', 'unrecorded'],
+  ['wallet_locked', 'known_sufficient', 'wallet_locked', 'known_sufficient'],
+  ['nonsense', undefined, 'other', 'unrecorded'],
+  [undefined, 'nonsense', 'none', 'other'],
+  ['nonsense', 'nonsense', 'other', 'other']
+])(
+  'reports claim deferral %s and fee admission %s as %s and %s',
+  async (lastDeferral, feeAdmission, expectedDeferral, expectedAdmission) => {
+    const failure: TransactionFailure = { type: 'consume' };
+    Reflect.set(failure, 'lastDeferral', lastDeferral);
+    Reflect.set(failure, 'feeAdmission', feeAdmission);
+    reportTransactionFailure(failure);
+    const message = await reportedMessage();
+    expect(message).toContain(`; last deferral ${expectedDeferral}; claim fee admission ${expectedAdmission}; point `);
+    expect(message).not.toContain('nonsense');
+  }
+);
+
+it('omits all claim-only segments from a send even when claim fields are present', async () => {
+  reportTransactionFailure({
+    type: 'send',
+    entryPoint: 'claim',
+    lastDeferral: 'wallet_locked',
+    feeAdmission: 'known_sufficient'
+  });
+  const message = await reportedMessage();
+  expect(message).not.toContain('queued by');
+  expect(message).not.toContain('last deferral');
+  expect(message).not.toContain('claim fee admission');
+});
+
+it('places claim segments after platform and before the failure point in the first sentence', async () => {
+  reportTransactionFailure({
+    type: 'consume',
+    entryPoint: 'claim',
+    lastDeferral: 'wallet_locked',
+    feeAdmission: 'known_sufficient',
+    reason: 'queued_expired'
+  });
+  expect(await reportedMessage()).toMatch(
+    /; platform (?:desktop|extension|ios|android); queued by claim; last deferral wallet_locked; claim fee admission known_sufficient; point pipeline; queued_expired\. authentication/
+  );
+});
+
+it('places reap segments after claim segments and before the failure point in the first sentence', async () => {
+  reportTransactionFailure({
+    type: 'consume',
+    entryPoint: 'claim',
+    lastDeferral: 'wallet_locked',
+    feeAdmission: 'known_sufficient',
+    reason: 'stuck_reaped',
+    reap: { age: 'past_limit', attempt: 'not_started_here' }
+  });
+  expect(await reportedMessage()).toMatch(
+    /; platform (?:desktop|extension|ios|android); queued by claim; last deferral wallet_locked; claim fee admission known_sufficient; reap age past_limit; reaped attempt not_started_here; point pipeline; stuck_reaped\. authentication/
+  );
+});
+
+it('places reap segments after platform for a stuck send without adding claim segments', async () => {
+  reportTransactionFailure({
+    type: 'send',
+    reason: 'stuck_reaped',
+    reap: { age: 'past_limit', attempt: 'not_started_here' }
+  });
+  expect(await reportedMessage()).toMatch(
+    /; platform (?:desktop|extension|ios|android); reap age past_limit; reaped attempt not_started_here; point pipeline; stuck_reaped\. authentication/
+  );
+});
+
+it.each([
+  { name: 'absent', reap: undefined, age: 'unavailable', attempt: 'unavailable' },
+  {
+    name: 'listed',
+    reap: { age: 'missing_start', attempt: 'started_here' },
+    age: 'missing_start',
+    attempt: 'started_here'
+  },
+  { name: 'unlisted', reap: { age: 'nonsense', attempt: 'nonsense' }, age: 'unavailable', attempt: 'unavailable' },
+  {
+    name: 'unlisted age',
+    reap: { age: 'nonsense', attempt: 'started_here' },
+    age: 'unavailable',
+    attempt: 'started_here'
+  },
+  {
+    name: 'unlisted attempt',
+    reap: { age: 'past_limit', attempt: 'nonsense' },
+    age: 'past_limit',
+    attempt: 'unavailable'
+  }
+])('reports $name reap fields through their closed lists', async ({ reap, age, attempt }) => {
+  const failure: TransactionFailure = { type: 'consume', reason: 'stuck_reaped' };
+  Reflect.set(failure, 'reap', reap);
+  reportTransactionFailure(failure);
+  const message = await reportedMessage();
+  expect(message).toContain(`; reap age ${age}; reaped attempt ${attempt}; point pipeline; stuck_reaped.`);
+  expect(message).not.toContain('nonsense');
+});
+
+it.each(['queued_expired', 'user_cancelled', undefined] as const)('omits reap segments for reason %s', async reason => {
+  reportTransactionFailure({
+    type: 'consume',
+    reason,
+    reap: { age: 'past_limit', attempt: 'not_started_here' }
+  });
+  const message = await reportedMessage();
+  expect(message).not.toContain('reap age');
+  expect(message).not.toContain('reaped attempt');
 });
 
 it('sends a reason outside the wallet list as other', async () => {
@@ -1552,7 +1681,15 @@ const POLICY_ROWS: readonly PolicyRow[] = [
     },
     () => policyText(BROAD, THROWN, UNKNOWN_SUBMIT)
   ],
-  ['claim entry point', () => [...CONSUME_ENTRY_POINTS, 'other'], () => policyParagraph(CLAIM_ORIGIN)],
+  ['claim entry point', () => [...CONSUME_ENTRY_POINTS, 'unrecorded', 'other'], () => policyParagraph(CLAIM_ORIGIN)],
+  ['last deferral', () => [...CONSUME_DEFERRAL_CAUSES, 'none', 'other'], () => policyText('The last deferral')],
+  [
+    'claim fee admission',
+    () => [...CLAIM_FEE_ADMISSIONS, 'unrecorded', 'other'],
+    () => policyText("The claim fee check's admission")
+  ],
+  ['reap age', () => [...REAP_AGES, 'unavailable'], () => policyText('The stuck-transaction check')],
+  ['reaped attempt', () => [...REAPED_ATTEMPT_ORIGINS, 'unavailable'], () => policyText('The stuck-transaction check')],
   ...Object.entries(IDENTITY_TEXT).map(
     ([identity, text]): PolicyRow => [`reported identity ${identity}`, () => [identity], text]
   )

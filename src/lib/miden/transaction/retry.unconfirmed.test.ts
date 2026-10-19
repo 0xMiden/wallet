@@ -173,7 +173,7 @@ beforeEach(async () => {
 
 describe('the manual consume Retry fee gate', () => {
   it('consume Retry refuses a known shortage and requeues behind funding', async () => {
-    const failed = failedConsume();
+    const failed = failedConsume({ feeAdmission: 'balance_unknown' });
     await Repo.transactions.add(failed);
     const before = await Repo.transactions.get(failed.id);
 
@@ -187,6 +187,7 @@ describe('the manual consume Retry fee gate', () => {
     const requeued = await Repo.transactions.get(failed.id);
     expect(requeued).toMatchObject({
       status: ITransactionStatus.Queued,
+      feeAdmission: 'ahead_native',
       submitEvidence: failed.submitEvidence,
       requestBytes: failed.requestBytes,
       extraInputs: failed.extraInputs,
@@ -214,6 +215,22 @@ describe('the manual consume Retry fee gate', () => {
     ]) {
       expect(requeued).toHaveProperty(field, undefined);
     }
+  });
+
+  it.each([
+    { vaultFeeAsset: 10000n, admission: 'known_sufficient' },
+    { vaultFeeAsset: null, admission: 'balance_unknown' }
+  ])('consume Retry replaces the earlier admission with $admission', async ({ vaultFeeAsset, admission }) => {
+    const failed = failedConsume({ feeAdmission: 'fee_unknown' });
+    await Repo.transactions.add(failed);
+    mockReadClaimFeeContext.mockResolvedValue({ ...EMPTY_FEE_CONTEXT, vaultFeeAsset });
+
+    await requeueFailedTransaction(failed.id);
+
+    expect(await Repo.transactions.get(failed.id)).toMatchObject({
+      status: ITransactionStatus.Queued,
+      feeAdmission: admission
+    });
   });
 
   it('consume Retry treats legacy assets as unknown and excludes itself from ahead', async () => {

@@ -4,7 +4,9 @@ import * as spendable from './spendable';
 
 const {
   CLAIM_COST_FEE_MULTIPLE,
+  claimFeeDecisions,
   claimFeeShortfalls,
+  claimFeeShortfallsBaseUnits,
   hasNoFeeAsset,
   isWorthClaiming,
   maxSendableNative,
@@ -352,7 +354,14 @@ describe('claimFeeShortfalls', () => {
 
     for (const { checks } of cases) {
       for (const [transactions, ahead, , vaultFeeAsset, nativeAssetId, verificationBaseFee, expected] of checks) {
-        expect(core(transactions, ahead, vaultFeeAsset, nativeAssetId, verificationBaseFee)).toEqual(expected);
+        const shortfalls = core(transactions, ahead, vaultFeeAsset, nativeAssetId, verificationBaseFee);
+        const decisions = claimFeeDecisions(transactions, ahead, vaultFeeAsset, nativeAssetId, verificationBaseFee);
+        expect(shortfalls).toEqual(expected);
+        expect(decisions.map(decision => decision.shortfall)).toEqual(shortfalls);
+        // A refused row carries no admission reason; an admitted one always does.
+        expect(decisions.map(decision => typeof decision.admission)).toEqual(
+          decisions.map(decision => (decision.shortfall ? 'undefined' : 'string'))
+        );
       }
     }
     expect(core([[tokenNote]], [], 0n, NATIVE, 10000)).toEqual([true]);
@@ -391,5 +400,80 @@ describe('claimFeeShortfalls', () => {
       expect(core([[note], [tokenNote]], [], 0n, NATIVE, 10000)).toEqual([false, true]);
       expect(core([[tokenNote]], [note], 0n, NATIVE, 10000)).toEqual([false]);
     }
+  });
+
+  it.each([null, undefined, ''])('records native_id_unknown before other unknown facts (%s)', nativeAssetId => {
+    expect(claimFeeDecisions([[tokenNote]], [multi], null, nativeAssetId, null)).toEqual([
+      { shortfall: false, admission: 'native_id_unknown' }
+    ]);
+  });
+
+  it.each([null, 0, -1, Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])(
+    'records fee_unknown before unknown holdings or ahead assets (%s)',
+    fee => {
+      expect(claimFeeDecisions([[tokenNote]], [multi], null, NATIVE, fee)).toEqual([
+        { shortfall: false, admission: 'fee_unknown' }
+      ]);
+    }
+  );
+
+  it('records balance_unknown before ahead or own-note funding', () => {
+    expect(claimFeeDecisions([[nativeNote(BASE)]], [multi, nativeNote(1)], null, NATIVE, BASE)).toEqual([
+      { shortfall: false, admission: 'balance_unknown' }
+    ]);
+  });
+
+  it.each([
+    { order: 'native first', ahead: [nativeNote(1), multi] },
+    { order: 'unknown first', ahead: [multi, nativeNote(1)] }
+  ])('records ahead_assets_unknown before ahead_native ($order)', ({ ahead }) => {
+    expect(claimFeeDecisions([[tokenNote]], ahead, 0n, NATIVE, BASE)).toEqual([
+      { shortfall: false, admission: 'ahead_assets_unknown' }
+    ]);
+  });
+
+  it('records ahead_native before unknown own-note assets', () => {
+    expect(claimFeeDecisions([[multi], [tokenNote]], [nativeNote(0)], 0n, NATIVE, BASE)).toEqual([
+      { shortfall: false, admission: 'ahead_native' },
+      { shortfall: false, admission: 'ahead_native' }
+    ]);
+  });
+
+  it.each([
+    multi,
+    { ...tokenNote, assetsUnknown: true },
+    { faucetId: '', amount: '1' },
+    { faucetId: ' ', amount: '1' },
+    { faucetId: NATIVE, amount: '' },
+    { faucetId: NATIVE, amount: ' ' },
+    { ...tokenNote, amount: '' },
+    { faucetId: NATIVE, amount: 'not-a-number' }
+  ])('records note_assets_unknown before known vault funding (%j)', note => {
+    expect(claimFeeDecisions([[note]], [], 10000n, NATIVE, BASE)).toEqual([
+      { shortfall: false, admission: 'note_assets_unknown' }
+    ]);
+  });
+
+  it.each([
+    { funding: 'vault', notes: [tokenNote], vault: 10000n },
+    { funding: 'note', notes: [nativeNote(BASE)], vault: 0n },
+    { funding: 'vault and note', notes: [nativeNote(4000)], vault: 6000n }
+  ])('records known_sufficient for $funding funding', ({ notes, vault }) => {
+    expect(claimFeeDecisions([notes], [], vault, NATIVE, BASE)).toEqual([
+      { shortfall: false, admission: 'known_sufficient' }
+    ]);
+  });
+
+  it('records each row independently and omits admission for a refused row', () => {
+    const transactions = [[tokenNote], [multi], [nativeNote(BASE)]];
+    const decisions = claimFeeDecisions(transactions, [], 0n, NATIVE, BASE);
+    expect(decisions).toEqual([
+      { shortfall: true },
+      { shortfall: false, admission: 'note_assets_unknown' },
+      { shortfall: false, admission: 'known_sufficient' }
+    ]);
+    expect(decisions.map(decision => decision.shortfall)).toEqual(
+      claimFeeShortfallsBaseUnits(transactions, [], 0n, NATIVE, BASE)
+    );
   });
 });
