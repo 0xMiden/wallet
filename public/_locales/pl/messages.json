@@ -6920,7 +6920,7 @@
     "englishSource": "Update Android System WebView"
   },
   "webViewUpdateBody": {
-    "message": "Aplikacja Bread wymaga nowszej wersji Android System WebView – komponentu systemu Android odpowiedzialnego za wyświetlanie stron internetowych w aplikacjach. Zaktualizuj ją w Google Play, a następnie ponownie uruchom aplikację Bread.",
+    "message": "Aplikacja Bread wymaga nowszej wersji Android System WebView, komponentu systemu Android odpowiedzialnego za wyświetlanie stron internetowych w aplikacjach. Zaktualizuj ją w Google Play, a następnie ponownie uruchom aplikację Bread.",
     "englishSource": "Bread needs a newer version of Android System WebView, the part of Android that shows web pages in apps. Update it from Google Play, then open Bread again."
   },
   "webViewUpdateAction": {
