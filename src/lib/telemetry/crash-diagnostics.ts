@@ -142,9 +142,11 @@ function storageDiagnosticsAt(error: Error): StorageCrashDiagnostics | undefined
     const inner: unknown = 'inner' in link ? link.inner : undefined;
     const failures: unknown = 'failures' in link ? link.failures : undefined;
     let candidate: StorageCrashDiagnostics | undefined;
+    let missingCandidate = false;
     if (inner !== undefined && inner !== null) {
       candidate = visit(inner, depth + 1);
-      if (candidate?.storageOperation === undefined) return {};
+      if (candidate !== undefined && candidate.storageOperation === undefined) return {};
+      missingCandidate = candidate === undefined;
     }
     if (failures !== undefined) {
       if (!Array.isArray(failures)) return {};
@@ -156,7 +158,11 @@ function storageDiagnosticsAt(error: Error): StorageCrashDiagnostics | undefined
       for (let index = 0; index < length; index++) {
         const entry: unknown = failures[index];
         const promoted = visit(entry, depth + 1);
-        if (promoted?.storageOwner === undefined || promoted.storageOperation === undefined) return {};
+        if (promoted === undefined) {
+          missingCandidate = true;
+          continue;
+        }
+        if (promoted.storageOwner === undefined || promoted.storageOperation === undefined) return {};
         if (
           candidate !== undefined &&
           (candidate.storageOwner !== promoted.storageOwner || candidate.storageOperation !== promoted.storageOperation)
@@ -166,7 +172,7 @@ function storageDiagnosticsAt(error: Error): StorageCrashDiagnostics | undefined
       }
     }
     visiting.delete(link);
-    return candidate;
+    return missingCandidate && candidate !== undefined ? {} : candidate;
   };
   try {
     // Undefined permits cause inheritance; an empty result rejects uncertain attribution.
