@@ -2222,7 +2222,7 @@ describe('actions', () => {
         );
         const now = jest.spyOn(Date, 'now').mockReturnValue(1_000);
         const held = processDApp('https://other.example', { type: MidenDAppMessageType.DisconnectRequest });
-        let settled = Promise.allSettled([held]);
+        let settled: Promise<PromiseSettledResult<Awaited<typeof held>>[]> = Promise.allSettled([held]);
         try {
           await new Promise(resolve => setTimeout(resolve, 0));
           expect(requestDisconnect).toHaveBeenCalledTimes(1);
