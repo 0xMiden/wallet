@@ -52,6 +52,8 @@ type HistoryViewProps = {
   tokenId?: string;
   fullHistory?: boolean;
   centerEmptyState?: boolean;
+  /** Replaces the generic "no transactions" card in the centred empty state, for a filter with its own copy. */
+  emptyState?: React.ReactNode;
   /**
    * `caption`: each day is a small grey caption ("Monday, October 5") rather than the bold date and
    * coloured weekday, for a list that already sits under its own section heading (Token Detail).
@@ -486,6 +488,7 @@ const HistoryView = memo<HistoryViewProps>(
     tokenId,
     fullHistory,
     centerEmptyState,
+    emptyState,
     dateStyle = 'header',
     pendingItems,
     renderPendingItem,
@@ -540,7 +543,7 @@ const HistoryView = memo<HistoryViewProps>(
         // row below) — not vertically centered in the remaining tab height.
         return (
           <div className="flex flex-col pt-4">
-            {loadErrorCard ?? (
+            {loadErrorCard ?? emptyState ?? (
               <EmptyState icon={IconName.ArrowUpDown} title={t('noOperationsFound')} className="w-full" />
             )}
           </div>

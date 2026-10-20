@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.17.6 (TBD)
+
+### Changes
+
+- [CHANGE][all] Arcade polish: the featured game card's actions run edge to edge like Activity's pending card and drop the redundant Arcade tag, game details show a one-line wallet-access footnote, the Rankings / Coins / Activity shortcuts are a row of taller chips, and Rankings, Game Coins and Activity's Arcade filter show a dashed coming-soon state with a privacy footnote and a Browse games action instead of unreachable balance actions.
+
 ## 1.17.5 (TBD)
 
 ### Features

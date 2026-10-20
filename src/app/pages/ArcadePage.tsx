@@ -78,7 +78,7 @@ export const ArcadePage: React.FC<{ page: 'rankings' | 'coins' }> = ({ page }) =
 
   return (
     <SubPageLayout
-      title={t(review ? 'arcadeReviewBalance' : rankings ? 'arcadeGCRankings' : 'arcadeCoins')}
+      title={t(review ? 'arcadeReviewBalance' : rankings ? 'arcadeRankings' : 'arcadeCoins')}
       onBack={onBack}
       focusTitleOnMount
       data-testid={`arcade-${page}-page`}
@@ -93,6 +93,20 @@ export const ArcadePage: React.FC<{ page: 'rankings' | 'coins' }> = ({ page }) =
           <Button disabled={!preview} onClick={preview ? applySample : undefined}>
             {t(preview ? 'arcadeApplySample' : 'arcadeSubmitBalance')}
           </Button>
+        ) : !preview ? (
+          // Nothing to act on until GC is live: the privacy line, then the one useful next step.
+          <>
+            <Notice
+              variant="inline"
+              icon={<Icon name={IconName.ShieldCheck} size="sm" fill="currentColor" />}
+              className="justify-center"
+            >
+              {t(rankings ? 'arcadeRankingsPrivate' : 'arcadeBalancePrivate')}
+            </Notice>
+            <Button onClick={() => navigate(ARCADE_PATH)} data-testid="arcade-browse-games">
+              {t('arcadeBrowseGames')}
+            </Button>
+          </>
         ) : (
           <>
             {rankings ? (
@@ -174,14 +188,13 @@ export const ArcadePage: React.FC<{ page: 'rankings' | 'coins' }> = ({ page }) =
           {sampleUpdated && <Notice role="status">{t('arcadeSampleUpdated')}</Notice>}
         </>
       ) : (
-        <>
-          <EmptyState
-            icon={rankings ? IconName.Users : IconName.Coins}
-            title={t(rankings ? 'arcadeRankingsUnavailable' : 'arcadeCoinsUnavailable')}
-            description={t(rankings ? 'arcadeRankingsDescription' : 'arcadeCoinsDescription')}
-          />
-          <Notice>{t('arcadePrivateBalanceNotice')}</Notice>
-        </>
+        // The slot the leaderboard or the balance will fill once GC is live: dashed, not a filled card.
+        <EmptyState
+          surface="dashed"
+          icon={rankings ? IconName.Users : IconName.Coins}
+          title={t(rankings ? 'arcadeRankingsUnavailable' : 'arcadeCoinsUnavailable')}
+          description={t(rankings ? 'arcadeRankingsDescription' : 'arcadeCoinsDescription')}
+        />
       )}
     </SubPageLayout>
   );

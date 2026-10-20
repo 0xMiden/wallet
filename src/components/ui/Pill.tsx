@@ -7,10 +7,11 @@ import { cn } from 'lib/ui/util';
 
 /**
  * Height and type scale. `xs` (20px) is the compact status badge in dense rows; `sm` (24px) is the
- * status pill in detail headers; `md` (32px) is every other chip, badge and action; `tag` (18px, a
+ * status pill in detail headers; `md` (32px) is every other chip, badge and action; `lg` (40px) is
+ * a row of page-level shortcut chips (Arcade's Rankings / Coins / Activity); `tag` (18px, a
  * step under `xs`) is a mark after a row's name, such as a token's Unverified tag.
  */
-export type PillSize = 'xs' | 'sm' | 'md' | 'tag';
+export type PillSize = 'xs' | 'sm' | 'md' | 'lg' | 'tag';
 
 /**
  * What the pill says about its content:
@@ -96,6 +97,7 @@ const pillVariants = cva('relative inline-flex max-w-full items-center rounded-f
       xs: 'h-5 gap-1 px-2 text-badge font-semibold',
       sm: 'h-6 gap-1 px-2 text-badge',
       md: 'h-8 gap-1.5 px-3 text-pill',
+      lg: 'h-10 gap-1.5 px-3.5 text-pill',
       tag: 'h-4.5 gap-1 px-1.5 text-tag'
     } satisfies Record<PillSize, string>,
     tone: {
@@ -134,6 +136,7 @@ const pillIconVariants = cva('flex shrink-0 items-center justify-center [&>svg]:
       xs: '-ml-0.5 h-3 w-3',
       sm: '-ml-0.5 h-3.5 w-3.5',
       md: '-ml-1 h-4 w-4',
+      lg: '-ml-1 h-4 w-4',
       tag: '-ml-0.5 h-3 w-3'
     } satisfies Record<PillSize, string>
   },
@@ -149,6 +152,7 @@ const pillTrailingIconVariants = cva(
         xs: '-mr-0.5 h-3 w-3',
         sm: '-mr-0.5 h-3.5 w-3.5',
         md: '-mr-1 h-4 w-4',
+        lg: '-mr-1 h-4 w-4',
         tag: '-mr-0.5 h-3 w-3'
       } satisfies Record<PillSize, string>
     },

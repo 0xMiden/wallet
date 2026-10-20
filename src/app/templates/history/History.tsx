@@ -55,6 +55,8 @@ type HistoryProps = {
   className?: string;
   fullHistory?: boolean;
   centerEmptyState?: boolean;
+  /** Passed to `HistoryView`: a filter's own empty state. */
+  emptyState?: React.ReactNode;
   /**
    * `caption`: each day is a small grey caption ("Monday, October 5") rather than the bold date and
    * coloured weekday, for a list that already sits under its own section heading (Token Detail).
@@ -141,6 +143,7 @@ const History = memo<HistoryProps>(
     scrollParentRef,
     fullHistory,
     centerEmptyState,
+    emptyState,
     dateStyle,
     tokenId,
     searchQuery,
@@ -461,6 +464,7 @@ const History = memo<HistoryProps>(
         tokenId={tokenId}
         fullHistory={fullHistory}
         centerEmptyState={centerEmptyState}
+        emptyState={emptyState}
         dateStyle={dateStyle}
         pendingItems={drawnPendingItems ?? pendingItems}
         renderPendingItem={renderPendingItem}
