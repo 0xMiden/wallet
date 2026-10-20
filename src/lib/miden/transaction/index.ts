@@ -1147,8 +1147,17 @@ async function reconcileStructuralApplyFailure(
       // with. Completion handles the undefined service by registering on the new
       // guardian directly, which is exactly what a released operator leaves us
       // needing.
-      if (!isGuardianUnreachableError(error) && !isGuardianAccountUnusable(error)) throw error;
-      console.warn('[Guardian] old guardian unusable during switch reconcile — finalizing directly', error);
+      // The write already reached submit. Private service reads remain gated;
+      // denial or locking makes this optional service unavailable to completion.
+      if (
+        !isGuardianUnreachableError(error) &&
+        !isGuardianAccountUnusable(error) &&
+        !isWalletAccessDeniedError(error) &&
+        !isLockedError(error)
+      ) {
+        throw error;
+      }
+      console.warn('[Guardian] outgoing service unavailable during landed switch reconcile - completing without it', error);
     }
   }
   // `commitUnconfirmed: true`, unconditionally. This reconcile is reached only after the
@@ -4084,18 +4093,13 @@ const generateGuardianTransaction = async (
     if (hasErrorBeforeSubmit(error) && transaction.attemptId !== undefined) {
       await markAttemptPreSubmitEnd(transaction.id, transaction.attemptId);
     }
-    // Kept for the node's verdict on a row that can await one (#1081): after a kill, whose pipeline may still submit,
-    // or once this attempt may have crossed its submit, abandoning would retract a co-signature the chain may be about
-    // to consume. The crossing is this attempt's own, as for the mark below: the inline leaf awaits its 'submitting'
-    // stamp before it submits, and the offscreen leaf tags every error it raises before its submit call. Never the
-    // row's `mayHaveSubmitted`, which an earlier attempt or the pre-dispatch pin may have raised: it would keep a
-    // candidate that can never land, and the entry recorded for it would keep the row from ever being proven safe. A
-    // refusal after the crossing is kept too, since no classifier tells it from a lost response; a resolved submit is
-    // the landed path's.
+    // A killed pipeline may still submit. Otherwise, definitive pre-submit evidence overrides
+    // the earlier submitting stamp and offscreen dispatch, so an unsubmitted candidate can retire.
+    // Without that evidence, preserve this attempt's candidate for the node's verdict (#1081).
     const keptForVerdict =
       canAwaitVerdict(transaction) &&
       !isApplyAfterSubmitError(error) &&
-      (isKilledPipeline(error) || submitCrossed || (offscreenDispatched && !hasErrorBeforeSubmit(error)));
+      (isKilledPipeline(error) || (!hasErrorBeforeSubmit(error) && (submitCrossed || offscreenDispatched)));
     if (keptForVerdict) {
       // Recorded plain with its proposal's stamps and this attempt's id: the next proposal's settlement gate waits on
       // it, and the release dates it and abandons its nonce only while the record is still this attempt's
@@ -4163,22 +4167,16 @@ const generateGuardianTransaction = async (
           'abandoning the guardian candidate after a failed submission'
         );
       } catch (abandonError) {
-        // Cleanup must never mask the transaction failure. The abandonment call
-        // is idempotent, so the account's next proposal retries it (#1317), but
-        // only after a failure that provably preceded the submit: an inline
-        // attempt whose ordered stamp never reported 'submitting', or an
-        // offscreen-routed one whose request never reached its leaf. A kill may
-        // have submitted (a realm killed between submit and its stamp reaching
-        // here surfaces as one), and so may an inline attempt that reported
-        // 'submitting'; each keeps this one abandon and leaves no mark. The
-        // offscreen leaf's stamps can be lost, so an attempt dispatched offscreen
-        // never marks, and the retry never adds an abandon to a write the chain
-        // may still consume.
+        // Retry idempotent cleanup only for a definite pre-submit end or an attempt that never
+        // reached its submitting boundary. A killed pipeline may still submit despite that tag.
         console.error('Failed to request Guardian candidate abandonment', {
           nonce: proposalResult.nonce,
           error: abandonError
         });
-        if (!offscreenDispatched && !isKilledPipeline(error) && !submitCrossed) {
+        if (
+          !isKilledPipeline(error) &&
+          (hasErrorBeforeSubmit(error) || (!offscreenDispatched && !submitCrossed))
+        ) {
           recordUnabandonedCandidate(transaction.accountId, service, proposalResult.nonce, proposalStamps);
         }
       }
