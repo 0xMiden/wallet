@@ -1,0 +1,739 @@
+name: Capacitor request ownership sensitivity
+
+on:
+  push:
+    branches: [ci/1589-f5-sensitivity-r2]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: capacitor-ownership-sensitivity-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  sensitivity:
+    name: ${{ matrix.mutant }} (${{ matrix.language }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { mutant: M1, language: js, runner: ubuntu-latest }
+          - { mutant: M2, language: swift, runner: macos-26 }
+          - { mutant: M3, language: swift, runner: macos-26 }
+          - { mutant: M4, language: java, runner: ubuntu-latest }
+          - { mutant: M5, language: swift, runner: macos-26 }
+    env:
+      MUTANT: ${{ matrix.mutant }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 2 }
+      - name: Bind the fixed source and immutable test contract
+        run: |
+          set -euo pipefail
+          proof="$RUNNER_TEMP/capacitor-sensitivity-$MUTANT"
+          mkdir -p "$proof"
+          printf 'PROOF=%s\n' "$proof" >> "$GITHUB_ENV"
+          export PROOF="$proof"
+          cat > "$proof/contract.json" <<'CONTRACT'
+          {
+            "source": "4092a4c61ca3ca6dddb728a9a5c1c6e14b147441",
+            "source_tree": "856da66001e89822e98825cf072abeddbdb20464",
+            "workflow": ".github/workflows/bread-connect-capacitor-sensitivity.yml",
+            "branch": "refs/heads/ci/1589-f5-sensitivity-r2",
+            "paths": {
+              "js": "packages/bread-connect-capacitor/src/native-opener.ts",
+              "swift": "packages/bread-connect-capacitor/ios/Sources/BreadConnectPlugin/NativeOpenAttempt.swift",
+              "java": "packages/bread-connect-capacitor/android/src/main/java/com/miden/breadconnect/NativeOpenAttempt.java"
+            },
+            "inventories": {
+              "js": [
+                "AppSwitchTransport completes a connection and records an outcome from the link that relaunches the app",
+                "AppSwitchTransport completes a connection from a relaunch that comes after the ten minutes Bread accepts the request for",
+                "AppSwitchTransport connects again after a cancel",
+                "AppSwitchTransport connects through Bread and keeps the session with the request it answered",
+                "AppSwitchTransport drops an answer whose seal does not open, and one for a session the app no longer holds",
+                "AppSwitchTransport drops links that are not Bread's answer to the waiting request",
+                "AppSwitchTransport gives up when Bread does not answer in time",
+                "AppSwitchTransport ignores a stored request older than the app waits for, and a launch link it cannot read",
+                "AppSwitchTransport keeps the last twenty outcomes, one per transaction",
+                "AppSwitchTransport listens once, stops listening on stop, and reads malformed storage as nothing",
+                "AppSwitchTransport marks the session for a recheck once Bread refuses a request in it with NOT_GRANTED",
+                "AppSwitchTransport opens nothing for a connect or request cancelled while it reads the link that launched the app",
+                "AppSwitchTransport refuses a request without a session",
+                "AppSwitchTransport rejects on Bread's unsealed error for the waiting request, and forgets a session Bread does not know",
+                "AppSwitchTransport rejects when Bread is not installed or cannot be opened",
+                "AppSwitchTransport rejects with Bread's error code, and keeps no session for a refused connection",
+                "AppSwitchTransport replaces the waiting request with a newer one, and cancels on request",
+                "AppSwitchTransport restores no session opened for another callback, so connect asks Bread again",
+                "AppSwitchTransport sends a request in the session and keeps the outcome Bread reported with a transaction",
+                "AppSwitchTransport settles a refusal it cannot mark on the session",
+                "AppSwitchTransport still takes an answer after the ten minutes Bread accepts the request for",
+                "AppSwitchTransport takes no unsealed error with a code Bread seals as the answer to the waiting request",
+                "AppSwitchTransport when the store fails while it takes an answer drops a link it cannot authenticate while its session cannot be read, and takes the answer once it can",
+                "AppSwitchTransport when the store fails while it takes an answer ends a connect whose session cannot be kept with INTERNAL_ERROR at once",
+                "AppSwitchTransport when the store fails while it takes an answer settles Bread's unsealed SESSION_NOT_FOUND when the session cannot be forgotten",
+                "AppSwitchTransport when the store fails while it takes an answer settles an answer when the pending record cannot be cleared",
+                "AppSwitchTransport when the store fails while it takes an answer still answers a transaction whose outcome cannot be kept",
+                "AppSwitchTransport when the store fails while it takes an answer takes no late answer to a connect it cancelled while its pending record could not be removed",
+                "BreadConnectWallet asks Bread again once Bread has refused a request in the stored session, as after an account switch",
+                "BreadConnectWallet asks for notes, assets, guardian details and a note import",
+                "BreadConnectWallet connects again after a disconnect",
+                "BreadConnectWallet connects with the request Bread's own provider sends, and takes the account from the answer",
+                "BreadConnectWallet does not create accounts",
+                "BreadConnectWallet forgets the session in the app on disconnect",
+                "BreadConnectWallet keeps no account for a connect the app disconnects once Bread has answered",
+                "BreadConnectWallet opens nothing for a connect the app disconnects while it reads the link that launched it",
+                "BreadConnectWallet reads the answer that relaunched the app before it decides to connect again",
+                "BreadConnectWallet reads the answer that relaunched the app before it looks up a transaction outcome",
+                "BreadConnectWallet reconnects without switching to Bread when the stored session answered the same request",
+                "BreadConnectWallet refuses a permission answer of the wrong type or shape",
+                "BreadConnectWallet refuses answers of the wrong shape",
+                "BreadConnectWallet refuses every request before it is connected",
+                "BreadConnectWallet sends transactions as Bread's own provider does",
+                "BreadConnectWallet signs bytes as Bread's own provider does",
+                "BreadConnectWallet waits for a transaction with the outcome Bread reported with its answer",
+                "capacitorLinks reads the launch link and the links the app is opened with, until unsubscribed",
+                "carries an abort close request while an admitted successful operation completes",
+                "finishes a successful wallet step and releases its native handle once",
+                "installBreadConnect androidDefaultOpenerDoesNotSendWebStoreAfterCancellation",
+                "installBreadConnect defaultOpenerDoesNotSendInitialStepWhenCancelledDuringPreparation",
+                "installBreadConnect defaultOpenerDoesNotSendStoreAfterCallerCancellation",
+                "installBreadConnect keeps a successfully opened wallet waiting for its answer without opening a store",
+                "installBreadConnect makes Bread the app's window.midenWallet and listens for Bread's answers through Capacitor",
+                "installBreadConnect preserves an active bridge failure even when native cleanup also rejects",
+                "installBreadConnect refuses a callback that is not a canonical https link",
+                "installBreadConnect uses distinct Android market and HTTPS steps and keeps a store result separate from Bread",
+                "installBreadConnect uses managed steps for the built-in opener [Function openWithPlugin]",
+                "installBreadConnect uses managed steps for the built-in opener undefined",
+                "installBreadConnect uses the storage, links and opener the app passes",
+                "keeps the active open error when cleanup rejects",
+                "leaves a closed native attempt neutral instead of inventing a not-installed result",
+                "managed native request ownership defaultOpenerDoesNotSendStoreAfterSupersession",
+                "managed native request ownership keeps successful settlement when a later native completion and cleanup both reject",
+                "managed native request ownership sends no late store command after managed answer settlement",
+                "managed native request ownership sends no late store command after managed stop settlement",
+                "managed native request ownership sends no late store command after managed timeout settlement",
+                "openWithPlugin opens Bread's link with the native plugin and reports whether Bread opened",
+                "preserves preparation failure without trying to revoke an unknown handle",
+                "stops after the native primary store result without treating the store as Bread",
+                "the native package an app installs names its Swift package and its library as the Capacitor CLI does",
+                "the native package an app installs ships its podspec under the name the Capacitor CLI gives the pod",
+                "uses a native secondary store only when the primary store returns that next step"
+              ],
+              "swift": [
+                "testEveryNormalTerminalPathRetiresTheHandleAndExpiryOnce",
+                "testExpiryBeforeQueuedHandoffPreventsNativeOpen",
+                "testExpirySettlesPendingOnceWithoutInventingStoreFailure",
+                "testFalseWalletCompletionDoesNotAutonomouslyOpenStore",
+                "testImmediateCompletionAllowsReentrantNextStep",
+                "testLifecycleBeforeQueuedHandoffPreventsNativeOpen",
+                "testLifecycleClosesIdleAttemptsAndCancelsTheirExpiry",
+                "testPreparationValidatesWithoutOpeningAnything",
+                "testRevocationSettlesAdmittedCallOnceAndIgnoresLateFailure",
+                "testRevokeBeforeQueuedWalletHandoffPreventsNativeOpen",
+                "testRevokedStoreHandlesRejectDelayedAndQueuedHandoffs",
+                "testRevokingOldHandleLeavesReplacementUsable",
+                "testStandaloneAggregateKeepsItsUniversalThenStoreSequence",
+                "testSynchronousCallbackCanReenterRevokeAndDenyNextStep",
+                "testUnknownWrongAndRepeatedStepsAreNeutral",
+                "testUnsuccessfulStoreStillFinishesAsNotOpened",
+                "testWalletStepUsesUniversalLinkOnlyAndCompletesOnce"
+              ],
+              "java": [
+                "everyNormalTerminalPathRetiresHandleAndExpiryOnce",
+                "expiryAndLifecycleCleanupRetireIdleHandles",
+                "expiryDuringAdmittedIoKeepsItsResultNeutralAndRetiresPermission",
+                "lifecycleDuringAdmittedIoDoesNotCreateFallbackPermission",
+                "marketFailureRequiresASeparateHttpsStepEvenIfItAlsoFails",
+                "missingWalletDoesNotAutonomouslyOpenAnyStore",
+                "prepareValidatesWithoutOpeningAndAllocatesUniqueHandles",
+                "revokeBeforeDelayedWalletCommandPreventsNativeOpen",
+                "revokedHttpsHandleCannotAdmitStore",
+                "revokedMarketHandleCannotAdmitStore",
+                "revokingOldHandleDoesNotRevokeReplacement",
+                "standaloneAggregatePreservesWalletMarketAndWebOrder",
+                "synchronousNativeIoCanReenterRevokeWithoutRetractingAdmittedIo",
+                "untrustedPackageNeverReceivesRequestAndMarketIsASeparateStep",
+                "walletSuccessUsesOnlyBreadPackageAndRetiresHandle",
+                "wrongUnknownAndRepeatedStepsDoNotCreatePermission"
+              ]
+            },
+            "mutations": {
+              "M1": {
+                "language": "js",
+                "replacements": [
+                  [
+                    "    if (signal.aborted) return true;\n",
+                    "",
+                    1
+                  ],
+                  [
+                    "      if (signal.aborted) return true;\n",
+                    "",
+                    1
+                  ],
+                  [
+                    "signal.aborted || result.cancelled || result.opened",
+                    "result.cancelled || result.opened",
+                    1
+                  ]
+                ],
+                "failures": {
+                  "installBreadConnect defaultOpenerDoesNotSendStoreAfterCallerCancellation": {
+                    "line": 168,
+                    "file": "packages/bread-connect-capacitor/src/index.test.ts",
+                    "expected": 0,
+                    "actual": 1
+                  },
+                  "installBreadConnect defaultOpenerDoesNotSendInitialStepWhenCancelledDuringPreparation": {
+                    "line": 201,
+                    "file": "packages/bread-connect-capacitor/src/index.test.ts",
+                    "expected": 0,
+                    "actual": 1
+                  },
+                  "installBreadConnect androidDefaultOpenerDoesNotSendWebStoreAfterCancellation": {
+                    "line": 233,
+                    "file": "packages/bread-connect-capacitor/src/index.test.ts",
+                    "expected": 0,
+                    "actual": 1
+                  },
+                  "managed native request ownership defaultOpenerDoesNotSendStoreAfterSupersession": {
+                    "line": 687,
+                    "file": "packages/bread-connect-capacitor/src/transport.test.ts",
+                    "expected": 0,
+                    "actual": 1
+                  },
+                  "managed native request ownership sends no late store command after managed stop settlement": {
+                    "line": 731,
+                    "file": "packages/bread-connect-capacitor/src/transport.test.ts",
+                    "expected": 0,
+                    "actual": 1
+                  },
+                  "managed native request ownership sends no late store command after managed answer settlement": {
+                    "line": 731,
+                    "file": "packages/bread-connect-capacitor/src/transport.test.ts",
+                    "expected": 0,
+                    "actual": 1
+                  },
+                  "managed native request ownership sends no late store command after managed timeout settlement": {
+                    "line": 731,
+                    "file": "packages/bread-connect-capacitor/src/transport.test.ts",
+                    "expected": 0,
+                    "actual": 1
+                  }
+                },
+                "source_sha256": "e7830b8075263e930753c57c187889bef66aaf6651179176cb2d60051c4997b3",
+                "mutant_sha256": "b545dd2ca35e3ed8d697aa3e342e1a59a5537123589df87c9ead609a894770c3",
+                "path": "packages/bread-connect-capacitor/src/native-opener.ts"
+              },
+              "M2": {
+                "language": "swift",
+                "replacements": [
+                  [
+                    "            lock.lock()\n            guard attempts[id] === attempt, attempt.pending === pending, !pending.admitted else {\n                lock.unlock()\n                return\n            }\n            // Revocation fences admission; already admitted I/O may finish after it.\n            pending.admitted = true\n            lock.unlock()\n",
+                    "",
+                    1
+                  ]
+                ],
+                "failures": {
+                  "testRevokeBeforeQueuedWalletHandoffPreventsNativeOpen": {
+                    "line": 185,
+                    "message": "XCTAssertEqual failed: (\"1\") is not equal to (\"0\")"
+                  },
+                  "testRevokedStoreHandlesRejectDelayedAndQueuedHandoffs": {
+                    "line": 211,
+                    "message": "XCTAssertEqual failed: (\"1\") is not equal to (\"0\")"
+                  },
+                  "testExpiryBeforeQueuedHandoffPreventsNativeOpen": {
+                    "line": 291,
+                    "message": "XCTAssertEqual failed: (\"1\") is not equal to (\"0\")"
+                  },
+                  "testLifecycleBeforeQueuedHandoffPreventsNativeOpen": {
+                    "line": 306,
+                    "message": "XCTAssertEqual failed: (\"1\") is not equal to (\"0\")"
+                  }
+                },
+                "source_sha256": "f3176eb6068686d91bd6f23fe2853a568301587d32ee80b6c89faa15bef97e29",
+                "mutant_sha256": "1c04dbf34fa2bc285c6251d4953539b7e3dd5ec7ae95cad9a65e96c0a6b97a10",
+                "path": "packages/bread-connect-capacitor/ios/Sources/BreadConnectPlugin/NativeOpenAttempt.swift"
+              },
+              "M3": {
+                "language": "swift",
+                "replacements": [
+                  [
+                    "    func revoke(_ id: String) {\n        close(id)\n    }",
+                    "    func revoke(_ id: String) {\n    }",
+                    1
+                  ]
+                ],
+                "failures": {
+                  "testRevokeBeforeQueuedWalletHandoffPreventsNativeOpen": {
+                    "line": 185,
+                    "message": "XCTAssertEqual failed: (\"1\") is not equal to (\"0\")"
+                  },
+                  "testRevokedStoreHandlesRejectDelayedAndQueuedHandoffs": {
+                    "line": 211,
+                    "message": "XCTAssertEqual failed: (\"1\") is not equal to (\"0\")"
+                  },
+                  "testRevokingOldHandleLeavesReplacementUsable": {
+                    "line": 233,
+                    "message": "XCTAssertEqual failed: (\"1\") is not equal to (\"0\")"
+                  },
+                  "testRevocationSettlesAdmittedCallOnceAndIgnoresLateFailure": {
+                    "line": 251,
+                    "message": "XCTAssertEqual failed: (\"[]\") is not equal to (\"[true]\")"
+                  },
+                  "testSynchronousCallbackCanReenterRevokeAndDenyNextStep": {
+                    "line": 277,
+                    "message": "XCTAssertEqual failed: (\"1\") is not equal to (\"0\")"
+                  }
+                },
+                "source_sha256": "f3176eb6068686d91bd6f23fe2853a568301587d32ee80b6c89faa15bef97e29",
+                "mutant_sha256": "7ab5695cb30365ff74da34b557182aa73702d67525e7878216c2e358a245e9ff",
+                "path": "packages/bread-connect-capacitor/ios/Sources/BreadConnectPlugin/NativeOpenAttempt.swift"
+              },
+              "M4": {
+                "language": "java",
+                "replacements": [
+                  [
+                    "    void revoke(String id) {\n        close(id);\n    }",
+                    "    void revoke(String id) {\n    }",
+                    1
+                  ]
+                ],
+                "failures": {
+                  "synchronousNativeIoCanReenterRevokeWithoutRetractingAdmittedIo": {
+                    "line": 234,
+                    "type": "java.lang.AssertionError"
+                  },
+                  "revokingOldHandleDoesNotRevokeReplacement": {
+                    "line": 209,
+                    "type": "java.lang.AssertionError"
+                  },
+                  "revokedMarketHandleCannotAdmitStore": {
+                    "line": 178,
+                    "type": "java.lang.AssertionError"
+                  },
+                  "revokeBeforeDelayedWalletCommandPreventsNativeOpen": {
+                    "line": 163,
+                    "type": "java.lang.AssertionError"
+                  },
+                  "revokedHttpsHandleCannotAdmitStore": {
+                    "line": 194,
+                    "type": "java.lang.AssertionError"
+                  }
+                },
+                "source_sha256": "f9d82a33c928aa57fe2f900f6edddd5f922096abb9c93a877820d6296ea78ac2",
+                "mutant_sha256": "c699da3449c4d941615704fbefe242c621d5f470b8a207b2d3e0d3386382048b",
+                "path": "packages/bread-connect-capacitor/android/src/main/java/com/miden/breadconnect/NativeOpenAttempt.java"
+              },
+              "M5": {
+                "language": "swift",
+                "replacements": [
+                  [
+                    "        guard attempts[id] === attempt, attempt.pending === pending else {\n            lock.unlock()\n            return\n        }\n",
+                    "",
+                    1
+                  ]
+                ],
+                "failures": {
+                  "testWalletStepUsesUniversalLinkOnlyAndCompletesOnce": {
+                    "line": 52,
+                    "message": "XCTAssertEqual failed: (\"2\") is not equal to (\"1\")"
+                  },
+                  "testExpirySettlesPendingOnceWithoutInventingStoreFailure": {
+                    "line": 154,
+                    "message": "XCTAssertEqual failed: (\"2\") is not equal to (\"1\")"
+                  },
+                  "testRevocationSettlesAdmittedCallOnceAndIgnoresLateFailure": {
+                    "line": 254,
+                    "message": "XCTAssertEqual failed: (\"3\") is not equal to (\"1\")"
+                  }
+                },
+                "secondary": {
+                  "testRevocationSettlesAdmittedCallOnceAndIgnoresLateFailure": [
+                    {
+                      "line": 259,
+                      "message": "XCTAssertEqual failed: (\"2\") is not equal to (\"1\")"
+                    }
+                  ]
+                },
+                "source_sha256": "f3176eb6068686d91bd6f23fe2853a568301587d32ee80b6c89faa15bef97e29",
+                "mutant_sha256": "3719602c357da06d0892aaf49249182c024e10b69b9c77c534b86db769875254",
+                "path": "packages/bread-connect-capacitor/ios/Sources/BreadConnectPlugin/NativeOpenAttempt.swift"
+              }
+            }
+          }
+          CONTRACT
+          cat > "$proof/control.py" <<'CONTROL'
+          import collections
+          import hashlib
+          import json
+          import os
+          import pathlib
+          import re
+          import stat
+          import subprocess
+          import sys
+          import xml.etree.ElementTree as ET
+
+          proof = pathlib.Path(os.environ['PROOF'])
+          contract = json.loads((proof / 'contract.json').read_text())
+          mutant = os.environ['MUTANT']
+          spec = contract['mutations'][mutant]
+
+          def git(*args):
+              return subprocess.check_output(['git', *args])
+
+          def write(name, value):
+              (proof / name).write_text(json.dumps(value, indent=2) + '\n')
+
+          def entries(ref):
+              result = {}
+              for entry in git('ls-tree', '-r', '-z', ref).split(b'\0'):
+                  if entry:
+                      metadata, path = entry.split(b'\t', 1)
+                      result[path.decode()] = metadata.decode().split()
+              return result
+
+          def snapshot():
+              result = {}
+              for path, (mode, kind, blob) in entries('HEAD').items():
+                  assert kind == 'blob', (path, kind)
+                  p = pathlib.Path(path)
+                  data = os.readlink(p).encode() if mode == '120000' else p.read_bytes()
+                  actual_mode = '120000' if p.is_symlink() else ('100755' if p.stat().st_mode & stat.S_IXUSR else '100644')
+                  result[path] = {'mode': actual_mode, 'sha256': hashlib.sha256(data).hexdigest(), 'blob': hashlib.sha1(b'blob ' + str(len(data)).encode() + b'\0' + data).hexdigest()}
+              return result
+
+          def expected_snapshot(phase):
+              result = json.loads((proof / 'baseline-content.json').read_text())
+              if phase == 'mutant':
+                  data = pathlib.Path(spec['path']).read_bytes()
+                  assert hashlib.sha256(data).hexdigest() == spec['mutant_sha256']
+                  result[spec['path']]['sha256'] = spec['mutant_sha256']
+                  result[spec['path']]['blob'] = hashlib.sha1(b'blob ' + str(len(data)).encode() + b'\0' + data).hexdigest()
+              return result
+
+          def preserve(phase, name):
+              actual = snapshot()
+              write(name, actual)
+              assert actual == expected_snapshot(phase), 'unexpected tracked content or mode change'
+
+          def check_exit(phase):
+              p = proof / phase
+              assert int((p / 'tee.exit').read_text()) == 0, 'tee failed'
+              assert int((p / 'test.exit').read_text()) == (1 if phase == 'mutant' else 0), 'unexpected test exit'
+
+          operation = sys.argv[1]
+          if operation == 'bind':
+              source = contract['source']
+              head = git('rev-parse', 'HEAD').decode().strip()
+              assert git('rev-parse', 'HEAD^').decode().strip() == source
+              assert git('rev-parse', source + '^{tree}').decode().strip() == contract['source_tree']
+              assert head == os.environ['GITHUB_SHA']
+              assert os.environ['GITHUB_REF'] == contract['branch']
+              before, after = entries(source), entries(head)
+              assert len(before) == 3611
+              assert contract['workflow'] not in before
+              assert git('diff', '--name-status', source, head).decode().splitlines() == ['A\t' + contract['workflow']]
+              assert before == {k: v for k, v in after.items() if k != contract['workflow']}
+              assert git('status', '--porcelain', '--untracked-files=no') == b''
+              actual = snapshot()
+              assert all(actual[p]['blob'] == v[2] and actual[p]['mode'] == v[0] for p, v in after.items())
+              write('baseline-content.json', actual)
+              write('source-entries.json', before)
+              write('checkout-entries.json', after)
+              write('identity.json', {'source': source, 'source_tree': contract['source_tree'], 'checkout': head, 'checkout_tree': git('rev-parse', 'HEAD^{tree}').decode().strip(), 'github_sha': os.environ['GITHUB_SHA'], 'github_ref': os.environ['GITHUB_REF'], 'source_entries': len(before), 'preserved_entries': len(before), 'workflow_sha256': hashlib.sha256(pathlib.Path(contract['workflow']).read_bytes()).hexdigest(), 'mutant': mutant})
+              (proof / 'workflow.patch').write_bytes(git('diff', '--binary', '--full-index', source, head))
+          elif operation == 'mutate':
+              preserve('positive', 'before-mutation-content.json')
+              p = pathlib.Path(spec['path'])
+              data = p.read_text()
+              assert hashlib.sha256(data.encode()).hexdigest() == spec['source_sha256']
+              for old, new, count in spec['replacements']:
+                  if old.startswith('    if '):
+                      assert data.splitlines(keepends=True).count(old) == count
+                      data = ''.join(new if line == old else line for line in data.splitlines(keepends=True))
+                  else:
+                      assert data.count(old) == count
+                      data = data.replace(old, new, count)
+              assert hashlib.sha256(data.encode()).hexdigest() == spec['mutant_sha256']
+              p.write_text(data)
+              preserve('mutant', 'mutant-content.json')
+              (proof / 'mutant.patch').write_bytes(git('diff', '--binary', '--full-index', 'HEAD', '--'))
+          elif operation == 'preserve':
+              phase = sys.argv[2]
+              preserve(phase, phase + '-after-content.json')
+          elif operation == 'restore':
+              p = pathlib.Path(spec['path'])
+              p.write_bytes(git('show', contract['source'] + ':' + spec['path']))
+              preserve('positive', 'restored-content.json')
+              assert git('diff', '--exit-code', 'HEAD', '--') == b''
+              write('restoration.json', {'restored': True, 'source': contract['source'], 'mutant': mutant})
+          elif operation == 'validate':
+              language, phase = sys.argv[2:]
+              check_exit(phase)
+              p = proof / phase
+              expected = spec['failures'] if phase == 'mutant' else {}
+              inventory = contract['inventories'][language]
+              if language == 'js':
+                  result = json.loads((p / 'jest.json').read_text())
+                  assert result['numTotalTests'] == 72 and result['numTotalTestSuites'] == 4
+                  assert result['numPendingTests'] == result.get('numTodoTests', 0) == result['numRuntimeErrorTestSuites'] == 0
+                  assert not any(suite.get('testExecError') for suite in result['testResults'])
+                  cases = [case for suite in result['testResults'] for case in suite['assertionResults']]
+                  assert collections.Counter(c['fullName'] for c in cases) == collections.Counter(inventory)
+                  assert result['numFailedTests'] == len(expected) and result['numPassedTests'] == 72 - len(expected)
+                  for case in cases:
+                      assert case['status'] == ('failed' if case['fullName'] in expected else 'passed')
+                      if case['fullName'] in expected:
+                          oracle = expected[case['fullName']]
+                          messages = case['failureMessages']
+                          assert len(messages) == 1
+                          message = messages[0]
+                          assert 'Expected length: 0' in message and 'Received length: 1' in message
+                          assert re.search(re.escape(oracle['file']) + ':' + str(oracle['line']) + r':\d+', message)
+                  summary = {'total': 72, 'passed': 72 - len(expected), 'failed': len(expected), 'cases': {c['fullName']: c['status'] for c in cases}}
+              elif language == 'swift':
+                  assert int((p / 'compile.exit').read_text()) == int((p / 'compile-tee.exit').read_text()) == 0
+                  compile_log = (p / 'compile.log').read_text()
+                  assert not re.search(r'(?m)^.*: error:|^error:', compile_log), 'compiler error output'
+                  log = (p / 'test.log').read_text()
+                  assert not re.search(r'(?im)fatal error|unexpected signal|crashed|error: Exited', log), 'runtime failure output'
+                  ended = re.findall(r"Test Case '-\[BreadConnectPluginTests.NativeOpenAttemptTests (\w+)\]' (passed|failed) ", log)
+                  started = re.findall(r"Test Case '-\[BreadConnectPluginTests.NativeOpenAttemptTests (\w+)\]' started\.", log)
+                  assert collections.Counter(started) == collections.Counter(inventory)
+                  assert collections.Counter(name for name, status in ended) == collections.Counter(inventory)
+                  assert all(status == ('failed' if name in expected else 'passed') for name, status in ended)
+                  assert re.search(r'Executed 17 tests, with \d+ failures \(0 unexpected\)', log)
+                  errors = re.findall(r'NativeOpenAttemptTests\.swift:(\d+): error: -\[BreadConnectPluginTests.NativeOpenAttemptTests (\w+)\] : ([^\n]+)', log)
+                  assert len(errors) == sum(': error:' in line for line in log.splitlines())
+                  by_name = collections.defaultdict(list)
+                  for line, name, message in errors:
+                      assert name in expected and message.startswith(('XCTAssertEqual failed:', 'XCTAssertNil failed:'))
+                      by_name[name].append({'line': int(line), 'message': message})
+                  assert set(by_name) == set(expected)
+                  for name, oracle in expected.items():
+                      assert oracle in by_name[name], (name, oracle, by_name[name])
+                  if os.environ['MUTANT'] == 'M2' and phase == 'mutant':
+                      assert all(item == expected[name] for name, items in by_name.items() for item in items)
+                  if os.environ['MUTANT'] == 'M5' and phase == 'mutant':
+                      for name, items in by_name.items():
+                          allowed = [expected[name]] + spec.get('secondary', {}).get(name, [])
+                          assert all(item in allowed for item in items), (name, items)
+                  summary = {'total': 17, 'passed': 17 - len(expected), 'failed': len(expected), 'cases': dict(ended), 'assertions': dict(by_name)}
+              elif language == 'java':
+                  files = list((p / 'junit').glob('*.xml'))
+                  assert len(files) == 1
+                  suite = ET.parse(files[0]).getroot()
+                  assert suite.attrib['name'] == 'com.miden.breadconnect.NativeOpenAttemptTest'
+                  assert int(suite.attrib['tests']) == 16 and int(suite.attrib['errors']) == int(suite.attrib['skipped']) == 0
+                  assert int(suite.attrib['failures']) == len(expected)
+                  cases = suite.findall('testcase')
+                  assert collections.Counter(c.attrib['name'] for c in cases) == collections.Counter(inventory)
+                  actual = {}
+                  for case in cases:
+                      name = case.attrib['name']
+                      assert not case.findall('error') and not case.findall('skipped')
+                      failures = case.findall('failure')
+                      assert len(failures) == (1 if name in expected else 0)
+                      actual[name] = 'failed' if failures else 'passed'
+                      if failures:
+                          failure = failures[0]
+                          assert failure.attrib['type'] == expected[name]['type'] == 'java.lang.AssertionError'
+                          assert 'NativeOpenAttemptTest.' + name + '(NativeOpenAttemptTest.java:' + str(expected[name]['line']) + ')' in (failure.text or '')
+                  summary = {'total': 16, 'passed': 16 - len(expected), 'failed': len(expected), 'cases': actual}
+              else:
+                  raise AssertionError(language)
+              preserve(phase, phase + '-after-content.json')
+              write(phase + '-validation.json', summary)
+          else:
+              raise AssertionError(operation)
+          CONTROL
+          python3 "$proof/control.py" bind
+      - uses: actions/setup-node@v4
+        if: matrix.language != 'swift'
+        with: { node-version: 22 }
+      - name: Install JavaScript dependencies
+        if: matrix.language == 'js'
+        uses: ./.github/actions/yarn-install
+      - uses: actions/setup-java@v4
+        if: matrix.language == 'java'
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        if: matrix.language == 'java'
+        with: { packages: platform-tools }
+      - uses: gradle/actions/setup-gradle@v4
+        if: matrix.language == 'java'
+      - name: Run the JavaScript positive control and M1 assertion mutant
+        if: matrix.language == 'js'
+        run: |
+          set -euo pipefail
+          set +e
+          yarn prettier --check .github/workflows/bread-connect-capacitor-sensitivity.yml 2>&1 | tee "$PROOF/format.log"
+          format_outcomes=("${PIPESTATUS[@]}")
+          set -e
+          printf '%s\n' "${format_outcomes[0]}" > "$PROOF/format.exit"
+          printf '%s\n' "${format_outcomes[1]}" > "$PROOF/format-tee.exit"
+          test "${format_outcomes[0]}" -eq 0
+          test "${format_outcomes[1]}" -eq 0
+          for phase in positive mutant; do
+            if [ "$phase" = mutant ]; then
+              python3 "$PROOF/control.py" mutate
+            fi
+            out="$PROOF/$phase"
+            mkdir -p "$out"
+            python3 "$PROOF/control.py" preserve "$phase"
+            set +e
+            yarn jest packages/bread-connect-capacitor/src/index.test.ts \
+              packages/bread-connect-capacitor/src/transport.test.ts \
+              packages/bread-connect-capacitor/src/wallet.test.ts \
+              packages/bread-connect-capacitor/src/native-opener.test.ts \
+              --maxWorkers=2 --json --outputFile="$out/jest.json" 2>&1 | tee "$out/test.log"
+            outcomes=("${PIPESTATUS[@]}")
+            set -e
+            printf '%s\n' "${outcomes[0]}" > "$out/test.exit"
+            printf '%s\n' "${outcomes[1]}" > "$out/tee.exit"
+            python3 "$PROOF/control.py" validate js "$phase"
+          done
+      - name: Run the Swift positive control and one isolated assertion mutant
+        if: matrix.language == 'swift'
+        run: |
+          set -euo pipefail
+          for phase in positive mutant; do
+            if [ "$phase" = mutant ]; then
+              python3 "$PROOF/control.py" mutate
+            fi
+            out="$PROOF/$phase"
+            harness="$out/harness"
+            mkdir -p "$harness/Sources/BreadConnectPlugin" "$harness/Tests/BreadConnectPluginTests"
+            source=packages/bread-connect-capacitor/ios/Sources/BreadConnectPlugin/NativeOpenAttempt.swift
+            tests=packages/bread-connect-capacitor/ios/Tests/NativeOpenAttemptTests.swift
+            cp "$source" "$harness/Sources/BreadConnectPlugin/"
+            cp "$tests" "$harness/Tests/BreadConnectPluginTests/"
+            cmp "$source" "$harness/Sources/BreadConnectPlugin/NativeOpenAttempt.swift"
+            cmp "$tests" "$harness/Tests/BreadConnectPluginTests/NativeOpenAttemptTests.swift"
+            shasum -a 256 "$source" "$tests" \
+              "$harness/Sources/BreadConnectPlugin/NativeOpenAttempt.swift" \
+              "$harness/Tests/BreadConnectPluginTests/NativeOpenAttemptTests.swift" > "$out/source-sha256.txt"
+            cat > "$harness/Package.swift" <<'PACKAGE'
+          // swift-tools-version: 5.9
+          import PackageDescription
+          let package = Package(name: "CapacitorNativeOpenerProof", targets: [
+              .target(name: "BreadConnectPlugin"),
+              .testTarget(name: "BreadConnectPluginTests", dependencies: ["BreadConnectPlugin"])
+          ])
+          PACKAGE
+            python3 "$PROOF/control.py" preserve "$phase"
+            set +e
+            swift build --package-path "$harness" --build-tests 2>&1 | tee "$out/compile.log"
+            outcomes=("${PIPESTATUS[@]}")
+            set -e
+            printf '%s\n' "${outcomes[0]}" > "$out/compile.exit"
+            printf '%s\n' "${outcomes[1]}" > "$out/compile-tee.exit"
+            test "${outcomes[0]}" -eq 0
+            test "${outcomes[1]}" -eq 0
+            set +e
+            swift test --package-path "$harness" --skip-build 2>&1 | tee "$out/test.log"
+            outcomes=("${PIPESTATUS[@]}")
+            set -e
+            printf '%s\n' "${outcomes[0]}" > "$out/test.exit"
+            printf '%s\n' "${outcomes[1]}" > "$out/tee.exit"
+            python3 "$PROOF/control.py" validate swift "$phase"
+          done
+      - name: Run the actual Android plugin positive control and M4 assertion mutant
+        if: matrix.language == 'java'
+        run: |
+          set -euo pipefail
+          build="$PROOF/android-build"
+          mkdir -p "$build"
+          version="$(node -p "require('./package.json').dependencies['@capacitor/android']")"
+          (cd "$build" && npm pack "@capacitor/android@$version" --silent > capacitor-package.txt)
+          mkdir "$build/capacitor-android"
+          tar -xzf "$build"/capacitor-android-*.tgz -C "$build/capacitor-android" --strip-components=1
+          cat > "$build/settings.gradle" <<SETTINGS
+          include ':capacitor-android'
+          project(':capacitor-android').projectDir = new File('$build/capacitor-android/capacitor')
+          include ':bread-connect-capacitor'
+          project(':bread-connect-capacitor').projectDir = new File('$GITHUB_WORKSPACE/packages/bread-connect-capacitor/android')
+          SETTINGS
+          cat > "$build/build.gradle" <<'BUILD'
+          buildscript {
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+              dependencies {
+                  classpath 'com.android.tools.build:gradle:8.13.0'
+              }
+          }
+          BUILD
+          printf 'android.useAndroidX=true\n' > "$build/gradle.properties"
+          for phase in positive mutant; do
+            if [ "$phase" = mutant ]; then
+              python3 "$PROOF/control.py" mutate
+            fi
+            out="$PROOF/$phase"
+            mkdir -p "$out/junit"
+            python3 "$PROOF/control.py" preserve "$phase"
+            set +e
+            packages/bread-connect-kotlin/gradlew -p "$build" \
+              :bread-connect-capacitor:clean \
+              :bread-connect-capacitor:compileDebugJavaWithJavac \
+              :bread-connect-capacitor:testDebugUnitTest --rerun-tasks --console=plain 2>&1 | tee "$out/test.log"
+            outcomes=("${PIPESTATUS[@]}")
+            set -e
+            printf '%s\n' "${outcomes[0]}" > "$out/test.exit"
+            printf '%s\n' "${outcomes[1]}" > "$out/tee.exit"
+            cp packages/bread-connect-capacitor/android/build/test-results/testDebugUnitTest/*.xml "$out/junit/"
+            for name in BreadConnectPlugin NativeOpenAttempt; do
+              find packages/bread-connect-capacitor/android/build -type f -name "$name.class" -size +0c > "$out/$name.classes"
+              test -s "$out/$name.classes"
+            done
+            python3 "$PROOF/control.py" validate java "$phase"
+          done
+      - name: Restore and verify the complete source after the isolated mutant
+        if: always() && env.PROOF != ''
+        run: |
+          set -euo pipefail
+          python3 "$PROOF/control.py" restore
+      - name: Retain positive, negative and source-restoration evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: capacitor-sensitivity-${{ matrix.mutant }}
+          path: |
+            ${{ runner.temp }}/capacitor-sensitivity-${{ matrix.mutant }}/*.json
+            ${{ runner.temp }}/capacitor-sensitivity-${{ matrix.mutant }}/*.patch
+            ${{ runner.temp }}/capacitor-sensitivity-${{ matrix.mutant }}/*.log
+            ${{ runner.temp }}/capacitor-sensitivity-${{ matrix.mutant }}/*.exit
+            ${{ runner.temp }}/capacitor-sensitivity-${{ matrix.mutant }}/control.py
+            ${{ runner.temp }}/capacitor-sensitivity-${{ matrix.mutant }}/positive/*.log
+            ${{ runner.temp }}/capacitor-sensitivity-${{ matrix.mutant }}/positive/*.exit
+            ${{ runner.temp }}/capacitor-sensitivity-${{ matrix.mutant }}/positive/*.txt
+            ${{ runner.temp }}/capacitor-sensitivity-${{ matrix.mutant }}/positive/*.classes
+            ${{ runner.temp }}/capacitor-sensitivity-${{ matrix.mutant }}/positive/*.json
+            ${{ runner.temp }}/capacitor-sensitivity-${{ matrix.mutant }}/positive/junit/*.xml
+            ${{ runner.temp }}/capacitor-sensitivity-${{ matrix.mutant }}/positive/harness/Package.swift
+            ${{ runner.temp }}/capacitor-sensitivity-${{ matrix.mutant }}/positive/harness/Sources/
+            ${{ runner.temp }}/capacitor-sensitivity-${{ matrix.mutant }}/positive/harness/Tests/
+            ${{ runner.temp }}/capacitor-sensitivity-${{ matrix.mutant }}/mutant/*.log
+            ${{ runner.temp }}/capacitor-sensitivity-${{ matrix.mutant }}/mutant/*.exit
+            ${{ runner.temp }}/capacitor-sensitivity-${{ matrix.mutant }}/mutant/*.txt
+            ${{ runner.temp }}/capacitor-sensitivity-${{ matrix.mutant }}/mutant/*.classes
+            ${{ runner.temp }}/capacitor-sensitivity-${{ matrix.mutant }}/mutant/*.json
+            ${{ runner.temp }}/capacitor-sensitivity-${{ matrix.mutant }}/mutant/junit/*.xml
+            ${{ runner.temp }}/capacitor-sensitivity-${{ matrix.mutant }}/mutant/harness/Package.swift
+            ${{ runner.temp }}/capacitor-sensitivity-${{ matrix.mutant }}/mutant/harness/Sources/
+            ${{ runner.temp }}/capacitor-sensitivity-${{ matrix.mutant }}/mutant/harness/Tests/
+          if-no-files-found: error
