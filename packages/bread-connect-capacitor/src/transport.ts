@@ -36,6 +36,8 @@ export interface TransportOptions {
   links: LinkSource;
   /** Opens Bread's link in Bread only; false when Bread is not installed and its store page opened instead. */
   openWallet: (link: string) => Promise<boolean>;
+  /** Built-in request-owned native sequence; custom one-argument openers remain unchanged. */
+  managedOpener?: (link: string, signal: AbortSignal) => Promise<boolean>;
   now?: () => number;
 }
 
@@ -56,6 +58,7 @@ interface Waiter {
   resolve: (answer: DAppMessage) => void;
   reject: (error: Error) => void;
   timer: ReturnType<typeof setTimeout>;
+  controller: AbortController;
 }
 
 export type BreadConnectErrorCode = ProtocolError['code'] | 'NOT_INSTALLED' | 'SUPERSEDED' | 'CANCELLED' | 'TIMEOUT';
@@ -242,15 +245,19 @@ export class AppSwitchTransport {
   private exchange(pending: Pending, link: string): Promise<DAppMessage> {
     this.settle(new BreadConnectError('SUPERSEDED', 'A newer request to Bread replaced this one'));
     writeJson(this.options.storage, PENDING_KEY, pending);
+    const controller = new AbortController();
     const answer = new Promise<DAppMessage>((resolve, reject) => {
       const timer = setTimeout(
         () => this.settle(new BreadConnectError('TIMEOUT', 'Bread did not answer in time')),
         ANSWER_WAIT_MS
       );
-      this.waiter = { pending, resolve, reject, timer };
+      this.waiter = { pending, resolve, reject, timer, controller };
     });
     const waiter = this.waiter;
-    this.options.openWallet(link).then(
+    const opening = this.options.managedOpener
+      ? this.options.managedOpener(link, controller.signal)
+      : this.options.openWallet(link);
+    opening.then(
       opened => {
         if (!opened && this.waiter === waiter) {
           this.settle(new BreadConnectError('NOT_INSTALLED', 'Bread is not installed; its store page is open'));
@@ -275,6 +282,7 @@ export class AppSwitchTransport {
     const waiter = this.waiter;
     if (!waiter) return;
     this.waiter = null;
+    waiter.controller.abort();
     this.settledId = pendingId(waiter.pending);
     clearTimeout(waiter.timer);
     if (outcome instanceof BreadConnectError) waiter.reject(outcome);

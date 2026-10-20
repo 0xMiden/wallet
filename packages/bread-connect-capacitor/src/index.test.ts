@@ -5,6 +5,9 @@ import { join } from 'path';
 import { BreadConnectWallet, capacitorLinks, installBreadConnect, openWithPlugin } from './index.js';
 
 const mockOpenWallet = jest.fn();
+const mockPrepareOpen = jest.fn();
+const mockOpenStep = jest.fn();
+const mockRevokeOpen = jest.fn();
 const mockGetLaunchUrl = jest.fn();
 const mockAddListener = jest.fn();
 
@@ -14,7 +17,12 @@ jest.mock('@miden-sdk/miden-wallet-adapter-base', () =>
 );
 
 jest.mock('@capacitor/core', () => ({
-  registerPlugin: () => ({ openWallet: (options: unknown) => mockOpenWallet(options) })
+  registerPlugin: () => ({
+    openWallet: (options: unknown) => mockOpenWallet(options),
+    prepareOpen: (options: unknown) => mockPrepareOpen(options),
+    openStep: (options: unknown) => mockOpenStep(options),
+    revokeOpen: (options: unknown) => mockRevokeOpen(options)
+  })
 }));
 
 jest.mock('@capacitor/app', () => ({
@@ -26,6 +34,12 @@ jest.mock('@capacitor/app', () => ({
 
 const CALLBACK = 'https://game.example/bread';
 const flush = () => new Promise(resolve => setTimeout(resolve, 0));
+
+beforeEach(() => {
+  mockPrepareOpen.mockReset().mockResolvedValue({ attemptId: 'attempt-1' });
+  mockOpenStep.mockReset();
+  mockRevokeOpen.mockReset().mockResolvedValue(undefined);
+});
 
 afterEach(() => {
   Reflect.deleteProperty(window, 'midenWallet');
@@ -59,7 +73,74 @@ describe('installBreadConnect', () => {
       { code: 'NOT_INSTALLED' }
     );
     expect(openWallet).toHaveBeenCalledWith(expect.stringMatching(/^https:\/\/bread\.miden\.xyz\/request#v=1&m=/));
+    expect(openWallet.mock.calls[0]).toHaveLength(1);
+    expect(mockPrepareOpen).not.toHaveBeenCalled();
     expect(storage.setItem).toHaveBeenCalledWith('bread-connect:pending', expect.any(String));
+  });
+
+  it.each([undefined, openWithPlugin])('uses managed steps for the built-in opener %p', async openWallet => {
+    mockOpenStep
+      .mockResolvedValueOnce({ opened: false, next: 'primaryStore' })
+      .mockResolvedValueOnce({ opened: false });
+    const links = { launchUrl: async () => undefined, onUrl: () => () => undefined };
+    const wallet = installBreadConnect({ callback: CALLBACK, appName: 'Game', links, openWallet });
+    await expect(wallet.connect(PrivateDataPermission.UponRequest, WalletAdapterNetwork.Testnet)).rejects.toMatchObject(
+      {
+        code: 'NOT_INSTALLED'
+      }
+    );
+    expect(mockPrepareOpen).toHaveBeenCalledWith({
+      url: expect.stringMatching(/^https:\/\/bread\.miden\.xyz\/request#/)
+    });
+    expect(mockOpenStep.mock.calls).toEqual([
+      [{ attemptId: 'attempt-1', step: 'wallet' }],
+      [{ attemptId: 'attempt-1', step: 'primaryStore' }]
+    ]);
+    expect(mockRevokeOpen).toHaveBeenCalledTimes(1);
+    expect(mockOpenWallet).not.toHaveBeenCalled();
+  });
+
+  it('keeps a successfully opened wallet waiting for its answer without opening a store', async () => {
+    mockOpenStep.mockResolvedValueOnce({ opened: true });
+    const links = { launchUrl: async () => undefined, onUrl: () => () => undefined };
+    const wallet = installBreadConnect({ callback: CALLBACK, appName: 'Game', links });
+    const answer = wallet.connect(PrivateDataPermission.UponRequest, WalletAdapterNetwork.Testnet);
+    const outcome = answer.catch(error => error);
+    await flush();
+    expect(mockOpenStep.mock.calls).toEqual([[{ attemptId: 'attempt-1', step: 'wallet' }]]);
+    expect(mockRevokeOpen).toHaveBeenCalledWith({ attemptId: 'attempt-1' });
+    await wallet.disconnect();
+    expect(await outcome).toMatchObject({ code: 'CANCELLED' });
+  });
+
+  it('uses distinct Android market and HTTPS steps and keeps a store result separate from Bread', async () => {
+    mockOpenStep
+      .mockResolvedValueOnce({ opened: false, next: 'primaryStore' })
+      .mockResolvedValueOnce({ opened: false, next: 'secondaryStore' })
+      .mockResolvedValueOnce({ opened: false });
+    const links = { launchUrl: async () => undefined, onUrl: () => () => undefined };
+    const wallet = installBreadConnect({ callback: CALLBACK, appName: 'Game', links });
+    await expect(wallet.connect(PrivateDataPermission.UponRequest, WalletAdapterNetwork.Testnet)).rejects.toMatchObject(
+      {
+        code: 'NOT_INSTALLED'
+      }
+    );
+    expect(mockOpenStep.mock.calls.map(call => call[0].step)).toEqual(['wallet', 'primaryStore', 'secondaryStore']);
+    expect(mockRevokeOpen).toHaveBeenCalledTimes(1);
+  });
+
+  it('preserves an active bridge failure even when native cleanup also rejects', async () => {
+    mockOpenStep.mockRejectedValueOnce(new Error('native unavailable'));
+    mockRevokeOpen.mockRejectedValueOnce(new Error('cleanup unavailable'));
+    const links = { launchUrl: async () => undefined, onUrl: () => () => undefined };
+    const wallet = installBreadConnect({ callback: CALLBACK, appName: 'Game', links });
+    await expect(wallet.connect(PrivateDataPermission.UponRequest, WalletAdapterNetwork.Testnet)).rejects.toMatchObject(
+      {
+        code: 'INTERNAL_ERROR',
+        message: expect.stringContaining('native unavailable')
+      }
+    );
+    expect(mockRevokeOpen).toHaveBeenCalledTimes(1);
   });
 
   it('refuses a callback that is not a canonical https link', () => {

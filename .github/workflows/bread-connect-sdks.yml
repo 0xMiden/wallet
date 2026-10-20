@@ -43,6 +43,23 @@ jobs:
       # The install's postinstall builds packages/bread-connect, which the adapter builds against.
       - name: Run Install
         uses: ./.github/actions/yarn-install
+      - name: Check Capacitor adapter behavior
+        run: |
+          set -euo pipefail
+          proof="$RUNNER_TEMP/bread-connect-capacitor-js"
+          mkdir -p "$proof"
+          yarn jest packages/bread-connect-capacitor/src/index.test.ts \
+            packages/bread-connect-capacitor/src/transport.test.ts \
+            packages/bread-connect-capacitor/src/wallet.test.ts \
+            packages/bread-connect-capacitor/src/native-opener.test.ts \
+            --maxWorkers=2 --json --outputFile="$proof/jest.json" 2>&1 | tee "$proof/test.log"
+      - name: Preserve Capacitor adapter behavior proof
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bread-connect-capacitor-js-proof
+          path: ${{ runner.temp }}/bread-connect-capacitor-js/
+          if-no-files-found: error
       - name: Build the Capacitor adapter
         run: yarn tsc --project packages/bread-connect-capacitor/tsconfig.json
       - name: Pack both packages
@@ -81,22 +98,66 @@ jobs:
       - name: Run the Swift SDK tests
         working-directory: packages/bread-connect-swift
         run: swift test
+      - name: Test the production Capacitor native opener
+        run: |
+          set -euo pipefail
+          harness="$RUNNER_TEMP/bread-connect-capacitor-native"
+          source=packages/bread-connect-capacitor/ios/Sources/BreadConnectPlugin/NativeOpenAttempt.swift
+          tests=packages/bread-connect-capacitor/ios/Tests/NativeOpenAttemptTests.swift
+          mkdir -p "$harness/Sources/BreadConnectPlugin" "$harness/Tests/BreadConnectPluginTests"
+          cp "$source" "$harness/Sources/BreadConnectPlugin/"
+          cp "$tests" "$harness/Tests/BreadConnectPluginTests/"
+          cmp "$source" "$harness/Sources/BreadConnectPlugin/NativeOpenAttempt.swift"
+          cmp "$tests" "$harness/Tests/BreadConnectPluginTests/NativeOpenAttemptTests.swift"
+          shasum -a 256 "$source" "$tests" \
+            "$harness/Sources/BreadConnectPlugin/NativeOpenAttempt.swift" \
+            "$harness/Tests/BreadConnectPluginTests/NativeOpenAttemptTests.swift" | tee "$harness/source-sha256.txt"
+          cat > "$harness/Package.swift" <<'EOF'
+          // swift-tools-version: 5.9
+          import PackageDescription
+          let package = Package(name: "CapacitorNativeOpenerProof", targets: [
+              .target(name: "BreadConnectPlugin"),
+              .testTarget(name: "BreadConnectPluginTests", dependencies: ["BreadConnectPlugin"])
+          ])
+          EOF
+          swift test --package-path "$harness" 2>&1 | tee "$harness/test.log"
       - name: Build the Swift SDK for iOS
         working-directory: packages/bread-connect-swift
         run: |
+          set -euo pipefail
+          products="$RUNNER_TEMP/bread-connect-sdk-ios"
           xcodebuild build \
             -scheme BreadConnect \
             -sdk iphonesimulator \
             -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$products" \
             CODE_SIGNING_ALLOWED=NO
+          modules="$(find "$products/Build/Products/Debug-iphonesimulator/BreadConnect.swiftmodule" -type f -name '*.swiftmodule' -size +0c)"
+          test -n "$modules"
+          printf '%s\n' "$modules"
       - name: Build the Capacitor plugin for iOS
         working-directory: packages/bread-connect-capacitor
         run: |
+          set -euo pipefail
+          products="$RUNNER_TEMP/bread-connect-capacitor-ios"
           xcodebuild build \
             -scheme MidenSdkBreadConnectCapacitor \
             -sdk iphonesimulator \
             -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$products" \
             CODE_SIGNING_ALLOWED=NO
+          modules="$(find "$products/Build/Products/Debug-iphonesimulator/BreadConnectPlugin.swiftmodule" -type f -name '*.swiftmodule' -size +0c)"
+          test -n "$modules"
+          printf '%s\n' "$modules"
+      - name: Preserve Capacitor native helper proof
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bread-connect-capacitor-swift-proof
+          path: |
+            ${{ runner.temp }}/bread-connect-capacitor-native/source-sha256.txt
+            ${{ runner.temp }}/bread-connect-capacitor-native/test.log
+          if-no-files-found: error
 
   kotlin:
     name: Kotlin SDK
@@ -129,8 +190,9 @@ jobs:
       # The plugin compiles against @capacitor/android, which only an app's
       # node_modules provides, so a throwaway build fetches that one package at the
       # version the wallet uses.
-      - name: Compile the Capacitor plugin for Android
+      - name: Compile and test the Capacitor plugin for Android
         run: |
+          set -euo pipefail
           build="$(mktemp -d)"
           version="$(node -p "require('./package.json').dependencies['@capacitor/android']")"
           (cd "$build" && npm pack "@capacitor/android@$version" --silent >/dev/null)
@@ -154,4 +216,26 @@ jobs:
           }
           EOF
           echo 'android.useAndroidX=true' > "$build/gradle.properties"
-          packages/bread-connect-kotlin/gradlew -p "$build" :bread-connect-capacitor:compileDebugJavaWithJavac --console=plain
+          sha256sum \
+            packages/bread-connect-capacitor/android/src/main/java/com/miden/breadconnect/NativeOpenAttempt.java \
+            packages/bread-connect-capacitor/android/src/test/java/com/miden/breadconnect/NativeOpenAttemptTest.java
+          packages/bread-connect-kotlin/gradlew -p "$build" \
+            :bread-connect-capacitor:compileDebugJavaWithJavac \
+            :bread-connect-capacitor:testDebugUnitTest --console=plain
+          for name in BreadConnectPlugin NativeOpenAttempt; do
+            classes="$(find packages/bread-connect-capacitor/android/build -type f -name "$name.class" -size +0c)"
+            test -n "$classes"
+            printf '%s\n' "$classes"
+          done
+          classes="$(find packages/bread-connect-kotlin/build -type f -name BreadConnect.class -size +0c)"
+          test -n "$classes"
+          printf '%s\n' "$classes"
+      - name: Preserve native JVM test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bread-connect-native-junit
+          path: |
+            packages/bread-connect-kotlin/build/test-results/testDebugUnitTest/*.xml
+            packages/bread-connect-capacitor/android/build/test-results/testDebugUnitTest/*.xml
+          if-no-files-found: error

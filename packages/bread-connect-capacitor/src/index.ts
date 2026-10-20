@@ -1,7 +1,7 @@
 import { App } from '@capacitor/app';
-
 import { callbackOrigin } from '@miden-sdk/bread-connect';
 
+import { openManagedWallet } from './native-opener.js';
 import { BreadConnectNative } from './plugin.js';
 import { KeyValueStorage } from './storage.js';
 import { AppSwitchTransport, LinkSource } from './transport.js';
@@ -58,7 +58,9 @@ export function installBreadConnect(options: BreadConnectOptions): BreadConnectW
     callback: options.callback,
     storage: options.storage ?? window.localStorage,
     links: options.links ?? capacitorLinks(),
-    openWallet: options.openWallet ?? openWithPlugin
+    openWallet: options.openWallet ?? openWithPlugin,
+    managedOpener:
+      options.openWallet === undefined || options.openWallet === openWithPlugin ? openManagedWallet : undefined
   });
   void transport.start();
   const wallet = new BreadConnectWallet(transport, options.appName);
