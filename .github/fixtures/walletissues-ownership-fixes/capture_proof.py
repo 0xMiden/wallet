@@ -39,7 +39,7 @@ def dump(name, data):
 def capture(label):
     root = Path(git('rev-parse', '--show-toplevel').decode().strip())
     entries = {}
-    tree = git('ls-tree', '-rz', 'HEAD')
+    tree = git('ls-tree', '--full-tree', '-rz', 'HEAD')
     for item in tree.split(b'\0'):
         if item:
             meta, name = item.split(b'\t', 1)
@@ -49,7 +49,7 @@ def capture(label):
     if not index.is_absolute():
         index = FIXTURES / index
     index_bytes = index.read_bytes()
-    index_stage = git('ls-files', '--stage', '-z')
+    index_stage = git('ls-files', '--stage', '--full-name', '-z', '--', ':/')
     commit = git('cat-file', 'commit', 'HEAD')
     parents = [line[7:] for line in commit.decode().split('\n\n', 1)[0].splitlines()
                if line.startswith('parent ')]
