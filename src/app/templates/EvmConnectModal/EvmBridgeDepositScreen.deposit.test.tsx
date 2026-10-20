@@ -199,6 +199,7 @@ jest.mock('lib/remote-config/values', () => ({
       : null,
   getAgglayerDeposit: () => ({ l1Bridge: '0x00000000000000000000000000000000000000b2', rollupId: 77 }),
   // The document lists no deposit token and the registry holds none: the picker offers ETH and the USDC rows alone.
+  // Return a new empty list, as the selector does for an absent read, to test that balance updates stop.
   selectAgglayerDepositTokens: () => [],
   selectAgglayerRegistryToken: () => null
 }));

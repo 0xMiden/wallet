@@ -438,10 +438,11 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   // The one name the drawer, the amount step and the Review give the bridge's own USDC, while its read is pending
   // too. Circle's USDC on Arc Testnet is another token: it keeps its symbol and never takes that label.
   const usdcLabel = evmUsdcLabel(bridgeConfig, usdcSymbol || 'USDC');
-  // The ERC-20s the document lists and the bridge registers on the AggLayer chain, as the derivation verified them.
-  // Null while that read failed, which the picker reports; an array the snapshot keeps, so it is stable between
-  // publishes.
-  const depositTokens = selectAgglayerDepositTokens(bridgeConfig, agglayerChainId);
+  // Keep the list stable between config updates, including an empty list. A new list restarts the balance reads.
+  const depositTokens = useMemo(
+    () => selectAgglayerDepositTokens(bridgeConfig, agglayerChainId),
+    [bridgeConfig, agglayerChainId]
+  );
   // On a test network the picker also offers the connected wallet's holdings, read from the chain's Blockscout: the
   // testnet bridge registers a token's faucet on its first deposit. Mainnet offers the document's list alone.
   const tokenApiUrl = agglayerChain?.bridges.agglayer?.tokenApiUrl;

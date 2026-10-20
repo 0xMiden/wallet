@@ -107,6 +107,7 @@ const withSection = (name: Section, fields: Record<string, ConfigValue>) => {
               ...chain.bridges,
               agglayer: {
                 ...chain.bridges.agglayer,
+                ...fields,
                 contractAddress: 'l1Bridge' in fields ? fields.l1Bridge : chain.bridges.agglayer.contractAddress,
                 midenBridgeId: fields.midenBridge ?? chain.bridges.agglayer.midenBridgeId
               }
