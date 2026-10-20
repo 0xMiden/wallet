@@ -7,7 +7,7 @@ This Worker keeps the MaxMind account and paid license key on the server and ans
 `GET /v1/eligibility?network=testnet` accepts exactly one supported network: `mainnet`, `testnet`, or `devnet`. It accepts no caller-supplied address, policy, or policy URL.
 
 ```json
-{"network":"testnet","version":13,"allowed":{"wallet":true,"earn":true,"swap":false}}
+{ "network": "testnet", "version": 13, "allowed": { "wallet": true, "earn": true, "swap": false } }
 ```
 
 The wallet must match both `network` and `version` to its accepted wallet-config document and combine these decisions with its existing feature and route availability. Non-2xx responses mean eligibility is unavailable and wallet access stays closed. All three decisions are strict booleans; a global denial forces the product decisions off. Responses contain no caller address, country, subdivision, or provider payload.
@@ -42,16 +42,16 @@ Do not rename the `ELIGIBILITY_GUARD` namespace, its `EligibilityGuard` class, o
 
 Use Wrangler **4.151.3** with `services/feature-eligibility/wrangler.jsonc`. The SQLite Durable Object migration and binding are declared there. There are no runtime npm dependencies or install steps for unit tests.
 
-| Input | Kind | Purpose |
-| --- | --- | --- |
-| `MAXMIND_ACCOUNT_ID` | Worker secret | MaxMind account for City Plus |
-| `MAXMIND_LICENSE_KEY` | Worker secret | Paid service credential |
-| `CALLER_HASH_SECRET` | Worker secret | At least 32 high-entropy characters for rotating caller keys |
-| `ALLOWED_ORIGINS` | Worker variable | JSON array of exact permitted origins |
-| `MAXMIND_DAILY_QUERY_LIMIT` | Worker variable | Explicit daily attempted-query cap, default `0` |
-| `CALLER_REQUESTS_PER_MINUTE` | Worker variable | Per-caller fixed-window request limit, default `60` |
-| `DEPLOYMENT_REVISION` | Worker variable | Source commit verified by release readiness checks |
-| `ELIGIBILITY_GUARD` | Durable Object binding | Atomic persisted spending and caller state |
+| Input                        | Kind                   | Purpose                                                      |
+| ---------------------------- | ---------------------- | ------------------------------------------------------------ |
+| `MAXMIND_ACCOUNT_ID`         | Worker secret          | MaxMind account for City Plus                                |
+| `MAXMIND_LICENSE_KEY`        | Worker secret          | Paid service credential                                      |
+| `CALLER_HASH_SECRET`         | Worker secret          | At least 32 high-entropy characters for rotating caller keys |
+| `ALLOWED_ORIGINS`            | Worker variable        | JSON array of exact permitted origins                        |
+| `MAXMIND_DAILY_QUERY_LIMIT`  | Worker variable        | Explicit daily attempted-query cap, default `0`              |
+| `CALLER_REQUESTS_PER_MINUTE` | Worker variable        | Per-caller fixed-window request limit, default `60`          |
+| `DEPLOYMENT_REVISION`        | Worker variable        | Source commit verified by release readiness checks           |
+| `ELIGIBILITY_GUARD`          | Durable Object binding | Atomic persisted spending and caller state                   |
 
 The public wallet build receives only the full HTTPS `/v1/eligibility` URL. Clients use a 60-second permission lease, refresh on foreground and before protected use of an expired lease, and reject mismatched network or policy decisions. MaxMind and caller-hashing secrets must never enter wallet build variables, artifacts, source maps, or public config.
 
@@ -59,7 +59,9 @@ The public wallet build receives only the full HTTPS `/v1/eligibility` URL. Clie
 
 Publishing a wallet release runs `release-wallet.yml`. It calls `deploy-feature-eligibility.yml` on the same tag, uploads server secrets with the deployment, verifies `/healthz` at the release commit and both supported release-network responses, then starts Chrome, desktop and mobile builds. A deployment or readiness failure blocks those builds. The deployment workflow can also be dispatched with an already published release tag. Manual platform builds only verify the existing service.
 
-Configure the `feature-eligibility-production` GitHub environment with `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `MAXMIND_ACCOUNT_ID`, `MAXMIND_LICENSE_KEY` and `FEATURE_ELIGIBILITY_CALLER_HASH_SECRET`. Restrict the Cloudflare token to the intended account and Worker deployment permissions. Configure these repository variables so the deployment and all platform builds share them:
+Before adding deployment credentials, configure the `feature-eligibility-production` GitHub environment's selected deployment branches and tags to allow only protected `main` and the intended wallet release tags. Protect release-tag creation, changes and deletion so only trusted release operators can select deployable code. GitHub matches these environment rules against the workflow run's ref; the `release_tag` input only selects checked-out service code and does not restrict which workflow definition runs. See [GitHub's deployment branch and tag rules](https://docs.github.com/en/actions/reference/workflows-and-actions/deployments-and-environments#deployment-branches-and-tags).
+
+Store `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `MAXMIND_ACCOUNT_ID`, `MAXMIND_LICENSE_KEY` and `FEATURE_ELIGIBILITY_CALLER_HASH_SECRET` only in this protected environment. Restrict the Cloudflare token to the intended account and Worker deployment permissions. Before the first deployment, remove any repository-wide copies of these production credentials so workflows outside the environment cannot access them. Configure these repository variables so the deployment and all platform builds share them:
 
 - `FEATURE_ELIGIBILITY_URL`: full public HTTPS URL ending `/v1/eligibility`.
 - `FEATURE_ELIGIBILITY_ALLOWED_ORIGINS`: JSON array of shipped wallet origins, including required native origins.
