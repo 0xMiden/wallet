@@ -38,7 +38,7 @@ export const ActivityPendingHistory = ({ search, filter, programId, onInitialLoa
     hiddenCount
   } = useActivityClaimList(search, filter);
   const tokenPrices = useWalletStore(s => s.tokenPrices);
-  const bridgeConfig = useBridgeConfigSnapshot({ load: false });
+  useBridgeConfigSnapshot({ load: false });
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const recovery = useGuardianNoteRecoveryProgress(account.guardianNoteRecoveryPending ? account.publicKey : null);
   const isRecovering = recovery !== null && recovery.step !== 'history-partial' && recovery.step !== 'history-failed';
@@ -63,14 +63,11 @@ export const ActivityPendingHistory = ({ search, filter, programId, onInitialLoa
   // All is about to accept - so it is read off the SAME list the cards below come from, which is
   // `isShown`'s, and a declined transfer is not on it. `HomePrompts` reads the same set through
   // the same store, which is what makes the banner and this row agree.
-  const waitingTotalUsd = useMemo(() => {
-    // Pricing helpers read the runtime singleton; its snapshot invalidates cached values.
-    void bridgeConfig;
-    return getPendingNotesUsdTotal(
-      listItems.map(item => item.note),
-      tokenPrices
-    );
-  }, [listItems, tokenPrices, bridgeConfig]);
+  // Read the current verified price assets on each render.
+  const waitingTotalUsd = getPendingNotesUsdTotal(
+    listItems.map(item => item.note),
+    tokenPrices
+  );
   // Pinned to the total's own precision, so a figure travelling towards a dust total does not
   // change width on the way (`AnimatedNumber`).
   const formatWaitingTotal = useMemo(() => usdFormatterFor(waitingTotalUsd ?? 0), [waitingTotalUsd]);

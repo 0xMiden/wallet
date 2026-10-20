@@ -244,7 +244,7 @@ export const HomePrompts: FC<HomePromptsProps> = ({
   tokenPrices
 }) => {
   const { t } = useTranslation();
-  const bridgeConfig = useBridgeConfigSnapshot({ load: false });
+  useBridgeConfigSnapshot({ load: false });
   const confirm = useConfirm();
   const seedStatus = useWalletStore(s => s.seedPhraseStatus);
   const { storage, isLoaded, setFaucetStatus, dismissPrompt, completePrompt, isPromptPending } =
@@ -361,17 +361,10 @@ export const HomePrompts: FC<HomePromptsProps> = ({
   const fundingNoteIds = useMemo(() => fundingNotes?.map(note => note.id) ?? [], [fundingNotes]);
   // No figure when any note has no price: the funded line falls back to its generic copy and the
   // pending card shows its count alone. Nothing minted is no figure either, never $0.00.
-  // Pricing helpers read the runtime singleton; its snapshot invalidates cached values.
-  const formattedFundedMintUsdTotal = useMemo(() => {
-    void bridgeConfig;
-    return fundedMintNotes.length > 0
-      ? formatUsdTotal(getPendingNotesUsdTotal(fundedMintNotes, tokenPrices))
-      : undefined;
-  }, [fundedMintNotes, tokenPrices, bridgeConfig]);
-  const formattedPendingNotesUsdTotal = useMemo(() => {
-    void bridgeConfig;
-    return formatUsdTotal(getPendingNotesUsdTotal(waitingNotes, tokenPrices));
-  }, [waitingNotes, tokenPrices, bridgeConfig]);
+  // Read the current verified price assets on each render.
+  const formattedFundedMintUsdTotal =
+    fundedMintNotes.length > 0 ? formatUsdTotal(getPendingNotesUsdTotal(fundedMintNotes, tokenPrices)) : undefined;
+  const formattedPendingNotesUsdTotal = formatUsdTotal(getPendingNotesUsdTotal(waitingNotes, tokenPrices));
 
   // One localized line per recovery step; the public-backfill step carries the
   // live block progress the SW reports after each scanned chunk.
