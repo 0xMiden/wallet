@@ -1,8 +1,9 @@
 # Untrusted half of the UI smoothness bot.
 #
 # This workflow builds and runs code the PR author controls, so it holds no
-# credentials that can write to the pull request. It emits the six feel samples
-# from each side as an artifact. ui-smoothness-comment.yml, which never checks
+# credentials that can write to the pull request. It emits feel samples for six
+# passes from Overview to Swap, six tap durations, and three overview-list scrolls.
+# ui-smoothness-comment.yml, which never checks
 # out pull request code, renders and posts the comment.
 #
 # !! ui-smoothness-comment.yml matches this workflow by the `name:` field

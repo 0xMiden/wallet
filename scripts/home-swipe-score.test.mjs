@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { analyzeSwipe, homePath, judge, summarize } from './home-swipe-score.mjs';
+import { analyzeSwipe, frameHealth, homePath, judge, summarize } from './home-swipe-score.mjs';
 
 function framesOf(count, step = 16) {
   return Array.from({ length: count }, (_, i) => i * step);
@@ -115,6 +115,13 @@ test('staying on the same page is a miss, ahead of smoothness', () => {
 
   assert.equal(result.committed, false);
   assert.ok(result.feel >= 1000);
+});
+
+test('frameHealth counts a gap at or above 25ms as dropped', () => {
+  assert.equal(frameHealth([0, 16, 32]), null);
+  const health = frameHealth([0, 16, 32, 48, 80, 96]);
+  assert.equal(health.droppedPct, 20);
+  assert.equal(health.p95Ms, 32);
 });
 
 test('judge keeps a clear improvement and rejects noise or a missed landing', () => {

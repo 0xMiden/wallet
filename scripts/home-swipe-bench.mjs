@@ -3,8 +3,9 @@
  * Headless Chrome benchmark for the home-carousel swipe.
  *
  * This is a proxy for a thumb, not a phone. It opens the mobile bundle, creates
- * a mock wallet once, and drives the real carousel with trusted touch events
- * on a steady clock. The main thread is slowed (`--throttle`, default 4) so a
+ * a mock wallet once, and drives the real carousel with pointer events on a
+ * steady clock. One pass swipes from Overview through to Swap. The default run
+ * is six passes. The main thread is slowed (`--throttle`, default 4) so a
  * fast laptop shows the stalls a phone would. The score lives in
  * `home-swipe-score.mjs`: the track has to land on the next page and stay with
  * the finger. A smooth frame trace that does not move still counts as a miss.
@@ -31,7 +32,11 @@ import { fileURLToPath } from 'node:url';
 
 import { chromium } from '@playwright/test';
 
-import { analyzeSwipe, homePath, judge, median, summarize } from './home-swipe-score.mjs';
+import { analyzeSwipe, frameHealth, HOME_PATHS, homePath, judge, median, summarize } from './home-swipe-score.mjs';
+
+const INP_TAPS = 6;
+const LIST_RUNS = 3;
+const COPY_ADDRESS = '[data-testid="balance-card-copy-address"]';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const BENCH_DIR = resolve(ROOT, '.bench');
@@ -495,21 +500,103 @@ async function driveSwipe(page, box) {
   return { events, point: { x: x0, y } };
 }
 
-async function settleOverview(page) {
-  await page.evaluate(() => {
-    if (location.hash !== '#/' && location.hash !== '#' && location.hash !== '') location.hash = '#/';
-  });
+async function settlePage(page, index) {
+  const path = HOME_PATHS[index];
+  if (index === 0) {
+    await page.evaluate(() => {
+      if (location.hash !== '#/' && location.hash !== '#' && location.hash !== '') location.hash = '#/';
+    });
+  }
   const deadline = Date.now() + 8000;
   let last = null;
   while (Date.now() < deadline) {
-    last = await page.evaluate(() => ({
-      hash: location.hash,
-      x: window.__PERF__.readX(window.__PERF__.findTrack())
-    }));
-    if (homePath(last.hash) === '/' && last.x != null && Math.abs(last.x) < 2) return last;
+    last = await page.evaluate(step => {
+      const width = document.querySelector('div.touch-pan-y')?.clientWidth ?? 0;
+      return {
+        hash: location.hash,
+        x: window.__PERF__.readX(window.__PERF__.findTrack()),
+        width,
+        expected: -step * width
+      };
+    }, index);
+    if (homePath(last.hash) === path && last.x != null && last.width > 0 && Math.abs(last.x - last.expected) < 2) {
+      return last;
+    }
     await sleep(40);
   }
-  throw new Error(`overview did not settle: ${JSON.stringify(last)}`);
+  throw new Error(`${path} did not settle: ${JSON.stringify(last)}`);
+}
+
+async function measureInp(page) {
+  const present = await page.locator(COPY_ADDRESS).count();
+  if (!present) throw new Error('overview copy control is missing');
+  const samples = [];
+  for (let tap = 0; tap < INP_TAPS; tap++) {
+    await page.evaluate(() => window.__PERF__.start());
+    await page.locator(COPY_ADDRESS).click({ timeout: 5000 });
+    await sleep(200);
+    const raw = await page.evaluate(() => window.__PERF__.stop());
+    const durations = (raw.input || []).map(entry => entry.duration).filter(value => Number.isFinite(value));
+    if (!durations.length) throw new Error(`tap ${tap + 1} produced no event timing`);
+    const duration = Math.max(...durations);
+    samples.push(duration);
+    console.log(`tap ${tap + 1}/${INP_TAPS}  ${duration.toFixed(0)}ms`);
+  }
+  return samples;
+}
+
+async function touchDrag(cdp, x, y0, y1) {
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y: y0, id: 1 }] });
+  const steps = 12;
+  for (let i = 1; i <= steps; i++) {
+    await sleep(16);
+    const y = Math.round(y0 + ((y1 - y0) * i) / steps);
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y, id: 1 }] });
+  }
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+}
+
+async function measureList(page, cdp) {
+  const dropped = [];
+  const p95 = [];
+  for (let run = 0; run < LIST_RUNS; run++) {
+    const before = await page.evaluate(() => {
+      const el = document.querySelector('[data-testid="explore-scroll-container"]');
+      if (!el) return null;
+      el.scrollTop = 0;
+      const rect = el.getBoundingClientRect();
+      return {
+        top: rect.top,
+        left: rect.left,
+        width: rect.width,
+        height: rect.height,
+        overflow: el.scrollHeight - el.clientHeight,
+        scrollTop: el.scrollTop
+      };
+    });
+    if (!before) throw new Error('overview list is missing');
+    if (before.overflow < 80) throw new Error(`overview list does not scroll (${before.overflow}px)`);
+    await sleep(50);
+    await page.evaluate(() => window.__PERF__.start());
+    const x = Math.round(before.left + before.width * 0.5);
+    const y0 = Math.round(before.top + before.height * 0.72);
+    const y1 = Math.round(before.top + before.height * 0.28);
+    await touchDrag(cdp, x, y0, y1);
+    await sleep(300);
+    const after = await page.evaluate(() => {
+      const raw = window.__PERF__.stop();
+      const el = document.querySelector('[data-testid="explore-scroll-container"]');
+      return { frames: raw.frames, scrollTop: el ? el.scrollTop : 0 };
+    });
+    const travel = after.scrollTop - before.scrollTop;
+    if (travel < 40) throw new Error(`overview list moved ${travel}px on run ${run + 1}`);
+    const health = frameHealth(after.frames);
+    if (!health) throw new Error(`overview list produced too few frames on run ${run + 1}`);
+    dropped.push(health.droppedPct);
+    p95.push(health.p95Ms);
+    console.log(`list ${run + 1}/${LIST_RUNS}  dropped ${health.droppedPct}%  p95 ${health.p95Ms}ms  travel ${travel}px`);
+  }
+  return { dropped, p95 };
 }
 
 function loafLeaders(swipes) {
@@ -613,7 +700,14 @@ async function measure(args) {
       const installed = (0, eval)(source);
       if (installed !== 'ok') throw new Error(`recorder install returned ${installed}`);
     }, RECORDER);
-    await settleOverview(page);
+    const pageIds = await page.evaluate(() =>
+      [...document.querySelectorAll('[data-home-page]')].map(node => node.getAttribute('data-home-page'))
+    );
+    const expectedIds = ['overview', 'send', 'receive', 'earn', 'swap'];
+    if (pageIds.join(',') !== expectedIds.join(',')) {
+      throw new Error(`home pages are ${pageIds.join(', ') || '(none)'}; the bench walks ${expectedIds.join(', ')}`);
+    }
+    await settlePage(page, 0);
 
     await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 1 });
     await cdp.send('Emulation.setCPUThrottlingRate', { rate: args.throttle });
@@ -634,8 +728,7 @@ async function measure(args) {
       y: Math.round(box.top + box.height * 0.78)
     });
 
-    const runSwipe = async () => {
-      await settleOverview(page);
+    const swipeOnce = async () => {
       const routeBefore = await page.evaluate(() => location.hash);
       await page.evaluate(() => window.__PERF__.start());
       await sleep(50);
@@ -664,17 +757,38 @@ async function measure(args) {
       };
     };
 
-    console.log('warmup swipe');
-    await runSwipe();
+    // One pass is Overview through Swap. The return to Overview is a route
+    // change, not a swipe, so it is not scored. The warmup pass is discarded.
+    const boundaries = HOME_PATHS.length - 1;
+    const runPass = async label => {
+      await settlePage(page, 0);
+      const pass = [];
+      for (let step = 0; step < boundaries; step++) {
+        const swipe = await swipeOnce();
+        pass.push(swipe);
+        console.log(
+          `${label}  ${HOME_PATHS[step]} -> ${HOME_PATHS[step + 1]}  feel ${swipe.feel}  ${swipe.routeBefore} -> ${swipe.routeAfter}  pointers ${swipe.pointers?.down ?? 0}/${swipe.pointers?.move ?? 0}/${swipe.pointers?.touch ?? 0}`
+        );
+        await settlePage(page, step + 1);
+      }
+      return pass;
+    };
+
+    console.log('warmup pass');
+    await runPass('warmup');
 
     const swipes = [];
     for (let rep = 0; rep < args.reps; rep++) {
-      const swipe = await runSwipe();
-      swipes.push(swipe);
-      console.log(
-        `rep ${rep + 1}/${args.reps}  feel ${swipe.feel}  ${swipe.routeBefore} -> ${swipe.routeAfter}  pointers ${swipe.pointers?.down ?? 0}/${swipe.pointers?.move ?? 0}/${swipe.pointers?.touch ?? 0}`
-      );
+      swipes.push(...(await runPass(`pass ${rep + 1}/${args.reps}`)));
     }
+
+    await settlePage(page, 0);
+    const inp = await measureInp(page);
+    const list = await measureList(page, cdp);
+    console.log(`inp max ${Math.max(...inp).toFixed(0)}ms  taps ${inp.map(value => value.toFixed(0)).join(', ')}`);
+    console.log(
+      `list dropped ${list.dropped.map(value => value.toFixed(1)).join(', ')}%  p95 ${list.p95.map(value => value.toFixed(1)).join(', ')}ms`
+    );
 
     const stamp = gitStamp();
     const record = {
@@ -704,6 +818,9 @@ async function measure(args) {
           dpr: record.dpr,
           idleMedianFrameMs: record.idleMedianFrameMs,
           samples: record.swipes.map(swipe => swipe.feel),
+          inp,
+          listDropped: list.dropped,
+          listP95: list.p95,
           commits: record.summary.commits,
           swipes: record.summary.swipes
         })}\n`
@@ -712,6 +829,8 @@ async function measure(args) {
     printReport(record);
     if (errors.length) console.log(`console errors during the run: ${errors.slice(-5).join(' | ')}`);
     if (swipes.some(swipe => !Number.isFinite(swipe.feel))) return 1;
+    if (inp.length !== INP_TAPS || inp.some(value => !Number.isFinite(value))) return 1;
+    if (list.dropped.length !== LIST_RUNS || list.p95.length !== LIST_RUNS) return 1;
     return record.summary.commits === record.summary.swipes ? 0 : 1;
   } catch (error) {
     const url = page.url();
@@ -729,6 +848,7 @@ async function measure(args) {
 const args = parseArgs(process.argv.slice(2));
 if (args.help) {
   console.log('node scripts/home-swipe-bench.mjs [--label name] [--throttle 4] [--reps 6] [--dpr 2] [--rebuild] [--summary file]');
+  console.log('--reps is the number of passes from Overview to Swap. Each pass is four swipes.');
   console.log('node scripts/home-swipe-bench.mjs --compare <baseline-label> <candidate-label>');
   process.exit(0);
 }

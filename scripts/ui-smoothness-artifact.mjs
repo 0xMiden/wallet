@@ -12,12 +12,19 @@ if (!basePath || !headPath || !outPath) {
   process.exit(2);
 }
 
-function samples(path) {
+function series(path, key) {
   const parsed = JSON.parse(readFileSync(path, 'utf8'));
-  if (!Array.isArray(parsed.samples)) {
-    throw new Error(`${path} has no samples`);
-  }
-  return parsed.samples;
+  if (!Array.isArray(parsed[key])) throw new Error(`${path} has no ${key}`);
+  return parsed[key];
 }
 
-writeFileSync(outPath, JSON.stringify({ base: samples(basePath), head: samples(headPath) }));
+const feel = 'samples';
+writeFileSync(
+  outPath,
+  JSON.stringify({
+    feel: { base: series(basePath, feel), head: series(headPath, feel) },
+    inp: { base: series(basePath, 'inp'), head: series(headPath, 'inp') },
+    listDropped: { base: series(basePath, 'listDropped'), head: series(headPath, 'listDropped') },
+    listP95: { base: series(basePath, 'listP95'), head: series(headPath, 'listP95') }
+  })
+);

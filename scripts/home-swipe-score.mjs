@@ -15,7 +15,8 @@ const DROPPED_FRAME_MS = 25;
 const RELEASE_FREE_MS = 32;
 const HITCH_RESUME_PX = 8;
 const BLOCK_FREE_MS = 16;
-const HOME_PATHS = ['/', '/send', '/receive', '/earn', '/swap'];
+/** Home carousel, left to right. A pass is one swipe across each boundary. */
+export const HOME_PATHS = ['/', '/send', '/receive', '/earn', '/swap'];
 
 const round1 = n => Math.round(n * 10) / 10;
 
@@ -40,6 +41,25 @@ export function percentile(sortedAsc, p) {
   if (sortedAsc.length === 0) return 0;
   const index = Math.min(sortedAsc.length - 1, Math.max(0, Math.ceil((p / 100) * sortedAsc.length) - 1));
   return sortedAsc[index];
+}
+
+/**
+ * Frame health of one scroll. A gap at or above the swipe bench's dropped-frame
+ * line counts as dropped. Returns null when there are too few frames to judge.
+ */
+export function frameHealth(frames) {
+  const deltas = [];
+  for (let i = 1; i < frames.length; i++) {
+    const gap = frames[i] - frames[i - 1];
+    if (Number.isFinite(gap) && gap >= 0) deltas.push(gap);
+  }
+  if (deltas.length < 4) return null;
+  const dropped = deltas.filter(gap => gap >= DROPPED_FRAME_MS).length;
+  const sorted = [...deltas].sort((a, b) => a - b);
+  return {
+    droppedPct: round1((dropped / deltas.length) * 100),
+    p95Ms: round1(percentile(sorted, 95))
+  };
 }
 
 function motionSamples(frames, xs) {
