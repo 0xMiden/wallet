@@ -2319,6 +2319,7 @@ describe('MidenClientInterface', () => {
       jest.doMock('./miden-client', () => {
         const { WasmClientPoisonedError } = jest.requireActual('./wasm-client-poison');
         return {
+          ensureWalletAccessOutsideWasmLock: ensureFixtureSubmissionAccess,
           withWasmClientLock: async <T>(fn: (hold: object) => Promise<T>, options?: { label?: string }) => {
             held.count++;
             held.labels.push(options?.label ?? '');
@@ -2487,6 +2488,7 @@ describe('MidenClientInterface', () => {
         }
       }));
       jest.doMock('./miden-client', () => ({
+        ensureWalletAccessOutsideWasmLock: ensureFixtureSubmissionAccess,
         withWasmClientLock: async <T>(fn: (hold: object) => Promise<T>) => fn({}),
         yieldWasmClientLock: async <T>(op: () => Promise<T>) => op(),
         withWasmLockWatchdogPaused: async <T>(op: () => Promise<T>) => op(),

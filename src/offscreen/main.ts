@@ -1547,7 +1547,10 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
       // successor's mid-execute sign to the corpse's callbacks and deadline, and then
       // clear the id on its own way out. Same guard, same reason, as the confirmation
       // poll's — placed before the first ambient write, not just before the dispatch.
-      if (getCurrentWasmLockHold() !== hold || client.isDisposed || wasmClientGeneration() !== generation) {
+      if (
+        getCurrentWasmLockHold() !== hold ||
+        (requiresWalletAccess && (client.isDisposed || wasmClientGeneration() !== generation))
+      ) {
         console.warn(`${TAG} abandoning call '${msg.method}' whose lock or client changed (after the client build)`);
         throw new WasmClientPoisonedError('watchdog', new Error(`offscreen call abandoned for ${msg.op_id}`));
       }

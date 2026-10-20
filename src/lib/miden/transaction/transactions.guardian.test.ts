@@ -34,7 +34,7 @@ import { APPLY_RETRY_DELAYS_MS } from 'lib/miden/sdk/apply-after-submit';
 import type { ConsumableNoteDto } from 'lib/miden/sdk/consumable-notes';
 import { bindFeeFaucetClientScope } from 'lib/miden/sdk/sync-and-record-fee-faucet';
 import { WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
-import { ConsumableNote } from 'lib/miden/types';
+import { ConsumableNote, NoteTypeEnum } from 'lib/miden/types';
 import { getEffectiveDefaultGuardianEndpoint } from 'lib/miden-chain/effective-endpoints';
 import { getNativeAssetId } from 'lib/miden-chain/native-asset';
 import { __resetBackgroundTimeForTest, initBackgroundTimeTracking } from 'lib/mobile/background-time';
@@ -14010,7 +14010,7 @@ describe('Guardian inline GEO007 permission renewal', () => {
       1000n,
       'recipient',
       'faucet',
-      NoteType.Public,
+      NoteTypeEnum.Public,
       undefined,
       true
     );

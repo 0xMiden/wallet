@@ -5237,7 +5237,7 @@ describe('offscreen/main — WASM lock recovery hook', () => {
     expect(r.mock.calls[0][0].ok).toBe(true);
   });
 
-  it('a create in flight when the poisoning lands resolves to an ALREADY-marked client (#775 F-056)', async () => {
+  it('a create in flight is marked before refusing its original private dispatch (#775 F-056)', async () => {
     await loadModule();
     const orderLog: string[] = [];
     G.__off.clientMarkPoisoned.mockImplementation(() => orderLog.push('marked'));
@@ -5274,8 +5274,13 @@ describe('offscreen/main — WASM lock recovery hook', () => {
     // `.then(markPoisoned)` in the microtask queue — the generation check
     // inside the create chain is what guarantees the mark lands FIRST.
     expect(orderLog[0]).toBe('marked');
-    expect(orderLog).toContain('used');
-    expect(r1.mock.calls[0][0].ok).toBe(true);
+    expect(orderLog).not.toContain('used');
+    expect(G.__off.clientGetAccount).not.toHaveBeenCalled();
+    expect(r1.mock.calls[0][0]).toMatchObject({
+      ok: false,
+      errorName: 'WasmClientPoisonedError',
+      errorReason: 'watchdog'
+    });
   });
 
   it('refuses a sign from the displaced client, even while a successor op makes the ambient id look valid', async () => {
@@ -6075,7 +6080,7 @@ describe('offscreen/main GEO007 permission renewal', () => {
       Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
       const lease = installLease();
       const restoreMutex = installMutex();
-      const proof = deferred<{ proven: Uint8Array; durationMs: number }>();
+      const proof = deferred<Awaited<ReturnType<typeof mockProveTransport.prove>>>();
       const proving = deferred<void>();
       mockProveTransport.prove.mockImplementationOnce(async () => {
         proving.resolve();
