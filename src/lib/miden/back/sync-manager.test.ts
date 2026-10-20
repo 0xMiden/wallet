@@ -2573,10 +2573,11 @@ describe('GEO016 startup sync eligibility scope', () => {
         barrierEntered.resolve();
         return load.promise;
       });
+      const { MIDEN_NETWORK_NAME } = await import('lib/miden-chain/networks-config');
       let overridesLoaded = false;
       const network = jest
         .spyOn(endpoints, 'getEffectiveNetworkName')
-        .mockImplementation(() => (overridesLoaded ? 'devnet' : 'testnet'));
+        .mockImplementation(() => (overridesLoaded ? MIDEN_NETWORK_NAME.DEVNET : MIDEN_NETWORK_NAME.TESTNET));
       const boundary = jest.requireMock<Access>('lib/remote-config/wallet-access');
       const originalAccess = { ...boundary };
       const access = jest.requireActual<Access>('lib/remote-config/wallet-access');
