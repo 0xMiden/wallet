@@ -1,0 +1,271 @@
+name: NEVER-MERGE PR1638 round-trip minimum causal red proof
+
+on:
+  push:
+    branches: [ci/pr1638-roundtrip-minimum-red]
+
+permissions:
+  contents: read
+
+jobs:
+  roundtrip-minimum-red:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    env:
+      CI: 'true'
+      PROOF_HEAD: ${{ github.sha }}
+      PROOF_REF: ${{ github.ref }}
+      PROOF_RUN: ${{ github.run_id }}
+      PROOF_ATTEMPT: ${{ github.run_attempt }}
+    steps:
+      - name: Checkout exact isolated transport
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Bind frozen source and initialize raw evidence
+        run: |
+          set -euo pipefail
+          umask 077
+          export PROOF_DIR="$RUNNER_TEMP/pr1638-roundtrip-minimum-red-proof"
+          printf 'PROOF_DIR=%s\n' "$PROOF_DIR" >> "$GITHUB_ENV"
+          mkdir "$PROOF_DIR"
+          test "$(git rev-parse HEAD)" = "$PROOF_HEAD"
+          test "$PROOF_REF" = refs/heads/ci/pr1638-roundtrip-minimum-red
+          test "$(git rev-parse HEAD^)" = 57a324980b06d105d5e6a53e1a50ecfca451623d
+          test "$(git rev-list --parents -n 1 HEAD | wc -w)" -eq 2
+          test "$(git rev-parse 57a324980b06d105d5e6a53e1a50ecfca451623d^{tree})" = 7f6ca407ea5ade4ac52f1fc563f7ffa90d5f703d
+          test "$(git rev-parse 57a324980b06d105d5e6a53e1a50ecfca451623d^)" = ea3c26ede409335ecca02ba15ae6e9ec64305827
+          test "$(git rev-parse ea3c26ede409335ecca02ba15ae6e9ec64305827^1)" = a047062821659016e4ffde48f1e767f939c36417
+          test "$(git rev-parse ea3c26ede409335ecca02ba15ae6e9ec64305827^2)" = e60c38fae58bcef13f0c4c814956512ab042a7ce
+          test "$(git rev-list --parents -n 1 ea3c26ede409335ecca02ba15ae6e9ec64305827 | wc -w)" -eq 3
+          git diff --binary --full-index --no-color --no-ext-diff --no-textconv --no-renames --diff-algorithm=myers ea3c26ede409335ecca02ba15ae6e9ec64305827 57a324980b06d105d5e6a53e1a50ecfca451623d > "$PROOF_DIR/test-only.diff"
+          printf '%s\n' '7eb215c1bb042e885309f0bdbc2823982e6fc8ab99a30ec596368925d7a70c55  '"$PROOF_DIR/test-only.diff" | sha256sum --check
+          git cat-file commit ea3c26ede409335ecca02ba15ae6e9ec64305827 > "$PROOF_DIR/merge-commit.txt"
+          git cat-file commit a047062821659016e4ffde48f1e767f939c36417 > "$PROOF_DIR/member-commit.txt"
+          git cat-file commit e60c38fae58bcef13f0c4c814956512ab042a7ce > "$PROOF_DIR/main-commit.txt"
+          git diff --name-status 57a324980b06d105d5e6a53e1a50ecfca451623d HEAD > "$PROOF_DIR/workflow-only.names"
+          printf 'A\t.github/workflows/pr1638-roundtrip-minimum-red-proof.yml\n' > "$PROOF_DIR/expected-workflow-only.names"
+          cmp "$PROOF_DIR/workflow-only.names" "$PROOF_DIR/expected-workflow-only.names"
+          git diff --binary 57a324980b06d105d5e6a53e1a50ecfca451623d HEAD > "$PROOF_DIR/workflow-only.diff"
+          git cat-file commit 57a324980b06d105d5e6a53e1a50ecfca451623d > "$PROOF_DIR/source-commit.txt"
+          git cat-file commit HEAD > "$PROOF_DIR/checkout-commit.txt"
+          git ls-tree --full-tree -r 57a324980b06d105d5e6a53e1a50ecfca451623d > "$PROOF_DIR/source-tree.txt"
+          git ls-tree --full-tree -r HEAD > "$PROOF_DIR/checkout-tree.txt"
+          printf '%s\n' "$PROOF_HEAD" "$PROOF_REF" "$PROOF_RUN" "$PROOF_ATTEMPT" > "$PROOF_DIR/run-identity.txt"
+          cat > "$PROOF_DIR/expected-source-sha256.txt" <<'SOURCE_HASHES'
+          cbe219dc1f3972e74b156fee12ab59768209cf4f736f5597a3b530b09d29f993  playwright/e2e/helpers/usdcx-roundtrip-funding.test.ts
+          3ba4110e36ee6db6295b6cc2b409bc4bb17571b3ca183a2c9e61ab3ebf6e5955  playwright/e2e/helpers/usdcx-roundtrip-funding.ts
+          402268f0ff28d67dc09bfc138a7aa8b598216df1267443c4a70ce6c2ddda8e1e  playwright/e2e/helpers/public-faucet.ts
+          9f060055d0f13aae74eecb993a6b0a2a083098d2979b7420fdabe12316d2e086  src/lib/miden-chain/faucet-protocol.ts
+          a70b11db16d22f76ee4852f6cb389bcacb842a2f83957585da9c93caa59ee2d5  src/lib/usdcx/protocol.ts
+          73fa7b5174ca4dadcba0f44591bcae434bc1371ae365ec7eddb6cfad16cf0335  src/lib/usdcx/withdrawal.ts
+          85182f657d16e79211f5fcdd068ced83739994f751676c19a82b8a5150966b80  src/lib/usdcx/constant.ts
+          d8432e7b9d37b11ac18b4ab78793a1dfb9f7ab7269c25fbf452a055f5bb3a38b  src/lib/remote-config/availability.ts
+          d5f0df82addcdbcf3f281d7e194c1525987dc904d6f41eb64b1669848a170b59  src/lib/remote-config/e2e-overrides.ts
+          320e9850ea056bab2ecb2a2f418a3af33a4821f04c370842c3aa8a8bb3dfd2dd  src/lib/remote-config/schema.ts
+          00391c3becb4e8d4e543f97d2fcff5686d4ee9c58a99fbb223a71a4247465668  src/lib/remote-config/testing/fixture.ts
+          00d8342c275934fcbbe7179e2191655c3102a35d64553e125f79fb916c18b3c5  src/lib/remote-config/testing/testnet.json
+          92ca5ffa10f545d65da5889be9fe32287dae07ecc8e407355317d0034c23b4cd  src/lib/walletconnect/config.ts
+          3fd879d3a76214ebed8f1b30d08d635dc6eb9a14b26055898fc0641b5b02963c  src/lib/miden-chain/networks-config.ts
+          63dc2dd5cdd8f90b9ed1b38d4a6e88000120692ddefa34246e3f6ed076b6b549  src/lib/telemetry/bridge-receive-failure.ts
+          9af7cd256a41b9ad42604d8ab62a0859a3218b9b53cd74f8291fcc9075681d1d  package.json
+          8606e15d58682739313e004734d42f34a2ad715148e00f28c2de63596349941d  yarn.lock
+          73a3951b600a8514cbe91fa7e1be098cc3ae0948c470f2649e8686b192e559a6  jest.config.ts
+          247ac76bd2045c08af6596611277cab6283dc19a8254e03d06a275892c2018e0  jest.setup.js
+          SOURCE_HASHES
+          sha256sum --check "$PROOF_DIR/expected-source-sha256.txt"
+          while read -r digest file; do
+            mkdir -p "$PROOF_DIR/source/$(dirname "$file")"
+            cp "$file" "$PROOF_DIR/source/$file"
+          done < "$PROOF_DIR/expected-source-sha256.txt"
+          git ls-files --stage -z > "$PROOF_DIR/before.index-stage.bin"
+          cp "$(git rev-parse --git-path index)" "$PROOF_DIR/before.index.bin"
+          git status --porcelain=v1 --untracked-files=all > "$PROOF_DIR/before.status"
+          test ! -s "$PROOF_DIR/before.status"
+          cat > "$PROOF_DIR/physical-map.py" <<'PHYSICAL_MAP'
+          import hashlib,json,os,stat,subprocess
+          from pathlib import Path
+          rows=[]
+          for entry in subprocess.check_output(['git','ls-files','--stage','-z']).split(b'\0'):
+              if not entry: continue
+              meta,name=entry.split(b'\t',1)
+              mode,oid,stage=meta.decode().split()
+              assert stage=='0'
+              path=os.fsdecode(name)
+              file=Path(path)
+              info=file.lstat()
+              if mode=='120000':
+                  assert stat.S_ISLNK(info.st_mode)
+                  data=os.fsencode(os.readlink(file))
+              else:
+                  assert mode in ('100644','100755') and stat.S_ISREG(info.st_mode),path
+                  assert bool(info.st_mode&0o111)==(mode=='100755'),path
+                  data=file.read_bytes()
+              actual=hashlib.sha1(b'blob '+str(len(data)).encode()+b'\0'+data).hexdigest()
+              assert actual==oid,path
+              rows.append({'path':path,'mode':mode,'git_blob':oid,'sha256':hashlib.sha256(data).hexdigest(),'bytes':len(data)})
+          print(json.dumps(rows,sort_keys=True,indent=2))
+          PHYSICAL_MAP
+          python3 "$PROOF_DIR/physical-map.py" > "$PROOF_DIR/before.physical-map.json"
+          cat > "$PROOF_DIR/run-logged.bash" <<'LOGGER'
+          run_logged() {
+            local label="$1"
+            shift
+            printf '%s\0' "$@" > "$PROOF_DIR/$label.argv"
+            set +e
+            "$@" 2>&1 | tee "$PROOF_DIR/$label.log"
+            local codes=("${PIPESTATUS[@]}")
+            set -e
+            printf '%s\n' "${codes[0]}" > "$PROOF_DIR/$label.exit"
+            printf '%s\n' "${codes[1]}" > "$PROOF_DIR/$label.tee.exit"
+            if [ "${codes[1]}" -ne 0 ]; then return "${codes[1]}"; fi
+            return "${codes[0]}"
+          }
+          LOGGER
+      - name: Use Node22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.22.0
+      - name: Install frozen dependencies with normal hooks
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged install timeout 10m yarn install --frozen-lockfile --non-interactive
+      - name: Retain pinned matcher and serializer sources
+        run: |
+          set -euo pipefail
+          umask 077
+          node --version > "$PROOF_DIR/node-version.txt"
+          yarn --version > "$PROOF_DIR/yarn-version.txt"
+          while IFS= read -r file; do
+            test -f "node_modules/$file" && test ! -L "node_modules/$file"
+            mkdir -p "$PROOF_DIR/framework/$(dirname "$file")"
+            cp "node_modules/$file" "$PROOF_DIR/framework/$file"
+          done <<'FRAMEWORK_FILES'
+          expect/package.json
+          expect/build/index.js
+          jest-circus/package.json
+          jest-circus/build/jestAdapterInit.js
+          jest-circus/build/runner.js
+          jest-util/package.json
+          jest-util/build/index.js
+          @jest/test-result/package.json
+          @jest/test-result/build/index.js
+          @jest/core/package.json
+          @jest/core/build/index.js
+          jest-matcher-utils/package.json
+          jest-matcher-utils/build/index.js
+          jest-message-util/package.json
+          jest-message-util/build/index.js
+          pretty-format/package.json
+          pretty-format/build/index.js
+          jest-mock/package.json
+          jest-mock/build/index.js
+          jest/package.json
+          jest/build/index.js
+          @swc/jest/package.json
+          @swc/jest/index.js
+          @babel/code-frame/package.json
+          @babel/code-frame/lib/index.js
+          stack-utils/package.json
+          stack-utils/index.js
+          slash/package.json
+          slash/index.js
+          FRAMEWORK_FILES
+          printf '%s\n' 'c0dcf2678d35a15774a7aebc71dcaeb3442f6b22d722e04ea0d68081ec6eb5a0  '"$PROOF_DIR/framework/expect/package.json" | sha256sum --check
+          printf '%s\n' '469add4932a11785006b19dbd1c041169b040d69cf4e27872892e0a7119368b4  '"$PROOF_DIR/framework/expect/build/index.js" | sha256sum --check
+      - name: Check the named regression test format
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged format yarn prettier --check playwright/e2e/helpers/usdcx-roundtrip-funding.test.ts
+      - name: Check zero-warning named regression lint
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged lint yarn eslint --max-warnings 0 playwright/e2e/helpers/usdcx-roundtrip-funding.test.ts
+      - name: Check project TypeScript without emitting
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged typescript yarn tsc --noEmit --pretty false
+      - name: Measure the full ten-case suite with natural expected failure
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          if run_logged causal-red yarn jest --runTestsByPath playwright/e2e/helpers/usdcx-roundtrip-funding.test.ts --runInBand --coverage=false --no-colors --json --outputFile="$PROOF_DIR/causal-red.jest.json"; then
+            test_exit=0
+          else
+            test_exit=$?
+          fi
+          test "$test_exit" -eq 1
+      - name: Verify both causal minimum failures and all eight controls
+        run: |
+          set -euo pipefail
+          python3 - <<'CLASSIFY'
+          import json,os,re
+          from pathlib import Path
+          p=Path(os.environ['PROOF_DIR'])
+          controls={'uses the deposit for a 2 USDCx burn after a faucet 503, with no grant retry': 3, 'returns the grant note and permits a 3 USDCx burn after the grant is consumed': 3, 'does not treat a malformed grant as an optional service failure': 1, 'stops a stalled request and allows the deposit-funded burn': 2, 'propagates test cancellation and makes no later funding request': 2, 'refuses a burn that would spend the fee reserve': 2, 'does not wait out a rate limit for optional funding': 2, 'keeps invalid requests as failures': 1}
+          targets={f'round-trip selector obeys the wallet minimum (grant={value})' for value in ('false','true')}
+          j=json.loads((p/'causal-red.jest.json').read_text())
+          assert (j['numTotalTestSuites'],j['numPassedTestSuites'],j['numFailedTestSuites'],j['numPendingTestSuites'],j['numRuntimeErrorTestSuites'])==(1,0,1,0,0)
+          assert (j['numTotalTests'],j['numPassedTests'],j['numFailedTests'],j['numPendingTests'],j['numTodoTests'])==(10,8,2,0,0)
+          assert j['success'] is False
+          rows=[row for suite in j['testResults'] for row in suite['assertionResults']]
+          assert len(rows)==10 and len({row['fullName'] for row in rows})==10
+          assert {row['fullName'] for row in rows}==set(controls)|targets
+          assert sum(row['numPassingAsserts'] for row in rows)==18
+          expected='expect(received).toBeUndefined()\n\nReceived: {"amount": "5"}'
+          for row in rows:
+              if row['fullName'] in controls:
+                  assert row['status']=='passed' and row['numPassingAsserts']==controls[row['fullName']]
+                  assert row['failureMessages']==[] and row['failureDetails']==[]
+                  continue
+              assert row['status']=='failed' and row['numPassingAsserts']==1
+              assert len(row['failureMessages'])==1 and len(row['failureDetails'])==1
+              detail=row['failureDetails'][0]['matcherResult']
+              assert detail=={'message':expected,'pass':False}
+              message=row['failureMessages'][0]
+              assert expected in message
+              frames=re.findall(r'usdcx-roundtrip-funding\.test\.ts:(\d+):(\d+)\)',message)
+              assert frames and frames[0]==('114','47')
+          assert int((p/'causal-red.exit').read_text())==1
+          assert int((p/'causal-red.tee.exit').read_text())==0
+          (p/'classification.json').write_text(json.dumps({'status':'EXPECTED_CAUSAL_RED_OBSERVED_PENDING_EXTERNAL_READBACK','tests':10,'controls':8,'failed':2,'passing_assertions':18,'target_first_frame':'114:47','target_passing_prerequisites':1},indent=2)+'\n')
+          CLASSIFY
+      - name: Always retain unchanged source, raw index and complete failure evidence
+        if: always()
+        run: |
+          set -euo pipefail
+          umask 077
+          cleanup_exit=0
+          git diff --binary > "$PROOF_DIR/post-measurement.diff" || cleanup_exit=1
+          test ! -s "$PROOF_DIR/post-measurement.diff" || cleanup_exit=1
+          sha256sum --check "$PROOF_DIR/expected-source-sha256.txt" > "$PROOF_DIR/after.hash-check.log" 2>&1 || cleanup_exit=1
+          python3 "$PROOF_DIR/physical-map.py" > "$PROOF_DIR/after.physical-map.json" 2> "$PROOF_DIR/after.physical-map.stderr" || cleanup_exit=1
+          cmp "$PROOF_DIR/before.physical-map.json" "$PROOF_DIR/after.physical-map.json" || cleanup_exit=1
+          git ls-files --stage -z > "$PROOF_DIR/after.index-stage.bin" || cleanup_exit=1
+          cp "$(git rev-parse --git-path index)" "$PROOF_DIR/after.index.bin" || cleanup_exit=1
+          cmp "$PROOF_DIR/before.index-stage.bin" "$PROOF_DIR/after.index-stage.bin" || cleanup_exit=1
+          git status --porcelain=v1 --untracked-files=all > "$PROOF_DIR/after.status" || cleanup_exit=1
+          test ! -s "$PROOF_DIR/after.status" || cleanup_exit=1
+          printf '%s\n' "$cleanup_exit" > "$PROOF_DIR/cleanup.exit"
+          printf '%s\n' 'UNACCEPTED: require actual10cases, eight original controls PASS and two exact real minimum failures after one prerequisite,18passing assertions, natural Jest1/tee0, unchanged source/modes/index and external source/framework/API/archive readback. No selector fix, positive runtime,95coverage, finished Council, live grant/deposit/burn/platform or merge credit. Never merge.' > "$PROOF_DIR/acceptance.txt"
+          cd "$PROOF_DIR"
+          find . -type f ! -name files.sha256 -print0 | sort -z | xargs -0 sha256sum > files.sha256
+          test "$cleanup_exit" -eq 0
+      - name: Always retain actual complete private evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr1638-roundtrip-minimum-red-proof-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/pr1638-roundtrip-minimum-red-proof/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
