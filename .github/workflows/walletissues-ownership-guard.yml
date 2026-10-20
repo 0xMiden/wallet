@@ -1,0 +1,52 @@
+name: Wallet issue ownership guard evidence - NEVER MERGE
+
+on:
+  push:
+    branches: [ci/walletissues-ownership-guard]
+
+permissions:
+  contents: read
+
+jobs:
+  ownership-guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Capture source identity
+        run: |
+          mkdir -p "$RUNNER_TEMP/ownership-results"
+          git rev-parse HEAD HEAD^{tree} > "$RUNNER_TEMP/ownership-results/git-identity.txt"
+          git status --porcelain=v1 > "$RUNNER_TEMP/ownership-results/git-status-before.txt"
+          sha256sum .github/workflows/walletissues-ownership-guard.yml .github/fixtures/walletissues-ownership/*.py > "$RUNNER_TEMP/ownership-results/source-before.sha256"
+      - name: Run mocked helper regression and compatibility tests
+        shell: bash
+        working-directory: .github/fixtures/walletissues-ownership
+        env:
+          OWNERSHIP_RESULTS: ${{ runner.temp }}/ownership-results
+        run: |
+          set +e
+          python3 -B run_tests.py 2>&1 | tee "$OWNERSHIP_RESULTS/tests.log"
+          statuses=("${PIPESTATUS[@]}")
+          set -e
+          printf 'python=%s\ntee=%s\n' "${statuses[0]}" "${statuses[1]}" > "$OWNERSHIP_RESULTS/exits.txt"
+          if [ "${statuses[1]}" -ne 0 ]; then exit "${statuses[1]}"; fi
+          exit "${statuses[0]}"
+      - name: Capture final identity and seal
+        if: ${{ always() }}
+        run: |
+          git status --porcelain=v1 > "$RUNNER_TEMP/ownership-results/git-status-after.txt"
+          sha256sum .github/workflows/walletissues-ownership-guard.yml .github/fixtures/walletissues-ownership/*.py > "$RUNNER_TEMP/ownership-results/source-after.sha256"
+          cmp "$RUNNER_TEMP/ownership-results/source-before.sha256" "$RUNNER_TEMP/ownership-results/source-after.sha256"
+          cmp "$RUNNER_TEMP/ownership-results/git-status-before.txt" "$RUNNER_TEMP/ownership-results/git-status-after.txt"
+          cd "$RUNNER_TEMP/ownership-results"
+          sha256sum git-identity.txt git-status-before.txt git-status-after.txt source-before.sha256 source-after.sha256 results.json tests.log exits.txt > sha256-manifest.txt
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: walletissues-ownership-${{ github.run_id }}
+          path: ${{ runner.temp }}/ownership-results
+          if-no-files-found: error
+          retention-days: 14
