@@ -1,6 +1,11 @@
 package com.miden.breadconnect
 
 import java.io.File
+import java.util.concurrent.atomic.AtomicInteger
+import kotlin.coroutines.Continuation
+import kotlin.coroutines.resume
+import kotlin.coroutines.suspendCoroutine
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -60,6 +65,65 @@ class FakeOpener : BreadOpener {
         } ?: return true
         onOpen?.invoke(link)
         return installedNow
+    }
+}
+
+internal class HeldAttemptOpener : BreadOpener {
+    class Call(val link: String) {
+        val launches = AtomicInteger()
+        val passedAttempt = CompletableDeferred<Unit>()
+        private var continuation: Continuation<Unit>? = null
+        private var released = false
+
+        suspend fun awaitRelease(entered: () -> Unit) = suspendCoroutine<Unit> { waiting ->
+            val resumeNow = synchronized(this) {
+                if (released) true else {
+                    continuation = waiting
+                    false
+                }
+            }
+            entered()
+            if (resumeNow) waiting.resume(Unit)
+        }
+
+        fun release() {
+            val waiting = synchronized(this) {
+                released = true
+                continuation.also { continuation = null }
+            }
+            waiting?.resume(Unit)
+        }
+    }
+
+    private val lock = Any()
+    private val recorded = mutableListOf<Call>()
+    private var releasing = false
+    val firstEntered = CompletableDeferred<Call>()
+    val calls: List<Call> get() = synchronized(lock) { recorded.toList() }
+
+    override suspend fun open(link: String, attempt: OpenAttempt): Boolean {
+        val call = Call(link)
+        val releaseNow = synchronized(lock) {
+            recorded += call
+            releasing
+        }
+        if (releaseNow) call.release()
+        // Raw suspension leaves the opening child incomplete while its caller or SDK deadline cancels.
+        call.awaitRelease { firstEntered.complete(call) }
+        val opened = attempt.run {
+            call.launches.incrementAndGet()
+            true
+        } ?: true
+        call.passedAttempt.complete(Unit)
+        return opened
+    }
+
+    fun releaseAll() {
+        val pending = synchronized(lock) {
+            releasing = true
+            recorded.toList()
+        }
+        pending.forEach { it.release() }
     }
 }
 

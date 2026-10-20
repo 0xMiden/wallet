@@ -1,9 +1,14 @@
 package com.miden.breadconnect
 
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -13,10 +18,12 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.withContext
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -367,6 +374,211 @@ class ClientTest {
             connect.cancel()
             release.countDown()
             serial.close()
+        }
+    }
+
+    @Test
+    fun callerJobCancellationRevokesAnOpenerWaitingOutsideAttempt() = runBlocking {
+        val opening = HeldAttemptOpener()
+        val client = BreadConnect(callback, storage, opening) { now }
+        val serial = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
+        val outcome = CompletableDeferred<Result<JsonObject>>()
+        val connecting = launch(serial) {
+            outcome.complete(runCatching { client.connect("Where Legends Grow") })
+        }
+        try {
+            val call = withTimeout(5_000) { opening.firstEntered.await() }
+            assertNotNull(storage.items[BreadConnect.PENDING_KEY])
+
+            connecting.cancel()
+            assertFalse(connecting.isCompleted)
+            call.release()
+            withTimeout(5_000) { call.passedAttempt.await() }
+            val result = withTimeout(5_000) { outcome.await() }
+            withTimeout(5_000) { connecting.join() }
+
+            assertTrue(result.exceptionOrNull() is CancellationException)
+            assertTrue(connecting.isCancelled)
+            assertNull(storage.items[BreadConnect.PENDING_KEY])
+            assertEquals(0, call.launches.get())
+        } finally {
+            opening.releaseAll()
+            connecting.cancel()
+            try {
+                withContext(NonCancellable) { withTimeout(5_000) { connecting.join() } }
+            } finally {
+                serial.close()
+            }
+        }
+    }
+
+    @Test
+    fun sdkDeadlineRevokesAnOpenerWaitingOutsideAttempt() = runTest {
+        val opening = HeldAttemptOpener()
+        val client = BreadConnect(callback, storage, opening) { now }
+        val connecting = async { runCatching { client.connect("Where Legends Grow") } }
+        try {
+            runCurrent()
+            assertEquals(1, opening.calls.size)
+            val call = opening.calls.single()
+            assertTrue(opening.firstEntered.isCompleted)
+
+            advanceTimeBy(BreadConnect.ANSWER_WAIT_MS + 1)
+            runCurrent()
+            assertFalse(connecting.isCompleted)
+            assertNotNull(storage.items[BreadConnect.PENDING_KEY])
+            call.release()
+            runCurrent()
+            assertTrue(call.passedAttempt.isCompleted)
+            val error = connecting.await().exceptionOrNull()
+
+            assertEquals(BreadConnectException.Code.Timeout, (error as? BreadConnectException)?.code)
+            assertNull(storage.items[BreadConnect.PENDING_KEY])
+            assertEquals(0, call.launches.get())
+        } finally {
+            opening.releaseAll()
+            connecting.cancel()
+            runCurrent()
+            connecting.join()
+        }
+    }
+
+    @Test
+    fun normalAnswerDisposesTheCancellationWatcher() = runTest {
+        val opening = HeldAttemptOpener()
+        val client = BreadConnect(callback, storage, opening) { now }
+        val connecting = async { client.connect("Where Legends Grow") }
+        try {
+            runCurrent()
+            assertEquals(1, opening.calls.size)
+            val call = opening.calls.single()
+            call.release()
+            runCurrent()
+            assertTrue(call.passedAttempt.isCompleted)
+            assertEquals(1, call.launches.get())
+
+            assertTrue(client.handle(bread.answerConnect(call.link, json("""{"response":$permission}"""))))
+            runCurrent()
+
+            assertTrue("A normal answer must join all request children", connecting.isCompleted)
+            assertEquals(permission, connecting.await())
+            assertNull(storage.items[BreadConnect.PENDING_KEY])
+            assertEquals(0L, currentTime)
+        } finally {
+            opening.releaseAll()
+            connecting.cancel()
+            runCurrent()
+            connecting.join()
+        }
+    }
+
+    @Test
+    fun supersessionRevokesOnlyTheOlderAttempt() = runTest {
+        val opening = HeldAttemptOpener()
+        val client = BreadConnect(callback, storage, opening) { now }
+        val first = async { runCatching { client.connect("Where Legends Grow") } }
+        val second = async(start = CoroutineStart.LAZY) { runCatching { client.connect("New request") } }
+        try {
+            runCurrent()
+            assertEquals(1, opening.calls.size)
+            val oldCall = opening.calls[0]
+            second.start()
+            runCurrent()
+            assertEquals(2, opening.calls.size)
+            val newCall = opening.calls[1]
+            assertFalse(first.isCompleted)
+
+            oldCall.release()
+            runCurrent()
+            assertTrue(oldCall.passedAttempt.isCompleted)
+            assertEquals(BreadConnectException.Code.Superseded, (first.await().exceptionOrNull() as? BreadConnectException)?.code)
+            assertEquals(0, oldCall.launches.get())
+            assertNotNull(storage.items[BreadConnect.PENDING_KEY])
+            newCall.release()
+            runCurrent()
+            assertTrue(newCall.passedAttempt.isCompleted)
+            assertEquals(1, newCall.launches.get())
+            assertTrue(client.handle(bread.answerConnect(newCall.link, json("""{"response":$permission}"""))))
+            runCurrent()
+
+            assertTrue(second.isCompleted)
+            assertEquals(permission, second.await().getOrThrow())
+            assertNull(storage.items[BreadConnect.PENDING_KEY])
+            assertEquals(0L, currentTime)
+        } finally {
+            opening.releaseAll()
+            first.cancel()
+            second.cancel()
+            runCurrent()
+            first.join()
+            second.join()
+        }
+    }
+
+    @Test
+    fun nativeAttemptAndCancellationHaveOrderedHandoffs() = runBlocking {
+        val inside = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val passedAttempt = CountDownLatch(1)
+        val cancelling = CountDownLatch(1)
+        val cancelReturned = CountDownLatch(1)
+        val admittedLaunches = AtomicInteger()
+        val laterLaunches = AtomicInteger()
+        val opening = object : BreadOpener {
+            override suspend fun open(link: String, attempt: OpenAttempt): Boolean {
+                attempt.run {
+                    inside.countDown()
+                    release.await()
+                    admittedLaunches.incrementAndGet()
+                }
+                attempt.run { laterLaunches.incrementAndGet() }
+                passedAttempt.countDown()
+                return true
+            }
+        }
+        val client = BreadConnect(callback, storage, opening) { now }
+        val serial = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
+        val outcome = CompletableDeferred<Result<JsonObject>>()
+        val connecting = launch(serial) {
+            outcome.complete(runCatching { client.connect("Where Legends Grow") })
+        }
+        val cancellation = Thread {
+            cancelling.countDown()
+            try {
+                connecting.cancel()
+            } finally {
+                cancelReturned.countDown()
+            }
+        }
+        try {
+            assertTrue(inside.await(5, TimeUnit.SECONDS))
+            cancellation.start()
+            assertTrue(cancelling.await(5, TimeUnit.SECONDS))
+            withTimeout(5_000) {
+                while (!connecting.isCancelled) delay(1)
+            }
+            val returnedDuringHandoff = cancelReturned.await(250, TimeUnit.MILLISECONDS)
+            release.countDown()
+            assertTrue(passedAttempt.await(5, TimeUnit.SECONDS))
+            cancellation.join(5_000)
+            assertFalse(cancellation.isAlive)
+            val result = withTimeout(5_000) { outcome.await() }
+            withTimeout(5_000) { connecting.join() }
+
+            assertTrue(result.exceptionOrNull() is CancellationException)
+            assertEquals(1, admittedLaunches.get())
+            assertFalse("Cancellation returned before the admitted native handoff left", returnedDuringHandoff)
+            assertEquals(0, laterLaunches.get())
+            assertNull(storage.items[BreadConnect.PENDING_KEY])
+        } finally {
+            release.countDown()
+            connecting.cancel()
+            cancellation.join(5_000)
+            try {
+                withContext(NonCancellable) { withTimeout(5_000) { connecting.join() } }
+            } finally {
+                serial.close()
+            }
         }
     }
 

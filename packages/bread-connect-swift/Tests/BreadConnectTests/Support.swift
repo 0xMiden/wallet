@@ -110,13 +110,21 @@ final class RecordingNativeOpen {
     private(set) var launches: [Launch] = []
     private var completions: [((Bool) -> Void)?] = []
     var immediateResults: [Bool] = []
+    var storeResult: Bool?
+    var onStart: ((Launch) -> Void)?
+    private var cleanupResult: Bool?
 
     var opener: NativeLinkOpener {
         NativeLinkOpener { [self] link, universalLinksOnly, completion in
             launches.append(Launch(link: link, universalLinksOnly: universalLinksOnly))
             completions.append(completion)
+            onStart?(launches[launches.count - 1])
             if !immediateResults.isEmpty {
                 complete(launches.count - 1, opened: immediateResults.removeFirst())
+            } else if !universalLinksOnly, let storeResult {
+                complete(launches.count - 1, opened: storeResult)
+            } else if let cleanupResult {
+                complete(launches.count - 1, opened: cleanupResult)
             }
         }
     }
@@ -127,6 +135,35 @@ final class RecordingNativeOpen {
         }
         completions[index] = nil
         completion(opened)
+    }
+
+    func releaseAll() {
+        cleanupResult = true
+        for index in completions.indices {
+            guard let completion = completions[index] else { continue }
+            completions[index] = nil
+            completion(true)
+        }
+    }
+}
+
+@MainActor
+final class ForwardingNativeOpener: GateAwareBreadOpener {
+    private let native: NativeLinkOpener
+    private(set) var gates: [OpenGate] = []
+    private(set) var completed: [URL] = []
+
+    init(_ native: NativeLinkOpener) { self.native = native }
+
+    func open(_ link: URL) async -> Bool {
+        await open(link, gate: OpenGate())
+    }
+
+    func open(_ link: URL, gate: OpenGate) async -> Bool {
+        gates.append(gate)
+        let opened = await native.open(link, gate: gate)
+        completed.append(link)
+        return opened
     }
 }
 
