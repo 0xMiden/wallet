@@ -144,8 +144,11 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
   const scaleIsKnown = token === undefined || token.scaleIsKnown;
   const canProceed = !!token && scaleIsKnown && isValidAmount && (!isBridge || !!network);
   const amountErrorId = errorId === undefined && isUserErrorId(error) ? error : errorId;
+  const amountError = !hideErrorText && error && (amount || error !== 'invalidAmount') ? t(error) : undefined;
   useUserVisibleError(
-    showBalanceHelper && token && token.balance !== null && !scaleIsKnown ? 'unknownTokenScale' : null,
+    !amountError && showBalanceHelper && token && token.balance !== null && !scaleIsKnown
+      ? 'unknownTokenScale'
+      : null,
     'inline'
   );
 
@@ -277,7 +280,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
       value={amount}
       invalid={!!error}
       errorId={hideErrorText ? null : amountErrorId}
-      error={!hideErrorText && error && (amount || error !== 'invalidAmount') ? t(error) : undefined}
+      error={amountError}
       // The helper (available balance) is controlled by `showBalanceHelper`, not
       // by `embedded`: the swap "You Pay" field is embedded but must still show
       // how much is spendable (#461). Embedded callers that don't want it (e.g.
