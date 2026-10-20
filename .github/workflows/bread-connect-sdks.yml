@@ -34,6 +34,45 @@ jobs:
     timeout-minutes: 50
     steps:
       - uses: actions/checkout@v4
+        with: { fetch-depth: 2 }
+      - name: Bind the frozen cancellation source
+        run: |
+          set -euo pipefail
+          proof="$RUNNER_TEMP/bread-connect-source"
+          mkdir -p "$proof"
+          python3 - "$proof" <<'PYTHON'
+          import hashlib, json, os, pathlib, subprocess, sys
+          proof = pathlib.Path(sys.argv[1])
+          source = 'a035e3690be31a1d1cb462fda3229c262644be7c'
+          workflow = '.github/workflows/bread-connect-sdks.yml'
+          def git(*args):
+              return subprocess.check_output(['git', *args])
+          def entries(ref):
+              result = {}
+              for entry in git('ls-tree', '-r', '-z', ref).split(b'\0'):
+                  if entry:
+                      metadata, path = entry.split(b'\t', 1)
+                      result[path.decode()] = metadata.decode().split()
+              return result
+          head = git('rev-parse', 'HEAD').decode().strip()
+          assert git('rev-parse', 'HEAD^').decode().strip() == source
+          assert head == os.environ['GITHUB_SHA']
+          assert os.environ['GITHUB_REF'] == 'refs/heads/ci/1589-capacitor-red'
+          before, after = entries(source), entries(head)
+          assert git('diff', '--name-only', source, head).decode().splitlines() == [workflow]
+          assert {p: v for p, v in before.items() if p != workflow} == {p: v for p, v in after.items() if p != workflow}
+          assert git('status', '--porcelain', '--untracked-files=no') == b''
+          identity = {'source': source, 'source_tree': git('rev-parse', source + '^{tree}').decode().strip(),
+                      'checkout': head, 'checkout_tree': git('rev-parse', 'HEAD^{tree}').decode().strip(),
+                      'github_sha': os.environ['GITHUB_SHA'], 'github_ref': os.environ['GITHUB_REF'],
+                      'workflow_sha256': hashlib.sha256(pathlib.Path(workflow).read_bytes()).hexdigest(),
+                      'source_entry_count': len(before), 'preserved_entry_count': len(before) - 1}
+          (proof / 'identity.json').write_text(json.dumps(identity, indent=2) + '\n')
+          (proof / 'source-entries.json').write_text(json.dumps(before, indent=2) + '\n')
+          (proof / 'checkout-entries.json').write_text(json.dumps(after, indent=2) + '\n')
+          (proof / 'workflow.patch').write_bytes(git('diff', source, head, '--', workflow))
+          print(json.dumps(identity, indent=2))
+          PYTHON
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
       - name: Inject linked web-sdk PR
@@ -43,22 +82,60 @@ jobs:
       # The install's postinstall builds packages/bread-connect, which the adapter builds against.
       - name: Run Install
         uses: ./.github/actions/yarn-install
+      - name: Check Capacitor cancellation formatting
+        run: |
+          set -euo pipefail
+          proof="$RUNNER_TEMP/bread-connect-capacitor-js"
+          mkdir -p "$proof"
+          trap 'printf "%s\n" "$?" > "$proof/format.exit"' EXIT
+          yarn prettier --check \
+            .github/workflows/bread-connect-sdks.yml \
+            packages/bread-connect-capacitor/src/index.ts \
+            packages/bread-connect-capacitor/src/index.test.ts \
+            packages/bread-connect-capacitor/src/native-opener.ts \
+            packages/bread-connect-capacitor/src/native-opener.test.ts \
+            packages/bread-connect-capacitor/src/plugin.ts \
+            packages/bread-connect-capacitor/src/transport.ts \
+            packages/bread-connect-capacitor/src/transport.test.ts
+      - name: Lint the cancellation regression tests
+        run: |
+          set -euo pipefail
+          proof="$RUNNER_TEMP/bread-connect-capacitor-js"
+          trap 'printf "%s\n" "$?" > "$proof/eslint.exit"' EXIT
+          yarn eslint packages/bread-connect-capacitor/src/index.test.ts \
+            packages/bread-connect-capacitor/src/transport.test.ts --max-warnings 0
+      - name: Type-check the project
+        run: |
+          set -euo pipefail
+          proof="$RUNNER_TEMP/bread-connect-capacitor-js"
+          trap 'printf "%s\n" "$?" > "$proof/types.exit"' EXIT
+          yarn tsc --noEmit
       - name: Check Capacitor adapter behavior
         run: |
           set -euo pipefail
           proof="$RUNNER_TEMP/bread-connect-capacitor-js"
           mkdir -p "$proof"
+          git diff --exit-code HEAD --
+          set +e
           yarn jest packages/bread-connect-capacitor/src/index.test.ts \
             packages/bread-connect-capacitor/src/transport.test.ts \
             packages/bread-connect-capacitor/src/wallet.test.ts \
             packages/bread-connect-capacitor/src/native-opener.test.ts \
             --maxWorkers=2 --json --outputFile="$proof/jest.json" 2>&1 | tee "$proof/test.log"
+          outcomes=("${PIPESTATUS[@]}")
+          set -e
+          printf '%s\n' "${outcomes[0]}" > "$proof/jest.exit"
+          printf '%s\n' "${outcomes[1]}" > "$proof/tee.exit"
+          test "${outcomes[1]}" -eq 0
+          exit "${outcomes[0]}"
       - name: Preserve Capacitor adapter behavior proof
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: bread-connect-capacitor-js-proof
-          path: ${{ runner.temp }}/bread-connect-capacitor-js/
+          path: |
+            ${{ runner.temp }}/bread-connect-capacitor-js/
+            ${{ runner.temp }}/bread-connect-source/
           if-no-files-found: error
       - name: Build the Capacitor adapter
         run: yarn tsc --project packages/bread-connect-capacitor/tsconfig.json
@@ -93,11 +170,62 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+        with: { fetch-depth: 2 }
+      - name: Bind the frozen cancellation source
+        run: |
+          set -euo pipefail
+          proof="$RUNNER_TEMP/bread-connect-source"
+          mkdir -p "$proof"
+          python3 - "$proof" <<'PYTHON'
+          import hashlib, json, os, pathlib, subprocess, sys
+          proof = pathlib.Path(sys.argv[1])
+          source = 'a035e3690be31a1d1cb462fda3229c262644be7c'
+          workflow = '.github/workflows/bread-connect-sdks.yml'
+          def git(*args):
+              return subprocess.check_output(['git', *args])
+          def entries(ref):
+              result = {}
+              for entry in git('ls-tree', '-r', '-z', ref).split(b'\0'):
+                  if entry:
+                      metadata, path = entry.split(b'\t', 1)
+                      result[path.decode()] = metadata.decode().split()
+              return result
+          head = git('rev-parse', 'HEAD').decode().strip()
+          assert git('rev-parse', 'HEAD^').decode().strip() == source
+          assert head == os.environ['GITHUB_SHA']
+          assert os.environ['GITHUB_REF'] == 'refs/heads/ci/1589-capacitor-red'
+          before, after = entries(source), entries(head)
+          assert git('diff', '--name-only', source, head).decode().splitlines() == [workflow]
+          assert {p: v for p, v in before.items() if p != workflow} == {p: v for p, v in after.items() if p != workflow}
+          assert git('status', '--porcelain', '--untracked-files=no') == b''
+          identity = {'source': source, 'source_tree': git('rev-parse', source + '^{tree}').decode().strip(),
+                      'checkout': head, 'checkout_tree': git('rev-parse', 'HEAD^{tree}').decode().strip(),
+                      'github_sha': os.environ['GITHUB_SHA'], 'github_ref': os.environ['GITHUB_REF'],
+                      'workflow_sha256': hashlib.sha256(pathlib.Path(workflow).read_bytes()).hexdigest(),
+                      'source_entry_count': len(before), 'preserved_entry_count': len(before) - 1}
+          (proof / 'identity.json').write_text(json.dumps(identity, indent=2) + '\n')
+          (proof / 'source-entries.json').write_text(json.dumps(before, indent=2) + '\n')
+          (proof / 'checkout-entries.json').write_text(json.dumps(after, indent=2) + '\n')
+          (proof / 'workflow.patch').write_bytes(git('diff', source, head, '--', workflow))
+          print(json.dumps(identity, indent=2))
+          PYTHON
       # The tests run on macOS, where the UIKit opener does not compile, so the iOS
       # builds below are what compile it.
       - name: Run the Swift SDK tests
         working-directory: packages/bread-connect-swift
-        run: swift test
+        run: |
+          set -euo pipefail
+          proof="$RUNNER_TEMP/bread-connect-swift-sdk"
+          mkdir -p "$proof"
+          git diff --exit-code HEAD --
+          set +e
+          swift test 2>&1 | tee "$proof/test.log"
+          outcomes=("${PIPESTATUS[@]}")
+          set -e
+          printf '%s\n' "${outcomes[0]}" > "$proof/swift.exit"
+          printf '%s\n' "${outcomes[1]}" > "$proof/tee.exit"
+          test "${outcomes[1]}" -eq 0
+          exit "${outcomes[0]}"
       - name: Test the production Capacitor native opener
         run: |
           set -euo pipefail
@@ -120,7 +248,15 @@ jobs:
               .testTarget(name: "BreadConnectPluginTests", dependencies: ["BreadConnectPlugin"])
           ])
           EOF
+          git diff --exit-code HEAD --
+          set +e
           swift test --package-path "$harness" 2>&1 | tee "$harness/test.log"
+          outcomes=("${PIPESTATUS[@]}")
+          set -e
+          printf '%s\n' "${outcomes[0]}" > "$harness/swift.exit"
+          printf '%s\n' "${outcomes[1]}" > "$harness/tee.exit"
+          test "${outcomes[1]}" -eq 0
+          exit "${outcomes[0]}"
       - name: Build the Swift SDK for iOS
         working-directory: packages/bread-connect-swift
         run: |
@@ -157,6 +293,9 @@ jobs:
           path: |
             ${{ runner.temp }}/bread-connect-capacitor-native/source-sha256.txt
             ${{ runner.temp }}/bread-connect-capacitor-native/test.log
+            ${{ runner.temp }}/bread-connect-capacitor-native/*.exit
+            ${{ runner.temp }}/bread-connect-swift-sdk/
+            ${{ runner.temp }}/bread-connect-source/
           if-no-files-found: error
 
   kotlin:
@@ -165,6 +304,45 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+        with: { fetch-depth: 2 }
+      - name: Bind the frozen cancellation source
+        run: |
+          set -euo pipefail
+          proof="$RUNNER_TEMP/bread-connect-source"
+          mkdir -p "$proof"
+          python3 - "$proof" <<'PYTHON'
+          import hashlib, json, os, pathlib, subprocess, sys
+          proof = pathlib.Path(sys.argv[1])
+          source = 'a035e3690be31a1d1cb462fda3229c262644be7c'
+          workflow = '.github/workflows/bread-connect-sdks.yml'
+          def git(*args):
+              return subprocess.check_output(['git', *args])
+          def entries(ref):
+              result = {}
+              for entry in git('ls-tree', '-r', '-z', ref).split(b'\0'):
+                  if entry:
+                      metadata, path = entry.split(b'\t', 1)
+                      result[path.decode()] = metadata.decode().split()
+              return result
+          head = git('rev-parse', 'HEAD').decode().strip()
+          assert git('rev-parse', 'HEAD^').decode().strip() == source
+          assert head == os.environ['GITHUB_SHA']
+          assert os.environ['GITHUB_REF'] == 'refs/heads/ci/1589-capacitor-red'
+          before, after = entries(source), entries(head)
+          assert git('diff', '--name-only', source, head).decode().splitlines() == [workflow]
+          assert {p: v for p, v in before.items() if p != workflow} == {p: v for p, v in after.items() if p != workflow}
+          assert git('status', '--porcelain', '--untracked-files=no') == b''
+          identity = {'source': source, 'source_tree': git('rev-parse', source + '^{tree}').decode().strip(),
+                      'checkout': head, 'checkout_tree': git('rev-parse', 'HEAD^{tree}').decode().strip(),
+                      'github_sha': os.environ['GITHUB_SHA'], 'github_ref': os.environ['GITHUB_REF'],
+                      'workflow_sha256': hashlib.sha256(pathlib.Path(workflow).read_bytes()).hexdigest(),
+                      'source_entry_count': len(before), 'preserved_entry_count': len(before) - 1}
+          (proof / 'identity.json').write_text(json.dumps(identity, indent=2) + '\n')
+          (proof / 'source-entries.json').write_text(json.dumps(before, indent=2) + '\n')
+          (proof / 'checkout-entries.json').write_text(json.dumps(after, indent=2) + '\n')
+          (proof / 'workflow.patch').write_bytes(git('diff', source, head, '--', workflow))
+          print(json.dumps(identity, indent=2))
+          PYTHON
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
       - uses: actions/setup-java@v4
@@ -178,7 +356,19 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: Run the Kotlin SDK unit tests
         working-directory: packages/bread-connect-kotlin
-        run: ./gradlew testDebugUnitTest --console=plain
+        run: |
+          set -euo pipefail
+          proof="$RUNNER_TEMP/bread-connect-kotlin-sdk"
+          mkdir -p "$proof"
+          git diff --exit-code HEAD --
+          set +e
+          ./gradlew testDebugUnitTest --console=plain 2>&1 | tee "$proof/test.log"
+          outcomes=("${PIPESTATUS[@]}")
+          set -e
+          printf '%s\n' "${outcomes[0]}" > "$proof/gradle.exit"
+          printf '%s\n' "${outcomes[1]}" > "$proof/tee.exit"
+          test "${outcomes[1]}" -eq 0
+          exit "${outcomes[0]}"
       - name: Check Kotlin SDK API compatibility
         id: kotlin_api_lint
         working-directory: packages/bread-connect-kotlin
@@ -219,9 +409,21 @@ jobs:
           sha256sum \
             packages/bread-connect-capacitor/android/src/main/java/com/miden/breadconnect/NativeOpenAttempt.java \
             packages/bread-connect-capacitor/android/src/test/java/com/miden/breadconnect/NativeOpenAttemptTest.java
+          proof="$RUNNER_TEMP/bread-connect-capacitor-java"
+          mkdir -p "$proof"
+          git diff --exit-code HEAD --
+          set +e
           packages/bread-connect-kotlin/gradlew -p "$build" \
             :bread-connect-capacitor:compileDebugJavaWithJavac \
-            :bread-connect-capacitor:testDebugUnitTest --console=plain
+            :bread-connect-capacitor:testDebugUnitTest --console=plain 2>&1 | tee "$proof/test.log"
+          outcomes=("${PIPESTATUS[@]}")
+          set -e
+          printf '%s\n' "${outcomes[0]}" > "$proof/gradle.exit"
+          printf '%s\n' "${outcomes[1]}" > "$proof/tee.exit"
+          test "${outcomes[1]}" -eq 0
+          if [ "${outcomes[0]}" -ne 0 ]; then
+            exit "${outcomes[0]}"
+          fi
           for name in BreadConnectPlugin NativeOpenAttempt; do
             classes="$(find packages/bread-connect-capacitor/android/build -type f -name "$name.class" -size +0c)"
             test -n "$classes"
@@ -238,4 +440,7 @@ jobs:
           path: |
             packages/bread-connect-kotlin/build/test-results/testDebugUnitTest/*.xml
             packages/bread-connect-capacitor/android/build/test-results/testDebugUnitTest/*.xml
+            ${{ runner.temp }}/bread-connect-kotlin-sdk/
+            ${{ runner.temp }}/bread-connect-capacitor-java/
+            ${{ runner.temp }}/bread-connect-source/
           if-no-files-found: error
