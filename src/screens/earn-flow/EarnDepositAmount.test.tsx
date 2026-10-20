@@ -555,6 +555,7 @@ describe('user-visible deposit amount reports', () => {
     mockCollateralWait = 'loading';
     render(<EarnDepositAmount vaultId={FOUND_VAULT.id} />);
     expect(screen.getByTestId('earn-collateral-notice')).toHaveTextContent('earnCollateralLoading');
+    expect(screen.queryByText('unknownTokenScale')).not.toBeInTheDocument();
     act(() => jest.advanceTimersByTime(1000));
     expect(reportUserVisibleError).not.toHaveBeenCalled();
   });
@@ -563,7 +564,21 @@ describe('user-visible deposit amount reports', () => {
     mockCollateralWait = 'unavailable';
     render(<EarnDepositAmount vaultId={FOUND_VAULT.id} />);
     expect(screen.getByTestId('earn-collateral-notice')).toHaveTextContent('earnCollateralUnavailable');
+    expect(screen.queryByText('unknownTokenScale')).not.toBeInTheDocument();
     act(() => jest.advanceTimersByTime(1000));
     expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['earnCollateralUnavailable', 'notice']]);
+  });
+  it('reports the visible unknown-scale helper for resolved collateral with unknown metadata', () => {
+    mockBalanceRows = [{ ...USDC_ROW, metadata: { ...USDC_ROW.metadata, scaleIsUnknown: true } }];
+    render(<EarnDepositAmount vaultId={FOUND_VAULT.id} />);
+    expect(screen.queryByTestId('earn-collateral-notice')).not.toBeInTheDocument();
+    expect(screen.getByText('unknownTokenScale')).toBeVisible();
+    expect(screen.getByTestId('send-amount-confirm')).toBeDisabled();
+    act(() => jest.advanceTimersByTime(999));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    act(() => jest.advanceTimersByTime(1));
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['unknownTokenScale', 'inline']]);
+    act(() => jest.advanceTimersByTime(1000));
+    expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
   });
 });
