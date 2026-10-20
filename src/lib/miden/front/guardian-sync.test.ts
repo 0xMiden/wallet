@@ -1903,9 +1903,9 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
       });
       expect(mockMarkRotationCompleted).toHaveBeenCalledWith(row.id);
       await expect(residual.findFailedHotKeyRotations(accountId)).resolves.toEqual([]);
-      expect(mockReRegister.mock.invocationCallOrder[0]).toBeLessThan(
-        storeState.swapHotKey.mock.invocationCallOrder[0]
-      );
+      const swappedAt = storeState.swapHotKey.mock.invocationCallOrder[0];
+      if (swappedAt === undefined) throw new Error('Expected the verified hot-key repair to run');
+      expect(mockReRegister.mock.invocationCallOrder[0]).toBeLessThan(swappedAt);
       expect(isGuardianUnrepairable(accountId)).toBe(false);
     } finally {
       mockFindFailedHotKeyRotations.mockReset().mockResolvedValue([]);

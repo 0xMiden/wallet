@@ -141,7 +141,7 @@ describe('GEO012 committed hot-key bookkeeping residuals', () => {
         recovered: true
       }),
       rotationRow('discarded', 700, {
-        status: ITransactionStatus.Completed,
+        status: ITransactionStatus.Failed,
         extraInputs: { ...pending, nodeDiscarded: true }
       }),
       rotationRow('other-account', 800, {
