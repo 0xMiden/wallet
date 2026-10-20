@@ -6134,18 +6134,20 @@ describe('generateTransaction — Guardian routing', () => {
         ],
         [
           'on',
-          'leaves no mark, since an offscreen attempt never marks',
+          'records the definite pre-submit mark, and the next send retries it',
           () => {
             process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
             // Tagged as the offscreen leaf tags a failure before its submit (Task 8). Untagged, the attempt may have
             // crossed, and an execute, which can await a verdict, would keep its candidate instead (#1081).
-            mockDispatchGuardianPipeline.mockRejectedValueOnce(
-              markErrorBeforeSubmit(new Error('failed to execute transaction: kernel assertion'))
-            );
+            mockDispatchGuardianPipeline
+              .mockRejectedValueOnce(
+                markErrorBeforeSubmit(new Error('failed to execute transaction: kernel assertion'))
+              )
+              .mockResolvedValueOnce(makeResult());
           },
           1,
-          () => expect(getGuardianCandidate('guardian-acc')).toBeUndefined(),
-          1
+          () => expectAbandonMark('guardian-acc', { endpoint: GUARDIAN, nonce: 8 }),
+          2
         ]
       ])(
         'an execute carrying request bytes, so stamped as maybe submitted, that fails before its submit with the offscreen client %s %s',
@@ -14891,6 +14893,7 @@ describe('GEO018 definite pre-submit Guardian candidate cleanup', () => {
     }
   ])('GEO018 $label', async ({ kind, mode, abandonFails, candidate }) => {
     jest.clearAllMocks();
+    mockDispatchGuardianPipeline.mockReset();
     txStore.length = 0;
     clearGuardianAccountLocks();
     const runtime = await import('lib/remote-config/runtime');
@@ -15001,6 +15004,7 @@ describe('GEO018 definite pre-submit Guardian candidate cleanup', () => {
       expect(client.transactions.submitProven).toHaveBeenCalledTimes(crossed ? 1 : 0);
       expect(client.transactions.apply).toHaveBeenCalledTimes(mode === 'allowed' ? 1 : 0);
       expect(mockDispatchGuardianPipeline).toHaveBeenCalledTimes(mode === 'offscreen' ? 1 : 0);
+      const attemptId: unknown = Reflect.get(transaction, 'attemptId');
       const expected =
         candidate === 'none'
           ? undefined
@@ -15009,11 +15013,11 @@ describe('GEO018 definite pre-submit Guardian candidate cleanup', () => {
               nonce: 5,
               ...STAMPS,
               ...(candidate === 'retry' ? { abandon: true } : {}),
-              ...(candidate === 'kept' ? { attemptId: transaction.attemptId } : {})
+              ...(candidate === 'kept' ? { attemptId } : {})
             };
       expect(getGuardianCandidate('guardian-acc')).toEqual(expected);
       expect(service.abandonCandidate).toHaveBeenCalledTimes(candidate === 'kept' || candidate === 'landed' ? 0 : 1);
-      expect(transaction.attemptId).toEqual(expect.any(String));
+      expect(attemptId).toEqual(expect.any(String));
     } finally {
       readSnapshot.mockRestore();
       if (previousOffscreen === undefined) delete process.env.MIDEN_USE_OFFSCREEN_CLIENT;
