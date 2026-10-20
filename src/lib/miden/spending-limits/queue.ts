@@ -1,4 +1,5 @@
-import { assertEarnDepositAvailable } from 'lib/remote-config/availability';
+import { getMessage } from 'lib/i18n/core';
+import { assertEarnDepositAvailable, geoFeatureGate } from 'lib/remote-config/availability';
 import { getBridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { assertWalletAccessAllowed, ensureWalletAccessAllowed } from 'lib/remote-config/wallet-access';
 
@@ -142,6 +143,12 @@ const authorizationMatches = async (
 function addOutgoingTransaction(transaction: ITransaction): Promise<string> {
   assertWalletAccessAllowed();
   if (transaction.type === 'earn-deposit') assertEarnDepositAvailable(getBridgeConfigSnapshot());
+  if (transaction.type === 'swap') {
+    const current = getBridgeConfigSnapshot();
+    if (geoFeatureGate('swap', current.config, current.geo) !== null) {
+      throw new Error(getMessage('swapUnavailableTitle'));
+    }
+  }
   return Repo.transactions.add(transaction);
 }
 
