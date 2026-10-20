@@ -1,0 +1,315 @@
+name: NEVER-MERGE Sentry2M corrected test proof
+
+on:
+  push:
+    branches: [ci/sentry2m-test-protection-proof]
+
+permissions:
+  contents: read
+
+jobs:
+  missing-chrome-sensitivity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    env:
+      CI: 'true'
+      PROOF_HEAD: ${{ github.sha }}
+      PROOF_REF: ${{ github.ref }}
+      PROOF_RUN: ${{ github.run_id }}
+      PROOF_ATTEMPT: ${{ github.run_attempt }}
+    steps:
+      - name: Checkout exact isolated transport
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Bind frozen source and initialize raw evidence
+        run: |
+          set -euo pipefail
+          umask 077
+          export PROOF_DIR="$RUNNER_TEMP/sentry2m-test-protection-proof"
+          printf 'PROOF_DIR=%s\n' "$PROOF_DIR" >> "$GITHUB_ENV"
+          mkdir "$PROOF_DIR"
+          test "$(git rev-parse HEAD)" = "$PROOF_HEAD"
+          test "$PROOF_REF" = refs/heads/ci/sentry2m-test-protection-proof
+          test "$(git rev-parse HEAD^)" = de898bed5290f76b575fd84b13820147020302ae
+          test "$(git rev-list --parents -n 1 HEAD | wc -w)" -eq 2
+          git diff --name-status de898bed5290f76b575fd84b13820147020302ae HEAD > "$PROOF_DIR/workflow-only.names"
+          printf 'A\t.github/workflows/sentry2m-test-protection-proof.yml\n' > "$PROOF_DIR/expected-workflow-only.names"
+          cmp "$PROOF_DIR/workflow-only.names" "$PROOF_DIR/expected-workflow-only.names"
+          git diff --binary de898bed5290f76b575fd84b13820147020302ae HEAD > "$PROOF_DIR/workflow-only.diff"
+          git cat-file commit de898bed5290f76b575fd84b13820147020302ae > "$PROOF_DIR/source-commit.txt"
+          git cat-file commit HEAD > "$PROOF_DIR/checkout-commit.txt"
+          git ls-tree -r de898bed5290f76b575fd84b13820147020302ae > "$PROOF_DIR/source-tree.txt"
+          git ls-tree -r HEAD > "$PROOF_DIR/checkout-tree.txt"
+          printf '%s\n' "$PROOF_HEAD" "$PROOF_REF" "$PROOF_RUN" "$PROOF_ATTEMPT" > "$PROOF_DIR/run-identity.txt"
+          cat > "$PROOF_DIR/expected-source-sha256.txt" <<'SOURCE_HASHES'
+          f7bfc036ea9404412f5e0201b680f62d126a3051c21e69408e4531b015f1bb4f  src/lib/miden/back/background-notification.ts
+          4d9cc32b20c4088e0871bc0f2c42d101e64d4b1270a56d0cc1169de952dd4fd8  src/lib/miden/back/background-notification.test.ts
+          1db2da993d3dae63fe38ec5d9c1f5228cbd70363bfcb6e6f349feba0b9d01a3f  src/lib/miden/back/background-notification-fallback.test.ts
+          16334ed0e044799fd47b29fd5a8e0e7a4aef2dced4cb3b9c23af79394da71b65  src/lib/extension/notifications.ts
+          ea6cdb412c0d21700a4cd00997827d12d9155502a1df950baad4670ecf424a8b  src/lib/extension/notifications.test.ts
+          8606e15d58682739313e004734d42f34a2ad715148e00f28c2de63596349941d  yarn.lock
+          9af7cd256a41b9ad42604d8ab62a0859a3218b9b53cd74f8291fcc9075681d1d  package.json
+          73a3951b600a8514cbe91fa7e1be098cc3ae0948c470f2649e8686b192e559a6  jest.config.ts
+          247ac76bd2045c08af6596611277cab6283dc19a8254e03d06a275892c2018e0  jest.setup.js
+          SOURCE_HASHES
+          sha256sum --check "$PROOF_DIR/expected-source-sha256.txt"
+          git ls-files --stage -z > "$PROOF_DIR/before.index-stage.bin"
+          cp "$(git rev-parse --git-path index)" "$PROOF_DIR/before.index.bin"
+          git status --porcelain=v1 --untracked-files=all > "$PROOF_DIR/before.status"
+          test ! -s "$PROOF_DIR/before.status"
+          cat > "$PROOF_DIR/run-logged.bash" <<'LOGGER'
+          run_logged() {
+            local label="$1"
+            shift
+            printf '%s\0' "$@" > "$PROOF_DIR/$label.argv"
+            set +e
+            "$@" 2>&1 | tee "$PROOF_DIR/$label.log"
+            local codes=("${PIPESTATUS[@]}")
+            set -e
+            printf '%s\n' "${codes[0]}" > "$PROOF_DIR/$label.exit"
+            printf '%s\n' "${codes[1]}" > "$PROOF_DIR/$label.tee.exit"
+            if [ "${codes[1]}" -ne 0 ]; then return "${codes[1]}"; fi
+            return "${codes[0]}"
+          }
+          LOGGER
+      - name: Materialize only the exact reviewed test correction
+        run: |
+          set -euo pipefail
+          cat > "$PROOF_DIR/test-correction.patch" <<'TEST_PATCH'
+          diff --git a/src/lib/miden/back/background-notification.test.ts b/src/lib/miden/back/background-notification.test.ts
+          index cfd4e7d42..35870c2b8 100644
+          --- a/src/lib/miden/back/background-notification.test.ts
+          +++ b/src/lib/miden/back/background-notification.test.ts
+          @@ -207,12 +207,25 @@ describe('showBackgroundNotification fallible service-worker attempt', () => {
+           
+             it('stays quiet after rejection when the Chrome notification API is absent', async () => {
+               const attempt = Promise.reject(new TypeError('service-worker notification unavailable'));
+          -    void attempt.catch(() => undefined);
+          +    const nativeCatch = attempt.catch.bind(attempt);
+          +    void nativeCatch(() => undefined);
+          +    const children: Promise<unknown>[] = [];
+          +    Object.defineProperty(attempt, 'catch', {
+          +      configurable: true,
+          +      value: (onRejected?: ((reason: unknown) => unknown) | null) => {
+          +        const child = nativeCatch(onRejected);
+          +        children.push(child);
+          +        void child.catch(() => undefined);
+          +        return child;
+          +      }
+          +    });
+               const showNotification = jest.fn().mockReturnValue(attempt);
+               Object.defineProperty(globalThis, 'registration', { configurable: true, value: { showNotification } });
+               Reflect.deleteProperty(chrome, 'notifications');
+           
+               expect(showBackgroundNotification('Title', 'Body')).toBeUndefined();
+          +    expect(children).toHaveLength(1);
+          +    await expect(children[0]).resolves.toBeUndefined();
+               await Promise.resolve();
+           
+               expect(showNotification).toHaveBeenCalledTimes(1);
+          TEST_PATCH
+          git apply --check "$PROOF_DIR/test-correction.patch"
+          git apply "$PROOF_DIR/test-correction.patch"
+          cp src/lib/miden/back/background-notification.test.ts "$PROOF_DIR/candidate-test.ts"
+          printf '%s\n' '78f1a81351865e1c27ccec8ab9c7bfab296086c582efc4026a0b3a43f93bbc72  src/lib/miden/back/background-notification.test.ts' > "$PROOF_DIR/candidate-test.sha256"
+          sha256sum --check "$PROOF_DIR/candidate-test.sha256"
+          git diff --binary > "$PROOF_DIR/materialized-test.diff"
+          cmp "$PROOF_DIR/test-correction.patch" "$PROOF_DIR/materialized-test.diff"
+          git show HEAD:src/lib/miden/back/background-notification.ts > "$PROOF_DIR/normal-helper.ts"
+      - name: Use Node22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install frozen dependencies with normal hooks
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged install timeout 10m yarn install --frozen-lockfile --non-interactive
+      - name: Retain pinned matcher and serializer sources
+        run: |
+          set -euo pipefail
+          umask 077
+          node --version > "$PROOF_DIR/node-version.txt"
+          yarn --version > "$PROOF_DIR/yarn-version.txt"
+          while IFS= read -r file; do
+            test -f "node_modules/$file" && test ! -L "node_modules/$file"
+            mkdir -p "$PROOF_DIR/framework/$(dirname "$file")"
+            cp "node_modules/$file" "$PROOF_DIR/framework/$file"
+          done <<'FRAMEWORK_FILES'
+          expect/package.json
+          expect/build/index.js
+          jest-circus/package.json
+          jest-circus/build/jestAdapterInit.js
+          jest-circus/build/runner.js
+          jest-util/package.json
+          jest-util/build/index.js
+          @jest/test-result/package.json
+          @jest/test-result/build/index.js
+          @jest/core/package.json
+          @jest/core/build/index.js
+          jest-matcher-utils/package.json
+          jest-matcher-utils/build/index.js
+          jest-message-util/package.json
+          jest-message-util/build/index.js
+          pretty-format/package.json
+          pretty-format/build/index.js
+          jest-mock/package.json
+          jest-mock/build/index.js
+          jest/package.json
+          jest/build/index.js
+          @swc/jest/package.json
+          @swc/jest/index.js
+          @babel/code-frame/package.json
+          @babel/code-frame/lib/index.js
+          stack-utils/package.json
+          stack-utils/index.js
+          slash/package.json
+          slash/index.js
+          FRAMEWORK_FILES
+      - name: Check the normal notification source and named test format
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged format yarn prettier --check src/lib/miden/back/background-notification.ts src/lib/miden/back/background-notification.test.ts src/lib/miden/back/background-notification-fallback.test.ts src/lib/extension/notifications.ts src/lib/extension/notifications.test.ts
+      - name: Check zero-warning named test lint
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged lint yarn eslint --max-warnings 0 src/lib/miden/back/background-notification.ts src/lib/miden/back/background-notification.test.ts src/lib/miden/back/background-notification-fallback.test.ts src/lib/extension/notifications.ts src/lib/extension/notifications.test.ts
+      - name: Check project TypeScript without emitting
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged typescript yarn tsc --noEmit --pretty false
+      - name: Run all34 normal notification cases
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged normal yarn jest --runTestsByPath src/lib/miden/back/background-notification.test.ts src/lib/miden/back/background-notification-fallback.test.ts src/lib/extension/notifications.test.ts --runInBand --coverage=false --no-colors --json --outputFile="$PROOF_DIR/normal.jest.json"
+      - name: Prepare the unchanged isolated hunk measurement
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged fetch_mutator curl --fail --silent --show-error --location --retry 0 https://raw.githubusercontent.com/WiktorStarczewski/review-council/9788137d985e13655c559ace424831d465ed2fcc/plugins/review-council/scripts/rev-mutate.sh --output "$PROOF_DIR/rev-mutate.sh"
+          printf '%s\n' '32bf2e9ca9c676dac2916f9bf3acc1c048e5fa76060178a6cb65fd61ee045bfc  rev-mutate.sh' > "$PROOF_DIR/mutator.sha256"
+          (cd "$PROOF_DIR" && sha256sum --check mutator.sha256)
+          mkdir "$PROOF_DIR/mutation-context"
+          printf 'REV_ROOT=%q\n' "$GITHUB_WORKSPACE" > "$PROOF_DIR/mutation-context/scope.env"
+          printf '%s\n' '{"phase":"fix","purpose":"isolated measurement only; no review receipt"}' > "$PROOF_DIR/mutation-context/state.json"
+          printf '%s\n' 'APPLICABILITY: only dependent test scaffolding changes. ReferenceError, matcher-operand, compile or setup failures are NONCERTIFYING, even if raw tool prints PINNED. Cohesive old/new real helper mutation, normal34 and restored bytes are required. No all-test-hunk semantic certification.' > "$PROOF_DIR/mutation-applicability.txt"
+          cat > "$PROOF_DIR/strong-command.bash" <<'STRONG_COMMAND'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          i=0
+          if [ -f "$PROOF_DIR/strong-counter" ]; then read -r i < "$PROOF_DIR/strong-counter"; fi
+          [[ "$i" =~ ^[0-3]$ ]]
+          printf '%s\n' "$((i + 1))" > "$PROOF_DIR/strong-counter"
+          export STRONG_LABEL="strong-$i"
+          sha256sum src/lib/miden/back/background-notification.test.ts > "$PROOF_DIR/$STRONG_LABEL.fixture.sha256"
+          cp "$PROOF_DIR/normal-helper.ts" "$PROOF_DIR/$STRONG_LABEL.helper-before.ts"
+          trap 'cp "$PROOF_DIR/normal-helper.ts" src/lib/miden/back/background-notification.ts' EXIT
+          python3 - <<'VARIANT'
+          from pathlib import Path
+          import hashlib
+          p = Path('src/lib/miden/back/background-notification.ts')
+          b = p.read_bytes()
+          assert hashlib.sha256(b).hexdigest() == 'f7bfc036ea9404412f5e0201b680f62d126a3051c21e69408e4531b015f1bb4f'
+          assert b.count(b'.catch(fallback)') == 1
+          b = b.replace(b'.catch(fallback)', b'')
+          assert hashlib.sha256(b).hexdigest() == '98d969b1a62407ca4dd75b33b0686447535e6b62ebab6126b1525bd9f54bb5ce'
+          p.write_bytes(b)
+          VARIANT
+          cp src/lib/miden/back/background-notification.ts "$PROOF_DIR/$STRONG_LABEL.variant.ts"
+          if run_logged "$STRONG_LABEL" yarn jest --runTestsByPath src/lib/miden/back/background-notification.test.ts --testNamePattern='^showBackgroundNotification fallible service-worker attempt stays quiet after rejection when the Chrome notification API is absent$' --runInBand --coverage=false --no-colors --json --outputFile="$PROOF_DIR/$STRONG_LABEL.jest.json"; then
+            :
+          else
+            :
+          fi
+          python3 "$PROOF_DIR/classify-strong.py"
+          STRONG_COMMAND
+          cat > "$PROOF_DIR/classify-strong.py" <<'CLASSIFIER'
+          from pathlib import Path
+          import hashlib, json, os, re
+          p = Path(os.environ['PROOF_DIR'])
+          label = os.environ['STRONG_LABEL']
+          x = json.loads((p / (label + '.jest.json')).read_text())
+          suites = x['testResults']
+          assert len(suites) == 1
+          rows = suites[0]['assertionResults']
+          assert len(rows) == 14
+          name = 'showBackgroundNotification fallible service-worker attempt stays quiet after rejection when the Chrome notification API is absent'
+          targets = [v for v in rows if v['fullName'] == name]
+          assert len(targets) == 1
+          v = targets[0]
+          assert all(a['status'] == 'pending' for a in rows if a is not v)
+          assert not x['wasInterrupted'] and not x['openHandles'] and x['numRuntimeErrorTestSuites'] == 0
+          natural = int((p / (label + '.exit')).read_text())
+          assert int((p / (label + '.tee.exit')).read_text()) == 0
+          message = '\n'.join(v['failureMessages'])
+          intended = (natural == 1 and x['numFailedTests'] == 1 and x['numPassedTests'] == 0
+                      and x['numPendingTests'] == 13 and v['status'] == 'failed'
+                      and v['numPassingAsserts'] == 1 and 'toHaveLength' in message
+                      and re.search(r'Expected length:\s+1\n', message) is not None
+                      and re.search(r'Received length:\s+0\n', message) is not None
+                      and 'background-notification.test.ts:227:' in message)
+          survived = (natural == 0 and x['numFailedTests'] == 0 and x['numPassedTests'] == 1
+                      and x['numPendingTests'] == 13 and v['status'] == 'passed'
+                      and v['numPassingAsserts'] == 3 and not v['failureMessages'])
+          status = ('INTENDED_CHILD_ACQUISITION_FAILURE' if intended else
+                    'CONTROLLED_HANDLER_REMOVAL_SURVIVED' if survived else
+                    'NONCERTIFYING_TEST_SCAFFOLDING_OR_UNEXPECTED_FAILURE')
+          (p / (label + '.classification.json')).write_text(json.dumps({
+              'status': status, 'natural_jest_exit': natural,
+              'passing_assertions': v['numPassingAsserts'],
+              'scope': 'Classifies measurement only; external raw source/frame acceptance remains required.'
+          }, indent=2) + '\n')
+          if intended:
+              print('C2M-T1: intended child-acquisition assertion detected missing handler.')
+              raise SystemExit(0)
+          if survived:
+              raise SystemExit('C2M-T1: controlled handler-removal mutant survived the absent-Chrome case.')
+          raise SystemExit('NONCERTIFYING: test-scaffolding or unexpected failure; no product sensitivity credit.')
+          CLASSIFIER
+          git diff --unified=0 -- src/lib/miden/back/background-notification.test.ts > "$PROOF_DIR/test-hunks.diff"
+          test "$(grep -c '^@@' "$PROOF_DIR/test-hunks.diff")" -eq 2
+      - name: Retain real baseline hunk and restored strong sensitivity
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged mutation bash "$PROOF_DIR/rev-mutate.sh" "$PROOF_DIR/mutation-context" 'bash "$PROOF_DIR/strong-command.bash"'
+      - name: Always retain final unchanged source and raw index
+        if: always()
+        run: |
+          set -euo pipefail
+          umask 077
+          cp src/lib/miden/back/background-notification.test.ts "$PROOF_DIR/post-measurement-test.ts"
+          cp src/lib/miden/back/background-notification.ts "$PROOF_DIR/post-measurement-helper.ts"
+          git diff --binary > "$PROOF_DIR/post-measurement.diff"
+          cmp "$PROOF_DIR/test-correction.patch" "$PROOF_DIR/post-measurement.diff"
+          sha256sum --check "$PROOF_DIR/candidate-test.sha256" > "$PROOF_DIR/post-candidate-hash.log"
+          git restore --source=HEAD --worktree -- src/lib/miden/back/background-notification.ts src/lib/miden/back/background-notification.test.ts
+          sha256sum --check "$PROOF_DIR/expected-source-sha256.txt" > "$PROOF_DIR/after.hash-check.log"
+          git ls-files --stage -z > "$PROOF_DIR/after.index-stage.bin"
+          cp "$(git rev-parse --git-path index)" "$PROOF_DIR/after.index.bin"
+          cmp "$PROOF_DIR/before.index-stage.bin" "$PROOF_DIR/after.index-stage.bin"
+          git status --porcelain=v1 --untracked-files=all > "$PROOF_DIR/after.status"
+          test ! -s "$PROOF_DIR/after.status"
+          printf 'UNACCEPTED: raw measurement only. External normal34/target5assertions/strong acquisition at227, all natural exits, hunk semantic classification, restoration, source/API/archive acceptance required. Scaffolding failures are NONCERTIFYING even if raw tool says PINNED. No current-head95/final-review/Task7/merge credit. Never merge.\n' > "$PROOF_DIR/acceptance.txt"
+          cd "$PROOF_DIR"
+          find . -type f ! -name files.sha256 -print0 | sort -z | xargs -0 sha256sum > files.sha256
+      - name: Always retain actual complete private evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sentry2m-test-protection-proof-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/sentry2m-test-protection-proof/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
