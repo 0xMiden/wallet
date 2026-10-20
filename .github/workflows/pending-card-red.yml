@@ -1,0 +1,267 @@
+name: Pending activity expected reporting failures
+
+on:
+  push:
+    branches: [ci/1616-pending-card-red]
+
+permissions:
+  contents: read
+
+jobs:
+  floor-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: bash
+    env:
+      CI: 'true'
+      PROOF_HEAD_SHA: ${{ github.sha }}
+      PROOF_REF: ${{ github.ref }}
+      PROOF_EVENT: ${{ github.event_name }}
+      PROOF_REPOSITORY: ${{ github.repository }}
+      PROOF_WORKFLOW_REF: ${{ github.workflow_ref }}
+      PROOF_WORKFLOW_SHA: ${{ github.workflow_sha }}
+      PROOF_RUN_ID: ${{ github.run_id }}
+      PROOF_RUN_ATTEMPT: ${{ github.run_attempt }}
+    steps:
+      - name: Initialize proof evidence
+        run: |
+          set -euo pipefail
+          umask 077
+          export PROOF_DIR="$RUNNER_TEMP/pending-card-red"
+          printf 'PROOF_DIR=%s\n' "$PROOF_DIR" >> "$GITHUB_ENV"
+          mkdir -p "$PROOF_DIR"
+          python3 - <<'PYTHON'
+          import json
+          import os
+          from pathlib import Path
+
+          keys = ['HEAD_SHA', 'REF', 'EVENT', 'REPOSITORY', 'WORKFLOW_REF', 'WORKFLOW_SHA', 'RUN_ID', 'RUN_ATTEMPT']
+          identity = {key: os.environ['PROOF_' + key] for key in keys}
+          (Path(os.environ['PROOF_DIR']) / 'run-identity.json').write_text(json.dumps(identity, indent=2) + '\n')
+          PYTHON
+
+      - name: Checkout exact proof head
+        id: checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Bind checkout to the reviewed source and sole workflow addition
+        id: source
+        if: ${{ !cancelled() && steps.checkout.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          python3 - <<'PYTHON' 2>&1 | tee "$PROOF_DIR/source-validation.log"
+          import hashlib
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
+
+          proof = Path(os.environ['PROOF_DIR'])
+          source = 'dd2c863e210d3e3e4a0b0ba8f38948920873b4c7'
+          expected_tree = 'c715ca68a3e0df3ec6b895a47d39db49bd886f96'
+          tests = {'src/app/templates/history/PendingActivityCard.test.tsx': {'sha256': '50534f667abf16316d7102b06d60647d1efd795a8daaeb1041478ff8685f2d1b', 'test_count': 31, 'test_names_sha256': '89703dd0f18893320835083868b32440e24e8bd2749824b81936f643853065d6', 'expected_failure_prefix_sha256': {'PendingActivityCard live failure reporting reports a pending row that becomes failed while its real Notice is open after 1000 ms': '2a729fce9472fc9a50e7c4e3601e1671ae11e5fb56678adc54244a3cd9a4560d', 'PendingActivityCard live failure reporting starts the dwell only when the folded live failure is displayed': '2a729fce9472fc9a50e7c4e3601e1671ae11e5fb56678adc54244a3cd9a4560d', 'PendingActivityCard live failure reporting does not restart the same failure dwell when the same note receives refreshed details': '2a729fce9472fc9a50e7c4e3601e1671ae11e5fb56678adc54244a3cd9a4560d', 'PendingActivityCard live failure reporting lets a replacement pending note create its own later live failure': '2a729fce9472fc9a50e7c4e3601e1671ae11e5fb56678adc54244a3cd9a4560d', 'PendingActivityCard live failure reporting starts another live episode after a displayed failure recovers': 'aa6666d730d5070f9a41409e316e1aee3b7e16e7abefe2db5a2c04d1b9ac26fc'}}, 'src/app/hooks/useActivityClaims.test.ts': {'sha256': 'd4a95d45c5fe341510a7b1cc750cc07da498f2c38a241233f1cb7dee336c6171', 'test_count': 81, 'test_names_sha256': '19731952a9b69e8fe85fe02abb51c141d3725ea3d3d67135363526955d06931c', 'expected_failure_prefix_sha256': {'live claim failures through PendingActivityCard and Notice reports the real activityAcceptTransfer queue catch by its displayed fixed key after the Notice dwell': '2a729fce9472fc9a50e7c4e3601e1671ae11e5fb56678adc54244a3cd9a4560d', 'live claim failures through PendingActivityCard and Notice reports the real Accept All queue catch by its displayed fixed key after the Notice dwell': '2a729fce9472fc9a50e7c4e3601e1671ae11e5fb56678adc54244a3cd9a4560d', 'live claim failures through PendingActivityCard and Notice reports a real queued attempt whose watched row becomes failed while mounted': '2a729fce9472fc9a50e7c4e3601e1671ae11e5fb56678adc54244a3cd9a4560d', 'live claim failures through PendingActivityCard and Notice reports a held Retry Error by its fixed producer site, independent of raw text: Guardian still holds the claim': '37c70d7e879a09085c7605b54df9683e2f373f7837d18d5b75a12e7197f64b18', 'live claim failures through PendingActivityCard and Notice reports a held Retry Error by its fixed producer site, independent of raw text: insufficientFeeAsset': '37c70d7e879a09085c7605b54df9683e2f373f7837d18d5b75a12e7197f64b18', 'live claim failures through PendingActivityCard and Notice reports the typed held Retry fee refusal by its key despite localized text': 'f88107837b8a55b147b268b5160ae9dbfdf1e214b682eab1014e0e5694330b22', 'live claim failures through PendingActivityCard and Notice cancels the old refusal while Retry is running and lets a later refusal start another dwell': '37c70d7e879a09085c7605b54df9683e2f373f7837d18d5b75a12e7197f64b18', 'live claim failures through PendingActivityCard and Notice keeps one raw Retry dwell while the same held note refreshes its details': '37c70d7e879a09085c7605b54df9683e2f373f7837d18d5b75a12e7197f64b18', 'live claim failures through PendingActivityCard and Notice lets a local Retry on a first-loaded failed note create a fresh episode': '2a729fce9472fc9a50e7c4e3601e1671ae11e5fb56678adc54244a3cd9a4560d'}}}
+          provenance = {'wallet1616-pending-card-gap/regressions/task-report.md': '3a9e87efb94ad448acab92f18bf9f4391ddc6808342d8fa994aa24cdfd1dd3e9', 'wallet1616-pending-card-gap/regressions/normal-review/spec-taskquality-review.md': 'b3b70f5742de8dd63d21f50c8c1b719c452684d11e455288de7eef6cda7d8780', 'wallet1616-pending-card-gap/regressions/normal-review/controller-acceptance.json': '0245a05d78e9332cf19758902ede01b47165354e48a728117cd9840841efa907'}
+          workflow = '.github/workflows/pending-card-red.yml'
+
+          def git(*args):
+              return subprocess.check_output(['git', *args])
+
+          def value(*args):
+              return git(*args).decode().strip()
+
+          def tree(ref):
+              entries = {}
+              for record in git('ls-tree', '-r', '-z', ref).split(b'\0'):
+                  if record:
+                      metadata, name = record.split(b'\t', 1)
+                      entries[name.decode()] = metadata.decode().split()
+              return entries
+
+          head = value('rev-parse', 'HEAD')
+          source_tree = value('rev-parse', source + '^{tree}')
+          before, after = tree(source), tree(head)
+          manifest = {
+              'expected_source_commit': source,
+              'expected_source_tree': expected_tree,
+              'source_commit': value('rev-parse', source),
+              'source_tree': source_tree,
+              'checkout_commit': head,
+              'checkout_tree': value('rev-parse', 'HEAD^{tree}'),
+              'source_entries': len(before),
+              'delta': value('diff', '--name-status', source, 'HEAD'),
+              'expected_tests': tests,
+              'checkout_test_sha256': {name: hashlib.sha256(Path(name).read_bytes()).hexdigest() for name in tests},
+              'review_provenance_sha256': provenance,
+              'expected_reporting_assertion_failures': 14,
+              'workflow_blob': after.get(workflow),
+              'workflow_sha256': hashlib.sha256(Path(workflow).read_bytes()).hexdigest()
+          }
+          (proof / 'source-and-checkout.json').write_text(json.dumps(manifest, indent=2) + '\n')
+          for label, ref in [('source', source), ('checkout', head)]:
+              (proof / (label + '-commit.txt')).write_bytes(git('cat-file', 'commit', ref))
+              (proof / (label + '-tree.txt')).write_bytes(git('ls-tree', '-r', ref))
+          (proof / 'workflow-only.diff').write_bytes(git('diff', '--binary', source, 'HEAD', '--', workflow))
+
+          assert head == os.environ['PROOF_HEAD_SHA'] == os.environ['PROOF_WORKFLOW_SHA'], 'Checkout/event/workflow head mismatch'
+          assert os.environ['PROOF_EVENT'] == 'push', 'Push event required'
+          assert os.environ['PROOF_REF'] == 'refs/heads/ci/1616-pending-card-red', 'Disposable branch required'
+          expected_ref = os.environ['PROOF_REPOSITORY'] + '/' + workflow + '@' + os.environ['PROOF_REF']
+          assert os.environ['PROOF_WORKFLOW_REF'] == expected_ref, 'Workflow ref mismatch'
+          assert all(os.environ['PROOF_' + key].isdigit() for key in ['RUN_ID', 'RUN_ATTEMPT']), 'Run identity missing'
+          assert source_tree == expected_tree, 'Reviewed source tree mismatch'
+          subprocess.run(['git', 'merge-base', '--is-ancestor', source, head], check=True)
+          assert len(before) == 3606 and all(after.get(name) == entry for name, entry in before.items()), 'Source entry changed'
+          assert set(after) - set(before) == {workflow}, 'Expected exactly one added workflow'
+          assert after[workflow][:2] == ['100644', 'blob'], 'Workflow must be a regular file'
+          subprocess.run(['git', 'diff', '--quiet', 'HEAD', '--'], check=True)
+          assert not value('status', '--porcelain=v1', '--untracked-files=all'), 'Checkout is dirty'
+          assert all(not Path(name).is_symlink() and manifest['checkout_test_sha256'][name] == binding['sha256'] for name, binding in tests.items()), 'Test bytes changed'
+          print('Verified all 3606 source entries unchanged and exactly one regular workflow addition')
+          PYTHON
+
+      - name: Setup Node 22
+        id: node
+        if: ${{ !cancelled() && steps.source.outcome == 'success' }}
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+
+      - name: Install frozen dependencies with normal preparation hooks
+        id: install
+        if: ${{ !cancelled() && steps.source.outcome == 'success' && steps.node.outcome == 'success' }}
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          umask 077
+          timeout 10m yarn install --frozen-lockfile --non-interactive 2>&1 | tee "$PROOF_DIR/install.log"
+
+      - name: Recheck tracked source and both test files after preparation
+        id: prepared
+        if: ${{ !cancelled() && steps.source.outcome == 'success' && steps.install.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          python3 - <<'PYTHON' 2>&1 | tee "$PROOF_DIR/prepared-source.log"
+          import hashlib
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
+
+          manifest = json.loads((Path(os.environ['PROOF_DIR']) / 'source-and-checkout.json').read_text())
+          subprocess.run(['git', 'diff', '--quiet', 'HEAD', '--'], check=True)
+          for name, binding in manifest['expected_tests'].items():
+              assert not Path(name).is_symlink(), 'Symlink test: ' + name
+              assert hashlib.sha256(Path(name).read_bytes()).hexdigest() == binding['sha256'], 'Test bytes changed: ' + name
+          print('Verified unchanged tracked source and both test files after preparation')
+          PYTHON
+
+      - name: Lint the two reporting test files
+        id: eslint
+        if: ${{ !cancelled() && steps.source.outcome == 'success' && steps.install.outcome == 'success' && steps.prepared.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          yarn eslint --max-warnings 0 src/app/hooks/useActivityClaims.test.ts src/app/templates/history/PendingActivityCard.test.tsx 2>&1 | tee "$PROOF_DIR/eslint.log"
+
+      - name: Check project TypeScript without emitting
+        id: typescript
+        if: ${{ !cancelled() && steps.source.outcome == 'success' && steps.install.outcome == 'success' && steps.prepared.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          yarn tsc --noEmit --pretty false 2>&1 | tee "$PROOF_DIR/typescript.log"
+
+      - name: Run both complete suites with natural expected-red status
+        id: jest
+        if: ${{ !cancelled() && steps.source.outcome == 'success' && steps.install.outcome == 'success' && steps.prepared.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          set +e
+          yarn jest --runTestsByPath src/app/hooks/useActivityClaims.test.ts src/app/templates/history/PendingActivityCard.test.tsx --maxWorkers=2 --coverage=false --no-colors --json --outputFile="$PROOF_DIR/jest.json" 2>&1 | tee "$PROOF_DIR/jest.log"
+          statuses=("${PIPESTATUS[@]}")
+          set -e
+          printf '%s\n' "${statuses[0]}" > "$PROOF_DIR/jest.exit"
+          printf '%s\n' "${statuses[1]}" > "$PROOF_DIR/tee.exit"
+          if [ "${statuses[1]}" -ne 0 ]; then exit "${statuses[1]}"; fi
+          exit "${statuses[0]}"
+
+      - name: Record independent outcomes and require complete evidence
+        if: always()
+        env:
+          CHECKOUT_OUTCOME: ${{ steps.checkout.outcome }}
+          SOURCE_OUTCOME: ${{ steps.source.outcome }}
+          NODE_OUTCOME: ${{ steps.node.outcome }}
+          INSTALL_OUTCOME: ${{ steps.install.outcome }}
+          PREPARED_SOURCE_OUTCOME: ${{ steps.prepared.outcome }}
+          ESLINT_OUTCOME: ${{ steps.eslint.outcome }}
+          TYPESCRIPT_OUTCOME: ${{ steps.typescript.outcome }}
+          JEST_OUTCOME: ${{ steps.jest.outcome }}
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$PROOF_DIR"
+          python3 - <<'PYTHON'
+          import hashlib,json,os,re,subprocess
+          from pathlib import Path
+          proof=Path(os.environ['PROOF_DIR'])
+          outcomes={key:value for key,value in os.environ.items() if key.endswith('_OUTCOME')}
+          (proof/'step-outcomes.json').write_text(json.dumps(outcomes,indent=2)+'\n')
+          required=['run-identity.json','source-and-checkout.json','source-commit.txt','checkout-commit.txt','source-tree.txt','checkout-tree.txt','workflow-only.diff','source-validation.log','install.log','prepared-source.log','eslint.log','typescript.log','jest.log','jest.json','jest.exit','tee.exit']
+          missing=[name for name in required if not (proof/name).is_file() or not (proof/name).stat().st_size]
+          (proof/'evidence-completeness.json').write_text(json.dumps({'missing_or_empty':missing},indent=2)+'\n')
+          assert not missing,missing
+          assert (proof/'jest.exit').read_text().strip()=='1'
+          assert (proof/'tee.exit').read_text().strip()=='0'
+          manifest=json.loads((proof/'source-and-checkout.json').read_text())
+          expected=manifest['expected_tests'];result=json.loads((proof/'jest.json').read_text());actual={};failures={}
+          for suite in result['testResults']:
+              name=Path(suite['name']).relative_to(Path.cwd()).as_posix()
+              assert name not in actual and name in expected,name
+              binding=expected[name];cases=suite['assertionResults'];names=sorted(case['fullName'] for case in cases)
+              assert len(names)==binding['test_count']
+              assert hashlib.sha256(json.dumps(names,ensure_ascii=False,separators=(',',':')).encode()).hexdigest()==binding['test_names_sha256']
+              assert not Path(name).is_symlink() and hashlib.sha256(Path(name).read_bytes()).hexdigest()==binding['sha256']
+              seen=[]
+              for case in cases:
+                  title=case['fullName'];predicted=binding['expected_failure_prefix_sha256'].get(title)
+                  if predicted is None:
+                      assert case['status']=='passed' and not case['failureMessages'],title
+                  else:
+                      assert case['status']=='failed' and len(case['failureMessages'])==1,title
+                      message=re.sub(r'\x1b\[[0-9;]*m','',case['failureMessages'][0])
+                      prefix=re.split(r'\n\s+at ',message,1)[0].rstrip()
+                      assert 'expect(received).toEqual(expected)' in prefix and '+ Array []' in prefix,title
+                      assert hashlib.sha256(prefix.encode()).hexdigest()==predicted,title
+                      seen.append(title)
+              assert set(seen)==set(binding['expected_failure_prefix_sha256'])
+              actual[name]={'test_count':len(cases),'expected_assertion_failures':len(seen)}
+              failures[name]=seen
+          assert set(actual)==set(expected)
+          assert result['numTotalTestSuites']==result['numFailedTestSuites']==2
+          assert result['numTotalTests']==112 and result['numFailedTests']==14 and result['numPassedTests']==98
+          assert all(result[k]==0 for k in ['numPassedTestSuites','numPendingTestSuites','numPendingTests','numTodoTests','numRuntimeErrorTestSuites'])
+          assert result['success'] is False and result['wasInterrupted'] is False
+          assert not result['openHandles']
+          subprocess.run(['git','diff','--quiet','HEAD','--'],check=True)
+          assert outcomes.pop('JEST_OUTCOME')=='failure'
+          assert len(outcomes)==7 and all(value=='success' for value in outcomes.values()),outcomes
+          (proof/'test-set-validation.json').write_text(json.dumps({'summary':{'total':112,'failed':14,'passed':98,'skipped':0,'errors':0},'suites':actual,'exact_failures':failures,'independent_outcomes':outcomes},indent=2)+'\n')
+          print('Verified exactly14 missingreport assertions,98passed controls and all independent gates; natural red retained')
+          PYTHON
+
+      - name: Upload evidence even on failure
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pending-card-red-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.PROOF_DIR }}
+          if-no-files-found: error
+          retention-days: 7
