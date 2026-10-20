@@ -36,7 +36,7 @@ it('uses the deposit for a 5 USDCx burn after a faucet 503, with no grant retry'
   const result = await optionalPublicFaucetGrant('https://faucet.example', 'account', 10_000_000n, controller().signal);
   expect(result).toEqual({ kind: 'unavailable', reason: 'Public faucet mint failed (503): Unavailable' });
   expect(fetch).toHaveBeenCalledTimes(2);
-  expect(roundtripBurnUnits(ROUNDTRIP_DEPOSIT_UNITS - 133n, false)).toBe(5_000_000n);
+  expect(roundtripBurnUnits(ROUNDTRIP_DEPOSIT_UNITS - 133n, false) === 5_000_000n).toBe(true);
 });
 
 it('returns the grant note and permits a 6 USDCx burn after the grant is consumed', async () => {
@@ -47,7 +47,7 @@ it('returns the grant note and permits a 6 USDCx burn after the grant is consume
   await expect(
     optionalPublicFaucetGrant('https://faucet.example', 'account', 10_000_000n, controller().signal)
   ).resolves.toEqual({ kind: 'granted', noteId: NOTE_ID });
-  expect(roundtripBurnUnits(15_199_734n, true)).toBe(6_000_000n);
+  expect(roundtripBurnUnits(15_199_734n, true) === 6_000_000n).toBe(true);
   expect(() => roundtripBurnUnits(5_199_867n, true)).toThrow('cannot cover');
 });
 
@@ -118,14 +118,15 @@ it.each([false, true])('round-trip selector obeys the wallet minimum (grant=%s)'
   expect(usdcxMinimumBurnShortfall(selected)).toBeUndefined();
 });
 
+// Boolean comparisons keep failed bigint checks serializable in Jest's JSON proof.
 it('pins the mandatory burn, deposit and fee reserve budgets', () => {
-  expect(ROUNDTRIP_BURN_UNITS).toBe(5_000_000n);
-  expect(ROUNDTRIP_DEPOSIT_UNITS).toBe(5_200_000n);
-  expect(ROUNDTRIP_FEE_RESERVE).toBe(100_000n);
+  expect(ROUNDTRIP_BURN_UNITS === 5_000_000n).toBe(true);
+  expect(ROUNDTRIP_DEPOSIT_UNITS === 5_200_000n).toBe(true);
+  expect(ROUNDTRIP_FEE_RESERVE === 100_000n).toBe(true);
 });
 
 it('accepts the exact deposit-funded burn and reserve boundary', () => {
-  expect(roundtripBurnUnits(5_100_000n, false)).toBe(5_000_000n);
+  expect(roundtripBurnUnits(5_100_000n, false) === 5_000_000n).toBe(true);
 });
 
 it('refuses one unit below the deposit-funded reserve boundary', () => {
@@ -133,7 +134,7 @@ it('refuses one unit below the deposit-funded reserve boundary', () => {
 });
 
 it('accepts the exact grant-funded burn and reserve boundary', () => {
-  expect(roundtripBurnUnits(6_100_000n, true)).toBe(6_000_000n);
+  expect(roundtripBurnUnits(6_100_000n, true) === 6_000_000n).toBe(true);
 });
 
 it('refuses one unit below the grant-funded reserve boundary', () => {
