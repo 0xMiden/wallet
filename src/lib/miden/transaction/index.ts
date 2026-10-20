@@ -1157,7 +1157,10 @@ async function reconcileStructuralApplyFailure(
       ) {
         throw error;
       }
-      console.warn('[Guardian] outgoing service unavailable during landed switch reconcile - completing without it', error);
+      console.warn(
+        '[Guardian] outgoing service unavailable during landed switch reconcile - completing without it',
+        error
+      );
     }
   }
   // `commitUnconfirmed: true`, unconditionally. This reconcile is reached only after the
@@ -4173,10 +4176,7 @@ const generateGuardianTransaction = async (
           nonce: proposalResult.nonce,
           error: abandonError
         });
-        if (
-          !isKilledPipeline(error) &&
-          (hasErrorBeforeSubmit(error) || (!offscreenDispatched && !submitCrossed))
-        ) {
+        if (!isKilledPipeline(error) && (hasErrorBeforeSubmit(error) || (!offscreenDispatched && !submitCrossed))) {
           recordUnabandonedCandidate(transaction.accountId, service, proposalResult.nonce, proposalStamps);
         }
       }

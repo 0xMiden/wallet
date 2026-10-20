@@ -1176,50 +1176,62 @@ describe('createGuardianAccount', () => {
       expect(fixture.multisig.registerOnGuardian).toHaveBeenCalledTimes(next === true ? 2 : 1);
     });
 
-    it.each(['denied', 'unavailable', 'expired', 'allowed'])('GEO020 final transport refuses %s permission after authentication without another attempt', async change => {
-      const fixture = await registration();
-      const entered = (() => {
-        let resolve: () => void = () => { throw new Error('Fixture gate not initialized'); };
-        const promise = new Promise<void>(done => { resolve = done; });
-        return { promise, resolve };
-      })();
-      const release = (() => {
-        let resolve: () => void = () => { throw new Error('Fixture gate not initialized'); };
-        const promise = new Promise<void>(done => { resolve = done; });
-        return { promise, resolve };
-      })();
-      const sent = jest.fn();
-      fixture.multisig.registerOnGuardian.mockImplementationOnce(async () => {
-        entered.resolve();
-        await release.promise;
-        const call = fixture.multisig.registerOnGuardian.mock.calls[0];
-        const beforeSend: unknown = call ? Reflect.get(call, '1') : undefined;
-        if (typeof beforeSend === 'function') beforeSend();
-        sent();
-      });
-      const clock = jest.spyOn(performance, 'now');
-      const startedAt = performance.now();
-      const outcome = track(registerGuardianAccount(fixture.pending));
-      try {
-        expect(await Promise.race([entered.promise.then(() => 'authenticating'), outcome.then(() => 'finished')])).toBe('authenticating');
-        if (change === 'denied' || change === 'unavailable') {
-          decision = change === 'denied' ? false : null;
-          access.publishWalletAccessDecision(scope(), decision);
+    it.each(['denied', 'unavailable', 'expired', 'allowed'])(
+      'GEO020 final transport refuses %s permission after authentication without another attempt',
+      async change => {
+        const fixture = await registration();
+        const entered = (() => {
+          let resolve: () => void = () => {
+            throw new Error('Fixture gate not initialized');
+          };
+          const promise = new Promise<void>(done => {
+            resolve = done;
+          });
+          return { promise, resolve };
+        })();
+        const release = (() => {
+          let resolve: () => void = () => {
+            throw new Error('Fixture gate not initialized');
+          };
+          const promise = new Promise<void>(done => {
+            resolve = done;
+          });
+          return { promise, resolve };
+        })();
+        const sent = jest.fn();
+        fixture.multisig.registerOnGuardian.mockImplementationOnce(async () => {
+          entered.resolve();
+          await release.promise;
+          const call = fixture.multisig.registerOnGuardian.mock.calls[0];
+          const beforeSend: unknown = call ? Reflect.get(call, '1') : undefined;
+          if (typeof beforeSend === 'function') beforeSend();
+          sent();
+        });
+        const clock = jest.spyOn(performance, 'now');
+        const startedAt = performance.now();
+        const outcome = track(registerGuardianAccount(fixture.pending));
+        try {
+          expect(
+            await Promise.race([entered.promise.then(() => 'authenticating'), outcome.then(() => 'finished')])
+          ).toBe('authenticating');
+          if (change === 'denied' || change === 'unavailable') {
+            decision = change === 'denied' ? false : null;
+            access.publishWalletAccessDecision(scope(), decision);
+          }
+          if (change === 'expired') clock.mockReturnValue(startedAt + 60_001);
+          release.resolve();
+          const result = await outcome;
+          expect(result === 'resolved').toBe(change === 'allowed');
+          expect(code(result)).toBe(change === 'allowed' ? undefined : 'WALLET_ACCESS_DENIED');
+          expect(sent).toHaveBeenCalledTimes(change === 'allowed' ? 1 : 0);
+          expect(fixture.multisig.registerOnGuardian).toHaveBeenCalledTimes(1);
+        } finally {
+          release.resolve();
+          await outcome;
+          clock.mockRestore();
         }
-        if (change === 'expired') clock.mockReturnValue(startedAt + 60_001);
-        release.resolve();
-        const result = await outcome;
-        expect(result === 'resolved').toBe(change === 'allowed');
-        expect(code(result)).toBe(change === 'allowed' ? undefined : 'WALLET_ACCESS_DENIED');
-        expect(sent).toHaveBeenCalledTimes(change === 'allowed' ? 1 : 0);
-        expect(fixture.multisig.registerOnGuardian).toHaveBeenCalledTimes(1);
-      } finally {
-        release.resolve();
-        await outcome;
-        clock.mockRestore();
       }
-    });
-
+    );
   });
 });
 

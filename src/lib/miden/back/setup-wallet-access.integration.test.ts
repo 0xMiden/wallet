@@ -29,7 +29,27 @@ import {
 import { accountsUpdated, inited, locked, store, unlocked } from './store';
 import { Vault } from './vault';
 
-jest.unmock('lib/remote-config/wallet-access');
+// Runtime reset clears state without reclaiming the leaf's import-time registration.
+jest.mock('lib/remote-config/wallet-access', () => {
+  const actual = jest.requireActual<typeof import('lib/remote-config/wallet-access')>(
+    'lib/remote-config/wallet-access'
+  );
+  type Runtime = Parameters<typeof actual.registerWalletAccessRuntime>[0];
+  let original: Runtime | undefined;
+  const register = Object.assign(
+    (next: Runtime) => {
+      original ??= next;
+      actual.registerWalletAccessRuntime(next);
+    },
+    {
+      restore: () => {
+        if (!original) throw new Error('The production wallet access runtime was not registered');
+        actual.registerWalletAccessRuntime(original);
+      }
+    }
+  );
+  return { ...actual, registerWalletAccessRuntime: register };
+});
 jest.unmock('lib/miden/back/vault');
 jest.unmock('./vault');
 
@@ -313,6 +333,9 @@ let stopWatching: () => void;
 
 beforeEach(async () => {
   _resetBridgeConfigRuntimeForTest();
+  const restore: unknown = Reflect.get(registerWalletAccessRuntime, 'restore');
+  if (typeof restore !== 'function') throw new Error('The fixture cannot restore the real permission runtime');
+  restore();
   jest.restoreAllMocks();
   mockNow = 1_000;
   jest.spyOn(performance, 'now').mockImplementation(() => mockNow);
