@@ -146,9 +146,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
   const amountErrorId = errorId === undefined && isUserErrorId(error) ? error : errorId;
   const amountError = !hideErrorText && error && (amount || error !== 'invalidAmount') ? t(error) : undefined;
   useUserVisibleError(
-    !amountError && showBalanceHelper && token && token.balance !== null && !scaleIsKnown
-      ? 'unknownTokenScale'
-      : null,
+    !amountError && showBalanceHelper && token && token.balance !== null && !scaleIsKnown ? 'unknownTokenScale' : null,
     'inline'
   );
 
