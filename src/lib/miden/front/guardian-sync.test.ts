@@ -2030,6 +2030,83 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
         expect(sync).toHaveBeenCalledTimes(1);
       });
 
+      it.each([
+        {
+          name: 'does not publish an obsolete sync when the endpoint changes during the failed-rotation lookup',
+          change: 'endpoint',
+          recordsSuccess: false
+        },
+        {
+          name: 'does not publish a retired sync after the failed-rotation lookup',
+          change: 'retirement',
+          recordsSuccess: false
+        },
+        {
+          name: 'publishes a sync when the endpoint is only canonically respelled during the failed-rotation lookup',
+          change: 'respelling',
+          recordsSuccess: true
+        }
+      ])('$name', async ({ change, recordsSuccess }) => {
+        const account = {
+          ...pendingAccount,
+          hotPublicKey: 'hot',
+          requiresHotKeyRotation: false,
+          guardianEndpoint: 'https://Guardian.Example.com'
+        };
+        storeState.accounts = [account];
+        sync.mockRejectedValue(new Error('Failed to fetch'));
+        for (let attempt = 0; attempt < GUARDIAN_SYNC_OUTAGE_THRESHOLD; attempt += 1) await syncGuardianAccounts();
+        expect(isGuardianSyncOutage(account.publicKey)).toBe(true);
+
+        sync.mockClear().mockResolvedValue(undefined);
+        mockEnsureGuardianProcedureThresholds.mockReset().mockResolvedValue(undefined);
+        type FailedRotationRows = Awaited<ReturnType<typeof mockFindFailedHotKeyRotations>>;
+        let releaseRows = (_rows: FailedRotationRows): void => {};
+        let markEntered = (): void => {};
+        const rows = new Promise<FailedRotationRows>(resolve => {
+          releaseRows = resolve;
+        });
+        const entered = new Promise<void>(resolve => {
+          markEntered = resolve;
+        });
+        mockFindFailedHotKeyRotations.mockImplementationOnce(async () => {
+          markEntered();
+          return rows;
+        });
+
+        const pass = syncGuardianAccounts();
+        const successTimestamp = expect.any(Number);
+        try {
+          await entered;
+          expect(sync).toHaveBeenCalledTimes(1);
+          expect(getGuardianLastSyncAt(account.publicKey)).toBeUndefined();
+          expect(mockEnsureGuardianProcedureThresholds).not.toHaveBeenCalled();
+
+          if (change === 'endpoint') {
+            storeState.accounts = [{ ...account, guardianEndpoint: 'https://new.guardian.test' }];
+          } else if (change === 'retirement') {
+            retireGuardianSyncPasses();
+          } else {
+            storeState.accounts = [{ ...account, guardianEndpoint: 'https://guardian.example.com:443/' }];
+          }
+          releaseRows([]);
+          await pass;
+
+          expect({
+            lastSyncAt: getGuardianLastSyncAt(account.publicKey),
+            hardeningCalls: mockEnsureGuardianProcedureThresholds.mock.calls.length,
+            outage: isGuardianSyncOutage(account.publicKey)
+          }).toEqual({
+            lastSyncAt: recordsSuccess ? successTimestamp : undefined,
+            hardeningCalls: recordsSuccess ? 1 : 0,
+            outage: !recordsSuccess
+          });
+        } finally {
+          releaseRows([]);
+          await pass;
+        }
+      });
+
       it('does not finish a Failed rotation whose key the chain does not name', async () => {
         mockGetSignerDetails.mockResolvedValue({ commitment: '0xdead' });
 

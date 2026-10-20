@@ -1,9 +1,10 @@
 import { DBCore, DBCoreIndex, Middleware } from 'dexie';
 
 import { TEST_BRIDGE_CONFIG_SNAPSHOT } from 'lib/epoch/testing/bridge-config';
+import { getMessage } from 'lib/i18n/core';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 
-import { ITransaction, ITransactionStatus, SendTransaction, Transaction } from '../db/types';
+import { ITransaction, ITransactionStatus, SendTransaction, SwapTransaction, Transaction } from '../db/types';
 import { db, spendingLimits, transactions } from '../repo';
 import { NoteTypeEnum } from '../types';
 import {
@@ -695,5 +696,153 @@ describe('fresh Earn deposit eligibility at row insertion', () => {
     await queueOutgoingTransaction({ ...sendRow(), type: 'earn-withdraw' }, DEFAULT_AUTHORIZED_SPENDS, undefined, NOW);
     await expect(transactions.get('existing')).resolves.toMatchObject({ status: ITransactionStatus.Completed });
     await expect(transactions.get('tx-1')).resolves.toMatchObject({ type: 'earn-withdraw' });
+  });
+});
+
+describe('GEO010 fresh Swap eligibility at row insertion', () => {
+  const swapRow = (): SwapTransaction => {
+    const row = new SwapTransaction(ACCOUNT, 'eth', 1n, 'btc', 1n);
+    row.id = 'geo010-swap';
+    row.initiatedAt = NOW;
+    return row;
+  };
+
+  const setSwapEligibility = (allowed: boolean) => {
+    const accepted = TEST_BRIDGE_CONFIG_SNAPSHOT.config;
+    if (!accepted) throw new Error('Missing test configuration');
+    mockEligibilitySnapshot = {
+      ...TEST_BRIDGE_CONFIG_SNAPSHOT,
+      config: { ...accepted, geo: { ...accepted.geo, swap: [{ country: 'GB' }] } },
+      geo: {
+        state: 'ready',
+        network: accepted.network,
+        version: accepted.version,
+        allowed: { wallet: true, earn: true, swap: allowed }
+      }
+    };
+  };
+
+  const expectSwapNotInserted = async (attempt: Promise<void>) => {
+    const error = await attempt.then(
+      () => undefined,
+      (failure: unknown) => failure
+    );
+    expect(mockEligibilitySnapshot.geo).toMatchObject({ allowed: { wallet: true, earn: true, swap: false } });
+    await expect(transactions.get('geo010-swap')).resolves.toBeUndefined();
+    return error;
+  };
+
+  const duringAuthorizationRead = async (run: () => Promise<void>) => {
+    let authorizationReads = 0;
+    const middleware: Middleware<DBCore> = {
+      stack: 'dbcore',
+      name: 'geo010-authorization-revocation',
+      create: down => ({
+        ...down,
+        table: name => {
+          const table = down.table(name);
+          if (name !== 'transactions') return table;
+          return {
+            ...table,
+            count: request => {
+              const counted = table.count(request);
+              if (request.query.index.name !== 'spendingLimitAuthorizationId') return counted;
+              return counted.then(result => {
+                authorizationReads += 1;
+                setSwapEligibility(false);
+                return result;
+              });
+            }
+          };
+        }
+      })
+    };
+    db.close();
+    db.use(middleware);
+    await db.open();
+    try {
+      await run();
+      expect(authorizationReads).toBe(1);
+    } finally {
+      db.unuse({ stack: 'dbcore', name: 'geo010-authorization-revocation' });
+      db.close();
+      await db.open();
+    }
+  };
+
+  beforeEach(() => setSwapEligibility(true));
+
+  it('GEO010 refuses an uncapped Swap row after revocation during the policy read', async () => {
+    const originalGet = spendingLimits.get.bind(spendingLimits);
+    const read = jest.spyOn(spendingLimits, 'get').mockImplementationOnce(key =>
+      originalGet(key).then(policy => {
+        setSwapEligibility(false);
+        return policy;
+      })
+    );
+    try {
+      const error = await expectSwapNotInserted(
+        queueOutgoingTransaction(swapRow(), DEFAULT_AUTHORIZED_SPENDS, undefined, NOW)
+      );
+      expect(error).toMatchObject({ message: getMessage('swapUnavailableTitle') });
+    } finally {
+      read.mockRestore();
+    }
+  });
+
+  it.each(['under limit', 'removed limit'])(
+    'GEO010 refuses a Swap row after revocation during %s valuation',
+    async path => {
+      await saveConfig();
+      mockedResolve.mockImplementationOnce(async () => {
+        setSwapEligibility(false);
+        if (path === 'removed limit') await spendingLimits.delete(ACCOUNT);
+        return 1n;
+      });
+      const error = await expectSwapNotInserted(
+        queueOutgoingTransaction(swapRow(), DEFAULT_AUTHORIZED_SPENDS, undefined, NOW)
+      );
+      expect(error).toMatchObject({ message: getMessage('swapUnavailableTitle') });
+    }
+  );
+
+  it.each(['usd', 'unpriced'])('GEO010 refuses a Swap row revoked during %s authorization redemption', async kind => {
+    await saveConfig();
+    if (kind === 'unpriced') mockedResolve.mockRejectedValueOnce(new SpendingLimitPriceUnavailableError('ETH'));
+    else mockedResolve.mockResolvedValueOnce(60_000_000n);
+    const authorization =
+      kind === 'usd' ? usdAuthorization() : unpricedAuthorization(ACCOUNT, DEFAULT_AUTHORIZED_SPENDS, 'revision-1');
+    await duringAuthorizationRead(async () => {
+      const error = await expectSwapNotInserted(
+        queueOutgoingTransaction(swapRow(), DEFAULT_AUTHORIZED_SPENDS, authorization, NOW)
+      );
+      expect(error).toMatchObject({ message: getMessage('swapUnavailableTitle') });
+    });
+  });
+
+  it('GEO010 admits a new Swap row when the current policy explicitly allows it', async () => {
+    await queueOutgoingTransaction(swapRow(), DEFAULT_AUTHORIZED_SPENDS, undefined, NOW);
+    await expect(transactions.get('geo010-swap')).resolves.toMatchObject({ type: 'swap' });
+  });
+
+  it('GEO010 preserves an existing Swap row and a linked consume while only Swap creation is denied', async () => {
+    const existing = swapRow();
+    existing.id = 'geo010-existing';
+    await transactions.add(existing);
+    setSwapEligibility(false);
+    await transactions.update(existing.id, { status: ITransactionStatus.Completed });
+    const consume: ITransaction = {
+      ...sendRow(),
+      type: 'consume',
+      noteId: 'payback-note',
+      noteIds: ['payback-note'],
+      extraInputs: { swapOrderTxId: existing.id, swapSettleKind: 'settle' }
+    };
+    await queueOutgoingTransaction(consume, DEFAULT_AUTHORIZED_SPENDS, undefined, NOW);
+    await expect(transactions.get(existing.id)).resolves.toMatchObject({ status: ITransactionStatus.Completed });
+    await expect(transactions.get('tx-1')).resolves.toMatchObject({
+      type: 'consume',
+      extraInputs: { swapOrderTxId: existing.id, swapSettleKind: 'settle' }
+    });
   });
 });
