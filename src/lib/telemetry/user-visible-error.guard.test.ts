@@ -536,6 +536,106 @@ const view = <>
     ).toEqual([{ file: 'src/other/Notice.tsx', line: 1, category: 'unreported-alert' }]);
   });
 
+  it.each([
+    'for (const ErrorLine of alternatives)',
+    'for (let ErrorLine of alternatives)',
+    'for (const ErrorLine in alternatives)',
+    'for (let ErrorLine in alternatives)',
+    'for (const ErrorLine = Local; ready;)',
+    'for (let ErrorLine = Local; ready; advance())'
+  ])('guards imported surfaces after a lexical loop while ignoring its local binding: %s', loop => {
+    expect(
+      fixture(`import { ErrorLine } from 'components/ui';
+function View() {
+  ${loop} {
+    const local = <ErrorLine />;
+  }
+  return <ErrorLine />;
+}`)
+    ).toEqual([{ file: 'src/fixture.tsx', line: 6, category: 'missing-error-id', surface: 'ErrorLine' }]);
+  });
+
+  it.each([
+    'for (var ErrorLine of alternatives)',
+    'for (var ErrorLine in alternatives)',
+    'for (var ErrorLine = Local; ready; advance())'
+  ])('keeps function-scoped loop bindings unrelated inside and after the loop: %s', loop => {
+    expect(
+      fixture(`import { ErrorLine } from 'components/ui';
+function View() {
+  ${loop} {
+    const local = <ErrorLine />;
+  }
+  return <ErrorLine />;
+}`)
+    ).toEqual([]);
+  });
+
+  it.each([
+    [
+      'star then named override',
+      "export * from './lib/telemetry/use-user-visible-error'; export { useUserVisibleError } from './other';"
+    ],
+    [
+      'named override then star',
+      "export { useUserVisibleError } from './other'; export * from './lib/telemetry/use-user-visible-error';"
+    ],
+    [
+      'star then default alias override',
+      "export * from './lib/telemetry/use-user-visible-error'; export { default as useUserVisibleError } from './other';"
+    ],
+    [
+      'default alias override then star',
+      "export { default as useUserVisibleError } from './other'; export * from './lib/telemetry/use-user-visible-error';"
+    ],
+    [
+      'star then local function',
+      "export * from './lib/telemetry/use-user-visible-error'; export function useUserVisibleError() {}"
+    ],
+    [
+      'local function then star',
+      "export function useUserVisibleError() {} export * from './lib/telemetry/use-user-visible-error';"
+    ],
+    [
+      'star then local constant',
+      "export * from './lib/telemetry/use-user-visible-error'; export const useUserVisibleError = () => {};"
+    ],
+    [
+      'local constant then star',
+      "export const useUserVisibleError = () => {}; export * from './lib/telemetry/use-user-visible-error';"
+    ]
+  ])('does not waive native alerts through an unrelated explicit hook export: %s', (_label, barrel) => {
+    expect(
+      fixture(
+        `import { useUserVisibleError as report } from './hooks';
+report(id, 'inline');
+const view = <p role="alert">bad</p>;`,
+        {
+          'src/hooks.ts': barrel,
+          'src/other.ts': 'export function useUserVisibleError() {} export default useUserVisibleError;'
+        }
+      )
+    ).toEqual([{ file: 'src/fixture.tsx', line: 3, category: 'unreported-alert' }]);
+  });
+
+  it.each([
+    "export * from './lib/telemetry/use-user-visible-error';",
+    "export * from './other'; export { useUserVisibleError } from './lib/telemetry/use-user-visible-error';",
+    "export { useUserVisibleError } from './lib/telemetry/use-user-visible-error'; export * from './other';"
+  ])('accepts a genuine hook owner through star or overriding named exports: %s', barrel => {
+    expect(
+      fixture(
+        `import { useUserVisibleError as report } from './hooks';
+report(id, 'inline');
+const view = <p role="alert">bad</p>;`,
+        {
+          'src/hooks.ts': barrel,
+          'src/other.ts': 'export function useUserVisibleError() {}'
+        }
+      )
+    ).toEqual([]);
+  });
+
   it('excludes tests and mocks from the production scan', () => {
     expect(
       scanSources(
