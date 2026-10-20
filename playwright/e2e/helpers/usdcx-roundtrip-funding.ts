@@ -1,6 +1,8 @@
+import { USDCX_MIN_BURN } from '../../../src/lib/usdcx/protocol';
+
 /** Reserve 0.1 USDCx for the claim and 0.1 USDCx for the burn and sponsorship fees. Check the actual balance before sending. */
 export const ROUNDTRIP_FEE_RESERVE = 100_000n;
-export const ROUNDTRIP_BURN_UNITS = 2_000_000n;
+export const ROUNDTRIP_BURN_UNITS = USDCX_MIN_BURN;
 export const ROUNDTRIP_DEPOSIT_UNITS = ROUNDTRIP_BURN_UNITS + 2n * ROUNDTRIP_FEE_RESERVE;
 
 export function roundtripBurnUnits(vault: bigint, receivedGrant: boolean): bigint {

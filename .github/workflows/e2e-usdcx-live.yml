@@ -3,10 +3,10 @@ name: E2E USDCx Bridge-IN (live)
 # Runs the live USDCx E2E on iOS against the LIVE networks (Arc Testnet, Base
 # Sepolia, Arbitrum Sepolia, Ethereum Sepolia and Miden testnet). Nothing on the
 # path is a double.
-#   Each job deposits 2.2 USDC through the wallet UI and verifies the mint and claim.
+#   Each job deposits 5.2 USDC through the wallet UI and verifies the mint and claim.
 #   It then tries one public faucet grant for up to 30 seconds. If the faucet is
-#   unavailable, the deposit funds a 2 USDCx return burn. A verified and consumed
-#   grant raises the burn to 3 USDCx. Both paths require Circle's payout and the
+#   unavailable, the deposit funds a 5 USDCx return burn. A verified and consumed
+#   grant raises the burn to 6 USDCx. Both paths require Circle's payout and the
 #   wallet's Confirmed status. Grant failures are recorded in the test evidence.
 #   Arc deposits go through xReserve. Base, Arbitrum, and Ethereum Sepolia
 #   deposits go through Circle's executor. Each return burn pays the source key
@@ -52,9 +52,9 @@ on:
   workflow_dispatch:
     inputs:
       deposit_amount:
-        description: Arc deposit amount in USDC (at least 2.2)
+        description: Arc deposit amount in USDC (at least 5.2)
         required: false
-        default: '2.2'
+        default: '5.2'
       legs:
         description: Which legs run (all, arc, or one executor source chain)
         required: false
@@ -97,8 +97,8 @@ jobs:
       # Anvil, and this job needs the real Arc Testnet RPC.
       # NO USDCX_LIVE_EVM_PRIVATE_KEY here either: every step sees a job variable, the dependency install and the app
       # build among them, so the key is set only on the two steps that read it.
-      # The deposit covers a 2 USDCx return burn plus claim and burn fee reserves.
-      USDCX_LIVE_DEPOSIT_AMOUNT: ${{ inputs.deposit_amount || '2.2' }}
+      # The deposit covers a 5 USDCx return burn plus claim and burn fee reserves.
+      USDCX_LIVE_DEPOSIT_AMOUNT: ${{ inputs.deposit_amount || '5.2' }}
       USDCX_FAUCET_ACCOUNT_ID: ${{ vars.USDCX_FAUCET_ACCOUNT_ID }}
       USDCX_RELAYER_ACCOUNT_ID: ${{ vars.USDCX_RELAYER_ACCOUNT_ID }}
       USDCX_CIRCLE_ATTESTER_PUBLIC_KEY: ${{ vars.USDCX_CIRCLE_ATTESTER_PUBLIC_KEY }}

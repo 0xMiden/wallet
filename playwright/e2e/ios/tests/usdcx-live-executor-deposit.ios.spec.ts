@@ -71,9 +71,9 @@ import { WcCounterparty, type WcRequestLog } from '../helpers/wc-counterparty';
  *      allowance is short, then to sign the forwarded burn; the counterparty signs through createL2Sender.
  *   4. Circle attests the burn and forwards it to Arc, its executor deposits into xReserve, Circle attests that
  *      deposit, the deployed relayer mints and the wallet claims the mint by itself.
- *   5. Only then the burn half: USDCx from a public faucet grant through Send back to the key's address on the source
- *      chain (2 USDCx, or 3 after an optional faucet grant), passing only once Circle paid that burn there and the wallet
- *      reads Confirmed.
+ *   5. Only then the burn half: deposit-funded USDCx, with an optional faucet grant, through Send to the key's
+ *      address on the source chain (5 USDCx, or 6 after a verified grant), passing only once Circle paid that burn
+ *      there and the wallet reads Confirmed.
  * Each hop is gated with the extension suite's executor proofs (usdcx-in-l2.spec.ts). The run never executes on Arc:
  * the session approves no Arc chain, so the key cannot be asked to sign there.
  *

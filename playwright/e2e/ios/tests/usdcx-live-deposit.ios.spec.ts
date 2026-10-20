@@ -42,18 +42,18 @@ import { WcCounterparty, type WcRequestLog } from '../helpers/wc-counterparty';
  *      which the wallet auto-claims, so it never waits in Pending. The wallet is a Guardian account, so
  *      the claim is a consume the hosted testnet Guardian co-signs, and the spec checks the account's
  *      auth structure afterwards.
- *   7. Only then the burn: the wallet burns 2 USDCx, or 3 after an optional faucet grant, through Send to
+ *   7. Only then the burn: the wallet burns 5 USDCx, or 6 after an optional faucet grant, through Send to
  *      Arc Testnet, back to the funded key's own address. The run fails unless Circle pays that key within 10
  *      minutes of the faucet consuming the burn (one GatewayMinter AttestationUsed log that carries the burn note id
  *      and adds exactly its value to the key's balance, read right before the burn) and the wallet confirms the
  *      payout itself: the row's destination balance, then the History pill.
  *
- * The default deposit is 2.2 USDC. A failed optional grant leaves enough for the return burn and fees.
+ * The default deposit is 5.2 USDC. A failed optional grant leaves enough for the return burn and fees.
  * Without grants, repeated runs spend the fee reserve and payout fees from the EVM key.
  *
  * Environment:
  *   USDCX_LIVE_EVM_PRIVATE_KEY        required: funded Arc Testnet key (USDC is the gas token too)
- *   USDCX_LIVE_DEPOSIT_AMOUNT         optional, in USDC; default 2.2
+ *   USDCX_LIVE_DEPOSIT_AMOUNT         optional, in USDC; default 5.2
  *
  * To test a relayer build before it is deployed, set these too and the spec starts
  * that relayer as a local process (all are then required):
@@ -93,7 +93,9 @@ const depositAmount =
   (process.env.USDCX_LIVE_DEPOSIT_AMOUNT ?? '').trim() || formatUnits(ROUNDTRIP_DEPOSIT_UNITS, CIRCLE_USDC_DECIMALS);
 const depositUnits = parseUnits(depositAmount, CIRCLE_USDC_DECIMALS);
 if (depositUnits < ROUNDTRIP_DEPOSIT_UNITS) {
-  throw new Error('The full round trip needs a deposit of at least 2.2 USDC');
+  throw new Error(
+    `The full round trip needs a deposit of at least ${formatUnits(ROUNDTRIP_DEPOSIT_UNITS, CIRCLE_USDC_DECIMALS)} USDC`
+  );
 }
 const arcRpcUrl = ARC_TESTNET.rpcUrls.default.http[0];
 const { usdc: arcUsdc, xReserve, attestationApi } = getUsdcxXReserveSource(ARC_TESTNET.id);

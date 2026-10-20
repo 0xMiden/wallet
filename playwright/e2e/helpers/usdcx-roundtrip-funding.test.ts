@@ -1,6 +1,11 @@
 /** @jest-environment node */
 import { optionalPublicFaucetGrant } from './public-faucet';
-import { ROUNDTRIP_DEPOSIT_UNITS, roundtripBurnUnits } from './usdcx-roundtrip-funding';
+import {
+  ROUNDTRIP_BURN_UNITS,
+  ROUNDTRIP_DEPOSIT_UNITS,
+  ROUNDTRIP_FEE_RESERVE,
+  roundtripBurnUnits
+} from './usdcx-roundtrip-funding';
 import { USDCX_MIN_BURN } from '../../../src/lib/usdcx/protocol';
 import { usdcxMinimumBurnShortfall } from '../../../src/lib/usdcx/withdrawal';
 
@@ -23,7 +28,7 @@ afterEach(() => {
   jest.useRealTimers();
 });
 
-it('uses the deposit for a 2 USDCx burn after a faucet 503, with no grant retry', async () => {
+it('uses the deposit for a 5 USDCx burn after a faucet 503, with no grant retry', async () => {
   const fetch = jest
     .spyOn(global, 'fetch')
     .mockResolvedValueOnce(challenge())
@@ -31,10 +36,10 @@ it('uses the deposit for a 2 USDCx burn after a faucet 503, with no grant retry'
   const result = await optionalPublicFaucetGrant('https://faucet.example', 'account', 10_000_000n, controller().signal);
   expect(result).toEqual({ kind: 'unavailable', reason: 'Public faucet mint failed (503): Unavailable' });
   expect(fetch).toHaveBeenCalledTimes(2);
-  expect(roundtripBurnUnits(ROUNDTRIP_DEPOSIT_UNITS - 133n, false)).toBe(2_000_000n);
+  expect(roundtripBurnUnits(ROUNDTRIP_DEPOSIT_UNITS - 133n, false)).toBe(5_000_000n);
 });
 
-it('returns the grant note and permits a 3 USDCx burn after the grant is consumed', async () => {
+it('returns the grant note and permits a 6 USDCx burn after the grant is consumed', async () => {
   jest
     .spyOn(global, 'fetch')
     .mockResolvedValueOnce(challenge())
@@ -42,8 +47,8 @@ it('returns the grant note and permits a 3 USDCx burn after the grant is consume
   await expect(
     optionalPublicFaucetGrant('https://faucet.example', 'account', 10_000_000n, controller().signal)
   ).resolves.toEqual({ kind: 'granted', noteId: NOTE_ID });
-  expect(roundtripBurnUnits(12_199_734n, true)).toBe(3_000_000n);
-  expect(() => roundtripBurnUnits(2_199_867n, true)).toThrow('cannot cover');
+  expect(roundtripBurnUnits(15_199_734n, true)).toBe(6_000_000n);
+  expect(() => roundtripBurnUnits(5_199_867n, true)).toThrow('cannot cover');
 });
 
 it('does not treat a malformed grant as an optional service failure', async () => {
@@ -86,8 +91,8 @@ it('propagates test cancellation and makes no later funding request', async () =
 });
 
 it('refuses a burn that would spend the fee reserve', () => {
-  expect(() => roundtripBurnUnits(2_000_000n, false)).toThrow('cannot cover');
-  expect(() => roundtripBurnUnits(3_000_000n, true)).toThrow('cannot cover');
+  expect(() => roundtripBurnUnits(5_000_000n, false)).toThrow('cannot cover');
+  expect(() => roundtripBurnUnits(6_000_000n, true)).toThrow('cannot cover');
 });
 
 it('does not wait out a rate limit for optional funding', async () => {
@@ -111,4 +116,36 @@ it.each([false, true])('round-trip selector obeys the wallet minimum (grant=%s)'
   expect(USDCX_MIN_BURN).toBe(5_000_000n);
   const selected = roundtripBurnUnits(10_000_000n, receivedGrant);
   expect(usdcxMinimumBurnShortfall(selected)).toBeUndefined();
+});
+
+it('pins the mandatory burn, deposit and fee reserve budgets', () => {
+  expect(ROUNDTRIP_BURN_UNITS).toBe(5_000_000n);
+  expect(ROUNDTRIP_DEPOSIT_UNITS).toBe(5_200_000n);
+  expect(ROUNDTRIP_FEE_RESERVE).toBe(100_000n);
+});
+
+it('accepts the exact deposit-funded burn and reserve boundary', () => {
+  expect(roundtripBurnUnits(5_100_000n, false)).toBe(5_000_000n);
+});
+
+it('refuses one unit below the deposit-funded reserve boundary', () => {
+  expect(() => roundtripBurnUnits(5_099_999n, false)).toThrow('cannot cover');
+});
+
+it('accepts the exact grant-funded burn and reserve boundary', () => {
+  expect(roundtripBurnUnits(6_100_000n, true)).toBe(6_000_000n);
+});
+
+it('refuses one unit below the grant-funded reserve boundary', () => {
+  expect(() => roundtripBurnUnits(6_099_999n, true)).toThrow('cannot cover');
+});
+
+it('keeps the wallet floor when an explicit minimum is lower', () => {
+  expect(usdcxMinimumBurnShortfall(4_999_999n, 1n)).toEqual({ amount: '5' });
+  expect(usdcxMinimumBurnShortfall(5_000_000n, 1n)).toBeUndefined();
+});
+
+it.each([false, true])('retains a higher faucet minimum (grant=%s)', receivedGrant => {
+  const selected = roundtripBurnUnits(10_000_000n, receivedGrant);
+  expect(usdcxMinimumBurnShortfall(selected, 7_500_000n)).toEqual({ amount: '7.5' });
 });
