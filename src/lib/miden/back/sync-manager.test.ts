@@ -297,6 +297,8 @@ import {
   MAX_CONSECUTIVE_WATCHDOG_EVICTIONS,
   MAX_SYNC_BACKOFF_MS
 } from 'lib/miden/sync-backoff';
+import { ExtensionStorage } from 'lib/platform/storage-adapter';
+import { DELEGATE_PROOF_STORAGE_KEY } from 'lib/settings/constants';
 import { SyncData, WalletMessageType } from 'lib/shared/types';
 
 import { computeSyncBackoffMs, doSync, setupSyncManager } from './sync-manager';
@@ -304,6 +306,7 @@ import { startTransactionProcessing } from './transaction-processor';
 import { ITransaction, ITransactionStatus } from '../db/types';
 import { __resetSyncFuseStateForTests, isSyncFused, noteSyncWatchdogEviction } from '../front/sync-fuse';
 import { WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
+import { NoteTypeEnum } from '../types';
 
 // Helper: build a fake consumable note WASM record
 // Since slice 4 (issue #260) getConsumableNoteDtos returns plain DTOs (the live
@@ -2466,6 +2469,120 @@ describe('doSync - expired swap order settlement', () => {
       expect(startTransactionProcessing).toHaveBeenCalledTimes(1);
     } finally {
       Repo.transactions.hook('updating').unsubscribe(lockOnStamp);
+      undoRealQueue();
+      mockGetMidenClient.mockImplementation(async () => mockClient);
+      await Repo.transactions.clear();
+    }
+  });
+
+  const useCurrentProofMirror = (value: boolean, onRead: () => void = () => {}) => {
+    const runtimeId = Object.getOwnPropertyDescriptor(chrome.runtime, 'id');
+    Object.defineProperty(chrome.runtime, 'id', { configurable: true, value: 'settlement-test' });
+    const mirrorRead = jest.spyOn(ExtensionStorage.prototype, 'get').mockImplementation(async () => {
+      onRead();
+      return { [DELEGATE_PROOF_STORAGE_KEY]: value };
+    });
+    const settings = jest.requireActual<typeof import('lib/settings/helpers')>('lib/settings/helpers');
+    mockIsDelegateProofAsync.mockImplementation(settings.isDelegateProofEnabledAsync);
+    return {
+      mirrorRead,
+      restore: () => {
+        mirrorRead.mockRestore();
+        mockIsDelegateProofAsync.mockResolvedValue(true);
+        if (runtimeId) Object.defineProperty(chrome.runtime, 'id', runtimeId);
+        else Reflect.deleteProperty(chrome.runtime, 'id');
+      }
+    };
+  };
+
+  it.each([
+    { saved: false, current: true },
+    { saved: true, current: false }
+  ])('settles with current proof preference $current instead of saved $saved', async ({ saved, current }) => {
+    const undoRealQueue = useRealClaimQueue();
+    const mirror = useCurrentProofMirror(current);
+    await seedPartFilledOrder();
+    await Repo.transactions.update(partFilledOrderRow.id, { delegateTransaction: saved });
+    try {
+      await doSync();
+
+      expect(await queuedClaimNoteIds()).toEqual(['payback', 'remainder-tip']);
+      const claims = (await Repo.transactions.toArray()).filter(row => row.type === 'consume');
+      expect(claims.map(row => row.delegateTransaction)).toEqual([current, current]);
+      expect(mockSettlementSeen.reconcile.at(-1)?.[2]).toBe(current);
+      expect(mirror.mirrorRead).toHaveBeenCalledTimes(1);
+      expect(mirror.mirrorRead).toHaveBeenCalledWith([DELEGATE_PROOF_STORAGE_KEY]);
+    } finally {
+      mirror.restore();
+      undoRealQueue();
+      mockGetMidenClient.mockImplementation(async () => mockClient);
+      await Repo.transactions.clear();
+    }
+  });
+
+  it.each([false, true])('keeps the ordinary omitted-flag settlement fallback to saved %s', async saved => {
+    const undoRealQueue = useRealClaimQueue();
+    const mirror = useCurrentProofMirror(!saved);
+    await Repo.transactions.put({ ...partFilledOrderRow, delegateTransaction: saved });
+    const settlement = jest.requireActual<typeof import('../swap/settlement')>('../swap/settlement');
+    try {
+      await settlement.reconcileSwapOrderNotes(
+        'pk-1',
+        [
+          {
+            id: 'payback',
+            faucetId: 'requested',
+            amount: '100',
+            senderAddress: 'sender-1',
+            isBeingClaimed: false,
+            type: NoteTypeEnum.Public,
+            swapOrder: {
+              orderId: '77',
+              depth: 1,
+              role: 'payback',
+              lineageState: 'active',
+              autoConsume: true,
+              expiresAt: 220
+            }
+          }
+        ],
+        undefined,
+        220
+      );
+
+      expect(await queuedClaimNoteIds()).toEqual(['payback']);
+      const claims = (await Repo.transactions.toArray()).filter(row => row.type === 'consume');
+      expect(claims.map(row => row.delegateTransaction)).toEqual([saved]);
+      expect(mirror.mirrorRead).not.toHaveBeenCalled();
+    } finally {
+      mirror.restore();
+      undoRealQueue();
+      await Repo.transactions.clear();
+    }
+  });
+
+  it('queues no settlement claim when the vault locks during the current proof mirror read', async () => {
+    const undoRealQueue = useRealClaimQueue();
+    let lockOnRead = true;
+    const mirror = useCurrentProofMirror(true, () => {
+      if (lockOnRead) mockStoreLocked = true;
+    });
+    await seedPartFilledOrder();
+    try {
+      await doSync();
+
+      expect(await queuedClaimNoteIds()).toEqual([]);
+      expect(mockStoreLocked).toBe(true);
+      expect(startTransactionProcessing).not.toHaveBeenCalled();
+
+      lockOnRead = false;
+      mockStoreLocked = false;
+      await doSync();
+
+      expect(await queuedClaimNoteIds()).toEqual(['payback', 'remainder-tip']);
+      expect(startTransactionProcessing).toHaveBeenCalledTimes(1);
+    } finally {
+      mirror.restore();
       undoRealQueue();
       mockGetMidenClient.mockImplementation(async () => mockClient);
       await Repo.transactions.clear();
