@@ -11,12 +11,13 @@ export async function openManagedWallet(link: string, signal: AbortSignal): Prom
   };
   signal.addEventListener('abort', revoke, { once: true });
   try {
+    if (signal.aborted) return true;
     attemptId = (await BreadConnectNative.prepareOpen({ url: link })).attemptId;
-    if (signal.aborted) revoke();
     let step: NativeOpenStep | undefined = 'wallet';
     while (step !== undefined) {
+      if (signal.aborted) return true;
       const result = await BreadConnectNative.openStep({ attemptId, step });
-      if (result.cancelled || result.opened) return true;
+      if (signal.aborted || result.cancelled || result.opened) return true;
       step = result.next;
     }
     return false;

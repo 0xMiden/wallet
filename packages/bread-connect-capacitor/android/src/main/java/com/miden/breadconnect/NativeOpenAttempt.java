@@ -37,7 +37,6 @@ final class NativeOpenAttempt {
         final String link;
         String expected = "wallet";
         boolean inFlight;
-        boolean closeRequested;
         Runnable cancelExpiry;
 
         Attempt(String link) {
@@ -88,6 +87,7 @@ final class NativeOpenAttempt {
             if (attempt == null || !step.equals(attempt.expected) || attempt.inFlight) {
                 return new Result(false, null, true);
             }
+            // Commit admission before platform I/O, which must run outside the monitor.
             attempt.inFlight = true;
         }
         boolean opened = false;
@@ -127,12 +127,8 @@ final class NativeOpenAttempt {
         return new Result(opened, next, false);
     }
 
-    synchronized void revoke(String id) {
-        // The extraction checkpoint carries ownership; admission enforcement follows its regression gate.
-        Attempt attempt = attempts.get(id);
-        if (attempt != null) {
-            attempt.closeRequested = true;
-        }
+    void revoke(String id) {
+        close(id);
     }
 
     void closeAll() {

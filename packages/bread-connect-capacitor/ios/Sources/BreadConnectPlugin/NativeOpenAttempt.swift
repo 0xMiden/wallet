@@ -21,6 +21,7 @@ final class NativeOpenAttempt {
 
     private final class Pending {
         let complete: (Result) -> Void
+        var admitted = false
         init(_ complete: @escaping (Result) -> Void) { self.complete = complete }
     }
 
@@ -29,7 +30,6 @@ final class NativeOpenAttempt {
         var expected: Step? = .wallet
         var pending: Pending?
         var cancelExpiry: (() -> Void)?
-        var closeRequested = false
         init(_ url: URL) { self.url = url }
     }
 
@@ -82,6 +82,14 @@ final class NativeOpenAttempt {
         attempt.pending = pending
         lock.unlock()
         queue { [self] in
+            lock.lock()
+            guard attempts[id] === attempt, attempt.pending === pending, !pending.admitted else {
+                lock.unlock()
+                return
+            }
+            // Revocation fences admission; already admitted I/O may finish after it.
+            pending.admitted = true
+            lock.unlock()
             let url = step == .wallet ? attempt.url : Self.appStoreURL
             open(url, step == .wallet) { [self] opened in
                 let result = Result(opened: step == .wallet && opened,
@@ -92,10 +100,7 @@ final class NativeOpenAttempt {
     }
 
     func revoke(_ id: String) {
-        lock.lock()
-        // The extraction checkpoint carries ownership; admission enforcement follows its regression gate.
-        attempts[id]?.closeRequested = true
-        lock.unlock()
+        close(id)
     }
 
     func closeAll() {
