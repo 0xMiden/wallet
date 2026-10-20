@@ -28,11 +28,11 @@ interface BreadConnectStorage {
 }
 
 /**
- * Runs a block only while its request is still the one waiting. The block does not suspend, so a cancel on
+ * Runs a block only while its request is still waiting and active. The block does not suspend, so a cancel on
  * another thread cannot land between the check and the open.
  */
 class OpenAttempt internal constructor(private val lock: Any, private val waiting: () -> Boolean) {
-    /** The block's result, or null when this request is no longer waiting. */
+    /** The block's result, or null when this request can no longer open. */
     fun <T> run(block: () -> T): T? = synchronized(lock) {
         if (!waiting()) null else block()
     }
@@ -41,7 +41,7 @@ class OpenAttempt internal constructor(private val lock: Any, private val waitin
 /**
  * Opens Bread's link in Bread only. The actual open goes through [attempt], and work that waits stays outside it.
  * Returns false when Bread is not installed and its store page opened instead. When [attempt] returns null the
- * request is already settled, so return true without opening anything.
+ * request can no longer open, so return true without opening anything.
  */
 interface BreadOpener {
     suspend fun open(link: String, attempt: OpenAttempt): Boolean
