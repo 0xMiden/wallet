@@ -1,0 +1,459 @@
+name: Login commitment cleanup proof
+
+on:
+  push:
+    branches: [ci/1579-login-cleanup-proof]
+
+permissions:
+  contents: read
+
+jobs:
+  cleanup-proof:
+    name: Login cleanup - ${{ matrix.variant }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [positive, commitment-free, public-key-free, root-zero, scalar-zero]
+    defaults:
+      run:
+        shell: bash
+    env:
+      CI: 'true'
+      PROOF_VARIANT: ${{ matrix.variant }}
+      PROOF_HEAD_SHA: ${{ github.sha }}
+      PROOF_REF: ${{ github.ref }}
+      PROOF_EVENT: ${{ github.event_name }}
+      PROOF_REPOSITORY: ${{ github.repository }}
+      PROOF_WORKFLOW_REF: ${{ github.workflow_ref }}
+      PROOF_WORKFLOW_SHA: ${{ github.workflow_sha }}
+      PROOF_RUN_ID: ${{ github.run_id }}
+      PROOF_RUN_ATTEMPT: ${{ github.run_attempt }}
+    steps:
+      - name: Initialize isolated evidence
+        id: initialize
+        run: |
+          set -euo pipefail
+          umask 077
+          export PROOF_DIR="$RUNNER_TEMP/login-cleanup-$PROOF_VARIANT"
+          printf 'PROOF_DIR=%s\n' "$PROOF_DIR" >> "$GITHUB_ENV"
+          mkdir -p "$PROOF_DIR"
+          python3 - <<'PYTHON'
+          import json
+          import os
+          from pathlib import Path
+          keys = ['VARIANT', 'HEAD_SHA', 'REF', 'EVENT', 'REPOSITORY', 'WORKFLOW_REF', 'WORKFLOW_SHA', 'RUN_ID', 'RUN_ATTEMPT']
+          (Path(os.environ['PROOF_DIR']) / 'run-identity.json').write_text(json.dumps({key: os.environ['PROOF_' + key] for key in keys}, indent=2) + '\n')
+          PYTHON
+
+      - name: Checkout exact proof head
+        id: checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Bind all source entries and exact test inventory
+        id: source
+        if: ${{ !cancelled() && steps.checkout.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          python3 - <<'PYTHON' 2>&1 | tee "$PROOF_DIR/source-validation.log"
+          import hashlib
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
+
+          CONFIG = {'source': 'cebaee9f4e15b027d06fb5c582d23c5c29ad7701',
+           'source_tree': 'be51ecf2f80fb344ed3d9e8ca2f1ed5832a36cd4',
+           'source_entry_count': 3605,
+           'test': 'src/lib/miden/back/vault.login-key.test.ts',
+           'vault': 'src/lib/miden/back/vault.ts',
+           'test_sha256': '6d07ae247a20dc014ae1e2069570bb3267e2152017e58c2d8e921f656da4feac',
+           'vault_sha256': '157e5590e4f8f15daa666f5f7e207bce65c633ebe56a0be1cff051fa69c31847',
+           'workflow': '.github/workflows/login-cleanup-proof.yml',
+           'names': ['Vault login keys derives a missing EVM key from the seed phrase when the address '
+                     'matches in any letter case',
+                     "Vault login keys derives an older account's EVM key from its seed phrase without "
+                     'saving it',
+                     'Vault login keys derives from the stored EVM key',
+                     'Vault login keys gives a key-QR device the same login key',
+                     'Vault login keys gives a restored wallet the same login key',
+                     'Vault login keys gives each account its own key',
+                     'Vault login keys gives each domain its own key',
+                     'Vault login keys keeps the login key after the seed phrase is removed',
+                     "Vault login keys never matches one of the account's signing keys",
+                     'Vault login keys refuses a single-key import, never reading its key as a root',
+                     'Vault login keys refuses a stored EVM key that is 31 bytes, deriving nothing',
+                     'Vault login keys refuses a stored EVM key that is empty, deriving nothing',
+                     'Vault login keys refuses a stored EVM key that is not hex, deriving nothing',
+                     'Vault login keys refuses a stored EVM key that is of odd length, deriving nothing',
+                     'Vault login keys refuses a word that is not base64 of 32 bytes before reading a key',
+                     'Vault login keys refuses a word the SDK cannot read, still freeing the key and zeroing '
+                     'its buffers',
+                     'Vault login keys refuses an account this wallet does not hold',
+                     'Vault login keys refuses an account whose seed phrase gives another EVM key',
+                     'Vault login keys refuses without the root key',
+                     'Vault login keys signs Poseidon2 of the login tag and the word, never the word itself',
+                     'Vault login keys stays the same after a hot key rotation'],
+           'selected': ['Vault login keys derives from the stored EVM key',
+                        "Vault login keys derives an older account's EVM key from its seed phrase without "
+                        'saving it'],
+           'selector': "^Vault login keys (derives from the stored EVM key|derives an older account's EVM "
+                       'key from its seed phrase without saving it)$',
+           'mutants': {'commitment-free': {'source_line': 2305,
+                                           'remove_exact_line': '            commitment.free();\n',
+                                           'before_sha256': '157e5590e4f8f15daa666f5f7e207bce65c633ebe56a0be1cff051fa69c31847',
+                                           'after_sha256': 'a378c8b706c78e056c836b6237e82afc394c6bb6049c61a4acc3aa0d0bfbc46b',
+                                           'assertion_line': 389,
+                                           'assertion_text': 'expect(mockLiveHandles.size).toBe(0);',
+                                           'matcher': 'toBe',
+                                           'target_call_lines': {'Vault login keys derives from the stored EVM key': 428,
+                                                                 "Vault login keys derives an older account's EVM key from its seed phrase without saving it": 474}},
+                       'public-key-free': {'source_line': 2308,
+                                           'remove_exact_line': '          publicKey.free();\n',
+                                           'before_sha256': '157e5590e4f8f15daa666f5f7e207bce65c633ebe56a0be1cff051fa69c31847',
+                                           'after_sha256': '178faab97a46cdd8e67ec9d9c1dd2e3611452be0c3e43ea7f94198c4674f072f',
+                                           'assertion_line': 389,
+                                           'assertion_text': 'expect(mockLiveHandles.size).toBe(0);',
+                                           'matcher': 'toBe',
+                                           'target_call_lines': {'Vault login keys derives from the stored EVM key': 428,
+                                                                 "Vault login keys derives an older account's EVM key from its seed phrase without saving it": 474}},
+                       'root-zero': {'source_line': 2370,
+                                     'remove_exact_line': '      root.fill(0);\n',
+                                     'before_sha256': '157e5590e4f8f15daa666f5f7e207bce65c633ebe56a0be1cff051fa69c31847',
+                                     'after_sha256': '457d0e86b9f55e3611cdbadc533d3145937fcde087835f785f816b828d601d62',
+                                     'assertion_line': 387,
+                                     'assertion_text': 'expect(derive.mock.calls[0]![0]).toEqual(new '
+                                                       'Uint8Array(32));',
+                                     'matcher': 'toEqual',
+                                     'target_call_lines': {'Vault login keys derives from the stored EVM key': 428,
+                                                           "Vault login keys derives an older account's EVM key from its seed phrase without saving it": 474}},
+                       'scalar-zero': {'source_line': 2367,
+                                       'remove_exact_line': '        scalar.fill(0);\n',
+                                       'before_sha256': '157e5590e4f8f15daa666f5f7e207bce65c633ebe56a0be1cff051fa69c31847',
+                                       'after_sha256': '90c6ae3ad05fa4071c5d3163521137efb67f56d7965c9e6a8b5636b9585f8ebc',
+                                       'assertion_line': 388,
+                                       'assertion_text': 'expect(derive.mock.results[0]!.value).toEqual(new '
+                                                         'Uint8Array(32));',
+                                       'matcher': 'toEqual',
+                                       'target_call_lines': {'Vault login keys derives from the stored EVM key': 428,
+                                                             "Vault login keys derives an older account's EVM key from its seed phrase without saving it": 474}}},
+           'review_provenance_sha256': {'normal-review/review.md': '010ca651ca84f48e01fd5bd06e0af002f603f9292a4e2be73e7b8c0ed5a1e867',
+                                        'normal-review/controller-acceptance.json': '67112f22c668c3bcce062223fb44d2ec7a4983a9593fc73fba0aaf554bc5fdcd',
+                                        'ci-and-mutant-predictions.json': '7693d8c2075f275b0a0e04b9278b4f5abea9550917690c7b1e1859c8b8dc00e8',
+                                        'task-report.md': '209b88cd053930bb6b8676860157752262635abb9fcd8b7b9d433ca94d068937'}}
+          proof = Path(os.environ['PROOF_DIR'])
+          variant = os.environ['PROOF_VARIANT']
+
+          def git(*args):
+              return subprocess.check_output(['git', *args])
+
+          def value(*args):
+              return git(*args).decode().strip()
+
+          def tree(ref):
+              entries = {}
+              for record in git('ls-tree', '-r', '-z', ref).split(b'\0'):
+                  if record:
+                      metadata, name = record.split(b'\t', 1)
+                      entries[name.decode()] = metadata.decode().split()
+              return entries
+
+          head = value('rev-parse', 'HEAD')
+          source = CONFIG['source']
+          workflow = CONFIG['workflow']
+          before, after = tree(source), tree(head)
+          manifest = dict(CONFIG, variant=variant, checkout_commit=head, checkout_tree=value('rev-parse', 'HEAD^{tree}'), checkout_parents=value('show', '-s', '--format=%P', 'HEAD').split(), workflow_sha256=hashlib.sha256(Path(workflow).read_bytes()).hexdigest(), workflow_blob=after.get(workflow), delta=value('diff', '--name-status', source, 'HEAD'))
+          (proof / 'source-and-checkout.json').write_text(json.dumps(manifest, indent=2) + '\n')
+          (proof / 'source-entry-map.json').write_text(json.dumps(before, indent=2) + '\n')
+          (proof / 'checkout-entry-map.json').write_text(json.dumps(after, indent=2) + '\n')
+          for label, ref in [('source', source), ('checkout', head)]:
+              (proof / (label + '-commit.txt')).write_bytes(git('cat-file', 'commit', ref))
+              (proof / (label + '-tree.txt')).write_bytes(git('ls-tree', '-r', ref))
+          (proof / 'workflow-only.diff').write_bytes(git('diff', '--binary', source, 'HEAD', '--', workflow))
+          (proof / 'proof-workflow.yml').write_bytes(Path(workflow).read_bytes())
+          assert variant == 'positive' or variant in CONFIG['mutants'], 'Unknown variant'
+          assert head == os.environ['PROOF_HEAD_SHA'] == os.environ['PROOF_WORKFLOW_SHA'], 'Checkout/event/workflow head mismatch'
+          assert os.environ['PROOF_EVENT'] == 'push', 'Push event required'
+          assert os.environ['PROOF_REF'] == 'refs/heads/ci/1579-login-cleanup-proof', 'Disposable branch required'
+          assert os.environ['PROOF_WORKFLOW_REF'] == os.environ['PROOF_REPOSITORY'] + '/' + workflow + '@' + os.environ['PROOF_REF'], 'Workflow ref mismatch'
+          assert all(os.environ['PROOF_' + key].isdigit() for key in ['RUN_ID', 'RUN_ATTEMPT']), 'Run identity missing'
+          assert value('rev-parse', source + '^{tree}') == CONFIG['source_tree'], 'Reviewed tree mismatch'
+          subprocess.run(['git', 'merge-base', '--is-ancestor', source, head], check=True)
+          assert len(before) == CONFIG['source_entry_count'] and all(after.get(name) == entry for name, entry in before.items()), 'Source entry or mode changed'
+          assert set(after) - set(before) == {workflow}, 'Expected exactly one workflow addition'
+          assert after[workflow][:2] == ['100644', 'blob'], 'Workflow must be a regular file'
+          assert not value('status', '--porcelain=v1', '--untracked-files=all'), 'Dirty checkout'
+          for name, digest in [(CONFIG['test'], CONFIG['test_sha256']), (CONFIG['vault'], CONFIG['vault_sha256'])]:
+              assert not Path(name).is_symlink() and hashlib.sha256(Path(name).read_bytes()).hexdigest() == digest, name
+          print('Verified', len(before), 'unchanged source entries and one regular workflow addition')
+          PYTHON
+
+      - name: Setup Node 22
+        id: node
+        if: ${{ !cancelled() && steps.source.outcome == 'success' }}
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+
+      - name: Install frozen dependencies with normal preparation hooks
+        id: install
+        if: ${{ !cancelled() && steps.source.outcome == 'success' && steps.node.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          timeout 10m yarn install --frozen-lockfile --non-interactive 2>&1 | tee "$PROOF_DIR/install.log"
+
+      - name: Recheck frozen source after preparation
+        id: prepared
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          python3 - <<'PYTHON' 2>&1 | tee "$PROOF_DIR/prepared-source.log"
+          import hashlib
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
+          proof = Path(os.environ['PROOF_DIR'])
+          manifest = json.loads((proof / 'source-and-checkout.json').read_text())
+          subprocess.run(['git', 'diff', '--exit-code', 'HEAD', '--'], check=True)
+          for name, digest in [(manifest['test'], manifest['test_sha256']), (manifest['vault'], manifest['vault_sha256'])]:
+              assert not Path(name).is_symlink() and hashlib.sha256(Path(name).read_bytes()).hexdigest() == digest, name
+          print('Verified unchanged tracked source and frozen test after dependency preparation')
+          PYTHON
+
+      - name: Lint the complete named test
+        id: eslint
+        if: ${{ !cancelled() && steps.prepared.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          yarn eslint --max-warnings 0 src/lib/miden/back/vault.login-key.test.ts 2>&1 | tee "$PROOF_DIR/eslint.log"
+
+      - name: Check project TypeScript without emitting
+        id: typescript
+        if: ${{ !cancelled() && steps.prepared.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          yarn tsc --noEmit --pretty false 2>&1 | tee "$PROOF_DIR/typescript.log"
+
+      - name: Check formatting of the test and proof workflow
+        id: prettier
+        if: ${{ !cancelled() && steps.prepared.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          yarn prettier --check src/lib/miden/back/vault.login-key.test.ts .github/workflows/login-cleanup-proof.yml 2>&1 | tee "$PROOF_DIR/prettier.log"
+
+      - name: Apply exactly one bound source removal or preserve the positive source
+        id: mutation
+        if: ${{ !cancelled() && steps.prepared.outcome == 'success' && steps.eslint.outcome == 'success' && steps.typescript.outcome == 'success' && steps.prettier.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          python3 - <<'PYTHON' 2>&1 | tee "$PROOF_DIR/mutation-validation.log"
+          import hashlib
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
+          proof = Path(os.environ['PROOF_DIR'])
+          manifest = json.loads((proof / 'source-and-checkout.json').read_text())
+          path = Path(manifest['vault'])
+          original = path.read_bytes()
+          assert hashlib.sha256(original).hexdigest() == manifest['vault_sha256']
+          subprocess.run(['git', 'diff', '--quiet', 'HEAD', '--'], check=True)
+          variant = manifest['variant']
+          if variant == 'positive':
+              expected = original
+              binding = None
+          else:
+              binding = manifest['mutants'][variant]
+              lines = original.splitlines(keepends=True)
+              index = binding['source_line'] - 1
+              assert lines[index].decode() == binding['remove_exact_line'], 'Mutation location mismatch'
+              expected = b''.join(lines[:index] + lines[index + 1:])
+              assert hashlib.sha256(expected).hexdigest() == binding['after_sha256'], 'Mutation output mismatch'
+              path.write_bytes(expected)
+          assert not path.is_symlink()
+          assert hashlib.sha256(Path(manifest['test']).read_bytes()).hexdigest() == manifest['test_sha256']
+          (proof / 'vault-before.ts').write_bytes(original)
+          (proof / 'vault-after.ts').write_bytes(expected)
+          (proof / 'source-mutation.patch').write_bytes(subprocess.check_output(['git', 'diff', '--binary', 'HEAD', '--']))
+          (proof / 'mutation.json').write_text(json.dumps({'variant': variant, 'binding': binding, 'before_sha256': hashlib.sha256(original).hexdigest(), 'after_sha256': hashlib.sha256(expected).hexdigest(), 'removed_lines': 0 if binding is None else 1, 'added_lines': 0}, indent=2) + '\n')
+          changed = subprocess.check_output(['git', 'diff', '--name-only', 'HEAD', '--']).decode().splitlines()
+          assert changed == ([] if variant == 'positive' else [manifest['vault']]), changed
+          print('Verified exact one-line removal' if binding else 'Verified positive source remains unchanged')
+          PYTHON
+
+      - name: Run the full positive suite or exactly two selected mutant cases
+        id: jest
+        if: ${{ !cancelled() && steps.mutation.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          selector="^Vault login keys (derives from the stored EVM key|derives an older account's EVM key from its seed phrase without saving it)$"
+          args=(jest --runTestsByPath src/lib/miden/back/vault.login-key.test.ts --maxWorkers=2 --coverage=false --no-colors --json --outputFile="$PROOF_DIR/jest.json")
+          if [ "$PROOF_VARIANT" != positive ]; then args+=(--testNamePattern "$selector"); fi
+          printf '%s\n' "${args[@]}" > "$PROOF_DIR/jest-argv.txt"
+          set +e
+          yarn "${args[@]}" 2>&1 | tee "$PROOF_DIR/jest.log"
+          statuses=("${PIPESTATUS[@]}")
+          set -e
+          printf '%s\n' "${statuses[0]}" > "$PROOF_DIR/jest.exit"
+          printf '%s\n' "${statuses[1]}" > "$PROOF_DIR/tee.exit"
+          if [ "${statuses[1]}" -ne 0 ]; then exit "${statuses[1]}"; fi
+          exit "${statuses[0]}"
+
+      - name: Validate complete raw proof and independent gate outcomes
+        id: validate
+        if: always()
+        env:
+          INITIALIZE_OUTCOME: ${{ steps.initialize.outcome }}
+          CHECKOUT_OUTCOME: ${{ steps.checkout.outcome }}
+          SOURCE_OUTCOME: ${{ steps.source.outcome }}
+          NODE_OUTCOME: ${{ steps.node.outcome }}
+          INSTALL_OUTCOME: ${{ steps.install.outcome }}
+          PREPARED_OUTCOME: ${{ steps.prepared.outcome }}
+          ESLINT_OUTCOME: ${{ steps.eslint.outcome }}
+          TYPESCRIPT_OUTCOME: ${{ steps.typescript.outcome }}
+          PRETTIER_OUTCOME: ${{ steps.prettier.outcome }}
+          MUTATION_OUTCOME: ${{ steps.mutation.outcome }}
+          JEST_OUTCOME: ${{ steps.jest.outcome }}
+        run: |
+          set -euo pipefail
+          umask 077
+          python3 - <<'PYTHON'
+          import hashlib
+          import json
+          import os
+          import re
+          import subprocess
+          from collections import Counter
+          from pathlib import Path
+
+          proof = Path(os.environ['PROOF_DIR'])
+          outcomes = {key: value for key, value in os.environ.items() if key.endswith('_OUTCOME')}
+          (proof / 'step-outcomes.json').write_text(json.dumps(outcomes, indent=2) + '\n')
+          required = ['run-identity.json', 'source-and-checkout.json', 'source-entry-map.json', 'checkout-entry-map.json', 'source-commit.txt', 'checkout-commit.txt', 'source-tree.txt', 'checkout-tree.txt', 'workflow-only.diff', 'proof-workflow.yml', 'source-validation.log', 'install.log', 'prepared-source.log', 'eslint.log', 'typescript.log', 'prettier.log', 'vault-before.ts', 'vault-after.ts', 'mutation-validation.log', 'mutation.json', 'jest-argv.txt', 'jest.json', 'jest.log', 'jest.exit', 'tee.exit']
+          missing = [name for name in required if not (proof / name).is_file() or not (proof / name).stat().st_size]
+          if not (proof / 'source-mutation.patch').is_file():
+              missing.append('source-mutation.patch')
+          (proof / 'evidence-completeness.json').write_text(json.dumps({'missing_or_empty': missing, 'source_mutation_patch_may_be_empty_only_for_positive': True}, indent=2) + '\n')
+          assert not missing, missing
+          manifest = json.loads((proof / 'source-and-checkout.json').read_text())
+          variant = manifest['variant']
+          positive = variant == 'positive'
+          result = json.loads((proof / 'jest.json').read_text())
+          assert (proof / 'jest.exit').read_text().strip() == ('0' if positive else '1')
+          assert (proof / 'tee.exit').read_text().strip() == '0'
+          assert result['numTotalTestSuites'] == 1
+          assert result['numPassedTestSuites'] == (1 if positive else 0)
+          assert result['numFailedTestSuites'] == (0 if positive else 1)
+          assert result['numPendingTestSuites'] == result['numTodoTests'] == result['numRuntimeErrorTestSuites'] == 0
+          assert result['numTotalTests'] == len(manifest['names']) == 21
+          assert result['numPassedTests'] == (21 if positive else 0)
+          assert result['numFailedTests'] == (0 if positive else 2)
+          assert result['numPendingTests'] == (0 if positive else 19)
+          assert result['success'] is positive and result['wasInterrupted'] is False and not result['openHandles']
+          assert len(result['testResults']) == 1
+          suite = result['testResults'][0]
+          assert Path(suite['name']).resolve() == Path(manifest['test']).resolve()
+          cases = suite['assertionResults']
+          assert Counter(case['fullName'] for case in cases) == Counter(manifest['names']), 'Case name multiset mismatch'
+          expected_selected = set(manifest['selected'])
+          failures = []
+          excluded = []
+          for case in cases:
+              title = case['fullName']
+              if positive:
+                  assert case['status'] == 'passed' and not case['failureMessages'], title
+              elif title not in expected_selected:
+                  assert case['status'] == 'pending' and not case['failureMessages'], title
+                  excluded.append(title)
+              else:
+                  assert case['status'] == 'failed' and len(case['failureMessages']) == 1, title
+                  binding = manifest['mutants'][variant]
+                  message = re.sub(r'\x1b\[[0-9;]*m', '', case['failureMessages'][0])
+                  prefix = re.split(r'\n\s+at ', message, 1)[0].rstrip()
+                  header = prefix.split('\n\n', 1)[0]
+                  expected_header = 'expect(received).' + binding['matcher'] + '(expected) // ' + ('Object.is equality' if binding['matcher'] == 'toBe' else 'deep equality')
+                  assert header in [expected_header, 'Error: ' + expected_header], (title, header)
+                  escaped_test = re.escape(manifest['test'])
+                  assert re.search(r'at expectCleanedUp \([^\n]*' + escaped_test + ':' + str(binding['assertion_line']) + r':\d+\)', message), title
+                  assert re.search(escaped_test + ':' + str(binding['target_call_lines'][title]) + r':\d+', message), title
+                  assert binding['assertion_text'] in Path(manifest['test']).read_text().splitlines()[binding['assertion_line'] - 1], title
+                  if binding['matcher'] == 'toBe':
+                      assert re.search(r'Expected: 0\nReceived: 1(?:\n|$)', prefix), title
+                  else:
+                      assert '- Expected' in prefix and '+ Received' in prefix and 'Uint8Array [' in prefix, title
+                      assert re.search(r'^\+\s+[1-9]\d*,?$', prefix, re.M), title
+                  failures.append({'full_name': title, 'assertion_line': binding['assertion_line'], 'target_call_line': binding['target_call_lines'][title], 'matcher_header': header, 'failure_prefix_sha256': hashlib.sha256(prefix.encode()).hexdigest()})
+          assert len(failures) == (0 if positive else 2)
+          assert set(excluded) == (set() if positive else set(manifest['names']) - expected_selected)
+          assert not Path(manifest['test']).is_symlink() and hashlib.sha256(Path(manifest['test']).read_bytes()).hexdigest() == manifest['test_sha256']
+          expected_vault = manifest['vault_sha256'] if positive else manifest['mutants'][variant]['after_sha256']
+          assert not Path(manifest['vault']).is_symlink() and hashlib.sha256(Path(manifest['vault']).read_bytes()).hexdigest() == expected_vault
+          changed = subprocess.check_output(['git', 'diff', '--name-only', 'HEAD', '--']).decode().splitlines()
+          assert changed == ([] if positive else [manifest['vault']]), changed
+          patch = subprocess.check_output(['git', 'diff', '--binary', 'HEAD', '--'])
+          assert patch == (proof / 'source-mutation.patch').read_bytes(), 'Post-test source mutation changed'
+          assert bool(patch) is (not positive)
+          for name, entry in json.loads((proof / 'checkout-entry-map.json').read_text()).items():
+              path = Path(name)
+              assert path.is_symlink() == (entry[0] == '120000'), 'Post-test file kind mismatch: ' + name
+              if path.is_symlink():
+                  data = os.readlink(path).encode()
+              else:
+                  assert path.is_file(), 'Missing tracked regular file: ' + name
+                  assert bool(path.stat().st_mode & 0o111) == (entry[0] == '100755'), 'Post-test mode mismatch: ' + name
+                  data = path.read_bytes()
+              if not positive and name == manifest['vault']:
+                  assert hashlib.sha256(data).hexdigest() == expected_vault
+              else:
+                  blob = hashlib.sha1(b'blob ' + str(len(data)).encode() + b'\0' + data).hexdigest()
+                  assert blob == entry[2], 'Post-test blob mismatch: ' + name
+          assert outcomes.pop('JEST_OUTCOME') == ('success' if positive else 'failure')
+          assert len(outcomes) == 10 and all(value == 'success' for value in outcomes.values()), outcomes
+          summary = {'variant': variant, 'total': 21, 'passed': 21 if positive else 0, 'failed': 0 if positive else 2, 'selector_excluded_pending': 0 if positive else 19, 'selected_skipped': 0, 'todo': 0, 'runtime_errors': 0, 'exact_failures': failures, 'excluded_names': sorted(excluded), 'independent_outcomes': outcomes, 'source_sha256_after': expected_vault}
+          (proof / 'test-set-validation.json').write_text(json.dumps(summary, indent=2) + '\n')
+          print('Verified all 21 positive cases' if positive else 'Verified exactly two bound cleanup assertion failures and 19 explicitly selector-excluded cases; natural red retained')
+          PYTHON
+
+      - name: Finalize raw artifact hashes even when validation fails
+        id: finalize
+        if: always()
+        env:
+          VALIDATOR_OUTCOME: ${{ steps.validate.outcome }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          set -euo pipefail
+          umask 077
+          export PROOF_DIR="${PROOF_DIR:-$RUNNER_TEMP/login-cleanup-$PROOF_VARIANT}"
+          printf 'PROOF_DIR=%s\n' "$PROOF_DIR" >> "$GITHUB_ENV"
+          mkdir -p "$PROOF_DIR"
+          python3 - <<'PYTHON'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          proof = Path(os.environ['PROOF_DIR'])
+          status = {key: os.environ[key] for key in ['VALIDATOR_OUTCOME', 'JOB_STATUS', 'PROOF_HEAD_SHA', 'PROOF_VARIANT']}
+          (proof / 'final-status.json').write_text(json.dumps(status, indent=2) + '\n')
+          artifacts = {path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in proof.iterdir() if path.is_file() and path.name != 'artifact-sha256.json'}
+          (proof / 'artifact-sha256.json').write_text(json.dumps(artifacts, indent=2) + '\n')
+          PYTHON
+
+      - name: Upload evidence even on natural mutant failure
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: login-cleanup-${{ matrix.variant }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.PROOF_DIR }}
+          if-no-files-found: error
+          retention-days: 7
