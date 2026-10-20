@@ -16,7 +16,11 @@ import {
 import { getBlockTimestamps } from 'lib/miden-chain/block-timestamps';
 import { getEffectiveRpcUrl, whenEndpointOverridesLoaded } from 'lib/miden-chain/effective-endpoints';
 import { getNativeAssetId, getVerificationBaseFee } from 'lib/miden-chain/native-asset';
-import { ensureWalletAccessAllowed, isWalletAccessDeniedError } from 'lib/remote-config/wallet-access';
+import {
+  assertWalletAccessAllowed,
+  ensureWalletAccessAllowed,
+  isWalletAccessDeniedError
+} from 'lib/remote-config/wallet-access';
 import {
   areBackgroundSettingsMirrored,
   isAutoConsumeEnabledAsync,
@@ -34,7 +38,13 @@ import { isRotationPendingAccount } from './rotation-pending';
 import { isUnlocked, store } from './store';
 import { Vault } from './vault';
 import { getBech32AddressFromAccountId } from '../sdk/helpers';
-import { getCurrentWasmLockHold, getMidenClient, withWasmClientLock, type WasmLockHold } from '../sdk/miden-client';
+import {
+  assertWasmHoldCurrent,
+  getCurrentWasmLockHold,
+  getMidenClient,
+  withWasmClientLock,
+  type WasmLockHold
+} from '../sdk/miden-client';
 import { isSyncWatchdogEviction, WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 import { localSwapOrders } from '../swap/classification';
 import type { RecoveredSwapOrderRef } from '../swap/recovered-order';
@@ -213,10 +223,10 @@ export function doSync(force = false): Promise<void> {
 
 async function runSync(force: boolean): Promise<void> {
   try {
-    await ensureWalletAccessAllowed();
     // The `miden-sync` alarm can fire before start() has loaded the override; until then the note scope below and
     // the state sent to the offscreen document would be the build's network (#1482).
     await whenEndpointOverridesLoaded();
+    await ensureWalletAccessAllowed();
     // Skip if wallet not set up
     const vault = await getVault();
     const exists = await vault.isExist();
@@ -263,9 +273,16 @@ async function runSync(force: boolean): Promise<void> {
       // sync's own `isDisposed` guards fire. It costs banner latency on that path
       // (the ceiling, not 30s) and buys the invariant.
       await withWasmClientLock(
-        async () => {
+        async hold => {
           if (inlineWasm) {
-            await midenClientProxy.syncState();
+            const assertLive = () => {
+              assertWasmHoldCurrent(hold, 'background sync admission');
+              assertWalletAccessAllowed();
+            };
+            assertLive();
+            const client = await getMidenClient();
+            assertLive();
+            await client.syncState(assertLive);
             return;
           }
           await withTimeout(midenClientProxy.syncState(), SYNC_TIMEOUT_MS);
@@ -286,6 +303,7 @@ async function runSync(force: boolean): Promise<void> {
       // health and is owned by withProverFallback.
       clearReachabilityIssues();
     } catch (err) {
+      if (isWalletAccessDeniedError(err)) throw err;
       consecutiveSyncFailures++;
       // The FUSE (#777), same rule and constants as the mobile/desktop loop, because
       // this realm needs it for the same reason: after an eviction the SDK still
