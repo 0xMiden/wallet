@@ -1626,6 +1626,38 @@ describe('live claim failures through PendingActivityCard and Notice', () => {
   };
   const expectRawReport = () =>
     expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['raw_pending_activity_retry_failed', 'notice']]);
+  const observeHeldCard = () => {
+    const commits: Array<{
+      failure: ReturnType<typeof useActivityClaims>['items'][number]['failure'];
+      tone: string | null;
+    }> = [];
+    function ObservedClaimCard() {
+      const claims = useActivityClaims();
+      const item = claims.items[0]!;
+      return React.createElement(
+        React.Profiler,
+        {
+          id: 'held-claim-card',
+          onRender: () => {
+            commits.push({
+              failure: item.failure,
+              tone: screen.queryByTestId('pending-activity-hint')?.getAttribute('data-tone') ?? null
+            });
+          }
+        },
+        React.createElement(PendingActivityCard, {
+          key: `${claims.account.publicKey}|${mockEndpoint.rpc}|${mockEndpoint.network}|${item.note.id}`,
+          item,
+          onAccept: claims.accept,
+          onRetryHeld: claims.retryHeld
+        })
+      );
+    }
+    mockClaim.safeClaimableNotes = [{ ...note, isBeingClaimed: true, claimingTxId: 'tx-held' }];
+    render(React.createElement(ObservedClaimCard));
+    settle([{ id: 'tx-held', status: 4, held: true }]);
+    return commits;
+  };
 
   beforeAll(() => Object.defineProperty(window, 'scrollTo', { value: () => {}, writable: true }));
   beforeEach(() => {
@@ -1810,6 +1842,75 @@ describe('live claim failures through PendingActivityCard and Notice', () => {
     expectRawReport();
     advance(5000);
     expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+  });
+
+  it('restarts an unfinished dwell for a new same-ID Retry failure with no committed clear', async () => {
+    mockRequeue.mockImplementation(() => {
+      throw new Error('Guardian still holds the claim');
+    });
+    const commits = observeHeldCard();
+    await click('retry');
+    const firstFailure = commits[commits.length - 1]?.failure;
+    const cardToggle = screen.getByRole('button', { expanded: true });
+    expect(firstFailure).toMatchObject({ id: 'raw_pending_activity_retry_failed' });
+    advance(900);
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+
+    const beforeSecond = commits.length;
+    await click('retry');
+    const secondFailure = commits[commits.length - 1]?.failure;
+    const secondCommits = commits.slice(beforeSecond);
+    expect(mockRequeue).toHaveBeenCalledTimes(2);
+    expect(secondFailure).not.toBe(firstFailure);
+    expect(secondFailure).toEqual(firstFailure);
+    expect(secondCommits).not.toHaveLength(0);
+    for (const commit of secondCommits) {
+      expect(commit.failure).toBe(secondFailure);
+      expect(commit.tone).toBe('negative');
+    }
+    expect(screen.getByRole('button', { expanded: true })).toBe(cardToggle);
+    advance(999);
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    advance(1);
+    expectRawReport();
+    advance(5000);
+    expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports another same-ID Retry failure after its own dwell when the first already reported', async () => {
+    mockRequeue.mockImplementation(() => {
+      throw new Error('Guardian still holds the claim');
+    });
+    const commits = observeHeldCard();
+    await click('retry');
+    const firstFailure = commits[commits.length - 1]?.failure;
+    const cardToggle = screen.getByRole('button', { expanded: true });
+    expect(firstFailure).toMatchObject({ id: 'raw_pending_activity_retry_failed' });
+    advance(1000);
+    expectRawReport();
+
+    const beforeSecond = commits.length;
+    await click('retry');
+    const secondFailure = commits[commits.length - 1]?.failure;
+    const secondCommits = commits.slice(beforeSecond);
+    expect(mockRequeue).toHaveBeenCalledTimes(2);
+    expect(secondFailure).not.toBe(firstFailure);
+    expect(secondFailure).toEqual(firstFailure);
+    expect(secondCommits).not.toHaveLength(0);
+    for (const commit of secondCommits) {
+      expect(commit.failure).toBe(secondFailure);
+      expect(commit.tone).toBe('negative');
+    }
+    expect(screen.getByRole('button', { expanded: true })).toBe(cardToggle);
+    advance(999);
+    expectRawReport();
+    advance(1);
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([
+      ['raw_pending_activity_retry_failed', 'notice'],
+      ['raw_pending_activity_retry_failed', 'notice']
+    ]);
+    advance(5000);
+    expect(reportUserVisibleError).toHaveBeenCalledTimes(2);
   });
 
   it('cancels a refusal when its card unmounts and does not replay it when the card is restored', async () => {
