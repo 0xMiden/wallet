@@ -189,7 +189,9 @@ function syncGeo(state: NetworkState, force: boolean): void {
       if (current !== state || current.geoGeneration !== generation) return;
       current.geo = eligibility ? { state: 'ready', ...eligibility } : { state: 'failed' };
       if (getEffectiveNetworkName() === state.network) {
-        publishWalletAccessDecision(scope, eligibility?.allowed.wallet ?? null);
+        const keepLiveGrant =
+          eligibility === null && scope === walletScope() && getWalletAccessSnapshot().status === 'allowed';
+        if (!keepLiveGrant) publishWalletAccessDecision(scope, eligibility?.allowed.wallet ?? null);
       }
       publish(current);
     })
@@ -495,7 +497,7 @@ function arm(): void {
   const access = getWalletAccessSnapshot();
   const accessDelay =
     access.status === 'allowed' && access.expiresAt !== null
-      ? access.expiresAt - performance.now() - 10_000
+      ? access.expiresAt - performance.now() - (state.geo.state === 'failed' ? 0 : 10_000)
       : DEGRADED_VISIBLE_POLL_MS;
   timer = setTimeout(fire, Math.max(0, Math.min(configDelay, accessDelay)));
 }
@@ -504,8 +506,12 @@ async function check(kind: 'timer' | 'foreground', recheckAccess = kind === 'for
   const state = await hydrateCurrent();
   if (document.visibilityState === 'hidden') return;
   const access = getWalletAccessSnapshot();
-  const prefetchDue = access.status !== 'allowed' || (access.expiresAt ?? 0) - performance.now() <= 10_000;
-  if (recheckAccess || (kind === 'timer' && prefetchDue)) await refreshWalletAccess(recheckAccess, recheckAccess);
+  const prefetchDue =
+    access.status !== 'allowed' ||
+    (state.geo.state !== 'failed' && (access.expiresAt ?? 0) - performance.now() <= 10_000);
+  if (recheckAccess || (kind === 'timer' && prefetchDue)) {
+    await refreshWalletAccess(recheckAccess ? 'recheck' : 'prefetch');
+  }
   const interval = pollInterval(state);
   // On open and on a return to the foreground, a healthy copy counts as stale after 15 minutes, not 60.
   const threshold = kind === 'foreground' ? foregroundThreshold(interval) : interval;
@@ -602,8 +608,8 @@ export function _resetBridgeConfigRuntimeForTest(): void {
 }
 
 /** Storage and HTTP only: protected callers may already hold the non-reentrant WASM lock. */
-export async function refreshWalletAccess(invalidate = true, refreshPolicy = true): Promise<void> {
-  if (invalidate && getWalletAccessSnapshot().status === 'allowed') {
+async function refreshWalletAccess(mode: 'recheck' | 'prefetch' = 'recheck'): Promise<void> {
+  if (mode === 'recheck' && getWalletAccessSnapshot().status === 'allowed') {
     invalidateWalletAccess();
     walletScopeGeneration += 1;
     const current = states.get(getEffectiveNetworkName());
@@ -627,7 +633,7 @@ export async function refreshWalletAccess(invalidate = true, refreshPolicy = tru
     const pending = (async () => {
       let fetched: StoredBridgeConfig | null = null;
       try {
-        if (refreshPolicy) fetched = await fetchAndStoreBridgeConfig(state.network);
+        if (mode === 'recheck') fetched = await fetchAndStoreBridgeConfig(state.network);
       } catch {
         // A matching server decision can still authorize the last accepted policy.
       }
