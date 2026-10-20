@@ -46,10 +46,10 @@ jobs:
           tests = [
               {
                   "path": "src/lib/miden/transaction/native-precheck-sentry.integration.test.ts",
-                  "source_commit": "c593200049db72095bacdfb5d3e61f2349ee9357",
-                  "source_blob": "b9a646c68fc31869e65cd9fa8d85a4be3c9ce4f2",
-                  "sha256": "e5c6dbd7abd1ffe0f35444a4d56af8fbdd7c9e766915f34c215b2b451a199e7f",
-                  "bytes": 18554,
+                  "source_commit": "0b8549bf70564ca1666459f0abf08ac3be65f297",
+                  "source_blob": "b356829b31d1455a29e78ece9b762a5b441575e4",
+                  "sha256": "5ce95a35651babad9c6a3a65a99f6bbe25f45659daee573d50b16a137357268b",
+                  "bytes": 18591,
                   "mode": "100644"
               },
               {
@@ -70,10 +70,10 @@ jobs:
               },
               {
                   "path": "src/lib/miden/transaction/proposal-diagnostics.integration.test.ts",
-                  "source_commit": "3ef40d4a9228418440b3d112914e982fe30bde98",
-                  "source_blob": "b0fe3eed44c4872137957e8014dd2cd760e85d21",
-                  "sha256": "5f1de30a32bc0a43ba05d2a7d61ff68308823c0c6fb73eb01284f8981e301e0b",
-                  "bytes": 19022,
+                  "source_commit": "4f4b48f9f3c088a7fce356bbe9cf9aab630809c1",
+                  "source_blob": "4d048af964a82e2a8b73f836ce43b5f0e3cdeaa9",
+                  "sha256": "8ae4b19c1abb5bd6d652f77c97acecb5627ab7aa16a87b31647b2709149df6cc",
+                  "bytes": 19633,
                   "mode": "100644"
               }
           ]

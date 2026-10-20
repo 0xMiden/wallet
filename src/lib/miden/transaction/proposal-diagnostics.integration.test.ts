@@ -188,6 +188,8 @@ interface WireRequest {
   body: string;
 }
 const requests: WireRequest[] = [];
+const configRequests: (WireRequest & { method: string })[] = [];
+const publicConfigUrl = 'https://raw.githubusercontent.com/0xMiden/wallet-config/main/testnet.json';
 let originalFetch: PropertyDescriptor | undefined;
 let previousDsn: string | undefined;
 let previousOffscreen: string | undefined;
@@ -199,9 +201,9 @@ beforeAll(() => {
   Object.defineProperty(globalThis, 'fetch', {
     configurable: true,
     writable: true,
-    value: async (input: unknown, init?: { body?: unknown; headers?: unknown }) => {
+    value: async (input: unknown, init?: { body?: unknown; headers?: unknown; method?: string }) => {
       const body = init?.body;
-      requests.push({
+      const request = {
         url: String(input),
         headers:
           init?.headers instanceof Headers
@@ -213,7 +215,13 @@ beforeAll(() => {
             : ArrayBuffer.isView(body)
               ? new TextDecoder().decode(body)
               : (JSON.stringify(body) ?? '')
-      });
+      };
+      const method = init?.method ?? 'GET';
+      if (request.url === publicConfigUrl && method === 'GET' && body === undefined) {
+        configRequests.push({ ...request, method });
+      } else {
+        requests.push(request);
+      }
       return { status: 200, headers: new Headers() };
     }
   });
@@ -231,6 +239,7 @@ beforeEach(async () => {
   clearGuardianAccountLocks();
   jest.clearAllMocks();
   requests.length = 0;
+  configRequests.length = 0;
   order.length = 0;
   process.env.SENTRY_DSN = 'https://publickey@o0.ingest.de.sentry.io/1';
   process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'false';
@@ -431,6 +440,9 @@ it('completes an ordinary consume without producing a failure report', async () 
   expect(mockSubmit).toHaveBeenCalledTimes(1);
   await flush();
   expect(requests).toEqual([]);
+  expect(configRequests).toEqual([
+    { url: publicConfigUrl, method: 'GET', headers: '{"Accept":"application/json"}', body: '' }
+  ]);
 });
 
 it.each([
@@ -457,7 +469,11 @@ it.each([
     jest.spyOn(Date, 'now').mockReturnValue(now);
     mockConsumeProposal.mockRejectedValueOnce(error);
     const stored = await run();
-    expect(stored).toMatchObject({ status: ITransactionStatus.Queued, stage: 'creating-proposal', lastDeferral: reason });
+    expect(stored).toMatchObject({
+      status: ITransactionStatus.Queued,
+      stage: 'creating-proposal',
+      lastDeferral: reason
+    });
     expect(stored?.nextEligibleAt).toBe(Math.floor(now / 1000) + cooldown);
     expect(stored?.requeueStreak).toEqual({ arm, count: 1 });
     expect(stored?.guardianBusy).toBe(busy);

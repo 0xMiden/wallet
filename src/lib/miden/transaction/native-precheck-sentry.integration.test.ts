@@ -226,7 +226,10 @@ beforeEach(async () => {
   process.env.SENTRY_DSN = 'https://publickey@o0.ingest.de.sentry.io/1';
   jest.mocked(isCrashReportingEnabledAsync).mockResolvedValue(true);
   jest.mocked(isTelemetryEnabledAsync).mockResolvedValue(false);
-  jest.mocked(nativeIO.getState).mockReset().mockResolvedValue(session([APPROVED]));
+  jest
+    .mocked(nativeIO.getState)
+    .mockReset()
+    .mockResolvedValue(session([APPROVED]));
   jest.mocked(nativeIO.request).mockReset().mockResolvedValue({ result: null });
   jest.spyOn(console, 'warn').mockImplementation(() => undefined);
   await Repo.transactions.clear();
@@ -241,9 +244,7 @@ afterEach(async () => {
 
 it('reports a missing native session without a recovery request or a send', async () => {
   const evidence: Record<string, unknown> = {};
-  jest
-    .mocked(nativeIO.getState)
-    .mockResolvedValue(Object.freeze({ configured: true, connected: false, accounts: [] }));
+  jest.mocked(nativeIO.getState).mockResolvedValue(Object.freeze({ configured: true, connected: false, accounts: [] }));
   const result = await outcome(prepare(TARGET, evidence));
   expectGuard(result);
   expect(nativeIO.getState).toHaveBeenCalledTimes(1);
@@ -302,10 +303,18 @@ it('reports a rejected switch separately from a rejected add without retrying', 
   expectGuard(result);
   expect(nativeIO.request).toHaveBeenCalledTimes(2);
   expect(nativeIO.request).toHaveBeenNthCalledWith(1, expect.objectContaining({ method: 'wallet_addEthereumChain' }));
-  expect(nativeIO.request).toHaveBeenNthCalledWith(2, expect.objectContaining({ method: 'wallet_switchEthereumChain' }));
+  expect(nativeIO.request).toHaveBeenNthCalledWith(
+    2,
+    expect.objectContaining({ method: 'wallet_switchEthereumChain' })
+  );
   expect(nativeIO.getState).toHaveBeenCalledTimes(2);
   expect(nativeIO.addListener).not.toHaveBeenCalled();
-  expectFacts(await emitFailure(result.error, evidence), 'chain_not_approved', 'switch_request_failed', 'user_rejected');
+  expectFacts(
+    await emitFailure(result.error, evidence),
+    'chain_not_approved',
+    'switch_request_failed',
+    'user_rejected'
+  );
 });
 
 it('reports approval wait expiry only after the unchanged five-second wait', async () => {
