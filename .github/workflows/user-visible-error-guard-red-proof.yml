@@ -1,0 +1,296 @@
+name: User-visible error guard red-before proof
+
+on:
+  push:
+    branches: [ci/1616-guard-red]
+
+permissions:
+  contents: read
+
+jobs:
+  red-before:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    env:
+      CI: 'true'
+      PROOF_HEAD_SHA: ${{ github.sha }}
+      PROOF_REF: ${{ github.ref }}
+      PROOF_EVENT: ${{ github.event_name }}
+      PROOF_WORKFLOW_REF: ${{ github.workflow_ref }}
+      PROOF_WORKFLOW_SHA: ${{ github.workflow_sha }}
+      PROOF_RUN_ID: ${{ github.run_id }}
+      PROOF_RUN_ATTEMPT: ${{ github.run_attempt }}
+    steps:
+      - name: Initialize private proof evidence
+        run: |
+          set -euo pipefail
+          umask 077
+          export PROOF_DIR="$RUNNER_TEMP/user-visible-error-guard-red-proof"
+          printf 'PROOF_DIR=%s\n' "$PROOF_DIR" >> "$GITHUB_ENV"
+          mkdir -m 700 "$PROOF_DIR"
+          python3 - <<'PYTHON'
+          import json
+          import os
+          from pathlib import Path
+
+          proof = Path(os.environ['PROOF_DIR'])
+          identity = {key: value for key, value in os.environ.items() if key.startswith('PROOF_')}
+          (proof / 'run-identity.json').write_text(json.dumps(identity, indent=2) + '\n')
+          (proof / 'checks.log').touch()
+          PYTHON
+
+      - name: Checkout exact proof head
+        id: checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Capture and verify immutable guard source
+        id: source
+        if: ${{ !cancelled() && steps.checkout.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          python3 - <<'PYTHON' 2>&1 | tee "$PROOF_DIR/source-validation.log"
+          import hashlib
+          import json
+          import os
+          import shutil
+          import stat
+          import subprocess
+          from pathlib import Path
+
+          proof = Path(os.environ['PROOF_DIR'])
+          base = '8156de4c572e92ff78198d1cb9ac40828d067eb0'
+          base_tree = '05ae76b86fa9056d52ba9188bc76a9d39911942b'
+          workflow = '.github/workflows/user-visible-error-guard-red-proof.yml'
+          guard = {
+              'path': 'src/lib/telemetry/user-visible-error.guard.test.ts',
+              'source_commit': base,
+              'source_blob': '2be11895e50f96e64a222b7bb99778d7b86f8aec',
+              'sha256': 'ff8ecc67efff9b3d4e39e4086da5025beb14c3f11eb125c3d3828cdd91e1bc4f',
+              'bytes': 28386,
+              'mode': '100644',
+              'helper_bytes': 13131,
+              'helper_sha256': 'b57ac03ffe3949459f0137198d4d8a491751eb036a59b72c12fef3e64e6e8e50'
+          }
+          source_commits = [
+              {
+                  'commit': '7fdfdd09c49f288de0f482fe8e7d94f03c371066',
+                  'parent': 'f6c02fa605b435523cce1c414a306013c76d63a0',
+                  'tree': '3beca85980084886f2242cab882187669e4c47f6',
+                  'signature_status_at_preparation': 'G'
+              },
+              {
+                  'commit': base,
+                  'parent': '7fdfdd09c49f288de0f482fe8e7d94f03c371066',
+                  'tree': base_tree,
+                  'signature_status_at_preparation': 'G'
+              }
+          ]
+          def git_bytes(*args):
+              return subprocess.check_output(['git', *args])
+
+          def git(*args):
+              return git_bytes(*args).decode().strip()
+
+          def tree(commit):
+              entries = {}
+              for record in git_bytes('ls-tree', '-r', '-z', commit).split(b'\0'):
+                  if not record:
+                      continue
+                  metadata, name = record.split(b'\t', 1)
+                  mode, kind, blob = metadata.decode().split()
+                  entries[name.decode()] = {'mode': mode, 'type': kind, 'blob': blob}
+              return entries
+
+          head = git('rev-parse', 'HEAD')
+          if head != os.environ['PROOF_HEAD_SHA'] or head != os.environ['PROOF_WORKFLOW_SHA']:
+              raise SystemExit('Checkout, event head and workflow SHA must match')
+          if os.environ['PROOF_EVENT'] != 'push' or os.environ['PROOF_REF'] != 'refs/heads/ci/1616-guard-red':
+              raise SystemExit('Proof is restricted to the disposable push branch')
+          if git('rev-parse', base + '^{tree}') != base_tree:
+              raise SystemExit('Immutable base tree mismatch')
+          subprocess.run(['git', 'merge-base', '--is-ancestor', base, head], check=True)
+          before, after = tree(base), tree(head)
+          if len(before) != 3618 or any(after.get(name) != value for name, value in before.items()):
+              raise SystemExit('A base path blob, type or mode changed')
+          if set(after) - set(before) != {workflow} or after[workflow]['mode'] != '100644':
+              raise SystemExit('Only the new regular workflow may be added')
+          subprocess.run(['git', 'diff', '--exit-code', 'HEAD', '--'], check=True)
+          path = Path(guard['path'])
+          data = path.read_bytes()
+          if path.is_symlink() or stat.S_IMODE(path.stat().st_mode) != 0o644:
+              raise SystemExit('Guard file mode or type mismatch')
+          if (git('hash-object', str(path)) != guard['source_blob']
+                  or hashlib.sha256(data).hexdigest() != guard['sha256']
+                  or len(data) != guard['bytes']
+                  or hashlib.sha256(data[:guard['helper_bytes']]).hexdigest() != guard['helper_sha256']):
+              raise SystemExit('Immutable guard or scanner helper mismatch')
+          if after[guard['path']] != {'mode': guard['mode'], 'type': 'blob', 'blob': guard['source_blob']}:
+              raise SystemExit('Guard tree entry mismatch')
+          for item in source_commits:
+              commit = item['commit']
+              if git('rev-parse', commit + '^') != item['parent'] or git('rev-parse', commit + '^{tree}') != item['tree']:
+                  raise SystemExit('Source commit ancestry or tree mismatch')
+              raw = git_bytes('cat-file', 'commit', commit)
+              if b'\ngpgsig ' not in raw.split(b'\n\n', 1)[0]:
+                  raise SystemExit('Source commit signature missing')
+              item['raw_commit_sha256'] = hashlib.sha256(raw).hexdigest()
+              item['signature_present_in_ci'] = True
+              target = proof / 'commits' / (commit + '.txt')
+              target.parent.mkdir(parents=True, exist_ok=True)
+              target.write_bytes(raw)
+          manifest = {
+              'base_commit': base,
+              'base_tree': base_tree,
+              'checkout_commit': head,
+              'checkout_tree': git('rev-parse', 'HEAD^{tree}'),
+              'base_paths_verified_unchanged': len(before),
+              'source_changes': git('diff', '--name-status', base, 'HEAD').splitlines(),
+              'tracked_working_tree_before_preparation': 'unchanged from checkout',
+              'workflow_ref': os.environ['PROOF_WORKFLOW_REF'],
+              'workflow_sha': os.environ['PROOF_WORKFLOW_SHA'],
+              'workflow_blob': after[workflow]['blob'],
+              'workflow_sha256': hashlib.sha256(Path(workflow).read_bytes()).hexdigest(),
+              'run_id': os.environ['PROOF_RUN_ID'],
+              'run_attempt': os.environ['PROOF_RUN_ATTEMPT'],
+              'actions': {
+                  'checkout': '11bd71901bbe5b1630ceea73d27597364c9af683',
+                  'setup-node': '49933ea5288caeca8642d1e84afbd3f7d6820020',
+                  'upload-artifact': 'ea165f8d65b6e75b540449e92b4886f43607fa02'
+              },
+              'guard': guard,
+              'signed_source_commits': source_commits,
+              'source_packet_hashes_at_preparation': {
+                  'report.md': '58911c5359dd31bda01f2e0009e392e6f8643f4c6bac4115bea29c8330da2cb2',
+                  'identity.json': '5965dbbc0b378d8ceb60e38fb5300c0a151debe564979ce1eb9f9a9340c15e24',
+                  'cases-and-predictions.json': 'ae32b9c07faeaa76bf77cf234bebe1b0461cf2e9e3a99824a471f81899536cea',
+                  'normal-review/report.md': '537fd1701ccc9cddd677dc9e56e9d4d0b3aa99de46a77573fcef87a12655b5d8',
+                  'normal-review/findings.json': 'd9109ef6cf119757df064d2fb3986890085e2cdea02a7ba0be7e53cea39d033d',
+                  'normal-review/verification.json': 'a929735913cadace8e923da607c12589603203da476b853e02fd64e7d05ddc32'
+              },
+              'prior_local_preflight_only': {
+                  'source': 'before formatting; formatting AST comparison retained in source packet',
+                  'selftests_failed': 12,
+                  'selftests_passed': 46,
+                  'production_assertions_skipped_by_selftest_filter': 1,
+                  'ci_red_proof': 'UNRUN at transport preparation'
+              },
+              'source_predictions_only': {
+                  'total_assertions': 59,
+                  'prior_selftest_controls': 38,
+                  'new_selftest_cases': 20,
+                  'new_selftest_assertion_reds': 12,
+                  'new_selftest_controls': 8,
+                  'production_assertions_run_unsuppressed': 1,
+                  'production_assertion_reds': 1,
+                  'production_violations': [
+                      {'file': 'src/screens/send-flow/SendAmount.tsx', 'line': 116},
+                      {'file': 'src/screens/send-flow/AddContactDrawer.tsx', 'line': 122},
+                      {'file': 'src/app/templates/history/PendingActivityCard.tsx', 'line': 231}
+                  ],
+                  'predicted_total_assertion_reds': 13,
+                  'predicted_total_passes': 46,
+                  'predicted_total_skipped': 0
+              }
+          }
+          (proof / 'source-and-workflow-manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
+          (proof / 'base-tree.json').write_text(json.dumps(before, indent=2, sort_keys=True) + '\n')
+          (proof / 'head-tree.json').write_text(json.dumps(after, indent=2, sort_keys=True) + '\n')
+          for name in [guard['path'], workflow]:
+              target = proof / 'source' / name
+              target.parent.mkdir(parents=True, exist_ok=True)
+              shutil.copyfile(name, target)
+          print('Verified 3618 unchanged base entries and one workflow addition; predictions are not CI results')
+          PYTHON
+
+      - name: Setup Node 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+
+      - name: Install frozen dependencies with existing preparation hooks
+        id: install
+        timeout-minutes: 10
+        run: |
+          set -euo pipefail
+          umask 077
+          yarn install --frozen-lockfile --non-interactive 2>&1 | tee "$PROOF_DIR/install.log"
+
+      - name: Verify prepared source remains unchanged
+        id: prepared
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.source.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          {
+            git diff --exit-code HEAD --
+            printf '%s  %s\n' \
+              ff8ecc67efff9b3d4e39e4086da5025beb14c3f11eb125c3d3828cdd91e1bc4f \
+              src/lib/telemetry/user-visible-error.guard.test.ts | sha256sum --check --strict
+          } 2>&1 | tee "$PROOF_DIR/prepared-source.log"
+
+      - name: Check only the guard file with ESLint
+        id: eslint
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.source.outcome == 'success' && steps.prepared.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          yarn eslint --max-warnings 0 src/lib/telemetry/user-visible-error.guard.test.ts \
+            2>&1 | tee "$PROOF_DIR/eslint.log" | tee -a "$PROOF_DIR/checks.log"
+
+      - name: Check TypeScript without emitting
+        id: typescript
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.source.outcome == 'success' && steps.prepared.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          yarn tsc --noEmit --pretty false 2>&1 | tee "$PROOF_DIR/typescript.log" | tee -a "$PROOF_DIR/checks.log"
+
+      - name: Run only guard selftests and unsuppressed production completeness
+        id: jest
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.source.outcome == 'success' && steps.prepared.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          yarn jest --runTestsByPath src/lib/telemetry/user-visible-error.guard.test.ts \
+            --maxWorkers=2 --coverage=false --json --outputFile="$PROOF_DIR/jest.json" \
+            2>&1 | tee "$PROOF_DIR/jest.log" | tee -a "$PROOF_DIR/checks.log"
+
+      - name: Record separate check outcomes even on failure
+        if: always()
+        env:
+          CHECKOUT_OUTCOME: ${{ steps.checkout.outcome }}
+          INSTALL_OUTCOME: ${{ steps.install.outcome }}
+          SOURCE_OUTCOME: ${{ steps.source.outcome }}
+          PREPARED_SOURCE_OUTCOME: ${{ steps.prepared.outcome }}
+          ESLINT_OUTCOME: ${{ steps.eslint.outcome }}
+          TYPESCRIPT_OUTCOME: ${{ steps.typescript.outcome }}
+          JEST_OUTCOME: ${{ steps.jest.outcome }}
+        run: |
+          set -euo pipefail
+          umask 077
+          python3 - <<'PYTHON'
+          import json
+          import os
+          from pathlib import Path
+
+          outcomes = {key: value for key, value in os.environ.items() if key.endswith('_OUTCOME')}
+          (Path(os.environ['PROOF_DIR']) / 'step-outcomes.json').write_text(json.dumps(outcomes, indent=2) + '\n')
+          PYTHON
+
+      - name: Upload private guard evidence even on failure
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: user-visible-error-guard-red-proof-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.PROOF_DIR }}
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
