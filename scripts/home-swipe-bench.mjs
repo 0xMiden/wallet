@@ -23,7 +23,7 @@
  */
 
 import { execSync } from 'node:child_process';
-import { appendFileSync, createReadStream, existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import { createConnection } from 'node:net';
 import { dirname, extname, join, normalize, resolve, sep } from 'node:path';
@@ -206,7 +206,8 @@ function parseArgs(argv) {
     reps: 6,
     dpr: 2,
     compare: null,
-    rebuild: false
+    rebuild: false,
+    summary: null
   };
   for (let i = 0; i < argv.length; i++) {
     const token = argv[i];
@@ -215,6 +216,7 @@ function parseArgs(argv) {
     else if (token === '--reps') args.reps = Number(argv[++i]);
     else if (token === '--dpr') args.dpr = Number(argv[++i]);
     else if (token === '--rebuild') args.rebuild = true;
+    else if (token === '--summary') args.summary = argv[++i];
     else if (token === '--compare') args.compare = [argv[++i], argv[++i]];
     else if (token === '--help') args.help = true;
     else throw new Error(`unknown argument ${token}`);
@@ -520,7 +522,7 @@ function loafLeaders(swipes) {
 function printReport(record) {
   console.log('');
   console.log(
-    `home swipe  label=${record.label}  throttle=${record.throttle}  dpr=${record.dpr}  ${record.sha}${record.dirty ? ' dirty' : ''}`
+    `ui smoothness  label=${record.label}  throttle=${record.throttle}  dpr=${record.dpr}  ${record.sha}${record.dirty ? ' dirty' : ''}`
   );
   console.log(
     `idle frame median ${record.idleMedianFrameMs}ms   viewport ${record.viewport.width}x${record.viewport.height}   page ${record.pageWidth}px`
@@ -560,8 +562,9 @@ function printReport(record) {
 async function measure(args) {
   await ensureServer();
   mkdirSync(BENCH_DIR, { recursive: true });
-  const context = await chromium.launchPersistentContext(resolve(BENCH_DIR, 'chrome-profile'), {
-    channel: 'chrome',
+  const browserName = process.env.BENCH_BROWSER || 'chrome';
+  const profileDir = resolve(BENCH_DIR, process.env.BENCH_PROFILE || 'chrome-profile');
+  const launchOptions = {
     headless: true,
     viewport: { width: 600, height: 844 },
     deviceScaleFactor: args.dpr,
@@ -572,7 +575,11 @@ async function measure(args) {
       '--disable-renderer-backgrounding',
       '--disable-backgrounding-occluded-windows'
     ]
-  });
+  };
+  // `chromium` is Playwright's own browser. Any other name is a Chrome channel,
+  // which is what a laptop with Chrome installed uses.
+  if (browserName !== 'chromium') launchOptions.channel = browserName;
+  const context = await chromium.launchPersistentContext(profileDir, launchOptions);
   const page = context.pages()[0] || (await context.newPage());
   // The mobile bundle decides it is a phone from Capacitor's platform. In a
   // desktop Chrome that is "web", the frontend then talks to an extension port
@@ -677,8 +684,24 @@ async function measure(args) {
       summary: summarize(swipes)
     };
     appendFileSync(RESULTS, `${JSON.stringify(record)}\n`);
+    if (args.summary) {
+      writeFileSync(
+        args.summary,
+        `${JSON.stringify({
+          label: record.label,
+          sha: record.sha,
+          throttle: record.throttle,
+          dpr: record.dpr,
+          idleMedianFrameMs: record.idleMedianFrameMs,
+          samples: record.swipes.map(swipe => swipe.feel),
+          commits: record.summary.commits,
+          swipes: record.summary.swipes
+        })}\n`
+      );
+    }
     printReport(record);
     if (errors.length) console.log(`console errors during the run: ${errors.slice(-5).join(' | ')}`);
+    if (swipes.some(swipe => !Number.isFinite(swipe.feel))) return 1;
     return record.summary.commits === record.summary.swipes ? 0 : 1;
   } catch (error) {
     const url = page.url();
@@ -695,7 +718,7 @@ async function measure(args) {
 
 const args = parseArgs(process.argv.slice(2));
 if (args.help) {
-  console.log('node scripts/home-swipe-bench.mjs [--label name] [--throttle 4] [--reps 6] [--dpr 2] [--rebuild]');
+  console.log('node scripts/home-swipe-bench.mjs [--label name] [--throttle 4] [--reps 6] [--dpr 2] [--rebuild] [--summary file]');
   console.log('node scripts/home-swipe-bench.mjs --compare <baseline-label> <candidate-label>');
   process.exit(0);
 }
