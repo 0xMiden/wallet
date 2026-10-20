@@ -8,6 +8,8 @@
  * Imports are dynamic and per test so the interface, the lock and the transport slot
  * all come from one fresh module registry.
  */
+import { installHiddenDocument } from 'lib/mobile/testing/hidden-document';
+
 import { ConsumeTransaction, SendTransaction, SwapTransaction } from '../db/types';
 import { type ConsumableNote, NoteTypeEnum } from '../types';
 import { APPLY_RETRY_DELAYS_MS } from './apply-after-submit';
@@ -193,7 +195,7 @@ async function load(harness: Harness, withTransport = true) {
  * The service worker's offscreen-proved path (`proveLocallyViaOffscreen`): no transport in this
  * realm, and a local attempt proves in the offscreen document between two holds of the lock.
  */
-async function loadOffscreenProved(harness: Harness) {
+async function loadOffscreenProved(harness: Harness, afterProve: () => void = () => undefined) {
   process.env.MIDEN_USE_OFFSCREEN_PROVING = 'true';
   installMocks(harness);
   const lazy = sdkLazyMock(harness);
@@ -204,7 +206,10 @@ async function loadOffscreenProved(harness: Harness) {
   }));
   jest.doMock('lib/miden/back/offscreen-prover', () => ({
     isOffscreenAvailable: () => true,
-    proveViaOffscreen: jest.fn(async () => ({ provenBytes: new Uint8Array([6]).buffer, durationMs: 1 }))
+    proveViaOffscreen: jest.fn(async () => {
+      afterProve();
+      return { provenBytes: new Uint8Array([6]).buffer, durationMs: 1 };
+    })
   }));
   const { MidenClientInterface } = await import('./miden-client-interface');
   const { withWasmClientLock } = await import('./miden-client');
@@ -1080,5 +1085,289 @@ describe('local-prove window markers without a transport', () => {
       { disposed: true }
     );
     expect(trail.filter(line => line.includes('local-prove-window'))).toEqual([]);
+  });
+});
+
+function permissionDeferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>(done => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
+function observePermissionWrite<T>(writing: Promise<T>): Promise<PromiseSettledResult<T>> {
+  return writing.then(
+    (value): PromiseFulfilledResult<T> => ({ status: 'fulfilled', value }),
+    (reason: unknown): PromiseRejectedResult => ({ status: 'rejected', reason })
+  );
+}
+
+async function realPermission(onRefresh: () => void = () => undefined) {
+  // Scoped to these last cases: legacy cases keep their external boundary mock.
+  jest.doMock('lib/remote-config/wallet-access', () => jest.requireActual('lib/remote-config/wallet-access'));
+  jest.dontMock('./miden-client');
+  jest.dontMock('lib/miden/sdk/miden-client');
+  const access = await import('lib/remote-config/wallet-access');
+  const response = permissionDeferred<boolean | null>();
+  const entered = permissionDeferred<void>();
+  let now = 1_000;
+  let refreshes = 0;
+  jest.spyOn(performance, 'now').mockImplementation(() => now);
+  const scope = () => `permission-proof:${access.getWalletAccessGeneration()}`;
+  access.registerWalletAccessRuntime({
+    scope,
+    refresh: async () => {
+      const ownerScope = scope();
+      refreshes += 1;
+      onRefresh();
+      entered.resolve();
+      const allowed = await response.promise;
+      access.publishWalletAccessDecision(ownerScope, allowed);
+    }
+  });
+  access.publishWalletAccessDecision(scope(), true);
+  return {
+    access,
+    entered: entered.promise,
+    respond: response.resolve,
+    expire: () => {
+      now += 60_001;
+    },
+    refreshCount: () => refreshes,
+    close: () => access.invalidateWalletAccess()
+  };
+}
+
+type PermissionControl = Awaited<ReturnType<typeof realPermission>>;
+type PermissionProofPath = 'worker' | 'in-realm' | 'offscreen-proved';
+const permissionPaths: PermissionProofPath[] = ['worker', 'in-realm', 'offscreen-proved'];
+
+async function loadPermissionWrite(path: PermissionProofPath, harness: Harness, permission: PermissionControl) {
+  if (path === 'worker') {
+    harness.setWorkerProve(async () => {
+      harness.order.push('worker prove');
+      permission.expire();
+      return { proven: new Uint8Array([5, 5]), durationMs: 1 };
+    });
+    const loaded = await load(harness);
+    return { ...loaded, run: () => loaded.client.consumeNoteId(consumeTx(false)) };
+  }
+  if (path === 'in-realm') {
+    harness.delegated.onProve = permission.expire;
+    const loaded = await load(harness, false);
+    return { ...loaded, run: () => loaded.client.consumeNoteId(consumeTx(true)) };
+  }
+  const loaded = await loadOffscreenProved(harness, permission.expire);
+  return { ...loaded, run: () => loaded.client.consumeNoteId(consumeTx(false)) };
+}
+
+function permissionSubmitCount(harness: Harness): number {
+  return (
+    harness.submitProven.mock.calls.length +
+    harness.inner.submitProvenTransaction.mock.calls.length +
+    harness.order.filter(step => step === 'delegated submit' || step === 'local submit').length
+  );
+}
+
+function permissionExecutionCount(harness: Harness): number {
+  return harness.executeRequest.mock.calls.length + harness.inner.executeTransaction.mock.calls.length;
+}
+
+async function expectPermissionSignal<T>(signal: Promise<void>, writing: Promise<PromiseSettledResult<T>>) {
+  const first = await Promise.race([
+    signal.then(() => ({ phase: 'permission signal' })),
+    writing.then(outcome => ({ phase: 'write ended first', outcome }))
+  ]);
+  expect(first).toEqual({ phase: 'permission signal' });
+}
+
+describe('GEO007 permission renewal at final submit', () => {
+  beforeEach(() => {
+    process.env.MIDEN_USE_OFFSCREEN_PROVING = 'false';
+  });
+  const savedOffscreenFlag = process.env.MIDEN_USE_OFFSCREEN_PROVING;
+  afterEach(() => {
+    if (savedOffscreenFlag === undefined) delete process.env.MIDEN_USE_OFFSCREEN_PROVING;
+    else process.env.MIDEN_USE_OFFSCREEN_PROVING = savedOffscreenFlag;
+  });
+
+  describe.each(permissionPaths)('%s proof path', path => {
+    it.each([true, false])('admits a real mutex contender during renewal, allowed=%s', async allowed => {
+      const harness = buildHarness();
+      const permission = await realPermission();
+      const loaded = await loadPermissionWrite(path, harness, permission);
+      const locks = await import('./miden-client');
+      const { hasErrorBeforeSubmit } = await import('./sdk-error-code');
+      const outcome = observePermissionWrite(loaded.withWasmClientLock(loaded.run));
+      try {
+        await expectPermissionSignal(permission.entered, outcome);
+        let contenderRan = false;
+        const contender = await locks.tryWithWasmClientLock(async () => {
+          contenderRan = true;
+          return 'read completed';
+        });
+        // A parked authority request must not occupy the mutex background readers need.
+        expect(contender).toEqual({ ran: true, value: 'read completed' });
+        expect(contenderRan).toBe(true);
+        expect(permissionSubmitCount(harness)).toBe(0);
+        expect(harness.order.filter(step => step === 'apply')).toHaveLength(0);
+      } finally {
+        permission.respond(allowed);
+        await outcome;
+        permission.close();
+      }
+      const settled = await outcome;
+      const error = settled.status === 'rejected' ? settled.reason : undefined;
+      expect(settled.status).toBe(allowed ? 'fulfilled' : 'rejected');
+      expect(permission.access.isWalletAccessDeniedError(error)).toBe(!allowed);
+      expect(hasErrorBeforeSubmit(error)).toBe(!allowed);
+      expect(permissionSubmitCount(harness)).toBe(allowed ? 1 : 0);
+      expect(harness.order.filter(step => step === 'apply')).toHaveLength(allowed ? 1 : 0);
+      expect(permissionExecutionCount(harness)).toBe(1);
+      expect(permission.refreshCount()).toBe(1);
+      expect(await locks.tryWithWasmClientLock(async () => 'idle')).toEqual({ ran: true, value: 'idle' });
+    });
+  });
+
+  it('an unavailable renewal stays pre-submit after admitting a mutex contender', async () => {
+    const harness = buildHarness();
+    const permission = await realPermission();
+    const loaded = await loadPermissionWrite('in-realm', harness, permission);
+    const locks = await import('./miden-client');
+    const { hasErrorBeforeSubmit } = await import('./sdk-error-code');
+    const outcome = observePermissionWrite(loaded.withWasmClientLock(loaded.run));
+    try {
+      await expectPermissionSignal(permission.entered, outcome);
+      expect(await locks.tryWithWasmClientLock(async () => 'read')).toEqual({ ran: true, value: 'read' });
+    } finally {
+      permission.respond(null);
+      await outcome;
+      permission.close();
+    }
+    const settled = await outcome;
+    const error = settled.status === 'rejected' ? settled.reason : undefined;
+    expect(settled.status).toBe('rejected');
+    expect(permission.access.isWalletAccessDeniedError(error)).toBe(true);
+    expect(hasErrorBeforeSubmit(error)).toBe(true);
+    expect(permissionSubmitCount(harness)).toBe(0);
+    expect(permissionExecutionCount(harness)).toBe(1);
+  });
+
+  it('a hidden long proof completes after demand renewal without anticipatory refresh', async () => {
+    const harness = buildHarness();
+    const permission = await realPermission();
+    const proofEntered = permissionDeferred<void>();
+    const finishProof = permissionDeferred<void>();
+    const loaded = await loadPermissionWrite('worker', harness, permission);
+    const locks = await import('./miden-client');
+    const hidden = installHiddenDocument();
+    const savedVisibility = Object.getOwnPropertyDescriptor(document, 'visibilityState');
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
+    hidden.setHidden(true, { dispatch: false });
+    harness.setWorkerProve(async () => {
+      proofEntered.resolve();
+      await finishProof.promise;
+      return { proven: new Uint8Array([5]), durationMs: 65_000 };
+    });
+    const outcome = observePermissionWrite(loaded.withWasmClientLock(loaded.run));
+    try {
+      await expectPermissionSignal(proofEntered.promise, outcome);
+      permission.expire();
+      expect(document.visibilityState).toBe('hidden');
+      expect(document.hidden).toBe(true);
+      expect(permission.access.getWalletAccessSnapshot().status).toBe('loading');
+      expect(permission.refreshCount()).toBe(0);
+      finishProof.resolve();
+      await expectPermissionSignal(permission.entered, outcome);
+      expect(await locks.tryWithWasmClientLock(async () => 'read')).toEqual({ ran: true, value: 'read' });
+      expect(permissionSubmitCount(harness)).toBe(0);
+    } finally {
+      finishProof.resolve();
+      permission.respond(true);
+      await outcome;
+      permission.close();
+      hidden.restore();
+      if (savedVisibility) Object.defineProperty(document, 'visibilityState', savedVisibility);
+      else Reflect.deleteProperty(document, 'visibilityState');
+    }
+    expect((await outcome).status).toBe('fulfilled');
+    expect(permissionSubmitCount(harness)).toBe(1);
+    expect(harness.order.filter(step => step === 'apply')).toHaveLength(1);
+    expect(permission.refreshCount()).toBe(1);
+  });
+
+  it('a permission change before the SDK inner callback refuses without renewal inside the borrow', async () => {
+    const harness = buildHarness();
+    const refreshBorrowFlags: boolean[] = [];
+    let innerBorrow = false;
+    let innerCalls = 0;
+    const permission = await realPermission(() => refreshBorrowFlags.push(innerBorrow));
+    permission.respond(true);
+    harness.fakeClient._withInnerWebClient.mockImplementation(async run => {
+      innerCalls += 1;
+      // The second window is submit/apply, after the proof-only offscreen wait.
+      if (innerCalls === 2) permission.access.invalidateWalletAccess();
+      innerBorrow = true;
+      try {
+        return await run(harness.inner);
+      } finally {
+        innerBorrow = false;
+      }
+    });
+    const loaded = await loadOffscreenProved(harness);
+    const { hasErrorBeforeSubmit } = await import('./sdk-error-code');
+    const outcome = observePermissionWrite(
+      loaded.withWasmClientLock(async () => loaded.client.consumeNoteId(consumeTx(false)))
+    );
+    let settled: Awaited<typeof outcome>;
+    try {
+      settled = await outcome;
+    } finally {
+      permission.close();
+    }
+    const error = settled.status === 'rejected' ? settled.reason : undefined;
+    expect(settled.status).toBe('rejected');
+    expect(permission.access.isWalletAccessDeniedError(error)).toBe(true);
+    expect(hasErrorBeforeSubmit(error)).toBe(true);
+    expect(refreshBorrowFlags).toEqual([]);
+    expect(permissionSubmitCount(harness)).toBe(0);
+    expect(harness.inner.applyTransaction).not.toHaveBeenCalled();
+  });
+
+  it('a replaced client generation cannot submit a proof retained across permission renewal', async () => {
+    const harness = buildHarness();
+    const permission = await realPermission();
+    await loadPermissionWrite('worker', harness, permission);
+    const locks = await import('./miden-client');
+    const { wasmClientGeneration } = await import('./wasm-client-poison');
+    // Recovery must know this instance, unlike a direct unmanaged interface.create().
+    const client = await locks.getMidenClient();
+    const generation = wasmClientGeneration();
+    const outcome = observePermissionWrite(
+      locks.withWasmClientLock(async () => client.consumeNoteId(consumeTx(false)))
+    );
+    try {
+      await expectPermissionSignal(permission.entered, outcome);
+      expect(await locks.tryWithWasmClientLock(async () => 'read')).toEqual({ ran: true, value: 'read' });
+      await locks.resetMidenClient();
+      expect(wasmClientGeneration()).toBeGreaterThan(generation);
+      expect(client.isDisposed).toBe(true);
+    } finally {
+      permission.respond(true);
+      await outcome;
+      permission.close();
+    }
+    const settled = await outcome;
+    const error = settled.status === 'rejected' ? settled.reason : undefined;
+    expect(settled.status).toBe('rejected');
+    const { isWasmClientPoisonedError } = await import('./wasm-client-poison');
+    expect(isWasmClientPoisonedError(error)).toBe(true);
+    expect(permissionSubmitCount(harness)).toBe(0);
+    expect(harness.order.filter(step => step === 'apply')).toHaveLength(0);
+    const replacement = await locks.getMidenClient();
+    expect(replacement).not.toBe(client);
+    expect(replacement.isDisposed).toBe(false);
+    expect(await locks.tryWithWasmClientLock(async () => 'fresh')).toEqual({ ran: true, value: 'fresh' });
   });
 });

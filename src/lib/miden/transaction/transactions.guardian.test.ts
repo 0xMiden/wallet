@@ -85,11 +85,12 @@ import {
   ITransactionStage,
   ITransactionStatus,
   ReplaceHotKeyTransaction,
+  SendTransaction,
   SwitchGuardianTransaction,
   Transaction,
   UpdateProcedureThresholdTransaction
 } from '../db/types';
-import { markErrorBeforeSubmit } from '../sdk/sdk-error-code';
+import { hasErrorBeforeSubmit, markErrorBeforeSubmit } from '../sdk/sdk-error-code';
 
 /**
  * The verbatim `Display` text miden-client produces for
@@ -13913,4 +13914,139 @@ describe('generateTransaction: the rotation gate claim (#805)', () => {
 
 beforeEach(() => {
   mockLegacyFeeIdentity = undefined;
+});
+
+describe('Guardian inline GEO007 permission renewal', () => {
+  type Access = typeof import('lib/remote-config/wallet-access');
+  type Mutex = typeof import('../sdk/miden-client');
+
+  const deferred = <T,>() => {
+    let resolve: (value: T) => void = () => {
+      throw new Error('Deferred promise was not initialized');
+    };
+    const promise = new Promise<T>(done => {
+      resolve = done;
+    });
+    return { promise, resolve };
+  };
+
+  it.each([true, false, null])('GEO007 final renewal admits a real mutex contender before answer %s', async allowed => {
+    jest.clearAllMocks();
+    txStore.length = 0;
+    let now = 0;
+    const clock = jest.spyOn(performance, 'now').mockImplementation(() => now);
+    const boundary = jest.requireMock<Access>('lib/remote-config/wallet-access');
+    const originalAccess = { ...boundary };
+    const access = jest.requireActual<Access>('lib/remote-config/wallet-access');
+    Object.assign(boundary, access);
+    const mutexBoundary = jest.requireMock<Mutex>('../sdk/miden-client');
+    const originalMutex = { ...mutexBoundary };
+    const mutex = jest.requireActual<Mutex>('../sdk/miden-client');
+    // Alias and relative imports retain this same object; only these cases replace the pass-through lock.
+    Object.assign(mutexBoundary, mutex, { getMidenClient: mockGetMidenClient });
+    const scope = () => `geo007-inline:${access.getWalletAccessGeneration()}`;
+    const answer = deferred<boolean | null>();
+    const renewalEntered = deferred<void>();
+    let renewalSettled = false;
+    const refresh = jest.fn(async () => {
+      const owner = scope();
+      renewalEntered.resolve();
+      const decision = await answer.promise;
+      renewalSettled = true;
+      access.publishWalletAccessDecision(owner, decision);
+    });
+    access.registerWalletAccessRuntime({ scope, refresh });
+    access.publishWalletAccessDecision(scope(), true);
+    const proof = deferred<{ proved: boolean }>();
+    const proving = deferred<void>();
+    const result = makeResult();
+    const client = makeClientApi(result);
+    client.transactions.prove.mockImplementationOnce(async () => {
+      proving.resolve();
+      return proof.promise;
+    });
+    mockGetMidenClient.mockResolvedValue({
+      isDisposed: false,
+      getAccount: jest.fn(async () => undefined),
+      syncState: jest.fn(async () => {}),
+      client
+    });
+    const createSendProposal = jest.fn(async () => ({ id: 'geo007-proposal', nonce: 5 }));
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      createSendProposal,
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      abandonCandidate: jest.fn(async () => {}),
+      sync: jest.fn(async () => {})
+    });
+    const transaction = new SendTransaction(
+      'guardian-acc',
+      1000n,
+      'recipient',
+      'faucet',
+      NoteType.Public,
+      undefined,
+      true
+    );
+    txStore.push({ ...transaction });
+    const pending = generateTransaction(
+      transaction,
+      jest.fn(async () => new Uint8Array([2])),
+      false,
+      makeGuardianProvider(true)
+    ).then(
+      () => ({ ok: true, error: undefined }),
+      (error: unknown) => ({ ok: false, error })
+    );
+    try {
+      await proving.promise;
+      expect(refresh).not.toHaveBeenCalled();
+      expect(client.transactions.submitProven).not.toHaveBeenCalled();
+      now = 60_001;
+      expect(refresh).not.toHaveBeenCalled();
+      proof.resolve({ proved: true });
+      await renewalEntered.promise;
+      expect(refresh).toHaveBeenCalledTimes(1);
+      expect(renewalSettled).toBe(false);
+      const contender = jest.fn(async () => 'observer-finished');
+      const progress = await mutex.tryWithWasmClientLock(contender);
+      expect(progress).toEqual({ ran: true, value: 'observer-finished' });
+      expect(contender).toHaveBeenCalledTimes(1);
+      expect(renewalSettled).toBe(false);
+      expect(client.transactions.submitProven).not.toHaveBeenCalled();
+      expect(client.transactions.apply).not.toHaveBeenCalled();
+      answer.resolve(allowed);
+      const outcome = await pending;
+      if (allowed === true) {
+        expect(outcome).toEqual({ ok: true, error: undefined });
+        expect(client.transactions.submitProven).toHaveBeenCalledTimes(1);
+        expect(client.transactions.apply).toHaveBeenCalledTimes(1);
+        expect(createSendProposal).toHaveBeenCalledTimes(1);
+        expect(txStore.find(row => row.id === transaction.id)?.status).toBe(ITransactionStatus.Completed);
+      } else {
+        expect(outcome.ok).toBe(false);
+        expect(access.isWalletAccessDeniedError(outcome.error)).toBe(true);
+        expect(hasErrorBeforeSubmit(outcome.error)).toBe(true);
+        expect(client.transactions.submitProven).not.toHaveBeenCalled();
+        expect(client.transactions.apply).not.toHaveBeenCalled();
+        expect(client.transactions.prove).toHaveBeenCalledTimes(1);
+        expect(txStore.find(row => row.id === transaction.id)?.status).not.toBe(ITransactionStatus.Failed);
+      }
+      expect(refresh).toHaveBeenCalledTimes(1);
+      expect(mutex.isWasmClientBusy()).toBe(false);
+    } finally {
+      proof.resolve({ proved: true });
+      answer.resolve(allowed);
+      await pending;
+      access.invalidateWalletAccess();
+      Object.assign(boundary, originalAccess);
+      for (const key of Object.keys(mutexBoundary)) {
+        if (!Object.prototype.hasOwnProperty.call(originalMutex, key)) Reflect.deleteProperty(mutexBoundary, key);
+      }
+      Object.assign(mutexBoundary, originalMutex);
+      clock.mockRestore();
+    }
+  });
 });
