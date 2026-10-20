@@ -200,9 +200,11 @@ jobs:
         id: jest
         if: ${{ !cancelled() && steps.source.outcome == 'success' && steps.install.outcome == 'success' && steps.prepared.outcome == 'success' }}
         run: |
-          set -uo pipefail
+          set -euo pipefail
+          set +e
           yarn jest --runTestsByPath src/lib/usdcx/withdrawal.test.ts --maxWorkers=2 --coverage=false --json --outputFile="$PROOF_DIR/jest.json" 2>&1 | tee "$PROOF_DIR/jest.log"
           statuses=("${PIPESTATUS[@]}")
+          set -e
           printf '%s\n' "${statuses[0]}" > "$PROOF_DIR/jest.exit"
           printf '%s\n' "${statuses[1]}" > "$PROOF_DIR/tee.exit"
           if [ "${statuses[1]}" -ne 0 ]; then exit "${statuses[1]}"; fi
@@ -287,6 +289,7 @@ jobs:
           validation['failed_assertions'] = failed
           (proof / 'test-set-validation.json').write_text(json.dumps(validation, indent=2) + '\n')
           print('Verified exact two floor assertion failures and 14 passed controls; natural expected-red job retained')
+          PYTHON
 
       - name: Upload evidence even on failure
         if: always()
