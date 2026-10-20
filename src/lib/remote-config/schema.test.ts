@@ -641,10 +641,7 @@ describe('geo place rules', () => {
       'testnet'
     );
     expect(parsed?.geo).toEqual({
-      earn: [
-        { country: 'US', region: 'NY' },
-        { country: 'GB' }
-      ],
+      earn: [{ country: 'US', region: 'NY' }, { country: 'GB' }],
       swap: [{ country: 'DE' }]
     });
   });

@@ -9,11 +9,11 @@ import { setDocumentGuardians } from 'lib/miden-chain/guardian-registry';
 import { backoffDelay, foregroundThreshold, isCheckDue } from 'lib/versioned-document';
 
 import { BRIDGE_FEATURES, type BridgeFeature, featureAvailability, type UnavailableReason } from './availability';
-import { type GeoLookup, hasGeoBlocks } from './geo';
-import { lookupCallerPlace } from './geo-lookup';
 import { deriveBridgeConfig, type DerivedBridgeConfig, type DerivedChainConfig, type Probe } from './derive';
 import { bridgeConfigDerivedKey, failedDerivation, parseStoredDerived } from './derived-snapshot';
 import { getE2eOverrides } from './e2e-overrides';
+import { type GeoLookup, hasGeoBlocks } from './geo';
+import { lookupCallerPlace } from './geo-lookup';
 import type { BridgeConfig } from './schema';
 import {
   bridgeConfigCacheKey,
