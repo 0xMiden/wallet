@@ -1,0 +1,170 @@
+name: NEVER-MERGE Sentry2N launcher lifecycle expected red
+
+on:
+  push:
+    branches: [ci/sentry2n-launcher-feedback-red]
+
+permissions:
+  contents: read
+
+jobs:
+  launcher-red:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    env:
+      CI: 'true'
+      PROOF_HEAD: ${{ github.sha }}
+      PROOF_REF: ${{ github.ref }}
+      PROOF_RUN: ${{ github.run_id }}
+      PROOF_ATTEMPT: ${{ github.run_attempt }}
+    steps:
+      - name: Checkout exact isolated transport
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Bind frozen source and initialize raw evidence
+        run: |
+          set -euo pipefail
+          umask 077
+          export PROOF_DIR="$RUNNER_TEMP/sentry2n-launcher-red"
+          printf 'PROOF_DIR=%s\n' "$PROOF_DIR" >> "$GITHUB_ENV"
+          mkdir "$PROOF_DIR"
+          test "$(git rev-parse HEAD)" = "$PROOF_HEAD"
+          test "$PROOF_REF" = refs/heads/ci/sentry2n-launcher-feedback-red
+          test "$(git rev-parse HEAD^)" = 6e68733167a7877a5bd28580101461ae074f0629
+          test "$(git rev-list --parents -n 1 HEAD | wc -w)" -eq 2
+          git diff --name-status 6e68733167a7877a5bd28580101461ae074f0629 HEAD > "$PROOF_DIR/workflow-only.names"
+          printf 'A\t.github/workflows/sentry2n-launcher-feedback-red.yml\n' > "$PROOF_DIR/expected-workflow-only.names"
+          cmp "$PROOF_DIR/workflow-only.names" "$PROOF_DIR/expected-workflow-only.names"
+          git diff --binary 6e68733167a7877a5bd28580101461ae074f0629 HEAD > "$PROOF_DIR/workflow-only.diff"
+          git cat-file commit 6e68733167a7877a5bd28580101461ae074f0629 > "$PROOF_DIR/source-commit.txt"
+          git cat-file commit HEAD > "$PROOF_DIR/checkout-commit.txt"
+          git ls-tree -r 6e68733167a7877a5bd28580101461ae074f0629 > "$PROOF_DIR/source-tree.txt"
+          git ls-tree -r HEAD > "$PROOF_DIR/checkout-tree.txt"
+          printf '%s\n' "$PROOF_HEAD" "$PROOF_REF" "$PROOF_RUN" "$PROOF_ATTEMPT" > "$PROOF_DIR/run-identity.txt"
+          cat > "$PROOF_DIR/expected-source-sha256.txt" <<'SOURCE_HASHES'
+          0a337c352d390b43e732ec6c5ecd0898f695015b287db71523089a2eb9a7e564  src/app/pages/Browser/BrowserScreen.test.tsx
+          c7fe8022e4b39a70b2ac226adfb56bef45dccda8f4208162c06ab88e1012169c  src/app/pages/Browser/BrowserScreen.tsx
+          a17b5c0858fe8641d46427dc89e9daa5c4cbc84ee107b5d320085c2d813c5c14  src/app/providers/DappBrowserProvider.tsx
+          89b811ae3283a7c8a1c843149b8301b3819d4fc85ae02ecf8621f1f7c96c0ff1  src/app/providers/DappBrowserProvider.visibility.test.tsx
+          8606e15d58682739313e004734d42f34a2ad715148e00f28c2de63596349941d  yarn.lock
+          9af7cd256a41b9ad42604d8ab62a0859a3218b9b53cd74f8291fcc9075681d1d  package.json
+          SOURCE_HASHES
+          sha256sum --check "$PROOF_DIR/expected-source-sha256.txt"
+          git ls-files --stage -z > "$PROOF_DIR/before.index-stage.bin"
+          cp "$(git rev-parse --git-path index)" "$PROOF_DIR/before.index.bin"
+          git status --porcelain=v1 --untracked-files=all > "$PROOF_DIR/before.status"
+          test ! -s "$PROOF_DIR/before.status"
+          cat > "$PROOF_DIR/run-logged.bash" <<'LOGGER'
+          run_logged() {
+            local label="$1"
+            shift
+            printf '%s\0' "$@" > "$PROOF_DIR/$label.argv"
+            set +e
+            "$@" 2>&1 | tee "$PROOF_DIR/$label.log"
+            local codes=("${PIPESTATUS[@]}")
+            set -e
+            printf '%s\n' "${codes[0]}" > "$PROOF_DIR/$label.exit"
+            printf '%s\n' "${codes[1]}" > "$PROOF_DIR/$label.tee.exit"
+            if [ "${codes[1]}" -ne 0 ]; then return "${codes[1]}"; fi
+            return "${codes[0]}"
+          }
+          LOGGER
+      - name: Use Node22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install frozen dependencies with normal hooks
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged install timeout 10m yarn install --frozen-lockfile --non-interactive
+      - name: Retain pinned matcher and serializer sources
+        run: |
+          set -euo pipefail
+          umask 077
+          node --version > "$PROOF_DIR/node-version.txt"
+          yarn --version > "$PROOF_DIR/yarn-version.txt"
+          while IFS= read -r file; do
+            test -f "node_modules/$file" && test ! -L "node_modules/$file"
+            mkdir -p "$PROOF_DIR/framework/$(dirname "$file")"
+            cp "node_modules/$file" "$PROOF_DIR/framework/$file"
+          done <<'FRAMEWORK_FILES'
+          expect/package.json
+          expect/build/index.js
+          jest-circus/package.json
+          jest-circus/build/jestAdapterInit.js
+          jest-circus/build/runner.js
+          jest-util/package.json
+          jest-util/build/index.js
+          @jest/test-result/package.json
+          @jest/test-result/build/index.js
+          @jest/core/package.json
+          @jest/core/build/index.js
+          jest-matcher-utils/package.json
+          jest-matcher-utils/build/index.js
+          jest-message-util/package.json
+          jest-message-util/build/index.js
+          pretty-format/package.json
+          pretty-format/build/index.js
+          jest-mock/package.json
+          jest-mock/build/index.js
+          jest/package.json
+          jest/build/index.js
+          @swc/jest/package.json
+          @swc/jest/index.js
+          @babel/code-frame/package.json
+          @babel/code-frame/lib/index.js
+          stack-utils/package.json
+          stack-utils/index.js
+          slash/package.json
+          slash/index.js
+          FRAMEWORK_FILES
+      - name: Check the named additive test format
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged format yarn prettier --check src/app/pages/Browser/BrowserScreen.test.tsx
+      - name: Check zero-warning named test lint
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged lint yarn eslint --max-warnings 0 src/app/pages/Browser/BrowserScreen.test.tsx
+      - name: Check project TypeScript without emitting
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged typescript yarn tsc --noEmit --pretty false
+      - name: Run the real14-case suite with natural expected exit1
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged jest yarn jest --runTestsByPath src/app/pages/Browser/BrowserScreen.test.tsx --runInBand --coverage=false --no-colors --json --outputFile="$PROOF_DIR/jest.json"
+      - name: Always retain final unchanged source and raw index
+        if: always()
+        run: |
+          set -euo pipefail
+          umask 077
+          sha256sum --check "$PROOF_DIR/expected-source-sha256.txt" > "$PROOF_DIR/after.hash-check.log"
+          git ls-files --stage -z > "$PROOF_DIR/after.index-stage.bin"
+          cp "$(git rev-parse --git-path index)" "$PROOF_DIR/after.index.bin"
+          cmp "$PROOF_DIR/before.index-stage.bin" "$PROOF_DIR/after.index-stage.bin"
+          git status --porcelain=v1 --untracked-files=all > "$PROOF_DIR/after.status"
+          test ! -s "$PROOF_DIR/after.status"
+          printf 'UNACCEPTED: raw collection only; external exact inventory, failure frames, source and API/archive acceptance required. Production CLOSED. Maximum-depth causality UNPROVEN. Never merge.\n' > "$PROOF_DIR/acceptance.txt"
+          cd "$PROOF_DIR"
+          find . -type f ! -name files.sha256 -print0 | sort -z | xargs -0 sha256sum > files.sha256
+      - name: Always retain actual complete private evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sentry2n-launcher-red-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/sentry2n-launcher-red/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
