@@ -1862,6 +1862,58 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
     expect(isGuardianUnrepairable('acct-own-rotation')).toBe(false);
   });
 
+  it('GEO012 repairs a Completed pending hot-key row through the ordinary chain-verified heal', async () => {
+    const repo = jest.requireActual<typeof import('lib/miden/repo')>('lib/miden/repo');
+    const residual = jest.requireActual<typeof import('lib/miden/transaction/hot-key-rotation-residual')>(
+      'lib/miden/transaction/hot-key-rotation-residual'
+    );
+    const { ITransactionStatus, ReplaceHotKeyTransaction } =
+      jest.requireActual<typeof import('../db/types')>('../db/types');
+    const accountId = 'acct-completed-pending-geo012';
+    arrangeOwnRotation(accountId);
+    const transaction = new ReplaceHotKeyTransaction(accountId, false);
+    const row: import('../db/types').ITransaction = {
+      ...transaction,
+      status: ITransactionStatus.Completed,
+      transactionId: `0x${'ab'.repeat(32)}`,
+      stage: 'complete',
+      extraInputs: { newHotPublicKey: 'new-hot-pub', hotKeyPersistFailed: true }
+    };
+    await repo.transactions.put(row);
+    mockFindFailedHotKeyRotations.mockImplementation(residual.findFailedHotKeyRotations);
+    mockMarkRotationCompleted.mockImplementation(residual.markRotationCompleted);
+    mockReRegister.mockImplementation(pushStartWith(['0xbeef', '0xc01d']));
+    storeState.swapHotKey.mockImplementation(
+      async (publicKey: string, newHotPublicKey: string, expectedHotPublicKey?: string | null) => {
+        const current = storeState.accounts.find(account => account.publicKey === publicKey);
+        if (!current || current.hotPublicKey !== expectedHotPublicKey) throw new Error('The account hot key changed');
+        current.hotPublicKey = newHotPublicKey;
+      }
+    );
+    try {
+      for (let i = 0; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD; i++) await syncGuardianAccounts();
+
+      expect(mockReRegister).toHaveBeenCalledTimes(1);
+      expect(storeState.swapHotKey).toHaveBeenCalledWith(accountId, 'new-hot-pub', 'hot');
+      expect(storeState.accounts.find(account => account.publicKey === accountId)?.hotPublicKey).toBe('new-hot-pub');
+      expect(await repo.transactions.get(row.id)).toMatchObject({
+        status: ITransactionStatus.Completed,
+        transactionId: row.transactionId,
+        extraInputs: { newHotPublicKey: 'new-hot-pub', hotKeyPersistFailed: false }
+      });
+      expect(mockMarkRotationCompleted).toHaveBeenCalledWith(row.id);
+      await expect(residual.findFailedHotKeyRotations(accountId)).resolves.toEqual([]);
+      expect(mockReRegister.mock.invocationCallOrder[0]).toBeLessThan(
+        storeState.swapHotKey.mock.invocationCallOrder[0]
+      );
+      expect(isGuardianUnrepairable(accountId)).toBe(false);
+    } finally {
+      mockFindFailedHotKeyRotations.mockReset().mockResolvedValue([]);
+      mockMarkRotationCompleted.mockReset().mockResolvedValue(undefined);
+      await repo.transactions.delete(row.id);
+    }
+  });
+
   it("keeps the budget open while the chain does not confirm this device's rotation (#1233)", async () => {
     const { GuardianReRegisterRefusedError } = jest.requireActual('lib/miden/guardian');
     arrangeOwnRotation('acct-own-unconfirmed');

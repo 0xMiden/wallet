@@ -1,3 +1,8 @@
+import {
+  bindCommittedGuardianEvidence,
+  clearCommittedGuardianIntent,
+  committedGuardianOperationBinding
+} from 'lib/miden/guardian/committed-completion';
 import * as Repo from 'lib/miden/repo';
 import {
   assertWalletAccessAllowed,
@@ -32,6 +37,8 @@ const FINAL_COMMITMENT = `0x${'cd'.repeat(32)}`;
 const mockPrivateSigns = jest.fn();
 const mockRegistration = jest.fn();
 const mockHardening = jest.fn();
+const mockHotWrites = jest.fn();
+const mockEndpointWrites = jest.fn();
 let mockHold: object | null = null;
 
 jest.mock('lib/miden/sdk/miden-client', () => ({
@@ -70,6 +77,8 @@ jest.mock('../transaction/initiate', () => ({
 jest.mock('lib/miden/guardian/direct-switch', () => ({
   ...jest.requireActual('lib/miden/guardian/direct-switch'),
   didDirectSwitchLand: async () => true,
+  readLastSyncedVerdict: async () => true,
+  readChainAccountCommitment: async () => FINAL_COMMITMENT,
   finalizeDirectGuardianSwitch: async (
     _accountId: string,
     _endpoint: string,
@@ -112,6 +121,7 @@ class FixtureVault extends Vault {
   }
 
   override async swapHotKey(accountId: string, newHotPublicKey: string) {
+    mockHotWrites(accountId, newHotPublicKey);
     this.fixtureAccounts = this.fixtureAccounts.map(account =>
       account.publicKey === accountId
         ? { ...account, hotPublicKey: newHotPublicKey, requiresHotKeyRotation: false }
@@ -121,6 +131,7 @@ class FixtureVault extends Vault {
   }
 
   override async setGuardianEndpoint(accountId: string, guardianEndpoint: string) {
+    mockEndpointWrites(accountId, guardianEndpoint);
     this.fixtureAccounts = this.fixtureAccounts.map(account =>
       account.publicKey === accountId
         ? { ...account, guardianEndpoint, guardianEpoch: (account.guardianEpoch ?? 0) + 1 }
@@ -176,7 +187,11 @@ afterEach(() => {
   jest.restoreAllMocks();
 });
 
-const completeAfterVerdict = async (kind: StructuralKind, policy?: DeniedPolicy) => {
+const completeAfterVerdict = async (
+  kind: StructuralKind,
+  policy?: DeniedPolicy,
+  lifecycle: 'admitted' | 'missing' | 'retired' | 'locked' = 'admitted'
+) => {
   const transaction =
     kind === 'replace-hot-key'
       ? new ReplaceHotKeyTransaction(ACCOUNT_ID, true)
@@ -206,6 +221,15 @@ const completeAfterVerdict = async (kind: StructuralKind, policy?: DeniedPolicy)
   const verdict = deferred<boolean>();
   const completion = (async () => {
     await ensureWalletAccessAllowed();
+    if (lifecycle !== 'missing') {
+      const prepare = vaultGuardianProvider.prepareCommittedGuardianCompletion;
+      if (!prepare) throw new Error('The real provider has no completion preparation');
+      await prepare.call(vaultGuardianProvider, row.id);
+      bindCommittedGuardianEvidence(row.id, 'committed-attempt', committedGuardianOperationBinding(row), {
+        transactionId: CHAIN_ID,
+        finalCommitment: FINAL_COMMITMENT
+      });
+    }
     admitted.resolve();
     if (!(await verdict.promise)) throw new Error('Fixture transaction did not commit');
     const landed = { transactionId: CHAIN_ID, finalAccountCommitment: FINAL_COMMITMENT };
@@ -216,14 +240,20 @@ const completeAfterVerdict = async (kind: StructuralKind, policy?: DeniedPolicy)
     }
   })();
   try {
-    await admitted.promise;
+    await Promise.race([admitted.promise, completion]);
+    if (lifecycle === 'retired') clearCommittedGuardianIntent(row.id);
+    if (lifecycle === 'locked') locked();
     if (policy) deny(policy);
     verdict.resolve(true);
     await completion;
     return { account: await fixtureVault.getCurrentAccount(), row: await Repo.transactions.get(transaction.id) };
   } finally {
     verdict.resolve(true);
-    await completion;
+    try {
+      await completion;
+    } finally {
+      await vaultGuardianProvider.releaseRecoveryAuthorization?.(row.id);
+    }
   }
 };
 
@@ -278,4 +308,50 @@ describe('GEO012 committed Guardian bookkeeping with real access gates', () => {
       expect(mockPrivateSigns).not.toHaveBeenCalled();
     }
   );
+});
+
+describe('GEO012 truthful committed rotations pending repair', () => {
+  it.each(['missing', 'retired'] satisfies Array<'missing' | 'retired'>)(
+    'GEO012 records pending bookkeeping without a usable %s capability',
+    async lifecycle => {
+      const { account, row } = await completeAfterVerdict('replace-hot-key', 'restricted', lifecycle);
+      expect(account.hotPublicKey).toBe('old-hot');
+      expect(row).toMatchObject({
+        status: ITransactionStatus.Completed,
+        transactionId: CHAIN_ID,
+        extraInputs: { newHotPublicKey: 'new-hot', hotKeyPersistFailed: true }
+      });
+      expect(mockHotWrites).not.toHaveBeenCalled();
+      expect(mockEndpointWrites).not.toHaveBeenCalled();
+      expect(mockPrivateSigns).not.toHaveBeenCalled();
+      expect(mockRegistration).not.toHaveBeenCalled();
+      expect(mockHardening).not.toHaveBeenCalled();
+    }
+  );
+
+  it('GEO012 keeps a known committed rotation truthful when the real store locks before completion', async () => {
+    const complete = vaultGuardianProvider.completeCommittedGuardianRow;
+    if (!complete) throw new Error('The real provider has no completion command');
+    const completionCalls = jest.fn((rowId: string, deadlineMs?: number) =>
+      complete.call(vaultGuardianProvider, rowId, deadlineMs)
+    );
+    vaultGuardianProvider.completeCommittedGuardianRow = completionCalls;
+    try {
+      const { account, row } = await completeAfterVerdict('replace-hot-key', undefined, 'locked');
+      expect(account.hotPublicKey).toBe('old-hot');
+      expect(row).toMatchObject({
+        status: ITransactionStatus.Completed,
+        transactionId: CHAIN_ID,
+        extraInputs: { hotKeyPersistFailed: true }
+      });
+      expect(store.getState().accounts).toEqual([]);
+      expect(completionCalls).not.toHaveBeenCalled();
+      expect(mockHotWrites).not.toHaveBeenCalled();
+      expect(mockPrivateSigns).not.toHaveBeenCalled();
+      expect(mockRegistration).not.toHaveBeenCalled();
+      expect(mockHardening).not.toHaveBeenCalled();
+    } finally {
+      vaultGuardianProvider.completeCommittedGuardianRow = complete;
+    }
+  });
 });
