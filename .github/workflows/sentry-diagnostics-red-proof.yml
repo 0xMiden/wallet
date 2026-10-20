@@ -16,7 +16,6 @@ jobs:
         shell: bash
     env:
       CI: 'true'
-      PROOF_DIR: ${{ runner.temp }}/sentry-diagnostics-red-proof
       PROOF_WORKFLOW_REF: ${{ github.workflow_ref }}
       PROOF_WORKFLOW_SHA: ${{ github.workflow_sha }}
       PROOF_RUN_ID: ${{ github.run_id }}
@@ -30,6 +29,8 @@ jobs:
 
       - name: Capture immutable source and test identities
         run: |
+          export PROOF_DIR="$RUNNER_TEMP/sentry-diagnostics-red-proof"
+          printf 'PROOF_DIR=%s\n' "$PROOF_DIR" >> "$GITHUB_ENV"
           mkdir -m 700 "$PROOF_DIR"
           python3 - <<'PYTHON'
           import hashlib
