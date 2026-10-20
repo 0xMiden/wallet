@@ -1,0 +1,38 @@
+name: Funding documentation format proof
+
+on:
+  push:
+    branches: [ci/1638-doc-format-5774]
+
+permissions:
+  contents: read
+
+jobs:
+  format:
+    name: Exact-source funding documentation format
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 5774ab72b454c30a82b18a2651da004c9fdcad95
+          persist-credentials: false
+      - name: Verify exact source
+        run: test "$(git rev-parse HEAD)" = 5774ab72b454c30a82b18a2651da004c9fdcad95
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install pinned dependencies
+        uses: ./.github/actions/yarn-install
+      - name: Check funding documentation
+        shell: bash
+        run: |
+          set -o pipefail
+          yarn -s prettier --check playwright/e2e/docs/e2e-architecture.md 2>&1 | tee doc-format.log
+      - name: Preserve formatter output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: funding-documentation-format-5774
+          path: doc-format.log
+          if-no-files-found: error
