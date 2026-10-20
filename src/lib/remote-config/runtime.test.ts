@@ -1479,6 +1479,56 @@ describe('wallet-wide eligibility refresh', () => {
     expect(getWalletAccessSnapshot().expiresAt).toBe(110_000);
   });
 
+  it('keeps the original grant through a failed prefetch without retrying before expiry', async () => {
+    seedGlobal();
+    const pending = gate();
+    const decision = { network: 'testnet', version: 13, allowed: { wallet: true, earn: false, swap: false } };
+    mockLookup
+      .mockResolvedValueOnce(decision)
+      .mockResolvedValueOnce(null)
+      .mockImplementation(() => pending.opened.then(() => null));
+    await initBridgeConfig();
+    await flush();
+    const permission = getWalletAccessSnapshot();
+    expect(permission.expiresAt).toBe(60_000);
+
+    await jest.advanceTimersByTimeAsync(50_000);
+    expect(getBridgeConfigSnapshot().geo).toEqual({ state: 'failed' });
+    expect(getWalletAccessSnapshot()).toBe(permission);
+    expect(() => assertWalletAccessAllowed()).not.toThrow();
+    expect(mockLookup).toHaveBeenCalledTimes(2);
+
+    await jest.advanceTimersByTimeAsync(9_999);
+    expect(getWalletAccessSnapshot()).toBe(permission);
+    expect(() => assertWalletAccessAllowed()).not.toThrow();
+    expect(mockLookup).toHaveBeenCalledTimes(2);
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(mockDerive).not.toHaveBeenCalled();
+
+    await jest.advanceTimersByTimeAsync(1);
+    expect(() => assertWalletAccessAllowed()).toThrow();
+    expect(getWalletAccessSnapshot()).toEqual({ status: 'loading', expiresAt: null });
+    expect(mockLookup).toHaveBeenCalledTimes(3);
+    pending.release();
+    await flush();
+    expect(getWalletAccessSnapshot()).toEqual({ status: 'unavailable', expiresAt: null });
+  });
+
+  it('revokes immediately when an anticipatory refresh explicitly blocks the wallet', async () => {
+    seedGlobal();
+    const decision = { network: 'testnet', version: 13, allowed: { wallet: true, earn: false, swap: false } };
+    const blocked = { ...decision, allowed: { wallet: false, earn: false, swap: false } };
+    mockLookup.mockResolvedValueOnce(decision).mockResolvedValueOnce(blocked);
+    await initBridgeConfig();
+    await flush();
+    expect(() => assertWalletAccessAllowed()).not.toThrow();
+
+    await jest.advanceTimersByTimeAsync(50_000);
+    expect(getWalletAccessSnapshot()).toEqual({ status: 'restricted', expiresAt: null });
+    expect(() => assertWalletAccessAllowed()).toThrow();
+    expect(mockLookup).toHaveBeenCalledTimes(2);
+  });
+
   it('revokes an old policy immediately while SDK derivation for a newly accepted policy is pending', async () => {
     seedGlobal();
     await initBridgeConfig();
