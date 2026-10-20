@@ -205,4 +205,29 @@ describe('showExtensionNotification Web API failure fallback', () => {
 
     expect(mockChromeNotificationsCreate).not.toHaveBeenCalled();
   });
+
+  it.each(['namespace lookup', 'icon URL resolution', 'creation'] as const)(
+    'resolves when the Web permission request and Chrome %s fail',
+    async boundary => {
+      FakeNotification.requestPermission.mockRejectedValueOnce(new TypeError('Permission request was rejected'));
+      const chromeAttempt = jest.fn(() => {
+        throw new TypeError('Chrome notification fallback unavailable');
+      });
+      if (boundary === 'namespace lookup') {
+        Object.defineProperty(chrome, 'notifications', { configurable: true, get: chromeAttempt });
+      } else if (boundary === 'icon URL resolution') {
+        chrome.runtime.getURL = chromeAttempt;
+      } else {
+        mockChromeNotificationsCreate.mockImplementationOnce(chromeAttempt);
+      }
+
+      const attempt = showExtensionNotification('Hi', 'msg');
+      void attempt.catch(() => undefined);
+      await Promise.resolve();
+
+      expect(FakeNotification.requestPermission).toHaveBeenCalledTimes(1);
+      expect(chromeAttempt).toHaveBeenCalledTimes(1);
+      await expect(attempt).resolves.toBeUndefined();
+    }
+  );
 });
