@@ -3,6 +3,7 @@ import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
 import { fetchTokenPrices } from './binance';
 import { getPriceMicro, isCoveredSymbol, toPriceMicro, writeUsdPriceCache, __resetUsdPriceCacheForTests } from './usd';
 
+jest.mock('lib/miden/swap/tokens', () => ({ getPriceSymbols: () => ['ARB'] }));
 jest.mock('./binance', () => ({ fetchTokenPrices: jest.fn() }));
 jest.mock('lib/miden/front/storage', () => ({ fetchFromStorage: jest.fn(), putToStorage: jest.fn() }));
 
@@ -102,7 +103,7 @@ describe('getPriceMicro', () => {
     await expect(getPriceMicro('ETH', 1_000)).resolves.toBeUndefined();
   });
 
-  it('shares one refresh across concurrent callers', async () => {
+  it('fetches each requested asset across concurrent callers', async () => {
     mockedFetch.mockResolvedValue({
       ETH: { price: 4100, change24h: 0, percentageChange24h: 0 },
       BTC: { price: 90000, change24h: 0, percentageChange24h: 0 }
@@ -112,7 +113,8 @@ describe('getPriceMicro', () => {
 
     expect(eth).toBe(4_100_000_000n);
     expect(btc).toBe(90_000_000_000n);
-    expect(mockedFetch).toHaveBeenCalledTimes(1);
+    expect(mockedFetch).toHaveBeenCalledWith(['ETH']);
+    expect(mockedFetch).toHaveBeenCalledWith(['BTC']);
   });
 
   it('persists a refreshed price for the other realm to read', async () => {
@@ -222,5 +224,26 @@ describe('fixed USDCX micro-dollar price', () => {
     expect(mockedRead).not.toHaveBeenCalled();
     expect(mockedFetch).not.toHaveBeenCalled();
     expect(isCoveredSymbol('USDCX')).toBe(true);
+  });
+});
+
+it('fetches and caches a dynamic verified asset without a static feed entry', async () => {
+  mockedFetch.mockResolvedValue({ ARB: { price: 0.75, change24h: 0, percentageChange24h: 0 } });
+  await expect(getPriceMicro('ARB', 100)).resolves.toBe(750_000n);
+  expect(mockedFetch).toHaveBeenCalledWith(['ARB']);
+  expect(mockedWrite).toHaveBeenCalledWith('usd_price_cache', {
+    ARB: { priceMicro: '750000', fetchedAt: 100 }
+  });
+});
+
+it('allows a later cache write after an earlier write fails', async () => {
+  await expect(
+    writeUsdPriceCache({ ETH: { price: Number.MAX_VALUE, change24h: 0, percentageChange24h: 0 } }, 100)
+  ).rejects.toBeInstanceOf(RangeError);
+  await expect(
+    writeUsdPriceCache({ ETH: { price: 1000, change24h: 0, percentageChange24h: 0 } }, 101)
+  ).resolves.toBeUndefined();
+  expect(mockedWrite).toHaveBeenCalledWith('usd_price_cache', {
+    ETH: { priceMicro: '1000000000', fetchedAt: 101 }
   });
 });

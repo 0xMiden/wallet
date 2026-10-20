@@ -1,11 +1,44 @@
 import React from 'react';
 
-import { render, renderHook } from '@testing-library/react';
+import { act, render, renderHook } from '@testing-library/react';
 
-import { fetchTokenPrices } from './binance';
 import { PriceProvider, useTokenSparkline } from './index';
 
+let mockNetwork = 'testnet';
+let mockAssets = new Map([
+  ['verified', 'ARB'],
+  ['bridge', 'ETH']
+]);
+let mockSnapshot = 0;
+const mockListeners = new Set<() => void>();
+const mockListListeners = new Set<(network: string) => void>();
+let mockLoadedAssets: Map<string, string> | null = null;
+let mockResolveList: ((value: Map<string, string> | null) => void) | undefined;
+jest.mock('lib/miden-chain/effective-endpoints', () => ({ getEffectiveNetworkName: () => mockNetwork }));
+jest.mock('lib/token-list/runtime', () => ({
+  peekTokenPriceAssets: () => mockLoadedAssets,
+  loadTokenPriceAssets: () =>
+    new Promise<Map<string, string> | null>(resolve => {
+      mockResolveList = resolve;
+    }),
+  onTokenListUpdated: (listener: (network: string) => void) => {
+    mockListListeners.add(listener);
+    return () => {
+      mockListListeners.delete(listener);
+    };
+  }
+}));
 const mockWallet = { locked: false, ready: true };
+jest.mock('lib/remote-config/runtime', () => ({
+  subscribeBridgeConfig: (listener: () => void) => {
+    mockListeners.add(listener);
+    return () => {
+      mockListeners.delete(listener);
+    };
+  },
+  getBridgeConfigSnapshot: () => mockSnapshot
+}));
+jest.mock('lib/miden/swap/tokens', () => ({ getPriceAssets: () => mockAssets }));
 jest.mock('lib/miden/front', () => ({ useMidenContext: () => mockWallet }));
 
 const mockUseRetryableSWR = jest.fn();
@@ -19,12 +52,25 @@ jest.mock('lib/store', () => ({
 }));
 
 beforeEach(() => {
+  mockNetwork = 'testnet';
+  mockAssets = new Map([
+    ['verified', 'ARB'],
+    ['bridge', 'ETH']
+  ]);
+  mockLoadedAssets = null;
   mockWallet.locked = false;
   mockWallet.ready = true;
   setTokenPrices.mockClear();
   mockUseRetryableSWR.mockReset();
   mockUseRetryableSWR.mockReturnValue({
-    data: { ETH: { price: 3000, change24h: 10, percentageChange24h: 0.1 } }
+    data: {
+      network: 'testnet',
+      assetKey: JSON.stringify([
+        ['bridge', 'ETH'],
+        ['verified', 'ARB']
+      ]),
+      prices: { ETH: { price: 3000, change24h: 10, percentageChange24h: 0.1 } }
+    }
   });
 });
 
@@ -49,8 +95,95 @@ describe('PriceProvider', () => {
     Object.assign(mockWallet, wallet);
     render(<PriceProvider />);
     const [key, fetcher] = mockUseRetryableSWR.mock.calls[0]!;
-    expect(key).toBe('token-prices');
-    expect(fetcher).toBe(fetchTokenPrices);
+    expect(key).toEqual([
+      'token-prices',
+      'testnet',
+      JSON.stringify([
+        ['bridge', 'ETH'],
+        ['verified', 'ARB']
+      ])
+    ]);
+    expect(fetcher).toEqual(expect.any(Function));
+  });
+
+  it('requests new assets after the list arrives', async () => {
+    render(<PriceProvider />);
+    await act(async () => {
+      mockAssets = new Map([['new', 'DOGE']]);
+      mockLoadedAssets = mockAssets;
+      mockResolveList?.(mockAssets);
+    });
+    expect(mockUseRetryableSWR.mock.lastCall?.[0]).toEqual([
+      'token-prices',
+      'testnet',
+      JSON.stringify([['new', 'DOGE']])
+    ]);
+  });
+
+  it('requests new assets after bridge config arrives', () => {
+    render(<PriceProvider />);
+    act(() => {
+      mockAssets = new Map([['bridge', 'BTC']]);
+      mockSnapshot += 1;
+      mockListeners.forEach(listener => listener());
+    });
+    expect(mockUseRetryableSWR.mock.lastCall?.[0]).toEqual([
+      'token-prices',
+      'testnet',
+      JSON.stringify([['bridge', 'BTC']])
+    ]);
+  });
+
+  it('clears quotes when a faucet is removed even when its symbol remains', () => {
+    mockAssets.set('duplicate', 'ARB');
+    mockUseRetryableSWR.mockReturnValue({
+      data: {
+        network: 'testnet',
+        assetKey: JSON.stringify([
+          ['bridge', 'ETH'],
+          ['duplicate', 'ARB'],
+          ['verified', 'ARB']
+        ]),
+        prices: { ARB: { price: 1, change24h: 0, percentageChange24h: 0 } }
+      }
+    });
+    const view = render(<PriceProvider />);
+    setTokenPrices.mockClear();
+    mockAssets.delete('duplicate');
+    view.rerender(<PriceProvider />);
+    expect(setTokenPrices).toHaveBeenLastCalledWith({});
+  });
+
+  it('rejects a response from a previous network', () => {
+    const view = render(<PriceProvider />);
+    setTokenPrices.mockClear();
+    mockNetwork = 'devnet';
+    view.rerender(<PriceProvider />);
+    expect(setTokenPrices).toHaveBeenCalledTimes(1);
+    expect(setTokenPrices).toHaveBeenLastCalledWith({});
+  });
+
+  it('clears previous quotes when a request returns an empty price object', () => {
+    const view = render(<PriceProvider />);
+    mockUseRetryableSWR.mockReturnValue({
+      data: {
+        network: 'testnet',
+        assetKey: JSON.stringify([
+          ['bridge', 'ETH'],
+          ['verified', 'ARB']
+        ]),
+        prices: {}
+      }
+    });
+    view.rerender(<PriceProvider />);
+    expect(setTokenPrices).toHaveBeenLastCalledWith({});
+  });
+
+  it('does not copy cached prices while the SWR key is disabled', () => {
+    mockWallet.ready = false;
+    render(<PriceProvider />);
+    expect(setTokenPrices).toHaveBeenCalledTimes(1);
+    expect(setTokenPrices).toHaveBeenCalledWith({});
   });
 
   it('renders nothing (returns null)', () => {

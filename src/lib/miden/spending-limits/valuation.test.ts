@@ -20,10 +20,21 @@ import {
 } from 'lib/miden-chain/native-asset';
 import { getPriceMicro } from 'lib/prices/usd';
 import { initBridgeConfig } from 'lib/remote-config/runtime';
+import { peekTokenPriceAssets } from 'lib/token-list/runtime';
 
 import { fetchTokenMetadata } from '../metadata';
 import { SpendingLimitPriceUnavailableError } from './types';
 import { resolveSpendsUsd, usdMicroFromAmount } from './valuation';
+jest.mock('lib/token-list/runtime', () => ({
+  loadTokenPriceAssets: jest.fn(async () => null),
+  peekTokenPriceAssets: jest.fn(
+    () =>
+      new Map([
+        ['mtst1azhcg3xy5lqfzy2xv6km5fw96qqklx5k', 'BTC'],
+        ['mtst1ar3nfx83zanxz5ftttzdakrwcuw5fcz0', 'ETH']
+      ])
+  )
+}));
 jest.mock('lib/miden-chain/native-asset', () => ({
   getNativeAssetId: jest.fn(async () => 'native-fee'),
   getNativeAssetMetadata: jest.fn(async () => ({ symbol: 'MIDEN', decimals: 6 })),
@@ -296,6 +307,7 @@ describe('resolveSpendsUsd', () => {
       { symbol: 'INOPE', faucetId: 'mtst1nope', decimals: 8, logoSymbol: 'MIDEN', priceSymbol: 'NOPE' }
     ]);
     try {
+      jest.mocked(peekTokenPriceAssets).mockReturnValueOnce(new Map([['mtst1nope', 'NOPE']]));
       mockedMetadata.mockResolvedValue(base('INOPE', 8));
       mockedPrice.mockResolvedValue(undefined);
 

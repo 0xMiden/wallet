@@ -1,8 +1,10 @@
 import { canonicalFaucetId, strictPriceSymbolFor } from 'lib/miden/swap/tokens';
 import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
+import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { getNativeAssetId, getNativeAssetMetadata, getSdkSyncedNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 import { getPriceMicro } from 'lib/prices/usd';
 import { initBridgeConfig } from 'lib/remote-config/runtime';
+import { loadTokenPriceAssets } from 'lib/token-list/runtime';
 
 import { IConsumedAssetTotal } from '../db/types';
 import { fetchTokenMetadata } from '../metadata';
@@ -59,6 +61,7 @@ export const resolveSpendsUsd = async (spends: readonly IConsumedAssetTotal[], n
   }
   // From storage, never the network, and never rejects: a handler can run before this realm hydrated it.
   await initBridgeConfig();
+  await loadTokenPriceAssets(getEffectiveNetworkName());
   let nativeId: string | undefined;
   let nativeIdentityCause: unknown;
   let nativeMetadata;

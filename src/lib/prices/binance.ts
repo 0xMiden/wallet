@@ -1,10 +1,9 @@
 import axios from 'axios';
 
-import { KNOWN_SYMBOLS } from './constant';
 import { fixedQuote } from './fixed';
 import { hasUnquotedDefaultPrice } from './unquoted-default';
 
-const BINANCE_API_BASE = 'https://api.binance.com/api/v3';
+const BINANCE_API_BASE = 'https://data-api.binance.vision/api/v3';
 
 export interface TokenPriceInfo {
   price: number;
@@ -18,138 +17,231 @@ interface BinanceTicker24hr {
   symbol: string;
   lastPrice: string;
   priceChange: string;
-  priceChangePercent: string;
 }
 
-/**
- * Fetch token prices and 24hr change from Binance API for the symbols in `KNOWN_SYMBOLS`.
- * Returns a map of wallet symbol -> { price, change24h }; a symbol missing from it has no price.
- * On any error, returns an empty object.
- */
-export async function fetchTokenPrices(): Promise<TokenPrices> {
-  const entries = Object.entries(KNOWN_SYMBOLS);
-  /* c8 ignore next -- KNOWN_SYMBOLS is a compile-time constant, never empty */
-  if (entries.length === 0) return {};
+interface BinanceMarket {
+  symbol: string;
+  status: string;
+  baseAsset: string;
+  quoteAsset: string;
+}
 
-  const binanceSymbols = entries.map(([, pair]) => pair);
+interface ResolvedMarket {
+  pair: string;
+  denominator: 'USDT' | 'USDC';
+}
+
+const markets = new Map<string, ResolvedMarket | null>();
+const pendingMarkets = new Map<string, Promise<ResolvedMarket | null>>();
+
+function validSymbol(symbol: string): boolean {
+  return /^[A-Z0-9]{1,30}$/.test(symbol);
+}
+
+async function findMarket(symbol: string): Promise<ResolvedMarket | null> {
+  for (const denominator of ['USDT', 'USDC']) {
+    const pair = `${symbol}${denominator}`;
+    try {
+      const { data } = await axios.get<{ symbols: BinanceMarket[] }>(`${BINANCE_API_BASE}/exchangeInfo`, {
+        params: { symbol: pair },
+        timeout: 10_000
+      });
+      const market = data.symbols.find(item => item.symbol === pair);
+      if (market?.status === 'TRADING' && market.baseAsset === symbol && market.quoteAsset === denominator) {
+        switch (denominator) {
+          case 'USDT':
+          case 'USDC':
+            return { pair, denominator };
+        }
+      }
+    } catch (error) {
+      if (
+        !axios.isAxiosError<{ code?: number }>(error) ||
+        error.response?.status !== 400 ||
+        error.response.data.code !== -1121
+      ) {
+        throw error;
+      }
+    }
+  }
+  return null;
+}
+
+async function resolveMarket(symbol: string): Promise<ResolvedMarket | null> {
+  if (!validSymbol(symbol)) {
+    markets.set(symbol, null);
+    return null;
+  }
+  if (markets.has(symbol)) return markets.get(symbol) ?? null;
+  const pending = pendingMarkets.get(symbol);
+  if (pending) return pending;
+  const request = findMarket(symbol).then(market => {
+    markets.set(symbol, market);
+    return market;
+  });
+  pendingMarkets.set(symbol, request);
   try {
-    const { data } = await axios.get<BinanceTicker24hr[]>(`${BINANCE_API_BASE}/ticker/24hr`, {
-      params: {
-        symbols: JSON.stringify(binanceSymbols),
-        type: 'FULL'
-      }
-    });
-
-    // Build reverse map: Binance pair -> wallet symbol
-    const pairToSymbol: Record<string, string> = {};
-    for (const [walletSymbol, binancePair] of entries) {
-      pairToSymbol[binancePair] = walletSymbol;
-    }
-
-    const prices: TokenPrices = {};
-    for (const ticker of data) {
-      const walletSymbol = pairToSymbol[ticker.symbol];
-      if (!walletSymbol) continue;
-
-      const price = parseFloat(ticker.lastPrice);
-      const change24h = parseFloat(ticker.priceChange);
-      const percentageChange24h = parseFloat(ticker.priceChangePercent);
-
-      if (!isNaN(price) && !isNaN(change24h) && !isNaN(percentageChange24h)) {
-        prices[walletSymbol] = { price, change24h, percentageChange24h };
-      }
-    }
-
-    return prices;
-  } catch (error) {
-    if (axios.isAxiosError(error) && error.response?.data) {
-      const { code, msg } = error.response.data;
-      console.warn(`[Binance] API error (code: ${code}): ${msg}`);
-    } else {
-      console.warn('[Binance] Failed to fetch prices:', error);
-    }
-    return {};
+    return await request;
+  } finally {
+    pendingMarkets.delete(symbol);
   }
 }
 
-/** Whether the feed lists a price symbol: an own `KNOWN_SYMBOLS` key. */
-export function isListedSymbol(symbol: string | undefined): boolean {
-  // Indexed, not `in`, so an inherited member such as `toString` does not read as listed.
-  return symbol !== undefined && typeof KNOWN_SYMBOLS[symbol] === 'string';
+function tickerQuote(ticker: BinanceTicker24hr): TokenPriceInfo | undefined {
+  const price = Number(ticker.lastPrice);
+  const change24h = Number(ticker.priceChange);
+  const previous = price - change24h;
+  const percentageChange24h = (change24h / previous) * 100;
+  if (
+    !(price > 0) ||
+    !(previous > 0) ||
+    !Number.isFinite(price) ||
+    !Number.isFinite(change24h) ||
+    !Number.isFinite(previous) ||
+    !Number.isFinite(percentageChange24h)
+  ) {
+    return undefined;
+  }
+  return { price, change24h, percentageChange24h };
 }
 
-/**
- * Whether a figure built from these price symbols can be shown yet. An empty map is prices still
- * loading, which a figure shows as its placeholder, and a loaded map without a symbol is a token
- * with no price. With the nominal rate on (`hasUnquotedDefaultPrice`) a symbol the feed does not
- * list is priced from the start, so a figure whose symbols are all unlisted never waits on the
- * feed: a test-network wallet that holds only the native token would otherwise show its
- * placeholder for as long as the feed is unreachable. A listed symbol (`isListedSymbol`) never
- * takes that rate, so a figure that needs one still waits for the feed's first quote.
- */
+/** Fetch USD prices for the requested assets and both quote currencies. */
+export async function fetchTokenPrices(symbols: readonly string[] = []): Promise<TokenPrices> {
+  const resolved = new Map<string, ResolvedMarket>();
+  const queue = [...new Set(symbols)].filter(symbol => symbol !== 'USDT' && symbol !== 'USDC');
+  const resolveNext = async (): Promise<void> => {
+    for (let symbol = queue.shift(); symbol !== undefined; symbol = queue.shift()) {
+      try {
+        const market = await resolveMarket(symbol);
+        if (market) resolved.set(symbol, market);
+      } catch {
+        // A failed request does not prove that a market is absent.
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(4, queue.length) }, resolveNext));
+  const pairs = ['USDTUSD', 'USDCUSD', ...[...resolved.values()].map(market => market.pair)];
+  const prices: TokenPrices = {};
+  const tickers = new Map<string, BinanceTicker24hr>();
+  const uniquePairs = [...new Set(pairs)];
+  for (let offset = 0; offset < uniquePairs.length; offset += 100) {
+    try {
+      const { data } = await axios.get<BinanceTicker24hr[]>(`${BINANCE_API_BASE}/ticker/24hr`, {
+        params: { symbols: JSON.stringify(uniquePairs.slice(offset, offset + 100)), type: 'FULL' },
+        timeout: 10_000
+      });
+      for (const ticker of data) tickers.set(ticker.symbol, ticker);
+    } catch (error) {
+      if (
+        !axios.isAxiosError<{ code?: number }>(error) ||
+        error.response?.status !== 400 ||
+        error.response.data.code !== -1121
+      ) {
+        console.warn('[Binance] Failed to fetch prices:', error);
+        continue;
+      }
+      // One removed market must not stop prices for the other assets.
+      for (const pair of uniquePairs.slice(offset, offset + 100)) {
+        try {
+          const { data } = await axios.get<BinanceTicker24hr>(`${BINANCE_API_BASE}/ticker/24hr`, {
+            params: { symbol: pair, type: 'FULL' },
+            timeout: 10_000
+          });
+          tickers.set(data.symbol, data);
+        } catch (pairError) {
+          if (
+            !axios.isAxiosError<{ code?: number }>(pairError) ||
+            pairError.response?.status !== 400 ||
+            pairError.response.data.code !== -1121
+          ) {
+            continue;
+          }
+          for (const [symbol, market] of [...resolved]) {
+            if (market.pair !== pair) continue;
+            markets.delete(symbol);
+            resolved.delete(symbol);
+            try {
+              const replacement = await resolveMarket(symbol);
+              if (!replacement) continue;
+              resolved.set(symbol, replacement);
+              if (replacement.pair === pair) continue;
+              const { data } = await axios.get<BinanceTicker24hr>(`${BINANCE_API_BASE}/ticker/24hr`, {
+                params: { symbol: replacement.pair, type: 'FULL' },
+                timeout: 10_000
+              });
+              tickers.set(data.symbol, data);
+            } catch {
+              // Retry transient failures on the next refresh.
+            }
+          }
+        }
+      }
+    }
+  }
+  for (const symbol of ['USDT', 'USDC']) {
+    const ticker = tickers.get(`${symbol}USD`);
+    const quote = ticker && tickerQuote(ticker);
+    if (quote) prices[symbol] = quote;
+  }
+  for (const [symbol, market] of resolved) {
+    const ticker = tickers.get(market.pair);
+    const asset = ticker && tickerQuote(ticker);
+    const denominator = prices[market.denominator];
+    if (!asset || !denominator) continue;
+    const price = asset.price * denominator.price;
+    const previous = (asset.price - asset.change24h) * (denominator.price - denominator.change24h);
+    if (!Number.isFinite(price) || !Number.isFinite(previous) || !(previous > 0)) continue;
+    const change24h = price - previous;
+    if (!Number.isFinite(change24h) || !Number.isFinite((change24h / previous) * 100)) continue;
+    prices[symbol] = { price, change24h, percentageChange24h: (change24h / previous) * 100 };
+  }
+  return prices;
+}
+
+/** Return true until market lookup proves that the asset has no active market. */
+export function isListedSymbol(symbol: string | undefined): boolean {
+  return symbol !== undefined && validSymbol(symbol) && markets.get(symbol) !== null;
+}
+
+/** Return true when quotes are available or every requested asset has a final result. */
 export function pricesLoaded(prices: TokenPrices, priceSymbols: Iterable<string | undefined>): boolean {
   if (Object.keys(prices).length > 0) return true;
-  const nominal = hasUnquotedDefaultPrice();
-  let hasFixed = false;
+  let settled = false;
   for (const symbol of priceSymbols) {
-    if (fixedQuote(symbol)) hasFixed = true;
-    else if (!nominal || isListedSymbol(symbol)) return false;
+    if (fixedQuote(symbol) || (symbol !== undefined && markets.get(symbol) === null)) {
+      settled = true;
+      continue;
+    }
+    if (!hasUnquotedDefaultPrice() || isListedSymbol(symbol)) return false;
+    settled = true;
   }
-  return hasFixed || nominal;
+  return settled || hasUnquotedDefaultPrice();
 }
 
-/**
- * The quote of a token the feed does not list where `hasUnquotedDefaultPrice` says so (the
- * Developer Settings switch, off mainnet): $1 per whole unit, with no movement.
- */
+/** Display rate for tokens without a price asset when the test-network switch is on. */
 const TEST_NETWORK_UNQUOTED_PRICE: TokenPriceInfo = { price: 1, change24h: 0, percentageChange24h: 0 };
 
-/**
- * Whether a quote is the nominal $1 that `quotedPrice` gives an unquoted token, not a feed quote.
- * The nominal rate is a display figure, so a computation that weighs a token's value against a
- * real-dollar amount (the Fast route's fee) treats it as no price. Identity rather than shape,
- * since a feed quote of a stablecoin at par has the same fields.
- */
+/** Identify the test-network display rate by reference. It is not a market price. */
 export function isNominalQuote(quote: TokenPriceInfo | undefined): boolean {
   return quote === TEST_NETWORK_UNQUOTED_PRICE;
 }
 
-/**
- * The feed's quote for a price symbol, or none; a zero price is not a quote. An unquoted token (a
- * symbol the feed never lists, not a `KNOWN_SYMBOLS` key, or no price symbol at all) has no fiat
- * value unless the nominal rate is on (`hasUnquotedDefaultPrice`), when it is quoted at $1. A
- * listed symbol never takes that rate: while its quote is missing (the feed loading or
- * unreachable) or zero it has none whatever the switch, since $1 would price a real asset at a
- * dollar. A held token is priced through `tokenQuote` (lib/miden/swap/tokens), which resolves its
- * price symbol first (IETH at ETH); call this directly only with a symbol already resolved, as the
- * sparkline and chart do.
- */
+/** Return a USD quote. An absent market or a failed request has no quote. */
 export function quotedPrice(prices: TokenPrices, symbol: string | undefined): TokenPriceInfo | undefined {
   const fixed = fixedQuote(symbol);
   if (fixed) return fixed;
+  if (symbol !== undefined && markets.get(symbol) === null) return undefined;
   const quote = symbol === undefined ? undefined : prices[symbol];
   if (quote && quote.price > 0) return quote;
   return !isListedSymbol(symbol) && hasUnquotedDefaultPrice() ? TEST_NETWORK_UNQUOTED_PRICE : undefined;
 }
 
-/**
- * The price `quotedPrice` gives a symbol, or 0 for none, which the token pickers
- * (`listedFiatValue`) read as no price. An unquoted token, as `quotedPrice` defines it, gets 0 and
- * so shows no fiat there, unless the nominal rate is on (`hasUnquotedDefaultPrice`), when it is
- * priced at $1 like every other fiat figure.
- */
+/** Return the USD unit price, or zero when no quote is available. */
 export function listedPrice(prices: TokenPrices, symbol: string | undefined): number {
   return quotedPrice(prices, symbol)?.price ?? 0;
 }
 
-/**
- * The fiat value for a token picker's row, or none: only when the symbol has a price
- * (`listedPrice`), the balance's scale is known and there is a balance to value. An unquoted
- * token, as `quotedPrice` defines it (an absent symbol included), gets no figure rather than one
- * equal to its token count, unless the nominal rate is on (`hasUnquotedDefaultPrice`), when it is
- * valued at $1 like every other fiat figure. A number, so the row can count it (`AnimatedNumber`)
- * with a formatter bound to it.
- */
+/** Return the USD balance value only when the unit scale, balance, and price are valid. */
 export function listedFiatValue(
   prices: TokenPrices,
   symbol: string | undefined,
@@ -183,54 +275,52 @@ function getYtdConfig(): { interval: string; limit: number; startTime: number } 
   const startTime = startOfYear.getTime();
   const daysElapsed = Math.ceil((now.getTime() - startTime) / (1000 * 60 * 60 * 24));
 
-  let interval: string;
-  if (daysElapsed <= 90) {
-    interval = '6h';
-  } else if (daysElapsed <= 180) {
-    interval = '12h';
-  } else {
-    interval = '1d';
+  const days = Math.max(1, daysElapsed);
+  switch (true) {
+    case days <= 90:
+      return { interval: '6h', limit: Math.min(days * 4, 1000), startTime };
+    case days <= 180:
+      return { interval: '12h', limit: Math.min(days * 2, 1000), startTime };
+    default:
+      return { interval: '1d', limit: Math.min(days, 1000), startTime };
   }
-
-  const limit = Math.min(daysElapsed, 1000);
-  return { interval, limit, startTime };
 }
 
-/**
- * Fetch kline (candlestick) data from Binance for charting.
- * Returns close prices as KlinePoint[]. Empty array if symbol is unknown or on error.
- */
+/** Fetch USD close prices. Return no points if a market or its historical USD rate is unavailable. */
 export async function fetchKlineData(walletSymbol: string, timeframe: Timeframe): Promise<KlinePoint[]> {
-  const binancePair = KNOWN_SYMBOLS[walletSymbol];
-  if (!binancePair) return [];
-
   try {
+    const direct = walletSymbol === 'USDT' || walletSymbol === 'USDC';
+    const market = direct ? null : await resolveMarket(walletSymbol);
+    if (!direct && !market) return [];
+    const binancePair = direct ? `${walletSymbol}USD` : market?.pair;
+    if (!binancePair) return [];
     const params: Record<string, string | number> = { symbol: binancePair };
-
-    if (timeframe === 'YTD') {
-      const ytd = getYtdConfig();
-      params.interval = ytd.interval;
-      params.limit = ytd.limit;
-      params.startTime = ytd.startTime;
-    } else {
-      const config = TIMEFRAME_CONFIGS[timeframe];
-      params.interval = config.interval;
-      params.limit = config.limit;
-    }
-
-    const { data } = await axios.get<(string | number)[][]>(`${BINANCE_API_BASE}/uiKlines`, { params });
-
-    return data.map(kline => ({
-      time: kline[0] as number,
-      value: parseFloat(kline[4] as string)
-    }));
+    const config = timeframe === 'YTD' ? getYtdConfig() : TIMEFRAME_CONFIGS[timeframe];
+    Object.assign(params, config);
+    const read = async (symbol: string): Promise<KlinePoint[]> => {
+      const { data } = await axios.get<(string | number)[][]>(`${BINANCE_API_BASE}/uiKlines`, {
+        params: { ...params, symbol },
+        timeout: 10_000
+      });
+      return data.flatMap(row => {
+        const time = row[0];
+        const value = Number(row[4]);
+        return typeof time === 'number' && Number.isFinite(time) && value > 0 && Number.isFinite(value)
+          ? [{ time, value }]
+          : [];
+      });
+    };
+    if (!market) return await read(binancePair);
+    const [asset, denominator] = await Promise.all([read(binancePair), read(`${market.denominator}USD`)]);
+    const rates = new Map(denominator.map(point => [point.time, point.value]));
+    return asset.flatMap(point => {
+      const rate = rates.get(point.time);
+      if (rate === undefined) return [];
+      const value = point.value * rate;
+      return Number.isFinite(value) && value > 0 ? [{ time: point.time, value }] : [];
+    });
   } catch (error) {
-    if (axios.isAxiosError(error) && error.response?.data) {
-      const { code, msg } = error.response.data;
-      console.warn(`[Binance] Kline API error (code: ${code}): ${msg}`);
-    } else {
-      console.warn('[Binance] Failed to fetch kline data:', error);
-    }
+    console.warn('[Binance] Failed to fetch kline data:', error);
     return [];
   }
 }

@@ -1,4 +1,5 @@
 import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
+import { getPriceSymbols } from 'lib/miden/swap/tokens';
 
 import { fetchTokenPrices, TokenPrices } from './binance';
 import { isE2eFixtureSymbol, KNOWN_SYMBOLS } from './constant';
@@ -25,14 +26,12 @@ interface CachedUsdPrice {
 
 type UsdPriceCache = Record<string, CachedUsdPrice>;
 
-/**
- * Whether the feed can price this symbol at all.
- *
- * Indexed rather than `in` or `hasOwnProperty` so an inherited member such as `toString` cannot
- * read as covered: the value test is what decides, and a function is not a trading pair.
- */
+/** Accept fixed quotes, fixture quotes, existing feed assets, and assets from verified faucet mappings. */
 export const isCoveredSymbol = (symbol: string): boolean =>
-  typeof KNOWN_SYMBOLS[symbol] === 'string' || fixedQuote(symbol) !== undefined || isE2eFixtureSymbol(symbol);
+  typeof KNOWN_SYMBOLS[symbol] === 'string' ||
+  fixedQuote(symbol) !== undefined ||
+  isE2eFixtureSymbol(symbol) ||
+  getPriceSymbols().includes(symbol);
 
 export const toPriceMicro = (price: number): bigint | undefined => {
   if (!Number.isFinite(price) || price <= 0) return undefined;
@@ -48,7 +47,15 @@ const readCache = async (): Promise<UsdPriceCache> => {
   }
 };
 
-const mergeIntoCache = async (prices: TokenPrices, now: number): Promise<UsdPriceCache> => {
+let cacheWrite: Promise<UsdPriceCache> = Promise.resolve({});
+
+const mergeIntoCache = (prices: TokenPrices, now: number): Promise<UsdPriceCache> => {
+  const run = () => mergePrices(prices, now);
+  cacheWrite = cacheWrite.then(run, run);
+  return cacheWrite;
+};
+
+const mergePrices = async (prices: TokenPrices, now: number): Promise<UsdPriceCache> => {
   const cache = await readCache();
   for (const [symbol, info] of Object.entries(prices)) {
     if (!isCoveredSymbol(symbol)) continue;
@@ -83,23 +90,24 @@ const cachedPriceMicro = (cache: UsdPriceCache, symbol: string, now: number): bi
   return price > 0n ? price : undefined;
 };
 
-// One refresh serves every caller that arrives while it is in flight. A transaction moving three
-// assets must not open three connections to answer one question.
-let inFlightRefresh: Promise<UsdPriceCache> | undefined;
+// Calls for the same asset share one request. Cache writes run in order across assets.
+const inFlightRefresh = new Map<string, Promise<UsdPriceCache>>();
 
-const refresh = async (now: number): Promise<UsdPriceCache> => {
-  if (inFlightRefresh === undefined) {
-    inFlightRefresh = (async () => {
+const refresh = async (now: number, symbol: string): Promise<UsdPriceCache> => {
+  let pending = inFlightRefresh.get(symbol);
+  if (pending === undefined) {
+    pending = (async () => {
       try {
-        return await mergeIntoCache(await fetchTokenPrices(), now);
+        return await mergeIntoCache(await fetchTokenPrices([symbol]), now);
       } catch {
         return await readCache();
       } finally {
-        inFlightRefresh = undefined;
+        inFlightRefresh.delete(symbol);
       }
     })();
+    inFlightRefresh.set(symbol, pending);
   }
-  return inFlightRefresh;
+  return pending;
 };
 
 /**
@@ -119,10 +127,11 @@ export const getPriceMicro = async (
   if (isE2eFixtureSymbol(symbol)) return USD_SCALE;
   const cached = cachedPriceMicro(await readCache(), symbol, now);
   if (cached !== undefined) return cached;
-  return cachedPriceMicro(await refresh(now), symbol, now);
+  return cachedPriceMicro(await refresh(now, symbol), symbol, now);
 };
 
 /** Test seam: the single-flight handle is module state and would leak between cases. */
 export const __resetUsdPriceCacheForTests = (): void => {
-  inFlightRefresh = undefined;
+  inFlightRefresh.clear();
+  cacheWrite = Promise.resolve({});
 };

@@ -1,4 +1,5 @@
 import { hasKnownScale } from 'lib/miden/metadata/scale';
+import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import {
   getNativeAssetIdSync,
   getNativeAssetMetadataSync,
@@ -10,6 +11,7 @@ import { isE2eFixtureSymbol } from 'lib/prices/constant';
 import { getBridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import type { SwapPairsToken } from 'lib/remote-config/swap-pairs';
 import { selectSwapPairs } from 'lib/remote-config/values';
+import { peekTokenPriceAssets } from 'lib/token-list/runtime';
 
 import { bridgePriceAllowlist, type PricedFaucet } from './bridge-price-allowlist';
 import { canonicalFaucetId, normalizedFaucetId } from './faucet-ids';
@@ -180,13 +182,7 @@ export const getSwapTokenByFaucetId = (faucetId?: string): SwapToken | undefined
 export const getSwapTokenBySymbol = (symbol: string): SwapToken | undefined =>
   getSwapTokens().find(token => token.symbol === symbol);
 
-/**
- * The faucets the wallet knows stand for a quoted asset, each with the symbol the feed prices it
- * under: the Earn collateral USDC and the Agglayer-bridged ETH the bridge config names, then the swap
- * registry's priced tokens (IETH at ETH, IBTC at BTC). The first match wins, so the reviewed document
- * prices a faucet the solver lists too. Identity comes from the faucet id, never from the symbol a
- * faucet gives itself, which anyone minting a token can set (#1131).
- */
+/** The native fixed quote, verified list assets, then bridge entries. Faucet identity sets coverage. */
 function pricedFaucets(): { faucetId: string; priceSymbol: string }[] {
   const nativeId = getNativeAssetIdSync();
   const metadata = getNativeAssetMetadataSync();
@@ -197,10 +193,11 @@ function pricedFaucets(): { faucetId: string; priceSymbol: string }[] {
       : [];
   return [
     ...fixedNative,
-    ...bridgePriceAllowlist(),
-    ...getSwapTokens().flatMap(token =>
-      token.priceSymbol ? [{ faucetId: token.faucetId, priceSymbol: token.priceSymbol }] : []
-    )
+    ...Array.from(peekTokenPriceAssets(getEffectiveNetworkName()) ?? [], ([faucetId, priceSymbol]) => ({
+      faucetId,
+      priceSymbol
+    })),
+    ...bridgePriceAllowlist()
   ];
 }
 
@@ -235,18 +232,24 @@ export function strictPriceSymbolFor(faucetId: string, symbol: string): string |
   return matchPriceSymbol(canonicalFaucetId(faucetId), symbol, canonicalFaucetId);
 }
 
-/**
- * The distinct price symbols the allowlist matches faucets against - read by a test to catch a
- * registry token whose `priceSymbol` the feed does not quote before it ships; the spending cap
- * would otherwise refuse every spend of that faucet, and display surfaces would show it no price
- * (#1131).
- */
-export function _allowlistedPriceSymbolsForTest(): string[] {
-  return [...new Set(pricedFaucets().map(entry => entry.priceSymbol))];
+/** The distinct assets for the current network. The first entry for each faucet wins. */
+export function getPriceAssets(): Map<string, string> {
+  const assets = new Map<string, string>();
+  for (const entry of pricedFaucets()) {
+    const id = normalizedFaucetId(entry.faucetId);
+    if (!assets.has(id)) assets.set(id, entry.priceSymbol);
+  }
+  return assets;
 }
 
+export function getPriceSymbols(): string[] {
+  return [...new Set(getPriceAssets().values())];
+}
+
+export const _allowlistedPriceSymbolsForTest = getPriceSymbols;
+
 /**
- * A held token's quote: its price symbol's (IETH at ETH), or none when the feed does not quote it or
+ * A held token's quote uses its verified price asset, or none when the feed does not quote it or
  * the faucet is not one the wallet prices. A token without a faucet id has no quote.
  */
 export function tokenQuote(
