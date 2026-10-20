@@ -1,0 +1,2751 @@
+name: Wallet1644 admission causal red NEVER MERGE
+
+on:
+  push:
+    branches: [ci/1644-pr1659-admission-red]
+
+permissions:
+  contents: read
+
+jobs:
+  admission-red:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    env:
+      CI: 'true'
+      FORCE_COLOR: '0'
+      GIT_OPTIONAL_LOCKS: '0'
+    steps:
+      - name: Initialize private evidence and natural-status logger
+        id: initialize
+        run: |
+          set -euo pipefail
+          umask 077
+          export PROOF_DIR="$RUNNER_TEMP/wallet1644-pr1659-admission-red"
+          mkdir -m 700 "$PROOF_DIR"
+          printf 'PROOF_DIR=%s\n' "$PROOF_DIR" >> "$GITHUB_ENV"
+          cat > "$PROOF_DIR/run-logged.bash" <<'W1644_LOGGER'
+          run_logged() {
+            local label="$1"
+            shift
+            python3 - "$PROOF_DIR/$label.command.json" "$@" <<'COMMAND_RECORD'
+          import datetime, json, os, pathlib, sys
+          pathlib.Path(sys.argv[1]).write_text(json.dumps({
+              'argv': sys.argv[2:], 'cwd': os.getcwd(),
+              'started_at': datetime.datetime.now(datetime.timezone.utc).isoformat()
+          }, indent=2) + '\n')
+          COMMAND_RECORD
+            set +e
+            "$@" 2>&1 | tee "$PROOF_DIR/$label.log"
+            local statuses=("${PIPESTATUS[@]}")
+            set -e
+            printf '%s\n' "${statuses[0]}" > "$PROOF_DIR/$label.exit"
+            printf '%s\n' "${statuses[1]}" > "$PROOF_DIR/$label.tee.exit"
+            if [ "${statuses[1]}" -ne 0 ]; then return "${statuses[1]}"; fi
+            return "${statuses[0]}"
+          }
+          W1644_LOGGER
+      - name: Retain frozen source and complete prospective case contracts
+        id: bindings
+        run: |
+          set -euo pipefail
+          cat > "$PROOF_DIR/bindings.json" <<'W1644_BINDINGS'
+          {
+            "atomic": {
+              "src/lib/miden/transaction/initiate.swap-settlement.test.ts": {
+                "cases": [
+                  {
+                    "ancestor_titles": [],
+                    "assertions": 5,
+                    "full_name": "links a payback to its parent and settle role at the first consume insert",
+                    "title": "links a payback to its parent and settle role at the first consume insert"
+                  },
+                  {
+                    "ancestor_titles": [],
+                    "assertions": 5,
+                    "full_name": "links an expired tip to its parent and reclaim role at the first consume insert",
+                    "title": "links an expired tip to its parent and reclaim role at the first consume insert"
+                  },
+                  {
+                    "ancestor_titles": [],
+                    "assertions": 4,
+                    "full_name": "retains the covering child when only part of the requested note set is new",
+                    "title": "retains the covering child when only part of the requested note set is new"
+                  },
+                  {
+                    "ancestor_titles": [],
+                    "assertions": 3,
+                    "full_name": "does not compete with an unconfirmed shared claim whose submit evidence still holds its notes",
+                    "title": "does not compete with an unconfirmed shared claim whose submit evidence still holds its notes"
+                  },
+                  {
+                    "ancestor_titles": [],
+                    "assertions": 3,
+                    "full_name": "leaves a failed shared claim inside its lifetime cooldown without a fresh child",
+                    "title": "leaves a failed shared claim inside its lifetime cooldown without a fresh child"
+                  },
+                  {
+                    "ancestor_titles": [],
+                    "assertions": 3,
+                    "full_name": "admits no settlement child when known native fee funding is insufficient",
+                    "title": "admits no settlement child when known native fee funding is insufficient"
+                  },
+                  {
+                    "ancestor_titles": [],
+                    "assertions": 3,
+                    "full_name": "writes no settlement child when the vault locks during the awaited fee-context read",
+                    "title": "writes no settlement child when the vault locks during the awaited fee-context read"
+                  }
+                ],
+                "count": 7,
+                "sha256": "d1f9d0af5bbd22e88e9766e7af03870a508dd91cbb25b8e85cad94fce852551a"
+              }
+            },
+            "baseline": "a3c7fe305eaea2cc847c8b600a623642ec0b4791",
+            "baseline_tree": "c19eb61773f504c0711e7bdf8ec4aa359317afe5",
+            "branch": "ci/1644-pr1659-admission-red",
+            "commands": {
+              "admission": [
+                "yarn",
+                "jest",
+                "--runTestsByPath",
+                "src/lib/miden/transaction/initiate.swap-admission.test.ts",
+                "--maxWorkers=2",
+                "--ci",
+                "--coverage=false",
+                "--json",
+                "--outputFile",
+                "$PROOF_DIR/admission.jest.json"
+              ],
+              "atomic": [
+                "yarn",
+                "jest",
+                "--runTestsByPath",
+                "src/lib/miden/transaction/initiate.swap-settlement.test.ts",
+                "--maxWorkers=2",
+                "--ci",
+                "--coverage=false",
+                "--json",
+                "--outputFile",
+                "$PROOF_DIR/atomic.jest.json"
+              ],
+              "compatibility": [
+                "yarn",
+                "jest",
+                "--runTestsByPath",
+                "src/lib/miden/swap/settlement.test.ts",
+                "src/lib/miden/transaction/initiate.batch-isolation.test.ts",
+                "src/lib/miden/transaction/initiate.held-claims.test.ts",
+                "src/lib/miden/transaction/complete.swap-stamp.test.ts",
+                "src/lib/miden/back/sync-manager.test.ts",
+                "--maxWorkers=2",
+                "--ci",
+                "--coverage=false",
+                "--json",
+                "--outputFile",
+                "$PROOF_DIR/compatibility.jest.json"
+              ],
+              "eslint": [
+                "yarn",
+                "eslint",
+                "--max-warnings",
+                "0",
+                "src/lib/miden/transaction/initiate.swap-admission.test.ts",
+                "src/lib/miden/transaction/initiate.swap-settlement.test.ts"
+              ],
+              "final": [
+                "python3",
+                "$PROOF_DIR/proof-tools.py",
+                "final"
+              ],
+              "format": [
+                "yarn",
+                "prettier",
+                "--check",
+                "src/lib/miden/transaction/initiate.swap-admission.test.ts",
+                "src/lib/miden/transaction/initiate.swap-settlement.test.ts"
+              ],
+              "install": [
+                "timeout",
+                "10m",
+                "yarn",
+                "install",
+                "--frozen-lockfile",
+                "--non-interactive"
+              ],
+              "prepared": [
+                "python3",
+                "$PROOF_DIR/proof-tools.py",
+                "prepared"
+              ],
+              "runtime": [
+                "node",
+                "-p",
+                "JSON.stringify(process.versions)"
+              ],
+              "source": [
+                "python3",
+                "$PROOF_DIR/proof-tools.py",
+                "source"
+              ],
+              "typescript": [
+                "yarn",
+                "tsc",
+                "--noEmit",
+                "--pretty",
+                "false"
+              ]
+            },
+            "compatibility": {
+              "src/lib/miden/back/sync-manager.test.ts": {
+                "bytes": 110322,
+                "cases": [
+                  {
+                    "ancestor_titles": [
+                      "computeSyncBackoffMs (gap 14 \u2014 exponential backoff + jitter)"
+                    ],
+                    "full_name": "computeSyncBackoffMs (gap 14 \u2014 exponential backoff + jitter) doubles the base interval each consecutive trip",
+                    "title": "doubles the base interval each consecutive trip"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "computeSyncBackoffMs (gap 14 \u2014 exponential backoff + jitter)"
+                    ],
+                    "full_name": "computeSyncBackoffMs (gap 14 \u2014 exponential backoff + jitter) caps the backoff so a long outage is not probed on an ever-growing interval",
+                    "title": "caps the backoff so a long outage is not probed on an ever-growing interval"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "computeSyncBackoffMs (gap 14 \u2014 exponential backoff + jitter)"
+                    ],
+                    "full_name": "computeSyncBackoffMs (gap 14 \u2014 exponential backoff + jitter) adds up to 20% jitter on top of the interval (de-syncs lockstep probing)",
+                    "title": "adds up to 20% jitter on top of the interval (de-syncs lockstep probing)"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync"
+                    ],
+                    "full_name": "doSync is a no-op when the vault is not set up",
+                    "title": "is a no-op when the vault is not set up"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync"
+                    ],
+                    "full_name": "doSync broadcasts SyncCompleted and skips note work when there is no account",
+                    "title": "broadcasts SyncCompleted and skips note work when there is no account"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync"
+                    ],
+                    "full_name": "doSync reads notes and vault assets, enriches with metadata, and writes to chrome.storage",
+                    "title": "reads notes and vault assets, enriches with metadata, and writes to chrome.storage"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync"
+                    ],
+                    "full_name": "doSync logs a warning (not silent) but still finishes the sync when the storage write fails (#386)",
+                    "title": "logs a warning (not silent) but still finishes the sync when the storage write fails (#386)"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync"
+                    ],
+                    "full_name": "doSync excludes quarantined notes from the cached consumable-notes write",
+                    "title": "excludes quarantined notes from the cached consumable-notes write"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync"
+                    ],
+                    "full_name": "doSync dates cached notes on the endpoint they were read from, even if the wallet moves during the read",
+                    "title": "dates cached notes on the endpoint they were read from, even if the wallet moves during the read"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync"
+                    ],
+                    "full_name": "doSync dates cached notes from their inclusion block after the note read releases the client",
+                    "title": "dates cached notes from their inclusion block after the note read releases the client"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync"
+                    ],
+                    "full_name": "doSync shows a desktop notification when a new note arrives and no frontends are connected",
+                    "title": "shows a desktop notification when a new note arrives and no frontends are connected"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync"
+                    ],
+                    "full_name": "doSync skips partial (metadata-less) notes whose noteId is null",
+                    "title": "skips partial (metadata-less) notes whose noteId is null"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync"
+                    ],
+                    "full_name": "doSync skips notes with no fungible assets (empty assets array)",
+                    "title": "skips notes with no fungible assets (empty assets array)"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync"
+                    ],
+                    "full_name": "doSync tolerates fetchTokenMetadata rejections and still writes sync data",
+                    "title": "tolerates fetchTokenMetadata rejections and still writes sync data"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync"
+                    ],
+                    "full_name": "doSync broadcasts SyncCompleted even when syncState rejects",
+                    "title": "broadcasts SyncCompleted even when syncState rejects"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync"
+                    ],
+                    "full_name": "doSync bounds the INLINE sync hold at the watchdog ceiling instead of racing a timeout (#777)",
+                    "title": "bounds the INLINE sync hold at the watchdog ceiling instead of racing a timeout (#777)"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync"
+                    ],
+                    "full_name": "doSync skips the downstream note read for the lap whose INLINE sync hold was evicted (#777)",
+                    "title": "skips the downstream note read for the lap whose INLINE sync hold was evicted (#777)"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync"
+                    ],
+                    "full_name": "doSync stops the note read before its WASM calls when the hold is evicted during the client build (#777)",
+                    "title": "stops the note read before its WASM calls when the hold is evicted during the client build (#777)"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync"
+                    ],
+                    "full_name": "doSync skips the delivery sweep on the lap whose inline sync hold was evicted (#777)",
+                    "title": "skips the delivery sweep on the lap whose inline sync hold was evicted (#777)"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync"
+                    ],
+                    "full_name": "doSync fires the unconfirmed reconciler after a successful lap only, never after a failed or evicted one (#1081)",
+                    "title": "fires the unconfirmed reconciler after a successful lap only, never after a failed or evicted one (#1081)"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync"
+                    ],
+                    "full_name": "doSync stops the note read at the FIRST WASM call after an eviction mid-read (#777)",
+                    "title": "stops the note read at the FIRST WASM call after an eviction mid-read (#777)"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync"
+                    ],
+                    "full_name": "doSync names the reader check that parked in the note read eviction message",
+                    "title": "names the reader check that parked in the note read eviction message"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync"
+                    ],
+                    "full_name": "doSync lights the sync fuse after repeated watchdog evictions, and only a success puts it out (#777)",
+                    "title": "lights the sync fuse after repeated watchdog evictions, and only a success puts it out (#777)"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync"
+                    ],
+                    "full_name": "doSync never lights the fuse from FORCED probes, and a failed Retry cannot extend a lit one (#777)",
+                    "title": "never lights the fuse from FORCED probes, and a failed Retry cannot extend a lit one (#777)"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync"
+                    ],
+                    "full_name": "doSync two back-to-back doSync calls only sync once",
+                    "title": "two back-to-back doSync calls only sync once"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync"
+                    ],
+                    "full_name": "doSync concurrent doSync calls coalesce onto one syncState invocation",
+                    "title": "concurrent doSync calls coalesce onto one syncState invocation"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync"
+                    ],
+                    "full_name": "doSync does not throw when broadcast fails in the no-account branch",
+                    "title": "does not throw when broadcast fails in the no-account branch"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync"
+                    ],
+                    "full_name": "doSync does not throw when broadcast fails in the main happy-path branch",
+                    "title": "does not throw when broadcast fails in the main happy-path branch"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync"
+                    ],
+                    "full_name": "doSync does not throw when broadcast fails in the error handler",
+                    "title": "does not throw when broadcast fails in the error handler"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync"
+                    ],
+                    "full_name": "doSync handles a note whose firstAsset is null (no fungible assets)",
+                    "title": "handles a note whose firstAsset is null (no fungible assets)"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync"
+                    ],
+                    "full_name": "doSync shows single-note notification message",
+                    "title": "shows single-note notification message"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "setupSyncManager"
+                    ],
+                    "full_name": "setupSyncManager registers the alarm and kicks off an initial sync",
+                    "title": "registers the alarm and kicks off an initial sync"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "private-note delivery sweep wiring"
+                    ],
+                    "full_name": "private-note delivery sweep wiring runs the sweep on a sync tick",
+                    "title": "runs the sweep on a sync tick"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "private-note delivery sweep wiring"
+                    ],
+                    "full_name": "private-note delivery sweep wiring does not hold the lap or its SyncCompleted on a sweep still running",
+                    "title": "does not hold the lap or its SyncCompleted on a sweep still running"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "private-note delivery sweep wiring"
+                    ],
+                    "full_name": "private-note delivery sweep wiring does not let a failing sweep break the sync",
+                    "title": "does not let a failing sweep break the sync"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync \u2014 connectivity categorization"
+                    ],
+                    "full_name": "doSync \u2014 connectivity categorization clears reachability issues on a successful sync",
+                    "title": "clears reachability issues on a successful sync"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync \u2014 connectivity categorization"
+                    ],
+                    "full_name": "doSync \u2014 connectivity categorization does NOT mark connectivity on a single transient sync failure (debounced)",
+                    "title": "does NOT mark connectivity on a single transient sync failure (debounced)"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync \u2014 connectivity categorization"
+                    ],
+                    "full_name": "doSync \u2014 connectivity categorization marks node category only after a sustained transport-error streak",
+                    "title": "marks node category only after a sustained transport-error streak"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync \u2014 connectivity categorization"
+                    ],
+                    "full_name": "doSync \u2014 connectivity categorization does NOT mark connectivity for a semantic / non-transport error even when sustained",
+                    "title": "does NOT mark connectivity for a semantic / non-transport error even when sustained"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync \u2014 notification getMessage fallback branches"
+                    ],
+                    "full_name": "doSync \u2014 notification getMessage fallback branches uses fallback strings when getMessage returns empty (single note)",
+                    "title": "uses fallback strings when getMessage returns empty (single note)"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync \u2014 notification getMessage fallback branches"
+                    ],
+                    "full_name": "doSync \u2014 notification getMessage fallback branches uses fallback strings when getMessage returns empty (multi note)",
+                    "title": "uses fallback strings when getMessage returns empty (multi note)"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync \u2014 note metadata branches"
+                    ],
+                    "full_name": "doSync \u2014 note metadata branches handles a note with no fungible assets (filters it out)",
+                    "title": "handles a note with no fungible assets (filters it out)"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync \u2014 note metadata branches"
+                    ],
+                    "full_name": "doSync \u2014 note metadata branches handles a note where metadata is null (uses unknown noteType)",
+                    "title": "handles a note where metadata is null (uses unknown noteType)"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync \u2014 note metadata branches"
+                    ],
+                    "full_name": "doSync \u2014 note metadata branches carries whether each note is a standard payment into the list it writes (#805)",
+                    "title": "carries whether each note is a standard payment into the list it writes (#805)"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync \u2014 note metadata branches"
+                    ],
+                    "full_name": "doSync \u2014 note metadata branches worker single-asset notes preserve explicit asset knowledge",
+                    "title": "worker single-asset notes preserve explicit asset knowledge"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync \u2014 note metadata branches"
+                    ],
+                    "full_name": "doSync \u2014 note metadata branches stamps each sync it writes, so readers can tell a live result from an old snapshot",
+                    "title": "stamps each sync it writes, so readers can tell a live result from an old snapshot"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync \u2014 note metadata branches"
+                    ],
+                    "full_name": "doSync \u2014 note metadata branches repeats the last successful sync stamp on a pass whose sync failed",
+                    "title": "repeats the last successful sync stamp on a pass whose sync failed"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync \u2014 note metadata branches"
+                    ],
+                    "full_name": "doSync \u2014 note metadata branches does not publish the stamp of a successful sync whose write never reached storage",
+                    "title": "does not publish the stamp of a successful sync whose write never reached storage"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync \u2014 note metadata branches"
+                    ],
+                    "full_name": "doSync \u2014 note metadata branches handles when no account exists in client (assets array stays empty)",
+                    "title": "handles when no account exists in client (assets array stays empty)"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync \u2014 note metadata branches"
+                    ],
+                    "full_name": "doSync \u2014 note metadata branches shows multi-note notification when multiple new notes arrive",
+                    "title": "shows multi-note notification when multiple new notes arrive"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync \u2014 note metadata branches"
+                    ],
+                    "full_name": "doSync \u2014 note metadata branches uses ServiceWorkerRegistration.showNotification when available",
+                    "title": "uses ServiceWorkerRegistration.showNotification when available"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync \u2014 syncState timeout + circuit breaker"
+                    ],
+                    "full_name": "doSync \u2014 syncState timeout + circuit breaker queues one forced retry when a sync is already in flight",
+                    "title": "queues one forced retry when a sync is already in flight"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync \u2014 syncState timeout + circuit breaker"
+                    ],
+                    "full_name": "doSync \u2014 syncState timeout + circuit breaker increments the failure counter when syncState rejects and trips the breaker after consecutive failures",
+                    "title": "increments the failure counter when syncState rejects and trips the breaker after consecutive failures"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync \u2014 syncState timeout + circuit breaker"
+                    ],
+                    "full_name": "doSync \u2014 syncState timeout + circuit breaker a successful syncState resets the failure counter mid-streak",
+                    "title": "a successful syncState resets the failure counter mid-streak"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync \u2014 syncState timeout + circuit breaker"
+                    ],
+                    "full_name": "doSync \u2014 syncState timeout + circuit breaker failing forced probes re-arm the window but never escalate it (#777)",
+                    "title": "failing forced probes re-arm the window but never escalate it (#777)"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync \u2014 syncState timeout + circuit breaker"
+                    ],
+                    "full_name": "doSync \u2014 syncState timeout + circuit breaker a successful forced probe closes the existing backoff window",
+                    "title": "a successful forced probe closes the existing backoff window"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync \u2014 syncState timeout + circuit breaker"
+                    ],
+                    "full_name": "doSync \u2014 syncState timeout + circuit breaker awaits init_vault when present (SW bundle simulation)",
+                    "title": "awaits init_vault when present (SW bundle simulation)"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync \u2014 syncState timeout + circuit breaker"
+                    ],
+                    "full_name": "doSync \u2014 syncState timeout + circuit breaker the breaker closes after the backoff window elapses",
+                    "title": "the breaker closes after the backoff window elapses"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync \u2014 native-note auto-consume"
+                    ],
+                    "full_name": "doSync \u2014 native-note auto-consume fee-refused native batch has no single-note fallback or processing kick",
+                    "title": "fee-refused native batch has no single-note fallback or processing kick"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync \u2014 native-note auto-consume"
+                    ],
+                    "full_name": "doSync \u2014 native-note auto-consume does not auto-consume a native backlog worth less than the fee to claim it",
+                    "title": "does not auto-consume a native backlog worth less than the fee to claim it"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync \u2014 native-note auto-consume"
+                    ],
+                    "full_name": "doSync \u2014 native-note auto-consume leaves a note whose claim is held while the node decides out of the value check (#1081)",
+                    "title": "leaves a note whose claim is held while the node decides out of the value check (#1081)"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync \u2014 native-note auto-consume"
+                    ],
+                    "full_name": "doSync \u2014 native-note auto-consume leaves a native note a dApp transaction completed moments ago out of the batch",
+                    "title": "leaves a native note a dApp transaction completed moments ago out of the batch"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync \u2014 native-note auto-consume"
+                    ],
+                    "full_name": "doSync \u2014 native-note auto-consume leaves a native note a live dApp transaction will consume out of the batch",
+                    "title": "leaves a native note a live dApp transaction will consume out of the batch"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync \u2014 native-note auto-consume"
+                    ],
+                    "full_name": "doSync \u2014 native-note auto-consume raises no \"click to claim\" notification for a native note a live dApp transaction will consume",
+                    "title": "raises no \"click to claim\" notification for a native note a live dApp transaction will consume"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync \u2014 native-note auto-consume"
+                    ],
+                    "full_name": "doSync \u2014 native-note auto-consume auto-consumes a backlog of individually-marginal native notes, at most MAX_NOTES_PER_UNATTENDED_CLAIM to a transaction",
+                    "title": "auto-consumes a backlog of individually-marginal native notes, at most MAX_NOTES_PER_UNATTENDED_CLAIM to a transaction"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync \u2014 native-note auto-consume"
+                    ],
+                    "full_name": "doSync \u2014 native-note auto-consume fee identity: service worker auto-consumes actual native A instead of legacy B",
+                    "title": "fee identity: service worker auto-consumes actual native A instead of legacy B"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync \u2014 native-note auto-consume"
+                    ],
+                    "full_name": "doSync \u2014 native-note auto-consume auto-consumes native notes in ONE transaction, following the user delegated-proving setting",
+                    "title": "auto-consumes native notes in ONE transaction, following the user delegated-proving setting"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync \u2014 native-note auto-consume"
+                    ],
+                    "full_name": "doSync \u2014 native-note auto-consume queues each note of a failed batch enqueue as auto-consume too",
+                    "title": "queues each note of a failed batch enqueue as auto-consume too"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync \u2014 native-note auto-consume"
+                    ],
+                    "full_name": "doSync \u2014 native-note auto-consume leaves the native notes of a rotation-pending account to its rotation gate (#805)",
+                    "title": "leaves the native notes of a rotation-pending account to its rotation gate (#805)"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync \u2014 native-note auto-consume"
+                    ],
+                    "full_name": "doSync \u2014 native-note auto-consume matches the worker store account however its id is spelled",
+                    "title": "matches the worker store account however its id is spelled"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync \u2014 native-note auto-consume"
+                    ],
+                    "full_name": "doSync \u2014 native-note auto-consume still claims for an account the worker store lists without the rotation flag",
+                    "title": "still claims for an account the worker store lists without the rotation flag"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync \u2014 native-note auto-consume"
+                    ],
+                    "full_name": "doSync \u2014 native-note auto-consume does not auto-consume when the toggle is off",
+                    "title": "does not auto-consume when the toggle is off"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync \u2014 native-note auto-consume"
+                    ],
+                    "full_name": "doSync \u2014 native-note auto-consume suppresses the \"click to claim\" notification for a native note it is auto-consuming",
+                    "title": "suppresses the \"click to claim\" notification for a native note it is auto-consuming"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync \u2014 native-note auto-consume"
+                    ],
+                    "full_name": "doSync \u2014 native-note auto-consume holds off until the popup has mirrored the user settings (migration window)",
+                    "title": "holds off until the popup has mirrored the user settings (migration window)"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync \u2014 native-note auto-consume"
+                    ],
+                    "full_name": "doSync \u2014 native-note auto-consume queues no claim while the vault is locked, and the first lap after unlock queues it",
+                    "title": "queues no claim while the vault is locked, and the first lap after unlock queues it"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync \u2014 native-note auto-consume"
+                    ],
+                    "full_name": "doSync \u2014 native-note auto-consume queues no claim when the vault locks while the lap reads the proving setting, and does on a lap unlocked throughout",
+                    "title": "queues no claim when the vault locks while the lap reads the proving setting, and does on a lap unlocked throughout"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync \u2014 native-note auto-consume"
+                    ],
+                    "full_name": "doSync \u2014 native-note auto-consume resolves cleanly when the eligibility resolve (getFaucetIdSetting) rejects",
+                    "title": "resolves cleanly when the eligibility resolve (getFaucetIdSetting) rejects"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync \u2014 native-note auto-consume"
+                    ],
+                    "full_name": "doSync \u2014 native-note auto-consume resolves cleanly when the per-note enqueue rejects",
+                    "title": "resolves cleanly when the per-note enqueue rejects"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync - zero-fill swap reclaim"
+                    ],
+                    "full_name": "doSync - zero-fill swap reclaim queues the reclaim of an expired zero-fill order with the request and clock its classification used",
+                    "title": "queues the reclaim of an expired zero-fill order with the request and clock its classification used"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync - zero-fill swap reclaim"
+                    ],
+                    "full_name": "doSync - zero-fill swap reclaim builds and queues no reclaim while the vault is locked, and the first lap after unlock does",
+                    "title": "builds and queues no reclaim while the vault is locked, and the first lap after unlock does"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync - zero-fill swap reclaim"
+                    ],
+                    "full_name": "doSync - zero-fill swap reclaim checks a refused recovered order's note on the node after the note-read hold, from the service worker",
+                    "title": "checks a refused recovered order's note on the node after the note-read hold, from the service worker"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync - zero-fill swap reclaim",
+                      "a lap whose note-read hold is evicted"
+                    ],
+                    "full_name": "doSync - zero-fill swap reclaim a lap whose note-read hold is evicted books a zero-fill build parked until the eviction once on its own key and none on claimable-notes",
+                    "title": "books a zero-fill build parked until the eviction once on its own key and none on claimable-notes"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync - zero-fill swap reclaim",
+                      "a lap whose note-read hold is evicted"
+                    ],
+                    "full_name": "doSync - zero-fill swap reclaim a lap whose note-read hold is evicted books an eviction during the consumable-note read on neither key",
+                    "title": "books an eviction during the consumable-note read on neither key"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync - zero-fill swap reclaim",
+                      "a lap whose note-read hold is evicted"
+                    ],
+                    "full_name": "doSync - zero-fill swap reclaim a lap whose note-read hold is evicted books no success from the build before one refused on the data after its eviction, so laps light the key",
+                    "title": "books no success from the build before one refused on the data after its eviction, so laps light the key"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync - zero-fill swap reclaim",
+                      "a lap whose note-read hold is evicted"
+                    ],
+                    "full_name": "doSync - zero-fill swap reclaim a lap whose note-read hold is evicted books a build evicted in the tick it is refused on the data on its own key, not on claimable-notes",
+                    "title": "books a build evicted in the tick it is refused on the data on its own key, not on claimable-notes"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync - expired swap order settlement"
+                    ],
+                    "full_name": "doSync - expired swap order settlement queues no settlement consume while the vault is locked, and the first lap after unlock queues it",
+                    "title": "queues no settlement consume while the vault is locked, and the first lap after unlock queues it"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync - expired swap order settlement"
+                    ],
+                    "full_name": "doSync - expired swap order settlement worker settlement refuses token-only payback and remainder and still settles a funded order",
+                    "title": "worker settlement refuses token-only payback and remainder and still settles a funded order"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync - expired swap order settlement"
+                    ],
+                    "full_name": "doSync - expired swap order settlement queues no native claim and no settlement consume while the store is not initialized",
+                    "title": "queues no native claim and no settlement consume while the store is not initialized"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync - expired swap order settlement"
+                    ],
+                    "full_name": "doSync - expired swap order settlement queues no settlement consume when the vault locks while the lap stamps the expiry, and does on a lap unlocked throughout",
+                    "title": "queues no settlement consume when the vault locks while the lap stamps the expiry, and does on a lap unlocked throughout"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync waits for the first override load"
+                    ],
+                    "full_name": "doSync waits for the first override load dispatches no sync and reads no endpoint until the load settles, then runs the same lap",
+                    "title": "dispatches no sync and reads no endpoint until the load settles, then runs the same lap"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync drives the resultBytes reaper"
+                    ],
+                    "full_name": "doSync drives the resultBytes reaper runs the reaper on a normal lap",
+                    "title": "runs the reaper on a normal lap"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "doSync drives the resultBytes reaper"
+                    ],
+                    "full_name": "doSync drives the resultBytes reaper runs the reaper even when the lap is short-circuited before any sync work",
+                    "title": "runs the reaper even when the lap is short-circuited before any sync work"
+                  }
+                ],
+                "count": 92,
+                "sha256": "7fbd41534b8f3d9826ab6ee4c6b4457d9c6f82b601d1ca1c87804cb396a21c85",
+                "static_registration": {
+                  "each_rows": [],
+                  "ordinary": 92
+                }
+              },
+              "src/lib/miden/swap/settlement.test.ts": {
+                "bytes": 69858,
+                "cases": [
+                  {
+                    "ancestor_titles": [
+                      "swap order note settlement"
+                    ],
+                    "full_name": "swap order note settlement classifies the lineage tip and PSWAP-attached paybacks without amount heuristics",
+                    "title": "classifies the lineage tip and PSWAP-attached paybacks without amount heuristics"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "swap order note settlement"
+                    ],
+                    "full_name": "swap order note settlement classifies multiple orders from one snapshot and skips missing entries",
+                    "title": "classifies multiple orders from one snapshot and skips missing entries"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "swap order note settlement"
+                    ],
+                    "full_name": "swap order note settlement reads an open lineage at its fill target as active",
+                    "title": "reads an open lineage at its fill target as active"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "swap order note settlement"
+                    ],
+                    "full_name": "swap order note settlement reads an open lineage inside the slippage of a larger order as active",
+                    "title": "reads an open lineage inside the slippage of a larger order as active"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "swap order note settlement"
+                    ],
+                    "full_name": "swap order note settlement claims the payback of an expired order that reached its fill target, then reclaims its tip",
+                    "title": "claims the payback of an expired order that reached its fill target, then reclaims its tip"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "swap order note settlement"
+                    ],
+                    "full_name": "swap order note settlement in-process settlement hands the queue each note's first asset and whether it carries more",
+                    "title": "in-process settlement hands the queue each note's first asset and whether it carries more"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "swap order note settlement"
+                    ],
+                    "full_name": "swap order note settlement leaves partial-fill paybacks untouched while active and unexpired",
+                    "title": "leaves partial-fill paybacks untouched while active and unexpired"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "swap order note settlement"
+                    ],
+                    "full_name": "swap order note settlement reproduces and closes the zero-fill expiry gap by reclaiming the depth-0 output note",
+                    "title": "reproduces and closes the zero-fill expiry gap by reclaiming the depth-0 output note"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "swap order note settlement"
+                    ],
+                    "full_name": "swap order note settlement a zero-fill reclaim of a non-native token meets the fee gate as a known single asset",
+                    "title": "a zero-fill reclaim of a non-native token meets the fee gate as a known single asset"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "swap order note settlement"
+                    ],
+                    "full_name": "swap order note settlement does not build a depth-0 output reclaim for unexpired lineage state",
+                    "title": "does not build a depth-0 output reclaim for unexpired lineage state"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "swap order note settlement"
+                    ],
+                    "full_name": "swap order note settlement does not build a depth-0 output reclaim for partial-fill lineage state",
+                    "title": "does not build a depth-0 output reclaim for partial-fill lineage state"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "swap order note settlement"
+                    ],
+                    "full_name": "swap order note settlement does not build a depth-0 output reclaim for fully-filled lineage state",
+                    "title": "does not build a depth-0 output reclaim for fully-filled lineage state"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "swap order note settlement"
+                    ],
+                    "full_name": "swap order note settlement does not build a depth-0 output reclaim for already-reclaimed lineage state",
+                    "title": "does not build a depth-0 output reclaim for already-reclaimed lineage state"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "swap order note settlement"
+                    ],
+                    "full_name": "swap order note settlement skips a locally unavailable zero-fill output without blocking the settlement pass",
+                    "title": "skips a locally unavailable zero-fill output without blocking the settlement pass"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "swap order note settlement"
+                    ],
+                    "full_name": "swap order note settlement builds no reclaim for a tip that is not one of the order's own output notes",
+                    "title": "builds no reclaim for a tip that is not one of the order's own output notes"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "swap order note settlement"
+                    ],
+                    "full_name": "swap order note settlement builds no second reclaim while the tip has a queued reclaim row",
+                    "title": "builds no second reclaim while the tip has a queued reclaim row"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "swap order note settlement"
+                    ],
+                    "full_name": "swap order note settlement builds no second reclaim while the tip has a completed reclaim row",
+                    "title": "builds no second reclaim while the tip has a completed reclaim row"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "swap order note settlement"
+                    ],
+                    "full_name": "swap order note settlement builds no second reclaim while the tip has a backing off reclaim row",
+                    "title": "builds no second reclaim while the tip has a backing off reclaim row"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "swap order note settlement"
+                    ],
+                    "full_name": "swap order note settlement lets a trap from the cancel-request build reach the hold, so the lock retires the client",
+                    "title": "lets a trap from the cancel-request build reach the hold, so the lock retires the client"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "swap order note settlement"
+                    ],
+                    "full_name": "swap order note settlement ends the pass on an offscreen abort from the cancel-request build, asking the dead client nothing more",
+                    "title": "ends the pass on an offscreen abort from the cancel-request build, asking the dead client nothing more"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "swap order note settlement"
+                    ],
+                    "full_name": "swap order note settlement ends the pass on a terminated client from the cancel-request build, asking the dead client nothing more",
+                    "title": "ends the pass on a terminated client from the cancel-request build, asking the dead client nothing more"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "swap order note settlement"
+                    ],
+                    "full_name": "swap order note settlement ends the pass on a terminated inner client from the cancel-request build, asking the dead client nothing more",
+                    "title": "ends the pass on a terminated inner client from the cancel-request build, asking the dead client nothing more"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "swap order note settlement"
+                    ],
+                    "full_name": "swap order note settlement never treats a pre-upgrade order without an explicit expiresAt as expired",
+                    "title": "never treats a pre-upgrade order without an explicit expiresAt as expired"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "swap order note settlement"
+                    ],
+                    "full_name": "swap order note settlement does not settle an order whose per-swap auto-consume setting is off",
+                    "title": "does not settle an order whose per-swap auto-consume setting is off"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "swap order note settlement"
+                    ],
+                    "full_name": "swap order note settlement settles every accumulated payback, but not the tip, after a full fill",
+                    "title": "settles every accumulated payback, but not the tip, after a full fill"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "swap order note settlement"
+                    ],
+                    "full_name": "swap order note settlement claims the paybacks of one order at most MAX_NOTES_PER_UNATTENDED_CLAIM to a row, in a stable order (#1644)",
+                    "title": "claims the paybacks of one order at most MAX_NOTES_PER_UNATTENDED_CLAIM to a row, in a stable order (#1644)"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "swap order note settlement"
+                    ],
+                    "full_name": "swap order note settlement falls back to the swap row delegate preference when no delegate flag is passed",
+                    "title": "falls back to the swap row delegate preference when no delegate flag is passed"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "swap order note settlement"
+                    ],
+                    "full_name": "swap order note settlement persists expiry intent before queueing, and never batches the still-fillable tip with the paybacks",
+                    "title": "persists expiry intent before queueing, and never batches the still-fillable tip with the paybacks"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "swap order note settlement"
+                    ],
+                    "full_name": "swap order note settlement passes each role and parent to the payback and tip consume queues",
+                    "title": "passes each role and parent to the payback and tip consume queues"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "swap order note settlement"
+                    ],
+                    "full_name": "swap order note settlement fee refusal skips one role batch and prepared reclaim without aborting later orders",
+                    "title": "fee refusal skips one role batch and prepared reclaim without aborting later orders"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "swap order note settlement"
+                    ],
+                    "full_name": "swap order note settlement passes the reclaim kind and parent for a fund-less expired batch (tip only)",
+                    "title": "passes the reclaim kind and parent for a fund-less expired batch (tip only)"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "swap order note settlement"
+                    ],
+                    "full_name": "swap order note settlement repairs a lost settlement stamp when no consumable notes remain",
+                    "title": "repairs a lost settlement stamp when no consumable notes remain"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "swap order note settlement"
+                    ],
+                    "full_name": "swap order note settlement does not run the stamp repair for an already-stamped order",
+                    "title": "does not run the stamp repair for an already-stamped order"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "swap order note settlement",
+                      "rotation-pending accounts (#805)"
+                    ],
+                    "full_name": "swap order note settlement rotation-pending accounts (#805) leaves a rotation-pending account's open swap order to its rotation gate",
+                    "title": "leaves a rotation-pending account's open swap order to its rotation gate"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "swap order note settlement",
+                      "rotation-pending accounts (#805)"
+                    ],
+                    "full_name": "swap order note settlement rotation-pending accounts (#805) does not affect a non-pending account even while another account in the store is pending",
+                    "title": "does not affect a non-pending account even while another account in the store is pending"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "swap order note settlement",
+                      "the settlement tick as an unattended probe (#777)"
+                    ],
+                    "full_name": "swap order note settlement the settlement tick as an unattended probe (#777) bounds and labels its hold instead of taking the five-minute backstop",
+                    "title": "bounds and labels its hold instead of taking the five-minute backstop"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "swap order note settlement",
+                      "the settlement tick as an unattended probe (#777)"
+                    ],
+                    "full_name": "swap order note settlement the settlement tick as an unattended probe (#777) takes no hold at all once the shared claimable-notes fuse is lit",
+                    "title": "takes no hold at all once the shared claimable-notes fuse is lit"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "swap order note settlement",
+                      "the settlement tick as an unattended probe (#777)"
+                    ],
+                    "full_name": "swap order note settlement the settlement tick as an unattended probe (#777) re-asks the fuse once the mutex is ours, so a tick that queued behind a park still turns back",
+                    "title": "re-asks the fuse once the mutex is ours, so a tick that queued behind a park still turns back"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "swap order note settlement",
+                      "the settlement tick as an unattended probe (#777)"
+                    ],
+                    "full_name": "swap order note settlement the settlement tick as an unattended probe (#777) books a realm-error eviction as abandoned, never erasing eviction evidence",
+                    "title": "books a realm-error eviction as abandoned, never erasing eviction evidence"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "swap order note settlement",
+                      "the settlement tick as an unattended probe (#777)"
+                    ],
+                    "full_name": "swap order note settlement the settlement tick as an unattended probe (#777) feeds its own evictions into that fuse, so four parked ticks stop the fifth",
+                    "title": "feeds its own evictions into that fuse, so four parked ticks stop the fifth"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "swap order note settlement",
+                      "the settlement tick as an unattended probe (#777)"
+                    ],
+                    "full_name": "swap order note settlement the settlement tick as an unattended probe (#777) the settlement read forwards the reader check that parked into its own label",
+                    "title": "the settlement read forwards the reader check that parked into its own label"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "swap order note settlement",
+                      "the settlement tick as an unattended probe (#777)"
+                    ],
+                    "full_name": "swap order note settlement the settlement tick as an unattended probe (#777) withdraws the shared fuse evidence on its own success, so it is not write-only (#777)",
+                    "title": "withdraws the shared fuse evidence on its own success, so it is not write-only (#777)"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "swap order note settlement",
+                      "the settlement tick as an unattended probe (#777)"
+                    ],
+                    "full_name": "swap order note settlement the settlement tick as an unattended probe (#777) rejects a bulk lineage snapshot whose hold was evicted during the read",
+                    "title": "rejects a bulk lineage snapshot whose hold was evicted during the read"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "swap order note settlement",
+                      "the settlement tick as an unattended probe (#777)"
+                    ],
+                    "full_name": "swap order note settlement the settlement tick as an unattended probe (#777) reports an ordinary bulk snapshot failure instead of withdrawing probe failure evidence",
+                    "title": "reports an ordinary bulk snapshot failure instead of withdrawing probe failure evidence"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "swap order note settlement",
+                      "the settlement tick as an unattended probe (#777)"
+                    ],
+                    "full_name": "swap order note settlement the settlement tick as an unattended probe (#777) stops before the lineage read when the note read was evicted mid-flight",
+                    "title": "stops before the lineage read when the note read was evicted mid-flight"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "swap order note settlement",
+                      "the zero-fill cancel-request build as a probe of its own"
+                    ],
+                    "full_name": "swap order note settlement the zero-fill cancel-request build as a probe of its own lights its own key on evicted builds and leaves claimable-notes unfused, so the next pass still settles",
+                    "title": "lights its own key on evicted builds and leaves claimable-notes unfused, so the next pass still settles"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "swap order note settlement",
+                      "the zero-fill cancel-request build as a probe of its own"
+                    ],
+                    "full_name": "swap order note settlement the zero-fill cancel-request build as a probe of its own books a build parked until its hold is evicted on its own key, not on claimable-notes",
+                    "title": "books a build parked until its hold is evicted on its own key, not on claimable-notes"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "swap order note settlement",
+                      "the zero-fill cancel-request build as a probe of its own"
+                    ],
+                    "full_name": "swap order note settlement the zero-fill cancel-request build as a probe of its own books a build evicted mid-call once, whatever it does when it resolves late",
+                    "title": "books a build evicted mid-call once, whatever it does when it resolves late"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "swap order note settlement",
+                      "the zero-fill cancel-request build as a probe of its own"
+                    ],
+                    "full_name": "swap order note settlement the zero-fill cancel-request build as a probe of its own books a build evicted mid-call once, whatever it does when it rejects at its own hold re-check late",
+                    "title": "books a build evicted mid-call once, whatever it does when it rejects at its own hold re-check late"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "swap order note settlement",
+                      "the zero-fill cancel-request build as a probe of its own"
+                    ],
+                    "full_name": "swap order note settlement the zero-fill cancel-request build as a probe of its own books a build evicted mid-call once, whatever it does when it traps late",
+                    "title": "books a build evicted mid-call once, whatever it does when it traps late"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "swap order note settlement",
+                      "the zero-fill cancel-request build as a probe of its own"
+                    ],
+                    "full_name": "swap order note settlement the zero-fill cancel-request build as a probe of its own keeps the eviction of a build refused on the data after it, with no success from the build before",
+                    "title": "keeps the eviction of a build refused on the data after it, with no success from the build before"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "swap order note settlement",
+                      "the zero-fill cancel-request build as a probe of its own"
+                    ],
+                    "full_name": "swap order note settlement the zero-fill cancel-request build as a probe of its own books a build evicted in the tick it is refused on the data on its own key, not on claimable-notes",
+                    "title": "books a build evicted in the tick it is refused on the data on its own key, not on claimable-notes"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "swap order note settlement",
+                      "the zero-fill cancel-request build as a probe of its own"
+                    ],
+                    "full_name": "swap order note settlement the zero-fill cancel-request build as a probe of its own books a hold evicted during the note read on claimable-notes only",
+                    "title": "books a hold evicted during the note read on claimable-notes only"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "swap order note settlement",
+                      "the zero-fill cancel-request build as a probe of its own"
+                    ],
+                    "full_name": "swap order note settlement the zero-fill cancel-request build as a probe of its own clears its key on a pass whose build returns the request",
+                    "title": "clears its key on a pass whose build returns the request"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "swap order note settlement",
+                      "the zero-fill cancel-request build as a probe of its own"
+                    ],
+                    "full_name": "swap order note settlement the zero-fill cancel-request build as a probe of its own leaves its evidence as it was on a pass whose only build refuses on the data",
+                    "title": "leaves its evidence as it was on a pass whose only build refuses on the data"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "swap order note settlement",
+                      "the zero-fill cancel-request build as a probe of its own"
+                    ],
+                    "full_name": "swap order note settlement the zero-fill cancel-request build as a probe of its own lights its key at the abandoned-probe threshold on offscreen deadline kills",
+                    "title": "lights its key at the abandoned-probe threshold on offscreen deadline kills"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "swap order note settlement",
+                      "the zero-fill cancel-request build as a probe of its own"
+                    ],
+                    "full_name": "swap order note settlement the zero-fill cancel-request build as a probe of its own leaves its evidence unchanged on an abort that tore nothing down",
+                    "title": "leaves its evidence unchanged on an abort that tore nothing down"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "swap order note settlement"
+                    ],
+                    "full_name": "swap order note settlement passes the settle kind and parent for a payback consume",
+                    "title": "passes the settle kind and parent for a payback consume"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "swap order note settlement",
+                      "a Guardian-recovered order returned on its Cancel (#1487)"
+                    ],
+                    "full_name": "swap order note settlement a Guardian-recovered order returned on its Cancel (#1487) reclaims the order note from the node, past the Auto accept setting recovery wrote",
+                    "title": "reclaims the order note from the node, past the Auto accept setting recovery wrote"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "swap order note settlement",
+                      "a Guardian-recovered order returned on its Cancel (#1487)"
+                    ],
+                    "full_name": "swap order note settlement a Guardian-recovered order returned on its Cancel (#1487) builds nothing for a recovered order this wallet was not asked to return",
+                    "title": "builds nothing for a recovered order this wallet was not asked to return"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "swap order note settlement",
+                      "a Guardian-recovered order returned on its Cancel (#1487)"
+                    ],
+                    "full_name": "swap order note settlement a Guardian-recovered order returned on its Cancel (#1487) builds nothing while the order note already has a reclaim of this wallet",
+                    "title": "builds nothing while the order note already has a reclaim of this wallet"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "swap order note settlement",
+                      "a Guardian-recovered order returned on its Cancel (#1487)"
+                    ],
+                    "full_name": "swap order note settlement a Guardian-recovered order returned on its Cancel (#1487) checks a refused recovered build's order on the node once the hold is released, and builds no more once closed",
+                    "title": "checks a refused recovered build's order on the node once the hold is released, and builds no more once closed"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "swap order note settlement",
+                      "a Guardian-recovered order returned on its Cancel (#1487)"
+                    ],
+                    "full_name": "swap order note settlement a Guardian-recovered order returned on its Cancel (#1487) leaves a live order's refused build to its next lap, asking the node nothing",
+                    "title": "leaves a live order's refused build to its next lap, asking the node nothing"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "swap order note settlement",
+                      "a Guardian-recovered order returned on its Cancel (#1487)"
+                    ],
+                    "full_name": "swap order note settlement a Guardian-recovered order returned on its Cancel (#1487) cancels the remainder a fill left, not the spent order note",
+                    "title": "cancels the remainder a fill left, not the spent order note"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "swap order note settlement",
+                      "a Guardian-recovered order returned on its Cancel (#1487)"
+                    ],
+                    "full_name": "swap order note settlement a Guardian-recovered order returned on its Cancel (#1487) stamps no close from a linked payout on a recovered order whose remainder its cancel could not build",
+                    "title": "stamps no close from a linked payout on a recovered order whose remainder its cancel could not build"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "swap order note settlement",
+                      "a Guardian-recovered order returned on its Cancel (#1487)"
+                    ],
+                    "full_name": "swap order note settlement a Guardian-recovered order returned on its Cancel (#1487) waits 30, then 60 seconds after refused builds instead of reading the node on every lap",
+                    "title": "waits 30, then 60 seconds after refused builds instead of reading the node on every lap"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "swap order note settlement"
+                    ],
+                    "full_name": "swap order note settlement settleSwapOrders hands its claim guard to every claim its pass queues",
+                    "title": "settleSwapOrders hands its claim guard to every claim its pass queues"
+                  }
+                ],
+                "count": 67,
+                "sha256": "d58bf0ae30dcc29a54ba1248231236e7cd737b096ca2e9c9ce11c5a039068660",
+                "static_registration": {
+                  "each_rows": [
+                    2,
+                    4,
+                    3,
+                    3,
+                    3
+                  ],
+                  "ordinary": 52
+                }
+              },
+              "src/lib/miden/transaction/complete.swap-stamp.test.ts": {
+                "bytes": 6173,
+                "cases": [
+                  {
+                    "ancestor_titles": [],
+                    "full_name": "stamps a live order's reclaim on the order once its consume completes",
+                    "title": "stamps a live order's reclaim on the order once its consume completes"
+                  },
+                  {
+                    "ancestor_titles": [],
+                    "full_name": "stamps a settlement split over several claims only once the last of them completes (#1644)",
+                    "title": "stamps a settlement split over several claims only once the last of them completes (#1644)"
+                  },
+                  {
+                    "ancestor_titles": [],
+                    "full_name": "a sibling claim awaiting its verdict holds the stamp, one of the other kind or a failed one does not",
+                    "title": "a sibling claim awaiting its verdict holds the stamp, one of the other kind or a failed one does not"
+                  },
+                  {
+                    "ancestor_titles": [],
+                    "full_name": "leaves the close of a Guardian-recovered order to its lineage when its reclaim completes",
+                    "title": "leaves the close of a Guardian-recovered order to its lineage when its reclaim completes"
+                  }
+                ],
+                "count": 4,
+                "sha256": "c2797318ac77d5c524ccede69f2340f8377df4c8c0e74193831423a1a8585cbe",
+                "static_registration": {
+                  "each_rows": [],
+                  "ordinary": 4
+                }
+              },
+              "src/lib/miden/transaction/initiate.batch-isolation.test.ts": {
+                "bytes": 33845,
+                "cases": [
+                  {
+                    "ancestor_titles": [
+                      "initiateConsumeNotesTransaction \u2014 batching"
+                    ],
+                    "full_name": "initiateConsumeNotesTransaction \u2014 batching queues ONE row for many notes, so the backlog pays one fee",
+                    "title": "queues ONE row for many notes, so the backlog pays one fee"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "initiatePswapReclaimTransaction"
+                    ],
+                    "full_name": "initiatePswapReclaimTransaction inserts the prepared request and settlement link atomically on the consume row",
+                    "title": "inserts the prepared request and settlement link atomically on the consume row"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "noteClaimCoverage"
+                    ],
+                    "full_name": "noteClaimCoverage names a queued claim as the one that keeps a new claim out",
+                    "title": "names a queued claim as the one that keeps a new claim out"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "noteClaimCoverage"
+                    ],
+                    "full_name": "noteClaimCoverage names a in flight claim as the one that keeps a new claim out",
+                    "title": "names a in flight claim as the one that keeps a new claim out"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "noteClaimCoverage"
+                    ],
+                    "full_name": "noteClaimCoverage names a completed claim as the one that keeps a new claim out",
+                    "title": "names a completed claim as the one that keeps a new claim out"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "noteClaimCoverage"
+                    ],
+                    "full_name": "noteClaimCoverage names a failed claim only while its backoff runs",
+                    "title": "names a failed claim only while its backoff runs"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "noteClaimCoverage"
+                    ],
+                    "full_name": "noteClaimCoverage ignores another account's claims and rows restored from a backup",
+                    "title": "ignores another account's claims and rows restored from a backup"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "initiateConsumeNotesTransaction \u2014 poison-note isolation"
+                    ],
+                    "full_name": "initiateConsumeNotesTransaction \u2014 poison-note isolation gives every note its own row after a shared batch row failed",
+                    "title": "gives every note its own row after a shared batch row failed"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "initiateConsumeNotesTransaction \u2014 poison-note isolation"
+                    ],
+                    "full_name": "initiateConsumeNotesTransaction \u2014 poison-note isolation isolates ONLY the notes that lost a batch, leaving newcomers batched together",
+                    "title": "isolates ONLY the notes that lost a batch, leaving newcomers batched together"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "initiateConsumeNotesTransaction \u2014 poison-note isolation"
+                    ],
+                    "full_name": "initiateConsumeNotesTransaction \u2014 poison-note isolation does NOT isolate a note whose only failure was its own single-note row",
+                    "title": "does NOT isolate a note whose only failure was its own single-note row"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "initiateConsumeNotesTransaction \u2014 poison-note isolation"
+                    ],
+                    "full_name": "initiateConsumeNotesTransaction \u2014 poison-note isolation stays batched when the caller does not opt in",
+                    "title": "stays batched when the caller does not opt in"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "initiateConsumeNotesTransaction \u2014 poison-note isolation"
+                    ],
+                    "full_name": "initiateConsumeNotesTransaction \u2014 poison-note isolation does not isolate when doing so would strand a remainder below the floor",
+                    "title": "does not isolate when doing so would strand a remainder below the floor"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "initiateConsumeNotesTransaction \u2014 poison-note isolation"
+                    ],
+                    "full_name": "initiateConsumeNotesTransaction \u2014 poison-note isolation isolates the worthy notes when the remainder can still stand alone",
+                    "title": "isolates the worthy notes when the remainder can still stand alone"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "initiateConsumeNotesTransaction \u2014 poison-note isolation"
+                    ],
+                    "full_name": "initiateConsumeNotesTransaction \u2014 poison-note isolation never strands a below-floor note, however many batches it has lost",
+                    "title": "never strands a below-floor note, however many batches it has lost"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "initiateConsumeNotesTransaction \u2014 poison-note isolation"
+                    ],
+                    "full_name": "initiateConsumeNotesTransaction \u2014 poison-note isolation isolates every candidate when no fee is supplied",
+                    "title": "isolates every candidate when no fee is supplied"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "initiateConsumeNotesTransaction \u2014 poison-note isolation"
+                    ],
+                    "full_name": "initiateConsumeNotesTransaction \u2014 poison-note isolation returns an id that names a row it actually created",
+                    "title": "returns an id that names a row it actually created"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "initiateConsumeNotesTransaction \u2014 poison-note isolation"
+                    ],
+                    "full_name": "initiateConsumeNotesTransaction \u2014 poison-note isolation reports each isolated note under the row it was given",
+                    "title": "reports each isolated note under the row it was given"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "queueConsumeNotes - the row covering each note"
+                    ],
+                    "full_name": "queueConsumeNotes - the row covering each note names the row that kept a deduplicated note out, and the committed row for a queued one",
+                    "title": "names the row that kept a deduplicated note out, and the committed row for a queued one"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "queueConsumeNotes - the row covering each note"
+                    ],
+                    "full_name": "queueConsumeNotes - the row covering each note names the Failed row that backed a note off",
+                    "title": "names the Failed row that backed a note off"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "a worker claim its caller can no longer sign"
+                    ],
+                    "full_name": "a worker claim its caller can no longer sign initiateConsumeNotesTransaction writes no row when the lock lands during its reads, and writes it once unlocked",
+                    "title": "initiateConsumeNotesTransaction writes no row when the lock lands during its reads, and writes it once unlocked"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "a worker claim its caller can no longer sign"
+                    ],
+                    "full_name": "a worker claim its caller can no longer sign initiateConsumeTransaction writes no row when the lock lands during its reads, and writes it once unlocked",
+                    "title": "initiateConsumeTransaction writes no row when the lock lands during its reads, and writes it once unlocked"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "a worker claim its caller can no longer sign"
+                    ],
+                    "full_name": "a worker claim its caller can no longer sign initiatePswapReclaimTransaction writes no row when the lock lands during its reads, and writes it once unlocked",
+                    "title": "initiatePswapReclaimTransaction writes no row when the lock lands during its reads, and writes it once unlocked"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "a worker claim its caller can no longer sign"
+                    ],
+                    "full_name": "a worker claim its caller can no longer sign rolls back the rows it wrote when the lock lands between two isolated rows",
+                    "title": "rolls back the rows it wrote when the lock lands between two isolated rows"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "a worker claim its caller can no longer sign"
+                    ],
+                    "full_name": "a worker claim its caller can no longer sign rolls back the rows it wrote when the lock lands after the isolated rows, before the remainder's batch row",
+                    "title": "rolls back the rows it wrote when the lock lands after the isolated rows, before the remainder's batch row"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "the consume writer fee gate"
+                    ],
+                    "full_name": "the consume writer fee gate writer refuses a known shortage and admits self funding and same-call funding",
+                    "title": "writer refuses a known shortage and admits self funding and same-call funding"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "the consume writer fee gate"
+                    ],
+                    "full_name": "the consume writer fee gate writer admits on a busy or reentrant vault lock",
+                    "title": "writer admits on a busy or reentrant vault lock"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "the consume writer fee gate"
+                    ],
+                    "full_name": "the consume writer fee gate writer ignores an evicted vault read and retires a trap before continuing",
+                    "title": "writer ignores an evicted vault read and retires a trap before continuing"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "the consume writer fee gate"
+                    ],
+                    "full_name": "the consume writer fee gate writer distinguishes unknown ahead assets from known token-only assets",
+                    "title": "writer distinguishes unknown ahead assets from known token-only assets"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "the consume writer fee gate"
+                    ],
+                    "full_name": "the consume writer fee gate writer reports partial fee refusal without covering refused notes",
+                    "title": "writer reports partial fee refusal without covering refused notes"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "the consume writer fee gate"
+                    ],
+                    "full_name": "the consume writer fee gate writer fee refusal preserves dedup and signing rollback",
+                    "title": "writer fee refusal preserves dedup and signing rollback"
+                  }
+                ],
+                "count": 30,
+                "sha256": "8cac638acbb3a05eea9985df7bdc19e05b8007f8e642c9744e17d3993108752d",
+                "static_registration": {
+                  "each_rows": [
+                    3,
+                    3,
+                    2
+                  ],
+                  "ordinary": 22
+                }
+              },
+              "src/lib/miden/transaction/initiate.held-claims.test.ts": {
+                "bytes": 13491,
+                "cases": [
+                  {
+                    "ancestor_titles": [
+                      "the consume dedup and held notes (#1081)"
+                    ],
+                    "full_name": "the consume dedup and held notes (#1081) a claim in status 4 that holds its notes blocks a second claim of them",
+                    "title": "a claim in status 4 that holds its notes blocks a second claim of them"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "the consume dedup and held notes (#1081)"
+                    ],
+                    "full_name": "the consume dedup and held notes (#1081) a claim in status 3 that holds its notes blocks a second claim of them",
+                    "title": "a claim in status 3 that holds its notes blocks a second claim of them"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "the consume dedup and held notes (#1081)"
+                    ],
+                    "full_name": "the consume dedup and held notes (#1081) an Unconfirmed claim whose only entry is evidence-less holds nothing, so a fresh claim is admitted",
+                    "title": "an Unconfirmed claim whose only entry is evidence-less holds nothing, so a fresh claim is admitted"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "the consume dedup and held notes (#1081)"
+                    ],
+                    "full_name": "the consume dedup and held notes (#1081) an Unconfirmed claim whose only entry is unresolvable holds nothing, so a fresh claim is admitted",
+                    "title": "an Unconfirmed claim whose only entry is unresolvable holds nothing, so a fresh claim is admitted"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "the consume dedup and held notes (#1081)"
+                    ],
+                    "full_name": "the consume dedup and held notes (#1081) an Unconfirmed claim proven never committed holds nothing, so a fresh claim is admitted",
+                    "title": "an Unconfirmed claim proven never committed holds nothing, so a fresh claim is admitted"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "the consume dedup and the notes a dApp transaction will consume"
+                    ],
+                    "full_name": "the consume dedup and the notes a dApp transaction will consume a dApp transaction in status 0 that will consume the note blocks a claim of it",
+                    "title": "a dApp transaction in status 0 that will consume the note blocks a claim of it"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "the consume dedup and the notes a dApp transaction will consume"
+                    ],
+                    "full_name": "the consume dedup and the notes a dApp transaction will consume a dApp transaction in status 1 that will consume the note blocks a claim of it",
+                    "title": "a dApp transaction in status 1 that will consume the note blocks a claim of it"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "the consume dedup and the notes a dApp transaction will consume"
+                    ],
+                    "full_name": "the consume dedup and the notes a dApp transaction will consume a dApp transaction awaiting its verdict blocks a claim of its note",
+                    "title": "a dApp transaction awaiting its verdict blocks a claim of its note"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "the consume dedup and the notes a dApp transaction will consume"
+                    ],
+                    "full_name": "the consume dedup and the notes a dApp transaction will consume a dApp transaction that completed moments ago still holds its note while a sync reads the nullifier",
+                    "title": "a dApp transaction that completed moments ago still holds its note while a sync reads the nullifier"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "the consume dedup and the notes a dApp transaction will consume"
+                    ],
+                    "full_name": "the consume dedup and the notes a dApp transaction will consume a completed dApp transaction its completion re-typed as a claim still holds its note",
+                    "title": "a completed dApp transaction its completion re-typed as a claim still holds its note"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "the consume dedup and the notes a dApp transaction will consume"
+                    ],
+                    "full_name": "the consume dedup and the notes a dApp transaction will consume a dApp transaction that completed before the grace window holds nothing, so the claim is queued",
+                    "title": "a dApp transaction that completed before the grace window holds nothing, so the claim is queued"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "the consume dedup and the notes a dApp transaction will consume"
+                    ],
+                    "full_name": "the consume dedup and the notes a dApp transaction will consume a dApp transaction that failed holds nothing however recently, so the claim is queued",
+                    "title": "a dApp transaction that failed holds nothing however recently, so the claim is queued"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "the consume dedup and the notes a dApp transaction will consume"
+                    ],
+                    "full_name": "the consume dedup and the notes a dApp transaction will consume a live dApp transaction written before held notes were recorded holds nothing",
+                    "title": "a live dApp transaction written before held notes were recorded holds nothing"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "the consume dedup and the notes a dApp transaction will consume"
+                    ],
+                    "full_name": "the consume dedup and the notes a dApp transaction will consume queues the notes the dApp transaction does not hold and reports the holder for the one it does",
+                    "title": "queues the notes the dApp transaction does not hold and reports the holder for the one it does"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "a dApp's consume request for a note another transaction holds"
+                    ],
+                    "full_name": "a dApp's consume request for a note another transaction holds is refused, never answered with the dApp transaction holding the note",
+                    "title": "is refused, never answered with the dApp transaction holding the note"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "a dApp's consume request for a note another transaction holds"
+                    ],
+                    "full_name": "a dApp's consume request for a note another transaction holds is refused when the holder is a completed dApp transaction its completion re-typed as a consume",
+                    "title": "is refused when the holder is a completed dApp transaction its completion re-typed as a consume"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "a dApp's consume request for a note another transaction holds"
+                    ],
+                    "full_name": "a dApp's consume request for a note another transaction holds is answered with a claim that holds the note, as before",
+                    "title": "is answered with a claim that holds the note, as before"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "a dApp's consume request for a note another transaction holds"
+                    ],
+                    "full_name": "a dApp's consume request for a note another transaction holds leaves the wallet's own claim pointing at the dApp transaction that holds the note",
+                    "title": "leaves the wallet's own claim pointing at the dApp transaction that holds the note"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "the origins a dApp consume request lets wait on its answer (#1416)"
+                    ],
+                    "full_name": "the origins a dApp consume request lets wait on its answer (#1416) a fresh row lists the requesting origin in the write that creates it",
+                    "title": "a fresh row lists the requesting origin in the write that creates it"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "the origins a dApp consume request lets wait on its answer (#1416)"
+                    ],
+                    "full_name": "the origins a dApp consume request lets wait on its answer (#1416) a wallet claim the dedup answered with gains the origin",
+                    "title": "a wallet claim the dedup answered with gains the origin"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "the origins a dApp consume request lets wait on its answer (#1416)"
+                    ],
+                    "full_name": "the origins a dApp consume request lets wait on its answer (#1416) another origin's consume row the dedup answered with lists both origins",
+                    "title": "another origin's consume row the dedup answered with lists both origins"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "the origins a dApp consume request lets wait on its answer (#1416)"
+                    ],
+                    "full_name": "the origins a dApp consume request lets wait on its answer (#1416) the same origin asking again is listed once",
+                    "title": "the same origin asking again is listed once"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "the origins a dApp consume request lets wait on its answer (#1416)"
+                    ],
+                    "full_name": "the origins a dApp consume request lets wait on its answer (#1416) a holder the request is refused with gains no origin",
+                    "title": "a holder the request is refused with gains no origin"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "the origins a dApp consume request lets wait on its answer (#1416)"
+                    ],
+                    "full_name": "the origins a dApp consume request lets wait on its answer (#1416) the wallet's own claims list no origin",
+                    "title": "the wallet's own claims list no origin"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "what queued a consume row"
+                    ],
+                    "full_name": "what queued a consume row stamps each row with the entry point its queue call names",
+                    "title": "stamps each row with the entry point its queue call names"
+                  },
+                  {
+                    "ancestor_titles": [
+                      "what queued a consume row"
+                    ],
+                    "full_name": "what queued a consume row stamps a zero-fill PSWAP reclaim as swap settlement, and a row queued without an entry point with none",
+                    "title": "stamps a zero-fill PSWAP reclaim as swap settlement, and a row queued without an entry point with none"
+                  }
+                ],
+                "count": 26,
+                "sha256": "71ae39476a31419bf8b7c4335e705323e4c2f1041a78167b81daa33a7f581b88",
+                "static_registration": {
+                  "each_rows": [
+                    2,
+                    3,
+                    2
+                  ],
+                  "ordinary": 19
+                }
+              }
+            },
+            "framework": {
+              "@jest/core": {
+                "artifact_prefix": "framework-jest-core",
+                "files": {
+                  "build.js": {
+                    "bytes": 139198,
+                    "relative": "build/index.js",
+                    "sha256": "16ef0a75b6a8062fe9d4f74a23b88221928d23fdee50387ba4bb408b355a4f27"
+                  },
+                  "package.json": {
+                    "bytes": 2369,
+                    "relative": "package.json",
+                    "sha256": "c6f7e4533f393266cbfcb1113fc81d26677aad1bdca105defd953c20ee378e5a"
+                  }
+                },
+                "version": "30.4.2"
+              },
+              "@jest/test-result": {
+                "artifact_prefix": "framework-jest-test-result",
+                "files": {
+                  "build.js": {
+                    "bytes": 9688,
+                    "relative": "build/index.js",
+                    "sha256": "e63c5d3baba4fcded043e2409185718267dfcad34b71a5fd00cdb7e8b4bf3292"
+                  },
+                  "package.json": {
+                    "bytes": 939,
+                    "relative": "package.json",
+                    "sha256": "e6d4c63978870df4e6fb2af087c459a008b471a8bddccdcb593183f7b47c2b52"
+                  }
+                },
+                "version": "30.4.1"
+              },
+              "expect": {
+                "artifact_prefix": "framework-expect",
+                "files": {
+                  "build.js": {
+                    "bytes": 112845,
+                    "relative": "build/index.js",
+                    "sha256": "469add4932a11785006b19dbd1c041169b040d69cf4e27872892e0a7119368b4"
+                  },
+                  "package.json": {
+                    "bytes": 1132,
+                    "relative": "package.json",
+                    "sha256": "c0dcf2678d35a15774a7aebc71dcaeb3442f6b22d722e04ea0d68081ec6eb5a0"
+                  }
+                },
+                "version": "30.4.1"
+              },
+              "jest": {
+                "artifact_prefix": "framework-jest",
+                "files": {
+                  "build.js": {
+                    "bytes": 2022,
+                    "relative": "build/index.js",
+                    "sha256": "fe7074b98064efbccdd13c7ee9a8b2bb5f86f098b2c0f5667896e9c78af3b20d"
+                  },
+                  "package.json": {
+                    "bytes": 1467,
+                    "relative": "package.json",
+                    "sha256": "90b2d495b4fdef80faefeeb26e275478bb3c1eeac15d587bbffb192ca3a4fa52"
+                  }
+                },
+                "version": "30.4.2"
+              },
+              "jest-circus": {
+                "artifact_prefix": "framework-jest-circus",
+                "files": {
+                  "build.js": {
+                    "bytes": 72464,
+                    "relative": "build/jestAdapterInit.js",
+                    "sha256": "f64ef94daa71293d875d497f692c48de6f8cc72a70d1935449da6610aa9438d1"
+                  },
+                  "package.json": {
+                    "bytes": 1573,
+                    "relative": "package.json",
+                    "sha256": "488605fae2565092977981f56170340563a571a44e47bd9c7e2987319712e16b"
+                  },
+                  "runner.js": {
+                    "bytes": 6908,
+                    "relative": "build/runner.js",
+                    "sha256": "26e7f1e4684472561af0b445a8ee5872088d41aa3b1b120b79cb70f93ef5d764"
+                  }
+                },
+                "version": "30.4.2"
+              },
+              "jest-diff": {
+                "artifact_prefix": "framework-jest-diff",
+                "files": {
+                  "build.js": {
+                    "bytes": 56173,
+                    "relative": "build/index.js",
+                    "sha256": "d35ee6ff8e1666e5a3f75c58426ab025ff2b012c983d0afb05a60b7ec2b7bab7"
+                  },
+                  "package.json": {
+                    "bytes": 877,
+                    "relative": "package.json",
+                    "sha256": "6dd82db9a28d2d0dae9864605c2a478c97f57ffb952968c9f3a1a2eacb88ccef"
+                  }
+                },
+                "version": "30.4.1"
+              },
+              "jest-each": {
+                "artifact_prefix": "framework-jest-each",
+                "files": {
+                  "build.js": {
+                    "bytes": 16347,
+                    "relative": "build/index.js",
+                    "sha256": "2efbb7982d44ab97a6f834a095999919f0e5a6f0dbd44c45dc5552a4a4e752fe"
+                  },
+                  "package.json": {
+                    "bytes": 1004,
+                    "relative": "package.json",
+                    "sha256": "04e94a8aebba90cfe89fa257bb63e47efbe93494febf8f720e5f888ace3f9893"
+                  }
+                },
+                "version": "30.4.1"
+              },
+              "jest-matcher-utils": {
+                "artifact_prefix": "framework-jest-matcher-utils",
+                "files": {
+                  "build.js": {
+                    "bytes": 24759,
+                    "relative": "build/index.js",
+                    "sha256": "1bbf8b1afe9f59c06c9129e4d4ce7406089b5c1563bf019e1cfbfd9d69335b52"
+                  },
+                  "package.json": {
+                    "bytes": 987,
+                    "relative": "package.json",
+                    "sha256": "b433966e038240bffcae1cf95997171145b8a343aef0713d5e6c22fdd72ebd84"
+                  }
+                },
+                "version": "30.4.1"
+              },
+              "jest-util": {
+                "artifact_prefix": "framework-jest-util",
+                "files": {
+                  "build.js": {
+                    "bytes": 42629,
+                    "relative": "build/index.js",
+                    "sha256": "3e8b0fc7c556b53ef1d4ec30457ce2dddd5059bdb464d57dedaa5918b11053ea"
+                  },
+                  "package.json": {
+                    "bytes": 1037,
+                    "relative": "package.json",
+                    "sha256": "01adf732c8a3c43ec42f5b009f12619e82451018518084b513ca3a4daf741793"
+                  }
+                },
+                "version": "30.4.1"
+              },
+              "pretty-format": {
+                "artifact_prefix": "framework-pretty-format",
+                "files": {
+                  "build.js": {
+                    "bytes": 40721,
+                    "relative": "build/index.js",
+                    "sha256": "a402d0283ddb1bc9a42d6d2605789b2573895114db88c6fb4070eca228a06d20"
+                  },
+                  "package.json": {
+                    "bytes": 1309,
+                    "relative": "package.json",
+                    "sha256": "816f475ae53780688516968fddef795c2f69c25ea9814b752553dd6d411e2564"
+                  }
+                },
+                "version": "30.4.1"
+              }
+            },
+            "helper_sha256": "135857c765e39ae4c8f32c575f4694d397d6230ff7a6360387d8d76dbe7827b5",
+            "lock_sha256": "8606e15d58682739313e004734d42f34a2ad715148e00f28c2de63596349941d",
+            "logger_sha256": "3550a67f06a3bce7de1fa798cb8d1d27473fad256775f4b234cf428cdc68db41",
+            "outcomes": [
+              "initialize",
+              "bindings",
+              "helper",
+              "checkout",
+              "source",
+              "node",
+              "runtime",
+              "install",
+              "prepared",
+              "format",
+              "eslint",
+              "typescript",
+              "admission",
+              "atomic",
+              "compatibility",
+              "final"
+            ],
+            "predictions": {
+              "admission": {
+                "assertions_reached": 60,
+                "fail": 6,
+                "pass": 4,
+                "passing_assertions": 54
+              },
+              "atomic": {
+                "fail": 0,
+                "pass": 7
+              },
+              "combined_cases": 236,
+              "compatibility": {
+                "fail": 0,
+                "pass": 219
+              },
+              "workflow_conclusion": "Expected failure from natural admission exit1. Producer validation may pass; no merge authorization."
+            },
+            "reference_inventory": {
+              "raw_sha256": "2a3a6c87aefa393a5fb8d3d191ad3e5e3c025dfdde346f32e7c0b1ac38399ed4",
+              "run": 39479136799,
+              "scope": "Prior actual219 fullName identities only, bound to unchanged suite bytes. Fresh raw assertionResults and complete separate inventories are mandatory.",
+              "source": "a3c7fe305eaea2cc847c8b600a623642ec0b4791"
+            },
+            "scope_limits": [
+              "Test-only causal red. No production edits.",
+              "No omissions, restoration or future admission mutant run.",
+              "A3 retains real lock and no favorable barrier. Winner fee reason unrestricted.",
+              "Actual #1616/shared source, completion/repair/history, current main, capacity/deadline, final review/95/platform/visual/whole1644 remain held."
+            ],
+            "snapshots": [
+              "initial",
+              "prepared",
+              "final",
+              "validation"
+            ],
+            "source": "86d1387e63247860c87ceee3903bfbd79d195d43",
+            "source_count": 3618,
+            "source_tree": "5f5920b995576db4fc5da638198e3f768ea0e085",
+            "target": "src/lib/miden/transaction/initiate.swap-admission.test.ts",
+            "target_sha256": "cc5acd5ed935b2bc3256fdc016bf44c98f05c42a67f992310602deaf7c3863ca",
+            "target_spec": {
+              "cases": [
+                {
+                  "actual": [
+                    [
+                      "payback-00",
+                      "payback-01",
+                      "payback-02",
+                      "payback-03",
+                      "payback-04",
+                      "payback-05",
+                      "payback-06",
+                      "payback-07"
+                    ],
+                    [
+                      "payback-08"
+                    ]
+                  ],
+                  "ancestor_titles": [],
+                  "assertions": 9,
+                  "expected": [
+                    [
+                      "payback-00"
+                    ]
+                  ],
+                  "frame": "214:44",
+                  "full_name": "admits one single-note recovery unit from a failed shared settlement",
+                  "id": "A1",
+                  "matcher": "toEqual",
+                  "matcher_keys": [
+                    "actual",
+                    "expected",
+                    "message",
+                    "name",
+                    "pass"
+                  ],
+                  "prerequisites": 5,
+                  "result": "FAIL",
+                  "title": "admits one single-note recovery unit from a failed shared settlement"
+                },
+                {
+                  "actual_links": [
+                    [
+                      [
+                        "payback-01",
+                        "payback-02"
+                      ],
+                      {
+                        "swapOrderTxId": "swap-A",
+                        "swapSettleKind": "settle"
+                      }
+                    ],
+                    [
+                      [
+                        "payback-03",
+                        "payback-04"
+                      ],
+                      {
+                        "swapOrderTxId": "swap-B",
+                        "swapSettleKind": "settle"
+                      }
+                    ]
+                  ],
+                  "ancestor_titles": [],
+                  "assertions": 8,
+                  "expected": [],
+                  "frame": "251:20",
+                  "full_name": "admits no second settlement unit while the account has a queued unit",
+                  "id": "A2-queued",
+                  "matcher": "toEqual",
+                  "matcher_keys": [
+                    "actual",
+                    "expected",
+                    "message",
+                    "name",
+                    "pass"
+                  ],
+                  "prerequisites": 4,
+                  "result": "FAIL",
+                  "title": "admits no second settlement unit while the account has a queued unit"
+                },
+                {
+                  "actual_links": [
+                    [
+                      [
+                        "payback-01",
+                        "payback-02"
+                      ],
+                      {
+                        "swapOrderTxId": "swap-A",
+                        "swapSettleKind": "settle"
+                      }
+                    ],
+                    [
+                      [
+                        "payback-03",
+                        "payback-04"
+                      ],
+                      {
+                        "swapOrderTxId": "swap-B",
+                        "swapSettleKind": "settle"
+                      }
+                    ]
+                  ],
+                  "ancestor_titles": [],
+                  "assertions": 8,
+                  "expected": [],
+                  "frame": "251:20",
+                  "full_name": "admits no second settlement unit while the account has a generating unit",
+                  "id": "A2-generating",
+                  "matcher": "toEqual",
+                  "matcher_keys": [
+                    "actual",
+                    "expected",
+                    "message",
+                    "name",
+                    "pass"
+                  ],
+                  "prerequisites": 4,
+                  "result": "FAIL",
+                  "title": "admits no second settlement unit while the account has a generating unit"
+                },
+                {
+                  "actual_links": [
+                    [
+                      [
+                        "payback-01",
+                        "payback-02"
+                      ],
+                      {
+                        "swapOrderTxId": "swap-A",
+                        "swapSettleKind": "settle"
+                      }
+                    ],
+                    [
+                      [
+                        "payback-03",
+                        "payback-04"
+                      ],
+                      {
+                        "swapOrderTxId": "swap-B",
+                        "swapSettleKind": "settle"
+                      }
+                    ]
+                  ],
+                  "ancestor_titles": [],
+                  "assertions": 8,
+                  "expected": [],
+                  "frame": "251:20",
+                  "full_name": "admits no second settlement unit while the account has a holding-unconfirmed unit",
+                  "id": "A2-holding-unconfirmed",
+                  "matcher": "toEqual",
+                  "matcher_keys": [
+                    "actual",
+                    "expected",
+                    "message",
+                    "name",
+                    "pass"
+                  ],
+                  "prerequisites": 4,
+                  "result": "FAIL",
+                  "title": "admits no second settlement unit while the account has a holding-unconfirmed unit"
+                },
+                {
+                  "ancestor_titles": [],
+                  "assertions": 6,
+                  "frame": "277:20",
+                  "full_name": "serializes different-order admissions from concurrent callers of one account",
+                  "id": "A3",
+                  "matcher": "toHaveLength",
+                  "matcher_keys": [
+                    "message",
+                    "pass"
+                  ],
+                  "prerequisites": 3,
+                  "result": "FAIL",
+                  "title": "serializes different-order admissions from concurrent callers of one account"
+                },
+                {
+                  "ancestor_titles": [],
+                  "assertions": 8,
+                  "frame": "307:25",
+                  "full_name": "places the fresh recovery successor after an already queued user send",
+                  "id": "A4",
+                  "matcher": "toBe",
+                  "matcher_keys": [
+                    "actual",
+                    "expected",
+                    "message",
+                    "name",
+                    "pass"
+                  ],
+                  "prerequisites": 4,
+                  "result": "FAIL",
+                  "title": "places the fresh recovery successor after an already queued user send"
+                },
+                {
+                  "ancestor_titles": [],
+                  "assertions": 10,
+                  "frame": "335:44",
+                  "full_name": "does not spend the admission budget on a fee-refused candidate",
+                  "id": "C1",
+                  "matcher": "toEqual",
+                  "prerequisites": 4,
+                  "result": "PASS",
+                  "title": "does not spend the admission budget on a fee-refused candidate"
+                },
+                {
+                  "ancestor_titles": [],
+                  "assertions": 6,
+                  "frame": "354:44",
+                  "full_name": "does not spend the admission budget on a cooling-down note",
+                  "id": "C2",
+                  "matcher": "toEqual",
+                  "prerequisites": 3,
+                  "result": "PASS",
+                  "title": "does not spend the admission budget on a cooling-down note"
+                },
+                {
+                  "ancestor_titles": [],
+                  "assertions": 6,
+                  "frame": "374:5",
+                  "full_name": "does not use another account settlement unit as this account budget",
+                  "id": "C3",
+                  "matcher": "toEqual",
+                  "prerequisites": 4,
+                  "result": "PASS",
+                  "title": "does not use another account settlement unit as this account budget"
+                },
+                {
+                  "ancestor_titles": [],
+                  "assertions": 8,
+                  "frame": "399:44",
+                  "full_name": "preserves fresh admission when canonical unconfirmed evidence holds nothing",
+                  "id": "C4",
+                  "matcher": "toEqual",
+                  "prerequisites": 4,
+                  "result": "PASS",
+                  "title": "preserves fresh admission when canonical unconfirmed evidence holds nothing"
+                }
+              ],
+              "count": 10
+            },
+            "workflow": ".github/workflows/1644-pr1659-admission-red.yml"
+          }
+          W1644_BINDINGS
+      - name: Retain source-bound collector
+        id: helper
+        run: |
+          set -euo pipefail
+          cat > "$PROOF_DIR/proof-tools.py" <<'W1644_HELPER'
+          from pathlib import Path, PurePosixPath
+          import hashlib
+          import io
+          import json
+          import os
+          import re
+          import stat
+          import subprocess
+          import sys
+          import tarfile
+
+          P = Path(os.environ['PROOF_DIR']).resolve()
+          B = json.loads((P / 'bindings.json').read_text())
+
+
+          def digest(raw):
+              return hashlib.sha256(raw).hexdigest()
+
+
+          def save(name, value):
+              (P / name).write_text(json.dumps(value, sort_keys=True, indent=2) + '\n')
+
+
+          def load(name):
+              return json.loads((P / name).read_text())
+
+
+          def git(*args):
+              return subprocess.check_output(['git', *args], env={**os.environ, 'GIT_OPTIONAL_LOCKS': '0'})
+
+
+          def tree(ref):
+              result = {}
+              for row in git('ls-tree', '-rz', ref).split(b'\0'):
+                  if row:
+                      meta, name = row.split(b'\t', 1)
+                      result[name.decode()] = meta.decode().split()
+              return result
+
+
+          def snapshot(label):
+              status = git('status', '--porcelain=v1', '-uall').decode()
+              entries = tree('HEAD')
+              physical = {}
+              for name, entry in entries.items():
+                  path = Path(name)
+                  info = path.lstat()
+                  if entry[0] == '120000':
+                      assert stat.S_ISLNK(info.st_mode), name
+                      raw = os.readlink(path).encode()
+                      kind = 'symlink'
+                  else:
+                      assert entry[1] == 'blob' and stat.S_ISREG(info.st_mode), name
+                      assert bool(info.st_mode & 0o111) == (entry[0] == '100755'), name
+                      raw = path.read_bytes()
+                      kind = 'regular'
+                  blob = hashlib.sha1(b'blob ' + str(len(raw)).encode() + b'\0' + raw).hexdigest()
+                  assert blob == entry[2], name
+                  physical[name] = {'kind': kind, 'mode': stat.S_IMODE(info.st_mode),
+                                    'bytes': len(raw), 'sha256': digest(raw), 'working_blob': blob}
+              index = Path(git('rev-parse', '--git-path', 'index').decode().strip())
+              assert stat.S_ISREG(index.lstat().st_mode)
+              raw_index = index.read_bytes()
+              stages = git('ls-files', '--stage', '-z')
+              (P / (label + '.physical-index.bin')).write_bytes(raw_index)
+              (P / (label + '.stage-entries.bin')).write_bytes(stages)
+              (P / (label + '.git-tree.bin')).write_bytes(git('ls-tree', '-rz', 'HEAD'))
+              save(label + '.git-entries.json', entries)
+              save(label + '.physical-source-map.json', physical)
+              row = {'head': git('rev-parse', 'HEAD').decode().strip(),
+                     'tree': git('rev-parse', 'HEAD^{tree}').decode().strip(), 'status': status,
+                     'physical_index_sha256': digest(raw_index),
+                     'physical_index_mode': stat.S_IMODE(index.lstat().st_mode),
+                     'stage_entries_sha256': digest(stages), 'tracked_count': len(entries)}
+              save(label + '.identity.json', row)
+              assert row['head'] == os.environ['GITHUB_SHA'] and row['status'] == ''
+              if label != 'initial':
+                  original = load('initial.identity.json')
+                  for key in ['head', 'tree', 'status', 'stage_entries_sha256', 'tracked_count']:
+                      assert row[key] == original[key], (label, key)
+                  assert entries == load('initial.git-entries.json')
+                  assert physical == load('initial.physical-source-map.json')
+                  assert stages == (P / 'initial.stage-entries.bin').read_bytes()
+              return entries, physical
+
+
+          def archive_source(entries, physical):
+              raw = git('archive', '--format=tar', 'HEAD')
+              (P / 'full-tracked-source.tar').write_bytes(raw)
+              seen = {}
+              with tarfile.open(fileobj=io.BytesIO(raw), mode='r:') as archive:
+                  for item in archive.getmembers():
+                      path = PurePosixPath(item.name)
+                      assert not path.is_absolute() and '..' not in path.parts
+                      if item.isdir():
+                          continue
+                      assert item.name in entries and item.name not in seen
+                      expected = physical[item.name]
+                      if item.issym():
+                          assert expected['kind'] == 'symlink'
+                          data = item.linkname.encode()
+                      else:
+                          assert item.isfile() and expected['kind'] == 'regular'
+                          assert bool(item.mode & 0o111) == (entries[item.name][0] == '100755')
+                          data = archive.extractfile(item).read()
+                      assert digest(data) == expected['sha256'] and len(data) == expected['bytes']
+                      seen[item.name] = {'mode': item.mode, 'type': expected['kind'],
+                                         'bytes': len(data), 'sha256': digest(data)}
+              assert set(seen) == set(entries)
+              save('full-tracked-source.archive-inventory.json', seen)
+
+
+          def framework(capture):
+              for package, spec in B['framework'].items():
+                  root = Path('node_modules') / package
+                  assert json.loads((root / 'package.json').read_text())['version'] == spec['version']
+                  for key, item in spec['files'].items():
+                      path = root / item['relative']
+                      assert stat.S_ISREG(path.lstat().st_mode)
+                      raw = path.read_bytes()
+                      assert len(raw) == item['bytes'] and digest(raw) == item['sha256'], (package, key)
+                      artifact = P / (spec['artifact_prefix'] + '-' + key)
+                      if capture:
+                          artifact.write_bytes(raw)
+                      else:
+                          assert artifact.read_bytes() == raw
+
+
+          def frozen_inputs():
+              workflow = Path(B['workflow']).read_bytes()
+              assert workflow == git('show', 'HEAD:' + B['workflow'])
+              for filename, delimiter in [('bindings.json', 'W1644_BINDINGS'), ('proof-tools.py', 'W1644_HELPER')]:
+                  start = ('          cat > "$PROOF_DIR/' + filename + '" <<\'' + delimiter + '\'\n').encode()
+                  embedded = workflow.split(start, 1)[1].split(('          ' + delimiter + '\n').encode(), 1)[0]
+                  assert all(not line or line.startswith(b'          ') for line in embedded.splitlines())
+                  assert b''.join((line[10:] if line else b'') + b'\n' for line in embedded.splitlines()) == (P / filename).read_bytes()
+              assert digest(Path(__file__).read_bytes()) == B['helper_sha256']
+              assert digest((P / 'run-logged.bash').read_bytes()) == B['logger_sha256']
+
+
+          def source():
+              assert os.environ['GITHUB_EVENT_NAME'] == 'push'
+              assert os.environ['GITHUB_REF_NAME'] == B['branch']
+              assert os.environ['GITHUB_REF'] == 'refs/heads/' + B['branch']
+              assert git('rev-parse', 'HEAD^').decode().strip() == B['source']
+              assert git('rev-parse', B['source'] + '^').decode().strip() == B['baseline']
+              assert git('rev-parse', B['baseline'] + '^{tree}').decode().strip() == B['baseline_tree']
+              assert git('rev-parse', B['source'] + '^{tree}').decode().strip() == B['source_tree']
+              assert git('diff-tree', '--no-commit-id', '--name-status', '-r', B['source']).decode().strip() == 'A\t' + B['target']
+              assert git('diff-tree', '--no-commit-id', '--name-status', '-r', 'HEAD').decode().strip() == 'A\t' + B['workflow']
+              base, before, after = tree(B['baseline']), tree(B['source']), tree('HEAD')
+              assert len(before) == B['source_count'] and len(after) == B['source_count'] + 1
+              assert set(before) - set(base) == {B['target']} and all(before[name] == entry for name, entry in base.items())
+              assert set(after) - set(before) == {B['workflow']} and all(after[name] == entry for name, entry in before.items())
+              frozen_inputs()
+              assert digest(Path('yarn.lock').read_bytes()) == B['lock_sha256']
+              assert digest(Path(B['target']).read_bytes()) == B['target_sha256']
+              for group in ['atomic', 'compatibility']:
+                  for name, spec in B[group].items():
+                      assert digest(Path(name).read_bytes()) == spec['sha256'], name
+              for ref, name in [(B['baseline'], 'baseline-commit.raw'), (B['source'], 'test-checkpoint-commit.raw'), ('HEAD', 'transport-commit.raw')]:
+                  raw = git('cat-file', 'commit', ref)
+                  assert b'\ngpgsig -----BEGIN SSH SIGNATURE-----\n' in raw
+                  (P / name).write_bytes(raw)
+              (P / 'test-only.patch').write_bytes(git('diff', B['baseline'], B['source'], '--binary'))
+              (P / 'workflow.yml').write_bytes(Path(B['workflow']).read_bytes())
+              save('run-identity.json', {key: os.environ[key] for key in [
+                  'GITHUB_REPOSITORY', 'GITHUB_SHA', 'GITHUB_REF', 'GITHUB_REF_NAME', 'GITHUB_RUN_ID',
+                  'GITHUB_RUN_ATTEMPT', 'GITHUB_EVENT_NAME']})
+              entries, physical = snapshot('initial')
+              archive_source(entries, physical)
+
+
+          def checked_result(label):
+              red = label == 'admission'
+              expected_paths = {B['target']: B['target_spec']} if red else B[label]
+              result = load(label + '.jest.json')
+              expected_total = sum(spec['count'] for spec in expected_paths.values())
+              fail_count = 6 if red else 0
+              counts = {'numTotalTests': expected_total, 'numPassedTests': expected_total - fail_count,
+                        'numFailedTests': fail_count, 'numTotalTestSuites': len(expected_paths),
+                        'numFailedTestSuites': int(red), 'numPassedTestSuites': len(expected_paths) - int(red),
+                        'numPendingTestSuites': 0, 'numPendingTests': 0, 'numTodoTests': 0, 'numRuntimeErrorTestSuites': 0}
+              for key, value in counts.items():
+                  assert result[key] == value, (label, key)
+              assert result['success'] is (not red) and result['wasInterrupted'] is False and result['openHandles'] == []
+              assert result['snapshot']['failure'] is False and result['snapshot']['unmatched'] == result['snapshot']['unchecked'] == 0
+              assert len(result['testResults']) == len(expected_paths)
+              inventory, failures, seen_paths = [], {}, set()
+              for suite in result['testResults']:
+                  name = str(Path(suite['name']).relative_to(Path.cwd()))
+                  assert name in expected_paths and name not in seen_paths
+                  seen_paths.add(name)
+                  spec = expected_paths[name]
+                  assert suite['status'] == ('failed' if red else 'passed')
+                  expected = {item['full_name']: item for item in spec['cases']}
+                  cases = suite['assertionResults']
+                  assert len(cases) == spec['count'] == len({case['fullName'] for case in cases})
+                  assert {case['fullName'] for case in cases} == set(expected)
+                  for case in cases:
+                      identity = expected[case['fullName']]
+                      assert case['title'] == identity['title'] and case['ancestorTitles'] == identity['ancestor_titles']
+                      assert case['fullName'] == ' '.join([*case['ancestorTitles'], case['title']])
+                      assert case['invocations'] == 1 and case['retryReasons'] == [] and case['failing'] is False
+                      inventory.append({'path': name, 'case': case})
+                      if not red or identity['result'] == 'PASS':
+                          assert case['status'] == 'passed' and case['failureMessages'] == case['failureDetails'] == []
+                          if 'assertions' in identity:
+                              assert case['numPassingAsserts'] == identity['assertions']
+                          continue
+                      assert case['status'] == 'failed' and len(case['failureMessages']) == len(case['failureDetails']) == 1
+                      assert case['numPassingAsserts'] == identity['prerequisites']
+                      detail = case['failureDetails'][0]
+                      assert type(detail) is dict and set(detail) == {'matcherResult'}
+                      matcher = detail['matcherResult']
+                      assert set(matcher) == set(identity['matcher_keys']) and matcher['pass'] is False
+                      message = re.sub(r'\x1b\[[0-9;]*m', '', matcher['message'])
+                      assert message.startswith('expect(received).' + identity['matcher'] + '(expected)')
+                      if identity['matcher'] == 'toEqual':
+                          assert matcher['name'] == 'toEqual' and matcher['expected'] == identity['expected']
+                          if identity['id'] == 'A1':
+                              assert matcher['actual'] == identity['actual']
+                          else:
+                              actual = matcher['actual']
+                              assert len(actual) == 2
+                              assert [[row['noteIds'], row['extraInputs']] for row in actual] == identity['actual_links']
+                              assert all(row['accountId'] == 'mtst1accounta' and row['consumeEntryPoint'] == 'swap_settlement'
+                                         and row['feeAdmission'] == 'known_sufficient' for row in actual)
+                      elif identity['matcher'] == 'toHaveLength':
+                          assert re.search(r'Expected length:\s+1\b', message)
+                          assert re.search(r'Received length:\s+2\b', message)
+                          for token in ['payback-00', 'payback-01', 'payback-02', 'payback-03', 'swap-A', 'swap-B']:
+                              assert token in message
+                      else:
+                          assert identity['matcher'] == matcher['name'] == 'toBe'
+                          assert type(matcher['expected']) is str and type(matcher['actual']) is str
+                          assert matcher['expected'] != matcher['actual']
+                      raw = re.sub(r'\x1b\[[0-9;]*m', '', case['failureMessages'][0])
+                      prefix, stack = re.split(r'\n\s+at ', raw, maxsplit=1)
+                      assert prefix == 'Error: ' + message
+                      first = re.split(r'\n\s+at ', stack)[0].strip()
+                      pattern = r'[^\n]*\(' + re.escape(str(Path.cwd() / name)) + ':' + identity['frame'] + r'\)'
+                      assert re.fullmatch(pattern, first), first
+                      failures[case['fullName']] = {'first_frame': first, 'prerequisites': case['numPassingAsserts'],
+                                                   'matcher': matcher, 'raw_message': case['failureMessages'][0],
+                                                   'post_failure_assertions': 'UNRUN; no credit'}
+              assert seen_paths == set(expected_paths) and len(failures) == fail_count
+              if red:
+                  assert sum(item['case']['numPassingAsserts'] for item in inventory) == 54
+                  assert sum(item['case']['numPassingAsserts'] for item in inventory) + fail_count == 60
+                  log = re.sub(r'\x1b\[[0-9;]*m', '', (P / 'admission.log').read_text())
+                  observed = re.findall(r'swap-admission A3 fee admissions (\[[^\n]*\])', log)
+                  assert len(observed) == 1
+                  reasons = json.loads(observed[0])
+                  assert len(reasons) == 2 and all(reason in ['known_sufficient', 'balance_unknown'] for reason in reasons)
+                  save('admission-A3-observed-reasons.json', {'actual_reasons': reasons, 'winner_reason_requirement': None})
+              save(label + '.inventory.json', {'origin': 'Fresh actual complete unfiltered Jest assertionResults',
+                                             'expected_count': expected_total, 'actual': inventory})
+              return {'total': expected_total, 'pass': expected_total - fail_count, 'fail': fail_count,
+                      'failures': failures, 'inventory': label + '.inventory.json'}
+
+
+          def seal():
+              validation = {'status': 'INVALID', 'production_gate': 'CLOSED', 'transport': 'NEVER_MERGE'}
+              try:
+                  outcomes = {key: os.environ.get(key.upper() + '_OUTCOME', 'missing') for key in B['outcomes']}
+                  validation['outcomes'] = outcomes
+                  for key, value in outcomes.items():
+                      assert value == ('failure' if key == 'admission' else 'success'), (key, value)
+                  snapshot('validation')
+                  framework(False)
+                  frozen_inputs()
+                  for label, template in B['commands'].items():
+                      command = load(label + '.command.json')
+                      assert command['argv'] == [item.replace('$PROOF_DIR', str(P)) for item in template]
+                      assert command['cwd'] == str(Path.cwd())
+                      assert (P / (label + '.log')).is_file()
+                      assert int((P / (label + '.exit')).read_text()) == (1 if label == 'admission' else 0)
+                      assert int((P / (label + '.tee.exit')).read_text()) == 0
+                  suites = {label: checked_result(label) for label in ['admission', 'atomic', 'compatibility']}
+                  assert sum(row['total'] for row in suites.values()) == 236
+                  for label in B['snapshots']:
+                      row = load(label + '.identity.json')
+                      assert digest((P / (label + '.physical-index.bin')).read_bytes()) == row['physical_index_sha256']
+                      assert digest((P / (label + '.stage-entries.bin')).read_bytes()) == row['stage_entries_sha256']
+                      assert load(label + '.git-entries.json') == load('initial.git-entries.json')
+                      assert load(label + '.physical-source-map.json') == load('initial.physical-source-map.json')
+                  validation.update(status='EXACT_SCOPED_ADMISSION_CAUSAL_RED', suites=suites,
+                                    production_gate='ROOT_ACTUAL_SCOPED_ACCEPTANCE_REQUIRED',
+                                    limits='No production/completion/current-main/final-review/coverage/platform/visual or whole1644 acceptance')
+              except Exception as error:
+                  validation['reason'] = str(error)
+              finally:
+                  save('validation.json', validation)
+                  files = {}
+                  for path in sorted(P.iterdir()):
+                      if path.name == 'hash-manifest.json':
+                          continue
+                      assert stat.S_ISREG(path.lstat().st_mode), path.name
+                      raw = path.read_bytes()
+                      files[path.name] = {'bytes': len(raw), 'sha256': digest(raw),
+                                          'mode': stat.S_IMODE(path.lstat().st_mode), 'type': 'regular'}
+                  save('hash-manifest.json', {'files': files, 'self_excluded': ['hash-manifest.json']})
+              print(json.dumps({'status': validation['status'], 'reason': validation.get('reason')}))
+              raise SystemExit(0 if validation['status'] == 'EXACT_SCOPED_ADMISSION_CAUSAL_RED' else 1)
+
+
+          mode = sys.argv[1]
+          if mode == 'source':
+              source()
+          elif mode == 'prepared':
+              snapshot('prepared')
+              framework(True)
+          elif mode == 'final':
+              snapshot('final')
+              framework(False)
+          elif mode == 'seal':
+              seal()
+          else:
+              raise SystemExit('Unknown mode: ' + mode)
+          W1644_HELPER
+      - name: Checkout sole-workflow transport at actual push SHA
+        id: checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Bind signed checkpoint and exact sole-workflow ancestry
+        id: source
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged source python3 "$PROOF_DIR/proof-tools.py" source
+      - name: Set supported Node runtime
+        id: node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - name: Retain actual runtime versions
+        id: runtime
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged runtime node -p 'JSON.stringify(process.versions)'
+      - name: Install exact frozen dependencies with normal hooks
+        id: install
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged install timeout 10m yarn install --frozen-lockfile --non-interactive
+      - name: Bind prepared source and pinned Jest implementations
+        id: prepared
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged prepared python3 "$PROOF_DIR/proof-tools.py" prepared
+      - name: Check named new and frozen regression format
+        id: format
+        if: ${{ !cancelled() && steps.prepared.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged format yarn prettier --check src/lib/miden/transaction/initiate.swap-admission.test.ts src/lib/miden/transaction/initiate.swap-settlement.test.ts
+      - name: Lint named new and frozen regressions with zero warnings
+        id: eslint
+        if: ${{ !cancelled() && steps.prepared.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged eslint yarn eslint --max-warnings 0 src/lib/miden/transaction/initiate.swap-admission.test.ts src/lib/miden/transaction/initiate.swap-settlement.test.ts
+      - name: Run unchanged TypeScript gate
+        id: typescript
+        if: ${{ !cancelled() && steps.prepared.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged typescript yarn tsc --noEmit --pretty false
+      - name: Run all ten admission cases preserving expected natural red
+        id: admission
+        if: ${{ !cancelled() && steps.format.outcome == 'success' && steps.eslint.outcome == 'success' && steps.typescript.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged admission yarn jest --runTestsByPath src/lib/miden/transaction/initiate.swap-admission.test.ts --maxWorkers=2 --ci --coverage=false --json --outputFile "$PROOF_DIR/admission.jest.json"
+      - name: Run unchanged seven linkage cases without filters
+        id: atomic
+        if: ${{ !cancelled() && steps.prepared.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged atomic yarn jest --runTestsByPath src/lib/miden/transaction/initiate.swap-settlement.test.ts --maxWorkers=2 --ci --coverage=false --json --outputFile "$PROOF_DIR/atomic.jest.json"
+      - name: Run five complete compatibility suites without filters
+        id: compatibility
+        if: ${{ !cancelled() && steps.prepared.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged compatibility yarn jest --runTestsByPath src/lib/miden/swap/settlement.test.ts src/lib/miden/transaction/initiate.batch-isolation.test.ts src/lib/miden/transaction/initiate.held-claims.test.ts src/lib/miden/transaction/complete.swap-stamp.test.ts src/lib/miden/back/sync-manager.test.ts --maxWorkers=2 --ci --coverage=false --json --outputFile "$PROOF_DIR/compatibility.jest.json"
+      - name: Always retain final physical source and separate index maps
+        id: final
+        if: ${{ always() && steps.checkout.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged final python3 "$PROOF_DIR/proof-tools.py" final
+      - name: Always validate and seal exact scoped evidence
+        id: seal
+        if: ${{ always() }}
+        env:
+          INITIALIZE_OUTCOME: ${{ steps.initialize.outcome }}
+          BINDINGS_OUTCOME: ${{ steps.bindings.outcome }}
+          HELPER_OUTCOME: ${{ steps.helper.outcome }}
+          CHECKOUT_OUTCOME: ${{ steps.checkout.outcome }}
+          SOURCE_OUTCOME: ${{ steps.source.outcome }}
+          NODE_OUTCOME: ${{ steps.node.outcome }}
+          RUNTIME_OUTCOME: ${{ steps.runtime.outcome }}
+          INSTALL_OUTCOME: ${{ steps.install.outcome }}
+          PREPARED_OUTCOME: ${{ steps.prepared.outcome }}
+          FORMAT_OUTCOME: ${{ steps.format.outcome }}
+          ESLINT_OUTCOME: ${{ steps.eslint.outcome }}
+          TYPESCRIPT_OUTCOME: ${{ steps.typescript.outcome }}
+          ADMISSION_OUTCOME: ${{ steps.admission.outcome }}
+          ATOMIC_OUTCOME: ${{ steps.atomic.outcome }}
+          COMPATIBILITY_OUTCOME: ${{ steps.compatibility.outcome }}
+          FINAL_OUTCOME: ${{ steps.final.outcome }}
+        run: |
+          set -euo pipefail
+          python3 "$PROOF_DIR/proof-tools.py" seal
+      - name: Always upload private NEVER MERGE proof
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wallet1644-pr1659-admission-red-proof
+          path: ${{ env.PROOF_DIR }}
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
