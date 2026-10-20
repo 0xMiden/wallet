@@ -1387,6 +1387,108 @@ describe('MultisigService', () => {
     });
   });
 
+  describe('GEO024 Stage 2 sync ownership', () => {
+    const makeBarrier = () => {
+      let release = (): void => {};
+      let entered = (): void => {};
+      const pending = new Promise<void>(resolve => { release = resolve; });
+      const ready = new Promise<void>(resolve => { entered = resolve; });
+      return { ready, release, wait: async (): Promise<void> => { entered(); await pending; } };
+    };
+    const makeStage2Service = async (registerOnGuardian: (state?: string, beforeSend?: () => void) => Promise<void>) => {
+      let calls = 0;
+      const syncState = jest.fn(async () => {
+        if (++calls <= 31) throw new Error('Refusing to overwrite local state');
+      });
+      multisigClientConfig.load.mockResolvedValueOnce(makeMultisig({ registerOnGuardian, syncState }));
+      mockAccountDeserialize.mockReturnValueOnce({ id: () => ({ toString: () => 'acc-id' }) });
+      mockGetAccount.mockResolvedValue({ serialize: () => new Uint8Array([1]) });
+      return MultisigService.init(
+        Account.deserialize(new Uint8Array([1])), 'pub', 'commitment', async () => 'signature', 'https://x'
+      );
+    };
+
+    it('GEO024 keeps the original background guard when an unguarded caller joins during authentication', async () => {
+      const restoreTimers = skipRetryBackoffs();
+      const barrier = makeBarrier();
+      const refused = new Error('original background pass retired');
+      let current = true;
+      const assertCurrent = () => { if (!current) throw refused; };
+      const configure = jest.fn();
+      const service = await makeStage2Service(async (_state, beforeSend) => {
+        await barrier.wait(); beforeSend?.(); configure();
+      });
+      const request: Promise<void> = Reflect.apply(service.sync, service, [assertCurrent]);
+      const outcome = request.catch((error: unknown) => error);
+      try {
+        await barrier.ready;
+        const joiner = service.sync();
+        expect(joiner).toBe(request);
+        current = false;
+        barrier.release();
+        await outcome;
+        expect(configure).not.toHaveBeenCalled();
+        expect(await outcome).toBe(refused);
+      } finally { barrier.release(); await outcome; restoreTimers(); }
+    });
+
+    it('GEO024 fences Stage 2 authentication replay with the original background guard', async () => {
+      const restoreTimers = skipRetryBackoffs();
+      const barrier = makeBarrier();
+      const refused = new Error('background pass retired during replay');
+      let current = true;
+      const assertCurrent = () => { if (!current) throw refused; };
+      const configure = jest.fn();
+      const service = await makeStage2Service(async (_state, beforeSend) => {
+        beforeSend?.(); configure(); await barrier.wait(); beforeSend?.(); configure();
+      });
+      const request: Promise<void> = Reflect.apply(service.sync, service, [assertCurrent]);
+      const outcome = request.catch((error: unknown) => error);
+      try {
+        await barrier.ready;
+        expect(configure).toHaveBeenCalledTimes(1);
+        current = false;
+        barrier.release();
+        await outcome;
+        expect(configure).toHaveBeenCalledTimes(1);
+        expect(await outcome).toBe(refused);
+      } finally { barrier.release(); await outcome; restoreTimers(); }
+    });
+
+    it('GEO024 preserves an original post-submit maintenance owner when a background caller joins', async () => {
+      const restoreTimers = skipRetryBackoffs();
+      const barrier = makeBarrier();
+      let current = true;
+      const assertCurrent = () => { if (!current) throw new Error('joining background pass retired'); };
+      const configure = jest.fn();
+      const service = await makeStage2Service(async (_state, beforeSend) => {
+        await barrier.wait(); beforeSend?.(); configure();
+      });
+      const request = service.sync();
+      const outcome = request.catch((error: unknown) => error);
+      try {
+        await barrier.ready;
+        const joiner: Promise<void> = Reflect.apply(service.sync, service, [assertCurrent]);
+        expect(joiner).toBe(request);
+        current = false;
+        barrier.release();
+        expect(await outcome).toBeUndefined();
+        expect(configure).toHaveBeenCalledTimes(1);
+      } finally { barrier.release(); await outcome; restoreTimers(); }
+    });
+
+    it('GEO024 preserves one live background Stage 2 configure and successful retry', async () => {
+      const restoreTimers = skipRetryBackoffs();
+      const configure = jest.fn();
+      const service = await makeStage2Service(async (_state, beforeSend) => { beforeSend?.(); configure(); });
+      const request: Promise<void> = Reflect.apply(service.sync, service, [() => undefined]);
+      try {
+        await expect(request).resolves.toBeUndefined();
+        expect(configure).toHaveBeenCalledTimes(1);
+      } finally { await request.catch(() => undefined); restoreTimers(); }
+    });
+  });
+
   describe('reRegisterCurrentStateOnGuardian', () => {
     describe('GEO019 configure admission', () => {
       const makeBarrier = () => {

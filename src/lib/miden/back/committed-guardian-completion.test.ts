@@ -630,3 +630,131 @@ it('GEO012 a numeric endpoint epoch is a real Vault CAS rather than the ordinary
   expect(mockStorage.set).not.toHaveBeenCalled();
   expect(publications).toBe(0);
 });
+
+
+describe('GEO022 ordinary hot-key mutation authority', () => {
+  const secureKeys = jest.requireMock<typeof import('lib/secure-hot-key')>('lib/secure-hot-key');
+  const retire = (changed: string) => {
+    if (changed === 'restricted') publishWalletAccessDecision(accessScope(), false);
+    if (changed === 'unavailable') publishWalletAccessDecision(accessScope(), null);
+    if (changed === 'expired') leaseNow = 60_001;
+    if (changed === 'realm') vault.retire();
+    if (changed === 'network') jest.mocked(getEffectiveNetworkName).mockReturnValue(MIDEN_NETWORK_NAME.DEVNET);
+    if (changed === 'rpc') jest.mocked(getEffectiveRpcUrl).mockReturnValue('https://replacement-rpc.example');
+    if (changed === 'generation') retireGuardianWritesForEndpointChange();
+  };
+
+  it.each(['restricted', 'unavailable', 'expired', 'realm', 'network', 'rpc', 'generation'])(
+    'GEO022 ordinary swap refuses %s during encryption before pointer persistence',
+    async changed => {
+      const realPassworder = jest.requireActual<typeof Passworder>('lib/miden/passworder');
+      jest.mocked(Passworder.encrypt).mockImplementationOnce(async (value, key) => {
+        const encrypted = await realPassworder.encrypt(value, key);
+        retire(changed);
+        return encrypted;
+      });
+      const outcome = await observed(vault.swapHotKey(STORED_ACCOUNT, 'new-hot', 'old-hot'));
+      expect(outcome.ok).toBe(false);
+      expect((await storedAccount()).hotPublicKey).toBe('old-hot');
+      expect(mockStorage.set).not.toHaveBeenCalled();
+      expect(mockStorage.remove).not.toHaveBeenCalled();
+      expect(secureKeys.deleteHotKey).not.toHaveBeenCalled();
+      expect(await isStored('vault_accauthsecretkey_old-hot')).toBe(true);
+      expect(publications).toBe(0);
+    }
+  );
+
+  it.each(['restricted', 'unavailable', 'expired', 'realm', 'network', 'rpc', 'generation'])(
+    'GEO022 durable pointer survives %s after persistence without stale old-key cleanup',
+    async changed => {
+      mockStorage.set.mockImplementationOnce(async items => {
+        Object.assign(memory, items);
+        retire(changed);
+      });
+      const outcome = await observed(vault.swapHotKey(STORED_ACCOUNT, 'new-hot', 'old-hot'));
+      expect(outcome.ok).toBe(true);
+      expect(outcome.value?.accounts.find(account => account.publicKey === STORED_ACCOUNT)?.hotPublicKey).toBe('new-hot');
+      expect((await storedAccount()).hotPublicKey).toBe('new-hot');
+      expect(await isStored('vault_accauthsecretkey_new-hot')).toBe(true);
+      expect(await isStored('vault_accauthsecretkey_old-hot')).toBe(true);
+      expect(mockStorage.remove).not.toHaveBeenCalled();
+      expect(secureKeys.deleteHotKey).not.toHaveBeenCalled();
+      expect(publications).toBe(0);
+    }
+  );
+
+  it.each(['restricted', 'unavailable', 'expired', 'realm', 'generation'])(
+    'GEO022 ordinary swap refuses %s during the new-key storage read before pointer persistence',
+    async changed => {
+      expect(await isStored('vault_accauthsecretkey_new-hot')).toBe(true);
+      const targetKey = mockStorage.get.mock.lastCall?.[0]?.[0];
+      const read = mockStorage.get.getMockImplementation();
+      if (!targetKey || !read) throw new Error('Fixture new-key storage read was not observed');
+      let entered = false;
+      mockStorage.get.mockImplementation(async keys => {
+        const result = await read(keys);
+        if (keys.includes(targetKey)) {
+          entered = true;
+          retire(changed);
+        }
+        return result;
+      });
+      try {
+        const outcome = await observed(vault.swapHotKey(STORED_ACCOUNT, 'new-hot', 'old-hot'));
+        expect(entered).toBe(true);
+        expect(outcome.ok).toBe(false);
+        expect((await storedAccount()).hotPublicKey).toBe('old-hot');
+        expect(mockStorage.set).not.toHaveBeenCalled();
+        expect(mockStorage.remove).not.toHaveBeenCalled();
+        expect(secureKeys.deleteHotKey).not.toHaveBeenCalled();
+        expect(await isStored('vault_accauthsecretkey_old-hot')).toBe(true);
+        expect(publications).toBe(0);
+      } finally {
+        mockStorage.get.mockImplementation(read);
+      }
+    }
+  );
+
+  it.each(['old-hot', null])(
+    'GEO022 a cached expectation %s cannot rewrite an already-applied different pointer',
+    async expectedHot => {
+      await writeStoredAccount({ hotPublicKey: 'new-hot', requiresHotKeyRotation: false });
+      mockStorage.set.mockClear();
+      await expect(vault.swapHotKey(STORED_ACCOUNT, 'new-hot', expectedHot)).rejects.toMatchObject({ code: 'HOT_KEY_CHANGED' });
+      expect(mockStorage.set).not.toHaveBeenCalled();
+      expect(mockStorage.remove).not.toHaveBeenCalled();
+    }
+  );
+
+  it('GEO022 exact target confirmation refreshes a durable pointer without storage or key mutations', async () => {
+    await writeStoredAccount({ hotPublicKey: 'new-hot', requiresHotKeyRotation: false });
+    mockStorage.set.mockClear();
+    await expect(vault.swapHotKey(STORED_ACCOUNT, 'new-hot', 'new-hot')).resolves.toEqual({
+      accounts: [{ ...initialAccount(), hotPublicKey: 'new-hot', requiresHotKeyRotation: false }],
+      currentAccount: { ...initialAccount(), hotPublicKey: 'new-hot', requiresHotKeyRotation: false }
+    });
+    expect(mockStorage.set).not.toHaveBeenCalled();
+    expect(mockStorage.remove).not.toHaveBeenCalled();
+    expect(secureKeys.deleteHotKey).not.toHaveBeenCalled();
+    expect(await isStored('vault_accauthsecretkey_new-hot')).toBe(true);
+    expect(await isStored('vault_accauthsecretkey_old-hot')).toBe(true);
+  });
+
+  it('GEO022 exact target confirmation refuses a pointer still on the old key', async () => {
+    await expect(vault.swapHotKey(STORED_ACCOUNT, 'new-hot', 'new-hot')).rejects.toMatchObject({ code: 'HOT_KEY_CHANGED' });
+    expect((await storedAccount()).hotPublicKey).toBe('old-hot');
+    expect(mockStorage.set).not.toHaveBeenCalled();
+    expect(mockStorage.remove).not.toHaveBeenCalled();
+    expect(secureKeys.deleteHotKey).not.toHaveBeenCalled();
+  });
+
+  it('GEO022 an allowed ordinary swap commits its pointer and releases the old key', async () => {
+    const result = await vault.swapHotKey(STORED_ACCOUNT, 'new-hot', 'old-hot');
+    expect(result.accounts.find(account => account.publicKey === STORED_ACCOUNT)?.hotPublicKey).toBe('new-hot');
+    expect((await storedAccount()).hotPublicKey).toBe('new-hot');
+    expect(await isStored('vault_accauthsecretkey_old-hot')).toBe(false);
+    expect(await isStored('vault_accauthsecretkey_new-hot')).toBe(true);
+    expect(mockStorage.remove).toHaveBeenCalledTimes(1);
+    expect(secureKeys.deleteHotKey).toHaveBeenCalledTimes(1);
+  });
+});
