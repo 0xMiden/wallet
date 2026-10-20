@@ -118,12 +118,12 @@ Developer Dashboard → the item → **Privacy practices**.
 | Financial and payment information | **No** | No addresses, balances, amounts, or transaction contents are sent. Field names carrying them are scrubbed from crash reports. |
 | Authentication information | **No** | Note for whoever fills this in: `errorKind` has a value called `auth`. It is a category label meaning "an authentication step failed" — not a credential, not a password, not a PIN. |
 | Personal communications | **No** | — |
-| Location | **Yes** | The place check sends the connection's IP address to IPinfo and reads back the country and region. No GPS and no location permission. |
+| Location | **Yes** | The place check sends the connection's IP address to MaxMind and reads back the country and region. No GPS and no location permission. |
 | Web history | **No** | No URL, no page, no referrer. The Sentry integrations that would have captured them (`HttpContext`, `Breadcrumbs`) are excluded — see `CRASH_INTEGRATION_ALLOWLIST` in `src/lib/telemetry/crash.ts`. |
 | **User activity** | **Yes** | This is the one to check. Flow name, outcome, and duration are in-product interaction records. |
 | Website content | **No** | The extension sends nothing from any page it runs on. |
 
-**On Location.** The place check sends the connection's IP address to IPinfo so a
+**On Location.** The place check sends the connection's IP address to MaxMind so a
 feature can be kept off in a listed country or region. There is still no location
 permission and no GPS. Declare **Yes**. The answer covers that lookup, not a
 location the App stores: the App keeps neither the address nor the place.
@@ -131,7 +131,7 @@ location the App stores: the App keeps neither the address nor the place.
 **Certifications — all three can be signed:**
 
 - *I do not sell or transfer user data to third parties, outside of the approved
-  use cases.* Aptabase, Sentry and IPinfo are processors acting on our instructions,
+  use cases.* Aptabase, Sentry and MaxMind are processors acting on our instructions,
   which is the approved service-provider case. Nothing goes to a data broker or
   an ad network.
 - *I do not use or transfer user data for purposes unrelated to my item's single
@@ -160,7 +160,7 @@ ships) and `public/manifest.json`:
 This matches the design:
 
 - `required: ["locationInfo"]` — while a place rule is configured, the extension
-  sends the connection's IP address to IPinfo to learn the country and region.
+  sends the connection's IP address to MaxMind to learn the country and region.
   The user cannot turn that check off. Mozilla's `none` cannot sit beside another
   required category.
 - `optional: ["technicalAndInteraction"]` — Mozilla's category for technical and

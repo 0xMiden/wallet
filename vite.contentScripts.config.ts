@@ -122,7 +122,8 @@ export default defineConfig({
     'process.env.DEBUG_DAPP_BRIDGE': JSON.stringify(process.env.DEBUG_DAPP_BRIDGE ?? ''),
     'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'development'),
     'process.env.MODE_ENV': JSON.stringify(process.env.MODE_ENV ?? 'development'),
-    'process.env.IPINFO_TOKEN': JSON.stringify(process.env.IPINFO_TOKEN ?? ''),
+    'process.env.MAXMIND_ACCOUNT_ID': JSON.stringify(process.env.MAXMIND_ACCOUNT_ID ?? ''),
+    'process.env.MAXMIND_LICENSE_KEY': JSON.stringify(process.env.MAXMIND_LICENSE_KEY ?? ''),
     'process.browser': 'true',
     global: 'globalThis'
   }

@@ -153,7 +153,8 @@ export default defineConfig({
     'process.env.WALLET_BUILD_REVISION': JSON.stringify(walletBuildIdentity.revision),
     'process.env.WALLET_BUILD_DIRTY': JSON.stringify(walletBuildIdentity.dirty),
     'process.env.SENTRY_DSN': JSON.stringify(process.env.SENTRY_DSN ?? ''),
-    'process.env.IPINFO_TOKEN': JSON.stringify(process.env.IPINFO_TOKEN ?? ''),
+    'process.env.MAXMIND_ACCOUNT_ID': JSON.stringify(process.env.MAXMIND_ACCOUNT_ID ?? ''),
+    'process.env.MAXMIND_LICENSE_KEY': JSON.stringify(process.env.MAXMIND_LICENSE_KEY ?? ''),
     'process.browser': 'true',
     global: 'globalThis'
   },

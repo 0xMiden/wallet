@@ -119,9 +119,10 @@ jobs:
           # Absent (a fork) each resolves to '' and turns its feature off.
           APTABASE_APP_KEY: ${{ secrets.APTABASE_APP_KEY }}
           SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
-          # IPinfo token for place rules. Baked into the client like the keys above.
+          # MaxMind City Plus account id and license key. Baked into the client.
           # Absent leaves a configured place block fail-closed.
-          IPINFO_TOKEN: ${{ secrets.IPINFO_TOKEN }}
+          MAXMIND_ACCOUNT_ID: ${{ secrets.MAXMIND_ACCOUNT_ID }}
+          MAXMIND_LICENSE_KEY: ${{ secrets.MAXMIND_LICENSE_KEY }}
         with:
           args: ${{ matrix.platform == 'macos-latest' && '--target universal-apple-darwin' || '' }}
 

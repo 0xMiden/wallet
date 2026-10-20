@@ -12,7 +12,7 @@
 ### Features
 
 - [FEATURE][mobile] Bread Connect answers `LOGIN_KEY_REQUEST` and `LOGIN_SIGN_REQUEST`, the same login key and login signature Bread's in-app browser gives a site. A device with no root key for the account answers `LOGIN_KEY_UNAVAILABLE`. The Capacitor adapter and the Swift and Kotlin clients expose `requestLoginKey` and `signLoginBytes`.
-- [FEATURE][all] Earn and Swap can be blocked by place from `geo` in `0xMiden/wallet-config`. New Earn deposits are blocked in New York and the UK. An Earn withdrawal is unchanged. The lookup uses `IPINFO_TOKEN` at build time; with rules set and no token, or a failed lookup, the blocked feature stays off.
+- [FEATURE][all] Earn and Swap can be blocked by place from `geo` in `0xMiden/wallet-config`. New Earn deposits are blocked in New York and the UK. An Earn withdrawal is unchanged. The lookup is MaxMind GeoIP City Plus, using `MAXMIND_ACCOUNT_ID` and `MAXMIND_LICENSE_KEY` at build time; with rules set and either credential missing, or a failed lookup, the blocked feature stays off.
 
 ### Fixes
 
