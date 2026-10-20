@@ -1,0 +1,169 @@
+name: Sentry diagnostics red-before proof
+
+on:
+  push:
+    branches: [ci/sentry-1636-1639-red]
+
+permissions:
+  contents: read
+
+jobs:
+  red-before:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    env:
+      CI: 'true'
+      PROOF_DIR: ${{ runner.temp }}/sentry-diagnostics-red-proof
+      PROOF_WORKFLOW_REF: ${{ github.workflow_ref }}
+      PROOF_WORKFLOW_SHA: ${{ github.workflow_sha }}
+      PROOF_RUN_ID: ${{ github.run_id }}
+      PROOF_RUN_ATTEMPT: ${{ github.run_attempt }}
+    steps:
+      - name: Checkout proof source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Capture immutable source and test identities
+        run: |
+          mkdir -m 700 "$PROOF_DIR"
+          python3 - <<'PYTHON'
+          import hashlib
+          import json
+          import os
+          import shutil
+          import subprocess
+          from pathlib import Path
+
+          proof = Path(os.environ['PROOF_DIR'])
+          base = '79ad7e63e9a934eb014f959edd30394d72b6c482'
+          workflow = '.github/workflows/sentry-diagnostics-red-proof.yml'
+          tests = [
+              {
+                  "path": "src/lib/miden/transaction/native-precheck-sentry.integration.test.ts",
+                  "source_commit": "c593200049db72095bacdfb5d3e61f2349ee9357",
+                  "source_blob": "b9a646c68fc31869e65cd9fa8d85a4be3c9ce4f2",
+                  "sha256": "e5c6dbd7abd1ffe0f35444a4d56af8fbdd7c9e766915f34c215b2b451a199e7f",
+                  "bytes": 18554,
+                  "mode": "100644"
+              },
+              {
+                  "path": "src/lib/miden/front/guardian-manager.proposal-diagnostics.test.ts",
+                  "source_commit": "3ef40d4a9228418440b3d112914e982fe30bde98",
+                  "source_blob": "40b738a183e55676ed5ce096f1ac106f5c01a3b1",
+                  "sha256": "2b270a1dcc5a622c0cf3c4dc72bdf947c595c8ff878da06386a71786aad505e2",
+                  "bytes": 4912,
+                  "mode": "100644"
+              },
+              {
+                  "path": "src/lib/miden/guardian/proposal-diagnostics.test.ts",
+                  "source_commit": "3ef40d4a9228418440b3d112914e982fe30bde98",
+                  "source_blob": "3e38dfdc033b74003da7161180003c7eb0a0a648",
+                  "sha256": "7231de5b4c4624248f3639685ae610263ce6ea260332c8b2f9bf8757af0ca441",
+                  "bytes": 8830,
+                  "mode": "100644"
+              },
+              {
+                  "path": "src/lib/miden/transaction/proposal-diagnostics.integration.test.ts",
+                  "source_commit": "3ef40d4a9228418440b3d112914e982fe30bde98",
+                  "source_blob": "b0fe3eed44c4872137957e8014dd2cd760e85d21",
+                  "sha256": "5f1de30a32bc0a43ba05d2a7d61ff68308823c0c6fb73eb01284f8981e301e0b",
+                  "bytes": 19022,
+                  "mode": "100644"
+              }
+          ]
+          def git(*args):
+              return subprocess.check_output(['git', *args], text=True).strip()
+
+          for item in tests:
+              path = Path(item['path'])
+              actual_blob = git('hash-object', str(path))
+              actual_sha256 = hashlib.sha256(path.read_bytes()).hexdigest()
+              if actual_blob != item['source_blob'] or actual_sha256 != item['sha256']:
+                  raise SystemExit('Immutable test mismatch: ' + str(path))
+              item['checkout_blob'] = actual_blob
+              item['checkout_sha256'] = actual_sha256
+
+          allowed = sorted([workflow, *[item['path'] for item in tests]])
+          added = sorted(git('diff', '--name-only', '--diff-filter=A', base, 'HEAD').splitlines())
+          changed = sorted(git('diff', '--name-only', base, 'HEAD').splitlines())
+          if added != allowed or changed != allowed:
+              raise SystemExit('Unexpected source delta from immutable base')
+          manifest = {
+              'base_commit': base,
+              'base_tree': git('rev-parse', base + '^{tree}'),
+              'checkout_commit': git('rev-parse', 'HEAD'),
+              'checkout_tree': git('rev-parse', 'HEAD^{tree}'),
+              'source_changes': git('diff', '--name-status', base, 'HEAD').splitlines(),
+              'workflow_ref': os.environ['PROOF_WORKFLOW_REF'],
+              'workflow_sha': os.environ['PROOF_WORKFLOW_SHA'],
+              'workflow_blob': git('hash-object', workflow),
+              'workflow_sha256': hashlib.sha256(Path(workflow).read_bytes()).hexdigest(),
+              'run_id': os.environ['PROOF_RUN_ID'],
+              'run_attempt': os.environ['PROOF_RUN_ATTEMPT'],
+              'actions': {
+                  'checkout': '11bd71901bbe5b1630ceea73d27597364c9af683',
+                  'setup-node': '49933ea5288caeca8642d1e84afbd3f7d6820020',
+                  'upload-artifact': 'ea165f8d65b6e75b540449e92b4886f43607fa02'
+              },
+              'tests': tests,
+              'source_predictions_only': {'total': 47, 'assertion_red': 29, 'controls': 18}
+          }
+          (proof / 'source-and-test-hashes.json').write_text(json.dumps(manifest, indent=2) + '\n')
+          for name in allowed:
+              target = proof / 'source' / name
+              target.parent.mkdir(parents=True, exist_ok=True)
+              shutil.copyfile(name, target)
+          (proof / 'checks.log').touch()
+          PYTHON
+
+      - name: Setup Node 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+
+      - name: Install frozen dependencies with existing preparation hooks
+        id: install
+        timeout-minutes: 10
+        run: |
+          yarn install --frozen-lockfile --non-interactive 2>&1 | tee "$PROOF_DIR/install.log"
+
+      - name: Check the four test files with ESLint
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: |
+          yarn eslint --max-warnings 0 \
+            src/lib/miden/transaction/native-precheck-sentry.integration.test.ts \
+            src/lib/miden/front/guardian-manager.proposal-diagnostics.test.ts \
+            src/lib/miden/guardian/proposal-diagnostics.test.ts \
+            src/lib/miden/transaction/proposal-diagnostics.integration.test.ts \
+            2>&1 | tee "$PROOF_DIR/eslint.log" | tee -a "$PROOF_DIR/checks.log"
+
+      - name: Check TypeScript without emitting
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: |
+          yarn tsc --noEmit --pretty false 2>&1 | tee "$PROOF_DIR/typescript.log" | tee -a "$PROOF_DIR/checks.log"
+
+      - name: Run only the four diagnostic regression files
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: |
+          yarn jest --runTestsByPath \
+            src/lib/miden/transaction/native-precheck-sentry.integration.test.ts \
+            src/lib/miden/front/guardian-manager.proposal-diagnostics.test.ts \
+            src/lib/miden/guardian/proposal-diagnostics.test.ts \
+            src/lib/miden/transaction/proposal-diagnostics.integration.test.ts \
+            --maxWorkers=2 --coverage=false --json --outputFile="$PROOF_DIR/jest.json" \
+            2>&1 | tee "$PROOF_DIR/jest.log" | tee -a "$PROOF_DIR/checks.log"
+
+      - name: Upload private red-before evidence even on failure
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: sentry-diagnostics-red-proof-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.PROOF_DIR }}
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
