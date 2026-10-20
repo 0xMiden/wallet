@@ -1834,6 +1834,7 @@ export class Vault {
             }
             console.warn('Seed not found on chain; creating a new wallet instead');
             assertWasmHoldCurrent(hold, 'in createHDAccount before the fresh create');
+            this.assertRealmSinkIsMine();
             const accountId = await midenClient.createMidenWallet(walletType, walletSeed, newScheme);
             return { accountId, keyDerivation: NEW_ACCOUNT_KEY_DERIVATION };
           }

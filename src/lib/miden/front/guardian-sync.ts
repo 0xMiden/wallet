@@ -1704,7 +1704,8 @@ async function attemptColdReRegisterSelfHeal(
   account: WalletAccount,
   fuseKey: SyncFuseKey,
   generation: number,
-  finishOnly = false
+  finishOnly = false,
+  onFirstSend?: () => void
 ): Promise<SelfHealOutcome> {
   // A hot-key-only import (spawnFromHotKey) has no cold key to sign with.
   if (!account.coldPublicKey) return 'refused-permanently';
@@ -1958,6 +1959,7 @@ async function attemptColdReRegisterSelfHeal(
     // guard's refusal (#1233) also arrives before it, and wrote nothing.
     await coldService.reRegisterCurrentStateOnGuardian(
       signers => {
+        if (!attempted) onFirstSend?.();
         attempted = true;
         verifiedSigners = signers;
       },
@@ -2037,6 +2039,17 @@ async function attemptColdReRegisterSelfHeal(
   return attempted ? 'attempted' : 'refused-transiently';
 }
 
+function stampPendingActivationCheck(
+  generation: number,
+  accountPublicKey: string,
+  endpoint: string | undefined,
+  prev: ActivationCheckState | undefined
+): void {
+  if (generation !== syncGeneration) return;
+  if (endpoint !== undefined && !isCurrentGuardianSyncPass(generation, accountPublicKey, endpoint)) return;
+  pendingActivationState.set(accountPublicKey, { attempts: prev?.attempts ?? 0, lastAttemptAt: monotonicNowMs() });
+}
+
 /**
  * Finish this device's Failed rotations through the chain-verified cold heal. Pending activations
  * run before sync because they may have no hot key. Ordinary accounts run after successful sync,
@@ -2062,11 +2075,7 @@ async function finishFailedHotKeyRotations(accounts: WalletAccount[], generation
     }
     const prev = pendingActivationState.get(account.publicKey);
     let endpoint: string | undefined;
-    const stamp = () => {
-      if (generation !== syncGeneration) return;
-      if (endpoint !== undefined && !isCurrentGuardianSyncPass(generation, account.publicKey, endpoint)) return;
-      pendingActivationState.set(account.publicKey, { attempts: prev?.attempts ?? 0, lastAttemptAt: monotonicNowMs() });
-    };
+    const stamp = () => stampPendingActivationCheck(generation, account.publicKey, endpoint, prev);
     try {
       if (
         prev &&
@@ -2098,7 +2107,8 @@ async function finishFailedHotKeyRotations(accounts: WalletAccount[], generation
       const spent = activationPushes.get(account.publicKey);
       const runPushes = spent?.endpoint === operator && spent.rowSet === rowSet ? spent.pushes : 0;
       // Before the exits below, so a lap that stops at one still records the operator and rows it saw.
-      activationPushes.set(account.publicKey, { endpoint: operator, rowSet, pushes: runPushes });
+      const pushBudget = { endpoint: operator, rowSet, pushes: runPushes };
+      activationPushes.set(account.publicKey, pushBudget);
       if (runPushes >= SELF_HEAL_MAX_ATTEMPTS) {
         stamp();
         continue;
@@ -2108,7 +2118,10 @@ async function finishFailedHotKeyRotations(accounts: WalletAccount[], generation
         stamp();
         continue;
       }
-      const outcome = await attemptColdReRegisterSelfHeal(current, healFuseKey, generation, true);
+      const outcome = await attemptColdReRegisterSelfHeal(current, healFuseKey, generation, true, () => {
+        if (activationPushes.get(account.publicKey) !== pushBudget) throw new Error('Guardian push budget changed');
+        pushBudget.pushes += 1;
+      });
       if (!isCurrentGuardianSyncPass(generation, account.publicKey, endpoint)) {
         if (outcome === 'evicted' || outcome === 'evicted-preflight') return true;
         continue;
@@ -2625,7 +2638,9 @@ async function runGuardianAccountsSync(generation: number): Promise<void> {
           // repair for good. Every outcome re-stamps the cooldown from SETTLE
           // time, so a slow `/configure` still buys its full gap and a refusal
           // does not re-read on every 3s tick.
-          const outcome = await attemptColdReRegisterSelfHeal(account, healFuseKey, generation);
+          const outcome = await attemptColdReRegisterSelfHeal(account, healFuseKey, generation, false, () =>
+            attempt.chargeEarly()
+          );
           if (!isCurrentGuardianSyncPass(generation, account.publicKey, endpoint)) {
             if (outcome === 'evicted' || outcome === 'evicted-preflight') break;
             continue;
