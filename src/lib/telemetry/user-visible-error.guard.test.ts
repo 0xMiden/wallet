@@ -614,6 +614,27 @@ function View() {
     ).toEqual([]);
   });
 
+  it('does not waive native alerts through a var hook alias in an unbraced lexical-loop body', () => {
+    expect(
+      fixture(`import { useUserVisibleError as report } from './lib/telemetry/use-user-visible-error';
+function View() {
+  for (const item of alternatives) var report = () => undefined;
+  report();
+  return <p role="alert">bad</p>;
+}`)
+    ).toEqual([{ file: 'src/fixture.tsx', line: 5, category: 'unreported-alert' }]);
+  });
+
+  it('keeps a var surface alias in an unbraced lexical-loop body shadowed after the loop', () => {
+    expect(
+      fixture(`import { ErrorLine as Failure } from 'components/ui';
+function View() {
+  for (const item of alternatives) var Failure = () => null;
+  return <Failure />;
+}`)
+    ).toEqual([]);
+  });
+
   it.each([
     [
       'star then named override',
