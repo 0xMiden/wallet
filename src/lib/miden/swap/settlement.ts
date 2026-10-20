@@ -385,9 +385,7 @@ export async function reconcileSwapOrderNotes(
 
     const settleable = expired ? orderNotes : orderNotes.filter(note => note.swapOrder?.role === 'payback');
     if (settleable.length === 0) continue;
-    // The service worker cannot read the delegated-proving setting
-    // (localStorage-backed), so fall back to the preference captured on the
-    // swap row at initiate time.
+    // Callers without a current preference retain the order's saved setting.
     const delegate = delegateTransaction ?? order.delegateTransaction;
     // ONE consume per ROLE, never one covering both. A Miden transaction is
     // atomic and an expired order's remainder tip is still publicly fillable, so

@@ -798,12 +798,14 @@ async function runSync(force: boolean): Promise<void> {
       // And only while the vault is unlocked, for the reason the native enqueue below gives: a locked worker cannot
       // sign a settlement claim either. The notes stay swap-managed, and the first lap after unlock settles them; the
       // stamps reconcile writes, which only label the order, wait for that lap too.
+      const settlementDelegate =
+        swapOrderRows.length > 0 && isUnlocked(store.getState()) ? await isDelegateProofEnabledAsync() : undefined;
       if (swapOrderRows.length > 0 && isUnlocked(store.getState())) {
         try {
           const settlement = await reconcileSwapOrderNotes(
             accountPubKey,
             managedNotes,
-            undefined,
+            settlementDelegate,
             settlementNowSeconds,
             swapOrderRows,
             zeroFillReclaims,
