@@ -1,0 +1,730 @@
+name: Wallet1644 member atomic linkage causal red NEVER MERGE
+
+on:
+  push:
+    branches: [ci/1644-pr1659-atomic-red]
+
+permissions:
+  contents: read
+
+jobs:
+  atomic-link-red:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    env:
+      CI: 'true'
+      FORCE_COLOR: '0'
+      GIT_OPTIONAL_LOCKS: '0'
+    steps:
+      - name: Initialize private evidence and natural-status logger
+        id: initialize
+        run: |
+          set -euo pipefail
+          umask 077
+          export PROOF_DIR="$RUNNER_TEMP/wallet1644-pr1659-atomic-red"
+          mkdir -m 700 "$PROOF_DIR"
+          printf 'PROOF_DIR=%s\n' "$PROOF_DIR" >> "$GITHUB_ENV"
+          cat > "$PROOF_DIR/run-logged.bash" <<'W1644_LOGGER'
+          run_logged() {
+            local label="$1"
+            shift
+            python3 - "$PROOF_DIR/$label.command.json" "$@" <<'COMMAND_RECORD'
+          import datetime, json, os, pathlib, sys
+          pathlib.Path(sys.argv[1]).write_text(json.dumps({
+              'argv': sys.argv[2:], 'cwd': os.getcwd(),
+              'started_at': datetime.datetime.now(datetime.timezone.utc).isoformat()
+          }, indent=2) + '\n')
+          COMMAND_RECORD
+            set +e
+            "$@" 2>&1 | tee "$PROOF_DIR/$label.log"
+            local statuses=("${PIPESTATUS[@]}")
+            set -e
+            printf '%s\n' "${statuses[0]}" > "$PROOF_DIR/$label.exit"
+            printf '%s\n' "${statuses[1]}" > "$PROOF_DIR/$label.tee.exit"
+            if [ "${statuses[1]}" -ne 0 ]; then return "${statuses[1]}"; fi
+            return "${statuses[0]}"
+          }
+          W1644_LOGGER
+      - name: Retain exact frozen seven-case source bindings
+        id: bindings
+        run: |
+          set -euo pipefail
+          cat > "$PROOF_DIR/bindings.json" <<'W1644_BINDINGS'
+          {
+            "branch": "ci/1644-pr1659-atomic-red",
+            "closure_holds": [
+              "Source-only scope: seven-case atomic linkage, not whole1644",
+              "Current complete.ts excludes Failed siblings despite member prose; eventual closure/prose hold stays OPEN",
+              "Fair successor admission, cumulative repair/visibility and capacity acceptance remain open",
+              "Current-main merge, full95coverage, required wallet Council and relevant visual proof remain pending"
+            ],
+            "commands": {
+              "eslint": [
+                "yarn",
+                "eslint",
+                "--max-warnings",
+                "0",
+                "src/lib/miden/transaction/initiate.swap-settlement.test.ts"
+              ],
+              "final": [
+                "python3",
+                "$PROOF_DIR/proof-tools.py",
+                "final"
+              ],
+              "format": [
+                "yarn",
+                "prettier",
+                "--check",
+                "src/lib/miden/transaction/initiate.swap-settlement.test.ts"
+              ],
+              "install": [
+                "timeout",
+                "10m",
+                "yarn",
+                "install",
+                "--frozen-lockfile",
+                "--non-interactive"
+              ],
+              "prepared": [
+                "python3",
+                "$PROOF_DIR/proof-tools.py",
+                "prepared"
+              ],
+              "source": [
+                "python3",
+                "$PROOF_DIR/proof-tools.py",
+                "source"
+              ],
+              "target": [
+                "yarn",
+                "jest",
+                "--runTestsByPath",
+                "src/lib/miden/transaction/initiate.swap-settlement.test.ts",
+                "--maxWorkers=2",
+                "--ci",
+                "--coverage=false",
+                "--json",
+                "--outputFile",
+                "$PROOF_DIR/target.jest.json"
+              ],
+              "typescript": [
+                "yarn",
+                "tsc",
+                "--noEmit",
+                "--pretty",
+                "false"
+              ]
+            },
+            "framework": {
+              "@jest/core": {
+                "artifact_prefix": "framework-jest-core",
+                "files": {
+                  "build.js": {
+                    "bytes": 139198,
+                    "relative": "build/index.js",
+                    "sha256": "16ef0a75b6a8062fe9d4f74a23b88221928d23fdee50387ba4bb408b355a4f27"
+                  },
+                  "package.json": {
+                    "bytes": 2369,
+                    "relative": "package.json",
+                    "sha256": "c6f7e4533f393266cbfcb1113fc81d26677aad1bdca105defd953c20ee378e5a"
+                  }
+                },
+                "version": "30.4.2"
+              },
+              "@jest/test-result": {
+                "artifact_prefix": "framework-jest-test-result",
+                "files": {
+                  "build.js": {
+                    "bytes": 9688,
+                    "relative": "build/index.js",
+                    "sha256": "e63c5d3baba4fcded043e2409185718267dfcad34b71a5fd00cdb7e8b4bf3292"
+                  },
+                  "package.json": {
+                    "bytes": 939,
+                    "relative": "package.json",
+                    "sha256": "e6d4c63978870df4e6fb2af087c459a008b471a8bddccdcb593183f7b47c2b52"
+                  }
+                },
+                "version": "30.4.1"
+              },
+              "expect": {
+                "artifact_prefix": "framework-expect",
+                "files": {
+                  "build.js": {
+                    "bytes": 112845,
+                    "relative": "build/index.js",
+                    "sha256": "469add4932a11785006b19dbd1c041169b040d69cf4e27872892e0a7119368b4"
+                  },
+                  "package.json": {
+                    "bytes": 1132,
+                    "relative": "package.json",
+                    "sha256": "c0dcf2678d35a15774a7aebc71dcaeb3442f6b22d722e04ea0d68081ec6eb5a0"
+                  }
+                },
+                "version": "30.4.1"
+              },
+              "jest": {
+                "artifact_prefix": "framework-jest",
+                "files": {
+                  "build.js": {
+                    "bytes": 2022,
+                    "relative": "build/index.js",
+                    "sha256": "fe7074b98064efbccdd13c7ee9a8b2bb5f86f098b2c0f5667896e9c78af3b20d"
+                  },
+                  "package.json": {
+                    "bytes": 1467,
+                    "relative": "package.json",
+                    "sha256": "90b2d495b4fdef80faefeeb26e275478bb3c1eeac15d587bbffb192ca3a4fa52"
+                  }
+                },
+                "version": "30.4.2"
+              },
+              "jest-circus": {
+                "artifact_prefix": "framework-jest-circus",
+                "files": {
+                  "build.js": {
+                    "bytes": 72464,
+                    "relative": "build/jestAdapterInit.js",
+                    "sha256": "f64ef94daa71293d875d497f692c48de6f8cc72a70d1935449da6610aa9438d1"
+                  },
+                  "package.json": {
+                    "bytes": 1573,
+                    "relative": "package.json",
+                    "sha256": "488605fae2565092977981f56170340563a571a44e47bd9c7e2987319712e16b"
+                  },
+                  "runner.js": {
+                    "bytes": 6908,
+                    "relative": "build/runner.js",
+                    "sha256": "26e7f1e4684472561af0b445a8ee5872088d41aa3b1b120b79cb70f93ef5d764"
+                  }
+                },
+                "version": "30.4.2"
+              },
+              "jest-diff": {
+                "artifact_prefix": "framework-jest-diff",
+                "files": {
+                  "build.js": {
+                    "bytes": 56173,
+                    "relative": "build/index.js",
+                    "sha256": "d35ee6ff8e1666e5a3f75c58426ab025ff2b012c983d0afb05a60b7ec2b7bab7"
+                  },
+                  "package.json": {
+                    "bytes": 877,
+                    "relative": "package.json",
+                    "sha256": "6dd82db9a28d2d0dae9864605c2a478c97f57ffb952968c9f3a1a2eacb88ccef"
+                  }
+                },
+                "version": "30.4.1"
+              },
+              "jest-each": {
+                "artifact_prefix": "framework-jest-each",
+                "files": {
+                  "build.js": {
+                    "bytes": 16347,
+                    "relative": "build/index.js",
+                    "sha256": "2efbb7982d44ab97a6f834a095999919f0e5a6f0dbd44c45dc5552a4a4e752fe"
+                  },
+                  "package.json": {
+                    "bytes": 1004,
+                    "relative": "package.json",
+                    "sha256": "04e94a8aebba90cfe89fa257bb63e47efbe93494febf8f720e5f888ace3f9893"
+                  }
+                },
+                "version": "30.4.1"
+              },
+              "jest-matcher-utils": {
+                "artifact_prefix": "framework-jest-matcher-utils",
+                "files": {
+                  "build.js": {
+                    "bytes": 24759,
+                    "relative": "build/index.js",
+                    "sha256": "1bbf8b1afe9f59c06c9129e4d4ce7406089b5c1563bf019e1cfbfd9d69335b52"
+                  },
+                  "package.json": {
+                    "bytes": 987,
+                    "relative": "package.json",
+                    "sha256": "b433966e038240bffcae1cf95997171145b8a343aef0713d5e6c22fdd72ebd84"
+                  }
+                },
+                "version": "30.4.1"
+              },
+              "jest-util": {
+                "artifact_prefix": "framework-jest-util",
+                "files": {
+                  "build.js": {
+                    "bytes": 42629,
+                    "relative": "build/index.js",
+                    "sha256": "3e8b0fc7c556b53ef1d4ec30457ce2dddd5059bdb464d57dedaa5918b11053ea"
+                  },
+                  "package.json": {
+                    "bytes": 1037,
+                    "relative": "package.json",
+                    "sha256": "01adf732c8a3c43ec42f5b009f12619e82451018518084b513ca3a4daf741793"
+                  }
+                },
+                "version": "30.4.1"
+              },
+              "pretty-format": {
+                "artifact_prefix": "framework-pretty-format",
+                "files": {
+                  "build.js": {
+                    "bytes": 40721,
+                    "relative": "build/index.js",
+                    "sha256": "a402d0283ddb1bc9a42d6d2605789b2573895114db88c6fb4070eca228a06d20"
+                  },
+                  "package.json": {
+                    "bytes": 1309,
+                    "relative": "package.json",
+                    "sha256": "816f475ae53780688516968fddef795c2f69c25ea9814b752553dd6d411e2564"
+                  }
+                },
+                "version": "30.4.1"
+              }
+            },
+            "helper_sha256": "3496020f469329e8c0b251fcaf8035d5515355606ef7a42555443fc4379d3a5a",
+            "lock_sha256": "8606e15d58682739313e004734d42f34a2ad715148e00f28c2de63596349941d",
+            "logger_sha256": "3550a67f06a3bce7de1fa798cb8d1d27473fad256775f4b234cf428cdc68db41",
+            "member": "e51f9de094f649111eecebad62a3b2daee30665d",
+            "member_tree": "ae977f84b8a9d2fe428576ea37123cd342633c45",
+            "outcomes": [
+              "initialize",
+              "bindings",
+              "helper",
+              "checkout",
+              "source",
+              "node",
+              "install",
+              "prepared",
+              "format",
+              "eslint",
+              "typescript",
+              "target",
+              "final"
+            ],
+            "source": "c8feaa38424e89ca72034cf006b9c8553eacf556",
+            "source_count": 3617,
+            "source_generation": "actual membere51 (parentf520) -> sole267-line testc8fe; current-maine60 merge remains separately reviewed before final gates",
+            "source_tree": "e8ab81e4886f859b253023f4181bcbaf81f37bf6",
+            "suites": {
+              "target": {
+                "cases": [
+                  {
+                    "ancestor_titles": [],
+                    "full_name": "links a payback to its parent and settle role at the first consume insert",
+                    "title": "links a payback to its parent and settle role at the first consume insert"
+                  },
+                  {
+                    "ancestor_titles": [],
+                    "full_name": "links an expired tip to its parent and reclaim role at the first consume insert",
+                    "title": "links an expired tip to its parent and reclaim role at the first consume insert"
+                  },
+                  {
+                    "ancestor_titles": [],
+                    "full_name": "retains the covering child when only part of the requested note set is new",
+                    "title": "retains the covering child when only part of the requested note set is new"
+                  },
+                  {
+                    "ancestor_titles": [],
+                    "full_name": "does not compete with an unconfirmed shared claim whose submit evidence still holds its notes",
+                    "title": "does not compete with an unconfirmed shared claim whose submit evidence still holds its notes"
+                  },
+                  {
+                    "ancestor_titles": [],
+                    "full_name": "leaves a failed shared claim inside its lifetime cooldown without a fresh child",
+                    "title": "leaves a failed shared claim inside its lifetime cooldown without a fresh child"
+                  },
+                  {
+                    "ancestor_titles": [],
+                    "full_name": "admits no settlement child when known native fee funding is insufficient",
+                    "title": "admits no settlement child when known native fee funding is insufficient"
+                  },
+                  {
+                    "ancestor_titles": [],
+                    "full_name": "writes no settlement child when the vault locks during the awaited fee-context read",
+                    "title": "writes no settlement child when the vault locks during the awaited fee-context read"
+                  }
+                ],
+                "complete_assertions": {
+                  "admits no settlement child when known native fee funding is insufficient": 3,
+                  "does not compete with an unconfirmed shared claim whose submit evidence still holds its notes": 3,
+                  "leaves a failed shared claim inside its lifetime cooldown without a fresh child": 3,
+                  "retains the covering child when only part of the requested note set is new": 4,
+                  "writes no settlement child when the vault locks during the awaited fee-context read": 3
+                },
+                "path": "src/lib/miden/transaction/initiate.swap-settlement.test.ts",
+                "targets": [
+                  {
+                    "actual_javascript_value": "undefined",
+                    "column": 36,
+                    "expected": {
+                      "swapOrderTxId": "swap-order",
+                      "swapSettleKind": "settle"
+                    },
+                    "line": 130,
+                    "matcher": "toEqual",
+                    "name": "links a payback to its parent and settle role at the first consume insert",
+                    "post_fix_complete_assertions": 5,
+                    "prior_passing_assertions": 2
+                  },
+                  {
+                    "actual_javascript_value": "undefined",
+                    "column": 36,
+                    "expected": {
+                      "swapOrderTxId": "swap-order",
+                      "swapSettleKind": "reclaim"
+                    },
+                    "line": 152,
+                    "matcher": "toEqual",
+                    "name": "links an expired tip to its parent and reclaim role at the first consume insert",
+                    "post_fix_complete_assertions": 5,
+                    "prior_passing_assertions": 2
+                  }
+                ]
+              }
+            },
+            "target": "src/lib/miden/transaction/initiate.swap-settlement.test.ts",
+            "target_sha256": "d1f9d0af5bbd22e88e9766e7af03870a508dd91cbb25b8e85cad94fce852551a",
+            "undefined_serialization": "Pinned expect30.4.1 toEqual returns actual:received; JSON.stringify omits its undefined value. Exact4keys expected/message/name/pass, no invented actual key.",
+            "workflow": ".github/workflows/1644-pr1659-atomic-red.yml"
+          }
+          W1644_BINDINGS
+      - name: Retain frozen source and result validator
+        id: helper
+        run: |
+          set -euo pipefail
+          cat > "$PROOF_DIR/proof-tools.py" <<'W1644_HELPER'
+          from pathlib import Path
+          import hashlib
+          import json
+          import os
+          import re
+          import stat
+          import subprocess
+          import sys
+
+          P = Path(os.environ['PROOF_DIR']).resolve()
+          B = json.loads((P / 'bindings.json').read_text())
+
+
+          def digest(raw):
+              return hashlib.sha256(raw).hexdigest()
+
+
+          def save(name, value):
+              (P / name).write_text(json.dumps(value, sort_keys=True, indent=2) + '\n')
+
+
+          def load(name):
+              return json.loads((P / name).read_text())
+
+
+          def git(*args):
+              return subprocess.check_output(['git', *args], env={**os.environ, 'GIT_OPTIONAL_LOCKS': '0'})
+
+
+          def tree(ref):
+              result = {}
+              for row in git('ls-tree', '-rz', ref).split(b'\0'):
+                  if row:
+                      meta, name = row.split(b'\t', 1)
+                      result[name.decode()] = meta.decode().split()
+              return result
+
+
+          def snapshot(label):
+              entries = tree('HEAD')
+              observed = {}
+              for name, entry in entries.items():
+                  path = Path(name)
+                  info = path.lstat()
+                  if entry[0] == '120000':
+                      assert stat.S_ISLNK(info.st_mode), name
+                      raw = os.readlink(path).encode()
+                      kind = 'symlink'
+                  else:
+                      assert entry[1] == 'blob' and stat.S_ISREG(info.st_mode), name
+                      assert bool(info.st_mode & 0o111) == (entry[0] == '100755'), name
+                      raw = path.read_bytes()
+                      kind = 'regular'
+                  observed[name] = {
+                      'git_entry': entry, 'kind': kind, 'physical_mode': stat.S_IMODE(info.st_mode),
+                      'bytes': len(raw), 'sha256': digest(raw),
+                      'working_blob': hashlib.sha1(b'blob ' + str(len(raw)).encode() + b'\0' + raw).hexdigest()
+                  }
+              index = Path(git('rev-parse', '--git-path', 'index').decode().strip())
+              index_raw = index.read_bytes()
+              stages = git('ls-files', '--stage', '-z')
+              (P / (label + '.index.bin')).write_bytes(index_raw)
+              (P / (label + '.index-stage.bin')).write_bytes(stages)
+              row = {'head': git('rev-parse', 'HEAD').decode().strip(),
+                     'tree': git('rev-parse', 'HEAD^{tree}').decode().strip(),
+                     'entries': entries, 'working': observed, 'index_sha256': digest(index_raw),
+                     'index_stage_sha256': digest(stages), 'status': git('status', '--porcelain=v1').decode()}
+              save(label + '.map.json', row)
+              assert row['head'] == os.environ['GITHUB_SHA'] and row['status'] == ''
+              assert all(value['working_blob'] == entries[name][2] for name, value in observed.items())
+              if label != 'initial':
+                  initial = load('initial.map.json')
+                  assert row == initial, 'Source/index/types/modes changed: ' + label
+              return row
+
+
+          def framework(capture):
+              for package, spec in B['framework'].items():
+                  root = Path('node_modules') / package
+                  assert json.loads((root / 'package.json').read_text())['version'] == spec['version']
+                  for key, item in spec['files'].items():
+                      raw = (root / item['relative']).read_bytes()
+                      assert len(raw) == item['bytes'] and digest(raw) == item['sha256'], (package, key)
+                      artifact = P / (spec['artifact_prefix'] + '-' + key)
+                      if capture:
+                          artifact.write_bytes(raw)
+                      else:
+                          assert artifact.read_bytes() == raw
+
+
+          def source():
+              assert os.environ['GITHUB_EVENT_NAME'] == 'push'
+              assert os.environ['GITHUB_REF_NAME'] == B['branch']
+              assert git('rev-parse', 'HEAD^').decode().strip() == B['source']
+              assert git('rev-parse', B['source'] + '^{tree}').decode().strip() == B['source_tree']
+              assert git('rev-parse', B['source'] + '^').decode().strip() == B['member']
+              assert git('rev-parse', B['member'] + '^{tree}').decode().strip() == B['member_tree']
+              assert git('diff-tree', '--no-commit-id', '--name-status', '-r', B['source']).decode().strip() == 'A\t' + B['target']
+              assert git('diff-tree', '--no-commit-id', '--name-status', '-r', 'HEAD').decode().strip() == 'A\t' + B['workflow']
+              before = tree(B['source'])
+              after = tree('HEAD')
+              assert len(before) == B['source_count'] and len(after) == B['source_count'] + 1
+              assert set(after) - set(before) == {B['workflow']} and all(after[name] == row for name, row in before.items())
+              assert digest(Path(__file__).read_bytes()) == B['helper_sha256']
+              assert digest((P / 'run-logged.bash').read_bytes()) == B['logger_sha256']
+              assert Path(B['workflow']).read_bytes() == git('show', 'HEAD:' + B['workflow'])
+              (P / 'workflow.yml').write_bytes(Path(B['workflow']).read_bytes())
+              assert digest(Path('yarn.lock').read_bytes()) == B['lock_sha256']
+              assert digest(Path(B['target']).read_bytes()) == B['target_sha256']
+              for ref, name in [(B['source'], 'source-commit.raw'), ('HEAD', 'checkout-commit.raw')]:
+                  (P / name).write_bytes(git('cat-file', 'commit', ref))
+              save('source-entry-map.json', before)
+              save('checkout-entry-map.json', after)
+              save('source-and-checkout.json', {
+                  'source': B['source'], 'source_tree': B['source_tree'],
+                  'checkout': git('rev-parse', 'HEAD').decode().strip(),
+                  'checkout_tree': git('rev-parse', 'HEAD^{tree}').decode().strip(),
+                  'workflow_sha256': digest(Path(B['workflow']).read_bytes()),
+                  'helper_sha256': B['helper_sha256'], 'logger_sha256': B['logger_sha256']})
+              save('run-identity.json', {key: os.environ[key] for key in [
+                  'GITHUB_REPOSITORY', 'GITHUB_SHA', 'GITHUB_REF_NAME', 'GITHUB_RUN_ID',
+                  'GITHUB_RUN_ATTEMPT', 'GITHUB_EVENT_NAME']})
+              snapshot('initial')
+
+
+          def checked_result(label):
+              spec = B['suites'][label]
+              result = load(label + '.jest.json')
+              sites = {item['name']: item for item in spec['targets']}
+              expected = {item['full_name']: item for item in spec['cases']}
+              assert len(result['testResults']) == 1
+              suite = result['testResults'][0]
+              assert suite['name'] == str(Path.cwd() / spec['path'])
+              assert suite['status'] == ('failed' if sites else 'passed')
+              counts = {'numTotalTests': len(expected), 'numPassedTests': len(expected) - len(sites),
+                        'numFailedTests': len(sites), 'numTotalTestSuites': 1,
+                        'numFailedTestSuites': int(bool(sites)), 'numPassedTestSuites': int(not sites),
+                        'numPendingTestSuites': 0, 'numPendingTests': 0, 'numTodoTests': 0,
+                        'numRuntimeErrorTestSuites': 0}
+              for key, value in counts.items():
+                  assert result[key] == value, (label, key)
+              assert result['success'] is (not bool(sites)) and result['wasInterrupted'] is False and result['openHandles'] == []
+              assert result['snapshot']['failure'] is False and result['snapshot']['unmatched'] == result['snapshot']['unchecked'] == 0
+              cases = suite['assertionResults']
+              assert len(cases) == len(expected) and len({item['fullName'] for item in cases}) == len(expected)
+              assert {item['fullName'] for item in cases} == set(expected)
+              failures = {}
+              for case in cases:
+                  name = case['fullName']
+                  identity = expected[name]
+                  assert case['title'] == identity['title'] and case['ancestorTitles'] == identity['ancestor_titles']
+                  assert case['invocations'] == 1 and case['retryReasons'] == [] and case['failing'] is False
+                  if name not in sites:
+                      assert case['status'] == 'passed' and case['failureMessages'] == case['failureDetails'] == []
+                      if name in spec['complete_assertions']:
+                          assert case['numPassingAsserts'] == spec['complete_assertions'][name]
+                      continue
+                  site = sites[name]
+                  assert case['status'] == 'failed' and len(case['failureMessages']) == len(case['failureDetails']) == 1
+                  assert case['numPassingAsserts'] == site['prior_passing_assertions'] == 2
+                  raw = re.sub(r'\x1b\[[0-9;]*m', '', case['failureMessages'][0])
+                  prefix, stack = re.split(r'\n\s+at ', raw, maxsplit=1)
+                  detail = case['failureDetails'][0]
+                  assert type(detail) is dict and set(detail) == {'matcherResult'}
+                  matcher = detail['matcherResult']
+                  assert type(matcher) is dict and set(matcher) == {'expected', 'message', 'name', 'pass'}
+                  assert matcher['name'] == 'toEqual' and matcher['pass'] is False and matcher['expected'] == site['expected']
+                  message = 'expect(received).toEqual(expected) // deep equality\n\nExpected: ' + json.dumps(site['expected']) + '\nReceived: undefined'
+                  assert re.sub(r'\x1b\[[0-9;]*m', '', matcher['message']) == message
+                  assert prefix == 'Error: ' + message
+                  first = re.split(r'\n\s+at ', stack)[0].strip()
+                  pattern = r'[^\n]*\(' + re.escape(str(Path.cwd() / spec['path'])) + ':' + str(site['line']) + ':' + str(site['column']) + r'\)'
+                  assert re.fullmatch(pattern, first), first
+                  failures[name] = {'first_frame': first, 'prior_passing_assertions': 2,
+                                    'matcher': matcher, 'post_failure_assertions': 'UNRUN; no credit'}
+              assert set(failures) == set(sites)
+              return {'total': len(expected), 'pass': len(expected) - len(sites), 'fail': len(sites), 'failures': failures}
+
+
+          def seal():
+              validation = {'status': 'INVALID', 'production_gate': 'CLOSED', 'merge': 'NEVER_MERGE_TRANSPORT'}
+              try:
+                  outcomes = {key: os.environ.get(key.upper() + '_OUTCOME', 'missing') for key in B['outcomes']}
+                  validation['outcomes'] = outcomes
+                  for key, value in outcomes.items():
+                      assert value == ('failure' if key == 'target' else 'success'), (key, value)
+                  snapshot('validation')
+                  framework(False)
+                  for label, template in B['commands'].items():
+                      assert (P / (label + '.log')).is_file(), 'Missing raw command log: ' + label
+                      command = load(label + '.command.json')
+                      assert command['argv'] == [item.replace('$PROOF_DIR', str(P)) for item in template]
+                      assert command['cwd'] == str(Path.cwd())
+                      assert int((P / (label + '.exit')).read_text()) == (1 if label == 'target' else 0)
+                      assert int((P / (label + '.tee.exit')).read_text()) == 0
+                  suites = {label: checked_result(label) for label in B['suites']}
+                  assert load('source-entry-map.json') == tree(B['source'])
+                  assert load('checkout-entry-map.json') == tree('HEAD')
+                  assert (P / 'workflow.yml').read_bytes() == Path(B['workflow']).read_bytes()
+                  assert digest(Path(__file__).read_bytes()) == B['helper_sha256']
+                  assert digest((P / 'run-logged.bash').read_bytes()) == B['logger_sha256']
+                  for label in ['initial', 'prepared', 'final', 'validation']:
+                      row = load(label + '.map.json')
+                      assert row == load('initial.map.json')
+                      assert digest((P / (label + '.index.bin')).read_bytes()) == row['index_sha256']
+                      assert digest((P / (label + '.index-stage.bin')).read_bytes()) == row['index_stage_sha256']
+                  validation.update(status='EXACT_ATOMIC_LINKAGE_RED',
+                                    production_gate='ROOT_ACTUAL_RED_ACCEPTANCE_REQUIRED', suites=suites,
+                                    limits='Scoped regression evidence only; no fix, coverage, final review or whole-issue credit')
+              except Exception as error:
+                  validation['reason'] = str(error)
+              finally:
+                  save('validation.json', validation)
+                  files = {}
+                  for path in sorted(P.iterdir()):
+                      if path.name == 'hash-manifest.json':
+                          continue
+                      assert path.is_file() and not path.is_symlink(), path.name
+                      raw = path.read_bytes()
+                      files[path.name] = {'bytes': len(raw), 'sha256': digest(raw)}
+                  save('hash-manifest.json', {'files': files, 'self_excluded': ['hash-manifest.json']})
+              print(json.dumps({'status': validation['status'], 'reason': validation.get('reason')}))
+              raise SystemExit(0 if validation['status'] == 'EXACT_ATOMIC_LINKAGE_RED' else 1)
+
+
+          mode = sys.argv[1]
+          if mode == 'source':
+              source()
+          elif mode == 'prepared':
+              snapshot('prepared')
+              framework(True)
+          elif mode == 'final':
+              snapshot('final')
+          elif mode == 'seal':
+              seal()
+          else:
+              raise SystemExit('Unknown collector mode')
+          W1644_HELPER
+      - name: Checkout sole-workflow transport
+        id: checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Bind member/test-only/source and sole-workflow ancestry
+        id: source
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged source python3 "$PROOF_DIR/proof-tools.py" source
+      - name: Set supported Node runtime
+        id: node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - name: Install frozen dependencies with normal hooks
+        id: install
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged install timeout 10m yarn install --frozen-lockfile --non-interactive
+      - name: Verify prepared source and frozen Jest implementations
+        id: prepared
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged prepared python3 "$PROOF_DIR/proof-tools.py" prepared
+      - name: Check new regression format
+        id: format
+        if: ${{ !cancelled() && steps.prepared.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged format yarn prettier --check src/lib/miden/transaction/initiate.swap-settlement.test.ts
+      - name: Lint new regression
+        id: eslint
+        if: ${{ !cancelled() && steps.prepared.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged eslint yarn eslint --max-warnings 0 src/lib/miden/transaction/initiate.swap-settlement.test.ts
+      - name: Run unchanged TypeScript gate
+        id: typescript
+        if: ${{ !cancelled() && steps.prepared.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged typescript yarn tsc --noEmit --pretty false
+      - name: Run exact seven-case atomic linkage causal red
+        id: target
+        if: ${{ !cancelled() && steps.prepared.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged target yarn jest --runTestsByPath src/lib/miden/transaction/initiate.swap-settlement.test.ts --maxWorkers=2 --ci --coverage=false --json --outputFile "$PROOF_DIR/target.jest.json"
+      - name: Always retain final source and index
+        id: final
+        if: ${{ always() }}
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged final python3 "$PROOF_DIR/proof-tools.py" final
+      - name: Always validate and seal unfiltered evidence
+        id: seal
+        if: ${{ always() }}
+        env:
+          INITIALIZE_OUTCOME: ${{ steps.initialize.outcome }}
+          BINDINGS_OUTCOME: ${{ steps.bindings.outcome }}
+          HELPER_OUTCOME: ${{ steps.helper.outcome }}
+          CHECKOUT_OUTCOME: ${{ steps.checkout.outcome }}
+          SOURCE_OUTCOME: ${{ steps.source.outcome }}
+          NODE_OUTCOME: ${{ steps.node.outcome }}
+          INSTALL_OUTCOME: ${{ steps.install.outcome }}
+          PREPARED_OUTCOME: ${{ steps.prepared.outcome }}
+          FORMAT_OUTCOME: ${{ steps.format.outcome }}
+          ESLINT_OUTCOME: ${{ steps.eslint.outcome }}
+          TYPESCRIPT_OUTCOME: ${{ steps.typescript.outcome }}
+          TARGET_OUTCOME: ${{ steps.target.outcome }}
+          FINAL_OUTCOME: ${{ steps.final.outcome }}
+        run: |
+          set -euo pipefail
+          python3 "$PROOF_DIR/proof-tools.py" seal
+      - name: Always upload private NEVER MERGE proof
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wallet1644-pr1659-atomic-red-proof
+          path: ${{ env.PROOF_DIR }}
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
