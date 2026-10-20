@@ -210,6 +210,7 @@ interface MockRelease {
   playState: 'running' | 'finished' | 'idle';
   cancel: jest.Mock;
   onfinish: (() => void) | null;
+  startTime?: number;
 }
 let mockReleases: MockRelease[] = [];
 
@@ -782,19 +783,28 @@ describe('HomeSwipeContainer', () => {
   describe('the release animation', () => {
     it('hands the compositor a single transform animation from the finger to the page', () => {
       mockPathname = '/';
-      render(<HomeSwipeContainer />);
-      measure(300);
-      settleAt(-120);
-      release(-300);
+      const previousTimeline = document.timeline;
+      Object.defineProperty(document, 'timeline', { configurable: true, value: { currentTime: 50 } });
+      try {
+        render(<HomeSwipeContainer />);
+        measure(300);
+        settleAt(-120);
+        release(-300);
 
-      expect(mockReleases).toHaveLength(1);
-      expect(releaseInFlight().keyframes).toEqual([
-        { transform: 'translateX(-120px)' },
-        { transform: 'translateX(-300px)' }
-      ]);
-      // `fill: forwards` holds the landing position; without it the transform
-      // reverts to framer's stale inline value for a frame.
-      expect(releaseInFlight().options).toEqual({ duration: 340, easing: 'linear(0,0.5,1)', fill: 'forwards' });
+        expect(mockReleases).toHaveLength(1);
+        expect(releaseInFlight().keyframes).toEqual([
+          { transform: 'translateX(-120px)' },
+          { transform: 'translateX(-300px)' }
+        ]);
+        // `fill: forwards` holds the landing position; without it the transform
+        // reverts to framer's stale inline value for a frame.
+        expect(releaseInFlight().options).toEqual({ duration: 340, easing: 'linear(0,0.5,1)', fill: 'forwards' });
+        // The snap is tied to this frame. An unset start time waits for the next
+        // one, and the track sits still for that gap after the finger lifts.
+        expect(releaseInFlight().startTime).toBe(50);
+      } finally {
+        Object.defineProperty(document, 'timeline', { configurable: true, value: previousTimeline });
+      }
     });
 
     it('seeds the spring with the release velocity, so the snap continues the flick', () => {
