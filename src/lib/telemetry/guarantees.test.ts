@@ -1151,6 +1151,7 @@ describe('the background service worker never imports the telemetry barrel', () 
       'src/lib/telemetry/transaction-operation.ts',
       'src/lib/telemetry/types.ts',
       'src/lib/telemetry/user-visible-error-contract.ts',
+      'src/lib/telemetry/user-visible-error.ts',
       'src/lib/telemetry/wasm-startup.ts'
     ]);
   });
