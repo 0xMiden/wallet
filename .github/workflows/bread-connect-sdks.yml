@@ -43,6 +43,16 @@ jobs:
       # The install's postinstall builds packages/bread-connect, which the adapter builds against.
       - name: Run Install
         uses: ./.github/actions/yarn-install
+      - name: Check Capacitor baseline formatting
+        run: |
+          yarn prettier --check \
+            .github/workflows/bread-connect-sdks.yml \
+            packages/bread-connect-capacitor/src/index.ts \
+            packages/bread-connect-capacitor/src/index.test.ts \
+            packages/bread-connect-capacitor/src/native-opener.ts \
+            packages/bread-connect-capacitor/src/native-opener.test.ts \
+            packages/bread-connect-capacitor/src/plugin.ts \
+            packages/bread-connect-capacitor/src/transport.ts
       - name: Check Capacitor adapter behavior
         run: |
           set -euo pipefail
