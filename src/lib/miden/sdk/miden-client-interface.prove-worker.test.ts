@@ -1184,6 +1184,7 @@ async function expectPermissionSignal<T>(signal: Promise<void>, writing: Promise
 
 describe('GEO007 permission renewal at final submit', () => {
   beforeEach(() => {
+    jest.resetModules();
     process.env.MIDEN_USE_OFFSCREEN_PROVING = 'false';
   });
   const savedOffscreenFlag = process.env.MIDEN_USE_OFFSCREEN_PROVING;
@@ -1369,5 +1370,42 @@ describe('GEO007 permission renewal at final submit', () => {
     expect(replacement).not.toBe(client);
     expect(replacement.isDisposed).toBe(false);
     expect(await locks.tryWithWasmClientLock(async () => 'fresh')).toEqual({ ran: true, value: 'fresh' });
+  });
+
+  it('an unmanaged client with a changed realm generation cannot submit a retained proof', async () => {
+    const harness = buildHarness();
+    const permission = await realPermission();
+    const loaded = await loadPermissionWrite('worker', harness, permission);
+    const locks = await import('./miden-client');
+    const { bumpWasmClientGeneration, isWasmClientPoisonedError, wasmClientGeneration } = await import(
+      './wasm-client-poison'
+    );
+    const generation = wasmClientGeneration();
+    const outcome = observePermissionWrite(loaded.withWasmClientLock(loaded.run));
+    try {
+      await expectPermissionSignal(permission.entered, outcome);
+      const contender = await locks.tryWithWasmClientLock(async () => {
+        bumpWasmClientGeneration();
+        return 'generation advanced';
+      });
+      expect(contender).toEqual({ ran: true, value: 'generation advanced' });
+      expect(wasmClientGeneration()).toBe(generation + 1);
+      expect(loaded.client.isDisposed).toBe(false);
+      expect(permissionSubmitCount(harness)).toBe(0);
+    } finally {
+      permission.respond(true);
+      await outcome;
+      permission.close();
+    }
+    const settled = await outcome;
+    const error = settled.status === 'rejected' ? settled.reason : undefined;
+    expect(settled.status).toBe('rejected');
+    expect(isWasmClientPoisonedError(error)).toBe(true);
+    expect(loaded.client.isDisposed).toBe(false);
+    expect(permissionSubmitCount(harness)).toBe(0);
+    expect(harness.order.filter(step => step === 'apply')).toHaveLength(0);
+    expect(permissionExecutionCount(harness)).toBe(1);
+    expect(permission.refreshCount()).toBe(1);
+    expect(await locks.tryWithWasmClientLock(async () => 'idle')).toEqual({ ran: true, value: 'idle' });
   });
 });
