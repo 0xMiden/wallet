@@ -1,4 +1,4 @@
-name: USDCx burn-floor expected-red proof
+name: USDCx burn-floor candidate proof
 
 on:
   push:
@@ -64,10 +64,34 @@ jobs:
           from pathlib import Path
 
           proof = Path(os.environ['PROOF_DIR'])
-          source = 'fa9d60cfd9e15ead48bbadbe1268b312bc082df2'
-          expected_tree = '389356afafc6ca66298264fbc375d1a0ecd14736'
-          test = 'src/lib/usdcx/withdrawal.test.ts'
-          test_digest = '809b7fc7c94d60cc78440195af630892cd0f52e4181db0aa9ea10507e85def28'
+          source = '44071b792f171e977b691656910a272dbee0b5ce'
+          expected_tree = '92aae17c2834a82dae431a846a7a48e0204e77ac'
+          tests = {'playwright/e2e/helpers/arc-usdcx.test.ts': {'sha256': '141c60b49e5c3e8588b6912d78ce152d7e72e71403358d9db85e23b0d8ec9800',
+                                                        'test_count': 108,
+                                                        'test_names_sha256': '14ba205d287e09d0cc2eaf9ec0abdb9b1ff056a2246a2644d5d85cc3f09f21bd'},
+           'playwright/e2e/helpers/usdcx-config.test.ts': {'sha256': 'ce71df525f2252a2faa366df42030ae6213560405f260bbcaa810a080cdfefab',
+                                                           'test_count': 6,
+                                                           'test_names_sha256': '7ddbc119b953f4d74110a5c5d40d14cd77a19071a7ea00cc21dbf7d909354d74'},
+           'src/lib/usdcx/burn.test.ts': {'sha256': 'b2ff561f38ad057528bbf547be62eb19df60d37b411648ec979f80008500c2ab',
+                                          'test_count': 8,
+                                          'test_names_sha256': 'b91aef4b30839615a39c5034533eb855dae025e87ab53d0373b27b61fa9591a0'},
+           'src/lib/usdcx/constant.test.ts': {'sha256': 'd49b16304e6347d29c936989135fbfd4562758906c5badbd22a10a7c0b2db179',
+                                              'test_count': 9,
+                                              'test_names_sha256': '501a62ad3de8b98637a3afea93607b759a73a5a88953ca5a5104d712ae03addd'},
+           'src/lib/usdcx/use-burn-minimum.test.ts': {'sha256': '041c2c7635e8ccb8de5dd2efb25ea4dc3d8ccc04a80c6d5fd0b926f301f4944f',
+                                                      'test_count': 3,
+                                                      'test_names_sha256': '9fc3ccadb9cb5ef4a11440d9fe4247064bf2d64d35573a868bf42d871eda69f6'},
+           'src/lib/usdcx/withdrawal.test.ts': {'sha256': 'e72a3ac6cb4a15db37fc8d101b4ea710f28a11caebd3231a1bbfb2376c79f0a8',
+                                                'test_count': 16,
+                                                'test_names_sha256': '064c208a19790aad83835cfe35bb827a56768a85f3ad147c72206e95d0efcc99'},
+           'src/screens/send-flow/ReviewTransaction.test.tsx': {'sha256': 'c71b847134a6723bbe93e884340480cf59efb348a787925ab6526cde178eaaae',
+                                                                'test_count': 103,
+                                                                'test_names_sha256': 'af2cd1d4c8e14c4a61cea0c9dfbc52cd9cd3a552978d95ccb23d918d30b3a25c'}}
+          provenance = {'wallet1615-f1-f2-source-fix/normal-review/controller-acceptance.json': 'e6ce7b15211f9011be95d47f01aa7155e4020b3ced74110c3d45dc490f9aec13',
+           'wallet1615-f1-f2-source-fix/normal-review/report.md': '83d30e552ef0c6ece4175ec759807d56f84e430d6febae5bc87859eb697c96e5',
+           'wallet1615-f1-f2-source-fix/remaining-ci-predictions.json': 'b83a24715da988d067c42e2172d919d2d281f26138d15376abc9ea3a5d3b33bb',
+           'wallet1615-f1-f2-source-fix/report.md': 'd45ad12143194daaf546b4728342ee14d6c1201c95d9d9b9163486fbb6de1cef',
+           'wallet1615-f2-regressions/ci-transport/context-fix/controller-acceptance.json': 'caa89481684584f6b63e640cf114854cd9e33d790a8912085aef1ad4d6503c38'}
           workflow = '.github/workflows/usdcx-floor-proof.yml'
 
           def git(*args):
@@ -96,9 +120,10 @@ jobs:
               'checkout_tree': value('rev-parse', 'HEAD^{tree}'),
               'source_entries': len(before),
               'delta': value('diff', '--name-status', source, 'HEAD'),
-              'test_path': test,
-              'expected_test_sha256': test_digest,
-              'checkout_test_sha256': hashlib.sha256(Path(test).read_bytes()).hexdigest(),
+              'expected_tests': tests,
+              'checkout_test_sha256': {name: hashlib.sha256(Path(name).read_bytes()).hexdigest() for name in tests},
+              'review_provenance_sha256': provenance,
+              'accepted_red_before_run': 39359602500,
               'workflow_blob': after.get(workflow),
               'workflow_sha256': hashlib.sha256(Path(workflow).read_bytes()).hexdigest()
           }
@@ -121,7 +146,7 @@ jobs:
           assert after[workflow][:2] == ['100644', 'blob'], 'Workflow must be a regular file'
           subprocess.run(['git', 'diff', '--quiet', 'HEAD', '--'], check=True)
           assert not value('status', '--porcelain=v1', '--untracked-files=all'), 'Checkout is dirty'
-          assert not Path(test).is_symlink() and manifest['checkout_test_sha256'] == test_digest, 'Test bytes changed'
+          assert all(not Path(name).is_symlink() and manifest['checkout_test_sha256'][name] == binding['sha256'] for name, binding in tests.items()), 'Test bytes changed'
           print('Verified all 3606 source entries unchanged and exactly one regular workflow addition')
           PYTHON
 
@@ -141,26 +166,40 @@ jobs:
           umask 077
           timeout 10m yarn install --frozen-lockfile --non-interactive 2>&1 | tee "$PROOF_DIR/install.log"
 
-      - name: Recheck tracked source and target test bytes after preparation
+      - name: Recheck tracked source and all seven test files after preparation
         id: prepared
         if: ${{ !cancelled() && steps.source.outcome == 'success' && steps.install.outcome == 'success' }}
         run: |
           set -euo pipefail
           umask 077
-          {
-            git diff --quiet HEAD -- &&
-            printf '%s  %s\n' \
-              809b7fc7c94d60cc78440195af630892cd0f52e4181db0aa9ea10507e85def28 \
-              src/lib/usdcx/withdrawal.test.ts | sha256sum --check --strict
-          } 2>&1 | tee "$PROOF_DIR/prepared-source.log"
+          python3 - <<'PYTHON' 2>&1 | tee "$PROOF_DIR/prepared-source.log"
+          import hashlib
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
 
-      - name: Lint only the target test file
+          manifest = json.loads((Path(os.environ['PROOF_DIR']) / 'source-and-checkout.json').read_text())
+          subprocess.run(['git', 'diff', '--quiet', 'HEAD', '--'], check=True)
+          for name, binding in manifest['expected_tests'].items():
+              assert not Path(name).is_symlink(), 'Symlink test: ' + name
+              assert hashlib.sha256(Path(name).read_bytes()).hexdigest() == binding['sha256'], 'Test bytes changed: ' + name
+          print('Verified unchanged tracked source and all seven test files after preparation')
+          PYTHON
+
+      - name: Lint the five changed source and test files
         id: eslint
         if: ${{ !cancelled() && steps.source.outcome == 'success' && steps.install.outcome == 'success' && steps.prepared.outcome == 'success' }}
         run: |
           set -euo pipefail
           umask 077
-          yarn eslint --max-warnings 0 src/lib/usdcx/withdrawal.test.ts 2>&1 | tee "$PROOF_DIR/eslint.log"
+          yarn eslint --max-warnings 0 \
+            src/lib/usdcx/withdrawal.ts \
+            src/lib/usdcx/withdrawal.test.ts \
+            src/screens/send-flow/ReviewTransaction.tsx \
+            src/screens/send-flow/ReviewTransaction.test.tsx \
+            playwright/e2e/helpers/usdcx-config.test.ts \
+            2>&1 | tee "$PROOF_DIR/eslint.log"
 
       - name: Check project TypeScript without emitting
         id: typescript
@@ -170,13 +209,20 @@ jobs:
           umask 077
           yarn tsc --noEmit --pretty false 2>&1 | tee "$PROOF_DIR/typescript.log"
 
-      - name: Run only withdrawal tests with natural expected-red status
+      - name: Run all seven focused suites with natural exit status
         id: jest
         if: ${{ !cancelled() && steps.source.outcome == 'success' && steps.install.outcome == 'success' && steps.prepared.outcome == 'success' }}
         run: |
           set -euo pipefail
           umask 077
-          yarn jest --runTestsByPath src/lib/usdcx/withdrawal.test.ts \
+          yarn jest --runTestsByPath \
+            src/lib/usdcx/withdrawal.test.ts \
+            src/lib/usdcx/constant.test.ts \
+            src/lib/usdcx/use-burn-minimum.test.ts \
+            src/lib/usdcx/burn.test.ts \
+            src/screens/send-flow/ReviewTransaction.test.tsx \
+            playwright/e2e/helpers/usdcx-config.test.ts \
+            playwright/e2e/helpers/arc-usdcx.test.ts \
             --maxWorkers=2 --coverage=false --json --outputFile="$PROOF_DIR/jest.json" \
             2>&1 | tee "$PROOF_DIR/jest.log"
 
@@ -196,8 +242,10 @@ jobs:
           umask 077
           mkdir -p "$PROOF_DIR"
           python3 - <<'PYTHON'
+          import hashlib
           import json
           import os
+          import subprocess
           from pathlib import Path
 
           proof = Path(os.environ['PROOF_DIR'])
@@ -209,10 +257,41 @@ jobs:
           missing = [name for name in required if not (proof / name).is_file() or not (proof / name).stat().st_size]
           (proof / 'evidence-completeness.json').write_text(json.dumps({'missing_or_empty': missing}, indent=2) + '\n')
           assert not missing, 'Missing or empty proof evidence: ' + ', '.join(missing)
-          json.loads((proof / 'jest.json').read_text())
+          manifest = json.loads((proof / 'source-and-checkout.json').read_text())
+          expected = manifest['expected_tests']
+          result = json.loads((proof / 'jest.json').read_text())
+          actual = {}
+          for suite in result['testResults']:
+              name = Path(suite['name']).relative_to(Path.cwd()).as_posix()
+              assert name not in actual, 'Duplicate test suite: ' + name
+              names = sorted(case['fullName'] for case in suite['assertionResults'])
+              names_json = json.dumps(names, ensure_ascii=False, separators=(',', ':')).encode()
+              actual[name] = {
+                  'test_count': len(names),
+                  'test_names_sha256': hashlib.sha256(names_json).hexdigest(),
+                  'all_passed': suite['status'] == 'passed' and all(case['status'] == 'passed' and not case['failureMessages'] for case in suite['assertionResults'])
+              }
+          summary_keys = ['numTotalTestSuites', 'numPassedTestSuites', 'numFailedTestSuites', 'numPendingTestSuites',
+                          'numTotalTests', 'numPassedTests', 'numFailedTests', 'numPendingTests', 'numTodoTests',
+                          'numRuntimeErrorTestSuites', 'success', 'wasInterrupted']
+          validation = {'summary': {key: result[key] for key in summary_keys}, 'suites': actual}
+          (proof / 'test-set-validation.json').write_text(json.dumps(validation, indent=2) + '\n')
+          assert set(actual) == set(expected), 'Focused suite set changed'
+          for name, binding in expected.items():
+              assert actual[name]['test_count'] == binding['test_count'], 'Test count changed: ' + name
+              assert actual[name]['test_names_sha256'] == binding['test_names_sha256'], 'Test identities changed: ' + name
+              assert actual[name]['all_passed'], 'Failed or skipped case: ' + name
+              assert not Path(name).is_symlink() and hashlib.sha256(Path(name).read_bytes()).hexdigest() == binding['sha256'], 'Post-test bytes changed: ' + name
+          assert result['numTotalTestSuites'] == result['numPassedTestSuites'] == 7, 'Seven suites must pass'
+          assert result['numTotalTests'] == result['numPassedTests'] == 253, 'All 253 predicted cases must pass'
+          assert all(result[key] == 0 for key in ['numFailedTestSuites', 'numPendingTestSuites', 'numFailedTests', 'numPendingTests', 'numTodoTests', 'numRuntimeErrorTestSuites']), 'Failure, skip or runtime error'
+          assert result['success'] is True and result['wasInterrupted'] is False, 'Interrupted or unsuccessful Jest run'
+          subprocess.run(['git', 'diff', '--quiet', 'HEAD', '--'], check=True)
+          assert len(outcomes) == 8 and all(value == 'success' for value in outcomes.values()), 'Independent gate did not pass'
+          print('Verified all seven suites and 253 exact predicted test identities passed; independent gates succeeded')
           PYTHON
 
-      - name: Upload evidence even on expected assertion failure
+      - name: Upload evidence even on failure
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:

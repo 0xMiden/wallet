@@ -5,7 +5,7 @@ import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 import { featureAvailability } from 'lib/remote-config/availability';
 import { getBridgeConfigSnapshot } from 'lib/remote-config/runtime';
 
-import { USDCX_DECIMALS, USDCX_MIN_BURN, usdcxDestinations, usdcxPayoutFeeShortfall } from './constant';
+import { USDCX_DECIMALS, USDCX_MIN_BURN, usdcxDestinations } from './constant';
 
 export class UsdcxBurnError extends Error {
   /** `values` fills the copy's placeholders, such as the fee allowance a burn must exceed. */
@@ -77,10 +77,11 @@ export function isUsdcxDestinationChain(destinationChainId: number): boolean {
   );
 }
 
-/** The `minimum` a burn of `amount` falls below, formatted for `usdcxBelowMinimumBurn`, else undefined. */
+/** The mandatory floor or greater `minimum` a burn falls below, formatted for `usdcxBelowMinimumBurn`. */
 export function usdcxMinimumBurnShortfall(amount: bigint, minimum = USDCX_MIN_BURN): { amount: string } | undefined {
-  if (amount >= minimum) return undefined;
-  return { amount: formatUnits(minimum, USDCX_DECIMALS) };
+  const requiredMinimum = minimum > USDCX_MIN_BURN ? minimum : USDCX_MIN_BURN;
+  if (amount >= requiredMinimum) return undefined;
+  return { amount: formatUnits(requiredMinimum, USDCX_DECIMALS) };
 }
 
 export function validateUsdcxWithdrawal(
@@ -94,7 +95,4 @@ export function validateUsdcxWithdrawal(
   if (amount <= 0n) throw new UsdcxBurnError('usdcxInvalidAmount');
   const minimumShortfall = usdcxMinimumBurnShortfall(amount, minimum);
   if (minimumShortfall) throw new UsdcxBurnError('usdcxBelowMinimumBurn', minimumShortfall);
-  // Circle takes its fee from the payout, so a burn its fee allowance takes whole may pay out nothing.
-  const shortfall = usdcxPayoutFeeShortfall(destinationChainId, amount);
-  if (shortfall) throw new UsdcxBurnError('usdcxSendMoreThanPayoutFee', shortfall);
 }
