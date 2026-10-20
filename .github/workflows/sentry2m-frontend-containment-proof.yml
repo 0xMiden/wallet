@@ -1,0 +1,181 @@
+name: NEVER-MERGE Sentry2M frontend containment red proof
+
+on:
+  push:
+    branches: [ci/sentry2m-frontend-containment-red]
+
+permissions:
+  contents: read
+
+jobs:
+  frontend-containment-red:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    env:
+      CI: 'true'
+      PROOF_HEAD: ${{ github.sha }}
+      PROOF_REF: ${{ github.ref }}
+      PROOF_RUN: ${{ github.run_id }}
+      PROOF_ATTEMPT: ${{ github.run_attempt }}
+    steps:
+      - name: Checkout exact isolated transport
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Bind frozen source and initialize raw evidence
+        run: |
+          set -euo pipefail
+          umask 077
+          export PROOF_DIR="$RUNNER_TEMP/sentry2m-frontend-containment-proof"
+          printf 'PROOF_DIR=%s\n' "$PROOF_DIR" >> "$GITHUB_ENV"
+          mkdir "$PROOF_DIR"
+          test "$(git rev-parse HEAD)" = "$PROOF_HEAD"
+          test "$PROOF_REF" = refs/heads/ci/sentry2m-frontend-containment-red
+          test "$(git rev-parse HEAD^)" = 59d8786e8dd93c090cc9ae5ff5c0c1c490e6a9c8
+          test "$(git rev-list --parents -n 1 HEAD | wc -w)" -eq 2
+          git diff --name-status 59d8786e8dd93c090cc9ae5ff5c0c1c490e6a9c8 HEAD > "$PROOF_DIR/workflow-only.names"
+          printf 'A\t.github/workflows/sentry2m-frontend-containment-proof.yml\n' > "$PROOF_DIR/expected-workflow-only.names"
+          cmp "$PROOF_DIR/workflow-only.names" "$PROOF_DIR/expected-workflow-only.names"
+          git diff --binary 59d8786e8dd93c090cc9ae5ff5c0c1c490e6a9c8 HEAD > "$PROOF_DIR/workflow-only.diff"
+          git cat-file commit 59d8786e8dd93c090cc9ae5ff5c0c1c490e6a9c8 > "$PROOF_DIR/source-commit.txt"
+          git cat-file commit HEAD > "$PROOF_DIR/checkout-commit.txt"
+          git ls-tree --full-tree -r 59d8786e8dd93c090cc9ae5ff5c0c1c490e6a9c8 > "$PROOF_DIR/source-tree.txt"
+          git ls-tree --full-tree -r HEAD > "$PROOF_DIR/checkout-tree.txt"
+          printf '%s\n' "$PROOF_HEAD" "$PROOF_REF" "$PROOF_RUN" "$PROOF_ATTEMPT" > "$PROOF_DIR/run-identity.txt"
+          cat > "$PROOF_DIR/expected-source-sha256.txt" <<'SOURCE_HASHES'
+          f7bfc036ea9404412f5e0201b680f62d126a3051c21e69408e4531b015f1bb4f  src/lib/miden/back/background-notification.ts
+          78f1a81351865e1c27ccec8ab9c7bfab296086c582efc4026a0b3a43f93bbc72  src/lib/miden/back/background-notification.test.ts
+          1db2da993d3dae63fe38ec5d9c1f5228cbd70363bfcb6e6f349feba0b9d01a3f  src/lib/miden/back/background-notification-fallback.test.ts
+          16334ed0e044799fd47b29fd5a8e0e7a4aef2dced4cb3b9c23af79394da71b65  src/lib/extension/notifications.ts
+          a9d4c907a2a6235e8edb2ad71b22c15bdbc551a8cfd821f282dfadbc094db835  src/lib/extension/notifications.test.ts
+          8606e15d58682739313e004734d42f34a2ad715148e00f28c2de63596349941d  yarn.lock
+          9af7cd256a41b9ad42604d8ab62a0859a3218b9b53cd74f8291fcc9075681d1d  package.json
+          73a3951b600a8514cbe91fa7e1be098cc3ae0948c470f2649e8686b192e559a6  jest.config.ts
+          247ac76bd2045c08af6596611277cab6283dc19a8254e03d06a275892c2018e0  jest.setup.js
+          8691103c433f783c2872068abd006ccb566f3c65b50a1d832514f9aae71a0150  src/components/NoteToastProvider.tsx
+          83c385e041f2896950308e62d89bf00f904eec55e630ad771a05cfff59a7d8cc  src/components/NoteToastProvider.test.tsx
+          SOURCE_HASHES
+          sha256sum --check "$PROOF_DIR/expected-source-sha256.txt"
+          while read -r digest file; do
+            mkdir -p "$PROOF_DIR/source/$(dirname "$file")"
+            cp "$file" "$PROOF_DIR/source/$file"
+          done < "$PROOF_DIR/expected-source-sha256.txt"
+          git ls-files --stage -z > "$PROOF_DIR/before.index-stage.bin"
+          cp "$(git rev-parse --git-path index)" "$PROOF_DIR/before.index.bin"
+          git status --porcelain=v1 --untracked-files=all > "$PROOF_DIR/before.status"
+          test ! -s "$PROOF_DIR/before.status"
+          cat > "$PROOF_DIR/run-logged.bash" <<'LOGGER'
+          run_logged() {
+            local label="$1"
+            shift
+            printf '%s\0' "$@" > "$PROOF_DIR/$label.argv"
+            set +e
+            "$@" 2>&1 | tee "$PROOF_DIR/$label.log"
+            local codes=("${PIPESTATUS[@]}")
+            set -e
+            printf '%s\n' "${codes[0]}" > "$PROOF_DIR/$label.exit"
+            printf '%s\n' "${codes[1]}" > "$PROOF_DIR/$label.tee.exit"
+            if [ "${codes[1]}" -ne 0 ]; then return "${codes[1]}"; fi
+            return "${codes[0]}"
+          }
+          LOGGER
+      - name: Use Node22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install frozen dependencies with normal hooks
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged install timeout 10m yarn install --frozen-lockfile --non-interactive
+      - name: Retain pinned matcher and serializer sources
+        run: |
+          set -euo pipefail
+          umask 077
+          node --version > "$PROOF_DIR/node-version.txt"
+          yarn --version > "$PROOF_DIR/yarn-version.txt"
+          while IFS= read -r file; do
+            test -f "node_modules/$file" && test ! -L "node_modules/$file"
+            mkdir -p "$PROOF_DIR/framework/$(dirname "$file")"
+            cp "node_modules/$file" "$PROOF_DIR/framework/$file"
+          done <<'FRAMEWORK_FILES'
+          expect/package.json
+          expect/build/index.js
+          jest-circus/package.json
+          jest-circus/build/jestAdapterInit.js
+          jest-circus/build/runner.js
+          jest-util/package.json
+          jest-util/build/index.js
+          @jest/test-result/package.json
+          @jest/test-result/build/index.js
+          @jest/core/package.json
+          @jest/core/build/index.js
+          jest-matcher-utils/package.json
+          jest-matcher-utils/build/index.js
+          jest-message-util/package.json
+          jest-message-util/build/index.js
+          pretty-format/package.json
+          pretty-format/build/index.js
+          jest-mock/package.json
+          jest-mock/build/index.js
+          jest/package.json
+          jest/build/index.js
+          @swc/jest/package.json
+          @swc/jest/index.js
+          @babel/code-frame/package.json
+          @babel/code-frame/lib/index.js
+          stack-utils/package.json
+          stack-utils/index.js
+          slash/package.json
+          slash/index.js
+          FRAMEWORK_FILES
+      - name: Check the normal notification source and named test format
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged format yarn prettier --check src/lib/miden/back/background-notification.ts src/lib/miden/back/background-notification.test.ts src/lib/miden/back/background-notification-fallback.test.ts src/lib/extension/notifications.ts src/lib/extension/notifications.test.ts
+      - name: Check zero-warning named test lint
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged lint yarn eslint --max-warnings 0 src/lib/miden/back/background-notification.ts src/lib/miden/back/background-notification.test.ts src/lib/miden/back/background-notification-fallback.test.ts src/lib/extension/notifications.ts src/lib/extension/notifications.test.ts
+      - name: Check project TypeScript without emitting
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged typescript yarn tsc --noEmit --pretty false
+      - name: Expect only three causal failures across all37 notification cases
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged red yarn jest --runTestsByPath src/lib/miden/back/background-notification.test.ts src/lib/miden/back/background-notification-fallback.test.ts src/lib/extension/notifications.test.ts src/components/NoteToastProvider.test.tsx --runInBand --coverage=false --no-colors --json --outputFile="$PROOF_DIR/red.jest.json"
+      - name: Always retain final unchanged source and raw index
+        if: always()
+        run: |
+          set -euo pipefail
+          umask 077
+          git diff --binary > "$PROOF_DIR/post-measurement.diff"
+          test ! -s "$PROOF_DIR/post-measurement.diff"
+          sha256sum --check "$PROOF_DIR/expected-source-sha256.txt" > "$PROOF_DIR/after.hash-check.log"
+          git ls-files --stage -z > "$PROOF_DIR/after.index-stage.bin"
+          cp "$(git rev-parse --git-path index)" "$PROOF_DIR/after.index.bin"
+          cmp "$PROOF_DIR/before.index-stage.bin" "$PROOF_DIR/after.index-stage.bin"
+          git status --porcelain=v1 --untracked-files=all > "$PROOF_DIR/after.status"
+          test ! -s "$PROOF_DIR/after.status"
+          printf '%s\n' 'UNACCEPTED: expected red37cases with34PASS3causalFAIL,79passing assertions and no setup/runtime error. External exact inventory, prerequisite, frame, natural exit, source/index/API/archive readback required. No production fix, current-head95, final review, Task7 or merge credit. Never merge.' > "$PROOF_DIR/acceptance.txt"
+          cd "$PROOF_DIR"
+          find . -type f ! -name files.sha256 -print0 | sort -z | xargs -0 sha256sum > files.sha256
+      - name: Always retain actual complete private evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sentry2m-frontend-containment-proof-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/sentry2m-frontend-containment-proof/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
