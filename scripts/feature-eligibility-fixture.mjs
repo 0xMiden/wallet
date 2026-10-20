@@ -34,7 +34,8 @@ export async function createEligibilityFixture({
   networks = ['mainnet', 'testnet', 'devnet'],
   source = PUBLISHED_SOURCE,
   lazySource = false,
-  fetchImpl = fetch
+  fetchImpl = fetch,
+  onRequestWaiting
 } = {}) {
   if (!networks.length || networks.some(network => !NETWORKS.has(network))) throw new Error('invalid fixture networks');
   const selected = new Set(networks);
@@ -75,6 +76,7 @@ export async function createEligibilityFixture({
     if (mode === 'loading') {
       const pending = { response, network };
       waiting.add(pending);
+      onRequestWaiting?.();
       response.once('close', () => waiting.delete(pending));
       return;
     }

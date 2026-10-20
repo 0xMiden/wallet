@@ -89,7 +89,7 @@ test('config overrides update both realms and strict decisions together', async 
   });
 });
 
-test('explicit restricted and failed modes fail closed, and loading waits for a state change', async () => {
+test('explicit restricted and failed modes fail closed', async () => {
   const fixture = await start();
   const set = state => fetch(`${fixture.url}/_fixture/response`, { method: 'POST', body: JSON.stringify({ state }) });
   await set('restricted');
@@ -100,11 +100,40 @@ test('explicit restricted and failed modes fail closed, and loading waits for a 
   });
   await set('unavailable');
   assert.equal((await fetch(`${fixture.url}/v1/eligibility?network=testnet`)).status, 503);
-  await set('loading');
-  const pending = fetch(`${fixture.url}/v1/eligibility?network=testnet`);
-  await set('allowed');
-  assert.equal((await pending).status, 200);
   assert.equal((await set('invalid')).status, 400);
+});
+
+test('loading waits for a state change before allowing wallet access', { timeout: 10_000 }, async () => {
+  let onRequestWaiting;
+  const enteredWaiting = new Promise(resolve => {
+    onRequestWaiting = resolve;
+  });
+  const fixture = await start({ onRequestWaiting });
+  const set = state => fetch(`${fixture.url}/_fixture/response`, { method: 'POST', body: JSON.stringify({ state }) });
+  await set('loading');
+  let settled = false;
+  const pending = fetch(`${fixture.url}/v1/eligibility?network=testnet`, { signal: AbortSignal.timeout(5_000) }).finally(
+    () => {
+      settled = true;
+    }
+  );
+  const first = await Promise.race([
+    enteredWaiting.then(() => 'waiting'),
+    pending.then(
+      () => 'responded',
+      () => 'rejected'
+    )
+  ]);
+  assert.equal(first, 'waiting', 'loading request must enter waiting before responding');
+  assert.equal(settled, false, 'loading response must remain pending before allowing');
+  await set('allowed');
+  const response = await pending;
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), {
+    network: 'testnet',
+    version: 13,
+    allowed: { wallet: true, earn: true, swap: true }
+  });
 });
 
 test('rejects IP parameters and malformed or foreign config overrides', async () => {
