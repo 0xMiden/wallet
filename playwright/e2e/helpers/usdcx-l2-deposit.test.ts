@@ -549,7 +549,7 @@ describe('l2KeyShortfall', () => {
     expect(l2KeyShortfall({ ...enough, wei: 10n ** 16n, usdc: 40_000n })).toBe(
       `top up the key on Base Sepolia: ${DEPOSITOR} holds 0.04 USDC, below the 0.045808 USDC one bridge-in needs ` +
         "(the 0.001 deposit and twice Circle's 0.022404 fee, which its approve covers); a green usdcx-burn-l2 run " +
-        'pays it about 0.99 USDC there'
+        "refills it with that run's payout"
     );
   });
 

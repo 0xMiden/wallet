@@ -1,0 +1,133 @@
+# Trusted half of the UI smoothness bot.
+#
+# A workflow_run workflow always executes the copy of this file on the default
+# branch, with a token that can write to the pull request. It never checks out
+# pull request code. The measurement workflow holds no write token and only
+# uploads samples.
+#
+# This workflow cannot post from the pull request that introduces it. It starts
+# working once it is on the default branch.
+#
+# !! `workflows:` below matches ui-smoothness.yml by its `name:` field, not by
+# !! filename.
+name: UI Smoothness Comment
+
+on:
+  workflow_run:
+    workflows: ["UI Smoothness"]
+    types: [completed]
+
+permissions:
+  actions: read
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: ui-smoothness-comment-${{ github.event.workflow_run.head_sha || github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  comment:
+    name: Post UI smoothness comparison
+    if: >-
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.conclusion != 'skipped'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Resolve the pull request
+        id: pr
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const sha = context.payload.workflow_run.head_sha;
+            const listed = context.payload.workflow_run.pull_requests || [];
+            let pr = listed[0] ? await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: listed[0].number
+            }).then(response => response.data) : null;
+            if (!pr) {
+              const found = await github.rest.repos.listPullRequestsAssociatedWithCommit({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                commit_sha: sha
+              });
+              pr = found.data.find(item => item.head.sha === sha) || null;
+            }
+            if (!pr || pr.head.sha !== sha) {
+              core.setOutput('stale', 'true');
+              return;
+            }
+            core.setOutput('stale', 'false');
+            core.setOutput('number', String(pr.number));
+            core.setOutput('base_sha', pr.base.sha);
+            core.setOutput('base_ref', pr.base.ref);
+
+      - name: Download the report
+        id: fetch
+        if: steps.pr.outputs.stale == 'false'
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: ui-smoothness-report
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/report
+
+      - name: Render the comment
+        id: body
+        if: steps.pr.outputs.stale == 'false'
+        continue-on-error: true
+        env:
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          BASE_SHA: ${{ steps.pr.outputs.base_sha }}
+          BASE_REF: ${{ steps.pr.outputs.base_ref }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+          REPORT: ${{ runner.temp }}/report/results.json
+          CTX: ${{ runner.temp }}/ctx.json
+          BODY: ${{ runner.temp }}/body.md
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+          export REPO="${GITHUB_REPOSITORY#*/}"
+          node --input-type=module -e '
+            import { existsSync, writeFileSync } from "node:fs";
+            import { noReportComment } from "./.github/scripts/render-ui-smoothness-comment.mjs";
+            const ctx = {
+              owner: process.env.OWNER,
+              repo: process.env.REPO,
+              headSha: process.env.HEAD_SHA,
+              baseSha: process.env.BASE_SHA,
+              baseRef: process.env.BASE_REF,
+              runId: String(process.env.RUN_ID),
+              runUrl: process.env.RUN_URL,
+              runner: "ubuntu-latest"
+            };
+            writeFileSync(process.env.CTX, JSON.stringify(ctx));
+            if (!existsSync(process.env.REPORT)) {
+              writeFileSync(process.env.BODY, noReportComment(ctx) + "\n");
+            }
+          '
+          if [[ -f "$REPORT" ]]; then
+            node .github/scripts/render-ui-smoothness-comment.mjs "$REPORT" "$CTX" > "$BODY"
+          fi
+          echo "ok=true" >> "$GITHUB_OUTPUT"
+
+      - name: Post sticky comment
+        if: steps.body.outputs.ok == 'true' && steps.pr.outputs.stale == 'false'
+        continue-on-error: true
+        uses: marocchino/sticky-pull-request-comment@52423e01640425a022ef5fd42c6fb5f633a02728 # v2.9.4
+        with:
+          header: ui-smoothness
+          number: ${{ steps.pr.outputs.number }}
+          path: ${{ runner.temp }}/body.md

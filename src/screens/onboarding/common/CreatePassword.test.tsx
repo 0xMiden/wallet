@@ -182,7 +182,7 @@ describe('CreatePasswordScreen', () => {
 
     const termsLink = screen.getByRole('link', { name: 'termsOfUsage' });
     const privacyLink = screen.getByRole('link', { name: 'privacyPolicy' });
-    expect(termsLink).toHaveAttribute('href', 'https://0xmiden.github.io/wallet/privacy/');
+    expect(termsLink).toHaveAttribute('href', 'https://0xmiden.github.io/wallet/tos/');
     expect(privacyLink).toHaveAttribute('href', 'https://0xmiden.github.io/wallet/privacy/');
 
     // Nothing typed yet => CTA disabled and the empty-state strength hint shown.

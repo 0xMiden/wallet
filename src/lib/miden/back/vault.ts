@@ -1100,7 +1100,16 @@ export class Vault {
             assertWasmHoldCurrent(hold, 'in Vault.spawn before the pre-create sync');
             // Sync to chain tip BEFORE creating first account (no accounts = no tags = fast sync)
             console.log('[Vault.spawn] Step 8b: syncing state...');
-            await client.syncState();
+            try {
+              await client.syncState();
+            } catch (error) {
+              if (midenClient.network !== 'mock') throw error;
+              // The browser mock chain rejects its own genesis block in CI
+              // (`block signature at position 0 does not verify`). Account
+              // creation does not need that sync; the mock client is already
+              // at genesis. A real network still fails closed.
+              console.warn('[Vault.spawn] mock sync failed; creating the account anyway', error);
+            }
             assertWasmHoldCurrent(hold, 'in Vault.spawn before the wallet create');
             console.log('[Vault.spawn] Step 9: creating miden wallet...');
             const id = await client.createMidenWallet(walletType, walletSeed, NEW_ACCOUNT_AUTH_SCHEME);
