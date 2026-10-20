@@ -1,0 +1,441 @@
+name: Sentry2M notification guarded red
+
+on:
+  push:
+    branches: [ci/sentry2m-notification-red]
+
+permissions:
+  contents: read
+
+jobs:
+  guarded-notification-red:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: bash
+    env:
+      CI: 'true'
+      PROOF_HEAD_SHA: ${{ github.sha }}
+      PROOF_REF: ${{ github.ref }}
+      PROOF_EVENT: ${{ github.event_name }}
+      PROOF_REPOSITORY: ${{ github.repository }}
+      PROOF_WORKFLOW_REF: ${{ github.workflow_ref }}
+      PROOF_WORKFLOW_SHA: ${{ github.workflow_sha }}
+      PROOF_RUN_ID: ${{ github.run_id }}
+      PROOF_RUN_ATTEMPT: ${{ github.run_attempt }}
+    steps:
+      - name: Initialize complete private proof evidence
+        id: initialize
+        run: |
+          set -euo pipefail
+          umask 077
+          export PROOF_DIR="$RUNNER_TEMP/sentry2m-notification-red"
+          printf 'PROOF_DIR=%s\n' "$PROOF_DIR" >> "$GITHUB_ENV"
+          mkdir -p "$PROOF_DIR"
+          cat > "$PROOF_DIR/run-logged.bash" <<'BASH_HELPER'
+          run_logged() {
+            local label="$1"
+            shift
+            set +e
+            "$@" 2>&1 | tee "$PROOF_DIR/$label.log"
+            local statuses=("${PIPESTATUS[@]}")
+            set -e
+            printf '%s\n' "${statuses[0]}" > "$PROOF_DIR/$label.exit"
+            printf '%s\n' "${statuses[1]}" > "$PROOF_DIR/$label.tee.exit"
+            if [ "${statuses[1]}" -ne 0 ]; then return "${statuses[1]}"; fi
+            return "${statuses[0]}"
+          }
+          BASH_HELPER
+          cat > "$PROOF_DIR/proof-tools.py" <<'PYTHON_HELPER'
+          import hashlib
+          import json
+          import os
+          import re
+          import stat
+          import subprocess
+          import sys
+          from pathlib import Path
+
+          BINDINGS = {'source': '4892945fa9f96c8e9ca884d42c6f21d87441af54', 'source_tree': '41706fd9c35457e129425db8ceffda1fefb53306', 'branch': 'ci/sentry2m-notification-red', 'workflow': '.github/workflows/sentry2m-notification-guarded-red.yml', 'suites': {'src/lib/extension/notifications.test.ts': {'sha256': 'ea6cdb412c0d21700a4cd00997827d12d9155502a1df950baad4670ecf424a8b', 'count': 11, 'names': ['showExtensionNotification is a no-op outside extension context', 'showExtensionNotification uses the Web Notifications API when permission is already granted', 'showExtensionNotification requests permission when permission is "default" and creates notification on grant', 'showExtensionNotification falls back to chrome.notifications when permission is denied', 'showExtensionNotification falls back to chrome.notifications when global Notification is undefined', 'showExtensionNotification returns silently when both Notification and chrome.notifications are unavailable', 'showExtensionNotification logs an error when chrome.notifications.create reports lastError', 'showExtensionNotification Notification onclick opens the Activity pending tab and closes the notification', 'showExtensionNotification Web API failure fallback falls back once when a granted Notification constructor throws', 'showExtensionNotification Web API failure fallback falls back once when the Web notification permission request rejects', 'showExtensionNotification Web API failure fallback resolves when the Web constructor is unsupported and the Chrome fallback is unavailable'], 'names_sha256': '31e00b43b66086a94f1597a2dcf387ad27c22fe77c0ab4fecdf4147b879aa5d8'}, 'src/components/NoteToastProvider.test.tsx': {'sha256': '83c385e041f2896950308e62d89bf00f904eec55e630ad771a05cfff59a7d8cc', 'count': 8, 'names': ['NoteToastProvider returns null on non-mobile non-extension platforms', 'NoteToastProvider initializes native notifications on mobile', 'NoteToastProvider does not initialize native notifications on extension', 'NoteToastProvider shows mobile notification when toast is visible on mobile', 'NoteToastProvider shows extension notification when toast is visible on extension', 'NoteToastProvider does not show notification when toast is not visible', 'NoteToastProvider renders null even on mobile', 'NoteToastProvider renders null on extension'], 'names_sha256': '39d73bb5c170bd8a37cf15cb3dffd28cf025c47685a8c8f92007c921bef381db'}, 'src/lib/miden/back/background-notification.test.ts': {'sha256': 'cb6b926b7b89d1fecf5c7ef7a20a6677283af3aed773d46115cc7da907846936', 'count': 10, 'names': ['showBackgroundNotification fires a chrome.notifications entry with the given id', 'notifyBackgroundTransactionFailed (gap 6) does NOT notify off the extension', 'notifyBackgroundTransactionFailed (gap 6) does NOT notify when a wallet popup is open (the user already sees the failure)', 'notifyBackgroundTransactionFailed (gap 6) notifies on a background failure when no wallet UI is open', 'notifyBackgroundTransactionFailed (gap 6) swallows an intercom error rather than disturbing the caller', 'notifyBackgroundTransactionNotConfirmed does NOT notify off the extension', 'notifyBackgroundTransactionNotConfirmed does NOT notify when a wallet popup is open', 'notifyBackgroundTransactionNotConfirmed notifies with the not-confirmed title and body when no wallet UI is open', 'notifyBackgroundTransactionNotConfirmed falls back to the en.json body verbatim, and the hint names no transaction type', 'notifyBackgroundTransactionNotConfirmed swallows an intercom error rather than disturbing the caller'], 'names_sha256': '04f71f51ad6794dd413e50e08e43c7c27cbbfc797a774397e19e07c20ac30001'}}, 'regression_path': 'src/lib/extension/notifications.test.ts', 'failure_sites': {'showExtensionNotification Web API failure fallback falls back once when a granted Notification constructor throws': {'line': 162, 'source': "    await expect(showExtensionNotification('Hi', 'msg')).resolves.toBeUndefined();", 'rejection_message': "Failed to construct 'Notification': Illegal constructor. Use ServiceWorkerRegistration.showNotification() instead."}, 'showExtensionNotification Web API failure fallback falls back once when the Web notification permission request rejects': {'line': 182, 'source': "    await expect(showExtensionNotification('Hi', 'msg')).resolves.toBeUndefined();", 'rejection_message': 'Permission request was rejected'}, 'showExtensionNotification Web API failure fallback resolves when the Web constructor is unsupported and the Chrome fallback is unavailable': {'line': 204, 'source': "    await expect(showExtensionNotification('Hi', 'msg')).resolves.toBeUndefined();", 'rejection_message': "Failed to construct 'Notification': Illegal constructor. Use ServiceWorkerRegistration.showNotification() instead."}}, 'old26_control_names': ['showExtensionNotification is a no-op outside extension context', 'showExtensionNotification uses the Web Notifications API when permission is already granted', 'showExtensionNotification requests permission when permission is "default" and creates notification on grant', 'showExtensionNotification falls back to chrome.notifications when permission is denied', 'showExtensionNotification falls back to chrome.notifications when global Notification is undefined', 'showExtensionNotification returns silently when both Notification and chrome.notifications are unavailable', 'showExtensionNotification logs an error when chrome.notifications.create reports lastError', 'showExtensionNotification Notification onclick opens the Activity pending tab and closes the notification', 'NoteToastProvider returns null on non-mobile non-extension platforms', 'NoteToastProvider initializes native notifications on mobile', 'NoteToastProvider does not initialize native notifications on extension', 'NoteToastProvider shows mobile notification when toast is visible on mobile', 'NoteToastProvider shows extension notification when toast is visible on extension', 'NoteToastProvider does not show notification when toast is not visible', 'NoteToastProvider renders null even on mobile', 'NoteToastProvider renders null on extension', 'showBackgroundNotification fires a chrome.notifications entry with the given id', 'notifyBackgroundTransactionFailed (gap 6) does NOT notify off the extension', 'notifyBackgroundTransactionFailed (gap 6) does NOT notify when a wallet popup is open (the user already sees the failure)', 'notifyBackgroundTransactionFailed (gap 6) notifies on a background failure when no wallet UI is open', 'notifyBackgroundTransactionFailed (gap 6) swallows an intercom error rather than disturbing the caller', 'notifyBackgroundTransactionNotConfirmed does NOT notify off the extension', 'notifyBackgroundTransactionNotConfirmed does NOT notify when a wallet popup is open', 'notifyBackgroundTransactionNotConfirmed notifies with the not-confirmed title and body when no wallet UI is open', 'notifyBackgroundTransactionNotConfirmed falls back to the en.json body verbatim, and the hint names no transaction type', 'notifyBackgroundTransactionNotConfirmed swallows an intercom error rather than disturbing the caller'], 'expect_framework': {'version': '30.4.1', 'build_sha256': '469add4932a11785006b19dbd1c041169b040d69cf4e27872892e0a7119368b4', 'wrapper_line': 2116, 'wrapper_source': '  const err = new JestAssertionError();', 'source_lock_sha256': '8606e15d58682739313e004734d42f34a2ad715148e00f28c2de63596349941d', 'inspection': 'Static source reading only; no import, require, Node runtime or Jest execution.'}, 'review_provenance_sha256': {'test_checkpoint/report.md': 'df1a79c630d4d55735ecfc9b40b45ad7e65ac6ae268f3d12fe1ce5b8e1bd36a0', 'test_checkpoint/expected-red.json': 'bec4267c677a691f812d9216337df22b3b7de1e0e1a1e2a5573de62428a54991', 'test_checkpoint/case-inventory.json': '89bcb75e1c07017782eaa5d27367c7633203f42a72dfa17df053fc15b9881436', 'source_review/report.md': '19930fa7b5075d4d509295778a716fd2dc88c9a6b9807ea8f747a47f877fc0c9', 'source_review/controller-acceptance.json': 'b522f8c688edb72008995aa8c4a656c96e63a4d6eda7751c48ca1183bcdafff5'}, 'logged_commands': ['source', 'install', 'prepared', 'format', 'eslint', 'typescript', 'jest', 'final'], 'outcomes': ['initialize', 'checkout', 'source', 'node', 'install', 'prepared', 'format', 'eslint', 'typescript', 'jest', 'final']}
+          proof = Path(os.environ['PROOF_DIR'])
+
+
+          def git(*args):
+              return subprocess.check_output(['git', *args])
+
+
+          def value(*args):
+              return git(*args).decode().strip()
+
+
+          def digest(data):
+              return hashlib.sha256(data).hexdigest()
+
+
+          def save(name, data):
+              (proof / name).write_text(json.dumps(data, indent=2, ensure_ascii=True) + '\n')
+
+
+          def tree(ref):
+              entries = {}
+              for record in git('ls-tree', '-r', '-z', ref).split(b'\0'):
+                  if record:
+                      metadata, name = record.split(b'\t', 1)
+                      entries[name.decode()] = metadata.decode().split()
+              return entries
+
+
+          def snapshot(label):
+              manifest = json.loads((proof / 'source-and-checkout.json').read_text())
+              entries = tree('HEAD')
+              assert entries == manifest['checkout_entry_map'], 'Committed entries changed'
+              working = {}
+              for name, entry in entries.items():
+                  mode, kind, oid = entry
+                  path = Path(name)
+                  observed = path.lstat()
+                  assert kind == 'blob', 'Unexpected source type: ' + name
+                  if mode == '120000':
+                      assert stat.S_ISLNK(observed.st_mode), 'Source symlink changed: ' + name
+                      data = os.readlink(path).encode()
+                  else:
+                      assert mode in ['100644', '100755'] and stat.S_ISREG(observed.st_mode), 'Source file type changed: ' + name
+                      assert bool(observed.st_mode & 0o111) == (mode == '100755'), 'Executable source mode changed: ' + name
+                      data = path.read_bytes()
+                  working[name] = {'git_entry': entry, 'sha256': digest(data), 'bytes': len(data),
+                                   'working_mode': stat.S_IMODE(observed.st_mode),
+                                   'working_blob': hashlib.sha1(b'blob ' + str(len(data)).encode() + b'\0' + data).hexdigest()}
+              raw_stage = git('ls-files', '--stage', '-z')
+              staged = {}
+              for record in raw_stage.split(b'\0'):
+                  if record:
+                      metadata, name = record.split(b'\t', 1)
+                      staged[name.decode()] = metadata.decode().split()
+              index_path = Path(value('rev-parse', '--git-path', 'index'))
+              assert index_path.is_file() and not index_path.is_symlink(), 'Missing or symlinked Git index'
+              raw_index = index_path.read_bytes()
+              (proof / (label + '.index.bin')).write_bytes(raw_index)
+              (proof / (label + '.index-stage.bin')).write_bytes(raw_stage)
+              record = {'head': value('rev-parse', 'HEAD'), 'head_tree': value('rev-parse', 'HEAD^{tree}'),
+                        'index_tree': value('write-tree'), 'index_entries': staged,
+                        'index_sha256': digest(raw_index), 'index_stage_sha256': digest(raw_stage),
+                        'working_entries': working,
+                        'status': value('status', '--porcelain=v1', '--untracked-files=all')}
+              save(label + '.map.json', record)
+              assert record['head'] == manifest['checkout_commit'], 'Head changed'
+              assert record['head_tree'] == record['index_tree'] == manifest['checkout_tree'], 'Tree or index changed'
+              assert staged == {name: [entry[0], entry[2], '0'] for name, entry in entries.items()}, 'Staged entry changed'
+              assert all(record['working_entries'][name]['working_blob'] == entry[2] for name, entry in entries.items()), 'Tracked source drift'
+              assert not record['status'], 'Dirty source or untracked files'
+              if label != 'source-clean':
+                  original = json.loads((proof / 'source-clean.map.json').read_text())
+                  assert record['working_entries'] == original['working_entries'], 'Source bytes or physical modes changed'
+              return record
+
+
+          def identity():
+              keys = ['HEAD_SHA', 'REF', 'EVENT', 'REPOSITORY', 'WORKFLOW_REF', 'WORKFLOW_SHA', 'RUN_ID', 'RUN_ATTEMPT']
+              save('run-identity.json', {key: os.environ['PROOF_' + key] for key in keys})
+
+
+          def source():
+              head = value('rev-parse', 'HEAD')
+              before, after = tree(BINDINGS['source']), tree(head)
+              manifest = {**BINDINGS, 'source_commit': value('rev-parse', BINDINGS['source']),
+                          'source_tree': value('rev-parse', BINDINGS['source'] + '^{tree}'),
+                          'checkout_commit': head, 'checkout_tree': value('rev-parse', 'HEAD^{tree}'),
+                          'source_entry_map': before, 'checkout_entry_map': after,
+                          'workflow_sha256': digest(Path(BINDINGS['workflow']).read_bytes()),
+                          'proof_tools_sha256': digest(Path(__file__).read_bytes()),
+                          'runner_helper_sha256': digest((proof / 'run-logged.bash').read_bytes()),
+                          'runtime': 'UNRUN; source binding alone grants no defect, attribution or production-fix credit'}
+              save('source-and-checkout.json', manifest)
+              for label, ref in [('source', BINDINGS['source']), ('checkout', head)]:
+                  (proof / (label + '-commit.txt')).write_bytes(git('cat-file', 'commit', ref))
+                  (proof / (label + '-tree.txt')).write_bytes(git('ls-tree', '-r', ref))
+              (proof / 'workflow-only.diff').write_bytes(git('diff', '--binary', BINDINGS['source'], head, '--', BINDINGS['workflow']))
+              assert head == os.environ['PROOF_HEAD_SHA'] == os.environ['PROOF_WORKFLOW_SHA'], 'Checkout/event/workflow head mismatch'
+              assert os.environ['PROOF_EVENT'] == 'push' and os.environ['PROOF_REF'] == 'refs/heads/' + BINDINGS['branch'], 'Disposable push required'
+              assert os.environ['PROOF_WORKFLOW_REF'] == os.environ['PROOF_REPOSITORY'] + '/' + BINDINGS['workflow'] + '@' + os.environ['PROOF_REF'], 'Workflow ref mismatch'
+              assert all(os.environ['PROOF_' + key].isdigit() for key in ['RUN_ID', 'RUN_ATTEMPT']), 'Run identity missing'
+              assert manifest['source_tree'] == BINDINGS['source_tree'], 'Reviewed source tree mismatch'
+              assert value('rev-list', '--parents', '-n', '1', head).split() == [head, BINDINGS['source']], 'Sole direct source parent required'
+              assert len(before) == 3614 and all(after.get(name) == entry for name, entry in before.items()), 'Reviewed source changed'
+              assert set(after) - set(before) == {BINDINGS['workflow']} and len(after) == 3615, 'Sole workflow addition required'
+              assert after[BINDINGS['workflow']][:2] == ['100644', 'blob'], 'Workflow must be a regular file'
+              for name, binding in BINDINGS['suites'].items():
+                  assert not Path(name).is_symlink() and digest(Path(name).read_bytes()) == binding['sha256'], 'Test changed: ' + name
+              lines = Path(BINDINGS['regression_path']).read_text().splitlines()
+              for site in BINDINGS['failure_sites'].values():
+                  assert lines[site['line'] - 1] == site['source'], 'Frozen resolves assertion changed'
+              snapshot('source-clean')
+              print('Verified all3614 source entries and sole regular workflow, full29-case inventory and exact push provenance')
+
+
+          def prepared():
+              snapshot('prepared')
+              package_path = Path('node_modules/expect/package.json')
+              build_path = Path('node_modules/expect/build/index.js')
+              assert not package_path.is_symlink() and not build_path.is_symlink(), 'Unexpected dependency file symlink'
+              package = package_path.read_bytes()
+              build = build_path.read_bytes()
+              expected = BINDINGS['expect_framework']
+              observed = {'version': json.loads(package)['version'], 'build_sha256': digest(build),
+                          'package_sha256': digest(package), 'wrapper_line': expected['wrapper_line'],
+                          'wrapper_source': build.decode().splitlines()[expected['wrapper_line'] - 1]}
+              (proof / 'framework-expect-package.json').write_bytes(package)
+              (proof / 'framework-expect-build.js').write_bytes(build)
+              save('framework-identity.json', observed)
+              assert observed['version'] == expected['version'] and observed['build_sha256'] == expected['build_sha256'], 'Pinned expect implementation mismatch'
+              assert observed['wrapper_source'] == expected['wrapper_source'], 'Pinned resolves wrapper source moved'
+              assert digest(Path('yarn.lock').read_bytes()) == expected['source_lock_sha256'], 'Frozen dependency lock changed'
+              save('tool-versions.json', {name: subprocess.check_output([name, '--version'], text=True).strip() for name in ['node', 'yarn']})
+              print('Verified full post-install source/index and pinned expect30.4.1 resolves wrapper source')
+
+
+          def checked_result():
+              result = json.loads((proof / 'jest.json').read_text())
+              observed = {}
+              failures = {}
+              for suite in result['testResults']:
+                  name = Path(suite['name']).relative_to(Path.cwd()).as_posix()
+                  assert name not in observed and name in BINDINGS['suites'], 'Unexpected or duplicate suite'
+                  binding = BINDINGS['suites'][name]
+                  cases = suite['assertionResults']
+                  names = sorted(case['fullName'] for case in cases)
+                  assert len(names) == len(set(names)) == binding['count'], 'Missing/extra/duplicate case'
+                  assert digest(json.dumps(names, ensure_ascii=False, separators=(',', ':')).encode()) == binding['names_sha256'], 'Exact case names changed'
+                  assert not Path(name).is_symlink() and digest(Path(name).read_bytes()) == binding['sha256'], 'Test bytes changed'
+                  failed = []
+                  for case in cases:
+                      title = case['fullName']
+                      assert not case['failing'] and case['invocations'] == 1 and not case['retryReasons'], 'Retry or expected-failing test forbidden'
+                      site = BINDINGS['failure_sites'].get(title)
+                      if site is None:
+                          assert case['status'] == 'passed' and not case['failureMessages'] and not case['failureDetails'], 'Old control or runtime failure: ' + title
+                          continue
+                      assert name == BINDINGS['regression_path'], 'Failure in wrong suite'
+                      assert case['status'] == 'failed' and len(case['failureMessages']) == len(case['failureDetails']) == 1, 'Expected one resolves failure: ' + title
+                      assert case['numPassingAsserts'] == 0, 'Wrong first assertion failure: ' + title
+                      message = re.sub(r'\x1b\[[0-9;]*m', '', case['failureMessages'][0])
+                      prefix, stack = re.split(r'\n\s+at ', message, maxsplit=1)
+                      detail_message = 'expect(received).resolves.toBeUndefined()\n\nReceived promise rejected instead of resolved\nRejected to value: [TypeError: ' + site['rejection_message'] + ']'
+                      assert prefix.rstrip() == 'Error: ' + detail_message, 'Wrong resolves rejection type/message/matcher: ' + title
+                      detail = case['failureDetails'][0]
+                      assert isinstance(detail, dict) and detail.get('matcherResult') is None, 'Unexpected matcherResult for rejected resolves promise'
+                      assert re.sub(r'\x1b\[[0-9;]*m', '', detail['message']) == detail_message, 'Raw/structured rejection mismatch'
+                      frames = re.split(r'\n\s+at ', stack)
+                      wrapper = 'expect (' + str(Path.cwd() / 'node_modules/expect/build/index.js') + ':' + str(BINDINGS['expect_framework']['wrapper_line']) + ':15)'
+                      assert frames[0].strip() == wrapper, 'Wrong pinned resolves expect wrapper frame: ' + title
+                      assert len(frames) >= 2, 'Missing first authored assertion frame'
+                      source_frame = frames[1].strip()
+                      expected_frame = r'^[^\n]* \(' + re.escape(str(Path.cwd() / name)) + ':' + str(site['line']) + r':11\)$'
+                      assert re.fullmatch(expected_frame, source_frame), 'Earlier setup/runtime/wrong authored assertion: ' + title
+                      failed.append(title)
+                      failures[title] = {'assertion_line': site['line'], 'matcher': 'resolves.toBeUndefined',
+                                         'rejection_type': 'TypeError', 'framework_frame': frames[0].strip(),
+                                         'first_authored_frame': source_frame, 'passing_assertions_before_failure': case['numPassingAsserts'],
+                                         'observed_prefix_sha256': digest(prefix.rstrip().encode())}
+                  observed[name] = {'cases': len(cases), 'passes': len(cases) - len(failed), 'expected_failure_names': failed}
+              assert set(observed) == set(BINDINGS['suites']) and set(failures) == set(BINDINGS['failure_sites']), 'Incomplete suites or exact failure set'
+              assert (result['numTotalTestSuites'], result['numFailedTestSuites'], result['numPassedTestSuites']) == (3, 1, 2), 'Wrong suite summary'
+              assert (result['numTotalTests'], result['numFailedTests'], result['numPassedTests']) == (29, 3, 26), 'Wrong case summary'
+              assert all(result[key] == 0 for key in ['numPendingTestSuites', 'numPendingTests', 'numTodoTests', 'numRuntimeErrorTestSuites']), 'Skipped/todo/runtime result'
+              assert result['success'] is False and result['wasInterrupted'] is False and not result['openHandles'], 'Interrupted/runtime result'
+              return {'total': 29, 'passed': 26, 'failed': 3, 'suites': observed, 'exact_resolves_failures': failures}
+
+
+          def validate_snapshot(label):
+              manifest = json.loads((proof / 'source-and-checkout.json').read_text())
+              baseline = json.loads((proof / 'source-clean.map.json').read_text())
+              record = json.loads((proof / (label + '.map.json')).read_text())
+              entries = manifest['checkout_entry_map']
+              assert record['head'] == manifest['checkout_commit'] and record['head_tree'] == record['index_tree'] == manifest['checkout_tree'], 'Snapshot head/index tree mismatch'
+              assert record['index_entries'] == {name: [entry[0], entry[2], '0'] for name, entry in entries.items()}, 'Snapshot staged entries changed'
+              assert digest((proof / (label + '.index.bin')).read_bytes()) == record['index_sha256'], 'Raw index evidence mismatch'
+              assert digest((proof / (label + '.index-stage.bin')).read_bytes()) == record['index_stage_sha256'], 'Staged index evidence mismatch'
+              assert record['working_entries'] == baseline['working_entries'] and set(record['working_entries']) == set(entries), 'Working source or mode snapshot changed'
+              assert all(record['working_entries'][name]['working_blob'] == entry[2] and record['working_entries'][name]['git_entry'] == entry for name, entry in entries.items()), 'Snapshot working blob mismatch'
+              assert not record['status'], 'Snapshot dirty'
+              return digest((proof / (label + '.map.json')).read_bytes())
+
+
+          def validate():
+              outcomes = {name: os.environ.get(name.upper() + '_OUTCOME', 'missing') for name in BINDINGS['outcomes']}
+              save('step-outcomes.json', outcomes)
+              validation = {'status': 'INVALID', 'production_gate': 'CLOSED', 'runtime': 'UNACCEPTED', 'independent_outcomes': outcomes}
+              required = ['run-identity.json', 'run-logged.bash', 'proof-tools.py', 'source-and-checkout.json',
+                          'source-commit.txt', 'checkout-commit.txt', 'source-tree.txt', 'checkout-tree.txt', 'workflow-only.diff',
+                          'tool-versions.json', 'framework-identity.json', 'framework-expect-package.json', 'framework-expect-build.js', 'jest.json']
+              required += [label + suffix for label in BINDINGS['logged_commands'] for suffix in ['.log', '.exit', '.tee.exit']]
+              required += [label + suffix for label in ['source-clean', 'prepared', 'final-clean'] for suffix in ['.map.json', '.index.bin', '.index-stage.bin']]
+              missing = [name for name in required if not (proof / name).is_file() or not (proof / name).stat().st_size]
+              save('evidence-completeness.json', {'missing_or_empty': missing, 'required': required})
+              try:
+                  assert not missing, 'Missing/empty evidence: ' + repr(missing)
+                  for name, observed in outcomes.items():
+                      assert observed == ('failure' if name == 'jest' else 'success'), 'Independent outcome mismatch: ' + name
+                  for label in BINDINGS['logged_commands']:
+                      assert (proof / (label + '.exit')).read_text().strip() == ('1' if label == 'jest' else '0'), 'Wrong natural command exit: ' + label
+                      assert (proof / (label + '.tee.exit')).read_text().strip() == '0', 'Evidence tee failed: ' + label
+                  manifest = json.loads((proof / 'source-and-checkout.json').read_text())
+                  assert manifest['source_commit'] == BINDINGS['source'] and manifest['source_tree'] == BINDINGS['source_tree'], 'Source binding changed'
+                  assert manifest['source_entry_map'] == tree(BINDINGS['source']), 'Source entry map changed'
+                  assert manifest['checkout_entry_map'] == tree('HEAD') and all(manifest['checkout_entry_map'][name] == entry for name, entry in manifest['source_entry_map'].items()), 'Checkout entries changed'
+                  assert set(manifest['checkout_entry_map']) - set(manifest['source_entry_map']) == {BINDINGS['workflow']}, 'Workflow addition changed'
+                  assert manifest['proof_tools_sha256'] == digest(Path(__file__).read_bytes()), 'Proof helper changed'
+                  assert manifest['runner_helper_sha256'] == digest((proof / 'run-logged.bash').read_bytes()), 'Logging helper changed'
+                  framework = json.loads((proof / 'framework-identity.json').read_text())
+                  assert framework['version'] == BINDINGS['expect_framework']['version'] and framework['build_sha256'] == digest((proof / 'framework-expect-build.js').read_bytes()) == BINDINGS['expect_framework']['build_sha256'], 'Pinned framework evidence changed'
+                  assert framework['package_sha256'] == digest((proof / 'framework-expect-package.json').read_bytes()), 'Framework package evidence changed'
+                  result = checked_result()
+                  snapshots = {label: validate_snapshot(label) for label in ['source-clean', 'prepared', 'final-clean']}
+                  snapshot('final-validation-clean')
+                  snapshots['final-validation-clean'] = validate_snapshot('final-validation-clean')
+                  validation.update({'status': 'EXPECTED_NOTIFICATION_FALLBACK_ASSERTIONS_ONLY', 'runtime': 'ACTUAL_GUARDED_CI_RED',
+                                     'production_gate': 'ELIGIBLE_FOR_ROOT_ACCEPTANCE_ONLY', 'tests': result,
+                                     'source_index_snapshot_sha256': snapshots,
+                                     'limits': 'No source fix, event realm/callsite attribution, post-failure fallback assertion credit, whole95, final review or merge credit'})
+                  print('Observed exactly three resolves assertion rejections at162/182/204,26 old controls and all independent/source/index gates; natural Jest red retained')
+              except Exception as error:
+                  validation['reason'] = str(error)
+                  raise
+              finally:
+                  save('test-set-validation.json', validation)
+
+
+          mode = sys.argv[1]
+          if mode == 'identity':
+              identity()
+          elif mode == 'source':
+              source()
+          elif mode == 'prepared':
+              prepared()
+          elif mode == 'final':
+              snapshot('final-clean')
+              print('Verified final full source/mode/index integrity after all29 tests')
+          elif mode == 'validate':
+              validate()
+          else:
+              raise ValueError('Unknown proof mode')
+          PYTHON_HELPER
+          python3 "$PROOF_DIR/proof-tools.py" identity
+
+      - name: Checkout exact proof head
+        id: checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Bind reviewed source and sole workflow addition
+        id: source
+        if: ${{ !cancelled() && steps.initialize.outcome == 'success' && steps.checkout.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged source python3 "$PROOF_DIR/proof-tools.py" source
+
+      - name: Setup Node22
+        id: node
+        if: ${{ !cancelled() && steps.source.outcome == 'success' }}
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+
+      - name: Install frozen dependencies with normal preparation hooks
+        id: install
+        if: ${{ !cancelled() && steps.source.outcome == 'success' && steps.node.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged install timeout 10m yarn install --frozen-lockfile --non-interactive
+
+      - name: Recheck source index and pinned resolves wrapper
+        id: prepared
+        if: ${{ !cancelled() && steps.source.outcome == 'success' && steps.install.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged prepared python3 "$PROOF_DIR/proof-tools.py" prepared
+
+      - name: Check formatting of the six named source and test files
+        id: format
+        if: ${{ !cancelled() && steps.source.outcome == 'success' && steps.install.outcome == 'success' && steps.prepared.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged format yarn prettier --check src/lib/extension/notifications.ts src/lib/extension/notifications.test.ts src/components/NoteToastProvider.tsx src/components/NoteToastProvider.test.tsx src/lib/miden/back/background-notification.ts src/lib/miden/back/background-notification.test.ts
+
+      - name: Lint the six named source and test files
+        id: eslint
+        if: ${{ !cancelled() && steps.source.outcome == 'success' && steps.install.outcome == 'success' && steps.prepared.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged eslint yarn eslint --max-warnings 0 src/lib/extension/notifications.ts src/lib/extension/notifications.test.ts src/components/NoteToastProvider.tsx src/components/NoteToastProvider.test.tsx src/lib/miden/back/background-notification.ts src/lib/miden/back/background-notification.test.ts
+
+      - name: Check whole project TypeScript without emitting
+        id: typescript
+        if: ${{ !cancelled() && steps.source.outcome == 'success' && steps.install.outcome == 'success' && steps.prepared.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged typescript yarn tsc --noEmit --pretty false
+
+      - name: Run all29 exact notification cases with natural expected-red status
+        id: jest
+        if: ${{ !cancelled() && steps.source.outcome == 'success' && steps.install.outcome == 'success' && steps.prepared.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged jest yarn jest --runTestsByPath src/lib/extension/notifications.test.ts src/components/NoteToastProvider.test.tsx src/lib/miden/back/background-notification.test.ts --maxWorkers=2 --coverage=false --no-colors --json --outputFile="$PROOF_DIR/jest.json"
+
+      - name: Verify final complete source modes and index after the tests
+        id: final
+        if: ${{ always() && steps.prepared.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged final python3 "$PROOF_DIR/proof-tools.py" final
+
+      - name: Accept only the three exact resolves rejection assertions
+        id: validate
+        if: always()
+        env:
+          INITIALIZE_OUTCOME: ${{ steps.initialize.outcome }}
+          CHECKOUT_OUTCOME: ${{ steps.checkout.outcome }}
+          SOURCE_OUTCOME: ${{ steps.source.outcome }}
+          NODE_OUTCOME: ${{ steps.node.outcome }}
+          INSTALL_OUTCOME: ${{ steps.install.outcome }}
+          PREPARED_OUTCOME: ${{ steps.prepared.outcome }}
+          FORMAT_OUTCOME: ${{ steps.format.outcome }}
+          ESLINT_OUTCOME: ${{ steps.eslint.outcome }}
+          TYPESCRIPT_OUTCOME: ${{ steps.typescript.outcome }}
+          JEST_OUTCOME: ${{ steps.jest.outcome }}
+          FINAL_OUTCOME: ${{ steps.final.outcome }}
+        run: |
+          set -euo pipefail
+          umask 077
+          export PROOF_DIR="${PROOF_DIR:-$RUNNER_TEMP/sentry2m-notification-red}"
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged validate python3 "$PROOF_DIR/proof-tools.py" validate
+
+      - name: Retain complete raw evidence for every result
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: sentry2m-notification-red-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.PROOF_DIR }}
+          if-no-files-found: error
+          retention-days: 7
