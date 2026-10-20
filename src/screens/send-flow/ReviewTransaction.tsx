@@ -76,6 +76,15 @@ import { uiTokenFromBalance } from './ui-token';
 import { UsdcxPayoutRows } from './UsdcxPayoutRows';
 import { useEpochQuote } from './useEpochQuote';
 
+const ReviewErrorMessage: React.FC<{ message?: string; errorId?: UserErrorId }> = ({ message, errorId }) => {
+  useUserVisibleError(message ? errorId : null, 'review');
+  return (
+    <p data-testid="review-error" className="text-center text-sm text-red-500">
+      {message}
+    </p>
+  );
+};
+
 /**
  * Full-screen send review page (`/send/review?amount=…&to=…&tokenId=…`).
  *
@@ -661,10 +670,6 @@ export const ReviewTransaction: React.FC = () => {
     : submitError !== undefined
       ? submitErrorId
       : burnValidationErrorId;
-  useUserVisibleError(
-    paramsInvalid || bridgeParamsInvalid || tokenInvalid || !reviewError ? null : reviewErrorId,
-    'review'
-  );
   if (paramsInvalid || bridgeParamsInvalid || tokenInvalid) {
     return <Redirect to="/send" />;
   }
@@ -717,9 +722,7 @@ export const ReviewTransaction: React.FC = () => {
         footer={
           <div className="flex flex-col gap-2">
             {(scaleIsUnknown || submitError || burnValidationError) && (
-              <p data-testid="review-error" className="text-center text-sm text-red-500">
-                {reviewError}
-              </p>
+              <ReviewErrorMessage message={reviewError} errorId={reviewErrorId} />
             )}
             <Button
               type="button"
