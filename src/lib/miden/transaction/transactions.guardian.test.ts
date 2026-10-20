@@ -94,7 +94,10 @@ import { hasErrorBeforeSubmit, markErrorBeforeSubmit } from '../sdk/sdk-error-co
 
 jest.mock('lib/remote-config/runtime', () => ({
   __esModule: true,
-  ...jest.requireActual('lib/remote-config/runtime')
+  ...jest.requireActual('lib/remote-config/runtime'),
+  getBridgeConfigSnapshot: () =>
+    jest.requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
+      .TEST_BRIDGE_CONFIG_SNAPSHOT
 }));
 
 /**
@@ -14289,6 +14292,7 @@ describe('GEO014 Guardian feature authorization at final submit', () => {
     txStore.length = 0;
     const runtime = await import('lib/remote-config/runtime');
     const { TEST_BRIDGE_CONFIG_SNAPSHOT } = await import('lib/epoch/testing/bridge-config');
+    const { getMessage } = await import('lib/i18n/core');
     const { featureAvailability, geoFeatureGate } = await import('lib/remote-config/availability');
     const { SwapTransaction } = await import('../db/types');
     let featureAllowed = true;
@@ -14364,8 +14368,14 @@ describe('GEO014 Guardian feature authorization at final submit', () => {
       expect(runtime.getBridgeConfigSnapshot().geo).toMatchObject({ allowed: { wallet: true } });
       expect(client.transactions.submitProven).toHaveBeenCalledTimes(allowed ? 1 : 0);
       expect(client.transactions.apply).toHaveBeenCalledTimes(allowed ? 1 : 0);
-      expect(outcome.ok).toBe(allowed);
-      expect(hasErrorBeforeSubmit(outcome.error)).toBe(!allowed);
+      expect(outcome).toEqual({ ok: true, error: undefined });
+      const row = txStore.find(stored => stored.id === transaction.id);
+      expect(row?.status).toBe(allowed ? ITransactionStatus.Completed : ITransactionStatus.Failed);
+      expect(row?.rawError ?? row?.error).toBe(
+        allowed
+          ? undefined
+          : `Error: ${getMessage(kind === 'swap' ? 'swapUnavailableTitle' : 'earnUnavailableOnNetwork')}`
+      );
     } finally {
       readSnapshot.mockRestore();
     }

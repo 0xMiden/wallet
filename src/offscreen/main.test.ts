@@ -3420,7 +3420,7 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
       return undefined;
     });
     const leaf = jest.fn(async (...args: unknown[]) => {
-      const onStage = args[args.length - 1];
+      const onStage = args[method === 'newTransaction' ? 3 : 1];
       if (typeof onStage === 'function') await onStage('submitting', { evidence: { refBlock: 9 } });
       return { serialize: () => new Uint8Array([1]) };
     });

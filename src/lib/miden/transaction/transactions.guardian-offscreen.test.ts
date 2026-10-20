@@ -68,6 +68,14 @@ import { ITransaction, ITransactionStatus, ReplaceHotKeyTransaction } from '../d
 import { markErrorBeforeSubmit } from '../sdk/sdk-error-code';
 import { WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
+jest.mock('lib/remote-config/runtime', () => ({
+  __esModule: true,
+  ...jest.requireActual('lib/remote-config/runtime'),
+  getBridgeConfigSnapshot: () =>
+    jest.requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
+      .TEST_BRIDGE_CONFIG_SNAPSHOT
+}));
+
 // The distinctive co-signed-request bytes the mock `signAndCreateTransactionRequest`
 // emits. The flag-ON route MUST forward these bytes verbatim to the offscreen leaf
 // — that is the §4.0 precondition (Rust `Serializable for TransactionRequest` writes
