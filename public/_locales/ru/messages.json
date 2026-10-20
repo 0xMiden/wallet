@@ -3321,6 +3321,18 @@
     "message": "При смене вашего повседневного ключа произошла ошибка. Ваши средства в безопасности, и вы можете повторить попытку сейчас.",
     "englishSource": "Something went wrong while rotating your everyday key. Your funds are safe, and you can retry now."
   },
+  "hotKeyRotationStartOver": {
+    "message": "Начать сначала",
+    "englishSource": "Start over"
+  },
+  "hotKeyRotationStartOverTitle": {
+    "message": "Удалить этот кошелек и начать сначала?",
+    "englishSource": "Remove this wallet and start over?"
+  },
+  "hotKeyRotationStartOverBody": {
+    "message": "Это удаляет кошелек с данного устройства, чтобы вы могли восстановить его позже, например, с другим URL-адресом «guardian». Ваши средства остаются в сети. Для восстановления кошелька вам понадобится ваша фраза восстановления.",
+    "englishSource": "This removes the wallet from this device so you can restore it again, for example with a different guardian URL. Your funds stay on the network. You will need your recovery phrase to restore the wallet."
+  },
   "hotKeyRotationUnconfirmedTitle": {
     "message": "Ежедневная ротация ключей не подтверждена",
     "englishSource": "Everyday key rotation not confirmed"
@@ -3820,6 +3832,15 @@
   "guardianNotDetected": {
     "message": "Нам не удалось автоматически определить ваш guardian. Выберите тот, который вы использовали, или введите его URL-адрес.",
     "englishSource": "We couldn't detect your guardian automatically. Pick the one you used, or enter its URL."
+  },
+  "guardianStateBehindChain": {
+    "message": "$name$ знает этот аккаунт, но не хранит информацию о его последнем состоянии. Если вы перенесли аккаунт на другого guardian, введите URL этого guardian.",
+    "englishSource": "$name$ knows this account, but it does not hold the account's latest state. If you moved the account to another guardian, enter that guardian's URL.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
   },
   "guardianProbePartialFailure": {
     "message": "$count$ Не удалось установить связь с guardian, поэтому обнаружение может быть неполным.",

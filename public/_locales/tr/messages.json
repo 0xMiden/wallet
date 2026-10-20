@@ -3321,6 +3321,18 @@
     "message": "Günlük anahtarınızı değiştirirken bir sorun oluştu. Paranız güvende; şimdi yeniden deneyebilirsiniz.",
     "englishSource": "Something went wrong while rotating your everyday key. Your funds are safe, and you can retry now."
   },
+  "hotKeyRotationStartOver": {
+    "message": "Baştan başlayın",
+    "englishSource": "Start over"
+  },
+  "hotKeyRotationStartOverTitle": {
+    "message": "Bu cüzdanı silip baştan mı başlamalıyım?",
+    "englishSource": "Remove this wallet and start over?"
+  },
+  "hotKeyRotationStartOverBody": {
+    "message": "Bu işlem, cüzdanı bu cihazdan kaldırır; böylece örneğin farklı bir guardian URL'si kullanarak cüzdanı yeniden geri yükleyebilirsiniz. Paranız ağda kalır. Cüzdanı geri yüklemek için kurtarma ifadesine ihtiyacınız olacaktır.",
+    "englishSource": "This removes the wallet from this device so you can restore it again, for example with a different guardian URL. Your funds stay on the network. You will need your recovery phrase to restore the wallet."
+  },
   "hotKeyRotationUnconfirmedTitle": {
     "message": "Günlük anahtar rotasyonu doğrulanmadı",
     "englishSource": "Everyday key rotation not confirmed"
@@ -3820,6 +3832,15 @@
   "guardianNotDetected": {
     "message": "guardian'ınızı otomatik olarak algılayamadık. Kullandığınız adresi seçin veya URL'sini girin.",
     "englishSource": "We couldn't detect your guardian automatically. Pick the one you used, or enter its URL."
+  },
+  "guardianStateBehindChain": {
+    "message": "$name$ bu hesabı tanır, ancak hesabın en son durumunu tutmaz. Hesabı başka bir guardian'a taşıdıysanız, o guardian'ın URL'sini girin.",
+    "englishSource": "$name$ knows this account, but it does not hold the account's latest state. If you moved the account to another guardian, enter that guardian's URL.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
   },
   "guardianProbePartialFailure": {
     "message": "$count$ guardian(s) adreslerine ulaşılamadı, bu nedenle tespit işlemi eksik olabilir.",

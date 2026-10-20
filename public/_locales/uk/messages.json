@@ -3321,6 +3321,18 @@
     "message": "Під час ротації вашого повсякденного ключа сталася помилка. Ваші кошти в безпеці, і ви можете спробувати ще раз.",
     "englishSource": "Something went wrong while rotating your everyday key. Your funds are safe, and you can retry now."
   },
+  "hotKeyRotationStartOver": {
+    "message": "Почати спочатку",
+    "englishSource": "Start over"
+  },
+  "hotKeyRotationStartOverTitle": {
+    "message": "Видалити цей гаманець і почати спочатку?",
+    "englishSource": "Remove this wallet and start over?"
+  },
+  "hotKeyRotationStartOverBody": {
+    "message": "Це видаляє гаманець з цього пристрою, щоб ви могли відновити його пізніше, наприклад, за допомогою іншого URL-адреси «guardian». Ваші кошти залишаються в мережі. Для відновлення гаманця вам знадобиться ваша фраза відновлення.",
+    "englishSource": "This removes the wallet from this device so you can restore it again, for example with a different guardian URL. Your funds stay on the network. You will need your recovery phrase to restore the wallet."
+  },
   "hotKeyRotationUnconfirmedTitle": {
     "message": "Щоденна ротація ключів не підтверджена",
     "englishSource": "Everyday key rotation not confirmed"
@@ -3820,6 +3832,15 @@
   "guardianNotDetected": {
     "message": "Нам не вдалося автоматично визначити ваш guardian. Оберіть той, яким ви користувалися, або введіть його URL-адресу.",
     "englishSource": "We couldn't detect your guardian automatically. Pick the one you used, or enter its URL."
+  },
+  "guardianStateBehindChain": {
+    "message": "$name$ знає цей рахунок, але не зберігає його останній стан. Якщо ви перенесли рахунок до іншого «guardian», введіть URL-адресу цього «guardian».",
+    "englishSource": "$name$ knows this account, but it does not hold the account's latest state. If you moved the account to another guardian, enter that guardian's URL.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
   },
   "guardianProbePartialFailure": {
     "message": "$count$ Не вдалося встановити зв’язок із guardian(s), тому виявлення може бути неповним.",
