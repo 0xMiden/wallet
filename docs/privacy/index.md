@@ -31,20 +31,20 @@ Usage data, below, is sent **only while that setting is on**. Crash reports are 
 
 When the setting is on, the App reports the start and the end of a small set of activities. Each report is a single message with no free-form text in it — there is no field an address, an amount, or an error message could occupy. A message contains only these:
 
-| What | Values |
-|---|---|
-| Which activity | One of: opening the app, unlocking, creating a wallet, importing a wallet, recovering a wallet, returning to the app, funding, sharing your receive address, sending, swapping, earning, connecting a dApp, approving a dApp request, changing your guardian, handling an incoming note, viewing activity |
+| What                                                    | Values                                                                                                                                                                                                                                                                                                       |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Which activity                                          | One of: opening the app, unlocking, creating a wallet, importing a wallet, recovering a wallet, returning to the app, funding, sharing your receive address, sending, swapping, earning, connecting a dApp, approving a dApp request, changing your guardian, handling an incoming note, viewing activity    |
 | Which kind of work, for work the App did on your behalf | One of: sending, receiving, swapping, earning, bridging, a guardian change, a dApp's transaction, another transaction, proving, or one of three services being unreachable. A category of work, never a recipient, an amount, an asset, a dApp, or an endpoint. See "Work the App does on your behalf" below |
-| Whether it started or ended | `started` or `ended`, or `settled` for work the App did on your behalf |
-| How it ended | `completed`, `cancelled`, or `errored` |
-| Broad error category, if it failed | One of: network, rpc, proving, validation, storage, auth, timeout, unknown |
-| How long it took | A duration in milliseconds |
-| How far you got | For an activity, the name of the furthest screen it reached, from a fixed list — for example `select_amount` or `review`. The screen's name only, never anything you typed on it. For work the App did on your behalf, the stage it reached instead — for example `proving` or `submitting` |
-| App version | For example, `1.15.21` |
-| Platform | `extension`, `ios`, or `android` |
-| Network | `mainnet`, `testnet`, `devnet`, or `localnet` |
-| A short random number for that one activity | Explained under "Identifiers" below |
-| A short random number for that run of the App | Explained under "Identifiers" below |
+| Whether it started or ended                             | `started` or `ended`, or `settled` for work the App did on your behalf                                                                                                                                                                                                                                       |
+| How it ended                                            | `completed`, `cancelled`, or `errored`                                                                                                                                                                                                                                                                       |
+| Broad error category, if it failed                      | One of: network, rpc, proving, validation, storage, auth, timeout, unknown                                                                                                                                                                                                                                   |
+| How long it took                                        | A duration in milliseconds                                                                                                                                                                                                                                                                                   |
+| How far you got                                         | For an activity, the name of the furthest screen it reached, from a fixed list — for example `select_amount` or `review`. The screen's name only, never anything you typed on it. For work the App did on your behalf, the stage it reached instead — for example `proving` or `submitting`                  |
+| App version                                             | For example, `1.15.21`                                                                                                                                                                                                                                                                                       |
+| Platform                                                | `extension`, `ios`, or `android`                                                                                                                                                                                                                                                                             |
+| Network                                                 | `mainnet`, `testnet`, `devnet`, or `localnet`                                                                                                                                                                                                                                                                |
+| A short random number for that one activity             | Explained under "Identifiers" below                                                                                                                                                                                                                                                                          |
+| A short random number for that run of the App           | Explained under "Identifiers" below                                                                                                                                                                                                                                                                          |
 
 That is the complete list. There is no other field, and the error category is chosen from the eight names above — the underlying error message is read to pick a category and is never sent.
 
@@ -144,14 +144,14 @@ It means we cannot delete your data on request, and we would rather say so than 
 
 There is no identifier in this data by which we could find your records. If you asked us to delete your usage data or your crash reports, we would have no way to tell yours apart from everyone else's — the records simply do not say who they came from.
 
-This is a deliberate trade-off, not a way of avoiding the request. The alternative is to attach a durable identifier to every message so that we *could* find your data later, which would mean building the exact tracking capability we chose not to have. We decided that not being able to identify you is worth more than being able to service a deletion request, and this paragraph is the cost of that decision stated plainly.
+This is a deliberate trade-off, not a way of avoiding the request. The alternative is to attach a durable identifier to every message so that we _could_ find your data later, which would mean building the exact tracking capability we chose not to have. We decided that not being able to identify you is worth more than being able to service a deletion request, and this paragraph is the cost of that decision stated plainly.
 
 Two things do follow from it, in your favour:
 
 - **Turning the setting off is complete.** There is no profile left behind to keep, because there was never a profile.
 - **Everything expires on its own.** All usage data and all crash reports are deleted **90 days** after they are received. Nothing is kept longer, and nothing needs a request to make that happen.
 
-Everything the App stores about *your wallet* — your keys, accounts, balances, and history — is on your device, and you can delete it yourself with "Delete wallet" in Settings, or by uninstalling the App. That is unaffected by any of the above.
+Everything the App stores about _your wallet_ — your keys, accounts, balances, and history — is on your device, and you can delete it yourself with "Delete wallet" in Settings, or by uninstalling the App. That is unaffected by any of the above.
 
 ## What scrubbing can and cannot promise
 
@@ -169,10 +169,10 @@ None of them is a known leak. No part of the App puts a recovery phrase or a pas
 
 Crash reports are sent either way; usage data only if the setting is on:
 
-| Data | Processor | Where |
-|---|---|---|
-| Usage data | Aptabase | European Union (Germany) |
-| Crash reports | Sentry | European Union |
+| Data          | Processor | Where                    |
+| ------------- | --------- | ------------------------ |
+| Usage data    | Aptabase  | European Union (Germany) |
+| Crash reports | Sentry    | European Union           |
 
 Usage data goes straight from the App to Aptabase's European endpoint, one message per request, with no server of ours in between and nothing batched up in the meantime. We use neither company's own tracking library: the App builds each message itself, out of the fixed list of fields above, and sends it directly.
 
@@ -269,12 +269,12 @@ The App is not directed at anyone under 18, and our Terms of Service require use
 
 ## Why we process data, and on what legal basis
 
-| Purpose | Data | Legal basis (GDPR Article 6) |
-|---|---|---|
-| Running the App and submitting your transactions | Transaction data sent to the network, Guardian data | Performance of our contract with you (the Terms of Service) |
-| Fixing crashes | Crash reports | Our legitimate interest in keeping the App working |
-| Understanding where people get stuck | Usage data | Your consent, which you give by turning on "Share usage data" and can withdraw at any time in the same place |
-| Sanctions compliance, geographic restrictions, record-keeping, responding to lawful requests | IP country check, block and unblock records, legal-process records | Compliance with legal obligations, and our legitimate interest in operating a lawful network |
+| Purpose                                                                                      | Data                                                               | Legal basis (GDPR Article 6)                                                                                 |
+| -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------ |
+| Running the App and submitting your transactions                                             | Transaction data sent to the network, Guardian data                | Performance of our contract with you (the Terms of Service)                                                  |
+| Fixing crashes                                                                               | Crash reports                                                      | Our legitimate interest in keeping the App working                                                           |
+| Understanding where people get stuck                                                         | Usage data                                                         | Your consent, which you give by turning on "Share usage data" and can withdraw at any time in the same place |
+| Sanctions compliance, geographic restrictions, record-keeping, responding to lawful requests | IP country check, block and unblock records, legal-process records | Compliance with legal obligations, and our legitimate interest in operating a lawful network                 |
 
 ## How long we keep data
 
