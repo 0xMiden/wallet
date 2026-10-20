@@ -1,0 +1,471 @@
+name: NEVER-MERGE PR1638 round-trip minimum positive and sensitivity proof
+
+on:
+  push:
+    branches: [ci/pr1638-roundtrip-minimum-positive]
+
+permissions:
+  contents: read
+
+jobs:
+  roundtrip-minimum-positive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: bash
+    env:
+      CI: 'true'
+      PROOF_HEAD: ${{ github.sha }}
+      PROOF_REF: ${{ github.ref }}
+      PROOF_RUN: ${{ github.run_id }}
+      PROOF_ATTEMPT: ${{ github.run_attempt }}
+    steps:
+      - name: Checkout exact isolated transport
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Bind signed source lineage and initialize complete raw evidence
+        run: |
+          set -euo pipefail
+          umask 077
+          export PROOF_DIR="$RUNNER_TEMP/pr1638-roundtrip-minimum-positive-proof"
+          printf 'PROOF_DIR=%s\n' "$PROOF_DIR" >> "$GITHUB_ENV"
+          mkdir "$PROOF_DIR"
+          test "$(git rev-parse HEAD)" = "$PROOF_HEAD"
+          test "$PROOF_REF" = refs/heads/ci/pr1638-roundtrip-minimum-positive
+          test "$(git rev-list --parents -n 1 HEAD | wc -w)" -eq 2
+          test "$(git rev-parse HEAD^)" = 202047e6f2f06fafe61e35f472d90a4504c1f911
+          test "$(git rev-parse 202047e6f2f06fafe61e35f472d90a4504c1f911^{tree})" = 66ba0f239cd94128c8e6d2bc10113c1a35416e6f
+          test "$(git rev-parse 202047e6f2f06fafe61e35f472d90a4504c1f911^)" = 27a23941b2153a1c9d97d92761381ab073159245
+          test "$(git rev-parse 27a23941b2153a1c9d97d92761381ab073159245^)" = 0778dd8bb219b0e70b31fc175af7199ed3bbd6bf
+          test "$(git rev-parse 0778dd8bb219b0e70b31fc175af7199ed3bbd6bf^1)" = c005160e1c53d7a983277f84a535b80467f3188c
+          test "$(git rev-parse 0778dd8bb219b0e70b31fc175af7199ed3bbd6bf^2)" = 4c696a37bd487c02b2d20c3748f5050eee3c3a60
+          test "$(git rev-parse c005160e1c53d7a983277f84a535b80467f3188c^)" = 57a324980b06d105d5e6a53e1a50ecfca451623d
+          test "$(git rev-parse 57a324980b06d105d5e6a53e1a50ecfca451623d^)" = ea3c26ede409335ecca02ba15ae6e9ec64305827
+          test "$(git rev-parse ea3c26ede409335ecca02ba15ae6e9ec64305827^1)" = a047062821659016e4ffde48f1e767f939c36417
+          test "$(git rev-parse ea3c26ede409335ecca02ba15ae6e9ec64305827^2)" = e60c38fae58bcef13f0c4c814956512ab042a7ce
+          git cat-file commit 202047e6f2f06fafe61e35f472d90a4504c1f911 > "$PROOF_DIR/source-commit.txt"
+          git cat-file commit 27a23941b2153a1c9d97d92761381ab073159245 > "$PROOF_DIR/product-fix-commit.txt"
+          git cat-file commit 0778dd8bb219b0e70b31fc175af7199ed3bbd6bf > "$PROOF_DIR/current-main-merge-commit.txt"
+          git cat-file commit c005160e1c53d7a983277f84a535b80467f3188c > "$PROOF_DIR/causal-test-commit.txt"
+          git cat-file commit 57a324980b06d105d5e6a53e1a50ecfca451623d > "$PROOF_DIR/original-test-commit.txt"
+          git cat-file commit ea3c26ede409335ecca02ba15ae6e9ec64305827 > "$PROOF_DIR/original-main-merge-commit.txt"
+          git cat-file commit a047062821659016e4ffde48f1e767f939c36417 > "$PROOF_DIR/member-commit.txt"
+          git cat-file commit 4c696a37bd487c02b2d20c3748f5050eee3c3a60 > "$PROOF_DIR/current-main-commit.txt"
+          git cat-file commit e60c38fae58bcef13f0c4c814956512ab042a7ce > "$PROOF_DIR/causal-main-commit.txt"
+          git cat-file commit HEAD > "$PROOF_DIR/checkout-commit.txt"
+          git ls-tree --full-tree -r 202047e6f2f06fafe61e35f472d90a4504c1f911 > "$PROOF_DIR/source-tree.txt"
+          git ls-tree --full-tree -r HEAD > "$PROOF_DIR/checkout-tree.txt"
+          git diff --name-status 202047e6f2f06fafe61e35f472d90a4504c1f911 HEAD > "$PROOF_DIR/workflow-only.names"
+          printf 'A\t.github/workflows/pr1638-roundtrip-minimum-positive-proof.yml\n' > "$PROOF_DIR/expected-workflow-only.names"
+          cmp "$PROOF_DIR/workflow-only.names" "$PROOF_DIR/expected-workflow-only.names"
+          git diff --binary --full-index --no-color --no-ext-diff --no-textconv --no-renames --diff-algorithm=myers 202047e6f2f06fafe61e35f472d90a4504c1f911 HEAD > "$PROOF_DIR/workflow-only.diff"
+          git diff --binary --full-index --no-color --no-ext-diff --no-textconv --no-renames --diff-algorithm=myers 0778dd8bb219b0e70b31fc175af7199ed3bbd6bf 202047e6f2f06fafe61e35f472d90a4504c1f911 > "$PROOF_DIR/fix.diff"
+          printf '%s\n' '905e3e0575402e1d0bee4f3fb3e4a400c0890b227e65b58befdc7510763235e5  '"$PROOF_DIR/fix.diff" | sha256sum --check
+          printf '%s\n' "$PROOF_HEAD" "$PROOF_REF" "$PROOF_RUN" "$PROOF_ATTEMPT" > "$PROOF_DIR/run-identity.txt"
+          cat > "$PROOF_DIR/expected-source-sha256.txt" <<'SOURCE_HASHES'
+          02cbcbd2135d5848e6339315f2fb87f6fcc59363134f2bf74af2e0959efba3cf  playwright/e2e/helpers/usdcx-roundtrip-funding.test.ts
+          67871141006f7e06c25a6629942f165c890eb359fa8a5a35042c560d630ef991  playwright/e2e/helpers/usdcx-roundtrip-funding.ts
+          402268f0ff28d67dc09bfc138a7aa8b598216df1267443c4a70ce6c2ddda8e1e  playwright/e2e/helpers/public-faucet.ts
+          9f060055d0f13aae74eecb993a6b0a2a083098d2979b7420fdabe12316d2e086  src/lib/miden-chain/faucet-protocol.ts
+          a70b11db16d22f76ee4852f6cb389bcacb842a2f83957585da9c93caa59ee2d5  src/lib/usdcx/protocol.ts
+          73fa7b5174ca4dadcba0f44591bcae434bc1371ae365ec7eddb6cfad16cf0335  src/lib/usdcx/withdrawal.ts
+          85182f657d16e79211f5fcdd068ced83739994f751676c19a82b8a5150966b80  src/lib/usdcx/constant.ts
+          d8432e7b9d37b11ac18b4ab78793a1dfb9f7ab7269c25fbf452a055f5bb3a38b  src/lib/remote-config/availability.ts
+          d5f0df82addcdbcf3f281d7e194c1525987dc904d6f41eb64b1669848a170b59  src/lib/remote-config/e2e-overrides.ts
+          320e9850ea056bab2ecb2a2f418a3af33a4821f04c370842c3aa8a8bb3dfd2dd  src/lib/remote-config/schema.ts
+          00391c3becb4e8d4e543f97d2fcff5686d4ee9c58a99fbb223a71a4247465668  src/lib/remote-config/testing/fixture.ts
+          00d8342c275934fcbbe7179e2191655c3102a35d64553e125f79fb916c18b3c5  src/lib/remote-config/testing/testnet.json
+          92ca5ffa10f545d65da5889be9fe32287dae07ecc8e407355317d0034c23b4cd  src/lib/walletconnect/config.ts
+          3fd879d3a76214ebed8f1b30d08d635dc6eb9a14b26055898fc0641b5b02963c  src/lib/miden-chain/networks-config.ts
+          63dc2dd5cdd8f90b9ed1b38d4a6e88000120692ddefa34246e3f6ed076b6b549  src/lib/telemetry/bridge-receive-failure.ts
+          9fe827fb0272c4f3e2ba37978f8f4e5658c9502366ff8c022e63480ce5cd301e  package.json
+          624004355d465398fbce1f733b53671a8f6cf4687d18f00ee6d00384217dffa7  yarn.lock
+          73a3951b600a8514cbe91fa7e1be098cc3ae0948c470f2649e8686b192e559a6  jest.config.ts
+          247ac76bd2045c08af6596611277cab6283dc19a8254e03d06a275892c2018e0  jest.setup.js
+          bd66ec37c9af6f1fcd8399952cac6f179f1d40e94048219b1c82283f80925cc0  playwright/e2e/helpers/public-faucet.test.ts
+          671677018549e8a323d5c35e79e6ded8c7f31fed2766a814f33e209c7a0819be  playwright/e2e/helpers/usdcx-node-imports.test.ts
+          ce71df525f2252a2faa366df42030ae6213560405f260bbcaa810a080cdfefab  playwright/e2e/helpers/usdcx-config.test.ts
+          e72a3ac6cb4a15db37fc8d101b4ea710f28a11caebd3231a1bbfb2376c79f0a8  src/lib/usdcx/withdrawal.test.ts
+          4002ae3d7d0c77183a263a48735aa34624daf01512b21ec577908fc7473ebb25  .github/workflows/e2e-usdcx-live.yml
+          9b1b985d822b83aedb553e1d586a7344a9813c3de6c7a1d6bc71992ec1ce0ea1  CHANGELOG.md
+          231f879a941e8ce88404902739ccd220297423dc6802db3a0ad23b9cf6a8d756  playwright/e2e/ios/helpers/usdcx-live.ts
+          67f4de920dd0b4321b15edb593b14281210ee5e1249a326d294acc3d20bf469f  playwright/e2e/ios/tests/usdcx-live-deposit.ios.spec.ts
+          f46e01d78addabd641f2ea019008fd019b64cb1d373b89e63acf65632696f626  playwright/e2e/ios/tests/usdcx-live-executor-deposit.ios.spec.ts
+          c504ac1b35765929df3e811c6b12e2af8f8a1e8824168232d227be678418d0bf  playwright/e2e/helpers/usdcx-constants.ts
+          0bba921b14fb9a47e84aea17f76e0d54d2f289deb089a9ff9855546169e2ff50  src/lib/usdcx/burn.ts
+          be5107b2fcfbf1bdcb21fafabb5c6af4bcb6f6d7e0c992c252078fdcafcfb594  src/lib/telemetry/protocol-assertions.sources.json
+          SOURCE_HASHES
+          sha256sum --check "$PROOF_DIR/expected-source-sha256.txt"
+          while read -r digest file; do
+            mkdir -p "$PROOF_DIR/source/$(dirname "$file")"
+            cp "$file" "$PROOF_DIR/source/$file"
+          done < "$PROOF_DIR/expected-source-sha256.txt"
+          git ls-files --stage -z > "$PROOF_DIR/before.index-stage.bin"
+          cp "$(git rev-parse --git-path index)" "$PROOF_DIR/before.index.bin"
+          git status --porcelain=v1 --untracked-files=all > "$PROOF_DIR/before.status"
+          test ! -s "$PROOF_DIR/before.status"
+          cat > "$PROOF_DIR/physical-map.py" <<'PHYSICAL_MAP'
+          import hashlib,json,os,stat,subprocess,sys
+          from pathlib import Path
+          mode=sys.argv[1]
+          assert mode in ('fixed','old-selection')
+          mutable='playwright/e2e/helpers/usdcx-roundtrip-funding.ts'
+          variant_oid='342de4ad5fde391c96423848795d50d6069c57d6'
+          variant_sha='7912cf7ab25fa71bfe6cf55e90872472f71755363b63e3483a1ad555e9e3bc34'
+          rows=[]
+          for entry in subprocess.check_output(['git','ls-files','--stage','-z']).split(b'\0'):
+              if not entry: continue
+              meta,name=entry.split(b'\t',1)
+              filemode,oid,stage=meta.decode().split()
+              assert stage=='0'
+              path=os.fsdecode(name)
+              file=Path(path)
+              info=file.lstat()
+              if filemode=='120000':
+                  assert stat.S_ISLNK(info.st_mode)
+                  data=os.fsencode(os.readlink(file))
+              else:
+                  assert filemode in ('100644','100755') and stat.S_ISREG(info.st_mode),path
+                  assert bool(info.st_mode&0o111)==(filemode=='100755'),path
+                  data=file.read_bytes()
+              actual=hashlib.sha1(b'blob '+str(len(data)).encode()+b'\0'+data).hexdigest()
+              digest=hashlib.sha256(data).hexdigest()
+              if mode=='old-selection' and path==mutable:
+                  assert actual==variant_oid and digest==variant_sha,path
+              else:
+                  assert actual==oid,path
+              rows.append({'path':path,'mode':filemode,'index_git_blob':oid,'git_blob':actual,'sha256':digest,'bytes':len(data)})
+          print(json.dumps(rows,sort_keys=True,indent=2))
+          PHYSICAL_MAP
+          python3 "$PROOF_DIR/physical-map.py" fixed > "$PROOF_DIR/before.physical-map.json"
+          cat > "$PROOF_DIR/run-logged.bash" <<'LOGGER'
+          run_logged() {
+            local label="$1"
+            shift
+            printf '%s\0' "$@" > "$PROOF_DIR/$label.argv"
+            set +e
+            "$@" 2>&1 | tee "$PROOF_DIR/$label.log"
+            local codes=("${PIPESTATUS[@]}")
+            set -e
+            printf '%s\n' "${codes[0]}" > "$PROOF_DIR/$label.exit"
+            printf '%s\n' "${codes[1]}" > "$PROOF_DIR/$label.tee.exit"
+            if [ "${codes[1]}" -ne 0 ]; then return "${codes[1]}"; fi
+            return "${codes[0]}"
+          }
+          snapshot() {
+            local label="$1" mode="$2"
+            git ls-files --stage -z > "$PROOF_DIR/$label.index-stage.bin" || return "$?"
+            cp "$(git rev-parse --git-path index)" "$PROOF_DIR/$label.index.bin" || return "$?"
+            git diff --binary --full-index --no-color --no-ext-diff --no-textconv --no-renames --diff-algorithm=myers > "$PROOF_DIR/$label.diff" || return "$?"
+            git status --porcelain=v1 --untracked-files=all > "$PROOF_DIR/$label.status" || return "$?"
+            python3 "$PROOF_DIR/physical-map.py" "$mode" > "$PROOF_DIR/$label.physical-map.json" 2> "$PROOF_DIR/$label.physical-map.stderr" || return "$?"
+            cmp "$PROOF_DIR/before.index-stage.bin" "$PROOF_DIR/$label.index-stage.bin" || return "$?"
+            if [ "$mode" = fixed ]; then
+              test ! -s "$PROOF_DIR/$label.diff" || return "$?"
+              test ! -s "$PROOF_DIR/$label.status" || return "$?"
+              cmp "$PROOF_DIR/before.physical-map.json" "$PROOF_DIR/$label.physical-map.json" || return "$?"
+            else
+              printf '%s\n' '884628e698356d730c1b330db7edb3406854703d4ea780936508802fe1adc836  '"$PROOF_DIR/$label.diff" | sha256sum --check || return "$?"
+              printf ' M playwright/e2e/helpers/usdcx-roundtrip-funding.ts\n' > "$PROOF_DIR/expected-old-selection.status" || return "$?"
+              cmp "$PROOF_DIR/$label.status" "$PROOF_DIR/expected-old-selection.status" || return "$?"
+            fi
+          }
+          LOGGER
+          cat > "$PROOF_DIR/classify.py" <<'CLASSIFIER'
+          import json,os,re
+          from pathlib import Path
+          p=Path(os.environ['PROOF_DIR'])
+          specs={'playwright/e2e/helpers/usdcx-roundtrip-funding.test.ts': (18, 31),
+           'playwright/e2e/helpers/public-faucet.test.ts': (55, 138),
+           'playwright/e2e/helpers/usdcx-node-imports.test.ts': (3, 6),
+           'playwright/e2e/helpers/usdcx-config.test.ts': (6, 19),
+           'src/lib/usdcx/withdrawal.test.ts': (16, 29)}
+          roundtrip={'uses the deposit for a 5 USDCx burn after a faucet 503, with no grant retry': 3,
+           'returns the grant note and permits a 6 USDCx burn after the grant is consumed': 3,
+           'does not treat a malformed grant as an optional service failure': 1,
+           'stops a stalled request and allows the deposit-funded burn': 2,
+           'propagates test cancellation and makes no later funding request': 2,
+           'refuses a burn that would spend the fee reserve': 2,
+           'does not wait out a rate limit for optional funding': 2,
+           'keeps invalid requests as failures': 1,
+           'round-trip selector obeys the wallet minimum (grant=false)': 2,
+           'round-trip selector obeys the wallet minimum (grant=true)': 2,
+           'pins the mandatory burn, deposit and fee reserve budgets': 3,
+           'accepts the exact deposit-funded burn and reserve boundary': 1,
+           'refuses one unit below the deposit-funded reserve boundary': 1,
+           'accepts the exact grant-funded burn and reserve boundary': 1,
+           'refuses one unit below the grant-funded reserve boundary': 1,
+           'keeps the wallet floor when an explicit minimum is lower': 2,
+           'retains a higher faucet minimum (grant=false)': 1,
+           'retains a higher faucet minimum (grant=true)': 1}
+          failures={'uses the deposit for a 5 USDCx burn after a faucet 503, with no grant retry': {'passing_assertions': 2,
+                                                                                           'frame': '39:84',
+                                                                                           'matcher': 'toBe',
+                                                                                           'expected_literal_units': '5000000n',
+                                                                                           'old_selected_units': '2000000n',
+                                                                                           'matcher_expected': True,
+                                                                                           'matcher_actual': False,
+                                                                                           'strict_type_and_value_equality': True},
+           'returns the grant note and permits a 6 USDCx burn after the grant is consumed': {'passing_assertions': 1,
+                                                                                             'frame': '50:64',
+                                                                                             'matcher': 'toBe',
+                                                                                             'expected_literal_units': '6000000n',
+                                                                                             'old_selected_units': '3000000n',
+                                                                                             'matcher_expected': True,
+                                                                                             'matcher_actual': False,
+                                                                                             'strict_type_and_value_equality': True},
+           'refuses a burn that would spend the fee reserve': {'passing_assertions': 0, 'frame': '94:55', 'matcher': 'toThrow'},
+           'round-trip selector obeys the wallet minimum (grant=false)': {'passing_assertions': 1,
+                                                                          'frame': '118:47',
+                                                                          'matcher': 'toBeUndefined',
+                                                                          'closed_matcher_result': {'message': 'expect(received).toBeUndefined()\n'
+                                                                                                               '\n'
+                                                                                                               'Received: '
+                                                                                                               '{"amount": '
+                                                                                                               '"5"}',
+                                                                                                    'pass': False}},
+           'round-trip selector obeys the wallet minimum (grant=true)': {'passing_assertions': 1,
+                                                                         'frame': '118:47',
+                                                                         'matcher': 'toBeUndefined',
+                                                                         'closed_matcher_result': {'message': 'expect(received).toBeUndefined()\n'
+                                                                                                              '\n'
+                                                                                                              'Received: '
+                                                                                                              '{"amount": "5"}',
+                                                                                                   'pass': False}},
+           'accepts the exact deposit-funded burn and reserve boundary': {'passing_assertions': 0,
+                                                                          'frame': '129:64',
+                                                                          'matcher': 'toBe',
+                                                                          'expected_literal_units': '5000000n',
+                                                                          'old_selected_units': '2000000n',
+                                                                          'matcher_expected': True,
+                                                                          'matcher_actual': False,
+                                                                          'strict_type_and_value_equality': True},
+           'refuses one unit below the deposit-funded reserve boundary': {'passing_assertions': 0,
+                                                                          'frame': '133:55',
+                                                                          'matcher': 'toThrow'},
+           'accepts the exact grant-funded burn and reserve boundary': {'passing_assertions': 0,
+                                                                        'frame': '137:63',
+                                                                        'matcher': 'toBe',
+                                                                        'expected_literal_units': '6000000n',
+                                                                        'old_selected_units': '3000000n',
+                                                                        'matcher_expected': True,
+                                                                        'matcher_actual': False,
+                                                                        'strict_type_and_value_equality': True},
+           'refuses one unit below the grant-funded reserve boundary': {'passing_assertions': 0,
+                                                                        'frame': '141:54',
+                                                                        'matcher': 'toThrow'}}
+          roundtrip_path='playwright/e2e/helpers/usdcx-roundtrip-funding.test.ts'
+          phases={}
+          for phase,passed,failed,assertions,natural in [('positive',98,0,223,0),('old-selection',89,9,212,1),('restored',98,0,223,0)]:
+              j=json.loads((p/(phase+'.jest.json')).read_text())
+              assert (j['numTotalTestSuites'],j['numPassedTestSuites'],j['numFailedTestSuites'],j['numPendingTestSuites'],j['numRuntimeErrorTestSuites'])==(5,4 if failed else 5,1 if failed else 0,0,0)
+              assert (j['numTotalTests'],j['numPassedTests'],j['numFailedTests'],j['numPendingTests'],j['numTodoTests'])==(98,passed,failed,0,0)
+              assert j['success'] is (failed==0)
+              assert len(j['testResults'])==5
+              mapped={}
+              for suite in j['testResults']:
+                  keys=[key for key in specs if suite['name'].endswith('/'+key)]
+                  assert len(keys)==1 and keys[0] not in mapped
+                  key=keys[0]
+                  rows=suite['assertionResults']
+                  assert len(rows)==specs[key][0] and len({row['fullName'] for row in rows})==len(rows)
+                  mapped[key]={row['fullName']:row for row in rows}
+                  if key!=roundtrip_path:
+                      assert sum(row['numPassingAsserts'] for row in rows)==specs[key][1]
+                  for row in rows:
+                      name=row['fullName']
+                      failure=failures.get(name) if phase=='old-selection' and key==roundtrip_path else None
+                      if failure is None:
+                          assert row['status']=='passed' and row['failureMessages']==[] and row['failureDetails']==[]
+                          if key==roundtrip_path: assert row['numPassingAsserts']==roundtrip[name]
+                          continue
+                      assert row['status']=='failed' and row['numPassingAsserts']==failure['passing_assertions']
+                      assert len(row['failureMessages'])==1 and len(row['failureDetails'])==1
+                      detail=row['failureDetails'][0]['matcherResult']
+                      assert detail['pass'] is False
+                      message=row['failureMessages'][0]
+                      frames=re.findall(r'usdcx-roundtrip-funding\.test\.ts:(\d+):(\d+)\)',message)
+                      assert frames and ':'.join(frames[0])==failure['frame']
+                      if failure['matcher']=='toBeUndefined':
+                          assert detail==failure['closed_matcher_result']
+                      elif failure['matcher']=='toBe':
+                          assert set(detail)=={'actual','expected','message','name','pass'}
+                          assert detail['name']=='toBe' and detail['actual'] is False and detail['expected'] is True
+                          assert 'Expected: true' in detail['message'] and 'Received: false' in detail['message']
+                      else:
+                          assert set(detail)=={'message','pass'}
+                          assert 'Expected substring: "cannot cover"' in detail['message']
+                          assert 'Received function did not throw' in detail['message']
+                      assert detail['message'] in message
+              assert set(mapped)==set(specs) and set(mapped[roundtrip_path])==set(roundtrip)
+              assert sum(row['numPassingAsserts'] for rows in mapped.values() for row in rows.values())==assertions
+              assert int((p/(phase+'.exit')).read_text())==natural and int((p/(phase+'.tee.exit')).read_text())==0
+              phases[phase]=mapped
+              inventory={key:[{'fullName':name,'status':row['status'],'numPassingAsserts':row['numPassingAsserts']} for name,row in sorted(rows.items())] for key,rows in mapped.items()}
+              (p/(phase+'.inventory.json')).write_text(json.dumps(inventory,indent=2)+'\n')
+          for key in specs:
+              baseline=phases['positive'][key]
+              for phase in ('old-selection','restored'):
+                  rows=phases[phase][key]
+                  assert set(rows)==set(baseline)
+                  if key!=roundtrip_path or phase=='restored':
+                      assert {name:(row['status'],row['numPassingAsserts']) for name,row in rows.items()}=={name:(row['status'],row['numPassingAsserts']) for name,row in baseline.items()}
+          (p/'classification.json').write_text(json.dumps({'status':'EXACT_THREE_PHASE_PREDICATES_OBSERVED_PENDING_EXTERNAL_READBACK','positive':[98,0,223],'old-selection':[89,9,212],'restored':[98,0,223],'causal_first_frame':'118:47'},indent=2)+'\n')
+          CLASSIFIER
+      - name: Use Node22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.22.0
+      - name: Install frozen dependencies with normal hooks
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged install timeout 10m yarn install --frozen-lockfile --non-interactive
+      - name: Retain pinned matcher, test naming and serializer source
+        run: |
+          set -euo pipefail
+          umask 077
+          node --version > "$PROOF_DIR/node-version.txt"
+          yarn --version > "$PROOF_DIR/yarn-version.txt"
+          while IFS= read -r file; do
+            test -f "node_modules/$file" && test ! -L "node_modules/$file"
+            mkdir -p "$PROOF_DIR/framework/$(dirname "$file")"
+            cp "node_modules/$file" "$PROOF_DIR/framework/$file"
+          done <<'FRAMEWORK_FILES'
+          @babel/code-frame/lib/index.js
+          @babel/code-frame/package.json
+          @jest/core/build/index.js
+          @jest/core/package.json
+          @jest/test-result/build/index.js
+          @jest/test-result/package.json
+          @swc/jest/index.js
+          @swc/jest/package.json
+          expect/build/index.js
+          expect/package.json
+          jest-circus/build/jestAdapterInit.js
+          jest-circus/build/runner.js
+          jest-circus/package.json
+          jest-matcher-utils/build/index.js
+          jest-matcher-utils/package.json
+          jest-message-util/build/index.js
+          jest-message-util/package.json
+          jest-mock/build/index.js
+          jest-mock/package.json
+          jest-util/build/index.js
+          jest-util/package.json
+          jest/build/index.js
+          jest/package.json
+          pretty-format/build/index.js
+          pretty-format/package.json
+          slash/index.js
+          slash/package.json
+          stack-utils/index.js
+          stack-utils/package.json
+          jest-each/package.json
+          jest-each/build/index.js
+          FRAMEWORK_FILES
+          printf '%s\n' 'c0dcf2678d35a15774a7aebc71dcaeb3442f6b22d722e04ea0d68081ec6eb5a0  '"$PROOF_DIR/framework/expect/package.json" | sha256sum --check
+          printf '%s\n' '469add4932a11785006b19dbd1c041169b040d69cf4e27872892e0a7119368b4  '"$PROOF_DIR/framework/expect/build/index.js" | sha256sum --check
+      - name: Check named format and zero-warning lint
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged format yarn prettier --check playwright/e2e/helpers/usdcx-roundtrip-funding.ts playwright/e2e/helpers/usdcx-roundtrip-funding.test.ts playwright/e2e/ios/tests/usdcx-live-deposit.ios.spec.ts playwright/e2e/ios/tests/usdcx-live-executor-deposit.ios.spec.ts .github/workflows/e2e-usdcx-live.yml CHANGELOG.md
+          run_logged lint yarn eslint --max-warnings 0 playwright/e2e/helpers/usdcx-roundtrip-funding.ts playwright/e2e/helpers/usdcx-roundtrip-funding.test.ts playwright/e2e/ios/tests/usdcx-live-deposit.ios.spec.ts playwright/e2e/ios/tests/usdcx-live-executor-deposit.ios.spec.ts
+      - name: Check project TypeScript without emitting
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged typescript yarn tsc --noEmit --pretty false
+      - name: Measure all five suites on the positive source
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged positive yarn jest --runTestsByPath playwright/e2e/helpers/usdcx-roundtrip-funding.test.ts playwright/e2e/helpers/public-faucet.test.ts playwright/e2e/helpers/usdcx-node-imports.test.ts playwright/e2e/helpers/usdcx-config.test.ts src/lib/usdcx/withdrawal.test.ts --runInBand --coverage=false --no-colors --json --outputFile="$PROOF_DIR/positive.jest.json"
+          snapshot after-positive fixed
+      - name: Apply only the exact old internal two-or-three selection
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          python3 - <<'OLD_SELECTION'
+          import hashlib
+          from pathlib import Path
+          file=Path('playwright/e2e/helpers/usdcx-roundtrip-funding.ts')
+          fixed=file.read_bytes()
+          assert hashlib.sha256(fixed).hexdigest()=='67871141006f7e06c25a6629942f165c890eb359fa8a5a35042c560d630ef991'
+          old=b'  const amount = ROUNDTRIP_BURN_UNITS + (receivedGrant ? 1_000_000n : 0n);'
+          new=b'  const amount = 2_000_000n + (receivedGrant ? 1_000_000n : 0n);'
+          assert fixed.count(old)==1
+          changed=fixed.replace(old,new)
+          assert hashlib.sha256(changed).hexdigest()=='7912cf7ab25fa71bfe6cf55e90872472f71755363b63e3483a1ad555e9e3bc34'
+          file.write_bytes(changed)
+          OLD_SELECTION
+          cp playwright/e2e/helpers/usdcx-roundtrip-funding.ts "$PROOF_DIR/old-selection-helper.ts"
+          snapshot before-old-selection old-selection
+      - name: Measure all five suites with the old selection only
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          if run_logged old-selection yarn jest --runTestsByPath playwright/e2e/helpers/usdcx-roundtrip-funding.test.ts playwright/e2e/helpers/public-faucet.test.ts playwright/e2e/helpers/usdcx-node-imports.test.ts playwright/e2e/helpers/usdcx-config.test.ts src/lib/usdcx/withdrawal.test.ts --runInBand --coverage=false --no-colors --json --outputFile="$PROOF_DIR/old-selection.jest.json"; then
+            test_exit=0
+          else
+            test_exit=$?
+          fi
+          test "$test_exit" -eq 1
+          snapshot after-old-selection old-selection
+          cmp "$PROOF_DIR/before-old-selection.physical-map.json" "$PROOF_DIR/after-old-selection.physical-map.json"
+      - name: Restore exact signed fixed source before the control rerun
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          printf '%s\n' '67871141006f7e06c25a6629942f165c890eb359fa8a5a35042c560d630ef991  '"$PROOF_DIR/source/playwright/e2e/helpers/usdcx-roundtrip-funding.ts" | sha256sum --check
+          cp "$PROOF_DIR/source/playwright/e2e/helpers/usdcx-roundtrip-funding.ts" playwright/e2e/helpers/usdcx-roundtrip-funding.ts
+          sha256sum --check "$PROOF_DIR/expected-source-sha256.txt"
+          snapshot before-restored fixed
+      - name: Measure all five suites after exact restoration
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged restored yarn jest --runTestsByPath playwright/e2e/helpers/usdcx-roundtrip-funding.test.ts playwright/e2e/helpers/public-faucet.test.ts playwright/e2e/helpers/usdcx-node-imports.test.ts playwright/e2e/helpers/usdcx-config.test.ts src/lib/usdcx/withdrawal.test.ts --runInBand --coverage=false --no-colors --json --outputFile="$PROOF_DIR/restored.jest.json"
+          snapshot after-restored fixed
+      - name: Verify full actual inventories and all nine scoped sensitivity failures
+        run: |
+          set -euo pipefail
+          python3 "$PROOF_DIR/classify.py"
+      - name: Always restore and preserve complete raw failure and source evidence
+        if: always()
+        run: |
+          set -euo pipefail
+          umask 077
+          PROOF_DIR="${PROOF_DIR:-$RUNNER_TEMP/pr1638-roundtrip-minimum-positive-proof}"
+          mkdir -p "$PROOF_DIR"
+          cleanup_exit=0
+          if git show 202047e6f2f06fafe61e35f472d90a4504c1f911:playwright/e2e/helpers/usdcx-roundtrip-funding.ts > "$PROOF_DIR/restore-checkpoint.ts" && printf '%s\n' '67871141006f7e06c25a6629942f165c890eb359fa8a5a35042c560d630ef991  '"$PROOF_DIR/restore-checkpoint.ts" | sha256sum --check; then
+            cp "$PROOF_DIR/restore-checkpoint.ts" playwright/e2e/helpers/usdcx-roundtrip-funding.ts || cleanup_exit=1
+          else
+            cleanup_exit=1
+          fi
+          if [ -f "$PROOF_DIR/run-logged.bash" ] && source "$PROOF_DIR/run-logged.bash"; then
+            snapshot after fixed || cleanup_exit=1
+          else
+            cleanup_exit=1
+          fi
+          sha256sum --check "$PROOF_DIR/expected-source-sha256.txt" > "$PROOF_DIR/after.hash-check.log" 2>&1 || cleanup_exit=1
+          printf '%s\n' "$cleanup_exit" > "$PROOF_DIR/cleanup.exit"
+          printf '%s\n' 'UNACCEPTED: require actual full five-suite positive98PASS/223assertions, exact old-selection89PASS9FAIL/212assertions with two real minimum failures118:47, restored98PASS/223assertions, natural0/1/0 and alltee0, complete source/index/framework/API/archive external readback. No live funds/platform,95coverage, finished review, source-branch push or merge credit. Never merge.' > "$PROOF_DIR/acceptance.txt"
+          cd "$PROOF_DIR"
+          find . -type f ! -name files.sha256 -print0 | sort -z | xargs -0 sha256sum > files.sha256
+          test "$cleanup_exit" -eq 0
+      - name: Always upload actual complete private evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr1638-roundtrip-minimum-positive-proof-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/pr1638-roundtrip-minimum-positive-proof/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
