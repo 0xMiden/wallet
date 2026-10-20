@@ -327,7 +327,8 @@ const view = <><Field error={false} /><UI.Notice tone={'negative'} /><Renamed />
         `import { ErrorLine, Renamed } from './barrel';
 const view = <><ErrorLine /><Renamed tone="negative" /></>;`,
         {
-          'src/barrel.ts': "export * from './cycle'; export * from './components/ui/ErrorLine'; import { Notice as N } from './components/ui/Notice'; export { N as Renamed };",
+          'src/barrel.ts':
+            "export * from './cycle'; export * from './components/ui/ErrorLine'; import { Notice as N } from './components/ui/Notice'; export { N as Renamed };",
           'src/cycle.ts': "export * from './barrel';"
         }
       )
@@ -463,10 +464,9 @@ const view = <>
     "import * as Hooks from './hooks'; Hooks.useUserVisibleError(id, 'inline');"
   ])('accepts a resolved aliased or namespace reexport hook call: %s', proof => {
     expect(
-      fixture(
-        `${proof}\nconst view = <p role="alert">bad</p>;`,
-        { 'src/hooks.ts': "export { useUserVisibleError } from './lib/telemetry/use-user-visible-error';" }
-      )
+      fixture(`${proof}\nconst view = <p role="alert">bad</p>;`, {
+        'src/hooks.ts': "export { useUserVisibleError } from './lib/telemetry/use-user-visible-error';"
+      })
     ).toEqual([]);
   });
 
@@ -531,9 +531,9 @@ const view = <>
   });
 
   it('does not exempt unrelated files merely because their basename matches a definition', () => {
-    expect(
-      scanSources(new Map([['src/other/Notice.tsx', 'const view = <p role="alert">bad</p>;']]))
-    ).toEqual([{ file: 'src/other/Notice.tsx', line: 1, category: 'unreported-alert' }]);
+    expect(scanSources(new Map([['src/other/Notice.tsx', 'const view = <p role="alert">bad</p>;']]))).toEqual([
+      { file: 'src/other/Notice.tsx', line: 1, category: 'unreported-alert' }
+    ]);
   });
 
   it.each([
