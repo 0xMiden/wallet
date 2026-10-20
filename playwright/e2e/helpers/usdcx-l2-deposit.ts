@@ -109,7 +109,7 @@ export function l2KeyShortfall(args: {
     return (
       `${head} ${usdc(args.usdc)} USDC, below the ${usdc(needUsdc)} USDC one bridge-in needs (the ${usdc(args.units)} ` +
       `deposit and twice Circle's ${usdc(args.fee)} fee, which its approve covers); ` +
-      (args.refill ?? 'a green usdcx-burn-l2 run pays it about 0.99 USDC there')
+      (args.refill ?? "a green usdcx-burn-l2 run refills it with that run's payout")
     );
   }
   return undefined;

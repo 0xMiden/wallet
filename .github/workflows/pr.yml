@@ -56,6 +56,8 @@ jobs:
       # Pure bash too: which pull request the linked-PR injections read, on a pull request or a dispatch.
       - name: Check linked-PR number resolver
         run: bash scripts/resolve-linked-pr-number.test.sh
+      - name: Check install retries under Actions Bash options
+        run: bash scripts/yarn-install.test.sh
 
   translations:
     name: Update Translation Files

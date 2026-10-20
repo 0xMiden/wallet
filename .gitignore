@@ -90,6 +90,9 @@ MidenWallet.*/
 # superpowers SDD scratch (progress ledger, etc.)
 .superpowers/
 
+# Headless home-swipe bench: Chrome profile, vite log, result traces.
+/.bench
+
 # Track the shared frontend skill for Claude while keeping all other
 # machine-local Claude runtime state out of the repository.
 .claude/*

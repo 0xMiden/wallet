@@ -12,10 +12,9 @@ name: E2E USDCx
 # Circle's doing rather than the wallet's, and its message says so. The runner probes every service before it builds,
 # builds the extension itself for each suite and runs the browser headless.
 #
-# The suites burn to and deposit from ONE key, so each burn's payout refills what the deposits spend: a green run leaves
-# it about 2.9 USDC richer on Arc, about 0.97 USDC richer on each L2 (a 0.99 payout less a 0.023 deposit with Circle's
-# fee) and about 0.98 USDC richer on Ethereum Sepolia (a 2 USDCx burn's 0.9965 payout less a 0.017 deposit with
-# Circle's fee). On all three it also pays gas in ETH, which is sent to it by hand. CI has its own key, the repository
+# The suites burn 5 USDCx to and deposit from ONE key, so successful burn payouts replenish what deposits spend.
+# The payout depends on Circle's fee for each burn. The L2 and Ethereum Sepolia deposits also pay gas in ETH,
+# which is sent to the key by hand. CI has its own key, the repository
 # secret USDCX_HARNESS_ARC_KEY: never a developer's harness key and never the iOS job's. In each job only the step that
 # writes it to the runner's key file reads the secret; the suites read the file through the runner, and no cache or
 # upload includes it.

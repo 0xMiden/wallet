@@ -422,9 +422,12 @@ describe('Vault login keys', () => {
     );
     mockStorageReads.length = 0;
 
-    expect(await vault.loginKeyCommitment(account.publicKey, DOMAIN)).toBe(
-      expectedCommitment(guardianEvmKey(0), 'evm')
-    );
+    forgetKeyMaterial();
+
+    const loginKey = await vault.loginKeyCommitment(account.publicKey, DOMAIN);
+    expectCleanedUp();
+
+    expect(loginKey).toBe(expectedCommitment(guardianEvmKey(0), 'evm'));
     // The stored key served it: the seed phrase was not read.
     expect(mockStorageReads).not.toContain(await wrapped(keys.mnemonic));
   });
@@ -465,8 +468,12 @@ describe('Vault login keys', () => {
     await removeMany([keys.accEvmSecretKey(account.evmAddress!)]);
     const accounts = await vault.fetchAccounts();
     const stored = { ...memoryStore };
+    forgetKeyMaterial();
 
-    expect(await vault.loginKeyCommitment(account.publicKey, DOMAIN)).toBe(loginKey);
+    const legacyLoginKey = await vault.loginKeyCommitment(account.publicKey, DOMAIN);
+    expectCleanedUp();
+
+    expect(legacyLoginKey).toBe(loginKey);
     expect(memoryStore).toEqual(stored);
     expect(await vault.fetchAccounts()).toEqual(accounts);
   });

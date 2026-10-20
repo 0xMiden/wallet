@@ -48,7 +48,7 @@ const BUDGET = {
 } as const;
 
 const SETTLE_WAIT_MS = 120_000;
-/** Each burns its chain's `burnUnits`: 1 USDCx, and 2 on Ethereum Sepolia, whose 1.5 USDC allowance refuses 1. */
+/** Each burns its chain's `burnUnits`, following the wallet's 5 USDCx floor. */
 const DESTINATIONS: readonly PayoutChain[] = [BASE_SEPOLIA_PAYOUT, ARBITRUM_SEPOLIA_PAYOUT, ETHEREUM_SEPOLIA_PAYOUT];
 
 /**

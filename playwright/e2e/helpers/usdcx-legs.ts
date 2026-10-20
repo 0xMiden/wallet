@@ -656,7 +656,7 @@ export async function payoutLeg(
 
   const waitForPayout = async (burn: ConsumedBurn, depositor: Hex): Promise<GatewayPayout> => {
     const consumeTsMs = burn.oracle.consumeTimestampSec * 1_000;
-    // The burn the node consumed sets the floor and Circle's fee: 1 USDCx, or 2 on Ethereum Sepolia.
+    // The burn the node consumed sets the payout floor and Circle's fee allowance.
     const burnUnits = burn.oracle.amount;
     const payout = await step(
       'payout',
