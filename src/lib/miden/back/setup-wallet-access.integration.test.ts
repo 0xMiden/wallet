@@ -11,13 +11,22 @@ import {
   getWalletAccessGeneration,
   getWalletAccessSnapshot,
   invalidateWalletAccess,
+  publishWalletAccessDecision,
+  registerWalletAccessRuntime,
   type WalletAccessSnapshot
 } from 'lib/remote-config/wallet-access';
 import { WalletMessageType, WalletStatus, type WalletAccount } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
-import { lock, registerImportedWallet, registerNewWallet, registerWalletFromHotKey, unlock } from './actions';
-import { inited, locked, store, unlocked } from './store';
+import {
+  createHDAccount,
+  lock,
+  registerImportedWallet,
+  registerNewWallet,
+  registerWalletFromHotKey,
+  unlock
+} from './actions';
+import { accountsUpdated, inited, locked, store, unlocked } from './store';
 import { Vault } from './vault';
 
 jest.unmock('lib/remote-config/wallet-access');
@@ -36,12 +45,24 @@ let mockSink: KeySink | null = null;
 let mockHold: object | null = null;
 let mockAfterWipe: (() => void) | undefined;
 let mockImportGate: (() => Promise<void>) | undefined;
+let mockCreateGate: (() => Promise<void>) | undefined;
+let mockRegistrationGate: (() => Promise<void>) | undefined;
+let mockEncryptionGate: ((value: unknown) => Promise<void>) | undefined;
+let mockCreateAccountId = 'fixture-account';
+const mockGuardianRegistration = jest.fn(async () => {
+  await mockRegistrationGate?.();
+});
 
 // The barrier changes scheduling only; vault keys and every cryptographic operation stay real.
 jest.mock('lib/miden/passworder', () => {
   const actual = jest.requireActual<typeof import('lib/miden/passworder')>('lib/miden/passworder');
   return {
     ...actual,
+    encrypt: async (value: unknown, key: CryptoKey) => {
+      const encrypted = await actual.encrypt(value, key);
+      await mockEncryptionGate?.(value);
+      return encrypted;
+    },
     importVaultKey: async (bytes: Uint8Array) => {
       const key = await actual.importVaultKey(bytes);
       await mockImportGate?.();
@@ -134,11 +155,23 @@ const mockSdkWrites: string[] = [];
 const mockCreate = async () => {
   mockSdkWrites.push('create');
   await mockSink?.(new Uint8Array([2, 3]), new Uint8Array([4, 5]));
-  return 'fixture-account';
+  await mockCreateGate?.();
+  return mockCreateAccountId;
 };
 const mockClient = {
   network: 'testnet',
   createMidenWallet: mockCreate,
+  createGuardianMidenWallet: async () => ({
+    accountId: await mockCreate(),
+    keys: {
+      hotPublicKey: 'created-hot',
+      coldPublicKey: 'created-cold',
+      hotCiphertext: 'wrapped-hot',
+      coldSecretKeyHex: 'cold-secret'
+    },
+    guardianEndpoint: 'https://guardian.example',
+    registration: {}
+  }),
   importPublicMidenWalletFromSeed: mockCreate,
   syncState: async () => undefined,
   recoverGuardianAccountByHotKey: async () => {
@@ -199,7 +232,9 @@ jest.mock('../guardian/hot-key-import', () => ({
 }));
 jest.mock('./miden-client-proxy', () => ({ midenClientProxy: {} }));
 jest.mock('../guardian/account', () => ({
-  resolveGuardianEndpoint: () => 'https://guardian.example'
+  resolveGuardianEndpoint: () => 'https://guardian.example',
+  fetchGuardianCreateKey: async () => ({ guardianEndpoint: 'https://guardian.example' }),
+  registerGuardianAccount: () => mockGuardianRegistration()
 }));
 jest.mock('../guardian/operator-map', () => ({
   normalizeHex: (value: string) => value.replace(/^0x/, '').toLowerCase()
@@ -290,6 +325,11 @@ beforeEach(async () => {
   mockSink = null;
   mockAfterWipe = undefined;
   mockImportGate = undefined;
+  mockCreateGate = undefined;
+  mockRegistrationGate = undefined;
+  mockEncryptionGate = undefined;
+  mockCreateAccountId = 'fixture-account';
+  mockGuardianRegistration.mockClear();
   mockLookup.mockReset().mockImplementation(async () => answer());
   mockRedeem.mockReset().mockResolvedValue('granted');
   const config: BridgeConfig = {
@@ -530,4 +570,224 @@ it('cached admission retry keeps the same candidate but waits for current permis
   expect(publications[0]?.access.status).toBe('allowed');
   expect(mockStorage.has(PENDING_ADMISSION_STORAGE_KEY)).toBe(false);
   assertWalletAccessAllowed();
+});
+
+describe('GEO020 account creation authority', () => {
+  const scope = () => `geo020:${getWalletAccessGeneration()}`;
+  let decision: boolean | null = true;
+  const installAccess = () => {
+    decision = true;
+    registerWalletAccessRuntime({ scope, refresh: async () => publishWalletAccessDecision(scope(), decision) });
+    publishWalletAccessDecision(scope(), true);
+  };
+  const refuse = (next: boolean | null) => {
+    decision = next;
+    publishWalletAccessDecision(scope(), next);
+  };
+  const existingVault = async () => {
+    await registerNewWallet(WalletType.OnChain, undefined, MNEMONIC, false);
+    const vault = store.getState().vault;
+    if (!vault) throw new Error('Fixture did not create an active Vault');
+    mockCreateAccountId = 'created-second';
+    mockWrites.length = 0;
+    mockGuardianRegistration.mockClear();
+    publications.length = 0;
+    installAccess();
+    return vault;
+  };
+  const creation = async (kind: string) => {
+    if (kind === 'HD') {
+      const vault = await existingVault();
+      return { run: () => vault.createHDAccount(WalletType.Guardian), vault };
+    }
+    installAccess();
+    return { run: () => Vault.spawn(WalletType.Guardian, '', MNEMONIC, false), vault: null };
+  };
+
+  describe.each(['HD', 'spawn'])('%s', kind => {
+    it.each([false, null])('refuses decision %s after creation before Guardian registration', async next => {
+      const fixture = await creation(kind);
+      let writesAtRefusal = 0;
+      mockCreateGate = async () => {
+        writesAtRefusal = mockWrites.length;
+        refuse(next);
+      };
+      const outcome = await settled(fixture.run());
+      expect(outcome).toMatchObject({ code: 'WALLET_ACCESS_DENIED' });
+      expect(mockGuardianRegistration).not.toHaveBeenCalled();
+      expect(mockWrites).toHaveLength(writesAtRefusal);
+      expect(publications).toHaveLength(0);
+      expect((await fixture.vault?.fetchAccounts())?.map(account => account.publicKey)).toEqual(
+        kind === 'HD' ? ['fixture-account'] : undefined
+      );
+    });
+
+    it.each([true, false, null])('renews an expired post-create lease with decision %s', async next => {
+      const fixture = await creation(kind);
+      let refreshes = 0;
+      let refreshesAtBoundary = 0;
+      registerWalletAccessRuntime({
+        scope,
+        refresh: async () => {
+          refreshes += 1;
+          publishWalletAccessDecision(scope(), decision);
+        }
+      });
+      publishWalletAccessDecision(scope(), true);
+      mockCreateGate = async () => {
+        refreshesAtBoundary = refreshes;
+        mockNow += 60_001;
+        decision = next;
+      };
+      const outcome = await settled(fixture.run());
+      expect(refreshes - refreshesAtBoundary).toBe(1);
+      expect(outcome === 'resolved').toBe(next === true);
+      const errorCode = typeof outcome === 'object' && outcome !== null ? Reflect.get(outcome, 'code') : undefined;
+      expect(errorCode).toBe(next === true ? undefined : 'WALLET_ACCESS_DENIED');
+      expect(mockGuardianRegistration).toHaveBeenCalledTimes(next === true ? 1 : 0);
+    });
+
+    it.each([false, null])('refuses decision %s received during registration before persistence', async next => {
+      const fixture = await creation(kind);
+      let writesAtRefusal = 0;
+      mockRegistrationGate = async () => {
+        writesAtRefusal = mockWrites.length;
+        refuse(next);
+      };
+      const outcome = await settled(fixture.run());
+      expect(outcome).toMatchObject({ code: 'WALLET_ACCESS_DENIED' });
+      expect(mockGuardianRegistration).toHaveBeenCalledTimes(1);
+      expect(mockWrites).toHaveLength(writesAtRefusal);
+      expect(publications).toHaveLength(0);
+    });
+
+    it.each([false, null])('refuses decision %s during encryption before its durable account-list put', async next => {
+      const fixture = await creation(kind);
+      let writesAtRefusal: number | undefined;
+      mockEncryptionGate = async value => {
+        if (
+          Array.isArray(value) &&
+          value.some(
+            (item: unknown) =>
+              typeof item === 'object' && item !== null && Reflect.get(item, 'publicKey') === mockCreateAccountId
+          )
+        ) {
+          writesAtRefusal = mockWrites.length;
+          refuse(next);
+        }
+      };
+      const outcome = await settled(fixture.run());
+      expect(writesAtRefusal).toBeDefined();
+      expect(outcome).toMatchObject({ code: 'WALLET_ACCESS_DENIED' });
+      expect(mockWrites).toHaveLength(writesAtRefusal ?? -1);
+      expect(publications).toHaveLength(0);
+    });
+
+    it('waits for a renewed post-create lease before registering outside the settled hold', async () => {
+      const fixture = await creation(kind);
+      const entered = deferred<void>();
+      const release = deferred<void>();
+      let waitAfterCreation = false;
+      registerWalletAccessRuntime({
+        scope,
+        refresh: async () => {
+          if (waitAfterCreation) {
+            entered.resolve();
+            await release.promise;
+          }
+          publishWalletAccessDecision(scope(), true);
+        }
+      });
+      publishWalletAccessDecision(scope(), true);
+      mockCreateGate = async () => {
+        waitAfterCreation = true;
+        mockNow += 60_001;
+      };
+      const outcome = settled(fixture.run());
+      try {
+        expect(await Promise.race([entered.promise.then(() => 'renewing'), outcome.then(() => 'finished')])).toBe(
+          'renewing'
+        );
+        expect(mockHold).toBeNull();
+        expect(mockGuardianRegistration).not.toHaveBeenCalled();
+      } finally {
+        release.resolve();
+        await outcome;
+      }
+      expect(await outcome).toBe('resolved');
+      expect(mockGuardianRegistration).toHaveBeenCalledTimes(1);
+    });
+
+    it('retains the ordinary allowed creation path', async () => {
+      const fixture = await creation(kind);
+      expect(await settled(fixture.run())).toBe('resolved');
+      expect(mockGuardianRegistration).toHaveBeenCalledTimes(1);
+      assertWalletAccessAllowed();
+    });
+  });
+
+  it.each(['Guardian', 'EVM'])(
+    'a refusal during %s key encryption cannot leave a keyless HD account record',
+    async keyKind => {
+      const vault = await existingVault();
+      let refused = false;
+      mockEncryptionGate = async value => {
+        const selected =
+          keyKind === 'Guardian'
+            ? value === 'wrapped-hot'
+            : typeof value === 'string' && /^0x[0-9a-f]{64}$/i.test(value);
+        if (selected) {
+          refused = true;
+          refuse(false);
+        }
+      };
+      const outcome = await settled(vault.createHDAccount(WalletType.Guardian));
+      expect(refused).toBe(true);
+      expect(outcome).toMatchObject({ code: 'WALLET_ACCESS_DENIED' });
+      expect((await vault.fetchAccounts()).map(account => account.publicKey)).toEqual(['fixture-account']);
+      expect(publications).toHaveLength(0);
+    }
+  );
+
+  it.each([false, null])('Actions refuses decision %s after Vault returns before account publication', async next => {
+    const vault = await existingVault();
+    const create = vault.createHDAccount.bind(vault);
+    jest.spyOn(vault, 'createHDAccount').mockImplementationOnce(async (...args) => {
+      const accounts = await create(...args);
+      refuse(next);
+      return accounts;
+    });
+    const snapshots: WalletAccessSnapshot[] = [];
+    const stop = accountsUpdated.watch(() => snapshots.push(getWalletAccessSnapshot()));
+    try {
+      expect(await settled(createHDAccount(WalletType.Guardian))).toMatchObject({ code: 'WALLET_ACCESS_DENIED' });
+      expect(snapshots).toHaveLength(0);
+      expect(store.getState().accounts).toHaveLength(1);
+      expect((await vault.fetchAccounts()).map(account => account.publicKey)).toEqual([
+        'fixture-account',
+        'created-second'
+      ]);
+    } finally {
+      stop();
+    }
+  });
+
+  it('Actions renews an expired lease before publishing account metadata', async () => {
+    const vault = await existingVault();
+    const create = vault.createHDAccount.bind(vault);
+    jest.spyOn(vault, 'createHDAccount').mockImplementationOnce(async (...args) => {
+      const accounts = await create(...args);
+      mockNow += 60_001;
+      return accounts;
+    });
+    const snapshots: WalletAccessSnapshot[] = [];
+    const stop = accountsUpdated.watch(() => snapshots.push(getWalletAccessSnapshot()));
+    try {
+      expect(await settled(createHDAccount(WalletType.Guardian))).toBe('resolved');
+      expect(snapshots.map(snapshot => snapshot.status)).toEqual(['allowed']);
+      expect(store.getState().accounts).toHaveLength(2);
+    } finally {
+      stop();
+    }
+  });
 });

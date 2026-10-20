@@ -1049,9 +1049,11 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
       // and fires the callback (with the signer set it pushes) when the push starts.
       reRegisterCurrentStateOnGuardian: async (
         onBeforeRegister?: (signerCommitments: readonly string[]) => void,
-        lockOptions?: unknown
+        lockOptions?: unknown,
+        assertCurrent?: () => Promise<void>
       ) => {
         await mockPreRegisterHold();
+        await assertCurrent?.();
         // `mockReRegister` is the rest of the method: it decides whether the push starts.
         return mockReRegister(lockOptions, onBeforeRegister);
       },
@@ -1844,6 +1846,228 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
         }
       }
     );
+
+  describe('GEO019 self-heal pass ownership', () => {
+    type PassChange = 'retirement' | 'endpoint change' | 'canonical respelling';
+    type HealStage =
+      | 'account read'
+      | 'cold-service build'
+      | 'state adoption'
+      | 'signer read'
+      | 'rotation lookup'
+      | 'pre-register sync';
+    const changes: PassChange[] = ['retirement', 'endpoint change', 'canonical respelling'];
+    const stages: HealStage[] = [
+      'account read',
+      'cold-service build',
+      'state adoption',
+      'signer read',
+      'rotation lookup',
+      'pre-register sync'
+    ];
+    const cases = stages.flatMap(stage => changes.map(change => ({ stage, change })));
+    const failedRows = [{ id: 'row-geo019', newHotPublicKey: 'new-hot-pub' }];
+    const makeBarrier = () => {
+      let entered = false;
+      let release = (): void => {};
+      let markEntered = (): void => {};
+      const pending = new Promise<void>(resolve => {
+        release = resolve;
+      });
+      const ready = new Promise<void>(resolve => {
+        markEntered = resolve;
+      });
+      return {
+        ready,
+        release,
+        wasEntered: () => entered,
+        wait: async (): Promise<void> => {
+          entered = true;
+          markEntered();
+          await pending;
+        }
+      };
+    };
+    const changePass = (account: (typeof storeState.accounts)[number], change: PassChange): void => {
+      if (change === 'retirement') {
+        retireGuardianSyncPasses();
+      } else if (change === 'endpoint change') {
+        storeState.accounts = [{ ...account, guardianEndpoint: 'https://new.guardian.test' }];
+      } else {
+        storeState.accounts = [{ ...account, guardianEndpoint: 'https://guardian.example.com:443/' }];
+      }
+    };
+    const arrangePending = () => {
+      const account = {
+        publicKey: 'acct-geo019-pending',
+        type: WalletType.Guardian,
+        coldPublicKey: 'cold',
+        requiresHotKeyRotation: true,
+        guardianEndpoint: 'https://Guardian.Example.com'
+      };
+      storeState.accounts = [account];
+      mockGetOrCreateMultisigService.mockResolvedValue({ sync: jest.fn(async () => undefined) });
+      mockGetSignerDetails.mockResolvedValue({ commitment: '0xbeef' });
+      mockCommitmentFromPublicKeyHex.mockImplementation(async (publicKeyHex: string) =>
+        publicKeyHex === 'new-hot-pub' ? '0xbeef' : '0xAABB'
+      );
+      mockFindFailedHotKeyRotations.mockResolvedValue(failedRows);
+      mockReRegister.mockImplementation(pushStartWith(['0xbeef', '0xc01d']));
+      return account;
+    };
+    const parkAt = (stage: HealStage, barrier: ReturnType<typeof makeBarrier>): void => {
+      if (stage === 'account read') {
+        mockGetAccount.mockImplementationOnce(async () => {
+          await barrier.wait();
+          return { __sdkAccount: true };
+        });
+      } else if (stage === 'cold-service build') {
+        const build = mockBuildColdMultisigService.getMockImplementation();
+        if (!build) throw new Error('Cold-service fixture is not configured');
+        mockBuildColdMultisigService.mockImplementationOnce(async (...args: unknown[]) => {
+          await barrier.wait();
+          return build(...args);
+        });
+      } else if (stage === 'state adoption') {
+        mockAdoptGuardianState.mockImplementationOnce(async () => barrier.wait());
+      } else if (stage === 'signer read') {
+        mockGetSignerDetails.mockImplementationOnce(async () => {
+          await barrier.wait();
+          return { commitment: '0xbeef' };
+        });
+      } else if (stage === 'rotation lookup') {
+        mockFindFailedHotKeyRotations
+          .mockImplementationOnce(async () => failedRows)
+          .mockImplementationOnce(async () => {
+            await barrier.wait();
+            return failedRows;
+          });
+      } else {
+        mockPreRegisterHold.mockImplementationOnce(async () => barrier.wait());
+      }
+    };
+
+    beforeEach(() => {
+      __resetGuardianSyncOutageForTest();
+      storeState.checkGuardianDrift.mockReset().mockResolvedValue(undefined);
+      mockIsExtension.mockReturnValue(true);
+      mockEnsureGuardianProcedureThresholds.mockResolvedValue(undefined);
+    });
+
+    it.each(cases)('GEO019 fences pending healing after $stage: $change', async ({ stage, change }) => {
+      const clocks = useFakeClocks(1_000);
+      const account = arrangePending();
+      const barrier = makeBarrier();
+      parkAt(stage, barrier);
+      const pass = syncGuardianAccounts();
+      try {
+        await Promise.race([barrier.ready, pass]);
+        expect(barrier.wasEntered()).toBe(true);
+        expect(mockReRegister).not.toHaveBeenCalled();
+        clocks.advance(SELF_HEAL_COOLDOWN_MS + 1);
+        changePass(account, change);
+        barrier.release();
+        await pass;
+
+        const expectedCalls = change === 'canonical respelling' ? 1 : 0;
+        expect(mockReRegister).toHaveBeenCalledTimes(expectedCalls);
+        expect(storeState.swapHotKey).toHaveBeenCalledTimes(expectedCalls);
+        expect(mockMarkRotationCompleted).toHaveBeenCalledTimes(expectedCalls);
+
+        storeState.accounts = [account];
+        await syncGuardianAccounts();
+        expect(mockReRegister).toHaveBeenCalledTimes(1);
+        expect(storeState.swapHotKey).toHaveBeenCalledTimes(1);
+        expect(mockMarkRotationCompleted).toHaveBeenCalledWith('row-geo019');
+      } finally {
+        barrier.release();
+        await pass;
+        clocks.restore();
+      }
+    });
+
+    it.each(changes)('GEO019 fences persistent-401 healing after state adoption: %s', async change => {
+      const clocks = useFakeClocks(1_000);
+      const account = {
+        publicKey: 'acct-geo019-auth',
+        type: WalletType.Guardian,
+        hotPublicKey: 'hot',
+        coldPublicKey: 'cold',
+        guardianEndpoint: 'https://Guardian.Example.com'
+      };
+      storeState.accounts = [account];
+      mockGetOrCreateMultisigService.mockResolvedValue({
+        sync: jest.fn(async () => {
+          throw authError;
+        })
+      });
+      for (let lap = 0; lap < SELF_HEAL_AUTH_FAILURE_THRESHOLD - 1; lap++) await syncGuardianAccounts();
+      const barrier = makeBarrier();
+      mockAdoptGuardianState.mockImplementationOnce(async () => barrier.wait());
+      const pass = syncGuardianAccounts();
+      try {
+        await Promise.race([barrier.ready, pass]);
+        expect(barrier.wasEntered()).toBe(true);
+        expect(mockReRegister).not.toHaveBeenCalled();
+        clocks.advance(SELF_HEAL_COOLDOWN_MS + 1);
+        changePass(account, change);
+        barrier.release();
+        await pass;
+
+        const expectedCalls = change === 'canonical respelling' ? 1 : 0;
+        expect(mockReRegister).toHaveBeenCalledTimes(expectedCalls);
+        expect(storeState.swapHotKey).not.toHaveBeenCalled();
+        expect(mockMarkRotationCompleted).not.toHaveBeenCalled();
+        expect(isGuardianUnrepairable(account.publicKey)).toBe(false);
+
+        storeState.accounts = [account];
+        await syncGuardianAccounts();
+        expect(mockReRegister).toHaveBeenCalledTimes(1);
+      } finally {
+        barrier.release();
+        await pass;
+        clocks.restore();
+      }
+    });
+
+    it.each(changes)('GEO019 fences pending-heal completion after configure started: %s', async change => {
+      const clocks = useFakeClocks(1_000);
+      const account = arrangePending();
+      const barrier = makeBarrier();
+      mockReRegister.mockImplementationOnce(
+        async (_options: unknown, onPushStart?: (signers: readonly string[]) => void) => {
+          onPushStart?.(['0xbeef', '0xc01d']);
+          await barrier.wait();
+        }
+      );
+      const pass = syncGuardianAccounts();
+      try {
+        await Promise.race([barrier.ready, pass]);
+        expect(barrier.wasEntered()).toBe(true);
+        expect(mockReRegister).toHaveBeenCalledTimes(1);
+        expect(storeState.swapHotKey).not.toHaveBeenCalled();
+        clocks.advance(SELF_HEAL_COOLDOWN_MS + 1);
+        changePass(account, change);
+        barrier.release();
+        await pass;
+
+        const expectedFinishes = change === 'canonical respelling' ? 1 : 0;
+        expect(storeState.swapHotKey).toHaveBeenCalledTimes(expectedFinishes);
+        expect(mockMarkRotationCompleted).toHaveBeenCalledTimes(expectedFinishes);
+
+        storeState.accounts = [account];
+        await syncGuardianAccounts();
+        const expectedPushes = change === 'canonical respelling' ? 1 : 2;
+        expect(mockReRegister).toHaveBeenCalledTimes(expectedPushes);
+        expect(storeState.swapHotKey).toHaveBeenCalledTimes(1);
+        expect(mockMarkRotationCompleted).toHaveBeenCalledWith('row-geo019');
+      } finally {
+        barrier.release();
+        await pass;
+        clocks.restore();
+      }
+    });
+  });
 
   it("finishes this device's own rotation once the chain-verified signer set names its key (#1233)", async () => {
     arrangeOwnRotation('acct-own-rotation');

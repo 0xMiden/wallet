@@ -14551,3 +14551,473 @@ describe('GEO014 existing Swap consume remains available', () => {
     }
   );
 });
+
+describe('GEO017 landed switch reconciliation keeps optional service reads gated', () => {
+  type Access = typeof import('lib/remote-config/wallet-access');
+  type Completion = typeof import('lib/miden/guardian/committed-completion');
+  type Policy = 'allowed' | 'expired' | 'restricted' | 'unavailable' | 'locked';
+  type Route = 'coordinated' | 'direct';
+
+  const cases: Array<{ route: Route; policy: Policy }> = [
+    { route: 'coordinated', policy: 'expired' },
+    { route: 'coordinated', policy: 'restricted' },
+    { route: 'coordinated', policy: 'unavailable' },
+    { route: 'coordinated', policy: 'locked' },
+    { route: 'coordinated', policy: 'allowed' },
+    { route: 'direct', policy: 'expired' },
+    { route: 'direct', policy: 'restricted' },
+    { route: 'direct', policy: 'unavailable' },
+    { route: 'direct', policy: 'locked' },
+    { route: 'direct', policy: 'allowed' }
+  ];
+
+  const deferred = () => {
+    let resolve: () => void = () => {
+      throw new Error('Deferred fixture was not initialized');
+    };
+    const promise = new Promise<void>(done => {
+      resolve = done;
+    });
+    return { promise, resolve };
+  };
+
+  it.each(cases)('GEO017 $route apply-failed switch completes after post-submit $policy', async ({ route, policy }) => {
+    jest.clearAllMocks();
+    txStore.length = 0;
+    mockGetOrCreateMultisigService.mockReset();
+    mockBuildColdMultisigService.mockReset();
+    mockCreateDirectSwitchRequest.mockReset();
+    mockFinalizeDirectSwitch.mockReset();
+    mockAdoptPostSwitchState.mockReset();
+    mockDidDirectSwitchLand.mockReset();
+    mockGetMidenClient.mockReset();
+    mockIsGuardianAccount.mockReset();
+    jest.useFakeTimers();
+    let now = 0;
+    const clock = jest.spyOn(performance, 'now').mockImplementation(() => now);
+    const boundary = jest.requireMock<Access>('lib/remote-config/wallet-access');
+    const originalAccess = { ...boundary };
+    const access = jest.requireActual<Access>('lib/remote-config/wallet-access');
+    Object.assign(boundary, access);
+    const completion = jest.requireActual<Completion>('lib/miden/guardian/committed-completion');
+    const scope = () => `geo017:${access.getWalletAccessGeneration()}`;
+    access.registerWalletAccessRuntime({
+      scope,
+      refresh: async () => access.publishWalletAccessDecision(scope(), false)
+    });
+    access.publishWalletAccessDecision(scope(), true);
+    const originalOffscreen = process.env.MIDEN_USE_OFFSCREEN_CLIENT;
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'false';
+    const originalExtension = mockPlatformIsExtension;
+    const originalMobile = mockPlatformIsMobile;
+    mockPlatformIsExtension = true;
+    mockPlatformIsMobile = false;
+
+    const chainId = `0x${'17'.repeat(32)}`;
+    const initialCommitment = `0x${'18'.repeat(32)}`;
+    const finalCommitment = `0x${'19'.repeat(32)}`;
+    const oldEndpoint = 'https://old.guardian';
+    const newEndpoint = 'https://new.guardian';
+    const attempt: { attemptId?: string } = {};
+    const transaction = Object.assign(
+      new SwitchGuardianTransaction('guardian-acc', newEndpoint, false, oldEndpoint),
+      attempt
+    );
+    const account: WalletAccount = {
+      publicKey: 'guardian-acc',
+      name: 'Guardian account',
+      isPublic: true,
+      type: WalletType.Guardian,
+      hdIndex: 0,
+      authScheme: 'ecdsa',
+      hotPublicKey: 'hot-pub',
+      coldPublicKey: 'cold-pub',
+      guardianEndpoint: oldEndpoint
+    };
+    let savedEndpoint = oldEndpoint;
+    let locked = false;
+    let submitted = false;
+    let afterApply = false;
+    let successfulPrivateReadsAfterApply = 0;
+    let successfulSignsAfterApply = 0;
+    let token: string | undefined;
+    const applyEntered = deferred();
+    const assertPrivateAccess = () => {
+      if (locked) throw Object.assign(new Error('Wallet is locked'), { reason: 'locked' });
+      access.assertWalletAccessAllowed();
+    };
+    const setGuardianEndpoint = jest.fn(async (_accountId: string, endpoint: string) => {
+      assertPrivateAccess();
+      savedEndpoint = endpoint;
+    });
+    const prepareCommittedGuardianCompletion = jest.fn(async (rowId: string) => {
+      assertPrivateAccess();
+      const fingerprint = completion.committedGuardianOperationBinding(transaction);
+      if (rowId !== transaction.id || !transaction.attemptId || !fingerprint) {
+        throw new Error('Invalid original switch completion admission');
+      }
+      token = completion.issueCommittedGuardianIntent(
+        rowId,
+        transaction.attemptId,
+        fingerprint,
+        async (evidence, assertCurrent) => {
+          assertCurrent();
+          if (
+            locked ||
+            !submitted ||
+            evidence.transactionId !== chainId ||
+            evidence.finalCommitment !== finalCommitment
+          ) {
+            throw new Error('Fixture has no matching committed switch');
+          }
+          savedEndpoint = newEndpoint;
+        }
+      );
+    });
+    const completeCommittedGuardianRow = jest.fn(async (rowId: string, deadlineMs?: number) => {
+      const admitted = token;
+      token = undefined;
+      if (rowId !== transaction.id || !admitted) throw new Error('No admitted original switch');
+      await completion.finishCommittedGuardianIntent(admitted, deadlineMs);
+    });
+    const provider: GuardianAccountProvider = {
+      getAccounts: async () => {
+        assertPrivateAccess();
+        if (afterApply) successfulPrivateReadsAfterApply++;
+        return [{ ...account }];
+      },
+      getPublicKeyForCommitment: async () => {
+        assertPrivateAccess();
+        return 'pk';
+      },
+      signWord: async () => {
+        assertPrivateAccess();
+        if (afterApply) successfulSignsAfterApply++;
+        return 'sig';
+      },
+      setGuardianEndpoint,
+      prepareCommittedGuardianCompletion,
+      completeCommittedGuardianRow,
+      releaseRecoveryAuthorization: async rowId => completion.clearCommittedGuardianIntent(rowId)
+    };
+    const register = jest.fn(async () => {
+      await provider.getAccounts();
+      await provider.signWord('hot-pub', 'word');
+    });
+    const service = {
+      guardianEndpoint: oldEndpoint,
+      createSwitchGuardianProposal: jest.fn(async () => ({
+        proposal: { id: 'geo017-proposal', nonce: 17 },
+        newEndpoint
+      })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      finalizeGuardianSwitch: register,
+      abandonCandidate: jest.fn(async () => {}),
+      pushSwitchDeltaBounded: jest.fn(async () => 'pushed'),
+      sync: jest.fn(async () => {})
+    };
+    mockIsGuardianAccount.mockResolvedValue(true);
+    // Preserve the real rebuild's provider read, which a resolved service mock hides.
+    mockGetOrCreateMultisigService.mockImplementation(async (_accountId: string, active: GuardianAccountProvider) => {
+      await active.getAccounts();
+      if (route === 'direct' && !submitted) throw new TypeError('Failed to fetch');
+      return service;
+    });
+    mockBuildColdMultisigService.mockResolvedValue({ signProposal: jest.fn(async () => {}) });
+    mockCreateDirectSwitchRequest.mockResolvedValue({
+      serialize: () => new Uint8Array([1]),
+      authArg: () => undefined
+    });
+    mockFinalizeDirectSwitch.mockImplementation(register);
+    mockAdoptPostSwitchState.mockResolvedValue('post-switch');
+    mockDidDirectSwitchLand.mockResolvedValue(true);
+    const result = {
+      ...makeResult(),
+      executedTransaction: () => ({
+        ...makeResult().executedTransaction(),
+        id: () => ({ toHex: () => chainId }),
+        accountId: () => account.publicKey,
+        initialAccountHeader: () => ({
+          to_commitment: () => ({ toHex: () => initialCommitment }),
+          nonce: () => ({ asInt: () => 0n })
+        }),
+        finalAccountHeader: () => ({
+          to_commitment: () => ({ toHex: () => finalCommitment }),
+          nonce: () => ({ asInt: () => 1n })
+        })
+      })
+    };
+    const apply = jest.fn(async () => {
+      afterApply = true;
+      if (policy === 'locked') locked = true;
+      else if (policy === 'expired') now = 60_001;
+      else if (policy === 'restricted') access.publishWalletAccessDecision(scope(), false);
+      else if (policy === 'unavailable') access.publishWalletAccessDecision(scope(), null);
+      applyEntered.resolve();
+      throw new Error(STORE_APPLY_ERROR_MESSAGE);
+    });
+    const client = Object.assign(makeClientApi(result, apply), {
+      accounts: { get: jest.fn(async () => ({ to_commitment: () => ({ toHex: () => initialCommitment }) })) }
+    });
+    const proof = {
+      proved: true,
+      nullifiers: () => [],
+      refBlockNumber: () => 42,
+      refBlockCommitment: () => ({ toHex: () => `0x${'20'.repeat(32)}` }),
+      expirationBlockNumber: () => 43
+    };
+    client.transactions.prove.mockResolvedValue(proof);
+    client.transactions.submitProven.mockImplementation(async () => {
+      submitted = true;
+      return { blockNumber: 42 };
+    });
+    mockGetMidenClient.mockResolvedValue({
+      isDisposed: false,
+      syncState: jest.fn(async () => {}),
+      getAccount: jest.fn(async () => ({ id: () => ({ toString: () => account.publicKey }) })),
+      client
+    });
+    txStore.push({ ...transaction });
+    const pending = generateTransaction(
+      transaction,
+      jest.fn(async () => new Uint8Array([1])),
+      false,
+      provider
+    ).then(
+      () => ({ error: undefined }),
+      (error: unknown) => ({ error })
+    );
+    try {
+      const reachedApply = await Promise.race([applyEntered.promise.then(() => true), pending.then(() => false)]);
+      expect(reachedApply).toBe(true);
+      await jest.advanceTimersByTimeAsync(APPLY_RETRY_DELAYS_MS.reduce((total, delay) => total + delay, 0) + 1);
+      const outcome = await pending;
+      expect(outcome.error).toBeUndefined();
+
+      // Three failed applies carry the actual result's chain ID and final commitment.
+      expect(client.transactions.submitProven).toHaveBeenCalledTimes(1);
+      expect(apply).toHaveBeenCalledTimes(3);
+      const stored = txStore.find(row => row.id === transaction.id);
+      expect(stored).toMatchObject({
+        status: ITransactionStatus.Completed,
+        transactionId: chainId,
+        extraInputs: { commitUnconfirmed: true, endpointPersistFailed: policy === 'locked' }
+      });
+      expect(mockDidDirectSwitchLand).toHaveBeenCalledWith(chainId);
+      expect(savedEndpoint).toBe(policy === 'locked' ? oldEndpoint : newEndpoint);
+      expect(prepareCommittedGuardianCompletion).toHaveBeenCalledTimes(1);
+      expect(completeCommittedGuardianRow).toHaveBeenCalledTimes(policy === 'allowed' || policy === 'locked' ? 0 : 1);
+      expect(mockGetOrCreateMultisigService).toHaveBeenCalledTimes(route === 'coordinated' ? 2 : 1);
+      expect(setGuardianEndpoint).toHaveBeenCalledTimes(1);
+      expect(successfulPrivateReadsAfterApply > 0).toBe(policy === 'allowed');
+      expect(successfulSignsAfterApply > 0).toBe(policy === 'allowed');
+      expect(service.abandonCandidate).not.toHaveBeenCalled();
+    } finally {
+      await pending;
+      completion.clearCommittedGuardianIntent(transaction.id);
+      access.invalidateWalletAccess();
+      Object.assign(boundary, originalAccess);
+      mockPlatformIsExtension = originalExtension;
+      mockPlatformIsMobile = originalMobile;
+      if (originalOffscreen === undefined) delete process.env.MIDEN_USE_OFFSCREEN_CLIENT;
+      else process.env.MIDEN_USE_OFFSCREEN_CLIENT = originalOffscreen;
+      clock.mockRestore();
+      jest.useRealTimers();
+    }
+  });
+});
+
+describe('GEO018 definite pre-submit Guardian candidate cleanup', () => {
+  it.each([
+    { label: 'inline Swap refusal abandons', kind: 'swap', mode: 'inline', abandonFails: false, candidate: 'none' },
+    {
+      label: 'inline Swap refusal retains failed-abandon retry',
+      kind: 'swap',
+      mode: 'inline',
+      abandonFails: true,
+      candidate: 'retry'
+    },
+    {
+      label: 'inline Earn refusal retains failed-abandon retry',
+      kind: 'earn-deposit',
+      mode: 'inline',
+      abandonFails: true,
+      candidate: 'retry'
+    },
+    {
+      label: 'offscreen Swap refusal retains failed-abandon retry',
+      kind: 'swap',
+      mode: 'offscreen',
+      abandonFails: true,
+      candidate: 'retry'
+    },
+    {
+      label: 'offscreen Earn refusal retains failed-abandon retry',
+      kind: 'earn-deposit',
+      mode: 'offscreen',
+      abandonFails: true,
+      candidate: 'retry'
+    },
+    {
+      label: 'uncertain Swap submit keeps its candidate',
+      kind: 'swap',
+      mode: 'submitted',
+      abandonFails: false,
+      candidate: 'kept'
+    },
+    {
+      label: 'untagged Earn submit failure never schedules another abandon',
+      kind: 'earn-deposit',
+      mode: 'submitted',
+      abandonFails: true,
+      candidate: 'none'
+    },
+    {
+      label: 'killed Swap still keeps its candidate',
+      kind: 'swap',
+      mode: 'killed',
+      abandonFails: false,
+      candidate: 'kept'
+    },
+    {
+      label: 'allowed Swap retains its landed candidate',
+      kind: 'swap',
+      mode: 'allowed',
+      abandonFails: false,
+      candidate: 'landed'
+    }
+  ])('GEO018 $label', async ({ kind, mode, abandonFails, candidate }) => {
+    jest.clearAllMocks();
+    txStore.length = 0;
+    clearGuardianAccountLocks();
+    const runtime = await import('lib/remote-config/runtime');
+    const { TEST_BRIDGE_CONFIG_SNAPSHOT } = await import('lib/epoch/testing/bridge-config');
+    const { SwapTransaction } = await import('../db/types');
+    const accepted = TEST_BRIDGE_CONFIG_SNAPSHOT.config;
+    if (!accepted) throw new Error('Expected a configured feature fixture');
+    let featureAllowed = true;
+    const snapshot = (): import('lib/remote-config/runtime').BridgeConfigSnapshot => ({
+      ...TEST_BRIDGE_CONFIG_SNAPSHOT,
+      config: { ...accepted, geo: { earn: [{ country: 'US' }], swap: [{ country: 'US' }] } },
+      geo: {
+        state: 'ready',
+        network: accepted.network,
+        version: accepted.version,
+        allowed: { wallet: true, earn: featureAllowed, swap: featureAllowed }
+      }
+    });
+    const readSnapshot = jest.spyOn(runtime, 'getBridgeConfigSnapshot').mockImplementation(snapshot);
+    const requestBytes = new Uint8Array([31, 32]);
+    const transaction =
+      kind === 'swap'
+        ? new SwapTransaction('guardian-acc', 'faucet', 1000n, 'requested-faucet', 7n, false)
+        : Object.assign(new Transaction('guardian-acc', requestBytes), {
+            type: 'earn-deposit',
+            amount: 1000n,
+            secondaryAccountId: 'allocator',
+            faucetId: 'faucet',
+            noteType: 'public',
+            extraInputs: { recallBlocks: 25, epochStatus: 'pending' },
+            delegateTransaction: false
+          });
+    transaction.requestBytes = requestBytes;
+    txStore.push({ ...transaction });
+    const result = makeResult();
+    const executed = result.executedTransaction();
+    Object.assign(executed, {
+      outputNotes: () => ({
+        notes: () => [
+          {
+            id: () => ({ toString: () => 'geo018-order-note' }),
+            intoFull: () => ({
+              recipient: () => ({ serialNum: () => ({ toFelts: () => [{ asInt: () => 0n }, { asInt: () => 42n }] }) })
+            })
+          }
+        ]
+      })
+    });
+    result.executedTransaction = () => executed;
+    const client = makeClientApi(result);
+    client.transactions.prove.mockImplementation(async () => {
+      if (mode === 'killed') throw new OperationAbortedError('geo018-op', 'deadline');
+      featureAllowed = mode !== 'inline';
+      return { proved: true };
+    });
+    if (mode === 'submitted') {
+      client.transactions.submitProven.mockRejectedValueOnce(
+        new Error('failed to submit proven transaction: connection reset')
+      );
+    }
+    mockGetMidenClient.mockResolvedValue({
+      isDisposed: false,
+      getAccount: jest.fn(async () => undefined),
+      syncState: jest.fn(async () => {}),
+      client
+    });
+    const service = {
+      guardianEndpoint: 'https://geo018.guardian',
+      createRebasedCustomProposal: jest.fn(async (bytes: Uint8Array) => ({
+        proposal: { id: 'geo018-proposal', nonce: 5 },
+        requestBytes: bytes
+      })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      abandonCandidate: jest.fn(async () => {}),
+      sync: jest.fn(async () => {})
+    };
+    if (abandonFails) service.abandonCandidate.mockRejectedValue(new TypeError('Failed to fetch'));
+    mockGetOrCreateMultisigService.mockResolvedValue(service);
+    const previousOffscreen = process.env.MIDEN_USE_OFFSCREEN_CLIENT;
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = mode === 'offscreen' ? 'true' : 'false';
+    if (mode === 'offscreen') {
+      mockDispatchGuardianPipeline.mockImplementationOnce(
+        async (
+          _account: string,
+          _bytes: Uint8Array,
+          _delegate: boolean,
+          _sign: unknown,
+          onStage: (stage: ITransactionStage) => Promise<void>
+        ) => {
+          await onStage('submitting');
+          throw markErrorBeforeSubmit(new Error('Feature access refused before submit'));
+        }
+      );
+    }
+    try {
+      await generateTransaction(
+        transaction,
+        jest.fn(async () => new Uint8Array([2])),
+        false,
+        makeGuardianProvider(true)
+      );
+      const crossed = mode === 'submitted' || mode === 'allowed';
+      expect(service.signAndCreateTransactionRequest).toHaveBeenCalledTimes(1);
+      expect(client.transactions.prove).toHaveBeenCalledTimes(mode === 'offscreen' ? 0 : 1);
+      expect(client.transactions.submitProven).toHaveBeenCalledTimes(crossed ? 1 : 0);
+      expect(client.transactions.apply).toHaveBeenCalledTimes(mode === 'allowed' ? 1 : 0);
+      expect(mockDispatchGuardianPipeline).toHaveBeenCalledTimes(mode === 'offscreen' ? 1 : 0);
+      const expected =
+        candidate === 'none'
+          ? undefined
+          : {
+              endpoint: service.guardianEndpoint,
+              nonce: 5,
+              ...STAMPS,
+              ...(candidate === 'retry' ? { abandon: true } : {}),
+              ...(candidate === 'kept' ? { attemptId: transaction.attemptId } : {})
+            };
+      expect(getGuardianCandidate('guardian-acc')).toEqual(expected);
+      expect(service.abandonCandidate).toHaveBeenCalledTimes(candidate === 'kept' || candidate === 'landed' ? 0 : 1);
+      expect(transaction.attemptId).toEqual(expect.any(String));
+    } finally {
+      readSnapshot.mockRestore();
+      if (previousOffscreen === undefined) delete process.env.MIDEN_USE_OFFSCREEN_CLIENT;
+      else process.env.MIDEN_USE_OFFSCREEN_CLIENT = previousOffscreen;
+    }
+  });
+});
