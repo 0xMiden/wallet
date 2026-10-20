@@ -143,6 +143,103 @@ describe('installBreadConnect', () => {
     expect(mockRevokeOpen).toHaveBeenCalledTimes(1);
   });
 
+  it('defaultOpenerDoesNotSendStoreAfterCallerCancellation', async () => {
+    let finishWallet: (result: { opened: boolean; next: 'primaryStore' }) => void = () => undefined;
+    let deliverRevoke: () => void = () => undefined;
+    mockOpenStep
+      .mockImplementationOnce(() => new Promise(resolve => (finishWallet = resolve)))
+      .mockResolvedValue({ opened: false });
+    // Native has not received revocation when the held false result reaches the real JS sequence.
+    mockRevokeOpen.mockImplementationOnce(() => new Promise<void>(resolve => (deliverRevoke = resolve)));
+    const links = { launchUrl: async () => undefined, onUrl: () => () => undefined };
+    const wallet = installBreadConnect({ callback: CALLBACK, appName: 'Game', links });
+    const outcome = wallet
+      .connect(PrivateDataPermission.UponRequest, WalletAdapterNetwork.Testnet)
+      .catch((error: unknown) => error);
+    try {
+      await flush();
+      expect(mockOpenStep.mock.calls).toEqual([[{ attemptId: 'attempt-1', step: 'wallet' }]]);
+      await wallet.disconnect();
+      expect(await outcome).toMatchObject({ code: 'CANCELLED' });
+      expect(mockRevokeOpen.mock.calls).toEqual([[{ attemptId: 'attempt-1' }]]);
+      finishWallet({ opened: false, next: 'primaryStore' });
+      await flush();
+      const oldStoreCommands = mockOpenStep.mock.calls.filter(call => call[0].step === 'primaryStore');
+      expect(oldStoreCommands).toHaveLength(0);
+      expect(await outcome).toMatchObject({ code: 'CANCELLED' });
+      expect(mockOpenWallet).not.toHaveBeenCalled();
+    } finally {
+      finishWallet({ opened: false, next: 'primaryStore' });
+      deliverRevoke();
+      await wallet.disconnect();
+      await flush();
+    }
+  });
+
+  it('defaultOpenerDoesNotSendInitialStepWhenCancelledDuringPreparation', async () => {
+    let finishPreparation: (result: { attemptId: string }) => void = () => undefined;
+    let deliverRevoke: () => void = () => undefined;
+    mockPrepareOpen.mockImplementationOnce(() => new Promise(resolve => (finishPreparation = resolve)));
+    mockOpenStep.mockResolvedValue({ opened: true });
+    mockRevokeOpen.mockImplementationOnce(() => new Promise<void>(resolve => (deliverRevoke = resolve)));
+    const links = { launchUrl: async () => undefined, onUrl: () => () => undefined };
+    const wallet = installBreadConnect({ callback: CALLBACK, appName: 'Game', links });
+    const outcome = wallet
+      .connect(PrivateDataPermission.UponRequest, WalletAdapterNetwork.Testnet)
+      .catch((error: unknown) => error);
+    try {
+      await flush();
+      expect(mockPrepareOpen).toHaveBeenCalledTimes(1);
+      expect(mockOpenStep).not.toHaveBeenCalled();
+      await wallet.disconnect();
+      expect(await outcome).toMatchObject({ code: 'CANCELLED' });
+      expect(mockRevokeOpen).not.toHaveBeenCalled();
+      finishPreparation({ attemptId: 'prepared-after-cancellation' });
+      await flush();
+      expect(mockRevokeOpen.mock.calls).toEqual([[{ attemptId: 'prepared-after-cancellation' }]]);
+      const stepCommands = mockOpenStep.mock.calls;
+      expect(stepCommands).toHaveLength(0);
+      expect(await outcome).toMatchObject({ code: 'CANCELLED' });
+    } finally {
+      finishPreparation({ attemptId: 'prepared-after-cancellation' });
+      deliverRevoke();
+      await wallet.disconnect();
+      await flush();
+    }
+  });
+
+  it('androidDefaultOpenerDoesNotSendWebStoreAfterCancellation', async () => {
+    let finishMarket: (result: { opened: boolean; next: 'secondaryStore' }) => void = () => undefined;
+    let deliverRevoke: () => void = () => undefined;
+    mockOpenStep
+      .mockResolvedValueOnce({ opened: false, next: 'primaryStore' })
+      .mockImplementationOnce(() => new Promise(resolve => (finishMarket = resolve)))
+      .mockResolvedValue({ opened: false });
+    mockRevokeOpen.mockImplementationOnce(() => new Promise<void>(resolve => (deliverRevoke = resolve)));
+    const links = { launchUrl: async () => undefined, onUrl: () => () => undefined };
+    const wallet = installBreadConnect({ callback: CALLBACK, appName: 'Game', links });
+    const outcome = wallet
+      .connect(PrivateDataPermission.UponRequest, WalletAdapterNetwork.Testnet)
+      .catch((error: unknown) => error);
+    try {
+      await flush();
+      expect(mockOpenStep.mock.calls.map(call => call[0].step)).toEqual(['wallet', 'primaryStore']);
+      await wallet.disconnect();
+      expect(await outcome).toMatchObject({ code: 'CANCELLED' });
+      expect(mockRevokeOpen.mock.calls).toEqual([[{ attemptId: 'attempt-1' }]]);
+      finishMarket({ opened: false, next: 'secondaryStore' });
+      await flush();
+      const webStoreCommands = mockOpenStep.mock.calls.filter(call => call[0].step === 'secondaryStore');
+      expect(webStoreCommands).toHaveLength(0);
+      expect(await outcome).toMatchObject({ code: 'CANCELLED' });
+    } finally {
+      finishMarket({ opened: false, next: 'secondaryStore' });
+      deliverRevoke();
+      await wallet.disconnect();
+      await flush();
+    }
+  });
+
   it('refuses a callback that is not a canonical https link', () => {
     for (const callback of ['http://game.example/bread', 'https://game.example/bread?x=1', 'game://bread']) {
       expect(() => installBreadConnect({ callback, appName: 'Game' })).toThrow('canonical https link');
