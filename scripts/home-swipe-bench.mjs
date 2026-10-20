@@ -396,6 +396,7 @@ async function reachHome(page) {
   let bypassed = false;
   let submitted = false;
   let unlocked = false;
+  let declinedTelemetry = false;
   let lastLog = 0;
   while (Date.now() < deadline) {
     const snap = await snapshot(page);
@@ -416,6 +417,12 @@ async function reachHome(page) {
         await sleep(80);
       }
       unlocked = true;
+      continue;
+    }
+    if (snap.hash.includes('help-improve-wallet') && !declinedTelemetry) {
+      console.log('declining telemetry');
+      await page.locator('[data-testid="help-improve-wallet-decline"]').click();
+      declinedTelemetry = true;
       continue;
     }
     if (snap.confirm && !submitted) {
