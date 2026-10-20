@@ -27,20 +27,25 @@ import {
 import { rotationVerdict } from 'lib/miden/guardian/rotation-verdict';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
+import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { formatAmount } from 'lib/shared/format';
 import { useRetryableSWR } from 'lib/swr';
 import { useLastData } from 'lib/swr/last-data';
 import useSafeState from 'lib/ui/useSafeState';
 
-import { isPendingActivityEntry } from './activityGroups';
+import {
+  activityCategoryOf,
+  hidesFaucetActivity,
+  isFaucetActivityEntry,
+  isPendingActivityEntry
+} from './activityGroups';
 import { guardianHistoryIcon } from './guardianHistoryLabels';
 import HistoryView from './HistoryView';
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
 import type { PendingActivityItem } from './PendingActivityCard';
 import {
   earnWithdrawAmountFields,
-  isFaucetRequest as isFaucetEntry,
   labelHistoryEntry,
   resolveConsumeExtraAmounts,
   resolveSwapHistoryFields,
@@ -124,8 +129,24 @@ export function historyEntryMatchesSearch(entry: IHistoryEntry, query: string): 
 
 // The chips above the activity list. `pending` shows the notes that wait for a
 // claim and the wallet's own transactions still in flight, so it removes every
-// settled history row.
-export type ActivityFilter = 'all' | 'pending' | 'sent' | 'received' | 'faucet';
+// settled history row. Each other chip but `all` is an `ActivityCategory`.
+export type ActivityFilter = 'all' | 'pending' | 'transfer' | 'swap' | 'earn' | 'others';
+
+/** Whether a row shows under a filter chip. */
+function matchesActivityFilter(filter: ActivityFilter, entry: IHistoryEntry): boolean {
+  switch (filter) {
+    case 'all':
+      return true;
+    // Only rows still in flight; the settled rows kept for this key (and paged ones) stay out.
+    case 'pending':
+      return isPendingActivityEntry(entry);
+    case 'transfer':
+    case 'swap':
+    case 'earn':
+    case 'others':
+      return activityCategoryOf(entry) === filter;
+  }
+}
 
 type ScopedEntries = { key: string; entries: IHistoryEntry[] };
 
@@ -278,14 +299,18 @@ const History = memo<HistoryProps>(
 
     // Labelled here, over the paged rows too, so every row and the search below follow a config publish.
     const bridgeConfig = useBridgeConfigSnapshot({ load: false });
-    // Don't sort the pending transactions, earliest should come first as they are processed first
-    const allEntries = useMemo(
-      () =>
-        pendingTransactions
-          .concat(mergeAndSort(latestTransactions ?? [], restEntries))
-          .map(entry => labelHistoryEntry(bridgeConfig, entry)),
-      [bridgeConfig, latestTransactions, restEntries, pendingTransactions]
-    );
+    // Read on each render: a Developer Settings save can change the network without a reload.
+    const hideFaucet = hidesFaucetActivity(getEffectiveNetworkName());
+    // Don't sort the pending transactions, earliest should come first as they are processed first.
+    // On Mainnet the faucet rows go here, before the search, the filter, the group predicate and the
+    // hidden notes, so no view and no search shows them. The test reads the row, not its icon, so a
+    // failed faucet claim is hidden too.
+    const allEntries = useMemo(() => {
+      const labelled = pendingTransactions
+        .concat(mergeAndSort(latestTransactions ?? [], restEntries))
+        .map(entry => labelHistoryEntry(bridgeConfig, entry));
+      return hideFaucet ? labelled.filter(entry => !isFaucetActivityEntry(entry)) : labelled;
+    }, [bridgeConfig, latestTransactions, restEntries, pendingTransactions, hideFaucet]);
 
     const loadMore = async (page: number) => {
       // already loading, don't make duplicate calls
@@ -398,23 +423,8 @@ const History = memo<HistoryProps>(
       entries = entries.filter(e => historyEntryMatchesSearch(e, query));
     }
     if (filter && filter !== 'all') {
-      // Failed/cancelled rows lose their directional icon (it becomes FAILED),
-      // so the Sent/Received filters fall back to the underlying tx type.
-      entries = entries.filter(e => {
-        // Only rows still in flight; the settled rows kept for this key (and paged ones) stay out.
-        if (filter === 'pending') return isPendingActivityEntry(e);
-        if (filter === 'sent') {
-          return e.transactionIcon === 'SEND' || (e.transactionIcon === 'FAILED' && isSendType(e.txType));
-        }
-        if (filter === 'received') {
-          return (
-            (e.transactionIcon === 'RECEIVE' || (e.transactionIcon === 'FAILED' && e.txType === 'consume')) &&
-            !isFaucetEntry(e)
-          );
-        }
-        if (filter === 'faucet') return isFaucetEntry(e);
-        return true;
-      });
+      // The categories read the tx type, so a failed row (FAILED icon) stays in its category.
+      entries = entries.filter(e => matchesActivityFilter(filter, e));
     }
     // Last, so a group's page narrows what the search and the filter already left.
     if (predicate) {
@@ -470,11 +480,6 @@ const History = memo<HistoryProps>(
 );
 
 export default History;
-
-/** Types whose (non-failed) row would carry the SEND icon. */
-function isSendType(txType: IHistoryEntry['txType']): boolean {
-  return txType === 'send' || txType === 'bridged-send';
-}
 
 async function fetchTransactionsAsHistoryEntries(
   address: string,

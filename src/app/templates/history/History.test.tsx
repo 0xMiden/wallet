@@ -14,10 +14,12 @@ import {
 // used to plant a bridge-in consume and a rotation shortfall the builder's `isUnconfirmedFailure`
 // call reads (#1250).
 import { TRANSACTION_INTERRUPTED_ERROR, TRANSACTION_VAULT_SHORTFALL_ERROR } from 'lib/miden/transaction/constants';
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 
 // Imported AFTER the mocks are registered.
 
+import { groupActivityEntries } from './activityGroups';
 import History from './History';
 import { HistoryEntryType } from './IHistoryEntry';
 import type { PendingActivityItem } from './PendingActivityCard';
@@ -150,6 +152,22 @@ jest.mock('./transactionUtils', () => ({
   labelHistoryEntry: jest.requireActual('./transactionUtils').labelHistoryEntry,
   resolveConsumeExtraAmounts: (...args: unknown[]) => mockResolveConsumeExtraAmounts(...args)
 }));
+
+// The chain's native asset, which the Mainnet faucet guard reads to recognise a faucet claim.
+jest.mock('lib/miden-chain/native-asset', () => ({
+  ...jest.requireActual<typeof import('lib/miden-chain/native-asset')>('lib/miden-chain/native-asset'),
+  getNativeAssetIdSync: () => 'NATIVE'
+}));
+
+// The effective network: Testnet unless a case puts the wallet on another.
+let mockWalletNetwork: MIDEN_NETWORK_NAME = MIDEN_NETWORK_NAME.TESTNET;
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  ...jest.requireActual<typeof import('lib/miden-chain/effective-endpoints')>('lib/miden-chain/effective-endpoints'),
+  getEffectiveNetworkName: () => mockWalletNetwork
+}));
+afterEach(() => {
+  mockWalletNetwork = MIDEN_NETWORK_NAME.TESTNET;
+});
 
 // This realm's bridge config: the real, unloaded one, or the loaded testnet one a case sets.
 let mockBridgeSnapshot: BridgeConfigSnapshot | undefined;
@@ -919,34 +937,171 @@ describe('History', () => {
     expect(entryKeys().sort()).toEqual(['completed-S', 'pending-PP'].sort());
   });
 
-  it('filters by sent / received / faucet / all and tolerates an unknown filter value', async () => {
+  it('filters by transfer / swap / earn / others / all, by the tx type of each row', async () => {
+    mockGetCompletedTransactions.mockImplementation(async (_addr: string, offset?: number) =>
+      offset === undefined
+        ? [
+            ...makeCompleted(),
+            { id: 'ED', status: STATUS.Completed, displayIcon: 'SEND', type: 'earn-deposit', completedAt: 1500 },
+            { id: 'EW', status: STATUS.Failed, displayIcon: 'RECEIVE', type: 'earn-withdraw', completedAt: 1400 },
+            { id: 'EX', status: STATUS.Completed, displayIcon: 'SEND', type: 'execute', completedAt: 1300 },
+            { id: 'RH', status: STATUS.Completed, type: 'replace-hot-key', completedAt: 1200 },
+            { id: 'BS', status: STATUS.Failed, displayIcon: 'SEND', type: 'bridged-send', completedAt: 1100 }
+          ]
+        : []
+    );
     const { rerender } = await renderHistory();
     const doRerender = async (props: Record<string, unknown>) => {
       await act(async () => {
         rerender(<History address="0xme" {...(props as any)} />);
       });
     };
+    const shown = () => [...entryKeys()].sort();
 
-    // sent → SEND icon, plus failed/cancelled sends (their icon becomes
-    // 'FAILED', so the filter falls back to the underlying tx type).
-    await doRerender({ filter: 'sent' });
-    expect(entryKeys()).toEqual(['completed-SD', 'completed-F', 'completed-C']);
+    // transfer → sends, receives and bridges, failed and cancelled ones included (their icon is
+    // FAILED, so the filter reads the tx type), and the faucet claim off Mainnet.
+    await doRerender({ filter: 'transfer' });
+    expect(shown()).toEqual(
+      [
+        'pending-PQ',
+        'pending-undefined',
+        'completed-P',
+        'completed-SD',
+        'completed-FC',
+        'completed-F',
+        'completed-C',
+        'completed-BS'
+      ].sort()
+    );
 
-    // received → RECEIVE and not a faucet request.
-    await doRerender({ filter: 'received' });
-    expect(entryKeys()).toEqual(['completed-P']);
+    await doRerender({ filter: 'swap' });
+    expect(shown()).toEqual(['completed-S', 'pending-PP'].sort());
 
-    // faucet → isFaucetRequest true.
-    await doRerender({ filter: 'faucet' });
-    expect(entryKeys()).toEqual(['completed-FC']);
+    // A failed withdraw stays under Earn.
+    await doRerender({ filter: 'earn' });
+    expect(shown()).toEqual(['completed-ED', 'completed-EW']);
+
+    await doRerender({ filter: 'others' });
+    expect(shown()).toEqual(['completed-EX', 'completed-RH']);
 
     // all → filter block skipped, everything retained.
     await doRerender({ filter: 'all' });
-    expect(entryKeys().length).toBe(9);
+    expect(entryKeys().length).toBe(14);
+  });
 
-    // unknown filter → inner default `return true`, everything retained.
-    await doRerender({ filter: 'weird' });
-    expect(entryKeys().length).toBe(9);
+  describe('faucet rows by network', () => {
+    beforeEach(() => {
+      // A faucet claim still in flight, which only the Pending chip lists. Its row has no icon yet.
+      mockGetUncompletedTransactions.mockResolvedValue([
+        ...makePending(),
+        {
+          id: 'PF',
+          status: STATUS.Queued,
+          displayMessage: 'faucet claim',
+          faucetId: 'NATIVE',
+          type: 'consume',
+          initiatedAt: 450,
+          secondaryAccountId: 'NATIVE'
+        }
+      ]);
+      // A faucet claim that failed: its icon is FAILED, so only a test of the row itself can recognise it.
+      mockGetCompletedTransactions.mockImplementation(async (_addr: string, offset?: number) =>
+        offset === undefined
+          ? [
+              ...makeCompleted(),
+              {
+                id: 'FF',
+                status: STATUS.Failed,
+                displayMessage: 'faucet claim failed',
+                displayIcon: 'FAILED',
+                faucetId: 'NATIVE',
+                type: 'consume',
+                completedAt: 1990,
+                secondaryAccountId: 'NATIVE'
+              }
+            ]
+          : []
+      );
+      // As the real `isFaucetRequest` reads a row: a receive (a consume with no icon yet counts) of the native asset.
+      mockIsFaucetRequest.mockImplementation(
+        (entry: any) =>
+          entry.faucetId === 'NATIVE' &&
+          (entry.transactionIcon === 'RECEIVE' || (entry.transactionIcon === undefined && entry.txType === 'consume'))
+      );
+    });
+
+    const viewsOf = async (rerender: (ui: React.ReactElement) => void) => {
+      const keysFor = async (props: Record<string, unknown>) => {
+        await act(async () => {
+          rerender(<History address="0xme" {...(props as any)} />);
+        });
+        return entryKeys();
+      };
+      return {
+        all: await keysFor({ filter: 'all' }),
+        pending: await keysFor({ filter: 'pending' }),
+        transfer: await keysFor({ filter: 'transfer' }),
+        others: await keysFor({ filter: 'others' }),
+        search: await keysFor({ searchQuery: 'faucet' })
+      };
+    };
+
+    it('shows the faucet rows off Mainnet', async () => {
+      const { rerender } = await renderHistory();
+      const views = await viewsOf(rerender);
+
+      expect(views.all).toEqual(expect.arrayContaining(['completed-FC', 'completed-FF', 'pending-PF']));
+      expect(views.pending).toContain('pending-PF');
+      expect(views.transfer).toEqual(expect.arrayContaining(['completed-FC', 'pending-PF']));
+      expect(views.search.sort()).toEqual(['completed-FC', 'pending-PF']);
+    });
+
+    it('hides the faucet rows on Mainnet from every filter and from the search', async () => {
+      mockWalletNetwork = MIDEN_NETWORK_NAME.MAINNET;
+      const { rerender } = await renderHistory();
+      const views = await viewsOf(rerender);
+
+      for (const keys of [views.all, views.pending, views.transfer, views.others, views.search]) {
+        expect(keys).not.toContain('completed-FC');
+        expect(keys).not.toContain('completed-FF');
+        expect(keys).not.toContain('pending-PF');
+      }
+      expect(views.search).toEqual([]);
+      // The other rows stay.
+      expect(views.all).toEqual(expect.arrayContaining(['completed-P', 'completed-SD', 'pending-PQ']));
+    });
+
+    it('gives the Groups view no faucet row and so no faucet group on Mainnet', async () => {
+      const groupsOn = async (network: MIDEN_NETWORK_NAME) => {
+        mockWalletNetwork = network;
+        let seen: any;
+        const utils = await renderHistory({
+          renderEntries: (view: any) => {
+            seen = view;
+            return <div data-testid="history-view" />;
+          }
+        });
+        await waitFor(() => expect(seen?.initialLoading).toBe(false));
+        const kinds = groupActivityEntries(seen.entries).map(group => group.kind);
+        utils.unmount();
+        return kinds;
+      };
+
+      expect(await groupsOn(MIDEN_NETWORK_NAME.TESTNET)).toContain('faucet');
+      expect(await groupsOn(MIDEN_NETWORK_NAME.MAINNET)).not.toContain('faucet');
+    });
+
+    it('reads the network on each render, not once at load, so the next render after a switch hides the rows', async () => {
+      const { rerender } = await renderHistory();
+      expect(entryKeys()).toContain('completed-FC');
+
+      mockWalletNetwork = MIDEN_NETWORK_NAME.MAINNET;
+      // A changed prop makes the memoized list render again.
+      await act(async () => {
+        rerender(<History address="0xme" className="next-render" />);
+      });
+      expect(entryKeys()).not.toContain('completed-FC');
+    });
   });
 
   it('limits the number of rendered entries with numItems (and ignores falsy 0)', async () => {
@@ -1998,11 +2153,11 @@ it('hides a failed consume row while its failed card offers the retry, and shows
     status: 'failed',
     txId: 'failed-claim'
   };
-  const { rerender } = await renderHistory({ pendingItems: [], filter: 'received' });
+  const { rerender } = await renderHistory({ pendingItems: [], filter: 'transfer' });
   await waitFor(() => expect(entryKeys()).toEqual(['completed-failed-claim']));
 
   await act(async () => {
-    rerender(<History address="0xme" pendingItems={[failed]} filter="received" />);
+    rerender(<History address="0xme" pendingItems={[failed]} filter="transfer" />);
   });
   expect(entryKeys()).toEqual([]);
   await act(async () => {
@@ -2140,8 +2295,8 @@ it('offers no more pages while its page is off screen', async () => {
 
 describe('History narrowed and re-rendered by its caller', () => {
   it('narrows the filtered, searched list by `predicate`', async () => {
-    // "sent" leaves the two send rows; the predicate keeps one of them.
-    await renderHistory({ filter: 'sent', predicate: (entry: any) => entry.secondaryAddress === '0xEEE' });
+    // "transfer" leaves the send and receive rows; the predicate keeps one of them.
+    await renderHistory({ filter: 'transfer', predicate: (entry: any) => entry.secondaryAddress === '0xEEE' });
 
     expect(entryKeys()).toEqual(['completed-SD']);
   });

@@ -16,6 +16,9 @@
 
 ### Fixes
 
+- [FIX][all] Profile and My Badges show the network the wallet runs on: after Mainnet invitation onboarding on a Testnet build they read Mainnet, and a dApp that names no network is given the wallet's effective node instead of the build default (#1655).
+- [FIX][all] The USDC bridge-in route and review show an estimated arrival of about 2 minutes instead of 20 (#1647).
+- [CHANGE][all] Activity's filters are All, Pending, Transfer, Swap, Earn and Others; Transfer covers sent, received and bridged entries. On Mainnet, faucet requests are hidden from every Activity list, group and search; the stored rows and balances are unchanged (#1646).
 - [FIX][all] CI dependency installation retries registry failures and timeouts before giving up, so a transient outage does not immediately discard builds or UI smoothness measurements.
 - [FIX][all] A USDCx withdrawal no longer fails with `Unable to read the USDCx faucet's burn policy`, which every review on testnet showed once the faucet's nonce map outgrew the full-account read. A burn must be at least 5 USDCx, or the faucet's minimum burn when that is larger; the wallet reads that minimum from an account proof, and a failed read keeps 5 USDCx instead of blocking the burn.
 - [FIX][all] Token metadata reads public proof values without loading unrelated storage maps or vault assets, so a large nonce registry no longer prevents reading the token name, symbol and authoritative decimals (#1632).

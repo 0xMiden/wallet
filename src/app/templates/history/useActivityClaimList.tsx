@@ -5,14 +5,33 @@ import { useTranslation } from 'react-i18next';
 import { useActivityClaims } from 'app/hooks/useActivityClaims';
 import { useActivityHiddenNotes } from 'app/hooks/useActivityHiddenNotes';
 import type { ClaimableNoteWithMetadata } from 'lib/miden/front/claimable-notes';
+import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { midenTokenLabel } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { markActivityRead } from 'lib/settings/activity-read';
 import { useConfirm } from 'lib/ui/dialog';
 
+import { hidesFaucetActivity, isFaucetClaimNote } from './activityGroups';
 import { pendingNoteUnreadKey } from './activityUnread';
 import type { ActivityFilter } from './History';
 import { PendingActivityCard, type PendingActivityItem } from './PendingActivityCard';
+
+/**
+ * Whether a filter chip shows the claim cards. A claim card is an incoming transfer, so it shows
+ * under the chips that list transfers, and under no other category.
+ */
+function showsClaimCards(filter: ActivityFilter): boolean {
+  switch (filter) {
+    case 'all':
+    case 'pending':
+    case 'transfer':
+      return true;
+    case 'swap':
+    case 'earn':
+    case 'others':
+      return false;
+  }
+}
 
 function isShown(item: PendingActivityItem, hiddenIds: ReadonlySet<string>): boolean {
   if (item.status === 'checking' || item.status === 'unavailable') return false;
@@ -29,7 +48,23 @@ function isShown(item: PendingActivityItem, hiddenIds: ReadonlySet<string>): boo
  */
 export function useActivityClaimList(search: string, filter: ActivityFilter) {
   const { t } = useTranslation();
-  const { items, accept, acceptMany, retryHeld, cannotPayFee, account, isLoadingNotes } = useActivityClaims();
+  const {
+    items: claimItems,
+    accept,
+    acceptMany,
+    retryHeld,
+    cannotPayFee,
+    account,
+    isLoadingNotes
+  } = useActivityClaims();
+  // Read on each render: a Developer Settings save can change the network without a reload.
+  const hideFaucet = hidesFaucetActivity(getEffectiveNetworkName());
+  // On Mainnet a faucet claim is not a card, not a decline that Restore counts, and not a note
+  // that Accept All takes, as `History` shows no faucet row there.
+  const items = useMemo(
+    () => (hideFaucet ? claimItems.filter(item => !isFaucetClaimNote(item.note)) : claimItems),
+    [claimItems, hideFaucet]
+  );
   const hidden = useActivityHiddenNotes(account.publicKey);
   const confirm = useConfirm();
   const bridgeConfig = useBridgeConfigSnapshot({ load: false });
@@ -42,7 +77,7 @@ export function useActivityClaimList(search: string, filter: ActivityFilter) {
   // Unsearched: History hides the consume row of each of these, and a search that drops a card
   // must not bring that row back.
   const representedItems = useMemo(
-    () => items.filter(item => isShown(item, hidden.ids) && filter !== 'sent' && filter !== 'faucet'),
+    () => (showsClaimCards(filter) ? items.filter(item => isShown(item, hidden.ids)) : []),
     [items, hidden.ids, filter]
   );
   // The cards drawn.

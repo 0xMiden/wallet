@@ -16,6 +16,7 @@ import { resetActivityReadState } from 'lib/settings/activity-read';
 import { ACTIVITY_READ_STORAGE_KEY } from 'lib/settings/constants';
 
 import { ActivityPendingHistory } from './ActivityPendingHistory';
+import type { ActivityFilter } from './History';
 import type { PendingActivityItem } from './PendingActivityCard';
 
 const mockAccept = jest.fn();
@@ -56,6 +57,19 @@ jest.mock('lib/wallet-prompts', () => ({
   ...jest.requireActual('lib/wallet-prompts'),
   useGuardianNoteRecoveryProgress: (accountId: string | null) => (accountId === 'account' ? mockRecovery : null)
 }));
+// The effective network, and the native asset a faucet claim pays out: the real ones unless a case sets them.
+let mockWalletNetwork: string | undefined;
+jest.mock('lib/miden-chain/effective-endpoints', () => {
+  const actual = jest.requireActual<typeof import('lib/miden-chain/effective-endpoints')>(
+    'lib/miden-chain/effective-endpoints'
+  );
+  return { ...actual, getEffectiveNetworkName: () => mockWalletNetwork ?? actual.getEffectiveNetworkName() };
+});
+let mockNativeAssetId: string | undefined;
+jest.mock('lib/miden-chain/native-asset', () => {
+  const actual = jest.requireActual<typeof import('lib/miden-chain/native-asset')>('lib/miden-chain/native-asset');
+  return { ...actual, getNativeAssetIdSync: () => mockNativeAssetId ?? actual.getNativeAssetIdSync() };
+});
 const mockHidden = { ids: new Set<string>(), loaded: true, failed: false, hide: mockHide, restore: mockRestore };
 const mockHideNavbar = jest.fn();
 let mockPathname = '/history';
@@ -188,6 +202,8 @@ beforeEach(() => {
   mockHistoryRenders.length = 0;
   mockBridgeSnapshot = undefined;
   mockConfirm.mockResolvedValue(true);
+  mockWalletNetwork = undefined;
+  mockNativeAssetId = undefined;
 });
 
 function expandCard(noteId: string): HTMLElement {
@@ -376,9 +392,71 @@ it('hands History a claiming note a search hides, so its consume row stays hidde
   expect(screen.getByTestId('timeline').querySelector('[data-pending-note-id="third"]')).toBeNull();
 });
 
-it('hides pending notes when the activity filter excludes incoming transfers', () => {
-  render(<ActivityPendingHistory search="" filter="sent" />);
+const FILTERS_WITHOUT_CARDS: ActivityFilter[] = ['swap', 'earn', 'others'];
+const FILTERS_WITH_CARDS: ActivityFilter[] = ['all', 'pending', 'transfer'];
+
+it.each(FILTERS_WITHOUT_CARDS)('hides pending notes under %s, which lists no incoming transfers', filter => {
+  render(<ActivityPendingHistory search="" filter={filter} />);
   expect(screen.getByTestId('timeline')).toBeEmptyDOMElement();
+  // No card stands for a consume row there either.
+  expect(mockHistoryRenders[mockHistoryRenders.length - 1]?.pendingItems).toEqual([]);
+});
+
+it.each(FILTERS_WITH_CARDS)('shows pending notes under %s', filter => {
+  render(<ActivityPendingHistory search="" filter={filter} />);
+  const timeline = screen.getByTestId('timeline');
+  for (const id of ['first', 'second', 'third']) {
+    expect(timeline.querySelector(`[data-pending-note-id="${id}"]`)).not.toBeNull();
+  }
+});
+
+describe('a faucet claim card by network', () => {
+  const NATIVE = 'native-faucet-id';
+  const faucetItem: PendingActivityItem = {
+    note: {
+      id: 'faucet-note',
+      faucetId: NATIVE,
+      amount: '1000000',
+      senderAddress: NATIVE,
+      isBeingClaimed: false,
+      type: 'unknown',
+      metadata: { name: 'Miden', symbol: 'MIDEN', decimals: 6 }
+    },
+    status: 'pending'
+  };
+  beforeEach(() => {
+    mockNativeAssetId = NATIVE;
+    mockState.items = [...mockItems, faucetItem];
+  });
+  const faucetCard = () => screen.getByTestId('timeline').querySelector('[data-pending-note-id="faucet-note"]');
+
+  it('shows the card off Mainnet', () => {
+    mockWalletNetwork = 'testnet';
+    render(<ActivityPendingHistory search="" filter="pending" />);
+    expect(faucetCard()).not.toBeNull();
+  });
+
+  it('hides the card on Mainnet, keeps it out of Accept All and keeps the other cards', () => {
+    mockWalletNetwork = 'mainnet';
+    render(<ActivityPendingHistory search="" filter="pending" />);
+    expect(faucetCard()).toBeNull();
+    expect(screen.getByTestId('timeline').querySelector('[data-pending-note-id="first"]')).not.toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'acceptAll' }));
+    expect(mockAcceptMany.mock.calls[0]?.[0].map((note: { id: string }) => note.id)).toEqual([
+      'first',
+      'second',
+      'third'
+    ]);
+  });
+
+  it('does not count a declined faucet claim for Restore on Mainnet', () => {
+    mockWalletNetwork = 'mainnet';
+    mockState.items = [faucetItem];
+    mockHidden.ids = new Set(['faucet-note']);
+    render(<ActivityPendingHistory search="" filter="pending" />);
+    expect(screen.queryByRole('button', { name: 'activityRestoreTransfers' })).toBeNull();
+  });
 });
 
 it('shows Accept All on the pending tab and claims every listed note that can be accepted', () => {
