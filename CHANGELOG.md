@@ -4,6 +4,10 @@
 
 ### Changes
 
+- [CHANGE][all] Update the Web SDK and React SDK to 0.17.5.
+
+- [CHANGE][all] Publish Bread Wallet Terms of Service v2.0 at /tos/ and the Sanctions Compliance Statement and Prohibited-User Disclosure at /compliance/, with distinct onboarding and Settings links and the existing Privacy Policy URL preserved (#1652).
+
 - [CHANGE][mobile] The home carousel snap starts on the frame the finger lifts, instead of holding still for a frame before the spring.
 - [CHANGE][mobile] A footer that slides with the keyboard starts on the frame the layout moves, instead of painting at its new place for a frame first.
 - [CHANGE][all] Each pull request posts a UI smoothness result: carousel feel against the base, the slowest scripted tap, and how the settings list scrolls, each with a difference in percent. The carousel score is the median of six passes from Overview to Swap, with the main thread slowed 4×. The tap and the list are not slowed, so the tap keeps the 200ms and 500ms bands. The comment is informational and does not block merge.
@@ -17,6 +21,9 @@
 
 ### Fixes
 
+- [FIX][extension] Incoming-note notifications use the Chrome fallback when the Web Notifications API fails during permission or construction.
+
+- [FIX][all] CI dependency installation retries registry failures and timeouts before giving up, so a transient outage does not immediately discard builds or UI smoothness measurements.
 - [FIX][all] A USDCx withdrawal no longer fails with `Unable to read the USDCx faucet's burn policy`, which every review on testnet showed once the faucet's nonce map outgrew the full-account read. A burn must be at least 5 USDCx, or the faucet's minimum burn when that is larger; the wallet reads that minimum from an account proof, and a failed read keeps 5 USDCx instead of blocking the burn.
 - [FIX][all] Token metadata reads public proof values without loading unrelated storage maps or vault assets, so a large nonce registry no longer prevents reading the token name, symbol and authoritative decimals (#1632).
 
