@@ -79,9 +79,8 @@ export function isUsdcxDestinationChain(destinationChainId: number): boolean {
 
 /** The mandatory floor or greater `minimum` a burn falls below, formatted for `usdcxBelowMinimumBurn`. */
 export function usdcxMinimumBurnShortfall(amount: bigint, minimum = USDCX_MIN_BURN): { amount: string } | undefined {
-  const requiredMinimum = minimum > USDCX_MIN_BURN ? minimum : USDCX_MIN_BURN;
-  if (amount >= requiredMinimum) return undefined;
-  return { amount: formatUnits(requiredMinimum, USDCX_DECIMALS) };
+  if (amount >= minimum) return undefined;
+  return { amount: formatUnits(minimum, USDCX_DECIMALS) };
 }
 
 export function validateUsdcxWithdrawal(
