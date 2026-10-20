@@ -8,7 +8,7 @@ import { getIntercom } from './defaults';
 /**
  * Fire a native background notification. Two mechanisms, in order:
  * `ServiceWorkerRegistration.showNotification` (same system as the Web
- * Notifications API — reliable in Brave), else the `chrome.notifications` API.
+ * Notifications API), then the `chrome.notifications` API.
  * A no-op when neither is available (mobile/desktop), so callers can invoke it
  * unconditionally. `notificationId` scopes the chrome.notifications entry so a
  * failure alert doesn't replace a received-note alert.
@@ -19,55 +19,66 @@ export function showBackgroundNotification(
   notificationId = 'miden-background',
   errorId: UserErrorId | null = null
 ): void {
+  const fallback = () => {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const chromeNotifications = (globalThis as any).chrome?.notifications;
+      if (chromeNotifications) {
+        chromeNotifications.create(
+          notificationId,
+          {
+            type: 'basic',
+            iconUrl: chrome.runtime.getURL('misc/logo-white-bg-128.png'),
+            title,
+            message,
+            requireInteraction: true
+          },
+          () => {
+            if (chrome.runtime.lastError) {
+              console.warn('[background-notification] chrome.notifications error:', chrome.runtime.lastError.message);
+            } else if (errorId) {
+              reportUserVisibleError(errorId, 'os_notification');
+            }
+          }
+        );
+      }
+    } catch (error) {
+      console.warn('[background-notification] chrome.notifications error:', error);
+    }
+  };
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sw = globalThis as any;
   if (sw.registration?.showNotification) {
-    sw.registration
-      .showNotification(title, {
-        body: message,
-        icon: chrome.runtime.getURL('misc/logo-white-bg-128.png'),
-        requireInteraction: true
-      })
-      .then(() => {
-        if (errorId) reportUserVisibleError(errorId, 'os_notification');
-      })
-      .catch((error: unknown) => {
-        console.warn('[background-notification] service-worker notification error:', error);
-      });
+    try {
+      void Promise.resolve(
+        sw.registration.showNotification(title, {
+          body: message,
+          icon: chrome.runtime.getURL('misc/logo-white-bg-128.png'),
+          requireInteraction: true
+        })
+      )
+        .then(() => {
+          if (errorId) reportUserVisibleError(errorId, 'os_notification');
+        })
+        .catch(fallback);
+    } catch {
+      fallback();
+    }
     return;
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const chromeNotifications = (globalThis as any).chrome?.notifications;
-  if (chromeNotifications) {
-    chromeNotifications.create(
-      notificationId,
-      {
-        type: 'basic',
-        iconUrl: chrome.runtime.getURL('misc/logo-white-bg-128.png'),
-        title,
-        message,
-        requireInteraction: true
-      },
-      () => {
-        if (chrome.runtime.lastError) {
-          console.warn('[background-notification] chrome.notifications error:', chrome.runtime.lastError.message);
-        } else if (errorId) {
-          reportUserVisibleError(errorId, 'os_notification');
-        }
-      }
-    );
-  }
+  fallback();
 }
 
 /**
- * Notify the user that a transaction failed in the background — symmetric with
+ * Notify the user that a transaction failed in the background - symmetric with
  * the received-note notification (gap 6). A failed transaction the user isn't
  * watching used to be completely silent: the row went to Failed and nothing told
  * them. This fires only when
  *   - we're on the extension (the received-note path is likewise extension-only;
  *     `showBackgroundNotification` no-ops elsewhere anyway), and
- *   - NO wallet UI is open — an open popup already shows the failure on the
+ *   - NO wallet UI is open - an open popup already shows the failure on the
  *     transaction screen, so a notification would be redundant.
  * Best-effort: any error here is swallowed so it can never disturb the caller's
  * own failure handling.
