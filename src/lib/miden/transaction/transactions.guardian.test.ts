@@ -277,7 +277,31 @@ jest.mock('../sdk/miden-client', () => {
   // The real error class, so the code under test's poison classifiers see the
   // same shape production throws.
   const { WasmClientPoisonedError: PoisonError } = jest.requireActual('../sdk/wasm-client-poison');
+  const ensureWalletAccessOutsideWasmLock = async (hold: object | null, assertCurrent: () => void): Promise<void> => {
+    const access = jest.requireMock<typeof import('lib/remote-config/wallet-access')>(
+      'lib/remote-config/wallet-access'
+    );
+    const assertOwner = () => {
+      if (hold !== null && hold !== currentHold) {
+        throw new PoisonError('watchdog', new Error('operation abandoned during the wallet access renewal'));
+      }
+      assertCurrent();
+    };
+    assertOwner();
+    const generation = access.getWalletAccessGeneration();
+    if (access.getWalletAccessSnapshot().status !== 'allowed') {
+      // This legacy fixture models hold identity; GEO007 cases replace it with the actual mutex.
+      try {
+        await access.ensureWalletAccessAllowed();
+      } finally {
+        assertOwner();
+      }
+    }
+    if (access.getWalletAccessGeneration() !== generation) throw new access.WalletAccessDeniedError();
+    access.assertWalletAccessAllowed();
+  };
   return {
+    ensureWalletAccessOutsideWasmLock,
     withWasmClientLock: (...a: unknown[]) => mockWithWasmClientLock(...(a as [() => Promise<unknown>])),
     withWasmLockWatchdogPaused: (...a: unknown[]) => mockWithWasmLockWatchdogPaused(...(a as [() => Promise<unknown>])),
     getMidenClient: (...a: unknown[]) => mockGetMidenClient(...a),
@@ -13920,7 +13944,7 @@ describe('Guardian inline GEO007 permission renewal', () => {
   type Access = typeof import('lib/remote-config/wallet-access');
   type Mutex = typeof import('../sdk/miden-client');
 
-  const deferred = <T,>() => {
+  const deferred = <T>() => {
     let resolve: (value: T) => void = () => {
       throw new Error('Deferred promise was not initialized');
     };
@@ -14019,21 +14043,17 @@ describe('Guardian inline GEO007 permission renewal', () => {
       expect(client.transactions.apply).not.toHaveBeenCalled();
       answer.resolve(allowed);
       const outcome = await pending;
-      if (allowed === true) {
-        expect(outcome).toEqual({ ok: true, error: undefined });
-        expect(client.transactions.submitProven).toHaveBeenCalledTimes(1);
-        expect(client.transactions.apply).toHaveBeenCalledTimes(1);
-        expect(createSendProposal).toHaveBeenCalledTimes(1);
-        expect(txStore.find(row => row.id === transaction.id)?.status).toBe(ITransactionStatus.Completed);
-      } else {
-        expect(outcome.ok).toBe(false);
-        expect(access.isWalletAccessDeniedError(outcome.error)).toBe(true);
-        expect(hasErrorBeforeSubmit(outcome.error)).toBe(true);
-        expect(client.transactions.submitProven).not.toHaveBeenCalled();
-        expect(client.transactions.apply).not.toHaveBeenCalled();
-        expect(client.transactions.prove).toHaveBeenCalledTimes(1);
-        expect(txStore.find(row => row.id === transaction.id)?.status).not.toBe(ITransactionStatus.Failed);
-      }
+      expect(outcome).toMatchObject(allowed === true ? { ok: true, error: undefined } : { ok: false });
+      expect(access.isWalletAccessDeniedError(outcome.error)).toBe(allowed !== true);
+      expect(hasErrorBeforeSubmit(outcome.error)).toBe(allowed !== true);
+      expect(client.transactions.submitProven).toHaveBeenCalledTimes(allowed === true ? 1 : 0);
+      expect(client.transactions.apply).toHaveBeenCalledTimes(allowed === true ? 1 : 0);
+      expect(createSendProposal).toHaveBeenCalledTimes(1);
+      expect(client.transactions.prove).toHaveBeenCalledTimes(1);
+      const status = txStore.find(row => row.id === transaction.id)?.status;
+      expect(allowed === true ? status === ITransactionStatus.Completed : status !== ITransactionStatus.Failed).toBe(
+        true
+      );
       expect(refresh).toHaveBeenCalledTimes(1);
       expect(mutex.isWasmClientBusy()).toBe(false);
     } finally {

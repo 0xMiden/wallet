@@ -54,7 +54,11 @@ import { monotonicNowMs } from 'lib/miden/sync-backoff';
 import { syncUnderBoundedLock } from 'lib/miden/sync-lock';
 import { getNativeAssetId } from 'lib/miden-chain/native-asset';
 import { isExtension, isMobile } from 'lib/platform';
-import { ensureWalletAccessAllowed, isWalletAccessDeniedError } from 'lib/remote-config/wallet-access';
+import {
+  assertWalletAccessAllowed,
+  ensureWalletAccessAllowed,
+  isWalletAccessDeniedError
+} from 'lib/remote-config/wallet-access';
 import { generateHotKey, type GeneratedHotKey } from 'lib/secure-hot-key';
 import { commitmentFromPublicKeyHex } from 'lib/secure-hot-key/commitment';
 import { sameGuardianEndpoint } from 'lib/settings/helpers';
@@ -157,6 +161,7 @@ import {
 } from '../sdk/helpers';
 import {
   assertWasmHoldCurrent,
+  ensureWalletAccessOutsideWasmLock,
   getCurrentWasmLockHold,
   getMidenClient,
   type WasmClientLockOptions,
@@ -185,7 +190,7 @@ import {
   SubmitCrossingUnrecordedError
 } from '../sdk/sdk-error-code';
 import { readSubmitEvidence } from '../sdk/submit-evidence';
-import { isSyncWatchdogEviction, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
+import { isSyncWatchdogEviction, wasmClientGeneration, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 import { isRecoveredReturnOrder } from '../swap/recovered-order';
 
 export * from './cancel';
@@ -2305,7 +2310,14 @@ const runGuardianPipeline = async (
   // MidenClient handles the full pipeline (execute → prove → submit → apply). The
   // sign inside `executeRequest` reaches the realm's installed signer (#878).
   return withWasmClientLock(async hold => {
+    const generation = wasmClientGeneration();
     const midenClient = await getMidenClient();
+    const assertSubmissionCurrent = () => {
+      assertStillHoldingLock(hold, 'before submit');
+      if (midenClient.isDisposed || wasmClientGeneration() !== generation) {
+        throw new WasmClientPoisonedError('watchdog', new Error('guardian client replaced before submit'));
+      }
+    };
     // The client build can be the LONGEST parking await in this hold - a first
     // build's genesis fetch goes to the same node everything else here is waiting
     // on. The offscreen copy of this pipeline checks the hold right after its own
@@ -2436,11 +2448,12 @@ const runGuardianPipeline = async (
       evidence: readSubmitEvidence(executedTx.result, provenTx.proof, () => getCurrentWasmLockHold() === hold)
     });
     try {
-      await ensureWalletAccessAllowed();
+      await ensureWalletAccessOutsideWasmLock(hold, assertSubmissionCurrent);
+      assertSubmissionCurrent();
+      assertWalletAccessAllowed();
     } catch (error) {
       throw markErrorBeforeSubmit(error);
     }
-    assertStillHoldingLock(hold, 'before submit');
     const submittedTx = await provenTx.submit();
     // A rejected submit stays as it is: the node may not have the write. Once submit resolved it
     // does, so a failed local apply is retried in this hold while that is safe, and one that

@@ -1,6 +1,13 @@
 import type { GetKeyCallback, InsertKeyCallback, SignCallback } from '@miden-sdk/miden-sdk/lazy';
 
 import { runningNow, setRunningTimeout } from 'lib/mobile/background-time';
+import {
+  assertWalletAccessAllowed,
+  ensureWalletAccessAllowed,
+  getWalletAccessGeneration,
+  getWalletAccessSnapshot,
+  WalletAccessDeniedError
+} from 'lib/remote-config/wallet-access';
 
 // This import must stay ABOVE the `./miden-client-interface` one: that import
 // forms a cycle (it imports this module back), and the poison bindings this
@@ -1430,6 +1437,29 @@ export async function yieldWasmClientLock<T>(operation: () => Promise<T>, hold?:
       wasmClientMutex.release();
     }
   }
+}
+
+/** Renew only at a settled SDK boundary; a live inner-client borrow must never yield its outer mutex. */
+export async function ensureWalletAccessOutsideWasmLock(
+  hold: WasmLockHold | null,
+  assertCurrent: () => void
+): Promise<void> {
+  const assertOwner = () => {
+    if (hold !== null) assertWasmHoldCurrent(hold, 'during the wallet access renewal');
+    assertCurrent();
+  };
+  assertOwner();
+  const generation = getWalletAccessGeneration();
+  if (getWalletAccessSnapshot().status !== 'allowed') {
+    try {
+      if (hold === null) await ensureWalletAccessAllowed();
+      else await yieldWasmClientLock(ensureWalletAccessAllowed, hold);
+    } finally {
+      assertOwner();
+    }
+  }
+  if (getWalletAccessGeneration() !== generation) throw new WalletAccessDeniedError();
+  assertWalletAccessAllowed();
 }
 
 /**

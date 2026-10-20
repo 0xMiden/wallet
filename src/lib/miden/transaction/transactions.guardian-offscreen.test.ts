@@ -301,6 +301,10 @@ jest.mock('lib/miden-chain/native-asset', () => ({
 }));
 jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-client'));
 jest.mock('../sdk/miden-client', () => ({
+  ensureWalletAccessOutsideWasmLock: (_hold: unknown, assertCurrent: () => void): Promise<void> =>
+    jest
+      .requireActual<typeof import('../sdk/miden-client')>('../sdk/miden-client')
+      .ensureWalletAccessOutsideWasmLock(null, assertCurrent),
   withWasmClientLock: (...a: unknown[]) => mockWithWasmClientLock(...(a as [() => Promise<unknown>])),
   getCurrentWasmLockHold: () => currentHold,
   assertWasmHoldCurrent: (hold: object | null, where: string) => {

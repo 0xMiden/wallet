@@ -1377,9 +1377,8 @@ describe('GEO007 permission renewal at final submit', () => {
     const permission = await realPermission();
     const loaded = await loadPermissionWrite('worker', harness, permission);
     const locks = await import('./miden-client');
-    const { bumpWasmClientGeneration, isWasmClientPoisonedError, wasmClientGeneration } = await import(
-      './wasm-client-poison'
-    );
+    const { bumpWasmClientGeneration, isWasmClientPoisonedError, wasmClientGeneration } =
+      await import('./wasm-client-poison');
     const generation = wasmClientGeneration();
     const outcome = observePermissionWrite(loaded.withWasmClientLock(loaded.run));
     try {

@@ -218,6 +218,29 @@ jest.mock('lib/miden/sdk/miden-client', () => {
   // Test hook: true while the shared lock is held (used to assert the commit-wait
   // yielded it during the sleep).
   const isWasmClientBusy = (): boolean => locked;
+  const ensureWalletAccessOutsideWasmLock = async (hold: object | null, assertCurrent: () => void): Promise<void> => {
+    const access = jest.requireMock<typeof import('lib/remote-config/wallet-access')>(
+      'lib/remote-config/wallet-access'
+    );
+    const assertOwner = () => {
+      if (hold !== null && hold !== currentHold) {
+        throw new PoisonError('watchdog', new Error('operation abandoned during the wallet access renewal'));
+      }
+      assertCurrent();
+    };
+    assertOwner();
+    const generation = access.getWalletAccessGeneration();
+    if (access.getWalletAccessSnapshot().status !== 'allowed') {
+      try {
+        if (hold === null) await access.ensureWalletAccessAllowed();
+        else await yieldWasmClientLock(access.ensureWalletAccessAllowed, hold);
+      } finally {
+        assertOwner();
+      }
+    }
+    if (access.getWalletAccessGeneration() !== generation) throw new access.WalletAccessDeniedError();
+    access.assertWalletAccessAllowed();
+  };
   return {
     getMidenClient: (...a: any[]) => g.__off.getMidenClient(...a),
     withWasmClientLock,
@@ -231,6 +254,7 @@ jest.mock('lib/miden/sdk/miden-client', () => {
     lockOptionsSeen,
     withWasmLockWatchdogPaused: async <T>(op: () => Promise<T>): Promise<T> => op(),
     yieldWasmClientLock,
+    ensureWalletAccessOutsideWasmLock,
     isWasmClientBusy,
     __evictHolder,
     __lastRunning: () => lastRunning,
@@ -3803,6 +3827,9 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     const denied = Object.assign(new Error('Wallet access denied'), { code: 'WALLET_ACCESS_DENIED' });
     mockProveTransport.prove.mockImplementationOnce(async () => {
       jest.mocked(access.ensureWalletAccessAllowed).mockRejectedValue(denied);
+      jest.mocked(access.assertWalletAccessAllowed).mockImplementation(() => {
+        throw denied;
+      });
       return { proven: new Uint8Array([1]), durationMs: 1 };
     });
     const sendResponse = jest.fn();
@@ -3832,7 +3859,11 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     );
     G.__off.guardianSubmitProven.mockImplementationOnce(async () => {
       G.__off.guardianSubmitted = true;
-      jest.mocked(access.ensureWalletAccessAllowed).mockRejectedValue(new Error('Wallet access denied'));
+      const denied = Object.assign(new Error('Wallet access denied'), { code: 'WALLET_ACCESS_DENIED' });
+      jest.mocked(access.ensureWalletAccessAllowed).mockRejectedValue(denied);
+      jest.mocked(access.assertWalletAccessAllowed).mockImplementation(() => {
+        throw denied;
+      });
       return {
         apply: async () => {
           G.__off.guardianApplied = true;
@@ -5851,7 +5882,7 @@ describe('offscreen/main GEO007 permission renewal', () => {
   type Access = typeof import('lib/remote-config/wallet-access');
   type Mutex = typeof import('lib/miden/sdk/miden-client');
 
-  const deferred = <T,>() => {
+  const deferred = <T>() => {
     let resolve: (value: T) => void = () => {
       throw new Error('Deferred promise was not initialized');
     };
@@ -5948,15 +5979,16 @@ describe('offscreen/main GEO007 permission renewal', () => {
       return { serialize: () => new Uint8Array([9]) };
     });
     try {
+      let warm: jest.Mock | undefined;
       if (cache === 'cached') {
-        const warm = send({
+        warm = send({
           op_id: 'geo007-warm',
           method: 'getTransactionCommitState',
           argsB64: [encodeArg('0xwarm')]
         });
         await flush();
-        expect(warm.mock.calls[0]?.[0]).toMatchObject({ ok: true });
       }
+      expect(warm?.mock.calls[0]?.[0]?.ok).toBe(cache === 'cached' ? true : undefined);
       const initialBuilds = G.__off.clientBuilds;
       now = 60_001;
       const original = send({
@@ -5980,7 +6012,7 @@ describe('offscreen/main GEO007 permission renewal', () => {
       expect(buildsAtRenewal).toBe(initialBuilds);
       expect(original).not.toHaveBeenCalled();
       expect(lease.settled()).toBe(false);
-      if (cache === 'cold') expect(G.__off.clientBuilds).toBe(initialBuilds + 1);
+      expect(G.__off.clientBuilds).toBe(initialBuilds + (cache === 'cold' ? 1 : 0));
       lease.answer.resolve(true);
       await flush();
       expect(original.mock.calls[0]?.[0]).toMatchObject({ ok: true, op_id: 'geo007-original-sign' });
@@ -6031,94 +6063,91 @@ describe('offscreen/main GEO007 permission renewal', () => {
     }
   });
 
-  it.each([true, false, null])('GEO007 hidden long Guardian proof yields final renewal before answer %s', async allowed => {
-    await loadModule();
-    let now = 0;
-    const clock = jest.spyOn(performance, 'now').mockImplementation(() => now);
-    const hidden = Object.getOwnPropertyDescriptor(document, 'hidden');
-    const visibility = Object.getOwnPropertyDescriptor(document, 'visibilityState');
-    Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
-    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
-    const lease = installLease();
-    const restoreMutex = installMutex();
-    const proof = deferred<{ proven: Uint8Array; durationMs: number }>();
-    const proving = deferred<void>();
-    mockProveTransport.prove.mockImplementationOnce(async () => {
-      proving.resolve();
-      return proof.promise;
-    });
-    const signOpIds: string[] = [];
-    G.chrome.runtime.sendMessage = jest.fn(async (message: { type?: unknown; op_id?: unknown; sign_id?: unknown }) => {
-      if (message.type !== OFFSCREEN_SIGN_REQUEST) return undefined;
-      if (typeof message.op_id !== 'string') throw new Error('Signing request lost its operation id');
-      signOpIds.push(message.op_id);
-      return { ok: true, sign_id: message.sign_id, signatureB64: Buffer.from([7]).toString('base64') };
-    });
-    G.__off.guardianSubmitProven.mockImplementationOnce(async () => {
-      await G.__off.createOptions[0].signCallback(new Uint8Array([1]), new Uint8Array([2]));
-      G.__off.guardianSubmitted = true;
-      return {
-        apply: async () => {
-          G.__off.guardianApplied = true;
+  it.each([true, false, null])(
+    'GEO007 hidden long Guardian proof yields final renewal before answer %s',
+    async allowed => {
+      await loadModule();
+      let now = 0;
+      const clock = jest.spyOn(performance, 'now').mockImplementation(() => now);
+      const hidden = Object.getOwnPropertyDescriptor(document, 'hidden');
+      const visibility = Object.getOwnPropertyDescriptor(document, 'visibilityState');
+      Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
+      Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
+      const lease = installLease();
+      const restoreMutex = installMutex();
+      const proof = deferred<{ proven: Uint8Array; durationMs: number }>();
+      const proving = deferred<void>();
+      mockProveTransport.prove.mockImplementationOnce(async () => {
+        proving.resolve();
+        return proof.promise;
+      });
+      const signOpIds: string[] = [];
+      G.chrome.runtime.sendMessage = jest.fn(
+        async (message: { type?: unknown; op_id?: unknown; sign_id?: unknown }) => {
+          if (message.type !== OFFSCREEN_SIGN_REQUEST) return undefined;
+          if (typeof message.op_id !== 'string') throw new Error('Signing request lost its operation id');
+          signOpIds.push(message.op_id);
+          return { ok: true, sign_id: message.sign_id, signatureB64: Buffer.from([7]).toString('base64') };
         }
-      };
-    });
-    try {
-      const original = send({
-        op_id: 'geo007-hidden-guardian',
-        method: 'guardianPipeline',
-        argsB64: [encodeArg('mtst1qguardian'), encodeArg(new Uint8Array([1])), encodeArg(false)]
+      );
+      G.__off.guardianSubmitProven.mockImplementationOnce(async () => {
+        await G.__off.createOptions[0].signCallback(new Uint8Array([1]), new Uint8Array([2]));
+        G.__off.guardianSubmitted = true;
+        return {
+          apply: async () => {
+            G.__off.guardianApplied = true;
+          }
+        };
       });
-      await proving.promise;
-      expect(document.visibilityState).toBe('hidden');
-      expect(lease.refresh).not.toHaveBeenCalled();
-      now = 60_001;
-      await flush();
-      expect(lease.refresh).not.toHaveBeenCalled();
-      expect(G.__off.guardianSubmitProven).not.toHaveBeenCalled();
-      proof.resolve({ proven: new Uint8Array([1]), durationMs: 60_001 });
-      await lease.entered.promise;
-      const observer = send({
-        op_id: 'geo007-guardian-observer',
-        method: 'getTransactionCommitState',
-        argsB64: [encodeArg('0xobserved')]
-      });
-      await flush();
-      expect(observer).toHaveBeenCalledTimes(1);
-      expect(observer.mock.calls[0]?.[0]).toMatchObject({ ok: true, op_id: 'geo007-guardian-observer' });
-      expect(lease.settled()).toBe(false);
-      expect(original).not.toHaveBeenCalled();
-      expect(G.__off.guardianSubmitProven).not.toHaveBeenCalled();
-      lease.answer.resolve(allowed);
-      await flush();
-      if (allowed === true) {
-        expect(original.mock.calls[0]?.[0]).toMatchObject({ ok: true, op_id: 'geo007-hidden-guardian' });
-        expect(G.__off.guardianSubmitProven).toHaveBeenCalledTimes(1);
-        expect(G.__off.guardianApplied).toBe(true);
-        expect(signOpIds).toEqual(['geo007-hidden-guardian']);
-      } else {
-        expect(original.mock.calls[0]?.[0]).toMatchObject({
-          ok: false,
+      try {
+        const original = send({
           op_id: 'geo007-hidden-guardian',
-          errorCode: 'WALLET_ACCESS_DENIED',
-          errorBeforeSubmit: true
+          method: 'guardianPipeline',
+          argsB64: [encodeArg('mtst1qguardian'), encodeArg(new Uint8Array([1])), encodeArg(false)]
         });
+        await proving.promise;
+        expect(document.visibilityState).toBe('hidden');
+        expect(lease.refresh).not.toHaveBeenCalled();
+        now = 60_001;
+        await flush();
+        expect(lease.refresh).not.toHaveBeenCalled();
         expect(G.__off.guardianSubmitProven).not.toHaveBeenCalled();
-        expect(G.__off.guardianApplied).toBe(false);
-        expect(signOpIds).toEqual([]);
+        proof.resolve({ proven: new Uint8Array([1]), durationMs: 60_001 });
+        await lease.entered.promise;
+        const observer = send({
+          op_id: 'geo007-guardian-observer',
+          method: 'getTransactionCommitState',
+          argsB64: [encodeArg('0xobserved')]
+        });
+        await flush();
+        expect(observer).toHaveBeenCalledTimes(1);
+        expect(observer.mock.calls[0]?.[0]).toMatchObject({ ok: true, op_id: 'geo007-guardian-observer' });
+        expect(lease.settled()).toBe(false);
+        expect(original).not.toHaveBeenCalled();
+        expect(G.__off.guardianSubmitProven).not.toHaveBeenCalled();
+        lease.answer.resolve(allowed);
+        await flush();
+        expect(original.mock.calls[0]?.[0]).toMatchObject(
+          allowed === true
+            ? { ok: true, op_id: 'geo007-hidden-guardian' }
+            : { ok: false, op_id: 'geo007-hidden-guardian', errorCode: 'WALLET_ACCESS_DENIED', errorBeforeSubmit: true }
+        );
+        expect(G.__off.guardianSubmitProven).toHaveBeenCalledTimes(allowed === true ? 1 : 0);
+        expect(G.__off.guardianApplied).toBe(allowed === true);
+        expect(signOpIds).toEqual(allowed === true ? ['geo007-hidden-guardian'] : []);
+        expect(lease.refresh).toHaveBeenCalledTimes(1);
+      } finally {
+        proof.resolve({ proven: new Uint8Array([1]), durationMs: 60_001 });
+        lease.answer.resolve(allowed);
+        await flush();
+        lease.restore();
+        restoreMutex();
+        clock.mockRestore();
+        if (hidden) Object.defineProperty(document, 'hidden', hidden);
+        else Reflect.deleteProperty(document, 'hidden');
+        if (visibility) Object.defineProperty(document, 'visibilityState', visibility);
+        else Reflect.deleteProperty(document, 'visibilityState');
       }
-      expect(lease.refresh).toHaveBeenCalledTimes(1);
-    } finally {
-      proof.resolve({ proven: new Uint8Array([1]), durationMs: 60_001 });
-      lease.answer.resolve(allowed);
-      await flush();
-      lease.restore();
-      restoreMutex();
-      clock.mockRestore();
-      if (hidden) Object.defineProperty(document, 'hidden', hidden);
-      else Reflect.deleteProperty(document, 'hidden');
-      if (visibility) Object.defineProperty(document, 'visibilityState', visibility);
-      else Reflect.deleteProperty(document, 'visibilityState');
     }
-  });
+  );
 });

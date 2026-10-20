@@ -12,6 +12,13 @@ const requireProbes = () =>
 /** Never the mutex owner, so a catch handed it can never retire anything. */
 const NO_HOLD = {} as unknown as WasmLockHold;
 
+// These fixtures own their synthetic hold; the real helper must not release a different module's mutex.
+function ensureFixtureSubmissionAccess(_hold: unknown, assertCurrent: () => void): Promise<void> {
+  return jest
+    .requireActual<typeof import('./miden-client')>('./miden-client')
+    .ensureWalletAccessOutsideWasmLock(null, assertCurrent);
+}
+
 jest.mock('lib/miden-chain/native-asset', () => ({
   ...jest.requireActual('lib/miden-chain/native-asset'),
   recordSyncedFeeFaucetId: jest.fn(async () => true)
@@ -3172,6 +3179,7 @@ describe('MidenClientInterface', () => {
         proveViaOffscreen
       }));
       jest.doMock('./miden-client', () => ({
+        ensureWalletAccessOutsideWasmLock: ensureFixtureSubmissionAccess,
         yieldWasmClientLock: async <T>(op: () => Promise<T>) => op(),
         withWasmLockWatchdogPaused: async <T>(op: () => Promise<T>) => op(),
         getCurrentWasmLockHold: () => null
@@ -3276,6 +3284,7 @@ describe('MidenClientInterface', () => {
       // The write still owns the hold it took, so its leaf reads the evidence.
       const hold = {};
       jest.doMock('./miden-client', () => ({
+        ensureWalletAccessOutsideWasmLock: ensureFixtureSubmissionAccess,
         yieldWasmClientLock: async <T>(op: () => Promise<T>) => op(),
         withWasmLockWatchdogPaused: async <T>(op: () => Promise<T>) => op(),
         getCurrentWasmLockHold: () => hold
@@ -3332,6 +3341,7 @@ describe('MidenClientInterface', () => {
       // back a lock that now belongs to the next holder.
       const yieldMock = jest.fn(async (op: () => Promise<unknown>) => op());
       jest.doMock('./miden-client', () => ({
+        ensureWalletAccessOutsideWasmLock: ensureFixtureSubmissionAccess,
         yieldWasmClientLock: yieldMock,
         withWasmLockWatchdogPaused: async <T>(op: () => Promise<T>) => op(),
         getCurrentWasmLockHold: () => null
