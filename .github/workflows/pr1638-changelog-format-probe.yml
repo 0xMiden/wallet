@@ -1,0 +1,225 @@
+name: NEVER-MERGE PR1638 private CHANGELOG formatter diagnosis
+
+on:
+  push:
+    branches: [ci/pr1638-changelog-format-probe]
+
+permissions:
+  contents: read
+
+jobs:
+  private-format-candidates:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      GIT_OPTIONAL_LOCKS: '0'
+      PROOF_HEAD: ${{ github.sha }}
+      PROOF_REF: ${{ github.ref }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Initialize raw evidence
+        run: |
+          set -euo pipefail
+          umask 077
+          export PROOF_DIR="$RUNNER_TEMP/pr1638-changelog-format-probe"
+          printf 'PROOF_DIR=%s\n' "$PROOF_DIR" >> "$GITHUB_ENV"
+          mkdir "$PROOF_DIR"
+          printf '%s\n' "$PROOF_HEAD" "$PROOF_REF" '${{ github.run_id }}' '${{ github.run_attempt }}' > "$PROOF_DIR/run-identity.txt"
+      - name: Checkout exact isolated transport
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Use exact Node runtime
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.22.0
+      - name: Generate private candidates with lock-verified Prettier only
+        run: |
+          set -euo pipefail
+          cat > "$PROOF_DIR/collect-format.py" <<'PY'
+          import base64, hashlib, json, os, pathlib, re, shutil, subprocess, tarfile
+
+          root = pathlib.Path(os.environ['PROOF_DIR'])
+          repo = pathlib.Path(os.environ['GITHUB_WORKSPACE'])
+          source = '202047e6f2f06fafe61e35f472d90a4504c1f911'
+          workflow = '.github/workflows/pr1638-changelog-format-probe.yml'
+          pins = [
+              ('source', source, '9b1b985d822b83aedb553e1d586a7344a9813c3de6c7a1d6bc71992ec1ce0ea1',
+               '9fe827fb0272c4f3e2ba37978f8f4e5658c9502366ff8c022e63480ce5cd301e', '624004355d465398fbce1f733b53671a8f6cf4687d18f00ee6d00384217dffa7'),
+              ('main', '4c696a37bd487c02b2d20c3748f5050eee3c3a60', 'e1112519ea05e8f6514d01f7cf7eb922a3310c5d3994053d09bc948405075c90',
+               '9fe827fb0272c4f3e2ba37978f8f4e5658c9502366ff8c022e63480ce5cd301e', '624004355d465398fbce1f733b53671a8f6cf4687d18f00ee6d00384217dffa7'),
+              ('member', 'a047062821659016e4ffde48f1e767f939c36417', '048181acd89d80fafc5923991da41d226814a7880152360396a164a092c8a9a0',
+               '9af7cd256a41b9ad42604d8ab62a0859a3218b9b53cd74f8291fcc9075681d1d', '8606e15d58682739313e004734d42f34a2ad715148e00f28c2de63596349941d')
+          ]
+          config_hash = '7f1e0eb21ae9b216c1de1435dddb0b680c8b2e5cdde55ca95a8ee3d32a7973cf'
+          ignore_hash = 'f69fc353577cdc8651e6cffc57ce8e156b8ca9bba11dba9242e5c08b667a00cd'
+          url = 'https://registry.yarnpkg.com/prettier/-/prettier-3.8.4.tgz'
+          sha1 = 'f334f013ac04a96676f24dabc23c1c4ae1bae411'
+          sri = 'sha512-N2MylSdi48+5N/6S5j+maeHbUSIzzZ5uOcX5Hm4QpV8Dkb1HFjfAKTKX6yNPJQD9AhcT3ifHNB66tWTTJDi11Q=='
+          archive_sha = 'f63025e225974ad864e063d76d015903b01f3a7dea4d3bf153e6faa2f6087077'
+
+          def digest(data):
+              return hashlib.sha256(data).hexdigest()
+
+          def record(path, value):
+              path.write_text(json.dumps(value, indent=2) + '\n')
+
+          def run(name, argv, cwd=repo, allowed=(0,)):
+              target = root / name
+              target.parent.mkdir(parents=True, exist_ok=True)
+              record(target.with_suffix('.argv.json'), {'argv': [str(v) for v in argv], 'cwd': str(cwd)})
+              with target.with_suffix('.stdout').open('wb') as out, target.with_suffix('.stderr').open('wb') as err:
+                  result = subprocess.run(argv, cwd=cwd, stdout=out, stderr=err, timeout=90)
+              target.with_suffix('.exit').write_text(str(result.returncode) + '\n')
+              assert result.returncode in allowed, (name, result.returncode)
+              return target.with_suffix('.stdout').read_bytes()
+
+          def git(*args):
+              return subprocess.check_output(['git', *args], cwd=repo)
+
+          def snapshot(label):
+              shutil.copyfile(git('rev-parse', '--git-path', 'index').decode().strip(), root / (label + '.index'))
+              for name, args in [('status', ['status', '--porcelain=v1', '-z']),
+                                 ('diff', ['diff', '--binary', '--full-index', '--no-ext-diff', '--no-textconv']),
+                                 ('cached', ['diff', '--cached', '--binary', '--full-index', '--no-ext-diff', '--no-textconv'])]:
+                  data = git(*args)
+                  (root / (label + '.' + name)).write_bytes(data)
+                  assert not data, (label, name)
+
+          assert git('rev-parse', 'HEAD').decode().strip() == os.environ['PROOF_HEAD']
+          assert os.environ['PROOF_REF'] == 'refs/heads/ci/pr1638-changelog-format-probe'
+          assert git('rev-list', '--parents', '-n', '1', 'HEAD').decode().split()[1:] == [source]
+          assert git('rev-parse', source + '^{tree}').decode().strip() == '66ba0f239cd94128c8e6d2bc10113c1a35416e6f'
+          assert git('diff', '--name-status', source, 'HEAD') == ('A\t' + workflow + '\n').encode()
+          (root / 'transport-workflow.yml').write_bytes((repo / workflow).read_bytes())
+          (root / 'transport-commit.txt').write_bytes(git('cat-file', 'commit', 'HEAD'))
+          (root / 'transport-tree.txt').write_bytes(git('ls-tree', '-r', 'HEAD'))
+          snapshot('before')
+          assert run('node-version', ['node', '--version']).strip() == b'v22.22.0'
+          inputs = []
+          for label, commit, chlog, package, lock in pins:
+              raw = root / label / 'original'
+              raw.mkdir(parents=True)
+              (root / label / 'commit.txt').write_bytes(git('cat-file', 'commit', commit))
+              tree = git('ls-tree', commit)
+              (root / label / 'root-tree.txt').write_bytes(tree)
+              names = [line.split('\t')[1] for line in tree.decode().splitlines()]
+              assert sorted(n for n in names if n.startswith(('.prettier', 'prettier.config')) or n == '.editorconfig') == ['.prettierignore', '.prettierrc']
+              for name, expected in [('CHANGELOG.md', chlog), ('.prettierrc', config_hash),
+                                     ('.prettierignore', ignore_hash), ('package.json', package), ('yarn.lock', lock)]:
+                  entry = git('ls-tree', commit, '--', name).decode().strip()
+                  assert entry.startswith('100644 blob '), entry
+                  data = git('show', commit + ':' + name)
+                  (raw / name).write_bytes(data)
+                  assert digest(data) == expected, (label, name)
+                  inputs.append({'pin': label, 'commit': commit, 'path': name, 'git': entry, 'sha256': expected, 'bytes': len(data)})
+              assert 'prettier' not in json.loads((raw / 'package.json').read_bytes())
+              assert 'plugins' not in json.loads((raw / '.prettierrc').read_bytes())
+              block = re.findall(r'^prettier@\^3\.7\.4:\n(?:  .+\n)+', (raw / 'yarn.lock').read_text(), re.M)
+              assert len(block) == 1
+              assert re.findall(r'  version "([^"]+)"', block[0]) == ['3.8.4']
+              assert re.findall(r'  resolved "([^"]+)"', block[0]) == [url + '#' + sha1]
+              assert re.findall(r'  integrity (\S+)', block[0]) == [sri]
+              (root / label / 'prettier-lock-block.txt').write_text(block[0])
+          record(root / 'input-identities.json', inputs)
+          archive = root / 'prettier-3.8.4.tgz'
+          run('download', ['curl', '--fail', '--location', '--proto', '=https', '--proto-redir', '=https',
+                           '--max-time', '60', '--max-filesize', '3000000', '--dump-header', str(root / 'download.headers'),
+                           '--output', str(archive), url])
+          data = archive.read_bytes()
+          assert len(data) == 2190569 and digest(data) == archive_sha
+          assert hashlib.sha1(data).hexdigest() == sha1
+          assert 'sha512-' + base64.b64encode(hashlib.sha512(data).digest()).decode() == sri
+          dest = root / 'formatter'
+          dest.mkdir()
+          files, names, size = [], set(), 0
+          with tarfile.open(archive, 'r:gz') as tar:
+              for item in tar.getmembers():
+                  path = pathlib.PurePosixPath(item.name)
+                  assert not path.is_absolute() and '..' not in path.parts and path.parts[0] == 'package'
+                  assert item.name == str(path) and item.name not in names
+                  names.add(item.name)
+                  assert item.isfile(), item.name
+                  size += item.size
+                  assert len(names) <= 100 and item.size <= 8000000 and size <= 32000000
+                  target = dest.joinpath(*path.parts)
+                  target.parent.mkdir(parents=True, exist_ok=True)
+                  contents = tar.extractfile(item).read()
+                  assert len(contents) == item.size
+                  target.write_bytes(contents)
+                  target.chmod(item.mode & 0o777)
+                  files.append({'path': item.name, 'sha256': digest(contents), 'bytes': len(contents), 'mode': oct(item.mode)})
+          assert len(files) == 56
+          pkg = json.loads((dest / 'package/package.json').read_bytes())
+          assert pkg['name'] == 'prettier' and pkg['version'] == '3.8.4' and not pkg.get('dependencies')
+          record(root / 'archive-provenance.json', {'url': url, 'bytes': len(data), 'sha1': sha1, 'sri': sri, 'sha256': archive_sha, 'files': files})
+          cli = str(dest / 'package/bin/prettier.cjs')
+          assert run('prettier-version', ['node', cli, '--version']).strip() == b'3.8.4'
+          summary = []
+          for label, commit, *_ in pins:
+              case = root / label
+              raw, work = case / 'original', case / 'formatted'
+              work.mkdir()
+              for name in ['CHANGELOG.md', '.prettierrc', '.prettierignore']:
+                  shutil.copyfile(raw / name, work / name)
+              args = ['node', cli, '--config', str(work / '.prettierrc'), '--ignore-path', str(work / '.prettierignore'), '--no-editorconfig']
+              run(label + '/check-original', args + ['--check', 'CHANGELOG.md'], work, (0, 1))
+              run(label + '/write', args + ['--write', 'CHANGELOG.md'], work)
+              run(label + '/check-formatted', args + ['--check', 'CHANGELOG.md'], work)
+              before, after = (raw / 'CHANGELOG.md').read_bytes(), (work / 'CHANGELOG.md').read_bytes()
+              run(label + '/format-diff', ['git', '--no-pager', 'diff', '--no-index', '--binary', '--full-index',
+                                          '--no-ext-diff', '--no-textconv', str(raw / 'CHANGELOG.md'), str(work / 'CHANGELOG.md')], repo, (0, 1))
+              assert (work / '.prettierrc').read_bytes() == (raw / '.prettierrc').read_bytes()
+              assert (work / '.prettierignore').read_bytes() == (raw / '.prettierignore').read_bytes()
+              summary.append({'pin': label, 'commit': commit, 'original_sha256': digest(before), 'formatted_sha256': digest(after),
+                              'changed': before != after, 'original_LF': before.count(b'\n'), 'original_CR': before.count(b'\r'),
+                              'formatted_LF': after.count(b'\n'), 'formatted_CR': after.count(b'\r')})
+          for baseline in ['main', 'member']:
+              for version in ['original', 'formatted']:
+                  run('compare-' + baseline + '-' + version, ['git', '--no-pager', 'diff', '--no-index', '--binary', '--full-index',
+                      '--no-ext-diff', '--no-textconv', str(root / baseline / version / 'CHANGELOG.md'),
+                      str(root / 'source' / version / 'CHANGELOG.md')], repo, (0, 1))
+          snapshot('after')
+          assert (root / 'before.index').read_bytes() == (root / 'after.index').read_bytes()
+          for item in inputs:
+              assert digest((root / item['pin'] / 'original' / item['path']).read_bytes()) == item['sha256']
+          record(root / 'format-summary.json', {'status': 'PRIVATE_FORMAT_CANDIDATES_ONLY', 'cases': summary,
+                 'proof_limits': 'No product, tests, lint, coverage, current-head integration, review or merge proof.'})
+          PY
+          set +e
+          python3 "$PROOF_DIR/collect-format.py" > "$PROOF_DIR/collector.stdout" 2> "$PROOF_DIR/collector.stderr"
+          result=$?
+          set -e
+          printf '%s\n' "$result" > "$PROOF_DIR/collector.exit"
+          exit "$result"
+      - name: Retain final source state and seal every raw payload
+        if: always()
+        run: |
+          set -euo pipefail
+          export PROOF_DIR="${PROOF_DIR:-$RUNNER_TEMP/pr1638-changelog-format-probe}"
+          mkdir -p "$PROOF_DIR"
+          set +e
+          git status --porcelain=v1 -z > "$PROOF_DIR/final.status" 2> "$PROOF_DIR/final-status.stderr"
+          printf '%s\n' "$?" > "$PROOF_DIR/final-status.exit"
+          git diff --binary --full-index --no-ext-diff --no-textconv > "$PROOF_DIR/final.diff" 2> "$PROOF_DIR/final-diff.stderr"
+          printf '%s\n' "$?" > "$PROOF_DIR/final-diff.exit"
+          git diff --cached --binary --full-index --no-ext-diff --no-textconv > "$PROOF_DIR/final.cached" 2> "$PROOF_DIR/final-cached.stderr"
+          printf '%s\n' "$?" > "$PROOF_DIR/final-cached.exit"
+          cp "$(git rev-parse --git-path index)" "$PROOF_DIR/final.index" 2> "$PROOF_DIR/final-index.stderr"
+          printf '%s\n' "$?" > "$PROOF_DIR/final-index.exit"
+          set -e
+          cd "$PROOF_DIR"
+          find . -type f ! -name files.sha256 -print0 | sort -z | xargs -0 sha256sum > files.sha256
+      - name: Upload originals, candidates, configs, archive, natural exits and full diffs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr1638-changelog-format-probe-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/pr1638-changelog-format-probe
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14
