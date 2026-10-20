@@ -75,6 +75,14 @@
     "message": "Mon activité",
     "englishSource": "My activity"
   },
+  "arcadeCoinsShort": {
+    "message": "Pièces",
+    "englishSource": "Coins"
+  },
+  "arcadeActivityShort": {
+    "message": "Activité",
+    "englishSource": "Activity"
+  },
   "arcadeOpenGame": {
     "message": "Jeu ouvert",
     "englishSource": "Open game"
@@ -92,8 +100,8 @@
     "englishSource": "Games will appear here when they are available on this network."
   },
   "arcadeOpeningNotice": {
-    "message": "Le fait de lancer un jeu ne connecte pas votre portefeuille et n’approuve pas une transaction. Bread vous demande séparément l’autorisation lorsqu’un jeu sollicite un accès.",
-    "englishSource": "Opening a game does not connect your wallet or approve a transaction. Bread asks separately when a game requests access."
+    "message": "Le fait d’ouvrir un jeu ne connectera pas votre portefeuille. Bread vous le demande d’abord.",
+    "englishSource": "Opening a game won't connect your wallet. Bread asks first."
   },
   "arcadeGCRankings": {
     "message": "Classements GC",
@@ -128,28 +136,44 @@
     "englishSource": "GC balance reading and leaderboard submission are not connected yet. No balance has been read or submitted."
   },
   "arcadeRankingsUnavailable": {
-    "message": "Les classements ne sont pas encore disponibles",
-    "englishSource": "Rankings are not connected yet"
+    "message": "Les classements apparaîtront ici",
+    "englishSource": "Rankings will appear here"
   },
   "arcadeRankingsDescription": {
-    "message": "Les classements GC utiliseront les soldes que les joueurs choisiront de communiquer. Aucun classement des joueurs n’est disponible dans cette version préliminaire.",
-    "englishSource": "GC rankings will use balances that players choose to submit. No player rankings are available in this preview."
+    "message": "Les classements ne sont pas encore disponibles en temps réel sur ce réseau.",
+    "englishSource": "Rankings aren't live on this network yet."
   },
   "arcadeCoinsUnavailable": {
-    "message": "GC n’est pas encore connecté",
-    "englishSource": "GC is not connected yet"
+    "message": "Votre solde s’affichera ici",
+    "englishSource": "Your balance will appear here"
   },
   "arcadeCoinsDescription": {
-    "message": "Votre solde GC apparaîtra ici une fois que l’actif Game Coin aura été configuré pour ce réseau. Aucun solde n’est présumé.",
-    "englishSource": "Your GC balance will appear here after the Game Coin asset is configured for this network. No balance is assumed."
+    "message": "Les Game Coins ne sont pas encore disponibles sur ce réseau.",
+    "englishSource": "Game Coins aren't live on this network yet."
   },
-  "arcadePrivateBalanceNotice": {
-    "message": "Le solde de votre GC reste confidentiel, sauf si vous choisissez de le communiquer. L’ouverture de cette page ne publie aucune information.",
-    "englishSource": "Your GC balance stays private unless you choose to submit it. Opening this page publishes nothing."
+  "arcadeBrowseGames": {
+    "message": "Parcourir les jeux",
+    "englishSource": "Browse games"
+  },
+  "arcadeBalancePrivate": {
+    "message": "Votre solde reste confidentiel.",
+    "englishSource": "Your balance stays private."
+  },
+  "arcadeRankingsPrivate": {
+    "message": "Seuls les soldes que vous choisissez de partager sont classés.",
+    "englishSource": "Only balances you choose to share are ranked."
   },
   "arcadeActivityScope": {
-    "message": "Affiche les transactions de portefeuille enregistrées associées aux jeux actuellement répertoriés sur ce réseau. Les parties de jeu non suivies et les transferts GC ordinaires ne sont pas inclus.",
-    "englishSource": "Shows recorded wallet transactions associated with games currently listed on this network. Untracked game rounds and ordinary GC transfers are not included."
+    "message": "Seuls les jeux répertoriés dans Arcade sont inclus.",
+    "englishSource": "Only games listed in Arcade are included."
+  },
+  "arcadeActivityEmptyTitle": {
+    "message": "Aucune activité de jeu pour l’instant",
+    "englishSource": "No game activity yet"
+  },
+  "arcadeActivityEmptyBody": {
+    "message": "Les transactions que vous effectuez dans les jeux Arcade apparaissent ici.",
+    "englishSource": "Transactions you make in Arcade games show up here."
   },
   "usdcxBurnTitle": {
     "message": "Brûler des USDCx",
