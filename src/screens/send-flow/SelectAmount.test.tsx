@@ -796,4 +796,19 @@ describe('SelectAmount user-visible errors', () => {
     await act(async () => jest.advanceTimersByTimeAsync(1000));
     expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
   });
+
+  it('reports only the visible amount error when it hides the unknown-scale balance helper', async () => {
+    renderComponent({ token: baseToken({ scaleIsKnown: false }), amount: '99', error: 'invalidAmount' });
+    expect(screen.getByText('invalidAmount')).toBeVisible();
+    expect(screen.queryByText('unknownTokenScale')).not.toBeInTheDocument();
+    expect(screen.getByTestId('confirm-btn')).toBeDisabled();
+
+    await act(async () => jest.advanceTimersByTimeAsync(999));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    await act(async () => jest.advanceTimersByTimeAsync(1));
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toContainEqual(['invalidAmount', 'field']);
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['invalidAmount', 'field']]);
+    await act(async () => jest.advanceTimersByTimeAsync(1000));
+    expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+  });
 });
