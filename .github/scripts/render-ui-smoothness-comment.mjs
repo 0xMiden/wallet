@@ -273,7 +273,7 @@ function methodology(ctx, samples) {
     `- \`inp\` is the slowest of ${DEFAULT_PROFILE.inpTaps} taps on the overview copy control, in milliseconds, from Event Timing. At or below ${DEFAULT_PROFILE.inpGoodMs}ms is good and above ${DEFAULT_PROFILE.inpPoorMs}ms is poor. A tap the API does not record fails the run.`,
     `- \`list-dropped\` and \`list-p95\` are the medians of ${DEFAULT_PROFILE.listRuns} scrolls of the overview list: the share of frame gaps at or above 25ms, and the 95th percentile frame time. Lower is smoother. The run fails if the list does not move.`,
     '- A failed run posts no figure.',
-    '- Both sides run on the same runner, one after the other, each in its own browser profile. The harness is the pull request\'s copy for both sides; the bundle is each side\'s own. The main thread is slowed 4×, at device pixel ratio 2, in a 600×844 frame. This is a proxy for a phone, not a phone.',
+    '- Both sides run on the same runner, one after the other, each in its own browser profile. The harness is the pull request\'s copy for both sides; the bundle is each side\'s own. The carousel slows the main thread 4×. The tap and the list do not, so the 200ms and 500ms bands stay on real time. Device pixel ratio is 2, in a 600×844 frame. This is a proxy for a phone, not a phone.',
     '- The noise floor is decided by the trusted profile on the default branch, not by this artifact. The runner, the repetition count and these samples are what the measurement job reported.',
     '',
     samplesBlock(samples),

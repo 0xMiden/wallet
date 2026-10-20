@@ -783,6 +783,10 @@ async function measure(args) {
     }
 
     await settlePage(page, 0);
+    // The 200ms and 500ms tap bands, and a 25ms dropped frame, are real-time
+    // numbers. The carousel keeps the 4× throttle so its stalls stay visible.
+    await cdp.send('Emulation.setCPUThrottlingRate', { rate: 1 });
+    await sleep(200);
     const inp = await measureInp(page);
     const list = await measureList(page, cdp);
     console.log(`inp max ${Math.max(...inp).toFixed(0)}ms  taps ${inp.map(value => value.toFixed(0)).join(', ')}`);
