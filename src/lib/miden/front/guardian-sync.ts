@@ -2458,9 +2458,13 @@ async function runGuardianAccountsSync(generation: number): Promise<void> {
       // the bottom of this block is still reached: the round trip DID go through,
       // and that is the one observation the fuse waits for, whoever the account
       // points at now.
+      if (
+        account.requiresHotKeyRotation !== true &&
+        (await passMayRecord(generation, account.publicKey, endpoint)) &&
+        (await finishFailedHotKeyRotations([account], generation))
+      )
+        break;
       if (await passMayRecord(generation, account.publicKey, endpoint)) {
-        if (account.requiresHotKeyRotation !== true && (await finishFailedHotKeyRotations([account], generation)))
-          break;
         // Sync succeeded → the account is authorized; clear any accumulated
         // self-heal state so a future divergence starts its persistence count
         // fresh, and stand down the guardian-unreachable prompt.
