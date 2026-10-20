@@ -1990,6 +1990,68 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
       mockReRegister.mockImplementation(pushStartWith(['0xbeef', '0xc01d']));
     });
 
+    it.each([
+      { phase: 'pending', change: 'endpoint', heals: false },
+      { phase: 'pending', change: 'retirement', heals: false },
+      { phase: 'pending', change: 'respelling', heals: true },
+      { phase: 'synced', change: 'endpoint', heals: false },
+      { phase: 'synced', change: 'retirement', heals: false },
+      { phase: 'synced', change: 'respelling', heals: true }
+    ])(
+      'revalidates $phase healing after a deferred failed-rotation lookup: $change',
+      async ({ phase, change, heals }) => {
+        const account = {
+          ...pendingAccount,
+          hotPublicKey: phase === 'pending' ? undefined : 'hot',
+          requiresHotKeyRotation: phase === 'pending',
+          guardianEndpoint: 'https://Guardian.Example.com'
+        };
+        storeState.accounts = [account];
+        storeState.checkGuardianDrift.mockReset().mockResolvedValue(undefined);
+        mockGetOrCreateMultisigService.mockResolvedValue({ sync: jest.fn(async () => undefined) });
+        type FailedRotationRows = Awaited<ReturnType<typeof mockFindFailedHotKeyRotations>>;
+        let releaseRows = (_rows: FailedRotationRows): void => {};
+        let markEntered = (): void => {};
+        const rows = new Promise<FailedRotationRows>(resolve => {
+          releaseRows = resolve;
+        });
+        const entered = new Promise<void>(resolve => {
+          markEntered = resolve;
+        });
+        mockFindFailedHotKeyRotations.mockImplementationOnce(async () => {
+          markEntered();
+          return rows;
+        });
+        const failedRows = [{ id: 'row-act', newHotPublicKey: 'new-hot-pub' }];
+        const pass = syncGuardianAccounts();
+        try {
+          await entered;
+          expect(mockFindFailedHotKeyRotations).toHaveBeenCalledTimes(1);
+          expect(mockBuildColdMultisigService).not.toHaveBeenCalled();
+          expect(mockReRegister).not.toHaveBeenCalled();
+          expect(storeState.swapHotKey).not.toHaveBeenCalled();
+          if (change === 'endpoint') {
+            storeState.accounts = [{ ...account, guardianEndpoint: 'https://new.guardian.test' }];
+          } else if (change === 'retirement') {
+            retireGuardianSyncPasses();
+          } else {
+            storeState.accounts = [{ ...account, guardianEndpoint: 'https://guardian.example.com:443/' }];
+          }
+          releaseRows(failedRows);
+          await pass;
+          const expectedCalls = heals ? 1 : 0;
+          expect({
+            reRegister: mockReRegister.mock.calls.length,
+            swapHotKey: storeState.swapHotKey.mock.calls.length,
+            completeRotation: mockMarkRotationCompleted.mock.calls.length
+          }).toEqual({ reRegister: expectedCalls, swapHotKey: expectedCalls, completeRotation: expectedCalls });
+        } finally {
+          releaseRows(failedRows);
+          await pass;
+        }
+      }
+    );
+
     describe('a manual rotation with successful old-key authentication', () => {
       const sync = jest.fn(async () => undefined);
 
