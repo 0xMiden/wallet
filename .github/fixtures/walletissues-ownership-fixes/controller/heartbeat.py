@@ -19,12 +19,20 @@ cmds=[
  ('walletsentry_status',['python3','-B',str(Path.home()/'.agents/skills/walletsentry/scripts/status.py')]),
  ('walletsentry_discovery',['python3','-B',str(Path.home()/'.agents/skills/walletsentry/scripts/discover.py')])]
 results={}
+ownership_ok=False
 for name,cmd in cmds:
- try:
-  r=subprocess.run(cmd,capture_output=True,text=True,timeout=100)
-  data={'exit_code':r.returncode,'stdout':r.stdout,'stderr':r.stderr}
- except subprocess.TimeoutExpired:
-  data={'exit_code':124,'stdout':'','stderr':'Heartbeat command timed out; retry next tick.'}
+ if name in ('walletissues_adopt','walletissues_mine') and not ownership_ok:
+  data={'exit_code':125,'stdout':'','stderr':'Skipped because ownership audit did not succeed.','skipped':True}
+ else:
+  try:
+   r=subprocess.run(cmd,capture_output=True,text=True,timeout=100)
+   data={'exit_code':r.returncode,'stdout':r.stdout,'stderr':r.stderr}
+  except subprocess.TimeoutExpired:
+   data={'exit_code':124,'stdout':'','stderr':'Heartbeat command timed out; retry next tick.'}
+  except OSError:
+   data={'exit_code':127,'stdout':'','stderr':'Heartbeat command could not start; retry next tick.'}
+ if name == 'walletissues_ownership_audit':
+  ownership_ok=data['exit_code']==0
  results[name]=data
  if name.endswith('status') or name.endswith('discovery') or name.endswith('ownership_audit') or (name.endswith('adopt') and data['stdout'].strip()!='[]') or data['exit_code']:
   output='\n'.join(l for l in (data['stdout']+data['stderr']).splitlines() if not l.startswith('^ HEARTBEAT:'))
