@@ -61,7 +61,7 @@ struct NativeLinkOpener: GateAwareBreadOpener {
         guard let opened = await handoff(link, universalLinksOnly: true, gate: gate) else { return true }
         if opened { return true }
         if let store = URL(string: BreadConnectLinks.appStoreURL) {
-            guard await handoff(store, universalLinksOnly: false, gate: gate) != nil else { return true }
+            guard await handoff(store, universalLinksOnly: false, gate: OpenGate()) != nil else { return true }
         }
         return false
     }

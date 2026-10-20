@@ -276,7 +276,7 @@ class BreadConnect(
                 supervisorScope {
                     val cancellationWatcher = launch(start = CoroutineStart.UNDISPATCHED) {
                         suspendCancellableCoroutine<Nothing> { continuation ->
-                            continuation.invokeOnCancellation { synchronized(lock) { waiter.stopped = true } }
+                            continuation.invokeOnCancellation { }
                         }
                     }
                     // Beside the wait, so a cancel or a newer request ends this request while the opener has not returned.
