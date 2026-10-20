@@ -1,4 +1,5 @@
 import { ITransaction } from 'lib/miden/db/types';
+import { clearCommittedGuardianIntent, clearCommittedGuardianIntents } from 'lib/miden/guardian/committed-completion';
 import type { GuardianRecoveryAction } from 'lib/shared/types';
 
 const IDLE_TIMEOUT_MS = 5 * 60 * 1000;
@@ -70,6 +71,7 @@ function binding(transaction: ITransaction): string {
 }
 
 export function clearRecoveryAuthorization(transactionId: string): void {
+  clearCommittedGuardianIntent(transactionId);
   const authorization = authorizations.get(transactionId);
   if (!authorization) return;
   clearTimeout(authorization.timer);
@@ -78,6 +80,7 @@ export function clearRecoveryAuthorization(transactionId: string): void {
 }
 
 export function clearRecoveryAuthorizations(): void {
+  clearCommittedGuardianIntents();
   for (const transactionId of authorizations.keys()) clearRecoveryAuthorization(transactionId);
 }
 

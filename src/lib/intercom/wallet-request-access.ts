@@ -4,6 +4,7 @@ import { WalletMessageType, type WalletRequest } from 'lib/shared/types';
 const MAINTENANCE = new Set<WalletRequest['type']>([
   WalletMessageType.LockRequest,
   WalletMessageType.ReleaseRecoveryRequest,
+  WalletMessageType.CompleteCommittedGuardianCompletionRequest,
   WalletMessageType.NoteDeliveryWrittenRequest,
   WalletMessageType.ReportTelemetryEventRequest
 ]);

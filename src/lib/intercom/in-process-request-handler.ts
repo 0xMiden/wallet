@@ -1,4 +1,8 @@
 import * as Actions from 'lib/miden/back/actions';
+import {
+  prepareCommittedGuardianCompletion,
+  completeCommittedGuardianCompletion
+} from 'lib/miden/back/committed-guardian-completion';
 import { startTransactionProcessing } from 'lib/miden/back/transaction-processor';
 import { MidenMessageType } from 'lib/miden/types';
 import { WalletMessageType, WalletRequest, WalletResponse } from 'lib/shared/types';
@@ -224,6 +228,14 @@ async function dispatchRequest(req: WalletRequest, label: string): Promise<Walle
       };
     }
 
+    case WalletMessageType.PrepareCommittedGuardianCompletionRequest:
+      return {
+        type: WalletMessageType.PrepareCommittedGuardianCompletionResponse,
+        token: await prepareCommittedGuardianCompletion(req.transactionId)
+      };
+    case WalletMessageType.CompleteCommittedGuardianCompletionRequest:
+      await completeCommittedGuardianCompletion(req.token, req.deadlineMs);
+      return { type: WalletMessageType.CompleteCommittedGuardianCompletionResponse };
     case WalletMessageType.SwapHotKeyRequest: {
       await Actions.swapHotKey(req.accountPublicKey, req.newHotPubKey, req.expectedHotPubKey);
       return {

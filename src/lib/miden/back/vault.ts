@@ -2053,13 +2053,19 @@ export class Vault {
    * keyless pending activation). Any other record is refused with a `PublicError` coded
    * `HOT_KEY_CHANGED`, and nothing is written or released.
    */
-  async swapHotKey(accountPublicKey: string, newHotPubKey: string, expectedHotPubKey?: string | null) {
+  async swapHotKey(
+    accountPublicKey: string,
+    newHotPubKey: string,
+    expectedHotPubKey?: string | null,
+    assertCurrent?: (account?: WalletAccount) => void
+  ) {
     return withError('Failed to swap hot key', async () => {
       const allAccounts = await this.fetchAccounts();
       const account = allAccounts.find(acc => acc.publicKey === accountPublicKey);
       if (!account) {
         throw new PublicError('Account not found');
       }
+      assertCurrent?.(account);
       // Checked here, inside the caller's accounts-write-queue turn, because a background heal in
       // another realm shares no lock with the rotation pipeline. Ahead of the stored-key check, whose
       // code closes the heal's budget for good, so a moved pointer is never reported as a missing key.
@@ -2083,18 +2089,19 @@ export class Vault {
       const newAllAccounts = allAccounts.map(acc =>
         acc.publicKey === accountPublicKey ? { ...acc, hotPublicKey: newHotPubKey, requiresHotKeyRotation: false } : acc
       );
-      await encryptAndSaveMany([[accountsStrgKey, newAllAccounts]], this.vaultKey);
+      await encryptAndSaveMany([[accountsStrgKey, newAllAccounts]], this.vaultKey, assertCurrent);
 
       // Now best-effort release the old hot key. A crash here only orphans the
       // old blobs (inert) — never a broken pointer.
       if (oldHotPubKey && oldHotPubKey !== newHotPubKey) {
         try {
           const oldCiphertext = await fetchAndDecryptOne<string>(accAuthSecretKeyStrgKey(oldHotPubKey), this.vaultKey);
+          assertCurrent?.();
           await secureHotKey.deleteHotKey(oldCiphertext);
         } catch (e) {
           console.warn('swapHotKey: failed to release old native key (non-fatal):', e);
         }
-        await removeMany([accAuthPubKeyStrgKey(oldHotPubKey), accAuthSecretKeyStrgKey(oldHotPubKey)]);
+        await removeMany([accAuthPubKeyStrgKey(oldHotPubKey), accAuthSecretKeyStrgKey(oldHotPubKey)], assertCurrent);
       }
 
       const currentAccount = await this.getCurrentAccount();
@@ -2125,17 +2132,20 @@ export class Vault {
   updateGuardianBinding(
     accountPublicKey: string,
     expectedEpoch: 'force',
-    patch: GuardianBindingPatch
+    patch: GuardianBindingPatch,
+    assertCurrent?: (account?: WalletAccount) => void
   ): Promise<AppliedGuardianBinding>;
   updateGuardianBinding(
     accountPublicKey: string,
     expectedEpoch: number,
-    patch: GuardianBindingPatch
+    patch: GuardianBindingPatch,
+    assertCurrent?: (account?: WalletAccount) => void
   ): Promise<AppliedGuardianBinding | { outcome: 'stale' }>;
   async updateGuardianBinding(
     accountPublicKey: string,
     expectedEpoch: number | 'force',
-    patch: GuardianBindingPatch
+    patch: GuardianBindingPatch,
+    assertCurrent?: (account?: WalletAccount) => void
   ): Promise<AppliedGuardianBinding | { outcome: 'stale' }> {
     return withError('Failed to update guardian binding', async () => {
       const allAccounts = await this.fetchAccounts();
@@ -2143,6 +2153,7 @@ export class Vault {
       if (!account) {
         throw new PublicError('Account not found');
       }
+      assertCurrent?.(account);
       const currentEpoch = account.guardianEpoch ?? 0;
       if (expectedEpoch !== 'force' && currentEpoch !== expectedEpoch) {
         return { outcome: 'stale' as const };
@@ -2172,7 +2183,7 @@ export class Vault {
         guardianEpoch: currentEpoch + 1
       });
       const accounts = allAccounts.map(acc => (acc.publicKey === accountPublicKey ? applyPatch(acc) : acc));
-      await encryptAndSaveMany([[accountsStrgKey, accounts]], this.vaultKey);
+      await encryptAndSaveMany([[accountsStrgKey, accounts]], this.vaultKey, assertCurrent);
       return { outcome: 'applied' as const, accounts, currentAccount: await this.getCurrentAccount() };
     });
   }
@@ -2188,11 +2199,18 @@ export class Vault {
    * and its bump turns that repair's write `stale`. A writer that reasons from a
    * snapshot calls `updateGuardianBinding` with that snapshot's epoch instead.
    */
-  async setGuardianEndpoint(accountPublicKey: string, guardianEndpoint: string) {
-    const { accounts, currentAccount } = await this.updateGuardianBinding(accountPublicKey, 'force', {
-      guardianEndpoint
-    });
-    return { accounts, currentAccount };
+  async setGuardianEndpoint(
+    accountPublicKey: string,
+    guardianEndpoint: string,
+    assertCurrent?: (account?: WalletAccount) => void,
+    expectedEpoch?: number
+  ) {
+    const result =
+      expectedEpoch === undefined
+        ? await this.updateGuardianBinding(accountPublicKey, 'force', { guardianEndpoint }, assertCurrent)
+        : await this.updateGuardianBinding(accountPublicKey, expectedEpoch, { guardianEndpoint }, assertCurrent);
+    if (result.outcome !== 'applied') throw new PublicError('The account Guardian binding changed');
+    return { accounts: result.accounts, currentAccount: result.currentAccount };
   }
 
   /**

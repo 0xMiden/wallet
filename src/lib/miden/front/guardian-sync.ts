@@ -81,6 +81,9 @@ import {
  * manager doesn't drag `lib/store` into the SW init chain.
  */
 export const zustandProvider: GuardianAccountProvider = {
+  prepareCommittedGuardianCompletion: id => useWalletStore.getState().prepareCommittedGuardianCompletion(id),
+  completeCommittedGuardianRow: (id, deadlineMs) =>
+    useWalletStore.getState().completeCommittedGuardianRow(id, deadlineMs),
   prepareRecoveryTransaction: id => useWalletStore.getState().prepareRecoveryTransaction(id),
   releaseRecoveryAuthorization: id => useWalletStore.getState().releaseRecoveryAuthorization(id),
   getAccounts: async () => useWalletStore.getState().accounts,

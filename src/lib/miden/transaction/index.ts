@@ -22,6 +22,10 @@ import {
   type ProposalSyncPhase
 } from 'lib/miden/guardian';
 import {
+  bindCommittedGuardianEvidence,
+  committedGuardianOperationBinding
+} from 'lib/miden/guardian/committed-completion';
+import {
   createDirectSwitchGuardianRequest,
   didDirectSwitchLand,
   GuardianWriteDiscardedError,
@@ -516,6 +520,8 @@ const attemptContextOf = (transaction: ITransaction, guardianProposalNonce?: num
   };
 };
 
+const guardianCompletionBindings = new WeakMap<ITransaction, string>();
+
 /**
  * Build the row-bound per-step stage stamp handed to a write pipeline (PR #524):
  * `stage => setTransactionStage(txId, stage)`, unfailable except for one write.
@@ -540,7 +546,8 @@ const attemptContextOf = (transaction: ITransaction, guardianProposalNonce?: num
 const stageStampFor =
   (
     txId: string,
-    attempt: AttemptContext | undefined
+    attempt: AttemptContext | undefined,
+    completionBinding?: string
   ): ((stage: ITransactionStage, detail?: StageDetail) => Promise<void>) =>
   async (stage, detail) => {
     // 'submitting' is stamped immediately before the submit call, so it is the exact crossing the double-send guard
@@ -548,6 +555,7 @@ const stageStampFor =
     // row terminal without stopping the pipeline. The crossing is recorded per attempt with the evidence the leaf
     // read (#1081). Without an attempt (see the Guardian leaf) only the flag can be recorded.
     if (stage === 'submitting') {
+      if (attempt) bindCommittedGuardianEvidence(txId, attempt.attemptId, completionBinding, detail?.evidence);
       try {
         await (attempt === undefined
           ? markMayHaveSubmitted(txId)
@@ -1080,6 +1088,12 @@ async function reconcileStructuralApplyFailure(
   guardianProvider: GuardianAccountProvider,
   landed: LandedWithoutResult
 ): Promise<void> {
+  if (tx.attemptId) {
+    bindCommittedGuardianEvidence(tx.id, tx.attemptId, guardianCompletionBindings.get(tx), {
+      transactionId: landed.transactionId,
+      finalCommitment: landed.finalAccountCommitment
+    });
+  }
   if (tx.type === 'replace-hot-key') {
     await requireLandedCommit(tx, guardianProvider, landed);
     await completeReplaceHotKeyTransaction(tx as ReplaceHotKeyTransaction, undefined, guardianProvider, landed);
@@ -2850,13 +2864,15 @@ const generateDirectSwitchGuardianTransaction = async (
   // copy tells the user their guardian is signing — on this path no operator is
   // contacted at all, and the reason this path is running is that the outgoing
   // one could not be reached.
+  const directEndpoint = transaction.extraInputs.newGuardianEndpoint;
+  const completionBinding = committedGuardianOperationBinding(transaction);
+  if (completionBinding) guardianCompletionBindings.set(transaction, completionBinding);
+  await beforeSubmitAccess(async () => {
+    await guardianProvider.prepareCommittedGuardianCompletion?.(transaction.id);
+  });
   await setTransactionStage(transaction.id, 'signing-locally');
   const tr = await beforeSubmitAccess(() =>
-    createDirectSwitchGuardianRequest(
-      walletAccount,
-      transaction.extraInputs.newGuardianEndpoint,
-      guardianProvider.signWord
-    )
+    createDirectSwitchGuardianRequest(walletAccount, directEndpoint, guardianProvider.signWord)
   );
 
   await setTransactionStage(transaction.id, 'sending');
@@ -2871,7 +2887,7 @@ const generateDirectSwitchGuardianTransaction = async (
         requestBytes,
         transaction.delegateTransaction,
         signCallback,
-        stageStampFor(transaction.id, attempt)
+        stageStampFor(transaction.id, attempt, completionBinding)
       )
     );
   } else {
@@ -2879,7 +2895,7 @@ const generateDirectSwitchGuardianTransaction = async (
       transaction.accountId,
       tr,
       transaction.delegateTransaction,
-      stageStampFor(transaction.id, attempt)
+      stageStampFor(transaction.id, attempt, completionBinding)
     );
   }
 
@@ -3362,6 +3378,9 @@ const generateGuardianTransaction = async (
     }
     case 'switch-guardian': {
       const sgTx = transaction as SwitchGuardianTransaction;
+      const targetEndpoint = sgTx.extraInputs.newGuardianEndpoint;
+      const completionBinding = committedGuardianOperationBinding(sgTx);
+      if (completionBinding) guardianCompletionBindings.set(transaction, completionBinding);
       // WHICH guardian an unreachability verdict here implicates depends on
       // where in the block it failed, and this row's audit trail is the only
       // record of it. The service load touches the OUTGOING operator alone. The
@@ -3388,7 +3407,7 @@ const generateGuardianTransaction = async (
             const phase: ProposalSyncPhase = { syncing: false, abandoned: false };
             syncPhase = phase;
             return withOutgoingGuardianDeadline(
-              () => service.createSwitchGuardianProposal(sgTx.extraInputs.newGuardianEndpoint, phase),
+              () => service.createSwitchGuardianProposal(targetEndpoint, phase),
               'pushing the switch-guardian proposal'
             );
           })
@@ -3480,6 +3499,11 @@ const generateGuardianTransaction = async (
       // the same one. After a seed recovery the 409 this waits out is usually the old
       // device's last transaction still settling (#904).
       const { commitmentHex, mintedKey } = await resolveRotationHotKey(rTx);
+      const completionBinding = committedGuardianOperationBinding({
+        ...rTx,
+        extraInputs: { ...rTx.extraInputs, newHotPublicKey: mintedKey?.publicKeyHex ?? rTx.extraInputs.newHotPublicKey }
+      });
+      if (completionBinding) guardianCompletionBindings.set(transaction, completionBinding);
       proposalResult = await beforeSubmitAccess(() =>
         withGuardianConflictRetry(() => service.createReplaceHotKeyProposal(sdkAccount, commitmentHex))
       );
@@ -3909,13 +3933,19 @@ const generateGuardianTransaction = async (
   // the leaf's own `attemptContextOf` inside the try, where the abandon runs.
   const stampStage = stageStampFor(
     transaction.id,
-    transaction.attemptId === undefined ? undefined : attemptContextOf(transaction, proposalResult.nonce)
+    transaction.attemptId === undefined ? undefined : attemptContextOf(transaction, proposalResult.nonce),
+    guardianCompletionBindings.get(transaction)
   );
   const stampAttemptStage = async (stage: ITransactionStage, detail?: StageDetail): Promise<void> => {
     await stampStage(stage, detail);
     if (stage === 'submitting') submitCrossed = true;
   };
   try {
+    if (transaction.type === 'replace-hot-key' || transaction.type === 'switch-guardian') {
+      await beforeSubmitAccess(async () => {
+        await guardianProvider.prepareCommittedGuardianCompletion?.(transaction.id);
+      });
+    }
     // The LAST outgoing-guardian round trip. The three calls above it carry the
     // 30s outgoing deadline precisely because a silent operator wedges the row at
     // `signing-proposal`, and this call reaches the same operator over the same

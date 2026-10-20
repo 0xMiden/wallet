@@ -66,6 +66,8 @@ let serviceClearGeneration = 0;
 export interface GuardianAccountProvider {
   prepareRecoveryTransaction?: (transactionId: string) => Promise<RecoveryPreparation>;
   releaseRecoveryAuthorization?: (transactionId: string) => Promise<void>;
+  prepareCommittedGuardianCompletion?: (transactionId: string) => Promise<void>;
+  completeCommittedGuardianRow?: (transactionId: string, deadlineMs?: number) => Promise<void>;
   getAccounts: () => Promise<WalletAccount[]>;
   getPublicKeyForCommitment: (commitment: string) => Promise<string>;
   signWord: (publicKey: string, wordHex: string, transactionId?: string) => Promise<string>;

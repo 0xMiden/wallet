@@ -583,9 +583,15 @@ export const didDirectSwitchLand = async (transactionId: string): Promise<boolea
  * sync keeps the record current, and a sync per round could rebuild a client against a node that just
  * parked.
  */
-export const readLastSyncedVerdict = async (transactionId: string): Promise<boolean | undefined> => {
+export const readLastSyncedVerdict = async (
+  transactionId: string,
+  lockOptions?: WasmClientLockOptions
+): Promise<boolean | undefined> => {
   try {
-    const state = await withWasmClientLock(async () => midenClientProxy.getTransactionCommitState(transactionId));
+    const state = await withWasmClientLock(
+      async () => midenClientProxy.getTransactionCommitState(transactionId),
+      lockOptions
+    );
     if (state === 'committed') return true;
     if (state === 'discarded') return false;
     // 'pending' — submitted and still awaiting a block, so it may yet land — and

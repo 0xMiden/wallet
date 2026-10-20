@@ -14,7 +14,9 @@ export interface FailedHotKeyRotation {
 }
 
 const isFailedRotation = (tx: ITransaction): boolean =>
-  tx.type === 'replace-hot-key' && tx.status === ITransactionStatus.Failed;
+  tx.type === 'replace-hot-key' &&
+  (tx.status === ITransactionStatus.Failed ||
+    (tx.status === ITransactionStatus.Completed && tx.extraInputs?.hotKeyPersistFailed === true));
 
 /** This account's Failed rotations that name a new key, newest first. A restored or discarded row is a record, never work. */
 export async function findFailedHotKeyRotations(accountPublicKey: string): Promise<FailedHotKeyRotation[]> {
@@ -23,6 +25,7 @@ export async function findFailedHotKeyRotations(accountPublicKey: string): Promi
       tx =>
         isFailedRotation(tx) &&
         tx.restoredFromBackup !== true &&
+        tx.recovered !== true &&
         !isNodeDiscardedRow(tx) &&
         sameWalletAccountId(tx.accountId, accountPublicKey)
     )
@@ -46,6 +49,7 @@ export async function markRotationCompleted(rowId: string): Promise<void> {
     tx.displayIcon = 'DEFAULT';
     tx.completedAt = Math.floor(Date.now() / 1000);
     tx.stage = 'complete';
+    tx.extraInputs = { ...tx.extraInputs, hotKeyPersistFailed: false };
     delete tx.error;
     delete tx.rawError;
     return undefined;

@@ -11,6 +11,10 @@ import {
 } from 'lib/miden/activity/connectivity-state';
 import * as Actions from 'lib/miden/back/actions';
 import { APPROVAL_CONFIRMATION_TYPES } from 'lib/miden/back/approval-confirmation';
+import {
+  prepareCommittedGuardianCompletion,
+  completeCommittedGuardianCompletion
+} from 'lib/miden/back/committed-guardian-completion';
 import { intercom } from 'lib/miden/back/defaults';
 import {
   handleOffscreenSignRequest,
@@ -727,6 +731,14 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
       return {
         type: WalletMessageType.PersistNewHotKeyResponse
       };
+    case WalletMessageType.PrepareCommittedGuardianCompletionRequest:
+      return {
+        type: WalletMessageType.PrepareCommittedGuardianCompletionResponse,
+        token: await prepareCommittedGuardianCompletion(req.transactionId)
+      };
+    case WalletMessageType.CompleteCommittedGuardianCompletionRequest:
+      await completeCommittedGuardianCompletion(req.token, req.deadlineMs);
+      return { type: WalletMessageType.CompleteCommittedGuardianCompletionResponse };
     case WalletMessageType.SwapHotKeyRequest:
       await Actions.swapHotKey(req.accountPublicKey, req.newHotPubKey, req.expectedHotPubKey);
       return {

@@ -1736,6 +1736,7 @@ export class ReplaceHotKeyTransaction implements ITransaction {
   extraInputs: {
     newHotPublicKey?: string;
     reRegisterFailed?: boolean;
+    hotKeyPersistFailed?: boolean;
     guardianEndpoint?: string;
     proposalNonce?: number;
     nodeDiscarded?: boolean;

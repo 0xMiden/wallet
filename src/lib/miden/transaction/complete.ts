@@ -10,6 +10,7 @@ import {
 } from 'lib/epoch/intent-key';
 import { clearGuardianServiceFor, type GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
 import { MultisigService } from 'lib/miden/guardian';
+import { COMMITTED_GUARDIAN_FINISH_TIMEOUT_MS } from 'lib/miden/guardian/committed-completion';
 import {
   didDirectSwitchLand,
   finalizeDirectGuardianSwitch,
@@ -25,6 +26,7 @@ import {
 } from 'lib/miden/guardian/post-switch-state';
 import { rotationVerdict } from 'lib/miden/guardian/rotation-verdict';
 import * as Repo from 'lib/miden/repo';
+import { isWalletAccessDeniedError } from 'lib/remote-config/wallet-access';
 import type { BridgeReceiveFailureSource } from 'lib/telemetry/bridge-receive-failure';
 import { classifyError } from 'lib/telemetry/classify';
 import { reportOperation } from 'lib/telemetry/report-operation';
@@ -35,6 +37,7 @@ import {
   applyVerifiedLanding,
   landedTransactionIdFields,
   type LandedWithoutResult,
+  isLockedError,
   recordNoteDelivery,
   reportVerifiedLanding,
   setTransactionStage,
@@ -425,7 +428,7 @@ const POST_ROTATION_REREGISTER_BACKOFF_MS = 1_000;
  * and the cost of being wrong in the short direction is a false "may not have
  * persisted" on a write that did land.
  */
-export const ENDPOINT_PERSIST_TIMEOUT_MS = 15_000;
+export const ENDPOINT_PERSIST_TIMEOUT_MS = COMMITTED_GUARDIAN_FINISH_TIMEOUT_MS;
 
 /**
  * The stored WalletAccount id for a row queued under any spelling of it. The
@@ -470,6 +473,8 @@ export const completeReplaceHotKeyTransaction = async (
   // Set only by the landed reconcile, where `result` is absent (#1233).
   landed?: LandedWithoutResult
 ) => {
+  const resultFields = readTransactionResultFields(result);
+  const feeFields = feeFieldsFromResult(result);
   try {
     const newHotPublicKey = tx.extraInputs?.newHotPublicKey;
     if (!newHotPublicKey) {
@@ -574,23 +579,38 @@ export const completeReplaceHotKeyTransaction = async (
     // Vault.swapHotKey resolves the previous hot pubkey from the persisted
     // WalletAccount and is idempotent: if the record already reflects
     // `newHotPublicKey` (retry), the cleanup branch is a no-op.
-    await guardianProvider.swapHotKey(storedAccountId, newHotPublicKey);
+    let hotKeyPersistFailed = false;
+    try {
+      await guardianProvider.swapHotKey(storedAccountId, newHotPublicKey);
+    } catch (writeError) {
+      if (!isWalletAccessDeniedError(writeError) && !isLockedError(writeError)) throw writeError;
+      try {
+        if (!isWalletAccessDeniedError(writeError) || !guardianProvider.completeCommittedGuardianRow) throw writeError;
+        const deadlineMs = Date.now() + ENDPOINT_PERSIST_TIMEOUT_MS;
+        await withTimeout(
+          guardianProvider.completeCommittedGuardianRow(tx.id, deadlineMs),
+          ENDPOINT_PERSIST_TIMEOUT_MS,
+          'completing the committed hot-key pointer'
+        );
+      } catch (completionError) {
+        hotKeyPersistFailed = true;
+        console.warn('Committed hot-key rotation awaits local bookkeeping:', completionError);
+      }
+    }
     // Drop the cached MultisigService — its bound hot signer is now stale.
     clearGuardianServiceFor(storedAccountId);
 
     await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
-      ...feeFieldsFromResult(result),
+      ...feeFields,
       displayMessage: 'Everyday key rotated',
       completedAt: Math.floor(Date.now() / 1000),
       // Spread the whole record (updateTransactionStatus Object.assigns the whole extraInputs):
       // newHotPublicKey and the stamped guardianEndpoint both survive. Then record whether the
       // guardian re-register landed (#619 gap 1).
-      extraInputs: { ...tx.extraInputs, reRegisterFailed },
+      extraInputs: { ...tx.extraInputs, reRegisterFailed, hotKeyPersistFailed },
       // `result` is absent on the landed reconcile path: the rotation is already on chain, and all
       // the reconcile has is the id its failure carried (#1233).
-      ...(result
-        ? { transactionId: result.executedTransaction().id().toHex(), resultBytes: result.serialize() }
-        : landedTransactionIdFields(landed))
+      ...(resultFields ?? landedTransactionIdFields(landed))
     });
 
     // The account now has both signers on-chain, so bring it up to the same
@@ -607,7 +627,7 @@ export const completeReplaceHotKeyTransaction = async (
     // the enclosing catch writes Failed, so an unscoped throw would flip a
     // rotation that is already on chain and recorded Completed. The eviction is
     // logged and the row stands.
-    if (!reRegisterEvicted) {
+    if (!reRegisterEvicted && !hotKeyPersistFailed) {
       try {
         await ensureGuardianProcedureThresholds(storedAccountId, tx.delegateTransaction, guardianProvider);
       } catch (hardeningError) {
@@ -623,7 +643,7 @@ export const completeReplaceHotKeyTransaction = async (
     await updateTransactionStatus(tx.id, ITransactionStatus.Failed, {
       displayMessage: 'Failed to rotate everyday key',
       completedAt: Math.floor(Date.now() / 1000),
-      ...(result && { resultBytes: result.serialize() }),
+      ...(resultFields && { resultBytes: resultFields.resultBytes }),
       error: error instanceof Error ? error.message : String(error)
     });
   }
@@ -674,7 +694,7 @@ const readTransactionResultFields = (
   try {
     return { transactionId: result.executedTransaction().id().toHex(), resultBytes: result.serialize() };
   } catch (error) {
-    console.warn('Could not read the transaction result for the guardian switch row (completing without it):', error);
+    console.warn('Could not read the transaction result for the Guardian row (completing without it):', error);
     return undefined;
   }
 };
@@ -812,6 +832,7 @@ export const completeSwitchGuardianTransaction = async (
     // operators aren't clobbered. Backend providers implement setGuardianEndpoint;
     // the optional-call guard keeps a frontend provider without it from throwing.
     try {
+      const deadlineMs = Date.now() + ENDPOINT_PERSIST_TIMEOUT_MS;
       // BOUNDED, because a hang here is worse than a rejection. On the frontend
       // this provider method is an intercom request, and `request()` in
       // lib/intercom/client.ts has no timeout while its `onDisconnect` reconnects
@@ -827,7 +848,16 @@ export const completeSwitchGuardianTransaction = async (
       // the flag is a harmless false positive — drift reconciliation reads the
       // stored endpoint, finds it correct, and affirms in-sync.
       await withTimeout(
-        Promise.resolve(guardianProvider.setGuardianEndpoint?.(storedAccountId, newGuardianEndpoint)),
+        (async () => {
+          try {
+            await guardianProvider.setGuardianEndpoint?.(storedAccountId, newGuardianEndpoint);
+          } catch (writeError) {
+            if (!isWalletAccessDeniedError(writeError) || !guardianProvider.completeCommittedGuardianRow) {
+              throw writeError;
+            }
+            await guardianProvider.completeCommittedGuardianRow(tx.id, deadlineMs);
+          }
+        })(),
         ENDPOINT_PERSIST_TIMEOUT_MS,
         'persisting the new guardian endpoint'
       );

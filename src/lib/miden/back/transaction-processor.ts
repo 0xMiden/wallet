@@ -19,6 +19,10 @@ import { ensureWalletAccessAllowed, isWalletAccessDeniedError } from 'lib/remote
 import { WalletMessageType } from 'lib/shared/types';
 
 import { getAccountsWriteQueue } from './accounts-write-queue';
+import {
+  prepareCommittedGuardianCompletion,
+  completeCommittedGuardianCompletion
+} from './committed-guardian-completion';
 import { getIntercom } from './defaults';
 import { clearRecoveryAuthorization } from './recovery-authorization';
 import { accountsUpdated, isUnlocked, store, withUnlocked } from './store';
@@ -104,9 +108,21 @@ export async function swSignCallback(publicKey: string, signingInputs: string): 
  * dApp confirmation (dapp.ts startDappBackgroundProcessing) starts.
  * Uses the Vault directly instead of the Zustand store.
  */
+const guardianCompletionTokens = new Map<string, string>();
+
 export const vaultGuardianProvider: GuardianAccountProvider = {
+  prepareCommittedGuardianCompletion: async id => {
+    guardianCompletionTokens.set(id, await prepareCommittedGuardianCompletion(id));
+  },
+  completeCommittedGuardianRow: async (id, deadlineMs) => {
+    const token = guardianCompletionTokens.get(id);
+    guardianCompletionTokens.delete(id);
+    if (!token) throw new Error('No admitted Guardian completion');
+    await completeCommittedGuardianCompletion(token, deadlineMs);
+  },
   prepareRecoveryTransaction: id => withUnlocked(({ vault }) => vault.prepareRecoveryTransaction(id)),
   releaseRecoveryAuthorization: async id => {
+    guardianCompletionTokens.delete(id);
     clearRecoveryAuthorization(id);
   },
   getAccounts: async () => {
