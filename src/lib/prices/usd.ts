@@ -1,8 +1,9 @@
 import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
 import { getPriceSymbols } from 'lib/miden/swap/tokens';
 
-import { fetchTokenPrices, TokenPrices } from './binance';
+import type { TokenPrices } from './binance';
 import { isE2eFixtureSymbol, KNOWN_SYMBOLS } from './constant';
+import { fetchTokenPrices } from './feed';
 import { fixedQuote } from './fixed';
 
 /** One US dollar in the fixed-point unit every spending limit is denominated in. */

@@ -1,10 +1,10 @@
 import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
 
-import { fetchTokenPrices } from './binance';
+import { fetchTokenPrices } from './feed';
 import { getPriceMicro, isCoveredSymbol, toPriceMicro, writeUsdPriceCache, __resetUsdPriceCacheForTests } from './usd';
 
 jest.mock('lib/miden/swap/tokens', () => ({ getPriceSymbols: () => ['ARB'] }));
-jest.mock('./binance', () => ({ fetchTokenPrices: jest.fn() }));
+jest.mock('./feed', () => ({ fetchTokenPrices: jest.fn() }));
 jest.mock('lib/miden/front/storage', () => ({ fetchFromStorage: jest.fn(), putToStorage: jest.fn() }));
 
 const mockedFetch = jest.mocked(fetchTokenPrices);

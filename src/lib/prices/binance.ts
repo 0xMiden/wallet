@@ -33,34 +33,61 @@ interface ResolvedMarket {
 
 const markets = new Map<string, ResolvedMarket | null>();
 const pendingMarkets = new Map<string, Promise<ResolvedMarket | null>>();
+let exchangeMarkets: ReadonlyMap<string, BinanceMarket> | undefined;
+let pendingExchangeMarkets: Promise<ReadonlyMap<string, BinanceMarket>> | undefined;
 
 function validSymbol(symbol: string): boolean {
   return /^[A-Z0-9]{1,30}$/.test(symbol);
 }
 
+async function readExchangeMarkets(): Promise<ReadonlyMap<string, BinanceMarket>> {
+  if (exchangeMarkets) return exchangeMarkets;
+  if (pendingExchangeMarkets) return pendingExchangeMarkets;
+  const request = async (): Promise<ReadonlyMap<string, BinanceMarket>> => {
+    // A missing pair's HTTP error can omit CORS headers. Read successful bulk metadata instead.
+    const { data } = await axios.get<{ symbols?: BinanceMarket[] }>(`${BINANCE_API_BASE}/exchangeInfo`, {
+      params: { showPermissionSets: false },
+      timeout: 10_000
+    });
+    if (
+      !Array.isArray(data.symbols) ||
+      data.symbols.length === 0 ||
+      !data.symbols.every(
+        market =>
+          typeof market.symbol === 'string' &&
+          market.symbol.length > 0 &&
+          typeof market.status === 'string' &&
+          market.status.length > 0 &&
+          typeof market.baseAsset === 'string' &&
+          market.baseAsset.length > 0 &&
+          typeof market.quoteAsset === 'string' &&
+          market.quoteAsset.length > 0
+      )
+    ) {
+      throw new Error('Binance market metadata is invalid');
+    }
+    const result = new Map(data.symbols.map(market => [market.symbol, market]));
+    exchangeMarkets = result;
+    return result;
+  };
+  pendingExchangeMarkets = request();
+  try {
+    return await pendingExchangeMarkets;
+  } finally {
+    pendingExchangeMarkets = undefined;
+  }
+}
+
 async function findMarket(symbol: string): Promise<ResolvedMarket | null> {
+  const listings = await readExchangeMarkets();
   for (const denominator of ['USDT', 'USDC']) {
     const pair = `${symbol}${denominator}`;
-    try {
-      const { data } = await axios.get<{ symbols: BinanceMarket[] }>(`${BINANCE_API_BASE}/exchangeInfo`, {
-        params: { symbol: pair },
-        timeout: 10_000
-      });
-      const market = data.symbols.find(item => item.symbol === pair);
-      if (market?.status === 'TRADING' && market.baseAsset === symbol && market.quoteAsset === denominator) {
-        switch (denominator) {
-          case 'USDT':
-          case 'USDC':
-            return { pair, denominator };
-        }
-      }
-    } catch (error) {
-      if (
-        !axios.isAxiosError<{ code?: number }>(error) ||
-        error.response?.status !== 400 ||
-        error.response.data.code !== -1121
-      ) {
-        throw error;
+    const market = listings.get(pair);
+    if (market?.status === 'TRADING' && market.baseAsset === symbol && market.quoteAsset === denominator) {
+      switch (denominator) {
+        case 'USDT':
+        case 'USDC':
+          return { pair, denominator };
       }
     }
   }
@@ -140,6 +167,16 @@ export async function fetchTokenPrices(symbols: readonly string[] = []): Promise
         console.warn('[Binance] Failed to fetch prices:', error);
         continue;
       }
+      // Refresh metadata once so a removed market cannot block all future batches.
+      exchangeMarkets = undefined;
+      markets.clear();
+      let metadataAvailable = false;
+      try {
+        await readExchangeMarkets();
+        metadataAvailable = true;
+      } catch {
+        // Keep the other ticker requests usable while metadata is unavailable.
+      }
       // One removed market must not stop prices for the other assets.
       for (const pair of uniquePairs.slice(offset, offset + 100)) {
         try {
@@ -160,6 +197,7 @@ export async function fetchTokenPrices(symbols: readonly string[] = []): Promise
             if (market.pair !== pair) continue;
             markets.delete(symbol);
             resolved.delete(symbol);
+            if (!metadataAvailable) continue;
             try {
               const replacement = await resolveMarket(symbol);
               if (!replacement) continue;
@@ -230,9 +268,9 @@ export function isNominalQuote(quote: TokenPriceInfo | undefined): boolean {
 export function quotedPrice(prices: TokenPrices, symbol: string | undefined): TokenPriceInfo | undefined {
   const fixed = fixedQuote(symbol);
   if (fixed) return fixed;
-  if (symbol !== undefined && markets.get(symbol) === null) return undefined;
   const quote = symbol === undefined ? undefined : prices[symbol];
   if (quote && quote.price > 0) return quote;
+  if (symbol !== undefined && markets.get(symbol) === null) return undefined;
   return !isListedSymbol(symbol) && hasUnquotedDefaultPrice() ? TEST_NETWORK_UNQUOTED_PRICE : undefined;
 }
 

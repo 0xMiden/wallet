@@ -9,10 +9,12 @@ import { useRetryableSWR } from 'lib/swr';
 import { loadTokenPriceAssets, peekTokenPriceAssets } from 'lib/token-list/runtime';
 import { useLoadedList } from 'lib/token-list/useLoadedList';
 
-import { fetchKlineData, fetchTokenPrices, Timeframe } from './binance';
+import type { Timeframe } from './binance';
+import { fetchKlineData, fetchTokenPrices } from './feed';
 import { writeUsdPriceCache } from './usd';
 
-export { fetchKlineData, listedFiatValue, listedPrice, pricesLoaded, quotedPrice } from './binance';
+export { listedFiatValue, listedPrice, pricesLoaded, quotedPrice } from './binance';
+export { fetchKlineData } from './feed';
 export type { KlinePoint, Timeframe, TokenPriceInfo, TokenPrices } from './binance';
 
 /**

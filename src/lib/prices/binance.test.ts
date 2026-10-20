@@ -1,23 +1,14 @@
 import axios, { AxiosError } from 'axios';
 
-import {
-  fetchKlineData,
-  fetchTokenPrices,
-  isListedSymbol,
-  isNominalQuote,
-  listedFiatValue,
-  listedPrice,
-  pricesLoaded,
-  quotedPrice,
-  Timeframe
-} from './binance';
+import type { Timeframe } from './binance';
 import { hasUnquotedDefaultPrice } from './unquoted-default';
 
 jest.mock('axios');
 jest.mock('./unquoted-default', () => ({ hasUnquotedDefaultPrice: jest.fn(() => false) }));
 
-const http = jest.mocked(axios);
-const nominal = jest.mocked(hasUnquotedDefaultPrice);
+let http = jest.mocked(axios);
+let nominal = jest.mocked(hasUnquotedDefaultPrice);
+let engine: typeof import('./binance');
 const invalidSymbol = new AxiosError<{ code: number }>('Invalid symbol');
 invalidSymbol.response = {
   data: { code: -1121 },
@@ -35,15 +26,19 @@ function ticker(symbol: string, price: string, change = '0') {
   return { symbol, lastPrice: price, priceChange: change };
 }
 
-beforeEach(() => {
-  jest.clearAllMocks();
+beforeEach(async () => {
+  jest.resetModules();
+  http = jest.mocked((await import('axios')).default);
+  nominal = jest.mocked((await import('./unquoted-default')).hasUnquotedDefaultPrice);
+  engine = await import('./binance');
+  http.get.mockReset();
   http.isAxiosError.mockImplementation(error => error instanceof AxiosError);
   nominal.mockReturnValue(false);
 });
 
 it('fetches only both USD denominators when no assets are requested', async () => {
   http.get.mockResolvedValueOnce({ data: [ticker('USDTUSD', '0.99'), ticker('USDCUSD', '1.01')] });
-  expect(await fetchTokenPrices()).toEqual({
+  expect(await engine.fetchTokenPrices()).toEqual({
     USDT: { price: 0.99, change24h: 0, percentageChange24h: 0 },
     USDC: { price: 1.01, change24h: 0, percentageChange24h: 0 }
   });
@@ -57,32 +52,34 @@ it('uses USDT first, converts current and prior prices, and caches market resolu
   http.get.mockResolvedValueOnce(market('AAA')).mockResolvedValue({
     data: [ticker('USDTUSD', '1.1', '0.1'), ticker('USDCUSD', '1'), ticker('AAAUSDT', '20', '10')]
   });
-  const result = await fetchTokenPrices(['AAA', 'AAA']);
+  const result = await engine.fetchTokenPrices(['AAA', 'AAA']);
   expect(result.AAA).toEqual({ price: 22, change24h: 12, percentageChange24h: 120 });
-  await fetchTokenPrices(['AAA']);
+  await engine.fetchTokenPrices(['AAA']);
   expect(http.get.mock.calls.filter(call => call[0].includes('/exchangeInfo'))).toHaveLength(1);
 });
 
 it('falls back to USDC only when the USDT market is absent or inactive', async () => {
   http.get
-    .mockResolvedValueOnce(market('BBB', 'USDT', 'BREAK'))
-    .mockResolvedValueOnce(market('BBB', 'USDC'))
+    .mockResolvedValueOnce({
+      data: {
+        symbols: [...market('BBB', 'USDT', 'BREAK').data.symbols, ...market('BBB', 'USDC').data.symbols]
+      }
+    })
     .mockResolvedValueOnce({ data: [ticker('USDTUSD', '1'), ticker('USDCUSD', '0.9'), ticker('BBBUSDC', '10')] });
-  expect((await fetchTokenPrices(['BBB'])).BBB?.price).toBe(9);
+  expect((await engine.fetchTokenPrices(['BBB'])).BBB?.price).toBe(9);
 });
 
-it('isolates absent markets from the ticker batch and caches a final unpriced result', async () => {
-  http.get
-    .mockRejectedValueOnce(invalidSymbol)
-    .mockRejectedValueOnce(invalidSymbol)
-    .mockResolvedValue({ data: [ticker('USDTUSD', '1')] });
-  await fetchTokenPrices(['ABSENT']);
-  expect(isListedSymbol('ABSENT')).toBe(false);
-  expect(pricesLoaded({}, ['ABSENT'])).toBe(true);
+it('uses bulk metadata to isolate absent markets and cache a final unpriced result', async () => {
+  http.get.mockResolvedValueOnce(market('OTHER')).mockResolvedValue({ data: [ticker('USDTUSD', '1')] });
+  await engine.fetchTokenPrices(['ABSENT']);
+  expect(engine.isListedSymbol('ABSENT')).toBe(false);
+  expect(engine.pricesLoaded({}, ['ABSENT'])).toBe(true);
   nominal.mockReturnValue(true);
-  expect(quotedPrice({}, 'ABSENT')).toBeUndefined();
-  await fetchTokenPrices(['ABSENT']);
-  expect(http.get.mock.calls.filter(call => call[0].includes('/exchangeInfo'))).toHaveLength(2);
+  expect(engine.quotedPrice({}, 'ABSENT')).toBeUndefined();
+  const fallbackQuote = { price: 0.9999, change24h: 0, percentageChange24h: 0 };
+  expect(engine.quotedPrice({ ABSENT: fallbackQuote }, 'ABSENT')).toEqual(fallbackQuote);
+  await engine.fetchTokenPrices(['ABSENT']);
+  expect(http.get.mock.calls.filter(call => call[0].includes('/exchangeInfo'))).toHaveLength(1);
   expect(http.get).toHaveBeenLastCalledWith(
     expect.stringContaining('/ticker/24hr'),
     expect.objectContaining({ params: { symbols: '["USDTUSD","USDCUSD"]', type: 'FULL' } })
@@ -91,26 +88,26 @@ it('isolates absent markets from the ticker batch and caches a final unpriced re
 
 it('does not treat a request failure as absence and retries market lookup', async () => {
   http.get.mockRejectedValueOnce(new Error('rate limit')).mockResolvedValueOnce({ data: [] });
-  await fetchTokenPrices(['RETRY']);
-  expect(isListedSymbol('RETRY')).toBe(true);
+  await engine.fetchTokenPrices(['RETRY']);
+  expect(engine.isListedSymbol('RETRY')).toBe(true);
   nominal.mockReturnValue(true);
-  expect(quotedPrice({}, 'RETRY')).toBeUndefined();
+  expect(engine.quotedPrice({}, 'RETRY')).toBeUndefined();
   http.get.mockResolvedValueOnce(market('RETRY')).mockResolvedValueOnce({ data: [] });
-  await fetchTokenPrices(['RETRY']);
+  await engine.fetchTokenPrices(['RETRY']);
   expect(http.get.mock.calls.filter(call => call[0].includes('/exchangeInfo'))).toHaveLength(2);
 });
 
 it('does not price an asset when its denominator is missing or invalid', async () => {
   http.get.mockResolvedValueOnce(market('CCC')).mockResolvedValueOnce({ data: [ticker('CCCUSDT', '50')] });
-  expect(await fetchTokenPrices(['CCC'])).toEqual({});
+  expect(await engine.fetchTokenPrices(['CCC'])).toEqual({});
   http.get.mockResolvedValueOnce({ data: [ticker('USDTUSD', 'NaN'), ticker('CCCUSDT', '50')] });
-  expect(await fetchTokenPrices(['CCC'])).toEqual({});
+  expect(await engine.fetchTokenPrices(['CCC'])).toEqual({});
 });
 
 it('returns an empty map when the ticker request fails', async () => {
   const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
   http.get.mockRejectedValueOnce(new Error('offline'));
-  expect(await fetchTokenPrices()).toEqual({});
+  expect(await engine.fetchTokenPrices()).toEqual({});
   warn.mockRestore();
 });
 
@@ -135,7 +132,7 @@ it.each<[Timeframe, string, number]>([
         [2, 0, 0, 0, '1.1']
       ]
     });
-  expect(await fetchKlineData(`CHART${frame}`, frame)).toEqual([
+  expect(await engine.fetchKlineData(`CHART${frame}`, frame)).toEqual([
     { time: 1, value: 9 },
     { time: 2, value: 22 }
   ]);
@@ -147,21 +144,21 @@ it.each<[Timeframe, string, number]>([
 
 it('fetches stablecoin USD history directly', async () => {
   http.get.mockResolvedValueOnce({ data: [[1, 0, 0, 0, '0.95']] });
-  expect(await fetchKlineData('USDC', '1D')).toEqual([{ time: 1, value: 0.95 }]);
+  expect(await engine.fetchKlineData('USDC', '1D')).toEqual([{ time: 1, value: 0.95 }]);
   expect(http.get).toHaveBeenCalledTimes(1);
 });
 
 it('returns no history when market resolution or chart loading fails', async () => {
   const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
   http.get.mockRejectedValueOnce(new Error('offline'));
-  expect(await fetchKlineData('CHARTERROR', '1D')).toEqual([]);
+  expect(await engine.fetchKlineData('CHARTERROR', '1D')).toEqual([]);
   warn.mockRestore();
 });
 
 it('keeps the fixed USDCX rate and waits for unresolved market assets', () => {
-  expect(quotedPrice({}, 'USDCX')?.price).toBe(1);
-  expect(pricesLoaded({}, ['USDCX'])).toBe(true);
-  expect(pricesLoaded({}, ['USDCX', 'PENDING'])).toBe(false);
+  expect(engine.quotedPrice({}, 'USDCX')?.price).toBe(1);
+  expect(engine.pricesLoaded({}, ['USDCX'])).toBe(true);
+  expect(engine.pricesLoaded({}, ['USDCX', 'PENDING'])).toBe(false);
 });
 
 it.each<[string, string, number]>([
@@ -171,7 +168,7 @@ it.each<[string, string, number]>([
 ])('covers the elapsed YTD range at %s', async (date, interval, limit) => {
   jest.useFakeTimers().setSystemTime(new Date(date));
   http.get.mockResolvedValueOnce({ data: [] });
-  await fetchKlineData('USDT', 'YTD');
+  await engine.fetchKlineData('USDT', 'YTD');
   expect(http.get).toHaveBeenCalledWith(
     expect.stringContaining('/uiKlines'),
     expect.objectContaining({
@@ -185,44 +182,90 @@ it('recovers other prices and resolves a new market when a cached market is remo
   http.get.mockResolvedValueOnce(market('REMOVED')).mockResolvedValueOnce({
     data: [ticker('USDTUSD', '1'), ticker('USDCUSD', '1'), ticker('REMOVEDUSDT', '10')]
   });
-  expect((await fetchTokenPrices(['REMOVED'])).REMOVED?.price).toBe(10);
+  expect((await engine.fetchTokenPrices(['REMOVED'])).REMOVED?.price).toBe(10);
   http.get
     .mockRejectedValueOnce(invalidSymbol)
+    .mockResolvedValueOnce(market('REMOVED', 'USDC'))
     .mockResolvedValueOnce({ data: ticker('USDTUSD', '1') })
     .mockResolvedValueOnce({ data: ticker('USDCUSD', '0.9') })
     .mockRejectedValueOnce(invalidSymbol)
-    .mockRejectedValueOnce(invalidSymbol)
-    .mockResolvedValueOnce(market('REMOVED', 'USDC'))
     .mockResolvedValueOnce({ data: ticker('REMOVEDUSDC', '20') });
-  expect((await fetchTokenPrices(['REMOVED'])).REMOVED?.price).toBe(18);
+  expect((await engine.fetchTokenPrices(['REMOVED'])).REMOVED?.price).toBe(18);
 });
 
 it('does not return infinite converted prices', async () => {
   http.get.mockResolvedValueOnce(market('HUGE')).mockResolvedValueOnce({
     data: [ticker('USDTUSD', '1e200'), ticker('HUGEUSDT', '1e200')]
   });
-  expect((await fetchTokenPrices(['HUGE'])).HUGE).toBeUndefined();
+  expect((await engine.fetchTokenPrices(['HUGE'])).HUGE).toBeUndefined();
 });
 
 it('uses a nominal quote only when no price asset was supplied and the switch is on', () => {
-  expect(quotedPrice({}, undefined)).toBeUndefined();
+  expect(engine.quotedPrice({}, undefined)).toBeUndefined();
   nominal.mockReturnValue(true);
-  const quote = quotedPrice({}, undefined);
+  const quote = engine.quotedPrice({}, undefined);
   expect(quote).toEqual({ price: 1, change24h: 0, percentageChange24h: 0 });
-  expect(isNominalQuote(quote)).toBe(true);
-  expect(isNominalQuote({ price: 1, change24h: 0, percentageChange24h: 0 })).toBe(false);
-  expect(isNominalQuote(undefined)).toBe(false);
-  expect(pricesLoaded({}, [undefined])).toBe(true);
+  expect(engine.isNominalQuote(quote)).toBe(true);
+  expect(engine.isNominalQuote({ price: 1, change24h: 0, percentageChange24h: 0 })).toBe(false);
+  expect(engine.isNominalQuote(undefined)).toBe(false);
+  expect(engine.pricesLoaded({}, [undefined])).toBe(true);
 });
 
 it('values known balances only with a positive price and known scale', () => {
   const prices = { VALUED: { price: 2, change24h: 0, percentageChange24h: 0 } };
-  expect(listedPrice(prices, 'VALUED')).toBe(2);
-  expect(listedFiatValue(prices, 'VALUED', 3, true)).toBe(6);
-  expect(listedFiatValue(prices, 'VALUED', 3, false)).toBeUndefined();
-  expect(listedFiatValue(prices, 'VALUED', 0, true)).toBeUndefined();
-  expect(listedFiatValue(prices, 'NOQUOTE', 3, true)).toBeUndefined();
-  expect(listedPrice({ VALUED: { price: 0, change24h: 0, percentageChange24h: 0 } }, 'VALUED')).toBe(0);
-  expect(pricesLoaded(prices, ['VALUED'])).toBe(true);
-  expect(pricesLoaded({}, [])).toBe(false);
+  expect(engine.listedPrice(prices, 'VALUED')).toBe(2);
+  expect(engine.listedFiatValue(prices, 'VALUED', 3, true)).toBe(6);
+  expect(engine.listedFiatValue(prices, 'VALUED', 3, false)).toBeUndefined();
+  expect(engine.listedFiatValue(prices, 'VALUED', 0, true)).toBeUndefined();
+  expect(engine.listedFiatValue(prices, 'NOQUOTE', 3, true)).toBeUndefined();
+  expect(engine.listedPrice({ VALUED: { price: 0, change24h: 0, percentageChange24h: 0 } }, 'VALUED')).toBe(0);
+  expect(engine.pricesLoaded(prices, ['VALUED'])).toBe(true);
+  expect(engine.pricesLoaded({}, [])).toBe(false);
+});
+
+it('shares one successful bulk metadata request across assets and concurrent callers', async () => {
+  http.get
+    .mockResolvedValueOnce({
+      data: { symbols: [...market('FIRST').data.symbols, ...market('SECOND').data.symbols] }
+    })
+    .mockResolvedValue({
+      data: [ticker('USDTUSD', '1'), ticker('FIRSTUSDT', '10'), ticker('SECONDUSDT', '20')]
+    });
+  const [first, second] = await Promise.all([engine.fetchTokenPrices(['FIRST']), engine.fetchTokenPrices(['SECOND'])]);
+  expect(first.FIRST?.price).toBe(10);
+  expect(second.SECOND?.price).toBe(20);
+  expect(http.get.mock.calls.filter(call => call[0].includes('/exchangeInfo'))).toHaveLength(1);
+  expect(http.get).toHaveBeenCalledWith(expect.stringContaining('/exchangeInfo'), {
+    params: { showPermissionSets: false },
+    timeout: 10_000
+  });
+});
+
+it.each([{}, { symbols: [] }, { symbols: [{ symbol: 'BROKENUSDT' }] }])(
+  'does not cache malformed metadata as an absent market',
+  async metadata => {
+    http.get.mockResolvedValueOnce({ data: metadata }).mockResolvedValueOnce({ data: [] });
+    await engine.fetchTokenPrices(['BROKEN']);
+    expect(engine.isListedSymbol('BROKEN')).toBe(true);
+    expect(engine.pricesLoaded({}, ['BROKEN'])).toBe(false);
+    http.get.mockResolvedValueOnce(market('BROKEN')).mockResolvedValueOnce({
+      data: [ticker('USDTUSD', '1'), ticker('BROKENUSDT', '10')]
+    });
+    expect((await engine.fetchTokenPrices(['BROKEN'])).BROKEN?.price).toBe(10);
+    expect(http.get.mock.calls.filter(call => call[0].includes('/exchangeInfo'))).toHaveLength(2);
+  }
+);
+
+it('allows unrelated non-ASCII asset listings in bulk metadata', async () => {
+  http.get
+    .mockResolvedValueOnce({
+      data: {
+        symbols: [
+          { symbol: '币安人生USDT', baseAsset: '币安人生', quoteAsset: 'USDT', status: 'TRADING' },
+          ...market('SOL').data.symbols
+        ]
+      }
+    })
+    .mockResolvedValueOnce({ data: [ticker('USDTUSD', '1'), ticker('SOLUSDT', '150')] });
+  expect((await engine.fetchTokenPrices(['SOL'])).SOL?.price).toBe(150);
 });
