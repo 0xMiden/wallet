@@ -12,8 +12,8 @@ import { BRIDGE_FEATURES, type BridgeFeature, featureAvailability, type Unavaila
 import { deriveBridgeConfig, type DerivedBridgeConfig, type DerivedChainConfig, type Probe } from './derive';
 import { bridgeConfigDerivedKey, failedDerivation, parseStoredDerived } from './derived-snapshot';
 import { getE2eOverrides } from './e2e-overrides';
-import { type GeoLookup, hasGeoBlocks } from './geo';
-import { lookupCallerPlace } from './geo-lookup';
+import { GEO_FEATURES, geoFeatureEnabled, type GeoLookup } from './geo';
+import { lookupFeatureEligibility } from './geo-lookup';
 import type { BridgeConfig } from './schema';
 import {
   bridgeConfigCacheKey,
@@ -65,10 +65,11 @@ interface NetworkState {
   logged: Partial<Record<BridgeFeature, string>>;
   subscriptions: StorageChangeSubscription[];
   snapshot: BridgeConfigSnapshot;
-  /** Where the connection comes from. Idle until a document names a place rule. */
+  /** In-memory feature decisions, scoped to one accepted policy. */
   geo: GeoLookup | { state: 'idle' };
-  /** Bumped when the rules go away, so a lookup already in flight cannot publish over that. */
+  /** Bumped for every request so an obsolete completion cannot replace the current policy. */
   geoGeneration: number;
+  geoPolicy: string | null;
 }
 
 // One entry per network, so a switch never hands one network's document to another. Every wipe but Developer Settings'
@@ -100,7 +101,8 @@ function stateFor(network: string): NetworkState {
     subscriptions: [],
     snapshot: { network, status: 'loading', config: null, derived: null, lastFetch: null },
     geo: { state: 'idle' },
-    geoGeneration: 0
+    geoGeneration: 0,
+    geoPolicy: null
   };
   states.set(network, state);
   return state;
@@ -119,30 +121,37 @@ function logUnavailable(state: NetworkState): void {
   }
 }
 
-// One lookup per realm while the document blocks somewhere. A later document with no rules drops the
-// result. The address is not stored; the snapshot keeps only the country and, when the lookup had
-// one, the region.
-function syncGeo(state: NetworkState): void {
-  if (!hasGeoBlocks(state.stored?.config)) {
-    state.geoGeneration += 1;
-    state.geo = { state: 'idle' };
-    return;
+function eligibilityPolicy(config: BridgeConfig | undefined): string | null {
+  if (!config || !GEO_FEATURES.some(feature => geoFeatureEnabled(feature, config) && config.geo?.[feature]?.length)) {
+    return null;
   }
-  if (state.geo.state === 'loading' || state.geo.state === 'ready' || state.geo.state === 'failed') return;
+  return JSON.stringify([config.network, config.version, config.geo, config.features.earn, config.swap?.etaUrl]);
+}
+
+// Repeated publications share one decision. Only an existing refresh retries a failed lookup.
+function syncGeo(state: NetworkState, retryFailed: boolean): void {
+  const config = state.stored?.config;
+  const policy = eligibilityPolicy(config);
+  if (policy !== state.geoPolicy) {
+    state.geoGeneration += 1;
+    state.geoPolicy = policy;
+    state.geo = { state: 'idle' };
+  }
+  if (policy === null || !config) return;
+  if (state.geo.state === 'loading' || state.geo.state === 'ready') return;
+  if (state.geo.state === 'failed' && !retryFailed) return;
   state.geo = { state: 'loading' };
-  const generation = state.geoGeneration;
-  void lookupCallerPlace().then(place => {
+  const generation = ++state.geoGeneration;
+  void lookupFeatureEligibility(state.network, config.version).then(eligibility => {
     const current = states.get(state.network);
-    if (!current || current.geoGeneration !== generation) return;
-    current.geo = place
-      ? { state: 'ready', country: place.country, ...(place.region === undefined ? {} : { region: place.region }) }
-      : { state: 'failed' };
+    if (current !== state || current.geoGeneration !== generation) return;
+    current.geo = eligibility ? { state: 'ready', ...eligibility } : { state: 'failed' };
     publish(current);
   });
 }
 
-function publish(state: NetworkState): void {
-  syncGeo(state);
+function publish(state: NetworkState, retryEligibility = false): void {
+  syncGeo(state, retryEligibility);
   state.snapshot = {
     network: state.network,
     status: state.derived !== null || state.attempted ? 'ready' : 'loading',
@@ -352,7 +361,7 @@ async function refresh(state: NetworkState): Promise<void> {
   state.lastFetch = lastFetch;
   state.attempted = true;
   state.checkedAt = Date.now();
-  publish(state);
+  publish(state, true);
   if (!superseded && result?.store) {
     void putToStorage(bridgeConfigDerivedKey(state.network), derived).catch(error =>
       console.warn(`[remote-config] could not store the derived snapshot for ${state.network}:`, error)
@@ -379,7 +388,8 @@ function unavailableReasons(snapshot: BridgeConfigSnapshot): UnavailableReason[]
   });
   // Swap is not a switched feature, but a failed read of the solver's pairs clears the same way: the solver comes back.
   const swapDown: UnavailableReason[] = snapshot.derived?.swap?.pairs.state === 'error' ? ['service-down'] : [];
-  return [...reasons, ...swapDown];
+  const eligibilityDown: UnavailableReason[] = snapshot.geo?.state === 'failed' ? ['service-down'] : [];
+  return [...reasons, ...swapDown, ...eligibilityDown];
 }
 
 function pollInterval(state: NetworkState): number {
@@ -462,7 +472,13 @@ async function hydrateCurrent(): Promise<NetworkState> {
 export async function initBridgeConfig(): Promise<BridgeConfigSnapshot> {
   const state = await hydrateCurrent();
   // Every realm refreshes an hour-old copy on use; the service worker, which has no scheduler, depends on it.
-  if (isDue(state, state.failures > 0 ? backoffDelay(state.failures) : HEALTHY_POLL_MS)) void startRefresh(state);
+  const threshold =
+    state.geo.state === 'failed'
+      ? pollInterval(state)
+      : state.failures > 0
+        ? backoffDelay(state.failures)
+        : HEALTHY_POLL_MS;
+  if (isDue(state, threshold)) void startRefresh(state);
   ensureScheduler();
   return state.snapshot;
 }

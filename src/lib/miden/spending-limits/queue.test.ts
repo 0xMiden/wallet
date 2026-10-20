@@ -1,6 +1,9 @@
 import { DBCore, DBCoreIndex, Middleware } from 'dexie';
 
-import { ITransaction, SendTransaction, Transaction } from '../db/types';
+import { TEST_BRIDGE_CONFIG_SNAPSHOT } from 'lib/epoch/testing/bridge-config';
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
+
+import { ITransaction, ITransactionStatus, SendTransaction, Transaction } from '../db/types';
 import { db, spendingLimits, transactions } from '../repo';
 import { NoteTypeEnum } from '../types';
 import {
@@ -20,6 +23,9 @@ import {
 import { resolveSpendsUsd } from './valuation';
 
 jest.mock('./valuation', () => ({ resolveSpendsUsd: jest.fn() }));
+
+let mockEligibilitySnapshot: BridgeConfigSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+jest.mock('lib/remote-config/runtime', () => ({ getBridgeConfigSnapshot: () => mockEligibilitySnapshot }));
 
 const mockedResolve = jest.mocked(resolveSpendsUsd);
 
@@ -158,6 +164,7 @@ const unpricedAuthorization = (
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockEligibilitySnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
 });
 
 describe('queueOutgoingTransaction', () => {
@@ -616,5 +623,72 @@ describe('hasSpendingLimits', () => {
     } finally {
       read.mockRestore();
     }
+  });
+});
+
+describe('fresh Earn deposit eligibility at row insertion', () => {
+  const earnRow = (): ITransaction => ({ ...sendRow(), type: 'earn-deposit' });
+  const denyEarn = () => {
+    const accepted = TEST_BRIDGE_CONFIG_SNAPSHOT.config;
+    if (!accepted) throw new Error('Missing test configuration');
+    mockEligibilitySnapshot = {
+      ...TEST_BRIDGE_CONFIG_SNAPSHOT,
+      config: { ...accepted, geo: { earn: [{ country: 'GB' }] } },
+      geo: { state: 'ready', network: 'testnet', version: accepted.version, allowed: { earn: false, swap: true } }
+    };
+  };
+
+  it('refuses an uncapped Earn row after eligibility changes during the policy read', async () => {
+    const originalGet = spendingLimits.get.bind(spendingLimits);
+    const read = jest.spyOn(spendingLimits, 'get').mockImplementationOnce(key =>
+      originalGet(key).then(policy => {
+        denyEarn();
+        return policy;
+      })
+    );
+    try {
+      await expect(queueOutgoingTransaction(earnRow(), DEFAULT_AUTHORIZED_SPENDS, undefined, NOW)).rejects.toThrow();
+      await expect(transactions.get('tx-1')).resolves.toBeUndefined();
+    } finally {
+      read.mockRestore();
+    }
+  });
+
+  it.each(['under limit', 'authorized breach', 'authorized unpriced', 'removed limit'])(
+    'refuses an Earn row when eligibility changes during %s valuation',
+    async path => {
+      await saveConfig();
+      mockedResolve.mockImplementationOnce(async () => {
+        denyEarn();
+        if (path === 'removed limit') await spendingLimits.delete(ACCOUNT);
+        if (path === 'authorized unpriced') throw new SpendingLimitPriceUnavailableError('ETH');
+        return path === 'authorized breach' ? 60_000_000n : 1n;
+      });
+      const authorization =
+        path === 'authorized breach'
+          ? usdAuthorization()
+          : path === 'authorized unpriced'
+            ? unpricedAuthorization(ACCOUNT, DEFAULT_AUTHORIZED_SPENDS, 'revision-1')
+            : undefined;
+      await expect(
+        queueOutgoingTransaction(earnRow(), DEFAULT_AUTHORIZED_SPENDS, authorization, NOW)
+      ).rejects.toThrow();
+      await expect(transactions.get('tx-1')).resolves.toBeUndefined();
+    }
+  );
+
+  it('admits a new Earn row when the current policy explicitly allows it', async () => {
+    await queueOutgoingTransaction(earnRow(), DEFAULT_AUTHORIZED_SPENDS, undefined, NOW);
+    await expect(transactions.get('tx-1')).resolves.toMatchObject({ type: 'earn-deposit' });
+  });
+
+  it('leaves withdrawal tracking and an existing Earn recovery row available after eligibility changes', async () => {
+    const existing = { ...earnRow(), id: 'existing' };
+    await transactions.add(existing);
+    denyEarn();
+    await transactions.update('existing', { status: ITransactionStatus.Completed });
+    await queueOutgoingTransaction({ ...sendRow(), type: 'earn-withdraw' }, DEFAULT_AUTHORIZED_SPENDS, undefined, NOW);
+    await expect(transactions.get('existing')).resolves.toMatchObject({ status: ITransactionStatus.Completed });
+    await expect(transactions.get('tx-1')).resolves.toMatchObject({ type: 'earn-withdraw' });
   });
 });

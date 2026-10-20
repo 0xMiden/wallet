@@ -1,3 +1,6 @@
+import { assertEarnDepositAvailable } from 'lib/remote-config/availability';
+import { getBridgeConfigSnapshot } from 'lib/remote-config/runtime';
+
 import { assessSpendingLimit, MAX_WINDOW_SECONDS } from './policy';
 import {
   SpendingLimitAssessment,
@@ -134,6 +137,12 @@ const authorizationMatches = async (
   return uses === 0;
 };
 
+// Policy and price reads can outlive a review's permission; check at the actual new-row boundary.
+function addOutgoingTransaction(transaction: ITransaction): Promise<string> {
+  if (transaction.type === 'earn-deposit') assertEarnDepositAvailable(getBridgeConfigSnapshot());
+  return Repo.transactions.add(transaction);
+}
+
 /**
  * Rechecks policy, values the spend, assesses, and inserts under one Dexie write lock.
  * Splitting any of those steps lets concurrent callers overspend the same remaining allowance or
@@ -155,7 +164,7 @@ export const queueOutgoingTransaction = async (
   if ((await readPolicy(transaction.accountId)) === undefined) {
     const inserted = await Repo.db.transaction('rw', Repo.spendingLimits, Repo.transactions, async () => {
       if ((await readPolicy(transaction.accountId)) !== undefined) return false;
-      await Repo.transactions.add(transaction);
+      await addOutgoingTransaction(transaction);
       return true;
     });
     if (inserted) return;
@@ -177,7 +186,7 @@ export const queueOutgoingTransaction = async (
   await Repo.db.transaction('rw', Repo.spendingLimits, Repo.transactions, async () => {
     const persisted = await readPolicy(transaction.accountId);
     if (persisted === undefined) {
-      await Repo.transactions.add(transaction);
+      await addOutgoingTransaction(transaction);
       return;
     }
     const config = parsePersistedSpendingLimit(persisted);
@@ -193,7 +202,7 @@ export const queueOutgoingTransaction = async (
       if (!matches) throw priceFailure;
       // No `spentUsd` here: the wallet does not know what this row was worth, and inventing a
       // figure to stamp would be worse than leaving it uncounted by every future assessment.
-      await Repo.transactions.add({ ...transaction, spendingLimitAuthorizationId: authorization!.id });
+      await addOutgoingTransaction({ ...transaction, spendingLimitAuthorizationId: authorization!.id });
       return;
     }
 
@@ -204,7 +213,7 @@ export const queueOutgoingTransaction = async (
     });
     const stamped = { ...transaction, spentUsd: spentUsd! };
     if (assessment.breach === undefined) {
-      await Repo.transactions.add(stamped);
+      await addOutgoingTransaction(stamped);
       return;
     }
     const matches = await authorizationMatches(
@@ -214,7 +223,7 @@ export const queueOutgoingTransaction = async (
       now
     );
     if (!matches) throw new SpendingLimitAuthorizationRequiredError(assessment);
-    await Repo.transactions.add({ ...stamped, spendingLimitAuthorizationId: authorization!.id });
+    await addOutgoingTransaction({ ...stamped, spendingLimitAuthorizationId: authorization!.id });
   });
 };
 

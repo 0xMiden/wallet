@@ -437,7 +437,6 @@ export default defineConfig({
     'process.env.WALLET_BUILD_REVISION': JSON.stringify(walletBuildIdentity.revision),
     'process.env.WALLET_BUILD_DIRTY': JSON.stringify(walletBuildIdentity.dirty),
     'process.env.SENTRY_DSN': JSON.stringify(process.env.SENTRY_DSN ?? ''),
-    'process.env.MAXMIND_ACCOUNT_ID': JSON.stringify(process.env.MAXMIND_ACCOUNT_ID ?? ''),
-    'process.env.MAXMIND_LICENSE_KEY': JSON.stringify(process.env.MAXMIND_LICENSE_KEY ?? ''),
+    'process.env.FEATURE_ELIGIBILITY_URL': JSON.stringify(process.env.FEATURE_ELIGIBILITY_URL ?? '')
   }
 });

@@ -16,14 +16,23 @@ export interface GeoPlace {
 
 export type GeoBlocks = Partial<Record<GeoFeature, GeoPlace[]>>;
 
-/**
- * Where this realm's connection comes from. Absent on a snapshot means the lookup has not started.
- * A failed lookup is kept so a feature with a rule stays off rather than flashing open.
- */
-export type GeoLookup =
-  | { state: 'loading' }
-  | { state: 'failed' }
-  | { state: 'ready'; country: string; region?: string };
+/** The service exposes policy decisions, never the connection's country, region or address. */
+export interface FeatureEligibility {
+  network: string;
+  version: number;
+  allowed: Record<GeoFeature, boolean>;
+}
+
+/** A failed decision keeps configured features closed until an existing refresh retries it. */
+export type GeoLookup = { state: 'loading' } | { state: 'failed' } | ({ state: 'ready' } & FeatureEligibility);
+
+/** Structural feature availability; live route and market probes remain separate. */
+export function geoFeatureEnabled(
+  feature: GeoFeature,
+  config: { features: { earn: boolean }; swap?: { etaUrl?: string } }
+): boolean {
+  return feature === 'earn' ? config.features.earn : Boolean(config.swap?.etaUrl);
+}
 
 const PHRASE_ALIASES: Readonly<Record<string, GeoPlace>> = {
   'ny state': { country: 'US', region: 'NY' },
@@ -46,11 +55,10 @@ export function parseGeoPhrase(phrase: string): GeoPlace | undefined {
   const text = phrase.trim().replace(/\s+/g, ' ').toLowerCase();
   if (!text.startsWith('block ')) return undefined;
   const place = text.slice('block '.length);
-  const alias = PHRASE_ALIASES[place];
-  if (alias) return alias;
+  if (Object.prototype.hasOwnProperty.call(PHRASE_ALIASES, place)) return PHRASE_ALIASES[place];
   if (/^[a-z]{2}$/.test(place)) return { country: place.toUpperCase() };
   const subdivision = /^([a-z]{2})-([a-z0-9]{1,3})$/.exec(place);
-  if (!subdivision) return undefined;
+  if (!subdivision?.[1] || !subdivision[2]) return undefined;
   return { country: subdivision[1].toUpperCase(), region: subdivision[2].toUpperCase() };
 }
 

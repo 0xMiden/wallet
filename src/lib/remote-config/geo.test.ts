@@ -18,7 +18,16 @@ describe('parseGeoPhrase', () => {
     expect(parseGeoPhrase(phrase)).toEqual(place);
   });
 
-  it.each(['NY state', 'block', 'block Narnia', 'block USA', 'block US-'])('does not read %s', phrase => {
+  it.each([
+    'NY state',
+    'block',
+    'block Narnia',
+    'block USA',
+    'block US-',
+    'block constructor',
+    'block __proto__',
+    'block toString'
+  ])('does not read %s', phrase => {
     expect(parseGeoPhrase(phrase)).toBeUndefined();
   });
 });
@@ -36,6 +45,10 @@ describe('readGeoBlocks', () => {
       swap: [{ country: 'DE' }]
     });
     expect(hasGeoBlocks({ geo: readGeoBlocks(rules, invalid) })).toBe(true);
+  });
+
+  it('ignores inherited object property names instead of treating them as places', () => {
+    expect(readGeoBlocks({ earn: { 'block constructor': 'yes', 'block __proto__': 'yes' } }, invalid)).toBeUndefined();
   });
 
   it('is absent when every answer is no or the section is missing', () => {

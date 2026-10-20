@@ -171,11 +171,11 @@ Crash reports are sent either way; usage data only if the setting is on:
 |---|---|---|
 | Usage data | Aptabase | European Union (Germany) |
 | Crash reports | Sentry | European Union |
-| Connection country and region | MaxMind | The lookup only |
+| Feature eligibility check | Cloudflare and MaxMind | Connection address for the lookup; short-lived service records as described below |
 
 Usage data goes straight from the App to Aptabase's European endpoint, one message per request, with no server of ours in between and nothing batched up in the meantime. We use neither company's own tracking library: the App builds each message itself, out of the fixed list of fields above, and sends it directly.
 
-Aptabase and Sentry are configured to delete data after 90 days, to store no IP addresses, and to forward nothing onward. Neither is permitted to use the data for its own purposes, and no third party receives it for advertising or resale. The place check sends the connection's IP address to MaxMind and keeps neither the address nor the answer.
+Aptabase and Sentry are configured to delete data after 90 days, to store no IP addresses, and to forward nothing onward. Neither is permitted to use the data for its own purposes, and no third party receives it for advertising or resale. The feature eligibility service runs on Cloudflare and uses MaxMind to check the connection's IP address. The App receives only whether Earn and Swap are allowed, plus the network and policy version. The service stores no raw IP address or geographic answer; it stores daily rotating keyed hashes of connection addresses, request counters and feature decisions. Feature decisions expire after five minutes, and expired caller records are removed in batches.
 
 ## How the App uses your device
 
@@ -236,7 +236,7 @@ A swap is filled by a third-party solver, and a bridge transfer is processed by 
 
 ### Geographic restrictions
 
-The App asks for no location permission and reads no location sensor. The App and the Miden network are, however, not available from comprehensively sanctioned jurisdictions, and some features are not offered in every place. To apply that, the App asks MaxMind where the connection comes from: the country, and the region when a rule needs it. The IP address is sent for that check and is not stored by the App. The same address is also used for the ordinary operation of the connection, and the network's sequencer endpoint checks the country of a request.
+The App asks for no location permission and reads no location sensor. The App and the Miden network are, however, not available from comprehensively sanctioned jurisdictions, and some features are not offered in every place. To apply feature restrictions, the App asks a service running on Cloudflare whether Earn and Swap are allowed for its connection. Where an enabled restriction needs a place check, the service sends the connection's IP address to MaxMind and reads the country and region. The App receives no location and stores no IP address. The service retains only the short-lived records described above. The same address is also used for the ordinary operation of the connection, and the network's sequencer endpoint checks the country of a request.
 
 <!-- TODO: confirm whether IP addresses are logged for geoblocking or compliance purposes and for how long; if they are, say so here and in the retention section. -->
 

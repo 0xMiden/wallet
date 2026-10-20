@@ -1,0 +1,363 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+
+import { createService } from './worker.mjs';
+
+class MemoryStorage {
+  values = new Map();
+  queue = Promise.resolve();
+
+  async get(key) {
+    return structuredClone(this.values.get(key));
+  }
+
+  async put(key, value) {
+    this.values.set(key, structuredClone(value));
+  }
+
+  async delete(keys) {
+    for (const key of Array.isArray(keys) ? keys : [keys]) this.values.delete(key);
+  }
+
+  async list({ prefix = '', startAfter = '', limit = 128 } = {}) {
+    return new Map(
+      [...this.values]
+        .filter(([key]) => key.startsWith(prefix) && key > startAfter)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .slice(0, limit)
+    );
+  }
+
+  async setAlarm(value) {
+    this.alarm = value;
+  }
+
+  async getAlarm() {
+    return this.alarm ?? null;
+  }
+
+  transaction(callback) {
+    const result = this.queue.then(() => callback(this));
+    this.queue = result.catch(() => {});
+    return result;
+  }
+}
+
+const policy = (overrides = {}) => ({
+  network: 'testnet',
+  version: 13,
+  features: { earn: true },
+  swap: { etaUrl: 'https://solver.example' },
+  geo: { earn: { 'block NY state': 'yes', 'block UK': 'yes' } },
+  ...overrides
+});
+
+function harness(options = {}) {
+  const storage = new MemoryStorage();
+  const calls = [];
+  let clock = Date.UTC(2026, 9, 20, 12);
+  let currentPolicy = options.policy ?? policy();
+  const env = {
+    ALLOWED_ORIGINS: '["https://wallet.example","null"]',
+    MAXMIND_ACCOUNT_ID: 'example-account',
+    MAXMIND_LICENSE_KEY: 'example-license',
+    CALLER_HASH_SECRET: 'example-private-hash-secret-at-least-32-characters',
+    MAXMIND_DAILY_QUERY_LIMIT: '100',
+    CALLER_REQUESTS_PER_MINUTE: '60',
+    ...options.env
+  };
+  const fetchImpl = async (url, init) => {
+    calls.push({ url: String(url), init });
+    if (String(url).startsWith('https://raw.githubusercontent.com/0xMiden/wallet-config/main/')) {
+      return options.policyResponse ? options.policyResponse(init) : Response.json(currentPolicy);
+    }
+    if (options.lookupResponse) return options.lookupResponse(init);
+    return Response.json(options.place ?? { country: { iso_code: 'US' }, subdivisions: [{ iso_code: 'CA' }] });
+  };
+  const service = createService({ fetchImpl, now: () => clock, timeoutMs: options.timeoutMs ?? 30 });
+  let guard = new service.EligibilityGuard({ storage }, env);
+  env.ELIGIBILITY_GUARD = {
+    idFromName: name => name,
+    get: () => ({ fetch: request => guard.fetch(request) })
+  };
+  const request = async ({
+    path = '/v1/eligibility',
+    query = 'network=testnet',
+    method = 'GET',
+    headers = {},
+    cf = { colo: 'ZRH' }
+  } = {}) => {
+    const incoming = new Request(`https://eligibility.example${path}?${query}`, {
+      method,
+      headers: { 'CF-Connecting-IP': '203.0.113.7', Origin: 'https://wallet.example', ...headers }
+    });
+    Object.defineProperty(incoming, 'cf', { value: cf });
+    return service.fetch(incoming, env);
+  };
+  return {
+    request,
+    calls,
+    storage,
+    guard,
+    restart: () => (guard = new service.EligibilityGuard({ storage }, env)),
+    advance: ms => (clock += ms),
+    setPolicy: value => (currentPolicy = value),
+    paidCalls: () => calls.filter(call => call.url.startsWith('https://geoip.maxmind.com/'))
+  };
+}
+
+test('returns only decisions and accepted policy version, using the edge caller rather than forwarded IP input', async () => {
+  const h = harness();
+  const response = await h.request({ headers: { 'X-Forwarded-For': '198.51.100.8', 'X-Real-IP': '198.51.100.9' } });
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { network: 'testnet', version: 13, allowed: { earn: true, swap: true } });
+  assert.equal(h.paidCalls()[0].url, 'https://geoip.maxmind.com/geoip/v2.1/city/203.0.113.7');
+  assert.equal(h.paidCalls()[0].init.headers.Authorization, `Basic ${btoa('example-account:example-license')}`);
+  assert.equal(h.paidCalls()[0].init.redirect, 'manual');
+  assert.equal(response.headers.get('Cache-Control'), 'private, no-store');
+  assert.equal(response.headers.get('Access-Control-Allow-Origin'), 'https://wallet.example');
+  assert.equal(response.headers.get('Vary'), 'Origin');
+  assert.ok(!JSON.stringify([...h.storage.values]).includes('203.0.113.7'));
+  assert.ok(!JSON.stringify([...h.storage.values]).includes('country'));
+});
+
+for (const [name, place, allowed] of [
+  ['New York', { country: { iso_code: 'US' }, subdivisions: [{ iso_code: 'NY' }] }, { earn: false, swap: true }],
+  ['United Kingdom', { country: { iso_code: 'GB' } }, { earn: false, swap: true }],
+  ['US without state', { country: { iso_code: 'US' } }, { earn: false, swap: true }],
+  ['Germany', { country: { iso_code: 'DE' } }, { earn: true, swap: true }]
+]) {
+  test(`applies Earn rules for ${name} without gating unrelated Swap operations`, async () => {
+    const response = await harness({ place }).request();
+    assert.deepEqual((await response.json()).allowed, allowed);
+  });
+}
+
+test('evaluates independent Swap and ISO subdivision rules with one paid query', async () => {
+  const h = harness({ policy: policy({ geo: { earn: { 'block US-NY': 'yes' }, swap: { 'block US-CA': 'yes' } } }) });
+  assert.deepEqual((await (await h.request()).json()).allowed, { earn: true, swap: false });
+  assert.equal(h.paidCalls().length, 1);
+});
+
+for (const [name, document] of [
+  ['absent policy', policy({ geo: undefined })],
+  ['disabled-only rules', policy({ geo: { earn: { 'block NY state': 'no', 'block UK': 'no' } } })],
+  ['globally disabled Earn', policy({ features: { earn: false } })]
+]) {
+  test(`${name} needs no MaxMind credential or paid lookup`, async () => {
+    const h = harness({ policy: document, env: { MAXMIND_ACCOUNT_ID: '', MAXMIND_LICENSE_KEY: '' } });
+    const response = await h.request();
+    assert.equal(response.status, 200);
+    assert.deepEqual((await response.json()).allowed, { earn: document.features.earn, swap: true });
+    assert.equal(h.paidCalls().length, 0);
+  });
+}
+
+for (const [name, request] of [
+  ['arbitrary IP query', { query: 'network=testnet&ip=198.51.100.4' }],
+  ['unsupported network', { query: 'network=localhost' }],
+  ['prototype network name', { query: 'network=constructor' }],
+  ['prototype pollution network name', { query: 'network=__proto__' }],
+  ['duplicate network', { query: 'network=testnet&network=mainnet' }],
+  ['missing edge metadata', { cf: null }],
+  ['Worker subrequest', { headers: { 'CF-Worker': 'another.example' } }],
+  ['missing caller address', { headers: { 'CF-Connecting-IP': '' } }],
+  ['address path injection', { headers: { 'CF-Connecting-IP': '203.0.113.7/another' } }],
+  ['malformed IPv4', { headers: { 'CF-Connecting-IP': '999.0.0.1' } }],
+  ['noncanonical IPv4', { headers: { 'CF-Connecting-IP': '001.0.0.1' } }],
+  ['malformed IPv6', { headers: { 'CF-Connecting-IP': '2001:::7' } }],
+  ['unknown route', { path: '/v1/lookup' }],
+  ['unapproved browser origin', { headers: { Origin: 'https://other.example' } }],
+  ['non-GET method', { method: 'POST' }]
+]) {
+  test(`rejects ${name} before contacting upstream services`, async () => {
+    const h = harness();
+    const response = await h.request(request);
+    assert.ok(response.status >= 400);
+    assert.equal(h.calls.length, 0);
+  });
+}
+
+test('accepts a trusted IPv6 edge address and null native origin', async () => {
+  const h = harness();
+  assert.equal((await h.request({ headers: { 'CF-Connecting-IP': '2001:db8::7', Origin: 'null' } })).status, 200);
+  assert.equal(h.paidCalls()[0].url, 'https://geoip.maxmind.com/geoip/v2.1/city/2001%3Adb8%3A%3A7');
+});
+
+test('handles CORS preflight without performing any lookup', async () => {
+  const h = harness();
+  const response = await h.request({ method: 'OPTIONS', headers: { 'Access-Control-Request-Method': 'GET' } });
+  assert.equal(response.status, 204);
+  assert.equal(response.headers.get('Access-Control-Allow-Methods'), 'GET');
+  assert.equal(response.headers.get('Access-Control-Allow-Credentials'), null);
+  assert.equal(h.calls.length, 0);
+});
+
+test('unknown prototype-like feature names cannot create eligibility rules', async () => {
+  const h = harness({
+    policy: policy({ geo: JSON.parse('{"__proto__":{"block UK":"yes"},"constructor":{"block US":"yes"}}') })
+  });
+  const response = await h.request();
+  assert.equal(response.status, 200);
+  assert.deepEqual((await response.json()).allowed, { earn: true, swap: true });
+  assert.equal(h.paidCalls().length, 0);
+});
+
+test('disabled Earn and unconfigured Swap skip all paid lookups even if dormant rules exist', async () => {
+  const h = harness({
+    policy: policy({ features: { earn: false }, swap: {}, geo: { earn: { 'block UK': 'yes' }, swap: { 'block US': 'yes' } } })
+  });
+  const response = await h.request();
+  assert.deepEqual((await response.json()).allowed, { earn: false, swap: false });
+  assert.equal(h.paidCalls().length, 0);
+});
+
+test('health readiness verifies configuration and release revision without paid queries', async () => {
+  const h = harness({ env: { DEPLOYMENT_REVISION: 'a'.repeat(40) } });
+  const response = await h.request({ path: '/healthz', query: '' });
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { ready: true, revision: 'a'.repeat(40) });
+  assert.equal(h.calls.length, 0);
+  assert.equal((await harness({ env: { MAXMIND_DAILY_QUERY_LIMIT: '0' } }).request({ path: '/healthz' })).status, 503);
+});
+
+for (const [name, options] of [
+  ['policy HTTP failure', { policyResponse: () => new Response('private error', { status: 502 }) }],
+  ['wrong network', { policy: policy({ network: 'mainnet' }) }],
+  ['missing version', { policy: policy({ version: undefined }) }],
+  ['invalid rule', { policy: policy({ geo: { earn: { 'block NY state': true } } }) }],
+  ['invalid feature shape', { policy: policy({ features: 'true' }) }],
+  ['invalid feature switch', { policy: policy({ features: { earn: 'true' } }) }],
+  ['invalid Swap URL', { policy: policy({ swap: { etaUrl: 'http://solver.example' } }) }],
+  ['invalid geo shape', { policy: policy({ geo: [] }) }],
+  ['invalid feature rules', { policy: policy({ geo: { earn: [] } }) }],
+  ['unknown enabled phrase', { policy: policy({ geo: { earn: { 'unknown location': 'yes' } } }) }],
+  ['missing MaxMind credential', { env: { MAXMIND_LICENSE_KEY: '' } }],
+  ['missing daily budget', { env: { MAXMIND_DAILY_QUERY_LIMIT: undefined } }],
+  ['invalid daily budget', { env: { MAXMIND_DAILY_QUERY_LIMIT: '-1' } }],
+  ['missing caller hash secret', { env: { CALLER_HASH_SECRET: '' } }],
+  ['lookup HTTP failure', { lookupResponse: () => new Response('private error', { status: 401 }) }],
+  ['lookup redirect', { lookupResponse: () => new Response(null, { status: 302, headers: { Location: 'https://other.example' } }) }],
+  ['malformed lookup body', { place: { country: { iso_code: 'not-a-country' }, private: 'private detail' } }],
+  ['oversized lookup body', { lookupResponse: () => new Response('x'.repeat(70_000)) }]
+]) {
+  test(`fails closed with no private detail on ${name}`, async () => {
+    const h = harness(options);
+    const response = await h.request();
+    assert.equal(response.status, 503);
+    assert.deepEqual(await response.json(), { error: 'eligibility_unavailable' });
+    assert.equal(response.headers.get('Access-Control-Allow-Origin'), 'https://wallet.example');
+    assert.ok(h.paidCalls().length <= 1);
+  });
+}
+
+test('applies the deadline while reading a stalled upstream body', async () => {
+  const h = harness({
+    timeoutMs: 5,
+    lookupResponse: () => new Response(new ReadableStream({ start() {} }))
+  });
+  assert.equal((await h.request()).status, 503);
+  assert.equal(h.paidCalls().length, 1);
+});
+
+test('applies the deadline before upstream response headers arrive', async () => {
+  const h = harness({ timeoutMs: 5, policyResponse: () => new Promise(() => {}) });
+  assert.equal((await h.request()).status, 503);
+  assert.equal(h.paidCalls().length, 0);
+});
+
+test('a policy fetch failure after expiry cannot fall back to an old cached allow decision', async () => {
+  let unavailable = false;
+  const h = harness({ policyResponse: () => unavailable ? new Response('', { status: 502 }) : Response.json(policy()) });
+  assert.equal((await h.request()).status, 200);
+  h.advance(60_001);
+  unavailable = true;
+  assert.equal((await h.request()).status, 503);
+  assert.equal(h.paidCalls().length, 1);
+});
+
+test('failed paid lookups still consume budget and are never automatically retried', async () => {
+  const h = harness({
+    env: { MAXMIND_DAILY_QUERY_LIMIT: '1' },
+    lookupResponse: () => new Response('', { status: 502 })
+  });
+  assert.equal((await h.request()).status, 503);
+  assert.equal((await h.request({ headers: { 'CF-Connecting-IP': '203.0.113.8' } })).status, 503);
+  assert.equal(h.paidCalls().length, 1);
+});
+
+test('deduplicates concurrent lookups and caches only decisions until expiry', async () => {
+  const h = harness();
+  const responses = await Promise.all([h.request(), h.request(), h.request()]);
+  assert.ok(responses.every(response => response.status === 200));
+  assert.equal(h.paidCalls().length, 1);
+  h.advance(300_001);
+  assert.equal((await h.request()).status, 200);
+  assert.equal(h.paidCalls().length, 2);
+});
+
+test('a new authoritative policy version invalidates a cached decision', async () => {
+  const h = harness();
+  await h.request();
+  h.advance(60_001);
+  h.setPolicy(policy({ version: 14, geo: { earn: { 'block US': 'yes' } } }));
+  const response = await h.request();
+  assert.deepEqual(await response.json(), { network: 'testnet', version: 14, allowed: { earn: false, swap: true } });
+  assert.equal(h.paidCalls().length, 2);
+});
+
+test('enforces the shared persisted paid-query budget across callers and object restarts', async () => {
+  const h = harness({ env: { MAXMIND_DAILY_QUERY_LIMIT: '1' } });
+  const responses = await Promise.all([
+    h.request(),
+    h.request({ headers: { 'CF-Connecting-IP': '203.0.113.8' } }),
+    h.request({ headers: { 'CF-Connecting-IP': '203.0.113.9' } })
+  ]);
+  assert.equal(responses.filter(response => response.status === 200).length, 1);
+  assert.equal(h.paidCalls().length, 1);
+  h.restart();
+  assert.equal((await h.request({ headers: { 'CF-Connecting-IP': '203.0.113.10' } })).status, 503);
+  assert.equal(h.paidCalls().length, 1);
+  h.advance(24 * 60 * 60 * 1000);
+  assert.equal((await h.request()).status, 200);
+  assert.equal(h.paidCalls().length, 2);
+});
+
+test('zero query budget never contacts MaxMind', async () => {
+  const h = harness({ env: { MAXMIND_DAILY_QUERY_LIMIT: '0' } });
+  assert.equal((await h.request()).status, 503);
+  assert.equal(h.paidCalls().length, 0);
+});
+
+test('enforces a persisted per-caller request limit even when decisions are cached', async () => {
+  const h = harness({ env: { CALLER_REQUESTS_PER_MINUTE: '2' } });
+  assert.equal((await h.request()).status, 200);
+  assert.equal((await h.request()).status, 200);
+  const response = await h.request();
+  assert.equal(response.status, 429);
+  assert.equal(response.headers.get('Retry-After'), '60');
+  assert.equal(h.paidCalls().length, 1);
+  h.restart();
+  assert.equal((await h.request()).status, 429);
+  h.advance(60_001);
+  assert.equal((await h.request()).status, 200);
+});
+
+test('cleanup drops expired caller records while preserving the paid-query counter', async () => {
+  const h = harness();
+  await h.request();
+  h.advance(300_001);
+  await h.guard.alarm();
+  assert.equal([...h.storage.values.keys()].filter(key => key.startsWith('caller:')).length, 0);
+  assert.equal(h.storage.values.get('budget').count, 1);
+});
+
+test('cleanup traverses multiple bounded pages without deleting active callers', async () => {
+  const h = harness();
+  for (let i = 0; i < 130; i += 1) h.storage.values.set(`caller:${String(i).padStart(3, '0')}`, { expires: 0 });
+  h.storage.values.set('caller:zzz', { expires: Number.MAX_SAFE_INTEGER });
+  await h.guard.alarm();
+  assert.equal(h.storage.values.get('cleanup-cursor'), 'caller:127');
+  await h.guard.alarm();
+  assert.deepEqual([...h.storage.values.keys()], ['caller:zzz']);
+});

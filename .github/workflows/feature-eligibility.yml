@@ -1,0 +1,62 @@
+name: Feature eligibility service
+
+on:
+  pull_request:
+    paths:
+      - 'services/feature-eligibility/**'
+      - '.github/workflows/feature-eligibility.yml'
+      - '.github/workflows/deploy-feature-eligibility.yml'
+      - '.github/workflows/release-wallet.yml'
+      - '.github/workflows/build-chrome.yml'
+      - '.github/workflows/build-mobile.yml'
+      - '.github/workflows/build-desktop.yml'
+  push:
+    branches:
+      - 'ci/feature-eligibility-*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: feature-eligibility-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Feature eligibility service tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node --test services/feature-eligibility/worker.test.mjs services/feature-eligibility/check-deployment.test.mjs
+      - name: Validate Worker bundle and bindings
+        run: npx --yes wrangler@4.151.3 deploy --dry-run --config services/feature-eligibility/wrangler.jsonc
+
+  release-workflow-lint:
+    name: Eligibility release workflow lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download pinned workflow linter
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/eligibility-actionlint"
+          cd "$RUNNER_TEMP/eligibility-actionlint"
+          gh release download v1.7.12 --repo rhysd/actionlint --pattern actionlint_1.7.12_linux_amd64.tar.gz --pattern actionlint_1.7.12_checksums.txt
+          sha256sum --check --ignore-missing actionlint_1.7.12_checksums.txt
+          tar -xzf actionlint_1.7.12_linux_amd64.tar.gz actionlint
+      - name: Lint release dependency ordering
+        run: >-
+          "$RUNNER_TEMP/eligibility-actionlint/actionlint"
+          .github/workflows/deploy-feature-eligibility.yml
+          .github/workflows/release-wallet.yml
+          .github/workflows/build-chrome.yml
+          .github/workflows/build-mobile.yml
+          .github/workflows/build-desktop.yml

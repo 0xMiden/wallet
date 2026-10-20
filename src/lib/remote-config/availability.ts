@@ -1,6 +1,8 @@
+import { getMessage } from 'lib/i18n/core';
+
 import type { Probe } from './derive';
 import { getE2eOverrides, type E2eOverrides } from './e2e-overrides';
-import { type GeoFeature, type GeoLookup, placeBlocked } from './geo';
+import { type GeoFeature, geoFeatureEnabled, type GeoLookup } from './geo';
 import type { BridgeConfig, SupportedEvmChainConfig } from './schema';
 
 export const BRIDGE_FEATURES: readonly BridgeFeature[] = [
@@ -38,24 +40,19 @@ function unavailable(reason: UnavailableReason, detail: string): FeatureAvailabi
   return { state: 'unavailable', reason, detail };
 }
 
-/**
- * A place rule for `feature`, or null when the feature has none or the connection is outside them.
- * No answer yet keeps the feature loading. A failed lookup, or a state rule whose lookup named no
- * state, keeps it off: an unknown place is not a pass.
- */
+/** A configured rule needs an allow decision for this exact network and document version. */
 export function geoFeatureGate(
   feature: GeoFeature,
   config: BridgeConfig | null,
   geo: GeoLookup | undefined
 ): FeatureAvailability | null {
   const blocks = config?.geo?.[feature];
-  if (!blocks || blocks.length === 0) return null;
+  if (!config || !blocks || blocks.length === 0 || !geoFeatureEnabled(feature, config)) return null;
   if (!geo || geo.state === 'loading') return { state: 'loading' };
-  if (geo.state === 'failed') return unavailable('service-down', 'geolocation lookup failed');
-  const verdict = placeBlocked(blocks, geo);
-  if (verdict === 'allow') return null;
-  const detail = verdict === 'unknown' ? 'geolocation omitted the region a rule needs' : 'blocked by a geo rule';
-  return unavailable('restricted', detail);
+  if (geo.state === 'failed' || geo.network !== config.network || geo.version !== config.version) {
+    return unavailable('service-down', 'feature eligibility is unavailable for the accepted policy');
+  }
+  return geo.allowed[feature] ? null : unavailable('restricted', 'blocked by a geo rule');
 }
 
 function enabled(feature: BridgeFeature, chain: SupportedEvmChainConfig): boolean {
@@ -203,4 +200,11 @@ export function featureAvailability(
     if (failed) return failed;
   }
   return unavailable('not-configured', 'no listed route');
+}
+
+/** Refuses new deposits while the accepted policy or its live prerequisites do not permit Earn. */
+export function assertEarnDepositAvailable(snapshot: AvailabilityInput): void {
+  if (featureAvailability('earnDeposit', snapshot).state !== 'available') {
+    throw new Error(getMessage('earnUnavailableOnNetwork'));
+  }
 }

@@ -86,7 +86,7 @@ describe('swapAvailability', () => {
     expect(swapAvailability(testSnapshotWithSwapPairs({ tokens: [], pairs: [] }))).toEqual(notConfigured);
   });
 
-  it('blocks swap in a listed place even when a pair is ready, and waits while the lookup has not answered', () => {
+  it('blocks swap when eligibility denies it even when a pair is ready, and waits for the lookup', () => {
     mockDefaultPair.mockReturnValue({ offer: TEST_TOKEN_IETH, request: TEST_TOKEN_IUSDT });
     const snapshot: BridgeConfigSnapshot = {
       ...TEST_BRIDGE_CONFIG_SNAPSHOT,
@@ -96,11 +96,34 @@ describe('swapAvailability', () => {
       }
     };
     expect(swapAvailability({ ...snapshot, geo: { state: 'loading' } })).toEqual({ state: 'loading' });
-    expect(swapAvailability({ ...snapshot, geo: { state: 'ready', country: 'US', region: 'NY' } })).toMatchObject({
+    expect(
+      swapAvailability({
+        ...snapshot,
+        geo: { state: 'ready', network: 'testnet', version: 1, allowed: { earn: true, swap: false } }
+      })
+    ).toMatchObject({
       reason: 'restricted'
     });
-    expect(swapAvailability({ ...snapshot, geo: { state: 'ready', country: 'US', region: 'CA' } })).toEqual({
+    expect(
+      swapAvailability({
+        ...snapshot,
+        geo: { state: 'ready', network: 'testnet', version: 1, allowed: { earn: true, swap: true } }
+      })
+    ).toEqual({
       state: 'available'
     });
   });
+});
+
+it('does not wait on eligibility rules for Swap when no solver is configured', () => {
+  mockDefaultPair.mockReturnValue(null);
+  const snapshot: BridgeConfigSnapshot = {
+    ...TEST_BRIDGE_CONFIG_SNAPSHOT,
+    config: {
+      ...TEST_BRIDGE_CONFIG_SNAPSHOT.config!,
+      swap: undefined,
+      geo: { swap: [{ country: 'GB' }] }
+    }
+  };
+  expect(swapAvailability(snapshot)).toMatchObject({ state: 'unavailable', reason: 'not-configured' });
 });

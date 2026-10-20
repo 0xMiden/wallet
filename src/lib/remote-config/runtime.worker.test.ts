@@ -7,8 +7,10 @@
 // would not reproduce.
 import type { FeatureAvailability } from './availability';
 import type { DerivedBridgeConfig } from './derive';
+import type { FeatureEligibility } from './geo';
 import {
   _resetBridgeConfigRuntimeForTest,
+  DEGRADED_POLL_MS,
   getBridgeConfigSnapshot,
   HEALTHY_POLL_MS,
   holdFastPoll,
@@ -42,6 +44,11 @@ jest.mock('./source', () => ({
 
 const mockDerive = jest.fn<Promise<DerivedBridgeConfig>, [BridgeConfig]>();
 jest.mock('./derive', () => ({ deriveBridgeConfig: (config: BridgeConfig) => mockDerive(config) }));
+
+const mockLookup = jest.fn<Promise<FeatureEligibility | null>, [string, number]>();
+jest.mock('./geo-lookup', () => ({
+  lookupFeatureEligibility: (network: string, version: number) => mockLookup(network, version)
+}));
 
 let mockDegraded = false;
 const mockDown: FeatureAvailability = { state: 'unavailable', reason: 'service-down', detail: 'allocator' };
@@ -90,6 +97,7 @@ beforeEach(() => {
   jest.useFakeTimers({ now: NOW });
   mockStorage.clear();
   mockDegraded = false;
+  mockLookup.mockReset().mockResolvedValue(null);
   mockFetch.mockReset().mockImplementation(async () => storeEntry(1));
   mockDerive.mockReset().mockImplementation(async source => derivedFor(source, Date.now()));
   warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
@@ -166,4 +174,31 @@ it('after a wipe, keeps the copy and fetches nothing', async () => {
   await flush();
   expect(getBridgeConfigSnapshot()).toBe(before);
   expect(mockFetch).not.toHaveBeenCalled();
+});
+
+it('retries failed eligibility on a later worker use without adding a polling timer', async () => {
+  const document: BridgeConfig = {
+    ...config(13),
+    features: { earn: true },
+    geo: { earn: [{ country: 'GB' }] }
+  };
+  const allowed: FeatureEligibility = { network: 'testnet', version: 13, allowed: { earn: true, swap: false } };
+  mockStorage.set('bridge_config_v1:testnet', { config: document, fetchedAt: NOW });
+  mockStorage.set('bridge_config_derived_v1:testnet', derivedFor(document, NOW));
+  mockFetch.mockResolvedValue({ config: document, fetchedAt: NOW + DEGRADED_POLL_MS });
+  mockLookup.mockResolvedValueOnce(null).mockResolvedValueOnce(allowed);
+  await initBridgeConfig();
+  await flush();
+  expect(getBridgeConfigSnapshot().geo).toEqual({ state: 'failed' });
+  expect(jest.getTimerCount()).toBe(0);
+  await jest.advanceTimersByTimeAsync(DEGRADED_POLL_MS - 1);
+  await initBridgeConfig();
+  await flush();
+  expect(mockLookup).toHaveBeenCalledTimes(1);
+  await jest.advanceTimersByTimeAsync(1);
+  await initBridgeConfig();
+  await flush();
+  expect(getBridgeConfigSnapshot().geo).toEqual({ state: 'ready', ...allowed });
+  expect(mockLookup).toHaveBeenCalledTimes(2);
+  expect(jest.getTimerCount()).toBe(0);
 });

@@ -67,6 +67,16 @@ jest.mock('./derive', () => ({
   }
 }));
 
+interface TestEligibility {
+  network: string;
+  version: number;
+  allowed: { earn: boolean; swap: boolean };
+}
+const mockLookup = jest.fn<Promise<TestEligibility | null>, [string?, number?]>();
+jest.mock('./geo-lookup', () => ({
+  lookupFeatureEligibility: (network?: string, version?: number) => mockLookup(network, version)
+}));
+
 const AVAILABLE: FeatureAvailability = { state: 'available' };
 let mockAvailability: Partial<Record<string, FeatureAvailability>> = {};
 const mockFeatureAvailability = jest.fn(
@@ -193,6 +203,7 @@ beforeEach(() => {
   mockFetch.mockReset().mockRejectedValue(new Error('unexpected fetch'));
   mockDerive.mockReset().mockImplementation(async source => derivedFor(source, Date.now()));
   mockDerivedRpc.mockClear();
+  mockLookup.mockReset().mockResolvedValue(null);
   mockFeatureAvailability.mockClear();
   warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
 });
@@ -1249,5 +1260,158 @@ describe('the Guardian operators', () => {
     await initBridgeConfig();
     expect(ids('devnet')).toEqual(['kodax']);
     expect(ids('testnet')).toEqual(['new-one']);
+  });
+});
+
+describe('feature eligibility policy ownership', () => {
+  const seedGeo = (version: number, network = 'testnet', earn = true) => {
+    const document = {
+      ...config(version, network),
+      features: { earn },
+      geo: { earn: [{ country: 'GB' }] }
+    };
+    mockStorage.set(`bridge_config_v1:${network}`, { config: document, fetchedAt: NOW });
+    mockStorage.set(`bridge_config_derived_v1:${network}`, derivedFor(document, NOW));
+    return document;
+  };
+  const eligibility = (version: number, earn = true, network = 'testnet'): TestEligibility => ({
+    network,
+    version,
+    allowed: { earn, swap: true }
+  });
+
+  it('keeps only feature decisions scoped to the accepted policy in the snapshot', async () => {
+    seedGeo(13);
+    mockLookup.mockResolvedValue(eligibility(13));
+    await initBridgeConfig();
+    await flush();
+    expect(getBridgeConfigSnapshot().geo).toEqual({ state: 'ready', ...eligibility(13) });
+    expect(mockLookup).toHaveBeenCalledWith('testnet', 13);
+  });
+
+  it('keeps independent eligibility decisions when the effective network changes', async () => {
+    seedGeo(13);
+    seedGeo(7, 'devnet');
+    mockLookup.mockResolvedValueOnce(eligibility(13)).mockResolvedValueOnce(eligibility(7, false, 'devnet'));
+    await initBridgeConfig();
+    await flush();
+    mockNetwork = 'devnet';
+    await initBridgeConfig();
+    await flush();
+    expect(getBridgeConfigSnapshot().geo).toEqual({ state: 'ready', ...eligibility(7, false, 'devnet') });
+    expect(mockLookup).toHaveBeenNthCalledWith(2, 'devnet', 7);
+    mockNetwork = 'testnet';
+    await initBridgeConfig();
+    await flush();
+    expect(getBridgeConfigSnapshot().geo).toEqual({ state: 'ready', ...eligibility(13) });
+    expect(mockLookup).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not look up disabled-only rules or a document with no geo gates', async () => {
+    seedGeo(13, 'testnet', false);
+    await initBridgeConfig();
+    await flush();
+    expect(getBridgeConfigSnapshot().geo).toBeUndefined();
+    expect(mockLookup).not.toHaveBeenCalled();
+    mockNetwork = 'devnet';
+    seed(14, { network: 'devnet' });
+    await initBridgeConfig();
+    await flush();
+    expect(mockLookup).not.toHaveBeenCalled();
+  });
+
+  it('invalidates an in-flight older policy and ignores its late completion', async () => {
+    seedGeo(13);
+    const pending = gate();
+    mockLookup.mockImplementationOnce(() => pending.opened.then(() => eligibility(13)));
+    mockLookup.mockResolvedValue(eligibility(14, false));
+    await initBridgeConfig();
+    await flush();
+    const next = seedGeo(14);
+    mockStorage.set(DERIVED, derivedFor(next, NOW + 1));
+    fireChange(CACHE);
+    await flush();
+    expect(getBridgeConfigSnapshot().geo).toEqual({ state: 'ready', ...eligibility(14, false) });
+    pending.release();
+    await flush();
+    expect(getBridgeConfigSnapshot().geo).toEqual({ state: 'ready', ...eligibility(14, false) });
+  });
+
+  it('invalidates changed rules even if a same-version document was adopted', async () => {
+    seedGeo(13);
+    mockLookup.mockResolvedValueOnce(eligibility(13)).mockResolvedValueOnce(eligibility(13, false));
+    await initBridgeConfig();
+    await flush();
+    const next = { ...seedGeo(13), geo: { earn: [{ country: 'US', region: 'NY' }] } };
+    mockStorage.set(CACHE, { config: next, fetchedAt: NOW + 1 });
+    mockStorage.set(DERIVED, derivedFor(next, NOW + 1));
+    fireChange(CACHE);
+    await flush();
+    expect(getBridgeConfigSnapshot().geo).toEqual({ state: 'ready', ...eligibility(13, false) });
+    expect(mockLookup).toHaveBeenCalledTimes(2);
+  });
+
+  it('retries a transient failure when the existing refresh completes', async () => {
+    const document = seedGeo(13);
+    mockLookup.mockResolvedValueOnce(null).mockResolvedValueOnce(eligibility(13));
+    await initBridgeConfig();
+    await flush();
+    expect(getBridgeConfigSnapshot().geo).toEqual({ state: 'failed' });
+    mockFetch.mockResolvedValue({ config: document, fetchedAt: NOW });
+    await _refreshBridgeConfigForTest();
+    await flush();
+    expect(getBridgeConfigSnapshot().geo).toEqual({ state: 'ready', ...eligibility(13) });
+    expect(mockLookup).toHaveBeenCalledTimes(2);
+  });
+
+  it('recovers Swap-only eligibility on the existing degraded polling cadence', async () => {
+    const document: BridgeConfig = {
+      ...config(13),
+      features: { earn: false },
+      swap: { etaUrl: 'https://swap.example' },
+      geo: { swap: [{ country: 'GB' }] }
+    };
+    mockStorage.set(CACHE, { config: document, fetchedAt: NOW });
+    mockStorage.set(DERIVED, derivedFor(document, NOW));
+    mockLookup.mockResolvedValueOnce(null).mockResolvedValueOnce(eligibility(13));
+    mockFetch.mockResolvedValue({ config: document, fetchedAt: NOW + DEGRADED_POLL_MS });
+    await initBridgeConfig();
+    await flush();
+    expect(getBridgeConfigSnapshot().geo).toEqual({ state: 'failed' });
+    await jest.advanceTimersByTimeAsync(DEGRADED_POLL_MS - 1);
+    expect(mockLookup).toHaveBeenCalledTimes(1);
+    await jest.advanceTimersByTimeAsync(1);
+    expect(getBridgeConfigSnapshot().geo).toEqual({ state: 'ready', ...eligibility(13) });
+    expect(mockLookup).toHaveBeenCalledTimes(2);
+  });
+
+  it('forgets a pending decision when rules disappear', async () => {
+    seedGeo(13);
+    const pending = gate();
+    mockLookup.mockImplementation(() => pending.opened.then(() => eligibility(13)));
+    await initBridgeConfig();
+    await flush();
+    seed(14, { derivedAt: NOW + 1 });
+    fireChange(CACHE);
+    await flush();
+    pending.release();
+    await flush();
+    expect(getBridgeConfigSnapshot().geo).toBeUndefined();
+  });
+
+  it('does not adopt an old runtime completion after reset recreated its network', async () => {
+    seedGeo(13);
+    const pending = gate();
+    mockLookup.mockImplementationOnce(() => pending.opened.then(() => eligibility(13)));
+    await initBridgeConfig();
+    await flush();
+    _resetBridgeConfigRuntimeForTest();
+    mockLookup.mockResolvedValue(eligibility(14, false));
+    seedGeo(14);
+    await initBridgeConfig();
+    await flush();
+    pending.release();
+    await flush();
+    expect(getBridgeConfigSnapshot().geo).toEqual({ state: 'ready', ...eligibility(14, false) });
   });
 });

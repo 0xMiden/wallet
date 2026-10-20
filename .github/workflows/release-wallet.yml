@@ -1,0 +1,49 @@
+name: Publish Wallet Release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+  actions: write
+  pull-requests: read
+
+concurrency:
+  group: wallet-production-release
+  cancel-in-progress: false
+
+jobs:
+  eligibility:
+    name: Deploy and verify feature eligibility
+    uses: ./.github/workflows/deploy-feature-eligibility.yml
+    with:
+      release_tag: ${{ github.event.release.tag_name }}
+    secrets: inherit
+
+  chrome:
+    needs: eligibility
+    uses: ./.github/workflows/build-chrome.yml
+    with:
+      feature_eligibility_url: ${{ needs.eligibility.outputs.endpoint }}
+    secrets:
+      APTABASE_APP_KEY: ${{ secrets.APTABASE_APP_KEY }}
+      SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+
+  desktop:
+    needs: eligibility
+    uses: ./.github/workflows/build-desktop.yml
+    with:
+      feature_eligibility_url: ${{ needs.eligibility.outputs.endpoint }}
+    secrets:
+      APTABASE_APP_KEY: ${{ secrets.APTABASE_APP_KEY }}
+      SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+
+  mobile:
+    needs: eligibility
+    uses: ./.github/workflows/build-mobile.yml
+    with:
+      feature_eligibility_url: ${{ needs.eligibility.outputs.endpoint }}
+    secrets:
+      APTABASE_APP_KEY: ${{ secrets.APTABASE_APP_KEY }}
+      SENTRY_DSN: ${{ secrets.SENTRY_DSN }}

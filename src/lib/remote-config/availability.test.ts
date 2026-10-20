@@ -259,7 +259,7 @@ describe('the E2E collateral faucet', () => {
   });
 });
 
-describe('geo place rules', () => {
+describe('feature eligibility gates', () => {
   function withGeo(geo: NonNullable<BridgeConfigSnapshot['config']>['geo'], lookup: BridgeConfigSnapshot['geo']) {
     const snapshot = ready();
     if (!snapshot.config) throw new Error('The test document is missing');
@@ -268,35 +268,38 @@ describe('geo place rules', () => {
     return snapshot;
   }
 
-  const blocked = {
-    earn: [{ country: 'US', region: 'NY' }, { country: 'GB' }]
-  };
-
-  it('keeps Earn loading until the lookup answers, then blocks New York and the UK only', () => {
-    expect(featureAvailability('earnDeposit', withGeo(blocked, undefined))).toEqual({ state: 'loading' });
-    expect(featureAvailability('earnDeposit', withGeo(blocked, { state: 'loading' }))).toEqual({ state: 'loading' });
-    expect(
-      featureAvailability('earnDeposit', withGeo(blocked, { state: 'ready', country: 'US', region: 'NY' }))
-    ).toMatchObject({
-      reason: 'restricted'
-    });
-    expect(featureAvailability('earnDeposit', withGeo(blocked, { state: 'ready', country: 'GB' }))).toMatchObject({
-      reason: 'restricted'
-    });
-    expect(
-      featureAvailability('earnDeposit', withGeo(blocked, { state: 'ready', country: 'US', region: 'CA' }))
-    ).toEqual(AVAILABLE);
+  const blocked = { earn: [{ country: 'US', region: 'NY' }, { country: 'GB' }] };
+  const decision = (earn: boolean, version = 1, network = 'testnet'): BridgeConfigSnapshot['geo'] => ({
+    state: 'ready',
+    network,
+    version,
+    allowed: { earn, swap: true }
   });
 
-  it('stays off when the lookup fails or a state rule has no region, and leaves a feature with no rule alone', () => {
+  it('keeps Earn loading until the policy decision answers, then uses its strict allow decision', () => {
+    expect(featureAvailability('earnDeposit', withGeo(blocked, undefined))).toEqual({ state: 'loading' });
+    expect(featureAvailability('earnDeposit', withGeo(blocked, { state: 'loading' }))).toEqual({ state: 'loading' });
+    expect(featureAvailability('earnDeposit', withGeo(blocked, decision(false)))).toMatchObject({
+      reason: 'restricted'
+    });
+    expect(featureAvailability('earnDeposit', withGeo(blocked, decision(true)))).toEqual(AVAILABLE);
+  });
+
+  it('fails closed for failed, wrong-network and wrong-policy decisions', () => {
     expect(featureAvailability('earnDeposit', withGeo(blocked, { state: 'failed' }))).toMatchObject({
       reason: 'service-down'
     });
-    expect(featureAvailability('earnDeposit', withGeo(blocked, { state: 'ready', country: 'US' }))).toMatchObject({
-      reason: 'restricted'
+    expect(featureAvailability('earnDeposit', withGeo(blocked, decision(true, 2)))).toMatchObject({
+      reason: 'service-down'
     });
-    expect(featureAvailability('fastBridgeOut', withGeo(blocked, { state: 'ready', country: 'GB' }))).toEqual(
-      AVAILABLE
-    );
+    expect(featureAvailability('earnDeposit', withGeo(blocked, decision(true, 1, 'mainnet')))).toMatchObject({
+      reason: 'service-down'
+    });
+  });
+
+  it('does not gate withdrawals or features with no geo rule', () => {
+    expect(featureAvailability('fastBridgeOut', withGeo(blocked, decision(false)))).toEqual(AVAILABLE);
+    expect(featureAvailability('fastBridgeOut', withGeo(blocked, { state: 'failed' }))).toEqual(AVAILABLE);
+    expect(featureAvailability('earnDeposit', withGeo(undefined, { state: 'failed' }))).toEqual(AVAILABLE);
   });
 });

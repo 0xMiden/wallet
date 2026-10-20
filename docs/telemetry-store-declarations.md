@@ -118,20 +118,22 @@ Developer Dashboard → the item → **Privacy practices**.
 | Financial and payment information | **No** | No addresses, balances, amounts, or transaction contents are sent. Field names carrying them are scrubbed from crash reports. |
 | Authentication information | **No** | Note for whoever fills this in: `errorKind` has a value called `auth`. It is a category label meaning "an authentication step failed" — not a credential, not a password, not a PIN. |
 | Personal communications | **No** | — |
-| Location | **Yes** | The place check sends the connection's IP address to MaxMind and reads back the country and region. No GPS and no location permission. |
+| Location | **Yes** | The eligibility service on Cloudflare sends the connection's IP address to MaxMind when needed. The App receives feature decisions only. No GPS and no location permission. |
 | Web history | **No** | No URL, no page, no referrer. The Sentry integrations that would have captured them (`HttpContext`, `Breadcrumbs`) are excluded — see `CRASH_INTEGRATION_ALLOWLIST` in `src/lib/telemetry/crash.ts`. |
 | **User activity** | **Yes** | This is the one to check. Flow name, outcome, and duration are in-product interaction records. |
 | Website content | **No** | The extension sends nothing from any page it runs on. |
 
-**On Location.** The place check sends the connection's IP address to MaxMind so a
-feature can be kept off in a listed country or region. There is still no location
-permission and no GPS. Declare **Yes**. The answer covers that lookup, not a
-location the App stores: the App keeps neither the address nor the place.
+**On Location.** The eligibility service runs on Cloudflare and sends the
+connection's IP address to MaxMind when a place rule needs it. The App receives
+only Earn and Swap decisions, network and policy version. There is still no
+location permission and no GPS. Declare **Yes**. The App stores neither the
+address nor the place. The service stores rotating keyed hashes, request counters
+and decisions that expire after five minutes; it stores no raw address or place.
 
 **Certifications — all three can be signed:**
 
 - *I do not sell or transfer user data to third parties, outside of the approved
-  use cases.* Aptabase, Sentry and MaxMind are processors acting on our instructions,
+  use cases.* Aptabase, Sentry, Cloudflare and MaxMind are processors acting on our instructions,
   which is the approved service-provider case. Nothing goes to a data broker or
   an ad network.
 - *I do not use or transfer user data for purposes unrelated to my item's single
@@ -159,8 +161,9 @@ ships) and `public/manifest.json`:
 
 This matches the design:
 
-- `required: ["locationInfo"]` — while a place rule is configured, the extension
-  sends the connection's IP address to MaxMind to learn the country and region.
+- `required: ["locationInfo"]` - while an enabled place rule is configured, the extension
+  asks a Cloudflare service for eligibility; that service sends the connection's
+  IP address to MaxMind. The extension receives no country or region.
   The user cannot turn that check off. Mozilla's `none` cannot sit beside another
   required category.
 - `optional: ["technicalAndInteraction"]` — Mozilla's category for technical and
