@@ -1,0 +1,1091 @@
+name: Wallet1644 atomic linkage positive and omission NEVER MERGE
+
+on:
+  push:
+    branches: [ci/1644-pr1659-atomic-positive]
+
+permissions:
+  contents: read
+
+jobs:
+  atomic-link-positive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    env:
+      CI: 'true'
+      FORCE_COLOR: '0'
+      GIT_OPTIONAL_LOCKS: '0'
+    steps:
+      - name: Initialize private evidence and natural-status logger
+        id: initialize
+        run: |
+          set -euo pipefail
+          umask 077
+          export PROOF_DIR="$RUNNER_TEMP/wallet1644-pr1659-atomic-positive"
+          mkdir -m 700 "$PROOF_DIR"
+          printf 'PROOF_DIR=%s\n' "$PROOF_DIR" >> "$GITHUB_ENV"
+          cat > "$PROOF_DIR/run-logged.bash" <<'W1644_LOGGER'
+          run_logged() {
+            local label="$1"
+            shift
+            python3 - "$PROOF_DIR/$label.command.json" "$@" <<'COMMAND_RECORD'
+          import datetime, json, os, pathlib, sys
+          pathlib.Path(sys.argv[1]).write_text(json.dumps({
+              'argv': sys.argv[2:], 'cwd': os.getcwd(),
+              'started_at': datetime.datetime.now(datetime.timezone.utc).isoformat()
+          }, indent=2) + '\n')
+          COMMAND_RECORD
+            set +e
+            "$@" 2>&1 | tee "$PROOF_DIR/$label.log"
+            local statuses=("${PIPESTATUS[@]}")
+            set -e
+            printf '%s\n' "${statuses[0]}" > "$PROOF_DIR/$label.exit"
+            printf '%s\n' "${statuses[1]}" > "$PROOF_DIR/$label.tee.exit"
+            if [ "${statuses[1]}" -ne 0 ]; then return "${statuses[1]}"; fi
+            return "${statuses[0]}"
+          }
+          W1644_LOGGER
+      - name: Retain exact signed source and prospective oracle bindings
+        id: bindings
+        run: |
+          set -euo pipefail
+          cat > "$PROOF_DIR/bindings.json" <<'W1644_BINDINGS'
+          {
+            "baseline": "c8feaa38424e89ca72034cf006b9c8553eacf556",
+            "baseline_tree": "e8ab81e4886f859b253023f4181bcbaf81f37bf6",
+            "branch": "ci/1644-pr1659-atomic-positive",
+            "closure_holds": [
+              "Source-only scope: seven-case atomic linkage, not whole1644",
+              "Current complete.ts excludes Failed siblings despite member prose; eventual closure/prose hold stays OPEN",
+              "Fair successor admission, cumulative repair/visibility and capacity acceptance remain open",
+              "Current-main merge, full95coverage, required wallet Council and relevant visual proof remain pending"
+            ],
+            "combined_count": 226,
+            "commands": {
+              "compatibility": [
+                "yarn",
+                "jest",
+                "--runTestsByPath",
+                "src/lib/miden/swap/settlement.test.ts",
+                "src/lib/miden/transaction/initiate.batch-isolation.test.ts",
+                "src/lib/miden/transaction/initiate.held-claims.test.ts",
+                "src/lib/miden/transaction/complete.swap-stamp.test.ts",
+                "src/lib/miden/back/sync-manager.test.ts",
+                "--maxWorkers=2",
+                "--ci",
+                "--coverage=false",
+                "--json",
+                "--outputFile",
+                "$PROOF_DIR/compatibility.jest.json"
+              ],
+              "eslint": [
+                "yarn",
+                "eslint",
+                "--max-warnings",
+                "0",
+                "src/lib/miden/transaction/initiate.ts",
+                "src/lib/miden/swap/settlement.ts",
+                "src/lib/miden/swap/settlement.test.ts",
+                "src/lib/miden/transaction/initiate.swap-settlement.test.ts"
+              ],
+              "final": [
+                "python3",
+                "$PROOF_DIR/proof-tools.py",
+                "final"
+              ],
+              "format": [
+                "yarn",
+                "prettier",
+                "--check",
+                "src/lib/miden/transaction/initiate.ts",
+                "src/lib/miden/swap/settlement.ts",
+                "src/lib/miden/swap/settlement.test.ts",
+                "src/lib/miden/transaction/initiate.swap-settlement.test.ts"
+              ],
+              "install": [
+                "timeout",
+                "10m",
+                "yarn",
+                "install",
+                "--frozen-lockfile",
+                "--non-interactive"
+              ],
+              "omit": [
+                "python3",
+                "$PROOF_DIR/proof-tools.py",
+                "omit"
+              ],
+              "positive": [
+                "yarn",
+                "jest",
+                "--runTestsByPath",
+                "src/lib/miden/transaction/initiate.swap-settlement.test.ts",
+                "--maxWorkers=2",
+                "--ci",
+                "--coverage=false",
+                "--json",
+                "--outputFile",
+                "$PROOF_DIR/positive.jest.json"
+              ],
+              "prepared": [
+                "python3",
+                "$PROOF_DIR/proof-tools.py",
+                "prepared"
+              ],
+              "restore": [
+                "python3",
+                "$PROOF_DIR/proof-tools.py",
+                "restore"
+              ],
+              "restored_positive": [
+                "yarn",
+                "jest",
+                "--runTestsByPath",
+                "src/lib/miden/transaction/initiate.swap-settlement.test.ts",
+                "--maxWorkers=2",
+                "--ci",
+                "--coverage=false",
+                "--json",
+                "--outputFile",
+                "$PROOF_DIR/restored_positive.jest.json"
+              ],
+              "sensitivity": [
+                "yarn",
+                "jest",
+                "--runTestsByPath",
+                "src/lib/miden/transaction/initiate.swap-settlement.test.ts",
+                "--maxWorkers=2",
+                "--ci",
+                "--coverage=false",
+                "--json",
+                "--outputFile",
+                "$PROOF_DIR/sensitivity.jest.json"
+              ],
+              "source": [
+                "python3",
+                "$PROOF_DIR/proof-tools.py",
+                "source"
+              ],
+              "typescript": [
+                "yarn",
+                "tsc",
+                "--noEmit",
+                "--pretty",
+                "false"
+              ]
+            },
+            "compatibility": {
+              "src/lib/miden/back/sync-manager.test.ts": {
+                "bytes": 110322,
+                "count": 92,
+                "full_names": "UNRUN; retain actual unfiltered Jest assertionResults in CI",
+                "sha256": "7fbd41534b8f3d9826ab6ee4c6b4457d9c6f82b601d1ca1c87804cb396a21c85",
+                "static_registration": {
+                  "each_rows": [],
+                  "ordinary": 92
+                }
+              },
+              "src/lib/miden/swap/settlement.test.ts": {
+                "bytes": 69858,
+                "count": 67,
+                "full_names": "UNRUN; retain actual unfiltered Jest assertionResults in CI",
+                "sha256": "d58bf0ae30dcc29a54ba1248231236e7cd737b096ca2e9c9ce11c5a039068660",
+                "static_registration": {
+                  "each_rows": [
+                    2,
+                    4,
+                    3,
+                    3,
+                    3
+                  ],
+                  "ordinary": 52
+                }
+              },
+              "src/lib/miden/transaction/complete.swap-stamp.test.ts": {
+                "bytes": 6173,
+                "count": 4,
+                "full_names": "UNRUN; retain actual unfiltered Jest assertionResults in CI",
+                "sha256": "c2797318ac77d5c524ccede69f2340f8377df4c8c0e74193831423a1a8585cbe",
+                "static_registration": {
+                  "each_rows": [],
+                  "ordinary": 4
+                }
+              },
+              "src/lib/miden/transaction/initiate.batch-isolation.test.ts": {
+                "bytes": 33845,
+                "count": 30,
+                "full_names": "UNRUN; retain actual unfiltered Jest assertionResults in CI",
+                "sha256": "8cac638acbb3a05eea9985df7bdc19e05b8007f8e642c9744e17d3993108752d",
+                "static_registration": {
+                  "each_rows": [
+                    3,
+                    3,
+                    2
+                  ],
+                  "ordinary": 22
+                }
+              },
+              "src/lib/miden/transaction/initiate.held-claims.test.ts": {
+                "bytes": 13491,
+                "count": 26,
+                "full_names": "UNRUN; retain actual unfiltered Jest assertionResults in CI",
+                "sha256": "71ae39476a31419bf8b7c4335e705323e4c2f1041a78167b81daa33a7f581b88",
+                "static_registration": {
+                  "each_rows": [
+                    2,
+                    3,
+                    2
+                  ],
+                  "ordinary": 19
+                }
+              }
+            },
+            "compatibility_count": 219,
+            "framework": {
+              "@jest/core": {
+                "artifact_prefix": "framework-jest-core",
+                "files": {
+                  "build.js": {
+                    "bytes": 139198,
+                    "relative": "build/index.js",
+                    "sha256": "16ef0a75b6a8062fe9d4f74a23b88221928d23fdee50387ba4bb408b355a4f27"
+                  },
+                  "package.json": {
+                    "bytes": 2369,
+                    "relative": "package.json",
+                    "sha256": "c6f7e4533f393266cbfcb1113fc81d26677aad1bdca105defd953c20ee378e5a"
+                  }
+                },
+                "version": "30.4.2"
+              },
+              "@jest/test-result": {
+                "artifact_prefix": "framework-jest-test-result",
+                "files": {
+                  "build.js": {
+                    "bytes": 9688,
+                    "relative": "build/index.js",
+                    "sha256": "e63c5d3baba4fcded043e2409185718267dfcad34b71a5fd00cdb7e8b4bf3292"
+                  },
+                  "package.json": {
+                    "bytes": 939,
+                    "relative": "package.json",
+                    "sha256": "e6d4c63978870df4e6fb2af087c459a008b471a8bddccdcb593183f7b47c2b52"
+                  }
+                },
+                "version": "30.4.1"
+              },
+              "expect": {
+                "artifact_prefix": "framework-expect",
+                "files": {
+                  "build.js": {
+                    "bytes": 112845,
+                    "relative": "build/index.js",
+                    "sha256": "469add4932a11785006b19dbd1c041169b040d69cf4e27872892e0a7119368b4"
+                  },
+                  "package.json": {
+                    "bytes": 1132,
+                    "relative": "package.json",
+                    "sha256": "c0dcf2678d35a15774a7aebc71dcaeb3442f6b22d722e04ea0d68081ec6eb5a0"
+                  }
+                },
+                "version": "30.4.1"
+              },
+              "jest": {
+                "artifact_prefix": "framework-jest",
+                "files": {
+                  "build.js": {
+                    "bytes": 2022,
+                    "relative": "build/index.js",
+                    "sha256": "fe7074b98064efbccdd13c7ee9a8b2bb5f86f098b2c0f5667896e9c78af3b20d"
+                  },
+                  "package.json": {
+                    "bytes": 1467,
+                    "relative": "package.json",
+                    "sha256": "90b2d495b4fdef80faefeeb26e275478bb3c1eeac15d587bbffb192ca3a4fa52"
+                  }
+                },
+                "version": "30.4.2"
+              },
+              "jest-circus": {
+                "artifact_prefix": "framework-jest-circus",
+                "files": {
+                  "build.js": {
+                    "bytes": 72464,
+                    "relative": "build/jestAdapterInit.js",
+                    "sha256": "f64ef94daa71293d875d497f692c48de6f8cc72a70d1935449da6610aa9438d1"
+                  },
+                  "package.json": {
+                    "bytes": 1573,
+                    "relative": "package.json",
+                    "sha256": "488605fae2565092977981f56170340563a571a44e47bd9c7e2987319712e16b"
+                  },
+                  "runner.js": {
+                    "bytes": 6908,
+                    "relative": "build/runner.js",
+                    "sha256": "26e7f1e4684472561af0b445a8ee5872088d41aa3b1b120b79cb70f93ef5d764"
+                  }
+                },
+                "version": "30.4.2"
+              },
+              "jest-diff": {
+                "artifact_prefix": "framework-jest-diff",
+                "files": {
+                  "build.js": {
+                    "bytes": 56173,
+                    "relative": "build/index.js",
+                    "sha256": "d35ee6ff8e1666e5a3f75c58426ab025ff2b012c983d0afb05a60b7ec2b7bab7"
+                  },
+                  "package.json": {
+                    "bytes": 877,
+                    "relative": "package.json",
+                    "sha256": "6dd82db9a28d2d0dae9864605c2a478c97f57ffb952968c9f3a1a2eacb88ccef"
+                  }
+                },
+                "version": "30.4.1"
+              },
+              "jest-each": {
+                "artifact_prefix": "framework-jest-each",
+                "files": {
+                  "build.js": {
+                    "bytes": 16347,
+                    "relative": "build/index.js",
+                    "sha256": "2efbb7982d44ab97a6f834a095999919f0e5a6f0dbd44c45dc5552a4a4e752fe"
+                  },
+                  "package.json": {
+                    "bytes": 1004,
+                    "relative": "package.json",
+                    "sha256": "04e94a8aebba90cfe89fa257bb63e47efbe93494febf8f720e5f888ace3f9893"
+                  }
+                },
+                "version": "30.4.1"
+              },
+              "jest-matcher-utils": {
+                "artifact_prefix": "framework-jest-matcher-utils",
+                "files": {
+                  "build.js": {
+                    "bytes": 24759,
+                    "relative": "build/index.js",
+                    "sha256": "1bbf8b1afe9f59c06c9129e4d4ce7406089b5c1563bf019e1cfbfd9d69335b52"
+                  },
+                  "package.json": {
+                    "bytes": 987,
+                    "relative": "package.json",
+                    "sha256": "b433966e038240bffcae1cf95997171145b8a343aef0713d5e6c22fdd72ebd84"
+                  }
+                },
+                "version": "30.4.1"
+              },
+              "jest-util": {
+                "artifact_prefix": "framework-jest-util",
+                "files": {
+                  "build.js": {
+                    "bytes": 42629,
+                    "relative": "build/index.js",
+                    "sha256": "3e8b0fc7c556b53ef1d4ec30457ce2dddd5059bdb464d57dedaa5918b11053ea"
+                  },
+                  "package.json": {
+                    "bytes": 1037,
+                    "relative": "package.json",
+                    "sha256": "01adf732c8a3c43ec42f5b009f12619e82451018518084b513ca3a4daf741793"
+                  }
+                },
+                "version": "30.4.1"
+              },
+              "pretty-format": {
+                "artifact_prefix": "framework-pretty-format",
+                "files": {
+                  "build.js": {
+                    "bytes": 40721,
+                    "relative": "build/index.js",
+                    "sha256": "a402d0283ddb1bc9a42d6d2605789b2573895114db88c6fb4070eca228a06d20"
+                  },
+                  "package.json": {
+                    "bytes": 1309,
+                    "relative": "package.json",
+                    "sha256": "816f475ae53780688516968fddef795c2f69c25ea9814b752553dd6d411e2564"
+                  }
+                },
+                "version": "30.4.1"
+              }
+            },
+            "helper_sha256": "d80feb0e44fa08713b24918e004aa5168388f80f8e27162ee8793e501f392e8c",
+            "historical_red": {
+              "fail": 2,
+              "pass": 5,
+              "run": 39471854654,
+              "source": "c8feaa38424e89ca72034cf006b9c8553eacf556",
+              "status": "Preserved historical baseline; not the new omission oracle"
+            },
+            "limits": "Unrun proposal. No feature publication, current-main integration, final review, coverage, visual or whole1644 credit.",
+            "lock_sha256": "8606e15d58682739313e004734d42f34a2ad715148e00f28c2de63596349941d",
+            "logger_sha256": "3550a67f06a3bce7de1fa798cb8d1d27473fad256775f4b234cf428cdc68db41",
+            "member": "e51f9de094f649111eecebad62a3b2daee30665d",
+            "member_tree": "ae977f84b8a9d2fe428576ea37123cd342633c45",
+            "omission": {
+              "after": "    undefined,",
+              "before": "    settlementLink\n      ? row => {\n          row.extraInputs = {\n            ...(row.extraInputs ?? {}),\n            swapOrderTxId: settlementLink.swapOrderTxId,\n            swapSettleKind: settlementLink.swapSettleKind\n          };\n        }\n      : undefined,",
+              "blob": "080cf2ff32f4eb39fc0e1fa832245eff3f6fd77a",
+              "bytes": 59074,
+              "path": "src/lib/miden/transaction/initiate.ts",
+              "sha256": "845a9ad5f7b7ec1f2a00a14e96b3cf79fe7b79e7f7a1734cf17135bbec35499a"
+            },
+            "omission_sites": [
+              {
+                "actual_javascript_value": "undefined",
+                "column": 36,
+                "expected": {
+                  "swapOrderTxId": "swap-order",
+                  "swapSettleKind": "settle"
+                },
+                "line": 130,
+                "matcher": "toEqual",
+                "name": "links a payback to its parent and settle role at the first consume insert",
+                "post_fix_complete_assertions": 5,
+                "prior_passing_assertions": 2
+              },
+              {
+                "actual_javascript_value": "undefined",
+                "column": 36,
+                "expected": {
+                  "swapOrderTxId": "swap-order",
+                  "swapSettleKind": "reclaim"
+                },
+                "line": 152,
+                "matcher": "toEqual",
+                "name": "links an expired tip to its parent and reclaim role at the first consume insert",
+                "post_fix_complete_assertions": 5,
+                "prior_passing_assertions": 2
+              },
+              {
+                "column": 52,
+                "expected_source_subset": {
+                  "extraInputs": {
+                    "swapOrderTxId": "swap-order",
+                    "swapSettleKind": "settle"
+                  },
+                  "noteIds": [
+                    "fresh"
+                  ],
+                  "status": 0
+                },
+                "line": 177,
+                "matcher": "toMatchObject",
+                "matcher_result_keys": [
+                  "message",
+                  "pass"
+                ],
+                "name": "retains the covering child when only part of the requested note set is new",
+                "post_failure_assertions": "UNRUN; no credit",
+                "prior_passing_assertions": 3,
+                "semantic_mismatch": "Closed swap-order/settle extraInputs subset is missing from the newly inserted fresh-note row"
+              }
+            ],
+            "outcomes": [
+              "initialize",
+              "bindings",
+              "helper",
+              "checkout",
+              "source",
+              "node",
+              "install",
+              "prepared",
+              "format",
+              "eslint",
+              "typescript",
+              "positive",
+              "compatibility",
+              "omit",
+              "sensitivity",
+              "restore",
+              "restored_positive",
+              "final"
+            ],
+            "predictions": {
+              "compatibility": {
+                "fail": 0,
+                "pass": 219
+              },
+              "positive": {
+                "fail": 0,
+                "pass": 7
+              },
+              "restored_positive": {
+                "fail": 0,
+                "pass": 7
+              },
+              "sensitivity": {
+                "fail": 3,
+                "pass": 4
+              },
+              "workflow_conclusion": "failure from the one deliberate natural sensitivity exit1; seal may succeed"
+            },
+            "snapshots": [
+              "initial",
+              "prepared",
+              "before-omission",
+              "omitted",
+              "sensitivity-end",
+              "restored",
+              "final",
+              "validation"
+            ],
+            "source": "a3c7fe305eaea2cc847c8b600a623642ec0b4791",
+            "source_changes": {
+              "src/lib/miden/swap/settlement.test.ts": {
+                "after": "d58bf0ae30dcc29a54ba1248231236e7cd737b096ca2e9c9ce11c5a039068660",
+                "before": "0c69d83d693daa65f4a927a3939d07ad8575ac8774cd95bee959c4e66e05621b",
+                "bytes": 69858,
+                "path": "src/lib/miden/swap/settlement.test.ts"
+              },
+              "src/lib/miden/swap/settlement.ts": {
+                "after": "f648aefc49c550224ed8b3f9f62281a5c37cf0747b9ab124d8328068f572550a",
+                "before": "e95047c2c118d108a2f8fdd8d000f7ba68c07af14431fed07d187995ee430937",
+                "bytes": 28030,
+                "path": "src/lib/miden/swap/settlement.ts"
+              },
+              "src/lib/miden/transaction/initiate.ts": {
+                "after": "63dedc4b163fc83b2afe0984d11950c2f038c66af58a4c8101e7d6132dba1e39",
+                "before": "32ab81b992b3cb51bf5dfc6ec8b4e6fd476e33be1279a627b5cdde4fa8020190",
+                "bytes": 59322,
+                "path": "src/lib/miden/transaction/initiate.ts"
+              }
+            },
+            "source_count": 3617,
+            "source_patch_sha256": "63e6f4fe19081749921a34adf3206454ac863965982f5475baba428436df3663",
+            "source_tree": "c19eb61773f504c0711e7bdf8ec4aa359317afe5",
+            "target": "src/lib/miden/transaction/initiate.swap-settlement.test.ts",
+            "target_sha256": "d1f9d0af5bbd22e88e9766e7af03870a508dd91cbb25b8e85cad94fce852551a",
+            "target_spec": {
+              "cases": [
+                {
+                  "ancestor_titles": [],
+                  "full_name": "links a payback to its parent and settle role at the first consume insert",
+                  "title": "links a payback to its parent and settle role at the first consume insert"
+                },
+                {
+                  "ancestor_titles": [],
+                  "full_name": "links an expired tip to its parent and reclaim role at the first consume insert",
+                  "title": "links an expired tip to its parent and reclaim role at the first consume insert"
+                },
+                {
+                  "ancestor_titles": [],
+                  "full_name": "retains the covering child when only part of the requested note set is new",
+                  "title": "retains the covering child when only part of the requested note set is new"
+                },
+                {
+                  "ancestor_titles": [],
+                  "full_name": "does not compete with an unconfirmed shared claim whose submit evidence still holds its notes",
+                  "title": "does not compete with an unconfirmed shared claim whose submit evidence still holds its notes"
+                },
+                {
+                  "ancestor_titles": [],
+                  "full_name": "leaves a failed shared claim inside its lifetime cooldown without a fresh child",
+                  "title": "leaves a failed shared claim inside its lifetime cooldown without a fresh child"
+                },
+                {
+                  "ancestor_titles": [],
+                  "full_name": "admits no settlement child when known native fee funding is insufficient",
+                  "title": "admits no settlement child when known native fee funding is insufficient"
+                },
+                {
+                  "ancestor_titles": [],
+                  "full_name": "writes no settlement child when the vault locks during the awaited fee-context read",
+                  "title": "writes no settlement child when the vault locks during the awaited fee-context read"
+                }
+              ],
+              "complete_assertions": {
+                "admits no settlement child when known native fee funding is insufficient": 3,
+                "does not compete with an unconfirmed shared claim whose submit evidence still holds its notes": 3,
+                "leaves a failed shared claim inside its lifetime cooldown without a fresh child": 3,
+                "links a payback to its parent and settle role at the first consume insert": 5,
+                "links an expired tip to its parent and reclaim role at the first consume insert": 5,
+                "retains the covering child when only part of the requested note set is new": 4,
+                "writes no settlement child when the vault locks during the awaited fee-context read": 3
+              },
+              "count": 7,
+              "path": "src/lib/miden/transaction/initiate.swap-settlement.test.ts"
+            },
+            "workflow": ".github/workflows/1644-pr1659-atomic-positive.yml"
+          }
+          W1644_BINDINGS
+      - name: Retain source-bound proof collector
+        id: helper
+        run: |
+          set -euo pipefail
+          cat > "$PROOF_DIR/proof-tools.py" <<'W1644_HELPER'
+          from pathlib import Path
+          import copy
+          import hashlib
+          import json
+          import os
+          import re
+          import stat
+          import subprocess
+          import sys
+          
+          P = Path(os.environ['PROOF_DIR']).resolve()
+          B = json.loads((P / 'bindings.json').read_text())
+          
+          
+          def digest(raw):
+              return hashlib.sha256(raw).hexdigest()
+          
+          
+          def save(name, value):
+              (P / name).write_text(json.dumps(value, sort_keys=True, indent=2) + '\n')
+          
+          
+          def load(name):
+              return json.loads((P / name).read_text())
+          
+          
+          def git(*args):
+              return subprocess.check_output(['git', *args], env={**os.environ, 'GIT_OPTIONAL_LOCKS': '0'})
+          
+          
+          def tree(ref):
+              result = {}
+              for row in git('ls-tree', '-rz', ref).split(b'\0'):
+                  if row:
+                      meta, name = row.split(b'\t', 1)
+                      result[name.decode()] = meta.decode().split()
+              return result
+          
+          
+          def snapshot(label, omitted=False):
+              entries = tree('HEAD')
+              observed = {}
+              for name, entry in entries.items():
+                  path = Path(name)
+                  info = path.lstat()
+                  if entry[0] == '120000':
+                      assert stat.S_ISLNK(info.st_mode), name
+                      raw = os.readlink(path).encode()
+                      kind = 'symlink'
+                  else:
+                      assert entry[1] == 'blob' and stat.S_ISREG(info.st_mode), name
+                      assert bool(info.st_mode & 0o111) == (entry[0] == '100755'), name
+                      raw = path.read_bytes()
+                      kind = 'regular'
+                  observed[name] = {
+                      'git_entry': entry, 'kind': kind, 'physical_mode': stat.S_IMODE(info.st_mode),
+                      'bytes': len(raw), 'sha256': digest(raw),
+                      'working_blob': hashlib.sha1(b'blob ' + str(len(raw)).encode() + b'\0' + raw).hexdigest()
+                  }
+              index = Path(git('rev-parse', '--git-path', 'index').decode().strip())
+              index_raw = index.read_bytes()
+              stages = git('ls-files', '--stage', '-z')
+              (P / (label + '.index.bin')).write_bytes(index_raw)
+              (P / (label + '.index-stage.bin')).write_bytes(stages)
+              row = {'head': git('rev-parse', 'HEAD').decode().strip(),
+                     'tree': git('rev-parse', 'HEAD^{tree}').decode().strip(),
+                     'entries': entries, 'working': observed, 'index_sha256': digest(index_raw),
+                     'index_stage_sha256': digest(stages), 'status': git('status', '--porcelain=v1').decode()}
+              save(label + '.map.json', row)
+              assert row['head'] == os.environ['GITHUB_SHA']
+              if label == 'initial':
+                  assert row['status'] == ''
+                  assert all(value['working_blob'] == entries[name][2] for name, value in observed.items())
+              else:
+                  expected = copy.deepcopy(load('initial.map.json'))
+                  if omitted:
+                      name = B['omission']['path']
+                      item = expected['working'][name]
+                      item.update(bytes=B['omission']['bytes'], sha256=B['omission']['sha256'],
+                                  working_blob=B['omission']['blob'])
+                      expected['status'] = ' M ' + name + '\n'
+                  assert row == expected, 'Unexpected source/index/types/modes: ' + label
+              return row
+          
+          
+          def framework(capture):
+              for package, spec in B['framework'].items():
+                  root = Path('node_modules') / package
+                  assert json.loads((root / 'package.json').read_text())['version'] == spec['version']
+                  for key, item in spec['files'].items():
+                      raw = (root / item['relative']).read_bytes()
+                      assert len(raw) == item['bytes'] and digest(raw) == item['sha256'], (package, key)
+                      artifact = P / (spec['artifact_prefix'] + '-' + key)
+                      if capture:
+                          artifact.write_bytes(raw)
+                      else:
+                          assert artifact.read_bytes() == raw
+          
+          
+          def frozen_inputs():
+              workflow = Path(B['workflow']).read_bytes()
+              assert workflow == git('show', 'HEAD:' + B['workflow'])
+              start = b'          cat > "$PROOF_DIR/bindings.json" <<\'W1644_BINDINGS\'\n'
+              embedded = workflow.split(start, 1)[1].split(b'          W1644_BINDINGS\n', 1)[0]
+              assert all(line.startswith(b'          ') for line in embedded.splitlines())
+              assert b''.join(line[10:] + b'\n' for line in embedded.splitlines()) == (P / 'bindings.json').read_bytes()
+              assert digest(Path(__file__).read_bytes()) == B['helper_sha256']
+              assert digest((P / 'run-logged.bash').read_bytes()) == B['logger_sha256']
+          
+          
+          def source():
+              assert os.environ['GITHUB_EVENT_NAME'] == 'push'
+              assert os.environ['GITHUB_REF_NAME'] == B['branch']
+              assert git('rev-parse', 'HEAD^').decode().strip() == B['source']
+              for ref, tree_id in [('source', 'source_tree'), ('baseline', 'baseline_tree'), ('member', 'member_tree')]:
+                  assert git('rev-parse', B[ref] + '^{tree}').decode().strip() == B[tree_id]
+              assert git('rev-parse', B['source'] + '^').decode().strip() == B['baseline']
+              assert git('rev-parse', B['baseline'] + '^').decode().strip() == B['member']
+              assert git('diff-tree', '--no-commit-id', '--name-status', '-r', B['baseline']).decode().strip() == 'A\t' + B['target']
+              assert git('diff-tree', '--no-commit-id', '--name-status', '-r', 'HEAD').decode().strip() == 'A\t' + B['workflow']
+              base = tree(B['baseline'])
+              before = tree(B['source'])
+              after = tree('HEAD')
+              assert len(base) == len(before) == B['source_count'] and len(after) == B['source_count'] + 1
+              assert set(after) - set(before) == {B['workflow']} and all(after[name] == row for name, row in before.items())
+              changed = {name for name in base if base[name] != before[name]}
+              assert set(base) == set(before) and changed == set(B['source_changes'])
+              for name, item in B['source_changes'].items():
+                  assert digest(git('show', B['baseline'] + ':' + name)) == item['before']
+                  assert digest(git('show', B['source'] + ':' + name)) == item['after']
+              patch = git('diff', B['baseline'], B['source'], '--binary')
+              assert digest(patch) == B['source_patch_sha256']
+              (P / 'source.patch').write_bytes(patch)
+              frozen_inputs()
+              (P / 'workflow.yml').write_bytes(Path(B['workflow']).read_bytes())
+              assert digest(Path('yarn.lock').read_bytes()) == B['lock_sha256']
+              assert digest(Path(B['target']).read_bytes()) == B['target_sha256']
+              for name, spec in B['compatibility'].items():
+                  assert digest(Path(name).read_bytes()) == spec['sha256']
+              for ref, name in [(B['member'], 'member-commit.raw'), (B['baseline'], 'baseline-commit.raw'),
+                                (B['source'], 'source-commit.raw'), ('HEAD', 'checkout-commit.raw')]:
+                  (P / name).write_bytes(git('cat-file', 'commit', ref))
+              save('source-entry-map.json', before)
+              save('checkout-entry-map.json', after)
+              save('source-and-checkout.json', {
+                  'source': B['source'], 'source_tree': B['source_tree'],
+                  'checkout': git('rev-parse', 'HEAD').decode().strip(),
+                  'checkout_tree': git('rev-parse', 'HEAD^{tree}').decode().strip(),
+                  'workflow_sha256': digest(Path(B['workflow']).read_bytes()),
+                  'helper_sha256': B['helper_sha256'], 'logger_sha256': B['logger_sha256']})
+              save('run-identity.json', {key: os.environ[key] for key in [
+                  'GITHUB_REPOSITORY', 'GITHUB_SHA', 'GITHUB_REF_NAME', 'GITHUB_RUN_ID',
+                  'GITHUB_RUN_ATTEMPT', 'GITHUB_EVENT_NAME']})
+              snapshot('initial')
+          
+          
+          def omit():
+              snapshot('before-omission')
+              framework(False)
+              path = Path(B['omission']['path'])
+              positive = path.read_bytes()
+              assert positive == git('show', B['source'] + ':' + str(path))
+              block = B['omission']['before'].encode()
+              assert positive.count(block) == 1
+              omitted = positive.replace(block, B['omission']['after'].encode(), 1)
+              assert len(omitted) == B['omission']['bytes'] and digest(omitted) == B['omission']['sha256']
+              (P / 'positive-initiate.ts').write_bytes(positive)
+              (P / 'omitted-initiate.ts').write_bytes(omitted)
+              path.write_bytes(omitted)
+              (P / 'omission.patch').write_bytes(git('diff', '--binary'))
+              snapshot('omitted', True)
+          
+          
+          def restore():
+              path = Path(B['omission']['path'])
+              positive = git('show', B['source'] + ':' + str(path))
+              try:
+                  snapshot('sensitivity-end', path.read_bytes() != positive)
+              finally:
+                  assert stat.S_ISREG(path.lstat().st_mode), 'Refuse to restore through a non-regular source path'
+                  path.write_bytes(positive)
+              snapshot('restored')
+              framework(False)
+          
+          
+          def checked_result(label):
+              sensitivity = label == 'sensitivity'
+              compatibility = label == 'compatibility'
+              expected_paths = B['compatibility'] if compatibility else {B['target']: B['target_spec']}
+              expected_total = sum(item['count'] for item in expected_paths.values())
+              sites = {item['name']: item for item in B['omission_sites']} if sensitivity else {}
+              result = load(label + '.jest.json')
+              assert len(result['testResults']) == len(expected_paths)
+              counts = {'numTotalTests': expected_total, 'numPassedTests': expected_total - len(sites),
+                        'numFailedTests': len(sites), 'numTotalTestSuites': len(expected_paths),
+                        'numFailedTestSuites': int(sensitivity),
+                        'numPassedTestSuites': len(expected_paths) - int(sensitivity),
+                        'numPendingTestSuites': 0, 'numPendingTests': 0, 'numTodoTests': 0,
+                        'numRuntimeErrorTestSuites': 0}
+              for key, value in counts.items():
+                  assert result[key] == value, (label, key)
+              assert result['success'] is (not sensitivity) and result['wasInterrupted'] is False and result['openHandles'] == []
+              assert result['snapshot']['failure'] is False and result['snapshot']['unmatched'] == result['snapshot']['unchecked'] == 0
+              inventory = []
+              failures = {}
+              seen_paths = set()
+              for suite in result['testResults']:
+                  name = str(Path(suite['name']).relative_to(Path.cwd()))
+                  assert name in expected_paths and name not in seen_paths, name
+                  seen_paths.add(name)
+                  spec = expected_paths[name]
+                  assert suite['status'] == ('failed' if sensitivity else 'passed')
+                  cases = suite['assertionResults']
+                  assert len(cases) == spec['count'] and len({item['fullName'] for item in cases}) == spec['count']
+                  if not compatibility:
+                      expected = {item['full_name']: item for item in spec['cases']}
+                      assert {item['fullName'] for item in cases} == set(expected)
+                  for case in cases:
+                      full_name = case['fullName']
+                      assert full_name == ' '.join([*case['ancestorTitles'], case['title']])
+                      assert case['invocations'] == 1 and case['retryReasons'] == [] and case['failing'] is False
+                      inventory.append({'path': name, 'case': case})
+                      if not compatibility:
+                          identity = expected[full_name]
+                          assert case['title'] == identity['title'] and case['ancestorTitles'] == identity['ancestor_titles']
+                      if full_name not in sites:
+                          assert case['status'] == 'passed' and case['failureMessages'] == case['failureDetails'] == []
+                          if not compatibility:
+                              assert case['numPassingAsserts'] == spec['complete_assertions'][full_name]
+                          continue
+                      site = sites[full_name]
+                      assert case['status'] == 'failed' and len(case['failureMessages']) == len(case['failureDetails']) == 1
+                      assert case['numPassingAsserts'] == site['prior_passing_assertions']
+                      raw = re.sub(r'\x1b\[[0-9;]*m', '', case['failureMessages'][0])
+                      prefix, stack = re.split(r'\n\s+at ', raw, maxsplit=1)
+                      detail = case['failureDetails'][0]
+                      assert type(detail) is dict and set(detail) == {'matcherResult'}
+                      matcher = detail['matcherResult']
+                      assert type(matcher) is dict and matcher['pass'] is False
+                      message = re.sub(r'\x1b\[[0-9;]*m', '', matcher['message'])
+                      if site['matcher'] == 'toEqual':
+                          assert set(matcher) == {'expected', 'message', 'name', 'pass'}
+                          assert matcher['name'] == 'toEqual' and matcher['expected'] == site['expected']
+                          assert message == 'expect(received).toEqual(expected) // deep equality\n\nExpected: ' + json.dumps(site['expected']) + '\nReceived: undefined'
+                      else:
+                          assert site['matcher'] == 'toMatchObject' and set(matcher) == {'message', 'pass'}
+                          assert message.startswith('expect(received).toMatchObject(expected)\n\n')
+                          minus = [line for line in message.splitlines() if line.startswith('-') and not line.startswith('- Expected')]
+                          for token in ['"extraInputs"', '"swapOrderTxId": "swap-order"', '"swapSettleKind": "settle"']:
+                              assert any(token in line for line in minus), token
+                          plus = [line for line in message.splitlines() if line.startswith('+') and not line.startswith('+ Received')]
+                          assert all('swapOrderTxId' not in line and 'swapSettleKind' not in line for line in plus)
+                          assert '"noteIds"' in message and '"fresh"' in message and '"status": 0' in message
+                      assert prefix == 'Error: ' + message
+                      first = re.split(r'\n\s+at ', stack)[0].strip()
+                      pattern = r'[^\n]*\(' + re.escape(str(Path.cwd() / name)) + ':' + str(site['line']) + ':' + str(site['column']) + r'\)'
+                      assert re.fullmatch(pattern, first), first
+                      failures[full_name] = {'first_frame': first, 'prior_passing_assertions': site['prior_passing_assertions'],
+                                             'matcher': matcher, 'post_failure_assertions': 'UNRUN; no credit'}
+              assert seen_paths == set(expected_paths) and set(failures) == set(sites)
+              save(label + '.inventory.json', {'origin': 'Actual complete unfiltered Jest assertionResults, not a historical inventory',
+                                             'expected_static_count': expected_total, 'actual': inventory})
+              return {'total': expected_total, 'pass': expected_total - len(sites), 'fail': len(sites),
+                      'failures': failures, 'inventory': label + '.inventory.json'}
+          
+          
+          def seal():
+              validation = {'status': 'INVALID', 'production_gate': 'CLOSED', 'merge': 'NEVER_MERGE_TRANSPORT'}
+              try:
+                  outcomes = {key: os.environ.get(key.upper() + '_OUTCOME', 'missing') for key in B['outcomes']}
+                  validation['outcomes'] = outcomes
+                  for key, value in outcomes.items():
+                      assert value == ('failure' if key == 'sensitivity' else 'success'), (key, value)
+                  snapshot('validation')
+                  framework(False)
+                  frozen_inputs()
+                  for label, template in B['commands'].items():
+                      assert (P / (label + '.log')).is_file(), 'Missing raw command log: ' + label
+                      command = load(label + '.command.json')
+                      assert command['argv'] == [item.replace('$PROOF_DIR', str(P)) for item in template]
+                      assert command['cwd'] == str(Path.cwd())
+                      assert int((P / (label + '.exit')).read_text()) == (1 if label == 'sensitivity' else 0)
+                      assert int((P / (label + '.tee.exit')).read_text()) == 0
+                  suites = {label: checked_result(label) for label in ['positive', 'compatibility', 'sensitivity', 'restored_positive']}
+                  assert suites['positive']['total'] + suites['compatibility']['total'] == B['combined_count'] == 226
+                  assert load('source-entry-map.json') == tree(B['source'])
+                  assert load('checkout-entry-map.json') == tree('HEAD')
+                  assert (P / 'workflow.yml').read_bytes() == Path(B['workflow']).read_bytes()
+                  assert digest(Path(__file__).read_bytes()) == B['helper_sha256']
+                  assert digest((P / 'run-logged.bash').read_bytes()) == B['logger_sha256']
+                  positive = git('show', B['source'] + ':' + B['omission']['path'])
+                  assert (P / 'positive-initiate.ts').read_bytes() == positive
+                  assert digest((P / 'omitted-initiate.ts').read_bytes()) == B['omission']['sha256']
+                  for label in B['snapshots']:
+                      row = load(label + '.map.json')
+                      expected = copy.deepcopy(load('initial.map.json'))
+                      if label in ['omitted', 'sensitivity-end']:
+                          name = B['omission']['path']
+                          expected['working'][name].update(bytes=B['omission']['bytes'], sha256=B['omission']['sha256'],
+                                                           working_blob=B['omission']['blob'])
+                          expected['status'] = ' M ' + name + '\n'
+                      assert row == expected, 'Saved source/index/types/modes mismatch: ' + label
+                      assert digest((P / (label + '.index.bin')).read_bytes()) == row['index_sha256']
+                      assert digest((P / (label + '.index-stage.bin')).read_bytes()) == row['index_stage_sha256']
+                  validation.update(status='EXACT_ATOMIC_LINKAGE_POSITIVE_AND_CAUSAL_OMISSION',
+                                    production_gate='ROOT_ACTUAL_SCOPED_ACCEPTANCE_REQUIRED', suites=suites,
+                                    limits='Narrow source proof only; whole1644/current-main/final Council/full95/visual remain OPEN')
+              except Exception as error:
+                  validation['reason'] = str(error)
+              finally:
+                  save('validation.json', validation)
+                  files = {}
+                  for path in sorted(P.iterdir()):
+                      if path.name == 'hash-manifest.json':
+                          continue
+                      assert path.is_file() and not path.is_symlink(), path.name
+                      raw = path.read_bytes()
+                      files[path.name] = {'bytes': len(raw), 'sha256': digest(raw)}
+                  save('hash-manifest.json', {'files': files, 'self_excluded': ['hash-manifest.json']})
+              print(json.dumps({'status': validation['status'], 'reason': validation.get('reason')}))
+              raise SystemExit(0 if validation['status'] == 'EXACT_ATOMIC_LINKAGE_POSITIVE_AND_CAUSAL_OMISSION' else 1)
+          
+          
+          mode = sys.argv[1]
+          if mode == 'source':
+              source()
+          elif mode == 'prepared':
+              snapshot('prepared')
+              framework(True)
+          elif mode == 'omit':
+              omit()
+          elif mode == 'restore':
+              restore()
+          elif mode == 'final':
+              snapshot('final')
+          elif mode == 'seal':
+              seal()
+          else:
+              raise SystemExit('Unknown collector mode')
+          W1644_HELPER
+      - name: Checkout sole-workflow transport
+        id: checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Bind member, test-only, signed source and sole-workflow ancestry
+        id: source
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged source python3 "$PROOF_DIR/proof-tools.py" source
+      - name: Set supported Node runtime
+        id: node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - name: Install frozen dependencies with normal hooks
+        id: install
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged install timeout 10m yarn install --frozen-lockfile --non-interactive
+      - name: Verify prepared source and frozen Jest implementations
+        id: prepared
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged prepared python3 "$PROOF_DIR/proof-tools.py" prepared
+      - name: Check named source and frozen regression format
+        id: format
+        if: ${{ !cancelled() && steps.prepared.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged format yarn prettier --check src/lib/miden/transaction/initiate.ts src/lib/miden/swap/settlement.ts src/lib/miden/swap/settlement.test.ts src/lib/miden/transaction/initiate.swap-settlement.test.ts
+      - name: Lint named source and frozen regression
+        id: eslint
+        if: ${{ !cancelled() && steps.prepared.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged eslint yarn eslint --max-warnings 0 src/lib/miden/transaction/initiate.ts src/lib/miden/swap/settlement.ts src/lib/miden/swap/settlement.test.ts src/lib/miden/transaction/initiate.swap-settlement.test.ts
+      - name: Run unchanged TypeScript gate
+        id: typescript
+        if: ${{ !cancelled() && steps.prepared.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged typescript yarn tsc --noEmit --pretty false
+      - name: Run all seven atomic linkage cases on positive source
+        id: positive
+        if: ${{ !cancelled() && steps.prepared.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged positive yarn jest --runTestsByPath src/lib/miden/transaction/initiate.swap-settlement.test.ts --maxWorkers=2 --ci --coverage=false --json --outputFile "$PROOF_DIR/positive.jest.json"
+      - name: Run all five current compatibility suites without case filters
+        id: compatibility
+        if: ${{ !cancelled() && steps.prepared.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged compatibility yarn jest --runTestsByPath src/lib/miden/swap/settlement.test.ts src/lib/miden/transaction/initiate.batch-isolation.test.ts src/lib/miden/transaction/initiate.held-claims.test.ts src/lib/miden/transaction/complete.swap-stamp.test.ts src/lib/miden/back/sync-manager.test.ts --maxWorkers=2 --ci --coverage=false --json --outputFile "$PROOF_DIR/compatibility.jest.json"
+      - name: Omit only the newly added row initializer
+        id: omit
+        if: ${{ !cancelled() && steps.prepared.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged omit python3 "$PROOF_DIR/proof-tools.py" omit
+      - name: Run unchanged seven cases against the controlled omission
+        id: sensitivity
+        if: ${{ !cancelled() && steps.omit.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged sensitivity yarn jest --runTestsByPath src/lib/miden/transaction/initiate.swap-settlement.test.ts --maxWorkers=2 --ci --coverage=false --json --outputFile "$PROOF_DIR/sensitivity.jest.json"
+      - name: Always restore exact signed positive source
+        id: restore
+        if: ${{ always() && steps.prepared.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged restore python3 "$PROOF_DIR/proof-tools.py" restore
+      - name: Rerun all seven cases on exact restored positive source
+        id: restored_positive
+        if: ${{ !cancelled() && steps.restore.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged restored_positive yarn jest --runTestsByPath src/lib/miden/transaction/initiate.swap-settlement.test.ts --maxWorkers=2 --ci --coverage=false --json --outputFile "$PROOF_DIR/restored_positive.jest.json"
+      - name: Always retain final source and index
+        id: final
+        if: ${{ always() }}
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged final python3 "$PROOF_DIR/proof-tools.py" final
+      - name: Always validate and seal complete unfiltered evidence
+        id: seal
+        if: ${{ always() }}
+        env:
+          INITIALIZE_OUTCOME: ${{ steps.initialize.outcome }}
+          BINDINGS_OUTCOME: ${{ steps.bindings.outcome }}
+          HELPER_OUTCOME: ${{ steps.helper.outcome }}
+          CHECKOUT_OUTCOME: ${{ steps.checkout.outcome }}
+          SOURCE_OUTCOME: ${{ steps.source.outcome }}
+          NODE_OUTCOME: ${{ steps.node.outcome }}
+          INSTALL_OUTCOME: ${{ steps.install.outcome }}
+          PREPARED_OUTCOME: ${{ steps.prepared.outcome }}
+          FORMAT_OUTCOME: ${{ steps.format.outcome }}
+          ESLINT_OUTCOME: ${{ steps.eslint.outcome }}
+          TYPESCRIPT_OUTCOME: ${{ steps.typescript.outcome }}
+          POSITIVE_OUTCOME: ${{ steps.positive.outcome }}
+          COMPATIBILITY_OUTCOME: ${{ steps.compatibility.outcome }}
+          OMIT_OUTCOME: ${{ steps.omit.outcome }}
+          SENSITIVITY_OUTCOME: ${{ steps.sensitivity.outcome }}
+          RESTORE_OUTCOME: ${{ steps.restore.outcome }}
+          RESTORED_POSITIVE_OUTCOME: ${{ steps.restored_positive.outcome }}
+          FINAL_OUTCOME: ${{ steps.final.outcome }}
+        run: |
+          set -euo pipefail
+          python3 "$PROOF_DIR/proof-tools.py" seal
+      - name: Always upload private NEVER MERGE proof
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wallet1644-pr1659-atomic-positive-proof
+          path: ${{ env.PROOF_DIR }}
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
