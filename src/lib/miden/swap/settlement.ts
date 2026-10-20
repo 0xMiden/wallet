@@ -429,6 +429,8 @@ export async function reconcileSwapOrderNotes(
       // a trickle of fills costs one fee per lap rather than one per note. What
       // remains is that one lap's fee can exceed a very small fill, which is the
       // price of settling promptly on funds the user is owed.
+      // A payback settles funds already delivered; a tip-only batch reclaims the unfilled remainder.
+      const swapSettleKind = batch.some(note => note.swapOrder?.role === 'payback') ? 'settle' : 'reclaim';
       let txId: string;
       try {
         txId = await initiateConsumeNotesTransaction(
@@ -439,33 +441,13 @@ export async function reconcileSwapOrderNotes(
           undefined,
           undefined,
           'swap_settlement',
-          canSign
+          canSign,
+          { swapOrderTxId: order.id, swapSettleKind }
         );
       } catch (error) {
         if (!(error instanceof ClaimFeeRefusedError)) throw error;
         continue;
       }
-      // A batch of payback notes delivered funds — it settles (Confirmed), it
-      // doesn't reclaim. A tip-only batch is the unfilled remainder coming back.
-      // Partial fills stay lineage-'active' until expiry, so this same-tick pair
-      // of consumes is their normal settlement path.
-      const hasPayback = batch.some(note => note.swapOrder?.role === 'payback');
-      // Link the consume row back to its swap order so history renders the
-      // order as a single swap row (the linked consume is suppressed) and
-      // `completeConsumeTransaction` can stamp the settlement on the swap row.
-      // The id may be a dedup winner from an earlier tick — re-tagging is
-      // idempotent. Swap-managed notes never reach manual claim paths, so a
-      // consume covering them is always a settlement consume.
-      await Repo.transactions.where({ id: txId }).modify(tx => {
-        // `false`, not a bare return - see above; same sync-tick cadence.
-        if (tx.type !== 'consume') return false;
-        tx.extraInputs = {
-          ...(tx.extraInputs ?? {}),
-          swapOrderTxId: order.id,
-          swapSettleKind: hasPayback ? 'settle' : 'reclaim'
-        };
-        return undefined;
-      });
       queuedTransactionIds.push(txId);
     }
   }

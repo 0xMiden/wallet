@@ -239,6 +239,11 @@ export interface ConsumeNotesQueueResult {
   feeRefusedNoteIds: string[];
 }
 
+export interface SwapSettlementLink {
+  swapOrderTxId: string;
+  swapSettleKind: 'settle' | 'reclaim';
+}
+
 /**
  * Queue ONE consume transaction for many notes (Claim All / Claim Group) —
  * both the wallet's consume request (`buildConsumeTransactionRequest`) and the
@@ -277,7 +282,8 @@ export const queueConsumeNotes = async (
   isolateNotesWithFailedBatch?: boolean,
   verificationBaseFee?: number | null,
   entryPoint?: ConsumeEntryPoint,
-  canSign?: () => boolean
+  canSign?: () => boolean,
+  settlementLink?: SwapSettlementLink
 ): Promise<ConsumeNotesQueueResult> =>
   queueConsumeRows(
     accountId,
@@ -288,7 +294,15 @@ export const queueConsumeNotes = async (
     verificationBaseFee,
     undefined,
     undefined,
-    undefined,
+    settlementLink
+      ? row => {
+          row.extraInputs = {
+            ...(row.extraInputs ?? {}),
+            swapOrderTxId: settlementLink.swapOrderTxId,
+            swapSettleKind: settlementLink.swapSettleKind
+          };
+        }
+      : undefined,
     entryPoint,
     canSign
   );
