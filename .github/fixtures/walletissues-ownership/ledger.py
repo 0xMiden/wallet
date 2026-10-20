@@ -15,10 +15,89 @@ SESSIONS_DIR = os.path.expanduser('~/.claude/sessions')
 # A wallet issue or PR is keyed by its bare number; another repository's PR by `<name>#<number>`, so the two
 # never collide (web-sdk PRs joined discovery on 2026-10-07).
 OTHER_REPOS = {'web-sdk': '0xMiden/web-sdk'}
+PUBLIC_ACTIVE = {'implementing', 'reviewing', 'ci'}
+WALLET_REPO = '0xMiden/wallet'
+PUBLIC_ASSIGNEE = 'WiktorStarczewski'
 
 
 class LedgerError(Exception):
     pass
+
+
+def _validate_fields(fields, entry=None):
+    if 'state' in fields and (not isinstance(fields['state'], str) or fields['state'] not in STATES):
+        raise LedgerError('unknown state %r (expected one of %s)' % (fields['state'], sorted(STATES)))
+    if 'repo' in fields:
+        raise LedgerError('repo identity is not settable; use the repository-qualified key')
+    kind = fields.get('kind', entry.get('kind', 'issue') if entry is not None else 'issue')
+    if kind not in ('issue', 'pr'):
+        raise LedgerError('unknown kind %r (expected issue or pr)' % kind)
+    if entry is not None and kind != entry.get('kind', 'issue'):
+        raise LedgerError('kind identity cannot change after claim')
+
+
+def _validate_identity(key, entry):
+    name, _, digits = key.rpartition('#')
+    if type(entry.get('number')) is not int or entry['number'] != int(digits):
+        raise LedgerError('number identity does not match ledger key %s' % key)
+    if entry.get('repo', WALLET_REPO) != OTHER_REPOS.get(name, WALLET_REPO):
+        raise LedgerError('repo identity does not match ledger key %s' % key)
+    _validate_fields({}, entry)
+
+
+def _public_issue(entry):
+    return (entry.get('kind', 'issue') == 'issue' and entry.get('repo', WALLET_REPO) == WALLET_REPO
+            and entry.get('state') in PUBLIC_ACTIVE)
+
+
+def _require_public_ownership(entry):
+    if not _public_issue(entry):
+        return
+    number = entry['number']
+    failure = None
+    try:
+        result = subprocess.run(['gh', 'api', '--method', 'GET',
+                                 'repos/%s/issues/%d' % (WALLET_REPO, number)],
+                                check=True, capture_output=True, text=True, timeout=20)
+        issue = json.loads(result.stdout)
+        assignees = issue.get('assignees') if isinstance(issue, dict) else None
+        if (not isinstance(issue, dict) or type(issue.get('number')) is not int
+                or issue['number'] != number or 'pull_request' in issue
+                or issue.get('state') not in ('open', 'closed') or not isinstance(assignees, list)
+                or any(not isinstance(a, dict) or not isinstance(a.get('login'), str)
+                       or not a['login'].strip() for a in assignees)):
+            failure = 'GitHub returned a missing or malformed issue identity'
+        elif issue['state'] != 'open':
+            failure = 'the GitHub issue is not OPEN'
+        elif not any(a['login'].casefold() == PUBLIC_ASSIGNEE.casefold() for a in assignees):
+            failure = 'the GitHub issue is not assigned to %s' % PUBLIC_ASSIGNEE
+    except (OSError, subprocess.SubprocessError, ValueError, TypeError):
+        failure = 'the bounded read-only GitHub lookup failed'
+    if failure:
+        raise LedgerError('public ownership check for wallet issue #%d failed: %s; require OPEN and assignee %s. '
+                          'Check gh issue view %d --repo %s --json state,assignees; complete authorized setup '
+                          'before resuming active work. No assignment or ledger change was made.'
+                          % (number, failure, PUBLIC_ASSIGNEE, number, WALLET_REPO))
+
+
+def _audit_owned(data, owner):
+    checked, failures = [], []
+    for key, entry in sorted(data.items(), key=lambda pair: _order(pair[1])):
+        if (entry.get('owner') != owner or entry.get('state') not in PUBLIC_ACTIVE
+                or '#' in key or entry.get('kind', 'issue') == 'pr'):
+            continue
+        checked.append(entry['number'])
+        try:
+            _validate_identity(key, entry)
+            _require_public_ownership(entry)
+        except LedgerError as err:
+            failures.append({'number': entry['number'], 'error': str(err)})
+    return {'owner': owner, 'checked': checked, 'failures': failures}
+
+
+def ownership_audit(path, owner):
+    """Read public ownership for this owner's active wallet issues without changing either state store."""
+    return _audit_owned(load(path), owner)
 
 
 def parse_key(text):
@@ -122,8 +201,7 @@ def _stamp(entry):
 
 def update(path, number, owner, **fields):
     """Change an entry this session owns. Refuses another session's entry and an unclaimed issue."""
-    if 'state' in fields and fields['state'] not in STATES:
-        raise LedgerError('unknown state %r (expected one of %s)' % (fields['state'], sorted(STATES)))
+    _validate_fields(fields)
     key = parse_key(number)
     with _locked(path):
         data = load(path)
@@ -132,6 +210,9 @@ def update(path, number, owner, **fields):
             raise LedgerError('issue %s is not claimed; claim it first' % number)
         if entry.get('owner') != owner:
             raise LedgerError('issue %s belongs to %s, not %s; drop it' % (number, entry.get('owner'), owner))
+        _validate_identity(key, entry)
+        _validate_fields(fields, entry)
+        _require_public_ownership({**entry, **fields})
         entry.update(fields)
         _stamp(entry)
         _write(path, data)
@@ -142,10 +223,12 @@ def claim(path, number, owner, **fields):
     """Take issue `number` for `owner`. True when it is now owner's. A live session's entry and a
     finished one are refused; a dead session's entry is adopted as it stands; a needs-definition
     entry reopens as claimed."""
+    _validate_fields(fields)
     key = parse_key(number)
     with _locked(path):
         data = load(path)
         entry = data.get(key)
+        new_entry = entry is None
         if entry is None:
             name, _, digits = key.rpartition('#')
             entry = data[key] = {'number': int(digits), 'state': 'claimed'}
@@ -157,6 +240,9 @@ def claim(path, number, owner, **fields):
             return False
         elif entry.get('owner') != owner and alive(entry.get('owner', '')):
             return False
+        _validate_identity(key, entry)
+        _validate_fields(fields, None if new_entry else entry)
+        _require_public_ownership({**entry, **fields})
         entry.update(fields)
         entry['owner'] = owner
         entry.pop('released_by', None)
@@ -170,13 +256,15 @@ def adopt(path, owner):
     with _locked(path):
         data = load(path)
         taken = []
-        for entry in sorted(data.values(), key=_order):
+        for key, entry in sorted(data.items(), key=lambda pair: _order(pair[1])):
             state = entry.get('state')
             if state in FINISHED or state in REOPENABLE or entry.get('owner') == owner:
                 continue
             if entry.get('released_by') and not entry.get('owner'):
                 continue
             if not alive(entry.get('owner', '')):
+                _validate_identity(key, entry)
+                _require_public_ownership(entry)
                 entry['owner'] = owner
                 _stamp(entry)
                 taken.append(entry_key(entry))
@@ -239,7 +327,11 @@ def session_load(path):
 
 def mine(path, owner):
     """This session's unfinished entries, oldest issue first."""
-    return sorted((e for e in load(path).values()
+    data = load(path)
+    audit = _audit_owned(data, owner)
+    if audit['failures']:
+        raise LedgerError(audit['failures'][0]['error'])
+    return sorted((e for e in data.values()
                    if e.get('owner') == owner and e.get('state') not in FINISHED | REOPENABLE),
                   key=_order)
 
@@ -255,6 +347,7 @@ def main(argv=None):
     sub.add_parser('adopt')
     sub.add_parser('load')
     sub.add_parser('offered')
+    sub.add_parser('ownership-audit')
     releasep = sub.add_parser('release')
     releasep.add_argument('number', help='N, or web-sdk#N')
     releasep.add_argument('handoff')
@@ -278,6 +371,10 @@ def main(argv=None):
     if args.cmd == 'whoami':
         print(owner)
         return 0
+    if args.cmd == 'ownership-audit':
+        audit = ownership_audit(args.path, owner)
+        print(json.dumps(audit, indent=2, sort_keys=True))
+        return 2 if audit['failures'] else 0
     if args.cmd == 'mine':
         print(json.dumps(mine(args.path, owner), indent=2, sort_keys=True))
         return 0
