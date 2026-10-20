@@ -2,7 +2,7 @@
 #
 # This workflow builds and runs code the PR author controls, so it holds no
 # credentials that can write to the pull request. It emits feel samples for six
-# passes from Overview to Swap, six tap durations, and three overview-list scrolls.
+# passes from Overview to Swap, six tap durations, and three settings-list scrolls.
 # ui-smoothness-comment.yml, which never checks
 # out pull request code, renders and posts the comment.
 #
@@ -38,78 +38,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Same-build repeats, only on this branch, to read the noise floor. Removed
-  # once the floor is set from the spread.
-  repeat:
-    name: Repeat the same build
-    if: ${{ github.head_ref == 'fix/home-carousel-snap' && !github.event.pull_request.draft }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 50
-    steps:
-      - name: Check out
-        uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-
-      - name: Use Node 22
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
-      - name: Run Install
-        uses: ./.github/actions/yarn-install
-
-      - name: Install Playwright Chrome
-        timeout-minutes: 12
-        run: npx playwright install --with-deps chrome
-
-      - name: Measure the same build six times
-        timeout-minutes: 40
-        env:
-          BENCH_BROWSER: chrome
-        run: |
-          set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/reps"
-          for i in 1 2 3 4 5 6; do
-            echo "repeat $i/6"
-            rebuild=()
-            if [ "$i" = 1 ]; then rebuild=(--rebuild); fi
-            BENCH_PROFILE="repeat-$i" node scripts/home-swipe-bench.mjs \
-              --label "repeat-$i" --reps 6 --throttle 4 "${rebuild[@]}" \
-              --summary "$RUNNER_TEMP/reps/$i.json"
-          done
-          node --input-type=module -e '
-            import { readdirSync, readFileSync, writeFileSync } from "node:fs";
-            const dir = process.env.RUNNER_TEMP + "/reps";
-            const rows = readdirSync(dir).filter(name => name.endsWith(".json")).sort().map(name => {
-              const body = JSON.parse(readFileSync(dir + "/" + name, "utf8"));
-              const mid = values => {
-                const sorted = [...values].sort((a, b) => a - b);
-                const i = Math.floor(sorted.length / 2);
-                return sorted.length % 2 ? sorted[i] : (sorted[i - 1] + sorted[i]) / 2;
-              };
-              return {
-                label: body.label,
-                feel: mid(body.samples),
-                inp: Math.max(...body.inp),
-                listDropped: mid(body.listDropped),
-                listP95: mid(body.listP95)
-              };
-            });
-            writeFileSync(process.env.RUNNER_TEMP + "/spread.json", JSON.stringify(rows, null, 2));
-            console.log(JSON.stringify(rows, null, 2));
-          '
-
-      - name: Upload the repeats
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: ui-smoothness-repeats
-          path: |
-            ${{ runner.temp }}/spread.json
-            ${{ runner.temp }}/reps
-          if-no-files-found: ignore
-
   measure:
     name: Measure feel
     if: ${{ !github.event.pull_request.draft }}
@@ -157,6 +85,13 @@ jobs:
           measure head
 
           git checkout "$base_sha" -- .
+          # Base cannot finish creating a mock wallet until it has the genesis
+          # sync tolerance. Overlay that one file from head when base lacks it,
+          # so the carousel under test stays base's. Once main has the line,
+          # this overlay stops.
+          if ! git grep -q 'mock sync failed' "$base_sha" -- src/lib/miden/back/vault.ts; then
+            git checkout "$head_sha" -- src/lib/miden/back/vault.ts
+          fi
           mkdir -p scripts
           cp "$RUNNER_TEMP/harness/home-swipe-bench.mjs" "$RUNNER_TEMP/harness/home-swipe-score.mjs" scripts/
           if ! git diff --quiet "$head_sha" "$base_sha" -- yarn.lock; then

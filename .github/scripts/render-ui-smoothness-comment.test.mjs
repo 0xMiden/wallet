@@ -30,25 +30,25 @@ const ctx = {
 test('a movement inside the floor is noise and the artifact cannot set the floor', () => {
   const body = renderComment(artifact(100, 101), ctx);
   assert.match(body, /^### ➖ UI smoothness — No significant change/);
-  assert.match(body, /floor provisional ±7\.50%/);
+  assert.match(body, /floor ±50\.00%/);
   assert.match(body, /\| ➖ \| `feel` \| 100\.0 \| 101\.0 \| \+1\.0 \| \+1\.00% \|/);
   assert.match(body, /median of 24 swipes: 6 passes from Overview to Swap/);
   assert.match(body, /Overview → Send → Receive → Earn → Swap/);
   assert.match(body, /never blocks merge/);
-  assert.match(body, /The noise floor is provisional/);
+  assert.doesNotMatch(body, /provisional/);
   assert.doesNotMatch(body, /0\.01%/);
 });
 
 test('a lower feel score is smoother', () => {
   const body = renderComment(artifact(100, 50), ctx);
   assert.match(body, /^### 🔻 UI smoothness — -50\.00% smoother: `feel`/);
-  assert.match(body, /Moved beyond a provisional noise floor/);
+  assert.match(body, /Moved beyond the noise floor/);
   assert.match(body, /\| 🔻 \| `feel` \| 100\.0 \| 50\.0 \| -50\.0 \| -50\.00% \|/);
 });
 
 test('a higher feel score is rougher', () => {
-  const body = renderComment(artifact(100, 130), ctx);
-  assert.match(body, /^### 🔺 UI smoothness — \+30\.00% rougher: `feel`/);
+  const body = renderComment(artifact(100, 180), ctx);
+  assert.match(body, /^### 🔺 UI smoothness — \+80\.00% rougher: `feel`/);
 });
 
 test('a short sample list is refused', () => {

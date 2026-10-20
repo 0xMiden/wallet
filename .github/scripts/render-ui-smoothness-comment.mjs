@@ -141,7 +141,7 @@ function readContext(raw) {
   };
 }
 
-function deltaOf(baseValue, headValue) {
+function deltaOf(baseValue, headValue, thresholdPct) {
   const deltaValue = headValue - baseValue;
   const deltaPct = baseValue === 0 ? null : (deltaValue / baseValue) * 100;
   if (!Number.isFinite(deltaValue) || (deltaPct !== null && !Number.isFinite(deltaPct))) {
@@ -149,13 +149,13 @@ function deltaOf(baseValue, headValue) {
   }
   const magnitude = deltaPct === null ? 0 : Math.abs(deltaPct);
   const shown = Number(magnitude.toFixed(2));
-  const floor = Number(DEFAULT_PROFILE.thresholdPct.toFixed(2));
+  const floor = Number(thresholdPct.toFixed(2));
   const beyond = deltaPct !== null && shown > 0 && shown >= floor;
-  return { deltaValue, deltaPct, beyond, worse: deltaValue > 0 };
+  return { deltaValue, deltaPct, beyond, worse: deltaValue > 0, floor };
 }
 
-function decorate(name, unit, baseValue, headValue, forceWorse) {
-  const delta = deltaOf(baseValue, headValue);
+function decorate(name, unit, baseValue, headValue, thresholdPct, forceWorse) {
+  const delta = deltaOf(baseValue, headValue, thresholdPct);
   const beyond = delta.beyond || forceWorse;
   const worse = forceWorse ? true : delta.worse;
   let emoji = EMOJI_NOISE;
@@ -165,22 +165,45 @@ function decorate(name, unit, baseValue, headValue, forceWorse) {
 }
 
 function rowsFor(series) {
-  const feel = decorate('feel', '', median(series.feel.base), median(series.feel.head), false);
+  const feel = decorate(
+    'feel',
+    '',
+    median(series.feel.base),
+    median(series.feel.head),
+    DEFAULT_PROFILE.feelThresholdPct,
+    false
+  );
   const inpBase = Math.max(...series.inp.base);
   const inpHead = Math.max(...series.inp.head);
-  const inpDelta = deltaOf(inpBase, inpHead);
+  const inpDelta = deltaOf(inpBase, inpHead, DEFAULT_PROFILE.feelThresholdPct);
   const poor = inpHead > DEFAULT_PROFILE.inpPoorMs;
   const leftGood = inpBase <= DEFAULT_PROFILE.inpGoodMs && inpHead > DEFAULT_PROFILE.inpGoodMs;
+  const bothGood = inpBase <= DEFAULT_PROFILE.inpGoodMs && inpHead <= DEFAULT_PROFILE.inpGoodMs;
   const inpForce = leftGood || (poor && !(inpDelta.beyond && !inpDelta.worse));
-  const inp = decorate('inp', 'ms', inpBase, inpHead, inpForce);
+  const inp = decorate('inp', 'ms', inpBase, inpHead, DEFAULT_PROFILE.feelThresholdPct, inpForce);
+  // 16ms and 24ms are adjacent Event Timing buckets. Both sit inside the good
+  // band, so that step is not a change.
+  if (bothGood) {
+    inp.beyond = false;
+    inp.forceWorse = false;
+    inp.emoji = EMOJI_NOISE;
+  }
   const dropped = decorate(
     'list-dropped',
     '%',
     median(series.listDropped.base),
     median(series.listDropped.head),
+    DEFAULT_PROFILE.listThresholdPct,
     false
   );
-  const p95 = decorate('list-p95', 'ms', median(series.listP95.base), median(series.listP95.head), false);
+  const p95 = decorate(
+    'list-p95',
+    'ms',
+    median(series.listP95.base),
+    median(series.listP95.head),
+    DEFAULT_PROFILE.listThresholdPct,
+    false
+  );
   return [feel, inp, dropped, p95];
 }
 
@@ -197,8 +220,9 @@ function headline(rows) {
 }
 
 function verdict(rows) {
-  const thresholdText = `${DEFAULT_PROFILE.thresholdProvisional ? 'provisional ' : ''}±${formatPct(DEFAULT_PROFILE.thresholdPct)}`;
   const lead = headline(rows);
+  const floorText = row =>
+    `${DEFAULT_PROFILE.thresholdProvisional ? 'provisional ' : ''}±${formatPct(row.floor)}`;
   if (lead.deltaPct === null && !lead.forceWorse) {
     return `### ${EMOJI_UNRESOLVED} ${SUBJECT} — No comparison possible — the base figure is zero, so a percentage would be meaningless`;
   }
@@ -210,7 +234,7 @@ function verdict(rows) {
     const largest = rows.reduce((best, row) =>
       Math.abs(row.deltaPct ?? 0) > Math.abs(best.deltaPct ?? 0) ? row : best
     );
-    return `### ${EMOJI_NOISE} ${SUBJECT} — No significant change (largest \`${largest.name}\` ${formatSignedPct(largest.deltaPct)}, floor ${thresholdText})`;
+    return `### ${EMOJI_NOISE} ${SUBJECT} — No significant change (largest \`${largest.name}\` ${formatSignedPct(largest.deltaPct)}, floor ${floorText(largest)})`;
   }
   const direction = lead.worse ? 'rougher' : 'smoother';
   return `### ${lead.emoji} ${SUBJECT} — ${formatSignedPct(lead.deltaPct)} ${direction}: \`${lead.name}\``;
@@ -219,7 +243,7 @@ function verdict(rows) {
 function provisionalNote(ctx) {
   if (!DEFAULT_PROFILE.thresholdProvisional) return '';
   return [
-    `> **The noise floor is provisional.** ±${formatPct(DEFAULT_PROFILE.thresholdPct)} is a bound taken from two same-build`,
+    `> **The noise floor is provisional.** ±${formatPct(DEFAULT_PROFILE.feelThresholdPct)} is a bound taken from two same-build`,
     `> runs on a developer laptop, not on \`${ctx.runner}\` — no calibration run has been recorded on this runner yet,`,
     '> so the floor on this runner is unknown in both magnitude and direction. Movements are therefore',
     '> reported as measurements rather than verdicts, however large: with the error in the floor unknown',
