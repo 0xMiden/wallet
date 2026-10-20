@@ -30,7 +30,7 @@ const ctx = {
 test('a movement inside the floor is noise and the artifact cannot set the floor', () => {
   const body = renderComment(artifact(100, 101), ctx);
   assert.match(body, /^### ➖ UI smoothness — No significant change/);
-  assert.match(body, /floor provisional ±15\.00%/);
+  assert.match(body, /floor provisional ±7\.50%/);
   assert.match(body, /\| ➖ \| `feel` \| 100\.0 \| 101\.0 \| \+1\.0 \| \+1\.00% \|/);
   assert.match(body, /median of 24 swipes: 6 passes from Overview to Swap/);
   assert.match(body, /Overview → Send → Receive → Earn → Swap/);

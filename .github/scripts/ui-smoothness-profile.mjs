@@ -8,11 +8,11 @@
  *
  * `thresholdProvisional` stays true until the floor is measured on the CI
  * runner by benching one build against itself. Until then the comment reports
- * movements as measurements, not rulings. The 15% bound is the gap between two
- * same-build medians on a developer laptop (about 9%), taken when a run was
- * six Overview-to-Send swipes. The full pass has not been re-measured, so the
- * floor stays provisional. Re-measure on `ubuntu-latest` and set
- * `thresholdProvisional` to false.
+ * movements as measurements, not rulings. The 7.5% bound is tighter than the
+ * gap between two same-build medians on a developer laptop (about 9%), taken
+ * when a run was six Overview-to-Send swipes. The full pass has not been
+ * re-measured, so the floor stays provisional. Re-measure on `ubuntu-latest`
+ * and set `thresholdProvisional` to false.
  *
  * A run is `passes` walks from the first page to the last. Each walk is one
  * swipe per boundary. The reported number is the median of every swipe, so the
@@ -22,7 +22,7 @@
  * a run must contain and the bench is what produces them.
  */
 export const DEFAULT_PROFILE = Object.freeze({
-  thresholdPct: 15,
+  thresholdPct: 7.5,
   thresholdProvisional: true,
   passes: 6,
   pageNames: Object.freeze(['Overview', 'Send', 'Receive', 'Earn', 'Swap']),
