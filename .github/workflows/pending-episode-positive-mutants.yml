@@ -1,0 +1,705 @@
+name: Pending episode positive and isolated mutants
+
+on:
+  push:
+    branches: [ci/1616-episode-positive-mutants]
+
+permissions:
+  contents: read
+
+jobs:
+  episode-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    defaults:
+      run:
+        shell: bash
+    env:
+      CI: 'true'
+      PROOF_HEAD_SHA: ${{ github.sha }}
+      PROOF_REF: ${{ github.ref }}
+      PROOF_EVENT: ${{ github.event_name }}
+      PROOF_REPOSITORY: ${{ github.repository }}
+      PROOF_WORKFLOW_REF: ${{ github.workflow_ref }}
+      PROOF_WORKFLOW_SHA: ${{ github.workflow_sha }}
+      PROOF_RUN_ID: ${{ github.run_id }}
+      PROOF_RUN_ATTEMPT: ${{ github.run_attempt }}
+    steps:
+      - name: Initialize exact proof and retain controller sources
+        id: initialize
+        run: |
+          set -euo pipefail
+          umask 077
+          export PROOF_DIR="$RUNNER_TEMP/pending-episode-proof"
+          printf 'PROOF_DIR=%s\n' "$PROOF_DIR" >> "$GITHUB_ENV"
+          mkdir -p "$PROOF_DIR"
+          cat > "$PROOF_DIR/run-logged.bash" <<'BASH_HELPER'
+          run_logged() {
+            local label="$1"
+            shift
+            set +e
+            "$@" 2>&1 | tee "$PROOF_DIR/$label.log"
+            local statuses=("${PIPESTATUS[@]}")
+            set -e
+            printf '%s\n' "${statuses[0]}" > "$PROOF_DIR/$label.exit"
+            printf '%s\n' "${statuses[1]}" > "$PROOF_DIR/$label.tee.exit"
+            if [ "${statuses[1]}" -ne 0 ]; then return "${statuses[1]}"; fi
+            return "${statuses[0]}"
+          }
+          BASH_HELPER
+          cat > "$PROOF_DIR/proof-tools.py" <<'PYTHON_HELPER'
+          import hashlib
+          import json
+          import os
+          import re
+          import stat
+          import subprocess
+          import sys
+          from pathlib import Path
+
+          BINDINGS = {'source': 'b021f198aec204fc8f573fde328f1e6c8737a04d', 'source_tree': '7faf537f908dafa0a5c3aa5cb646d82ffd3034fa', 'source_entries': 3618, 'branch': 'ci/1616-episode-positive-mutants', 'workflow': '.github/workflows/pending-episode-positive-mutants.yml', 'formatted_privacy_sha256': 'c4ba9c5079d958ba384314b26c5242ffcf7a2129783bbdd808fca76c7e106ad8', 'regression_suites': {'src/app/templates/history/PendingActivityCard.test.tsx': {'sha256': '50534f667abf16316d7102b06d60647d1efd795a8daaeb1041478ff8685f2d1b', 'test_count': 31, 'test_names_sha256': '89703dd0f18893320835083868b32440e24e8bd2749824b81936f643853065d6'}, 'src/app/hooks/useActivityClaims.test.ts': {'sha256': '751045732ecb36065d0959dc8bf61a396a194618fd6b93a95ea320553bdd04d2', 'test_count': 83, 'test_names_sha256': '15eb4b3f0d3f85300019b8c50425157d9c33eff68c2d2acc3c8987ca21484d0b'}}, 'control_suites': {'src/lib/telemetry/user-visible-error.test.ts': {'sha256': 'd91730721f22ed04ef3dc37bdfac543a784008306aec1e055a88a3767f6901a7', 'test_count': 14, 'test_names_sha256': 'b9f60c8e3e129abb67ff82fb4e0e060c77f038a4f976c92dc79077a12619dc9c', 'test_names': ['user-visible error reports caps a realm at 30 reports in 10 minutes', 'user-visible error reports does not charge an invalid or throttled call against the realm cap', 'user-visible error reports drops an unknown id or surface: "Unable to read 0x12ab", "review"', 'user-visible error reports drops an unknown id or surface: "usdcxFaucetUnavailable", "toast"', 'user-visible error reports drops an unknown id or surface: "usdcxFaucetUnavailable", null', 'user-visible error reports drops an unknown id or surface: "usdcxFaucetUnavailable", {"toString": [Function toString]}', 'user-visible error reports drops an unknown id or surface: 42, "review"', 'user-visible error reports drops an unknown id or surface: null, "review"', 'user-visible error reports drops an unknown id or surface: undefined, "review"', 'user-visible error reports drops an unknown id or surface: {"toString": [Function toString]}, "review"', 'user-visible error reports every non-raw id is a key in en.json, and the list is sorted without duplicates', 'user-visible error reports reports a known id and surface once as WalletUserVisibleError', 'user-visible error reports resets both limits for isolated tests', 'user-visible error reports sends one report per id and surface per minute']}, 'src/lib/telemetry/crash-diagnostics.policy.test.ts': {'sha256': '6a93cd68a52e267c1853613f3d4c033dd3d901095adc368282627f40c1ce2bc6', 'test_count': 14, 'test_names_sha256': '637646b3f3c2b9a42e9a4af3723b251ca837ae785f38fedb239d73c93250137d', 'test_names': ["tells a value missing from one field's list, or listed but never sent, from a correct list", 'the privacy policy lists exactly the values a crash report can carry after "changed in the 30 seconds before"', 'the privacy policy lists exactly the values a crash report can carry after "how many relay failures that window had seen"', 'the privacy policy lists exactly the values a crash report can carry after "reconnected to the background"', 'the privacy policy lists exactly the values a crash report can carry after "shared memory could still grow"', 'the privacy policy lists exactly the values a crash report can carry after "the App\'s own pages"', 'the privacy policy lists exactly the values a crash report can carry after "the label that says so"', 'the privacy policy lists exactly the values a crash report can carry after "the state the background held for that approval"', 'the privacy policy lists exactly the values a crash report can carry after "whether the App\'s window was on screen"', 'the privacy policy lists exactly the values a crash report can carry after "whether the connect-wallet screen was open in that window"', 'the privacy policy lists exactly the values a crash report can carry after "whether the relay had connected in that window before"', 'the privacy policy lists exactly the values a crash report can carry after "which App window it was"', 'the privacy policy lists exactly the values a crash report can carry after "which kind of display showed it"', 'the privacy policy lists exactly the values a crash report can carry after "which message it was"']}}, 'support_suites': {'src/components/ui/Notice.test.tsx': {'sha256': '9ec98f133499696f3d46a4e53a08bc0580d0c18373c21fd54b4f12cff1339269', 'test_count': 16, 'test_names': ['draws a tinted 16px-radius surface with no border', 'drops the surface for the inline variant, keeping the tone on the glyph', 'marks the tinted card as the default variant', 'merges a layout className', 'paints the negative tone from tokens', 'paints the neutral tone from tokens', 'paints the positive tone from tokens', 'paints the warning tone from tokens', 'renders the body as a note, with no title or glyph unless given', 'renders the title above the body and the glyph as decoration', 'takes an alert role for something that just went wrong', 'user-visible error reporting cancels reporting when the error clears within the dwell', 'user-visible error reporting does not report an error without an identifier: null', 'user-visible error reporting does not report an error without an identifier: undefined', 'user-visible error reporting does not report when it is not showing an error', 'user-visible error reporting reports its displayed error once on the notice surface after the dwell'], 'test_names_sha256': 'ac315f92bf09d7c1df40721822a0cf725c3ea8fd201e37abe2b6f896df56ce0d', 'inventory_derivation': 'Complete literal direct titles plus exact existing each rows; no runtime executed locally.'}, 'src/lib/telemetry/use-user-visible-error.test.tsx': {'sha256': '1a173a8586fe7ab491f975f791e8d858e9d0cf332bb8082cf43a81b6fad4eb22', 'test_count': 10, 'test_names': ['cancels the old dwell when the id changes before it finishes', 'keeps one episode while the text changes under one id', 'reports once after the message has shown for 1000 ms', 'restarts the dwell when the surface changes', 'sends nothing after unmount within the dwell', 'sends nothing for an absent id: null', 'sends nothing for an absent id: undefined', 'sends nothing when the message clears before 1000 ms', 'starts a new episode after a clear', 'starts a new episode when the id changes'], 'test_names_sha256': 'aca4598685fb0f919dc366c8dc141891fb8ea8897fd118c98b452273c8847393', 'inventory_derivation': 'Complete literal direct titles plus exact existing each rows; no runtime executed locally.'}}, 'conditional_failure_sites': {'live claim failures through PendingActivityCard and Notice restarts an unfinished dwell for a new same-ID Retry failure with no committed clear': {'line': 1881, 'matcher': 'toHaveBeenCalled', 'source': '    expect(reportUserVisibleError).not.toHaveBeenCalled();'}, 'live claim failures through PendingActivityCard and Notice reports another same-ID Retry failure after its own dwell when the first already reported': {'line': 1914, 'matcher': 'toEqual', 'source': '    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual(['}}, 'review_provenance_sha256': {'source_review/report.md': '10975dce8d34283c8adf4e9bea2d7869bb5b2a113caff0f9eb94ff0e974f9d27', 'source_review/controller-acceptance.json': '7e7ae5de770f007de819db929c8715f48996e32d0ec32ae97e68255e85fc1075', 'guarded_red/controller-acceptance.json': 'dd2e2992e4ae767fadd2bc85cd1e858145a1cb0c8acb46d7e087d9d4bd279946', 'guarded_red/report.md': 'e69af61333a8034e470fdca38231d8ea28bd5af3ba60e3877179d862b8cdcc83', 'guarded_red/workflow.yml': '7e6365d7c06202b8793469db4fed5973046b07c7a8f9883103fc6ae4f9085c21'}, 'mutants': [{'id': 'M1_CARD_OCCURRENCE', 'path': 'src/app/templates/history/PendingActivityCard.tsx', 'from': '                    errorOccurrence={observedFailure.failure}\n', 'to': '', 'predicted_regression': 'Both exact later timing assertion failures return at frozen1881 and1914.', 'source_sha256': '81d4bd76ac3c0d2f7970d7d6288ba62d3bfb1273bb37b5d60c715263bed07300', 'key': 'm1', 'mutated_sha256': '4181defeff13eedf3508e4403c618699563f1331b81e95edf4ea8c93f969a1d7'}, {'id': 'M2_NOTICE_OCCURRENCE', 'path': 'src/components/ui/Notice.tsx', 'from': "  useUserVisibleError(tone === 'negative' ? errorId : null, 'notice', errorOccurrence);", 'to': "  useUserVisibleError(tone === 'negative' ? errorId : null, 'notice');", 'predicted_regression': 'Both exact later timing assertion failures return at frozen1881 and1914.', 'source_sha256': 'eaccdf9d1c5d541c34103ee369504242b3d75ca35846bcab4136b0ffb5838e1c', 'key': 'm2', 'mutated_sha256': 'b826e9605835b76c14cf660bf1e2497d43d0544dd457170f7cef5df286207fc0'}, {'id': 'M3_EFFECT_OCCURRENCE', 'path': 'src/lib/telemetry/use-user-visible-error.ts', 'from': '  }, [id, surface, occurrence]);', 'to': '  }, [id, surface]);', 'predicted_regression': 'Both exact later timing assertion failures return at frozen1881 and1914.', 'source_sha256': 'b7fc2d595e28954cae2aba17dbd00b356c84a354df9c1bd036c608b153f82b8e', 'key': 'm3', 'mutated_sha256': '6778c47a7fb7d79d7d550c5c6a6e3285b8fbd7d7e469980abd46b2eab6487ef5'}], 'logged_commands': ['source', 'install', 'prepared', 'format', 'eslint', 'typescript', 'positive-regression', 'positive-controls', 'positive-support', 'm1-apply', 'm1-regression', 'm1-controls', 'm1-support', 'm1-restore', 'm2-apply', 'm2-regression', 'm2-controls', 'm2-support', 'm2-restore', 'm3-apply', 'm3-regression', 'm3-controls', 'm3-support', 'm3-restore', 'final'], 'outcomes': ['initialize', 'checkout', 'source', 'node', 'install', 'prepared', 'format', 'eslint', 'typescript', 'positive_regression', 'positive_controls', 'positive_support', 'm1_apply', 'm1_regression', 'm1_controls', 'm1_support', 'm1_restore', 'm2_apply', 'm2_regression', 'm2_controls', 'm2_support', 'm2_restore', 'm3_apply', 'm3_regression', 'm3_controls', 'm3_support', 'm3_restore', 'final']}
+          proof = Path(os.environ['PROOF_DIR'])
+
+
+          def git(*args):
+              return subprocess.check_output(['git', *args])
+
+
+          def value(*args):
+              return git(*args).decode().strip()
+
+
+          def digest(data):
+              return hashlib.sha256(data).hexdigest()
+
+
+          def save(name, data):
+              (proof / name).write_text(json.dumps(data, indent=2, ensure_ascii=True) + '\n')
+
+
+          def tree(ref):
+              entries = {}
+              for record in git('ls-tree', '-r', '-z', ref).split(b'\0'):
+                  if record:
+                      metadata, name = record.split(b'\t', 1)
+                      entries[name.decode()] = metadata.decode().split()
+              return entries
+
+
+          def identity():
+              keys = ['HEAD_SHA', 'REF', 'EVENT', 'REPOSITORY', 'WORKFLOW_REF', 'WORKFLOW_SHA', 'RUN_ID', 'RUN_ATTEMPT']
+              save('run-identity.json', {key: os.environ['PROOF_' + key] for key in keys})
+
+
+          def all_suites():
+              return {**BINDINGS['regression_suites'], **BINDINGS['control_suites'], **BINDINGS['support_suites']}
+
+
+          def mutation(key):
+              return next(item for item in BINDINGS['mutants'] if item['key'] == key)
+
+
+          def source_bytes(item):
+              original = git('show', 'HEAD:' + item['path'])
+              assert digest(original) == item['source_sha256'], 'Mutation original hash mismatch'
+              assert original.count(item['from'].encode()) == 1, 'Mutation must replace exactly one occurrence'
+              changed = original.replace(item['from'].encode(), item['to'].encode(), 1)
+              assert digest(changed) == item['mutated_sha256'] and changed != original, 'Wrong/no-op mutation'
+              return original, changed
+
+
+          def read_working(entries):
+              result = {}
+              for name, entry in entries.items():
+                  mode, kind, oid = entry
+                  path = Path(name)
+                  observed = path.lstat()
+                  assert kind == 'blob', 'Unexpected non-blob source: ' + name
+                  if mode == '120000':
+                      assert stat.S_ISLNK(observed.st_mode), 'Source symlink replaced: ' + name
+                      data = os.readlink(path).encode()
+                  else:
+                      assert mode in ['100644', '100755'] and stat.S_ISREG(observed.st_mode), 'Source file type changed: ' + name
+                      assert bool(observed.st_mode & 0o111) == (mode == '100755'), 'Source executable mode changed: ' + name
+                      data = path.read_bytes()
+                  result[name] = {'git_entry': entry, 'working_sha256': digest(data), 'bytes': len(data),
+                                  'working_mode': stat.S_IMODE(observed.st_mode),
+                                  'working_blob': hashlib.sha1(b'blob ' + str(len(data)).encode() + b'\0' + data).hexdigest()}
+              return result
+
+
+          def snapshot(label, mutant=None, allow_original=False):
+              manifest = json.loads((proof / 'source-and-checkout.json').read_text())
+              entries = tree('HEAD')
+              assert entries == manifest['checkout_entry_map'], 'Committed source changed'
+              current = read_working(entries)
+              raw_stage = git('ls-files', '--stage', '-z')
+              indexed = {}
+              for record in raw_stage.split(b'\0'):
+                  if record:
+                      metadata, name = record.split(b'\t', 1)
+                      indexed[name.decode()] = metadata.decode().split()
+              expected_index = {name: [entry[0], entry[2], '0'] for name, entry in entries.items()}
+              index_path = Path(value('rev-parse', '--git-path', 'index'))
+              assert index_path.is_file() and not index_path.is_symlink(), 'Index unavailable or symlinked'
+              raw_index = index_path.read_bytes()
+              (proof / (label + '.index.bin')).write_bytes(raw_index)
+              (proof / (label + '.index-stage.bin')).write_bytes(raw_stage)
+              record = {'head': value('rev-parse', 'HEAD'), 'head_tree': value('rev-parse', 'HEAD^{tree}'),
+                        'index_tree': value('write-tree'), 'index_entry_map': indexed,
+                        'index_sha256': digest(raw_index), 'index_stage_sha256': digest(raw_stage),
+                        'tracked_working_map': current,
+                        'status': value('status', '--porcelain=v1', '--untracked-files=all')}
+              save(label + '.map.json', record)
+              assert record['head'] == manifest['checkout_commit'] and record['head_tree'] == manifest['checkout_tree'], 'Head changed'
+              assert indexed == expected_index and record['index_tree'] == record['head_tree'], 'Index changed'
+              original = json.loads((proof / 'source-clean.map.json').read_text())['tracked_working_map'] if label != 'source-clean' else None
+              for name, observed in current.items():
+                  if original is not None:
+                      assert observed['working_mode'] == original[name]['working_mode'], 'Working mode changed: ' + name
+                  expected_blobs = {entries[name][2]}
+                  if mutant is not None and name == mutant['path']:
+                      _, changed = source_bytes(mutant)
+                      changed_blob = hashlib.sha1(b'blob ' + str(len(changed)).encode() + b'\0' + changed).hexdigest()
+                      expected_blobs = {changed_blob, entries[name][2]} if allow_original else {changed_blob}
+                  assert observed['working_blob'] in expected_blobs, 'Unexpected source bytes: ' + name
+              if mutant is None:
+                  assert not record['status'], 'Restored checkout is dirty: ' + record['status']
+              else:
+                  permitted = 'M ' + mutant['path']
+                  assert record['status'] == permitted or (allow_original and not record['status']), 'Unexpected changed/staged/untracked path: ' + record['status']
+              return record
+
+
+          def source():
+              head = value('rev-parse', 'HEAD')
+              before, after = tree(BINDINGS['source']), tree(head)
+              workflow = BINDINGS['workflow']
+              manifest = {**BINDINGS, 'source_commit': value('rev-parse', BINDINGS['source']),
+                          'source_tree': value('rev-parse', BINDINGS['source'] + '^{tree}'),
+                          'checkout_commit': head, 'checkout_tree': value('rev-parse', 'HEAD^{tree}'),
+                          'source_entry_map': before, 'checkout_entry_map': after,
+                          'workflow_sha256': digest(Path(workflow).read_bytes()),
+                          'proof_tools_sha256': digest(Path(__file__).read_bytes()),
+                          'runner_helper_sha256': digest((proof / 'run-logged.bash').read_bytes()),
+                          'runtime_claim': 'UNRUN; no focused, coverage or merge acceptance from source binding alone'}
+              save('source-and-checkout.json', manifest)
+              for label, ref in [('source', BINDINGS['source']), ('checkout', head)]:
+                  (proof / (label + '-commit.txt')).write_bytes(git('cat-file', 'commit', ref))
+                  (proof / (label + '-tree.txt')).write_bytes(git('ls-tree', '-r', ref))
+              (proof / 'workflow-only.diff').write_bytes(git('diff', '--binary', BINDINGS['source'], head, '--', workflow))
+              assert head == os.environ['PROOF_HEAD_SHA'] == os.environ['PROOF_WORKFLOW_SHA'], 'Checkout/event/workflow mismatch'
+              assert os.environ['PROOF_EVENT'] == 'push', 'Push event required'
+              assert os.environ['PROOF_REF'] == 'refs/heads/' + BINDINGS['branch'], 'Disposable branch required'
+              assert os.environ['PROOF_WORKFLOW_REF'] == os.environ['PROOF_REPOSITORY'] + '/' + workflow + '@' + os.environ['PROOF_REF'], 'Workflow ref mismatch'
+              assert all(os.environ['PROOF_' + key].isdigit() for key in ['RUN_ID', 'RUN_ATTEMPT']), 'Run identity missing'
+              assert manifest['source_tree'] == BINDINGS['source_tree'], 'Reviewed source tree mismatch'
+              assert value('rev-list', '--parents', '-n', '1', head).split() == [head, BINDINGS['source']], 'Sole source parent required'
+              assert len(before) == 3618 and all(after.get(name) == entry for name, entry in before.items()), 'Source entry changed'
+              assert set(after) - set(before) == {workflow} and len(after) == 3619, 'Sole added workflow required'
+              assert after[workflow][:2] == ['100644', 'blob'], 'Workflow must be regular'
+              assert digest(Path('docs/privacy/index.md').read_bytes()) == BINDINGS['formatted_privacy_sha256'], 'Accepted privacy formatting changed'
+              for name, binding in all_suites().items():
+                  assert not Path(name).is_symlink() and digest(Path(name).read_bytes()) == binding['sha256'], 'Test bytes changed: ' + name
+              lines = Path('src/app/hooks/useActivityClaims.test.ts').read_text().splitlines()
+              for site in BINDINGS['conditional_failure_sites'].values():
+                  assert lines[site['line'] - 1] == site['source'], 'Frozen later assertion changed'
+              snapshot('source-clean')
+              print('Verified sole workflow addition and all3618 source entries/modes, six suites and exact event binding')
+
+
+          def prepared():
+              snapshot('prepared')
+              save('tool-versions.json', {name: subprocess.check_output([name, '--version'], text=True).strip() for name in ['node', 'yarn']})
+              print('Verified full source, index and six suites after frozen installation with normal hooks')
+
+
+          def apply(key):
+              item = mutation(key)
+              snapshot(key + '-before')
+              original, changed = source_bytes(item)
+              path = Path(item['path'])
+              assert path.read_bytes() == original and not path.is_symlink(), 'Mutation source is not exact baseline'
+              save(key + '.mutation.json', {**item, 'original_bytes': len(original), 'mutated_bytes': len(changed),
+                                          'expected_single_changed_path': item['path'], 'original_mode': stat.S_IMODE(path.lstat().st_mode)})
+              (proof / (key + '.original-source')).write_bytes(original)
+              path.write_bytes(changed)
+              (proof / (key + '.mutated-source')).write_bytes(path.read_bytes())
+              (proof / (key + '.mutation.patch')).write_bytes(git('diff', '--binary', 'HEAD', '--', item['path']))
+              snapshot(key + '-mutated', item)
+              print('Applied exactly one source edit:', key, item['path'], item['source_sha256'], '->', item['mutated_sha256'])
+
+
+          def restore(key):
+              item = mutation(key)
+              snapshot(key + '-pre-restore', item, allow_original=True)
+              original, changed = source_bytes(item)
+              path = Path(item['path'])
+              current = path.read_bytes()
+              assert current in [original, changed] and not path.is_symlink(), 'Refuse to overwrite unexpected mutation source'
+              if current == changed:
+                  path.write_bytes(original)
+              snapshot(key + '-restored')
+              save(key + '.restoration.json', {'path': item['path'], 'source_sha256': digest(path.read_bytes()),
+                                             'exact_original_restored': path.read_bytes() == original,
+                                             'was_mutated': current == changed})
+              print('Verified exact restoration and full clean source/index:', key)
+
+
+          def checked_suites(result, expected, red):
+              actual = {}
+              failures = {}
+              for suite in result['testResults']:
+                  name = Path(suite['name']).relative_to(Path.cwd()).as_posix()
+                  assert name not in actual and name in expected, 'Unexpected or duplicate suite: ' + name
+                  binding = expected[name]
+                  cases = suite['assertionResults']
+                  names = sorted(case['fullName'] for case in cases)
+                  assert len(names) == binding['test_count'], 'Missing/extra cases: ' + name
+                  assert len(names) == len(set(names)), 'Duplicate case name: ' + name
+                  assert hashlib.sha256(json.dumps(names, ensure_ascii=False, separators=(',', ':')).encode()).hexdigest() == binding['test_names_sha256'], 'Exact complete case inventory mismatch: ' + name
+                  assert not Path(name).is_symlink() and hashlib.sha256(Path(name).read_bytes()).hexdigest() == binding['sha256'], 'Test bytes changed: ' + name
+                  failed = []
+                  for case in cases:
+                      title = case['fullName']
+                      assert not case['failing'] and case['invocations'] == 1 and not case['retryReasons'], 'Retries or expected-failing cases forbidden: ' + title
+                      site = BINDINGS['conditional_failure_sites'].get(title) if red else None
+                      if site is None:
+                          assert case['status'] == 'passed' and not case['failureMessages'] and not case['failureDetails'], 'Guard/control/runtime failure: ' + title
+                          continue
+                      assert case['status'] == 'failed' and len(case['failureMessages']) == len(case['failureDetails']) == 1, 'Intended timing assertion not reached alone: ' + title
+                      assert not case['failing'] and case['invocations'] == 1 and not case['retryReasons'], 'Retries or expected-failing case not allowed: ' + title
+                      message = re.sub(r'\x1b\[[0-9;]*m', '', case['failureMessages'][0])
+                      prefix, stack = re.split(r'\n\s+at ', message, maxsplit=1)
+                      first_frame = stack.splitlines()[0]
+                      frame = r'^[^\n]* \(' + re.escape(str(Path.cwd() / name)) + ':' + str(site['line']) + r':\d+\)$'
+                      assert re.fullmatch(frame, first_frame), 'Earlier guard/setup/runtime failure, not the later timing site: ' + title
+                      assert site['matcher'] in first_frame, 'Wrong matcher frame: ' + title
+                      matcher = case['failureDetails'][0]['matcherResult']
+                      if site['matcher'] == 'toHaveBeenCalled':
+                          expected_prefix = 'Error: expect(jest.fn()).not.toHaveBeenCalled()\n\nExpected number of calls: 0\nReceived number of calls: 1\n\n1: "raw_pending_activity_retry_failed", "notice"'
+                          assert prefix.rstrip() == expected_prefix, 'Wrong early-report assertion values: ' + title
+                          assert matcher['pass'] is True and matcher['message'] == expected_prefix.removeprefix('Error: '), 'Wrong negated matcher details: ' + title
+                      else:
+                          row = ['raw_pending_activity_retry_failed', 'notice']
+                          assert prefix.startswith('Error: expect(received).toEqual(expected) // deep equality'), 'Non-equality failure: ' + title
+                          assert matcher['name'] == 'toEqual' and matcher['pass'] is False, 'Wrong equality matcher: ' + title
+                          assert matcher['actual'] == [row] and matcher['expected'] == [row, row], 'Wrong missing-second-report values: ' + title
+                          assert matcher['message'] == prefix.rstrip().removeprefix('Error: '), 'Message/detail mismatch: ' + title
+                      failed.append(title)
+                      failures[title] = {'assertion_line': site['line'], 'matcher': site['matcher'], 'first_frame': first_frame, 'observed_prefix_sha256': hashlib.sha256(prefix.rstrip().encode()).hexdigest(), 'passing_assertions_before_failure': case['numPassingAsserts']}
+                  actual[name] = {'test_count': len(cases), 'passed': len(cases) - len(failed), 'intended_timing_failures': failed}
+              assert set(actual) == set(expected), 'Missing suite'
+              return actual, failures
+
+
+
+          def checked_result(path, expected, red=False):
+              result = json.loads(path.read_text())
+              suites, failures = checked_suites(result, expected, red)
+              total = sum(item['test_count'] for item in expected.values())
+              failed = 2 if red else 0
+              assert (result['numTotalTestSuites'], result['numFailedTestSuites'], result['numPassedTestSuites']) == (len(expected), 1 if red else 0, len(expected) - (1 if red else 0)), 'Wrong suite summary'
+              assert (result['numTotalTests'], result['numFailedTests'], result['numPassedTests']) == (total, failed, total - failed), 'Wrong case summary'
+              assert all(result[name] == 0 for name in ['numPendingTestSuites', 'numPendingTests', 'numTodoTests', 'numRuntimeErrorTestSuites']), 'Skipped/todo/runtime result'
+              assert result['success'] is (not red) and result['wasInterrupted'] is False and not result['openHandles'], 'Interrupted/runtime result'
+              assert set(failures) == (set(BINDINGS['conditional_failure_sites']) if red else set()), 'Wrong exact timing failure set'
+              return {'total': total, 'passed': total - failed, 'failed': failed, 'suites': suites, 'exact_timing_failures': failures}
+
+
+          def validate_snapshot(label, allowed=None):
+              manifest = json.loads((proof / 'source-and-checkout.json').read_text())
+              baseline = json.loads((proof / 'source-clean.map.json').read_text())
+              record = json.loads((proof / (label + '.map.json')).read_text())
+              entries = manifest['checkout_entry_map']
+              assert record['head'] == manifest['checkout_commit'] and record['head_tree'] == record['index_tree'] == manifest['checkout_tree'], 'Snapshot head/index tree mismatch: ' + label
+              assert record['index_entry_map'] == {name: [entry[0], entry[2], '0'] for name, entry in entries.items()}, 'Snapshot index mismatch: ' + label
+              assert digest((proof / (label + '.index.bin')).read_bytes()) == record['index_sha256'], 'Raw index evidence mismatch'
+              assert digest((proof / (label + '.index-stage.bin')).read_bytes()) == record['index_stage_sha256'], 'Raw staged-index evidence mismatch'
+              current = record['tracked_working_map']
+              assert set(current) == set(entries), 'Snapshot entry count mismatch'
+              for name, observed in current.items():
+                  expected = baseline['tracked_working_map'][name]
+                  if allowed is not None and name == allowed['path']:
+                      _, changed = source_bytes(allowed)
+                      expected = {**expected, 'working_sha256': digest(changed), 'bytes': len(changed),
+                                  'working_blob': hashlib.sha1(b'blob ' + str(len(changed)).encode() + b'\0' + changed).hexdigest()}
+                  assert observed == expected and observed['git_entry'] == entries[name], 'Snapshot source/mode mismatch: ' + label + ':' + name
+              assert record['status'] == ('M ' + allowed['path'] if allowed is not None else ''), 'Snapshot changed-path mismatch: ' + label
+              return {'map_sha256': digest((proof / (label + '.map.json')).read_bytes()), 'entries': len(current), 'index_entries': len(record['index_entry_map'])}
+
+
+          def validate():
+              outcomes = {name: os.environ.get(name.upper() + '_OUTCOME', 'missing') for name in BINDINGS['outcomes']}
+              save('step-outcomes.json', outcomes)
+              validation = {'status': 'INVALID', 'runtime': 'UNACCEPTED', 'independent_outcomes': outcomes,
+                            'scope': 'Focused only; no whole95/finalreview/merge credit'}
+              required = ['run-identity.json', 'proof-tools.py', 'run-logged.bash', 'source-and-checkout.json',
+                          'source-commit.txt', 'checkout-commit.txt', 'source-tree.txt', 'checkout-tree.txt',
+                          'workflow-only.diff', 'tool-versions.json']
+              snapshots = ['source-clean', 'prepared', 'final-clean']
+              for key in ['positive', 'm1', 'm2', 'm3']:
+                  required += [key + '-' + group + '.json' for group in ['regression', 'controls', 'support']]
+              for key in ['m1', 'm2', 'm3']:
+                  snapshots += [key + suffix for suffix in ['-before', '-mutated', '-pre-restore', '-restored']]
+                  required += [key + suffix for suffix in ['.mutation.json', '.restoration.json', '.original-source', '.mutated-source', '.mutation.patch']]
+              for label in snapshots:
+                  required += [label + suffix for suffix in ['.map.json', '.index.bin', '.index-stage.bin']]
+              required += [label + suffix for label in BINDINGS['logged_commands'] for suffix in ['.log', '.exit', '.tee.exit']]
+              missing = [name for name in required if not (proof / name).is_file() or not (proof / name).stat().st_size]
+              save('evidence-completeness.json', {'missing_or_empty': missing, 'required': required})
+              try:
+                  assert not missing, 'Missing/empty evidence: ' + repr(missing)
+                  for name, observed in outcomes.items():
+                      expected = 'failure' if name in ['m1_regression', 'm2_regression', 'm3_regression'] else 'success'
+                      assert observed == expected, 'Independent step outcome mismatch: ' + name + '=' + observed
+                  for label in BINDINGS['logged_commands']:
+                      expected = '1' if label in ['m1-regression', 'm2-regression', 'm3-regression'] else '0'
+                      assert (proof / (label + '.exit')).read_text().strip() == expected, 'Wrong natural command status: ' + label
+                      assert (proof / (label + '.tee.exit')).read_text().strip() == '0', 'Evidence tee failed: ' + label
+                  manifest = json.loads((proof / 'source-and-checkout.json').read_text())
+                  assert manifest['source_commit'] == BINDINGS['source'] and manifest['source_tree'] == BINDINGS['source_tree'], 'Source binding mismatch'
+                  assert manifest['proof_tools_sha256'] == digest(Path(__file__).read_bytes()), 'Controller helper changed'
+                  assert manifest['runner_helper_sha256'] == digest((proof / 'run-logged.bash').read_bytes()), 'Logging helper changed'
+                  source_map = manifest['source_entry_map']
+                  assert source_map == tree(BINDINGS['source']) and len(source_map) == 3618, 'Frozen source map mismatch'
+                  assert all(manifest['checkout_entry_map'][name] == entry for name, entry in source_map.items()), 'Source map changed'
+                  assert set(manifest['checkout_entry_map']) - set(source_map) == {BINDINGS['workflow']}, 'Workflow delta changed'
+                  positive = {name: checked_result(proof / ('positive-' + name + '.json'), BINDINGS[key]) for name, key in [('regression', 'regression_suites'), ('controls', 'control_suites'), ('support', 'support_suites')]}
+                  snapshots_checked = {label: validate_snapshot(label) for label in ['source-clean', 'prepared', 'final-clean']}
+                  mutants = {}
+                  for key in ['m1', 'm2', 'm3']:
+                      item = mutation(key)
+                      record = json.loads((proof / (key + '.mutation.json')).read_text())
+                      assert all(record[name] == value for name, value in item.items()), 'Mutation identity mismatch'
+                      original, changed = source_bytes(item)
+                      assert (proof / (key + '.original-source')).read_bytes() == original, 'Original source evidence changed'
+                      assert (proof / (key + '.mutated-source')).read_bytes() == changed, 'Mutated source evidence changed'
+                      restoration = json.loads((proof / (key + '.restoration.json')).read_text())
+                      assert restoration['exact_original_restored'] is True and restoration['was_mutated'] is True and restoration['source_sha256'] == item['source_sha256'], 'Exact restoration missing'
+                      for suffix in ['-before', '-restored']:
+                          snapshots_checked[key + suffix] = validate_snapshot(key + suffix)
+                      for suffix in ['-mutated', '-pre-restore']:
+                          snapshots_checked[key + suffix] = validate_snapshot(key + suffix, item)
+                      mutants[key] = {name: checked_result(proof / (key + '-' + name + '.json'), BINDINGS[binding], name == 'regression') for name, binding in [('regression', 'regression_suites'), ('controls', 'control_suites'), ('support', 'support_suites')]}
+                  snapshot('final-validation-clean')
+                  validation.update({'status': 'EPISODE_POSITIVE_AND_THREE_MUTANTS_ONLY', 'runtime': 'ACTUAL_FOCUSED_CI',
+                                     'controller_acceptance': 'ELIGIBLE_ONLY', 'positive': positive, 'mutants': mutants,
+                                     'source_and_index_snapshots': snapshots_checked,
+                                     'limits': 'No ordinary-click batching, physical storage timing, whole95, final review or merge credit'})
+                  print('Observed all168 positive cases and each isolated exact two-failure mutant with166 passing cases; all source/index restoration and independent gates complete')
+              except Exception as error:
+                  validation['reason'] = str(error)
+                  raise
+              finally:
+                  save('test-set-validation.json', validation)
+
+
+          mode = sys.argv[1]
+          if mode == 'identity':
+              identity()
+          elif mode == 'source':
+              source()
+          elif mode == 'prepared':
+              prepared()
+          elif mode == 'apply':
+              apply(sys.argv[2])
+          elif mode == 'restore':
+              restore(sys.argv[2])
+          elif mode == 'final':
+              snapshot('final-clean')
+              print('Verified full final source, modes, clean checkout and exact index')
+          elif mode == 'validate':
+              validate()
+          else:
+              raise ValueError('Unknown proof mode')
+          PYTHON_HELPER
+          python3 "$PROOF_DIR/proof-tools.py" identity
+
+      - name: Checkout exact proof head
+        id: checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Bind every source entry and sole workflow addition
+        id: source
+        if: ${{ !cancelled() && steps.initialize.outcome == 'success' && steps.checkout.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged source python3 "$PROOF_DIR/proof-tools.py" source
+
+      - name: Setup Node22
+        id: node
+        if: ${{ !cancelled() && steps.source.outcome == 'success' }}
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+
+      - name: Install frozen dependencies with normal hooks
+        id: install
+        if: ${{ !cancelled() && steps.source.outcome == 'success' && steps.node.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged install timeout 10m yarn install --frozen-lockfile --non-interactive
+
+      - name: Verify every source byte mode and index after preparation
+        id: prepared
+        if: ${{ !cancelled() && steps.source.outcome == 'success' && steps.install.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged prepared python3 "$PROOF_DIR/proof-tools.py" prepared
+
+      - name: Check named source six suites contract and privacy formatting
+        id: format
+        if: ${{ !cancelled() && steps.source.outcome == 'success' && steps.install.outcome == 'success' && steps.prepared.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged format yarn prettier --check src/app/hooks/useActivityClaims.ts src/app/hooks/useActivityClaims.test.ts src/app/templates/history/PendingActivityCard.tsx src/app/templates/history/PendingActivityCard.test.tsx src/lib/telemetry/user-visible-error-contract.ts src/lib/telemetry/use-user-visible-error.ts src/components/ui/Notice.tsx src/lib/telemetry/user-visible-error.test.ts src/lib/telemetry/crash-diagnostics.policy.test.ts src/components/ui/Notice.test.tsx src/lib/telemetry/use-user-visible-error.test.tsx docs/privacy/index.md
+
+      - name: Lint named production source and all six suites
+        id: eslint
+        if: ${{ !cancelled() && steps.source.outcome == 'success' && steps.install.outcome == 'success' && steps.prepared.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged eslint yarn eslint --max-warnings 0 src/app/hooks/useActivityClaims.ts src/app/hooks/useActivityClaims.test.ts src/app/templates/history/PendingActivityCard.tsx src/app/templates/history/PendingActivityCard.test.tsx src/lib/telemetry/user-visible-error-contract.ts src/lib/telemetry/use-user-visible-error.ts src/components/ui/Notice.tsx src/lib/telemetry/user-visible-error.test.ts src/lib/telemetry/crash-diagnostics.policy.test.ts src/components/ui/Notice.test.tsx src/lib/telemetry/use-user-visible-error.test.tsx
+
+      - name: Check whole project TypeScript without emitting
+        id: typescript
+        if: ${{ !cancelled() && steps.source.outcome == 'success' && steps.install.outcome == 'success' && steps.prepared.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged typescript yarn tsc --noEmit --pretty false
+
+      - name: Run complete positive regression suites
+        id: positive_regression
+        if: ${{ !cancelled() && steps.source.outcome == 'success' && steps.install.outcome == 'success' && steps.prepared.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged positive-regression yarn jest --runTestsByPath src/app/templates/history/PendingActivityCard.test.tsx src/app/hooks/useActivityClaims.test.ts --maxWorkers=2 --coverage=false --no-colors --json --outputFile="$PROOF_DIR/positive-regression.json"
+
+      - name: Run complete positive controls suites
+        id: positive_controls
+        if: ${{ !cancelled() && steps.source.outcome == 'success' && steps.install.outcome == 'success' && steps.prepared.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged positive-controls yarn jest --runTestsByPath src/lib/telemetry/user-visible-error.test.ts src/lib/telemetry/crash-diagnostics.policy.test.ts --maxWorkers=2 --coverage=false --no-colors --json --outputFile="$PROOF_DIR/positive-controls.json"
+
+      - name: Run complete positive support suites
+        id: positive_support
+        if: ${{ !cancelled() && steps.source.outcome == 'success' && steps.install.outcome == 'success' && steps.prepared.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged positive-support yarn jest --runTestsByPath src/components/ui/Notice.test.tsx src/lib/telemetry/use-user-visible-error.test.tsx --maxWorkers=2 --coverage=false --no-colors --json --outputFile="$PROOF_DIR/positive-support.json"
+
+      - name: Apply exactly one m1 source edit
+        id: m1_apply
+        if: ${{ !cancelled() && steps.source.outcome == 'success' && steps.install.outcome == 'success' && steps.prepared.outcome == 'success' && steps.format.outcome == 'success' && steps.eslint.outcome == 'success' && steps.typescript.outcome == 'success' && steps.positive_regression.outcome == 'success' && steps.positive_controls.outcome == 'success' && steps.positive_support.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged m1-apply python3 "$PROOF_DIR/proof-tools.py" apply m1
+
+      - name: Run complete m1 regression suites
+        id: m1_regression
+        if: ${{ !cancelled() && steps.source.outcome == 'success' && steps.install.outcome == 'success' && steps.prepared.outcome == 'success' && steps.m1_apply.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged m1-regression yarn jest --runTestsByPath src/app/templates/history/PendingActivityCard.test.tsx src/app/hooks/useActivityClaims.test.ts --maxWorkers=2 --coverage=false --no-colors --json --outputFile="$PROOF_DIR/m1-regression.json"
+
+      - name: Run complete m1 controls suites
+        id: m1_controls
+        if: ${{ !cancelled() && steps.source.outcome == 'success' && steps.install.outcome == 'success' && steps.prepared.outcome == 'success' && steps.m1_apply.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged m1-controls yarn jest --runTestsByPath src/lib/telemetry/user-visible-error.test.ts src/lib/telemetry/crash-diagnostics.policy.test.ts --maxWorkers=2 --coverage=false --no-colors --json --outputFile="$PROOF_DIR/m1-controls.json"
+
+      - name: Run complete m1 support suites
+        id: m1_support
+        if: ${{ !cancelled() && steps.source.outcome == 'success' && steps.install.outcome == 'success' && steps.prepared.outcome == 'success' && steps.m1_apply.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged m1-support yarn jest --runTestsByPath src/components/ui/Notice.test.tsx src/lib/telemetry/use-user-visible-error.test.tsx --maxWorkers=2 --coverage=false --no-colors --json --outputFile="$PROOF_DIR/m1-support.json"
+
+      - name: Restore m1 and verify all source and index
+        id: m1_restore
+        if: ${{ always() && steps.prepared.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged m1-restore python3 "$PROOF_DIR/proof-tools.py" restore m1
+
+      - name: Apply exactly one m2 source edit
+        id: m2_apply
+        if: ${{ !cancelled() && steps.source.outcome == 'success' && steps.install.outcome == 'success' && steps.prepared.outcome == 'success' && steps.m1_apply.outcome == 'success' && steps.m1_restore.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged m2-apply python3 "$PROOF_DIR/proof-tools.py" apply m2
+
+      - name: Run complete m2 regression suites
+        id: m2_regression
+        if: ${{ !cancelled() && steps.source.outcome == 'success' && steps.install.outcome == 'success' && steps.prepared.outcome == 'success' && steps.m2_apply.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged m2-regression yarn jest --runTestsByPath src/app/templates/history/PendingActivityCard.test.tsx src/app/hooks/useActivityClaims.test.ts --maxWorkers=2 --coverage=false --no-colors --json --outputFile="$PROOF_DIR/m2-regression.json"
+
+      - name: Run complete m2 controls suites
+        id: m2_controls
+        if: ${{ !cancelled() && steps.source.outcome == 'success' && steps.install.outcome == 'success' && steps.prepared.outcome == 'success' && steps.m2_apply.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged m2-controls yarn jest --runTestsByPath src/lib/telemetry/user-visible-error.test.ts src/lib/telemetry/crash-diagnostics.policy.test.ts --maxWorkers=2 --coverage=false --no-colors --json --outputFile="$PROOF_DIR/m2-controls.json"
+
+      - name: Run complete m2 support suites
+        id: m2_support
+        if: ${{ !cancelled() && steps.source.outcome == 'success' && steps.install.outcome == 'success' && steps.prepared.outcome == 'success' && steps.m2_apply.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged m2-support yarn jest --runTestsByPath src/components/ui/Notice.test.tsx src/lib/telemetry/use-user-visible-error.test.tsx --maxWorkers=2 --coverage=false --no-colors --json --outputFile="$PROOF_DIR/m2-support.json"
+
+      - name: Restore m2 and verify all source and index
+        id: m2_restore
+        if: ${{ always() && steps.prepared.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged m2-restore python3 "$PROOF_DIR/proof-tools.py" restore m2
+
+      - name: Apply exactly one m3 source edit
+        id: m3_apply
+        if: ${{ !cancelled() && steps.source.outcome == 'success' && steps.install.outcome == 'success' && steps.prepared.outcome == 'success' && steps.m2_apply.outcome == 'success' && steps.m2_restore.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged m3-apply python3 "$PROOF_DIR/proof-tools.py" apply m3
+
+      - name: Run complete m3 regression suites
+        id: m3_regression
+        if: ${{ !cancelled() && steps.source.outcome == 'success' && steps.install.outcome == 'success' && steps.prepared.outcome == 'success' && steps.m3_apply.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged m3-regression yarn jest --runTestsByPath src/app/templates/history/PendingActivityCard.test.tsx src/app/hooks/useActivityClaims.test.ts --maxWorkers=2 --coverage=false --no-colors --json --outputFile="$PROOF_DIR/m3-regression.json"
+
+      - name: Run complete m3 controls suites
+        id: m3_controls
+        if: ${{ !cancelled() && steps.source.outcome == 'success' && steps.install.outcome == 'success' && steps.prepared.outcome == 'success' && steps.m3_apply.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged m3-controls yarn jest --runTestsByPath src/lib/telemetry/user-visible-error.test.ts src/lib/telemetry/crash-diagnostics.policy.test.ts --maxWorkers=2 --coverage=false --no-colors --json --outputFile="$PROOF_DIR/m3-controls.json"
+
+      - name: Run complete m3 support suites
+        id: m3_support
+        if: ${{ !cancelled() && steps.source.outcome == 'success' && steps.install.outcome == 'success' && steps.prepared.outcome == 'success' && steps.m3_apply.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged m3-support yarn jest --runTestsByPath src/components/ui/Notice.test.tsx src/lib/telemetry/use-user-visible-error.test.tsx --maxWorkers=2 --coverage=false --no-colors --json --outputFile="$PROOF_DIR/m3-support.json"
+
+      - name: Restore m3 and verify all source and index
+        id: m3_restore
+        if: ${{ always() && steps.prepared.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged m3-restore python3 "$PROOF_DIR/proof-tools.py" restore m3
+
+      - name: Verify complete final source modes and index
+        id: final
+        if: ${{ always() && steps.prepared.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged final python3 "$PROOF_DIR/proof-tools.py" final
+
+      - name: Validate exact positives mutants outcomes and restoration
+        id: validate
+        if: always()
+        env:
+          INITIALIZE_OUTCOME: ${{ steps.initialize.outcome }}
+          CHECKOUT_OUTCOME: ${{ steps.checkout.outcome }}
+          SOURCE_OUTCOME: ${{ steps.source.outcome }}
+          NODE_OUTCOME: ${{ steps.node.outcome }}
+          INSTALL_OUTCOME: ${{ steps.install.outcome }}
+          PREPARED_OUTCOME: ${{ steps.prepared.outcome }}
+          FORMAT_OUTCOME: ${{ steps.format.outcome }}
+          ESLINT_OUTCOME: ${{ steps.eslint.outcome }}
+          TYPESCRIPT_OUTCOME: ${{ steps.typescript.outcome }}
+          POSITIVE_REGRESSION_OUTCOME: ${{ steps.positive_regression.outcome }}
+          POSITIVE_CONTROLS_OUTCOME: ${{ steps.positive_controls.outcome }}
+          POSITIVE_SUPPORT_OUTCOME: ${{ steps.positive_support.outcome }}
+          M1_APPLY_OUTCOME: ${{ steps.m1_apply.outcome }}
+          M1_REGRESSION_OUTCOME: ${{ steps.m1_regression.outcome }}
+          M1_CONTROLS_OUTCOME: ${{ steps.m1_controls.outcome }}
+          M1_SUPPORT_OUTCOME: ${{ steps.m1_support.outcome }}
+          M1_RESTORE_OUTCOME: ${{ steps.m1_restore.outcome }}
+          M2_APPLY_OUTCOME: ${{ steps.m2_apply.outcome }}
+          M2_REGRESSION_OUTCOME: ${{ steps.m2_regression.outcome }}
+          M2_CONTROLS_OUTCOME: ${{ steps.m2_controls.outcome }}
+          M2_SUPPORT_OUTCOME: ${{ steps.m2_support.outcome }}
+          M2_RESTORE_OUTCOME: ${{ steps.m2_restore.outcome }}
+          M3_APPLY_OUTCOME: ${{ steps.m3_apply.outcome }}
+          M3_REGRESSION_OUTCOME: ${{ steps.m3_regression.outcome }}
+          M3_CONTROLS_OUTCOME: ${{ steps.m3_controls.outcome }}
+          M3_SUPPORT_OUTCOME: ${{ steps.m3_support.outcome }}
+          M3_RESTORE_OUTCOME: ${{ steps.m3_restore.outcome }}
+          FINAL_OUTCOME: ${{ steps.final.outcome }}
+        run: |
+          set -euo pipefail
+          umask 077
+          export PROOF_DIR="${PROOF_DIR:-$RUNNER_TEMP/pending-episode-proof}"
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged validate python3 "$PROOF_DIR/proof-tools.py" validate
+
+      - name: Retain complete raw evidence on every result
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pending-episode-proof-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.PROOF_DIR }}
+          if-no-files-found: error
+          retention-days: 7
