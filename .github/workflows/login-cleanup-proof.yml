@@ -385,8 +385,8 @@ jobs:
                   expected_header = 'expect(received).' + binding['matcher'] + '(expected) // ' + ('Object.is equality' if binding['matcher'] == 'toBe' else 'deep equality')
                   assert header in [expected_header, 'Error: ' + expected_header], (title, header)
                   escaped_test = re.escape(manifest['test'])
-                  assert re.search(r'at expectCleanedUp \([^\n]*' + escaped_test + ':' + str(binding['assertion_line']) + r':\d+\)', message), title
-                  assert re.search(escaped_test + ':' + str(binding['target_call_lines'][title]) + r':\d+', message), title
+                  assert re.search(r'at ' + binding['matcher'] + r' \([^\n]*' + escaped_test + ':' + str(binding['assertion_line']) + r':\d+\)', message), title
+                  assert re.search(r'at Object\.expectCleanedUp \([^\n]*' + escaped_test + ':' + str(binding['target_call_lines'][title]) + r':\d+\)', message), title
                   assert binding['assertion_text'] in Path(manifest['test']).read_text().splitlines()[binding['assertion_line'] - 1], title
                   if binding['matcher'] == 'toBe':
                       assert re.search(r'Expected: 0\nReceived: 1(?:\n|$)', prefix), title
