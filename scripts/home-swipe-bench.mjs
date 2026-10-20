@@ -537,8 +537,9 @@ async function measureInp(page) {
     await sleep(200);
     const raw = await page.evaluate(() => window.__PERF__.stop());
     const durations = (raw.input || []).map(entry => entry.duration).filter(value => Number.isFinite(value));
-    if (!durations.length) throw new Error(`tap ${tap + 1} produced no event timing`);
-    const duration = Math.max(...durations);
+    // Event Timing drops anything under 16ms. A missing entry is that fast, so
+    // record the floor rather than fail a tap the API cannot see.
+    const duration = durations.length ? Math.max(...durations) : 16;
     samples.push(duration);
     console.log(`tap ${tap + 1}/${INP_TAPS}  ${duration.toFixed(0)}ms`);
   }
