@@ -52,11 +52,11 @@ let mockEpochQuote: { amount?: string; loading: boolean; error: null; symbol: st
   error: null,
   symbol: 'USDC'
 };
-let mockBurnPreflight = { minimum: 1n, loading: false, error: undefined };
+let mockBurnMinimum = 5_000_000n;
 // The native asset's chain metadata; null until a test discovers one, as before discovery.
 let mockNativeMetadata: { symbol: string; decimals: number } | null = null;
 jest.mock('lib/usdcx/burn', () => ({ initiateUsdcxBurn: jest.fn(async () => 'burn-tx') }));
-jest.mock('lib/usdcx/use-burn-preflight', () => ({ useBurnPreflight: () => mockBurnPreflight }));
+jest.mock('lib/usdcx/use-burn-minimum', () => ({ useBurnMinimum: () => mockBurnMinimum }));
 
 const mockWalletStoreState = {
   tokenPrices: { USDC: { price: 2 } } as Record<string, { price: number }>,
@@ -508,7 +508,7 @@ beforeEach(() => {
   mockBridgeAvailability = { state: 'available' };
   jest.resetAllMocks();
   jest.mocked(useFeatureAvailability).mockImplementation(() => mockBridgeAvailability);
-  mockBurnPreflight = { minimum: 1n, loading: false, error: undefined };
+  mockBurnMinimum = 5_000_000n;
   jest.mocked(initiateUsdcxBurn).mockResolvedValue('burn-tx');
   mockAuthorizationAccountOverride = undefined;
 
@@ -559,7 +559,7 @@ describe('USDCx burn review', () => {
   beforeEach(() => {
     mockDetectedChain = 'ethereum';
     mockBalanceData = [{ ...VALID_TOKEN, tokenId: USDCX_FAUCET_ID_BECH32, metadata: { symbol: 'USDCX', decimals: 6 } }];
-    mockSearch = `amount=1.000001&to=0x1111111111111111111111111111111111111111&tokenId=${USDCX_FAUCET_ID_BECH32}&network=arc-testnet&route=usdcx`;
+    mockSearch = `amount=5.000001&to=0x1111111111111111111111111111111111111111&tokenId=${USDCX_FAUCET_ID_BECH32}&network=arc-testnet&route=usdcx`;
   });
 
   it('submits the exact base-unit burn and shows Circle fee and the least payout', async () => {
@@ -568,12 +568,12 @@ describe('USDCx burn review', () => {
     expect(screen.getByText('usdcxWithdrawalNotice')).toBeInTheDocument();
     // The review now shows the payout Circle's fee leaves, where it used to show no payout figure at all.
     expect(screen.getByText('usdcxPayoutFeeUpTo|0.1')).toBeInTheDocument();
-    expect(screen.getByText('usdcxPayoutAtLeast|0.900001')).toBeInTheDocument();
+    expect(screen.getByText('usdcxPayoutAtLeast|4.900001')).toBeInTheDocument();
     fireEvent.click(screen.getByTestId('send-review-submit'));
     await waitFor(() =>
       expect(initiateUsdcxBurn).toHaveBeenCalledWith(
         expect.objectContaining({
-          amount: 1_000_001n,
+          amount: 5_000_001n,
           faucetId: USDCX_FAUCET_ID_BECH32,
           destinationChainId: 5042002,
           destinationAddress: '0x1111111111111111111111111111111111111111'
@@ -589,10 +589,7 @@ describe('USDCx burn review', () => {
     ['base-sepolia', 84532],
     ['arbitrum-sepolia', 421614]
   ])('accepts a USDCx deep link targeting %s', async (network, chainId) => {
-    // 2.000001 USDCx, since a burn must exceed its destination's payout fee allowance (1.5 USDC on Sepolia).
-    mockSearch = mockSearch
-      .replace('network=arc-testnet', `network=${network}`)
-      .replace('amount=1.000001', 'amount=2.000001');
+    mockSearch = mockSearch.replace('network=arc-testnet', `network=${network}`);
     render(<ReviewTransaction />);
     await flush();
     fireEvent.click(screen.getByTestId('send-review-submit'));
@@ -609,16 +606,26 @@ describe('USDCx burn review', () => {
     expect(initiateUsdcxBurn).not.toHaveBeenCalled();
   });
 
-  it('disables submission below the on-chain minimum', async () => {
-    mockBurnPreflight.minimum = 2_000_000n;
+  it('disables submission below the minimum burn, naming it', async () => {
+    mockBurnMinimum = 5_000_000n;
+    mockSearch = mockSearch.replace('amount=5.000001', 'amount=4.999999');
     render(<ReviewTransaction />);
     await flush();
+    expect(screen.getByText('5 USDCx')).toBeInTheDocument();
     expect(screen.getByTestId('send-review-submit')).toBeDisabled();
-    expect(screen.getByText('usdcxBelowMinimumBurn')).toBeInTheDocument();
+    expect(screen.getByTestId('review-error')).toHaveTextContent('usdcxBelowMinimumBurn|5');
+  });
+
+  it('accepts a burn at the minimum', async () => {
+    mockBurnMinimum = 5_000_000n;
+    mockSearch = mockSearch.replace('amount=5.000001', 'amount=5');
+    render(<ReviewTransaction />);
+    await flush();
+    expect(screen.getByTestId('send-review-submit')).toBeEnabled();
   });
 
   it('rejects precision that would otherwise silently round', async () => {
-    mockSearch = mockSearch.replace('1.000001', '1.0000001');
+    mockSearch = mockSearch.replace('amount=5.000001', 'amount=5.0000001');
     render(<ReviewTransaction />);
     await flush();
     expect(screen.getByTestId('send-review-submit')).toBeDisabled();
@@ -647,15 +654,6 @@ describe('USDCx burn review', () => {
     expect(initiateUsdcxBurn).not.toHaveBeenCalled();
   });
 
-  // Circle takes a flat ~1.0035 USDC from a Sepolia payout; the allowance a burn there must exceed is 1.5 USDC.
-  it('disables submission of a burn the Sepolia fee allowance takes whole, naming the allowance and the network', async () => {
-    mockSearch = mockSearch.replace('network=arc-testnet', 'network=sepolia').replace('amount=1.000001', 'amount=1.5');
-    render(<ReviewTransaction />);
-    await flush();
-    expect(screen.getByTestId('send-review-submit')).toBeDisabled();
-    expect(screen.getByTestId('review-error')).toHaveTextContent('usdcxSendMoreThanPayoutFee|1.5|Sepolia');
-  });
-
   it('names the allowance and the network a refused burn carries', async () => {
     jest
       .mocked(initiateUsdcxBurn)
@@ -672,7 +670,7 @@ describe('USDCx burn review', () => {
 
   // Circle charges a flat ~1,003,500 (about 1.0035 USDC) to pay a burn out on Ethereum; the allowance is 1.5 USDC.
   it('shows the Sepolia fee allowance and the payout it leaves', async () => {
-    mockSearch = mockSearch.replace('network=arc-testnet', 'network=sepolia').replace('amount=1.000001', 'amount=10');
+    mockSearch = mockSearch.replace('network=arc-testnet', 'network=sepolia').replace('amount=5.000001', 'amount=10');
     render(<ReviewTransaction />);
     await flush();
     expect(screen.getByText('usdcxCircleFee')).toBeInTheDocument();

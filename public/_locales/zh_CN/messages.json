@@ -86,16 +86,17 @@
     "englishSource": "Enter a positive USDCx amount with at most six decimal places."
   },
   "usdcxBelowMinimumBurn": {
-    "message": "该金额低于faucet规定的最低销毁金额。",
-    "englishSource": "The amount is below the faucet's minimum burn amount."
-  },
-  "usdcxIncompatibleBurnScript": {
-    "message": "该钱包的销毁脚本与 USDCx 的 faucet 不匹配。",
-    "englishSource": "The wallet's burn script does not match the USDCx faucet."
+    "message": "发送至少 $amount$ USDCx。",
+    "englishSource": "Send at least $amount$ USDCx.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
   },
   "usdcxFaucetUnavailable": {
-    "message": "无法读取 USDCx faucet 的销毁政策。请重新开启审核以再次尝试。",
-    "englishSource": "Unable to read the USDCx faucet's burn policy. Reopen review to try again."
+    "message": "USDCx 的“faucet”目前尚不明确。请重新开启审核以再次尝试。",
+    "englishSource": "The USDCx faucet is not known yet. Reopen review to try again."
   },
   "usdcxSendMoreThanPayoutFee": {
     "message": "向$network$网络发送超过$amount$的USDCx：Circle的手续费将从支付金额中扣除。",

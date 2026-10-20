@@ -41,14 +41,14 @@ import { WcCounterparty, type WcRequestLog } from '../helpers/wc-counterparty';
  *      which the wallet auto-claims, so it never waits in Pending. The wallet is a Guardian account, so
  *      the claim is a consume the hosted testnet Guardian co-signs, and the spec checks the account's
  *      auth structure afterwards.
- *   7. Only then the burn: the wallet takes USDCx from the public faucet and burns 1 USDCx through Send, to
+ *   7. Only then the burn: the wallet takes USDCx from the public faucet and burns 5 USDCx through Send, to
  *      Arc Testnet, back to the funded key's own address. The run fails unless Circle pays that key within 10
  *      minutes of the faucet consuming the burn (one GatewayMinter AttestationUsed log that carries the burn note id
  *      and adds exactly its value to the key's balance, read right before the burn) and the wallet confirms the
  *      payout itself: the row's destination balance, then the History pill.
  *
  * The run spends public faucet USDCx and real Arc Testnet USDC (the deposit and the gas). At the default 0.01 USDC
- * deposit the payout of about 0.98 USDC more than refills that, so the funded key needs no top-up
+ * deposit, a successful burn's payout replenishes the funded key
  * (playwright/e2e/docs/e2e-architecture.md, section 8).
  *
  * Environment:
