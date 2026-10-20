@@ -1,0 +1,986 @@
+name: NEVER-MERGE Sentry2M background guarded expected red
+
+on:
+  push:
+    branches: [ci/sentry2m-background-red-exact]
+
+permissions:
+  contents: read
+
+jobs:
+  guarded-background-red:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: bash
+    env:
+      CI: 'true'
+      PROOF_HEAD_SHA: ${{ github.sha }}
+      PROOF_REF: ${{ github.ref }}
+      PROOF_EVENT: ${{ github.event_name }}
+      PROOF_REPOSITORY: ${{ github.repository }}
+      PROOF_WORKFLOW_REF: ${{ github.workflow_ref }}
+      PROOF_WORKFLOW_SHA: ${{ github.workflow_sha }}
+      PROOF_RUN_ID: ${{ github.run_id }}
+      PROOF_RUN_ATTEMPT: ${{ github.run_attempt }}
+    steps:
+      - name: Initialize immutable private proof packet
+        id: initialize
+        run: |
+          set -euo pipefail
+          umask 077
+          export PROOF_DIR="$RUNNER_TEMP/sentry2m-background-red"
+          printf 'PROOF_DIR=%s\n' "$PROOF_DIR" >> "$GITHUB_ENV"
+          mkdir "$PROOF_DIR"
+          cat > "$PROOF_DIR/run-logged.bash" <<'LOGGER_SOURCE'
+          run_logged() {
+            local label="$1"
+            shift
+            python3 "$PROOF_DIR/proof-tools.py" command-start "$label" "$@"
+            if [ -e "$PROOF_DIR/$label.log" ]; then return 91; fi
+            printf 'Running %s\n' "$label" > "$PROOF_DIR/$label.log"
+            set +e
+            "$@" 2>&1 | tee -a "$PROOF_DIR/$label.log"
+            local statuses=("${PIPESTATUS[@]}")
+            set -e
+            printf '%s\n' "${statuses[0]}" > "$PROOF_DIR/$label.exit"
+            printf '%s\n' "${statuses[1]}" > "$PROOF_DIR/$label.tee.exit"
+            python3 "$PROOF_DIR/proof-tools.py" command-end "$label" "${statuses[0]}" "${statuses[1]}"
+            if [ "${statuses[1]}" -ne 0 ]; then return "${statuses[1]}"; fi
+            return "${statuses[0]}"
+          }
+          LOGGER_SOURCE
+          cat > "$PROOF_DIR/proof-tools.py" <<'PROOF_SOURCE_1'
+          import hashlib
+          import json
+          import os
+          import re
+          import shutil
+          import stat
+          import subprocess
+          import sys
+          from datetime import datetime, timezone
+          from pathlib import Path
+          
+          BINDINGS = json.loads(r'''{
+            "source": "c2d20bfe9cdba3af07c24e0bc68868513102a1d7",
+            "source_tree": "96f42909c68dc5549b5c12aa372c20dca3b4955c",
+            "source_parent": "ea8dfa79c806d711737a52ac407284d2dcd8942e",
+            "source_parent_tree": "9eb6a4bfa01fc0ab34e85dc7f44771fdbcb9e622",
+            "source_commit_sha256": "79ded310125218b1b8c14f0e94be44889b5320e5663ad5985505db8de1e83597",
+            "source_entries": 3614,
+            "source_entry_map_sha256": "1dd77ae682f7af51401baa21c65ee38fd36f66912d864e3f0e616ebe4f094c98",
+            "source_lock_sha256": "8606e15d58682739313e004734d42f34a2ad715148e00f28c2de63596349941d",
+            "test_only_git_diff_sha256": "1267484b3a50f4ab0f284c1b9f4982b51c43d2550f81b300811de71678398cc9",
+            "branch": "ci/sentry2m-background-red-exact",
+            "repository": "0xMiden/wallet",
+            "workflow": ".github/workflows/sentry2m-background-guarded-red.yml",
+            "suites": {
+              "src/lib/extension/notifications.test.ts": {
+                "sha256": "ea6cdb412c0d21700a4cd00997827d12d9155502a1df950baad4670ecf424a8b",
+                "count": 11,
+                "names": [
+                  "showExtensionNotification is a no-op outside extension context",
+                  "showExtensionNotification uses the Web Notifications API when permission is already granted",
+                  "showExtensionNotification requests permission when permission is \"default\" and creates notification on grant",
+                  "showExtensionNotification falls back to chrome.notifications when permission is denied",
+                  "showExtensionNotification falls back to chrome.notifications when global Notification is undefined",
+                  "showExtensionNotification returns silently when both Notification and chrome.notifications are unavailable",
+                  "showExtensionNotification logs an error when chrome.notifications.create reports lastError",
+                  "showExtensionNotification Notification onclick opens the Activity pending tab and closes the notification",
+                  "showExtensionNotification Web API failure fallback falls back once when a granted Notification constructor throws",
+                  "showExtensionNotification Web API failure fallback falls back once when the Web notification permission request rejects",
+                  "showExtensionNotification Web API failure fallback resolves when the Web constructor is unsupported and the Chrome fallback is unavailable"
+                ]
+              },
+              "src/components/NoteToastProvider.test.tsx": {
+                "sha256": "83c385e041f2896950308e62d89bf00f904eec55e630ad771a05cfff59a7d8cc",
+                "count": 8,
+                "names": [
+                  "NoteToastProvider returns null on non-mobile non-extension platforms",
+                  "NoteToastProvider initializes native notifications on mobile",
+                  "NoteToastProvider does not initialize native notifications on extension",
+                  "NoteToastProvider shows mobile notification when toast is visible on mobile",
+                  "NoteToastProvider shows extension notification when toast is visible on extension",
+                  "NoteToastProvider does not show notification when toast is not visible",
+                  "NoteToastProvider renders null even on mobile",
+                  "NoteToastProvider renders null on extension"
+                ]
+              },
+              "src/lib/miden/back/background-notification.test.ts": {
+                "sha256": "4d9cc32b20c4088e0871bc0f2c42d101e64d4b1270a56d0cc1169de952dd4fd8",
+                "count": 14,
+                "names": [
+                  "showBackgroundNotification fires a chrome.notifications entry with the given id",
+                  "notifyBackgroundTransactionFailed (gap 6) does NOT notify off the extension",
+                  "notifyBackgroundTransactionFailed (gap 6) does NOT notify when a wallet popup is open (the user already sees the failure)",
+                  "notifyBackgroundTransactionFailed (gap 6) notifies on a background failure when no wallet UI is open",
+                  "notifyBackgroundTransactionFailed (gap 6) swallows an intercom error rather than disturbing the caller",
+                  "notifyBackgroundTransactionNotConfirmed does NOT notify off the extension",
+                  "notifyBackgroundTransactionNotConfirmed does NOT notify when a wallet popup is open",
+                  "notifyBackgroundTransactionNotConfirmed notifies with the not-confirmed title and body when no wallet UI is open",
+                  "notifyBackgroundTransactionNotConfirmed falls back to the en.json body verbatim, and the hint names no transaction type",
+                  "notifyBackgroundTransactionNotConfirmed swallows an intercom error rather than disturbing the caller",
+                  "showBackgroundNotification fallible service-worker attempt keeps a successful service-worker notification as the only delivery",
+                  "showBackgroundNotification fallible service-worker attempt falls back with the default id when the service-worker attempt throws",
+                  "showBackgroundNotification fallible service-worker attempt falls back once with the custom id when the service-worker promise rejects",
+                  "showBackgroundNotification fallible service-worker attempt stays quiet after rejection when the Chrome notification API is absent"
+                ]
+              }
+            },
+            "regression_path": "src/lib/miden/back/background-notification.test.ts",
+            "failure_sites": {
+              "showBackgroundNotification fallible service-worker attempt falls back with the default id when the service-worker attempt throws": {
+                "line": 170,
+                "column": 67,
+                "source": "    expect(() => showBackgroundNotification('Title', 'Body')).not.toThrow();",
+                "matcher": "toThrow",
+                "matcher_pass": true,
+                "prior_passing_assertions": 0,
+                "throw_line": 166,
+                "throw_column": 13,
+                "throw_source": "throw new TypeError('service-worker notification unavailable');",
+                "canonical_header": "expect(received).not.toThrow()\n\nError name:    \"TypeError\"\nError message: \"service-worker notification unavailable\"\n",
+                "canonical_complete_message": "expect(received).not.toThrow()\n\nError name:    \"TypeError\"\nError message: \"service-worker notification unavailable\"\n\n      164 |   it('falls back with the default id when the service-worker attempt throws', () => {\n      165 |     const showNotification = jest.fn(() => {\n    > 166 |       throw new TypeError('service-worker notification unavailable');\n          |             ^\n      167 |     });\n      168 |     Object.defineProperty(globalThis, 'registration', { configurable: true, value: { showNotification } });\n      169 |\n\n      at Object.<anonymous> (src/lib/miden/back/background-notification.test.ts:166:13)\n      at showNotification (src/lib/miden/back/background-notification.ts:18:21)\n      at src/lib/miden/back/background-notification.test.ts:170:44\n      at Object.<anonymous> (node_modules/expect/build/index.js:1824:9)\n      at Object.throwingMatcher [as toThrow] (node_modules/expect/build/index.js:2235:93)\n      at Object.toThrow (src/lib/miden/back/background-notification.test.ts:170:67)",
+                "source_error": "TypeError: service-worker notification unavailable"
+              },
+              "showBackgroundNotification fallible service-worker attempt falls back once with the custom id when the service-worker promise rejects": {
+                "line": 194,
+                "column": 33,
+                "source": "    expect(notificationsCreate).toHaveBeenCalledTimes(1);",
+                "matcher": "toHaveBeenCalledTimes",
+                "matcher_pass": false,
+                "prior_passing_assertions": 1,
+                "canonical_message": "expect(jest.fn()).toHaveBeenCalledTimes(expected)\n\nExpected number of calls: 1\nReceived number of calls: 0",
+                "rendered_expected": 1,
+                "rendered_actual": 0
+              }
+            },
+            "old29_control_names": [
+              "showExtensionNotification is a no-op outside extension context",
+              "showExtensionNotification uses the Web Notifications API when permission is already granted",
+              "showExtensionNotification requests permission when permission is \"default\" and creates notification on grant",
+              "showExtensionNotification falls back to chrome.notifications when permission is denied",
+              "showExtensionNotification falls back to chrome.notifications when global Notification is undefined",
+              "showExtensionNotification returns silently when both Notification and chrome.notifications are unavailable",
+              "showExtensionNotification logs an error when chrome.notifications.create reports lastError",
+              "showExtensionNotification Notification onclick opens the Activity pending tab and closes the notification",
+              "showExtensionNotification Web API failure fallback falls back once when a granted Notification constructor throws",
+              "showExtensionNotification Web API failure fallback falls back once when the Web notification permission request rejects",
+              "showExtensionNotification Web API failure fallback resolves when the Web constructor is unsupported and the Chrome fallback is unavailable",
+              "NoteToastProvider returns null on non-mobile non-extension platforms",
+              "NoteToastProvider initializes native notifications on mobile",
+              "NoteToastProvider does not initialize native notifications on extension",
+              "NoteToastProvider shows mobile notification when toast is visible on mobile",
+              "NoteToastProvider shows extension notification when toast is visible on extension",
+              "NoteToastProvider does not show notification when toast is not visible",
+              "NoteToastProvider renders null even on mobile",
+              "NoteToastProvider renders null on extension",
+              "showBackgroundNotification fires a chrome.notifications entry with the given id",
+              "notifyBackgroundTransactionFailed (gap 6) does NOT notify off the extension",
+              "notifyBackgroundTransactionFailed (gap 6) does NOT notify when a wallet popup is open (the user already sees the failure)",
+              "notifyBackgroundTransactionFailed (gap 6) notifies on a background failure when no wallet UI is open",
+              "notifyBackgroundTransactionFailed (gap 6) swallows an intercom error rather than disturbing the caller",
+              "notifyBackgroundTransactionNotConfirmed does NOT notify off the extension",
+              "notifyBackgroundTransactionNotConfirmed does NOT notify when a wallet popup is open",
+              "notifyBackgroundTransactionNotConfirmed notifies with the not-confirmed title and body when no wallet UI is open",
+              "notifyBackgroundTransactionNotConfirmed falls back to the en.json body verbatim, and the hint names no transaction type",
+              "notifyBackgroundTransactionNotConfirmed swallows an intercom error rather than disturbing the caller"
+            ],
+            "framework_files": {
+              "expect/package.json": {
+                "version": "30.4.1",
+                "sha256": "c0dcf2678d35a15774a7aebc71dcaeb3442f6b22d722e04ea0d68081ec6eb5a0",
+                "bytes": 1132
+              },
+              "expect/build/index.js": {
+                "version": "30.4.1",
+                "sha256": "469add4932a11785006b19dbd1c041169b040d69cf4e27872892e0a7119368b4",
+                "bytes": 112845
+              },
+              "jest-circus/package.json": {
+                "version": "30.4.2",
+                "sha256": "488605fae2565092977981f56170340563a571a44e47bd9c7e2987319712e16b",
+                "bytes": 1573
+              },
+              "jest-circus/build/jestAdapterInit.js": {
+                "version": "30.4.2",
+                "sha256": "f64ef94daa71293d875d497f692c48de6f8cc72a70d1935449da6610aa9438d1",
+                "bytes": 72464
+              },
+              "jest-circus/build/runner.js": {
+                "version": "30.4.2",
+                "sha256": "26e7f1e4684472561af0b445a8ee5872088d41aa3b1b120b79cb70f93ef5d764",
+                "bytes": 6908
+              },
+              "jest-util/package.json": {
+                "version": "30.4.1",
+                "sha256": "01adf732c8a3c43ec42f5b009f12619e82451018518084b513ca3a4daf741793",
+                "bytes": 1037
+              },
+              "jest-util/build/index.js": {
+                "version": "30.4.1",
+                "sha256": "3e8b0fc7c556b53ef1d4ec30457ce2dddd5059bdb464d57dedaa5918b11053ea",
+                "bytes": 42629
+              },
+              "@jest/test-result/package.json": {
+                "version": "30.4.1",
+                "sha256": "e6d4c63978870df4e6fb2af087c459a008b471a8bddccdcb593183f7b47c2b52",
+                "bytes": 939
+              },
+              "@jest/test-result/build/index.js": {
+                "version": "30.4.1",
+                "sha256": "e63c5d3baba4fcded043e2409185718267dfcad34b71a5fd00cdb7e8b4bf3292",
+                "bytes": 9688
+              },
+              "@jest/core/package.json": {
+                "version": "30.4.2",
+                "sha256": "c6f7e4533f393266cbfcb1113fc81d26677aad1bdca105defd953c20ee378e5a",
+                "bytes": 2369
+              },
+              "@jest/core/build/index.js": {
+                "version": "30.4.2",
+                "sha256": "16ef0a75b6a8062fe9d4f74a23b88221928d23fdee50387ba4bb408b355a4f27",
+                "bytes": 139198
+              },
+              "jest-matcher-utils/package.json": {
+                "version": "30.4.1",
+                "sha256": "b433966e038240bffcae1cf95997171145b8a343aef0713d5e6c22fdd72ebd84",
+                "bytes": 987
+              },
+              "jest-matcher-utils/build/index.js": {
+                "version": "30.4.1",
+                "sha256": "1bbf8b1afe9f59c06c9129e4d4ce7406089b5c1563bf019e1cfbfd9d69335b52",
+                "bytes": 24759
+              },
+              "jest-message-util/package.json": {
+                "version": "30.4.1",
+                "sha256": "d59b894e46f35738af8190efede24d69ee4463f1539f66dcff375590d0ccdabd",
+                "bytes": 1161
+              },
+              "jest-message-util/build/index.js": {
+                "version": "30.4.1",
+                "sha256": "2d816704a60117c2ed5d5a455360dce0f525668ac2ac9b4fb12232911815a4d6",
+                "bytes": 15703
+              },
+              "pretty-format/package.json": {
+                "version": "30.4.1",
+                "sha256": "816f475ae53780688516968fddef795c2f69c25ea9814b752553dd6d411e2564",
+                "bytes": 1309
+              },
+              "pretty-format/build/index.js": {
+                "version": "30.4.1",
+                "sha256": "a402d0283ddb1bc9a42d6d2605789b2573895114db88c6fb4070eca228a06d20",
+                "bytes": 40721
+              },
+              "jest-mock/package.json": {
+                "version": "30.4.1",
+                "sha256": "006acca1f6c22e773c9233dd1d867dc7fd884afa70dba7f8d1e24fdd65a5a783",
+                "bytes": 772
+              },
+              "jest-mock/build/index.js": {
+                "version": "30.4.1",
+                "sha256": "45416bb20e5d9126c5a06bde711854c645f075d8c275d9a4548707cdb158fea0",
+                "bytes": 29769
+              },
+              "jest/package.json": {
+                "version": "30.4.2",
+                "sha256": "90b2d495b4fdef80faefeeb26e275478bb3c1eeac15d587bbffb192ca3a4fa52",
+                "bytes": 1467
+              },
+              "jest/build/index.js": {
+                "version": "30.4.2",
+                "sha256": "fe7074b98064efbccdd13c7ee9a8b2bb5f86f098b2c0f5667896e9c78af3b20d",
+                "bytes": 2022
+              },
+              "@swc/jest/package.json": {
+                "version": "0.2.39",
+                "sha256": "dd80a5ab649391bd5f0184007bdd1d8d893a58144ac5252f8a9ee335c3f86089",
+                "bytes": 1133
+              },
+              "@swc/jest/index.js": {
+                "version": "0.2.39",
+                "sha256": "870ec5fa54614551d1cc08fb0b3b605fed98574152c36591a01c1160f1145eaf",
+                "bytes": 9577
+              },
+              "@babel/code-frame/package.json": {
+                "version": "7.29.7",
+                "sha256": "f9cccb2e601db93851f10935b4e723c95a730c467f187462eb54b16bb353b036",
+                "bytes": 907
+              },
+              "@babel/code-frame/lib/index.js": {
+                "version": "7.29.7",
+                "sha256": "313711c78293dfc83beb2ce5d6846a539235fc48fdd507361b59db8aaba2b186",
+                "bytes": 7193
+              },
+              "stack-utils/package.json": {
+                "version": "2.0.6",
+                "sha256": "3201cc0a446607d67472e3b28ab5f4d6cfdf7e14d45a653333d3d515141bcf57",
+                "bytes": 829
+              },
+              "stack-utils/index.js": {
+                "version": "2.0.6",
+                "sha256": "8624b27caead12bd488332c5c47113cdc19d15a4bdc1b7bd6bef315785682cbe",
+                "bytes": 7961
+              },
+              "slash/package.json": {
+                "version": "3.0.0",
+                "sha256": "2795b8bbe7a17e6e28a9766399073b3fa353b421256ad204f496b42c045c536c",
+                "bytes": 576
+              },
+              "slash/index.js": {
+                "version": "3.0.0",
+                "sha256": "15a1a6b9f2a2d6d85f5de10ad3d6eb25fe4ca0db0397bc8e2dd89361780a1925",
+                "bytes": 289
+              }
+            },
+            "input_sha256": {
+              "background-checkpoint": "2302278747d575b3ee6d7e680851da677eea979cfde423079fd89d8600ae8503",
+              "background-cases": "470412be35ac3b33e8a330eeb56d6977ebadc904eb530300a5c198bd77cb8ca3",
+              "background-test-only-diff": "1267484b3a50f4ab0f284c1b9f4982b51c43d2550f81b300811de71678398cc9",
+              "background-before": "cb6b926b7b89d1fecf5c7ef7a20a6677283af3aed773d46115cc7da907846936",
+              "positive-template": "5ece9df1207b8d97129403abc9cc13c7ba7cac577b720804695f1baa594a34bd",
+              "positive-helper": "e8e8af87027d9dd0d950ec5f4b0f8f2dabc42e26e7c79746d4907944a5e22cf5",
+              "positive-corrected-template": "40877c7b5e51effd469c837ef87e7c2b9384221010481068f867401d50347739",
+              "accepted-older-red-workflow": "a17bf79fe56626067a42025addaa8cba391769bd031ce609e84d5a1f34140185",
+              "accepted-older-red-helper": "ea53b11a3664713f5ab91259659bb99c2c2a264d3277bf336165e08e8e02cc7e",
+              "accepted-older-controller": "3c0ee331946adbc839c3591cdfebea0006695db1789efd0a0c1570871100c813",
+              "serializer-report": "3c055b34f170f47c13d0b39ea3bc160609ceeb3044f3a974fb7aa695b4fd4b16",
+              "serializer-source-identities": "3761cd3cd7a33e6a50844610867ea4ef84402e9773e2d21c169c64f1a960522d",
+              "serializer-recommendation": "8ab38915917bb2e33a4319a093efd09522178f074864defbb05c6ae32d2640e3"
+            },
+            "strict_rendering_constraint": "A new run must match the complete source-bound synchronous matcher message and every independent gate; first run39434757826 remains INVALID with no retrospective credit.",
+            "complete_synchronous_rendering_proven": true,
+            "normal_review": "ROOT_OWNED_ACCEPTANCE_REQUIRED_BEFORE_PUSH",
+            "actual_new_red": "UNRUN",
+            "production_background_fix_gate": "CLOSED",
+            "merge": "NEVER",
+            "named_ts_files": [
+              "src/lib/extension/notifications.ts",
+              "src/lib/extension/notifications.test.ts",
+              "src/components/NoteToastProvider.tsx",
+              "src/components/NoteToastProvider.test.tsx",
+              "src/lib/miden/back/background-notification.ts",
+              "src/lib/miden/back/background-notification.test.ts"
+            ],
+            "logged_commands": [
+              "source",
+              "install",
+              "prepared",
+              "format",
+              "eslint",
+              "typescript",
+              "shellsource",
+              "shell",
+              "jest",
+              "final"
+            ],
+            "outcomes": [
+              "initialize",
+              "tools2",
+              "tools3",
+              "identity",
+              "checkout",
+              "source",
+              "node",
+              "install",
+              "prepared",
+              "format",
+              "eslint",
+              "typescript",
+              "shell",
+              "jest",
+              "final"
+            ],
+            "authored_test_checkpoint": "ea8dfa79c806d711737a52ac407284d2dcd8942e",
+          PROOF_SOURCE_1
+
+      - name: Retain proof helper source part 2
+        id: tools2
+        run: |
+          set -euo pipefail
+          umask 077
+          cat >> "$PROOF_DIR/proof-tools.py" <<'PROOF_SOURCE_2'
+            "authored_test_parent": "b77b72ae0d77d45d8165216e830ebb8d936b2df5",
+            "format_only_git_diff_sha256": "03df7650cbbafec9d37a692aa9309e36fea9f9e0db1fd458f9115bb28075bdb5"
+          }''')
+          proof = Path(os.environ['PROOF_DIR'])
+          
+          
+          def digest(data):
+              return hashlib.sha256(data).hexdigest()
+          
+          
+          def canonical(data):
+              return json.dumps(data, sort_keys=True, ensure_ascii=True, separators=(',', ':')).encode()
+          
+          
+          def save(name, data):
+              with (proof / name).open('x') as target:
+                  target.write(json.dumps(data, indent=2, ensure_ascii=True) + '\n')
+          
+          
+          def now():
+              return datetime.now(timezone.utc).isoformat()
+          
+          
+          def git(*args):
+              return subprocess.check_output(['git', *args], env={**os.environ, 'GIT_OPTIONAL_LOCKS': '0'})
+          
+          
+          def value(*args):
+              return git(*args).decode().strip()
+          
+          
+          def tree(ref):
+              result = {}
+              for record in git('ls-tree', '-r', '-z', ref).split(b'\0'):
+                  if record:
+                      entry, name = record.split(b'\t', 1)
+                      result[name.decode()] = entry.decode().split()
+              return result
+          
+          
+          def frozen_source(entries):
+              oids = [entry[2] for entry in entries.values()]
+              raw = subprocess.check_output(['git', 'cat-file', '--batch'], input=('\n'.join(oids) + '\n').encode())
+              cursor = 0
+              result = {}
+              for name, entry in entries.items():
+                  end = raw.index(b'\n', cursor)
+                  oid, kind, size = raw[cursor:end].decode().split()
+                  size = int(size)
+                  data = raw[end + 1:end + 1 + size]
+                  assert [entry[2], 'blob'] == [oid, kind] and len(data) == size
+                  result[name] = {'entry': entry, 'bytes': size, 'sha256': digest(data)}
+                  cursor = end + size + 2
+              assert cursor == len(raw)
+              return result
+          
+          
+          def snapshot(label):
+              record = {'at': now(), 'cwd': str(Path.cwd()), 'errors': [], 'complete': False,
+                        'working_entries': {}, 'index_entries': []}
+              try:
+                  record['head'] = value('rev-parse', 'HEAD')
+                  record['head_tree'] = value('rev-parse', 'HEAD^{tree}')
+                  entries = tree('HEAD')
+                  record['committed_entries'] = entries
+                  for name, entry in entries.items():
+                      try:
+                          path = Path(name)
+                          observed = path.lstat()
+                          if entry[0] == '120000':
+                              assert stat.S_ISLNK(observed.st_mode), 'Symlink type changed'
+                              data = os.fsencode(os.readlink(path))
+                          else:
+                              assert entry[0] in ['100644', '100755'] and stat.S_ISREG(observed.st_mode), 'File type changed'
+                              assert bool(observed.st_mode & 0o111) == (entry[0] == '100755'), 'Executable mode changed'
+                              data = path.read_bytes()
+                          record['working_entries'][name] = {
+                              'entry': entry, 'bytes': len(data), 'sha256': digest(data),
+                              'physical_mode': stat.S_IMODE(observed.st_mode),
+                              'blob': hashlib.sha1(b'blob ' + str(len(data)).encode() + b'\0' + data).hexdigest()}
+                      except Exception as error:
+                          record['errors'].append({'path': name, 'reason': str(error)})
+                  raw_stage = git('ls-files', '--stage', '-z')
+                  (proof / (label + '.index-stage.bin')).write_bytes(raw_stage)
+                  for item in raw_stage.split(b'\0'):
+                      if item:
+                          metadata, name = item.split(b'\t', 1)
+                          record['index_entries'].append([name.decode(), *metadata.decode().split()])
+                  index = Path(value('rev-parse', '--git-path', 'index'))
+                  assert index.is_file() and not index.is_symlink(), 'Missing or symlinked index'
+                  raw_index = index.read_bytes()
+                  (proof / (label + '.index.bin')).write_bytes(raw_index)
+                  record['index_sha256'] = digest(raw_index)
+                  record['index_stage_sha256'] = digest(raw_stage)
+                  record['status'] = value('status', '--porcelain=v1', '--untracked-files=all')
+                  record['complete'] = not record['errors'] and len(record['working_entries']) == len(entries)
+              except Exception as error:
+                  record['errors'].append({'reason': str(error)})
+              finally:
+                  save(label + '.map.json', record)
+              return record
+          
+          
+          def check_snapshot(label):
+              record = json.loads((proof / (label + '.map.json')).read_text())
+              baseline = json.loads((proof / 'source-clean.map.json').read_text())
+              manifest = json.loads((proof / 'source-and-checkout.json').read_text())
+              entries = manifest['checkout_entry_map']
+              assert record['complete'] and not record['errors'], 'Incomplete snapshot: ' + label
+              assert record['head'] == manifest['checkout_commit'] and record['head_tree'] == manifest['checkout_tree']
+              assert record['committed_entries'] == entries, 'Committed source drift'
+              assert sorted(record['index_entries']) == sorted([name, entry[0], entry[2], '0'] for name, entry in entries.items()), 'Index stage drift'
+              assert set(record['working_entries']) == set(entries), 'Incomplete source entries'
+              assert all(item['entry'] == entries[name] and item['blob'] == entries[name][2]
+                         for name, item in record['working_entries'].items()), 'Source bytes changed'
+              assert record['working_entries'] == baseline['working_entries'], 'Physical modes or source changed'
+              assert not record['status'], 'Dirty source or untracked files'
+              assert digest((proof / (label + '.index.bin')).read_bytes()) == record['index_sha256']
+              assert digest((proof / (label + '.index-stage.bin')).read_bytes()) == record['index_stage_sha256']
+              return digest((proof / (label + '.map.json')).read_bytes())
+          
+          
+          def identity():
+              keys = ['HEAD_SHA', 'REF', 'EVENT', 'REPOSITORY', 'WORKFLOW_REF', 'WORKFLOW_SHA', 'RUN_ID', 'RUN_ATTEMPT']
+              save('run-identity.json', {key: os.environ['PROOF_' + key] for key in keys})
+              save('bindings.json', BINDINGS)
+              print('Recorded run identity; actual result and root acceptance remain unaccepted')
+          
+          
+          def source():
+              snapshot('source-clean')
+              head = value('rev-parse', 'HEAD')
+              before, after = tree(BINDINGS['source']), tree(head)
+              frozen = frozen_source(before)
+              save('source-entry-map.json', frozen)
+              manifest = {**BINDINGS, 'source_commit': BINDINGS['source'],
+                          'checkout_commit': head, 'checkout_tree': value('rev-parse', 'HEAD^{tree}'),
+                          'source_entry_map': before, 'checkout_entry_map': after,
+                          'workflow_sha256': digest(Path(BINDINGS['workflow']).read_bytes()),
+                          'proof_tools_sha256': digest(Path(__file__).read_bytes()),
+                          'runner_helper_sha256': digest((proof / 'run-logged.bash').read_bytes())}
+              save('source-and-checkout.json', manifest)
+              for label, ref in [('source', BINDINGS['source']), ('source-parent', BINDINGS['source_parent']), ('authored-test-parent', BINDINGS['authored_test_parent']), ('checkout', head)]:
+                  (proof / (label + '-commit.txt')).write_bytes(git('cat-file', 'commit', ref))
+                  (proof / (label + '-tree.txt')).write_bytes(git('ls-tree', '-r', ref))
+              (proof / 'workflow-only.diff').write_bytes(git('diff', '--binary', BINDINGS['source'], head))
+              (proof / 'test-only.diff').write_bytes(git('diff', '--binary', BINDINGS['authored_test_parent'], BINDINGS['authored_test_checkpoint']))
+              (proof / 'format-only.diff').write_bytes(git('diff', '--binary', BINDINGS['source_parent'], BINDINGS['source']))
+              assert head == os.environ['PROOF_HEAD_SHA'] == os.environ['PROOF_WORKFLOW_SHA'], 'Head/event/workflow mismatch'
+              assert os.environ['PROOF_REPOSITORY'] == BINDINGS['repository'], 'Repository mismatch'
+              assert os.environ['PROOF_EVENT'] == 'push' and os.environ['PROOF_REF'] == 'refs/heads/' + BINDINGS['branch']
+              assert os.environ['PROOF_WORKFLOW_REF'] == BINDINGS['repository'] + '/' + BINDINGS['workflow'] + '@' + os.environ['PROOF_REF']
+              assert all(re.fullmatch(r'[1-9][0-9]*', os.environ['PROOF_' + key]) for key in ['RUN_ID', 'RUN_ATTEMPT'])
+              assert value('rev-parse', BINDINGS['source'] + '^{tree}') == BINDINGS['source_tree']
+              assert value('rev-parse', BINDINGS['source_parent'] + '^{tree}') == BINDINGS['source_parent_tree']
+              assert value('rev-list', '--parents', '-n', '1', head).split() == [head, BINDINGS['source']], 'Direct transport parent required'
+              assert value('rev-list', '--parents', '-n', '1', BINDINGS['source']).split() == [BINDINGS['source'], BINDINGS['source_parent']]
+              assert BINDINGS['source_parent'] == BINDINGS['authored_test_checkpoint']
+              assert value('rev-list', '--parents', '-n', '1', BINDINGS['authored_test_checkpoint']).split() == [BINDINGS['authored_test_checkpoint'], BINDINGS['authored_test_parent']]
+              assert value('diff', '--name-only', BINDINGS['source_parent'], BINDINGS['source']).splitlines() == ['CHANGELOG.md']
+              assert digest((proof / 'format-only.diff').read_bytes()) == BINDINGS['format_only_git_diff_sha256']
+              assert digest(canonical(frozen)) == BINDINGS['source_entry_map_sha256'], 'Frozen source byte/mode map changed'
+              assert len(before) == BINDINGS['source_entries'] and all(after.get(name) == entry for name, entry in before.items())
+              assert set(after) - set(before) == {BINDINGS['workflow']} and len(after) == len(before) + 1, 'Sole addition required'
+              assert after[BINDINGS['workflow']][:2] == ['100644', 'blob']
+              assert digest(git('cat-file', 'commit', BINDINGS['source'])) == BINDINGS['source_commit_sha256']
+              assert digest((proof / 'test-only.diff').read_bytes()) == BINDINGS['test_only_git_diff_sha256']
+              for name, suite in BINDINGS['suites'].items():
+                  assert digest(Path(name).read_bytes()) == suite['sha256'] and not Path(name).is_symlink()
+              lines = Path(BINDINGS['regression_path']).read_text().splitlines()
+              for site in BINDINGS['failure_sites'].values():
+                  assert lines[site['line'] - 1] == site['source'], 'Authored assertion changed'
+              check_snapshot('source-clean')
+              print('Verified complete frozen source, signed checkpoint bytes, sole workflow addition and exact push provenance')
+          
+          
+          def frameworks(capture):
+              observed = {}
+              for name, binding in BINDINGS['framework_files'].items():
+                  path = Path('node_modules') / name
+                  assert path.is_file() and not path.is_symlink(), 'Missing dependency: ' + name
+                  data = path.read_bytes()
+                  retained = 'framework/' + name
+                  if capture:
+                      target = proof / retained
+                      target.parent.mkdir(parents=True, exist_ok=True)
+                      with target.open('xb') as output:
+                          output.write(data)
+                  assert (proof / retained).read_bytes() == data, 'Retained/runtime framework mismatch: ' + name
+                  assert digest(data) == binding['sha256'] and len(data) == binding['bytes'], 'Pinned framework drift: ' + name
+                  if name.endswith('/package.json'):
+                      assert json.loads(data)['version'] == binding['version'], 'Framework version changed'
+                  observed[name] = {'sha256': digest(data), 'bytes': len(data), 'retained': retained}
+              return observed
+          
+          
+          def prepared():
+              snapshot('prepared')
+              check_snapshot('prepared')
+              save('framework-identity.json', frameworks(True))
+              assert digest(Path('yarn.lock').read_bytes()) == BINDINGS['source_lock_sha256']
+              save('tool-versions.json', {name: subprocess.check_output([name, '--version'], text=True).strip() for name in ['node', 'yarn']})
+              print('Verified post-install snapshot and exact pinned matcher/serializer/formatter source bytes and versions')
+          
+          
+          def plain(value):
+              assert type(value) is str
+              return re.sub(r'\x1b\[[0-9;]*m', '', value)
+          
+          
+          def checked_result():
+              result = json.loads((proof / 'jest.json').read_text())
+              observed, failures = {}, {}
+              for suite in result['testResults']:
+                  name = Path(suite['name']).relative_to(Path.cwd()).as_posix()
+                  assert name in BINDINGS['suites'] and name not in observed, 'Unexpected/duplicate suite'
+                  binding = BINDINGS['suites'][name]
+                  cases = suite['assertionResults']
+                  names = sorted(case['fullName'] for case in cases)
+                  assert len(names) == len(set(names)) == binding['count'] and names == sorted(binding['names']), 'Case inventory changed'
+                  assert digest(Path(name).read_bytes()) == binding['sha256']
+                  failed = []
+                  for case in cases:
+                      title = case['fullName']
+                      assert case['failing'] is False and case['invocations'] == 1 and case['retryReasons'] == [], 'Retry/failing-test modifier'
+                      site = BINDINGS['failure_sites'].get(title)
+                      if site is None:
+                          assert case['status'] == 'passed' and case['failureMessages'] == case['failureDetails'] == [], 'Control failure/skip'
+                          continue
+                      assert name == BINDINGS['regression_path'] and case['status'] == 'failed'
+                      assert len(case['failureMessages']) == len(case['failureDetails']) == 1
+                      assert case['numPassingAsserts'] == site['prior_passing_assertions'], 'Wrong first failing assertion'
+                      detail = case['failureDetails'][0]
+                      assert type(detail) is dict and set(detail) == {'matcherResult'}, 'Frozen circus structured-detail shape changed'
+                      matcher = detail['matcherResult']
+                      assert type(matcher) is dict and set(matcher) == {'message', 'pass'}, 'Unexpected matcher factory schema'
+                      assert matcher['pass'] is site['matcher_pass'], 'Wrong negation/factory pass value'
+                      message, raw = plain(matcher['message']), plain(case['failureMessages'][0])
+                      assert raw.startswith('Error: ' + message + '\n'), 'Raw and structured matcher text disagree'
+                      outer = raw[len('Error: ' + message):]
+                      frames = re.split(r'\n\s+at ', outer)
+                      assert frames[0] == '' and len(frames) >= 2, 'Missing outer assertion stack'
+                      first = frames[1].strip()
+                      frame_pattern = r'^[^\n]*\(' + re.escape(str(Path.cwd() / name)) + ':' + str(site['line']) + r':' + str(site['column']) + r'\)$'
+                      assert re.fullmatch(frame_pattern, first), 'Wrong first authored assertion frame'
+                      if site['matcher'] == 'toHaveBeenCalledTimes':
+                          assert message == site['canonical_message'], 'Wrong exact called-times expected1/received0 rendering'
+                      else:
+                          assert message.startswith(site['canonical_header']), 'Wrong toThrow matcher/type/source-error header'
+                          assert message == site['canonical_complete_message'], 'Wrong complete source-bound toThrow rendering'
+                          rendered = message[len(site['canonical_header']):]
+                          assert rendered.strip(), 'Missing pinned toThrow formatted source/stack'
+                          assert site['throw_source'] in rendered, 'Wrong thrown fixture source frame'
+                          assert re.search(r'\b' + re.escape(name) + ':' + str(site['throw_line']) + r':' + str(site['throw_column']) + r'\)', rendered), 'Wrong first throw source site'
+                      failures[title] = {'assertion_line': site['line'], 'first_authored_frame': first,
+                                         'passing_assertions_before_failure': case['numPassingAsserts'],
+                                         'matcher_factory_pass': matcher['pass'], 'matcher_message_sha256': digest(message.encode()),
+                                         'raw_failure_sha256': digest(case['failureMessages'][0].encode()),
+                                         'strict_rendering_accepted': True,
+                                         'later_assertion_credit': False}
+                      failed.append(title)
+                  expected_status = 'failed' if failed else 'passed'
+                  assert suite['status'] == expected_status
+                  assert bool(suite['message']) == bool(failed), 'Suite setup/runtime message mismatch'
+                  observed[name] = {'total': len(cases), 'passed': len(cases) - len(failed), 'failures': failed}
+              assert set(observed) == set(BINDINGS['suites']) and set(failures) == set(BINDINGS['failure_sites'])
+              assert (result['numTotalTestSuites'], result['numFailedTestSuites'], result['numPassedTestSuites']) == (3, 1, 2)
+              assert (result['numTotalTests'], result['numFailedTests'], result['numPassedTests']) == (33, 2, 31)
+              assert all(result[key] == 0 for key in ['numPendingTestSuites', 'numPendingTests', 'numTodoTests', 'numRuntimeErrorTestSuites'])
+              assert result['success'] is False and result['wasInterrupted'] is False and result['openHandles'] == []
+              return {'total': 33, 'passed': 31, 'failed': 2, 'suites': observed, 'failure_boundaries': failures,
+                      'acceptance': 'EXACT_RENDERING_CHECKED_PENDING_EXTERNAL_ACCEPTANCE'}
+          
+          
+          def command_record(start):
+              label = sys.argv[2]
+              assert label in [*BINDINGS['logged_commands'], 'identity', 'validate', 'seal']
+              if start:
+                  save(label + '.command-start.json', {'at': now(), 'cwd': str(Path.cwd()), 'argv': sys.argv[3:],
+                       'executable': shutil.which(sys.argv[3]), 'run_id': os.environ['PROOF_RUN_ID'],
+                       'run_attempt': os.environ['PROOF_RUN_ATTEMPT'], 'head': os.environ['PROOF_HEAD_SHA']})
+              else:
+                  save(label + '.command-end.json', {'at': now(), 'cwd': str(Path.cwd()),
+                       'exit': int(sys.argv[3]), 'tee_exit': int(sys.argv[4]),
+                       'log_sha256': digest((proof / (label + '.log')).read_bytes()),
+                       'log_bytes': (proof / (label + '.log')).stat().st_size})
+          
+          
+          def expected_argv(label):
+              files = BINDINGS['named_ts_files']
+              commands = {
+                  'identity': ['python3', str(proof / 'proof-tools.py'), 'identity'],
+                  'source': ['python3', str(proof / 'proof-tools.py'), 'source'],
+                  'install': ['timeout', '10m', 'yarn', 'install', '--frozen-lockfile', '--non-interactive'],
+                  'prepared': ['python3', str(proof / 'proof-tools.py'), 'prepared'],
+                  'format': ['yarn', 'prettier', '--check', 'CHANGELOG.md', *files],
+                  'eslint': ['yarn', 'eslint', '--max-warnings', '0', *files],
+                  'typescript': ['yarn', 'tsc', '--noEmit', '--pretty', 'false'],
+                  'shellsource': ['python3', str(proof / 'proof-tools.py'), 'shell-source'],
+                  'shell': ['bash', '-n', str(proof / 'workflow-run-blocks.bash')],
+          PROOF_SOURCE_2
+
+      - name: Retain proof helper source part 3
+        id: tools3
+        run: |
+          set -euo pipefail
+          umask 077
+          cat >> "$PROOF_DIR/proof-tools.py" <<'PROOF_SOURCE_3'
+                  'jest': ['yarn', 'jest', '--runTestsByPath', *BINDINGS['suites'], '--runInBand', '--coverage=false', '--no-colors', '--json', '--outputFile=' + str(proof / 'jest.json')],
+                  'final': ['python3', str(proof / 'proof-tools.py'), 'final'],
+                  'validate': ['python3', str(proof / 'proof-tools.py'), 'validate'],
+                  'seal': ['python3', str(proof / 'proof-tools.py'), 'seal']}
+              return commands[label]
+          
+          
+          def check_command(label):
+              start = json.loads((proof / (label + '.command-start.json')).read_text())
+              end = json.loads((proof / (label + '.command-end.json')).read_text())
+              assert start['argv'] == expected_argv(label) and start['cwd'] == end['cwd'] == str(Path.cwd()), 'Command identity changed'
+              assert start['head'] == os.environ['PROOF_HEAD_SHA'] and start['run_id'] == os.environ['PROOF_RUN_ID'] and start['run_attempt'] == os.environ['PROOF_RUN_ATTEMPT']
+              assert datetime.fromisoformat(start['at']) <= datetime.fromisoformat(end['at'])
+              assert end['exit'] == (1 if label == 'jest' else 0) and end['tee_exit'] == 0, 'Wrong natural command/tee exit'
+              assert (proof / (label + '.exit')).read_text() == str(end['exit']) + '\n'
+              assert (proof / (label + '.tee.exit')).read_text() == str(end['tee_exit']) + '\n'
+              log = (proof / (label + '.log')).read_bytes()
+              assert digest(log) == end['log_sha256'] and len(log) == end['log_bytes'] and log, 'Log missing/changed'
+          
+          
+          def shell_source():
+              text = Path(BINDINGS['workflow']).read_text()
+              blocks, current = [], None
+              for line in text.splitlines(keepends=True):
+                  if line == '        run: |\n':
+                      current = []
+                      blocks.append(current)
+                  elif current is not None and (line.startswith('          ') or not line.strip()):
+                      current.append(line[10:] if line.startswith('          ') else line)
+                  else:
+                      current = None
+              assert len(blocks) == len(BINDINGS['outcomes']), 'Missing workflow run blocks'
+              with (proof / 'workflow-run-blocks.bash').open('x') as target:
+                  target.write('\n'.join(''.join(block) for block in blocks))
+              print('Extracted all literal workflow shell blocks for independent syntax-only gate')
+          
+          
+          def validate():
+              validation = {'status': 'INVALID', 'production_background_fix_gate': 'CLOSED', 'actual_red_acceptance': 'CLOSED',
+                            'root_api_archive_acceptance': 'UNRUN', 'future_upload': 'NOT_ATTESTED', 'merge': 'NEVER'}
+              outcomes = {name: os.environ.get(name.upper() + '_OUTCOME', 'missing') for name in BINDINGS['outcomes']}
+              save('step-outcomes.json', outcomes)
+              required = ['run-identity.json', 'bindings.json', 'run-logged.bash', 'proof-tools.py', 'source-and-checkout.json',
+                          'source-entry-map.json', 'source-commit.txt', 'source-parent-commit.txt', 'checkout-commit.txt',
+                          'source-tree.txt', 'source-parent-tree.txt', 'authored-test-parent-commit.txt', 'authored-test-parent-tree.txt',
+                          'checkout-tree.txt', 'workflow-only.diff', 'test-only.diff', 'format-only.diff',
+                          'framework-identity.json', 'tool-versions.json', 'workflow-run-blocks.bash', 'jest.json']
+              required += ['framework/' + name for name in BINDINGS['framework_files']]
+              required += [label + suffix for label in ['identity', *BINDINGS['logged_commands']]
+                           for suffix in ['.log', '.exit', '.tee.exit', '.command-start.json', '.command-end.json']]
+              required += [label + suffix for label in ['source-clean', 'prepared', 'final-clean', 'validator-clean']
+                           for suffix in ['.map.json', '.index.bin', '.index-stage.bin']]
+              try:
+                  snapshot('validator-clean')
+                  missing = [name for name in required if not (proof / name).is_file() or not (proof / name).stat().st_size]
+                  save('evidence-completeness.json', {'at': now(), 'required': required, 'missing_or_empty': missing,
+                       'future_validation_exit_and_upload': 'Root must independently inspect after archive download'})
+                  assert not missing, 'Incomplete evidence: ' + repr(missing)
+                  for name, outcome in outcomes.items():
+                      assert outcome == ('failure' if name == 'jest' else 'success'), 'Independent gate mismatch: ' + name
+                  for label in ['identity', *BINDINGS['logged_commands']]:
+                      check_command(label)
+                  snapshots = {label: check_snapshot(label) for label in ['source-clean', 'prepared', 'final-clean', 'validator-clean']}
+                  manifest = json.loads((proof / 'source-and-checkout.json').read_text())
+                  assert manifest['checkout_commit'] == value('rev-parse', 'HEAD') == os.environ['PROOF_HEAD_SHA'] == os.environ['PROOF_WORKFLOW_SHA']
+                  assert manifest['source_entry_map'] == tree(BINDINGS['source']) and manifest['checkout_entry_map'] == tree('HEAD')
+                  assert manifest['proof_tools_sha256'] == digest(Path(__file__).read_bytes())
+                  assert manifest['runner_helper_sha256'] == digest((proof / 'run-logged.bash').read_bytes())
+                  assert manifest['workflow_sha256'] == digest(Path(BINDINGS['workflow']).read_bytes())
+                  assert json.loads((proof / 'bindings.json').read_text()) == BINDINGS
+                  assert digest(canonical(json.loads((proof / 'source-entry-map.json').read_text()))) == BINDINGS['source_entry_map_sha256']
+                  assert frameworks(False) == json.loads((proof / 'framework-identity.json').read_text())
+                  assert BINDINGS['complete_synchronous_rendering_proven'] is True
+                  result = checked_result()
+                  save('observed-boundaries.json', result)
+                  validation.update({'source_index_snapshot_sha256': snapshots, 'observed_boundaries': result,
+                                     'status': 'ACCEPT_GUARDED_EXPECTED_RED_DIAGNOSTICS',
+                                     'actual_red_acceptance': 'GUARDED_DIAGNOSTICS_REQUIRE_EXTERNAL_ARCHIVE_ACCEPTANCE',
+                                     'reason': 'Exact prospective predicates passed; external archive/API/controller acceptance required'})
+              except Exception as error:
+                  validation.setdefault('reason', str(error))
+                  raise
+              finally:
+                  save('test-set-validation.json', validation)
+          
+          
+          def seal():
+              inventory = {}
+              for path in sorted(proof.rglob('*')):
+                  if path.is_file() and not path.is_symlink() and not path.name.startswith('seal.'):
+                      data = path.read_bytes()
+                      inventory[path.relative_to(proof).as_posix()] = {'bytes': len(data), 'sha256': digest(data)}
+              save('pre-upload-seal.json', {'at': now(), 'files': inventory,
+                   'excluded': 'seal.* and the seal itself; they do not exist in final form at this time',
+                   'limits': 'Inventory only. Does not attest its own future logs/exits, upload, API result, archive integrity or root acceptance.',
+                   'actual_red_acceptance': 'CLOSED', 'production_background_fix_gate': 'CLOSED', 'merge': 'NEVER'})
+              print('Captured pre-upload file inventory; future upload/API/archive/result acceptance belongs to root')
+          
+          
+          mode = sys.argv[1]
+          if mode == 'identity':
+              identity()
+          elif mode == 'source':
+              source()
+          elif mode == 'prepared':
+              prepared()
+          elif mode == 'final':
+              snapshot('final-clean')
+              check_snapshot('final-clean')
+              print('Verified final full source, physical modes and complete index-stage snapshot')
+          elif mode == 'shell-source':
+              shell_source()
+          elif mode == 'command-start':
+              command_record(True)
+          elif mode == 'command-end':
+              command_record(False)
+          elif mode == 'validate':
+              validate()
+          elif mode == 'seal':
+              seal()
+          else:
+              raise ValueError('Unknown proof mode')
+          PROOF_SOURCE_3
+
+      - name: Record exact run bindings
+        id: identity
+        run: |
+          set -euo pipefail
+          umask 077
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged identity python3 "$PROOF_DIR/proof-tools.py" identity
+
+      - name: Checkout exact proof head
+        id: checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Bind frozen checkpoint and sole workflow addition
+        id: source
+        if: ${{ !cancelled() && steps.identity.outcome == 'success' && steps.checkout.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged source python3 "$PROOF_DIR/proof-tools.py" source
+
+      - name: Setup Node22
+        id: node
+        if: ${{ !cancelled() && steps.source.outcome == 'success' }}
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+
+      - name: Install frozen Yarn dependencies with normal hooks
+        id: install
+        if: ${{ !cancelled() && steps.source.outcome == 'success' && steps.node.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged install timeout 10m yarn install --frozen-lockfile --non-interactive
+
+      - name: Capture prepared source index and retain pinned framework bytes
+        id: prepared
+        if: ${{ !cancelled() && steps.source.outcome == 'success' && steps.install.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged prepared python3 "$PROOF_DIR/proof-tools.py" prepared
+
+      - name: Check CHANGELOG and all six named TypeScript files with Prettier
+        id: format
+        if: ${{ !cancelled() && steps.source.outcome == 'success' && steps.install.outcome == 'success' && steps.prepared.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged format yarn prettier --check CHANGELOG.md src/lib/extension/notifications.ts src/lib/extension/notifications.test.ts src/components/NoteToastProvider.tsx src/components/NoteToastProvider.test.tsx src/lib/miden/back/background-notification.ts src/lib/miden/back/background-notification.test.ts
+
+      - name: Enforce zero-warning ESLint on all six named TypeScript files
+        id: eslint
+        if: ${{ !cancelled() && steps.source.outcome == 'success' && steps.install.outcome == 'success' && steps.prepared.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged eslint yarn eslint --max-warnings 0 src/lib/extension/notifications.ts src/lib/extension/notifications.test.ts src/components/NoteToastProvider.tsx src/components/NoteToastProvider.test.tsx src/lib/miden/back/background-notification.ts src/lib/miden/back/background-notification.test.ts
+
+      - name: Check project TypeScript without emitting
+        id: typescript
+        if: ${{ !cancelled() && steps.source.outcome == 'success' && steps.install.outcome == 'success' && steps.prepared.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged typescript yarn tsc --noEmit --pretty false
+
+      - name: Check independent literal shell syntax
+        id: shell
+        if: ${{ !cancelled() && steps.source.outcome == 'success' && steps.install.outcome == 'success' && steps.prepared.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged shellsource python3 "$PROOF_DIR/proof-tools.py" shell-source
+          run_logged shell bash -n "$PROOF_DIR/workflow-run-blocks.bash"
+
+      - name: Run exactly33 real cases and retain natural Jest expected exit1
+        id: jest
+        if: ${{ !cancelled() && steps.source.outcome == 'success' && steps.install.outcome == 'success' && steps.prepared.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged jest yarn jest --runTestsByPath src/lib/extension/notifications.test.ts src/components/NoteToastProvider.test.tsx src/lib/miden/back/background-notification.test.ts --runInBand --coverage=false --no-colors --json --outputFile="$PROOF_DIR/jest.json"
+
+      - name: Always capture final complete source modes and index
+        id: final
+        if: ${{ always() }}
+        run: |
+          set -euo pipefail
+          umask 077
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged final python3 "$PROOF_DIR/proof-tools.py" final
+
+      - name: Validate complete source-bound expected-red boundaries
+        id: validate
+        if: ${{ always() }}
+        env:
+          INITIALIZE_OUTCOME: ${{ steps.initialize.outcome }}
+          TOOLS2_OUTCOME: ${{ steps.tools2.outcome }}
+          TOOLS3_OUTCOME: ${{ steps.tools3.outcome }}
+          IDENTITY_OUTCOME: ${{ steps.identity.outcome }}
+          CHECKOUT_OUTCOME: ${{ steps.checkout.outcome }}
+          SOURCE_OUTCOME: ${{ steps.source.outcome }}
+          NODE_OUTCOME: ${{ steps.node.outcome }}
+          INSTALL_OUTCOME: ${{ steps.install.outcome }}
+          PREPARED_OUTCOME: ${{ steps.prepared.outcome }}
+          FORMAT_OUTCOME: ${{ steps.format.outcome }}
+          ESLINT_OUTCOME: ${{ steps.eslint.outcome }}
+          TYPESCRIPT_OUTCOME: ${{ steps.typescript.outcome }}
+          SHELL_OUTCOME: ${{ steps.shell.outcome }}
+          JEST_OUTCOME: ${{ steps.jest.outcome }}
+          FINAL_OUTCOME: ${{ steps.final.outcome }}
+        run: |
+          set -euo pipefail
+          umask 077
+          export PROOF_DIR="${PROOF_DIR:-$RUNNER_TEMP/sentry2m-background-red}"
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged validate python3 "$PROOF_DIR/proof-tools.py" validate
+
+      - name: Seal only existing evidence before upload
+        id: seal
+        if: ${{ always() }}
+        run: |
+          set -euo pipefail
+          umask 077
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged seal python3 "$PROOF_DIR/proof-tools.py" seal
+
+      - name: Always retain raw evidence for root archive and API acceptance
+        id: upload
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: sentry2m-background-red-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/sentry2m-background-red
+          if-no-files-found: error
+          retention-days: 7
+
