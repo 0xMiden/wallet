@@ -876,6 +876,7 @@ export class Vault {
       // survives it, so a realm that stops inside this spawn leaves it for init.
       console.log('[Vault.spawn] Step 3: clearing storage...');
       await clearStorage(true, SETUP_WIPE_KEPT_KEYS);
+      await ensureWalletAccessAllowed();
       console.log('[Vault.spawn] Step 4: storage cleared');
 
       // Determine security model: hardware-only or password-based
@@ -1303,6 +1304,7 @@ export class Vault {
 
       // Same wipe as `spawn` (see the comments there).
       await clearStorage(true, SETUP_WIPE_KEPT_KEYS);
+      await ensureWalletAccessAllowed();
 
       // Same security-model branch as `spawn`: hardware-only when the user
       // chose biometrics, password otherwise — and fail loudly rather than
@@ -1483,6 +1485,7 @@ export class Vault {
 
       // Keeps a mainnet setup's pending-admission marker, as `spawn`'s wipe does.
       await clearStorage(false, SETUP_WIPE_KEPT_KEYS);
+      await ensureWalletAccessAllowed();
 
       // Determine security model: hardware-only or password-based
       // If password is provided (user opted out of biometrics), use password protection

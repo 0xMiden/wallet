@@ -404,13 +404,16 @@ export async function registerNewWallet(
         if (accessCode) await registerSetupAccessCode(currentAccount.publicKey, accessCode);
         if (isInviteOnlyNetwork()) await assertEveryMainnetAdmitted(accounts);
         const ownMnemonicFlag = await vault.isOwnMnemonic();
+        const seedPhraseStatus = await vault.fetchSeedPhraseStatus();
+        await ensureWalletAccessAllowed();
+        assertWalletAccessAllowed();
         unlocked({
           vault,
           accounts,
           settings,
           currentAccount,
           ownMnemonic: ownMnemonicFlag,
-          seedPhraseStatus: await vault.fetchSeedPhraseStatus()
+          seedPhraseStatus
         });
         published = true;
         pendingAccessVault = null;
@@ -445,13 +448,16 @@ export async function registerWalletFromHotKey(password?: string, keyPairPayload
         const currentAccount = await vault.getCurrentAccount();
         if (inviteOnly) await assertEveryMainnetAdmitted(accounts);
         const ownMnemonicFlag = await vault.isOwnMnemonic();
+        const seedPhraseStatus = await vault.fetchSeedPhraseStatus();
+        await ensureWalletAccessAllowed();
+        assertWalletAccessAllowed();
         unlocked({
           vault,
           accounts,
           settings,
           currentAccount,
           ownMnemonic: ownMnemonicFlag,
-          seedPhraseStatus: await vault.fetchSeedPhraseStatus()
+          seedPhraseStatus
         });
         published = true;
         if (inviteOnly) await clearPendingAdmission();
@@ -487,13 +493,16 @@ export async function registerImportedWallet(
         const currentAccount = await vault.getCurrentAccount();
         if (inviteOnly) await assertEveryMainnetAdmitted(accounts);
         const ownMnemonicFlag = await vault.isOwnMnemonic();
+        const seedPhraseStatus = await vault.fetchSeedPhraseStatus();
+        await ensureWalletAccessAllowed();
+        assertWalletAccessAllowed();
         unlocked({
           vault,
           accounts,
           settings,
           currentAccount,
           ownMnemonic: ownMnemonicFlag,
-          seedPhraseStatus: await vault.fetchSeedPhraseStatus()
+          seedPhraseStatus
         });
         published = true;
         if (inviteOnly) await clearPendingAdmission();
@@ -558,13 +567,16 @@ export async function unlock(password?: string) {
         const settings = await vault.fetchSettings();
         const currentAccount = await vault.getCurrentAccount();
         const ownMnemonic = await vault.isOwnMnemonic();
+        const seedPhraseStatus = await vault.fetchSeedPhraseStatus();
+        await ensureWalletAccessAllowed();
+        assertWalletAccessAllowed();
         unlocked({
           vault,
           accounts,
           settings,
           currentAccount,
           ownMnemonic,
-          seedPhraseStatus: await vault.fetchSeedPhraseStatus()
+          seedPhraseStatus
         });
       } finally {
         syncRealmInsertKeySink();
