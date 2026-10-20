@@ -3495,7 +3495,11 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     await flush();
 
     expect(G.__off.clientSwapTransaction).toHaveBeenCalledTimes(1);
-    expect(G.__off.clientSwapTransaction).toHaveBeenCalledWith(expect.anything(), expect.any(Function));
+    expect(G.__off.clientSwapTransaction).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.any(Function),
+      expect.any(Function)
+    );
     const receivedTx = G.__off.clientSwapTransaction.mock.calls[0][0];
     // Offered amount AND requested amount both re-widened to BigInt.
     expect(receivedTx.amount).toBe(500n);

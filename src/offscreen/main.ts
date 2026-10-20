@@ -72,6 +72,7 @@ import {
 import type {
   ConsumeTransaction,
   ITransactionStage,
+  ITransactionType,
   SendTransaction,
   SubmitEvidenceFields,
   SwapTransaction
@@ -115,6 +116,7 @@ import {
   wasmClientGeneration,
   WasmClientPoisonedError
 } from 'lib/miden/sdk/wasm-client-poison';
+import { assertTransactionFeatureAllowed } from 'lib/miden/transaction/feature-access';
 import { adoptEndpointState, sameEndpointState, type EndpointState } from 'lib/miden-chain/effective-endpoints';
 import { setNativeAssetPublisher } from 'lib/miden-chain/native-asset';
 import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
@@ -917,8 +919,10 @@ const DISPATCH: Record<string, DispatchFn> = {
           }
         }) as unknown as SwapTransaction
     );
-    const result = await client.swapTransaction(tx, (stage, detail) =>
-      postStageEvent(context, stage, detail?.evidence)
+    const result = await client.swapTransaction(
+      tx,
+      (stage, detail) => postStageEvent(context, stage, detail?.evidence),
+      () => assertTransactionFeatureAllowed('swap')
     );
     // Deliberately NO hold re-check (#788): `swapTransaction` has submitted (and
     // applied) by the time it returns, through its staged submit (in this realm, or
@@ -936,13 +940,15 @@ const DISPATCH: Record<string, DispatchFn> = {
     client,
     accountId: string,
     requestBytes: Uint8Array,
-    delegateTransaction?: boolean
+    delegateTransaction?: boolean,
+    transactionType: ITransactionType = 'execute'
   ) => {
     const result = await client.newTransaction(
       accountId,
       requestBytes,
       delegateTransaction ?? undefined,
-      (stage, detail) => postStageEvent(context, stage, detail?.evidence)
+      (stage, detail) => postStageEvent(context, stage, detail?.evidence),
+      () => assertTransactionFeatureAllowed(transactionType)
     );
     // Deliberately NO hold re-check (#788): `newTransaction` stages
     // execute → prove → submit internally, but by the time it RETURNS it has
@@ -981,7 +987,7 @@ const DISPATCH: Record<string, DispatchFn> = {
   // than re-declared here, so this list and the SW-side packer cannot drift.
   // The historical anchor slot remains on the wire; execution uses the request's bound block at the tip.
   guardianPipeline: async (context, client, ...args: GuardianPipelineArgs) => {
-    const [accountId, trBytes, delegateTransaction] = args;
+    const [accountId, trBytes, delegateTransaction, , transactionType = 'execute'] = args;
     // This op's own id and lock hold, threaded in by `handleCall` before any
     // await so both are provably ours (issue #775). The hold is what keeps a pause from
     // silencing the watchdog of whichever holder took the lock after an
@@ -1118,6 +1124,7 @@ const DISPATCH: Record<string, DispatchFn> = {
       );
       assertDispatchCurrent(context, client, 'in the guardian pipeline before submit');
       assertWalletAccessAllowed();
+      assertTransactionFeatureAllowed(transactionType);
       restoreDispatchIdentity(context);
     } catch (preSubmitError) {
       // Everything above precedes the submit call, so this attempt provably never crossed (#1081). A kill keeps its

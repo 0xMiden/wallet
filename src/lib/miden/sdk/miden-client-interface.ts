@@ -1884,7 +1884,11 @@ export class MidenClientInterface {
    * A delegated attempt that fails before `markSubmitting()` falls back to a
    * local one through `proveWithFallback`; nothing falls back once it has run.
    */
-  async swapTransaction(transaction: SwapTransaction, onStage?: LeafStage): Promise<TransactionResult> {
+  async swapTransaction(
+    transaction: SwapTransaction,
+    onStage?: LeafStage,
+    assertSubmissionAllowed?: () => void
+  ): Promise<TransactionResult> {
     const { accountId, faucetId, amount, extraInputs } = transaction;
 
     const access = this.innerClientAccess();
@@ -1929,7 +1933,8 @@ export class MidenClientInterface {
         return await this.proveInRealmAndSubmit(executed, prover, attempt, 'swap', onStage);
       },
       transaction.delegateTransaction,
-      this.liveness
+      this.liveness,
+      assertSubmissionAllowed
     );
   }
 
@@ -1937,7 +1942,8 @@ export class MidenClientInterface {
     accountId: string,
     requestBytes: Uint8Array,
     delegateTransaction?: boolean,
-    onStage?: LeafStage
+    onStage?: LeafStage,
+    assertSubmissionAllowed?: () => void
   ): Promise<TransactionResult> {
     return proveWithFallback(
       async (prover, attempt) => {
@@ -1980,7 +1986,8 @@ export class MidenClientInterface {
         return result;
       },
       delegateTransaction,
-      this.liveness
+      this.liveness,
+      assertSubmissionAllowed
     );
   }
 
@@ -2514,7 +2521,8 @@ export function remoteProver(): TransactionProver | undefined {
 export async function proveWithFallback<T>(
   fn: (prover: TransactionProver | undefined, attempt: ProveAttempt) => Promise<T>,
   delegateTransaction: boolean | undefined,
-  liveness: ClientLiveness
+  liveness: ClientLiveness,
+  assertSubmissionAllowed?: () => void
 ): Promise<T> {
   recordProveTiming(`withProverFallback entered delegateTransaction=${delegateTransaction}`);
   const shouldDelegate = delegateTransaction === true;
@@ -2536,6 +2544,7 @@ export async function proveWithFallback<T>(
   // Flipped by the callback right before its first irreversible write. Read in
   // the catch below to decide whether a retry is safe — see the docstring.
   let submitReached = false;
+  let submissionAccessRefused = false;
   // Whether the attempt currently running uses the local prover, i.e. whether
   // `pauseWatchdogForLocalProve` should pause (issue #775). Set immediately
   // before each `fn(...)` below, so the flag always describes the live attempt.
@@ -2553,6 +2562,12 @@ export async function proveWithFallback<T>(
   const generation = wasmClientGeneration();
   const attempt: ProveAttempt = {
     markSubmitting: () => {
+      try {
+        assertSubmissionAllowed?.();
+      } catch (error) {
+        submissionAccessRefused = true;
+        throw error;
+      }
       submitReached = true;
     },
     pauseWatchdogForLocalProve: op => {
@@ -2613,6 +2628,7 @@ export async function proveWithFallback<T>(
     if (
       shouldDelegate &&
       !isWalletAccessDeniedError(err) &&
+      !submissionAccessRefused &&
       !submitReached &&
       !isApplyAfterSubmitError(err) &&
       !(err instanceof WebAssembly.RuntimeError)

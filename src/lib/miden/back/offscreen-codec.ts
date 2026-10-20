@@ -16,7 +16,7 @@
 
 import type { EndpointState } from '../../miden-chain/effective-endpoints';
 import type { ConnectivityCategory } from '../activity/connectivity-state';
-import type { ITransactionStage, SubmitEvidenceFields } from '../db/types';
+import type { ITransactionStage, ITransactionType, SubmitEvidenceFields } from '../db/types';
 import type { LandedTransaction } from '../sdk/sdk-error-code';
 
 /** Discriminator kept on every offscreen-bound message; the offscreen listener
@@ -406,7 +406,8 @@ export type GuardianPipelineArgs = [
   accountId: string,
   trBytes: Uint8Array,
   delegateTransaction: boolean | null,
-  chainAnchorB64: string | null
+  chainAnchorB64: string | null,
+  transactionType?: ITransactionType
 ];
 
 /** Inverse of {@link encodeArg}. */

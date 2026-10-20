@@ -96,6 +96,7 @@ import {
   RotationGateConsumeRefusal,
   TRANSACTION_EXPIRED_ERROR
 } from './constants';
+import { assertTransactionFeatureAllowed } from './feature-access';
 import { getAllUncompletedTransactions, getTransactionsInProgress } from './get';
 import {
   type AttemptContext,
@@ -1954,7 +1955,8 @@ const generateTransactionWithProvider = async (
             requestBytes,
             transaction.delegateTransaction,
             signCallback,
-            attempt && stageStampFor(transaction.id, attempt)
+            attempt && stageStampFor(transaction.id, attempt),
+            transaction.type
           )
         );
       } else {
@@ -2317,7 +2319,8 @@ const runGuardianPipeline = async (
   tr: TransactionRequest,
   delegateTransaction: boolean | undefined,
   setStage: (stage: ITransactionStage, detail?: StageDetail) => Promise<void>,
-  _chainAnchorB64?: string
+  _chainAnchorB64?: string,
+  transactionType: ITransactionType = 'execute'
 ): Promise<TransactionResult> => {
   // MidenClient handles the full pipeline (execute → prove → submit → apply). The
   // sign inside `executeRequest` reaches the realm's installed signer (#878).
@@ -2463,6 +2466,7 @@ const runGuardianPipeline = async (
       await ensureWalletAccessOutsideWasmLock(hold, assertSubmissionCurrent);
       assertSubmissionCurrent();
       assertWalletAccessAllowed();
+      assertTransactionFeatureAllowed(transactionType);
     } catch (error) {
       throw markErrorBeforeSubmit(error);
     }
@@ -4016,7 +4020,8 @@ const generateGuardianTransaction = async (
           transaction.delegateTransaction,
           signCallback,
           stampStage,
-          chainAnchorB64
+          chainAnchorB64,
+          transaction.type
         )
       );
     } else {
@@ -4025,7 +4030,8 @@ const generateGuardianTransaction = async (
         tr,
         transaction.delegateTransaction,
         stampAttemptStage,
-        chainAnchorB64
+        chainAnchorB64,
+        transaction.type
       );
     }
   } catch (error) {

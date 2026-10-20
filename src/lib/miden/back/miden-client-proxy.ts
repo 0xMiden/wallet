@@ -47,6 +47,7 @@ import {
   isWasmClientPoisonReason,
   WASM_LOCK_SYNC_WATCHDOG_MS
 } from 'lib/miden/sdk/wasm-client-poison';
+import { assertTransactionFeatureAllowed } from 'lib/miden/transaction/feature-access';
 import { tagLockedSignReason } from 'lib/miden/transaction/sign-callback';
 import { getEndpointState, whenEndpointOverridesLoaded } from 'lib/miden-chain/effective-endpoints';
 import type { SerializedInputNoteDetail } from 'lib/shared/types';
@@ -79,6 +80,7 @@ import {
 import type {
   ConsumeTransaction,
   ITransactionStage,
+  ITransactionType,
   SendTransaction,
   StageDetail,
   SubmitEvidenceFields,
@@ -955,11 +957,13 @@ export function dispatchGuardianPipeline(
   // #784: the proposal metadata's base64 anchor. It still fills the 4th slot, for
   // wire compatibility only: the offscreen leaf reads nothing from it and executes
   // at the tip against the block the request's auth args bind.
-  chainAnchorB64?: string
+  chainAnchorB64?: string,
+  transactionType?: ITransactionType
 ): Promise<TransactionResult> {
   // Typed against the shared wire contract so a dropped or reordered slot is a
   // compile error here rather than an argument the offscreen leaf silently misreads.
   const args: GuardianPipelineArgs = [accountId, trBytes, delegateTransaction ?? null, chainAnchorB64 ?? null];
+  if (transactionType !== undefined) args.push(transactionType);
   return dispatchOffscreenWrite('guardianPipeline', args, signCallback, onStage);
 }
 
@@ -1690,7 +1694,9 @@ export const midenClientProxy = {
     onStage?: StageCallback
   ): Promise<TransactionResult> {
     if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
-      return withWasmClientLock(async () => (await getMidenClient()).swapTransaction(transaction, onStage));
+      return withWasmClientLock(async () =>
+        (await getMidenClient()).swapTransaction(transaction, onStage, () => assertTransactionFeatureAllowed('swap'))
+      );
     }
     const dto: OffscreenSwapDto = {
       accountId: transaction.accountId,
@@ -1721,19 +1727,19 @@ export const midenClientProxy = {
     requestBytes: Uint8Array,
     delegateTransaction: boolean | undefined,
     signCallback: RawSignCallback,
-    onStage?: StageCallback
+    onStage?: StageCallback,
+    transactionType: ITransactionType = 'execute'
   ): Promise<TransactionResult> {
     if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
       return withWasmClientLock(async () =>
-        (await getMidenClient()).newTransaction(accountId, requestBytes, delegateTransaction, onStage)
+        (await getMidenClient()).newTransaction(accountId, requestBytes, delegateTransaction, onStage, () =>
+          assertTransactionFeatureAllowed(transactionType)
+        )
       );
     }
-    return dispatchOffscreenWrite(
-      'newTransaction',
-      [accountId, requestBytes, delegateTransaction],
-      signCallback,
-      onStage
-    );
+    const args: unknown[] = [accountId, requestBytes, delegateTransaction];
+    if (transactionType !== 'execute') args.push(transactionType);
+    return dispatchOffscreenWrite('newTransaction', args, signCallback, onStage);
   }
 };
 
