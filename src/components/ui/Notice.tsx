@@ -26,6 +26,8 @@ export type NoticeVariant = 'block' | 'inline';
 export interface NoticeProps {
   /** Identifies the displayed error for reporting; null marks a display that is not an error. */
   errorId?: UserErrorId | null;
+  /** Stable identity for one failure; a new object restarts the same error's visible dwell. */
+  errorOccurrence?: object;
   /**
    * The body copy: one or two short lines. Optional, so a notice whose whole message is its
    * `title` — an explanation with nothing subordinate under it — renders as that one line rather
@@ -113,13 +115,14 @@ export const Notice: React.FC<NoticeProps> = ({
   icon,
   tone = 'neutral',
   errorId,
+  errorOccurrence,
   variant = 'block',
   role = 'note',
   className,
   id,
   'data-testid': dataTestId
 }) => {
-  useUserVisibleError(tone === 'negative' ? errorId : null, 'notice');
+  useUserVisibleError(tone === 'negative' ? errorId : null, 'notice', errorOccurrence);
   return (
     <div
       id={id}

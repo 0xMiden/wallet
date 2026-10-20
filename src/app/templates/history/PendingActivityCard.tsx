@@ -254,6 +254,7 @@ export const PendingActivityCard = ({ item, onAccept, onReject, onRetryHeld }: P
                 <div className="px-4 py-3">
                   <Notice
                     errorId={observedFailure.errorId}
+                    errorOccurrence={observedFailure.failure}
                     data-testid="pending-activity-hint"
                     tone={negative ? 'negative' : 'neutral'}
                     role={negative ? 'alert' : 'status'}
