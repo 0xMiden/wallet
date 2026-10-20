@@ -1,0 +1,1974 @@
+name: Wallet1644 stage1 positive and semantic sensitivity NEVER MERGE
+
+on:
+  push:
+    branches: [ci/1644-stage1-sensitivity]
+
+permissions:
+  contents: read
+
+jobs:
+  stage1-positive-sensitivity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    env:
+      CI: 'true'
+      FORCE_COLOR: '0'
+      GIT_OPTIONAL_LOCKS: '0'
+      PROOF_HEAD_SHA: ${{ github.sha }}
+      PROOF_REF: ${{ github.ref }}
+      PROOF_EVENT: ${{ github.event_name }}
+      PROOF_REPOSITORY: ${{ github.repository }}
+      PROOF_WORKFLOW_REF: ${{ github.workflow_ref }}
+      PROOF_WORKFLOW_SHA: ${{ github.workflow_sha }}
+      PROOF_RUN_ID: ${{ github.run_id }}
+      PROOF_RUN_ATTEMPT: ${{ github.run_attempt }}
+    steps:
+      - name: Initialize private collector evidence
+        id: initialize
+        run: |
+          set -euo pipefail
+          umask 077
+          export PROOF_DIR="$RUNNER_TEMP/wallet1644-stage1-sensitivity"
+          printf 'PROOF_DIR=%s\n' "$PROOF_DIR" >> "$GITHUB_ENV"
+          mkdir -p "$PROOF_DIR"
+          cat > "$PROOF_DIR/run-logged.bash" <<'BASH_HELPER'
+          run_logged() {
+            local label="$1"
+            shift
+            python3 - "$PROOF_DIR/$label.command.json" "$@" <<'COMMAND_RECORD'
+          import datetime, json, os, pathlib, sys
+          pathlib.Path(sys.argv[1]).write_text(json.dumps({
+              'argv': sys.argv[2:], 'cwd': os.getcwd(),
+              'started_at': datetime.datetime.now(datetime.timezone.utc).isoformat()
+          }, indent=2) + '\n')
+          COMMAND_RECORD
+            set +e
+            "$@" 2>&1 | tee "$PROOF_DIR/$label.log"
+            local statuses=("${PIPESTATUS[@]}")
+            set -e
+            printf '%s\n' "${statuses[0]}" > "$PROOF_DIR/$label.exit"
+            printf '%s\n' "${statuses[1]}" > "$PROOF_DIR/$label.tee.exit"
+            if [ "${statuses[1]}" -ne 0 ]; then return "${statuses[1]}"; fi
+            return "${statuses[0]}"
+          }
+          BASH_HELPER
+      - name: Retain frozen collector source part 1
+        id: helper_1
+        run: |
+          set -euo pipefail
+          cat > "$PROOF_DIR/helper-part-1.txt" <<'PYTHON_PART'
+          from pathlib import Path
+          import hashlib,json,os,re,stat,subprocess,sys
+          
+          BINDINGS = json.loads(r'''
+          {
+            "source": "138de2ee475c8970d74762cb69e3d268c2ed943a",
+            "source_tree": "2dbf494a01a7ddfc1ac26a079101d8897e5eea5d",
+            "main": "eeeabda1d85446faa51286028dd87809a23a1caa",
+            "branch": "ci/1644-stage1-sensitivity",
+            "workflow": ".github/workflows/1644-stage1-positive-sensitivity.yml",
+            "test_path": "src/lib/miden/back/sync-manager.test.ts",
+            "transport_commit": "PENDING_ROOT_COMMIT; runtime requires sole direct source parent",
+            "lock_sha256": "8606e15d58682739313e004734d42f34a2ad715148e00f28c2de63596349941d",
+            "inventory": {
+              "method": "Exact 97-case runtime names retained from accepted prior red; tests never executed during collector authoring",
+              "source_sha256": "4b9930035f2cb95a48ca2d5d12912e27f46fca817cb2be07eac8cefbfe41a4c2",
+              "cases": [
+                {
+                  "full_name": "computeSyncBackoffMs (gap 14 \u2014 exponential backoff + jitter) doubles the base interval each consecutive trip",
+                  "title": "doubles the base interval each consecutive trip",
+                  "ancestor_titles": [
+                    "computeSyncBackoffMs (gap 14 \u2014 exponential backoff + jitter)"
+                  ]
+                },
+                {
+                  "full_name": "computeSyncBackoffMs (gap 14 \u2014 exponential backoff + jitter) caps the backoff so a long outage is not probed on an ever-growing interval",
+                  "title": "caps the backoff so a long outage is not probed on an ever-growing interval",
+                  "ancestor_titles": [
+                    "computeSyncBackoffMs (gap 14 \u2014 exponential backoff + jitter)"
+                  ]
+                },
+                {
+                  "full_name": "computeSyncBackoffMs (gap 14 \u2014 exponential backoff + jitter) adds up to 20% jitter on top of the interval (de-syncs lockstep probing)",
+                  "title": "adds up to 20% jitter on top of the interval (de-syncs lockstep probing)",
+                  "ancestor_titles": [
+                    "computeSyncBackoffMs (gap 14 \u2014 exponential backoff + jitter)"
+                  ]
+                },
+                {
+                  "full_name": "doSync is a no-op when the vault is not set up",
+                  "title": "is a no-op when the vault is not set up",
+                  "ancestor_titles": [
+                    "doSync"
+                  ]
+                },
+                {
+                  "full_name": "doSync broadcasts SyncCompleted and skips note work when there is no account",
+                  "title": "broadcasts SyncCompleted and skips note work when there is no account",
+                  "ancestor_titles": [
+                    "doSync"
+                  ]
+                },
+                {
+                  "full_name": "doSync reads notes and vault assets, enriches with metadata, and writes to chrome.storage",
+                  "title": "reads notes and vault assets, enriches with metadata, and writes to chrome.storage",
+                  "ancestor_titles": [
+                    "doSync"
+                  ]
+                },
+                {
+                  "full_name": "doSync logs a warning (not silent) but still finishes the sync when the storage write fails (#386)",
+                  "title": "logs a warning (not silent) but still finishes the sync when the storage write fails (#386)",
+                  "ancestor_titles": [
+                    "doSync"
+                  ]
+                },
+                {
+                  "full_name": "doSync excludes quarantined notes from the cached consumable-notes write",
+                  "title": "excludes quarantined notes from the cached consumable-notes write",
+                  "ancestor_titles": [
+                    "doSync"
+                  ]
+                },
+                {
+                  "full_name": "doSync dates cached notes on the endpoint they were read from, even if the wallet moves during the read",
+                  "title": "dates cached notes on the endpoint they were read from, even if the wallet moves during the read",
+                  "ancestor_titles": [
+                    "doSync"
+                  ]
+                },
+                {
+                  "full_name": "doSync dates cached notes from their inclusion block after the note read releases the client",
+                  "title": "dates cached notes from their inclusion block after the note read releases the client",
+                  "ancestor_titles": [
+                    "doSync"
+                  ]
+                },
+                {
+                  "full_name": "doSync shows a desktop notification when a new note arrives and no frontends are connected",
+                  "title": "shows a desktop notification when a new note arrives and no frontends are connected",
+                  "ancestor_titles": [
+                    "doSync"
+                  ]
+                },
+                {
+                  "full_name": "doSync skips partial (metadata-less) notes whose noteId is null",
+                  "title": "skips partial (metadata-less) notes whose noteId is null",
+                  "ancestor_titles": [
+                    "doSync"
+                  ]
+                },
+                {
+                  "full_name": "doSync skips notes with no fungible assets (empty assets array)",
+                  "title": "skips notes with no fungible assets (empty assets array)",
+                  "ancestor_titles": [
+                    "doSync"
+                  ]
+                },
+                {
+                  "full_name": "doSync tolerates fetchTokenMetadata rejections and still writes sync data",
+                  "title": "tolerates fetchTokenMetadata rejections and still writes sync data",
+                  "ancestor_titles": [
+                    "doSync"
+                  ]
+                },
+                {
+                  "full_name": "doSync broadcasts SyncCompleted even when syncState rejects",
+                  "title": "broadcasts SyncCompleted even when syncState rejects",
+                  "ancestor_titles": [
+                    "doSync"
+                  ]
+                },
+                {
+                  "full_name": "doSync bounds the INLINE sync hold at the watchdog ceiling instead of racing a timeout (#777)",
+                  "title": "bounds the INLINE sync hold at the watchdog ceiling instead of racing a timeout (#777)",
+                  "ancestor_titles": [
+                    "doSync"
+                  ]
+                },
+                {
+                  "full_name": "doSync skips the downstream note read for the lap whose INLINE sync hold was evicted (#777)",
+                  "title": "skips the downstream note read for the lap whose INLINE sync hold was evicted (#777)",
+                  "ancestor_titles": [
+                    "doSync"
+                  ]
+                },
+                {
+                  "full_name": "doSync stops the note read before its WASM calls when the hold is evicted during the client build (#777)",
+                  "title": "stops the note read before its WASM calls when the hold is evicted during the client build (#777)",
+                  "ancestor_titles": [
+                    "doSync"
+                  ]
+                },
+                {
+                  "full_name": "doSync skips the delivery sweep on the lap whose inline sync hold was evicted (#777)",
+                  "title": "skips the delivery sweep on the lap whose inline sync hold was evicted (#777)",
+                  "ancestor_titles": [
+                    "doSync"
+                  ]
+                },
+                {
+                  "full_name": "doSync fires the unconfirmed reconciler after a successful lap only, never after a failed or evicted one (#1081)",
+                  "title": "fires the unconfirmed reconciler after a successful lap only, never after a failed or evicted one (#1081)",
+                  "ancestor_titles": [
+                    "doSync"
+                  ]
+                },
+                {
+                  "full_name": "doSync stops the note read at the FIRST WASM call after an eviction mid-read (#777)",
+                  "title": "stops the note read at the FIRST WASM call after an eviction mid-read (#777)",
+                  "ancestor_titles": [
+                    "doSync"
+                  ]
+                },
+                {
+                  "full_name": "doSync names the reader check that parked in the note read eviction message",
+                  "title": "names the reader check that parked in the note read eviction message",
+                  "ancestor_titles": [
+                    "doSync"
+                  ]
+                },
+                {
+                  "full_name": "doSync lights the sync fuse after repeated watchdog evictions, and only a success puts it out (#777)",
+                  "title": "lights the sync fuse after repeated watchdog evictions, and only a success puts it out (#777)",
+                  "ancestor_titles": [
+                    "doSync"
+                  ]
+                },
+                {
+                  "full_name": "doSync never lights the fuse from FORCED probes, and a failed Retry cannot extend a lit one (#777)",
+                  "title": "never lights the fuse from FORCED probes, and a failed Retry cannot extend a lit one (#777)",
+                  "ancestor_titles": [
+                    "doSync"
+                  ]
+                },
+                {
+                  "full_name": "doSync two back-to-back doSync calls only sync once",
+                  "title": "two back-to-back doSync calls only sync once",
+                  "ancestor_titles": [
+                    "doSync"
+                  ]
+                },
+                {
+                  "full_name": "doSync concurrent doSync calls coalesce onto one syncState invocation",
+                  "title": "concurrent doSync calls coalesce onto one syncState invocation",
+                  "ancestor_titles": [
+                    "doSync"
+                  ]
+                },
+                {
+                  "full_name": "doSync does not throw when broadcast fails in the no-account branch",
+                  "title": "does not throw when broadcast fails in the no-account branch",
+                  "ancestor_titles": [
+                    "doSync"
+                  ]
+                },
+                {
+                  "full_name": "doSync does not throw when broadcast fails in the main happy-path branch",
+                  "title": "does not throw when broadcast fails in the main happy-path branch",
+                  "ancestor_titles": [
+                    "doSync"
+                  ]
+                },
+                {
+                  "full_name": "doSync does not throw when broadcast fails in the error handler",
+                  "title": "does not throw when broadcast fails in the error handler",
+                  "ancestor_titles": [
+                    "doSync"
+                  ]
+                },
+                {
+                  "full_name": "doSync handles a note whose firstAsset is null (no fungible assets)",
+                  "title": "handles a note whose firstAsset is null (no fungible assets)",
+                  "ancestor_titles": [
+                    "doSync"
+                  ]
+                },
+                {
+                  "full_name": "doSync shows single-note notification message",
+                  "title": "shows single-note notification message",
+                  "ancestor_titles": [
+                    "doSync"
+                  ]
+                },
+                {
+                  "full_name": "setupSyncManager registers the alarm and kicks off an initial sync",
+                  "title": "registers the alarm and kicks off an initial sync",
+                  "ancestor_titles": [
+                    "setupSyncManager"
+                  ]
+                },
+                {
+                  "full_name": "private-note delivery sweep wiring runs the sweep on a sync tick",
+                  "title": "runs the sweep on a sync tick",
+                  "ancestor_titles": [
+                    "private-note delivery sweep wiring"
+                  ]
+                },
+                {
+                  "full_name": "private-note delivery sweep wiring does not hold the lap or its SyncCompleted on a sweep still running",
+                  "title": "does not hold the lap or its SyncCompleted on a sweep still running",
+                  "ancestor_titles": [
+                    "private-note delivery sweep wiring"
+                  ]
+                },
+                {
+                  "full_name": "private-note delivery sweep wiring does not let a failing sweep break the sync",
+                  "title": "does not let a failing sweep break the sync",
+                  "ancestor_titles": [
+                    "private-note delivery sweep wiring"
+                  ]
+                },
+                {
+                  "full_name": "doSync \u2014 connectivity categorization clears reachability issues on a successful sync",
+                  "title": "clears reachability issues on a successful sync",
+                  "ancestor_titles": [
+                    "doSync \u2014 connectivity categorization"
+                  ]
+                },
+                {
+                  "full_name": "doSync \u2014 connectivity categorization does NOT mark connectivity on a single transient sync failure (debounced)",
+                  "title": "does NOT mark connectivity on a single transient sync failure (debounced)",
+                  "ancestor_titles": [
+                    "doSync \u2014 connectivity categorization"
+                  ]
+                },
+                {
+                  "full_name": "doSync \u2014 connectivity categorization marks node category only after a sustained transport-error streak",
+                  "title": "marks node category only after a sustained transport-error streak",
+                  "ancestor_titles": [
+                    "doSync \u2014 connectivity categorization"
+                  ]
+                },
+                {
+                  "full_name": "doSync \u2014 connectivity categorization does NOT mark connectivity for a semantic / non-transport error even when sustained",
+                  "title": "does NOT mark connectivity for a semantic / non-transport error even when sustained",
+                  "ancestor_titles": [
+                    "doSync \u2014 connectivity categorization"
+                  ]
+                },
+                {
+                  "full_name": "doSync \u2014 notification getMessage fallback branches uses fallback strings when getMessage returns empty (single note)",
+                  "title": "uses fallback strings when getMessage returns empty (single note)",
+                  "ancestor_titles": [
+                    "doSync \u2014 notification getMessage fallback branches"
+                  ]
+                },
+                {
+                  "full_name": "doSync \u2014 notification getMessage fallback branches uses fallback strings when getMessage returns empty (multi note)",
+                  "title": "uses fallback strings when getMessage returns empty (multi note)",
+                  "ancestor_titles": [
+                    "doSync \u2014 notification getMessage fallback branches"
+                  ]
+                },
+                {
+                  "full_name": "doSync \u2014 note metadata branches handles a note with no fungible assets (filters it out)",
+                  "title": "handles a note with no fungible assets (filters it out)",
+                  "ancestor_titles": [
+                    "doSync \u2014 note metadata branches"
+                  ]
+                },
+                {
+                  "full_name": "doSync \u2014 note metadata branches handles a note where metadata is null (uses unknown noteType)",
+                  "title": "handles a note where metadata is null (uses unknown noteType)",
+                  "ancestor_titles": [
+                    "doSync \u2014 note metadata branches"
+                  ]
+                },
+                {
+                  "full_name": "doSync \u2014 note metadata branches carries whether each note is a standard payment into the list it writes (#805)",
+                  "title": "carries whether each note is a standard payment into the list it writes (#805)",
+                  "ancestor_titles": [
+                    "doSync \u2014 note metadata branches"
+                  ]
+                },
+                {
+                  "full_name": "doSync \u2014 note metadata branches worker single-asset notes preserve explicit asset knowledge",
+                  "title": "worker single-asset notes preserve explicit asset knowledge",
+                  "ancestor_titles": [
+                    "doSync \u2014 note metadata branches"
+                  ]
+                },
+                {
+          PYTHON_PART
+      - name: Retain frozen collector source part 2
+        id: helper_2
+        run: |
+          set -euo pipefail
+          cat > "$PROOF_DIR/helper-part-2.txt" <<'PYTHON_PART'
+                  "full_name": "doSync \u2014 note metadata branches stamps each sync it writes, so readers can tell a live result from an old snapshot",
+                  "title": "stamps each sync it writes, so readers can tell a live result from an old snapshot",
+                  "ancestor_titles": [
+                    "doSync \u2014 note metadata branches"
+                  ]
+                },
+                {
+                  "full_name": "doSync \u2014 note metadata branches repeats the last successful sync stamp on a pass whose sync failed",
+                  "title": "repeats the last successful sync stamp on a pass whose sync failed",
+                  "ancestor_titles": [
+                    "doSync \u2014 note metadata branches"
+                  ]
+                },
+                {
+                  "full_name": "doSync \u2014 note metadata branches does not publish the stamp of a successful sync whose write never reached storage",
+                  "title": "does not publish the stamp of a successful sync whose write never reached storage",
+                  "ancestor_titles": [
+                    "doSync \u2014 note metadata branches"
+                  ]
+                },
+                {
+                  "full_name": "doSync \u2014 note metadata branches handles when no account exists in client (assets array stays empty)",
+                  "title": "handles when no account exists in client (assets array stays empty)",
+                  "ancestor_titles": [
+                    "doSync \u2014 note metadata branches"
+                  ]
+                },
+                {
+                  "full_name": "doSync \u2014 note metadata branches shows multi-note notification when multiple new notes arrive",
+                  "title": "shows multi-note notification when multiple new notes arrive",
+                  "ancestor_titles": [
+                    "doSync \u2014 note metadata branches"
+                  ]
+                },
+                {
+                  "full_name": "doSync \u2014 note metadata branches uses ServiceWorkerRegistration.showNotification when available",
+                  "title": "uses ServiceWorkerRegistration.showNotification when available",
+                  "ancestor_titles": [
+                    "doSync \u2014 note metadata branches"
+                  ]
+                },
+                {
+                  "full_name": "doSync \u2014 syncState timeout + circuit breaker queues one forced retry when a sync is already in flight",
+                  "title": "queues one forced retry when a sync is already in flight",
+                  "ancestor_titles": [
+                    "doSync \u2014 syncState timeout + circuit breaker"
+                  ]
+                },
+                {
+                  "full_name": "doSync \u2014 syncState timeout + circuit breaker increments the failure counter when syncState rejects and trips the breaker after consecutive failures",
+                  "title": "increments the failure counter when syncState rejects and trips the breaker after consecutive failures",
+                  "ancestor_titles": [
+                    "doSync \u2014 syncState timeout + circuit breaker"
+                  ]
+                },
+                {
+                  "full_name": "doSync \u2014 syncState timeout + circuit breaker a successful syncState resets the failure counter mid-streak",
+                  "title": "a successful syncState resets the failure counter mid-streak",
+                  "ancestor_titles": [
+                    "doSync \u2014 syncState timeout + circuit breaker"
+                  ]
+                },
+                {
+                  "full_name": "doSync \u2014 syncState timeout + circuit breaker failing forced probes re-arm the window but never escalate it (#777)",
+                  "title": "failing forced probes re-arm the window but never escalate it (#777)",
+                  "ancestor_titles": [
+                    "doSync \u2014 syncState timeout + circuit breaker"
+                  ]
+                },
+                {
+                  "full_name": "doSync \u2014 syncState timeout + circuit breaker a successful forced probe closes the existing backoff window",
+                  "title": "a successful forced probe closes the existing backoff window",
+                  "ancestor_titles": [
+                    "doSync \u2014 syncState timeout + circuit breaker"
+                  ]
+                },
+                {
+                  "full_name": "doSync \u2014 syncState timeout + circuit breaker awaits init_vault when present (SW bundle simulation)",
+                  "title": "awaits init_vault when present (SW bundle simulation)",
+                  "ancestor_titles": [
+                    "doSync \u2014 syncState timeout + circuit breaker"
+                  ]
+                },
+                {
+                  "full_name": "doSync \u2014 syncState timeout + circuit breaker the breaker closes after the backoff window elapses",
+                  "title": "the breaker closes after the backoff window elapses",
+                  "ancestor_titles": [
+                    "doSync \u2014 syncState timeout + circuit breaker"
+                  ]
+                },
+                {
+                  "full_name": "doSync \u2014 native-note auto-consume fee-refused native batch has no single-note fallback or processing kick",
+                  "title": "fee-refused native batch has no single-note fallback or processing kick",
+                  "ancestor_titles": [
+                    "doSync \u2014 native-note auto-consume"
+                  ]
+                },
+                {
+                  "full_name": "doSync \u2014 native-note auto-consume does not auto-consume a native backlog worth less than the fee to claim it",
+                  "title": "does not auto-consume a native backlog worth less than the fee to claim it",
+                  "ancestor_titles": [
+                    "doSync \u2014 native-note auto-consume"
+                  ]
+                },
+                {
+                  "full_name": "doSync \u2014 native-note auto-consume leaves a note whose claim is held while the node decides out of the value check (#1081)",
+                  "title": "leaves a note whose claim is held while the node decides out of the value check (#1081)",
+                  "ancestor_titles": [
+                    "doSync \u2014 native-note auto-consume"
+                  ]
+                },
+                {
+                  "full_name": "doSync \u2014 native-note auto-consume leaves a native note a dApp transaction completed moments ago out of the batch",
+                  "title": "leaves a native note a dApp transaction completed moments ago out of the batch",
+                  "ancestor_titles": [
+                    "doSync \u2014 native-note auto-consume"
+                  ]
+                },
+                {
+                  "full_name": "doSync \u2014 native-note auto-consume leaves a native note a live dApp transaction will consume out of the batch",
+                  "title": "leaves a native note a live dApp transaction will consume out of the batch",
+                  "ancestor_titles": [
+                    "doSync \u2014 native-note auto-consume"
+                  ]
+                },
+                {
+                  "full_name": "doSync \u2014 native-note auto-consume raises no \"click to claim\" notification for a native note a live dApp transaction will consume",
+                  "title": "raises no \"click to claim\" notification for a native note a live dApp transaction will consume",
+                  "ancestor_titles": [
+                    "doSync \u2014 native-note auto-consume"
+                  ]
+                },
+                {
+                  "full_name": "doSync \u2014 native-note auto-consume auto-consumes a backlog of individually-marginal native notes in one transaction",
+                  "title": "auto-consumes a backlog of individually-marginal native notes in one transaction",
+                  "ancestor_titles": [
+                    "doSync \u2014 native-note auto-consume"
+                  ]
+                },
+                {
+                  "full_name": "doSync \u2014 native-note auto-consume fee identity: service worker auto-consumes actual native A instead of legacy B",
+                  "title": "fee identity: service worker auto-consumes actual native A instead of legacy B",
+                  "ancestor_titles": [
+                    "doSync \u2014 native-note auto-consume"
+                  ]
+                },
+                {
+                  "full_name": "doSync \u2014 native-note auto-consume auto-consumes native notes in ONE transaction, following the user delegated-proving setting",
+                  "title": "auto-consumes native notes in ONE transaction, following the user delegated-proving setting",
+                  "ancestor_titles": [
+                    "doSync \u2014 native-note auto-consume"
+                  ]
+                },
+                {
+                  "full_name": "doSync \u2014 native-note auto-consume queues each note of a failed batch enqueue as auto-consume too",
+                  "title": "queues each note of a failed batch enqueue as auto-consume too",
+                  "ancestor_titles": [
+                    "doSync \u2014 native-note auto-consume"
+                  ]
+                },
+                {
+                  "full_name": "doSync \u2014 native-note auto-consume leaves the native notes of a rotation-pending account to its rotation gate (#805)",
+                  "title": "leaves the native notes of a rotation-pending account to its rotation gate (#805)",
+                  "ancestor_titles": [
+                    "doSync \u2014 native-note auto-consume"
+                  ]
+                },
+                {
+                  "full_name": "doSync \u2014 native-note auto-consume matches the worker store account however its id is spelled",
+                  "title": "matches the worker store account however its id is spelled",
+                  "ancestor_titles": [
+                    "doSync \u2014 native-note auto-consume"
+                  ]
+                },
+                {
+                  "full_name": "doSync \u2014 native-note auto-consume still claims for an account the worker store lists without the rotation flag",
+                  "title": "still claims for an account the worker store lists without the rotation flag",
+                  "ancestor_titles": [
+                    "doSync \u2014 native-note auto-consume"
+                  ]
+                },
+                {
+                  "full_name": "doSync \u2014 native-note auto-consume does not auto-consume when the toggle is off",
+                  "title": "does not auto-consume when the toggle is off",
+                  "ancestor_titles": [
+                    "doSync \u2014 native-note auto-consume"
+                  ]
+                },
+                {
+                  "full_name": "doSync \u2014 native-note auto-consume suppresses the \"click to claim\" notification for a native note it is auto-consuming",
+                  "title": "suppresses the \"click to claim\" notification for a native note it is auto-consuming",
+                  "ancestor_titles": [
+                    "doSync \u2014 native-note auto-consume"
+                  ]
+                },
+                {
+                  "full_name": "doSync \u2014 native-note auto-consume holds off until the popup has mirrored the user settings (migration window)",
+                  "title": "holds off until the popup has mirrored the user settings (migration window)",
+                  "ancestor_titles": [
+                    "doSync \u2014 native-note auto-consume"
+                  ]
+                },
+                {
+                  "full_name": "doSync \u2014 native-note auto-consume queues no claim while the vault is locked, and the first lap after unlock queues it",
+                  "title": "queues no claim while the vault is locked, and the first lap after unlock queues it",
+                  "ancestor_titles": [
+                    "doSync \u2014 native-note auto-consume"
+                  ]
+                },
+                {
+                  "full_name": "doSync \u2014 native-note auto-consume queues no claim when the vault locks while the lap reads the proving setting, and does on a lap unlocked throughout",
+                  "title": "queues no claim when the vault locks while the lap reads the proving setting, and does on a lap unlocked throughout",
+                  "ancestor_titles": [
+                    "doSync \u2014 native-note auto-consume"
+                  ]
+                },
+                {
+                  "full_name": "doSync \u2014 native-note auto-consume resolves cleanly when the eligibility resolve (getFaucetIdSetting) rejects",
+                  "title": "resolves cleanly when the eligibility resolve (getFaucetIdSetting) rejects",
+                  "ancestor_titles": [
+                    "doSync \u2014 native-note auto-consume"
+                  ]
+                },
+                {
+                  "full_name": "doSync \u2014 native-note auto-consume resolves cleanly when the per-note enqueue rejects",
+                  "title": "resolves cleanly when the per-note enqueue rejects",
+                  "ancestor_titles": [
+                    "doSync \u2014 native-note auto-consume"
+                  ]
+                },
+                {
+                  "full_name": "doSync - zero-fill swap reclaim queues the reclaim of an expired zero-fill order with the request and clock its classification used",
+                  "title": "queues the reclaim of an expired zero-fill order with the request and clock its classification used",
+                  "ancestor_titles": [
+                    "doSync - zero-fill swap reclaim"
+                  ]
+                },
+                {
+                  "full_name": "doSync - zero-fill swap reclaim builds and queues no reclaim while the vault is locked, and the first lap after unlock does",
+                  "title": "builds and queues no reclaim while the vault is locked, and the first lap after unlock does",
+                  "ancestor_titles": [
+                    "doSync - zero-fill swap reclaim"
+                  ]
+                },
+                {
+                  "full_name": "doSync - zero-fill swap reclaim checks a refused recovered order's note on the node after the note-read hold, from the service worker",
+                  "title": "checks a refused recovered order's note on the node after the note-read hold, from the service worker",
+                  "ancestor_titles": [
+                    "doSync - zero-fill swap reclaim"
+                  ]
+                },
+                {
+                  "full_name": "doSync - zero-fill swap reclaim a lap whose note-read hold is evicted books a zero-fill build parked until the eviction once on its own key and none on claimable-notes",
+                  "title": "books a zero-fill build parked until the eviction once on its own key and none on claimable-notes",
+                  "ancestor_titles": [
+                    "doSync - zero-fill swap reclaim",
+                    "a lap whose note-read hold is evicted"
+                  ]
+                },
+                {
+                  "full_name": "doSync - zero-fill swap reclaim a lap whose note-read hold is evicted books an eviction during the consumable-note read on neither key",
+                  "title": "books an eviction during the consumable-note read on neither key",
+                  "ancestor_titles": [
+                    "doSync - zero-fill swap reclaim",
+                    "a lap whose note-read hold is evicted"
+                  ]
+                },
+                {
+                  "full_name": "doSync - zero-fill swap reclaim a lap whose note-read hold is evicted books no success from the build before one refused on the data after its eviction, so laps light the key",
+                  "title": "books no success from the build before one refused on the data after its eviction, so laps light the key",
+                  "ancestor_titles": [
+                    "doSync - zero-fill swap reclaim",
+                    "a lap whose note-read hold is evicted"
+                  ]
+                },
+                {
+                  "full_name": "doSync - zero-fill swap reclaim a lap whose note-read hold is evicted books a build evicted in the tick it is refused on the data on its own key, not on claimable-notes",
+          PYTHON_PART
+      - name: Retain frozen collector source part 3
+        id: helper_3
+        run: |
+          set -euo pipefail
+          cat > "$PROOF_DIR/helper-part-3.txt" <<'PYTHON_PART'
+                  "title": "books a build evicted in the tick it is refused on the data on its own key, not on claimable-notes",
+                  "ancestor_titles": [
+                    "doSync - zero-fill swap reclaim",
+                    "a lap whose note-read hold is evicted"
+                  ]
+                },
+                {
+                  "full_name": "doSync - expired swap order settlement queues no settlement consume while the vault is locked, and the first lap after unlock queues it",
+                  "title": "queues no settlement consume while the vault is locked, and the first lap after unlock queues it",
+                  "ancestor_titles": [
+                    "doSync - expired swap order settlement"
+                  ]
+                },
+                {
+                  "full_name": "doSync - expired swap order settlement worker settlement refuses token-only payback and remainder and still settles a funded order",
+                  "title": "worker settlement refuses token-only payback and remainder and still settles a funded order",
+                  "ancestor_titles": [
+                    "doSync - expired swap order settlement"
+                  ]
+                },
+                {
+                  "full_name": "doSync - expired swap order settlement queues no native claim and no settlement consume while the store is not initialized",
+                  "title": "queues no native claim and no settlement consume while the store is not initialized",
+                  "ancestor_titles": [
+                    "doSync - expired swap order settlement"
+                  ]
+                },
+                {
+                  "full_name": "doSync - expired swap order settlement queues no settlement consume when the vault locks while the lap stamps the expiry, and does on a lap unlocked throughout",
+                  "title": "queues no settlement consume when the vault locks while the lap stamps the expiry, and does on a lap unlocked throughout",
+                  "ancestor_titles": [
+                    "doSync - expired swap order settlement"
+                  ]
+                },
+                {
+                  "full_name": "doSync - expired swap order settlement settles with current proof preference true instead of saved false",
+                  "title": "settles with current proof preference true instead of saved false",
+                  "ancestor_titles": [
+                    "doSync - expired swap order settlement"
+                  ]
+                },
+                {
+                  "full_name": "doSync - expired swap order settlement settles with current proof preference false instead of saved true",
+                  "title": "settles with current proof preference false instead of saved true",
+                  "ancestor_titles": [
+                    "doSync - expired swap order settlement"
+                  ]
+                },
+                {
+                  "full_name": "doSync - expired swap order settlement keeps the ordinary omitted-flag settlement fallback to saved false",
+                  "title": "keeps the ordinary omitted-flag settlement fallback to saved false",
+                  "ancestor_titles": [
+                    "doSync - expired swap order settlement"
+                  ]
+                },
+                {
+                  "full_name": "doSync - expired swap order settlement keeps the ordinary omitted-flag settlement fallback to saved true",
+                  "title": "keeps the ordinary omitted-flag settlement fallback to saved true",
+                  "ancestor_titles": [
+                    "doSync - expired swap order settlement"
+                  ]
+                },
+                {
+                  "full_name": "doSync - expired swap order settlement queues no settlement claim when the vault locks during the current proof mirror read",
+                  "title": "queues no settlement claim when the vault locks during the current proof mirror read",
+                  "ancestor_titles": [
+                    "doSync - expired swap order settlement"
+                  ]
+                },
+                {
+                  "full_name": "doSync waits for the first override load dispatches no sync and reads no endpoint until the load settles, then runs the same lap",
+                  "title": "dispatches no sync and reads no endpoint until the load settles, then runs the same lap",
+                  "ancestor_titles": [
+                    "doSync waits for the first override load"
+                  ]
+                },
+                {
+                  "full_name": "doSync drives the resultBytes reaper runs the reaper on a normal lap",
+                  "title": "runs the reaper on a normal lap",
+                  "ancestor_titles": [
+                    "doSync drives the resultBytes reaper"
+                  ]
+                },
+                {
+                  "full_name": "doSync drives the resultBytes reaper runs the reaper even when the lap is short-circuited before any sync work",
+                  "title": "runs the reaper even when the lap is short-circuited before any sync work",
+                  "ancestor_titles": [
+                    "doSync drives the resultBytes reaper"
+                  ]
+                }
+              ]
+            },
+            "failure_sites": {
+              "doSync - expired swap order settlement settles with current proof preference true instead of saved false": {
+                "line": 2511,
+                "source": "      expect(claims.map(row => row.delegateTransaction)).toEqual([current, current]);",
+                "matcher": "toEqual",
+                "expected": [
+                  true,
+                  true
+                ],
+                "received": [
+                  false,
+                  false
+                ],
+                "passing_assertions_before_failure": 1,
+                "later_assertions": "UNRUN after this failure",
+                "column": 58
+              },
+              "doSync - expired swap order settlement settles with current proof preference false instead of saved true": {
+                "line": 2511,
+                "source": "      expect(claims.map(row => row.delegateTransaction)).toEqual([current, current]);",
+                "matcher": "toEqual",
+                "expected": [
+                  false,
+                  false
+                ],
+                "received": [
+                  true,
+                  true
+                ],
+                "passing_assertions_before_failure": 1,
+                "later_assertions": "UNRUN after this failure",
+                "column": 58
+              },
+              "doSync - expired swap order settlement queues no settlement consume when the vault locks while the lap stamps the expiry, and does on a lap unlocked throughout": {
+                "line": 2462,
+                "column": 42,
+                "source": "      expect(await queuedClaimNoteIds()).toEqual([]);",
+                "matcher": "toEqual",
+                "expected": [],
+                "received": [
+                  "payback",
+                  "remainder-tip"
+                ],
+                "passing_assertions_before_failure": 1
+              }
+            },
+            "framework": {
+              "expect": {
+                "version": "30.4.1",
+                "artifact_prefix": "framework-expect",
+                "files": {
+                  "package.json": {
+                    "relative": "package.json",
+                    "sha256": "c0dcf2678d35a15774a7aebc71dcaeb3442f6b22d722e04ea0d68081ec6eb5a0",
+                    "bytes": 1132
+                  },
+                  "build.js": {
+                    "relative": "build/index.js",
+                    "sha256": "469add4932a11785006b19dbd1c041169b040d69cf4e27872892e0a7119368b4",
+                    "bytes": 112845
+                  }
+                }
+              },
+              "jest-each": {
+                "version": "30.4.1",
+                "artifact_prefix": "framework-jest-each",
+                "files": {
+                  "package.json": {
+                    "relative": "package.json",
+                    "sha256": "04e94a8aebba90cfe89fa257bb63e47efbe93494febf8f720e5f888ace3f9893",
+                    "bytes": 1004
+                  },
+                  "build.js": {
+                    "relative": "build/index.js",
+                    "sha256": "2efbb7982d44ab97a6f834a095999919f0e5a6f0dbd44c45dc5552a4a4e752fe",
+                    "bytes": 16347
+                  }
+                }
+              },
+              "jest-circus": {
+                "version": "30.4.2",
+                "artifact_prefix": "framework-jest-circus",
+                "files": {
+                  "package.json": {
+                    "relative": "package.json",
+                    "sha256": "488605fae2565092977981f56170340563a571a44e47bd9c7e2987319712e16b",
+                    "bytes": 1573
+                  },
+                  "build.js": {
+                    "relative": "build/jestAdapterInit.js",
+                    "sha256": "f64ef94daa71293d875d497f692c48de6f8cc72a70d1935449da6610aa9438d1",
+                    "bytes": 72464
+                  },
+                  "runner.js": {
+                    "relative": "build/runner.js",
+                    "sha256": "26e7f1e4684472561af0b445a8ee5872088d41aa3b1b120b79cb70f93ef5d764",
+                    "bytes": 6908
+                  }
+                }
+              },
+              "@jest/core": {
+                "version": "30.4.2",
+                "artifact_prefix": "framework-jest-core",
+                "files": {
+                  "package.json": {
+                    "relative": "package.json",
+                    "sha256": "c6f7e4533f393266cbfcb1113fc81d26677aad1bdca105defd953c20ee378e5a",
+                    "bytes": 2369
+                  },
+                  "build.js": {
+                    "relative": "build/index.js",
+                    "sha256": "16ef0a75b6a8062fe9d4f74a23b88221928d23fdee50387ba4bb408b355a4f27",
+                    "bytes": 139198
+                  }
+                }
+              },
+              "jest-matcher-utils": {
+                "version": "30.4.1",
+                "artifact_prefix": "framework-jest-matcher-utils",
+                "files": {
+                  "package.json": {
+                    "relative": "package.json",
+                    "sha256": "b433966e038240bffcae1cf95997171145b8a343aef0713d5e6c22fdd72ebd84",
+                    "bytes": 987
+                  },
+                  "build.js": {
+                    "relative": "build/index.js",
+                    "sha256": "1bbf8b1afe9f59c06c9129e4d4ce7406089b5c1563bf019e1cfbfd9d69335b52",
+                    "bytes": 24759
+                  }
+                }
+              },
+              "jest-diff": {
+                "version": "30.4.1",
+                "artifact_prefix": "framework-jest-diff",
+                "files": {
+                  "package.json": {
+                    "relative": "package.json",
+                    "sha256": "6dd82db9a28d2d0dae9864605c2a478c97f57ffb952968c9f3a1a2eacb88ccef",
+                    "bytes": 877
+                  },
+                  "build.js": {
+                    "relative": "build/index.js",
+                    "sha256": "d35ee6ff8e1666e5a3f75c58426ab025ff2b012c983d0afb05a60b7ec2b7bab7",
+                    "bytes": 56173
+                  }
+                }
+              },
+              "pretty-format": {
+                "version": "30.4.1",
+                "artifact_prefix": "framework-pretty-format",
+                "files": {
+                  "package.json": {
+                    "relative": "package.json",
+                    "sha256": "816f475ae53780688516968fddef795c2f69c25ea9814b752553dd6d411e2564",
+                    "bytes": 1309
+                  },
+                  "build.js": {
+                    "relative": "build/index.js",
+                    "sha256": "a402d0283ddb1bc9a42d6d2605789b2573895114db88c6fb4070eca228a06d20",
+                    "bytes": 40721
+                  }
+                }
+              },
+              "jest": {
+                "version": "30.4.2",
+                "artifact_prefix": "framework-jest",
+                "files": {
+                  "package.json": {
+                    "relative": "package.json",
+                    "sha256": "90b2d495b4fdef80faefeeb26e275478bb3c1eeac15d587bbffb192ca3a4fa52",
+                    "bytes": 1467
+                  },
+                  "build.js": {
+                    "relative": "build/index.js",
+                    "sha256": "fe7074b98064efbccdd13c7ee9a8b2bb5f86f098b2c0f5667896e9c78af3b20d",
+                    "bytes": 2022
+                  }
+                }
+              },
+              "jest-util": {
+                "version": "30.4.1",
+                "artifact_prefix": "framework-jest-util",
+                "files": {
+                  "package.json": {
+                    "relative": "package.json",
+                    "sha256": "01adf732c8a3c43ec42f5b009f12619e82451018518084b513ca3a4daf741793",
+                    "bytes": 1037
+                  },
+                  "build.js": {
+                    "relative": "build/index.js",
+                    "sha256": "3e8b0fc7c556b53ef1d4ec30457ce2dddd5059bdb464d57dedaa5918b11053ea",
+                    "bytes": 42629
+                  }
+                }
+              },
+              "@jest/test-result": {
+                "version": "30.4.1",
+                "artifact_prefix": "framework-jest-test-result",
+                "files": {
+                  "package.json": {
+                    "relative": "package.json",
+                    "sha256": "e6d4c63978870df4e6fb2af087c459a008b471a8bddccdcb593183f7b47c2b52",
+                    "bytes": 939
+                  },
+                  "build.js": {
+                    "relative": "build/index.js",
+                    "sha256": "e63c5d3baba4fcded043e2409185718267dfcad34b71a5fd00cdb7e8b4bf3292",
+                    "bytes": 9688
+                  }
+                }
+              }
+            },
+            "commands": {
+              "source": [
+                "python3",
+                "$PROOF_DIR/proof-tools.py",
+                "source"
+              ],
+              "install": [
+                "timeout",
+                "10m",
+                "yarn",
+                "install",
+                "--frozen-lockfile",
+                "--non-interactive"
+              ],
+              "prepared": [
+                "python3",
+                "$PROOF_DIR/proof-tools.py",
+                "prepared"
+              ],
+              "format": [
+                "yarn",
+                "prettier",
+                "--check",
+                "CHANGELOG.md",
+                "src/lib/miden/back/sync-manager.ts",
+                "src/lib/miden/swap/settlement.ts",
+                "src/lib/miden/back/sync-manager.test.ts"
+              ],
+              "eslint": [
+                "yarn",
+                "eslint",
+                "--max-warnings",
+                "0",
+                "src/lib/miden/back/sync-manager.ts",
+                "src/lib/miden/swap/settlement.ts",
+                "src/lib/miden/back/sync-manager.test.ts"
+              ],
+              "typescript": [
+                "yarn",
+                "tsc",
+                "--noEmit",
+                "--pretty",
+                "false"
+              ],
+              "final": [
+                "python3",
+                "$PROOF_DIR/proof-tools.py",
+                "final"
+              ],
+              "validate": [
+                "python3",
+                "$PROOF_DIR/proof-tools.py",
+                "validate"
+              ],
+              "begin-positive": [
+                "python3",
+                "$PROOF_DIR/proof-tools.py",
+                "begin",
+                "positive"
+              ],
+              "jest-positive": [
+                "yarn",
+                "jest",
+                "--runTestsByPath",
+                "src/lib/miden/back/sync-manager.test.ts",
+                "--maxWorkers=2",
+                "--coverage=false",
+                "--no-colors",
+                "--json",
+                "--outputFile=$PROOF_DIR/positive.jest.json"
+              ],
+              "restore-positive": [
+                "python3",
+                "$PROOF_DIR/proof-tools.py",
+                "restore",
+                "positive"
+              ],
+              "begin-stale-saved-setting": [
+                "python3",
+                "$PROOF_DIR/proof-tools.py",
+                "begin",
+                "stale-saved-setting"
+              ],
+              "jest-stale-saved-setting": [
+                "yarn",
+                "jest",
+                "--runTestsByPath",
+                "src/lib/miden/back/sync-manager.test.ts",
+                "--maxWorkers=2",
+                "--coverage=false",
+                "--no-colors",
+                "--json",
+                "--outputFile=$PROOF_DIR/stale-saved-setting.jest.json"
+              ],
+              "restore-stale-saved-setting": [
+                "python3",
+                "$PROOF_DIR/proof-tools.py",
+                "restore",
+                "stale-saved-setting"
+              ],
+              "begin-truthy-fallback": [
+                "python3",
+                "$PROOF_DIR/proof-tools.py",
+                "begin",
+                "truthy-fallback"
+              ],
+              "jest-truthy-fallback": [
+                "yarn",
+                "jest",
+                "--runTestsByPath",
+                "src/lib/miden/back/sync-manager.test.ts",
+                "--maxWorkers=2",
+                "--coverage=false",
+                "--no-colors",
+                "--json",
+                "--outputFile=$PROOF_DIR/truthy-fallback.jest.json"
+              ],
+              "restore-truthy-fallback": [
+                "python3",
+                "$PROOF_DIR/proof-tools.py",
+                "restore",
+                "truthy-fallback"
+              ],
+              "begin-lost-final-can-sign": [
+                "python3",
+                "$PROOF_DIR/proof-tools.py",
+                "begin",
+                "lost-final-can-sign"
+              ],
+          PYTHON_PART
+      - name: Retain frozen collector source part 4
+        id: helper_4
+        run: |
+          set -euo pipefail
+          cat > "$PROOF_DIR/helper-part-4.txt" <<'PYTHON_PART'
+              "jest-lost-final-can-sign": [
+                "yarn",
+                "jest",
+                "--runTestsByPath",
+                "src/lib/miden/back/sync-manager.test.ts",
+                "--maxWorkers=2",
+                "--coverage=false",
+                "--no-colors",
+                "--json",
+                "--outputFile=$PROOF_DIR/lost-final-can-sign.jest.json"
+              ],
+              "restore-lost-final-can-sign": [
+                "python3",
+                "$PROOF_DIR/proof-tools.py",
+                "restore",
+                "lost-final-can-sign"
+              ]
+            },
+            "logged_commands": [
+              "source",
+              "install",
+              "prepared",
+              "format",
+              "eslint",
+              "typescript",
+              "begin-positive",
+              "jest-positive",
+              "restore-positive",
+              "begin-stale-saved-setting",
+              "jest-stale-saved-setting",
+              "restore-stale-saved-setting",
+              "begin-truthy-fallback",
+              "jest-truthy-fallback",
+              "restore-truthy-fallback",
+              "begin-lost-final-can-sign",
+              "jest-lost-final-can-sign",
+              "restore-lost-final-can-sign",
+              "final"
+            ],
+            "outcomes": [
+              "initialize",
+              "assemble",
+              "checkout",
+              "source",
+              "node",
+              "install",
+              "prepared",
+              "format",
+              "eslint",
+              "typescript",
+              "begin_positive",
+              "jest_positive",
+              "restore_positive",
+              "begin_stale_saved_setting",
+              "jest_stale_saved_setting",
+              "restore_stale_saved_setting",
+              "begin_truthy_fallback",
+              "jest_truthy_fallback",
+              "restore_truthy_fallback",
+              "begin_lost_final_can_sign",
+              "jest_lost_final_can_sign",
+              "restore_lost_final_can_sign",
+              "final"
+            ],
+            "identity_keys": [
+              "HEAD_SHA",
+              "REF",
+              "EVENT",
+              "REPOSITORY",
+              "WORKFLOW_REF",
+              "WORKFLOW_SHA",
+              "RUN_ID",
+              "RUN_ATTEMPT"
+            ],
+            "source_parents": [
+              "f8cc591edd69054cd9fea508b2d6fe7ba511200e"
+            ],
+            "source_count": 3615,
+            "variants": {
+              "positive": {
+                "name": "positive",
+                "source_mutation": null,
+                "expected_total": 97,
+                "expected_pass": 97,
+                "expected_fail": 0,
+                "failure_names": []
+              },
+              "stale-saved-setting": {
+                "name": "stale-saved-setting",
+                "path": "src/lib/miden/back/sync-manager.ts",
+                "exact_old": "            settlementDelegate,\n",
+                "exact_new": "            undefined,\n",
+                "occurrences": 1,
+                "expected_total": 97,
+                "expected_pass": 95,
+                "expected_fail": 2,
+                "expected_failure": "Both new saved/current opposite-Boolean cases; first exact queued delegateTransaction array assertion at2511.",
+                "failure_names": [
+                  "doSync - expired swap order settlement settles with current proof preference true instead of saved false",
+                  "doSync - expired swap order settlement settles with current proof preference false instead of saved true"
+                ]
+              },
+              "truthy-fallback": {
+                "name": "truthy-fallback",
+                "path": "src/lib/miden/swap/settlement.ts",
+                "exact_old": "    // Callers without a current preference retain the order's saved setting.\n    const delegate = delegateTransaction ?? order.delegateTransaction;\n",
+                "exact_new": "    // Callers without a current preference retain the order's saved setting.\n    const delegate = delegateTransaction || order.delegateTransaction;\n",
+                "occurrences": 1,
+                "expected_total": 97,
+                "expected_pass": 96,
+                "expected_fail": 1,
+                "expected_failure": "New saved=true/current=false case; first exact queued delegateTransaction array assertion at2511.",
+                "failure_names": [
+                  "doSync - expired swap order settlement settles with current proof preference false instead of saved true"
+                ]
+              },
+              "lost-final-can-sign": {
+                "name": "lost-final-can-sign",
+                "path": "src/lib/miden/back/sync-manager.ts",
+                "exact_old": "            () => isUnlocked(store.getState())\n",
+                "exact_new": "            undefined\n",
+                "occurrences": 1,
+                "expected_total": 97,
+                "expected_pass": 96,
+                "expected_fail": 1,
+                "expected_failure": "Existing vault-lock-during-expiry-stamp case at2447; first nonempty queuedClaimNoteIds against expected empty array. New mirror-await lock case still protected by the post-read gate and should pass.",
+                "failure_names": [
+                  "doSync - expired swap order settlement queues no settlement consume when the vault locks while the lap stamps the expiry, and does on a lap unlocked throughout"
+                ]
+              }
+            },
+            "request_manifest_sha256": "37ff82e1d16fdc5c76767b4ce1b8baf4500412ddbc620f7f8296e673cde20fb4",
+            "authored_source": "f8cc591edd69054cd9fea508b2d6fe7ba511200e",
+            "format_source_generation": "Separate signed CHANGELOG-only generation off immutable authored f8; exact six-character candidate independently reviewed",
+            "authored_tree": "4fea14d0f29f51b65ca0b885c347d9f19c35c965",
+            "format_only_changelog": {
+              "original_sha256": "727091a766c40c8aa7cc2cf67389f9b577477c5e5acd1ef74f2a37a8138d9238",
+              "candidate_sha256": "66405b28dbfec172bd3f4f48d47e24e4c56cbab772d56e2d255123a703f511a1",
+              "bytes": 586877,
+              "mode": "100644"
+            },
+            "completed_assertion_counts": {
+              "doSync - expired swap order settlement settles with current proof preference true instead of saved false": 5,
+              "doSync - expired swap order settlement settles with current proof preference false instead of saved true": 5,
+              "doSync - expired swap order settlement queues no settlement consume when the vault locks while the lap stamps the expiry, and does on a lap unlocked throughout": 5,
+              "doSync - expired swap order settlement queues no settlement claim when the vault locks during the current proof mirror read": 5,
+              "doSync - expired swap order settlement keeps the ordinary omitted-flag settlement fallback to saved false": 3,
+              "doSync - expired swap order settlement keeps the ordinary omitted-flag settlement fallback to saved true": 3
+            }
+          }
+          ''')
+          proof = Path(os.environ['PROOF_DIR'])
+          
+          def git(*args):
+              return subprocess.check_output(['git', *args])
+          
+          
+          def value(*args):
+              return git(*args).decode().strip()
+          
+          
+          def digest(data):
+              return hashlib.sha256(data).hexdigest()
+          
+          
+          def save(name, data):
+              (proof / name).write_text(json.dumps(data, indent=2, ensure_ascii=True) + '\n')
+          
+          
+          def load(name):
+              return json.loads((proof / name).read_text())
+          
+          
+          def canonical(data):
+              return json.dumps(data, sort_keys=True, ensure_ascii=True, separators=(',', ':'))
+          
+          
+          def tree(ref):
+              entries = {}
+              for record in git('ls-tree', '-rz', ref).split(b'\0'):
+                  if record:
+                      metadata, name = record.split(b'\t', 1)
+                      entries[name.decode()] = metadata.decode().split()
+              return entries
+          
+          
+          def snapshot(label, variant=None):
+              manifest = load('source-and-checkout.json')
+              entries = tree('HEAD')
+              working = {}
+              for name, entry in entries.items():
+                  path = Path(name)
+                  try:
+                      observed = path.lstat()
+                      if stat.S_ISLNK(observed.st_mode):
+                          kind, data = 'symlink', os.fsencode(os.readlink(path))
+                      elif stat.S_ISREG(observed.st_mode):
+                          kind, data = 'regular', path.read_bytes()
+                      else:
+                          raise ValueError('Unexpected file type')
+                      working[name] = {'git_entry': entry, 'sha256': digest(data), 'bytes': len(data),
+                                       'physical_mode': stat.S_IMODE(observed.st_mode), 'kind': kind,
+                                       'working_blob': hashlib.sha1(b'blob ' + str(len(data)).encode() + b'\0' + data).hexdigest()}
+                  except Exception as error:
+                      working[name] = {'error': str(error), 'git_entry': entry}
+              raw_stage = git('ls-files', '--stage', '-z')
+              staged = {}
+              for record in raw_stage.split(b'\0'):
+                  if record:
+                      metadata, name = record.split(b'\t', 1)
+                      staged[name.decode()] = metadata.decode().split()
+              index_path = Path(value('rev-parse', '--git-path', 'index'))
+              assert index_path.is_file() and not index_path.is_symlink(), 'Missing or symlinked index'
+              raw_index = index_path.read_bytes()
+              (proof / (label + '.index.bin')).write_bytes(raw_index)
+              (proof / (label + '.index-stage.bin')).write_bytes(raw_stage)
+              record = {'head': value('rev-parse', 'HEAD'), 'tree': value('rev-parse', 'HEAD^{tree}'),
+                        'committed_entries': entries, 'index_entries': staged,
+                        'index_sha256': digest(raw_index), 'index_stage_sha256': digest(raw_stage),
+                        'working_entries': working, 'status': value('status', '--porcelain=v2', '--untracked-files=all')}
+              save(label + '.map.json', record)
+              validate_snapshot(label, variant)
+              return record
+          
+          
+          def validate_snapshot(label, variant=None):
+              manifest = load('source-and-checkout.json')
+              record = load(label + '.map.json')
+              entries = manifest['checkout_entry_map']
+              assert record['head'] == manifest['checkout_commit'] and record['tree'] == manifest['checkout_tree'], 'Head/tree drift'
+              assert record['committed_entries'] == entries, 'Committed entry drift'
+              assert record['index_entries'] == {name: [entry[0], entry[2], '0'] for name, entry in entries.items()}, 'Index entry drift'
+              assert digest((proof / (label + '.index.bin')).read_bytes()) == record['index_sha256'], 'Index evidence drift'
+              assert digest((proof / (label + '.index-stage.bin')).read_bytes()) == record['index_stage_sha256'], 'Stage evidence drift'
+              assert set(record['working_entries']) == set(entries), 'Working inventory drift'
+              baseline = record if label == 'source-clean' else load('source-clean.map.json')
+              for key in ['head', 'tree', 'committed_entries', 'index_entries', 'index_sha256', 'index_stage_sha256']:
+                  assert record[key] == baseline[key], 'Source/index snapshot drift: ' + key
+              target = variant.get('path') if variant else None
+              if target:
+                  receipt = load(variant['name'] + '.mutation.json')
+                  backup = proof / (variant['name'] + '.original.bin')
+                  assert backup.is_file() and not backup.is_symlink(), 'Unsafe original backup'
+                  original = backup.read_bytes()
+                  assert digest(original) == baseline['working_entries'][target]['sha256'], 'Original backup differs from frozen source'
+                  assert original.count(variant['exact_old'].encode()) == 1, 'Original mutation anchor drift'
+                  mutated = original.replace(variant['exact_old'].encode(), variant['exact_new'].encode(), 1)
+                  assert receipt == {'name': variant['name'], 'path': target, 'original_sha256': digest(original), 'original_bytes': len(original), 'mutated_sha256': digest(mutated), 'mutated_bytes': len(mutated), 'physical_mode': baseline['working_entries'][target]['physical_mode'], 'replacement_count': 1}, 'Mutation receipt drift'
+                  assert len(record['status'].splitlines()) == 1 and record['status'].endswith(' ' + target), 'Mutant status drift'
+              else:
+                  assert not record['status'], 'Working status drift'
+              for name, entry in entries.items():
+                  observed = record['working_entries'][name]
+                  assert observed['git_entry'] == entry and entry[1] == 'blob' and entry[0] in ['100644', '100755', '120000'], 'Unsupported or changed entry'
+                  assert observed['kind'] == ('symlink' if entry[0] == '120000' else 'regular'), 'File type drift: ' + name
+                  if entry[0] != '120000':
+                      assert bool(observed['physical_mode'] & 0o111) == (entry[0] == '100755'), 'Executable mode drift: ' + name
+                  if name == target:
+                      assert observed['sha256'] == receipt['mutated_sha256'] and observed['bytes'] == receipt['mutated_bytes'], 'Mutant bytes drift'
+                      assert observed['physical_mode'] == baseline['working_entries'][name]['physical_mode'], 'Mutant mode drift'
+                  else:
+                      assert observed.get('working_blob') == entry[2] and observed == baseline['working_entries'][name], 'Working bytes or modes drift: ' + name
+              return digest((proof / (label + '.map.json')).read_bytes())
+          
+          
+          def identity():
+              save('run-identity.json', {key: os.environ['PROOF_' + key] for key in BINDINGS['identity_keys']})
+              save('bindings.json', BINDINGS)
+              save('expected-case-inventory.json', BINDINGS['inventory'])
+          
+          
+          def source():
+              head = value('rev-parse', 'HEAD')
+              before, after = tree(BINDINGS['source']), tree(head)
+              manifest = {'source_commit': BINDINGS['source'], 'source_tree': value('rev-parse', BINDINGS['source'] + '^{tree}'),
+                          'checkout_commit': head, 'checkout_tree': value('rev-parse', 'HEAD^{tree}'),
+                          'source_entry_map': before, 'checkout_entry_map': after,
+                          'workflow_sha256': digest(Path(BINDINGS['workflow']).read_bytes()),
+                          'proof_tools_sha256': digest(Path(__file__).read_bytes()),
+                          'runner_helper_sha256': digest((proof / 'run-logged.bash').read_bytes())}
+              save('source-and-checkout.json', manifest)
+              save('source-entry-map.json', before)
+              save('checkout-entry-map.json', after)
+              for label, ref in [('source', BINDINGS['source']), ('checkout', head), ('main', BINDINGS['main'])]:
+                  (proof / (label + '-commit.txt')).write_bytes(git('cat-file', 'commit', ref))
+                  (proof / (label + '-tree.txt')).write_bytes(git('ls-tree', '-r', ref))
+              (proof / 'workflow.yml').write_bytes(Path(BINDINGS['workflow']).read_bytes())
+              (proof / 'expanded-source.test.ts').write_bytes(Path(BINDINGS['test_path']).read_bytes())
+              (proof / 'workflow-only.diff').write_bytes(git('diff', '--binary', BINDINGS['source'], head))
+              (proof / 'test-only.diff').write_bytes(git('diff', '--binary', BINDINGS['main'], BINDINGS['source']))
+              assert head == os.environ['PROOF_HEAD_SHA'] == os.environ['PROOF_WORKFLOW_SHA'], 'Event/workflow/head mismatch'
+              assert os.environ['PROOF_EVENT'] == 'push' and os.environ['PROOF_REF'] == 'refs/heads/' + BINDINGS['branch'], 'Unique push branch required'
+              assert os.environ['PROOF_REPOSITORY'] == '0xMiden/wallet', 'Unexpected repository'
+              assert os.environ['PROOF_WORKFLOW_REF'] == os.environ['PROOF_REPOSITORY'] + '/' + BINDINGS['workflow'] + '@' + os.environ['PROOF_REF'], 'Workflow ref mismatch'
+          PYTHON_PART
+      - name: Retain frozen collector source part 5
+        id: helper_5
+        run: |
+          set -euo pipefail
+          cat > "$PROOF_DIR/helper-part-5.txt" <<'PYTHON_PART'
+              assert all(os.environ['PROOF_' + key].isdigit() for key in ['RUN_ID', 'RUN_ATTEMPT']), 'Missing run identity'
+              assert manifest['source_tree'] == BINDINGS['source_tree'], 'Frozen source tree mismatch'
+              authored = tree(BINDINGS['authored_source'])
+              save('authored-source-entry-map.json', authored)
+              assert value('rev-parse', BINDINGS['authored_source'] + '^{tree}') == BINDINGS['authored_tree'], 'Authored source tree changed'
+              for suffix, command in [('-commit.txt', ['cat-file', 'commit']), ('-tree.txt', ['ls-tree', '-r'])]:
+                  (proof / ('authored-source' + suffix)).write_bytes(git(*command, BINDINGS['authored_source']))
+              (proof / 'source-generation.diff').write_bytes(git('diff', '--binary', BINDINGS['authored_source'], BINDINGS['source']))
+              assert set(authored) == set(before), 'Source generation entry inventory changed'
+              if BINDINGS['source'] == BINDINGS['authored_source']:
+                  assert authored == before, 'Authored source map mismatch'
+              else:
+                  assert value('rev-list', '--parents', '-n', '1', BINDINGS['source']).split() == [BINDINGS['source'], BINDINGS['authored_source']], 'Format-only generation must directly follow authored source'
+                  assert all(before[name] == entry for name, entry in authored.items() if name != 'CHANGELOG.md'), 'Production/test entries changed in formatting generation'
+                  fmt = BINDINGS['format_only_changelog']
+                  assert before['CHANGELOG.md'][:2] == authored['CHANGELOG.md'][:2] == [fmt['mode'], 'blob'], 'CHANGELOG mode changed'
+                  original = git('show', BINDINGS['authored_source'] + ':CHANGELOG.md')
+                  formatted = git('show', BINDINGS['source'] + ':CHANGELOG.md')
+                  assert digest(original) == fmt['original_sha256'] and digest(formatted) == fmt['candidate_sha256'], 'Exact approved formatting bytes required'
+                  assert len(original) == len(formatted) == fmt['bytes'], 'Formatting length changed'
+                  assert sum(x != y for x, y in zip(original, formatted)) == 6 and all(x == ord('*') and y == ord('_') for x, y in zip(original, formatted) if x != y), 'Only six approved emphasis marker replacements allowed'
+              assert value('rev-list', '--parents', '-n', '1', BINDINGS['source']).split() == [BINDINGS['source'], *BINDINGS['source_parents']], 'Source parent mismatch'
+              assert value('rev-list', '--parents', '-n', '1', head).split() == [head, BINDINGS['source']], 'One direct transport commit required'
+              assert len(before) == BINDINGS['source_count'] and len(after) == BINDINGS['source_count'] + 1, 'Source/transport entry count mismatch'
+              assert all(after.get(name) == entry for name, entry in before.items()), 'Frozen source entries changed'
+              assert set(after) - set(before) == {BINDINGS['workflow']} and after[BINDINGS['workflow']][:2] == ['100644', 'blob'], 'Only regular workflow may be added'
+              assert digest(Path(BINDINGS['test_path']).read_bytes()) == BINDINGS['inventory']['source_sha256'], 'Expanded test bytes changed'
+              lines = Path(BINDINGS['test_path']).read_text().splitlines()
+              for site in BINDINGS['failure_sites'].values():
+                  assert lines[site['line'] - 1] == site['source'], 'Authored matcher moved'
+              snapshot('source-clean')
+              print('Bound complete frozen source, sole workflow addition, exact 97-case inventory and push provenance')
+          
+          
+          def prepared():
+              snapshot('prepared')
+              assert digest(Path('yarn.lock').read_bytes()) == BINDINGS['lock_sha256'], 'Frozen lockfile changed'
+              identities = {}
+              for name, binding in BINDINGS['framework'].items():
+                  observed = {}
+                  for key, path in binding['files'].items():
+                      local = Path('node_modules') / name / path['relative']
+                      assert local.is_file() and not local.is_symlink(), 'Missing framework file'
+                      data = local.read_bytes()
+                      assert digest(data) == path['sha256'], 'Pinned framework bytes mismatch: ' + name
+                      output = binding['artifact_prefix'] + '-' + key
+                      (proof / output).write_bytes(data)
+                      observed[key] = {'sha256': digest(data), 'bytes': len(data), 'artifact': output}
+                      if key == 'package.json':
+                          assert json.loads(data)['version'] == binding['version'], 'Pinned framework version mismatch'
+                  identities[name] = {'version': binding['version'], 'files': observed}
+              save('framework-identities.json', identities)
+              save('tool-versions.json', {name: subprocess.check_output([name, '--version'], text=True).strip() for name in ['node', 'yarn']})
+              print('Verified frozen install source/index and exact Jest matcher, each, circus and serializer implementations')
+          
+          
+          def plain(message):
+              return re.sub(r'\x1b\[[0-9;]*m', '', message)
+          
+          
+          def diff_arrays(message):
+              prefix = 'expect(received).toEqual(expected) // deep equality\n\n'
+              assert message.startswith(prefix), 'Wrong matcher prefix'
+              match = re.fullmatch(r'- Expected  - (\d+)\n\+ Received  \+ (\d+)\n\n(.+)', message[len(prefix):], re.DOTALL)
+              assert match, 'Unexpected toEqual array diff'
+              expected, actual = [], []
+              removed = added = 0
+              for line in match[3].splitlines():
+                  assert line[:2] in ['  ', '- ', '+ '], 'Unexpected diff marker'
+                  content = line[2:]
+                  if line[:2] != '+ ':
+                      expected.append(content)
+                  if line[:2] != '- ':
+                      actual.append(content)
+                  removed += line[:2] == '- '
+                  added += line[:2] == '+ '
+              assert (removed, added) == (int(match[1]), int(match[2])), 'Diff annotation mismatch'
+          
+              def array(lines):
+                  text = '\n'.join(lines).strip()
+                  assert text.startswith('Array ['), 'Expected pretty-format Array'
+                  text = re.sub(r',\s*\]', '\n]', text[len('Array '):])
+                  data = json.loads(text)
+                  assert isinstance(data, list), 'Nonarray diff'
+                  return data
+          
+              return array(expected), array(actual)
+          
+          
+          def checked_result(name):
+              variant = BINDINGS['variants'][name]
+              sites = {case: BINDINGS['failure_sites'][case] for case in variant['failure_names']}
+              result = load(name + '.jest.json')
+              assert len(result['testResults']) == 1, 'Exactly one suite required'
+              suite = result['testResults'][0]
+              assert suite['name'] == str(Path.cwd() / BINDINGS['test_path']) and suite['status'] == ('failed' if sites else 'passed'), 'Wrong suite or status'
+              cases = suite['assertionResults']
+              expected_cases = {case['full_name']: case for case in BINDINGS['inventory']['cases']}
+              assert len(cases) == len(expected_cases) == 97, 'Missing/extra cases'
+              names = [case['fullName'] for case in cases]
+              assert len(set(names)) == 97 and set(names) == set(expected_cases), 'Wrong/duplicate full inventory'
+              failures = {}
+              for case in cases:
+                  name = case['fullName']
+                  expected_case = expected_cases[name]
+                  assert case['ancestorTitles'] == expected_case['ancestor_titles'] and case['title'] == expected_case['title'], 'Nested case identity mismatch'
+                  assert case['failing'] is False and case['invocations'] == 1 and case['retryReasons'] == [], 'Retry or expected-failing case'
+                  site = sites.get(name)
+                  if site is None:
+                      assert case['status'] == 'passed' and case['failureMessages'] == [] and case['failureDetails'] == [], 'Old/new control failed: ' + name
+                      if name in BINDINGS['completed_assertion_counts']:
+                          assert case['numPassingAsserts'] == BINDINGS['completed_assertion_counts'][name], 'Incomplete post-red assertions: ' + name
+                      continue
+                  assert case['status'] == 'failed' and len(case['failureMessages']) == len(case['failureDetails']) == 1, 'Wrong failure count'
+                  assert case['numPassingAsserts'] == site['passing_assertions_before_failure'], 'Wrong first failing assertion'
+                  message = plain(case['failureMessages'][0])
+                  prefix, stack = re.split(r'\n\s+at ', message, maxsplit=1)
+                  assert prefix.startswith('Error: '), 'Wrong authored matcher error type'
+                  expected, actual = diff_arrays(prefix[len('Error: '):].rstrip())
+                  assert canonical(expected) == canonical(site['expected']) and canonical(actual) == canonical(site['received']), 'Wrong expected/received array'
+                  frames = re.split(r'\n\s+at ', stack)
+                  first = frames[0].strip()
+                  authored = r'^[^\n]*\(' + re.escape(str(Path.cwd() / BINDINGS['test_path'])) + ':' + str(site['line']) + ':' + str(site['column']) + r'\)$'
+                  assert re.fullmatch(authored, first), 'First stack frame must be the exact authored synchronous matcher'
+                  detail = case['failureDetails'][0]
+                  assert type(detail) is dict and set(detail) == {'matcherResult'}, 'Unexpected frozen structured failure shape'
+                  matcher = detail['matcherResult']
+                  assert type(matcher) is dict and set(matcher) == {'actual', 'expected', 'message', 'name', 'pass'}, 'Unexpected frozen matcher shape'
+                  assert matcher['name'] == 'toEqual' and matcher['pass'] is False, 'Unexpected structured matcher'
+                  assert type(matcher['message']) is str and plain(matcher['message']) == prefix[len('Error: '):], 'Raw/structured matcher mismatch'
+                  assert canonical(matcher['expected']) == canonical(expected) and canonical(matcher['actual']) == canonical(actual), 'Structured values mismatch'
+                  failures[name] = {'line': site['line'], 'first_authored_frame': first,
+                                    'matcher': 'toEqual', 'expected': expected, 'received': actual,
+                                    'passing_assertions_before_failure': case['numPassingAsserts'],
+                                    'post_failure_assertions': 'UNRUN; no credit'}
+              assert set(failures) == set(sites) and len(failures) == variant['expected_fail'], 'Exact authored failure set required'
+              for key, count in {'numTotalTestSuites': 1, 'numFailedTestSuites': int(bool(sites)), 'numPassedTestSuites': int(not sites),
+                                 'numTotalTests': 97, 'numFailedTests': variant['expected_fail'], 'numPassedTests': variant['expected_pass'],
+                                 'numPendingTestSuites': 0, 'numPendingTests': 0, 'numTodoTests': 0,
+                                 'numRuntimeErrorTestSuites': 0}.items():
+                  assert result[key] == count, 'Wrong summary: ' + key
+              assert result['success'] is (not bool(sites)) and result['wasInterrupted'] is False and result['openHandles'] == [], 'Interrupted/runtime result'
+              assert result['snapshot']['failure'] is False and result['snapshot']['unmatched'] == 0 and result['snapshot']['unchecked'] == 0, 'Snapshot error'
+              return {'total': 97, 'passed': variant['expected_pass'], 'failed': variant['expected_fail'], 'exact_failures': failures}
+          
+          
+          
+          def verify_framework():
+              assert digest(Path('yarn.lock').read_bytes()) == BINDINGS['lock_sha256'], 'Lockfile drift'
+              for name, binding in BINDINGS['framework'].items():
+                  for key, file in binding['files'].items():
+                      local = Path('node_modules') / name / file['relative']
+                      assert local.is_file() and not local.is_symlink(), 'Missing framework file'
+                      assert digest(local.read_bytes()) == file['sha256'], 'Installed framework drift: ' + name
+                      artifact = proof / (binding['artifact_prefix'] + '-' + key)
+                      assert artifact.is_file() and not artifact.is_symlink() and digest(artifact.read_bytes()) == file['sha256'], 'Framework artifact drift'
+          
+          
+          def begin(name):
+              variant = BINDINGS['variants'][name]
+              snapshot(name + '-before')
+              verify_framework()
+              if name == 'positive':
+                  snapshot(name + '-active')
+                  print('Captured clean 97-case positive source and pinned dependencies')
+                  return
+              path = Path(variant['path'])
+              assert path.is_file() and not path.is_symlink(), 'Mutant target must be a regular file'
+              original = path.read_bytes()
+              old, new = variant['exact_old'].encode(), variant['exact_new'].encode()
+              assert original.count(old) == variant['occurrences'] == 1, 'Mutation anchor must occur exactly once'
+              mutated = original.replace(old, new, 1)
+              assert original != mutated, 'Empty mutation'
+              backup = proof / (name + '.original.bin')
+              assert not backup.exists() and not (proof / (name + '.mutation.json')).exists(), 'Variant reused'
+              backup.write_bytes(original)
+              save(name + '.mutation.json', {'name': name, 'path': variant['path'], 'original_sha256': digest(original),
+                   'original_bytes': len(original), 'mutated_sha256': digest(mutated), 'mutated_bytes': len(mutated),
+                   'physical_mode': stat.S_IMODE(path.stat().st_mode), 'replacement_count': 1})
+              path.write_bytes(mutated)
+              snapshot(name + '-active', variant)
+              verify_framework()
+              print('Captured one exact semantic mutation: ' + name)
+          
+          
+          def restore(name):
+              variant = BINDINGS['variants'][name]
+              snapshot(name + '-before-restore', variant if name != 'positive' else None)
+              verify_framework()
+              if name != 'positive':
+                  receipt = load(name + '.mutation.json')
+                  path = Path(variant['path'])
+                  backup = proof / (name + '.original.bin')
+                  assert receipt['name'] == name and receipt['path'] == variant['path'], 'Restore receipt mismatch'
+                  assert path.is_file() and not path.is_symlink() and backup.is_file() and not backup.is_symlink(), 'Unsafe restore target'
+                  original = backup.read_bytes()
+                  assert digest(original) == receipt['original_sha256'] and len(original) == receipt['original_bytes'], 'Original backup drift'
+                  assert path.read_bytes() in [original, original.replace(variant['exact_old'].encode(), variant['exact_new'].encode(), 1)], 'Unexpected target drift, refusing restore'
+                  assert stat.S_IMODE(path.stat().st_mode) == receipt['physical_mode'], 'Target mode drift, refusing restore'
+                  path.write_bytes(original)
+              snapshot(name + '-after')
+              verify_framework()
+              save(name + '.restored.json', {'status': 'EXACT_ORIGINAL_RESTORED', 'name': name})
+              print('Verified full original source, index, modes and dependency pins after: ' + name)
+          
+          
+          def final():
+              errors = []
+          PYTHON_PART
+      - name: Retain frozen collector source part 6
+        id: helper_6
+        run: |
+          set -euo pipefail
+          cat > "$PROOF_DIR/helper-part-6.txt" <<'PYTHON_PART'
+              for name in BINDINGS['variants']:
+                  if name != 'positive' and (proof / (name + '.mutation.json')).exists() and not (proof / (name + '.restored.json')).exists():
+                      try:
+                          restore(name)
+                      except Exception as error:
+                          errors.append({'variant': name, 'reason': str(error)})
+              save('final-restore-attempt.json', {'errors': errors, 'limits': 'Only named own mutations are eligible for exact backup restoration'})
+              snapshot('final-clean')
+              assert not errors, 'Final restoration failed'
+              print('Captured final source, index, modes and exact own-mutation restoration')
+          
+          
+          def required_files(final=False):
+              required = ['run-identity.json', 'bindings.json', 'expected-case-inventory.json', 'run-logged.bash', 'proof-tools.py',
+                          'source-and-checkout.json', 'source-entry-map.json', 'checkout-entry-map.json', 'workflow.yml',
+                          'expanded-source.test.ts', 'workflow-only.diff', 'test-only.diff', 'tool-versions.json',
+                          'framework-identities.json', 'step-outcomes.json', 'final-restore-attempt.json',
+                          'authored-source-entry-map.json', 'authored-source-commit.txt', 'authored-source-tree.txt']
+              if BINDINGS['source'] != BINDINGS['authored_source']:
+                  required += ['source-generation.diff']
+              required += [label + suffix for label in ['source', 'checkout', 'main'] for suffix in ['-commit.txt', '-tree.txt']]
+              required += [label + suffix for label in BINDINGS['logged_commands'] for suffix in ['.log', '.exit', '.tee.exit', '.command.json']]
+              snapshots = ['source-clean', 'prepared', 'final-clean', 'final-validation-clean']
+              for name in BINDINGS['variants']:
+                  required += [name + '.jest.json', name + '.restored.json']
+                  snapshots += [name + '-' + phase for phase in ['before', 'active', 'before-restore', 'after']]
+                  if name != 'positive':
+                      required += [name + '.original.bin', name + '.mutation.json']
+              required += [label + suffix for label in snapshots for suffix in ['.map.json', '.index.bin', '.index-stage.bin']]
+              required += [binding['artifact_prefix'] + '-' + key for binding in BINDINGS['framework'].values() for key in binding['files']]
+              if final:
+                  required += ['test-set-validation.json', 'validation-completeness.json']
+                  required += ['validate' + suffix for suffix in ['.log', '.exit', '.tee.exit', '.command.json']]
+              return required
+          
+          
+          def completeness(name, required):
+              missing = [item for item in required if not (proof / item).is_file() or (proof / item).is_symlink() or not (proof / item).stat().st_size]
+              save(name, {'required': required, 'missing_or_empty': missing})
+              assert not missing, 'Missing/empty evidence: ' + repr(missing)
+          
+          
+          def validate_commands(labels):
+              for label in labels:
+                  expected_exit = '1' if label.startswith('jest-') and label != 'jest-positive' else '0'
+                  assert (proof / (label + '.exit')).read_text().strip() == expected_exit, 'Wrong natural exit: ' + label
+                  assert (proof / (label + '.tee.exit')).read_text().strip() == '0', 'Tee failure: ' + label
+                  command = load(label + '.command.json')
+                  expected = [argument.replace('$PROOF_DIR', str(proof)) for argument in BINDINGS['commands'][label]]
+                  assert command['argv'] == expected and command['cwd'] == str(Path.cwd()), 'Command identity mismatch: ' + label
+          
+          
+          def validate():
+              outcomes = {name: os.environ.get(name.upper() + '_OUTCOME', 'missing') for name in BINDINGS['outcomes']}
+              save('step-outcomes.json', outcomes)
+              validation = {'status': 'INVALID', 'runtime': 'UNACCEPTED', 'production_gate': 'CLOSED', 'outcomes': outcomes}
+              try:
+                  snapshot('final-validation-clean')
+                  completeness('validation-completeness.json', required_files())
+                  for name, outcome in outcomes.items():
+                      expected = 'failure' if name.startswith('jest_') and name != 'jest_positive' else 'success'
+                      assert outcome == expected, 'Independent step failed/skipped/cancelled: ' + name
+                  validate_commands(BINDINGS['logged_commands'])
+                  manifest = load('source-and-checkout.json')
+                  assert manifest['source_commit'] == BINDINGS['source'] and manifest['source_tree'] == BINDINGS['source_tree'], 'Source receipt changed'
+                  assert manifest['source_entry_map'] == tree(BINDINGS['source']) == load('source-entry-map.json'), 'Source map changed'
+                  assert manifest['checkout_entry_map'] == tree('HEAD') == load('checkout-entry-map.json'), 'Checkout map changed'
+                  assert all(manifest['checkout_entry_map'][name] == entry for name, entry in manifest['source_entry_map'].items()), 'Source entries changed'
+                  assert set(manifest['checkout_entry_map']) - set(manifest['source_entry_map']) == {BINDINGS['workflow']}, 'Sole workflow addition changed'
+                  assert manifest['proof_tools_sha256'] == digest(Path(__file__).read_bytes()), 'Validator bytes changed'
+                  assert manifest['runner_helper_sha256'] == digest((proof / 'run-logged.bash').read_bytes()), 'Logging helper changed'
+                  assert manifest['workflow_sha256'] == digest(Path(BINDINGS['workflow']).read_bytes()) == digest((proof / 'workflow.yml').read_bytes()), 'Workflow bytes changed'
+                  assert (proof / 'expanded-source.test.ts').read_bytes() == Path(BINDINGS['test_path']).read_bytes(), 'Expanded evidence changed'
+                  assert load('bindings.json') == BINDINGS and load('expected-case-inventory.json') == BINDINGS['inventory'], 'Case bindings changed'
+                  assert load('run-identity.json') == {key: os.environ['PROOF_' + key] for key in BINDINGS['identity_keys']}, 'Run identity changed'
+                  verify_framework()
+                  tests = {name: checked_result(name) for name in BINDINGS['variants']}
+                  snapshots = {label: validate_snapshot(label) for label in ['source-clean', 'prepared', 'final-clean', 'final-validation-clean']}
+                  for name, variant in BINDINGS['variants'].items():
+                      for phase in ['before', 'active', 'before-restore', 'after']:
+                          label = name + '-' + phase
+                          snapshots[label] = validate_snapshot(label, variant if phase in ['active', 'before-restore'] and name != 'positive' else None)
+                      assert load(name + '.restored.json') == {'status': 'EXACT_ORIGINAL_RESTORED', 'name': name}, 'Missing exact restore'
+                  assert load('final-restore-attempt.json')['errors'] == [], 'Final restore errors'
+                  validation.update({'status': 'EXACT_POSITIVE_AND_THREE_SEMANTIC_MUTANTS', 'runtime': 'ACTUAL_CI_EVIDENCE_ONLY',
+                                     'production_gate': 'ROOT_ACCEPTANCE_REQUIRED', 'tests': tests,
+                                     'snapshot_sha256': snapshots, 'merge': 'NEVER_MERGE_TRANSPORT',
+                                     'limits': 'No coverage, final review, current-main revalidation, production fix or merge credit'})
+                  print('Observed exact 97-case positive and three isolated semantic mutants; natural Jest exits and source restoration retained')
+              except Exception as error:
+                  validation['reason'] = str(error)
+                  raise
+              finally:
+                  save('test-set-validation.json', validation)
+          
+          
+          def seal():
+              receipt = {'status': 'INVALID', 'production_gate': 'CLOSED', 'upload': 'PENDING_EXTERNAL_OBSERVATION'}
+              try:
+                  completeness('evidence-completeness.json', required_files(final=True))
+                  validate_commands(['validate'])
+                  assert load('test-set-validation.json')['status'] == 'EXACT_POSITIVE_AND_THREE_SEMANTIC_MUTANTS', 'Validator did not accept exact variants'
+                  receipt.update({'status': 'COMPLETE_ELIGIBLE_FOR_ROOT_ACCEPTANCE_ONLY', 'production_gate': 'ROOT_ACCEPTANCE_REQUIRED'})
+              except Exception as error:
+                  receipt['reason'] = str(error)
+                  raise
+              finally:
+                  save('seal-receipt.json', receipt)
+                  files = {}
+                  for path in sorted(proof.rglob('*')):
+                      if path.is_file() and path.name != 'hash-manifest.json':
+                          assert not path.is_symlink(), 'Unexpected evidence symlink'
+                          data = path.read_bytes()
+                          files[path.relative_to(proof).as_posix()] = {'bytes': len(data), 'sha256': digest(data)}
+                  save('hash-manifest.json', {'algorithm': 'sha256', 'self_excluded': ['hash-manifest.json'], 'files': files})
+          
+          
+          mode = sys.argv[1]
+          if mode == 'identity':
+              identity()
+          elif mode == 'source':
+              source()
+          elif mode == 'prepared':
+              prepared()
+          elif mode == 'begin':
+              begin(sys.argv[2])
+          elif mode == 'restore':
+              restore(sys.argv[2])
+          elif mode == 'final':
+              final()
+          elif mode == 'validate':
+              validate()
+          elif mode == 'seal':
+              seal()
+          else:
+              raise ValueError('Unknown proof mode')
+          PYTHON_PART
+      - name: Assemble exact collector and inventory
+        id: assemble
+        run: |
+          set -euo pipefail
+          cat "$PROOF_DIR/helper-part-1.txt" "$PROOF_DIR/helper-part-2.txt" "$PROOF_DIR/helper-part-3.txt" "$PROOF_DIR/helper-part-4.txt" "$PROOF_DIR/helper-part-5.txt" "$PROOF_DIR/helper-part-6.txt" > "$PROOF_DIR/proof-tools.py"
+          python3 "$PROOF_DIR/proof-tools.py" identity
+      - name: Checkout sole workflow transport
+        id: checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Bind immutable source and workflow-only ancestry
+        id: source
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged source python3 "$PROOF_DIR/proof-tools.py" source
+      - name: Set supported Node runtime
+        id: node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - name: Install exact frozen dependencies with normal hooks
+        id: install
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged install timeout 10m yarn install --frozen-lockfile --non-interactive
+      - name: Verify prepared source and pinned matcher sources
+        id: prepared
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged prepared python3 "$PROOF_DIR/proof-tools.py" prepared
+      - name: Check all changed source formatting and regression formatting
+        id: format
+        if: ${{ !cancelled() && steps.prepared.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged format yarn prettier --check CHANGELOG.md src/lib/miden/back/sync-manager.ts src/lib/miden/swap/settlement.ts src/lib/miden/back/sync-manager.test.ts
+      - name: Lint both changed modules and regression file
+        id: eslint
+        if: ${{ !cancelled() && steps.prepared.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged eslint yarn eslint --max-warnings 0 src/lib/miden/back/sync-manager.ts src/lib/miden/swap/settlement.ts src/lib/miden/back/sync-manager.test.ts
+      - name: Check unchanged TypeScript gate
+        id: typescript
+        if: ${{ !cancelled() && steps.prepared.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged typescript yarn tsc --noEmit --pretty false
+      - name: Capture clean source and apply positive
+        id: begin_positive
+        if: ${{ !cancelled() && steps.prepared.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged begin-positive python3 "$PROOF_DIR/proof-tools.py" begin positive
+      - name: Run exact 97-case positive with natural exit
+        id: jest_positive
+        if: ${{ !cancelled() && steps.begin_positive.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged jest-positive yarn jest --runTestsByPath src/lib/miden/back/sync-manager.test.ts --maxWorkers=2 --coverage=false --no-colors --json "--outputFile=$PROOF_DIR/positive.jest.json"
+      - name: Always restore and bind original source after positive
+        id: restore_positive
+        if: ${{ always() && steps.begin_positive.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged restore-positive python3 "$PROOF_DIR/proof-tools.py" restore positive
+      - name: Capture clean source and apply stale-saved-setting
+        id: begin_stale_saved_setting
+        if: ${{ !cancelled() && steps.prepared.outcome == 'success' && steps.restore_positive.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged begin-stale-saved-setting python3 "$PROOF_DIR/proof-tools.py" begin stale-saved-setting
+      - name: Run exact 97-case stale-saved-setting with natural exit
+        id: jest_stale_saved_setting
+        if: ${{ !cancelled() && steps.begin_stale_saved_setting.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged jest-stale-saved-setting yarn jest --runTestsByPath src/lib/miden/back/sync-manager.test.ts --maxWorkers=2 --coverage=false --no-colors --json "--outputFile=$PROOF_DIR/stale-saved-setting.jest.json"
+      - name: Always restore and bind original source after stale-saved-setting
+        id: restore_stale_saved_setting
+        if: ${{ always() && steps.begin_stale_saved_setting.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged restore-stale-saved-setting python3 "$PROOF_DIR/proof-tools.py" restore stale-saved-setting
+      - name: Capture clean source and apply truthy-fallback
+        id: begin_truthy_fallback
+        if: ${{ !cancelled() && steps.prepared.outcome == 'success' && steps.restore_stale_saved_setting.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged begin-truthy-fallback python3 "$PROOF_DIR/proof-tools.py" begin truthy-fallback
+      - name: Run exact 97-case truthy-fallback with natural exit
+        id: jest_truthy_fallback
+        if: ${{ !cancelled() && steps.begin_truthy_fallback.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged jest-truthy-fallback yarn jest --runTestsByPath src/lib/miden/back/sync-manager.test.ts --maxWorkers=2 --coverage=false --no-colors --json "--outputFile=$PROOF_DIR/truthy-fallback.jest.json"
+      - name: Always restore and bind original source after truthy-fallback
+        id: restore_truthy_fallback
+        if: ${{ always() && steps.begin_truthy_fallback.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged restore-truthy-fallback python3 "$PROOF_DIR/proof-tools.py" restore truthy-fallback
+      - name: Capture clean source and apply lost-final-can-sign
+        id: begin_lost_final_can_sign
+        if: ${{ !cancelled() && steps.prepared.outcome == 'success' && steps.restore_truthy_fallback.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged begin-lost-final-can-sign python3 "$PROOF_DIR/proof-tools.py" begin lost-final-can-sign
+      - name: Run exact 97-case lost-final-can-sign with natural exit
+        id: jest_lost_final_can_sign
+        if: ${{ !cancelled() && steps.begin_lost_final_can_sign.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged jest-lost-final-can-sign yarn jest --runTestsByPath src/lib/miden/back/sync-manager.test.ts --maxWorkers=2 --coverage=false --no-colors --json "--outputFile=$PROOF_DIR/lost-final-can-sign.jest.json"
+      - name: Always restore and bind original source after lost-final-can-sign
+        id: restore_lost_final_can_sign
+        if: ${{ always() && steps.begin_lost_final_can_sign.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged restore-lost-final-can-sign python3 "$PROOF_DIR/proof-tools.py" restore lost-final-can-sign
+      - name: Always capture final source and own-mutation cleanup
+        id: final
+        if: ${{ always() }}
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged final python3 "$PROOF_DIR/proof-tools.py" final
+      - name: Always validate independent gates and seal all retained evidence
+        id: validate
+        if: ${{ always() }}
+        env:
+          INITIALIZE_OUTCOME: ${{ steps.initialize.outcome }}
+          ASSEMBLE_OUTCOME: ${{ steps.assemble.outcome }}
+          CHECKOUT_OUTCOME: ${{ steps.checkout.outcome }}
+          SOURCE_OUTCOME: ${{ steps.source.outcome }}
+          NODE_OUTCOME: ${{ steps.node.outcome }}
+          INSTALL_OUTCOME: ${{ steps.install.outcome }}
+          PREPARED_OUTCOME: ${{ steps.prepared.outcome }}
+          FORMAT_OUTCOME: ${{ steps.format.outcome }}
+          ESLINT_OUTCOME: ${{ steps.eslint.outcome }}
+          TYPESCRIPT_OUTCOME: ${{ steps.typescript.outcome }}
+          BEGIN_POSITIVE_OUTCOME: ${{ steps.begin_positive.outcome }}
+          JEST_POSITIVE_OUTCOME: ${{ steps.jest_positive.outcome }}
+          RESTORE_POSITIVE_OUTCOME: ${{ steps.restore_positive.outcome }}
+          BEGIN_STALE_SAVED_SETTING_OUTCOME: ${{ steps.begin_stale_saved_setting.outcome }}
+          JEST_STALE_SAVED_SETTING_OUTCOME: ${{ steps.jest_stale_saved_setting.outcome }}
+          RESTORE_STALE_SAVED_SETTING_OUTCOME: ${{ steps.restore_stale_saved_setting.outcome }}
+          BEGIN_TRUTHY_FALLBACK_OUTCOME: ${{ steps.begin_truthy_fallback.outcome }}
+          JEST_TRUTHY_FALLBACK_OUTCOME: ${{ steps.jest_truthy_fallback.outcome }}
+          RESTORE_TRUTHY_FALLBACK_OUTCOME: ${{ steps.restore_truthy_fallback.outcome }}
+          BEGIN_LOST_FINAL_CAN_SIGN_OUTCOME: ${{ steps.begin_lost_final_can_sign.outcome }}
+          JEST_LOST_FINAL_CAN_SIGN_OUTCOME: ${{ steps.jest_lost_final_can_sign.outcome }}
+          RESTORE_LOST_FINAL_CAN_SIGN_OUTCOME: ${{ steps.restore_lost_final_can_sign.outcome }}
+          FINAL_OUTCOME: ${{ steps.final.outcome }}
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          if run_logged validate python3 "$PROOF_DIR/proof-tools.py" validate; then
+            validation_exit=0
+          else
+            validation_exit=$?
+          fi
+          set +e
+          python3 "$PROOF_DIR/proof-tools.py" seal
+          seal_exit=$?
+          set -e
+          if [ "$validation_exit" -ne 0 ]; then exit "$validation_exit"; fi
+          exit "$seal_exit"
+      - name: Always upload private NEVER MERGE evidence
+        id: upload
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wallet1644-stage1-positive-sensitivity-proof
+          path: ${{ runner.temp }}/wallet1644-stage1-sensitivity
+          if-no-files-found: error
+          retention-days: 7
