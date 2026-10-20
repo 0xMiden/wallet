@@ -66,18 +66,18 @@ jobs:
           from pathlib import Path
 
           proof = Path(os.environ['PROOF_DIR'])
-          base = '8156de4c572e92ff78198d1cb9ac40828d067eb0'
-          base_tree = '05ae76b86fa9056d52ba9188bc76a9d39911942b'
+          base = 'cfc114955e71b6d5fe872c8ceb26a1687566a381'
+          base_tree = '6c104a68febb99c62084e7d93d9bcc63467de20f'
           workflow = '.github/workflows/user-visible-error-guard-red-proof.yml'
           guard = {
               'path': 'src/lib/telemetry/user-visible-error.guard.test.ts',
-              'source_commit': base,
-              'source_blob': '2be11895e50f96e64a222b7bb99778d7b86f8aec',
-              'sha256': 'ff8ecc67efff9b3d4e39e4086da5025beb14c3f11eb125c3d3828cdd91e1bc4f',
-              'bytes': 28386,
+              'source_commit': 'cfc114955e71b6d5fe872c8ceb26a1687566a381',
+              'source_blob': '84e020ed3770d3fa2b394cd95490e55369313d05',
+              'sha256': '7dcb13e486fb23fcf5c743944bd0c5bfe7d97ba81e1164152a9659cff01c779e',
+              'bytes': 30824,
               'mode': '100644',
-              'helper_bytes': 13131,
-              'helper_sha256': 'b57ac03ffe3949459f0137198d4d8a491751eb036a59b72c12fef3e64e6e8e50'
+              'helper_bytes': 12964,
+              'helper_sha256': 'ee0c96542bd86f38de8e0a4af3c25880623612fb8df704c06e4f0777d38efb06'
           }
           source_commits = [
               {
@@ -87,9 +87,21 @@ jobs:
                   'signature_status_at_preparation': 'G'
               },
               {
-                  'commit': base,
+                  'commit': '8156de4c572e92ff78198d1cb9ac40828d067eb0',
                   'parent': '7fdfdd09c49f288de0f482fe8e7d94f03c371066',
-                  'tree': base_tree,
+                  'tree': '05ae76b86fa9056d52ba9188bc76a9d39911942b',
+                  'signature_status_at_preparation': 'G'
+              },
+              {
+                  'commit': 'aa9c86c758f969351a25726692a3bc438fdbd93e',
+                  'parent': '8156de4c572e92ff78198d1cb9ac40828d067eb0',
+                  'tree': 'afd83ccfc03fa53091e61493cb7c2558012032f1',
+                  'signature_status_at_preparation': 'G'
+              },
+              {
+                  'commit': 'cfc114955e71b6d5fe872c8ceb26a1687566a381',
+                  'parent': 'aa9c86c758f969351a25726692a3bc438fdbd93e',
+                  'tree': '6c104a68febb99c62084e7d93d9bcc63467de20f',
                   'signature_status_at_preparation': 'G'
               }
           ]
@@ -125,6 +137,9 @@ jobs:
           subprocess.run(['git', 'diff', '--exit-code', 'HEAD', '--'], check=True)
           path = Path(guard['path'])
           data = path.read_bytes()
+          helper_bytes = data.index(b'const ROOT =')
+          if helper_bytes != guard['helper_bytes']:
+              raise SystemExit('Scanner helper boundary mismatch')
           if path.is_symlink() or stat.S_IMODE(path.stat().st_mode) != 0o644:
               raise SystemExit('Guard file mode or type mismatch')
           if (git('hash-object', str(path)) != guard['source_blob']
@@ -168,36 +183,70 @@ jobs:
               'guard': guard,
               'signed_source_commits': source_commits,
               'source_packet_hashes_at_preparation': {
-                  'report.md': '58911c5359dd31bda01f2e0009e392e6f8643f4c6bac4115bea29c8330da2cb2',
-                  'identity.json': '5965dbbc0b378d8ceb60e38fb5300c0a151debe564979ce1eb9f9a9340c15e24',
-                  'cases-and-predictions.json': 'ae32b9c07faeaa76bf77cf234bebe1b0461cf2e9e3a99824a471f81899536cea',
-                  'normal-review/report.md': '537fd1701ccc9cddd677dc9e56e9d4d0b3aa99de46a77573fcef87a12655b5d8',
-                  'normal-review/findings.json': 'd9109ef6cf119757df064d2fb3986890085e2cdea02a7ba0be7e53cea39d033d',
-                  'normal-review/verification.json': 'a929735913cadace8e923da607c12589603203da476b853e02fd64e7d05ddc32'
+                  "report.md": "c23b688d406db063078ae89aadc42802ddc9ce03f5a1e2aa38905408b5b006a1",
+                  "identity.json": "f1a7e8c3b4f2aa4e3b83a21ebc0a9a9c7b1b5e167b742e03aec2ab46591c15c3",
+                  "predictions.json": "da86c0b1cea6e90c647702b0d32e46c7c60e76e98b6823479f302bafac256cfd",
+                  "preservation.json": "2f47790d78e09a25592f3a745cd4978e5a2385349005b8727f84819c8c4d41f2",
+                  "normal-review/report.md": "ea378568f5847936a21ba444e756f5b796b7281909ba74b24dd5c6b55bfc2db5",
+                  "normal-review/findings.json": "50e242f524cf85d2809d49835bd7d94651198a41a7d8a5ac98227786a6492c80",
+                  "normal-review/prooflimits.json": "cf98ac3dbfa0440460f9b95a63b211887754fab758b4ed563b554b28fa6bb26f"
               },
-              'prior_local_preflight_only': {
-                  'source': 'before formatting; formatting AST comparison retained in source packet',
-                  'selftests_failed': 12,
-                  'selftests_passed': 46,
-                  'production_assertions_skipped_by_selftest_filter': 1,
-                  'ci_red_proof': 'UNRUN at transport preparation'
+              'prior_actual_ci_evidence_at_preparation': {
+                  "run_id": 39351585978,
+                  "run_attempt": 1,
+                  "source_commit": "8156de4c572e92ff78198d1cb9ac40828d067eb0",
+                  "transport_commit": "7857d3224b34d2de3c3c73841b548874e6935381",
+                  "accepted_status": "ACCEPTED_G1_G2_EXPECTED_RED_ONLY",
+                  "counts": {
+                      "cases": 59,
+                      "G1_lexical_loop_assertion_reds": 6,
+                      "G2_explicit_export_assertion_reds": 6,
+                      "passing_controls": 46,
+                      "separate_unsuppressed_production_assertion_reds": 1,
+                      "skips": 0,
+                      "runtime_errors": 0
+                  },
+                  "current_checkpoint_results": "UNRUN at transport preparation"
               },
               'source_predictions_only': {
-                  'total_assertions': 59,
-                  'prior_selftest_controls': 38,
-                  'new_selftest_cases': 20,
-                  'new_selftest_assertion_reds': 12,
-                  'new_selftest_controls': 8,
-                  'production_assertions_run_unsuppressed': 1,
-                  'production_assertion_reds': 1,
-                  'production_violations': [
-                      {'file': 'src/screens/send-flow/SendAmount.tsx', 'line': 116},
-                      {'file': 'src/screens/send-flow/AddContactDrawer.tsx', 'line': 122},
-                      {'file': 'src/app/templates/history/PendingActivityCard.tsx', 'line': 231}
+                  "total_assertions": 61,
+                  "prior_selftest_cases": 58,
+                  "prior_selftest_controls": 46,
+                  "prior_identity_selftests_predicted_pass": 12,
+                  "new_selftest_cases": 2,
+                  "new_selftest_assertion_reds": 2,
+                  "intended_failed_selftests": [
+                      "user-visible error guard self-tests does not waive native alerts through a var hook alias in an unbraced lexical-loop body",
+                      "user-visible error guard self-tests keeps a var surface alias in an unbraced lexical-loop body shadowed after the loop"
                   ],
-                  'predicted_total_assertion_reds': 13,
-                  'predicted_total_passes': 46,
-                  'predicted_total_skipped': 0
+                  "production_assertions_run_unsuppressed": 1,
+                  "production_assertion_reds": 1,
+                  "production_violations": [
+                      {
+                          "file": "src/app/templates/history/PendingActivityCard.tsx",
+                          "line": 231,
+                          "category": "missing-error-id",
+                          "surface": "Notice"
+                      },
+                      {
+                          "file": "src/screens/send-flow/AddContactDrawer.tsx",
+                          "line": 122,
+                          "category": "unreported-alert"
+                      },
+                      {
+                          "file": "src/screens/send-flow/SendAmount.tsx",
+                          "line": 116,
+                          "category": "missing-error-id",
+                          "surface": "AmountInput"
+                      }
+                  ],
+                  "predicted_total_assertion_reds": 3,
+                  "predicted_total_passes": 58,
+                  "predicted_total_skipped": 0,
+                  "predicted_runtime_errors": 0,
+                  "predicted_lint": "success",
+                  "predicted_types": "success",
+                  "current_checkpoint_ci": "UNRUN; predictions must be measured"
               }
           }
           (proof / 'source-and-workflow-manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
@@ -232,7 +281,7 @@ jobs:
           {
             git diff --exit-code HEAD --
             printf '%s  %s\n' \
-              ff8ecc67efff9b3d4e39e4086da5025beb14c3f11eb125c3d3828cdd91e1bc4f \
+              7dcb13e486fb23fcf5c743944bd0c5bfe7d97ba81e1164152a9659cff01c779e \
               src/lib/telemetry/user-visible-error.guard.test.ts | sha256sum --check --strict
           } 2>&1 | tee "$PROOF_DIR/prepared-source.log"
 
