@@ -1,0 +1,540 @@
+name: NEVER-MERGE Task7 notification delivery positive and sensitivity proof
+
+on:
+  push:
+    branches: [ci/1616-task7-notification-delivery-proof]
+
+permissions:
+  contents: read
+
+jobs:
+  notification-delivery-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: bash
+    env:
+      CI: 'true'
+      GIT_OPTIONAL_LOCKS: '0'
+      PROOF_HEAD: ${{ github.sha }}
+      PROOF_REF: ${{ github.ref }}
+      PROOF_RUN: ${{ github.run_id }}
+      PROOF_ATTEMPT: ${{ github.run_attempt }}
+    steps:
+      - name: Checkout exact isolated transport
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Initialize private evidence and freeze source specification
+        run: |
+          set -euo pipefail
+          umask 077
+          export PROOF_DIR="$RUNNER_TEMP/task7-notification-delivery-proof"
+          printf 'PROOF_DIR=%s\n' "$PROOF_DIR" >> "$GITHUB_ENV"
+          mkdir "$PROOF_DIR"
+          printf '%s\n' "$PROOF_HEAD" "$PROOF_REF" "$PROOF_RUN" "$PROOF_ATTEMPT" > "$PROOF_DIR/run-identity.txt"
+          cat > "$PROOF_DIR/source-spec.json" <<'SOURCE_SPEC'
+          {"source_head":"f75674cb97a3e4d5c956186140715f660e0b345d","source_tree":"03c7f93500ded1839833cd2d266eb7888a20b476","source_parents":["113a02f541748217ff52d8df769968c7253f153b","576c8e33c76dac15766d25fc1a60ad64943fafcc"],"transport_path":".github/workflows/task7-notification-delivery-proof.yml","transport_ref":"refs/heads/ci/1616-task7-notification-delivery-proof","helper":"src/lib/miden/back/background-notification.ts","normal_helper_sha256":"b0bae55f37efecd3779f4f4c758755a7f51b35b9436b5d0e284cdc18b6415429","omission_helper_sha256":"f490bb43a8fbf60d26b0a7beba74a91c8d6a34ac52d827ebc3d03ce3c899c0cd","source_files":[{"path":"src/lib/miden/back/background-notification.ts","sha256":"b0bae55f37efecd3779f4f4c758755a7f51b35b9436b5d0e284cdc18b6415429","mode":420,"bytes":4946,"git_blob":"569a2383bc9b67bbcd5d9c02a59ad519adf0e4c3"},{"path":"src/lib/miden/back/background-notification.test.ts","sha256":"c5ed656b9fbcdac41d7a8e2fbaf847638da02cf87d41eb4a9a27c262f2d2ab55","mode":420,"bytes":18746,"git_blob":"70e36b89554989efa8a784343cae8562f6a24560"},{"path":"src/lib/miden/back/background-notification-fallback.test.ts","sha256":"6585727002c8f7067bff841e9608d03d6b6caea2dc7683c6ccb28843d0c814ce","mode":420,"bytes":7183,"git_blob":"e21bc714e0c9e67f1ef3519de862794151ffe87e"},{"path":"src/lib/extension/notifications.ts","sha256":"fece75c2fc8bef24f7b62d242a877e039afd2b6fea68d2b7e6d0d3f4b7b512fb","mode":420,"bytes":1902,"git_blob":"7cb535dcedf341a47ae9c1cb5436c3f483321a61"},{"path":"src/lib/extension/notifications.test.ts","sha256":"a9d4c907a2a6235e8edb2ad71b22c15bdbc551a8cfd821f282dfadbc094db835","mode":420,"bytes":9239,"git_blob":"36f1efe07ebb7c3c1fbbf307bc24eff1e0ff74f1"},{"path":"src/components/NoteToastProvider.tsx","sha256":"8691103c433f783c2872068abd006ccb566f3c65b50a1d832514f9aae71a0150","mode":420,"bytes":2204,"git_blob":"1311b9831142fb9502382d7752c21f82b436569e"},{"path":"src/components/NoteToastProvider.test.tsx","sha256":"83c385e041f2896950308e62d89bf00f904eec55e630ad771a05cfff59a7d8cc","mode":420,"bytes":4093,"git_blob":"fa30c0d379966e5b10147963af5b3651990e7220"},{"path":"src/lib/telemetry/user-visible-error.ts","sha256":"8a4c7ef7412ae11df0d9f72b31c2d6742e16e70fe6f98219f62358658976a979","mode":420,"bytes":2087,"git_blob":"3bead6422289ce39840e28212403f858789a7840"},{"path":"src/lib/telemetry/user-visible-error-contract.ts","sha256":"9920055dd1903b30ac8b9df4eeeefeac406f7b08560b50babce1e4d3cb467aa1","mode":420,"bytes":12869,"git_blob":"1317b9ceafa0ab4550910db00287a7ef819bd161"},{"path":"package.json","sha256":"9fe827fb0272c4f3e2ba37978f8f4e5658c9502366ff8c022e63480ce5cd301e","mode":420,"bytes":23234,"git_blob":"5ed317129cab8ec62e4264364d1a0db5d31c9b9b"},{"path":"yarn.lock","sha256":"624004355d465398fbce1f733b53671a8f6cf4687d18f00ee6d00384217dffa7","mode":420,"bytes":785240,"git_blob":"9852dfc4e2a160548e8b3a5023e6edb9cb01aed5"},{"path":"jest.config.ts","sha256":"73a3951b600a8514cbe91fa7e1be098cc3ae0948c470f2649e8686b192e559a6","mode":420,"bytes":10839,"git_blob":"f4ca64f9b388d86da39def01c886bbfbba9f65d0"},{"path":"jest.setup.js","sha256":"247ac76bd2045c08af6596611277cab6283dc19a8254e03d06a275892c2018e0","mode":420,"bytes":1959,"git_blob":"7f77082c2e8d6fc30afb430325be3ce305c43ef5"},{"path":"tsconfig.json","sha256":"fa684612fc11e0419496cc3c08f0a35983f1c0b3cacc191a0a6a4a1e3b218efe","mode":420,"bytes":1390,"git_blob":"0d431024b44e5a2c81cacb32eda3420cda552380"},{"path":".eslintrc","sha256":"2b70aa065506346da75d71f19f3a138f71b5b5be0889e4074cc04a26fddca629","mode":420,"bytes":13286,"git_blob":"13857ec7c1613ef096ca1e3fa21469f7f7728796"},{"path":".prettierrc","sha256":"7f1e0eb21ae9b216c1de1435dddb0b680c8b2e5cdde55ca95a8ee3d32a7973cf","mode":420,"bytes":361,"git_blob":"2fdaf943c0c26787ef61d6240834dffac0cecc7a"},{"path":".github/actions/yarn-install/action.yml","sha256":"2272dd316fc91504ff6859ce1c611bb3ff79741d4f027d2b9d7a0eeb20731714","mode":420,"bytes":3591,"git_blob":"8e7367c26f648745ec5b7ab1131af5fbd87b536c"}],"omission_helper_bytes":4870}
+          SOURCE_SPEC
+      - name: Freeze exact71-case inventory and nine causal boundaries
+        run: |
+          set -euo pipefail
+          cat > "$PROOF_DIR/expected-inventory.json" <<'EXPECTED_INVENTORY'
+          {"cases":[{"file":"src/lib/miden/back/background-notification.test.ts","full_name":"showBackgroundNotification fires a chrome.notifications entry with the given id"},{"file":"src/lib/miden/back/background-notification.test.ts","full_name":"notifyBackgroundTransactionFailed (gap 6) does NOT notify off the extension"},{"file":"src/lib/miden/back/background-notification.test.ts","full_name":"notifyBackgroundTransactionFailed (gap 6) does NOT notify when a wallet popup is open (the user already sees the failure)"},{"file":"src/lib/miden/back/background-notification.test.ts","full_name":"notifyBackgroundTransactionFailed (gap 6) notifies on a background failure when no wallet UI is open"},{"file":"src/lib/miden/back/background-notification.test.ts","full_name":"notifyBackgroundTransactionFailed (gap 6) swallows an intercom error rather than disturbing the caller"},{"file":"src/lib/miden/back/background-notification.test.ts","full_name":"notifyBackgroundTransactionNotConfirmed does NOT notify off the extension"},{"file":"src/lib/miden/back/background-notification.test.ts","full_name":"notifyBackgroundTransactionNotConfirmed does NOT notify when a wallet popup is open"},{"file":"src/lib/miden/back/background-notification.test.ts","full_name":"notifyBackgroundTransactionNotConfirmed notifies with the not-confirmed title and body when no wallet UI is open"},{"file":"src/lib/miden/back/background-notification.test.ts","full_name":"notifyBackgroundTransactionNotConfirmed falls back to the en.json body verbatim, and the hint names no transaction type"},{"file":"src/lib/miden/back/background-notification.test.ts","full_name":"notifyBackgroundTransactionNotConfirmed swallows an intercom error rather than disturbing the caller"},{"file":"src/lib/miden/back/background-notification.test.ts","full_name":"delivered background transaction error reporting failed notification reports exactly once after Chrome confirms delivery with the original copy"},{"file":"src/lib/miden/back/background-notification.test.ts","full_name":"delivered background transaction error reporting failed notification reports only after the service-worker delivery promise resolves"},{"file":"src/lib/miden/back/background-notification.test.ts","full_name":"delivered background transaction error reporting failed notification keeps an undelivered Chrome notification quiet"},{"file":"src/lib/miden/back/background-notification.test.ts","full_name":"delivered background transaction error reporting failed notification keeps a Chrome delivery error quiet and preserves its diagnostic"},{"file":"src/lib/miden/back/background-notification.test.ts","full_name":"delivered background transaction error reporting failed notification reports only after Chrome confirms fallback delivery when the service worker throw"},{"file":"src/lib/miden/back/background-notification.test.ts","full_name":"delivered background transaction error reporting failed notification reports only after Chrome confirms fallback delivery when the service worker reject"},{"file":"src/lib/miden/back/background-notification.test.ts","full_name":"delivered background transaction error reporting failed notification keeps a Chrome fallback callback error quiet when the service worker throw"},{"file":"src/lib/miden/back/background-notification.test.ts","full_name":"delivered background transaction error reporting failed notification keeps a Chrome fallback callback error quiet when the service worker reject"},{"file":"src/lib/miden/back/background-notification.test.ts","full_name":"delivered background transaction error reporting failed notification keeps an unavailable Chrome fallback quiet when the service worker throw"},{"file":"src/lib/miden/back/background-notification.test.ts","full_name":"delivered background transaction error reporting failed notification keeps an unavailable Chrome fallback quiet when the service worker reject"},{"file":"src/lib/miden/back/background-notification.test.ts","full_name":"delivered background transaction error reporting failed notification keeps a synchronously rejected delivery quiet without escaping the caller"},{"file":"src/lib/miden/back/background-notification.test.ts","full_name":"delivered background transaction error reporting failed notification keeps off-extension and attached-client gates quiet"},{"file":"src/lib/miden/back/background-notification.test.ts","full_name":"delivered background transaction error reporting failed notification keeps missing OS notification transports quiet"},{"file":"src/lib/miden/back/background-notification.test.ts","full_name":"delivered background transaction error reporting unconfirmed notification reports exactly once after Chrome confirms delivery with the original copy"},{"file":"src/lib/miden/back/background-notification.test.ts","full_name":"delivered background transaction error reporting unconfirmed notification reports only after the service-worker delivery promise resolves"},{"file":"src/lib/miden/back/background-notification.test.ts","full_name":"delivered background transaction error reporting unconfirmed notification keeps an undelivered Chrome notification quiet"},{"file":"src/lib/miden/back/background-notification.test.ts","full_name":"delivered background transaction error reporting unconfirmed notification keeps a Chrome delivery error quiet and preserves its diagnostic"},{"file":"src/lib/miden/back/background-notification.test.ts","full_name":"delivered background transaction error reporting unconfirmed notification reports only after Chrome confirms fallback delivery when the service worker throw"},{"file":"src/lib/miden/back/background-notification.test.ts","full_name":"delivered background transaction error reporting unconfirmed notification reports only after Chrome confirms fallback delivery when the service worker reject"},{"file":"src/lib/miden/back/background-notification.test.ts","full_name":"delivered background transaction error reporting unconfirmed notification keeps a Chrome fallback callback error quiet when the service worker throw"},{"file":"src/lib/miden/back/background-notification.test.ts","full_name":"delivered background transaction error reporting unconfirmed notification keeps a Chrome fallback callback error quiet when the service worker reject"},{"file":"src/lib/miden/back/background-notification.test.ts","full_name":"delivered background transaction error reporting unconfirmed notification keeps an unavailable Chrome fallback quiet when the service worker throw"},{"file":"src/lib/miden/back/background-notification.test.ts","full_name":"delivered background transaction error reporting unconfirmed notification keeps an unavailable Chrome fallback quiet when the service worker reject"},{"file":"src/lib/miden/back/background-notification.test.ts","full_name":"delivered background transaction error reporting unconfirmed notification keeps a synchronously rejected delivery quiet without escaping the caller"},{"file":"src/lib/miden/back/background-notification.test.ts","full_name":"delivered background transaction error reporting unconfirmed notification keeps off-extension and attached-client gates quiet"},{"file":"src/lib/miden/back/background-notification.test.ts","full_name":"delivered background transaction error reporting unconfirmed notification keeps missing OS notification transports quiet"},{"file":"src/lib/miden/back/background-notification.test.ts","full_name":"delivered background transaction error reporting keeps non-error notification copy quiet even after delivery"},{"file":"src/lib/miden/back/background-notification.test.ts","full_name":"delivered background transaction error reporting keeps non-error fallback copy quiet when the service worker throw"},{"file":"src/lib/miden/back/background-notification.test.ts","full_name":"delivered background transaction error reporting keeps non-error fallback copy quiet when the service worker reject"},{"file":"src/lib/miden/back/background-notification-fallback.test.ts","full_name":"transactionFailedNotificationBody fallback containment contains a Chrome transport throw after the service worker throw"},{"file":"src/lib/miden/back/background-notification-fallback.test.ts","full_name":"transactionFailedNotificationBody fallback containment contains a Chrome transport throw after the service worker reject"},{"file":"src/lib/miden/back/background-notification-fallback.test.ts","full_name":"transactionNotConfirmedNotificationBody fallback containment contains a Chrome transport throw after the service worker throw"},{"file":"src/lib/miden/back/background-notification-fallback.test.ts","full_name":"transactionNotConfirmedNotificationBody fallback containment contains a Chrome transport throw after the service worker reject"},{"file":"src/lib/miden/back/background-notification-fallback.test.ts","full_name":"observes successful service-worker reporting without starting a Chrome fallback"},{"file":"src/lib/miden/back/background-notification-fallback.test.ts","full_name":"does not hide a rejection thrown by the observed native chain handler"},{"file":"src/lib/miden/back/background-notification.test.ts","full_name":"showBackgroundNotification fallible service-worker attempt keeps a successful service-worker notification as the only delivery"},{"file":"src/lib/miden/back/background-notification.test.ts","full_name":"showBackgroundNotification fallible service-worker attempt falls back with the default id when the service-worker attempt throws"},{"file":"src/lib/miden/back/background-notification.test.ts","full_name":"showBackgroundNotification fallible service-worker attempt falls back once with the custom id when the service-worker promise rejects"},{"file":"src/lib/miden/back/background-notification.test.ts","full_name":"showBackgroundNotification fallible service-worker attempt stays quiet after rejection when the Chrome notification API is absent"},{"file":"src/lib/extension/notifications.test.ts","full_name":"showExtensionNotification is a no-op outside extension context"},{"file":"src/lib/extension/notifications.test.ts","full_name":"showExtensionNotification uses the Web Notifications API when permission is already granted"},{"file":"src/lib/extension/notifications.test.ts","full_name":"showExtensionNotification requests permission when permission is \"default\" and creates notification on grant"},{"file":"src/lib/extension/notifications.test.ts","full_name":"showExtensionNotification falls back to chrome.notifications when permission is denied"},{"file":"src/lib/extension/notifications.test.ts","full_name":"showExtensionNotification falls back to chrome.notifications when global Notification is undefined"},{"file":"src/lib/extension/notifications.test.ts","full_name":"showExtensionNotification returns silently when both Notification and chrome.notifications are unavailable"},{"file":"src/lib/extension/notifications.test.ts","full_name":"showExtensionNotification logs an error when chrome.notifications.create reports lastError"},{"file":"src/lib/extension/notifications.test.ts","full_name":"showExtensionNotification Notification onclick opens the Activity pending tab and closes the notification"},{"file":"src/lib/extension/notifications.test.ts","full_name":"showExtensionNotification Web API failure fallback falls back once when a granted Notification constructor throws"},{"file":"src/lib/extension/notifications.test.ts","full_name":"showExtensionNotification Web API failure fallback falls back once when the Web notification permission request rejects"},{"file":"src/lib/extension/notifications.test.ts","full_name":"showExtensionNotification Web API failure fallback resolves when the Web constructor is unsupported and the Chrome fallback is unavailable"},{"file":"src/lib/extension/notifications.test.ts","full_name":"showExtensionNotification Web API failure fallback resolves when the Web permission request and Chrome namespace lookup fail"},{"file":"src/lib/extension/notifications.test.ts","full_name":"showExtensionNotification Web API failure fallback resolves when the Web permission request and Chrome icon URL resolution fail"},{"file":"src/lib/extension/notifications.test.ts","full_name":"showExtensionNotification Web API failure fallback resolves when the Web permission request and Chrome creation fail"},{"file":"src/components/NoteToastProvider.test.tsx","full_name":"NoteToastProvider returns null on non-mobile non-extension platforms"},{"file":"src/components/NoteToastProvider.test.tsx","full_name":"NoteToastProvider initializes native notifications on mobile"},{"file":"src/components/NoteToastProvider.test.tsx","full_name":"NoteToastProvider does not initialize native notifications on extension"},{"file":"src/components/NoteToastProvider.test.tsx","full_name":"NoteToastProvider shows mobile notification when toast is visible on mobile"},{"file":"src/components/NoteToastProvider.test.tsx","full_name":"NoteToastProvider shows extension notification when toast is visible on extension"},{"file":"src/components/NoteToastProvider.test.tsx","full_name":"NoteToastProvider does not show notification when toast is not visible"},{"file":"src/components/NoteToastProvider.test.tsx","full_name":"NoteToastProvider renders null even on mobile"},{"file":"src/components/NoteToastProvider.test.tsx","full_name":"NoteToastProvider renders null on extension"}],"omission_targets":[{"file":"src/lib/miden/back/background-notification.test.ts","full_name":"delivered background transaction error reporting failed notification reports exactly once after Chrome confirms delivery with the original copy","prior_passing_assertions":2,"normal_passing_assertions":3,"expected_report":[["transactionFailedNotificationBody","os_notification"]],"first_frame_line":213,"source_matcher_column":62},{"file":"src/lib/miden/back/background-notification.test.ts","full_name":"delivered background transaction error reporting failed notification reports only after the service-worker delivery promise resolves","prior_passing_assertions":4,"normal_passing_assertions":5,"expected_report":[["transactionFailedNotificationBody","os_notification"]],"first_frame_line":233,"source_matcher_column":62},{"file":"src/lib/miden/back/background-notification.test.ts","full_name":"delivered background transaction error reporting failed notification reports only after Chrome confirms fallback delivery when the service worker throw","prior_passing_assertions":5,"normal_passing_assertions":7,"expected_report":[["transactionFailedNotificationBody","os_notification"]],"first_frame_line":269,"source_matcher_column":64},{"file":"src/lib/miden/back/background-notification.test.ts","full_name":"delivered background transaction error reporting failed notification reports only after Chrome confirms fallback delivery when the service worker reject","prior_passing_assertions":5,"normal_passing_assertions":7,"expected_report":[["transactionFailedNotificationBody","os_notification"]],"first_frame_line":269,"source_matcher_column":64},{"file":"src/lib/miden/back/background-notification.test.ts","full_name":"delivered background transaction error reporting unconfirmed notification reports exactly once after Chrome confirms delivery with the original copy","prior_passing_assertions":2,"normal_passing_assertions":3,"expected_report":[["transactionNotConfirmedNotificationBody","os_notification"]],"first_frame_line":213,"source_matcher_column":62},{"file":"src/lib/miden/back/background-notification.test.ts","full_name":"delivered background transaction error reporting unconfirmed notification reports only after the service-worker delivery promise resolves","prior_passing_assertions":4,"normal_passing_assertions":5,"expected_report":[["transactionNotConfirmedNotificationBody","os_notification"]],"first_frame_line":233,"source_matcher_column":62},{"file":"src/lib/miden/back/background-notification.test.ts","full_name":"delivered background transaction error reporting unconfirmed notification reports only after Chrome confirms fallback delivery when the service worker throw","prior_passing_assertions":5,"normal_passing_assertions":7,"expected_report":[["transactionNotConfirmedNotificationBody","os_notification"]],"first_frame_line":269,"source_matcher_column":64},{"file":"src/lib/miden/back/background-notification.test.ts","full_name":"delivered background transaction error reporting unconfirmed notification reports only after Chrome confirms fallback delivery when the service worker reject","prior_passing_assertions":5,"normal_passing_assertions":7,"expected_report":[["transactionNotConfirmedNotificationBody","os_notification"]],"first_frame_line":269,"source_matcher_column":64},{"file":"src/lib/miden/back/background-notification-fallback.test.ts","full_name":"observes successful service-worker reporting without starting a Chrome fallback","prior_passing_assertions":7,"normal_passing_assertions":9,"expected_report":[["transactionFailedNotificationBody","os_notification"]],"first_frame_line":145,"source_matcher_column":60}],"unchanged_native_witnesses":[{"file":"src/lib/miden/back/background-notification-fallback.test.ts","full_name":"transactionFailedNotificationBody fallback containment contains a Chrome transport throw after the service worker throw","passing_assertions":10},{"file":"src/lib/miden/back/background-notification-fallback.test.ts","full_name":"transactionFailedNotificationBody fallback containment contains a Chrome transport throw after the service worker reject","passing_assertions":10},{"file":"src/lib/miden/back/background-notification-fallback.test.ts","full_name":"transactionNotConfirmedNotificationBody fallback containment contains a Chrome transport throw after the service worker throw","passing_assertions":10},{"file":"src/lib/miden/back/background-notification-fallback.test.ts","full_name":"transactionNotConfirmedNotificationBody fallback containment contains a Chrome transport throw after the service worker reject","passing_assertions":10},{"file":"src/lib/miden/back/background-notification-fallback.test.ts","full_name":"does not hide a rejection thrown by the observed native chain handler","passing_assertions":4},{"file":"src/lib/miden/back/background-notification.test.ts","full_name":"showBackgroundNotification fallible service-worker attempt stays quiet after rejection when the Chrome notification API is absent","passing_assertions":6}],"registered":71,"expected_suites":4,"phase_counts":{"normal":[71,0],"omission":[62,9],"restored":[71,0]},"source_prediction_only":true}
+          EXPECTED_INVENTORY
+      - name: Retain source and framework capture helper
+        run: |
+          set -euo pipefail
+          cat > "$PROOF_DIR/capture.py" <<'CAPTURE'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          import shutil
+          import stat
+          import subprocess
+          import sys
+          
+          P = Path(os.environ['PROOF_DIR'])
+          ROOT = Path.cwd().resolve()
+          SPEC = json.loads((P / 'source-spec.json').read_text())
+          FRAMEWORK = '''expect/package.json
+          expect/build/index.js
+          jest-circus/package.json
+          jest-circus/build/jestAdapterInit.js
+          jest-circus/build/runner.js
+          jest-util/package.json
+          jest-util/build/index.js
+          @jest/test-result/package.json
+          @jest/test-result/build/index.js
+          @jest/core/package.json
+          @jest/core/build/index.js
+          jest-matcher-utils/package.json
+          jest-matcher-utils/build/index.js
+          jest-message-util/package.json
+          jest-message-util/build/index.js
+          pretty-format/package.json
+          pretty-format/build/index.js
+          jest-mock/package.json
+          jest-mock/build/index.js
+          jest/package.json
+          jest/build/index.js
+          @swc/jest/package.json
+          @swc/jest/index.js
+          @babel/code-frame/package.json
+          @babel/code-frame/lib/index.js
+          stack-utils/package.json
+          stack-utils/index.js
+          slash/package.json
+          slash/index.js'''.splitlines()
+          
+          
+          def sha(data):
+              return hashlib.sha256(data).hexdigest()
+          
+          
+          def git(*args):
+              return subprocess.check_output(['git', *args], cwd=ROOT)
+          
+          
+          def write(name, value):
+              (P / name).write_text(json.dumps(value, indent=2) + '\n')
+          
+          
+          def physical(path):
+              relative = path.relative_to(ROOT)
+              assert not any(part.is_symlink() for part in [path, *path.parents] if part != ROOT.parent), str(relative)
+              assert path.is_file() and path.resolve().is_relative_to(ROOT), str(relative)
+              data = path.read_bytes()
+              return {'path': str(relative), 'sha256': sha(data), 'bytes': len(data), 'mode': stat.S_IMODE(path.stat().st_mode)}
+          
+          
+          def snapshot(label, mode):
+              rows = []
+              for source in SPEC['source_files']:
+                  row = physical(ROOT / source['path'])
+                  expected = dict(source)
+                  if source['path'] == SPEC['helper'] and mode == 'omission':
+                      expected['sha256'] = SPEC['omission_helper_sha256']
+                      expected['bytes'] = SPEC['omission_helper_bytes']
+                  assert all(row[key] == expected[key] for key in ['sha256', 'bytes', 'mode']), (label, row, expected)
+                  rows.append(row)
+              stage = git('ls-files', '--stage', '-z')
+              index = Path(git('rev-parse', '--git-path', 'index').decode().strip())
+              if not index.is_absolute():
+                  index = ROOT / index
+              raw = index.read_bytes()
+              assert raw[:4] == b'DIRC' and hashlib.sha1(raw[:-20]).digest() == raw[-20:]
+              assert not git('diff', '--cached', '--name-only')
+              changed = git('diff', '--name-only').decode().splitlines()
+              assert changed == ([SPEC['helper']] if mode == 'omission' else []), (label, changed)
+              status = git('status', '--porcelain=v1', '--untracked-files=all').decode()
+              assert status == (' M ' + SPEC['helper'] + '\n' if mode == 'omission' else ''), (label, status)
+              (P / (label + '.index-stage.bin')).write_bytes(stage)
+              (P / (label + '.index.bin')).write_bytes(raw)
+              (P / (label + '.diff')).write_bytes(git('diff', '--binary'))
+              (P / (label + '.helper.ts')).write_bytes((ROOT / SPEC['helper']).read_bytes())
+              write(label + '.source.json', {'mode': mode, 'sources': rows, 'index_sha256': sha(raw), 'status': status})
+              if label == 'initial':
+                  for source in SPEC['source_files']:
+                      target = P / 'source' / source['path']
+                      target.parent.mkdir(parents=True, exist_ok=True)
+                      shutil.copy2(ROOT / source['path'], target)
+                  write('initialized.json', {'source_head': SPEC['source_head'], 'initial_source_valid': True})
+          
+          
+          def framework(label):
+              rows = [physical(ROOT / 'node_modules' / path) for path in FRAMEWORK]
+              if label == 'before':
+                  for path in FRAMEWORK:
+                      target = P / 'framework' / path
+                      target.parent.mkdir(parents=True, exist_ok=True)
+                      shutil.copy2(ROOT / 'node_modules' / path, target)
+              else:
+                  assert rows == json.loads((P / 'framework-before.json').read_text()), label
+              write('framework-' + label + '.json', rows)
+          
+          
+          def mutate():
+              path = ROOT / SPEC['helper']
+              data = path.read_bytes()
+              needle = b"reportUserVisibleError(errorId, 'os_notification');"
+              assert sha(data) == SPEC['normal_helper_sha256'] and data.count(needle) == 2
+              changed = data.replace(needle, b'void errorId;')
+              assert sha(changed) == SPEC['omission_helper_sha256'] and len(changed) == SPEC['omission_helper_bytes']
+              (P / 'omission-helper.ts').write_bytes(changed)
+              path.write_bytes(changed)
+          
+          
+          def restore():
+              assert (P / 'initialized.json').is_file()
+              data = (P / 'source' / SPEC['helper']).read_bytes()
+              assert sha(data) == SPEC['normal_helper_sha256']
+              shutil.copy2(P / 'source' / SPEC['helper'], ROOT / SPEC['helper'])
+          
+          
+          if __name__ == '__main__':
+              command = sys.argv[1]
+              if command == 'snapshot':
+                  snapshot(sys.argv[2], sys.argv[3])
+              elif command == 'framework':
+                  framework(sys.argv[2])
+              elif command == 'mutate':
+                  mutate()
+              elif command == 'restore':
+                  restore()
+              else:
+                  raise ValueError(command)
+          CAPTURE
+      - name: Retain independent exact-result classifier
+        run: |
+          set -euo pipefail
+          cat > "$PROOF_DIR/classify.py" <<'CLASSIFY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          import re
+          import struct
+          
+          P = Path(os.environ['PROOF_DIR'])
+          ROOT = Path.cwd().resolve()
+          EXPECTED = json.loads((P / 'expected-inventory.json').read_text())
+          CASES = {(row['file'], row['full_name']) for row in EXPECTED['cases']}
+          TARGETS = {(row['file'], row['full_name']): row for row in EXPECTED['omission_targets']}
+          WITNESSES = {(row['file'], row['full_name']): row for row in EXPECTED['unchanged_native_witnesses']}
+          assert len(CASES) == 71 and len(TARGETS) == 9 and len(WITNESSES) == 6
+          FILES = ['src/lib/miden/back/background-notification.test.ts',
+                   'src/lib/miden/back/background-notification-fallback.test.ts',
+                   'src/lib/extension/notifications.test.ts', 'src/components/NoteToastProvider.test.tsx']
+          for prerequisite in ['install', 'format', 'lint', 'typescript']:
+              assert int((P / (prerequisite + '.exit')).read_text()) == 0, prerequisite
+              assert int((P / (prerequisite + '.tee.exit')).read_text()) == 0, prerequisite
+          results = {}
+          
+          for phase, counts in [('normal', (71, 0)), ('omission', (62, 9)), ('restored', (71, 0))]:
+              passed, failed = counts
+              argv = (P / (phase + '.argv')).read_bytes().split(b'\0')
+              assert argv[-1] == b''
+              wanted = ['yarn', 'jest', '--runTestsByPath', *FILES, '--maxWorkers=2', '--coverage=false',
+                        '--no-colors', '--json', '--outputFile=' + str(P / (phase + '.jest.json'))]
+              assert [part.decode() for part in argv[:-1]] == wanted, phase
+              data = json.loads((P / (phase + '.jest.json')).read_text())
+              assert (data['numTotalTests'], data['numPassedTests'], data['numFailedTests']) == (71, passed, failed), phase
+              assert (data['numTotalTestSuites'], data['numPassedTestSuites'], data['numFailedTestSuites']) == (4, 2 if failed else 4, 2 if failed else 0), phase
+              assert all(data[key] == 0 for key in ['numPendingTests', 'numTodoTests', 'numPendingTestSuites', 'numRuntimeErrorTestSuites']), phase
+              assert data['wasInterrupted'] is False and data['success'] is (not failed), phase
+              assert data['openHandles'] == [], phase
+              rows = {}
+              failures = {}
+              for suite in data['testResults']:
+                  path = str(Path(suite['name']).resolve().relative_to(ROOT))
+                  assert suite['status'] in ['passed', 'failed'] and suite['assertionResults'], (phase, path)
+                  for row in suite['assertionResults']:
+                      key = (path, row['fullName'])
+                      assert key in CASES and key not in rows, (phase, key)
+                      assert row['invocations'] == 1 and row['retryReasons'] == [] and row['failing'] is False, (phase, key)
+                      assert row['status'] in ['passed', 'failed'], (phase, key)
+                      assert isinstance(row['numPassingAsserts'], int) and row['numPassingAsserts'] >= 1, (phase, key)
+                      if row['status'] == 'failed':
+                          assert phase == 'omission' and key in TARGETS, (phase, key)
+                          target = TARGETS[key]
+                          assert row['numPassingAsserts'] == target['prior_passing_assertions'], key
+                          assert len(row['failureDetails']) == 1 and len(row['failureMessages']) == 1, key
+                          matcher = row['failureDetails'][0]['matcherResult']
+                          assert matcher['name'] == 'toEqual' and matcher['pass'] is False, key
+                          assert matcher['actual'] == [] and matcher['expected'] == target['expected_report'], key
+                          message = row['failureMessages'][0]
+                          assert 'expect(received).toEqual(expected)' in message, key
+                          frames = re.findall(r'\bat [^\n]*?\(([^()\n]+):(\d+):(\d+)\)', message)
+                          assert frames, (key, message)
+                          first = frames[0]
+                          assert str(Path(first[0]).resolve().relative_to(ROOT)) == path, (key, first)
+                          assert int(first[1]) == target['first_frame_line'], (key, first)
+                          assert int(first[2]) == target['source_matcher_column'], (key, first)
+                          failures[key] = {'passing_assertions': row['numPassingAsserts'], 'first_frame': first}
+                      else:
+                          assert row['failureDetails'] == [] and row['failureMessages'] == [], (phase, key)
+                          if key in TARGETS:
+                              assert row['numPassingAsserts'] == TARGETS[key]['normal_passing_assertions'], (phase, key)
+                          if key in WITNESSES:
+                              assert row['numPassingAsserts'] == WITNESSES[key]['passing_assertions'], (phase, key)
+                      rows[key] = row
+              assert set(rows) == CASES and set(failures) == (set(TARGETS) if failed else set()), phase
+              assert int((P / (phase + '.exit')).read_text()) == (1 if failed else 0), phase
+              assert int((P / (phase + '.tee.exit')).read_text()) == 0, phase
+              results[phase] = {'total': 71, 'passed': passed, 'failed': failed,
+                                'passing_assertions': sum(row['numPassingAsserts'] for row in rows.values()),
+                                'rows': [{'file': key[0], 'full_name': key[1], 'status': row['status'], 'passing_assertions': row['numPassingAsserts']} for key, row in sorted(rows.items())],
+                                'failures': [{'file': key[0], 'full_name': key[1], **value} for key, value in sorted(failures.items())]}
+              if phase == 'normal':
+                  normal = rows
+              else:
+                  for key, row in rows.items():
+                      if phase == 'restored' or key not in TARGETS:
+                          assert row['numPassingAsserts'] == normal[key]['numPassingAsserts'], (phase, key)
+          assert results['normal']['passing_assertions'] == results['restored']['passing_assertions']
+          assert results['normal']['passing_assertions'] - results['omission']['passing_assertions'] == 14
+          def index_identity(raw):
+              assert len(raw) >= 32 and raw[:4] == b'DIRC'
+              assert hashlib.sha1(raw[:-20]).digest() == raw[-20:]
+              version, count = struct.unpack('>II', raw[4:12])
+              assert version in (2, 3), version
+              limit = len(raw) - 20
+              normalized = bytearray(raw[:limit])
+              entries, pos = {}, 12
+              stat_names = ['ctime_seconds', 'ctime_nanoseconds', 'mtime_seconds', 'mtime_nanoseconds',
+                            'device', 'inode', 'uid', 'gid', 'size']
+              for _ in range(count):
+                  start = pos
+                  assert pos + 62 <= limit
+                  fields = struct.unpack('>10I20sH', raw[pos:pos + 62])
+                  pos += 62
+                  flags = fields[-1]
+                  extended = None
+                  if flags & 0x4000:
+                      assert version == 3 and pos + 2 <= limit
+                      extended = struct.unpack('>H', raw[pos:pos + 2])[0]
+                      pos += 2
+                  end = raw.index(b'\0', pos, limit)
+                  path = raw[pos:end]
+                  assert path and path not in entries
+                  assert flags & 0x0fff == min(len(path), 0x0fff)
+                  pos = start + ((end - start + 1 + 7) // 8) * 8
+                  assert pos <= limit and not any(raw[end:pos])
+                  stats = fields[:6] + fields[7:10]
+                  entries[path] = {'mode': format(fields[6], '06o'), 'oid': fields[10].hex(),
+                                   'stage': (flags >> 12) & 3, 'flags': flags, 'extended_flags': extended,
+                                   'stats': dict(zip(stat_names, stats))}
+                  # Only cache metadata is excluded; mode and every following identity byte remain.
+                  normalized[start:start + 24] = b'\0' * 24
+                  normalized[start + 28:start + 40] = b'\0' * 12
+              extension_start = pos
+              while pos < limit:
+                  assert pos + 8 <= limit
+                  assert raw[pos:pos + 4] not in [b'link', b'sdir']
+                  length = struct.unpack('>I', raw[pos + 4:pos + 8])[0]
+                  pos += 8 + length
+                  assert pos <= limit
+              assert pos == limit and len(entries) == count
+              return bytes(normalized), entries, {'version': version, 'entries': count,
+                  'raw_sha256': hashlib.sha256(raw).hexdigest(), 'checksum_sha1': raw[-20:].hex(),
+                  'normalized_sha256': hashlib.sha256(normalized).hexdigest(),
+                  'extension_bytes': limit - extension_start,
+                  'extension_sha256': hashlib.sha256(raw[extension_start:limit]).hexdigest()}
+          
+          
+          def stage_identity(raw):
+              assert raw.endswith(b'\0')
+              entries = {}
+              for row in raw[:-1].split(b'\0'):
+                  identity, path = row.split(b'\t', 1)
+                  mode, oid, stage = identity.decode('ascii').split()
+                  assert path not in entries
+                  entries[path] = {'mode': mode, 'oid': oid, 'stage': int(stage)}
+              return entries
+          
+          
+          initial_raw = (P / 'initial.index.bin').read_bytes()
+          initial_normalized, initial_entries, initial_metadata = index_identity(initial_raw)
+          initial_stage_raw = (P / 'initial.index-stage.bin').read_bytes()
+          initial_stage = stage_identity(initial_stage_raw)
+          assert {path: {key: row[key] for key in ['mode', 'oid', 'stage']}
+                  for path, row in initial_entries.items()} == initial_stage
+          index_checks = {}
+          for label in ['initial', 'before-normal', 'after-normal', 'before-omission', 'after-omission', 'before-restored', 'after-restored', 'final']:
+              source = json.loads((P / (label + '.source.json')).read_text())
+              stage_raw = (P / (label + '.index-stage.bin')).read_bytes()
+              assert stage_raw == initial_stage_raw, label
+              raw = (P / (label + '.index.bin')).read_bytes()
+              normalized, entries, metadata = index_identity(raw)
+              assert normalized == initial_normalized, label
+              assert stage_identity(stage_raw) == {path: {key: row[key] for key in ['mode', 'oid', 'stage']}
+                                                  for path, row in entries.items()}, label
+              cache_changes = []
+              for path, row in entries.items():
+                  changed = {key: {'before': initial_entries[path]['stats'][key], 'after': value}
+                             for key, value in row['stats'].items() if initial_entries[path]['stats'][key] != value}
+                  if changed:
+                      cache_changes.append({'path': path.decode('utf-8'), 'fields': changed})
+              index_checks[label] = {**metadata, 'byte_equal_initial': raw == initial_raw,
+                                     'stage_bytes_equal_initial': True, 'cache_changes': cache_changes}
+              assert source['index_sha256'] == metadata['raw_sha256'], label
+              assert source['mode'] == ('omission' if label in ['before-omission', 'after-omission'] else 'normal'), label
+          (P / 'index-semantics.json').write_text(json.dumps({'status': 'LOGICAL_IDENTITY_AND_NON_CACHE_BYTES_UNCHANGED',
+              'allowed_normalization': 'Only per-entry ctime/mtime/device/inode/uid/gid/size cache fields; each original SHA1 trailer is validated before comparison. Header, mode, OID, complete flags, extended flags, pathname/padding and extension bytes are preserved.',
+              'snapshots': index_checks}, indent=2) + '\n')
+          for label in ['after-normal', 'after-omission', 'after-restored']:
+              assert json.loads((P / ('framework-' + label + '.json')).read_text()) == json.loads((P / 'framework-before.json').read_text()), label
+          final = json.loads((P / 'finalization.json').read_text())
+          assert final['restored'] is True and final['errors'] == []
+          (P / 'classification.json').write_text(json.dumps({'status': 'OBSERVED_SCOPED_COUNTS_AND_SOURCE_VALID_CONTROLLER_ACCEPTANCE_REQUIRED', 'results': results, 'limits': ['No whole-head95, full Unit, platform, final review, live delivery or merge credit.']}, indent=2) + '\n')
+          CLASSIFY
+      - name: Retain bounded logger and final restore helper then bind source
+        run: |
+          set -euo pipefail
+          cat > "$PROOF_DIR/finalize.py" <<'FINALIZE'
+          import importlib.util
+          import json
+          import os
+          from pathlib import Path
+          import shutil
+          import subprocess
+          
+          P = Path(os.environ['PROOF_DIR'])
+          P.mkdir(parents=True, exist_ok=True)
+          errors = []
+          restored = False
+          try:
+              spec = importlib.util.spec_from_file_location('capture', P / 'capture.py')
+              capture = importlib.util.module_from_spec(spec)
+              spec.loader.exec_module(capture)
+              helper = Path(capture.SPEC['helper'])
+              if helper.is_file():
+                  shutil.copy2(helper, P / 'before-final-restore-helper.ts')
+              (P / 'before-final-restore.diff').write_bytes(subprocess.check_output(['git', 'diff', '--binary']))
+              capture.restore()
+              restored = True
+              capture.snapshot('final', 'normal')
+          except Exception as error:
+              errors.append(type(error).__name__ + ': ' + str(error))
+          (P / 'finalization.json').write_text(json.dumps({'restored': restored, 'errors': errors}, indent=2) + '\n')
+          raise SystemExit(bool(errors))
+          FINALIZE
+          cat > "$PROOF_DIR/run-logged.bash" <<'LOGGER'
+          run_logged() {
+            local label="$1"
+            shift
+            printf '%s\0' "$@" > "$PROOF_DIR/$label.argv"
+            set +e
+            "$@" 2>&1 | tee "$PROOF_DIR/$label.log"
+            local codes=("${PIPESTATUS[@]}")
+            set -e
+            printf '%s\n' "${codes[0]}" > "$PROOF_DIR/$label.exit"
+            printf '%s\n' "${codes[1]}" > "$PROOF_DIR/$label.tee.exit"
+            if [ "${codes[1]}" -ne 0 ]; then return "${codes[1]}"; fi
+            return "${codes[0]}"
+          }
+          LOGGER
+          test "$(git rev-parse HEAD)" = "$PROOF_HEAD"
+          test "$PROOF_REF" = refs/heads/ci/1616-task7-notification-delivery-proof
+          test "$(git show -s --format=%P HEAD)" = f75674cb97a3e4d5c956186140715f660e0b345d
+          test "$(git rev-parse f75674cb97a3e4d5c956186140715f660e0b345d^{tree})" = 03c7f93500ded1839833cd2d266eb7888a20b476
+          git diff --name-status f75674cb97a3e4d5c956186140715f660e0b345d HEAD > "$PROOF_DIR/workflow-only.names"
+          printf 'A\t.github/workflows/task7-notification-delivery-proof.yml\n' > "$PROOF_DIR/expected-workflow-only.names"
+          cmp "$PROOF_DIR/workflow-only.names" "$PROOF_DIR/expected-workflow-only.names"
+          git diff --binary f75674cb97a3e4d5c956186140715f660e0b345d HEAD > "$PROOF_DIR/workflow-only.diff"
+          git cat-file commit HEAD > "$PROOF_DIR/checkout-commit.txt"
+          git cat-file commit f75674cb97a3e4d5c956186140715f660e0b345d > "$PROOF_DIR/source-commit.txt"
+          git ls-tree --full-tree -r HEAD > "$PROOF_DIR/checkout-tree.txt"
+          git ls-tree --full-tree -r f75674cb97a3e4d5c956186140715f660e0b345d > "$PROOF_DIR/source-tree.txt"
+          python3 "$PROOF_DIR/capture.py" snapshot initial normal
+      - name: Use Node22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install exact frozen dependencies with normal hooks
+        timeout-minutes: 11
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged install timeout 10m yarn install --frozen-lockfile --non-interactive
+      - name: Retain physical matcher and serializer sources
+        run: |
+          set -euo pipefail
+          node --version > "$PROOF_DIR/node-version.txt"
+          yarn --version > "$PROOF_DIR/yarn-version.txt"
+          python3 --version > "$PROOF_DIR/python-version.txt"
+          sha256sum "$(command -v node)" > "$PROOF_DIR/node-binary.sha256"
+          python3 "$PROOF_DIR/capture.py" framework before
+      - name: Check only the three integrated notification files
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged format yarn prettier --check src/lib/miden/back/background-notification.ts src/lib/miden/back/background-notification.test.ts src/lib/miden/back/background-notification-fallback.test.ts
+          run_logged lint yarn eslint --max-warnings 0 src/lib/miden/back/background-notification.ts src/lib/miden/back/background-notification.test.ts src/lib/miden/back/background-notification-fallback.test.ts
+      - name: Check project TypeScript without emitting
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged typescript yarn tsc --noEmit --pretty false
+      - name: Run all71 current-source positive cases
+        timeout-minutes: 3
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          python3 "$PROOF_DIR/capture.py" snapshot before-normal normal
+          run_logged normal yarn jest --runTestsByPath src/lib/miden/back/background-notification.test.ts src/lib/miden/back/background-notification-fallback.test.ts src/lib/extension/notifications.test.ts src/components/NoteToastProvider.test.tsx --maxWorkers=2 --coverage=false --no-colors --json --outputFile="$PROOF_DIR/normal.jest.json"
+          python3 "$PROOF_DIR/capture.py" snapshot after-normal normal
+          python3 "$PROOF_DIR/capture.py" framework after-normal
+      - name: Omit only the two successful-delivery reporting expressions
+        timeout-minutes: 3
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          trap 'python3 "$PROOF_DIR/capture.py" restore' EXIT
+          python3 "$PROOF_DIR/capture.py" mutate
+          python3 "$PROOF_DIR/capture.py" snapshot before-omission omission
+          if run_logged omission yarn jest --runTestsByPath src/lib/miden/back/background-notification.test.ts src/lib/miden/back/background-notification-fallback.test.ts src/lib/extension/notifications.test.ts src/components/NoteToastProvider.test.tsx --maxWorkers=2 --coverage=false --no-colors --json --outputFile="$PROOF_DIR/omission.jest.json"; then
+            omission_exit=0
+          else
+            omission_exit=$?
+          fi
+          python3 "$PROOF_DIR/capture.py" snapshot after-omission omission
+          python3 "$PROOF_DIR/capture.py" framework after-omission
+          python3 "$PROOF_DIR/capture.py" restore
+          trap - EXIT
+          test "$omission_exit" -eq 1
+      - name: Run the exact restored source again
+        timeout-minutes: 3
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          python3 "$PROOF_DIR/capture.py" snapshot before-restored normal
+          run_logged restored yarn jest --runTestsByPath src/lib/miden/back/background-notification.test.ts src/lib/miden/back/background-notification-fallback.test.ts src/lib/extension/notifications.test.ts src/components/NoteToastProvider.test.tsx --maxWorkers=2 --coverage=false --no-colors --json --outputFile="$PROOF_DIR/restored.jest.json"
+          python3 "$PROOF_DIR/capture.py" snapshot after-restored normal
+          python3 "$PROOF_DIR/capture.py" framework after-restored
+      - name: Always retain the pre-restore state and restore only the admitted helper
+        if: always()
+        run: |
+          set -euo pipefail
+          python3 "$PROOF_DIR/finalize.py"
+      - name: Independently check exact cases causal failures and preserved inputs
+        if: always()
+        run: |
+          set -euo pipefail
+          python3 "$PROOF_DIR/classify.py"
+      - name: Always seal every available private artifact
+        if: always()
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/task7-notification-delivery-proof"
+          export PROOF_DIR="$RUNNER_TEMP/task7-notification-delivery-proof"
+          python3 - <<'SEAL'
+          import hashlib,json,os,stat
+          from pathlib import Path
+          p=Path(os.environ['PROOF_DIR'])
+          (p/'acceptance.txt').write_text('UNACCEPTED: external controller must verify exact run/head/parent/source, API artifact size and digest, safe archive readback, all71 case identities,71/0 ->62/9 causal ->71/0 outcomes, native chain witnesses, natural0/1/0 and tee0 exits, and unchanged source/index/framework. No whole-head95, full Unit, final review, platform/live or merge credit. Never merge.\n')
+          rows=[]
+          for f in sorted(p.rglob('*')):
+              if f.is_file() and f.name not in ['files.sha256','files.json']:
+                  assert not f.is_symlink()
+                  b=f.read_bytes()
+                  rows.append({'path':str(f.relative_to(p)),'bytes':len(b),'mode':stat.S_IMODE(f.stat().st_mode),'sha256':hashlib.sha256(b).hexdigest()})
+          (p/'files.json').write_text(json.dumps(rows,indent=2)+'\n')
+          rows.append({'path':'files.json','sha256':hashlib.sha256((p/'files.json').read_bytes()).hexdigest()})
+          (p/'files.sha256').write_text(''.join(row['sha256']+'  '+row['path']+'\n' for row in rows))
+          SEAL
+      - name: Always retain complete private evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: task7-notification-delivery-proof-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/task7-notification-delivery-proof/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
