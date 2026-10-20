@@ -177,12 +177,13 @@ function scanSources(sources: ReadonlyMap<string, string>): Violation[] {
         if (node.name) names.add(node.name.text);
         return;
       }
-      if (
-        node !== scope &&
-        (ts.isBlock(node) || ts.isFunctionLike(node) || ts.isClassLike(node) || isLexicalLoop(node))
-      ) {
+      if (node !== scope && isLexicalLoop(node)) {
+        ts.forEachChild(node, child => {
+          if (!ts.isVariableDeclarationList(child)) visit(child);
+        });
         return;
       }
+      if (node !== scope && (ts.isBlock(node) || ts.isFunctionLike(node) || ts.isClassLike(node))) return;
       ts.forEachChild(node, visit);
     };
     if (ts.isFunctionLike(scope)) {
