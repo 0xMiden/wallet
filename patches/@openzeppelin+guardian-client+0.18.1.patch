@@ -70,3 +70,108 @@ index 9c02303..8c4154b 100644
    accountId: string;
    nonce: number;
    prevCommitment: string;
+diff --git a/node_modules/@openzeppelin/guardian-client/src/http.ts b/node_modules/@openzeppelin/guardian-client/src/http.ts
+index f518bc4..0f0c825 100644
+--- a/node_modules/@openzeppelin/guardian-client/src/http.ts
++++ b/node_modules/@openzeppelin/guardian-client/src/http.ts
+@@ -439,13 +439,13 @@
+     };
+   }
+ 
+-  async configure(request: ConfigureRequest): Promise<ConfigureResponse> {
++  async configure(request: ConfigureRequest, beforeSend?: () => void): Promise<ConfigureResponse> {
+     const serverRequest = toServerConfigureRequest(request);
+     // Configuration changes who the account trusts: always the wallet.
+     const response = await this.fetchAuthenticated('/configure', {
+       method: 'POST',
+       body: JSON.stringify(serverRequest),
+-    }, request.accountId, serverRequest);
++    }, request.accountId, serverRequest, 'wallet', undefined, beforeSend);
+     const server = (await response.json()) as ServerConfigureResponse;
+     return fromServerConfigureResponse(server);
+   }
+@@ -749,7 +749,8 @@
+     accountId: string,
+     requestPayload: unknown,
+     mode: AuthMode = 'wallet',
+-    retries = 2
++    retries = 2,
++    beforeSend?: () => void
+   ): Promise<Response> {
+     const timestamp = this.nextTimestamp();
+     const authPayload = RequestAuthPayload.fromRequest(requestPayload);
+@@ -763,6 +764,7 @@
+         )
+       : await this.walletAuthHeaders(accountId, timestamp, authPayload);
+ 
++    beforeSend?.();
+     try {
+       return await this.fetch(path, {
+         ...init,
+@@ -794,7 +796,7 @@
+         err.code === 'authentication_replay'
+       ) {
+         await new Promise((resolve) => setTimeout(resolve, 50));
+-        return this.fetchAuthenticated(path, init, accountId, requestPayload, mode, retries - 1);
++        return this.fetchAuthenticated(path, init, accountId, requestPayload, mode, retries - 1, beforeSend);
+       }
+       throw err;
+     }
+diff --git a/node_modules/@openzeppelin/guardian-client/dist/http.js b/node_modules/@openzeppelin/guardian-client/dist/http.js
+index 049e63d..0199536 100644
+--- a/node_modules/@openzeppelin/guardian-client/dist/http.js
++++ b/node_modules/@openzeppelin/guardian-client/dist/http.js
+@@ -313,13 +313,13 @@
+                 : {}),
+         };
+     }
+-    async configure(request) {
++    async configure(request, beforeSend) {
+         const serverRequest = toServerConfigureRequest(request);
+         // Configuration changes who the account trusts: always the wallet.
+         const response = await this.fetchAuthenticated('/configure', {
+             method: 'POST',
+             body: JSON.stringify(serverRequest),
+-        }, request.accountId, serverRequest);
++        }, request.accountId, serverRequest, 'wallet', undefined, beforeSend);
+         const server = (await response.json());
+         return fromServerConfigureResponse(server);
+     }
+@@ -582,13 +582,14 @@
+             },
+         });
+     }
+-    async fetchAuthenticated(path, init, accountId, requestPayload, mode = 'wallet', retries = 2) {
++    async fetchAuthenticated(path, init, accountId, requestPayload, mode = 'wallet', retries = 2, beforeSend) {
+         const timestamp = this.nextTimestamp();
+         const authPayload = RequestAuthPayload.fromRequest(requestPayload);
+         const session = mode === 'session' ? this.getSession() : null;
+         const headers = session
+             ? authHeaders(session.publicKey, await session.signRequest(accountId, timestamp, authPayload), timestamp, 'session')
+             : await this.walletAuthHeaders(accountId, timestamp, authPayload);
++        beforeSend?.();
+         try {
+             return await this.fetch(path, {
+                 ...init,
+@@ -619,7 +620,7 @@
+                 err instanceof GuardianHttpError &&
+                 err.code === 'authentication_replay') {
+                 await new Promise((resolve) => setTimeout(resolve, 50));
+-                return this.fetchAuthenticated(path, init, accountId, requestPayload, mode, retries - 1);
++                return this.fetchAuthenticated(path, init, accountId, requestPayload, mode, retries - 1, beforeSend);
+             }
+             throw err;
+         }
+diff --git a/node_modules/@openzeppelin/guardian-client/dist/http.d.ts b/node_modules/@openzeppelin/guardian-client/dist/http.d.ts
+index ac65a8c..8529756 100644
+--- a/node_modules/@openzeppelin/guardian-client/dist/http.d.ts
++++ b/node_modules/@openzeppelin/guardian-client/dist/http.d.ts
+@@ -133,7 +133,7 @@
+     revokeAllSessions(): Promise<number>;
+     getPubkey(scheme?: SignatureScheme): Promise<PubkeyResponse>;
+     getStatus(): Promise<StatusResponse>;
+-    configure(request: ConfigureRequest): Promise<ConfigureResponse>;
++    configure(request: ConfigureRequest, beforeSend?: () => void): Promise<ConfigureResponse>;
+     getState(accountId: string): Promise<StateObject>;
+     /**
+      * Nonce and commitment of the latest canonical state, without the state

@@ -1,0 +1,57 @@
+diff --git a/node_modules/@openzeppelin/miden-multisig-client/src/multisig.ts b/node_modules/@openzeppelin/miden-multisig-client/src/multisig.ts
+index ac4cad0..79c6998 100644
+--- a/node_modules/@openzeppelin/miden-multisig-client/src/multisig.ts
++++ b/node_modules/@openzeppelin/miden-multisig-client/src/multisig.ts
+@@ -873,7 +873,7 @@
+    *
+    * @param initialStateBase64 - Optional base64-encoded serialized Account.¡
+    */
+-  async registerOnGuardian(initialStateBase64?: string): Promise<void> {
++  async registerOnGuardian(initialStateBase64?: string, beforeSend?: () => void): Promise<void> {
+     // Serialize the account to bytes and base64-encode
+     const stateData =
+       initialStateBase64 ?? uint8ArrayToBase64(this.account.serialize());
+@@ -895,7 +895,7 @@
+       accountId: this._accountId,
+       auth,
+       initialState: { data: stateData, accountId: this._accountId },
+-    });
++    }, beforeSend);
+ 
+     if (!response.success) {
+       throw new Error(`Failed to register on GUARDIAN: ${response.message}`);
+diff --git a/node_modules/@openzeppelin/miden-multisig-client/dist/multisig.js b/node_modules/@openzeppelin/miden-multisig-client/dist/multisig.js
+index 41dc1df..c7556a0 100644
+--- a/node_modules/@openzeppelin/miden-multisig-client/dist/multisig.js
++++ b/node_modules/@openzeppelin/miden-multisig-client/dist/multisig.js
+@@ -581,7 +581,7 @@
+      *
+      * @param initialStateBase64 - Optional base64-encoded serialized Account.¡
+      */
+-    async registerOnGuardian(initialStateBase64) {
++    async registerOnGuardian(initialStateBase64, beforeSend) {
+         // Serialize the account to bytes and base64-encode
+         const stateData = initialStateBase64 ?? uint8ArrayToBase64(this.account.serialize());
+         const auth = this.signer.scheme === 'ecdsa'
+@@ -599,7 +599,7 @@
+             accountId: this._accountId,
+             auth,
+             initialState: { data: stateData, accountId: this._accountId },
+-        });
++        }, beforeSend);
+         if (!response.success) {
+             throw new Error(`Failed to register on GUARDIAN: ${response.message}`);
+         }
+diff --git a/node_modules/@openzeppelin/miden-multisig-client/dist/multisig.d.ts b/node_modules/@openzeppelin/miden-multisig-client/dist/multisig.d.ts
+index 2819379..d172256 100644
+--- a/node_modules/@openzeppelin/miden-multisig-client/dist/multisig.d.ts
++++ b/node_modules/@openzeppelin/miden-multisig-client/dist/multisig.d.ts
+@@ -313,7 +313,7 @@
+      *
+      * @param initialStateBase64 - Optional base64-encoded serialized Account.¡
+      */
+-    registerOnGuardian(initialStateBase64?: string): Promise<void>;
++    registerOnGuardian(initialStateBase64?: string, beforeSend?: () => void): Promise<void>;
+     /**
+      * Sync proposals from the GUARDIAN server, reconciling the local cache to
+      * the response. GUARDIAN reports only pending proposals, so a proposal it
