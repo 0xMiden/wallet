@@ -7055,21 +7055,27 @@
     "englishSource": "Try again"
   },
   "walletAccessCheckingTitle": {
-    "message": "Sprawdzanie dostępności"
+    "message": "Sprawdzanie dostępności",
+    "englishSource": "Checking availability"
   },
   "walletAccessCheckingBody": {
-    "message": "Poczekaj, aż sprawdzimy, czy portfel jest dostępny w Twoim regionie."
+    "message": "Poczekaj, aż sprawdzimy, czy portfel jest dostępny w Twoim regionie.",
+    "englishSource": "Please wait while we check whether the wallet is available in your region."
   },
   "walletAccessRestrictedTitle": {
-    "message": "Portfel niedostępny w Twoim regionie"
+    "message": "Portfel niedostępny w Twoim regionie",
+    "englishSource": "Wallet unavailable in your region"
   },
   "walletAccessRestrictedBody": {
-    "message": "Portfel nie jest dostępny w Twojej obecnej lokalizacji."
+    "message": "Portfel nie jest dostępny w Twojej obecnej lokalizacji.",
+    "englishSource": "The wallet is not available from your current location."
   },
   "walletAccessUnavailableTitle": {
-    "message": "Nie udało się sprawdzić dostępności"
+    "message": "Nie udało się sprawdzić dostępności",
+    "englishSource": "Could not check availability"
   },
   "walletAccessUnavailableBody": {
-    "message": "Sprawdź połączenie i spróbuj ponownie."
+    "message": "Sprawdź połączenie i spróbuj ponownie.",
+    "englishSource": "Check your connection and try again."
   }
 }

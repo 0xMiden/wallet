@@ -7055,21 +7055,27 @@
     "englishSource": "Try again"
   },
   "walletAccessCheckingTitle": {
-    "message": "Перевірка доступності"
+    "message": "Перевірка доступності",
+    "englishSource": "Checking availability"
   },
   "walletAccessCheckingBody": {
-    "message": "Зачекайте, поки ми перевіримо, чи доступний гаманець у вашому регіоні."
+    "message": "Зачекайте, поки ми перевіримо, чи доступний гаманець у вашому регіоні.",
+    "englishSource": "Please wait while we check whether the wallet is available in your region."
   },
   "walletAccessRestrictedTitle": {
-    "message": "Гаманець недоступний у вашому регіоні"
+    "message": "Гаманець недоступний у вашому регіоні",
+    "englishSource": "Wallet unavailable in your region"
   },
   "walletAccessRestrictedBody": {
-    "message": "Гаманець недоступний у вашому поточному місцезнаходженні."
+    "message": "Гаманець недоступний у вашому поточному місцезнаходженні.",
+    "englishSource": "The wallet is not available from your current location."
   },
   "walletAccessUnavailableTitle": {
-    "message": "Не вдалося перевірити доступність"
+    "message": "Не вдалося перевірити доступність",
+    "englishSource": "Could not check availability"
   },
   "walletAccessUnavailableBody": {
-    "message": "Перевірте з’єднання та спробуйте ще раз."
+    "message": "Перевірте з’єднання та спробуйте ще раз.",
+    "englishSource": "Check your connection and try again."
   }
 }

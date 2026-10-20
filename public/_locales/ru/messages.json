@@ -7055,21 +7055,27 @@
     "englishSource": "Try again"
   },
   "walletAccessCheckingTitle": {
-    "message": "Проверка доступности"
+    "message": "Проверка доступности",
+    "englishSource": "Checking availability"
   },
   "walletAccessCheckingBody": {
-    "message": "Подождите, пока мы проверяем, доступен ли кошелёк в вашем регионе."
+    "message": "Подождите, пока мы проверяем, доступен ли кошелёк в вашем регионе.",
+    "englishSource": "Please wait while we check whether the wallet is available in your region."
   },
   "walletAccessRestrictedTitle": {
-    "message": "Кошелёк недоступен в вашем регионе"
+    "message": "Кошелёк недоступен в вашем регионе",
+    "englishSource": "Wallet unavailable in your region"
   },
   "walletAccessRestrictedBody": {
-    "message": "Кошелёк недоступен в вашем текущем местоположении."
+    "message": "Кошелёк недоступен в вашем текущем местоположении.",
+    "englishSource": "The wallet is not available from your current location."
   },
   "walletAccessUnavailableTitle": {
-    "message": "Не удалось проверить доступность"
+    "message": "Не удалось проверить доступность",
+    "englishSource": "Could not check availability"
   },
   "walletAccessUnavailableBody": {
-    "message": "Проверьте подключение и попробуйте ещё раз."
+    "message": "Проверьте подключение и попробуйте ещё раз.",
+    "englishSource": "Check your connection and try again."
   }
 }

@@ -7055,21 +7055,27 @@
     "englishSource": "Try again"
   },
   "walletAccessCheckingTitle": {
-    "message": "正在检查可用性"
+    "message": "正在检查可用性",
+    "englishSource": "Checking availability"
   },
   "walletAccessCheckingBody": {
-    "message": "请稍候，我们正在检查你所在地区是否可以使用钱包。"
+    "message": "请稍候，我们正在检查你所在地区是否可以使用钱包。",
+    "englishSource": "Please wait while we check whether the wallet is available in your region."
   },
   "walletAccessRestrictedTitle": {
-    "message": "你所在地区无法使用钱包"
+    "message": "你所在地区无法使用钱包",
+    "englishSource": "Wallet unavailable in your region"
   },
   "walletAccessRestrictedBody": {
-    "message": "你当前所在位置无法使用钱包。"
+    "message": "你当前所在位置无法使用钱包。",
+    "englishSource": "The wallet is not available from your current location."
   },
   "walletAccessUnavailableTitle": {
-    "message": "无法检查可用性"
+    "message": "无法检查可用性",
+    "englishSource": "Could not check availability"
   },
   "walletAccessUnavailableBody": {
-    "message": "请检查网络连接后重试。"
+    "message": "请检查网络连接后重试。",
+    "englishSource": "Check your connection and try again."
   }
 }

@@ -7055,21 +7055,27 @@
     "englishSource": "Try again"
   },
   "walletAccessCheckingTitle": {
-    "message": "Comprobando disponibilidad"
+    "message": "Comprobando disponibilidad",
+    "englishSource": "Checking availability"
   },
   "walletAccessCheckingBody": {
-    "message": "Espera mientras comprobamos si el monedero está disponible en tu región."
+    "message": "Espera mientras comprobamos si el monedero está disponible en tu región.",
+    "englishSource": "Please wait while we check whether the wallet is available in your region."
   },
   "walletAccessRestrictedTitle": {
-    "message": "Monedero no disponible en tu región"
+    "message": "Monedero no disponible en tu región",
+    "englishSource": "Wallet unavailable in your region"
   },
   "walletAccessRestrictedBody": {
-    "message": "El monedero no está disponible desde tu ubicación actual."
+    "message": "El monedero no está disponible desde tu ubicación actual.",
+    "englishSource": "The wallet is not available from your current location."
   },
   "walletAccessUnavailableTitle": {
-    "message": "No se pudo comprobar la disponibilidad"
+    "message": "No se pudo comprobar la disponibilidad",
+    "englishSource": "Could not check availability"
   },
   "walletAccessUnavailableBody": {
-    "message": "Comprueba tu conexión e inténtalo de nuevo."
+    "message": "Comprueba tu conexión e inténtalo de nuevo.",
+    "englishSource": "Check your connection and try again."
   }
 }

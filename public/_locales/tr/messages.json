@@ -7055,21 +7055,27 @@
     "englishSource": "Try again"
   },
   "walletAccessCheckingTitle": {
-    "message": "Kullanılabilirlik kontrol ediliyor"
+    "message": "Kullanılabilirlik kontrol ediliyor",
+    "englishSource": "Checking availability"
   },
   "walletAccessCheckingBody": {
-    "message": "Cüzdanın bölgenizde kullanılabilir olup olmadığını kontrol ederken lütfen bekleyin."
+    "message": "Cüzdanın bölgenizde kullanılabilir olup olmadığını kontrol ederken lütfen bekleyin.",
+    "englishSource": "Please wait while we check whether the wallet is available in your region."
   },
   "walletAccessRestrictedTitle": {
-    "message": "Cüzdan bölgenizde kullanılamıyor"
+    "message": "Cüzdan bölgenizde kullanılamıyor",
+    "englishSource": "Wallet unavailable in your region"
   },
   "walletAccessRestrictedBody": {
-    "message": "Cüzdan bulunduğunuz konumda kullanılamıyor."
+    "message": "Cüzdan bulunduğunuz konumda kullanılamıyor.",
+    "englishSource": "The wallet is not available from your current location."
   },
   "walletAccessUnavailableTitle": {
-    "message": "Kullanılabilirlik kontrol edilemedi"
+    "message": "Kullanılabilirlik kontrol edilemedi",
+    "englishSource": "Could not check availability"
   },
   "walletAccessUnavailableBody": {
-    "message": "Bağlantınızı kontrol edip tekrar deneyin."
+    "message": "Bağlantınızı kontrol edip tekrar deneyin.",
+    "englishSource": "Check your connection and try again."
   }
 }

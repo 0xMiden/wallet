@@ -7055,21 +7055,27 @@
     "englishSource": "Try again"
   },
   "walletAccessCheckingTitle": {
-    "message": "Vérification de la disponibilité"
+    "message": "Vérification de la disponibilité",
+    "englishSource": "Checking availability"
   },
   "walletAccessCheckingBody": {
-    "message": "Veuillez patienter pendant que nous vérifions si le portefeuille est disponible dans votre région."
+    "message": "Veuillez patienter pendant que nous vérifions si le portefeuille est disponible dans votre région.",
+    "englishSource": "Please wait while we check whether the wallet is available in your region."
   },
   "walletAccessRestrictedTitle": {
-    "message": "Portefeuille indisponible dans votre région"
+    "message": "Portefeuille indisponible dans votre région",
+    "englishSource": "Wallet unavailable in your region"
   },
   "walletAccessRestrictedBody": {
-    "message": "Le portefeuille n’est pas disponible depuis votre position actuelle."
+    "message": "Le portefeuille n’est pas disponible depuis votre position actuelle.",
+    "englishSource": "The wallet is not available from your current location."
   },
   "walletAccessUnavailableTitle": {
-    "message": "Impossible de vérifier la disponibilité"
+    "message": "Impossible de vérifier la disponibilité",
+    "englishSource": "Could not check availability"
   },
   "walletAccessUnavailableBody": {
-    "message": "Vérifiez votre connexion et réessayez."
+    "message": "Vérifiez votre connexion et réessayez.",
+    "englishSource": "Check your connection and try again."
   }
 }
