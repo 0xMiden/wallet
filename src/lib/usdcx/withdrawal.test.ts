@@ -1,4 +1,10 @@
-import { encodeBurnWithdrawal, isUsdcxWithdrawalNetwork, UsdcxBurnError, validateUsdcxWithdrawal } from './withdrawal';
+import {
+  encodeBurnWithdrawal,
+  isUsdcxWithdrawalNetwork,
+  UsdcxBurnError,
+  usdcxMinimumBurnShortfall,
+  validateUsdcxWithdrawal
+} from './withdrawal';
 
 jest.mock('lib/remote-config/runtime', () => ({
   getBridgeConfigSnapshot: () => {
@@ -96,6 +102,18 @@ describe('USDCx withdrawal encoding', () => {
       expect.objectContaining({ translationKey: 'usdcxBelowMinimumBurn', values: { amount: '7.5' } })
     );
     expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 5042002, 7_500_000n, 7_500_000n)).not.toThrow();
+  });
+
+  it('keeps the mandatory burn floor in the helper when an explicit minimum is lower', () => {
+    expect(usdcxMinimumBurnShortfall(5_000_000n, 1n)).toBeUndefined();
+    expect(usdcxMinimumBurnShortfall(4_999_999n, 1n)).toEqual({ amount: '5' });
+  });
+
+  it('keeps the mandatory burn floor in the validator when an explicit minimum is lower', () => {
+    expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 5042002, 5_000_000n, 1n)).not.toThrow();
+    expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 5042002, 4_999_999n, 1n)).toThrow(
+      expect.objectContaining({ translationKey: 'usdcxBelowMinimumBurn', values: { amount: '5' } })
+    );
   });
 
   // Circle takes its payout fee from the amount: a flat ~1.0035 USDC on Ethereum, against a 1.5 USDC allowance.
