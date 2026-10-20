@@ -57,7 +57,8 @@ const registryReads = (tokens: BridgeToken[]): DerivedChainConfig => ({
     rollupId: { state: 'ok', value: 86 },
     tokens: { state: 'ok', value: tokens },
     evmNetworkId: { state: 'ok', value: 0 },
-    l1BridgeCode: { state: 'ok', value: true }
+    l1BridgeCode: { state: 'ok', value: true },
+    depositTokens: { state: 'skipped' }
   },
   epoch: { evmUsdc: { state: 'skipped' } }
 });
@@ -102,6 +103,8 @@ const mockAccountText: Record<string, string> = {
   '0xagg': 'agg-account',
   'base-sender': 'base-account',
   '0xbase': 'base-account',
+  'usdc-sender': 'usdc-faucet-account',
+  '0xusdcfaucet': 'usdc-faucet-account',
   'usdcx-faucet-bech32': 'usdcx-faucet-account',
   '0xusdcx': 'usdcx-faucet-account'
 };
@@ -288,6 +291,66 @@ describe('takeAgglayerBridgeInInfo', () => {
     await expect(
       takeAgglayerBridgeInInfo({ accountId: 'miden-account', senderAccountId: 'agg-sender', amount: 5n })
     ).resolves.toMatchObject({ provider: 'agglayer', bridgeReceiveTxId: 'older' });
+  });
+
+  // An ERC-20 row names its delivery faucet: the USDC faucet's note settles it, at the faucet's scale, and the ETH
+  // faucet's note of the same amount never does.
+  it('settles an ERC-20 tracker by the delivery faucet it saved, never by the ETH faucet', async () => {
+    const usdc = { originToken: '0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69', faucetId: '0xusdcfaucet', scale: 10 };
+    mockTransactions.push({
+      id: 'usdc-row',
+      type: 'bridged-receive',
+      accountId: 'miden-account',
+      amount: 5n * SCALE,
+      initiatedAt: 1,
+      extraInputs: {
+        provider: 'agglayer',
+        phase: 'delivering',
+        sourceAmount: '5',
+        sourceSymbol: 'USDC',
+        agglayerDelivery: usdc
+      }
+    });
+    await expect(
+      takeAgglayerBridgeInInfo({ accountId: 'miden-account', senderAccountId: 'agg-sender', amount: 5n })
+    ).resolves.toBeUndefined();
+    await expect(
+      takeAgglayerBridgeInInfo({ accountId: 'miden-account', senderAccountId: 'usdc-sender', amount: 5n })
+    ).resolves.toMatchObject({ provider: 'agglayer', sourceSymbol: 'USDC', bridgeReceiveTxId: 'usdc-row' });
+  });
+
+  // A test network registers the faucet on the first deposit, so a row made before that names only the token: its
+  // faucet and scale come from the registry of the row's chain once it holds them.
+  it('settles an ERC-20 tracker that saved no faucet once the registry holds one for its token', async () => {
+    const usdcToken: BridgeToken = {
+      midenFaucetId: '0xusdcfaucet',
+      originToken: '0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69',
+      originNetwork: 0,
+      scale: 8
+    };
+    mockTransactions.push({
+      id: 'usdc-row',
+      type: 'bridged-receive',
+      accountId: 'miden-account',
+      amount: 5n * 10n ** 8n,
+      initiatedAt: 1,
+      extraInputs: {
+        provider: 'agglayer',
+        phase: 'delivering',
+        sourceAmount: '5',
+        sourceSymbol: 'USDC',
+        agglayerDelivery: { originToken: usdcToken.originToken }
+      }
+    });
+    await expect(
+      takeAgglayerBridgeInInfo({ accountId: 'miden-account', senderAccountId: 'usdc-sender', amount: 5n })
+    ).resolves.toBeUndefined();
+    mockSnapshot = snapshotWith({ 11155111: [nativeEth('0xagg', 10), usdcToken] });
+    await expect(
+      takeAgglayerBridgeInInfo({ accountId: 'miden-account', senderAccountId: 'usdc-sender', amount: 5n })
+    ).resolves.toMatchObject({ bridgeReceiveTxId: 'usdc-row' });
+    // The registered faucet is a delivery sender from then on.
+    expect(isAgglayerBridgeDelivery('usdc-sender')).toBe(true);
   });
 
   // Matching rewrites the tracker row to `received` and makes the real consume

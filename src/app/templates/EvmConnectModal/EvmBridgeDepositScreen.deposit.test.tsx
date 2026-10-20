@@ -197,7 +197,10 @@ jest.mock('lib/remote-config/values', () => ({
           decimals: 6
         }
       : null,
-  getAgglayerDeposit: () => ({ l1Bridge: '0x00000000000000000000000000000000000000b2', rollupId: 77 })
+  getAgglayerDeposit: () => ({ l1Bridge: '0x00000000000000000000000000000000000000b2', rollupId: 77 }),
+  // The document lists no deposit token and the registry holds none: the picker offers ETH and the USDC rows alone.
+  selectAgglayerDepositTokens: () => [],
+  selectAgglayerRegistryToken: () => null
 }));
 
 jest.mock('use-debounce', () => ({

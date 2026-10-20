@@ -47,7 +47,8 @@ function ready(): BridgeConfigSnapshot {
       ]
     },
     evmNetworkId: { state: 'ok', value: 0 },
-    l1BridgeCode: { state: 'ok', value: true }
+    l1BridgeCode: { state: 'ok', value: true },
+    depositTokens: { state: 'skipped' }
   };
   derived.agglayer = { indexer: { state: 'ok', value: true } };
   return snapshot;

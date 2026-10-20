@@ -624,3 +624,53 @@ describe('the E2E local http allowance', () => {
     expect(parseBridgeConfig(body, 'testnet', { allowLocalHttp: true })).toBeNull();
   });
 });
+
+describe('the AggLayer deposit tokens', () => {
+  const agglayerRoute = (body: ReturnType<typeof parseBridgeConfig>) =>
+    body?.supportedEvmChains.sepolia?.bridges.agglayer;
+
+  it('reads the listed tokens, addresses lowercase, and the Blockscout root without its trailing slash', () => {
+    const parsed = parseBridgeConfig(
+      withSection('agglayer', {
+        tokens: {
+          USDC: { contractAddress: '0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69' },
+          WBTC: { contractAddress: '0x21472DF1B5d2b673F6444B41258C6460294a2C06' }
+        },
+        tokenApiUrl: 'https://eth-sepolia.blockscout.com/api/v2/'
+      }),
+      'testnet'
+    );
+    expect(agglayerRoute(parsed)).toMatchObject({
+      tokens: {
+        USDC: { contractAddress: '0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69' },
+        WBTC: { contractAddress: '0x21472df1b5d2b673f6444b41258c6460294a2c06' }
+      },
+      tokenApiUrl: 'https://eth-sepolia.blockscout.com/api/v2'
+    });
+  });
+
+  it('leaves both out when the document names none', () => {
+    const route = agglayerRoute(parseBridgeConfig(doc(), 'testnet'));
+    expect(route).not.toHaveProperty('tokens');
+    expect(route).not.toHaveProperty('tokenApiUrl');
+  });
+
+  it.each<[string, Record<string, ConfigValue>]>([
+    ['a list instead of a map', { tokens: [] }],
+    ['a lower-case symbol', { tokens: { usdc: { contractAddress: '0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69' } } }],
+    ['a short address', { tokens: { USDC: { contractAddress: '0x1' } } }],
+    [
+      'one address twice',
+      {
+        tokens: {
+          USDC: { contractAddress: '0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69' },
+          USDT: { contractAddress: '0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69' }
+        }
+      }
+    ],
+    ['an http Blockscout root', { tokenApiUrl: 'http://eth-sepolia.blockscout.com/api/v2' }],
+    ['a Blockscout root with a query', { tokenApiUrl: 'https://eth-sepolia.blockscout.com/api/v2?x=1' }]
+  ])('rejects %s', (_label, fields) => {
+    expect(parseBridgeConfig(withSection('agglayer', fields), 'testnet')).toBeNull();
+  });
+});

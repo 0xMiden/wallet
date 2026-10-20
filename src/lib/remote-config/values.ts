@@ -2,7 +2,7 @@ import { getAddress } from 'viem';
 
 import { walletRaised } from 'lib/telemetry/bridge-receive-failure';
 
-import type { BridgeToken, DerivedChainConfig, Probe, TokenMetadata } from './derive';
+import type { AgglayerDepositToken, BridgeToken, DerivedChainConfig, Probe, TokenMetadata } from './derive';
 import { getE2eOverrides, type MidenUsdc } from './e2e-overrides';
 import { type BridgeConfigSnapshot, getBridgeConfigSnapshot } from './runtime';
 import { type AgglayerRecoveryConfig, epochCollateralFaucetId, type SupportedEvmChainConfig } from './schema';
@@ -121,6 +121,58 @@ export function selectNativeEthFaucet(s: BridgeConfigSnapshot, chainId?: number)
 export function selectNativeEthFaucets(s: BridgeConfigSnapshot): string[] {
   const chains = Object.values(s.config?.supportedEvmChains ?? {}).filter(chain => chain.bridges.agglayer);
   const faucets = chains.flatMap(chain => selectNativeEthFaucet(s, chain.chainId) ?? []);
+  return [...new Set(faucets)];
+}
+
+export type { AgglayerDepositToken };
+
+/**
+ * The ERC-20s the deposit picker offers on `chainId`, as the derivation verified them against the bridge registry
+ * (see probeDepositTokens): an empty list when there is nothing to offer, null while the read failed or has not
+ * landed, which the picker reports rather than showing a shorter list.
+ */
+export function selectAgglayerDepositTokens(s: BridgeConfigSnapshot, chainId?: number): AgglayerDepositToken[] | null {
+  const probe = agglayerReads(s, chainId)?.depositTokens;
+  switch (probe?.state) {
+    case 'ok':
+      return probe.value;
+    case 'absent':
+    case 'skipped':
+      return [];
+    default:
+      return null;
+  }
+}
+
+/**
+ * The registry entry for `originToken` (lowercase) on `chainId`: the faucet that mints its deliveries and the scale
+ * it mints at. Null while the registry read is not ok or holds no faucet for the token on that chain's network (any
+ * network while the L1 network id read is not ok).
+ */
+export function selectAgglayerRegistryToken(
+  s: BridgeConfigSnapshot,
+  originToken: string,
+  chainId?: number
+): BridgeToken | null {
+  const reads = agglayerReads(s, chainId);
+  const networkId = okValue(reads?.evmNetworkId);
+  const tokens = okValue(reads?.tokens) ?? [];
+  return (
+    tokens.find(
+      token => token.originToken === originToken && (networkId === null || token.originNetwork === networkId)
+    ) ?? null
+  );
+}
+
+/**
+ * Every faucet the bridge registry of any listed AggLayer chain holds, each once: each mints one bridged token and
+ * sends its deliveries, so a note from any of them is a bridge delivery.
+ */
+export function selectAgglayerDeliveryFaucets(s: BridgeConfigSnapshot): string[] {
+  const chains = Object.values(s.config?.supportedEvmChains ?? {}).filter(chain => chain.bridges.agglayer);
+  const faucets = chains.flatMap(chain =>
+    (okValue(agglayerReads(s, chain.chainId)?.tokens) ?? []).map(token => token.midenFaucetId)
+  );
   return [...new Set(faucets)];
 }
 

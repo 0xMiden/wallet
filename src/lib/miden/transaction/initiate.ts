@@ -27,6 +27,7 @@ import {
   ConsumeTransaction,
   EarnDepositTransaction,
   EarnWithdrawTransaction,
+  IAgglayerDelivery,
   IBridgedSendNoteParams,
   IBridgeProvider,
   IConsumedAssetTotal,
@@ -1002,6 +1003,8 @@ export const initiateBridgedReceiveTransaction = async (args: {
   sourceAddress: string;
   sourceChainId?: number;
   agglayerRoute?: AgglayerRecoveryConfig;
+  /** agglayer: the deposited ERC-20's delivery faucet; absent on a native-ETH deposit. */
+  agglayerDelivery?: IAgglayerDelivery;
   usdcxSource?: UsdcxSourceChain;
   epochAllocatorUrl?: string;
   sourceAmount: string;
@@ -1024,6 +1027,7 @@ export const initiateBridgedReceiveTransaction = async (args: {
   if (args.provider === 'agglayer') {
     if (!args.agglayerRoute) throw new Error('AggLayer recovery values are required');
     dbTransaction.extraInputs.agglayerRoute = args.agglayerRoute;
+    if (args.agglayerDelivery) dbTransaction.extraInputs.agglayerDelivery = args.agglayerDelivery;
   }
   if (args.provider === 'epoch') dbTransaction.extraInputs.epochAllocatorUrl = args.epochAllocatorUrl;
   if (args.provider === 'usdcx' && args.sourceChainId !== undefined) {

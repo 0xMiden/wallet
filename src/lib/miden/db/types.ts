@@ -195,8 +195,24 @@ export interface IUsdcxCctpLeg {
 }
 
 /** Metadata persisted on a tracking-only EVM → Miden bridge row. */
+/**
+ * The delivery of an AggLayer ERC-20 deposit, saved with its row so the match outlives the document. A test network
+ * registers a token's faucet on its first deposit, so a row may name only the token; its faucet and scale are then
+ * read from the registry when the delivery is matched.
+ */
+export interface IAgglayerDelivery {
+  /** The deposited ERC-20 on the source chain, lowercase. */
+  originToken: string;
+  /** The registry faucet for the deposited token: it mints the delivery and sends its note. Absent until registered. */
+  faucetId?: string;
+  /** The faucet's registry scale: a deposit of `w` source base units arrives as `floor(w / 10^scale)`. */
+  scale?: number;
+}
+
 export interface IBridgedReceiveExtraInputs {
   agglayerRoute?: AgglayerRecoveryConfig;
+  /** agglayer: the deposited ERC-20's delivery; absent on a native-ETH deposit, whose route names its faucet. */
+  agglayerDelivery?: IAgglayerDelivery;
   epochAllocatorUrl?: string;
   provider: IBridgeProvider;
   /** EVM source chain; absent on legacy Sepolia rows. */

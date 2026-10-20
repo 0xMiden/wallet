@@ -5,7 +5,11 @@ import * as Repo from 'lib/miden/repo';
 import { accountRefToSdk, sameWalletAccountId } from 'lib/miden/sdk/helpers';
 import { getNativeAssetId } from 'lib/miden-chain/native-asset';
 import { type BridgeConfigSnapshot, getBridgeConfigSnapshot, initBridgeConfig } from 'lib/remote-config/runtime';
-import { selectNativeEthFaucets, selectNativeEthToken } from 'lib/remote-config/values';
+import {
+  selectAgglayerDeliveryFaucets,
+  selectAgglayerRegistryToken,
+  selectNativeEthToken
+} from 'lib/remote-config/values';
 import { DEFAULT_CHAIN_ID } from 'lib/walletconnect/config';
 
 import { withinDeliveryWindow } from './bridge-receive-window';
@@ -243,27 +247,27 @@ function sentByFaucet(sender: string, faucet: string): boolean {
 }
 
 /**
- * Whether `sender` sent an AggLayer delivery, by the config this realm holds: the registered faucet whose origin is
- * native ETH on network 0 mints bridged ETH and sends its delivery notes, on any listed AggLayer chain. Matching stays
- * off while the config names no such faucet, so an ordinary incoming note is never mistaken for a bridge delivery.
+ * Whether `sender` sent an AggLayer delivery, by the config this realm holds: every faucet the bridge registry of a
+ * listed AggLayer chain holds mints one bridged token and sends its delivery notes. Matching stays off while the config
+ * holds no registry, so an ordinary incoming note is never mistaken for a bridge delivery.
  */
 export function isAgglayerBridgeDelivery(sender: string): boolean {
   if (e2eAgglayerSenderOverride) return compareAccountIds(e2eAgglayerSenderOverride.trim(), sender);
-  return selectNativeEthFaucets(getBridgeConfigSnapshot()).some(faucet => sentByFaucet(sender, faucet));
+  return selectAgglayerDeliveryFaucets(getBridgeConfigSnapshot()).some(faucet => sentByFaucet(sender, faucet));
 }
 
-// The native-ETH faucet an open AggLayer tracker saved with its route. A restored tracker names nothing: its backup's
-// author wrote the route.
+// The faucet an open AggLayer tracker saved: the deposited ERC-20's delivery, else the native-ETH faucet of its route.
+// A restored tracker names nothing: its backup's author wrote the route.
 function savedDeliveryFaucet(tx: ITransaction): string | undefined {
   const inputs: IBridgedReceiveExtraInputs | undefined = tx.extraInputs;
   if (tx.restoredFromBackup || inputs?.provider !== 'agglayer') return undefined;
   if (inputs.phase === 'received' || inputs.phase === 'failed') return undefined;
-  return inputs.agglayerRoute?.nativeEthFaucetId;
+  return inputs.agglayerDelivery?.faucetId ?? inputs.agglayerRoute?.nativeEthFaucetId;
 }
 
 /**
- * Whether a sender sent an AggLayer delivery, as `isAgglayerBridgeDelivery` decides it plus the native-ETH faucet each
- * open tracker saved with its route: a deposit made on a chain the document has since dropped still delivers from it.
+ * Whether a sender sent an AggLayer delivery, as `isAgglayerBridgeDelivery` decides it plus the faucet each open
+ * tracker saved: a deposit made on a chain the document has since dropped still delivers from it.
  * Never rejects: a failed read of the trackers leaves the live faucets alone.
  */
 export async function agglayerDeliverySenders(): Promise<(sender: string) => boolean> {
@@ -282,19 +286,29 @@ export async function agglayerDeliverySenders(): Promise<(sender: string) => boo
   } catch (error) {
     console.warn('[bridge-in] could not read the saved delivery faucets', error);
   }
-  const faucets = [...new Set([...selectNativeEthFaucets(getBridgeConfigSnapshot()), ...saved])];
+  const faucets = [...new Set([...selectAgglayerDeliveryFaucets(getBridgeConfigSnapshot()), ...saved])];
   return sender => faucets.some(faucet => sentByFaucet(sender, faucet));
 }
 
 /**
- * The faucet that delivers a tracker's bridged ETH, and its scale: the ones its route saved, else the registry of the
- * chain it was made on (DEFAULT_CHAIN_ID for a row saved before its route was). Undefined while neither names one.
+ * The faucet that delivers a tracker's deposit, and its scale: the ERC-20 delivery the row saved, else the native-ETH
+ * faucet its route saved, else the registry of the chain it was made on (DEFAULT_CHAIN_ID for a row saved before its
+ * route was). Undefined while none names one.
  */
 function deliveryOf(
   snapshot: BridgeConfigSnapshot,
   inputs: IBridgedReceiveExtraInputs
 ): { faucet: string; scale: number } | undefined {
+  const delivery = inputs.agglayerDelivery;
   const route = inputs.agglayerRoute;
+  if (delivery) {
+    if (delivery.faucetId !== undefined && delivery.scale !== undefined) {
+      return { faucet: delivery.faucetId, scale: delivery.scale };
+    }
+    // A test network registers the faucet on the first deposit: the registry of the row's chain names it since.
+    const registered = selectAgglayerRegistryToken(snapshot, delivery.originToken, route?.chainId ?? DEFAULT_CHAIN_ID);
+    return registered ? { faucet: registered.midenFaucetId, scale: registered.scale } : undefined;
+  }
   if (route?.nativeEthFaucetId !== undefined && route.nativeEthScale !== undefined) {
     return { faucet: route.nativeEthFaucetId, scale: route.nativeEthScale };
   }
@@ -308,9 +322,10 @@ function deliveryOf(
  * row's chain (`deliveryOf`). Amount + recipient prevent two deposits to the
  * same wallet from being paired in the wrong order. A tracker holds the deposit
  * in wei and the bridge delivers it at that faucet's registry scale, so the two
- * are compared through `agglayerDeliveredAmount`. The sender delivers bridged
- * ETH, so only native ETH trackers are compatible: an ERC-20 deposit with the
- * same amount must not adopt its note.
+ * are compared through `agglayerDeliveredAmount`. Each faucet delivers one
+ * token, so a tracker is compatible only with its own delivery faucet: an
+ * ERC-20 row names it, and a row without one is a native-ETH deposit, so a
+ * deposit of another token with the same amount must not adopt its note.
  */
 export async function takeAgglayerBridgeInInfo(args: {
   accountId: string;
@@ -341,7 +356,7 @@ export async function takeAgglayerBridgeInInfo(args: {
       const inputs = tx.extraInputs as IBridgedReceiveExtraInputs | undefined;
       if (
         inputs?.provider !== 'agglayer' ||
-        inputs.sourceSymbol !== AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL ||
+        (inputs.agglayerDelivery === undefined && inputs.sourceSymbol !== AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL) ||
         inputs.phase === 'received' ||
         inputs.phase === 'failed' ||
         tx.initiatedAt < cutoffSec ||
