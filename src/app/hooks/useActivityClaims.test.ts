@@ -1627,6 +1627,7 @@ describe('live claim failures through PendingActivityCard and Notice', () => {
   const expectRawReport = () =>
     expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['raw_pending_activity_retry_failed', 'notice']]);
   const observeHeldCard = () => {
+    let retryHeld: (() => Promise<void>) | undefined;
     const commits: Array<{
       failure: ReturnType<typeof useActivityClaims>['items'][number]['failure'];
       tone: string | null;
@@ -1634,6 +1635,7 @@ describe('live claim failures through PendingActivityCard and Notice', () => {
     function ObservedClaimCard() {
       const claims = useActivityClaims();
       const item = claims.items[0]!;
+      retryHeld = () => claims.retryHeld(item);
       return React.createElement(
         React.Profiler,
         {
@@ -1656,7 +1658,15 @@ describe('live claim failures through PendingActivityCard and Notice', () => {
     mockClaim.safeClaimableNotes = [{ ...note, isBeingClaimed: true, claimingTxId: 'tx-held' }];
     render(React.createElement(ObservedClaimCard));
     settle([{ id: 'tx-held', status: 4, held: true }]);
-    return commits;
+    return {
+      commits,
+      retry: async () => {
+        await act(async () => {
+          if (!retryHeld) throw new Error('No mounted held claim');
+          await retryHeld();
+        });
+      }
+    };
   };
 
   beforeAll(() => Object.defineProperty(window, 'scrollTo', { value: () => {}, writable: true }));
@@ -1845,11 +1855,9 @@ describe('live claim failures through PendingActivityCard and Notice', () => {
   });
 
   it('restarts an unfinished dwell for a new same-ID Retry failure with no committed clear', async () => {
-    mockRequeue.mockImplementation(() => {
-      throw new Error('Guardian still holds the claim');
-    });
-    const commits = observeHeldCard();
-    await click('retry');
+    mockRequeue.mockImplementation(() => Promise.reject(new Error('Guardian still holds the claim')));
+    const { commits, retry } = observeHeldCard();
+    await retry();
     const firstFailure = commits[commits.length - 1]?.failure;
     const cardToggle = screen.getByRole('button', { expanded: true });
     expect(firstFailure).toMatchObject({ id: 'raw_pending_activity_retry_failed' });
@@ -1857,7 +1865,7 @@ describe('live claim failures through PendingActivityCard and Notice', () => {
     expect(reportUserVisibleError).not.toHaveBeenCalled();
 
     const beforeSecond = commits.length;
-    await click('retry');
+    await retry();
     const secondFailure = commits[commits.length - 1]?.failure;
     const secondCommits = commits.slice(beforeSecond);
     expect(mockRequeue).toHaveBeenCalledTimes(2);
@@ -1878,11 +1886,9 @@ describe('live claim failures through PendingActivityCard and Notice', () => {
   });
 
   it('reports another same-ID Retry failure after its own dwell when the first already reported', async () => {
-    mockRequeue.mockImplementation(() => {
-      throw new Error('Guardian still holds the claim');
-    });
-    const commits = observeHeldCard();
-    await click('retry');
+    mockRequeue.mockImplementation(() => Promise.reject(new Error('Guardian still holds the claim')));
+    const { commits, retry } = observeHeldCard();
+    await retry();
     const firstFailure = commits[commits.length - 1]?.failure;
     const cardToggle = screen.getByRole('button', { expanded: true });
     expect(firstFailure).toMatchObject({ id: 'raw_pending_activity_retry_failed' });
@@ -1890,7 +1896,7 @@ describe('live claim failures through PendingActivityCard and Notice', () => {
     expectRawReport();
 
     const beforeSecond = commits.length;
-    await click('retry');
+    await retry();
     const secondFailure = commits[commits.length - 1]?.failure;
     const secondCommits = commits.slice(beforeSecond);
     expect(mockRequeue).toHaveBeenCalledTimes(2);
