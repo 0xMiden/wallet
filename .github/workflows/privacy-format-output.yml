@@ -1,0 +1,346 @@
+name: Privacy document formatter output
+
+on:
+  push:
+    branches: [ci/1616-privacy-format-output]
+
+permissions:
+  contents: read
+
+jobs:
+  formatter-output:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    env:
+      CI: 'true'
+      PROOF_HEAD_SHA: ${{ github.sha }}
+      PROOF_REF: ${{ github.ref }}
+      PROOF_EVENT: ${{ github.event_name }}
+      PROOF_REPOSITORY: ${{ github.repository }}
+      PROOF_WORKFLOW_REF: ${{ github.workflow_ref }}
+      PROOF_WORKFLOW_SHA: ${{ github.workflow_sha }}
+      PROOF_RUN_ID: ${{ github.run_id }}
+      PROOF_RUN_ATTEMPT: ${{ github.run_attempt }}
+    steps:
+      - name: Initialize retained output evidence
+        id: initialize
+        run: |
+          set -euo pipefail
+          umask 077
+          export PROOF_DIR="$RUNNER_TEMP/privacy-format-output"
+          printf 'PROOF_DIR=%s\n' "$PROOF_DIR" >> "$GITHUB_ENV"
+          mkdir -p "$PROOF_DIR"
+          cat > "$PROOF_DIR/run-logged.bash" <<'BASH_HELPER'
+          run_logged() {
+            local label="$1"
+            shift
+            set +e
+            "$@" 2>&1 | tee "$PROOF_DIR/$label.log"
+            local statuses=("${PIPESTATUS[@]}")
+            set -e
+            printf '%s\n' "${statuses[0]}" > "$PROOF_DIR/$label.exit"
+            printf '%s\n' "${statuses[1]}" > "$PROOF_DIR/$label.tee.exit"
+            if [ "${statuses[1]}" -ne 0 ]; then return "${statuses[1]}"; fi
+            return "${statuses[0]}"
+          }
+          BASH_HELPER
+          cat > "$PROOF_DIR/tracked-snapshot.py" <<'PYTHON_HELPER'
+          import hashlib
+          import os
+          import stat
+          import subprocess
+          from pathlib import Path
+
+          def git(*args):
+              return subprocess.check_output(['git', *args])
+
+          def value(*args):
+              return git(*args).decode().strip()
+
+          def tree(ref):
+              entries = {}
+              for record in git('ls-tree', '-r', '-z', ref).split(b'\0'):
+                  if record:
+                      metadata, name = record.split(b'\t', 1)
+                      entries[name.decode()] = metadata.decode().split()
+              return entries
+
+          def snapshot(expected):
+              tracked = [name.decode() for name in git('ls-files', '-z').split(b'\0') if name]
+              assert len(tracked) == len(set(tracked)) and set(tracked) == set(expected), 'Tracked path inventory changed'
+              result = {}
+              for name, entry in expected.items():
+                  assert entry[1] == 'blob' and entry[0] in ['100644', '100755', '120000'], 'Unsupported tracked entry: ' + name
+                  path = Path(name)
+                  mode = path.lstat().st_mode
+                  if stat.S_ISLNK(mode):
+                      actual_mode = '120000'
+                      data = os.fsencode(os.readlink(path))
+                  else:
+                      assert stat.S_ISREG(mode), 'Non-regular tracked file: ' + name
+                      actual_mode = '100755' if mode & 0o111 else '100644'
+                      data = path.read_bytes()
+                  blob = hashlib.sha1(b'blob ' + str(len(data)).encode() + b'\0' + data).hexdigest()
+                  result[name] = {'mode': actual_mode, 'blob': blob, 'sha256': hashlib.sha256(data).hexdigest(), 'bytes': len(data)}
+              return result
+
+          def require_tree_bytes(actual, expected):
+              for name, entry in expected.items():
+                  assert actual[name]['mode'] == entry[0] and actual[name]['blob'] == entry[2], 'Tracked bytes or mode changed: ' + name
+          PYTHON_HELPER
+          python3 - <<'PYTHON'
+          import json
+          import os
+          from pathlib import Path
+
+          keys = ['HEAD_SHA', 'REF', 'EVENT', 'REPOSITORY', 'WORKFLOW_REF', 'WORKFLOW_SHA', 'RUN_ID', 'RUN_ATTEMPT']
+          (Path(os.environ['PROOF_DIR']) / 'run-identity.json').write_text(json.dumps({key: os.environ['PROOF_' + key] for key in keys}, indent=2) + '\n')
+          PYTHON
+
+      - name: Checkout exact disposable head
+        id: checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Bind reviewed source and actual clean checkout
+        id: source
+        if: ${{ !cancelled() && steps.initialize.outcome == 'success' && steps.checkout.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged source python3 - <<'PYTHON'
+          import hashlib
+          import json
+          import os
+          import runpy
+          import subprocess
+          from pathlib import Path
+
+          proof = Path(os.environ['PROOF_DIR'])
+          helpers = runpy.run_path(str(proof / 'tracked-snapshot.py'))
+          git, value, tree, snapshot, require_tree_bytes = [helpers[name] for name in ['git', 'value', 'tree', 'snapshot', 'require_tree_bytes']]
+          source = '8bb703c31fcacbb3edab46ef3e652759a6d4bcc4'
+          expected_tree = '86fdd24b583ddd42bfa0b00cb46bb24063324224'
+          expected_entries = 3618
+          bindings = {'docs/privacy/index.md': '25c06dfd9a2c8f412c40addd0f0fe9d3eb36cd3f02678ce4b6f7a92ec4c387fd', 'yarn.lock': '8606e15d58682739313e004734d42f34a2ad715148e00f28c2de63596349941d', 'package.json': '9af7cd256a41b9ad42604d8ab62a0859a3218b9b53cd74f8291fcc9075681d1d', '.prettierrc': '7f1e0eb21ae9b216c1de1435dddb0b680c8b2e5cdde55ca95a8ee3d32a7973cf', '.prettierignore': 'f69fc353577cdc8651e6cffc57ce8e156b8ca9bba11dba9242e5c08b667a00cd'}
+          workflow = '.github/workflows/privacy-format-output.yml'
+          document = 'docs/privacy/index.md'
+          head = value('rev-parse', 'HEAD')
+          before, after = tree(source), tree(head)
+          manifest = {'source': source, 'expected_tree': expected_tree, 'source_tree': value('rev-parse', source + '^{tree}'), 'checkout_head': head, 'checkout_tree': value('rev-parse', 'HEAD^{tree}'), 'source_entry_map': before, 'checkout_entry_map': after, 'frozen_sha256': bindings, 'workflow_sha256': hashlib.sha256(Path(workflow).read_bytes()).hexdigest(), 'snapshot_helper_sha256': hashlib.sha256((proof / 'tracked-snapshot.py').read_bytes()).hexdigest(), 'logged_helper_sha256': hashlib.sha256((proof / 'run-logged.bash').read_bytes()).hexdigest()}
+          (proof / 'source-and-checkout.json').write_text(json.dumps(manifest, indent=2, ensure_ascii=True) + '\n')
+          for label, ref in [('source', source), ('checkout', head)]:
+              (proof / (label + '-commit.txt')).write_bytes(git('cat-file', 'commit', ref))
+              (proof / (label + '-tree.txt')).write_bytes(git('ls-tree', '-r', ref))
+          (proof / 'workflow-only.diff').write_bytes(git('diff', '--binary', source, head, '--', workflow))
+          (proof / 'original-privacy-index.md').write_bytes(git('show', source + ':' + document))
+          assert head == os.environ['PROOF_HEAD_SHA'] == os.environ['PROOF_WORKFLOW_SHA'], 'Checkout/event/workflow identity mismatch'
+          assert os.environ['PROOF_EVENT'] == 'push' and os.environ['PROOF_REF'] == 'refs/heads/ci/1616-privacy-format-output', 'Exact disposable push branch required'
+          assert os.environ['PROOF_WORKFLOW_REF'] == os.environ['PROOF_REPOSITORY'] + '/' + workflow + '@' + os.environ['PROOF_REF'], 'Literal workflow ref mismatch'
+          assert all(os.environ['PROOF_' + key].isdigit() for key in ['RUN_ID', 'RUN_ATTEMPT']), 'Incomplete run identity'
+          assert manifest['source_tree'] == expected_tree and len(before) == expected_entries, 'Frozen source mismatch'
+          assert value('rev-list', '--parents', '-n', '1', head).split() == [head, source], 'Reviewed source must be the sole direct parent'
+          assert all(after.get(name) == entry for name, entry in before.items()), 'Source entry changed'
+          assert set(after) - set(before) == {workflow} and after[workflow][:2] == ['100644', 'blob'], 'Only one regular workflow may be added'
+          subprocess.run(['git', 'diff', '--cached', '--quiet', 'HEAD', '--'], check=True)
+          assert not value('status', '--porcelain=v1', '--untracked-files=all'), 'Initial checkout must be clean'
+          actual = snapshot(after)
+          (proof / 'before-working-map.json').write_text(json.dumps(actual, indent=2, ensure_ascii=True) + '\n')
+          require_tree_bytes(actual, after)
+          assert all(actual[name]['sha256'] == digest for name, digest in bindings.items()), 'Frozen document/lock/config bytes mismatch'
+          assert hashlib.sha256((proof / 'original-privacy-index.md').read_bytes()).hexdigest() == bindings[document], 'Original document mismatch'
+          print('Bound all', expected_entries, 'source entries, sole workflow and clean actual tracked bytes/modes')
+          PYTHON
+
+      - name: Setup Node22
+        id: node
+        if: ${{ !cancelled() && steps.source.outcome == 'success' }}
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+
+      - name: Install frozen dependencies with normal preparation hooks
+        id: install
+        if: ${{ !cancelled() && steps.source.outcome == 'success' && steps.node.outcome == 'success' }}
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          umask 077
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged install timeout 10m yarn install --frozen-lockfile --non-interactive
+
+      - name: Require clean source and installed locked formatter
+        id: prepared
+        if: ${{ !cancelled() && steps.source.outcome == 'success' && steps.install.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged prepared python3 - <<'PYTHON'
+          import hashlib
+          import json
+          import os
+          import runpy
+          import subprocess
+          from pathlib import Path
+
+          proof = Path(os.environ['PROOF_DIR'])
+          manifest = json.loads((proof / 'source-and-checkout.json').read_text())
+          assert hashlib.sha256((proof / 'tracked-snapshot.py').read_bytes()).hexdigest() == manifest['snapshot_helper_sha256'], 'Snapshot helper changed'
+          assert hashlib.sha256((proof / 'run-logged.bash').read_bytes()).hexdigest() == manifest['logged_helper_sha256'], 'Logging helper changed'
+          helpers = runpy.run_path(str(proof / 'tracked-snapshot.py'))
+          actual = helpers['snapshot'](manifest['checkout_entry_map'])
+          (proof / 'prepared-working-map.json').write_text(json.dumps(actual, indent=2, ensure_ascii=True) + '\n')
+          helpers['require_tree_bytes'](actual, manifest['checkout_entry_map'])
+          subprocess.run(['git', 'diff', '--cached', '--quiet', 'HEAD', '--'], check=True)
+          assert not helpers['value']('status', '--porcelain=v1', '--untracked-files=all'), 'Preparation changed checkout'
+          assert actual == json.loads((proof / 'before-working-map.json').read_text()), 'Preparation changed tracked bytes/modes'
+          package = Path('node_modules/prettier/package.json')
+          entrypoint = Path('node_modules/prettier/bin/prettier.cjs')
+          assert not Path('node_modules/prettier').is_symlink() and not package.is_symlink() and not entrypoint.is_symlink(), 'Installed formatter must be physical'
+          assert package.resolve().is_relative_to(Path.cwd() / 'node_modules/prettier') and entrypoint.resolve().is_relative_to(Path.cwd() / 'node_modules/prettier'), 'Formatter escaped installed package'
+          metadata = json.loads(package.read_text())
+          assert metadata['name'] == 'prettier' and metadata['version'] == '3.8.4' and metadata['bin'] == './bin/prettier.cjs', 'Wrong installed formatter'
+          lock = Path('yarn.lock').read_text()
+          lock_entry = lock.split('prettier@^3.7.4:\n', 1)[1].split('\n\n', 1)[0]
+          assert lock_entry.splitlines()[0] == '  version "3.8.4"', 'Wrong frozen formatter lock entry'
+          tool = {'node': subprocess.check_output(['node', '--version'], text=True).strip(), 'yarn': subprocess.check_output(['yarn', '--version'], text=True).strip(), 'prettier_version': metadata['version'], 'package_bin': metadata['bin'], 'prettier_lock_entry': lock_entry, 'lock_sha256': hashlib.sha256(Path('yarn.lock').read_bytes()).hexdigest(), 'package_json_sha256': hashlib.sha256(Path('package.json').read_bytes()).hexdigest(), 'installed_prettier_package_sha256': hashlib.sha256(package.read_bytes()).hexdigest(), 'installed_prettier_entrypoint_sha256': hashlib.sha256(entrypoint.read_bytes()).hexdigest()}
+          assert tool['node'].split('.')[0] == 'v22', 'Node22 required'
+          assert tool['lock_sha256'] == manifest['frozen_sha256']['yarn.lock'] and tool['package_json_sha256'] == manifest['frozen_sha256']['package.json'], 'Frozen dependency metadata changed'
+          (proof / 'tool-identity.json').write_text(json.dumps(tool, indent=2) + '\n')
+          print('Normal preparation preserved every tracked byte/mode; installed formatter is locked Prettier3.8.4 on Node22')
+          PYTHON
+
+      - name: Record actual installed formatter version
+        id: version
+        if: ${{ !cancelled() && steps.prepared.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged version node node_modules/prettier/bin/prettier.cjs --version
+
+      - name: Write only the privacy document with locked Prettier
+        id: formatter
+        if: ${{ !cancelled() && steps.prepared.outcome == 'success' && steps.version.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged formatter node node_modules/prettier/bin/prettier.cjs --write docs/privacy/index.md
+
+      - name: Check only the actual formatted document
+        id: format_check
+        if: ${{ !cancelled() && steps.formatter.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged format_check node node_modules/prettier/bin/prettier.cjs --check docs/privacy/index.md
+
+      - name: Retain actual output and reject any extra or non-whitespace change
+        id: validate
+        if: always()
+        env:
+          INITIALIZE_OUTCOME: ${{ steps.initialize.outcome }}
+          CHECKOUT_OUTCOME: ${{ steps.checkout.outcome }}
+          SOURCE_OUTCOME: ${{ steps.source.outcome }}
+          NODE_OUTCOME: ${{ steps.node.outcome }}
+          INSTALL_OUTCOME: ${{ steps.install.outcome }}
+          PREPARED_OUTCOME: ${{ steps.prepared.outcome }}
+          VERSION_OUTCOME: ${{ steps.version.outcome }}
+          FORMATTER_OUTCOME: ${{ steps.formatter.outcome }}
+          FORMAT_CHECK_OUTCOME: ${{ steps.format_check.outcome }}
+        run: |
+          set -euo pipefail
+          umask 077
+          export PROOF_DIR="${PROOF_DIR:-$RUNNER_TEMP/privacy-format-output}"
+          set +e
+          python3 - <<'PYTHON'
+          import hashlib
+          import json
+          import os
+          import re
+          import runpy
+          import subprocess
+          from pathlib import Path
+
+          proof = Path(os.environ['PROOF_DIR'])
+          proof.mkdir(parents=True, exist_ok=True)
+          keys = ['INITIALIZE', 'CHECKOUT', 'SOURCE', 'NODE', 'INSTALL', 'PREPARED', 'VERSION', 'FORMATTER', 'FORMAT_CHECK']
+          outcomes = {key: os.environ.get(key + '_OUTCOME', 'missing') for key in keys}
+          (proof / 'step-outcomes.json').write_text(json.dumps(outcomes, indent=2) + '\n')
+          receipt = {'status': 'INVALID', 'source_correction': 'PROHIBITED', 'actual_output': 'UNACCEPTED', 'step_outcomes': outcomes, 'limits': 'Formatter output only; later exact normal review/application and fresh whole guarded CI remain required'}
+          labels = ['source', 'install', 'prepared', 'version', 'formatter', 'format_check']
+          required = ['run-identity.json', 'run-logged.bash', 'tracked-snapshot.py', 'source-and-checkout.json', 'source-commit.txt', 'checkout-commit.txt', 'source-tree.txt', 'checkout-tree.txt', 'workflow-only.diff', 'before-working-map.json', 'prepared-working-map.json', 'original-privacy-index.md', 'tool-identity.json']
+          required += [label + suffix for label in labels for suffix in ['.log', '.exit', '.tee.exit']]
+          missing = [name for name in required if not (proof / name).is_file() or not (proof / name).stat().st_size]
+          (proof / 'evidence-completeness.json').write_text(json.dumps({'missing_or_empty': missing}, indent=2) + '\n')
+          try:
+              document = Path('docs/privacy/index.md')
+              if document.is_file() and not document.is_symlink():
+                  (proof / 'formatted-privacy-index.md').write_bytes(document.read_bytes())
+              patch = subprocess.run(['git', 'diff', '--binary', '--no-ext-diff', '--no-textconv', 'HEAD', '--', 'docs/privacy/index.md'], check=True, capture_output=True).stdout
+              (proof / 'privacy-format.patch').write_bytes(patch)
+              manifest = json.loads((proof / 'source-and-checkout.json').read_text())
+              assert hashlib.sha256((proof / 'tracked-snapshot.py').read_bytes()).hexdigest() == manifest['snapshot_helper_sha256'], 'Snapshot helper changed'
+              assert hashlib.sha256((proof / 'run-logged.bash').read_bytes()).hexdigest() == manifest['logged_helper_sha256'], 'Logging helper changed'
+              helpers = runpy.run_path(str(proof / 'tracked-snapshot.py'))
+              after = helpers['snapshot'](manifest['checkout_entry_map'])
+              (proof / 'after-working-map.json').write_text(json.dumps(after, indent=2, ensure_ascii=True) + '\n')
+              assert not missing, 'Missing evidence: ' + repr(missing)
+              original = (proof / 'original-privacy-index.md').read_bytes()
+              formatted = (proof / 'formatted-privacy-index.md').read_bytes()
+              before_nonwhite, after_nonwhite = b''.join(original.split()), b''.join(formatted.split())
+              hashes = {'original_sha256': hashlib.sha256(original).hexdigest(), 'formatted_sha256': hashlib.sha256(formatted).hexdigest(), 'original_bytes': len(original), 'formatted_bytes': len(formatted), 'original_nonwhitespace_sha256': hashlib.sha256(before_nonwhite).hexdigest(), 'formatted_nonwhitespace_sha256': hashlib.sha256(after_nonwhite).hexdigest(), 'patch_sha256': hashlib.sha256(patch).hexdigest()}
+              (proof / 'document-hashes.json').write_text(json.dumps(hashes, indent=2) + '\n')
+              assert all(value == 'success' for value in outcomes.values()), 'An independent step failed or did not run: ' + repr(outcomes)
+              for label in labels:
+                  assert (proof / (label + '.exit')).read_text().strip() == '0', 'Command failed: ' + label
+                  assert (proof / (label + '.tee.exit')).read_text().strip() == '0', 'Evidence tee failed: ' + label
+              assert (proof / 'version.log').read_text().strip() == '3.8.4', 'Actual formatter version mismatch'
+              tool = json.loads((proof / 'tool-identity.json').read_text())
+              assert hashlib.sha256(Path('node_modules/prettier/package.json').read_bytes()).hexdigest() == tool['installed_prettier_package_sha256'], 'Installed formatter package changed'
+              assert hashlib.sha256(Path('node_modules/prettier/bin/prettier.cjs').read_bytes()).hexdigest() == tool['installed_prettier_entrypoint_sha256'], 'Installed formatter entrypoint changed'
+              before = json.loads((proof / 'prepared-working-map.json').read_text())
+              assert set(after) == set(before), 'Tracked inventory changed'
+              assert original != formatted and patch, 'Expected an actual formatting change'
+              assert before_nonwhite == after_nonwhite, 'Non-whitespace privacy bytes changed'
+              assert re.findall(rb'`([^`\r\n]+)`', original) == re.findall(rb'`([^`\r\n]+)`', formatted), 'Backticked policy literals changed'
+              assert hashes['original_sha256'] == manifest['frozen_sha256']['docs/privacy/index.md'], 'Original document no longer matches frozen source'
+              assert after['docs/privacy/index.md']['sha256'] == hashes['formatted_sha256'], 'Retained formatter output differs from checkout'
+              assert after['docs/privacy/index.md']['mode'] == before['docs/privacy/index.md']['mode'] == '100644', 'Document mode changed'
+              assert all(after[name] == data for name, data in before.items() if name != 'docs/privacy/index.md'), 'Another tracked byte or mode changed'
+              subprocess.run(['git', 'diff', '--cached', '--quiet', 'HEAD', '--'], check=True)
+              changed = [name.decode() for name in helpers['git']('diff', '--name-only', '-z', 'HEAD', '--').split(b'\0') if name]
+              assert changed == ['docs/privacy/index.md'], 'Only the privacy document may differ'
+              status = helpers['value']('status', '--porcelain=v1', '--untracked-files=all')
+              assert status == 'M docs/privacy/index.md', 'Unexpected worktree status: ' + status
+              receipt.update({'status': 'FORMAT_OUTPUT_COMPLETE', 'actual_output': 'ACTUAL_CI_FORMATTER_OUTPUT', 'hashes': hashes, 'source': manifest['source'], 'source_tree': manifest['source_tree'], 'transport_head': manifest['checkout_head'], 'transport_tree': manifest['checkout_tree'], 'tracked_entries': len(after), 'protected_other_entries_unchanged': len(after) - 1, 'nonwhitespace_bytes_identical': True, 'backticked_literals_identical': True, 'sole_modified_path': 'docs/privacy/index.md', 'tool': tool})
+              print('Retained actual Prettier3.8.4 output and exact document-only whitespace patch; all other tracked bytes/modes preserved')
+          except Exception as error:
+              receipt['reason'] = str(error)
+              raise
+          finally:
+              (proof / 'completion-receipt.json').write_text(json.dumps(receipt, indent=2, ensure_ascii=True) + '\n')
+          PYTHON
+          status=$?
+          set -e
+          printf '%s\n' "$status" > "$PROOF_DIR/validation.exit"
+          exit "$status"
+
+      - name: Upload complete or invalid output evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: privacy-format-output-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.PROOF_DIR }}
+          if-no-files-found: error
+          retention-days: 7
