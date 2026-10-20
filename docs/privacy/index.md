@@ -243,11 +243,11 @@ Earn is provided by Epoch (SYNC TECH LLC, St. Vincent and the Grenadines). When 
 
 ### Geographic restrictions
 
-The App asks for no location permission and reads no location sensor. The App and the Miden network are, however, not available from comprehensively sanctioned jurisdictions, and some features are not offered in every place. To apply feature restrictions, the App asks a service running on Cloudflare whether wallet access, Earn and Swap are allowed for its connection. Where a global or enabled feature restriction needs a place check, the service sends the connection's IP address to MaxMind and reads the country and region. The App receives no location and stores no IP address. The service retains only the short-lived records described above. The same address is also used for the ordinary operation of the connection, and the network's sequencer endpoint checks the country of a request.
+The App asks for no location permission and reads no location sensor. The App and the Miden network are, however, not available from comprehensively sanctioned jurisdictions, and some features are not offered in every place. Before allowing wallet access, the App asks a service running on Cloudflare whether wallet access, Earn and Swap are allowed for its connection. A successful wallet-access decision lasts at most 60 seconds in memory. The App refreshes it while visible and checks again on return to the foreground or a network or policy change; protected operations renew an expired decision before proceeding. Where a global or enabled feature restriction needs a place check, the service sends the connection's IP address to MaxMind and reads the country and region. The App receives no location and stores no IP address. The service retains only the short-lived records described above. The same address is also used for the ordinary operation of the connection, and the network's sequencer endpoint checks the country of a request.
 
-Wallet access, including withdrawals, is unavailable in Cuba, Iran, North Korea, Russia, Belarus, Crimea, Sevastopol and the whole Donetsk, Luhansk, Kherson and Zaporizhzhia oblasts. New Earn deposits are additionally unavailable in New York and the UK. A failed eligibility check keeps wallet access closed until a successful check.
+Wallet access, including withdrawals, is unavailable in Cuba, Iran, North Korea, Russia, Belarus, Crimea, Sevastopol and the whole Donetsk, Luhansk, Kherson and Zaporizhzhia oblasts. New Earn deposits are additionally unavailable in New York and the UK. Without a current successful eligibility decision, wallet access stays closed.
 
-<!-- TODO: "keeps no record of the result" above assumes the Earn region check is not logged; confirm with engineering, and confirm whether IP addresses are logged anywhere for geoblocking or compliance purposes and for how long. If they are, correct the sentence and add a retention line. -->
+<!-- TODO: confirm whether infrastructure providers retain separate connection or geoblocking logs beyond the application records described here, and add their retention if applicable. -->
 
 ## Network traffic
 
@@ -283,12 +283,13 @@ The App is not directed at anyone under 18, and our Terms of Service require use
 | Fixing crashes | Crash reports | Our legitimate interest in keeping the App working |
 | Understanding where people get stuck | Usage data | Your consent, which you give by turning on "Share usage data" and can withdraw at any time in the same place |
 | Sanctions compliance, geographic restrictions, record-keeping, responding to lawful requests | IP country and region check, block and unblock records, legal-process records | Compliance with legal obligations, and our legitimate interest in operating a lawful network |
-| Restricting the Earn feature by region | IP country or region check when you open Earn | Our legitimate interest in not offering Earn where we have chosen not to, and compliance with the laws of those places |
+| Restricting new Earn deposits by region | IP country or region check as part of the wallet eligibility request | Our legitimate interest in not offering new Earn deposits where we have chosen not to, and compliance with the laws of those places |
 
 ## How long we keep data
 
 - Usage data and crash reports: 90 days, then deleted automatically (see "Identifiers").
-- Compliance records (block, unblock and legal-process records): at least five years.
+- Compliance records (block, unblock and legal-process records): at least five years. These are separate from the transient eligibility-service records below.
+- Eligibility-service records: feature decisions expire after five minutes; caller records expire after five minutes without a request and are removed in batches. Caller identifiers are keyed hashes that rotate daily. The App keeps its eligibility decision in memory for at most 60 seconds and writes no geographic answer to device storage.
 - Data held by your Guardian Operator: as set out in its privacy notice.
 - Data written to the blockchain: permanent.
 

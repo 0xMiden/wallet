@@ -1,5 +1,5 @@
 ---
-title: Miden Network — Legal & Compliance Disclosures
+title: Miden Network - Legal & Compliance Disclosures
 permalink: /compliance/
 ---
 
@@ -22,13 +22,11 @@ The comprehensively sanctioned jurisdictions for the purposes of this Statement 
 
 This list is reviewed when the underlying programs change. Persons designated under any of the programs named above are Prohibited Users wherever they are located.
 
-<!-- Under consideration (not yet decided, do not publish as part of the list until confirmed): country-level blocking of Russia and Belarus, on the basis of the EU prohibition on providing crypto-asset wallet, account and custody services to Russian and Belarusian nationals, residents and entities (Regulation 833/2014 Art. 5b(2); Regulation 765/2006 Art. 1u). -->
-
 Miden's prevention model operates at three layers:
 
 Infrastructure layer (network access). During the network's initial centralized phase, all transactions are submitted through Miden's sequencer. The sequencer's gRPC endpoint is geoblocked for comprehensively sanctioned jurisdictions, so access from those jurisdictions is denied at the network level regardless of the client, wallet, or frontend used. The Faucet, which submits transactions on users' behalf rather than through the user's own client, carries its own equivalent geoblocking.
 
-Application layer. Miden-hosted frontends and Bread Wallet apply additional application-level restrictions, including geoblocking and exclusion of comprehensively sanctioned territories from app-store distribution, on top of the network-level controls above.
+Application layer. Miden-hosted frontends and Bread Wallet apply additional application-level restrictions, including geoblocking and exclusion of comprehensively sanctioned territories from app-store distribution, on top of the network-level controls above. Bread Wallet applies a broader geographic access policy: all wallet access, including withdrawals, is blocked for connections from Cuba, Iran, North Korea, Russia, Belarus, Crimea, Sevastopol and the whole Donetsk, Luhansk, Kherson and Zaporizhzhia oblasts of Ukraine. The whole-oblast and Russia/Belarus restrictions are Bread Wallet application policy; they do not change the network-level jurisdiction list above. Without a current successful eligibility decision, wallet access stays closed. New Earn deposits are additionally blocked for connections from the United Kingdom and the State of New York; that Earn-specific restriction permits withdrawals wherever wallet access is allowed.
 
 Asset layer. Assets issued on Miden may carry on-chain compliance controls enforced at the protocol level. USDCx, for example, is subject to an on-chain blocklist on its issuing faucet: addresses designated on the sanctions lists above are frozen automatically within minutes of designation by an authorized freeze manager, and blocked addresses cannot send, receive, or bridge the asset regardless of the interface used. Enforcement occurs within the transaction proof itself, so it does not depend on wallet or frontend behavior. Freeze and unfreeze actions are recorded, evidenced by on-chain transactions, and retained for a minimum of five (5) years consistent with 31 CFR 501.601.
 
