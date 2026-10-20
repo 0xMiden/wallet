@@ -207,12 +207,25 @@ describe('showBackgroundNotification fallible service-worker attempt', () => {
 
   it('stays quiet after rejection when the Chrome notification API is absent', async () => {
     const attempt = Promise.reject(new TypeError('service-worker notification unavailable'));
-    void attempt.catch(() => undefined);
+    const nativeCatch = attempt.catch.bind(attempt);
+    void nativeCatch(() => undefined);
+    const children: Promise<unknown>[] = [];
+    Object.defineProperty(attempt, 'catch', {
+      configurable: true,
+      value: (onRejected?: ((reason: unknown) => unknown) | null) => {
+        const child = nativeCatch(onRejected);
+        children.push(child);
+        void child.catch(() => undefined);
+        return child;
+      }
+    });
     const showNotification = jest.fn().mockReturnValue(attempt);
     Object.defineProperty(globalThis, 'registration', { configurable: true, value: { showNotification } });
     Reflect.deleteProperty(chrome, 'notifications');
 
     expect(showBackgroundNotification('Title', 'Body')).toBeUndefined();
+    expect(children).toHaveLength(1);
+    await expect(children[0]).resolves.toBeUndefined();
     await Promise.resolve();
 
     expect(showNotification).toHaveBeenCalledTimes(1);
