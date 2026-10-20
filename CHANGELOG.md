@@ -4,6 +4,8 @@
 
 ### Changes
 
+- [CHANGE][all] Update the Web SDK and React SDK to 0.17.5.
+
 - [CHANGE][all] Publish Bread Wallet Terms of Service v2.0 at /tos/ and the Sanctions Compliance Statement and Prohibited-User Disclosure at /compliance/, with distinct onboarding and Settings links and the existing Privacy Policy URL preserved (#1652).
 
 - [CHANGE][mobile] The home carousel snap starts on the frame the finger lifts, instead of holding still for a frame before the spring.
