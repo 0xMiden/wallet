@@ -174,6 +174,16 @@ describe('delivered background transaction error reporting', () => {
     };
   };
   const platform = globalThis as unknown as NotificationPlatform;
+  const serviceWorkerFailures: ('throw' | 'reject')[] = ['throw', 'reject'];
+  const failServiceWorker = (failure: (typeof serviceWorkerFailures)[number]) => {
+    const error = new Error('notification delivery unavailable');
+    const showNotification = jest.fn(() => {
+      if (failure === 'throw') throw error;
+      return Promise.reject(error);
+    });
+    platform.registration = { showNotification };
+    return showNotification;
+  };
   let warnSpy: jest.SpyInstance;
 
   beforeEach(() => {
@@ -219,6 +229,7 @@ describe('delivered background transaction error reporting', () => {
       resolveDelivery();
       await delivery;
       await Promise.resolve();
+      expect(notificationsCreate).not.toHaveBeenCalled();
       expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([[id, 'os_notification']]);
     });
 
@@ -238,18 +249,61 @@ describe('delivered background transaction error reporting', () => {
       expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([]);
     });
 
-    it('keeps a rejected service-worker delivery quiet', async () => {
-      const error = new Error('private notification rejection 0x1234 amount 42');
-      const delivery = Promise.reject(error);
-      // The platform rejection is observed even on the uninstrumented baseline.
-      void delivery.catch(() => undefined);
-      platform.registration = { showNotification: jest.fn().mockReturnValue(delivery) };
-      expect(() => notify()).not.toThrow();
-      await delivery.catch(() => undefined);
-      await Promise.resolve();
-      expect(notificationsCreate).not.toHaveBeenCalled();
-      expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([]);
-    });
+    it.each(serviceWorkerFailures)(
+      'reports only after Chrome confirms fallback delivery when the service worker %s',
+      async failure => {
+        const showNotification = failServiceWorker(failure);
+        expect(() => notify()).not.toThrow();
+        expect(showNotification).toHaveBeenCalledTimes(1);
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(notificationsCreate).toHaveBeenCalledTimes(1);
+        expect(notificationsCreate).toHaveBeenCalledWith(
+          notificationId,
+          { type: 'basic', iconUrl: 'misc/logo-white-bg-128.png', title, message: body, requireInteraction: true },
+          expect.any(Function)
+        );
+        expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([]);
+        const completed: (createdId: string) => void = notificationsCreate.mock.calls[0][2];
+        completed(notificationId);
+        expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([[id, 'os_notification']]);
+        await Promise.resolve();
+        expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+      }
+    );
+
+    it.each(serviceWorkerFailures)(
+      'keeps a Chrome fallback callback error quiet when the service worker %s',
+      async failure => {
+        const showNotification = failServiceWorker(failure);
+        expect(() => notify()).not.toThrow();
+        expect(showNotification).toHaveBeenCalledTimes(1);
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(notificationsCreate).toHaveBeenCalledTimes(1);
+        expect(reportUserVisibleError).not.toHaveBeenCalled();
+        const error = { message: 'Chrome notification delivery unavailable' };
+        platform.chrome.runtime.lastError = error;
+        const completed: (createdId: string) => void = notificationsCreate.mock.calls[0][2];
+        completed('');
+        expect(warnSpy).toHaveBeenCalledWith('[background-notification] chrome.notifications error:', error.message);
+        expect(reportUserVisibleError).not.toHaveBeenCalled();
+      }
+    );
+
+    it.each(serviceWorkerFailures)(
+      'keeps an unavailable Chrome fallback quiet when the service worker %s',
+      async failure => {
+        const showNotification = failServiceWorker(failure);
+        delete platform.chrome.notifications;
+        expect(() => notify()).not.toThrow();
+        expect(showNotification).toHaveBeenCalledTimes(1);
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(notificationsCreate).not.toHaveBeenCalled();
+        expect(reportUserVisibleError).not.toHaveBeenCalled();
+      }
+    );
 
     it('keeps a synchronously rejected delivery quiet without escaping the caller', () => {
       const error = new Error('platform unavailable');
@@ -281,8 +335,23 @@ describe('delivered background transaction error reporting', () => {
 
   it('keeps non-error notification copy quiet even after delivery', () => {
     showBackgroundNotification('Received a note', 'Informational success', 'miden-received-note');
-    const completed = notificationsCreate.mock.calls[0][2] as (createdId: string) => void;
+    const completed: (createdId: string) => void = notificationsCreate.mock.calls[0][2];
     completed('miden-received-note');
     expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([]);
+  });
+
+  it.each(serviceWorkerFailures)('keeps non-error fallback copy quiet when the service worker %s', async failure => {
+    const showNotification = failServiceWorker(failure);
+    expect(() =>
+      showBackgroundNotification('Received a note', 'Informational success', 'miden-received-note')
+    ).not.toThrow();
+    expect(showNotification).toHaveBeenCalledTimes(1);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(notificationsCreate).toHaveBeenCalledTimes(1);
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    const completed: (createdId: string) => void = notificationsCreate.mock.calls[0][2];
+    completed('miden-received-note');
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
   });
 });
