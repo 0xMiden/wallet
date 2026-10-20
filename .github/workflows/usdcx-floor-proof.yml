@@ -16,7 +16,6 @@ jobs:
         shell: bash
     env:
       CI: 'true'
-      PROOF_DIR: ${{ runner.temp }}/usdcx-floor-proof
       PROOF_HEAD_SHA: ${{ github.sha }}
       PROOF_REF: ${{ github.ref }}
       PROOF_EVENT: ${{ github.event_name }}
@@ -30,6 +29,8 @@ jobs:
         run: |
           set -euo pipefail
           umask 077
+          export PROOF_DIR="$RUNNER_TEMP/usdcx-floor-proof"
+          printf 'PROOF_DIR=%s\n' "$PROOF_DIR" >> "$GITHUB_ENV"
           mkdir -p "$PROOF_DIR"
           python3 - <<'PYTHON'
           import json
