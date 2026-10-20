@@ -635,6 +635,9 @@ export class MidenClientInterface {
       if (mock) {
         const sdk = await import('@miden-sdk/miden-sdk/lazy');
         stage = 'mock_create';
+        // createMock still starts its own worker unless the published bundle is
+        // patched (patches/@miden-sdk+miden-sdk). That worker re-checks the mock
+        // genesis and rejects it in CI browsers, so wallet creation never finishes.
         const mockClient = await sdk.MidenClient.createMock({ seed: options.seed });
         return new MidenClientInterface(mockClient, 'mock', { disposed: false }, scope);
       }

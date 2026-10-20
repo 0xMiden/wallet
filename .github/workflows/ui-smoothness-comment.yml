@@ -112,7 +112,7 @@ jobs:
               baseRef: process.env.BASE_REF,
               runId: String(process.env.RUN_ID),
               runUrl: process.env.RUN_URL,
-              runner: "macos-latest"
+              runner: "ubuntu-latest"
             };
             writeFileSync(process.env.CTX, JSON.stringify(ctx));
             if (!existsSync(process.env.REPORT)) {

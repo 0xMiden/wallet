@@ -1,0 +1,13 @@
+diff --git a/node_modules/@miden-sdk/miden-sdk/dist/st/index.js b/node_modules/@miden-sdk/miden-sdk/dist/st/index.js
+--- a/node_modules/@miden-sdk/miden-sdk/dist/st/index.js
++++ b/node_modules/@miden-sdk/miden-sdk/dist/st/index.js
+@@ -5771,7 +5771,8 @@ class MockWebClient extends WebClient {
+       undefined,
+       undefined,
+       undefined,
+-      logLevel
++      logLevel,
++      false
+     );
+   }
+ 

@@ -19,8 +19,8 @@ permissions:
 jobs:
   repeat:
     name: Repeat the same build
-    runs-on: macos-latest
-    timeout-minutes: 90
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
     steps:
       - name: Check out
         uses: actions/checkout@v4

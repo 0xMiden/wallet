@@ -1,10 +1,5 @@
 # Untrusted half of the UI smoothness bot.
 #
-# The job runs on macOS. The mock client's browser build rejects its own
-# genesis block in Linux headless Chrome (`block signature at position 0
-# does not verify`), so the wallet never finishes creating and there is
-# nothing to measure. The same create works in macOS Chrome.
-#
 # This workflow builds and runs code the PR author controls, so it holds no
 # credentials that can write to the pull request. It emits feel samples for six
 # passes from Overview to Swap, six tap durations, and three overview-list scrolls.
@@ -48,8 +43,8 @@ jobs:
   repeat:
     name: Repeat the same build
     if: ${{ github.head_ref == 'fix/home-carousel-snap' && !github.event.pull_request.draft }}
-    runs-on: macos-latest
-    timeout-minutes: 90
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
     steps:
       - name: Check out
         uses: actions/checkout@v4
@@ -118,8 +113,8 @@ jobs:
   measure:
     name: Measure feel
     if: ${{ !github.event.pull_request.draft }}
-    runs-on: macos-latest
-    timeout-minutes: 60
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - name: Check out
         uses: actions/checkout@v4
