@@ -2534,3 +2534,169 @@ describe('doSync drives the resultBytes reaper', () => {
 beforeEach(() => {
   mockLegacyFeeIdentity = undefined;
 });
+
+describe('GEO016 startup sync eligibility scope', () => {
+  it('GEO016 waits for endpoint overrides before its first eligibility refresh and runs the same sync lap', async () => {
+    type Access = typeof import('lib/remote-config/wallet-access');
+    let settleLoad: () => void = () => {
+      throw new Error('Override barrier was not initialized');
+    };
+    const pendingLoad = new Promise<void>(resolve => {
+      settleLoad = resolve;
+    });
+    const endpoints = jest.requireMock<typeof import('lib/miden-chain/effective-endpoints')>(
+      'lib/miden-chain/effective-endpoints'
+    );
+    const loadWait = jest.spyOn(endpoints, 'whenEndpointOverridesLoaded').mockReturnValue(pendingLoad);
+    let overridesLoaded = false;
+    const network = jest
+      .spyOn(endpoints, 'getEffectiveNetworkName')
+      .mockImplementation(() => (overridesLoaded ? 'devnet' : 'testnet'));
+    try {
+      await jest.isolateModulesAsync(async () => {
+        const boundary = jest.requireMock<Access>('lib/remote-config/wallet-access');
+        const originalAccess = { ...boundary };
+        const access = jest.requireActual<Access>('lib/remote-config/wallet-access');
+        Object.assign(boundary, access);
+        const scope = () => `${endpoints.getEffectiveNetworkName()}:${access.getWalletAccessGeneration()}`;
+        const requestedNetworks: string[] = [];
+        const refresh = jest.fn(async () => {
+          const current = endpoints.getEffectiveNetworkName();
+          requestedNetworks.push(current);
+          access.publishWalletAccessDecision(scope(), current === 'devnet');
+        });
+        access.registerWalletAccessRuntime({ scope, refresh });
+        const { doSync: isolated } = await import('./sync-manager');
+        const lap = isolated();
+        try {
+          for (let i = 0; i < 5; i++) await new Promise(resolve => setTimeout(resolve, 0));
+          expect(requestedNetworks).toEqual([]);
+          expect(mockClient.syncState).not.toHaveBeenCalled();
+          expect(mockIsExist).not.toHaveBeenCalled();
+          overridesLoaded = true;
+          settleLoad();
+          await lap;
+          expect(requestedNetworks).toEqual(['devnet']);
+          expect(mockClient.syncState).toHaveBeenCalledTimes(1);
+          expect(mockIsExist).toHaveBeenCalledTimes(1);
+          expect(access.getWalletAccessSnapshot().status).toBe('allowed');
+        } finally {
+          settleLoad();
+          await lap;
+          access.invalidateWalletAccess();
+          Object.assign(boundary, originalAccess);
+        }
+      });
+    } finally {
+      settleLoad();
+      loadWait.mockRestore();
+      network.mockRestore();
+    }
+  });
+});
+
+describe('GEO016 inline sync admission after parking', () => {
+  type Access = typeof import('lib/remote-config/wallet-access');
+  type Mutex = typeof import('../sdk/miden-client');
+
+  const deferred = <T>() => {
+    let resolve: (value: T) => void = () => {
+      throw new Error('Deferred promise was not initialized');
+    };
+    const promise = new Promise<T>(done => {
+      resolve = done;
+    });
+    return { promise, resolve };
+  };
+
+  const run = async (phase: 'mutex wait' | 'client wait' | 'live lease') => {
+    let now = 0;
+    const clock = jest.spyOn(performance, 'now').mockImplementation(() => now);
+    const outcome = { syncCalls: 0, clientCalls: 0, refreshCalls: 0, mutexBusy: true };
+    try {
+      await jest.isolateModulesAsync(async () => {
+        const accessBoundary = jest.requireMock<Access>('lib/remote-config/wallet-access');
+        const originalAccess = { ...accessBoundary };
+        const access = jest.requireActual<Access>('lib/remote-config/wallet-access');
+        Object.assign(accessBoundary, access);
+        const scope = () => `geo016-inline:${access.getWalletAccessGeneration()}`;
+        const refresh = jest.fn(async () => access.publishWalletAccessDecision(scope(), false));
+        access.registerWalletAccessRuntime({ scope, refresh });
+        access.publishWalletAccessDecision(scope(), true);
+        const mutexBoundary = jest.requireMock<Mutex>('../sdk/miden-client');
+        const originalMutex = { ...mutexBoundary };
+        const mutex = jest.requireActual<Mutex>('../sdk/miden-client');
+        Object.assign(mutexBoundary, mutex, { getMidenClient: mockGetMidenClient });
+        const blockerEntered = deferred<void>();
+        const releaseBlocker = deferred<void>();
+        const clientEntered = deferred<void>();
+        const releaseClient = deferred<void>();
+        const vaultRead = deferred<void>();
+        const blocker =
+          phase === 'mutex wait'
+            ? mutex.withWasmClientLock(async () => {
+                blockerEntered.resolve();
+                await releaseBlocker.promise;
+              })
+            : Promise.resolve();
+        mockGetMidenClient.mockImplementation(async () => {
+          clientEntered.resolve();
+          if (phase !== 'mutex wait') await releaseClient.promise;
+          return mockClient;
+        });
+        mockIsExist.mockImplementationOnce(async () => {
+          vaultRead.resolve();
+          return true;
+        });
+        const { doSync: isolated } = await import('./sync-manager');
+        if (phase === 'mutex wait') await blockerEntered.promise;
+        const lap = isolated();
+        try {
+          await (phase === 'mutex wait' ? vaultRead.promise : clientEntered.promise);
+          if (phase !== 'live lease') now = 60_001;
+          releaseBlocker.resolve();
+          releaseClient.resolve();
+          await lap;
+          await blocker;
+          outcome.syncCalls = mockClient.syncState.mock.calls.length;
+          outcome.clientCalls = mockGetMidenClient.mock.calls.length;
+          outcome.refreshCalls = refresh.mock.calls.length;
+          outcome.mutexBusy = mutex.isWasmClientBusy();
+        } finally {
+          releaseBlocker.resolve();
+          releaseClient.resolve();
+          await lap;
+          await blocker;
+          access.invalidateWalletAccess();
+          Object.assign(accessBoundary, originalAccess);
+          for (const key of Object.keys(mutexBoundary)) {
+            if (!Object.prototype.hasOwnProperty.call(originalMutex, key)) Reflect.deleteProperty(mutexBoundary, key);
+          }
+          Object.assign(mutexBoundary, originalMutex);
+          mockGetMidenClient.mockImplementation(async () => mockClient);
+        }
+      });
+      return outcome;
+    } finally {
+      clock.mockRestore();
+    }
+  };
+
+  it.each(['mutex wait', 'client wait'] satisfies Array<'mutex wait' | 'client wait'>)(
+    'GEO016 refuses inline SDK sync when the lease expires during %s',
+    async phase => {
+      const outcome = await run(phase);
+      expect(outcome.syncCalls).toBe(0);
+      expect(outcome.refreshCalls).toBe(0);
+      expect(outcome.mutexBusy).toBe(false);
+    }
+  );
+
+  it('GEO016 runs inline SDK sync once after a client wait while the lease stays live', async () => {
+    const outcome = await run('live lease');
+    expect(outcome.syncCalls).toBe(1);
+    expect(outcome.clientCalls).toBeGreaterThanOrEqual(1);
+    expect(outcome.refreshCalls).toBe(0);
+    expect(outcome.mutexBusy).toBe(false);
+  });
+});
