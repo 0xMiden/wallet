@@ -912,6 +912,8 @@
   "unavailable": "不可用",
   "bridgeFeatureUnavailableTitle": "暂时不可用",
   "bridgeFeatureUnavailableBody": "该外部服务目前无法使用。请稍后再试。",
+  "geoRestrictedTitle": "Not available where you are",
+  "geoRestrictedBody": "This feature is not offered in your location.",
   "swapUnavailableTitle": "该网络不支持“Swap”功能",
   "swapUnavailableBody": "目前该网络尚未配置任何可交换代币。",
   "agglayerCheckingToken": "正在检查该代币是否支持慢速路线……",

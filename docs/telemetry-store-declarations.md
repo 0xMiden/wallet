@@ -118,27 +118,25 @@ Developer Dashboard → the item → **Privacy practices**.
 | Financial and payment information | **No** | No addresses, balances, amounts, or transaction contents are sent. Field names carrying them are scrubbed from crash reports. |
 | Authentication information | **No** | Note for whoever fills this in: `errorKind` has a value called `auth`. It is a category label meaning "an authentication step failed" — not a credential, not a password, not a PIN. |
 | Personal communications | **No** | — |
-| Location | **No** | See the note below; this one deserves a considered answer rather than a reflex. |
+| Location | **Yes** | The place check sends the connection's IP address to IPinfo and reads back the country and region. No GPS and no location permission. |
 | Web history | **No** | No URL, no page, no referrer. The Sentry integrations that would have captured them (`HttpContext`, `Breadcrumbs`) are excluded — see `CRASH_INTEGRATION_ALLOWLIST` in `src/lib/telemetry/crash.ts`. |
 | **User activity** | **Yes** | This is the one to check. Flow name, outcome, and duration are in-product interaction records. |
 | Website content | **No** | The extension sends nothing from any page it runs on. |
 
-**On Location.** Chrome's category reads "region, IP address, GPS coordinates",
-and the ingest endpoints do see the request's IP address, as any server does for
-any request. We declare **No**, because the extension neither reads nor
-transmits location data — no location permission, no location API, no IP field
-in either payload — and the processors are configured not to store the IP. If
-that reasoning is ever revisited, revisit it here rather than silently flipping
-the box, and keep the public policy's IP paragraph in step with the answer.
+**On Location.** The place check sends the connection's IP address to IPinfo so a
+feature can be kept off in a listed country or region. There is still no location
+permission and no GPS. Declare **Yes**. The answer covers that lookup, not a
+location the App stores: the App keeps neither the address nor the place.
 
 **Certifications — all three can be signed:**
 
 - *I do not sell or transfer user data to third parties, outside of the approved
-  use cases.* Aptabase and Sentry are processors acting on our instructions
-  under a DPA, which is the approved service-provider case. Nothing goes to a
-  data broker or an ad network.
+  use cases.* Aptabase, Sentry and IPinfo are processors acting on our instructions,
+  which is the approved service-provider case. Nothing goes to a data broker or
+  an ad network.
 - *I do not use or transfer user data for purposes unrelated to my item's single
-  purpose.* The only purpose is finding where the wallet breaks.
+  purpose.* Usage data and crash reports find where the wallet breaks. The place
+  check keeps a feature off where it is not offered.
 - *I do not use or transfer user data to determine creditworthiness or for
   lending purposes.*
 
@@ -154,23 +152,24 @@ ships) and `public/manifest.json`:
 
 ```json
 "data_collection_permissions": {
-  "required": ["none"],
+  "required": ["locationInfo"],
   "optional": ["technicalAndInteraction"]
 }
 ```
 
-This is an exact fit for the design, which is why it is a two-line declaration:
+This matches the design:
 
-- `required: ["none"]` — nothing is collected for the extension to function. A
-  user who never opts in transmits nothing, which is the default state.
+- `required: ["locationInfo"]` — while a place rule is configured, the extension
+  sends the connection's IP address to IPinfo to learn the country and region.
+  The user cannot turn that check off. Mozilla's `none` cannot sit beside another
+  required category.
 - `optional: ["technicalAndInteraction"]` — Mozilla's category for technical and
   interaction telemetry, covering both our product events and our crash
   reports. Mozilla only permits this category as optional, never required, which
   matches an off-by-default setting exactly.
 
 Nothing else is declared: no `personallyIdentifyingInfo`, no
-`financialAndPaymentInfo`, no `locationInfo`, no `browsingActivity`, no
-`websiteContent`.
+`financialAndPaymentInfo`, no `browsingActivity`, no `websiteContent`.
 
 **Two things to know when submitting.**
 

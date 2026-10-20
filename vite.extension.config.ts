@@ -277,7 +277,8 @@ const sharedDefine = {
   'process.env.WALLET_BUILD_TARGET': JSON.stringify('extension'),
   'process.env.WALLET_BUILD_REVISION': JSON.stringify(walletBuildIdentity.revision),
   'process.env.WALLET_BUILD_DIRTY': JSON.stringify(walletBuildIdentity.dirty),
-  'process.env.SENTRY_DSN': JSON.stringify(process.env.SENTRY_DSN ?? '')
+  'process.env.SENTRY_DSN': JSON.stringify(process.env.SENTRY_DSN ?? ''),
+  'process.env.IPINFO_TOKEN': JSON.stringify(process.env.IPINFO_TOKEN ?? '')
 };
 
 export default defineConfig({

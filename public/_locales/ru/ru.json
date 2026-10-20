@@ -912,6 +912,8 @@
   "unavailable": "Недоступно",
   "bridgeFeatureUnavailableTitle": "Временно недоступно",
   "bridgeFeatureUnavailableBody": "Этот внешний сервис в настоящее время недоступен. Пожалуйста, попробуйте позже.",
+  "geoRestrictedTitle": "Not available where you are",
+  "geoRestrictedBody": "This feature is not offered in your location.",
   "swapUnavailableTitle": "Функция обмена (Swap) в этой сети недоступна",
   "swapUnavailableBody": "Для этой сети пока не настроены токены для свопа.",
   "agglayerCheckingToken": "Проверка, поддерживает ли этот токен маршрут Slow…",

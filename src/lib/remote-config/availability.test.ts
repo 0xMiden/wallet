@@ -258,3 +258,45 @@ describe('the E2E collateral faucet', () => {
     }
   });
 });
+
+describe('geo place rules', () => {
+  function withGeo(geo: NonNullable<BridgeConfigSnapshot['config']>['geo'], lookup: BridgeConfigSnapshot['geo']) {
+    const snapshot = ready();
+    if (!snapshot.config) throw new Error('The test document is missing');
+    snapshot.config.geo = geo;
+    snapshot.geo = lookup;
+    return snapshot;
+  }
+
+  const blocked = {
+    earn: [{ country: 'US', region: 'NY' }, { country: 'GB' }]
+  };
+
+  it('keeps Earn loading until the lookup answers, then blocks New York and the UK only', () => {
+    expect(featureAvailability('earnDeposit', withGeo(blocked, undefined))).toEqual({ state: 'loading' });
+    expect(featureAvailability('earnDeposit', withGeo(blocked, { state: 'loading' }))).toEqual({ state: 'loading' });
+    expect(
+      featureAvailability('earnDeposit', withGeo(blocked, { state: 'ready', country: 'US', region: 'NY' }))
+    ).toMatchObject({
+      reason: 'restricted'
+    });
+    expect(featureAvailability('earnDeposit', withGeo(blocked, { state: 'ready', country: 'GB' }))).toMatchObject({
+      reason: 'restricted'
+    });
+    expect(
+      featureAvailability('earnDeposit', withGeo(blocked, { state: 'ready', country: 'US', region: 'CA' }))
+    ).toEqual(AVAILABLE);
+  });
+
+  it('stays off when the lookup fails or a state rule has no region, and leaves a feature with no rule alone', () => {
+    expect(featureAvailability('earnDeposit', withGeo(blocked, { state: 'failed' }))).toMatchObject({
+      reason: 'service-down'
+    });
+    expect(featureAvailability('earnDeposit', withGeo(blocked, { state: 'ready', country: 'US' }))).toMatchObject({
+      reason: 'restricted'
+    });
+    expect(featureAvailability('fastBridgeOut', withGeo(blocked, { state: 'ready', country: 'GB' }))).toEqual(
+      AVAILABLE
+    );
+  });
+});

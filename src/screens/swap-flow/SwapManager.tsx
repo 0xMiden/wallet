@@ -781,19 +781,20 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
  * The pane while the network's document names no swap pair: a notice in the pane's own shell, so
  * the tab keeps its frame. Nothing while the document is still being read, like a bridge control.
  */
-const SwapUnavailable: React.FC<{ loading: boolean }> = ({ loading }) => {
+const SwapUnavailable: React.FC<{ availability: ReturnType<typeof swapAvailability> }> = ({ availability }) => {
   const { t } = useTranslation();
+  const restricted = availability.state === 'unavailable' && availability.reason === 'restricted';
   return (
     <HomeGroupPaneRoot testId="swap-flow">
       <HomeGroupPaneBody title={t('swap')}>
-        {!loading && (
+        {availability.state !== 'loading' && (
           <Notice
             tone="warning"
             icon={<Icon name={IconName.WarningFill} size="xs" fill="currentColor" />}
-            title={t('swapUnavailableTitle')}
+            title={t(restricted ? 'geoRestrictedTitle' : 'swapUnavailableTitle')}
             data-testid="swap-unavailable-notice"
           >
-            {t('swapUnavailableBody')}
+            {t(restricted ? 'geoRestrictedBody' : 'swapUnavailableBody')}
           </Notice>
         )}
       </HomeGroupPaneBody>
@@ -823,7 +824,7 @@ const SwapFlowGate: React.FC = () => {
     setActiveRegistry({ key: registryKey, defaultPair });
   }
   if (activeRegistry.defaultPair === null || (!busyRef.current && availability.state !== 'available')) {
-    return <SwapUnavailable loading={availability.state === 'loading'} />;
+    return <SwapUnavailable availability={availability} />;
   }
   return (
     <NavigatorProvider key={activeRegistry.key} routes={ROUTES} initialRouteName={SwapFlowStep.SwapAmounts}>

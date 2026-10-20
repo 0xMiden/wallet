@@ -9,6 +9,8 @@ import { setDocumentGuardians } from 'lib/miden-chain/guardian-registry';
 import { backoffDelay, foregroundThreshold, isCheckDue } from 'lib/versioned-document';
 
 import { BRIDGE_FEATURES, type BridgeFeature, featureAvailability, type UnavailableReason } from './availability';
+import { type GeoLookup, hasGeoBlocks } from './geo';
+import { lookupCallerPlace } from './geo-lookup';
 import { deriveBridgeConfig, type DerivedBridgeConfig, type DerivedChainConfig, type Probe } from './derive';
 import { bridgeConfigDerivedKey, failedDerivation, parseStoredDerived } from './derived-snapshot';
 import { getE2eOverrides } from './e2e-overrides';
@@ -31,6 +33,8 @@ export interface BridgeConfigSnapshot {
   /** Only ever the derivation of `config`. */
   derived: DerivedBridgeConfig | null;
   lastFetch: { at: number; ok: boolean; error?: string } | null;
+  /** Set once a document with place rules has started the lookup. Absent means there is nothing to look up. */
+  geo?: GeoLookup;
 }
 
 export const HEALTHY_POLL_MS = 3_600_000;
@@ -61,6 +65,10 @@ interface NetworkState {
   logged: Partial<Record<BridgeFeature, string>>;
   subscriptions: StorageChangeSubscription[];
   snapshot: BridgeConfigSnapshot;
+  /** Where the connection comes from. Idle until a document names a place rule. */
+  geo: GeoLookup | { state: 'idle' };
+  /** Bumped when the rules go away, so a lookup already in flight cannot publish over that. */
+  geoGeneration: number;
 }
 
 // One entry per network, so a switch never hands one network's document to another. Every wipe but Developer Settings'
@@ -90,7 +98,9 @@ function stateFor(network: string): NetworkState {
     failures: 0,
     logged: {},
     subscriptions: [],
-    snapshot: { network, status: 'loading', config: null, derived: null, lastFetch: null }
+    snapshot: { network, status: 'loading', config: null, derived: null, lastFetch: null },
+    geo: { state: 'idle' },
+    geoGeneration: 0
   };
   states.set(network, state);
   return state;
@@ -109,13 +119,37 @@ function logUnavailable(state: NetworkState): void {
   }
 }
 
+// One lookup per realm while the document blocks somewhere. A later document with no rules drops the
+// result. The address is not stored; the snapshot keeps only the country and, when the lookup had
+// one, the region.
+function syncGeo(state: NetworkState): void {
+  if (!hasGeoBlocks(state.stored?.config)) {
+    state.geoGeneration += 1;
+    state.geo = { state: 'idle' };
+    return;
+  }
+  if (state.geo.state === 'loading' || state.geo.state === 'ready' || state.geo.state === 'failed') return;
+  state.geo = { state: 'loading' };
+  const generation = state.geoGeneration;
+  void lookupCallerPlace().then(place => {
+    const current = states.get(state.network);
+    if (!current || current.geoGeneration !== generation) return;
+    current.geo = place
+      ? { state: 'ready', country: place.country, ...(place.region === undefined ? {} : { region: place.region }) }
+      : { state: 'failed' };
+    publish(current);
+  });
+}
+
 function publish(state: NetworkState): void {
+  syncGeo(state);
   state.snapshot = {
     network: state.network,
     status: state.derived !== null || state.attempted ? 'ready' : 'loading',
     config: state.stored?.config ?? null,
     derived: state.derived,
-    lastFetch: state.lastFetch
+    lastFetch: state.lastFetch,
+    ...(state.geo.state === 'idle' ? {} : { geo: state.geo })
   };
   // The Guardian operators follow the accepted document. With no document there is nothing to follow, so a list this
   // realm already took stays.

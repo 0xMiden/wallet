@@ -171,10 +171,11 @@ Crash reports are sent either way; usage data only if the setting is on:
 |---|---|---|
 | Usage data | Aptabase | European Union (Germany) |
 | Crash reports | Sentry | European Union |
+| Connection country and region | IPinfo | The lookup only |
 
 Usage data goes straight from the App to Aptabase's European endpoint, one message per request, with no server of ours in between and nothing batched up in the meantime. We use neither company's own tracking library: the App builds each message itself, out of the fixed list of fields above, and sends it directly.
 
-Both are configured to delete data after 90 days, to store no IP addresses, and to forward nothing onward. Neither is permitted to use the data for its own purposes, and no third party receives it for advertising or resale.
+Aptabase and Sentry are configured to delete data after 90 days, to store no IP addresses, and to forward nothing onward. Neither is permitted to use the data for its own purposes, and no third party receives it for advertising or resale. The place check sends the connection's IP address to IPinfo and keeps neither the address nor the answer.
 
 ## How the App uses your device
 
@@ -235,7 +236,7 @@ A swap is filled by a third-party solver, and a bridge transfer is processed by 
 
 ### Geographic restrictions
 
-The App asks for no location permission and reads no location sensor. The App and the Miden network are, however, not available from comprehensively sanctioned jurisdictions. To apply that restriction, the IP address of a request is checked against the country it comes from, at the application level and at the network's sequencer endpoint. The IP address is used for that check and for the ordinary operation of the connection.
+The App asks for no location permission and reads no location sensor. The App and the Miden network are, however, not available from comprehensively sanctioned jurisdictions, and some features are not offered in every place. To apply that, the App asks IPinfo where the connection comes from: the country, and the region when a rule needs it. The IP address is sent for that check and is not stored by the App. The same address is also used for the ordinary operation of the connection, and the network's sequencer endpoint checks the country of a request.
 
 <!-- TODO: confirm whether IP addresses are logged for geoblocking or compliance purposes and for how long; if they are, say so here and in the retention section. -->
 
@@ -272,7 +273,7 @@ The App is not directed at anyone under 18, and our Terms of Service require use
 | Running the App and submitting your transactions | Transaction data sent to the network, Guardian data | Performance of our contract with you (the Terms of Service) |
 | Fixing crashes | Crash reports | Our legitimate interest in keeping the App working |
 | Understanding where people get stuck | Usage data | Your consent, which you give by turning on "Share usage data" and can withdraw at any time in the same place |
-| Sanctions compliance, geographic restrictions, record-keeping, responding to lawful requests | IP country check, block and unblock records, legal-process records | Compliance with legal obligations, and our legitimate interest in operating a lawful network |
+| Sanctions compliance, geographic restrictions, record-keeping, responding to lawful requests | IP country and region check, block and unblock records, legal-process records | Compliance with legal obligations, and our legitimate interest in operating a lawful network |
 
 ## How long we keep data
 

@@ -85,4 +85,22 @@ describe('swapAvailability', () => {
     expect(swapAvailability(withPairsProbe({ state: 'skipped' }))).toEqual(notConfigured);
     expect(swapAvailability(testSnapshotWithSwapPairs({ tokens: [], pairs: [] }))).toEqual(notConfigured);
   });
+
+  it('blocks swap in a listed place even when a pair is ready, and waits while the lookup has not answered', () => {
+    mockDefaultPair.mockReturnValue({ offer: TEST_TOKEN_IETH, request: TEST_TOKEN_IUSDT });
+    const snapshot: BridgeConfigSnapshot = {
+      ...TEST_BRIDGE_CONFIG_SNAPSHOT,
+      config: {
+        ...TEST_BRIDGE_CONFIG_SNAPSHOT.config!,
+        geo: { swap: [{ country: 'US', region: 'NY' }] }
+      }
+    };
+    expect(swapAvailability({ ...snapshot, geo: { state: 'loading' } })).toEqual({ state: 'loading' });
+    expect(swapAvailability({ ...snapshot, geo: { state: 'ready', country: 'US', region: 'NY' } })).toMatchObject({
+      reason: 'restricted'
+    });
+    expect(swapAvailability({ ...snapshot, geo: { state: 'ready', country: 'US', region: 'CA' } })).toEqual({
+      state: 'available'
+    });
+  });
 });

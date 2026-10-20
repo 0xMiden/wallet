@@ -119,6 +119,9 @@ jobs:
           # Absent (a fork) each resolves to '' and turns its feature off.
           APTABASE_APP_KEY: ${{ secrets.APTABASE_APP_KEY }}
           SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          # IPinfo token for place rules. Baked into the client like the keys above.
+          # Absent leaves a configured place block fail-closed.
+          IPINFO_TOKEN: ${{ secrets.IPINFO_TOKEN }}
         with:
           args: ${{ matrix.platform == 'macos-latest' && '--target universal-apple-darwin' || '' }}
 

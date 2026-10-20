@@ -912,6 +912,8 @@
   "unavailable": "Nicht verfügbar",
   "bridgeFeatureUnavailableTitle": "Vorübergehend nicht verfügbar",
   "bridgeFeatureUnavailableBody": "Dieser externe Dienst ist derzeit nicht verfügbar. Bitte versuchen Sie es später erneut.",
+  "geoRestrictedTitle": "Not available where you are",
+  "geoRestrictedBody": "This feature is not offered in your location.",
   "swapUnavailableTitle": "Swap ist in diesem Netzwerk nicht verfügbar",
   "swapUnavailableBody": "Für dieses Netzwerk sind noch keine Swap-Token konfiguriert.",
   "agglayerCheckingToken": "Überprüfung, ob dieses Token den Slow-Weg unterstützt…",

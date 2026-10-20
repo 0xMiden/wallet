@@ -1,5 +1,6 @@
 import type { Probe } from './derive';
 import { getE2eOverrides, type E2eOverrides } from './e2e-overrides';
+import { type GeoFeature, type GeoLookup, placeBlocked } from './geo';
 import type { BridgeConfig, SupportedEvmChainConfig } from './schema';
 
 export const BRIDGE_FEATURES: readonly BridgeFeature[] = [
@@ -19,7 +20,7 @@ export type BridgeFeature =
   | 'bridgeOut'
   | 'usdcxDeposit'
   | 'usdcxWithdrawal';
-export type UnavailableReason = 'off' | 'not-configured' | 'not-deployed' | 'service-down';
+export type UnavailableReason = 'off' | 'not-configured' | 'not-deployed' | 'service-down' | 'restricted';
 export type FeatureAvailability =
   | { state: 'available' }
   | { state: 'loading' }
@@ -29,10 +30,32 @@ export interface AvailabilityInput {
   status: 'loading' | 'ready';
   config: BridgeConfig | null;
   derived: import('./derive').DerivedBridgeConfig | null;
+  /** Absent until a document with place rules starts the lookup. */
+  geo?: GeoLookup;
 }
 
 function unavailable(reason: UnavailableReason, detail: string): FeatureAvailability {
   return { state: 'unavailable', reason, detail };
+}
+
+/**
+ * A place rule for `feature`, or null when the feature has none or the connection is outside them.
+ * No answer yet keeps the feature loading. A failed lookup, or a state rule whose lookup named no
+ * state, keeps it off: an unknown place is not a pass.
+ */
+export function geoFeatureGate(
+  feature: GeoFeature,
+  config: BridgeConfig | null,
+  geo: GeoLookup | undefined
+): FeatureAvailability | null {
+  const blocks = config?.geo?.[feature];
+  if (!blocks || blocks.length === 0) return null;
+  if (!geo || geo.state === 'loading') return { state: 'loading' };
+  if (geo.state === 'failed') return unavailable('service-down', 'geolocation lookup failed');
+  const verdict = placeBlocked(blocks, geo);
+  if (verdict === 'allow') return null;
+  const detail = verdict === 'unknown' ? 'geolocation omitted the region a rule needs' : 'blocked by a geo rule';
+  return unavailable('restricted', detail);
 }
 
 function enabled(feature: BridgeFeature, chain: SupportedEvmChainConfig): boolean {
@@ -161,6 +184,10 @@ export function featureAvailability(
   if (snapshot.status === 'loading') return { state: 'loading' };
   if (!snapshot.config) return unavailable('not-configured', 'no accepted document');
   if (!globalEnabled(feature, snapshot.config)) return unavailable('off', 'global feature switch is off');
+  if (feature === 'earnDeposit') {
+    const gated = geoFeatureGate('earn', snapshot.config, snapshot.geo);
+    if (gated) return gated;
+  }
   const chains = Object.values(snapshot.config.supportedEvmChains).filter(
     chain => chainId === undefined || chain.chainId === chainId
   );
