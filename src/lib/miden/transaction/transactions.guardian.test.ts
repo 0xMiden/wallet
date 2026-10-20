@@ -14070,3 +14070,201 @@ describe('Guardian inline GEO007 permission renewal', () => {
     }
   });
 });
+
+describe('Guardian GEO013 pre-submit access deferral', () => {
+  type Access = typeof import('lib/remote-config/wallet-access');
+  type Manager = typeof import('lib/miden/front/guardian-manager');
+
+  const deferred = <T>() => {
+    let resolve: (value: T) => void = () => {
+      throw new Error('Deferred promise was not initialized');
+    };
+    const promise = new Promise<T>(done => {
+      resolve = done;
+    });
+    return { promise, resolve };
+  };
+
+  const refusedPhases = [
+    'recovery preparation',
+    'post-sync account routing',
+    'Guardian state read',
+    'service account read',
+    'proposal signing',
+    'request co-signing',
+    'direct request signing'
+  ];
+
+  const run = async (phase: string) => {
+    jest.clearAllMocks();
+    txStore.length = 0;
+    let now = 0;
+    const clock = jest.spyOn(performance, 'now').mockImplementation(() => now);
+    const boundary = jest.requireMock<Access>('lib/remote-config/wallet-access');
+    const originalAccess = { ...boundary };
+    const access = jest.requireActual<Access>('lib/remote-config/wallet-access');
+    Object.assign(boundary, access);
+    const scope = () => `geo013:${access.getWalletAccessGeneration()}`;
+    const refresh = jest.fn(async () => access.publishWalletAccessDecision(scope(), false));
+    access.registerWalletAccessRuntime({ scope, refresh });
+    access.publishWalletAccessDecision(scope(), true);
+    const syncEntered = deferred<void>();
+    const syncAnswer = deferred<void>();
+    const result = makeResult();
+    const client = makeClientApi(result);
+    const syncState = jest.fn(async () => {
+      syncEntered.resolve();
+      if (phase === 'post-sync account routing') await syncAnswer.promise;
+    });
+    mockGetMidenClient.mockResolvedValue({
+      isDisposed: false,
+      getAccount: jest.fn(async () => undefined),
+      syncState,
+      client
+    });
+    const transaction =
+      phase === 'direct request signing'
+        ? new SwitchGuardianTransaction('acc-1', 'https://new.guardian', true)
+        : new SendTransaction('acc-1', 1000n, 'recipient', 'faucet', NoteTypeEnum.Public, undefined, true);
+    txStore.push({ ...transaction });
+    const stored = () => txStore.find(row => row.id === transaction.id);
+    let refused: unknown;
+    const expireAndAssert = () => {
+      now = 60_001;
+      try {
+        access.assertWalletAccessAllowed();
+      } catch (error) {
+        refused = error;
+        throw error;
+      }
+    };
+    const baseProvider = makeGuardianProvider(true);
+    let accountReads = 0;
+    const getAccounts = jest.fn(async () => {
+      accountReads += 1;
+      if (phase === 'Guardian state read' && accountReads === 2) expireAndAssert();
+      try {
+        access.assertWalletAccessAllowed();
+      } catch (error) {
+        refused = error;
+        throw error;
+      }
+      return baseProvider.getAccounts();
+    });
+    const signWord = jest.fn(async (_publicKey: string, _wordHex: string) => {
+      access.assertWalletAccessAllowed();
+      return 'signature';
+    });
+    const provider: GuardianAccountProvider = {
+      ...baseProvider,
+      getAccounts,
+      signWord,
+      prepareRecoveryTransaction: async () => {
+        if (phase === 'recovery preparation') expireAndAssert();
+        return { ready: true };
+      }
+    };
+    const manager = jest.requireActual<Manager>('lib/miden/front/guardian-manager');
+    mockIsGuardianAccount.mockImplementation(manager.isGuardianAccount);
+    const createSendProposal = jest.fn(async () => {
+      if (phase === 'proposal signing') {
+        now = 60_001;
+        try {
+          await provider.signWord('hot', '0xdigest');
+        } catch (error) {
+          refused = error;
+          throw error;
+        }
+      }
+      return { id: 'geo013-proposal', nonce: 7 };
+    });
+    const signAndCreateTransactionRequest = jest.fn(async () => {
+      if (phase === 'request co-signing') expireAndAssert();
+      return { serialize: () => new Uint8Array([1]), authArg: () => undefined };
+    });
+    const abandonCandidate = jest.fn(async () => {});
+    mockGetOrCreateMultisigService.mockImplementation(async () => {
+      if (phase === 'direct request signing') throw new TypeError('Failed to fetch');
+      if (phase === 'service account read') {
+        now = 60_001;
+        await provider.getAccounts();
+      }
+      return { createSendProposal, signAndCreateTransactionRequest, abandonCandidate, sync: jest.fn(async () => {}) };
+    });
+    mockCreateDirectSwitchRequest.mockImplementation(async () => {
+      expireAndAssert();
+      return { serialize: () => new Uint8Array([1]) };
+    });
+    if (phase === 'crossed submit denial') {
+      client.transactions.submitProven.mockImplementation(async () => {
+        expireAndAssert();
+        return { blockNumber: 1 };
+      });
+    }
+    const signCallback = jest.fn(async () => new Uint8Array([2]));
+    const startedAt = Math.floor(Date.now() / 1000);
+    const pending = generateTransactionsLoop(signCallback, false, provider);
+    let syncCheckpoint: { status: unknown; stage: unknown } | undefined;
+    try {
+      if (phase === 'post-sync account routing') {
+        await syncEntered.promise;
+        syncCheckpoint = { status: stored()?.status, stage: stored()?.stage };
+        now = 60_001;
+        syncAnswer.resolve();
+      }
+      await pending;
+      return { row: stored(), client, refused, refresh, startedAt, syncCheckpoint, access };
+    } finally {
+      syncAnswer.resolve();
+      await pending;
+      access.invalidateWalletAccess();
+      Object.assign(boundary, originalAccess);
+      clock.mockRestore();
+    }
+  };
+
+  it.each(refusedPhases)('GEO013 requeues a denial at %s before any submit', async phase => {
+    const { row, client, refused, refresh, startedAt, syncCheckpoint, access } = await run(phase);
+    expect(row).toMatchObject({
+      status: ITransactionStatus.Queued,
+      stage: 'syncing',
+      lastDeferral: 'wallet_access_denied'
+    });
+    expect(syncCheckpoint).toEqual(
+      phase === 'post-sync account routing' ? { status: ITransactionStatus.Queued, stage: 'syncing' } : undefined
+    );
+    expect(row?.nextEligibleAt).toBeGreaterThanOrEqual(startedAt + 60);
+    expect(row?.nextEligibleAt).toBeLessThanOrEqual(Math.floor(Date.now() / 1000) + 60);
+    expect(row?.processingStartedAt).toBeUndefined();
+    expect(row?.attemptId).toBeUndefined();
+    expect(row?.mayHaveSubmitted).toBeFalsy();
+    expect(row?.error).toBeUndefined();
+    expect(access.isWalletAccessDeniedError(refused)).toBe(true);
+    expect(hasErrorBeforeSubmit(refused)).toBe(true);
+    expect(client.transactions.executeRequest).not.toHaveBeenCalled();
+    expect(client.transactions.prove).not.toHaveBeenCalled();
+    expect(client.transactions.submitProven).not.toHaveBeenCalled();
+    expect(client.transactions.apply).not.toHaveBeenCalled();
+    expect(mockDispatchGuardianPipeline).not.toHaveBeenCalled();
+    expect(refresh).not.toHaveBeenCalled();
+  });
+
+  it('GEO013 submits once while the preparation lease remains live', async () => {
+    const { row, client, refused, refresh } = await run('live lease');
+    expect(row).toMatchObject({ status: ITransactionStatus.Completed });
+    expect(client.transactions.submitProven).toHaveBeenCalledTimes(1);
+    expect(refused).toBeUndefined();
+    expect(refresh).not.toHaveBeenCalled();
+  });
+
+  it('GEO013 never requeues an untagged access denial from the crossed submit', async () => {
+    const { row, client, refused, refresh } = await run('crossed submit denial');
+    expect(row?.status).not.toBe(ITransactionStatus.Queued);
+    expect(row?.nextEligibleAt).toBeUndefined();
+    expect(row?.mayHaveSubmitted).toBe(true);
+    expect(hasErrorBeforeSubmit(refused)).toBe(false);
+    expect(client.transactions.submitProven).toHaveBeenCalledTimes(1);
+    expect(client.transactions.apply).not.toHaveBeenCalled();
+    expect(refresh).not.toHaveBeenCalled();
+  });
+});
