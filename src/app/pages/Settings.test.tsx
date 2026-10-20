@@ -537,14 +537,14 @@ describe('Settings page — root menu (non-guardian)', () => {
     // binding it reads holds for any value either of them takes, so an accidental
     // edit to `app/constants` would sail through. The "Send feedback" row in the
     // next test already pins its URL this way.
-    expect(privacy).toHaveAttribute('data-slug', 'https://0xmiden.github.io/wallet/privacy-policy/');
+    expect(privacy).toHaveAttribute('data-slug', 'https://0xmiden.github.io/wallet/privacy/');
     // Passed through as undefined rather than coerced to '': Link tracks a
     // ButtonPress for any testID that is merely `!== undefined`, so the empty
     // string bought an analytics event with no name.
     expect(privacy).not.toHaveAttribute('data-selector');
 
     expect(tos).toHaveAttribute('data-external', 'true');
-    expect(tos).toHaveAttribute('data-slug', 'https://0xmiden.github.io/wallet/privacy/');
+    expect(tos).toHaveAttribute('data-slug', 'https://0xmiden.github.io/wallet/tos/');
   });
 
   it('renders a discoverable "Support" row in the about group as a button (no route, keyboard-accessible)', () => {

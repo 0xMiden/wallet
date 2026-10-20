@@ -15,7 +15,7 @@ of a system that works, written down so nobody has to rediscover them.
 
 ## Why some of this is public and some is not
 
-The public policy (`docs/privacy-policy/index.md`) carries the two redaction limits, at
+The public policy (`docs/privacy/index.md`) carries the two redaction limits, at
 the level of consequence rather than mechanism: it says the scrubber is a filter
 and not a guarantee, and names the two shapes that could get past it. A user
 deciding whether to turn the setting on is making a risk judgement, and

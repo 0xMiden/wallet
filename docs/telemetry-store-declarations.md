@@ -13,8 +13,8 @@ Dev-only doc: excluded from the published site in `docs/_config.yml`.
    `src/lib/telemetry/serialize.ts` — the exhaustive list of what can be sent,
    plus `src/lib/telemetry/aptabase.ts`, which maps that list onto Aptabase's
    envelope and is the only place a field can cross into a vendor format.
-2. `docs/privacy-policy/index.md` — the public policy, at
-   `https://0xmiden.github.io/wallet/privacy-policy/`. This is the URL submitted to
+2. `docs/privacy/index.md` — the public policy, at
+   `https://0xmiden.github.io/wallet/privacy/`. This is the URL submitted to
    every store.
 3. This file — the per-store form answers derived from the two above.
 

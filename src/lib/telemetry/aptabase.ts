@@ -13,7 +13,7 @@ import {
  * The Aptabase wire format, and the two places this wallet deliberately
  * departs from how Aptabase's own SDKs fill it in.
  *
- * The policy at `docs/privacy-policy/index.md` names Aptabase as the processor for
+ * The policy at `docs/privacy/index.md` names Aptabase as the processor for
  * usage data, so this module is what makes that sentence true. It maps the
  * twelve-field allowlisted payload onto Aptabase's envelope and does nothing
  * else — no queueing, no batching, and no network call. The single egress

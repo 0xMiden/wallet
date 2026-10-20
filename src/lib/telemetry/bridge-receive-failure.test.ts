@@ -255,7 +255,7 @@ it('adds nothing to a report that names no inbound bridge', () => {
 
 /** The clause of the policy's inbound-bridge bullet that runs from `from` up to `to`, or to its end. */
 const bridgePolicyClause = (from: string, to?: string): string => {
-  const policy = readFileSync(join(REPO_ROOT, 'docs/privacy-policy/index.md'), 'utf8');
+  const policy = readFileSync(join(REPO_ROOT, 'docs/privacy/index.md'), 'utf8');
   const section = policy.slice(policy.indexOf('### Crash reports'));
   const bullet =
     section

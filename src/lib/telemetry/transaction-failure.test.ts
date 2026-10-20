@@ -1572,7 +1572,7 @@ describe('the never-committed verdict', () => {
 });
 
 const crashReportPolicy = (): string => {
-  const policy = readFileSync(join(REPO_ROOT, 'docs/privacy-policy/index.md'), 'utf8');
+  const policy = readFileSync(join(REPO_ROOT, 'docs/privacy/index.md'), 'utf8');
   const section = policy.slice(policy.indexOf('### Crash reports'));
   return section.slice(0, section.indexOf('\n#', 1));
 };

@@ -4,7 +4,7 @@
 
 ### Changes
 
-- [CHANGE][all] Publish Bread Wallet Terms of Service v2.0 at the existing legal-page URL and give the Privacy Policy its own page, with distinct onboarding, Settings and store-listing links (#1652).
+- [CHANGE][all] Publish Bread Wallet Terms of Service v2.0 at /tos/ with distinct onboarding and Settings links, preserving the existing Privacy Policy URL (#1652).
 
 - [CHANGE][mobile] The home carousel snap starts on the frame the finger lifts, instead of holding still for a frame before the spring.
 - [CHANGE][mobile] A footer that slides with the keyboard starts on the frame the layout moves, instead of painting at its new place for a frame first.
