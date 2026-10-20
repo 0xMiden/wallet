@@ -5,7 +5,8 @@
 ### Changes
 
 - [CHANGE][mobile] The home carousel snap starts on the frame the finger lifts, instead of holding still for a frame before the spring.
-- [CHANGE][all] Each pull request posts a UI smoothness result: the feel score against the base, the difference in percent, and whether it clears the noise floor. The comment is informational and does not block merge.
+- [CHANGE][mobile] A footer that slides with the keyboard starts on the frame the layout moves, instead of painting at its new place for a frame first.
+- [CHANGE][all] Each pull request posts a UI smoothness result: carousel feel against the base, the slowest scripted tap, and how the overview list scrolls, each with a difference in percent. The carousel score is the median of six passes from Overview to Swap. The comment is informational and does not block merge.
 - [CHANGE][all] The privacy policy names the publisher and data controller, separates telemetry from the data the Miden network, the Guardian Operator, Transak, swaps, bridges and Earn receive, states the legal basis and retention for each kind of data, the geographic restriction check, where data goes and your rights, and raises the age in the Children section to 18 to match the Terms of Service.
 
 ### Features

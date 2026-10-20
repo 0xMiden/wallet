@@ -139,6 +139,27 @@ it('runs the slide on the shared standard spring, as a compositor curve', () => 
   expect(options().easing).toMatch(/^linear\(/);
 });
 
+it('starts the slide on the frame the layout moved', () => {
+  const previousTimeline = document.timeline;
+  Object.defineProperty(document, 'timeline', { configurable: true, value: { currentTime: 50 } });
+  try {
+    render(<Harness />);
+    top = 500;
+    let slide: { startTime?: number } | undefined;
+    animateMock.mockImplementation(() => {
+      slide = { cancel: jest.fn(), onfinish: null };
+      return slide;
+    });
+    act(() => reflow());
+
+    // An unset start time waits for the next frame, and the footer paints at its
+    // new place for that gap before the slide begins.
+    expect(slide?.startTime).toBe(50);
+  } finally {
+    Object.defineProperty(document, 'timeline', { configurable: true, value: previousTimeline });
+  }
+});
+
 it('does nothing when the position did not change', () => {
   render(<Harness />);
   act(() => reflow());
