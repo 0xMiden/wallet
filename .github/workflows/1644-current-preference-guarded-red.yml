@@ -1,0 +1,1830 @@
+name: Wallet1644 current preference guarded red
+
+on:
+  push:
+    branches: [ci/1644-current-preference-red]
+
+permissions:
+  contents: read
+
+jobs:
+  guarded-current-preference-red:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: bash
+    env:
+      CI: 'true'
+      FORCE_COLOR: '0'
+      GIT_OPTIONAL_LOCKS: '0'
+      PROOF_HEAD_SHA: ${{ github.sha }}
+      PROOF_REF: ${{ github.ref }}
+      PROOF_EVENT: ${{ github.event_name }}
+      PROOF_REPOSITORY: ${{ github.repository }}
+      PROOF_WORKFLOW_REF: ${{ github.workflow_ref }}
+      PROOF_WORKFLOW_SHA: ${{ github.workflow_sha }}
+      PROOF_RUN_ID: ${{ github.run_id }}
+      PROOF_RUN_ATTEMPT: ${{ github.run_attempt }}
+    steps:
+      - name: Initialize isolated proof evidence
+        id: initialize
+        run: |
+          set -euo pipefail
+          umask 077
+          export PROOF_DIR="$RUNNER_TEMP/wallet1644-current-preference-red"
+          printf 'PROOF_DIR=%s\n' "$PROOF_DIR" >> "$GITHUB_ENV"
+          mkdir -p "$PROOF_DIR"
+          cat > "$PROOF_DIR/run-logged.bash" <<'BASH_HELPER'
+          run_logged() {
+            local label="$1"
+            shift
+            python3 - "$PROOF_DIR/$label.command.json" "$@" <<'COMMAND_RECORD'
+          import datetime, json, os, pathlib, sys
+          pathlib.Path(sys.argv[1]).write_text(json.dumps({
+              'argv': sys.argv[2:], 'cwd': os.getcwd(),
+              'started_at': datetime.datetime.now(datetime.timezone.utc).isoformat()
+          }, indent=2) + '\n')
+          COMMAND_RECORD
+            set +e
+            "$@" 2>&1 | tee "$PROOF_DIR/$label.log"
+            local statuses=("${PIPESTATUS[@]}")
+            set -e
+            printf '%s\n' "${statuses[0]}" > "$PROOF_DIR/$label.exit"
+            printf '%s\n' "${statuses[1]}" > "$PROOF_DIR/$label.tee.exit"
+            if [ "${statuses[1]}" -ne 0 ]; then return "${statuses[1]}"; fi
+            return "${statuses[0]}"
+          }
+          BASH_HELPER
+          cat > "$PROOF_DIR/proof-tools.py" <<'PYTHON_HELPER'
+          from pathlib import Path
+          import hashlib
+          import json
+          import os
+          import re
+          import stat
+          import subprocess
+          import sys
+
+          BINDINGS = json.loads(r'''
+          {
+            "source": "5b8af66db704ddcdb818966d947a87a4a83da113",
+            "source_tree": "311ea881cac911557dc95045a8b8cbd5a361ecb4",
+            "main": "1d50353aadcab930f2f9fa4b2c6b32d85f9d8c8f",
+            "branch": "ci/1644-current-preference-red",
+            "workflow": ".github/workflows/1644-current-preference-guarded-red.yml",
+            "test_path": "src/lib/miden/back/sync-manager.test.ts",
+            "transport_commit": "PENDING_ROOT_COMMIT; runtime requires sole direct source parent",
+            "lock_sha256": "8606e15d58682739313e004734d42f34a2ad715148e00f28c2de63596349941d",
+            "inventory": {
+              "runtime": "UNRUN",
+              "method": "TypeScript AST only; callbacks and source never executed",
+              "path": "src/lib/miden/back/sync-manager.test.ts",
+              "source_sha256": "4b9930035f2cb95a48ca2d5d12912e27f46fca817cb2be07eac8cefbfe41a4c2",
+              "expanded_runtime_prediction": 97,
+              "lexical_test_declarations": 95,
+              "cases": [
+                {
+                  "full_name": "computeSyncBackoffMs (gap 14 \u2014 exponential backoff + jitter) doubles the base interval each consecutive trip",
+                  "title": "doubles the base interval each consecutive trip",
+                  "ancestor_titles": [
+                    "computeSyncBackoffMs (gap 14 \u2014 exponential backoff + jitter)"
+                  ],
+                  "declaration_line": 393,
+                  "declaration_sha256": "e994f4902e6dc325daf1927da1035395aa0feb3381d0960b4bd5c7f5e84aff4f"
+                },
+                {
+                  "full_name": "computeSyncBackoffMs (gap 14 \u2014 exponential backoff + jitter) caps the backoff so a long outage is not probed on an ever-growing interval",
+                  "title": "caps the backoff so a long outage is not probed on an ever-growing interval",
+                  "ancestor_titles": [
+                    "computeSyncBackoffMs (gap 14 \u2014 exponential backoff + jitter)"
+                  ],
+                  "declaration_line": 400,
+                  "declaration_sha256": "461038c524c45a7c572a6c0cf07fe16c67e1e5118bc25032f0b3323ca0e94a39"
+                },
+                {
+                  "full_name": "computeSyncBackoffMs (gap 14 \u2014 exponential backoff + jitter) adds up to 20% jitter on top of the interval (de-syncs lockstep probing)",
+                  "title": "adds up to 20% jitter on top of the interval (de-syncs lockstep probing)",
+                  "ancestor_titles": [
+                    "computeSyncBackoffMs (gap 14 \u2014 exponential backoff + jitter)"
+                  ],
+                  "declaration_line": 406,
+                  "declaration_sha256": "0f538b04056bde9eee5bfbeeab2a02f393f5632aa78c4b6e97ea59df9e33e061"
+                },
+                {
+                  "full_name": "doSync is a no-op when the vault is not set up",
+                  "title": "is a no-op when the vault is not set up",
+                  "ancestor_titles": [
+                    "doSync"
+                  ],
+                  "declaration_line": 419,
+                  "declaration_sha256": "810b92ec1f317fba8e817c6a47077f908dfb63557daed31eb0653ae8468c2b01"
+                },
+                {
+                  "full_name": "doSync broadcasts SyncCompleted and skips note work when there is no account",
+                  "title": "broadcasts SyncCompleted and skips note work when there is no account",
+                  "ancestor_titles": [
+                    "doSync"
+                  ],
+                  "declaration_line": 425,
+                  "declaration_sha256": "3ba93aca5f9290bd52632e41580ca52ae7c9cfb0bf14100dd59e7158f022b669"
+                },
+                {
+                  "full_name": "doSync reads notes and vault assets, enriches with metadata, and writes to chrome.storage",
+                  "title": "reads notes and vault assets, enriches with metadata, and writes to chrome.storage",
+                  "ancestor_titles": [
+                    "doSync"
+                  ],
+                  "declaration_line": 433,
+                  "declaration_sha256": "43ca32d44f72d7c7055ec78737fb2bf17700e6bc4c98442336d9104e86f639e5"
+                },
+                {
+                  "full_name": "doSync logs a warning (not silent) but still finishes the sync when the storage write fails (#386)",
+                  "title": "logs a warning (not silent) but still finishes the sync when the storage write fails (#386)",
+                  "ancestor_titles": [
+                    "doSync"
+                  ],
+                  "declaration_line": 479,
+                  "declaration_sha256": "8e7f12d092d558f6291e9f70c68c688b32f1ab6e9c98430741bff06f66fb298d"
+                },
+                {
+                  "full_name": "doSync excludes quarantined notes from the cached consumable-notes write",
+                  "title": "excludes quarantined notes from the cached consumable-notes write",
+                  "ancestor_titles": [
+                    "doSync"
+                  ],
+                  "declaration_line": 496,
+                  "declaration_sha256": "608c10176c8a425e36704c36d5bd9580d554e88422e23ef987df0fef9e53627e"
+                },
+                {
+                  "full_name": "doSync dates cached notes on the endpoint they were read from, even if the wallet moves during the read",
+                  "title": "dates cached notes on the endpoint they were read from, even if the wallet moves during the read",
+                  "ancestor_titles": [
+                    "doSync"
+                  ],
+                  "declaration_line": 510,
+                  "declaration_sha256": "6b1f1cd32a9a7be2714f7a6b90eb25a67f2bb8da4d2ac397425a4309eba47e32"
+                },
+                {
+                  "full_name": "doSync dates cached notes from their inclusion block after the note read releases the client",
+                  "title": "dates cached notes from their inclusion block after the note read releases the client",
+                  "ancestor_titles": [
+                    "doSync"
+                  ],
+                  "declaration_line": 522,
+                  "declaration_sha256": "0581d38c3381dc453ce2edacef2899be8b2e11242d43ab2dfeee99a0af50b0a6"
+                },
+                {
+                  "full_name": "doSync shows a desktop notification when a new note arrives and no frontends are connected",
+                  "title": "shows a desktop notification when a new note arrives and no frontends are connected",
+                  "ancestor_titles": [
+                    "doSync"
+                  ],
+                  "declaration_line": 547,
+                  "declaration_sha256": "73316d21985426a054fd1c073998b9648965197b6752c5933ee1a1cbdd43101c"
+                },
+                {
+                  "full_name": "doSync skips partial (metadata-less) notes whose noteId is null",
+                  "title": "skips partial (metadata-less) notes whose noteId is null",
+                  "ancestor_titles": [
+                    "doSync"
+                  ],
+                  "declaration_line": 558,
+                  "declaration_sha256": "22c176bd6fe4ed793d4d5e7c2a78fee5a0edece6ed07b1fe57923664fc91ff89"
+                },
+                {
+                  "full_name": "doSync skips notes with no fungible assets (empty assets array)",
+                  "title": "skips notes with no fungible assets (empty assets array)",
+                  "ancestor_titles": [
+                    "doSync"
+                  ],
+                  "declaration_line": 568,
+                  "declaration_sha256": "47dd6465c72642ed8119ed1387b085ba89f6052ddb38b030aaf39158cc399192"
+                },
+                {
+                  "full_name": "doSync tolerates fetchTokenMetadata rejections and still writes sync data",
+                  "title": "tolerates fetchTokenMetadata rejections and still writes sync data",
+                  "ancestor_titles": [
+                    "doSync"
+                  ],
+                  "declaration_line": 586,
+                  "declaration_sha256": "e8239015541ba69dea397c815a92f0ad2aad5f90c87f2b7f01e8b4fd1c768c07"
+                },
+                {
+                  "full_name": "doSync broadcasts SyncCompleted even when syncState rejects",
+                  "title": "broadcasts SyncCompleted even when syncState rejects",
+                  "ancestor_titles": [
+                    "doSync"
+                  ],
+                  "declaration_line": 593,
+                  "declaration_sha256": "bc25b8c84ea08a5959a12e5154e4896f0696ae4a5db4fd7c7089d223aab9580e"
+                },
+                {
+                  "full_name": "doSync bounds the INLINE sync hold at the watchdog ceiling instead of racing a timeout (#777)",
+                  "title": "bounds the INLINE sync hold at the watchdog ceiling instead of racing a timeout (#777)",
+                  "ancestor_titles": [
+                    "doSync"
+                  ],
+                  "declaration_line": 599,
+                  "declaration_sha256": "a14b3d9bb59c6000a6e58166881f4ebec7e69f6c1772ae4e2058aefb8184d852"
+                },
+                {
+                  "full_name": "doSync skips the downstream note read for the lap whose INLINE sync hold was evicted (#777)",
+                  "title": "skips the downstream note read for the lap whose INLINE sync hold was evicted (#777)",
+                  "ancestor_titles": [
+                    "doSync"
+                  ],
+                  "declaration_line": 618,
+                  "declaration_sha256": "dad403a563a7afd0cfd4d99d814e6d8867844fde13f2e065f6f9d30bff9dd4d0"
+                },
+                {
+                  "full_name": "doSync stops the note read before its WASM calls when the hold is evicted during the client build (#777)",
+                  "title": "stops the note read before its WASM calls when the hold is evicted during the client build (#777)",
+                  "ancestor_titles": [
+                    "doSync"
+                  ],
+                  "declaration_line": 645,
+                  "declaration_sha256": "cfe3e530edb73389699e605687c87d44f244838aa7a3f5e55ff82529da57f892"
+                },
+                {
+                  "full_name": "doSync skips the delivery sweep on the lap whose inline sync hold was evicted (#777)",
+                  "title": "skips the delivery sweep on the lap whose inline sync hold was evicted (#777)",
+                  "ancestor_titles": [
+                    "doSync"
+                  ],
+                  "declaration_line": 672,
+                  "declaration_sha256": "a278b96e24bde1226ebba1336eb5da4af35a0bc6d3c383499f4be49e705b89f7"
+                },
+                {
+                  "full_name": "doSync fires the unconfirmed reconciler after a successful lap only, never after a failed or evicted one (#1081)",
+                  "title": "fires the unconfirmed reconciler after a successful lap only, never after a failed or evicted one (#1081)",
+                  "ancestor_titles": [
+                    "doSync"
+                  ],
+                  "declaration_line": 695,
+                  "declaration_sha256": "3636d276913ae7742991ff3a1cc224b851f8b9d1090b0b2d8105d6ad0cba75d5"
+                },
+                {
+                  "full_name": "doSync stops the note read at the FIRST WASM call after an eviction mid-read (#777)",
+                  "title": "stops the note read at the FIRST WASM call after an eviction mid-read (#777)",
+                  "ancestor_titles": [
+                    "doSync"
+                  ],
+                  "declaration_line": 710,
+                  "declaration_sha256": "772cfb13da355df44126f164480cc9121257d1f9a59357c0d8c07c8026e42831"
+                },
+                {
+                  "full_name": "doSync names the reader check that parked in the note read eviction message",
+                  "title": "names the reader check that parked in the note read eviction message",
+                  "ancestor_titles": [
+                    "doSync"
+                  ],
+                  "declaration_line": 739,
+                  "declaration_sha256": "39e3d903722dc61748dcd7e7ba16efd1e1dffc3a53adb66eda3c66ec78efdcd9"
+                },
+                {
+                  "full_name": "doSync lights the sync fuse after repeated watchdog evictions, and only a success puts it out (#777)",
+                  "title": "lights the sync fuse after repeated watchdog evictions, and only a success puts it out (#777)",
+                  "ancestor_titles": [
+                    "doSync"
+                  ],
+                  "declaration_line": 767,
+                  "declaration_sha256": "f0407592ff65bb0c03a5d611df582ee573f6a3972aea13bc62dc2bb16febbf82"
+                },
+                {
+                  "full_name": "doSync never lights the fuse from FORCED probes, and a failed Retry cannot extend a lit one (#777)",
+                  "title": "never lights the fuse from FORCED probes, and a failed Retry cannot extend a lit one (#777)",
+                  "ancestor_titles": [
+                    "doSync"
+                  ],
+                  "declaration_line": 841,
+                  "declaration_sha256": "868c7816618c2e4f445ed0811c2e4bd30043f8178cc3e6939cb662923b954771"
+                },
+                {
+                  "full_name": "doSync two back-to-back doSync calls only sync once",
+                  "title": "two back-to-back doSync calls only sync once",
+                  "ancestor_titles": [
+                    "doSync"
+                  ],
+                  "declaration_line": 914,
+                  "declaration_sha256": "63ac0555b7115e955dc5f7881a18dd5aff21f5d7d362e179766a9564b98520b2"
+                },
+                {
+                  "full_name": "doSync concurrent doSync calls coalesce onto one syncState invocation",
+                  "title": "concurrent doSync calls coalesce onto one syncState invocation",
+                  "ancestor_titles": [
+                    "doSync"
+                  ],
+                  "declaration_line": 923,
+                  "declaration_sha256": "39ee55608e56b902fca3f93a51a59d6072e6cfd36394a77ba02ad3c76aaf8c96"
+                },
+                {
+                  "full_name": "doSync does not throw when broadcast fails in the no-account branch",
+                  "title": "does not throw when broadcast fails in the no-account branch",
+                  "ancestor_titles": [
+                    "doSync"
+                  ],
+                  "declaration_line": 941,
+                  "declaration_sha256": "f7975f03f8ac31fb1cd5cc594aa20b6383ca1efa133f34717e3d7cb9bacaafde"
+                },
+                {
+                  "full_name": "doSync does not throw when broadcast fails in the main happy-path branch",
+                  "title": "does not throw when broadcast fails in the main happy-path branch",
+                  "ancestor_titles": [
+                    "doSync"
+                  ],
+                  "declaration_line": 949,
+                  "declaration_sha256": "b09885de66f1412fe11a9125cfcb8213b9edd8111f6f72611dcdbc0468bc6a6e"
+                },
+                {
+                  "full_name": "doSync does not throw when broadcast fails in the error handler",
+                  "title": "does not throw when broadcast fails in the error handler",
+                  "ancestor_titles": [
+                    "doSync"
+                  ],
+                  "declaration_line": 959,
+                  "declaration_sha256": "bccb43dcc0f2be5bac3f34c76b2c7bdbb861df6b5807231dc6c840c94d3e64ec"
+                },
+                {
+                  "full_name": "doSync handles a note whose firstAsset is null (no fungible assets)",
+                  "title": "handles a note whose firstAsset is null (no fungible assets)",
+                  "ancestor_titles": [
+                    "doSync"
+                  ],
+                  "declaration_line": 970,
+                  "declaration_sha256": "95daac89ffdae2b37f88fb9cad7a2a2df21e5e9e7bfc02b671e902f9ff3041d3"
+                },
+                {
+                  "full_name": "doSync shows single-note notification message",
+                  "title": "shows single-note notification message",
+                  "ancestor_titles": [
+                    "doSync"
+                  ],
+                  "declaration_line": 980,
+                  "declaration_sha256": "7042b5e2afba38a9377f97c5c31d23d774be8fba941c2a9d9d354a9e1af5da09"
+                },
+                {
+                  "full_name": "setupSyncManager registers the alarm and kicks off an initial sync",
+                  "title": "registers the alarm and kicks off an initial sync",
+                  "ancestor_titles": [
+                    "setupSyncManager"
+                  ],
+                  "declaration_line": 997,
+                  "declaration_sha256": "5ed53397c0b627af7b591b6536c39ee73c0b71565cdb3bb4107cbc99c9427cff"
+                },
+                {
+                  "full_name": "private-note delivery sweep wiring runs the sweep on a sync tick",
+                  "title": "runs the sweep on a sync tick",
+                  "ancestor_titles": [
+                    "private-note delivery sweep wiring"
+                  ],
+                  "declaration_line": 1008,
+                  "declaration_sha256": "e3058e1647beebffdb97506a4c413747f905ab885ddcee3f41d199613074a6cd"
+                },
+                {
+                  "full_name": "private-note delivery sweep wiring does not hold the lap or its SyncCompleted on a sweep still running",
+                  "title": "does not hold the lap or its SyncCompleted on a sweep still running",
+                  "ancestor_titles": [
+                    "private-note delivery sweep wiring"
+                  ],
+                  "declaration_line": 1020,
+                  "declaration_sha256": "c235fd6de4c0ae9d21cacbecf290fc54e9432cb66f15ed1a53de68420d65cd44"
+                },
+                {
+                  "full_name": "private-note delivery sweep wiring does not let a failing sweep break the sync",
+                  "title": "does not let a failing sweep break the sync",
+                  "ancestor_titles": [
+                    "private-note delivery sweep wiring"
+                  ],
+                  "declaration_line": 1043,
+                  "declaration_sha256": "67672a57caaaf2c29110634bd8d9297832a2385e594c9798c58999924fc06d79"
+                },
+                {
+                  "full_name": "doSync \u2014 connectivity categorization clears reachability issues on a successful sync",
+                  "title": "clears reachability issues on a successful sync",
+                  "ancestor_titles": [
+                    "doSync \u2014 connectivity categorization"
+                  ],
+                  "declaration_line": 1056,
+                  "declaration_sha256": "49ad53ff3fba8000bf51702e04d681735d11ac0c74b72b2ee66de068df0d2b77"
+                },
+                {
+                  "full_name": "doSync \u2014 connectivity categorization does NOT mark connectivity on a single transient sync failure (debounced)",
+                  "title": "does NOT mark connectivity on a single transient sync failure (debounced)",
+                  "ancestor_titles": [
+                    "doSync \u2014 connectivity categorization"
+                  ],
+                  "declaration_line": 1062,
+                  "declaration_sha256": "e83ba0643a7407f031f907b22c7acb60bf292424eecb3080b8971855adf875fc"
+                },
+                {
+                  "full_name": "doSync \u2014 connectivity categorization marks node category only after a sustained transport-error streak",
+                  "title": "marks node category only after a sustained transport-error streak",
+                  "ancestor_titles": [
+                    "doSync \u2014 connectivity categorization"
+                  ],
+                  "declaration_line": 1075,
+                  "declaration_sha256": "2c0605b0676352cc9a05cb53a03151725a069f141f2f955b08939c3c1d3f9913"
+                },
+                {
+                  "full_name": "doSync \u2014 connectivity categorization does NOT mark connectivity for a semantic / non-transport error even when sustained",
+                  "title": "does NOT mark connectivity for a semantic / non-transport error even when sustained",
+                  "ancestor_titles": [
+                    "doSync \u2014 connectivity categorization"
+                  ],
+                  "declaration_line": 1094,
+                  "declaration_sha256": "3abb7ca0374f51701d18c171448e380de1c403711e261965f3b65d68c1fcc915"
+                },
+                {
+                  "full_name": "doSync \u2014 notification getMessage fallback branches uses fallback strings when getMessage returns empty (single note)",
+                  "title": "uses fallback strings when getMessage returns empty (single note)",
+                  "ancestor_titles": [
+                    "doSync \u2014 notification getMessage fallback branches"
+                  ],
+                  "declaration_line": 1110,
+                  "declaration_sha256": "7c0d4d1c0fcd2f3aca5b21fe24779c0f47f3df6090966b4626cfc7a590088553"
+                },
+                {
+                  "full_name": "doSync \u2014 notification getMessage fallback branches uses fallback strings when getMessage returns empty (multi note)",
+                  "title": "uses fallback strings when getMessage returns empty (multi note)",
+                  "ancestor_titles": [
+                    "doSync \u2014 notification getMessage fallback branches"
+                  ],
+                  "declaration_line": 1124,
+                  "declaration_sha256": "bf65f37413ba30c6b9aa59c581ac108af2b6687464ca02c4ece0e3186f03d584"
+                },
+                {
+                  "full_name": "doSync \u2014 note metadata branches handles a note with no fungible assets (filters it out)",
+                  "title": "handles a note with no fungible assets (filters it out)",
+                  "ancestor_titles": [
+                    "doSync \u2014 note metadata branches"
+                  ],
+                  "declaration_line": 1143,
+                  "declaration_sha256": "a049a4a3f95b215291c15af11a5d48a2140c521e3f0fe3d1147bb74298c18f7b"
+                },
+                {
+                  "full_name": "doSync \u2014 note metadata branches handles a note where metadata is null (uses unknown noteType)",
+                  "title": "handles a note where metadata is null (uses unknown noteType)",
+                  "ancestor_titles": [
+                    "doSync \u2014 note metadata branches"
+                  ],
+                  "declaration_line": 1150,
+                  "declaration_sha256": "fc536a9f8bc145eb9b9c2cdd47d1fd9981077abdc9fd48fe14522430938c954d"
+                },
+                {
+                  "full_name": "doSync \u2014 note metadata branches carries whether each note is a standard payment into the list it writes (#805)",
+                  "title": "carries whether each note is a standard payment into the list it writes (#805)",
+                  "ancestor_titles": [
+                    "doSync \u2014 note metadata branches"
+                  ],
+                  "declaration_line": 1168,
+                  "declaration_sha256": "d798b173f9066345800df939e450bfe64418c120e09bad091b655c7ef7c56c44"
+                },
+                {
+                  "full_name": "doSync \u2014 note metadata branches worker single-asset notes preserve explicit asset knowledge",
+                  "title": "worker single-asset notes preserve explicit asset knowledge",
+                  "ancestor_titles": [
+                    "doSync \u2014 note metadata branches"
+                  ],
+                  "declaration_line": 1181,
+                  "declaration_sha256": "a4b6c2c1c9ed0cee3d3768b4201f1e59a5b0462b45cec1ffca7401d3fdc25c1a"
+                },
+                {
+                  "full_name": "doSync \u2014 note metadata branches stamps each sync it writes, so readers can tell a live result from an old snapshot",
+                  "title": "stamps each sync it writes, so readers can tell a live result from an old snapshot",
+                  "ancestor_titles": [
+                    "doSync \u2014 note metadata branches"
+                  ],
+                  "declaration_line": 1202,
+                  "declaration_sha256": "447b52640b22208b840a71288a447cc7ba184ca55ef1bd87199c600d1e794ee0"
+                },
+                {
+                  "full_name": "doSync \u2014 note metadata branches repeats the last successful sync stamp on a pass whose sync failed",
+                  "title": "repeats the last successful sync stamp on a pass whose sync failed",
+                  "ancestor_titles": [
+                    "doSync \u2014 note metadata branches"
+                  ],
+                  "declaration_line": 1215,
+                  "declaration_sha256": "6d02d5072a3a65574c4cdb4e8139ab1e327685d404be905fcc3bff293f8bef3a"
+                },
+                {
+                  "full_name": "doSync \u2014 note metadata branches does not publish the stamp of a successful sync whose write never reached storage",
+                  "title": "does not publish the stamp of a successful sync whose write never reached storage",
+                  "ancestor_titles": [
+                    "doSync \u2014 note metadata branches"
+                  ],
+                  "declaration_line": 1237,
+                  "declaration_sha256": "c8f669f905359d49f09d29261537f2025b3b006483214dd16d8fe218adb4e4b2"
+                },
+                {
+                  "full_name": "doSync \u2014 note metadata branches handles when no account exists in client (assets array stays empty)",
+                  "title": "handles when no account exists in client (assets array stays empty)",
+                  "ancestor_titles": [
+                    "doSync \u2014 note metadata branches"
+                  ],
+                  "declaration_line": 1262,
+                  "declaration_sha256": "eba1e209ddd804d704e2a65d68ef285db7f676305693c284e0d9940759f51359"
+                },
+                {
+                  "full_name": "doSync \u2014 note metadata branches shows multi-note notification when multiple new notes arrive",
+                  "title": "shows multi-note notification when multiple new notes arrive",
+                  "ancestor_titles": [
+                    "doSync \u2014 note metadata branches"
+                  ],
+                  "declaration_line": 1275,
+                  "declaration_sha256": "e204b7a10e52377394dd31769d2ba6c502c0cb417d2cb4c05e4309613630d334"
+                },
+                {
+                  "full_name": "doSync \u2014 note metadata branches uses ServiceWorkerRegistration.showNotification when available",
+                  "title": "uses ServiceWorkerRegistration.showNotification when available",
+                  "ancestor_titles": [
+                    "doSync \u2014 note metadata branches"
+                  ],
+                  "declaration_line": 1287,
+                  "declaration_sha256": "9703f61586f0d2d64c703d4cbebb4da04546a39f0e8bf61ab6f9aa9fe037d06c"
+                },
+                {
+                  "full_name": "doSync \u2014 syncState timeout + circuit breaker queues one forced retry when a sync is already in flight",
+                  "title": "queues one forced retry when a sync is already in flight",
+                  "ancestor_titles": [
+                    "doSync \u2014 syncState timeout + circuit breaker"
+                  ],
+                  "declaration_line": 1305,
+                  "declaration_sha256": "e9b4b9ef8668e170cf60a37c801db485ea8264253ce862776b0512f6e9d8fbf9"
+                },
+                {
+                  "full_name": "doSync \u2014 syncState timeout + circuit breaker increments the failure counter when syncState rejects and trips the breaker after consecutive failures",
+                  "title": "increments the failure counter when syncState rejects and trips the breaker after consecutive failures",
+                  "ancestor_titles": [
+                    "doSync \u2014 syncState timeout + circuit breaker"
+                  ],
+                  "declaration_line": 1334,
+                  "declaration_sha256": "6bba193c2477911b736df9faaa2a09d6b55846538db399cc2edef583cd10c645"
+                },
+                {
+                  "full_name": "doSync \u2014 syncState timeout + circuit breaker a successful syncState resets the failure counter mid-streak",
+                  "title": "a successful syncState resets the failure counter mid-streak",
+                  "ancestor_titles": [
+                    "doSync \u2014 syncState timeout + circuit breaker"
+                  ],
+                  "declaration_line": 1362,
+                  "declaration_sha256": "e6a1c85095ae669e1cb190313efaf1e78b9e08d1b35085ce73a66acc752bd603"
+                },
+                {
+                  "full_name": "doSync \u2014 syncState timeout + circuit breaker failing forced probes re-arm the window but never escalate it (#777)",
+                  "title": "failing forced probes re-arm the window but never escalate it (#777)",
+                  "ancestor_titles": [
+                    "doSync \u2014 syncState timeout + circuit breaker"
+                  ],
+                  "declaration_line": 1387,
+                  "declaration_sha256": "a4510362302f36ef21d0af396d43469b74bbd7de882b1841e31909baf3eb4d3a"
+                },
+                {
+                  "full_name": "doSync \u2014 syncState timeout + circuit breaker a successful forced probe closes the existing backoff window",
+                  "title": "a successful forced probe closes the existing backoff window",
+                  "ancestor_titles": [
+                    "doSync \u2014 syncState timeout + circuit breaker"
+                  ],
+                  "declaration_line": 1450,
+                  "declaration_sha256": "ece4e31538674147363a85c165301c01deec349f06c33412e1a9602a26204ef5"
+                },
+                {
+                  "full_name": "doSync \u2014 syncState timeout + circuit breaker awaits init_vault when present (SW bundle simulation)",
+                  "title": "awaits init_vault when present (SW bundle simulation)",
+                  "ancestor_titles": [
+                    "doSync \u2014 syncState timeout + circuit breaker"
+                  ],
+                  "declaration_line": 1471,
+                  "declaration_sha256": "91db61f98c5de5211438102727e87d90f622ed7ec69a8ba4579212a6023fdc14"
+                },
+                {
+                  "full_name": "doSync \u2014 syncState timeout + circuit breaker the breaker closes after the backoff window elapses",
+                  "title": "the breaker closes after the backoff window elapses",
+                  "ancestor_titles": [
+                    "doSync \u2014 syncState timeout + circuit breaker"
+                  ],
+                  "declaration_line": 1493,
+                  "declaration_sha256": "194e28c38ed441d216ca7c2d4c8ea994b9c448d3aaa8584abd3726f8a88360fe"
+                },
+                {
+                  "full_name": "doSync \u2014 native-note auto-consume fee-refused native batch has no single-note fallback or processing kick",
+                  "title": "fee-refused native batch has no single-note fallback or processing kick",
+                  "ancestor_titles": [
+                    "doSync \u2014 native-note auto-consume"
+                  ],
+                  "declaration_line": 1542,
+                  "declaration_sha256": "127026c16c6bc6271a4bc3bc6db069888fb84856e6eb259d5234db2b88df31cd"
+                },
+                {
+                  "full_name": "doSync \u2014 native-note auto-consume does not auto-consume a native backlog worth less than the fee to claim it",
+                  "title": "does not auto-consume a native backlog worth less than the fee to claim it",
+                  "ancestor_titles": [
+                    "doSync \u2014 native-note auto-consume"
+                  ],
+                  "declaration_line": 1588,
+                  "declaration_sha256": "3641d5314e6b6be1ffc589914c5a5f97028a1f48996acaa4d452cf4065ad52e0"
+                },
+                {
+                  "full_name": "doSync \u2014 native-note auto-consume leaves a note whose claim is held while the node decides out of the value check (#1081)",
+                  "title": "leaves a note whose claim is held while the node decides out of the value check (#1081)",
+                  "ancestor_titles": [
+                    "doSync \u2014 native-note auto-consume"
+                  ],
+                  "declaration_line": 1606,
+                  "declaration_sha256": "cd7c1962012b9ebb91b90bfa36f845a97dec0cd050aac7d45501a610d22707be"
+                },
+                {
+                  "full_name": "doSync \u2014 native-note auto-consume leaves a native note a dApp transaction completed moments ago out of the batch",
+                  "title": "leaves a native note a dApp transaction completed moments ago out of the batch",
+                  "ancestor_titles": [
+                    "doSync \u2014 native-note auto-consume"
+                  ],
+                  "declaration_line": 1667,
+                  "declaration_sha256": "efdb98d59dc908ee79d913ddfc533c5ed650dc382d820c4be6eac8375c8557e0"
+                },
+                {
+                  "full_name": "doSync \u2014 native-note auto-consume leaves a native note a live dApp transaction will consume out of the batch",
+                  "title": "leaves a native note a live dApp transaction will consume out of the batch",
+                  "ancestor_titles": [
+                    "doSync \u2014 native-note auto-consume"
+                  ],
+                  "declaration_line": 1689,
+                  "declaration_sha256": "db6d410d7a298852b9896061f48413bd3df8b7cc4bc3b3a9def442e299ab4d93"
+                },
+                {
+                  "full_name": "doSync \u2014 native-note auto-consume raises no \"click to claim\" notification for a native note a live dApp transaction will consume",
+                  "title": "raises no \"click to claim\" notification for a native note a live dApp transaction will consume",
+                  "ancestor_titles": [
+                    "doSync \u2014 native-note auto-consume"
+                  ],
+                  "declaration_line": 1710,
+                  "declaration_sha256": "de1f2da79fdb772b2c25c0e17f15e5e58e44f565042846a2746f9f2f8501b548"
+                },
+                {
+                  "full_name": "doSync \u2014 native-note auto-consume auto-consumes a backlog of individually-marginal native notes in one transaction",
+                  "title": "auto-consumes a backlog of individually-marginal native notes in one transaction",
+                  "ancestor_titles": [
+                    "doSync \u2014 native-note auto-consume"
+                  ],
+                  "declaration_line": 1732,
+                  "declaration_sha256": "57ea4d4fee20ad78941f64e55481507d6d7117876e6a1ed241bbe5a20d4980ca"
+                },
+                {
+                  "full_name": "doSync \u2014 native-note auto-consume fee identity: service worker auto-consumes actual native A instead of legacy B",
+                  "title": "fee identity: service worker auto-consumes actual native A instead of legacy B",
+                  "ancestor_titles": [
+                    "doSync \u2014 native-note auto-consume"
+                  ],
+                  "declaration_line": 1751,
+                  "declaration_sha256": "90f4cfce640ae1026237aa3deaabb7d25dd9c801b2f6e7fff0d3b801592efb52"
+                },
+                {
+                  "full_name": "doSync \u2014 native-note auto-consume auto-consumes native notes in ONE transaction, following the user delegated-proving setting",
+                  "title": "auto-consumes native notes in ONE transaction, following the user delegated-proving setting",
+                  "ancestor_titles": [
+                    "doSync \u2014 native-note auto-consume"
+                  ],
+                  "declaration_line": 1765,
+                  "declaration_sha256": "b2aad4f7fde045c80772c550fc26f80a2343f8fef23a5275cbe2f47ef9f51f20"
+                },
+                {
+                  "full_name": "doSync \u2014 native-note auto-consume queues each note of a failed batch enqueue as auto-consume too",
+                  "title": "queues each note of a failed batch enqueue as auto-consume too",
+                  "ancestor_titles": [
+                    "doSync \u2014 native-note auto-consume"
+                  ],
+                  "declaration_line": 1787,
+                  "declaration_sha256": "75b1993e0523c7a11ea3875fe66c15dd441a173d3560dc6aa38b4f5cb3053e1d"
+                },
+                {
+                  "full_name": "doSync \u2014 native-note auto-consume leaves the native notes of a rotation-pending account to its rotation gate (#805)",
+                  "title": "leaves the native notes of a rotation-pending account to its rotation gate (#805)",
+                  "ancestor_titles": [
+                    "doSync \u2014 native-note auto-consume"
+                  ],
+                  "declaration_line": 1804,
+                  "declaration_sha256": "516edc3130153655449b20d13e54c027a1676c1af19197d472aaf6a10f7b465f"
+                },
+                {
+                  "full_name": "doSync \u2014 native-note auto-consume matches the worker store account however its id is spelled",
+                  "title": "matches the worker store account however its id is spelled",
+                  "ancestor_titles": [
+                    "doSync \u2014 native-note auto-consume"
+                  ],
+                  "declaration_line": 1819,
+                  "declaration_sha256": "49d70fb953401a290eb05fe3d24c95bed2f4416815e4e6f801aea2931405d844"
+                },
+                {
+                  "full_name": "doSync \u2014 native-note auto-consume still claims for an account the worker store lists without the rotation flag",
+                  "title": "still claims for an account the worker store lists without the rotation flag",
+                  "ancestor_titles": [
+                    "doSync \u2014 native-note auto-consume"
+                  ],
+                  "declaration_line": 1832,
+                  "declaration_sha256": "41d5a841125a0e30df49818c14f99ed9f2a3859c1e5e571655ec2dc69bd159cf"
+                },
+                {
+                  "full_name": "doSync \u2014 native-note auto-consume does not auto-consume when the toggle is off",
+                  "title": "does not auto-consume when the toggle is off",
+                  "ancestor_titles": [
+                    "doSync \u2014 native-note auto-consume"
+                  ],
+                  "declaration_line": 1848,
+                  "declaration_sha256": "275b6d0aaf5a083d12d471d0ef59f77a8ba9e55e767c2bac35a098fa47e33b41"
+                },
+                {
+                  "full_name": "doSync \u2014 native-note auto-consume suppresses the \"click to claim\" notification for a native note it is auto-consuming",
+                  "title": "suppresses the \"click to claim\" notification for a native note it is auto-consuming",
+                  "ancestor_titles": [
+                    "doSync \u2014 native-note auto-consume"
+                  ],
+                  "declaration_line": 1860,
+                  "declaration_sha256": "83d82b8f55d87b03c18259f6fd5a006262ce6167e53561155cdfab54d6dc2a81"
+                },
+                {
+                  "full_name": "doSync \u2014 native-note auto-consume holds off until the popup has mirrored the user settings (migration window)",
+                  "title": "holds off until the popup has mirrored the user settings (migration window)",
+                  "ancestor_titles": [
+                    "doSync \u2014 native-note auto-consume"
+                  ],
+                  "declaration_line": 1879,
+                  "declaration_sha256": "19880dde0c141967498aa3aa7039c813d48197f6ced56b3682e546af0b7284bf"
+                },
+                {
+                  "full_name": "doSync \u2014 native-note auto-consume queues no claim while the vault is locked, and the first lap after unlock queues it",
+                  "title": "queues no claim while the vault is locked, and the first lap after unlock queues it",
+                  "ancestor_titles": [
+                    "doSync \u2014 native-note auto-consume"
+                  ],
+                  "declaration_line": 1893,
+                  "declaration_sha256": "1fa58db3f3826f1a2f4fa23b571c205b80938256b68f70bad63b4cf7b3d86840"
+                },
+                {
+                  "full_name": "doSync \u2014 native-note auto-consume queues no claim when the vault locks while the lap reads the proving setting, and does on a lap unlocked throughout",
+                  "title": "queues no claim when the vault locks while the lap reads the proving setting, and does on a lap unlocked throughout",
+                  "ancestor_titles": [
+                    "doSync \u2014 native-note auto-consume"
+                  ],
+                  "declaration_line": 1921,
+                  "declaration_sha256": "ab5f78db1eb981318f753e60ff20ae28c4df4ce91877803c88c9cff3893c39ed"
+                },
+                {
+                  "full_name": "doSync \u2014 native-note auto-consume resolves cleanly when the eligibility resolve (getFaucetIdSetting) rejects",
+                  "title": "resolves cleanly when the eligibility resolve (getFaucetIdSetting) rejects",
+                  "ancestor_titles": [
+                    "doSync \u2014 native-note auto-consume"
+                  ],
+                  "declaration_line": 1948,
+                  "declaration_sha256": "3590408be755391ebca71db638677e7d3e86ee1618283bbf70ead3edfd975cdb"
+                },
+                {
+                  "full_name": "doSync \u2014 native-note auto-consume resolves cleanly when the per-note enqueue rejects",
+                  "title": "resolves cleanly when the per-note enqueue rejects",
+                  "ancestor_titles": [
+                    "doSync \u2014 native-note auto-consume"
+                  ],
+                  "declaration_line": 1961,
+                  "declaration_sha256": "fa0c594e564e0856985c3733cfcf099ac3ff6c7d3f9f4c5479e49737141c0f03"
+                },
+                {
+                  "full_name": "doSync - zero-fill swap reclaim queues the reclaim of an expired zero-fill order with the request and clock its classification used",
+                  "title": "queues the reclaim of an expired zero-fill order with the request and clock its classification used",
+                  "ancestor_titles": [
+                    "doSync - zero-fill swap reclaim"
+                  ],
+                  "declaration_line": 1998,
+                  "declaration_sha256": "c80f27a9ed41ab9b871b2eced97ca6ecf4c0fa97390233b6f1e9f48263b8de5d"
+                },
+                {
+                  "full_name": "doSync - zero-fill swap reclaim builds and queues no reclaim while the vault is locked, and the first lap after unlock does",
+                  "title": "builds and queues no reclaim while the vault is locked, and the first lap after unlock does",
+                  "ancestor_titles": [
+                    "doSync - zero-fill swap reclaim"
+                  ],
+                  "declaration_line": 2036,
+                  "declaration_sha256": "b8b6d54e5b582d731556a8fc8a3299da067e8c4537c756f267de8559dc3fe403"
+                },
+                {
+                  "full_name": "doSync - zero-fill swap reclaim checks a refused recovered order's note on the node after the note-read hold, from the service worker",
+                  "title": "checks a refused recovered order's note on the node after the note-read hold, from the service worker",
+                  "ancestor_titles": [
+                    "doSync - zero-fill swap reclaim"
+                  ],
+                  "declaration_line": 2074,
+                  "declaration_sha256": "1f346e7ada2330d46060a7be4a32864ac931f1ebff355dc63ab290dc81cab0ba"
+                },
+                {
+                  "full_name": "doSync - zero-fill swap reclaim a lap whose note-read hold is evicted books a zero-fill build parked until the eviction once on its own key and none on claimable-notes",
+                  "title": "books a zero-fill build parked until the eviction once on its own key and none on claimable-notes",
+                  "ancestor_titles": [
+                    "doSync - zero-fill swap reclaim",
+                    "a lap whose note-read hold is evicted"
+                  ],
+                  "declaration_line": 2176,
+                  "declaration_sha256": "b4a14dda1cc30ea5c55b3e70ddcfe9311992808d5089ca4329f6c8203eb883c0"
+                },
+                {
+                  "full_name": "doSync - zero-fill swap reclaim a lap whose note-read hold is evicted books an eviction during the consumable-note read on neither key",
+                  "title": "books an eviction during the consumable-note read on neither key",
+                  "ancestor_titles": [
+                    "doSync - zero-fill swap reclaim",
+                    "a lap whose note-read hold is evicted"
+                  ],
+                  "declaration_line": 2193,
+                  "declaration_sha256": "65316d23a2b988f425727dd535969f1131f61cba2879b7bf30f787122cb3094e"
+                },
+                {
+                  "full_name": "doSync - zero-fill swap reclaim a lap whose note-read hold is evicted books no success from the build before one refused on the data after its eviction, so laps light the key",
+                  "title": "books no success from the build before one refused on the data after its eviction, so laps light the key",
+                  "ancestor_titles": [
+                    "doSync - zero-fill swap reclaim",
+                    "a lap whose note-read hold is evicted"
+                  ],
+                  "declaration_line": 2241,
+                  "declaration_sha256": "6d255ca3ab6a2b06fc8932892a2478ee9c20ea15321959f414527a3a439abd8a"
+                },
+                {
+                  "full_name": "doSync - zero-fill swap reclaim a lap whose note-read hold is evicted books a build evicted in the tick it is refused on the data on its own key, not on claimable-notes",
+                  "title": "books a build evicted in the tick it is refused on the data on its own key, not on claimable-notes",
+                  "ancestor_titles": [
+                    "doSync - zero-fill swap reclaim",
+                    "a lap whose note-read hold is evicted"
+                  ],
+                  "declaration_line": 2273,
+                  "declaration_sha256": "97459ae0f634df8f89e2a552725452614ef4c2ce0050fcf572d3c8e5be1ce814"
+                },
+                {
+                  "full_name": "doSync - expired swap order settlement queues no settlement consume while the vault is locked, and the first lap after unlock queues it",
+                  "title": "queues no settlement consume while the vault is locked, and the first lap after unlock queues it",
+                  "ancestor_titles": [
+                    "doSync - expired swap order settlement"
+                  ],
+                  "declaration_line": 2320,
+                  "declaration_sha256": "d72c85480a78e66891a3b2ac051a7ab22ef62b1864a5ffb259be24ed375917ad"
+                },
+                {
+                  "full_name": "doSync - expired swap order settlement worker settlement refuses token-only payback and remainder and still settles a funded order",
+                  "title": "worker settlement refuses token-only payback and remainder and still settles a funded order",
+                  "ancestor_titles": [
+                    "doSync - expired swap order settlement"
+                  ],
+                  "declaration_line": 2365,
+                  "declaration_sha256": "773af7b58476ca5f4c6ef77c38b30a15cd48eeb0bde42fce6480702ffebbe94f"
+                },
+                {
+                  "full_name": "doSync - expired swap order settlement queues no native claim and no settlement consume while the store is not initialized",
+                  "title": "queues no native claim and no settlement consume while the store is not initialized",
+                  "ancestor_titles": [
+                    "doSync - expired swap order settlement"
+                  ],
+                  "declaration_line": 2424,
+                  "declaration_sha256": "98de11863d8463b84ebf25a8636a9b91358514a5568e36d89d121f4e2f90f188"
+                },
+                {
+                  "full_name": "doSync - expired swap order settlement queues no settlement consume when the vault locks while the lap stamps the expiry, and does on a lap unlocked throughout",
+                  "title": "queues no settlement consume when the vault locks while the lap stamps the expiry, and does on a lap unlocked throughout",
+                  "ancestor_titles": [
+                    "doSync - expired swap order settlement"
+                  ],
+                  "declaration_line": 2447,
+                  "declaration_sha256": "2fc2e76e7f5d3a5ebb6e8dc2203b64c00312e3f6196c18e180579baeb9087e88"
+                },
+                {
+                  "full_name": "doSync - expired swap order settlement settles with current proof preference true instead of saved false",
+                  "title": "settles with current proof preference true instead of saved false",
+                  "ancestor_titles": [
+                    "doSync - expired swap order settlement"
+                  ],
+                  "declaration_line": 2498,
+                  "declaration_sha256": "f7951254383111b38e0f711fad0a8563e38d99323d03be1bbd06e47734a9621c"
+                },
+                {
+                  "full_name": "doSync - expired swap order settlement settles with current proof preference false instead of saved true",
+                  "title": "settles with current proof preference false instead of saved true",
+                  "ancestor_titles": [
+                    "doSync - expired swap order settlement"
+                  ],
+                  "declaration_line": 2498,
+                  "declaration_sha256": "f7951254383111b38e0f711fad0a8563e38d99323d03be1bbd06e47734a9621c"
+                },
+                {
+                  "full_name": "doSync - expired swap order settlement keeps the ordinary omitted-flag settlement fallback to saved false",
+                  "title": "keeps the ordinary omitted-flag settlement fallback to saved false",
+                  "ancestor_titles": [
+                    "doSync - expired swap order settlement"
+                  ],
+                  "declaration_line": 2523,
+                  "declaration_sha256": "18d29e0476fb23df4ff10e89e6f147a99c3ec7ad07c75056e08a922d32d10acb"
+                },
+                {
+                  "full_name": "doSync - expired swap order settlement keeps the ordinary omitted-flag settlement fallback to saved true",
+                  "title": "keeps the ordinary omitted-flag settlement fallback to saved true",
+                  "ancestor_titles": [
+                    "doSync - expired swap order settlement"
+                  ],
+                  "declaration_line": 2523,
+                  "declaration_sha256": "18d29e0476fb23df4ff10e89e6f147a99c3ec7ad07c75056e08a922d32d10acb"
+                },
+                {
+                  "full_name": "doSync - expired swap order settlement queues no settlement claim when the vault locks during the current proof mirror read",
+                  "title": "queues no settlement claim when the vault locks during the current proof mirror read",
+                  "ancestor_titles": [
+                    "doSync - expired swap order settlement"
+                  ],
+                  "declaration_line": 2564,
+                  "declaration_sha256": "09157a8f52b7e4ad1f26df7dc299d8b11b8b80e19ef85d755b888f640ad0b6cc"
+                },
+                {
+                  "full_name": "doSync waits for the first override load dispatches no sync and reads no endpoint until the load settles, then runs the same lap",
+                  "title": "dispatches no sync and reads no endpoint until the load settles, then runs the same lap",
+                  "ancestor_titles": [
+                    "doSync waits for the first override load"
+                  ],
+                  "declaration_line": 2595,
+                  "declaration_sha256": "f70454086c6cec45f70ca8c02a3eb49871c1df03638f9cde9bdb07912214ab73"
+                },
+                {
+                  "full_name": "doSync drives the resultBytes reaper runs the reaper on a normal lap",
+                  "title": "runs the reaper on a normal lap",
+                  "ancestor_titles": [
+                    "doSync drives the resultBytes reaper"
+                  ],
+                  "declaration_line": 2633,
+                  "declaration_sha256": "f4d1353e3edcc90d2d1cd62493d7a03c5973e0c512c5dc64d2898733b4ef8654"
+                },
+                {
+                  "full_name": "doSync drives the resultBytes reaper runs the reaper even when the lap is short-circuited before any sync work",
+                  "title": "runs the reaper even when the lap is short-circuited before any sync work",
+                  "ancestor_titles": [
+                    "doSync drives the resultBytes reaper"
+                  ],
+                  "declaration_line": 2639,
+                  "declaration_sha256": "ca51d6604e42dbe048ae575aad8e8a525498ef2922662f8975328bf31e1c8eb2"
+                }
+              ]
+            },
+            "failure_sites": {
+              "doSync - expired swap order settlement settles with current proof preference true instead of saved false": {
+                "line": 2511,
+                "source": "      expect(claims.map(row => row.delegateTransaction)).toEqual([current, current]);",
+                "matcher": "toEqual",
+                "expected": [
+                  true,
+                  true
+                ],
+                "received": [
+                  false,
+                  false
+                ],
+                "passing_assertions_before_failure": 1,
+                "later_assertions": "UNRUN after this failure"
+              },
+              "doSync - expired swap order settlement settles with current proof preference false instead of saved true": {
+                "line": 2511,
+                "source": "      expect(claims.map(row => row.delegateTransaction)).toEqual([current, current]);",
+                "matcher": "toEqual",
+                "expected": [
+                  false,
+                  false
+                ],
+                "received": [
+                  true,
+                  true
+                ],
+                "passing_assertions_before_failure": 1,
+                "later_assertions": "UNRUN after this failure"
+              },
+              "doSync - expired swap order settlement queues no settlement claim when the vault locks during the current proof mirror read": {
+                "line": 2574,
+                "source": "      expect(await queuedClaimNoteIds()).toEqual([]);",
+                "matcher": "toEqual",
+                "expected": [],
+                "received": [
+                  "payback",
+                  "remainder-tip"
+                ],
+                "passing_assertions_before_failure": 0,
+                "later_assertions": "UNRUN after this failure"
+              }
+            },
+            "retained_control_names": [
+              "computeSyncBackoffMs (gap 14 \u2014 exponential backoff + jitter) doubles the base interval each consecutive trip",
+              "computeSyncBackoffMs (gap 14 \u2014 exponential backoff + jitter) caps the backoff so a long outage is not probed on an ever-growing interval",
+              "computeSyncBackoffMs (gap 14 \u2014 exponential backoff + jitter) adds up to 20% jitter on top of the interval (de-syncs lockstep probing)",
+              "doSync is a no-op when the vault is not set up",
+              "doSync broadcasts SyncCompleted and skips note work when there is no account",
+              "doSync reads notes and vault assets, enriches with metadata, and writes to chrome.storage",
+              "doSync logs a warning (not silent) but still finishes the sync when the storage write fails (#386)",
+              "doSync excludes quarantined notes from the cached consumable-notes write",
+              "doSync dates cached notes on the endpoint they were read from, even if the wallet moves during the read",
+              "doSync dates cached notes from their inclusion block after the note read releases the client",
+              "doSync shows a desktop notification when a new note arrives and no frontends are connected",
+              "doSync skips partial (metadata-less) notes whose noteId is null",
+              "doSync skips notes with no fungible assets (empty assets array)",
+              "doSync tolerates fetchTokenMetadata rejections and still writes sync data",
+              "doSync broadcasts SyncCompleted even when syncState rejects",
+              "doSync bounds the INLINE sync hold at the watchdog ceiling instead of racing a timeout (#777)",
+              "doSync skips the downstream note read for the lap whose INLINE sync hold was evicted (#777)",
+              "doSync stops the note read before its WASM calls when the hold is evicted during the client build (#777)",
+              "doSync skips the delivery sweep on the lap whose inline sync hold was evicted (#777)",
+              "doSync fires the unconfirmed reconciler after a successful lap only, never after a failed or evicted one (#1081)",
+              "doSync stops the note read at the FIRST WASM call after an eviction mid-read (#777)",
+              "doSync names the reader check that parked in the note read eviction message",
+              "doSync lights the sync fuse after repeated watchdog evictions, and only a success puts it out (#777)",
+              "doSync never lights the fuse from FORCED probes, and a failed Retry cannot extend a lit one (#777)",
+              "doSync two back-to-back doSync calls only sync once",
+              "doSync concurrent doSync calls coalesce onto one syncState invocation",
+              "doSync does not throw when broadcast fails in the no-account branch",
+              "doSync does not throw when broadcast fails in the main happy-path branch",
+              "doSync does not throw when broadcast fails in the error handler",
+              "doSync handles a note whose firstAsset is null (no fungible assets)",
+              "doSync shows single-note notification message",
+              "setupSyncManager registers the alarm and kicks off an initial sync",
+              "private-note delivery sweep wiring runs the sweep on a sync tick",
+              "private-note delivery sweep wiring does not hold the lap or its SyncCompleted on a sweep still running",
+              "private-note delivery sweep wiring does not let a failing sweep break the sync",
+              "doSync \u2014 connectivity categorization clears reachability issues on a successful sync",
+              "doSync \u2014 connectivity categorization does NOT mark connectivity on a single transient sync failure (debounced)",
+              "doSync \u2014 connectivity categorization marks node category only after a sustained transport-error streak",
+              "doSync \u2014 connectivity categorization does NOT mark connectivity for a semantic / non-transport error even when sustained",
+              "doSync \u2014 notification getMessage fallback branches uses fallback strings when getMessage returns empty (single note)",
+              "doSync \u2014 notification getMessage fallback branches uses fallback strings when getMessage returns empty (multi note)",
+              "doSync \u2014 note metadata branches handles a note with no fungible assets (filters it out)",
+              "doSync \u2014 note metadata branches handles a note where metadata is null (uses unknown noteType)",
+              "doSync \u2014 note metadata branches carries whether each note is a standard payment into the list it writes (#805)",
+              "doSync \u2014 note metadata branches worker single-asset notes preserve explicit asset knowledge",
+              "doSync \u2014 note metadata branches stamps each sync it writes, so readers can tell a live result from an old snapshot",
+              "doSync \u2014 note metadata branches repeats the last successful sync stamp on a pass whose sync failed",
+              "doSync \u2014 note metadata branches does not publish the stamp of a successful sync whose write never reached storage",
+              "doSync \u2014 note metadata branches handles when no account exists in client (assets array stays empty)",
+              "doSync \u2014 note metadata branches shows multi-note notification when multiple new notes arrive",
+              "doSync \u2014 note metadata branches uses ServiceWorkerRegistration.showNotification when available",
+              "doSync \u2014 syncState timeout + circuit breaker queues one forced retry when a sync is already in flight",
+              "doSync \u2014 syncState timeout + circuit breaker increments the failure counter when syncState rejects and trips the breaker after consecutive failures",
+              "doSync \u2014 syncState timeout + circuit breaker a successful syncState resets the failure counter mid-streak",
+              "doSync \u2014 syncState timeout + circuit breaker failing forced probes re-arm the window but never escalate it (#777)",
+              "doSync \u2014 syncState timeout + circuit breaker a successful forced probe closes the existing backoff window",
+              "doSync \u2014 syncState timeout + circuit breaker awaits init_vault when present (SW bundle simulation)",
+              "doSync \u2014 syncState timeout + circuit breaker the breaker closes after the backoff window elapses",
+              "doSync \u2014 native-note auto-consume fee-refused native batch has no single-note fallback or processing kick",
+              "doSync \u2014 native-note auto-consume does not auto-consume a native backlog worth less than the fee to claim it",
+              "doSync \u2014 native-note auto-consume leaves a note whose claim is held while the node decides out of the value check (#1081)",
+              "doSync \u2014 native-note auto-consume leaves a native note a dApp transaction completed moments ago out of the batch",
+              "doSync \u2014 native-note auto-consume leaves a native note a live dApp transaction will consume out of the batch",
+              "doSync \u2014 native-note auto-consume raises no \"click to claim\" notification for a native note a live dApp transaction will consume",
+              "doSync \u2014 native-note auto-consume auto-consumes a backlog of individually-marginal native notes in one transaction",
+              "doSync \u2014 native-note auto-consume fee identity: service worker auto-consumes actual native A instead of legacy B",
+              "doSync \u2014 native-note auto-consume auto-consumes native notes in ONE transaction, following the user delegated-proving setting",
+              "doSync \u2014 native-note auto-consume queues each note of a failed batch enqueue as auto-consume too",
+              "doSync \u2014 native-note auto-consume leaves the native notes of a rotation-pending account to its rotation gate (#805)",
+              "doSync \u2014 native-note auto-consume matches the worker store account however its id is spelled",
+              "doSync \u2014 native-note auto-consume still claims for an account the worker store lists without the rotation flag",
+              "doSync \u2014 native-note auto-consume does not auto-consume when the toggle is off",
+              "doSync \u2014 native-note auto-consume suppresses the \"click to claim\" notification for a native note it is auto-consuming",
+              "doSync \u2014 native-note auto-consume holds off until the popup has mirrored the user settings (migration window)",
+              "doSync \u2014 native-note auto-consume queues no claim while the vault is locked, and the first lap after unlock queues it",
+              "doSync \u2014 native-note auto-consume queues no claim when the vault locks while the lap reads the proving setting, and does on a lap unlocked throughout",
+              "doSync \u2014 native-note auto-consume resolves cleanly when the eligibility resolve (getFaucetIdSetting) rejects",
+              "doSync \u2014 native-note auto-consume resolves cleanly when the per-note enqueue rejects",
+              "doSync - zero-fill swap reclaim queues the reclaim of an expired zero-fill order with the request and clock its classification used",
+              "doSync - zero-fill swap reclaim builds and queues no reclaim while the vault is locked, and the first lap after unlock does",
+              "doSync - zero-fill swap reclaim checks a refused recovered order's note on the node after the note-read hold, from the service worker",
+              "doSync - zero-fill swap reclaim a lap whose note-read hold is evicted books a zero-fill build parked until the eviction once on its own key and none on claimable-notes",
+              "doSync - zero-fill swap reclaim a lap whose note-read hold is evicted books an eviction during the consumable-note read on neither key",
+              "doSync - zero-fill swap reclaim a lap whose note-read hold is evicted books no success from the build before one refused on the data after its eviction, so laps light the key",
+              "doSync - zero-fill swap reclaim a lap whose note-read hold is evicted books a build evicted in the tick it is refused on the data on its own key, not on claimable-notes",
+              "doSync - expired swap order settlement queues no settlement consume while the vault is locked, and the first lap after unlock queues it",
+              "doSync - expired swap order settlement worker settlement refuses token-only payback and remainder and still settles a funded order",
+              "doSync - expired swap order settlement queues no native claim and no settlement consume while the store is not initialized",
+              "doSync - expired swap order settlement queues no settlement consume when the vault locks while the lap stamps the expiry, and does on a lap unlocked throughout",
+              "doSync waits for the first override load dispatches no sync and reads no endpoint until the load settles, then runs the same lap",
+              "doSync drives the resultBytes reaper runs the reaper on a normal lap",
+              "doSync drives the resultBytes reaper runs the reaper even when the lap is short-circuited before any sync work"
+            ],
+            "new_pass_control_names": [
+              "doSync - expired swap order settlement keeps the ordinary omitted-flag settlement fallback to saved false",
+              "doSync - expired swap order settlement keeps the ordinary omitted-flag settlement fallback to saved true"
+            ],
+            "framework": {
+              "expect": {
+                "version": "30.4.1",
+                "artifact_prefix": "framework-expect",
+                "files": {
+                  "package.json": {
+                    "relative": "package.json",
+                    "sha256": "c0dcf2678d35a15774a7aebc71dcaeb3442f6b22d722e04ea0d68081ec6eb5a0",
+                    "bytes": 1132
+                  },
+                  "build.js": {
+                    "relative": "build/index.js",
+                    "sha256": "469add4932a11785006b19dbd1c041169b040d69cf4e27872892e0a7119368b4",
+                    "bytes": 112845
+                  }
+                }
+              },
+              "jest-each": {
+                "version": "30.4.1",
+                "artifact_prefix": "framework-jest-each",
+                "files": {
+                  "package.json": {
+                    "relative": "package.json",
+                    "sha256": "04e94a8aebba90cfe89fa257bb63e47efbe93494febf8f720e5f888ace3f9893",
+                    "bytes": 1004
+                  },
+                  "build.js": {
+                    "relative": "build/index.js",
+                    "sha256": "2efbb7982d44ab97a6f834a095999919f0e5a6f0dbd44c45dc5552a4a4e752fe",
+                    "bytes": 16347
+                  }
+                }
+              },
+              "jest-circus": {
+                "version": "30.4.2",
+                "artifact_prefix": "framework-jest-circus",
+                "files": {
+                  "package.json": {
+                    "relative": "package.json",
+                    "sha256": "488605fae2565092977981f56170340563a571a44e47bd9c7e2987319712e16b",
+                    "bytes": 1573
+                  },
+                  "build.js": {
+                    "relative": "build/jestAdapterInit.js",
+                    "sha256": "f64ef94daa71293d875d497f692c48de6f8cc72a70d1935449da6610aa9438d1",
+                    "bytes": 72464
+                  }
+                }
+              },
+              "@jest/core": {
+                "version": "30.4.2",
+                "artifact_prefix": "framework-jest-core",
+                "files": {
+                  "package.json": {
+                    "relative": "package.json",
+                    "sha256": "c6f7e4533f393266cbfcb1113fc81d26677aad1bdca105defd953c20ee378e5a",
+                    "bytes": 2369
+                  },
+                  "build.js": {
+                    "relative": "build/index.js",
+                    "sha256": "16ef0a75b6a8062fe9d4f74a23b88221928d23fdee50387ba4bb408b355a4f27",
+                    "bytes": 139198
+                  }
+                }
+              },
+              "jest-matcher-utils": {
+                "version": "30.4.1",
+                "artifact_prefix": "framework-jest-matcher-utils",
+                "files": {
+                  "package.json": {
+                    "relative": "package.json",
+                    "sha256": "b433966e038240bffcae1cf95997171145b8a343aef0713d5e6c22fdd72ebd84",
+                    "bytes": 987
+                  },
+                  "build.js": {
+                    "relative": "build/index.js",
+                    "sha256": "1bbf8b1afe9f59c06c9129e4d4ce7406089b5c1563bf019e1cfbfd9d69335b52",
+                    "bytes": 24759
+                  }
+                }
+              },
+              "jest-diff": {
+                "version": "30.4.1",
+                "artifact_prefix": "framework-jest-diff",
+                "files": {
+                  "package.json": {
+                    "relative": "package.json",
+                    "sha256": "6dd82db9a28d2d0dae9864605c2a478c97f57ffb952968c9f3a1a2eacb88ccef",
+                    "bytes": 877
+                  },
+                  "build.js": {
+                    "relative": "build/index.js",
+                    "sha256": "d35ee6ff8e1666e5a3f75c58426ab025ff2b012c983d0afb05a60b7ec2b7bab7",
+                    "bytes": 56173
+                  }
+                }
+              },
+              "pretty-format": {
+                "version": "30.4.1",
+                "artifact_prefix": "framework-pretty-format",
+                "files": {
+                  "package.json": {
+                    "relative": "package.json",
+                    "sha256": "816f475ae53780688516968fddef795c2f69c25ea9814b752553dd6d411e2564",
+                    "bytes": 1309
+                  },
+                  "build.js": {
+                    "relative": "build/index.js",
+                    "sha256": "a402d0283ddb1bc9a42d6d2605789b2573895114db88c6fb4070eca228a06d20",
+                    "bytes": 40721
+                  }
+                }
+              },
+              "jest": {
+                "version": "30.4.2",
+                "artifact_prefix": "framework-jest",
+                "files": {
+                  "package.json": {
+                    "relative": "package.json",
+                    "sha256": "90b2d495b4fdef80faefeeb26e275478bb3c1eeac15d587bbffb192ca3a4fa52",
+                    "bytes": 1467
+                  },
+                  "build.js": {
+                    "relative": "build/index.js",
+                    "sha256": "fe7074b98064efbccdd13c7ee9a8b2bb5f86f098b2c0f5667896e9c78af3b20d",
+                    "bytes": 2022
+                  }
+                }
+              }
+            },
+            "synchronous_matcher_stack": {
+              "expect_construct_line": 2200,
+              "capture_line": 2205,
+              "first_frame": "authored synchronous matcher; no resolves wrapper",
+              "serializer": "Pinned core serializes Error message/name/stack; matcherResult may be omitted"
+            },
+            "review_provenance_sha256": {
+              "report.md": "2a7cdc2d30071d4bc32746682c00e51de06b31156a6ee2686ec05bad55874fb4",
+              "predictions.json": "3f95792440859ef7a03ca4f92ca9cf03d94e7613c3559c115a6b9745a4e27022",
+              "checkpoint-receipt.json": "5d508bcd19816f24519a01c5360f990bef8d86e34a5abf0a750bc3d8efd0ce2d",
+              "normal-review-cli/result.json": "8f1bdd311f7f484559bac89d569b59525b45766f6fab64c90d0b8a9bf29478df",
+              "normal-review-cli/controller-acceptance.json": "54de50ae115453eaaa7fec0c1d6ad24e2a1b323cd39caa5c4c3d4a9bf237f681"
+            },
+            "commands": {
+              "source": [
+                "python3",
+                "$PROOF_DIR/proof-tools.py",
+                "source"
+              ],
+              "install": [
+                "timeout",
+                "10m",
+                "yarn",
+                "install",
+                "--frozen-lockfile",
+                "--non-interactive"
+              ],
+              "prepared": [
+                "python3",
+                "$PROOF_DIR/proof-tools.py",
+                "prepared"
+              ],
+              "format": [
+                "yarn",
+                "prettier",
+                "--check",
+                "src/lib/miden/back/sync-manager.test.ts"
+              ],
+              "eslint": [
+                "yarn",
+                "eslint",
+                "--max-warnings",
+                "0",
+                "src/lib/miden/back/sync-manager.test.ts"
+              ],
+              "typescript": [
+                "yarn",
+                "tsc",
+                "--noEmit",
+                "--pretty",
+                "false"
+              ],
+              "jest": [
+                "yarn",
+                "jest",
+                "--runTestsByPath",
+                "src/lib/miden/back/sync-manager.test.ts",
+                "--maxWorkers=2",
+                "--coverage=false",
+                "--no-colors",
+                "--json",
+                "--outputFile=$PROOF_DIR/jest.json"
+              ],
+              "final": [
+                "python3",
+                "$PROOF_DIR/proof-tools.py",
+                "final"
+              ],
+              "validate": [
+                "python3",
+                "$PROOF_DIR/proof-tools.py",
+                "validate"
+              ]
+            },
+            "logged_commands": [
+              "source",
+              "install",
+              "prepared",
+              "format",
+              "eslint",
+              "typescript",
+              "jest",
+              "final"
+            ],
+            "outcomes": [
+              "initialize",
+              "checkout",
+              "source",
+              "node",
+              "install",
+              "prepared",
+              "format",
+              "eslint",
+              "typescript",
+              "jest",
+              "final"
+            ],
+            "identity_keys": [
+              "HEAD_SHA",
+              "REF",
+              "EVENT",
+              "REPOSITORY",
+              "WORKFLOW_REF",
+              "WORKFLOW_SHA",
+              "RUN_ID",
+              "RUN_ATTEMPT"
+            ]
+          }
+          ''')
+          proof = Path(os.environ['PROOF_DIR'])
+
+
+          def git(*args):
+              return subprocess.check_output(['git', *args])
+
+
+          def value(*args):
+              return git(*args).decode().strip()
+
+
+          def digest(data):
+              return hashlib.sha256(data).hexdigest()
+
+
+          def save(name, data):
+              (proof / name).write_text(json.dumps(data, indent=2, ensure_ascii=True) + '\n')
+
+
+          def load(name):
+              return json.loads((proof / name).read_text())
+
+
+          def canonical(data):
+              return json.dumps(data, sort_keys=True, ensure_ascii=True, separators=(',', ':'))
+
+
+          def tree(ref):
+              entries = {}
+              for record in git('ls-tree', '-rz', ref).split(b'\0'):
+                  if record:
+                      metadata, name = record.split(b'\t', 1)
+                      entries[name.decode()] = metadata.decode().split()
+              return entries
+
+
+          def snapshot(label):
+              manifest = load('source-and-checkout.json')
+              entries = tree('HEAD')
+              working = {}
+              for name, entry in entries.items():
+                  path = Path(name)
+                  try:
+                      observed = path.lstat()
+                      if stat.S_ISLNK(observed.st_mode):
+                          kind, data = 'symlink', os.fsencode(os.readlink(path))
+                      elif stat.S_ISREG(observed.st_mode):
+                          kind, data = 'regular', path.read_bytes()
+                      else:
+                          raise ValueError('Unexpected file type')
+                      working[name] = {'git_entry': entry, 'sha256': digest(data), 'bytes': len(data),
+                                       'physical_mode': stat.S_IMODE(observed.st_mode), 'kind': kind,
+                                       'working_blob': hashlib.sha1(b'blob ' + str(len(data)).encode() + b'\0' + data).hexdigest()}
+                  except Exception as error:
+                      working[name] = {'error': str(error), 'git_entry': entry}
+              raw_stage = git('ls-files', '--stage', '-z')
+              staged = {}
+              for record in raw_stage.split(b'\0'):
+                  if record:
+                      metadata, name = record.split(b'\t', 1)
+                      staged[name.decode()] = metadata.decode().split()
+              index_path = Path(value('rev-parse', '--git-path', 'index'))
+              assert index_path.is_file() and not index_path.is_symlink(), 'Missing or symlinked index'
+              raw_index = index_path.read_bytes()
+              (proof / (label + '.index.bin')).write_bytes(raw_index)
+              (proof / (label + '.index-stage.bin')).write_bytes(raw_stage)
+              record = {'head': value('rev-parse', 'HEAD'), 'tree': value('rev-parse', 'HEAD^{tree}'),
+                        'committed_entries': entries, 'index_entries': staged,
+                        'index_sha256': digest(raw_index), 'index_stage_sha256': digest(raw_stage),
+                        'working_entries': working, 'status': value('status', '--porcelain=v2', '--untracked-files=all')}
+              save(label + '.map.json', record)
+              validate_snapshot(label)
+              return record
+
+
+          def validate_snapshot(label):
+              manifest = load('source-and-checkout.json')
+              record = load(label + '.map.json')
+              entries = manifest['checkout_entry_map']
+              assert record['head'] == manifest['checkout_commit'] and record['tree'] == manifest['checkout_tree'], 'Head/tree drift'
+              assert record['committed_entries'] == entries, 'Committed entry drift'
+              assert record['index_entries'] == {name: [entry[0], entry[2], '0'] for name, entry in entries.items()}, 'Index entry drift'
+              assert digest((proof / (label + '.index.bin')).read_bytes()) == record['index_sha256'], 'Index evidence drift'
+              assert digest((proof / (label + '.index-stage.bin')).read_bytes()) == record['index_stage_sha256'], 'Stage evidence drift'
+              assert set(record['working_entries']) == set(entries) and not record['status'], 'Working inventory/status drift'
+              for name, entry in entries.items():
+                  observed = record['working_entries'][name]
+                  assert observed.get('working_blob') == entry[2] and observed['git_entry'] == entry, 'Working bytes drift: ' + name
+                  assert entry[1] == 'blob' and entry[0] in ['100644', '100755', '120000'], 'Unsupported Git entry'
+                  assert observed['kind'] == ('symlink' if entry[0] == '120000' else 'regular'), 'File type drift: ' + name
+                  if entry[0] != '120000':
+                      assert bool(observed['physical_mode'] & 0o111) == (entry[0] == '100755'), 'Executable mode drift: ' + name
+              baseline = record if label == 'source-clean' else load('source-clean.map.json')
+              for key in ['head', 'tree', 'committed_entries', 'index_entries', 'index_sha256', 'index_stage_sha256', 'working_entries', 'status']:
+                  assert record[key] == baseline[key], 'Source/index snapshot drift: ' + key
+              return digest((proof / (label + '.map.json')).read_bytes())
+
+
+          def identity():
+              save('run-identity.json', {key: os.environ['PROOF_' + key] for key in BINDINGS['identity_keys']})
+              save('bindings.json', BINDINGS)
+              save('expected-case-inventory.json', BINDINGS['inventory'])
+
+
+          def source():
+              head = value('rev-parse', 'HEAD')
+              before, after = tree(BINDINGS['source']), tree(head)
+              manifest = {'source_commit': BINDINGS['source'], 'source_tree': value('rev-parse', BINDINGS['source'] + '^{tree}'),
+                          'checkout_commit': head, 'checkout_tree': value('rev-parse', 'HEAD^{tree}'),
+                          'source_entry_map': before, 'checkout_entry_map': after,
+                          'workflow_sha256': digest(Path(BINDINGS['workflow']).read_bytes()),
+                          'proof_tools_sha256': digest(Path(__file__).read_bytes()),
+                          'runner_helper_sha256': digest((proof / 'run-logged.bash').read_bytes())}
+              save('source-and-checkout.json', manifest)
+              save('source-entry-map.json', before)
+              save('checkout-entry-map.json', after)
+              for label, ref in [('source', BINDINGS['source']), ('checkout', head), ('main', BINDINGS['main'])]:
+                  (proof / (label + '-commit.txt')).write_bytes(git('cat-file', 'commit', ref))
+                  (proof / (label + '-tree.txt')).write_bytes(git('ls-tree', '-r', ref))
+              (proof / 'workflow.yml').write_bytes(Path(BINDINGS['workflow']).read_bytes())
+              (proof / 'expanded-source.test.ts').write_bytes(Path(BINDINGS['test_path']).read_bytes())
+              (proof / 'workflow-only.diff').write_bytes(git('diff', '--binary', BINDINGS['source'], head))
+              (proof / 'test-only.diff').write_bytes(git('diff', '--binary', BINDINGS['main'], BINDINGS['source']))
+              assert head == os.environ['PROOF_HEAD_SHA'] == os.environ['PROOF_WORKFLOW_SHA'], 'Event/workflow/head mismatch'
+              assert os.environ['PROOF_EVENT'] == 'push' and os.environ['PROOF_REF'] == 'refs/heads/' + BINDINGS['branch'], 'Unique push branch required'
+              assert os.environ['PROOF_REPOSITORY'] == '0xMiden/wallet', 'Unexpected repository'
+              assert os.environ['PROOF_WORKFLOW_REF'] == os.environ['PROOF_REPOSITORY'] + '/' + BINDINGS['workflow'] + '@' + os.environ['PROOF_REF'], 'Workflow ref mismatch'
+              assert all(os.environ['PROOF_' + key].isdigit() for key in ['RUN_ID', 'RUN_ATTEMPT']), 'Missing run identity'
+              assert manifest['source_tree'] == BINDINGS['source_tree'], 'Frozen source tree mismatch'
+              assert value('rev-list', '--parents', '-n', '1', BINDINGS['source']).split() == [BINDINGS['source'], BINDINGS['main']], 'Source parent mismatch'
+              assert value('rev-list', '--parents', '-n', '1', head).split() == [head, BINDINGS['source']], 'One direct transport commit required'
+              assert len(before) == 3614 and len(after) == 3615, 'Source/transport entry count mismatch'
+              assert all(after.get(name) == entry for name, entry in before.items()), 'Frozen source entries changed'
+              assert set(after) - set(before) == {BINDINGS['workflow']} and after[BINDINGS['workflow']][:2] == ['100644', 'blob'], 'Only regular workflow may be added'
+              assert digest(Path(BINDINGS['test_path']).read_bytes()) == BINDINGS['inventory']['source_sha256'], 'Expanded test bytes changed'
+              lines = Path(BINDINGS['test_path']).read_text().splitlines()
+              for site in BINDINGS['failure_sites'].values():
+                  assert lines[site['line'] - 1] == site['source'], 'Authored matcher moved'
+              snapshot('source-clean')
+              print('Bound frozen 3614-entry source, sole workflow addition, complete 97-case inventory and exact push provenance')
+
+
+          def prepared():
+              snapshot('prepared')
+              assert digest(Path('yarn.lock').read_bytes()) == BINDINGS['lock_sha256'], 'Frozen lockfile changed'
+              identities = {}
+              for name, binding in BINDINGS['framework'].items():
+                  observed = {}
+                  for key, path in binding['files'].items():
+                      local = Path('node_modules') / name / path['relative']
+                      assert local.is_file() and not local.is_symlink(), 'Missing framework file'
+                      data = local.read_bytes()
+                      assert digest(data) == path['sha256'], 'Pinned framework bytes mismatch: ' + name
+                      output = binding['artifact_prefix'] + '-' + key
+                      (proof / output).write_bytes(data)
+                      observed[key] = {'sha256': digest(data), 'bytes': len(data), 'artifact': output}
+                      if key == 'package.json':
+                          assert json.loads(data)['version'] == binding['version'], 'Pinned framework version mismatch'
+                  identities[name] = {'version': binding['version'], 'files': observed}
+              save('framework-identities.json', identities)
+              save('tool-versions.json', {name: subprocess.check_output([name, '--version'], text=True).strip() for name in ['node', 'yarn']})
+              print('Verified frozen install source/index and exact Jest matcher, each, circus and serializer implementations')
+
+
+          def plain(message):
+              return re.sub(r'\x1b\[[0-9;]*m', '', message)
+
+
+          def diff_arrays(message):
+              prefix = 'expect(received).toEqual(expected) // deep equality\n\n'
+              assert message.startswith(prefix), 'Wrong matcher prefix'
+              match = re.fullmatch(r'- Expected  - (\d+)\n\+ Received  \+ (\d+)\n\n(.+)', message[len(prefix):], re.DOTALL)
+              assert match, 'Unexpected toEqual array diff'
+              expected, actual = [], []
+              removed = added = 0
+              for line in match[3].splitlines():
+                  assert line[:2] in ['  ', '- ', '+ '], 'Unexpected diff marker'
+                  content = line[2:]
+                  if line[:2] != '+ ':
+                      expected.append(content)
+                  if line[:2] != '- ':
+                      actual.append(content)
+                  removed += line[:2] == '- '
+                  added += line[:2] == '+ '
+              assert (removed, added) == (int(match[1]), int(match[2])), 'Diff annotation mismatch'
+
+              def array(lines):
+                  text = '\n'.join(lines).strip()
+                  assert text.startswith('Array ['), 'Expected pretty-format Array'
+                  text = re.sub(r',\s*\]', '\n]', text[len('Array '):])
+                  data = json.loads(text)
+                  assert isinstance(data, list), 'Nonarray diff'
+                  return data
+
+              return array(expected), array(actual)
+
+
+          def checked_result():
+              result = load('jest.json')
+              assert len(result['testResults']) == 1, 'Exactly one suite required'
+              suite = result['testResults'][0]
+              assert suite['name'] == str(Path.cwd() / BINDINGS['test_path']) and suite['status'] == 'failed', 'Wrong suite or status'
+              cases = suite['assertionResults']
+              expected_cases = {case['full_name']: case for case in BINDINGS['inventory']['cases']}
+              assert len(cases) == len(expected_cases) == 97, 'Missing/extra cases'
+              names = [case['fullName'] for case in cases]
+              assert len(set(names)) == 97 and set(names) == set(expected_cases), 'Wrong/duplicate full inventory'
+              failures = {}
+              for case in cases:
+                  name = case['fullName']
+                  expected_case = expected_cases[name]
+                  assert case['ancestorTitles'] == expected_case['ancestor_titles'] and case['title'] == expected_case['title'], 'Nested case identity mismatch'
+                  assert case['failing'] is False and case['invocations'] == 1 and case['retryReasons'] == [], 'Retry or expected-failing case'
+                  site = BINDINGS['failure_sites'].get(name)
+                  if site is None:
+                      assert case['status'] == 'passed' and case['failureMessages'] == [] and case['failureDetails'] == [], 'Old/new control failed: ' + name
+                      continue
+                  assert case['status'] == 'failed' and len(case['failureMessages']) == len(case['failureDetails']) == 1, 'Wrong failure count'
+                  assert case['numPassingAsserts'] == site['passing_assertions_before_failure'], 'Wrong first failing assertion'
+                  message = plain(case['failureMessages'][0])
+                  prefix, stack = re.split(r'\n\s+at ', message, maxsplit=1)
+                  assert prefix.startswith('Error: '), 'Wrong authored matcher error type'
+                  expected, actual = diff_arrays(prefix[len('Error: '):].rstrip())
+                  assert canonical(expected) == canonical(site['expected']) and canonical(actual) == canonical(site['received']), 'Wrong expected/received array'
+                  frames = re.split(r'\n\s+at ', stack)
+                  first = frames[0].strip()
+                  authored = r'^[^\n]*\(' + re.escape(str(Path.cwd() / BINDINGS['test_path'])) + ':' + str(site['line']) + r':[1-9][0-9]*\)$'
+                  assert re.fullmatch(authored, first), 'First stack frame must be the exact authored synchronous matcher'
+                  detail = case['failureDetails'][0]
+                  assert isinstance(detail, dict) and detail.get('name') == 'Error', 'Unexpected structured error type'
+                  assert plain(detail['message']).rstrip() == prefix[len('Error: '):].rstrip(), 'Raw/structured matcher mismatch'
+                  assert plain(detail['stack']) == message, 'Structured stack mismatch'
+                  if 'matcherResult' in detail:
+                      matcher = detail['matcherResult']
+                      assert matcher['name'] == 'toEqual' and matcher['pass'] is False, 'Unexpected structured matcher'
+                      assert canonical(matcher['expected']) == canonical(expected) and canonical(matcher['actual']) == canonical(actual), 'Structured values mismatch'
+                  failures[name] = {'line': site['line'], 'first_authored_frame': first,
+                                    'matcher': 'toEqual', 'expected': expected, 'received': actual,
+                                    'passing_assertions_before_failure': case['numPassingAsserts'],
+                                    'post_failure_assertions': 'UNRUN; no credit'}
+              assert set(failures) == set(BINDINGS['failure_sites']) and len(failures) == 3, 'Exact authored failure set required'
+              for key, count in {'numTotalTestSuites': 1, 'numFailedTestSuites': 1, 'numPassedTestSuites': 0,
+                                 'numTotalTests': 97, 'numFailedTests': 3, 'numPassedTests': 94,
+                                 'numPendingTestSuites': 0, 'numPendingTests': 0, 'numTodoTests': 0,
+                                 'numRuntimeErrorTestSuites': 0}.items():
+                  assert result[key] == count, 'Wrong summary: ' + key
+              assert result['success'] is False and result['wasInterrupted'] is False and result['openHandles'] == [], 'Interrupted/runtime result'
+              assert result['snapshot']['failure'] is False and result['snapshot']['unmatched'] == 0 and result['snapshot']['unchecked'] == 0, 'Snapshot error'
+              return {'total': 97, 'passed': 94, 'failed': 3, 'retained_controls_passed': 92, 'new_omitted_flag_controls_passed': 2, 'exact_failures': failures}
+
+
+          def required_files(final=False):
+              required = ['run-identity.json', 'bindings.json', 'expected-case-inventory.json', 'run-logged.bash', 'proof-tools.py',
+                          'source-and-checkout.json', 'source-entry-map.json', 'checkout-entry-map.json', 'workflow.yml',
+                          'expanded-source.test.ts', 'workflow-only.diff', 'test-only.diff', 'tool-versions.json',
+                          'framework-identities.json', 'jest.json', 'step-outcomes.json']
+              required += [label + suffix for label in ['source', 'checkout', 'main'] for suffix in ['-commit.txt', '-tree.txt']]
+              required += [label + suffix for label in BINDINGS['logged_commands'] for suffix in ['.log', '.exit', '.tee.exit', '.command.json']]
+              required += [label + suffix for label in ['source-clean', 'prepared', 'final-clean', 'final-validation-clean'] for suffix in ['.map.json', '.index.bin', '.index-stage.bin']]
+              required += [binding['artifact_prefix'] + '-' + key for binding in BINDINGS['framework'].values() for key in binding['files']]
+              if final:
+                  required += ['test-set-validation.json', 'validation-completeness.json']
+                  required += ['validate' + suffix for suffix in ['.log', '.exit', '.tee.exit', '.command.json']]
+              return required
+
+
+          def completeness(name, required):
+              missing = [item for item in required if not (proof / item).is_file() or (proof / item).is_symlink() or not (proof / item).stat().st_size]
+              save(name, {'required': required, 'missing_or_empty': missing})
+              assert not missing, 'Missing/empty evidence: ' + repr(missing)
+
+
+          def validate_commands(labels):
+              for label in labels:
+                  assert (proof / (label + '.exit')).read_text().strip() == ('1' if label == 'jest' else '0'), 'Wrong natural exit: ' + label
+                  assert (proof / (label + '.tee.exit')).read_text().strip() == '0', 'Tee failure: ' + label
+                  command = load(label + '.command.json')
+                  expected = [argument.replace('$PROOF_DIR', str(proof)) for argument in BINDINGS['commands'][label]]
+                  assert command['argv'] == expected and command['cwd'] == str(Path.cwd()), 'Command identity mismatch: ' + label
+
+
+          def validate():
+              outcomes = {name: os.environ.get(name.upper() + '_OUTCOME', 'missing') for name in BINDINGS['outcomes']}
+              save('step-outcomes.json', outcomes)
+              validation = {'status': 'INVALID', 'runtime': 'UNACCEPTED', 'production_gate': 'CLOSED', 'outcomes': outcomes}
+              try:
+                  snapshot('final-validation-clean')
+                  completeness('validation-completeness.json', required_files())
+                  for name, outcome in outcomes.items():
+                      assert outcome == ('failure' if name == 'jest' else 'success'), 'Independent step failed/skipped/cancelled: ' + name
+                  validate_commands(BINDINGS['logged_commands'])
+                  manifest = load('source-and-checkout.json')
+                  assert manifest['source_commit'] == BINDINGS['source'] and manifest['source_tree'] == BINDINGS['source_tree'], 'Source receipt changed'
+                  assert manifest['source_entry_map'] == tree(BINDINGS['source']) == load('source-entry-map.json'), 'Source map changed'
+                  assert manifest['checkout_entry_map'] == tree('HEAD') == load('checkout-entry-map.json'), 'Checkout map changed'
+                  assert all(manifest['checkout_entry_map'][name] == entry for name, entry in manifest['source_entry_map'].items()), 'Source entries changed'
+                  assert set(manifest['checkout_entry_map']) - set(manifest['source_entry_map']) == {BINDINGS['workflow']}, 'Sole workflow addition changed'
+                  assert manifest['proof_tools_sha256'] == digest(Path(__file__).read_bytes()), 'Validator bytes changed'
+                  assert manifest['runner_helper_sha256'] == digest((proof / 'run-logged.bash').read_bytes()), 'Logging helper changed'
+                  assert manifest['workflow_sha256'] == digest(Path(BINDINGS['workflow']).read_bytes()) == digest((proof / 'workflow.yml').read_bytes()), 'Workflow bytes changed'
+                  assert (proof / 'expanded-source.test.ts').read_bytes() == Path(BINDINGS['test_path']).read_bytes(), 'Expanded evidence changed'
+                  assert load('bindings.json') == BINDINGS and load('expected-case-inventory.json') == BINDINGS['inventory'], 'Case bindings changed'
+                  assert load('run-identity.json') == {key: os.environ['PROOF_' + key] for key in BINDINGS['identity_keys']}, 'Run identity changed'
+                  for name, binding in BINDINGS['framework'].items():
+                      for key, file in binding['files'].items():
+                          assert digest((proof / (binding['artifact_prefix'] + '-' + key)).read_bytes()) == file['sha256'], 'Framework evidence changed'
+                          assert digest((Path('node_modules') / name / file['relative']).read_bytes()) == file['sha256'], 'Installed framework changed'
+                  tests = checked_result()
+                  snapshots = {label: validate_snapshot(label) for label in ['source-clean', 'prepared', 'final-clean', 'final-validation-clean']}
+                  validation.update({'status': 'EXACT_THREE_AUTHORED_ASSERTIONS_ONLY', 'runtime': 'ACTUAL_GUARDED_CI_RED',
+                                     'production_gate': 'ELIGIBLE_FOR_ROOT_ACCEPTANCE_ONLY', 'tests': tests,
+                                     'snapshot_sha256': snapshots, 'merge': 'NEVER_MERGE_TRANSPORT',
+                                     'limits': 'No later assertions, source fix, coverage, final review or merge credit'})
+                  print('Observed exactly three authored toEqual failures at 2511/2574; all other 94 cases and independent gates pass; natural Jest red retained')
+              except Exception as error:
+                  validation['reason'] = str(error)
+                  raise
+              finally:
+                  save('test-set-validation.json', validation)
+
+
+          def seal():
+              receipt = {'status': 'INVALID', 'production_gate': 'CLOSED', 'upload': 'PENDING_EXTERNAL_OBSERVATION'}
+              try:
+                  completeness('evidence-completeness.json', required_files(final=True))
+                  validate_commands(['validate'])
+                  assert load('test-set-validation.json')['status'] == 'EXACT_THREE_AUTHORED_ASSERTIONS_ONLY', 'Validator did not accept exact failures'
+                  receipt.update({'status': 'COMPLETE_ELIGIBLE_FOR_ROOT_ACCEPTANCE_ONLY', 'production_gate': 'ROOT_ACCEPTANCE_REQUIRED'})
+              except Exception as error:
+                  receipt['reason'] = str(error)
+                  raise
+              finally:
+                  save('seal-receipt.json', receipt)
+                  files = {}
+                  for path in sorted(proof.rglob('*')):
+                      if path.is_file() and path.name != 'hash-manifest.json':
+                          assert not path.is_symlink(), 'Unexpected evidence symlink'
+                          data = path.read_bytes()
+                          files[path.relative_to(proof).as_posix()] = {'bytes': len(data), 'sha256': digest(data)}
+                  save('hash-manifest.json', {'algorithm': 'sha256', 'self_excluded': ['hash-manifest.json'], 'files': files})
+
+
+          mode = sys.argv[1]
+          if mode == 'identity':
+              identity()
+          elif mode == 'source':
+              source()
+          elif mode == 'prepared':
+              prepared()
+          elif mode == 'final':
+              snapshot('final-clean')
+              print('Recorded final source/index identities; any drift remains visible and invalid')
+          elif mode == 'validate':
+              validate()
+          elif mode == 'seal':
+              seal()
+          else:
+              raise ValueError('Unknown proof mode')
+          PYTHON_HELPER
+          python3 "$PROOF_DIR/proof-tools.py" identity
+
+      - name: Checkout exact transport head
+        id: checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Bind frozen source and sole workflow addition
+        id: source
+        if: ${{ !cancelled() && steps.initialize.outcome == 'success' && steps.checkout.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged source python3 "$PROOF_DIR/proof-tools.py" source
+
+      - name: Setup Node22
+        id: node
+        if: ${{ !cancelled() && steps.source.outcome == 'success' }}
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+
+      - name: Install frozen dependencies with normal preparation hooks
+        id: install
+        if: ${{ !cancelled() && steps.source.outcome == 'success' && steps.node.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged install timeout 10m yarn install --frozen-lockfile --non-interactive
+
+      - name: Verify post-install source index and pinned Jest implementation
+        id: prepared
+        if: ${{ !cancelled() && steps.source.outcome == 'success' && steps.install.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged prepared python3 "$PROOF_DIR/proof-tools.py" prepared
+
+      - name: Check named test formatting
+        id: format
+        if: ${{ !cancelled() && steps.source.outcome == 'success' && steps.install.outcome == 'success' && steps.prepared.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged format yarn prettier --check src/lib/miden/back/sync-manager.test.ts
+
+      - name: Lint named test without warnings
+        id: eslint
+        if: ${{ !cancelled() && steps.source.outcome == 'success' && steps.install.outcome == 'success' && steps.prepared.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged eslint yarn eslint --max-warnings 0 src/lib/miden/back/sync-manager.test.ts
+
+      - name: Check TypeScript without emitting
+        id: typescript
+        if: ${{ !cancelled() && steps.source.outcome == 'success' && steps.install.outcome == 'success' && steps.prepared.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged typescript yarn tsc --noEmit --pretty false
+
+      - name: Run the complete 97-case sync-manager suite with natural Jest red
+        id: jest
+        if: ${{ !cancelled() && steps.source.outcome == 'success' && steps.install.outcome == 'success' && steps.prepared.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged jest yarn jest --runTestsByPath src/lib/miden/back/sync-manager.test.ts --maxWorkers=2 --coverage=false --no-colors --json --outputFile="$PROOF_DIR/jest.json"
+
+      - name: Always record final source and index drift
+        id: final
+        if: ${{ always() }}
+        run: |
+          set -euo pipefail
+          umask 077
+          export PROOF_DIR="${PROOF_DIR:-$RUNNER_TEMP/wallet1644-current-preference-red}"
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged final python3 "$PROOF_DIR/proof-tools.py" final
+
+      - name: Require exactly the three authored matcher failures and seal all evidence
+        id: validate
+        if: always()
+        env:
+          INITIALIZE_OUTCOME: ${{ steps.initialize.outcome }}
+          CHECKOUT_OUTCOME: ${{ steps.checkout.outcome }}
+          SOURCE_OUTCOME: ${{ steps.source.outcome }}
+          NODE_OUTCOME: ${{ steps.node.outcome }}
+          INSTALL_OUTCOME: ${{ steps.install.outcome }}
+          PREPARED_OUTCOME: ${{ steps.prepared.outcome }}
+          FORMAT_OUTCOME: ${{ steps.format.outcome }}
+          ESLINT_OUTCOME: ${{ steps.eslint.outcome }}
+          TYPESCRIPT_OUTCOME: ${{ steps.typescript.outcome }}
+          JEST_OUTCOME: ${{ steps.jest.outcome }}
+          FINAL_OUTCOME: ${{ steps.final.outcome }}
+        run: |
+          set -euo pipefail
+          umask 077
+          export PROOF_DIR="${PROOF_DIR:-$RUNNER_TEMP/wallet1644-current-preference-red}"
+          source "$PROOF_DIR/run-logged.bash"
+          validator_exit=0
+          run_logged validate python3 "$PROOF_DIR/proof-tools.py" validate || validator_exit=$?
+          seal_exit=0
+          python3 "$PROOF_DIR/proof-tools.py" seal || seal_exit=$?
+          if [ "$validator_exit" -ne 0 ]; then exit "$validator_exit"; fi
+          exit "$seal_exit"
+
+      - name: Always retain complete raw evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wallet1644-current-preference-red-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/wallet1644-current-preference-red
+          if-no-files-found: error
+          retention-days: 7
