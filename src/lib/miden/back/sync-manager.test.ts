@@ -2017,7 +2017,7 @@ describe('doSync - zero-fill swap reclaim', () => {
         expect.objectContaining({ id: 'zero-fill-tip' }),
         reclaimBytes,
         'swap-1',
-        undefined,
+        true,
         expect.any(Function)
       );
       const [classified] = mockSettlementSeen.classify;
@@ -2059,7 +2059,7 @@ describe('doSync - zero-fill swap reclaim', () => {
         expect.objectContaining({ id: 'zero-fill-tip' }),
         reclaimBytes,
         'swap-1',
-        undefined,
+        true,
         expect.any(Function)
       );
       expect(startTransactionProcessing).toHaveBeenCalledTimes(1);
