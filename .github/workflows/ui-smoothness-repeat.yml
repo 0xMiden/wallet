@@ -35,14 +35,14 @@ jobs:
       - name: Run Install
         uses: ./.github/actions/yarn-install
 
-      - name: Install Playwright Chromium
+      - name: Install Playwright Chrome
         timeout-minutes: 12
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install --with-deps chrome
 
       - name: Measure the same build repeatedly
         timeout-minutes: 40
         env:
-          BENCH_BROWSER: chromium
+          BENCH_BROWSER: chrome
           REPEATS: ${{ inputs.repeats }}
         run: |
           set -euo pipefail

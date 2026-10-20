@@ -145,7 +145,7 @@ it('starts the slide on the frame the layout moved', () => {
   try {
     render(<Harness />);
     top = 500;
-    let slide: { startTime?: number } | undefined;
+    let slide: { startTime?: number; cancel: () => void; onfinish: null } | undefined;
     animateMock.mockImplementation(() => {
       slide = { cancel: jest.fn(), onfinish: null };
       return slide;
