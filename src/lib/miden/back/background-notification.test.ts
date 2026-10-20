@@ -144,3 +144,78 @@ describe('notifyBackgroundTransactionNotConfirmed', () => {
     expect(notificationsCreate).not.toHaveBeenCalled();
   });
 });
+
+describe('showBackgroundNotification fallible service-worker attempt', () => {
+  it('keeps a successful service-worker notification as the only delivery', async () => {
+    const showNotification = jest.fn().mockResolvedValue(undefined);
+    Object.defineProperty(globalThis, 'registration', { configurable: true, value: { showNotification } });
+
+    expect(showBackgroundNotification('Title', 'Body', 'success-id')).toBeUndefined();
+    await Promise.resolve();
+
+    expect(showNotification).toHaveBeenCalledWith('Title', {
+      body: 'Body',
+      icon: 'misc/logo-white-bg-128.png',
+      requireInteraction: true
+    });
+    expect(notificationsCreate).not.toHaveBeenCalled();
+  });
+
+  it('falls back with the default id when the service-worker attempt throws', () => {
+    const showNotification = jest.fn(() => {
+      throw new TypeError('service-worker notification unavailable');
+    });
+    Object.defineProperty(globalThis, 'registration', { configurable: true, value: { showNotification } });
+
+    expect(() => showBackgroundNotification('Title', 'Body')).not.toThrow();
+    expect(notificationsCreate).toHaveBeenCalledTimes(1);
+    expect(notificationsCreate).toHaveBeenCalledWith(
+      'miden-background',
+      {
+        type: 'basic',
+        iconUrl: 'misc/logo-white-bg-128.png',
+        title: 'Title',
+        message: 'Body',
+        requireInteraction: true
+      },
+      expect.any(Function)
+    );
+  });
+
+  it('falls back once with the custom id when the service-worker promise rejects', async () => {
+    const attempt = Promise.reject(new TypeError('service-worker notification unavailable'));
+    void attempt.catch(() => undefined);
+    const showNotification = jest.fn().mockReturnValue(attempt);
+    Object.defineProperty(globalThis, 'registration', { configurable: true, value: { showNotification } });
+
+    expect(showBackgroundNotification('Title', 'Body', 'failure-id')).toBeUndefined();
+    await Promise.resolve();
+
+    expect(notificationsCreate).toHaveBeenCalledTimes(1);
+    expect(notificationsCreate).toHaveBeenCalledWith(
+      'failure-id',
+      {
+        type: 'basic',
+        iconUrl: 'misc/logo-white-bg-128.png',
+        title: 'Title',
+        message: 'Body',
+        requireInteraction: true
+      },
+      expect.any(Function)
+    );
+  });
+
+  it('stays quiet after rejection when the Chrome notification API is absent', async () => {
+    const attempt = Promise.reject(new TypeError('service-worker notification unavailable'));
+    void attempt.catch(() => undefined);
+    const showNotification = jest.fn().mockReturnValue(attempt);
+    Object.defineProperty(globalThis, 'registration', { configurable: true, value: { showNotification } });
+    Reflect.deleteProperty(chrome, 'notifications');
+
+    expect(showBackgroundNotification('Title', 'Body')).toBeUndefined();
+    await Promise.resolve();
+
+    expect(showNotification).toHaveBeenCalledTimes(1);
+    expect(notificationsCreate).not.toHaveBeenCalled();
+  });
+});
