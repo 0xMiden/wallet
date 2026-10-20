@@ -12,17 +12,20 @@ let mockMode: 'active' | 'launcher' = 'active';
 let mockExtension = false;
 let mockPolicyPending = false;
 const mockLauncherCommit = jest.fn();
+const mockLauncherFeedback = React.createContext<((active: boolean) => void) | null>(null);
 
 jest.mock('app/env', () => ({ openUrlInNewTab: jest.fn() }));
 jest.mock('app/providers/DappBrowserProvider', () => ({
   useDappBrowser: () => {
+    const ReactActual = jest.requireActual<typeof React>('react');
+    const reportLauncherCommit = ReactActual.useContext(mockLauncherFeedback) ?? mockLauncherCommit;
     // As the real hook does outside its provider, which only mobile mounts.
     if (mockExtension) throw new Error('useDappBrowser must be used inside <DappBrowserProvider>');
     return {
       mode: mockMode,
       open: jest.fn(),
       policyPending: mockPolicyPending,
-      reportLauncherCommit: mockLauncherCommit
+      reportLauncherCommit
     };
   }
 }));
@@ -181,4 +184,93 @@ it('retains the launcher during policy discovery without reporting a close desti
   expect(screen.getByTestId('dapp-active')).toBe(active);
   expect(screen.getByTestId('dapp-launcher')).toBe(launcher);
   expect(launcher).not.toBeVisible();
+});
+
+describe('launcher destination receipts', () => {
+  const FeedbackParent = ({ onReport }: { onReport: (active: boolean) => void }) => {
+    const [committed, setCommitted] = React.useState(false);
+    const reportLauncherCommit = React.useCallback(
+      (active: boolean) => {
+        onReport(active);
+        setCommitted(active);
+      },
+      [onReport]
+    );
+    return (
+      <mockLauncherFeedback.Provider value={reportLauncherCommit}>
+        <output data-testid="launcher-destination">{committed ? 'committed' : 'withdrawn'}</output>
+        {view(true)}
+      </mockLauncherFeedback.Provider>
+    );
+  };
+
+  it('settles parent state feedback without a maximum-depth error', () => {
+    mockMode = 'launcher';
+    const onReport = jest.fn();
+    expect(() => render(<FeedbackParent onReport={onReport} />)).not.toThrow();
+    expect(screen.getByTestId('launcher-destination')).toHaveTextContent('committed');
+    expect(screen.getByTestId('dapp-launcher')).toBeVisible();
+  });
+
+  it('does not withdraw a mounted launcher destination during parent state feedback', () => {
+    mockMode = 'launcher';
+    const reports: { active: boolean; launcherConnected: boolean }[] = [];
+    const onReport = (active: boolean) => {
+      reports.push({ active, launcherConnected: screen.queryByTestId('dapp-launcher')?.isConnected ?? false });
+    };
+    render(<FeedbackParent onReport={onReport} />);
+    expect(screen.getByTestId('launcher-destination')).toHaveTextContent('committed');
+    expect(reports.filter(report => !report.active && report.launcherConnected)).toEqual([]);
+  });
+
+  it('does not withdraw the destination when its retained launcher rerenders unchanged', () => {
+    mockMode = 'launcher';
+    const { rerender } = render(view(true));
+    const launcher = screen.getByTestId('dapp-launcher');
+    mockLauncherCommit.mockClear();
+    rerender(view(true));
+    expect(screen.getByTestId('dapp-launcher')).toBe(launcher);
+    expect(launcher).toBeVisible();
+    expect(mockLauncherCommit).not.toHaveBeenCalledWith(false);
+  });
+
+  it('withdraws the destination while its retained page is off screen and restores it on return', () => {
+    mockMode = 'launcher';
+    const { rerender } = render(view(true));
+    const launcher = screen.getByTestId('dapp-launcher');
+    expect(mockLauncherCommit).toHaveBeenLastCalledWith(true);
+    rerender(view(false));
+    expect(screen.getByTestId('dapp-launcher')).toBe(launcher);
+    expect(mockLauncherCommit).toHaveBeenLastCalledWith(false);
+    rerender(view(true));
+    expect(screen.getByTestId('dapp-launcher')).toBe(launcher);
+    expect(mockLauncherCommit).toHaveBeenLastCalledWith(true);
+  });
+
+  it('withdraws the destination for an active dApp and restores the same launcher when it closes', () => {
+    mockMode = 'launcher';
+    const { rerender } = render(view(true));
+    const launcher = screen.getByTestId('dapp-launcher');
+    expect(mockLauncherCommit).toHaveBeenLastCalledWith(true);
+    mockMode = 'active';
+    rerender(view(true));
+    expect(launcher).not.toBeVisible();
+    expect(mockLauncherCommit).toHaveBeenLastCalledWith(false);
+    mockMode = 'launcher';
+    rerender(view(true));
+    expect(screen.getByTestId('dapp-launcher')).toBe(launcher);
+    expect(launcher).toBeVisible();
+    expect(mockLauncherCommit).toHaveBeenLastCalledWith(true);
+  });
+
+  it('withdraws the destination when the browser screen actually unmounts', () => {
+    mockMode = 'launcher';
+    const { unmount } = render(view(true));
+    const launcher = screen.getByTestId('dapp-launcher');
+    expect(mockLauncherCommit).toHaveBeenLastCalledWith(true);
+    mockLauncherCommit.mockClear();
+    unmount();
+    expect(launcher).not.toBeInTheDocument();
+    expect(mockLauncherCommit).toHaveBeenLastCalledWith(false);
+  });
 });
