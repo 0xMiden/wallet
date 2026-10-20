@@ -11,6 +11,7 @@ import {
 } from 'lib/miden-chain/effective-endpoints';
 import { getNativeAssetId } from 'lib/miden-chain/native-asset';
 import type { AgglayerRecoveryConfig } from 'lib/remote-config/schema';
+import { assertWalletAccessAllowed, ensureWalletAccessAllowed } from 'lib/remote-config/wallet-access';
 import { sameGuardianEndpoint } from 'lib/settings/helpers';
 import { WalletAccount } from 'lib/shared/types';
 import type { ConsumeEntryPoint } from 'lib/telemetry/transaction-failure';
@@ -97,6 +98,7 @@ export const requestCustomTransaction = async (
   /** The dApp origin asking; see `ITransaction.dappOrigins`. */
   dappOrigin?: string
 ): Promise<string> => {
+  await ensureWalletAccessAllowed();
   const byteArray = new Uint8Array(Buffer.from(transactionRequestBytes, 'base64'));
   const transaction = new Transaction(
     accountId,
@@ -114,6 +116,7 @@ export const requestCustomTransaction = async (
   if (spentAssetTotals !== undefined && spentAssetTotals.length > 0) {
     await queueOutgoingTransaction({ ...transaction, spentAssetTotals }, spentAssetTotals, spendingLimitAuthorization);
   } else {
+    assertWalletAccessAllowed();
     await Repo.transactions.add(transaction);
   }
 
@@ -147,6 +150,7 @@ export const initiateConsumeTransactionFromId = async (
   dappOrigin?: string,
   entryPoint?: ConsumeEntryPoint
 ): Promise<string> => {
+  await ensureWalletAccessAllowed();
   // Routed through `midenClientProxy.getInputNoteSummary` (issue #260, slice 7a):
   // flag-ON it reads the OFFSCREEN client that owns the note (the SW client is
   // dormant then and may not have it → a spurious "not found"); flag-OFF is the
@@ -219,6 +223,7 @@ export const initiateConsumeTransaction = async (
   entryPoint?: ConsumeEntryPoint,
   canSign?: () => boolean
 ): Promise<string> => {
+  await ensureWalletAccessAllowed();
   return initiateConsumeNotesTransaction(
     accountId,
     [note],
@@ -357,6 +362,7 @@ export const initiateRotationFundingClaim = async (
   notes: ConsumableNote[],
   opts: RotationFundingClaimOptions = {}
 ): Promise<string> => {
+  await ensureWalletAccessAllowed();
   if (notes.length === 0) {
     throw new Error('initiateRotationFundingClaim requires at least one note');
   }
@@ -400,6 +406,7 @@ export async function enqueueRotationFundingClaim(
   notes: ConsumableNote[],
   opts: RotationFundingClaimOptions
 ): Promise<string | null> {
+  await ensureWalletAccessAllowed();
   let txId: string | null = null;
   await navigator.locks.request(hotKeyRotationLockName(accountPublicKey), async () => {
     const rotation = await Repo.transactions.filter(row => isLiveRotationRow(row, accountPublicKey)).first();
@@ -430,6 +437,7 @@ export const noteClaimCoverage = async (
   // The rotation gate's claim (#805) counts only earlier rotation-funding failures in its backoff.
   rotationFunding?: boolean
 ): Promise<NoteClaimCoverage> => {
+  await ensureWalletAccessAllowed();
   // Read every consume row covering this noteId once (scalar `noteId` index for legacy/single rows, multi-entry
   // `noteIds` for batch rows), then partition: the blocking rows (dedup) and every lifetime Failed (backoff).
   const byScalar = await Repo.transactions.where('noteId').equals(noteId).toArray();
@@ -695,6 +703,7 @@ const queueConsumeRows = async (
       const row = newRow(rowNotes);
       row.feeAdmission = decision?.admission;
       if (canSign && !canSign()) throw new ClaimInsertRefusedError();
+      assertWalletAccessAllowed();
       await Repo.transactions.add(row);
       createdIds.push(row.id);
       for (const note of rowNotes) coveringTxIdByNoteId.set(note.id, row.id);
@@ -785,6 +794,7 @@ export const initiateSwapTransaction = async (
   slippageBps?: number,
   spendingLimitAuthorization?: SpendingLimitAuthorization
 ): Promise<string> => {
+  await ensureWalletAccessAllowed();
   const dbTransaction = new SwapTransaction(
     accountId,
     offeredFaucetId,
@@ -835,6 +845,7 @@ export const initiateSendTransaction = async (
   /** The dApp origin asking; absent for the wallet's own sends. See `ITransaction.dappOrigins`. */
   dappOrigin?: string
 ): Promise<string> => {
+  await ensureWalletAccessAllowed();
   // Every send funnels through here — the wallet's own review screen and the
   // dApp boundary both — so this is where the reclaim window has to be sound.
   // It is stored on chain as a 32-bit block height, and a value that does not
@@ -896,6 +907,7 @@ export const initiateBridgedSendTransaction = async (
   agglayerRoute?: AgglayerRecoveryConfig,
   epochAllocatorUrl?: string
 ): Promise<string> => {
+  await ensureWalletAccessAllowed();
   const dbTransaction = new BridgedSendTransaction(
     accountId,
     amount,
@@ -944,6 +956,7 @@ export const initiateEarnDepositTransaction = async (
   spendingLimitAuthorization?: SpendingLimitAuthorization,
   epochAllocatorUrl?: string
 ): Promise<string> => {
+  await ensureWalletAccessAllowed();
   if (!requestBytes?.length) throw new Error(EARN_DEPOSIT_MISSING_REQUEST_ERROR);
   const dbTransaction = new EarnDepositTransaction(
     accountId,
@@ -977,6 +990,7 @@ export const initiateEarnWithdrawTransaction = async (
   attemptStartedAt?: number,
   sourceDecimals?: number
 ): Promise<string> => {
+  await ensureWalletAccessAllowed();
   const dbTransaction = new EarnWithdrawTransaction(
     accountId,
     amount,
@@ -989,6 +1003,7 @@ export const initiateEarnWithdrawTransaction = async (
     attemptStartedAt,
     sourceDecimals
   );
+  assertWalletAccessAllowed();
   await Repo.transactions.add(dbTransaction);
   return dbTransaction.id;
 };
@@ -1009,6 +1024,7 @@ export const initiateBridgedReceiveTransaction = async (args: {
   outputAmount?: string;
   outputSymbol?: string;
 }): Promise<string> => {
+  await ensureWalletAccessAllowed();
   const dbTransaction = new BridgedReceiveTransaction(
     args.accountId,
     args.amount,
@@ -1031,6 +1047,7 @@ export const initiateBridgedReceiveTransaction = async (args: {
     dbTransaction.extraInputs.usdcxMidenDomain =
       dbTransaction.extraInputs.usdcxSource?.midenDomain ?? getUsdcxRemoteDomain();
   }
+  assertWalletAccessAllowed();
   await Repo.transactions.add({ ...dbTransaction, badgeNetwork: badgeNetwork() });
   return dbTransaction.id;
 };
@@ -1080,6 +1097,7 @@ export const initiateSwitchGuardianTransaction = async (
   delegateTransaction: boolean | undefined,
   guardianProvider: GuardianAccountProvider
 ): Promise<string> => {
+  await ensureWalletAccessAllowed();
   const account = await resolveGuardianWalletAccount(
     accountId,
     guardianProvider,
@@ -1132,6 +1150,7 @@ export const initiateSwitchGuardianTransaction = async (
       delegateTransaction,
       previousGuardianEndpoint
     );
+    assertWalletAccessAllowed();
     await Repo.transactions.add(dbTransaction);
     return dbTransaction.id;
   });
@@ -1149,6 +1168,7 @@ export const initiateReplaceHotKeyTransaction = async (
   delegateTransaction: boolean | undefined,
   guardianProvider: GuardianAccountProvider
 ): Promise<string> => {
+  await ensureWalletAccessAllowed();
   const account = await resolveGuardianWalletAccount(
     accountId,
     guardianProvider,
@@ -1226,6 +1246,7 @@ export const ensureGuardianProcedureThresholds = async (
    */
   boundAtSyncCeiling = false
 ): Promise<string | undefined> => {
+  await ensureWalletAccessAllowed();
   try {
     // Loading the service fetches the on-chain account config, including its
     // procedure thresholds.
@@ -1271,6 +1292,7 @@ export const initiateUpdateProcedureThresholdTransaction = async (
   delegateTransaction: boolean | undefined,
   guardianProvider: GuardianAccountProvider
 ): Promise<string> => {
+  await ensureWalletAccessAllowed();
   const account = await resolveGuardianWalletAccount(
     accountId,
     guardianProvider,
@@ -1299,6 +1321,7 @@ async function queueRecoveryChange(transaction: ITransaction): Promise<string> {
       )
       .first();
     if (existing) return existing.id;
+    assertWalletAccessAllowed();
     await Repo.transactions.add(transaction);
     return transaction.id;
   });

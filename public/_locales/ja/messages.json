@@ -7053,5 +7053,23 @@
   "webViewStartFailedAction": {
     "message": "もう一度試してください",
     "englishSource": "Try again"
+  },
+  "walletAccessCheckingTitle": {
+    "message": "利用可能か確認しています"
+  },
+  "walletAccessCheckingBody": {
+    "message": "お住まいの地域でウォレットを利用できるか確認しています。しばらくお待ちください。"
+  },
+  "walletAccessRestrictedTitle": {
+    "message": "お住まいの地域ではウォレットを利用できません"
+  },
+  "walletAccessRestrictedBody": {
+    "message": "現在の所在地からはウォレットを利用できません。"
+  },
+  "walletAccessUnavailableTitle": {
+    "message": "利用可能か確認できませんでした"
+  },
+  "walletAccessUnavailableBody": {
+    "message": "接続を確認して、もう一度お試しください。"
   }
 }

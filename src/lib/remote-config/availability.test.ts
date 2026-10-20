@@ -273,7 +273,7 @@ describe('feature eligibility gates', () => {
     state: 'ready',
     network,
     version,
-    allowed: { earn, swap: true }
+    allowed: { wallet: true, earn, swap: true }
   });
 
   it('keeps Earn loading until the policy decision answers, then uses its strict allow decision', () => {

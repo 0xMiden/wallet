@@ -7053,5 +7053,23 @@
   "webViewStartFailedAction": {
     "message": "Spróbuj ponownie",
     "englishSource": "Try again"
+  },
+  "walletAccessCheckingTitle": {
+    "message": "Sprawdzanie dostępności"
+  },
+  "walletAccessCheckingBody": {
+    "message": "Poczekaj, aż sprawdzimy, czy portfel jest dostępny w Twoim regionie."
+  },
+  "walletAccessRestrictedTitle": {
+    "message": "Portfel niedostępny w Twoim regionie"
+  },
+  "walletAccessRestrictedBody": {
+    "message": "Portfel nie jest dostępny w Twojej obecnej lokalizacji."
+  },
+  "walletAccessUnavailableTitle": {
+    "message": "Nie udało się sprawdzić dostępności"
+  },
+  "walletAccessUnavailableBody": {
+    "message": "Sprawdź połączenie i spróbuj ponownie."
   }
 }

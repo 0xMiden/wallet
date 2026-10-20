@@ -16,6 +16,7 @@ import {
 import { getBlockTimestamps } from 'lib/miden-chain/block-timestamps';
 import { getEffectiveRpcUrl, whenEndpointOverridesLoaded } from 'lib/miden-chain/effective-endpoints';
 import { getNativeAssetId, getVerificationBaseFee } from 'lib/miden-chain/native-asset';
+import { ensureWalletAccessAllowed, isWalletAccessDeniedError } from 'lib/remote-config/wallet-access';
 import {
   areBackgroundSettingsMirrored,
   isAutoConsumeEnabledAsync,
@@ -212,6 +213,7 @@ export function doSync(force = false): Promise<void> {
 
 async function runSync(force: boolean): Promise<void> {
   try {
+    await ensureWalletAccessAllowed();
     // The `miden-sync` alarm can fire before start() has loaded the override; until then the note scope below and
     // the state sent to the offscreen document would be the build's network (#1482).
     await whenEndpointOverridesLoaded();
@@ -426,6 +428,7 @@ async function runSync(force: boolean): Promise<void> {
         .catch(err => console.warn('[SyncManager] unconfirmed reconcile failed', err));
     }
 
+    await ensureWalletAccessAllowed();
     const intercom = getIntercom()!;
     const vault2 = await getVault();
     const accountPubKey = await vault2.getCurrentAccountPublicKey();
@@ -892,7 +895,14 @@ async function runSync(force: boolean): Promise<void> {
       }
     }
   } catch (err) {
-    console.warn('[SyncManager] Sync error:', err);
+    if (isWalletAccessDeniedError(err)) {
+      // Node evidence can settle a previous broadcast without enabling a new operation.
+      void import('./transaction-processor')
+        .then(({ reconcileUnconfirmedInWorker }) => reconcileUnconfirmedInWorker())
+        .catch(error => console.warn('[SyncManager] unconfirmed reconcile failed', error));
+    } else {
+      console.warn('[SyncManager] Sync error:', err);
+    }
     // Always broadcast SyncCompleted so frontends don't get stuck waiting.
     try {
       getIntercom()!.broadcast({ type: WalletMessageType.SyncCompleted });

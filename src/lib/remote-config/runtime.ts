@@ -12,7 +12,7 @@ import { BRIDGE_FEATURES, type BridgeFeature, featureAvailability, type Unavaila
 import { deriveBridgeConfig, type DerivedBridgeConfig, type DerivedChainConfig, type Probe } from './derive';
 import { bridgeConfigDerivedKey, failedDerivation, parseStoredDerived } from './derived-snapshot';
 import { getE2eOverrides } from './e2e-overrides';
-import { GEO_FEATURES, geoFeatureEnabled, type GeoLookup } from './geo';
+import type { GeoLookup } from './geo';
 import { lookupFeatureEligibility } from './geo-lookup';
 import type { BridgeConfig } from './schema';
 import {
@@ -21,6 +21,13 @@ import {
   readStoredBridgeConfig,
   type StoredBridgeConfig
 } from './source';
+import {
+  getWalletAccessGeneration,
+  getWalletAccessSnapshot,
+  invalidateWalletAccess,
+  publishWalletAccessDecision,
+  registerWalletAccessRuntime
+} from './wallet-access';
 
 /**
  * `status` is 'ready' once a derivation is in memory or a refresh has settled in this realm; a ready snapshot with a
@@ -70,6 +77,9 @@ interface NetworkState {
   /** Bumped for every request so an obsolete completion cannot replace the current policy. */
   geoGeneration: number;
   geoPolicy: string | null;
+  geoRequest: Promise<void> | null;
+  geoScope: string | null;
+  accessRefresh: Promise<void> | null;
 }
 
 // One entry per network, so a switch never hands one network's document to another. Every wipe but Developer Settings'
@@ -80,6 +90,8 @@ const listeners = new Set<() => void>();
 let holds = 0;
 let timer: ReturnType<typeof setTimeout> | undefined;
 let schedulerInstalled = false;
+let walletScopeGeneration = 0;
+let walletNetwork: string | undefined;
 
 const errorMessage = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
@@ -102,7 +114,10 @@ function stateFor(network: string): NetworkState {
     snapshot: { network, status: 'loading', config: null, derived: null, lastFetch: null },
     geo: { state: 'idle' },
     geoGeneration: 0,
-    geoPolicy: null
+    geoPolicy: null,
+    geoRequest: null,
+    geoScope: null,
+    accessRefresh: null
   };
   states.set(network, state);
   return state;
@@ -122,32 +137,66 @@ function logUnavailable(state: NetworkState): void {
 }
 
 function eligibilityPolicy(config: BridgeConfig | undefined): string | null {
-  if (!config || !GEO_FEATURES.some(feature => geoFeatureEnabled(feature, config) && config.geo?.[feature]?.length)) {
-    return null;
-  }
-  return JSON.stringify([config.network, config.version, config.geo, config.features.earn, config.swap?.etaUrl]);
+  return config
+    ? JSON.stringify([config.network, config.version, config.geo, config.features.earn, config.swap?.etaUrl])
+    : null;
 }
 
-// Repeated publications share one decision. Only an existing refresh retries a failed lookup.
-function syncGeo(state: NetworkState, retryFailed: boolean): void {
+function walletScope(): string {
+  const network = getEffectiveNetworkName();
+  return JSON.stringify([
+    network,
+    eligibilityPolicy(states.get(network)?.stored?.config),
+    walletScopeGeneration,
+    getWalletAccessGeneration()
+  ]);
+}
+
+function activateWalletNetwork(state: NetworkState): void {
+  if (walletNetwork === state.network) return;
+  walletNetwork = state.network;
+  invalidateWalletAccess();
+  walletScopeGeneration += 1;
+  state.geoGeneration += 1;
+  state.geoPolicy = null;
+  state.geo = { state: 'idle' };
+  if (state.hydrated) publish(state);
+}
+
+function syncGeo(state: NetworkState, force: boolean): void {
   const config = state.stored?.config;
   const policy = eligibilityPolicy(config);
   if (policy !== state.geoPolicy) {
+    if (state.network === getEffectiveNetworkName()) {
+      invalidateWalletAccess();
+      walletScopeGeneration += 1;
+    }
     state.geoGeneration += 1;
     state.geoPolicy = policy;
     state.geo = { state: 'idle' };
   }
-  if (policy === null || !config) return;
-  if (state.geo.state === 'loading' || state.geo.state === 'ready') return;
-  if (state.geo.state === 'failed' && !retryFailed) return;
+  if (policy === null || !config || state.network !== getEffectiveNetworkName()) return;
+  if (state.geo.state === 'loading' && state.geoScope === walletScope()) return;
+  if (state.geoScope !== walletScope()) state.geo = { state: 'idle' };
+  if ((state.geo.state === 'ready' || state.geo.state === 'failed') && !force) return;
+  const scope = walletScope();
+  state.geoScope = scope;
   state.geo = { state: 'loading' };
   const generation = ++state.geoGeneration;
-  void lookupFeatureEligibility(state.network, config.version).then(eligibility => {
-    const current = states.get(state.network);
-    if (current !== state || current.geoGeneration !== generation) return;
-    current.geo = eligibility ? { state: 'ready', ...eligibility } : { state: 'failed' };
-    publish(current);
-  });
+  const pending = lookupFeatureEligibility(state.network, config.version)
+    .then(eligibility => {
+      const current = states.get(state.network);
+      if (current !== state || current.geoGeneration !== generation) return;
+      current.geo = eligibility ? { state: 'ready', ...eligibility } : { state: 'failed' };
+      if (getEffectiveNetworkName() === state.network) {
+        publishWalletAccessDecision(scope, eligibility?.allowed.wallet ?? null);
+      }
+      publish(current);
+    })
+    .finally(() => {
+      if (state.geoRequest === pending) state.geoRequest = null;
+    });
+  state.geoRequest = pending;
 }
 
 function publish(state: NetworkState, retryEligibility = false): void {
@@ -196,6 +245,9 @@ async function readPair(network: string): Promise<Pick<NetworkState, 'stored' | 
 }
 
 function forgetAll(): void {
+  invalidateWalletAccess();
+  walletScopeGeneration += 1;
+  walletNetwork = undefined;
   states.forEach(state => state.subscriptions.forEach(unsubscribe => unsubscribe()));
   states.clear();
   clearTimer();
@@ -335,6 +387,16 @@ async function refresh(state: NetworkState): Promise<void> {
   const target = fetched
     ? newer(fetched, state.stored)
     : newer(await readStoredBridgeConfig(state.network), state.stored);
+  if (
+    getEffectiveNetworkName() === state.network &&
+    eligibilityPolicy(target?.config) !== eligibilityPolicy(state.stored?.config)
+  ) {
+    invalidateWalletAccess();
+    walletScopeGeneration += 1;
+    state.geoGeneration += 1;
+    state.geo = { state: 'idle' };
+    state.geoPolicy = null;
+  }
   const result = target ? await derive(target.config, midenRpcUrl) : null;
   // What another realm read for this version and stored counts as read here, so storing this run never loses it.
   const storedDerived = target && result ? await readDerived(state.network, target.config.version) : null;
@@ -429,12 +491,21 @@ function arm(): void {
     return;
   }
   if (!state.hydrated || state.refreshing) return;
-  timer = setTimeout(fire, Math.max(0, state.checkedAt + pollInterval(state) - Date.now()));
+  const configDelay = state.checkedAt + pollInterval(state) - Date.now();
+  const access = getWalletAccessSnapshot();
+  const accessDelay =
+    access.status === 'allowed' && access.expiresAt !== null
+      ? access.expiresAt - performance.now() - 10_000
+      : DEGRADED_VISIBLE_POLL_MS;
+  timer = setTimeout(fire, Math.max(0, Math.min(configDelay, accessDelay)));
 }
 
-async function check(kind: 'timer' | 'foreground'): Promise<void> {
+async function check(kind: 'timer' | 'foreground', recheckAccess = kind === 'foreground'): Promise<void> {
   const state = await hydrateCurrent();
   if (document.visibilityState === 'hidden') return;
+  const access = getWalletAccessSnapshot();
+  const prefetchDue = access.status !== 'allowed' || (access.expiresAt ?? 0) - performance.now() <= 10_000;
+  if (recheckAccess || (kind === 'timer' && prefetchDue)) await refreshWalletAccess(recheckAccess, recheckAccess);
   const interval = pollInterval(state);
   // On open and on a return to the foreground, a healthy copy counts as stale after 15 minutes, not 60.
   const threshold = kind === 'foreground' ? foregroundThreshold(interval) : interval;
@@ -452,12 +523,13 @@ function ensureScheduler(): void {
   if (schedulerInstalled || typeof document === 'undefined') return;
   schedulerInstalled = true;
   document.addEventListener('visibilitychange', onVisibilityChange);
-  void check('foreground');
+  void check('foreground', false);
 }
 
 async function hydrateCurrent(): Promise<NetworkState> {
   for (;;) {
     const state = stateFor(getEffectiveNetworkName());
+    activateWalletNetwork(state);
     await hydrate(state);
     // The network can change, and a test reset can forget the entry, while the read is out.
     if (state.network === getEffectiveNetworkName() && states.get(state.network) === state) return state;
@@ -503,6 +575,7 @@ export async function _refreshBridgeConfigForTest(): Promise<BridgeConfigSnapsho
 
 /** A page realm calls this after it changes the effective network: readers re-read, and the new network loads. */
 export function followEffectiveNetwork(): void {
+  activateWalletNetwork(stateFor(getEffectiveNetworkName()));
   listeners.forEach(listener => listener());
   void initBridgeConfig().then(arm);
 }
@@ -527,3 +600,54 @@ export function _resetBridgeConfigRuntimeForTest(): void {
   if (schedulerInstalled) document.removeEventListener('visibilitychange', onVisibilityChange);
   schedulerInstalled = false;
 }
+
+/** Storage and HTTP only: protected callers may already hold the non-reentrant WASM lock. */
+export async function refreshWalletAccess(invalidate = true, refreshPolicy = true): Promise<void> {
+  if (invalidate && getWalletAccessSnapshot().status === 'allowed') {
+    invalidateWalletAccess();
+    walletScopeGeneration += 1;
+    const current = states.get(getEffectiveNetworkName());
+    if (current) {
+      current.geoGeneration += 1;
+      current.geo = { state: 'idle' };
+      current.geoRequest = null;
+      current.accessRefresh = null;
+    }
+  }
+  const state = await hydrateCurrent();
+  if (state.geo.state === 'loading' && state.geoRequest && state.geoScope === walletScope()) return state.geoRequest;
+  if (state.geoScope !== walletScope()) {
+    state.geoGeneration += 1;
+    state.geo = { state: 'idle' };
+    state.geoRequest = null;
+    state.geoScope = null;
+    state.accessRefresh = null;
+  }
+  if (!state.accessRefresh) {
+    const pending = (async () => {
+      let fetched: StoredBridgeConfig | null = null;
+      try {
+        if (refreshPolicy) fetched = await fetchAndStoreBridgeConfig(state.network);
+      } catch {
+        // A matching server decision can still authorize the last accepted policy.
+      }
+      if (states.get(state.network) !== state || getEffectiveNetworkName() !== state.network) return;
+      const target = newer(fetched, state.stored);
+      if (target && target !== state.stored) {
+        const changed = target.config.version !== state.stored?.config.version;
+        state.stored = target;
+        if (changed) state.derived = await readDerived(state.network, target.config.version);
+      }
+      if (states.get(state.network) !== state || getEffectiveNetworkName() !== state.network) return;
+      publish(state, true);
+      if (!state.stored) publishWalletAccessDecision(walletScope(), null);
+      await state.geoRequest;
+    })().finally(() => {
+      if (state.accessRefresh === pending) state.accessRefresh = null;
+    });
+    state.accessRefresh = pending;
+  }
+  return state.accessRefresh;
+}
+
+registerWalletAccessRuntime({ scope: walletScope, refresh: () => refreshWalletAccess() });

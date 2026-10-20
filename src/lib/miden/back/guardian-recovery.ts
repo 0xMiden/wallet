@@ -15,6 +15,7 @@ import { withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { isPipelineKillLink } from 'lib/miden/sdk/sdk-error-code';
 import { isWasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { getAllUncompletedTransactions, isRotationAwaitingFunding } from 'lib/miden/transaction/get';
+import { ensureWalletAccessAllowed } from 'lib/remote-config/wallet-access';
 import { b64ToU8 } from 'lib/shared/helpers';
 import { WalletAccount } from 'lib/shared/types';
 
@@ -109,8 +110,13 @@ function deferAbortedOp(result: GuardianPendingNoteRecoveryResult, error: unknow
   result.evicted = isWasmClientPoisonedError(error);
 }
 
-async function shouldYield(): Promise<'wallet locked' | 'transaction in flight' | null> {
+async function shouldYield(): Promise<'wallet locked' | 'wallet access unavailable' | 'transaction in flight' | null> {
   if (isWalletLocked()) return 'wallet locked';
+  try {
+    await ensureWalletAccessAllowed();
+  } catch {
+    return 'wallet access unavailable';
+  }
   try {
     if (!(await isSafeToRunNow())) return 'transaction in flight';
   } catch (error) {
@@ -393,6 +399,12 @@ export async function recoverPendingNotes(
     deferred: false,
     evicted: false
   };
+  try {
+    await ensureWalletAccessAllowed();
+  } catch {
+    result.deferred = true;
+    return result;
+  }
 
   // Highest watermark this pass has persisted, so the deferral log can say
   // whether there is anything to resume from. Null until the public step runs.

@@ -4,7 +4,10 @@ on:
   pull_request:
     paths:
       - 'services/feature-eligibility/**'
-      - '.github/workflows/feature-eligibility.yml'
+      - '.github/workflows/**'
+      - '.github/actions/start-eligibility-fixture/**'
+      - 'scripts/feature-eligibility-fixture*'
+      - 'scripts/start-e2e-eligibility*'
       - '.github/workflows/deploy-feature-eligibility.yml'
       - '.github/workflows/release-wallet.yml'
       - '.github/workflows/build-chrome.yml'
@@ -32,7 +35,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: node --test services/feature-eligibility/worker.test.mjs services/feature-eligibility/check-deployment.test.mjs
+      - run: node --test services/feature-eligibility/worker.test.mjs services/feature-eligibility/check-deployment.test.mjs scripts/feature-eligibility-fixture.test.mjs scripts/start-e2e-eligibility.test.mjs
       - name: Validate Worker bundle and bindings
         run: npx --yes wrangler@4.151.3 deploy --dry-run --config services/feature-eligibility/wrangler.jsonc
 
@@ -52,7 +55,9 @@ jobs:
           gh release download v1.7.12 --repo rhysd/actionlint --pattern actionlint_1.7.12_linux_amd64.tar.gz --pattern actionlint_1.7.12_checksums.txt
           sha256sum --check --ignore-missing actionlint_1.7.12_checksums.txt
           tar -xzf actionlint_1.7.12_linux_amd64.tar.gz actionlint
-      - name: Lint release dependency ordering
+      - name: Check fixture action shell
+        run: bash -n <(printf '%s\n' 'node scripts/start-e2e-eligibility.mjs')
+      - name: Lint release and E2E workflows
         run: >-
           "$RUNNER_TEMP/eligibility-actionlint/actionlint"
           .github/workflows/deploy-feature-eligibility.yml
@@ -60,3 +65,23 @@ jobs:
           .github/workflows/build-chrome.yml
           .github/workflows/build-mobile.yml
           .github/workflows/build-desktop.yml
+          .github/workflows/ci.yml
+          .github/workflows/e2e-android.yml
+          .github/workflows/e2e-blockchain.yml
+          .github/workflows/e2e-bridge-in.yml
+          .github/workflows/e2e-bridge.yml
+          .github/workflows/e2e-dapp-browser.yml
+          .github/workflows/e2e-dapp.yml
+          .github/workflows/e2e-resilience.yml
+          .github/workflows/e2e-stress.yml
+          .github/workflows/e2e-telemetry.yml
+          .github/workflows/e2e-usdcx-live.yml
+          .github/workflows/e2e-usdcx.yml
+          .github/workflows/pr-e2e-bridge-guardian.yml
+          .github/workflows/pr-e2e-earn.yml
+          .github/workflows/pr-e2e-guardian-lifecycle.yml
+          .github/workflows/pr-e2e-local.yml
+          .github/workflows/pr-e2e-swap.yml
+          .github/workflows/pr.yml
+          .github/workflows/ui-smoothness.yml
+          .github/workflows/feature-eligibility.yml

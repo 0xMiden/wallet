@@ -54,6 +54,7 @@ import { monotonicNowMs } from 'lib/miden/sync-backoff';
 import { syncUnderBoundedLock } from 'lib/miden/sync-lock';
 import { getNativeAssetId } from 'lib/miden-chain/native-asset';
 import { isExtension, isMobile } from 'lib/platform';
+import { ensureWalletAccessAllowed, isWalletAccessDeniedError } from 'lib/remote-config/wallet-access';
 import { generateHotKey, type GeneratedHotKey } from 'lib/secure-hot-key';
 import { commitmentFromPublicKeyHex } from 'lib/secure-hot-key/commitment';
 import { sameGuardianEndpoint } from 'lib/settings/helpers';
@@ -171,6 +172,7 @@ import {
   extractLanded,
   extractSdkErrorCode,
   hasErrorBeforeSubmit,
+  markErrorBeforeSubmit,
   isApplyAfterSubmitError,
   isIndefiniteSubmitOutcomeError,
   isKilledPipeline,
@@ -1327,6 +1329,11 @@ export const generateTransaction = async (
   useWorker: boolean = true,
   guardianProvider: GuardianAccountProvider
 ) => {
+  try {
+    await ensureWalletAccessAllowed();
+  } catch (error) {
+    throw markErrorBeforeSubmit(error);
+  }
   let getAccounts = guardianProvider.getAccounts;
   if (guardianProvider.prepareRecoveryTransaction) {
     const preparation = await guardianProvider.prepareRecoveryTransaction(transaction.id);
@@ -1411,7 +1418,7 @@ const generateTransactionWithProvider = async (
       // don't cancel. Re-throw so generateTransactionsLoop's locked-requeue path
       // leaves the tx Queued for retry after unlock instead of marking it Failed
       // and losing the note-claim (issue #313).
-      if (isLockedError(error)) {
+      if (isLockedError(error) || isWalletAccessDeniedError(error)) {
         throw error;
       }
       // A structural op whose submit landed and whose local apply then failed never ran its
@@ -2428,6 +2435,11 @@ const runGuardianPipeline = async (
     await setStage('submitting', {
       evidence: readSubmitEvidence(executedTx.result, provenTx.proof, () => getCurrentWasmLockHold() === hold)
     });
+    try {
+      await ensureWalletAccessAllowed();
+    } catch (error) {
+      throw markErrorBeforeSubmit(error);
+    }
     assertStillHoldingLock(hold, 'before submit');
     const submittedTx = await provenTx.submit();
     // A rejected submit stays as it is: the node may not have the write. Once submit resolved it
@@ -4259,6 +4271,7 @@ export const generateTransactionsLoop = async (
   useWorker: boolean = true,
   guardianProvider: GuardianAccountProvider
 ): Promise<boolean | 'requeued' | void> => {
+  await ensureWalletAccessAllowed();
   await cancelStuckTransactions();
   await cancelStaleQueuedTransactions();
 
@@ -4399,6 +4412,11 @@ export const generateTransactionsLoop = async (
       } catch (requeueError) {
         logger.warning('Failed to requeue transaction after pre-send sync failure', requeueError);
       }
+      return false;
+    }
+
+    if (!abandoned && isWalletAccessDeniedError(e) && hasErrorBeforeSubmit(e)) {
+      await requeueTransactionForRetry(nextTransaction.id, nextTransaction.type, 'syncing', 60, 'wallet_access_denied');
       return false;
     }
 

@@ -7053,5 +7053,23 @@
   "webViewStartFailedAction": {
     "message": "請重新嘗試",
     "englishSource": "Try again"
+  },
+  "walletAccessCheckingTitle": {
+    "message": "正在檢查可用性"
+  },
+  "walletAccessCheckingBody": {
+    "message": "請稍候，我們正在檢查你所在的地區是否可以使用錢包。"
+  },
+  "walletAccessRestrictedTitle": {
+    "message": "你所在的地區無法使用錢包"
+  },
+  "walletAccessRestrictedBody": {
+    "message": "你目前所在的位置無法使用錢包。"
+  },
+  "walletAccessUnavailableTitle": {
+    "message": "無法檢查可用性"
+  },
+  "walletAccessUnavailableBody": {
+    "message": "請檢查網路連線後重試。"
   }
 }

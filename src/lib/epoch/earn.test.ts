@@ -557,7 +557,12 @@ describe('openEarnPosition guards', () => {
         },
         geo:
           state === 'blocked' || state === 'off'
-            ? { state: 'ready', network: 'testnet', version: accepted.version, allowed: { earn: false, swap: true } }
+            ? {
+                state: 'ready',
+                network: 'testnet',
+                version: accepted.version,
+                allowed: { wallet: true, earn: false, swap: true }
+              }
             : state === 'failed'
               ? { state: 'failed' }
               : { state: 'loading' }

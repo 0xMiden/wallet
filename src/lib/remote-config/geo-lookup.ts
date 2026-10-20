@@ -5,9 +5,9 @@ import type { FeatureEligibility } from './geo';
 
 function readEligibility(body: unknown, network: string, version: number): FeatureEligibility | null {
   if (!isRecord(body) || body.network !== network || body.version !== version || !isRecord(body.allowed)) return null;
-  const { earn, swap } = body.allowed;
-  if (typeof earn !== 'boolean' || typeof swap !== 'boolean') return null;
-  return { network, version, allowed: { earn, swap } };
+  const { wallet, earn, swap } = body.allowed;
+  if (typeof wallet !== 'boolean' || typeof earn !== 'boolean' || typeof swap !== 'boolean') return null;
+  return { network, version, allowed: { wallet, earn, swap } };
 }
 
 /** The server owns paid-service credentials and returns only decisions for the accepted policy. */
@@ -20,7 +20,11 @@ export async function lookupFeatureEligibility(
   if (!endpoint) return null;
   try {
     const url = new URL(endpoint);
-    if (url.protocol !== 'https:' || url.username !== '' || url.password !== '') return null;
+    const loopbackTest =
+      process.env.MIDEN_E2E_TEST === 'true' &&
+      url.protocol === 'http:' &&
+      (url.hostname === '127.0.0.1' || url.hostname === 'localhost' || url.hostname === '[::1]');
+    if ((!loopbackTest && url.protocol !== 'https:') || url.username !== '' || url.password !== '') return null;
     url.searchParams.set('network', network);
     const fetchImpl = options.fetchImpl ?? fetch;
     const body = await fetchBoundedJson(

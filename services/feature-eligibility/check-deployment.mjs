@@ -95,7 +95,8 @@ export async function checkDeployment({
       !onlyKeys(body, ['network', 'version', 'allowed']) ||
       body.network !== network ||
       body.version !== policy.version ||
-      !onlyKeys(body.allowed, ['earn', 'swap']) ||
+      !onlyKeys(body.allowed, ['wallet', 'earn', 'swap']) ||
+      typeof body.allowed.wallet !== 'boolean' ||
       typeof body.allowed.earn !== 'boolean' ||
       typeof body.allowed.swap !== 'boolean'
     ) {

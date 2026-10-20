@@ -7053,5 +7053,23 @@
   "webViewStartFailedAction": {
     "message": "Попробуйте ещё раз",
     "englishSource": "Try again"
+  },
+  "walletAccessCheckingTitle": {
+    "message": "Проверка доступности"
+  },
+  "walletAccessCheckingBody": {
+    "message": "Подождите, пока мы проверяем, доступен ли кошелёк в вашем регионе."
+  },
+  "walletAccessRestrictedTitle": {
+    "message": "Кошелёк недоступен в вашем регионе"
+  },
+  "walletAccessRestrictedBody": {
+    "message": "Кошелёк недоступен в вашем текущем местоположении."
+  },
+  "walletAccessUnavailableTitle": {
+    "message": "Не удалось проверить доступность"
+  },
+  "walletAccessUnavailableBody": {
+    "message": "Проверьте подключение и попробуйте ещё раз."
   }
 }

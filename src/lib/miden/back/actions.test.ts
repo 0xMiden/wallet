@@ -10,6 +10,7 @@ import { resolveSpendsUsd } from 'lib/miden/spending-limits/valuation';
 import { NoteTypeEnum } from 'lib/miden/types';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
+import { assertWalletAccessAllowed, ensureWalletAccessAllowed } from 'lib/remote-config/wallet-access';
 import {
   EstimateUsdcxBurnFeeRequest,
   type UsdcxBurnFeeEstimate,
@@ -1855,6 +1856,37 @@ describe('actions', () => {
       const result = await getAllDAppSessions();
 
       expect(result).toEqual({ 'https://example.com': [] });
+    });
+  });
+
+  it('can retire a vault while wallet access is unavailable', async () => {
+    Object.assign(mockStoreState, { vault: mockVault });
+    jest.mocked(ensureWalletAccessAllowed).mockRejectedValue(new Error('Wallet access denied'));
+    jest.mocked(assertWalletAccessAllowed).mockImplementation(() => {
+      throw new Error('Wallet access denied');
+    });
+    await expect(lock()).resolves.toBeUndefined();
+    expect(mockVault.retire).toHaveBeenCalled();
+  });
+
+  describe('wallet-wide private action boundary', () => {
+    it('refuses mnemonic export even with a valid password while access is denied', async () => {
+      const { Vault } = jest.requireMock('lib/miden/back/vault');
+      const denied = Object.assign(new Error('Wallet access denied'), { code: 'WALLET_ACCESS_DENIED' });
+      jest.mocked(ensureWalletAccessAllowed).mockRejectedValue(denied);
+      jest.mocked(assertWalletAccessAllowed).mockImplementation(() => {
+        throw denied;
+      });
+      await expect(revealMnemonic('password123')).rejects.toBe(denied);
+      expect(Vault.revealMnemonic).not.toHaveBeenCalled();
+    });
+
+    it('refuses a direct WebView permission request before dApp dispatch', async () => {
+      const denied = Object.assign(new Error('Wallet access denied'), { code: 'WALLET_ACCESS_DENIED' });
+      jest.mocked(ensureWalletAccessAllowed).mockRejectedValue(denied);
+      await expect(
+        processDApp('https://app.example', { type: MidenDAppMessageType.GetCurrentPermissionRequest })
+      ).rejects.toBe(denied);
     });
   });
 

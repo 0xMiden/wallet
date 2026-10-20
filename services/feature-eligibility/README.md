@@ -1,26 +1,28 @@
 # Wallet feature eligibility
 
-This Worker keeps the MaxMind account and paid license key on the server and answers only whether new Earn deposits and new Swap operations are allowed. Earn withdrawals never depend on this service.
+This Worker keeps the MaxMind account and paid license key on the server and answers only whether wallet access, new Earn deposits and new Swap operations are allowed. A global wallet denial blocks withdrawals too; NY and UK rules only restrict new Earn deposits.
 
 ## Protocol
 
 `GET /v1/eligibility?network=testnet` accepts exactly one supported network: `mainnet`, `testnet`, or `devnet`. It accepts no caller-supplied address, policy, or policy URL.
 
 ```json
-{"network":"testnet","version":13,"allowed":{"earn":true,"swap":false}}
+{"network":"testnet","version":13,"allowed":{"wallet":true,"earn":true,"swap":false}}
 ```
 
-The wallet must match both `network` and `version` to its accepted wallet-config document and combine these decisions with its existing feature and route availability. Non-2xx responses mean eligibility is unavailable and configured restrictions stay closed. Responses contain no caller address, country, subdivision, or provider payload.
+The wallet must match both `network` and `version` to its accepted wallet-config document and combine these decisions with its existing feature and route availability. Non-2xx responses mean eligibility is unavailable and wallet access stays closed. All three decisions are strict booleans; a global denial forces the product decisions off. Responses contain no caller address, country, subdivision, or provider payload.
 
 `GET /healthz` checks structural deployment readiness without spending a query. Success is `{"ready":true,"revision":"<deployment revision>"}`. Release verification also exercises the actual eligibility route and checks its policy version.
 
 ## Policy and request boundary
 
-The service fetches the network document from `https://raw.githubusercontent.com/0xMiden/wallet-config/main/<network>.json`, with a 60-second cache and no expired-policy fallback. It validates the network, positive integer version, feature availability, and recognized geo rules. Unknown enabled phrases fail closed. An omitted geo section or rules answered `no` need no lookup. Globally disabled Earn and Swap without a configured HTTPS solver are unavailable without spending a lookup.
+The service fetches the network document from `https://raw.githubusercontent.com/0xMiden/wallet-config/main/<network>.json`, with a 60-second cache and no expired-policy fallback. It validates the network, positive integer version, feature availability, and recognized geo rules. Unknown enabled phrases fail closed. The global `geo.wallet` map is required; omission fails closed. Its rules always apply, including when Earn and Swap are disabled. An explicit empty wallet map and no enabled feature restriction need no lookup. Globally disabled Earn and Swap without a configured HTTPS solver remain unavailable.
+
+The published global policy blocks Cuba, Iran, North Korea, Russia, Belarus, Crimea, Sevastopol and the whole Donetsk, Luhansk, Kherson and Zaporizhzhia oblasts. The administrative subdivision policy deliberately covers whole oblasts. NY and UK remain Earn-only rules. Unknown Ukrainian subdivision information cannot establish permission when a Ukrainian region rule applies.
 
 The caller address comes exclusively from Cloudflare's `CF-Connecting-IP` on an edge request with `request.cf` metadata. Forwarded headers are ignored. Worker subrequests are rejected because same-zone Workers can change the address that Cloudflare forwards. Keep Cloudflare Pseudo IPv4 disabled or in `Add Header` mode, never `Overwrite Headers`, and do not place another proxy or Worker in front of this endpoint. [Cloudflare documents these address semantics](https://developers.cloudflare.com/fundamentals/reference/http-headers/).
 
-Origins are an exact JSON allowlist in `ALLOWED_ORIGINS`. Include each shipped extension origin and native webview origin, including the literal `null` only where required. No wildcard or credentials are supported. CORS limits browser access; it is not client authentication. Other clients can request their own two decisions, but cannot choose another address or retrieve a general geolocation result.
+Origins are an exact JSON allowlist in `ALLOWED_ORIGINS`. Include each shipped extension origin and native webview origin, including the literal `null` only where required. No wildcard or credentials are supported. CORS limits browser access; it is not client authentication. Other clients can request their own wallet and feature decisions, but cannot choose another address or retrieve a general geolocation result.
 
 All responses use `Cache-Control: private, no-store`. Observability logs and traces are disabled in the Worker configuration. No service code logs addresses or lookup payloads. Cloudflare and MaxMind still necessarily process the caller address to perform this lookup.
 
@@ -51,7 +53,7 @@ Use Wrangler **4.151.3** with `services/feature-eligibility/wrangler.jsonc`. The
 | `DEPLOYMENT_REVISION` | Worker variable | Source commit verified by release readiness checks |
 | `ELIGIBILITY_GUARD` | Durable Object binding | Atomic persisted spending and caller state |
 
-The public wallet build receives only the full HTTPS `/v1/eligibility` URL. MaxMind and caller-hashing secrets must never enter wallet build variables, artifacts, source maps, or public config.
+The public wallet build receives only the full HTTPS `/v1/eligibility` URL. Clients use a 60-second permission lease, refresh on foreground and before protected use of an expired lease, and reject mismatched network or policy decisions. MaxMind and caller-hashing secrets must never enter wallet build variables, artifacts, source maps, or public config.
 
 ## GitHub release deployment
 

@@ -51,6 +51,7 @@ import { cacheScope } from 'lib/miden-chain/native-asset';
 import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
 import { frozenMs, setRunningTimeout } from 'lib/mobile/background-time';
 import { isMobile } from 'lib/platform';
+import { ensureWalletAccessAllowed, isWalletAccessDeniedError } from 'lib/remote-config/wallet-access';
 import type { AuthScheme } from 'lib/shared/types';
 import { annotateCrash, type CrashDiagnostics } from 'lib/telemetry/crash-diagnostics';
 import { reportProve } from 'lib/telemetry/report-operation';
@@ -2016,6 +2017,12 @@ export class MidenClientInterface {
         evidence: readSubmitEvidence(executed.result, proof, () => attempt.holdIsCurrent())
       });
     }
+    await ensureWalletAccessAllowed();
+    if (attempt.evicted())
+      throw new WasmClientPoisonedError(
+        'watchdog',
+        new Error('operation abandoned during the submission access check')
+      );
     attempt.markSubmitting();
     const submitted = await this.client.transactions.submitProven(proof, executed.result);
     // The node already has the transaction: a failed apply is retried while that is safe, and one
@@ -2080,6 +2087,12 @@ export class MidenClientInterface {
     }
     // Point of no return: a retry past here would build a fresh request (a new note serial; for a
     // swap, a second PSWAP note locking the offered asset twice) and submit a second write.
+    await ensureWalletAccessAllowed();
+    if (attempt.evicted())
+      throw new WasmClientPoisonedError(
+        'watchdog',
+        new Error('operation abandoned during the submission access check')
+      );
     attempt.markSubmitting();
     const submitted = await proven.submit();
     recordProveTiming(`${write} staged: submit returned; applying`);
@@ -2179,9 +2192,21 @@ export class MidenClientInterface {
         await onStage('submitting', { evidence: readSubmitEvidence(txResult, proven, () => attempt.holdIsCurrent()) });
       }
       // Point of no return — see the identical mark on the inline send path.
-      attempt.markSubmitting();
+      await ensureWalletAccessAllowed();
+      if (attempt.evicted())
+        throw new WasmClientPoisonedError(
+          'watchdog',
+          new Error('operation abandoned during the submission access check')
+        );
       await access._withInnerWebClient(async inner => {
         recordProveTiming('proveLocallyViaOffscreen inside SDK lock; submit');
+        await ensureWalletAccessAllowed();
+        if (attempt.evicted())
+          throw new WasmClientPoisonedError(
+            'watchdog',
+            new Error('operation abandoned during the submission access check')
+          );
+        attempt.markSubmitting();
         const height = await inner.submitProvenTransaction(proven, txResult);
         recordProveTiming(`proveLocallyViaOffscreen submit returned height=${height}; applying`);
         // Same rule as the staged applies (#1233). This block holds the SDK lock and the wallet's,
@@ -2588,6 +2613,7 @@ export async function proveWithFallback<T>(
     // client, so it takes the non-retryable tail to its lock.
     if (
       shouldDelegate &&
+      !isWalletAccessDeniedError(err) &&
       !submitReached &&
       !isApplyAfterSubmitError(err) &&
       !(err instanceof WebAssembly.RuntimeError)

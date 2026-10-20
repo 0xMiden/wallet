@@ -346,6 +346,7 @@ it.each([
 it.each([
   [undefined, undefined, 'none', 'unrecorded'],
   ['wallet_locked', 'known_sufficient', 'wallet_locked', 'known_sufficient'],
+  ['wallet_access_denied', 'known_sufficient', 'wallet_access_denied', 'known_sufficient'],
   ['nonsense', undefined, 'other', 'unrecorded'],
   [undefined, 'nonsense', 'none', 'other'],
   ['nonsense', 'nonsense', 'other', 'other']

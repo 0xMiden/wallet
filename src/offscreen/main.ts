@@ -117,6 +117,7 @@ import {
 import { adoptEndpointState, sameEndpointState, type EndpointState } from 'lib/miden-chain/effective-endpoints';
 import { setNativeAssetPublisher } from 'lib/miden-chain/native-asset';
 import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
+import { assertWalletAccessAllowed, ensureWalletAccessAllowed } from 'lib/remote-config/wallet-access';
 import { reportProve, setOperationTransport } from 'lib/telemetry/report-operation';
 
 import { ProveWorkerClient } from './prove-worker-client';
@@ -421,7 +422,11 @@ async function offscreenSignViaSW(publicKey: Uint8Array, signingInputs: Uint8Arr
     // Throw so the SDK's WebKeyStore captures it (offscreen `lastAuthError`) and
     // the execute fails; the SW-side handler already recorded the classified
     // reason authoritatively for the locked-defer path (design §2.6).
-    throw new Error(`offscreen sign failed: ${resp && !resp.ok ? resp.error : 'no response from SW'}`);
+    const error = new Error(`offscreen sign failed: ${resp && !resp.ok ? resp.error : 'no response from SW'}`);
+    if (resp && !resp.ok && resp.reason === 'wallet_access_denied') {
+      Object.assign(error, { code: 'WALLET_ACCESS_DENIED', reason: resp.reason });
+    }
+    throw error;
   }
   return b64ToBytes(resp.signatureB64);
 }
@@ -1092,6 +1097,7 @@ const DISPATCH: Record<string, DispatchFn> = {
       // The prove is the longest await in the pipeline - delegated over the network or
       // local under a relaxed ceiling - so the same question has to be asked again.
       // Still pre-submit: nothing has been broadcast at this point.
+      await ensureWalletAccessAllowed();
       assertWasmHoldCurrent(hold, 'in the guardian pipeline before submit');
     } catch (preSubmitError) {
       // Everything above precedes the submit call, so this attempt provably never crossed (#1081). A kill keeps its
@@ -1332,6 +1338,15 @@ onWasmClientPoisoned(() => {
   // nothing to mark.
   void poisoned?.then(client => client.markPoisoned()).catch(() => {});
 });
+async function initializeWalletAccess(): Promise<void> {
+  try {
+    assertWalletAccessAllowed();
+  } catch {
+    const { initBridgeConfig } = await import('lib/remote-config/runtime');
+    await initBridgeConfig();
+  }
+}
+
 function getOrCreateClient(): Promise<MidenClientInterface> {
   if (!clientPromise) {
     // Fail closed: a client built before any state arrived would run on the build's network.
@@ -1362,10 +1377,13 @@ function getOrCreateClient(): Promise<MidenClientInterface> {
     currentSignLiveness = liveness;
     const startedGeneration = wasmClientGeneration();
     recordProveTiming('getOrCreateClient: creating the offscreen client');
-    const created: Promise<MidenClientInterface> = MidenClientInterface.create({
-      signCallback: makeOffscreenSignViaSW(liveness),
-      useWorker: false
-    })
+    const created: Promise<MidenClientInterface> = initializeWalletAccess()
+      .then(() =>
+        MidenClientInterface.create({
+          signCallback: makeOffscreenSignViaSW(liveness),
+          useWorker: false
+        })
+      )
       .then(client => {
         recordProveTiming('getOrCreateClient: client created');
         // A poisoning that lands while this create is in flight nulls the memo
@@ -1523,6 +1541,14 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
       // parking awaits without opting in.
       const context: DispatchContext = { op_id: msg.op_id, hold, settled: false };
       try {
+        if (
+          msg.method !== 'waitForTransactionCommit' &&
+          msg.method !== 'getTransactionCommitState' &&
+          msg.method !== 'isOutputNoteConsumed'
+        ) {
+          await ensureWalletAccessAllowed();
+          assertWasmHoldCurrent(hold, 'after the offscreen wallet access check');
+        }
         return await dispatch(context, client, ...args);
       } finally {
         // Closes the window for late stage stamps: whatever the dispatch does

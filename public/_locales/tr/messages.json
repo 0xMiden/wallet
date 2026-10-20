@@ -7053,5 +7053,23 @@
   "webViewStartFailedAction": {
     "message": "Tekrar deneyin",
     "englishSource": "Try again"
+  },
+  "walletAccessCheckingTitle": {
+    "message": "Kullanılabilirlik kontrol ediliyor"
+  },
+  "walletAccessCheckingBody": {
+    "message": "Cüzdanın bölgenizde kullanılabilir olup olmadığını kontrol ederken lütfen bekleyin."
+  },
+  "walletAccessRestrictedTitle": {
+    "message": "Cüzdan bölgenizde kullanılamıyor"
+  },
+  "walletAccessRestrictedBody": {
+    "message": "Cüzdan bulunduğunuz konumda kullanılamıyor."
+  },
+  "walletAccessUnavailableTitle": {
+    "message": "Kullanılabilirlik kontrol edilemedi"
+  },
+  "walletAccessUnavailableBody": {
+    "message": "Bağlantınızı kontrol edip tekrar deneyin."
   }
 }

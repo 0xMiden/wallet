@@ -21,6 +21,9 @@ import type { BridgeConfig, GuardianConfig } from './schema';
 import type { StoredBridgeConfig } from './source';
 import type { SwapPairs } from './swap-pairs';
 import { selectNativeEthFaucet, selectSwapPairs } from './values';
+import { assertWalletAccessAllowed, getWalletAccessSnapshot } from './wallet-access';
+
+jest.unmock('./wallet-access');
 
 let mockNetwork = 'testnet';
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
@@ -70,7 +73,7 @@ jest.mock('./derive', () => ({
 interface TestEligibility {
   network: string;
   version: number;
-  allowed: { earn: boolean; swap: boolean };
+  allowed: { wallet: boolean; earn: boolean; swap: boolean };
 }
 const mockLookup = jest.fn<Promise<TestEligibility | null>, [string?, number?]>();
 jest.mock('./geo-lookup', () => ({
@@ -203,7 +206,11 @@ beforeEach(() => {
   mockFetch.mockReset().mockRejectedValue(new Error('unexpected fetch'));
   mockDerive.mockReset().mockImplementation(async source => derivedFor(source, Date.now()));
   mockDerivedRpc.mockClear();
-  mockLookup.mockReset().mockResolvedValue(null);
+  mockLookup.mockReset().mockImplementation(async (network = 'testnet', version = 1) => ({
+    network,
+    version,
+    allowed: { wallet: true, earn: true, swap: true }
+  }));
   mockFeatureAvailability.mockClear();
   warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
 });
@@ -229,7 +236,8 @@ describe('the store', () => {
       status: 'ready',
       config: config(3),
       derived: derivedFor(config(3), NOW - 60_000),
-      lastFetch: { at: NOW - 60_000, ok: true }
+      lastFetch: { at: NOW - 60_000, ok: true },
+      geo: { state: 'ready', network: 'testnet', version: 3, allowed: { wallet: true, earn: true, swap: true } }
     });
     expect(getBridgeConfigSnapshot()).toBe(snapshot);
     expect(mockFetch).not.toHaveBeenCalled();
@@ -272,7 +280,8 @@ describe('the store', () => {
       status: 'ready',
       config: config(1),
       derived: derivedFor(config(1), NOW),
-      lastFetch: { at: NOW, ok: true }
+      lastFetch: { at: NOW, ok: true },
+      geo: { state: 'ready', network: 'testnet', version: 1, allowed: { wallet: true, earn: true, swap: true } }
     });
     expect(mockStorage.get(DERIVED)).toEqual(derivedFor(config(1), NOW));
   });
@@ -307,7 +316,8 @@ describe('the store', () => {
       status: 'ready',
       config: config(2),
       derived: derivedFor(config(2), NOW),
-      lastFetch: { at: NOW, ok: false, error: 'HTTP 503' }
+      lastFetch: { at: NOW, ok: false, error: 'HTTP 503' },
+      geo: { state: 'ready', network: 'testnet', version: 2, allowed: { wallet: true, earn: true, swap: true } }
     });
     expect(warn).toHaveBeenCalledWith(
       expect.stringContaining('testnet'),
@@ -452,8 +462,12 @@ describe('networks', () => {
     subscribeBridgeConfig(listener);
     mockNetwork = 'testnet';
     followEffectiveNetwork();
-    expect(listener).toHaveBeenCalledTimes(1);
-    expect(getBridgeConfigSnapshot()).toMatchObject({ network: 'testnet', config: config(1) });
+    expect(listener).toHaveBeenCalledTimes(2);
+    expect(getBridgeConfigSnapshot()).toMatchObject({
+      network: 'testnet',
+      config: config(1),
+      geo: { state: 'loading' }
+    });
   });
 
   it('resolves with the network current when the read lands, not the one it started on', async () => {
@@ -544,7 +558,8 @@ describe('commits from another realm', () => {
       status: 'ready',
       config: config(2),
       derived: derivedFor(config(2), NOW + 2),
-      lastFetch: { at: NOW + 1, ok: true }
+      lastFetch: { at: NOW + 1, ok: true },
+      geo: { state: 'ready', network: 'testnet', version: 2, allowed: { wallet: true, earn: true, swap: true } }
     });
   });
 
@@ -1090,17 +1105,18 @@ describe('the poll schedule', () => {
     serve(1);
     await initBridgeConfig();
     await flush();
-    expect(jest.getTimerCount()).toBe(1);
+    expect(jest.getTimerCount()).toBe(2);
     setVisibility('hidden');
-    expect(jest.getTimerCount()).toBe(0);
+    // The permission expiry still closes the gate; no hidden policy or feature poll remains.
+    expect(jest.getTimerCount()).toBe(1);
     await jest.advanceTimersByTimeAsync(2 * HEALTHY_POLL_MS);
     expect(mockFetch).not.toHaveBeenCalled();
     setVisibility('visible');
     await flush();
-    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
   });
 
-  it('back in the foreground within 15 minutes, keeps the hourly timer from the last check', async () => {
+  it('refreshes permission policy on foreground without moving the hourly derivation check', async () => {
     seed(1);
     serve(1);
     await initBridgeConfig();
@@ -1109,21 +1125,24 @@ describe('the poll schedule', () => {
     await jest.advanceTimersByTimeAsync(10 * 60_000);
     setVisibility('visible');
     await flush();
-    expect(mockFetch).not.toHaveBeenCalled();
-    await jest.advanceTimersByTimeAsync(HEALTHY_POLL_MS - 10 * 60_000 - 1);
-    expect(mockFetch).not.toHaveBeenCalled();
-    await jest.advanceTimersByTimeAsync(1);
     expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(mockDerive).not.toHaveBeenCalled();
+    await jest.advanceTimersByTimeAsync(HEALTHY_POLL_MS - 10 * 60_000 - 1);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(mockDerive).not.toHaveBeenCalled();
+    await jest.advanceTimersByTimeAsync(1);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    expect(mockDerive).toHaveBeenCalledTimes(1);
   });
 
-  it('in a document that is never shown, refreshes only on load and never sets a timer', async () => {
+  it('in a document that is never shown, refreshes only on load and schedules only permission expiry', async () => {
     visibility = 'hidden';
     seed(1, { fetchedAt: NOW - HEALTHY_POLL_MS });
     serve(1);
     await initBridgeConfig();
     await flush();
     expect(mockFetch).toHaveBeenCalledTimes(1);
-    expect(jest.getTimerCount()).toBe(0);
+    expect(jest.getTimerCount()).toBe(1);
     await jest.advanceTimersByTimeAsync(3 * HEALTHY_POLL_MS);
     expect(mockFetch).toHaveBeenCalledTimes(1);
   });
@@ -1143,7 +1162,7 @@ describe('the poll schedule', () => {
     await initBridgeConfig();
     await flush();
     mockNetwork = 'devnet';
-    await jest.advanceTimersByTimeAsync(HEALTHY_POLL_MS - 1);
+    await jest.advanceTimersByTimeAsync(50_000 - 1);
     expect(mockFetch).not.toHaveBeenCalled();
     await jest.advanceTimersByTimeAsync(1);
     expect(mockFetch).toHaveBeenCalledWith('devnet');
@@ -1277,7 +1296,7 @@ describe('feature eligibility policy ownership', () => {
   const eligibility = (version: number, earn = true, network = 'testnet'): TestEligibility => ({
     network,
     version,
-    allowed: { earn, swap: true }
+    allowed: { wallet: true, earn, swap: true }
   });
 
   it('keeps only feature decisions scoped to the accepted policy in the snapshot', async () => {
@@ -1292,7 +1311,10 @@ describe('feature eligibility policy ownership', () => {
   it('keeps independent eligibility decisions when the effective network changes', async () => {
     seedGeo(13);
     seedGeo(7, 'devnet');
-    mockLookup.mockResolvedValueOnce(eligibility(13)).mockResolvedValueOnce(eligibility(7, false, 'devnet'));
+    mockLookup
+      .mockResolvedValueOnce(eligibility(13))
+      .mockResolvedValueOnce(eligibility(7, false, 'devnet'))
+      .mockResolvedValueOnce(eligibility(13));
     await initBridgeConfig();
     await flush();
     mockNetwork = 'devnet';
@@ -1304,20 +1326,7 @@ describe('feature eligibility policy ownership', () => {
     await initBridgeConfig();
     await flush();
     expect(getBridgeConfigSnapshot().geo).toEqual({ state: 'ready', ...eligibility(13) });
-    expect(mockLookup).toHaveBeenCalledTimes(2);
-  });
-
-  it('does not look up disabled-only rules or a document with no geo gates', async () => {
-    seedGeo(13, 'testnet', false);
-    await initBridgeConfig();
-    await flush();
-    expect(getBridgeConfigSnapshot().geo).toBeUndefined();
-    expect(mockLookup).not.toHaveBeenCalled();
-    mockNetwork = 'devnet';
-    seed(14, { network: 'devnet' });
-    await initBridgeConfig();
-    await flush();
-    expect(mockLookup).not.toHaveBeenCalled();
+    expect(mockLookup).toHaveBeenCalledTimes(3);
   });
 
   it('invalidates an in-flight older policy and ignores its late completion', async () => {
@@ -1364,7 +1373,7 @@ describe('feature eligibility policy ownership', () => {
     expect(mockLookup).toHaveBeenCalledTimes(2);
   });
 
-  it('recovers Swap-only eligibility on the existing degraded polling cadence', async () => {
+  it('recovers Swap-only eligibility within the wallet access retry cadence', async () => {
     const document: BridgeConfig = {
       ...config(13),
       features: { earn: false },
@@ -1378,7 +1387,7 @@ describe('feature eligibility policy ownership', () => {
     await initBridgeConfig();
     await flush();
     expect(getBridgeConfigSnapshot().geo).toEqual({ state: 'failed' });
-    await jest.advanceTimersByTimeAsync(DEGRADED_POLL_MS - 1);
+    await jest.advanceTimersByTimeAsync(DEGRADED_VISIBLE_POLL_MS - 1);
     expect(mockLookup).toHaveBeenCalledTimes(1);
     await jest.advanceTimersByTimeAsync(1);
     expect(getBridgeConfigSnapshot().geo).toEqual({ state: 'ready', ...eligibility(13) });
@@ -1388,7 +1397,9 @@ describe('feature eligibility policy ownership', () => {
   it('forgets a pending decision when rules disappear', async () => {
     seedGeo(13);
     const pending = gate();
-    mockLookup.mockImplementation(() => pending.opened.then(() => eligibility(13)));
+    mockLookup
+      .mockImplementationOnce(() => pending.opened.then(() => eligibility(13)))
+      .mockResolvedValue(eligibility(14));
     await initBridgeConfig();
     await flush();
     seed(14, { derivedAt: NOW + 1 });
@@ -1396,7 +1407,7 @@ describe('feature eligibility policy ownership', () => {
     await flush();
     pending.release();
     await flush();
-    expect(getBridgeConfigSnapshot().geo).toBeUndefined();
+    expect(getBridgeConfigSnapshot().geo).toEqual({ state: 'ready', ...eligibility(14) });
   });
 
   it('does not adopt an old runtime completion after reset recreated its network', async () => {
@@ -1413,5 +1424,104 @@ describe('feature eligibility policy ownership', () => {
     pending.release();
     await flush();
     expect(getBridgeConfigSnapshot().geo).toEqual({ state: 'ready', ...eligibility(14, false) });
+  });
+});
+
+describe('wallet-wide eligibility refresh', () => {
+  const seedGlobal = () => {
+    const geo = { wallet: [{ country: 'RU' }], earn: [] };
+    const document: BridgeConfig = { ...config(13), features: { earn: false }, geo };
+    mockStorage.set(CACHE, { config: document, fetchedAt: NOW });
+    mockStorage.set(DERIVED, derivedFor(document, NOW));
+    return document;
+  };
+
+  it('looks up wallet access while Earn and Swap have no enabled geo rules', async () => {
+    seedGlobal();
+    const decision = { network: 'testnet', version: 13, allowed: { wallet: false, earn: false, swap: false } };
+    mockLookup.mockResolvedValue(decision);
+    await initBridgeConfig();
+    await flush();
+    expect(getBridgeConfigSnapshot().geo).toEqual({ state: 'ready', ...decision });
+  });
+
+  it('rechecks wallet access on foreground even when the document version is unchanged', async () => {
+    seedGlobal();
+    const allowed = { network: 'testnet', version: 13, allowed: { wallet: true, earn: false, swap: false } };
+    mockLookup.mockResolvedValueOnce(allowed).mockResolvedValueOnce(null);
+    await initBridgeConfig();
+    await flush();
+    setVisibility('hidden');
+    await jest.advanceTimersByTimeAsync(1);
+    setVisibility('visible');
+    await flush();
+    expect(mockLookup).toHaveBeenCalledTimes(2);
+    expect(getBridgeConfigSnapshot().geo).toEqual({ state: 'failed' });
+  });
+
+  it('prefetches before expiry without revoking a valid permission or reading through the SDK', async () => {
+    seedGlobal();
+    const pending = gate();
+    const decision = { network: 'testnet', version: 13, allowed: { wallet: true, earn: false, swap: false } };
+    mockLookup.mockResolvedValueOnce(decision).mockImplementationOnce(() => pending.opened.then(() => decision));
+    await initBridgeConfig();
+    await flush();
+    const permission = getWalletAccessSnapshot();
+    await jest.advanceTimersByTimeAsync(50_000);
+    expect(mockLookup).toHaveBeenCalledTimes(2);
+    expect(getWalletAccessSnapshot()).toBe(permission);
+    expect(() => assertWalletAccessAllowed()).not.toThrow();
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(mockDerive).not.toHaveBeenCalled();
+    pending.release();
+    await flush();
+    expect(getWalletAccessSnapshot().status).toBe('allowed');
+    expect(getWalletAccessSnapshot().expiresAt).toBe(110_000);
+  });
+
+  it('revokes an old policy immediately while SDK derivation for a newly accepted policy is pending', async () => {
+    seedGlobal();
+    await initBridgeConfig();
+    await flush();
+    expect(() => assertWalletAccessAllowed()).not.toThrow();
+    const pending = gate();
+    mockFetch.mockResolvedValue({ config: config(14), fetchedAt: NOW });
+    mockDerive.mockImplementationOnce(async source => {
+      await pending.opened;
+      return derivedFor(source, NOW);
+    });
+    const refreshing = _refreshBridgeConfigForTest();
+    await flush();
+    expect(() => assertWalletAccessAllowed()).toThrow();
+    pending.release();
+    await refreshing;
+    await flush();
+    expect(getWalletAccessSnapshot().status).toBe('allowed');
+    expect(mockLookup).toHaveBeenLastCalledWith('testnet', 14);
+  });
+
+  it('foreground supersedes a pending prefetch and cannot publish that old completion', async () => {
+    seedGlobal();
+    const old = gate();
+    const current = gate();
+    const allowed = { network: 'testnet', version: 13, allowed: { wallet: true, earn: false, swap: false } };
+    mockLookup
+      .mockResolvedValueOnce(allowed)
+      .mockImplementationOnce(() => old.opened.then(() => allowed))
+      .mockImplementationOnce(() => current.opened.then(() => null));
+    await initBridgeConfig();
+    await flush();
+    await jest.advanceTimersByTimeAsync(50_000);
+    setVisibility('hidden');
+    setVisibility('visible');
+    await flush();
+    expect(mockLookup).toHaveBeenCalledTimes(3);
+    expect(() => assertWalletAccessAllowed()).toThrow();
+    old.release();
+    await flush();
+    expect(() => assertWalletAccessAllowed()).toThrow();
+    current.release();
+    await flush();
+    expect(getWalletAccessSnapshot().status).toBe('unavailable');
   });
 });

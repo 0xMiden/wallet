@@ -7053,5 +7053,23 @@
   "webViewStartFailedAction": {
     "message": "Спробуйте ще раз",
     "englishSource": "Try again"
+  },
+  "walletAccessCheckingTitle": {
+    "message": "Перевірка доступності"
+  },
+  "walletAccessCheckingBody": {
+    "message": "Зачекайте, поки ми перевіримо, чи доступний гаманець у вашому регіоні."
+  },
+  "walletAccessRestrictedTitle": {
+    "message": "Гаманець недоступний у вашому регіоні"
+  },
+  "walletAccessRestrictedBody": {
+    "message": "Гаманець недоступний у вашому поточному місцезнаходженні."
+  },
+  "walletAccessUnavailableTitle": {
+    "message": "Не вдалося перевірити доступність"
+  },
+  "walletAccessUnavailableBody": {
+    "message": "Перевірте з’єднання та спробуйте ще раз."
   }
 }

@@ -82,3 +82,22 @@ describe('placeBlocked', () => {
     expect(placeBlocked([{ country: 'GB' }], { country: 'US' })).toBe('allow');
   });
 });
+
+describe('global wallet policy', () => {
+  it('keeps wallet country and subdivision rules separately from new Earn rules', () => {
+    expect(
+      readGeoBlocks({ wallet: { 'block RU': 'yes', 'block UA-43': 'yes' }, earn: { 'block UK': 'yes' } }, invalid)
+    ).toEqual({
+      wallet: [{ country: 'RU' }, { country: 'UA', region: '43' }],
+      earn: [{ country: 'GB' }]
+    });
+  });
+
+  it('preserves explicit empty wallet policy so it differs from missing global policy', () => {
+    expect(readGeoBlocks({ wallet: {} }, invalid)).toEqual({ wallet: [] });
+  });
+
+  it('rejects an unknown active global rule rather than silently allowing it', () => {
+    expect(() => readGeoBlocks({ wallet: { 'block unknown territory': 'yes' } }, invalid)).toThrow();
+  });
+});

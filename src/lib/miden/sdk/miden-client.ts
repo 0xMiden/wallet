@@ -1034,7 +1034,11 @@ function takeSignReason(hold: WasmLockHold): SignCallbackReason | undefined {
 
 function signReasonOf(err: unknown): SignCallbackReason | undefined {
   const reason = typeof err === 'object' && err !== null && 'reason' in err ? err.reason : undefined;
-  return reason === 'locked' || reason === 'rejected' || reason === 'not_found' || reason === 'internal'
+  return reason === 'locked' ||
+    reason === 'wallet_access_denied' ||
+    reason === 'rejected' ||
+    reason === 'not_found' ||
+    reason === 'internal'
     ? reason
     : undefined;
 }

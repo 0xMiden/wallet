@@ -118,6 +118,9 @@ jobs:
       # test-results/, so each suite's results upload before the next suite starts. An upload may fail without failing
       # the job: the Arc suites after it run only when every step before them passed, and its failure is never the
       # wallet's.
+      - name: Start wallet eligibility fixture
+        uses: ./.github/actions/start-eligibility-fixture
+
       - name: Run usdcx-in
         id: usdcx_in
         run: node scripts/e2e-real.mjs --suite usdcx-in
@@ -238,6 +241,9 @@ jobs:
       # usdcx-in-l2 spends from the key on all three chains, and usdcx-burn-l2 proves each payout as the rise of the
       # key's balance there from a read taken right before its burn. Every deposit is mined before usdcx-in-l2's step
       # ends, so running them in this order is enough.
+      - name: Start wallet eligibility fixture
+        uses: ./.github/actions/start-eligibility-fixture
+
       - name: Run usdcx-in-l2
         id: usdcx_in_l2
         run: node scripts/e2e-real.mjs --suite usdcx-in-l2

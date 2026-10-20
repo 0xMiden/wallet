@@ -2,7 +2,7 @@ import type { JsonResponse } from 'lib/remote-json';
 
 import { lookupFeatureEligibility } from './geo-lookup';
 
-const answer = { network: 'testnet', version: 13, allowed: { earn: true, swap: false } };
+const answer = { network: 'testnet', version: 13, allowed: { wallet: true, earn: true, swap: false } };
 
 function jsonResponse(body: unknown, ok = true): JsonResponse {
   return { ok, json: async () => body };
@@ -10,13 +10,17 @@ function jsonResponse(body: unknown, ok = true): JsonResponse {
 
 describe('lookupFeatureEligibility', () => {
   const savedUrl = process.env.FEATURE_ELIGIBILITY_URL;
+  const savedE2e = process.env.MIDEN_E2E_TEST;
 
   beforeEach(() => {
     process.env.FEATURE_ELIGIBILITY_URL = 'https://eligibility.example/v1/eligibility';
+    process.env.MIDEN_E2E_TEST = 'false';
     jest.useFakeTimers();
   });
 
   afterEach(() => {
+    if (savedE2e === undefined) delete process.env.MIDEN_E2E_TEST;
+    else process.env.MIDEN_E2E_TEST = savedE2e;
     if (savedUrl === undefined) delete process.env.FEATURE_ELIGIBILITY_URL;
     else process.env.FEATURE_ELIGIBILITY_URL = savedUrl;
   });
@@ -44,6 +48,21 @@ describe('lookupFeatureEligibility', () => {
     }
   );
 
+  it.each([
+    ['false', 'http://127.0.0.1:8551/v1/eligibility', false],
+    ['true', 'http://127.0.0.1:8551/v1/eligibility', true],
+    ['true', 'http://localhost:8551/v1/eligibility', true],
+    ['true', 'http://[::1]:8551/v1/eligibility', true],
+    ['true', 'http://external.example/v1/eligibility', false],
+    ['true', 'http://user:pass@localhost:8551/v1/eligibility', false]
+  ])('permits HTTP only for an explicit E2E loopback endpoint (%s, %s)', async (e2e, endpoint, allowed) => {
+    process.env.MIDEN_E2E_TEST = String(e2e);
+    process.env.FEATURE_ELIGIBILITY_URL = String(endpoint);
+    const fetchImpl = jest.fn().mockResolvedValue(jsonResponse(answer));
+    await expect(lookupFeatureEligibility('testnet', 13, { fetchImpl })).resolves.toEqual(allowed ? answer : null);
+    expect(fetchImpl).toHaveBeenCalledTimes(allowed ? 1 : 0);
+  });
+
   it('does not send a request when the build has no endpoint', async () => {
     delete process.env.FEATURE_ELIGIBILITY_URL;
     const fetchImpl = jest.fn();
@@ -56,10 +75,12 @@ describe('lookupFeatureEligibility', () => {
     ['an older policy', { ...answer, version: 12 }],
     ['a newer policy', { ...answer, version: 14 }],
     ['a string policy', { ...answer, version: '13' }],
-    ['a missing Earn decision', { ...answer, allowed: { swap: true } }],
-    ['a missing Swap decision', { ...answer, allowed: { earn: true } }],
-    ['a truthy Earn decision', { ...answer, allowed: { earn: 'yes', swap: true } }],
-    ['a numeric Swap decision', { ...answer, allowed: { earn: true, swap: 1 } }],
+    ['a missing wallet decision', { ...answer, allowed: { earn: true, swap: false } }],
+    ['a nonboolean wallet decision', { ...answer, allowed: { wallet: 'yes', earn: true, swap: false } }],
+    ['a missing Earn decision', { ...answer, allowed: { wallet: true, swap: true } }],
+    ['a missing Swap decision', { ...answer, allowed: { wallet: true, earn: true } }],
+    ['a truthy Earn decision', { ...answer, allowed: { wallet: true, earn: 'yes', swap: true } }],
+    ['a numeric Swap decision', { ...answer, allowed: { wallet: true, earn: true, swap: 1 } }],
     ['an array of decisions', { ...answer, allowed: [true, false] }],
     ['an absent body', null],
     ['an array body', [answer]]

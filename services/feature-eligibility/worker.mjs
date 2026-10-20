@@ -3,7 +3,7 @@ const CONFIG_BASE = 'https://raw.githubusercontent.com/0xMiden/wallet-config/mai
 const MAXMIND_BASE = 'https://geoip.maxmind.com/geoip/v2.1/city';
 const POLICY_TTL = 60_000;
 const DECISION_TTL = 300_000;
-const FEATURES = ['earn', 'swap'];
+const FEATURES = ['wallet', 'earn', 'swap'];
 const ALIASES = new Map([
   ['ny state', { country: 'US', region: 'NY' }],
   ['new york', { country: 'US', region: 'NY' }],
@@ -82,9 +82,9 @@ function readPolicy(body, network) {
   if (!record(features) || (features.earn !== undefined && typeof features.earn !== 'boolean')) {
     throw new Error('Invalid policy');
   }
-  const enabled = { earn: features.earn === true, swap: solverEnabled(body.swap) };
-  if (body.geo !== undefined && !record(body.geo)) throw new Error('Invalid policy');
-  const rules = { earn: [], swap: [] };
+  const enabled = { wallet: true, earn: features.earn === true, swap: solverEnabled(body.swap) };
+  if (!record(body.geo) || !record(body.geo.wallet)) throw new Error('Invalid policy');
+  const rules = { wallet: [], earn: [], swap: [] };
   for (const feature of FEATURES) {
     const entries = body.geo?.[feature];
     if (entries === undefined) continue;
@@ -109,12 +109,13 @@ function readPlace(body) {
 }
 
 function allowedAt(policy, place) {
-  return Object.fromEntries(FEATURES.map(feature => [
+  const allowed = Object.fromEntries(FEATURES.map(feature => [
     feature,
     policy.enabled[feature] && !policy.rules[feature].some(rule =>
       rule.country === place.country && (!rule.region || !place.region || rule.region === place.region)
     )
   ]));
+  return allowed.wallet ? allowed : { wallet: false, earn: false, swap: false };
 }
 
 async function digest(secret, value) {
@@ -125,6 +126,12 @@ async function digest(secret, value) {
 }
 
 export function createService({ fetchImpl = fetch, now = Date.now, timeoutMs = 5_000 } = {}) {
+  function usableCache(cache, policy, identity) {
+    return cache?.version === policy.version && cache.identity === identity && cache.expires > now() &&
+      record(cache.allowed) && FEATURES.every(feature => typeof cache.allowed[feature] === 'boolean') &&
+      (cache.allowed.wallet || (!cache.allowed.earn && !cache.allowed.swap));
+  }
+
   async function fetchJson(url, init, maxBytes) {
     const controller = new AbortController();
     let reader;
@@ -201,7 +208,7 @@ export function createService({ fetchImpl = fetch, now = Date.now, timeoutMs = 5
     async evaluate(ip, policy, callerKey, identity) {
       const latest = await this.storage.get(callerKey);
       const cached = latest?.cache[policy.network];
-      if (cached?.identity === identity && cached.expires > now()) return cached.allowed;
+      if (usableCache(cached, policy, identity)) return cached.allowed;
       const limit = integer(this.env.MAXMIND_DAILY_QUERY_LIMIT, 0, 1_000_000);
       if (!this.env.MAXMIND_ACCOUNT_ID || !this.env.MAXMIND_LICENSE_KEY) throw new Error('Unavailable');
       const authorization = `Basic ${btoa(`${this.env.MAXMIND_ACCOUNT_ID}:${this.env.MAXMIND_LICENSE_KEY}`)}`;
@@ -243,7 +250,7 @@ export function createService({ fetchImpl = fetch, now = Date.now, timeoutMs = 5
         let allowed = policy.enabled;
         if (needsLookup) {
           const cached = caller.cache[network];
-          if (cached?.version === policy.version && cached.identity === identity && cached.expires > now()) {
+          if (usableCache(cached, policy, identity)) {
             allowed = cached.allowed;
           } else {
             const key = `${callerKey}:${network}:${identity}`;

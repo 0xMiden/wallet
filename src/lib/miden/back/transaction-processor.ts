@@ -15,6 +15,7 @@ import {
 } from 'lib/miden/transaction';
 import { reconcileUnconfirmedTransactions } from 'lib/miden/transaction/reconcile-unconfirmed';
 import { isExtension } from 'lib/platform';
+import { ensureWalletAccessAllowed, isWalletAccessDeniedError } from 'lib/remote-config/wallet-access';
 import { WalletMessageType } from 'lib/shared/types';
 
 import { getAccountsWriteQueue } from './accounts-write-queue';
@@ -90,6 +91,7 @@ let processingRequested = false;
  * every caller — including the dApp private-data readers.
  */
 export async function swSignCallback(publicKey: string, signingInputs: string): Promise<Uint8Array> {
+  await ensureWalletAccessAllowed();
   return withUnlocked(async ({ vault }) => {
     const signatureHex = await vault.signTransaction(publicKey, signingInputs);
     return new Uint8Array(Buffer.from(signatureHex, 'hex'));
@@ -184,6 +186,7 @@ export async function startTransactionProcessing(): Promise<void> {
 
   let browser: BrowserPolyfill | null = null;
   try {
+    await ensureWalletAccessAllowed();
     // In the Vite SW build, the activity module's re-export of lib/miden/transaction
     // doesn't await the async transaction module init (Rolldown treats
     // `export * from '../transaction'` as synchronous). Wait up to 60s for the
@@ -256,7 +259,7 @@ export async function startTransactionProcessing(): Promise<void> {
       await new Promise(resolve => setTimeout(resolve, 5000));
     }
   } catch (e) {
-    console.error('[TransactionProcessor] Error:', e);
+    if (!isWalletAccessDeniedError(e)) console.error('[TransactionProcessor] Error:', e);
   } finally {
     try {
       browser?.alarms.clear(ALARM_NAME);

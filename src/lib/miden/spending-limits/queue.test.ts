@@ -634,7 +634,12 @@ describe('fresh Earn deposit eligibility at row insertion', () => {
     mockEligibilitySnapshot = {
       ...TEST_BRIDGE_CONFIG_SNAPSHOT,
       config: { ...accepted, geo: { earn: [{ country: 'GB' }] } },
-      geo: { state: 'ready', network: 'testnet', version: accepted.version, allowed: { earn: false, swap: true } }
+      geo: {
+        state: 'ready',
+        network: 'testnet',
+        version: accepted.version,
+        allowed: { wallet: true, earn: false, swap: true }
+      }
     };
   };
 

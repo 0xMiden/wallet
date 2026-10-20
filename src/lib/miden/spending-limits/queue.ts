@@ -1,5 +1,6 @@
 import { assertEarnDepositAvailable } from 'lib/remote-config/availability';
 import { getBridgeConfigSnapshot } from 'lib/remote-config/runtime';
+import { assertWalletAccessAllowed, ensureWalletAccessAllowed } from 'lib/remote-config/wallet-access';
 
 import { assessSpendingLimit, MAX_WINDOW_SECONDS } from './policy';
 import {
@@ -139,6 +140,7 @@ const authorizationMatches = async (
 
 // Policy and price reads can outlive a review's permission; check at the actual new-row boundary.
 function addOutgoingTransaction(transaction: ITransaction): Promise<string> {
+  assertWalletAccessAllowed();
   if (transaction.type === 'earn-deposit') assertEarnDepositAvailable(getBridgeConfigSnapshot());
   return Repo.transactions.add(transaction);
 }
@@ -158,6 +160,7 @@ export const queueOutgoingTransaction = async (
   authorization?: SpendingLimitAuthorization,
   now: number = Math.floor(Date.now() / 1000)
 ): Promise<void> => {
+  await ensureWalletAccessAllowed();
   // An account with no cap must pay for neither a price lookup nor a window scan - but the insert
   // itself still has to happen inside a write lock, or a saveSpendingLimit committing between this
   // probe and the add admits a row that is never assessed and never stamped with spentUsd.

@@ -48,9 +48,23 @@ const policy = (overrides = {}) => ({
   version: 13,
   features: { earn: true },
   swap: { etaUrl: 'https://solver.example' },
-  geo: { earn: { 'block NY state': 'yes', 'block UK': 'yes' } },
+  geo: { wallet: {}, earn: { 'block NY state': 'yes', 'block UK': 'yes' } },
   ...overrides
 });
+
+const walletRules = {
+  'block CU': 'yes',
+  'block IR': 'yes',
+  'block KP': 'yes',
+  'block RU': 'yes',
+  'block BY': 'yes',
+  'block UA-43': 'yes',
+  'block UA-40': 'yes',
+  'block UA-14': 'yes',
+  'block UA-09': 'yes',
+  'block UA-65': 'yes',
+  'block UA-23': 'yes'
+};
 
 function harness(options = {}) {
   const storage = new MemoryStorage();
@@ -110,7 +124,7 @@ test('returns only decisions and accepted policy version, using the edge caller 
   const h = harness();
   const response = await h.request({ headers: { 'X-Forwarded-For': '198.51.100.8', 'X-Real-IP': '198.51.100.9' } });
   assert.equal(response.status, 200);
-  assert.deepEqual(await response.json(), { network: 'testnet', version: 13, allowed: { earn: true, swap: true } });
+  assert.deepEqual(await response.json(), { network: 'testnet', version: 13, allowed: { wallet: true, earn: true, swap: true } });
   assert.equal(h.paidCalls()[0].url, 'https://geoip.maxmind.com/geoip/v2.1/city/203.0.113.7');
   assert.equal(h.paidCalls()[0].init.headers.Authorization, `Basic ${btoa('example-account:example-license')}`);
   assert.equal(h.paidCalls()[0].init.redirect, 'manual');
@@ -122,10 +136,10 @@ test('returns only decisions and accepted policy version, using the edge caller 
 });
 
 for (const [name, place, allowed] of [
-  ['New York', { country: { iso_code: 'US' }, subdivisions: [{ iso_code: 'NY' }] }, { earn: false, swap: true }],
-  ['United Kingdom', { country: { iso_code: 'GB' } }, { earn: false, swap: true }],
-  ['US without state', { country: { iso_code: 'US' } }, { earn: false, swap: true }],
-  ['Germany', { country: { iso_code: 'DE' } }, { earn: true, swap: true }]
+  ['New York', { country: { iso_code: 'US' }, subdivisions: [{ iso_code: 'NY' }] }, { wallet: true, earn: false, swap: true }],
+  ['United Kingdom', { country: { iso_code: 'GB' } }, { wallet: true, earn: false, swap: true }],
+  ['US without state', { country: { iso_code: 'US' } }, { wallet: true, earn: false, swap: true }],
+  ['Germany', { country: { iso_code: 'DE' } }, { wallet: true, earn: true, swap: true }]
 ]) {
   test(`applies Earn rules for ${name} without gating unrelated Swap operations`, async () => {
     const response = await harness({ place }).request();
@@ -134,21 +148,79 @@ for (const [name, place, allowed] of [
 }
 
 test('evaluates independent Swap and ISO subdivision rules with one paid query', async () => {
-  const h = harness({ policy: policy({ geo: { earn: { 'block US-NY': 'yes' }, swap: { 'block US-CA': 'yes' } } }) });
-  assert.deepEqual((await (await h.request()).json()).allowed, { earn: true, swap: false });
+  const h = harness({ policy: policy({ geo: { wallet: {}, earn: { 'block US-NY': 'yes' }, swap: { 'block US-CA': 'yes' } } }) });
+  assert.deepEqual((await (await h.request()).json()).allowed, { wallet: true, earn: true, swap: false });
   assert.equal(h.paidCalls().length, 1);
 });
 
+for (const [name, country, region] of [
+  ['Cuba', 'CU'],
+  ['Iran', 'IR'],
+  ['North Korea', 'KP'],
+  ['Russia', 'RU'],
+  ['Belarus', 'BY'],
+  ['Crimea', 'UA', '43'],
+  ['Sevastopol', 'UA', '40'],
+  ['Donetsk oblast', 'UA', '14'],
+  ['Luhansk oblast', 'UA', '09'],
+  ['Kherson oblast', 'UA', '65'],
+  ['Zaporizhzhia oblast', 'UA', '23']
+]) {
+  test(`wallet policy denies all access in ${name}, overriding independent feature permissions`, async () => {
+    const h = harness({
+      policy: policy({ geo: { wallet: walletRules } }),
+      place: { country: { iso_code: country }, ...(region ? { subdivisions: [{ iso_code: region }] } : {}) }
+    });
+    const response = await h.request();
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), {
+      network: 'testnet',
+      version: 13,
+      allowed: { wallet: false, earn: false, swap: false }
+    });
+    assert.equal(h.paidCalls().length, 1);
+  });
+}
+
+for (const [name, place, wallet] of [
+  ['Kyiv city', { country: { iso_code: 'UA' }, subdivisions: [{ iso_code: '30' }] }, true],
+  ['missing Ukrainian subdivision', { country: { iso_code: 'UA' } }, false],
+  ['invalid Ukrainian subdivision', { country: { iso_code: 'UA' }, subdivisions: [{ iso_code: 'unknown' }] }, false],
+  ['Germany', { country: { iso_code: 'DE' } }, true]
+]) {
+  test(`wallet restrictions still require a lookup for ${name} while both products are disabled`, async () => {
+    const h = harness({
+      policy: policy({ features: { earn: false }, swap: {}, geo: { wallet: walletRules } }),
+      place
+    });
+    const response = await h.request();
+    assert.equal(response.status, 200);
+    assert.deepEqual((await response.json()).allowed, { wallet, earn: false, swap: false });
+    assert.equal(h.paidCalls().length, 1);
+  });
+}
+
+test('an exhausted lookup budget cannot open the wallet merely because products are disabled', async () => {
+  const h = harness({
+    policy: policy({ features: { earn: false }, swap: {}, geo: { wallet: walletRules } }),
+    env: { MAXMIND_DAILY_QUERY_LIMIT: '0' }
+  });
+  const response = await h.request();
+  assert.equal(response.status, 503);
+  assert.deepEqual(await response.json(), { error: 'eligibility_unavailable' });
+  assert.equal(h.paidCalls().length, 0);
+});
+
 for (const [name, document] of [
-  ['absent policy', policy({ geo: undefined })],
-  ['disabled-only rules', policy({ geo: { earn: { 'block NY state': 'no', 'block UK': 'no' } } })],
+  ['explicit empty wallet policy', policy({ geo: { wallet: {} } })],
+  ['disabled-only rules', policy({ geo: { wallet: { 'block CU': 'no' }, earn: { 'block NY state': 'no', 'block UK': 'no' } } })],
   ['globally disabled Earn', policy({ features: { earn: false } })]
 ]) {
   test(`${name} needs no MaxMind credential or paid lookup`, async () => {
     const h = harness({ policy: document, env: { MAXMIND_ACCOUNT_ID: '', MAXMIND_LICENSE_KEY: '' } });
     const response = await h.request();
     assert.equal(response.status, 200);
-    assert.deepEqual((await response.json()).allowed, { earn: document.features.earn, swap: true });
+    assert.deepEqual((await response.json()).allowed, { wallet: true, earn: document.features.earn, swap: true });
     assert.equal(h.paidCalls().length, 0);
   });
 }
@@ -195,20 +267,20 @@ test('handles CORS preflight without performing any lookup', async () => {
 
 test('unknown prototype-like feature names cannot create eligibility rules', async () => {
   const h = harness({
-    policy: policy({ geo: JSON.parse('{"__proto__":{"block UK":"yes"},"constructor":{"block US":"yes"}}') })
+    policy: policy({ geo: JSON.parse('{"wallet":{},"__proto__":{"block UK":"yes"},"constructor":{"block US":"yes"}}') })
   });
   const response = await h.request();
   assert.equal(response.status, 200);
-  assert.deepEqual((await response.json()).allowed, { earn: true, swap: true });
+  assert.deepEqual((await response.json()).allowed, { wallet: true, earn: true, swap: true });
   assert.equal(h.paidCalls().length, 0);
 });
 
-test('disabled Earn and unconfigured Swap skip all paid lookups even if dormant rules exist', async () => {
+test('disabled products skip paid lookups only when the explicit wallet policy has no enabled rules', async () => {
   const h = harness({
-    policy: policy({ features: { earn: false }, swap: {}, geo: { earn: { 'block UK': 'yes' }, swap: { 'block US': 'yes' } } })
+    policy: policy({ features: { earn: false }, swap: {}, geo: { wallet: {}, earn: { 'block UK': 'yes' }, swap: { 'block US': 'yes' } } })
   });
   const response = await h.request();
-  assert.deepEqual((await response.json()).allowed, { earn: false, swap: false });
+  assert.deepEqual((await response.json()).allowed, { wallet: true, earn: false, swap: false });
   assert.equal(h.paidCalls().length, 0);
 });
 
@@ -225,13 +297,17 @@ for (const [name, options] of [
   ['policy HTTP failure', { policyResponse: () => new Response('private error', { status: 502 }) }],
   ['wrong network', { policy: policy({ network: 'mainnet' }) }],
   ['missing version', { policy: policy({ version: undefined }) }],
-  ['invalid rule', { policy: policy({ geo: { earn: { 'block NY state': true } } }) }],
+  ['absent geo policy', { policy: policy({ geo: undefined }) }],
+  ['missing wallet policy', { policy: policy({ geo: { earn: { 'block UK': 'yes' } } }) }],
+  ['invalid wallet policy', { policy: policy({ geo: { wallet: [] } }) }],
+  ['unknown global rule', { policy: policy({ geo: { wallet: { 'unknown location': 'yes' } } }) }],
+  ['invalid rule', { policy: policy({ geo: { wallet: {}, earn: { 'block NY state': true } } }) }],
   ['invalid feature shape', { policy: policy({ features: 'true' }) }],
   ['invalid feature switch', { policy: policy({ features: { earn: 'true' } }) }],
   ['invalid Swap URL', { policy: policy({ swap: { etaUrl: 'http://solver.example' } }) }],
   ['invalid geo shape', { policy: policy({ geo: [] }) }],
-  ['invalid feature rules', { policy: policy({ geo: { earn: [] } }) }],
-  ['unknown enabled phrase', { policy: policy({ geo: { earn: { 'unknown location': 'yes' } } }) }],
+  ['invalid feature rules', { policy: policy({ geo: { wallet: {}, earn: [] } }) }],
+  ['unknown enabled phrase', { policy: policy({ geo: { wallet: {}, earn: { 'unknown location': 'yes' } } }) }],
   ['missing MaxMind credential', { env: { MAXMIND_LICENSE_KEY: '' } }],
   ['missing daily budget', { env: { MAXMIND_DAILY_QUERY_LIMIT: undefined } }],
   ['invalid daily budget', { env: { MAXMIND_DAILY_QUERY_LIMIT: '-1' } }],
@@ -300,9 +376,35 @@ test('a new authoritative policy version invalidates a cached decision', async (
   const h = harness();
   await h.request();
   h.advance(60_001);
-  h.setPolicy(policy({ version: 14, geo: { earn: { 'block US': 'yes' } } }));
+  h.setPolicy(policy({ version: 14, geo: { wallet: {}, earn: { 'block US': 'yes' } } }));
   const response = await h.request();
-  assert.deepEqual(await response.json(), { network: 'testnet', version: 14, allowed: { earn: false, swap: true } });
+  assert.deepEqual(await response.json(), { network: 'testnet', version: 14, allowed: { wallet: true, earn: false, swap: true } });
+  assert.equal(h.paidCalls().length, 2);
+});
+
+test('a changed global policy invalidates a cached wallet allow before its five-minute decision expiry', async () => {
+  const h = harness();
+  await h.request();
+  h.advance(60_001);
+  h.setPolicy(policy({ version: 14, geo: { wallet: { 'block US': 'yes' } } }));
+  const response = await h.request();
+  assert.deepEqual(await response.json(), {
+    network: 'testnet',
+    version: 14,
+    allowed: { wallet: false, earn: false, swap: false }
+  });
+  assert.equal(h.paidCalls().length, 2);
+});
+
+test('old two-decision cache entries cannot authorize wallet access even with a matching policy identity', async () => {
+  const h = harness();
+  await h.request();
+  const callerKey = [...h.storage.values.keys()].find(key => key.startsWith('caller:'));
+  const caller = h.storage.values.get(callerKey);
+  caller.cache.testnet.allowed = { earn: true, swap: true };
+  h.storage.values.set(callerKey, caller);
+  const response = await h.request();
+  assert.deepEqual((await response.json()).allowed, { wallet: true, earn: true, swap: true });
   assert.equal(h.paidCalls().length, 2);
 });
 

@@ -3795,6 +3795,66 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(Array.from(Buffer.from(resp.resultB64, 'base64'))).toEqual([55, 66, 77]);
   });
 
+  it('guardianPipeline refuses broadcast when wallet access is revoked during proof', async () => {
+    await loadModule();
+    const access = jest.requireMock<typeof import('lib/remote-config/wallet-access')>(
+      'lib/remote-config/wallet-access'
+    );
+    const denied = Object.assign(new Error('Wallet access denied'), { code: 'WALLET_ACCESS_DENIED' });
+    mockProveTransport.prove.mockImplementationOnce(async () => {
+      jest.mocked(access.ensureWalletAccessAllowed).mockRejectedValue(denied);
+      return { proven: new Uint8Array([1]), durationMs: 1 };
+    });
+    const sendResponse = jest.fn();
+    capturedListener!(
+      callReq({
+        op_id: 'op-global-denied',
+        method: 'guardianPipeline',
+        argsB64: [encodeArg('mtst1qguardian'), encodeArg(new Uint8Array([1])), encodeArg(false)]
+      }),
+      {},
+      sendResponse
+    );
+    await flush();
+    expect(G.__off.guardianSubmitProven).not.toHaveBeenCalled();
+    expect(G.__off.guardianApplied).toBe(false);
+    expect(sendResponse.mock.calls[0]?.[0]).toMatchObject({
+      ok: false,
+      errorCode: 'WALLET_ACCESS_DENIED',
+      errorBeforeSubmit: true
+    });
+  });
+
+  it('guardianPipeline finishes local apply after broadcast even when access is then revoked', async () => {
+    await loadModule();
+    const access = jest.requireMock<typeof import('lib/remote-config/wallet-access')>(
+      'lib/remote-config/wallet-access'
+    );
+    G.__off.guardianSubmitProven.mockImplementationOnce(async () => {
+      G.__off.guardianSubmitted = true;
+      jest.mocked(access.ensureWalletAccessAllowed).mockRejectedValue(new Error('Wallet access denied'));
+      return {
+        apply: async () => {
+          G.__off.guardianApplied = true;
+        }
+      };
+    });
+    const sendResponse = jest.fn();
+    capturedListener!(
+      callReq({
+        op_id: 'op-global-after-submit',
+        method: 'guardianPipeline',
+        argsB64: [encodeArg('mtst1qguardian'), encodeArg(new Uint8Array([1])), encodeArg(false)]
+      }),
+      {},
+      sendResponse
+    );
+    await flush();
+    expect(G.__off.guardianSubmitted).toBe(true);
+    expect(G.__off.guardianApplied).toBe(true);
+    expect(sendResponse.mock.calls[0]?.[0].ok).toBe(true);
+  });
+
   it('guardianPipeline: stops before proving when the hold is evicted during executeRequest (#777)', async () => {
     // `executeRequest` is a network round trip on the NORMAL ceiling — the pause
     // brackets in this pipeline cover proving, not this — so a node that accepts and

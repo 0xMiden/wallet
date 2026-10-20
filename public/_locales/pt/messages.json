@@ -7053,5 +7053,23 @@
   "webViewStartFailedAction": {
     "message": "Tente novamente",
     "englishSource": "Try again"
+  },
+  "walletAccessCheckingTitle": {
+    "message": "A verificar a disponibilidade"
+  },
+  "walletAccessCheckingBody": {
+    "message": "Aguarde enquanto verificamos se a carteira está disponível na sua região."
+  },
+  "walletAccessRestrictedTitle": {
+    "message": "Carteira indisponível na sua região"
+  },
+  "walletAccessRestrictedBody": {
+    "message": "A carteira não está disponível na sua localização atual."
+  },
+  "walletAccessUnavailableTitle": {
+    "message": "Não foi possível verificar a disponibilidade"
+  },
+  "walletAccessUnavailableBody": {
+    "message": "Verifique a sua ligação e tente novamente."
   }
 }

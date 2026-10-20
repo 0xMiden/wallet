@@ -1,5 +1,6 @@
 import { Runtime } from 'webextension-polyfill';
 
+import { withWalletRequestAccess } from 'lib/intercom/wallet-request-access';
 import { queueNoteImport } from 'lib/miden/activity';
 import { isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
 import {
@@ -362,7 +363,10 @@ function registerOffscreenSignHandler(): void {
       return false;
     }
     if (m.type !== OFFSCREEN_SIGN_REQUEST) return false;
-    handleOffscreenSignRequest(msg as OffscreenSignRequest, swSignCallback).then(sendResponse, (err: unknown) => {
+    handleOffscreenSignRequest(msg as OffscreenSignRequest, async (publicKey, signingInputs) => {
+      await startupHydration;
+      return swSignCallback(publicKey, signingInputs);
+    }).then(sendResponse, (err: unknown) => {
       // The handler already classifies vault errors; a throw here is an
       // unexpected internal fault. Respond ok:false so the offscreen sign stub
       // rejects (failing the write) rather than hanging on a dropped response.
@@ -392,7 +396,7 @@ function confirmationRequestNotFound(req: unknown): Error | undefined {
 
 async function dispatchWhenHydrated(req: WalletRequest, port: Runtime.Port): Promise<WalletResponse | void> {
   await startupHydration;
-  return processRequest(req, port);
+  return withWalletRequestAccess(req, () => processRequest(req, port));
 }
 
 async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<WalletResponse | void> {

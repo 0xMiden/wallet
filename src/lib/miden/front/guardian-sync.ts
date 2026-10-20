@@ -112,7 +112,7 @@ export const reconcileUnconfirmedInApp = (): Promise<void> =>
  * them is correct, not a silence: there is genuinely no hot-bound service to
  * build, and recovery happens via the banner → activation path, not here.
  * Once a hot key lands (`swapHotKey`), the next sync cycle picks the account up. A rotation-pending
- * account whose own rotation landed after its row failed gets there through `finishPendingActivations`.
+ * account whose own rotation landed after its row failed gets there through `finishFailedHotKeyRotations`.
  *
  * This also means the `update_guardian` threshold-2 hardening is intentionally
  * NOT applied to hot-key-less accounts here, and that's correct: a pre-activation
@@ -2007,9 +2007,9 @@ async function attemptColdReRegisterSelfHeal(
 }
 
 /**
- * Run the cold heal for each rotation-pending account with a Failed rotation of this device's (#1233).
- * A post-recovery or migrated account usually has no hot key, so the sync loop skips it and it never
- * 401s into the heal; this is its trigger, keyed on the flag so a hot === cold record is covered too.
+ * Finish this device's Failed rotations through the chain-verified cold heal. Pending activations
+ * run before sync because they may have no hot key. Ordinary accounts run after successful sync,
+ * which may still authorize their old key when post-commit pointer persistence failed.
  * Adds no hold of its own: the heal's holds are bounded, labelled and fused. Backs off 1, 2, 4, 8 and
  * 16 cooldowns, then checks every fused-probe interval without end.
  * Every exit stamps that clock, and only a heal counts an attempt: the row read is unindexed (a row
@@ -2023,10 +2023,10 @@ async function attemptColdReRegisterSelfHeal(
  * Returns TRUE when the realm's WASM client was evicted under a heal, so the pass takes no further
  * holds, the same stop rule as the account loop's own heals.
  */
-async function finishPendingActivations(accounts: WalletAccount[], generation: number): Promise<boolean> {
+async function finishFailedHotKeyRotations(accounts: WalletAccount[], generation: number): Promise<boolean> {
   for (const account of accounts) {
     if (generation !== syncGeneration) return false;
-    if (account.type !== WalletType.Guardian || account.requiresHotKeyRotation !== true || !account.coldPublicKey) {
+    if (account.type !== WalletType.Guardian || !account.coldPublicKey) {
       continue;
     }
     const prev = pendingActivationState.get(account.publicKey);
@@ -2222,7 +2222,13 @@ export function syncGuardianAccounts(): Promise<void> {
 
 async function runGuardianAccountsSync(generation: number): Promise<void> {
   const accounts = await zustandProvider.getAccounts();
-  if (await finishPendingActivations(accounts, generation)) return;
+  if (
+    await finishFailedHotKeyRotations(
+      accounts.filter(account => account.requiresHotKeyRotation === true),
+      generation
+    )
+  )
+    return;
   const guardianAccounts = accounts.filter(acc => acc.type === WalletType.Guardian && Boolean(acc.hotPublicKey));
 
   if (guardianAccounts.length === 0) return;
@@ -2453,6 +2459,8 @@ async function runGuardianAccountsSync(generation: number): Promise<void> {
       // and that is the one observation the fuse waits for, whoever the account
       // points at now.
       if (await passMayRecord(generation, account.publicKey, endpoint)) {
+        if (account.requiresHotKeyRotation !== true && (await finishFailedHotKeyRotations([account], generation)))
+          break;
         // Sync succeeded → the account is authorized; clear any accumulated
         // self-heal state so a future divergence starts its persistence count
         // fresh, and stand down the guardian-unreachable prompt.

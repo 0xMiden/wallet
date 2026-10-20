@@ -99,7 +99,7 @@ describe('swapAvailability', () => {
     expect(
       swapAvailability({
         ...snapshot,
-        geo: { state: 'ready', network: 'testnet', version: 1, allowed: { earn: true, swap: false } }
+        geo: { state: 'ready', network: 'testnet', version: 1, allowed: { wallet: true, earn: true, swap: false } }
       })
     ).toMatchObject({
       reason: 'restricted'
@@ -107,7 +107,7 @@ describe('swapAvailability', () => {
     expect(
       swapAvailability({
         ...snapshot,
-        geo: { state: 'ready', network: 'testnet', version: 1, allowed: { earn: true, swap: true } }
+        geo: { state: 'ready', network: 'testnet', version: 1, allowed: { wallet: true, earn: true, swap: true } }
       })
     ).toEqual({
       state: 'available'

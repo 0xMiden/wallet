@@ -19,7 +19,7 @@ const json = (body, status = 200) =>
       Vary: 'Origin'
     }
   });
-const result = network => ({ network, version: 20, allowed: { earn: false, swap: true } });
+const result = network => ({ network, version: 20, allowed: { wallet: true, earn: false, swap: true } });
 const fixture =
   (overrides = {}) =>
   async (url, init) => {
@@ -56,6 +56,18 @@ test('manual builds may use the healthy deployed revision without redeploying th
       endpoint,
       networks: ['devnet']
     }
+  );
+});
+
+test('accepts a restricted wallet decision as a valid service response', async () => {
+  assert.deepEqual(
+    await checkDeployment({
+      ...options,
+      fetchImpl: fixture({
+        eligibility: network => json({ ...result(network), allowed: { wallet: false, earn: false, swap: false } })
+      })
+    }),
+    { endpoint, networks: ['testnet', 'devnet'] }
   );
 });
 
@@ -98,6 +110,11 @@ for (const [label, eligibility] of [
   ['failed API status', network => json(result(network), 503)],
   ['wrong network', () => json(result('other'))],
   ['stale policy version', network => json({ ...result(network), version: 19 })],
+  [
+    'non-boolean wallet decision',
+    network => json({ ...result(network), allowed: { wallet: 'yes', earn: true, swap: true } })
+  ],
+  ['missing wallet decision', network => json({ ...result(network), allowed: { earn: true, swap: true } })],
   ['non-boolean decision', network => json({ ...result(network), allowed: { earn: 'yes', swap: true } })],
   ['missing decision', network => json({ ...result(network), allowed: { earn: true } })],
   ['raw location disclosure', network => json({ ...result(network), country: 'US' })],

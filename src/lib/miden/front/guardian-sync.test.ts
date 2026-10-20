@@ -1990,6 +1990,73 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
       mockReRegister.mockImplementation(pushStartWith(['0xbeef', '0xc01d']));
     });
 
+    describe('a manual rotation with successful old-key authentication', () => {
+      const sync = jest.fn(async () => undefined);
+
+      beforeEach(() => {
+        sync.mockClear();
+        storeState.accounts = [{ ...pendingAccount, hotPublicKey: 'hot', requiresHotKeyRotation: false }];
+        mockGetOrCreateMultisigService.mockResolvedValue({ sync });
+      });
+
+      it('finishes its durable Failed rotation without waiting for a 401', async () => {
+        await syncGuardianAccounts();
+
+        expect(storeState.swapHotKey).toHaveBeenCalledWith('acct-activation', 'new-hot-pub', 'hot');
+        expect(mockMarkRotationCompleted).toHaveBeenCalledWith('row-act');
+        expect(sync).toHaveBeenCalledTimes(1);
+      });
+
+      it("does not use another account's Failed rotation", async () => {
+        mockFindFailedHotKeyRotations.mockImplementation(async accountPublicKey =>
+          accountPublicKey === 'different-account' ? [{ id: 'row-other', newHotPublicKey: 'new-hot-pub' }] : []
+        );
+
+        await syncGuardianAccounts();
+
+        expect(mockReRegister).not.toHaveBeenCalled();
+        expect(storeState.swapHotKey).not.toHaveBeenCalled();
+        expect(mockMarkRotationCompleted).not.toHaveBeenCalled();
+        expect(sync).toHaveBeenCalledTimes(1);
+      });
+
+      it('does not finish without an own Failed rotation', async () => {
+        mockFindFailedHotKeyRotations.mockResolvedValue([]);
+
+        await syncGuardianAccounts();
+
+        expect(mockReRegister).not.toHaveBeenCalled();
+        expect(storeState.swapHotKey).not.toHaveBeenCalled();
+        expect(sync).toHaveBeenCalledTimes(1);
+      });
+
+      it('does not finish a Failed rotation whose key the chain does not name', async () => {
+        mockGetSignerDetails.mockResolvedValue({ commitment: '0xdead' });
+
+        await syncGuardianAccounts();
+
+        expect(mockReRegister).not.toHaveBeenCalled();
+        expect(storeState.swapHotKey).not.toHaveBeenCalled();
+        expect(mockMarkRotationCompleted).not.toHaveBeenCalled();
+        expect(sync).toHaveBeenCalledTimes(1);
+      });
+
+      it('does not swap from a stale record after a concurrent rotation', async () => {
+        swapAsTheVault();
+        mockReRegister.mockImplementationOnce(
+          async (_options: unknown, onPushStart?: (signerCommitments: readonly string[]) => void) => {
+            onPushStart?.(['0xbeef', '0xc01d']);
+            storeState.accounts = [{ ...pendingAccount, hotPublicKey: 'other-hot', requiresHotKeyRotation: false }];
+          }
+        );
+
+        await syncGuardianAccounts();
+
+        expect(storeState.swapHotKey).toHaveBeenCalledWith('acct-activation', 'new-hot-pub', 'hot');
+        expect(mockMarkRotationCompleted).not.toHaveBeenCalled();
+      });
+    });
+
     // First, so the cases after it run on the account whose heal fuse it lit.
     it('skips a pending activation whose heal fuse is lit (#1233)', async () => {
       storeState.accounts = [pendingAccount] as never;

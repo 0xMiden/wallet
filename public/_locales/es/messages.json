@@ -7053,5 +7053,23 @@
   "webViewStartFailedAction": {
     "message": "Inténtalo de nuevo",
     "englishSource": "Try again"
+  },
+  "walletAccessCheckingTitle": {
+    "message": "Comprobando disponibilidad"
+  },
+  "walletAccessCheckingBody": {
+    "message": "Espera mientras comprobamos si el monedero está disponible en tu región."
+  },
+  "walletAccessRestrictedTitle": {
+    "message": "Monedero no disponible en tu región"
+  },
+  "walletAccessRestrictedBody": {
+    "message": "El monedero no está disponible desde tu ubicación actual."
+  },
+  "walletAccessUnavailableTitle": {
+    "message": "No se pudo comprobar la disponibilidad"
+  },
+  "walletAccessUnavailableBody": {
+    "message": "Comprueba tu conexión e inténtalo de nuevo."
   }
 }

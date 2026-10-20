@@ -5,6 +5,7 @@
  * store wrapper then dereferences (the exact drift this module exists to end).
  */
 
+import { ensureWalletAccessAllowed } from 'lib/remote-config/wallet-access';
 import { WalletMessageType, WalletRequest } from 'lib/shared/types';
 
 import { processInProcessRequest } from './in-process-request-handler';
@@ -118,5 +119,23 @@ describe('processInProcessRequest', () => {
       )
     ).rejects.toThrow('Invalid password');
     expect(mockStartTransactionProcessing).not.toHaveBeenCalled();
+  });
+});
+
+describe('native global access boundary', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  const requests: WalletRequest[] = [
+    { type: WalletMessageType.UnlockRequest, password: 'pw' },
+    { type: WalletMessageType.ExportAccountFileRequest, accountPublicKey: 'account', password: 'pw' }
+  ];
+  it.each(requests)('refuses $type before reaching its wallet action', async request => {
+    const denied = Object.assign(new Error('Wallet access denied'), { code: 'WALLET_ACCESS_DENIED' });
+    jest.mocked(ensureWalletAccessAllowed).mockRejectedValue(denied);
+    await expect(processInProcessRequest(request, 'test-adapter')).rejects.toBe(denied);
+    expect(mockUnlock).not.toHaveBeenCalled();
+    expect(mockExportAccountFile).not.toHaveBeenCalled();
   });
 });

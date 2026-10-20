@@ -1559,5 +1559,11 @@
   "webViewUpdateChromeBody": "Bread を利用するには、このバージョンの Android ではアプリ内でウェブページを表示する、新しいバージョンの Chrome が必要です。Google Play からアップデートした後、Bread を再度開いてください。",
   "webViewStartFailedTitle": "Breadは開始できませんでした",
   "webViewStartFailedBody": "何らかの理由でBreadの読み込みが中断されました。もう一度試すか、Breadを閉じてから再度開いてください。",
-  "webViewStartFailedAction": "もう一度試してください"
+  "webViewStartFailedAction": "もう一度試してください",
+  "walletAccessCheckingTitle": "利用可能か確認しています",
+  "walletAccessCheckingBody": "お住まいの地域でウォレットを利用できるか確認しています。しばらくお待ちください。",
+  "walletAccessRestrictedTitle": "お住まいの地域ではウォレットを利用できません",
+  "walletAccessRestrictedBody": "現在の所在地からはウォレットを利用できません。",
+  "walletAccessUnavailableTitle": "利用可能か確認できませんでした",
+  "walletAccessUnavailableBody": "接続を確認して、もう一度お試しください。"
 }

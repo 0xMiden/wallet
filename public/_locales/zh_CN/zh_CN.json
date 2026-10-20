@@ -1559,5 +1559,11 @@
   "webViewUpdateChromeBody": "Bread 需要更新版本的 Chrome 浏览器，因为该版本的 Android 系统会将网页显示为应用程序。请通过 Google Play 进行更新，然后重新打开 Bread。",
   "webViewStartFailedTitle": "Bread 无法启动",
   "webViewStartFailedBody": "Bread 加载时遇到问题。请重试，或关闭 Bread 后重新打开。",
-  "webViewStartFailedAction": "请重试"
+  "webViewStartFailedAction": "请重试",
+  "walletAccessCheckingTitle": "正在检查可用性",
+  "walletAccessCheckingBody": "请稍候，我们正在检查你所在地区是否可以使用钱包。",
+  "walletAccessRestrictedTitle": "你所在地区无法使用钱包",
+  "walletAccessRestrictedBody": "你当前所在位置无法使用钱包。",
+  "walletAccessUnavailableTitle": "无法检查可用性",
+  "walletAccessUnavailableBody": "请检查网络连接后重试。"
 }

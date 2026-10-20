@@ -29,6 +29,7 @@ import {
   getEpochAllocatorUrl,
   getEvmUsdc
 } from 'lib/remote-config/values';
+import { assertWalletAccessAllowed, ensureWalletAccessAllowed } from 'lib/remote-config/wallet-access';
 
 import { normalizeMidenIdToHex } from './bridge';
 import { MIDEN_DESTINATION_CHAIN_ID } from './config';
@@ -214,6 +215,7 @@ async function submitEarnWithdrawal(
   deps: GaslessEarnWithdrawalDeps,
   verifyMarket: boolean
 ): Promise<GaslessEarnWithdrawalResult> {
+  await ensureWalletAccessAllowed();
   const sponsorAddress = asAddress(args.evmAddress, 'Position owner');
   const underlyingAddress = getAddress(asAddress(args.underlyingAddress, 'Underlying token'));
   const midenRecipientHex = normalizeMidenIdToHex(args.midenAccountPublicKey);
@@ -272,10 +274,12 @@ async function submitEarnWithdrawal(
   const attemptStartedAt = Math.floor(Date.now() / 1000);
 
   const submit = async (context: EarnSubmissionContext): Promise<GaslessEarnWithdrawalResult> => {
+    await ensureWalletAccessAllowed();
     const assertCurrent = () => {
       if (!context.isCurrent()) throw new Error('Withdrawal submission was interrupted.');
     };
     const assertBeforeSigning = () => {
+      assertWalletAccessAllowed();
       assertCurrent();
       assertReviewedContext();
     };
@@ -343,6 +347,7 @@ async function submitEarnWithdrawal(
       assertBeforeSigning();
       if (!status.is7702Capable) throw new Error('Wallet/chain is not 7702-capable for a gasless withdrawal.');
       if (status.needsSetup) {
+        await ensureWalletAccessAllowed();
         const setup = await sdk.convertToSmartAccount({ chainId });
         assertBeforeSigning();
         if (!setup.ok) throw new Error('Smart-account conversion failed for the gasless withdrawal.');
@@ -359,6 +364,7 @@ async function submitEarnWithdrawal(
         },
         gasless: true,
         onBeforeExecute: async execution => {
+          await ensureWalletAccessAllowed();
           assertBeforeSigning();
           if (executionPermitted) throw new Error('Withdrawal execution was already permitted.');
           const identity = {
@@ -404,6 +410,8 @@ async function submitEarnWithdrawal(
             selected.allocations.some(allocation => BigInt(allocation.expires) <= BigInt(Math.floor(Date.now() / 1000)))
           )
             throw new Error('The prepared withdrawal expired before execution.');
+          await ensureWalletAccessAllowed();
+          assertBeforeSigning();
           executionPermitted = true;
         }
       });
@@ -678,6 +686,7 @@ export function pollEarnWithdrawDelivery(args: {
                   !matchesPreparedExecution(current, execution.preparedExecution)
                 )
                   return false;
+                await ensureWalletAccessAllowed();
                 await sdk.retryIntentSolve(request);
                 return lock.isCurrent() && context.isCurrent();
               }
@@ -825,6 +834,7 @@ function retryDecimals(chainId: number, underlying: string, sourceDecimals: numb
 
 /** Retry with a new intent and attempt identity while keeping the existing history row. */
 export async function resubmitEarnWithdrawal(txId: string, deps: ResubmitDeps = {}): Promise<void> {
+  await ensureWalletAccessAllowed();
   try {
     await resubmitSource(txId, deps);
   } catch (error) {
@@ -930,6 +940,7 @@ type EarnWithdrawalRetryDeps = ResubmitDeps & ResumeDeps;
 
 /** Retry only the operation permitted by the durable submission evidence. */
 export async function retryEarnWithdrawal(txId: string, deps: EarnWithdrawalRetryDeps = {}): Promise<void> {
+  await ensureWalletAccessAllowed();
   const row = await Repo.transactions.where({ id: txId }).first();
   const kind = earnWithdrawalRetryKind(row);
   if (kind === 'source') {
@@ -977,6 +988,7 @@ export async function retryEarnWithdrawal(txId: string, deps: EarnWithdrawalRetr
           !matchesPreparedExecution(current, execution.preparedExecution)
         )
           return;
+        await ensureWalletAccessAllowed();
         await sdk.retryIntentSolve(request);
       });
     } catch (error) {

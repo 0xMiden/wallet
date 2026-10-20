@@ -18,6 +18,9 @@ import {
 } from './runtime';
 import type { BridgeConfig } from './schema';
 import type { StoredBridgeConfig } from './source';
+import { ensureWalletAccessAllowed, getWalletAccessSnapshot } from './wallet-access';
+
+jest.unmock('./wallet-access');
 
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
   getEffectiveNetworkName: () => 'testnet',
@@ -97,7 +100,11 @@ beforeEach(() => {
   jest.useFakeTimers({ now: NOW });
   mockStorage.clear();
   mockDegraded = false;
-  mockLookup.mockReset().mockResolvedValue(null);
+  mockLookup.mockReset().mockImplementation(async (network, version) => ({
+    network,
+    version,
+    allowed: { wallet: true, earn: true, swap: true }
+  }));
   mockFetch.mockReset().mockImplementation(async () => storeEntry(1));
   mockDerive.mockReset().mockImplementation(async source => derivedFor(source, Date.now()));
   warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
@@ -107,15 +114,17 @@ afterEach(() => {
   warn.mockRestore();
 });
 
-it('never sets a timer, whatever the health or the holds', async () => {
+it('never schedules a refresh loop, whatever the health or the holds', async () => {
   mockDegraded = true;
   seed(1);
   await initBridgeConfig();
   const release = holdFastPoll();
   await flush();
-  expect(jest.getTimerCount()).toBe(0);
+  // Expiry is a one-shot denial timer, not a background refresh loop.
+  expect(jest.getTimerCount()).toBe(1);
   release();
-  expect(jest.getTimerCount()).toBe(0);
+  // Expiry is a one-shot denial timer, not a background refresh loop.
+  expect(jest.getTimerCount()).toBe(1);
 });
 
 it('refreshes on load once the copy is an hour old, and not before', async () => {
@@ -182,7 +191,11 @@ it('retries failed eligibility on a later worker use without adding a polling ti
     features: { earn: true },
     geo: { earn: [{ country: 'GB' }] }
   };
-  const allowed: FeatureEligibility = { network: 'testnet', version: 13, allowed: { earn: true, swap: false } };
+  const allowed: FeatureEligibility = {
+    network: 'testnet',
+    version: 13,
+    allowed: { wallet: true, earn: true, swap: false }
+  };
   mockStorage.set('bridge_config_v1:testnet', { config: document, fetchedAt: NOW });
   mockStorage.set('bridge_config_derived_v1:testnet', derivedFor(document, NOW));
   mockFetch.mockResolvedValue({ config: document, fetchedAt: NOW + DEGRADED_POLL_MS });
@@ -200,5 +213,20 @@ it('retries failed eligibility on a later worker use without adding a polling ti
   await flush();
   expect(getBridgeConfigSnapshot().geo).toEqual({ state: 'ready', ...allowed });
   expect(mockLookup).toHaveBeenCalledTimes(2);
-  expect(jest.getTimerCount()).toBe(0);
+  // Expiry is a one-shot denial timer, not a background refresh loop.
+  expect(jest.getTimerCount()).toBe(1);
+});
+
+it('renews an expired protected-use lease through storage and HTTP without acquiring the SDK lock', async () => {
+  seed(13);
+  await initBridgeConfig();
+  await flush();
+  await jest.advanceTimersByTimeAsync(60_000);
+  mockFetch.mockImplementationOnce(async () => storeEntry(14));
+  mockDerive.mockImplementation(() => new Promise(() => undefined));
+  await expect(ensureWalletAccessAllowed()).resolves.toBeUndefined();
+  expect(mockFetch).toHaveBeenCalledTimes(1);
+  expect(mockDerive).not.toHaveBeenCalled();
+  expect(getWalletAccessSnapshot().status).toBe('allowed');
+  expect(mockLookup).toHaveBeenLastCalledWith('testnet', 14);
 });

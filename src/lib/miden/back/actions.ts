@@ -60,6 +60,7 @@ import {
 } from 'lib/miden-chain/effective-endpoints';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
+import { assertWalletAccessAllowed, ensureWalletAccessAllowed } from 'lib/remote-config/wallet-access';
 import {
   GuardianRecoveryAction,
   GuardianSyncStatus,
@@ -165,6 +166,13 @@ function syncRealmInsertKeySink() {
   });
 }
 
+async function withWalletAccess<T>(action: () => Promise<T>): Promise<T> {
+  await ensureWalletAccessAllowed();
+  const result = await action();
+  assertWalletAccessAllowed();
+  return result;
+}
+
 export async function init() {
   console.log('[Actions.init] Starting...');
   // This realm's one SDK client signs every inline write with the vault (#878):
@@ -186,38 +194,42 @@ export async function init() {
 }
 
 export async function getFrontState(): Promise<WalletState> {
-  try {
-    const state = store.getState();
-    if (state.inited) {
-      return toFront(state);
+  return withWalletAccess(async () => {
+    try {
+      const state = store.getState();
+      if (state.inited) {
+        return toFront(state);
+      }
+    } catch {
+      // store not initialized yet
     }
-  } catch {
-    // store not initialized yet
-  }
-  // Return Idle immediately so the UI can render while backend inits.
-  return {
-    status: 0,
-    accounts: [],
-    currentAccount: null,
-    networks: [],
-    settings: null,
-    ownMnemonic: null
-  } as WalletState;
+    // Return Idle immediately so the UI can render while backend inits.
+    return {
+      status: 0,
+      accounts: [],
+      currentAccount: null,
+      networks: [],
+      settings: null,
+      ownMnemonic: null
+    } as WalletState;
+  });
 }
 
 export async function isDAppEnabled() {
-  const storage = getStorageProvider();
-  const vault = await getVault();
-  const bools = await Promise.all([
-    vault.isExist(),
-    (async () => {
-      const key = MidenSharedStorageKey.DAppEnabled;
-      const items = await storage.get([key]);
-      return key in items ? items[key] : true;
-    })()
-  ]);
+  return withWalletAccess(async () => {
+    const storage = getStorageProvider();
+    const vault = await getVault();
+    const bools = await Promise.all([
+      vault.isExist(),
+      (async () => {
+        const key = MidenSharedStorageKey.DAppEnabled;
+        const items = await storage.get([key]);
+        return key in items ? items[key] : true;
+      })()
+    ]);
 
-  return bools.every(Boolean);
+    return bools.every(Boolean);
+  });
 }
 
 // Mainnet admits only an account registered with an access code, so a setup there publishes no other.
@@ -353,7 +365,7 @@ function refuseSecondMainnetAccount() {
   if (isInviteOnlyNetwork()) throw new PublicError(getMessage('mainnetSecondAccountRefused'));
 }
 
-export function registerNewWallet(
+export async function registerNewWallet(
   walletType: WalletType,
   password?: string,
   mnemonic?: string,
@@ -361,6 +373,7 @@ export function registerNewWallet(
   guardianEndpoint?: string,
   accessCode?: string
 ) {
+  await ensureWalletAccessAllowed();
   console.log(
     '[Actions.registerNewWallet] Called with walletType:',
     walletType,
@@ -416,7 +429,8 @@ export function registerNewWallet(
 }
 
 /** Seed-less Guardian import: spawn from the existing hot:EVM key pair. */
-export function registerWalletFromHotKey(password?: string, keyPairPayload?: string, guardianEndpoint?: string) {
+export async function registerWalletFromHotKey(password?: string, keyPairPayload?: string, guardianEndpoint?: string) {
+  await ensureWalletAccessAllowed();
   return withInited(() =>
     getUnlockQueue().add(async () => {
       const inviteOnly = isInviteOnlyNetwork();
@@ -449,12 +463,13 @@ export function registerWalletFromHotKey(password?: string, keyPairPayload?: str
   );
 }
 
-export function registerImportedWallet(
+export async function registerImportedWallet(
   password: string | undefined,
   mnemonic: string | undefined,
   walletAccounts: WalletAccount[],
   importedAccounts: ImportedAccountBackup[]
 ) {
+  await ensureWalletAccessAllowed();
   return withInited(() =>
     getUnlockQueue().add(async () => {
       const inviteOnly = isInviteOnlyNetwork();
@@ -507,10 +522,11 @@ export function lock() {
       // flight just installed stays (#878).
       vault?.retire();
     });
-  });
+  }, true);
 }
 
-export function unlock(password?: string) {
+export async function unlock(password?: string) {
+  await ensureWalletAccessAllowed();
   return withInited(() =>
     getUnlockQueue().add(async () => {
       // Constructed inside the try: the constructor installs the candidate's sink,
@@ -557,21 +573,26 @@ export function unlock(password?: string) {
   );
 }
 
-export function updateCurrentAccount(accPublicKey: string) {
-  return withUnlocked(async ({ vault }) => {
-    const currentAccount = await vault.setCurrentAccount(accPublicKey);
-    currentAccountUpdated(currentAccount);
+export async function updateCurrentAccount(accPublicKey: string) {
+  return withWalletAccess(async () => {
+    return withUnlocked(async ({ vault }) => {
+      const currentAccount = await vault.setCurrentAccount(accPublicKey);
+      currentAccountUpdated(currentAccount);
+    });
   });
 }
 
-export function getCurrentAccount() {
-  return withUnlocked(async ({ vault }) => {
-    const currentAccount = await vault.getCurrentAccount();
-    return currentAccount;
+export async function getCurrentAccount() {
+  return withWalletAccess(async () => {
+    return withUnlocked(async ({ vault }) => {
+      const currentAccount = await vault.getCurrentAccount();
+      return currentAccount;
+    });
   });
 }
 
-export function createHDAccount(walletType: WalletType, name?: string) {
+export async function createHDAccount(walletType: WalletType, name?: string) {
+  await ensureWalletAccessAllowed();
   // Serialize on the accounts write queue, for the same reason `importAccount`
   // does: `vault.createHDAccount` reads the accounts list, does seconds of WASM
   // work, then writes the list back. Anything else doing a read-modify-write of
@@ -603,52 +624,62 @@ export function decryptCiphertexts(_accPublicKey: string, _cipherTexts: string[]
 
 export function revealViewKey(_accPublicKey: string, _password: string) {}
 
-export function revealMnemonic(password?: string) {
-  return withInited(() => Vault.revealMnemonic(password));
+export async function revealMnemonic(password?: string) {
+  return withWalletAccess(async () => {
+    return withInited(() => Vault.revealMnemonic(password));
+  });
 }
 
-export function exportWalletBackupMaterial(password?: string) {
-  return withInited(() => Vault.exportWalletBackupMaterial(password));
+export async function exportWalletBackupMaterial(password?: string) {
+  return withWalletAccess(async () => {
+    return withInited(() => Vault.exportWalletBackupMaterial(password));
+  });
 }
 
-export function revealPrivateKey(accPubKeyCommitment: string, password?: string) {
-  return withInited(() => Vault.revealPrivateKey(accPubKeyCommitment, password));
+export async function revealPrivateKey(accPubKeyCommitment: string, password?: string) {
+  return withWalletAccess(async () => {
+    return withInited(() => Vault.revealPrivateKey(accPubKeyCommitment, password));
+  });
 }
 
-export function exportAccountFile(accountPublicKey: string, password?: string) {
-  return withInited(() =>
-    Vault.withAccountFileKeyReader(accountPublicKey, password, async getKey => {
-      try {
-        return await withWasmClientLock(
-          async hold => {
-            installRealmKeystore({ getKey });
-            const client = await getMidenClient();
-            assertWasmHoldCurrent(hold, 'export-account-file', 'after client acquisition');
-            const bytes = await client.exportAccountFile(accountPublicKey, step =>
-              assertWasmHoldCurrent(hold, 'export-account-file', step)
-            );
-            try {
-              // Encoded straight from `bytes` rather than through an intermediate Buffer copy,
-              // because every copy is another live plaintext of the account's auth key that the
-              // screen's own fill(0) cannot reach. The base64 string itself is immutable and stays
-              // resident until GC - the transport is a string here the way revealPrivateKey and
-              // revealMnemonic already are - so this zeroes the one copy it does own.
-              return Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString('base64');
-            } finally {
-              bytes.fill(0);
-            }
-          },
-          { label: 'export-account-file' }
-        );
-      } finally {
-        uninstallRealmKeystore({ getKey });
-      }
-    })
-  );
+export async function exportAccountFile(accountPublicKey: string, password?: string) {
+  return withWalletAccess(async () => {
+    return withInited(() =>
+      Vault.withAccountFileKeyReader(accountPublicKey, password, async getKey => {
+        try {
+          return await withWasmClientLock(
+            async hold => {
+              installRealmKeystore({ getKey });
+              const client = await getMidenClient();
+              assertWasmHoldCurrent(hold, 'export-account-file', 'after client acquisition');
+              const bytes = await client.exportAccountFile(accountPublicKey, step =>
+                assertWasmHoldCurrent(hold, 'export-account-file', step)
+              );
+              try {
+                // Encoded straight from `bytes` rather than through an intermediate Buffer copy,
+                // because every copy is another live plaintext of the account's auth key that the
+                // screen's own fill(0) cannot reach. The base64 string itself is immutable and stays
+                // resident until GC - the transport is a string here the way revealPrivateKey and
+                // revealMnemonic already are - so this zeroes the one copy it does own.
+                return Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString('base64');
+              } finally {
+                bytes.fill(0);
+              }
+            },
+            { label: 'export-account-file' }
+          );
+        } finally {
+          uninstallRealmKeystore({ getKey });
+        }
+      })
+    );
+  });
 }
 
-export function revealHotKey(accountPublicKey: string, password?: string) {
-  return withInited(() => Vault.revealHotKey(accountPublicKey, password));
+export async function revealHotKey(accountPublicKey: string, password?: string) {
+  return withWalletAccess(async () => {
+    return withInited(() => Vault.revealHotKey(accountPublicKey, password));
+  });
 }
 
 export function revealPublicKey(_accPublicKey: string) {}
@@ -661,44 +692,48 @@ export function revealPublicKey(_accPublicKey: string) {}
 // the SE/Keystore entry and cold key material outlive the deleted account.
 export function removeAccount(_accPublicKey: string, _password: string) {}
 
-export function editAccount(accPublicKey: string, name: string) {
-  console.log({ accPublicKey, name });
-  // Queued: renaming also reads the accounts list and writes it back, so it can
-  // drop (or be dropped by) a concurrent create/import/recovery write.
-  return withUnlocked(({ vault }) =>
-    getAccountsWriteQueue().add(async () => {
-      name = name.trim();
-      if (!ACCOUNT_NAME_PATTERN.test(name)) {
-        throw new Error('Invalid name. Up to 16 characters; cannot start with whitespace or hyphen.');
-      }
-
-      const updatedAccounts = await vault.editAccountName(accPublicKey, name);
-      console.log({ updatedAccounts });
-      accountsUpdated(updatedAccounts);
-    })
-  );
-}
-
-export function importAccount(privateKey: string, name?: string) {
-  // Serialize on the unlock queue: `importAccountFromPrivateKey` reads
-  // the accounts list, calls into WASM, then writes the updated list.
-  // Two concurrent imports would otherwise both read the stale list and
-  // the second write would drop the first account.
-  return withUnlocked(({ vault }) =>
-    getUnlockQueue().add(async () => {
-      refuseSecondMainnetAccount();
-      if (name !== undefined) {
+export async function editAccount(accPublicKey: string, name: string) {
+  return withWalletAccess(async () => {
+    console.log({ accPublicKey, name });
+    // Queued: renaming also reads the accounts list and writes it back, so it can
+    // drop (or be dropped by) a concurrent create/import/recovery write.
+    return withUnlocked(({ vault }) =>
+      getAccountsWriteQueue().add(async () => {
         name = name.trim();
-        if (name && !ACCOUNT_NAME_PATTERN.test(name)) {
+        if (!ACCOUNT_NAME_PATTERN.test(name)) {
           throw new Error('Invalid name. Up to 16 characters; cannot start with whitespace or hyphen.');
         }
-      }
 
-      const accounts = await vault.importAccountFromPrivateKey(privateKey, name);
-      accountsUpdated({ accounts });
-      return accounts[accounts.length - 1]!.publicKey;
-    })
-  );
+        const updatedAccounts = await vault.editAccountName(accPublicKey, name);
+        console.log({ updatedAccounts });
+        accountsUpdated(updatedAccounts);
+      })
+    );
+  });
+}
+
+export async function importAccount(privateKey: string, name?: string) {
+  return withWalletAccess(async () => {
+    // Serialize on the unlock queue: `importAccountFromPrivateKey` reads
+    // the accounts list, calls into WASM, then writes the updated list.
+    // Two concurrent imports would otherwise both read the stale list and
+    // the second write would drop the first account.
+    return withUnlocked(({ vault }) =>
+      getUnlockQueue().add(async () => {
+        refuseSecondMainnetAccount();
+        if (name !== undefined) {
+          name = name.trim();
+          if (name && !ACCOUNT_NAME_PATTERN.test(name)) {
+            throw new Error('Invalid name. Up to 16 characters; cannot start with whitespace or hyphen.');
+          }
+        }
+
+        const accounts = await vault.importAccountFromPrivateKey(privateKey, name);
+        accountsUpdated({ accounts });
+        return accounts[accounts.length - 1]!.publicKey;
+      })
+    );
+  });
 }
 
 export function importMnemonicAccount(_mnemonic: string, _password?: string, _derivationPath?: string) {}
@@ -707,17 +742,21 @@ export function importFundraiserAccount(_email: string, _password: string, _mnem
 
 export function importWatchOnlyAccount(_viewKey: string) {}
 
-export function updateSettings(settings: Partial<WalletSettings>) {
-  return withUnlocked(async ({ vault }) => {
-    const updatedSettings = await vault.updateSettings(settings);
-    // createCustomNetworksSnapshot(updatedSettings);
-    settingsUpdated(updatedSettings);
+export async function updateSettings(settings: Partial<WalletSettings>) {
+  return withWalletAccess(async () => {
+    return withUnlocked(async ({ vault }) => {
+      const updatedSettings = await vault.updateSettings(settings);
+      // createCustomNetworksSnapshot(updatedSettings);
+      settingsUpdated(updatedSettings);
+    });
   });
 }
 
 export async function getSpendingLimit(accountId: string): Promise<PersistedSpendingLimit | undefined> {
-  const configuration = await readStoredSpendingLimit(accountId);
-  return configuration === undefined ? undefined : toPersistedSpendingLimit(configuration);
+  return withWalletAccess(async () => {
+    const configuration = await readStoredSpendingLimit(accountId);
+    return configuration === undefined ? undefined : toPersistedSpendingLimit(configuration);
+  });
 }
 
 export async function saveSpendingLimit(
@@ -725,54 +764,70 @@ export async function saveSpendingLimit(
   observedRevision: string | undefined,
   strictlyAuthenticated: boolean
 ): Promise<PersistedSpendingLimit | undefined> {
-  const saved = await saveStoredSpendingLimit(parseSerializedSpendingLimitDraft(serializedDraft), {
-    observedRevision,
-    strictlyAuthenticated
+  return withWalletAccess(async () => {
+    const saved = await saveStoredSpendingLimit(parseSerializedSpendingLimitDraft(serializedDraft), {
+      observedRevision,
+      strictlyAuthenticated
+    });
+    return saved === undefined ? undefined : toPersistedSpendingLimit(saved);
   });
-  return saved === undefined ? undefined : toPersistedSpendingLimit(saved);
 }
 
 export async function assessOutgoingSpendingLimit(
   accountId: string,
   spends: readonly SerializedSpend[]
 ): Promise<SerializedSpendingLimitAssessment | undefined> {
-  const details = await assessOutgoingSpendingLimitDetails({
-    accountId,
-    spends: spends.map(spend => ({ faucetId: spend.faucetId, amount: parseSerializedSpendingAmount(spend.amount) }))
+  return withWalletAccess(async () => {
+    const details = await assessOutgoingSpendingLimitDetails({
+      accountId,
+      spends: spends.map(spend => ({ faucetId: spend.faucetId, amount: parseSerializedSpendingAmount(spend.amount) }))
+    });
+    return details === undefined ? undefined : toSerializedSpendingLimitAssessment(details.assessment);
   });
-  return details === undefined ? undefined : toSerializedSpendingLimitAssessment(details.assessment);
 }
 
 export async function getStrictAuthenticationProtectors(): Promise<StrictAuthenticationProtectors> {
-  const [hardware, password] = await Promise.all([Vault.hasHardwareProtector(), Vault.hasPasswordProtector()]);
-  return { hardware, password };
+  return withWalletAccess(async () => {
+    const [hardware, password] = await Promise.all([Vault.hasHardwareProtector(), Vault.hasPasswordProtector()]);
+    return { hardware, password };
+  });
 }
 
 export async function verifyStrictActionAuthentication(credential?: string): Promise<void> {
-  await Vault.verifyProtector(credential);
-}
-
-export function signTransaction(publicKey: string, signingInputs: string) {
-  return withUnlocked(async ({ vault }) => {
-    return await vault.signTransaction(publicKey, signingInputs);
+  return withWalletAccess(async () => {
+    await Vault.verifyProtector(credential);
   });
 }
 
-export function signWord(publicKey: string, wordHex: string, transactionId?: string) {
-  return withUnlocked(async ({ vault }) => {
-    return await vault.signWord(publicKey, wordHex, transactionId);
+export async function signTransaction(publicKey: string, signingInputs: string) {
+  return withWalletAccess(async () => {
+    return withUnlocked(async ({ vault }) => {
+      return await vault.signTransaction(publicKey, signingInputs);
+    });
   });
 }
 
-export function signEvm(accountPublicKey: string, operation: SignEvmOperation) {
-  return withUnlocked(async ({ vault }) => {
-    return await vault.signEvm(accountPublicKey, operation);
+export async function signWord(publicKey: string, wordHex: string, transactionId?: string) {
+  return withWalletAccess(async () => {
+    return withUnlocked(async ({ vault }) => {
+      return await vault.signWord(publicKey, wordHex, transactionId);
+    });
   });
 }
 
-export function persistNewHotKey(newHotPubKey: string, newHotCiphertext: string) {
-  return withUnlocked(async ({ vault }) => {
-    await vault.persistNewHotKey(newHotPubKey, newHotCiphertext);
+export async function signEvm(accountPublicKey: string, operation: SignEvmOperation) {
+  return withWalletAccess(async () => {
+    return withUnlocked(async ({ vault }) => {
+      return await vault.signEvm(accountPublicKey, operation);
+    });
+  });
+}
+
+export async function persistNewHotKey(newHotPubKey: string, newHotCiphertext: string) {
+  return withWalletAccess(async () => {
+    return withUnlocked(async ({ vault }) => {
+      await vault.persistNewHotKey(newHotPubKey, newHotCiphertext);
+    });
   });
 }
 
@@ -786,17 +841,19 @@ export function persistNewHotKey(newHotPubKey: string, newHotCiphertext: string)
 // `Vault.updateGuardianBinding` documents: callers that already hold this queue
 // reach those methods directly, so queueing inside them would deadlock.
 
-export function setGuardianEndpoint(accountPublicKey: string, guardianEndpoint: string) {
-  return withUnlocked(({ vault }) =>
-    getAccountsWriteQueue().add(async () => {
-      const updated = await vault.setGuardianEndpoint(accountPublicKey, guardianEndpoint);
-      // Push the updated WalletAccount[] into the Effector store so the frontStore
-      // mapping fires StateUpdated. Without this the popup's Zustand snapshot keeps
-      // the old endpoint, so the Guardian Settings display stays stale and the next
-      // guardian sync rebuilds a service against the old operator.
-      accountsUpdated(updated);
-    })
-  );
+export async function setGuardianEndpoint(accountPublicKey: string, guardianEndpoint: string) {
+  return withWalletAccess(async () => {
+    return withUnlocked(({ vault }) =>
+      getAccountsWriteQueue().add(async () => {
+        const updated = await vault.setGuardianEndpoint(accountPublicKey, guardianEndpoint);
+        // Push the updated WalletAccount[] into the Effector store so the frontStore
+        // mapping fires StateUpdated. Without this the popup's Zustand snapshot keeps
+        // the old endpoint, so the Guardian Settings display stays stale and the next
+        // guardian sync rebuilds a service against the old operator.
+        accountsUpdated(updated);
+      })
+    );
+  });
 }
 
 /**
@@ -813,41 +870,47 @@ export function setGuardianEndpoint(accountPublicKey: string, guardianEndpoint: 
  * Broadcast only on `'reverted'`, like `checkGuardianDrift`: the other two
  * outcomes wrote nothing, and this runs off a 3 s loop.
  */
-export function revertGuardianEndpointAfterDiscard(
+export async function revertGuardianEndpointAfterDiscard(
   accountPublicKey: string,
   discardedEndpoint: string,
   revertTo: string
 ) {
-  return withUnlocked(async ({ vault }) => {
-    const outcome = await revertDiscardedGuardianEndpoint(
-      queuedDriftVaultAdapter(vault),
-      accountPublicKey,
-      discardedEndpoint,
-      revertTo
-    );
-    if (outcome === 'reverted') {
-      accountsUpdated({ accounts: await vault.fetchAccounts(), currentAccount: await vault.getCurrentAccount() });
-    }
-    return outcome;
+  return withWalletAccess(async () => {
+    return withUnlocked(async ({ vault }) => {
+      const outcome = await revertDiscardedGuardianEndpoint(
+        queuedDriftVaultAdapter(vault),
+        accountPublicKey,
+        discardedEndpoint,
+        revertTo
+      );
+      if (outcome === 'reverted') {
+        accountsUpdated({ accounts: await vault.fetchAccounts(), currentAccount: await vault.getCurrentAccount() });
+      }
+      return outcome;
+    });
   });
 }
 
-export function setGuardianOperatorCommitment(accountPublicKey: string, guardianOperatorCommitment: string) {
-  return withUnlocked(({ vault }) =>
-    getAccountsWriteQueue().add(async () => {
-      const updated = await vault.setGuardianOperatorCommitment(accountPublicKey, guardianOperatorCommitment);
-      accountsUpdated(updated);
-    })
-  );
+export async function setGuardianOperatorCommitment(accountPublicKey: string, guardianOperatorCommitment: string) {
+  return withWalletAccess(async () => {
+    return withUnlocked(({ vault }) =>
+      getAccountsWriteQueue().add(async () => {
+        const updated = await vault.setGuardianOperatorCommitment(accountPublicKey, guardianOperatorCommitment);
+        accountsUpdated(updated);
+      })
+    );
+  });
 }
 
-export function setGuardianSyncStatus(accountPublicKey: string, guardianSyncStatus: GuardianSyncStatus) {
-  return withUnlocked(({ vault }) =>
-    getAccountsWriteQueue().add(async () => {
-      const updated = await vault.setGuardianSyncStatus(accountPublicKey, guardianSyncStatus);
-      accountsUpdated(updated);
-    })
-  );
+export async function setGuardianSyncStatus(accountPublicKey: string, guardianSyncStatus: GuardianSyncStatus) {
+  return withWalletAccess(async () => {
+    return withUnlocked(({ vault }) =>
+      getAccountsWriteQueue().add(async () => {
+        const updated = await vault.setGuardianSyncStatus(accountPublicKey, guardianSyncStatus);
+        accountsUpdated(updated);
+      })
+    );
+  });
 }
 
 /**
@@ -856,7 +919,8 @@ export function setGuardianSyncStatus(accountPublicKey: string, guardianSyncStat
  * (so the provider retries) while the account is still ineligible or busy.
  * `maybeStartGuardianRecovery` holds the rules.
  */
-export function startGuardianRecovery(accountPublicKey: string) {
+export async function startGuardianRecovery(accountPublicKey: string) {
+  await ensureWalletAccessAllowed();
   return withUnlocked(async ({ vault }) => {
     const accounts = await vault.fetchAccounts();
     const account = accounts.find(acc => acc.publicKey === accountPublicKey);
@@ -901,7 +965,8 @@ function queuedDriftVaultAdapter(vault: Vault) {
  * guardian-sync loop calls this every 3s per guardian account, and on the
  * common no-op tick (nothing drifted) there's nothing new to broadcast.
  */
-export function checkGuardianDrift(accountPublicKey: string) {
+export async function checkGuardianDrift(accountPublicKey: string) {
+  await ensureWalletAccessAllowed();
   return withUnlocked(async ({ vault }) => {
     const { status, changed } = await resolveGuardianDrift(queuedDriftVaultAdapter(vault), accountPublicKey);
     if (changed) {
@@ -921,7 +986,8 @@ export function checkGuardianDrift(accountPublicKey: string) {
  * adapter directly, so this wrapper re-reads the account and broadcasts it
  * only when the endpoint was actually applied.
  */
-export function applyUserGuardianEndpoint(accountPublicKey: string, endpoint: string) {
+export async function applyUserGuardianEndpoint(accountPublicKey: string, endpoint: string) {
+  await ensureWalletAccessAllowed();
   return withUnlocked(async ({ vault }) => {
     const outcome = await applyVerifiedGuardianEndpoint(queuedDriftVaultAdapter(vault), accountPublicKey, endpoint);
     if (outcome === 'applied') {
@@ -944,49 +1010,61 @@ export function applyUserGuardianEndpoint(accountPublicKey: string, endpoint: st
  * back to the dead-letter store.
  */
 export async function retryDeadletteredNotes(): Promise<{ requeued: number }> {
-  const result = await drainNoteDeadletter();
-  if (result.requeued > 0) {
-    void importAllNotes().catch(e => console.warn('[retryDeadletteredNotes] kicked import pass failed', e));
-  }
-  return result;
-}
-
-export function swapHotKey(accountPublicKey: string, newHotPubKey: string, expectedHotPubKey?: string | null) {
-  return withUnlocked(({ vault }) =>
-    getAccountsWriteQueue().add(async () => {
-      const updated = await vault.swapHotKey(accountPublicKey, newHotPubKey, expectedHotPubKey);
-      // Push the updated WalletAccount[] into the Effector store so the
-      // frontStore mapping fires StateUpdated. Without this, the popup's Zustand
-      // `accounts[i].hotPublicKey` stays at the pre-rotation value, the next
-      // sync cycle reads the stale pubkey, and `getOrCreateMultisigService`
-      // re-binds against the old hot key.
-      accountsUpdated(updated);
-    })
-  );
-}
-
-export function getPublicKeyForCommitment(commitment: string) {
-  return withUnlocked(async ({ vault }) => {
-    return await vault.getPublicKeyForCommitment(commitment);
+  return withWalletAccess(async () => {
+    const result = await drainNoteDeadletter();
+    if (result.requeued > 0) {
+      void importAllNotes().catch(e => console.warn('[retryDeadletteredNotes] kicked import pass failed', e));
+    }
+    return result;
   });
 }
 
-export function getAuthSecretKey(key: string) {
-  return withUnlocked(async ({ vault }) => {
-    return await vault.getAuthSecretKey(key);
+export async function swapHotKey(accountPublicKey: string, newHotPubKey: string, expectedHotPubKey?: string | null) {
+  return withWalletAccess(async () => {
+    return withUnlocked(({ vault }) =>
+      getAccountsWriteQueue().add(async () => {
+        const updated = await vault.swapHotKey(accountPublicKey, newHotPubKey, expectedHotPubKey);
+        // Push the updated WalletAccount[] into the Effector store so the
+        // frontStore mapping fires StateUpdated. Without this, the popup's Zustand
+        // `accounts[i].hotPublicKey` stays at the pre-rotation value, the next
+        // sync cycle reads the stale pubkey, and `getOrCreateMultisigService`
+        // re-binds against the old hot key.
+        accountsUpdated(updated);
+      })
+    );
+  });
+}
+
+export async function getPublicKeyForCommitment(commitment: string) {
+  return withWalletAccess(async () => {
+    return withUnlocked(async ({ vault }) => {
+      return await vault.getPublicKeyForCommitment(commitment);
+    });
+  });
+}
+
+export async function getAuthSecretKey(key: string) {
+  return withWalletAccess(async () => {
+    return withUnlocked(async ({ vault }) => {
+      return await vault.getAuthSecretKey(key);
+    });
   });
 }
 
 export { confirmationNotFound } from './dapp';
 
-export function getAllDAppSessions() {
-  return getAllDApps();
+export async function getAllDAppSessions() {
+  return withWalletAccess(async () => {
+    return getAllDApps();
+  });
 }
 
-export function removeDAppSession(origin: string) {
-  return withUnlocked(async () => {
-    const currentAccountPublicKey = await Vault.getCurrentAccountPublicKey();
-    return removeDApp(origin, currentAccountPublicKey!);
+export async function removeDAppSession(origin: string) {
+  return withWalletAccess(async () => {
+    return withUnlocked(async () => {
+      const currentAccountPublicKey = await Vault.getCurrentAccountPublicKey();
+      return removeDApp(origin, currentAccountPublicKey!);
+    });
   });
 }
 
@@ -1022,73 +1100,75 @@ export async function processDApp(
   sessionId?: string,
   startBy?: number
 ): Promise<MidenDAppResponse | void> {
-  dappDebug('[processDApp] Called with origin:', origin, 'sessionId:', sessionId, 'req type:', req?.type);
-  if (!(await isDAppEnabled())) {
-    throw new Error(MidenDAppErrorType.NotGranted);
-  }
-  // This dumps the full request payload (addresses, amounts, note ids,
-  // transaction payload). Gated behind DEBUG_DAPP_BRIDGE so release
-  // builds don't leak transaction data to os_log / logcat. A login
-  // signature's word is left out even then.
-  const dumped = req?.type === MidenDAppMessageType.LoginSignRequest ? { ...req, payload: '[redacted]' } : req;
-  dappDebug('[processDApp] Full request:', JSON.stringify(dumped));
-  const queued = <T>(handle: () => Promise<T>) =>
-    withInited(() =>
-      getDappQueue().add(() => {
-        if (startBy !== undefined && Date.now() > startBy) {
-          throw new DAppQueueDeadlineError('The request waited in the dApp queue past its deadline');
-        }
-        return handle();
-      })
-    );
-  switch (req?.type) {
-    case MidenDAppMessageType.GetCurrentPermissionRequest:
-      return withInited(() => getCurrentPermission(origin));
+  return withWalletAccess(async () => {
+    dappDebug('[processDApp] Called with origin:', origin, 'sessionId:', sessionId, 'req type:', req?.type);
+    if (!(await isDAppEnabled())) {
+      throw new Error(MidenDAppErrorType.NotGranted);
+    }
+    // This dumps the full request payload (addresses, amounts, note ids,
+    // transaction payload). Gated behind DEBUG_DAPP_BRIDGE so release
+    // builds don't leak transaction data to os_log / logcat. A login
+    // signature's word is left out even then.
+    const dumped = req?.type === MidenDAppMessageType.LoginSignRequest ? { ...req, payload: '[redacted]' } : req;
+    dappDebug('[processDApp] Full request:', JSON.stringify(dumped));
+    const queued = <T>(handle: () => Promise<T>) =>
+      withInited(() =>
+        getDappQueue().add(() => {
+          if (startBy !== undefined && Date.now() > startBy) {
+            throw new DAppQueueDeadlineError('The request waited in the dApp queue past its deadline');
+          }
+          return withWalletAccess(handle);
+        })
+      );
+    switch (req?.type) {
+      case MidenDAppMessageType.GetCurrentPermissionRequest:
+        return withInited(() => getCurrentPermission(origin));
 
-    case MidenDAppMessageType.PermissionRequest:
-      return queued(() => requestPermission(origin, req, sessionId));
+      case MidenDAppMessageType.PermissionRequest:
+        return queued(() => requestPermission(origin, req, sessionId));
 
-    case MidenDAppMessageType.DisconnectRequest:
-      return queued(() => requestDisconnect(origin, req));
+      case MidenDAppMessageType.DisconnectRequest:
+        return queued(() => requestDisconnect(origin, req));
 
-    case MidenDAppMessageType.TransactionRequest:
-      return queued(() => requestTransaction(origin, req, sessionId));
+      case MidenDAppMessageType.TransactionRequest:
+        return queued(() => requestTransaction(origin, req, sessionId));
 
-    case MidenDAppMessageType.SendTransactionRequest:
-      return queued(() => requestSendTransaction(origin, req, sessionId));
+      case MidenDAppMessageType.SendTransactionRequest:
+        return queued(() => requestSendTransaction(origin, req, sessionId));
 
-    case MidenDAppMessageType.ConsumeRequest:
-      return queued(() => requestConsumeTransaction(origin, req, sessionId));
+      case MidenDAppMessageType.ConsumeRequest:
+        return queued(() => requestConsumeTransaction(origin, req, sessionId));
 
-    case MidenDAppMessageType.PrivateNotesRequest:
-      return queued(() => requestPrivateNotes(origin, req, sessionId));
+      case MidenDAppMessageType.PrivateNotesRequest:
+        return queued(() => requestPrivateNotes(origin, req, sessionId));
 
-    case MidenDAppMessageType.SignRequest:
-      return queued(() => requestSign(origin, req, sessionId));
+      case MidenDAppMessageType.SignRequest:
+        return queued(() => requestSign(origin, req, sessionId));
 
-    case MidenDAppMessageType.LoginSignRequest:
-      return queued(() => requestLoginSign(origin, req, sessionId));
+      case MidenDAppMessageType.LoginSignRequest:
+        return queued(() => requestLoginSign(origin, req, sessionId));
 
-    case MidenDAppMessageType.AssetsRequest:
-      return queued(() => requestAssets(origin, req, sessionId));
+      case MidenDAppMessageType.AssetsRequest:
+        return queued(() => requestAssets(origin, req, sessionId));
 
-    case MidenDAppMessageType.GuardianInfoRequest:
-      return queued(() => requestGuardianInfo(origin, req));
+      case MidenDAppMessageType.GuardianInfoRequest:
+        return queued(() => requestGuardianInfo(origin, req));
 
-    case MidenDAppMessageType.LoginKeyRequest:
-      return queued(() => requestLoginKey(origin, req));
+      case MidenDAppMessageType.LoginKeyRequest:
+        return queued(() => requestLoginKey(origin, req));
 
-    case MidenDAppMessageType.ImportPrivateNoteRequest:
-      return queued(() => requestImportPrivateNote(origin, req, sessionId));
+      case MidenDAppMessageType.ImportPrivateNoteRequest:
+        return queued(() => requestImportPrivateNote(origin, req, sessionId));
 
-    case MidenDAppMessageType.ConsumableNotesRequest:
-      return queued(() => requestConsumableNotes(origin, req, sessionId));
+      case MidenDAppMessageType.ConsumableNotesRequest:
+        return queued(() => requestConsumableNotes(origin, req, sessionId));
 
-    case MidenDAppMessageType.WaitForTransactionRequest:
-      // Off the dApp queue, which runs one request at a time: a wait lasts up to five minutes. Under `withInited` only,
-      // so a dApp's wait on its own transaction survives an auto-lock (#1416).
-      return withInited(() => waitForTransaction(origin, req));
-  }
+      case MidenDAppMessageType.WaitForTransactionRequest:
+        // Off the dApp queue, which runs one request at a time: a wait lasts up to five minutes. Under `withInited` only,
+        // so a dApp's wait on its own transaction survives an auto-lock (#1416).
+        return withInited(() => waitForTransaction(origin, req));
+    }
+  });
 }
 
 export async function handleReportTelemetryEvent(
@@ -1108,13 +1188,15 @@ export async function handleReportTelemetryEvent(
 }
 
 /** Dry-run a USDCx burn and answer how much of the native asset its cost needs. Signs and submits nothing. */
-export function estimateUsdcxBurnFee(req: EstimateUsdcxBurnFeeRequest): Promise<EstimateUsdcxBurnFeeResponse> {
-  return withInited(async (): Promise<EstimateUsdcxBurnFeeResponse> => {
-    const estimate = await estimateUsdcxBurnFeeReserve(req.accountPublicKey, req.destinationChainId);
-    const type = WalletMessageType.EstimateUsdcxBurnFeeResponse;
-    return estimate.outcome === 'measured'
-      ? { type, outcome: 'measured', feeReserve: estimate.reserve.toString() }
-      : { type, outcome: estimate.outcome };
+export async function estimateUsdcxBurnFee(req: EstimateUsdcxBurnFeeRequest): Promise<EstimateUsdcxBurnFeeResponse> {
+  return withWalletAccess(async () => {
+    return withInited(async (): Promise<EstimateUsdcxBurnFeeResponse> => {
+      const estimate = await estimateUsdcxBurnFeeReserve(req.accountPublicKey, req.destinationChainId);
+      const type = WalletMessageType.EstimateUsdcxBurnFeeResponse;
+      return estimate.outcome === 'measured'
+        ? { type, outcome: 'measured', feeReserve: estimate.reserve.toString() }
+        : { type, outcome: estimate.outcome };
+    });
   });
 }
 
@@ -1130,32 +1212,38 @@ const VALID_PHASES: readonly string[] = ['started', 'ended', 'settled'];
 //   } catch {}
 // }
 
-export function removeSeedPhrase(password?: string) {
-  return withUnlocked(() =>
-    getAccountsWriteQueue().add(async () => {
-      try {
-        const vault = await Vault.setup(password);
-        await navigator.locks.request('generate-transactions-loop', { ifAvailable: true }, async lock => {
-          if (!lock) throw new PublicError(getMessage('seedRemovalBusy'));
-          try {
-            await vault.removeSeedPhrase(() => seedPhraseStatusUpdated('removing'));
-          } finally {
-            seedPhraseStatusUpdated(await vault.fetchSeedPhraseStatus());
-          }
-        });
-      } finally {
-        syncRealmInsertKeySink();
-      }
-    })
-  );
+export async function removeSeedPhrase(password?: string) {
+  return withWalletAccess(async () => {
+    return withUnlocked(() =>
+      getAccountsWriteQueue().add(async () => {
+        try {
+          const vault = await Vault.setup(password);
+          await navigator.locks.request('generate-transactions-loop', { ifAvailable: true }, async lock => {
+            if (!lock) throw new PublicError(getMessage('seedRemovalBusy'));
+            try {
+              await vault.removeSeedPhrase(() => seedPhraseStatusUpdated('removing'));
+            } finally {
+              seedPhraseStatusUpdated(await vault.fetchSeedPhraseStatus());
+            }
+          });
+        } finally {
+          syncRealmInsertKeySink();
+        }
+      })
+    );
+  });
 }
 
-export function provideRecoverySeed(transactionId: string, mnemonic: string, action: GuardianRecoveryAction) {
-  return withUnlocked(({ vault }) => vault.provideRecoverySeed(transactionId, mnemonic, action));
+export async function provideRecoverySeed(transactionId: string, mnemonic: string, action: GuardianRecoveryAction) {
+  return withWalletAccess(async () => {
+    return withUnlocked(({ vault }) => vault.provideRecoverySeed(transactionId, mnemonic, action));
+  });
 }
 
-export function prepareRecoveryTransaction(transactionId: string) {
-  return withUnlocked(({ vault }) => vault.prepareRecoveryTransaction(transactionId));
+export async function prepareRecoveryTransaction(transactionId: string) {
+  return withWalletAccess(async () => {
+    return withUnlocked(({ vault }) => vault.prepareRecoveryTransaction(transactionId));
+  });
 }
 
 export function releaseRecoveryAuthorization(transactionId: string) {

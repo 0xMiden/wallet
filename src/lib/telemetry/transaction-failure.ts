@@ -277,6 +277,7 @@ export type ConsumeEntryPoint = (typeof CONSUME_ENTRY_POINTS)[number];
 
 export const CONSUME_DEFERRAL_CAUSES = [
   'wallet_locked',
+  'wallet_access_denied',
   'preflight_sync_failed',
   'guardian_backpressure',
   'delegated_prover_failed',

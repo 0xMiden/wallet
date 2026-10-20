@@ -1,3 +1,5 @@
+import { ensureWalletAccessAllowed } from 'lib/remote-config/wallet-access';
+
 import { initiateEarnWithdrawTransaction } from './initiate';
 import { ITransaction, ITransactionStatus } from '../db/types';
 
@@ -40,4 +42,12 @@ it('records the source decimals a retry falls back on', async () => {
   mockAdded.length = 0;
   await initiateEarnWithdrawTransaction('account', 10n, 'owner', 'market', 'faucet', '10', 'USDC', 'attempt-1', 123, 6);
   expect(mockAdded[0]?.extraInputs).toEqual(expect.objectContaining({ sourceDecimals: 6 }));
+});
+
+it('does not queue a new withdrawal while wallet access is denied', async () => {
+  mockAdded.length = 0;
+  const denied = Object.assign(new Error('Wallet access denied'), { code: 'WALLET_ACCESS_DENIED' });
+  jest.mocked(ensureWalletAccessAllowed).mockRejectedValue(denied);
+  await expect(initiateEarnWithdrawTransaction('account', 10n, 'owner', 'market', 'faucet', '10')).rejects.toBe(denied);
+  expect(mockAdded).toHaveLength(0);
 });

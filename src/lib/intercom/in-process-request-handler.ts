@@ -3,6 +3,8 @@ import { startTransactionProcessing } from 'lib/miden/back/transaction-processor
 import { MidenMessageType } from 'lib/miden/types';
 import { WalletMessageType, WalletRequest, WalletResponse } from 'lib/shared/types';
 
+import { withWalletRequestAccess } from './wallet-request-access';
+
 /**
  * The ONE request switch shared by both in-process intercom adapters (mobile via
  * Capacitor, desktop via Tauri). Neither platform has a service worker, so both
@@ -21,6 +23,10 @@ import { WalletMessageType, WalletRequest, WalletResponse } from 'lib/shared/typ
  * `label` only names the adapter in the unknown-type warning; behavior is identical.
  */
 export async function processInProcessRequest(req: WalletRequest, label: string): Promise<WalletResponse | void> {
+  return withWalletRequestAccess(req, () => dispatchRequest(req, label));
+}
+
+async function dispatchRequest(req: WalletRequest, label: string): Promise<WalletResponse | void> {
   switch (req?.type) {
     case WalletMessageType.GetStateRequest: {
       const state = await Actions.getFrontState();

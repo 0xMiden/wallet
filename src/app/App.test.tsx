@@ -21,9 +21,9 @@
 
 import React from 'react';
 
-import { render, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, waitFor } from '@testing-library/react';
 
-import { WindowType } from 'app/env';
+import { type AppEnvironment, WindowType } from 'app/env';
 import { initBridgeConfig } from 'lib/remote-config/runtime';
 import { isTelemetryEnabled } from 'lib/settings/helpers';
 import { clearLegacyAnalyticsStorage } from 'lib/telemetry';
@@ -33,8 +33,7 @@ import { recordRelaySurface } from 'lib/telemetry/relay-diagnostics';
 // NOTE: App is required lazily (not statically imported) because App.tsx calls
 // `isExtension()` at module scope, and the mock control fns below must be
 // initialized before that runs. See `beforeAll`.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let App: React.ComponentType<any>;
+let App: React.ComponentType<{ env: AppEnvironment }>;
 
 // ---------------------------------------------------------------------------
 // Platform predicates — the only real inputs that steer App's branching.
@@ -85,6 +84,35 @@ jest.mock('lib/remote-config/runtime', () => ({
   initBridgeConfig: jest.fn(() => Promise.resolve()),
   subscribeBridgeConfig: () => () => undefined,
   getBridgeConfigSnapshot: () => ({ network: 'testnet', config: null })
+}));
+
+type MockWalletAccessSnapshot = {
+  status: 'loading' | 'allowed' | 'restricted' | 'unavailable';
+  expiresAt: number | null;
+};
+let mockWalletAccessSnapshot: MockWalletAccessSnapshot = { status: 'allowed', expiresAt: 60_000 };
+const mockWalletAccessListeners = new Set<() => void>();
+const mockEnsureWalletAccess = jest.fn<Promise<void>, []>(async () => undefined);
+jest.mock(
+  'lib/remote-config/wallet-access',
+  () => ({
+    getWalletAccessSnapshot: () => mockWalletAccessSnapshot,
+    subscribeWalletAccess: (listener: () => void) => {
+      mockWalletAccessListeners.add(listener);
+      return () => mockWalletAccessListeners.delete(listener);
+    },
+    ensureWalletAccessAllowed: () => mockEnsureWalletAccess(),
+    assertWalletAccessAllowed: () => undefined,
+    registerWalletAccessRuntime: () => undefined,
+    publishWalletAccessDecision: () => undefined,
+    invalidateWalletAccess: () => undefined
+  }),
+  { virtual: true }
+);
+const mockLoadEndpointOverrides = jest.fn<Promise<void>, []>(async () => undefined);
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  loadEndpointOverrides: () => mockLoadEndpointOverrides(),
+  getEffectiveNetworkName: () => 'testnet'
 }));
 
 // `getThemeSetting` is here only because the (unmocked) AppKit provider reads it
@@ -241,11 +269,13 @@ jest.mock('lib/desktop/DesktopDappConfirmationModal', () => ({
 // ---------------------------------------------------------------------------
 // Helpers.
 // ---------------------------------------------------------------------------
-type Env = { windowType: string; confirmWindow?: boolean };
+type Env = AppEnvironment;
 
-const renderApp = (env: Env) =>
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  render(<App env={env as any} />);
+const renderApp = async (env: Env) => {
+  const view = render(<App env={env} />);
+  await act(async () => undefined);
+  return view;
+};
 
 describe('app/App', () => {
   beforeAll(() => {
@@ -267,6 +297,10 @@ describe('app/App', () => {
     // Consent is off until the user opts in — the baseline for the startup
     // telemetry assertions below.
     mockIsTelemetryEnabled.mockReturnValue(false);
+    mockWalletAccessSnapshot = { status: 'allowed', expiresAt: performance.now() + 60_000 };
+    mockWalletAccessListeners.clear();
+    mockEnsureWalletAccess.mockReset().mockResolvedValue(undefined);
+    mockLoadEndpointOverrides.mockReset().mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -274,12 +308,12 @@ describe('app/App', () => {
   });
 
   describe('extension surface (not mobile, not desktop, not confirm)', () => {
-    it('renders PageRouter with the pin-extension prompt and no mobile/confirm surfaces', () => {
+    it('renders PageRouter with the pin-extension prompt and no mobile/confirm surfaces', async () => {
       mockIsExtension.mockReturnValue(true);
       mockIsMobile.mockReturnValue(false);
       mockIsDesktop.mockReturnValue(false);
 
-      const { getByTestId, queryByTestId } = renderApp({ windowType: 'FullPage', confirmWindow: false });
+      const { getByTestId, queryByTestId } = await renderApp({ windowType: WindowType.FullPage, confirmWindow: false });
 
       // Main content -> PageRouter (the default branch).
       expect(getByTestId('page-router')).toBeInTheDocument();
@@ -305,10 +339,10 @@ describe('app/App', () => {
 
   describe('motion config', () => {
     it.each([
-      ['extension', { windowType: 'FullPage', confirmWindow: false }, 'page-router'],
-      ['confirm window', { windowType: 'Popup', confirmWindow: true }, 'confirm-page']
-    ])('follows the OS reduced-motion setting around the whole %s tree', (_label, env, leaf) => {
-      const { getByTestId } = renderApp(env);
+      ['extension', { windowType: WindowType.FullPage, confirmWindow: false }, 'page-router'],
+      ['confirm window', { windowType: WindowType.Popup, confirmWindow: true }, 'confirm-page']
+    ])('follows the OS reduced-motion setting around the whole %s tree', async (_label, env, leaf) => {
+      const { getByTestId } = await renderApp(env);
 
       const config = getByTestId('motion-config');
       expect(config).toHaveAttribute('data-reduced-motion', 'user');
@@ -318,12 +352,12 @@ describe('app/App', () => {
   });
 
   describe('mobile surface (not extension, not desktop, not confirm)', () => {
-    it('wraps PageRouter in the DappBrowserProvider and mounts the mobile back bridge and page-failure notice', () => {
+    it('wraps PageRouter in the DappBrowserProvider and mounts the mobile back bridge and page-failure notice', async () => {
       mockIsExtension.mockReturnValue(false);
       mockIsMobile.mockReturnValue(true);
       mockIsDesktop.mockReturnValue(false);
 
-      const { getByTestId, queryByTestId } = renderApp({ windowType: 'FullPage', confirmWindow: false });
+      const { getByTestId, queryByTestId } = await renderApp({ windowType: WindowType.FullPage, confirmWindow: false });
 
       const dappHost = getByTestId('dapp-browser-provider');
       expect(dappHost).toBeInTheDocument();
@@ -345,12 +379,12 @@ describe('app/App', () => {
   });
 
   describe('confirm window surface', () => {
-    it('renders ConfirmPage and no router / dApp host', () => {
+    it('renders ConfirmPage and no router / dApp host', async () => {
       mockIsExtension.mockReturnValue(false);
       mockIsMobile.mockReturnValue(false);
       mockIsDesktop.mockReturnValue(false);
 
-      const { getByTestId, queryByTestId } = renderApp({ windowType: 'FullPage', confirmWindow: true });
+      const { getByTestId, queryByTestId } = await renderApp({ windowType: WindowType.FullPage, confirmWindow: true });
 
       expect(getByTestId('confirm-page')).toBeInTheDocument();
       expect(queryByTestId('page-router')).not.toBeInTheDocument();
@@ -358,13 +392,13 @@ describe('app/App', () => {
       expect(queryByTestId('dapp-browser-provider')).not.toBeInTheDocument();
     });
 
-    it('prefers ConfirmPage over the mobile surface when both env.confirmWindow and isMobile are set', () => {
+    it('prefers ConfirmPage over the mobile surface when both env.confirmWindow and isMobile are set', async () => {
       // confirmWindow short-circuits the ternary before the isMobile check.
       mockIsExtension.mockReturnValue(false);
       mockIsMobile.mockReturnValue(true);
       mockIsDesktop.mockReturnValue(false);
 
-      const { getByTestId, queryByTestId } = renderApp({ windowType: 'FullPage', confirmWindow: true });
+      const { getByTestId, queryByTestId } = await renderApp({ windowType: WindowType.FullPage, confirmWindow: true });
 
       expect(getByTestId('confirm-page')).toBeInTheDocument();
       expect(queryByTestId('dapp-browser-provider')).not.toBeInTheDocument();
@@ -379,8 +413,8 @@ describe('app/App', () => {
       mockIsMobile.mockReturnValue(false);
       mockIsDesktop.mockReturnValue(true);
 
-      const { getByTestId, findByTestId, queryByTestId } = renderApp({
-        windowType: 'FullPage',
+      const { getByTestId, findByTestId, queryByTestId } = await renderApp({
+        windowType: WindowType.FullPage,
         confirmWindow: false
       });
 
@@ -399,8 +433,8 @@ describe('app/App', () => {
   });
 
   describe('telemetry startup', () => {
-    it('clears the legacy analytics identifier on mount, whatever the consent', () => {
-      renderApp({ windowType: 'FullPage', confirmWindow: false });
+    it('clears the legacy analytics identifier on mount, whatever the consent', async () => {
+      await renderApp({ windowType: WindowType.FullPage, confirmWindow: false });
 
       // The dormant `localStorage['analytics']` userId is data we hold with no
       // basis, so deleting it is unconditional — not something the user has to
@@ -408,38 +442,38 @@ describe('app/App', () => {
       expect(mockClearLegacyAnalyticsStorage).toHaveBeenCalledTimes(1);
     });
 
-    it('starts crash reporting when usage sharing is disabled', () => {
+    it('starts crash reporting when usage sharing is disabled', async () => {
       mockIsTelemetryEnabled.mockReturnValue(false);
 
-      renderApp({ windowType: 'FullPage', confirmWindow: false });
+      await renderApp({ windowType: WindowType.FullPage, confirmWindow: false });
 
       expect(mockIsTelemetryEnabled).not.toHaveBeenCalled();
       expect(mockInitCrashReporting).toHaveBeenCalledTimes(1);
       expect(mockClearLegacyAnalyticsStorage).toHaveBeenCalledTimes(1);
     });
 
-    it('starts crash reporting when usage sharing is enabled', () => {
+    it('starts crash reporting when usage sharing is enabled', async () => {
       mockIsTelemetryEnabled.mockReturnValue(true);
 
-      renderApp({ windowType: 'FullPage', confirmWindow: false });
+      await renderApp({ windowType: WindowType.FullPage, confirmWindow: false });
 
       expect(mockInitCrashReporting).toHaveBeenCalledTimes(1);
     });
 
-    it('starts crash reporting once per mount, not once per render', () => {
+    it('starts crash reporting once per mount, not once per render', async () => {
       mockIsTelemetryEnabled.mockReturnValue(false);
 
-      const { rerender } = renderApp({ windowType: 'FullPage', confirmWindow: false });
-      rerender(<App env={{ windowType: 'FullPage', confirmWindow: false } as any} />);
+      const { rerender } = await renderApp({ windowType: WindowType.FullPage, confirmWindow: false });
+      rerender(<App env={{ windowType: WindowType.FullPage, confirmWindow: false }} />);
 
       expect(mockInitCrashReporting).toHaveBeenCalledTimes(1);
       expect(mockClearLegacyAnalyticsStorage).toHaveBeenCalledTimes(1);
     });
 
-    it('starts crash reporting on the confirm-window surface with usage sharing disabled', () => {
+    it('starts crash reporting on the confirm-window surface with usage sharing disabled', async () => {
       mockIsTelemetryEnabled.mockReturnValue(false);
 
-      renderApp({ windowType: 'FullPage', confirmWindow: true });
+      await renderApp({ windowType: WindowType.FullPage, confirmWindow: true });
 
       // A dApp confirmation is where a crash is most costly to a user, so it is
       // not a surface to leave unreported.
@@ -452,35 +486,133 @@ describe('app/App', () => {
       ['fullpage', { windowType: WindowType.FullPage }],
       ['sidepanel', { windowType: WindowType.SidePanel }],
       ['confirm', { windowType: WindowType.Popup, confirmWindow: true }]
-    ])('records the window as %s for relay failure reports', (surface, env) => {
-      render(<App env={env} />);
+    ])('records the window as %s for relay failure reports', async (surface, env) => {
+      await renderApp(env);
 
       expect(jest.mocked(recordRelaySurface)).toHaveBeenCalledWith(surface);
     });
   });
 
   describe('remote bridge config', () => {
-    it('loads the config once per mount, whatever screen opens first', () => {
-      const { rerender } = renderApp({ windowType: 'FullPage', confirmWindow: false });
-      rerender(<App env={{ windowType: 'FullPage', confirmWindow: false }} />);
+    it('loads the config once per mount, whatever screen opens first', async () => {
+      const { rerender } = await renderApp({ windowType: WindowType.FullPage, confirmWindow: false });
+      rerender(<App env={{ windowType: WindowType.FullPage, confirmWindow: false }} />);
 
       expect(jest.mocked(initBridgeConfig)).toHaveBeenCalledTimes(1);
     });
 
-    it('loads it on the mobile and confirm-window surfaces too', () => {
+    it('loads it on the mobile and confirm-window surfaces too', async () => {
       mockIsExtension.mockReturnValue(false);
       mockIsMobile.mockReturnValue(true);
-      const { unmount } = renderApp({ windowType: 'FullPage', confirmWindow: false });
+      const { unmount } = await renderApp({ windowType: WindowType.FullPage, confirmWindow: false });
       unmount();
 
-      renderApp({ windowType: 'Popup', confirmWindow: true });
+      await renderApp({ windowType: WindowType.Popup, confirmWindow: true });
 
       expect(jest.mocked(initBridgeConfig)).toHaveBeenCalledTimes(2);
     });
   });
 
+  describe('wallet-wide access boundary', () => {
+    it('offers a retry when endpoint bootstrap fails before any protected provider mounts', async () => {
+      mockLoadEndpointOverrides.mockRejectedValueOnce(new Error('storage unavailable'));
+      const view = await renderApp({ windowType: WindowType.FullPage });
+      expect(view.queryByTestId('page-router')).toBeNull();
+      expect(view.getByTestId('wallet-access-gate')).toHaveAttribute('data-access-state', 'unavailable');
+      await act(async () => {
+        fireEvent.click(view.getByTestId('wallet-access-retry'));
+      });
+      expect(view.getByTestId('page-router')).toBeInTheDocument();
+    });
+
+    it('checks permission again when an unavailable gate is retried', async () => {
+      mockWalletAccessSnapshot = { status: 'unavailable', expiresAt: null };
+      const view = await renderApp({ windowType: WindowType.FullPage });
+      expect(mockEnsureWalletAccess).not.toHaveBeenCalled();
+      await act(async () => {
+        fireEvent.click(view.getByTestId('wallet-access-retry'));
+      });
+      expect(mockEnsureWalletAccess).toHaveBeenCalledTimes(1);
+      expect(view.queryByTestId('page-router')).toBeNull();
+    });
+
+    it('waits for endpoint overrides before initializing permission or mounting wallet providers', async () => {
+      let finish!: () => void;
+      mockLoadEndpointOverrides.mockImplementationOnce(
+        () =>
+          new Promise<void>(resolve => {
+            finish = resolve;
+          })
+      );
+      jest.mocked(initBridgeConfig).mockClear();
+      const view = render(<App env={{ windowType: WindowType.FullPage }} />);
+      expect(view.queryByTestId('page-router')).toBeNull();
+      expect(jest.mocked(initBridgeConfig)).not.toHaveBeenCalled();
+      await act(async () => {
+        finish();
+      });
+      expect(jest.mocked(initBridgeConfig)).toHaveBeenCalledTimes(1);
+      expect(view.getByTestId('page-router')).toBeInTheDocument();
+    });
+
+    it('preserves the mounted wallet subtree when an allowed lease is renewed', async () => {
+      const view = await renderApp({ windowType: WindowType.FullPage });
+      const router = view.getByTestId('page-router');
+      await act(async () => {
+        mockWalletAccessSnapshot = { status: 'allowed', expiresAt: performance.now() + 110_000 };
+        mockWalletAccessListeners.forEach(listener => listener());
+      });
+      expect(view.getByTestId('page-router')).toBe(router);
+    });
+
+    it.each<[string, WindowType, boolean, boolean, boolean]>([
+      ['popup', WindowType.Popup, false, false, false],
+      ['full page', WindowType.FullPage, false, false, false],
+      ['side panel', WindowType.SidePanel, false, false, false],
+      ['confirmation', WindowType.Popup, true, false, false],
+      ['mobile', WindowType.FullPage, false, true, false],
+      ['desktop', WindowType.FullPage, false, false, true]
+    ])(
+      'does not mount wallet surfaces or handlers on the %s surface while permission is loading',
+      async (_name, windowType, confirmWindow, mobile, desktop) => {
+        mockIsMobile.mockReturnValue(mobile);
+        mockIsDesktop.mockReturnValue(desktop);
+        mockIsExtension.mockReturnValue(!mobile && !desktop);
+        mockWalletAccessSnapshot = { status: 'loading', expiresAt: null };
+        const view = render(<App env={{ windowType, confirmWindow }} />);
+        await act(async () => undefined);
+        for (const id of [
+          'page-router',
+          'confirm-page',
+          'desktop-dapp-handler',
+          'desktop-confirm-modal',
+          'open-link-prompt',
+          'bread-connect-prompt',
+          'dialogs',
+          'pin-extension-prompt'
+        ]) {
+          expect(view.queryByTestId(id)).toBeNull();
+        }
+      }
+    );
+
+    it.each<MockWalletAccessSnapshot['status']>(['restricted', 'unavailable'])(
+      'removes already-open wallet surfaces when permission becomes %s',
+      async status => {
+        const view = await renderApp({ windowType: WindowType.FullPage });
+        expect(view.getByTestId('page-router')).toBeInTheDocument();
+        await act(async () => {
+          mockWalletAccessSnapshot = { status, expiresAt: null };
+          mockWalletAccessListeners.forEach(listener => listener());
+        });
+        expect(view.queryByTestId('page-router')).toBeNull();
+        expect(view.queryByTestId('dialogs')).toBeNull();
+      }
+    );
+  });
+
   describe('module-load lock-up check', () => {
-    it('skips the lock-up import when not running as an extension (false branch)', () => {
+    it('skips the lock-up import when not running as an extension (false branch)', async () => {
       // Re-evaluate the module with isExtension() === false to cover the
       // FALSE branch of the top-level `if (isExtension())`. The TRUE branch is
       // already covered by the static `import App from './App'` at file load

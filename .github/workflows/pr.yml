@@ -28,9 +28,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check Out Code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
       - name: Use Node 22
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: 22
       - name: Verify CLI kernel pin preparation
@@ -70,7 +70,7 @@ jobs:
       pull-requests: write
     steps:
       - name: Check Out Code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           # Use a PAT (not GITHUB_TOKEN) so the translation commit this job pushes
           # RE-TRIGGERS the PR checks automatically. By GitHub design, a commit
@@ -99,7 +99,7 @@ jobs:
           ref: ${{ github.head_ref }}
 
       - name: Use Node 22
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: 22
 
@@ -140,7 +140,7 @@ jobs:
       - name: Check for changes
         id: git-check
         run: |
-          git diff --quiet public/_locales/ || echo "changes=true" >> $GITHUB_OUTPUT
+          git diff --quiet public/_locales/ || echo "changes=true" >> "$GITHUB_OUTPUT"
 
       # Only commit/push for non-fork PRs (forks can't push back)
       - name: Commit and push translation updates
@@ -152,7 +152,7 @@ jobs:
           git add public/_locales/
           git commit -m "chore: update translation files"
           git push
-          echo "committed=true" >> $GITHUB_OUTPUT
+          echo "committed=true" >> "$GITHUB_OUTPUT"
 
   unit:
     name: Unit tests
@@ -160,14 +160,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check Out Code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           # Fork PRs: the head branch lives in the fork, not the base repo.
           repository: ${{ github.event.pull_request.head.repo.full_name }}
           ref: ${{ github.head_ref }}
 
       - name: Use Node 22
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: 22
 
@@ -249,6 +249,9 @@ jobs:
       - name: Install Chrome
         uses: browser-actions/setup-chrome@v1
 
+      - name: Start wallet eligibility fixture
+        uses: ./.github/actions/start-eligibility-fixture
+
       - name: Build chrome
         uses: borales/actions-yarn@v4
         with:
@@ -267,6 +270,15 @@ jobs:
 
       - name: Run Playwright E2E
         run: xvfb-run -a yarn test:e2e
+
+      - name: Upload wallet access screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wallet-access-screenshots
+          path: test-results/**/wallet-access-*.png
+          retention-days: 7
+          if-no-files-found: warn
 
   # Required-check name `Test`. Lint/unit and mock Playwright used to run in this
   # one job (~42m sequential). They now run in parallel; this gate keeps the

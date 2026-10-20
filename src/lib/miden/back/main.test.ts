@@ -223,6 +223,7 @@ const Actions: any = jest.requireMock('lib/miden/back/actions');
 import { __resetSyncFuseStateForTests } from 'lib/miden/front/sync-fuse';
 import * as Repo from 'lib/miden/repo';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
+import { ensureWalletAccessAllowed } from 'lib/remote-config/wallet-access';
 import { WalletMessageType } from 'lib/shared/types';
 
 import { CONNECTIVITY_CATEGORIES } from '../activity/connectivity-state';
@@ -1622,4 +1623,11 @@ describe('scoped offscreen native identity relay', () => {
     expect(reply).toHaveBeenCalledWith({ ok: false });
     warn.mockRestore();
   });
+});
+
+it('refuses a private extension request before the mocked action can expose its result', async () => {
+  const denied = Object.assign(new Error('Wallet access denied'), { code: 'WALLET_ACCESS_DENIED' });
+  jest.mocked(ensureWalletAccessAllowed).mockRejectedValue(denied);
+  await expect(dispatch({ type: WalletMessageType.RevealMnemonicRequest, password: 'pw' })).rejects.toBe(denied);
+  expect(Actions.revealMnemonic).not.toHaveBeenCalled();
 });

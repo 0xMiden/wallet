@@ -125,7 +125,7 @@ Developer Dashboard → the item → **Privacy practices**.
 
 **On Location.** The eligibility service runs on Cloudflare and sends the
 connection's IP address to MaxMind when a place rule needs it. The App receives
-only Earn and Swap decisions, network and policy version. There is still no
+only wallet, Earn and Swap decisions, network and policy version. There is still no
 location permission and no GPS. Declare **Yes**. The App stores neither the
 address nor the place. The service stores rotating keyed hashes, request counters
 and decisions that expire after five minutes; it stores no raw address or place.

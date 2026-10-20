@@ -118,6 +118,9 @@ jobs:
         timeout-minutes: 12
         run: npx playwright install --with-deps chromium
 
+      - name: Start wallet eligibility fixture
+        uses: ./.github/actions/start-eligibility-fixture
+
       - name: Build extension (testnet, e2e flags)
         run: yarn test:e2e:blockchain:build
 

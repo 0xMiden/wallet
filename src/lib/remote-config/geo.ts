@@ -5,7 +5,7 @@
  */
 
 /** Features a place rule can turn off. A document may name others; this build ignores those. */
-export const GEO_FEATURES = ['earn', 'swap'] as const;
+export const GEO_FEATURES = ['wallet', 'earn', 'swap'] as const;
 export type GeoFeature = (typeof GEO_FEATURES)[number];
 
 /** A place a rule blocks. `region` is the ISO 3166-2 subdivision, such as NY, and only set for a state rule. */
@@ -31,7 +31,7 @@ export function geoFeatureEnabled(
   feature: GeoFeature,
   config: { features: { earn: boolean }; swap?: { etaUrl?: string } }
 ): boolean {
-  return feature === 'earn' ? config.features.earn : Boolean(config.swap?.etaUrl);
+  return feature === 'wallet' || (feature === 'earn' ? config.features.earn : Boolean(config.swap?.etaUrl));
 }
 
 const PHRASE_ALIASES: Readonly<Record<string, GeoPlace>> = {
@@ -100,10 +100,11 @@ export function readGeoBlocks(value: unknown, invalid: () => never): GeoBlocks |
     for (const [phrase, answer] of Object.entries(rules)) {
       if (answer !== 'yes' && answer !== 'no') return invalid();
       const place = parseGeoPhrase(phrase);
+      if (!place && feature === 'wallet' && answer === 'yes') return invalid();
       if (!place || answer === 'no') continue;
       places.push(place);
     }
-    if (places.length > 0) blocks[feature] = places;
+    if (feature === 'wallet' || places.length > 0) blocks[feature] = places;
   }
   return Object.keys(blocks).length > 0 ? blocks : undefined;
 }
