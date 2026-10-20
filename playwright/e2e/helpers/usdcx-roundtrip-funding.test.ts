@@ -1,9 +1,8 @@
 /** @jest-environment node */
-import { USDCX_MIN_BURN } from '../../../src/lib/usdcx/protocol';
-import { usdcxMinimumBurnShortfall } from '../../../src/lib/usdcx/withdrawal';
-
 import { optionalPublicFaucetGrant } from './public-faucet';
 import { ROUNDTRIP_DEPOSIT_UNITS, roundtripBurnUnits } from './usdcx-roundtrip-funding';
+import { USDCX_MIN_BURN } from '../../../src/lib/usdcx/protocol';
+import { usdcxMinimumBurnShortfall } from '../../../src/lib/usdcx/withdrawal';
 
 jest.mock('lib/remote-config/runtime', () => ({
   getBridgeConfigSnapshot: () =>
