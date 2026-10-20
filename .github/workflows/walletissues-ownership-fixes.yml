@@ -1,0 +1,95 @@
+name: Wallet issue ownership fixes evidence - NEVER MERGE
+
+on:
+  push:
+    branches: [ci/walletissues-ownership-guard-fixes]
+
+permissions:
+  contents: read
+
+jobs:
+  ownership-fixes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Capture isolated source and actual Python platform
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/ownership-fix-results"
+          git rev-parse HEAD HEAD^{tree} > "$RUNNER_TEMP/ownership-fix-results/git-identity.txt"
+          git show -s --format=%P HEAD > "$RUNNER_TEMP/ownership-fix-results/git-parents.txt"
+          git status --porcelain=v1 > "$RUNNER_TEMP/ownership-fix-results/git-status-before.txt"
+          sha256sum .github/workflows/walletissues-ownership-fixes.yml .github/fixtures/walletissues-ownership-fixes/*.py .github/fixtures/walletissues-ownership-fixes/controller/*.py > "$RUNNER_TEMP/ownership-fix-results/source-before.sha256"
+          cp .github/workflows/walletissues-ownership-fixes.yml "$RUNNER_TEMP/ownership-fix-results/workflow.yml"
+          python3 -B - <<'PY'
+          import ast,json,multiprocessing,os,platform,sys
+          from pathlib import Path
+          root=Path('.github/fixtures/walletissues-ownership-fixes')
+          cases=[]
+          for path in sorted(root.rglob('*.py')):
+              tree=ast.parse(path.read_text(),filename=str(path))
+              if path.name in ('test_ledger.py','test_ownership.py'):
+                  for cls in tree.body:
+                      if isinstance(cls,ast.ClassDef):
+                          cases.extend(path.stem+'.'+cls.name+'.'+method.name for method in cls.body
+                                       if isinstance(method,ast.FunctionDef) and method.name.startswith('test_'))
+          assert len(cases)==len(set(cases))==51
+          out=Path(os.environ['RUNNER_TEMP'])/'ownership-fix-results'
+          (out/'static-inventory.json').write_text(json.dumps(sorted(cases),indent=2)+'\n')
+          (out/'platform.json').write_text(json.dumps({'sys_platform':sys.platform,'platform':platform.platform(),
+              'python':sys.version,'executable':sys.executable,'start_method':multiprocessing.get_start_method(),
+              'available_start_methods':multiprocessing.get_all_start_methods()},indent=2)+'\n')
+          PY
+      - name: Run complete ownership helper red checkpoint
+        shell: bash
+        working-directory: .github/fixtures/walletissues-ownership-fixes
+        env:
+          OWNERSHIP_RESULTS: ${{ runner.temp }}/ownership-fix-results
+        run: |
+          set +e
+          python3 -B run_tests.py 2>&1 | tee "$OWNERSHIP_RESULTS/tests.log"
+          statuses=("${PIPESTATUS[@]}")
+          set -e
+          printf 'python=%s\ntee=%s\n' "${statuses[0]}" "${statuses[1]}" > "$OWNERSHIP_RESULTS/exits.txt"
+          if [ "${statuses[1]}" -ne 0 ]; then exit "${statuses[1]}"; fi
+          exit "${statuses[0]}"
+      - name: Observe private ignored-command assertion sensitivity
+        if: ${{ always() }}
+        shell: bash
+        working-directory: .github/fixtures/walletissues-ownership-fixes
+        env:
+          OWNERSHIP_RESULTS: ${{ runner.temp }}/ownership-fix-results
+        run: |
+          set +e
+          python3 -B run_sensitivity.py 2>&1 | tee "$OWNERSHIP_RESULTS/sensitivity.log"
+          statuses=("${PIPESTATUS[@]}")
+          set -e
+          printf 'python=%s\ntee=%s\n' "${statuses[0]}" "${statuses[1]}" > "$OWNERSHIP_RESULTS/sensitivity-exits.txt"
+          if [ "${statuses[1]}" -ne 0 ]; then exit "${statuses[1]}"; fi
+          exit "${statuses[0]}"
+      - name: Always capture unchanged source and seal all natural evidence
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          git status --porcelain=v1 > "$RUNNER_TEMP/ownership-fix-results/git-status-after.txt"
+          sha256sum .github/workflows/walletissues-ownership-fixes.yml .github/fixtures/walletissues-ownership-fixes/*.py .github/fixtures/walletissues-ownership-fixes/controller/*.py > "$RUNNER_TEMP/ownership-fix-results/source-after.sha256"
+          cmp "$RUNNER_TEMP/ownership-fix-results/source-before.sha256" "$RUNNER_TEMP/ownership-fix-results/source-after.sha256"
+          cmp "$RUNNER_TEMP/ownership-fix-results/git-status-before.txt" "$RUNNER_TEMP/ownership-fix-results/git-status-after.txt"
+          python3 -B - <<'PY'
+          import hashlib,json,os
+          from pathlib import Path
+          root=Path(os.environ['RUNNER_TEMP'])/'ownership-fix-results'
+          files={str(path.relative_to(root)):{'bytes':len(path.read_bytes()),'sha256':hashlib.sha256(path.read_bytes()).hexdigest()}
+                 for path in sorted(root.rglob('*')) if path.is_file() and path.name!='hash-manifest.json'}
+          (root/'hash-manifest.json').write_text(json.dumps({'files':files,'self_excluded':'hash-manifest.json'},sort_keys=True,indent=2)+'\n')
+          PY
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: walletissues-ownership-fixes-${{ github.run_id }}
+          path: ${{ runner.temp }}/ownership-fix-results
+          if-no-files-found: error
+          retention-days: 14
