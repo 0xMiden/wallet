@@ -2030,6 +2030,61 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
       }
     });
 
+    it.each(['restricted', 'unavailable', 'expired'])(
+      'GEO019 refuses global %s access during self-heal authentication without retiring the pass',
+      async state => {
+        const clocks = useFakeClocks(1_000);
+        const access = jest.requireActual<typeof import('lib/remote-config/wallet-access')>(
+          'lib/remote-config/wallet-access'
+        );
+        const boundary = jest.requireMock<typeof import('lib/remote-config/wallet-access')>(
+          'lib/remote-config/wallet-access'
+        );
+        const assertBoundary = jest.mocked(boundary.assertWalletAccessAllowed);
+        const account = arrangePending();
+        const barrier = makeBarrier();
+        const scope = 'geo019-authentication';
+        access.registerWalletAccessRuntime({ scope: () => scope, refresh: async () => undefined });
+        access.publishWalletAccessDecision(scope, true);
+        assertBoundary.mockImplementation(access.assertWalletAccessAllowed);
+        mockBuildColdMultisigService.mockResolvedValue({
+          adoptGuardianStateOnce: mockAdoptGuardianState,
+          reRegisterCurrentStateOnGuardian: async (
+            onBeforeRegister?: (signers: readonly string[]) => void,
+            options?: unknown,
+            assertCurrent?: () => void
+          ) => {
+            await barrier.wait();
+            assertCurrent?.();
+            return mockReRegister(options, onBeforeRegister);
+          }
+        });
+        const pass = syncGuardianAccounts();
+        try {
+          await Promise.race([barrier.ready, pass]);
+          expect(barrier.wasEntered()).toBe(true);
+          expect(() => access.assertWalletAccessAllowed()).not.toThrow();
+          if (state === 'restricted') access.publishWalletAccessDecision(scope, false);
+          else if (state === 'unavailable') access.publishWalletAccessDecision(scope, null);
+          else clocks.advance(60_000);
+          expect(() => access.assertWalletAccessAllowed()).toThrow(access.WalletAccessDeniedError);
+          expect(storeState.accounts[0]).toBe(account);
+          barrier.release();
+          await pass;
+
+          expect(mockReRegister).not.toHaveBeenCalled();
+          expect(storeState.swapHotKey).not.toHaveBeenCalled();
+          expect(mockMarkRotationCompleted).not.toHaveBeenCalled();
+        } finally {
+          barrier.release();
+          await pass;
+          assertBoundary.mockReset().mockImplementation(() => undefined);
+          access.invalidateWalletAccess();
+          clocks.restore();
+        }
+      }
+    );
+
     it.each(changes)('GEO019 fences pending-heal completion after configure started: %s', async change => {
       const clocks = useFakeClocks(1_000);
       const account = arrangePending();

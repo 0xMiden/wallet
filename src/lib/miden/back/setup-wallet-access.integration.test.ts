@@ -11,8 +11,6 @@ import {
   getWalletAccessGeneration,
   getWalletAccessSnapshot,
   invalidateWalletAccess,
-  publishWalletAccessDecision,
-  registerWalletAccessRuntime,
   type WalletAccessSnapshot
 } from 'lib/remote-config/wallet-access';
 import { WalletMessageType, WalletStatus, type WalletAccount } from 'lib/shared/types';
@@ -29,27 +27,7 @@ import {
 import { accountsUpdated, inited, locked, store, unlocked } from './store';
 import { Vault } from './vault';
 
-// Runtime reset clears state without reclaiming the leaf's import-time registration.
-jest.mock('lib/remote-config/wallet-access', () => {
-  const actual = jest.requireActual<typeof import('lib/remote-config/wallet-access')>(
-    'lib/remote-config/wallet-access'
-  );
-  type Runtime = Parameters<typeof actual.registerWalletAccessRuntime>[0];
-  let original: Runtime | undefined;
-  const register = Object.assign(
-    (next: Runtime) => {
-      original ??= next;
-      actual.registerWalletAccessRuntime(next);
-    },
-    {
-      restore: () => {
-        if (!original) throw new Error('The production wallet access runtime was not registered');
-        actual.registerWalletAccessRuntime(original);
-      }
-    }
-  );
-  return { ...actual, registerWalletAccessRuntime: register };
-});
+jest.unmock('lib/remote-config/wallet-access');
 jest.unmock('lib/miden/back/vault');
 jest.unmock('./vault');
 
@@ -333,9 +311,6 @@ let stopWatching: () => void;
 
 beforeEach(async () => {
   _resetBridgeConfigRuntimeForTest();
-  const restore: unknown = Reflect.get(registerWalletAccessRuntime, 'restore');
-  if (typeof restore !== 'function') throw new Error('The fixture cannot restore the real permission runtime');
-  restore();
   jest.restoreAllMocks();
   mockNow = 1_000;
   jest.spyOn(performance, 'now').mockImplementation(() => mockNow);
@@ -596,16 +571,16 @@ it('cached admission retry keeps the same candidate but waits for current permis
 });
 
 describe('GEO020 account creation authority', () => {
-  const scope = () => `geo020:${getWalletAccessGeneration()}`;
   let decision: boolean | null = true;
-  const installAccess = () => {
+  const resetLookupDecision = () => {
     decision = true;
-    registerWalletAccessRuntime({ scope, refresh: async () => publishWalletAccessDecision(scope(), decision) });
-    publishWalletAccessDecision(scope(), true);
+    mockLookup.mockImplementation(async () => (decision === null ? null : answer(decision)));
   };
-  const refuse = (next: boolean | null) => {
+  const refuse = async (next: boolean | null) => {
     decision = next;
-    publishWalletAccessDecision(scope(), next);
+    invalidateWalletAccess();
+    // Observe the real runtime's refusal, then let the original creation resume under that denial.
+    await settled(ensureWalletAccessAllowed());
   };
   const existingVault = async () => {
     await registerNewWallet(WalletType.OnChain, undefined, MNEMONIC, false);
@@ -615,7 +590,7 @@ describe('GEO020 account creation authority', () => {
     mockWrites.length = 0;
     mockGuardianRegistration.mockClear();
     publications.length = 0;
-    installAccess();
+    resetLookupDecision();
     return vault;
   };
   const creation = async (kind: string) => {
@@ -623,7 +598,7 @@ describe('GEO020 account creation authority', () => {
       const vault = await existingVault();
       return { run: () => vault.createHDAccount(WalletType.Guardian), vault };
     }
-    installAccess();
+    resetLookupDecision();
     return { run: () => Vault.spawn(WalletType.Guardian, '', MNEMONIC, false), vault: null };
   };
 
@@ -633,7 +608,7 @@ describe('GEO020 account creation authority', () => {
       let writesAtRefusal = 0;
       mockCreateGate = async () => {
         writesAtRefusal = mockWrites.length;
-        refuse(next);
+        await refuse(next);
       };
       const outcome = await settled(fixture.run());
       expect(outcome).toMatchObject({ code: 'WALLET_ACCESS_DENIED' });
@@ -647,23 +622,14 @@ describe('GEO020 account creation authority', () => {
 
     it.each([true, false, null])('renews an expired post-create lease with decision %s', async next => {
       const fixture = await creation(kind);
-      let refreshes = 0;
       let refreshesAtBoundary = 0;
-      registerWalletAccessRuntime({
-        scope,
-        refresh: async () => {
-          refreshes += 1;
-          publishWalletAccessDecision(scope(), decision);
-        }
-      });
-      publishWalletAccessDecision(scope(), true);
       mockCreateGate = async () => {
-        refreshesAtBoundary = refreshes;
+        refreshesAtBoundary = mockLookup.mock.calls.length;
         mockNow += 60_001;
         decision = next;
       };
       const outcome = await settled(fixture.run());
-      expect(refreshes - refreshesAtBoundary).toBe(1);
+      expect(mockLookup.mock.calls.length - refreshesAtBoundary).toBe(1);
       expect(outcome === 'resolved').toBe(next === true);
       const errorCode = typeof outcome === 'object' && outcome !== null ? Reflect.get(outcome, 'code') : undefined;
       expect(errorCode).toBe(next === true ? undefined : 'WALLET_ACCESS_DENIED');
@@ -675,7 +641,7 @@ describe('GEO020 account creation authority', () => {
       let writesAtRefusal = 0;
       mockRegistrationGate = async () => {
         writesAtRefusal = mockWrites.length;
-        refuse(next);
+        await refuse(next);
       };
       const outcome = await settled(fixture.run());
       expect(outcome).toMatchObject({ code: 'WALLET_ACCESS_DENIED' });
@@ -696,7 +662,7 @@ describe('GEO020 account creation authority', () => {
           )
         ) {
           writesAtRefusal = mockWrites.length;
-          refuse(next);
+          await refuse(next);
         }
       };
       const outcome = await settled(fixture.run());
@@ -711,17 +677,13 @@ describe('GEO020 account creation authority', () => {
       const entered = deferred<void>();
       const release = deferred<void>();
       let waitAfterCreation = false;
-      registerWalletAccessRuntime({
-        scope,
-        refresh: async () => {
-          if (waitAfterCreation) {
-            entered.resolve();
-            await release.promise;
-          }
-          publishWalletAccessDecision(scope(), true);
+      mockLookup.mockImplementation(async () => {
+        if (waitAfterCreation) {
+          entered.resolve();
+          await release.promise;
         }
+        return answer();
       });
-      publishWalletAccessDecision(scope(), true);
       mockCreateGate = async () => {
         waitAfterCreation = true;
         mockNow += 60_001;
@@ -761,7 +723,7 @@ describe('GEO020 account creation authority', () => {
             : typeof value === 'string' && /^0x[0-9a-f]{64}$/i.test(value);
         if (selected) {
           refused = true;
-          refuse(false);
+          await refuse(false);
         }
       };
       const outcome = await settled(vault.createHDAccount(WalletType.Guardian));
@@ -777,7 +739,7 @@ describe('GEO020 account creation authority', () => {
     const create = vault.createHDAccount.bind(vault);
     jest.spyOn(vault, 'createHDAccount').mockImplementationOnce(async (...args) => {
       const accounts = await create(...args);
-      refuse(next);
+      await refuse(next);
       return accounts;
     });
     const snapshots: WalletAccessSnapshot[] = [];
