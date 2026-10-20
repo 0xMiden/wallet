@@ -1,0 +1,219 @@
+name: NEVER-MERGE Sentry2M missing-Chrome test sensitivity
+
+on:
+  push:
+    branches: [ci/sentry2m-missing-chrome-sensitivity]
+
+permissions:
+  contents: read
+
+jobs:
+  missing-chrome-sensitivity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    env:
+      CI: 'true'
+      PROOF_HEAD: ${{ github.sha }}
+      PROOF_REF: ${{ github.ref }}
+      PROOF_RUN: ${{ github.run_id }}
+      PROOF_ATTEMPT: ${{ github.run_attempt }}
+    steps:
+      - name: Checkout exact isolated transport
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Bind frozen source and initialize raw evidence
+        run: |
+          set -euo pipefail
+          umask 077
+          export PROOF_DIR="$RUNNER_TEMP/sentry2m-missing-chrome-sensitivity"
+          printf 'PROOF_DIR=%s\n' "$PROOF_DIR" >> "$GITHUB_ENV"
+          mkdir "$PROOF_DIR"
+          test "$(git rev-parse HEAD)" = "$PROOF_HEAD"
+          test "$PROOF_REF" = refs/heads/ci/sentry2m-missing-chrome-sensitivity
+          test "$(git rev-parse HEAD^)" = de898bed5290f76b575fd84b13820147020302ae
+          test "$(git rev-list --parents -n 1 HEAD | wc -w)" -eq 2
+          git diff --name-status de898bed5290f76b575fd84b13820147020302ae HEAD > "$PROOF_DIR/workflow-only.names"
+          printf 'A\t.github/workflows/sentry2m-missing-chrome-sensitivity.yml\n' > "$PROOF_DIR/expected-workflow-only.names"
+          cmp "$PROOF_DIR/workflow-only.names" "$PROOF_DIR/expected-workflow-only.names"
+          git diff --binary de898bed5290f76b575fd84b13820147020302ae HEAD > "$PROOF_DIR/workflow-only.diff"
+          git cat-file commit de898bed5290f76b575fd84b13820147020302ae > "$PROOF_DIR/source-commit.txt"
+          git cat-file commit HEAD > "$PROOF_DIR/checkout-commit.txt"
+          git ls-tree -r de898bed5290f76b575fd84b13820147020302ae > "$PROOF_DIR/source-tree.txt"
+          git ls-tree -r HEAD > "$PROOF_DIR/checkout-tree.txt"
+          printf '%s\n' "$PROOF_HEAD" "$PROOF_REF" "$PROOF_RUN" "$PROOF_ATTEMPT" > "$PROOF_DIR/run-identity.txt"
+          cat > "$PROOF_DIR/expected-source-sha256.txt" <<'SOURCE_HASHES'
+          f7bfc036ea9404412f5e0201b680f62d126a3051c21e69408e4531b015f1bb4f  src/lib/miden/back/background-notification.ts
+          4d9cc32b20c4088e0871bc0f2c42d101e64d4b1270a56d0cc1169de952dd4fd8  src/lib/miden/back/background-notification.test.ts
+          1db2da993d3dae63fe38ec5d9c1f5228cbd70363bfcb6e6f349feba0b9d01a3f  src/lib/miden/back/background-notification-fallback.test.ts
+          16334ed0e044799fd47b29fd5a8e0e7a4aef2dced4cb3b9c23af79394da71b65  src/lib/extension/notifications.ts
+          ea6cdb412c0d21700a4cd00997827d12d9155502a1df950baad4670ecf424a8b  src/lib/extension/notifications.test.ts
+          8606e15d58682739313e004734d42f34a2ad715148e00f28c2de63596349941d  yarn.lock
+          9af7cd256a41b9ad42604d8ab62a0859a3218b9b53cd74f8291fcc9075681d1d  package.json
+          73a3951b600a8514cbe91fa7e1be098cc3ae0948c470f2649e8686b192e559a6  jest.config.ts
+          247ac76bd2045c08af6596611277cab6283dc19a8254e03d06a275892c2018e0  jest.setup.js
+          SOURCE_HASHES
+          sha256sum --check "$PROOF_DIR/expected-source-sha256.txt"
+          git ls-files --stage -z > "$PROOF_DIR/before.index-stage.bin"
+          cp "$(git rev-parse --git-path index)" "$PROOF_DIR/before.index.bin"
+          git status --porcelain=v1 --untracked-files=all > "$PROOF_DIR/before.status"
+          test ! -s "$PROOF_DIR/before.status"
+          cat > "$PROOF_DIR/run-logged.bash" <<'LOGGER'
+          run_logged() {
+            local label="$1"
+            shift
+            printf '%s\0' "$@" > "$PROOF_DIR/$label.argv"
+            set +e
+            "$@" 2>&1 | tee "$PROOF_DIR/$label.log"
+            local codes=("${PIPESTATUS[@]}")
+            set -e
+            printf '%s\n' "${codes[0]}" > "$PROOF_DIR/$label.exit"
+            printf '%s\n' "${codes[1]}" > "$PROOF_DIR/$label.tee.exit"
+            if [ "${codes[1]}" -ne 0 ]; then return "${codes[1]}"; fi
+            return "${codes[0]}"
+          }
+          LOGGER
+      - name: Use Node22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install frozen dependencies with normal hooks
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged install timeout 10m yarn install --frozen-lockfile --non-interactive
+      - name: Retain pinned matcher and serializer sources
+        run: |
+          set -euo pipefail
+          umask 077
+          node --version > "$PROOF_DIR/node-version.txt"
+          yarn --version > "$PROOF_DIR/yarn-version.txt"
+          while IFS= read -r file; do
+            test -f "node_modules/$file" && test ! -L "node_modules/$file"
+            mkdir -p "$PROOF_DIR/framework/$(dirname "$file")"
+            cp "node_modules/$file" "$PROOF_DIR/framework/$file"
+          done <<'FRAMEWORK_FILES'
+          expect/package.json
+          expect/build/index.js
+          jest-circus/package.json
+          jest-circus/build/jestAdapterInit.js
+          jest-circus/build/runner.js
+          jest-util/package.json
+          jest-util/build/index.js
+          @jest/test-result/package.json
+          @jest/test-result/build/index.js
+          @jest/core/package.json
+          @jest/core/build/index.js
+          jest-matcher-utils/package.json
+          jest-matcher-utils/build/index.js
+          jest-message-util/package.json
+          jest-message-util/build/index.js
+          pretty-format/package.json
+          pretty-format/build/index.js
+          jest-mock/package.json
+          jest-mock/build/index.js
+          jest/package.json
+          jest/build/index.js
+          @swc/jest/package.json
+          @swc/jest/index.js
+          @babel/code-frame/package.json
+          @babel/code-frame/lib/index.js
+          stack-utils/package.json
+          stack-utils/index.js
+          slash/package.json
+          slash/index.js
+          FRAMEWORK_FILES
+      - name: Check the normal notification source and named test format
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged format yarn prettier --check src/lib/miden/back/background-notification.ts src/lib/miden/back/background-notification.test.ts src/lib/miden/back/background-notification-fallback.test.ts src/lib/extension/notifications.ts src/lib/extension/notifications.test.ts
+      - name: Check zero-warning named test lint
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged lint yarn eslint --max-warnings 0 src/lib/miden/back/background-notification.ts src/lib/miden/back/background-notification.test.ts src/lib/miden/back/background-notification-fallback.test.ts src/lib/extension/notifications.ts src/lib/extension/notifications.test.ts
+      - name: Check project TypeScript without emitting
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged typescript yarn tsc --noEmit --pretty false
+      - name: Apply the isolated handler-removal variant
+        run: |
+          set -euo pipefail
+          python3 - <<'VARIANT'
+          from pathlib import Path
+          import hashlib
+          p = Path('src/lib/miden/back/background-notification.ts')
+          b = p.read_bytes()
+          assert hashlib.sha256(b).hexdigest() == 'f7bfc036ea9404412f5e0201b680f62d126a3051c21e69408e4531b015f1bb4f'
+          assert b.count(b'.catch(fallback)') == 1
+          variant = b.replace(b'.catch(fallback)', b'')
+          assert hashlib.sha256(variant).hexdigest() == '98d969b1a62407ca4dd75b33b0686447535e6b62ebab6126b1525bd9f54bb5ce'
+          p.write_bytes(variant)
+          VARIANT
+          cp src/lib/miden/back/background-notification.ts "$PROOF_DIR/controlled-handler-removal.ts"
+          git diff --binary > "$PROOF_DIR/controlled-handler-removal.diff"
+          git ls-files --stage -z > "$PROOF_DIR/variant.index-stage.bin"
+          cmp "$PROOF_DIR/before.index-stage.bin" "$PROOF_DIR/variant.index-stage.bin"
+      - name: Run only the real absent-Chrome target with natural exit0
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged jest yarn jest --runTestsByPath src/lib/miden/back/background-notification.test.ts --testNamePattern='^showBackgroundNotification fallible service-worker attempt stays quiet after rejection when the Chrome notification API is absent$' --runInBand --coverage=false --no-colors --json --outputFile="$PROOF_DIR/jest.json"
+      - name: Reject a target that misses the controlled handler removal
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/run-logged.bash"
+          cat > "$PROOF_DIR/check-sensitivity.py" <<'SENSITIVITY'
+          from pathlib import Path
+          import json, os
+          p = Path(os.environ['PROOF_DIR'])
+          x = json.loads((p / 'jest.json').read_text())
+          assert (p / 'jest.exit').read_text().strip() == '0'
+          assert (p / 'jest.tee.exit').read_text().strip() == '0'
+          assert x['success'] is True and x['wasInterrupted'] is False
+          assert x['numTotalTests'] == 14 and x['numPassedTests'] == 1 and x['numPendingTests'] == 13
+          assert x['numFailedTests'] == 0 and x['numRuntimeErrorTestSuites'] == 0
+          assert len(x['testResults']) == 1
+          suite = x['testResults'][0]
+          assert suite['status'] == 'passed' and not suite.get('failureMessage')
+          results = suite['assertionResults']
+          assert len(results) == 14
+          selected = [a for a in results if a['fullName'] == 'showBackgroundNotification fallible service-worker attempt stays quiet after rejection when the Chrome notification API is absent']
+          assert len(selected) == 1 and selected[0]['status'] == 'passed' and selected[0]['numPassingAsserts'] == 3
+          assert not selected[0]['failureMessages'] and not selected[0]['failureDetails']
+          assert all(a['status'] == 'pending' for a in results if a is not selected[0])
+          (p / 'sensitivity-result.json').write_text(json.dumps({'finding': 'C2M-T1', 'mutant_survived': True, 'target_passing_assertions': 3, 'scope': 'test-protection gap only; production behavior is correct'}, indent=2) + '\n')
+          raise SystemExit('C2M-T1: controlled handler-removal mutant survived the absent-Chrome case.')
+          SENSITIVITY
+          run_logged sensitivity python3 "$PROOF_DIR/check-sensitivity.py"
+      - name: Always retain final unchanged source and raw index
+        if: always()
+        run: |
+          set -euo pipefail
+          umask 077
+          git restore --source=HEAD --worktree -- src/lib/miden/back/background-notification.ts
+          sha256sum --check "$PROOF_DIR/expected-source-sha256.txt" > "$PROOF_DIR/after.hash-check.log"
+          git ls-files --stage -z > "$PROOF_DIR/after.index-stage.bin"
+          cp "$(git rev-parse --git-path index)" "$PROOF_DIR/after.index.bin"
+          cmp "$PROOF_DIR/before.index-stage.bin" "$PROOF_DIR/after.index-stage.bin"
+          git status --porcelain=v1 --untracked-files=all > "$PROOF_DIR/after.status"
+          test ! -s "$PROOF_DIR/after.status"
+          printf 'UNACCEPTED: raw collection only; external exact inventory, target assertion count, natural exits, sole-workflow ancestry and API/archive acceptance required. Test protection only; no product cause or new regression claimed. Never merge.\n' > "$PROOF_DIR/acceptance.txt"
+          cd "$PROOF_DIR"
+          find . -type f ! -name files.sha256 -print0 | sort -z | xargs -0 sha256sum > files.sha256
+      - name: Always retain actual complete private evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sentry2m-missing-chrome-sensitivity-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/sentry2m-missing-chrome-sensitivity/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
