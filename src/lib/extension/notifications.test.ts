@@ -144,3 +144,65 @@ describe('showExtensionNotification', () => {
     expect(createdNotif!.close).toHaveBeenCalled();
   });
 });
+
+class UnsupportedNotification extends FakeNotification {
+  constructor(title: string, opts?: NotificationOptions) {
+    super(title, opts);
+    throw new TypeError(
+      "Failed to construct 'Notification': Illegal constructor. Use ServiceWorkerRegistration.showNotification() instead."
+    );
+  }
+}
+
+describe('showExtensionNotification Web API failure fallback', () => {
+  it('falls back once when a granted Notification constructor throws', async () => {
+    FakeNotification.permission = 'granted';
+    Object.defineProperty(globalThis, 'Notification', { value: UnsupportedNotification });
+
+    await expect(showExtensionNotification('Hi', 'msg')).resolves.toBeUndefined();
+
+    expect(FakeNotification.requestPermission).not.toHaveBeenCalled();
+    expect(mockChromeNotificationsCreate).toHaveBeenCalledTimes(1);
+    expect(mockChromeNotificationsCreate).toHaveBeenCalledWith(
+      'miden-note-received',
+      {
+        type: 'basic',
+        iconUrl: 'chrome-ext://test/misc/logo-white-bg-128.png',
+        title: 'Hi',
+        message: 'msg',
+        requireInteraction: true
+      },
+      expect.any(Function)
+    );
+  });
+
+  it('falls back once when the Web notification permission request rejects', async () => {
+    FakeNotification.requestPermission.mockRejectedValueOnce(new TypeError('Permission request was rejected'));
+
+    await expect(showExtensionNotification('Hi', 'msg')).resolves.toBeUndefined();
+
+    expect(FakeNotification.requestPermission).toHaveBeenCalledTimes(1);
+    expect(mockChromeNotificationsCreate).toHaveBeenCalledTimes(1);
+    expect(mockChromeNotificationsCreate).toHaveBeenCalledWith(
+      'miden-note-received',
+      {
+        type: 'basic',
+        iconUrl: 'chrome-ext://test/misc/logo-white-bg-128.png',
+        title: 'Hi',
+        message: 'msg',
+        requireInteraction: true
+      },
+      expect.any(Function)
+    );
+  });
+
+  it('resolves when the Web constructor is unsupported and the Chrome fallback is unavailable', async () => {
+    FakeNotification.permission = 'granted';
+    Object.defineProperty(globalThis, 'Notification', { value: UnsupportedNotification });
+    Reflect.deleteProperty(chrome, 'notifications');
+
+    await expect(showExtensionNotification('Hi', 'msg')).resolves.toBeUndefined();
+
+    expect(mockChromeNotificationsCreate).not.toHaveBeenCalled();
+  });
+});
