@@ -1050,10 +1050,10 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
       reRegisterCurrentStateOnGuardian: async (
         onBeforeRegister?: (signerCommitments: readonly string[]) => void,
         lockOptions?: unknown,
-        assertCurrent?: () => Promise<void>
+        assertCurrent?: () => void
       ) => {
         await mockPreRegisterHold();
-        await assertCurrent?.();
+        assertCurrent?.();
         // `mockReRegister` is the rest of the method: it decides whether the push starts.
         return mockReRegister(lockOptions, onBeforeRegister);
       },

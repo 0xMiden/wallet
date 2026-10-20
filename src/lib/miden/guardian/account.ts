@@ -12,6 +12,7 @@ import {
 } from 'lib/miden-chain/effective-endpoints';
 import { getNetworkGuardians } from 'lib/miden-chain/guardian-registry';
 import { isExtension } from 'lib/platform';
+import { assertWalletAccessAllowed, ensureWalletAccessAllowed, isWalletAccessDeniedError } from 'lib/remote-config/wallet-access';
 import * as secureHotKey from 'lib/secure-hot-key';
 import { sameGuardianEndpoint } from 'lib/settings/helpers';
 import { u8ToB64 } from 'lib/shared/helpers';
@@ -526,12 +527,15 @@ export async function registerGuardianAccount(registration: PendingGuardianRegis
     for (let attempt = 1; ; attempt++) {
       try {
         await withGuardianRateLimitRetry(
-          () =>
-            withTimeout(
-              registration.multisig.registerOnGuardian(registration.stateBase64),
+          async () => {
+            await ensureWalletAccessAllowed();
+            assertWalletAccessAllowed();
+            return withTimeout(
+              registration.multisig.registerOnGuardian(registration.stateBase64, assertWalletAccessAllowed),
               GUARDIAN_CREATE_REQUEST_TIMEOUT_MS,
               'Guardian registration'
-            ),
+            );
+          },
           { deadlineMs, sleepFn: sleepKeepingWorkerAlive }
         );
         return;
@@ -546,6 +550,7 @@ export async function registerGuardianAccount(registration: PendingGuardianRegis
       }
     }
   } catch (e) {
+    if (isWalletAccessDeniedError(e)) throw e;
     console.error('Error creating Guardian account:', e);
     throw new Error('Failed to create Guardian account', { cause: e });
   }

@@ -1126,17 +1126,38 @@ export class MultisigService {
     }
   }
 
-  private async registerOnGuardianWithRetry(stateBase64: string): Promise<void> {
+  private async registerOnGuardianWithRetry(
+    stateBase64: string,
+    onBeforeSend?: () => void,
+    assertCurrent?: () => void
+  ): Promise<void> {
     let lastError: unknown;
+    let admissionFailure: { error: unknown } | undefined;
+    const beforeSend =
+      onBeforeSend || assertCurrent
+        ? () => {
+            try {
+              assertCurrent?.();
+              onBeforeSend?.();
+            } catch (error) {
+              admissionFailure = { error };
+              throw error;
+            }
+          }
+        : undefined;
     for (let attempt = 1; attempt <= GUARDIAN_RETRY_MAX_ATTEMPTS; attempt++) {
+      assertCurrent?.();
       try {
         await withTimeout(
-          this.multisig.registerOnGuardian(stateBase64),
+          beforeSend
+            ? this.multisig.registerOnGuardian(stateBase64, beforeSend)
+            : this.multisig.registerOnGuardian(stateBase64),
           POST_COMMIT_GUARDIAN_TIMEOUT_MS,
           'New guardian registration'
         );
         return;
       } catch (error) {
+        if (admissionFailure) throw admissionFailure.error;
         // The operator already holds the account: the goal state, so it must not
         // be retried into a failure. Newly reachable now that an attempt can
         // TIME OUT — a `/configure` the server applied and answered too late
@@ -1194,6 +1215,8 @@ export class MultisigService {
    * `verifyStateCommitment` matched against the chain in the same hold: the chain's
    * signer set.
    *
+   * `assertCurrent` fences each registration attempt and the actual transport send after request signing.
+   *
    * `lockOptions` bounds and labels the hold below, and the CADENCE caller has to pass
    * it for the same reason `init` documents: the hold contains a `syncState()`, so on
    * the #777 path it parks on a node that never answers. Reached from `runSync`'s
@@ -1203,8 +1226,10 @@ export class MultisigService {
    */
   async reRegisterCurrentStateOnGuardian(
     onBeforeRegister?: (signerCommitments: readonly string[]) => void,
-    lockOptions?: WasmClientLockOptions
+    lockOptions?: WasmClientLockOptions,
+    assertCurrent?: () => void
   ): Promise<void> {
+    assertCurrent?.();
     const { updatedStateBase64, freshSignerCommitments } = await withWasmClientLock(async hold => {
       await midenClientProxy.syncState();
       // Reachable from the BACKGROUND runSync stage-2 last resort — exactly the
@@ -1262,10 +1287,16 @@ export class MultisigService {
     if (freshSignerCommitments.length > 0) {
       this.multisig.signerCommitments = freshSignerCommitments;
     }
-    // The POST is now unavoidable from the caller's point of view: past this line a
-    // `/configure` may land even if the retry loop then throws or is torn down.
-    onBeforeRegister?.(freshSignerCommitments);
-    await this.registerOnGuardianWithRetry(updatedStateBase64);
+    // Authentication may still fail before fetch; charge only inside its admitted send callback.
+    let pushStarted = false;
+    const beforeFirstSend = onBeforeRegister
+      ? () => {
+          if (pushStarted) return;
+          onBeforeRegister(freshSignerCommitments);
+          pushStarted = true;
+        }
+      : undefined;
+    await this.registerOnGuardianWithRetry(updatedStateBase64, beforeFirstSend, assertCurrent);
   }
 }
 

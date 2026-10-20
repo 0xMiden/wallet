@@ -319,7 +319,9 @@ const makeMultisig = (overrides: Partial<Record<string, unknown>> = {}) => ({
     metadata: { proposalType: 'switch-guardian' }
   })),
   setGuardianClient: jest.fn(),
-  registerOnGuardian: jest.fn(async () => {}),
+  registerOnGuardian: jest.fn(async (_state?: string, beforeSend?: () => void) => {
+    beforeSend?.();
+  }),
   guardianPublicKey: 'old-pubkey',
   ...overrides
 });
@@ -1386,6 +1388,188 @@ describe('MultisigService', () => {
   });
 
   describe('reRegisterCurrentStateOnGuardian', () => {
+    describe('GEO019 configure admission', () => {
+      const makeBarrier = () => {
+        let release = (): void => {};
+        let entered = (): void => {};
+        const pending = new Promise<void>(resolve => {
+          release = resolve;
+        });
+        const ready = new Promise<void>(resolve => {
+          entered = resolve;
+        });
+        return {
+          ready,
+          release,
+          wait: async (): Promise<void> => {
+            entered();
+            await pending;
+          }
+        };
+      };
+      const makeService = async (registerOnGuardian: (state?: string, beforeSend?: () => void) => Promise<void>) => {
+        const multisig = makeMultisig({ registerOnGuardian });
+        multisigClientConfig.load.mockResolvedValueOnce(multisig);
+        mockAccountDeserialize.mockReturnValueOnce({ id: () => ({ toString: () => 'acc-id' }) });
+        mockGetAccount.mockResolvedValue({ serialize: () => new Uint8Array([1]) });
+        return MultisigService.init(
+          Account.deserialize(new Uint8Array([1])),
+          'pub',
+          'commitment',
+          async () => 'signature',
+          'https://x'
+        );
+      };
+
+      it('GEO019 refuses retirement after the local sync without charging a configure', async () => {
+        const refused = new Error('pass retired');
+        let current = true;
+        const assertCurrent = () => {
+          if (!current) throw refused;
+        };
+        const register = jest.fn(async (_state?: string, beforeSend?: () => void) => beforeSend?.());
+        const service = await makeService(register);
+        mockSyncState.mockImplementationOnce(async () => {
+          current = false;
+        });
+        const charge = jest.fn();
+
+        await expect(service.reRegisterCurrentStateOnGuardian(charge, undefined, assertCurrent)).rejects.toBe(refused);
+        expect(register).not.toHaveBeenCalled();
+        expect(charge).not.toHaveBeenCalled();
+      });
+
+      it('GEO019 refuses retirement during authentication before its first configure and preserves the error', async () => {
+        const refused = new Error('pass retired');
+        let current = true;
+        const assertCurrent = () => {
+          if (!current) throw refused;
+        };
+        const barrier = makeBarrier();
+        const configure = jest.fn();
+        const register = jest.fn(async (_state?: string, beforeSend?: () => void) => {
+          await barrier.wait();
+          beforeSend?.();
+          configure();
+        });
+        const service = await makeService(register);
+        const charge = jest.fn();
+        const request = service.reRegisterCurrentStateOnGuardian(charge, undefined, assertCurrent);
+        const outcome = request.catch((error: unknown) => error);
+        try {
+          await barrier.ready;
+          current = false;
+          barrier.release();
+          expect(await outcome).toBe(refused);
+          expect(register).toHaveBeenCalledTimes(1);
+          expect(configure).not.toHaveBeenCalled();
+          expect(charge).not.toHaveBeenCalled();
+        } finally {
+          barrier.release();
+          await outcome;
+        }
+      });
+
+      it('GEO019 refuses a retired pass before retrying and keeps its first configure charged once', async () => {
+        const restoreTimers = skipRetryBackoffs();
+        const refused = new Error('pass retired');
+        let current = true;
+        const assertCurrent = () => {
+          if (!current) throw refused;
+        };
+        const configure = jest.fn();
+        const register = jest.fn(async (_state?: string, beforeSend?: () => void) => {
+          beforeSend?.();
+          configure();
+          current = false;
+          throw new Error('guardian unavailable');
+        });
+        const service = await makeService(register);
+        const charge = jest.fn();
+        try {
+          await expect(service.reRegisterCurrentStateOnGuardian(charge, undefined, assertCurrent)).rejects.toBe(refused);
+          expect(register).toHaveBeenCalledTimes(1);
+          expect(configure).toHaveBeenCalledTimes(1);
+          expect(charge).toHaveBeenCalledTimes(1);
+        } finally {
+          restoreTimers();
+        }
+      });
+
+      it('GEO019 preserves live retries and charges only the first admitted configure', async () => {
+        const restoreTimers = skipRetryBackoffs();
+        const assertCurrent = jest.fn();
+        const configure = jest.fn();
+        const register = jest.fn(async (_state?: string, beforeSend?: () => void) => {
+          beforeSend?.();
+          configure();
+          if (configure.mock.calls.length < 3) throw new Error('guardian unavailable');
+        });
+        const service = await makeService(register);
+        const charge = jest.fn();
+        try {
+          await service.reRegisterCurrentStateOnGuardian(charge, undefined, assertCurrent);
+          expect(register).toHaveBeenCalledTimes(3);
+          expect(configure).toHaveBeenCalledTimes(3);
+          expect(charge).toHaveBeenCalledTimes(1);
+          expect(assertCurrent).toHaveBeenCalled();
+        } finally {
+          restoreTimers();
+        }
+      });
+
+      it('GEO019 preserves a first-send callback refusal without posting or retrying', async () => {
+        const refused = new Error('attempt budget closed');
+        const configure = jest.fn();
+        const register = jest.fn(async (_state?: string, beforeSend?: () => void) => {
+          beforeSend?.();
+          configure();
+        });
+        const service = await makeService(register);
+        const charge = jest.fn(() => {
+          throw refused;
+        });
+
+        await expect(service.reRegisterCurrentStateOnGuardian(charge, undefined, () => {})).rejects.toBe(refused);
+        expect(register).toHaveBeenCalledTimes(1);
+        expect(configure).not.toHaveBeenCalled();
+        expect(charge).toHaveBeenCalledTimes(1);
+      });
+
+      it('GEO019 rechecks an authentication replay without charging or posting again', async () => {
+        const refused = new Error('pass retired during replay');
+        let current = true;
+        const assertCurrent = () => {
+          if (!current) throw refused;
+        };
+        const barrier = makeBarrier();
+        const configure = jest.fn();
+        const register = jest.fn(async (_state?: string, beforeSend?: () => void) => {
+          beforeSend?.();
+          configure();
+          await barrier.wait();
+          beforeSend?.();
+          configure();
+        });
+        const service = await makeService(register);
+        const charge = jest.fn();
+        const request = service.reRegisterCurrentStateOnGuardian(charge, undefined, assertCurrent);
+        const outcome = request.catch((error: unknown) => error);
+        try {
+          await barrier.ready;
+          current = false;
+          barrier.release();
+          expect(await outcome).toBe(refused);
+          expect(register).toHaveBeenCalledTimes(1);
+          expect(configure).toHaveBeenCalledTimes(1);
+          expect(charge).toHaveBeenCalledTimes(1);
+        } finally {
+          barrier.release();
+          await outcome;
+        }
+      });
+    });
+
     it('syncs, serializes the current account, and re-registers it on the guardian', async () => {
       const registerOnGuardian = jest.fn(async () => {});
       const multisig = makeMultisig({ registerOnGuardian });
@@ -1444,7 +1628,10 @@ describe('MultisigService', () => {
 
     it('starts the push once, before the first registration attempt, when the push fails', async () => {
       const restoreTimers = skipRetryBackoffs();
-      const registerOnGuardian = jest.fn(async () => {
+      const configure = jest.fn();
+      const registerOnGuardian = jest.fn(async (_state?: string, beforeSend?: () => void) => {
+        beforeSend?.();
+        configure();
         throw new Error('guardian down');
       });
       const multisig = makeMultisig({ registerOnGuardian });
@@ -1463,7 +1650,8 @@ describe('MultisigService', () => {
       expect(error).not.toBeInstanceOf(GuardianReRegisterRefusedError);
       expect(registerOnGuardian).toHaveBeenCalledTimes(8);
       expect(onPushStart).toHaveBeenCalledTimes(1);
-      expect(onPushStart.mock.invocationCallOrder[0]).toBeLessThan(registerOnGuardian.mock.invocationCallOrder[0]!);
+      expect(configure).toHaveBeenCalledTimes(8);
+      expect(onPushStart.mock.invocationCallOrder[0]).toBeLessThan(configure.mock.invocationCallOrder[0]!);
     });
 
     it('hands the push-start callback the signer set it derived from the chain-verified account (#1233)', async () => {
@@ -1504,7 +1692,8 @@ describe('MultisigService', () => {
      */
     it('fires onBeforeRegister after the local reads and immediately before the POST', async () => {
       const order: string[] = [];
-      const registerOnGuardian = jest.fn(async () => {
+      const registerOnGuardian = jest.fn(async (_state?: string, beforeSend?: () => void) => {
+        beforeSend?.();
         order.push('register');
       });
       const multisig = makeMultisig({ registerOnGuardian });

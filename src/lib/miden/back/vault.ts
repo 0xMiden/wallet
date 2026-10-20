@@ -261,25 +261,14 @@ const insertKeyCallbackWrapper = (passKey: CryptoKey) => {
  * Storage keys use the unprefixed signer-commitment hex (matching the
  * WalletSigner convention everywhere else in the codebase).
  */
-async function persistGuardianKeys(vaultKey: CryptoKey, keys: CreatedGuardianKeys) {
-  await encryptAndSaveMany(
-    [
-      [accAuthPubKeyStrgKey(keys.hotPublicKey), keys.hotPublicKey],
-      [accAuthSecretKeyStrgKey(keys.hotPublicKey), keys.hotCiphertext],
-      [accColdSecretKeyStrgKey(keys.coldPublicKey), keys.coldSecretKeyHex]
-    ],
-    vaultKey
-  );
+function guardianKeyStorageItems(keys: CreatedGuardianKeys): [string, string][] {
+  return [
+    [accAuthPubKeyStrgKey(keys.hotPublicKey), keys.hotPublicKey],
+    [accAuthSecretKeyStrgKey(keys.hotPublicKey), keys.hotCiphertext],
+    [accColdSecretKeyStrgKey(keys.coldPublicKey), keys.coldSecretKeyHex]
+  ];
 }
 
-/**
- * Persist only the cold mirror for a recovered Guardian account. No hot key
- * is generated at recovery time — the user activates one explicitly via the
- * post-recovery banner, which fires `initiateReplaceHotKeyTransaction`.
- */
-async function persistRecoveredGuardianColdKey(vaultKey: CryptoKey, coldPublicKey: string, coldSecretKeyHex: string) {
-  await encryptAndSaveMany([[accColdSecretKeyStrgKey(coldPublicKey), coldSecretKeyHex]], vaultKey);
-}
 /**
  * Persist a wallet-derived EVM private key under the vault key, mirroring the
  * guardian cold-key blob pattern. Idempotent: re-deriving the same account
@@ -863,7 +852,9 @@ export class Vault {
       console.log('[Vault.spawn] Step 2: vault key generated');
       // Constructed as soon as the key exists: the constructor installs the realm's
       // insert-key sink, and the recovery and creation below already insert secrets (#878).
-      spawned = new Vault(vaultKey);
+      const candidate = new Vault(vaultKey);
+      spawned = candidate;
+      const assertCreationCurrent = () => candidate.assertRealmSinkIsMine();
 
       if (!mnemonic) {
         mnemonic = generateMnemonic();
@@ -1013,7 +1004,7 @@ export class Vault {
         // waits must not block the realm's other client work (#1207). The picked endpoint
         // (stage 1 of #408) is the override; undefined falls back to the network default.
         const guardianCreateKey =
-          walletType === WalletType.Guardian ? await fetchGuardianCreateKey(guardianEndpoint) : undefined;
+          walletType === WalletType.Guardian ? await fetchGuardianCreateKey(guardianEndpoint, assertCreationCurrent) : undefined;
         console.log('[Vault.spawn] Step 7b: acquiring WASM client lock for create/import path...');
         const created = await withWasmClientLock(
           async (
@@ -1037,17 +1028,20 @@ export class Vault {
             // it provably pre-write: no account exists until the create/import
             // calls, and the vault writes happen after the lock releases.
             assertWasmHoldCurrent(hold, 'in Vault.spawn after the client build');
+            assertCreationCurrent();
             if (guardianCreateKey) {
               console.log('[Vault.spawn] Step 8: syncing state then creating Guardian account...');
               await client.syncState();
               // The sync parks on the network; an abandoned flow must not go on
               // to mint a guardian account nobody is waiting for.
               assertWasmHoldCurrent(hold, 'in Vault.spawn after the guardian-path sync');
+              assertCreationCurrent();
               // Creation parks inside this hold (the hot key, the account build,
               // its sync), so it re-checks ownership after each of those awaits.
-              const result = await client.createGuardianMidenWallet(walletSeed, guardianCreateKey, step =>
-                assertWasmHoldCurrent(hold, 'in Vault.spawn during Guardian creation', step)
-              );
+              const result = await client.createGuardianMidenWallet(walletSeed, guardianCreateKey, step => {
+                assertWasmHoldCurrent(hold, 'in Vault.spawn during Guardian creation', step);
+                assertCreationCurrent();
+              });
               // Guardian accounts are always ECDSA under the 3-key model.
               return {
                 accountId: result.accountId,
@@ -1131,6 +1125,7 @@ export class Vault {
               console.warn('[Vault.spawn] mock sync failed; creating the account anyway', error);
             }
             assertWasmHoldCurrent(hold, 'in Vault.spawn before the wallet create');
+            assertCreationCurrent();
             console.log('[Vault.spawn] Step 9: creating miden wallet...');
             const id = await client.createMidenWallet(walletType, walletSeed, NEW_ACCOUNT_AUTH_SCHEME);
             return {
@@ -1144,7 +1139,11 @@ export class Vault {
         // Before the account writes: a failed registration leaves the account in the SDK store and its
         // cold key where the insert-key sink stored it, but no entry in the vault's account list
         // (harmless: the cold key is HD-derived and a retry rewrites it).
-        if (created.guardianRegistration) await registerGuardianAccount(created.guardianRegistration);
+        if (created.guardianRegistration) {
+          await ensureWalletAccessAllowed();
+          assertCreationCurrent();
+          await registerGuardianAccount(created.guardianRegistration);
+        }
         createdAccounts = [
           {
             accountId: created.accountId,
@@ -1159,7 +1158,9 @@ export class Vault {
 
       // Wallet-derived EVM identity per HD account, derived while the mnemonic
       // is in scope. Only the address is stamped on the record; the key is
-      // persisted encrypted in the loop below.
+      // persisted with the account records below.
+      await ensureWalletAccessAllowed();
+      assertCreationCurrent();
       const evmKeys = new Map<number, { address: Hex; privateKeyHex: Hex }>();
       for (const c of createdAccounts) {
         evmKeys.set(c.hdIndex, deriveEvmKeyPair(mnemonic, walletType, c.hdIndex));
@@ -1188,33 +1189,30 @@ export class Vault {
         })
       );
 
+      const keyItems: [string, string][] = [];
+      for (const c of createdAccounts) {
+        const evmKey = evmKeys.get(c.hdIndex);
+        if (evmKey) keyItems.push([accEvmSecretKeyStrgKey(evmKey.address.toLowerCase()), evmKey.privateKeyHex]);
+        if (c.guardianKeys) keyItems.push(...guardianKeyStorageItems(c.guardianKeys));
+        if (c.recoveredCold) keyItems.push([accColdSecretKeyStrgKey(c.recoveredCold.coldPublicKey), c.recoveredCold.coldSecretKeyHex]);
+      }
+      // Keep each new account and the keys it needs in the same guarded storage write.
       await encryptAndSaveMany(
         [
+          ...keyItems,
           [checkStrgKey, generateCheck()],
           [mnemonicStrgKey, mnemonic],
           ...createdAccounts.map(c => [accPubKeyStrgKey(c.accountId), c.accountId] as [string, string]),
           [accountsStrgKey, initialAccounts]
         ],
-        vaultKey
+        vaultKey,
+        assertCreationCurrent
       );
-      for (const c of createdAccounts) {
-        const evmKey = evmKeys.get(c.hdIndex);
-        if (evmKey) {
-          await persistEvmKey(vaultKey, evmKey.address, evmKey.privateKeyHex);
-        }
-        if (c.guardianKeys) {
-          await persistGuardianKeys(vaultKey, c.guardianKeys);
-        }
-        if (c.recoveredCold) {
-          await persistRecoveredGuardianColdKey(
-            vaultKey,
-            c.recoveredCold.coldPublicKey,
-            c.recoveredCold.coldSecretKeyHex
-          );
-        }
-      }
+      assertCreationCurrent();
       await savePlain(currentAccPubKeyStrgKey, initialAccounts[0]!.publicKey);
+      assertCreationCurrent();
       await savePlain(ownMnemonicStrgKey, ownMnemonic ?? false);
+      assertCreationCurrent();
 
       // The instance constructed when its key was made, so the caller need not unlock() separately.
       return spawned;
@@ -1771,14 +1769,16 @@ export class Vault {
           // the import, where the disposed/poisoned client reference is the
           // observable signal.)
           assertWasmHoldCurrent(hold, 'in createHDAccount after the client build');
+          this.assertRealmSinkIsMine();
           console.log('[Vault.createHDAccount] Step 7: client ready, network =', midenClient.network);
 
           if (guardianCreateKey) {
             console.log('[Vault.createHDAccount] Step 8: createGuardianMidenWallet');
             // Same re-check as Vault.spawn's: creation parks inside this hold.
-            const result = await midenClient.createGuardianMidenWallet(walletSeed, guardianCreateKey, step =>
-              assertWasmHoldCurrent(hold, 'in createHDAccount during Guardian creation', step)
-            );
+            const result = await midenClient.createGuardianMidenWallet(walletSeed, guardianCreateKey, step => {
+              assertWasmHoldCurrent(hold, 'in createHDAccount during Guardian creation', step);
+              this.assertRealmSinkIsMine();
+            });
             return {
               accountId: result.accountId,
               keyDerivation: NEW_ACCOUNT_KEY_DERIVATION,
@@ -1844,7 +1844,13 @@ export class Vault {
       // Before the account writes, as in Vault.spawn: a failed registration leaves the SDK account and
       // its cold key, but no entry in the vault's account list (harmless: the cold key is HD-derived
       // and a retry rewrites it).
-      if (created.guardianRegistration) await registerGuardianAccount(created.guardianRegistration);
+      await ensureWalletAccessAllowed();
+      this.assertRealmSinkIsMine();
+      if (created.guardianRegistration) {
+        await registerGuardianAccount(created.guardianRegistration);
+        await ensureWalletAccessAllowed();
+        this.assertRealmSinkIsMine();
+      }
       const walletId = created.accountId;
       console.log('[Vault.createHDAccount] Step 10: walletId =', walletId);
 
@@ -1876,16 +1882,15 @@ export class Vault {
 
       await encryptAndSaveMany(
         [
+          ...(created.guardianKeys ? guardianKeyStorageItems(created.guardianKeys) : []),
+          [accEvmSecretKeyStrgKey(evmKey.address.toLowerCase()), evmKey.privateKeyHex],
           [accPubKeyStrgKey(walletId), walletId],
           // Miden stores no private key or view key here (we dont store a pk, and a vk isnt a thing yet)
           [accountsStrgKey, newAllAcounts]
         ],
-        this.vaultKey
+        this.vaultKey,
+        () => this.assertRealmSinkIsMine()
       );
-      if (created.guardianKeys) {
-        await persistGuardianKeys(this.vaultKey, created.guardianKeys);
-      }
-      await persistEvmKey(this.vaultKey, evmKey.address, evmKey.privateKeyHex);
 
       return newAllAcounts;
     });

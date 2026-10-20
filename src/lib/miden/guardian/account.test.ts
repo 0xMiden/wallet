@@ -614,7 +614,7 @@ describe('createGuardianAccount', () => {
 
     await registerGuardianAccount(created.registration);
     expect(multisig.registerOnGuardian).toHaveBeenCalledTimes(1);
-    expect(multisig.registerOnGuardian).toHaveBeenCalledWith(Buffer.from([7, 8, 9]).toString('base64'));
+    expect(multisig.registerOnGuardian).toHaveBeenCalledWith(Buffer.from([7, 8, 9]).toString('base64'), expect.any(Function));
     expect(multisig.account.serialize).toHaveBeenCalledTimes(1);
     expect(multisig.account.id.mock.calls.length - idCalls).toBe(0);
   });
@@ -750,8 +750,8 @@ describe('createGuardianAccount', () => {
       expect(multisig.registerOnGuardian).toHaveBeenCalledTimes(2);
       // Serialized once, before the retry loop, and the same state goes out on each attempt.
       expect(multisig.account.serialize).toHaveBeenCalledTimes(1);
-      expect(multisig.registerOnGuardian).toHaveBeenNthCalledWith(1, u8ToB64(ACCOUNT_STATE));
-      expect(multisig.registerOnGuardian).toHaveBeenNthCalledWith(2, u8ToB64(ACCOUNT_STATE));
+      expect(multisig.registerOnGuardian).toHaveBeenNthCalledWith(1, u8ToB64(ACCOUNT_STATE), expect.any(Function));
+      expect(multisig.registerOnGuardian).toHaveBeenNthCalledWith(2, u8ToB64(ACCOUNT_STATE), expect.any(Function));
     });
 
     it('waits out a 429 on the guardian pubkey fetch and creates the account', async () => {
@@ -1024,8 +1024,8 @@ describe('createGuardianAccount', () => {
 
       expect(registration.outcome).toBe('resolved');
       expect(multisig.registerOnGuardian).toHaveBeenCalledTimes(2);
-      expect(multisig.registerOnGuardian).toHaveBeenNthCalledWith(1, state);
-      expect(multisig.registerOnGuardian).toHaveBeenNthCalledWith(2, state);
+      expect(multisig.registerOnGuardian).toHaveBeenNthCalledWith(1, state, expect.any(Function));
+      expect(multisig.registerOnGuardian).toHaveBeenNthCalledWith(2, state, expect.any(Function));
     });
 
     // Timeouts at 30, 61 and 93 s, with backoffs of 1 s and 2 s between them and none after the last.
