@@ -42,6 +42,23 @@ const fixture =
     return overrides.eligibility?.(network) ?? json(result(network));
   };
 
+const recordedProbe = ({ health } = {}) => {
+  const calls = [];
+  const fetchImpl = async (url, init) => {
+    const target = new URL(url);
+    calls.push(target.href);
+    if (target.pathname === '/healthz') return health?.() ?? json({ ready: true, revision: 'release-sha' });
+    if (target.pathname.endsWith('.json')) {
+      const network = target.pathname.split('/').pop().slice(0, -5);
+      return json({ network, version: 20 });
+    }
+    const response = json(result(target.searchParams.get('network')));
+    response.headers.set('Access-Control-Allow-Origin', init.headers.Origin ?? 'https://wallet.example');
+    return response;
+  };
+  return { calls, fetchImpl };
+};
+
 test('permits release builds only after both published network policies answer with matching decisions', async () => {
   assert.deepEqual(await checkDeployment({ ...options, fetchImpl: fixture() }), {
     endpoint,
@@ -80,29 +97,51 @@ for (const value of [
   `${endpoint}#fragment`
 ]) {
   test(`rejects an unsafe or ambiguous public endpoint: ${value}`, async () => {
-    await assert.rejects(
-      checkDeployment({ ...options, endpoint: value, fetchImpl: async () => assert.fail('invalid URL fetched') })
-    );
+    const { calls, fetchImpl } = recordedProbe();
+    await assert.rejects(checkDeployment({ ...options, endpoint: value, fetchImpl }), {
+      message:
+        value === ''
+          ? 'Set a public HTTPS feature eligibility URL ending /v1/eligibility'
+          : 'Feature eligibility URL must use HTTPS with no credentials, query or fragment and end /v1/eligibility'
+    });
+    assert.deepEqual(calls, []);
   });
 }
 
 for (const invalid of [{ networks: [] }, { networks: ['mainnet'] }, { origins: [] }, { origins: ['*'] }]) {
   test(`refuses an unusable deployment probe input: ${JSON.stringify(invalid)}`, async () => {
-    await assert.rejects(
-      checkDeployment({ ...options, ...invalid, fetchImpl: async () => assert.fail('invalid probe fetched') })
-    );
+    const { calls, fetchImpl } = recordedProbe();
+    await assert.rejects(checkDeployment({ ...options, ...invalid, fetchImpl }), {
+      message:
+        'networks' in invalid
+          ? 'Choose testnet, devnet or both for the deployment check'
+          : 'Configure exact wallet origins before checking the service'
+    });
+    assert.deepEqual(calls, []);
   });
 }
 
-for (const [label, health] of [
-  ['missing readiness', () => json({ ready: false, revision: 'release-sha' })],
-  ['failed health status', () => json({ ready: true, revision: 'release-sha' }, 503)],
-  ['another deployed revision', () => json({ ready: true, revision: 'older-release' })]
+for (const [label, health, message] of [
+  [
+    'missing readiness',
+    () => json({ ready: false, revision: 'release-sha' }),
+    'Deployed service is not ready at the requested release revision'
+  ],
+  [
+    'failed health status',
+    () => json({ ready: true, revision: 'release-sha' }, 503),
+    'Deployment health did not return a successful JSON response'
+  ],
+  [
+    'another deployed revision',
+    () => json({ ready: true, revision: 'older-release' }),
+    'Deployed service is not ready at the requested release revision'
+  ]
 ]) {
   test(`stops before eligibility lookups for ${label}`, async () => {
-    await assert.rejects(
-      checkDeployment({ ...options, fetchImpl: fixture({ health, eligibility: () => assert.fail('health failed') }) })
-    );
+    const { calls, fetchImpl } = recordedProbe({ health });
+    await assert.rejects(checkDeployment({ ...options, fetchImpl }), { message });
+    assert.deepEqual(calls, ['https://eligibility.example/healthz']);
   });
 }
 
