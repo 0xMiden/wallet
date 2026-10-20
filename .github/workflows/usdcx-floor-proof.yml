@@ -1,0 +1,221 @@
+name: USDCx burn-floor expected-red proof
+
+on:
+  push:
+    branches: [ci/1615-floor-proof]
+
+permissions:
+  contents: read
+
+jobs:
+  floor-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: bash
+    env:
+      CI: 'true'
+      PROOF_DIR: ${{ runner.temp }}/usdcx-floor-proof
+      PROOF_HEAD_SHA: ${{ github.sha }}
+      PROOF_REF: ${{ github.ref }}
+      PROOF_EVENT: ${{ github.event_name }}
+      PROOF_REPOSITORY: ${{ github.repository }}
+      PROOF_WORKFLOW_REF: ${{ github.workflow_ref }}
+      PROOF_WORKFLOW_SHA: ${{ github.workflow_sha }}
+      PROOF_RUN_ID: ${{ github.run_id }}
+      PROOF_RUN_ATTEMPT: ${{ github.run_attempt }}
+    steps:
+      - name: Initialize proof evidence
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$PROOF_DIR"
+          python3 - <<'PYTHON'
+          import json
+          import os
+          from pathlib import Path
+
+          keys = ['HEAD_SHA', 'REF', 'EVENT', 'REPOSITORY', 'WORKFLOW_REF', 'WORKFLOW_SHA', 'RUN_ID', 'RUN_ATTEMPT']
+          identity = {key: os.environ['PROOF_' + key] for key in keys}
+          (Path(os.environ['PROOF_DIR']) / 'run-identity.json').write_text(json.dumps(identity, indent=2) + '\n')
+          PYTHON
+
+      - name: Checkout exact proof head
+        id: checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Bind checkout to the reviewed source and sole workflow addition
+        id: source
+        if: ${{ !cancelled() && steps.checkout.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          python3 - <<'PYTHON' 2>&1 | tee "$PROOF_DIR/source-validation.log"
+          import hashlib
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
+
+          proof = Path(os.environ['PROOF_DIR'])
+          source = 'fa9d60cfd9e15ead48bbadbe1268b312bc082df2'
+          expected_tree = '389356afafc6ca66298264fbc375d1a0ecd14736'
+          test = 'src/lib/usdcx/withdrawal.test.ts'
+          test_digest = '809b7fc7c94d60cc78440195af630892cd0f52e4181db0aa9ea10507e85def28'
+          workflow = '.github/workflows/usdcx-floor-proof.yml'
+
+          def git(*args):
+              return subprocess.check_output(['git', *args])
+
+          def value(*args):
+              return git(*args).decode().strip()
+
+          def tree(ref):
+              entries = {}
+              for record in git('ls-tree', '-r', '-z', ref).split(b'\0'):
+                  if record:
+                      metadata, name = record.split(b'\t', 1)
+                      entries[name.decode()] = metadata.decode().split()
+              return entries
+
+          head = value('rev-parse', 'HEAD')
+          source_tree = value('rev-parse', source + '^{tree}')
+          before, after = tree(source), tree(head)
+          manifest = {
+              'expected_source_commit': source,
+              'expected_source_tree': expected_tree,
+              'source_commit': value('rev-parse', source),
+              'source_tree': source_tree,
+              'checkout_commit': head,
+              'checkout_tree': value('rev-parse', 'HEAD^{tree}'),
+              'source_entries': len(before),
+              'delta': value('diff', '--name-status', source, 'HEAD'),
+              'test_path': test,
+              'expected_test_sha256': test_digest,
+              'checkout_test_sha256': hashlib.sha256(Path(test).read_bytes()).hexdigest(),
+              'workflow_blob': after.get(workflow),
+              'workflow_sha256': hashlib.sha256(Path(workflow).read_bytes()).hexdigest()
+          }
+          (proof / 'source-and-checkout.json').write_text(json.dumps(manifest, indent=2) + '\n')
+          for label, ref in [('source', source), ('checkout', head)]:
+              (proof / (label + '-commit.txt')).write_bytes(git('cat-file', 'commit', ref))
+              (proof / (label + '-tree.txt')).write_bytes(git('ls-tree', '-r', ref))
+          (proof / 'workflow-only.diff').write_bytes(git('diff', '--binary', source, 'HEAD', '--', workflow))
+
+          assert head == os.environ['PROOF_HEAD_SHA'] == os.environ['PROOF_WORKFLOW_SHA'], 'Checkout/event/workflow head mismatch'
+          assert os.environ['PROOF_EVENT'] == 'push', 'Push event required'
+          assert os.environ['PROOF_REF'] == 'refs/heads/ci/1615-floor-proof', 'Disposable branch required'
+          expected_ref = os.environ['PROOF_REPOSITORY'] + '/' + workflow + '@' + os.environ['PROOF_REF']
+          assert os.environ['PROOF_WORKFLOW_REF'] == expected_ref, 'Workflow ref mismatch'
+          assert all(os.environ['PROOF_' + key].isdigit() for key in ['RUN_ID', 'RUN_ATTEMPT']), 'Run identity missing'
+          assert source_tree == expected_tree, 'Reviewed source tree mismatch'
+          subprocess.run(['git', 'merge-base', '--is-ancestor', source, head], check=True)
+          assert len(before) == 3606 and all(after.get(name) == entry for name, entry in before.items()), 'Source entry changed'
+          assert set(after) - set(before) == {workflow}, 'Expected exactly one added workflow'
+          assert after[workflow][:2] == ['100644', 'blob'], 'Workflow must be a regular file'
+          subprocess.run(['git', 'diff', '--quiet', 'HEAD', '--'], check=True)
+          assert not value('status', '--porcelain=v1', '--untracked-files=all'), 'Checkout is dirty'
+          assert not Path(test).is_symlink() and manifest['checkout_test_sha256'] == test_digest, 'Test bytes changed'
+          print('Verified all 3606 source entries unchanged and exactly one regular workflow addition')
+          PYTHON
+
+      - name: Setup Node 22
+        id: node
+        if: ${{ !cancelled() && steps.source.outcome == 'success' }}
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+
+      - name: Install frozen dependencies with normal preparation hooks
+        id: install
+        if: ${{ !cancelled() && steps.source.outcome == 'success' && steps.node.outcome == 'success' }}
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          umask 077
+          timeout 10m yarn install --frozen-lockfile --non-interactive 2>&1 | tee "$PROOF_DIR/install.log"
+
+      - name: Recheck tracked source and target test bytes after preparation
+        id: prepared
+        if: ${{ !cancelled() && steps.source.outcome == 'success' && steps.install.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          {
+            git diff --quiet HEAD -- &&
+            printf '%s  %s\n' \
+              809b7fc7c94d60cc78440195af630892cd0f52e4181db0aa9ea10507e85def28 \
+              src/lib/usdcx/withdrawal.test.ts | sha256sum --check --strict
+          } 2>&1 | tee "$PROOF_DIR/prepared-source.log"
+
+      - name: Lint only the target test file
+        id: eslint
+        if: ${{ !cancelled() && steps.source.outcome == 'success' && steps.install.outcome == 'success' && steps.prepared.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          yarn eslint --max-warnings 0 src/lib/usdcx/withdrawal.test.ts 2>&1 | tee "$PROOF_DIR/eslint.log"
+
+      - name: Check project TypeScript without emitting
+        id: typescript
+        if: ${{ !cancelled() && steps.source.outcome == 'success' && steps.install.outcome == 'success' && steps.prepared.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          yarn tsc --noEmit --pretty false 2>&1 | tee "$PROOF_DIR/typescript.log"
+
+      - name: Run only withdrawal tests with natural expected-red status
+        id: jest
+        if: ${{ !cancelled() && steps.source.outcome == 'success' && steps.install.outcome == 'success' && steps.prepared.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          yarn jest --runTestsByPath src/lib/usdcx/withdrawal.test.ts \
+            --maxWorkers=2 --coverage=false --json --outputFile="$PROOF_DIR/jest.json" \
+            2>&1 | tee "$PROOF_DIR/jest.log"
+
+      - name: Record independent outcomes and require complete evidence
+        if: always()
+        env:
+          CHECKOUT_OUTCOME: ${{ steps.checkout.outcome }}
+          SOURCE_OUTCOME: ${{ steps.source.outcome }}
+          NODE_OUTCOME: ${{ steps.node.outcome }}
+          INSTALL_OUTCOME: ${{ steps.install.outcome }}
+          PREPARED_SOURCE_OUTCOME: ${{ steps.prepared.outcome }}
+          ESLINT_OUTCOME: ${{ steps.eslint.outcome }}
+          TYPESCRIPT_OUTCOME: ${{ steps.typescript.outcome }}
+          JEST_OUTCOME: ${{ steps.jest.outcome }}
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$PROOF_DIR"
+          python3 - <<'PYTHON'
+          import json
+          import os
+          from pathlib import Path
+
+          proof = Path(os.environ['PROOF_DIR'])
+          outcomes = {key: value for key, value in os.environ.items() if key.endswith('_OUTCOME')}
+          (proof / 'step-outcomes.json').write_text(json.dumps(outcomes, indent=2) + '\n')
+          required = ['run-identity.json', 'source-and-checkout.json', 'source-commit.txt', 'checkout-commit.txt',
+                      'source-tree.txt', 'checkout-tree.txt', 'workflow-only.diff', 'source-validation.log',
+                      'install.log', 'prepared-source.log', 'eslint.log', 'typescript.log', 'jest.log', 'jest.json']
+          missing = [name for name in required if not (proof / name).is_file() or not (proof / name).stat().st_size]
+          (proof / 'evidence-completeness.json').write_text(json.dumps({'missing_or_empty': missing}, indent=2) + '\n')
+          assert not missing, 'Missing or empty proof evidence: ' + ', '.join(missing)
+          json.loads((proof / 'jest.json').read_text())
+          PYTHON
+
+      - name: Upload evidence even on expected assertion failure
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: usdcx-floor-proof-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.PROOF_DIR }}
+          if-no-files-found: error
+          retention-days: 7
