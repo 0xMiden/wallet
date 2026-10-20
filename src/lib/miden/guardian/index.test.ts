@@ -1487,7 +1487,9 @@ describe('MultisigService', () => {
         const service = await makeService(register);
         const charge = jest.fn();
         try {
-          await expect(service.reRegisterCurrentStateOnGuardian(charge, undefined, assertCurrent)).rejects.toBe(refused);
+          await expect(service.reRegisterCurrentStateOnGuardian(charge, undefined, assertCurrent)).rejects.toBe(
+            refused
+          );
           expect(register).toHaveBeenCalledTimes(1);
           expect(configure).toHaveBeenCalledTimes(1);
           expect(charge).toHaveBeenCalledTimes(1);

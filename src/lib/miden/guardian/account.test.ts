@@ -614,7 +614,10 @@ describe('createGuardianAccount', () => {
 
     await registerGuardianAccount(created.registration);
     expect(multisig.registerOnGuardian).toHaveBeenCalledTimes(1);
-    expect(multisig.registerOnGuardian).toHaveBeenCalledWith(Buffer.from([7, 8, 9]).toString('base64'), expect.any(Function));
+    expect(multisig.registerOnGuardian).toHaveBeenCalledWith(
+      Buffer.from([7, 8, 9]).toString('base64'),
+      expect.any(Function)
+    );
     expect(multisig.account.serialize).toHaveBeenCalledTimes(1);
     expect(multisig.account.id.mock.calls.length - idCalls).toBe(0);
   });

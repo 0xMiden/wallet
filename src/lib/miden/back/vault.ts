@@ -1004,7 +1004,9 @@ export class Vault {
         // waits must not block the realm's other client work (#1207). The picked endpoint
         // (stage 1 of #408) is the override; undefined falls back to the network default.
         const guardianCreateKey =
-          walletType === WalletType.Guardian ? await fetchGuardianCreateKey(guardianEndpoint, assertCreationCurrent) : undefined;
+          walletType === WalletType.Guardian
+            ? await fetchGuardianCreateKey(guardianEndpoint, assertCreationCurrent)
+            : undefined;
         console.log('[Vault.spawn] Step 7b: acquiring WASM client lock for create/import path...');
         const created = await withWasmClientLock(
           async (
@@ -1194,7 +1196,8 @@ export class Vault {
         const evmKey = evmKeys.get(c.hdIndex);
         if (evmKey) keyItems.push([accEvmSecretKeyStrgKey(evmKey.address.toLowerCase()), evmKey.privateKeyHex]);
         if (c.guardianKeys) keyItems.push(...guardianKeyStorageItems(c.guardianKeys));
-        if (c.recoveredCold) keyItems.push([accColdSecretKeyStrgKey(c.recoveredCold.coldPublicKey), c.recoveredCold.coldSecretKeyHex]);
+        if (c.recoveredCold)
+          keyItems.push([accColdSecretKeyStrgKey(c.recoveredCold.coldPublicKey), c.recoveredCold.coldSecretKeyHex]);
       }
       // Keep each new account and the keys it needs in the same guarded storage write.
       await encryptAndSaveMany(

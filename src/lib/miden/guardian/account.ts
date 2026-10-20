@@ -12,7 +12,11 @@ import {
 } from 'lib/miden-chain/effective-endpoints';
 import { getNetworkGuardians } from 'lib/miden-chain/guardian-registry';
 import { isExtension } from 'lib/platform';
-import { assertWalletAccessAllowed, ensureWalletAccessAllowed, isWalletAccessDeniedError } from 'lib/remote-config/wallet-access';
+import {
+  assertWalletAccessAllowed,
+  ensureWalletAccessAllowed,
+  isWalletAccessDeniedError
+} from 'lib/remote-config/wallet-access';
 import * as secureHotKey from 'lib/secure-hot-key';
 import { sameGuardianEndpoint } from 'lib/settings/helpers';
 import { u8ToB64 } from 'lib/shared/helpers';
