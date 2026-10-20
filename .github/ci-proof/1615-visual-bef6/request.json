@@ -14,7 +14,7 @@
     "index.html"
   ],
   "fixture_files": {
-    "README.md": "31976da7915fea30199851f677acdd7092030f5413db6be8974abe56443254b8",
+    "README.md": "ccc3833dce4c08123d0401a916b0adfc70abbb1a9f050cfb56e03695ca2e9fff",
     "actions.tsx": "1cd31f4cbf6fc432c136761f6c1dbdcbee75bc8c569e3e194d4ce7833b09e28a",
     "capture.mjs": "dedcde987c274f7088abc12cd421c647aba8189bcc97fe34899fc266e1b2ec0c",
     "constants.ts": "d4212b26a67261167d3a4a38b9b8b4620ab4e924d2e836336f9ec6f5cebf233c",

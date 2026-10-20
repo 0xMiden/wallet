@@ -1,6 +1,6 @@
 # Current-source minimum burn visual proof
 
-Renders production ReviewTransaction, useBurnMinimum, readUsdcxMinimumBurn, timeout/retry, validator, CSS, i18n and fonts from exact source 44071b792f171e977b691656910a272dbee0b5ce. No archived patch or bootstrap is applied.
+Renders production ReviewTransaction, useBurnMinimum, readUsdcxMinimumBurn, timeout/retry, validator, CSS, i18n and fonts from exact source bef6fac563b128879f31a4b2ed2e664490a149b3. No archived patch or bootstrap is applied.
 
 - Amount 6 with pending read: minimum 5, no error, submit enabled.
 - Same read resolves 8: exact error "Send at least 8 USDCx.", submit disabled.
