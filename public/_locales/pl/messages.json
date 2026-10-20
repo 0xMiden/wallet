@@ -86,16 +86,17 @@
     "englishSource": "Enter a positive USDCx amount with at most six decimal places."
   },
   "usdcxBelowMinimumBurn": {
-    "message": "Kwota ta jest niższa od minimalnej kwoty spalania określonej w protokole „faucet”.",
-    "englishSource": "The amount is below the faucet's minimum burn amount."
-  },
-  "usdcxIncompatibleBurnScript": {
-    "message": "Skrypt spalania portfela nie jest zgodny z faucet dla USDCx.",
-    "englishSource": "The wallet's burn script does not match the USDCx faucet."
+    "message": "Wyślij co najmniej $amount$ USDCx.",
+    "englishSource": "Send at least $amount$ USDCx.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
   },
   "usdcxFaucetUnavailable": {
-    "message": "Nie można odczytać polityki spalania USDCx faucet. Należy ponownie otworzyć przegląd, aby spróbować jeszcze raz.",
-    "englishSource": "Unable to read the USDCx faucet's burn policy. Reopen review to try again."
+    "message": "faucet USDCx nie jest jeszcze znany. Należy ponownie otworzyć proces weryfikacji, aby spróbować jeszcze raz.",
+    "englishSource": "The USDCx faucet is not known yet. Reopen review to try again."
   },
   "usdcxSendMoreThanPayoutFee": {
     "message": "Wyślij ponad $amount$ USDCx do $network$: opłata Circle jest potrącana z wypłaty.",
