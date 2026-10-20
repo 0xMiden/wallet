@@ -2040,7 +2040,10 @@ async function finishFailedHotKeyRotations(accounts: WalletAccount[], generation
       ) {
         continue;
       }
+      const endpoint = resolveGuardianEndpoint(account);
       const rows = await findFailedHotKeyRotations(account.publicKey);
+      const current = await currentPassAccount(generation, account.publicKey, endpoint);
+      if (!current) continue;
       // No guardian traffic without a row to finish.
       if (rows.length === 0) {
         stamp();
@@ -2056,7 +2059,6 @@ async function finishFailedHotKeyRotations(accounts: WalletAccount[], generation
         stamp();
         continue;
       }
-      const endpoint = resolveGuardianEndpoint(account);
       const operator = canonicalGuardianEndpoint(endpoint);
       const spent = activationPushes.get(account.publicKey);
       const runPushes = spent?.endpoint === operator && spent.rowSet === rowSet ? spent.pushes : 0;
@@ -2071,7 +2073,7 @@ async function finishFailedHotKeyRotations(accounts: WalletAccount[], generation
         stamp();
         continue;
       }
-      const outcome = await attemptColdReRegisterSelfHeal(account, healFuseKey, true);
+      const outcome = await attemptColdReRegisterSelfHeal(current, healFuseKey, true);
       // An eviction past the push may still land, so it counts as one; before it, nothing was sent.
       const pushes = runPushes + (outcome === 'attempted' || outcome === 'evicted' ? 1 : 0);
       activationPushes.set(account.publicKey, { endpoint: operator, rowSet, pushes });
@@ -2137,7 +2139,7 @@ let syncGeneration = 0;
  * Retire every guardian pass currently in flight: the realm now points somewhere
  * else, so nothing a running pass is about to write is about the right operator.
  *
- * `passMayRecord` already compares the endpoint per account and covers the
+ * `currentPassAccount` already compares the endpoint per account and covers the
  * guardian arm, but the pending-rotation recheck is not covered by it and writes
  * the most durable state in the loop - it demotes transaction rows, rolls the
  * account's guardian binding back, and spends per-row budgets. Those decisions
@@ -2168,26 +2170,30 @@ export function retireGuardianSyncPasses(): void {
  * Also re-checks the generation, which narrows the retired-pass window from a
  * whole account's worth of writes to the individual awaits inside one.
  */
-async function passMayRecord(generation: number, accountPublicKey: string, endpoint: string): Promise<boolean> {
-  if (generation !== syncGeneration) return false;
+async function currentPassAccount(
+  generation: number,
+  accountPublicKey: string,
+  endpoint: string
+): Promise<WalletAccount | undefined> {
+  if (generation !== syncGeneration) return undefined;
   const accounts = await zustandProvider.getAccounts();
   const current = accounts.find(acc => acc.publicKey === accountPublicKey);
   // Gone (account removed mid-pass) counts as "not ours to write".
-  if (!current) return false;
+  if (!current) return undefined;
   // Resolved for the same reason the detector above resolves: this has to compare
   // the operator the pass actually talked to, not the field that may or may not
   // name it.
   //
   // Compared as endpoints, like the rotation check: a respelling of the same
   // Guardian is still the operator the pass talked to.
-  if (!sameGuardianEndpoint(resolveGuardianEndpoint(current), endpoint)) return false;
+  if (!sameGuardianEndpoint(resolveGuardianEndpoint(current), endpoint)) return undefined;
   // AGAIN, AFTER THE AWAIT. The check at the top of this function is only as fresh
   // as the moment it ran, and the account read above can yield - so a reset landing
-  // between that read and this return handed the caller a `true` earned under
+  // between that read and this return handed the caller an account read under
   // a generation that no longer exists, and the caller's whole purpose in asking is
   // that it is about to write. Re-reading a module-scoped counter is free, and the
   // window it closes is the one this function exists to narrow.
-  return generation === syncGeneration;
+  return generation === syncGeneration ? current : undefined;
 }
 
 export function syncGuardianAccounts(): Promise<void> {
@@ -2460,11 +2466,11 @@ async function runGuardianAccountsSync(generation: number): Promise<void> {
       // points at now.
       if (
         account.requiresHotKeyRotation !== true &&
-        (await passMayRecord(generation, account.publicKey, endpoint)) &&
+        (await currentPassAccount(generation, account.publicKey, endpoint)) &&
         (await finishFailedHotKeyRotations([account], generation))
       )
         break;
-      if (await passMayRecord(generation, account.publicKey, endpoint)) {
+      if (await currentPassAccount(generation, account.publicKey, endpoint)) {
         // Sync succeeded → the account is authorized; clear any accumulated
         // self-heal state so a future divergence starts its persistence count
         // fresh, and stand down the guardian-unreachable prompt.
@@ -2487,7 +2493,7 @@ async function runGuardianAccountsSync(generation: number): Promise<void> {
       noteSyncSuccess(fuseKey);
     } catch (error) {
       // AN EVICTION OUTRANKS THE STALE-PASS GUARD, which is why this arm moved to
-      // the TOP of the catch rather than staying in the chain below `passMayRecord`.
+      // the TOP of the catch rather than staying in the chain below `currentPassAccount`.
       // That guard answers "may this pass still record a verdict about this
       // operator", and its `continue` sent the pass on to the NEXT account - which
       // then took fresh holds while the abandoned call was still inside WASM. Whether
@@ -2531,7 +2537,7 @@ async function runGuardianAccountsSync(generation: number): Promise<void> {
       // "one probe per 30 min until one SUCCEEDS" stopped holding. Exactly the
       // asymmetry the success path above was changed away from; the failure path
       // kept its `continue` and so kept the bug.
-      if (!(await passMayRecord(generation, account.publicKey, endpoint))) {
+      if (!(await currentPassAccount(generation, account.publicKey, endpoint))) {
         noteNonEvictionSyncFailure(fuseKey);
         continue;
       }
