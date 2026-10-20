@@ -2547,18 +2547,18 @@
   version "0.0.0"
   uid ""
 
-"@miden-sdk/miden-sdk@0.17.3", "@miden-sdk/miden-sdk@0.17.4":
-  version "0.17.4"
-  resolved "https://registry.yarnpkg.com/@miden-sdk/miden-sdk/-/miden-sdk-0.17.4.tgz#e9fc4af7131bca67c3a37673c0f504190aca8f71"
-  integrity sha512-az0dcl+c7WCU9zA8fbBkH6ye7WJqAyHZSf4/VA8tT0hBlAU1WYFBvYeouT9UsPj4rsRs3HQ669Yk3++i7ijd+g==
+"@miden-sdk/miden-sdk@0.17.3", "@miden-sdk/miden-sdk@0.17.5":
+  version "0.17.5"
+  resolved "https://registry.npmjs.org/@miden-sdk/miden-sdk/-/miden-sdk-0.17.5.tgz#ddaffcc5bd81ef749792a2ffa94e639358dee8f0"
+  integrity sha512-q/ifVFPwTZnsduWSkOd4+YHaw39kVITxidiaF0tsfkDVi2wZwc5+X6AlbF3O61PgXCfEB7CJGIQ54zHcqgbVQw==
   dependencies:
     dexie "^4.0.1"
     glob "^11.0.0"
   optionalDependencies:
-    "@miden-sdk/node-darwin-arm64" "0.17.4"
-    "@miden-sdk/node-darwin-x64" "0.17.4"
-    "@miden-sdk/node-linux-x64-gnu" "0.17.4"
-    "@miden-sdk/node-linux-x64-musl" "0.17.4"
+    "@miden-sdk/node-darwin-arm64" "0.17.5"
+    "@miden-sdk/node-darwin-x64" "0.17.5"
+    "@miden-sdk/node-linux-x64-gnu" "0.17.5"
+    "@miden-sdk/node-linux-x64-musl" "0.17.5"
 
 "@miden-sdk/miden-wallet-adapter-base@0.17.0":
   version "0.17.0"
@@ -2582,30 +2582,30 @@
     "@miden-sdk/miden-wallet-adapter-base" "0.17.0"
     "@miden-sdk/miden-wallet-adapter-miden" "0.17.0"
 
-"@miden-sdk/node-darwin-arm64@0.17.4":
-  version "0.17.4"
-  resolved "https://registry.yarnpkg.com/@miden-sdk/node-darwin-arm64/-/node-darwin-arm64-0.17.4.tgz#40b021d93709514bf5d80c17d6001261f5aa605d"
-  integrity sha512-vxiZnREW7so55hBlKP0+rfBGgiyZo+QbmVCubVHtC4bG+XPBuQoVOBi+uPHwcywlnw5xP3SA4zORKo1Ot9II5Q==
+"@miden-sdk/node-darwin-arm64@0.17.5":
+  version "0.17.5"
+  resolved "https://registry.npmjs.org/@miden-sdk/node-darwin-arm64/-/node-darwin-arm64-0.17.5.tgz#b1043adb4db4f9b3aef5999edeac2d09fb31a3da"
+  integrity sha512-I0L9yOsOdL42pP5wjK3bkWUhKKFKdFYQnkrhAO5OIz23fICOSLBksQgq1oxYcGTQpUDSQMjgwHNXDLaEDJlRhg==
 
-"@miden-sdk/node-darwin-x64@0.17.4":
-  version "0.17.4"
-  resolved "https://registry.yarnpkg.com/@miden-sdk/node-darwin-x64/-/node-darwin-x64-0.17.4.tgz#1c5c1894d5b11da08ce18a817b1d058d5fe2214a"
-  integrity sha512-QZVTDLISt1sISdXRUcX5KlDHA5apPnltPmqsl824Q471J0KCUuiV7Ncq0R+7CZrYxZrqvVDKDaFriaY/oERkAA==
+"@miden-sdk/node-darwin-x64@0.17.5":
+  version "0.17.5"
+  resolved "https://registry.npmjs.org/@miden-sdk/node-darwin-x64/-/node-darwin-x64-0.17.5.tgz#b6929f7293b26b120b3b8a270a0f00183151720e"
+  integrity sha512-JBswoRyBaWowPEymZPTKrzjKCHM02fcZkcrytpSRLlLlKAkgqY/4B2ja0xMpQQdptl2sEJz29K4W5jVqte+Tuw==
 
-"@miden-sdk/node-linux-x64-gnu@0.17.4":
-  version "0.17.4"
-  resolved "https://registry.yarnpkg.com/@miden-sdk/node-linux-x64-gnu/-/node-linux-x64-gnu-0.17.4.tgz#31152afe6515583da5028a029c7641ece7f86de8"
-  integrity sha512-lF80BIzPDREbZlPSqr6pH/4yELrBBNV7YePkMLv0VskRV54SM+QBauxSZMnfdr+kRvwjvZNSDBPz0iDMjhvUMA==
+"@miden-sdk/node-linux-x64-gnu@0.17.5":
+  version "0.17.5"
+  resolved "https://registry.npmjs.org/@miden-sdk/node-linux-x64-gnu/-/node-linux-x64-gnu-0.17.5.tgz#8f9c8bc9118bd85bad8137a58a5b58dec19f2bf5"
+  integrity sha512-i1gp3qQAPjdf1AzYZAi/WX4XUZHYPlkhMXtkiYg5FZvuUzxekGiER+sopGv569Fg2LHT3tfkw2LmVMxy0Egv9Q==
 
-"@miden-sdk/node-linux-x64-musl@0.17.4":
-  version "0.17.4"
-  resolved "https://registry.yarnpkg.com/@miden-sdk/node-linux-x64-musl/-/node-linux-x64-musl-0.17.4.tgz#34dcf0fbe47717ebccde6abdbabc592449c6e95a"
-  integrity sha512-nrZOuaFJtmnB/DMfZ5oMlnOd6EeTFcyb3lSqIahAYA4OShudwD3OvQQDwePKdcBDJDdFya9j8AeZ2u8TNhOYyQ==
+"@miden-sdk/node-linux-x64-musl@0.17.5":
+  version "0.17.5"
+  resolved "https://registry.npmjs.org/@miden-sdk/node-linux-x64-musl/-/node-linux-x64-musl-0.17.5.tgz#4498262149fe6f8b4b400f9edf58ca28c2ba8e6b"
+  integrity sha512-cXD71rWD6lX1wl1g/XOJK/fpa7D4k325vHqb9P0YLA88rILsRBVIS7cUy+PvybjVqcJUxMwvNUEHi6vVqvVChw==
 
-"@miden-sdk/react@0.17.4":
-  version "0.17.4"
-  resolved "https://registry.yarnpkg.com/@miden-sdk/react/-/react-0.17.4.tgz#a36c8d28cdfce33918f23bda04ccd3d1d21fce4d"
-  integrity sha512-g0TkB2SxUaNHpw2mZvAepeI8/QKNZG4iaXhfoFbWEGd1FQqKbJ+nw+vRAJt2NQ7sLGJSlV3J4dYCcdDK+XsGhw==
+"@miden-sdk/react@0.17.5":
+  version "0.17.5"
+  resolved "https://registry.npmjs.org/@miden-sdk/react/-/react-0.17.5.tgz#67ec7dcf2b3bef6eecd8c89bb6042e9ebbc4ecd6"
+  integrity sha512-lbOUdq/6tFGoGOMjQdqp7r4YufYrMfyXzL9lZMfLEYLBCMiY7WBl0YImAuMfi+H2hkKY7tW95o/fUTcb+LFNMg==
   dependencies:
     zustand "^5.0.0"
 
