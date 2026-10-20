@@ -14268,3 +14268,101 @@ describe('Guardian GEO013 pre-submit access deferral', () => {
     expect(refresh).not.toHaveBeenCalled();
   });
 });
+
+describe('GEO014 Guardian feature authorization at final submit', () => {
+  it.each([
+    { kind: 'earn-deposit', delegate: false, allowed: true },
+    { kind: 'earn-deposit', delegate: false, allowed: false },
+    { kind: 'earn-deposit', delegate: true, allowed: true },
+    { kind: 'earn-deposit', delegate: true, allowed: false },
+    { kind: 'swap', delegate: false, allowed: true },
+    { kind: 'swap', delegate: false, allowed: false },
+    { kind: 'swap', delegate: true, allowed: true },
+    { kind: 'swap', delegate: true, allowed: false }
+  ])('GEO014 $kind delegated=$delegate feature allowed=$allowed after proof', async ({ kind, delegate, allowed }) => {
+    jest.clearAllMocks();
+    txStore.length = 0;
+    const runtime = await import('lib/remote-config/runtime');
+    const { TEST_BRIDGE_CONFIG_SNAPSHOT } = await import('lib/epoch/testing/bridge-config');
+    const { featureAvailability, geoFeatureGate } = await import('lib/remote-config/availability');
+    const { SwapTransaction } = await import('../db/types');
+    let featureAllowed = true;
+    const accepted = TEST_BRIDGE_CONFIG_SNAPSHOT.config;
+    if (!accepted) throw new Error('Expected a configured feature fixture');
+    const snapshot = (): import('lib/remote-config/runtime').BridgeConfigSnapshot => ({
+      ...TEST_BRIDGE_CONFIG_SNAPSHOT,
+      config: { ...accepted, geo: { earn: [{ country: 'US' }], swap: [{ country: 'US' }] } },
+      geo: {
+        state: 'ready',
+        network: accepted.network,
+        version: accepted.version,
+        allowed: {
+          wallet: true,
+          earn: kind === 'earn-deposit' ? featureAllowed : true,
+          swap: kind === 'swap' ? featureAllowed : true
+        }
+      }
+    });
+    const readSnapshot = jest.spyOn(runtime, 'getBridgeConfigSnapshot').mockImplementation(snapshot);
+    const current = runtime.getBridgeConfigSnapshot();
+    expect(featureAvailability('earnDeposit', current).state).toBe('available');
+    expect(geoFeatureGate('swap', current.config, current.geo)).toBeNull();
+    const requestBytes = new Uint8Array([11, 12, 13]);
+    const transaction =
+      kind === 'swap'
+        ? new SwapTransaction('guardian-acc', 'faucet', 1000n, 'requested-faucet', 7n, delegate)
+        : Object.assign(new Transaction('guardian-acc', requestBytes), {
+            type: 'earn-deposit',
+            amount: 1000n,
+            secondaryAccountId: 'allocator',
+            faucetId: 'faucet',
+            noteType: 'public',
+            extraInputs: { recallBlocks: 25, epochStatus: 'pending' },
+            delegateTransaction: delegate
+          });
+    transaction.requestBytes = requestBytes;
+    txStore.push({ ...transaction });
+    const client = makeClientApi(makeResult());
+    client.transactions.prove.mockImplementation(async () => {
+      featureAllowed = allowed;
+      return { proved: true };
+    });
+    mockGetMidenClient.mockResolvedValue({
+      isDisposed: false,
+      getAccount: jest.fn(async () => undefined),
+      syncState: jest.fn(async () => {}),
+      client
+    });
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      createRebasedCustomProposal: jest.fn(async (bytes: Uint8Array) => ({
+        proposal: { id: 'geo014-proposal', nonce: 5 },
+        requestBytes: bytes
+      })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      abandonCandidate: jest.fn(async () => {}),
+      sync: jest.fn(async () => {})
+    });
+    try {
+      const outcome = await generateTransaction(
+        transaction,
+        jest.fn(async () => new Uint8Array([2])),
+        false,
+        makeGuardianProvider(true)
+      ).then(
+        () => ({ ok: true, error: undefined }),
+        (error: unknown) => ({ ok: false, error })
+      );
+      expect(client.transactions.prove).toHaveBeenCalledTimes(1);
+      expect(runtime.getBridgeConfigSnapshot().geo).toMatchObject({ allowed: { wallet: true } });
+      expect(client.transactions.submitProven).toHaveBeenCalledTimes(allowed ? 1 : 0);
+      expect(client.transactions.apply).toHaveBeenCalledTimes(allowed ? 1 : 0);
+      expect(outcome.ok).toBe(allowed);
+      expect(hasErrorBeforeSubmit(outcome.error)).toBe(!allowed);
+    } finally {
+      readSnapshot.mockRestore();
+    }
+  });
+});

@@ -1408,3 +1408,86 @@ describe('GEO007 permission renewal at final submit', () => {
     expect(await locks.tryWithWasmClientLock(async () => 'idle')).toEqual({ ran: true, value: 'idle' });
   });
 });
+
+describe('GEO014 proxy Swap feature authorization at final submit', () => {
+  beforeEach(() => {
+    jest.resetModules();
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'false';
+  });
+
+  afterEach(() => {
+    jest.dontMock('lib/remote-config/runtime');
+    delete process.env.MIDEN_USE_OFFSCREEN_CLIENT;
+  });
+
+  it.each([
+    { mode: 'worker', allowed: true },
+    { mode: 'worker', allowed: false },
+    { mode: 'in-realm', allowed: true },
+    { mode: 'in-realm', allowed: false },
+    { mode: 'delegated', allowed: true },
+    { mode: 'delegated', allowed: false }
+  ])('GEO014 proxy $mode Swap feature allowed=$allowed after proof', async ({ mode, allowed }) => {
+    const { TEST_BRIDGE_CONFIG_SNAPSHOT } = await import('lib/epoch/testing/bridge-config');
+    const accepted = TEST_BRIDGE_CONFIG_SNAPSHOT.config;
+    if (!accepted) throw new Error('Expected a configured Swap fixture');
+    let featureAllowed = true;
+    const snapshot = (): import('lib/remote-config/runtime').BridgeConfigSnapshot => ({
+      ...TEST_BRIDGE_CONFIG_SNAPSHOT,
+      config: { ...accepted, geo: { swap: [{ country: 'US' }] } },
+      geo: {
+        state: 'ready',
+        network: accepted.network,
+        version: accepted.version,
+        allowed: { wallet: true, earn: true, swap: featureAllowed }
+      }
+    });
+    jest.doMock('lib/remote-config/runtime', () => ({
+      getBridgeConfigSnapshot: snapshot,
+      initBridgeConfig: async () => snapshot(),
+      holdFastPoll: () => () => undefined,
+      subscribeBridgeConfig: () => () => undefined
+    }));
+    const harness = buildHarness();
+    harness.setWorkerProve(async () => {
+      featureAllowed = allowed;
+      harness.order.push('worker prove');
+      return { proven: new Uint8Array([5, 5]), durationMs: 10 };
+    });
+    harness.inRealm.onLocalProve = () => {
+      featureAllowed = allowed;
+    };
+    harness.delegated.onProve = () => {
+      featureAllowed = allowed;
+    };
+    const { client } = await load(harness, mode === 'worker');
+    const mutex = await import('./miden-client');
+    const clientRead = jest.spyOn(mutex, 'getMidenClient').mockResolvedValue(client);
+    const { midenClientProxy } = await import('../back/miden-client-proxy');
+    const { hasErrorBeforeSubmit } = await import('./sdk-error-code');
+    try {
+      const outcome = await midenClientProxy
+        .swapTransaction(
+          swapTx(mode === 'delegated'),
+          jest.fn(async () => new Uint8Array([2]))
+        )
+        .then(
+          () => ({ ok: true, error: undefined }),
+          (error: unknown) => ({ ok: false, error })
+        );
+      expect(harness.executeRequest).toHaveBeenCalledTimes(1);
+      expect(featureAllowed).toBe(allowed);
+      expect(snapshot().geo).toMatchObject({ allowed: { wallet: true } });
+      expect(harness.order.filter(step => step === 'submitProven' || step.endsWith(' submit'))).toHaveLength(
+        allowed ? 1 : 0
+      );
+      expect(harness.order.filter(step => step === 'apply')).toHaveLength(allowed ? 1 : 0);
+      expect(outcome.ok).toBe(allowed);
+      expect(hasErrorBeforeSubmit(outcome.error)).toBe(!allowed);
+      expect(harness.transport.prove).toHaveBeenCalledTimes(mode === 'worker' ? 1 : 0);
+      expect(mutex.isWasmClientBusy()).toBe(false);
+    } finally {
+      clientRead.mockRestore();
+    }
+  });
+});
