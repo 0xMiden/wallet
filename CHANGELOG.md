@@ -4,6 +4,7 @@
 
 ### Changes
 
+- [CHANGE][all] Login key commitment tests verify key handles are freed and root and scalar buffers are zeroed for stored EVM keys and legacy seed-derived keys (#1579).
 - [CHANGE][all] The privacy policy names the publisher and data controller, separates telemetry from the data the Miden network, the Guardian Operator, Transak, swaps, bridges and Earn receive, states the legal basis and retention for each kind of data, the geographic restriction check, where data goes and your rights, and raises the age in the Children section to 18 to match the Terms of Service.
 
 ### Features
