@@ -12,6 +12,10 @@ public protocol BreadOpener {
     @MainActor func open(_ link: URL) async -> Bool
 }
 
+protocol GateAwareBreadOpener: BreadOpener {
+    @MainActor func open(_ link: URL, gate: OpenGate) async -> Bool
+}
+
 public struct BreadConnectError: Error, Equatable, Sendable {
     public enum Code: Equatable, Sendable {
         /// Bread's own answer.
@@ -39,7 +43,7 @@ public struct StoredSession: Equatable, Sendable {
 }
 
 /// Set from a cancellation handler, which can run off the main actor, and read by the opener before it opens Bread.
-private final class OpenGate: @unchecked Sendable {
+final class OpenGate: @unchecked Sendable {
     private let lock = NSLock()
     private var stopped = false
 
@@ -82,6 +86,7 @@ public final class BreadConnect {
 
     private struct Waiter {
         let token: UUID
+        let gate: OpenGate
         let pending: Pending
         let continuation: CheckedContinuation<JSONObject, Error>
         let timeout: Task<Void, Never>
@@ -266,14 +271,21 @@ public final class BreadConnect {
                 let opening = Task { @MainActor [weak self, opener = self.opener] in
                     self?.beforeOpen?()
                     guard !Task.isCancelled, !gate.isStopped else { return }
-                    if await !opener.open(url) {
+                    let opened: Bool
+                    if let opener = opener as? GateAwareBreadOpener {
+                        opened = await opener.open(url, gate: gate)
+                    } else {
+                        opened = await opener.open(url)
+                    }
+                    if !opened {
                         self?.settle(
                             token: token,
                             .failure(BreadConnectError(.notInstalled, "Bread is not installed; its store page is open")))
                     }
                 }
                 waiter = Waiter(
-                    token: token, pending: pending, continuation: continuation, timeout: timeout, opening: opening)
+                    token: token, gate: gate, pending: pending, continuation: continuation,
+                    timeout: timeout, opening: opening)
             }
         } onCancel: {
             gate.stop()

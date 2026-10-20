@@ -162,6 +162,76 @@ final class ClientTests: XCTestCase {
         XCTAssertNil(storage.items[BreadConnect.pendingKey])
     }
 
+    func testNativeOpenerUsesUniversalLinkOnlyAndSkipsStoreOnSuccess() async throws {
+        let native = RecordingNativeOpen()
+        let link = URL(string: "https://bread.miden.xyz/request#v=1&m=test")!
+        let opening = Task { await native.opener.open(link, gate: OpenGate()) }
+
+        try await waitFor("the universal link to start") { native.launches.count == 1 }
+        XCTAssertEqual(native.launches[0].link, link)
+        XCTAssertTrue(native.launches[0].universalLinksOnly)
+        native.complete(0, opened: true)
+
+        let opened = await opening.value
+        XCTAssertTrue(opened)
+        XCTAssertEqual(native.launches.count, 1)
+    }
+
+    func testNativeOpenerOpensStoreOnlyAfterUniversalFailure() async throws {
+        let native = RecordingNativeOpen()
+        let link = URL(string: "https://bread.miden.xyz/request#v=1&m=test")!
+        var completed = false
+        let opening = Task {
+            let opened = await native.opener.open(link, gate: OpenGate())
+            completed = true
+            return opened
+        }
+
+        try await waitFor("the universal link to start") { native.launches.count == 1 }
+        XCTAssertEqual(native.launches[0].link, link)
+        XCTAssertTrue(native.launches[0].universalLinksOnly)
+        XCTAssertFalse(completed)
+        native.complete(0, opened: false)
+        try await waitFor("the store fallback to start") { native.launches.count == 2 }
+        XCTAssertEqual(native.launches[1].link.absoluteString, "https://apps.apple.com/app/id6789341854")
+        XCTAssertFalse(native.launches[1].universalLinksOnly)
+        XCTAssertFalse(completed)
+        native.complete(1, opened: true)
+
+        let opened = await opening.value
+        XCTAssertFalse(opened)
+        XCTAssertEqual(native.launches.count, 2)
+    }
+
+    func testNativeOpenerAcceptsImmediateCompletions() async {
+        let native = RecordingNativeOpen()
+        native.immediateResults = [false, true]
+        let link = URL(string: "https://bread.miden.xyz/request#v=1&m=test")!
+
+        let opened = await native.opener.open(link, gate: OpenGate())
+
+        XCTAssertFalse(opened)
+        XCTAssertEqual(
+            native.launches.map(\.link.absoluteString), [link.absoluteString, "https://apps.apple.com/app/id6789341854"])
+        XCTAssertEqual(native.launches.map(\.universalLinksOnly), [true, false])
+    }
+
+    func testNativeFallbackEndsTheClientWithNotInstalled() async throws {
+        let native = RecordingNativeOpen()
+        let client = try BreadConnect(callback: callback, storage: storage, opener: native.opener)
+        let connecting = Task { try await client.connect(appName: "Where Legends Grow") }
+
+        try await waitFor("the client universal link to start") { native.launches.count == 1 }
+        XCTAssertTrue(native.launches[0].link.absoluteString.hasPrefix("https://bread.miden.xyz/request#v=1&m="))
+        native.complete(0, opened: false)
+        try await waitFor("the client store fallback to start") { native.launches.count == 2 }
+        XCTAssertEqual(native.launches[1].link.absoluteString, "https://apps.apple.com/app/id6789341854")
+        native.complete(1, opened: true)
+
+        await assertThrows(.notInstalled) { _ = try await connecting.value }
+        XCTAssertNil(storage.items[BreadConnect.pendingKey])
+    }
+
     func testANewRequestReplacesTheOneStillWaiting() async throws {
         let client = try await connected()
         opener.onOpen = nil

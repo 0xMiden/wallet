@@ -100,6 +100,36 @@ final class FakeOpener: BreadOpener {
     }
 }
 
+@MainActor
+final class RecordingNativeOpen {
+    struct Launch {
+        let link: URL
+        let universalLinksOnly: Bool
+    }
+
+    private(set) var launches: [Launch] = []
+    private var completions: [((Bool) -> Void)?] = []
+    var immediateResults: [Bool] = []
+
+    var opener: NativeLinkOpener {
+        NativeLinkOpener { [self] link, universalLinksOnly, completion in
+            launches.append(Launch(link: link, universalLinksOnly: universalLinksOnly))
+            completions.append(completion)
+            if !immediateResults.isEmpty {
+                complete(launches.count - 1, opened: immediateResults.removeFirst())
+            }
+        }
+    }
+
+    func complete(_ index: Int, opened: Bool, file: StaticString = #filePath, line: UInt = #line) {
+        guard completions.indices.contains(index), let completion = completions[index] else {
+            return XCTFail("No pending native completion at index \(index)", file: file, line: line)
+        }
+        completions[index] = nil
+        completion(opened)
+    }
+}
+
 /// Bread's side of the protocol, for answering the client's links in tests.
 final class FakeBread {
     private(set) var session = ""

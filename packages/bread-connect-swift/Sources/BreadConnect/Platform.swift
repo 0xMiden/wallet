@@ -43,6 +43,29 @@ public final class KeychainStorage: BreadConnectStorage {
     }
 }
 
+@MainActor
+struct NativeLinkOpener: GateAwareBreadOpener {
+    let start: (URL, Bool, @escaping (Bool) -> Void) -> Void
+
+    func open(_ link: URL) async -> Bool {
+        await open(link, gate: OpenGate())
+    }
+
+    func open(_ link: URL, gate: OpenGate) async -> Bool {
+        if await handoff(link, universalLinksOnly: true) { return true }
+        if let store = URL(string: BreadConnectLinks.appStoreURL) {
+            _ = await handoff(store, universalLinksOnly: false)
+        }
+        return false
+    }
+
+    private func handoff(_ link: URL, universalLinksOnly: Bool) async -> Bool {
+        await withCheckedContinuation { continuation in
+            start(link, universalLinksOnly) { continuation.resume(returning: $0) }
+        }
+    }
+}
+
 #if canImport(UIKit) && !os(watchOS)
     /// Opens Bread's link as a universal link only, so only the app bread.miden.xyz names in its
     /// apple-app-site-association takes it; opens Bread's App Store page when Bread is not installed.
@@ -52,11 +75,22 @@ public final class KeychainStorage: BreadConnectStorage {
 
         @MainActor
         public func open(_ link: URL) async -> Bool {
-            if await UIApplication.shared.open(link, options: [.universalLinksOnly: true]) { return true }
-            if let store = URL(string: BreadConnectLinks.appStoreURL) {
-                _ = await UIApplication.shared.open(store, options: [:])
+            await native.open(link)
+        }
+
+        @MainActor
+        private var native: NativeLinkOpener {
+            NativeLinkOpener { link, universalLinksOnly, completion in
+                UIApplication.shared.open(
+                    link, options: universalLinksOnly ? [.universalLinksOnly: true] : [:], completionHandler: completion)
             }
-            return false
+        }
+    }
+
+    extension UniversalLinkOpener: GateAwareBreadOpener {
+        @MainActor
+        func open(_ link: URL, gate: OpenGate) async -> Bool {
+            await native.open(link, gate: gate)
         }
     }
 
