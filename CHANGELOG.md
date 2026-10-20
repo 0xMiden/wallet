@@ -17,6 +17,7 @@
 ### Fixes
 
 - [FIX][extension] Swap settlement queues claims with the current proving preference, while a vault locked during that read queues nothing (#1644).
+- [FIX][all] A USDCx withdrawal no longer fails with `Unable to read the USDCx faucet's burn policy`, which every review on testnet showed once the faucet's nonce map outgrew the full-account read. A burn must be at least 5 USDCx, or the faucet's minimum burn when that is larger; the wallet reads that minimum from an account proof, and a failed read keeps 5 USDCx instead of blocking the burn.
 - [FIX][all] Token metadata reads public proof values without loading unrelated storage maps or vault assets, so a large nonce registry no longer prevents reading the token name, symbol and authoritative decimals (#1632).
 
 - [FIX][android] In release builds the in-app browser no longer writes dApp requests, the wallet's answers, or page URLs, origins, hosts and scripts to the device log (#1582).

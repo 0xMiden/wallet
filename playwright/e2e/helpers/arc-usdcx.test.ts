@@ -129,9 +129,9 @@ describe('usdcx-constants', () => {
     expect(HARNESS_ARC_KEY_FILE).toBe(path.join(os.homedir(), '.miden-e2e', 'arc-keys', 'harness.json'));
   });
 
-  it("sizes the run on the faucet's minimum burn, one 10 USDCx grant and a deposit the wallet claims", () => {
+  it("sizes the run on the wallet's minimum burn, one 10 USDCx grant and a deposit the wallet claims", () => {
     expect([BURN_UNITS, GRANT_UNITS, GRANT_MARGIN_UNITS, DEPOSIT_UNITS, GAS_RESERVE_UNITS]).toEqual([
-      1_000_000n,
+      5_000_000n,
       10_000_000n,
       1_000_000n,
       1_000n,
@@ -810,7 +810,7 @@ describe('payout chains (usdcx-constants.ts)', () => {
       explorer: ARC_TESTNET.blockExplorers.default.url,
       walletRpcUrl: ARC_PUBLIC_URL,
       walletRpcName: 'arc.io',
-      burnUnits: 1_000_000n
+      burnUnits: 5_000_000n
     });
   });
 
@@ -830,7 +830,7 @@ describe('payout chains (usdcx-constants.ts)', () => {
       networkName: 'Base Sepolia',
       explorer: 'https://sepolia.basescan.org',
       walletRpcName: 'rpc.walletconnect.org',
-      burnUnits: 1_000_000n
+      burnUnits: 5_000_000n
     });
     expect(ARBITRUM_SEPOLIA_PAYOUT).toMatchObject({
       chainId: 421614,
@@ -847,7 +847,7 @@ describe('payout chains (usdcx-constants.ts)', () => {
       networkName: 'Arbitrum Sepolia',
       explorer: 'https://sepolia.arbiscan.io',
       walletRpcName: 'rpc.walletconnect.org',
-      burnUnits: 1_000_000n
+      burnUnits: 5_000_000n
     });
     for (const chain of [BASE_SEPOLIA_PAYOUT, ARBITRUM_SEPOLIA_PAYOUT, ETHEREUM_SEPOLIA_PAYOUT]) {
       expect(chain.walletRpcUrl).toBe(
@@ -858,7 +858,7 @@ describe('payout chains (usdcx-constants.ts)', () => {
     }
   });
 
-  it("reads Ethereum Sepolia from the wallet's tables: the burn carries domain 0, the payout Arc's 26, and it burns 2 USDCx", () => {
+  it("reads Ethereum Sepolia from the wallet's tables: the burn carries domain 0, the payout Arc's 26, and it burns 5 USDCx", () => {
     expect(ETHEREUM_SEPOLIA_PAYOUT).toMatchObject({
       chainId: 11155111,
       label: 'Ethereum Sepolia',
@@ -870,15 +870,15 @@ describe('payout chains (usdcx-constants.ts)', () => {
       networkName: 'Sepolia',
       explorer: 'https://sepolia.etherscan.io',
       walletRpcName: 'rpc.walletconnect.org',
-      burnUnits: 2_000_000n
+      burnUnits: 5_000_000n
     });
   });
 
   it('refuses a chain Send does not offer, and a burn its payout fee allowance takes whole, which Send refuses', () => {
     const reads = { rpcUrls: [], logChunk: () => L2_LOG_CHUNK };
     expect(() => payoutChainFor(1, reads)).toThrow('chain 1 is not a Send destination');
-    // The faucet's 1 USDCx minimum, every other chain's burn, does not clear Ethereum's 1.5 USDC allowance.
-    expect(() => payoutChainFor(11155111, reads)).toThrow(
+    // An explicit 1 USDCx amount does not clear Ethereum's 1.5 USDC allowance.
+    expect(() => payoutChainFor(11155111, { ...reads, burnUnits: 1_000_000n })).toThrow(
       'a 1 USDCx burn to Sepolia does not exceed its 1.5 USDC payout fee allowance, so the Send flow refuses it'
     );
     expect(() => payoutChainFor(11155111, { ...reads, burnUnits: 1_500_000n })).toThrow(

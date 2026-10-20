@@ -8,11 +8,10 @@ name: E2E USDCx Bridge-IN (live)
 #      attestation service signs it, the deposit relayer submits the mint note to
 #      the USDCx faucet, and the Guardian wallet claims the minted note.
 #   2. Burn, only once the deposit leg passed: the same wallet takes USDCx from the
-#      public faucet and burns 1 USDCx through Send back to the deposit key's Arc
+#      public faucet and burns 5 USDCx through Send back to the deposit key's Arc
 #      address. The run fails unless Circle pays that key within 10 minutes of the
 #      faucet consuming the burn and the wallet's own History then reads Confirmed.
-#      The payout, about 0.98 USDC, refills what the deposit and its gas spent, so
-#      the key funds itself on Arc.
+#      A successful burn's payout replenishes the key after the deposit and its gas.
 #   Executor jobs (usdcx-live-executor-deposit.ios.spec.ts), after the Arc job, one
 #   per source chain the wallet routes through Circle's executor (Base Sepolia,
 #   Arbitrum Sepolia, Ethereum Sepolia), in parallel:
@@ -20,8 +19,8 @@ name: E2E USDCx Bridge-IN (live)
 #      through the deposit screen and a Reown pairing; Circle attests the burn and
 #      forwards it to Arc, its executor deposits into xReserve, the relayer mints
 #      and the wallet claims.
-#   2. Burn USDCx back to the key's address on that chain (2 USDCx to Ethereum
-#      Sepolia, 1 elsewhere), with the same payout and wallet gates, which refills
+#   2. Burn 5 USDCx back to the key's address on each chain,
+#      with the same payout and wallet gates, which refills
 #      the key's USDC there.
 #
 # By default the DEPLOYED relayer mints: the faucet does not look at who sent a mint
@@ -110,7 +109,7 @@ jobs:
       # build among them, so the key is set only on the two steps that read it.
       # 0.01 USDC: Circle takes no deposit fee, a testnet claim's fee is about 0.0002 USDCx, and Arc gas for the
       # approve and the deposit is about 0.006 USDC, so a run spends about 0.016 USDC of the key. The burn half refills
-      # it: Circle pays about 0.98 USDC for the 1 USDCx burn back to that key, so it needs no top-up while runs pass.
+      # it with the successful 5 USDCx burn's payout back to that key.
       USDCX_LIVE_DEPOSIT_AMOUNT: ${{ inputs.deposit_amount || '0.01' }}
       USDCX_FAUCET_ACCOUNT_ID: ${{ vars.USDCX_FAUCET_ACCOUNT_ID }}
       USDCX_RELAYER_ACCOUNT_ID: ${{ vars.USDCX_RELAYER_ACCOUNT_ID }}
