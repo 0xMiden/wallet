@@ -1,0 +1,135 @@
+name: USDCx current-source minimum visual proof
+
+on:
+  push:
+    branches: [ci/1615-visual440]
+
+permissions:
+  contents: read
+
+jobs:
+  visual-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: bash
+    env:
+      VISUAL_EVIDENCE: ${{ runner.temp }}/wallet1615-visual440/evidence
+    steps:
+      - name: Initialize provenance
+        id: gate0
+        run: |
+          set -euo pipefail
+          mkdir -p "$VISUAL_EVIDENCE"
+          printf '%s\n' "$GITHUB_SHA" > "$VISUAL_EVIDENCE/transport-head.txt"
+          printf '%s\n' "$GITHUB_REF" "$GITHUB_WORKFLOW_REF" "$GITHUB_WORKFLOW_SHA" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" > "$VISUAL_EVIDENCE/run-identity.txt"
+      - name: Checkout exact transport
+        id: gate1
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          path: transport
+          persist-credentials: false
+      - name: Bind transport source and preserve proof inputs
+        id: gate2
+        working-directory: transport
+        run: |
+          set -euo pipefail
+          python3 - <<'PYTHON' 2>&1 | tee "$VISUAL_EVIDENCE/transport-validation.log"
+          import hashlib, json, os, subprocess
+          from pathlib import Path
+          def git(*args): return subprocess.check_output(['git', *args])
+          def entries(ref):
+              return {r.split(b'\t',1)[1].decode():r.split(b'\t',1)[0].decode().split() for r in git('ls-tree','-r','-z',ref).split(b'\0') if r}
+          source = '44071b792f171e977b691656910a272dbee0b5ce'
+          before, after = entries(source), entries('HEAD')
+          added = set(after) - set(before)
+          workflow = '.github/workflows/usdcx-visual440.yml'
+          request = json.loads(Path('.github/ci-proof/1615-visual440/request.json').read_text())
+          expected = {'.github/ci-proof/1615-visual440/' + name for name in request['fixture_files']} | {'.github/ci-proof/1615-visual440/request.json', workflow}
+          proof = Path(os.environ['VISUAL_EVIDENCE'])
+          manifest = {'source_commit':source, 'source_tree':git('rev-parse',source+'^{tree}').decode().strip(), 'transport_commit':git('rev-parse','HEAD').decode().strip(), 'transport_tree':git('rev-parse','HEAD^{tree}').decode().strip(), 'source_entries':len(before), 'added_entries':{name:after[name] for name in sorted(added)}}
+          (proof/'transport-source-binding.json').write_text(json.dumps(manifest,indent=2)+'\n')
+          (proof/'transport.diff').write_bytes(git('diff','--binary',source,'HEAD'))
+          assert manifest['source_tree'] == '92aae17c2834a82dae431a846a7a48e0204e77ac'
+          assert manifest['transport_commit'] == os.environ['GITHUB_SHA'] == os.environ['GITHUB_WORKFLOW_SHA']
+          assert os.environ['GITHUB_EVENT_NAME'] == 'push' and os.environ['GITHUB_REF'] == 'refs/heads/ci/1615-visual440'
+          assert os.environ['GITHUB_WORKFLOW_REF'] == os.environ['GITHUB_REPOSITORY']+'/'+workflow+'@'+os.environ['GITHUB_REF']
+          assert len(before) == 3606 and all(after.get(name)==entry for name,entry in before.items())
+          assert added == expected and all(after[name][:2] == ['100644','blob'] for name in added)
+          assert not git('status','--porcelain=v1','--untracked-files=all').strip()
+          print('Verified all 3606 source entries preserved, proof-only additions and exact workflow head')
+          PYTHON
+          cp -R .github/ci-proof/1615-visual440 "$RUNNER_TEMP/wallet1615-visual440/fixture-inputs"
+          cp .github/workflows/usdcx-visual440.yml "$VISUAL_EVIDENCE/workflow.yml"
+          cp "$RUNNER_TEMP/wallet1615-visual440/fixture-inputs/request.json" "$VISUAL_EVIDENCE/request.json"
+      - name: Checkout exact reviewed source
+        id: gate3
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: 44071b792f171e977b691656910a272dbee0b5ce
+          path: source
+          persist-credentials: false
+      - name: Setup Node 22
+        id: gate4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+      - name: Install frozen dependencies with normal preparation hooks
+        id: gate5
+        working-directory: source
+        run: |
+          set -euo pipefail
+          timeout 10m yarn install --frozen-lockfile --non-interactive 2>&1 | tee "$VISUAL_EVIDENCE/install.log"
+          git diff --exit-code HEAD --
+      - name: Drop unused apt repositories
+        id: gate6
+        uses: ./source/.github/actions/apt-drop-unused-repos
+      - name: Install headless Chromium
+        id: gate7
+        timeout-minutes: 12
+        working-directory: source
+        run: |
+          set -euo pipefail
+          yarn playwright install --with-deps chromium 2>&1 | tee "$VISUAL_EVIDENCE/browser-install.log"
+      - name: Prepare exact-source untracked fixture
+        id: gate8
+        run: node "$RUNNER_TEMP/wallet1615-visual440/fixture-inputs/prepare.mjs" "$GITHUB_WORKSPACE/source"
+      - name: Type-check exact source
+        id: gate9
+        working-directory: source
+        run: |
+          set -euo pipefail
+          yarn tsc --noEmit --incremental false --pretty false 2>&1 | tee "$VISUAL_EVIDENCE/typescript.log"
+      - name: Build and capture six current-source review PNGs
+        id: gate10
+        run: |
+          set -euo pipefail
+          node "$RUNNER_TEMP/wallet1615-visual440/fixture-inputs/capture.mjs" "$GITHUB_WORKSPACE/source" 2>&1 | tee "$VISUAL_EVIDENCE/capture.log"
+      - name: Record final outcomes and source identity
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+          STEP_OUTCOMES: ${{ toJSON(steps) }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$VISUAL_EVIDENCE"
+          printf '%s\n' "$JOB_STATUS" > "$VISUAL_EVIDENCE/job-status.txt"
+          printf '%s\n' "$STEP_OUTCOMES" > "$VISUAL_EVIDENCE/step-outcomes.json"
+          if [ -d source/.git ] || [ -f source/.git ]; then
+            git -C source rev-parse HEAD 'HEAD^{tree}' > "$VISUAL_EVIDENCE/post-source-identity.txt"
+            git -C source status --porcelain=v1 --untracked-files=all > "$VISUAL_EVIDENCE/post-source-status.txt"
+            git -C source diff --exit-code HEAD -- > "$VISUAL_EVIDENCE/post-source.diff"
+          fi
+      - name: Upload proof inputs and evidence on failure too
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: usdcx-visual440-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/wallet1615-visual440/**
+            !${{ runner.temp }}/wallet1615-visual440/evidence/bundle/**
+          if-no-files-found: error
+          retention-days: 14
